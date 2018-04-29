@@ -11,7 +11,7 @@ mod node8;
 #[cfg(node8)]
 pub use self::node8::Status;
 
-#[cfg(node9)]
-mod node9;
-#[cfg(node9)]
-pub use self::node9::Status;
+#[cfg(nodestable)]
+mod stable;
+#[cfg(nodestable)]
+pub use self::stable::Status;

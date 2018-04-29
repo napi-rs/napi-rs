@@ -3,3 +3,4 @@ target/
 .DS_Store
 Cargo.lock
 node_modules
+src/sys/bindings.rs
