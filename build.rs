@@ -1,23 +1,47 @@
 extern crate bindgen;
 extern crate cc;
 extern crate glob;
+extern crate semver;
 
 use glob::glob;
 use std::env;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
-fn expect_env(key: &str) -> String {
-  let value = env::var(key);
-  if value.is_err() {
-    eprintln!("{} environment variable is not defined.", key);
-    eprintln!("Make sure you're running cargo via the `napi` wrapper script to assign correct environment variables and options.");
-    std::process::exit(1);
-  };
-  value.unwrap()
+fn find_it<P>(exe_name: P) -> Option<PathBuf>
+    where P: AsRef<Path>,
+{
+  env::var_os("PATH").and_then(|paths| {
+    env::split_paths(&paths).filter_map(|dir| {
+      let full_path = dir.join(&exe_name);
+      if full_path.is_file() {
+        Some(full_path)
+      } else {
+        None
+      }
+    }).next()
+  })
 }
 
 fn main() {
-  let node_include_path = expect_env("NODE_INCLUDE_PATH");
-  let node_major_version = expect_env("NODE_MAJOR_VERSION");
+  let node_include_path = find_it("node")
+    .expect("can not find executable node")
+    .parent().unwrap()
+    .parent().unwrap()
+    .join("include/node");
+  let node_version = semver::Version::parse(
+    String::from_utf8(Command::new("node")
+      .arg("-v")
+      .output()
+      .unwrap().stdout
+    )
+      .unwrap()
+      .as_str()
+      .get(1..)
+      .unwrap()
+  ).unwrap();
+
+  let node_major_version = node_version.major;
 
   println!("cargo:rerun-if-env-changed=NODE_INCLUDE_PATH");
   for entry in glob("./src/sys/**/*.*").unwrap() {
@@ -27,13 +51,13 @@ fn main() {
     );
   }
 
-  // Activate the "node8" or "node9" feature for compatibility with
+  // Activate the "node8" or "nodestable" feature for compatibility with
   // different versions of Node.js/N-API.
   println!("cargo:rustc-cfg=node{}", node_major_version);
 
   bindgen::Builder::default()
     .header("src/sys/bindings.h")
-    .clang_arg(String::from("-I") + &node_include_path)
+    .clang_arg(String::from("-I") + node_include_path.to_str().unwrap())
     .rustified_enum("(napi_|uv_).+")
     .whitelist_function("(napi_|uv_|extras_).+")
     .whitelist_type("(napi_|uv_|extras_).+")

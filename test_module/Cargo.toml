@@ -1,7 +1,7 @@
 [package]
 name = "test-module"
 version = "0.1.0"
-authors = ["Nathan Sobo <nathan@github.com>"]
+authors = ["LongYinan <lynweklm@gmail.com>"]
 
 [lib]
 crate-type = ["dylib"]
