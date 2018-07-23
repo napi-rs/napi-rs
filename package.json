@@ -32,8 +32,7 @@
     "semi": false,
     "singleQuote": true,
     "trailingComma": "all",
-    "arrowParens": "always",
-    "parser": "typescript"
+    "arrowParens": "always"
   },
   "files": [
     "scripts/napi.js",
