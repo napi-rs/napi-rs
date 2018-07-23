@@ -6,7 +6,8 @@ minimist@^1.2.0:
   version "1.2.0"
   resolved "http://registry.npm.taobao.org/minimist/download/minimist-1.2.0.tgz#a35008b20f41383eec1fb914f4cd5df79a264284"
 
-napi-rs@..:
+napi-rs@^0.1.0:
   version "0.1.0"
+  resolved "https://registry.yarnpkg.com/napi-rs/-/napi-rs-0.1.0.tgz#32c8b57045e939d66bbf1a0d5d36dc0cf188d70c"
   dependencies:
     minimist "^1.2.0"

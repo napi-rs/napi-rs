@@ -8,6 +8,6 @@
     "test": "node ./tests.js"
   },
   "dependencies": {
-    "napi-rs": ".."
+    "napi-rs": "^0.1.0"
   }
 }
