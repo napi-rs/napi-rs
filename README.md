@@ -38,7 +38,7 @@ The `napi` script will be available on the `PATH` of any scripts you define in t
     "check": "napi check"
   },
   "dependencies": {
-    "napi": "https://github.com/atom/napi"
+    "napi": "*"
   }
 }
 ```
