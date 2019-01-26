@@ -667,8 +667,66 @@ impl<'env> Value<'env, Object> {
     Value::<Any>::from_raw(self.env, raw_value).try_into()
   }
 
+  pub fn get_property_names<T: ValueType>(&self) -> Result<Value<T>> {
+    let mut raw_value = ptr::null_mut();
+    let status = unsafe {
+      sys::napi_get_property_names(
+        self.raw_env(),
+        self.raw_value(),
+        &mut raw_value
+      )
+    };
+    check_status(status)?;
+    Value::<Any>::from_raw(self.env, raw_value).try_into()
+  }
+
   pub fn set_index<'a, T>(&mut self, index: usize, value: Value<T>) -> Result<()> {
     self.set_property(self.env.create_int64(index as i64), value)
+  }
+
+  pub fn get_index<T: ValueType>(&self, index: u32) -> Result<Value<T>> {
+    let mut raw_value = ptr::null_mut();
+    let status = unsafe {
+      sys::napi_get_element(
+        self.raw_env(),
+        self.raw_value(),
+        index,
+        &mut raw_value
+      )
+    };
+    check_status(status)?;
+    Value::<Any>::from_raw(self.env, raw_value).try_into()
+  }
+
+  pub fn is_array(&self) -> Result<bool> {
+    let mut is_array = false;
+    let status = unsafe {
+      sys::napi_is_array(
+        self.raw_env(),
+        self.raw_value(),
+        &mut is_array,
+      )
+    };
+    check_status(status)?;
+    Ok(is_array)
+  }
+
+  pub fn get_array_length(&self) -> Result<u32> {
+    if self.is_array()? != true {
+      return Err(Error {
+          status: Status::ArrayExpected,
+        })
+    }
+    let mut length: u32 = 0;
+    let status = unsafe {
+      sys::napi_get_array_length(
+        self.raw_env(),
+        self.raw_value(),
+        &mut length
+      )
+    };
+    check_status(status)?;
+    Ok(length)
   }
 
   fn raw_value(&self) -> sys::napi_value {
