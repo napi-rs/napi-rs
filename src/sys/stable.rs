@@ -18,6 +18,10 @@ pub enum Status {
   HandleScopeMismatch,
   CallbackScopeMismatch,
   StringContainsNull,
+  QueueFull,
+  Closing,
+  BigintExpected,
+  Unknown,
 }
 
 impl From<napi_status> for Status {
@@ -41,6 +45,10 @@ impl From<napi_status> for Status {
       napi_escape_called_twice => EscapeCalledTwice,
       napi_handle_scope_mismatch => HandleScopeMismatch,
       napi_callback_scope_mismatch => CallbackScopeMismatch,
+      napi_queue_full => QueueFull,
+      napi_closing => Closing,
+      napi_bigint_expected => BigintExpected,
+      _ => Unknown,
     }
   }
 }

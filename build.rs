@@ -53,7 +53,13 @@ fn main() {
 
   // Activate the "node8" or "nodestable" feature for compatibility with
   // different versions of Node.js/N-API.
-  println!("cargo:rustc-cfg=node{}", node_major_version);
+  println!("cargo:rustc-cfg=node{}", if node_major_version > 8 {
+    "stable"
+  } else if node_major_version == 8 {
+    "8"
+  } else {
+    panic!("node version is too low")
+  });
 
   bindgen::Builder::default()
     .header("src/sys/bindings.h")
