@@ -3,8 +3,10 @@ use std::any::TypeId;
 use std::ffi::CString;
 use std::marker::PhantomData;
 use std::mem;
+use std::ops::{Deref, DerefMut};
 use std::os::raw::{c_char, c_void};
 use std::ptr;
+use std::slice;
 use std::string::String as RustString;
 
 mod executor;
@@ -44,6 +46,9 @@ pub struct Object;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Function;
+
+#[derive(Clone, Copy, Debug)]
+pub struct Buffer;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Value<'env, T> {
@@ -259,6 +264,14 @@ impl Env {
   pub fn create_array_with_length(&self, length: usize) -> Value<Object> {
     let mut raw_value = ptr::null_mut();
     let status = unsafe { sys::napi_create_array_with_length(self.0, length, &mut raw_value) };
+    debug_assert!(Status::from(status) == Status::Ok);
+    Value::from_raw(self, raw_value)
+  }
+
+  pub fn create_buffer(&self, length: usize) -> Value<Buffer> {
+    let mut raw_value = ptr::null_mut();
+    let mut _data = ptr::null_mut();
+    let status = unsafe { sys::napi_create_buffer(self.0, length, _data, &mut raw_value) };
     debug_assert!(Status::from(status) == Status::Ok);
     Value::from_raw(self, raw_value)
   }
@@ -479,6 +492,12 @@ impl ValueType for Object {
   }
 }
 
+impl ValueType for Buffer {
+  fn matches_raw_type(raw_type: sys::napi_valuetype) -> bool {
+    raw_type == sys::napi_valuetype::napi_external
+  }
+}
+
 impl ValueType for Function {
   fn matches_raw_type(raw_type: sys::napi_valuetype) -> bool {
     raw_type == sys::napi_valuetype::napi_function
@@ -669,13 +688,8 @@ impl<'env> Value<'env, Object> {
 
   pub fn get_property_names<T: ValueType>(&self) -> Result<Value<T>> {
     let mut raw_value = ptr::null_mut();
-    let status = unsafe {
-      sys::napi_get_property_names(
-        self.raw_env(),
-        self.raw_value(),
-        &mut raw_value
-      )
-    };
+    let status =
+      unsafe { sys::napi_get_property_names(self.raw_env(), self.raw_value(), &mut raw_value) };
     check_status(status)?;
     Value::<Any>::from_raw(self.env, raw_value).try_into()
   }
@@ -686,27 +700,15 @@ impl<'env> Value<'env, Object> {
 
   pub fn get_index<T: ValueType>(&self, index: u32) -> Result<Value<T>> {
     let mut raw_value = ptr::null_mut();
-    let status = unsafe {
-      sys::napi_get_element(
-        self.raw_env(),
-        self.raw_value(),
-        index,
-        &mut raw_value
-      )
-    };
+    let status =
+      unsafe { sys::napi_get_element(self.raw_env(), self.raw_value(), index, &mut raw_value) };
     check_status(status)?;
     Value::<Any>::from_raw(self.env, raw_value).try_into()
   }
 
   pub fn is_array(&self) -> Result<bool> {
     let mut is_array = false;
-    let status = unsafe {
-      sys::napi_is_array(
-        self.raw_env(),
-        self.raw_value(),
-        &mut is_array,
-      )
-    };
+    let status = unsafe { sys::napi_is_array(self.raw_env(), self.raw_value(), &mut is_array) };
     check_status(status)?;
     Ok(is_array)
   }
@@ -714,17 +716,12 @@ impl<'env> Value<'env, Object> {
   pub fn get_array_length(&self) -> Result<u32> {
     if self.is_array()? != true {
       return Err(Error {
-          status: Status::ArrayExpected,
-        })
+        status: Status::ArrayExpected,
+      });
     }
     let mut length: u32 = 0;
-    let status = unsafe {
-      sys::napi_get_array_length(
-        self.raw_env(),
-        self.raw_value(),
-        &mut length
-      )
-    };
+    let status =
+      unsafe { sys::napi_get_array_length(self.raw_env(), self.raw_value(), &mut length) };
     check_status(status)?;
     Ok(length)
   }
@@ -735,6 +732,28 @@ impl<'env> Value<'env, Object> {
 
   fn raw_env(&self) -> sys::napi_env {
     self.env.0
+  }
+}
+
+impl<'env> Deref for Value<'env, Buffer> {
+  type Target = [u8];
+
+  fn deref(&self) -> &[u8] {
+    let mut data = ptr::null_mut();
+    let size = ptr::null_mut();
+    let status = unsafe { sys::napi_get_buffer_info(self.env.0, self.raw_value, &mut data, size) };
+    debug_assert!(Status::from(status) == Status::Ok);
+    unsafe { slice::from_raw_parts(data as *const _, *size) }
+  }
+}
+
+impl<'env> DerefMut for Value<'env, Buffer> {
+  fn deref_mut(&mut self) -> &mut [u8] {
+    let mut data = ptr::null_mut();
+    let size = ptr::null_mut();
+    let status = unsafe { sys::napi_get_buffer_info(self.env.0, self.raw_value, &mut data, size) };
+    debug_assert!(Status::from(status) == Status::Ok);
+    unsafe { slice::from_raw_parts_mut(data as *mut _, *size) }
   }
 }
 
