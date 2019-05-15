@@ -5,10 +5,10 @@ authors = ["Nathan Sobo <nathan@github.com>", "Yinan Long <lynweklm@gmail.com>"]
 license = "MIT"
 
 [dependencies]
-futures = "0.1.17"
+futures = "0.1.27"
 
 [build-dependencies]
-bindgen = "0.32.1"
+bindgen = "0.49"
 cc = "1.0"
-glob = "0.2.11"
+glob = "0.3"
 semver = "0.9"
