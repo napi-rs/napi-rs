@@ -61,7 +61,7 @@ impl<T: 'static + Future> Task<T> {
   fn poll_future(&mut self) -> bool {
     match self.spawn.poll_future_notify(&self.notify_handle, 0) {
       Ok(Async::Ready(_)) => {
-        let mut handle = self.notify_handle.0.write().unwrap().take().unwrap();
+        let handle = self.notify_handle.0.write().unwrap().take().unwrap();
         handle.close();
         true
       }

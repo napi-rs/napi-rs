@@ -27,7 +27,7 @@ const nodeIncludePath = path.join(
   'node',
 )
 
-const moduleName = path.basename(process.cwd()).replace('-', '_')
+const moduleName = path.basename(process.cwd()).replace(/-/g, '_')
 process.env.NODE_INCLUDE_PATH = nodeIncludePath
 process.env.NODE_MAJOR_VERSION = nodeMajorVersion > 8 ? 'stable' : 8
 

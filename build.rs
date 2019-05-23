@@ -9,37 +9,39 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn find_it<P>(exe_name: P) -> Option<PathBuf>
-    where P: AsRef<Path>,
+where
+  P: AsRef<Path>,
 {
   env::var_os("PATH").and_then(|paths| {
-    env::split_paths(&paths).filter_map(|dir| {
-      let full_path = dir.join(&exe_name);
-      if full_path.is_file() {
-        Some(full_path)
-      } else {
-        None
-      }
-    }).next()
+    env::split_paths(&paths)
+      .filter_map(|dir| {
+        let full_path = dir.join(&exe_name);
+        if full_path.is_file() {
+          Some(full_path)
+        } else {
+          None
+        }
+      })
+      .next()
   })
 }
 
 fn main() {
   let node_include_path = find_it("node")
     .expect("can not find executable node")
-    .parent().unwrap()
-    .parent().unwrap()
+    .parent()
+    .unwrap()
+    .parent()
+    .unwrap()
     .join("include/node");
   let node_version = semver::Version::parse(
-    String::from_utf8(Command::new("node")
-      .arg("-v")
-      .output()
-      .unwrap().stdout
-    )
+    String::from_utf8(Command::new("node").arg("-v").output().unwrap().stdout)
       .unwrap()
       .as_str()
       .get(1..)
-      .unwrap()
-  ).unwrap();
+      .unwrap(),
+  )
+  .unwrap();
 
   let node_major_version = node_version.major;
 
@@ -53,13 +55,16 @@ fn main() {
 
   // Activate the "node8" or "nodestable" feature for compatibility with
   // different versions of Node.js/N-API.
-  println!("cargo:rustc-cfg=node{}", if node_major_version > 8 {
-    "stable"
-  } else if node_major_version == 8 {
-    "8"
-  } else {
-    panic!("node version is too low")
-  });
+  println!(
+    "cargo:rustc-cfg=node{}",
+    if node_major_version > 8 {
+      "stable"
+    } else if node_major_version == 8 {
+      "8"
+    } else {
+      panic!("node version is too low")
+    }
+  );
 
   bindgen::Builder::default()
     .header("src/sys/bindings.h")

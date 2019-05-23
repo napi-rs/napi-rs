@@ -17,7 +17,7 @@ pub enum Status {
   EscapeCalledTwice,
   HandleScopeMismatch,
   StringContainsNull,
-  CallbackScopeMismatch
+  CallbackScopeMismatch,
 }
 
 impl From<napi_status> for Status {
