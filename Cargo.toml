@@ -5,7 +5,7 @@ authors = ["Nathan Sobo <nathan@github.com>", "Yinan Long <lynweklm@gmail.com>"]
 license = "MIT"
 
 [dependencies]
-futures = "0.1.27"
+futures = "0.3.1"
 
 [build-dependencies]
 bindgen = "0.52"
