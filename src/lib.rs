@@ -12,7 +12,7 @@ use std::string::String as RustString;
 mod executor;
 pub mod sys;
 
-pub use sys::Status;
+pub use sys::{napi_valuetype, Status};
 
 pub type Result<T> = std::result::Result<T, Error>;
 pub type Callback = extern "C" fn(sys::napi_env, sys::napi_callback_info) -> sys::napi_value;
@@ -834,6 +834,17 @@ impl<'env> Value<'env, Object> {
     Ok(is_array)
   }
 
+  pub fn is_buffer(&self) -> Result<bool> {
+    let mut is_buffer = false;
+    let status = unsafe { sys::napi_is_buffer(self.raw_env(), self.raw_value(), &mut is_buffer) };
+    check_status(status)?;
+    Ok(is_buffer)
+  }
+
+  pub fn to_buffer(&self) -> Value<'env, Buffer> {
+    Value::from_raw(self.env, self.raw_value)
+  }
+
   pub fn get_array_length(&self) -> Result<u32> {
     if self.is_array()? != true {
       return Err(Error {
@@ -902,6 +913,12 @@ impl<'env> Value<'env, Function> {
     check_status(status)?;
 
     Ok(Value::from_raw(self.env, return_value))
+  }
+}
+
+impl<'env> Value<'env, Any> {
+  pub fn get_type(&self) -> sys::napi_valuetype {
+    get_raw_type(self.env.0, self.raw_value)
   }
 }
 
