@@ -8,7 +8,7 @@ license = "MIT"
 futures = "0.3.1"
 
 [build-dependencies]
-bindgen = "0.52"
+bindgen = "0.53"
 cc = "1.0"
 glob = "0.3"
 semver = "0.9"
