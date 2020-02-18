@@ -1,0 +1,82 @@
+name: Windows
+
+on: [push, pull_request]
+
+jobs:
+  build_and_test:
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['10', '12', '13']
+        version:
+          - stable
+          - nightly
+        target:
+          - x86_64-pc-windows-msvc
+
+    name: ${{ matrix.version }} - ${{ matrix.target }} - node@${{ matrix.node }}
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v2
+      
+      - name: Setup node
+        uses: actions/setup-node@v1
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Install ${{ matrix.version }}
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ matrix.version }}-${{ matrix.target }}
+          profile: minimal
+          override: true
+      - name: Install llvm
+        run: choco install -y llvm 
+      - name: set environment variables
+        uses: allenevans/set-env@v1.0.0
+        with:
+          LIBCLANG_PATH: 'C:\Program Files\LLVM\bin'
+      - name: Generate Cargo.lock
+        uses: actions-rs/cargo@v1
+        with:
+          command: generate-lockfile
+      - name: Cache cargo registry
+        uses: actions/cache@v1
+        with:
+          path: ~/.cargo/registry
+          key: ${{ matrix.version }}-${{ matrix.target }}-cargo-registry-trimmed-${{ hashFiles('**/Cargo.lock') }}
+      - name: Cache cargo index
+        uses: actions/cache@v1
+        with:
+          path: ~/.cargo/git
+          key: ${{ matrix.version }}-${{ matrix.target }}-cargo-index-trimmed-${{ hashFiles('**/Cargo.lock') }}
+      - name: Cache cargo build
+        uses: actions/cache@v1
+        with:
+          path: target
+          key: ${{ matrix.version }}-${{ matrix.target }}-cargo-build-trimmed-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: check build
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: -p napi-rs -vvv
+
+      - name: tests
+        uses: actions-rs/cargo@v1
+        timeout-minutes: 40
+        with:
+          command: test
+          args: -p napi-rs --lib -- --nocapture
+
+      - name: test scripts
+        run: |
+          cd test_module
+          cargo build
+          cp target/debug/test_module.dll target/debug/libtest_module.node
+          node tests.js
+
+      - name: Clear the cargo caches
+        run: |
+          cargo install cargo-cache --no-default-features --features ci-autoclean
+          cargo-cache

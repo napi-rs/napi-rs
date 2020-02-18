@@ -3,14 +3,7 @@
 #![allow(non_snake_case)]
 #![allow(dead_code)]
 
-include!("bindings.rs");
+include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
-#[cfg(node8)]
-mod node8;
-#[cfg(node8)]
-pub use self::node8::Status;
-
-#[cfg(nodestable)]
 mod stable;
-#[cfg(nodestable)]
 pub use self::stable::Status;

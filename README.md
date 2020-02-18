@@ -1,6 +1,24 @@
-# napi
+# napi-rs
 
 > This project was initialized from [xray](https://github.com/atom/xray)
+
+# Platform Support
+
+![](https://github.com/Brooooooklyn/napi-rs/workflows/macOS/badge.svg)
+![](https://github.com/Brooooooklyn/napi-rs/workflows/Linux/badge.svg)
+![](https://github.com/Brooooooklyn/napi-rs/workflows/Windows/badge.svg)
+
+## Operating Systems
+
+| Linux | macOS | Windows x64 MSVC |
+| ----- | ----- | ---------------- |
+| ✓     | ✓     | ✓                |
+
+## Python
+
+| Node10    | Node 12   | Node13    |
+| --------- | --------- | --------- |
+| ✓         | ✓         | ✓         |
 
 A minimal library for building compiled Node add-ons in Rust.
 

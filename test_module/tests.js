@@ -1,4 +1,4 @@
-const testModule = require('./target/debug/test_module')
+const testModule = require(`./target/debug/libtest_module.node`)
 
 function testSpawn() {
   console.log('=== Test spawning a future on libuv event loop')
@@ -16,4 +16,12 @@ function testThrow() {
   process.exit(1)
 }
 
-testSpawn().then(testThrow)
+const future = testSpawn()
+
+// https://github.com/nodejs/node/issues/29355
+setTimeout(() => {
+  future.then(testThrow).catch((e) => {
+    console.error(e)
+    process.exit(1)
+  })
+}, 10)

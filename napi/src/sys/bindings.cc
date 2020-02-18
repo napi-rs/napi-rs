@@ -10,7 +10,9 @@ static v8::Local<v8::Value> V8LocalValueFromJsValue(napi_value v)
   return local;
 }
 
-void extras_open_callback_scope(napi_async_context napi_async_context,
+EXTERN_C_START
+
+NAPI_EXTERN void extras_open_callback_scope(napi_async_context napi_async_context,
                                 napi_value napi_resource_object,
                                 extras_callback_scope *result)
 {
@@ -21,7 +23,9 @@ void extras_open_callback_scope(napi_async_context napi_async_context,
   *result = reinterpret_cast<extras_callback_scope>(new node::CallbackScope(isolate, resource_object, *node_async_context));
 }
 
-void extras_close_callback_scope(extras_callback_scope callback_scope)
+NAPI_EXTERN void extras_close_callback_scope(extras_callback_scope callback_scope)
 {
   delete reinterpret_cast<node::CallbackScope *>(callback_scope);
 }
+
+EXTERN_C_END

@@ -5,9 +5,6 @@
   "bin": {
     "napi": "scripts/napi.js"
   },
-  "scripts": {
-    "check": "scripts/napi.js check"
-  },
   "repository": {
     "type": "git",
     "url": "git@github.com:Brooooooklyn/napi-rs.git"
@@ -35,13 +32,10 @@
     "arrowParens": "always"
   },
   "files": [
-    "scripts/napi.js",
-    "src/**",
-    "build.rs",
-    "Cargo.toml",
-    "Cargo.lock"
+    "scripts/napi.js"
   ],
   "devDependencies": {
+    "@types/node": "^13.7.1",
     "prettier": "^1.12.1"
   }
 }

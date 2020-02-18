@@ -6,10 +6,9 @@ const path = require('path')
 const os = require('os')
 const parsedNodeVersion = process.versions.node.match(/^(\d+)\.(\d+)\.(\d+)$/)
 const nodeMajorVersion = parseInt(parsedNodeVersion[1])
-const nodeMinorVersion = parseInt(parsedNodeVersion[2])
 
-if (nodeMajorVersion < 8 || (nodeMajorVersion === 8 && nodeMinorVersion < 9)) {
-  console.error('This build script should be run on Node 8.9 or greater')
+if (nodeMajorVersion < 10) {
+  console.error('This build script should be run on Node 10 or greater')
   process.exit(1)
 }
 
@@ -19,17 +18,7 @@ const argv = parseArgs(process.argv.slice(2), {
 
 const subcommand = argv._[0] || 'build'
 
-const nodeIncludePath = path.join(
-  process.argv[0],
-  '..',
-  '..',
-  'include',
-  'node',
-)
-
 const moduleName = path.basename(process.cwd()).replace(/-/g, '_')
-process.env.NODE_INCLUDE_PATH = nodeIncludePath
-process.env.NODE_MAJOR_VERSION = nodeMajorVersion > 8 ? 'stable' : 8
 
 const platform = os.platform()
 let libExt, platformArgs

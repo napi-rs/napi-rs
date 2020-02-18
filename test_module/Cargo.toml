@@ -2,9 +2,13 @@
 name = "test-module"
 version = "0.1.0"
 authors = ["LongYinan <lynweklm@gmail.com>"]
+edition = "2018"
 
 [lib]
-crate-type = ["dylib"]
+crate-type = ["cdylib"]
 
 [dependencies]
-napi-rs = {path = ".."}
+napi-rs = {path = "../napi"}
+
+[build-dependencies]
+napi-build = { path = "../build" }
