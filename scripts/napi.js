@@ -1,41 +1,54 @@
 #!/usr/bin/env node
 
 const parseArgs = require('minimist')
-const cp = require('child_process')
 const path = require('path')
 const os = require('os')
-const parsedNodeVersion = process.versions.node.match(/^(\d+)\.(\d+)\.(\d+)$/)
-const nodeMajorVersion = parseInt(parsedNodeVersion[1])
+const toml = require('toml')
+const fs = require('fs')
 
-if (nodeMajorVersion < 10) {
-  console.error('This build script should be run on Node 10 or greater')
-  process.exit(1)
+
+let tomlContentString
+let tomlContent
+let moduleName
+
+try {
+  tomlContentString = fs.readFileSync(path.join(process.cwd(), 'Cargo.toml'), 'utf-8')
+} catch {
+  throw new TypeError('Can not find Cargo.toml in process.cwd')
+}
+
+try {
+  tomlContent = toml.parse(tomlContentString)
+} catch {
+  throw new TypeError('Can not parse the Cargo.toml')
+}
+
+if (tomlContent.package && tomlContent.package.name) {
+  moduleName = tomlContent.package.name.replace(/-/g, '_')
+} else {
+  throw new TypeError('No package.name field in Cargo.toml')
 }
 
 const argv = parseArgs(process.argv.slice(2), {
   boolean: ['release'],
 })
 
-const subcommand = argv._[0] || 'build'
-
-const moduleName = path.basename(process.cwd()).replace(/-/g, '_')
-
 const platform = os.platform()
-let libExt, platformArgs
+let libExt
+let dylibName = moduleName
 
 // Platform based massaging for build commands
 switch (platform) {
   case 'darwin':
     libExt = '.dylib'
-    platformArgs = '-undefined dynamic_lookup -export_dynamic'
+    dylibName = `lib${moduleName}`
     break
   case 'win32':
     libExt = '.dll'
-    platformArgs = '-undefined dynamic_lookup -export_dynamic'
     break
   case 'linux':
+    dylibName = `lib${moduleName}`
     libExt = '.so'
-    platformArgs = '-undefined=dynamic_lookup -export_dynamic'
     break
   default:
     console.error(
@@ -44,27 +57,28 @@ switch (platform) {
     process.exit(1)
 }
 
-switch (subcommand) {
-  case 'build':
-    const releaseFlag = argv.release ? '--release' : ''
-    const targetDir = argv.release ? 'release' : 'debug'
-    cp.execSync(
-      `cargo rustc ${releaseFlag} -- -Clink-args=\"${platformArgs}\"`,
-      { stdio: 'inherit' },
-    )
-    cp.execSync(`mkdir -p target/${targetDir}`)
-    cp.execSync(
-      `cp ${path.join(
-        process.cwd(),
-        'target',
-        targetDir,
-        'lib' + moduleName + libExt,
-      )}  target/${targetDir}/${moduleName}.node`,
-      { stdio: 'inherit' },
-    )
-    break
-  case 'check':
-    cp.execSync(`cargo check`, { stdio: 'inherit' })
-  case 'doc':
-    cp.execSync(`cargo doc`, { stdio: 'inherit' })
+const targetDir = argv.release ? 'release' : 'debug'
+
+let subcommand = argv._[0] || path.join('target', targetDir, `${moduleName}.node`)
+const parsedDist = path.parse(subcommand)
+
+if (parsedDist.ext && parsedDist.ext !== '.node') {
+  throw new TypeError('Dist file must be end with .node extension')
 }
+
+if (!parsedDist.name || parsedDist.name === '.') {
+  subcommand = moduleName
+}
+
+if (!parsedDist.ext) {
+  subcommand = `${subcommand}.node`
+}
+
+const dylibContent = fs.readFileSync(path.join(
+  process.cwd(),
+  'target',
+  targetDir,
+  `${dylibName}${libExt}`,
+))
+
+fs.writeFileSync(subcommand, dylibContent)
