@@ -2,9 +2,9 @@
   "name": "test-module",
   "version": "1.0.0",
   "scripts": {
-    "build": "napi build",
-    "build-release": "napi build --release",
-    "check": "napi check",
+    "build": "../scripts/napi.js build",
+    "build-release": "../scripts/napi.js build --release",
+    "check": "../scripts/napi.js check",
     "test": "node ./tests.js"
   },
   "dependencies": {

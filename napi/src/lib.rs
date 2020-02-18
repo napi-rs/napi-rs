@@ -54,7 +54,7 @@ pub struct Function;
 #[derive(Clone, Copy, Debug)]
 pub struct Buffer {
   data: *const u8,
-  size: usize,
+  size: u64,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -160,14 +160,15 @@ macro_rules! callback {
     ) -> sys::napi_value {
       const MAX_ARGC: usize = 8;
       let mut argc = MAX_ARGC;
-      let mut raw_args: [$crate::sys::napi_value; MAX_ARGC] = unsafe { mem::uninitialized() };
+      let mut raw_args =
+        unsafe { mem::MaybeUninit::<[$crate::sys::napi_value; MAX_ARGC]>::uninit().assume_init() };
       let mut raw_this = ptr::null_mut();
 
       unsafe {
         let status = sys::napi_get_cb_info(
           raw_env,
           cb_info,
-          &mut argc,
+          &mut argc as *mut usize as *mut u64,
           &mut raw_args[0],
           &mut raw_this,
           ptr::null_mut(),
@@ -177,8 +178,8 @@ macro_rules! callback {
 
       let env = Env::from_raw(raw_env);
       let this = Value::from_raw(&env, raw_this);
-      let mut args: [Value<Any>; 8] = unsafe { mem::uninitialized() };
-      for (i, raw_arg) in raw_args.into_iter().enumerate() {
+      let mut args = unsafe { mem::MaybeUninit::<[Value<Any>; 8]>::uninit().assume_init() };
+      for (i, raw_arg) in raw_args.iter().enumerate() {
         args[i] = Value::from_raw(&env, *raw_arg)
       }
 
@@ -247,7 +248,12 @@ impl Env {
   pub fn create_string<'a, 'b>(&'a self, s: &'b str) -> Value<'a, String> {
     let mut raw_value = ptr::null_mut();
     let status = unsafe {
-      sys::napi_create_string_utf8(self.0, s.as_ptr() as *const c_char, s.len(), &mut raw_value)
+      sys::napi_create_string_utf8(
+        self.0,
+        s.as_ptr() as *const c_char,
+        s.len() as u64,
+        &mut raw_value,
+      )
     };
     debug_assert!(Status::from(status) == Status::Ok);
     Value::from_raw_value(self, raw_value, String)
@@ -255,8 +261,9 @@ impl Env {
 
   pub fn create_string_utf16<'a, 'b>(&'a self, chars: &[u16]) -> Value<'a, String> {
     let mut raw_value = ptr::null_mut();
-    let status =
-      unsafe { sys::napi_create_string_utf16(self.0, chars.as_ptr(), chars.len(), &mut raw_value) };
+    let status = unsafe {
+      sys::napi_create_string_utf16(self.0, chars.as_ptr(), chars.len() as u64, &mut raw_value)
+    };
     debug_assert!(Status::from(status) == Status::Ok);
     Value::from_raw_value(self, raw_value, String)
   }
@@ -270,12 +277,13 @@ impl Env {
 
   pub fn create_array_with_length(&self, length: usize) -> Value<Object> {
     let mut raw_value = ptr::null_mut();
-    let status = unsafe { sys::napi_create_array_with_length(self.0, length, &mut raw_value) };
+    let status =
+      unsafe { sys::napi_create_array_with_length(self.0, length as u64, &mut raw_value) };
     debug_assert!(Status::from(status) == Status::Ok);
     Value::from_raw_value(self, raw_value, Object)
   }
 
-  pub fn create_buffer(&self, length: usize) -> Value<Buffer> {
+  pub fn create_buffer(&self, length: u64) -> Value<Buffer> {
     let mut raw_value = ptr::null_mut();
     let mut data = ptr::null_mut();
     let status = unsafe { sys::napi_create_buffer(self.0, length, &mut data, &mut raw_value) };
@@ -290,7 +298,7 @@ impl Env {
     )
   }
 
-  pub fn create_buffer_with_data(&self, data_ptr: *const u8, length: usize) -> Value<Buffer> {
+  pub fn create_buffer_with_data(&self, data_ptr: *const u8, length: u64) -> Value<Buffer> {
     let mut raw_value = ptr::null_mut();
     let mut data_raw_ptr = data_ptr as *mut c_void;
     let status =
@@ -316,7 +324,7 @@ impl Env {
       sys::napi_create_function(
         self.0,
         name.as_ptr() as *const c_char,
-        name.len(),
+        name.len() as u64,
         Some(callback),
         callback as *mut c_void,
         &mut raw_result,
@@ -368,10 +376,10 @@ impl Env {
       sys::napi_define_class(
         self.0,
         name.as_ptr() as *const c_char,
-        name.len(),
+        name.len() as u64,
         Some(constructor_cb),
         ptr::null_mut(),
-        raw_properties.len(),
+        raw_properties.len() as u64,
         raw_properties.as_ptr(),
         &mut raw_result,
       )
@@ -559,7 +567,7 @@ impl ValueType for Object {
 impl ValueType for Buffer {
   fn from_raw(env: sys::napi_env, raw: sys::napi_value) -> Self {
     let mut data = ptr::null_mut();
-    let mut size: usize = 0;
+    let mut size: u64 = 0;
     let status = unsafe { sys::napi_get_buffer_info(env, raw, &mut data, &mut size) };
     debug_assert!(Status::from(status) == Status::Ok);
     Buffer {
@@ -664,10 +672,10 @@ impl<'env, T: ValueType> Value<'env, T> {
 #[inline]
 fn get_raw_type(env: sys::napi_env, raw_value: sys::napi_value) -> sys::napi_valuetype {
   unsafe {
-    let mut value_type: sys::napi_valuetype = mem::uninitialized();
-    let status = sys::napi_typeof(env, raw_value, &mut value_type);
+    let value_type = ptr::null_mut();
+    let status = sys::napi_typeof(env, raw_value, value_type);
     debug_assert!(Status::from(status) == Status::Ok);
-    value_type
+    *value_type
   }
 }
 
@@ -692,7 +700,7 @@ impl<'env> Deref for Value<'env, String> {
   type Target = [u8];
 
   fn deref(&self) -> &[u8] {
-    let mut written_char_count: usize = 0;
+    let mut written_char_count: u64 = 0;
     let len = self.len() + 1;
     let mut result = Vec::with_capacity(len);
     unsafe {
@@ -700,14 +708,14 @@ impl<'env> Deref for Value<'env, String> {
         self.env.0,
         self.raw_value,
         result.as_mut_ptr(),
-        len,
-        &mut written_char_count as *mut usize,
+        len as u64,
+        &mut written_char_count,
       );
 
       debug_assert!(Status::from(status) == Status::Ok);
       let ptr = result.as_ptr();
       mem::forget(result);
-      slice::from_raw_parts(ptr as *const u8, written_char_count)
+      slice::from_raw_parts(ptr as *const u8, written_char_count as usize)
     }
   }
 }
@@ -722,11 +730,11 @@ impl<'env> Into<Vec<u16>> for Value<'env, String> {
         self.env.0,
         self.raw_value,
         result.as_mut_ptr(),
-        result.capacity(),
+        result.capacity() as u64,
         &mut written_char_count,
       );
       debug_assert!(Status::from(status) == Status::Ok);
-      result.set_len(written_char_count);
+      result.set_len(written_char_count as usize);
     }
 
     result
@@ -871,7 +879,7 @@ impl<'env> Deref for Value<'env, Buffer> {
   type Target = [u8];
 
   fn deref(&self) -> &[u8] {
-    unsafe { slice::from_raw_parts(self.value.data, self.value.size) }
+    unsafe { slice::from_raw_parts(self.value.data, self.value.size as usize) }
   }
 }
 
@@ -882,7 +890,7 @@ impl<'env> DerefMut for Value<'env, Buffer> {
     let status =
       unsafe { sys::napi_get_buffer_info(self.env.0, self.raw_value, &mut data, &mut size) };
     debug_assert!(Status::from(status) == Status::Ok);
-    unsafe { slice::from_raw_parts_mut(data as *mut _, size) }
+    unsafe { slice::from_raw_parts_mut(data as *mut _, size as usize) }
   }
 }
 
@@ -895,7 +903,7 @@ impl<'env> Value<'env, Function> {
     let raw_this = this
       .map(|v| v.into_raw())
       .unwrap_or_else(|| self.env.get_undefined().into_raw());
-    let mut raw_args: [sys::napi_value; 8] = unsafe { mem::uninitialized() };
+    let mut raw_args = unsafe { mem::MaybeUninit::<[sys::napi_value; 8]>::uninit().assume_init() };
     for (i, arg) in args.into_iter().enumerate() {
       raw_args[i] = arg.raw_value;
     }
@@ -905,7 +913,7 @@ impl<'env> Value<'env, Function> {
         self.env.0,
         raw_this,
         self.raw_value,
-        args.len(),
+        args.len() as u64,
         &raw_args[0],
         &mut return_value,
       )
