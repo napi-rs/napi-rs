@@ -4,6 +4,7 @@ use std::future::Future;
 use std::mem;
 use std::os::raw::c_void;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::task::{Context, RawWaker, RawWakerVTable, Waker};
 
 pub struct LibuvExecutor {
@@ -45,6 +46,7 @@ unsafe fn drop_uv_async(uv_async_t_ptr: *const ()) {
 struct Task<'a> {
   future: Pin<Box<dyn Future<Output = ()>>>,
   context: Context<'a>,
+  resolved: AtomicBool,
 }
 
 impl LibuvExecutor {
@@ -69,6 +71,7 @@ impl LibuvExecutor {
       let task = Box::leak(Box::new(Task {
         future: Box::pin(future),
         context,
+        resolved: AtomicBool::new(false),
       }));
       sys::uv_handle_set_data(
         uv_async_t_ref as *mut _ as *mut sys::uv_handle_t,
@@ -81,8 +84,14 @@ impl LibuvExecutor {
 
 impl<'a> Task<'a> {
   fn poll_future(&mut self) -> bool {
+    if self.resolved.load(Ordering::Relaxed) {
+      return true;
+    }
     match self.future.as_mut().poll(&mut self.context) {
-      Poll::Ready(_) => true,
+      Poll::Ready(_) => {
+        while !self.resolved.swap(true, Ordering::Relaxed) {}
+        true
+      }
       Poll::Pending => false,
     }
   }

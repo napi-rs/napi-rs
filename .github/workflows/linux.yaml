@@ -65,9 +65,9 @@ jobs:
       
       - name: test scripts
         run: |
+          yarn
           cd test_module
-          cargo build
-          cp target/debug/libtest_module.so target/debug/libtest_module.node
+          yarn build
           node tests.js
 
       - name: Clear the cargo caches

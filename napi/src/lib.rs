@@ -190,7 +190,9 @@ macro_rules! callback {
         Ok(Some(result)) => result.into_raw(),
         Ok(None) => env.get_undefined().into_raw(),
         Err(e) => {
-          let _ = writeln!(::std::io::stderr(), "Error calling function: {:?}", e);
+          if !cfg!(windows) {
+            let _ = writeln!(::std::io::stderr(), "Error calling function: {:?}", e);
+          }
           let message = format!("{:?}", e);
           unsafe {
             $crate::sys::napi_throw_error(raw_env, ptr::null(), message.as_ptr() as *const c_char);

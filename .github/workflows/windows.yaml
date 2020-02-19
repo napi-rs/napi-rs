@@ -68,13 +68,15 @@ jobs:
         with:
           command: test
           args: -p napi-rs --lib -- --nocapture
-
+      
       - name: test scripts
         run: |
+          yarn
           cd test_module
-          cargo build
-          cp target/debug/test_module.dll target/debug/libtest_module.node
+          yarn build
           node tests.js
+        env:
+          RUST_BACKTRACE: 1
 
       - name: Clear the cargo caches
         run: |

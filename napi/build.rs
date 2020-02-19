@@ -12,53 +12,13 @@ extern crate tar;
 
 use glob::glob;
 
-use std::borrow::Cow;
 use std::env;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
 // https://stackoverflow.com/questions/37498864/finding-executable-in-path-with-rust
 
-#[cfg(not(target_os = "windows"))]
-fn enhance_exe_name(exe_name: &Path) -> Cow<Path> {
-  exe_name.into()
-}
-
-#[cfg(target_os = "windows")]
-fn enhance_exe_name(exe_name: &Path) -> Cow<Path> {
-  use std::ffi::OsStr;
-  use std::os::windows::ffi::OsStrExt;
-
-  let raw_input: Vec<_> = exe_name.as_os_str().encode_wide().collect();
-  let raw_extension: Vec<_> = OsStr::new(".exe").encode_wide().collect();
-
-  if raw_input.ends_with(&raw_extension) {
-    exe_name.into()
-  } else {
-    let mut with_exe = exe_name.as_os_str().to_owned();
-    with_exe.push(".exe");
-    PathBuf::from(with_exe).into()
-  }
-}
-
-fn find_it<P>(exe_name: P) -> Option<PathBuf>
-where
-  P: AsRef<Path>,
-{
-  let exe_name = enhance_exe_name(exe_name.as_ref());
-  env::var_os("PATH").and_then(|paths| {
-    env::split_paths(&paths)
-      .filter_map(|dir| {
-        let full_path = dir.join(&exe_name);
-        if full_path.is_file() {
-          Some(full_path)
-        } else {
-          None
-        }
-      })
-      .next()
-  })
-}
+const NODE_PRINT_EXEC_PATH: &'static str = "console.log(process.execPath)";
 
 fn main() {
   napi_build::setup();
@@ -130,11 +90,19 @@ fn main() {
 #[cfg(target_os = "windows")]
 fn find_node_include_path(node_full_version: &str) -> PathBuf {
   let mut node_exec_path = PathBuf::from(
-    find_it("node")
-      .expect("can not find executable node")
-      .parent()
-      .unwrap(),
-  );
+    String::from_utf8(
+      Command::new("node")
+        .arg("-e")
+        .arg(NODE_PRINT_EXEC_PATH)
+        .output()
+        .unwrap()
+        .stdout,
+    )
+    .expect("can not find executable node"),
+  )
+  .parent()
+  .unwrap()
+  .to_path_buf();
   node_exec_path.push(format!("node-headers-{}.tar.gz", node_full_version));
   let mut header_dist_path = PathBuf::from(&PathBuf::from(&node_exec_path).parent().unwrap());
   let unpack_path = PathBuf::from(&header_dist_path);
@@ -160,8 +128,16 @@ fn find_node_include_path(node_full_version: &str) -> PathBuf {
 
 #[cfg(not(target_os = "windows"))]
 fn find_node_include_path(_node_full_version: &str) -> PathBuf {
-  let node_exec_path = find_it("node").expect("can not find executable node");
-  node_exec_path
+  let node_exec_path = String::from_utf8(
+    Command::new("node")
+      .arg("-e")
+      .arg(NODE_PRINT_EXEC_PATH)
+      .output()
+      .unwrap()
+      .stdout,
+  )
+  .unwrap();
+  PathBuf::from(node_exec_path)
     .parent()
     .unwrap()
     .parent()

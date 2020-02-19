@@ -41,7 +41,9 @@ fn test_spawn<'a>(
     pool.spawn_ok(fut_tx_result);
     let fut_values = rx.map(|v| v * 2).collect::<Vec<i32>>();
     let results = fut_values.await;
-    println!("Collected result lenght {}", results.len());
+    if !cfg!(windows) {
+      println!("Collected result lenght {}", results.len());
+    };
     async_context.enter(|env| {
       env.resolve_deferred(deferred, env.get_undefined());
     });
