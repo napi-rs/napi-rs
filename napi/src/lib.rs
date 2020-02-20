@@ -300,12 +300,26 @@ impl Env {
     )
   }
 
-  pub fn create_buffer_with_data(&self, data_ptr: *const u8, length: u64) -> Value<Buffer> {
+  pub fn create_buffer_with_data(&self, data: Vec<u8>) -> Value<Buffer> {
+    let length = data.len() as u64;
     let mut raw_value = ptr::null_mut();
-    let mut data_raw_ptr = data_ptr as *mut c_void;
-    let status =
-      unsafe { sys::napi_create_buffer(self.0, length, &mut data_raw_ptr, &mut raw_value) };
+    let data_ptr = data.as_ptr();
+    let status = unsafe {
+      sys::napi_create_external_buffer(
+        self.0,
+        length,
+        data_ptr as *mut c_void,
+        Some(drop_buffer),
+        Box::into_raw(Box::from(length)) as *mut c_void,
+        &mut raw_value,
+      )
+    };
     debug_assert!(Status::from(status) == Status::Ok);
+    let mut changed = 0;
+    let ajust_external_memory_status =
+      unsafe { sys::napi_adjust_external_memory(self.0, length as i64, &mut changed) };
+    debug_assert!(Status::from(ajust_external_memory_status) == Status::Ok);
+    mem::forget(data);
     Value::from_raw_value(
       self,
       raw_value,
@@ -1030,13 +1044,22 @@ fn check_status(code: sys::napi_status) -> Result<()> {
   }
 }
 
-extern "C" fn raw_finalize<T>(
+unsafe extern "C" fn raw_finalize<T>(
   _raw_env: sys::napi_env,
   finalize_data: *mut c_void,
   _finalize_hint: *mut c_void,
 ) {
-  unsafe {
-    let tagged_object: *mut TaggedObject<T> = mem::transmute(finalize_data);
-    Box::from_raw(tagged_object);
-  }
+  let tagged_object: *mut TaggedObject<T> = mem::transmute(finalize_data);
+  Box::from_raw(tagged_object);
+}
+
+unsafe extern "C" fn drop_buffer(env: sys::napi_env, finalize_data: *mut c_void, len: *mut c_void) {
+  let length = Box::from_raw(len as *mut u64);
+  let length = length.as_ref();
+  let length = *length as usize;
+  let _ = Vec::from_raw_parts(finalize_data as *mut u8, length, length);
+  let mut changed = 0;
+  let ajust_external_memory_status =
+    sys::napi_adjust_external_memory(env, -(length as i64), &mut changed);
+  debug_assert!(Status::from(ajust_external_memory_status) == Status::Ok);
 }
