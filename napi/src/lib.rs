@@ -602,6 +602,17 @@ impl ValueType for Buffer {
   }
 }
 
+impl<'env> Value<'env, Buffer> {
+  #[inline]
+  pub fn from_value(env: &'env Env, value: &Value<'env, Any>) -> Value<'env, Buffer> {
+    Value {
+      env,
+      raw_value: value.raw_value,
+      value: Buffer::from_raw(env.0, value.into_raw()),
+    }
+  }
+}
+
 impl ValueType for Function {
   fn from_raw(_env: sys::napi_env, _raw: sys::napi_value) -> Self {
     Function {}
