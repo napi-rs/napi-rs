@@ -4,6 +4,6 @@
   "scripts": {
     "build": "cargo build && node ../scripts/napi.js",
     "build-release": "cargo build --release && node ../scripts/napi.js --release",
-    "test": "node ./tests.js"
+    "test": "node ./index.js"
   }
 }
