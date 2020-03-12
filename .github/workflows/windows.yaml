@@ -74,7 +74,7 @@ jobs:
           yarn
           cd test_module
           yarn build
-          node tests.js
+          yarn test
         env:
           RUST_BACKTRACE: 1
 

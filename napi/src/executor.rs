@@ -4,7 +4,7 @@ use std::future::Future;
 use std::mem;
 use std::os::raw::c_void;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::task::{Context, RawWaker, RawWakerVTable, Waker};
 
 pub struct LibuvExecutor {
@@ -46,7 +46,6 @@ unsafe fn drop_uv_async(uv_async_t_ptr: *const ()) {
 struct Task<'a> {
   future: Pin<Box<dyn Future<Output = ()>>>,
   context: Context<'a>,
-  resolved: AtomicBool,
 }
 
 impl LibuvExecutor {
@@ -68,46 +67,45 @@ impl LibuvExecutor {
         &UV_ASYNC_V_TABLE,
       ));
       let context = Context::from_waker(&waker);
-      let task = Box::leak(Box::new(Task {
+      let mut task = Box::new(Task {
         future: Box::pin(future),
         context,
-        resolved: AtomicBool::new(false),
-      }));
-      sys::uv_handle_set_data(
-        uv_async_t_ref as *mut _ as *mut sys::uv_handle_t,
-        task as *mut _ as *mut c_void,
-      );
-      task.poll_future();
+      });
+      if !task.as_mut().poll_future() {
+        let arc_task = Arc::new(task);
+        sys::uv_handle_set_data(
+          uv_async_t_ref as *mut _ as *mut sys::uv_handle_t,
+          Arc::into_raw(arc_task) as *mut c_void,
+        );
+      }
     }
   }
 }
 
 impl<'a> Task<'a> {
   fn poll_future(&mut self) -> bool {
-    if self.resolved.load(Ordering::Relaxed) {
-      return true;
-    }
     match self.future.as_mut().poll(&mut self.context) {
-      Poll::Ready(_) => {
-        while !self.resolved.swap(true, Ordering::Relaxed) {}
-        true
-      }
+      Poll::Ready(_) => true,
       Poll::Pending => false,
     }
   }
 }
 
 unsafe extern "C" fn poll_future(handle: *mut sys::uv_async_t) {
-  let data_ptr = sys::uv_handle_get_data(handle as *mut sys::uv_handle_t) as *mut Task;
-  let mut task = Box::from_raw(data_ptr);
-  if !task.as_mut().poll_future() {
-    Box::leak(task);
+  let data_ptr = sys::uv_handle_get_data(handle as *mut sys::uv_handle_t) as *mut Box<Task>;
+  let mut task = Arc::from_raw(data_ptr);
+  if let Some(mut_task) = Arc::get_mut(&mut task) {
+    if mut_task.poll_future() {
+      Arc::into_raw(task);
+    } else {
+      sys::uv_close(
+        handle as *mut sys::uv_handle_t,
+        Some(drop_handle_after_close),
+      );
+    };
   } else {
-    sys::uv_close(
-      handle as *mut sys::uv_handle_t,
-      Some(drop_handle_after_close),
-    );
-  };
+    Arc::into_raw(task);
+  }
 }
 
 unsafe extern "C" fn drop_handle_after_close(handle: *mut sys::uv_handle_t) {

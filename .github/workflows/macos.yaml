@@ -68,7 +68,7 @@ jobs:
           yarn
           cd test_module
           yarn build
-          node tests.js
+          yarn test
 
       - name: Clear the cargo caches
         run: |
