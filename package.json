@@ -22,7 +22,7 @@
   },
   "homepage": "https://github.com/Brooooooklyn/napi-rs#readme",
   "dependencies": {
-    "minimist": "^1.2.2",
+    "minimist": "^1.2.5",
     "toml": "^3.0.0"
   },
   "prettier": {
