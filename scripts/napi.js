@@ -6,7 +6,6 @@ const os = require('os')
 const toml = require('toml')
 const fs = require('fs')
 
-
 let tomlContentString
 let tomlContent
 let moduleName
@@ -74,8 +73,10 @@ if (!parsedDist.ext) {
   subcommand = `${subcommand}.node`
 }
 
+const pos = __dirname.indexOf('node_modules')
+
 const dylibContent = fs.readFileSync(path.join(
-  process.cwd(),
+  __dirname.substring(0, pos),
   'target',
   targetDir,
   `${dylibName}${libExt}`,
