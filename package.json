@@ -33,7 +33,8 @@
     "arrowParens": "always"
   },
   "files": [
-    "scripts/napi.js"
+    "scripts/napi.js",
+    "LICENSE"
   ],
   "devDependencies": {
     "@types/node": "^13.7.1",

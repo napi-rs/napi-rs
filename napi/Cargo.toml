@@ -3,6 +3,10 @@ name = "napi-rs"
 version = "0.1.0"
 authors = ["Nathan Sobo <nathan@github.com>", "Yinan Long <lynweklm@gmail.com>"]
 license = "MIT"
+description = "N-API bindings"
+readme = "README.md"
+repository = "https://github.com/Brooooooklyn/napi-rs"
+keywords = ["NodeJS", "FFI"]
 
 [dependencies]
 futures = { version = "0.3", features = ["default", "thread-pool"] }
@@ -13,9 +17,9 @@ reqwest = { version = "0.10", features = ["native-tls", "blocking"] }
 tar = "0.4"
 
 [build-dependencies]
-bindgen = "0.53.1"
+bindgen = "0.53"
 cc = "1.0"
 glob = "0.3"
-napi-build = { path = "../build" }
+napi-build = { version = "0.1", path = "../build" }
 regex = "1.3"
 semver = "0.9"
