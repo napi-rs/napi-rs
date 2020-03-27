@@ -37,7 +37,7 @@
     "LICENSE"
   ],
   "devDependencies": {
-    "@types/node": "^13.9.4",
+    "@types/node": "^13.9.5",
     "prettier": "^2.0.2"
   }
 }
