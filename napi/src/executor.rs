@@ -96,12 +96,12 @@ unsafe extern "C" fn poll_future(handle: *mut sys::uv_async_t) {
   let mut task = Arc::from_raw(data_ptr);
   if let Some(mut_task) = Arc::get_mut(&mut task) {
     if mut_task.poll_future() {
-      Arc::into_raw(task);
-    } else {
       sys::uv_close(
         handle as *mut sys::uv_handle_t,
         Some(drop_handle_after_close),
       );
+    } else {
+      Arc::into_raw(task);
     };
   } else {
     Arc::into_raw(task);
