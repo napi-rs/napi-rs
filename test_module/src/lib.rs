@@ -28,9 +28,9 @@ fn test_spawn<'a>(
   use futures::executor::ThreadPool;
   use futures::StreamExt;
 
-  let async_context = env.async_init(None, "test_spawn");
+  let async_context = env.async_init(None, "test_spawn")?;
   let pool = ThreadPool::new().expect("Failed to build pool");
-  let (promise, deferred) = env.create_promise();
+  let (promise, deferred) = env.create_promise()?;
   let (tx, rx) = futures::channel::mpsc::unbounded::<i32>();
   let fut_values = async move {
     let fut_tx_result = async move {
@@ -45,7 +45,9 @@ fn test_spawn<'a>(
       println!("Collected result lenght {}", results.len());
     };
     async_context.enter(|env| {
-      env.resolve_deferred(deferred, env.get_undefined());
+      env
+        .resolve_deferred(deferred, env.get_undefined().unwrap())
+        .unwrap();
     });
   };
 
