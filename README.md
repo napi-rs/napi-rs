@@ -115,12 +115,12 @@ npm test
 | [Enum types](https://nodejs.org/api/n-api.html#n_api_enum_types) | 6            | v13.7.0              | ⛔️      |
 | [napi_create_array](https://nodejs.org/api/n-api.html#n_api_napi_create_array) | 1            | v8.0.0               | ✅      |
 | [napi_create_array_with_length](https://nodejs.org/api/n-api.html#n_api_napi_create_array_with_length) | 1            | v8.0.0               | ✅      |
-| [napi_create_arraybuffer](https://nodejs.org/api/n-api.html#n_api_napi_create_arraybuffer) | 1            | v8.0.0               | ⛔️      |
+| [napi_create_arraybuffer](https://nodejs.org/api/n-api.html#n_api_napi_create_arraybuffer) | 1            | v8.0.0               | ✅      |
 | [napi_create_buffer](https://nodejs.org/api/n-api.html#n_api_napi_create_buffer) | 1            | v8.0.0               | ✅      |
 | [napi_create_buffer_copy](https://nodejs.org/api/n-api.html#n_api_napi_create_buffer_copy) | 1            | v8.0.0               | ⛔️      |
 | [napi_create_date](https://nodejs.org/api/n-api.html#n_api_napi_create_date) | 5            | v11.11.0             | ⛔️      |
 | [napi_create_external](https://nodejs.org/api/n-api.html#n_api_napi_create_external) | 1            | v8.0.0               | ⛔️      |
-| [napi_create_external_arraybuffer](https://nodejs.org/api/n-api.html#n_api_napi_create_external_arraybuffer) | 1            | v8.0.0               | ⛔️      |
+| [napi_create_external_arraybuffer](https://nodejs.org/api/n-api.html#n_api_napi_create_external_arraybuffer) | 1            | v8.0.0               | ✅      |
 | [napi_create_external_buffer](https://nodejs.org/api/n-api.html#n_api_napi_create_external_buffer) | 1            | v8.0.0               | ✅      |
 | [napi_create_object](https://nodejs.org/api/n-api.html#n_api_napi_create_object) | 1            | v8.0.0               | ✅      |
 | [napi_create_symbol](https://nodejs.org/api/n-api.html#n_api_napi_create_symbol) | 1            | v8.0.0               | ⛔️      |
@@ -142,7 +142,7 @@ npm test
 | NAPI | NAPI Version | Minimal Node Version | Status |
 | ---- | ------------ | -------------------- | ------ |
 |[napi_get_array_length](https://nodejs.org/api/n-api.html#n_api_napi_get_array_length)| 1 | v8.0.0 | ✅ |
-|[napi_get_arraybuffer_info](https://nodejs.org/api/n-api.html#n_api_napi_get_arraybuffer_info)| 1 | v8.0.0 | ⛔️ |
+|[napi_get_arraybuffer_info](https://nodejs.org/api/n-api.html#n_api_napi_get_arraybuffer_info)| 1 | v8.0.0 | ✅ |
 |[napi_get_buffer_info](https://nodejs.org/api/n-api.html#n_api_napi_get_buffer_info)| 1 | v8.0.0 | ✅ |
 |[napi_get_prototype](https://nodejs.org/api/n-api.html#n_api_napi_get_prototype)| 1 | v8.0.0 | ⛔️ |
 |[napi_get_typedarray_info](https://nodejs.org/api/n-api.html#n_api_napi_get_typedarray_info)| 1 | v8.0.0 | ⛔️ |

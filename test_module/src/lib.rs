@@ -1,7 +1,9 @@
 #[macro_use]
 extern crate napi_rs as napi;
 
-use napi::{futures, Any, Env, Error, Object, Result, Status, Value};
+extern crate futures;
+
+use napi::{Any, Env, Error, Object, Result, Status, Value};
 
 register_module!(test_module, init);
 
@@ -11,11 +13,11 @@ fn init<'env>(
 ) -> Result<Option<Value<'env, Object>>> {
   exports.set_named_property(
     "testSpawn",
-    env.create_function("testSpawn", callback!(test_spawn)),
+    env.create_function("testSpawn", callback!(test_spawn))?,
   )?;
   exports.set_named_property(
     "testThrow",
-    env.create_function("testThrow", callback!(test_throw)),
+    env.create_function("testThrow", callback!(test_throw))?,
   )?;
   Ok(None)
 }
@@ -53,7 +55,7 @@ fn test_spawn<'a>(
 
   env.create_executor().execute(fut_values);
 
-  Ok(Some(promise.try_into().unwrap()))
+  Ok(Some(promise.into_any()))
 }
 
 fn test_throw<'a>(
