@@ -8,6 +8,7 @@ edition = "2018"
 crate-type = ["cdylib"]
 
 [dependencies]
+futures = "0.3"
 napi-rs = {path = "../napi"}
 
 [build-dependencies]
