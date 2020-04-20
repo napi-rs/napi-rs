@@ -45,6 +45,7 @@ pub struct Boolean {
 #[derive(Clone, Copy, Debug)]
 pub enum Number {
   Int(i64),
+  U32(u32),
   Double(f64),
 }
 
@@ -264,6 +265,14 @@ impl Env {
       unsafe { sys::napi_create_int64(self.0, int, (&mut raw_value) as *mut sys::napi_value) };
     check_status(status)?;
     Ok(Value::from_raw_value(self, raw_value, Number::Int(int)))
+  }
+
+  pub fn create_uint32<'a>(&'a self, number: u32) -> Result<Value<'a, Number>> {
+    let mut raw_value = ptr::null_mut();
+    let status =
+      unsafe { sys::napi_create_uint32(self.0, number, (&mut raw_value) as *mut sys::napi_value) };
+    check_status(status)?;
+    Ok(Value::from_raw_value(self, raw_value, Number::U32(number)))
   }
 
   pub fn create_double<'a>(&'a self, double: f64) -> Result<Value<'a, Number>> {
@@ -1040,6 +1049,12 @@ impl<'env> Value<'env, Object> {
 
   fn raw_env(&self) -> sys::napi_env {
     self.env.0
+  }
+}
+
+impl<'env> AsRef<[u8]> for Value<'env, Buffer> {
+  fn as_ref(&self) -> &[u8] {
+    self.deref()
   }
 }
 

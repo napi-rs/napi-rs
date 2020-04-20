@@ -127,7 +127,7 @@ npm test
 | [napi_create_typedarray](https://nodejs.org/api/n-api.html#n_api_napi_create_typedarray) | 1            | v8.0.0               | ⛔️      |
 | [napi_create_dataview](https://nodejs.org/api/n-api.html#n_api_napi_create_dataview) | 1            | v8.3.0               | ⛔️      |
 | [napi_create_int32](https://nodejs.org/api/n-api.html#n_api_napi_create_int32) | 1            | v8.4.0               | ⛔️      |
-| [napi_create_uint32](https://nodejs.org/api/n-api.html#n_api_napi_create_uint32) | 1            | v8.4.0               | ⛔️      |
+| [napi_create_uint32](https://nodejs.org/api/n-api.html#n_api_napi_create_uint32) | 1            | v8.4.0               | ✅      |
 | [napi_create_int64](https://nodejs.org/api/n-api.html#n_api_napi_create_int64) | 1            | v8.4.0               | ✅      |
 | [napi_create_double](https://nodejs.org/api/n-api.html#n_api_napi_create_double) | 1            | v8.4.0               | ⛔️      |
 | [napi_create_bigint_int64](https://nodejs.org/api/n-api.html#n_api_napi_create_bigint_int64) | 6            | v10.7.0              | ⛔️      |
