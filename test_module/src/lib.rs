@@ -3,7 +3,8 @@ extern crate napi_rs as napi;
 
 extern crate futures;
 
-use napi::{Any, Env, Error, Object, Result, Status, Value};
+use napi::{Any, Env, Error, Object, Result, Status, Value, CallContext};
+use napi_derive::js_function;
 
 register_module!(test_module, init);
 
@@ -13,23 +14,22 @@ fn init<'env>(
 ) -> Result<Option<Value<'env, Object>>> {
   exports.set_named_property(
     "testSpawn",
-    env.create_function("testSpawn", callback!(test_spawn))?,
+    env.create_function("testSpawn", test_spawn)?,
   )?;
   exports.set_named_property(
     "testThrow",
-    env.create_function("testThrow", callback!(test_throw))?,
+    env.create_function("testThrow", test_throw)?,
   )?;
   Ok(None)
 }
 
+#[js_function]
 fn test_spawn<'a>(
-  env: &'a Env,
-  _this: Value<'a, Any>,
-  _args: &[Value<'a, Any>],
-) -> Result<Option<Value<'a, Any>>> {
+  ctx: CallContext<'a>
+) -> Result<Value<'a, Object>> {
   use futures::executor::ThreadPool;
   use futures::StreamExt;
-
+  let env = ctx.env;
   let async_context = env.async_init(None, "test_spawn")?;
   let pool = ThreadPool::new().expect("Failed to build pool");
   let (promise, deferred) = env.create_promise()?;
@@ -55,13 +55,12 @@ fn test_spawn<'a>(
 
   env.create_executor().execute(fut_values);
 
-  Ok(Some(promise.into_any()))
+  Ok(promise)
 }
 
+#[js_function]
 fn test_throw<'a>(
-  _env: &'a Env,
-  _this: Value<'a, Any>,
-  _args: &[Value<'a, Any>],
-) -> Result<Option<Value<'a, Any>>> {
+  _ctx: CallContext<'a>,
+) -> Result<Value<'a, Any>> {
   Err(Error::new(Status::GenericFailure))
 }

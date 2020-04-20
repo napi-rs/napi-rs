@@ -1,0 +1,9 @@
+target
+build
+napi
+napi-derive
+napi-derive-example
+test_module
+.yarnrc
+Cargo.lock
+rustfmt.toml

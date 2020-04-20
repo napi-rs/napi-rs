@@ -13,7 +13,9 @@ use std::string::String as RustString;
 
 mod executor;
 pub mod sys;
+mod call_context;
 
+pub use call_context::CallContext;
 pub use sys::{napi_valuetype, Status};
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -155,68 +157,6 @@ macro_rules! register_module {
       register_module
     };
   };
-}
-
-#[macro_export]
-macro_rules! callback {
-  ($callback_expr:expr) => {{
-    use std::io::Write;
-    use std::mem;
-    use std::os::raw::c_char;
-    use std::ptr;
-    use $crate::sys;
-    use $crate::{Any, Env, Status, Value};
-
-    extern "C" fn raw_callback(
-      raw_env: sys::napi_env,
-      cb_info: sys::napi_callback_info,
-    ) -> sys::napi_value {
-      const MAX_ARGC: usize = 8;
-      let mut argc = MAX_ARGC;
-      let mut raw_args =
-        unsafe { mem::MaybeUninit::<[$crate::sys::napi_value; MAX_ARGC]>::uninit().assume_init() };
-      let mut raw_this = ptr::null_mut();
-
-      unsafe {
-        let status = sys::napi_get_cb_info(
-          raw_env,
-          cb_info,
-          &mut argc as *mut usize as *mut u64,
-          &mut raw_args[0],
-          &mut raw_this,
-          ptr::null_mut(),
-        );
-        debug_assert!(Status::from(status) == Status::Ok);
-      }
-
-      let env = Env::from_raw(raw_env);
-      let this = Value::from_raw(&env, raw_this).unwrap();
-      let mut args = unsafe { mem::MaybeUninit::<[Value<Any>; 8]>::uninit().assume_init() };
-      for (i, raw_arg) in raw_args.iter().enumerate() {
-        args[i] = Value::from_raw(&env, *raw_arg).unwrap()
-      }
-
-      let callback = $callback_expr;
-      let result = callback(&env, this, &args[0..argc]);
-
-      match result {
-        Ok(Some(result)) => result.into_raw(),
-        Ok(None) => env.get_undefined().unwrap().into_raw(),
-        Err(e) => {
-          if !cfg!(windows) {
-            let _ = writeln!(::std::io::stderr(), "Error calling function: {:?}", e);
-          }
-          let message = format!("{:?}", e);
-          unsafe {
-            $crate::sys::napi_throw_error(raw_env, ptr::null(), message.as_ptr() as *const c_char);
-          }
-          env.get_undefined().unwrap().into_raw()
-        }
-      }
-    }
-
-    raw_callback
-  }};
 }
 
 impl Error {

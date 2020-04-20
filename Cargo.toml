@@ -1,6 +1,8 @@
 [workspace]
 members = [
   "./build",
-  "./napi"
+  "./napi",
+  "./napi-derive",
+  "./napi-derive-example"
 ]
 exclude = ["./test_module"]
