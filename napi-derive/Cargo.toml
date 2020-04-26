@@ -1,0 +1,13 @@
+[package]
+name = "napi-derive"
+version = "0.1.0"
+authors = ["LongYinan <lynweklm@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+syn = { version = "1.0", features = ["fold", "full"] }
+quote = "1.0"
+proc-macro2 = "1.0"
+
+[lib]
+proc-macro = true
