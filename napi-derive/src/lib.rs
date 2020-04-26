@@ -2,11 +2,11 @@ extern crate proc_macro;
 
 use proc_macro::TokenStream;
 use proc_macro2::{Ident, Literal};
-use quote::{quote, format_ident};
-use syn::fold::{fold_signature, fold_fn_arg, Fold};
+use quote::{format_ident, quote};
+use syn::fold::{fold_fn_arg, fold_signature, Fold};
 use syn::parse::{Parse, ParseStream, Result};
 use syn::punctuated::Punctuated;
-use syn::{parse_macro_input, FnArg, ItemFn, Signature, Block, Token};
+use syn::{parse_macro_input, Block, FnArg, ItemFn, Signature, Token};
 
 struct ArgLength {
   length: Option<Literal>,
@@ -14,10 +14,10 @@ struct ArgLength {
 
 impl Parse for ArgLength {
   fn parse(input: ParseStream) -> Result<Self> {
-      let vars = Punctuated::<Literal, Token![,]>::parse_terminated(input)?;
-      Ok(ArgLength {
-        length: vars.first().map(|i| i.clone()),
-      })
+    let vars = Punctuated::<Literal, Token![,]>::parse_terminated(input)?;
+    Ok(ArgLength {
+      length: vars.first().map(|i| i.clone()),
+    })
   }
 }
 
