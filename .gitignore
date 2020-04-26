@@ -8,6 +8,7 @@ napi/src/sys/bindings.rs
 build/LICENSE
 napi/LICENSE
 napi/README.md
+napi-derive/LICENSE
 
 # Created by https://www.gitignore.io/api/node
 # Edit at https://www.gitignore.io/?templates=node
