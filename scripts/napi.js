@@ -29,7 +29,7 @@ if (tomlContent.package && tomlContent.package.name) {
 }
 
 const argv = parseArgs(process.argv.slice(2), {
-  boolean: ['release'],
+  boolean: ['release', 'platform'],
 })
 
 const platform = os.platform()
@@ -58,19 +58,17 @@ switch (platform) {
 
 const targetDir = argv.release ? 'release' : 'debug'
 
-let subcommand = argv._[0] || path.join('target', targetDir, `${moduleName}.node`)
-const parsedDist = path.parse(subcommand)
+const platformName = argv.platform ? `.${platform}` : ''
 
-if (parsedDist.ext && parsedDist.ext !== '.node') {
-  throw new TypeError('Dist file must be end with .node extension')
-}
+let subcommand = argv._[0] || path.join('target', targetDir, `${moduleName}${platformName}.node`)
+const parsedDist = path.parse(subcommand)
 
 if (!parsedDist.name || parsedDist.name === '.') {
   subcommand = moduleName
 }
 
 if (!parsedDist.ext) {
-  subcommand = `${subcommand}.node`
+  subcommand = `${subcommand}${platformName}.node`
 }
 
 const pos = __dirname.indexOf('node_modules')
