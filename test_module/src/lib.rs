@@ -1,10 +1,11 @@
 #[macro_use]
 extern crate napi_rs as napi;
+#[macro_use]
+extern crate napi_rs_derive;
 
 extern crate futures;
 
 use napi::{Any, Env, Error, Object, Result, Status, Value, CallContext};
-use napi_derive::js_function;
 
 register_module!(test_module, init);
 

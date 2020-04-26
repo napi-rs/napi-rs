@@ -3,8 +3,10 @@
 ## js_function
 
 ```rust
+#[macro_use]
+extern crate napi_rs_derive;
+
 use napi_rs::{Result, Value, CallContext, Number};
-use napi_derive::js_function;
 use std::convert::TryInto;
 
 #[js_function]

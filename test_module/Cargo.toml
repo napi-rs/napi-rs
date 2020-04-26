@@ -9,8 +9,8 @@ crate-type = ["cdylib"]
 
 [dependencies]
 futures = "0.3"
-napi-rs = {path = "../napi"}
-napi-derive = {path = "../napi-derive"}
+napi-rs = { path = "../napi" }
+napi-rs-derive = { path = "../napi-derive" }
 
 [build-dependencies]
 napi-build = { path = "../build" }

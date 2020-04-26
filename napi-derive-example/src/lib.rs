@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate napi_rs as napi;
 #[macro_use]
-extern crate napi_derive;
+extern crate napi_rs_derive;
 
 use napi::{Any, CallContext, Env, Error, Number, Object, Result, Status, Value};
 use std::convert::TryInto;

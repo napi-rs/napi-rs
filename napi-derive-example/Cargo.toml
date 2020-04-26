@@ -9,7 +9,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 napi-rs = { path = "../napi" }
-napi-derive = { path = "../napi-derive" }
+napi-rs-derive = { path = "../napi-derive" }
 
 [build-dependencies]
 napi-build = { path = "../build" }
