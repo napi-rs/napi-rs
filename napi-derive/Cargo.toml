@@ -3,6 +3,11 @@ name = "napi-derive"
 version = "0.1.0"
 authors = ["LongYinan <lynweklm@gmail.com>"]
 edition = "2018"
+description = "N-API build support"
+readme = "README.md"
+repository = "https://github.com/Brooooooklyn/napi-rs"
+license = "MIT"
+keywords = ["NodeJS", "FFI", "NAPI", "n-api"]
 
 [dependencies]
 syn = { version = "1.0", features = ["fold", "full"] }

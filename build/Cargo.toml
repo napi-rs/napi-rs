@@ -1,14 +1,13 @@
 [package]
 name = "napi-build"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["LongYinan <lynweklm@gmail.com>"]
 edition = "2018"
 description = "N-API build support"
 readme = "README.md"
 repository = "https://github.com/Brooooooklyn/napi-rs"
 license = "MIT"
-keywords = ["NodeJS", "FFI"]
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+keywords = ["NodeJS", "FFI", "NAPI", "n-api"]
 
 [dependencies]
 cfg-if = "0.1"
