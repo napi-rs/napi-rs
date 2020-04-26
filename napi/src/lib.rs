@@ -1,7 +1,7 @@
 extern crate futures;
 
 use std::any::TypeId;
-use std::convert::TryInto;
+use std::convert::{TryFrom, TryInto};
 use std::ffi::CString;
 use std::marker::PhantomData;
 use std::mem;
@@ -11,9 +11,9 @@ use std::ptr;
 use std::slice;
 use std::string::String as RustString;
 
+mod call_context;
 mod executor;
 pub mod sys;
-mod call_context;
 
 pub use call_context::CallContext;
 pub use sys::{napi_valuetype, Status};
@@ -47,6 +47,7 @@ pub struct Boolean {
 #[derive(Clone, Copy, Debug)]
 pub enum Number {
   Int(i64),
+  Int32(i32),
   U32(u32),
   Double(f64),
 }
@@ -197,6 +198,14 @@ impl Env {
     let status = unsafe { sys::napi_get_boolean(self.0, value, &mut raw_value) };
     check_status(status)?;
     Ok(Value::from_raw_value(self, raw_value, Boolean { value }))
+  }
+
+  pub fn create_int32<'a>(&'a self, int: i32) -> Result<Value<'a, Number>> {
+    let mut raw_value = ptr::null_mut();
+    let status =
+      unsafe { sys::napi_create_int32(self.0, int, (&mut raw_value) as *mut sys::napi_value) };
+    check_status(status)?;
+    Ok(Value::from_raw_value(self, raw_value, Number::Int32(int)))
   }
 
   pub fn create_int64<'a>(&'a self, int: i64) -> Result<Value<'a, Number>> {
@@ -829,17 +838,17 @@ impl<'env> Value<'env, String> {
   }
 }
 
-impl<'env> TryInto<Vec<u16>> for Value<'env, String> {
+impl<'env> TryFrom<Value<'env, String>> for Vec<u16> {
   type Error = Error;
 
-  fn try_into(self) -> Result<Vec<u16>> {
-    let mut result = Vec::with_capacity(self.len()? + 1); // Leave room for trailing null byte
+  fn try_from(value: Value<'env, String>) -> Result<Vec<u16>> {
+    let mut result = Vec::with_capacity(value.len()? + 1); // Leave room for trailing null byte
 
     unsafe {
       let mut written_char_count = 0;
       let status = sys::napi_get_value_string_utf16(
-        self.env.0,
-        self.raw_value,
+        value.env.0,
+        value.raw_value,
         result.as_mut_ptr(),
         result.capacity() as u64,
         &mut written_char_count,
@@ -852,34 +861,56 @@ impl<'env> TryInto<Vec<u16>> for Value<'env, String> {
   }
 }
 
-impl<'env> TryInto<usize> for Value<'env, Number> {
+impl<'env> TryFrom<Value<'env, Number>> for usize {
   type Error = Error;
 
-  fn try_into(self) -> Result<usize> {
+  fn try_from(value: Value<'env, Number>) -> Result<usize> {
     let mut result = 0;
-    let status = unsafe { sys::napi_get_value_int64(self.env.0, self.raw_value, &mut result) };
+    let status = unsafe { sys::napi_get_value_int64(value.env.0, value.raw_value, &mut result) };
     check_status(status)?;
     Ok(result as usize)
   }
 }
 
-impl<'env> TryInto<i64> for Value<'env, Number> {
+impl<'env> TryFrom<Value<'env, Number>> for u32 {
   type Error = Error;
 
-  fn try_into(self) -> Result<i64> {
+  fn try_from(value: Value<'env, Number>) -> Result<u32> {
     let mut result = 0;
-    let status = unsafe { sys::napi_get_value_int64(self.env.0, self.raw_value, &mut result) };
+    let status = unsafe { sys::napi_get_value_uint32(value.env.0, value.raw_value, &mut result) };
     check_status(status)?;
     Ok(result)
   }
 }
 
-impl<'env> TryInto<f64> for Value<'env, Number> {
+impl<'env> TryFrom<Value<'env, Number>> for i32 {
   type Error = Error;
 
-  fn try_into(self) -> Result<f64> {
+  fn try_from(value: Value<'env, Number>) -> Result<i32> {
+    let mut result = 0;
+    let status = unsafe { sys::napi_get_value_int32(value.env.0, value.raw_value, &mut result) };
+    check_status(status)?;
+    Ok(result)
+  }
+}
+
+impl<'env> TryFrom<Value<'env, Number>> for i64 {
+  type Error = Error;
+
+  fn try_from(value: Value<'env, Number>) -> Result<i64> {
+    let mut result = 0;
+    let status = unsafe { sys::napi_get_value_int64(value.env.0, value.raw_value, &mut result) };
+    check_status(status)?;
+    Ok(result)
+  }
+}
+
+impl<'env> TryFrom<Value<'env, Number>> for f64 {
+  type Error = Error;
+
+  fn try_from(value: Value<'env, Number>) -> Result<f64> {
     let mut result = 0_f64;
-    let status = unsafe { sys::napi_get_value_double(self.env.0, self.raw_value, &mut result) };
+    let status = unsafe { sys::napi_get_value_double(value.env.0, value.raw_value, &mut result) };
     check_status(status)?;
     Ok(result)
   }

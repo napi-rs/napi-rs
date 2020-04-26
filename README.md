@@ -126,10 +126,10 @@ npm test
 | [napi_create_symbol](https://nodejs.org/api/n-api.html#n_api_napi_create_symbol) | 1            | v8.0.0               | ⛔️      |
 | [napi_create_typedarray](https://nodejs.org/api/n-api.html#n_api_napi_create_typedarray) | 1            | v8.0.0               | ⛔️      |
 | [napi_create_dataview](https://nodejs.org/api/n-api.html#n_api_napi_create_dataview) | 1            | v8.3.0               | ⛔️      |
-| [napi_create_int32](https://nodejs.org/api/n-api.html#n_api_napi_create_int32) | 1            | v8.4.0               | ⛔️      |
+| [napi_create_int32](https://nodejs.org/api/n-api.html#n_api_napi_create_int32) | 1            | v8.4.0               | ✅      |
 | [napi_create_uint32](https://nodejs.org/api/n-api.html#n_api_napi_create_uint32) | 1            | v8.4.0               | ✅      |
 | [napi_create_int64](https://nodejs.org/api/n-api.html#n_api_napi_create_int64) | 1            | v8.4.0               | ✅      |
-| [napi_create_double](https://nodejs.org/api/n-api.html#n_api_napi_create_double) | 1            | v8.4.0               | ⛔️      |
+| [napi_create_double](https://nodejs.org/api/n-api.html#n_api_napi_create_double) | 1            | v8.4.0               | ✅      |
 | [napi_create_bigint_int64](https://nodejs.org/api/n-api.html#n_api_napi_create_bigint_int64) | 6            | v10.7.0              | ⛔️      |
 | [napi_create_bigint_uint64](https://nodejs.org/api/n-api.html#n_api_napi_create_bigint_uint64) | 6            | v10.7.0              | ⛔️      |
 | [napi_create_bigint_words](https://nodejs.org/api/n-api.html#n_api_napi_create_bigint_words) | 6            | v10.7.0              | ⛔️      |
@@ -154,12 +154,12 @@ npm test
 |[napi_get_value_bigint_uint64](https://nodejs.org/api/n-api.html#n_api_napi_get_value_bigint_uint64)| 6 | v10.7.0 | ⛔️ |
 |[napi_get_value_bigint_words](https://nodejs.org/api/n-api.html#n_api_napi_get_value_bigint_words)| 6 | v10.7.0 | ⛔️ |
 |[napi_get_value_external](https://nodejs.org/api/n-api.html#n_api_napi_get_value_external)| 1 | v8.0.0 | ⛔️ |
-|[napi_get_value_int32](https://nodejs.org/api/n-api.html#n_api_napi_get_value_int32)| 1 | v8.0.0 | ⛔️ |
+|[napi_get_value_int32](https://nodejs.org/api/n-api.html#n_api_napi_get_value_int32)| 1 | v8.0.0 | ✅ |
 |[napi_get_value_int64](https://nodejs.org/api/n-api.html#n_api_napi_get_value_int64)| 1 | v8.0.0 | ✅ |
 |[napi_get_value_string_latin1](https://nodejs.org/api/n-api.html#n_api_napi_get_value_string_latin1)| 1 | v8.0.0 | ⛔️ |
 |[napi_get_value_string_utf8](https://nodejs.org/api/n-api.html#n_api_napi_get_value_string_utf8)| 1 | v8.0.0 | ✅ |
 |[napi_get_value_string_utf16](https://nodejs.org/api/n-api.html#n_api_napi_get_value_string_utf16)| 1 | v8.0.0 | ✅ |
-|[napi_get_value_uint32](https://nodejs.org/api/n-api.html#n_api_napi_get_value_uint32)| 1 | v8.0.0 | ⛔️ |
+|[napi_get_value_uint32](https://nodejs.org/api/n-api.html#n_api_napi_get_value_uint32)| 1 | v8.0.0 | ✅ |
 |[napi_get_boolean](https://nodejs.org/api/n-api.html#n_api_napi_get_boolean)| 1 | v8.0.0 | ✅ |
 |[napi_get_global](https://nodejs.org/api/n-api.html#n_api_napi_get_global)| 1 | v8.0.0 | ⛔️ |
 |[napi_get_null](https://nodejs.org/api/n-api.html#n_api_napi_get_null)| 1 | v8.0.0 | ✅ |
