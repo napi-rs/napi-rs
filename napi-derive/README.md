@@ -9,7 +9,7 @@ extern crate napi_rs_derive;
 use napi_rs::{Result, Value, CallContext, Number};
 use std::convert::TryInto;
 
-#[js_function]
+#[js_function(1)]
 fn fibonacci<'env>(ctx: CallContext<'env>) -> Result<Value<'env, Number>> {
   let n = ctx.get::<Number>(0)?.try_into()?;
   ctx.env.create_int64(fibonacci_native(n))
