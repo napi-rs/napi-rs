@@ -16,9 +16,9 @@
 
 ## NodeJS
 
-| Node10    | Node 12   | Node13    |
-| --------- | --------- | --------- |
-| ✓         | ✓         | ✓         |
+| Node10 | Node 12 | Node13 | Node14 |
+| ------ | ------- | ------ | ------ |
+| ✓      | ✓       | ✓      | ✓      |
 
 A minimal library for building compiled Node add-ons in Rust.
 
