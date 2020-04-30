@@ -27,7 +27,7 @@ This library depends on N-API and requires Node 8.9 or later. It is still pretty
 One nice feature is that this crate allows you to build add-ons purely with the Rust toolchain and without involving `node-gyp`.
 
 ## Taste
-```rs
+```rust
 #[js_function(1)] // ------> argument length, omit for zero
 fn fibonacci<'env>(ctx: CallContext<'env>) -> Result<Value<'env, Number>> {
   let n = ctx.get::<Number>(0)?.try_into()?;
