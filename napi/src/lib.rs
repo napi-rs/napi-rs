@@ -9,6 +9,7 @@ use std::ops::{Deref, DerefMut};
 use std::os::raw::{c_char, c_void};
 use std::ptr;
 use std::slice;
+use std::str;
 use std::string::String as RustString;
 
 mod call_context;
@@ -53,7 +54,7 @@ pub enum Number {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct String;
+pub struct JsString;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Object;
@@ -169,7 +170,7 @@ impl Error {
 impl From<std::ffi::NulError> for Error {
   fn from(_error: std::ffi::NulError) -> Self {
     Error {
-      status: Status::StringContainsNull,
+      status: Status::StringExpected,
     }
   }
 }
@@ -236,7 +237,7 @@ impl Env {
     ))
   }
 
-  pub fn create_string<'a, 'b>(&'a self, s: &'b str) -> Result<Value<'a, String>> {
+  pub fn create_string<'a, 'b>(&'a self, s: &'b str) -> Result<Value<'a, JsString>> {
     let mut raw_value = ptr::null_mut();
     let status = unsafe {
       sys::napi_create_string_utf8(
@@ -247,16 +248,16 @@ impl Env {
       )
     };
     check_status(status)?;
-    Ok(Value::from_raw_value(self, raw_value, String))
+    Ok(Value::from_raw_value(self, raw_value, JsString))
   }
 
-  pub fn create_string_utf16<'a, 'b>(&'a self, chars: &[u16]) -> Result<Value<'a, String>> {
+  pub fn create_string_utf16(&self, chars: &[u16]) -> Result<Value<JsString>> {
     let mut raw_value = ptr::null_mut();
     let status = unsafe {
       sys::napi_create_string_utf16(self.0, chars.as_ptr(), chars.len() as u64, &mut raw_value)
     };
     check_status(status)?;
-    Ok(Value::from_raw_value(self, raw_value, String))
+    Ok(Value::from_raw_value(self, raw_value, JsString))
   }
 
   pub fn create_object<'a>(&'a self) -> Result<Value<'a, Object>> {
@@ -384,6 +385,12 @@ impl Env {
     check_status(status)?;
 
     Ok(Value::from_raw_value(self, raw_result, Function))
+  }
+
+  pub fn throw_error(&self, msg: &str) -> Result<()> {
+    let status = unsafe { sys::napi_throw_error(self.0, ptr::null(), msg.as_ptr() as *const _) };
+    check_status(status)?;
+    Ok(())
   }
 
   pub fn create_reference<T>(&self, value: &Value<T>) -> Result<Ref<T>> {
@@ -606,9 +613,9 @@ impl ValueType for Number {
   }
 }
 
-impl ValueType for String {
+impl ValueType for JsString {
   fn from_raw(_env: sys::napi_env, _raw: sys::napi_value) -> Result<Self> {
-    Ok(String {})
+    Ok(JsString {})
   }
 
   fn matches_raw_type(env: sys::napi_env, raw: sys::napi_value) -> bool {
@@ -724,7 +731,7 @@ impl<'env, T: ValueType> Value<'env, T> {
     })
   }
 
-  pub fn coerce_to_string(self) -> Result<Value<'env, String>> {
+  pub fn coerce_to_string(self) -> Result<Value<'env, JsString>> {
     let mut new_raw_value = ptr::null_mut();
     let status =
       unsafe { sys::napi_coerce_to_string(self.env.0, self.raw_value, &mut new_raw_value) };
@@ -732,7 +739,7 @@ impl<'env, T: ValueType> Value<'env, T> {
     Ok(Value {
       env: self.env,
       raw_value: self.raw_value,
-      value: String,
+      value: JsString,
     })
   }
 
@@ -773,7 +780,7 @@ fn get_raw_type(env: sys::napi_env, raw_value: sys::napi_value) -> sys::napi_val
   }
 }
 
-impl<'env> Value<'env, String> {
+impl<'env> Value<'env, JsString> {
   pub fn len(&self) -> Result<usize> {
     let mut raw_length = ptr::null_mut();
     unsafe {
@@ -790,7 +797,8 @@ impl<'env> Value<'env, String> {
   }
 }
 
-impl<'env> Value<'env, String> {
+impl<'env> Value<'env, JsString> {
+  #[inline]
   pub fn get_ref(&self) -> Result<&[u8]> {
     let mut written_char_count: u64 = 0;
     let len = self.len()? + 1;
@@ -812,6 +820,10 @@ impl<'env> Value<'env, String> {
         written_char_count as usize,
       ))
     }
+  }
+
+  pub fn as_str(&self) -> Result<&str> {
+    str::from_utf8(self.get_ref()?).map_err(|_| Error::new(Status::GenericFailure))
   }
 
   pub fn get_ref_mut(&mut self) -> Result<&mut [u8]> {
@@ -838,10 +850,10 @@ impl<'env> Value<'env, String> {
   }
 }
 
-impl<'env> TryFrom<Value<'env, String>> for Vec<u16> {
+impl<'env> TryFrom<Value<'env, JsString>> for Vec<u16> {
   type Error = Error;
 
-  fn try_from(value: Value<'env, String>) -> Result<Vec<u16>> {
+  fn try_from(value: Value<'env, JsString>) -> Result<Vec<u16>> {
     let mut result = Vec::with_capacity(value.len()? + 1); // Leave room for trailing null byte
 
     unsafe {
