@@ -5,7 +5,7 @@ extern crate napi_rs_derive;
 
 extern crate futures;
 
-use napi::{Any, Env, Error, Object, Result, Status, Value, CallContext};
+use napi::{Any, CallContext, Env, Error, Object, Result, Status, Value};
 
 register_module!(test_module, init);
 
@@ -13,21 +13,13 @@ fn init<'env>(
   env: &'env Env,
   exports: &'env mut Value<'env, Object>,
 ) -> Result<Option<Value<'env, Object>>> {
-  exports.set_named_property(
-    "testSpawn",
-    env.create_function("testSpawn", test_spawn)?,
-  )?;
-  exports.set_named_property(
-    "testThrow",
-    env.create_function("testThrow", test_throw)?,
-  )?;
+  exports.set_named_property("testSpawn", env.create_function("testSpawn", test_spawn)?)?;
+  exports.set_named_property("testThrow", env.create_function("testThrow", test_throw)?)?;
   Ok(None)
 }
 
 #[js_function]
-fn test_spawn<'a>(
-  ctx: CallContext<'a>
-) -> Result<Value<'a, Object>> {
+fn test_spawn<'a>(ctx: CallContext<'a>) -> Result<Value<'a, Object>> {
   use futures::executor::ThreadPool;
   use futures::StreamExt;
   let env = ctx.env;
@@ -37,7 +29,7 @@ fn test_spawn<'a>(
   let (tx, rx) = futures::channel::mpsc::unbounded::<i32>();
   let fut_values = async move {
     let fut_tx_result = async move {
-      (0..100).for_each(|v| {
+      (0..20).for_each(|v| {
         tx.unbounded_send(v).expect("Failed to send");
       })
     };
@@ -60,8 +52,6 @@ fn test_spawn<'a>(
 }
 
 #[js_function]
-fn test_throw<'a>(
-  _ctx: CallContext<'a>,
-) -> Result<Value<'a, Any>> {
+fn test_throw<'a>(_ctx: CallContext<'a>) -> Result<Value<'a, Any>> {
   Err(Error::new(Status::GenericFailure))
 }
