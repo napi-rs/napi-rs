@@ -26,6 +26,23 @@ This library depends on N-API and requires Node 8.9 or later. It is still pretty
 
 One nice feature is that this crate allows you to build add-ons purely with the Rust toolchain and without involving `node-gyp`.
 
+## Taste
+```rs
+#[js_function(1)] // ------> argument length, omit for zero
+fn fibonacci<'env>(ctx: CallContext<'env>) -> Result<Value<'env, Number>> {
+  let n = ctx.get::<Number>(0)?.try_into()?;
+  ctx.env.create_int64(fibonacci_native(n))
+}
+
+#[inline]
+fn fibonacci_native(n: i64) -> i64 {
+  match n {
+    1 | 2 => 1,
+    _ => fibonacci_native(n - 1) + fibonacci_native(n - 2),
+  }
+}
+```
+
 ## Building
 
 This repository is a Cargo crate. Any napi-based add-on should contain `Cargo.toml` to make it a Cargo crate.
