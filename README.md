@@ -28,7 +28,7 @@ One nice feature is that this crate allows you to build add-ons purely with the 
 
 ## Taste
 ```rust
-#[js_function(1)] // ------> argument length, omit for zero
+#[js_function(1)] // ------> arguments length, omit for zero
 fn fibonacci<'env>(ctx: CallContext<'env>) -> Result<Value<'env, Number>> {
   let n = ctx.get::<Number>(0)?.try_into()?;
   ctx.env.create_int64(fibonacci_native(n))
