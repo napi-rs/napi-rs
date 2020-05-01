@@ -780,6 +780,12 @@ fn get_raw_type(env: sys::napi_env, raw_value: sys::napi_value) -> sys::napi_val
   }
 }
 
+impl<'env> Value<'env, Boolean> {
+  pub fn get_value(&self) -> bool {
+    self.value.value
+  }
+}
+
 impl<'env> Value<'env, JsString> {
   pub fn len(&self) -> Result<usize> {
     let mut raw_length = ptr::null_mut();
