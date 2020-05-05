@@ -11,7 +11,10 @@ let tomlContent
 let moduleName
 
 try {
-  tomlContentString = fs.readFileSync(path.join(process.cwd(), 'Cargo.toml'), 'utf-8')
+  tomlContentString = fs.readFileSync(
+    path.join(process.cwd(), 'Cargo.toml'),
+    'utf-8',
+  )
 } catch {
   throw new TypeError('Can not find Cargo.toml in process.cwd')
 }
@@ -60,7 +63,9 @@ const targetDir = argv.release ? 'release' : 'debug'
 
 const platformName = argv.platform ? `.${platform}` : ''
 
-let subcommand = argv._[0] || path.join('target', targetDir, `${moduleName}${platformName}.node`)
+let subcommand =
+  argv._[0] ||
+  path.join('target', targetDir, `${moduleName}${platformName}.node`)
 const parsedDist = path.parse(subcommand)
 
 if (!parsedDist.name || parsedDist.name === '.') {
@@ -73,11 +78,13 @@ if (!parsedDist.ext) {
 
 const pos = __dirname.indexOf('node_modules')
 
-const dylibContent = fs.readFileSync(path.join(
-  __dirname.substring(0, pos),
-  'target',
-  targetDir,
-  `${dylibName}${libExt}`,
-))
+const dylibContent = fs.readFileSync(
+  path.join(
+    __dirname.substring(0, pos),
+    'target',
+    targetDir,
+    `${dylibName}${libExt}`,
+  ),
+)
 
 fs.writeFileSync(subcommand, dylibContent)

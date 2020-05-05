@@ -1,5 +1,4 @@
 extern crate bindgen;
-extern crate cc;
 #[cfg(windows)]
 extern crate flate2;
 extern crate glob;
@@ -36,8 +35,6 @@ fn main() {
     );
   }
 
-  env::set_var("CARGO_RUSTC_FLAGS", "-Clink-args=-export_dynamic");
-
   if node_major_version < 10 {
     panic!("node version is too low")
   }
@@ -60,31 +57,6 @@ fn main() {
     .expect("Unable to generate napi bindings")
     .write_to_file(out_path.join("bindings.rs"))
     .expect("Unable to write napi bindings");
-
-  let mut bindings_path = PathBuf::from("src");
-  bindings_path.push("sys");
-  bindings_path.push("bindings.cc");
-
-  let mut cc_builder = cc::Build::new();
-
-  cc_builder
-    .cpp(true)
-    .include(&node_include_path)
-    .file(bindings_path);
-  if !cfg!(windows) {
-    cc_builder.flag("-Wno-unused-parameter");
-  };
-
-  if cfg!(target_os = "macos") {
-    cc_builder.flag("-std=c++0x");
-  } else if cfg!(linux) || cfg!(target_env = "gnu") {
-    cc_builder.flag("-std=c++14");
-  }
-
-  cc_builder
-    .cargo_metadata(true)
-    .out_dir(&out_path)
-    .compile("napi-bindings");
 }
 
 #[cfg(target_os = "windows")]

@@ -17,7 +17,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v2
-      
+
       - name: Setup node
         uses: actions/setup-node@v1
         with:
@@ -62,7 +62,7 @@ jobs:
         with:
           command: test
           args: -p napi-rs --lib -- --nocapture
-      
+
       - name: test scripts
         run: |
           yarn

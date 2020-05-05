@@ -7,6 +7,7 @@ description = "N-API bindings"
 readme = "README.md"
 repository = "https://github.com/Brooooooklyn/napi-rs"
 keywords = ["NodeJS", "FFI", "NAPI", "n-api"]
+edition = "2018"
 
 [dependencies]
 futures = { version = "0.3", features = ["default", "thread-pool"] }
@@ -25,7 +26,6 @@ tar = "0.4"
 
 [build-dependencies]
 bindgen = "0.53"
-cc = "1.0"
 glob = "0.3"
 napi-build = { version = "0.1", path = "../build" }
 regex = "1.3"

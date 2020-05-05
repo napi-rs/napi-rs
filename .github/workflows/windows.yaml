@@ -19,7 +19,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v2
-      
+
       - name: Setup node
         uses: actions/setup-node@v1
         with:
@@ -31,7 +31,7 @@ jobs:
           profile: minimal
           override: true
       - name: Install llvm
-        run: choco install -y llvm 
+        run: choco install -y llvm
       - name: set environment variables
         uses: allenevans/set-env@v1.0.0
         with:
@@ -68,7 +68,7 @@ jobs:
         with:
           command: test
           args: -p napi-rs --lib -- --nocapture
-      
+
       - name: test scripts
         run: |
           yarn

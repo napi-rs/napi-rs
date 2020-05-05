@@ -1,4 +1,4 @@
-const testModule = require(`./target/debug/test_module.node`)
+const testModule = require('./index.node')
 
 function testSpawn() {
   console.log('=== Test spawning a future on libuv event loop')
@@ -9,19 +9,21 @@ function testThrow() {
   console.log('=== Test throwing from Rust')
   try {
     testModule.testThrow()
+    console.error('Expected function to throw an error')
+    process.exit(1)
   } catch (e) {
-    return
+    console.error(e)
   }
-  console.error('Expected function to throw an error')
-  process.exit(1)
 }
 
 const future = testSpawn()
 
-// https://github.com/nodejs/node/issues/29355
-setTimeout(() => {
-  future.then(testThrow).catch((e) => {
+future
+  .then((value) => {
+    console.info(`${value} from napi`)
+    testThrow()
+  })
+  .catch((e) => {
     console.error(e)
     process.exit(1)
   })
-}, 1000)
