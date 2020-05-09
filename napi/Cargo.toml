@@ -11,13 +11,6 @@ edition = "2018"
 
 [dependencies]
 futures = { version = "0.3", features = ["default", "thread-pool"] }
-serde = { version = "1", optional = true }
-serde_json = { version = "1", optional = true }
-
-[features]
-serde-json = ["serde", "serde_json"]
-
-default = ["serde-json"]
 
 [target.'cfg(windows)'.build-dependencies]
 flate2 = "1.0"

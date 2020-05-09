@@ -1,15 +1,16 @@
 use crate::{sys, Any, Env, Error, Result, Status, Value, ValueType};
 
-pub struct CallContext<T: ValueType = Any> {
-  pub env: Env,
+pub struct CallContext<'env, T: ValueType = Any> {
+  pub env: &'env Env,
   pub this: Value<T>,
   args: [sys::napi_value; 8],
   arg_len: usize,
 }
 
-impl<T: ValueType> CallContext<T> {
+impl<'env, T: ValueType> CallContext<'env, T> {
+  #[inline]
   pub fn new(
-    env: Env,
+    env: &'env Env,
     this: sys::napi_value,
     args: [sys::napi_value; 8],
     arg_len: usize,
@@ -22,6 +23,7 @@ impl<T: ValueType> CallContext<T> {
     })
   }
 
+  #[inline]
   pub fn get<ArgType: ValueType>(&self, index: usize) -> Result<Value<ArgType>> {
     if index + 1 > self.arg_len {
       Err(Error {

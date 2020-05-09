@@ -101,8 +101,8 @@ pub fn js_function(attr: TokenStream, input: TokenStream) -> TokenStream {
         has_error = has_error && (Status::from(status) == Status::Ok);
       }
 
-      let env = Env::from_raw(raw_env);
-      let call_ctx = CallContext::new(env, raw_this, raw_args, #arg_len_span);
+      let mut env = Env::from_raw(raw_env);
+      let call_ctx = CallContext::new(&mut env, raw_this, raw_args, #arg_len_span);
       let result = call_ctx.and_then(|ctx| #new_fn_name(ctx));
       has_error = has_error && result.is_err();
 
