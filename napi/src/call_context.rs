@@ -1,32 +1,35 @@
 use crate::{sys, Any, Env, Error, Result, Status, Value, ValueType};
 
-pub struct CallContext<'env, T: ValueType = Any> {
-  pub env: &'env Env,
-  pub this: Value<'env, T>,
+pub struct CallContext<T: ValueType = Any> {
+  pub env: Env,
+  pub this: Value<T>,
   args: [sys::napi_value; 8],
   arg_len: usize,
 }
 
-impl<'env, T: ValueType> CallContext<'env, T> {
+impl<T: ValueType> CallContext<T> {
   pub fn new(
-    env: &'env Env,
+    env: Env,
     this: sys::napi_value,
     args: [sys::napi_value; 8],
     arg_len: usize,
   ) -> Result<Self> {
     Ok(Self {
       env,
-      this: Value::<'env, T>::from_raw(env, this)?,
+      this: Value::<T>::from_raw(env.0, this)?,
       args,
       arg_len,
     })
   }
 
-  pub fn get<ArgType: ValueType>(&'env self, index: usize) -> Result<Value<'env, ArgType>> {
+  pub fn get<ArgType: ValueType>(&self, index: usize) -> Result<Value<ArgType>> {
     if index + 1 > self.arg_len {
-      Err(Error::new(Status::GenericFailure))
+      Err(Error {
+        status: Status::GenericFailure,
+        reason: Some("Arguments index out of range".to_owned()),
+      })
     } else {
-      Value::<'env, ArgType>::from_raw(&self.env, self.args[index])
+      Value::<ArgType>::from_raw(self.env.0, self.args[index])
     }
   }
 }

@@ -1,6 +1,6 @@
 use super::napi_status;
 
-#[derive(Eq, PartialEq, Debug)]
+#[derive(Eq, PartialEq, Debug, Clone, Copy)]
 pub enum Status {
   Ok,
   InvalidArg,

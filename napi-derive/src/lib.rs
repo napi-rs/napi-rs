@@ -102,16 +102,13 @@ pub fn js_function(attr: TokenStream, input: TokenStream) -> TokenStream {
       }
 
       let env = Env::from_raw(raw_env);
-      let call_ctx = CallContext::new(&env, raw_this, raw_args, #arg_len_span);
+      let call_ctx = CallContext::new(env, raw_this, raw_args, #arg_len_span);
       let result = call_ctx.and_then(|ctx| #new_fn_name(ctx));
       has_error = has_error && result.is_err();
 
       match result {
         Ok(result) => result.into_raw(),
         Err(e) => {
-          if !cfg!(windows) {
-            let _ = writeln!(::std::io::stderr(), "Error calling function: {:?}", e);
-          }
           let message = format!("{:?}", e);
           unsafe {
             napi_rs::sys::napi_throw_error(raw_env, ptr::null(), message.as_ptr() as *const c_char);

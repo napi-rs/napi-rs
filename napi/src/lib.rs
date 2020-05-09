@@ -1,5 +1,7 @@
 extern crate futures;
 
+use core::fmt::Debug;
+use futures::prelude::*;
 use std::any::TypeId;
 use std::convert::{TryFrom, TryInto};
 use std::ffi::CString;
@@ -14,17 +16,21 @@ use std::string::String as RustString;
 
 mod call_context;
 mod executor;
+mod promise;
 pub mod sys;
+mod version;
 
 pub use call_context::CallContext;
 pub use sys::{napi_valuetype, Status};
+pub use version::NodeVersion;
 
 pub type Result<T> = std::result::Result<T, Error>;
 pub type Callback = extern "C" fn(sys::napi_env, sys::napi_callback_info) -> sys::napi_value;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Error {
-  status: Status,
+  pub status: Status,
+  pub reason: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -75,8 +81,8 @@ pub struct ArrayBuffer {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct Value<'env, T> {
-  env: &'env Env,
+pub struct Value<T> {
+  env: sys::napi_env,
   raw_value: sys::napi_value,
   value: T,
 }
@@ -86,14 +92,6 @@ pub struct Ref<T> {
   raw_ref: sys::napi_ref,
   _marker: PhantomData<T>,
 }
-
-pub struct AsyncContext {
-  raw_env: sys::napi_env,
-  raw_context: sys::napi_async_context,
-  raw_resource: sys::napi_ref,
-}
-
-pub struct Deferred(sys::napi_deferred);
 
 #[derive(Clone, Debug)]
 pub struct Property {
@@ -141,7 +139,7 @@ macro_rules! register_module {
           raw_exports: sys::napi_value,
         ) -> sys::napi_value {
           let env = Env::from_raw(raw_env);
-          let mut exports: Value<Object> = Value::from_raw(&env, raw_exports).unwrap();
+          let mut exports: Value<Object> = Value::from_raw(raw_env, raw_exports).unwrap();
 
           let result = $init(&env, &mut exports);
 
@@ -162,15 +160,19 @@ macro_rules! register_module {
 }
 
 impl Error {
-  pub fn new(status: Status) -> Self {
-    Error { status: status }
+  pub fn from_status(status: Status) -> Self {
+    Error {
+      status: status,
+      reason: None,
+    }
   }
 }
 
 impl From<std::ffi::NulError> for Error {
-  fn from(_error: std::ffi::NulError) -> Self {
+  fn from(error: std::ffi::NulError) -> Self {
     Error {
       status: Status::StringExpected,
+      reason: Some(format!("{:?}", error)),
     }
   }
 }
@@ -180,14 +182,14 @@ impl Env {
     Env(env)
   }
 
-  pub fn get_undefined<'a>(&'a self) -> Result<Value<'a, Undefined>> {
+  pub fn get_undefined(&self) -> Result<Value<Undefined>> {
     let mut raw_value = ptr::null_mut();
     let status = unsafe { sys::napi_get_undefined(self.0, &mut raw_value) };
     check_status(status)?;
     Ok(Value::from_raw_value(self, raw_value, Undefined))
   }
 
-  pub fn get_null<'a>(&'a self) -> Result<Value<'a, Null>> {
+  pub fn get_null(&self) -> Result<Value<Null>> {
     let mut raw_value = ptr::null_mut();
     let status = unsafe { sys::napi_get_null(self.0, &mut raw_value) };
     check_status(status)?;
@@ -201,7 +203,7 @@ impl Env {
     Ok(Value::from_raw_value(self, raw_value, Boolean { value }))
   }
 
-  pub fn create_int32<'a>(&'a self, int: i32) -> Result<Value<'a, Number>> {
+  pub fn create_int32(&self, int: i32) -> Result<Value<Number>> {
     let mut raw_value = ptr::null_mut();
     let status =
       unsafe { sys::napi_create_int32(self.0, int, (&mut raw_value) as *mut sys::napi_value) };
@@ -209,7 +211,7 @@ impl Env {
     Ok(Value::from_raw_value(self, raw_value, Number::Int32(int)))
   }
 
-  pub fn create_int64<'a>(&'a self, int: i64) -> Result<Value<'a, Number>> {
+  pub fn create_int64(&self, int: i64) -> Result<Value<Number>> {
     let mut raw_value = ptr::null_mut();
     let status =
       unsafe { sys::napi_create_int64(self.0, int, (&mut raw_value) as *mut sys::napi_value) };
@@ -217,7 +219,7 @@ impl Env {
     Ok(Value::from_raw_value(self, raw_value, Number::Int(int)))
   }
 
-  pub fn create_uint32<'a>(&'a self, number: u32) -> Result<Value<'a, Number>> {
+  pub fn create_uint32(&self, number: u32) -> Result<Value<Number>> {
     let mut raw_value = ptr::null_mut();
     let status =
       unsafe { sys::napi_create_uint32(self.0, number, (&mut raw_value) as *mut sys::napi_value) };
@@ -225,7 +227,7 @@ impl Env {
     Ok(Value::from_raw_value(self, raw_value, Number::U32(number)))
   }
 
-  pub fn create_double<'a>(&'a self, double: f64) -> Result<Value<'a, Number>> {
+  pub fn create_double(&self, double: f64) -> Result<Value<Number>> {
     let mut raw_value = ptr::null_mut();
     let status =
       unsafe { sys::napi_create_double(self.0, double, (&mut raw_value) as *mut sys::napi_value) };
@@ -237,7 +239,7 @@ impl Env {
     ))
   }
 
-  pub fn create_string<'a, 'b>(&'a self, s: &'b str) -> Result<Value<'a, JsString>> {
+  pub fn create_string<'a, 'b>(&'a self, s: &'b str) -> Result<Value<JsString>> {
     let mut raw_value = ptr::null_mut();
     let status = unsafe {
       sys::napi_create_string_utf8(
@@ -260,7 +262,7 @@ impl Env {
     Ok(Value::from_raw_value(self, raw_value, JsString))
   }
 
-  pub fn create_object<'a>(&'a self) -> Result<Value<'a, Object>> {
+  pub fn create_object(&self) -> Result<Value<Object>> {
     let mut raw_value = ptr::null_mut();
     let status = unsafe { sys::napi_create_object(self.0, &mut raw_value) };
     check_status(status)?;
@@ -365,11 +367,7 @@ impl Env {
     ))
   }
 
-  pub fn create_function<'a, 'b>(
-    &'a self,
-    name: &'b str,
-    callback: Callback,
-  ) -> Result<Value<'a, Function>> {
+  pub fn create_function(&self, name: &str, callback: Callback) -> Result<Value<Function>> {
     let mut raw_result = ptr::null_mut();
     let status = unsafe {
       sys::napi_create_function(
@@ -414,7 +412,7 @@ impl Env {
       check_status(status)?;
     };
 
-    Value::from_raw(self, raw_value)
+    Value::from_raw(self.0, raw_value)
   }
 
   pub fn define_class<'a, 'b>(
@@ -422,7 +420,7 @@ impl Env {
     name: &'b str,
     constructor_cb: Callback,
     properties: Vec<Property>,
-  ) -> Result<Value<'a, Function>> {
+  ) -> Result<Value<Function>> {
     let mut raw_result = ptr::null_mut();
     let raw_properties = properties
       .into_iter()
@@ -473,10 +471,14 @@ impl Env {
         let tagged_object: *mut TaggedObject<T> = mem::transmute(unknown_tagged_object);
         (*tagged_object).object.as_mut().ok_or(Error {
           status: Status::InvalidArg,
+          reason: Some("Invalid argument, nothing attach to js_object".to_owned()),
         })
       } else {
         Err(Error {
           status: Status::InvalidArg,
+          reason: Some(
+            "Invalid argument, T on unrwap is not the type of wrapped object".to_owned(),
+          ),
         })
       }
     }
@@ -496,35 +498,40 @@ impl Env {
       } else {
         Err(Error {
           status: Status::InvalidArg,
+          reason: Some(
+            "Invalid argument, T on drop_wrapped is not the type of wrapped object".to_owned(),
+          ),
         })
       }
     }
   }
 
-  pub fn async_init(&self, resource: Option<Value<Object>>, name: &str) -> Result<AsyncContext> {
-    let raw_resource = resource
-      .map(|r| Ok(r.into_raw()))
-      .unwrap_or_else(|| self.create_object().map(|o| o.into_raw()))?;
-    let raw_name = self.create_string(name)?.into_raw();
-
-    let mut raw_context = ptr::null_mut();
-    let mut raw_resource_ref = ptr::null_mut();
-    unsafe {
-      let status = sys::napi_async_init(self.0, raw_resource, raw_name, &mut raw_context);
-      check_status(status)?;
-
-      let status = sys::napi_create_reference(self.0, raw_resource, 1, &mut raw_resource_ref);
-      check_status(status)?;
-    }
-
-    Ok(AsyncContext {
-      raw_env: self.0,
-      raw_resource: raw_resource_ref,
-      raw_context,
-    })
+  pub fn create_error(&self, e: Error) -> Result<Value<Object>> {
+    let reason = e.reason.unwrap_or("".to_owned());
+    let reason_string = self.create_string(reason.as_str())?;
+    let mut result = ptr::null_mut();
+    let status = unsafe {
+      sys::napi_create_error(
+        self.0,
+        ptr::null_mut(),
+        reason_string.into_raw(),
+        &mut result,
+      )
+    };
+    check_status(status)?;
+    Ok(Value::from_raw_value(self, result, Object))
   }
 
-  pub fn create_promise(&self) -> Result<(Value<Object>, Deferred)> {
+  pub fn perform_async_operation<
+    T: 'static,
+    V: 'static + ValueType,
+    F: 'static + Future<Output = Result<T>>,
+    R: 'static + FnOnce(&mut Env, T) -> Result<Value<V>>,
+  >(
+    &self,
+    deferred: F,
+    resolver: R,
+  ) -> Result<Value<Object>> {
     let mut raw_promise = ptr::null_mut();
     let mut raw_deferred = ptr::null_mut();
 
@@ -533,28 +540,41 @@ impl Env {
       check_status(status)?;
     }
 
-    Ok((
-      Value::from_raw_value(self, raw_promise, Object),
-      Deferred(raw_deferred),
-    ))
-  }
-
-  pub fn resolve_deferred<T: ValueType>(&self, deferred: Deferred, value: Value<T>) -> Result<()> {
-    unsafe {
-      let status = sys::napi_resolve_deferred(self.0, deferred.0, value.into_raw());
-      check_status(status)
-    }
-  }
-
-  pub fn create_executor(&self) -> executor::LibuvExecutor {
     let event_loop = unsafe { sys::uv_default_loop() };
-    executor::LibuvExecutor::new(event_loop)
+    let raw_env = self.0;
+    executor::execute(
+      event_loop,
+      promise::resolve(self.0, deferred, resolver, raw_deferred).map(move |v| match v {
+        Ok(value) => value,
+        Err(e) => {
+          let cloned_error = e.clone();
+          unsafe {
+            sys::napi_throw_error(
+              raw_env,
+              ptr::null(),
+              e.reason.unwrap_or(format!("{:?}", e.status)).as_ptr() as *const _,
+            );
+          };
+          eprintln!("{:?}", &cloned_error);
+          panic!(cloned_error);
+        }
+      }),
+    )?;
+
+    Ok(Value::from_raw_value(self, raw_promise, Object))
+  }
+
+  pub fn get_node_version(&self) -> Result<NodeVersion> {
+    let mut result = ptr::null();
+    check_status(unsafe { sys::napi_get_node_version(self.0, &mut result) })?;
+    let version = unsafe { *result };
+    version.try_into()
   }
 }
 
-pub trait ValueType: Copy {
+pub trait ValueType: Copy + Debug {
   fn from_raw(env: sys::napi_env, raw: sys::napi_value) -> Result<Self>;
-  fn matches_raw_type(env: sys::napi_env, raw: sys::napi_value) -> bool;
+  fn matches_raw_type(env: sys::napi_env, raw: sys::napi_value) -> Result<bool>;
 }
 
 impl ValueType for Any {
@@ -562,8 +582,8 @@ impl ValueType for Any {
     Ok(Any)
   }
 
-  fn matches_raw_type(_env: sys::napi_env, _raw: sys::napi_value) -> bool {
-    true
+  fn matches_raw_type(_env: sys::napi_env, _raw: sys::napi_value) -> Result<bool> {
+    Ok(true)
   }
 }
 
@@ -572,8 +592,8 @@ impl ValueType for Undefined {
     Ok(Undefined)
   }
 
-  fn matches_raw_type(env: sys::napi_env, raw: sys::napi_value) -> bool {
-    get_raw_type(env, raw) == sys::napi_valuetype::napi_undefined
+  fn matches_raw_type(env: sys::napi_env, raw: sys::napi_value) -> Result<bool> {
+    Ok(get_raw_type(env, raw)? == sys::napi_valuetype::napi_undefined)
   }
 }
 
@@ -582,8 +602,8 @@ impl ValueType for Null {
     Ok(Null)
   }
 
-  fn matches_raw_type(env: sys::napi_env, raw: sys::napi_value) -> bool {
-    get_raw_type(env, raw) == sys::napi_valuetype::napi_null
+  fn matches_raw_type(env: sys::napi_env, raw: sys::napi_value) -> Result<bool> {
+    Ok(get_raw_type(env, raw)? == sys::napi_valuetype::napi_null)
   }
 }
 
@@ -595,8 +615,8 @@ impl ValueType for Boolean {
     Ok(Boolean { value })
   }
 
-  fn matches_raw_type(env: sys::napi_env, raw: sys::napi_value) -> bool {
-    get_raw_type(env, raw) == sys::napi_valuetype::napi_boolean
+  fn matches_raw_type(env: sys::napi_env, raw: sys::napi_value) -> Result<bool> {
+    Ok(get_raw_type(env, raw)? == sys::napi_valuetype::napi_boolean)
   }
 }
 
@@ -608,8 +628,8 @@ impl ValueType for Number {
     Ok(Number::Double(double))
   }
 
-  fn matches_raw_type(env: sys::napi_env, raw: sys::napi_value) -> bool {
-    get_raw_type(env, raw) == sys::napi_valuetype::napi_number
+  fn matches_raw_type(env: sys::napi_env, raw: sys::napi_value) -> Result<bool> {
+    Ok(get_raw_type(env, raw)? == sys::napi_valuetype::napi_number)
   }
 }
 
@@ -618,8 +638,8 @@ impl ValueType for JsString {
     Ok(JsString {})
   }
 
-  fn matches_raw_type(env: sys::napi_env, raw: sys::napi_value) -> bool {
-    get_raw_type(env, raw) == sys::napi_valuetype::napi_string
+  fn matches_raw_type(env: sys::napi_env, raw: sys::napi_value) -> Result<bool> {
+    Ok(get_raw_type(env, raw)? == sys::napi_valuetype::napi_string)
   }
 }
 
@@ -628,8 +648,8 @@ impl ValueType for Object {
     Ok(Object {})
   }
 
-  fn matches_raw_type(env: sys::napi_env, raw: sys::napi_value) -> bool {
-    get_raw_type(env, raw) == sys::napi_valuetype::napi_object
+  fn matches_raw_type(env: sys::napi_env, raw: sys::napi_value) -> Result<bool> {
+    Ok(get_raw_type(env, raw)? == sys::napi_valuetype::napi_object)
   }
 }
 
@@ -645,13 +665,13 @@ impl ValueType for Buffer {
     })
   }
 
-  fn matches_raw_type(env: sys::napi_env, raw: sys::napi_value) -> bool {
+  fn matches_raw_type(env: sys::napi_env, raw: sys::napi_value) -> Result<bool> {
     let mut result = false;
     unsafe {
       let status = sys::napi_is_buffer(env, raw, &mut result);
-      debug_assert!(Status::from(status) == Status::Ok);
+      check_status(status)?;
     }
-    result
+    Ok(result)
   }
 }
 
@@ -667,21 +687,21 @@ impl ValueType for ArrayBuffer {
     })
   }
 
-  fn matches_raw_type(env: sys::napi_env, raw: sys::napi_value) -> bool {
+  fn matches_raw_type(env: sys::napi_env, raw: sys::napi_value) -> Result<bool> {
     let mut result = false;
     unsafe {
       let status = sys::napi_is_arraybuffer(env, raw, &mut result);
-      debug_assert!(Status::from(status) == Status::Ok);
+      check_status(status)?;
     }
-    result
+    Ok(result)
   }
 }
 
-impl<'env> Value<'env, Buffer> {
+impl Value<Buffer> {
   #[inline]
-  pub fn from_value(env: &'env Env, value: &Value<'env, Any>) -> Result<Value<'env, Buffer>> {
+  pub fn from_value(env: &Env, value: &Value<Any>) -> Result<Value<Buffer>> {
     Ok(Value {
-      env,
+      env: env.0,
       raw_value: value.raw_value,
       value: Buffer::from_raw(env.0, value.into_raw())?,
     })
@@ -693,25 +713,25 @@ impl ValueType for Function {
     Ok(Function {})
   }
 
-  fn matches_raw_type(env: sys::napi_env, raw: sys::napi_value) -> bool {
-    get_raw_type(env, raw) == sys::napi_valuetype::napi_function
+  fn matches_raw_type(env: sys::napi_env, raw: sys::napi_value) -> Result<bool> {
+    Ok(get_raw_type(env, raw)? == sys::napi_valuetype::napi_function)
   }
 }
 
-impl<'env, T: ValueType> Value<'env, T> {
-  pub fn from_raw_value(env: &'env Env, raw_value: sys::napi_value, value: T) -> Self {
+impl<T: ValueType> Value<T> {
+  pub fn from_raw_value(env: &Env, raw_value: sys::napi_value, value: T) -> Self {
     Self {
-      env,
+      env: env.0,
       raw_value,
       value,
     }
   }
 
-  pub fn from_raw(env: &'env Env, raw_value: sys::napi_value) -> Result<Self> {
+  pub fn from_raw(env: sys::napi_env, raw_value: sys::napi_value) -> Result<Self> {
     Ok(Self {
       env,
       raw_value,
-      value: T::from_raw(env.0, raw_value)?,
+      value: T::from_raw(env, raw_value)?,
     })
   }
 
@@ -719,22 +739,22 @@ impl<'env, T: ValueType> Value<'env, T> {
     self.raw_value
   }
 
-  pub fn coerce_to_number(self) -> Result<Value<'env, Number>> {
+  pub fn coerce_to_number(self) -> Result<Value<Number>> {
     let mut new_raw_value = ptr::null_mut();
     let status =
-      unsafe { sys::napi_coerce_to_number(self.env.0, self.raw_value, &mut new_raw_value) };
+      unsafe { sys::napi_coerce_to_number(self.env, self.raw_value, &mut new_raw_value) };
     check_status(status)?;
     Ok(Value {
       env: self.env,
       raw_value: self.raw_value,
-      value: Number::from_raw(self.env.0, self.raw_value)?,
+      value: Number::from_raw(self.env, self.raw_value)?,
     })
   }
 
-  pub fn coerce_to_string(self) -> Result<Value<'env, JsString>> {
+  pub fn coerce_to_string(self) -> Result<Value<JsString>> {
     let mut new_raw_value = ptr::null_mut();
     let status =
-      unsafe { sys::napi_coerce_to_string(self.env.0, self.raw_value, &mut new_raw_value) };
+      unsafe { sys::napi_coerce_to_string(self.env, self.raw_value, &mut new_raw_value) };
     check_status(status)?;
     Ok(Value {
       env: self.env,
@@ -743,11 +763,11 @@ impl<'env, T: ValueType> Value<'env, T> {
     })
   }
 
-  pub fn coerce_to_object(self) -> Result<Value<'env, Object>> {
+  pub fn coerce_to_object(self) -> Result<Value<Object>> {
     let mut new_raw_value = ptr::null_mut();
     let status = unsafe {
       sys::napi_coerce_to_object(
-        self.env.0,
+        self.env,
         self.raw_value,
         (&mut new_raw_value) as *mut sys::napi_value,
       )
@@ -761,7 +781,7 @@ impl<'env, T: ValueType> Value<'env, T> {
   }
 
   #[inline]
-  pub fn into_any(self) -> Value<'env, Any> {
+  pub fn into_any(self) -> Value<Any> {
     Value {
       env: self.env,
       raw_value: self.raw_value,
@@ -771,27 +791,26 @@ impl<'env, T: ValueType> Value<'env, T> {
 }
 
 #[inline]
-fn get_raw_type(env: sys::napi_env, raw_value: sys::napi_value) -> sys::napi_valuetype {
+fn get_raw_type(env: sys::napi_env, raw_value: sys::napi_value) -> Result<sys::napi_valuetype> {
   unsafe {
     let value_type = ptr::null_mut();
-    let status = sys::napi_typeof(env, raw_value, value_type);
-    debug_assert!(Status::from(status) == Status::Ok);
-    *value_type
+    check_status(sys::napi_typeof(env, raw_value, value_type))?;
+    Ok(*value_type)
   }
 }
 
-impl<'env> Value<'env, Boolean> {
+impl Value<Boolean> {
   pub fn get_value(&self) -> bool {
     self.value.value
   }
 }
 
-impl<'env> Value<'env, JsString> {
+impl Value<JsString> {
   pub fn len(&self) -> Result<usize> {
     let mut raw_length = ptr::null_mut();
     unsafe {
       let status = sys::napi_get_named_property(
-        self.env.0,
+        self.env,
         self.raw_value,
         "length\0".as_ptr() as *const c_char,
         &mut raw_length,
@@ -803,7 +822,7 @@ impl<'env> Value<'env, JsString> {
   }
 }
 
-impl<'env> Value<'env, JsString> {
+impl Value<JsString> {
   #[inline]
   pub fn get_ref(&self) -> Result<&[u8]> {
     let mut written_char_count: u64 = 0;
@@ -811,7 +830,7 @@ impl<'env> Value<'env, JsString> {
     let mut result = Vec::with_capacity(len);
     unsafe {
       let status = sys::napi_get_value_string_utf8(
-        self.env.0,
+        self.env,
         self.raw_value,
         result.as_mut_ptr(),
         len as u64,
@@ -829,7 +848,10 @@ impl<'env> Value<'env, JsString> {
   }
 
   pub fn as_str(&self) -> Result<&str> {
-    str::from_utf8(self.get_ref()?).map_err(|_| Error::new(Status::GenericFailure))
+    str::from_utf8(self.get_ref()?).map_err(|e| Error {
+      status: Status::GenericFailure,
+      reason: Some(format!("{:?}", e)),
+    })
   }
 
   pub fn get_ref_mut(&mut self) -> Result<&mut [u8]> {
@@ -838,7 +860,7 @@ impl<'env> Value<'env, JsString> {
     let mut result = Vec::with_capacity(len);
     unsafe {
       let status = sys::napi_get_value_string_utf8(
-        self.env.0,
+        self.env,
         self.raw_value,
         result.as_mut_ptr(),
         len as u64,
@@ -856,16 +878,16 @@ impl<'env> Value<'env, JsString> {
   }
 }
 
-impl<'env> TryFrom<Value<'env, JsString>> for Vec<u16> {
+impl TryFrom<Value<JsString>> for Vec<u16> {
   type Error = Error;
 
-  fn try_from(value: Value<'env, JsString>) -> Result<Vec<u16>> {
+  fn try_from(value: Value<JsString>) -> Result<Vec<u16>> {
     let mut result = Vec::with_capacity(value.len()? + 1); // Leave room for trailing null byte
 
     unsafe {
       let mut written_char_count = 0;
       let status = sys::napi_get_value_string_utf16(
-        value.env.0,
+        value.env,
         value.raw_value,
         result.as_mut_ptr(),
         result.capacity() as u64,
@@ -879,63 +901,63 @@ impl<'env> TryFrom<Value<'env, JsString>> for Vec<u16> {
   }
 }
 
-impl<'env> TryFrom<Value<'env, Number>> for usize {
+impl TryFrom<Value<Number>> for usize {
   type Error = Error;
 
-  fn try_from(value: Value<'env, Number>) -> Result<usize> {
+  fn try_from(value: Value<Number>) -> Result<usize> {
     let mut result = 0;
-    let status = unsafe { sys::napi_get_value_int64(value.env.0, value.raw_value, &mut result) };
+    let status = unsafe { sys::napi_get_value_int64(value.env, value.raw_value, &mut result) };
     check_status(status)?;
     Ok(result as usize)
   }
 }
 
-impl<'env> TryFrom<Value<'env, Number>> for u32 {
+impl TryFrom<Value<Number>> for u32 {
   type Error = Error;
 
-  fn try_from(value: Value<'env, Number>) -> Result<u32> {
+  fn try_from(value: Value<Number>) -> Result<u32> {
     let mut result = 0;
-    let status = unsafe { sys::napi_get_value_uint32(value.env.0, value.raw_value, &mut result) };
+    let status = unsafe { sys::napi_get_value_uint32(value.env, value.raw_value, &mut result) };
     check_status(status)?;
     Ok(result)
   }
 }
 
-impl<'env> TryFrom<Value<'env, Number>> for i32 {
+impl TryFrom<Value<Number>> for i32 {
   type Error = Error;
 
-  fn try_from(value: Value<'env, Number>) -> Result<i32> {
+  fn try_from(value: Value<Number>) -> Result<i32> {
     let mut result = 0;
-    let status = unsafe { sys::napi_get_value_int32(value.env.0, value.raw_value, &mut result) };
+    let status = unsafe { sys::napi_get_value_int32(value.env, value.raw_value, &mut result) };
     check_status(status)?;
     Ok(result)
   }
 }
 
-impl<'env> TryFrom<Value<'env, Number>> for i64 {
+impl TryFrom<Value<Number>> for i64 {
   type Error = Error;
 
-  fn try_from(value: Value<'env, Number>) -> Result<i64> {
+  fn try_from(value: Value<Number>) -> Result<i64> {
     let mut result = 0;
-    let status = unsafe { sys::napi_get_value_int64(value.env.0, value.raw_value, &mut result) };
+    let status = unsafe { sys::napi_get_value_int64(value.env, value.raw_value, &mut result) };
     check_status(status)?;
     Ok(result)
   }
 }
 
-impl<'env> TryFrom<Value<'env, Number>> for f64 {
+impl TryFrom<Value<Number>> for f64 {
   type Error = Error;
 
-  fn try_from(value: Value<'env, Number>) -> Result<f64> {
+  fn try_from(value: Value<Number>) -> Result<f64> {
     let mut result = 0_f64;
-    let status = unsafe { sys::napi_get_value_double(value.env.0, value.raw_value, &mut result) };
+    let status = unsafe { sys::napi_get_value_double(value.env, value.raw_value, &mut result) };
     check_status(status)?;
     Ok(result)
   }
 }
 
-impl<'env> Value<'env, Object> {
-  pub fn set_property<'a, K, V>(&mut self, key: Value<K>, value: Value<V>) -> Result<()> {
+impl Value<Object> {
+  pub fn set_property<K, V>(&mut self, key: Value<K>, value: Value<V>) -> Result<()> {
     let status = unsafe {
       sys::napi_set_property(
         self.raw_env(),
@@ -948,11 +970,7 @@ impl<'env> Value<'env, Object> {
     Ok(())
   }
 
-  pub fn set_named_property<'a, T, V: Into<Value<'a, T>>>(
-    &mut self,
-    name: &'a str,
-    value: V,
-  ) -> Result<()> {
+  pub fn set_named_property<T, V: Into<Value<T>>>(&mut self, name: &str, value: V) -> Result<()> {
     let key = CString::new(name)?;
     let status = unsafe {
       sys::napi_set_named_property(
@@ -990,7 +1008,7 @@ impl<'env> Value<'env, Object> {
   }
 
   pub fn set_index<'a, T>(&mut self, index: usize, value: Value<T>) -> Result<()> {
-    self.set_property(self.env.create_int64(index as i64)?, value)
+    self.set_property(Env::from_raw(self.env).create_int64(index as i64)?, value)
   }
 
   pub fn get_index<T: ValueType>(&self, index: u32) -> Result<Value<T>> {
@@ -1015,7 +1033,7 @@ impl<'env> Value<'env, Object> {
     Ok(is_buffer)
   }
 
-  pub fn to_buffer(&self) -> Result<Value<'env, Buffer>> {
+  pub fn to_buffer(&self) -> Result<Value<Buffer>> {
     Value::from_raw(self.env, self.raw_value)
   }
 
@@ -1023,6 +1041,7 @@ impl<'env> Value<'env, Object> {
     if self.is_array()? != true {
       return Err(Error {
         status: Status::ArrayExpected,
+        reason: Some("Object is not array".to_owned()),
       });
     }
     let mut length: u32 = 0;
@@ -1037,17 +1056,17 @@ impl<'env> Value<'env, Object> {
   }
 
   fn raw_env(&self) -> sys::napi_env {
-    self.env.0
+    self.env
   }
 }
 
-impl<'env> AsRef<[u8]> for Value<'env, Buffer> {
+impl AsRef<[u8]> for Value<Buffer> {
   fn as_ref(&self) -> &[u8] {
     self.deref()
   }
 }
 
-impl<'env> Deref for Value<'env, Buffer> {
+impl Deref for Value<Buffer> {
   type Target = [u8];
 
   fn deref(&self) -> &[u8] {
@@ -1055,13 +1074,13 @@ impl<'env> Deref for Value<'env, Buffer> {
   }
 }
 
-impl<'env> DerefMut for Value<'env, Buffer> {
+impl DerefMut for Value<Buffer> {
   fn deref_mut(&mut self) -> &mut [u8] {
     unsafe { slice::from_raw_parts_mut(self.value.data as *mut _, self.value.size as usize) }
   }
 }
 
-impl<'env> Deref for Value<'env, ArrayBuffer> {
+impl Deref for Value<ArrayBuffer> {
   type Target = [u8];
 
   fn deref(&self) -> &[u8] {
@@ -1069,22 +1088,26 @@ impl<'env> Deref for Value<'env, ArrayBuffer> {
   }
 }
 
-impl<'env> DerefMut for Value<'env, ArrayBuffer> {
+impl DerefMut for Value<ArrayBuffer> {
   fn deref_mut(&mut self) -> &mut [u8] {
     unsafe { slice::from_raw_parts_mut(self.value.data as *mut _, self.value.size as usize) }
   }
 }
 
-impl<'env> Value<'env, Function> {
-  pub fn call(
-    &self,
-    this: Option<&Value<'env, Object>>,
-    args: &[Value<'env, Any>],
-  ) -> Result<Value<'env, Any>> {
+impl Value<Function> {
+  pub fn call(&self, this: Option<&Value<Object>>, args: &[Value<Any>]) -> Result<Value<Any>> {
     let raw_this = this
       .map(|v| v.into_raw())
-      .or_else(|| self.env.get_undefined().ok().map(|u| u.into_raw()))
-      .ok_or(Error::new(Status::Unknown))?;
+      .or_else(|| {
+        Env::from_raw(self.env)
+          .get_undefined()
+          .ok()
+          .map(|u| u.into_raw())
+      })
+      .ok_or(Error {
+        status: Status::Unknown,
+        reason: Some("Get raw this failed".to_owned()),
+      })?;
     let mut raw_args = unsafe { mem::MaybeUninit::<[sys::napi_value; 8]>::uninit().assume_init() };
     for (i, arg) in args.into_iter().enumerate() {
       raw_args[i] = arg.raw_value;
@@ -1092,7 +1115,7 @@ impl<'env> Value<'env, Function> {
     let mut return_value = ptr::null_mut();
     let status = unsafe {
       sys::napi_call_function(
-        self.env.0,
+        self.env,
         raw_this,
         self.raw_value,
         args.len() as u64,
@@ -1106,9 +1129,9 @@ impl<'env> Value<'env, Function> {
   }
 }
 
-impl<'env> Value<'env, Any> {
-  pub fn get_type(&self) -> sys::napi_valuetype {
-    get_raw_type(self.env.0, self.raw_value)
+impl Value<Any> {
+  pub fn get_type(&self) -> Result<sys::napi_valuetype> {
+    get_raw_type(self.env, self.raw_value)
   }
 }
 
@@ -1123,34 +1146,6 @@ impl<T> Drop for Ref<T> {
         let status = sys::napi_delete_reference(self.raw_env, self.raw_ref);
         debug_assert!(Status::from(status) == Status::Ok);
       }
-    }
-  }
-}
-
-impl AsyncContext {
-  pub fn enter<'a, F: 'a + FnOnce(&mut Env)>(&'a self, run_in_context: F) {
-    let mut env = Env::from_raw(self.raw_env);
-    let mut handle_scope = ptr::null_mut();
-    let mut callback_scope = ptr::null_mut();
-    let mut raw_resource = ptr::null_mut();
-
-    unsafe {
-      sys::napi_open_handle_scope(env.0, &mut handle_scope);
-      sys::napi_get_reference_value(env.0, self.raw_resource, &mut raw_resource);
-      sys::extras_open_callback_scope(self.raw_context, raw_resource, &mut callback_scope);
-    }
-    run_in_context(&mut env);
-    unsafe {
-      sys::extras_close_callback_scope(callback_scope);
-      sys::napi_close_handle_scope(env.0, handle_scope);
-    }
-  }
-}
-
-impl Drop for AsyncContext {
-  fn drop(&mut self) {
-    unsafe {
-      sys::napi_delete_reference(self.raw_env, self.raw_resource);
     }
   }
 }
@@ -1202,11 +1197,12 @@ impl<T: 'static> TaggedObject<T> {
   }
 }
 
+#[inline]
 fn check_status(code: sys::napi_status) -> Result<()> {
   let status = Status::from(code);
   match status {
     Status::Ok => Ok(()),
-    _ => Err(Error { status }),
+    _ => Err(Error::from_status(status)),
   }
 }
 

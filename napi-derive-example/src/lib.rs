@@ -8,10 +8,7 @@ use std::convert::TryInto;
 
 register_module!(test_module, init);
 
-fn init<'env>(
-  env: &'env Env,
-  exports: &'env mut Value<'env, Object>,
-) -> Result<Option<Value<'env, Object>>> {
+fn init(env: &Env, exports: &mut Value<Object>) -> Result<Option<Value<Object>>> {
   exports.set_named_property("testThrow", env.create_function("testThrow", test_throw)?)?;
 
   exports.set_named_property("fibonacci", env.create_function("fibonacci", fibonacci)?)?;
@@ -20,7 +17,7 @@ fn init<'env>(
 
 #[js_function]
 fn test_throw(_ctx: CallContext) -> Result<Value<Any>> {
-  Err(Error::new(Status::GenericFailure))
+  Err(Error::from_status(Status::GenericFailure))
 }
 
 #[js_function(1)]
