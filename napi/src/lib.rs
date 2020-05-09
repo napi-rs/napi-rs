@@ -144,10 +144,15 @@ macro_rules! register_module {
           let result = $init(&env, &mut exports);
 
           match result {
-            Ok(Some(exports)) => exports.into_raw(),
-            Ok(None) => ptr::null_mut(),
+            Ok(_) => exports.into_raw(),
             Err(e) => {
-              let _ = writeln!(::std::io::stderr(), "Error initializing module: {:?}", e);
+              unsafe {
+                sys::napi_throw_error(
+                  raw_env,
+                  ptr::null(),
+                  format!("Error initializing module: {:?}", e).as_ptr() as *const _,
+                )
+              };
               ptr::null_mut()
             }
           }
@@ -221,8 +226,7 @@ impl Env {
 
   pub fn create_uint32(&self, number: u32) -> Result<Value<Number>> {
     let mut raw_value = ptr::null_mut();
-    let status =
-      unsafe { sys::napi_create_uint32(self.0, number, (&mut raw_value) as *mut sys::napi_value) };
+    let status = unsafe { sys::napi_create_uint32(self.0, number, &mut raw_value) };
     check_status(status)?;
     Ok(Value::from_raw_value(self, raw_value, Number::U32(number)))
   }

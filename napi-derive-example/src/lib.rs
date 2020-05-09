@@ -8,11 +8,11 @@ use std::convert::TryInto;
 
 register_module!(test_module, init);
 
-fn init(env: &Env, exports: &mut Value<Object>) -> Result<Option<Value<Object>>> {
+fn init(env: &Env, exports: &mut Value<Object>) -> Result<()> {
   exports.set_named_property("testThrow", env.create_function("testThrow", test_throw)?)?;
 
   exports.set_named_property("fibonacci", env.create_function("fibonacci", fibonacci)?)?;
-  Ok(None)
+  Ok(())
 }
 
 #[js_function]

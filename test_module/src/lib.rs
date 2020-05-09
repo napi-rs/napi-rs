@@ -9,10 +9,10 @@ use napi::{Any, CallContext, Env, Error, Object, Result, Status, Value};
 
 register_module!(test_module, init);
 
-fn init(env: &Env, exports: &mut Value<Object>) -> Result<Option<Value<Object>>> {
+fn init(env: &Env, exports: &mut Value<Object>) -> Result<()> {
   exports.set_named_property("testSpawn", env.create_function("testSpawn", test_spawn)?)?;
   exports.set_named_property("testThrow", env.create_function("testThrow", test_throw)?)?;
-  Ok(None)
+  Ok(())
 }
 
 #[js_function]
