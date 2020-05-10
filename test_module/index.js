@@ -16,12 +16,22 @@ function testThrow() {
   }
 }
 
+function testSpawnThread(n) {
+  console.info('=== Test spawn task to threadpool')
+  return testModule.testSpawnThread(n)
+}
+
 const future = testSpawn()
 
 future
   .then((value) => {
     console.info(`${value} from napi`)
     testThrow()
+  })
+  .then(() => testSpawnThread(20))
+  .then((value) => {
+    console.assert(value === 6765)
+    console.info('=== fibonacci result', value)
   })
   .catch((e) => {
     console.error(e)
