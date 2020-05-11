@@ -1,7 +1,8 @@
-extern crate futures;
-
 use core::fmt::Debug;
+use futures::channel::oneshot::channel;
 use futures::prelude::*;
+use num_cpus::get_physical;
+use once_cell::sync::OnceCell;
 use std::any::TypeId;
 use std::convert::{TryFrom, TryInto};
 use std::ffi::CString;
@@ -13,19 +14,26 @@ use std::ptr;
 use std::slice;
 use std::str;
 use std::string::String as RustString;
+use std::sync::Arc;
+use threadpool::ThreadPool;
 
 mod call_context;
 mod executor;
 mod promise;
 pub mod sys;
+mod task;
 mod version;
 
 pub use call_context::CallContext;
 pub use sys::{napi_valuetype, Status};
+pub use task::Task;
+use task::{NapiRSThreadPool, ThreadSafeTask};
 pub use version::NodeVersion;
 
 pub type Result<T> = std::result::Result<T, Error>;
 pub type Callback = extern "C" fn(sys::napi_env, sys::napi_callback_info) -> sys::napi_value;
+
+static THREAD_POOL: OnceCell<NapiRSThreadPool> = OnceCell::new();
 
 #[derive(Debug, Clone)]
 pub struct Error {
@@ -526,7 +534,8 @@ impl Env {
     Ok(Value::from_raw_value(self, result, Object))
   }
 
-  pub fn perform_async_operation<
+  #[inline]
+  pub fn execute<
     T: 'static,
     V: 'static + ValueType,
     F: 'static + Future<Output = Result<T>>,
@@ -566,6 +575,43 @@ impl Env {
     )?;
 
     Ok(Value::from_raw_value(self, raw_promise, Object))
+  }
+
+  #[inline]
+  pub fn spawn<
+    V: 'static + ValueType,
+    O: Send + 'static,
+    T: 'static + Send + Task<Output = O, JsValue = V>,
+  >(
+    &self,
+    task: T,
+  ) -> Result<Value<Object>> {
+    let (sender, receiver) = channel::<Result<O>>();
+    let threadpool =
+      THREAD_POOL.get_or_init(|| NapiRSThreadPool(ThreadPool::new(get_physical() * 2)));
+    let inner_task = Arc::new(ThreadSafeTask::new(task));
+    let thread_task = Arc::clone(&inner_task);
+    let promise_task = Arc::clone(&inner_task);
+    threadpool.0.execute(move || {
+      let value = thread_task.borrow().compute();
+      match sender.send(value) {
+        Err(e) => panic!(e),
+        _ => {}
+      };
+    });
+    let rev_value = async {
+      let result = receiver.await;
+      result
+        .map_err(|_| Error {
+          status: Status::Cancelled,
+          reason: Some("Receiver cancelled".to_owned()),
+        })
+        .and_then(|v| v)
+    };
+
+    self.execute(rev_value, move |env, v| {
+      promise_task.borrow().resolve(env, v)
+    })
   }
 
   pub fn get_node_version(&self) -> Result<NodeVersion> {
