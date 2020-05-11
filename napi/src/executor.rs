@@ -58,11 +58,11 @@ pub fn execute<F: 'static + Future<Output = ()>>(
       &UV_ASYNC_V_TABLE,
     ));
     let context = Context::from_waker(&waker);
-    let mut task = Box::new(Task {
+    let mut task = Task {
       future: Box::pin(future),
       context,
-    });
-    if !task.as_mut().poll_future() {
+    };
+    if !task.poll_future() {
       let arc_task = Arc::new(task);
       sys::uv_handle_set_data(
         uv_async_t_ref as *mut _ as *mut sys::uv_handle_t,
@@ -83,7 +83,7 @@ impl<'a> Task<'a> {
 }
 
 unsafe extern "C" fn poll_future(handle: *mut sys::uv_async_t) {
-  let data_ptr = sys::uv_handle_get_data(handle as *mut sys::uv_handle_t) as *mut Box<Task>;
+  let data_ptr = sys::uv_handle_get_data(handle as *mut sys::uv_handle_t) as *mut Task;
   let mut task = Arc::from_raw(data_ptr);
   if let Some(mut_task) = Arc::get_mut(&mut task) {
     if mut_task.poll_future() {
