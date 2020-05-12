@@ -1,6 +1,6 @@
 use futures::task::Poll;
+use std::alloc::{alloc, Layout};
 use std::future::Future;
-use std::mem;
 use std::os::raw::c_void;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -36,15 +36,14 @@ struct Task<'a> {
   context: Context<'a>,
 }
 
+#[inline]
 pub fn execute<F: 'static + Future<Output = ()>>(
   event_loop: *mut sys::uv_loop_s,
   future: F,
 ) -> Result<()> {
-  let uninit = mem::MaybeUninit::<sys::uv_async_t>::uninit();
-  let uv_async_t: Box<sys::uv_async_t> = unsafe { Box::new(uninit.assume_init()) };
-  let uv_async_t_ref = Box::leak(uv_async_t);
+  let uv_async_t = unsafe { alloc(Layout::new::<sys::uv_async_t>()) as *mut sys::uv_async_t };
   unsafe {
-    let status = sys::uv_async_init(event_loop, uv_async_t_ref, Some(poll_future));
+    let status = sys::uv_async_init(event_loop, uv_async_t, Some(poll_future));
     if status != 0 {
       return Err(Error {
         status: Status::Unknown,
@@ -54,7 +53,7 @@ pub fn execute<F: 'static + Future<Output = ()>>(
   };
   unsafe {
     let waker = Waker::from_raw(RawWaker::new(
-      uv_async_t_ref as *mut _ as *const (),
+      uv_async_t as *const _ as *const (),
       &UV_ASYNC_V_TABLE,
     ));
     let context = Context::from_waker(&waker);
@@ -65,9 +64,11 @@ pub fn execute<F: 'static + Future<Output = ()>>(
     if !task.poll_future() {
       let arc_task = Arc::new(task);
       sys::uv_handle_set_data(
-        uv_async_t_ref as *mut _ as *mut sys::uv_handle_t,
+        uv_async_t as *mut _ as *mut sys::uv_handle_t,
         Arc::into_raw(arc_task) as *mut c_void,
       );
+    } else {
+      sys::uv_close(uv_async_t as *mut _ as *mut sys::uv_handle_t, None);
     };
     Ok(())
   }
