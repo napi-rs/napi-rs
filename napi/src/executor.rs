@@ -1,82 +1,99 @@
-use futures::task::Poll;
-use std::alloc::{alloc, Layout};
+extern crate alloc;
+
+use alloc::alloc::{alloc, alloc_zeroed, Layout};
+use futures::future::LocalBoxFuture;
+use futures::task::{waker, ArcWake, Context, Poll};
 use std::future::Future;
 use std::os::raw::c_void;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::task::{Context, RawWaker, RawWakerVTable, Waker};
 
 use crate::{sys, Error, Result, Status};
 
-const UV_ASYNC_V_TABLE: RawWakerVTable = RawWakerVTable::new(
-  clone_executor,
-  wake_uv_async,
-  wake_uv_async_by_ref,
-  drop_uv_async,
-);
-
-unsafe fn clone_executor(uv_async_t: *const ()) -> RawWaker {
-  RawWaker::new(uv_async_t, &UV_ASYNC_V_TABLE)
-}
-
-unsafe fn wake_uv_async(uv_async_t: *const ()) {
-  let status = sys::uv_async_send(uv_async_t as *mut sys::uv_async_t);
-  assert!(status == 0, "wake_uv_async failed");
-}
-
-unsafe fn wake_uv_async_by_ref(uv_async_t: *const ()) {
-  let status = sys::uv_async_send(uv_async_t as *mut sys::uv_async_t);
-  assert!(status == 0, "wake_uv_async_by_ref failed");
-}
-
-unsafe fn drop_uv_async(_uv_async_t_ptr: *const ()) {}
-
 struct Task<'a> {
-  future: Pin<Box<dyn Future<Output = ()>>>,
+  future: LocalBoxFuture<'a, ()>,
   context: Context<'a>,
+  is_polling: AtomicBool,
+}
+
+struct UvWaker(*mut sys::uv_async_t);
+
+unsafe impl Send for UvWaker {}
+unsafe impl Sync for UvWaker {}
+
+impl UvWaker {
+  fn new(event_loop: *mut sys::uv_loop_s) -> Result<UvWaker> {
+    let uv_async_t = unsafe {
+      let layout = Layout::new::<sys::uv_async_t>();
+      debug_assert!(layout.size() != 0, "uv_async_t alloc size should not be 0");
+      if cfg!(windows) {
+        alloc_zeroed(layout) as *mut sys::uv_async_t
+      } else {
+        alloc(layout) as *mut sys::uv_async_t
+      }
+    };
+    unsafe {
+      let status = sys::uv_async_init(event_loop, uv_async_t, Some(poll_future));
+      if status != 0 {
+        return Err(Error {
+          status: Status::Unknown,
+          reason: Some("Non-zero status returned from uv_async_init".to_owned()),
+        });
+      }
+    };
+    Ok(UvWaker(uv_async_t))
+  }
+
+  #[inline]
+  fn assign_task(&self, mut task: Task) {
+    if !task.poll_future() {
+      task.is_polling.store(false, Ordering::Relaxed);
+      let arc_task = Arc::new(task);
+      unsafe {
+        sys::uv_handle_set_data(
+          self.0 as *mut sys::uv_handle_t,
+          Arc::into_raw(arc_task) as *mut c_void,
+        )
+      };
+    } else {
+      unsafe { sys::uv_close(self.0 as *mut sys::uv_handle_t, None) };
+    };
+  }
+}
+
+impl ArcWake for UvWaker {
+  fn wake_by_ref(arc_self: &Arc<Self>) {
+    let status = unsafe { sys::uv_async_send(arc_self.0) };
+    assert!(status == 0, "wake_uv_async_by_ref failed");
+  }
 }
 
 #[inline]
-pub fn execute<F: 'static + Future<Output = ()>>(
-  event_loop: *mut sys::uv_loop_s,
-  future: F,
-) -> Result<()> {
-  let uv_async_t = unsafe { alloc(Layout::new::<sys::uv_async_t>()) as *mut sys::uv_async_t };
-  unsafe {
-    let status = sys::uv_async_init(event_loop, uv_async_t, Some(poll_future));
-    if status != 0 {
-      return Err(Error {
-        status: Status::Unknown,
-        reason: Some("Non-zero status returned from uv_async_init".to_owned()),
-      });
-    }
+pub fn execute(event_loop: *mut sys::uv_loop_s, future: LocalBoxFuture<()>) -> Result<()> {
+  let uv_waker = UvWaker::new(event_loop)?;
+  let arc_waker = Arc::new(uv_waker);
+  let waker_to_poll = Arc::clone(&arc_waker);
+  let waker = waker(arc_waker);
+  let context = Context::from_waker(&waker);
+  let task = Task {
+    future,
+    context,
+    is_polling: AtomicBool::from(false),
   };
-  unsafe {
-    let waker = Waker::from_raw(RawWaker::new(
-      uv_async_t as *const _ as *const (),
-      &UV_ASYNC_V_TABLE,
-    ));
-    let context = Context::from_waker(&waker);
-    let mut task = Task {
-      future: Box::pin(future),
-      context,
-    };
-    if !task.poll_future() {
-      let arc_task = Arc::new(task);
-      sys::uv_handle_set_data(
-        uv_async_t as *mut _ as *mut sys::uv_handle_t,
-        Arc::into_raw(arc_task) as *mut c_void,
-      );
-    } else {
-      sys::uv_close(uv_async_t as *mut _ as *mut sys::uv_handle_t, None);
-    };
-    Ok(())
-  }
+  waker_to_poll.assign_task(task);
+  Ok(())
 }
 
 impl<'a> Task<'a> {
   fn poll_future(&mut self) -> bool {
-    match self.future.as_mut().poll(&mut self.context) {
+    if self.is_polling.load(Ordering::Relaxed) {
+      return false;
+    }
+    self.is_polling.store(true, Ordering::Relaxed);
+    let mut pinned = Pin::new(&mut self.future);
+    let fut_mut = pinned.as_mut();
+    match fut_mut.poll(&mut self.context) {
       Poll::Ready(_) => true,
       Poll::Pending => false,
     }
@@ -90,6 +107,7 @@ unsafe extern "C" fn poll_future(handle: *mut sys::uv_async_t) {
     if mut_task.poll_future() {
       sys::uv_close(handle as *mut sys::uv_handle_t, None);
     } else {
+      mut_task.is_polling.store(false, Ordering::Relaxed);
       Arc::into_raw(task);
     };
   } else {
