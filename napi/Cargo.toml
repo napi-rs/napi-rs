@@ -1,6 +1,6 @@
 [package]
 name = "napi-rs"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["Nathan Sobo <nathan@github.com>", "Yinan Long <lynweklm@gmail.com>"]
 license = "MIT"
 description = "N-API bindings"
