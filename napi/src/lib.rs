@@ -1,8 +1,6 @@
+use async_work::AsyncWork;
 use core::fmt::Debug;
-use futures::channel::oneshot::channel;
 use futures::prelude::*;
-use num_cpus::get_physical;
-use once_cell::sync::OnceCell;
 use std::any::TypeId;
 use std::convert::{TryFrom, TryInto};
 use std::ffi::CString;
@@ -14,9 +12,8 @@ use std::ptr;
 use std::slice;
 use std::str;
 use std::string::String as RustString;
-use std::sync::Arc;
-use threadpool::ThreadPool;
 
+mod async_work;
 mod call_context;
 mod executor;
 mod promise;
@@ -27,13 +24,10 @@ mod version;
 pub use call_context::CallContext;
 pub use sys::{napi_valuetype, Status};
 pub use task::Task;
-use task::{NapiRSThreadPool, ThreadSafeTask};
 pub use version::NodeVersion;
 
 pub type Result<T> = std::result::Result<T, Error>;
 pub type Callback = extern "C" fn(sys::napi_env, sys::napi_callback_info) -> sys::napi_value;
-
-static THREAD_POOL: OnceCell<NapiRSThreadPool> = OnceCell::new();
 
 #[derive(Debug, Clone)]
 pub struct Error {
@@ -178,6 +172,27 @@ impl Error {
       status: status,
       reason: None,
     }
+  }
+
+  pub fn into_raw(self, env: sys::napi_env) -> sys::napi_value {
+    let mut err = ptr::null_mut();
+    let s = self.reason.unwrap_or("NAPI error".to_owned());
+    unsafe {
+      let mut err_reason = ptr::null_mut();
+      let status = sys::napi_create_string_utf8(
+        env,
+        s.as_ptr() as *const c_char,
+        s.len() as u64,
+        &mut err_reason,
+      );
+      debug_assert!(
+        status == sys::napi_status::napi_ok,
+        "Create error reason failed"
+      );
+      let status = sys::napi_create_error(env, ptr::null_mut(), err_reason, &mut err);
+      debug_assert!(status == sys::napi_status::napi_ok, "Create error failed");
+    };
+    err
   }
 }
 
@@ -555,8 +570,7 @@ impl Env {
 
     let event_loop = unsafe { sys::uv_default_loop() };
     let raw_env = self.0;
-    executor::execute(
-      event_loop,
+    let future_to_execute =
       promise::resolve(self.0, deferred, resolver, raw_deferred).map(move |v| match v {
         Ok(value) => value,
         Err(e) => {
@@ -571,47 +585,19 @@ impl Env {
           eprintln!("{:?}", &cloned_error);
           panic!(cloned_error);
         }
-      }),
-    )?;
+      });
+    executor::execute(event_loop, Box::pin(future_to_execute))?;
 
     Ok(Value::from_raw_value(self, raw_promise, Object))
   }
 
-  #[inline]
-  pub fn spawn<
-    V: 'static + ValueType,
-    O: Send + 'static,
-    T: 'static + Send + Task<Output = O, JsValue = V>,
-  >(
-    &self,
-    task: T,
-  ) -> Result<Value<Object>> {
-    let (sender, receiver) = channel::<Result<O>>();
-    let threadpool =
-      THREAD_POOL.get_or_init(|| NapiRSThreadPool(ThreadPool::new(get_physical() * 2)));
-    let inner_task = Arc::new(ThreadSafeTask::new(task));
-    let thread_task = Arc::clone(&inner_task);
-    let promise_task = Arc::clone(&inner_task);
-    threadpool.0.execute(move || {
-      let value = thread_task.borrow().compute();
-      match sender.send(value) {
-        Err(e) => panic!(e),
-        _ => {}
-      };
-    });
-    let rev_value = async {
-      let result = receiver.await;
-      result
-        .map_err(|_| Error {
-          status: Status::Cancelled,
-          reason: Some("Receiver cancelled".to_owned()),
-        })
-        .and_then(|v| v)
-    };
+  pub fn spawn<T: 'static + Task>(&self, task: T) -> Result<Value<Object>> {
+    let mut raw_promise = ptr::null_mut();
+    let mut raw_deferred = ptr::null_mut();
 
-    self.execute(rev_value, move |env, v| {
-      promise_task.borrow().resolve(env, v)
-    })
+    check_status(unsafe { sys::napi_create_promise(self.0, &mut raw_deferred, &mut raw_promise) })?;
+    AsyncWork::run(self.0, task, raw_deferred)?;
+    Ok(Value::from_raw_value(self, raw_promise, Object))
   }
 
   pub fn get_node_version(&self) -> Result<NodeVersion> {

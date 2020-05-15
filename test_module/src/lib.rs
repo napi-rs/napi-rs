@@ -57,7 +57,7 @@ impl Task for ComputeFib {
   type Output = u32;
   type JsValue = Number;
 
-  fn compute(&mut self) -> Result<Self::Output> {
+  fn compute(&self) -> Result<Self::Output> {
     Ok(fibonacci_native(self.n))
   }
 

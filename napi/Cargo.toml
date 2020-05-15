@@ -11,9 +11,6 @@ edition = "2018"
 
 [dependencies]
 futures = { version = "0.3", features = ["default", "thread-pool"] }
-num_cpus = "1.13"
-once_cell = "1.3"
-threadpool = "1.8"
 
 [target.'cfg(windows)'.build-dependencies]
 flate2 = "1.0"

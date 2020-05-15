@@ -56,25 +56,25 @@ jobs:
           path: target
           key: ${{ matrix.version }}-${{ matrix.target }}-cargo-build-trimmed-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: check build
+      - name: Check build
         uses: actions-rs/cargo@v1
         with:
           command: check
           args: -p napi-rs -vvv
 
-      - name: tests
+      - name: Tests
         uses: actions-rs/cargo@v1
-        timeout-minutes: 40
+        timeout-minutes: 5
         with:
           command: test
           args: -p napi-rs --lib -- --nocapture
 
-      - name: test scripts
+      - name: Fuzzy tests
         run: |
           yarn
           cd test_module
           yarn build
-          yarn test
+          node fuzzy.js
         env:
           RUST_BACKTRACE: 1
 

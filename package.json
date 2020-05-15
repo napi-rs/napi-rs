@@ -18,9 +18,10 @@
   ],
   "license": "MIT",
   "scripts": {
-    "format": "run-p format:md format:json format:yaml format:source",
+    "format": "run-p format:md format:json format:yaml format:source format:rs",
     "format:md": "prettier --parser markdown --write './**/*.md'",
     "format:json": "prettier --parser json --write './**/*.json'",
+    "format:rs": "cargo fmt",
     "format:source": "prettier --config ./package.json --write './**/*.js'",
     "format:yaml": "prettier --parser yaml --write './**/*.{yml,yaml}'"
   },
