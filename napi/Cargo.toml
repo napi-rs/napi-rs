@@ -18,7 +18,7 @@ reqwest = { version = "0.10", features = ["native-tls", "blocking"] }
 tar = "0.4"
 
 [build-dependencies]
-bindgen = "0.53"
+bindgen = "0.54"
 glob = "0.3"
 napi-build = { version = "0.1", path = "../build" }
 regex = "1.3"
