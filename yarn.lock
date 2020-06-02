@@ -42,10 +42,10 @@
   resolved "https://registry.npmjs.org/@types/color-name/-/color-name-1.1.1.tgz#1c1261bbeaa10a8055bbc5d8ab84b7b2afc846a0"
   integrity sha512-rr+OQyAjxze7GgWrSaJwydHStIhHq2lvY3BOC2Mj7KnzI7XK0Uw1TOOdI9lDoajEbSWLiYgoo4f1R51erQfhPQ==
 
-"@types/node@^14.0.6":
-  version "14.0.6"
-  resolved "https://registry.npmjs.org/@types/node/-/node-14.0.6.tgz#f9e178b2da31a4b0ec60b64649e244c31ce18daf"
-  integrity sha512-FbNmu4F67d3oZMWBV6Y4MaPER+0EpE9eIYf2yaHhCWovc1dlXCZkqGX4NLHfVVr6umt20TNBdRzrNJIzIKfdbw==
+"@types/node@^14.0.9":
+  version "14.0.9"
+  resolved "https://registry.npmjs.org/@types/node/-/node-14.0.9.tgz#43896ab87fc82bda1dfd600cdf44a0c8a64e11d2"
+  integrity sha512-0sCTiXKXELOBxvZLN4krQ0FPOAA7ij+6WwvD0k/PHd9/KAkr4dXel5J9fh6F4x1FwAQILqAWkmpeuS6mjf1iKA==
 
 "@types/parse-json@^4.0.0":
   version "4.0.0"
