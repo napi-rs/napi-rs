@@ -1,6 +1,5 @@
 use async_work::AsyncWork;
 use core::fmt::Debug;
-use futures::prelude::*;
 use std::any::TypeId;
 use std::convert::{TryFrom, TryInto};
 use std::ffi::CString;
@@ -15,8 +14,6 @@ use std::string::String as RustString;
 
 mod async_work;
 mod call_context;
-mod executor;
-mod promise;
 pub mod sys;
 mod task;
 mod version;
@@ -547,48 +544,6 @@ impl Env {
     };
     check_status(status)?;
     Ok(Value::from_raw_value(self, result, Object))
-  }
-
-  #[inline]
-  pub fn execute<
-    T: 'static,
-    V: 'static + ValueType,
-    F: 'static + Future<Output = Result<T>>,
-    R: 'static + FnOnce(&mut Env, T) -> Result<Value<V>>,
-  >(
-    &self,
-    deferred: F,
-    resolver: R,
-  ) -> Result<Value<Object>> {
-    let mut raw_promise = ptr::null_mut();
-    let mut raw_deferred = ptr::null_mut();
-
-    unsafe {
-      let status = sys::napi_create_promise(self.0, &mut raw_deferred, &mut raw_promise);
-      check_status(status)?;
-    }
-
-    let event_loop = unsafe { sys::uv_default_loop() };
-    let raw_env = self.0;
-    let future_to_execute =
-      promise::resolve(self.0, deferred, resolver, raw_deferred).map(move |v| match v {
-        Ok(value) => value,
-        Err(e) => {
-          let cloned_error = e.clone();
-          unsafe {
-            sys::napi_throw_error(
-              raw_env,
-              ptr::null(),
-              e.reason.unwrap_or(format!("{:?}", e.status)).as_ptr() as *const _,
-            );
-          };
-          eprintln!("{:?}", &cloned_error);
-          panic!(cloned_error);
-        }
-      });
-    executor::execute(event_loop, Box::pin(future_to_execute))?;
-
-    Ok(Value::from_raw_value(self, raw_promise, Object))
   }
 
   pub fn spawn<T: 'static + Task>(&self, task: T) -> Result<Value<Object>> {

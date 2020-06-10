@@ -1,0 +1,27 @@
+name: Docker nightly build
+
+on:
+  schedule:
+    - cron: '0 1 * * *'
+
+jobs:
+  build_image:
+    name: Build rust-nodejs-alpine:lts
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Log in to registry
+        uses: actions/docker/login@master
+        env:
+          DOCKER_REGISTRY_URL: docker.pkg.github.com
+          DOCKER_USERNAME: ${{ github.actor }}
+          DOCKER_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build docker image
+        run: |
+          docker build . -f Dockerfile.alpine --pull --no-cache -t docker.pkg.github.com/napi-rs/napi-rs/rust-nodejs-alpine:lts
+
+      - name: Push docker image
+        run: docker push docker.pkg.github.com/napi-rs/napi-rs/rust-nodejs-alpine:lts

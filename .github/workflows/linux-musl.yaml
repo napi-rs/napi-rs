@@ -1,0 +1,45 @@
+name: Musl
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    name: stable - x86_64-unknown-linux-musl - node@${{ matrix.node }}
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['10', '12', '13', '14']
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Log in to registry
+        run: |
+          docker login -u $DOCKER_USERNAME -p $DOCKER_PASSWORD $DOCKER_REGISTRY_URL
+        env:
+          DOCKER_REGISTRY_URL: docker.pkg.github.com
+          DOCKER_USERNAME: ${{ github.actor }}
+          DOCKER_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull docker image
+        run: |
+          docker pull docker.pkg.github.com/napi-rs/napi-rs/rust-nodejs-alpine:lts
+          docker tag docker.pkg.github.com/napi-rs/napi-rs/rust-nodejs-alpine:lts builder
+
+      - name: Run check
+        run: |
+          docker run --rm -v $(pwd)/.cargo:/root/.cargo -v $(pwd):/napi-rs -w /napi-rs builder cargo check --all --bins --examples --tests -vvv
+
+      - name: Run tests
+        run: |
+          docker run --rm -v $(pwd)/.cargo:/root/.cargo -v $(pwd):/napi-rs -w /napi-rs builder cargo test -p napi-rs --lib -- --nocapture
+
+      - name: Build native module
+        run: |
+          docker run --rm -v $(pwd)/.cargo:/root/.cargo -v $(pwd):/napi-rs -w /napi-rs builder sh -c "yarn && cd test_module && yarn build"
+        env:
+          RUST_BACKTRACE: 1
+
+      - name: Fuzzy
+        run: docker run --rm -v $(pwd):/napi-rs -w /napi-rs/test_module node:${{ matrix.node }}-alpine node fuzzy.js
