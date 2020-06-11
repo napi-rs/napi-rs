@@ -32,7 +32,7 @@ if (tomlContent.package && tomlContent.package.name) {
 }
 
 const argv = parseArgs(process.argv.slice(2), {
-  boolean: ['release', 'platform'],
+  boolean: ['release', 'platform', 'musl'],
 })
 
 const platform = os.platform()
@@ -61,7 +61,7 @@ switch (platform) {
 
 const targetDir = argv.release ? 'release' : 'debug'
 
-const platformName = argv.platform ? `.${platform}` : ''
+const platformName = argv.musl ? '.musl' : argv.platform ? `.${platform}` : ''
 
 let subcommand =
   argv._[0] ||
