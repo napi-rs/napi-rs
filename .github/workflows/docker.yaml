@@ -12,8 +12,9 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
-      - name: Log in to registry
-        uses: actions/docker/login@master
+      - name: Login to registry
+        run: |
+          docker login -u $DOCKER_USERNAME -p $DOCKER_PASSWORD $DOCKER_REGISTRY_URL
         env:
           DOCKER_REGISTRY_URL: docker.pkg.github.com
           DOCKER_USERNAME: ${{ github.actor }}
