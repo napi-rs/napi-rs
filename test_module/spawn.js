@@ -1,3 +1,4 @@
+const assert = require('assert')
 const testModule = require('./index.node')
 
 function testSpawnThread(n) {
@@ -14,3 +15,6 @@ testSpawnThread(20)
     console.error(e)
     process.exit(1)
   })
+
+assert(testModule.testObjectIsDate({}) === false)
+assert(testModule.testObjectIsDate(new Date()) === true)

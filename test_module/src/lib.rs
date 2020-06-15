@@ -3,7 +3,7 @@ extern crate napi_rs as napi;
 #[macro_use]
 extern crate napi_rs_derive;
 
-use napi::{Any, CallContext, Env, Error, Number, Object, Result, Status, Task, Value};
+use napi::{Any, CallContext, Env, Error, Number, Object, Result, Status, Task, Value, Boolean};
 use std::convert::TryInto;
 
 register_module!(test_module, init);
@@ -13,6 +13,10 @@ fn init(env: &Env, exports: &mut Value<Object>) -> Result<()> {
   exports.set_named_property(
     "testSpawnThread",
     env.create_function("testSpawnThread", test_spawn_thread)?,
+  )?;
+  exports.set_named_property(
+    "testObjectIsDate",
+    env.create_function("testObjectIsDate", test_object_is_date)?
   )?;
   Ok(())
 }
@@ -58,4 +62,10 @@ fn test_spawn_thread(ctx: CallContext) -> Result<Value<Object>> {
 #[js_function]
 fn test_throw(_ctx: CallContext) -> Result<Value<Any>> {
   Err(Error::from_status(Status::GenericFailure))
+}
+
+#[js_function(1)]
+fn test_object_is_date(ctx: CallContext) -> Result<Value<Boolean>> {
+  let obj: Value<Object> = ctx.get::<Object>(0)?;
+  Ok(Env::get_boolean(ctx.env, obj.is_date()?)?)
 }
