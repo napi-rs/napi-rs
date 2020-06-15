@@ -1042,6 +1042,15 @@ impl Value<Object> {
     Ok(length)
   }
 
+  pub fn is_date(&self) -> Result<bool> {
+    let mut is_date = true;
+    let status = unsafe {
+      sys::napi_is_date(self.env, self.raw_value(), &mut is_date)
+    };
+    check_status(status)?;
+    Ok(is_date)
+  }
+
   fn raw_value(&self) -> sys::napi_value {
     self.raw_value
   }
