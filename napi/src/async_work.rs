@@ -26,11 +26,6 @@ impl<T: Task> AsyncWork<T> {
       )
     };
     check_status(status)?;
-    let mut raw_context = ptr::null_mut();
-    unsafe {
-      let status = sys::napi_async_init(env, raw_resource, raw_name, &mut raw_context);
-      check_status(status)?;
-    };
     let result = AsyncWork {
       inner_task: task,
       deferred,
