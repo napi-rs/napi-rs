@@ -3,7 +3,9 @@ extern crate napi_rs as napi;
 #[macro_use]
 extern crate napi_rs_derive;
 
-use napi::{Any, CallContext, Env, Error, Number, Object, Result, Status, Task, Value, Boolean};
+use napi::{
+  Any, Boolean, CallContext, Env, Error, JsString, Number, Object, Result, Status, Task, Value,
+};
 use std::convert::TryInto;
 
 register_module!(test_module, init);
@@ -11,12 +13,16 @@ register_module!(test_module, init);
 fn init(env: &Env, exports: &mut Value<Object>) -> Result<()> {
   exports.set_named_property("testThrow", env.create_function("testThrow", test_throw)?)?;
   exports.set_named_property(
+    "testThrowWithReason",
+    env.create_function("testThrowWithReason", test_throw_with_reason)?,
+  )?;
+  exports.set_named_property(
     "testSpawnThread",
     env.create_function("testSpawnThread", test_spawn_thread)?,
   )?;
   exports.set_named_property(
     "testObjectIsDate",
-    env.create_function("testObjectIsDate", test_object_is_date)?
+    env.create_function("testObjectIsDate", test_object_is_date)?,
   )?;
   Ok(())
 }
@@ -62,6 +68,15 @@ fn test_spawn_thread(ctx: CallContext) -> Result<Value<Object>> {
 #[js_function]
 fn test_throw(_ctx: CallContext) -> Result<Value<Any>> {
   Err(Error::from_status(Status::GenericFailure))
+}
+
+#[js_function(1)]
+fn test_throw_with_reason(ctx: CallContext) -> Result<Value<Any>> {
+  let reason = ctx.get::<JsString>(0)?;
+  Err(Error {
+    status: Status::GenericFailure,
+    reason: Some(reason.as_str()?.to_owned()),
+  })
 }
 
 #[js_function(1)]

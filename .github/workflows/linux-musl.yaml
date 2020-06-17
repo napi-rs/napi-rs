@@ -35,11 +35,8 @@ jobs:
         run: |
           docker run --rm -v $(pwd)/.cargo:/root/.cargo -v $(pwd):/napi-rs -w /napi-rs builder cargo test -p napi-rs --lib -- --nocapture
 
-      - name: Build native module
+      - name: Unit test
         run: |
-          docker run --rm -v $(pwd)/.cargo:/root/.cargo -v $(pwd):/napi-rs -w /napi-rs builder sh -c "yarn && cd test_module && yarn build"
+          docker run --rm -v $(pwd)/.cargo:/root/.cargo -v $(pwd):/napi-rs -w /napi-rs builder sh -c "yarn && yarn --cwd ./test_module build && yarn test"
         env:
           RUST_BACKTRACE: 1
-
-      - name: Fuzzy
-        run: docker run --rm -v $(pwd):/napi-rs -w /napi-rs/test_module node:${{ matrix.node }}-alpine node fuzzy.js
