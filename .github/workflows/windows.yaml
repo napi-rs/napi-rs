@@ -7,7 +7,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['10', '12', '13', '14']
+        node: ['10', '12', '14']
         target:
           - x86_64-pc-windows-msvc
 

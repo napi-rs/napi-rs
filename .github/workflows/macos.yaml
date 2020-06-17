@@ -7,7 +7,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['10', '12', '13', '14']
+        node: ['10', '12', '14']
 
     name: stable - x86_64-apple-darwin - node@${{ matrix.node }}
     runs-on: macos-latest
