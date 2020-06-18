@@ -16,9 +16,9 @@
 
 ## NodeJS
 
-| Node10 | Node 12 | Node13 | Node14 |
-| ------ | ------- | ------ | ------ |
-| ✓      | ✓       | ✓      | ✓      |
+| Node10 | Node 12 | Node14 |
+| ------ | ------- | ------ |
+| ✓      | ✓       | ✓      |
 
 A minimal library for building compiled Node add-ons in Rust.
 
@@ -195,7 +195,7 @@ npm test
 | [napi_is_array](https://nodejs.org/api/n-api.html#n_api_napi_is_array)                               | 1            | v8.0.0               | ✅     |
 | [napi_is_arraybuffer](https://nodejs.org/api/n-api.html#n_api_napi_is_arraybuffer)                   | 1            | v8.0.0               | ✅     |
 | [napi_is_buffer](https://nodejs.org/api/n-api.html#n_api_napi_is_buffer)                             | 1            | v8.0.0               | ✅     |
-| [napi_is_date](https://nodejs.org/api/n-api.html#n_api_napi_is_date)                                 | 1            | v8.0.0               | ⛔️    |
+| [napi_is_date](https://nodejs.org/api/n-api.html#n_api_napi_is_date)                                 | 1            | v8.0.0               | ✅     |
 | [napi_is_error](https://nodejs.org/api/n-api.html#n_api_napi_is_error_1)                             | 1            | v8.0.0               | ⛔️    |
 | [napi_is_typedarray](https://nodejs.org/api/n-api.html#n_api_napi_is_typedarray)                     | 1            | v8.0.0               | ⛔️    |
 | [napi_is_dataview](https://nodejs.org/api/n-api.html#n_api_napi_is_dataview)                         | 1            | v8.3.0               | ⛔️    |

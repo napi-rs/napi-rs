@@ -7,7 +7,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['10', '12', '13', '14']
+        node: ['10', '12', '14']
         target:
           - x86_64-pc-windows-msvc
 
@@ -66,12 +66,11 @@ jobs:
           command: test
           args: -p napi-rs --lib -- --nocapture
 
-      - name: Fuzzy tests
+      - name: Unit tests
         run: |
           yarn
-          cd test_module
-          yarn build
-          node fuzzy.js
+          yarn --cwd ./test_module build
+          yarn test
         env:
           RUST_BACKTRACE: 1
 
