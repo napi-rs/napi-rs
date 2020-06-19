@@ -136,7 +136,7 @@ npm test
 | [napi_create_buffer](https://nodejs.org/api/n-api.html#n_api_napi_create_buffer)                             | 1            | v8.0.0               | ✅     |
 | [napi_create_buffer_copy](https://nodejs.org/api/n-api.html#n_api_napi_create_buffer_copy)                   | 1            | v8.0.0               | ⛔️    |
 | [napi_create_date](https://nodejs.org/api/n-api.html#n_api_napi_create_date)                                 | 5            | v11.11.0             | ⛔️    |
-| [napi_create_external](https://nodejs.org/api/n-api.html#n_api_napi_create_external)                         | 1            | v8.0.0               | ⛔️    |
+| [napi_create_external](https://nodejs.org/api/n-api.html#n_api_napi_create_external)                         | 1            | v8.0.0               | ✅     |
 | [napi_create_external_arraybuffer](https://nodejs.org/api/n-api.html#n_api_napi_create_external_arraybuffer) | 1            | v8.0.0               | ✅     |
 | [napi_create_external_buffer](https://nodejs.org/api/n-api.html#n_api_napi_create_external_buffer)           | 1            | v8.0.0               | ✅     |
 | [napi_create_object](https://nodejs.org/api/n-api.html#n_api_napi_create_object)                             | 1            | v8.0.0               | ✅     |
