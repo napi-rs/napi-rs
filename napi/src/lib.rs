@@ -530,6 +530,48 @@ impl Env {
     }
   }
 
+  pub fn create_external<T: 'static>(&self, native_object: T) -> Result<Value<Object>> {
+    let mut object_value = ptr::null_mut();
+    let status = unsafe {
+      sys::napi_create_external(
+        self.0,
+        Box::into_raw(Box::new(TaggedObject::new(native_object))) as *mut c_void,
+        Some(raw_finalize::<T>),
+        ptr::null_mut(),
+        &mut object_value,
+      )
+    };
+
+    check_status(status)?;
+    Ok(Value::from_raw_value(self, object_value, Object))
+  }
+
+  pub fn get_value_external<T: 'static>(&self, js_object: &Value<Object>) -> Result<&mut T> {
+    unsafe {
+      let mut unknown_tagged_object = ptr::null_mut();
+      let status =
+        sys::napi_get_value_external(self.0, js_object.raw_value, &mut unknown_tagged_object);
+      check_status(status)?;
+
+      let type_id: *const TypeId = mem::transmute(unknown_tagged_object);
+      if *type_id == TypeId::of::<T>() {
+        let tagged_object: *mut TaggedObject<T> = mem::transmute(unknown_tagged_object);
+        (*tagged_object).object.as_mut().ok_or(Error {
+          status: Status::InvalidArg,
+          reason: Some("Invalid argument, nothing attach to js_object".to_owned()),
+        })
+      } else {
+        Err(Error {
+          status: Status::InvalidArg,
+          reason: Some(
+            "Invalid argument, T on get_value_external is not the type of wrapped object"
+              .to_owned(),
+          ),
+        })
+      }
+    }
+  }
+
   pub fn create_error(&self, e: Error) -> Result<Value<Object>> {
     let reason = e.reason.unwrap_or("".to_owned());
     let reason_string = self.create_string(reason.as_str())?;

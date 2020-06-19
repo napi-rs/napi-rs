@@ -24,6 +24,16 @@ fn init(env: &Env, exports: &mut Value<Object>) -> Result<()> {
     "testObjectIsDate",
     env.create_function("testObjectIsDate", test_object_is_date)?,
   )?;
+
+  exports.set_named_property(
+    "createExternal",
+    env.create_function("createExternal", create_external)?,
+  )?;
+
+  exports.set_named_property(
+    "getExternalCount",
+    env.create_function("getExternalCount", get_external_count)?,
+  )?;
   Ok(())
 }
 
@@ -83,4 +93,22 @@ fn test_throw_with_reason(ctx: CallContext) -> Result<Value<Any>> {
 fn test_object_is_date(ctx: CallContext) -> Result<Value<Boolean>> {
   let obj: Value<Object> = ctx.get::<Object>(0)?;
   Ok(Env::get_boolean(ctx.env, obj.is_date()?)?)
+}
+
+struct NativeObject {
+  count: i32,
+}
+
+#[js_function(1)]
+fn create_external(ctx: CallContext) -> Result<Value<Object>> {
+  let count = ctx.get::<Number>(0)?.try_into()?;
+  let native = NativeObject { count };
+  ctx.env.create_external(native)
+}
+
+#[js_function(1)]
+fn get_external_count(ctx: CallContext) -> Result<Value<Number>> {
+  let attached_obj = ctx.get::<Object>(0)?;
+  let native_object = ctx.env.get_value_external::<NativeObject>(&attached_obj)?;
+  ctx.env.create_int32(native_object.count)
 }
