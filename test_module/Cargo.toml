@@ -10,6 +10,7 @@ crate-type = ["cdylib"]
 [dependencies]
 napi-rs = { path = "../napi" }
 napi-rs-derive = { path = "../napi-derive" }
+tokio = { version = "0.2", features = ["default", "fs"]}
 
 [build-dependencies]
 napi-build = { path = "../build" }
