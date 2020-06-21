@@ -118,9 +118,8 @@ Because libraries that depend on this crate must be loaded into a Node executabl
 To run tests:
 
 ```sh
-cd test_module
-npm run build
-npm test
+yarn --cwd ./test_module build
+yarn test
 ```
 
 ## Features table

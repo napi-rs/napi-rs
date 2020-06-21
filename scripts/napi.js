@@ -63,17 +63,17 @@ const targetDir = argv.release ? 'release' : 'debug'
 
 const platformName = argv.musl ? '.musl' : argv.platform ? `.${platform}` : ''
 
-let subcommand =
+let distModulePath =
   argv._[0] ||
   path.join('target', targetDir, `${moduleName}${platformName}.node`)
-const parsedDist = path.parse(subcommand)
+const parsedDist = path.parse(distModulePath)
 
 if (!parsedDist.name || parsedDist.name === '.') {
-  subcommand = moduleName
+  distModulePath = moduleName
 }
 
 if (!parsedDist.ext) {
-  subcommand = `${subcommand}${platformName}.node`
+  distModulePath = `${distModulePath}${platformName}.node`
 }
 
 const pos = __dirname.indexOf('node_modules')
@@ -87,4 +87,4 @@ const dylibContent = fs.readFileSync(
   ),
 )
 
-fs.writeFileSync(subcommand, dylibContent)
+fs.writeFileSync(distModulePath, dylibContent)
