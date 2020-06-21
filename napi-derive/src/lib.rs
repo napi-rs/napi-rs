@@ -84,7 +84,7 @@ pub fn js_function(attr: TokenStream, input: TokenStream) -> TokenStream {
       use napi_rs::{Any, Env, Status, Value, CallContext};
       let mut argc = #arg_len_span as usize;
       let mut raw_args =
-      unsafe { mem::MaybeUninit::<[napi_rs::sys::napi_value; 8]>::uninit().assume_init() };
+      unsafe { mem::MaybeUninit::<[napi_rs::sys::napi_value; #arg_len_span as usize]>::uninit().assume_init() };
       let mut raw_this = ptr::null_mut();
 
       let mut has_error = false;
@@ -94,7 +94,7 @@ pub fn js_function(attr: TokenStream, input: TokenStream) -> TokenStream {
           raw_env,
           cb_info,
           &mut argc as *mut usize as *mut u64,
-          &mut raw_args[0],
+          raw_args.as_mut_ptr(),
           &mut raw_this,
           ptr::null_mut(),
         );
@@ -102,7 +102,7 @@ pub fn js_function(attr: TokenStream, input: TokenStream) -> TokenStream {
       }
 
       let mut env = Env::from_raw(raw_env);
-      let call_ctx = CallContext::new(&mut env, raw_this, raw_args, #arg_len_span);
+      let call_ctx = CallContext::new(&mut env, raw_this, &raw_args, #arg_len_span);
       let result = call_ctx.and_then(|ctx| #new_fn_name(ctx));
       has_error = has_error && result.is_err();
 
