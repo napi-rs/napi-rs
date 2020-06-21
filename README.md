@@ -81,8 +81,8 @@ Run `cargo build` to produce the `Dynamic lib` file. And install the `napi-rs` t
 ```json
 {
   "package": "your pkg",
-  "dependencies": {
-    "napi-rs": "^0.1"
+  "devDependencies": {
+    "napi-rs": "latest"
   },
   "scripts": {
     "build": "cargo build && napi",
