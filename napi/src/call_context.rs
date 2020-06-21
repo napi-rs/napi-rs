@@ -3,7 +3,7 @@ use crate::{sys, Any, Env, Error, Result, Status, Value, ValueType};
 pub struct CallContext<'env, T: ValueType = Any> {
   pub env: &'env Env,
   pub this: Value<T>,
-  args: [sys::napi_value; 8],
+  args: &'env [sys::napi_value],
   arg_len: usize,
 }
 
@@ -12,7 +12,7 @@ impl<'env, T: ValueType> CallContext<'env, T> {
   pub fn new(
     env: &'env Env,
     this: sys::napi_value,
-    args: [sys::napi_value; 8],
+    args: &'env [sys::napi_value],
     arg_len: usize,
   ) -> Result<Self> {
     Ok(Self {
