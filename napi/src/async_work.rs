@@ -2,7 +2,9 @@ use std::mem;
 use std::os::raw::{c_char, c_void};
 use std::ptr;
 
-use crate::{check_status, sys, Env, Result, Task};
+use crate::error::check_status;
+use crate::js_values::NapiValue;
+use crate::{sys, Env, Result, Task};
 
 pub struct AsyncWork<T: Task> {
   inner_task: T,
@@ -88,7 +90,7 @@ unsafe extern "C" fn complete<T: Task>(
         open_handle_status == sys::napi_status::napi_ok,
         "OpenHandleScope failed"
       );
-      let status = sys::napi_resolve_deferred(env, deferred, v.raw_value);
+      let status = sys::napi_resolve_deferred(env, deferred, v.raw_value());
       debug_assert!(status == sys::napi_status::napi_ok, "Reject promise failed");
     }
     Err(e) => {

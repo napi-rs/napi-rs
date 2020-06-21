@@ -1,18 +1,17 @@
-use crate::{check_status, ptr, sys, Env, Function, Result, Value};
 use std::os::raw::{c_char, c_void};
+use std::ptr;
+
+use crate::error::check_status;
+use crate::{sys, Env, JsFunction, NapiValue, Result};
 
 use sys::napi_threadsafe_function_call_mode;
 use sys::napi_threadsafe_function_release_mode;
 
 pub trait ToJs: Copy + Clone {
   type Output;
-  type JsValue;
+  type JsValue: NapiValue;
 
-  fn resolve(
-    &self,
-    env: &mut Env,
-    output: Self::Output,
-  ) -> Result<(u64, Value<Self::JsValue>)>;
+  fn resolve(&self, env: &mut Env, output: Self::Output) -> Result<(u64, Self::JsValue)>;
 }
 
 /// Communicate with the addon's main thread by invoking a JavaScript function from other threads.
@@ -26,7 +25,7 @@ pub trait ToJs: Copy + Clone {
 ///
 /// use std::thread;
 /// use napi_rs::{
-///   Number, Result, Value, Env, CallContext, Undefined, Function,
+///   Number, Result, Env, CallContext, JsUndefined, JsFunction,
 ///   sys::{
 ///     napi_threadsafe_function_call_mode::{
 ///       napi_tsfn_blocking,
@@ -47,9 +46,9 @@ pub trait ToJs: Copy + Clone {
 ///
 /// impl ToJs for HandleNumber {
 ///   type Output = u8;
-///   type JsValue = Number;
+///   type JsValue = JsNumber;
 ///
-///   fn resolve(&self, env: &mut Env, output: Self::Output) -> Result<(u64, Value<Self::JsValue>)> {
+///   fn resolve(&self, env: &mut Env, output: Self::Output) -> Result<(u64, Self::JsValue)> {
 ///     let argv: u64 = 1;
 ///     let value = env.create_uint32(output as u32)?;
 ///     Ok((argv, value))
@@ -57,9 +56,9 @@ pub trait ToJs: Copy + Clone {
 /// }
 ///
 /// #[js_function(1)]
-/// fn test_threadsafe_function(ctx: CallContext) -> Result<Value<Undefined>> {
+/// fn test_threadsafe_function(ctx: CallContext) -> Result<JsUndefined> {
 ///   // The callback function from js which will be called in `ThreadsafeFunction::call`.
-///   let func: Value<Function> = ctx.get::<Function>(0)?;
+///   let func = ctx.get::<JsFunction>(0)?;
 ///
 ///   let to_js = HandleNumber;
 ///   let tsfn = ThreadsafeFunction::create(ctx.env, func, to_js, 0)?;
@@ -71,11 +70,11 @@ pub trait ToJs: Copy + Clone {
 ///     tsfn.call(Ok(output), napi_tsfn_blocking).unwrap();
 ///     // We should call `ThreadsafeFunction::release` manually when we don't
 ///     // need the instance anymore, or it will prevent Node.js from exiting
-///     // automatically and possiblely cause memory leaks.
+///     // automatically and possibly cause memory leaks.
 ///     tsfn.release(napi_tsfn_release).unwrap();
 ///   });
 ///
-///   Ok(Env::get_undefined(ctx.env)?)
+///   ctx.env.get_undefined()
 /// }
 /// ```
 #[derive(Debug, Clone, Copy)]
@@ -90,7 +89,7 @@ unsafe impl<T: ToJs> Sync for ThreadsafeFunction<T> {}
 impl<T: ToJs> ThreadsafeFunction<T> {
   /// See [napi_create_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_create_threadsafe_function)
   /// for more information.
-  pub fn create(env: &Env, func: Value<Function>, to_js: T, max_queue_size: u64) -> Result<Self> {
+  pub fn create(env: &Env, func: JsFunction, to_js: T, max_queue_size: u64) -> Result<Self> {
     let mut async_resource_name = ptr::null_mut();
     let s = "napi_rs_threadsafe_function";
     let status = unsafe {
@@ -115,7 +114,7 @@ impl<T: ToJs> ThreadsafeFunction<T> {
     let status = unsafe {
       sys::napi_create_threadsafe_function(
         env.0,
-        func.raw_value,
+        func.0.value,
         ptr::null_mut(),
         async_resource_name,
         max_queue_size,
@@ -208,7 +207,7 @@ unsafe extern "C" fn call_js_cb<T: ToJs>(
   if ret.is_ok() {
     let (argv, js_value) = ret.unwrap();
     let js_null = env.get_null().unwrap();
-    let values = [js_null.raw_value, js_value.raw_value];
+    let values = [js_null.0.value, js_value.raw_value()];
     status = sys::napi_call_function(
       raw_env,
       recv,
@@ -224,7 +223,7 @@ unsafe extern "C" fn call_js_cb<T: ToJs>(
       recv,
       js_callback,
       1,
-      &mut err.raw_value,
+      &mut err.0.value,
       ptr::null_mut(),
     );
   }

@@ -22,7 +22,9 @@
 
 A minimal library for building compiled Node add-ons in Rust.
 
-This library depends on N-API and requires Node 8.9 or later. It is still pretty raw and has not been tested in a production setting.
+This library depends on N-API and requires Node 8.9 or later.
+
+We already have some packages written by `napi-rs`: [node-rs](https://github.com/napi-rs/node-rs)
 
 One nice feature is that this crate allows you to build add-ons purely with the Rust toolchain and without involving `node-gyp`.
 
@@ -30,8 +32,8 @@ One nice feature is that this crate allows you to build add-ons purely with the 
 
 ```rust
 #[js_function(1)] // ------> arguments length, omit for zero
-fn fibonacci(ctx: CallContext) -> Result<Value<Number>> {
-  let n = ctx.get::<Number>(0)?.try_into()?;
+fn fibonacci(ctx: CallContext) -> Result<JsNumber> {
+  let n = ctx.get::<JsNumber>(0)?.try_into()?;
   ctx.env.create_int64(fibonacci_native(n))
 }
 
@@ -139,7 +141,7 @@ yarn test
 | [napi_create_external_arraybuffer](https://nodejs.org/api/n-api.html#n_api_napi_create_external_arraybuffer) | 1            | v8.0.0               | ✅     |
 | [napi_create_external_buffer](https://nodejs.org/api/n-api.html#n_api_napi_create_external_buffer)           | 1            | v8.0.0               | ✅     |
 | [napi_create_object](https://nodejs.org/api/n-api.html#n_api_napi_create_object)                             | 1            | v8.0.0               | ✅     |
-| [napi_create_symbol](https://nodejs.org/api/n-api.html#n_api_napi_create_symbol)                             | 1            | v8.0.0               | ⛔️    |
+| [napi_create_symbol](https://nodejs.org/api/n-api.html#n_api_napi_create_symbol)                             | 1            | v8.0.0               | ✅     |
 | [napi_create_typedarray](https://nodejs.org/api/n-api.html#n_api_napi_create_typedarray)                     | 1            | v8.0.0               | ⛔️    |
 | [napi_create_dataview](https://nodejs.org/api/n-api.html#n_api_napi_create_dataview)                         | 1            | v8.3.0               | ⛔️    |
 | [napi_create_int32](https://nodejs.org/api/n-api.html#n_api_napi_create_int32)                               | 1            | v8.4.0               | ✅     |
@@ -169,7 +171,7 @@ yarn test
 | [napi_get_value_bigint_int64](https://nodejs.org/api/n-api.html#n_api_napi_get_value_bigint_int64)   | 6            | v10.7.0              | ⛔️    |
 | [napi_get_value_bigint_uint64](https://nodejs.org/api/n-api.html#n_api_napi_get_value_bigint_uint64) | 6            | v10.7.0              | ⛔️    |
 | [napi_get_value_bigint_words](https://nodejs.org/api/n-api.html#n_api_napi_get_value_bigint_words)   | 6            | v10.7.0              | ⛔️    |
-| [napi_get_value_external](https://nodejs.org/api/n-api.html#n_api_napi_get_value_external)           | 1            | v8.0.0               | ⛔️    |
+| [napi_get_value_external](https://nodejs.org/api/n-api.html#n_api_napi_get_value_external)           | 1            | v8.0.0               | ✅     |
 | [napi_get_value_int32](https://nodejs.org/api/n-api.html#n_api_napi_get_value_int32)                 | 1            | v8.0.0               | ✅     |
 | [napi_get_value_int64](https://nodejs.org/api/n-api.html#n_api_napi_get_value_int64)                 | 1            | v8.0.0               | ✅     |
 | [napi_get_value_string_latin1](https://nodejs.org/api/n-api.html#n_api_napi_get_value_string_latin1) | 1            | v8.0.0               | ⛔️    |
