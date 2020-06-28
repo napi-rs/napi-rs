@@ -16,6 +16,8 @@ mod async_work;
 mod call_context;
 pub mod sys;
 mod task;
+#[cfg(napi4)]
+pub mod threadsafe_function;
 mod version;
 
 pub use call_context::CallContext;
