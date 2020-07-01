@@ -57,19 +57,6 @@ fn main() {
     .expect("Unable to generate napi bindings")
     .write_to_file(out_path.join("bindings.rs"))
     .expect("Unable to write napi bindings");
-
-  let napi_version = String::from_utf8(
-    Command::new("node")
-      .args(&["-e", "console.log(process.versions.napi)"])
-      .output()
-      .unwrap()
-      .stdout,
-  )
-  .unwrap();
-
-  for version in 2..napi_version.trim().parse::<u32>().unwrap() {
-    println!("cargo:rustc-cfg=napi{}", version);
-  }
 }
 
 #[cfg(target_os = "windows")]

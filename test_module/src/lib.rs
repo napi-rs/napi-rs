@@ -3,7 +3,10 @@ extern crate napi_rs as napi;
 #[macro_use]
 extern crate napi_rs_derive;
 
-use napi::{CallContext, Env, Error, JsBoolean, JsString, JsUnknown, Module, Result, Status};
+use napi::{CallContext, Error, JsString, JsUnknown, Module, Result, Status};
+
+#[cfg(napi5)]
+mod napi5;
 
 mod buffer;
 mod external;
@@ -13,6 +16,8 @@ mod tsfn;
 
 use buffer::{buffer_to_string, get_buffer_length};
 use external::{create_external, get_external_count};
+#[cfg(napi5)]
+use napi5::is_date::test_object_is_date;
 use symbol::{create_named_symbol, create_symbol_from_js_string, create_unnamed_symbol};
 use task::test_spawn_thread;
 use tsfn::{test_threadsafe_function, test_tokio_readfile, test_tsfn_error};
@@ -23,7 +28,6 @@ fn init(module: &mut Module) -> Result<()> {
   module.create_named_method("testThrow", test_throw)?;
   module.create_named_method("testThrowWithReason", test_throw_with_reason)?;
   module.create_named_method("testSpawnThread", test_spawn_thread)?;
-  module.create_named_method("testObjectIsDate", test_object_is_date)?;
   module.create_named_method("createExternal", create_external)?;
   module.create_named_method("getExternalCount", get_external_count)?;
   module.create_named_method("getBufferLength", get_buffer_length)?;
@@ -34,6 +38,8 @@ fn init(module: &mut Module) -> Result<()> {
   module.create_named_method("testTsfnError", test_tsfn_error)?;
   module.create_named_method("testThreadsafeFunction", test_threadsafe_function)?;
   module.create_named_method("testTokioReadfile", test_tokio_readfile)?;
+  #[cfg(napi5)]
+  module.create_named_method("testObjectIsDate", test_object_is_date)?;
   Ok(())
 }
 
@@ -49,10 +55,4 @@ fn test_throw_with_reason(ctx: CallContext) -> Result<JsUnknown> {
     Status::GenericFailure,
     reason.as_str()?.to_owned(),
   ))
-}
-
-#[js_function(1)]
-fn test_object_is_date(ctx: CallContext) -> Result<JsBoolean> {
-  let obj = ctx.get::<JsUnknown>(0)?;
-  Env::get_boolean(ctx.env, obj.is_date()?)
 }
