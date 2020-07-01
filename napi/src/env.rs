@@ -1,0 +1,445 @@
+use crate::task::Task;
+use std::any::TypeId;
+use std::convert::TryInto;
+use std::mem;
+use std::os::raw::c_char;
+use std::os::raw::c_void;
+use std::ptr;
+
+use crate::error::check_status;
+use crate::js_values::*;
+use crate::{sys, AsyncWork, Error, NodeVersion, Result, Status};
+
+pub type Callback = extern "C" fn(sys::napi_env, sys::napi_callback_info) -> sys::napi_value;
+
+#[derive(Clone, Copy, Debug)]
+pub struct Env(pub(crate) sys::napi_env);
+
+impl Env {
+  pub fn from_raw(env: sys::napi_env) -> Self {
+    Env(env)
+  }
+
+  pub fn get_undefined(&self) -> Result<JsUndefined> {
+    let mut raw_value = ptr::null_mut();
+    let status = unsafe { sys::napi_get_undefined(self.0, &mut raw_value) };
+    check_status(status)?;
+    Ok(JsUndefined::from_raw_unchecked(self.0, raw_value))
+  }
+
+  pub fn get_null(&self) -> Result<JsNull> {
+    let mut raw_value = ptr::null_mut();
+    let status = unsafe { sys::napi_get_null(self.0, &mut raw_value) };
+    check_status(status)?;
+    Ok(JsNull::from_raw_unchecked(self.0, raw_value))
+  }
+
+  pub fn get_boolean(&self, value: bool) -> Result<JsBoolean> {
+    let mut raw_value = ptr::null_mut();
+    let status = unsafe { sys::napi_get_boolean(self.0, value, &mut raw_value) };
+    check_status(status)?;
+    Ok(JsBoolean::from_raw_unchecked(self.0, raw_value))
+  }
+
+  pub fn create_int32(&self, int: i32) -> Result<JsNumber> {
+    let mut raw_value = ptr::null_mut();
+    let status =
+      unsafe { sys::napi_create_int32(self.0, int, (&mut raw_value) as *mut sys::napi_value) };
+    check_status(status)?;
+    Ok(JsNumber::from_raw_unchecked(self.0, raw_value))
+  }
+
+  pub fn create_int64(&self, int: i64) -> Result<JsNumber> {
+    let mut raw_value = ptr::null_mut();
+    let status =
+      unsafe { sys::napi_create_int64(self.0, int, (&mut raw_value) as *mut sys::napi_value) };
+    check_status(status)?;
+    Ok(JsNumber::from_raw_unchecked(self.0, raw_value))
+  }
+
+  pub fn create_uint32(&self, number: u32) -> Result<JsNumber> {
+    let mut raw_value = ptr::null_mut();
+    let status = unsafe { sys::napi_create_uint32(self.0, number, &mut raw_value) };
+    check_status(status)?;
+    Ok(JsNumber::from_raw_unchecked(self.0, raw_value))
+  }
+
+  pub fn create_double(&self, double: f64) -> Result<JsNumber> {
+    let mut raw_value = ptr::null_mut();
+    let status =
+      unsafe { sys::napi_create_double(self.0, double, (&mut raw_value) as *mut sys::napi_value) };
+    check_status(status)?;
+    Ok(JsNumber::from_raw_unchecked(self.0, raw_value))
+  }
+
+  pub fn create_string(&self, s: &str) -> Result<JsString> {
+    let mut raw_value = ptr::null_mut();
+    let status = unsafe {
+      sys::napi_create_string_utf8(
+        self.0,
+        s.as_ptr() as *const c_char,
+        s.len() as u64,
+        &mut raw_value,
+      )
+    };
+    check_status(status)?;
+    Ok(JsString::from_raw_unchecked(self.0, raw_value))
+  }
+
+  pub fn create_string_utf16(&self, chars: &[u16]) -> Result<JsString> {
+    let mut raw_value = ptr::null_mut();
+    let status = unsafe {
+      sys::napi_create_string_utf16(self.0, chars.as_ptr(), chars.len() as u64, &mut raw_value)
+    };
+    check_status(status)?;
+    Ok(JsString::from_raw_unchecked(self.0, raw_value))
+  }
+
+  pub fn create_symbol_from_js_string(&self, description: JsString) -> Result<JsSymbol> {
+    let mut result = ptr::null_mut();
+    check_status(unsafe { sys::napi_create_symbol(self.0, description.0.value, &mut result) })?;
+    Ok(JsSymbol::from_raw_unchecked(self.0, result))
+  }
+
+  pub fn create_symbol(&self, description: Option<&str>) -> Result<JsSymbol> {
+    let mut result = ptr::null_mut();
+    check_status(unsafe {
+      sys::napi_create_symbol(
+        self.0,
+        description
+          .and_then(|desc| self.create_string(desc).ok())
+          .map(|string| string.0.value)
+          .unwrap_or(ptr::null_mut()),
+        &mut result,
+      )
+    })?;
+    Ok(JsSymbol::from_raw_unchecked(self.0, result))
+  }
+
+  pub fn create_object(&self) -> Result<JsObject> {
+    let mut raw_value = ptr::null_mut();
+    let status = unsafe { sys::napi_create_object(self.0, &mut raw_value) };
+    check_status(status)?;
+    Ok(JsObject::from_raw_unchecked(self.0, raw_value))
+  }
+
+  pub fn create_array_with_length(&self, length: usize) -> Result<JsObject> {
+    let mut raw_value = ptr::null_mut();
+    let status =
+      unsafe { sys::napi_create_array_with_length(self.0, length as u64, &mut raw_value) };
+    check_status(status)?;
+    Ok(JsObject::from_raw_unchecked(self.0, raw_value))
+  }
+
+  pub fn create_buffer(&self, length: u64) -> Result<JsBuffer> {
+    let mut raw_value = ptr::null_mut();
+    let mut data = Vec::with_capacity(length as usize);
+    let mut data_ptr = data.as_mut_ptr();
+    let status = unsafe { sys::napi_create_buffer(self.0, length, &mut data_ptr, &mut raw_value) };
+    check_status(status)?;
+    mem::forget(data);
+
+    let mut buffer = JsBuffer::from_raw_unchecked(self.0, raw_value);
+    buffer.data = data_ptr as *const u8;
+    buffer.len = length;
+    Ok(buffer)
+  }
+
+  pub fn create_buffer_with_data(&self, data: Vec<u8>) -> Result<JsBuffer> {
+    let length = data.len() as u64;
+    let mut raw_value = ptr::null_mut();
+    let data_ptr = data.as_ptr();
+    let status = unsafe {
+      sys::napi_create_external_buffer(
+        self.0,
+        length,
+        data_ptr as *mut c_void,
+        Some(drop_buffer),
+        &length as *const _ as *mut c_void,
+        &mut raw_value,
+      )
+    };
+    check_status(status)?;
+    let mut changed = 0;
+    let ajust_external_memory_status =
+      unsafe { sys::napi_adjust_external_memory(self.0, length as i64, &mut changed) };
+    check_status(ajust_external_memory_status)?;
+    mem::forget(data);
+    let mut buffer = JsBuffer::from_raw_unchecked(self.0, raw_value);
+    buffer.data = data_ptr as *const u8;
+    buffer.len = length;
+    Ok(buffer)
+  }
+
+  pub fn create_arraybuffer(&self, length: u64) -> Result<JsArrayBuffer> {
+    let mut raw_value = ptr::null_mut();
+    let mut data = Vec::with_capacity(length as usize);
+    let mut data_ptr = data.as_mut_ptr();
+    let status =
+      unsafe { sys::napi_create_arraybuffer(self.0, length, &mut data_ptr, &mut raw_value) };
+    check_status(status)?;
+    mem::forget(data);
+    let mut array_buffer = JsArrayBuffer::from_raw_unchecked(self.0, raw_value);
+    array_buffer.data = data_ptr as *const u8;
+    array_buffer.len = length;
+    Ok(array_buffer)
+  }
+
+  pub fn create_arraybuffer_with_data(&self, data: Vec<u8>) -> Result<JsArrayBuffer> {
+    let length = data.len() as u64;
+    let mut raw_value = ptr::null_mut();
+    let data_ptr = data.as_ptr();
+    let status = unsafe {
+      sys::napi_create_external_arraybuffer(
+        self.0,
+        data_ptr as *mut c_void,
+        length,
+        Some(drop_buffer),
+        &length as *const _ as *mut c_void,
+        &mut raw_value,
+      )
+    };
+    check_status(status)?;
+    let mut changed = 0;
+    let ajust_external_memory_status =
+      unsafe { sys::napi_adjust_external_memory(self.0, length as i64, &mut changed) };
+    check_status(ajust_external_memory_status)?;
+    mem::forget(data);
+    let mut array_buffer = JsArrayBuffer::from_raw_unchecked(self.0, raw_value);
+    array_buffer.data = data_ptr as *const u8;
+    array_buffer.len = length;
+    Ok(array_buffer)
+  }
+
+  pub fn create_function(&self, name: &str, callback: Callback) -> Result<JsFunction> {
+    let mut raw_result = ptr::null_mut();
+    let status = unsafe {
+      sys::napi_create_function(
+        self.0,
+        name.as_ptr() as *const c_char,
+        name.len() as u64,
+        Some(callback),
+        callback as *mut c_void,
+        &mut raw_result,
+      )
+    };
+
+    check_status(status)?;
+
+    Ok(JsFunction::from_raw_unchecked(self.0, raw_result))
+  }
+
+  pub fn throw(&self, error: Error) -> Result<()> {
+    let err_value = self.create_error(error)?.0.value;
+    check_status(unsafe { sys::napi_throw(self.0, err_value) })?;
+    Ok(())
+  }
+
+  pub fn throw_error(&self, msg: &str) -> Result<()> {
+    let status = unsafe { sys::napi_throw_error(self.0, ptr::null(), msg.as_ptr() as *const _) };
+    check_status(status)?;
+    Ok(())
+  }
+
+  pub fn create_reference<T: NapiValue>(&self, value: T) -> Result<Ref<T>> {
+    let mut raw_ref = ptr::null_mut();
+    let initial_ref_count = 1;
+    unsafe {
+      let status =
+        sys::napi_create_reference(self.0, value.raw_value(), initial_ref_count, &mut raw_ref);
+      check_status(status)?;
+    };
+
+    Ok(Ref::new(self.0, raw_ref))
+  }
+
+  pub fn get_reference_value<T: NapiValue>(&self, reference: &Ref<T>) -> Result<T> {
+    let mut raw_value = ptr::null_mut();
+    unsafe {
+      let status = sys::napi_get_reference_value(self.0, reference.ref_value, &mut raw_value);
+      check_status(status)?;
+    };
+
+    Ok(T::from_raw_unchecked(self.0, raw_value))
+  }
+
+  pub fn define_class(
+    &self,
+    name: &str,
+    constructor_cb: Callback,
+    properties: Vec<Property>,
+  ) -> Result<JsFunction> {
+    let mut raw_result = ptr::null_mut();
+    let raw_properties = properties
+      .into_iter()
+      .map(|prop| prop.into_raw(self))
+      .collect::<Result<Vec<sys::napi_property_descriptor>>>()?;
+
+    let status = unsafe {
+      sys::napi_define_class(
+        self.0,
+        name.as_ptr() as *const c_char,
+        name.len() as u64,
+        Some(constructor_cb),
+        ptr::null_mut(),
+        raw_properties.len() as u64,
+        raw_properties.as_ptr(),
+        &mut raw_result,
+      )
+    };
+
+    check_status(status)?;
+
+    Ok(JsFunction::from_raw_unchecked(self.0, raw_result))
+  }
+
+  pub fn wrap<T: 'static>(&self, js_object: &mut JsObject, native_object: T) -> Result<()> {
+    let status = unsafe {
+      sys::napi_wrap(
+        self.0,
+        js_object.0.value,
+        Box::into_raw(Box::new(TaggedObject::new(native_object))) as *mut c_void,
+        Some(raw_finalize::<T>),
+        ptr::null_mut(),
+        ptr::null_mut(),
+      )
+    };
+
+    check_status(status).or(Ok(()))
+  }
+
+  pub fn unwrap<T: 'static>(&self, js_object: &JsObject) -> Result<&mut T> {
+    unsafe {
+      let mut unknown_tagged_object: *mut c_void = ptr::null_mut();
+      let status = sys::napi_unwrap(self.0, js_object.0.value, &mut unknown_tagged_object);
+      check_status(status)?;
+
+      let type_id: *const TypeId = mem::transmute(unknown_tagged_object);
+      if *type_id == TypeId::of::<T>() {
+        let tagged_object: *mut TaggedObject<T> = mem::transmute(unknown_tagged_object);
+        (*tagged_object).object.as_mut().ok_or(Error {
+          status: Status::InvalidArg,
+          reason: "Invalid argument, nothing attach to js_object".to_owned(),
+        })
+      } else {
+        Err(Error {
+          status: Status::InvalidArg,
+          reason: "Invalid argument, T on unrwap is not the type of wrapped object".to_owned(),
+        })
+      }
+    }
+  }
+
+  pub fn drop_wrapped<T: 'static>(&self, js_object: JsObject) -> Result<()> {
+    unsafe {
+      let mut unknown_tagged_object: *mut c_void = ptr::null_mut();
+      let status = sys::napi_unwrap(self.0, js_object.0.value, &mut unknown_tagged_object);
+      check_status(status)?;
+
+      let type_id: *const TypeId = mem::transmute(unknown_tagged_object);
+      if *type_id == TypeId::of::<T>() {
+        let tagged_object: *mut TaggedObject<T> = mem::transmute(unknown_tagged_object);
+        (*tagged_object).object = None;
+        Ok(())
+      } else {
+        Err(Error {
+          status: Status::InvalidArg,
+          reason: "Invalid argument, T on drop_wrapped is not the type of wrapped object"
+            .to_owned(),
+        })
+      }
+    }
+  }
+
+  pub fn create_external<T: 'static>(&self, native_object: T) -> Result<JsExternal> {
+    let mut object_value = ptr::null_mut();
+    let status = unsafe {
+      sys::napi_create_external(
+        self.0,
+        Box::into_raw(Box::new(TaggedObject::new(native_object))) as *mut c_void,
+        Some(raw_finalize::<T>),
+        ptr::null_mut(),
+        &mut object_value,
+      )
+    };
+
+    check_status(status)?;
+    Ok(JsExternal::from_raw_unchecked(self.0, object_value))
+  }
+
+  pub fn get_value_external<T: 'static>(&self, js_external: &JsExternal) -> Result<&mut T> {
+    unsafe {
+      let mut unknown_tagged_object = ptr::null_mut();
+      let status =
+        sys::napi_get_value_external(self.0, js_external.0.value, &mut unknown_tagged_object);
+      check_status(status)?;
+
+      let type_id: *const TypeId = mem::transmute(unknown_tagged_object);
+      if *type_id == TypeId::of::<T>() {
+        let tagged_object: *mut TaggedObject<T> = mem::transmute(unknown_tagged_object);
+        (*tagged_object).object.as_mut().ok_or(Error {
+          status: Status::InvalidArg,
+          reason: "Invalid argument, nothing attach to js_external".to_owned(),
+        })
+      } else {
+        Err(Error {
+          status: Status::InvalidArg,
+          reason: "Invalid argument, T on get_value_external is not the type of wrapped object"
+            .to_owned(),
+        })
+      }
+    }
+  }
+
+  pub fn create_error(&self, e: Error) -> Result<JsObject> {
+    let reason = e.reason;
+    let reason_string = self.create_string(reason.as_str())?;
+    let mut result = ptr::null_mut();
+    let status = unsafe {
+      sys::napi_create_error(
+        self.0,
+        ptr::null_mut(),
+        reason_string.into_raw(),
+        &mut result,
+      )
+    };
+    check_status(status)?;
+    Ok(JsObject::from_raw_unchecked(self.0, result))
+  }
+
+  pub fn spawn<T: 'static + Task>(&self, task: T) -> Result<JsObject> {
+    let mut raw_promise = ptr::null_mut();
+    let mut raw_deferred = ptr::null_mut();
+
+    check_status(unsafe { sys::napi_create_promise(self.0, &mut raw_deferred, &mut raw_promise) })?;
+    AsyncWork::run(self.0, task, raw_deferred)?;
+    Ok(JsObject::from_raw_unchecked(self.0, raw_promise))
+  }
+
+  pub fn get_node_version(&self) -> Result<NodeVersion> {
+    let mut result = ptr::null();
+    check_status(unsafe { sys::napi_get_node_version(self.0, &mut result) })?;
+    let version = unsafe { *result };
+    version.try_into()
+  }
+}
+
+unsafe extern "C" fn drop_buffer(env: sys::napi_env, finalize_data: *mut c_void, len: *mut c_void) {
+  let length = Box::from_raw(len as *mut u64);
+  let length = length.as_ref();
+  let length = *length as usize;
+  let _ = Vec::from_raw_parts(finalize_data as *mut u8, length, length);
+  let mut changed = 0;
+  let ajust_external_memory_status =
+    sys::napi_adjust_external_memory(env, -(length as i64), &mut changed);
+  debug_assert!(Status::from(ajust_external_memory_status) == Status::Ok);
+}
+
+unsafe extern "C" fn raw_finalize<T>(
+  _raw_env: sys::napi_env,
+  finalize_data: *mut c_void,
+  _finalize_hint: *mut c_void,
+) {
+  let tagged_object: *mut TaggedObject<T> = mem::transmute(finalize_data);
+  Box::from_raw(tagged_object);
+}

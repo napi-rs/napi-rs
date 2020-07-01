@@ -1,10 +1,11 @@
-use crate::{Env, Result, Value, ValueType};
+use crate::js_values::NapiValue;
+use crate::{Env, Result};
 
 pub trait Task {
   type Output: Send + Sized + 'static;
-  type JsValue: ValueType;
+  type JsValue: NapiValue;
 
   fn compute(&mut self) -> Result<Self::Output>;
 
-  fn resolve(&self, env: &mut Env, output: Self::Output) -> Result<Value<Self::JsValue>>;
+  fn resolve(&self, env: &mut Env, output: Self::Output) -> Result<Self::JsValue>;
 }

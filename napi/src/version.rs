@@ -21,7 +21,7 @@ impl TryFrom<sys::napi_node_version> for NodeVersion {
       release: unsafe {
         CStr::from_ptr(value.release).to_str().map_err(|_| Error {
           status: Status::StringExpected,
-          reason: Some("Invalid release name".to_owned()),
+          reason: "Invalid release name".to_owned(),
         })?
       },
     })

@@ -60,10 +60,7 @@ fn main() {
 
   let napi_version = String::from_utf8(
     Command::new("node")
-      .args(&[
-        "-e",
-        "console.log(process.versions.napi)",
-      ])
+      .args(&["-e", "console.log(process.versions.napi)"])
       .output()
       .unwrap()
       .stdout,

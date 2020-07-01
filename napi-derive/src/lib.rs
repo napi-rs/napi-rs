@@ -6,7 +6,7 @@ use quote::{format_ident, quote};
 use syn::fold::{fold_fn_arg, fold_signature, Fold};
 use syn::parse::{Parse, ParseStream, Result};
 use syn::punctuated::Punctuated;
-use syn::{parse_macro_input, Block, FnArg, ItemFn, Signature, Token};
+use syn::{parse_macro_input, Block, FnArg, ItemFn, Signature, Token, Visibility};
 
 struct ArgLength {
   length: Option<Literal>,
@@ -26,6 +26,7 @@ struct JsFunction {
   name: Option<Ident>,
   signature: Option<Signature>,
   block: Vec<Block>,
+  visibility: Visibility,
 }
 
 impl JsFunction {
@@ -34,6 +35,7 @@ impl JsFunction {
       args: vec![],
       name: None,
       signature: None,
+      visibility: Visibility::Inherited,
       block: vec![],
     }
   }
@@ -53,6 +55,11 @@ impl Fold for JsFunction {
     fold_signature(self, signature)
   }
 
+  fn fold_visibility(&mut self, v: Visibility) -> Visibility {
+    self.visibility = v.clone();
+    v
+  }
+
   fn fold_block(&mut self, node: Block) -> Block {
     self.block.push(node.clone());
     node
@@ -69,11 +76,12 @@ pub fn js_function(attr: TokenStream, input: TokenStream) -> TokenStream {
   let fn_name = js_fn.name.unwrap();
   let fn_block = js_fn.block;
   let signature = js_fn.signature.unwrap();
+  let visibility = js_fn.visibility;
   let new_fn_name = signature.ident.clone();
   let expanded = quote! {
     #signature #(#fn_block)*
 
-    extern "C" fn #fn_name(
+    #visibility extern "C" fn #fn_name(
       raw_env: napi_rs::sys::napi_env,
       cb_info: napi_rs::sys::napi_callback_info,
     ) -> napi_rs::sys::napi_value {
@@ -81,7 +89,7 @@ pub fn js_function(attr: TokenStream, input: TokenStream) -> TokenStream {
       use std::mem;
       use std::os::raw::c_char;
       use std::ptr;
-      use napi_rs::{Any, Env, Status, Value, CallContext};
+      use napi_rs::{JsUnknown, Env, Status, NapiValue, CallContext};
       let mut argc = #arg_len_span as usize;
       let mut raw_args =
       unsafe { mem::MaybeUninit::<[napi_rs::sys::napi_value; #arg_len_span as usize]>::uninit().assume_init() };
@@ -107,9 +115,9 @@ pub fn js_function(attr: TokenStream, input: TokenStream) -> TokenStream {
       has_error = has_error && result.is_err();
 
       match result {
-        Ok(result) => result.into_raw(),
+        Ok(result) => result.raw_value(),
         Err(e) => {
-          let message = format!("{:?}", e);
+          let message = format!("{}", e);
           unsafe {
             napi_rs::sys::napi_throw_error(raw_env, ptr::null(), message.as_ptr() as *const c_char);
           }
