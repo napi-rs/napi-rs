@@ -7,7 +7,8 @@ use napi::sys::{
 };
 use napi::threadsafe_function::{ThreadsafeFunction, ToJs};
 use napi::{
-  CallContext, Env, Error, JsBuffer, JsFunction, JsNumber, JsString, JsUndefined, Result, Status,
+  CallContext, Env, Error, JsFunction, JsString, JsUndefined, Result, Status,
+  JsUnknown,
 };
 use tokio;
 
@@ -15,15 +16,15 @@ use tokio;
 struct HandleNumber;
 
 impl ToJs for HandleNumber {
-  type Output = u8;
-  type JsValue = JsNumber;
+  type Output = Vec<u8>;
 
-  fn resolve(&self, env: &mut Env, output: Self::Output) -> Result<(u64, Self::JsValue)> {
-    let argv: u64 = 1;
-
-    let value = env.create_uint32(output as u32)?;
-
-    Ok((argv, value))
+  fn resolve(&self, env: &mut Env, output: Self::Output) -> Result<Vec<JsUnknown>> {
+    let mut items: Vec<JsUnknown> = vec![];
+    for item in output.iter() {
+      let value = env.create_uint32((*item) as u32)?.into_unknown()?;
+      items.push(value);
+    }
+    Ok(items)
   }
 }
 
@@ -35,10 +36,10 @@ pub fn test_threadsafe_function(ctx: CallContext) -> Result<JsUndefined> {
   let tsfn = ThreadsafeFunction::create(ctx.env, func, to_js, 0)?;
 
   thread::spawn(move || {
-    let output: u8 = 42;
+    let output: Vec<u8> = vec![42, 1, 2, 3];
     // It's okay to call a threadsafe function multiple times.
-    tsfn.call(Ok(output), napi_tsfn_blocking).unwrap();
-    tsfn.call(Ok(output), napi_tsfn_blocking).unwrap();
+    tsfn.call(Ok(output.clone()), napi_tsfn_blocking).unwrap();
+    tsfn.call(Ok(output.clone()), napi_tsfn_blocking).unwrap();
     tsfn.release(napi_tsfn_release).unwrap();
   });
 
@@ -69,11 +70,10 @@ struct HandleBuffer;
 
 impl ToJs for HandleBuffer {
   type Output = Vec<u8>;
-  type JsValue = JsBuffer;
 
-  fn resolve(&self, env: &mut Env, output: Self::Output) -> Result<(u64, JsBuffer)> {
-    let value = env.create_buffer_with_data(output.to_vec())?;
-    Ok((1u64, value))
+  fn resolve(&self, env: &mut Env, output: Self::Output) -> Result<Vec<JsUnknown>> {
+    let value = env.create_buffer_with_data(output.to_vec())?.into_unknown()?;
+    Ok(vec![value])
   }
 }
 

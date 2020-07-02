@@ -5,11 +5,10 @@ test('should get js function called from a thread', async (t) => {
   let called = 0
 
   return new Promise((resolve, reject) => {
-    bindings.testThreadsafeFunction((err, ret) => {
+    bindings.testThreadsafeFunction((...args) => {
       called += 1
       try {
-        t.is(err, null)
-        t.is(ret, 42)
+        t.deepEqual(args, [null, 42, 1, 2, 3])
       } catch (err) {
         reject(err)
       }

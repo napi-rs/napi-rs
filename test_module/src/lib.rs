@@ -9,12 +9,14 @@ use napi::{CallContext, Error, JsString, JsUnknown, Module, Result, Status};
 mod napi5;
 
 mod buffer;
+mod function;
 mod external;
 mod symbol;
 mod task;
 mod tsfn;
 
 use buffer::{buffer_to_string, get_buffer_length};
+use function::{call_function, call_function_with_this};
 use external::{create_external, get_external_count};
 #[cfg(napi5)]
 use napi5::is_date::test_object_is_date;
@@ -38,6 +40,8 @@ fn init(module: &mut Module) -> Result<()> {
   module.create_named_method("testTsfnError", test_tsfn_error)?;
   module.create_named_method("testThreadsafeFunction", test_threadsafe_function)?;
   module.create_named_method("testTokioReadfile", test_tokio_readfile)?;
+  module.create_named_method("testCallFunction", call_function)?;
+  module.create_named_method("testCallFunctionWithThis", call_function_with_this)?;
   #[cfg(napi5)]
   module.create_named_method("testObjectIsDate", test_object_is_date)?;
   Ok(())
