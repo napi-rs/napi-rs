@@ -57,7 +57,7 @@ jobs:
 
       - name: Unit tests
         run: |
-          yarn
+          yarn --ignore-engines
           yarn --cwd ./test_module build
           yarn test
         env:
