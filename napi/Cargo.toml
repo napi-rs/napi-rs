@@ -9,6 +9,12 @@ repository = "https://github.com/Brooooooklyn/napi-rs"
 keywords = ["NodeJS", "FFI", "NAPI", "n-api"]
 edition = "2018"
 
+[features]
+libuv = ["futures"]
+
+[dependencies]
+futures = { version = "0.3", optional = true }
+
 [target.'cfg(windows)'.build-dependencies]
 flate2 = "1.0"
 reqwest = { version = "0.10", features = ["native-tls", "blocking"] }

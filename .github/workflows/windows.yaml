@@ -30,7 +30,7 @@ jobs:
       - name: Install llvm
         run: choco install -y llvm
       - name: set environment variables
-        uses: allenevans/set-env@v1.0.0
+        uses: allenevans/set-env@v1.1.0
         with:
           LIBCLANG_PATH: 'C:\Program Files\LLVM\bin'
       - name: Generate Cargo.lock

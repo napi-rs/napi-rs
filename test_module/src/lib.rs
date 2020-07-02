@@ -5,6 +5,10 @@ extern crate napi_rs_derive;
 
 use napi::{CallContext, Error, JsString, JsUnknown, Module, Result, Status};
 
+#[cfg(napi4)]
+mod napi4;
+#[cfg(napi4)]
+mod libuv;
 #[cfg(napi5)]
 mod napi5;
 
@@ -13,16 +17,20 @@ mod function;
 mod external;
 mod symbol;
 mod task;
-mod tsfn;
+mod napi_version;
 
 use buffer::{buffer_to_string, get_buffer_length};
 use function::{call_function, call_function_with_this};
 use external::{create_external, get_external_count};
+#[cfg(napi4)]
+use napi4::{test_threadsafe_function, test_tokio_readfile, test_tsfn_error};
 #[cfg(napi5)]
 use napi5::is_date::test_object_is_date;
 use symbol::{create_named_symbol, create_symbol_from_js_string, create_unnamed_symbol};
 use task::test_spawn_thread;
-use tsfn::{test_threadsafe_function, test_tokio_readfile, test_tsfn_error};
+#[cfg(napi4)]
+use libuv::read_file::uv_read_file;
+use napi_version::get_napi_version;
 
 register_module!(test_module, init);
 
@@ -37,11 +45,17 @@ fn init(module: &mut Module) -> Result<()> {
   module.create_named_method("createNamedSymbol", create_named_symbol)?;
   module.create_named_method("createUnnamedSymbol", create_unnamed_symbol)?;
   module.create_named_method("createSymbolFromJsString", create_symbol_from_js_string)?;
-  module.create_named_method("testTsfnError", test_tsfn_error)?;
-  module.create_named_method("testThreadsafeFunction", test_threadsafe_function)?;
-  module.create_named_method("testTokioReadfile", test_tokio_readfile)?;
+  module.create_named_method("getNapiVersion", get_napi_version)?;
   module.create_named_method("testCallFunction", call_function)?;
   module.create_named_method("testCallFunctionWithThis", call_function_with_this)?;
+  #[cfg(napi4)]
+  module.create_named_method("testTsfnError", test_tsfn_error)?;
+  #[cfg(napi4)]
+  module.create_named_method("testThreadsafeFunction", test_threadsafe_function)?;
+  #[cfg(napi4)]
+  module.create_named_method("testTokioReadfile", test_tokio_readfile)?;
+  #[cfg(napi4)]
+  module.create_named_method("uvReadFile", uv_read_file)?;
   #[cfg(napi5)]
   module.create_named_method("testObjectIsDate", test_object_is_date)?;
   Ok(())

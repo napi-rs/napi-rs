@@ -2,21 +2,15 @@ const test = require('ava')
 
 const bindings = require('../index.node')
 
-test('should call the function', async (t) => {
-  const ret = await new Promise((resolve) => {
-    bindings.testCallFunction((arg1, arg2) => {
-      resolve(`${arg1} ${arg2}`)
-    })
+test('should call the function', (t) => {
+  bindings.testCallFunction((arg1, arg2) => {
+    t.is(`${arg1} ${arg2}`, 'hello world')
   })
-  t.is(ret, 'hello world')
 })
 
-test('should set "this" properly', async (t) => {
+test('should set "this" properly', (t) => {
   const obj = {}
-  const ret = await new Promise((resolve) => {
-    bindings.testCallFunctionWithThis(obj, function () {
-      resolve(this)
-    })
+  bindings.testCallFunctionWithThis.call(obj, function () {
+    t.is(this, obj)
   })
-  t.is(ret, obj)
 })
