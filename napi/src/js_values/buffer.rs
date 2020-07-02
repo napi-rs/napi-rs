@@ -2,7 +2,7 @@ use std::ops::{Deref, DerefMut};
 use std::ptr;
 use std::slice;
 
-use super::{JsObject, NapiValue, Value, ValueType};
+use super::{JsObject, JsUnknown, NapiValue, Value, ValueType};
 use crate::error::check_status;
 use crate::{sys, Result};
 
@@ -11,6 +11,12 @@ pub struct JsBuffer {
   pub value: JsObject,
   pub data: *const u8,
   pub len: u64,
+}
+
+impl JsBuffer {
+  pub fn into_unknown(self) -> Result<JsUnknown> {
+    self.value.into_unknown()
+  }
 }
 
 impl NapiValue for JsBuffer {

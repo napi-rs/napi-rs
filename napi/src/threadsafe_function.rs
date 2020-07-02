@@ -2,16 +2,15 @@ use std::os::raw::{c_char, c_void};
 use std::ptr;
 
 use crate::error::check_status;
-use crate::{sys, Env, JsFunction, NapiValue, Result};
+use crate::{sys, Env, JsFunction, JsUnknown, Result};
 
 use sys::napi_threadsafe_function_call_mode;
 use sys::napi_threadsafe_function_release_mode;
 
 pub trait ToJs: Copy + Clone {
   type Output;
-  type JsValue: NapiValue;
 
-  fn resolve(&self, env: &mut Env, output: Self::Output) -> Result<(u64, Self::JsValue)>;
+  fn resolve(&self, env: &mut Env, output: Self::Output) -> Result<Vec<JsUnknown>>;
 }
 
 /// Communicate with the addon's main thread by invoking a JavaScript function from other threads.
@@ -205,15 +204,20 @@ unsafe extern "C" fn call_js_cb<T: ToJs>(
 
   // Follow the convention of Node.js async callback.
   if ret.is_ok() {
-    let (argv, js_value) = ret.unwrap();
+    let values = ret.unwrap();
     let js_null = env.get_null().unwrap();
-    let values = [js_null.0.value, js_value.raw_value()];
+    let mut raw_values: Vec<sys::napi_value> = vec![];
+    raw_values.push(js_null.into_raw());
+    for item in values.iter() {
+      raw_values.push(item.into_raw())
+    }
+
     status = sys::napi_call_function(
       raw_env,
       recv,
       js_callback,
-      argv + 1,
-      values.as_ptr(),
+      (values.len() + 1) as u64,
+      raw_values.as_ptr(),
       ptr::null_mut(),
     );
   } else {

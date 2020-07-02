@@ -98,6 +98,9 @@ macro_rules! impl_js_value_methods {
       pub fn into_raw(self) -> sys::napi_value {
         self.0.value
       }
+      pub fn into_unknown(self) -> Result<JsUnknown> {
+        JsUnknown::from_raw(self.0.env, self.0.value)
+      }
       pub fn coerce_to_number(self) -> Result<JsNumber> {
         let mut new_raw_value = ptr::null_mut();
         let status =
