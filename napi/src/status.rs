@@ -17,9 +17,11 @@ pub enum Status {
   EscapeCalledTwice,
   HandleScopeMismatch,
   CallbackScopeMismatch,
+  #[cfg(napi4)]
   QueueFull,
+  #[cfg(napi4)]
   Closing,
-  #[cfg(node6)]
+  #[cfg(napi6)]
   BigintExpected,
   Unknown,
 }
@@ -45,9 +47,11 @@ impl From<napi_status> for Status {
       napi_escape_called_twice => EscapeCalledTwice,
       napi_handle_scope_mismatch => HandleScopeMismatch,
       napi_callback_scope_mismatch => CallbackScopeMismatch,
+      #[cfg(napi4)]
       napi_queue_full => QueueFull,
+      #[cfg(napi4)]
       napi_closing => Closing,
-      #[cfg(node6)]
+      #[cfg(napi6)]
       napi_bigint_expected => BigintExpected,
       _ => Unknown,
     }
@@ -72,9 +76,11 @@ impl Into<self::napi_status> for Status {
       Self::EscapeCalledTwice => napi_status::napi_escape_called_twice,
       Self::HandleScopeMismatch => napi_status::napi_handle_scope_mismatch,
       Self::CallbackScopeMismatch => napi_status::napi_callback_scope_mismatch,
+      #[cfg(napi4)]
       Self::QueueFull => napi_status::napi_queue_full,
+      #[cfg(napi4)]
       Self::Closing => napi_status::napi_closing,
-      #[cfg(node6)]
+      #[cfg(napi6)]
       Self::BigintExpected => napi_status::napi_bigint_expected,
       Self::Unknown => napi_status::napi_generic_failure,
     }

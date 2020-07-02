@@ -4,10 +4,15 @@ mod env;
 mod error;
 mod js_values;
 mod module;
+#[cfg(all(feature = "libuv", napi4))]
+mod promise;
 mod status;
 pub mod sys;
 mod task;
+#[cfg(napi4)]
 pub mod threadsafe_function;
+#[cfg(all(feature = "libuv", napi4))]
+mod uv;
 mod version;
 
 pub use async_work::AsyncWork;

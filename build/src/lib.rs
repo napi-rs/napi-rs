@@ -83,14 +83,14 @@ fn setup_napi_feature() {
 
   let napi_version_number = napi_version.trim().parse::<u32>().unwrap();
 
-  if napi_version_number < 4 {
+  if napi_version_number < 2 {
     panic!("current napi version is too low");
   }
 
-  if napi_version_number == 4 {
+  if napi_version_number == 2 {
     println!("cargo:rustc-cfg=napi{}", napi_version_number);
   } else {
-    for version in 4..napi_version_number {
+    for version in 2..(napi_version_number + 1) {
       println!("cargo:rustc-cfg=napi{}", version);
     }
   }
