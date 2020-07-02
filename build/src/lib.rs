@@ -2,6 +2,8 @@ extern crate cfg_if;
 #[cfg(windows)]
 extern crate reqwest;
 
+use std::process::Command;
+
 use cfg_if::cfg_if;
 
 cfg_if! {
@@ -10,7 +12,6 @@ cfg_if! {
     use std::fs::File;
     use std::io::copy;
     use std::path::PathBuf;
-    use std::process::Command;
 
     pub fn setup() {
       let node_full_version =
@@ -54,14 +55,43 @@ cfg_if! {
         println!("cargo:rustc-cdylib-link-arg=delayimp.lib");
         println!("cargo:rustc-cdylib-link-arg=/DELAYLOAD:node.exe");
       }
+      setup_napi_feature();
     }
   } else if #[cfg(target_os = "macos")] {
     /// Set up the build environment by setting Cargo configuration variables.
     pub fn setup() {
       println!("cargo:rustc-cdylib-link-arg=-undefined");
       println!("cargo:rustc-cdylib-link-arg=dynamic_lookup");
+      setup_napi_feature();
     }
   } else {
-    pub fn setup() { }
+    pub fn setup() {
+      setup_napi_feature();
+    }
+  }
+}
+
+fn setup_napi_feature() {
+  let napi_version = String::from_utf8(
+    Command::new("node")
+      .args(&["-e", "console.log(process.versions.napi)"])
+      .output()
+      .unwrap()
+      .stdout,
+  )
+  .expect("Get NAPI version failed");
+
+  let napi_version_number = napi_version.trim().parse::<u32>().unwrap();
+
+  if napi_version_number < 4 {
+    panic!("current napi version is too low");
+  }
+
+  if napi_version_number == 4 {
+    println!("cargo:rustc-cfg=napi{}", napi_version_number);
+  } else {
+    for version in 4..napi_version_number {
+      println!("cargo:rustc-cfg=napi{}", version);
+    }
   }
 }

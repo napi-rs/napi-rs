@@ -4,9 +4,9 @@ mod env;
 mod error;
 mod js_values;
 mod module;
+mod status;
 pub mod sys;
 mod task;
-#[cfg(napi4)]
 pub mod threadsafe_function;
 mod version;
 
@@ -16,7 +16,8 @@ pub use env::*;
 pub use error::{Error, Result};
 pub use js_values::*;
 pub use module::Module;
-pub use sys::{napi_valuetype, Status};
+pub use status::Status;
+pub use sys::napi_valuetype;
 pub use task::Task;
 pub use version::NodeVersion;
 

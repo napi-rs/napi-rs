@@ -132,7 +132,9 @@ macro_rules! impl_js_value_methods {
           value_type: ValueType::Object,
         }))
       }
+
       #[inline]
+      #[cfg(napi5)]
       pub fn is_date(&self) -> Result<bool> {
         let mut is_date = true;
         let status = unsafe { sys::napi_is_date(self.0.env, self.0.value, &mut is_date) };

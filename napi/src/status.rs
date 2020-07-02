@@ -1,4 +1,4 @@
-use super::napi_status;
+use crate::sys::napi_status;
 
 #[derive(Eq, PartialEq, Debug, Clone, Copy)]
 pub enum Status {
@@ -19,6 +19,7 @@ pub enum Status {
   CallbackScopeMismatch,
   QueueFull,
   Closing,
+  #[cfg(node6)]
   BigintExpected,
   Unknown,
 }
@@ -46,6 +47,7 @@ impl From<napi_status> for Status {
       napi_callback_scope_mismatch => CallbackScopeMismatch,
       napi_queue_full => QueueFull,
       napi_closing => Closing,
+      #[cfg(node6)]
       napi_bigint_expected => BigintExpected,
       _ => Unknown,
     }
@@ -72,6 +74,7 @@ impl Into<self::napi_status> for Status {
       Self::CallbackScopeMismatch => napi_status::napi_callback_scope_mismatch,
       Self::QueueFull => napi_status::napi_queue_full,
       Self::Closing => napi_status::napi_closing,
+      #[cfg(node6)]
       Self::BigintExpected => napi_status::napi_bigint_expected,
       Self::Unknown => napi_status::napi_generic_failure,
     }
