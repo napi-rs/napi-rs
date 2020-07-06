@@ -6,31 +6,33 @@ extern crate napi_rs_derive;
 use napi::{CallContext, Error, JsString, JsUnknown, Module, Result, Status};
 
 #[cfg(napi4)]
-mod napi4;
-#[cfg(napi4)]
 mod libuv;
+#[cfg(napi4)]
+mod napi4;
 #[cfg(napi5)]
 mod napi5;
 
 mod buffer;
-mod function;
 mod external;
+mod function;
+mod napi_version;
+mod native_buffer;
 mod symbol;
 mod task;
-mod napi_version;
 
 use buffer::{buffer_to_string, get_buffer_length};
-use function::{call_function, call_function_with_this};
 use external::{create_external, get_external_count};
+use function::{call_function, call_function_with_this};
+#[cfg(napi4)]
+use libuv::read_file::uv_read_file;
 #[cfg(napi4)]
 use napi4::{test_threadsafe_function, test_tokio_readfile, test_tsfn_error};
 #[cfg(napi5)]
 use napi5::is_date::test_object_is_date;
+use napi_version::get_napi_version;
+use native_buffer::*;
 use symbol::{create_named_symbol, create_symbol_from_js_string, create_unnamed_symbol};
 use task::test_spawn_thread;
-#[cfg(napi4)]
-use libuv::read_file::uv_read_file;
-use napi_version::get_napi_version;
 
 register_module!(test_module, init);
 
@@ -38,6 +40,11 @@ fn init(module: &mut Module) -> Result<()> {
   module.create_named_method("testThrow", test_throw)?;
   module.create_named_method("testThrowWithReason", test_throw_with_reason)?;
   module.create_named_method("testSpawnThread", test_spawn_thread)?;
+  module.create_named_method("getVecFromAsyncTask", get_vec_from_async_task)?;
+  module.create_named_method(
+    "getNativeBufferFromAsyncTask",
+    get_native_buffer_from_async_task,
+  )?;
   module.create_named_method("createExternal", create_external)?;
   module.create_named_method("getExternalCount", get_external_count)?;
   module.create_named_method("getBufferLength", get_buffer_length)?;

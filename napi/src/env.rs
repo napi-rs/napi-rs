@@ -197,9 +197,9 @@ impl Env {
     };
     check_status(status)?;
     let mut changed = 0;
-    let ajust_external_memory_status =
+    let adjust_external_memory_status =
       unsafe { sys::napi_adjust_external_memory(self.0, length as i64, &mut changed) };
-    check_status(ajust_external_memory_status)?;
+    check_status(adjust_external_memory_status)?;
     mem::forget(data);
     let mut buffer = JsBuffer::from_raw_unchecked(self.0, raw_value);
     buffer.data = data_ptr as *const u8;
@@ -239,9 +239,9 @@ impl Env {
     };
     check_status(status)?;
     let mut changed = 0;
-    let ajust_external_memory_status =
+    let adjust_external_memory_status =
       unsafe { sys::napi_adjust_external_memory(self.0, length as i64, &mut changed) };
-    check_status(ajust_external_memory_status)?;
+    check_status(adjust_external_memory_status)?;
     mem::forget(data);
     let mut array_buffer = JsArrayBuffer::from_raw_unchecked(self.0, raw_value);
     array_buffer.data = data_ptr as *const u8;
@@ -534,16 +534,6 @@ impl Env {
     let version = unsafe { *result };
     version.try_into()
   }
-}
-
-unsafe extern "C" fn drop_buffer(env: sys::napi_env, finalize_data: *mut c_void, len: *mut c_void) {
-  let length = Box::from_raw(len as *mut u64);
-  let length = *length as usize;
-  let _ = Vec::from_raw_parts(finalize_data as *mut u8, length, length);
-  let mut changed = 0;
-  let ajust_external_memory_status =
-    sys::napi_adjust_external_memory(env, -(length as i64), &mut changed);
-  debug_assert!(Status::from(ajust_external_memory_status) == Status::Ok);
 }
 
 unsafe extern "C" fn raw_finalize<T>(

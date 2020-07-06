@@ -19,7 +19,7 @@ mod value_type;
 
 pub use arraybuffer::JsArrayBuffer;
 pub use boolean::JsBoolean;
-pub use buffer::JsBuffer;
+pub use buffer::*;
 pub use class_property::Property;
 pub use function::JsFunction;
 pub use number::JsNumber;
