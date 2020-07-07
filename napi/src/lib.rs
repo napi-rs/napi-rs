@@ -11,6 +11,8 @@ pub mod sys;
 mod task;
 #[cfg(napi4)]
 pub mod threadsafe_function;
+#[cfg(all(feature = "tokio_rt", napi4))]
+mod tokio_rt;
 #[cfg(all(feature = "libuv", napi4))]
 mod uv;
 mod version;
@@ -26,18 +28,33 @@ pub use sys::napi_valuetype;
 pub use task::Task;
 pub use version::NodeVersion;
 
+#[cfg(all(feature = "tokio_rt", napi4))]
+pub use tokio_rt::shutdown as shutdown_tokio_rt;
+
 #[macro_export]
 macro_rules! register_module {
   ($module_name:ident, $init:ident) => {
+    #[inline]
+    fn check_status(code: $crate::sys::napi_status) -> Result<()> {
+      let status = Status::from(code);
+      match status {
+        Status::Ok => Ok(()),
+        _ => Err(Error::from_status(status)),
+      }
+    }
     #[no_mangle]
     #[cfg_attr(target_os = "linux", link_section = ".ctors")]
     #[cfg_attr(target_os = "macos", link_section = "__DATA,__mod_init_func")]
     #[cfg_attr(target_os = "windows", link_section = ".CRT$XCU")]
     pub static __REGISTER_MODULE: extern "C" fn() = {
+      use std::ffi::CString;
       use std::io::Write;
       use std::os::raw::c_char;
       use std::ptr;
       use $crate::{sys, Env, JsObject, Module, NapiValue};
+
+      #[cfg(all(feature = "tokio_rt", napi4))]
+      use $crate::shutdown_tokio_rt;
 
       extern "C" fn register_module() {
         static mut MODULE_DESCRIPTOR: Option<sys::napi_module> = None;
@@ -64,14 +81,23 @@ macro_rules! register_module {
           let mut cjs_module = Module { env, exports };
           let result = $init(&mut cjs_module);
 
-          match result {
+          #[cfg(all(feature = "tokio_rt", napi4))]
+          let hook_result = check_status(unsafe {
+            sys::napi_add_env_cleanup_hook(raw_env, Some(shutdown_tokio_rt), ptr::null_mut())
+          });
+
+          #[cfg(not(all(feature = "tokio_rt", napi4)))]
+          let hook_result = Ok(());
+
+          match hook_result.and_then(move |_| result) {
             Ok(_) => exports.into_raw(),
             Err(e) => {
               unsafe {
                 sys::napi_throw_error(
                   raw_env,
                   ptr::null(),
-                  format!("Error initializing module: {:?}", e).as_ptr() as *const _,
+                  CString::from_vec_unchecked(format!("Error initializing module: {}", e).into())
+                    .as_ptr() as *const _,
                 )
               };
               ptr::null_mut()

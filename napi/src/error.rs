@@ -62,8 +62,17 @@ impl Error {
 impl From<std::ffi::NulError> for Error {
   fn from(error: std::ffi::NulError) -> Self {
     Error {
-      status: Status::StringExpected,
-      reason: format!("{:?}", error),
+      status: Status::GenericFailure,
+      reason: format!("{}", error),
+    }
+  }
+}
+
+impl From<std::io::Error> for Error {
+  fn from(error: std::io::Error) -> Self {
+    Error {
+      status: Status::GenericFailure,
+      reason: format!("{}", error),
     }
   }
 }

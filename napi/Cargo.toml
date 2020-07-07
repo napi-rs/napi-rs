@@ -11,9 +11,21 @@ edition = "2018"
 
 [features]
 libuv = ["futures"]
+tokio_rt = ["futures", "tokio", "once_cell"]
 
-[dependencies]
-futures = { version = "0.3", optional = true }
+[dependencies.futures]
+version = "0.3"
+optional = true
+
+[dependencies.tokio]
+version = "0.2"
+features = ["rt-core", "rt-threaded", "sync"]
+optional = true
+
+[dependencies.once_cell]
+version = "1.4"
+optional = true
+
 
 [target.'cfg(windows)'.build-dependencies]
 flate2 = "1.0"

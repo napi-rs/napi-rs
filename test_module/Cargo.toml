@@ -9,7 +9,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 futures = "0.3"
-napi-rs = { path = "../napi", features = ["libuv"] }
+napi-rs = { path = "../napi", features = ["libuv", "tokio_rt"] }
 napi-rs-derive = { path = "../napi-derive" }
 tokio = { version = "0.2", features = ["default", "fs"]}
 
