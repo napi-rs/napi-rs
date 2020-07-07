@@ -1,8 +1,15 @@
 const test = require('ava')
-const bindings = require('../index.node')
+
+const bindings = require('../../index.node')
+const napiVersion = require('../napi-version')
 
 test('should get js function called from a thread', async (t) => {
   let called = 0
+
+  if (napiVersion < 4) {
+    t.is(bindings.testThreadsafeFunction, undefined)
+    return
+  }
 
   return new Promise((resolve, reject) => {
     bindings.testThreadsafeFunction((...args) => {

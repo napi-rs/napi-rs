@@ -40,6 +40,7 @@ pub struct JsUndefined(pub(crate) Value);
 #[derive(Clone, Copy, Debug)]
 pub struct JsNull(pub(crate) Value);
 
+#[cfg(napi6)]
 #[derive(Clone, Copy, Debug)]
 pub struct JsBigint(pub(crate) Value);
 
@@ -165,6 +166,7 @@ impl_js_value_methods!(JsString);
 impl_js_value_methods!(JsObject);
 impl_js_value_methods!(JsFunction);
 impl_js_value_methods!(JsExternal);
+#[cfg(napi6)]
 impl_js_value_methods!(JsBigint);
 impl_js_value_methods!(JsSymbol);
 
@@ -178,6 +180,7 @@ impl_napi_value_trait!(JsString, String);
 impl_napi_value_trait!(JsObject, Object);
 impl_napi_value_trait!(JsFunction, Function);
 impl_napi_value_trait!(JsExternal, External);
+#[cfg(napi6)]
 impl_napi_value_trait!(JsBigint, Bigint);
 impl_napi_value_trait!(JsSymbol, Symbol);
 

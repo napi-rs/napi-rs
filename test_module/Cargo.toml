@@ -8,7 +8,8 @@ edition = "2018"
 crate-type = ["cdylib"]
 
 [dependencies]
-napi-rs = { path = "../napi" }
+futures = "0.3"
+napi-rs = { path = "../napi", features = ["libuv"] }
 napi-rs-derive = { path = "../napi-derive" }
 tokio = { version = "0.2", features = ["default", "fs"]}
 

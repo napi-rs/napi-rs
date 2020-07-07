@@ -1,19 +1,20 @@
-name: Linux-NAPI4
+name: Linux-N-API-3
 
 on: [push, pull_request]
 
 jobs:
   build_and_test:
-    name: stable - x86_64-unknown-linux-gnu - node@12.10
+    name: stable - x86_64-unknown-linux-gnu - node@10.0
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v2
 
       - name: Setup node
-        uses: actions/setup-node@v1
-        with:
-          node-version: 12.10
+        run: |
+          wget https://nodejs.org/dist/v10.0.0/node-v10.0.0-linux-x64.tar.xz
+          tar xf node-v10.0.0-linux-x64.tar.xz
+          echo "::add-path::$(pwd)/node-v10.0.0-linux-x64/bin"
 
       - name: Install stable
         uses: actions-rs/toolchain@v1
@@ -57,7 +58,7 @@ jobs:
 
       - name: Unit tests
         run: |
-          yarn --ignore-engines
+          yarn add ava@2 --dev --ignore-engines
           yarn --cwd ./test_module build
           yarn test
         env:
