@@ -223,10 +223,10 @@ astral-regex@^2.0.0:
   resolved "https://registry.npmjs.org/astral-regex/-/astral-regex-2.0.0.tgz#483143c567aeed4785759c0865786dc77d7d2e31"
   integrity sha512-Z7tMw1ytTXt5jqMcOP+OQteU1VuNK9Y02uuJtKQ1Sv69jXQKKg5cibLwGJow8yzZP+eAc18EmLGPal0bp36rvQ==
 
-ava@^3.10.0:
-  version "3.10.0"
-  resolved "https://registry.npmjs.org/ava/-/ava-3.10.0.tgz#ed1a53986435fc1cd8c15978cd8ff81217c34831"
-  integrity sha512-CxcYQYeE39pcLWrN2/TASMpnqH/SoaX+W61+4m3saETU041PIDcoP9LLNWPAE/yJZXjp0M1RWTohSkmGqJZKww==
+ava@^3.10.1:
+  version "3.10.1"
+  resolved "https://registry.npmjs.org/ava/-/ava-3.10.1.tgz#a4e68b1a2bb248fa0d96529d23dd83f57082e944"
+  integrity sha512-+w86ZHyFHIGCABi7NUrn/WJMyC+fDj0BSIlFNVS45WDKAD5vxbIiDWeclctxOOc2KDPfQD7tFOURSBz0FBLD0A==
   dependencies:
     "@concordance/react" "^2.0.0"
     acorn "^7.3.1"
