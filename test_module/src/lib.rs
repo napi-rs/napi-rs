@@ -13,6 +13,8 @@ mod napi4;
 mod napi5;
 #[cfg(napi4)]
 mod tokio_rt;
+#[cfg(napi6)]
+mod napi6;
 
 mod buffer;
 mod class;
@@ -39,6 +41,15 @@ use symbol::{create_named_symbol, create_symbol_from_js_string, create_unnamed_s
 use task::test_spawn_thread;
 #[cfg(napi4)]
 use tokio_rt::{error_from_tokio_future, test_execute_tokio_readfile};
+#[cfg(napi6)]
+use napi6::bigint::{
+  test_create_bigint_from_i64,
+  test_create_bigint_from_u64,
+  test_create_bigint_from_words,
+  test_get_bigint_i64,
+  test_get_bigint_u64,
+  test_get_bigint_words,
+};
 
 register_module!(test_module, init);
 
@@ -74,6 +85,18 @@ fn init(module: &mut Module) -> Result<()> {
   module.create_named_method("uvReadFile", uv_read_file)?;
   #[cfg(napi5)]
   module.create_named_method("testObjectIsDate", test_object_is_date)?;
+  #[cfg(napi6)]
+  module.create_named_method("testCreateBigintFromI64", test_create_bigint_from_i64)?;
+  #[cfg(napi6)]
+  module.create_named_method("testCreateBigintFromU64", test_create_bigint_from_u64)?;
+  #[cfg(napi6)]
+  module.create_named_method("testCreateBigintFromWords", test_create_bigint_from_words)?;
+  #[cfg(napi6)]
+  module.create_named_method("testGetBigintI64", test_get_bigint_i64)?;
+  #[cfg(napi6)]
+  module.create_named_method("testGetBigintU64", test_get_bigint_u64)?;
+  #[cfg(napi6)]
+  module.create_named_method("testGetBigintWords", test_get_bigint_words)?;
   Ok(())
 }
 
