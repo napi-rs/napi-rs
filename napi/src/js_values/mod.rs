@@ -5,6 +5,8 @@ use crate::error::check_status;
 use crate::{sys, Error, Result, Status};
 
 mod arraybuffer;
+#[cfg(napi6)]
+mod bigint;
 mod boolean;
 mod buffer;
 mod class_property;
@@ -18,6 +20,8 @@ mod value_ref;
 mod value_type;
 
 pub use arraybuffer::JsArrayBuffer;
+#[cfg(napi6)]
+pub use bigint::JsBigint;
 pub use boolean::JsBoolean;
 pub use buffer::JsBuffer;
 pub use class_property::Property;
@@ -39,10 +43,6 @@ pub struct JsUndefined(pub(crate) Value);
 
 #[derive(Clone, Copy, Debug)]
 pub struct JsNull(pub(crate) Value);
-
-#[cfg(napi6)]
-#[derive(Clone, Copy, Debug)]
-pub struct JsBigint(pub(crate) Value);
 
 #[derive(Clone, Copy, Debug)]
 pub struct JsSymbol(pub(crate) Value);
