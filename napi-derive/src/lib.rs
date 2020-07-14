@@ -82,24 +82,24 @@ pub fn js_function(attr: TokenStream, input: TokenStream) -> TokenStream {
     #signature #(#fn_block)*
 
     #visibility extern "C" fn #fn_name(
-      raw_env: napi_rs::sys::napi_env,
-      cb_info: napi_rs::sys::napi_callback_info,
-    ) -> napi_rs::sys::napi_value {
+      raw_env: napi::sys::napi_env,
+      cb_info: napi::sys::napi_callback_info,
+    ) -> napi::sys::napi_value {
       use std::io::Write;
       use std::mem;
       use std::os::raw::c_char;
       use std::ptr;
       use std::ffi::CString;
-      use napi_rs::{JsUnknown, Env, Status, NapiValue, CallContext};
+      use napi::{JsUnknown, Env, Status, NapiValue, CallContext};
       let mut argc = #arg_len_span as usize;
       let mut raw_args =
-      unsafe { mem::MaybeUninit::<[napi_rs::sys::napi_value; #arg_len_span as usize]>::uninit().assume_init() };
+      unsafe { mem::MaybeUninit::<[napi::sys::napi_value; #arg_len_span as usize]>::uninit().assume_init() };
       let mut raw_this = ptr::null_mut();
 
       let mut has_error = false;
 
       unsafe {
-        let status = napi_rs::sys::napi_get_cb_info(
+        let status = napi::sys::napi_get_cb_info(
           raw_env,
           cb_info,
           &mut argc as *mut usize as *mut u64,
@@ -120,10 +120,10 @@ pub fn js_function(attr: TokenStream, input: TokenStream) -> TokenStream {
         Err(e) => {
           let message = format!("{}", e);
           unsafe {
-            napi_rs::sys::napi_throw_error(raw_env, ptr::null(), CString::from_vec_unchecked(message.into()).as_ptr() as *const c_char);
+            napi::sys::napi_throw_error(raw_env, ptr::null(), CString::from_vec_unchecked(message.into()).as_ptr() as *const c_char);
           }
           let mut undefined = ptr::null_mut();
-          unsafe { napi_rs::sys::napi_get_undefined(raw_env, &mut undefined) };
+          unsafe { napi::sys::napi_get_undefined(raw_env, &mut undefined) };
           undefined
         }
       }

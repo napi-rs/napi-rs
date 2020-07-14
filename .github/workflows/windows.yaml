@@ -57,14 +57,14 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: check
-          args: -p napi-rs -vvv
+          args: --all --bins --examples --tests -vvv
 
       - name: Tests
         uses: actions-rs/cargo@v1
         timeout-minutes: 5
         with:
           command: test
-          args: -p napi-rs --lib -- --nocapture
+          args: -p napi-sys --lib -- --nocapture
 
       - name: Unit tests
         run: |

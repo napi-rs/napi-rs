@@ -3,6 +3,7 @@ members = [
   "./build",
   "./napi",
   "./napi-derive",
-  "./napi-derive-example"
+  "./napi-derive-example",
+  "./sys"
 ]
 exclude = ["./test_module"]
