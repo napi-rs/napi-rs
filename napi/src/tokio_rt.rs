@@ -1,5 +1,5 @@
+use std::env::var;
 use std::ffi::c_void;
-use std::mem;
 use std::pin::Pin;
 use std::thread::spawn;
 use std::time::Duration;
@@ -20,7 +20,11 @@ pub(crate) enum Message {
 pub(crate) fn get_tokio_sender() -> &'static mpsc::Sender<Message> {
   static SENDER: OnceCell<mpsc::Sender<Message>> = OnceCell::new();
   SENDER.get_or_init(|| {
-    let (sender, mut receiver) = mpsc::channel(100);
+    let buffer_size = var("NAPI_RS_TOKIO_CHANNEL_BUFFER_SIZE")
+      .map_err(|_| ())
+      .and_then(|s| s.parse().map_err(|_| ()))
+      .unwrap_or(100);
+    let (sender, mut receiver) = mpsc::channel(buffer_size);
     spawn(move || {
       let mut rt = Runtime::new().expect("Failed to create tokio runtime");
       rt.block_on(async {
@@ -33,7 +37,6 @@ pub(crate) fn get_tokio_sender() -> &'static mpsc::Sender<Message> {
         }
       });
       rt.shutdown_timeout(Duration::from_secs(5));
-      mem::drop(receiver);
     });
 
     sender

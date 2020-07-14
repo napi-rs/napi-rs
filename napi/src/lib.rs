@@ -1,3 +1,61 @@
+//! High level NodeJS [N-API](https://nodejs.org/api/n-api.html) binding
+//!
+//! **napi-rs** provides minimal overhead to write N-API modules in `Rust`.
+//! ## Feature flags
+//! ### libuv
+//! With `libuv` feature, you can execute a rust future in `libuv` in NodeJS, and return a `promise` object.
+//! ```
+//! use std::thread;
+//! use std::fs;
+//!
+//! use futures::prelude::*;
+//! use futures::channel::oneshot;
+//! use napi::{CallContext, Result, JsString, JsObject, Status, Error};
+//!
+//! #[js_function(1)]
+//! pub fn uv_read_file(ctx: CallContext) -> Result<JsObject> {
+//!   let path = ctx.get::<JsString>(0)?;
+//!   let (sender, receiver) = oneshot::channel();
+//!   let p = path.as_str()?.to_owned();
+//!   thread::spawn(|| {
+//!     let res = fs::read(p).map_err(|e| Error::new(Status::Unknown, format!("{}", e)));
+//!     sender.send(res).expect("Send data failed");
+//!   });
+//!   ctx.env.execute(receiver.map_err(|e| Error::new(Status::Unknown, format!("{}", e))).map(|x| x.and_then(|x| x)), |&mut env, data| {
+//!     env.create_buffer_with_data(data)
+//!   })
+//! }
+//! ```
+//! ### tokio_rt
+//! With `tokio_rt` feature, `napi-rs` provides a ***tokio runtime*** in an additional thread.
+//! And you can easily run tokio `future` in it and return `promise`.
+//!
+//! ```
+//! use futures::prelude::*;
+//! use napi::{CallContext, Error, JsObject, JsString, Result, Status};
+//! use tokio;
+//!
+//! #[js_function(1)]
+//! pub fn tokio_readfile(ctx: CallContext) -> Result<JsObject> {
+//!   let js_filepath = ctx.get::<JsString>(0)?;
+//!   let path_str = js_filepath.as_str()?;
+//!   ctx.env.execute_tokio_future(
+//!     tokio::fs::read(path_str.to_owned())
+//!       .map(|v| v.map_err(|e| Error::new(Status::Unknown, format!("failed to read file, {}", e)))),
+//!     |&mut env, data| env.create_buffer_with_data(data),
+//!   )
+//! }
+//! ```
+//!
+//! ***Tokio channel in `napi-rs` buffer size is default `100`.***
+//!
+//! ***You can adjust it via `NAPI_RS_TOKIO_CHANNEL_BUFFER_SIZE` environment variable***
+//!
+//! ```
+//! NAPI_RS_TOKIO_CHANNEL_BUFFER_SIZE=1000 node ./app.js
+//! ```
+//!
+
 mod async_work;
 mod call_context;
 mod env;
@@ -17,20 +75,28 @@ mod tokio_rt;
 mod uv;
 mod version;
 
-pub use async_work::AsyncWork;
 pub use call_context::CallContext;
 pub use env::*;
 pub use error::{Error, Result};
 pub use js_values::*;
 pub use module::Module;
 pub use status::Status;
-pub use sys::napi_valuetype;
 pub use task::Task;
 pub use version::NodeVersion;
 
 #[cfg(all(feature = "tokio_rt", napi4))]
 pub use tokio_rt::shutdown as shutdown_tokio_rt;
 
+/// register nodejs module
+///
+/// ## Example
+/// ```
+/// register_module!(test_module, init);
+///
+/// fn init(module: &mut Module) -> Result<()> {
+///   module.create_named_method("nativeFunction", native_function)?;
+/// }
+/// ```
 #[macro_export]
 macro_rules! register_module {
   ($module_name:ident, $init:ident) => {

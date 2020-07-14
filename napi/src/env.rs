@@ -5,10 +5,11 @@ use std::mem;
 use std::os::raw::{c_char, c_void};
 use std::ptr;
 
+use crate::async_work::AsyncWork;
 use crate::error::check_status;
 use crate::js_values::*;
 use crate::task::Task;
-use crate::{sys, AsyncWork, Error, NodeVersion, Result, Status};
+use crate::{sys, Error, NodeVersion, Result, Status};
 
 #[cfg(all(any(feature = "libuv", feature = "tokio_rt"), napi4))]
 use crate::promise;

@@ -37,7 +37,7 @@ impl Error {
     }
   }
 
-  pub fn into_raw(self, env: sys::napi_env) -> sys::napi_value {
+  pub(crate) fn into_raw(self, env: sys::napi_env) -> sys::napi_value {
     let mut err = ptr::null_mut();
     let s = self.reason;
     unsafe {
