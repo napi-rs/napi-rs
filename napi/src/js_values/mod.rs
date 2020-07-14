@@ -25,9 +25,9 @@ pub use function::JsFunction;
 pub use number::JsNumber;
 pub use object::JsObject;
 pub use string::JsString;
-pub use tagged_object::TaggedObject;
-pub use value::Value;
-pub use value_ref::Ref;
+pub(crate) use tagged_object::TaggedObject;
+pub(crate) use value::Value;
+pub(crate) use value_ref::Ref;
 pub use value_type::ValueType;
 
 // Value types
@@ -51,7 +51,7 @@ pub struct JsSymbol(pub(crate) Value);
 pub struct JsExternal(pub(crate) Value);
 
 #[inline]
-pub fn type_of(env: sys::napi_env, raw_value: sys::napi_value) -> Result<ValueType> {
+pub(crate) fn type_of(env: sys::napi_env, raw_value: sys::napi_value) -> Result<ValueType> {
   unsafe {
     let mut value_type = sys::napi_valuetype::napi_undefined;
     check_status(sys::napi_typeof(env, raw_value, &mut value_type))?;

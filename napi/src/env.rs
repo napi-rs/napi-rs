@@ -1,21 +1,26 @@
-use crate::task::Task;
 use std::any::TypeId;
 use std::convert::TryInto;
+use std::ffi::CString;
 use std::mem;
-use std::os::raw::c_char;
-use std::os::raw::c_void;
+use std::os::raw::{c_char, c_void};
 use std::ptr;
 
+use crate::async_work::AsyncWork;
 use crate::error::check_status;
 use crate::js_values::*;
-use crate::{sys, AsyncWork, Error, NodeVersion, Result, Status};
+use crate::task::Task;
+use crate::{sys, Error, NodeVersion, Result, Status};
 
-#[cfg(all(feature = "libuv", napi4))]
+#[cfg(all(any(feature = "libuv", feature = "tokio_rt"), napi4))]
 use crate::promise;
+#[cfg(all(feature = "tokio_rt", napi4))]
+use crate::tokio_rt::{get_tokio_sender, Message};
 #[cfg(all(feature = "libuv", napi4))]
 use crate::uv;
 #[cfg(all(feature = "libuv", napi4))]
 use std::future::Future;
+#[cfg(all(feature = "tokio_rt", napi4))]
+use tokio::sync::mpsc::error::TrySendError;
 
 pub type Callback = extern "C" fn(sys::napi_env, sys::napi_callback_info) -> sys::napi_value;
 
@@ -277,9 +282,13 @@ impl Env {
 
   #[inline]
   pub fn throw_error(&self, msg: &str) -> Result<()> {
-    let status = unsafe { sys::napi_throw_error(self.0, ptr::null(), msg.as_ptr() as *const _) };
-    check_status(status)?;
-    Ok(())
+    check_status(unsafe {
+      sys::napi_throw_error(
+        self.0,
+        ptr::null(),
+        CString::from_vec_unchecked(msg.into()).as_ptr() as *const _,
+      )
+    })
   }
 
   #[inline]
@@ -489,7 +498,7 @@ impl Env {
   #[cfg(all(feature = "libuv", napi4))]
   #[inline]
   pub fn execute<
-    T: 'static,
+    T: 'static + Send,
     V: 'static + NapiValue,
     F: 'static + Future<Output = Result<T>>,
     R: 'static + Send + Sync + FnOnce(&mut Env, T) -> Result<V>,
@@ -498,8 +507,6 @@ impl Env {
     deferred: F,
     resolver: R,
   ) -> Result<JsObject> {
-    use futures::prelude::*;
-
     let mut raw_promise = ptr::null_mut();
     let mut raw_deferred = ptr::null_mut();
 
@@ -509,21 +516,46 @@ impl Env {
     }
 
     let event_loop = unsafe { sys::uv_default_loop() };
-    let raw_env = self.0;
-    let future_to_execute = promise::resolve_from_future(self.0, deferred, resolver, raw_deferred)
-      .map(move |v| match v {
-        Ok(value) => value,
-        Err(e) => {
-          let cloned_error = e.clone();
-          unsafe {
-            sys::napi_throw_error(raw_env, ptr::null(), e.reason.as_ptr() as *const _);
-          };
-          eprintln!("{:?}", &cloned_error);
-          panic!(cloned_error);
-        }
-      });
+    let future_promise = promise::FuturePromise::create(self.0, raw_deferred, Box::from(resolver))?;
+    let future_to_execute = promise::resolve_from_future(future_promise.start()?, deferred);
     uv::execute(event_loop, Box::pin(future_to_execute))?;
 
+    Ok(JsObject::from_raw_unchecked(self.0, raw_promise))
+  }
+
+  #[cfg(all(feature = "tokio_rt", napi4))]
+  #[inline]
+  pub fn execute_tokio_future<
+    T: 'static + Send,
+    V: 'static + NapiValue,
+    F: 'static + Send + Future<Output = Result<T>>,
+    R: 'static + Send + Sync + FnOnce(&mut Env, T) -> Result<V>,
+  >(
+    &self,
+    fut: F,
+    resolver: R,
+  ) -> Result<JsObject> {
+    let mut raw_promise = ptr::null_mut();
+    let mut raw_deferred = ptr::null_mut();
+    check_status(unsafe { sys::napi_create_promise(self.0, &mut raw_deferred, &mut raw_promise) })?;
+
+    let raw_env = self.0;
+    let future_promise =
+      promise::FuturePromise::create(raw_env, raw_deferred, Box::from(resolver))?;
+    let future_to_resolve = promise::resolve_from_future(future_promise.start()?, fut);
+    let mut sender = get_tokio_sender().clone();
+    sender
+      .try_send(Message::Task(Box::pin(future_to_resolve)))
+      .map_err(|e| match e {
+        TrySendError::Full(_) => Error::new(
+          Status::QueueFull,
+          format!("Failed to run future: no available capacity"),
+        ),
+        TrySendError::Closed(_) => Error::new(
+          Status::Closing,
+          format!("Failed to run future: receiver closed"),
+        ),
+      })?;
     Ok(JsObject::from_raw_unchecked(self.0, raw_promise))
   }
 

@@ -37,7 +37,7 @@ impl Error {
     }
   }
 
-  pub fn into_raw(self, env: sys::napi_env) -> sys::napi_value {
+  pub(crate) fn into_raw(self, env: sys::napi_env) -> sys::napi_value {
     let mut err = ptr::null_mut();
     let s = self.reason;
     unsafe {
@@ -62,8 +62,17 @@ impl Error {
 impl From<std::ffi::NulError> for Error {
   fn from(error: std::ffi::NulError) -> Self {
     Error {
-      status: Status::StringExpected,
-      reason: format!("{:?}", error),
+      status: Status::GenericFailure,
+      reason: format!("{}", error),
+    }
+  }
+}
+
+impl From<std::io::Error> for Error {
+  fn from(error: std::io::Error) -> Self {
+    Error {
+      status: Status::GenericFailure,
+      reason: format!("{}", error),
     }
   }
 }
