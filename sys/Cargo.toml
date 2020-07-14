@@ -4,7 +4,7 @@ version = "0.4.0"
 authors = ["LongYinan <lynweklm@gmail.com>"]
 edition = "2018"
 readme = "README.md"
-repository = "https://github.com/Brooooooklyn/napi-rs"
+repository = "https://github.com/napi-rs/napi-rs"
 license = "MIT"
 keywords = ["NodeJS", "FFI", "NAPI", "n-api"]
 

@@ -5,7 +5,7 @@ authors = ["Nathan Sobo <nathan@github.com>", "Yinan Long <lynweklm@gmail.com>"]
 license = "MIT"
 description = "N-API bindings"
 readme = "README.md"
-repository = "https://github.com/Brooooooklyn/napi-rs"
+repository = "https://github.com/napi-rs/napi-rs"
 keywords = ["NodeJS", "FFI", "NAPI", "n-api"]
 edition = "2018"
 
