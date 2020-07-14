@@ -1,6 +1,6 @@
 [package]
 name = "napi-build"
-version = "0.1.1"
+version = "0.2.0"
 authors = ["LongYinan <lynweklm@gmail.com>"]
 edition = "2018"
 description = "N-API build support"

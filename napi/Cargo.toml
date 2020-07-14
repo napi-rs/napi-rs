@@ -31,4 +31,4 @@ optional = true
 
 
 [build-dependencies]
-napi-build = { version = "0.1", path = "../build" }
+napi-build = { version = "0.2", path = "../build" }
