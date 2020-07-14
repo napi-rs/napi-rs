@@ -101,7 +101,9 @@ pub use tokio_rt::shutdown as shutdown_tokio_rt;
 macro_rules! register_module {
   ($module_name:ident, $init:ident) => {
     #[inline]
+    #[cfg(all(feature = "tokio_rt", napi4))]
     fn check_status(code: $crate::sys::napi_status) -> Result<()> {
+      use $crate::{Error, Status};
       let status = Status::from(code);
       match status {
         Status::Ok => Ok(()),
