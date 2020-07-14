@@ -1,7 +1,7 @@
 #[macro_use]
-extern crate napi_rs as napi;
+extern crate napi;
 #[macro_use]
-extern crate napi_rs_derive;
+extern crate napi_derive;
 
 use napi::{CallContext, Error, JsString, JsUnknown, Module, Result, Status};
 

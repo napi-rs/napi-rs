@@ -9,6 +9,7 @@ build/LICENSE
 napi/LICENSE
 napi/README.md
 napi-derive/LICENSE
+sys/LICENSE
 
 # Created by https://www.gitignore.io/api/node
 # Edit at https://www.gitignore.io/?templates=node

@@ -65,7 +65,6 @@ mod module;
 #[cfg(all(feature = "libuv", napi4))]
 mod promise;
 mod status;
-pub mod sys;
 mod task;
 #[cfg(napi4)]
 pub mod threadsafe_function;
@@ -74,6 +73,8 @@ mod tokio_rt;
 #[cfg(all(feature = "libuv", napi4))]
 mod uv;
 mod version;
+
+pub use napi_sys as sys;
 
 pub use call_context::CallContext;
 pub use env::*;
