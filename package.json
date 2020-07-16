@@ -27,9 +27,9 @@
     "test": "ava"
   },
   "bugs": {
-    "url": "https://github.com/Brooooooklyn/napi-rs/issues"
+    "url": "https://github.com/napi-rs/napi-rs/issues"
   },
-  "homepage": "https://github.com/Brooooooklyn/napi-rs#readme",
+  "homepage": "https://github.com/napi-rs/napi-rs#readme",
   "dependencies": {
     "minimist": "^1.2.5",
     "toml": "^3.0.0"

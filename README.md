@@ -4,9 +4,9 @@
 
 # Platform Support
 
-![](https://github.com/Brooooooklyn/napi-rs/workflows/macOS/badge.svg)
-![](https://github.com/Brooooooklyn/napi-rs/workflows/Linux/badge.svg)
-![](https://github.com/Brooooooklyn/napi-rs/workflows/Windows/badge.svg)
+![](https://github.com/napi-rs/napi-rs/workflows/macOS/badge.svg)
+![](https://github.com/napi-rs/napi-rs/workflows/Linux/badge.svg)
+![](https://github.com/napi-rs/napi-rs/workflows/Windows/badge.svg)
 
 ## Operating Systems
 
@@ -57,10 +57,10 @@ In your `Cargo.toml` you need to set the `crate-type` to `"cdylib"` so that carg
 crate-type = ["cdylib"]
 
 [dependencies]
-napi-rs = "0.1"
+napi = "0.4"
 
 [build-dependencies]
-napi-build = "0.1"
+napi-build = "0.2"
 ```
 
 And create `build.rs` in your own project:
