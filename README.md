@@ -58,6 +58,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 napi = "0.4"
+napi-derive = "0.4"
 
 [build-dependencies]
 napi-build = "0.2"
