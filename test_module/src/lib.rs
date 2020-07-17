@@ -15,6 +15,7 @@ mod napi5;
 mod tokio_rt;
 
 mod buffer;
+mod either;
 mod external;
 mod function;
 mod napi_version;
@@ -22,6 +23,7 @@ mod symbol;
 mod task;
 
 use buffer::{buffer_to_string, get_buffer_length};
+use either::{dynamic_argument_length, either_number_string};
 use external::{create_external, get_external_count};
 use function::{call_function, call_function_with_this};
 #[cfg(napi4)]
@@ -52,6 +54,8 @@ fn init(module: &mut Module) -> Result<()> {
   module.create_named_method("getNapiVersion", get_napi_version)?;
   module.create_named_method("testCallFunction", call_function)?;
   module.create_named_method("testCallFunctionWithThis", call_function_with_this)?;
+  module.create_named_method("eitherNumberString", either_number_string)?;
+  module.create_named_method("dynamicArgumentLength", dynamic_argument_length)?;
   #[cfg(napi4)]
   module.create_named_method("testExecuteTokioReadfile", test_execute_tokio_readfile)?;
   #[cfg(napi4)]

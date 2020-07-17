@@ -41,7 +41,7 @@ impl Property {
   }
 
   pub(crate) fn into_raw(mut self, env: &Env) -> Result<sys::napi_property_descriptor> {
-    self.raw_descriptor.name = env.create_string(&self.name)?.into_raw();
+    self.raw_descriptor.name = env.create_string(&self.name)?.raw_value();
     Ok(self.raw_descriptor)
   }
 }

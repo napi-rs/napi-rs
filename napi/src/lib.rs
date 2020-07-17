@@ -159,7 +159,7 @@ macro_rules! register_module {
           let hook_result = Ok(());
 
           match hook_result.and_then(move |_| result) {
-            Ok(_) => exports.into_raw(),
+            Ok(_) => exports.raw_value(),
             Err(e) => {
               unsafe {
                 sys::napi_throw_error(

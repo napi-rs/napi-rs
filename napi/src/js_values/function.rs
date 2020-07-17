@@ -26,12 +26,12 @@ impl JsFunction {
   /// [napi_call_function](https://nodejs.org/api/n-api.html#n_api_napi_call_function)
   pub fn call(&self, this: Option<&JsObject>, args: &[JsUnknown]) -> Result<JsUnknown> {
     let raw_this = this
-      .map(|v| v.into_raw())
+      .map(|v| v.raw_value())
       .or_else(|| {
         Env::from_raw(self.0.env)
           .get_undefined()
           .ok()
-          .map(|u| u.into_raw())
+          .map(|u| u.raw_value())
       })
       .ok_or(Error::new(
         Status::Unknown,

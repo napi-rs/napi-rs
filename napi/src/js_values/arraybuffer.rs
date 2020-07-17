@@ -11,6 +11,20 @@ pub struct JsArrayBuffer {
   pub len: u64,
 }
 
+impl JsArrayBuffer {
+  pub(crate) fn from_raw_unchecked(env: sys::napi_env, value: sys::napi_value) -> Self {
+    Self {
+      value: JsObject(Value {
+        env,
+        value,
+        value_type: ValueType::Object,
+      }),
+      data: ptr::null(),
+      len: 0,
+    }
+  }
+}
+
 impl NapiValue for JsArrayBuffer {
   fn raw_value(&self) -> sys::napi_value {
     self.value.0.value
@@ -30,17 +44,5 @@ impl NapiValue for JsArrayBuffer {
       data: data as *const u8,
       len,
     })
-  }
-
-  fn from_raw_unchecked(env: sys::napi_env, value: sys::napi_value) -> Self {
-    Self {
-      value: JsObject(Value {
-        env,
-        value,
-        value_type: ValueType::Object,
-      }),
-      data: ptr::null(),
-      len: 0,
-    }
   }
 }
