@@ -207,9 +207,9 @@ unsafe extern "C" fn call_js_cb<T: ToJs>(
     let values = ret.unwrap();
     let js_null = env.get_null().unwrap();
     let mut raw_values: Vec<sys::napi_value> = vec![];
-    raw_values.push(js_null.into_raw());
+    raw_values.push(js_null.0.value);
     for item in values.iter() {
-      raw_values.push(item.into_raw())
+      raw_values.push(item.0.value)
     }
 
     status = sys::napi_call_function(

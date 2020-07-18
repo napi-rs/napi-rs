@@ -14,6 +14,18 @@ pub struct JsBuffer {
 }
 
 impl JsBuffer {
+  pub(crate) fn from_raw_unchecked(env: sys::napi_env, value: sys::napi_value) -> Self {
+    Self {
+      value: JsObject(Value {
+        env,
+        value,
+        value_type: ValueType::Object,
+      }),
+      data: ptr::null(),
+      len: 0,
+    }
+  }
+
   pub fn into_unknown(self) -> Result<JsUnknown> {
     self.value.into_unknown()
   }
@@ -38,18 +50,6 @@ impl NapiValue for JsBuffer {
       data: data as *const u8,
       len,
     })
-  }
-
-  fn from_raw_unchecked(env: sys::napi_env, value: sys::napi_value) -> Self {
-    Self {
-      value: JsObject(Value {
-        env,
-        value,
-        value_type: ValueType::Object,
-      }),
-      data: ptr::null(),
-      len: 0,
-    }
   }
 }
 

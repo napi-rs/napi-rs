@@ -7,7 +7,7 @@ use std::str;
 
 use super::Value;
 use crate::error::check_status;
-use crate::{sys, Error, JsNumber, NapiValue, Result, Status};
+use crate::{sys, Error, JsNumber, Result, Status};
 
 #[derive(Clone, Copy, Debug)]
 pub struct JsString(pub(crate) Value);

@@ -312,7 +312,7 @@ impl Env {
       check_status(status)?;
     };
 
-    Ok(T::from_raw_unchecked(self.0, raw_value))
+    T::from_raw(self.0, raw_value)
   }
 
   #[inline]
@@ -455,12 +455,7 @@ impl Env {
     let reason_string = self.create_string(reason.as_str())?;
     let mut result = ptr::null_mut();
     let status = unsafe {
-      sys::napi_create_error(
-        self.0,
-        ptr::null_mut(),
-        reason_string.into_raw(),
-        &mut result,
-      )
+      sys::napi_create_error(self.0, ptr::null_mut(), reason_string.0.value, &mut result)
     };
     check_status(status)?;
     Ok(JsObject::from_raw_unchecked(self.0, result))

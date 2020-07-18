@@ -8,11 +8,13 @@ mod arraybuffer;
 mod boolean;
 mod buffer;
 mod class_property;
+mod either;
 mod function;
 mod number;
 mod object;
 mod string;
 mod tagged_object;
+mod undefined;
 mod value;
 mod value_ref;
 mod value_type;
@@ -21,11 +23,13 @@ pub use arraybuffer::JsArrayBuffer;
 pub use boolean::JsBoolean;
 pub use buffer::JsBuffer;
 pub use class_property::Property;
+pub use either::Either;
 pub use function::JsFunction;
 pub use number::JsNumber;
 pub use object::JsObject;
 pub use string::JsString;
 pub(crate) use tagged_object::TaggedObject;
+pub use undefined::JsUndefined;
 pub(crate) use value::Value;
 pub(crate) use value_ref::Ref;
 pub use value_type::ValueType;
@@ -33,9 +37,6 @@ pub use value_type::ValueType;
 // Value types
 #[derive(Clone, Copy, Debug)]
 pub struct JsUnknown(pub(crate) Value);
-
-#[derive(Clone, Copy, Debug)]
-pub struct JsUndefined(pub(crate) Value);
 
 #[derive(Clone, Copy, Debug)]
 pub struct JsNull(pub(crate) Value);
@@ -78,16 +79,19 @@ macro_rules! impl_napi_value_trait {
         }
       }
 
-      fn from_raw_unchecked(env: sys::napi_env, value: sys::napi_value) -> Self {
+      fn raw_value(&self) -> sys::napi_value {
+        self.0.value
+      }
+    }
+
+    impl $js_value {
+      #[inline]
+      pub fn from_raw_unchecked(env: sys::napi_env, value: sys::napi_value) -> Self {
         Self(Value {
           env,
           value,
           value_type: $value_type,
         })
-      }
-
-      fn raw_value(&self) -> sys::napi_value {
-        self.0.value
       }
     }
   };
@@ -96,12 +100,12 @@ macro_rules! impl_napi_value_trait {
 macro_rules! impl_js_value_methods {
   ($js_value:ident) => {
     impl $js_value {
-      pub fn into_raw(self) -> sys::napi_value {
-        self.0.value
-      }
+      #[inline]
       pub fn into_unknown(self) -> Result<JsUnknown> {
         JsUnknown::from_raw(self.0.env, self.0.value)
       }
+
+      #[inline]
       pub fn coerce_to_number(self) -> Result<JsNumber> {
         let mut new_raw_value = ptr::null_mut();
         let status =
@@ -113,6 +117,7 @@ macro_rules! impl_js_value_methods {
           value_type: ValueType::Number,
         }))
       }
+      #[inline]
       pub fn coerce_to_string(self) -> Result<JsString> {
         let mut new_raw_value = ptr::null_mut();
         let status =
@@ -152,8 +157,6 @@ macro_rules! impl_js_value_methods {
 pub trait NapiValue: Sized {
   fn from_raw(env: sys::napi_env, value: sys::napi_value) -> Result<Self>;
 
-  fn from_raw_unchecked(env: sys::napi_env, value: sys::napi_value) -> Self;
-
   fn raw_value(&self) -> sys::napi_value;
 }
 
@@ -186,15 +189,11 @@ impl_napi_value_trait!(JsSymbol, Symbol);
 
 impl NapiValue for JsUnknown {
   fn from_raw(env: sys::napi_env, value: sys::napi_value) -> Result<Self> {
-    Ok(Self::from_raw_unchecked(env, value))
-  }
-
-  fn from_raw_unchecked(env: sys::napi_env, value: sys::napi_value) -> JsUnknown {
-    JsUnknown(Value {
+    Ok(JsUnknown(Value {
       env,
       value,
       value_type: Unknown,
-    })
+    }))
   }
 
   fn raw_value(&self) -> sys::napi_value {
