@@ -1,6 +1,6 @@
 [package]
 name = "napi"
-version = "0.4.1"
+version = "0.4.2"
 authors = ["Nathan Sobo <nathan@github.com>", "Yinan Long <lynweklm@gmail.com>"]
 license = "MIT"
 description = "N-API bindings"
