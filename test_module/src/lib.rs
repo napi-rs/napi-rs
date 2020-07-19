@@ -86,3 +86,8 @@ fn test_throw_with_reason(ctx: CallContext) -> Result<JsUnknown> {
     reason.as_str()?.to_owned(),
   ))
 }
+
+#[js_function]
+pub fn test_throw_with_panic(_ctx: CallContext) -> Result<JsUnknown> {
+  panic!("don't panic.");
+}

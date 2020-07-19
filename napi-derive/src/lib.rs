@@ -89,8 +89,9 @@ pub fn js_function(attr: TokenStream, input: TokenStream) -> TokenStream {
       use std::mem;
       use std::os::raw::c_char;
       use std::ptr;
+      use std::panic::{self, AssertUnwindSafe};
       use std::ffi::CString;
-      use napi::{JsUnknown, Env, Status, NapiValue, CallContext};
+      use napi::{JsUnknown, Env, Error, Status, NapiValue, CallContext};
       let mut argc = #arg_len_span as usize;
       let mut raw_args =
       unsafe { mem::MaybeUninit::<[napi::sys::napi_value; #arg_len_span as usize]>::uninit().assume_init() };
@@ -112,7 +113,23 @@ pub fn js_function(attr: TokenStream, input: TokenStream) -> TokenStream {
 
       let mut env = Env::from_raw(raw_env);
       let call_ctx = CallContext::new(&mut env, raw_this, &raw_args, #arg_len_span, argc as usize);
-      let result = call_ctx.and_then(|ctx| #new_fn_name(ctx));
+      let result = call_ctx.and_then(|ctx| {
+        match panic::catch_unwind(AssertUnwindSafe(move || #new_fn_name(ctx))) {
+          Ok(result) => result,
+          Err(e) => {
+            let message = {
+              if let Some(string) = e.downcast_ref::<String>() {
+                string.clone()
+              } else if let Some(string) = e.downcast_ref::<&str>() {
+                string.to_string()
+              } else {
+                format!("panic from Rust code: {:?}", e)
+              }
+            };
+            Err(Error { status: Status::GenericFailure, reason: message })
+          }
+        }
+      });
       has_error = has_error && result.is_err();
 
       match result {

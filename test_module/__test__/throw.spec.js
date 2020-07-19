@@ -14,3 +14,7 @@ test('should be able to throw error from native with reason', (t) => {
 test('should throw if argument type is not match', (t) => {
   t.throws(() => bindings.testThrowWithReason(2))
 })
+
+test('should throw if Rust code panic', (t) => {
+  t.throws(() => bindings.testThrowWithPanic())
+})
