@@ -20,10 +20,10 @@ pub trait ToJs: Copy + Clone {
 ///
 /// ```
 /// #[macro_use]
-/// extern crate napi_rs_derive;
+/// extern crate napi_derive;
 ///
 /// use std::thread;
-/// use napi_rs::{
+/// use napi::{
 ///   Number, Result, Env, CallContext, JsUndefined, JsFunction,
 ///   sys::{
 ///     napi_threadsafe_function_call_mode::{
@@ -34,7 +34,7 @@ pub trait ToJs: Copy + Clone {
 ///     }
 ///   }
 /// };
-/// use napi_rs::threadsafe_function::{
+/// use napi::threadsafe_function::{
 ///   ToJs, ThreadsafeFunction,
 /// };
 ///
