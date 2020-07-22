@@ -57,7 +57,7 @@
     }
   },
   "devDependencies": {
-    "@types/node": "^14.0.23",
+    "@types/node": "^14.0.24",
     "ava": "^3.10.1",
     "husky": "^4.2.5",
     "lint-staged": "^10.2.11",
