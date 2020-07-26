@@ -48,6 +48,10 @@ pub trait ToJs: Copy + Clone {
 ///
 ///   fn resolve(&self, env: &mut Env, output: Self::Output) -> Result<Vec<JsUnknown>> {
 ///     let value = env.create_uint32(output as u32)?.into_unknown()?;
+///     // The first argument in the NodeJS callback will be either a null or an error
+///     // depending on the result returned by this function.
+///     // If this Result is Ok, the first argument will be null.
+///     // If this Result is Err, the first argument will be the error.
 ///     Ok(vec![value])
 ///   }
 /// }
@@ -200,7 +204,9 @@ unsafe extern "C" fn call_js_cb<T: ToJs>(
 
   let status;
 
-  // Follow the convention of Node.js async callback.
+  // Follow async callback conventions: https://nodejs.org/en/knowledge/errors/what-are-the-error-conventions/
+  // Check if the Result is okay, if so, pass a null as the first (error) argument automatically.
+  // If the Result is an error, pass that as the first argument.
   if ret.is_ok() {
     let values = ret.unwrap();
     let js_null = env.get_null().unwrap();
