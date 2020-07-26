@@ -72,8 +72,9 @@ impl ToJs for HandleBuffer {
   type Output = Vec<u8>;
 
   fn resolve(&self, env: &mut Env, output: Self::Output) -> Result<Vec<JsUnknown>> {
+    let null_error = env.get_null()?.into_unknown()?;
     let value = env.create_buffer_with_data(output.to_vec())?.into_unknown()?;
-    Ok(vec![value])
+    Ok(vec![null_error, value])
   }
 }
 

@@ -15,7 +15,7 @@ test('should get js function called from a thread', async (t) => {
     bindings.testThreadsafeFunction((...args) => {
       called += 1
       try {
-        t.deepEqual(args, [null, 42, 1, 2, 3])
+        t.deepEqual(args, [42, 1, 2, 3])
       } catch (err) {
         reject(err)
       }
