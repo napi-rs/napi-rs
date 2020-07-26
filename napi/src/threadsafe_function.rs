@@ -202,21 +202,17 @@ unsafe extern "C" fn call_js_cb<T: ToJs>(
 
   let status;
 
-  // Follow the convention of Node.js async callback.
   if ret.is_ok() {
     let values = ret.unwrap();
-    let js_null = env.get_null().unwrap();
-    let mut raw_values: Vec<sys::napi_value> = vec![];
-    raw_values.push(js_null.0.value);
+    let mut raw_values: Vec<sys::napi_value> = Vec::with_capacity(values.len());
     for item in values.iter() {
       raw_values.push(item.0.value)
     }
-
     status = sys::napi_call_function(
       raw_env,
       recv,
       js_callback,
-      (values.len() + 1) as u64,
+      values.len() as u64,
       raw_values.as_ptr(),
       ptr::null_mut(),
     );
