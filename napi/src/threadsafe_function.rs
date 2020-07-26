@@ -45,12 +45,10 @@ pub trait ToJs: Copy + Clone {
 ///
 /// impl ToJs for HandleNumber {
 ///   type Output = u8;
-///   type JsValue = JsNumber;
 ///
-///   fn resolve(&self, env: &mut Env, output: Self::Output) -> Result<(u64, Self::JsValue)> {
-///     let argv: u64 = 1;
-///     let value = env.create_uint32(output as u32)?;
-///     Ok((argv, value))
+///   fn resolve(&self, env: &mut Env, output: Self::Output) -> Result<Vec<JsUnknown>> {
+///     let value = env.create_uint32(output as u32)?.into_unknown()?;
+///     Ok(vec![value])
 ///   }
 /// }
 ///
