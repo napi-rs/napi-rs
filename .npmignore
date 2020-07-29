@@ -1,5 +1,6 @@
 target
 build
+sys
 napi
 napi-derive
 napi-derive-example
@@ -7,3 +8,10 @@ test_module
 .yarnrc
 Cargo.lock
 rustfmt.toml
+.github
+.dockerignore
+.eslintignore
+.eslintrc.yml
+Cargo.toml
+Dockerfile.alpine
+yarn.lock

@@ -31,17 +31,31 @@ jobs:
         uses: actions/cache@v1
         with:
           path: ~/.cargo/registry
-          key: stable-x86_64-unknown-linux-gnu-cargo-registry-trimmed-${{ hashFiles('**/Cargo.lock') }}
+          key: stable-napi3-cargo-registry-trimmed-${{ hashFiles('**/Cargo.lock') }}
       - name: Cache cargo index
         uses: actions/cache@v1
         with:
           path: ~/.cargo/git
-          key: stable-x86_64-unknown-linux-gnu-cargo-index-trimmed-${{ hashFiles('**/Cargo.lock') }}
+          key: stable-napi3-cargo-index-trimmed-${{ hashFiles('**/Cargo.lock') }}
       - name: Cache cargo build
         uses: actions/cache@v1
         with:
           path: target
-          key: stable-x86_64-unknown-linux-gnu-cargo-build-trimmed-${{ hashFiles('**/Cargo.lock') }}
+          key: stable-napi3-cargo-build-trimmed-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache NPM dependencies
+        uses: actions/cache@v1
+        with:
+          path: node_modules
+          key: napi3-${{ hashFiles('yarn.lock') }}
+          restore-keys: |
+            npm-cache-
+
+      - name: 'Install dependencies'
+        run: yarn add ava@2 --dev --ignore-engines
+
+      - name: 'Build TypeScript'
+        run: yarn build
 
       - name: Check build
         uses: actions-rs/cargo@v1
@@ -58,7 +72,6 @@ jobs:
 
       - name: Unit tests
         run: |
-          yarn add ava@2 --dev --ignore-engines
           yarn --cwd ./test_module build
           yarn test
         env:

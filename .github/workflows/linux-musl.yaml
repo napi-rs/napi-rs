@@ -27,6 +27,12 @@ jobs:
           docker pull docker.pkg.github.com/napi-rs/napi-rs/rust-nodejs-alpine:lts
           docker tag docker.pkg.github.com/napi-rs/napi-rs/rust-nodejs-alpine:lts builder
 
+      - name: 'Install node dependencies'
+        run: docker run --rm -v $(pwd)/.cargo:/root/.cargo -v $(pwd):/napi-rs -w /napi-rs builder yarn
+
+      - name: 'Build TypeScript'
+        run: docker run --rm -v $(pwd)/.cargo:/root/.cargo -v $(pwd):/napi-rs -w /napi-rs builder yarn build
+
       - name: Run check
         run: |
           docker run --rm -v $(pwd)/.cargo:/root/.cargo -v $(pwd):/napi-rs -w /napi-rs builder cargo check --all --bins --examples --tests -vvv
@@ -37,6 +43,6 @@ jobs:
 
       - name: Unit test
         run: |
-          docker run --rm -v $(pwd)/.cargo:/root/.cargo -v $(pwd):/napi-rs -w /napi-rs builder sh -c "yarn && yarn --cwd ./test_module build && yarn test"
+          docker run --rm -v $(pwd)/.cargo:/root/.cargo -v $(pwd):/napi-rs -w /napi-rs builder sh -c "yarn --cwd ./test_module build && yarn test"
         env:
           RUST_BACKTRACE: 1

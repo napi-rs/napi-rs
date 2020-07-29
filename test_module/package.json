@@ -2,8 +2,8 @@
   "name": "test-module",
   "version": "1.0.0",
   "scripts": {
-    "build": "cargo build && node ../scripts/napi.js ./index",
-    "build-release": "cargo build --release && node ../scripts/napi.js --release ./index",
+    "build": "cargo build && node ../scripts/index.js build ./index",
+    "build-release": "cargo build --release && node ../scripts/napi.js build --release ./index",
     "test": "node ./index.js"
   }
 }
