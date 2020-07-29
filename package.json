@@ -3,7 +3,7 @@
   "version": "0.2.4",
   "description": "A minimal library for building compiled Node add-ons in Rust.",
   "bin": {
-    "napi": "scripts/napi.js"
+    "napi": "scripts/index.js"
   },
   "repository": {
     "type": "git",
@@ -18,12 +18,14 @@
   ],
   "license": "MIT",
   "scripts": {
+    "build": "tsc -p tsconfig.json",
     "format": "run-p format:md format:json format:yaml format:source format:rs",
     "format:md": "prettier --parser markdown --write './**/*.md'",
     "format:json": "prettier --parser json --write './**/*.json'",
     "format:rs": "cargo fmt",
     "format:source": "prettier --config ./package.json --write './**/*.js'",
     "format:yaml": "prettier --parser yaml --write './**/*.{yml,yaml}'",
+    "lint": "eslint -c .eslintrc.yml",
     "test": "ava"
   },
   "bugs": {
@@ -33,7 +35,6 @@
   "dependencies": {
     "clipanion": "^2.4.2",
     "inquirer": "^7.3.3",
-    "minimist": "^1.2.5",
     "toml": "^3.0.0"
   },
   "prettier": {
@@ -43,7 +44,7 @@
     "trailingComma": "all",
     "arrowParens": "always"
   },
-  "files": ["scripts/napi.js", "LICENSE"],
+  "files": ["scripts", "LICENSE"],
   "lint-staged": {
     "*.js": ["prettier --write"],
     "*.@(yml|yaml)": ["prettier --parser yaml --write"],

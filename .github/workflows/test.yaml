@@ -1,4 +1,4 @@
-name: macOS
+name: Test
 
 on: [push, pull_request]
 
@@ -8,9 +8,10 @@ jobs:
       fail-fast: false
       matrix:
         node: ['10', '12', '14']
+        os: [ubuntu-latest, macos-latest, windows-latest]
 
-    name: stable - x86_64-apple-darwin - node@${{ matrix.node }}
-    runs-on: macos-latest
+    name: stable - ${{ matrix.os }} - node@${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v2
@@ -20,10 +21,20 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
 
-      - name: Install stable
+      - name: Install llvm
+        if: matrix.os == 'windows-latest'
+        run: choco install -y llvm
+
+      - name: Set llvm path
+        if: matrix.os == 'windows-latest'
+        uses: allenevans/set-env@v1.0.0
+        with:
+          LIBCLANG_PATH: 'C:\Program Files\LLVM\bin'
+
+      - name: Install
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable-x86_64-apple-darwin
+          toolchain: stable
           profile: minimal
           override: true
 
@@ -31,21 +42,32 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: generate-lockfile
+
       - name: Cache cargo registry
         uses: actions/cache@v1
         with:
           path: ~/.cargo/registry
-          key: stable-x86_64-apple-darwin-cargo-registry-trimmed-${{ hashFiles('**/Cargo.lock') }}
+          key: stable-${{ matrix.os }}-node@${{ matrix.node }}-cargo-registry-trimmed-${{ hashFiles('**/Cargo.lock') }}
+
       - name: Cache cargo index
         uses: actions/cache@v1
         with:
           path: ~/.cargo/git
-          key: stable-x86_64-apple-darwin-cargo-index-trimmed-${{ hashFiles('**/Cargo.lock') }}
-      - name: Cache cargo build
+          key: stable-${{ matrix.os }}gnu-node@${{ matrix.node }}-cargo-index-trimmed-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache NPM dependencies
         uses: actions/cache@v1
         with:
-          path: target
-          key: stable-x86_64-apple-darwin-cargo-build-trimmed-${{ hashFiles('**/Cargo.lock') }}
+          path: node_modules
+          key: npm-cache-${{ matrix.os }}-node@${{ matrix.node }}-${{ hashFiles('yarn.lock') }}
+          restore-keys: |
+            npm-cache-
+
+      - name: 'Install dependencies'
+        run: yarn install --frozen-lockfile --registry https://registry.npmjs.org
+
+      - name: 'Build TypeScript'
+        run: yarn build
 
       - name: Check build
         uses: actions-rs/cargo@v1
