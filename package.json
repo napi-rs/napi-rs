@@ -33,7 +33,7 @@
   },
   "homepage": "https://github.com/napi-rs/napi-rs#readme",
   "dependencies": {
-    "clipanion": "^2.4.2",
+    "clipanion": "^2.4.4",
     "inquirer": "^7.3.3",
     "toml": "^3.0.0"
   },
