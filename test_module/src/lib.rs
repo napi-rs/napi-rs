@@ -15,6 +15,7 @@ mod napi5;
 mod tokio_rt;
 
 mod buffer;
+mod class;
 mod either;
 mod external;
 mod function;
@@ -56,6 +57,7 @@ fn init(module: &mut Module) -> Result<()> {
   module.create_named_method("testCallFunctionWithThis", call_function_with_this)?;
   module.create_named_method("eitherNumberString", either_number_string)?;
   module.create_named_method("dynamicArgumentLength", dynamic_argument_length)?;
+  module.create_named_method("createTestClass", class::create_test_class)?;
   #[cfg(napi4)]
   module.create_named_method("testExecuteTokioReadfile", test_execute_tokio_readfile)?;
   #[cfg(napi4)]
