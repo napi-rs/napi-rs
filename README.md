@@ -2,6 +2,10 @@
 
 > This project was initialized from [xray](https://github.com/atom/xray)
 
+![](https://docs.rs/napi/badge.svg?version=0.4.2)
+![](https://img.shields.io/crates/v/napi.svg)
+![](https://img.shields.io/npm/v/napi-rs.svg)
+
 # Platform Support
 
 ![](https://github.com/napi-rs/napi-rs/workflows/macOS/badge.svg)

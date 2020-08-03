@@ -1,11 +1,11 @@
 extern crate bindgen;
-#[cfg(windows)]
+#[cfg(any(target_os = "windows", feature = "docs-rs"))]
 extern crate flate2;
 extern crate glob;
-#[cfg(windows)]
+#[cfg(any(target_os = "windows", feature = "docs-rs"))]
 extern crate reqwest;
 extern crate semver;
-#[cfg(windows)]
+#[cfg(any(target_os = "windows", feature = "docs-rs"))]
 extern crate tar;
 
 use glob::glob;
@@ -14,8 +14,7 @@ use std::env;
 use std::path::PathBuf;
 use std::process::Command;
 
-// https://stackoverflow.com/questions/37498864/finding-executable-in-path-with-rust
-
+#[cfg(not(any(target_os = "windows", feature = "docs-rs")))]
 const NODE_PRINT_EXEC_PATH: &'static str = "console.log(process.execPath)";
 
 fn main() {
@@ -56,24 +55,11 @@ fn main() {
     .expect("Unable to write napi bindings");
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", feature = "docs-rs"))]
 fn find_node_include_path(node_full_version: &str) -> PathBuf {
-  let mut node_exec_path = PathBuf::from(
-    String::from_utf8(
-      Command::new("node")
-        .arg("-e")
-        .arg(NODE_PRINT_EXEC_PATH)
-        .output()
-        .unwrap()
-        .stdout,
-    )
-    .expect("can not find executable node"),
-  )
-  .parent()
-  .unwrap()
-  .to_path_buf();
-  node_exec_path.push(format!("node-headers-{}.tar.gz", node_full_version));
-  let mut header_dist_path = PathBuf::from(&PathBuf::from(&node_exec_path).parent().unwrap());
+  let mut out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
+  out_path.push(format!("node-headers-{}.tar.gz", node_full_version));
+  let mut header_dist_path = PathBuf::from(&PathBuf::from(&out_path).parent().unwrap());
   let unpack_path = PathBuf::from(&header_dist_path);
   header_dist_path.push(format!("node-{}", node_full_version));
   header_dist_path.push("include");
@@ -95,7 +81,7 @@ fn find_node_include_path(node_full_version: &str) -> PathBuf {
   header_dist_path
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(any(target_os = "windows", feature = "docs-rs")))]
 fn find_node_include_path(_node_full_version: &str) -> PathBuf {
   let node_exec_path = String::from_utf8(
     Command::new("node")
