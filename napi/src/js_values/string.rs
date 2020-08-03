@@ -1,31 +1,24 @@
-use std::convert::{TryFrom, TryInto};
+use std::convert::TryFrom;
 use std::mem;
-use std::os::raw::c_char;
 use std::ptr;
 use std::slice;
 use std::str;
 
 use super::Value;
 use crate::error::check_status;
-use crate::{sys, Error, JsNumber, Result, Status};
+use crate::{sys, Error, Result, Status};
 
 #[derive(Clone, Copy, Debug)]
 pub struct JsString(pub(crate) Value);
 
 impl JsString {
+  #[inline]
   pub fn len(&self) -> Result<usize> {
-    let mut raw_length = ptr::null_mut();
-    unsafe {
-      let status = sys::napi_get_named_property(
-        self.0.env,
-        self.0.value,
-        "length\0".as_ptr() as *const c_char,
-        &mut raw_length,
-      );
-      check_status(status)?;
-    }
-    let length: JsNumber = JsNumber::from_raw_unchecked(self.0.env, raw_length);
-    length.try_into()
+    let mut length = 0;
+    check_status(unsafe {
+      sys::napi_get_value_string_utf8(self.0.env, self.0.value, ptr::null_mut(), 0, &mut length)
+    })?;
+    Ok(length as usize)
   }
 }
 
