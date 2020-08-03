@@ -2,9 +2,11 @@
 
 > This project was initialized from [xray](https://github.com/atom/xray)
 
-![](https://docs.rs/napi/badge.svg?version=0.4.2)
-![](https://img.shields.io/crates/v/napi.svg)
-![](https://img.shields.io/npm/v/napi-rs.svg)
+<p>
+  <a href="https://docs.rs/crate/napi"><img src="https://docs.rs/napi/badge.svg?version=0.4.2"></img></a>
+  <a href="https://crates.io/crates/napi"><img src="https://img.shields.io/crates/v/napi.svg"></img></a>
+  <a href="https://www.npmjs.com/package/napi-rs"><img src="https://img.shields.io/npm/v/napi-rs.svg"></img></a>
+</p>
 
 # Platform Support
 
