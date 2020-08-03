@@ -1,6 +1,6 @@
 [package]
 name = "napi-sys"
-version = "0.4.1"
+version = "0.4.2"
 authors = ["LongYinan <lynweklm@gmail.com>"]
 edition = "2018"
 readme = "README.md"
@@ -29,4 +29,4 @@ regex = "1.3"
 semver = "0.10"
 
 [package.metadata.docs.rs]
-features = ["docs"]
+features = ["docs-rs"]
