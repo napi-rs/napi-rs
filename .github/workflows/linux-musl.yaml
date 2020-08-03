@@ -35,7 +35,7 @@ jobs:
 
       - name: Run check
         run: |
-          docker run --rm -v $(pwd)/.cargo:/root/.cargo -v $(pwd):/napi-rs -w /napi-rs builder cargo check --all --bins --examples --tests -vvv
+          docker run --rm -v $(pwd)/.cargo:/root/.cargo -v $(pwd):/napi-rs -w /napi-rs builder cargo check -vvv
 
       - name: Run tests
         run: |
