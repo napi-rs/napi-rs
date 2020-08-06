@@ -1,7 +1,7 @@
 use crate::js_values::NapiValue;
 use crate::{Env, Result};
 
-pub trait Task {
+pub trait Task: Send {
   type Output: Send + Sized + 'static;
   type JsValue: NapiValue;
 
