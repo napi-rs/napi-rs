@@ -80,6 +80,6 @@
     "typescript": "^3.9.7"
   },
   "optionalDependencies": {
-    "tslib": "^2.0.0"
+    "tslib": "^2.0.1"
   }
 }
