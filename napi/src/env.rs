@@ -179,17 +179,19 @@ impl Env {
     check_status(status)?;
     mem::forget(data);
 
-    let mut buffer = JsBuffer::from_raw_unchecked(self.0, raw_value);
-    buffer.data = data_ptr as *const u8;
-    buffer.len = length;
-    Ok(buffer)
+    Ok(JsBuffer::from_raw_unchecked(
+      self.0,
+      raw_value,
+      data_ptr as *mut u8,
+      length as usize,
+    ))
   }
 
   #[inline]
-  pub fn create_buffer_with_data(&self, data: Vec<u8>) -> Result<JsBuffer> {
+  pub fn create_buffer_with_data(&self, mut data: Vec<u8>) -> Result<JsBuffer> {
     let length = data.len() as u64;
     let mut raw_value = ptr::null_mut();
-    let data_ptr = data.as_ptr();
+    let data_ptr = data.as_mut_ptr();
     let status = unsafe {
       sys::napi_create_external_buffer(
         self.0,
@@ -206,10 +208,12 @@ impl Env {
       unsafe { sys::napi_adjust_external_memory(self.0, length as i64, &mut changed) };
     check_status(adjust_external_memory_status)?;
     mem::forget(data);
-    let mut buffer = JsBuffer::from_raw_unchecked(self.0, raw_value);
-    buffer.data = data_ptr as *const u8;
-    buffer.len = length;
-    Ok(buffer)
+    Ok(JsBuffer::from_raw_unchecked(
+      self.0,
+      raw_value,
+      data_ptr,
+      length as usize,
+    ))
   }
 
   #[inline]
