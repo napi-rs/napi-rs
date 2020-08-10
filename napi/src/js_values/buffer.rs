@@ -1,4 +1,4 @@
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 use std::ptr;
 use std::slice;
 
@@ -6,23 +6,26 @@ use super::{JsObject, JsUnknown, NapiValue, Value, ValueType};
 use crate::error::check_status;
 use crate::{sys, Result};
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug)]
 pub struct JsBuffer {
   pub value: JsObject,
-  pub data: *const u8,
-  pub len: u64,
+  pub data: &'static [u8],
 }
 
 impl JsBuffer {
-  pub(crate) fn from_raw_unchecked(env: sys::napi_env, value: sys::napi_value) -> Self {
+  pub(crate) fn from_raw_unchecked(
+    env: sys::napi_env,
+    value: sys::napi_value,
+    data: *mut u8,
+    len: usize,
+  ) -> Self {
     Self {
       value: JsObject(Value {
         env,
         value,
         value_type: ValueType::Object,
       }),
-      data: ptr::null(),
-      len: 0,
+      data: unsafe { slice::from_raw_parts_mut(data, len) },
     }
   }
 
@@ -47,15 +50,14 @@ impl NapiValue for JsBuffer {
         value,
         value_type: ValueType::Object,
       }),
-      data: data as *const u8,
-      len,
+      data: unsafe { slice::from_raw_parts_mut(data as *mut _, len as usize) },
     })
   }
 }
 
 impl AsRef<[u8]> for JsBuffer {
   fn as_ref(&self) -> &[u8] {
-    self.deref()
+    self.data
   }
 }
 
@@ -63,12 +65,6 @@ impl Deref for JsBuffer {
   type Target = [u8];
 
   fn deref(&self) -> &[u8] {
-    unsafe { slice::from_raw_parts(self.data, self.len as usize) }
-  }
-}
-
-impl DerefMut for JsBuffer {
-  fn deref_mut(&mut self) -> &mut [u8] {
-    unsafe { slice::from_raw_parts_mut(self.data as *mut _, self.len as usize) }
+    self.data
   }
 }

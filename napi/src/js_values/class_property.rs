@@ -2,7 +2,7 @@ use std::ptr;
 
 use crate::{sys, Callback, Env, NapiValue, Result};
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Property {
   name: String,
   raw_descriptor: sys::napi_property_descriptor,

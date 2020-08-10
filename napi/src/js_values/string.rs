@@ -8,7 +8,7 @@ use super::Value;
 use crate::error::check_status;
 use crate::{sys, Error, Result, Status};
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug)]
 pub struct JsString(pub(crate) Value);
 
 impl JsString {

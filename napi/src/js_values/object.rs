@@ -5,7 +5,7 @@ use super::Value;
 use crate::error::check_status;
 use crate::{sys, Env, Error, JsBuffer, JsNumber, JsString, NapiValue, Result, Status};
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug)]
 pub struct JsObject(pub(crate) Value);
 
 impl JsObject {
