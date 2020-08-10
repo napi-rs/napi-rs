@@ -35,20 +35,20 @@ pub(crate) use value_ref::Ref;
 pub use value_type::ValueType;
 
 // Value types
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug)]
 pub struct JsUnknown(pub(crate) Value);
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug)]
 pub struct JsNull(pub(crate) Value);
 
 #[cfg(napi6)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug)]
 pub struct JsBigint(pub(crate) Value);
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug)]
 pub struct JsSymbol(pub(crate) Value);
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug)]
 pub struct JsExternal(pub(crate) Value);
 
 #[inline]

@@ -1,4 +1,4 @@
-use napi::{JsFunction, CallContext, JsNull, Result, JsObject};
+use napi::{CallContext, JsFunction, JsNull, JsObject, Result};
 
 #[js_function(1)]
 pub fn call_function(ctx: CallContext) -> Result<JsNull> {
@@ -13,10 +13,10 @@ pub fn call_function(ctx: CallContext) -> Result<JsNull> {
 
 #[js_function(1)]
 pub fn call_function_with_this(ctx: CallContext<JsObject>) -> Result<JsNull> {
-  let js_this = ctx.this;
+  let js_this = &ctx.this;
   let js_func = ctx.get::<JsFunction>(0)?;
 
-  js_func.call(Some(&js_this), &[])?;
+  js_func.call(Some(js_this), &[])?;
 
   ctx.env.get_null()
 }

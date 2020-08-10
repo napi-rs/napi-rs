@@ -5,7 +5,7 @@ use super::Value;
 use crate::error::check_status;
 use crate::{sys, Env, Error, JsObject, JsUnknown, NapiValue, Result, Status};
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug)]
 pub struct JsFunction(pub(crate) Value);
 
 /// See [Working with JavaScript Functions](https://nodejs.org/api/n-api.html#n_api_working_with_javascript_functions).

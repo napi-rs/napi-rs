@@ -4,7 +4,7 @@ use super::Value;
 use crate::error::check_status;
 use crate::{sys, Error, Result};
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug)]
 pub struct JsBoolean(pub(crate) Value);
 
 impl JsBoolean {

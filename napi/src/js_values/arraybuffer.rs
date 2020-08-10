@@ -4,7 +4,7 @@ use super::{JsObject, NapiValue, Value, ValueType};
 use crate::error::check_status;
 use crate::{sys, Result};
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug)]
 pub struct JsArrayBuffer {
   pub value: JsObject,
   pub data: *const u8,
