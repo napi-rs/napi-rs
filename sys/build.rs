@@ -1,11 +1,11 @@
 extern crate bindgen;
-#[cfg(any(target_os = "windows", feature = "docs-rs"))]
+#[cfg(target_os = "windows")]
 extern crate flate2;
 extern crate glob;
-#[cfg(any(target_os = "windows", feature = "docs-rs"))]
+#[cfg(target_os = "windows")]
 extern crate reqwest;
 extern crate semver;
-#[cfg(any(target_os = "windows", feature = "docs-rs"))]
+#[cfg(target_os = "windows")]
 extern crate tar;
 
 use glob::glob;
@@ -55,7 +55,7 @@ fn main() {
     .expect("Unable to write napi bindings");
 }
 
-#[cfg(any(target_os = "windows", feature = "docs-rs"))]
+#[cfg(all(target_os = "windows", not(feature = "docs-rs")))]
 fn find_node_include_path(node_full_version: &str) -> PathBuf {
   let mut out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
   out_path.push(format!("node-headers-{}.tar.gz", node_full_version));
@@ -79,6 +79,13 @@ fn find_node_include_path(node_full_version: &str) -> PathBuf {
       .expect("Unpack headers file failed");
   };
   header_dist_path
+}
+
+#[cfg(feature = "docs-rs")]
+fn find_node_include_path(_node_full_version: &str) -> PathBuf {
+  let mut current = env::current_dir().unwrap();
+  current.push(".node-headers");
+  current
 }
 
 #[cfg(not(any(target_os = "windows", feature = "docs-rs")))]

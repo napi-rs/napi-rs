@@ -8,6 +8,7 @@ description = "NodeJS N-API raw binding"
 repository = "https://github.com/napi-rs/napi-rs"
 license = "MIT"
 keywords = ["NodeJS", "FFI", "NAPI", "n-api"]
+include = ["src/**/*", "Cargo.toml", "build.rs", ".node-headers/**/*"]
 
 [features]
 docs-rs = []
