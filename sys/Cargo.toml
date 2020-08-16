@@ -10,9 +10,6 @@ license = "MIT"
 keywords = ["NodeJS", "FFI", "NAPI", "n-api"]
 include = ["src/**/*", "Cargo.toml", "build.rs", ".node-headers/**/*"]
 
-[features]
-docs-rs = []
-
 [target.'cfg(windows)'.build-dependencies]
 flate2 = "1.0"
 reqwest = { version = "0.10", features = ["native-tls", "blocking"] }
@@ -30,4 +27,4 @@ regex = "1.3"
 semver = "0.10"
 
 [package.metadata.docs.rs]
-features = ["docs-rs"]
+rustc-args = ["--cfg", "docsrs"]

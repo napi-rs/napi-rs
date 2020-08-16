@@ -32,3 +32,6 @@ optional = true
 
 [build-dependencies]
 napi-build = { version = "0.2", path = "../build" }
+
+[package.metadata.docs.rs]
+rustc-args = ["--cfg", "docsrs"]
