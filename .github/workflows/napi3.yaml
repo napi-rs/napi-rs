@@ -1,6 +1,9 @@
 name: Linux-N-API-3
 
-on: [push, pull_request]
+on:
+  push:
+    branches: [master, develop]
+  pull_request:
 
 jobs:
   build_and_test:
