@@ -25,20 +25,19 @@ test('should execute future on libuv thread pool', async (t) => {
   t.deepEqual(readFileSync(filepath), fileContent)
 })
 
-test('should execute future on libuv thread pool of "Worker"', async (t) => {
-  // Test in threads if current Node.js supports "worker_threads".`
-  if (!threadMod || napiVersion < 4) {
-    return
-  }
+if (threadMod && napiVersion >= 4) {
+  test('should execute future on libuv thread pool of "Worker"', async (t) => {
+    // Test in threads if current Node.js supports "worker_threads".`
 
-  const { Worker } = threadMod
-  const script = resolve(__dirname, './uv_worker.js')
-  const worker = new Worker(script)
-  const success = await new Promise((resolve) => {
-    worker.on('message', (success) => {
-      resolve(success)
+    const { Worker } = threadMod
+    const script = resolve(__dirname, './uv_worker.js')
+    const worker = new Worker(script)
+    const success = await new Promise((resolve) => {
+      worker.on('message', (success) => {
+        resolve(success)
+      })
     })
-  })
 
-  t.is(success, true)
-})
+    t.is(success, true)
+  })
+}
