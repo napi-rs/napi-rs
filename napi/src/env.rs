@@ -533,6 +533,17 @@ impl Env {
       .map_err(|e| Error::new(Status::InvalidArg, format!("{}", e)))
   }
 
+  #[cfg(napi2)]
+  #[inline]
+  pub fn get_uv_event_loop(&self) -> Result<*mut sys::uv_loop_s> {
+    let mut uv_loop: *mut sys::uv_loop_s = ptr::null_mut();
+    Ok(unsafe {
+      let status = sys::napi_get_uv_event_loop(self.0, &mut uv_loop);
+      check_status(status)?;
+      uv_loop
+    })
+  }
+
   #[cfg(all(feature = "libuv", napi4))]
   #[inline]
   pub fn execute<
@@ -553,7 +564,7 @@ impl Env {
       check_status(status)?;
     }
 
-    let event_loop = unsafe { sys::uv_default_loop() };
+    let event_loop = self.get_uv_event_loop()?;
     let future_promise = promise::FuturePromise::create(self.0, raw_deferred, Box::from(resolver))?;
     let future_to_execute = promise::resolve_from_future(future_promise.start()?, deferred);
     uv::execute(event_loop, Box::pin(future_to_execute))?;
