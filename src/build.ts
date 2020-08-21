@@ -17,8 +17,8 @@ export class BuildCommand extends Command {
   @Command.String(`--name`)
   name!: string
 
-  @Command.String(`--platform`)
-  appendPlatformToFilename!: string
+  @Command.Boolean(`--platform`)
+  appendPlatformToFilename!: boolean
 
   @Command.Boolean(`--release`)
   isRelease = false
@@ -82,10 +82,14 @@ export class BuildCommand extends Command {
 
     const targetDir = this.isRelease ? 'release' : 'debug'
 
-    const platformName = this.isMusl
-      ? '.musl'
-      : this.appendPlatformToFilename
-      ? `.${platform}`
+    if (this.isMusl && !this.appendPlatformToFilename) {
+      throw new TypeError(`Musl flag must be used with platform flag`)
+    }
+
+    const platformName = this.appendPlatformToFilename
+      ? !this.isMusl
+        ? `.${platform}`
+        : `.${platform}-musl`
       : ''
 
     let distModulePath =
