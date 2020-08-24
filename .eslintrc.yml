@@ -204,3 +204,11 @@ rules:
           ],
       },
     ]
+
+overrides:
+  - files:
+      - ./test_module/**/*.{ts,js}
+    plugins:
+      - '@typescript-eslint'
+    parserOptions:
+      project: ./test_module/tsconfig.json

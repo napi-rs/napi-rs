@@ -25,7 +25,7 @@
     "format:rs": "cargo fmt",
     "format:source": "prettier --config ./package.json --write './**/*.js'",
     "format:yaml": "prettier --parser yaml --write './**/*.{yml,yaml}'",
-    "lint": "eslint -c .eslintrc.yml",
+    "lint": "eslint -c .eslintrc.yml './src/**/*.ts' './test_module/**/*.{ts,js}'",
     "test": "ava"
   },
   "bugs": {
@@ -44,29 +44,16 @@
     "trailingComma": "all",
     "arrowParens": "always"
   },
-  "files": [
-    "scripts",
-    "LICENSE"
-  ],
+  "files": ["scripts", "LICENSE"],
   "lint-staged": {
-    "*.js": [
-      "prettier --write"
-    ],
-    "*.@(yml|yaml)": [
-      "prettier --parser yaml --write"
-    ],
-    "*.json": [
-      "prettier --parser json --write"
-    ],
-    "*.md": [
-      "prettier --parser markdown --write"
-    ]
+    "*.js": ["prettier --write"],
+    "*.@(yml|yaml)": ["prettier --parser yaml --write"],
+    "*.json": ["prettier --parser json --write"],
+    "*.md": ["prettier --parser markdown --write"]
   },
   "ava": {
     "extensions": ["ts", "tsx"],
-    "files": [
-      "test_module/__test__/**/*.spec.ts"
-    ],
+    "files": ["test_module/__test__/**/*.spec.ts"],
     "require": ["@swc-node/register"]
   },
   "husky": {
