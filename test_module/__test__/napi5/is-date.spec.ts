@@ -1,6 +1,7 @@
-const test = require('ava')
+import test from 'ava'
 
-const napiVersion = require('../napi-version')
+import { napiVersion } from '../napi-version'
+
 const bindings = require('../../index.node')
 
 test('should return false if value is not date', (t) => {

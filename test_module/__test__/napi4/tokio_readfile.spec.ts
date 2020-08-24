@@ -1,9 +1,11 @@
-const test = require('ava')
-const fs = require('fs')
-const path = require('path')
+import fs from 'fs'
+import path from 'path'
+
+import test from 'ava'
+
+import { napiVersion } from '../napi-version'
 
 const bindings = require('../../index.node')
-const napiVersion = require('../napi-version')
 
 const filepath = path.resolve(__dirname, './example.txt')
 
@@ -12,8 +14,8 @@ test('should read a file and return its a buffer', async (t) => {
     t.is(bindings.testTokioReadfile, undefined)
     return
   }
-  return new Promise((resolve, reject) => {
-    bindings.testTokioReadfile(filepath, (err, value) => {
+  await new Promise((resolve, reject) => {
+    bindings.testTokioReadfile(filepath, (err: Error | null, value: Buffer) => {
       try {
         t.is(err, null)
         t.is(Buffer.isBuffer(value), true)

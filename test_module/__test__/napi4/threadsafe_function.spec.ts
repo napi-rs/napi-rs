@@ -1,7 +1,8 @@
-const test = require('ava')
+import test from 'ava'
+
+import { napiVersion } from '../napi-version'
 
 const bindings = require('../../index.node')
-const napiVersion = require('../napi-version')
 
 test('should get js function called from a thread', async (t) => {
   let called = 0
@@ -11,8 +12,8 @@ test('should get js function called from a thread', async (t) => {
     return
   }
 
-  return new Promise((resolve, reject) => {
-    bindings.testThreadsafeFunction((...args) => {
+  await new Promise((resolve, reject) => {
+    bindings.testThreadsafeFunction((...args: any[]) => {
       called += 1
       try {
         t.deepEqual(args, [null, 42, 1, 2, 3])

@@ -1,11 +1,13 @@
-const test = require('ava')
-const { join, resolve } = require('path')
-const { readFileSync } = require('fs')
+import { readFileSync } from 'fs'
+import { join, resolve } from 'path'
+
+import test from 'ava'
+
+import { napiVersion } from '../napi-version'
 
 const bindings = require('../../index.node')
-const napiVersion = require('../napi-version')
 
-let threadMod
+let threadMod: any
 
 try {
   threadMod = require('worker_threads')
@@ -33,7 +35,7 @@ if (threadMod && napiVersion >= 4) {
     const script = resolve(__dirname, './uv_worker.js')
     const worker = new Worker(script)
     const success = await new Promise((resolve) => {
-      worker.on('message', (success) => {
+      worker.on('message', (success: boolean) => {
         resolve(success)
       })
     })

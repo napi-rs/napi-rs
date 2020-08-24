@@ -150,6 +150,41 @@ macro_rules! impl_js_value_methods {
         check_status(status)?;
         Ok(is_date)
       }
+
+      #[inline]
+      pub fn is_error(&self) -> Result<bool> {
+        let mut result = false;
+        check_status(unsafe { sys::napi_is_error(self.0.env, self.0.value, &mut result) })?;
+        Ok(result)
+      }
+
+      #[inline]
+      pub fn is_typedarray(&self) -> Result<bool> {
+        let mut result = false;
+        check_status(unsafe { sys::napi_is_typedarray(self.0.env, self.0.value, &mut result) })?;
+        Ok(result)
+      }
+
+      #[inline]
+      pub fn is_dataview(&self) -> Result<bool> {
+        let mut result = false;
+        check_status(unsafe { sys::napi_is_dataview(self.0.env, self.0.value, &mut result) })?;
+        Ok(result)
+      }
+
+      #[inline]
+      pub fn instanceof<Constructor: NapiValue>(&self, constructor: Constructor) -> Result<bool> {
+        let mut result = false;
+        check_status(unsafe {
+          sys::napi_instanceof(
+            self.0.env,
+            self.0.value,
+            constructor.raw_value(),
+            &mut result,
+          )
+        })?;
+        Ok(result)
+      }
     }
   };
 }
