@@ -609,6 +609,15 @@ impl Env {
   }
 
   #[inline]
+  pub fn strict_equals<A: NapiValue, B: NapiValue>(&self, a: A, b: B) -> Result<bool> {
+    let mut result = false;
+    check_status(unsafe {
+      sys::napi_strict_equals(self.0, a.raw_value(), b.raw_value(), &mut result)
+    })?;
+    Ok(result)
+  }
+
+  #[inline]
   pub fn get_node_version(&self) -> Result<NodeVersion> {
     let mut result = ptr::null();
     check_status(unsafe { sys::napi_get_node_version(self.0, &mut result) })?;
