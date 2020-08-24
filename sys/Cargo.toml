@@ -27,4 +27,4 @@ regex = "1.3"
 semver = "0.10"
 
 [package.metadata.docs.rs]
-rustc-args = ["--cfg", "docsrs"]
+rustc-args = ["--cfg", "napidocsrs"]

@@ -14,7 +14,7 @@ use std::env;
 use std::path::PathBuf;
 use std::process::Command;
 
-#[cfg(not(any(target_os = "windows", docsrs)))]
+#[cfg(not(any(target_os = "windows", napidocsrs)))]
 const NODE_PRINT_EXEC_PATH: &'static str = "console.log(process.execPath)";
 
 fn main() {
@@ -55,7 +55,7 @@ fn main() {
     .expect("Unable to write napi bindings");
 }
 
-#[cfg(all(target_os = "windows", not(docsrs)))]
+#[cfg(all(target_os = "windows", not(napidocsrs)))]
 fn find_node_include_path(node_full_version: &str) -> PathBuf {
   let mut out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
   out_path.push(format!("node-headers-{}.tar.gz", node_full_version));
@@ -81,14 +81,14 @@ fn find_node_include_path(node_full_version: &str) -> PathBuf {
   header_dist_path
 }
 
-#[cfg(docsrs)]
+#[cfg(napidocsrs)]
 fn find_node_include_path(_node_full_version: &str) -> PathBuf {
   let mut current = env::current_dir().unwrap();
   current.push(".node-headers");
   current
 }
 
-#[cfg(not(any(target_os = "windows", docsrs)))]
+#[cfg(not(any(target_os = "windows", napidocsrs)))]
 fn find_node_include_path(_node_full_version: &str) -> PathBuf {
   let node_exec_path = String::from_utf8(
     Command::new("node")
