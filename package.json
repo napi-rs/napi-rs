@@ -44,15 +44,30 @@
     "trailingComma": "all",
     "arrowParens": "always"
   },
-  "files": ["scripts", "LICENSE"],
+  "files": [
+    "scripts",
+    "LICENSE"
+  ],
   "lint-staged": {
-    "*.js": ["prettier --write"],
-    "*.@(yml|yaml)": ["prettier --parser yaml --write"],
-    "*.json": ["prettier --parser json --write"],
-    "*.md": ["prettier --parser markdown --write"]
+    "*.js": [
+      "prettier --write"
+    ],
+    "*.@(yml|yaml)": [
+      "prettier --parser yaml --write"
+    ],
+    "*.json": [
+      "prettier --parser json --write"
+    ],
+    "*.md": [
+      "prettier --parser markdown --write"
+    ]
   },
   "ava": {
-    "files": ["test_module/__test__/**/*.spec.js"]
+    "extensions": ["ts", "tsx"],
+    "files": [
+      "test_module/__test__/**/*.spec.ts"
+    ],
+    "require": ["@swc-node/register"]
   },
   "husky": {
     "hooks": {
@@ -61,6 +76,7 @@
   },
   "devDependencies": {
     "@istanbuljs/nyc-config-typescript": "^1.0.1",
+    "@swc-node/register": "^0.4.1",
     "@types/inquirer": "^7.3.0",
     "@types/node": "^14.6.0",
     "@typescript-eslint/eslint-plugin": "^3.9.1",

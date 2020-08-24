@@ -1,9 +1,11 @@
-const test = require('ava')
-const { join } = require('path')
-const { readFileSync } = require('fs')
+import { readFileSync } from 'fs'
+import { join } from 'path'
+
+import test from 'ava'
+
+import { napiVersion } from '../napi-version'
 
 const bindings = require('../../index.node')
-const napiVersion = require('../napi-version')
 
 const filepath = join(__dirname, './example.txt')
 

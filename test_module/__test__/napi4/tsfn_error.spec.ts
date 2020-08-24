@@ -1,7 +1,8 @@
-const test = require('ava')
+import test from 'ava'
+
+import { napiVersion } from '../napi-version'
 
 const bindings = require('../../index.node')
-const napiVersion = require('../napi-version')
 
 test('should call callback with the first arguments as an Error', async (t) => {
   if (napiVersion < 4) {
@@ -9,7 +10,7 @@ test('should call callback with the first arguments as an Error', async (t) => {
     return
   }
   return new Promise((resolve, reject) => {
-    bindings.testTsfnError((err) => {
+    bindings.testTsfnError((err: Error) => {
       try {
         t.is(err instanceof Error, true)
         t.is(err.message, 'invalid')

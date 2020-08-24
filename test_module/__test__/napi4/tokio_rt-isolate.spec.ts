@@ -1,7 +1,8 @@
-const test = require('ava')
-const { join } = require('path')
+import { join } from 'path'
 
-const napiVersion = require('../napi-version')
+import test from 'ava'
+
+import { napiVersion } from '../napi-version'
 
 const filepath = join(__dirname, './example.txt')
 

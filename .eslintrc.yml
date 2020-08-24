@@ -14,10 +14,14 @@ env:
 
 plugins:
   - import
+  - '@typescript-eslint'
 
 extends:
   - eslint:recommended
   - plugin:prettier/recommended
+
+globals:
+  BigInt: 'readonly'
 
 rules:
   # 0 = off, 1 = warn, 2 = error
@@ -200,15 +204,3 @@ rules:
           ],
       },
     ]
-
-overrides:
-  - files:
-      - ./test_module/**/*.js
-    plugins:
-      - '@typescript-eslint'
-    parserOptions:
-      project: ./test_module/tsconfig.json
-    rules:
-      '@typescript-eslint/prefer-nullish-coalescing': 0
-      '@typescript-eslint/prefer-optional-chain': 0
-      '@typescript-eslint/no-non-null-asserted-optional-chain': 0
