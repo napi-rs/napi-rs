@@ -3,5 +3,6 @@
   "include": ["."],
   "compilerOptions": {
     "outDir": "./dist"
-  }
+  },
+  "exclude": ["dist"]
 }

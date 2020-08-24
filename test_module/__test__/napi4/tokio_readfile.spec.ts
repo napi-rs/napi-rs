@@ -14,7 +14,7 @@ test('should read a file and return its a buffer', async (t) => {
     t.is(bindings.testTokioReadfile, undefined)
     return
   }
-  return new Promise((resolve, reject) => {
+  await new Promise((resolve, reject) => {
     bindings.testTokioReadfile(filepath, (err: Error | null, value: Buffer) => {
       try {
         t.is(err, null)

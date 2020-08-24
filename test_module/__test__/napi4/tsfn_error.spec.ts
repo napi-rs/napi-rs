@@ -9,7 +9,7 @@ test('should call callback with the first arguments as an Error', async (t) => {
     t.is(bindings.testTsfnError, undefined)
     return
   }
-  return new Promise((resolve, reject) => {
+  await new Promise((resolve, reject) => {
     bindings.testTsfnError((err: Error) => {
       try {
         t.is(err instanceof Error, true)

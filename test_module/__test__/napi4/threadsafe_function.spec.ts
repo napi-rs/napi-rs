@@ -12,7 +12,7 @@ test('should get js function called from a thread', async (t) => {
     return
   }
 
-  return new Promise((resolve, reject) => {
+  await new Promise((resolve, reject) => {
     bindings.testThreadsafeFunction((...args: any[]) => {
       called += 1
       try {
