@@ -251,6 +251,11 @@
   resolved "https://registry.npmjs.org/@swc-node/core-darwin/-/core-darwin-0.4.1.tgz#e3356da01e2c40af3594ade3d8413034d9bf6732"
   integrity sha512-jniCmDu9cp/zZua2z34hALb7ommf/Q7UtSLNuTfkJ2MZFFpSUQ8bBrTjfk18Oql3z+uKGG0vKOsZhatT4yWBpg==
 
+"@swc-node/core-linux-musl@^0.4.1":
+  version "0.4.1"
+  resolved "https://registry.npmjs.org/@swc-node/core-linux-musl/-/core-linux-musl-0.4.1.tgz#7a6ad2f2cfc86ad40f7eccfe222413c1d64dca49"
+  integrity sha512-WyMGN7LQ8wGvKWOL1I/Wj7HyNSZFhkbZvsdbnty2CHBPXC/WVszUdzWNf3RsegaAuIUgjkBbvf7KmCJd8E00Og==
+
 "@swc-node/core-linux@^0.4.1":
   version "0.4.1"
   resolved "https://registry.npmjs.org/@swc-node/core-linux/-/core-linux-0.4.1.tgz#43dcb1f2d3e7c3324aaada894a01ac1830dab4d0"

@@ -83,6 +83,7 @@
     "typescript": "^3.9.7"
   },
   "optionalDependencies": {
+    "@swc-node/core-linux-musl": "^0.4.1",
     "tslib": "^2.0.1"
   }
 }
