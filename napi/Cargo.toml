@@ -34,4 +34,4 @@ optional = true
 napi-build = { version = "0.2", path = "../build" }
 
 [package.metadata.docs.rs]
-rustc-args = ["--cfg", "docsrs"]
+rustc-args = ["--cfg", "napidocsrs"]
