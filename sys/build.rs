@@ -44,6 +44,7 @@ fn main() {
   sys_bindigs_path.push("bindings.h");
 
   bindgen::Builder::default()
+    .derive_default(true)
     .header(sys_bindigs_path.to_str().unwrap().to_owned())
     .clang_arg(String::from("-I") + node_include_path.to_str().unwrap())
     .rustified_enum("(napi_|uv_).+")
