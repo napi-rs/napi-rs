@@ -12,6 +12,7 @@ edition = "2018"
 [features]
 libuv = ["futures"]
 tokio_rt = ["futures", "tokio", "once_cell"]
+serde-json = ["serde", "serde_json"]
 
 [dependencies]
 napi-sys = { version = "0.4", path = "../sys" }
@@ -29,6 +30,13 @@ optional = true
 version = "1.4"
 optional = true
 
+[dependencies.serde]
+version = "1"
+optional = true
+
+[dependencies.serde_json]
+version = "1"
+optional = true
 
 [build-dependencies]
 napi-build = { version = "0.2", path = "../build" }

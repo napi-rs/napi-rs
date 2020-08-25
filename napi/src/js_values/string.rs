@@ -47,6 +47,30 @@ impl JsString {
     }
   }
 
+  #[inline]
+  pub fn chars(&self) -> Result<&[char]> {
+    let mut written_char_count: u64 = 0;
+    let len = self.len()? + 1;
+    let mut result = Vec::with_capacity(len);
+    unsafe {
+      let status = sys::napi_get_value_string_utf8(
+        self.0.env,
+        self.0.value,
+        result.as_mut_ptr(),
+        len as u64,
+        &mut written_char_count,
+      );
+
+      check_status(status)?;
+      let ptr = result.as_ptr();
+      mem::forget(result);
+      Ok(slice::from_raw_parts(
+        ptr as *const char,
+        written_char_count as usize,
+      ))
+    }
+  }
+
   pub fn as_str(&self) -> Result<&str> {
     str::from_utf8(self.get_ref()?)
       .map_err(|e| Error::new(Status::GenericFailure, format!("{:?}", e)))

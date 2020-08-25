@@ -1,8 +1,9 @@
+use std::convert::TryFrom;
 use std::ptr;
 
-use super::{JsObject, NapiValue, Value, ValueType};
+use super::{JsObject, JsUnknown, NapiValue, Value, ValueType};
 use crate::error::check_status;
-use crate::{sys, Result};
+use crate::{sys, Error, Result};
 
 #[derive(Debug)]
 pub struct JsArrayBuffer {
@@ -44,5 +45,12 @@ impl NapiValue for JsArrayBuffer {
       data: data as *const u8,
       len,
     })
+  }
+}
+
+impl TryFrom<JsUnknown> for JsArrayBuffer {
+  type Error = Error;
+  fn try_from(value: JsUnknown) -> Result<JsArrayBuffer> {
+    JsArrayBuffer::from_raw(value.0.env, value.0.value)
   }
 }

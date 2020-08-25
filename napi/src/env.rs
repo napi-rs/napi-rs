@@ -11,12 +11,18 @@ use crate::js_values::*;
 use crate::task::Task;
 use crate::{sys, Error, NodeVersion, Result, Status};
 
+#[cfg(all(feature = "serde-json"))]
+use crate::js_values::{De, Ser};
 #[cfg(all(any(feature = "libuv", feature = "tokio_rt"), napi4))]
 use crate::promise;
 #[cfg(all(feature = "tokio_rt", napi4))]
 use crate::tokio_rt::{get_tokio_sender, Message};
 #[cfg(all(feature = "libuv", napi4))]
 use crate::uv;
+#[cfg(all(feature = "serde-json"))]
+use serde::de::DeserializeOwned;
+#[cfg(all(feature = "serde-json"))]
+use serde::Serialize;
 #[cfg(all(feature = "libuv", napi4))]
 use std::future::Future;
 #[cfg(all(feature = "tokio_rt", napi4))]
@@ -98,7 +104,7 @@ impl Env {
   pub fn create_bigint_from_i64(&self, value: i64) -> Result<JsBigint> {
     let mut raw_value = ptr::null_mut();
     check_status(unsafe { sys::napi_create_bigint_int64(self.0, value, &mut raw_value) })?;
-    Ok(JsBigint::from_raw_unchecked(self.0, raw_value))
+    Ok(JsBigint::from_raw_unchecked(self.0, raw_value, 1))
   }
 
   #[cfg(napi6)]
@@ -107,7 +113,7 @@ impl Env {
   pub fn create_bigint_from_u64(&self, value: u64) -> Result<JsBigint> {
     let mut raw_value = ptr::null_mut();
     check_status(unsafe { sys::napi_create_bigint_uint64(self.0, value, &mut raw_value) })?;
-    Ok(JsBigint::from_raw_unchecked(self.0, raw_value))
+    Ok(JsBigint::from_raw_unchecked(self.0, raw_value, 1))
   }
 
   #[cfg(napi6)]
@@ -116,6 +122,7 @@ impl Env {
   /// The resulting BigInt will be negative when sign_bit is true.
   pub fn create_bigint_from_words(&self, sign_bit: bool, words: Vec<u64>) -> Result<JsBigint> {
     let mut raw_value = ptr::null_mut();
+    let len = words.len();
     check_status(unsafe {
       sys::napi_create_bigint_words(
         self.0,
@@ -123,12 +130,12 @@ impl Env {
           true => 1,
           false => 0,
         },
-        words.len() as u64,
+        len as u64,
         words.as_ptr(),
         &mut raw_value,
       )
     })?;
-    Ok(JsBigint::from_raw_unchecked(self.0, raw_value))
+    Ok(JsBigint::from_raw_unchecked(self.0, raw_value, len as _))
   }
 
   #[inline]
@@ -606,6 +613,32 @@ impl Env {
         ),
       })?;
     Ok(JsObject::from_raw_unchecked(self.0, raw_promise))
+  }
+
+  #[cfg(feature = "serde-json")]
+  #[inline]
+  pub fn to_js_value<T>(&self, node: &T) -> Result<JsUnknown>
+  where
+    T: Serialize,
+  {
+    let s = Ser(self);
+    node.serialize(s).map(JsUnknown)
+  }
+
+  #[cfg(feature = "serde-json")]
+  #[inline]
+  pub fn from_js_value<T, V>(&self, value: V) -> Result<T>
+  where
+    T: DeserializeOwned + ?Sized,
+    V: NapiValue,
+  {
+    let value = Value {
+      env: self.0,
+      value: value.raw_value(),
+      value_type: ValueType::Unknown,
+    };
+    let mut de = De(&value);
+    T::deserialize(&mut de)
   }
 
   #[inline]

@@ -1,3 +1,4 @@
+use std::convert::Into;
 use std::os::raw::{c_char, c_void};
 use std::ptr;
 
@@ -6,6 +7,44 @@ use crate::{sys, Env, JsFunction, JsUnknown, Result};
 
 use sys::napi_threadsafe_function_call_mode;
 use sys::napi_threadsafe_function_release_mode;
+
+#[repr(u8)]
+pub enum ThreadsafeFunctionCallMode {
+  NonBlocking,
+  Blocking,
+}
+
+#[repr(u8)]
+pub enum ThreadsafeFunctionReleaseMode {
+  Release,
+  Abort,
+}
+
+impl Into<napi_threadsafe_function_call_mode> for ThreadsafeFunctionCallMode {
+  fn into(self) -> napi_threadsafe_function_call_mode {
+    match self {
+      ThreadsafeFunctionCallMode::Blocking => {
+        napi_threadsafe_function_call_mode::napi_tsfn_blocking
+      }
+      ThreadsafeFunctionCallMode::NonBlocking => {
+        napi_threadsafe_function_call_mode::napi_tsfn_nonblocking
+      }
+    }
+  }
+}
+
+impl Into<napi_threadsafe_function_release_mode> for ThreadsafeFunctionReleaseMode {
+  fn into(self) -> napi_threadsafe_function_release_mode {
+    match self {
+      ThreadsafeFunctionReleaseMode::Release => {
+        napi_threadsafe_function_release_mode::napi_tsfn_release
+      }
+      ThreadsafeFunctionReleaseMode::Abort => {
+        napi_threadsafe_function_release_mode::napi_tsfn_abort
+      }
+    }
+  }
+}
 
 pub trait ToJs: Copy + Clone {
   type Output;
@@ -25,17 +64,9 @@ pub trait ToJs: Copy + Clone {
 /// use std::thread;
 /// use napi::{
 ///   Number, Result, Env, CallContext, JsUndefined, JsFunction,
-///   sys::{
-///     napi_threadsafe_function_call_mode::{
-///       napi_tsfn_blocking,
-///     },
-///     napi_threadsafe_function_release_mode::{
-///       napi_tsfn_release,
-///     }
-///   }
 /// };
 /// use napi::threadsafe_function::{
-///   ToJs, ThreadsafeFunction,
+///   ToJs, ThreadsafeFunction, ThreadsafeFunctionCallMode, ThreadsafeFunctionReleaseMode,
 /// };
 ///
 /// // Define a struct for handling the data passed from `ThreadsafeFunction::call`
@@ -67,12 +98,12 @@ pub trait ToJs: Copy + Clone {
 ///   thread::spawn(move || {
 ///     let output: u8 = 42;
 ///     // It's okay to call a threadsafe function multiple times.
-///     tsfn.call(Ok(output), napi_tsfn_blocking).unwrap();
-///     tsfn.call(Ok(output), napi_tsfn_blocking).unwrap();
+///     tsfn.call(Ok(output), ThreadsafeFunctionCallMode::Blocking).unwrap();
+///     tsfn.call(Ok(output), ThreadsafeFunctionCallMode::Blocking).unwrap();
 ///     // We should call `ThreadsafeFunction::release` manually when we don't
 ///     // need the instance anymore, or it will prevent Node.js from exiting
 ///     // automatically and possibly cause memory leaks.
-///     tsfn.release(napi_tsfn_release).unwrap();
+///     tsfn.release(ThreadsafeFunctionReleaseMode::Release).unwrap();
 ///   });
 ///
 ///   ctx.env.get_undefined()
@@ -137,16 +168,12 @@ impl<T: ToJs> ThreadsafeFunction<T> {
 
   /// See [napi_call_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_call_threadsafe_function)
   /// for more information.
-  pub fn call(
-    &self,
-    value: Result<T::Output>,
-    mode: napi_threadsafe_function_call_mode,
-  ) -> Result<()> {
+  pub fn call(&self, value: Result<T::Output>, mode: ThreadsafeFunctionCallMode) -> Result<()> {
     check_status(unsafe {
       sys::napi_call_threadsafe_function(
         self.raw_value,
         Box::into_raw(Box::from(value)) as *mut _ as *mut c_void,
-        mode,
+        mode.into(),
       )
     })
   }
@@ -159,8 +186,8 @@ impl<T: ToJs> ThreadsafeFunction<T> {
 
   /// See [napi_release_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_release_threadsafe_function)
   /// for more information.
-  pub fn release(&self, mode: napi_threadsafe_function_release_mode) -> Result<()> {
-    check_status(unsafe { sys::napi_release_threadsafe_function(self.raw_value, mode) })
+  pub fn release(&self, mode: ThreadsafeFunctionReleaseMode) -> Result<()> {
+    check_status(unsafe { sys::napi_release_threadsafe_function(self.raw_value, mode.into()) })
   }
 
   /// See [napi_ref_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_ref_threadsafe_function)

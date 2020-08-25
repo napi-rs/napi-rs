@@ -2,6 +2,8 @@
 extern crate napi;
 #[macro_use]
 extern crate napi_derive;
+#[macro_use]
+extern crate serde_derive;
 
 use napi::{CallContext, Error, JsBoolean, JsString, JsUnknown, Module, Result, Status};
 
@@ -11,10 +13,10 @@ mod libuv;
 mod napi4;
 #[cfg(napi5)]
 mod napi5;
-#[cfg(napi4)]
-mod tokio_rt;
 #[cfg(napi6)]
 mod napi6;
+#[cfg(napi4)]
+mod tokio_rt;
 
 mod buffer;
 mod class;
@@ -22,6 +24,7 @@ mod either;
 mod external;
 mod function;
 mod napi_version;
+mod serde;
 mod string;
 mod symbol;
 mod task;
@@ -36,24 +39,21 @@ use libuv::read_file::uv_read_file;
 use napi4::{test_threadsafe_function, test_tokio_readfile, test_tsfn_error};
 #[cfg(napi5)]
 use napi5::is_date::test_object_is_date;
+#[cfg(napi6)]
+use napi6::bigint::{
+  test_create_bigint_from_i64, test_create_bigint_from_u64, test_create_bigint_from_words,
+  test_get_bigint_i64, test_get_bigint_u64, test_get_bigint_words,
+};
 use napi_version::get_napi_version;
 use symbol::{create_named_symbol, create_symbol_from_js_string, create_unnamed_symbol};
 use task::test_spawn_thread;
 #[cfg(napi4)]
 use tokio_rt::{error_from_tokio_future, test_execute_tokio_readfile};
-#[cfg(napi6)]
-use napi6::bigint::{
-  test_create_bigint_from_i64,
-  test_create_bigint_from_u64,
-  test_create_bigint_from_words,
-  test_get_bigint_i64,
-  test_get_bigint_u64,
-  test_get_bigint_words,
-};
 
 register_module!(test_module, init);
 
 fn init(module: &mut Module) -> Result<()> {
+  serde::register_serde_func(module)?;
   module.create_named_method("testThrow", test_throw)?;
   module.create_named_method("testThrowWithReason", test_throw_with_reason)?;
   module.create_named_method("testSpawnThread", test_spawn_thread)?;

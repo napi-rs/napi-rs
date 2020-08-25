@@ -21,28 +21,32 @@ impl JsObject {
     key: JsNumber,
     value: V,
   ) -> Result<()> {
-    let status =
-      unsafe { sys::napi_set_property(self.0.env, self.0.value, key.0.value, value.raw_value()) };
-    check_status(status)?;
-    Ok(())
+    check_status(unsafe {
+      sys::napi_set_property(self.0.env, self.0.value, key.0.value, value.raw_value())
+    })
   }
 
   pub fn set_named_property<T: NapiValue>(&mut self, name: &str, value: T) -> Result<()> {
     let key = CString::new(name)?;
-    let status = unsafe {
+    check_status(unsafe {
       sys::napi_set_named_property(self.0.env, self.0.value, key.as_ptr(), value.raw_value())
-    };
-    check_status(status)?;
-    Ok(())
+    })
   }
 
   pub fn get_named_property<T: NapiValue>(&self, name: &str) -> Result<T> {
     let key = CString::new(name)?;
     let mut raw_value = ptr::null_mut();
-    let status = unsafe {
+    check_status(unsafe {
       sys::napi_get_named_property(self.0.env, self.0.value, key.as_ptr(), &mut raw_value)
-    };
-    check_status(status)?;
+    })?;
+    T::from_raw(self.0.env, raw_value)
+  }
+
+  pub fn get_property<K: NapiValue, T: NapiValue>(&self, key: &K) -> Result<T> {
+    let mut raw_value = ptr::null_mut();
+    check_status(unsafe {
+      sys::napi_get_property(self.0.env, self.0.value, key.raw_value(), &mut raw_value)
+    })?;
     T::from_raw(self.0.env, raw_value)
   }
 
@@ -59,22 +63,21 @@ impl JsObject {
 
   pub fn get_index<T: NapiValue>(&self, index: u32) -> Result<T> {
     let mut raw_value = ptr::null_mut();
-    let status = unsafe { sys::napi_get_element(self.0.env, self.0.value, index, &mut raw_value) };
-    check_status(status)?;
+    check_status(unsafe {
+      sys::napi_get_element(self.0.env, self.0.value, index, &mut raw_value)
+    })?;
     T::from_raw(self.0.env, raw_value)
   }
 
   pub fn is_array(&self) -> Result<bool> {
     let mut is_array = false;
-    let status = unsafe { sys::napi_is_array(self.0.env, self.0.value, &mut is_array) };
-    check_status(status)?;
+    check_status(unsafe { sys::napi_is_array(self.0.env, self.0.value, &mut is_array) })?;
     Ok(is_array)
   }
 
   pub fn is_buffer(&self) -> Result<bool> {
     let mut is_buffer = false;
-    let status = unsafe { sys::napi_is_buffer(self.0.env, self.0.value, &mut is_buffer) };
-    check_status(status)?;
+    check_status(unsafe { sys::napi_is_buffer(self.0.env, self.0.value, &mut is_buffer) })?;
     Ok(is_buffer)
   }
 
@@ -89,9 +92,13 @@ impl JsObject {
         "Object is not array".to_owned(),
       ));
     }
+    self.get_array_length_unchecked()
+  }
+
+  #[inline]
+  pub fn get_array_length_unchecked(&self) -> Result<u32> {
     let mut length: u32 = 0;
-    let status = unsafe { sys::napi_get_array_length(self.0.env, self.raw_value(), &mut length) };
-    check_status(status)?;
+    check_status(unsafe { sys::napi_get_array_length(self.0.env, self.raw_value(), &mut length) })?;
     Ok(length)
   }
 }

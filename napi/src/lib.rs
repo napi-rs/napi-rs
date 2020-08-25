@@ -88,6 +88,10 @@ pub use version::NodeVersion;
 #[cfg(all(feature = "tokio_rt", napi4))]
 pub use tokio_rt::shutdown as shutdown_tokio_rt;
 
+#[cfg(feature = "serde-json")]
+#[macro_use]
+extern crate serde;
+
 /// register nodejs module
 ///
 /// ## Example
