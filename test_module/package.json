@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "scripts": {
     "build": "cargo build && node ../scripts/index.js build ./index",
-    "build-release": "cargo build --release && node ../scripts/napi.js build --release ./index",
+    "build-release": "cargo build --release && node ../scripts/index.js build --release ./index",
     "test": "node ./index.js"
   }
 }
