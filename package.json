@@ -78,7 +78,7 @@
     "typescript": "^4.0.2"
   },
   "optionalDependencies": {
-    "@swc-node/core-linux-musl": "^0.4.2",
+    "@swc-node/core-linux-musl": "^0.6.0",
     "tslib": "^2.0.1"
   }
 }
