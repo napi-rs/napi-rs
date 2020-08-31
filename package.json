@@ -58,7 +58,7 @@
   },
   "devDependencies": {
     "@istanbuljs/nyc-config-typescript": "^1.0.1",
-    "@swc-node/register": "^0.4.2",
+    "@swc-node/register": "^0.4.4",
     "@types/inquirer": "^7.3.1",
     "@types/node": "^14.6.0",
     "@typescript-eslint/eslint-plugin": "^3.9.1",
