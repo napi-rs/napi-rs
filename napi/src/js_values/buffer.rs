@@ -1,10 +1,11 @@
+use std::convert::TryFrom;
 use std::ops::Deref;
 use std::ptr;
 use std::slice;
 
 use super::{JsObject, JsUnknown, NapiValue, Value, ValueType};
 use crate::error::check_status;
-use crate::{sys, Result};
+use crate::{sys, Error, Result};
 
 #[derive(Debug)]
 pub struct JsBuffer {
@@ -42,8 +43,7 @@ impl NapiValue for JsBuffer {
   fn from_raw(env: sys::napi_env, value: sys::napi_value) -> Result<Self> {
     let mut data = ptr::null_mut();
     let mut len: u64 = 0;
-    let status = unsafe { sys::napi_get_buffer_info(env, value, &mut data, &mut len) };
-    check_status(status)?;
+    check_status(unsafe { sys::napi_get_buffer_info(env, value, &mut data, &mut len) })?;
     Ok(JsBuffer {
       value: JsObject(Value {
         env,
@@ -66,5 +66,12 @@ impl Deref for JsBuffer {
 
   fn deref(&self) -> &[u8] {
     self.data
+  }
+}
+
+impl TryFrom<JsUnknown> for JsBuffer {
+  type Error = Error;
+  fn try_from(value: JsUnknown) -> Result<JsBuffer> {
+    JsBuffer::from_raw(value.0.env, value.0.value)
   }
 }

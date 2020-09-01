@@ -1,8 +1,13 @@
-use std::convert::From;
+use std::convert::{From, TryFrom};
 use std::ptr;
 
 use crate::error::check_status;
 use crate::{sys, Error, Result, Status};
+
+#[cfg(feature = "serde-json")]
+mod de;
+#[cfg(feature = "serde-json")]
+mod ser;
 
 mod arraybuffer;
 #[cfg(napi6)]
@@ -27,10 +32,14 @@ pub use bigint::JsBigint;
 pub use boolean::JsBoolean;
 pub use buffer::JsBuffer;
 pub use class_property::Property;
+#[cfg(feature = "serde-json")]
+pub(crate) use de::De;
 pub use either::Either;
 pub use function::JsFunction;
 pub use number::JsNumber;
 pub use object::JsObject;
+#[cfg(feature = "serde-json")]
+pub(crate) use ser::Ser;
 pub use string::JsString;
 pub(crate) use tagged_object::TaggedObject;
 pub use undefined::JsUndefined;
@@ -92,6 +101,13 @@ macro_rules! impl_napi_value_trait {
           value,
           value_type: $value_type,
         })
+      }
+    }
+
+    impl TryFrom<JsUnknown> for $js_value {
+      type Error = Error;
+      fn try_from(value: JsUnknown) -> Result<$js_value> {
+        $js_value::from_raw(value.0.env, value.0.value)
       }
     }
   };
@@ -204,8 +220,6 @@ impl_js_value_methods!(JsString);
 impl_js_value_methods!(JsObject);
 impl_js_value_methods!(JsFunction);
 impl_js_value_methods!(JsExternal);
-#[cfg(napi6)]
-impl_js_value_methods!(JsBigint);
 impl_js_value_methods!(JsSymbol);
 
 use ValueType::*;
@@ -218,8 +232,6 @@ impl_napi_value_trait!(JsString, String);
 impl_napi_value_trait!(JsObject, Object);
 impl_napi_value_trait!(JsFunction, Function);
 impl_napi_value_trait!(JsExternal, External);
-#[cfg(napi6)]
-impl_napi_value_trait!(JsBigint, Bigint);
 impl_napi_value_trait!(JsSymbol, Symbol);
 
 impl NapiValue for JsUnknown {

@@ -1,15 +1,10 @@
 use std::path::Path;
 use std::thread;
 
-use napi::sys::{
-  napi_threadsafe_function_call_mode::napi_tsfn_blocking,
-  napi_threadsafe_function_release_mode::napi_tsfn_release,
+use napi::threadsafe_function::{
+  ThreadsafeFunction, ThreadsafeFunctionCallMode, ThreadsafeFunctionReleaseMode, ToJs,
 };
-use napi::threadsafe_function::{ThreadsafeFunction, ToJs};
-use napi::{
-  CallContext, Env, Error, JsFunction, JsString, JsUndefined, Result, Status,
-  JsUnknown,
-};
+use napi::{CallContext, Env, Error, JsFunction, JsString, JsUndefined, JsUnknown, Result, Status};
 use tokio;
 
 #[derive(Clone, Copy)]
@@ -38,9 +33,15 @@ pub fn test_threadsafe_function(ctx: CallContext) -> Result<JsUndefined> {
   thread::spawn(move || {
     let output: Vec<u8> = vec![42, 1, 2, 3];
     // It's okay to call a threadsafe function multiple times.
-    tsfn.call(Ok(output.clone()), napi_tsfn_blocking).unwrap();
-    tsfn.call(Ok(output.clone()), napi_tsfn_blocking).unwrap();
-    tsfn.release(napi_tsfn_release).unwrap();
+    tsfn
+      .call(Ok(output.clone()), ThreadsafeFunctionCallMode::Blocking)
+      .unwrap();
+    tsfn
+      .call(Ok(output.clone()), ThreadsafeFunctionCallMode::Blocking)
+      .unwrap();
+    tsfn
+      .release(ThreadsafeFunctionReleaseMode::Release)
+      .unwrap();
   });
 
   ctx.env.get_undefined()
@@ -56,10 +57,12 @@ pub fn test_tsfn_error(ctx: CallContext) -> Result<JsUndefined> {
     tsfn
       .call(
         Err(Error::new(Status::Unknown, "invalid".to_owned())),
-        napi_tsfn_blocking,
+        ThreadsafeFunctionCallMode::Blocking,
       )
       .unwrap();
-    tsfn.release(napi_tsfn_release).unwrap();
+    tsfn
+      .release(ThreadsafeFunctionReleaseMode::Release)
+      .unwrap();
   });
 
   ctx.env.get_undefined()
@@ -72,7 +75,9 @@ impl ToJs for HandleBuffer {
   type Output = Vec<u8>;
 
   fn resolve(&self, env: &mut Env, output: Self::Output) -> Result<Vec<JsUnknown>> {
-    let value = env.create_buffer_with_data(output.to_vec())?.into_unknown()?;
+    let value = env
+      .create_buffer_with_data(output.to_vec())?
+      .into_unknown()?;
     Ok(vec![value])
   }
 }
@@ -96,8 +101,10 @@ pub fn test_tokio_readfile(ctx: CallContext) -> Result<JsUndefined> {
   rt.block_on(async move {
     let mut filepath = Path::new(path_str);
     let ret = read_file_content(&mut filepath).await;
-    let _ = tsfn.call(ret, napi_tsfn_blocking);
-    tsfn.release(napi_tsfn_release).unwrap();
+    let _ = tsfn.call(ret, ThreadsafeFunctionCallMode::Blocking);
+    tsfn
+      .release(ThreadsafeFunctionReleaseMode::Release)
+      .unwrap();
   });
 
   ctx.env.get_undefined()

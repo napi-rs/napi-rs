@@ -1,6 +1,13 @@
+use std::convert::From;
+use std::error::Error as StdError;
 use std::fmt;
+#[cfg(feature = "serde-json")]
+use std::fmt::Display;
 use std::os::raw::c_char;
 use std::ptr;
+
+#[cfg(feature = "serde-json")]
+use serde::{de, ser};
 
 use crate::{sys, Status};
 
@@ -10,6 +17,22 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub struct Error {
   pub status: Status,
   pub reason: String,
+}
+
+impl StdError for Error {}
+
+#[cfg(feature = "serde-json")]
+impl ser::Error for Error {
+  fn custom<T: Display>(msg: T) -> Self {
+    Error::new(Status::InvalidArg, msg.to_string())
+  }
+}
+
+#[cfg(feature = "serde-json")]
+impl de::Error for Error {
+  fn custom<T: Display>(msg: T) -> Self {
+    Error::new(Status::InvalidArg, msg.to_string())
+  }
 }
 
 impl fmt::Display for Error {
@@ -82,6 +105,6 @@ pub fn check_status(code: sys::napi_status) -> Result<()> {
   let status = Status::from(code);
   match status {
     Status::Ok => Ok(()),
-    _ => Err(Error::from_status(status)),
+    _ => Err(Error::new(status, "".to_owned())),
   }
 }
