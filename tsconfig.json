@@ -20,25 +20,14 @@
     "suppressExcessPropertyErrors": true,
     "forceConsistentCasingInFileNames": true,
     "preserveSymlinks": true,
-    "target": "ES2015",
+    "target": "ES2018",
     "sourceMap": true,
     "esModuleInterop": true,
     "stripInternal": true,
     "resolveJsonModule": true,
     "importsNotUsedAsValues": "remove",
     "outDir": "./scripts",
-    "lib": [
-      "dom",
-      "DOM.Iterable",
-      "ES5",
-      "ES2015",
-      "ES2016",
-      "ES2017",
-      "ES2018",
-      "ES2019",
-      "ES2020",
-      "esnext"
-    ]
+    "lib": ["dom", "DOM.Iterable", "ES2019", "ES2020", "esnext"]
   },
   "include": ["./src"],
   "exclude": ["node_modules"]
