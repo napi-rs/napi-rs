@@ -4,13 +4,11 @@ use napi::{CallContext, JsFunction, JsNumber, JsObject, JsUndefined, Module, Pro
 
 #[js_function(1)]
 fn create_test_class(ctx: CallContext) -> Result<JsFunction> {
-  let add_count_method = Property::new("addCount").with_method(add_count);
-  let mut properties = vec![add_count_method];
-  ctx.env.define_class(
-    "TestClass",
-    test_class_constructor,
-    properties.as_mut_slice(),
-  )
+  let add_count_method = Property::new(&ctx.env, "addCount")?.with_method(add_count);
+  let properties = vec![add_count_method];
+  ctx
+    .env
+    .define_class("TestClass", test_class_constructor, properties.as_slice())
 }
 
 #[js_function(1)]

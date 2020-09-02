@@ -14,11 +14,11 @@ mod arraybuffer;
 mod bigint;
 mod boolean;
 mod buffer;
-mod class_property;
 mod either;
 mod function;
 mod number;
 mod object;
+mod object_property;
 mod string;
 mod tagged_object;
 mod undefined;
@@ -31,13 +31,13 @@ pub use arraybuffer::JsArrayBuffer;
 pub use bigint::JsBigint;
 pub use boolean::JsBoolean;
 pub use buffer::JsBuffer;
-pub use class_property::Property;
 #[cfg(feature = "serde-json")]
 pub(crate) use de::De;
 pub use either::Either;
 pub use function::JsFunction;
 pub use number::JsNumber;
 pub use object::JsObject;
+pub use object_property::Property;
 #[cfg(feature = "serde-json")]
 pub(crate) use ser::Ser;
 pub use string::JsString;
@@ -145,6 +145,7 @@ macro_rules! impl_js_value_methods {
           value_type: ValueType::String,
         }))
       }
+
       #[inline]
       pub fn coerce_to_object(self) -> Result<JsObject> {
         let mut new_raw_value = ptr::null_mut();
@@ -186,6 +187,20 @@ macro_rules! impl_js_value_methods {
         let mut result = false;
         check_status(unsafe { sys::napi_is_dataview(self.0.env, self.0.value, &mut result) })?;
         Ok(result)
+      }
+
+      #[inline]
+      pub fn is_array(&self) -> Result<bool> {
+        let mut is_array = false;
+        check_status(unsafe { sys::napi_is_array(self.0.env, self.0.value, &mut is_array) })?;
+        Ok(is_array)
+      }
+
+      #[inline]
+      pub fn is_buffer(&self) -> Result<bool> {
+        let mut is_buffer = false;
+        check_status(unsafe { sys::napi_is_buffer(self.0.env, self.0.value, &mut is_buffer) })?;
+        Ok(is_buffer)
       }
 
       #[inline]

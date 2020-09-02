@@ -379,13 +379,13 @@ impl Env {
     &self,
     name: &str,
     constructor_cb: Callback,
-    properties: &mut [Property],
+    properties: &[Property],
   ) -> Result<JsFunction> {
     let mut raw_result = ptr::null_mut();
     let raw_properties = properties
-      .iter_mut()
-      .map(|prop| prop.as_raw(self.0))
-      .collect::<Result<Vec<sys::napi_property_descriptor>>>()?;
+      .iter()
+      .map(|prop| prop.raw())
+      .collect::<Vec<sys::napi_property_descriptor>>();
 
     check_status(unsafe {
       sys::napi_define_class(
@@ -541,9 +541,9 @@ impl Env {
   #[inline]
   pub fn get_napi_version(&self) -> Result<u32> {
     let global = self.get_global()?;
-    let process = global.get_named_property::<JsObject>("process")?;
-    let versions = process.get_named_property::<JsObject>("versions")?;
-    let napi_version = versions.get_named_property::<JsString>("napi")?;
+    let process: JsObject = global.get_named_property("process")?;
+    let versions: JsObject = process.get_named_property("versions")?;
+    let napi_version: JsString = versions.get_named_property("napi")?;
     napi_version
       .as_str()?
       .parse()

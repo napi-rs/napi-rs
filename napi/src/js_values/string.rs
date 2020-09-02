@@ -29,15 +29,13 @@ impl JsString {
     let len = self.len()? + 1;
     let mut result = Vec::with_capacity(len);
     unsafe {
-      let status = sys::napi_get_value_string_utf8(
+      check_status(sys::napi_get_value_string_utf8(
         self.0.env,
         self.0.value,
         result.as_mut_ptr(),
         len as u64,
         &mut written_char_count,
-      );
-
-      check_status(status)?;
+      ))?;
       let ptr = result.as_ptr();
       mem::forget(result);
       Ok(slice::from_raw_parts(
@@ -53,15 +51,14 @@ impl JsString {
     let len = self.len()? + 1;
     let mut result = Vec::with_capacity(len);
     unsafe {
-      let status = sys::napi_get_value_string_utf8(
+      check_status(sys::napi_get_value_string_utf8(
         self.0.env,
         self.0.value,
         result.as_mut_ptr(),
         len as u64,
         &mut written_char_count,
-      );
+      ))?;
 
-      check_status(status)?;
       let ptr = result.as_ptr();
       mem::forget(result);
       Ok(slice::from_raw_parts(
@@ -81,15 +78,14 @@ impl JsString {
     let len = self.len()? + 1;
     let mut result = Vec::with_capacity(len);
     unsafe {
-      let status = sys::napi_get_value_string_utf8(
+      check_status(sys::napi_get_value_string_utf8(
         self.0.env,
         self.0.value,
         result.as_mut_ptr(),
         len as u64,
         &mut written_char_count,
-      );
+      ))?;
 
-      check_status(status)?;
       let ptr = result.as_ptr();
       mem::forget(result);
       Ok(slice::from_raw_parts_mut(
@@ -108,14 +104,13 @@ impl TryFrom<JsString> for Vec<u16> {
 
     unsafe {
       let mut written_char_count = 0;
-      let status = sys::napi_get_value_string_utf16(
+      check_status(sys::napi_get_value_string_utf16(
         value.0.env,
         value.0.value,
         result.as_mut_ptr(),
         result.capacity() as u64,
         &mut written_char_count,
-      );
-      check_status(status)?;
+      ))?;
       result.set_len(written_char_count as usize);
     }
 

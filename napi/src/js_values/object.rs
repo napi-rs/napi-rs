@@ -18,6 +18,18 @@ impl JsObject {
     })
   }
 
+  pub fn get_property<K, T>(&self, key: &K) -> Result<T>
+  where
+    K: NapiValue,
+    T: NapiValue,
+  {
+    let mut raw_value = ptr::null_mut();
+    check_status(unsafe {
+      sys::napi_get_property(self.0.env, self.0.value, key.raw_value(), &mut raw_value)
+    })?;
+    T::from_raw(self.0.env, raw_value)
+  }
+
   pub fn set_named_property<T>(&mut self, name: &str, value: T) -> Result<()>
   where
     T: NapiValue,
@@ -40,11 +52,38 @@ impl JsObject {
     T::from_raw(self.0.env, raw_value)
   }
 
-  pub fn has_named_property(&self, name: &str) -> Result<bool> {
+  pub fn has_named_property<S>(&self, name: S) -> Result<bool>
+  where
+    S: AsRef<str>,
+  {
     let mut result = false;
-    let key = CString::new(name)?;
+    let key = CString::new(name.as_ref())?;
     check_status(unsafe {
       sys::napi_has_named_property(self.0.env, self.0.value, key.as_ptr(), &mut result)
+    })?;
+    Ok(result)
+  }
+
+  pub fn delete_property<S>(&mut self, name: S) -> Result<bool>
+  where
+    S: NapiValue,
+  {
+    let mut result = false;
+    check_status(unsafe {
+      sys::napi_delete_property(self.0.env, self.0.value, name.raw_value(), &mut result)
+    })?;
+    Ok(result)
+  }
+
+  pub fn delete_named_property(&mut self, name: &str) -> Result<bool> {
+    let mut result = false;
+    let key_str = CString::new(name)?;
+    let mut js_key = ptr::null_mut();
+    check_status(unsafe {
+      sys::napi_create_string_utf8(self.0.env, key_str.as_ptr(), name.len() as _, &mut js_key)
+    })?;
+    check_status(unsafe {
+      sys::napi_delete_property(self.0.env, self.0.value, js_key, &mut result)
     })?;
     Ok(result)
   }
@@ -95,18 +134,6 @@ impl JsObject {
     Ok(result)
   }
 
-  pub fn get_property<K, T>(&self, key: &K) -> Result<T>
-  where
-    K: NapiValue,
-    T: NapiValue,
-  {
-    let mut raw_value = ptr::null_mut();
-    check_status(unsafe {
-      sys::napi_get_property(self.0.env, self.0.value, key.raw_value(), &mut raw_value)
-    })?;
-    T::from_raw(self.0.env, raw_value)
-  }
-
   pub fn get_property_names<T>(&self) -> Result<T>
   where
     T: NapiValue,
@@ -141,7 +168,7 @@ impl JsObject {
     Ok(result)
   }
 
-  pub fn delete_element<T>(&mut self, index: u32) -> Result<bool> {
+  pub fn delete_element(&mut self, index: u32) -> Result<bool> {
     let mut result = false;
     check_status(unsafe {
       sys::napi_delete_element(self.0.env, self.0.value, index, &mut result)
@@ -160,31 +187,19 @@ impl JsObject {
     T::from_raw(self.0.env, raw_value)
   }
 
-  pub fn define_properties(&mut self, properties: &mut [Property]) -> Result<()> {
+  pub fn define_properties(&mut self, properties: &[Property]) -> Result<()> {
     check_status(unsafe {
       sys::napi_define_properties(
         self.0.env,
         self.0.value,
         properties.len() as _,
         properties
-          .iter_mut()
-          .map(|property| property.as_raw(self.0.env))
-          .collect::<Result<Vec<sys::napi_property_descriptor>>>()?
+          .iter()
+          .map(|property| property.raw())
+          .collect::<Vec<sys::napi_property_descriptor>>()
           .as_ptr(),
       )
     })
-  }
-
-  pub fn is_array(&self) -> Result<bool> {
-    let mut is_array = false;
-    check_status(unsafe { sys::napi_is_array(self.0.env, self.0.value, &mut is_array) })?;
-    Ok(is_array)
-  }
-
-  pub fn is_buffer(&self) -> Result<bool> {
-    let mut is_buffer = false;
-    check_status(unsafe { sys::napi_is_buffer(self.0.env, self.0.value, &mut is_buffer) })?;
-    Ok(is_buffer)
   }
 
   pub fn get_array_length(&self) -> Result<u32> {

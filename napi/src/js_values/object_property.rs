@@ -2,7 +2,7 @@ use std::convert::From;
 use std::ffi::CString;
 use std::ptr;
 
-use crate::{error::check_status, sys, Callback, NapiValue, Result};
+use crate::{error::check_status, sys, Callback, Env, NapiValue, Result};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Property<'env> {
@@ -33,12 +33,17 @@ impl From<PropertyAttributes> for sys::napi_property_attributes {
 }
 
 impl<'env> Property<'env> {
-  pub fn new(name: &'env str) -> Self {
-    Property {
+  pub fn new(env: &'env Env, name: &'env str) -> Result<Self> {
+    let string_value = CString::new(name)?;
+    let mut result = ptr::null_mut();
+    check_status(unsafe {
+      sys::napi_create_string_utf8(env.0, string_value.as_ptr(), name.len() as _, &mut result)
+    })?;
+    Ok(Property {
       name,
       raw_descriptor: sys::napi_property_descriptor {
         utf8name: ptr::null_mut(),
-        name: ptr::null_mut(),
+        name: result,
         method: None,
         getter: None,
         setter: None,
@@ -46,7 +51,7 @@ impl<'env> Property<'env> {
         attributes: sys::napi_property_attributes::napi_default,
         data: ptr::null_mut(),
       },
-    }
+    })
   }
 
   pub fn with_value<T: NapiValue>(mut self, value: T) -> Self {
@@ -73,18 +78,7 @@ impl<'env> Property<'env> {
     self.raw_descriptor.attributes = attributes.into();
   }
 
-  pub(crate) fn as_raw(&mut self, env: sys::napi_env) -> Result<sys::napi_property_descriptor> {
-    let string_value = CString::new(self.name)?;
-    let mut result = ptr::null_mut();
-    check_status(unsafe {
-      sys::napi_create_string_utf8(
-        env,
-        string_value.as_ptr(),
-        self.name.len() as _,
-        &mut result,
-      )
-    })?;
-    self.raw_descriptor.name = result;
-    Ok(self.raw_descriptor)
+  pub(crate) fn raw(&self) -> sys::napi_property_descriptor {
+    self.raw_descriptor
   }
 }
