@@ -1,17 +1,27 @@
 use napi::{CallContext, JsBigint, JsNumber, JsObject, Result};
 use std::convert::TryFrom;
 
-#[js_function(0)]
+#[js_function]
 pub fn test_create_bigint_from_i64(ctx: CallContext) -> Result<JsBigint> {
   ctx.env.create_bigint_from_i64(i64::max_value())
 }
 
-#[js_function(0)]
+#[js_function]
 pub fn test_create_bigint_from_u64(ctx: CallContext) -> Result<JsBigint> {
   ctx.env.create_bigint_from_u64(u64::max_value())
 }
 
-#[js_function(0)]
+#[js_function]
+pub fn test_create_bigint_from_i128(ctx: CallContext) -> Result<JsBigint> {
+  ctx.env.create_bigint_from_i128(i128::max_value())
+}
+
+#[js_function]
+pub fn test_create_bigint_from_u128(ctx: CallContext) -> Result<JsBigint> {
+  ctx.env.create_bigint_from_u128(u128::max_value())
+}
+
+#[js_function]
 pub fn test_create_bigint_from_words(ctx: CallContext) -> Result<JsBigint> {
   ctx
     .env

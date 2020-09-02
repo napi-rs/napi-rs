@@ -16,6 +16,7 @@ pub struct FuturePromise<T, V: NapiValue> {
 unsafe impl<T, V: NapiValue> Send for FuturePromise<T, V> {}
 
 impl<T, V: NapiValue> FuturePromise<T, V> {
+  #[inline]
   pub fn create(
     env: sys::napi_env,
     raw_deferred: sys::napi_deferred,
@@ -41,6 +42,7 @@ impl<T, V: NapiValue> FuturePromise<T, V> {
     })
   }
 
+  #[inline]
   pub(crate) fn start(self) -> Result<TSFNValue> {
     let mut tsfn_value = ptr::null_mut();
     let async_resource_name = self.async_resource_name;

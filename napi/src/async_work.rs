@@ -13,21 +13,21 @@ pub struct AsyncWork<T: Task> {
 }
 
 impl<T: Task> AsyncWork<T> {
+  #[inline]
   pub fn run(env: sys::napi_env, task: T, deferred: sys::napi_deferred) -> Result<()> {
     let mut raw_resource = ptr::null_mut();
     let status = unsafe { sys::napi_create_object(env, &mut raw_resource) };
     check_status(status)?;
     let mut raw_name = ptr::null_mut();
     let s = "napi_rs_async";
-    let status = unsafe {
+    check_status(unsafe {
       sys::napi_create_string_utf8(
         env,
         s.as_ptr() as *const c_char,
         s.len() as u64,
         &mut raw_name,
       )
-    };
-    check_status(status)?;
+    })?;
     let result = AsyncWork {
       inner_task: task,
       deferred,

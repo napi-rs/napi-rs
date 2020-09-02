@@ -41,8 +41,9 @@ use napi4::{test_threadsafe_function, test_tokio_readfile, test_tsfn_error};
 use napi5::is_date::test_object_is_date;
 #[cfg(napi6)]
 use napi6::bigint::{
-  test_create_bigint_from_i64, test_create_bigint_from_u64, test_create_bigint_from_words,
-  test_get_bigint_i64, test_get_bigint_u64, test_get_bigint_words,
+  test_create_bigint_from_i128, test_create_bigint_from_i64, test_create_bigint_from_u128,
+  test_create_bigint_from_u64, test_create_bigint_from_words, test_get_bigint_i64,
+  test_get_bigint_u64, test_get_bigint_words,
 };
 use napi_version::get_napi_version;
 use symbol::{create_named_symbol, create_symbol_from_js_string, create_unnamed_symbol};
@@ -94,6 +95,10 @@ fn init(module: &mut Module) -> Result<()> {
   module.create_named_method("testCreateBigintFromI64", test_create_bigint_from_i64)?;
   #[cfg(napi6)]
   module.create_named_method("testCreateBigintFromU64", test_create_bigint_from_u64)?;
+  #[cfg(napi6)]
+  module.create_named_method("testCreateBigintFromI128", test_create_bigint_from_i128)?;
+  #[cfg(napi6)]
+  module.create_named_method("testCreateBigintFromU128", test_create_bigint_from_u128)?;
   #[cfg(napi6)]
   module.create_named_method("testCreateBigintFromWords", test_create_bigint_from_words)?;
   #[cfg(napi6)]
