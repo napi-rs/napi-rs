@@ -162,7 +162,7 @@ fn roundtrip_object(ctx: CallContext) -> Result<JsUnknown> {
   ctx.env.to_js_value(&de_serialized)
 }
 
-pub fn register_serde_func(m: &mut Module) -> Result<()> {
+pub fn register_js(m: &mut Module) -> Result<()> {
   m.create_named_method("make_num_77", make_num_77)?;
   m.create_named_method("make_num_32", make_num_32)?;
   m.create_named_method("make_str_hello", make_str_hello)?;

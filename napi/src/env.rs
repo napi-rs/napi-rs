@@ -379,12 +379,12 @@ impl Env {
     &self,
     name: &str,
     constructor_cb: Callback,
-    properties: Vec<Property>,
+    properties: &mut [Property],
   ) -> Result<JsFunction> {
     let mut raw_result = ptr::null_mut();
     let raw_properties = properties
-      .into_iter()
-      .map(|prop| prop.into_raw(self))
+      .iter_mut()
+      .map(|prop| prop.as_raw(self.0))
       .collect::<Result<Vec<sys::napi_property_descriptor>>>()?;
 
     check_status(unsafe {

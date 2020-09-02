@@ -49,13 +49,7 @@ pub fn test_get_bigint_words(ctx: CallContext) -> Result<JsObject> {
     .create_bigint_from_words(true, vec![i64::max_value() as u64, i64::max_value() as u64])?;
   let mut js_arr = ctx.env.create_array_with_length(2)?;
   let (_signed, words) = js_bigint.get_words()?;
-  js_arr.set_number_indexed_property(
-    ctx.env.create_int64(0)?,
-    ctx.env.create_bigint_from_u64(words[0])?,
-  )?;
-  js_arr.set_number_indexed_property(
-    ctx.env.create_int64(1)?,
-    ctx.env.create_bigint_from_u64(words[1])?,
-  )?;
+  js_arr.set_element(0, ctx.env.create_bigint_from_u64(words[0])?)?;
+  js_arr.set_element(1, ctx.env.create_bigint_from_u64(words[1])?)?;
   Ok(js_arr)
 }

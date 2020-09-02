@@ -1,18 +1,20 @@
 use std::convert::TryInto;
 
-use napi::{CallContext, JsFunction, JsNumber, JsObject, JsUndefined, Property, Result};
+use napi::{CallContext, JsFunction, JsNumber, JsObject, JsUndefined, Module, Property, Result};
 
 #[js_function(1)]
-pub fn create_test_class(ctx: CallContext) -> Result<JsFunction> {
+fn create_test_class(ctx: CallContext) -> Result<JsFunction> {
   let add_count_method = Property::new("addCount").with_method(add_count);
-  let properties = vec![add_count_method];
-  ctx
-    .env
-    .define_class("TestClass", test_class_constructor, properties)
+  let mut properties = vec![add_count_method];
+  ctx.env.define_class(
+    "TestClass",
+    test_class_constructor,
+    properties.as_mut_slice(),
+  )
 }
 
 #[js_function(1)]
-pub fn test_class_constructor(mut ctx: CallContext<JsObject>) -> Result<JsUndefined> {
+fn test_class_constructor(mut ctx: CallContext<JsObject>) -> Result<JsUndefined> {
   let count = ctx.get::<JsNumber>(0)?;
   ctx
     .this
@@ -21,7 +23,7 @@ pub fn test_class_constructor(mut ctx: CallContext<JsObject>) -> Result<JsUndefi
 }
 
 #[js_function(1)]
-pub fn add_count(mut ctx: CallContext<JsObject>) -> Result<JsUndefined> {
+fn add_count(mut ctx: CallContext<JsObject>) -> Result<JsUndefined> {
   let add: i32 = ctx.get::<JsNumber>(0)?.try_into()?;
   let count: i32 = ctx
     .this
@@ -31,4 +33,9 @@ pub fn add_count(mut ctx: CallContext<JsObject>) -> Result<JsUndefined> {
     .this
     .set_named_property("count", ctx.env.create_int32(count + add)?)?;
   ctx.env.get_undefined()
+}
+
+pub fn register_js(module: &mut Module) -> Result<()> {
+  module.create_named_method("createTestClass", create_test_class)?;
+  Ok(())
 }

@@ -1,17 +1,41 @@
+use std::convert::From;
+use std::ffi::CString;
 use std::ptr;
 
-use crate::{sys, Callback, Env, NapiValue, Result};
+use crate::{error::check_status, sys, Callback, NapiValue, Result};
 
-#[derive(Debug)]
-pub struct Property {
-  name: String,
-  raw_descriptor: sys::napi_property_descriptor,
+#[derive(Debug, Clone, Copy)]
+pub struct Property<'env> {
+  name: &'env str,
+  pub(crate) raw_descriptor: sys::napi_property_descriptor,
 }
 
-impl Property {
-  pub fn new(name: &str) -> Self {
+#[repr(u32)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum PropertyAttributes {
+  Default = sys::napi_property_attributes::napi_default as _,
+  Writable = sys::napi_property_attributes::napi_writable as _,
+  Enumerable = sys::napi_property_attributes::napi_enumerable as _,
+  Configurable = sys::napi_property_attributes::napi_configurable as _,
+  Static = sys::napi_property_attributes::napi_static as _,
+}
+
+impl From<PropertyAttributes> for sys::napi_property_attributes {
+  fn from(value: PropertyAttributes) -> Self {
+    match value {
+      PropertyAttributes::Default => sys::napi_property_attributes::napi_default,
+      PropertyAttributes::Writable => sys::napi_property_attributes::napi_writable,
+      PropertyAttributes::Enumerable => sys::napi_property_attributes::napi_enumerable,
+      PropertyAttributes::Configurable => sys::napi_property_attributes::napi_configurable,
+      PropertyAttributes::Static => sys::napi_property_attributes::napi_static,
+    }
+  }
+}
+
+impl<'env> Property<'env> {
+  pub fn new(name: &'env str) -> Self {
     Property {
-      name: String::from(name),
+      name,
       raw_descriptor: sys::napi_property_descriptor {
         utf8name: ptr::null_mut(),
         name: ptr::null_mut(),
@@ -40,8 +64,27 @@ impl Property {
     self
   }
 
-  pub(crate) fn into_raw(mut self, env: &Env) -> Result<sys::napi_property_descriptor> {
-    self.raw_descriptor.name = env.create_string(&self.name)?.raw_value();
+  pub fn with_setter(mut self, callback: Callback) -> Self {
+    self.raw_descriptor.setter = Some(callback);
+    self
+  }
+
+  pub fn with_property_attributes(mut self, attributes: PropertyAttributes) {
+    self.raw_descriptor.attributes = attributes.into();
+  }
+
+  pub(crate) fn as_raw(&mut self, env: sys::napi_env) -> Result<sys::napi_property_descriptor> {
+    let string_value = CString::new(self.name)?;
+    let mut result = ptr::null_mut();
+    check_status(unsafe {
+      sys::napi_create_string_utf8(
+        env,
+        string_value.as_ptr(),
+        self.name.len() as _,
+        &mut result,
+      )
+    })?;
+    self.raw_descriptor.name = result;
     Ok(self.raw_descriptor)
   }
 }

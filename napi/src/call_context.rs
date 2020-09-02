@@ -1,8 +1,12 @@
+use std::ptr;
+
+use crate::error::check_status;
 use crate::{sys, Either, Env, Error, JsUndefined, JsUnknown, NapiValue, Result, Status};
 
 pub struct CallContext<'env, T: NapiValue = JsUnknown> {
   pub env: &'env Env,
   pub this: T,
+  callback_info: sys::napi_callback_info,
   args: &'env [sys::napi_value],
   arg_len: usize,
   actual_arg_length: usize,
@@ -12,6 +16,7 @@ impl<'env, T: NapiValue> CallContext<'env, T> {
   #[inline]
   pub fn new(
     env: &'env Env,
+    callback_info: sys::napi_callback_info,
     this: sys::napi_value,
     args: &'env [sys::napi_value],
     arg_len: usize,
@@ -19,6 +24,7 @@ impl<'env, T: NapiValue> CallContext<'env, T> {
   ) -> Result<Self> {
     Ok(Self {
       env,
+      callback_info,
       this: T::from_raw(env.0, this)?,
       args,
       arg_len,
@@ -52,5 +58,14 @@ impl<'env, T: NapiValue> CallContext<'env, T> {
         self.env.get_undefined().map(Either::B)
       }
     }
+  }
+
+  pub fn get_new_target<V>(&self) -> Result<V>
+  where
+    V: NapiValue,
+  {
+    let mut value = ptr::null_mut();
+    check_status(unsafe { sys::napi_get_new_target(self.env.0, self.callback_info, &mut value) })?;
+    V::from_raw(self.env.0, value)
   }
 }

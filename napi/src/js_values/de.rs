@@ -122,7 +122,7 @@ impl<'x, 'de, 'env> serde::de::Deserializer<'x> for &'de mut De<'env> {
             ),
           ))
         } else {
-          let key = properties.get_index::<JsString>(0)?;
+          let key = properties.get_element::<JsString>(0)?;
           let value: JsUnknown = js_object.get_property(&key)?;
           visitor.visit_enum(JsEnumAccess::new(key.as_str()?.to_owned(), Some(&value.0)))
         }
@@ -289,7 +289,7 @@ impl<'de, 'env> SeqAccess<'de> for JsArrayAccess<'env> {
     if self.idx >= self.len {
       return Ok(None);
     }
-    let v = self.input.get_index::<JsUnknown>(self.idx)?;
+    let v = self.input.get_element::<JsUnknown>(self.idx)?;
     self.idx += 1;
 
     let mut de = De(&v.0);
@@ -331,7 +331,7 @@ impl<'de, 'env> MapAccess<'de> for JsObjectAccess<'env> {
       return Ok(None);
     }
 
-    let prop_name = self.properties.get_index::<JsUnknown>(self.idx)?;
+    let prop_name = self.properties.get_element::<JsUnknown>(self.idx)?;
 
     let mut de = De(&prop_name.0);
     seed.deserialize(&mut de).map(Some)
@@ -347,7 +347,7 @@ impl<'de, 'env> MapAccess<'de> for JsObjectAccess<'env> {
         format!("Index:{} out of range: {}", self.property_len, self.idx),
       ));
     }
-    let prop_name = self.properties.get_index::<JsString>(self.idx)?;
+    let prop_name = self.properties.get_element::<JsString>(self.idx)?;
     let value: JsUnknown = self.value.get_property(&prop_name)?;
 
     self.idx += 1;

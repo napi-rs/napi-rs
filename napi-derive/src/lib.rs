@@ -112,7 +112,7 @@ pub fn js_function(attr: TokenStream, input: TokenStream) -> TokenStream {
       }
 
       let mut env = Env::from_raw(raw_env);
-      let call_ctx = CallContext::new(&mut env, raw_this, &raw_args, #arg_len_span, argc as usize);
+      let call_ctx = CallContext::new(&mut env, cb_info, raw_this, &raw_args, #arg_len_span, argc as usize);
       let result = call_ctx.and_then(|ctx| {
         match panic::catch_unwind(AssertUnwindSafe(move || #new_fn_name(ctx))) {
           Ok(result) => result,
