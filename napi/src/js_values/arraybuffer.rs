@@ -1,7 +1,7 @@
 use std::convert::TryFrom;
 use std::ptr;
 
-use super::{JsObject, JsUnknown, NapiValue, Value, ValueType};
+use super::{JsNumber, JsObject, JsString, JsUnknown, NapiValue, Value, ValueType};
 use crate::error::check_status;
 use crate::{sys, Error, Result};
 
@@ -24,6 +24,114 @@ impl JsArrayBuffer {
       len: 0,
     }
   }
+
+  #[inline]
+  pub fn into_unknown(self) -> Result<JsUnknown> {
+    JsUnknown::from_raw(self.value.0.env, self.value.0.value)
+  }
+
+  #[inline]
+  pub fn coerce_to_number(self) -> Result<JsNumber> {
+    let mut new_raw_value = ptr::null_mut();
+    check_status(unsafe {
+      sys::napi_coerce_to_number(self.value.0.env, self.value.0.value, &mut new_raw_value)
+    })?;
+    Ok(JsNumber(Value {
+      env: self.value.0.env,
+      value: new_raw_value,
+      value_type: ValueType::Number,
+    }))
+  }
+
+  #[inline]
+  pub fn coerce_to_string(self) -> Result<JsString> {
+    let mut new_raw_value = ptr::null_mut();
+    check_status(unsafe {
+      sys::napi_coerce_to_string(self.value.0.env, self.value.0.value, &mut new_raw_value)
+    })?;
+    Ok(JsString(Value {
+      env: self.value.0.env,
+      value: new_raw_value,
+      value_type: ValueType::String,
+    }))
+  }
+  #[inline]
+  pub fn coerce_to_object(self) -> Result<JsObject> {
+    let mut new_raw_value = ptr::null_mut();
+    check_status(unsafe {
+      sys::napi_coerce_to_object(self.value.0.env, self.value.0.value, &mut new_raw_value)
+    })?;
+    Ok(JsObject(Value {
+      env: self.value.0.env,
+      value: new_raw_value,
+      value_type: ValueType::Object,
+    }))
+  }
+
+  #[inline]
+  #[cfg(napi5)]
+  pub fn is_date(&self) -> Result<bool> {
+    let mut is_date = true;
+    check_status(unsafe { sys::napi_is_date(self.value.0.env, self.value.0.value, &mut is_date) })?;
+    Ok(is_date)
+  }
+
+  #[inline]
+  pub fn is_error(&self) -> Result<bool> {
+    let mut result = false;
+    check_status(unsafe { sys::napi_is_error(self.value.0.env, self.value.0.value, &mut result) })?;
+    Ok(result)
+  }
+
+  #[inline]
+  pub fn is_typedarray(&self) -> Result<bool> {
+    let mut result = false;
+    check_status(unsafe {
+      sys::napi_is_typedarray(self.value.0.env, self.value.0.value, &mut result)
+    })?;
+    Ok(result)
+  }
+
+  #[inline]
+  pub fn is_dataview(&self) -> Result<bool> {
+    let mut result = false;
+    check_status(unsafe {
+      sys::napi_is_dataview(self.value.0.env, self.value.0.value, &mut result)
+    })?;
+    Ok(result)
+  }
+
+  #[inline]
+  pub fn is_array(&self) -> Result<bool> {
+    let mut is_array = false;
+    check_status(unsafe {
+      sys::napi_is_array(self.value.0.env, self.value.0.value, &mut is_array)
+    })?;
+    Ok(is_array)
+  }
+
+  #[inline]
+  pub fn is_buffer(&self) -> Result<bool> {
+    let mut is_buffer = false;
+    check_status(unsafe {
+      sys::napi_is_buffer(self.value.0.env, self.value.0.value, &mut is_buffer)
+    })?;
+    Ok(is_buffer)
+  }
+
+  #[inline]
+  pub fn instanceof<Constructor: NapiValue>(&self, constructor: Constructor) -> Result<bool> {
+    let mut result = false;
+    check_status(unsafe {
+      sys::napi_instanceof(
+        self.value.0.env,
+        self.value.0.value,
+        constructor.raw_value(),
+        &mut result,
+      )
+    })?;
+    Ok(result)
+  }
 }
 
 impl NapiValue for JsArrayBuffer {
@@ -34,8 +142,7 @@ impl NapiValue for JsArrayBuffer {
   fn from_raw(env: sys::napi_env, value: sys::napi_value) -> Result<Self> {
     let mut data = ptr::null_mut();
     let mut len: u64 = 0;
-    let status = unsafe { sys::napi_get_arraybuffer_info(env, value, &mut data, &mut len) };
-    check_status(status)?;
+    check_status(unsafe { sys::napi_get_arraybuffer_info(env, value, &mut data, &mut len) })?;
     Ok(JsArrayBuffer {
       value: JsObject(Value {
         env,

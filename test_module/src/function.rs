@@ -1,4 +1,4 @@
-use napi::{CallContext, JsFunction, JsNull, JsObject, Result};
+use napi::{CallContext, JsFunction, JsNull, JsObject, Module, Result};
 
 #[js_function(1)]
 pub fn call_function(ctx: CallContext) -> Result<JsNull> {
@@ -19,4 +19,10 @@ pub fn call_function_with_this(ctx: CallContext<JsObject>) -> Result<JsNull> {
   js_func.call(Some(js_this), &[])?;
 
   ctx.env.get_null()
+}
+
+pub fn register_js(module: &mut Module) -> Result<()> {
+  module.create_named_method("testCallFunction", call_function)?;
+  module.create_named_method("testCallFunctionWithThis", call_function_with_this)?;
+  Ok(())
 }

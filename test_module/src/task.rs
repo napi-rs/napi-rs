@@ -1,6 +1,6 @@
 use std::convert::TryInto;
 
-use napi::{CallContext, Env, JsNumber, JsObject, Result, Task};
+use napi::{CallContext, Env, JsNumber, JsObject, Module, Result, Task};
 
 struct ComputeFib {
   n: u32,
@@ -34,8 +34,13 @@ fn fibonacci_native(n: u32) -> u32 {
 }
 
 #[js_function(1)]
-pub fn test_spawn_thread(ctx: CallContext) -> Result<JsObject> {
+fn test_spawn_thread(ctx: CallContext) -> Result<JsObject> {
   let n = ctx.get::<JsNumber>(0)?;
   let task = ComputeFib::new(n.try_into()?);
   ctx.env.spawn(task)
+}
+
+pub fn register_js(module: &mut Module) -> Result<()> {
+  module.create_named_method("testSpawnThread", test_spawn_thread)?;
+  Ok(())
 }

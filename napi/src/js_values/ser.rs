@@ -310,8 +310,8 @@ impl ser::SerializeSeq for SeqSerializer {
     T: Serialize,
   {
     let env = Env::from_raw(self.array.0.env);
-    self.array.set_index(
-      self.current_index,
+    self.array.set_element(
+      self.current_index as _,
       JsUnknown(value.serialize(Ser::new(&env))?),
     )?;
     self.current_index = self.current_index + 1;
@@ -334,8 +334,8 @@ impl ser::SerializeTuple for SeqSerializer {
     T: Serialize,
   {
     let env = Env::from_raw(self.array.0.env);
-    self.array.set_index(
-      self.current_index,
+    self.array.set_element(
+      self.current_index as _,
       JsUnknown(value.serialize(Ser::new(&env))?),
     )?;
     self.current_index = self.current_index + 1;
@@ -359,8 +359,8 @@ impl ser::SerializeTupleStruct for SeqSerializer {
     T: Serialize,
   {
     let env = Env::from_raw(self.array.0.env);
-    self.array.set_index(
-      self.current_index,
+    self.array.set_element(
+      self.current_index as _,
       JsUnknown(value.serialize(Ser::new(&env))?),
     )?;
     self.current_index = self.current_index + 1;
@@ -384,8 +384,8 @@ impl ser::SerializeTupleVariant for SeqSerializer {
     T: Serialize,
   {
     let env = Env::from_raw(self.array.0.env);
-    self.array.set_index(
-      self.current_index,
+    self.array.set_element(
+      self.current_index as _,
       JsUnknown(value.serialize(Ser::new(&env))?),
     )?;
     self.current_index = self.current_index + 1;

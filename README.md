@@ -169,7 +169,7 @@ yarn test
 | [napi_get_array_length](https://nodejs.org/api/n-api.html#n_api_napi_get_array_length)               | 1            | v8.0.0               | ✅     |
 | [napi_get_arraybuffer_info](https://nodejs.org/api/n-api.html#n_api_napi_get_arraybuffer_info)       | 1            | v8.0.0               | ✅     |
 | [napi_get_buffer_info](https://nodejs.org/api/n-api.html#n_api_napi_get_buffer_info)                 | 1            | v8.0.0               | ✅     |
-| [napi_get_prototype](https://nodejs.org/api/n-api.html#n_api_napi_get_prototype)                     | 1            | v8.0.0               | ⛔️    |
+| [napi_get_prototype](https://nodejs.org/api/n-api.html#n_api_napi_get_prototype)                     | 1            | v8.0.0               | ✅     |
 | [napi_get_typedarray_info](https://nodejs.org/api/n-api.html#n_api_napi_get_typedarray_info)         | 1            | v8.0.0               | ⛔️    |
 | [napi_get_dataview_info](https://nodejs.org/api/n-api.html#n_api_napi_get_dataview_info)             | 1            | v8.3.0               | ⛔️    |
 | [napi_get_date_value](https://nodejs.org/api/n-api.html#n_api_napi_get_date_value)                   | 5            | v11.11.0             | ⛔️    |

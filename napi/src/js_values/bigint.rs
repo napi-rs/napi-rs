@@ -35,9 +35,9 @@ impl JsBigint {
   #[inline]
   pub fn coerce_to_number(self) -> Result<JsNumber> {
     let mut new_raw_value = ptr::null_mut();
-    let status =
-      unsafe { sys::napi_coerce_to_number(self.raw.env, self.raw.value, &mut new_raw_value) };
-    check_status(status)?;
+    check_status(unsafe {
+      sys::napi_coerce_to_number(self.raw.env, self.raw.value, &mut new_raw_value)
+    })?;
     Ok(JsNumber(Value {
       env: self.raw.env,
       value: new_raw_value,
@@ -48,9 +48,9 @@ impl JsBigint {
   #[inline]
   pub fn coerce_to_string(self) -> Result<JsString> {
     let mut new_raw_value = ptr::null_mut();
-    let status =
-      unsafe { sys::napi_coerce_to_string(self.raw.env, self.raw.value, &mut new_raw_value) };
-    check_status(status)?;
+    check_status(unsafe {
+      sys::napi_coerce_to_string(self.raw.env, self.raw.value, &mut new_raw_value)
+    })?;
     Ok(JsString(Value {
       env: self.raw.env,
       value: new_raw_value,
@@ -60,9 +60,9 @@ impl JsBigint {
   #[inline]
   pub fn coerce_to_object(self) -> Result<JsObject> {
     let mut new_raw_value = ptr::null_mut();
-    let status =
-      unsafe { sys::napi_coerce_to_object(self.raw.env, self.raw.value, &mut new_raw_value) };
-    check_status(status)?;
+    check_status(unsafe {
+      sys::napi_coerce_to_object(self.raw.env, self.raw.value, &mut new_raw_value)
+    })?;
     Ok(JsObject(Value {
       env: self.raw.env,
       value: new_raw_value,
@@ -74,8 +74,7 @@ impl JsBigint {
   #[cfg(napi5)]
   pub fn is_date(&self) -> Result<bool> {
     let mut is_date = true;
-    let status = unsafe { sys::napi_is_date(self.raw.env, self.raw.value, &mut is_date) };
-    check_status(status)?;
+    check_status(unsafe { sys::napi_is_date(self.raw.env, self.raw.value, &mut is_date) })?;
     Ok(is_date)
   }
 
@@ -98,6 +97,20 @@ impl JsBigint {
     let mut result = false;
     check_status(unsafe { sys::napi_is_dataview(self.raw.env, self.raw.value, &mut result) })?;
     Ok(result)
+  }
+
+  #[inline]
+  pub fn is_array(&self) -> Result<bool> {
+    let mut is_array = false;
+    check_status(unsafe { sys::napi_is_array(self.raw.env, self.raw.value, &mut is_array) })?;
+    Ok(is_array)
+  }
+
+  #[inline]
+  pub fn is_buffer(&self) -> Result<bool> {
+    let mut is_buffer = false;
+    check_status(unsafe { sys::napi_is_buffer(self.raw.env, self.raw.value, &mut is_buffer) })?;
+    Ok(is_buffer)
   }
 
   #[inline]
