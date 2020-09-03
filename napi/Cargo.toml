@@ -48,3 +48,4 @@ napi-build = { version = "0.2", path = "../build" }
 
 [package.metadata.docs.rs]
 rustc-args = ["--cfg", "napidocsrs"]
+all-features = true

@@ -1,7 +1,9 @@
 //! High level NodeJS [N-API](https://nodejs.org/api/n-api.html) binding
 //!
 //! **napi-rs** provides minimal overhead to write N-API modules in `Rust`.
+//!
 //! ## Feature flags
+//!
 //! ### libuv
 //! With `libuv` feature, you can execute a rust future in `libuv` in NodeJS, and return a `promise` object.
 //! ```
@@ -53,6 +55,38 @@
 //!
 //! ```
 //! NAPI_RS_TOKIO_CHANNEL_BUFFER_SIZE=1000 node ./app.js
+//! ```
+//!
+//! ### latin1
+//!
+//! Decode latin1 string from JavaScript using [encoding_rs](https://docs.rs/encoding_rs).
+//!
+//! With this feature, you can use `JsString.as_latin1_string` function
+//!
+//! ### serde-json
+//!
+//! Enable Serialize/Deserialize data cross `JavaScript Object` and `Rust struct`.
+//!
+//! ```
+//! #[derive(Serialize, Debug, Deserialize)]
+//! struct AnObject {
+//!  a: u32,
+//!  b: Vec<f64>,
+//!  c: String,
+//! }
+//!
+//! #[js_function(1)]
+//! fn deserialize_from_js(ctx: CallContext) -> Result<JsUndefined> {
+//!   let arg0 = ctx.get::<JsUnknown>(0)?;
+//!   let de_serialized: AnObject = ctx.env.from_js_value(arg0)?;
+//!   ...
+//! }
+//!
+//! #[js_function]
+//! fn serialize(ctx: CallContext) -> Result<JsUnknown> {
+//!   let value = AnyObject { a: 1, b: vec![0.1, 2.22], c: "hello" };
+//!   ctx.env.to_js_value(&value)
+//! }
 //! ```
 //!
 

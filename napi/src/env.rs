@@ -99,7 +99,7 @@ impl Env {
 
   #[cfg(napi6)]
   #[inline]
-  /// https://nodejs.org/api/n-api.html#n_api_napi_create_bigint_int64
+  /// [n_api_napi_create_bigint_int64](https://nodejs.org/api/n-api.html#n_api_napi_create_bigint_int64)
   pub fn create_bigint_from_i64(&self, value: i64) -> Result<JsBigint> {
     let mut raw_value = ptr::null_mut();
     check_status(unsafe { sys::napi_create_bigint_int64(self.0, value, &mut raw_value) })?;
@@ -108,7 +108,6 @@ impl Env {
 
   #[cfg(napi6)]
   #[inline]
-  /// https://nodejs.org/api/n-api.html#n_api_napi_create_bigint_words
   pub fn create_bigint_from_u64(&self, value: u64) -> Result<JsBigint> {
     let mut raw_value = ptr::null_mut();
     check_status(unsafe { sys::napi_create_bigint_uint64(self.0, value, &mut raw_value) })?;
@@ -117,7 +116,6 @@ impl Env {
 
   #[cfg(napi6)]
   #[inline]
-  /// https://nodejs.org/api/n-api.html#n_api_napi_create_bigint_words
   pub fn create_bigint_from_i128(&self, value: i128) -> Result<JsBigint> {
     let mut raw_value = ptr::null_mut();
     let sign_bit = if value > 0 { 0 } else { 1 };
@@ -130,7 +128,6 @@ impl Env {
 
   #[cfg(napi6)]
   #[inline]
-  /// https://nodejs.org/api/n-api.html#n_api_napi_create_bigint_words
   pub fn create_bigint_from_u128(&self, value: u128) -> Result<JsBigint> {
     let mut raw_value = ptr::null_mut();
     let words = &value as *const u128 as *const u64;
@@ -140,7 +137,7 @@ impl Env {
 
   #[cfg(napi6)]
   #[inline]
-  /// https://nodejs.org/api/n-api.html#n_api_napi_create_bigint_words
+  /// [n_api_napi_create_bigint_words](https://nodejs.org/api/n-api.html#n_api_napi_create_bigint_words)
   /// The resulting BigInt will be negative when sign_bit is true.
   pub fn create_bigint_from_words(&self, sign_bit: bool, words: Vec<u64>) -> Result<JsBigint> {
     let mut raw_value = ptr::null_mut();
@@ -633,6 +630,21 @@ impl Env {
     Ok(JsObject::from_raw_unchecked(self.0, raw_promise))
   }
 
+  /// # Serialize `Rust Struct` into `JavaScript Value`
+  /// ```
+  /// #[derive(Serialize, Debug, Deserialize)]
+  /// struct AnObject {
+  ///  a: u32,
+  ///  b: Vec<f64>,
+  ///  c: String,
+  /// }
+  ///
+  /// #[js_function]
+  /// fn serialize(ctx: CallContext) -> Result<JsUnknown> {
+  ///   let value = AnyObject { a: 1, b: vec![0.1, 2.22], c: "hello" };
+  ///   ctx.env.to_js_value(&value)
+  /// }
+  /// ```
   #[cfg(feature = "serde-json")]
   #[inline]
   pub fn to_js_value<T>(&self, node: &T) -> Result<JsUnknown>
@@ -643,6 +655,22 @@ impl Env {
     node.serialize(s).map(JsUnknown)
   }
 
+  /// # Deserialize data from `JsValue`
+  /// ```
+  /// #[derive(Serialize, Debug, Deserialize)]
+  /// struct AnObject {
+  ///  a: u32,
+  ///  b: Vec<f64>,
+  ///  c: String,
+  /// }
+  ///
+  /// #[js_function(1)]
+  /// fn deserialize_from_js(ctx: CallContext) -> Result<JsUndefined> {
+  ///   let arg0 = ctx.get::<JsUnknown>(0)?;
+  ///   let de_serialized: AnObject = ctx.env.from_js_value(arg0)?;
+  ///   ...
+  /// }
+  ///
   #[cfg(feature = "serde-json")]
   #[inline]
   pub fn from_js_value<T, V>(&self, value: V) -> Result<T>
