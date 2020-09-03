@@ -197,6 +197,20 @@ impl Env {
   }
 
   #[inline]
+  pub fn create_string_latin1(&self, chars: &[u8]) -> Result<JsString> {
+    let mut raw_value = ptr::null_mut();
+    check_status(unsafe {
+      sys::napi_create_string_latin1(
+        self.0,
+        chars.as_ptr() as *const _,
+        chars.len() as u64,
+        &mut raw_value,
+      )
+    })?;
+    Ok(JsString::from_raw_unchecked(self.0, raw_value))
+  }
+
+  #[inline]
   pub fn create_symbol_from_js_string(&self, description: JsString) -> Result<JsSymbol> {
     let mut result = ptr::null_mut();
     check_status(unsafe { sys::napi_create_symbol(self.0, description.0.value, &mut result) })?;

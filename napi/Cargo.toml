@@ -13,9 +13,14 @@ edition = "2018"
 libuv = ["futures"]
 tokio_rt = ["futures", "tokio", "once_cell"]
 serde-json = ["serde", "serde_json"]
+latin1 = ["encoding_rs"]
 
 [dependencies]
 napi-sys = { version = "0.4", path = "../sys" }
+
+[dependencies.encoding_rs]
+version = "0.8"
+optional = true
 
 [dependencies.futures]
 version = "0.3"

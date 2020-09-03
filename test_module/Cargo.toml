@@ -9,7 +9,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 futures = "0.3"
-napi = { path = "../napi", features = ["libuv", "tokio_rt", "serde-json"] }
+napi = { path = "../napi", features = ["libuv", "tokio_rt", "serde-json", "latin1"] }
 napi-derive = { path = "../napi-derive" }
 serde = "1"
 serde_bytes = "0.11"
