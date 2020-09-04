@@ -58,7 +58,7 @@ jobs:
         run: yarn add ava@2 --dev --ignore-engines
 
       - name: 'Build TypeScript'
-        run: yarn build
+        run: yarn --ignore-engines build
 
       - name: Check build
         uses: actions-rs/cargo@v1
@@ -75,8 +75,8 @@ jobs:
 
       - name: Unit tests
         run: |
-          yarn --cwd ./test_module build
-          yarn test
+          yarn --cwd ./test_module --ignore-engines build
+          yarn --ignore-engines test
         env:
           RUST_BACKTRACE: 1
 

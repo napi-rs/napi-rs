@@ -22,6 +22,7 @@ extends:
 
 globals:
   BigInt: 'readonly'
+  NodeJS: 'readonly'
 
 rules:
   # 0 = off, 1 = warn, 2 = error

@@ -2,8 +2,8 @@
   "name": "test-module",
   "version": "1.0.0",
   "scripts": {
-    "build": "cargo build && node ../scripts/index.js build ./index",
-    "build-release": "cargo build --release && node ../scripts/index.js build --release ./index",
+    "build": "cargo build && node ../scripts/index.js build",
+    "build-release": "cargo build --release && node ../scripts/index.js build --release",
     "test": "node ./index.js"
   }
 }
