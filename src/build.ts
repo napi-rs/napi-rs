@@ -28,6 +28,9 @@ export class BuildCommand extends Command {
   @Command.String('--config,-c')
   configFileName?: string
 
+  @Command.String('--cargo-name')
+  cargoName?: string
+
   @Command.String({
     required: false,
   })
@@ -36,31 +39,32 @@ export class BuildCommand extends Command {
   @Command.Path('build')
   async execute() {
     const { binaryName } = getNapiConfig(this.configFileName)
-    let tomlContentString: string
-    let tomlContent: any
-    try {
-      debug('Start read toml')
-      tomlContentString = await readFileAsync(
-        join(process.cwd(), 'Cargo.toml'),
-        'utf-8',
-      )
-    } catch {
-      throw new TypeError(`Could not find Cargo.toml in ${process.cwd()}`)
-    }
+    let dylibName = this.cargoName
+    if (!dylibName) {
+      let tomlContentString: string
+      let tomlContent: any
+      try {
+        debug('Start read toml')
+        tomlContentString = await readFileAsync(
+          join(process.cwd(), 'Cargo.toml'),
+          'utf-8',
+        )
+      } catch {
+        throw new TypeError(`Could not find Cargo.toml in ${process.cwd()}`)
+      }
 
-    try {
-      debug('Start parse toml')
-      tomlContent = toml.parse(tomlContentString)
-    } catch {
-      throw new TypeError('Could not parse the Cargo.toml')
-    }
+      try {
+        debug('Start parse toml')
+        tomlContent = toml.parse(tomlContentString)
+      } catch {
+        throw new TypeError('Could not parse the Cargo.toml')
+      }
 
-    let dylibName
-
-    if (tomlContent.package ?? tomlContent.package.name) {
-      dylibName = tomlContent.package.name.replace(/-/g, '_')
-    } else {
-      throw new TypeError('No package.name field in Cargo.toml')
+      if (tomlContent.package ?? tomlContent.package.name) {
+        dylibName = tomlContent.package.name.replace(/-/g, '_')
+      } else {
+        throw new TypeError('No package.name field in Cargo.toml')
+      }
     }
 
     debug(`Dylib name: ${chalk.greenBright(dylibName)}`)
