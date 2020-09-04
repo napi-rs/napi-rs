@@ -1,21 +1,20 @@
-import { readFile, writeFile } from 'fs'
 import os from 'os'
-import { join, parse } from 'path'
-import { promisify } from 'util'
+import { join, parse, sep } from 'path'
 
+import chalk from 'chalk'
 import { Command } from 'clipanion'
 import toml from 'toml'
 
-const readFileAsync = promisify(readFile)
-const writeFileAsync = promisify(writeFile)
+import { getNapiConfig } from './consts'
+import { debugFactory } from './debug'
+import { existsAsync, readFileAsync, writeFileAsync } from './utils'
+
+const debug = debugFactory('build')
 
 export class BuildCommand extends Command {
   static usage = Command.Usage({
     description: 'Copy native module into specified dir',
   })
-
-  @Command.String(`--name`)
-  name!: string
 
   @Command.Boolean(`--platform`)
   appendPlatformToFilename!: boolean
@@ -26,16 +25,21 @@ export class BuildCommand extends Command {
   @Command.Boolean('--musl')
   isMusl = false
 
-  @Command.String()
-  target?: string
+  @Command.String('--config,-c')
+  configFileName?: string
+
+  @Command.String({
+    required: false,
+  })
+  target = '.'
 
   @Command.Path('build')
   async execute() {
+    const { binaryName } = getNapiConfig(this.configFileName)
     let tomlContentString: string
     let tomlContent: any
-    let moduleName: string
-
     try {
+      debug('Start read toml')
       tomlContentString = await readFileAsync(
         join(process.cwd(), 'Cargo.toml'),
         'utf-8',
@@ -45,39 +49,44 @@ export class BuildCommand extends Command {
     }
 
     try {
+      debug('Start parse toml')
       tomlContent = toml.parse(tomlContentString)
     } catch {
       throw new TypeError('Could not parse the Cargo.toml')
     }
 
+    let dylibName
+
     if (tomlContent.package ?? tomlContent.package.name) {
-      moduleName = tomlContent.package.name.replace(/-/g, '_')
+      dylibName = tomlContent.package.name.replace(/-/g, '_')
     } else {
       throw new TypeError('No package.name field in Cargo.toml')
     }
 
+    debug(`Dylib name: ${chalk.greenBright(dylibName)}`)
+
     const platform = os.platform()
     let libExt
-    let dylibName = moduleName
+
+    debug(`Platform: ${chalk.greenBright(platform)}`)
 
     // Platform based massaging for build commands
     switch (platform) {
       case 'darwin':
         libExt = '.dylib'
-        dylibName = `lib${moduleName}`
+        dylibName = `lib${dylibName}`
         break
       case 'win32':
         libExt = '.dll'
         break
       case 'linux':
-        dylibName = `lib${moduleName}`
+        dylibName = `lib${dylibName}`
         libExt = '.so'
         break
       default:
-        console.error(
+        throw new TypeError(
           'Operating system not currently supported or recognized by the build script',
         )
-        process.exit(1)
     }
 
     const targetDir = this.isRelease ? 'release' : 'debug'
@@ -92,30 +101,47 @@ export class BuildCommand extends Command {
         : `.${platform}-musl`
       : ''
 
-    let distModulePath =
-      this.target ??
-      join('target', targetDir, `${moduleName}${platformName}.node`)
-    const parsedDist = parse(distModulePath)
+    debug(
+      `Platform name: ${
+        platformName || chalk.green('[Empty]')
+      }, musl: ${chalk.greenBright(this.isMusl)}`,
+    )
 
-    if (!parsedDist.name || parsedDist.name === '.') {
-      distModulePath = moduleName
-    }
+    let distModulePath = this.target
+      ? join(this.target, `${binaryName}${platformName}.node`)
+      : join('target', targetDir, `${binaryName}${platformName}.node`)
+    const parsedDist = parse(distModulePath)
 
     if (!parsedDist.ext) {
       distModulePath = `${distModulePath}${platformName}.node`
     }
 
-    const pos = __dirname.indexOf('node_modules')
+    const dir = await findUp()
 
-    const dylibContent = await readFileAsync(
-      join(
-        __dirname.substring(0, pos),
-        'target',
-        targetDir,
-        `${dylibName}${libExt}`,
-      ),
-    )
+    if (!dir) {
+      throw new TypeError('No target dir found')
+    }
+
+    const sourcePath = join(dir, 'target', targetDir, `${dylibName}${libExt}`)
+    debug(`Read [${chalk.yellowBright(sourcePath)}] content`)
+
+    const dylibContent = await readFileAsync(sourcePath)
+
+    debug(`Write binary content to [${chalk.yellowBright(distModulePath)}]`)
 
     await writeFileAsync(distModulePath, dylibContent)
   }
+}
+
+async function findUp(dir = process.cwd()): Promise<string | null> {
+  const dist = join(dir, 'target')
+  if (await existsAsync(dist)) {
+    return dir
+  }
+  const dirs = dir.split(sep)
+  if (dirs.length < 2) {
+    return null
+  }
+  dirs.pop()
+  return findUp(dirs.join(sep))
 }

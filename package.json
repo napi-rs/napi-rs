@@ -5,6 +5,9 @@
   "bin": {
     "napi": "scripts/index.js"
   },
+  "engines": {
+    "node": ">= 10.15"
+  },
   "repository": {
     "type": "git",
     "url": "git@github.com:Brooooooklyn/napi-rs.git"
@@ -18,12 +21,12 @@
   ],
   "license": "MIT",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && chmod 777 scripts/index.js",
     "format": "run-p format:md format:json format:yaml format:source format:rs",
     "format:md": "prettier --parser markdown --write './**/*.md'",
     "format:json": "prettier --parser json --write './**/*.json'",
     "format:rs": "cargo fmt",
-    "format:source": "prettier --config ./package.json --write './**/*.js'",
+    "format:source": "prettier --config ./package.json --write './**/*.{js,ts}'",
     "format:yaml": "prettier --parser yaml --write './**/*.{yml,yaml}'",
     "lint": "eslint -c .eslintrc.yml './src/**/*.ts' './test_module/**/*.{ts,js}'",
     "test": "ava"
@@ -33,9 +36,16 @@
   },
   "homepage": "https://github.com/napi-rs/napi-rs#readme",
   "dependencies": {
+    "@octokit/rest": "^18.0.4",
+    "chalk": "^4.1.0",
     "clipanion": "^2.5.0",
+    "debug": "^4.1.1",
+    "fdir": "^4.1.0",
     "inquirer": "^7.3.3",
-    "toml": "^3.0.0"
+    "lodash": "^4.17.20",
+    "putasset": "^5.0.3",
+    "toml": "^3.0.0",
+    "tslib": "^2.0.1"
   },
   "prettier": {
     "printWidth": 80,
@@ -59,7 +69,9 @@
   "devDependencies": {
     "@istanbuljs/nyc-config-typescript": "^1.0.1",
     "@swc-node/register": "^0.4.5",
+    "@types/debug": "^4.1.5",
     "@types/inquirer": "^7.3.1",
+    "@types/lodash": "^4.14.161",
     "@types/node": "^14.6.3",
     "@typescript-eslint/eslint-plugin": "^4.0.1",
     "@typescript-eslint/parser": "^4.0.1",
@@ -78,7 +90,6 @@
     "typescript": "^4.0.2"
   },
   "optionalDependencies": {
-    "@swc-node/core-linux-musl": "^0.6.1",
-    "tslib": "^2.0.1"
+    "@swc-node/core-linux-musl": "^0.6.1"
   }
 }
