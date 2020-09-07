@@ -222,10 +222,10 @@
   resolved "https://registry.npmjs.org/@istanbuljs/schema/-/schema-0.1.2.tgz#26520bf09abe4a5644cd5414e37125a8954241dd"
   integrity sha512-tsAQNx32a8CoFhjhijUIhI4kccIAgmGhy8LZMZgGfmXcpMbPRUqn5LWmgRttILi6yeGmBJd2xsPkFMs0PzgPCw==
 
-"@node-rs/helper@^0.3.1":
-  version "0.3.1"
-  resolved "https://registry.npmjs.org/@node-rs/helper/-/helper-0.3.1.tgz#605d3fafb344a4b7b664236c9219ac3e1d72361b"
-  integrity sha512-3X6SJOcyFRYv1mjrjtSHiziJuzAsqaz2pFD3uuLxu4qJo4TH6H0gaUb1Bdxl/VtiDy2yR+eMyBOQFCvr/G2oLA==
+"@node-rs/helper@^0.4.0":
+  version "0.4.0"
+  resolved "https://registry.npmjs.org/@node-rs/helper/-/helper-0.4.0.tgz#deec7d95aafa90535980a51cbd5336b8bbefe93a"
+  integrity sha512-fSyHEXmlt/FueKqAYiGFCnkohnQBMQwUr6VYPeZEeVBAzQzhioS1WaRe2fSpOuRKIimCQEvxhQ6fwsYxYakfGA==
   dependencies:
     tslib "^2.0.1"
 
@@ -389,43 +389,43 @@
   resolved "https://registry.npmjs.org/@sindresorhus/is/-/is-0.14.0.tgz#9fb3a3cf3132328151f353de4632e01e52102bea"
   integrity sha512-9NET910DNaIPngYnLLPeg+Ogzqsi9uM4mSboU5y6p8S5DzMTVEsJZrawi+BoDNUVBa2DhJqQYUFvMDfgU062LQ==
 
-"@swc-node/core-darwin@^0.6.1":
-  version "0.6.1"
-  resolved "https://registry.npmjs.org/@swc-node/core-darwin/-/core-darwin-0.6.1.tgz#ad20762202eb25523bb6bdde81e6f6cb5e909bd9"
-  integrity sha512-tMWzyFhq4zPKnqq7yhUknFQWIishokFMMaqaptXq8w3wnidOhUCr83GhVggnj8r8LnUtNB8pegEj17Kl/20qjQ==
+"@swc-node/core-darwin@^0.7.2":
+  version "0.7.2"
+  resolved "https://registry.npmjs.org/@swc-node/core-darwin/-/core-darwin-0.7.2.tgz#7475605b8f7fd02dae8973c85ac25bc27caf1c0a"
+  integrity sha512-WyeviZGhP/glgEsH1QHjrwmLyaXTUl8Tzn+LiDdglKLwkVd2fWhhLA0PADHfwEaQmXnxEX+PlEl2Ybysn6ibSg==
 
 "@swc-node/core-linux-musl@^0.6.1":
   version "0.6.1"
   resolved "https://registry.npmjs.org/@swc-node/core-linux-musl/-/core-linux-musl-0.6.1.tgz#45e2e0b695f594df944f892e9f82a2ce77266bf1"
   integrity sha512-VcQ1kdeRw1D8/uMk90wHSMJmT41Tex8iytuGKBl/bVOZ5wPD9wA3Sz5ieMgt4CNiUtVITTlpyTJuQgO526W7Ug==
 
-"@swc-node/core-linux@^0.6.1":
-  version "0.6.1"
-  resolved "https://registry.npmjs.org/@swc-node/core-linux/-/core-linux-0.6.1.tgz#b17ad7a8dcc1e2c17951e871cfa5c535f1e74145"
-  integrity sha512-oeE50kwZ8FgmP+MDFWi5aQpi4A+xUsqBQphTI4Cth7IdNqWbCq+sKU1dMn5FBFpyrp9KxXX9zrWOZYN6dtlwcg==
+"@swc-node/core-linux@^0.7.2":
+  version "0.7.2"
+  resolved "https://registry.npmjs.org/@swc-node/core-linux/-/core-linux-0.7.2.tgz#ac05546b4154269c4884595798dce78fdd839185"
+  integrity sha512-LbOO+D7iZSeEz7jcWOTH/7wHcvnqjhaF5Ma/3Mt68ZxFHZFFYhaq6gwsPVQ5YgI3o3lS+FrKsSP3oWjhWhCceA==
 
-"@swc-node/core-win32@^0.6.1":
-  version "0.6.1"
-  resolved "https://registry.npmjs.org/@swc-node/core-win32/-/core-win32-0.6.1.tgz#7c2c09a1d713166a7d86bc4ac74fdfdcd0901314"
-  integrity sha512-6t8wbrbrY28nLP0rPY6nAuz6wUAZRVwkuEVt6QDrz44eo8wJkPqmZBHhYubDgdiofnxHNOveR9i9sdH2Z7xOSg==
+"@swc-node/core-win32@^0.7.2":
+  version "0.7.2"
+  resolved "https://registry.npmjs.org/@swc-node/core-win32/-/core-win32-0.7.2.tgz#4a3b1f6332888075edf2f43b75b4ad610ce18306"
+  integrity sha512-4ZSMJ5ndFw339wgFvTT/tUYaNiLBrjFxf2hXKAZ4mR1BQ8BCwHPP8wZLZTErA3MSk9Ezg+uekEfY+QEd+FPaDQ==
 
-"@swc-node/core@^0.6.1":
-  version "0.6.1"
-  resolved "https://registry.npmjs.org/@swc-node/core/-/core-0.6.1.tgz#f3cf3b669f094f6b3d6f78ade54224aaa62a3362"
-  integrity sha512-5DXGG7u1lawiZuqv2MDgKgXNpjXu08uxg89bPU8PJATGeP+EQtJDgHwM7uF1hmRM1wsOsIy4o1t10w6NUWKCxQ==
+"@swc-node/core@^0.7.2":
+  version "0.7.2"
+  resolved "https://registry.npmjs.org/@swc-node/core/-/core-0.7.2.tgz#e7054cfa8c6181558d31b75a9738e6db6575d17e"
+  integrity sha512-g9kZl0kRmTTHHbH3K09nXjx6CaowOzcNfNKdEjLbxKUewNv196EAyJxZwXisOdB5Gx+y1g7sqcBKNG/OPu1hlw==
   dependencies:
-    "@node-rs/helper" "^0.3.1"
+    "@node-rs/helper" "^0.4.0"
   optionalDependencies:
-    "@swc-node/core-darwin" "^0.6.1"
-    "@swc-node/core-linux" "^0.6.1"
-    "@swc-node/core-win32" "^0.6.1"
+    "@swc-node/core-darwin" "^0.7.2"
+    "@swc-node/core-linux" "^0.7.2"
+    "@swc-node/core-win32" "^0.7.2"
 
-"@swc-node/register@^0.4.5":
-  version "0.4.5"
-  resolved "https://registry.npmjs.org/@swc-node/register/-/register-0.4.5.tgz#3e80f7f901cc45d17b88a6ee626016cafd30fbe5"
-  integrity sha512-7wY7i19u0ISfR4vmuzPh8XDwum31kiCvQEzkZ55EjzeUVBXhNm280as81jqsGiVW3dN2mlTHfQNLB9WwOLkEnQ==
+"@swc-node/register@^0.4.8":
+  version "0.4.8"
+  resolved "https://registry.npmjs.org/@swc-node/register/-/register-0.4.8.tgz#bc9fe1b5a27af93083e4e59934154ae665bf5a00"
+  integrity sha512-tMQkL2Wb2n9VaulILIZsT2z4cEdW07hho2u2jmr5i/E0N6KFRDYNowMkSnNsQyQnrxB7k4Vo/B/V6VOrLRvjNA==
   dependencies:
-    "@swc-node/core" "^0.6.1"
+    "@swc-node/core" "^0.7.2"
     "@swc-node/sourcemap-support" "^0.1.8"
     debug "^4.1.1"
     pirates "^4.0.1"
