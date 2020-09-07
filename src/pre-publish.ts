@@ -85,14 +85,21 @@ export class PrePublishCommand extends Command {
       )
       if (!this.isDryRun) {
         const putasset = require('putasset')
-        const downloadUrl = await putasset(process.env.GITHUB_TOKEN, {
-          owner,
-          repo,
-          tag: pkgInfo.tag,
-          filename: dstPath,
-        })
-        console.info(`${chalk.green(dstPath)} upload success`)
-        console.info(`Download url: ${chalk.blueBright(downloadUrl)}`)
+        try {
+          const downloadUrl = await putasset(process.env.GITHUB_TOKEN, {
+            owner,
+            repo,
+            tag: pkgInfo.tag,
+            filename: dstPath,
+          })
+          console.info(`${chalk.green(dstPath)} upload success`)
+          console.info(`Download url: ${chalk.blueBright(downloadUrl)}`)
+        } catch (e) {
+          debug(
+            `Param: ${{ owner, repo, tag: pkgInfo.tag, filename: dstPath }}`,
+          )
+          console.error(e)
+        }
       }
     }
   }
@@ -101,6 +108,8 @@ export class PrePublishCommand extends Command {
     const headCommit = (await spawn('git log -1 --pretty=%B'))
       .toString('utf8')
       .trim()
+
+    debug(`Github repository: ${process.env.GITHUB_REPOSITORY}`)
     const [owner, repo] = process.env.GITHUB_REPOSITORY!.split('/')
     const octokit = new Octokit({
       auth: process.env.GITHUB_TOKEN,
@@ -129,11 +138,16 @@ export class PrePublishCommand extends Command {
       }
     }
     if (!this.isDryRun) {
-      await octokit.repos.createRelease({
-        owner,
-        repo,
-        tag_name: pkgInfo.tag,
-      })
+      try {
+        await octokit.repos.createRelease({
+          owner,
+          repo,
+          tag_name: pkgInfo.tag,
+        })
+      } catch (e) {
+        debug(`Params: ${{ owner, repo, tag_name: pkgInfo.tag }}`)
+        console.error(e)
+      }
     }
     return { owner, repo, pkgInfo }
   }
