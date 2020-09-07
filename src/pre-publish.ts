@@ -123,7 +123,7 @@ export class PrePublishCommand extends Command {
       }
     } else {
       pkgInfo = {
-        tag: `v${headCommit}`,
+        tag: version,
         version,
         name: packageName,
       }
