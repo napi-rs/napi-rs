@@ -36,6 +36,10 @@ One nice feature is that this crate allows you to build add-ons purely with the 
 
 ## Taste
 
+> You can start from [package-template](https://github.com/napi-rs/package-template) to play with `napi-rs`
+
+### Define JavaScript functions
+
 ```rust
 #[js_function(1)] // ------> arguments length, omit for zero
 fn fibonacci(ctx: CallContext) -> Result<JsNumber> {
@@ -52,6 +56,18 @@ fn fibonacci_native(n: i64) -> i64 {
 }
 ```
 
+### Register module
+
+```rust
+/// test_module is Module name
+register_module!(test_module, init);
+
+/// Module is `module` object in NodeJS
+fn init(module: &mut Module) -> Result<()> {
+  module.create_named_method("fibonacci", fibonacci)?;
+}
+```
+
 ## Building
 
 This repository is a Cargo crate. Any napi-based add-on should contain `Cargo.toml` to make it a Cargo crate.
@@ -63,8 +79,8 @@ In your `Cargo.toml` you need to set the `crate-type` to `"cdylib"` so that carg
 crate-type = ["cdylib"]
 
 [dependencies]
-napi = "0.4"
-napi-derive = "0.4"
+napi = "0.5"
+napi-derive = "0.5"
 
 [build-dependencies]
 napi-build = "0.2"
@@ -94,8 +110,8 @@ Run `cargo build` to produce the `Dynamic lib` file. And install the `napi-rs` t
     "napi-rs": "latest"
   },
   "scripts": {
-    "build": "cargo build && napi",
-    "build-release": "cargo build --release && napi --release"
+    "build": "cargo build && napi build",
+    "build-release": "cargo build --release && napi build --release"
   }
 }
 ```
@@ -115,9 +131,8 @@ The `module_name` would be your `package` name in your `Cargo.toml`.
 You can also copy `Dynamic lib` file to an appointed location:
 
 ```bash
-napi [--release] .
-napi [--release] ./mylib
-napi [--release] ./mylib.node
+napi build [--release] .
+napi build [--release] ./mylib
 ```
 
 ## Testing
