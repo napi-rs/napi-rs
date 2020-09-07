@@ -1,6 +1,6 @@
 [package]
 name = "napi-derive"
-version = "0.5.0"
+version = "0.5.1"
 authors = ["LongYinan <lynweklm@gmail.com>"]
 edition = "2018"
 description = "N-API procedural macros"
