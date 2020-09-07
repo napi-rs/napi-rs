@@ -3,7 +3,7 @@ use std::ops::Deref;
 use std::ptr;
 use std::slice;
 
-use super::{JsNumber, JsObject, JsString, JsUnknown, NapiValue, Value, ValueType};
+use super::{JsNumber, JsObject, JsString, JsUnknown, NapiValue, Status, Value, ValueType};
 use crate::error::check_status;
 use crate::{sys, Error, Result};
 
@@ -156,6 +156,24 @@ impl NapiValue for JsBuffer {
       }),
       data: unsafe { slice::from_raw_parts_mut(data as *mut _, len as usize) },
     })
+  }
+
+  fn from_raw_without_typecheck(env: sys::napi_env, value: sys::napi_value) -> Self {
+    let mut data = ptr::null_mut();
+    let mut len: u64 = 0;
+    let status = unsafe { sys::napi_get_buffer_info(env, value, &mut data, &mut len) };
+    debug_assert!(
+      Status::from(status) == Status::Ok,
+      "napi_get_buffer_info failed"
+    );
+    JsBuffer {
+      value: JsObject(Value {
+        env,
+        value,
+        value_type: ValueType::Object,
+      }),
+      data: unsafe { slice::from_raw_parts_mut(data as *mut _, len as usize) },
+    }
   }
 }
 

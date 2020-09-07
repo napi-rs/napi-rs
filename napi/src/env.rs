@@ -34,12 +34,10 @@ pub type Callback = extern "C" fn(sys::napi_env, sys::napi_callback_info) -> sys
 pub struct Env(pub(crate) sys::napi_env);
 
 impl Env {
-  #[inline]
   pub fn from_raw(env: sys::napi_env) -> Self {
     Env(env)
   }
 
-  #[inline]
   pub fn get_undefined(&self) -> Result<JsUndefined> {
     let mut raw_value = ptr::null_mut();
     let status = unsafe { sys::napi_get_undefined(self.0, &mut raw_value) };
@@ -47,23 +45,18 @@ impl Env {
     Ok(JsUndefined::from_raw_unchecked(self.0, raw_value))
   }
 
-  #[inline]
   pub fn get_null(&self) -> Result<JsNull> {
     let mut raw_value = ptr::null_mut();
-    let status = unsafe { sys::napi_get_null(self.0, &mut raw_value) };
-    check_status(status)?;
+    check_status(unsafe { sys::napi_get_null(self.0, &mut raw_value) })?;
     Ok(JsNull::from_raw_unchecked(self.0, raw_value))
   }
 
-  #[inline]
   pub fn get_boolean(&self, value: bool) -> Result<JsBoolean> {
     let mut raw_value = ptr::null_mut();
-    let status = unsafe { sys::napi_get_boolean(self.0, value, &mut raw_value) };
-    check_status(status)?;
+    check_status(unsafe { sys::napi_get_boolean(self.0, value, &mut raw_value) })?;
     Ok(JsBoolean::from_raw_unchecked(self.0, raw_value))
   }
 
-  #[inline]
   pub fn create_int32(&self, int: i32) -> Result<JsNumber> {
     let mut raw_value = ptr::null_mut();
     check_status(unsafe {
@@ -72,7 +65,6 @@ impl Env {
     Ok(JsNumber::from_raw_unchecked(self.0, raw_value))
   }
 
-  #[inline]
   pub fn create_int64(&self, int: i64) -> Result<JsNumber> {
     let mut raw_value = ptr::null_mut();
     check_status(unsafe {
@@ -81,14 +73,12 @@ impl Env {
     Ok(JsNumber::from_raw_unchecked(self.0, raw_value))
   }
 
-  #[inline]
   pub fn create_uint32(&self, number: u32) -> Result<JsNumber> {
     let mut raw_value = ptr::null_mut();
     check_status(unsafe { sys::napi_create_uint32(self.0, number, &mut raw_value) })?;
     Ok(JsNumber::from_raw_unchecked(self.0, raw_value))
   }
 
-  #[inline]
   pub fn create_double(&self, double: f64) -> Result<JsNumber> {
     let mut raw_value = ptr::null_mut();
     check_status(unsafe {
@@ -98,7 +88,6 @@ impl Env {
   }
 
   #[cfg(napi6)]
-  #[inline]
   /// [n_api_napi_create_bigint_int64](https://nodejs.org/api/n-api.html#n_api_napi_create_bigint_int64)
   pub fn create_bigint_from_i64(&self, value: i64) -> Result<JsBigint> {
     let mut raw_value = ptr::null_mut();
@@ -107,7 +96,6 @@ impl Env {
   }
 
   #[cfg(napi6)]
-  #[inline]
   pub fn create_bigint_from_u64(&self, value: u64) -> Result<JsBigint> {
     let mut raw_value = ptr::null_mut();
     check_status(unsafe { sys::napi_create_bigint_uint64(self.0, value, &mut raw_value) })?;
@@ -115,7 +103,6 @@ impl Env {
   }
 
   #[cfg(napi6)]
-  #[inline]
   pub fn create_bigint_from_i128(&self, value: i128) -> Result<JsBigint> {
     let mut raw_value = ptr::null_mut();
     let sign_bit = if value > 0 { 0 } else { 1 };
@@ -127,7 +114,6 @@ impl Env {
   }
 
   #[cfg(napi6)]
-  #[inline]
   pub fn create_bigint_from_u128(&self, value: u128) -> Result<JsBigint> {
     let mut raw_value = ptr::null_mut();
     let words = &value as *const u128 as *const u64;
@@ -136,7 +122,6 @@ impl Env {
   }
 
   #[cfg(napi6)]
-  #[inline]
   /// [n_api_napi_create_bigint_words](https://nodejs.org/api/n-api.html#n_api_napi_create_bigint_words)
   /// The resulting BigInt will be negative when sign_bit is true.
   pub fn create_bigint_from_words(&self, sign_bit: bool, words: Vec<u64>) -> Result<JsBigint> {
@@ -157,34 +142,28 @@ impl Env {
     Ok(JsBigint::from_raw_unchecked(self.0, raw_value, len as _))
   }
 
-  #[inline]
   pub fn create_string(&self, s: &str) -> Result<JsString> {
     self.create_string_from_chars(s.as_ptr() as *const _, s.len() as u64)
   }
 
-  #[inline]
   pub fn create_string_from_std(&self, s: String) -> Result<JsString> {
     self.create_string_from_chars(s.as_ptr() as *const _, s.len() as u64)
   }
 
-  #[inline]
   pub fn create_string_from_vec_u8(&self, bytes: Vec<u8>) -> Result<JsString> {
     self.create_string_from_chars(bytes.as_ptr() as *const _, bytes.len() as u64)
   }
 
-  #[inline]
   pub fn create_string_from_vec_i8(&self, bytes: Vec<i8>) -> Result<JsString> {
     self.create_string_from_chars(bytes.as_ptr(), bytes.len() as u64)
   }
 
-  #[inline]
   fn create_string_from_chars(&self, data_ptr: *const c_char, len: u64) -> Result<JsString> {
     let mut raw_value = ptr::null_mut();
     check_status(unsafe { sys::napi_create_string_utf8(self.0, data_ptr, len, &mut raw_value) })?;
     Ok(JsString::from_raw_unchecked(self.0, raw_value))
   }
 
-  #[inline]
   pub fn create_string_utf16(&self, chars: &[u16]) -> Result<JsString> {
     let mut raw_value = ptr::null_mut();
     check_status(unsafe {
@@ -193,7 +172,6 @@ impl Env {
     Ok(JsString::from_raw_unchecked(self.0, raw_value))
   }
 
-  #[inline]
   pub fn create_string_latin1(&self, chars: &[u8]) -> Result<JsString> {
     let mut raw_value = ptr::null_mut();
     check_status(unsafe {
@@ -207,14 +185,12 @@ impl Env {
     Ok(JsString::from_raw_unchecked(self.0, raw_value))
   }
 
-  #[inline]
   pub fn create_symbol_from_js_string(&self, description: JsString) -> Result<JsSymbol> {
     let mut result = ptr::null_mut();
     check_status(unsafe { sys::napi_create_symbol(self.0, description.0.value, &mut result) })?;
     Ok(JsSymbol::from_raw_unchecked(self.0, result))
   }
 
-  #[inline]
   pub fn create_symbol(&self, description: Option<&str>) -> Result<JsSymbol> {
     let mut result = ptr::null_mut();
     check_status(unsafe {
@@ -230,14 +206,12 @@ impl Env {
     Ok(JsSymbol::from_raw_unchecked(self.0, result))
   }
 
-  #[inline]
   pub fn create_object(&self) -> Result<JsObject> {
     let mut raw_value = ptr::null_mut();
     check_status(unsafe { sys::napi_create_object(self.0, &mut raw_value) })?;
     Ok(JsObject::from_raw_unchecked(self.0, raw_value))
   }
 
-  #[inline]
   pub fn create_array_with_length(&self, length: usize) -> Result<JsObject> {
     let mut raw_value = ptr::null_mut();
     check_status(unsafe {
@@ -246,7 +220,6 @@ impl Env {
     Ok(JsObject::from_raw_unchecked(self.0, raw_value))
   }
 
-  #[inline]
   pub fn create_buffer(&self, length: u64) -> Result<JsBuffer> {
     let mut raw_value = ptr::null_mut();
     let mut data = Vec::with_capacity(length as usize);
@@ -264,7 +237,6 @@ impl Env {
     ))
   }
 
-  #[inline]
   pub fn create_buffer_with_data(&self, mut data: Vec<u8>) -> Result<JsBuffer> {
     let length = data.len() as u64;
     let mut raw_value = ptr::null_mut();
@@ -290,7 +262,6 @@ impl Env {
     ))
   }
 
-  #[inline]
   pub fn create_arraybuffer(&self, length: u64) -> Result<JsArrayBuffer> {
     let mut raw_value = ptr::null_mut();
     let mut data = Vec::with_capacity(length as usize);
@@ -305,7 +276,6 @@ impl Env {
     Ok(array_buffer)
   }
 
-  #[inline]
   pub fn create_arraybuffer_with_data(&self, data: Vec<u8>) -> Result<JsArrayBuffer> {
     let length = data.len() as u64;
     let mut raw_value = ptr::null_mut();
@@ -329,7 +299,6 @@ impl Env {
     Ok(array_buffer)
   }
 
-  #[inline]
   pub fn create_function(&self, name: &str, callback: Callback) -> Result<JsFunction> {
     let mut raw_result = ptr::null_mut();
     check_status(unsafe {
@@ -346,14 +315,12 @@ impl Env {
     Ok(JsFunction::from_raw_unchecked(self.0, raw_result))
   }
 
-  #[inline]
   pub fn throw(&self, error: Error) -> Result<()> {
     let err_value = self.create_error(error)?.0.value;
     check_status(unsafe { sys::napi_throw(self.0, err_value) })?;
     Ok(())
   }
 
-  #[inline]
   pub fn throw_error(&self, msg: &str) -> Result<()> {
     check_status(unsafe {
       sys::napi_throw_error(
@@ -364,7 +331,6 @@ impl Env {
     })
   }
 
-  #[inline]
   pub fn create_reference<T: NapiValue>(&self, value: T) -> Result<Ref<T>> {
     let mut raw_ref = ptr::null_mut();
     let initial_ref_count = 1;
@@ -375,7 +341,6 @@ impl Env {
     Ok(Ref::new(self.0, raw_ref))
   }
 
-  #[inline]
   pub fn get_reference_value<T: NapiValue>(&self, reference: &Ref<T>) -> Result<T> {
     let mut raw_value = ptr::null_mut();
     check_status(unsafe {
@@ -385,7 +350,6 @@ impl Env {
     T::from_raw(self.0, raw_value)
   }
 
-  #[inline]
   pub fn define_class(
     &self,
     name: &str,
@@ -414,7 +378,6 @@ impl Env {
     Ok(JsFunction::from_raw_unchecked(self.0, raw_result))
   }
 
-  #[inline]
   pub fn wrap<T: 'static>(&self, js_object: &mut JsObject, native_object: T) -> Result<()> {
     check_status(unsafe {
       sys::napi_wrap(
@@ -428,7 +391,6 @@ impl Env {
     })
   }
 
-  #[inline]
   pub fn unwrap<T: 'static>(&self, js_object: &JsObject) -> Result<&mut T> {
     unsafe {
       let mut unknown_tagged_object: *mut c_void = ptr::null_mut();
@@ -454,7 +416,6 @@ impl Env {
     }
   }
 
-  #[inline]
   pub fn drop_wrapped<T: 'static>(&self, js_object: JsObject) -> Result<()> {
     unsafe {
       let mut unknown_tagged_object: *mut c_void = ptr::null_mut();
@@ -479,7 +440,6 @@ impl Env {
     }
   }
 
-  #[inline]
   pub fn create_external<T: 'static>(&self, native_object: T) -> Result<JsExternal> {
     let mut object_value = ptr::null_mut();
     check_status(unsafe {
@@ -494,7 +454,6 @@ impl Env {
     Ok(JsExternal::from_raw_unchecked(self.0, object_value))
   }
 
-  #[inline]
   pub fn get_value_external<T: 'static>(&self, js_external: &JsExternal) -> Result<&mut T> {
     unsafe {
       let mut unknown_tagged_object = ptr::null_mut();
@@ -521,7 +480,6 @@ impl Env {
     }
   }
 
-  #[inline]
   pub fn create_error(&self, e: Error) -> Result<JsObject> {
     let reason = e.reason;
     let reason_string = self.create_string(reason.as_str())?;
@@ -532,7 +490,6 @@ impl Env {
     Ok(JsObject::from_raw_unchecked(self.0, result))
   }
 
-  #[inline]
   pub fn spawn<T: 'static + Task>(&self, task: T) -> Result<JsObject> {
     let mut raw_promise = ptr::null_mut();
     let mut raw_deferred = ptr::null_mut();
@@ -542,14 +499,12 @@ impl Env {
     Ok(JsObject::from_raw_unchecked(self.0, raw_promise))
   }
 
-  #[inline]
   pub fn get_global(&self) -> Result<JsObject> {
     let mut raw_global = ptr::null_mut();
     check_status(unsafe { sys::napi_get_global(self.0, &mut raw_global) })?;
     Ok(JsObject::from_raw_unchecked(self.0, raw_global))
   }
 
-  #[inline]
   pub fn get_napi_version(&self) -> Result<u32> {
     let global = self.get_global()?;
     let process: JsObject = global.get_named_property("process")?;
@@ -562,7 +517,6 @@ impl Env {
   }
 
   #[cfg(napi2)]
-  #[inline]
   pub fn get_uv_event_loop(&self) -> Result<*mut sys::uv_loop_s> {
     let mut uv_loop: *mut sys::uv_loop_s = ptr::null_mut();
     check_status(unsafe { sys::napi_get_uv_event_loop(self.0, &mut uv_loop) })?;
@@ -570,7 +524,6 @@ impl Env {
   }
 
   #[cfg(all(feature = "libuv", napi4))]
-  #[inline]
   pub fn execute<
     T: 'static + Send,
     V: 'static + NapiValue,
@@ -595,7 +548,6 @@ impl Env {
   }
 
   #[cfg(all(feature = "tokio_rt", napi4))]
-  #[inline]
   pub fn execute_tokio_future<
     T: 'static + Send,
     V: 'static + NapiValue,
@@ -646,7 +598,6 @@ impl Env {
   /// }
   /// ```
   #[cfg(feature = "serde-json")]
-  #[inline]
   pub fn to_js_value<T>(&self, node: &T) -> Result<JsUnknown>
   where
     T: Serialize,
@@ -672,7 +623,6 @@ impl Env {
   /// }
   ///
   #[cfg(feature = "serde-json")]
-  #[inline]
   pub fn from_js_value<T, V>(&self, value: V) -> Result<T>
   where
     T: DeserializeOwned + ?Sized,
@@ -687,7 +637,6 @@ impl Env {
     T::deserialize(&mut de)
   }
 
-  #[inline]
   pub fn strict_equals<A: NapiValue, B: NapiValue>(&self, a: A, b: B) -> Result<bool> {
     let mut result = false;
     check_status(unsafe {
@@ -696,7 +645,6 @@ impl Env {
     Ok(result)
   }
 
-  #[inline]
   pub fn get_node_version(&self) -> Result<NodeVersion> {
     let mut result = ptr::null();
     check_status(unsafe { sys::napi_get_node_version(self.0, &mut result) })?;

@@ -108,42 +108,33 @@ pub fn js_function(attr: TokenStream, input: TokenStream) -> TokenStream {
           &mut raw_this,
           ptr::null_mut(),
         );
-        has_error = has_error && (Status::from(status) == Status::Ok);
+        debug_assert!(Status::from(status) == Status::Ok, "napi_get_cb_info failed");
       }
 
       let mut env = Env::from_raw(raw_env);
-      let call_ctx = CallContext::new(&mut env, cb_info, raw_this, &raw_args, #arg_len_span, argc as usize);
-      let result = call_ctx.and_then(|ctx| {
-        match panic::catch_unwind(AssertUnwindSafe(move || #new_fn_name(ctx))) {
-          Ok(result) => result,
+      match CallContext::new(&mut env, cb_info, raw_this, &raw_args, #arg_len_span, argc as usize)
+        .and_then(|ctx| panic::catch_unwind(AssertUnwindSafe(move || #new_fn_name(ctx))).map_err(|e| {
+          let message = {
+            if let Some(string) = e.downcast_ref::<String>() {
+              string.clone()
+            } else if let Some(string) = e.downcast_ref::<&str>() {
+              string.to_string()
+            } else {
+              format!("panic from Rust code: {:?}", e)
+            }
+          };
+          Error::from_reason(message)
+        }).and_then(|v| v))
+        {
+          Ok(v) => v.raw_value(),
           Err(e) => {
-            let message = {
-              if let Some(string) = e.downcast_ref::<String>() {
-                string.clone()
-              } else if let Some(string) = e.downcast_ref::<&str>() {
-                string.to_string()
-              } else {
-                format!("panic from Rust code: {:?}", e)
-              }
-            };
-            Err(Error { status: Status::GenericFailure, reason: message })
+            let message = format!("{}", e);
+            unsafe {
+              napi::sys::napi_throw_error(raw_env, ptr::null(), CString::from_vec_unchecked(message.into()).as_ptr() as *const c_char);
+            }
+            ptr::null_mut()
           }
         }
-      });
-      has_error = has_error && result.is_err();
-
-      match result {
-        Ok(result) => result.raw_value(),
-        Err(e) => {
-          let message = format!("{}", e);
-          unsafe {
-            napi::sys::napi_throw_error(raw_env, ptr::null(), CString::from_vec_unchecked(message.into()).as_ptr() as *const c_char);
-          }
-          let mut undefined = ptr::null_mut();
-          unsafe { napi::sys::napi_get_undefined(raw_env, &mut undefined) };
-          undefined
-        }
-      }
     }
   };
   // Hand the output tokens back to the compiler
