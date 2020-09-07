@@ -22,6 +22,10 @@ impl<A: NapiValue, B: NapiValue> NapiValue for Either<A, B> {
       .or_else(|_| B::from_raw(env, value).map(Self::B))
   }
 
+  fn from_raw_without_typecheck(env: sys::napi_env, value: sys::napi_value) -> Either<A, B> {
+    Self::from_raw(env, value).unwrap()
+  }
+
   fn raw_value(&self) -> sys::napi_value {
     match self {
       Either::A(v) => v.raw_value(),

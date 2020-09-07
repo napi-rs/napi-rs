@@ -70,9 +70,9 @@
 //! ```
 //! #[derive(Serialize, Debug, Deserialize)]
 //! struct AnObject {
-//!  a: u32,
-//!  b: Vec<f64>,
-//!  c: String,
+//!   a: u32,
+//!   b: Vec<f64>,
+//!   c: String,
 //! }
 //!
 //! #[js_function(1)]

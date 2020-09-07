@@ -1,7 +1,7 @@
 use std::convert::TryFrom;
 use std::ptr;
 
-use super::{JsNumber, JsObject, JsString, JsUnknown, NapiValue, Value, ValueType};
+use super::{JsNumber, JsObject, JsString, JsUnknown, NapiValue, Status, Value, ValueType};
 use crate::error::check_status;
 use crate::{sys, Error, Result};
 
@@ -152,6 +152,25 @@ impl NapiValue for JsArrayBuffer {
       data: data as *const u8,
       len,
     })
+  }
+
+  fn from_raw_without_typecheck(env: sys::napi_env, value: sys::napi_value) -> Self {
+    let mut data = ptr::null_mut();
+    let mut len: u64 = 0;
+    let status = unsafe { sys::napi_get_arraybuffer_info(env, value, &mut data, &mut len) };
+    debug_assert!(
+      Status::from(status) == Status::Ok,
+      "napi_get_arraybuffer_info failed"
+    );
+    JsArrayBuffer {
+      value: JsObject(Value {
+        env,
+        value,
+        value_type: ValueType::Object,
+      }),
+      data: data as *const u8,
+      len,
+    }
   }
 }
 

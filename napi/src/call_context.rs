@@ -13,7 +13,6 @@ pub struct CallContext<'env, T: NapiValue = JsUnknown> {
 }
 
 impl<'env, T: NapiValue> CallContext<'env, T> {
-  #[inline]
   pub fn new(
     env: &'env Env,
     callback_info: sys::napi_callback_info,
@@ -32,7 +31,6 @@ impl<'env, T: NapiValue> CallContext<'env, T> {
     })
   }
 
-  #[inline]
   pub fn get<ArgType: NapiValue>(&self, index: usize) -> Result<ArgType> {
     if index + 1 > self.arg_len {
       Err(Error {
@@ -40,11 +38,13 @@ impl<'env, T: NapiValue> CallContext<'env, T> {
         reason: "Arguments index out of range".to_owned(),
       })
     } else {
-      ArgType::from_raw(self.env.0, self.args[index])
+      Ok(ArgType::from_raw_without_typecheck(
+        self.env.0,
+        self.args[index],
+      ))
     }
   }
 
-  #[inline]
   pub fn try_get<ArgType: NapiValue>(&self, index: usize) -> Result<Either<ArgType, JsUndefined>> {
     if index + 1 > self.arg_len {
       Err(Error {

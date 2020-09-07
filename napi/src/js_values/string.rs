@@ -15,7 +15,6 @@ use crate::{sys, Error, Result, Status};
 pub struct JsString(pub(crate) Value);
 
 impl JsString {
-  #[inline]
   pub fn utf8_len(&self) -> Result<usize> {
     let mut length = 0;
     check_status(unsafe {
@@ -24,7 +23,6 @@ impl JsString {
     Ok(length as usize)
   }
 
-  #[inline]
   pub fn latin1_len(&self) -> Result<usize> {
     let mut length = 0;
     check_status(unsafe {
@@ -35,7 +33,6 @@ impl JsString {
 }
 
 impl JsString {
-  #[inline]
   pub fn get_utf8(&self) -> Result<&[u8]> {
     let mut written_char_count: u64 = 0;
     let len = self.utf8_len()? + 1;
@@ -57,7 +54,6 @@ impl JsString {
     }
   }
 
-  #[inline]
   pub fn get_latin1(&self) -> Result<(&[u8], usize)> {
     let mut written_char_count: u64 = 0;
     let len = self.latin1_len()? + 1;

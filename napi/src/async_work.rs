@@ -13,7 +13,6 @@ pub struct AsyncWork<T: Task> {
 }
 
 impl<T: Task> AsyncWork<T> {
-  #[inline]
   pub fn run(env: sys::napi_env, task: T, deferred: sys::napi_deferred) -> Result<()> {
     let mut raw_resource = ptr::null_mut();
     check_status(unsafe { sys::napi_create_object(env, &mut raw_resource) })?;

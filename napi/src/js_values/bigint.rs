@@ -153,6 +153,31 @@ impl NapiValue for JsBigint {
       word_count,
     })
   }
+
+  fn from_raw_without_typecheck(env: sys::napi_env, value: sys::napi_value) -> Self {
+    let mut word_count: u64 = 0;
+    let status = unsafe {
+      sys::napi_get_value_bigint_words(
+        env,
+        value,
+        ptr::null_mut(),
+        &mut word_count,
+        ptr::null_mut(),
+      )
+    };
+    debug_assert!(
+      Status::from(status) == Status::Ok,
+      "napi_get_value_bigint_words failed"
+    );
+    JsBigint {
+      raw: Value {
+        env,
+        value,
+        value_type: ValueType::Bigint,
+      },
+      word_count,
+    }
+  }
 }
 
 /// The BigInt will be converted losslessly when the value is over what an int64 could hold.
