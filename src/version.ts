@@ -11,19 +11,10 @@ import { updatePackageJson } from './update-package'
 const debug = debugFactory('version')
 
 export class VersionCommand extends Command {
-  @Command.String(`-p,--prefix`)
-  prefix = 'npm'
-
-  @Command.String('-c,--config')
-  configFileName?: string
-
-  @Command.Path('version')
-  async execute() {
-    const { muslPlatforms, version, platforms } = getNapiConfig(
-      this.configFileName,
-    )
+  static async updatePackageJson(prefix: string, configFileName?: string) {
+    const { muslPlatforms, version, platforms } = getNapiConfig(configFileName)
     for (const name of [...platforms, ...muslPlatforms]) {
-      const pkgDir = join(process.cwd(), this.prefix, name)
+      const pkgDir = join(process.cwd(), prefix, name)
       debug(
         `Update version to ${chalk.greenBright(
           version,
@@ -33,6 +24,17 @@ export class VersionCommand extends Command {
         version,
       })
     }
+  }
+
+  @Command.String(`-p,--prefix`)
+  prefix = 'npm'
+
+  @Command.String('-c,--config')
+  configFileName?: string
+
+  @Command.Path('version')
+  async execute() {
+    await VersionCommand.updatePackageJson(this.prefix, this.configFileName)
     await spawn('git add .')
   }
 }

@@ -9,6 +9,7 @@ import { debugFactory } from './debug'
 import { spawn } from './spawn'
 import { updatePackageJson } from './update-package'
 import { readFileAsync, writeFileAsync } from './utils'
+import { VersionCommand } from './version'
 
 const debug = debugFactory('prepublish')
 
@@ -48,6 +49,7 @@ export class PrePublishCommand extends Command {
     } = getNapiConfig(this.configFileName)
     debug(`Update optionalDependencies in [${packageJsonPath}]`)
     if (!this.isDryRun) {
+      await VersionCommand.updatePackageJson(this.prefix, this.configFileName)
       await updatePackageJson(packageJsonPath, {
         optionalDependencies: platforms.reduce(
           (acc: Record<string, string>, cur: NodeJS.Platform) => {
