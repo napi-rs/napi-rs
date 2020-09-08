@@ -69,8 +69,8 @@ export class CreateNpmDirCommand extends Command {
 }
 
 function readme(packageName: string, platform: string) {
-  return `\`#${packageName}-${platform}\`
+  return `# \`${packageName}-${platform}\`
 
-this is the **${platform}** 64-bit binary for \`${packageName}\`
+This is the **${platform}** 64-bit binary for \`${packageName}\`
 `
 }
