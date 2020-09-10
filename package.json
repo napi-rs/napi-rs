@@ -1,6 +1,6 @@
 {
   "name": "napi-rs",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "description": "A minimal library for building compiled Node add-ons in Rust.",
   "bin": {
     "napi": "scripts/index.js"
