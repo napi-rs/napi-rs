@@ -40,7 +40,7 @@ export class CreateNpmDirCommand extends Command {
           {
             name: `${packageName}-${platform}`,
             version,
-            os: [platform],
+            os: [platform.replace('-musl', '')],
             main: binaryFileName,
             files: [binaryFileName],
             ...pick(
