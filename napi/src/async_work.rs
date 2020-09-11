@@ -81,22 +81,20 @@ unsafe extern "C" fn complete<T: Task>(
     work.inner_task.resolve(&mut env, output)
   });
   let mut handle_scope = ptr::null_mut();
+  let open_handle_status = sys::napi_open_handle_scope(env, &mut handle_scope);
+  debug_assert!(
+    open_handle_status == sys::napi_status::napi_ok,
+    "OpenHandleScope failed"
+  );
   match check_status(status).and_then(move |_| value) {
     Ok(v) => {
-      let open_handle_status = sys::napi_open_handle_scope(env, &mut handle_scope);
-      debug_assert!(
-        open_handle_status == sys::napi_status::napi_ok,
-        "OpenHandleScope failed"
-      );
       let status = sys::napi_resolve_deferred(env, deferred, v.raw_value());
-      debug_assert!(status == sys::napi_status::napi_ok, "Reject promise failed");
+      debug_assert!(
+        status == sys::napi_status::napi_ok,
+        "Resolve promise failed"
+      );
     }
     Err(e) => {
-      let open_handle_status = sys::napi_open_handle_scope(env, &mut handle_scope);
-      debug_assert!(
-        open_handle_status == sys::napi_status::napi_ok,
-        "OpenHandleScope failed"
-      );
       let status = sys::napi_reject_deferred(env, deferred, e.into_raw(env));
       debug_assert!(status == sys::napi_status::napi_ok, "Reject promise failed");
     }

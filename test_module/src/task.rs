@@ -20,7 +20,7 @@ impl Task for ComputeFib {
     Ok(fibonacci_native(self.n))
   }
 
-  fn resolve(&self, env: &mut Env, output: Self::Output) -> Result<Self::JsValue> {
+  fn resolve(self, env: &mut Env, output: Self::Output) -> Result<Self::JsValue> {
     env.create_uint32(output)
   }
 }
