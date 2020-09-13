@@ -1,0 +1,31 @@
+name: Publish
+
+on:
+  create:
+    tags:
+      - v*
+
+env:
+  CI: '1'
+  DEBUG: 'napi:*'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Setup node
+        uses: actions/setup-node@v1
+        with:
+          node-version: 12
+
+      - name: Set release name
+        run: echo ::set-env name=RELEASE_VERSION::${GITHUB_REF#refs/*/}
+
+      - name: Test env
+        run: |
+          yarn
+          yarn build
+          node test.js
