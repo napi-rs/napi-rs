@@ -9,7 +9,11 @@ export function getNapiConfig(packageJson = 'package.json') {
     (platform: string) => `${platform}-musl`,
   )
   const platforms = os
-  const version = packageVersion
+  const releaseVersion = process.env.RELEASE_VERSION
+  const releaseVersionWithoutPrefix = releaseVersion?.startsWith('v')
+    ? releaseVersion.substr(1)
+    : releaseVersion
+  const version = releaseVersionWithoutPrefix ?? packageVersion
   const packageName = name
 
   const binaryName = napi?.name ?? 'index'
