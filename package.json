@@ -37,7 +37,7 @@
   },
   "homepage": "https://github.com/napi-rs/napi-rs#readme",
   "dependencies": {
-    "@octokit/rest": "^18.0.5",
+    "@octokit/rest": "^18.0.6",
     "chalk": "^4.1.0",
     "clipanion": "^2.5.0",
     "debug": "^4.1.1",
