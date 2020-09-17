@@ -2,6 +2,8 @@
 
 > This project was initialized from [xray](https://github.com/atom/xray)
 
+A minimal library for building compiled `NodeJS` add-ons in `Rust`.
+
 <p>
   <a href="https://docs.rs/crate/napi"><img src="https://docs.rs/napi/badge.svg"></img></a>
   <a href="https://crates.io/crates/napi"><img src="https://img.shields.io/crates/v/napi.svg"></img></a>
@@ -26,13 +28,11 @@
 | ------ | ------- | ------ |
 | ✓      | ✓       | ✓      |
 
-A minimal library for building compiled Node add-ons in Rust.
-
-This library depends on N-API and requires Node 8.9 or later.
+This library depends on N-API and requires `Node@8.9` or later.
 
 We already have some packages written by `napi-rs`: [node-rs](https://github.com/napi-rs/node-rs)
 
-One nice feature is that this crate allows you to build add-ons purely with the Rust toolchain and without involving `node-gyp`.
+One nice feature is that this crate allows you to build add-ons purely with the `Rust` toolchain and without involving `node-gyp`.
 
 ## Taste
 
