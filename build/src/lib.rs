@@ -9,29 +9,30 @@ use cfg_if::cfg_if;
 cfg_if! {
   if #[cfg(windows)] {
     use std::env::var;
-    use std::fs::File;
+    use std::fs::{File, create_dir};
     use std::io::copy;
     use std::path::PathBuf;
 
     pub fn setup() {
       let node_full_version =
         String::from_utf8(Command::new("node").arg("-v").output().unwrap().stdout).unwrap();
-      let node_exec_path = String::from_utf8(
-        Command::new("node")
-          .arg("-e")
-          .arg("console.log(process.execPath)")
-          .output()
-          .unwrap()
-          .stdout,
-      )
-      .unwrap();
-      let node_exec_path = node_exec_path.trim_end();
-      let mut node_lib_file_dir = PathBuf::from(node_exec_path)
-        .parent()
-        .unwrap()
-        .to_path_buf();
-      let node_lib_dir = PathBuf::from(&node_lib_file_dir);
-      node_lib_file_dir.push(format!("node-{}.lib", node_full_version.trim_end()));
+
+      let dev_dir: PathBuf = [
+        &var("HOMEDRIVE").expect("Get env HOMEDRIVE failed"),
+        &var("HOMEPATH").expect("Get env HOMEDRIVE failed"),
+        ".napi-rs"
+      ].iter().collect();
+
+      match create_dir(&dev_dir) {
+        Ok(_) => {},
+        Err(err) => {
+          if err.kind() != std::io::ErrorKind::AlreadyExists {
+            panic!("create ~/.napi-rs folder failed: {}", err)
+          }
+        },
+      }
+
+      let node_lib_file_dir = dev_dir.join(format!("node-{}.lib", node_full_version.trim_end()));
       if !node_lib_file_dir.exists() {
         let lib_file_download_url = format!(
           "https://nodejs.org/dist/{}/win-x64/node.lib",
@@ -46,7 +47,7 @@ cfg_if! {
         "cargo:rustc-link-lib={}",
         &node_lib_file_dir.file_stem().unwrap().to_str().unwrap()
       );
-      println!("cargo:rustc-link-search={}", node_lib_dir.to_str().unwrap());
+      println!("cargo:rustc-link-search={}", dev_dir.to_str().unwrap());
       // Link `win_delay_load_hook.obj` for windows electron
       let node_runtime_env = "npm_config_runtime";
       println!("cargo:rerun-if-env-changed={}", node_runtime_env);
