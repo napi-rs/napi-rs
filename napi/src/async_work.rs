@@ -10,6 +10,7 @@ pub struct AsyncWork<T: Task> {
   inner_task: T,
   deferred: sys::napi_deferred,
   value: Result<*mut T::Output>,
+  napi_async_work: sys::napi_async_work,
 }
 
 impl<T: Task> AsyncWork<T> {
@@ -26,12 +27,12 @@ impl<T: Task> AsyncWork<T> {
         &mut raw_name,
       )
     })?;
-    let result = AsyncWork {
+    let result = Box::leak(Box::new(AsyncWork {
       inner_task: task,
       deferred,
       value: Ok(ptr::null_mut()),
-    };
-    let mut async_work = ptr::null_mut();
+      napi_async_work: ptr::null_mut(),
+    }));
     check_status(unsafe {
       sys::napi_create_async_work(
         env,
@@ -46,11 +47,11 @@ impl<T: Task> AsyncWork<T> {
               data: *mut c_void,
             ),
         ),
-        Box::leak(Box::new(result)) as *mut _ as *mut c_void,
-        &mut async_work,
+        result as *mut _ as *mut c_void,
+        &mut result.napi_async_work,
       )
     })?;
-    check_status(unsafe { sys::napi_queue_async_work(env, async_work) })
+    check_status(unsafe { sys::napi_queue_async_work(env, result.napi_async_work) })
   }
 }
 
@@ -75,17 +76,12 @@ unsafe extern "C" fn complete<T: Task>(
   let mut work = Box::from_raw(data as *mut AsyncWork<T>);
   let value_ptr = mem::replace(&mut work.value, Ok(ptr::null_mut()));
   let deferred = mem::replace(&mut work.deferred, ptr::null_mut());
+  let napi_async_work = mem::replace(&mut work.napi_async_work, ptr::null_mut());
   let value = value_ptr.and_then(move |v| {
     let mut env = Env::from_raw(env);
     let output = ptr::read(v as *const _);
     work.inner_task.resolve(&mut env, output)
   });
-  let mut handle_scope = ptr::null_mut();
-  let open_handle_status = sys::napi_open_handle_scope(env, &mut handle_scope);
-  debug_assert!(
-    open_handle_status == sys::napi_status::napi_ok,
-    "OpenHandleScope failed"
-  );
   match check_status(status).and_then(move |_| value) {
     Ok(v) => {
       let status = sys::napi_resolve_deferred(env, deferred, v.raw_value());
@@ -99,9 +95,9 @@ unsafe extern "C" fn complete<T: Task>(
       debug_assert!(status == sys::napi_status::napi_ok, "Reject promise failed");
     }
   };
-  let close_handle_scope_status = sys::napi_close_handle_scope(env, handle_scope);
+  let delete_status = sys::napi_delete_async_work(env, napi_async_work);
   debug_assert!(
-    close_handle_scope_status == sys::napi_status::napi_ok,
-    "Close handle scope failed"
+    delete_status == sys::napi_status::napi_ok,
+    "Delete async work failed"
   );
 }

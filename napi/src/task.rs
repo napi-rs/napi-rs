@@ -7,5 +7,7 @@ pub trait Task: Send {
 
   fn compute(&mut self) -> Result<Self::Output>;
 
+  fn cancel(self) -> Result<()>;
+
   fn resolve(self, env: &mut Env, output: Self::Output) -> Result<Self::JsValue>;
 }
