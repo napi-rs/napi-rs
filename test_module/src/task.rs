@@ -37,7 +37,8 @@ fn fibonacci_native(n: u32) -> u32 {
 fn test_spawn_thread(ctx: CallContext) -> Result<JsObject> {
   let n = ctx.get::<JsNumber>(0)?;
   let task = ComputeFib::new(n.try_into()?);
-  ctx.env.spawn(task)
+  let async_work_promise = ctx.env.spawn(task)?;
+  Ok(async_work_promise.promise_object())
 }
 
 pub fn register_js(module: &mut Module) -> Result<()> {
