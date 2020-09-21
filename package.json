@@ -91,6 +91,6 @@
     "typescript": "^4.0.2"
   },
   "optionalDependencies": {
-    "@swc-node/core-linux-musl": "^0.7.5"
+    "@swc-node/core-linux-musl": "^0.7.6"
   }
 }
