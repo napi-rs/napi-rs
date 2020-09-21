@@ -40,7 +40,7 @@
     "@octokit/rest": "^18.0.6",
     "chalk": "^4.1.0",
     "clipanion": "^2.5.0",
-    "debug": "^4.1.1",
+    "debug": "^4.2.0",
     "fdir": "^4.1.0",
     "inquirer": "^7.3.3",
     "lodash": "^4.17.20",
