@@ -396,44 +396,45 @@
   resolved "https://registry.npmjs.org/@sindresorhus/is/-/is-0.14.0.tgz#9fb3a3cf3132328151f353de4632e01e52102bea"
   integrity sha512-9NET910DNaIPngYnLLPeg+Ogzqsi9uM4mSboU5y6p8S5DzMTVEsJZrawi+BoDNUVBa2DhJqQYUFvMDfgU062LQ==
 
-"@swc-node/core-darwin@^0.7.5":
-  version "0.7.5"
-  resolved "https://registry.npmjs.org/@swc-node/core-darwin/-/core-darwin-0.7.5.tgz#397f47379136548d7e900150f46397194c3d3a4e"
-  integrity sha512-e9ZQEn+W5ViiTf1dUqMemxQbTyUf78WXj27DpN+oCezzMTDYJNcf5whsOYUjnA1PnxS4WTa+kbbsqaOIdSwjHg==
+"@swc-node/core-darwin@^0.7.6":
+  version "0.7.6"
+  resolved "https://registry.npmjs.org/@swc-node/core-darwin/-/core-darwin-0.7.6.tgz#0ced2f14ae1770978a0fae57bb3bacd21bb9901d"
+  integrity sha512-AtGIvQRYpxoDHfn1dYRlzsjQeiZHUeBIkZ30Y/qsxxr16rZdroctyLfdweHvlRZ3XDrz53JuEZmzPZy6g6EAFA==
 
 "@swc-node/core-linux-musl@^0.7.5":
   version "0.7.5"
   resolved "https://registry.npmjs.org/@swc-node/core-linux-musl/-/core-linux-musl-0.7.5.tgz#ecf62110eaf9fc353f554d47fe41d064f4f0369e"
   integrity sha512-QztcJZ5CxS0SpxROiPTu5cS4lIHozBx9MVPN9NQoI/JzndEDVmC1GBUhmnRXDD9y8CtPyPFueXPGanxYYiN/og==
 
-"@swc-node/core-linux@^0.7.5":
-  version "0.7.5"
-  resolved "https://registry.npmjs.org/@swc-node/core-linux/-/core-linux-0.7.5.tgz#a7cbc2c84c63f1e2e8368317b3dd5e039d3c8330"
-  integrity sha512-Bp2tBEhQ6EOqDSgbEXRMgznD6HTsomjiMkNHicpAs3EmMwXj8btxpIEyZDRRx5gm2bt17V2+nplm6y+p3eTPAw==
+"@swc-node/core-linux@^0.7.6":
+  version "0.7.6"
+  resolved "https://registry.npmjs.org/@swc-node/core-linux/-/core-linux-0.7.6.tgz#e7052c82cf448d9e79fde27549f76e451cfbad3c"
+  integrity sha512-U78tQS9voIP4fOtYkEhZTZq1XwbMkHagwDc3uSZfAthJ9Clii2Aj1AzbEO7FaFysxBBq38XFectOf/fe9YwQNA==
 
-"@swc-node/core-win32@^0.7.5":
-  version "0.7.5"
-  resolved "https://registry.npmjs.org/@swc-node/core-win32/-/core-win32-0.7.5.tgz#a3d3ff89cd9f46656ca10aa50964e588a291fd41"
-  integrity sha512-GuRIS1Rp+3momxe4UFY6AeQR1/gNcCUuEmnaoKSPx6uHXsTaCqyJWGS6wYhp2bESn6tfb21fdCRwPzkhbSg+OQ==
+"@swc-node/core-win32@^0.7.6":
+  version "0.7.6"
+  resolved "https://registry.npmjs.org/@swc-node/core-win32/-/core-win32-0.7.6.tgz#6944afe76b346725b753d5ea0def363857b3ab85"
+  integrity sha512-CUNG1kDXITphk79+Cj3oUem5EeLUG80TVEKIzjxuLy4WfTOWAiF2U7SY4oF/Lf5rLyMuCVLhyZL5VCZKXlfB4Q==
 
-"@swc-node/core@^0.7.5":
-  version "0.7.5"
-  resolved "https://registry.npmjs.org/@swc-node/core/-/core-0.7.5.tgz#ed7886de871ded859b9b60518b9a57b81d09e6ca"
-  integrity sha512-RmzsriNvLdoEV1S7RkuEL6EDqw9NR26kXdbITOGA4JkLnS6I9n9aEYKeI+W4zz2qS3CQp9ZzpfonSUy7bnSnMA==
+"@swc-node/core@^0.7.6":
+  version "0.7.6"
+  resolved "https://registry.npmjs.org/@swc-node/core/-/core-0.7.6.tgz#b260905701fa280c9302fad671dfd94ed2db75b4"
+  integrity sha512-nSCri4UnHxV/M7+esnajVuAOnthoh3E9S1GOxkxDTK1j0HXcRPeD5uknR9wLp1cQkx7SJMA9C5ma/6h3cdOibQ==
   dependencies:
     "@node-rs/helper" "^0.4.0"
   optionalDependencies:
-    "@swc-node/core-darwin" "^0.7.5"
-    "@swc-node/core-linux" "^0.7.5"
-    "@swc-node/core-win32" "^0.7.5"
+    "@swc-node/core-darwin" "^0.7.6"
+    "@swc-node/core-linux" "^0.7.6"
+    "@swc-node/core-win32" "^0.7.6"
 
-"@swc-node/register@^0.4.11":
-  version "0.4.11"
-  resolved "https://registry.npmjs.org/@swc-node/register/-/register-0.4.11.tgz#e1c277ffb8ede834fe0d360d3c47967a0c98dbc7"
-  integrity sha512-1Gi/lHakAaX/E8wzG6Hpx9MMIbKvxllSFtzCAGCM1jg8YSP/sbgm+IK/mDuv7WlAMPT7vHYO2tbXiZq6ssStBQ==
+"@swc-node/register@^0.5.3":
+  version "0.5.3"
+  resolved "https://registry.npmjs.org/@swc-node/register/-/register-0.5.3.tgz#1f960fe4202a53625a9762ea66576eb26cb5a65a"
+  integrity sha512-6LaoX3OOreGmaTsqbgrKwyEdjMZbcHtpW9AqsHG7h+n5G/wVNixHL7OSA90uD4Q0nx3xKELZH6bTCKtjqWaiwQ==
   dependencies:
-    "@swc-node/core" "^0.7.5"
+    "@swc-node/core" "^0.7.6"
     "@swc-node/sourcemap-support" "^0.1.8"
+    chalk "^4.1.0"
     debug "^4.1.1"
     pirates "^4.0.1"
 
