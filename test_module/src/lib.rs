@@ -20,7 +20,6 @@ mod tokio_rt;
 
 mod buffer;
 mod class;
-mod either;
 mod env;
 mod error;
 mod external;
@@ -44,7 +43,6 @@ fn init(module: &mut Module) -> Result<()> {
   task::register_js(module)?;
   external::register_js(module)?;
   buffer::register_js(module)?;
-  either::register_js(module)?;
   symbol::register_js(module)?;
   function::register_js(module)?;
   class::register_js(module)?;

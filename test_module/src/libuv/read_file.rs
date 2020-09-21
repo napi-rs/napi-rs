@@ -18,7 +18,7 @@ pub fn uv_read_file(ctx: CallContext) -> Result<JsObject> {
     receiver
       .map_err(|e| Error::new(Status::Unknown, format!("{}", e)))
       .map(|x| x.and_then(|x| x)),
-    |env, data| env.create_buffer_with_data(data),
+    |ctx| ctx.env.create_buffer_with_data(ctx.value),
   )
 }
 

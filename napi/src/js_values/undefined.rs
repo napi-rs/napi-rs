@@ -1,4 +1,4 @@
 use super::Value;
 
 #[derive(Debug)]
-pub struct JsUndefined(pub(crate) Value);
+pub struct JsUndefined<'env>(pub(crate) Value<'env>);

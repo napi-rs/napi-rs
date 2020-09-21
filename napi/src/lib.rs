@@ -96,7 +96,7 @@ mod env;
 mod error;
 mod js_values;
 mod module;
-#[cfg(all(feature = "libuv", napi4))]
+#[cfg(all(any(feature = "libuv", feature = "tokio_rt"), napi4))]
 mod promise;
 mod status;
 mod task;
@@ -119,6 +119,8 @@ pub use status::Status;
 pub use task::Task;
 pub use version::NodeVersion;
 
+#[cfg(all(any(feature = "libuv", feature = "tokio_rt"), napi4))]
+pub use promise::FutureResolvedContext;
 #[cfg(all(feature = "tokio_rt", napi4))]
 pub use tokio_rt::shutdown as shutdown_tokio_rt;
 
@@ -183,9 +185,9 @@ macro_rules! register_module {
           raw_env: sys::napi_env,
           raw_exports: sys::napi_value,
         ) -> sys::napi_value {
-          let env = Env::from_raw(raw_env);
-          let mut exports: JsObject = JsObject::from_raw_unchecked(raw_env, raw_exports);
-          let mut cjs_module = Module { env, exports };
+          let mut env = Env::from_raw(raw_env);
+          let mut exports: JsObject = JsObject::from_raw_unchecked(&env, raw_exports);
+          let mut cjs_module = Module { env: &env, exports };
           let result = $init(&mut cjs_module);
 
           #[cfg(all(feature = "tokio_rt", napi4))]

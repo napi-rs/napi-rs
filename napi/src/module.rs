@@ -1,11 +1,11 @@
 use crate::{Callback, Env, JsObject, Result};
 
-pub struct Module {
-  pub env: Env,
-  pub exports: JsObject,
+pub struct Module<'env> {
+  pub env: &'env Env,
+  pub exports: JsObject<'env>,
 }
 
-impl Module {
+impl<'env> Module<'env> {
   pub fn create_named_method(&mut self, name: &str, function: Callback) -> Result<()> {
     self
       .exports

@@ -8,7 +8,7 @@ use super::{type_of, NapiValue, Value, ValueType};
 use crate::JsBigint;
 use crate::{Error, JsBoolean, JsBuffer, JsNumber, JsObject, JsString, JsUnknown, Result, Status};
 
-pub(crate) struct De<'env>(pub(crate) &'env Value);
+pub(crate) struct De<'env>(pub(crate) &'env Value<'env>);
 
 #[doc(hidden)]
 impl<'x, 'de, 'env> serde::de::Deserializer<'x> for &'de mut De<'env> {
@@ -18,7 +18,7 @@ impl<'x, 'de, 'env> serde::de::Deserializer<'x> for &'de mut De<'env> {
   where
     V: Visitor<'x>,
   {
-    let js_value_type = type_of(self.0.env, self.0.value)?;
+    let js_value_type = type_of(self.0.env.0, self.0.value)?;
     match js_value_type {
       ValueType::Null | ValueType::Undefined => visitor.visit_unit(),
       ValueType::Boolean => {
@@ -86,7 +86,7 @@ impl<'x, 'de, 'env> serde::de::Deserializer<'x> for &'de mut De<'env> {
   where
     V: Visitor<'x>,
   {
-    match type_of(self.0.env, self.0.value)? {
+    match type_of(self.0.env.0, self.0.value)? {
       ValueType::Undefined | ValueType::Null => visitor.visit_none(),
       _ => visitor.visit_some(self),
     }
@@ -101,7 +101,7 @@ impl<'x, 'de, 'env> serde::de::Deserializer<'x> for &'de mut De<'env> {
   where
     V: Visitor<'x>,
   {
-    let js_value_type = type_of(self.0.env, self.0.value)?;
+    let js_value_type = type_of(self.0.env.0, self.0.value)?;
     match js_value_type {
       ValueType::String => visitor.visit_enum(JsEnumAccess::new(
         JsString::from_raw_unchecked(self.0.env, self.0.value)
@@ -155,7 +155,7 @@ impl<'x, 'de, 'env> serde::de::Deserializer<'x> for &'de mut De<'env> {
 #[doc(hidden)]
 pub(crate) struct JsEnumAccess<'env> {
   variant: String,
-  value: Option<&'env Value>,
+  value: Option<&'env Value<'env>>,
 }
 
 #[doc(hidden)]
@@ -183,7 +183,7 @@ impl<'de, 'env> EnumAccess<'de> for JsEnumAccess<'env> {
 
 #[doc(hidden)]
 pub(crate) struct JsVariantAccess<'env> {
-  value: Option<&'env Value>,
+  value: Option<&'env Value<'env>>,
 }
 
 #[doc(hidden)]
@@ -266,14 +266,14 @@ impl<'de, 'env> VariantAccess<'de> for JsVariantAccess<'env> {
 
 #[doc(hidden)]
 struct JsArrayAccess<'env> {
-  input: &'env JsObject,
+  input: &'env JsObject<'env>,
   idx: u32,
   len: u32,
 }
 
 #[doc(hidden)]
 impl<'env> JsArrayAccess<'env> {
-  fn new(input: &'env JsObject, len: u32) -> Self {
+  fn new(input: &'env JsObject<'env>, len: u32) -> Self {
     Self { input, idx: 0, len }
   }
 }
@@ -299,8 +299,8 @@ impl<'de, 'env> SeqAccess<'de> for JsArrayAccess<'env> {
 
 #[doc(hidden)]
 pub(crate) struct JsObjectAccess<'env> {
-  value: &'env JsObject,
-  properties: JsObject,
+  value: &'env JsObject<'env>,
+  properties: JsObject<'env>,
   idx: u32,
   property_len: u32,
 }

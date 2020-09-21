@@ -54,7 +54,7 @@ impl<'env> Property<'env> {
     })
   }
 
-  pub fn with_value<T: NapiValue>(mut self, value: T) -> Self {
+  pub fn with_value<T: NapiValue<'env>>(mut self, value: T) -> Self {
     self.raw_descriptor.value = T::raw_value(&value);
     self
   }

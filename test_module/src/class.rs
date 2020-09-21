@@ -12,7 +12,9 @@ fn create_test_class(ctx: CallContext) -> Result<JsFunction> {
 }
 
 #[js_function(1)]
-fn test_class_constructor(mut ctx: CallContext<JsObject>) -> Result<JsUndefined> {
+fn test_class_constructor<'env>(
+  mut ctx: CallContext<'env, JsObject<'env>>,
+) -> Result<JsUndefined<'env>> {
   let count = ctx.get::<JsNumber>(0)?;
   ctx
     .this
@@ -21,7 +23,7 @@ fn test_class_constructor(mut ctx: CallContext<JsObject>) -> Result<JsUndefined>
 }
 
 #[js_function(1)]
-fn add_count(mut ctx: CallContext<JsObject>) -> Result<JsUndefined> {
+fn add_count<'env>(mut ctx: CallContext<'env, JsObject<'env>>) -> Result<JsUndefined<'env>> {
   let add: i32 = ctx.get::<JsNumber>(0)?.try_into()?;
   let count: i32 = ctx
     .this

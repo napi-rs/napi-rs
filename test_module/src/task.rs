@@ -14,13 +14,13 @@ impl ComputeFib {
 
 impl<'out> Task<'out> for ComputeFib {
   type Output = u32;
-  type JsValue = JsNumber;
+  type JsValue = JsNumber<'out>;
 
   fn compute(&mut self) -> Result<Self::Output> {
     Ok(fibonacci_native(self.n))
   }
 
-  fn resolve(self, env: &mut Env, output: Self::Output) -> Result<Self::JsValue> {
+  fn resolve(self, env: &'out mut Env, output: Self::Output) -> Result<Self::JsValue> {
     env.create_uint32(output)
   }
 }
@@ -53,13 +53,13 @@ impl<'buf> CountBufferLength<'buf> {
 
 impl<'out> Task<'out> for CountBufferLength<'out> {
   type Output = usize;
-  type JsValue = JsNumber;
+  type JsValue = JsNumber<'out>;
 
   fn compute(&mut self) -> Result<Self::Output> {
     Ok(self.data.len())
   }
 
-  fn resolve(self, env: &mut Env, output: Self::Output) -> Result<Self::JsValue> {
+  fn resolve(self, env: &'out mut Env, output: Self::Output) -> Result<Self::JsValue> {
     env.create_uint32(output as _)
   }
 }

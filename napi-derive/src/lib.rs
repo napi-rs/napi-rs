@@ -93,8 +93,7 @@ pub fn js_function(attr: TokenStream, input: TokenStream) -> TokenStream {
       use std::ffi::CString;
       use napi::{JsUnknown, Env, Error, Status, NapiValue, CallContext};
       let mut argc = #arg_len_span as usize;
-      let mut raw_args =
-      unsafe { mem::MaybeUninit::<[napi::sys::napi_value; #arg_len_span as usize]>::uninit().assume_init() };
+      let mut raw_args: [napi::sys::napi_value; #arg_len_span] = [ptr::null_mut(); #arg_len_span];
       let mut raw_this = ptr::null_mut();
 
       let mut has_error = false;

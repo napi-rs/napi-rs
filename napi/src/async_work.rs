@@ -23,7 +23,7 @@ pub struct AsyncWorkPromise<'env> {
 impl<'env> AsyncWorkPromise<'env> {
   #[inline(always)]
   pub fn promise_object(&self) -> JsObject {
-    JsObject::from_raw_unchecked(self.env.0, self.raw_promise)
+    JsObject::from_raw_unchecked(self.env, self.raw_promise)
   }
 
   pub fn cancel(self) -> Result<()> {
@@ -100,9 +100,10 @@ unsafe extern "C" fn complete<'out, T: Task<'out>>(
   let deferred = mem::replace(&mut work.deferred, ptr::null_mut());
   let napi_async_work = mem::replace(&mut work.napi_async_work, ptr::null_mut());
   let value = value_ptr.and_then(move |v| {
-    let mut env = Env::from_raw(env);
     let output = v.assume_init();
-    work.inner_task.resolve(&mut env, output)
+    work
+      .inner_task
+      .resolve(Box::leak(Box::new(Env::from_raw(env))), output)
   });
   match check_status(status).and_then(move |_| value) {
     Ok(v) => {

@@ -12,13 +12,13 @@ use crate::error::check_status;
 use crate::{sys, Error, Result, Status};
 
 #[derive(Debug)]
-pub struct JsString(pub(crate) Value);
+pub struct JsString<'env>(pub(crate) Value<'env>);
 
-impl JsString {
+impl<'env> JsString<'env> {
   pub fn utf8_len(&self) -> Result<usize> {
     let mut length = 0;
     check_status(unsafe {
-      sys::napi_get_value_string_utf8(self.0.env, self.0.value, ptr::null_mut(), 0, &mut length)
+      sys::napi_get_value_string_utf8(self.0.env.0, self.0.value, ptr::null_mut(), 0, &mut length)
     })?;
     Ok(length as usize)
   }
@@ -26,20 +26,20 @@ impl JsString {
   pub fn latin1_len(&self) -> Result<usize> {
     let mut length = 0;
     check_status(unsafe {
-      sys::napi_get_value_string_latin1(self.0.env, self.0.value, ptr::null_mut(), 0, &mut length)
+      sys::napi_get_value_string_latin1(self.0.env.0, self.0.value, ptr::null_mut(), 0, &mut length)
     })?;
     Ok(length as usize)
   }
 }
 
-impl JsString {
+impl<'env> JsString<'env> {
   pub fn get_utf8(&self) -> Result<&[u8]> {
     let mut written_char_count: u64 = 0;
     let len = self.utf8_len()? + 1;
     let mut result = Vec::with_capacity(len);
     unsafe {
       check_status(sys::napi_get_value_string_utf8(
-        self.0.env,
+        self.0.env.0,
         self.0.value,
         result.as_mut_ptr(),
         len as u64,
@@ -60,7 +60,7 @@ impl JsString {
     let mut result = Vec::with_capacity(len);
     unsafe {
       check_status(sys::napi_get_value_string_latin1(
-        self.0.env,
+        self.0.env.0,
         self.0.value,
         result.as_mut_ptr(),
         len as u64,
@@ -82,7 +82,7 @@ impl JsString {
     let mut result = Vec::with_capacity(len);
     unsafe {
       check_status(sys::napi_get_value_string_utf8(
-        self.0.env,
+        self.0.env.0,
         self.0.value,
         result.as_mut_ptr(),
         len as u64,
@@ -117,7 +117,7 @@ impl JsString {
     let mut result = Vec::with_capacity(len);
     unsafe {
       check_status(sys::napi_get_value_string_utf8(
-        self.0.env,
+        self.0.env.0,
         self.0.value,
         result.as_mut_ptr(),
         len as u64,
@@ -134,7 +134,7 @@ impl JsString {
   }
 }
 
-impl TryFrom<JsString> for Vec<u16> {
+impl<'env> TryFrom<JsString<'env>> for Vec<u16> {
   type Error = Error;
 
   fn try_from(value: JsString) -> Result<Vec<u16>> {
@@ -143,7 +143,7 @@ impl TryFrom<JsString> for Vec<u16> {
     unsafe {
       let mut written_char_count = 0;
       check_status(sys::napi_get_value_string_utf16(
-        value.0.env,
+        value.0.env.0,
         value.0.value,
         result.as_mut_ptr(),
         result.capacity() as u64,
@@ -156,7 +156,7 @@ impl TryFrom<JsString> for Vec<u16> {
   }
 }
 
-impl TryFrom<JsString> for String {
+impl<'env> TryFrom<JsString<'env>> for String {
   type Error = Error;
 
   fn try_from(value: JsString) -> Result<String> {

@@ -139,7 +139,7 @@ fn test_define_properties(ctx: CallContext) -> Result<JsUndefined> {
 }
 
 #[js_function(1)]
-fn add(mut ctx: CallContext<JsObject>) -> Result<JsUndefined> {
+fn add<'env>(mut ctx: CallContext<'env, JsObject<'env>>) -> Result<JsUndefined<'env>> {
   let count: i32 = ctx
     .this
     .get_named_property::<JsNumber>("count")?

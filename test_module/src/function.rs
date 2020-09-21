@@ -12,7 +12,9 @@ pub fn call_function(ctx: CallContext) -> Result<JsNull> {
 }
 
 #[js_function(1)]
-pub fn call_function_with_this(ctx: CallContext<JsObject>) -> Result<JsNull> {
+pub fn call_function_with_this<'env>(
+  ctx: CallContext<'env, JsObject<'env>>,
+) -> Result<JsNull<'env>> {
   let js_this = &ctx.this;
   let js_func = ctx.get::<JsFunction>(0)?;
 

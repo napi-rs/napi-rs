@@ -11,21 +11,21 @@ pub(crate) struct Ser<'env>(pub(crate) &'env Env);
 
 impl<'env> Ser<'env> {
   fn new(env: &'env Env) -> Self {
-    Self(&env)
+    Self(env)
   }
 }
 
 impl<'env> Serializer for Ser<'env> {
-  type Ok = Value;
+  type Ok = Value<'env>;
   type Error = Error;
 
-  type SerializeSeq = SeqSerializer;
-  type SerializeTuple = SeqSerializer;
-  type SerializeTupleStruct = SeqSerializer;
-  type SerializeTupleVariant = SeqSerializer;
-  type SerializeMap = MapSerializer;
-  type SerializeStruct = StructSerializer;
-  type SerializeStructVariant = StructSerializer;
+  type SerializeSeq = SeqSerializer<'env>;
+  type SerializeTuple = SeqSerializer<'env>;
+  type SerializeTupleStruct = SeqSerializer<'env>;
+  type SerializeTupleVariant = SeqSerializer<'env>;
+  type SerializeMap = MapSerializer<'env>;
+  type SerializeStruct = StructSerializer<'env>;
+  type SerializeStructVariant = StructSerializer<'env>;
 
   #[inline]
   fn serialize_bool(self, v: bool) -> Result<Self::Ok> {
@@ -296,23 +296,23 @@ impl<'env> Serializer for Ser<'env> {
   }
 }
 
-pub struct SeqSerializer {
-  array: JsObject,
+pub struct SeqSerializer<'env> {
+  array: JsObject<'env>,
   current_index: usize,
 }
 
-impl ser::SerializeSeq for SeqSerializer {
-  type Ok = Value;
+impl<'env> ser::SerializeSeq for SeqSerializer<'env> {
+  type Ok = Value<'env>;
   type Error = Error;
 
   fn serialize_element<T: ?Sized>(&mut self, value: &T) -> StdResult<(), Self::Error>
   where
     T: Serialize,
   {
-    let env = Env::from_raw(self.array.0.env);
+    let env = self.array.0.env;
     self.array.set_element(
       self.current_index as _,
-      JsUnknown(value.serialize(Ser::new(&env))?),
+      JsUnknown(value.serialize(Ser::new(env))?),
     )?;
     self.current_index = self.current_index + 1;
     Ok(())
@@ -324,8 +324,8 @@ impl ser::SerializeSeq for SeqSerializer {
 }
 
 #[doc(hidden)]
-impl ser::SerializeTuple for SeqSerializer {
-  type Ok = Value;
+impl<'env> ser::SerializeTuple for SeqSerializer<'env> {
+  type Ok = Value<'env>;
   type Error = Error;
 
   #[inline]
@@ -333,10 +333,10 @@ impl ser::SerializeTuple for SeqSerializer {
   where
     T: Serialize,
   {
-    let env = Env::from_raw(self.array.0.env);
+    let env = self.array.0.env;
     self.array.set_element(
       self.current_index as _,
-      JsUnknown(value.serialize(Ser::new(&env))?),
+      JsUnknown(value.serialize(Ser::new(env))?),
     )?;
     self.current_index = self.current_index + 1;
     Ok(())
@@ -349,8 +349,8 @@ impl ser::SerializeTuple for SeqSerializer {
 }
 
 #[doc(hidden)]
-impl ser::SerializeTupleStruct for SeqSerializer {
-  type Ok = Value;
+impl<'env> ser::SerializeTupleStruct for SeqSerializer<'env> {
+  type Ok = Value<'env>;
   type Error = Error;
 
   #[inline]
@@ -358,10 +358,9 @@ impl ser::SerializeTupleStruct for SeqSerializer {
   where
     T: Serialize,
   {
-    let env = Env::from_raw(self.array.0.env);
     self.array.set_element(
       self.current_index as _,
-      JsUnknown(value.serialize(Ser::new(&env))?),
+      JsUnknown(value.serialize(Ser::new(self.array.0.env))?),
     )?;
     self.current_index = self.current_index + 1;
     Ok(())
@@ -374,8 +373,8 @@ impl ser::SerializeTupleStruct for SeqSerializer {
 }
 
 #[doc(hidden)]
-impl ser::SerializeTupleVariant for SeqSerializer {
-  type Ok = Value;
+impl<'env> ser::SerializeTupleVariant for SeqSerializer<'env> {
+  type Ok = Value<'env>;
   type Error = Error;
 
   #[inline]
@@ -383,10 +382,9 @@ impl ser::SerializeTupleVariant for SeqSerializer {
   where
     T: Serialize,
   {
-    let env = Env::from_raw(self.array.0.env);
     self.array.set_element(
       self.current_index as _,
-      JsUnknown(value.serialize(Ser::new(&env))?),
+      JsUnknown(value.serialize(Ser::new(self.array.0.env))?),
     )?;
     self.current_index = self.current_index + 1;
     Ok(())
@@ -398,14 +396,14 @@ impl ser::SerializeTupleVariant for SeqSerializer {
   }
 }
 
-pub struct MapSerializer {
-  key: JsString,
-  obj: JsObject,
+pub struct MapSerializer<'env> {
+  key: JsString<'env>,
+  obj: JsObject<'env>,
 }
 
 #[doc(hidden)]
-impl ser::SerializeMap for MapSerializer {
-  type Ok = Value;
+impl<'env> ser::SerializeMap for MapSerializer<'env> {
+  type Ok = Value<'env>;
   type Error = Error;
 
   #[inline]
@@ -413,8 +411,7 @@ impl ser::SerializeMap for MapSerializer {
   where
     T: Serialize,
   {
-    let env = Env::from_raw(self.obj.0.env);
-    self.key = JsString(key.serialize(Ser::new(&env))?);
+    self.key = JsString(key.serialize(Ser::new(self.obj.0.env))?);
     Ok(())
   }
 
@@ -423,14 +420,13 @@ impl ser::SerializeMap for MapSerializer {
   where
     T: Serialize,
   {
-    let env = Env::from_raw(self.obj.0.env);
     self.obj.set_property(
       JsString(Value {
         env: self.key.0.env,
         value: self.key.0.value,
         value_type: ValueType::String,
       }),
-      JsUnknown(value.serialize(Ser::new(&env))?),
+      JsUnknown(value.serialize(Ser::new(self.obj.0.env))?),
     )?;
     Ok(())
   }
@@ -445,10 +441,9 @@ impl ser::SerializeMap for MapSerializer {
     K: Serialize,
     V: Serialize,
   {
-    let env = Env::from_raw(self.obj.0.env);
     self.obj.set_property(
-      JsString(key.serialize(Ser::new(&env))?),
-      JsUnknown(value.serialize(Ser::new(&env))?),
+      JsString(key.serialize(Ser::new(self.obj.0.env))?),
+      JsUnknown(value.serialize(Ser::new(self.obj.0.env))?),
     )?;
     Ok(())
   }
@@ -459,13 +454,13 @@ impl ser::SerializeMap for MapSerializer {
   }
 }
 
-pub struct StructSerializer {
-  obj: JsObject,
+pub struct StructSerializer<'env> {
+  obj: JsObject<'env>,
 }
 
 #[doc(hidden)]
-impl ser::SerializeStruct for StructSerializer {
-  type Ok = Value;
+impl<'env> ser::SerializeStruct for StructSerializer<'env> {
+  type Ok = Value<'env>;
   type Error = Error;
 
   #[inline]
@@ -473,10 +468,9 @@ impl ser::SerializeStruct for StructSerializer {
   where
     T: Serialize,
   {
-    let env = Env::from_raw(self.obj.0.env);
     self
       .obj
-      .set_named_property(key, JsUnknown(value.serialize(Ser::new(&env))?))?;
+      .set_named_property(key, JsUnknown(value.serialize(Ser::new(self.obj.0.env))?))?;
     Ok(())
   }
 
@@ -487,8 +481,8 @@ impl ser::SerializeStruct for StructSerializer {
 }
 
 #[doc(hidden)]
-impl ser::SerializeStructVariant for StructSerializer {
-  type Ok = Value;
+impl<'env> ser::SerializeStructVariant for StructSerializer<'env> {
+  type Ok = Value<'env>;
   type Error = Error;
 
   #[inline]
@@ -496,10 +490,9 @@ impl ser::SerializeStructVariant for StructSerializer {
   where
     T: Serialize,
   {
-    let env = Env::from_raw(self.obj.0.env);
     self
       .obj
-      .set_named_property(key, JsUnknown(value.serialize(Ser::new(&env))?))?;
+      .set_named_property(key, JsUnknown(value.serialize(Ser::new(self.obj.0.env))?))?;
     Ok(())
   }
 
