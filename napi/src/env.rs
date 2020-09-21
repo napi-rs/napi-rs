@@ -220,7 +220,7 @@ impl Env {
     Ok(JsObject::from_raw_unchecked(self.0, raw_value))
   }
 
-  pub fn create_buffer(&self, length: u64) -> Result<JsBuffer> {
+  pub fn create_buffer<'env, 'buffer>(&'env self, length: u64) -> Result<JsBuffer<'buffer>> {
     let mut raw_value = ptr::null_mut();
     let mut data = Vec::with_capacity(length as usize);
     let mut data_ptr = data.as_mut_ptr();
@@ -237,7 +237,10 @@ impl Env {
     ))
   }
 
-  pub fn create_buffer_with_data(&self, mut data: Vec<u8>) -> Result<JsBuffer> {
+  pub fn create_buffer_with_data<'env, 'buffer>(
+    &'env self,
+    mut data: Vec<u8>,
+  ) -> Result<JsBuffer<'buffer>> {
     let length = data.len() as u64;
     let mut raw_value = ptr::null_mut();
     let data_ptr = data.as_mut_ptr();
@@ -490,8 +493,8 @@ impl Env {
     Ok(JsObject::from_raw_unchecked(self.0, result))
   }
 
-  pub fn spawn<T: 'static + Task>(&self, task: T) -> Result<AsyncWorkPromise> {
-    async_work::run(self.0, task)
+  pub fn spawn<'env, 'out, T: 'out + Task<'out>>(&'env self, task: T) -> Result<AsyncWorkPromise> {
+    async_work::run(self, task)
   }
 
   pub fn get_global(&self) -> Result<JsObject> {
@@ -520,10 +523,11 @@ impl Env {
 
   #[cfg(all(feature = "libuv", napi4))]
   pub fn execute<
+    'out,
     T: 'static + Send,
-    V: 'static + NapiValue,
+    V: 'out + NapiValue,
     F: 'static + Future<Output = Result<T>>,
-    R: 'static + Send + Sync + FnOnce(&mut Env, T) -> Result<V>,
+    R: 'static + Send + Sync + FnMut(Env, T) -> Result<V>,
   >(
     &self,
     deferred: F,
@@ -535,7 +539,7 @@ impl Env {
     check_status(unsafe { sys::napi_create_promise(self.0, &mut raw_deferred, &mut raw_promise) })?;
 
     let event_loop = self.get_uv_event_loop()?;
-    let future_promise = promise::FuturePromise::create(self.0, raw_deferred, Box::from(resolver))?;
+    let future_promise = promise::FuturePromise::create(self, raw_deferred, Box::from(resolver))?;
     let future_to_execute = promise::resolve_from_future(future_promise.start()?, deferred);
     uv::execute(event_loop, Box::pin(future_to_execute))?;
 
@@ -547,7 +551,7 @@ impl Env {
     T: 'static + Send,
     V: 'static + NapiValue,
     F: 'static + Send + Future<Output = Result<T>>,
-    R: 'static + Send + Sync + FnOnce(&mut Env, T) -> Result<V>,
+    R: 'static + Send + Sync + FnMut(Env, T) -> Result<V>,
   >(
     &self,
     fut: F,
@@ -557,9 +561,7 @@ impl Env {
     let mut raw_deferred = ptr::null_mut();
     check_status(unsafe { sys::napi_create_promise(self.0, &mut raw_deferred, &mut raw_promise) })?;
 
-    let raw_env = self.0;
-    let future_promise =
-      promise::FuturePromise::create(raw_env, raw_deferred, Box::from(resolver))?;
+    let future_promise = promise::FuturePromise::create(self, raw_deferred, Box::from(resolver))?;
     let future_to_resolve = promise::resolve_from_future(future_promise.start()?, fut);
     let mut sender = get_tokio_sender().clone();
     sender

@@ -8,12 +8,12 @@ use crate::error::check_status;
 use crate::{sys, Error, Result};
 
 #[derive(Debug)]
-pub struct JsBuffer {
+pub struct JsBuffer<'buffer> {
   pub value: JsObject,
-  pub data: &'static [u8],
+  pub data: &'buffer [u8],
 }
 
-impl JsBuffer {
+impl<'buffer> JsBuffer<'buffer> {
   pub(crate) fn from_raw_unchecked(
     env: sys::napi_env,
     value: sys::napi_value,
@@ -139,7 +139,7 @@ impl JsBuffer {
   }
 }
 
-impl NapiValue for JsBuffer {
+impl<'buffer> NapiValue for JsBuffer<'buffer> {
   fn raw_value(&self) -> sys::napi_value {
     self.value.0.value
   }
@@ -177,13 +177,13 @@ impl NapiValue for JsBuffer {
   }
 }
 
-impl AsRef<[u8]> for JsBuffer {
+impl<'buffer> AsRef<[u8]> for JsBuffer<'buffer> {
   fn as_ref(&self) -> &[u8] {
     self.data
   }
 }
 
-impl Deref for JsBuffer {
+impl<'buffer> Deref for JsBuffer<'buffer> {
   type Target = [u8];
 
   fn deref(&self) -> &[u8] {
@@ -191,9 +191,9 @@ impl Deref for JsBuffer {
   }
 }
 
-impl TryFrom<JsUnknown> for JsBuffer {
+impl<'buffer> TryFrom<JsUnknown> for JsBuffer<'buffer> {
   type Error = Error;
-  fn try_from(value: JsUnknown) -> Result<JsBuffer> {
+  fn try_from(value: JsUnknown) -> Result<JsBuffer<'buffer>> {
     JsBuffer::from_raw(value.0.env, value.0.value)
   }
 }

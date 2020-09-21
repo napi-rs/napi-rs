@@ -1,6 +1,6 @@
 use std::convert::TryInto;
 
-use napi::{CallContext, Env, JsNumber, JsObject, Module, Result, Task};
+use napi::{CallContext, Env, JsBuffer, JsNumber, JsObject, Module, Result, Task};
 
 struct ComputeFib {
   n: u32,
@@ -12,7 +12,7 @@ impl ComputeFib {
   }
 }
 
-impl Task for ComputeFib {
+impl<'out> Task<'out> for ComputeFib {
   type Output = u32;
   type JsValue = JsNumber;
 
@@ -41,7 +41,42 @@ fn test_spawn_thread(ctx: CallContext) -> Result<JsObject> {
   Ok(async_work_promise.promise_object())
 }
 
+struct CountBufferLength<'buf> {
+  data: &'buf [u8],
+}
+
+impl<'buf> CountBufferLength<'buf> {
+  pub fn new(data: &'buf [u8]) -> Self {
+    Self { data }
+  }
+}
+
+impl<'out> Task<'out> for CountBufferLength<'out> {
+  type Output = usize;
+  type JsValue = JsNumber;
+
+  fn compute(&mut self) -> Result<Self::Output> {
+    Ok(self.data.len())
+  }
+
+  fn resolve(self, env: &mut Env, output: Self::Output) -> Result<Self::JsValue> {
+    env.create_uint32(output as _)
+  }
+}
+
+#[js_function(1)]
+fn test_spawn_thread_with_lifetime(ctx: CallContext) -> Result<JsObject> {
+  let n = ctx.get::<JsBuffer>(0)?;
+  let task = CountBufferLength::new(n.data);
+  let async_work_promise = ctx.env.spawn(task)?;
+  Ok(async_work_promise.promise_object())
+}
+
 pub fn register_js(module: &mut Module) -> Result<()> {
   module.create_named_method("testSpawnThread", test_spawn_thread)?;
+  module.create_named_method(
+    "testSpawnThreadWithLifetime",
+    test_spawn_thread_with_lifetime,
+  )?;
   Ok(())
 }

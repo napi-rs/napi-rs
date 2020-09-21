@@ -1,31 +1,32 @@
-use futures::prelude::*;
 use std::os::raw::{c_char, c_void};
 use std::ptr;
+
+use futures::prelude::*;
 
 use crate::error::check_status;
 use crate::{sys, Env, NapiValue, Result};
 
-pub struct FuturePromise<T, V: NapiValue> {
+pub struct FuturePromise<'env, T, V: NapiValue> {
   deferred: sys::napi_deferred,
-  env: sys::napi_env,
+  env: &'env Env,
   tsfn: sys::napi_threadsafe_function,
   async_resource_name: sys::napi_value,
-  resolver: Box<dyn FnOnce(&mut Env, T) -> Result<V>>,
+  resolver: Box<dyn FnMut(Env, T) -> Result<V>>,
 }
 
-unsafe impl<T, V: NapiValue> Send for FuturePromise<T, V> {}
+unsafe impl<'env, T, V: NapiValue> Send for FuturePromise<'env, T, V> {}
 
-impl<T, V: NapiValue> FuturePromise<T, V> {
+impl<'env, T, V: NapiValue> FuturePromise<'env, T, V> {
   pub fn create(
-    env: sys::napi_env,
+    env: &'env Env,
     raw_deferred: sys::napi_deferred,
-    resolver: Box<dyn FnOnce(&mut Env, T) -> Result<V>>,
+    resolver: Box<dyn FnMut(Env, T) -> Result<V>>,
   ) -> Result<Self> {
     let mut async_resource_name = ptr::null_mut();
     let s = "napi_resolve_promise_from_future";
     check_status(unsafe {
       sys::napi_create_string_utf8(
-        env,
+        env.0,
         s.as_ptr() as *const c_char,
         s.len() as u64,
         &mut async_resource_name,
@@ -49,7 +50,7 @@ impl<T, V: NapiValue> FuturePromise<T, V> {
     let self_ref = Box::leak(Box::from(self));
     check_status(unsafe {
       sys::napi_create_threadsafe_function(
-        env,
+        env.0,
         ptr::null_mut(),
         ptr::null_mut(),
         async_resource_name,
@@ -97,13 +98,13 @@ unsafe extern "C" fn call_js_cb<T, V: NapiValue>(
   context: *mut c_void,
   data: *mut c_void,
 ) {
-  let mut env = Env::from_raw(raw_env);
+  let env = Env::from_raw(raw_env);
   let future_promise = Box::from_raw(context as *mut FuturePromise<T, V>);
   let value: Result<T> = ptr::read(data as *const _);
-  let resolver = future_promise.resolver;
+  let mut resolver = future_promise.resolver;
   let deferred = future_promise.deferred;
   let tsfn = future_promise.tsfn;
-  let js_value_to_resolve = value.and_then(move |v| (resolver)(&mut env, v));
+  let js_value_to_resolve = value.and_then(move |v| (resolver)(env, v));
   match js_value_to_resolve {
     Ok(v) => {
       let status = sys::napi_resolve_deferred(raw_env, deferred, v.raw_value());

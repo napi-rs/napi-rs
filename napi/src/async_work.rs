@@ -6,44 +6,44 @@ use crate::error::check_status;
 use crate::js_values::NapiValue;
 use crate::{sys, Env, JsObject, Result, Task};
 
-struct AsyncWork<T: Task> {
+struct AsyncWork<'out, T: Task<'out>> {
   inner_task: T,
   deferred: sys::napi_deferred,
-  value: Result<*mut T::Output>,
+  value: Result<mem::MaybeUninit<T::Output>>,
   napi_async_work: sys::napi_async_work,
 }
 
 #[derive(Debug)]
-pub struct AsyncWorkPromise {
+pub struct AsyncWorkPromise<'env> {
   napi_async_work: sys::napi_async_work,
   raw_promise: sys::napi_value,
-  env: sys::napi_env,
+  env: &'env Env,
 }
 
-impl AsyncWorkPromise {
+impl<'env> AsyncWorkPromise<'env> {
   #[inline(always)]
   pub fn promise_object(&self) -> JsObject {
-    JsObject::from_raw_unchecked(self.env, self.raw_promise)
+    JsObject::from_raw_unchecked(self.env.0, self.raw_promise)
   }
 
   pub fn cancel(self) -> Result<()> {
-    check_status(unsafe { sys::napi_cancel_async_work(self.env, self.napi_async_work) })
+    check_status(unsafe { sys::napi_cancel_async_work(self.env.0, self.napi_async_work) })
   }
 }
 
 #[inline(always)]
-pub fn run<T: Task>(env: sys::napi_env, task: T) -> Result<AsyncWorkPromise> {
+pub fn run<'env, 'out, T: Task<'out>>(env: &'env Env, task: T) -> Result<AsyncWorkPromise<'env>> {
   let mut raw_resource = ptr::null_mut();
-  check_status(unsafe { sys::napi_create_object(env, &mut raw_resource) })?;
+  check_status(unsafe { sys::napi_create_object(env.0, &mut raw_resource) })?;
   let mut raw_promise = ptr::null_mut();
   let mut deferred = ptr::null_mut();
 
-  check_status(unsafe { sys::napi_create_promise(env, &mut deferred, &mut raw_promise) })?;
+  check_status(unsafe { sys::napi_create_promise(env.0, &mut deferred, &mut raw_promise) })?;
   let mut raw_name = ptr::null_mut();
   let s = "napi_rs_async";
   check_status(unsafe {
     sys::napi_create_string_utf8(
-      env,
+      env.0,
       s.as_ptr() as *const c_char,
       s.len() as u64,
       &mut raw_name,
@@ -52,12 +52,12 @@ pub fn run<T: Task>(env: sys::napi_env, task: T) -> Result<AsyncWorkPromise> {
   let result = Box::leak(Box::new(AsyncWork {
     inner_task: task,
     deferred,
-    value: Ok(ptr::null_mut()),
+    value: Ok(mem::MaybeUninit::zeroed()),
     napi_async_work: ptr::null_mut(),
   }));
   check_status(unsafe {
     sys::napi_create_async_work(
-      env,
+      env.0,
       raw_resource,
       raw_name,
       Some(execute::<T> as unsafe extern "C" fn(env: sys::napi_env, data: *mut c_void)),
@@ -69,7 +69,7 @@ pub fn run<T: Task>(env: sys::napi_env, task: T) -> Result<AsyncWorkPromise> {
       &mut result.napi_async_work,
     )
   })?;
-  check_status(unsafe { sys::napi_queue_async_work(env, result.napi_async_work) })?;
+  check_status(unsafe { sys::napi_queue_async_work(env.0, result.napi_async_work) })?;
   Ok(AsyncWorkPromise {
     napi_async_work: result.napi_async_work,
     raw_promise,
@@ -77,31 +77,31 @@ pub fn run<T: Task>(env: sys::napi_env, task: T) -> Result<AsyncWorkPromise> {
   })
 }
 
-unsafe impl<T: Task> Send for AsyncWork<T> {}
+unsafe impl<'out, T: Task<'out>> Send for AsyncWork<'out, T> {}
 
-unsafe impl<T: Task> Sync for AsyncWork<T> {}
+unsafe impl<'out, T: Task<'out>> Sync for AsyncWork<'out, T> {}
 
-unsafe extern "C" fn execute<T: Task>(_env: sys::napi_env, data: *mut c_void) {
+unsafe extern "C" fn execute<'out, T: Task<'out>>(_env: sys::napi_env, data: *mut c_void) {
   let mut work = Box::from_raw(data as *mut AsyncWork<T>);
-  work.value = work
-    .inner_task
-    .compute()
-    .map(|v| Box::into_raw(Box::from(v)));
+  let _ = mem::replace(
+    &mut work.value,
+    work.inner_task.compute().map(|v| mem::MaybeUninit::new(v)),
+  );
   Box::leak(work);
 }
 
-unsafe extern "C" fn complete<T: Task>(
+unsafe extern "C" fn complete<'out, T: Task<'out>>(
   env: sys::napi_env,
   status: sys::napi_status,
   data: *mut c_void,
 ) {
   let mut work = Box::from_raw(data as *mut AsyncWork<T>);
-  let value_ptr = mem::replace(&mut work.value, Ok(ptr::null_mut()));
+  let value_ptr = mem::replace(&mut work.value, Ok(mem::MaybeUninit::zeroed()));
   let deferred = mem::replace(&mut work.deferred, ptr::null_mut());
   let napi_async_work = mem::replace(&mut work.napi_async_work, ptr::null_mut());
   let value = value_ptr.and_then(move |v| {
     let mut env = Env::from_raw(env);
-    let output = ptr::read(v as *const _);
+    let output = v.assume_init();
     work.inner_task.resolve(&mut env, output)
   });
   match check_status(status).and_then(move |_| value) {
