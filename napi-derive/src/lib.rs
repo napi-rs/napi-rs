@@ -111,19 +111,19 @@ pub fn js_function(attr: TokenStream, input: TokenStream) -> TokenStream {
       }
 
       let mut env = Env::from_raw(raw_env);
-      match CallContext::new(&mut env, cb_info, raw_this, &raw_args, #arg_len_span, argc as usize)
-        .and_then(|ctx| panic::catch_unwind(AssertUnwindSafe(move || #new_fn_name(ctx))).map_err(|e| {
-          let message = {
-            if let Some(string) = e.downcast_ref::<String>() {
-              string.clone()
-            } else if let Some(string) = e.downcast_ref::<&str>() {
-              string.to_string()
-            } else {
-              format!("panic from Rust code: {:?}", e)
-            }
-          };
-          Error::from_reason(message)
-        }).and_then(|v| v))
+      let ctx = CallContext::new(&mut env, cb_info, raw_this, &raw_args, #arg_len_span, argc as usize);
+      match panic::catch_unwind(AssertUnwindSafe(move || #new_fn_name(ctx))).map_err(|e| {
+        let message = {
+          if let Some(string) = e.downcast_ref::<String>() {
+            string.clone()
+          } else if let Some(string) = e.downcast_ref::<&str>() {
+            string.to_string()
+          } else {
+            format!("panic from Rust code: {:?}", e)
+          }
+        };
+        Error::from_reason(message)
+      }).and_then(|v| v)
         {
           Ok(v) => v.raw_value(),
           Err(e) => {

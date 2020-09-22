@@ -3,16 +3,16 @@ use std::ptr;
 use crate::error::check_status;
 use crate::{sys, Env, Error, JsUnknown, NapiValue, Result, Status};
 
-pub struct CallContext<'env, T: NapiValue<'env> = JsUnknown<'env>> {
+pub struct CallContext<'env> {
   pub env: &'env Env,
-  pub this: T,
+  pub this: JsUnknown<'env>,
   callback_info: sys::napi_callback_info,
   args: &'env [sys::napi_value],
   arg_len: usize,
   _actual_arg_length: usize,
 }
 
-impl<'env, T: NapiValue<'env>> CallContext<'env, T> {
+impl<'env> CallContext<'env> {
   pub fn new(
     env: &'env Env,
     callback_info: sys::napi_callback_info,
@@ -20,15 +20,15 @@ impl<'env, T: NapiValue<'env>> CallContext<'env, T> {
     args: &'env [sys::napi_value],
     arg_len: usize,
     _actual_arg_length: usize,
-  ) -> Result<Self> {
-    Ok(Self {
+  ) -> Self {
+    Self {
       env,
       callback_info,
-      this: T::from_raw(env, this)?,
+      this: JsUnknown::from_raw_unchecked(env, this),
       args,
       arg_len,
       _actual_arg_length,
-    })
+    }
   }
 
   pub fn get<ArgType: NapiValue<'env>>(&self, index: usize) -> Result<ArgType> {

@@ -139,15 +139,11 @@ fn test_define_properties(ctx: CallContext) -> Result<JsUndefined> {
 }
 
 #[js_function(1)]
-fn add<'env>(mut ctx: CallContext<'env, JsObject<'env>>) -> Result<JsUndefined<'env>> {
-  let count: i32 = ctx
-    .this
-    .get_named_property::<JsNumber>("count")?
-    .try_into()?;
+fn add<'env>(mut ctx: CallContext<'env>) -> Result<JsUndefined<'env>> {
+  let this: JsObject = ctx.this.try_into()?;
+  let count: i32 = this.get_named_property::<JsNumber>("count")?.try_into()?;
   let value_to_add: i32 = ctx.get::<JsNumber>(0)?.try_into()?;
-  ctx
-    .this
-    .set_named_property("count", ctx.env.create_int32(count + value_to_add)?)?;
+  this.set_named_property("count", ctx.env.create_int32(count + value_to_add)?)?;
   ctx.env.get_undefined()
 }
 

@@ -1,3 +1,5 @@
+use std::convert::TryInto;
+
 use napi::{CallContext, JsFunction, JsNull, JsObject, Module, Result};
 
 #[js_function(1)]
@@ -12,10 +14,8 @@ pub fn call_function(ctx: CallContext) -> Result<JsNull> {
 }
 
 #[js_function(1)]
-pub fn call_function_with_this<'env>(
-  ctx: CallContext<'env, JsObject<'env>>,
-) -> Result<JsNull<'env>> {
-  let js_this = &ctx.this;
+pub fn call_function_with_this<'env>(ctx: CallContext<'env>) -> Result<JsNull<'env>> {
+  let js_this: &JsObject = &ctx.this.try_into()?;
   let js_func = ctx.get::<JsFunction>(0)?;
 
   js_func.call(Some(js_this), &[])?;
