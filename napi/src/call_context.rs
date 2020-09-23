@@ -1,11 +1,11 @@
 use std::ptr;
 
 use crate::error::check_status;
-use crate::{sys, Env, Error, JsUnknown, NapiValue, Result, Status};
+use crate::{sys, Env, Error, NapiValue, Result, Status};
 
 pub struct CallContext<'env> {
   pub env: &'env Env,
-  pub this: JsUnknown<'env>,
+  raw_this: sys::napi_value,
   callback_info: sys::napi_callback_info,
   args: &'env [sys::napi_value],
   arg_len: usize,
@@ -16,7 +16,7 @@ impl<'env> CallContext<'env> {
   pub fn new(
     env: &'env Env,
     callback_info: sys::napi_callback_info,
-    this: sys::napi_value,
+    raw_this: sys::napi_value,
     args: &'env [sys::napi_value],
     arg_len: usize,
     _actual_arg_length: usize,
@@ -24,11 +24,21 @@ impl<'env> CallContext<'env> {
     Self {
       env,
       callback_info,
-      this: JsUnknown::from_raw_unchecked(env, this),
+      raw_this,
       args,
       arg_len,
       _actual_arg_length,
     }
+  }
+
+  #[inline(always)]
+  pub fn this<T: NapiValue<'env>>(&self) -> Result<T> {
+    T::from_raw(self.env, self.raw_this)
+  }
+
+  #[inline(always)]
+  pub fn this_unchecked<T: NapiValue<'env>>(&self) -> T {
+    T::from_raw_unchecked(self.env, self.raw_this)
   }
 
   pub fn get<ArgType: NapiValue<'env>>(&self, index: usize) -> Result<ArgType> {

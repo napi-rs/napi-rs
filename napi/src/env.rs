@@ -488,13 +488,16 @@ impl Env {
   }
 
   #[cfg(all(feature = "libuv", napi4))]
+  pub fn create_threadsafe_function(&self) {}
+
+  #[cfg(all(feature = "libuv", napi4))]
   pub fn execute<
     'env,
     'out,
     T: 'static + Send,
     V: 'out + NapiValue<'out>,
     F: 'static + Future<Output = Result<T>>,
-    R: 'static + Send + Sync + FnOnce(promise::FutureResolvedContext<'out, T>) -> Result<V>,
+    R: 'static + Send + Sync + FnOnce(promise::ThreadSafeCallContext<'out, T>) -> Result<V>,
   >(
     &'env self,
     deferred: F,
@@ -520,7 +523,7 @@ impl Env {
     T: 'static + Send,
     V: 'static + NapiValue<'out>,
     F: 'static + Send + Future<Output = Result<T>>,
-    R: 'static + Send + Sync + FnOnce(promise::FutureResolvedContext<'out, T>) -> Result<V>,
+    R: 'static + Send + Sync + FnOnce(promise::ThreadSafeCallContext<'out, T>) -> Result<V>,
   >(
     &'env self,
     fut: F,
@@ -620,6 +623,22 @@ impl Env {
     check_status(unsafe { sys::napi_get_node_version(self.0, &mut result) })?;
     let version = unsafe { *result };
     version.try_into()
+  }
+
+  #[inline]
+  pub fn cast<'env, T: NapiValue<'env>, V: NapiValue<'env>>(
+    &'env self,
+    source: &'env T,
+  ) -> Result<V> {
+    V::from_raw(self, source.raw_value())
+  }
+
+  #[inline]
+  pub fn cast_unchecked<'env, T: NapiValue<'env>, V: NapiValue<'env>>(
+    &'env self,
+    source: &'env T,
+  ) -> V {
+    V::from_raw_unchecked(self, source.raw_value())
   }
 }
 

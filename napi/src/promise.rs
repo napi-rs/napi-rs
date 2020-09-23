@@ -11,10 +11,10 @@ pub struct FuturePromise<'env, 'out, T, V: NapiValue<'out>> {
   env: &'env Env,
   tsfn: sys::napi_threadsafe_function,
   async_resource_name: sys::napi_value,
-  resolver: Box<dyn FnOnce(FutureResolvedContext<'out, T>) -> Result<V>>,
+  resolver: Box<dyn FnOnce(ThreadSafeCallContext<'out, T>) -> Result<V>>,
 }
 
-pub struct FutureResolvedContext<'out, T> {
+pub struct ThreadSafeCallContext<'out, T> {
   pub env: &'out Env,
   pub value: T,
 }
@@ -25,7 +25,7 @@ impl<'env, 'out, T, V: NapiValue<'out>> FuturePromise<'env, 'out, T, V> {
   pub fn create(
     env: &'env Env,
     raw_deferred: sys::napi_deferred,
-    resolver: Box<dyn FnOnce(FutureResolvedContext<'out, T>) -> Result<V>>,
+    resolver: Box<dyn FnOnce(ThreadSafeCallContext<'out, T>) -> Result<V>>,
   ) -> Result<Self> {
     let mut async_resource_name = ptr::null_mut();
     let s = "napi_resolve_promise_from_future";
@@ -110,7 +110,7 @@ unsafe extern "C" fn call_js_cb<'out, T, V: NapiValue<'out>>(
   let deferred = future_promise.deferred;
   let tsfn = future_promise.tsfn;
   let js_value_to_resolve =
-    value.and_then(move |v| (resolver)(FutureResolvedContext { env: env, value: v }));
+    value.and_then(move |v| (resolver)(ThreadSafeCallContext { env: env, value: v }));
   match js_value_to_resolve {
     Ok(v) => {
       let status = sys::napi_resolve_deferred(raw_env, deferred, v.raw_value());

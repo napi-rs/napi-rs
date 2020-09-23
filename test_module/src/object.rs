@@ -139,8 +139,8 @@ fn test_define_properties(ctx: CallContext) -> Result<JsUndefined> {
 }
 
 #[js_function(1)]
-fn add<'env>(mut ctx: CallContext<'env>) -> Result<JsUndefined<'env>> {
-  let this: JsObject = ctx.this.try_into()?;
+fn add<'env>(ctx: CallContext<'env>) -> Result<JsUndefined<'env>> {
+  let mut this: JsObject = ctx.this_unchecked();
   let count: i32 = this.get_named_property::<JsNumber>("count")?.try_into()?;
   let value_to_add: i32 = ctx.get::<JsNumber>(0)?.try_into()?;
   this.set_named_property("count", ctx.env.create_int32(count + value_to_add)?)?;

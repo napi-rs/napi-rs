@@ -12,16 +12,16 @@ fn create_test_class(ctx: CallContext) -> Result<JsFunction> {
 }
 
 #[js_function(1)]
-fn test_class_constructor<'env>(mut ctx: CallContext<'env>) -> Result<JsUndefined<'env>> {
-  let this: JsObject = ctx.this.try_into()?;
+fn test_class_constructor<'env>(ctx: CallContext<'env>) -> Result<JsUndefined<'env>> {
+  let mut this: JsObject = ctx.this_unchecked();
   let count = ctx.get::<JsNumber>(0)?;
   this.set_named_property("count", ctx.env.create_int32(count.try_into()?)?)?;
   ctx.env.get_undefined()
 }
 
 #[js_function(1)]
-fn add_count<'env>(mut ctx: CallContext<'env>) -> Result<JsUndefined<'env>> {
-  let this: JsObject = ctx.this.try_into()?;
+fn add_count<'env>(ctx: CallContext<'env>) -> Result<JsUndefined<'env>> {
+  let mut this: JsObject = ctx.this_unchecked();
   let add: i32 = ctx.get::<JsNumber>(0)?.try_into()?;
   let count: i32 = this.get_named_property::<JsNumber>("count")?.try_into()?;
   this.set_named_property("count", ctx.env.create_int32(count + add)?)?;

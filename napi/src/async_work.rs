@@ -22,7 +22,7 @@ pub struct AsyncWorkPromise<'env> {
 
 impl<'env> AsyncWorkPromise<'env> {
   #[inline(always)]
-  pub fn promise_object(&self) -> JsObject {
+  pub fn promise_object(&self) -> JsObject<'env> {
     JsObject::from_raw_unchecked(self.env, self.raw_promise)
   }
 

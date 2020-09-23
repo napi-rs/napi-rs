@@ -2,7 +2,7 @@ use std::path::Path;
 use std::thread;
 
 use napi::threadsafe_function::{
-  ThreadsafeFunction, ThreadsafeFunctionCallMode, ThreadsafeFunctionReleaseMode, ToJs,
+  ThreadsafeFunction, ThreadsafeFunctionCallMode, ThreadsafeFunctionReleaseMode,
 };
 use napi::{CallContext, Env, Error, JsFunction, JsString, JsUndefined, JsUnknown, Result, Status};
 use tokio;

@@ -120,7 +120,7 @@ pub use task::Task;
 pub use version::NodeVersion;
 
 #[cfg(all(any(feature = "libuv", feature = "tokio_rt"), napi4))]
-pub use promise::FutureResolvedContext;
+pub use promise::ThreadSafeCallContext;
 #[cfg(all(feature = "tokio_rt", napi4))]
 pub use tokio_rt::shutdown as shutdown_tokio_rt;
 
