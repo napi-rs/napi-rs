@@ -15,6 +15,10 @@ use crate::{sys, Error, NodeVersion, Result, Status};
 use crate::js_values::{De, Ser};
 #[cfg(all(any(feature = "libuv", feature = "tokio_rt"), napi4))]
 use crate::promise;
+#[cfg(napi4)]
+use crate::threadsafe_function;
+#[cfg(napi4)]
+use crate::threadsafe_function::ThreadsafeFunction;
 #[cfg(all(feature = "tokio_rt", napi4))]
 use crate::tokio_rt::{get_tokio_sender, Message};
 #[cfg(all(feature = "libuv", napi4))]
@@ -40,8 +44,7 @@ impl Env {
 
   pub fn get_undefined(&self) -> Result<JsUndefined> {
     let mut raw_value = ptr::null_mut();
-    let status = unsafe { sys::napi_get_undefined(self.0, &mut raw_value) };
-    check_status(status)?;
+    check_status(unsafe { sys::napi_get_undefined(self.0, &mut raw_value) })?;
     Ok(JsUndefined::from_raw_unchecked(self, raw_value))
   }
 
@@ -488,7 +491,23 @@ impl Env {
   }
 
   #[cfg(all(feature = "libuv", napi4))]
-  pub fn create_threadsafe_function(&self) {}
+  pub fn create_threadsafe_function<
+    'env,
+    'out,
+    T: 'static + Send,
+    V: 'out + NapiValue<'out>,
+    R: 'static
+      + Send
+      + Sync
+      + FnMut(threadsafe_function::ThreadSafeCallContext<'out, T>) -> Result<Vec<V>>,
+  >(
+    &self,
+    func: JsFunction,
+    max_queue_size: u64,
+    callback: R,
+  ) -> Result<ThreadsafeFunction<T>> {
+    ThreadsafeFunction::create(self, func, max_queue_size, callback)
+  }
 
   #[cfg(all(feature = "libuv", napi4))]
   pub fn execute<
@@ -497,7 +516,10 @@ impl Env {
     T: 'static + Send,
     V: 'out + NapiValue<'out>,
     F: 'static + Future<Output = Result<T>>,
-    R: 'static + Send + Sync + FnOnce(promise::ThreadSafeCallContext<'out, T>) -> Result<V>,
+    R: 'static
+      + Send
+      + Sync
+      + FnOnce(threadsafe_function::ThreadSafeCallContext<'out, T>) -> Result<V>,
   >(
     &'env self,
     deferred: F,
@@ -523,7 +545,10 @@ impl Env {
     T: 'static + Send,
     V: 'static + NapiValue<'out>,
     F: 'static + Send + Future<Output = Result<T>>,
-    R: 'static + Send + Sync + FnOnce(promise::ThreadSafeCallContext<'out, T>) -> Result<V>,
+    R: 'static
+      + Send
+      + Sync
+      + FnOnce(threadsafe_function::ThreadSafeCallContext<'out, T>) -> Result<V>,
   >(
     &'env self,
     fut: F,

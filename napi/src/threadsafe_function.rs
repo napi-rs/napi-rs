@@ -1,5 +1,5 @@
 use std::convert::Into;
-use std::mem;
+use std::marker::PhantomData;
 use std::os::raw::{c_char, c_void};
 use std::ptr;
 
@@ -8,6 +8,11 @@ use crate::{sys, Env, JsFunction, NapiValue, Result};
 
 use sys::napi_threadsafe_function_call_mode;
 use sys::napi_threadsafe_function_release_mode;
+
+pub struct ThreadSafeCallContext<'out, T> {
+  pub env: &'out mut Env,
+  pub value: T,
+}
 
 #[repr(u8)]
 pub enum ThreadsafeFunctionCallMode {
@@ -104,24 +109,33 @@ impl Into<napi_threadsafe_function_release_mode> for ThreadsafeFunctionReleaseMo
 ///   ctx.env.get_undefined()
 /// }
 /// ```
-pub struct ThreadsafeFunction<T, V: NapiValue<'static>> {
+pub struct ThreadsafeFunction<T> {
   raw_tsfn: sys::napi_threadsafe_function,
-  output: mem::MaybeUninit<Result<T>>,
-  callback: Box<dyn FnMut(Env, T) -> Result<Vec<V>>>,
+  _phantom: PhantomData<T>,
 }
 
-unsafe impl<T, V: NapiValue<'static>> Send for ThreadsafeFunction<T, V> {}
-unsafe impl<T, V: NapiValue<'static>> Sync for ThreadsafeFunction<T, V> {}
+unsafe impl<T> Send for ThreadsafeFunction<T> {}
+unsafe impl<T> Sync for ThreadsafeFunction<T> {}
 
-impl<T, V: NapiValue<'static>> ThreadsafeFunction<T, V> {
+struct ThreadSafeContext<'out, T, V: NapiValue<'out>> {
+  callback: Box<dyn FnMut(ThreadSafeCallContext<'out, T>) -> Result<Vec<V>>>,
+}
+
+impl<T> ThreadsafeFunction<T> {
   /// See [napi_create_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_create_threadsafe_function)
   /// for more information.
-  pub fn create(
-    env: &Env,
+  #[inline(always)]
+  pub fn create<
+    'env,
+    'out,
+    V: NapiValue<'out>,
+    R: 'static + Send + Sync + FnMut(ThreadSafeCallContext<'out, T>) -> Result<Vec<V>>,
+  >(
+    env: &'env Env,
     func: JsFunction,
     max_queue_size: u64,
-    callback: Box<dyn FnMut(Env, T) -> Result<Vec<V>>>,
-  ) -> Result<&'static mut Self> {
+    callback: R,
+  ) -> Result<Self> {
     let mut async_resource_name = ptr::null_mut();
     let s = "napi_rs_threadsafe_function";
     check_status(unsafe {
@@ -134,16 +148,11 @@ impl<T, V: NapiValue<'static>> ThreadsafeFunction<T, V> {
     })?;
 
     let initial_thread_count: u64 = 1;
-    let mut result = ptr::null_mut();
-    let tsfn = ThreadsafeFunction {
-      raw_tsfn: result,
-      output: mem::MaybeUninit::zeroed(),
-      callback,
+    let mut raw_tsfn = ptr::null_mut();
+    let context = ThreadSafeContext {
+      callback: Box::from(callback),
     };
-
-    let ref_value = Box::leak(Box::from(tsfn));
-    let ptr = ref_value as *mut _ as *mut c_void;
-
+    let ptr = Box::into_raw(Box::new(context)) as *mut _;
     check_status(unsafe {
       sys::napi_create_threadsafe_function(
         env.0,
@@ -155,20 +164,27 @@ impl<T, V: NapiValue<'static>> ThreadsafeFunction<T, V> {
         ptr,
         Some(thread_finalize_cb::<T, V>),
         ptr,
-        Some(call_js_cb::<T, V>),
-        &mut result,
+        Some(call_js_cb::<'out, T, V>),
+        &mut raw_tsfn,
       )
     })?;
 
-    Ok(ref_value)
+    Ok(ThreadsafeFunction {
+      raw_tsfn,
+      _phantom: PhantomData,
+    })
   }
 
   /// See [napi_call_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_call_threadsafe_function)
   /// for more information.
-  pub fn call(&mut self, value: Result<T>, mode: ThreadsafeFunctionCallMode) {
-    let _ = mem::replace(&mut self.output, mem::MaybeUninit::new(value));
-    let status =
-      unsafe { sys::napi_call_threadsafe_function(self.raw_tsfn, ptr::null_mut(), mode.into()) };
+  pub fn call(&self, value: Result<T>, mode: ThreadsafeFunctionCallMode) {
+    let status = unsafe {
+      sys::napi_call_threadsafe_function(
+        self.raw_tsfn,
+        Box::into_raw(Box::new(value)) as *mut _,
+        mode.into(),
+      )
+    };
     debug_assert!(
       status == sys::napi_status::napi_ok,
       "Threadsafe Function call failed"
@@ -210,29 +226,33 @@ impl<T, V: NapiValue<'static>> ThreadsafeFunction<T, V> {
   }
 }
 
-unsafe extern "C" fn thread_finalize_cb<T, V: NapiValue<'static>>(
+unsafe extern "C" fn thread_finalize_cb<'out, T, V: NapiValue<'out>>(
   _raw_env: sys::napi_env,
   finalize_data: *mut c_void,
   _finalize_hint: *mut c_void,
 ) {
   // cleanup
-  Box::from_raw(finalize_data as *mut ThreadsafeFunction<T, V>);
+  Box::from_raw(finalize_data as *mut ThreadSafeContext<T, V>);
 }
 
-unsafe extern "C" fn call_js_cb<T, V: NapiValue<'static>>(
+unsafe extern "C" fn call_js_cb<'out, T, V: NapiValue<'out>>(
   raw_env: sys::napi_env,
   js_callback: sys::napi_value,
   context: *mut c_void,
-  _data: *mut c_void,
+  data: *mut c_void,
 ) {
-  let env = Env::from_raw(raw_env);
   let mut recv = ptr::null_mut();
   sys::napi_get_undefined(raw_env, &mut recv);
 
-  let tsfn = Box::leak(Box::from_raw(context as *mut ThreadsafeFunction<T, V>));
-  let val = mem::replace(&mut tsfn.output, mem::MaybeUninit::zeroed());
+  let ctx = Box::leak(Box::from_raw(context as *mut ThreadSafeContext<T, V>));
+  let val = Box::from_raw(data as *mut Result<T>);
 
-  let ret = val.assume_init().and_then(|v| (tsfn.callback)(env, v));
+  let ret = val.and_then(|v| {
+    (ctx.callback)(ThreadSafeCallContext {
+      env: Box::leak(Box::new(Env::from_raw(raw_env))),
+      value: v,
+    })
+  });
 
   let status;
 

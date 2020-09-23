@@ -119,8 +119,10 @@ pub use status::Status;
 pub use task::Task;
 pub use version::NodeVersion;
 
-#[cfg(all(any(feature = "libuv", feature = "tokio_rt"), napi4))]
-pub use promise::ThreadSafeCallContext;
+#[cfg(napi4)]
+pub use threadsafe_function::{
+  ThreadSafeCallContext, ThreadsafeFunctionCallMode, ThreadsafeFunctionReleaseMode,
+};
 #[cfg(all(feature = "tokio_rt", napi4))]
 pub use tokio_rt::shutdown as shutdown_tokio_rt;
 

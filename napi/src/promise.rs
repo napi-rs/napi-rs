@@ -4,6 +4,7 @@ use std::ptr;
 use futures::prelude::*;
 
 use crate::error::check_status;
+use crate::threadsafe_function::ThreadSafeCallContext;
 use crate::{sys, Env, NapiValue, Result};
 
 pub struct FuturePromise<'env, 'out, T, V: NapiValue<'out>> {
@@ -12,11 +13,6 @@ pub struct FuturePromise<'env, 'out, T, V: NapiValue<'out>> {
   tsfn: sys::napi_threadsafe_function,
   async_resource_name: sys::napi_value,
   resolver: Box<dyn FnOnce(ThreadSafeCallContext<'out, T>) -> Result<V>>,
-}
-
-pub struct ThreadSafeCallContext<'out, T> {
-  pub env: &'out Env,
-  pub value: T,
 }
 
 unsafe impl<'env, 'out, T, V: NapiValue<'out>> Send for FuturePromise<'env, 'out, T, V> {}
