@@ -261,14 +261,15 @@ unsafe extern "C" fn call_js_cb<'out, T, V: NapiValue<'out>>(
   // If the Result is an error, pass that as the first argument.
   match ret {
     Ok(values) => {
-      let mut args: Vec<sys::napi_value> = Vec::with_capacity(values.len() + 1);
+      let args_length = values.len() + 1;
+      let mut args: Vec<sys::napi_value> = Vec::with_capacity(args_length);
       args.push(ptr::null_mut());
       args.extend(values.iter().map(|v| v.raw_value()));
       status = sys::napi_call_function(
         raw_env,
         recv,
         js_callback,
-        2,
+        args_length as _,
         args.as_ptr(),
         ptr::null_mut(),
       );
