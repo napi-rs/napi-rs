@@ -389,46 +389,27 @@
   resolved "https://registry.npmjs.org/@sindresorhus/is/-/is-0.14.0.tgz#9fb3a3cf3132328151f353de4632e01e52102bea"
   integrity sha512-9NET910DNaIPngYnLLPeg+Ogzqsi9uM4mSboU5y6p8S5DzMTVEsJZrawi+BoDNUVBa2DhJqQYUFvMDfgU062LQ==
 
-"@swc-node/core-darwin@^0.7.6":
-  version "0.7.6"
-  resolved "https://registry.npmjs.org/@swc-node/core-darwin/-/core-darwin-0.7.6.tgz#0ced2f14ae1770978a0fae57bb3bacd21bb9901d"
-  integrity sha512-AtGIvQRYpxoDHfn1dYRlzsjQeiZHUeBIkZ30Y/qsxxr16rZdroctyLfdweHvlRZ3XDrz53JuEZmzPZy6g6EAFA==
-
 "@swc-node/core-linux-musl@^0.7.6":
   version "0.7.6"
   resolved "https://registry.npmjs.org/@swc-node/core-linux-musl/-/core-linux-musl-0.7.6.tgz#5237835c3b9a51970ca44943ec4eee65004329cd"
   integrity sha512-pF1Ngr0v2Xc4fsNdU10v1X2ypR1vjIm9eQtcHqahN7eN5udCrWeHEluA0ohgQxHpQkXA8MokNT8EF1fpSUnCuw==
 
-"@swc-node/core-linux@^0.7.6":
-  version "0.7.6"
-  resolved "https://registry.npmjs.org/@swc-node/core-linux/-/core-linux-0.7.6.tgz#e7052c82cf448d9e79fde27549f76e451cfbad3c"
-  integrity sha512-U78tQS9voIP4fOtYkEhZTZq1XwbMkHagwDc3uSZfAthJ9Clii2Aj1AzbEO7FaFysxBBq38XFectOf/fe9YwQNA==
-
-"@swc-node/core-win32@^0.7.6":
-  version "0.7.6"
-  resolved "https://registry.npmjs.org/@swc-node/core-win32/-/core-win32-0.7.6.tgz#6944afe76b346725b753d5ea0def363857b3ab85"
-  integrity sha512-CUNG1kDXITphk79+Cj3oUem5EeLUG80TVEKIzjxuLy4WfTOWAiF2U7SY4oF/Lf5rLyMuCVLhyZL5VCZKXlfB4Q==
-
-"@swc-node/core@^0.7.6":
-  version "0.7.6"
-  resolved "https://registry.npmjs.org/@swc-node/core/-/core-0.7.6.tgz#b260905701fa280c9302fad671dfd94ed2db75b4"
-  integrity sha512-nSCri4UnHxV/M7+esnajVuAOnthoh3E9S1GOxkxDTK1j0HXcRPeD5uknR9wLp1cQkx7SJMA9C5ma/6h3cdOibQ==
+"@swc-node/core@^1.0.0":
+  version "1.0.0"
+  resolved "https://registry.npmjs.org/@swc-node/core/-/core-1.0.0.tgz#d719abe9d5aa49bb169153d1f3b8ef5364f6f30d"
+  integrity sha512-U0ebtvZVAVjvIjIw2NW07siJFszoOniE5DX1XB08RRvrV1hSI/yuTT81z1onoI66Fhc1l+AJbZLq4U19VEBCOA==
   dependencies:
-    "@node-rs/helper" "^0.4.0"
-  optionalDependencies:
-    "@swc-node/core-darwin" "^0.7.6"
-    "@swc-node/core-linux" "^0.7.6"
-    "@swc-node/core-win32" "^0.7.6"
+    "@swc/core" "^1.2.34"
 
-"@swc-node/register@^0.5.3":
-  version "0.5.3"
-  resolved "https://registry.npmjs.org/@swc-node/register/-/register-0.5.3.tgz#1f960fe4202a53625a9762ea66576eb26cb5a65a"
-  integrity sha512-6LaoX3OOreGmaTsqbgrKwyEdjMZbcHtpW9AqsHG7h+n5G/wVNixHL7OSA90uD4Q0nx3xKELZH6bTCKtjqWaiwQ==
+"@swc-node/register@^1.0.0":
+  version "1.0.0"
+  resolved "https://registry.npmjs.org/@swc-node/register/-/register-1.0.0.tgz#c7bee0feea44b08c765b6745f928e7ed2f670511"
+  integrity sha512-pUz5KvJjg+cNlwTeqW4FOQ1nwWsqbFMifysKPEseBCiW/QKd/NhufYPdqkAa8uvMBEcxEtFsH7mnFT/es5AbCg==
   dependencies:
-    "@swc-node/core" "^0.7.6"
+    "@swc-node/core" "^1.0.0"
     "@swc-node/sourcemap-support" "^0.1.8"
     chalk "^4.1.0"
-    debug "^4.1.1"
+    debug "^4.2.0"
     pirates "^4.0.1"
 
 "@swc-node/sourcemap-support@^0.1.8":
@@ -437,6 +418,32 @@
   integrity sha512-AOH32yNN8UJh6Ayc+r3mnPdrjqqEjtXr9wsEiEhh3OqJWFXqkMOHC+18FYhHdTzGzhaYqUshQONjqOTC38yx7Q==
   dependencies:
     source-map-support "^0.5.19"
+
+"@swc/core-darwin@^1.2.34":
+  version "1.2.34"
+  resolved "https://registry.npmjs.org/@swc/core-darwin/-/core-darwin-1.2.34.tgz#dd69b1a12b7a2cb9e43a5e8a78a8d2d7ff392f53"
+  integrity sha512-OKOHOcqBgvBQiGC7doCa4CXKVDpO1QMIQogCFelqs82YbcQa6YEWvB6+ujiw1oUWaXP2fed1TFHDpHFJWorxIQ==
+
+"@swc/core-linux@^1.2.34":
+  version "1.2.34"
+  resolved "https://registry.npmjs.org/@swc/core-linux/-/core-linux-1.2.34.tgz#927fbdbfed1e842bbda4dc96d1407c5a0e67234d"
+  integrity sha512-85ryQe9M4xPY9R4mRfbU/Gk/z45GVPG1LiJhf99jA+7RmNiffwJXLRuD8SwkE5rKHO8My1mVCha8uBQnZIDhEg==
+
+"@swc/core-win32@^1.2.34":
+  version "1.2.34"
+  resolved "https://registry.npmjs.org/@swc/core-win32/-/core-win32-1.2.34.tgz#2eeba70a72bb71acf4efcfab099d4cb96826b587"
+  integrity sha512-DxxKEo9Q/jOGTXizPJXdKkfSjGU3cU4df9ZY7nslWVp0c7r+hnHcplh2A1CklOdLinUTBUP+3DHtLTyhLElPBg==
+
+"@swc/core@^1.2.34":
+  version "1.2.34"
+  resolved "https://registry.npmjs.org/@swc/core/-/core-1.2.34.tgz#bd1d64d219cf116667517aadd7eb804045743d7c"
+  integrity sha512-V0qMusSNpKUwkjN42zfeEEILldnAx+XFVH7q96ofrM/MRYDWjYZJU9eaCwAGNb/bLS7+UWq8e/nxxpOvKLnjdQ==
+  dependencies:
+    "@node-rs/helper" "^0.4.0"
+  optionalDependencies:
+    "@swc/core-darwin" "^1.2.34"
+    "@swc/core-linux" "^1.2.34"
+    "@swc/core-win32" "^1.2.34"
 
 "@szmarczak/http-timer@^1.1.2":
   version "1.1.2"
