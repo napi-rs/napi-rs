@@ -219,7 +219,7 @@ impl Env {
     Ok(JsObject::from_raw_unchecked(self.0, raw_value))
   }
 
-  pub fn create_buffer(&self, length: u64) -> Result<JsBuffer> {
+  pub fn create_buffer<'env, 'buffer>(&'env self, length: u64) -> Result<JsBuffer<'buffer>> {
     let mut raw_value = ptr::null_mut();
     let mut data = Vec::with_capacity(length as usize);
     let mut data_ptr = data.as_mut_ptr();
@@ -228,7 +228,7 @@ impl Env {
     })?;
     mem::forget(data);
 
-    Ok(JsBuffer::from_raw_unchecked(
+    Ok(JsBuffer::new(
       self.0,
       raw_value,
       data_ptr as *mut u8,
@@ -236,7 +236,10 @@ impl Env {
     ))
   }
 
-  pub fn create_buffer_with_data(&self, mut data: Vec<u8>) -> Result<JsBuffer> {
+  pub fn create_buffer_with_data<'env, 'buffer>(
+    &'env self,
+    mut data: Vec<u8>,
+  ) -> Result<JsBuffer<'buffer>> {
     let length = data.len() as u64;
     let mut raw_value = ptr::null_mut();
     let data_ptr = data.as_mut_ptr();
@@ -253,12 +256,7 @@ impl Env {
     let mut changed = 0;
     check_status(unsafe { sys::napi_adjust_external_memory(self.0, length as i64, &mut changed) })?;
     mem::forget(data);
-    Ok(JsBuffer::from_raw_unchecked(
-      self.0,
-      raw_value,
-      data_ptr,
-      length as usize,
-    ))
+    Ok(JsBuffer::new(self.0, raw_value, data_ptr, length as usize))
   }
 
   pub fn create_arraybuffer(&self, length: u64) -> Result<JsArrayBuffer> {
