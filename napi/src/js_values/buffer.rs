@@ -158,7 +158,7 @@ impl NapiValue for JsBuffer {
     })
   }
 
-  fn from_raw_without_typecheck(env: sys::napi_env, value: sys::napi_value) -> Self {
+  fn from_raw_unchecked(env: sys::napi_env, value: sys::napi_value) -> Self {
     let mut data = ptr::null_mut();
     let mut len: u64 = 0;
     let status = unsafe { sys::napi_get_buffer_info(env, value, &mut data, &mut len) };

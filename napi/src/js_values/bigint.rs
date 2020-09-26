@@ -154,7 +154,7 @@ impl NapiValue for JsBigint {
     })
   }
 
-  fn from_raw_without_typecheck(env: sys::napi_env, value: sys::napi_value) -> Self {
+  fn from_raw_unchecked(env: sys::napi_env, value: sys::napi_value) -> Self {
     let mut word_count: u64 = 0;
     let status = unsafe {
       sys::napi_get_value_bigint_words(
