@@ -5,7 +5,7 @@ use std::mem;
 use std::os::raw::{c_char, c_void};
 use std::ptr;
 
-use crate::async_work::AsyncWork;
+use crate::async_work::{self, AsyncWorkPromise};
 use crate::error::check_status;
 use crate::js_values::*;
 use crate::task::Task;
@@ -40,8 +40,7 @@ impl Env {
 
   pub fn get_undefined(&self) -> Result<JsUndefined> {
     let mut raw_value = ptr::null_mut();
-    let status = unsafe { sys::napi_get_undefined(self.0, &mut raw_value) };
-    check_status(status)?;
+    check_status(unsafe { sys::napi_get_undefined(self.0, &mut raw_value) })?;
     Ok(JsUndefined::from_raw_unchecked(self.0, raw_value))
   }
 
@@ -220,7 +219,7 @@ impl Env {
     Ok(JsObject::from_raw_unchecked(self.0, raw_value))
   }
 
-  pub fn create_buffer(&self, length: u64) -> Result<JsBuffer> {
+  pub fn create_buffer<'env, 'buffer>(&'env self, length: u64) -> Result<JsBuffer<'buffer>> {
     let mut raw_value = ptr::null_mut();
     let mut data = Vec::with_capacity(length as usize);
     let mut data_ptr = data.as_mut_ptr();
@@ -229,7 +228,7 @@ impl Env {
     })?;
     mem::forget(data);
 
-    Ok(JsBuffer::from_raw_unchecked(
+    Ok(JsBuffer::new(
       self.0,
       raw_value,
       data_ptr as *mut u8,
@@ -237,7 +236,10 @@ impl Env {
     ))
   }
 
-  pub fn create_buffer_with_data(&self, mut data: Vec<u8>) -> Result<JsBuffer> {
+  pub fn create_buffer_with_data<'env, 'buffer>(
+    &'env self,
+    mut data: Vec<u8>,
+  ) -> Result<JsBuffer<'buffer>> {
     let length = data.len() as u64;
     let mut raw_value = ptr::null_mut();
     let data_ptr = data.as_mut_ptr();
@@ -254,12 +256,7 @@ impl Env {
     let mut changed = 0;
     check_status(unsafe { sys::napi_adjust_external_memory(self.0, length as i64, &mut changed) })?;
     mem::forget(data);
-    Ok(JsBuffer::from_raw_unchecked(
-      self.0,
-      raw_value,
-      data_ptr,
-      length as usize,
-    ))
+    Ok(JsBuffer::new(self.0, raw_value, data_ptr, length as usize))
   }
 
   pub fn create_arraybuffer(&self, length: u64) -> Result<JsArrayBuffer> {
@@ -490,13 +487,8 @@ impl Env {
     Ok(JsObject::from_raw_unchecked(self.0, result))
   }
 
-  pub fn spawn<T: 'static + Task>(&self, task: T) -> Result<JsObject> {
-    let mut raw_promise = ptr::null_mut();
-    let mut raw_deferred = ptr::null_mut();
-
-    check_status(unsafe { sys::napi_create_promise(self.0, &mut raw_deferred, &mut raw_promise) })?;
-    AsyncWork::run(self.0, task, raw_deferred)?;
-    Ok(JsObject::from_raw_unchecked(self.0, raw_promise))
+  pub fn spawn<T: 'static + Task>(&self, task: T) -> Result<AsyncWorkPromise> {
+    async_work::run(self, task)
   }
 
   pub fn get_global(&self) -> Result<JsObject> {

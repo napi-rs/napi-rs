@@ -92,19 +92,8 @@ macro_rules! impl_napi_value_trait {
         self.0.value
       }
 
-      fn from_raw_without_typecheck(env: sys::napi_env, value: sys::napi_value) -> $js_value {
+      fn from_raw_unchecked(env: sys::napi_env, value: sys::napi_value) -> $js_value {
         $js_value(Value {
-          env,
-          value,
-          value_type: $value_type,
-        })
-      }
-    }
-
-    impl $js_value {
-      #[inline]
-      pub fn from_raw_unchecked(env: sys::napi_env, value: sys::napi_value) -> Self {
-        Self(Value {
           env,
           value,
           value_type: $value_type,
@@ -231,7 +220,7 @@ macro_rules! impl_js_value_methods {
 pub trait NapiValue: Sized {
   fn from_raw(env: sys::napi_env, value: sys::napi_value) -> Result<Self>;
 
-  fn from_raw_without_typecheck(env: sys::napi_env, value: sys::napi_value) -> Self;
+  fn from_raw_unchecked(env: sys::napi_env, value: sys::napi_value) -> Self;
 
   fn raw_value(&self) -> sys::napi_value;
 }
@@ -268,7 +257,7 @@ impl NapiValue for JsUnknown {
     }))
   }
 
-  fn from_raw_without_typecheck(env: sys::napi_env, value: sys::napi_value) -> Self {
+  fn from_raw_unchecked(env: sys::napi_env, value: sys::napi_value) -> Self {
     JsUnknown(Value {
       env,
       value,
