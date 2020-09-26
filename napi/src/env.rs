@@ -40,8 +40,7 @@ impl Env {
 
   pub fn get_undefined(&self) -> Result<JsUndefined> {
     let mut raw_value = ptr::null_mut();
-    let status = unsafe { sys::napi_get_undefined(self.0, &mut raw_value) };
-    check_status(status)?;
+    check_status(unsafe { sys::napi_get_undefined(self.0, &mut raw_value) })?;
     Ok(JsUndefined::from_raw_unchecked(self.0, raw_value))
   }
 
