@@ -5,7 +5,7 @@ use std::mem;
 use std::os::raw::{c_char, c_void};
 use std::ptr;
 
-use crate::async_work::AsyncWork;
+use crate::async_work::{self, AsyncWorkPromise};
 use crate::error::check_status;
 use crate::js_values::*;
 use crate::task::Task;
@@ -487,13 +487,8 @@ impl Env {
     Ok(JsObject::from_raw_unchecked(self.0, result))
   }
 
-  pub fn spawn<T: 'static + Task>(&self, task: T) -> Result<JsObject> {
-    let mut raw_promise = ptr::null_mut();
-    let mut raw_deferred = ptr::null_mut();
-
-    check_status(unsafe { sys::napi_create_promise(self.0, &mut raw_deferred, &mut raw_promise) })?;
-    AsyncWork::run(self.0, task, raw_deferred)?;
-    Ok(JsObject::from_raw_unchecked(self.0, raw_promise))
+  pub fn spawn<T: 'static + Task>(&self, task: T) -> Result<AsyncWorkPromise> {
+    async_work::run(self, task)
   }
 
   pub fn get_global(&self) -> Result<JsObject> {
