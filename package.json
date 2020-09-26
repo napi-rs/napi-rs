@@ -69,7 +69,7 @@
   },
   "devDependencies": {
     "@istanbuljs/nyc-config-typescript": "^1.0.1",
-    "@swc-node/register": "^0.5.3",
+    "@swc-node/register": "^1.0.0",
     "@types/debug": "^4.1.5",
     "@types/inquirer": "^7.3.1",
     "@types/lodash": "^4.14.161",
@@ -91,6 +91,6 @@
     "typescript": "^4.0.3"
   },
   "optionalDependencies": {
-    "@swc-node/core-linux-musl": "^0.7.6"
+    "@swc/core-linux-musl": "^1.2.34"
   }
 }
