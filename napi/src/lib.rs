@@ -199,7 +199,7 @@ macro_rules! register_module {
           let hook_result = Ok(());
 
           match hook_result.and_then(move |_| result) {
-            Ok(_) => cjs_module.exports.raw_value(),
+            Ok(_) => cjs_module.exports.raw(),
             Err(e) => {
               unsafe {
                 sys::napi_throw_error(

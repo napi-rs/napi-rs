@@ -80,6 +80,8 @@ unsafe impl<T: Task> Send for AsyncWork<T> {}
 
 unsafe impl<T: Task> Sync for AsyncWork<T> {}
 
+/// env here is the same with the one in `CallContext`.
+/// So it actually could do nothing here, because `execute` function is called in the other thread mostly.
 unsafe extern "C" fn execute<T: Task>(_env: sys::napi_env, data: *mut c_void) {
   let mut work = Box::from_raw(data as *mut AsyncWork<T>);
   let _ = mem::replace(
@@ -100,11 +102,11 @@ unsafe extern "C" fn complete<T: Task>(
   let napi_async_work = mem::replace(&mut work.napi_async_work, ptr::null_mut());
   let value = value_ptr.and_then(move |v| {
     let output = v.assume_init();
-    work.inner_task.resolve(&mut Env::from_raw(env), output)
+    work.inner_task.resolve(Env::from_raw(env), output)
   });
   match check_status(status).and_then(move |_| value) {
     Ok(v) => {
-      let status = sys::napi_resolve_deferred(env, deferred, v.raw_value());
+      let status = sys::napi_resolve_deferred(env, deferred, v.raw());
       debug_assert!(status == sys::napi_status::napi_ok, "Reject promise failed");
     }
     Err(e) => {

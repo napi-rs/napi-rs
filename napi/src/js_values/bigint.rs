@@ -117,19 +117,14 @@ impl JsBigint {
   pub fn instanceof<Constructor: NapiValue>(&self, constructor: Constructor) -> Result<bool> {
     let mut result = false;
     check_status(unsafe {
-      sys::napi_instanceof(
-        self.raw.env,
-        self.raw.value,
-        constructor.raw_value(),
-        &mut result,
-      )
+      sys::napi_instanceof(self.raw.env, self.raw.value, constructor.raw(), &mut result)
     })?;
     Ok(result)
   }
 }
 
 impl NapiValue for JsBigint {
-  fn raw_value(&self) -> sys::napi_value {
+  fn raw(&self) -> sys::napi_value {
     self.raw.value
   }
 

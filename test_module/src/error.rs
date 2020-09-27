@@ -10,7 +10,7 @@ fn test_throw_with_reason(ctx: CallContext) -> Result<JsUnknown> {
   let reason = ctx.get::<JsString>(0)?;
   Err(Error::new(
     Status::GenericFailure,
-    reason.as_str()?.to_owned(),
+    reason.into_utf8()?.as_str()?.to_owned(),
   ))
 }
 

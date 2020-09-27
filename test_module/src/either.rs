@@ -11,7 +11,7 @@ pub fn either_number_string(ctx: CallContext) -> Result<Either<JsNumber, JsStrin
       ctx.env.create_uint32(n + 100).map(Either::A)
     }
     Either::B(s) => {
-      let content = format!("Either::B({})", s.as_str()?);
+      let content = format!("Either::B({})", s.into_utf8()?.as_str()?);
       ctx.env.create_string_from_std(content).map(Either::B)
     }
   }
