@@ -1014,10 +1014,10 @@ cli-width@^3.0.0:
   resolved "https://registry.npmjs.org/cli-width/-/cli-width-3.0.0.tgz#a2f48437a2caa9a22436e794bf071ec9e61cedf6"
   integrity sha512-FxqpkPPwu1HjuN93Omfm4h8uIanXofW0RxVEW3k5RKx+mJJYSthzNhp32Kzxxy3YAEZ/Dc/EWN1vZRY0+kOhbw==
 
-clipanion@^2.6.1:
-  version "2.6.1"
-  resolved "https://registry.npmjs.org/clipanion/-/clipanion-2.6.1.tgz#2152b9745aa35cfb0353605c262f68a02257bde7"
-  integrity sha512-G03gaywe142VKNptEvr583Ju69p/O9QiwAKMYXKRAoU/ibN38KI1D/y0qwRxez3FWwO1GCxcXUWwHl4iG7GRXw==
+clipanion@^2.6.2:
+  version "2.6.2"
+  resolved "https://registry.npmjs.org/clipanion/-/clipanion-2.6.2.tgz#820e7440812052442455b248f927b187ed732f71"
+  integrity sha512-0tOHJNMF9+4R3qcbBL+4IxLErpaYSYvzs10aXuECDbZdJOuJHdagJMAqvLdeaUQTI/o2uSCDRpet6ywDiKOAYw==
 
 cliui@^6.0.0:
   version "6.0.0"
