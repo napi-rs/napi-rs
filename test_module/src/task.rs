@@ -1,6 +1,8 @@
 use std::convert::TryInto;
 
-use napi::{CallContext, Env, JsNumber, JsObject, Module, Result, Task};
+use napi::{
+  CallContext, Env, JsBuffer, JsBufferValue, JsNumber, JsObject, Module, Ref, Result, Task,
+};
 
 struct ComputeFib {
   n: u32,
@@ -20,7 +22,7 @@ impl Task for ComputeFib {
     Ok(fibonacci_native(self.n))
   }
 
-  fn resolve(&self, env: &mut Env, output: Self::Output) -> Result<Self::JsValue> {
+  fn resolve(self, env: Env, output: Self::Output) -> Result<Self::JsValue> {
     env.create_uint32(output)
   }
 }
@@ -41,7 +43,40 @@ fn test_spawn_thread(ctx: CallContext) -> Result<JsObject> {
   Ok(async_promise.promise_object())
 }
 
+struct CountBufferLength {
+  data: Ref<JsBufferValue>,
+}
+
+impl CountBufferLength {
+  pub fn new(data: Ref<JsBufferValue>) -> Self {
+    Self { data }
+  }
+}
+
+impl Task for CountBufferLength {
+  type Output = usize;
+  type JsValue = JsNumber;
+
+  fn compute(&mut self) -> Result<Self::Output> {
+    Ok((&self.data).len())
+  }
+
+  fn resolve(self, env: Env, output: Self::Output) -> Result<Self::JsValue> {
+    self.data.unref(env)?;
+    env.create_uint32(output as _)
+  }
+}
+
+#[js_function(1)]
+fn test_spawn_thread_with_ref(ctx: CallContext) -> Result<JsObject> {
+  let n = ctx.get::<JsBuffer>(0)?.into_ref()?;
+  let task = CountBufferLength::new(n);
+  let async_work_promise = ctx.env.spawn(task)?;
+  Ok(async_work_promise.promise_object())
+}
+
 pub fn register_js(module: &mut Module) -> Result<()> {
   module.create_named_method("testSpawnThread", test_spawn_thread)?;
+  module.create_named_method("testSpawnThreadWithRef", test_spawn_thread_with_ref)?;
   Ok(())
 }

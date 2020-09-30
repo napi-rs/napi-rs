@@ -26,10 +26,10 @@ impl<A: NapiValue, B: NapiValue> NapiValue for Either<A, B> {
     Self::from_raw(env, value).unwrap()
   }
 
-  fn raw_value(&self) -> sys::napi_value {
+  fn raw(&self) -> sys::napi_value {
     match self {
-      Either::A(v) => v.raw_value(),
-      Either::B(v) => v.raw_value(),
+      Either::A(v) => v.raw(),
+      Either::B(v) => v.raw(),
     }
   }
 }

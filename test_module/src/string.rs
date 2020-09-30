@@ -3,14 +3,17 @@ use napi::{CallContext, JsString, Module, Result};
 #[js_function(1)]
 fn concat_string(ctx: CallContext) -> Result<JsString> {
   let in_string = ctx.get::<JsString>(0)?;
-  let out_string = format!("{} + Rust 🦀 string!", in_string.as_str()?);
+  let out_string = format!("{} + Rust 🦀 string!", in_string.into_utf8()?.as_str()?);
   ctx.env.create_string_from_std(out_string)
 }
 
 #[js_function(1)]
 fn concat_latin1_string(ctx: CallContext) -> Result<JsString> {
   let in_string = ctx.get::<JsString>(0)?;
-  let out_string = format!("{} + Rust 🦀 string!", in_string.as_latin1_string()?);
+  let out_string = format!(
+    "{} + Rust 🦀 string!",
+    in_string.into_latin1()?.into_latin1_string()?
+  );
   ctx.env.create_string_from_std(out_string)
 }
 

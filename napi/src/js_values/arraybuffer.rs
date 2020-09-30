@@ -126,7 +126,7 @@ impl JsArrayBuffer {
       sys::napi_instanceof(
         self.value.0.env,
         self.value.0.value,
-        constructor.raw_value(),
+        constructor.raw(),
         &mut result,
       )
     })?;
@@ -135,7 +135,7 @@ impl JsArrayBuffer {
 }
 
 impl NapiValue for JsArrayBuffer {
-  fn raw_value(&self) -> sys::napi_value {
+  fn raw(&self) -> sys::napi_value {
     self.value.0.value
   }
 

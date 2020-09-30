@@ -15,6 +15,7 @@ mod bigint;
 mod boolean;
 mod buffer;
 mod either;
+mod escapable_handle_scope;
 mod function;
 mod number;
 mod object;
@@ -30,33 +31,38 @@ pub use arraybuffer::JsArrayBuffer;
 #[cfg(napi6)]
 pub use bigint::JsBigint;
 pub use boolean::JsBoolean;
-pub use buffer::JsBuffer;
+pub use buffer::*;
 #[cfg(feature = "serde-json")]
 pub(crate) use de::De;
 pub use either::Either;
+pub use escapable_handle_scope::EscapableHandleScope;
 pub use function::JsFunction;
 pub use number::JsNumber;
 pub use object::JsObject;
 pub use object_property::Property;
 #[cfg(feature = "serde-json")]
 pub(crate) use ser::Ser;
-pub use string::JsString;
+pub use string::*;
 pub(crate) use tagged_object::TaggedObject;
 pub use undefined::JsUndefined;
 pub(crate) use value::Value;
-pub(crate) use value_ref::Ref;
+pub use value_ref::Ref;
 pub use value_type::ValueType;
 
 // Value types
+#[repr(transparent)]
 #[derive(Debug)]
 pub struct JsUnknown(pub(crate) Value);
 
+#[repr(transparent)]
 #[derive(Debug)]
 pub struct JsNull(pub(crate) Value);
 
+#[repr(transparent)]
 #[derive(Debug)]
 pub struct JsSymbol(pub(crate) Value);
 
+#[repr(transparent)]
 #[derive(Debug)]
 pub struct JsExternal(pub(crate) Value);
 
@@ -88,7 +94,7 @@ macro_rules! impl_napi_value_trait {
         }
       }
 
-      fn raw_value(&self) -> sys::napi_value {
+      fn raw(&self) -> sys::napi_value {
         self.0.value
       }
 
@@ -130,6 +136,7 @@ macro_rules! impl_js_value_methods {
           value_type: ValueType::Number,
         }))
       }
+
       #[inline]
       pub fn coerce_to_string(self) -> Result<JsString> {
         let mut new_raw_value = ptr::null_mut();
@@ -204,12 +211,7 @@ macro_rules! impl_js_value_methods {
       pub fn instanceof<Constructor: NapiValue>(&self, constructor: Constructor) -> Result<bool> {
         let mut result = false;
         check_status(unsafe {
-          sys::napi_instanceof(
-            self.0.env,
-            self.0.value,
-            constructor.raw_value(),
-            &mut result,
-          )
+          sys::napi_instanceof(self.0.env, self.0.value, constructor.raw(), &mut result)
         })?;
         Ok(result)
       }
@@ -222,13 +224,14 @@ pub trait NapiValue: Sized {
 
   fn from_raw_unchecked(env: sys::napi_env, value: sys::napi_value) -> Self;
 
-  fn raw_value(&self) -> sys::napi_value;
+  fn raw(&self) -> sys::napi_value;
 }
 
 impl_js_value_methods!(JsUnknown);
 impl_js_value_methods!(JsUndefined);
 impl_js_value_methods!(JsNull);
 impl_js_value_methods!(JsBoolean);
+impl_js_value_methods!(JsBuffer);
 impl_js_value_methods!(JsNumber);
 impl_js_value_methods!(JsString);
 impl_js_value_methods!(JsObject);
@@ -241,6 +244,7 @@ use ValueType::*;
 impl_napi_value_trait!(JsUndefined, Undefined);
 impl_napi_value_trait!(JsNull, Null);
 impl_napi_value_trait!(JsBoolean, Boolean);
+impl_napi_value_trait!(JsBuffer, Object);
 impl_napi_value_trait!(JsNumber, Number);
 impl_napi_value_trait!(JsString, String);
 impl_napi_value_trait!(JsObject, Object);
@@ -265,7 +269,7 @@ impl NapiValue for JsUnknown {
     })
   }
 
-  fn raw_value(&self) -> sys::napi_value {
+  fn raw(&self) -> sys::napi_value {
     self.0.value
   }
 }

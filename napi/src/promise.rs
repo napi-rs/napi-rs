@@ -106,7 +106,7 @@ unsafe extern "C" fn call_js_cb<T, V: NapiValue>(
   let js_value_to_resolve = value.and_then(move |v| (resolver)(&mut env, v));
   match js_value_to_resolve {
     Ok(v) => {
-      let status = sys::napi_resolve_deferred(raw_env, deferred, v.raw_value());
+      let status = sys::napi_resolve_deferred(raw_env, deferred, v.raw());
       debug_assert!(
         status == sys::napi_status::napi_ok,
         "Resolve promise failed"

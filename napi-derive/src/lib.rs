@@ -176,13 +176,13 @@ fn get_execute_js_code(
   let return_token_stream = match function_kind {
     FunctionKind::Contextless => {
       quote! {
-        Ok(Some(v)) => v.raw_value(),
+        Ok(Some(v)) => v.raw(),
         Ok(None) => ptr::null_mut(),
       }
     }
     FunctionKind::JsFunction => {
       quote! {
-        Ok(v) => v.raw_value(),
+        Ok(v) => v.raw(),
       }
     }
   };

@@ -30,6 +30,7 @@ use tokio::sync::mpsc::error::TrySendError;
 
 pub type Callback = extern "C" fn(sys::napi_env, sys::napi_callback_info) -> sys::napi_value;
 
+#[repr(transparent)]
 #[derive(Clone, Copy, Debug)]
 pub struct Env(pub(crate) sys::napi_env);
 
@@ -219,28 +220,26 @@ impl Env {
     Ok(JsObject::from_raw_unchecked(self.0, raw_value))
   }
 
-  pub fn create_buffer<'env, 'buffer>(&'env self, length: u64) -> Result<JsBuffer<'buffer>> {
+  pub fn create_buffer(&self, length: u64) -> Result<JsBufferValue> {
     let mut raw_value = ptr::null_mut();
-    let mut data = Vec::with_capacity(length as usize);
-    let mut data_ptr = data.as_mut_ptr();
+    let mut data: Vec<u8> = Vec::with_capacity(length as usize);
+    let mut data_ptr = data.as_mut_ptr() as *mut c_void;
     check_status(unsafe {
       sys::napi_create_buffer(self.0, length, &mut data_ptr, &mut raw_value)
     })?;
-    mem::forget(data);
 
-    Ok(JsBuffer::new(
-      self.0,
-      raw_value,
-      data_ptr as *mut u8,
-      length as usize,
+    Ok(JsBufferValue::new(
+      JsBuffer(Value {
+        env: self.0,
+        value: raw_value,
+        value_type: ValueType::Object,
+      }),
+      data,
     ))
   }
 
-  pub fn create_buffer_with_data<'env, 'buffer>(
-    &'env self,
-    mut data: Vec<u8>,
-  ) -> Result<JsBuffer<'buffer>> {
-    let length = data.len() as u64;
+  pub fn create_buffer_with_data(&self, mut data: Vec<u8>) -> Result<JsBufferValue> {
+    let mut length = data.len() as u64;
     let mut raw_value = ptr::null_mut();
     let data_ptr = data.as_mut_ptr();
     check_status(unsafe {
@@ -249,14 +248,20 @@ impl Env {
         length,
         data_ptr as *mut c_void,
         Some(drop_buffer),
-        Box::leak(Box::new(length)) as *mut u64 as *mut _,
+        &mut length as *mut u64 as *mut _,
         &mut raw_value,
       )
     })?;
     let mut changed = 0;
     check_status(unsafe { sys::napi_adjust_external_memory(self.0, length as i64, &mut changed) })?;
-    mem::forget(data);
-    Ok(JsBuffer::new(self.0, raw_value, data_ptr, length as usize))
+    Ok(JsBufferValue::new(
+      JsBuffer(Value {
+        env: self.0,
+        value: raw_value,
+        value_type: ValueType::Object,
+      }),
+      data,
+    ))
   }
 
   pub fn create_arraybuffer(&self, length: u64) -> Result<JsArrayBuffer> {
@@ -326,25 +331,6 @@ impl Env {
         CString::from_vec_unchecked(msg.into()).as_ptr() as *const _,
       )
     })
-  }
-
-  pub fn create_reference<T: NapiValue>(&self, value: T) -> Result<Ref<T>> {
-    let mut raw_ref = ptr::null_mut();
-    let initial_ref_count = 1;
-    check_status(unsafe {
-      sys::napi_create_reference(self.0, value.raw_value(), initial_ref_count, &mut raw_ref)
-    })?;
-
-    Ok(Ref::new(self.0, raw_ref))
-  }
-
-  pub fn get_reference_value<T: NapiValue>(&self, reference: &Ref<T>) -> Result<T> {
-    let mut raw_value = ptr::null_mut();
-    check_status(unsafe {
-      sys::napi_get_reference_value(self.0, reference.ref_value, &mut raw_value)
-    })?;
-
-    T::from_raw(self.0, raw_value)
   }
 
   pub fn define_class(
@@ -491,6 +477,19 @@ impl Env {
     async_work::run(self, task)
   }
 
+  pub fn run_in_scope<T, F>(&self, executor: F) -> Result<T>
+  where
+    F: FnOnce() -> Result<T>,
+  {
+    let mut handle_scope = ptr::null_mut();
+    check_status(unsafe { sys::napi_open_handle_scope(self.0, &mut handle_scope) })?;
+
+    let result = executor();
+
+    check_status(unsafe { sys::napi_close_handle_scope(self.0, handle_scope) })?;
+    result
+  }
+
   pub fn get_global(&self) -> Result<JsObject> {
     let mut raw_global = ptr::null_mut();
     check_status(unsafe { sys::napi_get_global(self.0, &mut raw_global) })?;
@@ -503,6 +502,7 @@ impl Env {
     let versions: JsObject = process.get_named_property("versions")?;
     let napi_version: JsString = versions.get_named_property("napi")?;
     napi_version
+      .into_utf8()?
       .as_str()?
       .parse()
       .map_err(|e| Error::new(Status::InvalidArg, format!("{}", e)))
@@ -622,7 +622,7 @@ impl Env {
   {
     let value = Value {
       env: self.0,
-      value: value.raw_value(),
+      value: value.raw(),
       value_type: ValueType::Unknown,
     };
     let mut de = De(&value);
@@ -631,9 +631,7 @@ impl Env {
 
   pub fn strict_equals<A: NapiValue, B: NapiValue>(&self, a: A, b: B) -> Result<bool> {
     let mut result = false;
-    check_status(unsafe {
-      sys::napi_strict_equals(self.0, a.raw_value(), b.raw_value(), &mut result)
-    })?;
+    check_status(unsafe { sys::napi_strict_equals(self.0, a.raw(), b.raw(), &mut result) })?;
     Ok(result)
   }
 
@@ -646,7 +644,7 @@ impl Env {
 }
 
 unsafe extern "C" fn drop_buffer(env: sys::napi_env, finalize_data: *mut c_void, len: *mut c_void) {
-  let length = Box::from_raw(len as *mut u64);
+  let length = len as *mut u64;
   let length = *length as usize;
   let _ = Vec::from_raw_parts(finalize_data as *mut u8, length, length);
   let mut changed = 0;

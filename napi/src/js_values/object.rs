@@ -5,6 +5,7 @@ use super::Value;
 use crate::error::check_status;
 use crate::{sys, Error, JsString, NapiValue, Property, Result, Status};
 
+#[repr(transparent)]
 #[derive(Debug)]
 pub struct JsObject(pub(crate) Value);
 
@@ -14,7 +15,7 @@ impl JsObject {
     V: NapiValue,
   {
     check_status(unsafe {
-      sys::napi_set_property(self.0.env, self.0.value, key.0.value, value.raw_value())
+      sys::napi_set_property(self.0.env, self.0.value, key.0.value, value.raw())
     })
   }
 
@@ -25,7 +26,7 @@ impl JsObject {
   {
     let mut raw_value = ptr::null_mut();
     check_status(unsafe {
-      sys::napi_get_property(self.0.env, self.0.value, key.raw_value(), &mut raw_value)
+      sys::napi_get_property(self.0.env, self.0.value, key.raw(), &mut raw_value)
     })?;
     T::from_raw(self.0.env, raw_value)
   }
@@ -36,7 +37,7 @@ impl JsObject {
   {
     let key = CString::new(name)?;
     check_status(unsafe {
-      sys::napi_set_named_property(self.0.env, self.0.value, key.as_ptr(), value.raw_value())
+      sys::napi_set_named_property(self.0.env, self.0.value, key.as_ptr(), value.raw())
     })
   }
 
@@ -70,7 +71,7 @@ impl JsObject {
   {
     let mut result = false;
     check_status(unsafe {
-      sys::napi_delete_property(self.0.env, self.0.value, name.raw_value(), &mut result)
+      sys::napi_delete_property(self.0.env, self.0.value, name.raw(), &mut result)
     })?;
     Ok(result)
   }
@@ -107,7 +108,7 @@ impl JsObject {
   {
     let mut result = false;
     check_status(unsafe {
-      sys::napi_has_own_property(self.0.env, self.0.value, key.raw_value(), &mut result)
+      sys::napi_has_own_property(self.0.env, self.0.value, key.raw(), &mut result)
     })?;
     Ok(result)
   }
@@ -129,7 +130,7 @@ impl JsObject {
   {
     let mut result = false;
     check_status(unsafe {
-      sys::napi_has_property(self.0.env, self.0.value, name.raw_value(), &mut result)
+      sys::napi_has_property(self.0.env, self.0.value, name.raw(), &mut result)
     })?;
     Ok(result)
   }
@@ -157,9 +158,7 @@ impl JsObject {
   where
     T: NapiValue,
   {
-    check_status(unsafe {
-      sys::napi_set_element(self.0.env, self.0.value, index, value.raw_value())
-    })
+    check_status(unsafe { sys::napi_set_element(self.0.env, self.0.value, index, value.raw()) })
   }
 
   pub fn has_element(&self, index: u32) -> Result<bool> {
@@ -215,7 +214,7 @@ impl JsObject {
   #[inline]
   pub fn get_array_length_unchecked(&self) -> Result<u32> {
     let mut length: u32 = 0;
-    check_status(unsafe { sys::napi_get_array_length(self.0.env, self.raw_value(), &mut length) })?;
+    check_status(unsafe { sys::napi_get_array_length(self.0.env, self.raw(), &mut length) })?;
     Ok(length)
   }
 }

@@ -85,22 +85,21 @@ impl ToJs for HandleBuffer {
 async fn read_file_content(filepath: &Path) -> Result<Vec<u8>> {
   tokio::fs::read(filepath)
     .await
-    .map_err(|_| Error::new(Status::Unknown, "failed to read file".to_owned()))
+    .map_err(|e| Error::new(Status::Unknown, format!("{}", e)))
 }
 
 #[js_function(2)]
 pub fn test_tokio_readfile(ctx: CallContext) -> Result<JsUndefined> {
   let js_filepath = ctx.get::<JsString>(0)?;
   let js_func = ctx.get::<JsFunction>(1)?;
-  let path_str = js_filepath.as_str()?;
+  let path_str = js_filepath.into_utf8()?.to_owned()?;
 
   let to_js = HandleBuffer;
   let tsfn = ThreadsafeFunction::create(ctx.env, js_func, to_js, 0)?;
   let mut rt = tokio::runtime::Runtime::new().unwrap();
 
   rt.block_on(async move {
-    let mut filepath = Path::new(path_str);
-    let ret = read_file_content(&mut filepath).await;
+    let ret = read_file_content(&Path::new(&path_str)).await;
     let _ = tsfn.call(ret, ThreadsafeFunctionCallMode::Blocking);
     tsfn
       .release(ThreadsafeFunctionReleaseMode::Release)

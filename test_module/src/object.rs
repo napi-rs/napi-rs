@@ -31,14 +31,18 @@ fn test_get_named_property(ctx: CallContext) -> Result<JsUnknown> {
 fn test_has_named_property(ctx: CallContext) -> Result<JsBoolean> {
   let obj = ctx.get::<JsObject>(0)?;
   let key = ctx.get::<JsString>(1)?;
-  ctx.env.get_boolean(obj.has_named_property(key.as_str()?)?)
+  ctx
+    .env
+    .get_boolean(obj.has_named_property(key.into_utf8()?.as_str()?)?)
 }
 
 #[js_function(2)]
 fn test_has_own_property(ctx: CallContext) -> Result<JsBoolean> {
   let obj = ctx.get::<JsObject>(0)?;
   let key = ctx.get::<JsString>(1)?;
-  ctx.env.get_boolean(obj.has_own_property(key.as_str()?)?)
+  ctx
+    .env
+    .get_boolean(obj.has_own_property(key.into_utf8()?.as_str()?)?)
 }
 
 #[js_function(2)]
@@ -52,7 +56,9 @@ fn test_has_own_property_js(ctx: CallContext) -> Result<JsBoolean> {
 fn test_has_property(ctx: CallContext) -> Result<JsBoolean> {
   let obj = ctx.get::<JsObject>(0)?;
   let key = ctx.get::<JsString>(1)?;
-  ctx.env.get_boolean(obj.has_property(key.as_str()?)?)
+  ctx
+    .env
+    .get_boolean(obj.has_property(key.into_utf8()?.as_str()?)?)
 }
 
 #[js_function(2)]
@@ -75,7 +81,7 @@ fn test_delete_named_property(ctx: CallContext) -> Result<JsBoolean> {
   let key = ctx.get::<JsString>(1)?;
   ctx
     .env
-    .get_boolean(obj.delete_named_property(key.as_str()?)?)
+    .get_boolean(obj.delete_named_property(key.into_utf8()?.as_str()?)?)
 }
 
 #[js_function(2)]
