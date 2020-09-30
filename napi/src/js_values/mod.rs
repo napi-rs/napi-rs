@@ -27,7 +27,7 @@ mod value;
 mod value_ref;
 mod value_type;
 
-pub use arraybuffer::JsArrayBuffer;
+pub use arraybuffer::*;
 #[cfg(napi6)]
 pub use bigint::JsBigint;
 pub use boolean::JsBoolean;
@@ -231,6 +231,7 @@ impl_js_value_methods!(JsUnknown);
 impl_js_value_methods!(JsUndefined);
 impl_js_value_methods!(JsNull);
 impl_js_value_methods!(JsBoolean);
+impl_js_value_methods!(JsArrayBuffer);
 impl_js_value_methods!(JsBuffer);
 impl_js_value_methods!(JsNumber);
 impl_js_value_methods!(JsString);
@@ -245,6 +246,7 @@ impl_napi_value_trait!(JsUndefined, Undefined);
 impl_napi_value_trait!(JsNull, Null);
 impl_napi_value_trait!(JsBoolean, Boolean);
 impl_napi_value_trait!(JsBuffer, Object);
+impl_napi_value_trait!(JsArrayBuffer, Object);
 impl_napi_value_trait!(JsNumber, Number);
 impl_napi_value_trait!(JsString, String);
 impl_napi_value_trait!(JsObject, Object);
