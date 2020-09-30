@@ -126,6 +126,8 @@ pub use tokio_rt::shutdown as shutdown_tokio_rt;
 #[macro_use]
 extern crate serde;
 
+pub type ContextlessResult<T> = Result<Option<T>>;
+
 /// register nodejs module
 ///
 /// ## Example

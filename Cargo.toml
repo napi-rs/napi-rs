@@ -6,4 +6,4 @@ members = [
   "./napi-derive-example",
   "./sys"
 ]
-exclude = ["./test_module"]
+exclude = ["./test_module", "./bench"]

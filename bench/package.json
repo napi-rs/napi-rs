@@ -1,0 +1,7 @@
+{
+  "name": "test-module",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "cargo build --release && node ../scripts/index.js build --release"
+  }
+}
