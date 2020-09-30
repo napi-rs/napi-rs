@@ -1,182 +1,69 @@
-use std::convert::TryFrom;
+use std::mem;
+use std::ops::Deref;
 use std::ptr;
 
-use super::{JsNumber, JsObject, JsString, JsUnknown, NapiValue, Status, Value, ValueType};
+use super::Value;
 use crate::error::check_status;
-use crate::{sys, Error, Result};
+use crate::{sys, JsUnknown, Ref, Result};
+
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy)]
+pub struct JsArrayBuffer(pub(crate) Value);
 
 #[derive(Debug)]
-pub struct JsArrayBuffer {
-  pub value: JsObject,
-  pub data: *const u8,
-  pub len: u64,
+pub struct JsArrayBufferValue {
+  pub(crate) value: JsArrayBuffer,
+  data: mem::ManuallyDrop<Vec<u8>>,
 }
 
 impl JsArrayBuffer {
-  pub(crate) fn from_raw_unchecked(env: sys::napi_env, value: sys::napi_value) -> Self {
-    Self {
-      value: JsObject(Value {
-        env,
-        value,
-        value_type: ValueType::Object,
-      }),
-      data: ptr::null(),
-      len: 0,
-    }
-  }
-
-  #[inline]
-  pub fn into_unknown(self) -> Result<JsUnknown> {
-    JsUnknown::from_raw(self.value.0.env, self.value.0.value)
-  }
-
-  #[inline]
-  pub fn coerce_to_number(self) -> Result<JsNumber> {
-    let mut new_raw_value = ptr::null_mut();
-    check_status(unsafe {
-      sys::napi_coerce_to_number(self.value.0.env, self.value.0.value, &mut new_raw_value)
-    })?;
-    Ok(JsNumber(Value {
-      env: self.value.0.env,
-      value: new_raw_value,
-      value_type: ValueType::Number,
-    }))
-  }
-
-  #[inline]
-  pub fn coerce_to_string(self) -> Result<JsString> {
-    let mut new_raw_value = ptr::null_mut();
-    check_status(unsafe {
-      sys::napi_coerce_to_string(self.value.0.env, self.value.0.value, &mut new_raw_value)
-    })?;
-    Ok(JsString(Value {
-      env: self.value.0.env,
-      value: new_raw_value,
-      value_type: ValueType::String,
-    }))
-  }
-  #[inline]
-  pub fn coerce_to_object(self) -> Result<JsObject> {
-    let mut new_raw_value = ptr::null_mut();
-    check_status(unsafe {
-      sys::napi_coerce_to_object(self.value.0.env, self.value.0.value, &mut new_raw_value)
-    })?;
-    Ok(JsObject(Value {
-      env: self.value.0.env,
-      value: new_raw_value,
-      value_type: ValueType::Object,
-    }))
-  }
-
-  #[inline]
-  #[cfg(napi5)]
-  pub fn is_date(&self) -> Result<bool> {
-    let mut is_date = true;
-    check_status(unsafe { sys::napi_is_date(self.value.0.env, self.value.0.value, &mut is_date) })?;
-    Ok(is_date)
-  }
-
-  #[inline]
-  pub fn is_error(&self) -> Result<bool> {
-    let mut result = false;
-    check_status(unsafe { sys::napi_is_error(self.value.0.env, self.value.0.value, &mut result) })?;
-    Ok(result)
-  }
-
-  #[inline]
-  pub fn is_typedarray(&self) -> Result<bool> {
-    let mut result = false;
-    check_status(unsafe {
-      sys::napi_is_typedarray(self.value.0.env, self.value.0.value, &mut result)
-    })?;
-    Ok(result)
-  }
-
-  #[inline]
-  pub fn is_dataview(&self) -> Result<bool> {
-    let mut result = false;
-    check_status(unsafe {
-      sys::napi_is_dataview(self.value.0.env, self.value.0.value, &mut result)
-    })?;
-    Ok(result)
-  }
-
-  #[inline]
-  pub fn is_array(&self) -> Result<bool> {
-    let mut is_array = false;
-    check_status(unsafe {
-      sys::napi_is_array(self.value.0.env, self.value.0.value, &mut is_array)
-    })?;
-    Ok(is_array)
-  }
-
-  #[inline]
-  pub fn is_buffer(&self) -> Result<bool> {
-    let mut is_buffer = false;
-    check_status(unsafe {
-      sys::napi_is_buffer(self.value.0.env, self.value.0.value, &mut is_buffer)
-    })?;
-    Ok(is_buffer)
-  }
-
-  #[inline]
-  pub fn instanceof<Constructor: NapiValue>(&self, constructor: Constructor) -> Result<bool> {
-    let mut result = false;
-    check_status(unsafe {
-      sys::napi_instanceof(
-        self.value.0.env,
-        self.value.0.value,
-        constructor.raw(),
-        &mut result,
-      )
-    })?;
-    Ok(result)
-  }
-}
-
-impl NapiValue for JsArrayBuffer {
-  fn raw(&self) -> sys::napi_value {
-    self.value.0.value
-  }
-
-  fn from_raw(env: sys::napi_env, value: sys::napi_value) -> Result<Self> {
+  pub fn into_value(self) -> Result<JsArrayBufferValue> {
     let mut data = ptr::null_mut();
     let mut len: u64 = 0;
-    check_status(unsafe { sys::napi_get_arraybuffer_info(env, value, &mut data, &mut len) })?;
-    Ok(JsArrayBuffer {
-      value: JsObject(Value {
-        env,
-        value,
-        value_type: ValueType::Object,
+    check_status(unsafe {
+      sys::napi_get_arraybuffer_info(self.0.env, self.0.value, &mut data, &mut len)
+    })?;
+    Ok(JsArrayBufferValue {
+      data: mem::ManuallyDrop::new(unsafe {
+        Vec::from_raw_parts(data as *mut _, len as usize, len as usize)
       }),
-      data: data as *const u8,
-      len,
+      value: self,
     })
   }
 
-  fn from_raw_unchecked(env: sys::napi_env, value: sys::napi_value) -> Self {
-    let mut data = ptr::null_mut();
-    let mut len: u64 = 0;
-    let status = unsafe { sys::napi_get_arraybuffer_info(env, value, &mut data, &mut len) };
-    debug_assert!(
-      Status::from(status) == Status::Ok,
-      "napi_get_arraybuffer_info failed"
-    );
-    JsArrayBuffer {
-      value: JsObject(Value {
-        env,
-        value,
-        value_type: ValueType::Object,
-      }),
-      data: data as *const u8,
-      len,
-    }
+  #[inline]
+  pub fn into_ref(self) -> Result<Ref<JsArrayBufferValue>> {
+    Ref::new(self.0, 1, self.into_value()?)
   }
 }
 
-impl TryFrom<JsUnknown> for JsArrayBuffer {
-  type Error = Error;
-  fn try_from(value: JsUnknown) -> Result<JsArrayBuffer> {
-    JsArrayBuffer::from_raw(value.0.env, value.0.value)
+impl JsArrayBufferValue {
+  pub fn new(value: JsArrayBuffer, data: Vec<u8>) -> Self {
+    JsArrayBufferValue {
+      value,
+      data: mem::ManuallyDrop::new(data),
+    }
+  }
+
+  pub fn into_raw(self) -> JsArrayBuffer {
+    self.value
+  }
+
+  pub fn into_unknown(self) -> Result<JsUnknown> {
+    self.value.into_unknown()
+  }
+}
+
+impl AsRef<[u8]> for JsArrayBufferValue {
+  fn as_ref(&self) -> &[u8] {
+    self.data.as_slice()
+  }
+}
+
+impl Deref for JsArrayBufferValue {
+  type Target = [u8];
+
+  fn deref(&self) -> &[u8] {
+    self.data.as_slice()
   }
 }

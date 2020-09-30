@@ -264,22 +264,22 @@ impl Env {
     ))
   }
 
-  pub fn create_arraybuffer(&self, length: u64) -> Result<JsArrayBuffer> {
+  pub fn create_arraybuffer(&self, length: u64) -> Result<JsArrayBufferValue> {
     let mut raw_value = ptr::null_mut();
-    let mut data = Vec::with_capacity(length as usize);
-    let mut data_ptr = data.as_mut_ptr();
+    let mut data: Vec<u8> = Vec::with_capacity(length as usize);
+    let mut data_ptr = data.as_mut_ptr() as *mut c_void;
     check_status(unsafe {
       sys::napi_create_arraybuffer(self.0, length, &mut data_ptr, &mut raw_value)
     })?;
-    mem::forget(data);
-    let mut array_buffer = JsArrayBuffer::from_raw_unchecked(self.0, raw_value);
-    array_buffer.data = data_ptr as *const u8;
-    array_buffer.len = length;
-    Ok(array_buffer)
+
+    Ok(JsArrayBufferValue::new(
+      JsArrayBuffer::from_raw_unchecked(self.0, raw_value),
+      data,
+    ))
   }
 
-  pub fn create_arraybuffer_with_data(&self, data: Vec<u8>) -> Result<JsArrayBuffer> {
-    let length = data.len() as u64;
+  pub fn create_arraybuffer_with_data(&self, data: Vec<u8>) -> Result<JsArrayBufferValue> {
+    let mut length = data.len() as u64;
     let mut raw_value = ptr::null_mut();
     let data_ptr = data.as_ptr();
     check_status(unsafe {
@@ -288,17 +288,21 @@ impl Env {
         data_ptr as *mut c_void,
         length,
         Some(drop_buffer),
-        &length as *const _ as *mut c_void,
+        &mut length as *mut u64 as *mut c_void,
         &mut raw_value,
       )
     })?;
     let mut changed = 0;
     check_status(unsafe { sys::napi_adjust_external_memory(self.0, length as i64, &mut changed) })?;
-    mem::forget(data);
-    let mut array_buffer = JsArrayBuffer::from_raw_unchecked(self.0, raw_value);
-    array_buffer.data = data_ptr as *const u8;
-    array_buffer.len = length;
-    Ok(array_buffer)
+
+    Ok(JsArrayBufferValue::new(
+      JsArrayBuffer(Value {
+        env: self.0,
+        value: raw_value,
+        value_type: ValueType::Object,
+      }),
+      data,
+    ))
   }
 
   pub fn create_function(&self, name: &str, callback: Callback) -> Result<JsFunction> {

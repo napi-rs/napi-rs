@@ -18,6 +18,7 @@ mod napi6;
 #[cfg(napi4)]
 mod tokio_rt;
 
+mod arraybuffer;
 mod buffer;
 mod class;
 mod either;
@@ -43,6 +44,7 @@ fn init(module: &mut Module) -> Result<()> {
   serde::register_js(module)?;
   task::register_js(module)?;
   external::register_js(module)?;
+  arraybuffer::register_js(module)?;
   buffer::register_js(module)?;
   either::register_js(module)?;
   symbol::register_js(module)?;
