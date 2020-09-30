@@ -21,7 +21,10 @@
   ],
   "license": "MIT",
   "scripts": {
+    "bench": "cross-env SWC_NODE_PROJECT='./bench/tsconfig.json' node -r @swc-node/register bench/bench.ts",
     "build": "tsc -p tsconfig.json && chmod 777 scripts/index.js",
+    "build:bench": "yarn --cwd ./bench build",
+    "build:test": "yarn --cwd ./test_module build",
     "format": "run-p format:md format:json format:yaml format:source format:rs",
     "format:md": "prettier --parser markdown --write './**/*.md'",
     "format:json": "prettier --parser json --write './**/*.json'",
@@ -55,12 +58,23 @@
     "trailingComma": "all",
     "arrowParens": "always"
   },
-  "files": ["scripts", "LICENSE"],
+  "files": [
+    "scripts",
+    "LICENSE"
+  ],
   "lint-staged": {
-    "*.js": ["prettier --write"],
-    "*.@(yml|yaml)": ["prettier --parser yaml --write"],
-    "*.json": ["prettier --parser json --write"],
-    "*.md": ["prettier --parser markdown --write"]
+    "*.js": [
+      "prettier --write"
+    ],
+    "*.@(yml|yaml)": [
+      "prettier --parser yaml --write"
+    ],
+    "*.json": [
+      "prettier --parser json --write"
+    ],
+    "*.md": [
+      "prettier --parser markdown --write"
+    ]
   },
   "husky": {
     "hooks": {
@@ -77,6 +91,8 @@
     "@typescript-eslint/eslint-plugin": "^4.3.0",
     "@typescript-eslint/parser": "^4.2.0",
     "ava": "^3.13.0",
+    "benny": "^3.6.14",
+    "cross-env": "^7.0.2",
     "eslint": "^7.10.0",
     "eslint-config-prettier": "^6.12.0",
     "eslint-plugin-import": "^2.22.1",
@@ -89,8 +105,5 @@
     "source-map-support": "^0.5.19",
     "ts-node": "^9.0.0",
     "typescript": "^4.0.3"
-  },
-  "optionalDependencies": {
-    "@swc/core-linux-musl": "^1.2.34"
   }
 }

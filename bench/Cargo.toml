@@ -1,0 +1,25 @@
+[package]
+name = "bench"
+version = "0.1.0"
+authors = ["LongYinan <lynweklm@gmail.com>"]
+edition = "2018"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+futures = "0.3"
+napi = { path = "../napi", features = ["libuv", "tokio_rt", "serde-json", "latin1"] }
+napi-derive = { path = "../napi-derive" }
+serde = "1"
+serde_bytes = "0.11"
+serde_derive = "1"
+serde_json = "1"
+tokio = { version = "0.2", features = ["default", "fs"]}
+
+[build-dependencies]
+napi-build = { path = "../build" }
+
+[profile.release]
+opt-level = 3
+lto = true
