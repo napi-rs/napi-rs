@@ -1,4 +1,3 @@
-use std::mem;
 use std::ptr;
 
 use super::Value;
@@ -38,10 +37,10 @@ impl JsFunction {
         Status::Unknown,
         "Get raw this failed".to_owned(),
       ))?;
-    let mut raw_args = unsafe { mem::MaybeUninit::<[sys::napi_value; 8]>::uninit().assume_init() };
-    for (i, arg) in args.into_iter().enumerate() {
-      raw_args[i] = arg.0.value;
-    }
+    let raw_args = args
+      .iter()
+      .map(|arg| arg.0.value)
+      .collect::<Vec<sys::napi_value>>();
     let mut return_value = ptr::null_mut();
     check_status(unsafe {
       sys::napi_call_function(
@@ -49,7 +48,7 @@ impl JsFunction {
         raw_this,
         self.0.value,
         args.len() as u64,
-        &raw_args[0],
+        raw_args.as_ptr(),
         &mut return_value,
       )
     })?;
