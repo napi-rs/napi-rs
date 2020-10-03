@@ -58,23 +58,12 @@
     "trailingComma": "all",
     "arrowParens": "always"
   },
-  "files": [
-    "scripts",
-    "LICENSE"
-  ],
+  "files": ["scripts", "LICENSE"],
   "lint-staged": {
-    "*.js": [
-      "prettier --write"
-    ],
-    "*.@(yml|yaml)": [
-      "prettier --parser yaml --write"
-    ],
-    "*.json": [
-      "prettier --parser json --write"
-    ],
-    "*.md": [
-      "prettier --parser markdown --write"
-    ]
+    "*.js": ["prettier --write"],
+    "*.@(yml|yaml)": ["prettier --parser yaml --write"],
+    "*.json": ["prettier --parser json --write"],
+    "*.md": ["prettier --parser markdown --write"]
   },
   "husky": {
     "hooks": {
