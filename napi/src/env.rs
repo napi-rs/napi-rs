@@ -494,10 +494,10 @@ impl Env {
     result
   }
 
-  pub fn get_global(&self) -> Result<JsObject> {
+  pub fn get_global(&self) -> Result<JsGlobal> {
     let mut raw_global = ptr::null_mut();
     check_status(unsafe { sys::napi_get_global(self.0, &mut raw_global) })?;
-    Ok(JsObject::from_raw_unchecked(self.0, raw_global))
+    Ok(JsGlobal::from_raw_unchecked(self.0, raw_global))
   }
 
   pub fn get_napi_version(&self) -> Result<u32> {

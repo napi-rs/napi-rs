@@ -16,7 +16,7 @@ impl ToJs for HandleNumber {
   fn resolve(&self, env: &mut Env, output: Self::Output) -> Result<Vec<JsUnknown>> {
     let mut items: Vec<JsUnknown> = vec![];
     for item in output.iter() {
-      let value = env.create_uint32((*item) as u32)?.into_unknown()?;
+      let value = env.create_uint32((*item) as u32)?.into_unknown();
       items.push(value);
     }
     Ok(items)
@@ -75,9 +75,7 @@ impl ToJs for HandleBuffer {
   type Output = Vec<u8>;
 
   fn resolve(&self, env: &mut Env, output: Self::Output) -> Result<Vec<JsUnknown>> {
-    let value = env
-      .create_buffer_with_data(output.to_vec())?
-      .into_unknown()?;
+    let value = env.create_buffer_with_data(output.to_vec())?.into_unknown();
     Ok(vec![value])
   }
 }

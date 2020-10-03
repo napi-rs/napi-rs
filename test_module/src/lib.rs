@@ -26,6 +26,7 @@ mod env;
 mod error;
 mod external;
 mod function;
+mod global;
 mod napi_version;
 mod object;
 mod serde;
@@ -52,6 +53,7 @@ fn init(module: &mut Module) -> Result<()> {
   class::register_js(module)?;
   env::register_js(module)?;
   object::register_js(module)?;
+  global::register_js(module)?;
   #[cfg(napi4)]
   napi4::register_js(module)?;
   #[cfg(napi4)]

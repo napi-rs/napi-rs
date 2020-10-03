@@ -4,7 +4,7 @@ use std::ptr;
 
 use super::Value;
 use crate::error::check_status;
-use crate::{sys, JsUnknown, Ref, Result};
+use crate::{sys, JsUnknown, NapiValue, Ref, Result};
 
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy)]
@@ -49,8 +49,8 @@ impl JsArrayBufferValue {
     self.value
   }
 
-  pub fn into_unknown(self) -> Result<JsUnknown> {
-    self.value.into_unknown()
+  pub fn into_unknown(self) -> JsUnknown {
+    JsUnknown::from_raw_unchecked(self.value.0.env, self.value.0.value)
   }
 }
 
