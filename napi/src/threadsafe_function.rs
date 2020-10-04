@@ -124,15 +124,14 @@ impl<T: ToJs> ThreadsafeFunction<T> {
   pub fn create(env: &Env, func: JsFunction, to_js: T, max_queue_size: u64) -> Result<Self> {
     let mut async_resource_name = ptr::null_mut();
     let s = "napi_rs_threadsafe_function";
-    let status = unsafe {
+    check_status(unsafe {
       sys::napi_create_string_utf8(
         env.0,
         s.as_ptr() as *const c_char,
         s.len() as u64,
         &mut async_resource_name,
       )
-    };
-    check_status(status)?;
+    })?;
 
     let initial_thread_count: u64 = 1;
     let mut result = ptr::null_mut();
