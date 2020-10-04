@@ -5,6 +5,7 @@ use std::mem;
 use std::os::raw::{c_char, c_void};
 use std::ptr;
 
+use super::cleanup_env::{CleanupEnvHook, CleanupEnvHookData};
 use crate::async_work::{self, AsyncWorkPromise};
 use crate::error::check_status;
 use crate::js_values::*;
@@ -455,13 +456,12 @@ impl Env {
         let tagged_object: *mut TaggedObject<T> = mem::transmute(unknown_tagged_object);
         (*tagged_object).object.as_mut().ok_or(Error {
           status: Status::InvalidArg,
-          reason: "Invalid argument, nothing attach to js_external".to_owned(),
+          reason: "nothing attach to js_external".to_owned(),
         })
       } else {
         Err(Error {
           status: Status::InvalidArg,
-          reason: "Invalid argument, T on get_value_external is not the type of wrapped object"
-            .to_owned(),
+          reason: "T on get_value_external is not the type of wrapped object".to_owned(),
         })
       }
     }
@@ -517,6 +517,41 @@ impl Env {
     let mut uv_loop: *mut sys::uv_loop_s = ptr::null_mut();
     check_status(unsafe { sys::napi_get_uv_event_loop(self.0, &mut uv_loop) })?;
     Ok(uv_loop)
+  }
+
+  #[cfg(napi3)]
+  pub fn add_env_cleanup_hook<T, F>(
+    &mut self,
+    cleanup_data: T,
+    cleanup_fn: F,
+  ) -> Result<CleanupEnvHook<T>>
+  where
+    T: 'static,
+    F: 'static + FnOnce(T) -> (),
+  {
+    let hook = CleanupEnvHookData {
+      data: cleanup_data,
+      hook: Box::new(cleanup_fn),
+    };
+    let hook_ref = Box::leak(Box::new(hook));
+    check_status(unsafe {
+      sys::napi_add_env_cleanup_hook(
+        self.0,
+        Some(cleanup_env::<T>),
+        hook_ref as *mut CleanupEnvHookData<T> as *mut _,
+      )
+    })?;
+    Ok(CleanupEnvHook(hook_ref))
+  }
+
+  #[cfg(napi3)]
+  pub fn remove_env_cleanup_hook<T>(&mut self, hook: CleanupEnvHook<T>) -> Result<()>
+  where
+    T: 'static,
+  {
+    check_status(unsafe {
+      sys::napi_remove_env_cleanup_hook(self.0, Some(cleanup_env::<T>), hook.0 as *mut _)
+    })
   }
 
   #[cfg(all(feature = "libuv", napi4))]
@@ -664,4 +699,9 @@ unsafe extern "C" fn raw_finalize<T>(
 ) {
   let tagged_object: *mut TaggedObject<T> = mem::transmute(finalize_data);
   Box::from_raw(tagged_object);
+}
+
+unsafe extern "C" fn cleanup_env<T: 'static>(hook_data: *mut c_void) {
+  let cleanup_env_hook = Box::from_raw(hook_data as *mut CleanupEnvHookData<T>);
+  (cleanup_env_hook.hook)(cleanup_env_hook.data);
 }

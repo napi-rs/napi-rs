@@ -92,6 +92,7 @@
 
 mod async_work;
 mod call_context;
+mod cleanup_env;
 mod env;
 mod error;
 mod js_values;
@@ -100,6 +101,8 @@ mod module;
 mod promise;
 mod status;
 mod task;
+#[cfg(napi3)]
+pub use cleanup_env::CleanupEnvHook;
 #[cfg(napi4)]
 pub mod threadsafe_function;
 #[cfg(all(feature = "tokio_rt", napi4))]

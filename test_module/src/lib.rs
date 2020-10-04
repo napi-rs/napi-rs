@@ -7,6 +7,8 @@ extern crate serde_derive;
 
 use napi::{Module, Result};
 
+#[cfg(napi3)]
+mod cleanup_env;
 #[cfg(napi4)]
 mod libuv;
 #[cfg(napi4)]
@@ -54,6 +56,8 @@ fn init(module: &mut Module) -> Result<()> {
   env::register_js(module)?;
   object::register_js(module)?;
   global::register_js(module)?;
+  #[cfg(napi3)]
+  cleanup_env::register_js(module)?;
   #[cfg(napi4)]
   napi4::register_js(module)?;
   #[cfg(napi4)]

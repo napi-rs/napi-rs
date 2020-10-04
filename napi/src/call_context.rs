@@ -4,7 +4,7 @@ use crate::error::check_status;
 use crate::{sys, Either, Env, Error, JsUndefined, NapiValue, Result, Status};
 
 pub struct CallContext<'env> {
-  pub env: &'env Env,
+  pub env: &'env mut Env,
   raw_this: sys::napi_value,
   callback_info: sys::napi_callback_info,
   args: &'env [sys::napi_value],
@@ -14,7 +14,7 @@ pub struct CallContext<'env> {
 
 impl<'env> CallContext<'env> {
   pub fn new(
-    env: &'env Env,
+    env: &'env mut Env,
     callback_info: sys::napi_callback_info,
     raw_this: sys::napi_value,
     args: &'env [sys::napi_value],
