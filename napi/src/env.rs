@@ -16,6 +16,8 @@ use crate::{sys, Error, NodeVersion, Result, Status};
 use crate::js_values::{De, Ser};
 #[cfg(all(any(feature = "libuv", feature = "tokio_rt"), napi4))]
 use crate::promise;
+#[cfg(napi4)]
+use crate::threadsafe_function::{ThreadSafeCallContext, ThreadsafeFunction};
 #[cfg(all(feature = "tokio_rt", napi4))]
 use crate::tokio_rt::{get_tokio_sender, Message};
 #[cfg(all(feature = "libuv", napi4))]
@@ -552,6 +554,20 @@ impl Env {
     check_status(unsafe {
       sys::napi_remove_env_cleanup_hook(self.0, Some(cleanup_env::<T>), hook.0 as *mut _)
     })
+  }
+
+  #[cfg(napi4)]
+  pub fn create_threadsafe_function<
+    T: Send,
+    V: NapiValue,
+    R: 'static + Send + FnMut(ThreadSafeCallContext<T>) -> Result<Vec<V>>,
+  >(
+    &self,
+    func: JsFunction,
+    max_queue_size: u64,
+    callback: R,
+  ) -> Result<ThreadsafeFunction<T>> {
+    ThreadsafeFunction::create(self.0, func, max_queue_size, callback)
   }
 
   #[cfg(all(feature = "libuv", napi4))]

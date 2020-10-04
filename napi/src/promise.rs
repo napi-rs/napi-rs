@@ -71,8 +71,6 @@ pub(crate) struct TSFNValue(sys::napi_threadsafe_function);
 
 unsafe impl Send for TSFNValue {}
 
-unsafe impl Sync for TSFNValue {}
-
 #[inline]
 pub(crate) async fn resolve_from_future<T: Send, F: Future<Output = Result<T>>>(
   tsfn_value: TSFNValue,
