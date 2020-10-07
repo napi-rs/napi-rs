@@ -10,7 +10,7 @@ license = "MIT"
 keywords = ["NodeJS", "FFI", "NAPI", "n-api"]
 
 [dependencies]
-cfg-if = "0.1"
+cfg-if = "1.0"
 
 [target.'cfg(windows)'.dependencies]
 reqwest = { version = "0.10", features = ["native-tls", "blocking"] }
