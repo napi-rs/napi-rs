@@ -1,6 +1,4 @@
 extern crate cfg_if;
-#[cfg(windows)]
-extern crate reqwest;
 
 use std::process::Command;
 
@@ -8,54 +6,57 @@ use cfg_if::cfg_if;
 
 cfg_if! {
   if #[cfg(windows)] {
-    use std::env::var;
-    use std::fs::{File, create_dir};
-    use std::io::copy;
+    use std::fs::{create_dir, metadata, write};
     use std::path::PathBuf;
+
+    fn download_node_lib() -> Vec<u8> {
+      let script = format!("
+      require('https').get('https://nodejs.org/dist/' + process.version + '/win-x64/node.lib', (res) => {{
+        res.pipe(process.stdout)
+      }})");
+
+      Command::new("node")
+        .arg("-e")
+        .arg(script)
+        .output()
+        .expect("Download node.lib failed")
+        .stdout
+    }
 
     pub fn setup() {
       let node_full_version =
         String::from_utf8(Command::new("node").arg("-v").output().unwrap().stdout).unwrap();
+      let trim_node_full_version = node_full_version.trim_end();
+      let mut node_lib_file_dir =
+        PathBuf::from(String::from_utf8(Command::new("node").arg("-e").arg("console.log(require('os').homedir())").output().unwrap().stdout).unwrap().trim_end().to_owned());
 
-      let dev_dir: PathBuf = [
-        &var("HOMEDRIVE").expect("Get env HOMEDRIVE failed"),
-        &var("HOMEPATH").expect("Get env HOMEDRIVE failed"),
-        ".napi-rs"
-      ].iter().collect();
+      node_lib_file_dir.push(".napi-rs");
 
-      match create_dir(&dev_dir) {
+      match create_dir(&node_lib_file_dir) {
         Ok(_) => {},
         Err(err) => {
           if err.kind() != std::io::ErrorKind::AlreadyExists {
-            panic!("create ~/.napi-rs folder failed: {}", err)
+            panic!("create {} folder failed: {}", node_lib_file_dir.to_str().unwrap(), err)
           }
         },
       }
 
-      let node_lib_file_dir = dev_dir.join(format!("node-{}.lib", node_full_version.trim_end()));
-      if !node_lib_file_dir.exists() {
-        let lib_file_download_url = format!(
-          "https://nodejs.org/dist/{}/win-x64/node.lib",
-          node_full_version
-        );
-        let mut resp =
-          reqwest::blocking::get(&lib_file_download_url).expect("Download node.lib file failed");
-        let mut node_lib_file = File::create(&node_lib_file_dir).unwrap();
-        copy(&mut resp, &mut node_lib_file).expect("Save node.lib file failed");
+      let link_search_dir = node_lib_file_dir.clone();
+
+      node_lib_file_dir.push(format!("node-{}.lib", trim_node_full_version));
+
+      if let Err(_) = metadata(&node_lib_file_dir) {
+        let node_lib = download_node_lib();
+        write(&node_lib_file_dir, &node_lib).expect(&format!("Could not save file to {}", node_lib_file_dir.to_str().unwrap()));
       }
       println!(
         "cargo:rustc-link-lib={}",
         &node_lib_file_dir.file_stem().unwrap().to_str().unwrap()
       );
-      println!("cargo:rustc-link-search={}", dev_dir.to_str().unwrap());
+      println!("cargo:rustc-link-search=native={}", link_search_dir.to_str().unwrap());
       // Link `win_delay_load_hook.obj` for windows electron
-      let node_runtime_env = "npm_config_runtime";
-      println!("cargo:rerun-if-env-changed={}", node_runtime_env);
-      if var(node_runtime_env).map(|s| s == "electron") == Ok(true) {
-        println!("cargo:rustc-cdylib-link-arg=win_delay_load_hook.obj");
-        println!("cargo:rustc-cdylib-link-arg=delayimp.lib");
-        println!("cargo:rustc-cdylib-link-arg=/DELAYLOAD:node.exe");
-      }
+      println!("cargo:rustc-cdylib-link-arg=delayimp.lib");
+      println!("cargo:rustc-cdylib-link-arg=/DELAYLOAD:node.exe");
       setup_napi_feature();
     }
   } else if #[cfg(target_os = "macos")] {

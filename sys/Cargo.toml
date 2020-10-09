@@ -1,23 +1,16 @@
 [package]
-name = "napi-sys"
-version = "0.4.7"
 authors = ["LongYinan <lynweklm@gmail.com>"]
-edition = "2018"
-readme = "README.md"
 description = "NodeJS N-API raw binding"
-repository = "https://github.com/napi-rs/napi-rs"
-license = "MIT"
-keywords = ["NodeJS", "FFI", "NAPI", "n-api"]
+edition = "2018"
 include = ["src/**/*", "Cargo.toml", "build.rs", ".node-headers/**/*"]
+keywords = ["NodeJS", "FFI", "NAPI", "n-api"]
+license = "MIT"
+name = "napi-sys"
+readme = "README.md"
+repository = "https://github.com/napi-rs/napi-rs"
+version = "0.4.7"
 
 [target.'cfg(windows)'.build-dependencies]
-flate2 = "1.0"
-reqwest = { version = "0.10", features = ["native-tls", "blocking"] }
-tar = "0.4"
-
-[target.x86_64-unknown-linux-gnu.build-dependencies]
-flate2 = "1.0"
-reqwest = { version = "0.10", features = ["native-tls", "blocking"] }
 tar = "0.4"
 
 [build-dependencies]

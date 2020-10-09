@@ -1,9 +1,5 @@
 extern crate bindgen;
-#[cfg(target_os = "windows")]
-extern crate flate2;
 extern crate glob;
-#[cfg(target_os = "windows")]
-extern crate reqwest;
 extern crate semver;
 #[cfg(target_os = "windows")]
 extern crate tar;
@@ -40,12 +36,12 @@ fn main() {
 
   let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
 
-  let mut sys_bindigs_path = PathBuf::from("src");
-  sys_bindigs_path.push("bindings.h");
+  let mut sys_bindings_path = PathBuf::from("src");
+  sys_bindings_path.push("bindings.h");
 
   bindgen::Builder::default()
     .derive_default(true)
-    .header(sys_bindigs_path.to_str().unwrap().to_owned())
+    .header(sys_bindings_path.to_str().unwrap().to_owned())
     .clang_arg(String::from("-I") + node_include_path.to_str().unwrap())
     .rustified_enum("(napi_|uv_).+")
     .whitelist_function("(napi_|uv_|extras_).+")
@@ -66,16 +62,17 @@ fn find_node_include_path(node_full_version: &str) -> PathBuf {
   header_dist_path.push("include");
   header_dist_path.push("node");
   if !header_dist_path.exists() {
-    let header_file_download_url = String::from_utf8(
-      Command::new("node")
-        .args(vec!["-e", "console.log(process.release.headersUrl)"])
-        .output()
-        .unwrap()
-        .stdout,
-    )
-    .unwrap();
-    let resp = reqwest::blocking::get(&header_file_download_url).expect("request failed");
-    tar::Archive::new(flate2::read::GzDecoder::new(resp))
+    let script = r#"require('https').get(process.release.headersUrl, function (res) {
+      res.pipe(require('zlib').createUnzip()).pipe(process.stdout)
+    })"#;
+
+    let tar_binary = Command::new("node")
+      .arg("-e")
+      .arg(script)
+      .output()
+      .expect("Download headers file failed")
+      .stdout;
+    tar::Archive::new(tar_binary.as_slice())
       .unpack(&unpack_path)
       .expect("Unpack headers file failed");
   };
