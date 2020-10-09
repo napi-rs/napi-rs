@@ -60,7 +60,7 @@ export class BuildCommand extends Command {
         throw new TypeError('Could not parse the Cargo.toml')
       }
 
-      if (tomlContent.package ?? tomlContent.package.name) {
+      if (tomlContent.package?.name) {
         dylibName = tomlContent.package.name.replace(/-/g, '_')
       } else {
         throw new TypeError('No package.name field in Cargo.toml')
