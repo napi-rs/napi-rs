@@ -32,6 +32,11 @@ impl<T> Ref<T> {
     })
   }
 
+  pub fn reference(&mut self, env: &Env) -> Result<u32> {
+    check_status(unsafe { sys::napi_reference_ref(env.0, self.raw_ref, &mut self.count) })?;
+    Ok(self.count)
+  }
+
   #[must_use]
   pub fn unref(mut self, env: Env) -> Result<u32> {
     check_status(unsafe { sys::napi_reference_unref(env.0, self.raw_ref, &mut self.count) })?;
