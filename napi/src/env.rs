@@ -629,13 +629,20 @@ impl Env {
     Ok(JsObject::from_raw_unchecked(self.0, raw_promise))
   }
 
+  #[cfg(napi5)]
+  pub fn create_date(&self, time: f64) -> Result<JsDate> {
+    let mut js_value = ptr::null_mut();
+    check_status(unsafe { sys::napi_create_date(self.0, time, &mut js_value) })?;
+    Ok(JsDate::from_raw_unchecked(self.0, js_value))
+  }
+
   /// # Serialize `Rust Struct` into `JavaScript Value`
   /// ```
   /// #[derive(Serialize, Debug, Deserialize)]
   /// struct AnObject {
-  ///  a: u32,
-  ///  b: Vec<f64>,
-  ///  c: String,
+  ///   a: u32,
+  ///   b: Vec<f64>,
+  ///   c: String,
   /// }
   ///
   /// #[js_function]
