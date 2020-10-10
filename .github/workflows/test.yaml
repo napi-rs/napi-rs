@@ -87,8 +87,7 @@ jobs:
 
       - name: Unit tests
         run: |
-          yarn
-          yarn --cwd ./test_module build
+          yarn build:test
           yarn test
         env:
           RUST_BACKTRACE: 1

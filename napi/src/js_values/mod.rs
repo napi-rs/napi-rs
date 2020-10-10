@@ -15,6 +15,8 @@ mod arraybuffer;
 mod bigint;
 mod boolean;
 mod buffer;
+#[cfg(napi5)]
+mod date;
 mod either;
 mod escapable_handle_scope;
 mod function;
@@ -34,6 +36,8 @@ pub use arraybuffer::*;
 pub use bigint::JsBigint;
 pub use boolean::JsBoolean;
 pub use buffer::*;
+#[cfg(napi5)]
+pub use date::*;
 #[cfg(feature = "serde-json")]
 pub(crate) use de::De;
 pub use either::Either;
@@ -440,6 +444,8 @@ impl_js_value_methods!(JsNumber);
 impl_js_value_methods!(JsString);
 impl_js_value_methods!(JsObject);
 impl_js_value_methods!(JsGlobal);
+#[cfg(napi5)]
+impl_js_value_methods!(JsDate);
 impl_js_value_methods!(JsFunction);
 impl_js_value_methods!(JsExternal);
 impl_js_value_methods!(JsSymbol);
@@ -461,6 +467,8 @@ impl_napi_value_trait!(JsNumber, Number);
 impl_napi_value_trait!(JsString, String);
 impl_napi_value_trait!(JsObject, Object);
 impl_napi_value_trait!(JsGlobal, Object);
+#[cfg(napi5)]
+impl_napi_value_trait!(JsDate, Object);
 impl_napi_value_trait!(JsTimeout, Object);
 impl_napi_value_trait!(JsFunction, Function);
 impl_napi_value_trait!(JsExternal, External);
