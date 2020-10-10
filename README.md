@@ -152,7 +152,6 @@ yarn test
 
 | NAPI                                                                                                         | NAPI Version | Minimal Node version | Status |
 | ------------------------------------------------------------------------------------------------------------ | ------------ | -------------------- | ------ |
-| [Enum types](https://nodejs.org/api/n-api.html#n_api_enum_types)                                             | 6            | v13.7.0              | ⛔️    |
 | [napi_create_array](https://nodejs.org/api/n-api.html#n_api_napi_create_array)                               | 1            | v8.0.0               | ✅     |
 | [napi_create_array_with_length](https://nodejs.org/api/n-api.html#n_api_napi_create_array_with_length)       | 1            | v8.0.0               | ✅     |
 | [napi_create_arraybuffer](https://nodejs.org/api/n-api.html#n_api_napi_create_arraybuffer)                   | 1            | v8.0.0               | ✅     |
@@ -164,7 +163,7 @@ yarn test
 | [napi_create_external_buffer](https://nodejs.org/api/n-api.html#n_api_napi_create_external_buffer)           | 1            | v8.0.0               | ✅     |
 | [napi_create_object](https://nodejs.org/api/n-api.html#n_api_napi_create_object)                             | 1            | v8.0.0               | ✅     |
 | [napi_create_symbol](https://nodejs.org/api/n-api.html#n_api_napi_create_symbol)                             | 1            | v8.0.0               | ✅     |
-| [napi_create_typedarray](https://nodejs.org/api/n-api.html#n_api_napi_create_typedarray)                     | 1            | v8.0.0               | ⛔️    |
+| [napi_create_typedarray](https://nodejs.org/api/n-api.html#n_api_napi_create_typedarray)                     | 1            | v8.0.0               | ✅     |
 | [napi_create_dataview](https://nodejs.org/api/n-api.html#n_api_napi_create_dataview)                         | 1            | v8.3.0               | ⛔️    |
 | [napi_create_int32](https://nodejs.org/api/n-api.html#n_api_napi_create_int32)                               | 1            | v8.4.0               | ✅     |
 | [napi_create_uint32](https://nodejs.org/api/n-api.html#n_api_napi_create_uint32)                             | 1            | v8.4.0               | ✅     |
@@ -185,7 +184,7 @@ yarn test
 | [napi_get_arraybuffer_info](https://nodejs.org/api/n-api.html#n_api_napi_get_arraybuffer_info)       | 1            | v8.0.0               | ✅     |
 | [napi_get_buffer_info](https://nodejs.org/api/n-api.html#n_api_napi_get_buffer_info)                 | 1            | v8.0.0               | ✅     |
 | [napi_get_prototype](https://nodejs.org/api/n-api.html#n_api_napi_get_prototype)                     | 1            | v8.0.0               | ✅     |
-| [napi_get_typedarray_info](https://nodejs.org/api/n-api.html#n_api_napi_get_typedarray_info)         | 1            | v8.0.0               | ⛔️    |
+| [napi_get_typedarray_info](https://nodejs.org/api/n-api.html#n_api_napi_get_typedarray_info)         | 1            | v8.0.0               | ✅     |
 | [napi_get_dataview_info](https://nodejs.org/api/n-api.html#n_api_napi_get_dataview_info)             | 1            | v8.3.0               | ⛔️    |
 | [napi_get_date_value](https://nodejs.org/api/n-api.html#n_api_napi_get_date_value)                   | 5            | v11.11.0             | ✅     |
 | [napi_get_value_bool](https://nodejs.org/api/n-api.html#n_api_napi_get_value_bool)                   | 1            | v8.0.0               | ✅     |
@@ -223,5 +222,5 @@ yarn test
 | [napi_is_typedarray](https://nodejs.org/api/n-api.html#n_api_napi_is_typedarray)                     | 1            | v8.0.0               | ✅     |
 | [napi_is_dataview](https://nodejs.org/api/n-api.html#n_api_napi_is_dataview)                         | 1            | v8.3.0               | ✅     |
 | [napi_strict_equals](https://nodejs.org/api/n-api.html#n_api_napi_strict_equals)                     | 1            | v8.0.0               | ✅     |
-| [napi_detach_arraybuffer](https://nodejs.org/api/n-api.html#n_api_napi_detach_arraybuffer)           | Experimental | v13.3.0              | ⛔️    |
-| [napi_is_detached_arraybuffer](https://nodejs.org/api/n-api.html#n_api_napi_is_detached_arraybuffer) | Experimental | v13.3.0              | ⛔️    |
+| [napi_detach_arraybuffer](https://nodejs.org/api/n-api.html#n_api_napi_detach_arraybuffer)           | 7            | v13.3.0              | ⛔️    |
+| [napi_is_detached_arraybuffer](https://nodejs.org/api/n-api.html#n_api_napi_is_detached_arraybuffer) | 7            | v13.3.0              | ⛔️    |

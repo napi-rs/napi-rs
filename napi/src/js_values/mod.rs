@@ -174,9 +174,14 @@ macro_rules! impl_js_value_methods {
       #[cfg(napi5)]
       pub fn is_date(&self) -> Result<bool> {
         let mut is_date = true;
-        let status = unsafe { sys::napi_is_date(self.0.env, self.0.value, &mut is_date) };
-        check_status(status)?;
+        check_status(unsafe { sys::napi_is_date(self.0.env, self.0.value, &mut is_date) })?;
         Ok(is_date)
+      }
+
+      pub fn is_promise(&self) -> Result<bool> {
+        let mut is_promise = true;
+        check_status(unsafe { sys::napi_is_promise(self.0.env, self.0.value, &mut is_promise) })?;
+        Ok(is_promise)
       }
 
       #[inline]
@@ -438,8 +443,9 @@ impl_js_value_methods!(JsUnknown);
 impl_js_value_methods!(JsUndefined);
 impl_js_value_methods!(JsNull);
 impl_js_value_methods!(JsBoolean);
-impl_js_value_methods!(JsArrayBuffer);
 impl_js_value_methods!(JsBuffer);
+impl_js_value_methods!(JsArrayBuffer);
+impl_js_value_methods!(JsTypedArray);
 impl_js_value_methods!(JsNumber);
 impl_js_value_methods!(JsString);
 impl_js_value_methods!(JsObject);
@@ -463,6 +469,7 @@ impl_napi_value_trait!(JsNull, Null);
 impl_napi_value_trait!(JsBoolean, Boolean);
 impl_napi_value_trait!(JsBuffer, Object);
 impl_napi_value_trait!(JsArrayBuffer, Object);
+impl_napi_value_trait!(JsTypedArray, Object);
 impl_napi_value_trait!(JsNumber, Number);
 impl_napi_value_trait!(JsString, String);
 impl_napi_value_trait!(JsObject, Object);
