@@ -158,6 +158,12 @@ fn readonly_getter(ctx: CallContext) -> Result<JsString> {
   ctx.env.create_string("readonly")
 }
 
+#[js_function(1)]
+fn test_is_promise(ctx: CallContext) -> Result<JsBoolean> {
+  let obj = ctx.get::<JsObject>(0)?;
+  ctx.env.get_boolean(obj.is_promise()?)
+}
+
 pub fn register_js(module: &mut Module) -> Result<()> {
   module.create_named_method("testSetProperty", test_set_property)?;
   module.create_named_method("testGetProperty", test_get_property)?;
@@ -179,5 +185,7 @@ pub fn register_js(module: &mut Module) -> Result<()> {
   module.create_named_method("testGetElement", test_get_element)?;
   module.create_named_method("testDeleteElement", test_delete_element)?;
   module.create_named_method("testDefineProperties", test_define_properties)?;
+
+  module.create_named_method("testIsPromise", test_is_promise)?;
   Ok(())
 }

@@ -224,3 +224,21 @@ test('testDefineProperties', (t) => {
   const descriptor = Object.getOwnPropertyDescriptor(obj, 'ro')
   t.is(descriptor?.value ?? descriptor?.get?.(), 'readonly')
 })
+
+test('is promise', (t) => {
+  t.false(bindings.testIsPromise(1))
+  t.false(bindings.testIsPromise('hello'))
+  t.false(bindings.testIsPromise({}))
+  t.false(bindings.testIsPromise(new Date()))
+  t.false(bindings.testIsPromise(Symbol()))
+
+  t.true(bindings.testIsPromise(Promise.resolve()))
+  t.true(bindings.testIsPromise(Promise.reject().catch(() => {})))
+  t.true(
+    bindings.testIsPromise(
+      new Promise((resolve) => {
+        resolve()
+      }),
+    ),
+  )
+})

@@ -174,9 +174,14 @@ macro_rules! impl_js_value_methods {
       #[cfg(napi5)]
       pub fn is_date(&self) -> Result<bool> {
         let mut is_date = true;
-        let status = unsafe { sys::napi_is_date(self.0.env, self.0.value, &mut is_date) };
-        check_status(status)?;
+        check_status(unsafe { sys::napi_is_date(self.0.env, self.0.value, &mut is_date) })?;
         Ok(is_date)
+      }
+
+      pub fn is_promise(&self) -> Result<bool> {
+        let mut is_promise = true;
+        check_status(unsafe { sys::napi_is_promise(self.0.env, self.0.value, &mut is_promise) })?;
+        Ok(is_promise)
       }
 
       #[inline]
