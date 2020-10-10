@@ -40,7 +40,9 @@ pub enum TypedArrayType {
   Uint32,
   Float32,
   Float64,
+  #[cfg(napi6)]
   BigInt64,
+  #[cfg(napi6)]
   BigUint64,
 }
 
@@ -56,7 +58,9 @@ impl From<sys::napi_typedarray_type> for TypedArrayType {
       sys::napi_typedarray_type::napi_uint32_array => Self::Uint32,
       sys::napi_typedarray_type::napi_float32_array => Self::Float32,
       sys::napi_typedarray_type::napi_float64_array => Self::Float64,
+      #[cfg(napi6)]
       sys::napi_typedarray_type::napi_bigint64_array => Self::BigInt64,
+      #[cfg(napi6)]
       sys::napi_typedarray_type::napi_biguint64_array => Self::BigUint64,
     }
   }
@@ -74,7 +78,9 @@ impl From<TypedArrayType> for sys::napi_typedarray_type {
       TypedArrayType::Uint32 => sys::napi_typedarray_type::napi_uint32_array,
       TypedArrayType::Float32 => sys::napi_typedarray_type::napi_float32_array,
       TypedArrayType::Float64 => sys::napi_typedarray_type::napi_float64_array,
+      #[cfg(napi6)]
       TypedArrayType::BigInt64 => sys::napi_typedarray_type::napi_bigint64_array,
+      #[cfg(napi6)]
       TypedArrayType::BigUint64 => sys::napi_typedarray_type::napi_biguint64_array,
     }
   }
