@@ -12,9 +12,10 @@ A minimal library for building compiled `NodeJS` add-ons in `Rust`.
 
 # Platform Support
 
-![](https://github.com/napi-rs/napi-rs/workflows/macOS/badge.svg)
-![](https://github.com/napi-rs/napi-rs/workflows/Linux/badge.svg)
-![](https://github.com/napi-rs/napi-rs/workflows/Windows/badge.svg)
+![Lint](https://github.com/napi-rs/napi-rs/workflows/Lint/badge.svg)
+![Linux-N-API-3](https://github.com/napi-rs/napi-rs/workflows/Linux-N-API-3/badge.svg)
+![Linux-musl](https://github.com/napi-rs/napi-rs/workflows/Musl/badge.svg)
+![macOS/Linux/Windows](https://github.com/napi-rs/napi-rs/workflows/Test/badge.svg)
 
 ## Operating Systems
 
