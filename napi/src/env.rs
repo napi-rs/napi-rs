@@ -267,6 +267,33 @@ impl Env {
     ))
   }
 
+  pub fn create_buffer_copy<D>(&self, data_to_copy: D) -> Result<JsBufferValue>
+  where
+    D: AsRef<[u8]>,
+  {
+    let length = data_to_copy.as_ref().len();
+    let data_ptr = data_to_copy.as_ref().as_ptr();
+    let mut copy_data = ptr::null_mut();
+    let mut raw_value = ptr::null_mut();
+    check_status(unsafe {
+      sys::napi_create_buffer_copy(
+        self.0,
+        length as u64,
+        data_ptr as *mut c_void,
+        &mut copy_data,
+        &mut raw_value,
+      )
+    })?;
+    Ok(JsBufferValue::new(
+      JsBuffer(Value {
+        env: self.0,
+        value: raw_value,
+        value_type: ValueType::Object,
+      }),
+      unsafe { Vec::from_raw_parts(copy_data as *mut u8, length, length) },
+    ))
+  }
+
   pub fn create_arraybuffer(&self, length: u64) -> Result<JsArrayBufferValue> {
     let mut raw_value = ptr::null_mut();
     let mut data: Vec<u8> = Vec::with_capacity(length as usize);

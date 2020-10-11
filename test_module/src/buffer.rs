@@ -16,8 +16,15 @@ pub fn buffer_to_string(ctx: CallContext) -> Result<JsString> {
   )
 }
 
+#[js_function(1)]
+pub fn copy_buffer(ctx: CallContext) -> Result<JsBuffer> {
+  let buffer = ctx.get::<JsBuffer>(0)?.into_value()?;
+  ctx.env.create_buffer_copy(buffer).map(|b| b.into_raw())
+}
+
 pub fn register_js(module: &mut Module) -> Result<()> {
   module.create_named_method("getBufferLength", get_buffer_length)?;
   module.create_named_method("bufferToString", buffer_to_string)?;
+  module.create_named_method("copyBuffer", copy_buffer)?;
   Ok(())
 }
