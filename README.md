@@ -142,7 +142,7 @@ Because libraries that depend on this crate must be loaded into a Node executabl
 To run tests:
 
 ```sh
-yarn --cwd ./test_module build
+yarn build:test
 yarn test
 ```
 
