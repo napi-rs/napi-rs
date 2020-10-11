@@ -45,7 +45,7 @@ pub use escapable_handle_scope::EscapableHandleScope;
 pub use function::JsFunction;
 pub use global::*;
 pub use number::JsNumber;
-pub use object::JsObject;
+pub use object::*;
 pub use object_property::Property;
 #[cfg(feature = "serde-json")]
 pub(crate) use ser::Ser;
@@ -355,11 +355,36 @@ macro_rules! impl_object_methods {
         T: NapiValue,
       {
         let mut raw_value = ptr::null_mut();
-        let status =
-          unsafe { sys::napi_get_property_names(self.0.env, self.0.value, &mut raw_value) };
-        check_status(status)?;
+        check_status(unsafe {
+          sys::napi_get_property_names(self.0.env, self.0.value, &mut raw_value)
+        })?;
         T::from_raw(self.0.env, raw_value)
       }
+
+      /// https://nodejs.org/api/n-api.html#n_api_napi_get_all_property_names
+      /// return `Array` of property names
+      #[cfg(napi6)]
+      pub fn get_all_property_names(
+        &self,
+        mode: KeyCollectionMode,
+        filter: KeyFilter,
+        conversion: KeyConversion,
+      ) -> Result<JsObject> {
+        let mut properties_value = ptr::null_mut();
+        check_status(unsafe {
+          sys::napi_get_all_property_names(
+            self.0.env,
+            self.0.value,
+            mode.into(),
+            filter.into(),
+            conversion.into(),
+            &mut properties_value,
+          )
+        })?;
+        Ok(JsObject::from_raw_unchecked(self.0.env, properties_value))
+      }
+
+      /// This returns the equivalent of `Object.getPrototypeOf` (which is not the same as the function's prototype property).
       pub fn get_prototype<T>(&self) -> Result<T>
       where
         T: NapiValue,
@@ -368,6 +393,7 @@ macro_rules! impl_object_methods {
         check_status(unsafe { sys::napi_get_prototype(self.0.env, self.0.value, &mut result) })?;
         T::from_raw(self.0.env, result)
       }
+
       pub fn set_element<T>(&mut self, index: u32, value: T) -> Result<()>
       where
         T: NapiValue,
@@ -398,6 +424,8 @@ macro_rules! impl_object_methods {
         })?;
         T::from_raw(self.0.env, raw_value)
       }
+
+      /// This method allows the efficient definition of multiple properties on a given object.
       pub fn define_properties(&mut self, properties: &[Property]) -> Result<()> {
         check_status(unsafe {
           sys::napi_define_properties(
@@ -412,6 +440,9 @@ macro_rules! impl_object_methods {
           )
         })
       }
+
+      /// Perform `is_array` check before get the length
+      /// if `Object` is not array, `ArrayExpected` error returned
       pub fn get_array_length(&self) -> Result<u32> {
         if self.is_array()? != true {
           return Err(Error::new(
@@ -421,6 +452,8 @@ macro_rules! impl_object_methods {
         }
         self.get_array_length_unchecked()
       }
+
+      /// use this API if you can ensure this `Object` is `Array`
       #[inline]
       pub fn get_array_length_unchecked(&self) -> Result<u32> {
         let mut length: u32 = 0;
@@ -461,6 +494,8 @@ impl_js_value_methods!(JsTimeout);
 impl_object_methods!(JsObject);
 impl_object_methods!(JsBuffer);
 impl_object_methods!(JsArrayBuffer);
+impl_object_methods!(JsTypedArray);
+impl_object_methods!(JsDataView);
 impl_object_methods!(JsGlobal);
 
 use ValueType::*;
