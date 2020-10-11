@@ -9,7 +9,7 @@ use crate::error::check_status;
 use crate::{sys, JsUnknown, NapiValue, Ref, Result};
 
 #[repr(transparent)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 pub struct JsBuffer(pub(crate) Value);
 
 #[derive(Debug)]
