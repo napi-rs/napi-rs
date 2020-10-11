@@ -223,5 +223,5 @@ yarn test
 | [napi_is_typedarray](https://nodejs.org/api/n-api.html#n_api_napi_is_typedarray)                     | 1            | v8.0.0               | ✅     |
 | [napi_is_dataview](https://nodejs.org/api/n-api.html#n_api_napi_is_dataview)                         | 1            | v8.3.0               | ✅     |
 | [napi_strict_equals](https://nodejs.org/api/n-api.html#n_api_napi_strict_equals)                     | 1            | v8.0.0               | ✅     |
-| [napi_detach_arraybuffer](https://nodejs.org/api/n-api.html#n_api_napi_detach_arraybuffer)           | 7            | v13.3.0              | ⛔️    |
-| [napi_is_detached_arraybuffer](https://nodejs.org/api/n-api.html#n_api_napi_is_detached_arraybuffer) | 7            | v13.3.0              | ⛔️    |
+| [napi_detach_arraybuffer](https://nodejs.org/api/n-api.html#n_api_napi_detach_arraybuffer)           | 7            | v13.3.0              | ✅     |
+| [napi_is_detached_arraybuffer](https://nodejs.org/api/n-api.html#n_api_napi_is_detached_arraybuffer) | 7            | v13.3.0              | ✅     |

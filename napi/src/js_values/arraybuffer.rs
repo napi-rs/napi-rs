@@ -100,6 +100,20 @@ impl From<TypedArrayType> for sys::napi_typedarray_type {
 }
 
 impl JsArrayBuffer {
+  #[cfg(napi7)]
+  pub fn detach(self) -> Result<()> {
+    check_status(unsafe { sys::napi_detach_arraybuffer(self.0.env, self.0.value) })
+  }
+
+  #[cfg(napi7)]
+  pub fn is_detached(&self) -> Result<bool> {
+    let mut is_detached = false;
+    check_status(unsafe {
+      sys::napi_is_detached_arraybuffer(self.0.env, self.0.value, &mut is_detached)
+    })?;
+    Ok(is_detached)
+  }
+
   pub fn into_value(self) -> Result<JsArrayBufferValue> {
     let mut data = ptr::null_mut();
     let mut len: u64 = 0;
