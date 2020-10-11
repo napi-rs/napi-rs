@@ -1,15 +1,15 @@
 [package]
-name = "napi-derive-example"
-version = "0.1.0"
 authors = ["LongYinan <lynweklm@gmail.com>"]
 edition = "2018"
+name = "napi-derive-example"
+version = "0.1.0"
 
 [lib]
 crate-type = ["cdylib"]
 
 [dependencies]
-napi = { path = "../napi" }
-napi-derive = { path = "../napi-derive" }
+napi = {path = "../napi"}
+napi-derive = {path = "../napi-derive"}
 
 [build-dependencies]
-napi-build = { path = "../build" }
+napi-build = {path = "../build"}
