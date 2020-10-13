@@ -7,7 +7,7 @@ task:
     DEBUG: 'napi:*'
   setup_script:
     - pkg update
-    - pkg install -y -f curl node yarn npm libnghttp2
+    - pkg install -y -f curl node yarn npm libnghttp2 llvm
     - curl https://sh.rustup.rs -sSf --output rustup.sh
     - sh rustup.sh -y --profile minimal --default-toolchain stable
     - . $HOME/.cargo/env
@@ -20,7 +20,7 @@ task:
       yarn --version
   test_script:
     - . $HOME/.cargo/env
-    - yarn install --frozen-lockfile --registry https://registry.npmjs.org
+    - yarn install --ignore-platform --frozen-lockfile --registry https://registry.npmjs.org
     - yarn build
     - cargo test -p napi-sys --lib -- --nocapture
     - yarn build:test
