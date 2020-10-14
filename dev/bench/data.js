@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1602647270177,
+  "lastUpdate": 1602647551643,
   "repoUrl": "https://github.com/napi-rs/napi-rs",
   "entries": {
     "Benchmark": [
@@ -275,6 +275,61 @@ window.BENCHMARK_DATA = {
             "range": "±2.33%",
             "unit": "ops/sec",
             "extra": "76 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "napi-rs",
+            "username": "napi-rs"
+          },
+          "committer": {
+            "name": "napi-rs",
+            "username": "napi-rs"
+          },
+          "id": "b6d6835ddc3c3028d93fb6abcf1e4a395d2d638c",
+          "message": "build(deps-dev): bump @typescript-eslint/parser from 4.4.0 to 4.4.1",
+          "timestamp": "2020-10-14T03:45:57Z",
+          "url": "https://github.com/napi-rs/napi-rs/pull/232/commits/b6d6835ddc3c3028d93fb6abcf1e4a395d2d638c"
+        },
+        "date": 1602647550954,
+        "tool": "benchmarkjs",
+        "benches": [
+          {
+            "name": "noop#napi-rs",
+            "value": 42583491,
+            "range": "±1.39%",
+            "unit": "ops/sec",
+            "extra": "84 samples"
+          },
+          {
+            "name": "noop#JavaScript",
+            "value": 762716886,
+            "range": "±0.78%",
+            "unit": "ops/sec",
+            "extra": "90 samples"
+          },
+          {
+            "name": "Plus number#napi-rs",
+            "value": 11145564,
+            "range": "±0.55%",
+            "unit": "ops/sec",
+            "extra": "91 samples"
+          },
+          {
+            "name": "Plus number#JavaScript",
+            "value": 748770954,
+            "range": "±0.75%",
+            "unit": "ops/sec",
+            "extra": "88 samples"
+          },
+          {
+            "name": "Async task#napi-rs",
+            "value": 26010,
+            "range": "±4.36%",
+            "unit": "ops/sec",
+            "extra": "78 samples"
           }
         ]
       }
