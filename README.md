@@ -16,12 +16,13 @@ A minimal library for building compiled `NodeJS` add-ons in `Rust`.
 ![Linux-N-API-3](https://github.com/napi-rs/napi-rs/workflows/Linux-N-API-3/badge.svg)
 ![Linux-musl](https://github.com/napi-rs/napi-rs/workflows/Musl/badge.svg)
 ![macOS/Linux/Windows](https://github.com/napi-rs/napi-rs/workflows/Test/badge.svg)
+[![FreeBSD](https://api.cirrus-ci.com/github/napi-rs/napi-rs.svg)](https://cirrus-ci.com/github/napi-rs/napi-rs?branch=master)
 
 ## Operating Systems
 
-| Linux | macOS | Windows x64 MSVC |
-| ----- | ----- | ---------------- |
-| ✓     | ✓     | ✓                |
+| Linux | macOS | Windows x64 MSVC | FreeBSD |
+| ----- | ----- | ---------------- | ------- |
+| ✓     | ✓     | ✓                | ✓       |
 
 ## NodeJS
 
