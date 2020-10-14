@@ -1,0 +1,36 @@
+name: Linux-aarch64
+
+on:
+  push:
+    branches: [master, develop]
+  pull_request:
+
+jobs:
+  build:
+    name: stable - x86_64-unknown-linux-musl - node@14
+    runs-on: ubuntu-latest
+
+    steps:
+      - run: docker run --rm --privileged multiarch/qemu-user-static:register --reset
+      - uses: actions/checkout@v2
+
+      - name: 'Setup and run tests'
+        uses: docker://multiarch/ubuntu-core:arm64-focal
+        with:
+          args: >
+            sh -c "
+              apt-get update && \
+              apt-get install -y ca-certificates gnupg2 llvm clang curl && \
+              curl -sL https://deb.nodesource.com/setup_14.x | bash - && \
+              apt-get install -y nodejs && \
+              curl https://sh.rustup.rs -sSf --output rustup.sh && \
+              sh rustup.sh -y --profile minimal --default-toolchain stable && \
+              . $HOME/.cargo/env && \
+              npm install -g yarn && \
+              yarn --ignore-optional && \
+              yarn build && \
+              cargo check -vvv && \
+              cargo test -p napi-sys --lib -- --nocapture && \
+              yarn build:test && \
+              yarn test
+            "

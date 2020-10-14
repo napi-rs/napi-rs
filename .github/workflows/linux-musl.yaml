@@ -1,4 +1,4 @@
-name: Musl
+name: Linux musl
 
 on:
   push:
@@ -7,11 +7,7 @@ on:
 
 jobs:
   build:
-    name: stable - x86_64-unknown-linux-musl - node@${{ matrix.node }}
-    strategy:
-      fail-fast: false
-      matrix:
-        node: ['10', '12', '14']
+    name: stable - x86_64-unknown-linux-musl - node@14
     runs-on: ubuntu-latest
 
     steps:
@@ -49,6 +45,6 @@ jobs:
 
       - name: Unit test
         run: |
-          docker run --rm -v $(pwd)/.cargo:/root/.cargo -v $(pwd):/napi-rs -w /napi-rs builder sh -c "yarn --cwd ./test_module build && yarn test"
+          docker run --rm -v $(pwd)/.cargo:/root/.cargo -v $(pwd):/napi-rs -w /napi-rs builder sh -c "yarn build:test && yarn test"
         env:
           RUST_BACKTRACE: 1

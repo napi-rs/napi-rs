@@ -22,7 +22,8 @@ jobs:
 
       - name: Build docker image
         run: |
-          docker build . -f Dockerfile.alpine --pull --no-cache -t docker.pkg.github.com/napi-rs/napi-rs/rust-nodejs-alpine:lts
+          docker build . -f alpine.Dockerfile --pull --no-cache -t docker.pkg.github.com/napi-rs/napi-rs/rust-nodejs-alpine:lts
 
       - name: Push docker image
-        run: docker push docker.pkg.github.com/napi-rs/napi-rs/rust-nodejs-alpine:lts
+        run: |
+          docker push docker.pkg.github.com/napi-rs/napi-rs/rust-nodejs-alpine:lts
