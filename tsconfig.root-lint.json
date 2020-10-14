@@ -1,0 +1,4 @@
+{
+  "extends": "./tsconfig.json",
+  "files": ["./ava.config.cjs", "./write-ava-config.js"]
+}
