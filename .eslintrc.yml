@@ -223,7 +223,7 @@ overrides:
       project: ./bench/tsconfig.json
 
   - files:
-      - ./*.{cjs,js}
+      - ./*.js
     plugins:
       - '@typescript-eslint'
     parserOptions:

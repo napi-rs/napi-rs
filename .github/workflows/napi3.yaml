@@ -1,4 +1,4 @@
-name: Linux-N-API-3
+name: Linux N-API@3
 
 on:
   push:
@@ -72,11 +72,6 @@ jobs:
         with:
           command: test
           args: -p napi-sys --lib -- --nocapture
-
-      - name: Write ava.config.js for ava@2
-        run: |
-          node write-ava-config.js
-          cat ava.config.js
 
       - name: Unit tests
         run: |
