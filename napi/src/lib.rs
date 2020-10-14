@@ -16,16 +16,16 @@
 //!
 //! #[js_function(1)]
 //! pub fn uv_read_file(ctx: CallContext) -> Result<JsObject> {
-//!   let path = ctx.get::<JsString>(0)?;
-//!   let (sender, receiver) = oneshot::channel();
-//!   let p = path.as_str()?.to_owned();
-//!   thread::spawn(|| {
-//!     let res = fs::read(p).map_err(|e| Error::new(Status::Unknown, format!("{}", e)));
-//!     sender.send(res).expect("Send data failed");
-//!   });
-//!   ctx.env.execute(receiver.map_err(|e| Error::new(Status::Unknown, format!("{}", e))).map(|x| x.and_then(|x| x)), |&mut env, data| {
-//!     env.create_buffer_with_data(data)
-//!   })
+//!     let path = ctx.get::<JsString>(0)?;
+//!     let (sender, receiver) = oneshot::channel();
+//!     let p = path.as_str()?.to_owned();
+//!     thread::spawn(|| {
+//!         let res = fs::read(p).map_err(|e| Error::new(Status::Unknown, format!("{}", e)));
+//!         sender.send(res).expect("Send data failed");
+//!     });
+//!     ctx.env.execute(receiver.map_err(|e| Error::new(Status::Unknown, format!("{}", e))).map(|x| x.and_then(|x| x)), |&mut env, data| {
+//!         env.create_buffer_with_data(data)
+//!     })
 //! }
 //! ```
 //! ### tokio_rt
@@ -39,13 +39,13 @@
 //!
 //! #[js_function(1)]
 //! pub fn tokio_readfile(ctx: CallContext) -> Result<JsObject> {
-//!   let js_filepath = ctx.get::<JsString>(0)?;
-//!   let path_str = js_filepath.as_str()?;
-//!   ctx.env.execute_tokio_future(
-//!     tokio::fs::read(path_str.to_owned())
-//!       .map(|v| v.map_err(|e| Error::new(Status::Unknown, format!("failed to read file, {}", e)))),
-//!     |&mut env, data| env.create_buffer_with_data(data),
-//!   )
+//!     let js_filepath = ctx.get::<JsString>(0)?;
+//!     let path_str = js_filepath.as_str()?;
+//!     ctx.env.execute_tokio_future(
+//!         tokio::fs::read(path_str.to_owned())
+//!           .map(|v| v.map_err(|e| Error::new(Status::Unknown, format!("failed to read file, {}", e)))),
+//!         |&mut env, data| env.create_buffer_with_data(data),
+//!     )
 //! }
 //! ```
 //!
@@ -70,22 +70,22 @@
 //! ```
 //! #[derive(Serialize, Debug, Deserialize)]
 //! struct AnObject {
-//!   a: u32,
-//!   b: Vec<f64>,
-//!   c: String,
+//!     a: u32,
+//!     b: Vec<f64>,
+//!     c: String,
 //! }
 //!
 //! #[js_function(1)]
 //! fn deserialize_from_js(ctx: CallContext) -> Result<JsUndefined> {
-//!   let arg0 = ctx.get::<JsUnknown>(0)?;
-//!   let de_serialized: AnObject = ctx.env.from_js_value(arg0)?;
-//!   ...
+//!     let arg0 = ctx.get::<JsUnknown>(0)?;
+//!     let de_serialized: AnObject = ctx.env.from_js_value(arg0)?;
+//!     ...
 //! }
 //!
 //! #[js_function]
 //! fn serialize(ctx: CallContext) -> Result<JsUnknown> {
-//!   let value = AnyObject { a: 1, b: vec![0.1, 2.22], c: "hello" };
-//!   ctx.env.to_js_value(&value)
+//!     let value = AnyObject { a: 1, b: vec![0.1, 2.22], c: "hello" };
+//!     ctx.env.to_js_value(&value)
 //! }
 //! ```
 //!
@@ -138,7 +138,7 @@ pub type ContextlessResult<T> = Result<Option<T>>;
 /// register_module!(test_module, init);
 ///
 /// fn init(module: &mut Module) -> Result<()> {
-///   module.create_named_method("nativeFunction", native_function)?;
+///     module.create_named_method("nativeFunction", native_function)?;
 /// }
 /// ```
 #[macro_export]
@@ -154,11 +154,8 @@ macro_rules! register_module {
         _ => Err(Error::from_status(status)),
       }
     }
-    #[no_mangle]
-    #[cfg_attr(target_os = "linux", link_section = ".ctors")]
-    #[cfg_attr(target_os = "macos", link_section = "__DATA,__mod_init_func")]
-    #[cfg_attr(target_os = "windows", link_section = ".CRT$XCU")]
-    pub static __REGISTER_MODULE: extern "C" fn() = {
+
+    extern "C" fn register_module() {
       use std::ffi::CString;
       use std::io::Write;
       use std::os::raw::c_char;
@@ -167,58 +164,54 @@ macro_rules! register_module {
 
       #[cfg(all(feature = "tokio_rt", napi4))]
       use $crate::shutdown_tokio_rt;
+      static mut MODULE_DESCRIPTOR: Option<sys::napi_module> = None;
+      unsafe {
+        MODULE_DESCRIPTOR = Some(sys::napi_module {
+          nm_version: 1,
+          nm_flags: 0,
+          nm_filename: concat!(file!(), "\0").as_ptr() as *const c_char,
+          nm_register_func: Some(napi_register_module_v1),
+          nm_modname: concat!(stringify!($module_name), "\0").as_ptr() as *const c_char,
+          nm_priv: 0 as *mut _,
+          reserved: [0 as *mut _; 4],
+        });
 
-      extern "C" fn register_module() {
-        static mut MODULE_DESCRIPTOR: Option<sys::napi_module> = None;
-        unsafe {
-          MODULE_DESCRIPTOR = Some(sys::napi_module {
-            nm_version: 1,
-            nm_flags: 0,
-            nm_filename: concat!(file!(), "\0").as_ptr() as *const c_char,
-            nm_register_func: Some(init_module),
-            nm_modname: concat!(stringify!($module_name), "\0").as_ptr() as *const c_char,
-            nm_priv: 0 as *mut _,
-            reserved: [0 as *mut _; 4],
-          });
+        sys::napi_module_register(MODULE_DESCRIPTOR.as_mut().unwrap() as *mut sys::napi_module);
+      }
 
-          sys::napi_module_register(MODULE_DESCRIPTOR.as_mut().unwrap() as *mut sys::napi_module);
-        }
+      #[no_mangle]
+      pub unsafe extern "C" fn napi_register_module_v1(
+        raw_env: sys::napi_env,
+        raw_exports: sys::napi_value,
+      ) -> sys::napi_value {
+        let env = Env::from_raw(raw_env);
+        let mut exports: JsObject = JsObject::from_raw_unchecked(raw_env, raw_exports);
+        let mut cjs_module = Module { env, exports };
+        let result = $init(&mut cjs_module);
 
-        extern "C" fn init_module(
-          raw_env: sys::napi_env,
-          raw_exports: sys::napi_value,
-        ) -> sys::napi_value {
-          let env = Env::from_raw(raw_env);
-          let mut exports: JsObject = JsObject::from_raw_unchecked(raw_env, raw_exports);
-          let mut cjs_module = Module { env, exports };
-          let result = $init(&mut cjs_module);
+        #[cfg(all(feature = "tokio_rt", napi4))]
+        let hook_result = check_status(unsafe {
+          sys::napi_add_env_cleanup_hook(raw_env, Some(shutdown_tokio_rt), ptr::null_mut())
+        });
 
-          #[cfg(all(feature = "tokio_rt", napi4))]
-          let hook_result = check_status(unsafe {
-            sys::napi_add_env_cleanup_hook(raw_env, Some(shutdown_tokio_rt), ptr::null_mut())
-          });
+        #[cfg(not(all(feature = "tokio_rt", napi4)))]
+        let hook_result = Ok(());
 
-          #[cfg(not(all(feature = "tokio_rt", napi4)))]
-          let hook_result = Ok(());
-
-          match hook_result.and_then(move |_| result) {
-            Ok(_) => cjs_module.exports.raw(),
-            Err(e) => {
-              unsafe {
-                sys::napi_throw_error(
-                  raw_env,
-                  ptr::null(),
-                  CString::from_vec_unchecked(format!("Error initializing module: {}", e).into())
-                    .as_ptr() as *const _,
-                )
-              };
-              ptr::null_mut()
-            }
+        match hook_result.and_then(move |_| result) {
+          Ok(_) => cjs_module.exports.raw(),
+          Err(e) => {
+            unsafe {
+              sys::napi_throw_error(
+                raw_env,
+                ptr::null(),
+                CString::from_vec_unchecked(format!("Error initializing module: {}", e).into())
+                  .as_ptr() as *const _,
+              )
+            };
+            ptr::null_mut()
           }
         }
       }
-
-      register_module
-    };
+    }
   };
 }
