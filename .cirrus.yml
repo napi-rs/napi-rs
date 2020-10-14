@@ -1,0 +1,27 @@
+freebsd_instance:
+  image: freebsd-12-1-release-amd64
+
+task:
+  name: FreeBSD 12.1
+  env:
+    DEBUG: 'napi:*'
+  setup_script:
+    - pkg update
+    - pkg install -y -f curl node yarn npm libnghttp2 llvm
+    - curl https://sh.rustup.rs -sSf --output rustup.sh
+    - sh rustup.sh -y --profile minimal --default-toolchain stable
+    - . $HOME/.cargo/env
+    - |
+      echo "~~~~ rustc --version ~~~~"
+      rustc --version
+      echo "~~~~ node -v ~~~~"
+      node -v
+      echo "~~~~ yarn --version ~~~~"
+      yarn --version
+  test_script:
+    - . $HOME/.cargo/env
+    - yarn install --ignore-platform --frozen-lockfile --registry https://registry.npmjs.org
+    - yarn build
+    - cargo test -p napi-sys --lib -- --nocapture
+    - yarn build:test
+    - yarn test

@@ -84,6 +84,7 @@ export class BuildCommand extends Command {
         libExt = '.dll'
         break
       case 'linux':
+      case 'freebsd':
         dylibName = `lib${dylibName}`
         libExt = '.so'
         break

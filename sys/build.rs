@@ -28,21 +28,37 @@ fn main() {
     );
   }
 
-  if node_major_version < 10 {
+  if node_major_version < 8 && node_version.minor < 9 {
     panic!("node version is too low")
   }
 
-  let node_include_path = find_node_include_path(node_full_version.trim_end());
+  let node_include_path_buf = find_node_include_path(node_full_version.trim_end());
+
+  let node_include_path = match env::var("NODE_INCLUDE_PATH") {
+    Ok(node_include_path) => node_include_path,
+    Err(_) => node_include_path_buf.to_str().unwrap().to_owned(),
+  };
 
   let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
 
   let mut sys_bindings_path = PathBuf::from("src");
   sys_bindings_path.push("bindings.h");
 
-  bindgen::Builder::default()
+  let mut bindgen_builder = bindgen::Builder::default()
     .derive_default(true)
     .header(sys_bindings_path.to_str().unwrap().to_owned())
-    .clang_arg(String::from("-I") + node_include_path.to_str().unwrap())
+    .clang_arg(format!("-I{}", node_include_path));
+
+  if let Ok(uv_include_path) = env::var("UV_INCLUDE_PATH") {
+    bindgen_builder = bindgen_builder.clang_arg(format!("-I{}", uv_include_path));
+  } else if cfg!(target_os = "freebsd") {
+    bindgen_builder = bindgen_builder.clang_arg(format!(
+      "-I{}",
+      node_include_path_buf.parent().unwrap().to_str().unwrap()
+    ));
+  }
+
+  bindgen_builder
     .rustified_enum("(napi_|uv_).+")
     .whitelist_function("(napi_|uv_|extras_).+")
     .whitelist_type("(napi_|uv_|extras_).+")

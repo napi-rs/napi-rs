@@ -1,9 +1,13 @@
 const configuration = {
   extensions: ['ts', 'tsx'],
   files: ['test_module/__test__/**/*.spec.ts'],
-  require: ['@swc-node/register'],
+  require: [
+    require('os').platform() === 'freebsd'
+      ? 'ts-node/register/transpile-only'
+      : '@swc-node/register',
+  ],
   environmentVariables: {
-    SWC_NODE_PROJECT: './test_module/tsconfig.json',
+    TS_NODE_PROJECT: './test_module/tsconfig.json',
   },
 }
 
@@ -11,4 +15,4 @@ if (parseInt(process.versions.napi, 10) < 4) {
   configuration.compileEnhancements = false
 }
 
-export default configuration
+module.exports = configuration
