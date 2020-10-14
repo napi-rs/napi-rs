@@ -1,6 +1,9 @@
 name: Benchmark
 
 on:
+  push:
+    branches:
+      - master
   pull_request:
 
 jobs:
@@ -62,12 +65,20 @@ jobs:
 
       - name: Store benchmark result
         uses: rhysd/github-action-benchmark@v1
+        if: github.ref == 'refs/heads/master'
         with:
           tool: 'benchmarkjs'
           output-file-path: bench.txt
-          comment-on-alert: true
           github-token: ${{ secrets.GH_TOKEN }}
           auto-push: true
+
+      - name: Store benchmark result
+        uses: rhysd/github-action-benchmark@v1
+        if: github.ref != 'refs/heads/master'
+        with:
+          tool: 'benchmarkjs'
+          output-file-path: bench.txt
+          github-token: ${{ secrets.GH_TOKEN }}
           comment-always: true
 
       - name: Clear the cargo caches
