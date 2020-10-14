@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1602643706390,
+  "lastUpdate": 1602646458263,
   "repoUrl": "https://github.com/napi-rs/napi-rs",
   "entries": {
     "Benchmark": [
@@ -165,6 +165,61 @@ window.BENCHMARK_DATA = {
             "range": "±2.36%",
             "unit": "ops/sec",
             "extra": "71 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "napi-rs",
+            "username": "napi-rs"
+          },
+          "committer": {
+            "name": "napi-rs",
+            "username": "napi-rs"
+          },
+          "id": "826ebd9847e4586fbb51bfa00e3cab0819ee6d90",
+          "message": "ci: add freebsd ci",
+          "timestamp": "2020-10-14T02:13:43Z",
+          "url": "https://github.com/napi-rs/napi-rs/pull/228/commits/826ebd9847e4586fbb51bfa00e3cab0819ee6d90"
+        },
+        "date": 1602646457180,
+        "tool": "benchmarkjs",
+        "benches": [
+          {
+            "name": "noop#napi-rs",
+            "value": 50602771,
+            "range": "±1.92%",
+            "unit": "ops/sec",
+            "extra": "84 samples"
+          },
+          {
+            "name": "noop#JavaScript",
+            "value": 809104480,
+            "range": "±1.36%",
+            "unit": "ops/sec",
+            "extra": "88 samples"
+          },
+          {
+            "name": "Plus number#napi-rs",
+            "value": 12845420,
+            "range": "±1.45%",
+            "unit": "ops/sec",
+            "extra": "87 samples"
+          },
+          {
+            "name": "Plus number#JavaScript",
+            "value": 872908764,
+            "range": "±1.41%",
+            "unit": "ops/sec",
+            "extra": "87 samples"
+          },
+          {
+            "name": "Async task#napi-rs",
+            "value": 21271,
+            "range": "±2.22%",
+            "unit": "ops/sec",
+            "extra": "53 samples"
           }
         ]
       }
