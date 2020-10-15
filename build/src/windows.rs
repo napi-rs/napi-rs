@@ -106,6 +106,9 @@ pub fn setup() {
     "cargo:rustc-link-search=native={}",
     link_search_dir.display()
   );
+  // Link `win_delay_load_hook.obj`
+  // Needed for electron, but okay for other environments
+  // https://github.com/neon-bindings/neon/pull/627
   println!("cargo:rustc-cdylib-link-arg=delayimp.lib");
   println!("cargo:rustc-cdylib-link-arg=/DELAYLOAD:node.exe");
 }

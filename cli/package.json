@@ -1,0 +1,50 @@
+{
+  "name": "@napi-rs/cli",
+  "version": "1.0.0-alpha.9",
+  "description": "Cli tools for napi-rs",
+  "keywords": ["cli", "rust", "napi", "n-api", "neon"],
+  "author": "LongYinan <lynweklm@gmail.com>",
+  "homepage": "https://github.com/napi-rs/napi-rs/tree/master/cli#readme",
+  "license": "MIT",
+  "bin": {
+    "napi": "./scripts/index.js"
+  },
+  "files": ["scripts"],
+  "engines": {
+    "node": ">= 10"
+  },
+  "maintainers": [
+    {
+      "name": "LongYinan",
+      "email": "lynweklm@gmail.com",
+      "homepage": "https://github.com/Brooooooklyn"
+    }
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/napi-rs/napi-rs.git"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
+  "bugs": {
+    "url": "https://github.com/napi-rs/napi-rs/issues"
+  },
+  "dependencies": {
+    "@octokit/rest": "^18.0.10",
+    "chalk": "^4.1.0",
+    "clipanion": "^2.6.2",
+    "debug": "^4.3.1",
+    "fdir": "^4.1.0",
+    "inquirer": "^7.3.3",
+    "lodash": "^4.17.20",
+    "putasset": "^5.0.3",
+    "toml": "^3.0.0",
+    "tslib": "^2.0.3"
+  },
+  "funding": {
+    "type": "github",
+    "url": "https://github.com/sponsors/Brooooooklyn"
+  }
+}

@@ -4,6 +4,7 @@ import chalk from 'chalk'
 import { Command } from 'clipanion'
 import { fdir } from 'fdir'
 
+import { getNapiConfig } from './consts'
 import { debugFactory } from './debug'
 import { readFileAsync, writeFileAsync } from './utils'
 
@@ -13,43 +14,26 @@ export class ArtifactsCommand extends Command {
   @Command.String('-d,--dir')
   sourceDir = 'artifacts'
 
-  @Command.String('-t,--target')
-  targetDir = '.'
+  @Command.String('--dist')
+  distDir = 'npm'
+
+  @Command.String('-c,--config')
+  configFileName?: string
 
   @Command.Path('artifacts')
   async execute() {
-    const api = new fdir()
-      .withFullPaths()
-      .exclude((dirPath) => dirPath.includes('node_modules'))
-      .filter((filePath) => filePath.endsWith('package.json'))
-      .crawl(join(process.cwd(), this.targetDir))
+    const { platforms, binaryName, packageJsonPath } = getNapiConfig(
+      this.configFileName,
+    )
+
+    const packageJsonDir = parse(packageJsonPath).dir
+
     const sourceApi = new fdir()
       .withFullPaths()
       .crawl(join(process.cwd(), this.sourceDir))
-    const distDirs = await api.withPromise().then(
-      (output) =>
-        (output as string[])
-          .map((packageJsonPath) => {
-            const { dir } = parse(packageJsonPath)
-            const { napi } = require(packageJsonPath)
-            if (!napi) {
-              return null
-            }
-            const napiName: string = napi?.name ?? 'index'
-            debug(
-              `Scan dir: [${chalk.yellowBright(
-                dir,
-              )}], napi name: ${chalk.greenBright(napiName)}`,
-            )
-            return {
-              dir,
-              name: napiName,
-            }
-          })
-          .filter(Boolean) as {
-          name: string
-          dir: string
-        }[],
+
+    const distDirs = platforms.map((platform) =>
+      join(process.cwd(), this.distDir, platform.platformArchABI),
     )
 
     await sourceApi.withPromise().then((output) =>
@@ -58,14 +42,26 @@ export class ArtifactsCommand extends Command {
           debug(`Read [${chalk.yellowBright(filePath)}]`)
           const sourceContent = await readFileAsync(filePath)
           const parsedName = parse(filePath)
-          const [fileName] = parsedName.name.split('.')
-          const { dir } = distDirs.find(({ name }) => name === fileName) ?? {}
+          const [_binaryName, platformArchABI] = parsedName.name.split('.')
+          if (_binaryName !== binaryName) {
+            debug(
+              `[${chalk.yellowBright(
+                _binaryName,
+              )}] is not matched with [${chalk.greenBright(binaryName)}], skip`,
+            )
+          }
+          const dir = distDirs.find((dir) => dir.includes(platformArchABI))
           if (!dir) {
             throw new TypeError(`No dist dir found for ${filePath}`)
           }
           const distFilePath = join(dir, parsedName.base)
           debug(`Write file content to [${chalk.yellowBright(distFilePath)}]`)
           await writeFileAsync(distFilePath, sourceContent)
+          const distFilePathLocal = join(packageJsonDir, parsedName.base)
+          debug(
+            `Write file content to [${chalk.yellowBright(distFilePathLocal)}]`,
+          )
+          await writeFileAsync(distFilePathLocal, sourceContent)
         }),
       ),
     )

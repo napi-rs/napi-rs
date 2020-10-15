@@ -12,9 +12,9 @@ const debug = debugFactory('version')
 
 export class VersionCommand extends Command {
   static async updatePackageJson(prefix: string, configFileName?: string) {
-    const { muslPlatforms, version, platforms } = getNapiConfig(configFileName)
-    for (const name of [...platforms, ...muslPlatforms]) {
-      const pkgDir = join(process.cwd(), prefix, name)
+    const { version, platforms } = getNapiConfig(configFileName)
+    for (const platformDetail of platforms) {
+      const pkgDir = join(process.cwd(), prefix, platformDetail.platformArchABI)
       debug(
         `Update version to ${chalk.greenBright(
           version,
