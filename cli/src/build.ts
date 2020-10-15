@@ -1,3 +1,4 @@
+import { execSync } from 'child_process'
 import os from 'os'
 import { join, parse, sep } from 'path'
 
@@ -7,6 +8,7 @@ import toml from 'toml'
 
 import { getNapiConfig } from './consts'
 import { debugFactory } from './debug'
+import { getDefaultTargetTriple, parseTriple } from './parse-triple'
 import { existsAsync, readFileAsync, writeFileAsync } from './utils'
 
 const debug = debugFactory('build')
@@ -17,13 +19,10 @@ export class BuildCommand extends Command {
   })
 
   @Command.Boolean(`--platform`)
-  appendPlatformToFilename!: boolean
+  appendPlatformToFilename = false
 
   @Command.Boolean(`--release`)
   isRelease = false
-
-  @Command.Boolean('--musl')
-  isMusl = false
 
   @Command.String('--config,-c')
   configFileName?: string
@@ -31,8 +30,14 @@ export class BuildCommand extends Command {
   @Command.String('--cargo-name')
   cargoName?: string
 
-  @Command.String('--target-triple')
+  @Command.String('--target')
   targetTripleDir = ''
+
+  @Command.String('--features')
+  features?: string
+
+  @Command.String('--cargo-flags')
+  cargoFlags = ''
 
   @Command.String({
     required: false,
@@ -41,6 +46,33 @@ export class BuildCommand extends Command {
 
   @Command.Path('build')
   async execute() {
+    const releaseFlag = this.isRelease ? `--release` : ''
+    const targetFLag = this.targetTripleDir
+      ? `--target ${this.targetTripleDir}`
+      : ''
+    const featuresFlag = this.features ? `--features ${this.features}` : ''
+    const triple = this.targetTripleDir
+      ? parseTriple(this.targetTripleDir)
+      : getDefaultTargetTriple(
+          execSync('rustup show active-toolchain', {
+            env: process.env,
+          }).toString('utf8'),
+        )
+    debug(`Current triple is: ${chalk.green(triple.raw)}`)
+    const externalFlags = [
+      releaseFlag,
+      targetFLag,
+      featuresFlag,
+      this.cargoFlags,
+    ]
+      .filter((flag) => Boolean(flag))
+      .join(' ')
+    const cargoCommand = `cargo build ${externalFlags}`
+    debug(`Run ${chalk.green(cargoCommand)}`)
+    execSync(cargoCommand, {
+      env: process.env,
+      stdio: 'inherit',
+    })
     const { binaryName } = getNapiConfig(this.configFileName)
     let dylibName = this.cargoName
     if (!dylibName) {
@@ -88,6 +120,8 @@ export class BuildCommand extends Command {
         break
       case 'linux':
       case 'freebsd':
+      case 'openbsd':
+      case 'sunos':
         dylibName = `lib${dylibName}`
         libExt = '.so'
         break
@@ -102,21 +136,11 @@ export class BuildCommand extends Command {
       this.isRelease ? 'release' : 'debug',
     )
 
-    if (this.isMusl && !this.appendPlatformToFilename) {
-      throw new TypeError(`Musl flag must be used with platform flag`)
-    }
-
     const platformName = this.appendPlatformToFilename
-      ? !this.isMusl
-        ? `.${platform}`
-        : `.${platform}-musl`
+      ? `.${triple.platformArchABI}`
       : ''
 
-    debug(
-      `Platform name: ${
-        platformName || chalk.green('[Empty]')
-      }, musl: ${chalk.greenBright(this.isMusl)}`,
-    )
+    debug(`Platform name: ${platformName || chalk.green('[Empty]')}`)
 
     let distModulePath = this.target
       ? join(this.target, `${binaryName}${platformName}.node`)

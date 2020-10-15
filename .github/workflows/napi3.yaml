@@ -56,7 +56,7 @@ jobs:
           key: napi3-${{ hashFiles('yarn.lock') }}
 
       - name: 'Install dependencies'
-        run: yarn add ava@2 --dev --ignore-engines
+        run: yarn add ava@2 --dev --ignore-engines -W
 
       - name: 'Build TypeScript'
         run: yarn --ignore-engines build

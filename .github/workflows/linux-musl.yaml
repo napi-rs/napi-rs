@@ -44,9 +44,6 @@ jobs:
       - name: 'Install node dependencies'
         run: docker run --rm -v ~/.cargo/git:/root/.cargo/git -v ~/.cargo/registry:/root/.cargo/registry -v $(pwd):/napi-rs -w /napi-rs builder yarn
 
-      - name: 'Install swc musl'
-        run: docker run --rm -v ~/.cargo/git:/root/.cargo/git -v ~/.cargo/registry:/root/.cargo/registry -v $(pwd):/napi-rs -w /napi-rs builder yarn add @swc/core-linux-musl --dev
-
       - name: 'Build TypeScript'
         run: docker run --rm -v ~/.cargo/git:/root/.cargo/git -v ~/.cargo/registry:/root/.cargo/registry -v $(pwd):/napi-rs -w /napi-rs builder yarn build
 

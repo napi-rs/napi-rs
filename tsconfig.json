@@ -1,6 +1,5 @@
 {
   "compilerOptions": {
-    "jsx": "react",
     "allowSyntheticDefaultImports": true,
     "declaration": true,
     "downlevelIteration": true,
@@ -26,9 +25,10 @@
     "stripInternal": true,
     "resolveJsonModule": true,
     "importsNotUsedAsValues": "remove",
-    "outDir": "./scripts",
+    "rootDir": "./cli/src",
+    "outDir": "./cli/scripts",
     "lib": ["dom", "DOM.Iterable", "ES2019", "ES2020", "esnext"]
   },
-  "include": ["./src"],
-  "exclude": ["node_modules", "bench"]
+  "include": ["cli"],
+  "exclude": ["node_modules", "bench", "cli/scripts"]
 }

@@ -3,7 +3,6 @@ name: Linux-aarch64
 env:
   DEBUG: 'napi:*'
   CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: 'aarch64-linux-gnu-gcc'
-  NAPI_RS_INCLUDE_PATH: '/usr/aarch64-linux-gnu/include'
 
 on:
   push:
@@ -12,7 +11,7 @@ on:
 
 jobs:
   build:
-    name: stable - x86_64-unknown-linux-musl - node@14
+    name: stable - aarch64-unknown-linux-gnu - node@14
     runs-on: ubuntu-latest
 
     steps:
@@ -45,19 +44,19 @@ jobs:
         uses: actions/cache@v1
         with:
           path: ~/.cargo/registry
-          key: stable-linux-aarch64-node@14-cargo-registry-trimmed-${{ hashFiles('**/Cargo.lock') }}
+          key: stable-linux-aarch64-gnu-node@14-cargo-registry-trimmed-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache cargo index
         uses: actions/cache@v1
         with:
           path: ~/.cargo/git
-          key: stable-linux-aarch64gnu-node@14-cargo-index-trimmed-${{ hashFiles('**/Cargo.lock') }}
+          key: stable-linux-aarch64-gnu-node@14-cargo-index-trimmed-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache NPM dependencies
         uses: actions/cache@v1
         with:
           path: node_modules
-          key: npm-cache-linux-aarch64-node@14-${{ hashFiles('yarn.lock') }}
+          key: npm-cache-linux-aarch64-gnu-node@14-${{ hashFiles('yarn.lock') }}
 
       - name: Install cross compile toolchain
         run: sudo apt-get install gcc-aarch64-linux-gnu g++-6-aarch64-linux-gnu -y

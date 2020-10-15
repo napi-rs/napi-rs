@@ -1,28 +1,20 @@
 {
   "name": "napi-rs",
-  "version": "0.3.9",
+  "version": "0.0.0",
   "description": "A minimal library for building compiled Node add-ons in Rust.",
-  "bin": {
-    "napi": "scripts/index.js"
-  },
-  "engines": {
-    "node": ">= 10"
-  },
+  "private": "true",
+  "workspaces": [
+    "cli",
+    "triples"
+  ],
   "repository": {
     "type": "git",
     "url": "git@github.com:Brooooooklyn/napi-rs.git"
   },
-  "maintainers": [
-    {
-      "name": "LongYinan",
-      "email": "lynweklm@gmail.com",
-      "homepage": "https://github.com/Brooooooklyn"
-    }
-  ],
   "license": "MIT",
   "scripts": {
-    "bench": "cross-env SWC_NODE_PROJECT='./bench/tsconfig.json' node -r ts-node/register/transpile-only bench/bench.ts",
-    "build": "tsc -p tsconfig.json && chmod 777 scripts/index.js",
+    "bench": "cross-env TS_NODE_PROJECT='./bench/tsconfig.json' node -r ts-node/register/transpile-only bench/bench.ts",
+    "build": "tsc -p tsconfig.json && shx chmod 777 cli/scripts/index.js && node generate-triplelist.js",
     "build:bench": "yarn --cwd ./bench build",
     "build:test": "yarn --cwd ./test_module build",
     "build:test:aarch64": "yarn --cwd ./test_module build-aarch64",
@@ -32,7 +24,7 @@
     "format:rs": "cargo fmt",
     "format:source": "prettier --config ./package.json --write './**/*.{js,ts}'",
     "format:yaml": "prettier --parser yaml --write './**/*.{yml,yaml}'",
-    "lint": "eslint -c .eslintrc.yml './src/**/*.ts' './test_module/**/*.{ts,js}'",
+    "lint": "eslint -c .eslintrc.yml './cli/**/*.ts' './test_module/**/*.{ts,js}'",
     "prepublishOnly": "npm run build",
     "test": "ava"
   },
@@ -40,18 +32,6 @@
     "url": "https://github.com/napi-rs/napi-rs/issues"
   },
   "homepage": "https://github.com/napi-rs/napi-rs#readme",
-  "dependencies": {
-    "@octokit/rest": "^18.0.10",
-    "chalk": "^4.1.0",
-    "clipanion": "^2.6.2",
-    "debug": "^4.3.1",
-    "fdir": "^4.1.0",
-    "inquirer": "^7.3.3",
-    "lodash": "^4.17.20",
-    "putasset": "^5.0.3",
-    "toml": "^3.0.0",
-    "tslib": "^2.0.3"
-  },
   "prettier": {
     "printWidth": 80,
     "semi": false,
@@ -59,12 +39,19 @@
     "trailingComma": "all",
     "arrowParens": "always"
   },
-  "files": ["scripts", "LICENSE"],
   "lint-staged": {
-    "*.js": ["prettier --write"],
-    "*.@(yml|yaml)": ["prettier --parser yaml --write"],
-    "*.json": ["prettier --parser json --write"],
-    "*.md": ["prettier --parser markdown --write"]
+    "*.js": [
+      "prettier --write"
+    ],
+    "*.@(yml|yaml)": [
+      "prettier --parser yaml --write"
+    ],
+    "*.json": [
+      "prettier --parser json --write"
+    ],
+    "*.md": [
+      "prettier --parser markdown --write"
+    ]
   },
   "husky": {
     "hooks": {
@@ -88,13 +75,16 @@
     "eslint-plugin-import": "^2.22.1",
     "eslint-plugin-prettier": "^3.1.4",
     "husky": "^4.3.0",
+    "lerna": "^3.22.1",
     "lint-staged": "^10.5.2",
     "npm-run-all": "^4.1.5",
     "nyc": "^15.1.0",
     "prettier": "^2.2.1",
+    "shx": "^0.3.3",
     "sinon": "^9.2.1",
     "source-map-support": "^0.5.19",
     "ts-node": "^9.0.0",
+    "tslib": "^2.0.3",
     "typescript": "^4.1.2"
   }
 }

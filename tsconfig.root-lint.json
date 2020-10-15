@@ -1,4 +1,4 @@
 {
   "extends": "./tsconfig.json",
-  "files": ["./ava.config.js"]
+  "files": ["./ava.config.js", "./generate-triplelist.js", "triples/index.js"]
 }
