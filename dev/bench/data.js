@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1602733937289,
+  "lastUpdate": 1602751515819,
   "repoUrl": "https://github.com/napi-rs/napi-rs",
   "entries": {
     "Benchmark": [
@@ -892,6 +892,65 @@ window.BENCHMARK_DATA = {
             "range": "±1.83%",
             "unit": "ops/sec",
             "extra": "77 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "lynweklm@gmail.com",
+            "name": "LongYinan",
+            "username": "Brooooooklyn"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9783284e5d913f25c591a6542860420eccececd0",
+          "message": "Merge pull request #238 from napi-rs/reduce-aarch64-running-time\n\nci: reduce aarch64 running time by cross compile in host machine",
+          "timestamp": "2020-10-15T16:41:01+08:00",
+          "tree_id": "b090e79927d51bf2d0146a4be85cf33167c5aed1",
+          "url": "https://github.com/napi-rs/napi-rs/commit/9783284e5d913f25c591a6542860420eccececd0"
+        },
+        "date": 1602751514782,
+        "tool": "benchmarkjs",
+        "benches": [
+          {
+            "name": "noop#napi-rs",
+            "value": 46698491,
+            "range": "±2.77%",
+            "unit": "ops/sec",
+            "extra": "84 samples"
+          },
+          {
+            "name": "noop#JavaScript",
+            "value": 669805330,
+            "range": "±2.32%",
+            "unit": "ops/sec",
+            "extra": "82 samples"
+          },
+          {
+            "name": "Plus number#napi-rs",
+            "value": 11691346,
+            "range": "±2.3%",
+            "unit": "ops/sec",
+            "extra": "85 samples"
+          },
+          {
+            "name": "Plus number#JavaScript",
+            "value": 676607522,
+            "range": "±2.33%",
+            "unit": "ops/sec",
+            "extra": "83 samples"
+          },
+          {
+            "name": "Async task#napi-rs",
+            "value": 32702,
+            "range": "±3.41%",
+            "unit": "ops/sec",
+            "extra": "73 samples"
           }
         ]
       }
