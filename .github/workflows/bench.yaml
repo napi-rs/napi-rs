@@ -1,5 +1,8 @@
 name: Benchmark
 
+env:
+  DEBUG: 'napi:*'
+
 on:
   push:
     branches:

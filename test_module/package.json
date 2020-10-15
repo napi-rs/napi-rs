@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "scripts": {
     "build": "cargo build && node ../scripts/index.js build",
+    "build-aarch64": "cargo build --target aarch64-unknown-linux-gnu && node ../scripts/index.js build --target-triple aarch64-unknown-linux-gnu",
     "build-release": "cargo build --release && node ../scripts/index.js build --release",
     "test": "node ./index.js"
   }
