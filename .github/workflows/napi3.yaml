@@ -1,5 +1,8 @@
 name: Linux N-API@3
 
+env:
+  DEBUG: 'napi:*'
+
 on:
   push:
     branches: [master, develop]

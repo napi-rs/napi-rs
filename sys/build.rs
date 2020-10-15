@@ -47,11 +47,14 @@ fn main() {
   let mut bindgen_builder = bindgen::Builder::default()
     .derive_default(true)
     .header(sys_bindings_path.to_str().unwrap().to_owned())
-    .clang_arg(format!("-I{}", node_include_path));
+    .clang_arg(format!("-I{}", node_include_path))
+    .clang_arg("-target")
+    .clang_arg(env::var("TARGET").unwrap());
 
-  if let Ok(uv_include_path) = env::var("UV_INCLUDE_PATH") {
+  if let Ok(uv_include_path) = env::var("NAPI_RS_INCLUDE_PATH") {
     bindgen_builder = bindgen_builder.clang_arg(format!("-I{}", uv_include_path));
-  } else if cfg!(target_os = "freebsd") {
+  }
+  if cfg!(target_os = "freebsd") {
     bindgen_builder = bindgen_builder.clang_arg(format!(
       "-I{}",
       node_include_path_buf.parent().unwrap().to_str().unwrap()

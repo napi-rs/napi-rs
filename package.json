@@ -25,6 +25,7 @@
     "build": "tsc -p tsconfig.json && chmod 777 scripts/index.js",
     "build:bench": "yarn --cwd ./bench build",
     "build:test": "yarn --cwd ./test_module build",
+    "build:test:aarch64": "yarn --cwd ./test_module build-aarch64",
     "format": "run-p format:md format:json format:yaml format:source format:rs",
     "format:md": "prettier --parser markdown --write './**/*.md'",
     "format:json": "prettier --parser json --write './**/*.json'",
