@@ -146,19 +146,19 @@ impl Env {
   }
 
   pub fn create_string(&self, s: &str) -> Result<JsString> {
-    self.create_string_from_chars(s.as_ptr() as *const _, s.len() as u64)
+    self.create_string_from_chars(s.as_ptr() as *const c_char, s.len() as u64)
   }
 
   pub fn create_string_from_std(&self, s: String) -> Result<JsString> {
-    self.create_string_from_chars(s.as_ptr() as *const _, s.len() as u64)
+    self.create_string_from_chars(s.as_ptr() as *const c_char, s.len() as u64)
   }
 
   pub fn create_string_from_vec_u8(&self, bytes: Vec<u8>) -> Result<JsString> {
-    self.create_string_from_chars(bytes.as_ptr() as *const _, bytes.len() as u64)
+    self.create_string_from_chars(bytes.as_ptr() as *const c_char, bytes.len() as u64)
   }
 
   pub fn create_string_from_vec_i8(&self, bytes: Vec<i8>) -> Result<JsString> {
-    self.create_string_from_chars(bytes.as_ptr(), bytes.len() as u64)
+    self.create_string_from_chars(bytes.as_ptr() as *const c_char, bytes.len() as u64)
   }
 
   fn create_string_from_chars(&self, data_ptr: *const c_char, len: u64) -> Result<JsString> {

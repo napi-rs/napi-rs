@@ -13,5 +13,6 @@ rustfmt.toml
 .eslintignore
 .eslintrc.yml
 Cargo.toml
-Dockerfile.alpine
+alpine.Dockerfile
+arm64v8.Dockerfile
 yarn.lock
