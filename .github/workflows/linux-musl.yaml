@@ -1,5 +1,8 @@
 name: Linux musl
 
+env:
+  DEBUG: 'napi:*'
+
 on:
   push:
     branches: [master, develop]

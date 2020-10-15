@@ -1,5 +1,8 @@
 name: macOS/Windows/Linux x64
 
+env:
+  DEBUG: 'napi:*'
+
 on:
   push:
     branches: [master, develop]

@@ -31,6 +31,9 @@ export class BuildCommand extends Command {
   @Command.String('--cargo-name')
   cargoName?: string
 
+  @Command.String('--target-triple')
+  targetTripleDir = ''
+
   @Command.String({
     required: false,
   })
@@ -94,7 +97,10 @@ export class BuildCommand extends Command {
         )
     }
 
-    const targetDir = this.isRelease ? 'release' : 'debug'
+    const targetDir = join(
+      this.targetTripleDir,
+      this.isRelease ? 'release' : 'debug',
+    )
 
     if (this.isMusl && !this.appendPlatformToFilename) {
       throw new TypeError(`Musl flag must be used with platform flag`)
