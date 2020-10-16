@@ -26,7 +26,7 @@ pub(crate) fn get_tokio_sender() -> &'static mpsc::Sender<Message> {
       .unwrap_or(100);
     let (sender, mut receiver) = mpsc::channel(buffer_size);
     spawn(move || {
-      let mut rt = Runtime::new().expect("Failed to create tokio runtime");
+      let rt = Runtime::new().expect("Failed to create tokio runtime");
       rt.block_on(async {
         loop {
           match receiver.recv().await {
@@ -44,7 +44,7 @@ pub(crate) fn get_tokio_sender() -> &'static mpsc::Sender<Message> {
 }
 
 pub unsafe extern "C" fn shutdown(_data: *mut c_void) {
-  let mut sender = get_tokio_sender().clone();
+  let sender = get_tokio_sender().clone();
   sender
     .try_send(Message::Shutdown)
     .map_err(|e| Error::from_reason(format!("Shutdown tokio runtime failed: {}", e)))

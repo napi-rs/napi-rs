@@ -640,7 +640,7 @@ impl Env {
     let future_promise =
       promise::FuturePromise::create(raw_env, raw_deferred, Box::from(resolver))?;
     let future_to_resolve = promise::resolve_from_future(future_promise.start()?, fut);
-    let mut sender = get_tokio_sender().clone();
+    let sender = get_tokio_sender().clone();
     sender
       .try_send(Message::Task(Box::pin(future_to_resolve)))
       .map_err(|e| match e {
