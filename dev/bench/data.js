@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1602751911062,
+  "lastUpdate": 1602853320519,
   "repoUrl": "https://github.com/napi-rs/napi-rs",
   "entries": {
     "Benchmark": [
@@ -1010,6 +1010,65 @@ window.BENCHMARK_DATA = {
             "range": "±1.76%",
             "unit": "ops/sec",
             "extra": "81 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "lynweklm@gmail.com",
+            "name": "LongYinan",
+            "username": "Brooooooklyn"
+          },
+          "committer": {
+            "email": "lynweklm@gmail.com",
+            "name": "LongYinan",
+            "username": "Brooooooklyn"
+          },
+          "distinct": true,
+          "id": "64d66a2261feb047946630643d1191278e531333",
+          "message": "chore: tokio@0.3",
+          "timestamp": "2020-10-16T20:58:56+08:00",
+          "tree_id": "f3842221870d5c642cceaef94e55fcb5a2417168",
+          "url": "https://github.com/napi-rs/napi-rs/commit/64d66a2261feb047946630643d1191278e531333"
+        },
+        "date": 1602853319483,
+        "tool": "benchmarkjs",
+        "benches": [
+          {
+            "name": "noop#napi-rs",
+            "value": 55251572,
+            "range": "±1.15%",
+            "unit": "ops/sec",
+            "extra": "87 samples"
+          },
+          {
+            "name": "noop#JavaScript",
+            "value": 693767050,
+            "range": "±1.43%",
+            "unit": "ops/sec",
+            "extra": "87 samples"
+          },
+          {
+            "name": "Plus number#napi-rs",
+            "value": 12679042,
+            "range": "±1.2%",
+            "unit": "ops/sec",
+            "extra": "88 samples"
+          },
+          {
+            "name": "Plus number#JavaScript",
+            "value": 700764015,
+            "range": "±1.09%",
+            "unit": "ops/sec",
+            "extra": "86 samples"
+          },
+          {
+            "name": "Async task#napi-rs",
+            "value": 22566,
+            "range": "±1.95%",
+            "unit": "ops/sec",
+            "extra": "80 samples"
           }
         ]
       }
