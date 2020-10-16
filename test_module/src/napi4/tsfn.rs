@@ -75,7 +75,7 @@ pub fn test_tokio_readfile(ctx: CallContext) -> Result<JsUndefined> {
           .create_buffer_with_data(ctx.value)
           .map(|v| vec![v.into_raw()])
       })?;
-  let mut rt = tokio::runtime::Runtime::new()
+  let rt = tokio::runtime::Runtime::new()
     .map_err(|e| Error::from_reason(format!("Create tokio runtime failed {}", e)))?;
 
   rt.block_on(async move {
