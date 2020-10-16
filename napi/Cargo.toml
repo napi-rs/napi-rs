@@ -29,7 +29,7 @@ version = "0.3"
 [dependencies.tokio]
 features = ["rt-core", "rt-threaded", "sync"]
 optional = true
-version = "0.2"
+version = "0.3"
 
 [dependencies.once_cell]
 optional = true
