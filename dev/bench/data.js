@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1602999591834,
+  "lastUpdate": 1602999598012,
   "repoUrl": "https://github.com/napi-rs/napi-rs",
   "entries": {
     "Benchmark": [
@@ -1187,6 +1187,65 @@ window.BENCHMARK_DATA = {
             "range": "±2.05%",
             "unit": "ops/sec",
             "extra": "77 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "lynweklm@gmail.com",
+            "name": "LongYinan",
+            "username": "Brooooooklyn"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "75676ada113947a82d3b0dea09be06f3a7c3f537",
+          "message": "Merge pull request #244 from napi-rs/dependabot/npm_and_yarn/types/node-14.11.10\n\nbuild(deps-dev): bump @types/node from 14.11.8 to 14.11.10",
+          "timestamp": "2020-10-18T13:36:45+08:00",
+          "tree_id": "1af9e261ec780d438cd12bd43c5fe36f3bdcf0df",
+          "url": "https://github.com/napi-rs/napi-rs/commit/75676ada113947a82d3b0dea09be06f3a7c3f537"
+        },
+        "date": 1602999596938,
+        "tool": "benchmarkjs",
+        "benches": [
+          {
+            "name": "noop#napi-rs",
+            "value": 42292767,
+            "range": "±1%",
+            "unit": "ops/sec",
+            "extra": "89 samples"
+          },
+          {
+            "name": "noop#JavaScript",
+            "value": 733547046,
+            "range": "±0.79%",
+            "unit": "ops/sec",
+            "extra": "88 samples"
+          },
+          {
+            "name": "Plus number#napi-rs",
+            "value": 10205223,
+            "range": "±1.44%",
+            "unit": "ops/sec",
+            "extra": "86 samples"
+          },
+          {
+            "name": "Plus number#JavaScript",
+            "value": 742039778,
+            "range": "±0.57%",
+            "unit": "ops/sec",
+            "extra": "91 samples"
+          },
+          {
+            "name": "Async task#napi-rs",
+            "value": 19939,
+            "range": "±1.83%",
+            "unit": "ops/sec",
+            "extra": "83 samples"
           }
         ]
       }
