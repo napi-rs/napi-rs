@@ -20,6 +20,7 @@ mod napi6;
 #[cfg(napi4)]
 mod tokio_rt;
 
+mod array;
 mod arraybuffer;
 mod buffer;
 mod class;
@@ -42,6 +43,7 @@ register_module!(test_module, init);
 
 fn init(module: &mut Module) -> Result<()> {
   module.create_named_method("getNapiVersion", get_napi_version)?;
+  array::register_js(module)?;
   error::register_js(module)?;
   string::register_js(module)?;
   serde::register_js(module)?;
