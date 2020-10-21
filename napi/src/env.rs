@@ -215,6 +215,12 @@ impl Env {
     Ok(JsObject::from_raw_unchecked(self.0, raw_value))
   }
 
+  pub fn create_array(&self) -> Result<JsObject> {
+    let mut raw_value = ptr::null_mut();
+    check_status(unsafe { sys::napi_create_array(self.0, &mut raw_value) })?;
+    Ok(JsObject::from_raw_unchecked(self.0, raw_value))
+  }
+
   pub fn create_array_with_length(&self, length: usize) -> Result<JsObject> {
     let mut raw_value = ptr::null_mut();
     check_status(unsafe {
