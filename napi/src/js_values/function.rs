@@ -55,4 +55,28 @@ impl JsFunction {
 
     JsUnknown::from_raw(self.0.env, return_value)
   }
+
+  /// https://nodejs.org/api/n-api.html#n_api_napi_new_instance
+  /// This method is used to instantiate a new `JavaScript` value using a given `JsFunction` that represents the constructor for the object.
+  pub fn new<V>(&self, args: &[V]) -> Result<JsObject>
+  where
+    V: NapiValue,
+  {
+    let mut js_instance = ptr::null_mut();
+    let length = args.len() as u64;
+    let raw_args = args
+      .iter()
+      .map(|arg| arg.raw())
+      .collect::<Vec<sys::napi_value>>();
+    check_status(unsafe {
+      sys::napi_new_instance(
+        self.0.env,
+        self.0.value,
+        length,
+        raw_args.as_ptr(),
+        &mut js_instance,
+      )
+    })?;
+    Ok(JsObject::from_raw_unchecked(self.0.env, js_instance))
+  }
 }

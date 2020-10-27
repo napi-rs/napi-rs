@@ -85,9 +85,10 @@ pub fn js_function(attr: TokenStream, input: TokenStream) -> TokenStream {
   let new_fn_name = signature.ident.clone();
   let execute_js_function = get_execute_js_code(new_fn_name, FunctionKind::JsFunction);
   let expanded = quote! {
-    #[inline]
+    #[inline(always)]
     #signature #(#fn_block)*
 
+    #[inline(always)]
     #visibility extern "C" fn #fn_name(
       raw_env: napi::sys::napi_env,
       cb_info: napi::sys::napi_callback_info,
