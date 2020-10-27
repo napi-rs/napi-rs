@@ -78,7 +78,7 @@
     "@types/lodash": "^4.14.162",
     "@types/node": "^14.14.3",
     "@types/sinon": "^9.0.8",
-    "@typescript-eslint/eslint-plugin": "^4.5.0",
+    "@typescript-eslint/eslint-plugin": "^4.6.0",
     "@typescript-eslint/parser": "^4.6.0",
     "ava": "^3.13.0",
     "benny": "^3.6.14",
