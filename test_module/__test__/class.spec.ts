@@ -19,3 +19,8 @@ test('should be able to manipulate wrapped native value', (t) => {
   const add = 101
   t.is(testClass.addNativeCount(add), fixture + add + 100)
 })
+
+test('should be able to new class instance in native side', (t) => {
+  const instance = bindings.newTestClass()
+  t.is(instance.count, 42)
+})
