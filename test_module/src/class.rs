@@ -45,7 +45,21 @@ fn add_native_count(ctx: CallContext) -> Result<JsNumber> {
   ctx.env.create_int32(native_class.value)
 }
 
+#[js_function(1)]
+fn new_test_class(ctx: CallContext) -> Result<JsObject> {
+  let add_count_method = Property::new(&ctx.env, "addCount")?.with_method(add_count);
+  let add_native_count = Property::new(&ctx.env, "addNativeCount")?.with_method(add_native_count);
+  let properties = vec![add_count_method, add_native_count];
+  let test_class =
+    ctx
+      .env
+      .define_class("TestClass", test_class_constructor, properties.as_slice())?;
+
+  test_class.new(&vec![ctx.env.create_int32(42)?])
+}
+
 pub fn register_js(module: &mut Module) -> Result<()> {
   module.create_named_method("createTestClass", create_test_class)?;
+  module.create_named_method("newTestClass", new_test_class)?;
   Ok(())
 }
