@@ -8,25 +8,34 @@ cfg_if! {
   if #[cfg(windows)] {
     use std::fs::{create_dir, metadata, write};
     use std::path::PathBuf;
+    use std::io::Read;
 
-    fn download_node_lib() -> Vec<u8> {
-      let script = format!("
-      require('https').get('https://nodejs.org/dist/' + process.version + '/win-x64/node.lib', (res) => {{
-        res.pipe(process.stdout)
-      }})");
+    fn get_node_version() -> std::io::Result<String> {
+        let output = Command::new("node").arg("-v").output()?;
+        let stdout_str = String::from_utf8_lossy(&output.stdout);
 
-      Command::new("node")
-        .arg("-e")
-        .arg(script)
-        .output()
-        .expect("Download node.lib failed")
-        .stdout
+        // version should not have a leading "v" or trailing whitespace
+        Ok(stdout_str.trim().trim_start_matches('v').to_string())
+    }
+
+    fn download_node_lib(version: &str) -> Vec<u8> {
+      let url = format!("https://nodejs.org/dist/v{version}/win-x64/node.lib", version = version);
+
+      let response = ureq::get(&url).call();
+      if let Some(error) = response.synthetic_error() {
+        panic!("Failed to download node.lib: {:#?}", error);
+      }
+
+      let mut reader = response.into_reader();
+      let mut bytes = vec![];
+      reader.read_to_end(&mut bytes).unwrap();
+
+      bytes
     }
 
     pub fn setup() {
-      let node_full_version =
-        String::from_utf8(Command::new("node").arg("-v").output().unwrap().stdout).unwrap();
-      let trim_node_full_version = node_full_version.trim_end();
+      let node_version = get_node_version().expect("Failed to determine nodejs version");
+
       let mut node_lib_file_dir =
         PathBuf::from(String::from_utf8(Command::new("node").arg("-e").arg("console.log(require('os').homedir())").output().unwrap().stdout).unwrap().trim_end().to_owned());
 
@@ -43,10 +52,10 @@ cfg_if! {
 
       let link_search_dir = node_lib_file_dir.clone();
 
-      node_lib_file_dir.push(format!("node-{}.lib", trim_node_full_version));
+      node_lib_file_dir.push(format!("node-{}.lib", node_version));
 
       if let Err(_) = metadata(&node_lib_file_dir) {
-        let node_lib = download_node_lib();
+        let node_lib = download_node_lib(&node_version);
         write(&node_lib_file_dir, &node_lib).expect(&format!("Could not save file to {}", node_lib_file_dir.to_str().unwrap()));
       }
       println!(
