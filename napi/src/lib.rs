@@ -110,6 +110,8 @@ mod tokio_rt;
 #[cfg(all(feature = "libuv", napi4))]
 mod uv;
 mod version;
+#[cfg(target_os = "windows")]
+mod win_delay_load_hook;
 
 pub use napi_sys as sys;
 
