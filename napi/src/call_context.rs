@@ -3,13 +3,15 @@ use std::ptr;
 use crate::error::check_status;
 use crate::{sys, Either, Env, Error, JsUndefined, NapiValue, Result, Status};
 
+/// Function call context
 pub struct CallContext<'env> {
   pub env: &'env mut Env,
   raw_this: sys::napi_value,
   callback_info: sys::napi_callback_info,
   args: &'env [sys::napi_value],
   arg_len: usize,
-  actual_arg_length: usize,
+  /// arguments.length
+  pub length: usize,
 }
 
 impl<'env> CallContext<'env> {
@@ -19,7 +21,7 @@ impl<'env> CallContext<'env> {
     raw_this: sys::napi_value,
     args: &'env [sys::napi_value],
     arg_len: usize,
-    actual_arg_length: usize,
+    length: usize,
   ) -> Self {
     Self {
       env,
@@ -27,7 +29,7 @@ impl<'env> CallContext<'env> {
       raw_this,
       args,
       arg_len,
-      actual_arg_length,
+      length,
     }
   }
 
@@ -49,7 +51,7 @@ impl<'env> CallContext<'env> {
         reason: "Arguments index out of range".to_owned(),
       })
     } else {
-      if index < self.actual_arg_length {
+      if index < self.length {
         ArgType::from_raw(self.env.0, self.args[index]).map(Either::A)
       } else {
         self.env.get_undefined().map(Either::B)
