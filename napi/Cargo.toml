@@ -18,6 +18,9 @@ tokio_rt = ["futures", "tokio", "once_cell"]
 [dependencies]
 napi-sys = {version = "0.4", path = "../sys"}
 
+[target.'cfg(windows)'.dependencies]
+winapi = "0.3.9"
+
 [dependencies.encoding_rs]
 optional = true
 version = "0.8"
