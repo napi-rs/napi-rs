@@ -74,8 +74,9 @@ impl<'env> Property<'env> {
     self
   }
 
-  pub fn with_property_attributes(mut self, attributes: PropertyAttributes) {
+  pub fn with_property_attributes(mut self, attributes: PropertyAttributes) -> Self {
     self.raw_descriptor.attributes = attributes.into();
+    self
   }
 
   pub(crate) fn raw(&self) -> sys::napi_property_descriptor {
