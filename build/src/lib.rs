@@ -93,7 +93,7 @@ cfg_if! {
   }
 }
 
-fn setup_napi_feature() {
+pub fn setup_napi_feature() {
   let napi_version = String::from_utf8(
     Command::new("node")
       .args(&["-e", "console.log(process.versions.napi)"])
