@@ -46,7 +46,7 @@ pub use function::JsFunction;
 pub use global::*;
 pub use number::JsNumber;
 pub use object::*;
-pub use object_property::Property;
+pub use object_property::*;
 #[cfg(feature = "serde-json")]
 pub(crate) use ser::Ser;
 pub use string::*;
