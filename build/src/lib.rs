@@ -18,8 +18,8 @@ cfg_if! {
         Ok(stdout_str.trim().trim_start_matches('v').to_string())
     }
 
-    fn download_node_lib(version: &str) -> Vec<u8> {
-      let url = format!("https://nodejs.org/dist/v{version}/win-x64/node.lib", version = version);
+    fn download_node_lib(dist_url: &str, version: &str) -> Vec<u8> {
+      let url = format!("{dist_url}/v{version}/win-x64/node.lib", dist_url = dist_url, version = version);
 
       let response = ureq::get(&url).call();
       if let Some(error) = response.synthetic_error() {
@@ -34,7 +34,17 @@ cfg_if! {
     }
 
     pub fn setup() {
-      let node_version = get_node_version().expect("Failed to determine nodejs version");
+      // Assume nodejs if not specified.
+      let dist_url = std::env::var("NPM_CONFIG_DISTURL")
+        .unwrap_or("https://nodejs.org/dist".into());
+
+      // Try to get local nodejs version if not specified.
+      let node_version = std::env::var("NPM_CONFIG_TARGET")
+        .or_else(|_| get_node_version())
+        .expect("Failed to determine nodejs version");
+
+      println!("cargo:rerun-if-env-changed=NPM_CONFIG_DISTURL");
+      println!("cargo:rerun-if-env-changed=NPM_CONFIG_TARGET");
 
       let mut node_lib_file_dir =
         PathBuf::from(String::from_utf8(Command::new("node").arg("-e").arg("console.log(require('os').homedir())").output().unwrap().stdout).unwrap().trim_end().to_owned());
@@ -55,7 +65,7 @@ cfg_if! {
       node_lib_file_dir.push(format!("node-{}.lib", node_version));
 
       if let Err(_) = metadata(&node_lib_file_dir) {
-        let node_lib = download_node_lib(&node_version);
+        let node_lib = download_node_lib(&dist_url, &node_version);
         write(&node_lib_file_dir, &node_lib).expect(&format!("Could not save file to {}", node_lib_file_dir.to_str().unwrap()));
       }
       println!(
