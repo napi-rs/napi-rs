@@ -81,7 +81,7 @@ jobs:
         with:
           tool: 'benchmarkjs'
           output-file-path: bench.txt
-          github-token: ${{ secrets.GH_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           comment-always: true
 
       - name: Clear the cargo caches
