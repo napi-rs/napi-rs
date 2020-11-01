@@ -5,14 +5,6 @@ use std::hash::{Hash, Hasher};
 use std::io::Read;
 use std::path::PathBuf;
 
-fn get_node_version() -> std::io::Result<String> {
-  let output = Command::new("node").arg("-v").output()?;
-  let stdout_str = String::from_utf8_lossy(&output.stdout);
-
-  // version should not have a leading "v" or trailing whitespace
-  Ok(stdout_str.trim().trim_start_matches('v').to_string())
-}
-
 fn download_node_lib(dist_url: &str, version: &str, arch: &str) -> Vec<u8> {
   // Assume windows since we know we are building on windows.
   let url = format!(
@@ -36,15 +28,8 @@ fn download_node_lib(dist_url: &str, version: &str, arch: &str) -> Vec<u8> {
 
 pub fn setup() {
   let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR is not set");
-
-  // Assume nodejs if not specified.
-  let dist_url =
-    std::env::var("NPM_CONFIG_DISTURL").unwrap_or_else(|_| "https://nodejs.org/dist".to_string());
-
-  // Try to get local nodejs version if not specified.
-  let node_version = std::env::var("NPM_CONFIG_TARGET")
-    .or_else(|_| get_node_version())
-    .expect("Failed to determine nodejs version");
+  let dist_url = get_dist_url();
+  let node_version = get_target_node_version().expect("Failed to determine nodejs version");
 
   // NPM also gives us an arch var, but let's trust cargo more.
   // We translate from cargo's arch env format into npm/gyps's.
@@ -63,9 +48,6 @@ pub fn setup() {
       arch => panic!("Unknown Architecture: {}", arch),
     })
     .expect("Failed to determine target arch");
-
-  println!("cargo:rerun-if-env-changed=NPM_CONFIG_DISTURL");
-  println!("cargo:rerun-if-env-changed=NPM_CONFIG_TARGET");
 
   let mut node_lib_file_path = PathBuf::from(out_dir);
   let link_search_dir = node_lib_file_path.clone();
