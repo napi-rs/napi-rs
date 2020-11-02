@@ -88,6 +88,4 @@ pub fn setup() {
   );
   println!("cargo:rustc-cdylib-link-arg=delayimp.lib");
   println!("cargo:rustc-cdylib-link-arg=/DELAYLOAD:node.exe");
-
-  setup_napi_feature();
 }

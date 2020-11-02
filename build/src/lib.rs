@@ -6,9 +6,7 @@ cfg_if::cfg_if! {
       mod macos;
       pub use macos::setup;
     } else {
-      pub fn setup() {
-        setup_napi_feature();
-      }
+      pub fn setup() {}
     }
 }
 
@@ -58,29 +56,4 @@ pub fn download_node_headers(dist_url: &str, version: &str) -> tar::Archive<impl
 
   let tar = GzDecoder::new(response.into_reader());
   tar::Archive::new(tar)
-}
-
-pub fn setup_napi_feature() {
-  let napi_version = String::from_utf8(
-    Command::new("node")
-      .args(&["-e", "console.log(process.versions.napi)"])
-      .output()
-      .unwrap()
-      .stdout,
-  )
-  .expect("Get NAPI version failed");
-
-  let napi_version_number = napi_version.trim().parse::<u32>().unwrap();
-
-  if napi_version_number < 2 {
-    panic!("current napi version is too low");
-  }
-
-  if napi_version_number == 2 {
-    println!("cargo:rustc-cfg=napi{}", napi_version_number);
-  } else {
-    for version in 2..(napi_version_number + 1) {
-      println!("cargo:rustc-cfg=napi{}", version);
-    }
-  }
 }

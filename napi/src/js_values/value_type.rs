@@ -14,7 +14,7 @@ pub enum ValueType {
   Object = 6,
   Function = 7,
   External = 8,
-  #[cfg(napi6)]
+  #[cfg(feature = "napi6")]
   Bigint = 9,
 }
 
@@ -25,7 +25,7 @@ impl TryInto<sys::napi_valuetype> for ValueType {
     use sys::napi_valuetype::*;
     match self {
       ValueType::Unknown => Err(Error::from_status(Status::Unknown)),
-      #[cfg(napi6)]
+      #[cfg(feature = "napi6")]
       ValueType::Bigint => Ok(napi_bigint),
       ValueType::Boolean => Ok(napi_boolean),
       ValueType::External => Ok(napi_external),
@@ -44,7 +44,7 @@ impl From<sys::napi_valuetype> for ValueType {
   fn from(value: sys::napi_valuetype) -> Self {
     use sys::napi_valuetype::*;
     match value {
-      #[cfg(napi6)]
+      #[cfg(feature = "napi6")]
       napi_bigint => ValueType::Bigint,
       napi_boolean => ValueType::Boolean,
       napi_external => ValueType::External,

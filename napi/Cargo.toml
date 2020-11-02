@@ -10,10 +10,20 @@ repository = "https://github.com/napi-rs/napi-rs"
 version = "0.5.1"
 
 [features]
+default = [ "napi7" ]
+
 latin1 = ["encoding_rs"]
 libuv = ["futures"]
 serde-json = ["serde", "serde_json"]
 tokio_rt = ["futures", "tokio", "once_cell"]
+
+napi7 = [ "napi6" ]
+napi6 = [ "napi5" ]
+napi5 = [ "napi4" ]
+napi4 = [ "napi3" ]
+napi3 = [ "napi2" ]
+napi2 = [ "napi1" ]
+napi1 = []
 
 [dependencies]
 napi-sys = {version = "0.4", path = "../sys"}

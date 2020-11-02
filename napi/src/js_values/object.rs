@@ -5,13 +5,13 @@ use crate::sys;
 #[derive(Debug)]
 pub struct JsObject(pub(crate) Value);
 
-#[cfg(napi6)]
+#[cfg(feature = "napi6")]
 pub enum KeyCollectionMode {
   IncludePrototypes,
   OwnOnly,
 }
 
-#[cfg(napi6)]
+#[cfg(feature = "napi6")]
 impl From<sys::napi_key_collection_mode> for KeyCollectionMode {
   fn from(value: sys::napi_key_collection_mode) -> Self {
     match value {
@@ -21,7 +21,7 @@ impl From<sys::napi_key_collection_mode> for KeyCollectionMode {
   }
 }
 
-#[cfg(napi6)]
+#[cfg(feature = "napi6")]
 impl From<KeyCollectionMode> for sys::napi_key_collection_mode {
   fn from(value: KeyCollectionMode) -> Self {
     match value {
@@ -33,7 +33,7 @@ impl From<KeyCollectionMode> for sys::napi_key_collection_mode {
   }
 }
 
-#[cfg(napi6)]
+#[cfg(feature = "napi6")]
 pub enum KeyFilter {
   AllProperties,
   Writable,
@@ -43,7 +43,7 @@ pub enum KeyFilter {
   SkipSymbols,
 }
 
-#[cfg(napi6)]
+#[cfg(feature = "napi6")]
 impl From<sys::napi_key_filter> for KeyFilter {
   fn from(value: sys::napi_key_filter) -> Self {
     match value {
@@ -57,7 +57,7 @@ impl From<sys::napi_key_filter> for KeyFilter {
   }
 }
 
-#[cfg(napi6)]
+#[cfg(feature = "napi6")]
 impl From<KeyFilter> for sys::napi_key_filter {
   fn from(value: KeyFilter) -> Self {
     match value {
@@ -71,13 +71,13 @@ impl From<KeyFilter> for sys::napi_key_filter {
   }
 }
 
-#[cfg(napi6)]
+#[cfg(feature = "napi6")]
 pub enum KeyConversion {
   KeepNumbers,
   NumbersToStrings,
 }
 
-#[cfg(napi6)]
+#[cfg(feature = "napi6")]
 impl From<sys::napi_key_conversion> for KeyConversion {
   fn from(value: sys::napi_key_conversion) -> Self {
     match value {
@@ -87,7 +87,7 @@ impl From<sys::napi_key_conversion> for KeyConversion {
   }
 }
 
-#[cfg(napi6)]
+#[cfg(feature = "napi6")]
 impl From<KeyConversion> for sys::napi_key_conversion {
   fn from(value: KeyConversion) -> Self {
     match value {

@@ -97,17 +97,17 @@ mod env;
 mod error;
 mod js_values;
 mod module;
-#[cfg(all(feature = "libuv", napi4))]
+#[cfg(all(feature = "libuv", feature = "napi4"))]
 mod promise;
 mod status;
 mod task;
-#[cfg(napi3)]
+#[cfg(feature = "napi3")]
 pub use cleanup_env::CleanupEnvHook;
-#[cfg(napi4)]
+#[cfg(feature = "napi4")]
 pub mod threadsafe_function;
-#[cfg(all(feature = "tokio_rt", napi4))]
+#[cfg(all(feature = "tokio_rt", feature = "napi4"))]
 mod tokio_rt;
-#[cfg(all(feature = "libuv", napi4))]
+#[cfg(all(feature = "libuv", feature = "napi4"))]
 mod uv;
 mod version;
 #[cfg(target_os = "windows")]
@@ -124,7 +124,7 @@ pub use status::Status;
 pub use task::Task;
 pub use version::NodeVersion;
 
-#[cfg(all(feature = "tokio_rt", napi4))]
+#[cfg(all(feature = "tokio_rt", feature = "napi4"))]
 pub use tokio_rt::shutdown as shutdown_tokio_rt;
 
 #[cfg(feature = "serde-json")]
@@ -147,7 +147,7 @@ pub type ContextlessResult<T> = Result<Option<T>>;
 macro_rules! register_module {
   ($module_name:ident, $init:ident) => {
     #[inline]
-    #[cfg(all(feature = "tokio_rt", napi4))]
+    #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
     fn check_status(code: $crate::sys::napi_status) -> Result<()> {
       use $crate::{Error, Status};
       let status = Status::from(code);
@@ -164,7 +164,7 @@ macro_rules! register_module {
       use std::ptr;
       use $crate::{sys, Env, JsObject, Module, NapiValue};
 
-      #[cfg(all(feature = "tokio_rt", napi4))]
+      #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
       use $crate::shutdown_tokio_rt;
       static mut MODULE_DESCRIPTOR: Option<sys::napi_module> = None;
       unsafe {
@@ -191,12 +191,12 @@ macro_rules! register_module {
         let mut cjs_module = Module { env, exports };
         let result = $init(&mut cjs_module);
 
-        #[cfg(all(feature = "tokio_rt", napi4))]
+        #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
         let hook_result = check_status(unsafe {
           sys::napi_add_env_cleanup_hook(raw_env, Some(shutdown_tokio_rt), ptr::null_mut())
         });
 
-        #[cfg(not(all(feature = "tokio_rt", napi4)))]
+        #[cfg(not(all(feature = "tokio_rt", feature = "napi4")))]
         let hook_result = Ok(());
 
         match hook_result.and_then(move |_| result) {

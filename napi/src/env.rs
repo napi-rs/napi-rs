@@ -16,19 +16,19 @@ use crate::{sys, Error, NodeVersion, Result, Status};
 use crate::js_values::{De, Ser};
 #[cfg(all(any(feature = "libuv", feature = "tokio_rt"), napi4))]
 use crate::promise;
-#[cfg(napi4)]
+#[cfg(feature = "napi4")]
 use crate::threadsafe_function::{ThreadSafeCallContext, ThreadsafeFunction};
-#[cfg(all(feature = "tokio_rt", napi4))]
+#[cfg(all(feature = "tokio_rt", feature = "napi4"))]
 use crate::tokio_rt::{get_tokio_sender, Message};
-#[cfg(all(feature = "libuv", napi4))]
+#[cfg(all(feature = "libuv", feature = "napi4"))]
 use crate::uv;
 #[cfg(all(feature = "serde-json"))]
 use serde::de::DeserializeOwned;
 #[cfg(all(feature = "serde-json"))]
 use serde::Serialize;
-#[cfg(all(feature = "libuv", napi4))]
+#[cfg(all(feature = "libuv", feature = "napi4"))]
 use std::future::Future;
-#[cfg(all(feature = "tokio_rt", napi4))]
+#[cfg(all(feature = "tokio_rt", feature = "napi4"))]
 use tokio::sync::mpsc::error::TrySendError;
 
 pub type Callback = extern "C" fn(sys::napi_env, sys::napi_callback_info) -> sys::napi_value;
@@ -90,7 +90,7 @@ impl Env {
     Ok(JsNumber::from_raw_unchecked(self.0, raw_value))
   }
 
-  #[cfg(napi6)]
+  #[cfg(feature = "napi6")]
   /// [n_api_napi_create_bigint_int64](https://nodejs.org/api/n-api.html#n_api_napi_create_bigint_int64)
   pub fn create_bigint_from_i64(&self, value: i64) -> Result<JsBigint> {
     let mut raw_value = ptr::null_mut();
@@ -98,14 +98,14 @@ impl Env {
     Ok(JsBigint::from_raw_unchecked(self.0, raw_value, 1))
   }
 
-  #[cfg(napi6)]
+  #[cfg(feature = "napi6")]
   pub fn create_bigint_from_u64(&self, value: u64) -> Result<JsBigint> {
     let mut raw_value = ptr::null_mut();
     check_status(unsafe { sys::napi_create_bigint_uint64(self.0, value, &mut raw_value) })?;
     Ok(JsBigint::from_raw_unchecked(self.0, raw_value, 1))
   }
 
-  #[cfg(napi6)]
+  #[cfg(feature = "napi6")]
   pub fn create_bigint_from_i128(&self, value: i128) -> Result<JsBigint> {
     let mut raw_value = ptr::null_mut();
     let sign_bit = if value > 0 { 0 } else { 1 };
@@ -116,7 +116,7 @@ impl Env {
     Ok(JsBigint::from_raw_unchecked(self.0, raw_value, 1))
   }
 
-  #[cfg(napi6)]
+  #[cfg(feature = "napi6")]
   pub fn create_bigint_from_u128(&self, value: u128) -> Result<JsBigint> {
     let mut raw_value = ptr::null_mut();
     let words = &value as *const u128 as *const u64;
@@ -124,7 +124,7 @@ impl Env {
     Ok(JsBigint::from_raw_unchecked(self.0, raw_value, 1))
   }
 
-  #[cfg(napi6)]
+  #[cfg(feature = "napi6")]
   /// [n_api_napi_create_bigint_words](https://nodejs.org/api/n-api.html#n_api_napi_create_bigint_words)
   /// The resulting BigInt will be negative when sign_bit is true.
   pub fn create_bigint_from_words(&self, sign_bit: bool, words: Vec<u64>) -> Result<JsBigint> {
@@ -547,14 +547,14 @@ impl Env {
       .map_err(|e| Error::new(Status::InvalidArg, format!("{}", e)))
   }
 
-  #[cfg(napi2)]
+  #[cfg(feature = "napi2")]
   pub fn get_uv_event_loop(&self) -> Result<*mut sys::uv_loop_s> {
     let mut uv_loop: *mut sys::uv_loop_s = ptr::null_mut();
     check_status(unsafe { sys::napi_get_uv_event_loop(self.0, &mut uv_loop) })?;
     Ok(uv_loop)
   }
 
-  #[cfg(napi3)]
+  #[cfg(feature = "napi3")]
   pub fn add_env_cleanup_hook<T, F>(
     &mut self,
     cleanup_data: T,
@@ -579,7 +579,7 @@ impl Env {
     Ok(CleanupEnvHook(hook_ref))
   }
 
-  #[cfg(napi3)]
+  #[cfg(feature = "napi3")]
   pub fn remove_env_cleanup_hook<T>(&mut self, hook: CleanupEnvHook<T>) -> Result<()>
   where
     T: 'static,
@@ -589,7 +589,7 @@ impl Env {
     })
   }
 
-  #[cfg(napi4)]
+  #[cfg(feature = "napi4")]
   pub fn create_threadsafe_function<
     T: Send,
     V: NapiValue,
@@ -603,7 +603,7 @@ impl Env {
     ThreadsafeFunction::create(self.0, func, max_queue_size, callback)
   }
 
-  #[cfg(all(feature = "libuv", napi4))]
+  #[cfg(all(feature = "libuv", feature = "napi4"))]
   pub fn execute<
     T: 'static + Send,
     V: 'static + NapiValue,
@@ -627,7 +627,7 @@ impl Env {
     Ok(JsObject::from_raw_unchecked(self.0, raw_promise))
   }
 
-  #[cfg(all(feature = "tokio_rt", napi4))]
+  #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
   pub fn execute_tokio_future<
     T: 'static + Send,
     V: 'static + NapiValue,
@@ -662,7 +662,7 @@ impl Env {
     Ok(JsObject::from_raw_unchecked(self.0, raw_promise))
   }
 
-  #[cfg(napi5)]
+  #[cfg(feature = "napi5")]
   pub fn create_date(&self, time: f64) -> Result<JsDate> {
     let mut js_value = ptr::null_mut();
     check_status(unsafe { sys::napi_create_date(self.0, time, &mut js_value) })?;
