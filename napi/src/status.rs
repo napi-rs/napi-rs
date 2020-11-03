@@ -28,31 +28,30 @@ pub enum Status {
 
 impl From<napi_status> for Status {
   fn from(code: napi_status) -> Self {
-    use self::napi_status::*;
     use Status::*;
 
     match code {
-      napi_ok => Ok,
-      napi_invalid_arg => InvalidArg,
-      napi_object_expected => ObjectExpected,
-      napi_string_expected => StringExpected,
-      napi_name_expected => NameExpected,
-      napi_function_expected => FunctionExpected,
-      napi_number_expected => NumberExpected,
-      napi_boolean_expected => BooleanExpected,
-      napi_array_expected => ArrayExpected,
-      napi_generic_failure => GenericFailure,
-      napi_pending_exception => PendingException,
-      napi_cancelled => Cancelled,
-      napi_escape_called_twice => EscapeCalledTwice,
-      napi_handle_scope_mismatch => HandleScopeMismatch,
-      napi_callback_scope_mismatch => CallbackScopeMismatch,
+      napi_status::napi_ok => Ok,
+      napi_status::napi_invalid_arg => InvalidArg,
+      napi_status::napi_object_expected => ObjectExpected,
+      napi_status::napi_string_expected => StringExpected,
+      napi_status::napi_name_expected => NameExpected,
+      napi_status::napi_function_expected => FunctionExpected,
+      napi_status::napi_number_expected => NumberExpected,
+      napi_status::napi_boolean_expected => BooleanExpected,
+      napi_status::napi_array_expected => ArrayExpected,
+      napi_status::napi_generic_failure => GenericFailure,
+      napi_status::napi_pending_exception => PendingException,
+      napi_status::napi_cancelled => Cancelled,
+      napi_status::napi_escape_called_twice => EscapeCalledTwice,
+      napi_status::napi_handle_scope_mismatch => HandleScopeMismatch,
+      napi_status::napi_callback_scope_mismatch => CallbackScopeMismatch,
       #[cfg(napi4)]
-      napi_queue_full => QueueFull,
+      napi_status::napi_queue_full => QueueFull,
       #[cfg(napi4)]
-      napi_closing => Closing,
+      napi_status::napi_closing => Closing,
       #[cfg(napi6)]
-      napi_bigint_expected => BigintExpected,
+      napi_status::napi_bigint_expected => BigintExpected,
       _ => Unknown,
     }
   }
