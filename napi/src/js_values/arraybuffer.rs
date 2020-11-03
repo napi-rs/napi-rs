@@ -1,3 +1,5 @@
+use std::convert::TryFrom;
+use std::convert::TryInto;
 use std::mem;
 use std::ops::Deref;
 use std::os::raw::c_void;
@@ -5,7 +7,7 @@ use std::ptr;
 
 use super::{Value, ValueType};
 use crate::error::check_status;
-use crate::{sys, JsUnknown, NapiValue, Ref, Result};
+use crate::{sys, Error, JsUnknown, NapiValue, Ref, Result, Status};
 
 #[repr(transparent)]
 #[derive(Debug)]
@@ -59,22 +61,25 @@ pub enum TypedArrayType {
   BigUint64,
 }
 
-impl From<sys::napi_typedarray_type> for TypedArrayType {
-  fn from(value: sys::napi_typedarray_type) -> Self {
+impl TryFrom<sys::napi_typedarray_type> for TypedArrayType {
+  type Error = Error;
+
+  fn try_from(value: sys::napi_typedarray_type) -> Result<Self> {
     match value {
-      sys::napi_typedarray_type::napi_int8_array => Self::Int8,
-      sys::napi_typedarray_type::napi_uint8_array => Self::Uint8,
-      sys::napi_typedarray_type::napi_uint8_clamped_array => Self::Uint8Clamped,
-      sys::napi_typedarray_type::napi_int16_array => Self::Int16,
-      sys::napi_typedarray_type::napi_uint16_array => Self::Uint16,
-      sys::napi_typedarray_type::napi_int32_array => Self::Int32,
-      sys::napi_typedarray_type::napi_uint32_array => Self::Uint32,
-      sys::napi_typedarray_type::napi_float32_array => Self::Float32,
-      sys::napi_typedarray_type::napi_float64_array => Self::Float64,
+      sys::napi_typedarray_type::napi_int8_array => Ok(Self::Int8),
+      sys::napi_typedarray_type::napi_uint8_array => Ok(Self::Uint8),
+      sys::napi_typedarray_type::napi_uint8_clamped_array => Ok(Self::Uint8Clamped),
+      sys::napi_typedarray_type::napi_int16_array => Ok(Self::Int16),
+      sys::napi_typedarray_type::napi_uint16_array => Ok(Self::Uint16),
+      sys::napi_typedarray_type::napi_int32_array => Ok(Self::Int32),
+      sys::napi_typedarray_type::napi_uint32_array => Ok(Self::Uint32),
+      sys::napi_typedarray_type::napi_float32_array => Ok(Self::Float32),
+      sys::napi_typedarray_type::napi_float64_array => Ok(Self::Float64),
       #[cfg(feature = "napi6")]
-      sys::napi_typedarray_type::napi_bigint64_array => Self::BigInt64,
+      sys::napi_typedarray_type::napi_bigint64_array => Ok(Self::BigInt64),
       #[cfg(feature = "napi6")]
-      sys::napi_typedarray_type::napi_biguint64_array => Self::BigUint64,
+      sys::napi_typedarray_type::napi_biguint64_array => Ok(Self::BigUint64),
+      _ => Err(Error::from_status(Status::Unknown)),
     }
   }
 }
@@ -234,7 +239,7 @@ impl JsTypedArray {
       data,
       length: len,
       byte_offset,
-      typedarray_type: typedarray_type.into(),
+      typedarray_type: typedarray_type.try_into()?,
       arraybuffer: JsArrayBuffer::from_raw_unchecked(self.0.env, arraybuffer_value),
     })
   }

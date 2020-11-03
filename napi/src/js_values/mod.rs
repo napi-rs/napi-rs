@@ -78,7 +78,7 @@ pub(crate) fn type_of(env: sys::napi_env, raw_value: sys::napi_value) -> Result<
   unsafe {
     let mut value_type = sys::napi_valuetype::napi_undefined;
     check_status(sys::napi_typeof(env, raw_value, &mut value_type))?;
-    Ok(ValueType::from(value_type))
+    ValueType::try_from(value_type)
   }
 }
 
