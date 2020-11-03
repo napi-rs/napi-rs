@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1604392019459,
+  "lastUpdate": 1604420379976,
   "repoUrl": "https://github.com/napi-rs/napi-rs",
   "entries": {
     "Benchmark": [
@@ -3075,6 +3075,65 @@ window.BENCHMARK_DATA = {
             "range": "±2.11%",
             "unit": "ops/sec",
             "extra": "77 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "lynweklm@gmail.com",
+            "name": "LongYinan",
+            "username": "Brooooooklyn"
+          },
+          "committer": {
+            "email": "lynweklm@gmail.com",
+            "name": "LongYinan",
+            "username": "Brooooooklyn"
+          },
+          "distinct": true,
+          "id": "9310ec7246ea3986425a7bfc381251af1e10dcf3",
+          "message": "feat(napi): add env#create_string_from_vec_char",
+          "timestamp": "2020-11-04T00:16:34+08:00",
+          "tree_id": "5962243628af2c3f72ecaba4a8edaefe2e8f3070",
+          "url": "https://github.com/napi-rs/napi-rs/commit/9310ec7246ea3986425a7bfc381251af1e10dcf3"
+        },
+        "date": 1604420378712,
+        "tool": "benchmarkjs",
+        "benches": [
+          {
+            "name": "noop#napi-rs",
+            "value": 49003748,
+            "range": "±0.9%",
+            "unit": "ops/sec",
+            "extra": "87 samples"
+          },
+          {
+            "name": "noop#JavaScript",
+            "value": 796824243,
+            "range": "±0.66%",
+            "unit": "ops/sec",
+            "extra": "86 samples"
+          },
+          {
+            "name": "Plus number#napi-rs",
+            "value": 11697874,
+            "range": "±0.92%",
+            "unit": "ops/sec",
+            "extra": "91 samples"
+          },
+          {
+            "name": "Plus number#JavaScript",
+            "value": 799367486,
+            "range": "±0.8%",
+            "unit": "ops/sec",
+            "extra": "88 samples"
+          },
+          {
+            "name": "Async task#napi-rs",
+            "value": 27061,
+            "range": "±1.73%",
+            "unit": "ops/sec",
+            "extra": "79 samples"
           }
         ]
       }
