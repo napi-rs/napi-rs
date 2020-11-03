@@ -62,7 +62,7 @@ fn main() {
   }
 
   bindgen_builder
-    .rustified_enum("(napi_|uv_).+")
+    .newtype_enum("(napi_|uv_).+")
     .whitelist_function("(napi_|uv_|extras_).+")
     .whitelist_type("(napi_|uv_|extras_).+")
     .generate()
