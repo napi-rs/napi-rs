@@ -1,5 +1,7 @@
 use super::Value;
 use crate::sys;
+use crate::{Error, Result, Status};
+use std::convert::TryFrom;
 
 #[repr(transparent)]
 #[derive(Debug)]
@@ -12,11 +14,14 @@ pub enum KeyCollectionMode {
 }
 
 #[cfg(napi6)]
-impl From<sys::napi_key_collection_mode> for KeyCollectionMode {
-  fn from(value: sys::napi_key_collection_mode) -> Self {
+impl TryFrom<sys::napi_key_collection_mode> for KeyCollectionMode {
+  type Error = Error;
+
+  fn try_from(value: sys::napi_key_collection_mode) -> Result<Self> {
     match value {
-      sys::napi_key_collection_mode::napi_key_include_prototypes => Self::IncludePrototypes,
-      sys::napi_key_collection_mode::napi_key_own_only => Self::OwnOnly,
+      sys::napi_key_collection_mode::napi_key_include_prototypes => Ok(Self::IncludePrototypes),
+      sys::napi_key_collection_mode::napi_key_own_only => Ok(Self::OwnOnly),
+      _ => Err(Error::from_status(Status::Unknown)),
     }
   }
 }
@@ -44,15 +49,18 @@ pub enum KeyFilter {
 }
 
 #[cfg(napi6)]
-impl From<sys::napi_key_filter> for KeyFilter {
-  fn from(value: sys::napi_key_filter) -> Self {
+impl TryFrom<sys::napi_key_filter> for KeyFilter {
+  type Error = Error;
+
+  fn try_from(value: sys::napi_key_filter) -> Result<Self> {
     match value {
-      sys::napi_key_filter::napi_key_all_properties => Self::AllProperties,
-      sys::napi_key_filter::napi_key_writable => Self::Writable,
-      sys::napi_key_filter::napi_key_enumerable => Self::Enumerable,
-      sys::napi_key_filter::napi_key_configurable => Self::Configurable,
-      sys::napi_key_filter::napi_key_skip_strings => Self::SkipStrings,
-      sys::napi_key_filter::napi_key_skip_symbols => Self::SkipSymbols,
+      sys::napi_key_filter::napi_key_all_properties => Ok(Self::AllProperties),
+      sys::napi_key_filter::napi_key_writable => Ok(Self::Writable),
+      sys::napi_key_filter::napi_key_enumerable => Ok(Self::Enumerable),
+      sys::napi_key_filter::napi_key_configurable => Ok(Self::Configurable),
+      sys::napi_key_filter::napi_key_skip_strings => Ok(Self::SkipStrings),
+      sys::napi_key_filter::napi_key_skip_symbols => Ok(Self::SkipSymbols),
+      _ => Err(Error::from_status(Status::Unknown)),
     }
   }
 }
@@ -78,11 +86,14 @@ pub enum KeyConversion {
 }
 
 #[cfg(napi6)]
-impl From<sys::napi_key_conversion> for KeyConversion {
-  fn from(value: sys::napi_key_conversion) -> Self {
+impl TryFrom<sys::napi_key_conversion> for KeyConversion {
+  type Error = Error;
+
+  fn try_from(value: sys::napi_key_conversion) -> Result<Self> {
     match value {
-      sys::napi_key_conversion::napi_key_keep_numbers => Self::KeepNumbers,
-      sys::napi_key_conversion::napi_key_numbers_to_strings => Self::NumbersToStrings,
+      sys::napi_key_conversion::napi_key_keep_numbers => Ok(Self::KeepNumbers),
+      sys::napi_key_conversion::napi_key_numbers_to_strings => Ok(Self::NumbersToStrings),
+      _ => Err(Error::from_status(Status::Unknown)),
     }
   }
 }

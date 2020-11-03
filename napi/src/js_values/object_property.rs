@@ -13,11 +13,11 @@ pub struct Property<'env> {
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum PropertyAttributes {
-  Default = sys::napi_property_attributes::napi_default as _,
-  Writable = sys::napi_property_attributes::napi_writable as _,
-  Enumerable = sys::napi_property_attributes::napi_enumerable as _,
-  Configurable = sys::napi_property_attributes::napi_configurable as _,
-  Static = sys::napi_property_attributes::napi_static as _,
+  Default = sys::napi_property_attributes::napi_default.0 as _,
+  Writable = sys::napi_property_attributes::napi_writable.0 as _,
+  Enumerable = sys::napi_property_attributes::napi_enumerable.0 as _,
+  Configurable = sys::napi_property_attributes::napi_configurable.0 as _,
+  Static = sys::napi_property_attributes::napi_static.0 as _,
 }
 
 impl From<PropertyAttributes> for sys::napi_property_attributes {
