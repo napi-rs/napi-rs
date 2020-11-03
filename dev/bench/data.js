@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1604238972106,
+  "lastUpdate": 1604384137214,
   "repoUrl": "https://github.com/napi-rs/napi-rs",
   "entries": {
     "Benchmark": [
@@ -2780,6 +2780,65 @@ window.BENCHMARK_DATA = {
             "range": "±1.27%",
             "unit": "ops/sec",
             "extra": "69 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "lynweklm@gmail.com",
+            "name": "LongYinan",
+            "username": "Brooooooklyn"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8b98744b9ae8fcbbc503daf6ecf09ed73e8e1077",
+          "message": "Merge pull request #278 from adumbidiot/fix-issue-277\n\nConvert bindgen `rustified_enum` to `newtype_enum`",
+          "timestamp": "2020-11-03T14:12:55+08:00",
+          "tree_id": "79385c4f543444633259ba80c97acc3be1c56184",
+          "url": "https://github.com/napi-rs/napi-rs/commit/8b98744b9ae8fcbbc503daf6ecf09ed73e8e1077"
+        },
+        "date": 1604384136440,
+        "tool": "benchmarkjs",
+        "benches": [
+          {
+            "name": "noop#napi-rs",
+            "value": 56423810,
+            "range": "±0.2%",
+            "unit": "ops/sec",
+            "extra": "97 samples"
+          },
+          {
+            "name": "noop#JavaScript",
+            "value": 717595334,
+            "range": "±0.2%",
+            "unit": "ops/sec",
+            "extra": "99 samples"
+          },
+          {
+            "name": "Plus number#napi-rs",
+            "value": 13014721,
+            "range": "±0.54%",
+            "unit": "ops/sec",
+            "extra": "97 samples"
+          },
+          {
+            "name": "Plus number#JavaScript",
+            "value": 717158046,
+            "range": "±0.14%",
+            "unit": "ops/sec",
+            "extra": "97 samples"
+          },
+          {
+            "name": "Async task#napi-rs",
+            "value": 36661,
+            "range": "±0.97%",
+            "unit": "ops/sec",
+            "extra": "83 samples"
           }
         ]
       }
