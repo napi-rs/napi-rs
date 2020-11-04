@@ -47,7 +47,7 @@ impl JsFunction {
         self.0.env,
         raw_this,
         self.0.value,
-        args.len() as u64,
+        args.len() as _,
         raw_args.as_ptr(),
         &mut return_value,
       )
@@ -63,7 +63,7 @@ impl JsFunction {
     V: NapiValue,
   {
     let mut js_instance = ptr::null_mut();
-    let length = args.len() as u64;
+    let length = args.len();
     let raw_args = args
       .iter()
       .map(|arg| arg.raw())
@@ -72,7 +72,7 @@ impl JsFunction {
       sys::napi_new_instance(
         self.0.env,
         self.0.value,
-        length,
+        length as _,
         raw_args.as_ptr(),
         &mut js_instance,
       )

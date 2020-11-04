@@ -121,14 +121,17 @@ impl JsArrayBuffer {
 
   pub fn into_value(self) -> Result<JsArrayBufferValue> {
     let mut data = ptr::null_mut();
-    let mut len: u64 = 0;
+    let mut len: usize = 0;
     check_status(unsafe {
-      sys::napi_get_arraybuffer_info(self.0.env, self.0.value, &mut data, &mut len)
+      sys::napi_get_arraybuffer_info(
+        self.0.env,
+        self.0.value,
+        &mut data,
+        &mut len as *mut usize as *mut _,
+      )
     })?;
     Ok(JsArrayBufferValue {
-      data: mem::ManuallyDrop::new(unsafe {
-        Vec::from_raw_parts(data as *mut _, len as usize, len as usize)
-      }),
+      data: mem::ManuallyDrop::new(unsafe { Vec::from_raw_parts(data as *mut _, len, len) }),
       value: self,
     })
   }
@@ -144,9 +147,9 @@ impl JsArrayBuffer {
       sys::napi_create_typedarray(
         self.0.env,
         typedarray_type.into(),
-        length,
+        length as _,
         self.0.value,
-        byte_offset,
+        byte_offset as _,
         &mut typedarray_value,
       )
     })?;
@@ -162,9 +165,9 @@ impl JsArrayBuffer {
     check_status(unsafe {
       sys::napi_create_dataview(
         self.0.env,
-        length,
+        length as _,
         self.0.value,
-        byte_offset,
+        byte_offset as _,
         &mut dataview_value,
       )
     })?;
@@ -228,10 +231,10 @@ impl JsTypedArray {
         self.0.env,
         self.0.value,
         &mut typedarray_type,
-        &mut len,
+        &mut len as *mut u64 as *mut _,
         &mut data,
         &mut arraybuffer_value,
-        &mut byte_offset,
+        &mut byte_offset as *mut u64 as *mut _,
       )
     })?;
 
@@ -256,10 +259,10 @@ impl JsDataView {
       sys::napi_get_dataview_info(
         self.0.env,
         self.0.value,
-        &mut length,
+        &mut length as *mut u64 as *mut _,
         &mut data,
         &mut arraybuffer_value,
-        &mut byte_offset,
+        &mut byte_offset as *mut u64 as *mut _,
       )
     })?;
     Ok(JsDataViewValue {
