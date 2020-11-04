@@ -135,7 +135,7 @@ impl NapiValue for JsBigint {
         env,
         value,
         ptr::null_mut(),
-        &mut word_count,
+        &mut word_count as *mut u64 as *mut _,
         ptr::null_mut(),
       )
     })?;
@@ -156,7 +156,7 @@ impl NapiValue for JsBigint {
         env,
         value,
         ptr::null_mut(),
-        &mut word_count,
+        &mut word_count as *mut u64 as *mut _,
         ptr::null_mut(),
       )
     };
@@ -205,7 +205,7 @@ impl JsBigint {
         self.raw.env,
         self.raw.value,
         &mut sign_bit,
-        word_count,
+        word_count as *mut u64 as *mut _,
         words.as_mut_ptr(),
       )
     })?;

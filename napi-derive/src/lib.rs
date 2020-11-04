@@ -110,7 +110,7 @@ pub fn js_function(attr: TokenStream, input: TokenStream) -> TokenStream {
         let status = napi::sys::napi_get_cb_info(
           raw_env,
           cb_info,
-          &mut argc as *mut usize as *mut u64,
+          &mut argc as *mut usize as *mut _,
           raw_args.as_mut_ptr(),
           &mut raw_this,
           ptr::null_mut(),
