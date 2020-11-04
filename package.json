@@ -6,7 +6,7 @@
     "napi": "scripts/index.js"
   },
   "engines": {
-    "node": ">= 10.15"
+    "node": ">= 10"
   },
   "repository": {
     "type": "git",
