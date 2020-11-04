@@ -155,61 +155,42 @@ macro_rules! register_module {
       }
     }
 
-    extern "C" fn register_module() {
-      use std::ffi::CString;
-      use std::io::Write;
-      use std::os::raw::c_char;
-      use std::ptr;
-      use $crate::{sys, Env, JsObject, Module, NapiValue};
+    use std::ffi::CString;
+    use std::io::Write;
+    use std::os::raw::c_char;
+    use std::ptr;
+    use $crate::{sys, Env, JsObject, NapiValue};
 
+    #[cfg(all(feature = "tokio_rt", napi4))]
+    use $crate::shutdown_tokio_rt;
+
+    #[no_mangle]
+    unsafe extern "C" fn napi_register_module_v1(
+      raw_env: sys::napi_env,
+      raw_exports: sys::napi_value,
+    ) -> sys::napi_value {
+      let env = Env::from_raw(raw_env);
+      let mut exports: JsObject = JsObject::from_raw_unchecked(raw_env, raw_exports);
+      let mut cjs_module = Module { env, exports };
+      let result = $init(&mut cjs_module);
       #[cfg(all(feature = "tokio_rt", napi4))]
-      use $crate::shutdown_tokio_rt;
-      static mut MODULE_DESCRIPTOR: Option<sys::napi_module> = None;
-      unsafe {
-        MODULE_DESCRIPTOR = Some(sys::napi_module {
-          nm_version: 1,
-          nm_flags: 0,
-          nm_filename: concat!(file!(), "\0").as_ptr() as *const c_char,
-          nm_register_func: Some(napi_register_module_v1),
-          nm_modname: concat!(stringify!($module_name), "\0").as_ptr() as *const c_char,
-          nm_priv: 0 as *mut _,
-          reserved: [0 as *mut _; 4],
-        });
-
-        sys::napi_module_register(MODULE_DESCRIPTOR.as_mut().unwrap() as *mut sys::napi_module);
-      }
-
-      #[no_mangle]
-      pub unsafe extern "C" fn napi_register_module_v1(
-        raw_env: sys::napi_env,
-        raw_exports: sys::napi_value,
-      ) -> sys::napi_value {
-        let env = Env::from_raw(raw_env);
-        let mut exports: JsObject = JsObject::from_raw_unchecked(raw_env, raw_exports);
-        let mut cjs_module = Module { env, exports };
-        let result = $init(&mut cjs_module);
-
-        #[cfg(all(feature = "tokio_rt", napi4))]
-        let hook_result = check_status(unsafe {
-          sys::napi_add_env_cleanup_hook(raw_env, Some(shutdown_tokio_rt), ptr::null_mut())
-        });
-
-        #[cfg(not(all(feature = "tokio_rt", napi4)))]
-        let hook_result = Ok(());
-
-        match hook_result.and_then(move |_| result) {
-          Ok(_) => cjs_module.exports.raw(),
-          Err(e) => {
-            unsafe {
-              sys::napi_throw_error(
-                raw_env,
-                ptr::null(),
-                CString::from_vec_unchecked(format!("Error initializing module: {}", e).into())
-                  .as_ptr() as *const _,
-              )
-            };
-            ptr::null_mut()
-          }
+      let hook_result = check_status(unsafe {
+        sys::napi_add_env_cleanup_hook(raw_env, Some(shutdown_tokio_rt), ptr::null_mut())
+      });
+      #[cfg(not(all(feature = "tokio_rt", napi4)))]
+      let hook_result = Ok(());
+      match hook_result.and_then(move |_| result) {
+        Ok(_) => cjs_module.exports.raw(),
+        Err(e) => {
+          unsafe {
+            sys::napi_throw_error(
+              raw_env,
+              ptr::null(),
+              CString::from_vec_unchecked(format!("Error initializing module: {}", e).into())
+                .as_ptr() as *const _,
+            )
+          };
+          ptr::null_mut()
         }
       }
     }
