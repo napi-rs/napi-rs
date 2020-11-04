@@ -43,7 +43,7 @@ impl JsString {
   }
 
   pub fn into_utf8(self) -> Result<JsStringUtf8> {
-    let mut written_char_count: u64 = 0;
+    let mut written_char_count = 0;
     let len = self.utf8_len()? + 1;
     let mut result = Vec::with_capacity(len);
     let buf_ptr = result.as_mut_ptr();
@@ -52,7 +52,7 @@ impl JsString {
         self.0.env,
         self.0.value,
         buf_ptr,
-        len as u64,
+        len as _,
         &mut written_char_count,
       )
     })?;
@@ -76,7 +76,7 @@ impl JsString {
   }
 
   pub fn into_utf16(self) -> Result<JsStringUtf16> {
-    let mut written_char_count: u64 = 0;
+    let mut written_char_count = 0;
     let len = self.utf16_len()? + 1;
     let mut result = Vec::with_capacity(len);
     let buf_ptr = result.as_mut_ptr();
@@ -85,7 +85,7 @@ impl JsString {
         self.0.env,
         self.0.value,
         buf_ptr,
-        len as u64,
+        len as _,
         &mut written_char_count,
       )
     })?;
@@ -113,8 +113,8 @@ impl JsString {
         self.0.env,
         self.0.value,
         buf_ptr,
-        len as u64,
-        &mut written_char_count,
+        len as _,
+        &mut written_char_count as *mut u64 as *mut _,
       )
     })?;
 

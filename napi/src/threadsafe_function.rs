@@ -119,7 +119,7 @@ impl<T: 'static> ThreadsafeFunction<T> {
   >(
     env: sys::napi_env,
     func: JsFunction,
-    max_queue_size: u64,
+    max_queue_size: usize,
     callback: R,
   ) -> Result<Self> {
     let mut async_resource_name = ptr::null_mut();
@@ -128,12 +128,12 @@ impl<T: 'static> ThreadsafeFunction<T> {
       sys::napi_create_string_utf8(
         env,
         s.as_ptr() as *const c_char,
-        s.len() as u64,
+        s.len() as _,
         &mut async_resource_name,
       )
     })?;
 
-    let initial_thread_count: u64 = 1;
+    let initial_thread_count = 1;
     let mut raw_tsfn = ptr::null_mut();
     let context = ThreadSafeContext(Box::from(callback));
     let ptr = Box::into_raw(Box::new(context)) as *mut _;
@@ -143,7 +143,7 @@ impl<T: 'static> ThreadsafeFunction<T> {
         func.0.value,
         ptr::null_mut(),
         async_resource_name,
-        max_queue_size,
+        max_queue_size as _,
         initial_thread_count,
         ptr,
         Some(thread_finalize_cb::<T, V>),
