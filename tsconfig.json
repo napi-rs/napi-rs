@@ -20,7 +20,7 @@
     "suppressExcessPropertyErrors": true,
     "forceConsistentCasingInFileNames": true,
     "preserveSymlinks": true,
-    "target": "ES2018",
+    "target": "ES2015",
     "sourceMap": true,
     "esModuleInterop": true,
     "stripInternal": true,
