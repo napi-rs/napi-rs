@@ -1,5 +1,5 @@
 use super::Value;
-#[cfg(napi6)]
+#[cfg(feature = "napi6")]
 use crate::sys;
 use crate::{Error, Result, Status};
 use std::convert::TryFrom;
