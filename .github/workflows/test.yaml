@@ -75,11 +75,12 @@ jobs:
       - name: 'Build TypeScript'
         run: yarn build
 
+      - name: 'Set USE_NAPI_VERSION env'
+        run: node -e "process.stdout.write('USE_NAPI_VERSION=' + process.versions.napi)" >> $GITHUB_ENV
+        shell: bash
+
       - name: Check build
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: --all --bins --examples --tests -vvv
+        run: node ./ci-scripts/index.js cargo-check-all
 
       - name: Tests
         uses: actions-rs/cargo@v1
