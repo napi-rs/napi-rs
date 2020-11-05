@@ -68,8 +68,7 @@ jobs:
         shell: bash
 
       - name: Check build
-        uses: actions-rs/cargo@v1
-        run: node ./ci-scripts/index.js
+        run: node ./ci-scripts/index.js cargo-check-all
 
       - name: Tests
         uses: actions-rs/cargo@v1
