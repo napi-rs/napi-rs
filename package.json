@@ -32,7 +32,7 @@
     "format:rs": "cargo fmt",
     "format:source": "prettier --config ./package.json --write './**/*.{js,ts}'",
     "format:yaml": "prettier --parser yaml --write './**/*.{yml,yaml}'",
-    "lint": "eslint -c .eslintrc.yml './src/**/*.ts' './test_module/**/*.{ts,js}'",
+    "lint": "eslint -c .eslintrc.yml \"./src/**/*.ts\" \"./test_module/**/*.{ts,js}\"",
     "prepublishOnly": "npm run build",
     "test": "ava"
   },
