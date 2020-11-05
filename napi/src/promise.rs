@@ -27,7 +27,7 @@ impl<T, V: NapiValue> FuturePromise<T, V> {
       sys::napi_create_string_utf8(
         env,
         s.as_ptr() as *const c_char,
-        s.len() as u64,
+        s.len() as _,
         &mut async_resource_name,
       )
     })?;
@@ -44,7 +44,7 @@ impl<T, V: NapiValue> FuturePromise<T, V> {
   pub(crate) fn start(self) -> Result<TSFNValue> {
     let mut tsfn_value = ptr::null_mut();
     let async_resource_name = self.async_resource_name;
-    let initial_thread_count: u64 = 1;
+    let initial_thread_count = 1;
     let env = self.env;
     let self_ref = Box::leak(Box::from(self));
     check_status(unsafe {
@@ -54,7 +54,7 @@ impl<T, V: NapiValue> FuturePromise<T, V> {
         ptr::null_mut(),
         async_resource_name,
         0,
-        initial_thread_count,
+        initial_thread_count as _,
         ptr::null_mut(),
         None,
         self_ref as *mut _ as *mut c_void,

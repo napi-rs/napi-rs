@@ -68,7 +68,7 @@ impl Error {
       let status = sys::napi_create_string_utf8(
         env,
         s.as_ptr() as *const c_char,
-        s.len() as u64,
+        s.len() as _,
         &mut err_reason,
       );
       debug_assert!(

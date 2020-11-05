@@ -44,7 +44,7 @@ pub fn run<'env, T: Task>(env: &'env Env, task: T) -> Result<AsyncWorkPromise<'e
     sys::napi_create_string_utf8(
       env.0,
       s.as_ptr() as *const c_char,
-      s.len() as u64,
+      s.len() as _,
       &mut raw_name,
     )
   })?;

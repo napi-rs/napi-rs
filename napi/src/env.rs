@@ -137,7 +137,7 @@ impl Env {
           true => 1,
           false => 0,
         },
-        len as u64,
+        len as _,
         words.as_ptr(),
         &mut raw_value,
       )
@@ -146,31 +146,33 @@ impl Env {
   }
 
   pub fn create_string(&self, s: &str) -> Result<JsString> {
-    self.create_string_from_chars(s.as_ptr() as *const c_char, s.len() as u64)
+    self.create_string_from_chars(s.as_ptr() as *const c_char, s.len())
   }
 
   pub fn create_string_from_std(&self, s: String) -> Result<JsString> {
-    self.create_string_from_chars(s.as_ptr() as *const c_char, s.len() as u64)
+    self.create_string_from_chars(s.as_ptr() as *const c_char, s.len())
   }
 
   pub fn create_string_from_vec_u8(&self, bytes: Vec<u8>) -> Result<JsString> {
-    self.create_string_from_chars(bytes.as_ptr() as *const c_char, bytes.len() as u64)
+    self.create_string_from_chars(bytes.as_ptr() as *const c_char, bytes.len())
   }
 
   pub fn create_string_from_vec_i8(&self, bytes: Vec<i8>) -> Result<JsString> {
-    self.create_string_from_chars(bytes.as_ptr() as *const c_char, bytes.len() as u64)
+    self.create_string_from_chars(bytes.as_ptr() as *const c_char, bytes.len())
   }
 
-  fn create_string_from_chars(&self, data_ptr: *const c_char, len: u64) -> Result<JsString> {
+  fn create_string_from_chars(&self, data_ptr: *const c_char, len: usize) -> Result<JsString> {
     let mut raw_value = ptr::null_mut();
-    check_status(unsafe { sys::napi_create_string_utf8(self.0, data_ptr, len, &mut raw_value) })?;
+    check_status(unsafe {
+      sys::napi_create_string_utf8(self.0, data_ptr, len as _, &mut raw_value)
+    })?;
     Ok(JsString::from_raw_unchecked(self.0, raw_value))
   }
 
   pub fn create_string_utf16(&self, chars: &[u16]) -> Result<JsString> {
     let mut raw_value = ptr::null_mut();
     check_status(unsafe {
-      sys::napi_create_string_utf16(self.0, chars.as_ptr(), chars.len() as u64, &mut raw_value)
+      sys::napi_create_string_utf16(self.0, chars.as_ptr(), chars.len() as _, &mut raw_value)
     })?;
     Ok(JsString::from_raw_unchecked(self.0, raw_value))
   }
@@ -181,7 +183,7 @@ impl Env {
       sys::napi_create_string_latin1(
         self.0,
         chars.as_ptr() as *const _,
-        chars.len() as u64,
+        chars.len() as _,
         &mut raw_value,
       )
     })?;
@@ -224,17 +226,17 @@ impl Env {
   pub fn create_array_with_length(&self, length: usize) -> Result<JsObject> {
     let mut raw_value = ptr::null_mut();
     check_status(unsafe {
-      sys::napi_create_array_with_length(self.0, length as u64, &mut raw_value)
+      sys::napi_create_array_with_length(self.0, length as _, &mut raw_value)
     })?;
     Ok(JsObject::from_raw_unchecked(self.0, raw_value))
   }
 
-  pub fn create_buffer(&self, length: u64) -> Result<JsBufferValue> {
+  pub fn create_buffer(&self, length: usize) -> Result<JsBufferValue> {
     let mut raw_value = ptr::null_mut();
-    let mut data: Vec<u8> = Vec::with_capacity(length as usize);
+    let mut data: Vec<u8> = Vec::with_capacity(length);
     let mut data_ptr = data.as_mut_ptr() as *mut c_void;
     check_status(unsafe {
-      sys::napi_create_buffer(self.0, length, &mut data_ptr, &mut raw_value)
+      sys::napi_create_buffer(self.0, length as _, &mut data_ptr, &mut raw_value)
     })?;
 
     Ok(JsBufferValue::new(
@@ -248,16 +250,16 @@ impl Env {
   }
 
   pub fn create_buffer_with_data(&self, mut data: Vec<u8>) -> Result<JsBufferValue> {
-    let mut length = data.len() as u64;
+    let mut length = data.len();
     let mut raw_value = ptr::null_mut();
     let data_ptr = data.as_mut_ptr();
     check_status(unsafe {
       sys::napi_create_external_buffer(
         self.0,
-        length,
+        length as _,
         data_ptr as *mut c_void,
         Some(drop_buffer),
-        &mut length as *mut u64 as *mut _,
+        &mut length as *mut usize as *mut _,
         &mut raw_value,
       )
     })?;
@@ -284,7 +286,7 @@ impl Env {
     check_status(unsafe {
       sys::napi_create_buffer_copy(
         self.0,
-        length as u64,
+        length as _,
         data_ptr as *mut c_void,
         &mut copy_data,
         &mut raw_value,
@@ -300,12 +302,12 @@ impl Env {
     ))
   }
 
-  pub fn create_arraybuffer(&self, length: u64) -> Result<JsArrayBufferValue> {
+  pub fn create_arraybuffer(&self, length: usize) -> Result<JsArrayBufferValue> {
     let mut raw_value = ptr::null_mut();
     let mut data: Vec<u8> = Vec::with_capacity(length as usize);
     let mut data_ptr = data.as_mut_ptr() as *mut c_void;
     check_status(unsafe {
-      sys::napi_create_arraybuffer(self.0, length, &mut data_ptr, &mut raw_value)
+      sys::napi_create_arraybuffer(self.0, length as _, &mut data_ptr, &mut raw_value)
     })?;
 
     Ok(JsArrayBufferValue::new(
@@ -315,16 +317,16 @@ impl Env {
   }
 
   pub fn create_arraybuffer_with_data(&self, data: Vec<u8>) -> Result<JsArrayBufferValue> {
-    let mut length = data.len() as u64;
+    let mut length = data.len();
     let mut raw_value = ptr::null_mut();
     let data_ptr = data.as_ptr();
     check_status(unsafe {
       sys::napi_create_external_arraybuffer(
         self.0,
         data_ptr as *mut c_void,
-        length,
+        length as _,
         Some(drop_buffer),
-        &mut length as *mut u64 as *mut c_void,
+        &mut length as *mut usize as *mut c_void,
         &mut raw_value,
       )
     })?;
@@ -347,7 +349,7 @@ impl Env {
       sys::napi_create_function(
         self.0,
         name.as_ptr() as *const c_char,
-        name.len() as u64,
+        name.len() as _,
         Some(callback),
         callback as *mut c_void,
         &mut raw_result,
@@ -389,10 +391,10 @@ impl Env {
       sys::napi_define_class(
         self.0,
         name.as_ptr() as *const c_char,
-        name.len() as u64,
+        name.len() as _,
         Some(constructor_cb),
         ptr::null_mut(),
-        raw_properties.len() as u64,
+        raw_properties.len() as _,
         raw_properties.as_ptr(),
         &mut raw_result,
       )
@@ -597,7 +599,7 @@ impl Env {
   >(
     &self,
     func: JsFunction,
-    max_queue_size: u64,
+    max_queue_size: usize,
     callback: R,
   ) -> Result<ThreadsafeFunction<T>> {
     ThreadsafeFunction::create(self.0, func, max_queue_size, callback)
