@@ -73,31 +73,31 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: check
-          args: --manifest-path build/Cargo.toml --all --bins --examples --tests -vvv
+          args: --manifest-path build/Cargo.toml --bins --examples --tests -vvv
 
       - name: Check build `napi-sys`
         uses: actions-rs/cargo@v1
         with:
           command: check
-          args: --manifest-path sys/Cargo.toml --all --bins --examples --tests -vvv
+          args: --manifest-path sys/Cargo.toml --bins --examples --tests -vvv
 
       - name: Check build `napi`
         uses: actions-rs/cargo@v1
         with:
           command: check
-          args: --manifest-path napi/Cargo.toml --features=napi3 --all --bins --examples --tests -vvv
+          args: --manifest-path napi/Cargo.toml --features=napi3 --bins --examples --tests -vvv
 
       - name: Check build `napi-derive`
         uses: actions-rs/cargo@v1
         with:
           command: check
-          args: --manifest-path napi-derive/Cargo.toml --all --bins --examples --tests -vvv
+          args: --manifest-path napi-derive/Cargo.toml --bins --examples --tests -vvv
 
       - name: Check build `napi-derive-example`
         uses: actions-rs/cargo@v1
         with:
           command: check
-          args: --manifest-path napi-derive-example/Cargo.toml --all --bins --examples --tests -vvv
+          args: --manifest-path napi-derive-example/Cargo.toml --bins --examples --tests -vvv
 
       - name: Tests
         uses: actions-rs/cargo@v1
