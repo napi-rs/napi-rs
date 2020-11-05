@@ -3,11 +3,7 @@ const yargs = require('yargs')
 const toml = require('toml')
 const fs = require('fs')
 
-let napiVersion = process.env['USE_NAPI_VERSION']
-
-if (!napiVersion) {
-  throw 'Missing `USE_NAPI_VERSION`'
-}
+let napiVersion = process.env['USE_NAPI_VERSION'] || process.versions.napi
 
 const argv = yargs
   .command('build', 'Builds a module', {}, build)
