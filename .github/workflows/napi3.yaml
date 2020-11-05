@@ -67,37 +67,9 @@ jobs:
         run: echo "USE_NAPI_VERSION=3" >> $GITHUB_ENV
         shell: bash
 
-      # Work-around for https://github.com/rust-lang/cargo/issues/5364.
-      # We need to manually specify each crate in the hierarchy.
-      - name: Check build `napi-build`
+      - name: Check build
         uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: --manifest-path build/Cargo.toml --bins --examples --tests -vvv
-
-      - name: Check build `napi-sys`
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: --manifest-path sys/Cargo.toml --bins --examples --tests -vvv
-
-      - name: Check build `napi`
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: --manifest-path napi/Cargo.toml --no-default-features --features=napi3 --bins --examples --tests -vvv
-
-      - name: Check build `napi-derive`
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: --manifest-path napi-derive/Cargo.toml --bins --examples --tests -vvv
-
-      - name: Check build `napi-derive-example`
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: --manifest-path napi-derive-example/Cargo.toml --features=napi/napi3 --bins --examples --tests -vvv
+        run: node ./ci-scripts/index.js
 
       - name: Tests
         uses: actions-rs/cargo@v1
