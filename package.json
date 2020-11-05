@@ -68,7 +68,7 @@
   },
   "husky": {
     "hooks": {
-      "pre-commit": "lint-staged && cargo fmt --all"
+      "pre-commit": "npx lint-staged && cargo fmt --all"
     }
   },
   "devDependencies": {
