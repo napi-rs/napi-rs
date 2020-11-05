@@ -14,7 +14,7 @@ use crate::{sys, Error, NodeVersion, Result, Status};
 
 #[cfg(all(feature = "serde-json"))]
 use crate::js_values::{De, Ser};
-#[cfg(all(any(feature = "libuv", feature = "tokio_rt"), napi4))]
+#[cfg(all(any(feature = "libuv", feature = "tokio_rt"), feature = "napi4"))]
 use crate::promise;
 #[cfg(feature = "napi4")]
 use crate::threadsafe_function::{ThreadSafeCallContext, ThreadsafeFunction};

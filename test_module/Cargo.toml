@@ -9,7 +9,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 futures = "0.3"
-napi = {path = "../napi", features = ["libuv", "tokio_rt", "serde-json", "latin1"]}
+napi = {path = "../napi", default-features = false, features = [ "libuv", "tokio_rt", "serde-json", "latin1" ]}
 napi-derive = {path = "../napi-derive"}
 serde = "1"
 serde_bytes = "0.11"
@@ -19,3 +19,13 @@ tokio = {version = "0.3", features = ["default", "fs"]}
 
 [build-dependencies]
 napi-build = {path = "../build"}
+
+[features]
+# Used for testing. Turn on napi versions to test those features.
+napi7 = [ "napi6", "napi/napi7" ]
+napi6 = [ "napi5", "napi/napi6" ]
+napi5 = [ "napi4", "napi/napi5" ]
+napi4 = [ "napi3", "napi/napi4" ]
+napi3 = [ "napi2", "napi/napi3" ]
+napi2 = [ "napi1", "napi/napi2" ]
+napi1 = [ "napi/napi1" ]
