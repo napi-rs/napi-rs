@@ -85,7 +85,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: check
-          args: --manifest-path napi/Cargo.toml --features=napi3 --bins --examples --tests -vvv
+          args: --manifest-path napi/Cargo.toml --no-default-features --features=napi3 --bins --examples --tests -vvv
 
       - name: Check build `napi-derive`
         uses: actions-rs/cargo@v1
