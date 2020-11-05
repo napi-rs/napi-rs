@@ -97,7 +97,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: check
-          args: --manifest-path napi-derive-example/Cargo.toml --bins --examples --tests -vvv
+          args: --manifest-path napi-derive-example/Cargo.toml --features=napi/napi3 --bins --examples --tests -vvv
 
       - name: Tests
         uses: actions-rs/cargo@v1

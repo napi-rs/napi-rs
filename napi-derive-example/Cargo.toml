@@ -8,7 +8,7 @@ version = "0.1.0"
 crate-type = ["cdylib"]
 
 [dependencies]
-napi = {path = "../napi"}
+napi = { path = "../napi", default-features=false }
 napi-derive = {path = "../napi-derive"}
 
 [build-dependencies]
