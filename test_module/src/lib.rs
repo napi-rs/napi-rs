@@ -7,17 +7,14 @@ extern crate serde_derive;
 
 use napi::{Module, Result};
 
-#[cfg(napi3)]
 mod cleanup_env;
-#[cfg(napi4)]
-mod libuv;
-#[cfg(napi4)]
+#[cfg(feature = "latest")]
 mod napi4;
-#[cfg(napi5)]
+#[cfg(feature = "latest")]
 mod napi5;
-#[cfg(napi6)]
+#[cfg(feature = "latest")]
 mod napi6;
-#[cfg(napi4)]
+#[cfg(feature = "latest")]
 mod tokio_rt;
 
 mod array;
@@ -58,17 +55,14 @@ fn init(module: &mut Module) -> Result<()> {
   env::register_js(module)?;
   object::register_js(module)?;
   global::register_js(module)?;
-  #[cfg(napi3)]
   cleanup_env::register_js(module)?;
-  #[cfg(napi4)]
+  #[cfg(feature = "latest")]
   napi4::register_js(module)?;
-  #[cfg(napi4)]
+  #[cfg(feature = "latest")]
   tokio_rt::register_js(module)?;
-  #[cfg(napi4)]
-  libuv::read_file::register_js(module)?;
-  #[cfg(napi5)]
+  #[cfg(feature = "latest")]
   napi5::register_js(module)?;
-  #[cfg(napi6)]
+  #[cfg(feature = "latest")]
   napi6::register_js(module)?;
   Ok(())
 }

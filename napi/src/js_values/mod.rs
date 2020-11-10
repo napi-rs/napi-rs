@@ -11,11 +11,11 @@ mod de;
 mod ser;
 
 mod arraybuffer;
-#[cfg(napi6)]
+#[cfg(feature = "napi6")]
 mod bigint;
 mod boolean;
 mod buffer;
-#[cfg(napi5)]
+#[cfg(feature = "napi5")]
 mod date;
 mod either;
 mod escapable_handle_scope;
@@ -32,11 +32,11 @@ mod value_ref;
 mod value_type;
 
 pub use arraybuffer::*;
-#[cfg(napi6)]
+#[cfg(feature = "napi6")]
 pub use bigint::JsBigint;
 pub use boolean::JsBoolean;
 pub use buffer::*;
-#[cfg(napi5)]
+#[cfg(feature = "napi5")]
 pub use date::*;
 #[cfg(feature = "serde-json")]
 pub(crate) use de::De;
@@ -78,7 +78,7 @@ pub(crate) fn type_of(env: sys::napi_env, raw_value: sys::napi_value) -> Result<
   unsafe {
     let mut value_type = sys::napi_valuetype::napi_undefined;
     check_status(sys::napi_typeof(env, raw_value, &mut value_type))?;
-    ValueType::try_from(value_type)
+    Ok(ValueType::from(value_type))
   }
 }
 
@@ -171,7 +171,7 @@ macro_rules! impl_js_value_methods {
       }
 
       #[inline]
-      #[cfg(napi5)]
+      #[cfg(feature = "napi5")]
       pub fn is_date(&self) -> Result<bool> {
         let mut is_date = true;
         check_status(unsafe { sys::napi_is_date(self.0.env, self.0.value, &mut is_date) })?;
@@ -363,7 +363,7 @@ macro_rules! impl_object_methods {
 
       /// https://nodejs.org/api/n-api.html#n_api_napi_get_all_property_names
       /// return `Array` of property names
-      #[cfg(napi6)]
+      #[cfg(feature = "napi6")]
       pub fn get_all_property_names(
         &self,
         mode: KeyCollectionMode,
@@ -484,7 +484,7 @@ impl_js_value_methods!(JsNumber);
 impl_js_value_methods!(JsString);
 impl_js_value_methods!(JsObject);
 impl_js_value_methods!(JsGlobal);
-#[cfg(napi5)]
+#[cfg(feature = "napi5")]
 impl_js_value_methods!(JsDate);
 impl_js_value_methods!(JsFunction);
 impl_js_value_methods!(JsExternal);
@@ -511,7 +511,7 @@ impl_napi_value_trait!(JsNumber, Number);
 impl_napi_value_trait!(JsString, String);
 impl_napi_value_trait!(JsObject, Object);
 impl_napi_value_trait!(JsGlobal, Object);
-#[cfg(napi5)]
+#[cfg(feature = "napi5")]
 impl_napi_value_trait!(JsDate, Object);
 impl_napi_value_trait!(JsTimeout, Object);
 impl_napi_value_trait!(JsFunction, Function);
@@ -535,6 +535,7 @@ impl NapiValue for JsUnknown {
     })
   }
 
+  /// get raw js value ptr
   fn raw(&self) -> sys::napi_value {
     self.0.value
   }

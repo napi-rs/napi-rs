@@ -42,10 +42,6 @@ jobs:
         run: |
           docker run --rm -v $(pwd)/.cargo:/root/.cargo -v $(pwd):/napi-rs -w /napi-rs builder cargo check -vvv
 
-      - name: Run tests
-        run: |
-          docker run --rm -v $(pwd)/.cargo:/root/.cargo -v $(pwd):/napi-rs -w /napi-rs builder cargo test -p napi-sys --lib -- --nocapture
-
       - name: Unit test
         run: |
           docker run --rm -v $(pwd)/.cargo:/root/.cargo -v $(pwd):/napi-rs -w /napi-rs builder sh -c "yarn build:test && yarn test"
