@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1604994587086,
+  "lastUpdate": 1604994894207,
   "repoUrl": "https://github.com/napi-rs/napi-rs",
   "entries": {
     "Benchmark": [
@@ -3547,6 +3547,65 @@ window.BENCHMARK_DATA = {
             "range": "±2.48%",
             "unit": "ops/sec",
             "extra": "80 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "lynweklm@gmail.com",
+            "name": "LongYinan",
+            "username": "Brooooooklyn"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f376f3615cf6843e5e67b424b0d8c94eaa219878",
+          "message": "Merge pull request #293 from napi-rs/dependabot/npm_and_yarn/typescript-eslint/eslint-plugin-4.7.0\n\nbuild(deps-dev): bump @typescript-eslint/eslint-plugin from 4.6.1 to 4.7.0",
+          "timestamp": "2020-11-10T15:51:32+08:00",
+          "tree_id": "552aba142c57db1b1ef305b34e69d1ab6c07dc74",
+          "url": "https://github.com/napi-rs/napi-rs/commit/f376f3615cf6843e5e67b424b0d8c94eaa219878"
+        },
+        "date": 1604994893344,
+        "tool": "benchmarkjs",
+        "benches": [
+          {
+            "name": "noop#napi-rs",
+            "value": 52419498,
+            "range": "±1.25%",
+            "unit": "ops/sec",
+            "extra": "86 samples"
+          },
+          {
+            "name": "noop#JavaScript",
+            "value": 663541188,
+            "range": "±0.95%",
+            "unit": "ops/sec",
+            "extra": "90 samples"
+          },
+          {
+            "name": "Plus number#napi-rs",
+            "value": 14802364,
+            "range": "±0.84%",
+            "unit": "ops/sec",
+            "extra": "90 samples"
+          },
+          {
+            "name": "Plus number#JavaScript",
+            "value": 678888653,
+            "range": "±0.98%",
+            "unit": "ops/sec",
+            "extra": "88 samples"
+          },
+          {
+            "name": "Async task#napi-rs",
+            "value": 26481,
+            "range": "±1.83%",
+            "unit": "ops/sec",
+            "extra": "76 samples"
           }
         ]
       }
