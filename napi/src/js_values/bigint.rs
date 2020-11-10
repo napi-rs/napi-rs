@@ -71,7 +71,7 @@ impl JsBigint {
   }
 
   #[inline]
-  #[cfg(napi5)]
+  #[cfg(feature = "napi5")]
   pub fn is_date(&self) -> Result<bool> {
     let mut is_date = true;
     check_status(unsafe { sys::napi_is_date(self.raw.env, self.raw.value, &mut is_date) })?;

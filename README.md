@@ -28,9 +28,9 @@ A minimal library for building compiled `NodeJS` add-ons in `Rust`.
 
 ## NodeJS
 
-| Node10 | Node 12 | Node14 |
-| ------ | ------- | ------ |
-| ✓      | ✓       | ✓      |
+| Node10 | Node 12 | Node14 | Node15 |
+| ------ | ------- | ------ | ------ |
+| ✓      | ✓       | ✓      | ✓      |
 
 This library depends on N-API and requires `Node@8.9` or later.
 

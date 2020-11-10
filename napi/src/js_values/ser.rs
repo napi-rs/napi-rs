@@ -1,5 +1,5 @@
 use std::result::Result as StdResult;
-#[cfg(napi6)]
+#[cfg(feature = "napi6")]
 use std::slice;
 
 use serde::{ser, Serialize, Serializer};
@@ -92,13 +92,21 @@ impl<'env> Serializer for Ser<'env> {
     self.0.create_uint32(v).map(|js_number| js_number.0)
   }
 
-  #[cfg(all(any(napi2, napi3, napi4, napi5), not(napi6)))]
+  #[cfg(all(
+    any(
+      feature = "napi2",
+      feature = "napi3",
+      feature = "napi4",
+      feature = "napi5"
+    ),
+    not(feature = "napi6")
+  ))]
   #[inline]
   fn serialize_u64(self, v: u64) -> Result<Self::Ok> {
     self.0.create_int64(v as _).map(|js_number| js_number.0)
   }
 
-  #[cfg(napi6)]
+  #[cfg(feature = "napi6")]
   #[inline]
   fn serialize_u64(self, v: u64) -> Result<Self::Ok> {
     self
@@ -107,13 +115,21 @@ impl<'env> Serializer for Ser<'env> {
       .map(|js_number| js_number.raw)
   }
 
-  #[cfg(all(any(napi2, napi3, napi4, napi5), not(napi6)))]
+  #[cfg(all(
+    any(
+      feature = "napi2",
+      feature = "napi3",
+      feature = "napi4",
+      feature = "napi5"
+    ),
+    not(feature = "napi6")
+  ))]
   #[inline]
   fn serialize_u128(self, v: u128) -> Result<Self::Ok> {
     self.0.create_string(v.to_string().as_str()).map(|v| v.0)
   }
 
-  #[cfg(napi6)]
+  #[cfg(feature = "napi6")]
   #[inline]
   fn serialize_u128(self, v: u128) -> Result<Self::Ok> {
     let words_ref = &v as *const _;
@@ -124,13 +140,21 @@ impl<'env> Serializer for Ser<'env> {
       .map(|v| v.raw)
   }
 
-  #[cfg(all(any(napi2, napi3, napi4, napi5), not(napi6)))]
+  #[cfg(all(
+    any(
+      feature = "napi2",
+      feature = "napi3",
+      feature = "napi4",
+      feature = "napi5"
+    ),
+    not(feature = "napi6")
+  ))]
   #[inline]
   fn serialize_i128(self, v: i128) -> Result<Self::Ok> {
     self.0.create_string(v.to_string().as_str()).map(|v| v.0)
   }
 
-  #[cfg(napi6)]
+  #[cfg(feature = "napi6")]
   #[inline]
   fn serialize_i128(self, v: i128) -> Result<Self::Ok> {
     let words_ref = &(v as u128) as *const _;

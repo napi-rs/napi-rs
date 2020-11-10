@@ -17,16 +17,26 @@ jobs:
       - uses: actions/checkout@v2
 
       - name: Setup node
-        uses: actions/setup-node@v1
-        with:
-          node-version: 14
+        run: choco install nodejs-lts --x86 -y --force
 
-      - name: Install llvm
-        run: choco install -y llvm
-
-      - name: Set llvm path
-        run: echo "LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin" >> $GITHUB_ENV
+      - name: Set 32bit NodeJS path
+        run: |
+          echo "C:\\Program Files (x86)\\nodejs" >> $GITHUB_PATH
         shell: bash
+
+      - name: Cache NPM dependencies
+        uses: actions/cache@v1
+        with:
+          path: node_modules
+          key: npm-cache-windows-i686-node@lts-${{ hashFiles('yarn.lock') }}
+          restore-keys: |
+            npm-cache-
+
+      - name: 'Install dependencies'
+        run: yarn install --frozen-lockfile --registry https://registry.npmjs.org
+
+      - name: 'Build TypeScript'
+        run: yarn build
 
       - name: Install
         uses: actions-rs/toolchain@v1
@@ -47,13 +57,13 @@ jobs:
         uses: actions/cache@v1
         with:
           path: ~/.cargo/registry
-          key: stable-${{ matrix.os }}-node@${{ matrix.node }}-cargo-registry-trimmed-${{ hashFiles('**/Cargo.lock') }}
+          key: stable-windows-i686-node@lts-cargo-registry-trimmed-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache cargo index
         uses: actions/cache@v1
         with:
           path: ~/.cargo/git
-          key: stable-${{ matrix.os }}gnu-node@${{ matrix.node }}-cargo-index-trimmed-${{ hashFiles('**/Cargo.lock') }}
+          key: stable-windows-i686-node@lts-cargo-index-trimmed-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Check build
         uses: actions-rs/cargo@v1
@@ -61,12 +71,12 @@ jobs:
           command: check
           args: --all --bins --examples --tests --target i686-pc-windows-msvc -vvv
 
-      - name: Tests
-        uses: actions-rs/cargo@v1
-        timeout-minutes: 5
-        with:
-          command: test
-          args: -p napi-sys --lib --target i686-pc-windows-msvc -- --nocapture
+      - name: Build Tests
+        run: |
+          yarn --cwd ./test_module build-i686
+          yarn test
+        env:
+          RUST_BACKTRACE: 1
 
       - name: Clear the cargo caches
         run: |

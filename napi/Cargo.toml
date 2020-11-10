@@ -10,8 +10,15 @@ repository = "https://github.com/napi-rs/napi-rs"
 version = "0.5.1"
 
 [features]
+default = ["napi3"] # for most NodeJS users
 latin1 = ["encoding_rs"]
-libuv = ["futures"]
+napi1 = []
+napi2 = ["napi1"]
+napi3 = ["napi2", "napi-sys/napi3"]
+napi4 = ["napi3", "napi-sys/napi4"]
+napi5 = ["napi4", "napi-sys/napi5"]
+napi6 = ["napi5", "napi-sys/napi6"]
+napi7 = ["napi6", "napi-sys/napi7"]
 serde-json = ["serde", "serde_json"]
 tokio_rt = ["futures", "tokio", "once_cell"]
 
@@ -51,4 +58,3 @@ napi-build = {version = "0.2", path = "../build"}
 
 [package.metadata.docs.rs]
 all-features = true
-rustc-args = ["--cfg", "napidocsrs"]

@@ -69,16 +69,9 @@ jobs:
           command: check
           args: --all --bins --examples --tests -vvv
 
-      - name: Tests
-        uses: actions-rs/cargo@v1
-        timeout-minutes: 5
-        with:
-          command: test
-          args: -p napi-sys --lib -- --nocapture
-
       - name: Unit tests
         run: |
-          yarn --cwd ./test_module --ignore-engines build
+          yarn --cwd ./test_module --ignore-engines build-napi3
           yarn --ignore-engines test
         env:
           RUST_BACKTRACE: 1
