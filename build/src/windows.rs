@@ -1,9 +1,9 @@
-use crate::*;
 use std::collections::hash_map::DefaultHasher;
 use std::fs::{metadata, write};
 use std::hash::{Hash, Hasher};
 use std::io::Read;
 use std::path::PathBuf;
+use std::process::Command;
 
 fn get_node_version() -> std::io::Result<String> {
   let output = Command::new("node").arg("-v").output()?;
@@ -51,16 +51,17 @@ pub fn setup() {
   // See https://doc.rust-lang.org/reference/conditional-compilation.html#target_arch for rust env values.
   // Nodejs appears to follow `process.arch`.
   // See https://nodejs.org/docs/latest/api/process.html#process_process_arch for npm env values.
+  // For windows, we only support `['ia32', 'x64', 'arm64']`
+  // https://github.com/nodejs/node-gyp/blob/master/lib/install.js#L301
   let arch = std::env::var("CARGO_CFG_TARGET_ARCH")
     .map(|arch| match arch.as_str() {
-      "x86" => "x86", // TODO: x86 appears to also be called ia32 in npm_config_arch sometimes. What is the right value?
+      "x86" => "x86",
       "x86_64" => "x64",
-      "mips" => "mips",
-      "powerpc" => "ppc",
-      "powerpc64" => "ppc64",
-      "arm" => "arm",
+      // https://github.com/nodejs/node/issues/25998
+      // actually not supported for now
+      // because we can not get `node.lib` file for `aarch64` device
       "aarch64" => "arm64",
-      arch => panic!("Unknown Architecture: {}", arch),
+      arch => panic!("Unsupported CPU Architecture: {}", arch),
     })
     .expect("Failed to determine target arch");
 
@@ -106,6 +107,4 @@ pub fn setup() {
   );
   println!("cargo:rustc-cdylib-link-arg=delayimp.lib");
   println!("cargo:rustc-cdylib-link-arg=/DELAYLOAD:node.exe");
-
-  setup_napi_feature();
 }

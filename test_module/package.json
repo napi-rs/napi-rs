@@ -2,9 +2,11 @@
   "name": "test-module",
   "version": "1.0.0",
   "scripts": {
-    "build": "cargo build && node ../scripts/index.js build",
-    "build-aarch64": "cargo build --target aarch64-unknown-linux-gnu && node ../scripts/index.js build --target-triple aarch64-unknown-linux-gnu",
-    "build-release": "cargo build --release && node ../scripts/index.js build --release",
+    "build": "cargo build --features \"latest\" && node ../scripts/index.js build",
+    "build-napi3": "cargo build --features \"napi3\" && node ../scripts/index.js build",
+    "build-aarch64": "cargo build --features \"latest\" --target aarch64-unknown-linux-gnu && node ../scripts/index.js build --target-triple aarch64-unknown-linux-gnu",
+    "build-i686": "cargo build --features \"latest\" --target i686-pc-windows-msvc && node ../scripts/index.js build --target-triple i686-pc-windows-msvc",
+    "build-release": "cargo build --features \"latest\" --release && node ../scripts/index.js build --release",
     "test": "node ./index.js"
   }
 }

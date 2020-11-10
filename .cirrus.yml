@@ -7,7 +7,7 @@ task:
     DEBUG: 'napi:*'
   setup_script:
     - pkg update
-    - pkg install -y -f curl node yarn npm libnghttp2 llvm
+    - pkg install -y -f curl node yarn npm libnghttp2
     - curl https://sh.rustup.rs -sSf --output rustup.sh
     - sh rustup.sh -y --profile minimal --default-toolchain stable
     - . $HOME/.cargo/env

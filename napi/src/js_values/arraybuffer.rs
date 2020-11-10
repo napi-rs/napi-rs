@@ -7,7 +7,7 @@ use std::ptr;
 
 use super::{Value, ValueType};
 use crate::error::check_status;
-use crate::{sys, Error, JsUnknown, NapiValue, Ref, Result, Status};
+use crate::{sys, Error, JsUnknown, NapiValue, Ref, Result};
 
 #[repr(transparent)]
 #[derive(Debug)]
@@ -44,6 +44,7 @@ pub struct JsDataViewValue {
   pub length: u64,
 }
 
+#[repr(u8)]
 #[derive(Debug)]
 pub enum TypedArrayType {
   Int8,
@@ -55,9 +56,9 @@ pub enum TypedArrayType {
   Uint32,
   Float32,
   Float64,
-  #[cfg(napi6)]
+  #[cfg(feature = "napi6")]
   BigInt64,
-  #[cfg(napi6)]
+  #[cfg(feature = "napi6")]
   BigUint64,
 }
 
@@ -75,11 +76,10 @@ impl TryFrom<sys::napi_typedarray_type> for TypedArrayType {
       sys::napi_typedarray_type::napi_uint32_array => Ok(Self::Uint32),
       sys::napi_typedarray_type::napi_float32_array => Ok(Self::Float32),
       sys::napi_typedarray_type::napi_float64_array => Ok(Self::Float64),
-      #[cfg(napi6)]
+      #[cfg(feature = "napi6")]
       sys::napi_typedarray_type::napi_bigint64_array => Ok(Self::BigInt64),
-      #[cfg(napi6)]
+      #[cfg(feature = "napi6")]
       sys::napi_typedarray_type::napi_biguint64_array => Ok(Self::BigUint64),
-      _ => Err(Error::from_status(Status::Unknown)),
     }
   }
 }
@@ -96,21 +96,21 @@ impl From<TypedArrayType> for sys::napi_typedarray_type {
       TypedArrayType::Uint32 => sys::napi_typedarray_type::napi_uint32_array,
       TypedArrayType::Float32 => sys::napi_typedarray_type::napi_float32_array,
       TypedArrayType::Float64 => sys::napi_typedarray_type::napi_float64_array,
-      #[cfg(napi6)]
+      #[cfg(feature = "napi6")]
       TypedArrayType::BigInt64 => sys::napi_typedarray_type::napi_bigint64_array,
-      #[cfg(napi6)]
+      #[cfg(feature = "napi6")]
       TypedArrayType::BigUint64 => sys::napi_typedarray_type::napi_biguint64_array,
     }
   }
 }
 
 impl JsArrayBuffer {
-  #[cfg(napi7)]
+  #[cfg(feature = "napi7")]
   pub fn detach(self) -> Result<()> {
     check_status(unsafe { sys::napi_detach_arraybuffer(self.0.env, self.0.value) })
   }
 
-  #[cfg(napi7)]
+  #[cfg(feature = "napi7")]
   pub fn is_detached(&self) -> Result<bool> {
     let mut is_detached = false;
     check_status(unsafe {
