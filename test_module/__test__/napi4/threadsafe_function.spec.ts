@@ -16,7 +16,11 @@ test('should get js function called from a thread', async (t) => {
     bindings.testThreadsafeFunction((...args: any[]) => {
       called += 1
       try {
-        t.deepEqual(args, [null, 42, 1, 2, 3])
+        if (args[1] === 0) {
+          t.deepEqual(args, [null, 0, 1, 2, 3])
+        } else {
+          t.deepEqual(args, [null, 3, 2, 1, 0])
+        }
       } catch (err) {
         reject(err)
       }
@@ -26,4 +30,28 @@ test('should get js function called from a thread', async (t) => {
       }
     })
   })
+})
+
+test('should be able to abort tsfn', (t) => {
+  if (napiVersion < 4) {
+    t.is(bindings.testAbortThreadsafeFunction, undefined)
+    return
+  }
+  t.true(bindings.testAbortThreadsafeFunction(() => {}))
+})
+
+test('should be able to abort independent tsfn', (t) => {
+  if (napiVersion < 4) {
+    t.is(bindings.testAbortIndependentThreadsafeFunction, undefined)
+    return
+  }
+  t.false(bindings.testAbortIndependentThreadsafeFunction(() => {}))
+})
+
+test('should return Closing while calling aborted tsfn', (t) => {
+  if (napiVersion < 4) {
+    t.is(bindings.testCallAbortedThreadsafeFunction, undefined)
+    return
+  }
+  t.notThrows(() => bindings.testCallAbortedThreadsafeFunction(() => {}))
 })
