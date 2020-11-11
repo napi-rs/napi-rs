@@ -71,12 +71,9 @@ impl Error {
         s.len() as _,
         &mut err_reason,
       );
-      debug_assert!(
-        status == sys::napi_status::napi_ok,
-        "Create error reason failed"
-      );
+      debug_assert!(status == sys::Status::napi_ok, "Create error reason failed");
       let status = sys::napi_create_error(env, ptr::null_mut(), err_reason, &mut err);
-      debug_assert!(status == sys::napi_status::napi_ok, "Create error failed");
+      debug_assert!(status == sys::Status::napi_ok, "Create error failed");
     };
     err
   }

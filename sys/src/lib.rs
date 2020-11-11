@@ -68,71 +68,63 @@ pub enum napi_property_attributes {
   napi_static = 1 << 10,
 }
 
-#[repr(C)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum napi_valuetype {
-  napi_undefined,
-  napi_null,
-  napi_boolean,
-  napi_number,
-  napi_string,
-  napi_symbol,
-  napi_object,
-  napi_function,
-  napi_external,
+pub type napi_valuetype = i32;
+
+pub mod ValueType {
+  pub const napi_undefined: i32 = 0;
+  pub const napi_null: i32 = 1;
+  pub const napi_boolean: i32 = 2;
+  pub const napi_number: i32 = 3;
+  pub const napi_string: i32 = 4;
+  pub const napi_symbol: i32 = 5;
+  pub const napi_object: i32 = 6;
+  pub const napi_function: i32 = 7;
+  pub const napi_external: i32 = 8;
   #[cfg(feature = "napi6")]
-  napi_bigint,
+  pub const napi_bigint: i32 = 9;
 }
 
-#[repr(C)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum napi_typedarray_type {
-  napi_int8_array,
-  napi_uint8_array,
-  napi_uint8_clamped_array,
-  napi_int16_array,
-  napi_uint16_array,
-  napi_int32_array,
-  napi_uint32_array,
-  napi_float32_array,
-  napi_float64_array,
-  #[cfg(feature = "napi6")]
-  napi_bigint64_array,
-  #[cfg(feature = "napi6")]
-  napi_biguint64_array,
+pub type napi_typedarray_type = i32;
+
+pub mod TypedarrayType {
+  pub const napi_int8_array: i32 = 0;
+  pub const napi_uint8_array: i32 = 1;
+  pub const napi_uint8_clamped_array: i32 = 2;
+  pub const napi_int16_array: i32 = 3;
+  pub const napi_uint16_array: i32 = 4;
+  pub const napi_int32_array: i32 = 5;
+  pub const napi_uint32_array: i32 = 6;
+  pub const napi_float32_array: i32 = 7;
+  pub const napi_float64_array: i32 = 8;
+  pub const napi_bigint64_array: i32 = 9;
+  pub const napi_biguint64_array: i32 = 10;
 }
 
-#[repr(C)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum napi_status {
-  napi_ok,
-  napi_invalid_arg,
-  napi_object_expected,
-  napi_string_expected,
-  napi_name_expected,
-  napi_function_expected,
-  napi_number_expected,
-  napi_boolean_expected,
-  napi_array_expected,
-  napi_generic_failure,
-  napi_pending_exception,
-  napi_cancelled,
-  napi_escape_called_twice,
-  napi_handle_scope_mismatch,
-  napi_callback_scope_mismatch,
-  #[cfg(feature = "napi4")]
-  napi_queue_full,
-  #[cfg(feature = "napi4")]
-  napi_closing,
-  #[cfg(feature = "napi6")]
-  napi_bigint_expected,
-  #[cfg(feature = "napi6")]
-  napi_date_expected,
-  #[cfg(feature = "napi7")]
-  napi_arraybuffer_expected,
-  #[cfg(feature = "napi7")]
-  napi_detachable_arraybuffer_expected,
-  napi_would_deadlock, // unused
+pub type napi_status = i32;
+
+pub mod Status {
+  pub const napi_ok: i32 = 0;
+  pub const napi_invalid_arg: i32 = 1;
+  pub const napi_object_expected: i32 = 2;
+  pub const napi_string_expected: i32 = 3;
+  pub const napi_name_expected: i32 = 4;
+  pub const napi_function_expected: i32 = 5;
+  pub const napi_number_expected: i32 = 6;
+  pub const napi_boolean_expected: i32 = 7;
+  pub const napi_array_expected: i32 = 8;
+  pub const napi_generic_failure: i32 = 9;
+  pub const napi_pending_exception: i32 = 10;
+  pub const napi_cancelled: i32 = 11;
+  pub const napi_escape_called_twice: i32 = 12;
+  pub const napi_handle_scope_mismatch: i32 = 13;
+  pub const napi_callback_scope_mismatch: i32 = 14;
+  pub const napi_queue_full: i32 = 15;
+  pub const napi_closing: i32 = 16;
+  pub const napi_bigint_expected: i32 = 17;
+  pub const napi_date_expected: i32 = 18;
+  pub const napi_arraybuffer_expected: i32 = 19;
+  pub const napi_detachable_arraybuffer_expected: i32 = 20;
+  pub const napi_would_deadlock: i32 = 21; // unused
 }
 
 pub type napi_callback = ::std::option::Option<

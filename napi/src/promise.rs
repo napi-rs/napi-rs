@@ -105,14 +105,11 @@ unsafe extern "C" fn call_js_cb<T, V: NapiValue>(
   match js_value_to_resolve {
     Ok(v) => {
       let status = sys::napi_resolve_deferred(raw_env, deferred, v.raw());
-      debug_assert!(
-        status == sys::napi_status::napi_ok,
-        "Resolve promise failed"
-      );
+      debug_assert!(status == sys::Status::napi_ok, "Resolve promise failed");
     }
     Err(e) => {
       let status = sys::napi_reject_deferred(raw_env, deferred, e.into_raw(raw_env));
-      debug_assert!(status == sys::napi_status::napi_ok, "Reject promise failed");
+      debug_assert!(status == sys::Status::napi_ok, "Reject promise failed");
     }
   };
   check_status(sys::napi_release_threadsafe_function(
