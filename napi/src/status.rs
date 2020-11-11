@@ -1,8 +1,11 @@
-use crate::sys::napi_status;
+use std::fmt::{Display, Formatter, Result};
 
+use crate::sys;
+
+#[repr(i32)]
 #[derive(Eq, PartialEq, Debug, Clone, Copy)]
 pub enum Status {
-  Ok,
+  Ok = 0,
   InvalidArg,
   ObjectExpected,
   StringExpected,
@@ -17,71 +20,51 @@ pub enum Status {
   EscapeCalledTwice,
   HandleScopeMismatch,
   CallbackScopeMismatch,
-  #[cfg(feature = "napi4")]
+  /// ThreadSafeFunction queue is full
   QueueFull,
-  #[cfg(feature = "napi4")]
+  /// ThreadSafeFunction closed
   Closing,
-  #[cfg(feature = "napi6")]
   BigintExpected,
-  Unknown,
+  DateExpected,
+  ArrayBufferExpected,
+  DetachableArraybufferExpected,
+  WouldDeadlock,
+  Unknown = 1024, // unknown status. for example, using napi3 module in napi7 NodeJS, and generate an invalid napi3 status
 }
 
-impl From<napi_status> for Status {
-  fn from(code: napi_status) -> Self {
-    use Status::*;
-
-    match code {
-      napi_status::napi_ok => Ok,
-      napi_status::napi_invalid_arg => InvalidArg,
-      napi_status::napi_object_expected => ObjectExpected,
-      napi_status::napi_string_expected => StringExpected,
-      napi_status::napi_name_expected => NameExpected,
-      napi_status::napi_function_expected => FunctionExpected,
-      napi_status::napi_number_expected => NumberExpected,
-      napi_status::napi_boolean_expected => BooleanExpected,
-      napi_status::napi_array_expected => ArrayExpected,
-      napi_status::napi_generic_failure => GenericFailure,
-      napi_status::napi_pending_exception => PendingException,
-      napi_status::napi_cancelled => Cancelled,
-      napi_status::napi_escape_called_twice => EscapeCalledTwice,
-      napi_status::napi_handle_scope_mismatch => HandleScopeMismatch,
-      napi_status::napi_callback_scope_mismatch => CallbackScopeMismatch,
-      #[cfg(feature = "napi4")]
-      napi_status::napi_queue_full => QueueFull,
-      #[cfg(feature = "napi4")]
-      napi_status::napi_closing => Closing,
-      #[cfg(feature = "napi6")]
-      napi_status::napi_bigint_expected => BigintExpected,
-      _ => Unknown,
-    }
+impl Display for Status {
+  fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+    let status_string = format!("{:?}", self);
+    write!(f, "{}", status_string)
   }
 }
 
-impl Into<self::napi_status> for Status {
-  fn into(self) -> napi_status {
-    match self {
-      Self::Ok => napi_status::napi_ok,
-      Self::InvalidArg => napi_status::napi_invalid_arg,
-      Self::ObjectExpected => napi_status::napi_object_expected,
-      Self::StringExpected => napi_status::napi_string_expected,
-      Self::NameExpected => napi_status::napi_name_expected,
-      Self::FunctionExpected => napi_status::napi_function_expected,
-      Self::NumberExpected => napi_status::napi_number_expected,
-      Self::BooleanExpected => napi_status::napi_boolean_expected,
-      Self::ArrayExpected => napi_status::napi_array_expected,
-      Self::GenericFailure => napi_status::napi_generic_failure,
-      Self::PendingException => napi_status::napi_pending_exception,
-      Self::Cancelled => napi_status::napi_cancelled,
-      Self::EscapeCalledTwice => napi_status::napi_escape_called_twice,
-      Self::HandleScopeMismatch => napi_status::napi_handle_scope_mismatch,
-      Self::CallbackScopeMismatch => napi_status::napi_callback_scope_mismatch,
-      #[cfg(feature = "napi4")]
-      Self::QueueFull => napi_status::napi_queue_full,
-      #[cfg(feature = "napi4")]
-      Self::Closing => napi_status::napi_closing,
-      #[cfg(feature = "napi6")]
-      Self::BigintExpected => napi_status::napi_bigint_expected,
-      Self::Unknown => napi_status::napi_generic_failure,
+impl From<i32> for Status {
+  fn from(code: i32) -> Self {
+    match code {
+      sys::Status::napi_ok => Status::Ok,
+      sys::Status::napi_invalid_arg => Status::InvalidArg,
+      sys::Status::napi_object_expected => Status::ObjectExpected,
+      sys::Status::napi_string_expected => Status::StringExpected,
+      sys::Status::napi_name_expected => Status::NameExpected,
+      sys::Status::napi_function_expected => Status::FunctionExpected,
+      sys::Status::napi_number_expected => Status::NumberExpected,
+      sys::Status::napi_boolean_expected => Status::BooleanExpected,
+      sys::Status::napi_array_expected => Status::ArrayExpected,
+      sys::Status::napi_generic_failure => Status::GenericFailure,
+      sys::Status::napi_pending_exception => Status::PendingException,
+      sys::Status::napi_cancelled => Status::Cancelled,
+      sys::Status::napi_escape_called_twice => Status::EscapeCalledTwice,
+      sys::Status::napi_handle_scope_mismatch => Status::HandleScopeMismatch,
+      sys::Status::napi_callback_scope_mismatch => Status::CallbackScopeMismatch,
+      sys::Status::napi_queue_full => Status::QueueFull,
+      sys::Status::napi_closing => Status::Closing,
+      sys::Status::napi_bigint_expected => Status::BigintExpected,
+      sys::Status::napi_date_expected => Status::DateExpected,
+      sys::Status::napi_arraybuffer_expected => Status::ArrayBufferExpected,
+      sys::Status::napi_detachable_arraybuffer_expected => Status::DetachableArraybufferExpected,
+      sys::Status::napi_would_deadlock => Status::WouldDeadlock,
+      _ => Status::Unknown,
     }
   }
 }

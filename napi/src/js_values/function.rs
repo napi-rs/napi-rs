@@ -34,7 +34,7 @@ impl JsFunction {
           .map(|u| u.raw())
       })
       .ok_or(Error::new(
-        Status::Unknown,
+        Status::GenericFailure,
         "Get raw this failed".to_owned(),
       ))?;
     let raw_args = args

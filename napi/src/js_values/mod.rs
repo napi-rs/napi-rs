@@ -76,9 +76,9 @@ pub struct JsExternal(pub(crate) Value);
 #[inline]
 pub(crate) fn type_of(env: sys::napi_env, raw_value: sys::napi_value) -> Result<ValueType> {
   unsafe {
-    let mut value_type = sys::napi_valuetype::napi_undefined;
+    let mut value_type = 0;
     check_status(sys::napi_typeof(env, raw_value, &mut value_type))?;
-    Ok(ValueType::from(value_type))
+    ValueType::try_from(value_type).or_else(|_| Ok(ValueType::Unknown))
   }
 }
 
