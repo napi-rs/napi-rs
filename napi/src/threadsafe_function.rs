@@ -7,7 +7,6 @@ use crate::error::check_status;
 use crate::{sys, Env, JsFunction, NapiValue, Result};
 
 use sys::napi_threadsafe_function_call_mode;
-use sys::napi_threadsafe_function_release_mode;
 
 pub struct ThreadSafeCallContext<T: 'static> {
   pub env: Env,
@@ -20,12 +19,6 @@ pub enum ThreadsafeFunctionCallMode {
   Blocking,
 }
 
-#[repr(u8)]
-pub enum ThreadsafeFunctionReleaseMode {
-  Release,
-  Abort,
-}
-
 impl Into<napi_threadsafe_function_call_mode> for ThreadsafeFunctionCallMode {
   fn into(self) -> napi_threadsafe_function_call_mode {
     match self {
@@ -34,19 +27,6 @@ impl Into<napi_threadsafe_function_call_mode> for ThreadsafeFunctionCallMode {
       }
       ThreadsafeFunctionCallMode::NonBlocking => {
         napi_threadsafe_function_call_mode::napi_tsfn_nonblocking
-      }
-    }
-  }
-}
-
-impl Into<napi_threadsafe_function_release_mode> for ThreadsafeFunctionReleaseMode {
-  fn into(self) -> napi_threadsafe_function_release_mode {
-    match self {
-      ThreadsafeFunctionReleaseMode::Release => {
-        napi_threadsafe_function_release_mode::napi_tsfn_release
-      }
-      ThreadsafeFunctionReleaseMode::Abort => {
-        napi_threadsafe_function_release_mode::napi_tsfn_abort
       }
     }
   }
@@ -271,5 +251,5 @@ unsafe extern "C" fn call_js_cb<T: 'static, V: NapiValue>(
       );
     }
   }
-  debug_assert!(status == sys::napi_status::napi_ok, "CallJsCB failed");
+  debug_assert!(status == sys::Status::napi_ok, "CallJsCB failed");
 }

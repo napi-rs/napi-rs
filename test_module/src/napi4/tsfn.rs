@@ -45,7 +45,7 @@ pub fn test_tsfn_error(ctx: CallContext) -> Result<JsUndefined> {
     })?;
   thread::spawn(move || {
     tsfn.call(
-      Err(Error::new(Status::Unknown, "invalid".to_owned())),
+      Err(Error::new(Status::GenericFailure, "invalid".to_owned())),
       ThreadsafeFunctionCallMode::Blocking,
     );
     tsfn.release(ThreadsafeFunctionReleaseMode::Release);
@@ -57,7 +57,7 @@ pub fn test_tsfn_error(ctx: CallContext) -> Result<JsUndefined> {
 async fn read_file_content(filepath: &Path) -> Result<Vec<u8>> {
   tokio::fs::read(filepath)
     .await
-    .map_err(|e| Error::new(Status::Unknown, format!("{}", e)))
+    .map_err(|e| Error::new(Status::GenericFailure, format!("{}", e)))
 }
 
 #[js_function(2)]

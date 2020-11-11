@@ -1,8 +1,8 @@
-use std::convert::TryInto;
+use std::fmt::{Display, Formatter, Result};
 
-use crate::{sys, Error, Result, Status};
+use crate::sys;
 
-#[repr(u8)]
+#[repr(i32)]
 #[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Ord, Eq, Hash)]
 pub enum ValueType {
   Undefined = 0,
@@ -16,44 +16,31 @@ pub enum ValueType {
   External = 8,
   #[cfg(feature = "napi6")]
   Bigint = 9,
-  Unknown = 255,
+  Unknown = 1024,
 }
 
-impl TryInto<sys::napi_valuetype> for ValueType {
-  type Error = Error;
-
-  fn try_into(self) -> Result<sys::napi_valuetype> {
-    match self {
-      ValueType::Unknown => Err(Error::from_status(Status::Unknown)),
-      #[cfg(feature = "napi6")]
-      ValueType::Bigint => Ok(sys::napi_valuetype::napi_bigint),
-      ValueType::Boolean => Ok(sys::napi_valuetype::napi_boolean),
-      ValueType::External => Ok(sys::napi_valuetype::napi_external),
-      ValueType::Function => Ok(sys::napi_valuetype::napi_function),
-      ValueType::Null => Ok(sys::napi_valuetype::napi_null),
-      ValueType::Number => Ok(sys::napi_valuetype::napi_number),
-      ValueType::Object => Ok(sys::napi_valuetype::napi_object),
-      ValueType::String => Ok(sys::napi_valuetype::napi_string),
-      ValueType::Symbol => Ok(sys::napi_valuetype::napi_symbol),
-      ValueType::Undefined => Ok(sys::napi_valuetype::napi_undefined),
-    }
+impl Display for ValueType {
+  fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+    let status_string = format!("{:?}", self);
+    write!(f, "{}", status_string)
   }
 }
 
-impl From<sys::napi_valuetype> for ValueType {
-  fn from(value: sys::napi_valuetype) -> Self {
+impl From<i32> for ValueType {
+  fn from(value: i32) -> ValueType {
     match value {
       #[cfg(feature = "napi6")]
-      sys::napi_valuetype::napi_bigint => ValueType::Bigint,
-      sys::napi_valuetype::napi_boolean => ValueType::Boolean,
-      sys::napi_valuetype::napi_external => ValueType::External,
-      sys::napi_valuetype::napi_function => ValueType::Function,
-      sys::napi_valuetype::napi_null => ValueType::Null,
-      sys::napi_valuetype::napi_number => ValueType::Number,
-      sys::napi_valuetype::napi_object => ValueType::Object,
-      sys::napi_valuetype::napi_string => ValueType::String,
-      sys::napi_valuetype::napi_symbol => ValueType::Symbol,
-      sys::napi_valuetype::napi_undefined => ValueType::Undefined,
+      sys::ValueType::napi_bigint => ValueType::Bigint,
+      sys::ValueType::napi_boolean => ValueType::Boolean,
+      sys::ValueType::napi_external => ValueType::External,
+      sys::ValueType::napi_function => ValueType::Function,
+      sys::ValueType::napi_null => ValueType::Null,
+      sys::ValueType::napi_number => ValueType::Number,
+      sys::ValueType::napi_object => ValueType::Object,
+      sys::ValueType::napi_string => ValueType::String,
+      sys::ValueType::napi_symbol => ValueType::Symbol,
+      sys::ValueType::napi_undefined => ValueType::Undefined,
+      _ => ValueType::Unknown,
     }
   }
 }

@@ -107,16 +107,16 @@ unsafe extern "C" fn complete<T: Task>(
   match check_status(status).and_then(move |_| value) {
     Ok(v) => {
       let status = sys::napi_resolve_deferred(env, deferred, v.raw());
-      debug_assert!(status == sys::napi_status::napi_ok, "Reject promise failed");
+      debug_assert!(status == sys::Status::napi_ok, "Reject promise failed");
     }
     Err(e) => {
       let status = sys::napi_reject_deferred(env, deferred, e.into_raw(env));
-      debug_assert!(status == sys::napi_status::napi_ok, "Reject promise failed");
+      debug_assert!(status == sys::Status::napi_ok, "Reject promise failed");
     }
   };
   let delete_status = sys::napi_delete_async_work(env, napi_async_work);
   debug_assert!(
-    delete_status == sys::napi_status::napi_ok,
+    delete_status == sys::Status::napi_ok,
     "Delete async work failed"
   );
 }
