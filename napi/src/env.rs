@@ -597,7 +597,7 @@ impl Env {
     R: 'static + Send + FnMut(ThreadSafeCallContext<T>) -> Result<Vec<V>>,
   >(
     &self,
-    func: JsFunction,
+    func: &JsFunction,
     max_queue_size: usize,
     callback: R,
   ) -> Result<ThreadsafeFunction<T>> {

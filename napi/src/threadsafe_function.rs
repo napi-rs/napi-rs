@@ -2,12 +2,16 @@ use std::convert::Into;
 use std::marker::PhantomData;
 use std::os::raw::{c_char, c_void};
 use std::ptr;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use crate::error::check_status;
-use crate::{sys, Env, JsFunction, NapiValue, Result};
+use crate::{sys, Env, Error, JsFunction, NapiValue, Result, Status};
 
 use sys::napi_threadsafe_function_call_mode;
 
+/// ThreadSafeFunction Context object
+/// the `value` is the value passed to `call` method
 pub struct ThreadSafeCallContext<T: 'static> {
   pub env: Env,
   pub value: T,
@@ -44,40 +48,38 @@ impl Into<napi_threadsafe_function_call_mode> for ThreadsafeFunctionCallMode {
 /// use std::thread;
 ///
 /// use napi::{
-///   threadsafe_function::{
-///     ThreadSafeCallContext, ThreadsafeFunctionCallMode, ThreadsafeFunctionReleaseMode,
-///   },
-///   CallContext, Error, JsFunction, JsNumber, JsUndefined, Result, Status,
+///     threadsafe_function::{
+///         ThreadSafeCallContext, ThreadsafeFunctionCallMode, ThreadsafeFunctionReleaseMode,
+///     },
+///     CallContext, Error, JsFunction, JsNumber, JsUndefined, Result, Status,
 /// };
 
 /// #[js_function(1)]
 /// pub fn test_threadsafe_function(ctx: CallContext) -> Result<JsUndefined> {
-///   let func = ctx.get::<JsFunction>(0)?;
+///     let func = ctx.get::<JsFunction>(0)?;
 
-///   let tsfn =
-///     ctx
-///       .env
-///       .create_threadsafe_function(func, 0, |ctx: ThreadSafeCallContext<Vec<u32>>| {
-///         ctx
-///           .value
-///           .iter()
-///           .map(|v| ctx.env.create_uint32(*v))
-///           .collect::<Result<Vec<JsNumber>>>()
-///       })?;
+///     let tsfn = ctx.env
+///         .create_threadsafe_function(func, 0, |ctx: ThreadSafeCallContext<Vec<u32>>| {
+///             ctx.value
+///                 .iter()
+///                 .map(|v| ctx.env.create_uint32(*v))]
+///                 .collect::<Result<Vec<JsNumber>>>()
+///         })?;
 
-///   thread::spawn(move || {
-///     let output: Vec<u32> = vec![42, 1, 2, 3];
-///     /// It's okay to call a threadsafe function multiple times.
-///     tsfn.call(Ok(output.clone()), ThreadsafeFunctionCallMode::Blocking);
-///     tsfn.call(Ok(output.clone()), ThreadsafeFunctionCallMode::NonBlocking);
-///     tsfn.release(ThreadsafeFunctionReleaseMode::Release);
-///   });
+///     thread::spawn(move || {
+///         let output: Vec<u32> = vec![42, 1, 2, 3];
+///         // It's okay to call a threadsafe function multiple times.
+///         tsfn.call(Ok(output.clone()), ThreadsafeFunctionCallMode::Blocking);
+///         tsfn.call(Ok(output.clone()), ThreadsafeFunctionCallMode::NonBlocking);
+///         tsfn.release(ThreadsafeFunctionReleaseMode::Release);
+///     });
 
-///   ctx.env.get_undefined()
+///     ctx.env.get_undefined()
 /// }
 /// ```
 pub struct ThreadsafeFunction<T: 'static> {
   raw_tsfn: sys::napi_threadsafe_function,
+  aborted: Arc<AtomicBool>,
   _phantom: PhantomData<T>,
 }
 
@@ -98,7 +100,7 @@ impl<T: 'static> ThreadsafeFunction<T> {
     R: 'static + Send + FnMut(ThreadSafeCallContext<T>) -> Result<Vec<V>>,
   >(
     env: sys::napi_env,
-    func: JsFunction,
+    func: &JsFunction,
     max_queue_size: usize,
     callback: R,
   ) -> Result<Self> {
@@ -135,58 +137,91 @@ impl<T: 'static> ThreadsafeFunction<T> {
 
     Ok(ThreadsafeFunction {
       raw_tsfn,
+      aborted: Arc::new(AtomicBool::new(false)),
       _phantom: PhantomData,
     })
   }
 
   /// See [napi_call_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_call_threadsafe_function)
   /// for more information.
-  pub fn call(&self, value: Result<T>, mode: ThreadsafeFunctionCallMode) {
-    let status = unsafe {
+  pub fn call(&self, value: Result<T>, mode: ThreadsafeFunctionCallMode) -> Status {
+    if self.aborted.load(Ordering::Acquire) {
+      return Status::Closing;
+    }
+    unsafe {
       sys::napi_call_threadsafe_function(
         self.raw_tsfn,
         Box::into_raw(Box::new(value)) as *mut _,
         mode.into(),
       )
-    };
-    debug_assert!(
-      status == sys::napi_status::napi_ok,
-      "Threadsafe Function call failed"
-    );
-  }
-
-  /// See [napi_acquire_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_acquire_threadsafe_function)
-  /// for more information.
-  pub fn acquire(&self) {
-    let status = unsafe { sys::napi_acquire_threadsafe_function(self.raw_tsfn) };
-    debug_assert!(
-      status == sys::napi_status::napi_ok,
-      "Threadsafe Function acquire failed"
-    );
-  }
-
-  /// See [napi_release_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_release_threadsafe_function)
-  /// for more information.
-  pub fn release(self, mode: ThreadsafeFunctionReleaseMode) {
-    let status = unsafe { sys::napi_release_threadsafe_function(self.raw_tsfn, mode.into()) };
-    debug_assert!(
-      status == sys::napi_status::napi_ok,
-      "Threadsafe Function call failed"
-    );
+    }
+    .into()
   }
 
   /// See [napi_ref_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_ref_threadsafe_function)
   /// for more information.
   ///
   /// "ref" is a keyword so that we use "refer" here.
-  pub fn refer(&self, env: &Env) -> Result<()> {
+  pub fn refer(&mut self, env: &Env) -> Result<()> {
     check_status(unsafe { sys::napi_ref_threadsafe_function(env.0, self.raw_tsfn) })
   }
 
   /// See [napi_unref_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_unref_threadsafe_function)
   /// for more information.
-  pub fn unref(&self, env: &Env) -> Result<()> {
+  pub fn unref(&mut self, env: &Env) -> Result<()> {
     check_status(unsafe { sys::napi_unref_threadsafe_function(env.0, self.raw_tsfn) })
+  }
+
+  pub fn aborted(&self) -> bool {
+    self.aborted.load(Ordering::Acquire)
+  }
+
+  pub fn abort(self) -> Result<()> {
+    check_status(unsafe {
+      sys::napi_release_threadsafe_function(
+        self.raw_tsfn,
+        sys::napi_threadsafe_function_release_mode::napi_tsfn_abort,
+      )
+    })?;
+    self.aborted.store(true, Ordering::Release);
+    Ok(())
+  }
+
+  pub fn try_clone(&self) -> Result<Self> {
+    if self.aborted.load(Ordering::Acquire) {
+      return Err(Error::new(
+        Status::Closing,
+        format!("Thread safe function already aborted"),
+      ));
+    }
+    check_status(unsafe { sys::napi_acquire_threadsafe_function(self.raw_tsfn) })?;
+    Ok(Self {
+      raw_tsfn: self.raw_tsfn,
+      aborted: Arc::clone(&self.aborted),
+      _phantom: PhantomData,
+    })
+  }
+
+  /// Get the raw `ThreadSafeFunction` pointer
+  pub fn raw(&self) -> sys::napi_threadsafe_function {
+    self.raw_tsfn
+  }
+}
+
+impl<T: 'static> Drop for ThreadsafeFunction<T> {
+  fn drop(&mut self) {
+    if !self.aborted.load(Ordering::Acquire) {
+      let release_status = unsafe {
+        sys::napi_release_threadsafe_function(
+          self.raw_tsfn,
+          sys::napi_threadsafe_function_release_mode::napi_tsfn_release,
+        )
+      };
+      assert!(
+        release_status == sys::Status::napi_ok,
+        "Threadsafe Function release failed"
+      );
+    }
   }
 }
 
