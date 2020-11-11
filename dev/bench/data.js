@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1605003083327,
+  "lastUpdate": 1605091238052,
   "repoUrl": "https://github.com/napi-rs/napi-rs",
   "entries": {
     "Benchmark": [
@@ -3665,6 +3665,65 @@ window.BENCHMARK_DATA = {
             "range": "±2.22%",
             "unit": "ops/sec",
             "extra": "78 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "lynweklm@gmail.com",
+            "name": "LongYinan",
+            "username": "Brooooooklyn"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "eb5d1439afd539c58fc93e7fc1c8b32902edb250",
+          "message": "Merge pull request #295 from napi-rs/tsfn\n\nfeat(napi): impl Clone and Drop for ThreadSafeFunction, return Status  from ThreadSafeFunction::call",
+          "timestamp": "2020-11-11T18:38:59+08:00",
+          "tree_id": "82434cf2a3973b86b8784448a09024ee28d1196d",
+          "url": "https://github.com/napi-rs/napi-rs/commit/eb5d1439afd539c58fc93e7fc1c8b32902edb250"
+        },
+        "date": 1605091236618,
+        "tool": "benchmarkjs",
+        "benches": [
+          {
+            "name": "noop#napi-rs",
+            "value": 55128246,
+            "range": "±1.69%",
+            "unit": "ops/sec",
+            "extra": "84 samples"
+          },
+          {
+            "name": "noop#JavaScript",
+            "value": 710097636,
+            "range": "±1.63%",
+            "unit": "ops/sec",
+            "extra": "87 samples"
+          },
+          {
+            "name": "Plus number#napi-rs",
+            "value": 13121913,
+            "range": "±1.72%",
+            "unit": "ops/sec",
+            "extra": "85 samples"
+          },
+          {
+            "name": "Plus number#JavaScript",
+            "value": 674976559,
+            "range": "±1.89%",
+            "unit": "ops/sec",
+            "extra": "84 samples"
+          },
+          {
+            "name": "Async task#napi-rs",
+            "value": 26258,
+            "range": "±4.38%",
+            "unit": "ops/sec",
+            "extra": "76 samples"
           }
         ]
       }
