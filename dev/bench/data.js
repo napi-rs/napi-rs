@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1605091238052,
+  "lastUpdate": 1605150320638,
   "repoUrl": "https://github.com/napi-rs/napi-rs",
   "entries": {
     "Benchmark": [
@@ -3724,6 +3724,65 @@ window.BENCHMARK_DATA = {
             "range": "±4.38%",
             "unit": "ops/sec",
             "extra": "76 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "lynweklm@gmail.com",
+            "name": "LongYinan",
+            "username": "Brooooooklyn"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4e8a58f9d333d04ac277cfc275d1069b9bc08fa5",
+          "message": "Merge pull request #296 from napi-rs/tsfn\n\nfeat(napi): add abort guard in tsfn methods",
+          "timestamp": "2020-11-12T11:03:23+08:00",
+          "tree_id": "ee401819784608454ee2c155e98c967dbf8db982",
+          "url": "https://github.com/napi-rs/napi-rs/commit/4e8a58f9d333d04ac277cfc275d1069b9bc08fa5"
+        },
+        "date": 1605150319708,
+        "tool": "benchmarkjs",
+        "benches": [
+          {
+            "name": "noop#napi-rs",
+            "value": 41530510,
+            "range": "±1.31%",
+            "unit": "ops/sec",
+            "extra": "90 samples"
+          },
+          {
+            "name": "noop#JavaScript",
+            "value": 701022386,
+            "range": "±0.52%",
+            "unit": "ops/sec",
+            "extra": "92 samples"
+          },
+          {
+            "name": "Plus number#napi-rs",
+            "value": 10693890,
+            "range": "±1.05%",
+            "unit": "ops/sec",
+            "extra": "90 samples"
+          },
+          {
+            "name": "Plus number#JavaScript",
+            "value": 698196005,
+            "range": "±0.54%",
+            "unit": "ops/sec",
+            "extra": "94 samples"
+          },
+          {
+            "name": "Async task#napi-rs",
+            "value": 20632,
+            "range": "±3.66%",
+            "unit": "ops/sec",
+            "extra": "74 samples"
           }
         ]
       }
