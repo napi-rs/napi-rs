@@ -163,12 +163,24 @@ impl<T: 'static> ThreadsafeFunction<T> {
   ///
   /// "ref" is a keyword so that we use "refer" here.
   pub fn refer(&mut self, env: &Env) -> Result<()> {
+    if self.aborted.load(Ordering::Acquire) {
+      return Err(Error::new(
+        Status::Closing,
+        format!("Can not ref, Thread safe function already aborted"),
+      ));
+    }
     check_status(unsafe { sys::napi_ref_threadsafe_function(env.0, self.raw_tsfn) })
   }
 
   /// See [napi_unref_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_unref_threadsafe_function)
   /// for more information.
   pub fn unref(&mut self, env: &Env) -> Result<()> {
+    if self.aborted.load(Ordering::Acquire) {
+      return Err(Error::new(
+        Status::Closing,
+        format!("Can not unref, Thread safe function already aborted"),
+      ));
+    }
     check_status(unsafe { sys::napi_unref_threadsafe_function(env.0, self.raw_tsfn) })
   }
 
@@ -191,7 +203,7 @@ impl<T: 'static> ThreadsafeFunction<T> {
     if self.aborted.load(Ordering::Acquire) {
       return Err(Error::new(
         Status::Closing,
-        format!("Thread safe function already aborted"),
+        format!("Can not clone, Thread safe function already aborted"),
       ));
     }
     check_status(unsafe { sys::napi_acquire_threadsafe_function(self.raw_tsfn) })?;
