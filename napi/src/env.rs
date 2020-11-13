@@ -344,13 +344,15 @@ impl Env {
 
   pub fn create_function(&self, name: &str, callback: Callback) -> Result<JsFunction> {
     let mut raw_result = ptr::null_mut();
+    let name = CString::new(name.to_owned())?;
+    let len = name.as_bytes().len();
     check_status(unsafe {
       sys::napi_create_function(
         self.0,
-        name.as_ptr() as *const c_char,
-        name.len() as _,
+        name.into_raw(),
+        len,
         Some(callback),
-        callback as *mut c_void,
+        ptr::null_mut(),
         &mut raw_result,
       )
     })?;
