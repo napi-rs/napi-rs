@@ -257,7 +257,7 @@ macro_rules! impl_object_methods {
       where
         T: NapiValue,
       {
-        let key = CString::new(name)?;
+        let key = CString::new(name.to_owned())?;
         check_status(unsafe {
           sys::napi_set_named_property(self.0.env, self.0.value, key.as_ptr(), value.raw())
         })
