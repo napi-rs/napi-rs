@@ -344,7 +344,7 @@ impl Env {
 
   pub fn create_function(&self, name: &str, callback: Callback) -> Result<JsFunction> {
     let mut raw_result = ptr::null_mut();
-    let name = CString::new(name.to_owned())?;
+    let name = CString::new(name)?;
     let len = name.as_bytes().len();
     check_status(unsafe {
       sys::napi_create_function(

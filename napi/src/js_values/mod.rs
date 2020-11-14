@@ -269,7 +269,7 @@ macro_rules! impl_object_methods {
         let key = CString::new(name)?;
         let mut raw_value = ptr::null_mut();
         check_status(unsafe {
-          sys::napi_get_named_property(self.0.env, self.0.value, key.as_ptr(), &mut raw_value)
+          sys::napi_get_named_property(self.0.env, self.0.value, key.into_raw(), &mut raw_value)
         })?;
         T::from_raw(self.0.env, raw_value)
       }
