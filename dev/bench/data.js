@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1605325641162,
+  "lastUpdate": 1605453869013,
   "repoUrl": "https://github.com/napi-rs/napi-rs",
   "entries": {
     "Benchmark": [
@@ -3960,6 +3960,65 @@ window.BENCHMARK_DATA = {
             "range": "±2.02%",
             "unit": "ops/sec",
             "extra": "78 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "lynweklm@gmail.com",
+            "name": "LongYinan",
+            "username": "Brooooooklyn"
+          },
+          "committer": {
+            "email": "lynweklm@gmail.com",
+            "name": "LongYinan",
+            "username": "Brooooooklyn"
+          },
+          "distinct": true,
+          "id": "e4f005c7350beb5faf1c4a42d8c9d01b69f3d3d6",
+          "message": "fix(napi): memory leak with CString",
+          "timestamp": "2020-11-15T23:22:29+08:00",
+          "tree_id": "64fc8508cd6d1e7fff09531462060a11bc3e49eb",
+          "url": "https://github.com/napi-rs/napi-rs/commit/e4f005c7350beb5faf1c4a42d8c9d01b69f3d3d6"
+        },
+        "date": 1605453868156,
+        "tool": "benchmarkjs",
+        "benches": [
+          {
+            "name": "noop#napi-rs",
+            "value": 44306385,
+            "range": "±0.61%",
+            "unit": "ops/sec",
+            "extra": "93 samples"
+          },
+          {
+            "name": "noop#JavaScript",
+            "value": 565572050,
+            "range": "±0.24%",
+            "unit": "ops/sec",
+            "extra": "93 samples"
+          },
+          {
+            "name": "Plus number#napi-rs",
+            "value": 11012379,
+            "range": "±0.14%",
+            "unit": "ops/sec",
+            "extra": "97 samples"
+          },
+          {
+            "name": "Plus number#JavaScript",
+            "value": 566590866,
+            "range": "±0.18%",
+            "unit": "ops/sec",
+            "extra": "96 samples"
+          },
+          {
+            "name": "Async task#napi-rs",
+            "value": 25667,
+            "range": "±2.47%",
+            "unit": "ops/sec",
+            "extra": "81 samples"
           }
         ]
       }
