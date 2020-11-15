@@ -349,7 +349,7 @@ impl Env {
     check_status(unsafe {
       sys::napi_create_function(
         self.0,
-        name.into_raw(),
+        name.as_ptr(),
         len,
         Some(callback),
         ptr::null_mut(),
