@@ -368,11 +368,7 @@ impl Env {
 
   pub fn throw_error(&self, msg: &str) -> Result<()> {
     check_status(unsafe {
-      sys::napi_throw_error(
-        self.0,
-        ptr::null(),
-        CString::from_vec_unchecked(msg.into()).as_ptr() as *const _,
-      )
+      sys::napi_throw_error(self.0, ptr::null(), CString::new(msg)?.into_raw())
     })
   }
 

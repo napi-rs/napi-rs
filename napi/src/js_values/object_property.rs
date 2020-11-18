@@ -37,7 +37,7 @@ impl<'env> Property<'env> {
     let string_value = CString::new(name)?;
     let mut result = ptr::null_mut();
     check_status(unsafe {
-      sys::napi_create_string_utf8(env.0, string_value.as_ptr(), name.len() as _, &mut result)
+      sys::napi_create_string_utf8(env.0, string_value.as_ptr(), name.len(), &mut result)
     })?;
     Ok(Property {
       name,

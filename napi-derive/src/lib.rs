@@ -204,7 +204,7 @@ fn get_execute_js_code(
       Err(e) => {
         let message = format!("{}", e);
         unsafe {
-          napi::sys::napi_throw_error(raw_env, ptr::null(), CString::from_vec_unchecked(message.into()).as_ptr() as *const c_char);
+          napi::sys::napi_throw_error(raw_env, ptr::null(), CString::from_vec_unchecked(message.into()).into_raw());
         }
         ptr::null_mut()
       }

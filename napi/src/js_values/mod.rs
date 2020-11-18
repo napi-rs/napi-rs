@@ -257,7 +257,7 @@ macro_rules! impl_object_methods {
       where
         T: NapiValue,
       {
-        let key = CString::new(name.to_owned())?;
+        let key = CString::new(name)?;
         check_status(unsafe {
           sys::napi_set_named_property(self.0.env, self.0.value, key.as_ptr(), value.raw())
         })
@@ -273,12 +273,9 @@ macro_rules! impl_object_methods {
         })?;
         T::from_raw(self.0.env, raw_value)
       }
-      pub fn has_named_property<S>(&self, name: S) -> Result<bool>
-      where
-        S: AsRef<str>,
-      {
+      pub fn has_named_property(&self, name: &str) -> Result<bool> {
         let mut result = false;
-        let key = CString::new(name.as_ref())?;
+        let key = CString::new(name)?;
         check_status(unsafe {
           sys::napi_has_named_property(self.0.env, self.0.value, key.as_ptr(), &mut result)
         })?;
@@ -299,7 +296,7 @@ macro_rules! impl_object_methods {
         let key_str = CString::new(name)?;
         let mut js_key = ptr::null_mut();
         check_status(unsafe {
-          sys::napi_create_string_utf8(self.0.env, key_str.as_ptr(), name.len() as _, &mut js_key)
+          sys::napi_create_string_utf8(self.0.env, key_str.as_ptr(), name.len(), &mut js_key)
         })?;
         check_status(unsafe {
           sys::napi_delete_property(self.0.env, self.0.value, js_key, &mut result)
@@ -311,7 +308,7 @@ macro_rules! impl_object_methods {
         let string = CString::new(key)?;
         let mut js_key = ptr::null_mut();
         check_status(unsafe {
-          sys::napi_create_string_utf8(self.0.env, string.as_ptr(), key.len() as _, &mut js_key)
+          sys::napi_create_string_utf8(self.0.env, string.as_ptr(), key.len(), &mut js_key)
         })?;
         check_status(unsafe {
           sys::napi_has_own_property(self.0.env, self.0.value, js_key, &mut result)
