@@ -62,9 +62,7 @@ jobs:
             npm-cache-
 
       - name: Install cross compile toolchain
-        run: |
-          sudo apt-get update
-          sudo apt-get install gcc-aarch64-linux-gnu g++-6-aarch64-linux-gnu -y
+        run: sudo apt-get install gcc-aarch64-linux-gnu g++-6-aarch64-linux-gnu -y
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile --registry https://registry.npmjs.org
