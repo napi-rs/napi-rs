@@ -20,7 +20,7 @@ jobs:
         run: |
           wget https://nodejs.org/dist/v10.2.0/node-v10.2.0-linux-x64.tar.xz
           tar xf node-v10.2.0-linux-x64.tar.xz
-          echo "::add-path::$(pwd)/node-v10.2.0-linux-x64/bin"
+          echo "$(pwd)/node-v10.2.0-linux-x64/bin" >> $GITHUB_PATH
 
       - name: Install stable
         uses: actions-rs/toolchain@v1
