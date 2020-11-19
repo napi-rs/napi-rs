@@ -19,7 +19,7 @@ impl JsGlobal {
         None,
         &[
           handler.into_unknown(),
-          Env::from_raw(self.0.env)
+          unsafe { Env::from_raw(self.0.env) }
             .create_double(interval)?
             .into_unknown(),
         ],
@@ -41,7 +41,7 @@ impl JsGlobal {
         None,
         &[
           handler.into_unknown(),
-          Env::from_raw(self.0.env)
+          unsafe { Env::from_raw(self.0.env) }
             .create_double(interval)?
             .into_unknown(),
         ],

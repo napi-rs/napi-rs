@@ -19,7 +19,7 @@ fn create_test_class(ctx: CallContext) -> Result<JsFunction> {
 #[js_function(1)]
 fn test_class_constructor(ctx: CallContext) -> Result<JsUndefined> {
   let count: i32 = ctx.get::<JsNumber>(0)?.try_into()?;
-  let mut this: JsObject = ctx.this_unchecked();
+  let mut this: JsObject = unsafe { ctx.this_unchecked() };
   ctx
     .env
     .wrap(&mut this, NativeClass { value: count + 100 })?;
@@ -30,7 +30,7 @@ fn test_class_constructor(ctx: CallContext) -> Result<JsUndefined> {
 #[js_function(1)]
 fn add_count(ctx: CallContext) -> Result<JsUndefined> {
   let add: i32 = ctx.get::<JsNumber>(0)?.try_into()?;
-  let mut this: JsObject = ctx.this_unchecked();
+  let mut this: JsObject = unsafe { ctx.this_unchecked() };
   let count: i32 = this.get_named_property::<JsNumber>("count")?.try_into()?;
   this.set_named_property("count", ctx.env.create_int32(count + add)?)?;
   ctx.env.get_undefined()
@@ -39,7 +39,7 @@ fn add_count(ctx: CallContext) -> Result<JsUndefined> {
 #[js_function(1)]
 fn add_native_count(ctx: CallContext) -> Result<JsNumber> {
   let add: i32 = ctx.get::<JsNumber>(0)?.try_into()?;
-  let this: JsObject = ctx.this_unchecked();
+  let this: JsObject = unsafe { ctx.this_unchecked() };
   let native_class: &mut NativeClass = ctx.env.unwrap(&this)?;
   native_class.value = native_class.value + add;
   ctx.env.create_int32(native_class.value)

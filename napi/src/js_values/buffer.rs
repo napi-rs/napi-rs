@@ -72,7 +72,7 @@ impl JsBufferValue {
   }
 
   pub fn into_unknown(self) -> JsUnknown {
-    JsUnknown::from_raw_unchecked(self.value.0.env, self.value.0.value)
+    unsafe { JsUnknown::from_raw_unchecked(self.value.0.env, self.value.0.value) }
   }
 }
 

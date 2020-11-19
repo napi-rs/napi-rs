@@ -29,7 +29,7 @@ impl JsBigint {
 
   #[inline]
   pub fn into_unknown(self) -> Result<JsUnknown> {
-    JsUnknown::from_raw(self.raw.env, self.raw.value)
+    unsafe { JsUnknown::from_raw(self.raw.env, self.raw.value) }
   }
 
   #[inline]
@@ -124,21 +124,19 @@ impl JsBigint {
 }
 
 impl NapiValue for JsBigint {
-  fn raw(&self) -> sys::napi_value {
+  unsafe fn raw(&self) -> sys::napi_value {
     self.raw.value
   }
 
-  fn from_raw(env: sys::napi_env, value: sys::napi_value) -> Result<Self> {
+  unsafe fn from_raw(env: sys::napi_env, value: sys::napi_value) -> Result<Self> {
     let mut word_count: u64 = 0;
-    check_status(unsafe {
-      sys::napi_get_value_bigint_words(
-        env,
-        value,
-        ptr::null_mut(),
-        &mut word_count as *mut u64 as *mut _,
-        ptr::null_mut(),
-      )
-    })?;
+    check_status(sys::napi_get_value_bigint_words(
+      env,
+      value,
+      ptr::null_mut(),
+      &mut word_count as *mut u64 as *mut _,
+      ptr::null_mut(),
+    ))?;
     Ok(JsBigint {
       raw: Value {
         env,
@@ -149,17 +147,15 @@ impl NapiValue for JsBigint {
     })
   }
 
-  fn from_raw_unchecked(env: sys::napi_env, value: sys::napi_value) -> Self {
+  unsafe fn from_raw_unchecked(env: sys::napi_env, value: sys::napi_value) -> Self {
     let mut word_count: u64 = 0;
-    let status = unsafe {
-      sys::napi_get_value_bigint_words(
-        env,
-        value,
-        ptr::null_mut(),
-        &mut word_count as *mut u64 as *mut _,
-        ptr::null_mut(),
-      )
-    };
+    let status = sys::napi_get_value_bigint_words(
+      env,
+      value,
+      ptr::null_mut(),
+      &mut word_count as *mut u64 as *mut _,
+      ptr::null_mut(),
+    );
     debug_assert!(
       Status::from(status) == Status::Ok,
       "napi_get_value_bigint_words failed"
