@@ -179,7 +179,7 @@ impl JsArrayBufferValue {
   }
 
   pub fn into_unknown(self) -> JsUnknown {
-    JsUnknown::from_raw_unchecked(self.value.0.env, self.value.0.value)
+    unsafe { JsUnknown::from_raw_unchecked(self.value.0.env, self.value.0.value) }
   }
 }
 
@@ -225,7 +225,7 @@ impl JsTypedArray {
       length: len,
       byte_offset,
       typedarray_type: typedarray_type.into(),
-      arraybuffer: JsArrayBuffer::from_raw_unchecked(self.0.env, arraybuffer_value),
+      arraybuffer: unsafe { JsArrayBuffer::from_raw_unchecked(self.0.env, arraybuffer_value) },
     })
   }
 }
@@ -248,7 +248,7 @@ impl JsDataView {
       )
     })?;
     Ok(JsDataViewValue {
-      arraybuffer: JsArrayBuffer::from_raw_unchecked(self.0.env, arraybuffer_value),
+      arraybuffer: unsafe { JsArrayBuffer::from_raw_unchecked(self.0.env, arraybuffer_value) },
       byte_offset,
       length,
       data,

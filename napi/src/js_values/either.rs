@@ -16,17 +16,17 @@ impl<T: NapiValue> Into<Option<T>> for Either<T, JsUndefined> {
 }
 
 impl<A: NapiValue, B: NapiValue> NapiValue for Either<A, B> {
-  fn from_raw(env: sys::napi_env, value: sys::napi_value) -> Result<Either<A, B>> {
+  unsafe fn from_raw(env: sys::napi_env, value: sys::napi_value) -> Result<Either<A, B>> {
     A::from_raw(env, value)
       .map(Self::A)
       .or_else(|_| B::from_raw(env, value).map(Self::B))
   }
 
-  fn from_raw_unchecked(env: sys::napi_env, value: sys::napi_value) -> Either<A, B> {
+  unsafe fn from_raw_unchecked(env: sys::napi_env, value: sys::napi_value) -> Either<A, B> {
     Self::from_raw(env, value).unwrap()
   }
 
-  fn raw(&self) -> sys::napi_value {
+  unsafe fn raw(&self) -> sys::napi_value {
     match self {
       Either::A(v) => v.raw(),
       Either::B(v) => v.raw(),

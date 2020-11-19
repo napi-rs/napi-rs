@@ -23,7 +23,7 @@ pub struct AsyncWorkPromise<'env> {
 impl<'env> AsyncWorkPromise<'env> {
   #[inline(always)]
   pub fn promise_object(&self) -> JsObject {
-    JsObject::from_raw_unchecked(self.env.0, self.raw_promise)
+    unsafe { JsObject::from_raw_unchecked(self.env.0, self.raw_promise) }
   }
 
   pub fn cancel(self) -> Result<()> {

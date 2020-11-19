@@ -26,12 +26,12 @@ impl JsFunction {
   /// [napi_call_function](https://nodejs.org/api/n-api.html#n_api_napi_call_function)
   pub fn call(&self, this: Option<&JsObject>, args: &[JsUnknown]) -> Result<JsUnknown> {
     let raw_this = this
-      .map(|v| v.raw())
+      .map(|v| unsafe { v.raw() })
       .or_else(|| {
-        Env::from_raw(self.0.env)
+        unsafe { Env::from_raw(self.0.env) }
           .get_undefined()
           .ok()
-          .map(|u| u.raw())
+          .map(|u| unsafe { u.raw() })
       })
       .ok_or(Error::new(
         Status::GenericFailure,
@@ -53,7 +53,7 @@ impl JsFunction {
       )
     })?;
 
-    JsUnknown::from_raw(self.0.env, return_value)
+    unsafe { JsUnknown::from_raw(self.0.env, return_value) }
   }
 
   /// https://nodejs.org/api/n-api.html#n_api_napi_new_instance
@@ -66,7 +66,7 @@ impl JsFunction {
     let length = args.len();
     let raw_args = args
       .iter()
-      .map(|arg| arg.raw())
+      .map(|arg| unsafe { arg.raw() })
       .collect::<Vec<sys::napi_value>>();
     check_status(unsafe {
       sys::napi_new_instance(
@@ -77,6 +77,6 @@ impl JsFunction {
         &mut js_instance,
       )
     })?;
-    Ok(JsObject::from_raw_unchecked(self.0.env, js_instance))
+    Ok(unsafe { JsObject::from_raw_unchecked(self.0.env, js_instance) })
   }
 }
