@@ -40,7 +40,7 @@ impl<'env> CallContext<'env> {
         reason: "Arguments index out of range".to_owned(),
       })
     } else {
-      Ok(ArgType::from_raw_unchecked(self.env.0, self.args[index]))
+      Ok(unsafe { ArgType::from_raw_unchecked(self.env.0, self.args[index]) })
     }
   }
 
@@ -52,7 +52,7 @@ impl<'env> CallContext<'env> {
       })
     } else {
       if index < self.length {
-        ArgType::from_raw(self.env.0, self.args[index]).map(Either::A)
+        unsafe { ArgType::from_raw(self.env.0, self.args[index]) }.map(Either::A)
       } else {
         self.env.get_undefined().map(Either::B)
       }
@@ -65,16 +65,16 @@ impl<'env> CallContext<'env> {
   {
     let mut value = ptr::null_mut();
     check_status(unsafe { sys::napi_get_new_target(self.env.0, self.callback_info, &mut value) })?;
-    V::from_raw(self.env.0, value)
+    unsafe { V::from_raw(self.env.0, value) }
   }
 
   #[inline(always)]
   pub fn this<T: NapiValue>(&self) -> Result<T> {
-    T::from_raw(self.env.0, self.raw_this)
+    unsafe { T::from_raw(self.env.0, self.raw_this) }
   }
 
   #[inline(always)]
-  pub fn this_unchecked<T: NapiValue>(&self) -> T {
+  pub unsafe fn this_unchecked<T: NapiValue>(&self) -> T {
     T::from_raw_unchecked(self.env.0, self.raw_this)
   }
 }

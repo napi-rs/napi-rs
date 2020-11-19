@@ -118,7 +118,7 @@ pub fn js_function(attr: TokenStream, input: TokenStream) -> TokenStream {
         debug_assert!(Status::from(status) == Status::Ok, "napi_get_cb_info failed");
       }
 
-      let mut env = Env::from_raw(raw_env);
+      let mut env = unsafe { Env::from_raw(raw_env) };
       let ctx = CallContext::new(&mut env, cb_info, raw_this, &raw_args, #arg_len_span, argc as usize);
       #execute_js_function
     }
@@ -156,7 +156,7 @@ pub fn contextless_function(_attr: TokenStream, input: TokenStream) -> TokenStre
       use napi::{Env, NapiValue, Error, Status};
       let mut has_error = false;
 
-      let ctx = Env::from_raw(raw_env);
+      let ctx = unsafe { Env::from_raw(raw_env) };
       #execute_js_function
     }
   };
@@ -177,13 +177,13 @@ fn get_execute_js_code(
   let return_token_stream = match function_kind {
     FunctionKind::Contextless => {
       quote! {
-        Ok(Some(v)) => v.raw(),
+        Ok(Some(v)) => unsafe { v.raw() },
         Ok(None) => ptr::null_mut(),
       }
     }
     FunctionKind::JsFunction => {
       quote! {
-        Ok(v) => v.raw(),
+        Ok(v) => unsafe { v.raw() },
       }
     }
   };
@@ -204,7 +204,7 @@ fn get_execute_js_code(
       Err(e) => {
         let message = format!("{}", e);
         unsafe {
-          napi::sys::napi_throw_error(raw_env, ptr::null(), CString::from_vec_unchecked(message.into()).as_ptr() as *const c_char);
+          napi::sys::napi_throw_error(raw_env, ptr::null(), CString::from_vec_unchecked(message.into()).into_raw());
         }
         ptr::null_mut()
       }
