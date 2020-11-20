@@ -13,7 +13,7 @@ pub fn call_function(ctx: CallContext) -> Result<JsNull> {
 
 #[js_function(1)]
 pub fn call_function_with_this(ctx: CallContext) -> Result<JsNull> {
-  let js_this: JsObject = unsafe { ctx.this_unchecked() };
+  let js_this: JsObject = ctx.this_unchecked();
   let js_func = ctx.get::<JsFunction>(0)?;
 
   js_func.call(Some(&js_this), &[])?;

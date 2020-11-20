@@ -74,7 +74,7 @@ impl<'env> CallContext<'env> {
   }
 
   #[inline(always)]
-  pub unsafe fn this_unchecked<T: NapiValue>(&self) -> T {
-    T::from_raw_unchecked(self.env.0, self.raw_this)
+  pub fn this_unchecked<T: NapiValue>(&self) -> T {
+    unsafe { T::from_raw_unchecked(self.env.0, self.raw_this) }
   }
 }
