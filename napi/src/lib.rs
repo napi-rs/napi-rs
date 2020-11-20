@@ -188,7 +188,7 @@ macro_rules! register_module {
               raw_env,
               ptr::null(),
               CString::from_vec_unchecked(format!("Error initializing module: {}", e).into())
-                .into_raw() as *const _,
+                .as_ptr(),
             )
           };
           ptr::null_mut()
