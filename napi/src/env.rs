@@ -367,9 +367,7 @@ impl Env {
   }
 
   pub fn throw_error(&self, msg: &str) -> Result<()> {
-    check_status(unsafe {
-      sys::napi_throw_error(self.0, ptr::null(), CString::new(msg)?.into_raw())
-    })
+    check_status(unsafe { sys::napi_throw_error(self.0, ptr::null(), CString::new(msg)?.as_ptr()) })
   }
 
   pub fn define_class(
