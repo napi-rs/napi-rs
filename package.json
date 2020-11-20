@@ -95,6 +95,6 @@
     "sinon": "^9.2.1",
     "source-map-support": "^0.5.19",
     "ts-node": "^9.0.0",
-    "typescript": "^4.0.5"
+    "typescript": "^4.1.2"
   }
 }
