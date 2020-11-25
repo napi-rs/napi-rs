@@ -2,8 +2,8 @@ use std::convert::TryFrom;
 use std::ffi::CString;
 use std::ptr;
 
-use crate::error::check_status;
-use crate::{sys, Error, Result, Status};
+use crate::check_status;
+use crate::{sys, Callback, Error, Result, Status};
 
 #[cfg(feature = "serde-json")]
 mod de;
@@ -57,36 +57,33 @@ pub use value_ref::Ref;
 pub use value_type::ValueType;
 
 // Value types
-#[repr(transparent)]
-#[derive(Debug)]
+
 pub struct JsUnknown(pub(crate) Value);
 
-#[repr(transparent)]
-#[derive(Debug)]
 pub struct JsNull(pub(crate) Value);
 
-#[repr(transparent)]
-#[derive(Debug)]
 pub struct JsSymbol(pub(crate) Value);
 
-#[repr(transparent)]
-#[derive(Debug)]
 pub struct JsExternal(pub(crate) Value);
 
-#[inline]
-pub(crate) fn type_of(env: sys::napi_env, raw_value: sys::napi_value) -> Result<ValueType> {
-  unsafe {
+#[doc(hidden)]
+#[macro_export(local_inner_macros)]
+macro_rules! type_of {
+  ($env:expr, $value:expr) => {{
+    use std::convert::TryFrom;
+    use $crate::sys;
     let mut value_type = 0;
-    check_status(sys::napi_typeof(env, raw_value, &mut value_type))?;
-    ValueType::try_from(value_type).or_else(|_| Ok(ValueType::Unknown))
-  }
+    let status = sys::napi_typeof($env, $value, &mut value_type);
+    check_status!(status)
+      .and_then(|_| ValueType::try_from(value_type).or_else(|_| Ok(ValueType::Unknown)))
+  }};
 }
 
 macro_rules! impl_napi_value_trait {
   ($js_value:ident, $value_type:ident) => {
     impl NapiValue for $js_value {
       unsafe fn from_raw(env: sys::napi_env, value: sys::napi_value) -> Result<$js_value> {
-        let value_type = type_of(env, value)?;
+        let value_type = type_of!(env, value)?;
         if value_type != $value_type {
           Err(Error::new(
             Status::InvalidArg,
@@ -134,9 +131,9 @@ macro_rules! impl_js_value_methods {
       #[inline]
       pub fn coerce_to_number(self) -> Result<JsNumber> {
         let mut new_raw_value = ptr::null_mut();
-        let status =
-          unsafe { sys::napi_coerce_to_number(self.0.env, self.0.value, &mut new_raw_value) };
-        check_status(status)?;
+        check_status!(unsafe {
+          sys::napi_coerce_to_number(self.0.env, self.0.value, &mut new_raw_value)
+        })?;
         Ok(JsNumber(Value {
           env: self.0.env,
           value: new_raw_value,
@@ -147,9 +144,9 @@ macro_rules! impl_js_value_methods {
       #[inline]
       pub fn coerce_to_string(self) -> Result<JsString> {
         let mut new_raw_value = ptr::null_mut();
-        let status =
-          unsafe { sys::napi_coerce_to_string(self.0.env, self.0.value, &mut new_raw_value) };
-        check_status(status)?;
+        check_status!(unsafe {
+          sys::napi_coerce_to_string(self.0.env, self.0.value, &mut new_raw_value)
+        })?;
         Ok(JsString(Value {
           env: self.0.env,
           value: new_raw_value,
@@ -160,9 +157,9 @@ macro_rules! impl_js_value_methods {
       #[inline]
       pub fn coerce_to_object(self) -> Result<JsObject> {
         let mut new_raw_value = ptr::null_mut();
-        let status =
-          unsafe { sys::napi_coerce_to_object(self.0.env, self.0.value, &mut new_raw_value) };
-        check_status(status)?;
+        check_status!(unsafe {
+          sys::napi_coerce_to_object(self.0.env, self.0.value, &mut new_raw_value)
+        })?;
         Ok(JsObject(Value {
           env: self.0.env,
           value: new_raw_value,
@@ -170,59 +167,60 @@ macro_rules! impl_js_value_methods {
         }))
       }
 
-      #[inline]
       #[cfg(feature = "napi5")]
+      #[inline]
       pub fn is_date(&self) -> Result<bool> {
         let mut is_date = true;
-        check_status(unsafe { sys::napi_is_date(self.0.env, self.0.value, &mut is_date) })?;
+        check_status!(unsafe { sys::napi_is_date(self.0.env, self.0.value, &mut is_date) })?;
         Ok(is_date)
       }
 
+      #[inline]
       pub fn is_promise(&self) -> Result<bool> {
         let mut is_promise = true;
-        check_status(unsafe { sys::napi_is_promise(self.0.env, self.0.value, &mut is_promise) })?;
+        check_status!(unsafe { sys::napi_is_promise(self.0.env, self.0.value, &mut is_promise) })?;
         Ok(is_promise)
       }
 
       #[inline]
       pub fn is_error(&self) -> Result<bool> {
         let mut result = false;
-        check_status(unsafe { sys::napi_is_error(self.0.env, self.0.value, &mut result) })?;
+        check_status!(unsafe { sys::napi_is_error(self.0.env, self.0.value, &mut result) })?;
         Ok(result)
       }
 
       #[inline]
       pub fn is_typedarray(&self) -> Result<bool> {
         let mut result = false;
-        check_status(unsafe { sys::napi_is_typedarray(self.0.env, self.0.value, &mut result) })?;
+        check_status!(unsafe { sys::napi_is_typedarray(self.0.env, self.0.value, &mut result) })?;
         Ok(result)
       }
 
       #[inline]
       pub fn is_dataview(&self) -> Result<bool> {
         let mut result = false;
-        check_status(unsafe { sys::napi_is_dataview(self.0.env, self.0.value, &mut result) })?;
+        check_status!(unsafe { sys::napi_is_dataview(self.0.env, self.0.value, &mut result) })?;
         Ok(result)
       }
 
       #[inline]
       pub fn is_array(&self) -> Result<bool> {
         let mut is_array = false;
-        check_status(unsafe { sys::napi_is_array(self.0.env, self.0.value, &mut is_array) })?;
+        check_status!(unsafe { sys::napi_is_array(self.0.env, self.0.value, &mut is_array) })?;
         Ok(is_array)
       }
 
       #[inline]
       pub fn is_buffer(&self) -> Result<bool> {
         let mut is_buffer = false;
-        check_status(unsafe { sys::napi_is_buffer(self.0.env, self.0.value, &mut is_buffer) })?;
+        check_status!(unsafe { sys::napi_is_buffer(self.0.env, self.0.value, &mut is_buffer) })?;
         Ok(is_buffer)
       }
 
       #[inline]
       pub fn instanceof<Constructor: NapiValue>(&self, constructor: Constructor) -> Result<bool> {
         let mut result = false;
-        check_status(unsafe {
+        check_status!(unsafe {
           sys::napi_instanceof(self.0.env, self.0.value, constructor.raw(), &mut result)
         })?;
         Ok(result)
@@ -234,125 +232,168 @@ macro_rules! impl_js_value_methods {
 macro_rules! impl_object_methods {
   ($js_value:ident) => {
     impl $js_value {
+      #[inline]
       pub fn set_property<V>(&mut self, key: JsString, value: V) -> Result<()>
       where
         V: NapiValue,
       {
-        check_status(unsafe {
+        check_status!(unsafe {
           sys::napi_set_property(self.0.env, self.0.value, key.0.value, value.raw())
         })
       }
+
+      #[inline]
       pub fn get_property<K, T>(&self, key: &K) -> Result<T>
       where
         K: NapiValue,
         T: NapiValue,
       {
         let mut raw_value = ptr::null_mut();
-        check_status(unsafe {
+        check_status!(unsafe {
           sys::napi_get_property(self.0.env, self.0.value, key.raw(), &mut raw_value)
         })?;
         unsafe { T::from_raw(self.0.env, raw_value) }
       }
+
+      #[inline]
       pub fn set_named_property<T>(&mut self, name: &str, value: T) -> Result<()>
       where
         T: NapiValue,
       {
         let key = CString::new(name)?;
-        check_status(unsafe {
+        check_status!(unsafe {
           sys::napi_set_named_property(self.0.env, self.0.value, key.as_ptr(), value.raw())
         })
       }
+
+      #[inline]
+      pub fn create_named_method(&mut self, name: &str, function: Callback) -> Result<()> {
+        let mut js_function = ptr::null_mut();
+        let len = name.len();
+        let name = CString::new(name.as_bytes())?;
+        check_status!(unsafe {
+          sys::napi_create_function(
+            self.0.env,
+            name.as_ptr(),
+            len,
+            Some(function),
+            ptr::null_mut(),
+            &mut js_function,
+          )
+        })?;
+        check_status!(unsafe {
+          sys::napi_set_named_property(self.0.env, self.0.value, name.as_ptr(), js_function)
+        })
+      }
+
+      #[inline]
       pub fn get_named_property<T>(&self, name: &str) -> Result<T>
       where
         T: NapiValue,
       {
         let key = CString::new(name)?;
         let mut raw_value = ptr::null_mut();
-        check_status(unsafe {
+        check_status!(unsafe {
           sys::napi_get_named_property(self.0.env, self.0.value, key.as_ptr(), &mut raw_value)
         })?;
         unsafe { T::from_raw(self.0.env, raw_value) }
       }
+
+      #[inline]
       pub fn has_named_property(&self, name: &str) -> Result<bool> {
         let mut result = false;
         let key = CString::new(name)?;
-        check_status(unsafe {
+        check_status!(unsafe {
           sys::napi_has_named_property(self.0.env, self.0.value, key.as_ptr(), &mut result)
         })?;
         Ok(result)
       }
+
+      #[inline]
       pub fn delete_property<S>(&mut self, name: S) -> Result<bool>
       where
         S: NapiValue,
       {
         let mut result = false;
-        check_status(unsafe {
+        check_status!(unsafe {
           sys::napi_delete_property(self.0.env, self.0.value, name.raw(), &mut result)
         })?;
         Ok(result)
       }
+
+      #[inline]
       pub fn delete_named_property(&mut self, name: &str) -> Result<bool> {
         let mut result = false;
         let key_str = CString::new(name)?;
         let mut js_key = ptr::null_mut();
-        check_status(unsafe {
+        check_status!(unsafe {
           sys::napi_create_string_utf8(self.0.env, key_str.as_ptr(), name.len(), &mut js_key)
         })?;
-        check_status(unsafe {
+        check_status!(unsafe {
           sys::napi_delete_property(self.0.env, self.0.value, js_key, &mut result)
         })?;
         Ok(result)
       }
+
+      #[inline]
       pub fn has_own_property(&self, key: &str) -> Result<bool> {
         let mut result = false;
         let string = CString::new(key)?;
         let mut js_key = ptr::null_mut();
-        check_status(unsafe {
+        check_status!(unsafe {
           sys::napi_create_string_utf8(self.0.env, string.as_ptr(), key.len(), &mut js_key)
         })?;
-        check_status(unsafe {
+        check_status!(unsafe {
           sys::napi_has_own_property(self.0.env, self.0.value, js_key, &mut result)
         })?;
         Ok(result)
       }
+
+      #[inline]
       pub fn has_own_property_js<K>(&self, key: K) -> Result<bool>
       where
         K: NapiValue,
       {
         let mut result = false;
-        check_status(unsafe {
+        check_status!(unsafe {
           sys::napi_has_own_property(self.0.env, self.0.value, key.raw(), &mut result)
         })?;
         Ok(result)
       }
+
+      #[inline]
       pub fn has_property(&self, name: &str) -> Result<bool> {
         let string = CString::new(name)?;
         let mut js_key = ptr::null_mut();
         let mut result = false;
-        check_status(unsafe {
+        check_status!(unsafe {
           sys::napi_create_string_utf8(self.0.env, string.as_ptr(), name.len() as _, &mut js_key)
         })?;
-        check_status(unsafe {
+        check_status!(unsafe {
           sys::napi_has_property(self.0.env, self.0.value, js_key, &mut result)
         })?;
         Ok(result)
       }
+
+      #[inline]
       pub fn has_property_js<K>(&self, name: K) -> Result<bool>
       where
         K: NapiValue,
       {
         let mut result = false;
-        check_status(unsafe {
+        check_status!(unsafe {
           sys::napi_has_property(self.0.env, self.0.value, name.raw(), &mut result)
         })?;
         Ok(result)
       }
+
+      #[inline]
       pub fn get_property_names<T>(&self) -> Result<T>
       where
         T: NapiValue,
       {
         let mut raw_value = ptr::null_mut();
-        check_status(unsafe {
+        check_status!(unsafe {
           sys::napi_get_property_names(self.0.env, self.0.value, &mut raw_value)
         })?;
         unsafe { T::from_raw(self.0.env, raw_value) }
@@ -361,6 +402,7 @@ macro_rules! impl_object_methods {
       /// https://nodejs.org/api/n-api.html#n_api_napi_get_all_property_names
       /// return `Array` of property names
       #[cfg(feature = "napi6")]
+      #[inline]
       pub fn get_all_property_names(
         &self,
         mode: KeyCollectionMode,
@@ -368,7 +410,7 @@ macro_rules! impl_object_methods {
         conversion: KeyConversion,
       ) -> Result<JsObject> {
         let mut properties_value = ptr::null_mut();
-        check_status(unsafe {
+        check_status!(unsafe {
           sys::napi_get_all_property_names(
             self.0.env,
             self.0.value,
@@ -382,49 +424,60 @@ macro_rules! impl_object_methods {
       }
 
       /// This returns the equivalent of `Object.getPrototypeOf` (which is not the same as the function's prototype property).
+      #[inline]
       pub fn get_prototype<T>(&self) -> Result<T>
       where
         T: NapiValue,
       {
         let mut result = ptr::null_mut();
-        check_status(unsafe { sys::napi_get_prototype(self.0.env, self.0.value, &mut result) })?;
+        check_status!(unsafe { sys::napi_get_prototype(self.0.env, self.0.value, &mut result) })?;
         unsafe { T::from_raw(self.0.env, result) }
       }
 
+      #[inline]
       pub fn set_element<T>(&mut self, index: u32, value: T) -> Result<()>
       where
         T: NapiValue,
       {
-        check_status(unsafe { sys::napi_set_element(self.0.env, self.0.value, index, value.raw()) })
+        check_status!(unsafe {
+          sys::napi_set_element(self.0.env, self.0.value, index, value.raw())
+        })
       }
+
+      #[inline]
       pub fn has_element(&self, index: u32) -> Result<bool> {
         let mut result = false;
-        check_status(unsafe {
+        check_status!(unsafe {
           sys::napi_has_element(self.0.env, self.0.value, index, &mut result)
         })?;
         Ok(result)
       }
+
+      #[inline]
       pub fn delete_element(&mut self, index: u32) -> Result<bool> {
         let mut result = false;
-        check_status(unsafe {
+        check_status!(unsafe {
           sys::napi_delete_element(self.0.env, self.0.value, index, &mut result)
         })?;
         Ok(result)
       }
+
+      #[inline]
       pub fn get_element<T>(&self, index: u32) -> Result<T>
       where
         T: NapiValue,
       {
         let mut raw_value = ptr::null_mut();
-        check_status(unsafe {
+        check_status!(unsafe {
           sys::napi_get_element(self.0.env, self.0.value, index, &mut raw_value)
         })?;
         unsafe { T::from_raw(self.0.env, raw_value) }
       }
 
       /// This method allows the efficient definition of multiple properties on a given object.
+      #[inline]
       pub fn define_properties(&mut self, properties: &[Property]) -> Result<()> {
-        check_status(unsafe {
+        check_status!(unsafe {
           sys::napi_define_properties(
             self.0.env,
             self.0.value,
@@ -440,6 +493,7 @@ macro_rules! impl_object_methods {
 
       /// Perform `is_array` check before get the length
       /// if `Object` is not array, `ArrayExpected` error returned
+      #[inline]
       pub fn get_array_length(&self) -> Result<u32> {
         if self.is_array()? != true {
           return Err(Error::new(
@@ -454,7 +508,7 @@ macro_rules! impl_object_methods {
       #[inline]
       pub fn get_array_length_unchecked(&self) -> Result<u32> {
         let mut length: u32 = 0;
-        check_status(unsafe { sys::napi_get_array_length(self.0.env, self.raw(), &mut length) })?;
+        check_status!(unsafe { sys::napi_get_array_length(self.0.env, self.raw(), &mut length) })?;
         Ok(length)
       }
     }
@@ -516,6 +570,7 @@ impl_napi_value_trait!(JsExternal, External);
 impl_napi_value_trait!(JsSymbol, Symbol);
 
 impl NapiValue for JsUnknown {
+  #[inline]
   unsafe fn from_raw(env: sys::napi_env, value: sys::napi_value) -> Result<Self> {
     Ok(JsUnknown(Value {
       env,
@@ -524,6 +579,7 @@ impl NapiValue for JsUnknown {
     }))
   }
 
+  #[inline]
   unsafe fn from_raw_unchecked(env: sys::napi_env, value: sys::napi_value) -> Self {
     JsUnknown(Value {
       env,
@@ -533,6 +589,7 @@ impl NapiValue for JsUnknown {
   }
 
   /// get raw js value ptr
+  #[inline]
   unsafe fn raw(&self) -> sys::napi_value {
     self.0.value
   }
@@ -541,6 +598,6 @@ impl NapiValue for JsUnknown {
 impl JsUnknown {
   #[inline]
   pub fn get_type(&self) -> Result<ValueType> {
-    type_of(self.0.env, self.0.value)
+    unsafe { type_of!(self.0.env, self.0.value) }
   }
 }

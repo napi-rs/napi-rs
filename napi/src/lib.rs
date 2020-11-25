@@ -132,6 +132,7 @@ extern crate serde;
 
 pub type ContextlessResult<T> = Result<Option<T>>;
 
+/// Deprecated
 /// register nodejs module
 ///
 /// ## Example
@@ -143,6 +144,7 @@ pub type ContextlessResult<T> = Result<Option<T>>;
 /// }
 /// ```
 #[macro_export]
+#[deprecated(since = "1.0.0", note = "[module_exports] macro instead")]
 macro_rules! register_module {
   ($module_name:ident, $init:ident) => {
     #[inline]
@@ -169,6 +171,10 @@ macro_rules! register_module {
 
       #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
       use $crate::shutdown_tokio_rt;
+
+      if cfg!(debug_assertions) {
+        println!("`register_module` macro will deprecate soon, please migrate to [module_exports]");
+      }
 
       let env = Env::from_raw(raw_env);
       let mut exports: JsObject = JsObject::from_raw_unchecked(raw_env, raw_exports);

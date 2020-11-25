@@ -5,6 +5,7 @@ pub struct Module {
   pub exports: JsObject,
 }
 
+#[deprecated(since = "1.0.0", note = "[module_exports] macro instead")]
 impl Module {
   pub fn create_named_method(&mut self, name: &str, function: Callback) -> Result<()> {
     self

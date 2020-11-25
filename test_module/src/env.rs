@@ -1,4 +1,4 @@
-use napi::{CallContext, JsBoolean, JsUnknown, Module, Result};
+use napi::{CallContext, JsBoolean, JsObject, JsUnknown, Result};
 
 #[js_function(2)]
 pub fn instanceof(ctx: CallContext) -> Result<JsBoolean> {
@@ -26,10 +26,10 @@ pub fn strict_equals(ctx: CallContext) -> Result<JsBoolean> {
   ctx.env.get_boolean(ctx.env.strict_equals(a, b)?)
 }
 
-pub fn register_js(module: &mut Module) -> Result<()> {
-  module.create_named_method("instanceof", instanceof)?;
-  module.create_named_method("isTypedarray", is_typedarray)?;
-  module.create_named_method("isDataview", is_dataview)?;
-  module.create_named_method("strictEquals", strict_equals)?;
+pub fn register_js(exports: &mut JsObject) -> Result<()> {
+  exports.create_named_method("instanceof", instanceof)?;
+  exports.create_named_method("isTypedarray", is_typedarray)?;
+  exports.create_named_method("isDataview", is_dataview)?;
+  exports.create_named_method("strictEquals", strict_equals)?;
   Ok(())
 }

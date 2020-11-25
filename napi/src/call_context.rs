@@ -1,6 +1,6 @@
 use std::ptr;
 
-use crate::error::check_status;
+use crate::check_status;
 use crate::{sys, Either, Env, Error, JsUndefined, NapiValue, Result, Status};
 
 /// Function call context
@@ -15,6 +15,7 @@ pub struct CallContext<'env> {
 }
 
 impl<'env> CallContext<'env> {
+  #[inline]
   pub fn new(
     env: &'env mut Env,
     callback_info: sys::napi_callback_info,
@@ -33,6 +34,7 @@ impl<'env> CallContext<'env> {
     }
   }
 
+  #[inline]
   pub fn get<ArgType: NapiValue>(&self, index: usize) -> Result<ArgType> {
     if index + 1 > self.arg_len {
       Err(Error {
@@ -44,6 +46,7 @@ impl<'env> CallContext<'env> {
     }
   }
 
+  #[inline]
   pub fn try_get<ArgType: NapiValue>(&self, index: usize) -> Result<Either<ArgType, JsUndefined>> {
     if index + 1 > self.arg_len {
       Err(Error {
@@ -59,21 +62,22 @@ impl<'env> CallContext<'env> {
     }
   }
 
+  #[inline]
   pub fn get_new_target<V>(&self) -> Result<V>
   where
     V: NapiValue,
   {
     let mut value = ptr::null_mut();
-    check_status(unsafe { sys::napi_get_new_target(self.env.0, self.callback_info, &mut value) })?;
+    check_status!(unsafe { sys::napi_get_new_target(self.env.0, self.callback_info, &mut value) })?;
     unsafe { V::from_raw(self.env.0, value) }
   }
 
-  #[inline(always)]
+  #[inline]
   pub fn this<T: NapiValue>(&self) -> Result<T> {
     unsafe { T::from_raw(self.env.0, self.raw_this) }
   }
 
-  #[inline(always)]
+  #[inline]
   pub fn this_unchecked<T: NapiValue>(&self) -> T {
     unsafe { T::from_raw_unchecked(self.env.0, self.raw_this) }
   }

@@ -1,7 +1,5 @@
 extern crate proc_macro;
 
-use std::mem;
-
 use proc_macro::TokenStream;
 use proc_macro2::{Ident, Literal};
 use quote::{format_ident, quote};
@@ -28,8 +26,9 @@ impl Parse for ArgLength {
 
 struct JsFunction {
   args: Vec<FnArg>,
-  name: mem::MaybeUninit<Ident>,
-  signature: mem::MaybeUninit<Signature>,
+  name: Option<Ident>,
+  signature: Option<Signature>,
+  signature_raw: Option<Signature>,
   block: Vec<Block>,
   visibility: Visibility,
 }
@@ -38,8 +37,9 @@ impl JsFunction {
   pub fn new() -> Self {
     JsFunction {
       args: vec![],
-      name: mem::MaybeUninit::uninit(),
-      signature: mem::MaybeUninit::uninit(),
+      name: None,
+      signature: None,
+      signature_raw: None,
       visibility: Visibility::Inherited,
       block: vec![],
     }
@@ -53,10 +53,11 @@ impl Fold for JsFunction {
   }
 
   fn fold_signature(&mut self, signature: Signature) -> Signature {
-    self.name = mem::MaybeUninit::new(format_ident!("{}", signature.ident));
+    self.name = Some(format_ident!("{}", signature.ident));
     let mut new_signature = signature.clone();
-    new_signature.ident = format_ident!("_{}", signature.ident);
-    self.signature = mem::MaybeUninit::new(new_signature);
+    new_signature.ident = format_ident!("_generated_{}_generated_", signature.ident);
+    self.signature = Some(new_signature);
+    self.signature_raw = Some(signature.clone());
     fold_signature(self, signature)
   }
 
@@ -78,39 +79,32 @@ pub fn js_function(attr: TokenStream, input: TokenStream) -> TokenStream {
   let input = parse_macro_input!(input as ItemFn);
   let mut js_fn = JsFunction::new();
   js_fn.fold_item_fn(input);
-  let fn_name = unsafe { js_fn.name.assume_init() };
+  let fn_name = js_fn.name.unwrap();
   let fn_block = js_fn.block;
-  let signature = unsafe { js_fn.signature.assume_init() };
+  let signature = js_fn.signature.unwrap();
   let visibility = js_fn.visibility;
   let new_fn_name = signature.ident.clone();
   let execute_js_function = get_execute_js_code(new_fn_name, FunctionKind::JsFunction);
   let expanded = quote! {
-    #[inline(always)]
     #signature #(#fn_block)*
 
-    #[inline(always)]
     #visibility extern "C" fn #fn_name(
       raw_env: napi::sys::napi_env,
       cb_info: napi::sys::napi_callback_info,
     ) -> napi::sys::napi_value {
-      use std::io::Write;
-      use std::mem;
-      use std::os::raw::c_char;
       use std::ptr;
       use std::panic::{self, AssertUnwindSafe};
       use std::ffi::CString;
-      use napi::{JsUnknown, Env, Error, Status, NapiValue, CallContext};
+      use napi::{Env, Error, Status, NapiValue, CallContext};
       let mut argc = #arg_len_span as usize;
       let mut raw_args: [napi::sys::napi_value; #arg_len_span] = [ptr::null_mut(); #arg_len_span];
       let mut raw_this = ptr::null_mut();
-
-      let mut has_error = false;
 
       unsafe {
         let status = napi::sys::napi_get_cb_info(
           raw_env,
           cb_info,
-          &mut argc as *mut usize as *mut _,
+          &mut argc,
           raw_args.as_mut_ptr(),
           &mut raw_this,
           ptr::null_mut(),
@@ -119,7 +113,7 @@ pub fn js_function(attr: TokenStream, input: TokenStream) -> TokenStream {
       }
 
       let mut env = unsafe { Env::from_raw(raw_env) };
-      let ctx = CallContext::new(&mut env, cb_info, raw_this, &raw_args, #arg_len_span, argc as usize);
+      let ctx = CallContext::new(&mut env, cb_info, raw_this, &raw_args, #arg_len_span, argc);
       #execute_js_function
     }
   };
@@ -132,29 +126,24 @@ pub fn contextless_function(_attr: TokenStream, input: TokenStream) -> TokenStre
   let input = parse_macro_input!(input as ItemFn);
   let mut js_fn = JsFunction::new();
   js_fn.fold_item_fn(input);
-  let fn_name = unsafe { js_fn.name.assume_init() };
+  let fn_name = js_fn.name.unwrap();
   let fn_block = js_fn.block;
-  let signature = unsafe { js_fn.signature.assume_init() };
+  let signature = js_fn.signature.unwrap();
   let visibility = js_fn.visibility;
   let new_fn_name = signature.ident.clone();
   let execute_js_function = get_execute_js_code(new_fn_name, FunctionKind::Contextless);
 
   let expanded = quote! {
-    #[inline]
     #signature #(#fn_block)*
 
     #visibility extern "C" fn #fn_name(
       raw_env: napi::sys::napi_env,
       cb_info: napi::sys::napi_callback_info,
     ) -> napi::sys::napi_value {
-      use std::io::Write;
-      use std::mem;
-      use std::os::raw::c_char;
       use std::ptr;
       use std::panic::{self, AssertUnwindSafe};
       use std::ffi::CString;
       use napi::{Env, NapiValue, Error, Status};
-      let mut has_error = false;
 
       let ctx = unsafe { Env::from_raw(raw_env) };
       #execute_js_function
@@ -210,4 +199,64 @@ fn get_execute_js_code(
       }
     }
   }
+}
+
+#[proc_macro_attribute]
+pub fn module_exports(_attr: TokenStream, input: TokenStream) -> TokenStream {
+  let input = parse_macro_input!(input as ItemFn);
+  let mut js_fn = JsFunction::new();
+  js_fn.fold_item_fn(input);
+  let fn_block = js_fn.block;
+  let fn_name = js_fn.name.unwrap();
+  let signature = js_fn.signature_raw.unwrap();
+  let args_len = js_fn.args.len();
+  let call_expr = if args_len == 1 {
+    quote! { #fn_name(exports) }
+  } else if args_len == 2 {
+    quote! { #fn_name(exports, env) }
+  } else {
+    panic!("Arguments length of #[module_exports] function must be 1 or 2");
+  };
+  let expanded = quote! {
+    #[inline]
+    #signature #(#fn_block)*
+
+    #[no_mangle]
+    unsafe extern "C" fn napi_register_module_v1(
+      raw_env: napi::sys::napi_env,
+      raw_exports: napi::sys::napi_value,
+    ) -> napi::sys::napi_value {
+      use std::ffi::CString;
+      use std::ptr;
+      use napi::{Env, JsObject, NapiValue};
+
+      #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
+      use napi::shutdown_tokio_rt;
+      let env = Env::from_raw(raw_env);
+      let exports = JsObject::from_raw_unchecked(raw_env, raw_exports);
+      let result: napi::Result<()> = #call_expr;
+      #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
+      let hook_result = napi::check_status!(unsafe {
+        napi::sys::napi_add_env_cleanup_hook(raw_env, Some(shutdown_tokio_rt), ptr::null_mut())
+      });
+      #[cfg(not(all(feature = "tokio_rt", feature = "napi4")))]
+      let hook_result = Ok(());
+      match hook_result.and_then(move |_| result) {
+        Ok(_) => raw_exports,
+        Err(e) => {
+          unsafe {
+            napi::sys::napi_throw_error(
+              raw_env,
+              ptr::null(),
+              CString::from_vec_unchecked(format!("Error initializing module: {}", e).into())
+                .as_ptr(),
+            )
+          };
+          ptr::null_mut()
+        }
+      }
+    }
+  };
+  // Hand the output tokens back to the compiler
+  TokenStream::from(expanded)
 }

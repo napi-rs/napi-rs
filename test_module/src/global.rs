@@ -1,6 +1,6 @@
 use std::convert::TryInto;
 
-use napi::{CallContext, JsFunction, JsNumber, JsTimeout, JsUndefined, Module, Result};
+use napi::{CallContext, JsFunction, JsNumber, JsObject, JsTimeout, JsUndefined, Result};
 
 #[js_function(2)]
 pub fn set_timeout(ctx: CallContext) -> Result<JsTimeout> {
@@ -18,8 +18,8 @@ pub fn clear_timeout(ctx: CallContext) -> Result<JsUndefined> {
   ctx.env.get_global()?.clear_timeout(timer)
 }
 
-pub fn register_js(module: &mut Module) -> Result<()> {
-  module.create_named_method("setTimeout", set_timeout)?;
-  module.create_named_method("clearTimeout", clear_timeout)?;
+pub fn register_js(exports: &mut JsObject) -> Result<()> {
+  exports.create_named_method("setTimeout", set_timeout)?;
+  exports.create_named_method("clearTimeout", clear_timeout)?;
   Ok(())
 }

@@ -10,27 +10,33 @@ pub struct JsStringUtf8 {
 }
 
 impl JsStringUtf8 {
+  #[inline]
   pub fn as_str(&self) -> Result<&str> {
     str::from_utf8(self.buf.as_slice())
       .map_err(|e| Error::new(Status::InvalidArg, format!("{}", e)))
   }
 
+  #[inline]
   pub fn as_slice(&self) -> &[u8] {
     &self.buf
   }
 
+  #[inline]
   pub fn len(&self) -> usize {
     self.buf.len()
   }
 
+  #[inline]
   pub fn to_owned(self) -> Result<String> {
     Ok(self.as_str()?.to_owned())
   }
 
+  #[inline]
   pub fn take(self) -> Vec<u8> {
     self.as_slice().to_vec()
   }
 
+  #[inline]
   pub fn into_value(self) -> JsString {
     self.inner
   }

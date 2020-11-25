@@ -2,7 +2,7 @@ use std::mem;
 use std::os::raw::{c_char, c_void};
 use std::ptr;
 
-use crate::error::check_status;
+use crate::check_status;
 use crate::js_values::NapiValue;
 use crate::{sys, Env, JsObject, Result, Task};
 
@@ -13,7 +13,6 @@ struct AsyncWork<T: Task> {
   napi_async_work: sys::napi_async_work,
 }
 
-#[derive(Debug)]
 pub struct AsyncWorkPromise<'env> {
   napi_async_work: sys::napi_async_work,
   raw_promise: sys::napi_value,
@@ -21,26 +20,27 @@ pub struct AsyncWorkPromise<'env> {
 }
 
 impl<'env> AsyncWorkPromise<'env> {
-  #[inline(always)]
+  #[inline]
   pub fn promise_object(&self) -> JsObject {
     unsafe { JsObject::from_raw_unchecked(self.env.0, self.raw_promise) }
   }
 
+  #[inline]
   pub fn cancel(self) -> Result<()> {
-    check_status(unsafe { sys::napi_cancel_async_work(self.env.0, self.napi_async_work) })
+    check_status!(unsafe { sys::napi_cancel_async_work(self.env.0, self.napi_async_work) })
   }
 }
 
-#[inline(always)]
+#[inline]
 pub fn run<'env, T: Task>(env: &'env Env, task: T) -> Result<AsyncWorkPromise<'env>> {
   let mut raw_resource = ptr::null_mut();
-  check_status(unsafe { sys::napi_create_object(env.0, &mut raw_resource) })?;
+  check_status!(unsafe { sys::napi_create_object(env.0, &mut raw_resource) })?;
   let mut raw_promise = ptr::null_mut();
   let mut deferred = ptr::null_mut();
-  check_status(unsafe { sys::napi_create_promise(env.0, &mut deferred, &mut raw_promise) })?;
+  check_status!(unsafe { sys::napi_create_promise(env.0, &mut deferred, &mut raw_promise) })?;
   let mut raw_name = ptr::null_mut();
   let s = "napi_rs_async_work";
-  check_status(unsafe {
+  check_status!(unsafe {
     sys::napi_create_string_utf8(
       env.0,
       s.as_ptr() as *const c_char,
@@ -54,7 +54,7 @@ pub fn run<'env, T: Task>(env: &'env Env, task: T) -> Result<AsyncWorkPromise<'e
     value: Ok(mem::MaybeUninit::zeroed()),
     napi_async_work: ptr::null_mut(),
   }));
-  check_status(unsafe {
+  check_status!(unsafe {
     sys::napi_create_async_work(
       env.0,
       raw_resource,
@@ -68,7 +68,7 @@ pub fn run<'env, T: Task>(env: &'env Env, task: T) -> Result<AsyncWorkPromise<'e
       &mut result.napi_async_work,
     )
   })?;
-  check_status(unsafe { sys::napi_queue_async_work(env.0, result.napi_async_work) })?;
+  check_status!(unsafe { sys::napi_queue_async_work(env.0, result.napi_async_work) })?;
   Ok(AsyncWorkPromise {
     napi_async_work: result.napi_async_work,
     raw_promise,
@@ -104,7 +104,7 @@ unsafe extern "C" fn complete<T: Task>(
     let output = v.assume_init();
     work.inner_task.resolve(Env::from_raw(env), output)
   });
-  match check_status(status).and_then(move |_| value) {
+  match check_status!(status).and_then(move |_| value) {
     Ok(v) => {
       let status = sys::napi_resolve_deferred(env, deferred, v.raw());
       debug_assert!(status == sys::Status::napi_ok, "Reject promise failed");

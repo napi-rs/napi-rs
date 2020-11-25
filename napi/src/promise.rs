@@ -2,8 +2,7 @@ use futures::prelude::*;
 use std::os::raw::{c_char, c_void};
 use std::ptr;
 
-use crate::error::check_status;
-use crate::{sys, Env, NapiValue, Result};
+use crate::{check_status, sys, Env, NapiValue, Result};
 
 pub struct FuturePromise<T, V: NapiValue> {
   deferred: sys::napi_deferred,
@@ -16,6 +15,7 @@ pub struct FuturePromise<T, V: NapiValue> {
 unsafe impl<T, V: NapiValue> Send for FuturePromise<T, V> {}
 
 impl<T, V: NapiValue> FuturePromise<T, V> {
+  #[inline]
   pub fn create(
     env: sys::napi_env,
     raw_deferred: sys::napi_deferred,
@@ -23,7 +23,7 @@ impl<T, V: NapiValue> FuturePromise<T, V> {
   ) -> Result<Self> {
     let mut async_resource_name = ptr::null_mut();
     let s = "napi_resolve_promise_from_future";
-    check_status(unsafe {
+    check_status!(unsafe {
       sys::napi_create_string_utf8(
         env,
         s.as_ptr() as *const c_char,
@@ -41,13 +41,14 @@ impl<T, V: NapiValue> FuturePromise<T, V> {
     })
   }
 
+  #[inline]
   pub(crate) fn start(self) -> Result<TSFNValue> {
     let mut tsfn_value = ptr::null_mut();
     let async_resource_name = self.async_resource_name;
     let initial_thread_count = 1;
     let env = self.env;
     let self_ref = Box::leak(Box::from(self));
-    check_status(unsafe {
+    check_status!(unsafe {
       sys::napi_create_threadsafe_function(
         env,
         ptr::null_mut(),
@@ -77,9 +78,9 @@ pub(crate) async fn resolve_from_future<T: Send, F: Future<Output = Result<T>>>(
   fut: F,
 ) {
   let val = fut.await;
-  check_status(unsafe { sys::napi_acquire_threadsafe_function(tsfn_value.0) })
+  check_status!(unsafe { sys::napi_acquire_threadsafe_function(tsfn_value.0) })
     .expect("Failed to acquire thread safe function");
-  check_status(unsafe {
+  check_status!(unsafe {
     sys::napi_call_threadsafe_function(
       tsfn_value.0,
       Box::into_raw(Box::from(val)) as *mut _ as *mut c_void,
@@ -112,7 +113,7 @@ unsafe extern "C" fn call_js_cb<T, V: NapiValue>(
       debug_assert!(status == sys::Status::napi_ok, "Reject promise failed");
     }
   };
-  check_status(sys::napi_release_threadsafe_function(
+  check_status!(sys::napi_release_threadsafe_function(
     tsfn,
     sys::napi_threadsafe_function_release_mode::napi_tsfn_release,
   ))

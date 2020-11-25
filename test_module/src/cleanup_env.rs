@@ -1,5 +1,5 @@
 use napi::{
-  CallContext, CleanupEnvHook, ContextlessResult, Env, JsExternal, JsUndefined, Module, Result,
+  CallContext, CleanupEnvHook, ContextlessResult, Env, JsExternal, JsObject, JsUndefined, Result,
 };
 
 #[contextless_function]
@@ -20,8 +20,8 @@ fn remove_cleanup_hook(ctx: CallContext) -> Result<JsUndefined> {
   ctx.env.get_undefined()
 }
 
-pub fn register_js(module: &mut Module) -> Result<()> {
-  module.create_named_method("addCleanupHook", add_cleanup_hook)?;
-  module.create_named_method("removeCleanupHook", remove_cleanup_hook)?;
+pub fn register_js(exports: &mut JsObject) -> Result<()> {
+  exports.create_named_method("addCleanupHook", add_cleanup_hook)?;
+  exports.create_named_method("removeCleanupHook", remove_cleanup_hook)?;
   Ok(())
 }

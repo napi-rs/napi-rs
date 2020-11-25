@@ -6,8 +6,6 @@ use crate::{Error, Result};
 #[cfg(feature = "napi6")]
 use std::convert::TryFrom;
 
-#[repr(transparent)]
-#[derive(Debug)]
 pub struct JsObject(pub(crate) Value);
 
 #[cfg(feature = "napi6")]
