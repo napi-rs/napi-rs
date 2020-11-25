@@ -23,3 +23,6 @@ tokio = {version = "0.3", features = ["default", "fs"]}
 
 [build-dependencies]
 napi-build = {path = "../build"}
+
+[profile.release]
+lto = true

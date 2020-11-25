@@ -1,8 +1,7 @@
 use std::convert::TryInto;
 
 use napi::{
-  CallContext, JsBoolean, JsNumber, JsObject, JsString, JsUndefined, JsUnknown, Module, Property,
-  Result,
+  CallContext, JsBoolean, JsNumber, JsObject, JsString, JsUndefined, JsUnknown, Property, Result,
 };
 
 #[js_function(2)]
@@ -164,28 +163,28 @@ fn test_is_promise(ctx: CallContext) -> Result<JsBoolean> {
   ctx.env.get_boolean(obj.is_promise()?)
 }
 
-pub fn register_js(module: &mut Module) -> Result<()> {
-  module.create_named_method("testSetProperty", test_set_property)?;
-  module.create_named_method("testGetProperty", test_get_property)?;
+pub fn register_js(exports: &mut JsObject) -> Result<()> {
+  exports.create_named_method("testSetProperty", test_set_property)?;
+  exports.create_named_method("testGetProperty", test_get_property)?;
 
-  module.create_named_method("testSetNamedProperty", test_set_named_property)?;
-  module.create_named_method("testGetNamedProperty", test_get_named_property)?;
-  module.create_named_method("testHasNamedProperty", test_has_named_property)?;
+  exports.create_named_method("testSetNamedProperty", test_set_named_property)?;
+  exports.create_named_method("testGetNamedProperty", test_get_named_property)?;
+  exports.create_named_method("testHasNamedProperty", test_has_named_property)?;
 
-  module.create_named_method("testHasOwnProperty", test_has_own_property)?;
-  module.create_named_method("testHasOwnPropertyJs", test_has_own_property_js)?;
-  module.create_named_method("testHasProperty", test_has_property)?;
-  module.create_named_method("testHasPropertyJs", test_has_property_js)?;
-  module.create_named_method("testDeleteProperty", test_delete_property)?;
-  module.create_named_method("testDeleteNamedProperty", test_delete_named_property)?;
-  module.create_named_method("testGetPropertyNames", test_get_property_names)?;
-  module.create_named_method("testGetPrototype", test_get_prototype)?;
-  module.create_named_method("testSetElement", test_set_element)?;
-  module.create_named_method("testHasElement", test_has_element)?;
-  module.create_named_method("testGetElement", test_get_element)?;
-  module.create_named_method("testDeleteElement", test_delete_element)?;
-  module.create_named_method("testDefineProperties", test_define_properties)?;
+  exports.create_named_method("testHasOwnProperty", test_has_own_property)?;
+  exports.create_named_method("testHasOwnPropertyJs", test_has_own_property_js)?;
+  exports.create_named_method("testHasProperty", test_has_property)?;
+  exports.create_named_method("testHasPropertyJs", test_has_property_js)?;
+  exports.create_named_method("testDeleteProperty", test_delete_property)?;
+  exports.create_named_method("testDeleteNamedProperty", test_delete_named_property)?;
+  exports.create_named_method("testGetPropertyNames", test_get_property_names)?;
+  exports.create_named_method("testGetPrototype", test_get_prototype)?;
+  exports.create_named_method("testSetElement", test_set_element)?;
+  exports.create_named_method("testHasElement", test_has_element)?;
+  exports.create_named_method("testGetElement", test_get_element)?;
+  exports.create_named_method("testDeleteElement", test_delete_element)?;
+  exports.create_named_method("testDefineProperties", test_define_properties)?;
 
-  module.create_named_method("testIsPromise", test_is_promise)?;
+  exports.create_named_method("testIsPromise", test_is_promise)?;
   Ok(())
 }

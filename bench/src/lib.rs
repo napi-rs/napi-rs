@@ -1,21 +1,18 @@
 #[macro_use]
-extern crate napi;
-#[macro_use]
 extern crate napi_derive;
 
-use napi::{Module, Result};
+use napi::{JsObject, Result};
 
 mod async_compute;
 mod noop;
 mod plus;
 
-register_module!(bench, init);
+#[module_exports]
+fn init(mut exports: JsObject) -> Result<()> {
+  exports.create_named_method("noop", noop::noop)?;
 
-fn init(module: &mut Module) -> Result<()> {
-  module.create_named_method("noop", noop::noop)?;
-
-  async_compute::register_js(module)?;
-  plus::register_js(module)?;
+  async_compute::register_js(&mut exports)?;
+  plus::register_js(&mut exports)?;
 
   Ok(())
 }

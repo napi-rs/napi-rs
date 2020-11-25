@@ -1,6 +1,6 @@
 use std::convert::TryInto;
 
-use napi::{CallContext, Either, JsNumber, JsString, Module, Result};
+use napi::{CallContext, Either, JsNumber, JsObject, JsString, Result};
 
 #[js_function(1)]
 pub fn either_number_string(ctx: CallContext) -> Result<Either<JsNumber, JsString>> {
@@ -28,8 +28,8 @@ pub fn dynamic_argument_length(ctx: CallContext) -> Result<JsNumber> {
   }
 }
 
-pub fn register_js(module: &mut Module) -> Result<()> {
-  module.create_named_method("eitherNumberString", either_number_string)?;
-  module.create_named_method("dynamicArgumentLength", dynamic_argument_length)?;
+pub fn register_js(exports: &mut JsObject) -> Result<()> {
+  exports.create_named_method("eitherNumberString", either_number_string)?;
+  exports.create_named_method("dynamicArgumentLength", dynamic_argument_length)?;
   Ok(())
 }

@@ -1,6 +1,6 @@
 use std::str;
 
-use napi::{CallContext, Error, JsBuffer, JsNumber, JsString, Module, Result, Status};
+use napi::{CallContext, Error, JsBuffer, JsNumber, JsObject, JsString, Result, Status};
 
 #[js_function(1)]
 pub fn get_buffer_length(ctx: CallContext) -> Result<JsNumber> {
@@ -22,9 +22,9 @@ pub fn copy_buffer(ctx: CallContext) -> Result<JsBuffer> {
   ctx.env.create_buffer_copy(buffer).map(|b| b.into_raw())
 }
 
-pub fn register_js(module: &mut Module) -> Result<()> {
-  module.create_named_method("getBufferLength", get_buffer_length)?;
-  module.create_named_method("bufferToString", buffer_to_string)?;
-  module.create_named_method("copyBuffer", copy_buffer)?;
+pub fn register_js(exports: &mut JsObject) -> Result<()> {
+  exports.create_named_method("getBufferLength", get_buffer_length)?;
+  exports.create_named_method("bufferToString", buffer_to_string)?;
+  exports.create_named_method("copyBuffer", copy_buffer)?;
   Ok(())
 }

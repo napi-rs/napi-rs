@@ -1,11 +1,9 @@
 #[macro_use]
-extern crate napi;
-#[macro_use]
 extern crate napi_derive;
 #[macro_use]
 extern crate serde_derive;
 
-use napi::{Module, Result};
+use napi::{JsObject, Result};
 
 mod cleanup_env;
 #[cfg(feature = "latest")]
@@ -36,33 +34,32 @@ mod task;
 
 use napi_version::get_napi_version;
 
-register_module!(test_module, init);
-
-fn init(module: &mut Module) -> Result<()> {
-  module.create_named_method("getNapiVersion", get_napi_version)?;
-  array::register_js(module)?;
-  error::register_js(module)?;
-  string::register_js(module)?;
-  serde::register_js(module)?;
-  task::register_js(module)?;
-  external::register_js(module)?;
-  arraybuffer::register_js(module)?;
-  buffer::register_js(module)?;
-  either::register_js(module)?;
-  symbol::register_js(module)?;
-  function::register_js(module)?;
-  class::register_js(module)?;
-  env::register_js(module)?;
-  object::register_js(module)?;
-  global::register_js(module)?;
-  cleanup_env::register_js(module)?;
+#[module_exports]
+fn init(mut exports: JsObject) -> Result<()> {
+  exports.create_named_method("getNapiVersion", get_napi_version)?;
+  array::register_js(&mut exports)?;
+  error::register_js(&mut exports)?;
+  string::register_js(&mut exports)?;
+  serde::register_js(&mut exports)?;
+  task::register_js(&mut exports)?;
+  external::register_js(&mut exports)?;
+  arraybuffer::register_js(&mut exports)?;
+  buffer::register_js(&mut exports)?;
+  either::register_js(&mut exports)?;
+  symbol::register_js(&mut exports)?;
+  function::register_js(&mut exports)?;
+  class::register_js(&mut exports)?;
+  env::register_js(&mut exports)?;
+  object::register_js(&mut exports)?;
+  global::register_js(&mut exports)?;
+  cleanup_env::register_js(&mut exports)?;
   #[cfg(feature = "latest")]
-  napi4::register_js(module)?;
+  napi4::register_js(&mut exports)?;
   #[cfg(feature = "latest")]
-  tokio_rt::register_js(module)?;
+  tokio_rt::register_js(&mut exports)?;
   #[cfg(feature = "latest")]
-  napi5::register_js(module)?;
+  napi5::register_js(&mut exports)?;
   #[cfg(feature = "latest")]
-  napi6::register_js(module)?;
+  napi6::register_js(&mut exports)?;
   Ok(())
 }

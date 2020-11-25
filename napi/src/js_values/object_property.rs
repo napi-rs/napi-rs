@@ -2,11 +2,11 @@ use std::convert::From;
 use std::ffi::CString;
 use std::ptr;
 
-use crate::{error::check_status, sys, Callback, Env, NapiValue, Result};
+use crate::{check_status, sys, Callback, Env, NapiValue, Result};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct Property<'env> {
-  name: &'env str,
+  pub name: &'env str,
   pub(crate) raw_descriptor: sys::napi_property_descriptor,
 }
 
@@ -33,10 +33,11 @@ impl From<PropertyAttributes> for sys::napi_property_attributes {
 }
 
 impl<'env> Property<'env> {
+  #[inline]
   pub fn new(env: &'env Env, name: &'env str) -> Result<Self> {
     let string_value = CString::new(name)?;
     let mut result = ptr::null_mut();
-    check_status(unsafe {
+    check_status!(unsafe {
       sys::napi_create_string_utf8(env.0, string_value.as_ptr(), name.len(), &mut result)
     })?;
     Ok(Property {
@@ -54,31 +55,37 @@ impl<'env> Property<'env> {
     })
   }
 
+  #[inline]
   pub fn with_value<T: NapiValue>(mut self, value: T) -> Self {
     self.raw_descriptor.value = unsafe { T::raw(&value) };
     self
   }
 
+  #[inline]
   pub fn with_method(mut self, callback: Callback) -> Self {
     self.raw_descriptor.method = Some(callback);
     self
   }
 
+  #[inline]
   pub fn with_getter(mut self, callback: Callback) -> Self {
     self.raw_descriptor.getter = Some(callback);
     self
   }
 
+  #[inline]
   pub fn with_setter(mut self, callback: Callback) -> Self {
     self.raw_descriptor.setter = Some(callback);
     self
   }
 
+  #[inline]
   pub fn with_property_attributes(mut self, attributes: PropertyAttributes) -> Self {
     self.raw_descriptor.attributes = attributes.into();
     self
   }
 
+  #[inline]
   pub(crate) fn raw(&self) -> sys::napi_property_descriptor {
     self.raw_descriptor
   }

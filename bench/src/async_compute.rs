@@ -1,8 +1,6 @@
-use napi::{
-  CallContext, Env, JsBuffer, JsBufferValue, JsNumber, JsObject, Module, Ref, Result, Task,
-};
+use napi::{CallContext, Env, JsBuffer, JsBufferValue, JsNumber, JsObject, Ref, Result, Task};
 
-#[repr(transparent)]
+
 struct BufferLength(Ref<JsBufferValue>);
 
 impl Task for BufferLength {
@@ -27,7 +25,7 @@ fn bench_async_task(ctx: CallContext) -> Result<JsObject> {
   Ok(async_promise.promise_object())
 }
 
-pub fn register_js(module: &mut Module) -> Result<()> {
-  module.create_named_method("benchAsyncTask", bench_async_task)?;
+pub fn register_js(exports: &mut JsObject) -> Result<()> {
+  exports.create_named_method("benchAsyncTask", bench_async_task)?;
   Ok(())
 }

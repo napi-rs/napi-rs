@@ -10,19 +10,23 @@ pub struct JsStringUtf16 {
 }
 
 impl JsStringUtf16 {
+  #[inline]
   pub fn as_str(&self) -> Result<String> {
     String::from_utf16(self.as_slice())
       .map_err(|e| Error::new(Status::InvalidArg, format!("{}", e)))
   }
 
+  #[inline]
   pub fn as_slice(&self) -> &[u16] {
     self.buf.as_slice()
   }
 
+  #[inline]
   pub fn len(&self) -> usize {
     self.buf.len()
   }
 
+  #[inline]
   pub fn into_value(self) -> JsString {
     self.inner
   }

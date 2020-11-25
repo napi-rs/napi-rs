@@ -1,5 +1,5 @@
 use std::convert::From;
-use std::error::Error as StdError;
+use std::error;
 use std::fmt;
 #[cfg(feature = "serde-json")]
 use std::fmt::Display;
@@ -19,7 +19,7 @@ pub struct Error {
   pub reason: String,
 }
 
-impl StdError for Error {}
+impl error::Error for Error {}
 
 #[cfg(feature = "serde-json")]
 impl ser::Error for Error {
@@ -42,10 +42,12 @@ impl fmt::Display for Error {
 }
 
 impl Error {
+  #[inline]
   pub fn new(status: Status, reason: String) -> Self {
     Error { status, reason }
   }
 
+  #[inline]
   pub fn from_status(status: Status) -> Self {
     Error {
       status,
@@ -53,6 +55,7 @@ impl Error {
     }
   }
 
+  #[inline]
   pub fn from_reason(reason: String) -> Self {
     Error {
       status: Status::GenericFailure,
@@ -60,6 +63,7 @@ impl Error {
     }
   }
 
+  #[inline]
   pub(crate) fn into_raw(self, env: sys::napi_env) -> sys::napi_value {
     let mut err = ptr::null_mut();
     let s = self.reason;
@@ -97,11 +101,14 @@ impl From<std::io::Error> for Error {
   }
 }
 
-#[inline]
-pub fn check_status(code: sys::napi_status) -> Result<()> {
-  let status = Status::from(code);
-  match status {
-    Status::Ok => Ok(()),
-    _ => Err(Error::new(status, "".to_owned())),
-  }
+#[doc(hidden)]
+#[macro_export(local_inner_macros)]
+macro_rules! check_status {
+  ($code:expr) => {{
+    let c = $code;
+    match c {
+      $crate::sys::Status::napi_ok => Ok(()),
+      _ => Err($crate::Error::new($crate::Status::from(c), "".to_owned())),
+    }
+  }};
 }

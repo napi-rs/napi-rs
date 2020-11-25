@@ -1,6 +1,6 @@
 use std::convert::TryInto;
 
-use napi::{CallContext, JsExternal, JsNumber, Module, Result};
+use napi::{CallContext, JsExternal, JsNumber, JsObject, Result};
 
 struct NativeObject {
   count: i32,
@@ -20,8 +20,8 @@ pub fn get_external_count(ctx: CallContext) -> Result<JsNumber> {
   ctx.env.create_int32(native_object.count)
 }
 
-pub fn register_js(module: &mut Module) -> Result<()> {
-  module.create_named_method("createExternal", create_external)?;
-  module.create_named_method("getExternalCount", get_external_count)?;
+pub fn register_js(exports: &mut JsObject) -> Result<()> {
+  exports.create_named_method("createExternal", create_external)?;
+  exports.create_named_method("getExternalCount", get_external_count)?;
   Ok(())
 }

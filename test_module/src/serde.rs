@@ -1,4 +1,4 @@
-use napi::{CallContext, JsObject, JsUndefined, JsUnknown, Module, Result};
+use napi::{CallContext, JsObject, JsUndefined, JsUnknown, Result};
 
 #[derive(Serialize, Debug, Deserialize)]
 struct AnObject {
@@ -162,21 +162,21 @@ fn roundtrip_object(ctx: CallContext) -> Result<JsUnknown> {
   ctx.env.to_js_value(&de_serialized)
 }
 
-pub fn register_js(m: &mut Module) -> Result<()> {
-  m.create_named_method("make_num_77", make_num_77)?;
-  m.create_named_method("make_num_32", make_num_32)?;
-  m.create_named_method("make_str_hello", make_str_hello)?;
-  m.create_named_method("make_num_array", make_num_array)?;
-  m.create_named_method("make_buff", make_buff)?;
-  m.create_named_method("make_obj", make_obj)?;
-  m.create_named_method("make_object", make_object)?;
-  m.create_named_method("make_map", make_map)?;
+pub fn register_js(exports: &mut JsObject) -> Result<()> {
+  exports.create_named_method("make_num_77", make_num_77)?;
+  exports.create_named_method("make_num_32", make_num_32)?;
+  exports.create_named_method("make_str_hello", make_str_hello)?;
+  exports.create_named_method("make_num_array", make_num_array)?;
+  exports.create_named_method("make_buff", make_buff)?;
+  exports.create_named_method("make_obj", make_obj)?;
+  exports.create_named_method("make_object", make_object)?;
+  exports.create_named_method("make_map", make_map)?;
 
-  m.create_named_method("expect_hello_world", expect_hello_world)?;
-  m.create_named_method("expect_obj", expect_obj)?;
-  m.create_named_method("expect_num_array", expect_num_array)?;
-  m.create_named_method("expect_buffer", expect_buffer)?;
+  exports.create_named_method("expect_hello_world", expect_hello_world)?;
+  exports.create_named_method("expect_obj", expect_obj)?;
+  exports.create_named_method("expect_num_array", expect_num_array)?;
+  exports.create_named_method("expect_buffer", expect_buffer)?;
 
-  m.create_named_method("roundtrip_object", roundtrip_object)?;
+  exports.create_named_method("roundtrip_object", roundtrip_object)?;
   Ok(())
 }

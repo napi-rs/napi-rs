@@ -2,7 +2,7 @@ use std::convert::TryInto;
 
 use napi::{
   CallContext, ContextlessResult, Env, JsBoolean, JsNumber, JsObject, JsUndefined, JsUnknown,
-  Module, Result,
+  Result,
 };
 
 #[contextless_function]
@@ -43,12 +43,12 @@ fn test_delete_element(ctx: CallContext) -> Result<JsBoolean> {
   ctx.env.get_boolean(arr.delete_element(index.try_into()?)?)
 }
 
-pub fn register_js(module: &mut Module) -> Result<()> {
-  module.create_named_method("testCreateArray", test_create_array)?;
-  module.create_named_method("testCreateArrayWithLength", test_create_array_with_length)?;
-  module.create_named_method("testSetElement", test_set_element)?;
-  module.create_named_method("testHasElement", test_has_element)?;
-  module.create_named_method("testDeleteElement", test_delete_element)?;
+pub fn register_js(exports: &mut JsObject) -> Result<()> {
+  exports.create_named_method("testCreateArray", test_create_array)?;
+  exports.create_named_method("testCreateArrayWithLength", test_create_array_with_length)?;
+  exports.create_named_method("testSetElement", test_set_element)?;
+  exports.create_named_method("testHasElement", test_has_element)?;
+  exports.create_named_method("testDeleteElement", test_delete_element)?;
 
   Ok(())
 }
