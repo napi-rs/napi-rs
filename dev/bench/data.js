@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1606299353549,
+  "lastUpdate": 1606362509557,
   "repoUrl": "https://github.com/napi-rs/napi-rs",
   "entries": {
     "Benchmark": [
@@ -5140,6 +5140,65 @@ window.BENCHMARK_DATA = {
             "range": "±3%",
             "unit": "ops/sec",
             "extra": "77 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "lynweklm@gmail.com",
+            "name": "LongYinan",
+            "username": "Brooooooklyn"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2bbec968021e590e768499f351bae5b5bf3d1991",
+          "message": "Merge pull request #318 from napi-rs/rust-codegen-win32\n\nRefactor napi",
+          "timestamp": "2020-11-26T11:46:42+08:00",
+          "tree_id": "17e0752feded53adc3757fb53868d1962d7f5d04",
+          "url": "https://github.com/napi-rs/napi-rs/commit/2bbec968021e590e768499f351bae5b5bf3d1991"
+        },
+        "date": 1606362508593,
+        "tool": "benchmarkjs",
+        "benches": [
+          {
+            "name": "noop#napi-rs",
+            "value": 46509015,
+            "range": "±0.15%",
+            "unit": "ops/sec",
+            "extra": "94 samples"
+          },
+          {
+            "name": "noop#JavaScript",
+            "value": 592772410,
+            "range": "±0.29%",
+            "unit": "ops/sec",
+            "extra": "96 samples"
+          },
+          {
+            "name": "Plus number#napi-rs",
+            "value": 13118177,
+            "range": "±0.19%",
+            "unit": "ops/sec",
+            "extra": "96 samples"
+          },
+          {
+            "name": "Plus number#JavaScript",
+            "value": 593279465,
+            "range": "±0.18%",
+            "unit": "ops/sec",
+            "extra": "95 samples"
+          },
+          {
+            "name": "Async task#napi-rs",
+            "value": 27041,
+            "range": "±1.22%",
+            "unit": "ops/sec",
+            "extra": "83 samples"
           }
         ]
       }
