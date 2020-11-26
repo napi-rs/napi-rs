@@ -10,11 +10,23 @@ on:
 
 jobs:
   build:
-    name: stable - x86_64-unknown-linux-musl - node@14
+    name: stable - x86_64-unknown-linux-musl - node@10
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v2
+
+      - name: Cache cargo registry
+        uses: actions/cache@v1
+        with:
+          path: ~/.cargo/registry
+          key: stable-${{ matrix.os }}-node-alpine-@10-${{ matrix.node }}-cargo-registry-trimmed-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo index
+        uses: actions/cache@v1
+        with:
+          path: ~/.cargo/git
+          key: stable-${{ matrix.os }}-node-alpine-@10-${{ matrix.node }}-cargo-index-trimmed-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Log in to registry
         run: |
@@ -26,24 +38,24 @@ jobs:
 
       - name: Pull docker image
         run: |
-          docker pull docker.pkg.github.com/napi-rs/napi-rs/rust-nodejs-alpine:lts
-          docker tag docker.pkg.github.com/napi-rs/napi-rs/rust-nodejs-alpine:lts builder
+          docker pull docker.pkg.github.com/napi-rs/napi-rs/nodejs-rust:10-alpine
+          docker tag docker.pkg.github.com/napi-rs/napi-rs/nodejs-rust:10-alpine builder
 
       - name: 'Install node dependencies'
-        run: docker run --rm -v $(pwd)/.cargo:/root/.cargo -v $(pwd):/napi-rs -w /napi-rs builder yarn
+        run: docker run --rm -v ~/.cargo/git:/root/.cargo/git -v ~/.cargo/registry:/root/.cargo/registry -v $(pwd):/napi-rs -w /napi-rs builder yarn
 
       - name: 'Install swc musl'
-        run: docker run --rm -v $(pwd)/.cargo:/root/.cargo -v $(pwd):/napi-rs -w /napi-rs builder yarn add @swc/core-linux-musl --dev
+        run: docker run --rm -v ~/.cargo/git:/root/.cargo/git -v ~/.cargo/registry:/root/.cargo/registry -v $(pwd):/napi-rs -w /napi-rs builder yarn add @swc/core-linux-musl --dev
 
       - name: 'Build TypeScript'
-        run: docker run --rm -v $(pwd)/.cargo:/root/.cargo -v $(pwd):/napi-rs -w /napi-rs builder yarn build
+        run: docker run --rm -v ~/.cargo/git:/root/.cargo/git -v ~/.cargo/registry:/root/.cargo/registry -v $(pwd):/napi-rs -w /napi-rs builder yarn build
 
       - name: Run check
         run: |
-          docker run --rm -v $(pwd)/.cargo:/root/.cargo -v $(pwd):/napi-rs -w /napi-rs builder cargo check -vvv
+          docker run --rm -v ~/.cargo/git:/root/.cargo/git -v ~/.cargo/registry:/root/.cargo/registry -v $(pwd):/napi-rs -w /napi-rs builder cargo check -vvv
 
       - name: Unit test
         run: |
-          docker run --rm -v $(pwd)/.cargo:/root/.cargo -v $(pwd):/napi-rs -w /napi-rs builder sh -c "yarn build:test && yarn test"
+          docker run --rm -v ~/.cargo/git:/root/.cargo/git -v ~/.cargo/registry:/root/.cargo/registry -v $(pwd):/napi-rs -w /napi-rs builder sh -c "yarn build:test && yarn test"
         env:
           RUST_BACKTRACE: 1
