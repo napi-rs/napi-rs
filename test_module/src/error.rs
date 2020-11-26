@@ -1,4 +1,4 @@
-use napi::{CallContext, Error, JsBoolean, JsString, JsUnknown, Module, Result, Status};
+use napi::{CallContext, Error, JsBoolean, JsObject, JsString, JsUnknown, Result, Status};
 
 #[js_function]
 fn test_throw(_ctx: CallContext) -> Result<JsUnknown> {
@@ -25,9 +25,9 @@ pub fn is_error(ctx: CallContext) -> Result<JsBoolean> {
   ctx.env.get_boolean(js_value.is_error()?)
 }
 
-pub fn register_js(module: &mut Module) -> Result<()> {
-  module.create_named_method("testThrow", test_throw)?;
-  module.create_named_method("testThrowWithReason", test_throw_with_reason)?;
-  module.create_named_method("isError", is_error)?;
+pub fn register_js(exports: &mut JsObject) -> Result<()> {
+  exports.create_named_method("testThrow", test_throw)?;
+  exports.create_named_method("testThrowWithReason", test_throw_with_reason)?;
+  exports.create_named_method("isError", is_error)?;
   Ok(())
 }

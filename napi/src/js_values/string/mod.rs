@@ -2,7 +2,7 @@ use std::mem;
 use std::ptr;
 
 use super::Value;
-use crate::error::check_status;
+use crate::check_status;
 use crate::{sys, Ref, Result};
 
 pub use latin1::JsStringLatin1;
@@ -13,41 +13,44 @@ mod latin1;
 mod utf16;
 mod utf8;
 
-#[repr(transparent)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct JsString(pub(crate) Value);
 
 impl JsString {
+  #[inline]
   pub fn utf8_len(&self) -> Result<usize> {
     let mut length = 0;
-    check_status(unsafe {
+    check_status!(unsafe {
       sys::napi_get_value_string_utf8(self.0.env, self.0.value, ptr::null_mut(), 0, &mut length)
     })?;
     Ok(length as usize)
   }
 
+  #[inline]
   pub fn utf16_len(&self) -> Result<usize> {
     let mut length = 0;
-    check_status(unsafe {
+    check_status!(unsafe {
       sys::napi_get_value_string_utf16(self.0.env, self.0.value, ptr::null_mut(), 0, &mut length)
     })?;
     Ok(length as usize)
   }
 
+  #[inline]
   pub fn latin1_len(&self) -> Result<usize> {
     let mut length = 0;
-    check_status(unsafe {
+    check_status!(unsafe {
       sys::napi_get_value_string_latin1(self.0.env, self.0.value, ptr::null_mut(), 0, &mut length)
     })?;
     Ok(length as usize)
   }
 
+  #[inline]
   pub fn into_utf8(self) -> Result<JsStringUtf8> {
     let mut written_char_count = 0;
     let len = self.utf8_len()? + 1;
     let mut result = Vec::with_capacity(len);
     let buf_ptr = result.as_mut_ptr();
-    check_status(unsafe {
+    check_status!(unsafe {
       sys::napi_get_value_string_utf8(
         self.0.env,
         self.0.value,
@@ -71,16 +74,18 @@ impl JsString {
     })
   }
 
+  #[inline]
   pub fn into_utf8_ref(self) -> Result<Ref<JsStringUtf8>> {
     Ref::new(self.0, 1, self.into_utf8()?)
   }
 
+  #[inline]
   pub fn into_utf16(self) -> Result<JsStringUtf16> {
     let mut written_char_count = 0;
     let len = self.utf16_len()? + 1;
     let mut result = Vec::with_capacity(len);
     let buf_ptr = result.as_mut_ptr();
-    check_status(unsafe {
+    check_status!(unsafe {
       sys::napi_get_value_string_utf16(
         self.0.env,
         self.0.value,
@@ -99,16 +104,18 @@ impl JsString {
     })
   }
 
+  #[inline]
   pub fn into_utf16_ref(self) -> Result<Ref<JsStringUtf16>> {
     Ref::new(self.0, 1, self.into_utf16()?)
   }
 
+  #[inline]
   pub fn into_latin1(self) -> Result<JsStringLatin1> {
     let mut written_char_count: u64 = 0;
     let len = self.latin1_len()? + 1;
     let mut result = Vec::with_capacity(len);
     let buf_ptr = result.as_mut_ptr();
-    check_status(unsafe {
+    check_status!(unsafe {
       sys::napi_get_value_string_latin1(
         self.0.env,
         self.0.value,
@@ -132,6 +139,7 @@ impl JsString {
     })
   }
 
+  #[inline]
   pub fn into_latin1_ref(self) -> Result<Ref<JsStringLatin1>> {
     Ref::new(self.0, 1, self.into_latin1()?)
   }

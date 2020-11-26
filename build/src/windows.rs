@@ -1,4 +1,5 @@
 use std::collections::hash_map::DefaultHasher;
+use std::env;
 use std::fs::{metadata, write};
 use std::hash::{Hash, Hasher};
 use std::io::Read;
@@ -35,14 +36,14 @@ fn download_node_lib(dist_url: &str, version: &str, arch: &str) -> Vec<u8> {
 }
 
 pub fn setup() {
-  let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR is not set");
+  let out_dir = env::var("OUT_DIR").expect("OUT_DIR is not set");
 
   // Assume nodejs if not specified.
   let dist_url =
-    std::env::var("NPM_CONFIG_DISTURL").unwrap_or_else(|_| "https://nodejs.org/dist".to_string());
+    env::var("NPM_CONFIG_DISTURL").unwrap_or_else(|_| "https://nodejs.org/dist".to_string());
 
   // Try to get local nodejs version if not specified.
-  let node_version = std::env::var("NPM_CONFIG_TARGET")
+  let node_version = env::var("NPM_CONFIG_TARGET")
     .or_else(|_| get_node_version())
     .expect("Failed to determine nodejs version");
 
@@ -53,7 +54,7 @@ pub fn setup() {
   // See https://nodejs.org/docs/latest/api/process.html#process_process_arch for npm env values.
   // For windows, we only support `['ia32', 'x64', 'arm64']`
   // https://github.com/nodejs/node-gyp/blob/master/lib/install.js#L301
-  let arch = std::env::var("CARGO_CFG_TARGET_ARCH")
+  let arch = env::var("CARGO_CFG_TARGET_ARCH")
     .map(|arch| match arch.as_str() {
       "x86" => "x86",
       "x86_64" => "x64",

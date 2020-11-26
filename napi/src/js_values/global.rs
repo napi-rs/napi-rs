@@ -3,15 +3,12 @@ use std::convert::TryInto;
 use super::*;
 use crate::Env;
 
-#[repr(transparent)]
-#[derive(Debug)]
 pub struct JsGlobal(pub(crate) Value);
 
-#[repr(transparent)]
-#[derive(Debug)]
 pub struct JsTimeout(pub(crate) Value);
 
 impl JsGlobal {
+  #[inline]
   pub fn set_interval(&self, handler: JsFunction, interval: f64) -> Result<JsTimeout> {
     let func: JsFunction = self.get_named_property("setInterval")?;
     func
@@ -34,6 +31,7 @@ impl JsGlobal {
       .and_then(|ret| ret.try_into())
   }
 
+  #[inline]
   pub fn set_timeout(&self, handler: JsFunction, interval: f64) -> Result<JsTimeout> {
     let func: JsFunction = self.get_named_property("setTimeout")?;
     func
@@ -49,6 +47,7 @@ impl JsGlobal {
       .and_then(|ret| ret.try_into())
   }
 
+  #[inline]
   pub fn clear_timeout(&self, timer: JsTimeout) -> Result<JsUndefined> {
     let func: JsFunction = self.get_named_property("clearTimeout")?;
     func

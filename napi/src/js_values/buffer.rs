@@ -5,24 +5,22 @@ use std::ptr;
 use super::Value;
 #[cfg(feature = "serde-json")]
 use super::ValueType;
-use crate::error::check_status;
+use crate::check_status;
 use crate::{sys, JsUnknown, NapiValue, Ref, Result};
 
-#[repr(transparent)]
-#[derive(Debug)]
 pub struct JsBuffer(pub(crate) Value);
 
-#[derive(Debug)]
 pub struct JsBufferValue {
   pub(crate) value: JsBuffer,
   data: mem::ManuallyDrop<Vec<u8>>,
 }
 
 impl JsBuffer {
+  #[inline]
   pub fn into_value(self) -> Result<JsBufferValue> {
     let mut data = ptr::null_mut();
     let mut len: usize = 0;
-    check_status(unsafe {
+    check_status!(unsafe {
       sys::napi_get_buffer_info(
         self.0.env,
         self.0.value,
@@ -44,10 +42,11 @@ impl JsBuffer {
 
 impl JsBufferValue {
   #[cfg(feature = "serde-json")]
+  #[inline]
   pub(crate) fn from_raw(env: sys::napi_env, value: sys::napi_value) -> Result<Self> {
     let mut data = ptr::null_mut();
     let mut len = 0usize;
-    check_status(unsafe {
+    check_status!(unsafe {
       sys::napi_get_buffer_info(env, value, &mut data, &mut len as *mut usize as *mut _)
     })?;
     Ok(Self {
@@ -60,6 +59,7 @@ impl JsBufferValue {
     })
   }
 
+  #[inline]
   pub fn new(value: JsBuffer, data: Vec<u8>) -> Self {
     JsBufferValue {
       value,
@@ -67,10 +67,12 @@ impl JsBufferValue {
     }
   }
 
+  #[inline]
   pub fn into_raw(self) -> JsBuffer {
     self.value
   }
 
+  #[inline]
   pub fn into_unknown(self) -> JsUnknown {
     unsafe { JsUnknown::from_raw_unchecked(self.value.0.env, self.value.0.value) }
   }

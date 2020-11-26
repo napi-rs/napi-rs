@@ -1,6 +1,6 @@
 use std::convert::TryInto;
 
-use napi::{CallContext, JsFunction, JsNumber, JsObject, JsUndefined, Module, Property, Result};
+use napi::{CallContext, JsFunction, JsNumber, JsObject, JsUndefined, Property, Result};
 
 struct NativeClass {
   value: i32,
@@ -58,8 +58,8 @@ fn new_test_class(ctx: CallContext) -> Result<JsObject> {
   test_class.new(&vec![ctx.env.create_int32(42)?])
 }
 
-pub fn register_js(module: &mut Module) -> Result<()> {
-  module.create_named_method("createTestClass", create_test_class)?;
-  module.create_named_method("newTestClass", new_test_class)?;
+pub fn register_js(exports: &mut JsObject) -> Result<()> {
+  exports.create_named_method("createTestClass", create_test_class)?;
+  exports.create_named_method("newTestClass", new_test_class)?;
   Ok(())
 }

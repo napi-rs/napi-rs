@@ -5,8 +5,7 @@ use std::ptr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use crate::error::check_status;
-use crate::{sys, Env, Error, JsFunction, NapiValue, Result, Status};
+use crate::{check_status, sys, Env, Error, JsFunction, NapiValue, Result, Status};
 
 use sys::napi_threadsafe_function_call_mode;
 
@@ -86,7 +85,6 @@ pub struct ThreadsafeFunction<T: 'static> {
 unsafe impl<T> Send for ThreadsafeFunction<T> {}
 unsafe impl<T> Sync for ThreadsafeFunction<T> {}
 
-#[repr(transparent)]
 struct ThreadSafeContext<T: 'static, V: NapiValue>(
   Box<dyn FnMut(ThreadSafeCallContext<T>) -> Result<Vec<V>>>,
 );
@@ -94,7 +92,7 @@ struct ThreadSafeContext<T: 'static, V: NapiValue>(
 impl<T: 'static> ThreadsafeFunction<T> {
   /// See [napi_create_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_create_threadsafe_function)
   /// for more information.
-  #[inline(always)]
+  #[inline]
   pub fn create<
     V: NapiValue,
     R: 'static + Send + FnMut(ThreadSafeCallContext<T>) -> Result<Vec<V>>,
@@ -106,7 +104,7 @@ impl<T: 'static> ThreadsafeFunction<T> {
   ) -> Result<Self> {
     let mut async_resource_name = ptr::null_mut();
     let s = "napi_rs_threadsafe_function";
-    check_status(unsafe {
+    check_status!(unsafe {
       sys::napi_create_string_utf8(
         env,
         s.as_ptr() as *const c_char,
@@ -119,7 +117,7 @@ impl<T: 'static> ThreadsafeFunction<T> {
     let mut raw_tsfn = ptr::null_mut();
     let context = ThreadSafeContext(Box::from(callback));
     let ptr = Box::into_raw(Box::new(context)) as *mut _;
-    check_status(unsafe {
+    check_status!(unsafe {
       sys::napi_create_threadsafe_function(
         env,
         func.0.value,
@@ -169,7 +167,7 @@ impl<T: 'static> ThreadsafeFunction<T> {
         format!("Can not ref, Thread safe function already aborted"),
       ));
     }
-    check_status(unsafe { sys::napi_ref_threadsafe_function(env.0, self.raw_tsfn) })
+    check_status!(unsafe { sys::napi_ref_threadsafe_function(env.0, self.raw_tsfn) })
   }
 
   /// See [napi_unref_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_unref_threadsafe_function)
@@ -181,7 +179,7 @@ impl<T: 'static> ThreadsafeFunction<T> {
         format!("Can not unref, Thread safe function already aborted"),
       ));
     }
-    check_status(unsafe { sys::napi_unref_threadsafe_function(env.0, self.raw_tsfn) })
+    check_status!(unsafe { sys::napi_unref_threadsafe_function(env.0, self.raw_tsfn) })
   }
 
   pub fn aborted(&self) -> bool {
@@ -189,7 +187,7 @@ impl<T: 'static> ThreadsafeFunction<T> {
   }
 
   pub fn abort(self) -> Result<()> {
-    check_status(unsafe {
+    check_status!(unsafe {
       sys::napi_release_threadsafe_function(
         self.raw_tsfn,
         sys::napi_threadsafe_function_release_mode::napi_tsfn_abort,
@@ -206,7 +204,7 @@ impl<T: 'static> ThreadsafeFunction<T> {
         format!("Can not clone, Thread safe function already aborted"),
       ));
     }
-    check_status(unsafe { sys::napi_acquire_threadsafe_function(self.raw_tsfn) })?;
+    check_status!(unsafe { sys::napi_acquire_threadsafe_function(self.raw_tsfn) })?;
     Ok(Self {
       raw_tsfn: self.raw_tsfn,
       aborted: Arc::clone(&self.aborted),

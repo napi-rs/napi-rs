@@ -1,8 +1,6 @@
 use std::convert::TryInto;
 
-use napi::{
-  CallContext, Env, JsBuffer, JsBufferValue, JsNumber, JsObject, Module, Ref, Result, Task,
-};
+use napi::{CallContext, Env, JsBuffer, JsBufferValue, JsNumber, JsObject, Ref, Result, Task};
 
 struct ComputeFib {
   n: u32,
@@ -75,8 +73,8 @@ fn test_spawn_thread_with_ref(ctx: CallContext) -> Result<JsObject> {
   Ok(async_work_promise.promise_object())
 }
 
-pub fn register_js(module: &mut Module) -> Result<()> {
-  module.create_named_method("testSpawnThread", test_spawn_thread)?;
-  module.create_named_method("testSpawnThreadWithRef", test_spawn_thread_with_ref)?;
+pub fn register_js(exports: &mut JsObject) -> Result<()> {
+  exports.create_named_method("testSpawnThread", test_spawn_thread)?;
+  exports.create_named_method("testSpawnThreadWithRef", test_spawn_thread_with_ref)?;
   Ok(())
 }

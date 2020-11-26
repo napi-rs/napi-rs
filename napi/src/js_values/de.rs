@@ -3,9 +3,9 @@ use std::convert::TryInto;
 use serde::de::Visitor;
 use serde::de::{DeserializeSeed, EnumAccess, MapAccess, SeqAccess, Unexpected, VariantAccess};
 
-use super::{type_of, NapiValue, Value, ValueType};
 #[cfg(feature = "napi6")]
 use crate::JsBigint;
+use crate::{type_of, NapiValue, Value, ValueType};
 use crate::{
   Error, JsBoolean, JsBufferValue, JsNumber, JsObject, JsString, JsUnknown, Result, Status,
 };
@@ -20,7 +20,7 @@ impl<'x, 'de, 'env> serde::de::Deserializer<'x> for &'de mut De<'env> {
   where
     V: Visitor<'x>,
   {
-    let js_value_type = type_of(self.0.env, self.0.value)?;
+    let js_value_type = unsafe { type_of!(self.0.env, self.0.value) }?;
     match js_value_type {
       ValueType::Null | ValueType::Undefined => visitor.visit_unit(),
       ValueType::Boolean => {
@@ -89,7 +89,7 @@ impl<'x, 'de, 'env> serde::de::Deserializer<'x> for &'de mut De<'env> {
   where
     V: Visitor<'x>,
   {
-    match type_of(self.0.env, self.0.value)? {
+    match unsafe { type_of!(self.0.env, self.0.value) }? {
       ValueType::Undefined | ValueType::Null => visitor.visit_none(),
       _ => visitor.visit_some(self),
     }
@@ -104,7 +104,7 @@ impl<'x, 'de, 'env> serde::de::Deserializer<'x> for &'de mut De<'env> {
   where
     V: Visitor<'x>,
   {
-    let js_value_type = type_of(self.0.env, self.0.value)?;
+    let js_value_type = unsafe { type_of!(self.0.env, self.0.value)? };
     match js_value_type {
       ValueType::String => visitor.visit_enum(JsEnumAccess::new(
         unsafe { JsString::from_raw_unchecked(self.0.env, self.0.value) }

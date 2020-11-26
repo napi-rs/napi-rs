@@ -4,40 +4,31 @@ use std::os::raw::c_void;
 use std::ptr;
 
 use super::{Value, ValueType};
-use crate::error::check_status;
+use crate::check_status;
 use crate::{sys, JsUnknown, NapiValue, Ref, Result};
 
-#[repr(transparent)]
-#[derive(Debug)]
 pub struct JsArrayBuffer(pub(crate) Value);
 
-#[derive(Debug)]
 pub struct JsArrayBufferValue {
   pub(crate) value: JsArrayBuffer,
   data: mem::ManuallyDrop<Vec<u8>>,
 }
 
-#[repr(transparent)]
-#[derive(Debug)]
 pub struct JsTypedArray(pub(crate) Value);
 
-#[derive(Debug)]
 pub struct JsTypedArrayValue {
   pub arraybuffer: JsArrayBuffer,
-  data: *mut c_void,
+  _data: *mut c_void,
   pub byte_offset: u64,
   pub length: u64,
   pub typedarray_type: TypedArrayType,
 }
 
-#[repr(transparent)]
-#[derive(Debug)]
 pub struct JsDataView(pub(crate) Value);
 
-#[derive(Debug)]
 pub struct JsDataViewValue {
   pub arraybuffer: JsArrayBuffer,
-  data: *mut c_void,
+  _data: *mut c_void,
   pub byte_offset: u64,
   pub length: u64,
 }
@@ -88,23 +79,26 @@ impl From<TypedArrayType> for sys::napi_typedarray_type {
 
 impl JsArrayBuffer {
   #[cfg(feature = "napi7")]
+  #[inline]
   pub fn detach(self) -> Result<()> {
-    check_status(unsafe { sys::napi_detach_arraybuffer(self.0.env, self.0.value) })
+    check_status!(unsafe { sys::napi_detach_arraybuffer(self.0.env, self.0.value) })
   }
 
   #[cfg(feature = "napi7")]
+  #[inline]
   pub fn is_detached(&self) -> Result<bool> {
     let mut is_detached = false;
-    check_status(unsafe {
+    check_status!(unsafe {
       sys::napi_is_detached_arraybuffer(self.0.env, self.0.value, &mut is_detached)
     })?;
     Ok(is_detached)
   }
 
+  #[inline]
   pub fn into_value(self) -> Result<JsArrayBufferValue> {
     let mut data = ptr::null_mut();
     let mut len: usize = 0;
-    check_status(unsafe {
+    check_status!(unsafe {
       sys::napi_get_arraybuffer_info(
         self.0.env,
         self.0.value,
@@ -118,6 +112,7 @@ impl JsArrayBuffer {
     })
   }
 
+  #[inline]
   pub fn into_typedarray(
     self,
     typedarray_type: TypedArrayType,
@@ -125,7 +120,7 @@ impl JsArrayBuffer {
     byte_offset: u64,
   ) -> Result<JsTypedArray> {
     let mut typedarray_value = ptr::null_mut();
-    check_status(unsafe {
+    check_status!(unsafe {
       sys::napi_create_typedarray(
         self.0.env,
         typedarray_type.into(),
@@ -142,9 +137,10 @@ impl JsArrayBuffer {
     }))
   }
 
+  #[inline]
   pub fn into_dataview(self, length: u64, byte_offset: u64) -> Result<JsDataView> {
     let mut dataview_value = ptr::null_mut();
-    check_status(unsafe {
+    check_status!(unsafe {
       sys::napi_create_dataview(
         self.0.env,
         length as _,
@@ -167,6 +163,7 @@ impl JsArrayBuffer {
 }
 
 impl JsArrayBufferValue {
+  #[inline]
   pub fn new(value: JsArrayBuffer, data: Vec<u8>) -> Self {
     JsArrayBufferValue {
       value,
@@ -174,10 +171,12 @@ impl JsArrayBufferValue {
     }
   }
 
+  #[inline]
   pub fn into_raw(self) -> JsArrayBuffer {
     self.value
   }
 
+  #[inline]
   pub fn into_unknown(self) -> JsUnknown {
     unsafe { JsUnknown::from_raw_unchecked(self.value.0.env, self.value.0.value) }
   }
@@ -202,13 +201,14 @@ impl JsTypedArray {
   /// https://nodejs.org/api/n-api.html#n_api_napi_get_typedarray_info
   ///
   /// ***Warning***: Use caution while using this API since the underlying data buffer is managed by the VM.
+  #[inline]
   pub fn into_value(self) -> Result<JsTypedArrayValue> {
     let mut typedarray_type = 0;
     let mut len = 0u64;
     let mut data = ptr::null_mut();
     let mut arraybuffer_value = ptr::null_mut();
     let mut byte_offset = 0u64;
-    check_status(unsafe {
+    check_status!(unsafe {
       sys::napi_get_typedarray_info(
         self.0.env,
         self.0.value,
@@ -221,7 +221,7 @@ impl JsTypedArray {
     })?;
 
     Ok(JsTypedArrayValue {
-      data,
+      _data: data,
       length: len,
       byte_offset,
       typedarray_type: typedarray_type.into(),
@@ -231,13 +231,14 @@ impl JsTypedArray {
 }
 
 impl JsDataView {
+  #[inline]
   pub fn into_value(self) -> Result<JsDataViewValue> {
     let mut length = 0u64;
     let mut byte_offset = 0u64;
     let mut arraybuffer_value = ptr::null_mut();
     let mut data = ptr::null_mut();
 
-    check_status(unsafe {
+    check_status!(unsafe {
       sys::napi_get_dataview_info(
         self.0.env,
         self.0.value,
@@ -251,7 +252,7 @@ impl JsDataView {
       arraybuffer: unsafe { JsArrayBuffer::from_raw_unchecked(self.0.env, arraybuffer_value) },
       byte_offset,
       length,
-      data,
+      _data: data,
     })
   }
 }
