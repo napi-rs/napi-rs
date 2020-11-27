@@ -20,13 +20,13 @@ jobs:
         uses: actions/cache@v1
         with:
           path: ~/.cargo/registry
-          key: stable-${{ matrix.os }}-node-alpine-@10-${{ matrix.node }}-cargo-registry-trimmed-${{ hashFiles('**/Cargo.lock') }}
+          key: stable-alpine-node-alpine-@10-cargo-registry-trimmed-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache cargo index
         uses: actions/cache@v1
         with:
           path: ~/.cargo/git
-          key: stable-${{ matrix.os }}-node-alpine-@10-${{ matrix.node }}-cargo-index-trimmed-${{ hashFiles('**/Cargo.lock') }}
+          key: stable-alpine-node-alpine-@10-cargo-index-trimmed-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Log in to registry
         run: |
