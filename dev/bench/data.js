@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1606376715115,
+  "lastUpdate": 1606494462122,
   "repoUrl": "https://github.com/napi-rs/napi-rs",
   "entries": {
     "Benchmark": [
@@ -5258,6 +5258,65 @@ window.BENCHMARK_DATA = {
             "range": "±2.86%",
             "unit": "ops/sec",
             "extra": "75 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "lynweklm@gmail.com",
+            "name": "LongYinan",
+            "username": "Brooooooklyn"
+          },
+          "committer": {
+            "email": "lynweklm@gmail.com",
+            "name": "LongYinan",
+            "username": "Brooooooklyn"
+          },
+          "distinct": true,
+          "id": "c0eddf32016bc3d5414f9eecdde8ec938467bb11",
+          "message": "fix: add missing rustup path",
+          "timestamp": "2020-11-28T00:25:44+08:00",
+          "tree_id": "6408c8b3d337b36f90e9b61c0bc9ad8fddae54f2",
+          "url": "https://github.com/napi-rs/napi-rs/commit/c0eddf32016bc3d5414f9eecdde8ec938467bb11"
+        },
+        "date": 1606494461120,
+        "tool": "benchmarkjs",
+        "benches": [
+          {
+            "name": "noop#napi-rs",
+            "value": 49331495,
+            "range": "±0.75%",
+            "unit": "ops/sec",
+            "extra": "88 samples"
+          },
+          {
+            "name": "noop#JavaScript",
+            "value": 648694189,
+            "range": "±0.73%",
+            "unit": "ops/sec",
+            "extra": "92 samples"
+          },
+          {
+            "name": "Plus number#napi-rs",
+            "value": 14404536,
+            "range": "±1.08%",
+            "unit": "ops/sec",
+            "extra": "89 samples"
+          },
+          {
+            "name": "Plus number#JavaScript",
+            "value": 651374752,
+            "range": "±0.69%",
+            "unit": "ops/sec",
+            "extra": "89 samples"
+          },
+          {
+            "name": "Async task#napi-rs",
+            "value": 28278,
+            "range": "±2.28%",
+            "unit": "ops/sec",
+            "extra": "82 samples"
           }
         ]
       }
