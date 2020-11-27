@@ -1,7 +1,7 @@
 FROM node:10-alpine
 
 ENV RUSTFLAGS="-C target-feature=-crt-static" \
-  PATH="/root/.cargo/bin:$PATH" \
+  PATH="/usr/local/cargo/bin/rustup:/root/.cargo/bin:$PATH" \
   CC="clang" \
   CXX="clang++"
 
