@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1606494462122,
+  "lastUpdate": 1606495612773,
   "repoUrl": "https://github.com/napi-rs/napi-rs",
   "entries": {
     "Benchmark": [
@@ -5317,6 +5317,65 @@ window.BENCHMARK_DATA = {
             "range": "±2.28%",
             "unit": "ops/sec",
             "extra": "82 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "lynweklm@gmail.com",
+            "name": "LongYinan",
+            "username": "Brooooooklyn"
+          },
+          "committer": {
+            "email": "lynweklm@gmail.com",
+            "name": "LongYinan",
+            "username": "Brooooooklyn"
+          },
+          "distinct": true,
+          "id": "280066fff3e80eac1d9d084a342898261c1de6f0",
+          "message": "ci: cargo cache key in linux-musl",
+          "timestamp": "2020-11-28T00:44:53+08:00",
+          "tree_id": "a5619fd14c1710a7735db9c1359cce8558992551",
+          "url": "https://github.com/napi-rs/napi-rs/commit/280066fff3e80eac1d9d084a342898261c1de6f0"
+        },
+        "date": 1606495611798,
+        "tool": "benchmarkjs",
+        "benches": [
+          {
+            "name": "noop#napi-rs",
+            "value": 47038893,
+            "range": "±1.17%",
+            "unit": "ops/sec",
+            "extra": "89 samples"
+          },
+          {
+            "name": "noop#JavaScript",
+            "value": 610314932,
+            "range": "±0.93%",
+            "unit": "ops/sec",
+            "extra": "88 samples"
+          },
+          {
+            "name": "Plus number#napi-rs",
+            "value": 13988658,
+            "range": "±1.25%",
+            "unit": "ops/sec",
+            "extra": "91 samples"
+          },
+          {
+            "name": "Plus number#JavaScript",
+            "value": 631573631,
+            "range": "±1.2%",
+            "unit": "ops/sec",
+            "extra": "90 samples"
+          },
+          {
+            "name": "Async task#napi-rs",
+            "value": 26117,
+            "range": "±1.94%",
+            "unit": "ops/sec",
+            "extra": "79 samples"
           }
         ]
       }
