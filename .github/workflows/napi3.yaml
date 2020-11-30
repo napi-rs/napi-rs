@@ -54,8 +54,6 @@ jobs:
         with:
           path: node_modules
           key: napi3-${{ hashFiles('yarn.lock') }}
-          restore-keys: |
-            npm-cache-
 
       - name: 'Install dependencies'
         run: yarn add ava@2 --dev --ignore-engines

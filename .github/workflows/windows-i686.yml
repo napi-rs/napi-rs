@@ -29,8 +29,6 @@ jobs:
         with:
           path: node_modules
           key: npm-cache-windows-i686-node@lts-${{ hashFiles('yarn.lock') }}
-          restore-keys: |
-            npm-cache-
 
       - name: 'Install dependencies'
         run: yarn install --frozen-lockfile --registry https://registry.npmjs.org
