@@ -58,8 +58,6 @@ jobs:
         with:
           path: node_modules
           key: npm-cache-linux-aarch64-node@14-${{ hashFiles('yarn.lock') }}
-          restore-keys: |
-            npm-cache-
 
       - name: Install cross compile toolchain
         run: sudo apt-get install gcc-aarch64-linux-gnu g++-6-aarch64-linux-gnu -y

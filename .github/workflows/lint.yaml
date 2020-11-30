@@ -48,8 +48,6 @@ jobs:
         with:
           path: node_modules
           key: lint-${{ hashFiles('yarn.lock') }}
-          restore-keys: |
-            npm-cache-
 
       - name: 'Install dependencies'
         run: yarn install --frozen-lockfile --registry https://registry.npmjs.org
