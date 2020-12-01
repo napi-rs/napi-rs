@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1606745806302,
+  "lastUpdate": 1606806806976,
   "repoUrl": "https://github.com/napi-rs/napi-rs",
   "entries": {
     "Benchmark": [
@@ -5494,6 +5494,65 @@ window.BENCHMARK_DATA = {
             "range": "±3.56%",
             "unit": "ops/sec",
             "extra": "71 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "lynweklm@gmail.com",
+            "name": "LongYinan",
+            "username": "Brooooooklyn"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "07a5ab23d06a25fbdd52ea1fc2bd5fdf0f7f8521",
+          "message": "Merge pull request #327 from napi-rs/clippy\n\nci: add cargo clippy",
+          "timestamp": "2020-12-01T15:11:37+08:00",
+          "tree_id": "5ab31eafe45e7312999bd2bd324233a7ea332ff2",
+          "url": "https://github.com/napi-rs/napi-rs/commit/07a5ab23d06a25fbdd52ea1fc2bd5fdf0f7f8521"
+        },
+        "date": 1606806805984,
+        "tool": "benchmarkjs",
+        "benches": [
+          {
+            "name": "noop#napi-rs",
+            "value": 48073400,
+            "range": "±0.39%",
+            "unit": "ops/sec",
+            "extra": "91 samples"
+          },
+          {
+            "name": "noop#JavaScript",
+            "value": 608647002,
+            "range": "±0.33%",
+            "unit": "ops/sec",
+            "extra": "95 samples"
+          },
+          {
+            "name": "Plus number#napi-rs",
+            "value": 13588005,
+            "range": "±0.31%",
+            "unit": "ops/sec",
+            "extra": "90 samples"
+          },
+          {
+            "name": "Plus number#JavaScript",
+            "value": 608849865,
+            "range": "±0.27%",
+            "unit": "ops/sec",
+            "extra": "96 samples"
+          },
+          {
+            "name": "Async task#napi-rs",
+            "value": 26542,
+            "range": "±1.86%",
+            "unit": "ops/sec",
+            "extra": "83 samples"
           }
         ]
       }
