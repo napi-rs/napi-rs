@@ -25,6 +25,11 @@ impl JsStringLatin1 {
   }
 
   #[inline]
+  pub fn is_empty(&self) -> bool {
+    self.buf.is_empty()
+  }
+
+  #[inline]
   pub fn take(self) -> Vec<u8> {
     self.as_slice().to_vec()
   }

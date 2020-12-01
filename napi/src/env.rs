@@ -1,7 +1,6 @@
 use std::any::TypeId;
 use std::convert::TryInto;
 use std::ffi::CString;
-use std::mem;
 use std::os::raw::{c_char, c_void};
 use std::ptr;
 
@@ -37,6 +36,7 @@ pub struct Env(pub(crate) sys::napi_env);
 
 impl Env {
   #[inline]
+  #[allow(clippy::missing_safety_doc)]
   pub unsafe fn from_raw(env: sys::napi_env) -> Self {
     Env(env)
   }
@@ -461,9 +461,9 @@ impl Env {
         &mut unknown_tagged_object,
       ))?;
 
-      let type_id: *const TypeId = mem::transmute(unknown_tagged_object);
+      let type_id = unknown_tagged_object as *const TypeId;
       if *type_id == TypeId::of::<T>() {
-        let tagged_object: *mut TaggedObject<T> = mem::transmute(unknown_tagged_object);
+        let tagged_object = unknown_tagged_object as *mut TaggedObject<T>;
         (*tagged_object).object.as_mut().ok_or(Error {
           status: Status::InvalidArg,
           reason: "Invalid argument, nothing attach to js_object".to_owned(),
@@ -487,9 +487,9 @@ impl Env {
         &mut unknown_tagged_object,
       ))?;
 
-      let type_id: *const TypeId = mem::transmute(unknown_tagged_object);
+      let type_id = unknown_tagged_object as *const TypeId;
       if *type_id == TypeId::of::<T>() {
-        let tagged_object: *mut TaggedObject<T> = mem::transmute(unknown_tagged_object);
+        let tagged_object = unknown_tagged_object as *mut TaggedObject<T>;
         (*tagged_object).object = None;
         Ok(())
       } else {
@@ -527,9 +527,9 @@ impl Env {
         &mut unknown_tagged_object,
       ))?;
 
-      let type_id: *const TypeId = mem::transmute(unknown_tagged_object);
+      let type_id = unknown_tagged_object as *const TypeId;
       if *type_id == TypeId::of::<T>() {
-        let tagged_object: *mut TaggedObject<T> = mem::transmute(unknown_tagged_object);
+        let tagged_object = unknown_tagged_object as *mut TaggedObject<T>;
         (*tagged_object).object.as_mut().ok_or(Error {
           status: Status::InvalidArg,
           reason: "nothing attach to js_external".to_owned(),
@@ -610,7 +610,7 @@ impl Env {
   ) -> Result<CleanupEnvHook<T>>
   where
     T: 'static,
-    F: 'static + FnOnce(T) -> (),
+    F: 'static + FnOnce(T),
   {
     let hook = CleanupEnvHookData {
       data: cleanup_data,
@@ -793,7 +793,7 @@ unsafe extern "C" fn raw_finalize<T>(
   finalize_data: *mut c_void,
   _finalize_hint: *mut c_void,
 ) {
-  let tagged_object: *mut TaggedObject<T> = mem::transmute(finalize_data);
+  let tagged_object = finalize_data as *mut TaggedObject<T>;
   Box::from_raw(tagged_object);
 }
 

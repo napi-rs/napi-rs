@@ -53,12 +53,10 @@ impl<'env> CallContext<'env> {
         status: Status::GenericFailure,
         reason: "Arguments index out of range".to_owned(),
       })
+    } else if index < self.length {
+      unsafe { ArgType::from_raw(self.env.0, self.args[index]) }.map(Either::A)
     } else {
-      if index < self.length {
-        unsafe { ArgType::from_raw(self.env.0, self.args[index]) }.map(Either::A)
-      } else {
-        self.env.get_undefined().map(Either::B)
-      }
+      self.env.get_undefined().map(Either::B)
     }
   }
 

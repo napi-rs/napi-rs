@@ -1,3 +1,5 @@
+#![deny(clippy::all)]
+
 //! High level NodeJS [N-API](https://nodejs.org/api/n-api.html) binding
 //!
 //! **napi-rs** provides minimal overhead to write N-API modules in `Rust`.
