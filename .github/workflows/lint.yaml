@@ -25,6 +25,7 @@ jobs:
           toolchain: stable
           profile: default
           override: true
+          components: rustfmt, clippy
 
       - name: Generate Cargo.lock
         uses: actions-rs/cargo@v1
@@ -55,8 +56,11 @@ jobs:
       - name: 'Lint JS/TS'
         run: yarn lint
 
-      - name: 'Lint rust'
+      - name: Cargo fmt
         run: cargo fmt -- --check
+
+      - name: Clippy
+        run: cargo clippy
 
       - name: Clear the cargo caches
         run: |

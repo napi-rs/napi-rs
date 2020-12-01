@@ -24,7 +24,6 @@ impl<T: NapiValue> EscapableHandleScope<T> {
     })
   }
 
-  #[must_use]
   pub fn close(self, env: Env) -> Result<()> {
     check_status!(unsafe { sys::napi_close_escapable_handle_scope(env.0, self.handle_scope) })
   }

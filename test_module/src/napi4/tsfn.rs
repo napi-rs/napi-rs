@@ -127,7 +127,7 @@ async fn read_file_content(filepath: &Path) -> Result<Vec<u8>> {
 pub fn test_tokio_readfile(ctx: CallContext) -> Result<JsUndefined> {
   let js_filepath = ctx.get::<JsString>(0)?;
   let js_func = ctx.get::<JsFunction>(1)?;
-  let path_str = js_filepath.into_utf8()?.to_owned()?;
+  let path_str = js_filepath.into_utf8()?.into_owned()?;
 
   let tsfn =
     ctx

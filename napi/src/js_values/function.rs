@@ -32,10 +32,7 @@ impl JsFunction {
           .ok()
           .map(|u| unsafe { u.raw() })
       })
-      .ok_or(Error::new(
-        Status::GenericFailure,
-        "Get raw this failed".to_owned(),
-      ))?;
+      .ok_or_else(|| Error::new(Status::GenericFailure, "Get raw this failed".to_owned()))?;
     let raw_args = args
       .iter()
       .map(|arg| arg.0.value)
@@ -57,6 +54,7 @@ impl JsFunction {
 
   /// https://nodejs.org/api/n-api.html#n_api_napi_new_instance
   /// This method is used to instantiate a new `JavaScript` value using a given `JsFunction` that represents the constructor for the object.
+  #[allow(clippy::new_ret_no_self)]
   #[inline]
   pub fn new<V>(&self, args: &[V]) -> Result<JsObject>
   where

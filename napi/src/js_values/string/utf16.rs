@@ -27,6 +27,11 @@ impl JsStringUtf16 {
   }
 
   #[inline]
+  pub fn is_empty(&self) -> bool {
+    self.buf.is_empty()
+  }
+
+  #[inline]
   pub fn into_value(self) -> JsString {
     self.inner
   }

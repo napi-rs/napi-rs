@@ -516,10 +516,13 @@ macro_rules! impl_object_methods {
 }
 
 pub trait NapiValue: Sized {
+  #[allow(clippy::missing_safety_doc)]
   unsafe fn from_raw(env: sys::napi_env, value: sys::napi_value) -> Result<Self>;
 
+  #[allow(clippy::missing_safety_doc)]
   unsafe fn from_raw_unchecked(env: sys::napi_env, value: sys::napi_value) -> Self;
 
+  #[allow(clippy::missing_safety_doc)]
   unsafe fn raw(&self) -> sys::napi_value;
 }
 

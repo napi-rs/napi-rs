@@ -18,8 +18,8 @@ impl Parse for ArgLength {
     Ok(ArgLength {
       length: vars
         .first()
-        .map(|i| i.clone())
-        .unwrap_or(Literal::usize_unsuffixed(0)),
+        .cloned()
+        .unwrap_or_else(|| Literal::usize_unsuffixed(0)),
     })
   }
 }

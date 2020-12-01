@@ -1,6 +1,6 @@
 pub(crate) struct CleanupEnvHookData<T: 'static> {
   pub(crate) data: T,
-  pub(crate) hook: Box<dyn FnOnce(T) -> ()>,
+  pub(crate) hook: Box<dyn FnOnce(T)>,
 }
 
 #[derive(Clone, Copy)]
