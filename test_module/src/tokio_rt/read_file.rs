@@ -5,7 +5,7 @@ use tokio;
 #[js_function(1)]
 pub fn test_execute_tokio_readfile(ctx: CallContext) -> Result<JsObject> {
   let js_filepath = ctx.get::<JsString>(0)?;
-  let path_str = js_filepath.into_utf8()?.to_owned()?;
+  let path_str = js_filepath.into_utf8()?.into_owned()?;
   ctx.env.execute_tokio_future(
     tokio::fs::read(path_str).map(|v| {
       v.map_err(|e| {
@@ -22,7 +22,7 @@ pub fn test_execute_tokio_readfile(ctx: CallContext) -> Result<JsObject> {
 #[js_function(1)]
 pub fn error_from_tokio_future(ctx: CallContext) -> Result<JsObject> {
   let js_filepath = ctx.get::<JsString>(0)?;
-  let path_str = js_filepath.into_utf8()?.to_owned()?;
+  let path_str = js_filepath.into_utf8()?.into_owned()?;
   ctx.env.execute_tokio_future(
     tokio::fs::read(path_str)
       .map_err(Error::from)

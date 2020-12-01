@@ -32,7 +32,7 @@ impl<'env> AsyncWorkPromise<'env> {
 }
 
 #[inline]
-pub fn run<'env, T: Task>(env: &'env Env, task: T) -> Result<AsyncWorkPromise<'env>> {
+pub fn run<T: Task>(env: &Env, task: T) -> Result<AsyncWorkPromise<'_>> {
   let mut raw_resource = ptr::null_mut();
   check_status!(unsafe { sys::napi_create_object(env.0, &mut raw_resource) })?;
   let mut raw_promise = ptr::null_mut();
@@ -86,7 +86,7 @@ unsafe extern "C" fn execute<T: Task>(_env: sys::napi_env, data: *mut c_void) {
   let mut work = Box::from_raw(data as *mut AsyncWork<T>);
   let _ = mem::replace(
     &mut work.value,
-    work.inner_task.compute().map(|v| mem::MaybeUninit::new(v)),
+    work.inner_task.compute().map(mem::MaybeUninit::new),
   );
   Box::leak(work);
 }

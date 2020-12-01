@@ -109,7 +109,7 @@ impl<'x, 'de, 'env> serde::de::Deserializer<'x> for &'de mut De<'env> {
       ValueType::String => visitor.visit_enum(JsEnumAccess::new(
         unsafe { JsString::from_raw_unchecked(self.0.env, self.0.value) }
           .into_utf8()?
-          .to_owned()?,
+          .into_owned()?,
         None,
       )),
       ValueType::Object => {
@@ -128,7 +128,7 @@ impl<'x, 'de, 'env> serde::de::Deserializer<'x> for &'de mut De<'env> {
           let key = properties.get_element::<JsString>(0)?;
           let value: JsUnknown = js_object.get_property(&key)?;
           visitor.visit_enum(JsEnumAccess::new(
-            key.into_utf8()?.to_owned()?,
+            key.into_utf8()?.into_owned()?,
             Some(&value.0),
           ))
         }

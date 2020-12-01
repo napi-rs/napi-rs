@@ -27,7 +27,12 @@ impl JsStringUtf8 {
   }
 
   #[inline]
-  pub fn to_owned(self) -> Result<String> {
+  pub fn is_empty(&self) -> bool {
+    self.buf.is_empty()
+  }
+
+  #[inline]
+  pub fn into_owned(self) -> Result<String> {
     Ok(self.as_str()?.to_owned())
   }
 
