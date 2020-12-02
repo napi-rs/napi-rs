@@ -82,7 +82,7 @@
     "@typescript-eslint/parser": "^4.8.2",
     "ava": "^3.13.0",
     "benny": "^3.6.15",
-    "cross-env": "^7.0.2",
+    "cross-env": "^7.0.3",
     "eslint": "^7.14.0",
     "eslint-config-prettier": "^6.15.0",
     "eslint-plugin-import": "^2.22.1",
