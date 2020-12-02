@@ -369,7 +369,7 @@ macro_rules! impl_object_methods {
         let mut js_key = ptr::null_mut();
         let mut result = false;
         check_status!(unsafe {
-          sys::napi_create_string_utf8(self.0.env, string.as_ptr(), name.len() as _, &mut js_key)
+          sys::napi_create_string_utf8(self.0.env, string.as_ptr(), name.len(), &mut js_key)
         })?;
         check_status!(unsafe {
           sys::napi_has_property(self.0.env, self.0.value, js_key, &mut result)
@@ -483,7 +483,7 @@ macro_rules! impl_object_methods {
           sys::napi_define_properties(
             self.0.env,
             self.0.value,
-            properties.len() as _,
+            properties.len(),
             properties
               .iter()
               .map(|property| property.raw())

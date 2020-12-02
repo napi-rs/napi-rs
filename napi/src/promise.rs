@@ -27,7 +27,7 @@ impl<T, V: NapiValue> FuturePromise<T, V> {
       sys::napi_create_string_utf8(
         env,
         s.as_ptr() as *const c_char,
-        s.len() as _,
+        s.len(),
         &mut async_resource_name,
       )
     })?;
@@ -55,7 +55,7 @@ impl<T, V: NapiValue> FuturePromise<T, V> {
         ptr::null_mut(),
         async_resource_name,
         0,
-        initial_thread_count as _,
+        initial_thread_count,
         ptr::null_mut(),
         None,
         self_ref as *mut _ as *mut c_void,

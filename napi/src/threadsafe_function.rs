@@ -1,6 +1,7 @@
 use std::convert::Into;
+use std::ffi::CString;
 use std::marker::PhantomData;
-use std::os::raw::{c_char, c_void};
+use std::os::raw::c_void;
 use std::ptr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -104,16 +105,13 @@ impl<T: 'static> ThreadsafeFunction<T> {
   ) -> Result<Self> {
     let mut async_resource_name = ptr::null_mut();
     let s = "napi_rs_threadsafe_function";
+    let len = s.len();
+    let s = CString::new(s)?;
     check_status!(unsafe {
-      sys::napi_create_string_utf8(
-        env,
-        s.as_ptr() as *const c_char,
-        s.len() as _,
-        &mut async_resource_name,
-      )
+      sys::napi_create_string_utf8(env, s.as_ptr(), len, &mut async_resource_name)
     })?;
 
-    let initial_thread_count = 1;
+    let initial_thread_count = 1usize;
     let mut raw_tsfn = ptr::null_mut();
     let context = ThreadSafeContext(Box::from(callback));
     let ptr = Box::into_raw(Box::new(context)) as *mut _;
@@ -123,7 +121,7 @@ impl<T: 'static> ThreadsafeFunction<T> {
         func.0.value,
         ptr::null_mut(),
         async_resource_name,
-        max_queue_size as _,
+        max_queue_size,
         initial_thread_count,
         ptr,
         Some(thread_finalize_cb::<T, V>),
@@ -280,7 +278,7 @@ unsafe extern "C" fn call_js_cb<T: 'static, V: NapiValue>(
         raw_env,
         recv,
         js_callback,
-        args_length as _,
+        args_length,
         args.as_ptr(),
         ptr::null_mut(),
       );

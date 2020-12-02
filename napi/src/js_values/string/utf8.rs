@@ -1,24 +1,27 @@
 use std::convert::TryFrom;
+use std::ffi::CStr;
 use std::mem::ManuallyDrop;
+use std::os::raw::c_char;
 use std::str;
 
 use crate::{Error, JsString, Result, Status};
 
 pub struct JsStringUtf8 {
   pub(crate) inner: JsString,
-  pub(crate) buf: ManuallyDrop<Vec<u8>>,
+  pub(crate) buf: ManuallyDrop<Vec<c_char>>,
 }
 
 impl JsStringUtf8 {
   #[inline]
   pub fn as_str(&self) -> Result<&str> {
-    str::from_utf8(self.buf.as_slice())
+    unsafe { CStr::from_ptr(self.buf.as_ptr()) }
+      .to_str()
       .map_err(|e| Error::new(Status::InvalidArg, format!("{}", e)))
   }
 
   #[inline]
   pub fn as_slice(&self) -> &[u8] {
-    &self.buf
+    unsafe { CStr::from_ptr(self.buf.as_ptr()) }.to_bytes()
   }
 
   #[inline]

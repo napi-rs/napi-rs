@@ -39,12 +39,7 @@ pub fn run<T: Task>(env: &Env, task: T) -> Result<AsyncWorkPromise<'_>> {
   let mut raw_name = ptr::null_mut();
   let s = "napi_rs_async_work";
   check_status!(unsafe {
-    sys::napi_create_string_utf8(
-      env.0,
-      s.as_ptr() as *const c_char,
-      s.len() as _,
-      &mut raw_name,
-    )
+    sys::napi_create_string_utf8(env.0, s.as_ptr() as *const c_char, s.len(), &mut raw_name)
   })?;
   let result = Box::leak(Box::new(AsyncWork {
     inner_task: task,

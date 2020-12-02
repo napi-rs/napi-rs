@@ -116,17 +116,17 @@ impl JsArrayBuffer {
   pub fn into_typedarray(
     self,
     typedarray_type: TypedArrayType,
-    length: u64,
-    byte_offset: u64,
+    length: usize,
+    byte_offset: usize,
   ) -> Result<JsTypedArray> {
     let mut typedarray_value = ptr::null_mut();
     check_status!(unsafe {
       sys::napi_create_typedarray(
         self.0.env,
         typedarray_type.into(),
-        length as _,
+        length,
         self.0.value,
-        byte_offset as _,
+        byte_offset,
         &mut typedarray_value,
       )
     })?;
@@ -138,14 +138,14 @@ impl JsArrayBuffer {
   }
 
   #[inline]
-  pub fn into_dataview(self, length: u64, byte_offset: u64) -> Result<JsDataView> {
+  pub fn into_dataview(self, length: usize, byte_offset: usize) -> Result<JsDataView> {
     let mut dataview_value = ptr::null_mut();
     check_status!(unsafe {
       sys::napi_create_dataview(
         self.0.env,
-        length as _,
+        length,
         self.0.value,
-        byte_offset as _,
+        byte_offset,
         &mut dataview_value,
       )
     })?;
