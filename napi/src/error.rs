@@ -1,10 +1,10 @@
-use std::convert::From;
+use std::convert::{From, TryFrom};
 use std::error;
+use std::ffi::CString;
 use std::fmt;
 #[cfg(feature = "serde-json")]
 use std::fmt::Display;
-use std::os::raw::c_char;
-use std::ptr;
+use std::os::raw::{c_char, c_void};
 
 #[cfg(feature = "serde-json")]
 use serde::{de, ser};
@@ -37,7 +37,11 @@ impl de::Error for Error {
 
 impl fmt::Display for Error {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write!(f, "{:?}: {}", self.status, self.reason)
+    if !self.reason.is_empty() {
+      write!(f, "{:?}, {}", self.status, self.reason)
+    } else {
+      write!(f, "{:?}", self.status)
+    }
   }
 }
 
@@ -62,25 +66,6 @@ impl Error {
       reason,
     }
   }
-
-  #[inline]
-  pub(crate) fn into_raw(self, env: sys::napi_env) -> sys::napi_value {
-    let mut err = ptr::null_mut();
-    let s = self.reason;
-    unsafe {
-      let mut err_reason = ptr::null_mut();
-      let status = sys::napi_create_string_utf8(
-        env,
-        s.as_ptr() as *const c_char,
-        s.len() as _,
-        &mut err_reason,
-      );
-      debug_assert!(status == sys::Status::napi_ok, "Create error reason failed");
-      let status = sys::napi_create_error(env, ptr::null_mut(), err_reason, &mut err);
-      debug_assert!(status == sys::Status::napi_ok, "Create error failed");
-    };
-    err
-  }
 }
 
 impl From<std::ffi::NulError> for Error {
@@ -98,6 +83,31 @@ impl From<std::io::Error> for Error {
       status: Status::GenericFailure,
       reason: format!("{}", error),
     }
+  }
+}
+
+#[derive(Clone, Debug)]
+pub struct ExtendedErrorInfo {
+  pub message: String,
+  pub engine_reserved: *mut c_void,
+  pub engine_error_code: u32,
+  pub error_code: Status,
+}
+
+impl TryFrom<sys::napi_extended_error_info> for ExtendedErrorInfo {
+  type Error = Error;
+
+  fn try_from(value: sys::napi_extended_error_info) -> Result<Self> {
+    Ok(Self {
+      message: unsafe {
+        CString::from_raw(value.error_message as *mut c_char)
+          .into_string()
+          .map_err(|e| Error::new(Status::GenericFailure, format!("{}", e)))?
+      },
+      engine_error_code: value.engine_error_code,
+      engine_reserved: value.engine_reserved,
+      error_code: Status::from(value.error_code),
+    })
   }
 }
 

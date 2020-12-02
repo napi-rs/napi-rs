@@ -23,6 +23,6 @@ test('should be able adjust queue size via process.env', async (t) => {
     )
     throw new TypeError('Unreachable')
   } catch (e) {
-    t.is(e.message, 'QueueFull: Failed to run future: no available capacity')
+    t.snapshot({ code: e.code, message: e.message })
   }
 })
