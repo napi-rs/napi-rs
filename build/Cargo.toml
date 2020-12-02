@@ -7,10 +7,10 @@ license = "MIT"
 name = "napi-build"
 readme = "README.md"
 repository = "https://github.com/napi-rs/napi-rs"
-version = "0.2.1"
+version = "1.0.0-alpha.0"
 
 [dependencies]
 cfg-if = "1.0"
 
-[target.'cfg(windows)'.dependencies]	
-ureq = { version = "1.5.0", default-features = false, features = [ "native-tls" ] }
+[target.'cfg(windows)'.dependencies]
+ureq = {version = "1.5.0", default-features = false, features = ["native-tls"]}
