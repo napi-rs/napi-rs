@@ -55,7 +55,7 @@ impl JsString {
         self.0.env,
         self.0.value,
         buf_ptr,
-        len as _,
+        len,
         &mut written_char_count,
       )
     })?;
@@ -65,11 +65,7 @@ impl JsString {
     Ok(JsStringUtf8 {
       inner: self,
       buf: mem::ManuallyDrop::new(unsafe {
-        Vec::from_raw_parts(
-          buf_ptr as *mut _,
-          written_char_count as _,
-          written_char_count as _,
-        )
+        Vec::from_raw_parts(buf_ptr, written_char_count, written_char_count)
       }),
     })
   }
@@ -81,7 +77,7 @@ impl JsString {
 
   #[inline]
   pub fn into_utf16(self) -> Result<JsStringUtf16> {
-    let mut written_char_count = 0;
+    let mut written_char_count = 0usize;
     let len = self.utf16_len()? + 1;
     let mut result = Vec::with_capacity(len);
     let buf_ptr = result.as_mut_ptr();
@@ -90,7 +86,7 @@ impl JsString {
         self.0.env,
         self.0.value,
         buf_ptr,
-        len as _,
+        len,
         &mut written_char_count,
       )
     })?;
@@ -99,7 +95,7 @@ impl JsString {
     Ok(JsStringUtf16 {
       inner: self,
       buf: mem::ManuallyDrop::new(unsafe {
-        Vec::from_raw_parts(buf_ptr, written_char_count as _, written_char_count as _)
+        Vec::from_raw_parts(buf_ptr, written_char_count, written_char_count)
       }),
     })
   }
@@ -111,7 +107,7 @@ impl JsString {
 
   #[inline]
   pub fn into_latin1(self) -> Result<JsStringLatin1> {
-    let mut written_char_count: u64 = 0;
+    let mut written_char_count = 0usize;
     let len = self.latin1_len()? + 1;
     let mut result = Vec::with_capacity(len);
     let buf_ptr = result.as_mut_ptr();
@@ -120,8 +116,8 @@ impl JsString {
         self.0.env,
         self.0.value,
         buf_ptr,
-        len as _,
-        &mut written_char_count as *mut u64 as *mut _,
+        len,
+        &mut written_char_count,
       )
     })?;
 
@@ -130,11 +126,7 @@ impl JsString {
     Ok(JsStringLatin1 {
       inner: self,
       buf: mem::ManuallyDrop::new(unsafe {
-        Vec::from_raw_parts(
-          buf_ptr as *mut _,
-          written_char_count as _,
-          written_char_count as _,
-        )
+        Vec::from_raw_parts(buf_ptr as *mut _, written_char_count, written_char_count)
       }),
     })
   }

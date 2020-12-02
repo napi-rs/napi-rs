@@ -151,12 +151,12 @@ impl Env {
           true => 1,
           false => 0,
         },
-        len as _,
+        len,
         words.as_ptr(),
         &mut raw_value,
       )
     })?;
-    Ok(JsBigint::from_raw_unchecked(self.0, raw_value, len as _))
+    Ok(JsBigint::from_raw_unchecked(self.0, raw_value, len))
   }
 
   #[inline]
@@ -182,9 +182,7 @@ impl Env {
   #[inline]
   fn create_string_from_chars(&self, data_ptr: *const c_char, len: usize) -> Result<JsString> {
     let mut raw_value = ptr::null_mut();
-    check_status!(unsafe {
-      sys::napi_create_string_utf8(self.0, data_ptr, len as _, &mut raw_value)
-    })?;
+    check_status!(unsafe { sys::napi_create_string_utf8(self.0, data_ptr, len, &mut raw_value) })?;
     Ok(unsafe { JsString::from_raw_unchecked(self.0, raw_value) })
   }
 
@@ -192,7 +190,7 @@ impl Env {
   pub fn create_string_utf16(&self, chars: &[u16]) -> Result<JsString> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe {
-      sys::napi_create_string_utf16(self.0, chars.as_ptr(), chars.len() as _, &mut raw_value)
+      sys::napi_create_string_utf16(self.0, chars.as_ptr(), chars.len(), &mut raw_value)
     })?;
     Ok(unsafe { JsString::from_raw_unchecked(self.0, raw_value) })
   }
@@ -204,7 +202,7 @@ impl Env {
       sys::napi_create_string_latin1(
         self.0,
         chars.as_ptr() as *const _,
-        chars.len() as _,
+        chars.len(),
         &mut raw_value,
       )
     })?;
@@ -251,9 +249,7 @@ impl Env {
   #[inline]
   pub fn create_array_with_length(&self, length: usize) -> Result<JsObject> {
     let mut raw_value = ptr::null_mut();
-    check_status!(unsafe {
-      sys::napi_create_array_with_length(self.0, length as _, &mut raw_value)
-    })?;
+    check_status!(unsafe { sys::napi_create_array_with_length(self.0, length, &mut raw_value) })?;
     Ok(unsafe { JsObject::from_raw_unchecked(self.0, raw_value) })
   }
 
@@ -264,7 +260,7 @@ impl Env {
     let mut data: Vec<u8> = Vec::with_capacity(length);
     let mut data_ptr = data.as_mut_ptr() as *mut c_void;
     check_status!(unsafe {
-      sys::napi_create_buffer(self.0, length as _, &mut data_ptr, &mut raw_value)
+      sys::napi_create_buffer(self.0, length, &mut data_ptr, &mut raw_value)
     })?;
 
     Ok(JsBufferValue::new(
@@ -287,7 +283,7 @@ impl Env {
     check_status!(unsafe {
       sys::napi_create_external_buffer(
         self.0,
-        length as _,
+        length,
         data_ptr as *mut c_void,
         Some(drop_buffer),
         &mut length as *mut usize as *mut _,
@@ -322,7 +318,7 @@ impl Env {
     check_status!(unsafe {
       sys::napi_create_buffer_copy(
         self.0,
-        length as _,
+        length,
         data_ptr as *mut c_void,
         &mut copy_data,
         &mut raw_value,
@@ -344,7 +340,7 @@ impl Env {
     let mut data: Vec<u8> = Vec::with_capacity(length as usize);
     let mut data_ptr = data.as_mut_ptr() as *mut c_void;
     check_status!(unsafe {
-      sys::napi_create_arraybuffer(self.0, length as _, &mut data_ptr, &mut raw_value)
+      sys::napi_create_arraybuffer(self.0, length, &mut data_ptr, &mut raw_value)
     })?;
 
     Ok(JsArrayBufferValue::new(
@@ -362,7 +358,7 @@ impl Env {
       sys::napi_create_external_arraybuffer(
         self.0,
         data_ptr as *mut c_void,
-        length as _,
+        length,
         Some(drop_buffer),
         &mut length as *mut usize as *mut c_void,
         &mut raw_value,
@@ -512,10 +508,10 @@ impl Env {
       sys::napi_define_class(
         self.0,
         name.as_ptr() as *const c_char,
-        name.len() as _,
+        name.len(),
         Some(constructor_cb),
         ptr::null_mut(),
-        raw_properties.len() as _,
+        raw_properties.len(),
         raw_properties.as_ptr(),
         &mut raw_result,
       )
