@@ -61,6 +61,6 @@ test.serial('should reject if task queue is full', async (t) => {
     )
     throw new TypeError('Unreachable')
   } catch (e) {
-    t.is(e.message, 'QueueFull: Failed to run future: no available capacity')
+    t.snapshot({ code: e.code, message: e.message })
   }
 })

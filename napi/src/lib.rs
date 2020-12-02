@@ -118,7 +118,7 @@ pub use napi_sys as sys;
 
 pub use call_context::CallContext;
 pub use env::*;
-pub use error::{Error, Result};
+pub use error::{Error, ExtendedErrorInfo, Result};
 pub use js_values::*;
 pub use module::Module;
 pub use status::Status;

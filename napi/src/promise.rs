@@ -2,7 +2,7 @@ use futures::prelude::*;
 use std::os::raw::{c_char, c_void};
 use std::ptr;
 
-use crate::{check_status, sys, Env, NapiValue, Result};
+use crate::{check_status, sys, Env, JsError, NapiValue, Result};
 
 pub struct FuturePromise<T, V: NapiValue> {
   deferred: sys::napi_deferred,
@@ -109,7 +109,8 @@ unsafe extern "C" fn call_js_cb<T, V: NapiValue>(
       debug_assert!(status == sys::Status::napi_ok, "Resolve promise failed");
     }
     Err(e) => {
-      let status = sys::napi_reject_deferred(raw_env, deferred, e.into_raw(raw_env));
+      let status =
+        sys::napi_reject_deferred(raw_env, deferred, JsError::from(e).into_value(raw_env));
       debug_assert!(status == sys::Status::napi_ok, "Reject promise failed");
     }
   };

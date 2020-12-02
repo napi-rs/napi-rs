@@ -86,6 +86,7 @@ pub fn js_function(attr: TokenStream, input: TokenStream) -> TokenStream {
   let new_fn_name = signature.ident.clone();
   let execute_js_function = get_execute_js_code(new_fn_name, FunctionKind::JsFunction);
   let expanded = quote! {
+    #[inline(always)]
     #signature #(#fn_block)*
 
     #visibility extern "C" fn #fn_name(
@@ -134,6 +135,7 @@ pub fn contextless_function(_attr: TokenStream, input: TokenStream) -> TokenStre
   let execute_js_function = get_execute_js_code(new_fn_name, FunctionKind::Contextless);
 
   let expanded = quote! {
+    #[inline(always)]
     #signature #(#fn_block)*
 
     #visibility extern "C" fn #fn_name(
@@ -191,10 +193,7 @@ fn get_execute_js_code(
     }).and_then(|v| v) {
       #return_token_stream
       Err(e) => {
-        let message = format!("{}", e);
-        unsafe {
-          napi::sys::napi_throw_error(raw_env, ptr::null(), CString::from_vec_unchecked(message.into()).as_ptr());
-        }
+        unsafe { napi::JsError::from(e).throw_into(raw_env) };
         ptr::null_mut()
       }
     }

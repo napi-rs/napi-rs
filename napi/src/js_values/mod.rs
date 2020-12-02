@@ -18,6 +18,7 @@ mod buffer;
 #[cfg(feature = "napi5")]
 mod date;
 mod either;
+mod error;
 mod escapable_handle_scope;
 mod function;
 mod global;
@@ -41,6 +42,7 @@ pub use date::*;
 #[cfg(feature = "serde-json")]
 pub(crate) use de::De;
 pub use either::Either;
+pub use error::*;
 pub use escapable_handle_scope::EscapableHandleScope;
 pub use function::JsFunction;
 pub use global::*;
@@ -508,7 +510,9 @@ macro_rules! impl_object_methods {
       #[inline]
       pub fn get_array_length_unchecked(&self) -> Result<u32> {
         let mut length: u32 = 0;
-        check_status!(unsafe { sys::napi_get_array_length(self.0.env, self.raw(), &mut length) })?;
+        check_status!(unsafe {
+          sys::napi_get_array_length(self.0.env, self.0.value, &mut length)
+        })?;
         Ok(length)
       }
     }

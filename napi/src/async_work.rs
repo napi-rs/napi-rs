@@ -2,9 +2,7 @@ use std::mem;
 use std::os::raw::{c_char, c_void};
 use std::ptr;
 
-use crate::check_status;
-use crate::js_values::NapiValue;
-use crate::{sys, Env, JsObject, Result, Task};
+use crate::{check_status, js_values::NapiValue, sys, Env, JsError, JsObject, Result, Task};
 
 struct AsyncWork<T: Task> {
   inner_task: T,
@@ -110,7 +108,7 @@ unsafe extern "C" fn complete<T: Task>(
       debug_assert!(status == sys::Status::napi_ok, "Reject promise failed");
     }
     Err(e) => {
-      let status = sys::napi_reject_deferred(env, deferred, e.into_raw(env));
+      let status = sys::napi_reject_deferred(env, deferred, JsError::from(e).into_value(env));
       debug_assert!(status == sys::Status::napi_ok, "Reject promise failed");
     }
   };
