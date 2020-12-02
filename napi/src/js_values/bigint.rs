@@ -6,7 +6,7 @@ use crate::{check_status, sys, Result};
 
 pub struct JsBigint {
   pub(crate) raw: Value,
-  pub word_count: u64,
+  pub word_count: usize,
 }
 
 impl JsBigint {
@@ -14,7 +14,7 @@ impl JsBigint {
   pub(crate) fn from_raw_unchecked(
     env: sys::napi_env,
     value: sys::napi_value,
-    word_count: u64,
+    word_count: usize,
   ) -> Self {
     Self {
       raw: Value {
@@ -128,12 +128,12 @@ impl NapiValue for JsBigint {
   }
 
   unsafe fn from_raw(env: sys::napi_env, value: sys::napi_value) -> Result<Self> {
-    let mut word_count: u64 = 0;
+    let mut word_count = 0usize;
     check_status!(sys::napi_get_value_bigint_words(
       env,
       value,
       ptr::null_mut(),
-      &mut word_count as *mut u64 as *mut _,
+      &mut word_count,
       ptr::null_mut(),
     ))?;
     Ok(JsBigint {
@@ -147,12 +147,12 @@ impl NapiValue for JsBigint {
   }
 
   unsafe fn from_raw_unchecked(env: sys::napi_env, value: sys::napi_value) -> Self {
-    let mut word_count: u64 = 0;
+    let mut word_count = 0usize;
     let status = sys::napi_get_value_bigint_words(
       env,
       value,
       ptr::null_mut(),
-      &mut word_count as *mut u64 as *mut _,
+      &mut word_count,
       ptr::null_mut(),
     );
     debug_assert!(
@@ -200,7 +200,7 @@ impl JsBigint {
         self.raw.env,
         self.raw.value,
         &mut sign_bit,
-        word_count as *mut u64 as *mut _,
+        word_count,
         words.as_mut_ptr(),
       )
     })?;
