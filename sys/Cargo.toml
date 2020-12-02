@@ -8,7 +8,7 @@ license = "MIT"
 name = "napi-sys"
 readme = "README.md"
 repository = "https://github.com/napi-rs/napi-rs"
-version = "0.4.7"
+version = "1.0.0-alpha.0"
 
 [features]
 napi1 = []
@@ -20,4 +20,4 @@ napi6 = ["napi5"]
 napi7 = ["napi6"]
 
 [build-dependencies]
-napi-build = {version = "0.2", path = "../build"}
+napi-build = {version = "1.0.0-alpha.0", path = "../build"}
