@@ -1,0 +1,89 @@
+use std::ffi::CString;
+use std::ptr;
+
+use crate::{check_status, sys, Env, Error};
+
+pub struct JsError(Error);
+
+pub struct JsTypeError(Error);
+
+pub struct JsRangeError(Error);
+
+macro_rules! impl_object_methods {
+  ($js_value:ident, $kind:expr) => {
+    impl $js_value {
+      #[inline(always)]
+      /// # Safety
+      ///
+      /// This function is safety if env is not null ptr.
+      pub unsafe fn into_value(self, env: sys::napi_env) -> sys::napi_value {
+        let error_status = format!("{:?}", self.0.status);
+        let status_len = error_status.len();
+        let error_code_string = CString::new(error_status).unwrap();
+        let reason_len = self.0.reason.len();
+        let reason = CString::new(self.0.reason).unwrap();
+        let mut error_code = ptr::null_mut();
+        let mut reason_string = ptr::null_mut();
+        let mut js_error = ptr::null_mut();
+        debug_assert!(
+          sys::napi_create_string_utf8(
+            env,
+            error_code_string.as_ptr(),
+            status_len,
+            &mut error_code
+          ) == sys::Status::napi_ok
+        );
+        debug_assert!(
+          sys::napi_create_string_utf8(env, reason.as_ptr(), reason_len, &mut reason_string)
+            == sys::Status::napi_ok
+        );
+        debug_assert!($kind(env, error_code, reason_string, &mut js_error) == sys::Status::napi_ok);
+        js_error
+      }
+
+      #[inline(always)]
+      /// # Safety
+      ///
+      /// This function is safety if env is not null ptr.
+      pub unsafe fn throw_into(self, env: sys::napi_env) {
+        let js_error = self.into_value(env);
+        debug_assert!(sys::napi_throw(env, js_error) == sys::Status::napi_ok);
+      }
+
+      #[inline(always)]
+      pub fn throw(&self, env: &Env) -> Result<(), Error> {
+        let error_status = format!("{:?}", self.0.status);
+        let status_len = error_status.len();
+        let error_code_string = CString::new(error_status).unwrap();
+        let reason_len = self.0.reason.len();
+        let reason = CString::new(self.0.reason.clone()).unwrap();
+        let mut error_code = ptr::null_mut();
+        let mut reason_string = ptr::null_mut();
+        let mut js_error = ptr::null_mut();
+        check_status!(unsafe {
+          sys::napi_create_string_utf8(
+            env.0,
+            error_code_string.as_ptr(),
+            status_len,
+            &mut error_code,
+          )
+        })?;
+        check_status!(unsafe {
+          sys::napi_create_string_utf8(env.0, reason.as_ptr(), reason_len, &mut reason_string)
+        })?;
+        check_status!(unsafe { $kind(env.0, error_code, reason_string, &mut js_error) })?;
+        check_status!(unsafe { sys::napi_throw(env.0, js_error) })
+      }
+    }
+
+    impl From<Error> for $js_value {
+      fn from(err: Error) -> Self {
+        Self(err)
+      }
+    }
+  };
+}
+
+impl_object_methods!(JsError, sys::napi_create_error);
+impl_object_methods!(JsTypeError, sys::napi_create_type_error);
+impl_object_methods!(JsRangeError, sys::napi_create_range_error);

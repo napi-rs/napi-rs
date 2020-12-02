@@ -4,11 +4,14 @@ use std::ffi::CString;
 use std::os::raw::{c_char, c_void};
 use std::ptr;
 
-use crate::async_work::{self, AsyncWorkPromise};
-use crate::check_status;
-use crate::js_values::*;
-use crate::task::Task;
-use crate::{sys, Error, NodeVersion, Result, Status};
+use crate::{
+  async_work::{self, AsyncWorkPromise},
+  check_status,
+  js_values::*,
+  sys,
+  task::Task,
+  Error, ExtendedErrorInfo, NodeVersion, Result, Status,
+};
 
 #[cfg(feature = "napi3")]
 use super::cleanup_env::{CleanupEnvHook, CleanupEnvHookData};
@@ -255,6 +258,7 @@ impl Env {
   }
 
   #[inline]
+  /// This API allocates a node::Buffer object. While this is still a fully-supported data structure, in most cases using a TypedArray will suffice.
   pub fn create_buffer(&self, length: usize) -> Result<JsBufferValue> {
     let mut raw_value = ptr::null_mut();
     let mut data: Vec<u8> = Vec::with_capacity(length);
@@ -274,6 +278,8 @@ impl Env {
   }
 
   #[inline]
+  /// This API allocates a node::Buffer object and initializes it with data backed by the passed in buffer.
+  /// While this is still a fully-supported data structure, in most cases using a TypedArray will suffice.
   pub fn create_buffer_with_data(&self, mut data: Vec<u8>) -> Result<JsBufferValue> {
     let mut length = data.len();
     let mut raw_value = ptr::null_mut();
@@ -303,6 +309,8 @@ impl Env {
   }
 
   #[inline]
+  /// This API allocates a node::Buffer object and initializes it with data copied from the passed-in buffer.
+  /// While this is still a fully-supported data structure, in most cases using a TypedArray will suffice.
   pub fn create_buffer_copy<D>(&self, data_to_copy: D) -> Result<JsBufferValue>
   where
     D: AsRef<[u8]>,
@@ -376,6 +384,10 @@ impl Env {
   }
 
   #[inline]
+  /// This API allows an add-on author to create a function object in native code.
+  /// This is the primary mechanism to allow calling into the add-on's native code from JavaScript.
+  /// The newly created function is not automatically visible from script after this call.
+  /// Instead, a property must be explicitly set on any object that is visible to JavaScript, in order for the function to be accessible from script.
   pub fn create_function(&self, name: &str, callback: Callback) -> Result<JsFunction> {
     let mut raw_result = ptr::null_mut();
     let len = name.len();
@@ -395,17 +407,92 @@ impl Env {
   }
 
   #[inline]
-  pub fn throw(&self, error: Error) -> Result<()> {
-    let err_value = self.create_error(error)?.0.value;
-    check_status!(unsafe { sys::napi_throw(self.0, err_value) })?;
-    Ok(())
+  /// This API retrieves a napi_extended_error_info structure with information about the last error that occurred.
+  /// The content of the napi_extended_error_info returned is only valid up until an n-api function is called on the same env.
+  /// Do not rely on the content or format of any of the extended information as it is not subject to SemVer and may change at any time. It is intended only for logging purposes.
+  /// This API can be called even if there is a pending JavaScript exception.
+  pub fn get_last_error_info(&self) -> Result<ExtendedErrorInfo> {
+    let mut raw_extended_error = ptr::null();
+    check_status!(unsafe { sys::napi_get_last_error_info(self.0, &mut raw_extended_error) })?;
+    unsafe { ptr::read(raw_extended_error) }.try_into()
   }
 
   #[inline]
-  pub fn throw_error(&self, msg: &str) -> Result<()> {
+  /// This API throws a JavaScript Error with the text provided.
+  pub fn throw_error(&self, msg: &str, code: Option<&str>) -> Result<()> {
     check_status!(unsafe {
-      sys::napi_throw_error(self.0, ptr::null(), CString::new(msg)?.as_ptr())
+      sys::napi_throw_error(
+        self.0,
+        match code {
+          Some(s) => CString::new(s)?.as_ptr(),
+          None => ptr::null_mut(),
+        },
+        CString::new(msg)?.as_ptr(),
+      )
     })
+  }
+
+  #[inline]
+  /// This API throws a JavaScript RangeError with the text provided.
+  pub fn throw_range_error(&self, msg: &str, code: Option<&str>) -> Result<()> {
+    check_status!(unsafe {
+      sys::napi_throw_range_error(
+        self.0,
+        match code {
+          Some(s) => CString::new(s)?.as_ptr(),
+          None => ptr::null_mut(),
+        },
+        CString::new(msg)?.as_ptr(),
+      )
+    })
+  }
+
+  #[inline]
+  /// This API throws a JavaScript TypeError with the text provided.
+  pub fn throw_type_error(&self, msg: &str, code: Option<&str>) -> Result<()> {
+    check_status!(unsafe {
+      sys::napi_throw_type_error(
+        self.0,
+        match code {
+          Some(s) => CString::new(s)?.as_ptr(),
+          None => ptr::null_mut(),
+        },
+        CString::new(msg)?.as_ptr(),
+      )
+    })
+  }
+
+  #[inline]
+  #[allow(clippy::expect_fun_call)]
+  /// In the event of an unrecoverable error in a native module
+  /// A fatal error can be thrown to immediately terminate the process.
+  pub fn fatal_error(self, location: &str, message: &str) {
+    let location_len = location.len();
+    let message_len = message.len();
+    let location =
+      CString::new(location).expect(format!("Convert [{}] to CString failed", location).as_str());
+    let message =
+      CString::new(message).expect(format!("Convert [{}] to CString failed", message).as_str());
+
+    unsafe {
+      sys::napi_fatal_error(
+        location.as_ptr(),
+        location_len,
+        message.as_ptr(),
+        message_len,
+      )
+    }
+  }
+
+  #[cfg(feature = "napi3")]
+  #[inline]
+  /// Trigger an 'uncaughtException' in JavaScript.
+  /// Useful if an async callback throws an exception with no way to recover.
+  pub fn fatal_exception(&self, err: Error) {
+    unsafe {
+      let js_error = JsError::from(err).into_value(self.0);
+      debug_assert!(sys::napi_fatal_exception(self.0, js_error) == sys::Status::napi_ok);
+    };
   }
 
   #[inline]
@@ -757,6 +844,7 @@ impl Env {
   }
 
   #[inline]
+  /// This API represents the invocation of the Strict Equality algorithm as defined in [Section 7.2.14](https://tc39.es/ecma262/#sec-strict-equality-comparison) of the ECMAScript Language Specification.
   pub fn strict_equals<A: NapiValue, B: NapiValue>(&self, a: A, b: B) -> Result<bool> {
     let mut result = false;
     check_status!(unsafe { sys::napi_strict_equals(self.0, a.raw(), b.raw(), &mut result) })?;

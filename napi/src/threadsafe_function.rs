@@ -5,7 +5,7 @@ use std::ptr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use crate::{check_status, sys, Env, Error, JsFunction, NapiValue, Result, Status};
+use crate::{check_status, sys, Env, Error, JsError, JsFunction, NapiValue, Result, Status};
 
 use sys::napi_threadsafe_function_call_mode;
 
@@ -291,7 +291,7 @@ unsafe extern "C" fn call_js_cb<T: 'static, V: NapiValue>(
         recv,
         js_callback,
         1,
-        [e.into_raw(raw_env)].as_mut_ptr(),
+        [JsError::from(e).into_value(raw_env)].as_mut_ptr(),
         ptr::null_mut(),
       );
     }
