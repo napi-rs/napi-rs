@@ -8,7 +8,7 @@ import { getNapiConfig } from './consts'
 import { debugFactory } from './debug'
 import { spawn } from './spawn'
 import { updatePackageJson } from './update-package'
-import { readFileAsync, writeFileAsync } from './utils'
+import { existsAsync } from './utils'
 import { VersionCommand } from './version'
 
 const debug = debugFactory('prepublish')
@@ -43,7 +43,6 @@ export class PrePublishCommand extends Command {
       packageJsonPath,
       platforms,
       version,
-      muslPlatforms,
       packageName,
       binaryName,
     } = getNapiConfig(this.configFileName)
@@ -52,8 +51,8 @@ export class PrePublishCommand extends Command {
       await VersionCommand.updatePackageJson(this.prefix, this.configFileName)
       await updatePackageJson(packageJsonPath, {
         optionalDependencies: platforms.reduce(
-          (acc: Record<string, string>, cur: NodeJS.Platform) => {
-            acc[`${packageName}-${cur}`] = `^${version}`
+          (acc: Record<string, string>, cur) => {
+            acc[`${packageName}-${cur.platformArchABI}`] = `^${version}`
             return acc
           },
           {},
@@ -66,26 +65,29 @@ export class PrePublishCommand extends Command {
       version,
     )
 
-    for (const name of [...platforms, ...muslPlatforms]) {
-      const pkgDir = join(process.cwd(), this.prefix, name)
-      const filename = `${binaryName}.${name}.node`
-      debug(`Read [${chalk.greenBright(filename)}] content`)
-      const bindingFile = await readFileAsync(join(process.cwd(), filename))
+    for (const platformDetail of platforms) {
+      const pkgDir = join(
+        process.cwd(),
+        this.prefix,
+        `${platformDetail.platformArchABI}`,
+      )
+      const filename = `${binaryName}.${platformDetail.platformArchABI}.node`
       const dstPath = join(pkgDir, filename)
-      await writeFileAsync(dstPath, bindingFile)
-      debug(`Write [${chalk.yellowBright(dstPath)}] content`)
-      if (!this.isDryRun) {
-        await spawn('npm publish', {
-          cwd: pkgDir,
-          env: process.env,
-        })
-      }
+
       debug(
         `Start upload [${chalk.greenBright(
           dstPath,
         )}] to Github release, [${chalk.greenBright(pkgInfo.tag)}]`,
       )
       if (!this.isDryRun) {
+        if (!(await existsAsync(dstPath))) {
+          console.warn(`[${chalk.yellowBright(dstPath)}] is not existed`)
+          continue
+        }
+        await spawn('npm publish', {
+          cwd: pkgDir,
+          env: process.env,
+        })
         const putasset = require('putasset')
         try {
           const downloadUrl = await putasset(process.env.GITHUB_TOKEN, {

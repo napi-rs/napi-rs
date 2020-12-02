@@ -1,14 +1,18 @@
 import { join } from 'path'
 
+import { DefaultPlatforms, PlatformDetail, parseTriple } from './parse-triple'
+
 export function getNapiConfig(packageJson = 'package.json') {
   const packageJsonPath = join(process.cwd(), packageJson)
 
   const pkgJson = require(packageJsonPath)
-  const { version: packageVersion, os, napi, name } = pkgJson
-  const muslPlatforms: string[] = (napi?.musl ?? []).map(
-    (platform: string) => `${platform}-musl`,
-  )
-  const platforms = os
+  const { version: packageVersion, napi, name } = pkgJson
+  const additionPlatforms: PlatformDetail[] = (
+    napi?.triples?.additional ?? []
+  ).map(parseTriple)
+  const defaultPlatforms =
+    napi?.triples?.defaults === false ? [] : [...DefaultPlatforms]
+  const platforms = [...defaultPlatforms, ...additionPlatforms]
   const releaseVersion = process.env.RELEASE_VERSION
   const releaseVersionWithoutPrefix = releaseVersion?.startsWith('v')
     ? releaseVersion.substr(1)
@@ -16,10 +20,9 @@ export function getNapiConfig(packageJson = 'package.json') {
   const version = releaseVersionWithoutPrefix ?? packageVersion
   const packageName = name
 
-  const binaryName = napi?.name ?? 'index'
+  const binaryName: string = napi?.name ?? 'index'
 
   return {
-    muslPlatforms,
     platforms,
     version,
     packageName,
