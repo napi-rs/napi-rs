@@ -13,6 +13,9 @@ use crate::{sys, Status};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// Represent `JsError`.
+/// Return this Error in `js_function`, **napi-rs** will throw it as `JsError` for you.
+/// If you want throw it as `TypeError` or `RangeError`, you can use `JsTypeError/JsRangeError::from(Error).throw_into(env)`
 #[derive(Debug, Clone)]
 pub struct Error {
   pub status: Status,

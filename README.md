@@ -32,11 +32,11 @@ A minimal library for building compiled `NodeJS` add-ons in `Rust`.
 | ------ | ------- | ------ | ------ |
 | ✓      | ✓       | ✓      | ✓      |
 
-This library depends on N-API and requires `Node@8.9` or later.
+This library depends on N-API and requires `Node@10.0.0` or later.
 
 We already have some packages written by `napi-rs`: [node-rs](https://github.com/napi-rs/node-rs)
 
-One nice feature is that this crate allows you to build add-ons purely with the `Rust` toolchain and without involving `node-gyp`.
+One nice feature is that this crate allows you to build add-ons purely with the `Rust/JavaScript` toolchain and without involving `node-gyp`.
 
 ## Taste
 
@@ -51,7 +51,7 @@ fn fibonacci(ctx: CallContext) -> Result<JsNumber> {
   ctx.env.create_int64(fibonacci_native(n))
 }
 
-#[inline]
+#[inline(always)]
 fn fibonacci_native(n: i64) -> i64 {
   match n {
     1 | 2 => 1,
@@ -63,31 +63,46 @@ fn fibonacci_native(n: i64) -> i64 {
 ### Register module
 
 ```rust
-/// test_module is Module name
-register_module!(test_module, init);
+use napi::{JsObject, Result};
 
-/// Module is `module` object in NodeJS
-fn init(module: &mut Module) -> Result<()> {
-  module.create_named_method("fibonacci", fibonacci)?;
+/// `exports` is `module.exports` object in NodeJS
+#[module_exports]
+fn init(mut exports: JsObject) -> Result<()> {
+  exports.create_named_method("fibonacci", fibonacci)?;
+}
+```
+
+And you can also create `JavaScript` value while registering module:
+
+```rust
+use napi::{JsObject, Result, Env};
+
+#[module_exports]
+fn init(mut exports: JsObject, env: Env) -> Result<()> {
+  exports.create_named_method("fibonacci", fibonacci)?;
+  exports.set_named_property("DEFAULT_VALUE", env.create_int64(100)?)?;
 }
 ```
 
 ## Building
 
-This repository is a Cargo crate. Any napi-based add-on should contain `Cargo.toml` to make it a Cargo crate.
+This repository is a `Cargo` crate. Any napi-based add-on should contain `Cargo.toml` to make it a Cargo crate.
 
 In your `Cargo.toml` you need to set the `crate-type` to `"cdylib"` so that cargo builds a C-style shared library that can be dynamically loaded by the Node executable. You'll also need to add this crate as a dependency.
 
 ```toml
+[package]
+name = "awesome"
+
 [lib]
 crate-type = ["cdylib"]
 
 [dependencies]
-napi = "0.5"
-napi-derive = "0.5"
+napi = "1.0"
+napi-derive = "1.0"
 
 [build-dependencies]
-napi-build = "0.2"
+napi-build = "1.0"
 ```
 
 And create `build.rs` in your own project:
@@ -101,21 +116,24 @@ fn main() {
 }
 ```
 
-So far, the `napi` build script has only been tested on `macOS` `Linux` and `Windows x64 MSVC`.
+So far, the `napi` build script has only been tested on `macOS` `Linux` `Windows x64 MSVC` and `FreeBSD`.
 
 See the included [test_module](./test_module) for an example add-on.
 
-Run `cargo build` to produce the `Dynamic lib` file. And install the `napi-rs` to help you copy `Dynamic lib` file to `.node` file in case you can `require` it in your program.
+Install the `@napi-rs/cli` to help you build your `Rust` codes and copy `Dynamic lib` file to `.node` file in case you can `require` it in your program.
 
 ```json
 {
-  "package": "your pkg",
+  "package": "awesome-package",
   "devDependencies": {
-    "@napi-rs/cli": "latest"
+    "@napi-rs/cli": "^1.0.0"
+  },
+  "napi": {
+    "name": "jarvis" // <----------- Config the name of native addon, or the napi command will use the name of `Cargo.toml` for the binary file name.
   },
   "scripts": {
-    "build": "napi build",
-    "build-release": "napi build --release"
+    "build": "napi build --release",
+    "build:debug": "napi build"
   }
 }
 ```
@@ -123,21 +141,23 @@ Run `cargo build` to produce the `Dynamic lib` file. And install the `napi-rs` t
 Then you can require your native binding:
 
 ```js
-require('./target/debug|release/[module_name].node')
+require('./jarvis.node')
 ```
 
 The `module_name` would be your `package` name in your `Cargo.toml`.
 
-`xxx => ./target/debug|release/xxx.node`
+`xxx => ./xxx.node`
 
-`xxx-yyy => ./target/debug|release/xxx_yyy.node`
+`xxx-yyy => ./xxx_yyy.node`
 
 You can also copy `Dynamic lib` file to an appointed location:
 
 ```bash
-napi build [--release] .
-napi build [--release] ./mylib
+napi build [--release] ./dll
+napi build [--release] ./artifacts
 ```
+
+There are [documents](./cli) which contains more details about the `@napi-rs/cli` usage.
 
 ## Testing
 

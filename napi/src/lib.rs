@@ -6,30 +6,13 @@
 //!
 //! ## Feature flags
 //!
-//! ### libuv
-//! With `libuv` feature, you can execute a rust future in `libuv` in NodeJS, and return a `promise` object.
-//! ```
-//! use std::thread;
-//! use std::fs;
+//! ### napi1 ~ napi6
 //!
-//! use futures::prelude::*;
-//! use futures::channel::oneshot;
-//! use napi::{CallContext, Result, JsString, JsObject, Status, Error};
+//! Because `NodeJS` N-API has versions. So there are feature flags to choose what version of `N-API` you want to build for.
+//! For example, if you want build a library which can be used by `node@10.17.0`, you should choose the `napi5` or lower.
 //!
-//! #[js_function(1)]
-//! pub fn uv_read_file(ctx: CallContext) -> Result<JsObject> {
-//!     let path = ctx.get::<JsString>(0)?;
-//!     let (sender, receiver) = oneshot::channel();
-//!     let p = path.as_str()?.to_owned();
-//!     thread::spawn(|| {
-//!         let res = fs::read(p).map_err(|e| Error::new(Status::Unknown, format!("{}", e)));
-//!         sender.send(res).expect("Send data failed");
-//!     });
-//!     ctx.env.execute(receiver.map_err(|e| Error::new(Status::Unknown, format!("{}", e))).map(|x| x.and_then(|x| x)), |&mut env, data| {
-//!         env.create_buffer_with_data(data)
-//!     })
-//! }
-//! ```
+//! The details of N-API versions and support matrix: [n_api_n_api_version_matrix](https://nodejs.org/api/n-api.html#n_api_n_api_version_matrix)
+//!
 //! ### tokio_rt
 //! With `tokio_rt` feature, `napi-rs` provides a ***tokio runtime*** in an additional thread.
 //! And you can easily run tokio `future` in it and return `promise`.

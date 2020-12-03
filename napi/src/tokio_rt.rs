@@ -43,6 +43,7 @@ pub(crate) fn get_tokio_sender() -> &'static mpsc::Sender<Message> {
   })
 }
 
+#[doc(hidden)]
 pub unsafe extern "C" fn shutdown(_data: *mut c_void) {
   let sender = get_tokio_sender().clone();
   sender

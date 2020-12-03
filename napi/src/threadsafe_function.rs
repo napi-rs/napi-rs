@@ -41,7 +41,7 @@ impl Into<napi_threadsafe_function_call_mode> for ThreadsafeFunctionCallMode {
 /// ## Example
 /// An example of using `ThreadsafeFunction`:
 ///
-/// ```
+/// ```rust
 /// #[macro_use]
 /// extern crate napi_derive;
 ///
@@ -53,28 +53,36 @@ impl Into<napi_threadsafe_function_call_mode> for ThreadsafeFunctionCallMode {
 ///     },
 ///     CallContext, Error, JsFunction, JsNumber, JsUndefined, Result, Status,
 /// };
-
+///
 /// #[js_function(1)]
 /// pub fn test_threadsafe_function(ctx: CallContext) -> Result<JsUndefined> {
-///     let func = ctx.get::<JsFunction>(0)?;
-
-///     let tsfn = ctx.env
-///         .create_threadsafe_function(func, 0, |ctx: ThreadSafeCallContext<Vec<u32>>| {
+///   let func = ctx.get::<JsFunction>(0)?;
+///
+///   let tsfn =
+///       ctx
+///           .env
+///           .create_threadsafe_function(&func, 0, |ctx: ThreadSafeCallContext<Vec<u32>>| {
 ///             ctx.value
 ///                 .iter()
-///                 .map(|v| ctx.env.create_uint32(*v))]
+///                 .map(|v| ctx.env.create_uint32(*v))
 ///                 .collect::<Result<Vec<JsNumber>>>()
-///         })?;
-
-///     thread::spawn(move || {
-///         let output: Vec<u32> = vec![42, 1, 2, 3];
-///         // It's okay to call a threadsafe function multiple times.
-///         tsfn.call(Ok(output.clone()), ThreadsafeFunctionCallMode::Blocking);
-///         tsfn.call(Ok(output.clone()), ThreadsafeFunctionCallMode::NonBlocking);
-///         tsfn.release(ThreadsafeFunctionReleaseMode::Release);
-///     });
-
-///     ctx.env.get_undefined()
+///           })?;
+///
+///   let tsfn_cloned = tsfn.try_clone()?;
+///
+///   thread::spawn(move || {
+///       let output: Vec<u32> = vec![0, 1, 2, 3];
+///       // It's okay to call a threadsafe function multiple times.
+///       tsfn.call(Ok(output.clone()), ThreadsafeFunctionCallMode::Blocking);
+///   });
+///
+///   thread::spawn(move || {
+///       let output: Vec<u32> = vec![3, 2, 1, 0];
+///       // It's okay to call a threadsafe function multiple times.
+///       tsfn_cloned.call(Ok(output.clone()), ThreadsafeFunctionCallMode::NonBlocking);
+///   });
+///
+///   ctx.env.get_undefined()
 /// }
 /// ```
 pub struct ThreadsafeFunction<T: 'static> {
