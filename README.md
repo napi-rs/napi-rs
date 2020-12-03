@@ -122,7 +122,7 @@ See the included [test_module](./test_module) for an example add-on.
 
 Install the `@napi-rs/cli` to help you build your `Rust` codes and copy `Dynamic lib` file to `.node` file in case you can `require` it in your program.
 
-```json
+```js
 {
   "package": "awesome-package",
   "devDependencies": {
