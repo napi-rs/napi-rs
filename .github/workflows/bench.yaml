@@ -6,7 +6,7 @@ env:
 on:
   push:
     branches:
-      - master
+      - main
   pull_request:
 
 jobs:
@@ -67,7 +67,7 @@ jobs:
 
       - name: Store benchmark result
         uses: rhysd/github-action-benchmark@v1
-        if: github.ref == 'refs/heads/master'
+        if: github.ref == 'refs/heads/main'
         with:
           tool: 'benchmarkjs'
           output-file-path: bench.txt
@@ -76,7 +76,7 @@ jobs:
 
       - name: Store benchmark result
         uses: rhysd/github-action-benchmark@v1
-        if: github.ref != 'refs/heads/master'
+        if: github.ref != 'refs/heads/main'
         with:
           tool: 'benchmarkjs'
           output-file-path: bench.txt

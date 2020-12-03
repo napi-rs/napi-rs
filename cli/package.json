@@ -4,7 +4,7 @@
   "description": "Cli tools for napi-rs",
   "keywords": ["cli", "rust", "napi", "n-api", "neon"],
   "author": "LongYinan <lynweklm@gmail.com>",
-  "homepage": "https://github.com/napi-rs/napi-rs/tree/master/cli#readme",
+  "homepage": "https://github.com/napi-rs/napi-rs",
   "license": "MIT",
   "bin": {
     "napi": "./scripts/index.js"
