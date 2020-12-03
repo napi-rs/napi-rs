@@ -4,7 +4,7 @@
   "description": "Rust target triples objects",
   "keywords": ["Rust", "cross-compile", "napi", "n-api", "node-rs", "napi-rs"],
   "author": "LongYinan <lynweklm@gmail.com>",
-  "homepage": "https://github.com/napi-rs/napi-rs/tree/master/triples#readme",
+  "homepage": "https://github.com/napi-rs/napi-rs/tree/main/triples#readme",
   "license": "MIT",
   "main": "./index.js",
   "types": "./index.d.ts",
