@@ -35,6 +35,12 @@ use tokio::sync::mpsc::error::TrySendError;
 pub type Callback = extern "C" fn(sys::napi_env, sys::napi_callback_info) -> sys::napi_value;
 
 #[derive(Clone, Copy)]
+/// `Env` is used to represent a context that the underlying N-API implementation can use to persist VM-specific state.
+/// This structure is passed to native functions when they're invoked, and it must be passed back when making N-API calls.
+/// Specifically, the same `Env` that was passed in when the initial native function was called must be passed to any subsequent nested N-API calls.
+/// Caching the `Env` for the purpose of general reuse, and passing the `Env` between instances of the same addon running on different Worker threads is not allowed.
+/// The `Env` becomes invalid when an instance of a native addon is unloaded.
+/// Notification of this event is delivered through the callbacks given to `Env::add_env_cleanup_hook` and `Env::set_instance_data`.
 pub struct Env(pub(crate) sys::napi_env);
 
 impl Env {
