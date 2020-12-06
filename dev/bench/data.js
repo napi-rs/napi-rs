@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1607223179919,
+  "lastUpdate": 1607223213928,
   "repoUrl": "https://github.com/napi-rs/napi-rs",
   "entries": {
     "Benchmark": [
@@ -6200,6 +6200,65 @@ window.BENCHMARK_DATA = {
             "name": "Async task#napi-rs",
             "value": 33282,
             "range": "±0.88%",
+            "unit": "ops/sec",
+            "extra": "81 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "lynweklm@gmail.com",
+            "name": "LongYinan",
+            "username": "Brooooooklyn"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "41a2fc564a6024b81c3d68451a0a9643803dd653",
+          "message": "Merge pull request #335 from napi-rs/dependabot/npm_and_yarn/eslint-plugin-prettier-3.2.0\n\nbuild(deps-dev): bump eslint-plugin-prettier from 3.1.4 to 3.2.0",
+          "timestamp": "2020-12-06T10:51:16+08:00",
+          "tree_id": "466e7ccefba86b5d8413d765952b2e11b75d0353",
+          "url": "https://github.com/napi-rs/napi-rs/commit/41a2fc564a6024b81c3d68451a0a9643803dd653"
+        },
+        "date": 1607223212932,
+        "tool": "benchmarkjs",
+        "benches": [
+          {
+            "name": "noop#napi-rs",
+            "value": 43641679,
+            "range": "±0.11%",
+            "unit": "ops/sec",
+            "extra": "95 samples"
+          },
+          {
+            "name": "noop#JavaScript",
+            "value": 592354395,
+            "range": "±0.13%",
+            "unit": "ops/sec",
+            "extra": "91 samples"
+          },
+          {
+            "name": "Plus number#napi-rs",
+            "value": 13348242,
+            "range": "±0.5%",
+            "unit": "ops/sec",
+            "extra": "94 samples"
+          },
+          {
+            "name": "Plus number#JavaScript",
+            "value": 581433736,
+            "range": "±0.7%",
+            "unit": "ops/sec",
+            "extra": "94 samples"
+          },
+          {
+            "name": "Async task#napi-rs",
+            "value": 31417,
+            "range": "±1.88%",
             "unit": "ops/sec",
             "extra": "81 samples"
           }
