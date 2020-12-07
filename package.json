@@ -71,7 +71,7 @@
     "benny": "^3.6.15",
     "cross-env": "^7.0.3",
     "eslint": "^7.14.0",
-    "eslint-config-prettier": "^6.15.0",
+    "eslint-config-prettier": "^7.0.0",
     "eslint-plugin-import": "^2.22.1",
     "eslint-plugin-prettier": "^3.2.0",
     "husky": "^4.3.0",
