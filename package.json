@@ -3,10 +3,7 @@
   "version": "0.0.0",
   "description": "A minimal library for building compiled Node add-ons in Rust.",
   "private": "true",
-  "workspaces": [
-    "cli",
-    "triples"
-  ],
+  "workspaces": ["cli", "triples"],
   "repository": {
     "type": "git",
     "url": "git@github.com:Brooooooklyn/napi-rs.git"
@@ -18,6 +15,7 @@
     "build:bench": "yarn --cwd ./bench build",
     "build:test": "yarn --cwd ./test_module build",
     "build:test:aarch64": "yarn --cwd ./test_module build-aarch64",
+    "build:test:armv7": "yarn --cwd ./test_module build-armv7",
     "format": "run-p format:md format:json format:yaml format:source format:rs",
     "format:md": "prettier --parser markdown --write './**/*.md'",
     "format:json": "prettier --parser json --write './**/*.json'",
@@ -40,18 +38,10 @@
     "arrowParens": "always"
   },
   "lint-staged": {
-    "*.js": [
-      "prettier --write"
-    ],
-    "*.@(yml|yaml)": [
-      "prettier --parser yaml --write"
-    ],
-    "*.json": [
-      "prettier --parser json --write"
-    ],
-    "*.md": [
-      "prettier --parser markdown --write"
-    ]
+    "*.js": ["prettier --write"],
+    "*.@(yml|yaml)": ["prettier --parser yaml --write"],
+    "*.json": ["prettier --parser json --write"],
+    "*.md": ["prettier --parser markdown --write"]
   },
   "husky": {
     "hooks": {
