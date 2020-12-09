@@ -1,5 +1,4 @@
 import { execSync } from 'child_process'
-import os from 'os'
 import { join, parse, sep } from 'path'
 
 import chalk from 'chalk'
@@ -104,7 +103,7 @@ export class BuildCommand extends Command {
 
     debug(`Dylib name: ${chalk.greenBright(dylibName)}`)
 
-    const platform = os.platform()
+    const platform = triple.platform
     let libExt
 
     debug(`Platform: ${chalk.greenBright(platform)}`)
@@ -121,6 +120,7 @@ export class BuildCommand extends Command {
       case 'linux':
       case 'freebsd':
       case 'openbsd':
+      case 'android':
       case 'sunos':
         dylibName = `lib${dylibName}`
         libExt = '.so'
