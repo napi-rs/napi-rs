@@ -21,12 +21,7 @@ impl JsBuffer {
     let mut data = ptr::null_mut();
     let mut len: usize = 0;
     check_status!(unsafe {
-      sys::napi_get_buffer_info(
-        self.0.env,
-        self.0.value,
-        &mut data,
-        &mut len as *mut usize as *mut _,
-      )
+      sys::napi_get_buffer_info(self.0.env, self.0.value, &mut data, &mut len)
     })?;
     Ok(JsBufferValue {
       data: mem::ManuallyDrop::new(unsafe { Vec::from_raw_parts(data as *mut _, len, len) }),
