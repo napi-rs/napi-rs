@@ -7,7 +7,7 @@ license = "MIT"
 name = "napi"
 readme = "README.md"
 repository = "https://github.com/napi-rs/napi-rs"
-version = "1.0.0-alpha.0"
+version = "1.0.0-alpha.1"
 
 [features]
 default = ["napi3"] # for most NodeJS users
