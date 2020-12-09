@@ -25,19 +25,18 @@ macro_rules! impl_object_methods {
         let mut error_code = ptr::null_mut();
         let mut reason_string = ptr::null_mut();
         let mut js_error = ptr::null_mut();
-        debug_assert!(
-          sys::napi_create_string_utf8(
-            env,
-            error_code_string.as_ptr(),
-            status_len,
-            &mut error_code
-          ) == sys::Status::napi_ok
+        let create_code_status = sys::napi_create_string_utf8(
+          env,
+          error_code_string.as_ptr(),
+          status_len,
+          &mut error_code,
         );
-        debug_assert!(
-          sys::napi_create_string_utf8(env, reason.as_ptr(), reason_len, &mut reason_string)
-            == sys::Status::napi_ok
-        );
-        debug_assert!($kind(env, error_code, reason_string, &mut js_error) == sys::Status::napi_ok);
+        debug_assert!(create_code_status == sys::Status::napi_ok);
+        let create_reason_status =
+          sys::napi_create_string_utf8(env, reason.as_ptr(), reason_len, &mut reason_string);
+        debug_assert!(create_reason_status == sys::Status::napi_ok);
+        let create_error_status = $kind(env, error_code, reason_string, &mut js_error);
+        debug_assert!(create_error_status == sys::Status::napi_ok);
         js_error
       }
 
@@ -47,7 +46,8 @@ macro_rules! impl_object_methods {
       /// This function is safety if env is not null ptr.
       pub unsafe fn throw_into(self, env: sys::napi_env) {
         let js_error = self.into_value(env);
-        debug_assert!(sys::napi_throw(env, js_error) == sys::Status::napi_ok);
+        let throw_status = sys::napi_throw(env, js_error);
+        debug_assert!(throw_status == sys::Status::napi_ok);
       }
 
       #[inline(always)]
