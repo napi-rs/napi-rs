@@ -1,6 +1,6 @@
 {
   "name": "@napi-rs/cli",
-  "version": "1.0.0-alpha.9",
+  "version": "1.0.0-alpha.10",
   "description": "Cli tools for napi-rs",
   "keywords": ["cli", "rust", "napi", "n-api", "neon"],
   "author": "LongYinan <lynweklm@gmail.com>",
