@@ -607,4 +607,15 @@ impl JsUnknown {
   pub fn get_type(&self) -> Result<ValueType> {
     unsafe { type_of!(self.0.env, self.0.value) }
   }
+
+  #[inline]
+  /// # Safety
+  /// This function should be called after `JsUnknown::get_type`
+  /// And the `V` must be match with the return value of `get_type`
+  pub unsafe fn cast<V>(self) -> V
+  where
+    V: NapiValue,
+  {
+    V::from_raw_unchecked(self.0.env, self.0.value)
+  }
 }

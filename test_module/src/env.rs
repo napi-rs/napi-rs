@@ -26,10 +26,17 @@ pub fn strict_equals(ctx: CallContext) -> Result<JsBoolean> {
   ctx.env.get_boolean(ctx.env.strict_equals(a, b)?)
 }
 
+#[js_function(1)]
+pub fn cast_unknown(ctx: CallContext) -> Result<JsObject> {
+  let arg: JsUnknown = ctx.get(0)?;
+  Ok(unsafe { arg.cast::<JsObject>() })
+}
+
 pub fn register_js(exports: &mut JsObject) -> Result<()> {
   exports.create_named_method("instanceof", instanceof)?;
   exports.create_named_method("isTypedarray", is_typedarray)?;
   exports.create_named_method("isDataview", is_dataview)?;
   exports.create_named_method("strictEquals", strict_equals)?;
+  exports.create_named_method("castUnknown", cast_unknown)?;
   Ok(())
 }
