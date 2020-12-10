@@ -55,11 +55,8 @@ impl JsBufferValue {
   }
 
   #[inline]
-  pub fn new(value: JsBuffer, data: Vec<u8>) -> Self {
-    JsBufferValue {
-      value,
-      data: mem::ManuallyDrop::new(data),
-    }
+  pub fn new(value: JsBuffer, data: mem::ManuallyDrop<Vec<u8>>) -> Self {
+    JsBufferValue { value, data }
   }
 
   #[inline]
