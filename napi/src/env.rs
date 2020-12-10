@@ -1,6 +1,7 @@
 use std::any::TypeId;
 use std::convert::TryInto;
 use std::ffi::CString;
+use std::mem;
 use std::os::raw::{c_char, c_void};
 use std::ptr;
 
@@ -275,7 +276,7 @@ impl Env {
         value: raw_value,
         value_type: ValueType::Object,
       }),
-      data,
+      mem::ManuallyDrop::new(data),
     ))
   }
 
@@ -306,8 +307,53 @@ impl Env {
         value: raw_value,
         value_type: ValueType::Object,
       }),
-      data,
+      mem::ManuallyDrop::new(data),
     ))
+  }
+
+  #[inline]
+  /// # Safety
+  /// Mostly same with `create_buffer_with_data`, but you must ensure data will be dropped **after** the `Buffer` is been GC.
+  ///
+  /// And should manually trigger `Env::adjust_external_memory` after data is dropped.
+  pub unsafe fn create_buffer_with_manually_drop_data(&self, data: &[u8]) -> Result<JsBufferValue> {
+    let length = data.len();
+    let mut raw_value = ptr::null_mut();
+    let data_ptr = data.as_ptr();
+    check_status!(sys::napi_create_external_buffer(
+      self.0,
+      length,
+      data_ptr as *mut c_void,
+      None,
+      ptr::null_mut(),
+      &mut raw_value,
+    ))?;
+    let mut changed = 0;
+    check_status!(sys::napi_adjust_external_memory(
+      self.0,
+      length as i64,
+      &mut changed
+    ))?;
+    Ok(JsBufferValue::new(
+      JsBuffer(Value {
+        env: self.0,
+        value: raw_value,
+        value_type: ValueType::Object,
+      }),
+      mem::ManuallyDrop::new(Vec::from_raw_parts(data_ptr as *mut u8, length, length)),
+    ))
+  }
+
+  #[inline]
+  /// This function gives V8 an indication of the amount of externally allocated memory that is kept alive by JavaScript objects (i.e. a JavaScript object that points to its own memory allocated by a native module).
+  ///
+  /// Registering externally allocated memory will trigger global garbage collections more often than it would otherwise.
+  ///
+  /// ***ATTENTION ⚠️***, do not use this with `create_buffer_with_data/create_arraybuffer_with_data`, since these two functions already called the `adjust_external_memory` internal.
+  pub fn adjust_external_memory(&mut self, size: i64) -> Result<i64> {
+    let mut changed = 0i64;
+    check_status!(unsafe { sys::napi_adjust_external_memory(self.0, size, &mut changed) })?;
+    Ok(changed)
   }
 
   #[inline]
@@ -336,7 +382,7 @@ impl Env {
         value: raw_value,
         value_type: ValueType::Object,
       }),
-      unsafe { Vec::from_raw_parts(copy_data as *mut u8, length, length) },
+      mem::ManuallyDrop::new(unsafe { Vec::from_raw_parts(copy_data as *mut u8, length, length) }),
     ))
   }
 
