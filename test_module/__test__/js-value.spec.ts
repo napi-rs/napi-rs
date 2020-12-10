@@ -47,3 +47,14 @@ test('strict_equals', (t) => {
   t.false(bindings.strictEquals(NaN, NaN))
   t.true(bindings.strictEquals(a, a))
 })
+
+test('cast_unknown', (t) => {
+  const f = {}
+  const r = bindings.castUnknown(f)
+  t.is(f, r)
+})
+
+test('cast_unknown will not throw', (t) => {
+  const f = 1
+  t.notThrows(() => bindings.castUnknown(f))
+})
