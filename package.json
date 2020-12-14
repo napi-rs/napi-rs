@@ -72,7 +72,7 @@
     "nyc": "^15.1.0",
     "prettier": "^2.2.1",
     "shx": "^0.3.3",
-    "sinon": "^9.2.1",
+    "sinon": "^9.2.2",
     "source-map-support": "^0.5.19",
     "ts-node": "^9.1.1",
     "tslib": "^2.0.3",
