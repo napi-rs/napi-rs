@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1608048466730,
+  "lastUpdate": 1608132358604,
   "repoUrl": "https://github.com/napi-rs/napi-rs",
   "entries": {
     "Benchmark": [
@@ -7677,6 +7677,65 @@ window.BENCHMARK_DATA = {
             "range": "±4.81%",
             "unit": "ops/sec",
             "extra": "54 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "lynweklm@gmail.com",
+            "name": "LongYinan",
+            "username": "Brooooooklyn"
+          },
+          "committer": {
+            "email": "lynweklm@gmail.com",
+            "name": "LongYinan",
+            "username": "Brooooooklyn"
+          },
+          "distinct": true,
+          "id": "c621986ce590b98f77aa4ddb63a1fa5c2fc6209b",
+          "message": "feat(napi): implement add_finalizer for JsObject",
+          "timestamp": "2020-12-16T23:23:04+08:00",
+          "tree_id": "d23d273ecf059598a545783158f1f0dbb24a7c46",
+          "url": "https://github.com/napi-rs/napi-rs/commit/c621986ce590b98f77aa4ddb63a1fa5c2fc6209b"
+        },
+        "date": 1608132357238,
+        "tool": "benchmarkjs",
+        "benches": [
+          {
+            "name": "noop#napi-rs",
+            "value": 45235597,
+            "range": "±0.96%",
+            "unit": "ops/sec",
+            "extra": "85 samples"
+          },
+          {
+            "name": "noop#JavaScript",
+            "value": 724722662,
+            "range": "±0.95%",
+            "unit": "ops/sec",
+            "extra": "88 samples"
+          },
+          {
+            "name": "Plus number#napi-rs",
+            "value": 15782260,
+            "range": "±0.81%",
+            "unit": "ops/sec",
+            "extra": "87 samples"
+          },
+          {
+            "name": "Plus number#JavaScript",
+            "value": 718795434,
+            "range": "±0.72%",
+            "unit": "ops/sec",
+            "extra": "89 samples"
+          },
+          {
+            "name": "Async task#napi-rs",
+            "value": 32577,
+            "range": "±2.67%",
+            "unit": "ops/sec",
+            "extra": "78 samples"
           }
         ]
       }
