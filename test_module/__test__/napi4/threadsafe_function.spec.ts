@@ -12,7 +12,7 @@ test('should get js function called from a thread', async (t) => {
     return
   }
 
-  await new Promise((resolve, reject) => {
+  await new Promise<void>((resolve, reject) => {
     bindings.testThreadsafeFunction((...args: any[]) => {
       called += 1
       try {
@@ -54,4 +54,21 @@ test('should return Closing while calling aborted tsfn', (t) => {
     return
   }
   t.notThrows(() => bindings.testCallAbortedThreadsafeFunction(() => {}))
+})
+
+test('should work with napi ref', (t) => {
+  if (napiVersion < 4) {
+    t.is(bindings.testTsfnWithRef, undefined)
+  } else {
+    const obj = {
+      foo: Symbol(),
+    }
+    return new Promise<void>((resolve) => {
+      bindings.testTsfnWithRef((err: Error | null, returnObj: any) => {
+        t.is(err, null)
+        t.is(obj, returnObj)
+        resolve()
+      }, obj)
+    })
+  }
 })
