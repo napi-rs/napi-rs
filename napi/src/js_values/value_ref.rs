@@ -6,8 +6,8 @@ use crate::{sys, Env, Result};
 
 pub struct Ref<T> {
   pub(crate) raw_ref: sys::napi_ref,
-  count: u32,
-  inner: T,
+  pub(crate) count: u32,
+  pub(crate) inner: T,
 }
 
 unsafe impl<T> Send for Ref<T> {}

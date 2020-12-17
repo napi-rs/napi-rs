@@ -638,6 +638,53 @@ impl Env {
   }
 
   #[inline]
+  /// This API create a new reference with the specified reference count to the Object passed in.
+  pub fn create_reference<T>(&self, value: T) -> Result<Ref<()>>
+  where
+    T: NapiValue,
+  {
+    let mut raw_ref = ptr::null_mut();
+    let initial_ref_count = 1;
+    check_status!(unsafe {
+      sys::napi_create_reference(self.0, value.raw(), initial_ref_count, &mut raw_ref)
+    })?;
+    Ok(Ref {
+      raw_ref,
+      count: 1,
+      inner: (),
+    })
+  }
+
+  #[inline]
+  /// Get reference value from `Ref` with type check
+  /// Return error if the type of `reference` provided is mismatched with `T`
+  pub fn get_reference_value<T>(&self, reference: &Ref<()>) -> Result<T>
+  where
+    T: NapiValue,
+  {
+    let mut js_value = ptr::null_mut();
+    check_status!(unsafe {
+      sys::napi_get_reference_value(self.0, reference.raw_ref, &mut js_value)
+    })?;
+    unsafe { T::from_raw(self.0, js_value) }
+  }
+
+  #[inline]
+  /// Get reference value from `Ref` without type check
+  /// Using this API if you are sure the type of `T` is matched with provided `Ref<()>`.
+  /// If type mismatched, calling `T::method` would return `Err`.
+  pub fn get_reference_value_unchecked<T>(&self, reference: &Ref<()>) -> Result<T>
+  where
+    T: NapiValue,
+  {
+    let mut js_value = ptr::null_mut();
+    check_status!(unsafe {
+      sys::napi_get_reference_value(self.0, reference.raw_ref, &mut js_value)
+    })?;
+    Ok(unsafe { T::from_raw_unchecked(self.0, js_value) })
+  }
+
+  #[inline]
   pub fn create_external<T: 'static>(&self, native_object: T) -> Result<JsExternal> {
     let mut object_value = ptr::null_mut();
     check_status!(unsafe {
