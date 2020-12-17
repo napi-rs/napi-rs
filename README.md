@@ -65,24 +65,32 @@ fn fibonacci_native(n: i64) -> i64 {
 ### Register module
 
 ```rust
+#[macro_use]
+extern crate napi_derive;
+
 use napi::{JsObject, Result};
 
 /// `exports` is `module.exports` object in NodeJS
 #[module_exports]
 fn init(mut exports: JsObject) -> Result<()> {
   exports.create_named_method("fibonacci", fibonacci)?;
+  Ok(())
 }
 ```
 
 And you can also create `JavaScript` value while registering module:
 
 ```rust
+#[macro_use]
+extern crate napi_derive;
+
 use napi::{JsObject, Result, Env};
 
 #[module_exports]
 fn init(mut exports: JsObject, env: Env) -> Result<()> {
   exports.create_named_method("fibonacci", fibonacci)?;
   exports.set_named_property("DEFAULT_VALUE", env.create_int64(100)?)?;
+  Ok(())
 }
 ```
 
