@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1608136287294,
+  "lastUpdate": 1608174635019,
   "repoUrl": "https://github.com/napi-rs/napi-rs",
   "entries": {
     "Benchmark": [
@@ -7795,6 +7795,65 @@ window.BENCHMARK_DATA = {
             "range": "±2.17%",
             "unit": "ops/sec",
             "extra": "78 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "lynweklm@gmail.com",
+            "name": "LongYinan",
+            "username": "Brooooooklyn"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "90f615eee3d29fc999f7d13dfaa5f35c4522579c",
+          "message": "Merge pull request #366 from napi-rs/instance-data\n\nfeat(napi): set and get instance data",
+          "timestamp": "2020-12-17T11:08:15+08:00",
+          "tree_id": "fc21d4a494838339751546de26384afe877db129",
+          "url": "https://github.com/napi-rs/napi-rs/commit/90f615eee3d29fc999f7d13dfaa5f35c4522579c"
+        },
+        "date": 1608174634090,
+        "tool": "benchmarkjs",
+        "benches": [
+          {
+            "name": "noop#napi-rs",
+            "value": 45341222,
+            "range": "±0.71%",
+            "unit": "ops/sec",
+            "extra": "94 samples"
+          },
+          {
+            "name": "noop#JavaScript",
+            "value": 576295305,
+            "range": "±0.58%",
+            "unit": "ops/sec",
+            "extra": "90 samples"
+          },
+          {
+            "name": "Plus number#napi-rs",
+            "value": 13230373,
+            "range": "±0.48%",
+            "unit": "ops/sec",
+            "extra": "93 samples"
+          },
+          {
+            "name": "Plus number#JavaScript",
+            "value": 574560373,
+            "range": "±0.58%",
+            "unit": "ops/sec",
+            "extra": "95 samples"
+          },
+          {
+            "name": "Async task#napi-rs",
+            "value": 29488,
+            "range": "±1.33%",
+            "unit": "ops/sec",
+            "extra": "76 samples"
           }
         ]
       }
