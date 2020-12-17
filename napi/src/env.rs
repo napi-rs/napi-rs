@@ -834,6 +834,68 @@ impl Env {
     Ok(unsafe { JsDate::from_raw_unchecked(self.0, js_value) })
   }
 
+  #[cfg(feature = "napi6")]
+  #[inline]
+  /// This API associates data with the currently running Agent. data can later be retrieved using `Env::get_instance_data()`.
+  /// Any existing data associated with the currently running Agent which was set by means of a previous call to `Env::set_instance_data()` will be overwritten.
+  /// If a `finalize_cb` was provided by the previous call, it will not be called.
+  pub fn set_instance_data<T, Hint, F>(&self, native: T, hint: Hint, finalize_cb: F) -> Result<()>
+  where
+    T: 'static,
+    Hint: 'static,
+    F: FnOnce(FinalizeContext<T, Hint>),
+  {
+    check_status!(unsafe {
+      sys::napi_set_instance_data(
+        self.0,
+        Box::leak(Box::new((TaggedObject::new(native), finalize_cb))) as *mut (TaggedObject<T>, F)
+          as *mut c_void,
+        Some(
+          set_instance_finalize_callback::<T, Hint, F>
+            as unsafe extern "C" fn(
+              env: sys::napi_env,
+              finalize_data: *mut c_void,
+              finalize_hint: *mut c_void,
+            ),
+        ),
+        Box::leak(Box::new(hint)) as *mut Hint as *mut c_void,
+      )
+    })
+  }
+
+  #[cfg(feature = "napi6")]
+  #[inline]
+  /// This API retrieves data that was previously associated with the currently running Agent via `Env::set_instance_data()`.
+  /// If no data is set, the call will succeed and data will be set to NULL.
+  pub fn get_instance_data<T>(&self) -> Result<Option<&'static mut T>>
+  where
+    T: 'static,
+  {
+    let mut unknown_tagged_object: *mut c_void = ptr::null_mut();
+    unsafe {
+      check_status!(sys::napi_get_instance_data(
+        self.0,
+        &mut unknown_tagged_object
+      ))?;
+      let type_id = unknown_tagged_object as *const TypeId;
+      if unknown_tagged_object.is_null() {
+        return Ok(None);
+      }
+      if *type_id == TypeId::of::<T>() {
+        let tagged_object = unknown_tagged_object as *mut TaggedObject<T>;
+        (*tagged_object).object.as_mut().map(Some).ok_or(Error {
+          status: Status::InvalidArg,
+          reason: "Invalid argument, nothing attach to js_object".to_owned(),
+        })
+      } else {
+        Err(Error {
+          status: Status::InvalidArg,
+          reason: "Invalid argument, T on unrwap is not the type of wrapped object".to_owned(),
+        })
+      }
+    }
+  }
+
   /// # Serialize `Rust Struct` into `JavaScript Value`
   /// ```
   /// #[derive(Serialize, Debug, Deserialize)]
@@ -931,6 +993,26 @@ unsafe extern "C" fn raw_finalize<T>(
 ) {
   let tagged_object = finalize_data as *mut TaggedObject<T>;
   Box::from_raw(tagged_object);
+}
+
+#[cfg(feature = "napi6")]
+unsafe extern "C" fn set_instance_finalize_callback<T, Hint, F>(
+  raw_env: sys::napi_env,
+  finalize_data: *mut c_void,
+  finalize_hint: *mut c_void,
+) where
+  T: 'static,
+  Hint: 'static,
+  F: FnOnce(FinalizeContext<T, Hint>),
+{
+  let (value, callback) = *Box::from_raw(finalize_data as *mut (TaggedObject<T>, F));
+  let hint = *Box::from_raw(finalize_hint as *mut Hint);
+  let env = Env::from_raw(raw_env);
+  callback(FinalizeContext {
+    value: value.object.unwrap(),
+    hint,
+    env,
+  });
 }
 
 #[cfg(feature = "napi3")]
