@@ -20,5 +20,6 @@ pub fn register_js(exports: &mut JsObject) -> Result<()> {
     "testCallAbortedThreadsafeFunction",
     test_call_aborted_threadsafe_function,
   )?;
+  exports.create_named_method("testTsfnWithRef", test_tsfn_with_ref)?;
   Ok(())
 }

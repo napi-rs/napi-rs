@@ -55,7 +55,7 @@ pub use string::*;
 pub(crate) use tagged_object::TaggedObject;
 pub use undefined::JsUndefined;
 pub(crate) use value::Value;
-pub use value_ref::Ref;
+pub use value_ref::*;
 pub use value_type::ValueType;
 
 // Value types
