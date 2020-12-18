@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1608264044052,
+  "lastUpdate": 1608265346008,
   "repoUrl": "https://github.com/napi-rs/napi-rs",
   "entries": {
     "Benchmark": [
@@ -8031,6 +8031,65 @@ window.BENCHMARK_DATA = {
             "range": "±2.14%",
             "unit": "ops/sec",
             "extra": "75 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "lynweklm@gmail.com",
+            "name": "LongYinan",
+            "username": "Brooooooklyn"
+          },
+          "committer": {
+            "email": "lynweklm@gmail.com",
+            "name": "LongYinan",
+            "username": "Brooooooklyn"
+          },
+          "distinct": true,
+          "id": "d2b61ef01f970b2d1c348590a3b11c98b1c52d7c",
+          "message": "napi-rs@1.0.0-alpha.2",
+          "timestamp": "2020-12-18T12:19:08+08:00",
+          "tree_id": "c78d891c6e9ad5e1cc62a7d3059b9923994dbe61",
+          "url": "https://github.com/napi-rs/napi-rs/commit/d2b61ef01f970b2d1c348590a3b11c98b1c52d7c"
+        },
+        "date": 1608265344744,
+        "tool": "benchmarkjs",
+        "benches": [
+          {
+            "name": "noop#napi-rs",
+            "value": 45384521,
+            "range": "±0.53%",
+            "unit": "ops/sec",
+            "extra": "94 samples"
+          },
+          {
+            "name": "noop#JavaScript",
+            "value": 593415985,
+            "range": "±0.13%",
+            "unit": "ops/sec",
+            "extra": "91 samples"
+          },
+          {
+            "name": "Plus number#napi-rs",
+            "value": 13639176,
+            "range": "±0.6%",
+            "unit": "ops/sec",
+            "extra": "97 samples"
+          },
+          {
+            "name": "Plus number#JavaScript",
+            "value": 590324135,
+            "range": "±0.2%",
+            "unit": "ops/sec",
+            "extra": "97 samples"
+          },
+          {
+            "name": "Async task#napi-rs",
+            "value": 23563,
+            "range": "±10.92%",
+            "unit": "ops/sec",
+            "extra": "69 samples"
           }
         ]
       }
