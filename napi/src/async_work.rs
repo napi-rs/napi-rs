@@ -93,10 +93,13 @@ unsafe extern "C" fn complete<T: Task>(
   let value_ptr = mem::replace(&mut work.value, Ok(mem::MaybeUninit::zeroed()));
   let deferred = mem::replace(&mut work.deferred, ptr::null_mut());
   let napi_async_work = mem::replace(&mut work.napi_async_work, ptr::null_mut());
-  let value = value_ptr.and_then(move |v| {
-    let output = v.assume_init();
-    work.inner_task.resolve(Env::from_raw(env), output)
-  });
+  let value = match value_ptr {
+    Ok(v) => {
+      let output = v.assume_init();
+      work.inner_task.resolve(Env::from_raw(env), output)
+    }
+    Err(e) => work.inner_task.reject(Env::from_raw(env), e),
+  };
   match check_status!(status).and_then(move |_| value) {
     Ok(v) => {
       let status = sys::napi_resolve_deferred(env, deferred, v.raw());
