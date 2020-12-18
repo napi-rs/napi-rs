@@ -1,6 +1,8 @@
 use std::convert::TryInto;
 
-use napi::{CallContext, Env, JsBuffer, JsBufferValue, JsNumber, JsObject, Ref, Result, Task};
+use napi::{
+  CallContext, Env, Error, JsBuffer, JsBufferValue, JsNumber, JsObject, Ref, Result, Task,
+};
 
 struct ComputeFib {
   n: u32,
@@ -56,12 +58,20 @@ impl Task for CountBufferLength {
   type JsValue = JsNumber;
 
   fn compute(&mut self) -> Result<Self::Output> {
+    if self.data.len() == 10 {
+      return Err(Error::from_reason("len can't be 5".to_string()));
+    }
     Ok((&self.data).len())
   }
 
   fn resolve(self, env: Env, output: Self::Output) -> Result<Self::JsValue> {
     self.data.unref(env)?;
     env.create_uint32(output as _)
+  }
+
+  fn reject(self, env: Env, err: Error) -> Result<Self::JsValue> {
+    self.data.unref(env)?;
+    Err(err)
   }
 }
 
