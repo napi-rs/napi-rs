@@ -284,7 +284,7 @@ impl Env {
   /// This API allocates a node::Buffer object and initializes it with data backed by the passed in buffer.
   /// While this is still a fully-supported data structure, in most cases using a TypedArray will suffice.
   pub fn create_buffer_with_data(&self, mut data: Vec<u8>) -> Result<JsBufferValue> {
-    let mut length = data.len();
+    let length = data.len();
     let mut raw_value = ptr::null_mut();
     let data_ptr = data.as_mut_ptr();
     check_status!(unsafe {
@@ -293,7 +293,7 @@ impl Env {
         length,
         data_ptr as *mut c_void,
         Some(drop_buffer),
-        &mut length as *mut usize as *mut _,
+        Box::into_raw(Box::new((length, data.capacity()))) as *mut c_void,
         &mut raw_value,
       )
     })?;
@@ -403,7 +403,7 @@ impl Env {
 
   #[inline]
   pub fn create_arraybuffer_with_data(&self, data: Vec<u8>) -> Result<JsArrayBufferValue> {
-    let mut length = data.len();
+    let length = data.len();
     let mut raw_value = ptr::null_mut();
     let data_ptr = data.as_ptr();
     check_status!(unsafe {
@@ -412,7 +412,7 @@ impl Env {
         data_ptr as *mut c_void,
         length,
         Some(drop_buffer),
-        &mut length as *mut usize as *mut c_void,
+        Box::into_raw(Box::new((length, data.capacity()))) as *mut c_void,
         &mut raw_value,
       )
     })?;
@@ -1023,10 +1023,14 @@ impl Env {
   }
 }
 
-unsafe extern "C" fn drop_buffer(env: sys::napi_env, finalize_data: *mut c_void, len: *mut c_void) {
-  let length = len as *mut u64;
-  let length = *length as usize;
-  let _ = Vec::from_raw_parts(finalize_data as *mut u8, length, length);
+unsafe extern "C" fn drop_buffer(
+  env: sys::napi_env,
+  finalize_data: *mut c_void,
+  hint: *mut c_void,
+) {
+  let length_ptr = hint as *mut (usize, usize);
+  let (length, cap) = *Box::from_raw(length_ptr);
+  mem::drop(Vec::from_raw_parts(finalize_data as *mut u8, length, cap));
   let mut changed = 0;
   let adjust_external_memory_status =
     sys::napi_adjust_external_memory(env, -(length as i64), &mut changed);
