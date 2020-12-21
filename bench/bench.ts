@@ -4,11 +4,17 @@ import { join } from 'path'
 import { Summary } from 'benny/lib/internal/common-types'
 
 import { benchAsync } from './async'
+import { benchBuffer } from './buffer'
 import { benchNoop } from './noop'
 import { benchPlus } from './plus'
 
 async function run() {
-  const output = [await benchNoop(), await benchPlus(), await benchAsync()]
+  const output = [
+    await benchNoop(),
+    await benchPlus(),
+    await benchBuffer(),
+    await benchAsync(),
+  ]
     .map(formatSummary)
     .join('\n')
 

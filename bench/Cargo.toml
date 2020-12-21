@@ -11,6 +11,12 @@ crate-type = ["cdylib"]
 napi = {path = "../napi"}
 napi-derive = {path = "../napi-derive"}
 
+[target.'cfg(all(unix, not(target_env = "musl"), not(target_arch = "aarch64")))'.dependencies]
+jemallocator = {version = "0.3", features = ["disable_initial_exec_tls"]}
+
+[target.'cfg(windows)'.dependencies]
+mimalloc = {version = "0.1"}
+
 [build-dependencies]
 napi-build = {path = "../build"}
 
