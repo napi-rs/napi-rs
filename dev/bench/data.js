@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1608549472072,
+  "lastUpdate": 1608571220275,
   "repoUrl": "https://github.com/napi-rs/napi-rs",
   "entries": {
     "Benchmark": [
@@ -8208,6 +8208,79 @@ window.BENCHMARK_DATA = {
             "range": "±1.69%",
             "unit": "ops/sec",
             "extra": "85 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "lynweklm@gmail.com",
+            "name": "LongYinan",
+            "username": "Brooooooklyn"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4eee3a6746ec241cda34c3a9b929427c829f284f",
+          "message": "Merge pull request #375 from napi-rs/external-buffer-memory-issue\n\nfix(napi): memory issues in create_external_buffer",
+          "timestamp": "2020-12-22T01:17:06+08:00",
+          "tree_id": "b60658095b0fc269d253553bb6ae29626feb787d",
+          "url": "https://github.com/napi-rs/napi-rs/commit/4eee3a6746ec241cda34c3a9b929427c829f284f"
+        },
+        "date": 1608571219089,
+        "tool": "benchmarkjs",
+        "benches": [
+          {
+            "name": "noop#napi-rs",
+            "value": 45050324,
+            "range": "±1.1%",
+            "unit": "ops/sec",
+            "extra": "90 samples"
+          },
+          {
+            "name": "noop#JavaScript",
+            "value": 654655560,
+            "range": "±0.85%",
+            "unit": "ops/sec",
+            "extra": "92 samples"
+          },
+          {
+            "name": "Plus number#napi-rs",
+            "value": 14304832,
+            "range": "±0.57%",
+            "unit": "ops/sec",
+            "extra": "91 samples"
+          },
+          {
+            "name": "Plus number#JavaScript",
+            "value": 654398436,
+            "range": "±0.44%",
+            "unit": "ops/sec",
+            "extra": "94 samples"
+          },
+          {
+            "name": "Create buffer#napi-rs",
+            "value": 83015,
+            "range": "±23.13%",
+            "unit": "ops/sec",
+            "extra": "73 samples"
+          },
+          {
+            "name": "Create buffer#JavaScript",
+            "value": 47571,
+            "range": "±54.16%",
+            "unit": "ops/sec",
+            "extra": "69 samples"
+          },
+          {
+            "name": "Async task#napi-rs",
+            "value": 29169,
+            "range": "±3.45%",
+            "unit": "ops/sec",
+            "extra": "72 samples"
           }
         ]
       }
