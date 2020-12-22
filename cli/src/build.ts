@@ -38,6 +38,9 @@ export class BuildCommand extends Command {
   @Command.String('--cargo-flags')
   cargoFlags = ''
 
+  @Command.String('--cargo-cwd')
+  cargoCwd!: string
+
   @Command.String({
     required: false,
   })
@@ -45,6 +48,9 @@ export class BuildCommand extends Command {
 
   @Command.Path('build')
   async execute() {
+    const cwd = this.cargoCwd
+      ? join(process.cwd(), this.cargoCwd)
+      : process.cwd()
     const releaseFlag = this.isRelease ? `--release` : ''
     const targetFLag = this.targetTripleDir
       ? `--target ${this.targetTripleDir}`
@@ -71,6 +77,7 @@ export class BuildCommand extends Command {
     execSync(cargoCommand, {
       env: process.env,
       stdio: 'inherit',
+      cwd,
     })
     const { binaryName } = getNapiConfig(this.configFileName)
     let dylibName = this.cargoName
@@ -80,11 +87,11 @@ export class BuildCommand extends Command {
       try {
         debug('Start read toml')
         tomlContentString = await readFileAsync(
-          join(process.cwd(), 'Cargo.toml'),
+          join(cwd, 'Cargo.toml'),
           'utf-8',
         )
       } catch {
-        throw new TypeError(`Could not find Cargo.toml in ${process.cwd()}`)
+        throw new TypeError(`Could not find Cargo.toml in ${cwd}`)
       }
 
       try {
@@ -98,6 +105,14 @@ export class BuildCommand extends Command {
         dylibName = tomlContent.package.name.replace(/-/g, '_')
       } else {
         throw new TypeError('No package.name field in Cargo.toml')
+      }
+
+      if (!tomlContent.lib?.['crate-type']?.includes?.('cdylib')) {
+        throw new TypeError(
+          `Missing ${chalk.green('create-type = ["cdylib"]')} in ${chalk.green(
+            '[lib]',
+          )}`,
+        )
       }
     }
 
@@ -151,7 +166,7 @@ export class BuildCommand extends Command {
       distModulePath = `${distModulePath}${platformName}.node`
     }
 
-    const dir = await findUp()
+    const dir = await findUp(cwd)
 
     if (!dir) {
       throw new TypeError('No target dir found')
