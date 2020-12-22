@@ -37,10 +37,13 @@ pub type Callback = extern "C" fn(sys::napi_env, sys::napi_callback_info) -> sys
 
 #[derive(Clone, Copy)]
 /// `Env` is used to represent a context that the underlying N-API implementation can use to persist VM-specific state.
-/// This structure is passed to native functions when they're invoked, and it must be passed back when making N-API calls.
+///
 /// Specifically, the same `Env` that was passed in when the initial native function was called must be passed to any subsequent nested N-API calls.
+///
 /// Caching the `Env` for the purpose of general reuse, and passing the `Env` between instances of the same addon running on different Worker threads is not allowed.
+///
 /// The `Env` becomes invalid when an instance of a native addon is unloaded.
+///
 /// Notification of this event is delivered through the callbacks given to `Env::add_env_cleanup_hook` and `Env::set_instance_data`.
 pub struct Env(pub(crate) sys::napi_env);
 
@@ -52,6 +55,7 @@ impl Env {
   }
 
   #[inline]
+  /// Get [JsUndefined](./struct.JsUndefined.html) value
   pub fn get_undefined(&self) -> Result<JsUndefined> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe { sys::napi_get_undefined(self.0, &mut raw_value) })?;
@@ -145,6 +149,7 @@ impl Env {
   }
 
   /// [n_api_napi_create_bigint_words](https://nodejs.org/api/n-api.html#n_api_napi_create_bigint_words)
+  ///
   /// The resulting BigInt will be negative when sign_bit is true.
   #[cfg(feature = "napi6")]
   #[inline]
@@ -282,6 +287,7 @@ impl Env {
 
   #[inline]
   /// This API allocates a node::Buffer object and initializes it with data backed by the passed in buffer.
+  ///
   /// While this is still a fully-supported data structure, in most cases using a TypedArray will suffice.
   pub fn create_buffer_with_data(&self, mut data: Vec<u8>) -> Result<JsBufferValue> {
     let length = data.len();
@@ -309,9 +315,7 @@ impl Env {
 
   #[inline]
   /// # Safety
-  /// Mostly same with `create_buffer_with_data`, but you must ensure data will be dropped **after** the `Buffer` is been GC.
-  ///
-  /// And should manually trigger `Env::adjust_external_memory` after data is dropped.
+  /// Mostly the same with `create_buffer_with_data`, but you must ensure data will be dropped **after** the `Buffer` has been GC.
   pub unsafe fn create_buffer_with_manually_drop_data(&self, data: &[u8]) -> Result<JsBufferValue> {
     let length = data.len();
     let mut raw_value = ptr::null_mut();
@@ -323,12 +327,6 @@ impl Env {
       None,
       ptr::null_mut(),
       &mut raw_value,
-    ))?;
-    let mut changed = 0;
-    check_status!(sys::napi_adjust_external_memory(
-      self.0,
-      length as i64,
-      &mut changed
     ))?;
     Ok(JsBufferValue::new(
       JsBuffer(Value {
@@ -354,6 +352,7 @@ impl Env {
 
   #[inline]
   /// This API allocates a node::Buffer object and initializes it with data copied from the passed-in buffer.
+  ///
   /// While this is still a fully-supported data structure, in most cases using a TypedArray will suffice.
   pub fn create_buffer_copy<D>(&self, data_to_copy: D) -> Result<JsBufferValue>
   where
@@ -425,8 +424,11 @@ impl Env {
 
   #[inline]
   /// This API allows an add-on author to create a function object in native code.
+  ///
   /// This is the primary mechanism to allow calling into the add-on's native code from JavaScript.
+  ///
   /// The newly created function is not automatically visible from script after this call.
+  ///
   /// Instead, a property must be explicitly set on any object that is visible to JavaScript, in order for the function to be accessible from script.
   pub fn create_function(&self, name: &str, callback: Callback) -> Result<JsFunction> {
     let mut raw_result = ptr::null_mut();
@@ -448,8 +450,11 @@ impl Env {
 
   #[inline]
   /// This API retrieves a napi_extended_error_info structure with information about the last error that occurred.
+  ///
   /// The content of the napi_extended_error_info returned is only valid up until an n-api function is called on the same env.
+  ///
   /// Do not rely on the content or format of any of the extended information as it is not subject to SemVer and may change at any time. It is intended only for logging purposes.
+  ///
   /// This API can be called even if there is a pending JavaScript exception.
   pub fn get_last_error_info(&self) -> Result<ExtendedErrorInfo> {
     let mut raw_extended_error = ptr::null();
@@ -505,6 +510,7 @@ impl Env {
   #[inline]
   #[allow(clippy::expect_fun_call)]
   /// In the event of an unrecoverable error in a native module
+  ///
   /// A fatal error can be thrown to immediately terminate the process.
   pub fn fatal_error(self, location: &str, message: &str) {
     let location_len = location.len();
@@ -527,6 +533,7 @@ impl Env {
   #[cfg(feature = "napi3")]
   #[inline]
   /// Trigger an 'uncaughtException' in JavaScript.
+  ///
   /// Useful if an async callback throws an exception with no way to recover.
   pub fn fatal_exception(&self, err: Error) {
     unsafe {
@@ -536,6 +543,7 @@ impl Env {
   }
 
   #[inline]
+  /// Create JavaScript class
   pub fn define_class(
     &self,
     name: &str,
@@ -649,6 +657,7 @@ impl Env {
 
   #[inline]
   /// Get reference value from `Ref` with type check
+  ///
   /// Return error if the type of `reference` provided is mismatched with `T`
   pub fn get_reference_value<T>(&self, reference: &Ref<()>) -> Result<T>
   where
@@ -663,7 +672,9 @@ impl Env {
 
   #[inline]
   /// Get reference value from `Ref` without type check
+  ///
   /// Using this API if you are sure the type of `T` is matched with provided `Ref<()>`.
+  ///
   /// If type mismatched, calling `T::method` would return `Err`.
   pub fn get_reference_value_unchecked<T>(&self, reference: &Ref<()>) -> Result<T>
   where
@@ -678,7 +689,9 @@ impl Env {
 
   #[inline]
   /// If `size_hint` provided, `Env::adjust_external_memory` will be called under the hood.
+  ///
   /// If no `size_hint` provided, global garbage collections will be triggered less times than expected.
+  ///
   /// If getting the exact `native_object` size is difficult, you can provide an approximate value, it's only effect to the GC.
   pub fn create_external<T: 'static>(
     &self,
@@ -739,6 +752,7 @@ impl Env {
   }
 
   #[inline]
+  /// Run [Task](./trait.Task.html) in libuv thread pool, return [AsyncWorkPromise](./struct.AsyncWorkPromise.html)
   pub fn spawn<T: 'static + Task>(&self, task: T) -> Result<AsyncWorkPromise> {
     async_work::run(self, task)
   }
@@ -877,6 +891,11 @@ impl Env {
 
   #[cfg(feature = "napi5")]
   #[inline]
+  /// This API does not observe leap seconds; they are ignored, as ECMAScript aligns with POSIX time specification.
+  ///
+  /// This API allocates a JavaScript Date object.
+  ///
+  /// JavaScript Date objects are described in [Section 20.3](https://tc39.github.io/ecma262/#sec-date-objects) of the ECMAScript Language Specification.
   pub fn create_date(&self, time: f64) -> Result<JsDate> {
     let mut js_value = ptr::null_mut();
     check_status!(unsafe { sys::napi_create_date(self.0, time, &mut js_value) })?;
@@ -886,7 +905,9 @@ impl Env {
   #[cfg(feature = "napi6")]
   #[inline]
   /// This API associates data with the currently running Agent. data can later be retrieved using `Env::get_instance_data()`.
+  ///
   /// Any existing data associated with the currently running Agent which was set by means of a previous call to `Env::set_instance_data()` will be overwritten.
+  ///
   /// If a `finalize_cb` was provided by the previous call, it will not be called.
   pub fn set_instance_data<T, Hint, F>(&self, native: T, hint: Hint, finalize_cb: F) -> Result<()>
   where
@@ -915,6 +936,7 @@ impl Env {
   #[cfg(feature = "napi6")]
   #[inline]
   /// This API retrieves data that was previously associated with the currently running Agent via `Env::set_instance_data()`.
+  ///
   /// If no data is set, the call will succeed and data will be set to NULL.
   pub fn get_instance_data<T>(&self) -> Result<Option<&'static mut T>>
   where
@@ -946,18 +968,19 @@ impl Env {
   }
 
   /// # Serialize `Rust Struct` into `JavaScript Value`
+  ///
   /// ```
   /// #[derive(Serialize, Debug, Deserialize)]
   /// struct AnObject {
-  ///   a: u32,
-  ///   b: Vec<f64>,
-  ///   c: String,
+  ///     a: u32,
+  ///     b: Vec<f64>,
+  ///     c: String,
   /// }
   ///
   /// #[js_function]
   /// fn serialize(ctx: CallContext) -> Result<JsUnknown> {
-  ///   let value = AnyObject { a: 1, b: vec![0.1, 2.22], c: "hello" };
-  ///   ctx.env.to_js_value(&value)
+  ///     let value = AnyObject { a: 1, b: vec![0.1, 2.22], c: "hello" };
+  ///     ctx.env.to_js_value(&value)
   /// }
   /// ```
   #[cfg(feature = "serde-json")]
@@ -974,16 +997,16 @@ impl Env {
   /// ```
   /// #[derive(Serialize, Debug, Deserialize)]
   /// struct AnObject {
-  ///  a: u32,
-  ///  b: Vec<f64>,
-  ///  c: String,
+  ///     a: u32,
+  ///     b: Vec<f64>,
+  ///     c: String,
   /// }
   ///
   /// #[js_function(1)]
   /// fn deserialize_from_js(ctx: CallContext) -> Result<JsUndefined> {
-  ///   let arg0 = ctx.get::<JsUnknown>(0)?;
-  ///   let de_serialized: AnObject = ctx.env.from_js_value(arg0)?;
-  ///   ...
+  ///     let arg0 = ctx.get::<JsUnknown>(0)?;
+  ///     let de_serialized: AnObject = ctx.env.from_js_value(arg0)?;
+  ///     ...
   /// }
   ///
   #[cfg(feature = "serde-json")]
