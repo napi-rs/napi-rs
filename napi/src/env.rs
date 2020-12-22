@@ -691,14 +691,12 @@ impl Env {
         self.0,
         Box::into_raw(Box::new(TaggedObject::new(native_object))) as *mut c_void,
         Some(raw_finalize::<T>),
-        ptr::null_mut(),
+        Box::into_raw(Box::new(size_hint)) as *mut c_void,
         &mut object_value,
       )
     })?;
-    if let Some(size_hint) = size_hint {
-      check_status!(unsafe {
-        sys::napi_adjust_external_memory(self.0, size_hint, ptr::null_mut())
-      })?;
+    if let Some(changed) = size_hint {
+      check_status!(unsafe { sys::napi_adjust_external_memory(self.0, changed, ptr::null_mut()) })?;
     };
     Ok(unsafe { JsExternal::from_raw_unchecked(self.0, object_value) })
   }
@@ -1038,12 +1036,22 @@ unsafe extern "C" fn drop_buffer(
 }
 
 unsafe extern "C" fn raw_finalize<T>(
-  _raw_env: sys::napi_env,
+  env: sys::napi_env,
   finalize_data: *mut c_void,
-  _finalize_hint: *mut c_void,
+  finalize_hint: *mut c_void,
 ) {
   let tagged_object = finalize_data as *mut TaggedObject<T>;
   Box::from_raw(tagged_object);
+  if !finalize_hint.is_null() {
+    let size_hint = *Box::from_raw(finalize_hint as *mut Option<i64>);
+    if let Some(changed) = size_hint {
+      let status = sys::napi_adjust_external_memory(env, -changed, ptr::null_mut());
+      debug_assert!(
+        status == sys::Status::napi_ok,
+        "Calling napi_adjust_external_memory failed"
+      );
+    };
+  }
 }
 
 #[cfg(feature = "napi6")]
