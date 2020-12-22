@@ -106,6 +106,14 @@ export class BuildCommand extends Command {
       } else {
         throw new TypeError('No package.name field in Cargo.toml')
       }
+
+      if (!tomlContent.lib?.['crate-type']?.includes?.('cdylib')) {
+        throw new TypeError(
+          `Missing ${chalk.green('create-type = ["cdylib"]')} in ${chalk.green(
+            '[lib]',
+          )}`,
+        )
+      }
     }
 
     debug(`Dylib name: ${chalk.greenBright(dylibName)}`)
