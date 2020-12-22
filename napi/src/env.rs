@@ -677,7 +677,14 @@ impl Env {
   }
 
   #[inline]
-  pub fn create_external<T: 'static>(&self, native_object: T) -> Result<JsExternal> {
+  /// If `size_hint` provided, `Env::adjust_external_memory` will be called under the hood.
+  /// If no `size_hint` provided, global garbage collections will be triggered less times than expected.
+  /// If getting the exact `native_object` size is difficult, you can provide an approximate value, it's only effect to the GC.
+  pub fn create_external<T: 'static>(
+    &self,
+    native_object: T,
+    size_hint: Option<i64>,
+  ) -> Result<JsExternal> {
     let mut object_value = ptr::null_mut();
     check_status!(unsafe {
       sys::napi_create_external(
@@ -688,6 +695,11 @@ impl Env {
         &mut object_value,
       )
     })?;
+    if let Some(size_hint) = size_hint {
+      check_status!(unsafe {
+        sys::napi_adjust_external_memory(self.0, size_hint, ptr::null_mut())
+      })?;
+    };
     Ok(unsafe { JsExternal::from_raw_unchecked(self.0, object_value) })
   }
 

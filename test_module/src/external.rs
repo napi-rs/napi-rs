@@ -10,7 +10,7 @@ struct NativeObject {
 pub fn create_external(ctx: CallContext) -> Result<JsExternal> {
   let count = ctx.get::<JsNumber>(0)?.try_into()?;
   let native = NativeObject { count };
-  ctx.env.create_external(native)
+  ctx.env.create_external(native, None)
 }
 
 #[js_function(1)]
