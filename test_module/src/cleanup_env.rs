@@ -7,7 +7,7 @@ fn add_cleanup_hook(mut env: Env) -> ContextlessResult<JsExternal> {
   let hook = env.add_env_cleanup_hook((), |_| {
     println!("cleanup hook executed");
   })?;
-  env.create_external(hook).map(Some)
+  env.create_external(hook, None).map(Some)
 }
 
 #[js_function(1)]

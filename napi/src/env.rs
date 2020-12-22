@@ -297,10 +297,6 @@ impl Env {
         &mut raw_value,
       )
     })?;
-    let mut changed = 0;
-    check_status!(unsafe {
-      sys::napi_adjust_external_memory(self.0, length as i64, &mut changed)
-    })?;
     Ok(JsBufferValue::new(
       JsBuffer(Value {
         env: self.0,
@@ -415,10 +411,6 @@ impl Env {
         Box::into_raw(Box::new((length, data.capacity()))) as *mut c_void,
         &mut raw_value,
       )
-    })?;
-    let mut changed = 0;
-    check_status!(unsafe {
-      sys::napi_adjust_external_memory(self.0, length as i64, &mut changed)
     })?;
 
     Ok(JsArrayBufferValue::new(
@@ -685,7 +677,14 @@ impl Env {
   }
 
   #[inline]
-  pub fn create_external<T: 'static>(&self, native_object: T) -> Result<JsExternal> {
+  /// If `size_hint` provided, `Env::adjust_external_memory` will be called under the hood.
+  /// If no `size_hint` provided, global garbage collections will be triggered less times than expected.
+  /// If getting the exact `native_object` size is difficult, you can provide an approximate value, it's only effect to the GC.
+  pub fn create_external<T: 'static>(
+    &self,
+    native_object: T,
+    size_hint: Option<i64>,
+  ) -> Result<JsExternal> {
     let mut object_value = ptr::null_mut();
     check_status!(unsafe {
       sys::napi_create_external(
@@ -696,6 +695,11 @@ impl Env {
         &mut object_value,
       )
     })?;
+    if let Some(size_hint) = size_hint {
+      check_status!(unsafe {
+        sys::napi_adjust_external_memory(self.0, size_hint, ptr::null_mut())
+      })?;
+    };
     Ok(unsafe { JsExternal::from_raw_unchecked(self.0, object_value) })
   }
 
@@ -1024,17 +1028,13 @@ impl Env {
 }
 
 unsafe extern "C" fn drop_buffer(
-  env: sys::napi_env,
+  _env: sys::napi_env,
   finalize_data: *mut c_void,
   hint: *mut c_void,
 ) {
   let length_ptr = hint as *mut (usize, usize);
   let (length, cap) = *Box::from_raw(length_ptr);
   mem::drop(Vec::from_raw_parts(finalize_data as *mut u8, length, cap));
-  let mut changed = 0;
-  let adjust_external_memory_status =
-    sys::napi_adjust_external_memory(env, -(length as i64), &mut changed);
-  debug_assert!(Status::from(adjust_external_memory_status) == Status::Ok);
 }
 
 unsafe extern "C" fn raw_finalize<T>(
