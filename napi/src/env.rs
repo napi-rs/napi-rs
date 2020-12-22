@@ -297,10 +297,6 @@ impl Env {
         &mut raw_value,
       )
     })?;
-    let mut changed = 0;
-    check_status!(unsafe {
-      sys::napi_adjust_external_memory(self.0, length as i64, &mut changed)
-    })?;
     Ok(JsBufferValue::new(
       JsBuffer(Value {
         env: self.0,
@@ -415,10 +411,6 @@ impl Env {
         Box::into_raw(Box::new((length, data.capacity()))) as *mut c_void,
         &mut raw_value,
       )
-    })?;
-    let mut changed = 0;
-    check_status!(unsafe {
-      sys::napi_adjust_external_memory(self.0, length as i64, &mut changed)
     })?;
 
     Ok(JsArrayBufferValue::new(
@@ -1024,17 +1016,13 @@ impl Env {
 }
 
 unsafe extern "C" fn drop_buffer(
-  env: sys::napi_env,
+  _env: sys::napi_env,
   finalize_data: *mut c_void,
   hint: *mut c_void,
 ) {
   let length_ptr = hint as *mut (usize, usize);
   let (length, cap) = *Box::from_raw(length_ptr);
   mem::drop(Vec::from_raw_parts(finalize_data as *mut u8, length, cap));
-  let mut changed = 0;
-  let adjust_external_memory_status =
-    sys::napi_adjust_external_memory(env, -(length as i64), &mut changed);
-  debug_assert!(Status::from(adjust_external_memory_status) == Status::Ok);
 }
 
 unsafe extern "C" fn raw_finalize<T>(
