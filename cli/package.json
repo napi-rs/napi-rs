@@ -1,15 +1,23 @@
 {
   "name": "@napi-rs/cli",
-  "version": "1.0.0-alpha.10",
+  "version": "1.0.0-alpha.11",
   "description": "Cli tools for napi-rs",
-  "keywords": ["cli", "rust", "napi", "n-api", "neon"],
+  "keywords": [
+    "cli",
+    "rust",
+    "napi",
+    "n-api",
+    "neon"
+  ],
   "author": "LongYinan <lynweklm@gmail.com>",
   "homepage": "https://github.com/napi-rs/napi-rs",
   "license": "MIT",
   "bin": {
     "napi": "./scripts/index.js"
   },
-  "files": ["scripts"],
+  "files": [
+    "scripts"
+  ],
   "engines": {
     "node": ">= 10"
   },
