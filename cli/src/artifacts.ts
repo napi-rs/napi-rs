@@ -11,6 +11,10 @@ import { readFileAsync, writeFileAsync } from './utils'
 const debug = debugFactory('artifacts')
 
 export class ArtifactsCommand extends Command {
+  static usage = Command.Usage({
+    description: 'Copy artifacts from Github Actions into specified dir',
+  })
+
   @Command.String('-d,--dir')
   sourceDir = 'artifacts'
 

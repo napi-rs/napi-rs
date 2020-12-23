@@ -13,6 +13,10 @@ import { writeFileAsync } from './utils'
 const debug = debugFactory('create-npm-dir')
 
 export class CreateNpmDirCommand extends Command {
+  static usage = Command.Usage({
+    description: 'Create npm packages dir for platforms',
+  })
+
   @Command.String('-t,--target')
   targetDir!: string
 

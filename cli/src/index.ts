@@ -10,7 +10,7 @@ import { PrePublishCommand } from './pre-publish'
 import { VersionCommand } from './version'
 
 const cli = new Cli({
-  binaryName: 'bin',
+  binaryName: 'napi',
   binaryVersion: require('../package.json').version,
 })
 
