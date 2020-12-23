@@ -1,8 +1,5 @@
 {
-  "packages": [
-    "cli",
-    "triples"
-  ],
+  "packages": ["cli", "triples"],
   "version": "independent",
   "useWorkspaces": true,
   "npmClient": "yarn",
