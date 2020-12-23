@@ -315,8 +315,18 @@ impl Env {
 
   #[inline]
   /// # Safety
-  /// Mostly the same with `create_buffer_with_data`, but you must ensure data will be dropped **after** the `Buffer` has been GC.
-  pub unsafe fn create_buffer_with_manually_drop_data(&self, data: &[u8]) -> Result<JsBufferValue> {
+  /// Mostly the same with `create_buffer_with_data`
+  ///
+  /// Provided `finalize_callback` will be called when `Buffer` got dropped.
+  pub unsafe fn create_buffer_with_borrowed_data<Hint, Finalize>(
+    &self,
+    data: &[u8],
+    hint: Hint,
+    finalize_callback: Option<Finalize>,
+  ) -> Result<JsBufferValue>
+  where
+    Finalize: FnOnce(Env, Hint),
+  {
     let length = data.len();
     let mut raw_value = ptr::null_mut();
     let data_ptr = data.as_ptr();
@@ -324,8 +334,15 @@ impl Env {
       self.0,
       length,
       data_ptr as *mut c_void,
-      None,
-      ptr::null_mut(),
+      Some(
+        raw_finalize_with_custom_callback::<Hint, Finalize>
+          as unsafe extern "C" fn(
+            env: sys::napi_env,
+            finalize_data: *mut c_void,
+            finalize_hint: *mut c_void,
+          )
+      ),
+      Box::into_raw(Box::new((hint, finalize_callback))) as *mut c_void,
       &mut raw_value,
     ))?;
     Ok(JsBufferValue::new(
@@ -1101,4 +1118,17 @@ unsafe extern "C" fn set_instance_finalize_callback<T, Hint, F>(
 unsafe extern "C" fn cleanup_env<T: 'static>(hook_data: *mut c_void) {
   let cleanup_env_hook = Box::from_raw(hook_data as *mut CleanupEnvHookData<T>);
   (cleanup_env_hook.hook)(cleanup_env_hook.data);
+}
+
+unsafe extern "C" fn raw_finalize_with_custom_callback<Hint, Finalize>(
+  env: sys::napi_env,
+  _finalize_data: *mut c_void,
+  finalize_hint: *mut c_void,
+) where
+  Finalize: FnOnce(Env, Hint),
+{
+  let (hint, maybe_callback) = *Box::from_raw(finalize_hint as *mut (Hint, Option<Finalize>));
+  if let Some(callback) = maybe_callback {
+    callback(Env::from_raw(env), hint);
+  };
 }
