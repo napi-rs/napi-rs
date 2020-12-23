@@ -1,5 +1,5 @@
 [workspace]
-exclude = ["./test_module", "./bench"]
+exclude = ["./test_module", "./bench", "./testing"]
 members = [
   "./build",
   "./napi",

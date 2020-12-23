@@ -5,6 +5,7 @@ import { Cli } from 'clipanion'
 import { ArtifactsCommand } from './artifacts'
 import { BuildCommand } from './build'
 import { CreateNpmDirCommand } from './create-npm-dir'
+import { NewProjectCommand } from './new'
 import { PrePublishCommand } from './pre-publish'
 import { VersionCommand } from './version'
 
@@ -16,6 +17,7 @@ const cli = new Cli({
 cli.register(ArtifactsCommand)
 cli.register(BuildCommand)
 cli.register(CreateNpmDirCommand)
+cli.register(NewProjectCommand)
 cli.register(PrePublishCommand)
 cli.register(VersionCommand)
 
