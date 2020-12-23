@@ -11,6 +11,10 @@ import { updatePackageJson } from './update-package'
 const debug = debugFactory('version')
 
 export class VersionCommand extends Command {
+  static usage = Command.Usage({
+    description: 'Update versions in created npm dir',
+  })
+
   static async updatePackageJson(prefix: string, configFileName?: string) {
     const { version, platforms } = getNapiConfig(configFileName)
     for (const platformDetail of platforms) {

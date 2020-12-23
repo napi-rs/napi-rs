@@ -14,7 +14,7 @@ const debug = debugFactory('build')
 
 export class BuildCommand extends Command {
   static usage = Command.Usage({
-    description: 'Copy native module into specified dir',
+    description: 'Build and copy native module into specified dir',
   })
 
   @Command.Boolean(`--platform`)
