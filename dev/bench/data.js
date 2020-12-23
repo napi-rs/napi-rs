@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1608692349180,
+  "lastUpdate": 1608709049603,
   "repoUrl": "https://github.com/napi-rs/napi-rs",
   "entries": {
     "Benchmark": [
@@ -8938,6 +8938,79 @@ window.BENCHMARK_DATA = {
             "range": "±3.67%",
             "unit": "ops/sec",
             "extra": "76 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "lynweklm@gmail.com",
+            "name": "LongYinan",
+            "username": "Brooooooklyn"
+          },
+          "committer": {
+            "email": "lynweklm@gmail.com",
+            "name": "LongYinan",
+            "username": "Brooooooklyn"
+          },
+          "distinct": true,
+          "id": "8fcf42eeb6107adbfa99a6394a8afec0475ebd45",
+          "message": "refactor(napi): create_buffer_with_manually_drop_data => create_buffer_with_borrowed_data",
+          "timestamp": "2020-12-23T15:34:10+08:00",
+          "tree_id": "3aa7acb93fd93e05e6fb80c0c08acd88c3c41678",
+          "url": "https://github.com/napi-rs/napi-rs/commit/8fcf42eeb6107adbfa99a6394a8afec0475ebd45"
+        },
+        "date": 1608709048369,
+        "tool": "benchmarkjs",
+        "benches": [
+          {
+            "name": "noop#napi-rs",
+            "value": 46252376,
+            "range": "±0.29%",
+            "unit": "ops/sec",
+            "extra": "92 samples"
+          },
+          {
+            "name": "noop#JavaScript",
+            "value": 607732903,
+            "range": "±0.37%",
+            "unit": "ops/sec",
+            "extra": "92 samples"
+          },
+          {
+            "name": "Plus number#napi-rs",
+            "value": 13762105,
+            "range": "±0.76%",
+            "unit": "ops/sec",
+            "extra": "88 samples"
+          },
+          {
+            "name": "Plus number#JavaScript",
+            "value": 601686963,
+            "range": "±0.33%",
+            "unit": "ops/sec",
+            "extra": "91 samples"
+          },
+          {
+            "name": "Create buffer#napi-rs",
+            "value": 68400,
+            "range": "±38.81%",
+            "unit": "ops/sec",
+            "extra": "72 samples"
+          },
+          {
+            "name": "Create buffer#JavaScript",
+            "value": 21336,
+            "range": "±146.03%",
+            "unit": "ops/sec",
+            "extra": "66 samples"
+          },
+          {
+            "name": "Async task#napi-rs",
+            "value": 29591,
+            "range": "±1.28%",
+            "unit": "ops/sec",
+            "extra": "82 samples"
           }
         ]
       }
