@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1608827442393,
+  "lastUpdate": 1608827771028,
   "repoUrl": "https://github.com/napi-rs/napi-rs",
   "entries": {
     "Benchmark": [
@@ -9668,6 +9668,79 @@ window.BENCHMARK_DATA = {
             "range": "±2.08%",
             "unit": "ops/sec",
             "extra": "77 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "lynweklm@gmail.com",
+            "name": "LongYinan",
+            "username": "Brooooooklyn"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "28dd67e6ded34d1312cb42ef72c0fbf0b0f2ebc9",
+          "message": "Merge pull request #383 from napi-rs/dependabot/npm_and_yarn/types/sinon-9.0.10\n\nbuild(deps-dev): bump @types/sinon from 9.0.9 to 9.0.10",
+          "timestamp": "2020-12-25T00:27:06+08:00",
+          "tree_id": "46320f78c66718cc45d226a0d4f2982d671fb278",
+          "url": "https://github.com/napi-rs/napi-rs/commit/28dd67e6ded34d1312cb42ef72c0fbf0b0f2ebc9"
+        },
+        "date": 1608827766775,
+        "tool": "benchmarkjs",
+        "benches": [
+          {
+            "name": "noop#napi-rs",
+            "value": 45142508,
+            "range": "±0.96%",
+            "unit": "ops/sec",
+            "extra": "93 samples"
+          },
+          {
+            "name": "noop#JavaScript",
+            "value": 653761896,
+            "range": "±0.72%",
+            "unit": "ops/sec",
+            "extra": "92 samples"
+          },
+          {
+            "name": "Plus number#napi-rs",
+            "value": 14229835,
+            "range": "±0.7%",
+            "unit": "ops/sec",
+            "extra": "91 samples"
+          },
+          {
+            "name": "Plus number#JavaScript",
+            "value": 654346261,
+            "range": "±0.45%",
+            "unit": "ops/sec",
+            "extra": "93 samples"
+          },
+          {
+            "name": "Create buffer#napi-rs",
+            "value": 81511,
+            "range": "±24.32%",
+            "unit": "ops/sec",
+            "extra": "70 samples"
+          },
+          {
+            "name": "Create buffer#JavaScript",
+            "value": 53609,
+            "range": "±75.87%",
+            "unit": "ops/sec",
+            "extra": "79 samples"
+          },
+          {
+            "name": "Async task#napi-rs",
+            "value": 29698,
+            "range": "±2.64%",
+            "unit": "ops/sec",
+            "extra": "71 samples"
           }
         ]
       }
