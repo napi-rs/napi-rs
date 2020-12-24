@@ -32,3 +32,9 @@ test('should create borrowed buffer with finalize', (t) => {
     Buffer.from([1, 2, 3]),
   )
 })
+
+test('should be able to mutate buffer', (t) => {
+  const fixture = Buffer.from([0, 1])
+  bindings.mutateBuffer(fixture)
+  t.is(fixture[1], 42)
+})

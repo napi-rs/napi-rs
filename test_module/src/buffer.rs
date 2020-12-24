@@ -3,7 +3,7 @@ use std::str;
 
 use napi::{
   noop_finalize, CallContext, ContextlessResult, Env, Error, JsBuffer, JsNumber, JsObject,
-  JsString, Result, Status,
+  JsString, JsUndefined, Result, Status,
 };
 
 #[js_function(1)]
@@ -57,6 +57,13 @@ pub fn create_borrowed_buffer_with_finalize(env: Env) -> ContextlessResult<JsBuf
   .map(|b| Some(b.into_raw()))
 }
 
+#[js_function(1)]
+fn mutate_buffer(ctx: CallContext) -> Result<JsUndefined> {
+  let buffer = &mut ctx.get::<JsBuffer>(0)?.into_value()?;
+  buffer[1] = 42;
+  ctx.env.get_undefined()
+}
+
 pub fn register_js(exports: &mut JsObject) -> Result<()> {
   exports.create_named_method("getBufferLength", get_buffer_length)?;
   exports.create_named_method("bufferToString", buffer_to_string)?;
@@ -69,5 +76,6 @@ pub fn register_js(exports: &mut JsObject) -> Result<()> {
     "createBorrowedBufferWithFinalize",
     create_borrowed_buffer_with_finalize,
   )?;
+  exports.create_named_method("mutateBuffer", mutate_buffer)?;
   Ok(())
 }

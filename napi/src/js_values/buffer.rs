@@ -1,5 +1,5 @@
 use std::mem;
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 use std::ptr;
 
 use super::Value;
@@ -76,10 +76,22 @@ impl AsRef<[u8]> for JsBufferValue {
   }
 }
 
+impl AsMut<[u8]> for JsBufferValue {
+  fn as_mut(&mut self) -> &mut [u8] {
+    self.data.as_mut_slice()
+  }
+}
+
 impl Deref for JsBufferValue {
   type Target = [u8];
 
   fn deref(&self) -> &[u8] {
     self.data.as_slice()
+  }
+}
+
+impl DerefMut for JsBufferValue {
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    self.data.as_mut_slice()
   }
 }
