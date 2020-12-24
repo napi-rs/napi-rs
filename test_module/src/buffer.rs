@@ -33,10 +33,8 @@ pub fn create_borrowed_buffer_with_noop_finalize(env: Env) -> ContextlessResult<
   let length = data.len();
   let manually_drop = ManuallyDrop::new(data);
 
-  unsafe {
-    env.create_buffer_with_borrowed_data(data_ptr, length, manually_drop, Some(noop_finalize))
-  }
-  .map(|b| Some(b.into_raw()))
+  unsafe { env.create_buffer_with_borrowed_data(data_ptr, length, manually_drop, noop_finalize) }
+    .map(|b| Some(b.into_raw()))
 }
 
 #[contextless_function]
@@ -51,9 +49,9 @@ pub fn create_borrowed_buffer_with_finalize(env: Env) -> ContextlessResult<JsBuf
       data_ptr,
       length,
       manually_drop,
-      Some(|mut hint: ManuallyDrop<Vec<u8>>, _| {
+      |mut hint: ManuallyDrop<Vec<u8>>, _| {
         ManuallyDrop::drop(&mut hint);
-      }),
+      },
     )
   }
   .map(|b| Some(b.into_raw()))
