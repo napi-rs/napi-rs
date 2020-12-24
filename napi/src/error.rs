@@ -8,6 +8,8 @@ use std::os::raw::{c_char, c_void};
 
 #[cfg(feature = "serde-json")]
 use serde::{de, ser};
+#[cfg(feature = "serde-json")]
+use serde_json::Error as SerdeJSONError;
 
 use crate::{sys, Status};
 
@@ -35,6 +37,13 @@ impl ser::Error for Error {
 impl de::Error for Error {
   fn custom<T: Display>(msg: T) -> Self {
     Error::new(Status::InvalidArg, msg.to_string())
+  }
+}
+
+#[cfg(feature = "serde-json")]
+impl From<SerdeJSONError> for Error {
+  fn from(value: SerdeJSONError) -> Self {
+    Error::new(Status::InvalidArg, format!("{}", value))
   }
 }
 
