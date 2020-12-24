@@ -320,20 +320,19 @@ impl Env {
   /// Provided `finalize_callback` will be called when `Buffer` got dropped.
   pub unsafe fn create_buffer_with_borrowed_data<Hint, Finalize>(
     &self,
-    data: &[u8],
+    data: *const u8,
+    length: usize,
     hint: Hint,
     finalize_callback: Option<Finalize>,
   ) -> Result<JsBufferValue>
   where
-    Finalize: FnOnce(Env, Hint),
+    Finalize: FnOnce(Hint, Env),
   {
-    let length = data.len();
     let mut raw_value = ptr::null_mut();
-    let data_ptr = data.as_ptr();
     check_status!(sys::napi_create_external_buffer(
       self.0,
       length,
-      data_ptr as *mut c_void,
+      data as *mut c_void,
       Some(
         raw_finalize_with_custom_callback::<Hint, Finalize>
           as unsafe extern "C" fn(
@@ -351,7 +350,7 @@ impl Env {
         value: raw_value,
         value_type: ValueType::Object,
       }),
-      mem::ManuallyDrop::new(Vec::from_raw_parts(data_ptr as *mut u8, length, length)),
+      mem::ManuallyDrop::new(Vec::from_raw_parts(data as *mut u8, length, length)),
     ))
   }
 
@@ -1065,6 +1064,9 @@ impl Env {
   }
 }
 
+/// This function could be used for `create_buffer_with_borrowed_data` and want do noting when Buffer finalized.
+pub fn noop_finalize<Hint>(_hint: Hint, _env: Env) {}
+
 unsafe extern "C" fn drop_buffer(
   _env: sys::napi_env,
   finalize_data: *mut c_void,
@@ -1125,10 +1127,10 @@ unsafe extern "C" fn raw_finalize_with_custom_callback<Hint, Finalize>(
   _finalize_data: *mut c_void,
   finalize_hint: *mut c_void,
 ) where
-  Finalize: FnOnce(Env, Hint),
+  Finalize: FnOnce(Hint, Env),
 {
   let (hint, maybe_callback) = *Box::from_raw(finalize_hint as *mut (Hint, Option<Finalize>));
   if let Some(callback) = maybe_callback {
-    callback(Env::from_raw(env), hint);
+    callback(hint, Env::from_raw(env));
   };
 }
