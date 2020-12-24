@@ -1,4 +1,6 @@
-use napi::{CallContext, JsObject, JsUndefined, JsUnknown, Result};
+use napi::{CallContext, JsObject, JsString, JsUndefined, JsUnknown, Result};
+
+use serde_json::{from_str, to_string};
 
 #[derive(Serialize, Debug, Deserialize)]
 struct AnObject {
@@ -162,6 +164,23 @@ fn roundtrip_object(ctx: CallContext) -> Result<JsUnknown> {
   ctx.env.to_js_value(&de_serialized)
 }
 
+#[js_function(1)]
+fn from_json_string(ctx: CallContext) -> Result<JsUnknown> {
+  let arg0 = ctx.get::<JsString>(0)?.into_utf8()?;
+
+  let de_serialized: AnObject = from_str(arg0.as_str()?)?;
+  ctx.env.to_js_value(&de_serialized)
+}
+
+#[js_function(1)]
+fn json_to_string(ctx: CallContext) -> Result<JsString> {
+  let arg0 = ctx.get::<JsObject>(0)?;
+
+  let de_serialized: AnObject = ctx.env.from_js_value(arg0)?;
+  let json_string = to_string(&de_serialized)?;
+  ctx.env.create_string_from_std(json_string)
+}
+
 pub fn register_js(exports: &mut JsObject) -> Result<()> {
   exports.create_named_method("make_num_77", make_num_77)?;
   exports.create_named_method("make_num_32", make_num_32)?;
@@ -178,5 +197,7 @@ pub fn register_js(exports: &mut JsObject) -> Result<()> {
   exports.create_named_method("expect_buffer", expect_buffer)?;
 
   exports.create_named_method("roundtrip_object", roundtrip_object)?;
+  exports.create_named_method("from_json_string", from_json_string)?;
+  exports.create_named_method("json_to_string", json_to_string)?;
   Ok(())
 }

@@ -1,6 +1,10 @@
+use std::mem::ManuallyDrop;
 use std::str;
 
-use napi::{CallContext, Error, JsBuffer, JsNumber, JsObject, JsString, Result, Status};
+use napi::{
+  noop_finalize, CallContext, ContextlessResult, Env, Error, JsBuffer, JsNumber, JsObject,
+  JsString, Result, Status,
+};
 
 #[js_function(1)]
 pub fn get_buffer_length(ctx: CallContext) -> Result<JsNumber> {
@@ -22,9 +26,50 @@ pub fn copy_buffer(ctx: CallContext) -> Result<JsBuffer> {
   ctx.env.create_buffer_copy(buffer).map(|b| b.into_raw())
 }
 
+#[contextless_function]
+pub fn create_borrowed_buffer_with_noop_finalize(env: Env) -> ContextlessResult<JsBuffer> {
+  let data = vec![1, 2, 3];
+  let data_ptr = data.as_ptr();
+  let length = data.len();
+  let manually_drop = ManuallyDrop::new(data);
+
+  unsafe {
+    env.create_buffer_with_borrowed_data(data_ptr, length, manually_drop, Some(noop_finalize))
+  }
+  .map(|b| Some(b.into_raw()))
+}
+
+#[contextless_function]
+pub fn create_borrowed_buffer_with_finalize(env: Env) -> ContextlessResult<JsBuffer> {
+  let data = vec![1, 2, 3];
+  let data_ptr = data.as_ptr();
+  let length = data.len();
+  let manually_drop = ManuallyDrop::new(data);
+
+  unsafe {
+    env.create_buffer_with_borrowed_data(
+      data_ptr,
+      length,
+      manually_drop,
+      Some(|mut hint: ManuallyDrop<Vec<u8>>, _| {
+        ManuallyDrop::drop(&mut hint);
+      }),
+    )
+  }
+  .map(|b| Some(b.into_raw()))
+}
+
 pub fn register_js(exports: &mut JsObject) -> Result<()> {
   exports.create_named_method("getBufferLength", get_buffer_length)?;
   exports.create_named_method("bufferToString", buffer_to_string)?;
   exports.create_named_method("copyBuffer", copy_buffer)?;
+  exports.create_named_method(
+    "createBorrowedBufferWithNoopFinalize",
+    create_borrowed_buffer_with_noop_finalize,
+  )?;
+  exports.create_named_method(
+    "createBorrowedBufferWithFinalize",
+    create_borrowed_buffer_with_finalize,
+  )?;
   Ok(())
 }
