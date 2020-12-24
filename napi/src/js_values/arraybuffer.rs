@@ -1,5 +1,5 @@
 use std::mem;
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 use std::os::raw::c_void;
 use std::ptr;
 
@@ -193,6 +193,12 @@ impl Deref for JsArrayBufferValue {
 
   fn deref(&self) -> &[u8] {
     self.data.as_slice()
+  }
+}
+
+impl DerefMut for JsArrayBufferValue {
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    self.data.as_mut_slice()
   }
 }
 
