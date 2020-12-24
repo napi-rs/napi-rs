@@ -53,7 +53,7 @@
     "@istanbuljs/nyc-config-typescript": "^1.0.1",
     "@types/debug": "^4.1.5",
     "@types/inquirer": "^7.3.1",
-    "@types/lodash": "^4.14.165",
+    "@types/lodash": "^4.14.166",
     "@types/node": "^14.14.16",
     "@types/sinon": "^9.0.9",
     "@typescript-eslint/eslint-plugin": "^4.11.0",
