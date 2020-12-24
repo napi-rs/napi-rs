@@ -18,3 +18,17 @@ test('should copy', (t) => {
   t.deepEqual(copyBuffer, fixture)
   t.not(fixture, copyBuffer)
 })
+
+test('should create borrowed buffer with noop finalize', (t) => {
+  t.deepEqual(
+    bindings.createBorrowedBufferWithNoopFinalize(),
+    Buffer.from([1, 2, 3]),
+  )
+})
+
+test('should create borrowed buffer with finalize', (t) => {
+  t.deepEqual(
+    bindings.createBorrowedBufferWithFinalize(),
+    Buffer.from([1, 2, 3]),
+  )
+})
