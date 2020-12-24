@@ -318,12 +318,14 @@ impl Env {
   /// Mostly the same with `create_buffer_with_data`
   ///
   /// Provided `finalize_callback` will be called when `Buffer` got dropped.
+  ///
+  /// You can pass in `noop_finalize` if you have nothing to do in finalize phase.
   pub unsafe fn create_buffer_with_borrowed_data<Hint, Finalize>(
     &self,
     data: *const u8,
     length: usize,
     hint: Hint,
-    finalize_callback: Option<Finalize>,
+    finalize_callback: Finalize,
   ) -> Result<JsBufferValue>
   where
     Finalize: FnOnce(Hint, Env),
@@ -1129,8 +1131,6 @@ unsafe extern "C" fn raw_finalize_with_custom_callback<Hint, Finalize>(
 ) where
   Finalize: FnOnce(Hint, Env),
 {
-  let (hint, maybe_callback) = *Box::from_raw(finalize_hint as *mut (Hint, Option<Finalize>));
-  if let Some(callback) = maybe_callback {
-    callback(hint, Env::from_raw(env));
-  };
+  let (hint, callback) = *Box::from_raw(finalize_hint as *mut (Hint, Finalize));
+  callback(hint, Env::from_raw(env));
 }
