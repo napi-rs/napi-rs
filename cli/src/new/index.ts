@@ -5,6 +5,7 @@ import chalk from 'chalk'
 import { Command } from 'clipanion'
 import inquirer, { prompt } from 'inquirer'
 
+import { CreateNpmDirCommand } from '../create-npm-dir'
 import { debugFactory } from '../debug'
 import { DefaultPlatforms } from '../parse-triple'
 import { spawn } from '../spawn'
@@ -146,6 +147,12 @@ export class NewProjectCommand extends Command {
         createGithubActionsCIYml(binaryName, this.targets!),
       )
     }
+
+    await CreateNpmDirCommand.create(
+      'package.json',
+      join(process.cwd(), this.dirname!),
+      join(process.cwd(), this.dirname!),
+    )
   }
 
   private writeFile(path: string, content: string) {

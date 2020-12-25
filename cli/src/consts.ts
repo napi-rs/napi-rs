@@ -2,8 +2,11 @@ import { join } from 'path'
 
 import { DefaultPlatforms, PlatformDetail, parseTriple } from './parse-triple'
 
-export function getNapiConfig(packageJson = 'package.json') {
-  const packageJsonPath = join(process.cwd(), packageJson)
+export function getNapiConfig(
+  packageJson = 'package.json',
+  cwd = process.cwd(),
+) {
+  const packageJsonPath = join(cwd, packageJson)
 
   const pkgJson = require(packageJsonPath)
   const { version: packageVersion, napi, name } = pkgJson

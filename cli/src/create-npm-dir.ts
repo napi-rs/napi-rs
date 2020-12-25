@@ -17,15 +17,12 @@ export class CreateNpmDirCommand extends Command {
     description: 'Create npm packages dir for platforms',
   })
 
-  @Command.String('-t,--target')
-  targetDir!: string
-
-  @Command.String('-c,--config')
-  config = 'package.json'
-
-  @Command.Path('create-npm-dir')
-  async execute() {
-    const pkgJsonDir = this.config
+  static create = async (
+    config: string,
+    targetDirPath: string,
+    cwd: string,
+  ) => {
+    const pkgJsonDir = config
     debug(`Read content from [${chalk.yellowBright(pkgJsonDir)}]`)
     const {
       platforms,
@@ -33,12 +30,11 @@ export class CreateNpmDirCommand extends Command {
       version,
       binaryName,
       content,
-    } = getNapiConfig(pkgJsonDir)
+    } = getNapiConfig(pkgJsonDir, cwd)
 
     for (const platformDetail of platforms) {
       const targetDir = join(
-        process.cwd(),
-        this.targetDir,
+        targetDirPath,
         'npm',
         `${platformDetail.platformArchABI}`,
       )
@@ -77,6 +73,21 @@ export class CreateNpmDirCommand extends Command {
       debug(`Write target README.md [${chalk.yellowBright(targetReadme)}]`)
       await writeFileAsync(targetReadme, readme(packageName, platformDetail))
     }
+  }
+
+  @Command.String('-t,--target')
+  targetDir!: string
+
+  @Command.String('-c,--config')
+  config = 'package.json'
+
+  @Command.Path('create-npm-dir')
+  async execute() {
+    await CreateNpmDirCommand.create(
+      this.config,
+      join(process.cwd(), this.targetDir),
+      process.cwd(),
+    )
   }
 }
 
