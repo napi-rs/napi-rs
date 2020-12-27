@@ -114,7 +114,7 @@ impl<'x, 'de, 'env> serde::de::Deserializer<'x> for &'de mut De<'env> {
       )),
       ValueType::Object => {
         let js_object = unsafe { JsObject::from_raw_unchecked(self.0.env, self.0.value) };
-        let properties = js_object.get_property_names::<JsObject>()?;
+        let properties = js_object.get_property_names()?;
         let property_len = properties.get_array_length_unchecked()?;
         if property_len != 1 {
           Err(Error::new(
@@ -314,7 +314,7 @@ pub(crate) struct JsObjectAccess<'env> {
 #[doc(hidden)]
 impl<'env> JsObjectAccess<'env> {
   fn new(value: &'env JsObject) -> Result<Self> {
-    let properties = value.get_property_names::<JsObject>()?;
+    let properties = value.get_property_names()?;
     let property_len = properties.get_array_length_unchecked()?;
     Ok(Self {
       value,

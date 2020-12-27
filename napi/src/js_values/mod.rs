@@ -258,6 +258,19 @@ macro_rules! impl_object_methods {
       }
 
       #[inline]
+      pub fn get_property_unchecked<K, T>(&self, key: &K) -> Result<T>
+      where
+        K: NapiValue,
+        T: NapiValue,
+      {
+        let mut raw_value = ptr::null_mut();
+        check_status!(unsafe {
+          sys::napi_get_property(self.0.env, self.0.value, key.raw(), &mut raw_value)
+        })?;
+        Ok(unsafe { T::from_raw_unchecked(self.0.env, raw_value) })
+      }
+
+      #[inline]
       pub fn set_named_property<T>(&mut self, name: &str, value: T) -> Result<()>
       where
         T: NapiValue,
@@ -299,6 +312,19 @@ macro_rules! impl_object_methods {
           sys::napi_get_named_property(self.0.env, self.0.value, key.as_ptr(), &mut raw_value)
         })?;
         unsafe { T::from_raw(self.0.env, raw_value) }
+      }
+
+      #[inline]
+      pub fn get_named_property_unchecked<T>(&self, name: &str) -> Result<T>
+      where
+        T: NapiValue,
+      {
+        let key = CString::new(name)?;
+        let mut raw_value = ptr::null_mut();
+        check_status!(unsafe {
+          sys::napi_get_named_property(self.0.env, self.0.value, key.as_ptr(), &mut raw_value)
+        })?;
+        Ok(unsafe { T::from_raw_unchecked(self.0.env, raw_value) })
       }
 
       #[inline]
@@ -390,15 +416,12 @@ macro_rules! impl_object_methods {
       }
 
       #[inline]
-      pub fn get_property_names<T>(&self) -> Result<T>
-      where
-        T: NapiValue,
-      {
+      pub fn get_property_names(&self) -> Result<JsObject> {
         let mut raw_value = ptr::null_mut();
         check_status!(unsafe {
           sys::napi_get_property_names(self.0.env, self.0.value, &mut raw_value)
         })?;
-        unsafe { T::from_raw(self.0.env, raw_value) }
+        Ok(unsafe { JsObject::from_raw_unchecked(self.0.env, raw_value) })
       }
 
       /// https://nodejs.org/api/n-api.html#n_api_napi_get_all_property_names
@@ -434,6 +457,16 @@ macro_rules! impl_object_methods {
         let mut result = ptr::null_mut();
         check_status!(unsafe { sys::napi_get_prototype(self.0.env, self.0.value, &mut result) })?;
         unsafe { T::from_raw(self.0.env, result) }
+      }
+
+      #[inline]
+      pub fn get_prototype_unchecked<T>(&self) -> Result<T>
+      where
+        T: NapiValue,
+      {
+        let mut result = ptr::null_mut();
+        check_status!(unsafe { sys::napi_get_prototype(self.0.env, self.0.value, &mut result) })?;
+        Ok(unsafe { T::from_raw_unchecked(self.0.env, result) })
       }
 
       #[inline]
@@ -474,6 +507,18 @@ macro_rules! impl_object_methods {
           sys::napi_get_element(self.0.env, self.0.value, index, &mut raw_value)
         })?;
         unsafe { T::from_raw(self.0.env, raw_value) }
+      }
+
+      #[inline]
+      pub fn get_element_unchecked<T>(&self, index: u32) -> Result<T>
+      where
+        T: NapiValue,
+      {
+        let mut raw_value = ptr::null_mut();
+        check_status!(unsafe {
+          sys::napi_get_element(self.0.env, self.0.value, index, &mut raw_value)
+        })?;
+        Ok(unsafe { T::from_raw_unchecked(self.0.env, raw_value) })
       }
 
       /// This method allows the efficient definition of multiple properties on a given object.
