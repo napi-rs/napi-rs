@@ -14,10 +14,10 @@ pub struct JsFunction(pub(crate) Value);
 ///
 /// #[js_function(1)]
 /// pub fn call_function(ctx: CallContext) -> Result<JsNull> {
-///   let js_func = ctx.get::<JsFunction>(0)?;
-///   let js_string = ctx.env.create_string("hello".as_ref())?.into_unknown()?;
-///   js_func.call(None, &[js_string])?;
-///   Ok(ctx.env.get_null()?)
+///     let js_func = ctx.get::<JsFunction>(0)?;
+///     let js_string = ctx.env.create_string("hello".as_ref())?.into_unknown()?;
+///     js_func.call(None, &[js_string])?;
+///     Ok(ctx.env.get_null()?)
 /// }
 /// ```
 impl JsFunction {
@@ -53,6 +53,7 @@ impl JsFunction {
   }
 
   /// https://nodejs.org/api/n-api.html#n_api_napi_new_instance
+  ///
   /// This method is used to instantiate a new `JavaScript` value using a given `JsFunction` that represents the constructor for the object.
   #[allow(clippy::new_ret_no_self)]
   #[inline]
