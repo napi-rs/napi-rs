@@ -8,7 +8,7 @@ version = "0.1.0"
 crate-type = ["cdylib"]
 
 [dependencies]
-napi = {path = "../napi"}
+napi = {path = "../napi", features = ["napi4"]}
 napi-derive = {path = "../napi-derive"}
 
 [target.'cfg(all(unix, not(target_env = "musl"), not(target_arch = "aarch64")))'.dependencies]
