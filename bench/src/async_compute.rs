@@ -1,5 +1,5 @@
-use napi::{CallContext, Env, JsBuffer, JsBufferValue, JsNumber, JsObject, Ref, Result, Task};
-
+use napi::threadsafe_function::*;
+use napi::*;
 
 struct BufferLength(Ref<JsBufferValue>);
 
@@ -8,7 +8,7 @@ impl Task for BufferLength {
   type JsValue = JsNumber;
 
   fn compute(&mut self) -> Result<Self::Output> {
-    Ok((&self.0).len())
+    Ok(self.0.len() + 1)
   }
 
   fn resolve(self, env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -25,7 +25,34 @@ fn bench_async_task(ctx: CallContext) -> Result<JsObject> {
   Ok(async_promise.promise_object())
 }
 
+#[js_function(2)]
+fn bench_threadsafe_function(ctx: CallContext) -> Result<JsUndefined> {
+  let buffer_ref = ctx.get::<JsBuffer>(0)?.into_ref()?;
+  let callback = ctx.get::<JsFunction>(1)?;
+
+  let tsfn = ctx.env.create_threadsafe_function(
+    &callback,
+    0,
+    |ctx: ThreadSafeCallContext<(usize, Ref<JsBufferValue>)>| {
+      ctx
+        .env
+        .create_uint32(ctx.value.0 as u32)
+        .and_then(|v| ctx.value.1.unref(ctx.env).map(|_| vec![v]))
+    },
+  )?;
+
+  std::thread::spawn(move || {
+    tsfn.call(
+      Ok((buffer_ref.len() + 1, buffer_ref)),
+      ThreadsafeFunctionCallMode::NonBlocking,
+    );
+  });
+
+  ctx.env.get_undefined()
+}
+
 pub fn register_js(exports: &mut JsObject) -> Result<()> {
   exports.create_named_method("benchAsyncTask", bench_async_task)?;
+  exports.create_named_method("benchThreadsafeFunction", bench_threadsafe_function)?;
   Ok(())
 }
