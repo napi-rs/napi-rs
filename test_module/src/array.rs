@@ -12,9 +12,8 @@ fn test_create_array(env: Env) -> ContextlessResult<JsObject> {
 
 #[js_function(1)]
 fn test_create_array_with_length(ctx: CallContext) -> Result<JsObject> {
-  ctx
-    .env
-    .create_array_with_length(ctx.get::<JsNumber>(0)?.try_into()?)
+  let length: u32 = ctx.get::<JsNumber>(0)?.try_into()?;
+  ctx.env.create_array_with_length(length as usize)
 }
 
 #[js_function(3)]
