@@ -8,7 +8,7 @@ license = "MIT"
 name = "napi-sys"
 readme = "README.md"
 repository = "https://github.com/napi-rs/napi-rs"
-version = "1.0.0-alpha.1"
+version = "1.0.0"
 
 [features]
 napi1 = []
