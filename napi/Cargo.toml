@@ -7,7 +7,7 @@ license = "MIT"
 name = "napi"
 readme = "README.md"
 repository = "https://github.com/napi-rs/napi-rs"
-version = "1.0.0-alpha.11"
+version = "1.0.0"
 
 [features]
 default = ["napi3"] # for most NodeJS users
@@ -23,7 +23,7 @@ serde-json = ["serde", "serde_json"]
 tokio_rt = ["futures", "tokio", "once_cell"]
 
 [dependencies]
-napi-sys = {version = "1.0.0-alpha.0", path = "../sys"}
+napi-sys = {version = "1", path = "../sys"}
 
 [target.'cfg(windows)'.dependencies]
 winapi = "0.3.9"
@@ -54,7 +54,7 @@ optional = true
 version = "1"
 
 [build-dependencies]
-napi-build = {version = "1.0.0-alpha.0", path = "../build"}
+napi-build = {version = "1", path = "../build"}
 
 [package.metadata.docs.rs]
 all-features = true
