@@ -11,6 +11,7 @@ import { DefaultPlatforms } from '../parse-triple'
 import { spawn } from '../spawn'
 
 import { createCargoContent } from './cargo'
+import { createCargoConfig } from './cargo-config'
 import { createGithubActionsCIYml } from './ci-yml'
 import { createIndexJs } from './indexjs'
 import { LibRs } from './lib-rs'
@@ -153,6 +154,19 @@ export class NewProjectCommand extends Command {
       join(process.cwd(), this.dirname!),
       join(process.cwd(), this.dirname!),
     )
+
+    const enableLinuxArm8 = this.targets!.includes('aarch64-unknown-linux-gnu')
+    const enableLinuxArm7 = this.targets!.includes(
+      'armv7-unknown-linux-gnueabihf',
+    )
+    const cargoConfig = createCargoConfig(enableLinuxArm7, enableLinuxArm8)
+    if (cargoConfig.length) {
+      const configDir = join(process.cwd(), this.dirname!, '.config')
+      if (!this.dryRun) {
+        mkdirSync(configDir)
+        this.writeFile(join('.config', 'config.toml'), cargoConfig)
+      }
+    }
   }
 
   private writeFile(path: string, content: string) {
