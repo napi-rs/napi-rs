@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1609231392888,
+  "lastUpdate": 1609237174282,
   "repoUrl": "https://github.com/napi-rs/napi-rs",
   "entries": {
     "Benchmark": [
@@ -10579,6 +10579,86 @@ window.BENCHMARK_DATA = {
             "range": "±5.17%",
             "unit": "ops/sec",
             "extra": "78 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "lynweklm@gmail.com",
+            "name": "LongYinan",
+            "username": "Brooooooklyn"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ac17857ffb49def720aa70a0a4ef79a0d920229d",
+          "message": "Merge pull request #392 from napi-rs/dependabot/npm_and_yarn/typescript-eslint/parser-4.11.1\n\nbuild(deps-dev): bump @typescript-eslint/parser from 4.11.0 to 4.11.1",
+          "timestamp": "2020-12-29T18:16:34+08:00",
+          "tree_id": "ab14b4f5f0de9511e4bcd58bf945664a1e7b92a2",
+          "url": "https://github.com/napi-rs/napi-rs/commit/ac17857ffb49def720aa70a0a4ef79a0d920229d"
+        },
+        "date": 1609237173159,
+        "tool": "benchmarkjs",
+        "benches": [
+          {
+            "name": "noop#napi-rs",
+            "value": 55153820,
+            "range": "±0.16%",
+            "unit": "ops/sec",
+            "extra": "98 samples"
+          },
+          {
+            "name": "noop#JavaScript",
+            "value": 715583041,
+            "range": "±0.13%",
+            "unit": "ops/sec",
+            "extra": "96 samples"
+          },
+          {
+            "name": "Plus number#napi-rs",
+            "value": 17262384,
+            "range": "±0.28%",
+            "unit": "ops/sec",
+            "extra": "92 samples"
+          },
+          {
+            "name": "Plus number#JavaScript",
+            "value": 714029361,
+            "range": "±0.13%",
+            "unit": "ops/sec",
+            "extra": "96 samples"
+          },
+          {
+            "name": "Create buffer#napi-rs",
+            "value": 80085,
+            "range": "±25.25%",
+            "unit": "ops/sec",
+            "extra": "65 samples"
+          },
+          {
+            "name": "Create buffer#JavaScript",
+            "value": 66345,
+            "range": "±62.08%",
+            "unit": "ops/sec",
+            "extra": "80 samples"
+          },
+          {
+            "name": "Async task#spawn task",
+            "value": 34719,
+            "range": "±1.27%",
+            "unit": "ops/sec",
+            "extra": "84 samples"
+          },
+          {
+            "name": "Async task#thread safe function",
+            "value": 1278,
+            "range": "±178.24%",
+            "unit": "ops/sec",
+            "extra": "80 samples"
           }
         ]
       }
