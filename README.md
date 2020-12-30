@@ -30,7 +30,7 @@ A minimal library for building compiled `NodeJS` add-ons in `Rust`.
 
 ## NodeJS
 
-| Node10 | Node 12 | Node14 | Node15 |
+| Node10 | Node12 | Node14 | Node15 |
 | ------ | ------- | ------ | ------ |
 | ✓      | ✓       | ✓      | ✓      |
 
