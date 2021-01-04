@@ -23,16 +23,17 @@ fn download_node_lib(dist_url: &str, version: &str, arch: &str) -> Vec<u8> {
     arch = arch
   );
 
-  let response = ureq::get(&url).call();
-  if let Some(error) = response.synthetic_error() {
-    panic!("Failed to download node.lib: {:#?}", error);
+  match ureq::get(&url).call() {
+    Ok(response) => {
+      let mut reader = response.into_reader();
+      let mut bytes = vec![];
+      reader.read_to_end(&mut bytes).unwrap();
+      bytes
+    }
+    Err(error) => {
+      panic!("Failed to download node.lib: {:#?}", error);
+    }
   }
-
-  let mut reader = response.into_reader();
-  let mut bytes = vec![];
-  reader.read_to_end(&mut bytes).unwrap();
-
-  bytes
 }
 
 pub fn setup() {
