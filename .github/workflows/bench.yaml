@@ -12,6 +12,7 @@ on:
 jobs:
   bench:
     name: Bench
+    if: "!contains(github.event.head_commit.message, 'bump')"
     runs-on: ubuntu-latest
 
     steps:
