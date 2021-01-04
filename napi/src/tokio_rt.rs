@@ -16,9 +16,10 @@ pub(crate) enum Message {
   Shutdown,
 }
 
+static SENDER: OnceCell<mpsc::Sender<Message>> = OnceCell::new();
+
 #[inline]
 pub(crate) fn get_tokio_sender() -> &'static mpsc::Sender<Message> {
-  static SENDER: OnceCell<mpsc::Sender<Message>> = OnceCell::new();
   SENDER.get_or_init(|| {
     let buffer_size = var("NAPI_RS_TOKIO_CHANNEL_BUFFER_SIZE")
       .map_err(|_| ())
