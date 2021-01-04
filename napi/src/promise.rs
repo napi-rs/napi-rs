@@ -1,6 +1,7 @@
-use futures::prelude::*;
 use std::os::raw::{c_char, c_void};
 use std::ptr;
+
+use futures::prelude::*;
 
 use crate::{check_status, sys, Env, JsError, NapiValue, Result};
 
@@ -45,7 +46,6 @@ impl<T, V: NapiValue> FuturePromise<T, V> {
   pub(crate) fn start(self) -> Result<TSFNValue> {
     let mut tsfn_value = ptr::null_mut();
     let async_resource_name = self.async_resource_name;
-    let initial_thread_count = 1;
     let env = self.env;
     let self_ref = Box::leak(Box::from(self));
     check_status!(unsafe {
@@ -55,7 +55,7 @@ impl<T, V: NapiValue> FuturePromise<T, V> {
         ptr::null_mut(),
         async_resource_name,
         0,
-        initial_thread_count,
+        1,
         ptr::null_mut(),
         None,
         self_ref as *mut _ as *mut c_void,
@@ -72,14 +72,12 @@ pub(crate) struct TSFNValue(sys::napi_threadsafe_function);
 
 unsafe impl Send for TSFNValue {}
 
-#[inline]
+#[inline(always)]
 pub(crate) async fn resolve_from_future<T: Send, F: Future<Output = Result<T>>>(
   tsfn_value: TSFNValue,
   fut: F,
 ) {
   let val = fut.await;
-  check_status!(unsafe { sys::napi_acquire_threadsafe_function(tsfn_value.0) })
-    .expect("Failed to acquire thread safe function");
   check_status!(unsafe {
     sys::napi_call_threadsafe_function(
       tsfn_value.0,
@@ -88,6 +86,13 @@ pub(crate) async fn resolve_from_future<T: Send, F: Future<Output = Result<T>>>(
     )
   })
   .expect("Failed to call thread safe function");
+  check_status!(unsafe {
+    sys::napi_release_threadsafe_function(
+      tsfn_value.0,
+      sys::napi_threadsafe_function_release_mode::napi_tsfn_release,
+    )
+  })
+  .expect("Failed to release thread safe function");
 }
 
 unsafe extern "C" fn call_js_cb<T, V: NapiValue>(
@@ -101,7 +106,6 @@ unsafe extern "C" fn call_js_cb<T, V: NapiValue>(
   let value: Result<T> = ptr::read(data as *const _);
   let resolver = future_promise.resolver;
   let deferred = future_promise.deferred;
-  let tsfn = future_promise.tsfn;
   let js_value_to_resolve = value.and_then(move |v| (resolver)(&mut env, v));
   match js_value_to_resolve {
     Ok(v) => {
@@ -114,9 +118,4 @@ unsafe extern "C" fn call_js_cb<T, V: NapiValue>(
       debug_assert!(status == sys::Status::napi_ok, "Reject promise failed");
     }
   };
-  check_status!(sys::napi_release_threadsafe_function(
-    tsfn,
-    sys::napi_threadsafe_function_release_mode::napi_tsfn_release,
-  ))
-  .expect("Release threadsafe function failed");
 }
