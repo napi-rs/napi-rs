@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1609753976445,
+  "lastUpdate": 1609753983968,
   "repoUrl": "https://github.com/napi-rs/napi-rs",
   "entries": {
     "Benchmark": [
@@ -11631,6 +11631,114 @@ window.BENCHMARK_DATA = {
             "range": "±174.96%",
             "unit": "ops/sec",
             "extra": "78 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "lynweklm@gmail.com",
+            "name": "LongYinan",
+            "username": "Brooooooklyn"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "52c87f694a9f30230a403ca80e51bb685925623e",
+          "message": "Merge pull request #402 from napi-rs/dependabot/npm_and_yarn/ava-3.15.0\n\nbuild(deps-dev): bump ava from 3.14.0 to 3.15.0",
+          "timestamp": "2021-01-04T17:49:03+08:00",
+          "tree_id": "5230c905dd58108409a9d31d7b4569e20b4b70fd",
+          "url": "https://github.com/napi-rs/napi-rs/commit/52c87f694a9f30230a403ca80e51bb685925623e"
+        },
+        "date": 1609753981585,
+        "tool": "benchmarkjs",
+        "benches": [
+          {
+            "name": "noop#napi-rs",
+            "value": 45969972,
+            "range": "±0.19%",
+            "unit": "ops/sec",
+            "extra": "93 samples"
+          },
+          {
+            "name": "noop#JavaScript",
+            "value": 592434781,
+            "range": "±0.12%",
+            "unit": "ops/sec",
+            "extra": "97 samples"
+          },
+          {
+            "name": "Plus number#napi-rs",
+            "value": 13331191,
+            "range": "±0.32%",
+            "unit": "ops/sec",
+            "extra": "92 samples"
+          },
+          {
+            "name": "Plus number#JavaScript",
+            "value": 591171910,
+            "range": "±0.16%",
+            "unit": "ops/sec",
+            "extra": "93 samples"
+          },
+          {
+            "name": "Create buffer#napi-rs",
+            "value": 89663,
+            "range": "±25.6%",
+            "unit": "ops/sec",
+            "extra": "73 samples"
+          },
+          {
+            "name": "Create buffer#JavaScript",
+            "value": 49968,
+            "range": "±32.03%",
+            "unit": "ops/sec",
+            "extra": "65 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from native#u32",
+            "value": 284442,
+            "range": "±54.04%",
+            "unit": "ops/sec",
+            "extra": "70 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from JavaScript#u32",
+            "value": 346196,
+            "range": "±3.66%",
+            "unit": "ops/sec",
+            "extra": "85 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from native#string",
+            "value": 352859,
+            "range": "±4.55%",
+            "unit": "ops/sec",
+            "extra": "53 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from JavaScript#string",
+            "value": 318112,
+            "range": "±4.2%",
+            "unit": "ops/sec",
+            "extra": "85 samples"
+          },
+          {
+            "name": "Async task#spawn task",
+            "value": 30907,
+            "range": "±1.22%",
+            "unit": "ops/sec",
+            "extra": "86 samples"
+          },
+          {
+            "name": "Async task#thread safe function",
+            "value": 1269,
+            "range": "±174.63%",
+            "unit": "ops/sec",
+            "extra": "80 samples"
           }
         ]
       }
