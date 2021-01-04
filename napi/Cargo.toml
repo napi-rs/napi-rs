@@ -20,7 +20,7 @@ napi5 = ["napi4", "napi-sys/napi5"]
 napi6 = ["napi5", "napi-sys/napi6"]
 napi7 = ["napi6", "napi-sys/napi7"]
 serde-json = ["serde", "serde_json"]
-tokio_rt = ["futures", "tokio", "once_cell"]
+tokio_rt = ["futures", "tokio", "once_cell", "napi4"]
 
 [dependencies]
 napi-sys = {version = "1", path = "../sys"}
