@@ -76,7 +76,7 @@ export const createGithubActionsCIYml = (
       - uses: actions/checkout@v2
 
       - name: Setup node
-        uses: actions/setup-node@v2-beta
+        uses: actions/setup-node@v2
         with:
           node-version: ${LATEST_LTS_NODE}
           check-latest: true
@@ -267,7 +267,7 @@ export const createGithubActionsCIYml = (
       - uses: actions/checkout@v2
 
       - name: Setup node
-        uses: actions/setup-node@v2-beta
+        uses: actions/setup-node@v2
         with:
           node-version: ${LATEST_LTS_NODE}
           check-latest: true
@@ -332,7 +332,7 @@ export const createGithubActionsCIYml = (
       - uses: actions/checkout@v2
 
       - name: Setup node
-        uses: actions/setup-node@v2-beta
+        uses: actions/setup-node@v2
         with:
           node-version: ${LATEST_LTS_NODE}
           check-latest: true
@@ -453,7 +453,7 @@ export const createGithubActionsCIYml = (
       - uses: actions/checkout@v2
 
       - name: Setup node
-        uses: actions/setup-node@v2-beta
+        uses: actions/setup-node@v2
         with:
           node-version: \${{ matrix.node }}
           check-latest: true
@@ -536,7 +536,7 @@ export const createGithubActionsCIYml = (
       - uses: actions/checkout@v2
 
       - name: Setup node
-        uses: actions/setup-node@v2-beta
+        uses: actions/setup-node@v2
         with:
           node-version: \${{ matrix.node }}
           check-latest: true
@@ -621,7 +621,7 @@ ${requiredSteps.map((s) => `      - ${s}`).join('\n')}
       - uses: actions/checkout@v2
 
       - name: Setup node
-        uses: actions/setup-node@v2-beta
+        uses: actions/setup-node@v2
         with:
           node-version: ${LATEST_LTS_NODE}
           check-latest: true
