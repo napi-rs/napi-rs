@@ -410,7 +410,7 @@ impl Env {
 
     Ok(JsArrayBufferValue::new(
       unsafe { JsArrayBuffer::from_raw_unchecked(self.0, raw_value) },
-      data,
+      mem::ManuallyDrop::new(data),
     ))
   }
 
@@ -436,7 +436,50 @@ impl Env {
         value: raw_value,
         value_type: ValueType::Object,
       }),
-      data,
+      mem::ManuallyDrop::new(data),
+    ))
+  }
+
+  #[inline]
+  /// # Safety
+  /// Mostly the same with `create_arraybuffer_with_data`
+  ///
+  /// Provided `finalize_callback` will be called when `Buffer` got dropped.
+  ///
+  /// You can pass in `noop_finalize` if you have nothing to do in finalize phase.
+  pub unsafe fn create_arraybuffer_with_borrowed_data<Hint, Finalize>(
+    &self,
+    data: *const u8,
+    length: usize,
+    hint: Hint,
+    finalize_callback: Finalize,
+  ) -> Result<JsArrayBufferValue>
+  where
+    Finalize: FnOnce(Hint, Env),
+  {
+    let mut raw_value = ptr::null_mut();
+    check_status!(sys::napi_create_external_arraybuffer(
+      self.0,
+      data as *mut c_void,
+      length,
+      Some(
+        raw_finalize_with_custom_callback::<Hint, Finalize>
+          as unsafe extern "C" fn(
+            env: sys::napi_env,
+            finalize_data: *mut c_void,
+            finalize_hint: *mut c_void,
+          )
+      ),
+      Box::into_raw(Box::new((hint, finalize_callback))) as *mut c_void,
+      &mut raw_value,
+    ))?;
+    Ok(JsArrayBufferValue::new(
+      JsArrayBuffer(Value {
+        env: self.0,
+        value: raw_value,
+        value_type: ValueType::Object,
+      }),
+      mem::ManuallyDrop::new(Vec::from_raw_parts(data as *mut u8, length, length)),
     ))
   }
 

@@ -2,8 +2,7 @@ use std::convert::TryFrom;
 use std::ffi::CString;
 use std::ptr;
 
-use crate::check_status;
-use crate::{sys, Callback, Error, Result, Status};
+use crate::{check_status, sys, Callback, Error, Result, Status};
 
 #[cfg(feature = "serde-json")]
 mod de;
