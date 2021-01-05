@@ -2,10 +2,10 @@ use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::os::raw::c_void;
 use std::ptr;
+use std::slice;
 
 use super::{Value, ValueType};
-use crate::check_status;
-use crate::{sys, JsUnknown, NapiValue, Ref, Result};
+use crate::{check_status, sys, JsUnknown, NapiValue, Ref, Result};
 
 pub struct JsArrayBuffer(pub(crate) Value);
 
@@ -18,7 +18,7 @@ pub struct JsTypedArray(pub(crate) Value);
 
 pub struct JsTypedArrayValue {
   pub arraybuffer: JsArrayBuffer,
-  _data: *mut c_void,
+  data: *mut c_void,
   pub byte_offset: u64,
   pub length: u64,
   pub typedarray_type: TypedArrayType,
@@ -164,11 +164,8 @@ impl JsArrayBuffer {
 
 impl JsArrayBufferValue {
   #[inline]
-  pub fn new(value: JsArrayBuffer, data: Vec<u8>) -> Self {
-    JsArrayBufferValue {
-      value,
-      data: mem::ManuallyDrop::new(data),
-    }
+  pub fn new(value: JsArrayBuffer, data: mem::ManuallyDrop<Vec<u8>>) -> Self {
+    JsArrayBufferValue { value, data }
   }
 
   #[inline]
@@ -227,12 +224,33 @@ impl JsTypedArray {
     })?;
 
     Ok(JsTypedArrayValue {
-      _data: data,
+      data,
       length: len,
       byte_offset,
       typedarray_type: typedarray_type.into(),
       arraybuffer: unsafe { JsArrayBuffer::from_raw_unchecked(self.0.env, arraybuffer_value) },
     })
+  }
+}
+
+impl JsTypedArrayValue {
+  #[inline(always)]
+  fn as_slice(&self) -> &[u8] {
+    unsafe { slice::from_raw_parts(self.data as *const u8, self.length as usize) }
+  }
+}
+
+impl AsRef<[u8]> for JsTypedArrayValue {
+  fn as_ref(&self) -> &[u8] {
+    self.as_slice()
+  }
+}
+
+impl Deref for JsTypedArrayValue {
+  type Target = [u8];
+
+  fn deref(&self) -> &[u8] {
+    self.as_slice()
   }
 }
 
