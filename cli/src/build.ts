@@ -8,7 +8,7 @@ import toml from 'toml'
 import { getNapiConfig } from './consts'
 import { debugFactory } from './debug'
 import { getDefaultTargetTriple, parseTriple } from './parse-triple'
-import { existsAsync, readFileAsync, writeFileAsync } from './utils'
+import { copyFileAsync, existsAsync, readFileAsync, unlinkAsync } from './utils'
 
 const debug = debugFactory('build')
 
@@ -173,13 +173,14 @@ export class BuildCommand extends Command {
     }
 
     const sourcePath = join(dir, 'target', targetDir, `${dylibName}${libExt}`)
-    debug(`Read [${chalk.yellowBright(sourcePath)}] content`)
 
-    const dylibContent = await readFileAsync(sourcePath)
+    if (await existsAsync(distModulePath)) {
+      debug(`remove old binary [${chalk.yellowBright(sourcePath)}]`)
+      await unlinkAsync(distModulePath)
+    }
 
     debug(`Write binary content to [${chalk.yellowBright(distModulePath)}]`)
-
-    await writeFileAsync(distModulePath, dylibContent)
+    await copyFileAsync(sourcePath, distModulePath)
   }
 }
 
