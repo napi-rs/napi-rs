@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1610031627349,
+  "lastUpdate": 1610035048859,
   "repoUrl": "https://github.com/napi-rs/napi-rs",
   "entries": {
     "Benchmark": [
@@ -12387,6 +12387,114 @@ window.BENCHMARK_DATA = {
             "range": "±181.36%",
             "unit": "ops/sec",
             "extra": "79 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "lynweklm@gmail.com",
+            "name": "LongYinan",
+            "username": "Brooooooklyn"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "27dda517ce3a410ce62daf242d3c90abc6945a0d",
+          "message": "Merge pull request #413 from forehalo/fix/build-script\n\nfix(cli): fix random node process got killed issue",
+          "timestamp": "2021-01-07T23:53:27+08:00",
+          "tree_id": "87ee9bbf4341199a70f89b11fd078f1492e53c9b",
+          "url": "https://github.com/napi-rs/napi-rs/commit/27dda517ce3a410ce62daf242d3c90abc6945a0d"
+        },
+        "date": 1610035045448,
+        "tool": "benchmarkjs",
+        "benches": [
+          {
+            "name": "noop#napi-rs",
+            "value": 44989353,
+            "range": "±0.53%",
+            "unit": "ops/sec",
+            "extra": "87 samples"
+          },
+          {
+            "name": "noop#JavaScript",
+            "value": 723276476,
+            "range": "±1.29%",
+            "unit": "ops/sec",
+            "extra": "87 samples"
+          },
+          {
+            "name": "Plus number#napi-rs",
+            "value": 10787581,
+            "range": "±1.57%",
+            "unit": "ops/sec",
+            "extra": "80 samples"
+          },
+          {
+            "name": "Plus number#JavaScript",
+            "value": 733850484,
+            "range": "±0.84%",
+            "unit": "ops/sec",
+            "extra": "90 samples"
+          },
+          {
+            "name": "Create buffer#napi-rs",
+            "value": 89465,
+            "range": "±22.03%",
+            "unit": "ops/sec",
+            "extra": "79 samples"
+          },
+          {
+            "name": "Create buffer#JavaScript",
+            "value": 35103,
+            "range": "±134.78%",
+            "unit": "ops/sec",
+            "extra": "89 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from native#u32",
+            "value": 363901,
+            "range": "±13.44%",
+            "unit": "ops/sec",
+            "extra": "81 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from JavaScript#u32",
+            "value": 343411,
+            "range": "±3.12%",
+            "unit": "ops/sec",
+            "extra": "81 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from native#string",
+            "value": 357294,
+            "range": "±3.09%",
+            "unit": "ops/sec",
+            "extra": "82 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from JavaScript#string",
+            "value": 317913,
+            "range": "±3.07%",
+            "unit": "ops/sec",
+            "extra": "82 samples"
+          },
+          {
+            "name": "Async task#spawn task",
+            "value": 20776,
+            "range": "±1.55%",
+            "unit": "ops/sec",
+            "extra": "77 samples"
+          },
+          {
+            "name": "Async task#thread safe function",
+            "value": 9610,
+            "range": "±7.18%",
+            "unit": "ops/sec",
+            "extra": "81 samples"
           }
         ]
       }
