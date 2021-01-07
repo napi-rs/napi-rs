@@ -11,6 +11,7 @@ mod latin1;
 mod utf16;
 mod utf8;
 
+#[derive(Clone, Copy)]
 pub struct JsString(pub(crate) Value);
 
 impl JsString {

@@ -61,8 +61,10 @@ pub use value_type::ValueType;
 
 pub struct JsUnknown(pub(crate) Value);
 
+#[derive(Clone, Copy)]
 pub struct JsNull(pub(crate) Value);
 
+#[derive(Clone, Copy)]
 pub struct JsSymbol(pub(crate) Value);
 
 pub struct JsExternal(pub(crate) Value);
