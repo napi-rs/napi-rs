@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1610035048859,
+  "lastUpdate": 1610035212660,
   "repoUrl": "https://github.com/napi-rs/napi-rs",
   "entries": {
     "Benchmark": [
@@ -12495,6 +12495,114 @@ window.BENCHMARK_DATA = {
             "range": "±7.18%",
             "unit": "ops/sec",
             "extra": "81 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "lynweklm@gmail.com",
+            "name": "LongYinan",
+            "username": "Brooooooklyn"
+          },
+          "committer": {
+            "email": "lynweklm@gmail.com",
+            "name": "LongYinan",
+            "username": "Brooooooklyn"
+          },
+          "distinct": true,
+          "id": "9ef64474df520249cfc14379519b953177455477",
+          "message": "chore: publish\n\n - @napi-rs/cli@1.0.1",
+          "timestamp": "2021-01-07T23:55:50+08:00",
+          "tree_id": "1f9b3fa0267e4c70c6a08d268301380eb5b4869b",
+          "url": "https://github.com/napi-rs/napi-rs/commit/9ef64474df520249cfc14379519b953177455477"
+        },
+        "date": 1610035211281,
+        "tool": "benchmarkjs",
+        "benches": [
+          {
+            "name": "noop#napi-rs",
+            "value": 46581966,
+            "range": "±0.19%",
+            "unit": "ops/sec",
+            "extra": "93 samples"
+          },
+          {
+            "name": "noop#JavaScript",
+            "value": 591816333,
+            "range": "±0.12%",
+            "unit": "ops/sec",
+            "extra": "96 samples"
+          },
+          {
+            "name": "Plus number#napi-rs",
+            "value": 12783407,
+            "range": "±0.23%",
+            "unit": "ops/sec",
+            "extra": "94 samples"
+          },
+          {
+            "name": "Plus number#JavaScript",
+            "value": 593617867,
+            "range": "±0.2%",
+            "unit": "ops/sec",
+            "extra": "94 samples"
+          },
+          {
+            "name": "Create buffer#napi-rs",
+            "value": 86250,
+            "range": "±20.26%",
+            "unit": "ops/sec",
+            "extra": "80 samples"
+          },
+          {
+            "name": "Create buffer#JavaScript",
+            "value": 36535,
+            "range": "±107.43%",
+            "unit": "ops/sec",
+            "extra": "80 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from native#u32",
+            "value": 398106,
+            "range": "±3.84%",
+            "unit": "ops/sec",
+            "extra": "69 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from JavaScript#u32",
+            "value": 285132,
+            "range": "±37.93%",
+            "unit": "ops/sec",
+            "extra": "63 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from native#string",
+            "value": 345408,
+            "range": "±6.56%",
+            "unit": "ops/sec",
+            "extra": "53 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from JavaScript#string",
+            "value": 334990,
+            "range": "±3.31%",
+            "unit": "ops/sec",
+            "extra": "84 samples"
+          },
+          {
+            "name": "Async task#spawn task",
+            "value": 26939,
+            "range": "±4.55%",
+            "unit": "ops/sec",
+            "extra": "77 samples"
+          },
+          {
+            "name": "Async task#thread safe function",
+            "value": 1181,
+            "range": "±176.26%",
+            "unit": "ops/sec",
+            "extra": "76 samples"
           }
         ]
       }
