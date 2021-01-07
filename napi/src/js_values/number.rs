@@ -4,6 +4,7 @@ use super::Value;
 use crate::check_status;
 use crate::{sys, Error, Result};
 
+#[derive(Clone, Copy)]
 pub struct JsNumber(pub(crate) Value);
 
 impl JsNumber {

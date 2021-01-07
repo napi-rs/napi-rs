@@ -4,6 +4,7 @@ use std::ptr;
 use super::*;
 use crate::{check_status, sys, Result};
 
+#[derive(Clone, Copy)]
 pub struct JsBigint {
   pub(crate) raw: Value,
   pub word_count: usize,

@@ -1,9 +1,7 @@
 use std::mem;
 use std::ptr;
 
-use super::Value;
-use crate::check_status;
-use crate::{sys, Ref, Result};
+use crate::{check_status, sys, Result, Value};
 
 pub use latin1::JsStringLatin1;
 pub use utf16::JsStringUtf16;
@@ -71,11 +69,6 @@ impl JsString {
   }
 
   #[inline]
-  pub fn into_utf8_ref(self) -> Result<Ref<JsStringUtf8>> {
-    Ref::new(self.0, 1, self.into_utf8()?)
-  }
-
-  #[inline]
   pub fn into_utf16(self) -> Result<JsStringUtf16> {
     let mut written_char_count = 0usize;
     let len = self.utf16_len()? + 1;
@@ -98,11 +91,6 @@ impl JsString {
         Vec::from_raw_parts(buf_ptr, written_char_count, written_char_count)
       }),
     })
-  }
-
-  #[inline]
-  pub fn into_utf16_ref(self) -> Result<Ref<JsStringUtf16>> {
-    Ref::new(self.0, 1, self.into_utf16()?)
   }
 
   #[inline]
@@ -129,10 +117,5 @@ impl JsString {
         Vec::from_raw_parts(buf_ptr as *mut _, written_char_count, written_char_count)
       }),
     })
-  }
-
-  #[inline]
-  pub fn into_latin1_ref(self) -> Result<Ref<JsStringLatin1>> {
-    Ref::new(self.0, 1, self.into_latin1()?)
   }
 }

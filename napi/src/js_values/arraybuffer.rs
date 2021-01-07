@@ -4,8 +4,7 @@ use std::os::raw::c_void;
 use std::ptr;
 use std::slice;
 
-use super::{Value, ValueType};
-use crate::{check_status, sys, JsUnknown, NapiValue, Ref, Result};
+use crate::{check_status, sys, JsUnknown, NapiValue, Ref, Result, Value, ValueType};
 
 pub struct JsArrayBuffer(pub(crate) Value);
 
