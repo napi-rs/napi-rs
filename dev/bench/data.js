@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1610035212660,
+  "lastUpdate": 1610645652733,
   "repoUrl": "https://github.com/napi-rs/napi-rs",
   "entries": {
     "Benchmark": [
@@ -12603,6 +12603,114 @@ window.BENCHMARK_DATA = {
             "range": "±176.26%",
             "unit": "ops/sec",
             "extra": "76 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "lynweklm@gmail.com",
+            "name": "LongYinan",
+            "username": "Brooooooklyn"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "260ff1decd91e076a6f5a7d9fd520d511882a7cd",
+          "message": "Merge pull request #424 from napi-rs/fix-windows\n\nfix(cli): mkdir -p is not valid command in powershell",
+          "timestamp": "2021-01-15T01:30:07+08:00",
+          "tree_id": "f80f0f637985c3669346c8514bbaf7c8b79833f7",
+          "url": "https://github.com/napi-rs/napi-rs/commit/260ff1decd91e076a6f5a7d9fd520d511882a7cd"
+        },
+        "date": 1610645651446,
+        "tool": "benchmarkjs",
+        "benches": [
+          {
+            "name": "noop#napi-rs",
+            "value": 47049892,
+            "range": "±0.19%",
+            "unit": "ops/sec",
+            "extra": "95 samples"
+          },
+          {
+            "name": "noop#JavaScript",
+            "value": 597285861,
+            "range": "±0.2%",
+            "unit": "ops/sec",
+            "extra": "94 samples"
+          },
+          {
+            "name": "Plus number#napi-rs",
+            "value": 12897867,
+            "range": "±0.24%",
+            "unit": "ops/sec",
+            "extra": "94 samples"
+          },
+          {
+            "name": "Plus number#JavaScript",
+            "value": 595690171,
+            "range": "±0.23%",
+            "unit": "ops/sec",
+            "extra": "97 samples"
+          },
+          {
+            "name": "Create buffer#napi-rs",
+            "value": 76778,
+            "range": "±22.86%",
+            "unit": "ops/sec",
+            "extra": "64 samples"
+          },
+          {
+            "name": "Create buffer#JavaScript",
+            "value": 15441,
+            "range": "±163.59%",
+            "unit": "ops/sec",
+            "extra": "83 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from native#u32",
+            "value": 408120,
+            "range": "±3.22%",
+            "unit": "ops/sec",
+            "extra": "85 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from JavaScript#u32",
+            "value": 364081,
+            "range": "±3.13%",
+            "unit": "ops/sec",
+            "extra": "84 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from native#string",
+            "value": 361669,
+            "range": "±2.91%",
+            "unit": "ops/sec",
+            "extra": "82 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from JavaScript#string",
+            "value": 326398,
+            "range": "±12.16%",
+            "unit": "ops/sec",
+            "extra": "81 samples"
+          },
+          {
+            "name": "Async task#spawn task",
+            "value": 30748,
+            "range": "±0.56%",
+            "unit": "ops/sec",
+            "extra": "85 samples"
+          },
+          {
+            "name": "Async task#thread safe function",
+            "value": 12179,
+            "range": "±9.25%",
+            "unit": "ops/sec",
+            "extra": "75 samples"
           }
         ]
       }
