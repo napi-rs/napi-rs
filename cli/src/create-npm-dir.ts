@@ -1,3 +1,4 @@
+import { mkdirSync } from 'fs'
 import { join } from 'path'
 
 import chalk from 'chalk'
@@ -7,7 +8,6 @@ import { pick } from 'lodash'
 import { getNapiConfig } from './consts'
 import { debugFactory } from './debug'
 import { PlatformDetail } from './parse-triple'
-import { spawn } from './spawn'
 import { writeFileAsync } from './utils'
 
 const debug = debugFactory('create-npm-dir')
@@ -38,7 +38,9 @@ export class CreateNpmDirCommand extends Command {
         'npm',
         `${platformDetail.platformArchABI}`,
       )
-      await spawn(`mkdir -p ${targetDir}`)
+      mkdirSync(targetDir, {
+        recursive: true,
+      })
       const binaryFileName = `${binaryName}.${platformDetail.platformArchABI}.node`
       const targetPackageJson = join(targetDir, 'package.json')
       debug(`Write file [${chalk.yellowBright(targetPackageJson)}]`)
