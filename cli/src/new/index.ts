@@ -8,7 +8,6 @@ import inquirer, { prompt } from 'inquirer'
 import { CreateNpmDirCommand } from '../create-npm-dir'
 import { debugFactory } from '../debug'
 import { DefaultPlatforms } from '../parse-triple'
-import { spawn } from '../spawn'
 
 import { createCargoContent } from './cargo'
 import { createCargoConfig } from './cargo-config'
@@ -113,10 +112,9 @@ export class NewProjectCommand extends Command {
       this.enableGithubActions = answer[ENABLE_GITHUB_ACTIONS_PROMOTE_NAME]
     }
 
-    const command = `mkdir -p ${this.dirname}`
     debug(`Running command: ${chalk.green('[${command}]')}`)
     if (!this.dryRun) {
-      await spawn(command)
+      mkdirSync(join(process.cwd(), this.dirname!))
       mkdirSync(join(process.cwd(), this.dirname!, 'src'))
     }
 
