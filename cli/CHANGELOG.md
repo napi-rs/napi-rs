@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [1.0.2](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@1.0.1...@napi-rs/cli@1.0.2) (2021-01-15)
+
+### Bug Fixes
+
+- **cli:** mkdir -p is not valid command in powershell ([84a6ea9](https://github.com/napi-rs/napi-rs/commit/84a6ea9223e4eabbf1feac6cf7a71211f3404ce7))
+
 ## [1.0.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@1.0.0-alpha.14...@napi-rs/cli@1.0.1) (2021-01-07)
 
 ### Bug Fixes
