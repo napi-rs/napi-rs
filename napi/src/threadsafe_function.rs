@@ -302,5 +302,48 @@ unsafe extern "C" fn call_js_cb<T: 'static, V: NapiValue>(
       );
     }
   }
-  debug_assert!(status == sys::Status::napi_ok, "CallJsCB failed");
+  if status == sys::Status::napi_pending_exception {
+    let mut error_result = ptr::null_mut();
+    assert_eq!(
+      sys::napi_get_and_clear_last_exception(raw_env, &mut error_result),
+      sys::Status::napi_ok
+    );
+    assert_eq!(
+      sys::napi_fatal_exception(raw_env, error_result),
+      sys::Status::napi_ok
+    );
+  } else if status != sys::Status::napi_ok {
+    let error_code: Status = status.into();
+    let error_code_string = format!("{:?}", error_code);
+    let mut error_code_value = ptr::null_mut();
+    assert_eq!(
+      sys::napi_create_string_utf8(
+        raw_env,
+        error_code_string.as_ptr() as *const _,
+        error_code_string.len(),
+        &mut error_code_value
+      ),
+      sys::Status::napi_ok,
+    );
+    let error_msg = "Call JavaScript callback failed in thread safe function";
+    let mut error_msg_value = ptr::null_mut();
+    assert_eq!(
+      sys::napi_create_string_utf8(
+        raw_env,
+        error_msg.as_ptr() as *const _,
+        error_msg.len(),
+        &mut error_msg_value,
+      ),
+      sys::Status::napi_ok,
+    );
+    let mut error_value = ptr::null_mut();
+    assert_eq!(
+      sys::napi_create_error(raw_env, error_code_value, error_msg_value, &mut error_value),
+      sys::Status::napi_ok,
+    );
+    assert_eq!(
+      sys::napi_fatal_exception(raw_env, error_value),
+      sys::Status::napi_ok
+    );
+  }
 }
