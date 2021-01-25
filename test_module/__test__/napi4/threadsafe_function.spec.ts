@@ -1,3 +1,6 @@
+import { execSync } from 'child_process'
+import { join } from 'path'
+
 import test from 'ava'
 
 import { napiVersion } from '../napi-version'
@@ -71,4 +74,15 @@ test('should work with napi ref', (t) => {
       }, obj)
     })
   }
+})
+
+test('should be able to throw error in tsfn', (t) => {
+  if (napiVersion < 4) {
+    t.is(bindings.testThreadsafeFunction, undefined)
+    return
+  }
+
+  t.throws(() => {
+    execSync(`node ${join(__dirname, 'tsfn-throw.js')}`)
+  })
 })
