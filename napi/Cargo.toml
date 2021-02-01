@@ -39,7 +39,7 @@ version = "0.3"
 [dependencies.tokio]
 features = ["rt", "rt-multi-thread", "sync"]
 optional = true
-version = "1.0"
+version = "1.1"
 
 [dependencies.once_cell]
 optional = true
