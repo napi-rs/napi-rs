@@ -4,7 +4,7 @@ use napi::{CallContext, JsBoolean, JsObject, JsUnknown, Result};
 pub fn instanceof(ctx: CallContext) -> Result<JsBoolean> {
   let object = ctx.get::<JsUnknown>(0)?;
   let constructor = ctx.get::<JsUnknown>(1)?;
-  ctx.env.get_boolean(object.instanceof(constructor)?)
+  ctx.env.get_boolean(object.instanceof(&constructor)?)
 }
 
 #[js_function(1)]

@@ -221,8 +221,9 @@ macro_rules! impl_js_value_methods {
       }
 
       #[inline]
-      pub fn instanceof<Constructor: NapiValue>(&self, constructor: Constructor) -> Result<bool> {
+      pub fn instanceof<Constructor: NapiValue>(&self, constructor: &Constructor) -> Result<bool> {
         let mut result = false;
+        println!("{:p}", self.0.value);
         check_status!(unsafe {
           sys::napi_instanceof(self.0.env, self.0.value, constructor.raw(), &mut result)
         })?;

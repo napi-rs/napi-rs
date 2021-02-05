@@ -1,3 +1,5 @@
+use std::any::TypeId;
+use std::ffi::c_void;
 use std::ptr;
 
 use crate::check_status;
@@ -12,6 +14,7 @@ pub struct CallContext<'env> {
   arg_len: usize,
   /// arguments.length
   pub length: usize,
+  context: *mut c_void,
 }
 
 impl<'env> CallContext<'env> {
@@ -23,6 +26,7 @@ impl<'env> CallContext<'env> {
     args: &'env [sys::napi_value],
     arg_len: usize,
     length: usize,
+    context: *mut c_void,
   ) -> Self {
     Self {
       env,
@@ -31,6 +35,7 @@ impl<'env> CallContext<'env> {
       args,
       arg_len,
       length,
+      context,
     }
   }
 
@@ -78,5 +83,49 @@ impl<'env> CallContext<'env> {
   #[inline]
   pub fn this_unchecked<T: NapiValue>(&self) -> T {
     unsafe { T::from_raw_unchecked(self.env.0, self.raw_this) }
+  }
+
+  pub fn context_ref<T>(&self) -> Result<&T>
+  where
+    T: 'static,
+  {
+    let type_id = self.context as *mut TypeId;
+    if unsafe { *type_id } == TypeId::of::<T>() {
+      Ok(Box::leak(unsafe { Box::from_raw(self.context as *mut T) }))
+    } else {
+      Err(Error::new(
+        Status::InvalidArg,
+        "Provided context type `T` is not matched with the real type of context".to_owned(),
+      ))
+    }
+  }
+
+  pub fn context_mut<T>(&self) -> Result<&mut T>
+  where
+    T: 'static,
+  {
+    let type_id = self.context as *mut TypeId;
+    if unsafe { *type_id } == TypeId::of::<T>() {
+      Ok(Box::leak(unsafe { Box::from_raw(self.context as *mut T) }))
+    } else {
+      Err(Error::new(
+        Status::InvalidArg,
+        "Provided context type `T` is not matched with the real type of context".to_owned(),
+      ))
+    }
+  }
+
+  #[inline]
+  /// If `T` is not matched with `Context` passed in `Env::create_function_with_context`/`Env::define_class_with_context`
+  /// your program may `panic` here.
+  pub fn context_ref_unchecked<T>(&self) -> &T {
+    Box::leak(unsafe { Box::from_raw(self.context as *mut T) })
+  }
+
+  #[inline]
+  /// If `T` is not matched with `Context` passed in `Env::create_function_with_context`/`Env::define_class_with_context`
+  /// your program may `panic` here.
+  pub fn context_mut_unchecked<T>(&mut self) -> &mut T {
+    Box::leak(unsafe { Box::from_raw(self.context as *mut T) })
   }
 }

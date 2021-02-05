@@ -492,6 +492,19 @@ impl Env {
   ///
   /// Instead, a property must be explicitly set on any object that is visible to JavaScript, in order for the function to be accessible from script.
   pub fn create_function(&self, name: &str, callback: Callback) -> Result<JsFunction> {
+    self.create_function_with_context(name, ptr::null::<c_void>(), callback)
+  }
+
+  #[inline]
+  /// This API is almost the same with `create_function`
+  ///
+  /// The only different is you can provide context for `callback`, and get it back via `CallContext::context_ref`
+  pub fn create_function_with_context<T>(
+    &self,
+    name: &str,
+    context: T,
+    callback: Callback,
+  ) -> Result<JsFunction> {
     let mut raw_result = ptr::null_mut();
     let len = name.len();
     let name = CString::new(name)?;
@@ -501,7 +514,7 @@ impl Env {
         name.as_ptr(),
         len,
         Some(callback),
-        ptr::null_mut(),
+        Box::into_raw(Box::new(context)) as *mut c_void,
         &mut raw_result,
       )
     })?;
@@ -611,6 +624,18 @@ impl Env {
     constructor_cb: Callback,
     properties: &[Property],
   ) -> Result<JsFunction> {
+    self.define_class_with_context(name, constructor_cb, properties, ptr::null::<c_void>())
+  }
+
+  #[inline]
+  /// Create JavaScript class with `Context` which will be passed to constructor
+  pub fn define_class_with_context<T>(
+    &self,
+    name: &str,
+    constructor_cb: Callback,
+    properties: &[Property],
+    context: T,
+  ) -> Result<JsFunction> {
     let mut raw_result = ptr::null_mut();
     let raw_properties = properties
       .iter()
@@ -623,7 +648,7 @@ impl Env {
         name.as_ptr() as *const c_char,
         name.len(),
         Some(constructor_cb),
-        ptr::null_mut(),
+        Box::into_raw(Box::new(context)) as *mut c_void,
         raw_properties.len(),
         raw_properties.as_ptr(),
         &mut raw_result,

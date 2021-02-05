@@ -96,10 +96,12 @@ pub fn js_function(attr: TokenStream, input: TokenStream) -> TokenStream {
       use std::ptr;
       use std::panic::{self, AssertUnwindSafe};
       use std::ffi::CString;
+
       use napi::{Env, Error, Status, NapiValue, CallContext};
       let mut argc = #arg_len_span as usize;
       let mut raw_args: [napi::sys::napi_value; #arg_len_span] = [ptr::null_mut(); #arg_len_span];
       let mut raw_this = ptr::null_mut();
+      let mut context = ptr::null_mut();
 
       unsafe {
         let status = napi::sys::napi_get_cb_info(
@@ -108,13 +110,13 @@ pub fn js_function(attr: TokenStream, input: TokenStream) -> TokenStream {
           &mut argc,
           raw_args.as_mut_ptr(),
           &mut raw_this,
-          ptr::null_mut(),
+          &mut context,
         );
         debug_assert!(Status::from(status) == Status::Ok, "napi_get_cb_info failed");
       }
 
       let mut env = unsafe { Env::from_raw(raw_env) };
-      let ctx = CallContext::new(&mut env, cb_info, raw_this, &raw_args, #arg_len_span, argc);
+      let ctx = CallContext::new(&mut env, cb_info, raw_this, &raw_args, #arg_len_span, argc, context);
       #execute_js_function
     }
   };
@@ -193,7 +195,20 @@ fn get_execute_js_code(
     }).and_then(|v| v) {
       #return_token_stream
       Err(e) => {
-        unsafe { napi::JsError::from(e).throw_into(raw_env) };
+        unsafe {
+          let mut pending_exception = false;
+          let status = napi::sys::napi_is_exception_pending(raw_env, &mut pending_exception);
+          debug_assert!(status == napi::sys::Status::napi_ok);
+          if pending_exception {
+            let mut exception = ptr::null_mut();
+            let get_status = napi::sys::napi_get_and_clear_last_exception(raw_env, &mut exception);
+            debug_assert!(get_status == napi::sys::Status::napi_ok);
+            let throw_status = napi::sys::napi_throw(raw_env, exception);
+            debug_assert!(throw_status == napi::sys::Status::napi_ok);
+          } else {
+            napi::JsError::from(e).throw_into(raw_env);
+          }
+        };
         ptr::null_mut()
       }
     }
