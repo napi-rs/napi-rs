@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [1.0.3](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@1.0.2...@napi-rs/cli@1.0.3) (2021-02-06)
+
+### Bug Fixes
+
+- **cli:** new command without npm scope ([5ef1887](https://github.com/napi-rs/napi-rs/commit/5ef1887ea96d529bf6bd4e52d6d77ffbd6baf13e))
+
 ## [1.0.2](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@1.0.1...@napi-rs/cli@1.0.2) (2021-01-15)
 
 ### Bug Fixes
