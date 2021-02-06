@@ -71,7 +71,8 @@ export class NewProjectCommand extends Command {
   async execute() {
     await this.getName()
     if (!this.dirname) {
-      const [, defaultProjectDir] = this.name?.split('/') ?? []
+      const [scope, name] = this.name?.split('/') ?? []
+      const defaultProjectDir = name ?? scope
       const dirAnswer = await prompt({
         type: 'input',
         name: DIR_PROMOTE_NAME,
@@ -118,7 +119,8 @@ export class NewProjectCommand extends Command {
       mkdirSync(join(process.cwd(), this.dirname!, 'src'))
     }
 
-    const [, binaryName] = this.name!.split('/')
+    const [s, pkgName] = this.name!.split('/')
+    const binaryName = pkgName ?? s
 
     this.writeFile('Cargo.toml', createCargoContent(this.name!))
     this.writeFile('.npmignore', NPMIgnoreFiles)
