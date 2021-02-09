@@ -2,7 +2,11 @@ use std::mem;
 use std::os::raw::{c_char, c_void};
 use std::ptr;
 
-use crate::{check_status, js_values::NapiValue, sys, Env, JsError, JsObject, Result, Task};
+use crate::{
+  check_status,
+  js_values::{IntoNapiValue, NapiValue},
+  sys, Env, JsError, JsObject, Result, Task,
+};
 
 struct AsyncWork<T: Task> {
   inner_task: T,

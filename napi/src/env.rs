@@ -492,7 +492,21 @@ impl Env {
   ///
   /// Instead, a property must be explicitly set on any object that is visible to JavaScript, in order for the function to be accessible from script.
   pub fn create_function(&self, name: &str, callback: Callback) -> Result<JsFunction> {
-    self.create_function_with_context(name, ptr::null::<c_void>(), callback)
+    let mut raw_result = ptr::null_mut();
+    let len = name.len();
+    let name = CString::new(name)?;
+    check_status!(unsafe {
+      sys::napi_create_function(
+        self.0,
+        name.as_ptr(),
+        len,
+        Some(callback),
+        ptr::null_mut(),
+        &mut raw_result,
+      )
+    })?;
+
+    Ok(unsafe { JsFunction::from_raw_unchecked(self.0, raw_result) })
   }
 
   #[inline]
@@ -504,22 +518,26 @@ impl Env {
     name: &str,
     context: T,
     callback: Callback,
-  ) -> Result<JsFunction> {
+  ) -> Result<(JsFunction, &mut T)> {
     let mut raw_result = ptr::null_mut();
     let len = name.len();
     let name = CString::new(name)?;
+    let global_context = Box::leak(Box::new(context));
     check_status!(unsafe {
       sys::napi_create_function(
         self.0,
         name.as_ptr(),
         len,
         Some(callback),
-        Box::into_raw(Box::new(context)) as *mut c_void,
+        global_context as *mut T as *mut c_void,
         &mut raw_result,
       )
     })?;
 
-    Ok(unsafe { JsFunction::from_raw_unchecked(self.0, raw_result) })
+    Ok((
+      unsafe { JsFunction::from_raw_unchecked(self.0, raw_result) },
+      global_context,
+    ))
   }
 
   #[inline]
@@ -624,18 +642,6 @@ impl Env {
     constructor_cb: Callback,
     properties: &[Property],
   ) -> Result<JsFunction> {
-    self.define_class_with_context(name, constructor_cb, properties, ptr::null::<c_void>())
-  }
-
-  #[inline]
-  /// Create JavaScript class with `Context` which will be passed to constructor
-  pub fn define_class_with_context<T>(
-    &self,
-    name: &str,
-    constructor_cb: Callback,
-    properties: &[Property],
-    context: T,
-  ) -> Result<JsFunction> {
     let mut raw_result = ptr::null_mut();
     let raw_properties = properties
       .iter()
@@ -648,7 +654,7 @@ impl Env {
         name.as_ptr() as *const c_char,
         name.len(),
         Some(constructor_cb),
-        Box::into_raw(Box::new(context)) as *mut c_void,
+        ptr::null_mut(),
         raw_properties.len(),
         raw_properties.as_ptr(),
         &mut raw_result,
@@ -656,6 +662,42 @@ impl Env {
     })?;
 
     Ok(unsafe { JsFunction::from_raw_unchecked(self.0, raw_result) })
+  }
+
+  #[inline]
+  /// Create JavaScript class with `Context` which will be passed to constructor
+  pub fn define_class_with_context<T>(
+    &self,
+    name: &str,
+    constructor_cb: Callback,
+    properties: &[Property],
+    context: T,
+  ) -> Result<(JsFunction, &mut T)> {
+    let mut raw_result = ptr::null_mut();
+    let raw_properties = properties
+      .iter()
+      .map(|prop| prop.raw())
+      .collect::<Vec<sys::napi_property_descriptor>>();
+
+    let global_context = Box::leak(Box::new(context));
+
+    check_status!(unsafe {
+      sys::napi_define_class(
+        self.0,
+        name.as_ptr() as *const c_char,
+        name.len(),
+        Some(constructor_cb),
+        global_context as *mut T as *mut c_void,
+        raw_properties.len(),
+        raw_properties.as_ptr(),
+        &mut raw_result,
+      )
+    })?;
+
+    Ok((
+      unsafe { JsFunction::from_raw_unchecked(self.0, raw_result) },
+      global_context,
+    ))
   }
 
   #[inline]

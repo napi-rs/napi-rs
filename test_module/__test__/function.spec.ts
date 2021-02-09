@@ -16,6 +16,6 @@ test('should set "this" properly', (t) => {
 })
 
 test('function context should be able to get with context_ref_unchecked', (t) => {
-  t.false(bindings.functionWithContext(''))
-  t.true(bindings.functionWithContext('1'))
+  t.false(bindings.functionWithStringContext(''))
+  t.true(bindings.functionWithStringContext('1'))
 })

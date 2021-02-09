@@ -2,7 +2,7 @@ use std::ptr;
 
 use super::Value;
 use crate::check_status;
-use crate::{sys, Env, Error, JsObject, JsUnknown, NapiValue, Result, Status};
+use crate::{sys, Env, Error, IntoNapiValue, JsObject, JsUnknown, NapiValue, Result, Status};
 
 pub struct JsFunction(pub(crate) Value);
 
