@@ -1,8 +1,8 @@
 freebsd_instance:
-  image: freebsd-12-1-release-amd64
+  image: freebsd-12-2-release-amd64
 
 task:
-  name: FreeBSD 12.1
+  name: FreeBSD 12.2
   env:
     DEBUG: 'napi:*'
   setup_script:
