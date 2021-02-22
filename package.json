@@ -24,8 +24,10 @@
     "format:source": "prettier --config ./package.json --write './**/*.{js,ts}'",
     "format:yaml": "prettier --parser yaml --write './**/*.{yml,yaml}'",
     "lint": "eslint -c .eslintrc.yml './cli/**/*.ts' './test_module/**/*.{ts,js}'",
-    "prepublishOnly": "npm run build",
-    "test": "ava"
+    "prepublishOnly": "npm run build && pinst --disable",
+    "test": "ava",
+    "postinstall": "husky install",
+    "postpublish": "pinst --enable"
   },
   "bugs": {
     "url": "https://github.com/napi-rs/napi-rs/issues"
