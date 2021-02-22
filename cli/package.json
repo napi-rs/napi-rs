@@ -32,13 +32,13 @@
     "url": "https://github.com/napi-rs/napi-rs/issues"
   },
   "dependencies": {
-    "@octokit/rest": "^18.1.1",
+    "@octokit/rest": "^18.2.0",
     "chalk": "^4.1.0",
     "clipanion": "^2.6.2",
     "debug": "^4.3.1",
     "fdir": "^5.0.0",
     "inquirer": "^7.3.3",
-    "lodash": "^4.17.20",
+    "lodash": "^4.17.21",
     "putasset": "^5.0.3",
     "toml": "^3.0.0",
     "tslib": "^2.1.0"
