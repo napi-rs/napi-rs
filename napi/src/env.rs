@@ -674,6 +674,32 @@ impl Env {
   }
 
   #[inline]
+  pub fn unwrap_from_ref<T: 'static>(&self, js_ref: &Ref<()>) -> Result<&'static mut T> {
+    unsafe {
+      let mut unknown_tagged_object: *mut c_void = ptr::null_mut();
+      check_status!(sys::napi_unwrap(
+        self.0,
+        js_ref.raw_value,
+        &mut unknown_tagged_object,
+      ))?;
+
+      let type_id = unknown_tagged_object as *const TypeId;
+      if *type_id == TypeId::of::<T>() {
+        let tagged_object = unknown_tagged_object as *mut TaggedObject<T>;
+        (*tagged_object).object.as_mut().ok_or(Error {
+          status: Status::InvalidArg,
+          reason: "Invalid argument, nothing attach to js_object".to_owned(),
+        })
+      } else {
+        Err(Error {
+          status: Status::InvalidArg,
+          reason: "Invalid argument, T on unrwap is not the type of wrapped object".to_owned(),
+        })
+      }
+    }
+  }
+
+  #[inline]
   pub fn drop_wrapped<T: 'static>(&self, js_object: JsObject) -> Result<()> {
     unsafe {
       let mut unknown_tagged_object: *mut c_void = ptr::null_mut();
@@ -706,13 +732,15 @@ impl Env {
   {
     let mut raw_ref = ptr::null_mut();
     let initial_ref_count = 1;
+    let raw_value = unsafe { value.raw() };
     check_status!(unsafe {
-      sys::napi_create_reference(self.0, value.raw(), initial_ref_count, &mut raw_ref)
+      sys::napi_create_reference(self.0, raw_value, initial_ref_count, &mut raw_ref)
     })?;
     Ok(Ref {
       raw_ref,
       count: 1,
       inner: (),
+      raw_value,
     })
   }
 
