@@ -8,6 +8,7 @@ pub struct Ref<T> {
   pub(crate) raw_ref: sys::napi_ref,
   pub(crate) count: u32,
   pub(crate) inner: T,
+  pub(crate) raw_value: sys::napi_value,
 }
 
 unsafe impl<T> Send for Ref<T> {}
@@ -30,6 +31,7 @@ impl<T> Ref<T> {
       raw_ref,
       count: ref_count,
       inner,
+      raw_value: js_value.value,
     })
   }
 
