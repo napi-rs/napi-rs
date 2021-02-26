@@ -68,7 +68,7 @@ impl Into<napi_threadsafe_function_call_mode> for ThreadsafeFunctionCallMode {
 ///                 .collect::<Result<Vec<JsNumber>>>()
 ///           })?;
 ///
-///   let tsfn_cloned = tsfn.try_clone()?;
+///   let tsfn_cloned = tsfn.clone();
 ///
 ///   thread::spawn(move || {
 ///       let output: Vec<u32> = vec![0, 1, 2, 3];
@@ -89,6 +89,24 @@ pub struct ThreadsafeFunction<T: 'static> {
   raw_tsfn: sys::napi_threadsafe_function,
   aborted: Arc<AtomicBool>,
   _phantom: PhantomData<T>,
+}
+
+impl<T: 'static> Clone for ThreadsafeFunction<T> {
+  fn clone(&self) -> Self {
+    if !self.aborted.load(Ordering::Acquire) {
+      let acquire_status = unsafe { sys::napi_acquire_threadsafe_function(self.raw_tsfn) };
+      debug_assert!(
+        acquire_status == sys::Status::napi_ok,
+        "Acquire threadsafe function failed in clone"
+      );
+    }
+
+    Self {
+      raw_tsfn: self.raw_tsfn,
+      aborted: Arc::clone(&self.aborted),
+      _phantom: PhantomData,
+    }
+  }
 }
 
 unsafe impl<T> Send for ThreadsafeFunction<T> {}
@@ -201,21 +219,6 @@ impl<T: 'static> ThreadsafeFunction<T> {
     })?;
     self.aborted.store(true, Ordering::Release);
     Ok(())
-  }
-
-  pub fn try_clone(&self) -> Result<Self> {
-    if self.aborted.load(Ordering::Acquire) {
-      return Err(Error::new(
-        Status::Closing,
-        format!("Can not clone, Thread safe function already aborted"),
-      ));
-    }
-    check_status!(unsafe { sys::napi_acquire_threadsafe_function(self.raw_tsfn) })?;
-    Ok(Self {
-      raw_tsfn: self.raw_tsfn,
-      aborted: Arc::clone(&self.aborted),
-      _phantom: PhantomData,
-    })
   }
 
   /// Get the raw `ThreadSafeFunction` pointer

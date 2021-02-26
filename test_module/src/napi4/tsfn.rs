@@ -23,7 +23,7 @@ pub fn test_threadsafe_function(ctx: CallContext) -> Result<JsUndefined> {
           .collect::<Result<Vec<JsNumber>>>()
       })?;
 
-  let tsfn_cloned = tsfn.try_clone()?;
+  let tsfn_cloned = tsfn.clone();
 
   thread::spawn(move || {
     let output: Vec<u32> = vec![0, 1, 2, 3];
@@ -55,7 +55,7 @@ pub fn test_abort_threadsafe_function(ctx: CallContext) -> Result<JsBoolean> {
           .collect::<Result<Vec<JsNumber>>>()
       })?;
 
-  let tsfn_cloned = tsfn.try_clone()?;
+  let tsfn_cloned = tsfn.clone();
 
   tsfn_cloned.abort()?;
   ctx.env.get_boolean(tsfn.aborted())
@@ -92,7 +92,7 @@ pub fn test_call_aborted_threadsafe_function(ctx: CallContext) -> Result<JsUndef
       ctx.env.create_uint32(ctx.value).map(|v| vec![v])
     })?;
 
-  let tsfn_clone = tsfn.try_clone()?;
+  let tsfn_clone = tsfn.clone();
   tsfn_clone.abort()?;
 
   let call_status = tsfn.call(Ok(1), ThreadsafeFunctionCallMode::NonBlocking);
