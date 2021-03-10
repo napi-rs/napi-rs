@@ -36,6 +36,68 @@ impl Into<napi_threadsafe_function_call_mode> for ThreadsafeFunctionCallMode {
   }
 }
 
+type_level_enum! {
+  /// Type-level `enum` to express how to feed [`ThreadsafeFunction`] errors to
+  /// the inner [`JsFunction`].
+  ///
+  /// ### Context
+  ///
+  /// For callbacks that expect a `Result`-like kind of input, the convention is
+  /// to have the callback take an `error` parameter as its first parameter.
+  ///
+  /// This way receiving a `Result<Args…>` can be modelled as follows:
+  ///
+  ///   - In case of `Err(error)`, feed that `error` entity as the first parameter
+  ///     of the callback;
+  ///
+  ///   - Otherwise (in case of `Ok(_)`), feed `null` instead.
+  ///
+  /// In pseudo-code:
+  ///
+  /// ```rust,ignore
+  /// match result_args {
+  ///     Ok(args) => {
+  ///         let js_null = /* … */;
+  ///         callback.call(
+  ///             // this
+  ///             None,
+  ///             // args…
+  ///             &iter::once(js_null).chain(args).collect::<Vec<_>>(),
+  ///         )
+  ///     },
+  ///     Err(err) => callback.call(None, &[JsError::from(err)]),
+  /// }
+  /// ```
+  ///
+  /// **Note that the `Err` case can stem from a failed conversion from native
+  /// values to js values when calling the callback!**
+  ///
+  /// That's why:
+  ///
+  /// > **[This][`ErrorStrategy::CalleeHandled`] is the default error strategy**.
+  ///
+  /// In order to opt-out of it, [`ThreadsafeFunction`] has an optional second
+  /// generic parameter (of "kind" [`ErrorStrategy::T`]) that defines whether
+  /// this behavior ([`ErrorStrategy::CalleeHandled`]) or a non-`Result` one
+  /// ([`ErrorStrategy::Fatal`]) is desired.
+  pub enum ErrorStrategy {
+    /// Input errors (including conversion errors) are left for the callee to
+    /// handle:
+    ///
+    /// The callee receives an extra `error` parameter (the first one), which is
+    /// `null` if no error occurred, and the error payload otherwise.
+    CalleeHandled,
+
+    /// Input errors (including conversion errors) are deemed fatal:
+    ///
+    /// they can thus cause a `panic!` or abort the process.
+    ///
+    /// The callee thus is not expected to have to deal with [that extra `error`
+    /// parameter][CalleeHandled], which is thus not added.
+    Fatal,
+  }
+}
+
 /// Communicate with the addon's main thread by invoking a JavaScript function from other threads.
 ///
 /// ## Example
@@ -85,13 +147,13 @@ impl Into<napi_threadsafe_function_call_mode> for ThreadsafeFunctionCallMode {
 ///   ctx.env.get_undefined()
 /// }
 /// ```
-pub struct ThreadsafeFunction<T: 'static> {
+pub struct ThreadsafeFunction<T: 'static, ES: ErrorStrategy::T = ErrorStrategy::CalleeHandled> {
   raw_tsfn: sys::napi_threadsafe_function,
   aborted: Arc<AtomicBool>,
-  _phantom: PhantomData<T>,
+  _phantom: PhantomData<(T, ES)>,
 }
 
-impl<T: 'static> Clone for ThreadsafeFunction<T> {
+impl<T: 'static, ES: ErrorStrategy::T> Clone for ThreadsafeFunction<T, ES> {
   fn clone(&self) -> Self {
     if !self.aborted.load(Ordering::Acquire) {
       let acquire_status = unsafe { sys::napi_acquire_threadsafe_function(self.raw_tsfn) };
@@ -109,14 +171,10 @@ impl<T: 'static> Clone for ThreadsafeFunction<T> {
   }
 }
 
-unsafe impl<T> Send for ThreadsafeFunction<T> {}
-unsafe impl<T> Sync for ThreadsafeFunction<T> {}
+unsafe impl<T, ES: ErrorStrategy::T> Send for ThreadsafeFunction<T, ES> {}
+unsafe impl<T, ES: ErrorStrategy::T> Sync for ThreadsafeFunction<T, ES> {}
 
-struct ThreadSafeContext<T: 'static, V: NapiValue>(
-  Box<dyn FnMut(ThreadSafeCallContext<T>) -> Result<Vec<V>>>,
-);
-
-impl<T: 'static> ThreadsafeFunction<T> {
+impl<T: 'static, ES: ErrorStrategy::T> ThreadsafeFunction<T, ES> {
   /// See [napi_create_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_create_threadsafe_function)
   /// for more information.
   #[inline]
@@ -139,8 +197,7 @@ impl<T: 'static> ThreadsafeFunction<T> {
 
     let initial_thread_count = 1usize;
     let mut raw_tsfn = ptr::null_mut();
-    let context = ThreadSafeContext(Box::from(callback));
-    let ptr = Box::into_raw(Box::new(context)) as *mut _;
+    let ptr = Box::into_raw(Box::new(callback)) as *mut _;
     check_status!(unsafe {
       sys::napi_create_threadsafe_function(
         env,
@@ -150,9 +207,9 @@ impl<T: 'static> ThreadsafeFunction<T> {
         max_queue_size,
         initial_thread_count,
         ptr,
-        Some(thread_finalize_cb::<T, V>),
+        Some(thread_finalize_cb::<T, V, R>),
         ptr,
-        Some(call_js_cb::<T, V>),
+        Some(call_js_cb::<T, V, R, ES>),
         &mut raw_tsfn,
       )
     })?;
@@ -162,22 +219,6 @@ impl<T: 'static> ThreadsafeFunction<T> {
       aborted: Arc::new(AtomicBool::new(false)),
       _phantom: PhantomData,
     })
-  }
-
-  /// See [napi_call_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_call_threadsafe_function)
-  /// for more information.
-  pub fn call(&self, value: Result<T>, mode: ThreadsafeFunctionCallMode) -> Status {
-    if self.aborted.load(Ordering::Acquire) {
-      return Status::Closing;
-    }
-    unsafe {
-      sys::napi_call_threadsafe_function(
-        self.raw_tsfn,
-        Box::into_raw(Box::new(value)) as *mut _,
-        mode.into(),
-      )
-    }
-    .into()
   }
 
   /// See [napi_ref_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_ref_threadsafe_function)
@@ -227,7 +268,43 @@ impl<T: 'static> ThreadsafeFunction<T> {
   }
 }
 
-impl<T: 'static> Drop for ThreadsafeFunction<T> {
+impl<T: 'static> ThreadsafeFunction<T, ErrorStrategy::CalleeHandled> {
+  /// See [napi_call_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_call_threadsafe_function)
+  /// for more information.
+  pub fn call(&self, value: Result<T>, mode: ThreadsafeFunctionCallMode) -> Status {
+    if self.aborted.load(Ordering::Acquire) {
+      return Status::Closing;
+    }
+    unsafe {
+      sys::napi_call_threadsafe_function(
+        self.raw_tsfn,
+        Box::into_raw(Box::new(value)) as *mut _,
+        mode.into(),
+      )
+    }
+    .into()
+  }
+}
+
+impl<T: 'static> ThreadsafeFunction<T, ErrorStrategy::Fatal> {
+  /// See [napi_call_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_call_threadsafe_function)
+  /// for more information.
+  pub fn call(&self, value: T, mode: ThreadsafeFunctionCallMode) -> Status {
+    if self.aborted.load(Ordering::Acquire) {
+      return Status::Closing;
+    }
+    unsafe {
+      sys::napi_call_threadsafe_function(
+        self.raw_tsfn,
+        Box::into_raw(Box::new(value)) as *mut _,
+        mode.into(),
+      )
+    }
+    .into()
+  }
+}
+
+impl<T: 'static, ES: ErrorStrategy::T> Drop for ThreadsafeFunction<T, ES> {
   fn drop(&mut self) {
     if !self.aborted.load(Ordering::Acquire) {
       let release_status = unsafe {
@@ -244,29 +321,37 @@ impl<T: 'static> Drop for ThreadsafeFunction<T> {
   }
 }
 
-unsafe extern "C" fn thread_finalize_cb<T: 'static, V: NapiValue>(
+unsafe extern "C" fn thread_finalize_cb<T: 'static, V: NapiValue, R>(
   _raw_env: sys::napi_env,
   finalize_data: *mut c_void,
   _finalize_hint: *mut c_void,
-) {
+) where
+  R: 'static + Send + FnMut(ThreadSafeCallContext<T>) -> Result<Vec<V>>,
+{
   // cleanup
-  Box::from_raw(finalize_data as *mut ThreadSafeContext<T, V>);
+  drop(Box::<R>::from_raw(finalize_data.cast()));
 }
 
-unsafe extern "C" fn call_js_cb<T: 'static, V: NapiValue>(
+unsafe extern "C" fn call_js_cb<T: 'static, V: NapiValue, R, ES>(
   raw_env: sys::napi_env,
   js_callback: sys::napi_value,
   context: *mut c_void,
   data: *mut c_void,
-) {
+) where
+  R: 'static + Send + FnMut(ThreadSafeCallContext<T>) -> Result<Vec<V>>,
+  ES: ErrorStrategy::T,
+{
+  let ctx: &mut R = &mut *context.cast::<R>();
+  let val: Result<T> = match ES::VALUE {
+    ErrorStrategy::CalleeHandled::VALUE => *Box::<Result<T>>::from_raw(data.cast()),
+    ErrorStrategy::Fatal::VALUE => Ok(*Box::<T>::from_raw(data.cast())),
+  };
+
   let mut recv = ptr::null_mut();
   sys::napi_get_undefined(raw_env, &mut recv);
 
-  let ctx = Box::leak(Box::from_raw(context as *mut ThreadSafeContext<T, V>));
-  let val = Box::from_raw(data as *mut Result<T>);
-
   let ret = val.and_then(|v| {
-    (ctx.0)(ThreadSafeCallContext {
+    (ctx)(ThreadSafeCallContext {
       env: Env::from_raw(raw_env),
       value: v,
     })
@@ -279,20 +364,25 @@ unsafe extern "C" fn call_js_cb<T: 'static, V: NapiValue>(
   // If the Result is an error, pass that as the first argument.
   match ret {
     Ok(values) => {
-      let mut js_null = ptr::null_mut();
-      sys::napi_get_null(raw_env, &mut js_null);
-      let args_length = values.len() + 1;
-      let mut args: Vec<sys::napi_value> = Vec::with_capacity(args_length);
-      args.push(js_null);
-      args.extend(values.iter().map(|v| v.raw()));
+      let values = values.iter().map(|v| v.raw());
+      let args: Vec<sys::napi_value> = if ES::VALUE == ErrorStrategy::CalleeHandled::VALUE {
+        let mut js_null = ptr::null_mut();
+        sys::napi_get_null(raw_env, &mut js_null);
+        ::core::iter::once(js_null).chain(values).collect()
+      } else {
+        values.collect()
+      };
       status = sys::napi_call_function(
         raw_env,
         recv,
         js_callback,
-        args_length,
+        args.len(),
         args.as_ptr(),
         ptr::null_mut(),
       );
+    }
+    Err(e) if ES::VALUE == ErrorStrategy::Fatal::VALUE => {
+      panic!("{:?}", e);
     }
     Err(e) => {
       status = sys::napi_call_function(
@@ -350,3 +440,95 @@ unsafe extern "C" fn call_js_cb<T: 'static, V: NapiValue>(
     );
   }
 }
+
+/// Helper
+macro_rules! type_level_enum {(
+  $( #[doc = $doc:tt] )*
+  $pub:vis
+  enum $EnumName:ident {
+    $(
+      $( #[doc = $doc_variant:tt] )*
+      $Variant:ident
+    ),* $(,)?
+  }
+) => (type_level_enum! { // This requires the macro to be in scope when called.
+  with_docs! {
+    $( #[doc = $doc] )*
+    ///
+    /// ### Type-level `enum`
+    ///
+    /// Until `const_generics` can handle custom `enum`s, this pattern must be
+    /// implemented at the type level.
+    ///
+    /// We thus end up with:
+    ///
+    /// ```rust,ignore
+    /// #[type_level_enum]
+    #[doc = ::core::concat!(
+      " enum ", ::core::stringify!($EnumName), " {",
+    )]
+    $(
+      #[doc = ::core::concat!(
+        "     ", ::core::stringify!($Variant), ",",
+      )]
+    )*
+    #[doc = " }"]
+    /// ```
+    ///
+    #[doc = ::core::concat!(
+      "With [`", ::core::stringify!($EnumName), "::T`](#reexports) \
+      being the type-level \"enum type\":",
+    )]
+    ///
+    /// ```rust,ignore
+    #[doc = ::core::concat!(
+      "<Param: ", ::core::stringify!($EnumName), "::T>"
+    )]
+    /// ```
+  }
+  #[allow(warnings)]
+  $pub mod $EnumName {
+    #[doc(no_inline)]
+    pub use $EnumName as T;
+
+    super::type_level_enum! {
+      with_docs! {
+        #[doc = ::core::concat!(
+          "See [`", ::core::stringify!($EnumName), "`]\
+          [super::", ::core::stringify!($EnumName), "]"
+        )]
+      }
+      pub trait $EnumName : __sealed::$EnumName + ::core::marker::Sized + 'static {
+        const VALUE: __value::$EnumName;
+      }
+    }
+
+    mod __sealed { pub trait $EnumName {} }
+
+    mod __value {
+      #[derive(Debug, PartialEq, Eq)]
+      pub enum $EnumName { $( $Variant ),* }
+    }
+
+    $(
+      $( #[doc = $doc_variant] )*
+      pub enum $Variant {}
+      impl __sealed::$EnumName for $Variant {}
+      impl $EnumName for $Variant {
+        const VALUE: __value::$EnumName = __value::$EnumName::$Variant;
+      }
+      impl $Variant {
+        pub const VALUE: __value::$EnumName = __value::$EnumName::$Variant;
+      }
+    )*
+  }
+});(
+  with_docs! {
+    $( #[doc = $doc:expr] )*
+  }
+  $item:item
+) => (
+  $( #[doc = $doc] )*
+  $item
+)}
+use type_level_enum;
