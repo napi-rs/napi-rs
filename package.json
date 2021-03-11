@@ -59,7 +59,7 @@
     "@types/node": "^14.14.31",
     "@types/sinon": "^9.0.10",
     "@typescript-eslint/eslint-plugin": "^4.15.2",
-    "@typescript-eslint/parser": "^4.15.2",
+    "@typescript-eslint/parser": "^4.16.1",
     "ava": "^3.15.0",
     "benny": "^3.6.15",
     "cross-env": "^7.0.3",
