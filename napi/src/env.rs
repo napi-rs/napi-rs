@@ -798,7 +798,10 @@ impl Env {
       )
     })?;
     if let Some(changed) = size_hint {
-      check_status!(unsafe { sys::napi_adjust_external_memory(self.0, changed, ptr::null_mut()) })?;
+      let mut adjusted_value = 0i64;
+      check_status!(unsafe {
+        sys::napi_adjust_external_memory(self.0, changed, &mut adjusted_value)
+      })?;
     };
     Ok(unsafe { JsExternal::from_raw_unchecked(self.0, object_value) })
   }
