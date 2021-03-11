@@ -2,7 +2,7 @@ name: Linux-aarch64
 
 env:
   DEBUG: 'napi:*'
-  CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: 'aarch64-linux-gnu-gcc'
+  CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: 'aarch64-linux-gnu-gcc-9'
 
 on:
   push:
@@ -13,7 +13,7 @@ on:
 jobs:
   build:
     name: stable - aarch64-unknown-linux-gnu - node@14
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
 
     steps:
       - run: docker run --rm --privileged multiarch/qemu-user-static:register --reset
@@ -60,7 +60,7 @@ jobs:
           key: npm-cache-linux-aarch64-gnu-node@14-${{ hashFiles('yarn.lock') }}
 
       - name: Install cross compile toolchain
-        run: sudo apt-get install gcc-aarch64-linux-gnu g++-6-aarch64-linux-gnu -y
+        run: sudo apt-get install gcc-9-aarch64-linux-gnu g++-9-aarch64-linux-gnu -y
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile --registry https://registry.npmjs.org --network-timeout 300000
