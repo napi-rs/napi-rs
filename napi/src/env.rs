@@ -1163,7 +1163,8 @@ unsafe extern "C" fn raw_finalize<T>(
   if !finalize_hint.is_null() {
     let size_hint = *Box::from_raw(finalize_hint as *mut Option<i64>);
     if let Some(changed) = size_hint {
-      let status = sys::napi_adjust_external_memory(env, -changed, ptr::null_mut());
+      let mut adjusted = 0i64;
+      let status = sys::napi_adjust_external_memory(env, -changed, &mut adjusted);
       debug_assert!(
         status == sys::Status::napi_ok,
         "Calling napi_adjust_external_memory failed"
