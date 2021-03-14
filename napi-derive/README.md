@@ -4,19 +4,15 @@
 
 ```rust
 #[macro_use]
-extern crate napi;
-#[macro_use]
 extern crate napi_derive;
 
 use napi::{CallContext, Error, JsNumber, JsUnknown, Module, Result, Status};
 use std::convert::TryInto;
 
-register_module!(napi_derive_example, init);
-
-fn init(module: &mut Module) -> Result<()> {
-  module.create_named_method("testThrow", test_throw)?;
-
-  module.create_named_method("fibonacci", fibonacci)?;
+#[module_exports]
+fn init(mut exports: JsObject) -> Result<()> {
+  exports.create_named_method("testThrow", test_throw)?;
+  exports.create_named_method("fibonacci", fibonacci)?;
   Ok(())
 }
 
