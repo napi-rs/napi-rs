@@ -13,7 +13,9 @@ use crate::sys;
 #[cfg(feature = "napi5")]
 use crate::Env;
 #[cfg(feature = "napi6")]
-use crate::{Error, Result};
+use crate::Error;
+#[cfg(feature = "napi5")]
+use crate::Result;
 
 pub struct JsObject(pub(crate) Value);
 
@@ -52,7 +54,7 @@ impl JsObject {
             ),
         ),
         Box::leak(Box::new(finalize_hint)) as *mut _ as *mut c_void,
-        &mut maybe_ref,
+        &mut maybe_ref, // Note: this does not point to the boxed one…
       )
     })
   }
@@ -73,6 +75,7 @@ unsafe extern "C" fn finalize_callback<T, Hint, F>(
   let env = Env::from_raw(raw_env);
   callback(FinalizeContext { value, hint, env });
   if !raw_ref.is_null() {
+    // … ⬆️ this branch is thus unreachable.
     let status = sys::napi_delete_reference(raw_env, raw_ref);
     debug_assert!(
       status == sys::Status::napi_ok,

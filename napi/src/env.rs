@@ -509,6 +509,133 @@ impl Env {
     Ok(unsafe { JsFunction::from_raw_unchecked(self.0, raw_result) })
   }
 
+  #[cfg(feature = "napi5")]
+  pub fn create_function_from_closure<R, F>(&self, name: &str, callback: F) -> Result<JsFunction>
+  where
+    F: 'static + Send + Sync + Fn(crate::CallContext<'_>) -> Result<R>,
+    R: NapiValue,
+  {
+    use crate::CallContext;
+    let boxed_callback = Box::new(callback);
+    let closure_data_ptr: *mut F = Box::into_raw(boxed_callback);
+
+    let mut raw_result = ptr::null_mut();
+    let len = name.len();
+    let name = CString::new(name)?;
+    check_status!(unsafe {
+      sys::napi_create_function(
+        self.0,
+        name.as_ptr(),
+        len,
+        Some({
+          unsafe extern "C" fn trampoline<R: NapiValue, F: Fn(CallContext<'_>) -> Result<R>>(
+            raw_env: sys::napi_env,
+            cb_info: sys::napi_callback_info,
+          ) -> sys::napi_value {
+            use ::std::panic::{self, AssertUnwindSafe};
+            panic::catch_unwind(AssertUnwindSafe(|| {
+              let (raw_this, ref raw_args, closure_data_ptr) = {
+                let argc = {
+                  let mut argc = 0;
+                  let status = sys::napi_get_cb_info(
+                    raw_env,
+                    cb_info,
+                    &mut argc,
+                    ptr::null_mut(),
+                    ptr::null_mut(),
+                    ptr::null_mut(),
+                  );
+                  debug_assert!(
+                    Status::from(status) == Status::Ok,
+                    "napi_get_cb_info failed"
+                  );
+                  argc
+                };
+                let mut raw_args = vec![ptr::null_mut(); argc];
+                let mut raw_this = ptr::null_mut();
+                let mut closure_data_ptr = ptr::null_mut();
+
+                let status = sys::napi_get_cb_info(
+                  raw_env,
+                  cb_info,
+                  &mut { argc },
+                  raw_args.as_mut_ptr(),
+                  &mut raw_this,
+                  &mut closure_data_ptr,
+                );
+                debug_assert!(
+                  Status::from(status) == Status::Ok,
+                  "napi_get_cb_info failed"
+                );
+                (raw_this, raw_args, closure_data_ptr)
+              };
+
+              let closure: &F = closure_data_ptr
+                .cast::<F>()
+                .as_ref()
+                .expect("`napi_get_cb_info` should have yielded non-`NULL` assoc data");
+              let ref mut env = Env::from_raw(raw_env);
+              let ctx = CallContext::new(env, cb_info, raw_this, raw_args, raw_args.len());
+              closure(ctx).map(|ret: R| ret.raw())
+            }))
+            .map_err(|e| {
+              Error::from_reason(format!(
+                "panic from Rust code: {}",
+                if let Some(s) = e.downcast_ref::<String>() {
+                  s
+                } else if let Some(s) = e.downcast_ref::<&str>() {
+                  s
+                } else {
+                  "<no error message>"
+                },
+              ))
+            })
+            .and_then(|v| v)
+            .unwrap_or_else(|e| {
+              JsError::from(e).throw_into(raw_env);
+              ptr::null_mut()
+            })
+          }
+
+          trampoline::<R, F>
+        }),
+        closure_data_ptr.cast(), // We let it borrow the data here
+        &mut raw_result,
+      )
+    })?;
+
+    // Note: based on N-API docs, at this point, we have created an effective
+    // `&'static dyn Fn…` in Rust parlance, in that thanks to `Box::into_raw()`
+    // we are sure the context won't be freed, and thus the callback may use
+    // it to call the actual method thanks to the trampoline…
+    // But we thus have a data leak: there is nothing yet reponsible for
+    // running the `drop(Box::from_raw(…))` cleanup code.
+    //
+    // To solve that, according to the docs, we need to attach a finalizer:
+    check_status!(unsafe {
+      sys::napi_add_finalizer(
+        self.0,
+        raw_result,
+        closure_data_ptr.cast(),
+        Some({
+          unsafe extern "C" fn finalize_box_trampoline<F>(
+            _raw_env: sys::napi_env,
+            closure_data_ptr: *mut c_void,
+            _finalize_hint: *mut c_void,
+          ) {
+            drop(Box::<F>::from_raw(closure_data_ptr.cast()))
+          }
+
+          finalize_box_trampoline::<F>
+        }),
+        ptr::null_mut(),
+        ptr::null_mut(),
+      )
+    })?;
+
+    Ok(unsafe { JsFunction::from_raw_unchecked(self.0, raw_result) })
+  }
+
   #[inline]
   /// This API retrieves a napi_extended_error_info structure with information about the last error that occurred.
   ///

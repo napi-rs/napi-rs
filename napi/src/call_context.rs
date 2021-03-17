@@ -9,19 +9,33 @@ pub struct CallContext<'env> {
   raw_this: sys::napi_value,
   callback_info: sys::napi_callback_info,
   args: &'env [sys::napi_value],
-  arg_len: usize,
   /// arguments.length
   pub length: usize,
 }
 
 impl<'env> CallContext<'env> {
+  /// The number of N-api obtained values. In practice this is the numeric
+  /// parameter provided to the `#[js_function(arg_len)]` macro.
+  ///
+  /// As a comparison, the (arguments) `.length` represents the actual number
+  /// of arguments given at a specific function call.
+  ///
+  /// If `.length < .arg_len`, then the elements in the `length .. arg_len`
+  /// range are just `JsUndefined`s.
+  ///
+  /// If `.length > .arg_len`, then truncation has happened and some args have
+  /// been lost.
+  #[inline]
+  fn arg_len(&self) -> usize {
+    self.args.len()
+  }
+
   #[inline]
   pub fn new(
     env: &'env mut Env,
     callback_info: sys::napi_callback_info,
     raw_this: sys::napi_value,
     args: &'env [sys::napi_value],
-    arg_len: usize,
     length: usize,
   ) -> Self {
     Self {
@@ -29,14 +43,13 @@ impl<'env> CallContext<'env> {
       callback_info,
       raw_this,
       args,
-      arg_len,
       length,
     }
   }
 
   #[inline]
   pub fn get<ArgType: NapiValue>(&self, index: usize) -> Result<ArgType> {
-    if index + 1 > self.arg_len {
+    if index >= self.arg_len() {
       Err(Error {
         status: Status::GenericFailure,
         reason: "Arguments index out of range".to_owned(),
@@ -48,7 +61,7 @@ impl<'env> CallContext<'env> {
 
   #[inline]
   pub fn try_get<ArgType: NapiValue>(&self, index: usize) -> Result<Either<ArgType, JsUndefined>> {
-    if index + 1 > self.arg_len {
+    if index >= self.arg_len() {
       Err(Error {
         status: Status::GenericFailure,
         reason: "Arguments index out of range".to_owned(),
@@ -58,6 +71,16 @@ impl<'env> CallContext<'env> {
     } else {
       self.env.get_undefined().map(Either::B)
     }
+  }
+
+  #[inline]
+  pub fn get_all(&self) -> Vec<crate::JsUnknown> {
+    /* (0 .. self.arg_len()).map(|i| self.get(i).unwrap()).collect() */
+    self
+      .args
+      .iter()
+      .map(|&raw| unsafe { crate::JsUnknown::from_raw_unchecked(self.env.0, raw) })
+      .collect()
   }
 
   #[inline]

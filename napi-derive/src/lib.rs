@@ -114,7 +114,7 @@ pub fn js_function(attr: TokenStream, input: TokenStream) -> TokenStream {
       }
 
       let mut env = unsafe { Env::from_raw(raw_env) };
-      let ctx = CallContext::new(&mut env, cb_info, raw_this, &raw_args, #arg_len_span, argc);
+      let ctx = CallContext::new(&mut env, cb_info, raw_this, &raw_args, argc);
       #execute_js_function
     }
   };
