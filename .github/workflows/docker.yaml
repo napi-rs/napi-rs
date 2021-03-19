@@ -6,7 +6,7 @@ on:
 
 jobs:
   build_image:
-    name: Build rust-nodejs-alpine:lts
+    name: Build nodejs-rust:lts-alpine
     runs-on: ubuntu-latest
 
     steps:
@@ -22,8 +22,8 @@ jobs:
 
       - name: Build docker image
         run: |
-          docker build . -f alpine.Dockerfile --pull --no-cache -t docker.pkg.github.com/napi-rs/napi-rs/nodejs-rust:10-alpine
+          docker build . -f alpine.Dockerfile --pull --no-cache -t docker.pkg.github.com/napi-rs/napi-rs/nodejs-rust:lts-alpine
 
       - name: Push docker image
         run: |
-          docker push docker.pkg.github.com/napi-rs/napi-rs/nodejs-rust:10-alpine
+          docker push docker.pkg.github.com/napi-rs/napi-rs/nodejs-rust:lts-alpine

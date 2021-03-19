@@ -1,4 +1,4 @@
-FROM node:10-alpine
+FROM node:lts-alpine
 
 ENV RUSTFLAGS="-C target-feature=-crt-static" \
   PATH="/usr/local/cargo/bin/rustup:/root/.cargo/bin:$PATH" \
