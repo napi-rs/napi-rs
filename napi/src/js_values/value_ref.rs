@@ -18,14 +18,9 @@ impl<T> Ref<T> {
   #[inline]
   pub(crate) fn new(js_value: Value, ref_count: u32, inner: T) -> Result<Ref<T>> {
     let mut raw_ref = ptr::null_mut();
-    let initial_ref_count = 1;
+    assert_ne!(ref_count, 0, "Initial `ref_count` must be > 0");
     check_status!(unsafe {
-      sys::napi_create_reference(
-        js_value.env,
-        js_value.value,
-        initial_ref_count,
-        &mut raw_ref,
-      )
+      sys::napi_create_reference(js_value.env, js_value.value, ref_count, &mut raw_ref)
     })?;
     Ok(Ref {
       raw_ref,
