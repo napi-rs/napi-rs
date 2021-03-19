@@ -40,11 +40,12 @@ impl JsObject {
     F: FnOnce(FinalizeContext<T, Hint>),
   {
     let mut maybe_ref = ptr::null_mut();
+    let wrap_context = Box::leak(Box::new((native, finalize_cb, ptr::null_mut())));
     check_status!(unsafe {
       sys::napi_add_finalizer(
         self.0.env,
         self.0.value,
-        Box::leak(Box::new((native, finalize_cb, maybe_ref))) as *mut _ as *mut c_void,
+        wrap_context as *mut _ as *mut c_void,
         Some(
           finalize_callback::<T, Hint, F>
             as unsafe extern "C" fn(
@@ -56,7 +57,9 @@ impl JsObject {
         Box::leak(Box::new(finalize_hint)) as *mut _ as *mut c_void,
         &mut maybe_ref, // Note: this does not point to the boxed one…
       )
-    })
+    })?;
+    wrap_context.2 = maybe_ref;
+    Ok(())
   }
 }
 
@@ -75,7 +78,6 @@ unsafe extern "C" fn finalize_callback<T, Hint, F>(
   let env = Env::from_raw(raw_env);
   callback(FinalizeContext { value, hint, env });
   if !raw_ref.is_null() {
-    // … ⬆️ this branch is thus unreachable.
     let status = sys::napi_delete_reference(raw_env, raw_ref);
     debug_assert!(
       status == sys::Status::napi_ok,
