@@ -28,7 +28,7 @@ A minimal library for building compiled `NodeJS` add-ons in `Rust`.
 | ----- | ----- | ------------ | ------- |
 | ✓     | ✓     | ✓            | ✓       |
 
-## NodeJS
+## Node.js
 
 | Node10 | Node12 | Node14 | Node15 |
 | ------ | ------ | ------ | ------ |
