@@ -24,9 +24,9 @@ A minimal library for building compiled `NodeJS` add-ons in `Rust`.
 
 ## Operating Systems
 
-| Linux | macOS | Windows MSVC | FreeBSD |
-| ----- | ----- | ------------ | ------- |
-| ✓     | ✓     | ✓            | ✓       |
+| Linux | macOS | Windows | FreeBSD |
+| ----- | ----- | ------- | ------- |
+| ✓     | ✓     | ✓       | ✓       |
 
 ## Node.js
 
