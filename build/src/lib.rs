@@ -1,11 +1,10 @@
-cfg_if::cfg_if! {
-  if #[cfg(windows)] {
-    mod windows;
-    pub use windows::setup;
-  } else if #[cfg(target_os = "macos")] {
-    mod macos;
-    pub use macos::setup;
-  } else {
-    pub fn setup() { }
+mod macos;
+mod windows;
+
+pub fn setup() {
+  match std::env::var("CARGO_CFG_TARGET_OS").as_deref() {
+    Ok("macos") => macos::setup(),
+    Ok("windows") => windows::setup(),
+    _ => {}
   }
 }

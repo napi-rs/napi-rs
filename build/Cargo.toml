@@ -10,7 +10,4 @@ repository = "https://github.com/napi-rs/napi-rs"
 version = "1.0.1"
 
 [dependencies]
-cfg-if = "1"
-
-[target.'cfg(windows)'.dependencies]
 ureq = "2"
