@@ -277,17 +277,23 @@ impl<T: 'static> ThreadsafeFunction<T, ErrorStrategy::CalleeHandled> {
   /// See [napi_call_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_call_threadsafe_function)
   /// for more information.
   pub fn call(&self, value: Result<T>, mode: ThreadsafeFunctionCallMode) -> Status {
+    self.call_with_result(value, mode).0
+  }
+
+  pub fn call_with_result(
+    &self,
+    value: Result<T>,
+    mode: ThreadsafeFunctionCallMode,
+  ) -> (Status, Result<T>) {
     if self.aborted.load(Ordering::Acquire) {
-      return Status::Closing;
+      return (Status::Closing, value);
     }
-    unsafe {
-      sys::napi_call_threadsafe_function(
-        self.raw_tsfn,
-        Box::into_raw(Box::new(value)) as *mut _,
-        mode.into(),
-      )
-    }
-    .into()
+    let data = Box::into_raw(Box::new(value)) as *mut Result<T>;
+    let status =
+      unsafe { sys::napi_call_threadsafe_function(self.raw_tsfn, data as *mut _, mode.into()) }
+        .into();
+
+    (status, unsafe { *Box::from_raw(data) })
   }
 }
 
@@ -295,17 +301,19 @@ impl<T: 'static> ThreadsafeFunction<T, ErrorStrategy::Fatal> {
   /// See [napi_call_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_call_threadsafe_function)
   /// for more information.
   pub fn call(&self, value: T, mode: ThreadsafeFunctionCallMode) -> Status {
+    self.call_with_result(value, mode).0
+  }
+
+  pub fn call_with_result(&self, value: T, mode: ThreadsafeFunctionCallMode) -> (Status, T) {
     if self.aborted.load(Ordering::Acquire) {
-      return Status::Closing;
+      return (Status::Closing, value);
     }
-    unsafe {
-      sys::napi_call_threadsafe_function(
-        self.raw_tsfn,
-        Box::into_raw(Box::new(value)) as *mut _,
-        mode.into(),
-      )
-    }
-    .into()
+    let data = Box::into_raw(Box::new(value)) as *mut T;
+    let status =
+      unsafe { sys::napi_call_threadsafe_function(self.raw_tsfn, data as *mut _, mode.into()) }
+        .into();
+
+    (status, unsafe { *Box::from_raw(data) })
   }
 }
 
