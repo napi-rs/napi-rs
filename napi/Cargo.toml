@@ -2,12 +2,12 @@
 authors = ["Nathan Sobo <nathan@github.com>", "Yinan Long <lynweklm@gmail.com>"]
 description = "N-API bindings"
 edition = "2018"
-keywords = ["NodeJS", "FFI", "NAPI", "n-api"]
+keywords = ["Node.js", "Node", "FFI", "NAPI", "n-api"]
 license = "MIT"
 name = "napi"
 readme = "README.md"
 repository = "https://github.com/napi-rs/napi-rs"
-version = "1.3.3"
+version = "1.3.4"
 
 [features]
 default = ["napi3"] # for most NodeJS users
