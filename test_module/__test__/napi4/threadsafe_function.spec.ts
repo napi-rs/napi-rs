@@ -86,3 +86,13 @@ test('should be able to throw error in tsfn', (t) => {
     execSync(`node ${join(__dirname, 'tsfn-throw.js')}`)
   })
 })
+
+test('tsfn dua instance', (t) => {
+  if (napiVersion < 4) {
+    t.is(bindings.A, undefined)
+    return
+  }
+  t.notThrows(() => {
+    execSync(`node ${join(__dirname, 'tsfn-dua-instance.js')}`)
+  })
+})

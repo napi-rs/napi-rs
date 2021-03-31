@@ -3,7 +3,7 @@ use std::ffi::CString;
 use std::marker::PhantomData;
 use std::os::raw::c_void;
 use std::ptr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use crate::{check_status, sys, Env, Error, JsError, JsFunction, NapiValue, Result, Status};
@@ -150,6 +150,7 @@ type_level_enum! {
 pub struct ThreadsafeFunction<T: 'static, ES: ErrorStrategy::T = ErrorStrategy::CalleeHandled> {
   raw_tsfn: sys::napi_threadsafe_function,
   aborted: Arc<AtomicBool>,
+  ref_count: Arc<AtomicUsize>,
   _phantom: PhantomData<(T, ES)>,
 }
 
@@ -166,6 +167,7 @@ impl<T: 'static, ES: ErrorStrategy::T> Clone for ThreadsafeFunction<T, ES> {
     Self {
       raw_tsfn: self.raw_tsfn,
       aborted: Arc::clone(&self.aborted),
+      ref_count: Arc::clone(&self.ref_count),
       _phantom: PhantomData,
     }
   }
@@ -217,6 +219,7 @@ impl<T: 'static, ES: ErrorStrategy::T> ThreadsafeFunction<T, ES> {
     Ok(ThreadsafeFunction {
       raw_tsfn,
       aborted: Arc::new(AtomicBool::new(false)),
+      ref_count: Arc::new(AtomicUsize::new(initial_thread_count)),
       _phantom: PhantomData,
     })
   }
@@ -232,6 +235,7 @@ impl<T: 'static, ES: ErrorStrategy::T> ThreadsafeFunction<T, ES> {
         format!("Can not ref, Thread safe function already aborted"),
       ));
     }
+    self.ref_count.fetch_add(1, Ordering::Acquire);
     check_status!(unsafe { sys::napi_ref_threadsafe_function(env.0, self.raw_tsfn) })
   }
 
@@ -244,6 +248,7 @@ impl<T: 'static, ES: ErrorStrategy::T> ThreadsafeFunction<T, ES> {
         format!("Can not unref, Thread safe function already aborted"),
       ));
     }
+    self.ref_count.fetch_sub(1, Ordering::Acquire);
     check_status!(unsafe { sys::napi_unref_threadsafe_function(env.0, self.raw_tsfn) })
   }
 
@@ -306,7 +311,7 @@ impl<T: 'static> ThreadsafeFunction<T, ErrorStrategy::Fatal> {
 
 impl<T: 'static, ES: ErrorStrategy::T> Drop for ThreadsafeFunction<T, ES> {
   fn drop(&mut self) {
-    if !self.aborted.load(Ordering::Acquire) {
+    if !self.aborted.load(Ordering::Acquire) && self.ref_count.load(Ordering::Relaxed) > 0usize {
       let release_status = unsafe {
         sys::napi_release_threadsafe_function(
           self.raw_tsfn,
