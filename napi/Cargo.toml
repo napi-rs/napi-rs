@@ -2,7 +2,7 @@
 authors = ["Nathan Sobo <nathan@github.com>", "Yinan Long <lynweklm@gmail.com>"]
 description = "N-API bindings"
 edition = "2018"
-keywords = ["Node.js", "Node", "FFI", "NAPI", "n-api"]
+keywords = ["NodeJS", "Node", "FFI", "NAPI", "n-api"]
 license = "MIT"
 name = "napi"
 readme = "README.md"
