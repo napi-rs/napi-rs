@@ -3,7 +3,7 @@ extern crate napi_derive;
 #[macro_use]
 extern crate serde_derive;
 
-use napi::{JsObject, Result};
+use napi::{Env, JsObject, Result};
 
 mod cleanup_env;
 #[cfg(feature = "latest")]
@@ -35,7 +35,7 @@ mod task;
 use napi_version::get_napi_version;
 
 #[module_exports]
-fn init(mut exports: JsObject) -> Result<()> {
+fn init(mut exports: JsObject, env: Env) -> Result<()> {
   exports.create_named_method("getNapiVersion", get_napi_version)?;
   array::register_js(&mut exports)?;
   error::register_js(&mut exports)?;
@@ -54,7 +54,7 @@ fn init(mut exports: JsObject) -> Result<()> {
   global::register_js(&mut exports)?;
   cleanup_env::register_js(&mut exports)?;
   #[cfg(feature = "latest")]
-  napi4::register_js(&mut exports)?;
+  napi4::register_js(&mut exports, &env)?;
   #[cfg(feature = "latest")]
   tokio_rt::register_js(&mut exports)?;
   #[cfg(feature = "latest")]
