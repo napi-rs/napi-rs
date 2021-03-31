@@ -6,9 +6,9 @@ pub enum Either<A: NapiValue, B: NapiValue> {
   B(B),
 }
 
-impl<T: NapiValue> Into<Option<T>> for Either<T, JsUndefined> {
-  fn into(self) -> Option<T> {
-    match self {
+impl<T: NapiValue> From<Either<T, JsUndefined>> for Option<T> {
+  fn from(value: Either<T, JsUndefined>) -> Option<T> {
+    match value {
       Either::A(v) => Some(v),
       Either::B(_) => None,
     }
