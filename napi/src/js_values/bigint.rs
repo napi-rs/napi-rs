@@ -123,11 +123,19 @@ impl JsBigint {
   }
 }
 
-impl NapiValue for JsBigint {
+impl NapiRaw for JsBigint {
   unsafe fn raw(&self) -> sys::napi_value {
     self.raw.value
   }
+}
 
+impl<'env> NapiRaw for &'env JsBigint {
+  unsafe fn raw(&self) -> sys::napi_value {
+    self.raw.value
+  }
+}
+
+impl NapiValue for JsBigint {
   unsafe fn from_raw(env: sys::napi_env, value: sys::napi_value) -> Result<Self> {
     let mut word_count = 0usize;
     check_status!(sys::napi_get_value_bigint_words(

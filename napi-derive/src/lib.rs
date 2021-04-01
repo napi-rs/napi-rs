@@ -96,7 +96,7 @@ pub fn js_function(attr: TokenStream, input: TokenStream) -> TokenStream {
       use std::ptr;
       use std::panic::{self, AssertUnwindSafe};
       use std::ffi::CString;
-      use napi::{Env, Error, Status, NapiValue, CallContext};
+      use napi::{Env, Error, Status, NapiValue, NapiRaw, CallContext};
       let mut argc = #arg_len_span as usize;
       let mut raw_args: [napi::sys::napi_value; #arg_len_span] = [ptr::null_mut(); #arg_len_span];
       let mut raw_this = ptr::null_mut();
@@ -145,7 +145,7 @@ pub fn contextless_function(_attr: TokenStream, input: TokenStream) -> TokenStre
       use std::ptr;
       use std::panic::{self, AssertUnwindSafe};
       use std::ffi::CString;
-      use napi::{Env, NapiValue, Error, Status};
+      use napi::{Env, NapiValue, NapiRaw, Error, Status};
 
       let ctx = unsafe { Env::from_raw(raw_env) };
       #execute_js_function
@@ -227,7 +227,7 @@ pub fn module_exports(_attr: TokenStream, input: TokenStream) -> TokenStream {
     ) -> napi::sys::napi_value {
       use std::ffi::CString;
       use std::ptr;
-      use napi::{Env, JsObject, NapiValue};
+      use napi::{Env, JsObject, NapiValue, NapiRaw};
 
       #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
       use napi::shutdown_tokio_rt;

@@ -2,7 +2,7 @@ use std::ptr;
 
 use super::Value;
 use crate::check_status;
-use crate::{sys, Env, Error, JsObject, JsUnknown, NapiValue, Result, Status};
+use crate::{sys, Env, Error, JsObject, JsUnknown, NapiRaw, NapiValue, Result, Status};
 
 pub struct JsFunction(pub(crate) Value);
 
@@ -23,7 +23,10 @@ pub struct JsFunction(pub(crate) Value);
 impl JsFunction {
   /// [napi_call_function](https://nodejs.org/api/n-api.html#n_api_napi_call_function)
   #[inline]
-  pub fn call(&self, this: Option<&JsObject>, args: &[JsUnknown]) -> Result<JsUnknown> {
+  pub fn call<V>(&self, this: Option<&JsObject>, args: &[V]) -> Result<JsUnknown>
+  where
+    V: NapiRaw,
+  {
     let raw_this = this
       .map(|v| unsafe { v.raw() })
       .or_else(|| {
@@ -35,7 +38,7 @@ impl JsFunction {
       .ok_or_else(|| Error::new(Status::GenericFailure, "Get raw this failed".to_owned()))?;
     let raw_args = args
       .iter()
-      .map(|arg| arg.0.value)
+      .map(|arg| unsafe { arg.raw() })
       .collect::<Vec<sys::napi_value>>();
     let mut return_value = ptr::null_mut();
     check_status!(unsafe {
@@ -45,6 +48,34 @@ impl JsFunction {
         self.0.value,
         args.len(),
         raw_args.as_ptr(),
+        &mut return_value,
+      )
+    })?;
+
+    unsafe { JsUnknown::from_raw(self.0.env, return_value) }
+  }
+
+  /// [napi_call_function](https://nodejs.org/api/n-api.html#n_api_napi_call_function)
+  /// The same with `call`, but without arguments
+  #[inline]
+  pub fn call_without_args(&self, this: Option<&JsObject>) -> Result<JsUnknown> {
+    let raw_this = this
+      .map(|v| unsafe { v.raw() })
+      .or_else(|| {
+        unsafe { Env::from_raw(self.0.env) }
+          .get_undefined()
+          .ok()
+          .map(|u| unsafe { u.raw() })
+      })
+      .ok_or_else(|| Error::new(Status::GenericFailure, "Get raw this failed".to_owned()))?;
+    let mut return_value = ptr::null_mut();
+    check_status!(unsafe {
+      sys::napi_call_function(
+        self.0.env,
+        raw_this,
+        self.0.value,
+        0,
+        ptr::null_mut(),
         &mut return_value,
       )
     })?;

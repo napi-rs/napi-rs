@@ -1,4 +1,4 @@
-use crate::{sys, JsUndefined, NapiValue, Result};
+use crate::{sys, JsUndefined, NapiRaw, NapiValue, Result};
 
 #[derive(Debug, Clone, Copy)]
 pub enum Either<A: NapiValue, B: NapiValue> {
@@ -25,7 +25,9 @@ impl<A: NapiValue, B: NapiValue> NapiValue for Either<A, B> {
   unsafe fn from_raw_unchecked(env: sys::napi_env, value: sys::napi_value) -> Either<A, B> {
     Self::from_raw(env, value).unwrap()
   }
+}
 
+impl<A: NapiValue, B: NapiValue> NapiRaw for Either<A, B> {
   unsafe fn raw(&self) -> sys::napi_value {
     match self {
       Either::A(v) => v.raw(),

@@ -2,7 +2,7 @@ use std::ops::Deref;
 use std::ptr;
 
 use crate::check_status;
-use crate::{sys, Env, NapiValue, Result};
+use crate::{sys, Env, NapiRaw, NapiValue, Result};
 
 pub struct EscapableHandleScope<T: NapiValue> {
   handle_scope: sys::napi_escapable_handle_scope,
@@ -16,7 +16,7 @@ impl<T: NapiValue> EscapableHandleScope<T> {
     check_status!(unsafe { sys::napi_open_escapable_handle_scope(env, &mut handle_scope) })?;
     let mut result = ptr::null_mut();
     check_status!(unsafe {
-      sys::napi_escape_handle(env, handle_scope, NapiValue::raw(&value), &mut result)
+      sys::napi_escape_handle(env, handle_scope, NapiRaw::raw(&value), &mut result)
     })?;
     Ok(Self {
       value,
