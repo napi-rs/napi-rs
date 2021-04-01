@@ -101,16 +101,24 @@ macro_rules! impl_napi_value_trait {
         }
       }
 
-      unsafe fn raw(&self) -> sys::napi_value {
-        self.0.value
-      }
-
       unsafe fn from_raw_unchecked(env: sys::napi_env, value: sys::napi_value) -> $js_value {
         $js_value(Value {
           env,
           value,
           value_type: $value_type,
         })
+      }
+    }
+
+    impl NapiRaw for $js_value {
+      unsafe fn raw(&self) -> sys::napi_value {
+        self.0.value
+      }
+    }
+
+    impl<'env> NapiRaw for &'env $js_value {
+      unsafe fn raw(&self) -> sys::napi_value {
+        self.0.value
       }
     }
 
@@ -221,7 +229,10 @@ macro_rules! impl_js_value_methods {
       }
 
       #[inline]
-      pub fn instanceof<Constructor: NapiValue>(&self, constructor: Constructor) -> Result<bool> {
+      pub fn instanceof<Constructor>(&self, constructor: Constructor) -> Result<bool>
+      where
+        Constructor: NapiRaw,
+      {
         let mut result = false;
         check_status!(unsafe {
           sys::napi_instanceof(self.0.env, self.0.value, constructor.raw(), &mut result)
@@ -238,7 +249,7 @@ macro_rules! impl_object_methods {
       #[inline]
       pub fn set_property<V>(&mut self, key: JsString, value: V) -> Result<()>
       where
-        V: NapiValue,
+        V: NapiRaw,
       {
         check_status!(unsafe {
           sys::napi_set_property(self.0.env, self.0.value, key.0.value, value.raw())
@@ -246,9 +257,9 @@ macro_rules! impl_object_methods {
       }
 
       #[inline]
-      pub fn get_property<K, T>(&self, key: &K) -> Result<T>
+      pub fn get_property<K, T>(&self, key: K) -> Result<T>
       where
-        K: NapiValue,
+        K: NapiRaw,
         T: NapiValue,
       {
         let mut raw_value = ptr::null_mut();
@@ -259,9 +270,9 @@ macro_rules! impl_object_methods {
       }
 
       #[inline]
-      pub fn get_property_unchecked<K, T>(&self, key: &K) -> Result<T>
+      pub fn get_property_unchecked<K, T>(&self, key: K) -> Result<T>
       where
-        K: NapiValue,
+        K: NapiRaw,
         T: NapiValue,
       {
         let mut raw_value = ptr::null_mut();
@@ -274,7 +285,7 @@ macro_rules! impl_object_methods {
       #[inline]
       pub fn set_named_property<T>(&mut self, name: &str, value: T) -> Result<()>
       where
-        T: NapiValue,
+        T: NapiRaw,
       {
         let key = CString::new(name)?;
         check_status!(unsafe {
@@ -341,7 +352,7 @@ macro_rules! impl_object_methods {
       #[inline]
       pub fn delete_property<S>(&mut self, name: S) -> Result<bool>
       where
-        S: NapiValue,
+        S: NapiRaw,
       {
         let mut result = false;
         check_status!(unsafe {
@@ -381,7 +392,7 @@ macro_rules! impl_object_methods {
       #[inline]
       pub fn has_own_property_js<K>(&self, key: K) -> Result<bool>
       where
-        K: NapiValue,
+        K: NapiRaw,
       {
         let mut result = false;
         check_status!(unsafe {
@@ -407,7 +418,7 @@ macro_rules! impl_object_methods {
       #[inline]
       pub fn has_property_js<K>(&self, name: K) -> Result<bool>
       where
-        K: NapiValue,
+        K: NapiRaw,
       {
         let mut result = false;
         check_status!(unsafe {
@@ -473,7 +484,7 @@ macro_rules! impl_object_methods {
       #[inline]
       pub fn set_element<T>(&mut self, index: u32, value: T) -> Result<()>
       where
-        T: NapiValue,
+        T: NapiRaw,
       {
         check_status!(unsafe {
           sys::napi_set_element(self.0.env, self.0.value, index, value.raw())
@@ -565,15 +576,17 @@ macro_rules! impl_object_methods {
   };
 }
 
-pub trait NapiValue: Sized {
+pub trait NapiRaw {
+  #[allow(clippy::missing_safety_doc)]
+  unsafe fn raw(&self) -> sys::napi_value;
+}
+
+pub trait NapiValue: Sized + NapiRaw {
   #[allow(clippy::missing_safety_doc)]
   unsafe fn from_raw(env: sys::napi_env, value: sys::napi_value) -> Result<Self>;
 
   #[allow(clippy::missing_safety_doc)]
   unsafe fn from_raw_unchecked(env: sys::napi_env, value: sys::napi_value) -> Self;
-
-  #[allow(clippy::missing_safety_doc)]
-  unsafe fn raw(&self) -> sys::napi_value;
 }
 
 impl_js_value_methods!(JsUnknown);
@@ -640,7 +653,17 @@ impl NapiValue for JsUnknown {
       value_type: Unknown,
     })
   }
+}
 
+impl NapiRaw for JsUnknown {
+  /// get raw js value ptr
+  #[inline]
+  unsafe fn raw(&self) -> sys::napi_value {
+    self.0.value
+  }
+}
+
+impl<'env> NapiRaw for &'env JsUnknown {
   /// get raw js value ptr
   #[inline]
   unsafe fn raw(&self) -> sys::napi_value {
