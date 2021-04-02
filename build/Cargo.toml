@@ -12,5 +12,5 @@ version = "1.0.1"
 [dependencies]
 cfg-if = "1"
 
-[target.'cfg(windows)'.dependencies]
+[target.'cfg(not(target_env = "musl"))'.dependencies]
 ureq = "2"
