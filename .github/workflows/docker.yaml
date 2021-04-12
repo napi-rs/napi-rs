@@ -1,8 +1,9 @@
 name: Docker nightly build
 
 on:
-  schedule:
-    - cron: '0 1 * * *'
+  # schedule:
+  #   - cron: '0 1 * * *'
+  push:
 
 jobs:
   build_image:
@@ -25,10 +26,18 @@ jobs:
           username: ${{ secrets.GH_CONTAINER_UNAME }}
           password: ${{ secrets.GH_TOKEN }}
 
-      - name: Build and push
+      - name: Build and push alpine
         uses: docker/build-push-action@v2
         with:
           file: alpine.Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ghcr.io/${{ github.repository }}/nodejs-rust:lts-alpine
+
+      - name: Build and push debian
+        uses: docker/build-push-action@v2
+        with:
+          file: debian.Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ghcr.io/${{ github.repository }}/nodejs-rust:lts-debian
