@@ -1,9 +1,8 @@
 name: Docker nightly build
 
 on:
-  # schedule:
-  #   - cron: '0 1 * * *'
-  push:
+  schedule:
+    - cron: '0 1 * * *'
 
 jobs:
   build_image:
