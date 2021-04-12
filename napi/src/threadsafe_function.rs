@@ -235,7 +235,7 @@ impl<T: 'static, ES: ErrorStrategy::T> ThreadsafeFunction<T, ES> {
         format!("Can not ref, Thread safe function already aborted"),
       ));
     }
-    self.ref_count.fetch_add(1, Ordering::Acquire);
+    self.ref_count.fetch_add(1, Ordering::AcqRel);
     check_status!(unsafe { sys::napi_ref_threadsafe_function(env.0, self.raw_tsfn) })
   }
 
@@ -248,12 +248,12 @@ impl<T: 'static, ES: ErrorStrategy::T> ThreadsafeFunction<T, ES> {
         format!("Can not unref, Thread safe function already aborted"),
       ));
     }
-    self.ref_count.fetch_sub(1, Ordering::Acquire);
+    self.ref_count.fetch_sub(1, Ordering::AcqRel);
     check_status!(unsafe { sys::napi_unref_threadsafe_function(env.0, self.raw_tsfn) })
   }
 
   pub fn aborted(&self) -> bool {
-    self.aborted.load(Ordering::Acquire)
+    self.aborted.load(Ordering::Relaxed)
   }
 
   pub fn abort(self) -> Result<()> {
@@ -311,7 +311,7 @@ impl<T: 'static> ThreadsafeFunction<T, ErrorStrategy::Fatal> {
 
 impl<T: 'static, ES: ErrorStrategy::T> Drop for ThreadsafeFunction<T, ES> {
   fn drop(&mut self) {
-    if !self.aborted.load(Ordering::Acquire) && self.ref_count.load(Ordering::Relaxed) > 0usize {
+    if !self.aborted.load(Ordering::Acquire) && self.ref_count.load(Ordering::Acquire) > 0usize {
       let release_status = unsafe {
         sys::napi_release_threadsafe_function(
           self.raw_tsfn,
