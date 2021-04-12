@@ -2,6 +2,9 @@ name: macOS-Android
 
 on:
   push:
+    branches:
+      - main
+  pull_request:
 
 env:
   DEBUG: 'napi:*'
