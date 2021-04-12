@@ -32,10 +32,10 @@ jobs:
       - name: Pull docker image
         run: |
           docker login -u $DOCKER_USERNAME -p $DOCKER_PASSWORD $DOCKER_REGISTRY_URL
-          docker pull docker.pkg.github.com/napi-rs/napi-rs/nodejs-rust:lts-alpine
-          docker tag docker.pkg.github.com/napi-rs/napi-rs/nodejs-rust:lts-alpine builder
+          docker pull $DOCKER_REGISTRY_URL/${{ github.repository }}/nodejs-rust:lts-alpine
+          docker tag $DOCKER_REGISTRY_URL/${{ github.repository }}/nodejs-rust:lts-alpine builder
         env:
-          DOCKER_REGISTRY_URL: docker.pkg.github.com
+          DOCKER_REGISTRY_URL: ghcr.io
           DOCKER_USERNAME: ${{ github.actor }}
           DOCKER_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
 
