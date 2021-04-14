@@ -1,3 +1,4 @@
+#![allow(clippy::expect_fun_call)]
 use std::collections::hash_map::DefaultHasher;
 use std::env;
 use std::fs::{metadata, write};
