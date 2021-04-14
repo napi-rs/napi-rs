@@ -173,29 +173,34 @@ impl Env {
 
   #[inline]
   pub fn create_string(&self, s: &str) -> Result<JsString> {
-    self.create_string_from_chars(s.as_ptr() as *const c_char, s.len())
+    unsafe { self.create_string_from_c_char(s.as_ptr() as *const c_char, s.len()) }
   }
 
   #[inline]
   pub fn create_string_from_std(&self, s: String) -> Result<JsString> {
-    self.create_string_from_chars(s.as_ptr() as *const c_char, s.len())
+    unsafe { self.create_string_from_c_char(s.as_ptr() as *const c_char, s.len()) }
   }
 
   #[inline]
-  pub fn create_string_from_vec_u8(&self, bytes: Vec<u8>) -> Result<JsString> {
-    self.create_string_from_chars(bytes.as_ptr() as *const c_char, bytes.len())
-  }
-
-  #[inline]
-  pub fn create_string_from_vec_i8(&self, bytes: Vec<i8>) -> Result<JsString> {
-    self.create_string_from_chars(bytes.as_ptr() as *const c_char, bytes.len())
-  }
-
-  #[inline]
-  fn create_string_from_chars(&self, data_ptr: *const c_char, len: usize) -> Result<JsString> {
+  /// This API is used for C ffi scenario.
+  /// Convert raw *const c_char into JsString
+  ///
+  /// # Safety
+  ///
+  /// Create JsString from known valid utf-8 string
+  pub unsafe fn create_string_from_c_char(
+    &self,
+    data_ptr: *const c_char,
+    len: usize,
+  ) -> Result<JsString> {
     let mut raw_value = ptr::null_mut();
-    check_status!(unsafe { sys::napi_create_string_utf8(self.0, data_ptr, len, &mut raw_value) })?;
-    Ok(unsafe { JsString::from_raw_unchecked(self.0, raw_value) })
+    check_status!(sys::napi_create_string_utf8(
+      self.0,
+      data_ptr,
+      len,
+      &mut raw_value
+    ))?;
+    Ok(JsString::from_raw_unchecked(self.0, raw_value))
   }
 
   #[inline]
