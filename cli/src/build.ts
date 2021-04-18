@@ -30,7 +30,7 @@ export class BuildCommand extends Command {
   cargoName?: string
 
   @Command.String('--target')
-  targetTripleDir = ''
+  targetTripleDir = process.env.RUST_TARGET ?? ''
 
   @Command.String('--features')
   features?: string
