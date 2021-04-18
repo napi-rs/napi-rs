@@ -66,6 +66,8 @@ If not set, cli will read the `package.name` field in `Cargo.toml` under `proces
 
 > default `undefined`
 
+You can also define this value using the `RUST_TARGET` environment variable.
+
 This value will be passed to `Cargo build` command directly. eg: `napi build --target x86_64-unknown-linux-musl`
 
 #### `--cargo-flags`
@@ -73,6 +75,12 @@ This value will be passed to `Cargo build` command directly. eg: `napi build --t
 > default `undefined`
 
 Other flags you want pass to `Cargo build`.
+
+#### `--cargo-cwd`
+
+> default `undefined`
+
+This flag can be used to build binaries that are not in the current directory. The path that is passed to this flag should be relative to the current directory.
 
 ### `napi artifacts`
 
