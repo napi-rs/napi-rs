@@ -1689,10 +1689,10 @@ byte-size@^7.0.0:
   resolved "https://registry.npmjs.org/byte-size/-/byte-size-7.0.1.tgz#b1daf3386de7ab9d706b941a748dbfc71130dee3"
   integrity sha512-crQdqyCwhokxwV1UyDzLZanhkugAgft7vt0qbbdt60C6Zf3CAiGmtUCylbtYwrU6loOUw3euGrNtW1J651ot1A==
 
-c8@^7.7.0:
-  version "7.7.0"
-  resolved "https://registry.npmjs.org/c8/-/c8-7.7.0.tgz#22241fa5a65c8d059e0c18f4eb845e6d8244c643"
-  integrity sha512-9OoBQBa5FPs7NNcjaH52SfQpLCXsDRwJKPOeQ9K1MyYoMlnfazMx3XHp+inFPxMA5BV6VMWw1uFrV9sao1oBqA==
+c8@^7.7.1:
+  version "7.7.1"
+  resolved "https://registry.npmjs.org/c8/-/c8-7.7.1.tgz#442c5e175f47c407d8631e8d82f17260f666ad10"
+  integrity sha512-OO9KpDGv1iTd/MBNUForJH7vPKt9XnRPWSBKeRJGma4xfTaKBObA0zWAplFpFRuf/qRmATFqGFrzxqDk51LXsw==
   dependencies:
     "@bcoe/v8-coverage" "^0.2.3"
     "@istanbuljs/schema" "^0.1.2"
