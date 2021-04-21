@@ -13,6 +13,10 @@ mod napi5;
 #[cfg(feature = "latest")]
 mod napi6;
 #[cfg(feature = "latest")]
+mod napi7;
+#[cfg(feature = "latest")]
+mod napi8;
+#[cfg(feature = "latest")]
 mod tokio_rt;
 
 mod array;
@@ -61,5 +65,9 @@ fn init(mut exports: JsObject, env: Env) -> Result<()> {
   napi5::register_js(&mut exports)?;
   #[cfg(feature = "latest")]
   napi6::register_js(&mut exports)?;
+  #[cfg(feature = "latest")]
+  napi7::register_js(&mut exports)?;
+  #[cfg(feature = "latest")]
+  napi8::register_js(&mut exports)?;
   Ok(())
 }

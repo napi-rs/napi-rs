@@ -14,8 +14,10 @@ use crate::{
   Error, ExtendedErrorInfo, NodeVersion, Result, Status,
 };
 
+#[cfg(feature = "napi8")]
+use crate::async_cleanup_hook::AsyncCleanupHook;
 #[cfg(feature = "napi3")]
-use super::cleanup_env::{CleanupEnvHook, CleanupEnvHookData};
+use crate::cleanup_env::{CleanupEnvHook, CleanupEnvHookData};
 #[cfg(all(feature = "serde-json"))]
 use crate::js_values::{De, Ser};
 #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
@@ -1191,6 +1193,58 @@ impl Env {
     }
   }
 
+  #[cfg(feature = "napi8")]
+  /// Registers hook, which is a function of type `FnOnce(Arg)`, as a function to be run with the `arg` parameter once the current Node.js environment exits.
+  ///
+  /// Unlike [`add_env_cleanup_hook`](https://docs.rs/napi/latest/napi/struct.Env.html#method.add_env_cleanup_hook), the hook is allowed to be asynchronous.
+  ///
+  /// Otherwise, behavior generally matches that of [`add_env_cleanup_hook`](https://docs.rs/napi/latest/napi/struct.Env.html#method.add_env_cleanup_hook).
+  pub fn add_removable_async_cleanup_hook<Arg, F>(
+    &self,
+    arg: Arg,
+    cleanup_fn: F,
+  ) -> Result<AsyncCleanupHook>
+  where
+    F: FnOnce(Arg),
+    Arg: 'static,
+  {
+    let mut handle = ptr::null_mut();
+    check_status!(unsafe {
+      sys::napi_add_async_cleanup_hook(
+        self.0,
+        Some(
+          async_finalize::<Arg, F>
+            as unsafe extern "C" fn(handle: sys::napi_async_cleanup_hook_handle, data: *mut c_void),
+        ),
+        Box::leak(Box::new((arg, cleanup_fn))) as *mut (Arg, F) as *mut c_void,
+        &mut handle,
+      )
+    })?;
+    Ok(AsyncCleanupHook(handle))
+  }
+
+  #[cfg(feature = "napi8")]
+  /// This API is very similar to [`add_removable_async_cleanup_hook`](https://docs.rs/napi/latest/napi/struct.Env.html#method.add_removable_async_cleanup_hook)
+  ///
+  /// Use this one if you don't want remove the cleanup hook anymore.
+  pub fn add_async_cleanup_hook<Arg, F>(&self, arg: Arg, cleanup_fn: F) -> Result<()>
+  where
+    F: FnOnce(Arg),
+    Arg: 'static,
+  {
+    check_status!(unsafe {
+      sys::napi_add_async_cleanup_hook(
+        self.0,
+        Some(
+          async_finalize::<Arg, F>
+            as unsafe extern "C" fn(handle: sys::napi_async_cleanup_hook_handle, data: *mut c_void),
+        ),
+        Box::leak(Box::new((arg, cleanup_fn))) as *mut (Arg, F) as *mut c_void,
+        ptr::null_mut(),
+      )
+    })
+  }
+
   /// # Serialize `Rust Struct` into `JavaScript Value`
   ///
   /// ```
@@ -1340,4 +1394,23 @@ unsafe extern "C" fn raw_finalize_with_custom_callback<Hint, Finalize>(
 {
   let (hint, callback) = *Box::from_raw(finalize_hint as *mut (Hint, Finalize));
   callback(hint, Env::from_raw(env));
+}
+
+#[cfg(feature = "napi8")]
+unsafe extern "C" fn async_finalize<Arg, F>(
+  handle: sys::napi_async_cleanup_hook_handle,
+  data: *mut c_void,
+) where
+  Arg: 'static,
+  F: FnOnce(Arg),
+{
+  let (arg, callback) = *Box::from_raw(data as *mut (Arg, F));
+  callback(arg);
+  if !handle.is_null() {
+    let status = sys::napi_remove_async_cleanup_hook(handle);
+    assert!(
+      status == sys::Status::napi_ok,
+      "Remove async cleanup hook failed after async cleanup callback"
+    );
+  }
 }

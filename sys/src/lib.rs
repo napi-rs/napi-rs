@@ -181,6 +181,18 @@ pub enum napi_key_conversion {
   napi_key_numbers_to_strings,
 }
 
+#[cfg(feature = "napi8")]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct napi_async_cleanup_hook_handle__ {
+  _unused: [u8; 0],
+}
+#[cfg(feature = "napi8")]
+pub type napi_async_cleanup_hook_handle = *mut napi_async_cleanup_hook_handle__;
+#[cfg(feature = "napi8")]
+pub type napi_async_cleanup_hook =
+  Option<unsafe extern "C" fn(handle: napi_async_cleanup_hook_handle, data: *mut c_void)>;
+
 extern "C" {
   pub fn napi_get_last_error_info(
     env: napi_env,
@@ -801,6 +813,25 @@ extern "C" {
     result: *mut bool,
   ) -> napi_status;
 }
+
+#[cfg(feature = "napi8")]
+extern "C" {
+  pub fn napi_add_async_cleanup_hook(
+    env: napi_env,
+    hook: napi_async_cleanup_hook,
+    arg: *mut c_void,
+    remove_handle: *mut napi_async_cleanup_hook_handle,
+  ) -> napi_status;
+
+  pub fn napi_remove_async_cleanup_hook(
+    remove_handle: napi_async_cleanup_hook_handle,
+  ) -> napi_status;
+
+  pub fn napi_object_freeze(env: napi_env, object: napi_value) -> napi_status;
+
+  pub fn napi_object_seal(env: napi_env, object: napi_value) -> napi_status;
+}
+
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct napi_callback_scope__ {

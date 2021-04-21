@@ -6,7 +6,7 @@
 //!
 //! ## Feature flags
 //!
-//! ### napi1 ~ napi7
+//! ### napi1 ~ napi8
 //!
 //! Because `NodeJS` N-API has versions. So there are feature flags to choose what version of `N-API` you want to build for.
 //! For example, if you want build a library which can be used by `node@10.17.0`, you should choose the `napi5` or lower.
@@ -75,6 +75,10 @@
 //! ```
 //!
 
+#[cfg(feature = "napi8")]
+mod async_cleanup_hook;
+#[cfg(feature = "napi8")]
+pub use async_cleanup_hook::AsyncCleanupHook;
 mod async_work;
 mod call_context;
 #[cfg(feature = "napi3")]

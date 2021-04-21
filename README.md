@@ -2,7 +2,7 @@
 
 > This project was initialized from [xray](https://github.com/atom/xray)
 
-A minimal library for building compiled `NodeJS` add-ons in `Rust`.
+A minimal library for building compiled `Node.js` add-ons in `Rust`.
 
 <p>
   <a href="https://docs.rs/crate/napi"><img src="https://docs.rs/napi/badge.svg"></img></a>
@@ -22,17 +22,18 @@ A minimal library for building compiled `NodeJS` add-ons in `Rust`.
 ![Windows i686](https://github.com/napi-rs/napi-rs/workflows/Windows%20i686/badge.svg)
 [![FreeBSD](https://api.cirrus-ci.com/github/napi-rs/napi-rs.svg)](https://cirrus-ci.com/github/napi-rs/napi-rs?branch=main)
 
-## Operating Systems
-
-| Linux | macOS | Windows | FreeBSD |
-| ----- | ----- | ------- | ------- |
-| ✓     | ✓     | ✓       | ✓       |
-
-## Node.js
-
-| Node10 | Node12 | Node14 | Node15 |
-| ------ | ------ | ------ | ------ |
-| ✓      | ✓      | ✓      | ✓      |
+|                       | node12 | node14 | node16 |
+| --------------------- | ------ | ------ | ------ |
+| Windows x64           | ✓      | ✓      | ✓      |
+| Windows x86           | ✓      | ✓      | ✓      |
+| macOS x64             | ✓      | ✓      | ✓      |
+| macOS aarch64         | ✓      | ✓      | ✓      |
+| Linux x64 gnu         | ✓      | ✓      | ✓      |
+| Linux x64 musl        | ✓      | ✓      | ✓      |
+| Linux aarch64 gnu     | ✓      | ✓      | ✓      |
+| Linux arm gnueabihf   | ✓      | ✓      | ✓      |
+| Linux aarch64 android | ✓      | ✓      | ✓      |
+| FreeBSD x64           | ✓      | ✓      | ✓      |
 
 This library depends on N-API and requires `Node@10.0.0` or later.
 
@@ -47,7 +48,7 @@ One nice feature is that this crate allows you to build add-ons purely with the 
 ### Define JavaScript functions
 
 ```rust
-#[js_function(1)] // ------> arguments length, omit for zero
+#[js_function(1)] // ------> arguments length
 fn fibonacci(ctx: CallContext) -> Result<JsNumber> {
   let n = ctx.get::<JsNumber>(0)?.try_into()?;
   ctx.env.create_int64(fibonacci_native(n))
@@ -108,11 +109,11 @@ name = "awesome"
 crate-type = ["cdylib"]
 
 [dependencies]
-napi = "1.0"
-napi-derive = "1.0"
+napi = "1"
+napi-derive = "1"
 
 [build-dependencies]
-napi-build = "1.0"
+napi-build = "1"
 ```
 
 And create `build.rs` in your own project:
@@ -209,6 +210,9 @@ yarn test
 | [napi_create_string_latin1](https://nodejs.org/api/n-api.html#n_api_napi_create_string_latin1)               | 1            | v8.0.0               | ✅     |
 | [napi_create_string_utf16](https://nodejs.org/api/n-api.html#n_api_napi_create_string_utf16)                 | 1            | v8.0.0               | ✅     |
 | [napi_create_string_utf8](https://nodejs.org/api/n-api.html#n_api_napi_create_string_utf8)                   | 1            | v8.0.0               | ✅     |
+| [napi_type_tag](https://nodejs.org/api/n-api.html#n_api_napi_type_tag)                                       | 8            | v14.8.0, v12.19.0    | ⚠️     |
+
+> I have no plan to implement `nape_type_tag` and related API in `napi-rs`, because we have implemented a `rust` replacement in [TaggedObject](https://github.com/napi-rs/napi-rs/blob/main/napi/src/js_values/tagged_object.rs) which is more convenient and more compatible.
 
 ### [Functions to convert from N-API to C types](https://nodejs.org/api/n-api.html#n_api_functions_to_convert_from_n_api_to_c_types)
 
@@ -258,3 +262,5 @@ yarn test
 | [napi_strict_equals](https://nodejs.org/api/n-api.html#n_api_napi_strict_equals)                     | 1            | v8.0.0               | ✅     |
 | [napi_detach_arraybuffer](https://nodejs.org/api/n-api.html#n_api_napi_detach_arraybuffer)           | 7            | v13.3.0              | ✅     |
 | [napi_is_detached_arraybuffer](https://nodejs.org/api/n-api.html#n_api_napi_is_detached_arraybuffer) | 7            | v13.3.0              | ✅     |
+| [napi_object_freeze](https://nodejs.org/api/n-api.html#n_api_napi_object_freeze)                     | 8            | v14.14.0, v12.20.0   | ✅     |
+| [napi_object_seal](https://nodejs.org/api/n-api.html#n_api_napi_object_seal)                         | 8            | v14.14.0, v12.20.0   | ✅     |
