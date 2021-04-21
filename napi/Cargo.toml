@@ -19,6 +19,7 @@ napi4 = ["napi3", "napi-sys/napi4"]
 napi5 = ["napi4", "napi-sys/napi5"]
 napi6 = ["napi5", "napi-sys/napi6"]
 napi7 = ["napi6", "napi-sys/napi7"]
+napi8 = ["napi7", "napi-sys/napi8"]
 serde-json = ["serde", "serde_json"]
 tokio_rt = ["futures", "tokio", "once_cell", "napi4"]
 

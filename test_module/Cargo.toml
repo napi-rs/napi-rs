@@ -8,7 +8,7 @@ version = "0.1.0"
 crate-type = ["cdylib"]
 
 [features]
-latest = ["napi/napi7"]
+latest = ["napi/napi8"]
 napi3 = ["napi/napi3"]
 
 [dependencies]

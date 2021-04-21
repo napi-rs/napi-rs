@@ -29,7 +29,7 @@ pub enum Status {
   ArrayBufferExpected,
   DetachableArraybufferExpected,
   WouldDeadlock,
-  Unknown = 1024, // unknown status. for example, using napi3 module in napi7 NodeJS, and generate an invalid napi3 status
+  Unknown = 1024, // unknown status. for example, using napi3 module in napi7 Node.js, and generate an invalid napi3 status
 }
 
 impl Display for Status {
