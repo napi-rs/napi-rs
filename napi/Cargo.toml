@@ -44,7 +44,7 @@ version = "1"
 
 [dependencies.once_cell]
 optional = true
-version = "1.5"
+version = "1"
 
 [dependencies.serde]
 optional = true
