@@ -19,8 +19,8 @@ impl<T: NapiValue> EscapableHandleScope<T> {
       sys::napi_escape_handle(env, handle_scope, NapiRaw::raw(&value), &mut result)
     })?;
     Ok(Self {
-      value,
       handle_scope,
+      value,
     })
   }
 
