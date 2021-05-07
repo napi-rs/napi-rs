@@ -40,8 +40,8 @@ impl<'env> CallContext<'env> {
   ) -> Self {
     Self {
       env,
-      callback_info,
       raw_this,
+      callback_info,
       args,
       length,
     }
