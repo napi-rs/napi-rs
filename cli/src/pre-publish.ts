@@ -39,13 +39,8 @@ export class PrePublishCommand extends Command {
 
   @Command.Path('prepublish')
   async execute() {
-    const {
-      packageJsonPath,
-      platforms,
-      version,
-      packageName,
-      binaryName,
-    } = getNapiConfig(this.configFileName)
+    const { packageJsonPath, platforms, version, packageName, binaryName } =
+      getNapiConfig(this.configFileName)
     debug(`Update optionalDependencies in [${packageJsonPath}]`)
     if (!this.isDryRun) {
       await VersionCommand.updatePackageJson(this.prefix, this.configFileName)
