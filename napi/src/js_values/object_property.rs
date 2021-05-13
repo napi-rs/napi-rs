@@ -2,7 +2,7 @@ use std::convert::From;
 use std::ffi::CString;
 use std::ptr;
 
-use crate::{check_status, sys, Callback, Env, NapiValue, Result};
+use crate::{check_status, sys, Callback, Env, NapiRaw, Result};
 
 #[derive(Clone, Copy)]
 pub struct Property<'env> {
@@ -56,7 +56,7 @@ impl<'env> Property<'env> {
   }
 
   #[inline]
-  pub fn with_value<T: NapiValue>(mut self, value: T) -> Self {
+  pub fn with_value<T: NapiRaw>(mut self, value: T) -> Self {
     self.raw_descriptor.value = unsafe { T::raw(&value) };
     self
   }

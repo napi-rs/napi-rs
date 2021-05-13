@@ -5,6 +5,8 @@ import { Summary } from 'benny/lib/internal/common-types'
 
 import { benchAsync } from './async'
 import { benchBuffer } from './buffer'
+import { benchCreateArray } from './create-array'
+import { benchGetArray } from './get-array-from-js'
 import { benchGetSetProperty } from './get-set-property'
 import { benchNoop } from './noop'
 import { benchPlus } from './plus'
@@ -14,6 +16,8 @@ async function run() {
     await benchNoop(),
     await benchPlus(),
     await benchBuffer(),
+    await benchCreateArray(),
+    await benchGetArray(),
     await benchGetSetProperty(),
     await benchAsync(),
   ]

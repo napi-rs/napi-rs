@@ -1292,7 +1292,7 @@ impl Env {
   pub fn from_js_value<T, V>(&self, value: V) -> Result<T>
   where
     T: DeserializeOwned + ?Sized,
-    V: NapiValue,
+    V: NapiRaw,
   {
     let value = Value {
       env: self.0,
