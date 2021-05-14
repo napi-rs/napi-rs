@@ -124,7 +124,7 @@ impl TryFrom<sys::napi_extended_error_info> for ExtendedErrorInfo {
 }
 
 #[doc(hidden)]
-#[macro_export(local_inner_macros)]
+#[macro_export]
 macro_rules! check_status {
   ($code:expr) => {{
     let c = $code;
