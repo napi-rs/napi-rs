@@ -40,7 +40,10 @@ impl From<i32> for ValueType {
       sys::ValueType::napi_string => ValueType::String,
       sys::ValueType::napi_symbol => ValueType::Symbol,
       sys::ValueType::napi_undefined => ValueType::Undefined,
-      _ => ValueType::Unknown,
+      _ => {
+        println!("Unknown value type: {}", value);
+        ValueType::Unknown
+      }
     }
   }
 }

@@ -70,19 +70,15 @@ pub struct JsSymbol(pub(crate) Value);
 pub struct JsExternal(pub(crate) Value);
 
 #[doc(hidden)]
-#[macro_export]
+#[macro_export(local_inner_macros)]
 macro_rules! type_of {
   ($env:expr, $value:expr) => {{
     use std::convert::TryFrom;
     use $crate::sys;
     let mut value_type = 0;
     let status = sys::napi_typeof($env, $value, &mut value_type);
-    $crate::check_status!(status).and_then(|_| {
-      ValueType::try_from(value_type).or_else(|_| {
-        println!("Unknown value type {}", value_type);
-        Ok(ValueType::Unknown)
-      })
-    })
+    check_status!(status)
+      .and_then(|_| ValueType::try_from(value_type).or_else(|_| Ok(ValueType::Unknown)))
   }};
 }
 
