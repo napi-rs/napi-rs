@@ -58,12 +58,10 @@ impl fmt::Display for Error {
 }
 
 impl Error {
-  #[inline]
   pub fn new(status: Status, reason: String) -> Self {
     Error { status, reason }
   }
 
-  #[inline]
   pub fn from_status(status: Status) -> Self {
     Error {
       status,
@@ -71,7 +69,6 @@ impl Error {
     }
   }
 
-  #[inline]
   pub fn from_reason(reason: String) -> Self {
     Error {
       status: Status::GenericFailure,
