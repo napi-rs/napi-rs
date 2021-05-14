@@ -10,6 +10,7 @@ use crate::{
   Error, JsBoolean, JsBufferValue, JsNumber, JsObject, JsString, JsUnknown, Result, Status,
 };
 
+#[repr(transparent)]
 pub(crate) struct De<'env>(pub(crate) &'env Value);
 
 #[doc(hidden)]
