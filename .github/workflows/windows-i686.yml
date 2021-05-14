@@ -14,6 +14,11 @@ jobs:
     name: stable - windows-latest - i686 - node@14
     runs-on: windows-latest
 
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: [1.52.1, 1.51.0]
+
     steps:
       - uses: actions/checkout@v2
 
@@ -40,7 +45,7 @@ jobs:
       - name: Install
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable
+          toolchain: ${{ matrix.toolchain }}
           profile: minimal
           override: true
 
