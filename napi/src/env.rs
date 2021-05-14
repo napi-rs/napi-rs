@@ -1369,6 +1369,8 @@ unsafe extern "C" fn raw_finalize<T>(
   finalize_hint: *mut c_void,
 ) {
   let tagged_object = finalize_data as *mut TaggedObject<T>;
+
+  println!("External finalize: {}", tagged_object.is_null());
   Box::from_raw(tagged_object);
   if !finalize_hint.is_null() {
     let size_hint = *Box::from_raw(finalize_hint as *mut Option<i64>);
@@ -1393,6 +1395,10 @@ unsafe extern "C" fn set_instance_finalize_callback<T, Hint, F>(
   Hint: 'static,
   F: FnOnce(FinalizeContext<T, Hint>),
 {
+  println!(
+    "Finalize data in instance finalize callback {}",
+    finalize_data.is_null()
+  );
   let (value, callback) = *Box::from_raw(finalize_data as *mut (TaggedObject<T>, F));
   let hint = *Box::from_raw(finalize_hint as *mut Hint);
   let env = Env::from_raw(raw_env);
