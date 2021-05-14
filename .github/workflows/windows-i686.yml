@@ -64,16 +64,10 @@ jobs:
           path: ~/.cargo/git
           key: stable-windows-i686-node@lts-cargo-index-trimmed-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Check build
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: --all --bins --examples --tests --target i686-pc-windows-msvc -vvv
-
       - name: Build Tests
         run: |
           yarn --cwd ./test_module build-i686
-          yarn test
+          yarn test --verbose
         env:
           RUST_BACKTRACE: 1
 
