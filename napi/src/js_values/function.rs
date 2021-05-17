@@ -90,7 +90,7 @@ impl JsFunction {
   #[inline]
   pub fn new<V>(&self, args: &[V]) -> Result<JsObject>
   where
-    V: NapiValue,
+    V: NapiRaw,
   {
     let mut js_instance = ptr::null_mut();
     let length = args.len();

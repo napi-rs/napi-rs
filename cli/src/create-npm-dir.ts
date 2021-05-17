@@ -24,13 +24,8 @@ export class CreateNpmDirCommand extends Command {
   ) => {
     const pkgJsonDir = config
     debug(`Read content from [${chalk.yellowBright(pkgJsonDir)}]`)
-    const {
-      platforms,
-      packageName,
-      version,
-      binaryName,
-      content,
-    } = getNapiConfig(pkgJsonDir, cwd)
+    const { platforms, packageName, version, binaryName, content } =
+      getNapiConfig(pkgJsonDir, cwd)
 
     for (const platformDetail of platforms) {
       const targetDir = join(
