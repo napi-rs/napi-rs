@@ -6,7 +6,7 @@ use std::ptr;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use crate::{check_status, sys, Env, Error, JsError, JsFunction, NapiValue, Result, Status};
+use crate::{check_status, sys, Env, Error, JsError, JsFunction, NapiRaw, Result, Status};
 
 use sys::napi_threadsafe_function_call_mode;
 
@@ -181,7 +181,7 @@ impl<T: 'static, ES: ErrorStrategy::T> ThreadsafeFunction<T, ES> {
   /// for more information.
   #[inline]
   pub fn create<
-    V: NapiValue,
+    V: NapiRaw,
     R: 'static + Send + FnMut(ThreadSafeCallContext<T>) -> Result<Vec<V>>,
   >(
     env: sys::napi_env,
@@ -326,7 +326,7 @@ impl<T: 'static, ES: ErrorStrategy::T> Drop for ThreadsafeFunction<T, ES> {
   }
 }
 
-unsafe extern "C" fn thread_finalize_cb<T: 'static, V: NapiValue, R>(
+unsafe extern "C" fn thread_finalize_cb<T: 'static, V: NapiRaw, R>(
   _raw_env: sys::napi_env,
   finalize_data: *mut c_void,
   _finalize_hint: *mut c_void,
@@ -337,7 +337,7 @@ unsafe extern "C" fn thread_finalize_cb<T: 'static, V: NapiValue, R>(
   drop(Box::<R>::from_raw(finalize_data.cast()));
 }
 
-unsafe extern "C" fn call_js_cb<T: 'static, V: NapiValue, R, ES>(
+unsafe extern "C" fn call_js_cb<T: 'static, V: NapiRaw, R, ES>(
   raw_env: sys::napi_env,
   js_callback: sys::napi_value,
   context: *mut c_void,

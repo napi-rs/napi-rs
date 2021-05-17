@@ -3,9 +3,9 @@ use std::ptr;
 
 use futures::prelude::*;
 
-use crate::{check_status, sys, Env, JsError, NapiValue, Result};
+use crate::{check_status, sys, Env, JsError, NapiRaw, Result};
 
-pub struct FuturePromise<T, V: NapiValue> {
+pub struct FuturePromise<T, V: NapiRaw> {
   deferred: sys::napi_deferred,
   env: sys::napi_env,
   tsfn: sys::napi_threadsafe_function,
@@ -13,9 +13,9 @@ pub struct FuturePromise<T, V: NapiValue> {
   resolver: Box<dyn FnOnce(&mut Env, T) -> Result<V>>,
 }
 
-unsafe impl<T, V: NapiValue> Send for FuturePromise<T, V> {}
+unsafe impl<T, V: NapiRaw> Send for FuturePromise<T, V> {}
 
-impl<T, V: NapiValue> FuturePromise<T, V> {
+impl<T, V: NapiRaw> FuturePromise<T, V> {
   #[inline]
   pub fn create(
     env: sys::napi_env,
@@ -95,7 +95,7 @@ pub(crate) async fn resolve_from_future<T: Send, F: Future<Output = Result<T>>>(
   .expect("Failed to release thread safe function");
 }
 
-unsafe extern "C" fn call_js_cb<T, V: NapiValue>(
+unsafe extern "C" fn call_js_cb<T, V: NapiRaw>(
   raw_env: sys::napi_env,
   _js_callback: sys::napi_value,
   context: *mut c_void,

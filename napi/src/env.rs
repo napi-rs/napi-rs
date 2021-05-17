@@ -520,7 +520,7 @@ impl Env {
   pub fn create_function_from_closure<R, F>(&self, name: &str, callback: F) -> Result<JsFunction>
   where
     F: 'static + Send + Sync + Fn(crate::CallContext<'_>) -> Result<R>,
-    R: NapiValue,
+    R: NapiRaw,
   {
     use crate::CallContext;
     let boxed_callback = Box::new(callback);
@@ -535,7 +535,7 @@ impl Env {
         name.as_ptr(),
         len,
         Some({
-          unsafe extern "C" fn trampoline<R: NapiValue, F: Fn(CallContext<'_>) -> Result<R>>(
+          unsafe extern "C" fn trampoline<R: NapiRaw, F: Fn(CallContext<'_>) -> Result<R>>(
             raw_env: sys::napi_env,
             cb_info: sys::napi_callback_info,
           ) -> sys::napi_value {
@@ -862,7 +862,7 @@ impl Env {
   /// This API create a new reference with the specified reference count to the Object passed in.
   pub fn create_reference<T>(&self, value: T) -> Result<Ref<()>>
   where
-    T: NapiValue,
+    T: NapiRaw,
   {
     let mut raw_ref = ptr::null_mut();
     let initial_ref_count = 1;
@@ -1066,7 +1066,7 @@ impl Env {
   #[inline]
   pub fn create_threadsafe_function<
     T: Send,
-    V: NapiValue,
+    V: NapiRaw,
     R: 'static + Send + FnMut(ThreadSafeCallContext<T>) -> Result<Vec<V>>,
   >(
     &self,
@@ -1305,7 +1305,7 @@ impl Env {
 
   #[inline]
   /// This API represents the invocation of the Strict Equality algorithm as defined in [Section 7.2.14](https://tc39.es/ecma262/#sec-strict-equality-comparison) of the ECMAScript Language Specification.
-  pub fn strict_equals<A: NapiValue, B: NapiValue>(&self, a: A, b: B) -> Result<bool> {
+  pub fn strict_equals<A: NapiRaw, B: NapiRaw>(&self, a: A, b: B) -> Result<bool> {
     let mut result = false;
     check_status!(unsafe { sys::napi_strict_equals(self.0, a.raw(), b.raw(), &mut result) })?;
     Ok(result)
