@@ -114,7 +114,7 @@ impl JsBigint {
   }
 
   #[inline]
-  pub fn instanceof<Constructor: NapiValue>(&self, constructor: Constructor) -> Result<bool> {
+  pub fn instanceof<Constructor: NapiRaw>(&self, constructor: Constructor) -> Result<bool> {
     let mut result = false;
     check_status!(unsafe {
       sys::napi_instanceof(self.raw.env, self.raw.value, constructor.raw(), &mut result)

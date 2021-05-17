@@ -2,14 +2,14 @@ use std::ops::Deref;
 use std::ptr;
 
 use crate::check_status;
-use crate::{sys, Env, NapiRaw, NapiValue, Result};
+use crate::{sys, Env, NapiRaw, Result};
 
-pub struct EscapableHandleScope<T: NapiValue> {
+pub struct EscapableHandleScope<T: NapiRaw> {
   handle_scope: sys::napi_escapable_handle_scope,
   value: T,
 }
 
-impl<T: NapiValue> EscapableHandleScope<T> {
+impl<T: NapiRaw> EscapableHandleScope<T> {
   #[inline]
   pub fn open(env: sys::napi_env, value: T) -> Result<Self> {
     let mut handle_scope = ptr::null_mut();
@@ -29,7 +29,7 @@ impl<T: NapiValue> EscapableHandleScope<T> {
   }
 }
 
-impl<T: NapiValue> Deref for EscapableHandleScope<T> {
+impl<T: NapiRaw> Deref for EscapableHandleScope<T> {
   type Target = T;
 
   fn deref(&self) -> &T {
