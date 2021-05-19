@@ -35,7 +35,7 @@ A minimal library for building compiled `Node.js` add-ons in `Rust`.
 | Linux aarch64 android | ✓      | ✓      | ✓      |
 | FreeBSD x64           | ✓      | ✓      | ✓      |
 
-This library depends on N-API and requires `Node@10.0.0` or later.
+This library depends on Node-API and requires `Node@10.0.0` or later.
 
 We already have some packages written by `napi-rs`: [node-rs](https://github.com/napi-rs/node-rs)
 
@@ -214,7 +214,7 @@ yarn test
 
 > I have no plan to implement `nape_type_tag` and related API in `napi-rs`, because we have implemented a `rust` replacement in [TaggedObject](https://github.com/napi-rs/napi-rs/blob/main/napi/src/js_values/tagged_object.rs) which is more convenient and more compatible.
 
-### [Functions to convert from N-API to C types](https://nodejs.org/api/n-api.html#n_api_functions_to_convert_from_n_api_to_c_types)
+### [Functions to convert from Node-API to C types](https://nodejs.org/api/n-api.html#n_api_functions_to_convert_from_node_api_to_c_types)
 
 | NAPI                                                                                                 | NAPI Version | Minimal Node Version | Status |
 | ---------------------------------------------------------------------------------------------------- | ------------ | -------------------- | ------ |
