@@ -1,4 +1,3 @@
-use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::os::raw::c_void;
 use std::ptr;
@@ -10,7 +9,8 @@ pub struct JsArrayBuffer(pub(crate) Value);
 
 pub struct JsArrayBufferValue {
   pub(crate) value: JsArrayBuffer,
-  data: mem::ManuallyDrop<Vec<u8>>,
+  len: usize,
+  data: *mut c_void,
 }
 
 pub struct JsTypedArray(pub(crate) Value);
@@ -34,6 +34,7 @@ pub struct JsDataViewValue {
 
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum TypedArrayType {
   Int8 = 0,
   Uint8,
@@ -44,7 +45,9 @@ pub enum TypedArrayType {
   Uint32,
   Float32,
   Float64,
+  #[cfg(feature = "napi6")]
   BigInt64,
+  #[cfg(feature = "napi6")]
   BigUint64,
 
   /// compatible with higher versions
@@ -63,7 +66,9 @@ impl From<sys::napi_typedarray_type> for TypedArrayType {
       sys::TypedarrayType::napi_uint32_array => Self::Uint32,
       sys::TypedarrayType::napi_float32_array => Self::Float32,
       sys::TypedarrayType::napi_float64_array => Self::Float64,
+      #[cfg(feature = "napi6")]
       sys::TypedarrayType::napi_bigint64_array => Self::BigInt64,
+      #[cfg(feature = "napi6")]
       sys::TypedarrayType::napi_biguint64_array => Self::BigUint64,
       _ => Self::Unknown,
     }
@@ -72,7 +77,7 @@ impl From<sys::napi_typedarray_type> for TypedArrayType {
 
 impl From<TypedArrayType> for sys::napi_typedarray_type {
   fn from(value: TypedArrayType) -> sys::napi_typedarray_type {
-    value as _
+    value as i32
   }
 }
 
@@ -98,16 +103,12 @@ impl JsArrayBuffer {
     let mut data = ptr::null_mut();
     let mut len: usize = 0;
     check_status!(unsafe {
-      sys::napi_get_arraybuffer_info(
-        self.0.env,
-        self.0.value,
-        &mut data,
-        &mut len as *mut usize as *mut _,
-      )
+      sys::napi_get_arraybuffer_info(self.0.env, self.0.value, &mut data, &mut len as *mut usize)
     })?;
     Ok(JsArrayBufferValue {
-      data: mem::ManuallyDrop::new(unsafe { Vec::from_raw_parts(data as *mut _, len, len) }),
+      data,
       value: self,
+      len,
     })
   }
 
@@ -163,8 +164,8 @@ impl JsArrayBuffer {
 
 impl JsArrayBufferValue {
   #[inline]
-  pub fn new(value: JsArrayBuffer, data: mem::ManuallyDrop<Vec<u8>>) -> Self {
-    JsArrayBufferValue { value, data }
+  pub fn new(value: JsArrayBuffer, data: *mut c_void, len: usize) -> Self {
+    JsArrayBufferValue { value, len, data }
   }
 
   #[inline]
@@ -180,7 +181,13 @@ impl JsArrayBufferValue {
 
 impl AsRef<[u8]> for JsArrayBufferValue {
   fn as_ref(&self) -> &[u8] {
-    self.data.as_slice()
+    unsafe { slice::from_raw_parts(self.data as *const u8, self.len) }
+  }
+}
+
+impl AsMut<[u8]> for JsArrayBufferValue {
+  fn as_mut(&mut self) -> &mut [u8] {
+    unsafe { slice::from_raw_parts_mut(self.data as *mut u8, self.len) }
   }
 }
 
@@ -188,13 +195,13 @@ impl Deref for JsArrayBufferValue {
   type Target = [u8];
 
   fn deref(&self) -> &[u8] {
-    self.data.as_slice()
+    self.as_ref()
   }
 }
 
 impl DerefMut for JsArrayBufferValue {
   fn deref_mut(&mut self) -> &mut Self::Target {
-    self.data.as_mut_slice()
+    self.as_mut()
   }
 }
 
@@ -218,7 +225,7 @@ impl JsTypedArray {
         &mut len as *mut u64 as *mut _,
         &mut data,
         &mut arraybuffer_value,
-        &mut byte_offset as *mut u64 as *mut _,
+        &mut byte_offset as *mut u64 as *mut usize,
       )
     })?;
 
@@ -232,26 +239,34 @@ impl JsTypedArray {
   }
 }
 
-impl JsTypedArrayValue {
-  #[inline(always)]
-  fn as_slice(&self) -> &[u8] {
-    unsafe { slice::from_raw_parts(self.data as *const u8, self.length as usize) }
-  }
+macro_rules! impl_as_ref {
+  ($ref_type:ident) => {
+    impl AsRef<[$ref_type]> for JsTypedArrayValue {
+      fn as_ref(&self) -> &[$ref_type] {
+        unsafe { slice::from_raw_parts(self.data as *const $ref_type, self.length as usize) }
+      }
+    }
+
+    impl AsMut<[$ref_type]> for JsTypedArrayValue {
+      fn as_mut(&mut self) -> &mut [$ref_type] {
+        unsafe { slice::from_raw_parts_mut(self.data as *mut $ref_type, self.length as usize) }
+      }
+    }
+  };
 }
 
-impl AsRef<[u8]> for JsTypedArrayValue {
-  fn as_ref(&self) -> &[u8] {
-    self.as_slice()
-  }
-}
-
-impl Deref for JsTypedArrayValue {
-  type Target = [u8];
-
-  fn deref(&self) -> &[u8] {
-    self.as_slice()
-  }
-}
+impl_as_ref!(u8);
+impl_as_ref!(i8);
+impl_as_ref!(u16);
+impl_as_ref!(i16);
+impl_as_ref!(u32);
+impl_as_ref!(i32);
+impl_as_ref!(f32);
+impl_as_ref!(f64);
+#[cfg(feature = "napi6")]
+impl_as_ref!(i64);
+#[cfg(feature = "napi6")]
+impl_as_ref!(u64);
 
 impl JsDataView {
   #[inline]
