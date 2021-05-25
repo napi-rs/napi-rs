@@ -417,7 +417,8 @@ impl Env {
 
     Ok(JsArrayBufferValue::new(
       unsafe { JsArrayBuffer::from_raw_unchecked(self.0, raw_value) },
-      mem::ManuallyDrop::new(data),
+      data_ptr as *mut c_void,
+      length,
     ))
   }
 
@@ -437,13 +438,15 @@ impl Env {
       )
     })?;
 
+    mem::forget(data);
     Ok(JsArrayBufferValue::new(
       JsArrayBuffer(Value {
         env: self.0,
         value: raw_value,
         value_type: ValueType::Object,
       }),
-      mem::ManuallyDrop::new(data),
+      data_ptr as *mut c_void,
+      length,
     ))
   }
 
@@ -486,7 +489,8 @@ impl Env {
         value: raw_value,
         value_type: ValueType::Object,
       }),
-      mem::ManuallyDrop::new(Vec::from_raw_parts(data as *mut u8, length, length)),
+      data as *mut c_void,
+      length,
     ))
   }
 

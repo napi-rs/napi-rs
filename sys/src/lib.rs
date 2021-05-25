@@ -98,7 +98,9 @@ pub mod TypedarrayType {
   pub const napi_uint32_array: i32 = 6;
   pub const napi_float32_array: i32 = 7;
   pub const napi_float64_array: i32 = 8;
+  #[cfg(feature = "napi6")]
   pub const napi_bigint64_array: i32 = 9;
+  #[cfg(feature = "napi6")]
   pub const napi_biguint64_array: i32 = 10;
 }
 
