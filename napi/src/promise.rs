@@ -58,7 +58,7 @@ impl<T, V: NapiRaw> FuturePromise<T, V> {
         1,
         ptr::null_mut(),
         None,
-        self_ref as *mut _ as *mut c_void,
+        self_ref as *mut FuturePromise<T, V> as *mut c_void,
         Some(call_js_cb::<T, V>),
         &mut tsfn_value,
       )
@@ -81,7 +81,7 @@ pub(crate) async fn resolve_from_future<T: Send, F: Future<Output = Result<T>>>(
   check_status!(unsafe {
     sys::napi_call_threadsafe_function(
       tsfn_value.0,
-      Box::into_raw(Box::from(val)) as *mut _ as *mut c_void,
+      Box::into_raw(Box::from(val)) as *mut T as *mut c_void,
       sys::napi_threadsafe_function_call_mode::napi_tsfn_nonblocking,
     )
   })
@@ -103,7 +103,7 @@ unsafe extern "C" fn call_js_cb<T, V: NapiRaw>(
 ) {
   let mut env = Env::from_raw(raw_env);
   let future_promise = Box::from_raw(context as *mut FuturePromise<T, V>);
-  let value: Result<T> = ptr::read(data as *const _);
+  let value = Box::from_raw(data as *mut Result<T>);
   let resolver = future_promise.resolver;
   let deferred = future_promise.deferred;
   let js_value_to_resolve = value.and_then(move |v| (resolver)(&mut env, v));
