@@ -1,6 +1,6 @@
-use std::convert::TryFrom;
 use std::mem;
 use std::ops::Deref;
+use std::{convert::TryFrom, mem::ManuallyDrop};
 
 use crate::{Error, JsString, Result, Status};
 
@@ -33,6 +33,7 @@ impl JsStringUtf16 {
 
   #[inline]
   pub fn into_value(self) -> JsString {
+    ManuallyDrop::into_inner(self.buf);
     self.inner
   }
 }
@@ -61,6 +62,6 @@ impl AsRef<Vec<u16>> for JsStringUtf16 {
 
 impl From<JsStringUtf16> for Vec<u16> {
   fn from(value: JsStringUtf16) -> Self {
-    value.as_slice().to_vec()
+    ManuallyDrop::into_inner(value.buf)
   }
 }

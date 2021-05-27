@@ -36,16 +36,24 @@ impl JsStringUtf8 {
 
   #[inline]
   pub fn into_owned(self) -> Result<String> {
-    Ok(self.as_str()?.to_owned())
+    let buffer = ManuallyDrop::into_inner(self.buf);
+
+    let s = unsafe { CStr::from_ptr(buffer.as_ptr()) }
+      .to_str()
+      .map_err(|e| Error::new(Status::InvalidArg, format!("{}", e)))?;
+
+    Ok(s.to_owned())
   }
 
   #[inline]
   pub fn take(self) -> Vec<u8> {
-    self.as_slice().to_vec()
+    let bytes = unsafe { CStr::from_ptr(ManuallyDrop::into_inner(self.buf).as_ptr()) }.to_bytes();
+    bytes.to_vec()
   }
 
   #[inline]
   pub fn into_value(self) -> JsString {
+    ManuallyDrop::into_inner(self.buf);
     self.inner
   }
 }
@@ -54,7 +62,7 @@ impl TryFrom<JsStringUtf8> for String {
   type Error = Error;
 
   fn try_from(value: JsStringUtf8) -> Result<String> {
-    Ok(value.as_str()?.to_owned())
+    value.into_owned()
   }
 }
 
