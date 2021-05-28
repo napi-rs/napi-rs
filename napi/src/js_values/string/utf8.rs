@@ -1,6 +1,5 @@
 use std::convert::TryFrom;
 use std::ffi::CStr;
-use std::mem::ManuallyDrop;
 use std::os::raw::c_char;
 use std::str;
 
@@ -8,7 +7,7 @@ use crate::{Error, JsString, Result, Status};
 
 pub struct JsStringUtf8 {
   pub(crate) inner: JsString,
-  pub(crate) buf: ManuallyDrop<Vec<c_char>>,
+  pub(crate) buf: Vec<c_char>,
 }
 
 impl JsStringUtf8 {
@@ -36,24 +35,16 @@ impl JsStringUtf8 {
 
   #[inline]
   pub fn into_owned(self) -> Result<String> {
-    let buffer = ManuallyDrop::into_inner(self.buf);
-
-    let s = unsafe { CStr::from_ptr(buffer.as_ptr()) }
-      .to_str()
-      .map_err(|e| Error::new(Status::InvalidArg, format!("{}", e)))?;
-
-    Ok(s.to_owned())
+    Ok(self.as_str()?.to_owned())
   }
 
   #[inline]
   pub fn take(self) -> Vec<u8> {
-    let bytes = unsafe { CStr::from_ptr(ManuallyDrop::into_inner(self.buf).as_ptr()) }.to_bytes();
-    bytes.to_vec()
+    self.as_slice().to_vec()
   }
 
   #[inline]
   pub fn into_value(self) -> JsString {
-    ManuallyDrop::into_inner(self.buf);
     self.inner
   }
 }
