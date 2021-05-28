@@ -58,13 +58,9 @@ impl JsString {
       )
     })?;
 
-    mem::forget(result);
-
     Ok(JsStringUtf8 {
       inner: self,
-      buf: mem::ManuallyDrop::new(unsafe {
-        Vec::from_raw_parts(buf_ptr, written_char_count, written_char_count)
-      }),
+      buf: result,
     })
   }
 
@@ -83,13 +79,10 @@ impl JsString {
         &mut written_char_count,
       )
     })?;
-    mem::forget(result);
 
     Ok(JsStringUtf16 {
       inner: self,
-      buf: mem::ManuallyDrop::new(unsafe {
-        Vec::from_raw_parts(buf_ptr, written_char_count, written_char_count)
-      }),
+      buf: result,
     })
   }
 
