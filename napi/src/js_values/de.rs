@@ -30,7 +30,7 @@ impl<'x, 'de, 'env> serde::de::Deserializer<'x> for &'de mut De<'env> {
       ValueType::Number => {
         let js_number: f64 =
           unsafe { JsNumber::from_raw_unchecked(self.0.env, self.0.value).try_into()? };
-        if js_number.trunc() == js_number {
+        if (js_number.trunc() - js_number).abs() < f64::EPSILON {
           visitor.visit_i64(js_number as i64)
         } else {
           visitor.visit_f64(js_number)

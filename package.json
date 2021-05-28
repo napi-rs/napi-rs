@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "description": "A minimal library for building compiled Node add-ons in Rust.",
   "private": "true",
-  "workspaces": ["cli", "triples"],
+  "workspaces": ["cli", "triples", "memory-testing"],
   "repository": {
     "type": "git",
     "url": "git@github.com:Brooooooklyn/napi-rs.git"
@@ -13,6 +13,7 @@
     "bench": "cross-env TS_NODE_PROJECT='./bench/tsconfig.json' node -r ts-node/register/transpile-only bench/bench.ts",
     "build": "tsc -p tsconfig.json && shx chmod 777 cli/scripts/index.js && node generate-triplelist.js",
     "build:bench": "yarn --cwd ./bench build",
+    "build:memory": "yarn --cwd ./memory-testing build",
     "build:test": "yarn --cwd ./test_module build",
     "build:test:aarch64": "yarn --cwd ./test_module build-aarch64",
     "build:test:android": "yarn --cwd ./test_module build --target aarch64-linux-android",
@@ -23,9 +24,10 @@
     "format:rs": "cargo fmt",
     "format:source": "prettier --config ./package.json --write ./**/*.{js,ts}",
     "format:yaml": "prettier --parser yaml --write ./**/*.{yml,yaml}",
-    "lint": "eslint -c .eslintrc.yml ./cli/**/*.ts ./test_module/**/*.{ts,js}",
+    "lint": "eslint -c .eslintrc.yml .",
     "prepublishOnly": "npm run build && pinst --disable",
     "test": "ava",
+    "test:memory": "node memory-testing/index.mjs",
     "postinstall": "husky install",
     "postpublish": "pinst --enable"
   },

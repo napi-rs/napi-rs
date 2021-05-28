@@ -37,7 +37,7 @@ pub fn mutate_int16_array(ctx: CallContext) -> Result<JsUndefined> {
 pub fn mutate_float32_array(ctx: CallContext) -> Result<JsUndefined> {
   let mut buffer = ctx.get::<JsTypedArray>(0)?.into_value()?;
   let buffer_mut_ref: &mut [f32] = buffer.as_mut();
-  buffer_mut_ref[0] = 3.14;
+  buffer_mut_ref[0] = 3.33;
   ctx.env.get_undefined()
 }
 

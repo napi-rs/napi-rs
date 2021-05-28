@@ -32,7 +32,7 @@ test('should be able to mutate Int16Array', (t) => {
 test('should be able to mutate Float32Array', (t) => {
   const fixture = new Float32Array([0, 1, 2])
   bindings.mutateFloat32Array(fixture)
-  t.true(Math.abs(fixture[0] - 3.14) <= 0.0001)
+  t.true(Math.abs(fixture[0] - 3.33) <= 0.0001)
 })
 
 test('should be able to mutate Float64Array', (t) => {

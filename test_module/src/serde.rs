@@ -76,7 +76,7 @@ make_test!(make_map, {
 });
 
 make_test!(make_object, {
-  let value = AnObjectTwo {
+  AnObjectTwo {
     a: 1,
     b: vec![1, 2],
     c: "abc".into(),
@@ -97,11 +97,10 @@ make_test!(make_object, {
     p: vec![1., 2., 3.5],
     q: 9998881288248882845242411222333,
     r: -3332323888900001232323022221345,
-  };
-  value
+  }
 });
 
-const NUMBER_BYTES: &'static [u8] = &[255u8, 254, 253];
+const NUMBER_BYTES: &[u8] = &[255u8, 254, 253];
 
 make_test!(make_buff, { serde_bytes::Bytes::new(NUMBER_BYTES) });
 

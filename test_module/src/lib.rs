@@ -1,3 +1,5 @@
+#![allow(unused_variables)]
+
 #[macro_use]
 extern crate napi_derive;
 #[macro_use]

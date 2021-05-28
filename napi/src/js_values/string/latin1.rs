@@ -1,8 +1,5 @@
 use std::mem::ManuallyDrop;
 
-#[cfg(feature = "latin1")]
-use encoding_rs;
-
 use crate::JsString;
 
 #[cfg(feature = "latin1")]

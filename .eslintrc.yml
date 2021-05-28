@@ -5,7 +5,7 @@ parserOptions:
     jsx: true
   ecmaVersion: 2020
   sourceType: module
-  extraFileExtensions: ['.cjs']
+  extraFileExtensions: ['.cjs', '.mjs']
   project: ./tsconfig.json
 
 env:
@@ -221,6 +221,13 @@ overrides:
       - '@typescript-eslint'
     parserOptions:
       project: ./bench/tsconfig.json
+
+  - files:
+      - ./memory-testing/*.{js,mjs}
+    plugins:
+      - '@typescript-eslint'
+    parserOptions:
+      project: ./tsconfig.root-lint.json
 
   - files:
       - ./*.js
