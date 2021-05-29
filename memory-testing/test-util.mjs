@@ -43,13 +43,13 @@ export async function createSuite(testFile, maxMemoryUsage) {
 
   const stats = await container.stats()
 
-  let shouldAssetMemoryUsage = false
+  let shouldAssertMemoryUsage = false
 
   const initialMemoryUsage = await new Promise((resolve, reject) => {
     stats.on('data', (d) => {
       const { memory_stats } = JSON.parse(d.toString('utf8'))
       resolve(memory_stats.usage)
-      if (shouldAssetMemoryUsage && memory_stats?.usage) {
+      if (shouldAssertMemoryUsage && memory_stats?.usage) {
         const memoryGrowth = memory_stats.usage - initialMemoryUsage
         if (memoryGrowth > maxMemoryUsage ?? initialMemoryUsage) {
           console.info(
@@ -72,7 +72,7 @@ export async function createSuite(testFile, maxMemoryUsage) {
 
   await sleep(60000)
 
-  shouldAssetMemoryUsage = true
+  shouldAssertMemoryUsage = true
 
   await container.stop()
   await container.remove()
