@@ -1,3 +1,5 @@
+#![allow(clippy::single_component_path_imports)]
+
 use std::convert::Into;
 use std::ffi::CString;
 use std::marker::PhantomData;
@@ -23,9 +25,9 @@ pub enum ThreadsafeFunctionCallMode {
   Blocking,
 }
 
-impl Into<napi_threadsafe_function_call_mode> for ThreadsafeFunctionCallMode {
-  fn into(self) -> napi_threadsafe_function_call_mode {
-    match self {
+impl From<ThreadsafeFunctionCallMode> for napi_threadsafe_function_call_mode {
+  fn from(value: ThreadsafeFunctionCallMode) -> Self {
+    match value {
       ThreadsafeFunctionCallMode::Blocking => {
         napi_threadsafe_function_call_mode::napi_tsfn_blocking
       }
@@ -232,7 +234,7 @@ impl<T: 'static, ES: ErrorStrategy::T> ThreadsafeFunction<T, ES> {
     if self.aborted.load(Ordering::Acquire) {
       return Err(Error::new(
         Status::Closing,
-        format!("Can not ref, Thread safe function already aborted"),
+        "Can not ref, Thread safe function already aborted".to_string(),
       ));
     }
     self.ref_count.fetch_add(1, Ordering::AcqRel);
@@ -245,7 +247,7 @@ impl<T: 'static, ES: ErrorStrategy::T> ThreadsafeFunction<T, ES> {
     if self.aborted.load(Ordering::Acquire) {
       return Err(Error::new(
         Status::Closing,
-        format!("Can not unref, Thread safe function already aborted"),
+        "Can not unref, Thread safe function already aborted".to_string(),
       ));
     }
     self.ref_count.fetch_sub(1, Ordering::AcqRel);
@@ -536,4 +538,5 @@ macro_rules! type_level_enum {(
   $( #[doc = $doc] )*
   $item
 )}
+
 use type_level_enum;

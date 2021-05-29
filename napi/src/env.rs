@@ -1109,11 +1109,11 @@ impl Env {
       .map_err(|e| match e {
         TrySendError::Full(_) => Error::new(
           Status::QueueFull,
-          format!("Failed to run future: no available capacity"),
+          "Failed to run future: no available capacity".to_owned(),
         ),
         TrySendError::Closed(_) => Error::new(
           Status::Closing,
-          format!("Failed to run future: receiver closed"),
+          "Failed to run future: receiver closed".to_string(),
         ),
       })?;
     Ok(unsafe { JsObject::from_raw_unchecked(self.0, raw_promise) })

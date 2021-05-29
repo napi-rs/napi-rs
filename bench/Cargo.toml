@@ -21,7 +21,3 @@ mimalloc = {version = "0.1"}
 
 [build-dependencies]
 napi-build = {path = "../build"}
-
-[profile.release]
-lto = true
-opt-level = 3

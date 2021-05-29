@@ -338,7 +338,7 @@ impl ser::SerializeSeq for SeqSerializer {
       self.current_index as _,
       JsUnknown(value.serialize(Ser::new(&env))?),
     )?;
-    self.current_index = self.current_index + 1;
+    self.current_index += 1;
     Ok(())
   }
 
@@ -362,7 +362,7 @@ impl ser::SerializeTuple for SeqSerializer {
       self.current_index as _,
       JsUnknown(value.serialize(Ser::new(&env))?),
     )?;
-    self.current_index = self.current_index + 1;
+    self.current_index += 1;
     Ok(())
   }
 
@@ -387,7 +387,7 @@ impl ser::SerializeTupleStruct for SeqSerializer {
       self.current_index as _,
       JsUnknown(value.serialize(Ser::new(&env))?),
     )?;
-    self.current_index = self.current_index + 1;
+    self.current_index += 1;
     Ok(())
   }
 
@@ -412,7 +412,7 @@ impl ser::SerializeTupleVariant for SeqSerializer {
       self.current_index as _,
       JsUnknown(value.serialize(Ser::new(&env))?),
     )?;
-    self.current_index = self.current_index + 1;
+    self.current_index += 1;
     Ok(())
   }
 

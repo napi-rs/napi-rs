@@ -41,7 +41,7 @@ fn add_native_count(ctx: CallContext) -> Result<JsNumber> {
   let add: i32 = ctx.get::<JsNumber>(0)?.try_into()?;
   let this: JsObject = ctx.this_unchecked();
   let native_class: &mut NativeClass = ctx.env.unwrap(&this)?;
-  native_class.value = native_class.value + add;
+  native_class.value += add;
   ctx.env.create_int32(native_class.value)
 }
 
@@ -55,7 +55,7 @@ fn new_test_class(ctx: CallContext) -> Result<JsObject> {
       .env
       .define_class("TestClass", test_class_constructor, properties.as_slice())?;
 
-  test_class.new(&vec![ctx.env.create_int32(42)?])
+  test_class.new(&[ctx.env.create_int32(42)?])
 }
 
 pub fn register_js(exports: &mut JsObject) -> Result<()> {

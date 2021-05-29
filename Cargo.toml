@@ -1,9 +1,11 @@
 [workspace]
-exclude = ["./test_module", "./bench", "./testing"]
 members = [
   "./build",
   "./napi",
   "./napi-derive",
   "./napi-derive-example",
   "./sys",
+  "./test_module",
+  "./bench",
+  "./memory-testing",
 ]
