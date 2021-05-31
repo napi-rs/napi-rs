@@ -3,7 +3,6 @@ target/
 .DS_Store
 Cargo.lock
 node_modules
-napi/src/sys/bindings.rs
 *.node
 build/LICENSE
 napi/LICENSE

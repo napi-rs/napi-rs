@@ -2,15 +2,10 @@
 authors = ["LongYinan <lynweklm@gmail.com>"]
 description = "N-API build support"
 edition = "2018"
+include = ["src/**/*", "Cargo.toml", "README.md", "LICENSE"]
 keywords = ["NodeJS", "FFI", "NAPI", "n-api"]
 license = "MIT"
 name = "napi-build"
 readme = "README.md"
 repository = "https://github.com/napi-rs/napi-rs"
 version = "1.0.2"
-
-[dependencies]
-cfg-if = "1"
-
-[target.'cfg(not(target_env = "musl"))'.dependencies]
-ureq = "2"

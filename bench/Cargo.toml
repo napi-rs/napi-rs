@@ -13,10 +13,10 @@ napi-derive = {path = "../napi-derive"}
 serde = "1"
 serde_json = "1"
 
-[target.'cfg(all(unix, not(target_env = "musl"), not(target_arch = "aarch64")))'.dependencies]
+[target.'cfg(all(unix, not(target_env = "musl"), not(target_arch = "aarch64"), not(target_arch = "arm")))'.dependencies]
 jemallocator = {version = "0.3", features = ["disable_initial_exec_tls"]}
 
-[target.'cfg(windows)'.dependencies]
+[target.'cfg(all(windows, not(target_arch = "aarch64")))'.dependencies]
 mimalloc = {version = "0.1"}
 
 [build-dependencies]
