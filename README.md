@@ -20,17 +20,20 @@ A minimal library for building compiled `Node.js` add-ons in `Rust`.
 ![Linux-armv7](https://github.com/napi-rs/napi-rs/workflows/Linux-armv7/badge.svg)
 ![macOS-Android](https://github.com/napi-rs/napi-rs/workflows/macOS-Android/badge.svg)
 ![Windows i686](https://github.com/napi-rs/napi-rs/workflows/Windows%20i686/badge.svg)
+[![Windows arm64](https://github.com/napi-rs/napi-rs/actions/workflows/windows-arm.yml/badge.svg)](https://github.com/napi-rs/napi-rs/actions/workflows/windows-arm.yml)
 [![FreeBSD](https://api.cirrus-ci.com/github/napi-rs/napi-rs.svg)](https://cirrus-ci.com/github/napi-rs/napi-rs?branch=main)
 
 |                       | node12 | node14 | node16 |
 | --------------------- | ------ | ------ | ------ |
 | Windows x64           | ✓      | ✓      | ✓      |
 | Windows x86           | ✓      | ✓      | ✓      |
+| Windows arm64         | ✓      | ✓      | ✓      |
 | macOS x64             | ✓      | ✓      | ✓      |
 | macOS aarch64         | ✓      | ✓      | ✓      |
 | Linux x64 gnu         | ✓      | ✓      | ✓      |
 | Linux x64 musl        | ✓      | ✓      | ✓      |
 | Linux aarch64 gnu     | ✓      | ✓      | ✓      |
+| Linux aarch64 musl    | ✓      | ✓      | ✓      |
 | Linux arm gnueabihf   | ✓      | ✓      | ✓      |
 | Linux aarch64 android | ✓      | ✓      | ✓      |
 | FreeBSD x64           | ✓      | ✓      | ✓      |

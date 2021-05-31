@@ -7,7 +7,7 @@ use napi::{Env, JsObject, Result};
 #[global_allocator]
 static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
 
-#[cfg(windows)]
+#[cfg(all(windows, not(target_arch = "aarch64")))]
 #[global_allocator]
 static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
