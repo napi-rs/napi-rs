@@ -54,8 +54,5 @@ version = "1"
 optional = true
 version = "1"
 
-[build-dependencies]
-napi-build = {version = "1", path = "../build"}
-
 [package.metadata.docs.rs]
 all-features = true
