@@ -21,7 +21,7 @@ napi6 = ["napi5", "napi-sys/napi6"]
 napi7 = ["napi6", "napi-sys/napi7"]
 napi8 = ["napi7", "napi-sys/napi8"]
 serde-json = ["serde", "serde_json"]
-tokio_rt = ["futures", "tokio", "once_cell", "napi4"]
+tokio_rt = ["tokio", "once_cell", "napi4"]
 
 [dependencies]
 napi-sys = {version = "1", path = "../sys"}
@@ -32,10 +32,6 @@ winapi = {version = "0.3.9", features = ["winuser", "minwindef", "ntdef", "liblo
 [dependencies.encoding_rs]
 optional = true
 version = "0.8"
-
-[dependencies.futures]
-optional = true
-version = "0.3"
 
 [dependencies.tokio]
 features = ["rt", "rt-multi-thread", "sync"]

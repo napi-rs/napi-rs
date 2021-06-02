@@ -47,20 +47,3 @@ test.serial('should be able to execute future paralleled', async (t) => {
     t.deepEqual(readFileSync(filepath), fileContent)
   }
 })
-
-test.serial('should reject if task queue is full', async (t) => {
-  if (napiVersion < 4) {
-    t.is(bindings.testExecuteTokioReadfile, undefined)
-    return
-  }
-  try {
-    await Promise.all(
-      Array.from({ length: 1000 * 1000 }).map((_) =>
-        bindings.testExecuteTokioReadfile(filepath),
-      ),
-    )
-    throw new TypeError('Unreachable')
-  } catch (e) {
-    t.snapshot({ code: e.code, message: e.message })
-  }
-})

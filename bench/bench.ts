@@ -10,6 +10,7 @@ import { benchGetArray } from './get-array-from-js'
 import { benchGetSetProperty } from './get-set-property'
 import { benchNoop } from './noop'
 import { benchPlus } from './plus'
+import { benchQuery } from './query'
 
 async function run() {
   const output = [
@@ -20,6 +21,7 @@ async function run() {
     await benchGetArray(),
     await benchGetSetProperty(),
     await benchAsync(),
+    await benchQuery(),
   ]
     .map(formatSummary)
     .join('\n')
