@@ -5,6 +5,11 @@ use std::mem;
 use std::os::raw::{c_char, c_void};
 use std::ptr;
 
+#[cfg(all(feature = "tokio_rt", feature = "napi4"))]
+use once_cell::sync::Lazy;
+#[cfg(all(feature = "tokio_rt", feature = "napi4"))]
+use tokio::{runtime::Handle, sync::mpsc};
+
 use crate::{
   async_work::{self, AsyncWorkPromise},
   check_status,
@@ -24,18 +29,43 @@ use crate::js_values::{De, Ser};
 use crate::promise;
 #[cfg(feature = "napi4")]
 use crate::threadsafe_function::{ThreadSafeCallContext, ThreadsafeFunction};
-#[cfg(all(feature = "tokio_rt", feature = "napi4"))]
-use crate::tokio_rt::{get_tokio_sender, Message};
 #[cfg(all(feature = "serde-json"))]
 use serde::de::DeserializeOwned;
 #[cfg(all(feature = "serde-json"))]
 use serde::Serialize;
 #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
 use std::future::Future;
-#[cfg(all(feature = "tokio_rt", feature = "napi4"))]
-use tokio::sync::mpsc::error::TrySendError;
 
 pub type Callback = extern "C" fn(sys::napi_env, sys::napi_callback_info) -> sys::napi_value;
+
+#[cfg(all(feature = "tokio_rt", feature = "napi4"))]
+static RT: Lazy<(Handle, mpsc::Sender<()>)> = Lazy::new(|| {
+  let rt = tokio::runtime::Runtime::new();
+  let (tx, mut rx) = mpsc::channel::<()>(1);
+  rt.map(|rt| {
+    let h = rt.handle();
+    let handle = h.clone();
+    handle.spawn(async move {
+      if rx.recv().await.is_some() {
+        rt.shutdown_background();
+      }
+    });
+
+    (handle, tx)
+  })
+  .expect("Create tokio runtime failed")
+});
+
+#[doc(hidden)]
+#[cfg(all(feature = "tokio_rt", feature = "napi4"))]
+#[inline(never)]
+pub fn shutdown_tokio_rt() {
+  let sender = &RT.1;
+  sender
+    .clone()
+    .try_send(())
+    .expect("Shutdown tokio runtime failed");
+}
 
 #[derive(Clone, Copy)]
 /// `Env` is used to represent a context that the underlying N-API implementation can use to persist VM-specific state.
@@ -1093,6 +1123,8 @@ impl Env {
     fut: F,
     resolver: R,
   ) -> Result<JsObject> {
+    let handle = &RT.0;
+
     let mut raw_promise = ptr::null_mut();
     let mut raw_deferred = ptr::null_mut();
     check_status!(unsafe {
@@ -1103,19 +1135,7 @@ impl Env {
     let future_promise =
       promise::FuturePromise::create(raw_env, raw_deferred, Box::from(resolver))?;
     let future_to_resolve = promise::resolve_from_future(future_promise.start()?, fut);
-    let sender = get_tokio_sender().clone();
-    sender
-      .try_send(Message::Task(Box::pin(future_to_resolve)))
-      .map_err(|e| match e {
-        TrySendError::Full(_) => Error::new(
-          Status::QueueFull,
-          "Failed to run future: no available capacity".to_owned(),
-        ),
-        TrySendError::Closed(_) => Error::new(
-          Status::Closing,
-          "Failed to run future: receiver closed".to_string(),
-        ),
-      })?;
+    handle.spawn(future_to_resolve);
     Ok(unsafe { JsObject::from_raw_unchecked(self.0, raw_promise) })
   }
 

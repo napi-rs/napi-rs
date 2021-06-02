@@ -95,8 +95,7 @@ mod task;
 pub use cleanup_env::CleanupEnvHook;
 #[cfg(feature = "napi4")]
 pub mod threadsafe_function;
-#[cfg(all(feature = "tokio_rt", feature = "napi4"))]
-mod tokio_rt;
+
 mod version;
 #[cfg(target_os = "windows")]
 mod win_delay_load_hook;
@@ -112,9 +111,6 @@ pub use module::Module;
 pub use status::Status;
 pub use task::Task;
 pub use version::NodeVersion;
-
-#[cfg(all(feature = "tokio_rt", feature = "napi4"))]
-pub use tokio_rt::shutdown as shutdown_tokio_rt;
 
 #[cfg(feature = "serde-json")]
 #[macro_use]

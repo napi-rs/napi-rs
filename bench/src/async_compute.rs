@@ -51,8 +51,19 @@ fn bench_threadsafe_function(ctx: CallContext) -> Result<JsUndefined> {
   ctx.env.get_undefined()
 }
 
+#[js_function(1)]
+fn bench_tokio_future(ctx: CallContext) -> Result<JsObject> {
+  let buffer_ref = ctx.get::<JsBuffer>(0)?.into_ref()?;
+  ctx
+    .env
+    .execute_tokio_future(async move { Ok(buffer_ref.len()) }, |env, v: usize| {
+      env.create_uint32(v as u32 + 1)
+    })
+}
+
 pub fn register_js(exports: &mut JsObject) -> Result<()> {
   exports.create_named_method("benchAsyncTask", bench_async_task)?;
   exports.create_named_method("benchThreadsafeFunction", bench_threadsafe_function)?;
+  exports.create_named_method("benchTokioFuture", bench_tokio_future)?;
   Ok(())
 }

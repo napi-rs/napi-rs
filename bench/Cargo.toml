@@ -8,7 +8,7 @@ version = "0.1.0"
 crate-type = ["cdylib"]
 
 [dependencies]
-napi = {path = "../napi", features = ["napi4", "serde-json"]}
+napi = {path = "../napi", features = ["tokio_rt", "serde-json"]}
 napi-derive = {path = "../napi-derive"}
 serde = "1"
 serde_json = "1"

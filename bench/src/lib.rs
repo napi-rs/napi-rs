@@ -18,6 +18,7 @@ mod get_set_property;
 mod get_value_from_js;
 mod noop;
 mod plus;
+mod query;
 
 #[module_exports]
 fn init(mut exports: JsObject, env: Env) -> Result<()> {
@@ -29,6 +30,7 @@ fn init(mut exports: JsObject, env: Env) -> Result<()> {
   get_set_property::register_js(&mut exports, &env)?;
   create_array::register_js(&mut exports)?;
   get_value_from_js::register_js(&mut exports)?;
+  query::register_js(&mut exports)?;
 
   Ok(())
 }

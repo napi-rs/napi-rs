@@ -1,7 +1,6 @@
+use std::future::Future;
 use std::os::raw::{c_char, c_void};
 use std::ptr;
-
-use futures::prelude::*;
 
 use crate::{check_status, sys, Env, JsError, NapiRaw, Result};
 
