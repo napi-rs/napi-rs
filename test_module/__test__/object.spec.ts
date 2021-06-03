@@ -236,7 +236,7 @@ test('is promise', (t) => {
   t.true(bindings.testIsPromise(Promise.reject().catch(() => {})))
   t.true(
     bindings.testIsPromise(
-      new Promise((resolve) => {
+      new Promise<void>((resolve) => {
         resolve()
       }),
     ),
