@@ -37,6 +37,9 @@ export class PrePublishCommand extends Command {
   @Command.Boolean('--dry-run')
   isDryRun = false
 
+  @Command.Boolean('--skip-gh-release')
+  skipGHRelease = false
+
   @Command.Path('prepublish')
   async execute() {
     const { packageJsonPath, platforms, version, packageName, binaryName } =
@@ -69,11 +72,6 @@ export class PrePublishCommand extends Command {
       const filename = `${binaryName}.${platformDetail.platformArchABI}.node`
       const dstPath = join(pkgDir, filename)
 
-      debug(
-        `Start upload [${chalk.greenBright(
-          dstPath,
-        )}] to Github release, [${chalk.greenBright(pkgInfo.tag)}]`,
-      )
       if (!this.isDryRun) {
         if (!(await existsAsync(dstPath))) {
           console.warn(`[${chalk.yellowBright(dstPath)}] is not existed`)
@@ -83,27 +81,45 @@ export class PrePublishCommand extends Command {
           cwd: pkgDir,
           env: process.env,
         })
-        const putasset = require('putasset')
-        try {
-          const downloadUrl = await putasset(process.env.GITHUB_TOKEN, {
-            owner,
-            repo,
-            tag: pkgInfo.tag,
-            filename: dstPath,
-          })
-          console.info(`${chalk.green(dstPath)} upload success`)
-          console.info(`Download url: ${chalk.blueBright(downloadUrl)}`)
-        } catch (e) {
+        if (!this.skipGHRelease) {
           debug(
-            `Param: ${{ owner, repo, tag: pkgInfo.tag, filename: dstPath }}`,
+            `Start upload [${chalk.greenBright(
+              dstPath,
+            )}] to Github release, [${chalk.greenBright(pkgInfo.tag)}]`,
           )
-          console.error(e)
+          const putasset = require('putasset')
+          try {
+            const downloadUrl = await putasset(process.env.GITHUB_TOKEN, {
+              owner,
+              repo,
+              tag: pkgInfo.tag,
+              filename: dstPath,
+            })
+            console.info(`${chalk.green(dstPath)} upload success`)
+            console.info(`Download url: ${chalk.blueBright(downloadUrl)}`)
+          } catch (e) {
+            debug(
+              `Param: ${JSON.stringify(
+                { owner, repo, tag: pkgInfo.tag, filename: dstPath },
+                null,
+                2,
+              )}`,
+            )
+            console.error(e)
+          }
         }
       }
     }
   }
 
   private async createGhRelease(packageName: string, version: string) {
+    if (this.skipGHRelease) {
+      return {
+        owner: null,
+        repo: null,
+        pkgInfo: { name: null, version: null, tag: null },
+      }
+    }
     const headCommit = (await spawn('git log -1 --pretty=%B'))
       .toString('utf8')
       .trim()
@@ -144,7 +160,13 @@ export class PrePublishCommand extends Command {
           tag_name: pkgInfo.tag,
         })
       } catch (e) {
-        debug(`Params: ${{ owner, repo, tag_name: pkgInfo.tag }}`)
+        debug(
+          `Params: ${JSON.stringify(
+            { owner, repo, tag_name: pkgInfo.tag },
+            null,
+            2,
+          )}`,
+        )
         console.error(e)
       }
     }
