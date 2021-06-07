@@ -10,7 +10,25 @@ A minimal library for building compiled `Node.js` add-ons in `Rust`.
   <a href="https://www.npmjs.com/package/@napi-rs/cli"><img src="https://img.shields.io/npm/v/@napi-rs/cli.svg"></img></a>
 </p>
 
-# Platform Support
+## Ecosystem
+
+<p align="center">
+  <a href="https://www.prisma.io/" target="_blank">
+    <img alt="Prisma" src="./images/prisma.svg">
+  </a>
+  &nbsp;
+  &nbsp;
+  <a href="https://swc.rs/" target="_blank">
+    <img alt="swc" src="https://raw.githubusercontent.com/swc-project/logo/master/swc.png" width="200">
+  </a>
+  &nbsp;
+  &nbsp;
+  <a href="https://parceljs.org/" target="_blank">
+    <img alt="Parcel" src="https://user-images.githubusercontent.com/19409/31321658-f6aed0f2-ac3d-11e7-8100-1587e676e0ec.png" width="280">
+  </a>
+</p>
+
+## Platform Support
 
 ![Lint](https://github.com/napi-rs/napi-rs/workflows/Lint/badge.svg)
 ![Linux N-API@3](https://github.com/napi-rs/napi-rs/workflows/Linux%20N-API@3/badge.svg)
@@ -183,6 +201,11 @@ To run tests:
 yarn build:test
 yarn test
 ```
+
+## Related projects
+
+- [neon](https://www.neon-bindings.com)
+- [node-bindgen](https://github.com/infinyon/node-bindgen)
 
 ## Features table
 
