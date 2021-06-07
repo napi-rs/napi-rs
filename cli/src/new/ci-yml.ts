@@ -2,7 +2,7 @@ const OLDEST_LTS_NODE = 10
 const LATEST_LTS_NODE = 14
 const SUPPORTED_NODE_VERSIONS = [10, 12, 14, 15]
 
-const OS_LINUX = 'ubuntu-latest'
+const OS_LINUX = 'ubuntu-18.04'
 const OS_OSX = 'macos-latest'
 const OS_WINDOWS = 'windows-latest'
 

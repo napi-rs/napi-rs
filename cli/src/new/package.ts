@@ -7,14 +7,16 @@ export const createPackageJson = (
 ) => {
   const pkgContent = {
     name,
+    version: '0.0.0',
     napi: {
       name: binaryName,
     },
+    license: 'MIT',
     dependencies: {
-      '@node-rs/helper': '^1.0.0',
+      '@node-rs/helper': '^1.1.0',
     },
     devDependencies: {
-      '@napi-rs/cli': '^1.0.0',
+      '@napi-rs/cli': '^1.1.0',
     },
     engines: {
       node: '>= 10',
