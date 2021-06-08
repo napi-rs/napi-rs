@@ -44,6 +44,13 @@ struct AnObjectTwo {
   r: i128,
 }
 
+#[derive(Serialize, Debug, Deserialize)]
+struct BytesObject<'a> {
+  #[serde(with = "serde_bytes")]
+  code: &'a [u8],
+  map: String,
+}
+
 macro_rules! make_test {
   ($name:ident, $val:expr) => {
     #[js_function]
@@ -103,6 +110,13 @@ make_test!(make_object, {
 const NUMBER_BYTES: &[u8] = &[255u8, 254, 253];
 
 make_test!(make_buff, { serde_bytes::Bytes::new(NUMBER_BYTES) });
+
+make_test!(make_bytes_struct, {
+  BytesObject {
+    code: &[0, 1, 2, 3],
+    map: "source map".to_owned(),
+  }
+});
 
 macro_rules! make_expect {
   ($name:ident, $val:expr, $val_type:ty) => {
@@ -189,6 +203,7 @@ pub fn register_js(exports: &mut JsObject) -> Result<()> {
   exports.create_named_method("make_obj", make_obj)?;
   exports.create_named_method("make_object", make_object)?;
   exports.create_named_method("make_map", make_map)?;
+  exports.create_named_method("make_bytes_struct", make_bytes_struct)?;
 
   exports.create_named_method("expect_hello_world", expect_hello_world)?;
   exports.create_named_method("expect_obj", expect_obj)?;

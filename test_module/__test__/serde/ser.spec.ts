@@ -12,6 +12,7 @@ const testFunc = [
   'make_buff',
   'make_obj',
   'make_map',
+  'make_bytes_struct',
 ]
 
 if (napiVersion >= 6) {
@@ -24,3 +25,10 @@ for (const func of testFunc) {
     t.snapshot(bindings[func]())
   })
 }
+
+test('serialize make_bytes_struct', (t) => {
+  t.deepEqual(bindings.make_bytes_struct(), {
+    code: Buffer.from([0, 1, 2, 3]),
+    map: 'source map',
+  })
+})
