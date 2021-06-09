@@ -1,4 +1,4 @@
-use napi::{CallContext, JsBoolean, JsObject, JsUnknown, Result};
+use napi::{CallContext, ContextlessResult, Env, JsBoolean, JsObject, JsString, JsUnknown, Result};
 
 #[js_function(2)]
 pub fn instanceof(ctx: CallContext) -> Result<JsBoolean> {
@@ -32,11 +32,19 @@ pub fn cast_unknown(ctx: CallContext) -> Result<JsObject> {
   Ok(unsafe { arg.cast::<JsObject>() })
 }
 
+#[contextless_function]
+fn get_env_variable(env: Env) -> ContextlessResult<JsString> {
+  env
+    .create_string_from_std(std::env::var("npm_package_name").unwrap())
+    .map(Some)
+}
+
 pub fn register_js(exports: &mut JsObject) -> Result<()> {
   exports.create_named_method("instanceof", instanceof)?;
   exports.create_named_method("isTypedarray", is_typedarray)?;
   exports.create_named_method("isDataview", is_dataview)?;
   exports.create_named_method("strictEquals", strict_equals)?;
   exports.create_named_method("castUnknown", cast_unknown)?;
+  exports.create_named_method("getEnvVariable", get_env_variable)?;
   Ok(())
 }
