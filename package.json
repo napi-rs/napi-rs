@@ -63,7 +63,7 @@
     "@typescript-eslint/parser": "^4.26.1",
     "ava": "^3.15.0",
     "benny": "^3.6.15",
-    "c8": "^7.7.2",
+    "c8": "^7.7.3",
     "cross-env": "^7.0.3",
     "eslint": "^7.28.0",
     "eslint-config-prettier": "^8.3.0",
