@@ -41,7 +41,7 @@
     "lodash": "^4.17.21",
     "putasset": "^5.0.3",
     "toml": "^3.0.0",
-    "tslib": "^2.2.0"
+    "tslib": "^2.3.0"
   },
   "funding": {
     "type": "github",
