@@ -3,11 +3,11 @@ extern crate napi_derive;
 
 use napi::{Env, JsObject, Result};
 
-#[cfg(all(unix, not(target_env = "musl"), not(target_arch = "aarch64")))]
-#[global_allocator]
-static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
-
-#[cfg(all(windows, not(target_arch = "aarch64")))]
+#[cfg(all(
+  target_arch = "x86_64",
+  not(target_env = "musl"),
+  not(debug_assertions)
+))]
 #[global_allocator]
 static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 

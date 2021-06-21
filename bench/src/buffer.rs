@@ -2,7 +2,7 @@ use napi::{ContextlessResult, Env, JsBuffer, JsObject, Result};
 
 #[contextless_function]
 pub fn bench_create_buffer(env: Env) -> ContextlessResult<JsBuffer> {
-  let mut output = Vec::with_capacity(100000);
+  let mut output = Vec::with_capacity(1024);
   output.push(1);
   output.push(2);
   env

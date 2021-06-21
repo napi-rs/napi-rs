@@ -9,3 +9,6 @@ members = [
   "./bench",
   "./memory-testing",
 ]
+
+[profile.release]
+lto = true

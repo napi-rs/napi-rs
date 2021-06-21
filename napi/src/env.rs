@@ -1132,8 +1132,7 @@ impl Env {
     })?;
 
     let raw_env = self.0;
-    let future_promise =
-      promise::FuturePromise::create(raw_env, raw_deferred, Box::from(resolver))?;
+    let future_promise = promise::FuturePromise::create(raw_env, raw_deferred, resolver)?;
     let future_to_resolve = promise::resolve_from_future(future_promise.start()?, fut);
     handle.spawn(future_to_resolve);
     Ok(unsafe { JsObject::from_raw_unchecked(self.0, raw_promise) })
@@ -1286,6 +1285,7 @@ impl Env {
   /// }
   /// ```
   #[cfg(feature = "serde-json")]
+  #[allow(clippy::wrong_self_convention)]
   #[inline]
   pub fn to_js_value<T>(&self, node: &T) -> Result<JsUnknown>
   where
