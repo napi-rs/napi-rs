@@ -3,7 +3,7 @@ import b from 'benny'
 const { benchCreateBuffer } = require('./index.node')
 
 function createBuffer() {
-  const buf = Buffer.alloc(100000)
+  const buf = Buffer.allocUnsafe(1024)
   buf[0] = 1
   buf[1] = 2
   return buf

@@ -1,26 +1,25 @@
 use std::future::Future;
+use std::marker::PhantomData;
 use std::os::raw::{c_char, c_void};
 use std::ptr;
 
 use crate::{check_status, sys, Env, JsError, NapiRaw, Result};
 
-pub struct FuturePromise<T, V: NapiRaw> {
+pub struct FuturePromise<T, V: NapiRaw, F: FnOnce(&mut Env, T) -> Result<V>> {
   deferred: sys::napi_deferred,
   env: sys::napi_env,
   tsfn: sys::napi_threadsafe_function,
   async_resource_name: sys::napi_value,
-  resolver: Box<dyn FnOnce(&mut Env, T) -> Result<V>>,
+  resolver: F,
+  _data: PhantomData<T>,
+  _value: PhantomData<V>,
 }
 
-unsafe impl<T, V: NapiRaw> Send for FuturePromise<T, V> {}
+unsafe impl<T, V: NapiRaw, F: FnOnce(&mut Env, T) -> Result<V>> Send for FuturePromise<T, V, F> {}
 
-impl<T, V: NapiRaw> FuturePromise<T, V> {
+impl<T, V: NapiRaw, F: FnOnce(&mut Env, T) -> Result<V>> FuturePromise<T, V, F> {
   #[inline]
-  pub fn create(
-    env: sys::napi_env,
-    raw_deferred: sys::napi_deferred,
-    resolver: Box<dyn FnOnce(&mut Env, T) -> Result<V>>,
-  ) -> Result<Self> {
+  pub fn create(env: sys::napi_env, raw_deferred: sys::napi_deferred, resolver: F) -> Result<Self> {
     let mut async_resource_name = ptr::null_mut();
     let s = "napi_resolve_promise_from_future";
     check_status!(unsafe {
@@ -38,6 +37,8 @@ impl<T, V: NapiRaw> FuturePromise<T, V> {
       env,
       tsfn: ptr::null_mut(),
       async_resource_name,
+      _data: PhantomData,
+      _value: PhantomData,
     })
   }
 
@@ -57,8 +58,8 @@ impl<T, V: NapiRaw> FuturePromise<T, V> {
         1,
         ptr::null_mut(),
         None,
-        self_ref as *mut FuturePromise<T, V> as *mut c_void,
-        Some(call_js_cb::<T, V>),
+        self_ref as *mut FuturePromise<T, V, F> as *mut c_void,
+        Some(call_js_cb::<T, V, F>),
         &mut tsfn_value,
       )
     })?;
@@ -94,14 +95,14 @@ pub(crate) async fn resolve_from_future<T: Send, F: Future<Output = Result<T>>>(
   .expect("Failed to release thread safe function");
 }
 
-unsafe extern "C" fn call_js_cb<T, V: NapiRaw>(
+unsafe extern "C" fn call_js_cb<T, V: NapiRaw, F: FnOnce(&mut Env, T) -> Result<V>>(
   raw_env: sys::napi_env,
   _js_callback: sys::napi_value,
   context: *mut c_void,
   data: *mut c_void,
 ) {
   let mut env = Env::from_raw(raw_env);
-  let future_promise = Box::from_raw(context as *mut FuturePromise<T, V>);
+  let future_promise = Box::from_raw(context as *mut FuturePromise<T, V, F>);
   let value = Box::from_raw(data as *mut Result<T>);
   let resolver = future_promise.resolver;
   let deferred = future_promise.deferred;

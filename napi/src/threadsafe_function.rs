@@ -201,7 +201,7 @@ impl<T: 'static, ES: ErrorStrategy::T> ThreadsafeFunction<T, ES> {
 
     let initial_thread_count = 1usize;
     let mut raw_tsfn = ptr::null_mut();
-    let ptr = Box::into_raw(Box::new(callback)) as *mut _;
+    let ptr = Box::into_raw(Box::new(callback)) as *mut c_void;
     check_status!(unsafe {
       sys::napi_create_threadsafe_function(
         env,
@@ -389,7 +389,7 @@ unsafe extern "C" fn call_js_cb<T: 'static, V: NapiRaw, R, ES>(
       );
     }
     Err(e) if ES::VALUE == ErrorStrategy::Fatal::VALUE => {
-      panic!("{:?}", e);
+      panic!("{}", e);
     }
     Err(e) => {
       status = sys::napi_call_function(
@@ -402,6 +402,9 @@ unsafe extern "C" fn call_js_cb<T: 'static, V: NapiRaw, R, ES>(
       );
     }
   }
+  if status == sys::Status::napi_ok {
+    return;
+  }
   if status == sys::Status::napi_pending_exception {
     let mut error_result = ptr::null_mut();
     assert_eq!(
@@ -412,7 +415,7 @@ unsafe extern "C" fn call_js_cb<T: 'static, V: NapiRaw, R, ES>(
       sys::napi_fatal_exception(raw_env, error_result),
       sys::Status::napi_ok
     );
-  } else if status != sys::Status::napi_ok {
+  } else {
     let error_code: Status = status.into();
     let error_code_string = format!("{:?}", error_code);
     let mut error_code_value = ptr::null_mut();
