@@ -65,7 +65,7 @@
     "benny": "^3.6.15",
     "c8": "^7.7.3",
     "cross-env": "^7.0.3",
-    "eslint": "^7.28.0",
+    "eslint": "^7.29.0",
     "eslint-config-prettier": "^8.3.0",
     "eslint-plugin-import": "^2.23.4",
     "eslint-plugin-prettier": "^3.4.0",
