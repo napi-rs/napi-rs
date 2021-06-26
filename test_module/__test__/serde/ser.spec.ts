@@ -32,3 +32,9 @@ test('serialize make_bytes_struct', (t) => {
     map: 'source map',
   })
 })
+
+test('makes enum from rust to js', (t) => {
+  t.deepEqual(bindings.make_enum(), {
+    A: { value: 15 },
+  })
+})
