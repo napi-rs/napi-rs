@@ -118,13 +118,16 @@ make_test!(make_bytes_struct, {
   }
 });
 
-#[derive(Serialize, Deserialize)]
-enum MyEnum {
-  A { value: u32 },
-  B { value: u32 },
-}
-
-make_test!(make_enum, MyEnum::A { value: 15 });
+make_test!(make_empty_enum, TypeEnum::Empty);
+make_test!(make_tuple_enum, TypeEnum::Tuple(1, "2".to_owned()));
+make_test!(
+  make_struct_enum,
+  TypeEnum::Struct {
+    a: 127,
+    b: vec![1, 2, 3]
+  }
+);
+make_test!(make_value_enum, TypeEnum::Value(vec!['a', 'b', 'c']));
 
 macro_rules! make_expect {
   ($name:ident, $val:expr, $val_type:ty) => {
@@ -212,7 +215,11 @@ pub fn register_js(exports: &mut JsObject) -> Result<()> {
   exports.create_named_method("make_object", make_object)?;
   exports.create_named_method("make_map", make_map)?;
   exports.create_named_method("make_bytes_struct", make_bytes_struct)?;
-  exports.create_named_method("make_enum", make_enum)?;
+
+  exports.create_named_method("make_empty_enum", make_empty_enum)?;
+  exports.create_named_method("make_tuple_enum", make_tuple_enum)?;
+  exports.create_named_method("make_struct_enum", make_struct_enum)?;
+  exports.create_named_method("make_value_enum", make_value_enum)?;
 
   exports.create_named_method("expect_hello_world", expect_hello_world)?;
   exports.create_named_method("expect_obj", expect_obj)?;
