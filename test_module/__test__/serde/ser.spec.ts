@@ -38,7 +38,9 @@ test('makes empty enum from rust to js', (t) => {
 })
 
 test('makes tuple enum from rust to js', (t) => {
-  t.deepEqual(bindings.make_tuple_enum(), [1, '2'])
+  t.deepEqual(bindings.make_tuple_enum(), {
+    Tuple: [1, '2'],
+  })
 })
 
 test('makes struct enum from rust to js', (t) => {
