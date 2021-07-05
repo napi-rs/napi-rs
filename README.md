@@ -1,5 +1,7 @@
 # napi-rs
 
+<a href="https://stakes.social/0x2C9F5c3ebC01A45D34198229E60eE186eCDc5C5E"><img src="https://badge.devprotocol.xyz/0x2C9F5c3ebC01A45D34198229E60eE186eCDc5C5E/descriptive" alt="Stake to support us"></img></a>
+
 > This project was initialized from [xray](https://github.com/atom/xray)
 
 A minimal library for building compiled `Node.js` add-ons in `Rust`.
