@@ -55,7 +55,7 @@
   },
   "devDependencies": {
     "@types/debug": "^4.1.6",
-    "@types/inquirer": "^7.3.2",
+    "@types/inquirer": "^7.3.3",
     "@types/lodash": "^4.14.170",
     "@types/node": "^16.0.0",
     "@types/sinon": "^10.0.2",
