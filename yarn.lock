@@ -1128,10 +1128,10 @@
   resolved "https://registry.npmjs.org/@types/debug/-/debug-4.1.6.tgz#0b7018723084918a865eff99249c490505df2163"
   integrity sha512-7fDOJFA/x8B+sO1901BmHlf5dE1cxBU8mRXj8QOEDnn16hhGJv/IHxJtZhvsabZsIMn0eLIyeOKAeqSNJJYTpA==
 
-"@types/dockerode@^3.2.3":
-  version "3.2.3"
-  resolved "https://registry.npmjs.org/@types/dockerode/-/dockerode-3.2.3.tgz#ae363b5bfa9f2989dab07f6e7ae3791e6431d145"
-  integrity sha512-nZRhpSxm3PYianRBcRExcHxDvEzYHUPfGCnRL5Fe4/fSEZbtxrRNJ7okzCans3lXxj2t298EynFHGTnTC2f1Iw==
+"@types/dockerode@^3.2.4":
+  version "3.2.4"
+  resolved "https://registry.npmjs.org/@types/dockerode/-/dockerode-3.2.4.tgz#04ac305db3cb10dd9f4e56d6340225d510d897fd"
+  integrity sha512-CSpvSohBQib0KCyg99h6RSmLZ4V9wF9hx6vT2FatplBNQpRaUzJh/XGjesRPzvqOlpp/Ol7aLFEgiE02nj/m2g==
   dependencies:
     "@types/node" "*"
 
@@ -4441,7 +4441,6 @@ minipass-fetch@^1.3.0, minipass-fetch@^1.3.2:
   resolved "https://registry.npmjs.org/minipass-fetch/-/minipass-fetch-1.3.3.tgz#34c7cea038c817a8658461bf35174551dce17a0a"
   integrity sha512-akCrLDWfbdAWkMLBxJEeWTdNsjML+dt5YgOI4gJ53vuO0vrmYQkUPxa6j6V65s9CcePIr2SSWqjT2EcrNseryQ==
   dependencies:
-    encoding "^0.1.12"
     minipass "^3.1.0"
     minipass-sized "^1.0.3"
     minizlib "^2.0.0"
