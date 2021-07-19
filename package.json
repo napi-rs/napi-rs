@@ -57,7 +57,7 @@
     "@types/debug": "^4.1.6",
     "@types/inquirer": "^7.3.3",
     "@types/lodash": "^4.14.171",
-    "@types/node": "^16.3.1",
+    "@types/node": "^16.3.3",
     "@types/sinon": "^10.0.2",
     "@typescript-eslint/eslint-plugin": "^4.28.4",
     "@typescript-eslint/parser": "^4.28.4",
