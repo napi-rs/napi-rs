@@ -1128,10 +1128,10 @@
   resolved "https://registry.npmjs.org/@types/debug/-/debug-4.1.6.tgz#0b7018723084918a865eff99249c490505df2163"
   integrity sha512-7fDOJFA/x8B+sO1901BmHlf5dE1cxBU8mRXj8QOEDnn16hhGJv/IHxJtZhvsabZsIMn0eLIyeOKAeqSNJJYTpA==
 
-"@types/dockerode@^3.2.4":
-  version "3.2.4"
-  resolved "https://registry.npmjs.org/@types/dockerode/-/dockerode-3.2.4.tgz#04ac305db3cb10dd9f4e56d6340225d510d897fd"
-  integrity sha512-CSpvSohBQib0KCyg99h6RSmLZ4V9wF9hx6vT2FatplBNQpRaUzJh/XGjesRPzvqOlpp/Ol7aLFEgiE02nj/m2g==
+"@types/dockerode@^3.2.6":
+  version "3.2.6"
+  resolved "https://registry.npmjs.org/@types/dockerode/-/dockerode-3.2.6.tgz#b685140753f42a0670a60908d85e1779e75d5a75"
+  integrity sha512-rz50DbrfQGsKOlkLbkknXNyurl2z/yR0CmV/OhzPW3Ef3jbIGoIE+Rd+2UC17gNVrnDl+mpejCI7RqQNe2bEbw==
   dependencies:
     "@types/node" "*"
 
