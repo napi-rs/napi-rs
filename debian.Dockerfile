@@ -12,5 +12,8 @@ RUN wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add - && \
   llvm \
   clang \
   rcs \
+  gcc-aarch64-linux-gnu \
+  g++-aarch64-linux-gnu \
   ninja-build && \
-  curl https://sh.rustup.rs -sSf | sh -s -- -y
+  curl https://sh.rustup.rs -sSf | sh -s -- -y && \
+  rustup target add aarch64-unknown-linux-gnu
