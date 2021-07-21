@@ -1,8 +1,8 @@
-name: Linux-aarch64
+name: Linux-aarch64-musl
 
 env:
   DEBUG: 'napi:*'
-  CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: 'aarch64-linux-gnu-gcc-9'
+  CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: 'aarch64-linux-musl-gcc'
 
 on:
   push:
@@ -59,26 +59,31 @@ jobs:
           path: node_modules
           key: npm-cache-linux-aarch64-gnu-node@14-${{ hashFiles('yarn.lock') }}
 
-      - name: Install cross compile toolchain
-        run: sudo apt-get install gcc-9-aarch64-linux-gnu g++-9-aarch64-linux-gnu -y
-
       - name: Install dependencies
         run: yarn install --frozen-lockfile --ignore-platform --registry https://registry.npmjs.org --network-timeout 300000
 
       - name: 'Build TypeScript'
         run: yarn build
 
+      - name: Pull docker image
+        run: |
+          docker login -u $DOCKER_USERNAME -p $DOCKER_PASSWORD $DOCKER_REGISTRY_URL
+          docker pull $DOCKER_REGISTRY_URL/${{ github.repository }}/nodejs-rust:lts-alpine
+          docker tag $DOCKER_REGISTRY_URL/${{ github.repository }}/nodejs-rust:lts-alpine builder
+        env:
+          DOCKER_REGISTRY_URL: ghcr.io
+          DOCKER_USERNAME: ${{ github.actor }}
+          DOCKER_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Cross build native tests
-        run: yarn build:test:aarch64
+        run: |
+          docker run -v ~/.cargo/git:/root/.cargo/git -v ~/.cargo/registry:/root/.cargo/registry -v $(pwd):/napi-rs -w /napi-rs -e CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-musl-gcc builder yarn --cwd ./test_module build --target aarch64-unknown-linux-musl
 
       - name: Setup and run tests
-        uses: docker://multiarch/ubuntu-core:arm64-focal
+        uses: docker://multiarch/alpine:aarch64-latest-stable
         with:
           args: >
             sh -c "
-              apt-get update && \
-              apt-get install -y ca-certificates gnupg2 curl && \
-              curl -sL https://deb.nodesource.com/setup_14.x | bash - && \
-              apt-get install -y nodejs && \
-              npm test
+              apk add nodejs yarn && \
+              yarn test
             "
