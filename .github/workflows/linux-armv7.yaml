@@ -63,7 +63,7 @@ jobs:
         run: sudo apt-get install gcc-9-arm-linux-gnueabihf -y
 
       - name: Install dependencies
-        run: yarn install --frozen-lockfile --registry https://registry.npmjs.org --network-timeout 300000
+        run: yarn install --frozen-lockfile --ignore-platform --registry https://registry.npmjs.org --network-timeout 300000
 
       - name: 'Build TypeScript'
         run: yarn build
