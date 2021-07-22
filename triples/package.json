@@ -12,7 +12,7 @@
     "registry": "https://registry.npmjs.org/",
     "access": "public"
   },
-  "files": ["index.js", "index.d.ts", "target-list"],
+  "files": ["index.js", "index.d.ts"],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/napi-rs/napi-rs.git"

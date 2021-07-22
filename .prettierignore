@@ -1,3 +1,4 @@
 target
 node_modules
 scripts
+triples/index.js

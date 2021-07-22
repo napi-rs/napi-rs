@@ -1,5 +1,8 @@
 # `@napi-rs/triples`
 
+[![install size](https://packagephobia.com/badge?p=@napi-rs/triples)](https://packagephobia.com/result?p=@napi-rs/triples)
+[![Downloads](https://img.shields.io/npm/dm/@napi-rs/triples.svg?sanitize=true)](https://npmcharts.com/compare/@napi-rs/triples?minimal=true)
+
 > Rust build triples definitions
 
 ## Usage
