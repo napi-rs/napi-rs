@@ -6,12 +6,8 @@ interface Triple {
   raw: string
 }
 
-declare const Triples: Triple[] & {
-  platformArchTriples: {
-    [index: string]: {
-      [index: string]: Triple[]
-    }
+export const platformArchTriples: {
+  [index: string]: {
+    [index: string]: Triple[]
   }
 }
-
-export = Triples
