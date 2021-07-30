@@ -16,17 +16,23 @@ A minimal library for building compiled `Node.js` add-ons in `Rust`.
 
 <p align="center">
   <a href="https://www.prisma.io/" target="_blank">
-    <img alt="Prisma" src="./images/prisma.svg">
+    <img alt="Prisma" src="./images/prisma.svg" height="50px">
   </a>
   &nbsp;
   &nbsp;
   <a href="https://swc.rs/" target="_blank">
-    <img alt="swc" src="https://raw.githubusercontent.com/swc-project/logo/master/swc.png" width="200">
+    <img alt="swc" src="https://raw.githubusercontent.com/swc-project/logo/master/swc.png" height="50px">
   </a>
   &nbsp;
   &nbsp;
   <a href="https://parceljs.org/" target="_blank">
-    <img alt="Parcel" src="https://user-images.githubusercontent.com/19409/31321658-f6aed0f2-ac3d-11e7-8100-1587e676e0ec.png" width="280">
+    <img alt="Parcel" src="https://user-images.githubusercontent.com/19409/31321658-f6aed0f2-ac3d-11e7-8100-1587e676e0ec.png" height="50px">
+  </a>
+  &nbsp;
+  <a href="https://nextjs.org/">
+    <img alt="next.js" src="https://assets.vercel.com/image/upload/v1607554385/repositories/next-js/next-logo.png" height="50px">
+    &nbsp;
+    <img alt="nextjs.svg" src="./images/nextjs.svg" height="50px">
   </a>
 </p>
 
