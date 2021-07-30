@@ -135,8 +135,8 @@ fn test_delete_element(ctx: CallContext) -> Result<JsBoolean> {
 #[js_function(1)]
 fn test_define_properties(ctx: CallContext) -> Result<JsUndefined> {
   let mut obj = ctx.get::<JsObject>(0)?;
-  let add_method = Property::new(&ctx.env, "add")?.with_method(add);
-  let readonly_property = Property::new(&ctx.env, "ro")?.with_getter(readonly_getter);
+  let add_method = Property::new(ctx.env, "add")?.with_method(add);
+  let readonly_property = Property::new(ctx.env, "ro")?.with_getter(readonly_getter);
   let properties = vec![add_method, readonly_property];
   obj.define_properties(&properties)?;
   obj.set_named_property("count", ctx.env.create_int32(0)?)?;

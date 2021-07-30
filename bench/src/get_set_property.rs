@@ -44,16 +44,16 @@ pub fn register_js(exports: &mut JsObject, env: &Env) -> Result<()> {
     "TestClass",
     test_class_constructor,
     &[
-      Property::new(&env, "miterNative")?
+      Property::new(env, "miterNative")?
         .with_getter(get_miter_native)
         .with_setter(set_miter_native),
-      Property::new(&env, "miter")?
+      Property::new(env, "miter")?
         .with_getter(get_miter)
         .with_setter(set_miter),
-      Property::new(&env, "lineJoinNative")?
+      Property::new(env, "lineJoinNative")?
         .with_getter(get_line_join_native)
         .with_setter(set_line_join_native),
-      Property::new(&env, "lineJoin")?
+      Property::new(env, "lineJoin")?
         .with_getter(get_line_join)
         .with_setter(set_line_join),
     ],

@@ -8,8 +8,8 @@ struct NativeClass {
 
 #[js_function(1)]
 fn create_test_class(ctx: CallContext) -> Result<JsFunction> {
-  let add_count_method = Property::new(&ctx.env, "addCount")?.with_method(add_count);
-  let add_native_count = Property::new(&ctx.env, "addNativeCount")?.with_method(add_native_count);
+  let add_count_method = Property::new(ctx.env, "addCount")?.with_method(add_count);
+  let add_native_count = Property::new(ctx.env, "addNativeCount")?.with_method(add_native_count);
   let properties = vec![add_count_method, add_native_count];
   ctx
     .env
@@ -47,8 +47,8 @@ fn add_native_count(ctx: CallContext) -> Result<JsNumber> {
 
 #[js_function(1)]
 fn new_test_class(ctx: CallContext) -> Result<JsObject> {
-  let add_count_method = Property::new(&ctx.env, "addCount")?.with_method(add_count);
-  let add_native_count = Property::new(&ctx.env, "addNativeCount")?.with_method(add_native_count);
+  let add_count_method = Property::new(ctx.env, "addCount")?.with_method(add_count);
+  let add_native_count = Property::new(ctx.env, "addNativeCount")?.with_method(add_native_count);
   let properties = vec![add_count_method, add_native_count];
   let test_class =
     ctx
