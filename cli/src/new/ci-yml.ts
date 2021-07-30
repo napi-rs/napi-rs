@@ -94,19 +94,19 @@ export const createGithubActionsCIYml = (
           command: generate-lockfile
 
       - name: Cache cargo registry
-        uses: actions/cache@v1
+        uses: actions/cache@v2
         with:
           path: ~/.cargo/registry
           key: stable-\${{ matrix.os }}-node@${LATEST_LTS_NODE}-cargo-registry-trimmed-\${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache cargo index
-        uses: actions/cache@v1
+        uses: actions/cache@v2
         with:
           path: ~/.cargo/git
           key: stable-\${{ matrix.os }}-node@${LATEST_LTS_NODE}-cargo-index-trimmed-\${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache NPM dependencies
-        uses: actions/cache@v1
+        uses: actions/cache@v2
         with:
           path: node_modules
           key: npm-cache-\${{ matrix.os }}-node@${LATEST_LTS_NODE}-\${{ hashFiles('yarn.lock') }}
@@ -159,19 +159,19 @@ export const createGithubActionsCIYml = (
           command: generate-lockfile
 
       - name: Cache cargo registry
-        uses: actions/cache@v1
+        uses: actions/cache@v2
         with:
           path: ~/.cargo/registry
           key: stable-node-alpine-@${OLDEST_LTS_NODE}-cargo-registry-trimmed-\${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache cargo index
-        uses: actions/cache@v1
+        uses: actions/cache@v2
         with:
           path: ~/.cargo/git
           key: stable-node-alpine-@${OLDEST_LTS_NODE}-cargo-index-trimmed-\${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache NPM dependencies
-        uses: actions/cache@v1
+        uses: actions/cache@v2
         with:
           path: node_modules
           key: npm-cache-alpine-node@${OLDEST_LTS_NODE}-\${{ hashFiles('yarn.lock') }}
@@ -218,19 +218,19 @@ export const createGithubActionsCIYml = (
           command: generate-lockfile
 
       - name: Cache cargo registry
-        uses: actions/cache@v1
+        uses: actions/cache@v2
         with:
           path: ~/.cargo/registry
           key: stable-linux-arm7-gnu-node@${LATEST_LTS_NODE}-cargo-registry-trimmed-\${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache cargo index
-        uses: actions/cache@v1
+        uses: actions/cache@v2
         with:
           path: ~/.cargo/git
           key: stable-linux-arm7-gnu-node@${LATEST_LTS_NODE}-cargo-index-trimmed-\${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache NPM dependencies
-        uses: actions/cache@v1
+        uses: actions/cache@v2
         with:
           path: node_modules
           key: npm-cache-linux-arm7-gnu-node@${LATEST_LTS_NODE}-\${{ hashFiles('yarn.lock') }}
@@ -288,19 +288,19 @@ export const createGithubActionsCIYml = (
           command: generate-lockfile
 
       - name: Cache cargo registry
-        uses: actions/cache@v1
+        uses: actions/cache@v2
         with:
           path: ~/.cargo/registry
           key: stable-linux-aarch64-gnu-node@${LATEST_LTS_NODE}-cargo-registry-trimmed-\${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache cargo index
-        uses: actions/cache@v1
+        uses: actions/cache@v2
         with:
           path: ~/.cargo/git
           key: stable-linux-aarch64-gnu-node@${LATEST_LTS_NODE}-cargo-index-trimmed-\${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache NPM dependencies
-        uses: actions/cache@v1
+        uses: actions/cache@v2
         with:
           path: node_modules
           key: npm-cache-linux-aarch64-gnu-node@${LATEST_LTS_NODE}-\${{ hashFiles('yarn.lock') }}
@@ -353,19 +353,19 @@ export const createGithubActionsCIYml = (
           command: generate-lockfile
 
       - name: Cache cargo registry
-        uses: actions/cache@v1
+        uses: actions/cache@v2
         with:
           path: ~/.cargo/registry
           key: nightly-apple-aarch64-node@${LATEST_LTS_NODE}-cargo-registry-trimmed-\${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache cargo index
-        uses: actions/cache@v1
+        uses: actions/cache@v2
         with:
           path: ~/.cargo/git
           key: nightly-apple-aarch64-node@${LATEST_LTS_NODE}-cargo-index-trimmed-\${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache NPM dependencies
-        uses: actions/cache@v1
+        uses: actions/cache@v2
         with:
           path: node_modules
           key: npm-cache-apple-aarch64-node@${LATEST_LTS_NODE}-\${{ hashFiles('yarn.lock') }}
@@ -404,19 +404,19 @@ export const createGithubActionsCIYml = (
           command: generate-lockfile
 
       - name: Cache cargo registry
-        uses: actions/cache@v1
+        uses: actions/cache@v2
         with:
           path: ~/.cargo/registry
           key: nightly-apple-aarch64-node@${LATEST_LTS_NODE}-cargo-registry-trimmed-\${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache cargo index
-        uses: actions/cache@v1
+        uses: actions/cache@v2
         with:
           path: ~/.cargo/git
           key: nightly-apple-aarch64-node@${LATEST_LTS_NODE}-cargo-index-trimmed-\${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache NPM dependencies
-        uses: actions/cache@v1
+        uses: actions/cache@v2
         with:
           path: node_modules
           key: npm-cache-apple-aarch64-node@${LATEST_LTS_NODE}-\${{ hashFiles('yarn.lock') }}
@@ -459,7 +459,7 @@ export const createGithubActionsCIYml = (
           check-latest: true
 
       - name: Cache NPM dependencies
-        uses: actions/cache@v1
+        uses: actions/cache@v2
         with:
           path: node_modules
           key: npm-cache-test-\${{ matrix.os }}-node@\${{ matrix.node }}-\${{ hashFiles('yarn.lock') }}
@@ -496,7 +496,7 @@ export const createGithubActionsCIYml = (
       - uses: actions/checkout@v2
 
       - name: Cache NPM dependencies
-        uses: actions/cache@v1
+        uses: actions/cache@v2
         with:
           path: node_modules
           key: npm-cache-alpine-node@\${{ matrix.node }}-\${{ hashFiles('yarn.lock') }}
@@ -542,7 +542,7 @@ export const createGithubActionsCIYml = (
           check-latest: true
 
       - name: Cache NPM dependencies
-        uses: actions/cache@v1
+        uses: actions/cache@v2
         with:
           path: node_modules
           key: npm-cache-test-linux-aarch64-gnu-node@\${{ matrix.node }}-\${{ hashFiles('yarn.lock') }}
@@ -627,7 +627,7 @@ ${requiredSteps.map((s) => `      - ${s}`).join('\n')}
           check-latest: true
 
       - name: Cache NPM dependencies
-        uses: actions/cache@v1
+        uses: actions/cache@v2
         with:
           path: node_modules
           key: npm-cache-publish-ubuntu-latest-\${{ hashFiles('yarn.lock') }}

@@ -44,7 +44,7 @@ pub fn setup() {
 
   // If file does not exist, download it.
   if metadata(&node_lib_file_path).is_err() {
-    let node_lib = copy_node_lib(&arch);
+    let node_lib = copy_node_lib(arch);
 
     write(&node_lib_file_path, &node_lib).expect(&format!(
       "Could not save file to {}",

@@ -11,7 +11,7 @@ pub(crate) struct Ser<'env>(pub(crate) &'env Env);
 
 impl<'env> Ser<'env> {
   fn new(env: &'env Env) -> Self {
-    Self(&env)
+    Self(env)
   }
 }
 
