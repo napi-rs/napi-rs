@@ -37,19 +37,19 @@ jobs:
           command: generate-lockfile
 
       - name: Cache cargo registry
-        uses: actions/cache@v1
+        uses: actions/cache@v2
         with:
           path: ~/.cargo/registry
           key: bench-cargo-registry-trimmed-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache cargo index
-        uses: actions/cache@v1
+        uses: actions/cache@v2
         with:
           path: ~/.cargo/git
           key: bench-cargo-index-trimmed-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache NPM dependencies
-        uses: actions/cache@v1
+        uses: actions/cache@v2
         with:
           path: node_modules
           key: bench-${{ hashFiles('yarn.lock') }}

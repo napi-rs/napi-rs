@@ -26,7 +26,7 @@ jobs:
         shell: bash
 
       - name: Cache NPM dependencies
-        uses: actions/cache@v1
+        uses: actions/cache@v2
         with:
           path: node_modules
           key: npm-cache-windows-i686-node@lts-${{ hashFiles('yarn.lock') }}
@@ -53,13 +53,13 @@ jobs:
           command: generate-lockfile
 
       - name: Cache cargo registry
-        uses: actions/cache@v1
+        uses: actions/cache@v2
         with:
           path: ~/.cargo/registry
           key: stable-windows-i686-node@lts-cargo-registry-trimmed-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache cargo index
-        uses: actions/cache@v1
+        uses: actions/cache@v2
         with:
           path: ~/.cargo/git
           key: stable-windows-i686-node@lts-cargo-index-trimmed-${{ hashFiles('**/Cargo.lock') }}
