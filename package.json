@@ -66,7 +66,7 @@
     "c8": "^7.7.3",
     "cross-env": "^7.0.3",
     "esbuild": "^0.12.16",
-    "eslint": "^7.31.0",
+    "eslint": "^7.32.0",
     "eslint-config-prettier": "^8.3.0",
     "eslint-plugin-import": "^2.23.4",
     "eslint-plugin-prettier": "^3.4.0",
