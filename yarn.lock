@@ -1130,11 +1130,20 @@
   dependencies:
     "@types/ms" "*"
 
-"@types/dockerode@^3.2.6":
-  version "3.2.6"
-  resolved "https://registry.npmjs.org/@types/dockerode/-/dockerode-3.2.6.tgz#b685140753f42a0670a60908d85e1779e75d5a75"
-  integrity sha512-rz50DbrfQGsKOlkLbkknXNyurl2z/yR0CmV/OhzPW3Ef3jbIGoIE+Rd+2UC17gNVrnDl+mpejCI7RqQNe2bEbw==
+"@types/docker-modem@*":
+  version "3.0.1"
+  resolved "https://registry.npmjs.org/@types/docker-modem/-/docker-modem-3.0.1.tgz#2a29c914dd64c4c9213510d2ce75fa85232934df"
+  integrity sha512-ZUXPF0WNnvs7AxoQRijt+DW2jsXnWCk8ac28tTYzTpBNnOEIAw83A+pYkCXjTFdJHMTc+wUmwNr71Zy2TRjlWg==
   dependencies:
+    "@types/node" "*"
+    "@types/ssh2" "*"
+
+"@types/dockerode@^3.2.7":
+  version "3.2.7"
+  resolved "https://registry.npmjs.org/@types/dockerode/-/dockerode-3.2.7.tgz#0bc1f583b0e1edc4ca0c6179ef251382df35dcb3"
+  integrity sha512-Y8hMRQTwsOjz4qm6yilZKKjB/Y7+2EOiY3RPN1Xtu63wEUEDVv+3Ou+sgiisPE9+pVe3bmwhnF+E1Iwj/o4J6w==
+  dependencies:
+    "@types/docker-modem" "*"
     "@types/node" "*"
 
 "@types/inquirer@^7.3.3":
@@ -1201,6 +1210,21 @@
   integrity sha512-BHn8Bpkapj8Wdfxvh2jWIUoaYB/9/XhsL0oOvBfRagJtKlSl9NWPcFOz2lRukI9szwGxFtYZCTejJSqsGDbdmw==
   dependencies:
     "@sinonjs/fake-timers" "^7.1.0"
+
+"@types/ssh2-streams@*":
+  version "0.1.9"
+  resolved "https://registry.npmjs.org/@types/ssh2-streams/-/ssh2-streams-0.1.9.tgz#8ca51b26f08750a780f82ee75ff18d7160c07a87"
+  integrity sha512-I2J9jKqfmvXLR5GomDiCoHrEJ58hAOmFrekfFqmCFd+A6gaEStvWnPykoWUwld1PNg4G5ag1LwdA+Lz1doRJqg==
+  dependencies:
+    "@types/node" "*"
+
+"@types/ssh2@*":
+  version "0.5.47"
+  resolved "https://registry.npmjs.org/@types/ssh2/-/ssh2-0.5.47.tgz#67a8b35a0527b2bb668f6dea4c84be6ff1abdc19"
+  integrity sha512-ZhqJg8BRV7OsCi0KVqPr27lUMMmLEeHYw1VXUNGGDlQEDq9HTsKx+wYvi8E6oNC6gRZ7PV99ZMZmMr5vztcYYA==
+  dependencies:
+    "@types/node" "*"
+    "@types/ssh2-streams" "*"
 
 "@types/through@*":
   version "0.0.30"
