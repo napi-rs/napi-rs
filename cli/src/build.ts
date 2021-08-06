@@ -2,7 +2,7 @@ import { execSync } from 'child_process'
 import { join, parse, sep } from 'path'
 
 import chalk from 'chalk'
-import { Command } from 'clipanion'
+import { Command, Option } from 'clipanion'
 import toml from 'toml'
 
 import { getNapiConfig } from './consts'
@@ -17,36 +17,28 @@ export class BuildCommand extends Command {
     description: 'Build and copy native module into specified dir',
   })
 
-  @Command.Boolean(`--platform`)
-  appendPlatformToFilename = false
+  static paths = [['build']]
 
-  @Command.Boolean(`--release`)
-  isRelease = false
+  appendPlatformToFilename = Option.Boolean(`--platform`, false)
 
-  @Command.String('--config,-c')
-  configFileName?: string
+  isRelease = Option.Boolean(`--release`, false)
 
-  @Command.String('--cargo-name')
-  cargoName?: string
+  configFileName?: string = Option.String('--config,-c')
 
-  @Command.String('--target')
-  targetTripleDir = process.env.RUST_TARGET ?? ''
+  cargoName?: string = Option.String('--cargo-name')
 
-  @Command.String('--features')
-  features?: string
+  targetTripleDir = Option.String('--target', process.env.RUST_TARGET ?? '')
 
-  @Command.String('--cargo-flags')
-  cargoFlags = ''
+  features?: string = Option.String('--features')
 
-  @Command.String('--cargo-cwd')
-  cargoCwd!: string
+  cargoFlags = Option.String('--cargo-flags', '')
 
-  @Command.String({
+  cargoCwd?: string = Option.String('--cargo-cwd')
+
+  destDir = Option.String({
     required: false,
   })
-  target = '.'
 
-  @Command.Path('build')
   async execute() {
     const cwd = this.cargoCwd
       ? join(process.cwd(), this.cargoCwd)
@@ -146,6 +138,12 @@ export class BuildCommand extends Command {
         )
     }
 
+    const targetRootDir = await findUp(cwd)
+
+    if (!targetRootDir) {
+      throw new TypeError('No target dir found')
+    }
+
     const targetDir = join(
       this.targetTripleDir,
       this.isRelease ? 'release' : 'debug',
@@ -156,26 +154,25 @@ export class BuildCommand extends Command {
       : ''
 
     debug(`Platform name: ${platformName || chalk.green('[Empty]')}`)
+    const distFileName = `${binaryName}${platformName}.node`
 
-    let distModulePath = this.target
-      ? join(this.target, `${binaryName}${platformName}.node`)
-      : join('target', targetDir, `${binaryName}${platformName}.node`)
+    let distModulePath = join(this.destDir ?? '.', distFileName)
+
     const parsedDist = parse(distModulePath)
 
     if (!parsedDist.ext) {
       distModulePath = `${distModulePath}${platformName}.node`
     }
 
-    const dir = await findUp(cwd)
-
-    if (!dir) {
-      throw new TypeError('No target dir found')
-    }
-
-    const sourcePath = join(dir, 'target', targetDir, `${dylibName}${libExt}`)
+    const sourcePath = join(
+      targetRootDir,
+      'target',
+      targetDir,
+      `${dylibName}${libExt}`,
+    )
 
     if (await existsAsync(distModulePath)) {
-      debug(`remove old binary [${chalk.yellowBright(sourcePath)}]`)
+      debug(`remove old binary [${chalk.yellowBright(distModulePath)}]`)
       await unlinkAsync(distModulePath)
     }
 

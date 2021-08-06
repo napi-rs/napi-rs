@@ -6,7 +6,6 @@ parserOptions:
   ecmaVersion: 2020
   sourceType: module
   extraFileExtensions: ['.cjs', '.mjs']
-  project: ./tsconfig.json
 
 env:
   browser: true
@@ -51,24 +50,6 @@ rules:
       {
         'newlines-between': 'always',
         'alphabetize': { 'order': 'asc', 'caseInsensitive': true },
-        'pathGroups':
-          [
-            {
-              'pattern': '@slardar/**',
-              'group': 'internal',
-              'position': 'before',
-            },
-            {
-              'pattern': '@perfkit/**',
-              'group': 'internal',
-              'position': 'before',
-            },
-            {
-              'pattern': '@maiev/**',
-              'group': 'internal',
-              'position': 'before',
-            },
-          ],
       },
     ]
 
@@ -208,6 +189,12 @@ rules:
     ]
 
 overrides:
+  - files:
+      - ./cli/**/*.ts
+    plugins:
+      - '@typescript-eslint'
+    parserOptions:
+      project: ./tsconfig.json
   - files:
       - ./test_module/**/*.{ts,js}
     plugins:

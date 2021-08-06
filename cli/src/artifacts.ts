@@ -1,7 +1,7 @@
 import { join, parse } from 'path'
 
 import chalk from 'chalk'
-import { Command } from 'clipanion'
+import { Command, Option } from 'clipanion'
 import { fdir } from 'fdir'
 
 import { getNapiConfig } from './consts'
@@ -15,16 +15,14 @@ export class ArtifactsCommand extends Command {
     description: 'Copy artifacts from Github Actions into specified dir',
   })
 
-  @Command.String('-d,--dir')
-  sourceDir = 'artifacts'
+  static paths = [['artifacts']]
 
-  @Command.String('--dist')
-  distDir = 'npm'
+  sourceDir = Option.String('-d,--dir', 'artifacts')
 
-  @Command.String('-c,--config')
-  configFileName?: string
+  distDir = Option.String('--dist', 'npm')
 
-  @Command.Path('artifacts')
+  configFileName?: string = Option.String('-c,--config')
+
   async execute() {
     const { platforms, binaryName, packageJsonPath } = getNapiConfig(
       this.configFileName,

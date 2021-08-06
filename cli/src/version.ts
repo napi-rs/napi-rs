@@ -1,7 +1,7 @@
 import { join } from 'path'
 
 import chalk from 'chalk'
-import { Command } from 'clipanion'
+import { Command, Option } from 'clipanion'
 
 import { getNapiConfig } from './consts'
 import { debugFactory } from './debug'
@@ -14,6 +14,8 @@ export class VersionCommand extends Command {
   static usage = Command.Usage({
     description: 'Update versions in created npm dir',
   })
+
+  static paths = [['version']]
 
   static async updatePackageJson(prefix: string, configFileName?: string) {
     const { version, platforms } = getNapiConfig(configFileName)
@@ -30,13 +32,10 @@ export class VersionCommand extends Command {
     }
   }
 
-  @Command.String(`-p,--prefix`)
-  prefix = 'npm'
+  prefix = Option.String(`-p,--prefix`, 'npm')
 
-  @Command.String('-c,--config')
-  configFileName?: string
+  configFileName?: string = Option.String('-c,--config')
 
-  @Command.Path('version')
   async execute() {
     await VersionCommand.updatePackageJson(this.prefix, this.configFileName)
     await spawn('git add .')
