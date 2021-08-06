@@ -3,8 +3,6 @@
     "allowSyntheticDefaultImports": true,
     "declaration": true,
     "downlevelIteration": true,
-    "emitDecoratorMetadata": true,
-    "experimentalDecorators": true,
     "importHelpers": true,
     "allowJs": true,
     "module": "CommonJS",

@@ -2,13 +2,12 @@ import { mkdirSync } from 'fs'
 import { join } from 'path'
 
 import chalk from 'chalk'
-import { Command } from 'clipanion'
-import { pick } from 'lodash'
+import { Command, Option } from 'clipanion'
 
 import { getNapiConfig } from './consts'
 import { debugFactory } from './debug'
 import { PlatformDetail } from './parse-triple'
-import { writeFileAsync } from './utils'
+import { writeFileAsync, pick } from './utils'
 
 const debug = debugFactory('create-npm-dir')
 
@@ -16,6 +15,8 @@ export class CreateNpmDirCommand extends Command {
   static usage = Command.Usage({
     description: 'Create npm packages dir for platforms',
   })
+
+  static paths = [['create-npm-dir']]
 
   static create = async (
     config: string,
@@ -72,13 +73,10 @@ export class CreateNpmDirCommand extends Command {
     }
   }
 
-  @Command.String('-t,--target')
-  targetDir!: string
+  targetDir: string = Option.String('-t,--target')!
 
-  @Command.String('-c,--config')
-  config = 'package.json'
+  config = Option.String('-c,--config', 'package.json')
 
-  @Command.Path('create-npm-dir')
   async execute() {
     await CreateNpmDirCommand.create(
       this.config,

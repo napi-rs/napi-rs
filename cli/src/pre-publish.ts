@@ -2,7 +2,7 @@ import { join } from 'path'
 
 import { Octokit } from '@octokit/rest'
 import chalk from 'chalk'
-import { Command } from 'clipanion'
+import { Command, Option } from 'clipanion'
 
 import { getNapiConfig } from './consts'
 import { debugFactory } from './debug'
@@ -25,22 +25,18 @@ export class PrePublishCommand extends Command {
       'Update package.json and copy addons into per platform packages',
   })
 
-  @Command.String(`-p,--prefix`)
-  prefix = 'npm'
+  static paths = [['prepublish']]
 
-  @Command.String('--tagstyle,-t')
-  tagStyle: 'npm' | 'lerna' = 'lerna'
+  prefix = Option.String(`-p,--prefix`, 'npm')
 
-  @Command.String('-c,--config')
-  configFileName?: string
+  tagStyle: 'npm' | 'lerna' = Option.String('--tagstyle,-t', 'lerna')
 
-  @Command.Boolean('--dry-run')
-  isDryRun = false
+  configFileName?: string = Option.String('-c,--config')
 
-  @Command.Boolean('--skip-gh-release')
-  skipGHRelease = false
+  isDryRun = Option.Boolean('--dry-run', false)
 
-  @Command.Path('prepublish')
+  skipGHRelease = Option.Boolean('--skip-gh-release', false)
+
   async execute() {
     const { packageJsonPath, platforms, version, packageName, binaryName } =
       getNapiConfig(this.configFileName)

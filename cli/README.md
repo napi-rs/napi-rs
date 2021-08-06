@@ -1,5 +1,8 @@
 # `@napi-rs/cli`
 
+[![Download](https://img.shields.io/npm/dm/@napi-rs/cli)](https://www.npmjs.com/package/@napi-rs/cli)
+[![Install size](https://packagephobia.com/badge?p=@napi-rs/cli)](https://packagephobia.com/result?p=@napi-rs/cli)
+
 > Cli tools for napi-rs
 
 ## Commands
