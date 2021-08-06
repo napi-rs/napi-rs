@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [1.2.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@1.1.0...@napi-rs/cli@1.2.0) (2021-08-06)
+
+### Features
+
+- **cli:** upgrade clipanion v3 ([67ad0a4](https://github.com/napi-rs/napi-rs/commit/67ad0a4d4daa0e0d14dc488bec190dcb27022634))
+
 # [1.1.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@1.0.4...@napi-rs/cli@1.1.0) (2021-06-07)
 
 ### Features
