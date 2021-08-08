@@ -8,6 +8,9 @@ members = [
   "./test_module",
   "./bench",
   "./memory-testing",
+  "./crates/macro",
+  "./crates/backend",
+  "./crates/macro-example"
 ]
 
 [profile.release]

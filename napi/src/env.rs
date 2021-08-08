@@ -615,7 +615,7 @@ impl Env {
                 .cast::<F>()
                 .as_ref()
                 .expect("`napi_get_cb_info` should have yielded non-`NULL` assoc data");
-              let ref mut env = Env::from_raw(raw_env);
+              let env = &mut Env::from_raw(raw_env);
               let ctx = CallContext::new(env, cb_info, raw_this, raw_args, raw_args.len());
               closure(ctx).map(|ret: R| ret.raw())
             }))

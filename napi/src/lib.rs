@@ -77,9 +77,12 @@
 
 #[cfg(feature = "napi8")]
 mod async_cleanup_hook;
+
 #[cfg(feature = "napi8")]
 pub use async_cleanup_hook::AsyncCleanupHook;
 mod async_work;
+#[cfg(feature = "bindgen")]
+pub mod bindgen_runtime;
 mod call_context;
 #[cfg(feature = "napi3")]
 mod cleanup_env;
@@ -87,6 +90,7 @@ mod env;
 mod error;
 mod js_values;
 mod module;
+
 #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
 mod promise;
 mod status;
@@ -104,6 +108,7 @@ pub use napi_sys as sys;
 
 pub use async_work::AsyncWorkPromise;
 pub use call_context::CallContext;
+
 pub use env::*;
 pub use error::{Error, ExtendedErrorInfo, Result};
 pub use js_values::*;
@@ -111,81 +116,27 @@ pub use module::Module;
 pub use status::Status;
 pub use task::Task;
 pub use version::NodeVersion;
-
 #[cfg(feature = "serde-json")]
 #[macro_use]
 extern crate serde;
 
 pub type ContextlessResult<T> = Result<Option<T>>;
 
-/// Deprecated
-/// register nodejs module
-///
-/// ## Example
-/// ```
-/// register_module!(test_module, init);
-///
-/// fn init(module: &mut Module) -> Result<()> {
-///     module.create_named_method("nativeFunction", native_function)?;
-/// }
-/// ```
-#[macro_export]
-#[deprecated(since = "1.0.0", note = "[module_exports] macro instead")]
-macro_rules! register_module {
-  ($module_name:ident, $init:ident) => {
-    #[inline]
-    #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
-    fn check_status(code: $crate::sys::napi_status) -> Result<()> {
-      use $crate::{Error, Status};
-      let status = Status::from(code);
-      match status {
-        Status::Ok => Ok(()),
-        _ => Err(Error::from_status(status)),
-      }
-    }
+#[doc(hidden)]
+#[macro_export(local_inner_macros)]
+macro_rules! type_of {
+  ($env:expr, $value:expr) => {{
+    let mut value_type = 0;
+    check_status!($crate::sys::napi_typeof($env, $value, &mut value_type))
+      .and_then(|_| Ok(ValueType::from(value_type)))
+  }};
+}
 
-    #[no_mangle]
-    unsafe extern "C" fn napi_register_module_v1(
-      raw_env: $crate::sys::napi_env,
-      raw_exports: $crate::sys::napi_value,
-    ) -> $crate::sys::napi_value {
-      use std::ffi::CString;
-      use std::io::Write;
-      use std::os::raw::c_char;
-      use std::ptr;
-      use $crate::{Env, JsObject, NapiValue};
-
-      #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
-      use $crate::shutdown_tokio_rt;
-
-      if cfg!(debug_assertions) {
-        println!("`register_module` macro will deprecate soon, please migrate to [module_exports]");
-      }
-
-      let env = Env::from_raw(raw_env);
-      let mut exports: JsObject = JsObject::from_raw_unchecked(raw_env, raw_exports);
-      let mut cjs_module = Module { env, exports };
-      let result = $init(&mut cjs_module);
-      #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
-      let hook_result = check_status(unsafe {
-        $crate::sys::napi_add_env_cleanup_hook(raw_env, Some(shutdown_tokio_rt), ptr::null_mut())
-      });
-      #[cfg(not(all(feature = "tokio_rt", feature = "napi4")))]
-      let hook_result = Ok(());
-      match hook_result.and_then(move |_| result) {
-        Ok(_) => cjs_module.exports.raw(),
-        Err(e) => {
-          unsafe {
-            $crate::sys::napi_throw_error(
-              raw_env,
-              ptr::null(),
-              CString::from_vec_unchecked(format!("Error initializing module: {}", e).into())
-                .as_ptr(),
-            )
-          };
-          ptr::null_mut()
-        }
-      }
-    }
+#[cfg(feature = "bindgen")]
+pub mod bindgen_prelude {
+  pub use super::bindgen_runtime::*;
+  pub use super::{
+    check_status, check_status_or_throw, error, error::*, sys, JsError, Property, Result, Status,
+    Task,
   };
 }

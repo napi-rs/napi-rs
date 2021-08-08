@@ -58,7 +58,7 @@ pub struct uv_loop_s {
 pub type napi_deferred = *mut napi_deferred__;
 
 #[repr(C)]
-#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum napi_property_attributes {
   napi_default = 0,
   napi_writable = 1 << 0,
@@ -137,7 +137,7 @@ pub type napi_finalize = Option<
   unsafe extern "C" fn(env: napi_env, finalize_data: *mut c_void, finalize_hint: *mut c_void),
 >;
 #[repr(C)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct napi_property_descriptor {
   pub utf8name: *const c_char,
   pub name: napi_value,

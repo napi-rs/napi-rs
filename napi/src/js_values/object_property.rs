@@ -2,12 +2,16 @@ use std::convert::From;
 use std::ffi::CString;
 use std::ptr;
 
-use crate::{check_status, sys, Callback, Env, NapiRaw, Result};
+use crate::{sys, Callback, Result};
 
-#[derive(Clone, Copy)]
-pub struct Property<'env> {
-  pub name: &'env str,
-  pub(crate) raw_descriptor: sys::napi_property_descriptor,
+#[derive(Clone, Default)]
+pub struct Property {
+  pub name: CString,
+  getter: sys::napi_callback,
+  setter: sys::napi_callback,
+  method: sys::napi_callback,
+  attrs: PropertyAttributes,
+  pub(crate) is_ctor: bool,
 }
 
 #[repr(u32)]
@@ -18,6 +22,12 @@ pub enum PropertyAttributes {
   Enumerable = sys::napi_property_attributes::napi_enumerable as _,
   Configurable = sys::napi_property_attributes::napi_configurable as _,
   Static = sys::napi_property_attributes::napi_static as _,
+}
+
+impl Default for PropertyAttributes {
+  fn default() -> Self {
+    PropertyAttributes::Default
+  }
 }
 
 impl From<PropertyAttributes> for sys::napi_property_attributes {
@@ -32,61 +42,63 @@ impl From<PropertyAttributes> for sys::napi_property_attributes {
   }
 }
 
-impl<'env> Property<'env> {
+impl Property {
   #[inline]
-  pub fn new(env: &'env Env, name: &'env str) -> Result<Self> {
-    let string_value = CString::new(name)?;
-    let mut result = ptr::null_mut();
-    check_status!(unsafe {
-      sys::napi_create_string_utf8(env.0, string_value.as_ptr(), name.len(), &mut result)
-    })?;
+  pub fn new(name: &str) -> Result<Self> {
     Ok(Property {
-      name,
-      raw_descriptor: sys::napi_property_descriptor {
-        utf8name: ptr::null_mut(),
-        name: result,
-        method: None,
-        getter: None,
-        setter: None,
-        value: ptr::null_mut(),
-        attributes: sys::napi_property_attributes::napi_default,
-        data: ptr::null_mut(),
-      },
+      name: CString::new(name)?,
+      ..Default::default()
     })
   }
 
   #[inline]
-  pub fn with_value<T: NapiRaw>(mut self, value: T) -> Self {
-    self.raw_descriptor.value = unsafe { T::raw(&value) };
+  pub fn with_name(mut self, name: &str) -> Self {
+    self.name = CString::new(name).unwrap();
     self
   }
 
   #[inline]
   pub fn with_method(mut self, callback: Callback) -> Self {
-    self.raw_descriptor.method = Some(callback);
+    self.method = Some(callback);
     self
   }
 
   #[inline]
   pub fn with_getter(mut self, callback: Callback) -> Self {
-    self.raw_descriptor.getter = Some(callback);
+    self.getter = Some(callback);
     self
   }
 
   #[inline]
   pub fn with_setter(mut self, callback: Callback) -> Self {
-    self.raw_descriptor.setter = Some(callback);
+    self.setter = Some(callback);
     self
   }
 
   #[inline]
   pub fn with_property_attributes(mut self, attributes: PropertyAttributes) -> Self {
-    self.raw_descriptor.attributes = attributes.into();
+    self.attrs = attributes;
     self
   }
 
   #[inline]
   pub(crate) fn raw(&self) -> sys::napi_property_descriptor {
-    self.raw_descriptor
+    sys::napi_property_descriptor {
+      utf8name: self.name.as_ptr(),
+      name: ptr::null_mut(),
+      method: self.method,
+      getter: self.getter,
+      setter: self.setter,
+      value: ptr::null_mut(),
+      attributes: self.attrs.into(),
+      data: ptr::null_mut(),
+    }
+  }
+
+  #[inline]
+  pub fn with_ctor(mut self, callback: Callback) -> Self {
+    self.method = Some(callback);
+    self.is_ctor = true;
+    self
   }
 }

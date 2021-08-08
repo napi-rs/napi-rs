@@ -76,7 +76,7 @@ unsafe extern "C" fn finalize_callback<T, Hint, F>(
   let (value, callback, raw_ref) = *Box::from_raw(finalize_data as *mut (T, F, sys::napi_ref));
   let hint = *Box::from_raw(finalize_hint as *mut Hint);
   let env = Env::from_raw(raw_env);
-  callback(FinalizeContext { value, hint, env });
+  callback(FinalizeContext { env, value, hint });
   if !raw_ref.is_null() {
     let status = sys::napi_delete_reference(raw_env, raw_ref);
     debug_assert!(
