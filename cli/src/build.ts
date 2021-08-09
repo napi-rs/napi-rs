@@ -8,7 +8,13 @@ import toml from 'toml'
 import { getNapiConfig } from './consts'
 import { debugFactory } from './debug'
 import { getDefaultTargetTriple, parseTriple } from './parse-triple'
-import { copyFileAsync, existsAsync, readFileAsync, unlinkAsync } from './utils'
+import {
+  copyFileAsync,
+  existsAsync,
+  mkdirAsync,
+  readFileAsync,
+  unlinkAsync,
+} from './utils'
 
 const debug = debugFactory('build')
 
@@ -156,12 +162,18 @@ export class BuildCommand extends Command {
     debug(`Platform name: ${platformName || chalk.green('[Empty]')}`)
     const distFileName = `${binaryName}${platformName}.node`
 
-    let distModulePath = join(this.destDir ?? '.', distFileName)
+    const distModulePath = join(this.destDir ?? '.', distFileName)
 
     const parsedDist = parse(distModulePath)
 
-    if (!parsedDist.ext) {
-      distModulePath = `${distModulePath}${platformName}.node`
+    if (parsedDist.dir && !(await existsAsync(parsedDist.dir))) {
+      await mkdirAsync(parsedDist.dir, { recursive: true }).catch((e) => {
+        console.warn(
+          chalk.bgYellowBright(
+            `Create dir [${parsedDist.dir}] failed, reason: ${e.message}`,
+          ),
+        )
+      })
     }
 
     const sourcePath = join(
