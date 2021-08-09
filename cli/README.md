@@ -2,6 +2,10 @@
 
 [![Download](https://img.shields.io/npm/dm/@napi-rs/cli)](https://www.npmjs.com/package/@napi-rs/cli)
 [![Install size](https://packagephobia.com/badge?p=@napi-rs/cli)](https://packagephobia.com/result?p=@napi-rs/cli)
+<a href="https://discord.gg/SpWzYHsKHs">
+<img src="https://img.shields.io/discord/874290842444111882.svg?logo=discord&style=flat-square"
+    alt="chat" />
+</a>
 
 > Cli tools for napi-rs
 

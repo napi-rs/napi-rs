@@ -20,7 +20,7 @@ A minimal library for building compiled `Node.js` add-ons in `Rust`.
 
 <p align="center">
   <a href="https://www.prisma.io/" target="_blank">
-    <img alt="Prisma" src="./images/prisma.svg" height="50px">
+    <img alt="Prisma" src="https://raw.githubusercontent.com/napi-rs/napi-rs/main/images/prisma.svg" height="50px">
   </a>
   &nbsp;
   &nbsp;
@@ -36,7 +36,7 @@ A minimal library for building compiled `Node.js` add-ons in `Rust`.
   <a href="https://nextjs.org/">
     <img alt="next.js" src="https://assets.vercel.com/image/upload/v1607554385/repositories/next-js/next-logo.png" height="50px">
     &nbsp;
-    <img alt="nextjs.svg" src="./images/nextjs.svg" height="50px">
+    <img alt="nextjs.svg" src="https://raw.githubusercontent.com/napi-rs/napi-rs/main/images/nextjs.svg" height="50px">
   </a>
 </p>
 
