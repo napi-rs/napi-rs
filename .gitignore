@@ -6,7 +6,6 @@ node_modules
 *.node
 build/LICENSE
 napi/LICENSE
-napi/README.md
 napi-derive/LICENSE
 sys/LICENSE
 

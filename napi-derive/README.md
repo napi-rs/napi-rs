@@ -1,5 +1,12 @@
 # napi-derive
 
+<a href="https://docs.rs/crate/napi-derive"><img src="https://docs.rs/napi-derive/badge.svg"></img></a>
+<a href="https://crates.io/crates/napi-derive"><img src="https://img.shields.io/crates/v/napi-derive.svg"></img></a>
+<a href="https://discord.gg/SpWzYHsKHs">
+<img src="https://img.shields.io/discord/874290842444111882.svg?logo=discord&style=flat-square"
+    alt="chat" />
+</a>
+
 ## js_function
 
 ```rust
