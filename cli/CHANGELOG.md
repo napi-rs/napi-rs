@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [1.2.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@1.2.0...@napi-rs/cli@1.2.1) (2021-08-09)
+
+### Bug Fixes
+
+- **cli:** create dist dir if not existed while building ([e90ea93](https://github.com/napi-rs/napi-rs/commit/e90ea9304a2a3180148f7e8f9e5f63eeb374a3cf))
+
 # [1.2.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@1.1.0...@napi-rs/cli@1.2.0) (2021-08-06)
 
 ### Features
