@@ -68,7 +68,7 @@ impl JsString {
   pub fn into_utf16(self) -> Result<JsStringUtf16> {
     let mut written_char_count = 0usize;
     let len = self.utf16_len()? + 1;
-    let mut result = Vec::with_capacity(len);
+    let mut result = vec![0; len];
     let buf_ptr = result.as_mut_ptr();
     check_status!(unsafe {
       sys::napi_get_value_string_utf16(
