@@ -32,7 +32,7 @@
     "url": "https://github.com/napi-rs/napi-rs/issues"
   },
   "devDependencies": {
-    "@octokit/rest": "^18.9.0",
+    "@octokit/rest": "^18.9.1",
     "chalk": "^4.1.2",
     "clipanion": "^3.0.1",
     "debug": "^4.3.2",
