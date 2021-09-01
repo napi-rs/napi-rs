@@ -33,13 +33,18 @@
   },
   "devDependencies": {
     "@octokit/rest": "^18.10.0",
+    "@types/inquirer": "^7.3.3",
+    "@types/js-yaml": "^4.0.3",
     "chalk": "^4.1.2",
     "clipanion": "^3.0.1",
     "debug": "^4.3.2",
     "fdir": "^5.1.0",
+    "inquirer": "^8.1.2",
+    "js-yaml": "^4.1.0",
     "putasset": "^5.0.3",
     "toml": "^3.0.0",
-    "tslib": "^2.3.1"
+    "tslib": "^2.3.1",
+    "typanion": "^3.3.2"
   },
   "funding": {
     "type": "github",

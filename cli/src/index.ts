@@ -5,6 +5,7 @@ import { Cli } from 'clipanion'
 import { ArtifactsCommand } from './artifacts'
 import { BuildCommand } from './build'
 import { CreateNpmDirCommand } from './create-npm-dir'
+import { NewProjectCommand } from './new'
 import { PrePublishCommand } from './pre-publish'
 import { VersionCommand } from './version'
 
@@ -18,6 +19,7 @@ cli.register(BuildCommand)
 cli.register(CreateNpmDirCommand)
 cli.register(PrePublishCommand)
 cli.register(VersionCommand)
+cli.register(NewProjectCommand)
 
 cli
   .run(process.argv.slice(2), {
