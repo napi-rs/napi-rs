@@ -2,13 +2,14 @@
 pub mod attrs;
 
 use std::cell::Cell;
+use std::collections::HashMap;
 use std::str::Chars;
 
 use attrs::{BindgenAttr, BindgenAttrs};
 
 use backend::{
-  BindgenResult, Diagnostic, FnKind, FnSelf, Napi, NapiEnum, NapiEnumVariant, NapiFn, NapiImpl,
-  NapiItem, NapiStruct, NapiStructField,
+  BindgenResult, CallbackArg, Diagnostic, FnKind, FnSelf, Napi, NapiEnum, NapiEnumVariant, NapiFn,
+  NapiFnArgKind, NapiImpl, NapiItem, NapiStruct, NapiStructField,
 };
 use convert_case::{Case, Casing};
 use proc_macro2::{Ident, TokenStream, TokenTree};
@@ -193,6 +194,69 @@ fn extract_path_ident(path: &syn::Path) -> BindgenResult<Ident> {
   }
 }
 
+fn extract_fn_types(
+  arguments: &syn::PathArguments,
+) -> BindgenResult<(Vec<syn::Type>, Option<syn::Type>)> {
+  match arguments {
+    // <T: Fn>
+    syn::PathArguments::None => Ok((vec![], None)),
+    syn::PathArguments::AngleBracketed(_) => {
+      bail_span!(arguments, "use parentheses for napi callback trait")
+    }
+    syn::PathArguments::Parenthesized(arguments) => {
+      let args = arguments.inputs.iter().cloned().collect::<Vec<_>>();
+
+      let ret = match &arguments.output {
+        syn::ReturnType::Type(_, ret_ty) => {
+          let ret_ty = &**ret_ty;
+          match ret_ty {
+            syn::Type::Path(syn::TypePath {
+              qself: None,
+              ref path,
+            }) if path.segments.len() == 1 => {
+              let segment = path.segments.first().unwrap();
+
+              if segment.ident != "Result" {
+                bail_span!(ret_ty, "The return type of callback can only be `Result`");
+              } else {
+                match &segment.arguments {
+                  syn::PathArguments::AngleBracketed(syn::AngleBracketedGenericArguments {
+                    args,
+                    ..
+                  }) => {
+                    // fast test
+                    if args.to_token_stream().to_string() == "()" {
+                      None
+                    } else {
+                      let ok_arg = args.first().unwrap();
+                      match ok_arg {
+                        syn::GenericArgument::Type(ty) => Some(ty.clone()),
+                        _ => bail_span!(ok_arg, "unsupported generic type"),
+                      }
+                    }
+                  }
+                  _ => {
+                    bail_span!(segment, "Too many arguments")
+                  }
+                }
+              }
+            }
+            _ => bail_span!(ret_ty, "The return type of callback can only be `Result`"),
+          }
+        }
+        _ => {
+          bail_span!(
+            arguments,
+            "The return type of callback can only be `Result`. Try with `Result<()>`"
+          );
+        }
+      };
+
+      Ok((args, ret))
+    }
+  }
+}
+
 fn get_expr(mut expr: &syn::Expr) -> &syn::Expr {
   while let syn::Expr::Group(g) = expr {
     expr = &g.expr;
@@ -304,6 +368,91 @@ fn unescape_unicode(chars: &mut Chars) -> Option<(char, char)> {
   None
 }
 
+fn extract_fn_closure_generics(
+  generics: &syn::Generics,
+) -> BindgenResult<HashMap<String, syn::PathArguments>> {
+  let mut errors = vec![];
+
+  let mut map = HashMap::default();
+  if generics.params.is_empty() {
+    return Ok(map);
+  }
+
+  if let Some(where_clause) = &generics.where_clause {
+    for prediction in where_clause.predicates.iter() {
+      match prediction {
+        syn::WherePredicate::Type(syn::PredicateType {
+          bounded_ty, bounds, ..
+        }) => {
+          for bound in bounds {
+            match bound {
+              syn::TypeParamBound::Trait(t) => {
+                for segment in t.path.segments.iter() {
+                  match segment.ident.to_string().as_str() {
+                    "Fn" | "FnOnce" | "FnMut" => {
+                      map.insert(
+                        bounded_ty.to_token_stream().to_string(),
+                        segment.arguments.clone(),
+                      );
+                    }
+                    _ => {}
+                  };
+                }
+              }
+              syn::TypeParamBound::Lifetime(lifetime) => {
+                if lifetime.ident != "static" {
+                  errors.push(err_span!(
+                    bound,
+                    "only 'static is supported in lifetime bound for fn arguments"
+                  ));
+                }
+              }
+            }
+          }
+        }
+        _ => errors.push(err_span! {
+          prediction,
+          "unsupported where clause prediction in napi"
+        }),
+      };
+    }
+  }
+
+  for param in generics.params.iter() {
+    match param {
+      syn::GenericParam::Type(syn::TypeParam { ident, bounds, .. }) => {
+        for bound in bounds {
+          match bound {
+            syn::TypeParamBound::Trait(t) => {
+              for segment in t.path.segments.iter() {
+                match segment.ident.to_string().as_str() {
+                  "Fn" | "FnOnce" | "FnMut" => {
+                    map.insert(ident.to_string(), segment.arguments.clone());
+                  }
+                  _ => {}
+                };
+              }
+            }
+            syn::TypeParamBound::Lifetime(lifetime) => {
+              if lifetime.ident != "static" {
+                errors.push(err_span!(
+                  bound,
+                  "only 'static is supported in lifetime bound for fn arguments"
+                ));
+              }
+            }
+          }
+        }
+      }
+      _ => {
+        errors.push(err_span!(param, "unsupported napi generic param for fn"));
+      }
+    }
+  }
+
+  Diagnostic::from_vec(errors).and(Ok(map))
+}
+
 fn napi_fn_from_decl(
   sig: Signature,
   opts: &BindgenAttrs,
@@ -319,17 +468,34 @@ fn napi_fn_from_decl(
     asyncness,
     inputs,
     output,
+    generics,
     ..
   } = sig;
 
   let mut fn_self = None;
+  let callback_traits = extract_fn_closure_generics(&generics)?;
 
   let args = inputs
     .into_iter()
     .filter_map(|arg| match arg {
       syn::FnArg::Typed(mut p) => {
-        p.ty = Box::new(replace_self(*p.ty, parent));
-        Some(p)
+        let pat_str = p.ty.to_token_stream().to_string();
+        if let Some(path_arguments) = callback_traits.get(&pat_str) {
+          match extract_fn_types(path_arguments) {
+            Ok((fn_args, fn_ret)) => Some(NapiFnArgKind::Callback(Box::new(CallbackArg {
+              args: fn_args,
+              ret: fn_ret,
+            }))),
+            Err(e) => {
+              errors.push(e);
+              None
+            }
+          }
+        } else {
+          let ty = replace_self(*p.ty, parent);
+          p.ty = Box::new(ty);
+          Some(NapiFnArgKind::PatType(Box::new(p)))
+        }
       }
       syn::FnArg::Receiver(r) => {
         if parent.is_some() {

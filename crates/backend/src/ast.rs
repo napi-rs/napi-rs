@@ -6,13 +6,25 @@ pub struct NapiFn {
   pub name: Ident,
   pub js_name: String,
   pub attrs: Vec<Attribute>,
-  pub args: Vec<syn::PatType>,
+  pub args: Vec<NapiFnArgKind>,
   pub ret: Option<syn::Type>,
   pub is_async: bool,
   pub fn_self: Option<FnSelf>,
   pub kind: FnKind,
   pub vis: syn::Visibility,
   pub parent: Option<Ident>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CallbackArg {
+  pub args: Vec<syn::Type>,
+  pub ret: Option<syn::Type>,
+}
+
+#[derive(Debug, Clone)]
+pub enum NapiFnArgKind {
+  PatType(Box<syn::PatType>),
+  Callback(Box<CallbackArg>),
 }
 
 #[derive(Debug, Clone, PartialEq)]

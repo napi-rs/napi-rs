@@ -118,11 +118,10 @@ impl NapiStruct {
     for (i, field) in self.fields.iter().enumerate() {
       let ty = &field.ty;
       match &field.name {
-        syn::Member::Named(ident) => {
-          fields.push(quote! { #ident: #ty::from_napi_value(env, cb.get_arg(#i))? })
-        }
+        syn::Member::Named(ident) => fields
+          .push(quote! { #ident: <#ty as FromNapiValue>::from_napi_value(env, cb.get_arg(#i))? }),
         syn::Member::Unnamed(_) => {
-          fields.push(quote! { #ty::from_napi_value(env, cb.get_arg(#i))? });
+          fields.push(quote! { <#ty as FromNapiValue>::from_napi_value(env, cb.get_arg(#i))? });
         }
       }
     }
@@ -175,11 +174,11 @@ impl NapiStruct {
       match &field.name {
         syn::Member::Named(ident) => {
           field_destructions.push(quote! { #ident });
-          fields_conversions.push(quote! { #ty::to_napi_value(env, #ident)? });
+          fields_conversions.push(quote! { <#ty as ToNapiValue>::to_napi_value(env, #ident)? });
         }
         syn::Member::Unnamed(i) => {
           field_destructions.push(quote! { arg#i });
-          fields_conversions.push(quote! { #ty::to_napi_value(env, arg#i)? });
+          fields_conversions.push(quote! { <#ty as ToNapiValue>::to_napi_value(env, arg#i)? });
         }
       }
     }
@@ -250,7 +249,7 @@ impl NapiStruct {
               let obj = cb.unwrap_borrow::<#struct_name>()?;
               // TODO: assert Clone/Copy
               let val = obj.#field_ident.to_owned();
-              #ty::to_napi_value(env, val)
+              <#ty as ToNapiValue>::to_napi_value(env, val)
             }
 
             unsafe {
@@ -276,7 +275,8 @@ impl NapiStruct {
             unsafe fn call(env: sys::napi_env, cb: sys::napi_callback_info) -> Result<sys::napi_value> {
               let mut cb = CallbackInfo::<1>::new(env, cb)?;
               let obj = cb.unwrap_borrow_mut::<#struct_name>()?;
-              obj.#field_ident = #ty::from_napi_value(env, cb.get_arg(0))?;
+              obj.#field_ident = <#ty as FromNapiValue>::from_napi_value(env, cb.get_arg(0))?;
+              Option::<bool>::to_napi_value(env, None)
             }
 
             unsafe {

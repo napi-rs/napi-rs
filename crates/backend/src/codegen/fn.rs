@@ -3,7 +3,7 @@ use quote::ToTokens;
 
 use crate::{
   codegen::{get_intermediate_ident, get_register_ident},
-  BindgenResult, FnKind, FnSelf, NapiFn, TryToTokens,
+  BindgenResult, CallbackArg, FnKind, FnSelf, NapiFn, NapiFnArgKind, TryToTokens,
 };
 
 impl TryToTokens for NapiFn {
@@ -80,31 +80,85 @@ impl NapiFn {
 
     self.args.iter().enumerate().for_each(|(i, arg)| {
       let ident = Ident::new(&format!("arg{}", i), Span::call_site());
-      let ty = &arg.ty;
-      match &*arg.ty {
-        syn::Type::Reference(syn::TypeReference {
-          mutability: Some(_),
-          elem,
-          ..
-        }) => {
-          arg_conversions.push(quote! {
-            let #ident = unsafe { #elem::from_napi_mut_ref(env, cb.get_arg(#i))? };
-          });
-        }
-        syn::Type::Reference(syn::TypeReference { elem, .. }) => {
-          arg_conversions.push(quote! {
-            let #ident = unsafe { #elem::from_napi_ref(env, cb.get_arg(#i))? };
-          });
-        }
-        _ => arg_conversions.push(quote! {
-          let #ident = unsafe { #ty::from_napi_value(env, cb.get_arg(#i))? };
-        }),
-      }
+
+      arg_conversions.push(match arg {
+        NapiFnArgKind::PatType(path) => NapiFn::gen_ty_arg_conversion(&ident, i, path),
+        NapiFnArgKind::Callback(cb) => NapiFn::gen_cb_arg_conversion(&ident, i, cb),
+      });
 
       args.push(ident);
     });
 
     (arg_conversions, args)
+  }
+
+  fn gen_ty_arg_conversion(arg_name: &Ident, index: usize, path: &syn::PatType) -> TokenStream {
+    let ty = &*path.ty;
+    match ty {
+      syn::Type::Reference(syn::TypeReference {
+        mutability: Some(_),
+        elem,
+        ..
+      }) => {
+        quote! {
+          let #arg_name = unsafe { <#elem as FromNapiMutRef>::from_napi_mut_ref(env, cb.get_arg(#index))? };
+        }
+      }
+      syn::Type::Reference(syn::TypeReference { elem, .. }) => {
+        quote! {
+          let #arg_name = unsafe { <#elem as FromNapiRef>::from_napi_ref(env, cb.get_arg(#index))? };
+        }
+      }
+      _ => quote! {
+        let #arg_name = unsafe { <#ty as FromNapiValue>::from_napi_value(env, cb.get_arg(#index))? };
+      },
+    }
+  }
+
+  fn gen_cb_arg_conversion(arg_name: &Ident, index: usize, cb: &CallbackArg) -> TokenStream {
+    let mut inputs = vec![];
+    let mut arg_conversions = vec![];
+
+    for (i, ty) in cb.args.iter().enumerate() {
+      let cb_arg_ident = Ident::new(&format!("callback_arg_{}", i), Span::call_site());
+      inputs.push(quote! { #cb_arg_ident: #ty });
+      arg_conversions.push(quote! { <#ty as ToNapiValue>::to_napi_value(env, #cb_arg_ident)? });
+    }
+
+    let ret = match &cb.ret {
+      Some(ty) => {
+        quote! {
+          let ret = <#ty as FromNapiValue>::from_napi_value(env, ret_ptr)?;
+
+          Ok(ret)
+        }
+      }
+      None => quote! { Ok(()) },
+    };
+
+    quote! {
+      let #arg_name = |#(#inputs),*| {
+        let args = vec![
+          #(#arg_conversions),*
+        ];
+
+        let mut ret_ptr = std::ptr::null_mut();
+
+        check_status!(
+          sys::napi_call_function(
+            env,
+            cb.this(),
+            cb.get_arg(#index),
+            args.len(),
+            args.as_ptr(),
+            &mut ret_ptr
+          ),
+          "Failed to call napi callback",
+        )?;
+
+        #ret
+      };
+    }
   }
 
   fn gen_fn_receiver(&self) -> TokenStream {
@@ -124,13 +178,14 @@ impl NapiFn {
   }
 
   fn gen_fn_return(&self, ret: &Ident) -> TokenStream {
+    let js_name = &self.js_name;
     let ret_ty = &self.ret;
 
     if self.kind == FnKind::Constructor {
-      quote! { cb.construct(#ret) }
+      quote! { cb.construct(#js_name, #ret) }
     } else if let Some(ref ty) = ret_ty {
       quote! {
-        #ty::to_napi_value(env, #ret)
+        <#ty as ToNapiValue>::to_napi_value(env, #ret)
       }
     } else {
       quote! {
@@ -145,6 +200,7 @@ impl NapiFn {
     } else {
       let name_str = self.name.to_string();
       let name_len = name_str.len();
+      let js_name = &self.js_name;
       let module_register_name = get_register_ident(&name_str);
       let intermediate_ident = get_intermediate_ident(&name_str);
 
@@ -155,7 +211,7 @@ impl NapiFn {
         fn #module_register_name() {
           unsafe fn cb(env: sys::napi_env) -> Result<sys::napi_value> {
             let mut fn_ptr = std::ptr::null_mut();
-            let js_name = std::ffi::CString::new(#name_str).unwrap();
+            let js_name = std::ffi::CString::new(#js_name).unwrap();
 
             check_status!(
               sys::napi_create_function(
@@ -173,7 +229,7 @@ impl NapiFn {
             Ok(fn_ptr)
           }
 
-          register_module_export(#name_str, cb);
+          register_module_export(#js_name, cb);
         }
       }
     }
