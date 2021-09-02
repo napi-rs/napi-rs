@@ -31,6 +31,9 @@
   "bugs": {
     "url": "https://github.com/napi-rs/napi-rs/issues"
   },
+  "dependencies": {
+    "inquirer": "^8.1.2"
+  },
   "devDependencies": {
     "@octokit/rest": "^18.10.0",
     "@types/inquirer": "^7.3.3",
@@ -39,7 +42,6 @@
     "clipanion": "^3.0.1",
     "debug": "^4.3.2",
     "fdir": "^5.1.0",
-    "inquirer": "^8.1.2",
     "js-yaml": "^4.1.0",
     "putasset": "^5.0.3",
     "toml": "^3.0.0",
