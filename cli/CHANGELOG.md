@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [1.3.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@1.3.0...@napi-rs/cli@1.3.1) (2021-09-02)
+
+### Bug Fixes
+
+- **cli:** ci template ([45d3e68](https://github.com/napi-rs/napi-rs/commit/45d3e68ff3307546de46650443fd8db0906a7856))
+- **cli:** missed inquirer dependency ([c303f35](https://github.com/napi-rs/napi-rs/commit/c303f358efc0cd66b0e5505749953fa8e536b7af))
+
 # [1.3.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@1.2.1...@napi-rs/cli@1.3.0) (2021-09-01)
 
 ### Features
