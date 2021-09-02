@@ -14,7 +14,7 @@ export const createGithubActionsCIYml = (
   binaryName: string,
   targets: string[],
 ) => {
-  const fullTemplate = load(YAML) as any
+  const fullTemplate = load(YAML(binaryName)) as any
   const requiredSteps = []
   const enableWindowsX86 = targets.includes('x86_64-pc-windows-msvc')
   const enableMacOSX86 = targets.includes('x86_64-apple-darwin')

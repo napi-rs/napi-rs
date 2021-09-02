@@ -1,9 +1,9 @@
-export const YAML = `
+export const YAML = (app: string) => `
 name: CI
 
 env:
   DEBUG: 'napi:*'
-  APP_NAME: 'napi'
+  APP_NAME: '${app}'
   MACOSX_DEPLOYMENT_TARGET: '10.13'
 
 on:
@@ -45,14 +45,14 @@ jobs:
               docker pull $DOCKER_REGISTRY_URL/napi-rs/napi-rs/nodejs-rust:lts-debian
               docker tag $DOCKER_REGISTRY_URL/napi-rs/napi-rs/nodejs-rust:lts-debian builder
             build: |
-              docker run --rm -v ~/.cargo/git:/root/.cargo/git -v ~/.cargo/registry:/root/.cargo/registry -v $(pwd):/build -w /build builder yarn build && strip \${{ env.APP_NAME }}.linux-x64-gnu.node
+              docker run --rm -v ~/.cargo/git:/root/.cargo/git -v ~/.cargo/registry:/root/.cargo/registry -v $(pwd):/build -w /build builder yarn build && strip ${app}.linux-x64-gnu.node
           - host: ubuntu-latest
             target: 'x86_64-unknown-linux-musl'
             docker: |
               docker login -u $DOCKER_USERNAME -p $DOCKER_PASSWORD $DOCKER_REGISTRY_URL
               docker pull $DOCKER_REGISTRY_URL/napi-rs/napi-rs/nodejs-rust:lts-alpine
               docker tag $DOCKER_REGISTRY_URL/napi-rs/napi-rs/nodejs-rust:lts-alpine builder
-            build: docker run --rm -v ~/.cargo/git:/root/.cargo/git -v ~/.cargo/registry:/root/.cargo/registry -v $(pwd):/build -w /build builder yarn build && strip \${{ env.APP_NAME }}.linux-x64-musl.node
+            build: docker run --rm -v ~/.cargo/git:/root/.cargo/git -v ~/.cargo/registry:/root/.cargo/registry -v $(pwd):/build -w /build builder yarn build && strip ${app}.linux-x64-musl.node
           - host: macos-latest
             target: 'aarch64-apple-darwin'
             build: yarn build --target=aarch64-apple-darwin
@@ -83,7 +83,7 @@ jobs:
               docker pull ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
               docker tag ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine builder
             build: |
-              docker run --rm -v ~/.cargo/git:/root/.cargo/git -v ~/.cargo/registry:/root/.cargo/registry -v $(pwd):/\${{ env.APP_NAME }} -w /\${{ env.APP_NAME }} builder sh -c "yarn build -- --target=aarch64-unknown-linux-musl && /aarch64-linux-musl-cross/bin/aarch64-linux-musl-strip \${{ env.APP_NAME }}.linux-arm64-musl.node"
+              docker run --rm -v ~/.cargo/git:/root/.cargo/git -v ~/.cargo/registry:/root/.cargo/registry -v $(pwd):/${app} -w /${app} builder sh -c "yarn build -- --target=aarch64-unknown-linux-musl && /aarch64-linux-musl-cross/bin/aarch64-linux-musl-strip ${app}.linux-arm64-musl.node"
           - host: windows-latest
             target: 'aarch64-pc-windows-msvc'
             build: yarn build --target aarch64-pc-windows-msvc
@@ -288,7 +288,7 @@ jobs:
         shell: bash
 
       - name: Test bindings
-        run: docker run --rm -v $(pwd):/\${{ env.APP_NAME }} -w /\${{ env.APP_NAME }} node:\${{ matrix.node }}-slim yarn test
+        run: docker run --rm -v $(pwd):/${app} -w /${app} node:\${{ matrix.node }}-slim yarn test
 
   test-linux-x64-musl-binding:
     name: Test bindings on x86_64-unknown-linux-musl - node@\${{ matrix.node }}
@@ -329,7 +329,7 @@ jobs:
         shell: bash
 
       - name: Test bindings
-        run: docker run --rm -v $(pwd):/\${{ env.APP_NAME }} -w /\${{ env.APP_NAME }} node:\${{ matrix.node }}-alpine yarn test
+        run: docker run --rm -v $(pwd):/${app} -w /${app} node:\${{ matrix.node }}-alpine yarn test
 
   test-linux-aarch64-gnu-binding:
     name: Test bindings on aarch64-unknown-linux-gnu - node@\${{ matrix.node }}
@@ -361,13 +361,13 @@ jobs:
         with:
           args: >
             sh -c "
-              apt-get update && \
-              apt-get install -y ca-certificates gnupg2 curl apt-transport-https && \
-              curl -sL https://deb.nodesource.com/setup_\${{ matrix.node }}.x | bash - && \
-              apt-get install -y nodejs && \
-              npm install -g yarn && \
-              yarn install --ignore-scripts --registry https://registry.npmjs.org --network-timeout 300000 && \
-              yarn test && \
+              apt-get update && \\
+              apt-get install -y ca-certificates gnupg2 curl apt-transport-https && \\
+              curl -sL https://deb.nodesource.com/setup_\${{ matrix.node }}.x | bash - && \\
+              apt-get install -y nodejs && \\
+              npm install -g yarn && \\
+              yarn install --ignore-scripts --registry https://registry.npmjs.org --network-timeout 300000 && \\
+              yarn test && \\
               ls -la
             "
   test-linux-aarch64-musl-binding:
@@ -397,9 +397,9 @@ jobs:
         with:
           args: >
             sh -c "
-              apk add nodejs npm && \
-              npm install -g yarn && \
-              yarn install --ignore-scripts --registry https://registry.npmjs.org --network-timeout 300000 && \
+              apk add nodejs npm && \\
+              npm install -g yarn && \\
+              yarn install --ignore-scripts --registry https://registry.npmjs.org --network-timeout 300000 && \\
               npm test
             "
   test-linux-arm-gnueabihf-binding:
@@ -432,13 +432,13 @@ jobs:
         with:
           args: >
             sh -c "
-              apt-get update && \
-              apt-get install -y ca-certificates gnupg2 curl apt-transport-https && \
-              curl -sL https://deb.nodesource.com/setup_\${{ matrix.node }}.x | bash - && \
-              apt-get install -y nodejs && \
-              npm install -g yarn && \
-              yarn install --ignore-scripts --registry https://registry.npmjs.org --network-timeout 300000 && \
-              yarn test && \
+              apt-get update && \\
+              apt-get install -y ca-certificates gnupg2 curl apt-transport-https && \\
+              curl -sL https://deb.nodesource.com/setup_\${{ matrix.node }}.x | bash - && \\
+              apt-get install -y nodejs && \\
+              npm install -g yarn && \\
+              yarn install --ignore-scripts --registry https://registry.npmjs.org --network-timeout 300000 && \\
+              yarn test && \\
               ls -la
             "
   publish:
