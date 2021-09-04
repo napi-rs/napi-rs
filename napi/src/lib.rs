@@ -128,7 +128,7 @@ macro_rules! type_of {
   ($env:expr, $value:expr) => {{
     let mut value_type = 0;
     check_status!($crate::sys::napi_typeof($env, $value, &mut value_type))
-      .and_then(|_| Ok(ValueType::from(value_type)))
+      .and_then(|_| Ok($crate::ValueType::from(value_type)))
   }};
 }
 

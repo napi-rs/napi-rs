@@ -4,10 +4,12 @@ use std::ptr;
 mod buffer;
 mod nil;
 mod number;
+mod obj;
 mod string;
 
 pub use buffer::*;
 pub use nil::*;
+pub use obj::*;
 pub use string::*;
 
 pub trait TypeName {
@@ -91,5 +93,51 @@ where
         Ok(ptr)
       }
     }
+  }
+}
+
+impl ToNapiValue for () {
+  unsafe fn to_napi_value(env: sys::napi_env, _val: Self) -> Result<sys::napi_value> {
+    let mut ptr = ptr::null_mut();
+    check_status!(
+      sys::napi_get_undefined(env, &mut ptr),
+      "Failed to get napi undefined value"
+    )?;
+
+    Ok(ptr)
+  }
+}
+
+impl ToNapiValue for Result<()> {
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    match val {
+      Ok(_) => Ok(Null::to_napi_value(env, Null).unwrap_or_else(|_| ptr::null_mut())),
+      Err(e) => {
+        let error_code = String::to_napi_value(env, format!("{:?}", e.status))?;
+        let reason = String::to_napi_value(env, e.reason)?;
+        let mut error = ptr::null_mut();
+        check_status!(
+          sys::napi_create_error(env, error_code, reason, &mut error),
+          "Failed to create napi error"
+        )?;
+
+        Ok(error)
+      }
+    }
+  }
+}
+
+impl<T> ToNapiValue for Vec<T>
+where
+  T: ToNapiValue,
+{
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    let mut arr = Array::new(env, val.len() as u32)?;
+
+    for (i, v) in val.into_iter().enumerate() {
+      arr.set(i as u32, v)?;
+    }
+
+    Array::to_napi_value(env, arr)
   }
 }
