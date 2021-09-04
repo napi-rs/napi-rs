@@ -9,6 +9,10 @@ readme = "README.md"
 repository = "https://github.com/napi-rs/napi-rs"
 version = "2.0.0"
 
+[features]
+type-def = []
+type-check = []
+
 [dependencies]
 proc-macro2 = "1.0"
 quote = "1.0"

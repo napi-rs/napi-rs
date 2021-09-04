@@ -1,7 +1,6 @@
 use std::ptr;
 
-use crate::{bindgen_prelude::*, check_status};
-use crate::{sys, type_of, Error, Result, Status, ValueType};
+use crate::{bindgen_prelude::*, check_status, sys, type_of, Error, Result, Status, ValueType};
 
 pub struct Null;
 

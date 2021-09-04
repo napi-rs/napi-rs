@@ -1,12 +1,12 @@
 use crate::{check_status, sys, Result};
 use std::ptr;
 
-mod callback;
+mod buffer;
 mod nil;
 mod number;
 mod string;
 
-pub use callback::*;
+pub use buffer::*;
 pub use nil::*;
 pub use string::*;
 

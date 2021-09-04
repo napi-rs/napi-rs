@@ -11,7 +11,7 @@ pub use js_values::*;
 pub use module_register::*;
 
 use super::sys;
-use std::ffi::c_void;
+use std::{ffi::c_void, mem};
 
 /// # Safety
 ///
@@ -34,4 +34,17 @@ pub unsafe extern "C" fn raw_finalize_unchecked<T>(
       );
     };
   }
+}
+
+/// # Safety
+///
+/// called when node buffer is ready for gc
+pub unsafe extern "C" fn drop_buffer(
+  _env: sys::napi_env,
+  finalize_data: *mut c_void,
+  finalize_hint: *mut c_void,
+) {
+  let length_ptr = finalize_hint as *mut (usize, usize);
+  let (length, cap) = *Box::from_raw(length_ptr);
+  mem::drop(Vec::from_raw_parts(finalize_data as *mut u8, length, cap));
 }

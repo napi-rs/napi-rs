@@ -1,5 +1,4 @@
-use crate::bindgen_prelude::*;
-use crate::{check_status, sys, Error, Result, Status};
+use crate::{bindgen_prelude::*, check_status, sys, Error, Result, Status};
 
 use std::ffi::CStr;
 use std::fmt::Display;
