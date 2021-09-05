@@ -16,7 +16,7 @@ use crate::{
   js_values::*,
   sys,
   task::Task,
-  Error, ExtendedErrorInfo, NodeVersion, Result, Status,
+  Error, ExtendedErrorInfo, JsError, NodeVersion, Result, Status, ValueType,
 };
 
 #[cfg(feature = "napi8")]
@@ -59,7 +59,7 @@ static RT: Lazy<(Handle, mpsc::Sender<()>)> = Lazy::new(|| {
 #[doc(hidden)]
 #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
 #[inline(never)]
-pub fn shutdown_tokio_rt() {
+pub extern "C" fn shutdown_tokio_rt(_arg: *mut c_void) {
   let sender = &RT.1;
   sender
     .clone()

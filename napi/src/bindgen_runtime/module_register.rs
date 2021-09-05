@@ -4,14 +4,25 @@ use super::sys;
 use std::{cell::RefCell, collections::HashMap, ffi::CString, ptr};
 
 pub type ExportRegisterCallback = unsafe fn(sys::napi_env) -> Result<sys::napi_value>;
+pub type ModuleExportsCallback =
+  unsafe fn(env: sys::napi_env, exports: sys::napi_value) -> Result<()>;
 
 thread_local! {
-  static MODULE_EXPORTS: RefCell<Vec<(&'static str, ExportRegisterCallback)>> = Default::default();
+  static MODULE_REGISTER_CALLBACK: RefCell<Vec<(&'static str, ExportRegisterCallback)>> = Default::default();
   static MODULE_CLASS_PROPERTIES: RefCell<HashMap<&'static str, (&'static str, Vec<Property>)>> = Default::default();
+  // compatibility for #[module_exports]
+  #[cfg(feature = "compat-mode")]
+  static MODULE_EXPORTS: std::cell::Cell<Vec<ModuleExportsCallback>> = Default::default();
+}
+
+#[cfg(feature = "compat-mode")]
+// compatibility for #[module_exports]
+pub fn register_module_exports(callback: ModuleExportsCallback) {
+  MODULE_EXPORTS.with(|cell| cell.set(vec![callback]));
 }
 
 pub fn register_module_export(name: &'static str, cb: ExportRegisterCallback) {
-  MODULE_EXPORTS.with(|exports| {
+  MODULE_REGISTER_CALLBACK.with(|exports| {
     let mut list = exports.borrow_mut();
     list.push((name, cb));
   });
@@ -22,7 +33,7 @@ pub fn register_class(rust_name: &'static str, js_name: &'static str, props: Vec
     let mut map = map.borrow_mut();
     let val = map.entry(rust_name).or_default();
 
-    // impl may not known exported js name
+    // impl may not know exported js name
     if !js_name.is_empty() {
       val.0 = js_name;
     }
@@ -36,7 +47,7 @@ unsafe extern "C" fn napi_register_module_v1(
   env: sys::napi_env,
   exports: sys::napi_value,
 ) -> sys::napi_value {
-  MODULE_EXPORTS.with(|to_register_exports| {
+  MODULE_REGISTER_CALLBACK.with(|to_register_exports| {
     let registered_exports = to_register_exports.take();
 
     registered_exports.into_iter().for_each(|(name, callback)| {
@@ -93,6 +104,25 @@ unsafe extern "C" fn napi_register_module_v1(
       }
     }
   });
+
+  #[cfg(feature = "compat-mode")]
+  MODULE_EXPORTS.with(|callbacks| {
+    let callbacks = callbacks.take();
+
+    callbacks.into_iter().for_each(|callback| {
+      if let Err(e) = callback(env, exports) {
+        JsError::from(e).throw_into(env);
+      }
+    });
+  });
+
+  #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
+  if let Err(e) = check_status!(
+    sys::napi_add_env_cleanup_hook(env, Some(crate::shutdown_tokio_rt), ptr::null_mut()),
+    "Failed to initialize module",
+  ) {
+    JsError::from(e).throw_into(env);
+  }
 
   exports
 }

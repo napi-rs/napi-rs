@@ -1,8 +1,14 @@
 #[macro_use]
 extern crate napi_derive;
 
-use napi::{CallContext, Error, JsNumber, JsObject, JsUnknown, Result, Status};
+use napi::{bindgen_prelude::*, CallContext, Error, JsNumber, JsObject, JsUnknown, Result, Status};
 use std::convert::TryInto;
+
+/// new napi macro is still available in compat-mode
+#[napi]
+fn add(a: u32, b: u32) -> u32 {
+  a + b
+}
 
 #[module_exports]
 fn init(mut exports: JsObject) -> Result<()> {

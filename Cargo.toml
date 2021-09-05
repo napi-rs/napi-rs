@@ -2,15 +2,14 @@
 members = [
   "./build",
   "./napi",
-  "./napi-derive",
-  "./napi-derive-example",
   "./sys",
   "./test_module",
   "./bench",
   "./memory-testing",
   "./crates/macro",
   "./crates/backend",
-  "./crates/macro-example"
+  "./examples",
+  "./examples-compat-mode"
 ]
 
 [profile.release]

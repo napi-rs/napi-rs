@@ -2,7 +2,7 @@ use std::convert::TryFrom;
 use std::ffi::CString;
 use std::ptr;
 
-use crate::{check_status, sys, type_of, Callback, Error, Result, Status};
+use crate::{check_status, sys, type_of, Callback, Error, Result, Status, ValueType};
 
 #[cfg(feature = "serde-json")]
 mod de;
@@ -17,7 +17,6 @@ mod buffer;
 #[cfg(feature = "napi5")]
 mod date;
 mod either;
-mod error;
 mod escapable_handle_scope;
 mod function;
 mod global;
@@ -29,7 +28,6 @@ mod tagged_object;
 mod undefined;
 mod value;
 mod value_ref;
-mod value_type;
 
 pub use arraybuffer::*;
 #[cfg(feature = "napi6")]
@@ -41,7 +39,6 @@ pub use date::*;
 #[cfg(feature = "serde-json")]
 pub(crate) use de::De;
 pub use either::Either;
-pub use error::*;
 pub use escapable_handle_scope::EscapableHandleScope;
 pub use function::JsFunction;
 pub use global::*;
@@ -55,7 +52,6 @@ pub(crate) use tagged_object::TaggedObject;
 pub use undefined::JsUndefined;
 pub(crate) use value::Value;
 pub use value_ref::*;
-pub use value_type::ValueType;
 
 // Value types
 

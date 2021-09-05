@@ -7,11 +7,11 @@ use std::str::Chars;
 
 use attrs::{BindgenAttr, BindgenAttrs};
 
-use backend::{
+use convert_case::{Case, Casing};
+use napi_macro_backend::{
   BindgenResult, CallbackArg, Diagnostic, FnKind, FnSelf, Napi, NapiEnum, NapiEnumVariant, NapiFn,
   NapiFnArgKind, NapiImpl, NapiItem, NapiStruct, NapiStructField,
 };
-use convert_case::{Case, Casing};
 use proc_macro2::{Ident, TokenStream, TokenTree};
 use quote::ToTokens;
 use syn::parse::{Parse, ParseStream, Result as SynResult};

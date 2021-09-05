@@ -81,8 +81,7 @@ mod async_cleanup_hook;
 #[cfg(feature = "napi8")]
 pub use async_cleanup_hook::AsyncCleanupHook;
 mod async_work;
-#[cfg(feature = "bindgen")]
-pub mod bindgen_runtime;
+mod bindgen_runtime;
 mod call_context;
 #[cfg(feature = "napi3")]
 mod cleanup_env;
@@ -94,6 +93,7 @@ mod js_values;
 mod promise;
 mod status;
 mod task;
+mod value_type;
 #[cfg(feature = "napi3")]
 pub use cleanup_env::CleanupEnvHook;
 #[cfg(feature = "napi4")]
@@ -109,10 +109,11 @@ pub use async_work::AsyncWorkPromise;
 pub use call_context::CallContext;
 
 pub use env::*;
-pub use error::{Error, ExtendedErrorInfo, Result};
+pub use error::*;
 pub use js_values::*;
 pub use status::Status;
 pub use task::Task;
+pub use value_type::*;
 pub use version::NodeVersion;
 #[cfg(feature = "serde-json")]
 #[macro_use]
@@ -130,7 +131,6 @@ macro_rules! type_of {
   }};
 }
 
-#[cfg(feature = "bindgen")]
 pub mod bindgen_prelude {
   pub use super::bindgen_runtime::*;
   pub use super::{

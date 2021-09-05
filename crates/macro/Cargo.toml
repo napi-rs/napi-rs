@@ -4,22 +4,23 @@ description = "N-API procedural macros"
 edition = "2018"
 keywords = ["NodeJS", "FFI", "NAPI", "n-api"]
 license = "MIT"
-name = "napi-macro"
+name = "napi-derive"
 readme = "README.md"
 repository = "https://github.com/napi-rs/napi-rs"
 version = "2.0.0"
 
 [features]
-type-def = []
+compat-mode = []
+no-type-def = []
 type-check = []
+full = ["no-type-def", "type-check"]
 
 [dependencies]
 proc-macro2 = "1.0"
 quote = "1.0"
-syn = {version = "1.0", features = ["fold", "full", "extra-traits"]}
-backend = { path = "../backend" }
+syn = { version = "1.0", features = ["fold", "full", "extra-traits"] }
+napi-macro-backend = { path = "../backend" }
 convert_case = "0.4"
-once_cell = "1"
 
 [lib]
 proc-macro = true

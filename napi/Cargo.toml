@@ -7,10 +7,10 @@ license = "MIT"
 name = "napi"
 readme = "README.md"
 repository = "https://github.com/napi-rs/napi-rs"
-version = "1.7.7"
+version = "2.0.0"
 
 [features]
-bindgen = ["ctor"]
+compat-mode = []
 default = ["napi3"] # for most Node.js users
 latin1 = ["encoding_rs"]
 napi1 = []
@@ -25,14 +25,11 @@ serde-json = ["serde", "serde_json"]
 tokio_rt = ["tokio", "once_cell", "napi4"]
 
 [dependencies]
+ctor = "0.1"
 napi-sys = {version = "1", path = "../sys"}
 
 [target.'cfg(windows)'.dependencies]
 winapi = {version = "0.3.9", features = ["winuser", "minwindef", "ntdef", "libloaderapi"]}
-
-[dependencies.ctor]
-version = "0.1"
-optional = true
 
 [dependencies.encoding_rs]
 optional = true
