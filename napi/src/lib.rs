@@ -89,7 +89,6 @@ mod cleanup_env;
 mod env;
 mod error;
 mod js_values;
-mod module;
 
 #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
 mod promise;
@@ -112,7 +111,6 @@ pub use call_context::CallContext;
 pub use env::*;
 pub use error::{Error, ExtendedErrorInfo, Result};
 pub use js_values::*;
-pub use module::Module;
 pub use status::Status;
 pub use task::Task;
 pub use version::NodeVersion;
