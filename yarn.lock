@@ -2632,10 +2632,10 @@ es-to-primitive@^1.2.1:
     is-date-object "^1.0.1"
     is-symbol "^1.0.2"
 
-esbuild@^0.12.24:
-  version "0.12.24"
-  resolved "https://registry.npmjs.org/esbuild/-/esbuild-0.12.24.tgz#21966fad25a80f368ed308101e88102bce0dc68f"
-  integrity sha512-C0ibY+HsXzYB6L/pLWEiWjMpghKsIc58Q5yumARwBQsHl9DXPakW+5NI/Y9w4YXiz0PEP6XTGTT/OV4Nnsmb4A==
+esbuild@^0.12.25:
+  version "0.12.25"
+  resolved "https://registry.npmjs.org/esbuild/-/esbuild-0.12.25.tgz#c2131cef022cf9fe94aaa5e00110b27fc976221a"
+  integrity sha512-woie0PosbRSoN8gQytrdCzUbS2ByKgO8nD1xCZkEup3D9q92miCze4PqEI9TZDYAuwn6CruEnQpJxgTRWdooAg==
 
 escalade@^3.1.1:
   version "3.1.1"
