@@ -36,7 +36,7 @@
   },
   "devDependencies": {
     "@octokit/rest": "^18.10.0",
-    "@types/inquirer": "^7.3.3",
+    "@types/inquirer": "^8.1.0",
     "@types/js-yaml": "^4.0.3",
     "chalk": "^4.1.2",
     "clipanion": "^3.0.1",
