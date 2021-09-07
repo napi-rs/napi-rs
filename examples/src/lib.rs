@@ -6,4 +6,5 @@ mod callback;
 mod class;
 mod r#enum;
 mod number;
+mod object;
 mod string;

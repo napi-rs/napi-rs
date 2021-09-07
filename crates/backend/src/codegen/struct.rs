@@ -67,7 +67,6 @@ impl TryToTokens for NapiStruct {
 
 impl NapiStruct {
   fn gen_helper_mod(&self) -> TokenStream {
-    let name = &self.name;
     let mod_name = Ident::new(
       &format!("__napi_helper__{}", self.name.to_string()),
       Span::call_site(),
@@ -88,19 +87,6 @@ impl NapiStruct {
       mod #mod_name {
         use std::ptr;
         use super::*;
-
-        static mut CTOR_REF: sys::napi_ref = ptr::null_mut();
-
-        impl JsClassRuntimeHelper for #name {
-          fn napi_set_ctor(ctor: sys::napi_ref) {
-            unsafe {
-              CTOR_REF = ctor;
-            }
-          }
-          fn napi_get_ctor() -> sys::napi_ref {
-            unsafe { CTOR_REF }
-          }
-        }
 
         #ctor
         #(#getters_setters)*
@@ -163,7 +149,6 @@ impl NapiStruct {
 
     let name = &self.name;
     let js_name_str = &self.js_name;
-    let field_len = self.fields.len();
 
     let mut fields_conversions = vec![];
     let mut field_destructions = vec![];
@@ -198,24 +183,29 @@ impl NapiStruct {
       quote! {
         impl ToNapiValue for #name {
           unsafe fn to_napi_value(env: sys::napi_env, val: #name) -> Result<sys::napi_value> {
-            let mut result = std::ptr::null_mut();
-            #destructed_fields = val;
-            let args = vec![#(#fields_conversions),*];
+            if let Some(ctor_ref) = get_class_constructor(#js_name_str) {
+              let mut ctor = std::ptr::null_mut();
 
-            let mut ctor = std::ptr::null_mut();
-            check_status!(
-              sys::napi_get_reference_value(env, #name::napi_get_ctor(), &mut ctor),
-              "Failed to get class constructor {}",
-              #js_name_str
-            )?;
+              check_status!(
+                sys::napi_get_reference_value(env, ctor_ref, &mut ctor),
+                "Failed to get constructor of class `{}`",
+                #js_name_str
+              )?;
 
-            check_status!(
-              sys::napi_new_instance(env, ctor, #field_len, args.as_ptr(), &mut result),
-              "Failed to create new instance of class {}",
-              #js_name_str
-            )?;
+              let mut result = std::ptr::null_mut();
+              #destructed_fields = val;
+              let args = vec![#(#fields_conversions),*];
 
-            Ok(result)
+              check_status!(
+                sys::napi_new_instance(env, ctor, args.len(), args.as_ptr(), &mut result),
+                "Failed to construct class `{}`",
+                #js_name_str
+              )?;
+
+              Ok(result)
+            } else {
+              Err(Error::new(Status::InvalidArg, format!("Failed to get constructor of class `{}`", #js_name_str)))
+            }
           }
         }
       },
@@ -276,7 +266,7 @@ impl NapiStruct {
               let mut cb = CallbackInfo::<1>::new(env, cb)?;
               let obj = cb.unwrap_borrow_mut::<#struct_name>()?;
               obj.#field_ident = <#ty as FromNapiValue>::from_napi_value(env, cb.get_arg(0))?;
-              Option::<bool>::to_napi_value(env, None)
+              <() as ToNapiValue>::to_napi_value(env, ())
             }
 
             unsafe {
@@ -384,7 +374,13 @@ impl NapiImpl {
         FnKind::Constructor => quote! { .with_ctor(#intermediate_name) },
         FnKind::Getter => quote! { .with_getter(#intermediate_name) },
         FnKind::Setter => quote! { .with_setter(#intermediate_name) },
-        _ => quote! { .with_method(#intermediate_name) },
+        _ => {
+          if item.fn_self.is_some() {
+            quote! { .with_method(#intermediate_name) }
+          } else {
+            quote! { .with_method(#intermediate_name).with_property_attributes(PropertyAttributes::Static) }
+          }
+        }
       };
 
       appendix.to_tokens(prop);

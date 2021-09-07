@@ -134,7 +134,7 @@ macro_rules! type_of {
 pub mod bindgen_prelude {
   pub use super::bindgen_runtime::*;
   pub use super::{
-    check_status, check_status_or_throw, error, error::*, sys, JsError, Property, Result, Status,
-    Task,
+    check_status, check_status_or_throw, error, error::*, sys, JsError, Property,
+    PropertyAttributes, Result, Status, Task,
   };
 }

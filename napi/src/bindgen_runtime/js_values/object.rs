@@ -6,11 +6,6 @@ pub struct Object {
   inner: sys::napi_value,
 }
 
-pub struct Array {
-  env: sys::napi_env,
-  inner: sys::napi_value,
-}
-
 impl Object {
   pub(crate) fn new(env: sys::napi_env) -> Result<Self> {
     let mut ptr = ptr::null_mut();
@@ -61,74 +56,51 @@ impl Object {
       Ok(())
     }
   }
-}
 
-impl Array {
-  pub(crate) fn new(env: sys::napi_env, len: u32) -> Result<Self> {
-    let mut ptr = ptr::null_mut();
+  pub fn keys(obj: Object) -> Result<Vec<String>> {
+    let mut names = ptr::null_mut();
     unsafe {
       check_status!(
-        sys::napi_create_array_with_length(env, len as usize, &mut ptr),
-        "Failed to create napi Array"
+        sys::napi_get_property_names(obj.env, obj.inner, &mut names),
+        "Failed to get property names of given object"
       )?;
     }
 
-    Ok(Array { env, inner: ptr })
-  }
+    let names = unsafe { Array::from_napi_value(obj.env, names)? };
+    let mut ret = vec![];
 
-  pub fn get<T: FromNapiValue>(&self, index: u32) -> Result<Option<T>> {
-    if index >= self.len()? {
-      return Ok(None);
+    for i in 0..names.len() {
+      ret.push(names.get::<String>(i)?.unwrap());
     }
 
-    let mut ret = ptr::null_mut();
-    unsafe {
-      check_status!(
-        sys::napi_get_element(self.env, self.inner, index, &mut ret),
-        "Failed to get element with index `{}`",
-        index,
-      )?;
-
-      Ok(Some(T::from_napi_value(self.env, ret)?))
-    }
-  }
-
-  pub fn set<T: ToNapiValue>(&mut self, index: u32, val: T) -> Result<()> {
-    unsafe {
-      let napi_val = T::to_napi_value(self.env, val)?;
-
-      check_status!(
-        sys::napi_set_element(self.env, self.inner, index, napi_val),
-        "Failed to set element with index `{}`",
-        index,
-      )?;
-
-      Ok(())
-    }
-  }
-
-  pub fn insert<T: ToNapiValue>(&mut self, val: T) -> Result<()> {
-    self.set(self.len()?, val)?;
-    Ok(())
-  }
-
-  #[allow(clippy::len_without_is_empty)]
-  pub fn len(&self) -> Result<u32> {
-    let len = ptr::null_mut();
-
-    unsafe {
-      check_status!(
-        sys::napi_get_array_length(self.env, self.inner, len),
-        "Failed to get Array length",
-      )?;
-
-      Ok(*len)
-    }
+    Ok(ret)
   }
 }
 
-impl ToNapiValue for Array {
+impl TypeName for Object {
+  fn type_name() -> &'static str {
+    "Object"
+  }
+}
+
+impl ToNapiValue for Object {
   unsafe fn to_napi_value(_env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     Ok(val.inner)
+  }
+}
+
+impl FromNapiValue for Object {
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
+    let value_type = type_of!(env, napi_val)?;
+    match value_type {
+      ValueType::Object => Ok(Self {
+        inner: napi_val,
+        env,
+      }),
+      _ => Err(Error::new(
+        Status::InvalidArg,
+        "Given napi value is not an object".to_owned(),
+      )),
+    }
   }
 }

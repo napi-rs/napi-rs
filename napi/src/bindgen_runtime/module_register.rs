@@ -10,9 +10,20 @@ pub type ModuleExportsCallback =
 thread_local! {
   static MODULE_REGISTER_CALLBACK: RefCell<Vec<(&'static str, ExportRegisterCallback)>> = Default::default();
   static MODULE_CLASS_PROPERTIES: RefCell<HashMap<&'static str, (&'static str, Vec<Property>)>> = Default::default();
+  static REGISTERED_CLASSES: RefCell<HashMap<
+    /* export name */ &'static str,
+    /* constructor */ sys::napi_ref,
+  >> = Default::default();
   // compatibility for #[module_exports]
   #[cfg(feature = "compat-mode")]
   static MODULE_EXPORTS: std::cell::Cell<Vec<ModuleExportsCallback>> = Default::default();
+}
+
+pub fn get_class_constructor(js_name: &'static str) -> Option<sys::napi_ref> {
+  REGISTERED_CLASSES.with(|registered_classes| {
+    let classes = registered_classes.borrow();
+    classes.get(js_name).copied()
+  })
 }
 
 #[cfg(feature = "compat-mode")]
@@ -48,9 +59,7 @@ unsafe extern "C" fn napi_register_module_v1(
   exports: sys::napi_value,
 ) -> sys::napi_value {
   MODULE_REGISTER_CALLBACK.with(|to_register_exports| {
-    let registered_exports = to_register_exports.take();
-
-    registered_exports.into_iter().for_each(|(name, callback)| {
+    for (name, callback) in to_register_exports.take().into_iter() {
       let js_name = CString::new(name).unwrap();
       unsafe {
         if let Err(e) = callback(env).and_then(|v| {
@@ -63,7 +72,7 @@ unsafe extern "C" fn napi_register_module_v1(
           JsError::from(e).throw_into(env)
         }
       }
-    });
+    }
   });
 
   MODULE_CLASS_PROPERTIES.with(|to_register_classes| {
@@ -94,6 +103,14 @@ unsafe extern "C" fn napi_register_module_v1(
           &rust_name
         );
 
+        let mut ctor_ref = ptr::null_mut();
+        sys::napi_create_reference(env, class_ptr, 1, &mut ctor_ref);
+
+        REGISTERED_CLASSES.with(|registered_classes| {
+          let mut registered_class = registered_classes.borrow_mut();
+          registered_class.insert(js_name, ctor_ref);
+        });
+
         check_status_or_throw!(
           env,
           sys::napi_set_named_property(env, exports, js_class_name.as_ptr(), class_ptr),
@@ -107,13 +124,11 @@ unsafe extern "C" fn napi_register_module_v1(
 
   #[cfg(feature = "compat-mode")]
   MODULE_EXPORTS.with(|callbacks| {
-    let callbacks = callbacks.take();
-
-    callbacks.into_iter().for_each(|callback| {
+    for callback in callbacks.take().into_iter() {
       if let Err(e) = callback(env, exports) {
         JsError::from(e).throw_into(env);
       }
-    });
+    }
   });
 
   #[cfg(all(feature = "tokio_rt", feature = "napi4"))]

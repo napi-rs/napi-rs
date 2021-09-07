@@ -61,7 +61,7 @@ impl TryToTokens for NapiFn {
 }
 
 impl NapiFn {
-  fn gen_arg_conversions(&self) -> (Vec<TokenStream>, Vec<Ident>) {
+  fn gen_arg_conversions(&self) -> (Vec<TokenStream>, Vec<TokenStream>) {
     let mut arg_conversions = vec![];
     let mut args = vec![];
 
@@ -78,15 +78,26 @@ impl NapiFn {
       };
     }
 
+    let mut non_callback_arg_count = 0;
     self.args.iter().enumerate().for_each(|(i, arg)| {
+      let i = i - non_callback_arg_count;
       let ident = Ident::new(&format!("arg{}", i), Span::call_site());
 
-      arg_conversions.push(match arg {
-        NapiFnArgKind::PatType(path) => NapiFn::gen_ty_arg_conversion(&ident, i, path),
-        NapiFnArgKind::Callback(cb) => NapiFn::gen_cb_arg_conversion(&ident, i, cb),
-      });
-
-      args.push(ident);
+      match arg {
+        NapiFnArgKind::PatType(path) => {
+          if &path.ty.to_token_stream().to_string() == "Env" {
+            args.push(quote! { Env::from(env) });
+            non_callback_arg_count += 1;
+          } else {
+            arg_conversions.push(NapiFn::gen_ty_arg_conversion(&ident, i, path));
+            args.push(quote! { #ident });
+          }
+        }
+        NapiFnArgKind::Callback(cb) => {
+          arg_conversions.push(NapiFn::gen_cb_arg_conversion(&ident, i, cb));
+          args.push(quote! { #ident });
+        }
+      }
     });
 
     (arg_conversions, args)
@@ -189,7 +200,7 @@ impl NapiFn {
       }
     } else {
       quote! {
-        Option::<bool>::to_napi_value(env, None)
+        <() as ToNapiValue>::to_napi_value(env, ())
       }
     }
   }

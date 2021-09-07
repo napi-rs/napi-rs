@@ -2,26 +2,18 @@ use napi::bindgen_prelude::*;
 
 use crate::r#enum::Kind;
 
-#[napi]
+#[napi(constructor)]
 pub struct Animal {
   #[napi(readonly)]
   pub kind: Kind,
-
   pub name: String,
-
-  #[napi(skip)]
-  pub hidden_field: String,
 }
 
 #[napi]
 impl Animal {
-  #[napi(constructor)]
+  #[napi]
   pub fn new(kind: Kind, name: String) -> Self {
-    Animal {
-      kind,
-      name,
-      hidden_field: "__HIDDEN__".to_owned(),
-    }
+    Animal { kind, name }
   }
 
   #[napi(setter = kind)]
