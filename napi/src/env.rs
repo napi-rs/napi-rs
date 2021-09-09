@@ -868,25 +868,22 @@ impl Env {
   }
 
   #[inline]
-  pub fn drop_wrapped<T: 'static>(&self, js_object: JsObject) -> Result<()> {
+  pub fn drop_wrapped<T: 'static>(&self, js_object: &mut JsObject) -> Result<()> {
     unsafe {
-      let mut unknown_tagged_object: *mut c_void = ptr::null_mut();
-      check_status!(sys::napi_unwrap(
+      let mut unknown_tagged_object = ptr::null_mut();
+      check_status!(sys::napi_remove_wrap(
         self.0,
         js_object.0.value,
         &mut unknown_tagged_object,
       ))?;
-
       let type_id = unknown_tagged_object as *const TypeId;
       if *type_id == TypeId::of::<T>() {
-        let tagged_object = unknown_tagged_object as *mut TaggedObject<T>;
-        (*tagged_object).object = None;
+        Box::from_raw(unknown_tagged_object as *mut TaggedObject<T>);
         Ok(())
       } else {
         Err(Error {
           status: Status::InvalidArg,
-          reason: "Invalid argument, T on drop_wrapped is not the type of wrapped object"
-            .to_owned(),
+          reason: "Invalid argument, T on unrwap is not the type of wrapped object".to_owned(),
         })
       }
     }
