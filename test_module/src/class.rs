@@ -10,10 +10,12 @@ struct NativeClass {
 fn create_test_class(ctx: CallContext) -> Result<JsFunction> {
   let add_count_method = Property::new(ctx.env, "addCount")?.with_method(add_count);
   let add_native_count = Property::new(ctx.env, "addNativeCount")?.with_method(add_native_count);
-  let properties = vec![add_count_method, add_native_count];
-  ctx
-    .env
-    .define_class("TestClass", test_class_constructor, properties.as_slice())
+  let renew_wrapped = Property::new(ctx.env, "renewWrapped")?.with_method(renew_wrapped);
+  ctx.env.define_class(
+    "TestClass",
+    test_class_constructor,
+    &[add_count_method, add_native_count, renew_wrapped],
+  )
 }
 
 #[js_function(1)]
@@ -43,6 +45,14 @@ fn add_native_count(ctx: CallContext) -> Result<JsNumber> {
   let native_class: &mut NativeClass = ctx.env.unwrap(&this)?;
   native_class.value += add;
   ctx.env.create_int32(native_class.value)
+}
+
+#[js_function]
+fn renew_wrapped(ctx: CallContext) -> Result<JsUndefined> {
+  let mut this: JsObject = ctx.this_unchecked();
+  ctx.env.drop_wrapped::<NativeClass>(&mut this)?;
+  ctx.env.wrap(&mut this, NativeClass { value: 42 })?;
+  ctx.env.get_undefined()
 }
 
 #[js_function(1)]
