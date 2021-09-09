@@ -2,18 +2,23 @@ use napi_macro_backend::{bail_span, BindgenResult, Diagnostic};
 use proc_macro2::{Delimiter, Ident, Span, TokenTree};
 use std::{
   cell::{Cell, RefCell},
-  collections::HashSet,
+  collections::HashMap,
 };
 use syn::spanned::Spanned;
 
 thread_local! {
   static ATTRS: AttributeParseState = Default::default();
-  static CTORS: ConstructorParseState = Default::default();
+  static STRUCTS: StructParseState = Default::default();
 }
 
 #[derive(Default)]
-struct ConstructorParseState {
-  parsed: RefCell<HashSet<String>>,
+struct StructParseState {
+  parsed: RefCell<HashMap<String, ParsedStruct>>,
+}
+
+struct ParsedStruct {
+  js_name: String,
+  ctor_defined: bool,
 }
 
 #[derive(Default)]
@@ -223,23 +228,47 @@ macro_rules! gen_bindgen_attr {
 
 attrgen!(gen_bindgen_attr);
 
-pub fn record_constructor(name: &Ident, opts: &BindgenAttrs) -> BindgenResult<()> {
-  CTORS.with(|state| {
-    let span = opts.span;
-    let name_str = name.to_string();
-    let mut set = state.parsed.borrow_mut();
+pub fn record_struct(ident: &Ident, js_name: String, opts: &BindgenAttrs) {
+  STRUCTS.with(|state| {
+    let struct_name = ident.to_string();
 
-    if set.contains(&name_str) {
-      Err(Diagnostic::span_error(
-        span,
-        format!(
-          "constructor for struct `{}` has already been defined",
-          name_str,
-        ),
-      ))
+    let mut map = state.parsed.borrow_mut();
+
+    map.insert(
+      struct_name,
+      ParsedStruct {
+        js_name,
+        ctor_defined: opts.constructor().is_some(),
+      },
+    );
+  });
+}
+
+pub fn check_recorded_struct_for_impl(ident: &Ident, opts: &BindgenAttrs) -> BindgenResult<String> {
+  STRUCTS.with(|state| {
+    let struct_name = ident.to_string();
+
+    let mut map = state.parsed.borrow_mut();
+    if let Some(parsed) = map.get_mut(&struct_name) {
+      if opts.constructor().is_some() {
+        if parsed.ctor_defined {
+          bail_span!(
+            ident,
+            "Constructor has already been defined for struct `{}`",
+            &struct_name
+          );
+        } else {
+          parsed.ctor_defined = true;
+        }
+      }
+
+      Ok(parsed.js_name.clone())
     } else {
-      set.insert(name_str);
-      Ok(())
+      bail_span!(
+        ident,
+        "Did not find struct `{}` parsed before expand #[napi] for impl",
+        &struct_name,
+      )
     }
   })
 }

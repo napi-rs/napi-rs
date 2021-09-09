@@ -17,7 +17,7 @@ use quote::ToTokens;
 use syn::parse::{Parse, ParseStream, Result as SynResult};
 use syn::{Attribute, Signature, Visibility};
 
-use crate::parser::attrs::record_constructor;
+use crate::parser::attrs::{check_recorded_struct_for_impl, record_struct};
 
 struct AnyIdent(Ident);
 
@@ -479,10 +479,11 @@ fn napi_fn_from_decl(
     .into_iter()
     .filter_map(|arg| match arg {
       syn::FnArg::Typed(mut p) => {
-        let pat_str = p.ty.to_token_stream().to_string();
-        if let Some(path_arguments) = callback_traits.get(&pat_str) {
+        let ty_str = p.ty.to_token_stream().to_string();
+        if let Some(path_arguments) = callback_traits.get(&ty_str) {
           match extract_fn_types(path_arguments) {
             Ok((fn_args, fn_ret)) => Some(NapiFnArgKind::Callback(Box::new(CallbackArg {
+              pat: p.pat,
               args: fn_args,
               ret: fn_ret,
             }))),
@@ -651,6 +652,10 @@ impl ConvertToAST for syn::ItemStruct {
   fn convert_to_ast(&mut self, opts: BindgenAttrs) -> BindgenResult<Napi> {
     let vis = self.vis.clone();
     let struct_name = self.ident.clone();
+    let js_name = opts.js_name().map_or_else(
+      || self.ident.to_string().to_case(Case::Pascal),
+      |(js_name, _)| js_name.to_owned(),
+    );
     let mut fields = vec![];
     let mut is_tuple = false;
 
@@ -687,21 +692,17 @@ impl ConvertToAST for syn::ItemStruct {
       })
     }
 
-    let mut gen_default_ctor = false;
-    if opts.constructor().is_some() {
-      gen_default_ctor = true;
-      record_constructor(&struct_name, &opts)?;
-    }
+    record_struct(&struct_name, js_name.clone(), &opts);
 
     Ok(Napi {
       comments: vec![],
       item: NapiItem::Struct(NapiStruct {
-        js_name: struct_name.to_string(),
+        js_name,
         name: struct_name,
         vis,
         fields,
         is_tuple,
-        gen_default_ctor,
+        gen_default_ctor: opts.constructor().is_some(),
       }),
     })
   }
@@ -720,6 +721,8 @@ impl ConvertToAST for syn::ItemImpl {
     };
 
     let struct_name = extract_path_ident(struct_name)?;
+
+    let mut struct_js_name = struct_name.to_string();
     let mut items = vec![];
 
     for item in self.items.iter_mut() {
@@ -737,7 +740,7 @@ impl ConvertToAST for syn::ItemImpl {
       }
 
       if opts.constructor().is_some() {
-        record_constructor(&struct_name, &opts)?;
+        struct_js_name = check_recorded_struct_for_impl(&struct_name, &opts)?;
       }
 
       let vis = method.vis.clone();
@@ -764,6 +767,7 @@ impl ConvertToAST for syn::ItemImpl {
       comments: vec![],
       item: NapiItem::Impl(NapiImpl {
         name: struct_name,
+        js_name: struct_js_name,
         items,
       }),
     })

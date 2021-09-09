@@ -8,7 +8,7 @@ version = "0.1.0"
 crate-type = ["cdylib"]
 
 [dependencies]
-napi-derive = { path = "../crates/macro" }
+napi-derive = { path = "../crates/macro", features = ["type-def"] }
 napi = { path = "../napi", features = ["latin1"] }
 
 [build-dependencies]

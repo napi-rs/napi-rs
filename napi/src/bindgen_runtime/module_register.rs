@@ -44,11 +44,7 @@ pub fn register_class(rust_name: &'static str, js_name: &'static str, props: Vec
     let mut map = map.borrow_mut();
     let val = map.entry(rust_name).or_default();
 
-    // impl may not know exported js name
-    if !js_name.is_empty() {
-      val.0 = js_name;
-    }
-
+    val.0 = js_name;
     val.1.extend(props.into_iter());
   });
 }

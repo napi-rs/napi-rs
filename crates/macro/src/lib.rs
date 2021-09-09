@@ -9,10 +9,16 @@ extern crate napi_macro_backend;
 #[macro_use]
 extern crate quote;
 use napi_macro_backend::{BindgenResult, TryToTokens};
+
+#[cfg(feature = "type-def")]
+use napi_macro_backend::{ToTypeDef, TypeDef};
 use parser::ParseNapi;
 use proc_macro::TokenStream as RawStream;
 use proc_macro2::TokenStream;
-use std::env;
+use std::{
+  env, fs,
+  io::{self, BufWriter, Write},
+};
 #[cfg(feature = "compat-mode")]
 use syn::{fold::Fold, parse_macro_input, ItemFn};
 
@@ -48,7 +54,26 @@ fn expand(attr: TokenStream, input: TokenStream) -> BindgenResult<TokenStream> {
   let napi = item.parse_napi(&mut tokens, opts)?;
   napi.try_to_tokens(&mut tokens)?;
 
+  #[cfg(feature = "type-def")]
+  if let Ok(type_def_file) = env::var("TYPE_DEF_TMP_PATH") {
+    if let Err(e) = output_type_def(type_def_file, napi.to_type_def()) {
+      println!("Failed to write type def file: {:?}", e);
+    };
+  }
+
   Ok(tokens)
+}
+
+#[cfg(feature = "type-def")]
+fn output_type_def(type_def_file: String, type_def: TypeDef) -> io::Result<()> {
+  let file = fs::OpenOptions::new()
+    .append(true)
+    .create(true)
+    .open(type_def_file)?;
+
+  let mut writer = BufWriter::<fs::File>::new(file);
+  writer.write_all(type_def.to_string().as_bytes())?;
+  writer.write_all("\n".as_bytes())
 }
 
 #[cfg(feature = "compat-mode")]

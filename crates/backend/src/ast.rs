@@ -17,6 +17,7 @@ pub struct NapiFn {
 
 #[derive(Debug, Clone)]
 pub struct CallbackArg {
+  pub pat: Box<syn::Pat>,
   pub args: Vec<syn::Type>,
   pub ret: Option<syn::Type>,
 }
@@ -64,6 +65,7 @@ pub struct NapiStructField {
 #[derive(Debug, Clone)]
 pub struct NapiImpl {
   pub name: Ident,
+  pub js_name: String,
   pub items: Vec<NapiFn>,
 }
 

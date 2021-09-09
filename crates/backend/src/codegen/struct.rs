@@ -347,7 +347,7 @@ impl TryToTokens for NapiImpl {
 impl NapiImpl {
   fn gen_helper_mod(&self) -> BindgenResult<TokenStream> {
     let name_str = self.name.to_string();
-    let rust_name_lit = Literal::string(&name_str);
+    let js_name = &self.js_name;
     let mod_name = Ident::new(
       &format!("__napi_impl_helper__{}", name_str),
       Span::call_site(),
@@ -397,7 +397,7 @@ impl NapiImpl {
 
         #[ctor]
         fn #register_name() {
-          register_class(#rust_name_lit, "", vec![#(#props),*]);
+          register_class(#name_str, #js_name, vec![#(#props),*]);
         }
       }
     })

@@ -1,6 +1,6 @@
 use proc_macro2::{Ident, Span, TokenStream};
 
-use crate::{BindgenResult, NapiEnum, NapiFn, NapiImpl, NapiStruct};
+use crate::BindgenResult;
 
 mod r#enum;
 mod r#fn;
@@ -15,36 +15,6 @@ pub trait TryToTokens {
 
     Ok(tokens)
   }
-}
-
-#[derive(Debug)]
-pub struct Napi {
-  pub comments: Vec<String>,
-  pub item: NapiItem,
-}
-
-macro_rules! napi_ast_impl {
-  ( $( ($v:ident, $ast:ident), )* ) => {
-    #[derive(Debug)]
-    pub enum NapiItem {
-      $($v($ast)),*
-    }
-
-    impl TryToTokens for Napi {
-      fn try_to_tokens(&self, tokens: &mut TokenStream) -> BindgenResult<()> {
-        match self.item {
-          $( NapiItem::$v(ref ast) => ast.try_to_tokens(tokens) ),*
-        }
-      }
-    }
-  };
-}
-
-napi_ast_impl! {
- (Fn, NapiFn),
- (Struct, NapiStruct),
- (Impl, NapiImpl),
- (Enum, NapiEnum),
 }
 
 fn get_intermediate_ident(name: &str) -> Ident {

@@ -16,11 +16,6 @@ impl Animal {
     Animal { kind, name }
   }
 
-  #[napi(setter = kind)]
-  pub fn set_kind(&mut self, kind: Kind) {
-    self.kind = kind;
-  }
-
   #[napi]
   pub fn whoami(&self) -> String {
     match self.kind {

@@ -3,9 +3,19 @@ name = "napi-macro-backend"
 version = "0.1.0"
 edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+type-def = ["regex", "once_cell"]
 
 [dependencies]
 proc-macro2 = "1.0"
 quote = "1.0"
 syn = {version = "1.0", features = ["fold", "full"]}
+convert_case = "0.4.0"
+
+[dependencies.regex]
+optional = true
+version = "1"
+
+[dependencies.once_cell]
+optional = true
+version = "1"
