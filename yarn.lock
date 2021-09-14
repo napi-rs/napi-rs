@@ -1127,10 +1127,10 @@
     "@types/docker-modem" "*"
     "@types/node" "*"
 
-"@types/inquirer@^8.1.0":
-  version "8.1.0"
-  resolved "https://registry.npmjs.org/@types/inquirer/-/inquirer-8.1.0.tgz#99fab20fd6fb3ee2b0352042082fe8dbec76bf55"
-  integrity sha512-FqQ0zoCqh5dLQnrY+GE9d5B8wNiXSuEZo9YLIGhVOkJRBTTnYUDJ5maGzzTGE5nihSnGajdMP6RmbzV1oWgflQ==
+"@types/inquirer@^8.1.1":
+  version "8.1.1"
+  resolved "https://registry.npmjs.org/@types/inquirer/-/inquirer-8.1.1.tgz#885e39b53ed3fe3ea48de416aaeeb02e8253e1f7"
+  integrity sha512-01diGjEMJjyTCOXwlnhEQcNH8LYRzy3zpqk19WxKBKmV1nt9yAmpNNS577OWAVhekAesULxIkG1PwsCvjqWYKA==
   dependencies:
     "@types/through" "*"
     rxjs "^7.2.0"
