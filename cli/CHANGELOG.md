@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [1.3.2](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@1.3.1...@napi-rs/cli@1.3.2) (2021-09-14)
+
+### Bug Fixes
+
+- **cli:** cargo config path and ci template in new command ([c385254](https://github.com/napi-rs/napi-rs/commit/c3852543a59a945686464040dbb6e4109a51e400))
+
 ## [1.3.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@1.3.0...@napi-rs/cli@1.3.1) (2021-09-02)
 
 ### Bug Fixes
