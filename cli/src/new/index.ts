@@ -170,10 +170,10 @@ export class NewProjectCommand extends Command {
       enableLinuxArm8Musl,
     )
     if (cargoConfig.length) {
-      const configDir = join(process.cwd(), this.dirname!, '.config')
+      const configDir = join(process.cwd(), this.dirname!, '.cargo')
       if (!this.dryRun) {
         mkdirSync(configDir)
-        this.writeFile(join('.config', 'config.toml'), cargoConfig)
+        this.writeFile(join('.cargo', 'config.toml'), cargoConfig)
       }
     }
   }

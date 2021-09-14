@@ -62,14 +62,14 @@ jobs:
               sudo apt-get install g++-aarch64-linux-gnu gcc-aarch64-linux-gnu -y
             build: |
               yarn build --target=aarch64-unknown-linux-gnu
-              aarch64-linux-gnu-strip \${{ env.APP_NAME }}.linux-arm64-gnu.node
+              aarch64-linux-gnu-strip ${app}.linux-arm64-gnu.node
           - host: ubuntu-latest
             target: 'armv7-unknown-linux-gnueabihf'
             setup: |
               sudo apt-get install gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf -y
             build: |
               yarn build --target=armv7-unknown-linux-gnueabihf
-              arm-linux-gnueabihf-strip \${{ env.APP_NAME }}.linux-arm-gnueabihf.node
+              arm-linux-gnueabihf-strip ${app}.linux-arm-gnueabihf.node
           - host: ubuntu-latest
             target: 'aarch64-linux-android'
             build: |
@@ -83,7 +83,7 @@ jobs:
               docker pull ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
               docker tag ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine builder
             build: |
-              docker run --rm -v ~/.cargo/git:/root/.cargo/git -v ~/.cargo/registry:/root/.cargo/registry -v $(pwd):/${app} -w /${app} builder sh -c "yarn build -- --target=aarch64-unknown-linux-musl && /aarch64-linux-musl-cross/bin/aarch64-linux-musl-strip ${app}.linux-arm64-musl.node"
+              docker run --rm -v ~/.cargo/git:/root/.cargo/git -v ~/.cargo/registry:/root/.cargo/registry -v $(pwd):/build -w /build builder sh -c "yarn build --target=aarch64-unknown-linux-musl && /aarch64-linux-musl-cross/bin/aarch64-linux-musl-strip ${app}.linux-arm64-musl.node"
           - host: windows-latest
             target: 'aarch64-pc-windows-msvc'
             build: yarn build --target aarch64-pc-windows-msvc
