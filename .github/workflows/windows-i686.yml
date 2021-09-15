@@ -73,6 +73,7 @@ jobs:
       - name: Build Tests
         run: |
           yarn --cwd ./test_module build-i686
+          yarn --cwd ./examples build-i686
           yarn test
         env:
           RUST_BACKTRACE: 1

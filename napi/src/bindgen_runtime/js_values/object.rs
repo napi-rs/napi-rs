@@ -57,7 +57,7 @@ impl Object {
     }
   }
 
-  pub fn keys(obj: Object) -> Result<Vec<String>> {
+  pub fn keys(obj: &Object) -> Result<Vec<String>> {
     let mut names = ptr::null_mut();
     unsafe {
       check_status!(

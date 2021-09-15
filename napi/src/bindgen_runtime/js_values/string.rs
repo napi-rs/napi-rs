@@ -70,6 +70,12 @@ impl ToNapiValue for &str {
 #[derive(Debug)]
 pub struct Utf16String(String);
 
+impl From<String> for Utf16String {
+  fn from(s: String) -> Self {
+    Utf16String(s)
+  }
+}
+
 impl Display for Utf16String {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "{}", self.0)
@@ -131,8 +137,10 @@ impl ToNapiValue for Utf16String {
   unsafe fn to_napi_value(env: sys::napi_env, val: Utf16String) -> Result<sys::napi_value> {
     let mut ptr = ptr::null_mut();
 
+    let encoded = val.0.encode_utf16().collect::<Vec<_>>();
+
     check_status!(
-      sys::napi_create_string_utf16(env, val.0.as_ptr() as *const _, val.len(), &mut ptr),
+      sys::napi_create_string_utf16(env, encoded.as_ptr() as *const _, encoded.len(), &mut ptr),
       "Failed to convert napi `string` into rust type `String`"
     )?;
 
@@ -141,11 +149,17 @@ impl ToNapiValue for Utf16String {
 }
 
 #[cfg(feature = "latin1")]
-mod latin1_string {
+pub mod latin1_string {
   use super::*;
 
   #[derive(Debug)]
   pub struct Latin1String(String);
+
+  impl From<String> for Latin1String {
+    fn from(s: String) -> Self {
+      Latin1String(s)
+    }
+  }
 
   impl Display for Latin1String {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -192,10 +206,12 @@ mod latin1_string {
       )?;
 
       let buf = Vec::from_raw_parts(buf_ptr as *mut _, written_char_count, written_char_count);
-      let mut dst_str = String::from_utf8_unchecked(vec![0; buf.len() * 2 + 1]);
-      encoding_rs::mem::convert_latin1_to_str(buf.as_slice(), &mut dst_str);
+      let mut dst_slice = vec![0; buf.len() * 2];
+      let written =
+        encoding_rs::mem::convert_latin1_to_utf8(buf.as_slice(), dst_slice.as_mut_slice());
+      dst_slice.truncate(written);
 
-      Ok(Latin1String(dst_str))
+      Ok(Latin1String(String::from_utf8_unchecked(dst_slice)))
     }
   }
 
@@ -203,8 +219,11 @@ mod latin1_string {
     unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
       let mut ptr = ptr::null_mut();
 
+      let mut dst = vec![0; val.len()];
+      encoding_rs::mem::convert_utf8_to_latin1_lossy(val.0.as_bytes(), dst.as_mut_slice());
+
       check_status!(
-        sys::napi_create_string_latin1(env, val.0.as_ptr() as *const _, val.len(), &mut ptr),
+        sys::napi_create_string_latin1(env, dst.as_ptr() as *const _, dst.len(), &mut ptr),
         "Failed to convert rust type `String` into napi `latin1 string`"
       )?;
 

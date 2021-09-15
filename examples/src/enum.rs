@@ -20,3 +20,8 @@ pub enum CustomNumEnum {
   Nine, // would be 9
   Ten,  // 10
 }
+
+#[napi]
+fn enum_to_i32(e: CustomNumEnum) -> i32 {
+  e as i32
+}

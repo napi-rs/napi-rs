@@ -11,6 +11,6 @@ fn get_nums() -> Vec<u32> {
 }
 
 #[napi]
-fn log_nums(nums: Vec<u32>) {
-  println!("{:?}", nums);
+fn sum_nums(nums: Vec<u32>) -> u32 {
+  nums.iter().sum()
 }

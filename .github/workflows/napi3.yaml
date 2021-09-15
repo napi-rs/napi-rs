@@ -71,6 +71,7 @@ jobs:
       - name: Unit tests
         run: |
           yarn --cwd ./test_module --ignore-engines build-napi3
+          yarn --cwd ./examples --ignore-engines build-napi3
           yarn --ignore-engines test
         env:
           RUST_BACKTRACE: 1

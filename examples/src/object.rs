@@ -1,13 +1,14 @@
 use napi::bindgen_prelude::*;
 
 #[napi]
-fn log_keys(obj: Object) {
-  Object::keys(obj).unwrap().iter().for_each(|key| {
-    println!("key: {}", key);
-  });
+fn list_obj_keys(obj: Object) -> Vec<String> {
+  Object::keys(&obj).unwrap()
 }
 
 #[napi]
-fn create_empty_obj(env: Env) -> Object {
-  env.create_object().unwrap()
+fn create_obj(env: Env) -> Object {
+  let mut obj = env.create_object().unwrap();
+  obj.set("test".to_owned(), 1).unwrap();
+
+  obj
 }

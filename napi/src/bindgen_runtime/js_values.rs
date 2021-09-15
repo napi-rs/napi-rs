@@ -14,6 +14,9 @@ pub use nil::*;
 pub use object::*;
 pub use string::*;
 
+#[cfg(feature = "latin1")]
+pub use string::latin1_string::*;
+
 pub trait TypeName {
   fn type_name() -> &'static str;
 }

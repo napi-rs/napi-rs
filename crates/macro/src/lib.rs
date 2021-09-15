@@ -15,9 +15,11 @@ use napi_macro_backend::{ToTypeDef, TypeDef};
 use parser::ParseNapi;
 use proc_macro::TokenStream as RawStream;
 use proc_macro2::TokenStream;
+use std::env;
+#[cfg(feature = "type-def")]
 use std::{
-  env, fs,
-  io::{self, BufWriter, Write},
+  fs,
+  io::{BufWriter, Result as IOResult, Write},
 };
 #[cfg(feature = "compat-mode")]
 use syn::{fold::Fold, parse_macro_input, ItemFn};
@@ -65,7 +67,7 @@ fn expand(attr: TokenStream, input: TokenStream) -> BindgenResult<TokenStream> {
 }
 
 #[cfg(feature = "type-def")]
-fn output_type_def(type_def_file: String, type_def: TypeDef) -> io::Result<()> {
+fn output_type_def(type_def_file: String, type_def: TypeDef) -> IOResult<()> {
   let file = fs::OpenOptions::new()
     .append(true)
     .create(true)
