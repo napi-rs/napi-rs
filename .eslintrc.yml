@@ -196,13 +196,11 @@ overrides:
     parserOptions:
       project: ./tsconfig.json
   - files:
-      - ./test_module/**/*.{ts,js}
       - ./examples/**/*.{ts,js}
     plugins:
       - '@typescript-eslint'
     parserOptions:
       project:
-        - ./test_module/tsconfig.json
         - ./examples/tsconfig.json
 
   - files:

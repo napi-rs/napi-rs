@@ -11,7 +11,7 @@ version = "2.0.0"
 
 [features]
 compat-mode = []
-type-def = ["napi-macro-backend/type-def"]
+type-def = ["napi-derive-backend/type-def"]
 type-check = []
 full = ["type-def", "type-check"]
 
@@ -19,7 +19,7 @@ full = ["type-def", "type-check"]
 proc-macro2 = "1.0"
 quote = "1.0"
 syn = { version = "1.0", features = ["fold", "full", "extra-traits"] }
-napi-macro-backend = { path = "../backend" }
+napi-derive-backend = { path = "../backend" }
 convert_case = "0.4"
 
 [lib]

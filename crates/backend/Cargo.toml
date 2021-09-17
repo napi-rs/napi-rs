@@ -1,5 +1,5 @@
 [package]
-name = "napi-macro-backend"
+name = "napi-derive-backend"
 version = "0.1.0"
 edition = "2018"
 

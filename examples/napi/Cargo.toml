@@ -12,8 +12,8 @@ latest = ["napi/napi8"]
 napi3 = ["napi/napi3"]
 
 [dependencies]
-napi-derive = { path = "../crates/macro", features = ["type-def"] }
-napi = { path = "../napi", features = ["latin1"] }
+napi-derive = { path = "../../crates/macro", features = ["type-def"] }
+napi = { path = "../../crates/napi", features = ["latin1"] }
 
 [build-dependencies]
-napi-build = { path = "../build" }
+napi-build = { path = "../../crates/build" }

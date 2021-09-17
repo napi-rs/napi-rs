@@ -1,4 +1,4 @@
-use napi_macro_backend::{bail_span, BindgenResult, Diagnostic};
+use napi_derive_backend::{bail_span, BindgenResult, Diagnostic};
 use proc_macro2::{Delimiter, Ident, Span, TokenTree};
 use std::{
   cell::{Cell, RefCell},

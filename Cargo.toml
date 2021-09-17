@@ -1,15 +1,14 @@
 [workspace]
 members = [
-  "./build",
-  "./napi",
-  "./sys",
-  "./test_module",
+  "./crates/backend",
+  "./crates/build",
+  "./crates/macro",
+  "./crates/napi",
+  "./crates/sys",
+  "./examples/napi",
+  "./examples/napi-compat-mode",
   "./bench",
   "./memory-testing",
-  "./crates/macro",
-  "./crates/backend",
-  "./examples",
-  "./examples-compat-mode"
 ]
 
 [profile.release]

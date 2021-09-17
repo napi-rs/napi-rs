@@ -77,7 +77,7 @@ jobs:
 
       - name: Cross build native tests
         run: |
-          docker run -v ~/.cargo/git:/root/.cargo/git -v ~/.cargo/registry:/root/.cargo/registry -v $(pwd):/napi-rs -w /napi-rs -e CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-musl-gcc builder sh -c "yarn --cwd ./test_module build --target aarch64-unknown-linux-musl && yarn --cwd ./examples build --target aarch64-unknown-linux-musl"
+          docker run -v ~/.cargo/git:/root/.cargo/git -v ~/.cargo/registry:/root/.cargo/registry -v $(pwd):/napi-rs -w /napi-rs -e CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-musl-gcc builder sh -c "yarn --cwd ./examples/napi-compat-mode build --target aarch64-unknown-linux-musl && yarn --cwd ./examples/napi build --target aarch64-unknown-linux-musl"
 
       - name: Setup and run tests
         uses: docker://multiarch/alpine:aarch64-latest-stable

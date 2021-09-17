@@ -1,7 +1,7 @@
 [package]
 authors = ["LongYinan <lynweklm@gmail.com>"]
 edition = "2018"
-name = "napi-test-module"
+name = "napi-compat-mode-examples"
 version = "0.1.0"
 
 [lib]
@@ -13,8 +13,8 @@ napi3 = ["napi/napi3"]
 
 [dependencies]
 futures = "0.3"
-napi = {path = "../napi", features = ["tokio_rt", "serde-json", "latin1", "compat-mode"]}
-napi-derive = {path = "../crates/macro", features = ["compat-mode"]}
+napi = {path = "../../crates/napi", features = ["tokio_rt", "serde-json", "latin1", "compat-mode"]}
+napi-derive = {path = "../../crates/macro", features = ["compat-mode"]}
 serde = "1"
 serde_bytes = "0.11"
 serde_derive = "1"
@@ -22,4 +22,4 @@ serde_json = "1"
 tokio = {version = "1", features = ["default", "fs"]}
 
 [build-dependencies]
-napi-build = {path = "../build"}
+napi-build = {path = "../../crates/build"}

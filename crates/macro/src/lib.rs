@@ -5,13 +5,13 @@ mod parser;
 #[macro_use]
 extern crate syn;
 #[macro_use]
-extern crate napi_macro_backend;
+extern crate napi_derive_backend;
 #[macro_use]
 extern crate quote;
-use napi_macro_backend::{BindgenResult, TryToTokens};
+use napi_derive_backend::{BindgenResult, TryToTokens};
 
 #[cfg(feature = "type-def")]
-use napi_macro_backend::{ToTypeDef, TypeDef};
+use napi_derive_backend::{ToTypeDef, TypeDef};
 use parser::ParseNapi;
 use proc_macro::TokenStream as RawStream;
 use proc_macro2::TokenStream;
