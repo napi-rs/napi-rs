@@ -46,7 +46,7 @@ export class PrePublishCommand extends Command {
       await updatePackageJson(packageJsonPath, {
         optionalDependencies: platforms.reduce(
           (acc: Record<string, string>, cur) => {
-            acc[`${packageName}-${cur.platformArchABI}`] = `^${version}`
+            acc[`${packageName}-${cur.platformArchABI}`] = `${version}`
             return acc
           },
           {},
