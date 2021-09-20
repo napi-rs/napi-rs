@@ -59,7 +59,7 @@
     "@types/lodash-es": "^4.17.5",
     "@types/node": "^16.9.4",
     "@types/sinon": "^10.0.2",
-    "@typescript-eslint/eslint-plugin": "^4.31.1",
+    "@typescript-eslint/eslint-plugin": "^4.31.2",
     "@typescript-eslint/parser": "^4.31.2",
     "ava": "^3.15.0",
     "benny": "^3.6.15",
