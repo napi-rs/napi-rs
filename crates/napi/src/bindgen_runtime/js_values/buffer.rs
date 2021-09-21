@@ -1,7 +1,7 @@
 use std::ops::{Deref, DerefMut};
 use std::{mem, ptr};
 
-use crate::{bindgen_prelude::*, check_status, sys, Result};
+use crate::{bindgen_prelude::*, check_status, sys, Result, ValueType};
 
 /// zero copy u8 vector shared between rust and napi
 pub struct Buffer {
@@ -89,5 +89,11 @@ impl ToNapiValue for Buffer {
         Ok(ret)
       }
     }
+  }
+}
+
+impl ValidateNapiValue for Buffer {
+  fn type_of() -> Vec<ValueType> {
+    vec![ValueType::Object]
   }
 }

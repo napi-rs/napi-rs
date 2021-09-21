@@ -125,7 +125,7 @@ impl NapiStruct {
       ) -> sys::napi_value {
         #[inline(always)]
         unsafe fn call(env: sys::napi_env, cb: sys::napi_callback_info) -> Result<sys::napi_value> {
-          let mut cb = CallbackInfo::<#fields_len>::new(env, cb)?;
+          let mut cb = CallbackInfo::<#fields_len>::new(env, cb, None)?;
           cb.construct(#js_name_str, #construct)
         }
 
@@ -235,7 +235,7 @@ impl NapiStruct {
           ) -> sys::napi_value {
             #[inline(always)]
             unsafe fn call(env: sys::napi_env, cb: sys::napi_callback_info) -> Result<sys::napi_value> {
-              let mut cb = CallbackInfo::<0>::new(env, cb)?;
+              let mut cb = CallbackInfo::<0>::new(env, cb, Some(0))?;
               let obj = cb.unwrap_borrow::<#struct_name>()?;
               // TODO: assert Clone/Copy
               let val = obj.#field_ident.to_owned();
@@ -263,7 +263,7 @@ impl NapiStruct {
           ) -> sys::napi_value {
             #[inline(always)]
             unsafe fn call(env: sys::napi_env, cb: sys::napi_callback_info) -> Result<sys::napi_value> {
-              let mut cb = CallbackInfo::<1>::new(env, cb)?;
+              let mut cb = CallbackInfo::<1>::new(env, cb, Some(1))?;
               let obj = cb.unwrap_borrow_mut::<#struct_name>()?;
               obj.#field_ident = <#ty as FromNapiValue>::from_napi_value(env, cb.get_arg(0))?;
               <() as ToNapiValue>::to_napi_value(env, ())

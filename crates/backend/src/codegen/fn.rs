@@ -31,7 +31,7 @@ impl TryToTokens for NapiFn {
       ) -> sys::napi_value {
         #[inline(always)]
         unsafe fn call(env: sys::napi_env, cb: sys::napi_callback_info) -> Result<sys::napi_value> {
-          let mut cb = CallbackInfo::<#args_len>::new(env, cb)?;
+          let mut cb = CallbackInfo::<#args_len>::new(env, cb, None)?;
           #(#arg_conversions)*
 
           let #receiver_ret_name = {
@@ -78,23 +78,23 @@ impl NapiFn {
       };
     }
 
-    let mut non_callback_arg_count = 0;
+    let mut skipped_arg_count = 0;
     self.args.iter().enumerate().for_each(|(i, arg)| {
-      let i = i - non_callback_arg_count;
+      let i = i - skipped_arg_count;
       let ident = Ident::new(&format!("arg{}", i), Span::call_site());
 
       match arg {
         NapiFnArgKind::PatType(path) => {
           if &path.ty.to_token_stream().to_string() == "Env" {
             args.push(quote! { Env::from(env) });
-            non_callback_arg_count += 1;
+            skipped_arg_count += 1;
           } else {
-            arg_conversions.push(NapiFn::gen_ty_arg_conversion(&ident, i, path));
+            arg_conversions.push(self.gen_ty_arg_conversion(&ident, i, path));
             args.push(quote! { #ident });
           }
         }
         NapiFnArgKind::Callback(cb) => {
-          arg_conversions.push(NapiFn::gen_cb_arg_conversion(&ident, i, cb));
+          arg_conversions.push(self.gen_cb_arg_conversion(&ident, i, cb));
           args.push(quote! { #ident });
         }
       }
@@ -103,7 +103,12 @@ impl NapiFn {
     (arg_conversions, args)
   }
 
-  fn gen_ty_arg_conversion(arg_name: &Ident, index: usize, path: &syn::PatType) -> TokenStream {
+  fn gen_ty_arg_conversion(
+    &self,
+    arg_name: &Ident,
+    index: usize,
+    path: &syn::PatType,
+  ) -> TokenStream {
     let ty = &*path.ty;
     match ty {
       syn::Type::Reference(syn::TypeReference {
@@ -120,13 +125,26 @@ impl NapiFn {
           let #arg_name = unsafe { <#elem as FromNapiRef>::from_napi_ref(env, cb.get_arg(#index))? };
         }
       }
-      _ => quote! {
-        let #arg_name = unsafe { <#ty as FromNapiValue>::from_napi_value(env, cb.get_arg(#index))? };
-      },
+      _ => {
+        let type_check = if self.strict {
+          quote! {
+            <#ty as ValidateNapiValue>::validate(env, cb.get_arg(#index))?;
+          }
+        } else {
+          quote! {}
+        };
+
+        quote! {
+          let #arg_name = unsafe {
+            #type_check
+            <#ty as FromNapiValue>::from_napi_value(env, cb.get_arg(#index))?
+          };
+        }
+      }
     }
   }
 
-  fn gen_cb_arg_conversion(arg_name: &Ident, index: usize, cb: &CallbackArg) -> TokenStream {
+  fn gen_cb_arg_conversion(&self, arg_name: &Ident, index: usize, cb: &CallbackArg) -> TokenStream {
     let mut inputs = vec![];
     let mut arg_conversions = vec![];
 
@@ -148,6 +166,7 @@ impl NapiFn {
     };
 
     quote! {
+      assert_type_of!(env, cb.get_arg(#index), ValueType::Function)?;
       let #arg_name = |#(#inputs),*| {
         let args = vec![
           #(#arg_conversions),*

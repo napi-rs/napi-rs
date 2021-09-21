@@ -22,6 +22,13 @@ import {
 test('number', (t) => {
   t.is(add(1, 2), 3)
   t.is(fibonacci(5), 5)
+
+  t.throws(
+    // @ts-expect-error
+    () => fibonacci(''),
+    null,
+    'Expect value to be Number, but received String',
+  )
 })
 
 test('string', (t) => {
@@ -63,6 +70,13 @@ test('callback', (t) => {
   getCwd((cwd) => {
     t.is(cwd, process.cwd())
   })
+
+  t.throws(
+    // @ts-expect-error
+    () => getCwd(),
+    null,
+    'Expect value to be Function, but received Undefined',
+  )
 })
 
 test('object', (t) => {

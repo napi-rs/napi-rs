@@ -40,6 +40,12 @@ impl NapiEnum {
         }
       }
 
+      impl ValidateNapiValue for #name {
+        unsafe fn validate(env: sys::napi_env, napi_val: sys::napi_value) -> Result<()> {
+          assert_type_of!(env, napi_val, ValueType::Number)
+        }
+      }
+
       impl FromNapiValue for #name {
         unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
           let val = i32::from_napi_value(env, napi_val).map_err(|e| {

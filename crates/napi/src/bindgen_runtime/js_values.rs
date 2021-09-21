@@ -1,7 +1,8 @@
-use crate::{check_status, sys, Result};
+use crate::{check_status, sys, Error, Result, Status, ValueType};
 use std::ptr;
 
 mod array;
+mod boolean;
 mod buffer;
 mod nil;
 mod number;
@@ -50,6 +51,48 @@ pub trait FromNapiMutRef {
     env: sys::napi_env,
     napi_val: sys::napi_value,
   ) -> Result<&'static mut Self>;
+}
+
+pub trait ValidateNapiValue: FromNapiValue + TypeName {
+  fn type_of() -> Vec<ValueType> {
+    vec![]
+  }
+
+  /// # Safety
+  ///
+  /// this function called to validate whether napi value passed to rust is valid type
+  unsafe fn validate(env: sys::napi_env, napi_val: sys::napi_value) -> Result<()> {
+    let available_types = Self::type_of();
+    if available_types.is_empty() {
+      return Ok(());
+    }
+
+    let mut result = -1;
+    check_status!(
+      sys::napi_typeof(env, napi_val, &mut result),
+      "Failed to detect napi value type",
+    )?;
+
+    let received_type = ValueType::from(result);
+    if available_types.contains(&received_type) {
+      Ok(())
+    } else {
+      Err(Error::new(
+        Status::InvalidArg,
+        if available_types.len() > 1 {
+          format!(
+            "Expect value to be one of {:?}, but received {}",
+            available_types, received_type
+          )
+        } else {
+          format!(
+            "Expect value to be {}, but received {}",
+            available_types[0], received_type
+          )
+        },
+      ))
+    }
+  }
 }
 
 impl<T> TypeName for Option<T>

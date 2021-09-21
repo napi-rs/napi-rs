@@ -131,10 +131,30 @@ macro_rules! type_of {
   }};
 }
 
+#[doc(hidden)]
+#[macro_export]
+macro_rules! assert_type_of {
+  ($env: expr, $value:expr, $value_ty: expr) => {
+    $crate::type_of!($env, $value).and_then(|received_type| {
+      if received_type == $value_ty {
+        Ok(())
+      } else {
+        Err($crate::Error::new(
+          $crate::Status::InvalidArg,
+          format!(
+            "Expect value to be {}, but received {}",
+            $value_ty, received_type
+          ),
+        ))
+      }
+    })
+  };
+}
+
 pub mod bindgen_prelude {
   pub use super::bindgen_runtime::*;
   pub use super::{
-    check_status, check_status_or_throw, error, error::*, sys, JsError, Property,
-    PropertyAttributes, Result, Status, Task,
+    assert_type_of, check_status, check_status_or_throw, error, error::*, sys, type_of, JsError,
+    Property, PropertyAttributes, Result, Status, Task, ValueType,
   };
 }

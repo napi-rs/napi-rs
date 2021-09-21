@@ -8,7 +8,11 @@ pub struct CallbackInfo<const N: usize> {
 }
 
 impl<const N: usize> CallbackInfo<N> {
-  pub fn new(env: sys::napi_env, callback_info: sys::napi_callback_info) -> Result<Self> {
+  pub fn new(
+    env: sys::napi_env,
+    callback_info: sys::napi_callback_info,
+    required_argc: Option<usize>,
+  ) -> Result<Self> {
     let mut this = ptr::null_mut();
     let mut args = [ptr::null_mut(); N];
     let mut argc = N;
@@ -26,6 +30,18 @@ impl<const N: usize> CallbackInfo<N> {
         "Failed to initialize napi function call."
       )?;
     };
+
+    if let Some(required_argc) = required_argc {
+      if required_argc > argc {
+        return Err(Error::new(
+          Status::InvalidArg,
+          format!(
+            "{} arguments required by received {}.",
+            required_argc, &argc
+          ),
+        ));
+      }
+    }
 
     Ok(Self { env, this, args })
   }

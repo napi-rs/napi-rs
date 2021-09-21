@@ -1,4 +1,4 @@
-use crate::{bindgen_prelude::*, check_status, sys};
+use crate::{bindgen_prelude::*, check_status, sys, ValueType};
 use std::ptr;
 
 pub struct Array {
@@ -112,6 +112,12 @@ impl FromNapiValue for Array {
   }
 }
 
+impl ValidateNapiValue for Array {
+  fn type_of() -> Vec<ValueType> {
+    vec![ValueType::Object]
+  }
+}
+
 impl<T> TypeName for Vec<T> {
   fn type_name() -> &'static str {
     "Array<T>"
@@ -153,5 +159,14 @@ where
     }
 
     Ok(vec)
+  }
+}
+
+impl<T> ValidateNapiValue for Vec<T>
+where
+  T: FromNapiValue,
+{
+  fn type_of() -> Vec<ValueType> {
+    vec![ValueType::Object]
   }
 }

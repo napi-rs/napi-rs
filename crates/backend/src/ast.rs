@@ -13,6 +13,7 @@ pub struct NapiFn {
   pub kind: FnKind,
   pub vis: syn::Visibility,
   pub parent: Option<Ident>,
+  pub strict: bool,
 }
 
 #[derive(Debug, Clone)]

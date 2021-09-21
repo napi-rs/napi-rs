@@ -28,7 +28,6 @@ struct AttributeParseState {
 }
 
 /// Parsed attributes from a `#[napi(..)]`.
-#[cfg_attr(feature = "extra-traits", derive(Debug, PartialEq, Eq))]
 pub struct BindgenAttrs {
   /// Whether `#[napi]` attribute exists
   pub exists: bool,
@@ -49,6 +48,7 @@ macro_rules! attrgen {
       (setter, Setter(Span, Option<Ident>)),
       (readonly, Readonly(Span)),
       (skip, Skip(Span)),
+      (strict, Strict(Span)),
 
       // impl later
       // (inspectable, Inspectable(Span)),
@@ -67,7 +67,7 @@ macro_rules! methods {
   ($(($name:ident, $variant:ident($($contents:tt)*)),)*) => {
     $(methods!(@method $name, $variant($($contents)*));)*
 
-    #[cfg(feature = "strict-macro")]
+    #[cfg(feature = "strict")]
     fn check_used(self) -> Result<(), Diagnostic> {
       // Account for the fact this method was called
       ATTRS.with(|state| state.checks.set(state.checks.get() + 1));
@@ -77,12 +77,6 @@ macro_rules! methods {
         if used.get() {
             continue
         }
-        // The check below causes rustc to crash on powerpc64 platforms
-        // with an LLVM error. To avoid this, we instead use #[cfg()]
-        // and duplicate the function below. See #58516 for details.
-        /*if !cfg!(feature = "strict-macro") {
-            continue
-        }*/
         let span = match attr {
           $(BindgenAttr::$variant(span, ..) => span,)*
         };
@@ -91,7 +85,7 @@ macro_rules! methods {
       Diagnostic::from_vec(errors)
     }
 
-    #[cfg(not(feature = "strict-macro"))]
+    #[cfg(not(feature = "strict"))]
     fn check_used(self) -> Result<(), Diagnostic> {
         // Account for the fact this method was called
         ATTRS.with(|state| state.checks.set(state.checks.get() + 1));
@@ -219,7 +213,6 @@ impl Default for BindgenAttrs {
 macro_rules! gen_bindgen_attr {
   ($( ($method:ident, $($variants:tt)*) ,)*) => {
     /// The possible attributes in the `#[napi]`.
-    #[cfg_attr(feature = "extra-traits", derive(Debug, PartialEq, Eq))]
     pub enum BindgenAttr {
       $($($variants)*,)*
     }

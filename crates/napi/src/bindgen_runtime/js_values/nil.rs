@@ -11,6 +11,12 @@ impl TypeName for Null {
   }
 }
 
+impl ValidateNapiValue for Null {
+  fn type_of() -> Vec<ValueType> {
+    vec![ValueType::Null]
+  }
+}
+
 impl FromNapiValue for Null {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
     match type_of!(env, napi_val) {
@@ -39,6 +45,12 @@ impl ToNapiValue for Null {
 impl TypeName for Undefined {
   fn type_name() -> &'static str {
     "undefined"
+  }
+}
+
+impl ValidateNapiValue for Undefined {
+  fn type_of() -> Vec<ValueType> {
+    vec![ValueType::Undefined]
   }
 }
 

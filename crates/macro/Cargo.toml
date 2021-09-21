@@ -12,8 +12,8 @@ version = "2.0.0"
 [features]
 compat-mode = []
 type-def = ["napi-derive-backend/type-def"]
-type-check = []
-full = ["type-def", "type-check"]
+strict = ["napi-derive-backend/strict"]
+full = ["type-def", "strict"]
 
 [dependencies]
 proc-macro2 = "1.0"

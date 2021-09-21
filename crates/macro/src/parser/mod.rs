@@ -462,7 +462,6 @@ fn napi_fn_from_decl(
 ) -> BindgenResult<NapiFn> {
   let mut errors = vec![];
 
-  // TODO: no non-public, const, unsafe, generics, lifetime
   let syn::Signature {
     ident,
     asyncness,
@@ -561,6 +560,7 @@ fn napi_fn_from_decl(
       fn_self,
       parent: parent.cloned(),
       attrs,
+      strict: opts.strict().is_some(),
     }
   })
 }
