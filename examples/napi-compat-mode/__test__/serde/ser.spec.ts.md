@@ -1,4 +1,4 @@
-# Snapshot report for `test_module/__test__/serde/ser.spec.ts`
+# Snapshot report for `examples/napi-compat-mode/__test__/serde/ser.spec.ts`
 
 The actual snapshot is saved in `ser.spec.ts.snap`.
 

@@ -28,6 +28,7 @@ pub trait ToTypeDef {
 }
 
 pub static VEC_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"^Vec < (.*) >$").unwrap());
+pub static OPTION_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"^Option < (.*) >").unwrap());
 
 pub fn ty_to_ts_type(ty: &Type) -> String {
   match ty {
@@ -58,13 +59,19 @@ pub fn str_to_ts_type(ty: &str) -> String {
     "bool" => "boolean".to_owned(),
     "String" | "str" | "char" => "string".to_owned(),
     "Object" => "object".to_owned(),
-    // nothing else `& 'lifetime str` could ends with ` str`
+    // nothing but `& 'lifetime str` could ends with ` str`
     s if s.ends_with(" str") => "string".to_owned(),
     s if s.starts_with("Vec") && VEC_REGEX.is_match(s) => {
       let captures = VEC_REGEX.captures(s).unwrap();
       let inner = captures.get(1).unwrap().as_str();
 
       format!("Array<{}>", str_to_ts_type(inner))
+    }
+    s if s.starts_with("Option") && OPTION_REGEX.is_match(s) => {
+      let captures = OPTION_REGEX.captures(s).unwrap();
+      let inner = captures.get(1).unwrap().as_str();
+
+      format!("{} | undefined", str_to_ts_type(inner))
     }
     s => s.to_owned(),
   }

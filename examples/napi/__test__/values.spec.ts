@@ -17,6 +17,7 @@ import {
   enumToI32,
   listObjKeys,
   createObj,
+  mapOption,
 } from '../'
 
 test('number', (t) => {
@@ -82,4 +83,9 @@ test('callback', (t) => {
 test('object', (t) => {
   t.deepEqual(listObjKeys({ name: 'John Doe', age: 20 }), ['name', 'age'])
   t.deepEqual(createObj(), { test: 1 })
+})
+
+test('Option', (t) => {
+  t.is(mapOption(undefined), undefined)
+  t.is(mapOption(3), 4)
 })
