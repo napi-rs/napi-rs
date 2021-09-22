@@ -1,0 +1,22 @@
+[package]
+name = "napi-derive-backend"
+version = "0.1.0"
+edition = "2018"
+
+[features]
+type-def = ["regex", "once_cell"]
+strict = []
+
+[dependencies]
+proc-macro2 = "1.0"
+quote = "1.0"
+syn = {version = "1.0", features = ["fold", "full"]}
+convert_case = "0.4.0"
+
+[dependencies.regex]
+optional = true
+version = "1"
+
+[dependencies.once_cell]
+optional = true
+version = "1"

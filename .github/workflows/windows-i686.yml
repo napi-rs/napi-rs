@@ -40,7 +40,7 @@ jobs:
       - name: Install
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: 1.51.0
+          toolchain: stable
           profile: minimal
           override: true
 
@@ -72,7 +72,8 @@ jobs:
 
       - name: Build Tests
         run: |
-          yarn --cwd ./test_module build-i686
+          yarn --cwd ./examples/napi-compat-mode build-i686
+          yarn --cwd ./examples/napi build-i686
           yarn test
         env:
           RUST_BACKTRACE: 1

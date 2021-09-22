@@ -14,6 +14,7 @@ import {
   mkdirAsync,
   readFileAsync,
   unlinkAsync,
+  writeFileAsync,
 } from './utils'
 
 const debug = debugFactory('build')
@@ -50,7 +51,7 @@ export class BuildCommand extends Command {
       ? join(process.cwd(), this.cargoCwd)
       : process.cwd()
     const releaseFlag = this.isRelease ? `--release` : ''
-    const targetFLag = this.targetTripleDir
+    const targetFlag = this.targetTripleDir
       ? `--target ${this.targetTripleDir}`
       : ''
     const featuresFlag = this.features ? `--features ${this.features}` : ''
@@ -64,16 +65,20 @@ export class BuildCommand extends Command {
     debug(`Current triple is: ${chalk.green(triple.raw)}`)
     const externalFlags = [
       releaseFlag,
-      targetFLag,
+      targetFlag,
       featuresFlag,
       this.cargoFlags,
     ]
       .filter((flag) => Boolean(flag))
       .join(' ')
     const cargoCommand = `cargo build ${externalFlags}`
+    const intermediateTypeFile = join(__dirname, `type_def.${Date.now()}.tmp`)
     debug(`Run ${chalk.green(cargoCommand)}`)
     execSync(cargoCommand, {
-      env: process.env,
+      env: {
+        ...process.env,
+        TYPE_DEF_TMP_PATH: intermediateTypeFile,
+      },
       stdio: 'inherit',
       cwd,
     })
@@ -190,6 +195,11 @@ export class BuildCommand extends Command {
 
     debug(`Write binary content to [${chalk.yellowBright(distModulePath)}]`)
     await copyFileAsync(sourcePath, distModulePath)
+
+    await processIntermediateTypeFile(
+      intermediateTypeFile,
+      join(this.destDir ?? '.', 'type.d.ts'),
+    )
   }
 }
 
@@ -204,4 +214,61 @@ async function findUp(dir = process.cwd()): Promise<string | null> {
   }
   dirs.pop()
   return findUp(dirs.join(sep))
+}
+
+interface TypeDef {
+  kind: 'fn' | 'struct' | 'impl' | 'enum'
+  name: string
+  def: string
+}
+
+async function processIntermediateTypeFile(source: string, target: string) {
+  if (!(await existsAsync(source))) {
+    debug(`do not find tmp type file. skip type generation`)
+    return
+  }
+
+  const tmpFile = await readFileAsync(source, 'utf8')
+  const lines = tmpFile
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+  let dts = ''
+  const classes = new Map<string, string>()
+  const impls = new Map<string, string>()
+
+  lines.forEach((line) => {
+    const def = JSON.parse(line) as TypeDef
+
+    switch (def.kind) {
+      case 'fn':
+      case 'enum':
+        dts += def.def + '\n'
+        break
+      case 'struct':
+        classes.set(def.name, def.def)
+        break
+      case 'impl':
+        impls.set(def.name, def.def)
+    }
+  })
+
+  for (const [name, def] of impls.entries()) {
+    const classDef = classes.get(name)
+
+    dts += `export class ${name} {
+  ${(classDef ?? '')
+    .split('\n')
+    .map((line) => line.trim())
+    .join('\n  ')}
+  ${def
+    .split('\n')
+    .map((line) => line.trim())
+    .join('\n  ')}
+}
+`
+  }
+
+  await unlinkAsync(source)
+  await writeFileAsync(target, dts, 'utf8')
 }

@@ -1,0 +1,19 @@
+[package]
+authors = ["LongYinan <lynweklm@gmail.com>"]
+edition = "2018"
+name = "napi-examples"
+version = "0.1.0"
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+latest = ["napi/napi8"]
+napi3 = ["napi/napi3"]
+
+[dependencies]
+napi-derive = { path = "../../crates/macro", features = ["type-def"] }
+napi = { path = "../../crates/napi", features = ["latin1"] }
+
+[build-dependencies]
+napi-build = { path = "../../crates/build" }
