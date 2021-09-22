@@ -27,12 +27,10 @@ impl<'env> Serializer for Ser<'env> {
   type SerializeStruct = StructSerializer;
   type SerializeStructVariant = StructSerializer;
 
-  #[inline]
   fn serialize_bool(self, v: bool) -> Result<Self::Ok> {
     self.0.get_boolean(v).map(|js_value| js_value.0)
   }
 
-  #[inline]
   fn serialize_bytes(self, v: &[u8]) -> Result<Self::Ok> {
     self
       .0
@@ -40,54 +38,44 @@ impl<'env> Serializer for Ser<'env> {
       .map(|js_value| js_value.value.0)
   }
 
-  #[inline]
   fn serialize_char(self, v: char) -> Result<Self::Ok> {
     let mut b = [0; 4];
     let result = v.encode_utf8(&mut b);
     self.0.create_string(result).map(|js_string| js_string.0)
   }
 
-  #[inline]
   fn serialize_f32(self, v: f32) -> Result<Self::Ok> {
     self.0.create_double(v as _).map(|js_number| js_number.0)
   }
 
-  #[inline]
   fn serialize_f64(self, v: f64) -> Result<Self::Ok> {
     self.0.create_double(v).map(|js_number| js_number.0)
   }
 
-  #[inline]
   fn serialize_i16(self, v: i16) -> Result<Self::Ok> {
     self.0.create_int32(v as _).map(|js_number| js_number.0)
   }
 
-  #[inline]
   fn serialize_i32(self, v: i32) -> Result<Self::Ok> {
     self.0.create_int32(v).map(|js_number| js_number.0)
   }
 
-  #[inline]
   fn serialize_i64(self, v: i64) -> Result<Self::Ok> {
     self.0.create_int64(v).map(|js_number| js_number.0)
   }
 
-  #[inline]
   fn serialize_i8(self, v: i8) -> Result<Self::Ok> {
     self.0.create_int32(v as _).map(|js_number| js_number.0)
   }
 
-  #[inline]
   fn serialize_u8(self, v: u8) -> Result<Self::Ok> {
     self.0.create_uint32(v as _).map(|js_number| js_number.0)
   }
 
-  #[inline]
   fn serialize_u16(self, v: u16) -> Result<Self::Ok> {
     self.0.create_uint32(v as _).map(|js_number| js_number.0)
   }
 
-  #[inline]
   fn serialize_u32(self, v: u32) -> Result<Self::Ok> {
     self.0.create_uint32(v).map(|js_number| js_number.0)
   }
@@ -101,13 +89,11 @@ impl<'env> Serializer for Ser<'env> {
     ),
     not(feature = "napi6")
   ))]
-  #[inline]
   fn serialize_u64(self, v: u64) -> Result<Self::Ok> {
     self.0.create_int64(v as _).map(|js_number| js_number.0)
   }
 
   #[cfg(feature = "napi6")]
-  #[inline]
   fn serialize_u64(self, v: u64) -> Result<Self::Ok> {
     self
       .0
@@ -124,13 +110,11 @@ impl<'env> Serializer for Ser<'env> {
     ),
     not(feature = "napi6")
   ))]
-  #[inline]
   fn serialize_u128(self, v: u128) -> Result<Self::Ok> {
     self.0.create_string(v.to_string().as_str()).map(|v| v.0)
   }
 
   #[cfg(feature = "napi6")]
-  #[inline]
   fn serialize_u128(self, v: u128) -> Result<Self::Ok> {
     let words_ref = &v as *const _;
     let words = unsafe { slice::from_raw_parts(words_ref as *const u64, 2) };
@@ -149,13 +133,11 @@ impl<'env> Serializer for Ser<'env> {
     ),
     not(feature = "napi6")
   ))]
-  #[inline]
   fn serialize_i128(self, v: i128) -> Result<Self::Ok> {
     self.0.create_string(v.to_string().as_str()).map(|v| v.0)
   }
 
   #[cfg(feature = "napi6")]
-  #[inline]
   fn serialize_i128(self, v: i128) -> Result<Self::Ok> {
     let words_ref = &(v as u128) as *const _;
     let words = unsafe { slice::from_raw_parts(words_ref as *const u64, 2) };
@@ -165,22 +147,18 @@ impl<'env> Serializer for Ser<'env> {
       .map(|v| v.raw)
   }
 
-  #[inline]
   fn serialize_unit(self) -> Result<Self::Ok> {
     self.0.get_null().map(|null| null.0)
   }
 
-  #[inline]
   fn serialize_none(self) -> Result<Self::Ok> {
     self.0.get_null().map(|null| null.0)
   }
 
-  #[inline]
   fn serialize_str(self, v: &str) -> Result<Self::Ok> {
     self.0.create_string(v).map(|string| string.0)
   }
 
-  #[inline]
   fn serialize_some<T: ?Sized>(self, value: &T) -> Result<Self::Ok>
   where
     T: Serialize,
@@ -188,7 +166,6 @@ impl<'env> Serializer for Ser<'env> {
     value.serialize(self)
   }
 
-  #[inline]
   fn serialize_map(self, _len: Option<usize>) -> Result<Self::SerializeMap> {
     let env = self.0;
     let key = env.create_string("")?;
@@ -196,7 +173,6 @@ impl<'env> Serializer for Ser<'env> {
     Ok(MapSerializer { key, obj })
   }
 
-  #[inline]
   fn serialize_seq(self, len: Option<usize>) -> Result<Self::SerializeSeq> {
     let array = self.0.create_array_with_length(len.unwrap_or(0))?;
     Ok(SeqSerializer {
@@ -205,7 +181,6 @@ impl<'env> Serializer for Ser<'env> {
     })
   }
 
-  #[inline]
   fn serialize_tuple_variant(
     self,
     _name: &'static str,
@@ -230,12 +205,10 @@ impl<'env> Serializer for Ser<'env> {
     })
   }
 
-  #[inline]
   fn serialize_unit_struct(self, _name: &'static str) -> Result<Self::Ok> {
     self.0.get_null().map(|null| null.0)
   }
 
-  #[inline]
   fn serialize_unit_variant(
     self,
     _name: &'static str,
@@ -245,7 +218,6 @@ impl<'env> Serializer for Ser<'env> {
     self.0.create_string(variant).map(|string| string.0)
   }
 
-  #[inline]
   fn serialize_newtype_struct<T: ?Sized>(self, _name: &'static str, value: &T) -> Result<Self::Ok>
   where
     T: Serialize,
@@ -253,7 +225,6 @@ impl<'env> Serializer for Ser<'env> {
     value.serialize(self)
   }
 
-  #[inline]
   fn serialize_newtype_variant<T: ?Sized>(
     self,
     _name: &'static str,
@@ -269,7 +240,6 @@ impl<'env> Serializer for Ser<'env> {
     Ok(obj.0)
   }
 
-  #[inline]
   fn serialize_tuple(self, len: usize) -> Result<Self::SerializeTuple> {
     Ok(SeqSerializer {
       array: self.0.create_array_with_length(len)?,
@@ -277,7 +247,6 @@ impl<'env> Serializer for Ser<'env> {
     })
   }
 
-  #[inline]
   fn serialize_tuple_struct(
     self,
     _name: &'static str,
@@ -289,14 +258,12 @@ impl<'env> Serializer for Ser<'env> {
     })
   }
 
-  #[inline]
   fn serialize_struct(self, _name: &'static str, _len: usize) -> Result<Self::SerializeStruct> {
     Ok(StructSerializer {
       obj: self.0.create_object()?,
     })
   }
 
-  #[inline]
   fn serialize_struct_variant(
     self,
     _name: &'static str,
@@ -352,7 +319,6 @@ impl ser::SerializeTuple for SeqSerializer {
   type Ok = Value;
   type Error = Error;
 
-  #[inline]
   fn serialize_element<T: ?Sized>(&mut self, value: &T) -> StdResult<(), Self::Error>
   where
     T: Serialize,
@@ -366,7 +332,6 @@ impl ser::SerializeTuple for SeqSerializer {
     Ok(())
   }
 
-  #[inline]
   fn end(self) -> StdResult<Self::Ok, Self::Error> {
     Ok(self.array.0)
   }
@@ -377,7 +342,6 @@ impl ser::SerializeTupleStruct for SeqSerializer {
   type Ok = Value;
   type Error = Error;
 
-  #[inline]
   fn serialize_field<T: ?Sized>(&mut self, value: &T) -> StdResult<(), Self::Error>
   where
     T: Serialize,
@@ -391,7 +355,6 @@ impl ser::SerializeTupleStruct for SeqSerializer {
     Ok(())
   }
 
-  #[inline]
   fn end(self) -> StdResult<Self::Ok, Self::Error> {
     Ok(self.array.0)
   }
@@ -402,7 +365,6 @@ impl ser::SerializeTupleVariant for SeqSerializer {
   type Ok = Value;
   type Error = Error;
 
-  #[inline]
   fn serialize_field<T: ?Sized>(&mut self, value: &T) -> StdResult<(), Self::Error>
   where
     T: Serialize,
@@ -416,7 +378,6 @@ impl ser::SerializeTupleVariant for SeqSerializer {
     Ok(())
   }
 
-  #[inline]
   fn end(self) -> Result<Self::Ok> {
     Ok(self.array.0)
   }
@@ -432,7 +393,6 @@ impl ser::SerializeMap for MapSerializer {
   type Ok = Value;
   type Error = Error;
 
-  #[inline]
   fn serialize_key<T: ?Sized>(&mut self, key: &T) -> StdResult<(), Self::Error>
   where
     T: Serialize,
@@ -442,7 +402,6 @@ impl ser::SerializeMap for MapSerializer {
     Ok(())
   }
 
-  #[inline]
   fn serialize_value<T: ?Sized>(&mut self, value: &T) -> StdResult<(), Self::Error>
   where
     T: Serialize,
@@ -459,7 +418,6 @@ impl ser::SerializeMap for MapSerializer {
     Ok(())
   }
 
-  #[inline]
   fn serialize_entry<K: ?Sized, V: ?Sized>(
     &mut self,
     key: &K,
@@ -477,7 +435,6 @@ impl ser::SerializeMap for MapSerializer {
     Ok(())
   }
 
-  #[inline]
   fn end(self) -> Result<Self::Ok> {
     Ok(self.obj.0)
   }
@@ -492,7 +449,6 @@ impl ser::SerializeStruct for StructSerializer {
   type Ok = Value;
   type Error = Error;
 
-  #[inline]
   fn serialize_field<T: ?Sized>(&mut self, key: &'static str, value: &T) -> StdResult<(), Error>
   where
     T: Serialize,
@@ -504,7 +460,6 @@ impl ser::SerializeStruct for StructSerializer {
     Ok(())
   }
 
-  #[inline]
   fn end(self) -> Result<Self::Ok> {
     Ok(self.obj.0)
   }
@@ -515,7 +470,6 @@ impl ser::SerializeStructVariant for StructSerializer {
   type Ok = Value;
   type Error = Error;
 
-  #[inline]
   fn serialize_field<T: ?Sized>(&mut self, key: &'static str, value: &T) -> StdResult<(), Error>
   where
     T: Serialize,
@@ -527,7 +481,6 @@ impl ser::SerializeStructVariant for StructSerializer {
     Ok(())
   }
 
-  #[inline]
   fn end(self) -> Result<Self::Ok> {
     Ok(self.obj.0)
   }

@@ -43,7 +43,6 @@ impl From<PropertyAttributes> for sys::napi_property_attributes {
 }
 
 impl Property {
-  #[inline]
   pub fn new(name: &str) -> Result<Self> {
     Ok(Property {
       name: CString::new(name)?,
@@ -51,37 +50,31 @@ impl Property {
     })
   }
 
-  #[inline]
   pub fn with_name(mut self, name: &str) -> Self {
     self.name = CString::new(name).unwrap();
     self
   }
 
-  #[inline]
   pub fn with_method(mut self, callback: Callback) -> Self {
     self.method = Some(callback);
     self
   }
 
-  #[inline]
   pub fn with_getter(mut self, callback: Callback) -> Self {
     self.getter = Some(callback);
     self
   }
 
-  #[inline]
   pub fn with_setter(mut self, callback: Callback) -> Self {
     self.setter = Some(callback);
     self
   }
 
-  #[inline]
   pub fn with_property_attributes(mut self, attributes: PropertyAttributes) -> Self {
     self.attrs = attributes;
     self
   }
 
-  #[inline]
   pub(crate) fn raw(&self) -> sys::napi_property_descriptor {
     sys::napi_property_descriptor {
       utf8name: self.name.as_ptr(),
@@ -95,7 +88,6 @@ impl Property {
     }
   }
 
-  #[inline]
   pub fn with_ctor(mut self, callback: Callback) -> Self {
     self.method = Some(callback);
     self.is_ctor = true;

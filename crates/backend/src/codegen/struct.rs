@@ -123,21 +123,12 @@ impl NapiStruct {
         env: sys::napi_env,
         cb: sys::napi_callback_info
       ) -> sys::napi_value {
-        #[inline(always)]
-        unsafe fn call(env: sys::napi_env, cb: sys::napi_callback_info) -> Result<sys::napi_value> {
-          let mut cb = CallbackInfo::<#fields_len>::new(env, cb, None)?;
-          cb.construct(#js_name_str, #construct)
-        }
-
-        unsafe {
-          match call(env, cb) {
-            Ok(v) => v,
-            Err(e) => {
-              unsafe { JsError::from(e).throw_into(env) };
-              std::ptr::null_mut::<sys::napi_value__>()
-            }
-          }
-        }
+        CallbackInfo::<#fields_len>::new(env, cb, None)
+          .and_then(|cb| unsafe { cb.construct(#js_name_str, #construct) })
+          .unwrap_or_else(|e| {
+            unsafe { JsError::from(e).throw_into(env) };
+            std::ptr::null_mut::<sys::napi_value__>()
+          })
       }
     }
   }
@@ -233,24 +224,16 @@ impl NapiStruct {
             env: sys::napi_env,
             cb: sys::napi_callback_info
           ) -> sys::napi_value {
-            #[inline(always)]
-            unsafe fn call(env: sys::napi_env, cb: sys::napi_callback_info) -> Result<sys::napi_value> {
-              let mut cb = CallbackInfo::<0>::new(env, cb, Some(0))?;
-              let obj = cb.unwrap_borrow::<#struct_name>()?;
-              // TODO: assert Clone/Copy
-              let val = obj.#field_ident.to_owned();
-              <#ty as ToNapiValue>::to_napi_value(env, val)
-            }
-
-            unsafe {
-              match call(env, cb) {
-                Ok(v) => v,
-                Err(e) => {
-                  JsError::from(e).throw_into(env);
-                  std::ptr::null_mut::<sys::napi_value__>()
-                }
-              }
-            }
+            CallbackInfo::<0>::new(env, cb, Some(0))
+              .and_then(|mut cb| unsafe { cb.unwrap_borrow::<#struct_name>() })
+              .and_then(|obj| {
+                let val = obj.#field_ident.to_owned();
+                unsafe { <#ty as ToNapiValue>::to_napi_value(env, val) }
+              })
+              .unwrap_or_else(|e| {
+                unsafe { JsError::from(e).throw_into(env) };
+                std::ptr::null_mut::<sys::napi_value__>()
+              })
           }
         });
       }
@@ -261,23 +244,21 @@ impl NapiStruct {
             env: sys::napi_env,
             cb: sys::napi_callback_info
           ) -> sys::napi_value {
-            #[inline(always)]
-            unsafe fn call(env: sys::napi_env, cb: sys::napi_callback_info) -> Result<sys::napi_value> {
-              let mut cb = CallbackInfo::<1>::new(env, cb, Some(1))?;
-              let obj = cb.unwrap_borrow_mut::<#struct_name>()?;
-              obj.#field_ident = <#ty as FromNapiValue>::from_napi_value(env, cb.get_arg(0))?;
-              <() as ToNapiValue>::to_napi_value(env, ())
-            }
-
-            unsafe {
-              match call(env, cb) {
-                Ok(v) => v,
-                Err(e) => {
-                  JsError::from(e).throw_into(env);
-                  std::ptr::null_mut::<sys::napi_value__>()
-                }
-              }
-            }
+            CallbackInfo::<1>::new(env, cb, Some(1))
+              .and_then(|mut cb_info| unsafe {
+                cb_info.unwrap_borrow_mut::<#struct_name>()
+                  .and_then(|obj| {
+                    <#ty as FromNapiValue>::from_napi_value(env, cb_info.get_arg(0))
+                      .and_then(move |val| {
+                        obj.#field_ident = val;
+                        <() as ToNapiValue>::to_napi_value(env, ())
+                      })
+                  })
+              })
+              .unwrap_or_else(|e| {
+                unsafe { JsError::from(e).throw_into(env) };
+                std::ptr::null_mut::<sys::napi_value__>()
+              })
           }
         });
       }

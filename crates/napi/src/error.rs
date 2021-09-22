@@ -59,12 +59,10 @@ impl fmt::Display for Error {
 }
 
 impl Error {
-  #[inline]
   pub fn new(status: Status, reason: String) -> Self {
     Error { status, reason }
   }
 
-  #[inline]
   pub fn from_status(status: Status) -> Self {
     Error {
       status,
@@ -72,7 +70,6 @@ impl Error {
     }
   }
 
-  #[inline]
   pub fn from_reason(reason: String) -> Self {
     Error {
       status: Status::GenericFailure,
@@ -133,7 +130,6 @@ pub struct JsRangeError(Error);
 macro_rules! impl_object_methods {
   ($js_value:ident, $kind:expr) => {
     impl $js_value {
-      #[inline(always)]
       /// # Safety
       ///
       /// This function is safety if env is not null ptr.
@@ -161,7 +157,6 @@ macro_rules! impl_object_methods {
         js_error
       }
 
-      #[inline(always)]
       /// # Safety
       ///
       /// This function is safety if env is not null ptr.
@@ -171,7 +166,6 @@ macro_rules! impl_object_methods {
         debug_assert!(throw_status == sys::Status::napi_ok);
       }
 
-      #[inline(always)]
       pub fn throw(&self, env: sys::napi_env) -> Result<()> {
         let error_status = format!("{:?}", self.0.status);
         let status_len = error_status.len();

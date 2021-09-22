@@ -22,7 +22,6 @@ pub struct JsFunction(pub(crate) Value);
 /// ```
 impl JsFunction {
   /// [napi_call_function](https://nodejs.org/api/n-api.html#n_api_napi_call_function)
-  #[inline]
   pub fn call<V>(&self, this: Option<&JsObject>, args: &[V]) -> Result<JsUnknown>
   where
     V: NapiRaw,
@@ -57,7 +56,6 @@ impl JsFunction {
 
   /// [napi_call_function](https://nodejs.org/api/n-api.html#n_api_napi_call_function)
   /// The same with `call`, but without arguments
-  #[inline]
   pub fn call_without_args(&self, this: Option<&JsObject>) -> Result<JsUnknown> {
     let raw_this = this
       .map(|v| unsafe { v.raw() })
@@ -87,7 +85,6 @@ impl JsFunction {
   ///
   /// This method is used to instantiate a new `JavaScript` value using a given `JsFunction` that represents the constructor for the object.
   #[allow(clippy::new_ret_no_self)]
-  #[inline]
   pub fn new<V>(&self, args: &[V]) -> Result<JsObject>
   where
     V: NapiRaw,

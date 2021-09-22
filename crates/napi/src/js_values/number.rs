@@ -8,28 +8,24 @@ use crate::{sys, Error, Result};
 pub struct JsNumber(pub(crate) Value);
 
 impl JsNumber {
-  #[inline]
   pub fn get_uint32(&self) -> Result<u32> {
     let mut result = 0;
     check_status!(unsafe { sys::napi_get_value_uint32(self.0.env, self.0.value, &mut result) })?;
     Ok(result)
   }
 
-  #[inline]
   pub fn get_int32(&self) -> Result<i32> {
     let mut result = 0;
     check_status!(unsafe { sys::napi_get_value_int32(self.0.env, self.0.value, &mut result) })?;
     Ok(result)
   }
 
-  #[inline]
   pub fn get_int64(&self) -> Result<i64> {
     let mut result = 0;
     check_status!(unsafe { sys::napi_get_value_int64(self.0.env, self.0.value, &mut result) })?;
     Ok(result)
   }
 
-  #[inline]
   pub fn get_double(&self) -> Result<f64> {
     let mut result = 0_f64;
     check_status!(unsafe { sys::napi_get_value_double(self.0.env, self.0.value, &mut result) })?;

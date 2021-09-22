@@ -10,7 +10,6 @@ pub struct EscapableHandleScope<T: NapiRaw> {
 }
 
 impl<T: NapiRaw> EscapableHandleScope<T> {
-  #[inline]
   pub fn open(env: sys::napi_env, value: T) -> Result<Self> {
     let mut handle_scope = ptr::null_mut();
     check_status!(unsafe { sys::napi_open_escapable_handle_scope(env, &mut handle_scope) })?;

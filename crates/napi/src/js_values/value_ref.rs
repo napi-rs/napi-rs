@@ -15,7 +15,6 @@ unsafe impl<T> Send for Ref<T> {}
 unsafe impl<T> Sync for Ref<T> {}
 
 impl<T> Ref<T> {
-  #[inline]
   pub(crate) fn new(js_value: Value, ref_count: u32, inner: T) -> Result<Ref<T>> {
     let mut raw_ref = ptr::null_mut();
     assert_ne!(ref_count, 0, "Initial `ref_count` must be > 0");
@@ -30,13 +29,11 @@ impl<T> Ref<T> {
     })
   }
 
-  #[inline]
   pub fn reference(&mut self, env: &Env) -> Result<u32> {
     check_status!(unsafe { sys::napi_reference_ref(env.0, self.raw_ref, &mut self.count) })?;
     Ok(self.count)
   }
 
-  #[inline]
   pub fn unref(mut self, env: Env) -> Result<u32> {
     check_status!(unsafe { sys::napi_reference_unref(env.0, self.raw_ref, &mut self.count) })?;
 

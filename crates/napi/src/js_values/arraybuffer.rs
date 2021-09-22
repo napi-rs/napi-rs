@@ -83,13 +83,11 @@ impl From<TypedArrayType> for sys::napi_typedarray_type {
 
 impl JsArrayBuffer {
   #[cfg(feature = "napi7")]
-  #[inline]
   pub fn detach(self) -> Result<()> {
     check_status!(unsafe { sys::napi_detach_arraybuffer(self.0.env, self.0.value) })
   }
 
   #[cfg(feature = "napi7")]
-  #[inline]
   pub fn is_detached(&self) -> Result<bool> {
     let mut is_detached = false;
     check_status!(unsafe {
@@ -98,7 +96,6 @@ impl JsArrayBuffer {
     Ok(is_detached)
   }
 
-  #[inline]
   pub fn into_value(self) -> Result<JsArrayBufferValue> {
     let mut data = ptr::null_mut();
     let mut len: usize = 0;
@@ -112,7 +109,6 @@ impl JsArrayBuffer {
     })
   }
 
-  #[inline]
   pub fn into_typedarray(
     self,
     typedarray_type: TypedArrayType,
@@ -137,7 +133,6 @@ impl JsArrayBuffer {
     }))
   }
 
-  #[inline]
   pub fn into_dataview(self, length: usize, byte_offset: usize) -> Result<JsDataView> {
     let mut dataview_value = ptr::null_mut();
     check_status!(unsafe {
@@ -156,24 +151,20 @@ impl JsArrayBuffer {
     }))
   }
 
-  #[inline]
   pub fn into_ref(self) -> Result<Ref<JsArrayBufferValue>> {
     Ref::new(self.0, 1, self.into_value()?)
   }
 }
 
 impl JsArrayBufferValue {
-  #[inline]
   pub fn new(value: JsArrayBuffer, data: *mut c_void, len: usize) -> Self {
     JsArrayBufferValue { value, len, data }
   }
 
-  #[inline]
   pub fn into_raw(self) -> JsArrayBuffer {
     self.value
   }
 
-  #[inline]
   pub fn into_unknown(self) -> JsUnknown {
     unsafe { JsUnknown::from_raw_unchecked(self.value.0.env, self.value.0.value) }
   }
@@ -210,7 +201,6 @@ impl JsTypedArray {
   /// https://nodejs.org/api/n-api.html#n_api_napi_get_typedarray_info
   ///
   /// ***Warning***: Use caution while using this API since the underlying data buffer is managed by the VM.
-  #[inline]
   pub fn into_value(self) -> Result<JsTypedArrayValue> {
     let mut typedarray_type = 0;
     let mut len = 0u64;
@@ -269,7 +259,6 @@ impl_as_ref!(i64);
 impl_as_ref!(u64);
 
 impl JsDataView {
-  #[inline]
   pub fn into_value(self) -> Result<JsDataViewValue> {
     let mut length = 0u64;
     let mut byte_offset = 0u64;

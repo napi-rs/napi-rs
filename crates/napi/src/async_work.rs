@@ -22,18 +22,15 @@ pub struct AsyncWorkPromise<'env> {
 }
 
 impl<'env> AsyncWorkPromise<'env> {
-  #[inline]
   pub fn promise_object(&self) -> JsObject {
     unsafe { JsObject::from_raw_unchecked(self.env.0, self.raw_promise) }
   }
 
-  #[inline]
   pub fn cancel(self) -> Result<()> {
     check_status!(unsafe { sys::napi_cancel_async_work(self.env.0, self.napi_async_work) })
   }
 }
 
-#[inline]
 pub fn run<T: Task>(env: &Env, task: T) -> Result<AsyncWorkPromise<'_>> {
   let mut raw_resource = ptr::null_mut();
   check_status!(unsafe { sys::napi_create_object(env.0, &mut raw_resource) })?;

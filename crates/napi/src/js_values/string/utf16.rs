@@ -9,7 +9,6 @@ pub struct JsStringUtf16 {
 }
 
 impl JsStringUtf16 {
-  #[inline]
   pub fn as_str(&self) -> Result<String> {
     if let Some((_, prefix)) = self.as_slice().split_last() {
       String::from_utf16(prefix).map_err(|e| Error::new(Status::InvalidArg, format!("{}", e)))
@@ -18,22 +17,18 @@ impl JsStringUtf16 {
     }
   }
 
-  #[inline]
   pub fn as_slice(&self) -> &[u16] {
     self.buf.as_slice()
   }
 
-  #[inline]
   pub fn len(&self) -> usize {
     self.buf.len()
   }
 
-  #[inline]
   pub fn is_empty(&self) -> bool {
     self.buf.is_empty()
   }
 
-  #[inline]
   pub fn into_value(self) -> JsString {
     self.inner
   }

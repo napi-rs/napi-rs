@@ -80,13 +80,11 @@ pub extern "C" fn shutdown_tokio_rt(_arg: *mut c_void) {
 pub struct Env(pub(crate) sys::napi_env);
 
 impl Env {
-  #[inline]
   #[allow(clippy::missing_safety_doc)]
   pub unsafe fn from_raw(env: sys::napi_env) -> Self {
     Env(env)
   }
 
-  #[inline]
   /// Get [JsUndefined](./struct.JsUndefined.html) value
   pub fn get_undefined(&self) -> Result<JsUndefined> {
     let mut raw_value = ptr::null_mut();
@@ -94,21 +92,18 @@ impl Env {
     Ok(unsafe { JsUndefined::from_raw_unchecked(self.0, raw_value) })
   }
 
-  #[inline]
   pub fn get_null(&self) -> Result<JsNull> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe { sys::napi_get_null(self.0, &mut raw_value) })?;
     Ok(unsafe { JsNull::from_raw_unchecked(self.0, raw_value) })
   }
 
-  #[inline]
   pub fn get_boolean(&self, value: bool) -> Result<JsBoolean> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe { sys::napi_get_boolean(self.0, value, &mut raw_value) })?;
     Ok(unsafe { JsBoolean::from_raw_unchecked(self.0, raw_value) })
   }
 
-  #[inline]
   pub fn create_int32(&self, int: i32) -> Result<JsNumber> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe {
@@ -117,7 +112,6 @@ impl Env {
     Ok(unsafe { JsNumber::from_raw_unchecked(self.0, raw_value) })
   }
 
-  #[inline]
   pub fn create_int64(&self, int: i64) -> Result<JsNumber> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe {
@@ -126,14 +120,12 @@ impl Env {
     Ok(unsafe { JsNumber::from_raw_unchecked(self.0, raw_value) })
   }
 
-  #[inline]
   pub fn create_uint32(&self, number: u32) -> Result<JsNumber> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe { sys::napi_create_uint32(self.0, number, &mut raw_value) })?;
     Ok(unsafe { JsNumber::from_raw_unchecked(self.0, raw_value) })
   }
 
-  #[inline]
   pub fn create_double(&self, double: f64) -> Result<JsNumber> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe {
@@ -144,7 +136,6 @@ impl Env {
 
   /// [n_api_napi_create_bigint_int64](https://nodejs.org/api/n-api.html#n_api_napi_create_bigint_int64)
   #[cfg(feature = "napi6")]
-  #[inline]
   pub fn create_bigint_from_i64(&self, value: i64) -> Result<JsBigint> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe { sys::napi_create_bigint_int64(self.0, value, &mut raw_value) })?;
@@ -152,7 +143,6 @@ impl Env {
   }
 
   #[cfg(feature = "napi6")]
-  #[inline]
   pub fn create_bigint_from_u64(&self, value: u64) -> Result<JsBigint> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe { sys::napi_create_bigint_uint64(self.0, value, &mut raw_value) })?;
@@ -160,7 +150,6 @@ impl Env {
   }
 
   #[cfg(feature = "napi6")]
-  #[inline]
   pub fn create_bigint_from_i128(&self, value: i128) -> Result<JsBigint> {
     let mut raw_value = ptr::null_mut();
     let sign_bit = if value > 0 { 0 } else { 1 };
@@ -172,7 +161,6 @@ impl Env {
   }
 
   #[cfg(feature = "napi6")]
-  #[inline]
   pub fn create_bigint_from_u128(&self, value: u128) -> Result<JsBigint> {
     let mut raw_value = ptr::null_mut();
     let words = &value as *const u128 as *const u64;
@@ -184,7 +172,6 @@ impl Env {
   ///
   /// The resulting BigInt will be negative when sign_bit is true.
   #[cfg(feature = "napi6")]
-  #[inline]
   pub fn create_bigint_from_words(&self, sign_bit: bool, words: Vec<u64>) -> Result<JsBigint> {
     let mut raw_value = ptr::null_mut();
     let len = words.len();
@@ -203,17 +190,14 @@ impl Env {
     Ok(JsBigint::from_raw_unchecked(self.0, raw_value, len))
   }
 
-  #[inline]
   pub fn create_string(&self, s: &str) -> Result<JsString> {
     unsafe { self.create_string_from_c_char(s.as_ptr() as *const c_char, s.len()) }
   }
 
-  #[inline]
   pub fn create_string_from_std(&self, s: String) -> Result<JsString> {
     unsafe { self.create_string_from_c_char(s.as_ptr() as *const c_char, s.len()) }
   }
 
-  #[inline]
   /// This API is used for C ffi scenario.
   /// Convert raw *const c_char into JsString
   ///
@@ -235,7 +219,6 @@ impl Env {
     Ok(JsString::from_raw_unchecked(self.0, raw_value))
   }
 
-  #[inline]
   pub fn create_string_utf16(&self, chars: &[u16]) -> Result<JsString> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe {
@@ -244,7 +227,6 @@ impl Env {
     Ok(unsafe { JsString::from_raw_unchecked(self.0, raw_value) })
   }
 
-  #[inline]
   pub fn create_string_latin1(&self, chars: &[u8]) -> Result<JsString> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe {
@@ -258,14 +240,12 @@ impl Env {
     Ok(unsafe { JsString::from_raw_unchecked(self.0, raw_value) })
   }
 
-  #[inline]
   pub fn create_symbol_from_js_string(&self, description: JsString) -> Result<JsSymbol> {
     let mut result = ptr::null_mut();
     check_status!(unsafe { sys::napi_create_symbol(self.0, description.0.value, &mut result) })?;
     Ok(unsafe { JsSymbol::from_raw_unchecked(self.0, result) })
   }
 
-  #[inline]
   pub fn create_symbol(&self, description: Option<&str>) -> Result<JsSymbol> {
     let mut result = ptr::null_mut();
     check_status!(unsafe {
@@ -281,28 +261,24 @@ impl Env {
     Ok(unsafe { JsSymbol::from_raw_unchecked(self.0, result) })
   }
 
-  #[inline]
   pub fn create_object(&self) -> Result<JsObject> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe { sys::napi_create_object(self.0, &mut raw_value) })?;
     Ok(unsafe { JsObject::from_raw_unchecked(self.0, raw_value) })
   }
 
-  #[inline]
   pub fn create_array(&self) -> Result<JsObject> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe { sys::napi_create_array(self.0, &mut raw_value) })?;
     Ok(unsafe { JsObject::from_raw_unchecked(self.0, raw_value) })
   }
 
-  #[inline]
   pub fn create_array_with_length(&self, length: usize) -> Result<JsObject> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe { sys::napi_create_array_with_length(self.0, length, &mut raw_value) })?;
     Ok(unsafe { JsObject::from_raw_unchecked(self.0, raw_value) })
   }
 
-  #[inline]
   /// This API allocates a node::Buffer object. While this is still a fully-supported data structure, in most cases using a TypedArray will suffice.
   pub fn create_buffer(&self, length: usize) -> Result<JsBufferValue> {
     let mut raw_value = ptr::null_mut();
@@ -322,7 +298,6 @@ impl Env {
     ))
   }
 
-  #[inline]
   /// This API allocates a node::Buffer object and initializes it with data backed by the passed in buffer.
   ///
   /// While this is still a fully-supported data structure, in most cases using a TypedArray will suffice.
@@ -350,7 +325,6 @@ impl Env {
     ))
   }
 
-  #[inline]
   /// # Safety
   /// Mostly the same with `create_buffer_with_data`
   ///
@@ -393,7 +367,6 @@ impl Env {
     ))
   }
 
-  #[inline]
   /// This function gives V8 an indication of the amount of externally allocated memory that is kept alive by JavaScript objects (i.e. a JavaScript object that points to its own memory allocated by a native module).
   ///
   /// Registering externally allocated memory will trigger global garbage collections more often than it would otherwise.
@@ -405,7 +378,6 @@ impl Env {
     Ok(changed)
   }
 
-  #[inline]
   /// This API allocates a node::Buffer object and initializes it with data copied from the passed-in buffer.
   ///
   /// While this is still a fully-supported data structure, in most cases using a TypedArray will suffice.
@@ -436,7 +408,6 @@ impl Env {
     ))
   }
 
-  #[inline]
   pub fn create_arraybuffer(&self, length: usize) -> Result<JsArrayBufferValue> {
     let mut raw_value = ptr::null_mut();
     let mut data: Vec<u8> = Vec::with_capacity(length as usize);
@@ -452,7 +423,6 @@ impl Env {
     ))
   }
 
-  #[inline]
   pub fn create_arraybuffer_with_data(&self, data: Vec<u8>) -> Result<JsArrayBufferValue> {
     let length = data.len();
     let mut raw_value = ptr::null_mut();
@@ -480,7 +450,6 @@ impl Env {
     ))
   }
 
-  #[inline]
   /// # Safety
   /// Mostly the same with `create_arraybuffer_with_data`
   ///
@@ -524,7 +493,6 @@ impl Env {
     ))
   }
 
-  #[inline]
   /// This API allows an add-on author to create a function object in native code.
   ///
   /// This is the primary mechanism to allow calling into the add-on's native code from JavaScript.
@@ -677,7 +645,6 @@ impl Env {
     Ok(unsafe { JsFunction::from_raw_unchecked(self.0, raw_result) })
   }
 
-  #[inline]
   /// This API retrieves a napi_extended_error_info structure with information about the last error that occurred.
   ///
   /// The content of the napi_extended_error_info returned is only valid up until an n-api function is called on the same env.
@@ -691,7 +658,6 @@ impl Env {
     unsafe { ptr::read(raw_extended_error) }.try_into()
   }
 
-  #[inline]
   /// This API throws a JavaScript Error with the text provided.
   pub fn throw_error(&self, msg: &str, code: Option<&str>) -> Result<()> {
     check_status!(unsafe {
@@ -706,7 +672,6 @@ impl Env {
     })
   }
 
-  #[inline]
   /// This API throws a JavaScript RangeError with the text provided.
   pub fn throw_range_error(&self, msg: &str, code: Option<&str>) -> Result<()> {
     check_status!(unsafe {
@@ -721,7 +686,6 @@ impl Env {
     })
   }
 
-  #[inline]
   /// This API throws a JavaScript TypeError with the text provided.
   pub fn throw_type_error(&self, msg: &str, code: Option<&str>) -> Result<()> {
     check_status!(unsafe {
@@ -736,7 +700,6 @@ impl Env {
     })
   }
 
-  #[inline]
   #[allow(clippy::expect_fun_call)]
   /// In the event of an unrecoverable error in a native module
   ///
@@ -760,7 +723,6 @@ impl Env {
   }
 
   #[cfg(feature = "napi3")]
-  #[inline]
   /// Trigger an 'uncaughtException' in JavaScript.
   ///
   /// Useful if an async callback throws an exception with no way to recover.
@@ -771,7 +733,6 @@ impl Env {
     };
   }
 
-  #[inline]
   /// Create JavaScript class
   pub fn define_class(
     &self,
@@ -801,7 +762,6 @@ impl Env {
     Ok(unsafe { JsFunction::from_raw_unchecked(self.0, raw_result) })
   }
 
-  #[inline]
   pub fn wrap<T: 'static>(&self, js_object: &mut JsObject, native_object: T) -> Result<()> {
     check_status!(unsafe {
       sys::napi_wrap(
@@ -815,7 +775,6 @@ impl Env {
     })
   }
 
-  #[inline]
   pub fn unwrap<T: 'static>(&self, js_object: &JsObject) -> Result<&mut T> {
     unsafe {
       let mut unknown_tagged_object: *mut c_void = ptr::null_mut();
@@ -841,7 +800,6 @@ impl Env {
     }
   }
 
-  #[inline]
   pub fn unwrap_from_ref<T: 'static>(&self, js_ref: &Ref<()>) -> Result<&'static mut T> {
     unsafe {
       let mut unknown_tagged_object: *mut c_void = ptr::null_mut();
@@ -867,7 +825,6 @@ impl Env {
     }
   }
 
-  #[inline]
   pub fn drop_wrapped<T: 'static>(&self, js_object: &mut JsObject) -> Result<()> {
     unsafe {
       let mut unknown_tagged_object = ptr::null_mut();
@@ -889,7 +846,6 @@ impl Env {
     }
   }
 
-  #[inline]
   /// This API create a new reference with the specified reference count to the Object passed in.
   pub fn create_reference<T>(&self, value: T) -> Result<Ref<()>>
   where
@@ -909,7 +865,6 @@ impl Env {
     })
   }
 
-  #[inline]
   /// Get reference value from `Ref` with type check
   ///
   /// Return error if the type of `reference` provided is mismatched with `T`
@@ -924,7 +879,6 @@ impl Env {
     unsafe { T::from_raw(self.0, js_value) }
   }
 
-  #[inline]
   /// Get reference value from `Ref` without type check
   ///
   /// Using this API if you are sure the type of `T` is matched with provided `Ref<()>`.
@@ -941,7 +895,6 @@ impl Env {
     Ok(unsafe { T::from_raw_unchecked(self.0, js_value) })
   }
 
-  #[inline]
   /// If `size_hint` provided, `Env::adjust_external_memory` will be called under the hood.
   ///
   /// If no `size_hint` provided, global garbage collections will be triggered less times than expected.
@@ -971,7 +924,6 @@ impl Env {
     Ok(unsafe { JsExternal::from_raw_unchecked(self.0, object_value) })
   }
 
-  #[inline]
   pub fn get_value_external<T: 'static>(&self, js_external: &JsExternal) -> Result<&mut T> {
     unsafe {
       let mut unknown_tagged_object = ptr::null_mut();
@@ -997,7 +949,6 @@ impl Env {
     }
   }
 
-  #[inline]
   pub fn create_error(&self, e: Error) -> Result<JsObject> {
     let reason = e.reason;
     let reason_string = self.create_string(reason.as_str())?;
@@ -1008,13 +959,11 @@ impl Env {
     Ok(unsafe { JsObject::from_raw_unchecked(self.0, result) })
   }
 
-  #[inline]
   /// Run [Task](./trait.Task.html) in libuv thread pool, return [AsyncWorkPromise](./struct.AsyncWorkPromise.html)
   pub fn spawn<T: 'static + Task>(&self, task: T) -> Result<AsyncWorkPromise> {
     async_work::run(self, task)
   }
 
-  #[inline]
   pub fn run_in_scope<T, F>(&self, executor: F) -> Result<T>
   where
     F: FnOnce() -> Result<T>,
@@ -1028,14 +977,12 @@ impl Env {
     result
   }
 
-  #[inline]
   pub fn get_global(&self) -> Result<JsGlobal> {
     let mut raw_global = ptr::null_mut();
     check_status!(unsafe { sys::napi_get_global(self.0, &mut raw_global) })?;
     Ok(unsafe { JsGlobal::from_raw_unchecked(self.0, raw_global) })
   }
 
-  #[inline]
   pub fn get_napi_version(&self) -> Result<u32> {
     let global = self.get_global()?;
     let process: JsObject = global.get_named_property("process")?;
@@ -1049,7 +996,6 @@ impl Env {
   }
 
   #[cfg(feature = "napi2")]
-  #[inline]
   pub fn get_uv_event_loop(&self) -> Result<*mut sys::uv_loop_s> {
     let mut uv_loop: *mut sys::uv_loop_s = ptr::null_mut();
     check_status!(unsafe { sys::napi_get_uv_event_loop(self.0, &mut uv_loop) })?;
@@ -1057,7 +1003,6 @@ impl Env {
   }
 
   #[cfg(feature = "napi3")]
-  #[inline]
   pub fn add_env_cleanup_hook<T, F>(
     &mut self,
     cleanup_data: T,
@@ -1083,7 +1028,6 @@ impl Env {
   }
 
   #[cfg(feature = "napi3")]
-  #[inline]
   pub fn remove_env_cleanup_hook<T>(&mut self, hook: CleanupEnvHook<T>) -> Result<()>
   where
     T: 'static,
@@ -1094,7 +1038,6 @@ impl Env {
   }
 
   #[cfg(feature = "napi4")]
-  #[inline]
   pub fn create_threadsafe_function<
     T: Send,
     V: NapiRaw,
@@ -1109,7 +1052,6 @@ impl Env {
   }
 
   #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
-  #[inline]
   pub fn execute_tokio_future<
     T: 'static + Send,
     V: 'static + NapiValue,
@@ -1135,13 +1077,12 @@ impl Env {
     Ok(unsafe { JsObject::from_raw_unchecked(self.0, raw_promise) })
   }
 
-  #[cfg(feature = "napi5")]
-  #[inline]
   /// This API does not observe leap seconds; they are ignored, as ECMAScript aligns with POSIX time specification.
   ///
   /// This API allocates a JavaScript Date object.
   ///
   /// JavaScript Date objects are described in [Section 20.3](https://tc39.github.io/ecma262/#sec-date-objects) of the ECMAScript Language Specification.
+  #[cfg(feature = "napi5")]
   pub fn create_date(&self, time: f64) -> Result<JsDate> {
     let mut js_value = ptr::null_mut();
     check_status!(unsafe { sys::napi_create_date(self.0, time, &mut js_value) })?;
@@ -1149,7 +1090,7 @@ impl Env {
   }
 
   #[cfg(feature = "napi6")]
-  #[inline]
+
   /// This API associates data with the currently running Agent. data can later be retrieved using `Env::get_instance_data()`.
   ///
   /// Any existing data associated with the currently running Agent which was set by means of a previous call to `Env::set_instance_data()` will be overwritten.
@@ -1179,11 +1120,10 @@ impl Env {
     })
   }
 
-  #[cfg(feature = "napi6")]
-  #[inline]
   /// This API retrieves data that was previously associated with the currently running Agent via `Env::set_instance_data()`.
   ///
   /// If no data is set, the call will succeed and data will be set to NULL.
+  #[cfg(feature = "napi6")]
   pub fn get_instance_data<T>(&self) -> Result<Option<&'static mut T>>
   where
     T: 'static,
@@ -1213,12 +1153,12 @@ impl Env {
     }
   }
 
-  #[cfg(feature = "napi8")]
   /// Registers hook, which is a function of type `FnOnce(Arg)`, as a function to be run with the `arg` parameter once the current Node.js environment exits.
   ///
   /// Unlike [`add_env_cleanup_hook`](https://docs.rs/napi/latest/napi/struct.Env.html#method.add_env_cleanup_hook), the hook is allowed to be asynchronous.
   ///
   /// Otherwise, behavior generally matches that of [`add_env_cleanup_hook`](https://docs.rs/napi/latest/napi/struct.Env.html#method.add_env_cleanup_hook).
+  #[cfg(feature = "napi8")]
   pub fn add_removable_async_cleanup_hook<Arg, F>(
     &self,
     arg: Arg,
@@ -1243,10 +1183,10 @@ impl Env {
     Ok(AsyncCleanupHook(handle))
   }
 
-  #[cfg(feature = "napi8")]
   /// This API is very similar to [`add_removable_async_cleanup_hook`](https://docs.rs/napi/latest/napi/struct.Env.html#method.add_removable_async_cleanup_hook)
   ///
   /// Use this one if you don't want remove the cleanup hook anymore.
+  #[cfg(feature = "napi8")]
   pub fn add_async_cleanup_hook<Arg, F>(&self, arg: Arg, cleanup_fn: F) -> Result<()>
   where
     F: FnOnce(Arg),
@@ -1283,7 +1223,6 @@ impl Env {
   /// ```
   #[cfg(feature = "serde-json")]
   #[allow(clippy::wrong_self_convention)]
-  #[inline]
   pub fn to_js_value<T>(&self, node: &T) -> Result<JsUnknown>
   where
     T: Serialize,
@@ -1309,7 +1248,6 @@ impl Env {
   /// }
   ///
   #[cfg(feature = "serde-json")]
-  #[inline]
   pub fn from_js_value<T, V>(&self, value: V) -> Result<T>
   where
     T: DeserializeOwned + ?Sized,
@@ -1324,7 +1262,6 @@ impl Env {
     T::deserialize(&mut de)
   }
 
-  #[inline]
   /// This API represents the invocation of the Strict Equality algorithm as defined in [Section 7.2.14](https://tc39.es/ecma262/#sec-strict-equality-comparison) of the ECMAScript Language Specification.
   pub fn strict_equals<A: NapiRaw, B: NapiRaw>(&self, a: A, b: B) -> Result<bool> {
     let mut result = false;
@@ -1332,7 +1269,6 @@ impl Env {
     Ok(result)
   }
 
-  #[inline]
   pub fn get_node_version(&self) -> Result<NodeVersion> {
     let mut result = ptr::null();
     check_status!(unsafe { sys::napi_get_node_version(self.0, &mut result) })?;
@@ -1341,7 +1277,6 @@ impl Env {
   }
 
   /// get raw env ptr
-  #[inline]
   pub fn raw(&self) -> sys::napi_env {
     self.0
   }

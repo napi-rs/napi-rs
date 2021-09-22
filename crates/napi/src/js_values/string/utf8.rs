@@ -11,39 +11,32 @@ pub struct JsStringUtf8 {
 }
 
 impl JsStringUtf8 {
-  #[inline]
   pub fn as_str(&self) -> Result<&str> {
     unsafe { CStr::from_ptr(self.buf.as_ptr()) }
       .to_str()
       .map_err(|e| Error::new(Status::InvalidArg, format!("{}", e)))
   }
 
-  #[inline]
   pub fn as_slice(&self) -> &[u8] {
     unsafe { CStr::from_ptr(self.buf.as_ptr()) }.to_bytes()
   }
 
-  #[inline]
   pub fn len(&self) -> usize {
     self.buf.len()
   }
 
-  #[inline]
   pub fn is_empty(&self) -> bool {
     self.buf.is_empty()
   }
 
-  #[inline]
   pub fn into_owned(self) -> Result<String> {
     Ok(self.as_str()?.to_owned())
   }
 
-  #[inline]
   pub fn take(self) -> Vec<u8> {
     self.as_slice().to_vec()
   }
 
-  #[inline]
   pub fn into_value(self) -> JsString {
     self.inner
   }

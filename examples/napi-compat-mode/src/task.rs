@@ -27,7 +27,6 @@ impl Task for ComputeFib {
   }
 }
 
-#[inline]
 fn fibonacci_native(n: u32) -> u32 {
   match n {
     1 | 2 => 1,

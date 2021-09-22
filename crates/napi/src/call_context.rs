@@ -25,12 +25,10 @@ impl<'env> CallContext<'env> {
   ///
   /// If `.length > .arg_len`, then truncation has happened and some args have
   /// been lost.
-  #[inline]
   fn arg_len(&self) -> usize {
     self.args.len()
   }
 
-  #[inline]
   pub fn new(
     env: &'env mut Env,
     callback_info: sys::napi_callback_info,
@@ -47,7 +45,6 @@ impl<'env> CallContext<'env> {
     }
   }
 
-  #[inline]
   pub fn get<ArgType: NapiValue>(&self, index: usize) -> Result<ArgType> {
     if index >= self.arg_len() {
       Err(Error {
@@ -59,7 +56,6 @@ impl<'env> CallContext<'env> {
     }
   }
 
-  #[inline]
   pub fn try_get<ArgType: NapiValue>(&self, index: usize) -> Result<Either<ArgType, JsUndefined>> {
     if index >= self.arg_len() {
       Err(Error {
@@ -73,7 +69,6 @@ impl<'env> CallContext<'env> {
     }
   }
 
-  #[inline]
   pub fn get_all(&self) -> Vec<crate::JsUnknown> {
     /* (0 .. self.arg_len()).map(|i| self.get(i).unwrap()).collect() */
     self
@@ -83,7 +78,6 @@ impl<'env> CallContext<'env> {
       .collect()
   }
 
-  #[inline]
   pub fn get_new_target<V>(&self) -> Result<V>
   where
     V: NapiValue,
@@ -93,12 +87,10 @@ impl<'env> CallContext<'env> {
     unsafe { V::from_raw(self.env.0, value) }
   }
 
-  #[inline]
   pub fn this<T: NapiValue>(&self) -> Result<T> {
     unsafe { T::from_raw(self.env.0, self.raw_this) }
   }
 
-  #[inline]
   pub fn this_unchecked<T: NapiValue>(&self) -> T {
     unsafe { T::from_raw_unchecked(self.env.0, self.raw_this) }
   }

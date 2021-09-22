@@ -15,7 +15,6 @@ mod utf8;
 pub struct JsString(pub(crate) Value);
 
 impl JsString {
-  #[inline]
   pub fn utf8_len(&self) -> Result<usize> {
     let mut length = 0;
     check_status!(unsafe {
@@ -24,7 +23,6 @@ impl JsString {
     Ok(length as usize)
   }
 
-  #[inline]
   pub fn utf16_len(&self) -> Result<usize> {
     let mut length = 0;
     check_status!(unsafe {
@@ -33,7 +31,6 @@ impl JsString {
     Ok(length as usize)
   }
 
-  #[inline]
   pub fn latin1_len(&self) -> Result<usize> {
     let mut length = 0;
     check_status!(unsafe {
@@ -42,7 +39,6 @@ impl JsString {
     Ok(length as usize)
   }
 
-  #[inline]
   pub fn into_utf8(self) -> Result<JsStringUtf8> {
     let mut written_char_count = 0;
     let len = self.utf8_len()? + 1;
@@ -64,7 +60,6 @@ impl JsString {
     })
   }
 
-  #[inline]
   pub fn into_utf16(self) -> Result<JsStringUtf16> {
     let mut written_char_count = 0usize;
     let len = self.utf16_len()? + 1;
@@ -86,7 +81,6 @@ impl JsString {
     })
   }
 
-  #[inline]
   pub fn into_latin1(self) -> Result<JsStringLatin1> {
     let mut written_char_count = 0usize;
     let len = self.latin1_len()? + 1;

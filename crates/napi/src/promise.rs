@@ -18,7 +18,6 @@ pub struct FuturePromise<T, V: NapiRaw, F: FnOnce(&mut Env, T) -> Result<V>> {
 unsafe impl<T, V: NapiRaw, F: FnOnce(&mut Env, T) -> Result<V>> Send for FuturePromise<T, V, F> {}
 
 impl<T, V: NapiRaw, F: FnOnce(&mut Env, T) -> Result<V>> FuturePromise<T, V, F> {
-  #[inline]
   pub fn create(env: sys::napi_env, raw_deferred: sys::napi_deferred, resolver: F) -> Result<Self> {
     let mut async_resource_name = ptr::null_mut();
     let s = "napi_resolve_promise_from_future";
@@ -42,7 +41,6 @@ impl<T, V: NapiRaw, F: FnOnce(&mut Env, T) -> Result<V>> FuturePromise<T, V, F> 
     })
   }
 
-  #[inline]
   pub(crate) fn start(self) -> Result<TSFNValue> {
     let mut tsfn_value = ptr::null_mut();
     let async_resource_name = self.async_resource_name;
@@ -72,7 +70,6 @@ pub(crate) struct TSFNValue(sys::napi_threadsafe_function);
 
 unsafe impl Send for TSFNValue {}
 
-#[inline(always)]
 pub(crate) async fn resolve_from_future<T: Send, F: Future<Output = Result<T>>>(
   tsfn_value: TSFNValue,
   fut: F,

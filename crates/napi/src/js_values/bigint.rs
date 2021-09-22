@@ -11,7 +11,6 @@ pub struct JsBigint {
 }
 
 impl JsBigint {
-  #[inline]
   pub(crate) fn from_raw_unchecked(
     env: sys::napi_env,
     value: sys::napi_value,
@@ -27,12 +26,10 @@ impl JsBigint {
     }
   }
 
-  #[inline]
   pub fn into_unknown(self) -> Result<JsUnknown> {
     unsafe { JsUnknown::from_raw(self.raw.env, self.raw.value) }
   }
 
-  #[inline]
   pub fn coerce_to_number(self) -> Result<JsNumber> {
     let mut new_raw_value = ptr::null_mut();
     check_status!(unsafe {
@@ -45,7 +42,6 @@ impl JsBigint {
     }))
   }
 
-  #[inline]
   pub fn coerce_to_string(self) -> Result<JsString> {
     let mut new_raw_value = ptr::null_mut();
     check_status!(unsafe {
@@ -57,7 +53,7 @@ impl JsBigint {
       value_type: ValueType::String,
     }))
   }
-  #[inline]
+
   pub fn coerce_to_object(self) -> Result<JsObject> {
     let mut new_raw_value = ptr::null_mut();
     check_status!(unsafe {
@@ -70,7 +66,6 @@ impl JsBigint {
     }))
   }
 
-  #[inline]
   #[cfg(feature = "napi5")]
   pub fn is_date(&self) -> Result<bool> {
     let mut is_date = true;
@@ -78,42 +73,36 @@ impl JsBigint {
     Ok(is_date)
   }
 
-  #[inline]
   pub fn is_error(&self) -> Result<bool> {
     let mut result = false;
     check_status!(unsafe { sys::napi_is_error(self.raw.env, self.raw.value, &mut result) })?;
     Ok(result)
   }
 
-  #[inline]
   pub fn is_typedarray(&self) -> Result<bool> {
     let mut result = false;
     check_status!(unsafe { sys::napi_is_typedarray(self.raw.env, self.raw.value, &mut result) })?;
     Ok(result)
   }
 
-  #[inline]
   pub fn is_dataview(&self) -> Result<bool> {
     let mut result = false;
     check_status!(unsafe { sys::napi_is_dataview(self.raw.env, self.raw.value, &mut result) })?;
     Ok(result)
   }
 
-  #[inline]
   pub fn is_array(&self) -> Result<bool> {
     let mut is_array = false;
     check_status!(unsafe { sys::napi_is_array(self.raw.env, self.raw.value, &mut is_array) })?;
     Ok(is_array)
   }
 
-  #[inline]
   pub fn is_buffer(&self) -> Result<bool> {
     let mut is_buffer = false;
     check_status!(unsafe { sys::napi_is_buffer(self.raw.env, self.raw.value, &mut is_buffer) })?;
     Ok(is_buffer)
   }
 
-  #[inline]
   pub fn instanceof<Constructor: NapiRaw>(&self, constructor: Constructor) -> Result<bool> {
     let mut result = false;
     check_status!(unsafe {
@@ -199,7 +188,6 @@ impl TryFrom<JsBigint> for u64 {
 
 impl JsBigint {
   /// https://nodejs.org/api/n-api.html#n_api_napi_get_value_bigint_words
-  #[inline]
   pub fn get_words(&mut self) -> Result<(bool, Vec<u64>)> {
     let mut words: Vec<u64> = Vec::with_capacity(self.word_count as usize);
     let word_count = &mut self.word_count;
@@ -221,7 +209,6 @@ impl JsBigint {
     Ok((sign_bit == 1, words))
   }
 
-  #[inline]
   pub fn get_u64(&self) -> Result<(u64, bool)> {
     let mut val: u64 = 0;
     let mut loss = false;
@@ -232,7 +219,6 @@ impl JsBigint {
     Ok((val, loss))
   }
 
-  #[inline]
   pub fn get_i64(&self) -> Result<(i64, bool)> {
     let mut val: i64 = 0;
     let mut loss: bool = false;
@@ -242,7 +228,6 @@ impl JsBigint {
     Ok((val, loss))
   }
 
-  #[inline]
   pub fn get_i128(&mut self) -> Result<(i128, bool)> {
     let (signed, words) = self.get_words()?;
     let len = words.len();
@@ -254,7 +239,6 @@ impl JsBigint {
     Ok((val, len > 2))
   }
 
-  #[inline]
   pub fn get_u128(&mut self) -> Result<(bool, u128, bool)> {
     let (signed, words) = self.get_words()?;
     let len = words.len();
