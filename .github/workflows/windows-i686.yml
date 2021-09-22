@@ -40,7 +40,7 @@ jobs:
       - name: Install
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: 1.52.0
+          toolchain: stable
           profile: minimal
           override: true
 
