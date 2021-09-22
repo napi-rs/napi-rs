@@ -2,8 +2,10 @@ use crate::{bindgen_prelude::*, check_status, sys, Error, Result, Status};
 
 use std::ffi::CStr;
 use std::fmt::Display;
+#[cfg(feature = "latin1")]
+use std::mem;
 use std::ops::Deref;
-use std::{mem, ptr};
+use std::ptr;
 
 impl TypeName for String {
   fn type_name() -> &'static str {

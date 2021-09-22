@@ -1,7 +1,6 @@
-use crate::{check_status, check_status_or_throw, JsError, Property, Result};
-
-use super::sys;
 use std::{cell::RefCell, collections::HashMap, ffi::CString, ptr};
+
+use crate::{check_status, check_status_or_throw, sys, JsError, Property, Result};
 
 pub type ExportRegisterCallback = unsafe fn(sys::napi_env) -> Result<sys::napi_value>;
 pub type ModuleExportsCallback =
@@ -55,20 +54,23 @@ unsafe extern "C" fn napi_register_module_v1(
   exports: sys::napi_value,
 ) -> sys::napi_value {
   MODULE_REGISTER_CALLBACK.with(|to_register_exports| {
-    for (name, callback) in to_register_exports.take().into_iter() {
-      let js_name = CString::new(name).unwrap();
-      unsafe {
-        if let Err(e) = callback(env).and_then(|v| {
-          check_status!(
-            sys::napi_set_named_property(env, exports, js_name.as_ptr(), v),
-            "Failed to register export `{}`",
-            name,
-          )
-        }) {
-          JsError::from(e).throw_into(env)
+    to_register_exports
+      .take()
+      .into_iter()
+      .for_each(|(name, callback)| {
+        let js_name = CString::new(name).unwrap();
+        unsafe {
+          if let Err(e) = callback(env).and_then(|v| {
+            check_status!(
+              sys::napi_set_named_property(env, exports, js_name.as_ptr(), v),
+              "Failed to register export `{}`",
+              name,
+            )
+          }) {
+            JsError::from(e).throw_into(env)
+          }
         }
-      }
-    }
+      })
   });
 
   MODULE_CLASS_PROPERTIES.with(|to_register_classes| {

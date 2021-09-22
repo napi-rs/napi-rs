@@ -29,26 +29,18 @@ impl TryToTokens for NapiFn {
         env: sys::napi_env,
         cb: sys::napi_callback_info
       ) -> sys::napi_value {
-        #[inline(always)]
-        unsafe fn call(env: sys::napi_env, cb: sys::napi_callback_info) -> Result<sys::napi_value> {
-          let mut cb = CallbackInfo::<#args_len>::new(env, cb, None)?;
-          #(#arg_conversions)*
-
-          let #receiver_ret_name = {
-            #receiver(#(#arg_names),*)
-          };
-
-          #ret
-        }
-
         unsafe {
-          match call(env, cb) {
-            Ok(v) => v,
-            Err(e) => {
-              JsError::from(e).throw_into(env);
-              std::ptr::null_mut::<sys::napi_value__>()
-            }
-          }
+          CallbackInfo::<#args_len>::new(env, cb, None).and_then(|mut cb| {
+            #(#arg_conversions)*
+            let #receiver_ret_name = {
+              #receiver(#(#arg_names),*)
+            };
+
+            #ret
+          }).unwrap_or_else(|e| {
+            JsError::from(e).throw_into(env);
+            std::ptr::null_mut::<sys::napi_value__>()
+          })
         }
       }
 

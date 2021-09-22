@@ -188,7 +188,7 @@ impl BindgenAttrs {
         bail_span!(attr, "malformed #[napi] attribute");
       }
       let mut attrs: BindgenAttrs = syn::parse2(group.stream())?;
-      ret.attrs.extend(attrs.attrs.drain(..));
+      ret.attrs.append(&mut attrs.attrs);
       attrs.check_used()?;
     }
   }

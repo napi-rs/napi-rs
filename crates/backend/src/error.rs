@@ -5,17 +5,17 @@ use syn::parse::Error;
 /// Provide a Diagnostic with the given span and message
 #[macro_export]
 macro_rules! err_span {
-    ($span:expr, $($msg:tt)*) => (
-        $crate::Diagnostic::spanned_error(&$span, format!($($msg)*))
-    )
+  ($span:expr, $($msg:tt)*) => (
+    $crate::Diagnostic::spanned_error(&$span, format!($($msg)*))
+  )
 }
 
 /// Immediately fail and return an Err, with the arguments passed to err_span!
 #[macro_export]
 macro_rules! bail_span {
-    ($($t:tt)*) => (
-        return Err(err_span!($($t)*).into())
-    )
+  ($($t:tt)*) => (
+    return Err(err_span!($($t)*).into())
+  )
 }
 
 /// A struct representing a diagnostic to emit to the end-user as an error.

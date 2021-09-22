@@ -2,22 +2,21 @@ use crate::{sys, Result};
 
 use super::{Array, Object};
 
-pub struct Env {
-  inner: sys::napi_env,
-}
+#[repr(transparent)]
+pub struct Env(sys::napi_env);
 
 impl From<sys::napi_env> for Env {
   fn from(raw_env: sys::napi_env) -> Env {
-    Env { inner: raw_env }
+    Env(raw_env)
   }
 }
 
 impl Env {
   pub fn create_object(&self) -> Result<Object> {
-    Object::new(self.inner)
+    Object::new(self.0)
   }
 
   pub fn create_array(&self, len: u32) -> Result<Array> {
-    Array::new(self.inner, len)
+    Array::new(self.0, len)
   }
 }

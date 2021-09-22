@@ -1,6 +1,6 @@
 #![deny(clippy::all)]
 
-//! High level NodeJS [N-API](https://nodejs.org/api/n-api.html) binding
+//! High level Node.js [N-API](https://nodejs.org/api/n-api.html) binding
 //!
 //! **napi-rs** provides minimal overhead to write N-API modules in `Rust`.
 //!
@@ -8,7 +8,7 @@
 //!
 //! ### napi1 ~ napi8
 //!
-//! Because `NodeJS` N-API has versions. So there are feature flags to choose what version of `N-API` you want to build for.
+//! Because `Node.js` N-API has versions. So there are feature flags to choose what version of `N-API` you want to build for.
 //! For example, if you want build a library which can be used by `node@10.17.0`, you should choose the `napi5` or lower.
 //!
 //! The details of N-API versions and support matrix: [n_api_version_matrix](https://nodejs.org/api/n-api.html#n_api_n_api_version_matrix)
@@ -152,9 +152,10 @@ macro_rules! assert_type_of {
 }
 
 pub mod bindgen_prelude {
-  pub use super::bindgen_runtime::*;
-  pub use super::{
-    assert_type_of, check_status, check_status_or_throw, error, error::*, sys, type_of, JsError,
-    Property, PropertyAttributes, Result, Status, Task, ValueType,
+  #[cfg(feature = "compat-mode")]
+  pub use crate::bindgen_runtime::register_module_exports;
+  pub use crate::{
+    assert_type_of, bindgen_runtime::*, check_status, check_status_or_throw, error, error::*, sys,
+    type_of, JsError, Property, PropertyAttributes, Result, Status, Task, ValueType,
   };
 }

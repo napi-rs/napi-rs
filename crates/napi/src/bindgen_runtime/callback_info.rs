@@ -47,13 +47,14 @@ impl<const N: usize> CallbackInfo<N> {
   }
 
   pub fn get_arg(&self, index: usize) -> sys::napi_value {
-    assert!(index < N);
-
-    *self.args.get(index).unwrap()
+    *self
+      .args
+      .get(index)
+      .unwrap_or_else(|| panic!("index {} must < {}", index, N))
   }
 
   pub fn this(&self) -> sys::napi_value {
-    assert!(!self.this.is_null());
+    debug_assert!(!self.this.is_null());
 
     self.this
   }
