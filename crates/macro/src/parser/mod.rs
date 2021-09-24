@@ -542,6 +542,8 @@ fn napi_fn_from_decl(
           .trim_start_matches("set_")
           .to_case(Case::Camel)
       }
+    } else if opts.constructor().is_some() {
+      "constructor".to_owned()
     } else {
       opts.js_name().map_or_else(
         || ident.to_string().to_case(Case::Camel),
