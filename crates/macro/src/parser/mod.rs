@@ -655,6 +655,8 @@ impl ConvertToAST for syn::ItemFn {
 
 impl ConvertToAST for syn::ItemStruct {
   fn convert_to_ast(&mut self, opts: BindgenAttrs) -> BindgenResult<Napi> {
+    let mut errors = vec![];
+
     let vis = self.vis.clone();
     let struct_name = self.ident.clone();
     let js_name = opts.js_name().map_or_else(
@@ -663,11 +665,20 @@ impl ConvertToAST for syn::ItemStruct {
     );
     let mut fields = vec![];
     let mut is_tuple = false;
+    let gen_default_ctor = opts.constructor().is_some();
 
     for (i, field) in self.fields.iter_mut().enumerate() {
       match field.vis {
         syn::Visibility::Public(..) => {}
-        _ => continue,
+        _ => {
+          if gen_default_ctor {
+            errors.push(err_span!(
+              field,
+              "#[napi] requires all struct fields to be public to mark struct as constructor\nthis field is not public."
+            ));
+          }
+          continue;
+        }
       }
 
       let field_opts = BindgenAttrs::find(&mut field.attrs)?;
@@ -699,7 +710,7 @@ impl ConvertToAST for syn::ItemStruct {
 
     record_struct(&struct_name, js_name.clone(), &opts);
 
-    Ok(Napi {
+    Diagnostic::from_vec(errors).map(|()| Napi {
       comments: vec![],
       item: NapiItem::Struct(NapiStruct {
         js_name,
@@ -707,7 +718,7 @@ impl ConvertToAST for syn::ItemStruct {
         vis,
         fields,
         is_tuple,
-        gen_default_ctor: opts.constructor().is_some(),
+        gen_default_ctor,
       }),
     })
   }
