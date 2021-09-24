@@ -95,10 +95,7 @@ pub trait ValidateNapiValue: FromNapiValue + TypeName {
   }
 }
 
-impl<T> TypeName for Option<T>
-where
-  T: TypeName,
-{
+impl<T> TypeName for Option<T> {
   fn type_name() -> &'static str {
     "Option"
   }
@@ -106,19 +103,18 @@ where
 
 impl<T> FromNapiValue for Option<T>
 where
-  T: FromNapiValue + TypeName,
+  T: FromNapiValue,
 {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
     let mut val_type = 0;
 
     check_status!(
       sys::napi_typeof(env, napi_val, &mut val_type),
-      "Failed to convert napi value into rust type `Option<{}>`",
-      T::type_name()
+      "Failed to convert napi value into rust type `Option<T>`",
     )?;
 
     match val_type {
-      sys::ValueType::napi_undefined => Ok(None),
+      sys::ValueType::napi_undefined | sys::ValueType::napi_null => Ok(None),
       _ => Ok(Some(T::from_napi_value(env, napi_val)?)),
     }
   }
@@ -126,7 +122,7 @@ where
 
 impl<T> ToNapiValue for Option<T>
 where
-  T: ToNapiValue + TypeName,
+  T: ToNapiValue,
 {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     match val {
@@ -134,11 +130,32 @@ where
       None => {
         let mut ptr = ptr::null_mut();
         check_status!(
-          sys::napi_get_undefined(env, &mut ptr),
-          "Failed to convert rust type `Option<{}>` into napi value",
-          T::type_name(),
+          sys::napi_get_null(env, &mut ptr),
+          "Failed to convert rust type `Option<T>` into napi value",
         )?;
         Ok(ptr)
+      }
+    }
+  }
+}
+
+impl<T> ToNapiValue for Result<T>
+where
+  T: ToNapiValue,
+{
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    match val {
+      Ok(v) => T::to_napi_value(env, v),
+      Err(e) => {
+        let error_code = String::to_napi_value(env, format!("{:?}", e.status))?;
+        let reason = String::to_napi_value(env, e.reason)?;
+        let mut error = ptr::null_mut();
+        check_status!(
+          sys::napi_create_error(env, error_code, reason, &mut error),
+          "Failed to create napi error"
+        )?;
+
+        Ok(error)
       }
     }
   }

@@ -64,7 +64,7 @@ pub fn ty_to_ts_type(ty: &Type) -> String {
 
 pub fn str_to_ts_type(ty: &str) -> String {
   match ty {
-    "()" => "null".to_owned(),
+    "()" => "undefined".to_owned(),
     "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" => "number".to_owned(),
     "i128" | "isize" | "u64" | "u128" | "usize" => "BigInt".to_owned(),
     "bool" => "boolean".to_owned(),
@@ -82,7 +82,7 @@ pub fn str_to_ts_type(ty: &str) -> String {
       let captures = TYPE_REGEXES["Option"].captures(s).unwrap();
       let inner = captures.get(1).unwrap().as_str();
 
-      format!("{} | undefined", str_to_ts_type(inner))
+      format!("{} | null", str_to_ts_type(inner))
     }
     s if s.starts_with("Result") && TYPE_REGEXES["Result"].is_match(s) => {
       let captures = TYPE_REGEXES["Result"].captures(s).unwrap();

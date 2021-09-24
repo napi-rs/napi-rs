@@ -79,22 +79,3 @@ impl ToNapiValue for Undefined {
     Ok(ret)
   }
 }
-
-impl ToNapiValue for Result<()> {
-  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
-    match val {
-      Ok(_) => Ok(Null::to_napi_value(env, Null).unwrap_or_else(|_| ptr::null_mut())),
-      Err(e) => {
-        let error_code = String::to_napi_value(env, format!("{:?}", e.status))?;
-        let reason = String::to_napi_value(env, e.reason)?;
-        let mut error = ptr::null_mut();
-        check_status!(
-          sys::napi_create_error(env, error_code, reason, &mut error),
-          "Failed to create napi error"
-        )?;
-
-        Ok(error)
-      }
-    }
-  }
-}
