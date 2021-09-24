@@ -23,6 +23,7 @@ export class Animal {
   get name(): string
   set name(name: string)
   whoami(): string
+  static getDogKind(): Kind
 }
 export class PackageJson {
   name: string
