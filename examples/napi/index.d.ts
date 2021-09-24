@@ -18,8 +18,8 @@ export function concatUtf16(s: Utf16String): Utf16String
 export function concatLatin1(s: Latin1String): string
 export class Animal {
   readonly kind: Kind
-  name: string
   constructor(kind: Kind, name: string)
-  static new(kind: Kind, name: string): Animal
+  get name(): string
+  set name(name: string)
   whoami(): string
 }

@@ -74,7 +74,7 @@ impl NapiFn {
           Some(_) => "",
           None => "static",
         },
-        crate::FnKind::Constructor => "constructor",
+        crate::FnKind::Constructor => "",
         crate::FnKind::Getter => "get",
         crate::FnKind::Setter => "set",
       }
