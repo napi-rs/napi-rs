@@ -5,6 +5,7 @@ mod array;
 mod callback;
 mod class;
 mod r#enum;
+mod error;
 mod nullable;
 mod number;
 mod object;

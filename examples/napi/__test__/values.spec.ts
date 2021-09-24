@@ -19,6 +19,7 @@ import {
   createObj,
   mapOption,
   readFile,
+  getError,
 } from '../'
 
 test('number', (t) => {
@@ -81,7 +82,7 @@ test('callback', (t) => {
   )
 
   readFile((err, content) => {
-    t.is(err, null)
+    t.is(err, undefined)
     t.is(content, 'hello world')
   })
 })
@@ -92,6 +93,12 @@ test('object', (t) => {
 })
 
 test('Option', (t) => {
-  t.is(mapOption(undefined), undefined)
+  t.is(mapOption(null), null)
   t.is(mapOption(3), 4)
+})
+
+test('Result', (t) => {
+  const error = getError()
+  t.not(error, undefined)
+  t.is(error!.message, 'Manual Error')
 })
