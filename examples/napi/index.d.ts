@@ -2,6 +2,7 @@ export function getWords(): Array<string>
 export function getNums(): Array<number>
 export function sumNums(nums: Array<number>): number
 export function getCwd(callback: (arg0: string) => void): void
+export function readFile(callback: (arg0: Error | null, arg1: string | undefined) => void): void
 export enum Kind { Dog = 0, Cat = 1, Duck = 2 }
 export enum CustomNumEnum { One = 1, Two = 2, Three = 3, Four = 4, Six = 6, Eight = 8, Nine = 9, Ten = 10 }
 export function enumToI32(e: CustomNumEnum): number
