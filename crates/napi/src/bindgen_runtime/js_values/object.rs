@@ -19,8 +19,8 @@ impl Object {
     Ok(Object { env, inner: ptr })
   }
 
-  pub fn get<T: FromNapiValue>(&self, field: String) -> Result<Option<T>> {
-    let c_field = CString::new(field)?;
+  pub fn get<K: AsRef<str>, V: FromNapiValue>(&self, field: K) -> Result<Option<V>> {
+    let c_field = CString::new(field.as_ref())?;
 
     unsafe {
       let mut ret = ptr::null_mut();
@@ -36,16 +36,16 @@ impl Object {
       Ok(if ty == ValueType::Undefined {
         None
       } else {
-        Some(T::from_napi_value(self.env, ret)?)
+        Some(V::from_napi_value(self.env, ret)?)
       })
     }
   }
 
-  pub fn set<T: ToNapiValue>(&mut self, field: String, val: T) -> Result<()> {
-    let c_field = CString::new(field)?;
+  pub fn set<K: AsRef<str>, V: ToNapiValue>(&mut self, field: K, val: V) -> Result<()> {
+    let c_field = CString::new(field.as_ref())?;
 
     unsafe {
-      let napi_val = T::to_napi_value(self.env, val)?;
+      let napi_val = V::to_napi_value(self.env, val)?;
 
       check_status!(
         sys::napi_set_named_property(self.env, self.inner, c_field.as_ptr(), napi_val),

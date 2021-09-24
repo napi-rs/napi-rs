@@ -4,6 +4,7 @@ use std::ptr;
 mod array;
 mod boolean;
 mod buffer;
+mod map;
 mod nil;
 mod number;
 mod object;

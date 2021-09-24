@@ -685,9 +685,10 @@ impl ConvertToAST for syn::ItemStruct {
 
       let (js_name, name) = match &field.ident {
         Some(ident) => (
-          field_opts
-            .js_name()
-            .map_or_else(|| ident.to_string(), |(js_name, _)| js_name.to_owned()),
+          field_opts.js_name().map_or_else(
+            || ident.to_string().to_case(Case::Camel),
+            |(js_name, _)| js_name.to_owned(),
+          ),
           syn::Member::Named(ident.clone()),
         ),
         None => {
