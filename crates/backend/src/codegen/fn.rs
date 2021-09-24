@@ -214,11 +214,22 @@ impl NapiFn {
     let js_name = &self.js_name;
     let ret_ty = &self.ret;
 
-    if self.kind == FnKind::Constructor {
-      quote! { cb.construct(#js_name, #ret) }
-    } else if let Some(ref ty) = ret_ty {
-      quote! {
-        <#ty as ToNapiValue>::to_napi_value(env, #ret)
+    if let Some((ref ty, is_result)) = ret_ty {
+      if self.kind == FnKind::Constructor {
+        quote! { cb.construct(#js_name, #ret) }
+      } else if *is_result {
+        quote! {
+          if #ret.is_ok() {
+            <#ty as ToNapiValue>::to_napi_value(env, #ret)
+          } else {
+            JsError::from(#ret.unwrap_err()).throw_into(env);
+            Ok(std::ptr::null_mut())
+          }
+        }
+      } else {
+        quote! {
+          <#ty as ToNapiValue>::to_napi_value(env, #ret)
+        }
       }
     } else {
       quote! {

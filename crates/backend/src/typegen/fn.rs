@@ -29,11 +29,11 @@ fn gen_callback_type(callback: &CallbackArg) -> String {
       .args
       .iter()
       .enumerate()
-      .map(|(i, arg)| { format!("arg{}: {}", i, ty_to_ts_type(arg)) })
+      .map(|(i, arg)| { format!("arg{}: {}", i, ty_to_ts_type(arg, false)) })
       .collect::<Vec<_>>()
       .join(", "),
     ret = match &callback.ret {
-      Some(ty) => ty_to_ts_type(ty),
+      Some(ty) => ty_to_ts_type(ty, true),
       None => "void".to_owned(),
     }
   )
@@ -51,7 +51,7 @@ impl NapiFn {
           }
           let mut arg = path.pat.to_token_stream().to_string().to_case(Case::Camel);
           arg.push_str(": ");
-          arg.push_str(&ty_to_ts_type(&path.ty));
+          arg.push_str(&ty_to_ts_type(&path.ty, false));
 
           Some(arg)
         }
@@ -87,8 +87,13 @@ impl NapiFn {
     match self.kind {
       FnKind::Constructor | FnKind::Setter => "".to_owned(),
       _ => {
-        let ret = if let Some(ref ret) = self.ret {
-          ty_to_ts_type(ret)
+        let ret = if let Some((ref ret, is_result)) = self.ret {
+          let ts_type = ty_to_ts_type(ret, is_result);
+          if ts_type == "undefined" {
+            "void".to_owned()
+          } else {
+            ts_type
+          }
         } else {
           "void".to_owned()
         };
