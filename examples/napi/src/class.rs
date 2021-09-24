@@ -41,6 +41,11 @@ impl Animal {
       Kind::Duck => format!("Duck: {}", self.name),
     }
   }
+
+  #[napi]
+  pub fn get_dog_kind() -> Kind {
+    Kind::Dog
+  }
 }
 
 #[napi(constructor)]
