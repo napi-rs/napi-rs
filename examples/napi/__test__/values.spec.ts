@@ -18,6 +18,7 @@ import {
   listObjKeys,
   createObj,
   mapOption,
+  readFile,
 } from '../'
 
 test('number', (t) => {
@@ -78,6 +79,11 @@ test('callback', (t) => {
     null,
     'Expect value to be Function, but received Undefined',
   )
+
+  readFile((err, content) => {
+    t.is(err, null)
+    t.is(content, 'hello world')
+  })
 })
 
 test('object', (t) => {
