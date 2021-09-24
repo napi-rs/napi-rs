@@ -35,6 +35,7 @@ pub static TYPE_REGEXES: Lazy<HashMap<&'static str, Regex>> = Lazy::new(|| {
     ("Vec", Regex::new(r"^Vec < (.*) >$").unwrap()),
     ("Option", Regex::new(r"^Option < (.*) >").unwrap()),
     ("Result", Regex::new(r"^Result < (.*) >").unwrap()),
+    ("HashMap", Regex::new(r"HashMap < (.*), (.*) >").unwrap()),
   ]);
 
   map
@@ -88,11 +89,23 @@ pub fn str_to_ts_type(ty: &str, omit_top_level_result: bool) -> String {
     s if s.starts_with("Result") && TYPE_REGEXES["Result"].is_match(s) => {
       let captures = TYPE_REGEXES["Result"].captures(s).unwrap();
       let inner = captures.get(1).unwrap().as_str();
+
       if omit_top_level_result {
         str_to_ts_type(inner, false)
       } else {
         format!("Error | {}", str_to_ts_type(inner, false))
       }
+    }
+    s if TYPE_REGEXES["HashMap"].is_match(s) => {
+      let captures = TYPE_REGEXES["HashMap"].captures(s).unwrap();
+      let key = captures.get(1).unwrap().as_str();
+      let val = captures.get(2).unwrap().as_str();
+
+      format!(
+        "Record<{}, {}>",
+        str_to_ts_type(key, false),
+        str_to_ts_type(val, false)
+      )
     }
     s => s.to_owned(),
   }

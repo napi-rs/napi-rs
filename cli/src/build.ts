@@ -255,20 +255,25 @@ async function processIntermediateTypeFile(source: string, target: string) {
     }
   })
 
-  for (const [name, def] of impls.entries()) {
-    const classDef = classes.get(name)
+  for (const [name, classDef] of classes.entries()) {
+    const implDef = impls.get(name)
 
     dts += `export class ${name} {
-  ${(classDef ?? '')
+  ${classDef
     .split('\n')
     .map((line) => line.trim())
-    .join('\n  ')}
-  ${def
-    .split('\n')
-    .map((line) => line.trim())
-    .join('\n  ')}
-}
-`
+    .join('\n  ')}`
+
+    if (implDef) {
+      dts +=
+        '\n  ' +
+        implDef
+          .split('\n')
+          .map((line) => line.trim())
+          .join('\n  ')
+    }
+
+    dts += '\n}\n'
   }
 
   await unlinkAsync(source)
