@@ -520,7 +520,10 @@ fn napi_fn_from_decl(
 
   let ret = match output {
     syn::ReturnType::Default => None,
-    syn::ReturnType::Type(_, ty) => Some(replace_self(*ty, parent)),
+    syn::ReturnType::Type(_, ty) => {
+      let is_result = ty.to_token_stream().to_string().starts_with("Result <");
+      Some((replace_self(*ty, parent), is_result))
+    }
   };
 
   Diagnostic::from_vec(errors).map(|_| {

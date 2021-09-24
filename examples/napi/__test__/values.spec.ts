@@ -19,7 +19,7 @@ import {
   createObj,
   mapOption,
   readFile,
-  getError,
+  throwError,
 } from '../'
 
 test('number', (t) => {
@@ -98,7 +98,5 @@ test('Option', (t) => {
 })
 
 test('Result', (t) => {
-  const error = getError()
-  t.not(error, undefined)
-  t.is(error!.message, 'Manual Error')
+  t.throws(() => throwError(), null, 'Manual Error')
 })

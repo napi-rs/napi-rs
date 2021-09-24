@@ -7,7 +7,7 @@ pub struct NapiFn {
   pub js_name: String,
   pub attrs: Vec<Attribute>,
   pub args: Vec<NapiFnArgKind>,
-  pub ret: Option<syn::Type>,
+  pub ret: Option<(syn::Type, /* is_result */ bool)>,
   pub is_async: bool,
   pub fn_self: Option<FnSelf>,
   pub kind: FnKind,

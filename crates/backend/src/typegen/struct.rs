@@ -39,7 +39,7 @@ impl NapiStruct {
         if !f.setter {
           field_str.push_str("readonly ")
         }
-        let arg = format!("{}: {}", &f.js_name, ty_to_ts_type(&f.ty));
+        let arg = format!("{}: {}", &f.js_name, ty_to_ts_type(&f.ty, false));
         if self.gen_default_ctor {
           ctor_args.push(arg.clone());
         }
