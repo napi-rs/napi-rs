@@ -1989,10 +1989,10 @@ cli-width@^3.0.0:
   resolved "https://registry.npmjs.org/cli-width/-/cli-width-3.0.0.tgz#a2f48437a2caa9a22436e794bf071ec9e61cedf6"
   integrity sha512-FxqpkPPwu1HjuN93Omfm4h8uIanXofW0RxVEW3k5RKx+mJJYSthzNhp32Kzxxy3YAEZ/Dc/EWN1vZRY0+kOhbw==
 
-clipanion@^3.0.1:
-  version "3.0.1"
-  resolved "https://registry.npmjs.org/clipanion/-/clipanion-3.0.1.tgz#cba44989fa18a625d7d02800ea98c835e973fc26"
-  integrity sha512-/ujK3YJ1MGjGr18w99Gl9XZjy4xcC/5bZRJXsgvYG6GbUTO4CTKriC+oUxDbo8G+G/dxDqSJhm8QIDnK6iH6Ig==
+clipanion@^3.1.0:
+  version "3.1.0"
+  resolved "https://registry.npmjs.org/clipanion/-/clipanion-3.1.0.tgz#3e217dd6476bb9236638b07eb4673f7309839819"
+  integrity sha512-v025Hz+IDQ15FpOyK8p02h5bFznMu6rLFsJSyOPR+7WrbSnZ1Ek6pblPukV7K5tC/dsWfncQPIrJ4iUy2PXkbw==
   dependencies:
     typanion "^3.3.1"
 
@@ -6574,12 +6574,7 @@ tweetnacl@^0.14.3, tweetnacl@~0.14.0:
   resolved "https://registry.npmjs.org/tweetnacl/-/tweetnacl-0.14.5.tgz#5ae68177f192d4456269d108afa93ff8743f4f64"
   integrity sha1-WuaBd/GS1EViadEIr6k/+HQ/T2Q=
 
-typanion@^3.3.1:
-  version "3.4.1"
-  resolved "https://registry.npmjs.org/typanion/-/typanion-3.4.1.tgz#d14b9cf056a592f59083a9ecff3a3ddd3855e706"
-  integrity sha512-/l41vTqe9s5FYi8nWLiTiB5pUbXWasvnUsmwwDMUc9PI/mUb0ojmWQ4EP8qnNYunPbFNQGjsqY61rQhNslQ+qQ==
-
-typanion@^3.5.0:
+typanion@^3.3.1, typanion@^3.5.0:
   version "3.5.0"
   resolved "https://registry.npmjs.org/typanion/-/typanion-3.5.0.tgz#17004bbe65c1947efcb0295ae2291d8dfaf6245c"
   integrity sha512-WTwtzR0EXFidHrrzyWYyb+jeFLxOVLW1VMaKOqN/JekdqJs6UiFLGv0QjKV2dzn1ub3VI7duDJ/ZXHM8UX/3dw==
