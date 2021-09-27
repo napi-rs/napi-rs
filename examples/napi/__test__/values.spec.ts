@@ -21,6 +21,7 @@ import {
   readFile,
   throwError,
   readPackageJson,
+  getPackageJsonName,
 } from '../'
 
 test('number', (t) => {
@@ -68,12 +69,6 @@ test('class', (t) => {
 
   dog.name = '可乐'
   t.is(dog.name, '可乐')
-
-  const packageJson = readPackageJson()
-  t.is(packageJson.name, 'napi-rs')
-  t.is(packageJson.version, '0.0.0')
-  t.is(packageJson.dependencies, null)
-  t.snapshot(Object.keys(packageJson.devDependencies!).sort())
 })
 
 test('callback', (t) => {
@@ -106,4 +101,14 @@ test('Option', (t) => {
 
 test('Result', (t) => {
   t.throws(() => throwError(), null, 'Manual Error')
+})
+
+test('serde-json', (t) => {
+  const packageJson = readPackageJson()
+  t.is(packageJson.name, 'napi-rs')
+  t.is(packageJson.version, '0.0.0')
+  t.is(packageJson.dependencies, null)
+  t.snapshot(Object.keys(packageJson.devDependencies!).sort())
+
+  t.is(getPackageJsonName(packageJson), 'napi-rs')
 })

@@ -1,5 +1,3 @@
-use std::{collections::HashMap, fs};
-
 use napi::bindgen_prelude::*;
 
 use crate::r#enum::Kind;
@@ -46,21 +44,4 @@ impl Animal {
   pub fn get_dog_kind() -> Kind {
     Kind::Dog
   }
-}
-
-#[napi(constructor)]
-#[derive(Serialize, Deserialize, Debug)]
-struct PackageJson {
-  pub name: String,
-  pub version: String,
-  pub dependencies: Option<HashMap<String, String>>,
-  #[serde(rename = "devDependencies")]
-  pub dev_dependencies: Option<HashMap<String, String>>,
-}
-
-#[napi]
-fn read_package_json() -> Result<PackageJson> {
-  let raw = fs::read_to_string("package.json")?;
-  let p: PackageJson = serde_json::from_str(&raw)?;
-  Ok(p)
 }

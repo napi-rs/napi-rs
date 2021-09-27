@@ -8,6 +8,8 @@ mod map;
 mod nil;
 mod number;
 mod object;
+#[cfg(feature = "serde-json")]
+mod serde;
 mod string;
 
 pub use array::*;

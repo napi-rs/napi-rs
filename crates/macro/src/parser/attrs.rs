@@ -49,6 +49,7 @@ macro_rules! attrgen {
       (readonly, Readonly(Span)),
       (skip, Skip(Span)),
       (strict, Strict(Span)),
+      (object, Object(Span)),
 
       // impl later
       // (inspectable, Inspectable(Span)),

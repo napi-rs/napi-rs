@@ -2,8 +2,8 @@ use crate::{bindgen_prelude::*, check_status, sys, type_of, ValueType};
 use std::{ffi::CString, ptr};
 
 pub struct Object {
-  env: sys::napi_env,
-  inner: sys::napi_value,
+  pub(crate) env: sys::napi_env,
+  pub(crate) inner: sys::napi_value,
 }
 
 impl Object {

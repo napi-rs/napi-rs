@@ -11,4 +11,5 @@ mod error;
 mod nullable;
 mod number;
 mod object;
+mod serde;
 mod string;

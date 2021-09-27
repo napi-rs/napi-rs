@@ -56,7 +56,6 @@ impl<const N: usize> CallbackInfo<N> {
 
   pub fn construct<T>(&self, js_name: &str, obj: T) -> Result<sys::napi_value> {
     let obj = Box::new(obj);
-    let mut result = std::ptr::null_mut();
     let this = self.this();
 
     unsafe {
@@ -67,7 +66,7 @@ impl<const N: usize> CallbackInfo<N> {
           Box::into_raw(obj) as *mut std::ffi::c_void,
           Some(raw_finalize_unchecked::<T>),
           ptr::null_mut(),
-          &mut result
+          &mut std::ptr::null_mut()
         ),
         "Failed to initialize class `{}`",
         js_name,
