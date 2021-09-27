@@ -219,7 +219,7 @@ async function findUp(dir = process.cwd()): Promise<string | null> {
 }
 
 interface TypeDef {
-  kind: 'fn' | 'struct' | 'impl' | 'enum'
+  kind: 'fn' | 'struct' | 'impl' | 'enum' | 'interface'
   name: string
   def: string
 }
@@ -243,34 +243,27 @@ async function processIntermediateTypeFile(source: string, target: string) {
     const def = JSON.parse(line) as TypeDef
 
     switch (def.kind) {
-      case 'fn':
-      case 'enum':
-        dts += def.def + '\n'
-        break
       case 'struct':
         classes.set(def.name, def.def)
         break
       case 'impl':
         impls.set(def.name, def.def)
+        break
+      case 'interface':
+        dts += `interface ${def.name} {\n${indentLines(def.def, 2)}\n}\n`
+        break
+      default:
+        dts += def.def + '\n'
     }
   })
 
   for (const [name, classDef] of classes.entries()) {
     const implDef = impls.get(name)
 
-    dts += `export class ${name} {
-  ${classDef
-    .split('\n')
-    .map((line) => line.trim())
-    .join('\n  ')}`
+    dts += `export class ${name} {\n${indentLines(classDef, 2)}`
 
     if (implDef) {
-      dts +=
-        '\n  ' +
-        implDef
-          .split('\n')
-          .map((line) => line.trim())
-          .join('\n  ')
+      dts += `\n${indentLines(implDef, 2)}`
     }
 
     dts += '\n}\n'
@@ -278,4 +271,11 @@ async function processIntermediateTypeFile(source: string, target: string) {
 
   await unlinkAsync(source)
   await writeFileAsync(target, dts, 'utf8')
+}
+
+function indentLines(input: string, spaces: number) {
+  return input
+    .split('\n')
+    .map((line) => ''.padEnd(spaces, ' ') + line.trim())
+    .join('\n')
 }

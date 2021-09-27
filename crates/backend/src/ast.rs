@@ -51,7 +51,14 @@ pub struct NapiStruct {
   pub vis: syn::Visibility,
   pub fields: Vec<NapiStructField>,
   pub is_tuple: bool,
-  pub gen_default_ctor: bool,
+  pub kind: NapiStructKind,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum NapiStructKind {
+  None,
+  Constructor,
+  Object,
 }
 
 #[derive(Debug, Clone)]

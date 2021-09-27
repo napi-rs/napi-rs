@@ -10,7 +10,7 @@ use attrs::{BindgenAttr, BindgenAttrs};
 use convert_case::{Case, Casing};
 use napi_derive_backend::{
   BindgenResult, CallbackArg, Diagnostic, FnKind, FnSelf, Napi, NapiEnum, NapiEnumVariant, NapiFn,
-  NapiFnArgKind, NapiImpl, NapiItem, NapiStruct, NapiStructField,
+  NapiFnArgKind, NapiImpl, NapiItem, NapiStruct, NapiStructField, NapiStructKind,
 };
 use proc_macro2::{Ident, TokenStream, TokenTree};
 use quote::ToTokens;
@@ -665,16 +665,22 @@ impl ConvertToAST for syn::ItemStruct {
     );
     let mut fields = vec![];
     let mut is_tuple = false;
-    let gen_default_ctor = opts.constructor().is_some();
+    let struct_kind = if opts.constructor().is_some() {
+      NapiStructKind::Constructor
+    } else if opts.object().is_some() {
+      NapiStructKind::Object
+    } else {
+      NapiStructKind::None
+    };
 
     for (i, field) in self.fields.iter_mut().enumerate() {
       match field.vis {
         syn::Visibility::Public(..) => {}
         _ => {
-          if gen_default_ctor {
+          if struct_kind != NapiStructKind::None {
             errors.push(err_span!(
               field,
-              "#[napi] requires all struct fields to be public to mark struct as constructor\nthis field is not public."
+              "#[napi] requires all struct fields to be public to mark struct as constructor or object shape\nthis field is not public."
             ));
           }
           continue;
@@ -693,7 +699,7 @@ impl ConvertToAST for syn::ItemStruct {
         ),
         None => {
           is_tuple = true;
-          (i.to_string(), syn::Member::Unnamed(i.into()))
+          (format!("field{}", i), syn::Member::Unnamed(i.into()))
         }
       };
 
@@ -719,7 +725,7 @@ impl ConvertToAST for syn::ItemStruct {
         vis,
         fields,
         is_tuple,
-        gen_default_ctor,
+        kind: struct_kind,
       }),
     })
   }
