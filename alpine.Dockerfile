@@ -6,7 +6,7 @@ ENV PATH="/aarch64-linux-musl-cross/bin:/usr/local/cargo/bin/rustup:/root/.cargo
   CXX="clang++" \
   GN_EXE=gn
 
-RUN apk add --update --no-cache musl-dev && \
+RUN apk add --update --no-cache wget musl-dev && \
   sed -i -e 's/v[[:digit:]]\..*\//edge\//g' /etc/apk/repositories && \
   apk add --update --no-cache --repository http://dl-cdn.alpinelinux.org/alpine/edge/testing \
   rustup \
@@ -15,12 +15,12 @@ RUN apk add --update --no-cache musl-dev && \
   python2 \
   git \
   build-base \
-  wget \
   clang \
   llvm \
   gn \
   tar \
-  ninja
+  ninja \
+  apk upgrade
 
 RUN rustup-init -y && \
   yarn global add pnpm && \

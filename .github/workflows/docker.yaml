@@ -6,7 +6,7 @@ on:
 
 jobs:
   build_image:
-    name: Build nodejs-rust:lts-alpine
+    name: Build nodejs-rust:lts
     runs-on: ubuntu-latest
 
     steps:
