@@ -243,8 +243,8 @@ impl NapiFn {
       quote! {}
     } else {
       let name_str = self.name.to_string();
-      let name_len = name_str.len();
       let js_name = &self.js_name;
+      let name_len = js_name.len();
       let module_register_name = get_register_ident(&name_str);
       let intermediate_ident = get_intermediate_ident(&name_str);
 
@@ -255,12 +255,11 @@ impl NapiFn {
         fn #module_register_name() {
           unsafe fn cb(env: sys::napi_env) -> Result<sys::napi_value> {
             let mut fn_ptr = std::ptr::null_mut();
-            let js_name = std::ffi::CString::new(#js_name).unwrap();
 
             check_status!(
               sys::napi_create_function(
                 env,
-                js_name.as_ptr(),
+                #js_name.as_ptr() as *const _,
                 #name_len,
                 Some(#intermediate_ident),
                 std::ptr::null_mut(),
