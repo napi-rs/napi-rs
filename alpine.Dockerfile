@@ -19,7 +19,7 @@ RUN apk add --update --no-cache wget musl-dev && \
   llvm \
   gn \
   tar \
-  ninja \
+  ninja && \
   apk upgrade
 
 RUN rustup-init -y && \
