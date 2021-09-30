@@ -19,7 +19,25 @@ impl TryToTokens for NapiFn {
     let register = self.gen_fn_register();
 
     let attrs = &self.attrs;
+    let function_call_tokens = if args_len == 0 && self.fn_self.is_none() {
+      quote! {
+        {
+          let #receiver_ret_name = #receiver();
+          #ret
+        }
+      }
+    } else {
+      quote! {
+        CallbackInfo::<#args_len>::new(env, cb, None).and_then(|mut cb| {
+          #(#arg_conversions)*
+          let #receiver_ret_name = {
+            #receiver(#(#arg_names),*)
+          };
 
+          #ret
+        })
+      }
+    };
     (quote! {
       #(#attrs)*
       #[doc(hidden)]
@@ -30,14 +48,7 @@ impl TryToTokens for NapiFn {
         cb: sys::napi_callback_info
       ) -> sys::napi_value {
         unsafe {
-          CallbackInfo::<#args_len>::new(env, cb, None).and_then(|mut cb| {
-            #(#arg_conversions)*
-            let #receiver_ret_name = {
-              #receiver(#(#arg_names),*)
-            };
-
-            #ret
-          }).unwrap_or_else(|e| {
+          #function_call_tokens.unwrap_or_else(|e| {
             JsError::from(e).throw_into(env);
             std::ptr::null_mut::<sys::napi_value__>()
           })
@@ -188,7 +199,7 @@ impl NapiFn {
 
     match self.fn_self {
       Some(FnSelf::Value) => {
-        // impossible, errord in parser
+        // impossible, panic! in parser
         unimplemented!();
       }
       Some(FnSelf::Ref) | Some(FnSelf::MutRef) => quote! { this.#name },
