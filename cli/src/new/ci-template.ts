@@ -75,6 +75,7 @@ jobs:
             build: |
               export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="\${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
               yarn build --target aarch64-linux-android
+              \${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android-strip *.node
           - host: ubuntu-latest
             target: 'aarch64-unknown-linux-musl'
             downloadTarget: 'aarch64-unknown-linux-musl'
