@@ -8,6 +8,8 @@ export const createPackageJson = (
   const pkgContent = {
     name,
     version: '0.0.0',
+    main: 'index.js',
+    types: 'index.d.ts',
     napi: {
       name: binaryName,
     },
