@@ -3,6 +3,18 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.0.0-alpha.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@1.3.3...@napi-rs/cli@2.0.0-alpha.1) (2021-10-01)
+
+### Bug Fixes
+
+- **cli:** missing main and types field in created package.json ([860a02a](https://github.com/napi-rs/napi-rs/commit/860a02a7cb575d8a33c2007ad38eda762e12ba79))
+
+### Features
+
+- **cli:** dts flag for build command ([0e8de17](https://github.com/napi-rs/napi-rs/commit/0e8de173a4519c70ab9fcf9a4e0ec01aaca64d97))
+
+# 2.0.0-alpha.0 (2021-09-22)
+
 ## [1.3.3](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@1.3.2...@napi-rs/cli@1.3.3) (2021-09-19)
 
 ### Bug Fixes
