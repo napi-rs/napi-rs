@@ -38,6 +38,8 @@ export class BuildCommand extends Command {
 
   features?: string = Option.String('--features')
 
+  dts?: string = Option.String('--dts')
+
   cargoFlags = Option.String('--cargo-flags', '')
 
   cargoCwd?: string = Option.String('--cargo-cwd')
@@ -198,7 +200,7 @@ export class BuildCommand extends Command {
 
     await processIntermediateTypeFile(
       intermediateTypeFile,
-      join(this.destDir ?? '.', 'type.d.ts'),
+      join(this.destDir ?? '.', this.dts ?? 'index.d.ts'),
     )
   }
 }
