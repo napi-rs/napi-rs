@@ -2,7 +2,7 @@
   "name": "napi-examples",
   "private": true,
   "main": "./index.node",
-  "types": "./type.d.ts",
+  "types": "./index.d.ts",
   "scripts": {
     "build": "node ../../cli/scripts/index.js build --features \"latest\"",
     "build-napi3": "node ../../cli/scripts/index.js build --features \"napi3\"",
