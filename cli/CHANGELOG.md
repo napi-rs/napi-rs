@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.0.0-alpha.2](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.0.0-alpha.1...@napi-rs/cli@2.0.0-alpha.2) (2021-10-01)
+
+### Features
+
+- **cli:** strip android binary in CI ([1c9a307](https://github.com/napi-rs/napi-rs/commit/1c9a307dc9accd4a69aac0d1b19e77b1e3b6c086))
+
 # [2.0.0-alpha.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@1.3.3...@napi-rs/cli@2.0.0-alpha.1) (2021-10-01)
 
 ### Bug Fixes
