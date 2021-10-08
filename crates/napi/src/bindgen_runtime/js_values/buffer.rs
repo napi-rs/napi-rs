@@ -18,6 +18,12 @@ impl From<Vec<u8>> for Buffer {
   }
 }
 
+impl From<&[u8]> for Buffer {
+  fn from(inner: &[u8]) -> Self {
+    Buffer::from(inner.to_owned())
+  }
+}
+
 impl AsRef<[u8]> for Buffer {
   fn as_ref(&self) -> &[u8] {
     self.inner.as_slice()
