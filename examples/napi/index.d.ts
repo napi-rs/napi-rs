@@ -24,6 +24,7 @@ export function contains(source: string, target: string): boolean
 export function concatStr(mutS: string): string
 export function concatUtf16(s: string): string
 export function concatLatin1(s: string): string
+export function getBuffer(): Buffer
 export class Animal {
   readonly kind: Kind
   constructor(kind: Kind, name: string)

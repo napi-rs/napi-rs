@@ -13,3 +13,4 @@ mod number;
 mod object;
 mod serde;
 mod string;
+mod typed_array;

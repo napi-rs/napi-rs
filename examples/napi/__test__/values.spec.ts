@@ -22,6 +22,7 @@ import {
   throwError,
   readPackageJson,
   getPackageJsonName,
+  getBuffer,
 } from '../'
 
 test('number', (t) => {
@@ -111,4 +112,8 @@ test('serde-json', (t) => {
   t.snapshot(Object.keys(packageJson.devDependencies!).sort())
 
   t.is(getPackageJsonName(packageJson), 'napi-rs')
+})
+
+test('buffer', (t) => {
+  t.is(getBuffer().toString('utf-8'), 'Hello world')
 })
