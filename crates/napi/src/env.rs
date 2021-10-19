@@ -5,11 +5,6 @@ use std::mem;
 use std::os::raw::{c_char, c_void};
 use std::ptr;
 
-#[cfg(all(feature = "tokio_rt", feature = "napi4"))]
-use once_cell::sync::Lazy;
-#[cfg(all(feature = "tokio_rt", feature = "napi4"))]
-use tokio::{runtime::Handle, sync::mpsc};
-
 use crate::{
   async_work::{self, AsyncWorkPromise},
   check_status,
@@ -25,8 +20,6 @@ use crate::async_cleanup_hook::AsyncCleanupHook;
 use crate::cleanup_env::{CleanupEnvHook, CleanupEnvHookData};
 #[cfg(all(feature = "serde-json"))]
 use crate::js_values::{De, Ser};
-#[cfg(all(feature = "tokio_rt", feature = "napi4"))]
-use crate::promise;
 #[cfg(feature = "napi4")]
 use crate::threadsafe_function::{ThreadSafeCallContext, ThreadsafeFunction};
 #[cfg(all(feature = "serde-json"))]
@@ -37,35 +30,6 @@ use serde::Serialize;
 use std::future::Future;
 
 pub type Callback = extern "C" fn(sys::napi_env, sys::napi_callback_info) -> sys::napi_value;
-
-#[cfg(all(feature = "tokio_rt", feature = "napi4"))]
-static RT: Lazy<(Handle, mpsc::Sender<()>)> = Lazy::new(|| {
-  let rt = tokio::runtime::Runtime::new();
-  let (tx, mut rx) = mpsc::channel::<()>(1);
-  rt.map(|rt| {
-    let h = rt.handle();
-    let handle = h.clone();
-    handle.spawn(async move {
-      if rx.recv().await.is_some() {
-        rt.shutdown_background();
-      }
-    });
-
-    (handle, tx)
-  })
-  .expect("Create tokio runtime failed")
-});
-
-#[doc(hidden)]
-#[cfg(all(feature = "tokio_rt", feature = "napi4"))]
-#[inline(never)]
-pub extern "C" fn shutdown_tokio_rt(_arg: *mut c_void) {
-  let sender = &RT.1;
-  sender
-    .clone()
-    .try_send(())
-    .expect("Shutdown tokio runtime failed");
-}
 
 #[derive(Clone, Copy)]
 /// `Env` is used to represent a context that the underlying N-API implementation can use to persist VM-specific state.
@@ -1062,19 +1026,13 @@ impl Env {
     fut: F,
     resolver: R,
   ) -> Result<JsObject> {
-    let handle = &RT.0;
+    use crate::tokio_runtime;
 
-    let mut raw_promise = ptr::null_mut();
-    let mut raw_deferred = ptr::null_mut();
-    check_status!(unsafe {
-      sys::napi_create_promise(self.0, &mut raw_deferred, &mut raw_promise)
+    let promise = tokio_runtime::execute_tokio_future(self.0, fut, |env, val| unsafe {
+      resolver(&mut Env::from_raw(env), val).map(|v| v.raw())
     })?;
 
-    let raw_env = self.0;
-    let future_promise = promise::FuturePromise::create(raw_env, raw_deferred, resolver)?;
-    let future_to_resolve = promise::resolve_from_future(future_promise.start()?, fut);
-    handle.spawn(future_to_resolve);
-    Ok(unsafe { JsObject::from_raw_unchecked(self.0, raw_promise) })
+    Ok(unsafe { JsObject::from_raw_unchecked(self.0, promise) })
   }
 
   /// This API does not observe leap seconds; they are ignored, as ECMAScript aligns with POSIX time specification.

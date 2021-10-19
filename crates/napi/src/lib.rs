@@ -93,6 +93,8 @@ mod js_values;
 mod promise;
 mod status;
 mod task;
+#[cfg(all(feature = "tokio_rt", feature = "napi4"))]
+mod tokio_runtime;
 mod value_type;
 #[cfg(feature = "napi3")]
 pub use cleanup_env::CleanupEnvHook;
@@ -113,6 +115,8 @@ pub use error::*;
 pub use js_values::*;
 pub use status::Status;
 pub use task::Task;
+#[cfg(all(feature = "tokio_rt", feature = "napi4"))]
+pub use tokio_runtime::shutdown_tokio_rt;
 pub use value_type::*;
 pub use version::NodeVersion;
 #[cfg(feature = "serde-json")]

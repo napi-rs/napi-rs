@@ -3,22 +3,27 @@ use std::marker::PhantomData;
 use std::os::raw::{c_char, c_void};
 use std::ptr;
 
-use crate::{check_status, sys, Env, JsError, NapiRaw, Result};
+use crate::{check_status, sys, JsError, Result};
 
-pub struct FuturePromise<T, V: NapiRaw, F: FnOnce(&mut Env, T) -> Result<V>> {
+pub struct FuturePromise<Data, Resolver: FnOnce(sys::napi_env, Data) -> Result<sys::napi_value>> {
   deferred: sys::napi_deferred,
   env: sys::napi_env,
   tsfn: sys::napi_threadsafe_function,
   async_resource_name: sys::napi_value,
-  resolver: F,
-  _data: PhantomData<T>,
-  _value: PhantomData<V>,
+  resolver: Resolver,
+  _data: PhantomData<Data>,
+  _value: PhantomData<sys::napi_value>,
 }
 
-unsafe impl<T, V: NapiRaw, F: FnOnce(&mut Env, T) -> Result<V>> Send for FuturePromise<T, V, F> {}
+unsafe impl<T, F: FnOnce(sys::napi_env, T) -> Result<sys::napi_value>> Send
+  for FuturePromise<T, F>
+{
+}
 
-impl<T, V: NapiRaw, F: FnOnce(&mut Env, T) -> Result<V>> FuturePromise<T, V, F> {
-  pub fn create(env: sys::napi_env, raw_deferred: sys::napi_deferred, resolver: F) -> Result<Self> {
+impl<Data, Resolver: FnOnce(sys::napi_env, Data) -> Result<sys::napi_value>>
+  FuturePromise<Data, Resolver>
+{
+  pub fn new(env: sys::napi_env, dererred: sys::napi_deferred, resolver: Resolver) -> Result<Self> {
     let mut async_resource_name = ptr::null_mut();
     let s = "napi_resolve_promise_from_future";
     check_status!(unsafe {
@@ -31,7 +36,7 @@ impl<T, V: NapiRaw, F: FnOnce(&mut Env, T) -> Result<V>> FuturePromise<T, V, F> 
     })?;
 
     Ok(FuturePromise {
-      deferred: raw_deferred,
+      deferred: dererred,
       resolver,
       env,
       tsfn: ptr::null_mut(),
@@ -56,8 +61,8 @@ impl<T, V: NapiRaw, F: FnOnce(&mut Env, T) -> Result<V>> FuturePromise<T, V, F> 
         1,
         ptr::null_mut(),
         None,
-        self_ref as *mut FuturePromise<T, V, F> as *mut c_void,
-        Some(call_js_cb::<T, V, F>),
+        self_ref as *mut FuturePromise<Data, Resolver> as *mut c_void,
+        Some(call_js_cb::<Data, Resolver>),
         &mut tsfn_value,
       )
     })?;
@@ -70,15 +75,15 @@ pub(crate) struct TSFNValue(sys::napi_threadsafe_function);
 
 unsafe impl Send for TSFNValue {}
 
-pub(crate) async fn resolve_from_future<T: Send, F: Future<Output = Result<T>>>(
+pub(crate) async fn resolve_from_future<Data: Send, Fut: Future<Output = Result<Data>>>(
   tsfn_value: TSFNValue,
-  fut: F,
+  fut: Fut,
 ) {
   let val = fut.await;
   check_status!(unsafe {
     sys::napi_call_threadsafe_function(
       tsfn_value.0,
-      Box::into_raw(Box::from(val)) as *mut T as *mut c_void,
+      Box::into_raw(Box::from(val)) as *mut Data as *mut c_void,
       sys::napi_threadsafe_function_call_mode::napi_tsfn_nonblocking,
     )
   })
@@ -92,26 +97,27 @@ pub(crate) async fn resolve_from_future<T: Send, F: Future<Output = Result<T>>>(
   .expect("Failed to release thread safe function");
 }
 
-unsafe extern "C" fn call_js_cb<T, V: NapiRaw, F: FnOnce(&mut Env, T) -> Result<V>>(
-  raw_env: sys::napi_env,
+unsafe extern "C" fn call_js_cb<
+  Data,
+  Resolver: FnOnce(sys::napi_env, Data) -> Result<sys::napi_value>,
+>(
+  env: sys::napi_env,
   _js_callback: sys::napi_value,
   context: *mut c_void,
   data: *mut c_void,
 ) {
-  let mut env = Env::from_raw(raw_env);
-  let future_promise = Box::from_raw(context as *mut FuturePromise<T, V, F>);
-  let value = Box::from_raw(data as *mut Result<T>);
+  let future_promise = Box::from_raw(context as *mut FuturePromise<Data, Resolver>);
+  let value = Box::from_raw(data as *mut Result<Data>);
   let resolver = future_promise.resolver;
   let deferred = future_promise.deferred;
-  let js_value_to_resolve = value.and_then(move |v| (resolver)(&mut env, v));
+  let js_value_to_resolve = value.and_then(move |v| (resolver)(env, v));
   match js_value_to_resolve {
     Ok(v) => {
-      let status = sys::napi_resolve_deferred(raw_env, deferred, v.raw());
+      let status = sys::napi_resolve_deferred(env, deferred, v);
       debug_assert!(status == sys::Status::napi_ok, "Resolve promise failed");
     }
     Err(e) => {
-      let status =
-        sys::napi_reject_deferred(raw_env, deferred, JsError::from(e).into_value(raw_env));
+      let status = sys::napi_reject_deferred(env, deferred, JsError::from(e).into_value(env));
       debug_assert!(status == sys::Status::napi_ok, "Reject promise failed");
     }
   };
