@@ -4,6 +4,7 @@ extern crate napi_derive;
 extern crate serde_derive;
 
 mod array;
+mod r#async;
 mod callback;
 mod class;
 mod r#enum;

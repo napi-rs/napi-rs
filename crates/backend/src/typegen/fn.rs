@@ -87,8 +87,8 @@ impl NapiFn {
     match self.kind {
       FnKind::Constructor | FnKind::Setter => "".to_owned(),
       _ => {
-        let ret = if let Some((ref ret, is_result)) = self.ret {
-          let ts_type = ty_to_ts_type(ret, is_result);
+        let ret = if let Some(ret) = &self.ret {
+          let ts_type = ty_to_ts_type(ret, true);
           if ts_type == "undefined" {
             "void".to_owned()
           } else {

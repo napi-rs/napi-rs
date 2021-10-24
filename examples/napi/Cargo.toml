@@ -13,10 +13,12 @@ napi3 = ["napi/napi3"]
 
 [dependencies]
 napi-derive = { path = "../../crates/macro", features = ["type-def"] }
-napi = { path = "../../crates/napi", features = ["latin1", "serde-json"] }
+napi = { path = "../../crates/napi", features = ["full"] }
 serde = "1"
 serde_derive = "1"
 serde_json = "1"
+tokio = {version = "1", features = ["default", "fs"]}
+futures = "0.3"
 
 [build-dependencies]
 napi-build = { path = "../../crates/build" }
