@@ -158,6 +158,7 @@ macro_rules! assert_type_of {
 pub mod bindgen_prelude {
   #[cfg(feature = "compat-mode")]
   pub use crate::bindgen_runtime::register_module_exports;
+  pub use crate::tokio_runtime::*;
   pub use crate::{
     assert_type_of, bindgen_runtime::*, check_status, check_status_or_throw, error, error::*, sys,
     type_of, JsError, Property, PropertyAttributes, Result, Status, Task, ValueType,

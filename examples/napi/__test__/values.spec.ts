@@ -1,3 +1,5 @@
+import { join } from 'path'
+
 import test from 'ava'
 
 import {
@@ -23,6 +25,7 @@ import {
   readPackageJson,
   getPackageJsonName,
   getBuffer,
+  readFileAsync,
 } from '../'
 
 test('number', (t) => {
@@ -116,4 +119,14 @@ test('serde-json', (t) => {
 
 test('buffer', (t) => {
   t.is(getBuffer().toString('utf-8'), 'Hello world')
+})
+
+test('async', async (t) => {
+  const bufPromise = readFileAsync(join(__dirname, '../package.json'))
+  await t.notThrowsAsync(bufPromise)
+  const buf = await bufPromise
+  const { name } = JSON.parse(buf.toString())
+  t.is(name, 'napi-examples')
+
+  await t.throwsAsync(() => readFileAsync('some_nonexist_path.file'))
 })

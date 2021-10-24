@@ -103,3 +103,9 @@ impl ValidateNapiValue for Buffer {
     vec![ValueType::Object]
   }
 }
+
+impl ToNapiValue for Vec<u8> {
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    Buffer::to_napi_value(env, val.into())
+  }
+}

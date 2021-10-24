@@ -17,27 +17,39 @@ impl TryToTokens for NapiFn {
     let receiver_ret_name = Ident::new("_ret", Span::call_site());
     let ret = self.gen_fn_return(&receiver_ret_name);
     let register = self.gen_fn_register();
-
     let attrs = &self.attrs;
-    let function_call_tokens = if args_len == 0 && self.fn_self.is_none() {
+
+    let native_call = if !self.is_async {
       quote! {
-        {
-          let #receiver_ret_name = #receiver();
-          #ret
-        }
+        let #receiver_ret_name = {
+          #receiver(#(#arg_names),*)
+        };
+        #ret
       }
     } else {
+      let call = if self.is_ret_result {
+        quote! { #receiver(#(#arg_names),*).await }
+      } else {
+        quote! { Ok(#receiver(#(#arg_names),*).await) }
+      };
       quote! {
-        CallbackInfo::<#args_len>::new(env, cb, None).and_then(|mut cb| {
-          #(#arg_conversions)*
-          let #receiver_ret_name = {
-            #receiver(#(#arg_names),*)
-          };
-
+        execute_tokio_future(env, async { #call }, |env, #receiver_ret_name| {
           #ret
         })
       }
     };
+
+    let function_call = if args_len == 0 && self.fn_self.is_none() {
+      quote! { #native_call }
+    } else {
+      quote! {
+        CallbackInfo::<#args_len>::new(env, cb, None).and_then(|mut cb| {
+          #(#arg_conversions)*
+          #native_call
+        })
+      }
+    };
+
     (quote! {
       #(#attrs)*
       #[doc(hidden)]
@@ -48,7 +60,7 @@ impl TryToTokens for NapiFn {
         cb: sys::napi_callback_info
       ) -> sys::napi_value {
         unsafe {
-          #function_call_tokens.unwrap_or_else(|e| {
+          #function_call.unwrap_or_else(|e| {
             JsError::from(e).throw_into(env);
             std::ptr::null_mut::<sys::napi_value__>()
           })
@@ -120,12 +132,12 @@ impl NapiFn {
         ..
       }) => {
         quote! {
-          let #arg_name = unsafe { <#elem as FromNapiMutRef>::from_napi_mut_ref(env, cb.get_arg(#index))? };
+          let #arg_name = <#elem as FromNapiMutRef>::from_napi_mut_ref(env, cb.get_arg(#index))?;
         }
       }
       syn::Type::Reference(syn::TypeReference { elem, .. }) => {
         quote! {
-          let #arg_name = unsafe { <#elem as FromNapiRef>::from_napi_ref(env, cb.get_arg(#index))? };
+          let #arg_name = <#elem as FromNapiRef>::from_napi_ref(env, cb.get_arg(#index))?;
         }
       }
       _ => {
@@ -138,7 +150,7 @@ impl NapiFn {
         };
 
         quote! {
-          let #arg_name = unsafe {
+          let #arg_name = {
             #type_check
             <#ty as FromNapiValue>::from_napi_value(env, cb.get_arg(#index))?
           };
@@ -212,18 +224,23 @@ impl NapiFn {
 
   fn gen_fn_return(&self, ret: &Ident) -> TokenStream {
     let js_name = &self.js_name;
-    let ret_ty = &self.ret;
 
-    if let Some((ref ty, is_result)) = ret_ty {
+    if let Some(ty) = &self.ret {
       if self.kind == FnKind::Constructor {
         quote! { cb.construct(#js_name, #ret) }
-      } else if *is_result {
-        quote! {
-          if #ret.is_ok() {
+      } else if self.is_ret_result {
+        if self.is_async {
+          quote! {
             <#ty as ToNapiValue>::to_napi_value(env, #ret)
-          } else {
-            JsError::from(#ret.unwrap_err()).throw_into(env);
-            Ok(std::ptr::null_mut())
+          }
+        } else {
+          quote! {
+            if #ret.is_ok() {
+              <Result<#ty> as ToNapiValue>::to_napi_value(env, #ret)
+            } else {
+              JsError::from(#ret.unwrap_err()).throw_into(env);
+              Ok(std::ptr::null_mut())
+            }
           }
         }
       } else {

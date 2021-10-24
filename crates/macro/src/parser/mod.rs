@@ -194,7 +194,7 @@ fn extract_path_ident(path: &syn::Path) -> BindgenResult<Ident> {
   }
 }
 
-fn extract_fn_types(
+fn extract_callback_trait_types(
   arguments: &syn::PathArguments,
 ) -> BindgenResult<(Vec<syn::Type>, Option<syn::Type>)> {
   match arguments {
@@ -209,39 +209,14 @@ fn extract_fn_types(
       let ret = match &arguments.output {
         syn::ReturnType::Type(_, ret_ty) => {
           let ret_ty = &**ret_ty;
-          match ret_ty {
-            syn::Type::Path(syn::TypePath {
-              qself: None,
-              ref path,
-            }) if path.segments.len() == 1 => {
-              let segment = path.segments.first().unwrap();
-
-              if segment.ident != "Result" {
-                bail_span!(ret_ty, "The return type of callback can only be `Result`");
-              } else {
-                match &segment.arguments {
-                  syn::PathArguments::AngleBracketed(syn::AngleBracketedGenericArguments {
-                    args,
-                    ..
-                  }) => {
-                    // fast test
-                    if args.to_token_stream().to_string() == "()" {
-                      None
-                    } else {
-                      let ok_arg = args.first().unwrap();
-                      match ok_arg {
-                        syn::GenericArgument::Type(ty) => Some(ty.clone()),
-                        _ => bail_span!(ok_arg, "unsupported generic type"),
-                      }
-                    }
-                  }
-                  _ => {
-                    bail_span!(segment, "Too many arguments")
-                  }
-                }
-              }
+          if let Some(ty_of_result) = extract_result_ty(ret_ty)? {
+            if ty_of_result.to_token_stream().to_string() == "()" {
+              None
+            } else {
+              Some(ty_of_result)
             }
-            _ => bail_span!(ret_ty, "The return type of callback can only be `Result`"),
+          } else {
+            bail_span!(ret_ty, "The return type of callback can only be `Result`");
           }
         }
         _ => {
@@ -254,6 +229,34 @@ fn extract_fn_types(
 
       Ok((args, ret))
     }
+  }
+}
+
+fn extract_result_ty(ty: &syn::Type) -> BindgenResult<Option<syn::Type>> {
+  match ty {
+    syn::Type::Path(syn::TypePath { qself: None, path }) if path.segments.len() == 1 => {
+      let segment = path.segments.first().unwrap();
+
+      if segment.ident != "Result" {
+        Ok(None)
+      } else {
+        match &segment.arguments {
+          syn::PathArguments::AngleBracketed(syn::AngleBracketedGenericArguments {
+            args, ..
+          }) => {
+            let ok_arg = args.first().unwrap();
+            match ok_arg {
+              syn::GenericArgument::Type(ty) => Ok(Some(ty.clone())),
+              _ => bail_span!(ok_arg, "unsupported generic type"),
+            }
+          }
+          _ => {
+            bail_span!(segment, "unsupported generic type")
+          }
+        }
+      }
+    }
+    _ => Ok(None),
   }
 }
 
@@ -480,7 +483,7 @@ fn napi_fn_from_decl(
       syn::FnArg::Typed(mut p) => {
         let ty_str = p.ty.to_token_stream().to_string();
         if let Some(path_arguments) = callback_traits.get(&ty_str) {
-          match extract_fn_types(path_arguments) {
+          match extract_callback_trait_types(path_arguments) {
             Ok((fn_args, fn_ret)) => Some(NapiFnArgKind::Callback(Box::new(CallbackArg {
               pat: p.pat,
               args: fn_args,
@@ -518,11 +521,15 @@ fn napi_fn_from_decl(
     })
     .collect::<Vec<_>>();
 
-  let ret = match output {
-    syn::ReturnType::Default => None,
+  let (ret, is_ret_result) = match output {
+    syn::ReturnType::Default => (None, false),
     syn::ReturnType::Type(_, ty) => {
-      let is_result = ty.to_token_stream().to_string().starts_with("Result <");
-      Some((replace_self(*ty, parent), is_result))
+      let result_ty = extract_result_ty(&ty)?;
+      if result_ty.is_some() {
+        (result_ty, true)
+      } else {
+        (Some(replace_self(*ty, parent)), false)
+      }
     }
   };
 
@@ -559,6 +566,7 @@ fn napi_fn_from_decl(
       js_name,
       args,
       ret,
+      is_ret_result,
       is_async: asyncness.is_some(),
       vis,
       kind: fn_kind(opts),

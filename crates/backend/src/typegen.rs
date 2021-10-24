@@ -54,6 +54,8 @@ static KNOWN_TYPES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     ("Value", "any"),
     ("Map", "Record<string, any>"),
     ("HashMap", "Record<{}, {}>"),
+    ("Buffer", "Buffer"),
+    // TODO: Vec<u8> should be Buffer, now is Array<number>
     ("Vec", "Array<{}>"),
     ("Option", "{} | null"),
     ("Result", "Error | {}"),
