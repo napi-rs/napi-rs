@@ -6604,10 +6604,10 @@ tweetnacl@^0.14.3, tweetnacl@~0.14.0:
   resolved "https://registry.npmjs.org/tweetnacl/-/tweetnacl-0.14.5.tgz#5ae68177f192d4456269d108afa93ff8743f4f64"
   integrity sha1-WuaBd/GS1EViadEIr6k/+HQ/T2Q=
 
-typanion@^3.3.1, typanion@^3.7.0:
-  version "3.7.0"
-  resolved "https://registry.npmjs.org/typanion/-/typanion-3.7.0.tgz#8e328065a7943e69c67ac56d90f37d8af02eec0c"
-  integrity sha512-RV7UTpF6wa25Bc7o6DyeuEFkrCIt8zipzrOtBJsDsWH7BP/fAHZWlHxrBe9l5qg+Gs2tqhoahg79nsUBGTTWRQ==
+typanion@^3.3.1, typanion@^3.7.1:
+  version "3.7.1"
+  resolved "https://registry.npmjs.org/typanion/-/typanion-3.7.1.tgz#5fceb57a2fa0c0a5beca25a7e90ac2a420863709"
+  integrity sha512-g2QDI/ZLpuEor9EnJ1b7s9S2QSJgNCPBw9ZCSkQdqXNjg5ZQs4mASgW/elVifSxISFwBeMaIAmMBP5luAOIKAw==
 
 type-check@^0.4.0, type-check@~0.4.0:
   version "0.4.0"
