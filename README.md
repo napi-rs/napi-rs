@@ -220,9 +220,10 @@ yarn test
 | Undefined/()            | undefined              | 1                                                                               | v8.0.0               |
 | Result<()>              | Error                  | 1                                                                               | v8.0.0               |
 | T: Fn(...) -> Result<T> | function               | 1                                                                               | v8.0.0               |
+| Async/Future            | Promise<T>             | 4 (require 'async' feature enabled)                                             | v10.6.0              |
+| Task (NOT YET)          | Promise<T>             | 1                                                                               | v8.5.0               |
 | (NOT YET)               | global                 | 1                                                                               | v8.0.0               |
 | (NOT YET)               | Symbol                 | 1                                                                               | v8.0.0               |
-| (NOT YET)               | Promise<T>             | 1                                                                               | b8.5.0               |
 | (NOT YET)               | ArrayBuffer/TypedArray | 1                                                                               | v8.0.0               |
 | (NOT YET)               | threadsafe function    | 4                                                                               | v10.6.0              |
 | (NOT YET)               | BigInt                 | 6                                                                               | v10.7.0              |
