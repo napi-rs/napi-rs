@@ -71,8 +71,7 @@ jobs:
       - name: Unit tests
         run: |
           yarn --cwd ./examples/napi-compat-mode --ignore-engines build-napi3
-          yarn --cwd ./examples/napi --ignore-engines build-napi3
-          yarn --ignore-engines test
+          yarn --ignore-engines test examples/napi-compat-mode/__test__/**/*.spec.ts
         env:
           RUST_BACKTRACE: 1
 
