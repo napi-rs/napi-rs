@@ -1646,15 +1646,16 @@ benchmark@^2.1.4:
     lodash "^4.17.4"
     platform "^1.3.3"
 
-benny@^3.7.0:
-  version "3.7.0"
-  resolved "https://registry.npmjs.org/benny/-/benny-3.7.0.tgz#cbcf45d06427e2e6f2b1db38b039603b3102d248"
-  integrity sha512-tfQ8s4qwjfyMvFqe7wSGGel2Pzgl5ytwztS72Xh/ynPKJeXFLQ0sSVL95X9wHpqpXqW13pTHsEMCggrNKgeAoA==
+benny@^3.7.1:
+  version "3.7.1"
+  resolved "https://registry.npmjs.org/benny/-/benny-3.7.1.tgz#964aaaf877e3ab658f79705422277b8471868e37"
+  integrity sha512-USzYxODdVfOS7JuQq/L0naxB788dWCiUgUTxvN+WLPt/JfcDURNNj8kN/N+uK6PDvuR67/9/55cVKGPleFQINA==
   dependencies:
     "@arrows/composition" "^1.0.0"
     "@arrows/dispatch" "^1.0.2"
     "@arrows/multimethod" "^1.1.6"
     benchmark "^2.1.4"
+    common-tags "^1.8.0"
     fs-extra "^10.0.0"
     json2csv "^5.0.6"
     kleur "^4.1.4"
@@ -2049,6 +2050,11 @@ common-path-prefix@^3.0.0:
   version "3.0.0"
   resolved "https://registry.npmjs.org/common-path-prefix/-/common-path-prefix-3.0.0.tgz#7d007a7e07c58c4b4d5f433131a19141b29f11e0"
   integrity sha512-QE33hToZseCH3jS0qN96O/bSh3kaw/h+Tq7ngyY9eWDUnTlTNUyqfqvCXioLe5Na5jFsL78ra/wuBU4iuEgd4w==
+
+common-tags@^1.8.0:
+  version "1.8.0"
+  resolved "https://registry.npmjs.org/common-tags/-/common-tags-1.8.0.tgz#8e3153e542d4a39e9b10554434afaaf98956a937"
+  integrity sha512-6P6g0uetGpW/sdyUy/iQQCbFF0kWVMSIVSyYz7Zgjcgh8mgw8PQzDNZeyZ5DQ2gM7LBoZPHmnjz8rUthkBG5tw==
 
 compare-func@^2.0.0:
   version "2.0.0"
