@@ -63,6 +63,7 @@ jobs:
           - host: ubuntu-latest
             target: 'aarch64-unknown-linux-gnu'
             setup: |
+              sudo apt-get update
               sudo apt-get install g++-aarch64-linux-gnu gcc-aarch64-linux-gnu -y
             build: |
               yarn build --target=aarch64-unknown-linux-gnu
@@ -70,6 +71,7 @@ jobs:
           - host: ubuntu-latest
             target: 'armv7-unknown-linux-gnueabihf'
             setup: |
+              sudo apt-get update
               sudo apt-get install gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf -y
             build: |
               yarn build --target=armv7-unknown-linux-gnueabihf
