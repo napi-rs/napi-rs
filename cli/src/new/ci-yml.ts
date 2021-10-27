@@ -81,6 +81,8 @@ export const createGithubActionsCIYml = (
     requiredSteps.push(TEST_LINUX_ARM_GNUEABIHF)
   }
 
+  fullTemplate.jobs.publish.needs = requiredSteps
+
   return dump(fullTemplate, {
     lineWidth: 1000,
   })

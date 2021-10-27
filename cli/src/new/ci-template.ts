@@ -24,7 +24,9 @@ jobs:
         settings:
           - host: macos-latest
             target: 'x86_64-apple-darwin'
-            build: yarn build
+            build: |
+              yarn build
+              strip -x *.node
           - host: windows-latest
             build: yarn build
             target: 'x86_64-pc-windows-msvc'
@@ -55,7 +57,9 @@ jobs:
             build: docker run --rm -v ~/.cargo/git:/root/.cargo/git -v ~/.cargo/registry:/root/.cargo/registry -v $(pwd):/build -w /build builder yarn build && strip ${app}.linux-x64-musl.node
           - host: macos-latest
             target: 'aarch64-apple-darwin'
-            build: yarn build --target=aarch64-apple-darwin
+            build: |
+              yarn build --target=aarch64-apple-darwin
+              strip -x *.node
           - host: ubuntu-latest
             target: 'aarch64-unknown-linux-gnu'
             setup: |
@@ -158,7 +162,7 @@ jobs:
           path: \${{ env.APP_NAME }}.*.node
 
   build-freebsd:
-    runs-on: macos-latest
+    runs-on: macos-10.15
     name: Build FreeBSD
     steps:
       - uses: actions/checkout@v2
@@ -175,7 +179,9 @@ jobs:
           usesh: true
           mem: 3000
           prepare: |
-            pkg install -y curl node yarn npm python2
+            pkg install -y curl node14 python2
+            curl -qL https://www.npmjs.com/install.sh | sh
+            npm install -g yarn
             curl https://sh.rustup.rs -sSf --output rustup.sh
             sh rustup.sh -y --profile minimal --default-toolchain stable
             export PATH="/usr/local/cargo/bin:$PATH"
@@ -356,20 +362,24 @@ jobs:
         run: ls -R .
         shell: bash
 
-      - name: Setup and run tests
-        uses: docker://multiarch/ubuntu-core:arm64-focal
+      - name: Cache NPM dependencies
+        uses: actions/cache@v2
         with:
-          args: >
-            sh -c "
-              apt-get update && \\
-              apt-get install -y ca-certificates gnupg2 curl apt-transport-https && \\
-              curl -sL https://deb.nodesource.com/setup_\${{ matrix.node }}.x | bash - && \\
-              apt-get install -y nodejs && \\
-              npm install -g yarn && \\
-              yarn install --ignore-scripts --registry https://registry.npmjs.org --network-timeout 300000 && \\
-              yarn test && \\
-              ls -la
-            "
+          path: node_modules
+          key: npm-cache-test-linux-aarch64-gnu-\${{ matrix.node }}-\${{ hashFiles('yarn.lock') }}
+
+      - name: Install dependencies
+        run: yarn install --ignore-scripts --ignore-platform --frozen-lockfile --registry https://registry.npmjs.org --network-timeout 300000
+
+      - name: Setup and run tests
+        uses: addnab/docker-run-action@v3
+        with:
+          image: ghcr.io/napi-rs/napi-rs/nodejs:aarch64-\${{ matrix.node }}
+          options: -v \${{ github.workspace }}:/build -w /build
+          run: |
+            yarn test
+            ls -la
+
   test-linux-aarch64-musl-binding:
     name: Test bindings on aarch64-unknown-linux-musl - node@\${{ matrix.node }}
     needs:
@@ -392,16 +402,24 @@ jobs:
         run: ls -R .
         shell: bash
 
-      - name: Setup and run tests
-        uses: docker://multiarch/alpine:aarch64-latest-stable
+      - name: Cache NPM dependencies
+        uses: actions/cache@v2
         with:
-          args: >
-            sh -c "
-              apk add nodejs npm && \\
-              npm install -g yarn && \\
-              yarn install --ignore-scripts --registry https://registry.npmjs.org --network-timeout 300000 && \\
-              npm test
-            "
+          path: node_modules
+          key: npm-cache-test-linux-aarch64-musl-\${{ matrix.node }}-\${{ hashFiles('yarn.lock') }}
+
+      - name: Install dependencies
+        run: yarn install --ignore-scripts --ignore-platform --frozen-lockfile --registry https://registry.npmjs.org --network-timeout 300000
+
+      - name: Setup and run tests
+        uses: addnab/docker-run-action@v3
+        with:
+          image: multiarch/alpine:aarch64-latest-stable
+          options: -v \${{ github.workspace }}:/build -w /build
+          run: |
+            apk add nodejs npm yarn
+            yarn test
+
   test-linux-arm-gnueabihf-binding:
     name: Test bindings on armv7-unknown-linux-gnueabihf - node@\${{ matrix.node }}
     needs:
@@ -427,20 +445,24 @@ jobs:
         run: ls -R .
         shell: bash
 
-      - name: Setup and run tests
-        uses: docker://multiarch/ubuntu-core:armhf-focal
+      - name: Cache NPM dependencies
+        uses: actions/cache@v2
         with:
-          args: >
-            sh -c "
-              apt-get update && \\
-              apt-get install -y ca-certificates gnupg2 curl apt-transport-https && \\
-              curl -sL https://deb.nodesource.com/setup_\${{ matrix.node }}.x | bash - && \\
-              apt-get install -y nodejs && \\
-              npm install -g yarn && \\
-              yarn install --ignore-scripts --registry https://registry.npmjs.org --network-timeout 300000 && \\
-              yarn test && \\
-              ls -la
-            "
+          path: node_modules
+          key: npm-cache-test-linux-arm-gnueabihf-\${{ matrix.node }}-\${{ hashFiles('yarn.lock') }}
+
+      - name: Install dependencies
+        run: yarn install --ignore-scripts --ignore-platform --frozen-lockfile --registry https://registry.npmjs.org --network-timeout 300000
+
+      - name: Setup and run tests
+        uses: addnab/docker-run-action@v3
+        with:
+          image: ghcr.io/napi-rs/napi-rs/nodejs:armhf-\${{ matrix.node }}
+          options: -v \${{ github.workspace }}:/build -w /build
+          run: |
+            yarn test
+            ls -la
+
   publish:
     name: Publish
     runs-on: ubuntu-latest
