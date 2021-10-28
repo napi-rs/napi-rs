@@ -39,16 +39,17 @@ impl TryToTokens for NapiFn {
       }
     };
 
-    let function_call = if args_len == 0 && self.fn_self.is_none() {
-      quote! { #native_call }
-    } else {
-      quote! {
-        CallbackInfo::<#args_len>::new(env, cb, None).and_then(|mut cb| {
-          #(#arg_conversions)*
-          #native_call
-        })
-      }
-    };
+    let function_call =
+      if args_len == 0 && self.fn_self.is_none() && self.kind != FnKind::Constructor {
+        quote! { #native_call }
+      } else {
+        quote! {
+          CallbackInfo::<#args_len>::new(env, cb, None).and_then(|mut cb| {
+            #(#arg_conversions)*
+            #native_call
+          })
+        }
+      };
 
     (quote! {
       #(#attrs)*
