@@ -35,7 +35,6 @@ jobs:
               export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=32;
               export CARGO_PROFILE_RELEASE_LTO=false
               yarn build --target i686-pc-windows-msvc
-              yarn test
             target: 'i686-pc-windows-msvc'
             setup: |
               choco install nodejs-lts --x86 -y --force
@@ -525,4 +524,4 @@ jobs:
         env:
           GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: \${{ secrets.NPM_TOKEN }}
-`
+`;
