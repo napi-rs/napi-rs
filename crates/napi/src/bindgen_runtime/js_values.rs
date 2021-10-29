@@ -1,4 +1,4 @@
-use crate::{check_status, sys, Error, Result, Status, ValueType};
+use crate::{check_status, sys, Error, JsUnknown, Result, Status, ValueType};
 use std::ptr;
 
 mod array;
@@ -32,11 +32,27 @@ pub trait ToNapiValue {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value>;
 }
 
+impl ToNapiValue for JsUnknown {
+  unsafe fn to_napi_value(_env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    Ok(val.0.value)
+  }
+}
+
 pub trait FromNapiValue: Sized {
   /// # Safety
   ///
   /// this function called to convert napi values to native rust values
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self>;
+}
+
+impl FromNapiValue for JsUnknown {
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
+    Ok(JsUnknown(crate::Value {
+      env,
+      value: napi_val,
+      value_type: crate::ValueType::Unknown,
+    }))
+  }
 }
 
 pub trait FromNapiRef {
