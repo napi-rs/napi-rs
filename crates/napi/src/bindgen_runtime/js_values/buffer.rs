@@ -5,14 +5,12 @@ use crate::{bindgen_prelude::*, check_status, sys, Result, ValueType};
 
 /// zero copy u8 vector shared between rust and napi
 pub struct Buffer {
-  raw: Option<sys::napi_value>,
   inner: mem::ManuallyDrop<Vec<u8>>,
 }
 
 impl From<Vec<u8>> for Buffer {
   fn from(data: Vec<u8>) -> Self {
     Buffer {
-      raw: None,
       inner: mem::ManuallyDrop::new(data),
     }
   }
@@ -67,7 +65,6 @@ impl FromNapiValue for Buffer {
     )?;
 
     Ok(Self {
-      raw: Some(napi_val),
       inner: mem::ManuallyDrop::new(Vec::from_raw_parts(buf as *mut _, len, len)),
     })
   }
@@ -75,37 +72,26 @@ impl FromNapiValue for Buffer {
 
 impl ToNapiValue for Buffer {
   unsafe fn to_napi_value(env: sys::napi_env, mut val: Self) -> Result<sys::napi_value> {
-    match val.raw {
-      Some(raw) => Ok(raw),
-      None => {
-        let len = val.inner.len();
-        let mut ret = ptr::null_mut();
-        check_status!(
-          sys::napi_create_external_buffer(
-            env,
-            len,
-            val.inner.as_mut_ptr() as *mut _,
-            Some(drop_buffer),
-            Box::into_raw(Box::new((len, val.inner.capacity()))) as *mut _,
-            &mut ret,
-          ),
-          "Failed to create napi buffer"
-        )?;
+    let len = val.inner.len();
+    let mut ret = ptr::null_mut();
+    check_status!(
+      sys::napi_create_external_buffer(
+        env,
+        len,
+        val.inner.as_mut_ptr() as *mut _,
+        Some(drop_buffer),
+        Box::into_raw(Box::new((len, val.inner.capacity()))) as *mut _,
+        &mut ret,
+      ),
+      "Failed to create napi buffer"
+    )?;
 
-        Ok(ret)
-      }
-    }
+    Ok(ret)
   }
 }
 
 impl ValidateNapiValue for Buffer {
   fn type_of() -> Vec<ValueType> {
     vec![ValueType::Object]
-  }
-}
-
-impl ToNapiValue for Vec<u8> {
-  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
-    Buffer::to_napi_value(env, val.into())
   }
 }
