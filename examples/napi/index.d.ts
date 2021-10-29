@@ -1,7 +1,7 @@
 export function getWords(): Array<string>
 export function getNums(): Array<number>
 export function sumNums(nums: Array<number>): number
-export function readFileAsync(path: string): Promise<Array<number>>
+export function readFileAsync(path: string): Promise<Buffer>
 export function getCwd(callback: (arg0: string) => void): void
 export function readFile(callback: (arg0: Error | undefined, arg1: string | null) => void): void
 export enum Kind { Dog = 0, Cat = 1, Duck = 2 }
