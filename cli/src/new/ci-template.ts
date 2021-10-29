@@ -380,6 +380,7 @@ jobs:
           image: ghcr.io/napi-rs/napi-rs/nodejs:aarch64-\${{ matrix.node }}
           options: -v \${{ github.workspace }}:/build -w /build
           run: |
+            set -e
             yarn test
             ls -la
 
@@ -420,6 +421,7 @@ jobs:
           image: multiarch/alpine:aarch64-latest-stable
           options: -v \${{ github.workspace }}:/build -w /build
           run: |
+            set -e
             apk add nodejs npm yarn
             yarn test
 
@@ -463,6 +465,7 @@ jobs:
           image: ghcr.io/napi-rs/napi-rs/nodejs:armhf-\${{ matrix.node }}
           options: -v \${{ github.workspace }}:/build -w /build
           run: |
+            set -e
             yarn test
             ls -la
 
