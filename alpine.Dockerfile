@@ -16,6 +16,7 @@ RUN apk add --update --no-cache wget musl-dev && \
   git \
   build-base \
   clang \
+  cmake \
   llvm \
   gn \
   tar \
