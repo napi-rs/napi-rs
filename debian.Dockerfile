@@ -5,8 +5,8 @@ ENV RUSTUP_HOME=/usr/local/rustup \
   PATH=/usr/local/cargo/bin:$PATH
 
 RUN wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add - && \
-  echo "deb http://apt.llvm.org/stretch/ llvm-toolchain-stretch main" >> /etc/apt/sources.list && \
-  echo "deb-src http://apt.llvm.org/stretch/ llvm-toolchain-stretch main" >> /etc/apt/sources.list && \
+  echo "deb http://apt.llvm.org/buster/ llvm-toolchain-buster main" >> /etc/apt/sources.list && \
+  echo "deb-src http://apt.llvm.org/buster/ llvm-toolchain-buster main" >> /etc/apt/sources.list && \
   apt-get update && \
   apt-get install -y --fix-missing \
   llvm \
