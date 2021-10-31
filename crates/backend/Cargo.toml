@@ -25,3 +25,6 @@ version = "1"
 [dependencies.once_cell]
 optional = true
 version = "1"
+
+[package.metadata.workspaces]
+independent = true

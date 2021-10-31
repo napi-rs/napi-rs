@@ -10,8 +10,10 @@ repository = "https://github.com/napi-rs/napi-rs"
 version = "2.0.0-alpha.0"
 
 [features]
+async = ["tokio_rt"]
 compat-mode = []
 default = ["napi3", "compat-mode"] # for most Node.js users
+full = ["latin1", "napi8", "async", "serde-json"]
 latin1 = ["encoding_rs"]
 napi1 = []
 napi2 = ["napi1"]
@@ -23,8 +25,6 @@ napi7 = ["napi6", "napi-sys/napi7"]
 napi8 = ["napi7", "napi-sys/napi8"]
 serde-json = ["serde", "serde_json"]
 tokio_rt = ["tokio", "once_cell", "napi4"]
-async = ["tokio_rt"]
-full = ["latin1", "napi8", "async", "serde-json"]
 
 [dependencies]
 ctor = "0.1"
@@ -56,3 +56,6 @@ version = "1"
 
 [package.metadata.docs.rs]
 all-features = true
+
+[package.metadata.workspaces]
+independent = true
