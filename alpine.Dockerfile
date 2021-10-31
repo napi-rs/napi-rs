@@ -21,7 +21,8 @@ RUN apk add --update --no-cache wget musl-dev && \
   gn \
   tar \
   ninja && \
-  apk upgrade
+  apk upgrade && \
+  npm install -g pnpm
 
 RUN rustup-init -y && \
   yarn global add pnpm && \
