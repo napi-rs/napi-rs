@@ -43,7 +43,8 @@ RUN apt-get update && \
   ln -sf /usr/bin/clang-13 /usr/bin/clang && \
   ln -sf /usr/bin/lld-13 /usr/bin/lld && \
   ln -sf /usr/bin/gcc-10 /usr/bin/gcc && \
-  ln -sf /usr/bin/g++-10 /usr/bin/g++
+  ln -sf /usr/bin/g++-10 /usr/bin/g++ && \
+  ln -sf /usr/bin/gcc-10 /usr/bin/cc
 
 RUN wget https://www.nasm.us/pub/nasm/releasebuilds/${NASM_VERSION}/nasm-${NASM_VERSION}.tar.xz && \
   tar -xf nasm-${NASM_VERSION}.tar.xz && \
@@ -54,11 +55,3 @@ RUN wget https://www.nasm.us/pub/nasm/releasebuilds/${NASM_VERSION}/nasm-${NASM_
   cd / && \
   rm -rf nasm-${NASM_VERSION} && \
   rm nasm-${NASM_VERSION}.tar.xz
-
-RUN git clone --branch release https://github.com/Kitware/CMake.git --depth 1 && \
-  cd CMake && \
-  CXX=g++ ./bootstrap && \
-  make -j 8 && \
-  make install && \
-  cd .. && \
-  rm -rf CMake
