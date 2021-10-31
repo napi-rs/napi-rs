@@ -2,19 +2,20 @@
 authors = ["LongYinan <lynweklm@gmail.com>"]
 edition = "2018"
 name = "napi-examples"
+publish = false
 version = "0.1.0"
 
 [lib]
 crate-type = ["cdylib"]
 
 [dependencies]
-napi-derive = { path = "../../crates/macro", features = ["type-def"] }
-napi = { path = "../../crates/napi", features = ["full"] }
+futures = "0.3"
+napi = {path = "../../crates/napi", features = ["full"]}
+napi-derive = {path = "../../crates/macro", features = ["type-def"]}
 serde = "1"
 serde_derive = "1"
 serde_json = "1"
 tokio = {version = "1", features = ["default", "fs"]}
-futures = "0.3"
 
 [build-dependencies]
-napi-build = { path = "../../crates/build" }
+napi-build = {path = "../../crates/build"}
