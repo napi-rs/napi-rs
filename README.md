@@ -10,6 +10,8 @@
 
 A minimal library for building compiled `Node.js` add-ons in `Rust`.
 
+_Main branch is now under napi@next developing. Checkout [v1 docs](https://napi.rs) for napi@1.x._
+
 <p>
   <a href="https://docs.rs/crate/napi"><img src="https://docs.rs/napi/badge.svg"></img></a>
   <a href="https://crates.io/crates/napi"><img src="https://img.shields.io/crates/v/napi.svg"></img></a>
@@ -84,7 +86,7 @@ One nice feature is that this crate allows you to build add-ons purely with the 
 #[macro_use]
 extern crate napi;
 
-// import the preludes
+/// import the preludes
 use napi::bindgen_prelude::*;
 
 /// module registerion is done by the runtime, no need to explicitly do it now.
@@ -92,7 +94,7 @@ use napi::bindgen_prelude::*;
 fn fibonacci(n: u32) -> u32 {
   match n {
     1 | 2 => 1,
-    _ => fibonacci_native(n - 1) + fibonacci_native(n - 2),
+    _ => fibonacci(n - 1) + fibonacci(n - 2),
   }
 }
 
@@ -108,9 +110,25 @@ fn get_cwd<T: Fn(String) -> Result<()>>(callback: T) {
 fn test_callback<T>(callback: T)
 where T: Fn(String) -> Result<()>
 {}
+
+/// async fn, require `async` feature enabled.
+/// [dependencies]
+/// napi = {version="2", features=["async"]}
+#[napi]
+async fn read_file_async(path: String) -> Result<Buffer> {
+  tokio::fs::read(path)
+    .map(|r| match r {
+      Ok(content) => Ok(content.into()),
+      Err(e) => Err(Error::new(
+        Status::GenericFailure,
+        format!("failed to read file, {}", e),
+      )),
+    })
+    .await
+}
 ```
 
-Checkout more examples in [examples](./examples) folder
+more examples at [examples](./examples/napi)
 
 ## Building
 
@@ -203,27 +221,29 @@ yarn test
 
 ## Features table
 
-| Rust Type               | Node Type              | [NAPI Version](https://nodejs.org/api/n-api.html#n_api_node_api_version_matrix) | Minimal Node version |
-| ----------------------- | ---------------------- | ------------------------------------------------------------------------------- | -------------------- |
+| Rust Type               | Node Type              | [NAPI Version](https://nodejs.org/api/n-api.html#n_api_node_api_version_matrix) | Minimal Node version | Enable by `napi` feature |
+| ----------------------- | ---------------------- | ------------------------------------------------------------------------------- | -------------------- | ------------------------ |
 | u32                     | Number                 | 1                                                                               | v8.0.0               |
 | i32/i64                 | Number                 | 1                                                                               | v8.0.0               |
 | f64                     | Number                 | 1                                                                               | v8.0.0               |
 | bool                    | Boolean                | 1                                                                               | v8.0.0               |
 | String/&'a str          | String                 | 1                                                                               | v8.0.0               |
-| Latin1String            | String                 | 1                                                                               | v8.0.0               |
+| Latin1String            | String                 | 1                                                                               | v8.0.0               | latin1                   |
 | UTF16String             | String                 | 1                                                                               | v8.0.0               |
 | Object                  | Object                 | 1                                                                               | v8.0.0               |
+| serde_json::Map         | Object                 | 1                                                                               | v8.0.0               | serde-json               |
+| serde_json::Value       | any                    | 1                                                                               | v8.0.0               | serde-json               |
 | Array                   | Array<any>             | 1                                                                               | v8.0.0               |
 | Vec<T>                  | Array<T>               | 1                                                                               | v8.0.0               |
 | Buffer                  | Buffer                 | 1                                                                               | v8.0.0               |
 | Null                    | null                   | 1                                                                               | v8.0.0               |
 | Undefined/()            | undefined              | 1                                                                               | v8.0.0               |
 | Result<()>              | Error                  | 1                                                                               | v8.0.0               |
-| T: Fn(...) -> Result<T> | function               | 1                                                                               | v8.0.0               |
-| Async/Future            | Promise<T>             | 4 (require 'async' feature enabled)                                             | v10.6.0              |
+| T: Fn(...) -> Result<T> | Function               | 1                                                                               | v8.0.0               |
+| Async/Future            | Promise<T>             | 4                                                                               | v10.6.0              | async                    |
 | Task (NOT YET)          | Promise<T>             | 1                                                                               | v8.5.0               |
 | (NOT YET)               | global                 | 1                                                                               | v8.0.0               |
 | (NOT YET)               | Symbol                 | 1                                                                               | v8.0.0               |
 | (NOT YET)               | ArrayBuffer/TypedArray | 1                                                                               | v8.0.0               |
-| (NOT YET)               | threadsafe function    | 4                                                                               | v10.6.0              |
-| (NOT YET)               | BigInt                 | 6                                                                               | v10.7.0              |
+| (NOT YET)               | threadsafe function    | 4                                                                               | v10.6.0              | napi4                    |
+| (NOT YET)               | BigInt                 | 6                                                                               | v10.7.0              | napi6                    |
