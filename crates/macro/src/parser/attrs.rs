@@ -244,7 +244,7 @@ pub fn check_recorded_struct_for_impl(ident: &Ident, opts: &BindgenAttrs) -> Bin
 
     let mut map = state.parsed.borrow_mut();
     if let Some(parsed) = map.get_mut(&struct_name) {
-      if opts.constructor().is_some() {
+      if opts.constructor().is_some() && !cfg!(debug_assertions) {
         if parsed.ctor_defined {
           bail_span!(
             ident,
