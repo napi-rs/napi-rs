@@ -83,8 +83,11 @@ impl NapiStruct {
       quote! {}
     };
 
-    let getters_setters = self.gen_default_getters_setters();
+    let mut getters_setters = self.gen_default_getters_setters();
+    getters_setters.sort_by(|a, b| a.0.cmp(&b.0));
     let register = self.gen_register();
+
+    let getters_setters_token = getters_setters.into_iter().map(|(_, token)| token);
 
     quote! {
       #[allow(clippy::all)]
@@ -94,7 +97,7 @@ impl NapiStruct {
         use super::*;
 
         #ctor
-        #(#getters_setters)*
+        #(#getters_setters_token)*
         #register
       }
     }
@@ -281,7 +284,7 @@ impl NapiStruct {
     }
   }
 
-  fn gen_default_getters_setters(&self) -> Vec<TokenStream> {
+  fn gen_default_getters_setters(&self) -> Vec<(String, TokenStream)> {
     let mut getters_setters = vec![];
     let struct_name = &self.name;
 
@@ -297,48 +300,54 @@ impl NapiStruct {
       let setter_name = Ident::new(&format!("set_{}", field_name), Span::call_site());
 
       if field.getter {
-        getters_setters.push(quote! {
-          extern "C" fn #getter_name(
-            env: sys::napi_env,
-            cb: sys::napi_callback_info
-          ) -> sys::napi_value {
-            CallbackInfo::<0>::new(env, cb, Some(0))
-              .and_then(|mut cb| unsafe { cb.unwrap_borrow::<#struct_name>() })
-              .and_then(|obj| {
-                let val = obj.#field_ident.to_owned();
-                unsafe { <#ty as ToNapiValue>::to_napi_value(env, val) }
-              })
-              .unwrap_or_else(|e| {
-                unsafe { JsError::from(e).throw_into(env) };
-                std::ptr::null_mut::<sys::napi_value__>()
-              })
-          }
-        });
+        getters_setters.push((
+          field.js_name.clone(),
+          quote! {
+            extern "C" fn #getter_name(
+              env: sys::napi_env,
+              cb: sys::napi_callback_info
+            ) -> sys::napi_value {
+              CallbackInfo::<0>::new(env, cb, Some(0))
+                .and_then(|mut cb| unsafe { cb.unwrap_borrow::<#struct_name>() })
+                .and_then(|obj| {
+                  let val = obj.#field_ident.to_owned();
+                  unsafe { <#ty as ToNapiValue>::to_napi_value(env, val) }
+                })
+                .unwrap_or_else(|e| {
+                  unsafe { JsError::from(e).throw_into(env) };
+                  std::ptr::null_mut::<sys::napi_value__>()
+                })
+            }
+          },
+        ));
       }
 
       if field.setter {
-        getters_setters.push(quote! {
-          extern "C" fn #setter_name(
-            env: sys::napi_env,
-            cb: sys::napi_callback_info
-          ) -> sys::napi_value {
-            CallbackInfo::<1>::new(env, cb, Some(1))
-              .and_then(|mut cb_info| unsafe {
-                cb_info.unwrap_borrow_mut::<#struct_name>()
-                  .and_then(|obj| {
-                    <#ty as FromNapiValue>::from_napi_value(env, cb_info.get_arg(0))
-                      .and_then(move |val| {
-                        obj.#field_ident = val;
-                        <() as ToNapiValue>::to_napi_value(env, ())
-                      })
-                  })
-              })
-              .unwrap_or_else(|e| {
-                unsafe { JsError::from(e).throw_into(env) };
-                std::ptr::null_mut::<sys::napi_value__>()
-              })
-          }
-        });
+        getters_setters.push((
+          field.js_name.clone(),
+          quote! {
+            extern "C" fn #setter_name(
+              env: sys::napi_env,
+              cb: sys::napi_callback_info
+            ) -> sys::napi_value {
+              CallbackInfo::<1>::new(env, cb, Some(1))
+                .and_then(|mut cb_info| unsafe {
+                  cb_info.unwrap_borrow_mut::<#struct_name>()
+                    .and_then(|obj| {
+                      <#ty as FromNapiValue>::from_napi_value(env, cb_info.get_arg(0))
+                        .and_then(move |val| {
+                          obj.#field_ident = val;
+                          <() as ToNapiValue>::to_napi_value(env, ())
+                        })
+                    })
+                })
+                .unwrap_or_else(|e| {
+                  unsafe { JsError::from(e).throw_into(env) };
+                  std::ptr::null_mut::<sys::napi_value__>()
+                })
+            }
+          },
+        ));
       }
     }
 
@@ -445,7 +454,9 @@ impl NapiImpl {
       appendix.to_tokens(prop);
     }
 
-    let props: Vec<_> = props.values().collect();
+    let mut props: Vec<_> = props.into_iter().collect();
+    props.sort_by_key(|(_, prop)| prop.to_string());
+    let props = props.into_iter().map(|(_, prop)| prop);
 
     Ok(quote! {
       #[allow(non_snake_case)]
