@@ -4,6 +4,7 @@ use std::ptr;
 mod array;
 mod boolean;
 mod buffer;
+mod either;
 mod map;
 mod nil;
 mod number;
@@ -14,6 +15,7 @@ mod string;
 
 pub use array::*;
 pub use buffer::*;
+pub use either::*;
 pub use nil::*;
 pub use object::*;
 pub use string::*;
@@ -23,6 +25,8 @@ pub use string::latin1_string::*;
 
 pub trait TypeName {
   fn type_name() -> &'static str;
+
+  fn value_type() -> ValueType;
 }
 
 pub trait ToNapiValue {
@@ -114,9 +118,13 @@ pub trait ValidateNapiValue: FromNapiValue + TypeName {
   }
 }
 
-impl<T> TypeName for Option<T> {
+impl<T: TypeName> TypeName for Option<T> {
   fn type_name() -> &'static str {
     "Option"
+  }
+
+  fn value_type() -> ValueType {
+    T::value_type()
   }
 }
 

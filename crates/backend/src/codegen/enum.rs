@@ -38,6 +38,10 @@ impl NapiEnum {
         fn type_name() -> &'static str {
           #name_str
         }
+
+        fn value_type() -> napi::ValueType {
+          napi::ValueType::Object
+        }
       }
 
       impl ValidateNapiValue for #name {

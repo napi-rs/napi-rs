@@ -74,6 +74,10 @@ impl TypeName for Array {
   fn type_name() -> &'static str {
     "Array"
   }
+
+  fn value_type() -> ValueType {
+    ValueType::Object
+  }
 }
 
 impl ToNapiValue for Array {
@@ -121,6 +125,10 @@ impl ValidateNapiValue for Array {
 impl<T> TypeName for Vec<T> {
   fn type_name() -> &'static str {
     "Array<T>"
+  }
+
+  fn value_type() -> ValueType {
+    ValueType::Object
   }
 }
 

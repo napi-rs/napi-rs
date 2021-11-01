@@ -52,6 +52,10 @@ impl TypeName for Buffer {
   fn type_name() -> &'static str {
     "Vec<u8>"
   }
+
+  fn value_type() -> ValueType {
+    ValueType::Object
+  }
 }
 
 impl FromNapiValue for Buffer {

@@ -4,6 +4,10 @@ impl TypeName for bool {
   fn type_name() -> &'static str {
     "bool"
   }
+
+  fn value_type() -> ValueType {
+    ValueType::Boolean
+  }
 }
 
 impl ValidateNapiValue for bool {

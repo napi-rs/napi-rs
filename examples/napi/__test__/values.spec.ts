@@ -26,6 +26,10 @@ import {
   getPackageJsonName,
   getBuffer,
   readFileAsync,
+  eitherStringOrNumber,
+  returnEither,
+  either3,
+  either4,
 } from '../'
 
 test('number', (t) => {
@@ -129,4 +133,30 @@ test('async', async (t) => {
   t.is(name, 'napi-examples')
 
   await t.throwsAsync(() => readFileAsync('some_nonexist_path.file'))
+})
+
+test('either', (t) => {
+  t.is(eitherStringOrNumber(2), 2)
+  t.is(eitherStringOrNumber('hello'), 'hello'.length)
+})
+
+test('return either', (t) => {
+  t.is(returnEither(2), 2)
+  t.is(returnEither(42), '42')
+})
+
+test('either3', (t) => {
+  t.is(either3(2), 2)
+  t.is(either3('hello'), 'hello'.length)
+  t.is(either3(true), 1)
+  t.is(either3(false), 0)
+})
+
+test('either4', (t) => {
+  t.is(either4(2), 2)
+  t.is(either4('hello'), 'hello'.length)
+  t.is(either4(true), 1)
+  t.is(either4(false), 0)
+  t.is(either4({ v: 1 }), 1)
+  t.is(either4({ v: 'world' }), 'world'.length)
 })

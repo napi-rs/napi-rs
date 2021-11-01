@@ -9,6 +9,10 @@ impl TypeName for Null {
   fn type_name() -> &'static str {
     "null"
   }
+
+  fn value_type() -> ValueType {
+    ValueType::Null
+  }
 }
 
 impl ValidateNapiValue for Null {
@@ -45,6 +49,10 @@ impl ToNapiValue for Null {
 impl TypeName for Undefined {
   fn type_name() -> &'static str {
     "undefined"
+  }
+
+  fn value_type() -> ValueType {
+    ValueType::Undefined
   }
 }
 

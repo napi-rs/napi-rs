@@ -8,6 +8,10 @@ macro_rules! impl_number_conversions {
         fn type_name() -> &'static str {
           $name
         }
+
+        fn value_type() -> crate::ValueType {
+          crate::ValueType::Number
+        }
       }
 
       impl $crate::bindgen_prelude::ValidateNapiValue for $t {

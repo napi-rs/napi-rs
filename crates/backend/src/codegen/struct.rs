@@ -16,6 +16,10 @@ fn gen_napi_value_map_impl(name: &Ident, to_napi_val_impl: TokenStream) -> Token
       fn type_name() -> &'static str {
         #name_str
       }
+
+      fn value_type() -> napi::ValueType {
+        napi::ValueType::Function
+      }
     }
 
     #to_napi_val_impl
@@ -254,6 +258,10 @@ impl NapiStruct {
       impl TypeName for #name {
         fn type_name() -> &'static str {
           #name_str
+        }
+
+        fn value_type() -> napi::ValueType {
+          napi::ValueType::Object
         }
       }
 
