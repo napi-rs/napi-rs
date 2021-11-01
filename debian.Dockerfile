@@ -25,6 +25,7 @@ RUN apt-get update && \
   xz-utils \
   rcs \
   make \
+  cmake \
   git \
   gcc-aarch64-linux-gnu \
   g++-aarch64-linux-gnu \
@@ -39,7 +40,7 @@ RUN apt-get update && \
   rustup target add aarch64-unknown-linux-gnu && \
   rustup target add armv7-unknown-linux-gnueabihf && \
   npm install -g pnpm yarn && \
-  ln -sf /usr/bin/clang++13 /usr/bin/clang++ && \
+  ln -sf /usr/bin/clang++-13 /usr/bin/clang++ && \
   ln -sf /usr/bin/clang-13 /usr/bin/clang && \
   ln -sf /usr/bin/lld-13 /usr/bin/lld && \
   ln -sf /usr/bin/gcc-10 /usr/bin/gcc && \
