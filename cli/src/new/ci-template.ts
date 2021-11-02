@@ -12,6 +12,12 @@ on:
       - main
     tags-ignore:
       - '**'
+    paths-ignore:
+      - '**/*.md'
+      - 'LICENSE'
+      - '**/*.gitignore'
+      - '.editorconfig'
+      - 'docs/**'
   pull_request:
 
 jobs:
