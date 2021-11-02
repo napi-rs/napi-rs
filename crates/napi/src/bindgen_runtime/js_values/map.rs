@@ -7,6 +7,10 @@ impl<K, V> TypeName for HashMap<K, V> {
   fn type_name() -> &'static str {
     "HashMap"
   }
+
+  fn value_type() -> ValueType {
+    ValueType::Object
+  }
 }
 
 impl<K, V> ToNapiValue for HashMap<K, V>

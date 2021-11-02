@@ -81,6 +81,10 @@ impl TypeName for Object {
   fn type_name() -> &'static str {
     "Object"
   }
+
+  fn value_type() -> ValueType {
+    ValueType::Object
+  }
 }
 
 impl ToNapiValue for Object {

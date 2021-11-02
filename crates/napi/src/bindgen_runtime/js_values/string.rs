@@ -11,6 +11,10 @@ impl TypeName for String {
   fn type_name() -> &'static str {
     "String"
   }
+
+  fn value_type() -> ValueType {
+    ValueType::String
+  }
 }
 
 impl ToNapiValue for String {
@@ -61,6 +65,10 @@ impl TypeName for &str {
   fn type_name() -> &'static str {
     "String"
   }
+
+  fn value_type() -> ValueType {
+    ValueType::String
+  }
 }
 
 impl ToNapiValue for &str {
@@ -95,6 +103,10 @@ impl Deref for Utf16String {
 impl TypeName for Utf16String {
   fn type_name() -> &'static str {
     "String(utf16)"
+  }
+
+  fn value_type() -> ValueType {
+    ValueType::String
   }
 }
 
@@ -180,6 +192,10 @@ pub mod latin1_string {
   impl TypeName for Latin1String {
     fn type_name() -> &'static str {
       "String(latin1)"
+    }
+
+    fn value_type() -> ValueType {
+      ValueType::String
     }
   }
 

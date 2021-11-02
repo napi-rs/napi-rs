@@ -59,6 +59,10 @@ static KNOWN_TYPES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     ("Vec", "Array<{}>"),
     ("Option", "{} | null"),
     ("Result", "Error | {}"),
+    ("Either", "{} | {}"),
+    ("Either3", "{} | {} | {}"),
+    ("Either4", "{} | {} | {} | {}"),
+    ("Either5", "{} | {} | {} | {} | {}"),
   ]);
 
   map
