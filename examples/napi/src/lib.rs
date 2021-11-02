@@ -15,4 +15,5 @@ mod number;
 mod object;
 mod serde;
 mod string;
+mod task;
 mod typed_array;

@@ -76,6 +76,13 @@ impl TryToTokens for NapiStruct {
 
 impl NapiStruct {
   fn gen_helper_mod(&self) -> TokenStream {
+    if crate::typegen::r#struct::TASK_STRUCTS.with(|t| {
+      println!("{:?}", t);
+      t.borrow().get(&self.name.to_string()).is_some()
+    }) {
+      return quote! {};
+    }
+
     let mod_name = Ident::new(
       &format!("__napi_helper__{}", self.name.to_string()),
       Span::call_site(),

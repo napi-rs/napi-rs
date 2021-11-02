@@ -1,0 +1,159 @@
+use std::ffi::c_void;
+use std::ptr;
+use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
+
+use super::{FromNapiValue, ToNapiValue, TypeName};
+use crate::{async_work, check_status, Env, Error, JsError, JsObject, NapiValue, Status, Task};
+
+pub struct AsyncTask<T: Task> {
+  inner: T,
+  abort_controller: Option<AsyncTaskAbortController>,
+}
+
+impl<T: Task> TypeName for T {
+  fn type_name() -> &'static str {
+    "AsyncTask"
+  }
+
+  fn value_type() -> crate::ValueType {
+    crate::ValueType::Object
+  }
+}
+
+impl<T: Task> AsyncTask<T> {
+  pub fn new(task: T) -> Self {
+    Self {
+      inner: task,
+      abort_controller: None,
+    }
+  }
+
+  pub fn with_abort_controller(task: T, abort_controller: AsyncTaskAbortController) -> Self {
+    Self {
+      inner: task,
+      abort_controller: Some(abort_controller),
+    }
+  }
+}
+
+/// https://developer.mozilla.org/zh-CN/docs/Web/API/AbortController
+pub struct AsyncTaskAbortController {
+  raw_work: Rc<AtomicPtr<napi_sys::napi_async_work__>>,
+  raw_deferred: Rc<AtomicPtr<napi_sys::napi_deferred__>>,
+  abort: Rc<AtomicBool>,
+}
+
+impl FromNapiValue for AsyncTaskAbortController {
+  unsafe fn from_napi_value(
+    env: napi_sys::napi_env,
+    napi_val: napi_sys::napi_value,
+  ) -> crate::Result<Self> {
+    let raw_abort_controller = JsObject::from_raw_unchecked(env, napi_val);
+    let mut signal = raw_abort_controller.get_named_property::<JsObject>("signal")?;
+    let async_work_inner: Rc<AtomicPtr<napi_sys::napi_async_work__>> =
+      Rc::new(AtomicPtr::new(ptr::null_mut()));
+    let raw_promise: Rc<AtomicPtr<napi_sys::napi_deferred__>> =
+      Rc::new(AtomicPtr::new(ptr::null_mut()));
+    let abort_status = Rc::new(AtomicBool::new(false));
+    let abort_controller = AsyncTaskAbortController {
+      raw_work: async_work_inner.clone(),
+      raw_deferred: raw_promise.clone(),
+      abort: abort_status.clone(),
+    };
+    let js_env = Env::from_raw(env);
+    check_status!(napi_sys::napi_wrap(
+      env,
+      signal.0.value,
+      Box::into_raw(Box::new(abort_controller)) as *mut _,
+      Some(async_task_abort_controller_finalize),
+      ptr::null_mut(),
+      ptr::null_mut(),
+    ))?;
+    signal.set_named_property("onabort", js_env.create_function("onabort", on_abort)?)?;
+    Ok(AsyncTaskAbortController {
+      raw_work: async_work_inner,
+      raw_deferred: raw_promise,
+      abort: abort_status,
+    })
+  }
+}
+
+extern "C" fn on_abort(
+  env: napi_sys::napi_env,
+  callback_info: napi_sys::napi_callback_info,
+) -> napi_sys::napi_value {
+  let mut this = ptr::null_mut();
+  unsafe {
+    let get_cb_info_status = napi_sys::napi_get_cb_info(
+      env,
+      callback_info,
+      &mut 0,
+      ptr::null_mut(),
+      &mut this,
+      ptr::null_mut(),
+    );
+    debug_assert_eq!(
+      get_cb_info_status,
+      napi_sys::Status::napi_ok,
+      "{}",
+      "Get callback info in AbortController abort callback failed"
+    );
+    let mut async_task = ptr::null_mut();
+    let status = napi_sys::napi_unwrap(env, this, &mut async_task);
+    debug_assert_eq!(
+      status,
+      napi_sys::Status::napi_ok,
+      "{}",
+      "Unwrap async_task from AbortSignal failed"
+    );
+    let abort_controller = Box::leak(Box::from_raw(async_task as *mut AsyncTaskAbortController));
+    let raw_async_work = abort_controller.raw_work.load(Ordering::Relaxed);
+    let deferred = abort_controller.raw_deferred.load(Ordering::Relaxed);
+    // abort function must be called from JavaScript main thread, so Relaxed Ordering is ok.
+    abort_controller.abort.store(true, Ordering::Relaxed);
+    napi_sys::napi_cancel_async_work(env, raw_async_work);
+    // napi_sys::napi_delete_async_work(env, raw_async_work);
+    let abort_error = Error::new(Status::Cancelled, "AbortError".to_owned());
+    let reject_status =
+      napi_sys::napi_reject_deferred(env, deferred, JsError::from(abort_error).into_value(env));
+    debug_assert_eq!(
+      reject_status,
+      napi_sys::Status::napi_ok,
+      "{}",
+      "Reject AbortError failed"
+    );
+    let mut undefined = ptr::null_mut();
+    napi_sys::napi_get_undefined(env, &mut undefined);
+    undefined
+  }
+}
+
+impl<T: Task> ToNapiValue for AsyncTask<T> {
+  unsafe fn to_napi_value(
+    env: napi_sys::napi_env,
+    val: Self,
+  ) -> crate::Result<napi_sys::napi_value> {
+    if let Some(abort_controller) = val.abort_controller {
+      let async_promise = async_work::run(env, val.inner, Some(abort_controller.abort.clone()))?;
+      abort_controller
+        .raw_work
+        .store(async_promise.napi_async_work, Ordering::Relaxed);
+      abort_controller
+        .raw_deferred
+        .store(async_promise.deferred, Ordering::Relaxed);
+      Ok(async_promise.promise_object().0.value)
+    } else {
+      let async_promise = async_work::run(env, val.inner, None)?;
+      Ok(async_promise.promise_object().0.value)
+    }
+  }
+}
+
+unsafe extern "C" fn async_task_abort_controller_finalize(
+  _env: napi_sys::napi_env,
+  finalize_data: *mut c_void,
+  _finalize_hint: *mut c_void,
+) {
+  Box::from_raw(finalize_data as *mut AsyncTaskAbortController);
+}

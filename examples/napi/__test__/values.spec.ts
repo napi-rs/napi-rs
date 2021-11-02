@@ -30,6 +30,8 @@ import {
   returnEither,
   either3,
   either4,
+  withoutAbortController,
+  withAbortController,
 } from '../'
 
 test('number', (t) => {
@@ -159,4 +161,20 @@ test('either4', (t) => {
   t.is(either4(false), 0)
   t.is(either4({ v: 1 }), 1)
   t.is(either4({ v: 'world' }), 'world'.length)
+})
+
+test('async task without abort controller', async (t) => {
+  t.is(await withoutAbortController(1, 2), 3)
+})
+
+test('async task with abort controller', async (t) => {
+  const ctrl = new AbortController()
+  const promise = withAbortController(1, 2, ctrl)
+  try {
+    ctrl.abort()
+    await promise
+    t.fail('Should throw AbortError')
+  } catch (err: unknown) {
+    t.is((err as Error).message, 'AbortError')
+  }
 })

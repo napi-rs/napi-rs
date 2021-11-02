@@ -485,7 +485,7 @@ impl Env {
   #[cfg(feature = "napi5")]
   pub fn create_function_from_closure<R, F>(&self, name: &str, callback: F) -> Result<JsFunction>
   where
-    F: 'static + Send + Sync + Fn(crate::CallContext<'_>) -> Result<R>,
+    F: 'static + Fn(crate::CallContext<'_>) -> Result<R>,
     R: NapiRaw,
   {
     use crate::CallContext;
@@ -925,7 +925,7 @@ impl Env {
 
   /// Run [Task](./trait.Task.html) in libuv thread pool, return [AsyncWorkPromise](./struct.AsyncWorkPromise.html)
   pub fn spawn<T: 'static + Task>(&self, task: T) -> Result<AsyncWorkPromise> {
-    async_work::run(self, task)
+    async_work::run(self.0, task, None)
   }
 
   pub fn run_in_scope<T, F>(&self, executor: F) -> Result<T>
@@ -1253,7 +1253,7 @@ unsafe extern "C" fn drop_buffer(
   mem::drop(Vec::from_raw_parts(finalize_data as *mut u8, length, cap));
 }
 
-unsafe extern "C" fn raw_finalize<T>(
+pub(crate) unsafe extern "C" fn raw_finalize<T>(
   env: sys::napi_env,
   finalize_data: *mut c_void,
   finalize_hint: *mut c_void,

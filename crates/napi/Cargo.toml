@@ -28,7 +28,7 @@ tokio_rt = ["tokio", "once_cell", "napi4"]
 
 [dependencies]
 ctor = "0.1"
-napi-sys = {version = "1", path = "../sys"}
+napi-sys = {version = "1.1.2", path = "../sys"}
 
 [target.'cfg(windows)'.dependencies]
 winapi = {version = "0.3.9", features = ["winuser", "minwindef", "ntdef", "libloaderapi"]}

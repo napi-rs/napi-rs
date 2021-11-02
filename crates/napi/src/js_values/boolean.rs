@@ -1,11 +1,22 @@
 use std::convert::TryFrom;
 
 use super::Value;
-use crate::check_status;
+use crate::bindgen_runtime::TypeName;
+use crate::{check_status, ValueType};
 use crate::{sys, Error, Result};
 
 #[derive(Clone, Copy)]
 pub struct JsBoolean(pub(crate) Value);
+
+impl TypeName for JsBoolean {
+  fn type_name() -> &'static str {
+    "bool"
+  }
+
+  fn value_type() -> crate::ValueType {
+    ValueType::Boolean
+  }
+}
 
 impl JsBoolean {
   pub fn get_value(&self) -> Result<bool> {

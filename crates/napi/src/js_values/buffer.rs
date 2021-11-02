@@ -5,10 +5,21 @@ use std::ptr;
 use super::Value;
 #[cfg(feature = "serde-json")]
 use super::ValueType;
+use crate::bindgen_runtime::TypeName;
 use crate::check_status;
 use crate::{sys, JsUnknown, NapiValue, Ref, Result};
 
 pub struct JsBuffer(pub(crate) Value);
+
+impl TypeName for JsBuffer {
+  fn type_name() -> &'static str {
+    "Buffer"
+  }
+
+  fn value_type() -> ValueType {
+    ValueType::Object
+  }
+}
 
 pub struct JsBufferValue {
   pub(crate) value: JsBuffer,

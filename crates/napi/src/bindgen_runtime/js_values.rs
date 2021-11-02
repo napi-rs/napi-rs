@@ -1,4 +1,4 @@
-use crate::{check_status, sys, Error, JsUnknown, Result, Status, ValueType};
+use crate::{check_status, sys, Error, JsUnknown, NapiRaw, NapiValue, Result, Status, ValueType};
 use std::ptr;
 
 mod array;
@@ -12,6 +12,7 @@ mod object;
 #[cfg(feature = "serde-json")]
 mod serde;
 mod string;
+mod task;
 
 pub use array::*;
 pub use buffer::*;
@@ -19,6 +20,7 @@ pub use either::*;
 pub use nil::*;
 pub use object::*;
 pub use string::*;
+pub use task::*;
 
 #[cfg(feature = "latin1")]
 pub use string::latin1_string::*;
@@ -36,9 +38,25 @@ pub trait ToNapiValue {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value>;
 }
 
-impl ToNapiValue for JsUnknown {
+impl TypeName for JsUnknown {
+  fn type_name() -> &'static str {
+    "unknown"
+  }
+
+  fn value_type() -> ValueType {
+    ValueType::Unknown
+  }
+}
+
+impl<T: NapiRaw> ToNapiValue for T {
   unsafe fn to_napi_value(_env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
-    Ok(val.0.value)
+    Ok(NapiRaw::raw(&val))
+  }
+}
+
+impl<T: NapiValue> FromNapiValue for T {
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
+    Ok(T::from_raw_unchecked(env, napi_val))
   }
 }
 
@@ -47,16 +65,6 @@ pub trait FromNapiValue: Sized {
   ///
   /// this function called to convert napi values to native rust values
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self>;
-}
-
-impl FromNapiValue for JsUnknown {
-  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
-    Ok(JsUnknown(crate::Value {
-      env,
-      value: napi_val,
-      value_type: crate::ValueType::Unknown,
-    }))
-  }
 }
 
 pub trait FromNapiRef {

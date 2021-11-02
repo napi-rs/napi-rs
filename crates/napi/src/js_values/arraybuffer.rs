@@ -3,9 +3,20 @@ use std::os::raw::c_void;
 use std::ptr;
 use std::slice;
 
+use crate::bindgen_runtime::TypeName;
 use crate::{check_status, sys, JsUnknown, NapiValue, Ref, Result, Value, ValueType};
 
 pub struct JsArrayBuffer(pub(crate) Value);
+
+impl TypeName for JsArrayBuffer {
+  fn type_name() -> &'static str {
+    "ArrayBuffer"
+  }
+
+  fn value_type() -> ValueType {
+    ValueType::Object
+  }
+}
 
 pub struct JsArrayBufferValue {
   pub(crate) value: JsArrayBuffer,
@@ -14,6 +25,16 @@ pub struct JsArrayBufferValue {
 }
 
 pub struct JsTypedArray(pub(crate) Value);
+
+impl TypeName for JsTypedArray {
+  fn type_name() -> &'static str {
+    "TypedArray"
+  }
+
+  fn value_type() -> ValueType {
+    ValueType::Object
+  }
+}
 
 pub struct JsTypedArrayValue {
   pub arraybuffer: JsArrayBuffer,
@@ -24,6 +45,16 @@ pub struct JsTypedArrayValue {
 }
 
 pub struct JsDataView(pub(crate) Value);
+
+impl TypeName for JsDataView {
+  fn type_name() -> &'static str {
+    "DataView"
+  }
+
+  fn value_type() -> ValueType {
+    ValueType::Object
+  }
+}
 
 pub struct JsDataViewValue {
   pub arraybuffer: JsArrayBuffer,

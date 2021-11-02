@@ -1,5 +1,12 @@
+use std::cell::RefCell;
+use std::collections::HashMap;
+
 use super::{ToTypeDef, TypeDef};
 use crate::{ty_to_ts_type, NapiImpl, NapiStruct, NapiStructKind};
+
+thread_local! {
+  pub(crate) static TASK_STRUCTS: RefCell<HashMap<String, String>> = Default::default();
+}
 
 impl ToTypeDef for NapiStruct {
   fn to_type_def(&self) -> TypeDef {
@@ -17,6 +24,12 @@ impl ToTypeDef for NapiStruct {
 
 impl ToTypeDef for NapiImpl {
   fn to_type_def(&self) -> TypeDef {
+    if let Some(output_type) = &self.task_output_type {
+      TASK_STRUCTS.with(|t| {
+        t.borrow_mut()
+          .insert(self.js_name.clone(), ty_to_ts_type(output_type, false));
+      });
+    }
     TypeDef {
       kind: "impl".to_owned(),
       name: self.js_name.to_owned(),
