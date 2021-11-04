@@ -34,7 +34,7 @@ impl<T> Ref<T> {
     Ok(self.count)
   }
 
-  pub fn unref(mut self, env: Env) -> Result<u32> {
+  pub fn unref(&mut self, env: Env) -> Result<u32> {
     check_status!(unsafe { sys::napi_reference_unref(env.0, self.raw_ref, &mut self.count) })?;
 
     if self.count == 0 {

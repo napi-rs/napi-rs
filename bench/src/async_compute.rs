@@ -11,9 +11,13 @@ impl Task for BufferLength {
     Ok(self.0.len() + 1)
   }
 
-  fn resolve(self, env: Env, output: Self::Output) -> Result<Self::JsValue> {
-    self.0.unref(env)?;
+  fn resolve(&mut self, env: Env, output: Self::Output) -> Result<Self::JsValue> {
     env.create_uint32(output as u32)
+  }
+
+  fn finally(&mut self, env: Env) -> Result<()> {
+    self.0.unref(env)?;
+    Ok(())
   }
 }
 
@@ -33,7 +37,7 @@ fn bench_threadsafe_function(ctx: CallContext) -> Result<JsUndefined> {
   let tsfn = ctx.env.create_threadsafe_function(
     &callback,
     0,
-    |ctx: ThreadSafeCallContext<(usize, Ref<JsBufferValue>)>| {
+    |mut ctx: ThreadSafeCallContext<(usize, Ref<JsBufferValue>)>| {
       ctx
         .env
         .create_uint32(ctx.value.0 as u32)

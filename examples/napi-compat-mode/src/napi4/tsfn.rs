@@ -154,15 +154,16 @@ pub fn test_tsfn_with_ref(ctx: CallContext) -> Result<JsUndefined> {
   let callback = ctx.get::<JsFunction>(0)?;
   let options = ctx.get::<JsObject>(1)?;
   let options_ref = ctx.env.create_reference(options)?;
-  let tsfn =
-    ctx
-      .env
-      .create_threadsafe_function(&callback, 0, |ctx: ThreadSafeCallContext<Ref<()>>| {
-        ctx
-          .env
-          .get_reference_value_unchecked::<JsObject>(&ctx.value)
-          .and_then(|obj| ctx.value.unref(ctx.env).map(|_| vec![obj]))
-      })?;
+  let tsfn = ctx.env.create_threadsafe_function(
+    &callback,
+    0,
+    |mut ctx: ThreadSafeCallContext<Ref<()>>| {
+      ctx
+        .env
+        .get_reference_value_unchecked::<JsObject>(&ctx.value)
+        .and_then(|obj| ctx.value.unref(ctx.env).map(|_| vec![obj]))
+    },
+  )?;
 
   thread::spawn(move || {
     tsfn.call(Ok(options_ref), ThreadsafeFunctionCallMode::Blocking);

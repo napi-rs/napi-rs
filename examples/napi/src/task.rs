@@ -5,17 +5,17 @@ use napi::Task;
 
 struct DelaySum(u32, u32);
 
-#[napi]
+#[napi(task)]
 impl Task for DelaySum {
   type Output = u32;
   type JsValue = u32;
 
   fn compute(&mut self) -> Result<Self::Output> {
-    sleep(std::time::Duration::from_secs(1));
+    sleep(std::time::Duration::from_millis(100));
     Ok(self.0 + self.1)
   }
 
-  fn resolve(self, _env: napi::Env, output: Self::Output) -> Result<Self::JsValue> {
+  fn resolve(&mut self, _env: napi::Env, output: Self::Output) -> Result<Self::JsValue> {
     Ok(output)
   }
 }
@@ -26,6 +26,6 @@ fn without_abort_controller(a: u32, b: u32) -> AsyncTask<DelaySum> {
 }
 
 #[napi]
-fn with_abort_controller(a: u32, b: u32, ctrl: AsyncTaskAbortController) -> AsyncTask<DelaySum> {
-  AsyncTask::with_abort_controller(DelaySum(a, b), ctrl)
+fn with_abort_controller(a: u32, b: u32, signal: AbortSignal) -> AsyncTask<DelaySum> {
+  AsyncTask::with_signal(DelaySum(a, b), signal)
 }

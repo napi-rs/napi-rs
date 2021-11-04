@@ -2,12 +2,8 @@ use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::ptr;
 
-use super::Value;
-#[cfg(feature = "serde-json")]
-use super::ValueType;
-use crate::bindgen_runtime::TypeName;
-use crate::check_status;
-use crate::{sys, JsUnknown, NapiValue, Ref, Result};
+use super::{Value, ValueType};
+use crate::{bindgen_runtime::TypeName, check_status, sys, JsUnknown, NapiValue, Ref, Result};
 
 pub struct JsBuffer(pub(crate) Value);
 
