@@ -50,6 +50,7 @@ macro_rules! attrgen {
       (skip, Skip(Span)),
       (strict, Strict(Span)),
       (object, Object(Span)),
+      (task, Task(Span)),
 
       // impl later
       // (inspectable, Inspectable(Span)),

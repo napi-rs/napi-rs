@@ -71,7 +71,7 @@ static KNOWN_TYPES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     ("null", "null"),
     ("symbol", "symbol"),
     ("external", "object"),
-    ("AsyncTaskAbortController", "AbortController"),
+    ("AbortSignal", "AbortSignal"),
     ("Function", "(...args: any[]) => any"),
   ]);
 

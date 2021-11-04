@@ -77,7 +77,11 @@ unsafe extern "C" fn napi_register_module_v1(
     for (rust_name, (js_name, props)) in to_register_classes.take().into_iter() {
       unsafe {
         let (ctor, props): (Vec<_>, Vec<_>) = props.into_iter().partition(|prop| prop.is_ctor);
-        // one or more?
+        // one or more or zero?
+        // zero is for `#[napi(task)]`
+        if ctor.is_empty() {
+          continue;
+        }
         let ctor = ctor[0].raw().method.unwrap();
         let raw_props: Vec<_> = props.iter().map(|prop| prop.raw()).collect();
 

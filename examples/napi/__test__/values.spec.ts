@@ -167,9 +167,11 @@ test('async task without abort controller', async (t) => {
   t.is(await withoutAbortController(1, 2), 3)
 })
 
-test('async task with abort controller', async (t) => {
+const MaybeTest = typeof AbortController !== 'undefined' ? test : test.skip
+
+MaybeTest('async task with abort controller', async (t) => {
   const ctrl = new AbortController()
-  const promise = withAbortController(1, 2, ctrl)
+  const promise = withAbortController(1, 2, ctrl.signal)
   try {
     ctrl.abort()
     await promise
@@ -177,4 +179,10 @@ test('async task with abort controller', async (t) => {
   } catch (err: unknown) {
     t.is((err as Error).message, 'AbortError')
   }
+})
+
+MaybeTest('abort resolved task', async (t) => {
+  const ctrl = new AbortController()
+  await withAbortController(1, 2, ctrl.signal).then(() => ctrl.abort())
+  t.pass('should not throw')
 })
