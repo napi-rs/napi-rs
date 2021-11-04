@@ -1,11 +1,22 @@
 use std::convert::TryFrom;
 
 use super::Value;
-use crate::check_status;
+use crate::bindgen_runtime::TypeName;
+use crate::{check_status, ValueType};
 use crate::{sys, Error, Result};
 
 #[derive(Clone, Copy)]
 pub struct JsNumber(pub(crate) Value);
+
+impl TypeName for JsNumber {
+  fn type_name() -> &'static str {
+    "f64"
+  }
+
+  fn value_type() -> crate::ValueType {
+    ValueType::Number
+  }
+}
 
 impl JsNumber {
   pub fn get_uint32(&self) -> Result<u32> {

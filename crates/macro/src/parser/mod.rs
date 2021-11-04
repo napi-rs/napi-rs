@@ -15,7 +15,7 @@ use napi_derive_backend::{
 use proc_macro2::{Ident, TokenStream, TokenTree};
 use quote::ToTokens;
 use syn::parse::{Parse, ParseStream, Result as SynResult};
-use syn::{Attribute, Signature, Visibility};
+use syn::{Attribute, Signature, Type, Visibility};
 
 use crate::parser::attrs::{check_recorded_struct_for_impl, record_struct};
 
@@ -755,43 +755,52 @@ impl ConvertToAST for syn::ItemImpl {
 
     let mut struct_js_name = struct_name.to_string();
     let mut items = vec![];
-
+    let mut task_output_type = None;
     for item in self.items.iter_mut() {
-      let method = match item {
-        syn::ImplItem::Method(m) => m,
+      if let Some(method) = match item {
+        syn::ImplItem::Method(m) => Some(m),
+        syn::ImplItem::Type(m) => {
+          if m.ident == *"JsValue" {
+            if let Type::Path(_) = &m.ty {
+              task_output_type = Some(m.ty.clone());
+            }
+          }
+          None
+        }
         _ => {
           bail_span!(item, "unsupported impl item in #[napi]")
         }
-      };
-      let opts = BindgenAttrs::find(&mut method.attrs)?;
+      } {
+        let opts = BindgenAttrs::find(&mut method.attrs)?;
 
-      // it'd better only care methods decorated with `#[napi]` attribute
-      if !opts.exists {
-        continue;
-      }
-
-      if opts.constructor().is_some() {
-        struct_js_name = check_recorded_struct_for_impl(&struct_name, &opts)?;
-      }
-
-      let vis = method.vis.clone();
-
-      match &vis {
-        Visibility::Public(_) => {}
-        _ => {
-          bail_span!(method.sig.ident, "only pub method supported by #[napi].",);
+        // it'd better only care methods decorated with `#[napi]` attribute
+        if !opts.exists {
+          continue;
         }
+
+        if opts.constructor().is_some() {
+          struct_js_name = check_recorded_struct_for_impl(&struct_name, &opts)?;
+        }
+
+        let vis = method.vis.clone();
+
+        match &vis {
+          Visibility::Public(_) => {}
+          _ => {
+            bail_span!(method.sig.ident, "only pub method supported by #[napi].",);
+          }
+        }
+
+        let func = napi_fn_from_decl(
+          method.sig.clone(),
+          &opts,
+          method.attrs.clone(),
+          vis,
+          Some(&struct_name),
+        )?;
+
+        items.push(func);
       }
-
-      let func = napi_fn_from_decl(
-        method.sig.clone(),
-        &opts,
-        method.attrs.clone(),
-        vis,
-        Some(&struct_name),
-      )?;
-
-      items.push(func);
     }
 
     Ok(Napi {
@@ -800,6 +809,7 @@ impl ConvertToAST for syn::ItemImpl {
         name: struct_name,
         js_name: struct_js_name,
         items,
+        task_output_type,
       }),
     })
   }

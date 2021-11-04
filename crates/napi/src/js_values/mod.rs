@@ -2,7 +2,9 @@ use std::convert::TryFrom;
 use std::ffi::CString;
 use std::ptr;
 
-use crate::{check_status, sys, type_of, Callback, Error, Result, Status, ValueType};
+use crate::{
+  bindgen_runtime::TypeName, check_status, sys, type_of, Callback, Error, Result, Status, ValueType,
+};
 
 #[cfg(feature = "serde-json")]
 mod de;
@@ -60,10 +62,40 @@ pub struct JsUnknown(pub(crate) Value);
 #[derive(Clone, Copy)]
 pub struct JsNull(pub(crate) Value);
 
+impl TypeName for JsNull {
+  fn type_name() -> &'static str {
+    "null"
+  }
+
+  fn value_type() -> ValueType {
+    ValueType::Null
+  }
+}
+
 #[derive(Clone, Copy)]
 pub struct JsSymbol(pub(crate) Value);
 
+impl TypeName for JsSymbol {
+  fn type_name() -> &'static str {
+    "symbol"
+  }
+
+  fn value_type() -> ValueType {
+    ValueType::Symbol
+  }
+}
+
 pub struct JsExternal(pub(crate) Value);
+
+impl TypeName for JsExternal {
+  fn type_name() -> &'static str {
+    "external"
+  }
+
+  fn value_type() -> ValueType {
+    ValueType::External
+  }
+}
 
 macro_rules! impl_napi_value_trait {
   ($js_value:ident, $value_type:ident) => {

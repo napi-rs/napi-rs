@@ -1,8 +1,11 @@
-use crate::{js_values::NapiValue, Env, Error, Result};
+use crate::{
+  bindgen_runtime::{ToNapiValue, TypeName},
+  Env, Error, Result,
+};
 
 pub trait Task: Send + Sized {
   type Output: Send + Sized + 'static;
-  type JsValue: NapiValue;
+  type JsValue: ToNapiValue + TypeName;
 
   /// Compute logic in libuv thread
   fn compute(&mut self) -> Result<Self::Output>;
@@ -14,4 +17,7 @@ pub trait Task: Send + Sized {
   fn reject(self, _env: Env, err: Error) -> Result<Self::JsValue> {
     Err(err)
   }
+
+  // after resolve or reject
+  fn finally() {}
 }

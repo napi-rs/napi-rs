@@ -1,5 +1,5 @@
 use proc_macro2::Ident;
-use syn::Attribute;
+use syn::{Attribute, Type};
 
 #[derive(Debug, Clone)]
 pub struct NapiFn {
@@ -76,6 +76,7 @@ pub struct NapiImpl {
   pub name: Ident,
   pub js_name: String,
   pub items: Vec<NapiFn>,
+  pub task_output_type: Option<Type>,
 }
 
 #[derive(Debug, Clone)]
