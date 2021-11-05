@@ -38,8 +38,13 @@ export function getBuffer(): Buffer
 export class Animal {
   readonly kind: Kind
   constructor(kind: Kind, name: string)
+  static withKind(kind: Kind): Animal
   get name(): string
   set name(name: string)
   whoami(): string
   static getDogKind(): Kind
+}
+export class ClassWithFactory {
+  name: string
+  static withName(name: string): ClassWithFactory
 }

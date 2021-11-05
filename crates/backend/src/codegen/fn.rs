@@ -39,17 +39,33 @@ impl TryToTokens for NapiFn {
       }
     };
 
-    let function_call =
-      if args_len == 0 && self.fn_self.is_none() && self.kind != FnKind::Constructor {
-        quote! { #native_call }
-      } else {
-        quote! {
-          CallbackInfo::<#args_len>::new(env, cb, None).and_then(|mut cb| {
-            #(#arg_conversions)*
-            #native_call
-          })
+    let function_call = if args_len == 0
+      && self.fn_self.is_none()
+      && self.kind != FnKind::Constructor
+      && self.kind != FnKind::Factory
+    {
+      quote! { #native_call }
+    } else if self.kind == FnKind::Constructor {
+      quote! {
+        let call_from_factory = ___CALL_FROM_FACTORY.load(std::sync::atomic::Ordering::Relaxed);
+        // constructor function is called from class `factory`
+        // so we should skip the original `constructor` logic
+        if call_from_factory {
+          return std::ptr::null_mut();
         }
-      };
+        CallbackInfo::<#args_len>::new(env, cb, None).and_then(|mut cb| {
+          #(#arg_conversions)*
+          #native_call
+        })
+      }
+    } else {
+      quote! {
+        CallbackInfo::<#args_len>::new(env, cb, None).and_then(|mut cb| {
+          #(#arg_conversions)*
+          #native_call
+        })
+      }
+    };
 
     (quote! {
       #(#attrs)*
@@ -229,6 +245,8 @@ impl NapiFn {
     if let Some(ty) = &self.ret {
       if self.kind == FnKind::Constructor {
         quote! { cb.construct(#js_name, #ret) }
+      } else if self.kind == FnKind::Factory {
+        quote! { cb.factory(#js_name, #ret) }
       } else if self.is_ret_result {
         if self.is_async {
           quote! {

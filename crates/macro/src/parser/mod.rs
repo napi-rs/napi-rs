@@ -641,6 +641,10 @@ fn fn_kind(opts: &BindgenAttrs) -> FnKind {
     kind = FnKind::Constructor;
   }
 
+  if opts.factory().is_some() {
+    kind = FnKind::Factory;
+  }
+
   kind
 }
 
