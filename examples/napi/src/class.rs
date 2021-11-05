@@ -19,6 +19,14 @@ impl Animal {
     Animal { kind, name }
   }
 
+  #[napi(factory)]
+  pub fn with_kind(kind: Kind) -> Self {
+    Animal {
+      kind,
+      name: "Default".to_owned(),
+    }
+  }
+
   #[napi(getter)]
   pub fn get_name(&self) -> &str {
     self.name.as_str()

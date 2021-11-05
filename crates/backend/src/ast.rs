@@ -34,6 +34,7 @@ pub enum NapiFnArgKind {
 pub enum FnKind {
   Normal,
   Constructor,
+  Factory,
   Getter,
   Setter,
 }

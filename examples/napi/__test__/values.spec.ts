@@ -15,6 +15,7 @@ import {
   getCwd,
   Animal,
   Kind,
+  ClassWithFactory,
   CustomNumEnum,
   enumToI32,
   listObjKeys,
@@ -79,6 +80,20 @@ test('class', (t) => {
 
   dog.name = '可乐'
   t.is(dog.name, '可乐')
+})
+
+test('class factory', (t) => {
+  const duck = ClassWithFactory.withName('Default')
+  t.is(duck.name, 'Default')
+
+  duck.name = '周黑鸭'
+  t.is(duck.name, '周黑鸭')
+
+  const doge = Animal.withKind(Kind.Dog)
+  t.is(doge.name, 'Default')
+
+  doge.name = '旺财'
+  t.is(doge.name, '旺财')
 })
 
 test('callback', (t) => {

@@ -7,6 +7,7 @@ mod array;
 mod r#async;
 mod callback;
 mod class;
+mod class_factory;
 mod either;
 mod r#enum;
 mod error;

@@ -1,10 +1,19 @@
+use std::ffi::c_void;
+use std::ptr;
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use crate::{bindgen_prelude::*, check_status, sys, Result};
-use std::{ffi::c_void, ptr};
+
+#[doc(hidden)]
+/// Determined is `constructor` called from Class `factory`
+/// Ugly but works
+/// We can even be more ugly without `atomic`
+pub static ___CALL_FROM_FACTORY: AtomicBool = AtomicBool::new(false);
 
 pub struct CallbackInfo<const N: usize> {
   env: sys::napi_env,
   this: sys::napi_value,
-  args: [sys::napi_value; N],
+  pub args: [sys::napi_value; N],
 }
 
 impl<const N: usize> CallbackInfo<N> {
@@ -74,6 +83,39 @@ impl<const N: usize> CallbackInfo<N> {
     };
 
     Ok(this)
+  }
+
+  pub fn factory<T>(&self, js_name: &str, obj: T) -> Result<sys::napi_value> {
+    let obj = Box::new(obj);
+    let this = self.this();
+    let mut instance = ptr::null_mut();
+    unsafe {
+      ___CALL_FROM_FACTORY.store(true, Ordering::Relaxed);
+      let status = sys::napi_new_instance(self.env, this, 0, ptr::null_mut(), &mut instance);
+      ___CALL_FROM_FACTORY.store(false, Ordering::Relaxed);
+      // Error thrown in `constructor`
+      if status == sys::Status::napi_pending_exception {
+        let mut exception = ptr::null_mut();
+        sys::napi_get_and_clear_last_exception(self.env, &mut exception);
+        sys::napi_throw(self.env, exception);
+        return Ok(ptr::null_mut());
+      }
+
+      check_status!(
+        sys::napi_wrap(
+          self.env,
+          instance,
+          Box::into_raw(obj) as *mut std::ffi::c_void,
+          Some(raw_finalize_unchecked::<T>),
+          ptr::null_mut(),
+          &mut std::ptr::null_mut()
+        ),
+        "Failed to initialize class `{}`",
+        js_name,
+      )?;
+    };
+
+    Ok(instance)
   }
 
   pub fn unwrap_borrow_mut<T>(&mut self) -> Result<&'static mut T>
