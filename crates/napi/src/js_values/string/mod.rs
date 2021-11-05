@@ -1,6 +1,8 @@
 use std::mem;
 use std::ptr;
 
+use crate::bindgen_runtime::TypeName;
+use crate::ValueType;
 use crate::{check_status, sys, Result, Value};
 
 pub use latin1::JsStringLatin1;
@@ -13,6 +15,16 @@ mod utf8;
 
 #[derive(Clone, Copy)]
 pub struct JsString(pub(crate) Value);
+
+impl TypeName for JsString {
+  fn type_name() -> &'static str {
+    "String"
+  }
+
+  fn value_type() -> crate::ValueType {
+    ValueType::String
+  }
+}
 
 impl JsString {
   pub fn utf8_len(&self) -> Result<usize> {

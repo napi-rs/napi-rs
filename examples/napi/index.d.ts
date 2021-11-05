@@ -32,6 +32,8 @@ export function contains(source: string, target: string): boolean
 export function concatStr(mutS: string): string
 export function concatUtf16(s: string): string
 export function concatLatin1(s: string): string
+export function withoutAbortController(a: number, b: number): Promise<number>
+export function withAbortController(a: number, b: number, signal: AbortSignal): Promise<number>
 export function getBuffer(): Buffer
 export class Animal {
   readonly kind: Kind

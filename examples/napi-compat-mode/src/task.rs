@@ -22,7 +22,7 @@ impl Task for ComputeFib {
     Ok(fibonacci_native(self.n))
   }
 
-  fn resolve(self, env: Env, output: Self::Output) -> Result<Self::JsValue> {
+  fn resolve(&mut self, env: Env, output: Self::Output) -> Result<Self::JsValue> {
     env.create_uint32(output)
   }
 }
@@ -63,14 +63,17 @@ impl Task for CountBufferLength {
     Ok((&self.data).len())
   }
 
-  fn resolve(self, env: Env, output: Self::Output) -> Result<Self::JsValue> {
-    self.data.unref(env)?;
+  fn resolve(&mut self, env: Env, output: Self::Output) -> Result<Self::JsValue> {
     env.create_uint32(output as _)
   }
 
-  fn reject(self, env: Env, err: Error) -> Result<Self::JsValue> {
-    self.data.unref(env)?;
+  fn reject(&mut self, env: Env, err: Error) -> Result<Self::JsValue> {
     Err(err)
+  }
+
+  fn finally(&mut self, env: Env) -> Result<()> {
+    self.data.unref(env)?;
+    Ok(())
   }
 }
 

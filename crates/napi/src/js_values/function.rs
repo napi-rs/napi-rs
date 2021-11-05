@@ -1,10 +1,21 @@
 use std::ptr;
 
 use super::Value;
-use crate::check_status;
+use crate::bindgen_runtime::TypeName;
+use crate::{check_status, ValueType};
 use crate::{sys, Env, Error, JsObject, JsUnknown, NapiRaw, NapiValue, Result, Status};
 
 pub struct JsFunction(pub(crate) Value);
+
+impl TypeName for JsFunction {
+  fn type_name() -> &'static str {
+    "Function"
+  }
+
+  fn value_type() -> crate::ValueType {
+    ValueType::Function
+  }
+}
 
 /// See [Working with JavaScript Functions](https://nodejs.org/api/n-api.html#n_api_working_with_javascript_functions).
 ///

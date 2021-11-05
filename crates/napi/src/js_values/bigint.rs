@@ -2,12 +2,22 @@ use std::convert::TryFrom;
 use std::ptr;
 
 use super::*;
-use crate::{check_status, sys, Result};
+use crate::{bindgen_runtime::TypeName, check_status, sys, Result};
 
 #[derive(Clone, Copy)]
 pub struct JsBigint {
   pub(crate) raw: Value,
   pub word_count: usize,
+}
+
+impl TypeName for JsBigint {
+  fn type_name() -> &'static str {
+    "BigInt"
+  }
+
+  fn value_type() -> ValueType {
+    ValueType::Bigint
+  }
 }
 
 impl JsBigint {

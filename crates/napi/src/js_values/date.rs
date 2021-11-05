@@ -1,7 +1,17 @@
 use super::check_status;
-use crate::{sys, Result, Value};
+use crate::{bindgen_runtime::TypeName, sys, Result, Value, ValueType};
 
 pub struct JsDate(pub(crate) Value);
+
+impl TypeName for JsDate {
+  fn type_name() -> &'static str {
+    "Date"
+  }
+
+  fn value_type() -> crate::ValueType {
+    ValueType::Object
+  }
+}
 
 impl JsDate {
   pub fn value_of(&self) -> Result<f64> {

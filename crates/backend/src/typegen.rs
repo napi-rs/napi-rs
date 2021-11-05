@@ -1,6 +1,6 @@
 mod r#enum;
 mod r#fn;
-mod r#struct;
+pub(crate) mod r#struct;
 
 use std::collections::HashMap;
 
@@ -35,6 +35,7 @@ static KNOWN_TYPES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     ("i16", "number"),
     ("i32", "number"),
     ("i64", "number"),
+    ("f64", "number"),
     ("u8", "number"),
     ("u16", "number"),
     ("u32", "number"),
@@ -54,6 +55,9 @@ static KNOWN_TYPES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     ("Value", "any"),
     ("Map", "Record<string, any>"),
     ("HashMap", "Record<{}, {}>"),
+    ("ArrayBuffer", "ArrayBuffer"),
+    ("DataView", "DataView"),
+    ("Date", "Date"),
     ("Buffer", "Buffer"),
     // TODO: Vec<u8> should be Buffer, now is Array<number>
     ("Vec", "Array<{}>"),
@@ -63,6 +67,12 @@ static KNOWN_TYPES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     ("Either3", "{} | {} | {}"),
     ("Either4", "{} | {} | {} | {}"),
     ("Either5", "{} | {} | {} | {} | {}"),
+    ("unknown", "unknown"),
+    ("null", "null"),
+    ("symbol", "symbol"),
+    ("external", "object"),
+    ("AbortSignal", "AbortSignal"),
+    ("Function", "(...args: any[]) => any"),
   ]);
 
   map
@@ -124,6 +134,15 @@ pub fn ty_to_ts_type(ty: &Type, is_return_ty: bool) -> String {
 
         if rust_ty == "Result" && is_return_ty {
           ts_ty = Some(args.first().unwrap().to_owned());
+        } else if rust_ty == "AsyncTask" {
+          ts_ty = r#struct::TASK_STRUCTS.with(|t| {
+            let output_type = args.first().unwrap().to_owned();
+            if let Some(o) = t.borrow().get(&output_type) {
+              Some(format!("Promise<{}>", o))
+            } else {
+              Some("Promise<unknown>".to_owned())
+            }
+          });
         } else if let Some(&known_ty) = KNOWN_TYPES.get(rust_ty.as_str()) {
           if known_ty.contains("{}") {
             ts_ty = Some(fill_ty(known_ty, args));
