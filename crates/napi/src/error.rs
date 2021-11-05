@@ -161,9 +161,22 @@ macro_rules! impl_object_methods {
       ///
       /// This function is safety if env is not null ptr.
       pub unsafe fn throw_into(self, env: sys::napi_env) {
+        #[cfg(debug_assertions)]
+        let reason = self.0.reason.clone();
+        #[cfg(debug_assertions)]
+        let status = self.0.status;
         let js_error = self.into_value(env);
+        #[cfg(debug_assertions)]
         let throw_status = sys::napi_throw(env, js_error);
-        debug_assert!(throw_status == sys::Status::napi_ok);
+        sys::napi_throw(env, js_error);
+        #[cfg(debug_assertions)]
+        assert!(
+          throw_status == sys::Status::napi_ok,
+          "Throw error failed, status: [{}], raw message: \"{}\", raw status: [{}]",
+          Status::from(throw_status),
+          reason,
+          Status::from(status)
+        );
       }
 
       pub fn throw(&self, env: sys::napi_env) -> Result<()> {

@@ -79,10 +79,10 @@ unsafe extern "C" fn napi_register_module_v1(
         let (ctor, props): (Vec<_>, Vec<_>) = props.into_iter().partition(|prop| prop.is_ctor);
         // one or more or zero?
         // zero is for `#[napi(task)]`
-        if ctor.is_empty() {
+        if ctor.is_empty() && props.is_empty() {
           continue;
         }
-        let ctor = ctor[0].raw().method.unwrap();
+        let ctor = ctor.get(0).map(|c| c.raw().method.unwrap()).unwrap_or(noop);
         let raw_props: Vec<_> = props.iter().map(|prop| prop.raw()).collect();
 
         let js_class_name = CString::new(js_name).unwrap();
@@ -142,4 +142,11 @@ unsafe extern "C" fn napi_register_module_v1(
   }
 
   exports
+}
+
+pub(crate) unsafe extern "C" fn noop(
+  _env: sys::napi_env,
+  _info: sys::napi_callback_info,
+) -> sys::napi_value {
+  ptr::null_mut()
 }
