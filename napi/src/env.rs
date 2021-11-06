@@ -707,6 +707,11 @@ impl Env {
   }
 
   #[inline]
+  pub fn throw<T: NapiRaw>(&self, value: T) -> Result<()> {
+    check_status!(unsafe { sys::napi_throw(self.0, value.raw()) })
+  }
+
+  #[inline]
   /// This API throws a JavaScript RangeError with the text provided.
   pub fn throw_range_error(&self, msg: &str, code: Option<&str>) -> Result<()> {
     check_status!(unsafe {
