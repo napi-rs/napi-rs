@@ -33,7 +33,7 @@ impl TryToTokens for NapiFn {
         quote! { Ok(#receiver(#(#arg_names),*).await) }
       };
       quote! {
-        execute_tokio_future(env, async { #call }, |env, #receiver_ret_name| {
+        execute_tokio_future(env, async move { #call }, |env, #receiver_ret_name| {
           #ret
         })
       }

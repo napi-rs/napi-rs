@@ -34,6 +34,7 @@ import {
   either4,
   withoutAbortController,
   withAbortController,
+  asyncMultiTwo,
 } from '../'
 
 test('number', (t) => {
@@ -161,6 +162,10 @@ test('async', async (t) => {
   t.is(name, 'napi-examples')
 
   await t.throwsAsync(() => readFileAsync('some_nonexist_path.file'))
+})
+
+test('async move', async (t) => {
+  t.is(await asyncMultiTwo(2), 4)
 })
 
 test('either', (t) => {
