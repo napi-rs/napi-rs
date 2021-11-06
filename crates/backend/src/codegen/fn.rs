@@ -244,9 +244,17 @@ impl NapiFn {
 
     if let Some(ty) = &self.ret {
       if self.kind == FnKind::Constructor {
-        quote! { cb.construct(#js_name, #ret) }
+        if self.is_ret_result {
+          quote! { cb.construct(#js_name, #ret?) }
+        } else {
+          quote! { cb.construct(#js_name, #ret) }
+        }
       } else if self.kind == FnKind::Factory {
-        quote! { cb.factory(#js_name, #ret) }
+        if self.is_ret_result {
+          quote! { cb.factory(#js_name, #ret?) }
+        } else {
+          quote! { cb.factory(#js_name, #ret) }
+        }
       } else if self.is_ret_result {
         if self.is_async {
           quote! {
