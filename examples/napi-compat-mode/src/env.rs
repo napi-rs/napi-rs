@@ -1,4 +1,7 @@
-use napi::{CallContext, ContextlessResult, Env, JsBoolean, JsObject, JsString, JsUnknown, Result};
+use napi::{
+  CallContext, ContextlessResult, Env, JsBoolean, JsFunction, JsObject, JsString, JsUndefined,
+  JsUnknown, Result,
+};
 
 #[js_function(2)]
 pub fn instanceof(ctx: CallContext) -> Result<JsBoolean> {
@@ -39,6 +42,17 @@ fn get_env_variable(env: Env) -> ContextlessResult<JsString> {
     .map(Some)
 }
 
+#[js_function(1)]
+pub fn throw_syntax_error(ctx: CallContext) -> Result<JsUndefined> {
+  let message: JsString = ctx.get(0)?;
+  let syntax_error = ctx
+    .env
+    .get_global()?
+    .get_named_property::<JsFunction>("SyntaxError")?;
+  ctx.env.throw(syntax_error.new(&[message])?)?;
+  ctx.env.get_undefined()
+}
+
 pub fn register_js(exports: &mut JsObject) -> Result<()> {
   exports.create_named_method("instanceof", instanceof)?;
   exports.create_named_method("isTypedarray", is_typedarray)?;
@@ -46,5 +60,6 @@ pub fn register_js(exports: &mut JsObject) -> Result<()> {
   exports.create_named_method("strictEquals", strict_equals)?;
   exports.create_named_method("castUnknown", cast_unknown)?;
   exports.create_named_method("getEnvVariable", get_env_variable)?;
+  exports.create_named_method("throwSyntaxError", throw_syntax_error)?;
   Ok(())
 }

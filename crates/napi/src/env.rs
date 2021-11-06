@@ -622,6 +622,11 @@ impl Env {
     unsafe { ptr::read(raw_extended_error) }.try_into()
   }
 
+  /// Throw any JavaScript value
+  pub fn throw<T: NapiRaw>(&self, value: T) -> Result<()> {
+    check_status!(unsafe { sys::napi_throw(self.0, value.raw()) })
+  }
+
   /// This API throws a JavaScript Error with the text provided.
   pub fn throw_error(&self, msg: &str, code: Option<&str>) -> Result<()> {
     check_status!(unsafe {
