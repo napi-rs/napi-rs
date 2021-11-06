@@ -234,9 +234,8 @@ fn extract_callback_trait_types(
 
 fn extract_result_ty(ty: &syn::Type) -> BindgenResult<Option<syn::Type>> {
   match ty {
-    syn::Type::Path(syn::TypePath { qself: None, path }) if path.segments.len() == 1 => {
-      let segment = path.segments.first().unwrap();
-
+    syn::Type::Path(syn::TypePath { qself: None, path }) => {
+      let segment = path.segments.last().unwrap();
       if segment.ident != "Result" {
         Ok(None)
       } else {

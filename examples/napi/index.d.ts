@@ -51,6 +51,12 @@ export class Blake2BHasher {
 export class Blake2BKey {
   
 }
+export class Context {
+  
+  constructor()
+  static withData(data: string): Context
+  method(): string
+}
 export class ClassWithFactory {
   name: string
   static withName(name: string): ClassWithFactory

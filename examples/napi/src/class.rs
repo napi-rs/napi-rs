@@ -1,4 +1,5 @@
 use napi::bindgen_prelude::*;
+use napi::Result;
 
 use crate::r#enum::Kind;
 
@@ -73,5 +74,31 @@ pub struct Blake2bKey(u32);
 impl Blake2bKey {
   fn get_inner(&self) -> u32 {
     self.0
+  }
+}
+
+#[napi]
+pub struct Context {
+  data: String,
+}
+
+// Test for return `napi::Result` and `Result`
+#[napi]
+impl Context {
+  #[napi(constructor)]
+  pub fn new() -> napi::Result<Self> {
+    Ok(Self {
+      data: "not empty".into(),
+    })
+  }
+
+  #[napi(factory)]
+  pub fn with_data(data: String) -> Result<Self> {
+    Ok(Self { data })
+  }
+
+  #[napi]
+  pub fn method(&self) -> String {
+    self.data.clone()
   }
 }

@@ -17,6 +17,7 @@ import {
   Kind,
   ClassWithFactory,
   CustomNumEnum,
+  Context,
   enumToI32,
   listObjKeys,
   createObj,
@@ -94,6 +95,16 @@ test('class factory', (t) => {
 
   doge.name = '旺财'
   t.is(doge.name, '旺财')
+})
+
+test('class constructor return Result', (t) => {
+  const c = new Context()
+  t.is(c.method(), 'not empty')
+})
+
+test('class Factory return Result', (t) => {
+  const c = Context.withData('not empty')
+  t.is(c.method(), 'not empty')
 })
 
 test('callback', (t) => {
