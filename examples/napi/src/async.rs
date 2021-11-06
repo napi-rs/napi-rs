@@ -14,3 +14,10 @@ async fn read_file_async(path: String) -> Result<Buffer> {
     })
     .await
 }
+
+#[napi]
+async fn async_multi_two(arg: u32) -> Result<u32> {
+  tokio::task::spawn(async move { Ok(arg * 2) })
+    .await
+    .unwrap()
+}

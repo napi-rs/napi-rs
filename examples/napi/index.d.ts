@@ -2,6 +2,7 @@ export function getWords(): Array<string>
 export function getNums(): Array<number>
 export function sumNums(nums: Array<number>): number
 export function readFileAsync(path: string): Promise<Buffer>
+export function asyncMultiTwo(arg: number): Promise<number>
 export function getCwd(callback: (arg0: string) => void): void
 export function readFile(callback: (arg0: Error | undefined, arg1: string | null) => void): void
 export function eitherStringOrNumber(input: string | number): number
