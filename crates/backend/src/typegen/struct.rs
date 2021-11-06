@@ -6,10 +6,15 @@ use crate::{ty_to_ts_type, NapiImpl, NapiStruct, NapiStructKind};
 
 thread_local! {
   pub(crate) static TASK_STRUCTS: RefCell<HashMap<String, String>> = Default::default();
+  pub(crate) static CLASS_STRUCTS: RefCell<HashMap<String, String>> = Default::default();
 }
 
 impl ToTypeDef for NapiStruct {
   fn to_type_def(&self) -> TypeDef {
+    CLASS_STRUCTS.with(|c| {
+      c.borrow_mut()
+        .insert(self.name.to_string(), self.js_name.clone());
+    });
     TypeDef {
       kind: String::from(if self.kind == NapiStructKind::Object {
         "interface"
