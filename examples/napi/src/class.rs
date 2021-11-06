@@ -53,3 +53,25 @@ impl Animal {
     Kind::Dog
   }
 }
+
+/// Smoking test for type generation
+#[napi]
+#[repr(transparent)]
+pub struct Blake2bHasher(u32);
+
+#[napi]
+impl Blake2bHasher {
+  #[napi(factory)]
+  pub fn with_key(key: &Blake2bKey) -> Self {
+    Blake2bHasher(key.get_inner())
+  }
+}
+
+#[napi]
+pub struct Blake2bKey(u32);
+
+impl Blake2bKey {
+  fn get_inner(&self) -> u32 {
+    self.0
+  }
+}

@@ -44,6 +44,13 @@ export class Animal {
   whoami(): string
   static getDogKind(): Kind
 }
+export class Blake2BHasher {
+  
+  static withKey(key: Blake2bKey): Blake2BHasher
+}
+export class Blake2BKey {
+  
+}
 export class ClassWithFactory {
   name: string
   static withName(name: string): ClassWithFactory

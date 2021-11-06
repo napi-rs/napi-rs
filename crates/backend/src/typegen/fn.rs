@@ -87,6 +87,11 @@ impl NapiFn {
   fn gen_ts_func_ret(&self) -> String {
     match self.kind {
       FnKind::Constructor | FnKind::Setter => "".to_owned(),
+      FnKind::Factory => self
+        .parent
+        .clone()
+        .map(|i| format!(": {}", i.to_string().to_case(Case::Pascal)))
+        .unwrap_or_else(|| "".to_owned()),
       _ => {
         let ret = if let Some(ret) = &self.ret {
           let ts_type = ty_to_ts_type(ret, true);

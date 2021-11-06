@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use once_cell::sync::Lazy;
 use syn::Type;
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct TypeDef {
   pub kind: String,
   pub name: String,
@@ -149,6 +149,10 @@ pub fn ty_to_ts_type(ty: &Type, is_return_ty: bool) -> String {
           } else {
             ts_ty = Some(known_ty.to_owned());
           }
+        } else if let Some(t) = crate::typegen::r#struct::CLASS_STRUCTS
+          .with(|c| c.borrow_mut().get(rust_ty.as_str()).cloned())
+        {
+          ts_ty = Some(t);
         } else {
           // there should be runtime registered type in else
           ts_ty = Some(rust_ty);
@@ -157,7 +161,7 @@ pub fn ty_to_ts_type(ty: &Type, is_return_ty: bool) -> String {
 
       ts_ty.unwrap_or_else(|| "any".to_owned())
     }
-
+    Type::Group(g) => ty_to_ts_type(&g.elem, is_return_ty),
     _ => "any".to_owned(),
   }
 }

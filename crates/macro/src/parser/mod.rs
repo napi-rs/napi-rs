@@ -782,7 +782,7 @@ impl ConvertToAST for syn::ItemImpl {
           continue;
         }
 
-        if opts.constructor().is_some() {
+        if opts.constructor().is_some() || opts.factory().is_some() {
           struct_js_name = check_recorded_struct_for_impl(&struct_name, &opts)?;
         }
 
