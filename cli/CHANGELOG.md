@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.0.0-alpha.4](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.0.0-alpha.3...@napi-rs/cli@2.0.0-alpha.4) (2021-11-09)
+
+### Features
+
+- **cli:** generate js binding to avoid dynamic require logic ([179f20a](https://github.com/napi-rs/napi-rs/commit/179f20a7c5d2b71bc0a0825816092390291ce23d))
+
 # [2.0.0-alpha.3](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.0.0-alpha.2...@napi-rs/cli@2.0.0-alpha.3) (2021-10-27)
 
 ### Bug Fixes
