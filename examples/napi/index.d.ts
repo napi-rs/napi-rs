@@ -4,9 +4,7 @@ export function sumNums(nums: Array<number>): number
 export function readFileAsync(path: string): Promise<Buffer>
 export function asyncMultiTwo(arg: number): Promise<number>
 export function getCwd(callback: (arg0: string) => void): void
-export function readFile(
-  callback: (arg0: Error | undefined, arg1: string | null) => void,
-): void
+export function readFile(callback: (arg0: Error | undefined, arg1: string | null) => void): void
 export function eitherStringOrNumber(input: string | number): number
 export function returnEither(input: number): string | number
 export function either3(input: string | number | boolean): number
@@ -14,21 +12,8 @@ interface Obj {
   v: string | number
 }
 export function either4(input: string | number | boolean | Obj): number
-export enum Kind {
-  Dog = 0,
-  Cat = 1,
-  Duck = 2,
-}
-export enum CustomNumEnum {
-  One = 1,
-  Two = 2,
-  Three = 3,
-  Four = 4,
-  Six = 6,
-  Eight = 8,
-  Nine = 9,
-  Ten = 10,
-}
+export enum Kind { Dog = 0, Cat = 1, Duck = 2 }
+export enum CustomNumEnum { One = 1, Two = 2, Three = 3, Four = 4, Six = 6, Eight = 8, Nine = 9, Ten = 10 }
 export function enumToI32(e: CustomNumEnum): number
 export function throwError(): void
 export function mapOption(val: number | null): number | null
@@ -49,11 +34,7 @@ export function concatStr(mutS: string): string
 export function concatUtf16(s: string): string
 export function concatLatin1(s: string): string
 export function withoutAbortController(a: number, b: number): Promise<number>
-export function withAbortController(
-  a: number,
-  b: number,
-  signal: AbortSignal,
-): Promise<number>
+export function withAbortController(a: number, b: number, signal: AbortSignal): Promise<number>
 export function getBuffer(): Buffer
 export class Animal {
   readonly kind: Kind
@@ -65,10 +46,14 @@ export class Animal {
   static getDogKind(): Kind
 }
 export class Blake2BHasher {
+  
   static withKey(key: Blake2bKey): Blake2BHasher
 }
-export class Blake2BKey {}
+export class Blake2BKey {
+  
+}
 export class Context {
+  
   constructor()
   static withData(data: string): Context
   method(): string

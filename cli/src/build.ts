@@ -1,12 +1,13 @@
 import { execSync } from 'child_process'
 import { join, parse, sep } from 'path'
 
-import chalk from 'chalk'
+import { Instance } from 'chalk'
 import { Command, Option } from 'clipanion'
 import toml from 'toml'
 
 import { getNapiConfig } from './consts'
 import { debugFactory } from './debug'
+import { createJsBinding } from './js-binding-template'
 import { getDefaultTargetTriple, parseTriple } from './parse-triple'
 import {
   copyFileAsync,
@@ -18,6 +19,7 @@ import {
 } from './utils'
 
 const debug = debugFactory('build')
+const chalk = new Instance({ level: 1 })
 
 export class BuildCommand extends Command {
   static usage = Command.Usage({
@@ -26,23 +28,57 @@ export class BuildCommand extends Command {
 
   static paths = [['build']]
 
-  appendPlatformToFilename = Option.Boolean(`--platform`, false)
+  appendPlatformToFilename = Option.Boolean(`--platform`, false, {
+    description: `Add platform triple to the .node file. ${chalk.green(
+      '[name].linux-x64-gnu.node',
+    )} for example`,
+  })
 
-  isRelease = Option.Boolean(`--release`, false)
+  isRelease = Option.Boolean(`--release`, false, {
+    description: `Bypass to ${chalk.green('cargo --release')}`,
+  })
 
-  configFileName?: string = Option.String('--config,-c')
+  configFileName?: string = Option.String('--config,-c', {
+    description: `napi config path, only JSON format accepted. Default to ${chalk.underline(
+      chalk.green('package.json'),
+    )}`,
+  })
 
-  cargoName?: string = Option.String('--cargo-name')
+  cargoName?: string = Option.String('--cargo-name', {
+    description: `Override the ${chalk.green(
+      'name',
+    )} field in ${chalk.underline(chalk.yellowBright('Cargo.toml'))}`,
+  })
 
-  targetTripleDir = Option.String('--target', process.env.RUST_TARGET ?? '')
+  targetTripleDir = Option.String('--target', process.env.RUST_TARGET ?? '', {
+    description: `Bypass to ${chalk.green('cargo --target')}`,
+  })
 
-  features?: string = Option.String('--features')
+  features?: string = Option.String('--features', {
+    description: `Bypass to ${chalk.green('cargo --features')}`,
+  })
 
-  dts?: string = Option.String('--dts')
+  dts?: string = Option.String('--dts', 'index.d.ts', {
+    description: `The filename and path of ${chalk.green(
+      '.d.ts',
+    )} file, relative to cwd`,
+  })
 
-  cargoFlags = Option.String('--cargo-flags', '')
+  cargoFlags = Option.String('--cargo-flags', '', {
+    description: `All the others flag passed to ${chalk.yellow('cargo')}`,
+  })
 
-  cargoCwd?: string = Option.String('--cargo-cwd')
+  jsBinding = Option.String('--js', 'index.js', {
+    description: `Path to the JS binding file, pass ${chalk.underline(
+      chalk.yellow('false'),
+    )} to disable it`,
+  })
+
+  cargoCwd?: string = Option.String('--cargo-cwd', {
+    description: `The cwd of ${chalk.underline(
+      chalk.yellow('Cargo.toml'),
+    )} file`,
+  })
 
   destDir = Option.String({
     required: false,
@@ -84,7 +120,7 @@ export class BuildCommand extends Command {
       stdio: 'inherit',
       cwd,
     })
-    const { binaryName } = getNapiConfig(this.configFileName)
+    const { binaryName, packageName } = getNapiConfig(this.configFileName)
     let dylibName = this.cargoName
     if (!dylibName) {
       let tomlContentString: string
@@ -198,9 +234,17 @@ export class BuildCommand extends Command {
     debug(`Write binary content to [${chalk.yellowBright(distModulePath)}]`)
     await copyFileAsync(sourcePath, distModulePath)
 
-    await processIntermediateTypeFile(
+    const idents = await processIntermediateTypeFile(
       intermediateTypeFile,
       join(this.destDir ?? '.', this.dts ?? 'index.d.ts'),
+    )
+    await writeJsBinding(
+      binaryName,
+      packageName,
+      this.jsBinding && this.jsBinding !== 'false'
+        ? join(process.cwd(), this.jsBinding)
+        : null,
+      idents,
     )
   }
 }
@@ -224,10 +268,14 @@ interface TypeDef {
   def: string
 }
 
-async function processIntermediateTypeFile(source: string, target: string) {
+async function processIntermediateTypeFile(
+  source: string,
+  target: string,
+): Promise<string[]> {
+  const idents: string[] = []
   if (!(await existsAsync(source))) {
     debug(`do not find tmp type file. skip type generation`)
-    return
+    return idents
   }
 
   const tmpFile = await readFileAsync(source, 'utf8')
@@ -244,6 +292,7 @@ async function processIntermediateTypeFile(source: string, target: string) {
 
     switch (def.kind) {
       case 'struct':
+        idents.push(def.name)
         classes.set(def.name, def.def)
         break
       case 'impl':
@@ -253,6 +302,7 @@ async function processIntermediateTypeFile(source: string, target: string) {
         dts += `interface ${def.name} {\n${indentLines(def.def, 2)}\n}\n`
         break
       default:
+        idents.push(def.name)
         dts += def.def + '\n'
     }
   })
@@ -271,6 +321,7 @@ async function processIntermediateTypeFile(source: string, target: string) {
 
   await unlinkAsync(source)
   await writeFileAsync(target, dts, 'utf8')
+  return idents
 }
 
 function indentLines(input: string, spaces: number) {
@@ -278,4 +329,24 @@ function indentLines(input: string, spaces: number) {
     .split('\n')
     .map((line) => ''.padEnd(spaces, ' ') + line.trim())
     .join('\n')
+}
+
+async function writeJsBinding(
+  localName: string,
+  packageName: string,
+  distFileName: string | null,
+  idents: string[],
+) {
+  if (distFileName) {
+    const template = createJsBinding(localName, packageName)
+    const declareCodes = `const { ${idents.join(', ')} } = nativeBinding\n`
+    const exportsCode = idents.reduce((acc, cur) => {
+      return `${acc}\nmodule.exports.${cur} = ${cur}`
+    }, '')
+    await writeFileAsync(
+      distFileName,
+      template + declareCodes + exportsCode,
+      'utf8',
+    )
+  }
 }

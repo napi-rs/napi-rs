@@ -6,5 +6,5 @@
     "rootDir": "__test__",
     "target": "ES2015"
   },
-  "exclude": ["dist"]
+  "exclude": ["dist", "index.d.ts"]
 }

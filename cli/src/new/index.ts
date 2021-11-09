@@ -12,7 +12,6 @@ import { DefaultPlatforms } from '../parse-triple'
 import { createCargoContent } from './cargo'
 import { createCargoConfig } from './cargo-config'
 import { createGithubActionsCIYml } from './ci-yml'
-import { createIndexJs } from './indexjs'
 import { LibRs } from './lib-rs'
 import { NPMIgnoreFiles } from './npmignore'
 import { createPackageJson } from './package'
@@ -125,7 +124,6 @@ export class NewProjectCommand extends Command {
     this.writeFile('Cargo.toml', createCargoContent(this.name!))
     this.writeFile('.npmignore', NPMIgnoreFiles)
     this.writeFile('build.rs', BUILD_RS)
-    this.writeFile('index.js', createIndexJs(this.name!, binaryName))
     this.writeFile(
       'package.json',
       JSON.stringify(

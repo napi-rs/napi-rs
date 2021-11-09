@@ -57,7 +57,7 @@
   "devDependencies": {
     "@types/debug": "^4.1.7",
     "@types/lodash-es": "^4.17.5",
-    "@types/node": "^16.11.6",
+    "@types/node": "^16.11.7",
     "@types/sinon": "^10.0.6",
     "@typescript-eslint/eslint-plugin": "^5.3.1",
     "@typescript-eslint/parser": "^5.3.1",
@@ -65,7 +65,7 @@
     "benny": "^3.7.1",
     "c8": "^7.10.0",
     "cross-env": "^7.0.3",
-    "esbuild": "^0.13.12",
+    "esbuild": "^0.13.13",
     "eslint": "^8.2.0",
     "eslint-config-prettier": "^8.3.0",
     "eslint-plugin-import": "^2.25.2",

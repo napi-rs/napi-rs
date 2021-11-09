@@ -38,7 +38,7 @@ jobs:
             target: 'x86_64-pc-windows-msvc'
           - host: windows-latest
             build: |
-              export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=32;
+              export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=64;
               export CARGO_PROFILE_RELEASE_LTO=false
               yarn build --target i686-pc-windows-msvc
               yarn test
