@@ -262,11 +262,12 @@ impl NapiFn {
           }
         } else {
           quote! {
-            if #ret.is_ok() {
-              <Result<#ty> as ToNapiValue>::to_napi_value(env, #ret)
-            } else {
-              JsError::from(#ret.unwrap_err()).throw_into(env);
-              Ok(std::ptr::null_mut())
+            match #ret {
+              Ok(value) => ToNapiValue::to_napi_value(env, value),
+              Err(err) => {
+                JsError::from(err).throw_into(env);
+                Ok(std::ptr::null_mut())
+              },
             }
           }
         }

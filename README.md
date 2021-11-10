@@ -89,7 +89,7 @@ extern crate napi;
 /// import the preludes
 use napi::bindgen_prelude::*;
 
-/// module registerion is done by the runtime, no need to explicitly do it now.
+/// module registration is done by the runtime, no need to explicitly do it now.
 #[napi]
 fn fibonacci(n: u32) -> u32 {
   match n {

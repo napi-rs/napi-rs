@@ -2,6 +2,6 @@
   "name": "test-module",
   "version": "1.0.0",
   "scripts": {
-    "build": "node ../cli/scripts/index.js build --release"
+    "build": "node ../cli/scripts/index.js build --js false --release"
   }
 }
