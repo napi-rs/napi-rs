@@ -9,8 +9,9 @@ use attrs::{BindgenAttr, BindgenAttrs};
 
 use convert_case::{Case, Casing};
 use napi_derive_backend::{
-  BindgenResult, CallbackArg, Diagnostic, FnKind, FnSelf, Napi, NapiEnum, NapiEnumVariant, NapiFn,
-  NapiFnArgKind, NapiImpl, NapiItem, NapiStruct, NapiStructField, NapiStructKind,
+  BindgenResult, CallbackArg, Diagnostic, FnKind, FnSelf, Napi, NapiConst, NapiEnum,
+  NapiEnumVariant, NapiFn, NapiFnArgKind, NapiImpl, NapiItem, NapiStruct, NapiStructField,
+  NapiStructKind,
 };
 use proc_macro2::{Ident, TokenStream, TokenTree};
 use quote::ToTokens;
@@ -296,7 +297,7 @@ fn extract_doc_comments(attrs: &[syn::Attribute]) -> Vec<String> {
     })
 }
 
-// Unescapes a quoted string. char::escape_debug() was used to escape the text.
+// Unescaped a quoted string. char::escape_debug() was used to escape the text.
 fn try_unescape(s: &str) -> Option<String> {
   if s.is_empty() {
     return Some(String::new());
@@ -584,6 +585,7 @@ impl ParseNapi for syn::Item {
       syn::Item::Struct(s) => s.parse_napi(tokens, opts),
       syn::Item::Impl(i) => i.parse_napi(tokens, opts),
       syn::Item::Enum(e) => e.parse_napi(tokens, opts),
+      syn::Item::Const(c) => c.parse_napi(tokens, opts),
       _ => bail_span!(
         self,
         "#[napi] can only be applied to a function, struct, enum or impl."
@@ -621,6 +623,14 @@ impl ParseNapi for syn::ItemEnum {
     let napi = self.convert_to_ast(opts);
     self.to_tokens(tokens);
 
+    napi
+  }
+}
+
+impl ParseNapi for syn::ItemConst {
+  fn parse_napi(&mut self, tokens: &mut TokenStream, opts: BindgenAttrs) -> BindgenResult<Napi> {
+    let napi = self.convert_to_ast(opts);
+    self.to_tokens(tokens);
     napi
   }
 }
@@ -908,5 +918,24 @@ impl ConvertToAST for syn::ItemEnum {
         variants,
       }),
     })
+  }
+}
+
+impl ConvertToAST for syn::ItemConst {
+  fn convert_to_ast(&mut self, opts: BindgenAttrs) -> BindgenResult<Napi> {
+    match self.vis {
+      Visibility::Public(_) => Ok(Napi {
+        comments: vec![],
+        item: NapiItem::Const(NapiConst {
+          name: self.ident.clone(),
+          js_name: opts
+            .js_name()
+            .map_or_else(|| self.ident.to_string(), |(s, _)| s.to_string()),
+          type_name: *self.ty.clone(),
+          value: *self.expr.clone(),
+        }),
+      }),
+      _ => bail_span!(self, "only public const allowed"),
+    }
   }
 }

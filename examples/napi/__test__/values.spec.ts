@@ -3,6 +3,7 @@ import { join } from 'path'
 import test from 'ava'
 
 import {
+  DEFAULT_COST,
   add,
   fibonacci,
   contains,
@@ -47,6 +48,10 @@ import {
   setSymbolInObj,
   createSymbol,
 } from '../'
+
+test('export const', (t) => {
+  t.is(DEFAULT_COST, 12)
+})
 
 test('number', (t) => {
   t.is(add(1, 2), 3)

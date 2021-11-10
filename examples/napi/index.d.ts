@@ -1,3 +1,4 @@
+export const DEFAULT_COST: number
 export function getWords(): Array<string>
 export function getNums(): Array<number>
 export function sumNums(nums: Array<number>): number

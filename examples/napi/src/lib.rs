@@ -3,6 +3,9 @@ extern crate napi_derive;
 #[macro_use]
 extern crate serde_derive;
 
+#[napi]
+pub const DEFAULT_COST: u32 = 12;
+
 mod array;
 mod r#async;
 mod bigint;

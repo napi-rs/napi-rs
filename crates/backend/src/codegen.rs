@@ -2,6 +2,7 @@ use proc_macro2::{Ident, Span, TokenStream};
 
 use crate::BindgenResult;
 
+mod r#const;
 mod r#enum;
 mod r#fn;
 mod r#struct;
