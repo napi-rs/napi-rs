@@ -5,22 +5,22 @@ use super::*;
 use crate::{bindgen_runtime::TypeName, check_status, sys, Result};
 
 #[derive(Clone, Copy)]
-pub struct JsBigint {
+pub struct JsBigInt {
   pub(crate) raw: Value,
   pub word_count: usize,
 }
 
-impl TypeName for JsBigint {
+impl TypeName for JsBigInt {
   fn type_name() -> &'static str {
     "BigInt"
   }
 
   fn value_type() -> ValueType {
-    ValueType::Bigint
+    ValueType::BigInt
   }
 }
 
-impl JsBigint {
+impl JsBigInt {
   pub(crate) fn from_raw_unchecked(
     env: sys::napi_env,
     value: sys::napi_value,
@@ -76,7 +76,6 @@ impl JsBigint {
     }))
   }
 
-  #[cfg(feature = "napi5")]
   pub fn is_date(&self) -> Result<bool> {
     let mut is_date = true;
     check_status!(unsafe { sys::napi_is_date(self.raw.env, self.raw.value, &mut is_date) })?;
@@ -122,19 +121,19 @@ impl JsBigint {
   }
 }
 
-impl NapiRaw for JsBigint {
+impl NapiRaw for JsBigInt {
   unsafe fn raw(&self) -> sys::napi_value {
     self.raw.value
   }
 }
 
-impl<'env> NapiRaw for &'env JsBigint {
+impl<'env> NapiRaw for &'env JsBigInt {
   unsafe fn raw(&self) -> sys::napi_value {
     self.raw.value
   }
 }
 
-impl NapiValue for JsBigint {
+impl NapiValue for JsBigInt {
   unsafe fn from_raw(env: sys::napi_env, value: sys::napi_value) -> Result<Self> {
     let mut word_count = 0usize;
     check_status!(sys::napi_get_value_bigint_words(
@@ -144,11 +143,11 @@ impl NapiValue for JsBigint {
       &mut word_count,
       ptr::null_mut(),
     ))?;
-    Ok(JsBigint {
+    Ok(JsBigInt {
       raw: Value {
         env,
         value,
-        value_type: ValueType::Bigint,
+        value_type: ValueType::BigInt,
       },
       word_count,
     })
@@ -167,11 +166,11 @@ impl NapiValue for JsBigint {
       Status::from(status) == Status::Ok,
       "napi_get_value_bigint_words failed"
     );
-    JsBigint {
+    JsBigInt {
       raw: Value {
         env,
         value,
-        value_type: ValueType::Bigint,
+        value_type: ValueType::BigInt,
       },
       word_count,
     }
@@ -179,24 +178,24 @@ impl NapiValue for JsBigint {
 }
 
 /// The BigInt will be converted losslessly when the value is over what an int64 could hold.
-impl TryFrom<JsBigint> for i64 {
+impl TryFrom<JsBigInt> for i64 {
   type Error = Error;
 
-  fn try_from(value: JsBigint) -> Result<i64> {
+  fn try_from(value: JsBigInt) -> Result<i64> {
     value.get_i64().map(|(v, _)| v)
   }
 }
 
 /// The BigInt will be converted losslessly when the value is over what an uint64 could hold.
-impl TryFrom<JsBigint> for u64 {
+impl TryFrom<JsBigInt> for u64 {
   type Error = Error;
 
-  fn try_from(value: JsBigint) -> Result<u64> {
+  fn try_from(value: JsBigInt) -> Result<u64> {
     value.get_u64().map(|(v, _)| v)
   }
 }
 
-impl JsBigint {
+impl JsBigInt {
   /// https://nodejs.org/api/n-api.html#n_api_napi_get_value_bigint_words
   pub fn get_words(&mut self) -> Result<(bool, Vec<u64>)> {
     let mut words: Vec<u64> = Vec::with_capacity(self.word_count as usize);
@@ -221,21 +220,21 @@ impl JsBigint {
 
   pub fn get_u64(&self) -> Result<(u64, bool)> {
     let mut val: u64 = 0;
-    let mut loss = false;
+    let mut lossless = false;
     check_status!(unsafe {
-      sys::napi_get_value_bigint_uint64(self.raw.env, self.raw.value, &mut val, &mut loss)
+      sys::napi_get_value_bigint_uint64(self.raw.env, self.raw.value, &mut val, &mut lossless)
     })?;
 
-    Ok((val, loss))
+    Ok((val, lossless))
   }
 
   pub fn get_i64(&self) -> Result<(i64, bool)> {
     let mut val: i64 = 0;
-    let mut loss: bool = false;
+    let mut lossless: bool = false;
     check_status!(unsafe {
-      sys::napi_get_value_bigint_int64(self.raw.env, self.raw.value, &mut val, &mut loss)
+      sys::napi_get_value_bigint_int64(self.raw.env, self.raw.value, &mut val, &mut lossless)
     })?;
-    Ok((val, loss))
+    Ok((val, lossless))
   }
 
   pub fn get_i128(&mut self) -> Result<(i128, bool)> {

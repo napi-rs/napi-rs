@@ -4,7 +4,7 @@ use serde::de::Visitor;
 use serde::de::{DeserializeSeed, EnumAccess, MapAccess, SeqAccess, Unexpected, VariantAccess};
 
 #[cfg(feature = "napi6")]
-use crate::JsBigint;
+use crate::JsBigInt;
 use crate::{type_of, NapiValue, Value, ValueType};
 use crate::{
   Error, JsBoolean, JsBufferValue, JsNumber, JsObject, JsString, JsUnknown, Result, Status,
@@ -54,8 +54,8 @@ impl<'x, 'de, 'env> serde::de::Deserializer<'x> for &'de mut De<'env> {
         }
       }
       #[cfg(feature = "napi6")]
-      ValueType::Bigint => {
-        let mut js_bigint = unsafe { JsBigint::from_raw(self.0.env, self.0.value)? };
+      ValueType::BigInt => {
+        let mut js_bigint = unsafe { JsBigInt::from_raw(self.0.env, self.0.value)? };
         let (signed, v, _loss) = js_bigint.get_u128()?;
         if signed {
           visitor.visit_i128(-(v as i128))
