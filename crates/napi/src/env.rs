@@ -100,43 +100,43 @@ impl Env {
 
   /// [n_api_napi_create_bigint_int64](https://nodejs.org/api/n-api.html#n_api_napi_create_bigint_int64)
   #[cfg(feature = "napi6")]
-  pub fn create_bigint_from_i64(&self, value: i64) -> Result<JsBigint> {
+  pub fn create_bigint_from_i64(&self, value: i64) -> Result<JsBigInt> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe { sys::napi_create_bigint_int64(self.0, value, &mut raw_value) })?;
-    Ok(JsBigint::from_raw_unchecked(self.0, raw_value, 1))
+    Ok(JsBigInt::from_raw_unchecked(self.0, raw_value, 1))
   }
 
   #[cfg(feature = "napi6")]
-  pub fn create_bigint_from_u64(&self, value: u64) -> Result<JsBigint> {
+  pub fn create_bigint_from_u64(&self, value: u64) -> Result<JsBigInt> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe { sys::napi_create_bigint_uint64(self.0, value, &mut raw_value) })?;
-    Ok(JsBigint::from_raw_unchecked(self.0, raw_value, 1))
+    Ok(JsBigInt::from_raw_unchecked(self.0, raw_value, 1))
   }
 
   #[cfg(feature = "napi6")]
-  pub fn create_bigint_from_i128(&self, value: i128) -> Result<JsBigint> {
+  pub fn create_bigint_from_i128(&self, value: i128) -> Result<JsBigInt> {
     let mut raw_value = ptr::null_mut();
     let sign_bit = if value > 0 { 0 } else { 1 };
     let words = &value as *const i128 as *const u64;
     check_status!(unsafe {
       sys::napi_create_bigint_words(self.0, sign_bit, 2, words, &mut raw_value)
     })?;
-    Ok(JsBigint::from_raw_unchecked(self.0, raw_value, 1))
+    Ok(JsBigInt::from_raw_unchecked(self.0, raw_value, 1))
   }
 
   #[cfg(feature = "napi6")]
-  pub fn create_bigint_from_u128(&self, value: u128) -> Result<JsBigint> {
+  pub fn create_bigint_from_u128(&self, value: u128) -> Result<JsBigInt> {
     let mut raw_value = ptr::null_mut();
     let words = &value as *const u128 as *const u64;
     check_status!(unsafe { sys::napi_create_bigint_words(self.0, 0, 2, words, &mut raw_value) })?;
-    Ok(JsBigint::from_raw_unchecked(self.0, raw_value, 1))
+    Ok(JsBigInt::from_raw_unchecked(self.0, raw_value, 1))
   }
 
   /// [n_api_napi_create_bigint_words](https://nodejs.org/api/n-api.html#n_api_napi_create_bigint_words)
   ///
   /// The resulting BigInt will be negative when sign_bit is true.
   #[cfg(feature = "napi6")]
-  pub fn create_bigint_from_words(&self, sign_bit: bool, words: Vec<u64>) -> Result<JsBigint> {
+  pub fn create_bigint_from_words(&self, sign_bit: bool, words: Vec<u64>) -> Result<JsBigInt> {
     let mut raw_value = ptr::null_mut();
     let len = words.len();
     check_status!(unsafe {
@@ -151,7 +151,7 @@ impl Env {
         &mut raw_value,
       )
     })?;
-    Ok(JsBigint::from_raw_unchecked(self.0, raw_value, len))
+    Ok(JsBigInt::from_raw_unchecked(self.0, raw_value, len))
   }
 
   pub fn create_string(&self, s: &str) -> Result<JsString> {

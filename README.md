@@ -241,9 +241,9 @@ yarn test
 | Result<()>              | Error                  | 1                                                                               | v8.0.0               |
 | T: Fn(...) -> Result<T> | Function               | 1                                                                               | v8.0.0               |
 | Async/Future            | Promise<T>             | 4                                                                               | v10.6.0              | async                    |
-| Task                    | Promise<T>             | 1                                                                               | v8.5.0               |
+| AsyncTask               | Promise<T>             | 1                                                                               | v8.5.0               |
 | (NOT YET)               | global                 | 1                                                                               | v8.0.0               |
-| (NOT YET)               | Symbol                 | 1                                                                               | v8.0.0               |
+| JsSymbol                | Symbol                 | 1                                                                               | v8.0.0               |
 | (NOT YET)               | ArrayBuffer/TypedArray | 1                                                                               | v8.0.0               |
 | (NOT YET)               | threadsafe function    | 4                                                                               | v10.6.0              | napi4                    |
-| (NOT YET)               | BigInt                 | 6                                                                               | v10.7.0              | napi6                    |
+| BigInt                  | BigInt                 | 6                                                                               | v10.7.0              | napi6                    |

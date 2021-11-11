@@ -5,6 +5,7 @@ extern crate serde_derive;
 
 mod array;
 mod r#async;
+mod bigint;
 mod callback;
 mod class;
 mod class_factory;

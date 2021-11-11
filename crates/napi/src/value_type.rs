@@ -15,7 +15,7 @@ pub enum ValueType {
   Function = 7,
   External = 8,
   #[cfg(feature = "napi6")]
-  Bigint = 9,
+  BigInt = 9,
   Unknown = 1024,
 }
 
@@ -30,7 +30,7 @@ impl From<i32> for ValueType {
   fn from(value: i32) -> ValueType {
     match value {
       #[cfg(feature = "napi6")]
-      sys::ValueType::napi_bigint => ValueType::Bigint,
+      sys::ValueType::napi_bigint => ValueType::BigInt,
       sys::ValueType::napi_boolean => ValueType::Boolean,
       sys::ValueType::napi_external => ValueType::External,
       sys::ValueType::napi_function => ValueType::Function,

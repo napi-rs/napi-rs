@@ -56,7 +56,7 @@ impl FromNapiValue for Value {
         }
       }
       #[cfg(feature = "napi6")]
-      ValueType::Bigint => todo!(),
+      ValueType::BigInt => todo!(),
       _ => Value::Null,
     };
 

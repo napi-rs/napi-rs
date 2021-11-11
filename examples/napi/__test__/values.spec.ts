@@ -35,6 +35,9 @@ import {
   withoutAbortController,
   withAbortController,
   asyncMultiTwo,
+  bigintAdd,
+  createBigInt,
+  createBigIntI64,
 } from '../'
 
 test('number', (t) => {
@@ -216,4 +219,18 @@ MaybeTest('abort resolved task', async (t) => {
   const ctrl = new AbortController()
   await withAbortController(1, 2, ctrl.signal).then(() => ctrl.abort())
   t.pass('should not throw')
+})
+
+const BigIntTest = typeof BigInt !== 'undefined' ? test : test.skip
+
+BigIntTest('BigInt add', (t) => {
+  t.is(bigintAdd(BigInt(1), BigInt(2)), BigInt(3))
+})
+
+BigIntTest('create BigInt', (t) => {
+  t.is(createBigInt(), BigInt('-3689348814741910323300'))
+})
+
+BigIntTest('create BigInt i64', (t) => {
+  t.is(createBigIntI64(), BigInt(100))
 })

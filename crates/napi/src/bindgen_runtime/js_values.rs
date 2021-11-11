@@ -1,7 +1,10 @@
-use crate::{check_status, sys, Error, JsUnknown, NapiRaw, NapiValue, Result, Status, ValueType};
 use std::ptr;
 
+use crate::{check_status, sys, Error, JsUnknown, NapiRaw, NapiValue, Result, Status, ValueType};
+
 mod array;
+#[cfg(feature = "napi6")]
+mod bigint;
 mod boolean;
 mod buffer;
 mod either;
@@ -15,6 +18,8 @@ mod string;
 mod task;
 
 pub use array::*;
+#[cfg(feature = "napi6")]
+pub use bigint::*;
 pub use buffer::*;
 pub use either::*;
 pub use nil::*;

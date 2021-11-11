@@ -33,7 +33,7 @@ mod value_ref;
 
 pub use arraybuffer::*;
 #[cfg(feature = "napi6")]
-pub use bigint::JsBigint;
+pub use bigint::JsBigInt;
 pub use boolean::JsBoolean;
 pub use buffer::*;
 #[cfg(feature = "napi5")]
