@@ -33,7 +33,7 @@ interface PackageJson {
 export function readPackageJson(): PackageJson
 export function getPackageJsonName(packageJson: PackageJson): string
 export function contains(source: string, target: string): boolean
-export function concatStr(mutS: string): string
+export function concatStr(s: string): string
 export function concatUtf16(s: string): string
 export function concatLatin1(s: string): string
 export function withoutAbortController(a: number, b: number): Promise<number>
