@@ -1,5 +1,6 @@
 use convert_case::{Case, Casing};
 use quote::ToTokens;
+use syn::Pat;
 
 use super::{ty_to_ts_type, ToTypeDef, TypeDef};
 use crate::{CallbackArg, FnKind, NapiFn};
@@ -48,6 +49,11 @@ impl NapiFn {
         crate::NapiFnArgKind::PatType(path) => {
           if path.ty.to_token_stream().to_string() == "Env" {
             return None;
+          }
+          let mut path = path.clone();
+          // remove mutability from PatIdent
+          if let Pat::Ident(i) = path.pat.as_mut() {
+            i.mutability = None;
           }
           let mut arg = path.pat.to_token_stream().to_string().to_case(Case::Camel);
           arg.push_str(": ");
