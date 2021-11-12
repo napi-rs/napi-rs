@@ -18,4 +18,5 @@ mod object;
 mod serde;
 mod string;
 mod task;
+mod threadsafe_function;
 mod typed_array;

@@ -49,7 +49,7 @@ pub fn throw_syntax_error(ctx: CallContext) -> Result<JsUndefined> {
     .env
     .get_global()?
     .get_named_property::<JsFunction>("SyntaxError")?;
-  ctx.env.throw(syntax_error.new(&[message])?)?;
+  ctx.env.throw(syntax_error.new_instance(&[message])?)?;
   ctx.env.get_undefined()
 }
 

@@ -2,6 +2,8 @@ use std::ptr;
 
 use super::Value;
 use crate::bindgen_runtime::TypeName;
+#[cfg(feature = "napi4")]
+use crate::threadsafe_function::{ThreadSafeCallContext, ThreadsafeFunction};
 use crate::{check_status, ValueType};
 use crate::{sys, Env, Error, JsObject, JsUnknown, NapiRaw, NapiValue, Result, Status};
 
@@ -95,8 +97,7 @@ impl JsFunction {
   /// https://nodejs.org/api/n-api.html#n_api_napi_new_instance
   ///
   /// This method is used to instantiate a new `JavaScript` value using a given `JsFunction` that represents the constructor for the object.
-  #[allow(clippy::new_ret_no_self)]
-  pub fn new<V>(&self, args: &[V]) -> Result<JsObject>
+  pub fn new_instance<V>(&self, args: &[V]) -> Result<JsObject>
   where
     V: NapiRaw,
   {
@@ -116,5 +117,19 @@ impl JsFunction {
       )
     })?;
     Ok(unsafe { JsObject::from_raw_unchecked(self.0.env, js_instance) })
+  }
+
+  #[cfg(feature = "napi4")]
+  pub fn create_threadsafe_function<T, V, F>(
+    &self,
+    max_queue_size: usize,
+    callback: F,
+  ) -> Result<ThreadsafeFunction<T>>
+  where
+    T: 'static,
+    V: NapiRaw,
+    F: 'static + Send + FnMut(ThreadSafeCallContext<T>) -> Result<Vec<V>>,
+  {
+    ThreadsafeFunction::create(self.0.env, self.0.value, max_queue_size, callback)
   }
 }
