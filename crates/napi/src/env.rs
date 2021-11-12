@@ -1017,7 +1017,7 @@ impl Env {
     max_queue_size: usize,
     callback: R,
   ) -> Result<ThreadsafeFunction<T>> {
-    ThreadsafeFunction::create(self.0, func, max_queue_size, callback)
+    ThreadsafeFunction::create(self.0, func.0.value, max_queue_size, callback)
   }
 
   #[cfg(all(feature = "tokio_rt", feature = "napi4"))]

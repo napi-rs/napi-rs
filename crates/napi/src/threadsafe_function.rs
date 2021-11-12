@@ -8,7 +8,7 @@ use std::ptr;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use crate::{check_status, sys, Env, Error, JsError, JsFunction, NapiRaw, Result, Status};
+use crate::{check_status, sys, Env, Error, JsError, NapiRaw, Result, Status};
 
 use sys::napi_threadsafe_function_call_mode;
 
@@ -186,7 +186,7 @@ impl<T: 'static, ES: ErrorStrategy::T> ThreadsafeFunction<T, ES> {
     R: 'static + Send + FnMut(ThreadSafeCallContext<T>) -> Result<Vec<V>>,
   >(
     env: sys::napi_env,
-    func: &JsFunction,
+    func: sys::napi_value,
     max_queue_size: usize,
     callback: R,
   ) -> Result<Self> {
@@ -204,7 +204,7 @@ impl<T: 'static, ES: ErrorStrategy::T> ThreadsafeFunction<T, ES> {
     check_status!(unsafe {
       sys::napi_create_threadsafe_function(
         env,
-        func.0.value,
+        func,
         ptr::null_mut(),
         async_resource_name,
         max_queue_size,

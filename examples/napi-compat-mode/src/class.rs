@@ -65,7 +65,7 @@ fn new_test_class(ctx: CallContext) -> Result<JsObject> {
       .env
       .define_class("TestClass", test_class_constructor, properties.as_slice())?;
 
-  test_class.new(&[ctx.env.create_int32(42)?])
+  test_class.new_instance(&[ctx.env.create_int32(42)?])
 }
 
 pub fn register_js(exports: &mut JsObject) -> Result<()> {

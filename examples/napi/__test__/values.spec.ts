@@ -38,6 +38,8 @@ import {
   bigintAdd,
   createBigInt,
   createBigIntI64,
+  callThreadsafeFunction,
+  threadsafeFunctionThrowError,
 } from '../'
 
 test('number', (t) => {
@@ -201,9 +203,10 @@ test('async task without abort controller', async (t) => {
   t.is(await withoutAbortController(1, 2), 3)
 })
 
-const MaybeTest = typeof AbortController !== 'undefined' ? test : test.skip
+const AbortSignalTest =
+  typeof AbortController !== 'undefined' ? test : test.skip
 
-MaybeTest('async task with abort controller', async (t) => {
+AbortSignalTest('async task with abort controller', async (t) => {
   const ctrl = new AbortController()
   const promise = withAbortController(1, 2, ctrl.signal)
   try {
@@ -215,7 +218,7 @@ MaybeTest('async task with abort controller', async (t) => {
   }
 })
 
-MaybeTest('abort resolved task', async (t) => {
+AbortSignalTest('abort resolved task', async (t) => {
   const ctrl = new AbortController()
   await withAbortController(1, 2, ctrl.signal).then(() => ctrl.abort())
   t.pass('should not throw')
@@ -233,4 +236,34 @@ BigIntTest('create BigInt', (t) => {
 
 BigIntTest('create BigInt i64', (t) => {
   t.is(createBigIntI64(), BigInt(100))
+})
+
+const ThreadsafeFunctionTest =
+  Number(process.versions.napi) >= 4 ? test : test.skip
+
+ThreadsafeFunctionTest('call thread safe function', (t) => {
+  let i = 0
+  let value = 0
+  return new Promise((resolve) => {
+    callThreadsafeFunction((err, v) => {
+      t.is(err, null)
+      i++
+      value += v
+      if (i === 100) {
+        resolve()
+        t.is(
+          value,
+          Array.from({ length: 100 }, (_, i) => i + 1).reduce((a, b) => a + b),
+        )
+      }
+    })
+  })
+})
+
+ThreadsafeFunctionTest('throw error from thread safe function', async (t) => {
+  const throwPromise = new Promise((_, reject) => {
+    threadsafeFunctionThrowError(reject)
+  })
+  const err = await t.throwsAsync(throwPromise)
+  t.is(err.message, 'ThrowFromNative')
 })

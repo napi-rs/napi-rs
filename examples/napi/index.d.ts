@@ -38,6 +38,8 @@ export function concatUtf16(s: string): string
 export function concatLatin1(s: string): string
 export function withoutAbortController(a: number, b: number): Promise<number>
 export function withAbortController(a: number, b: number, signal: AbortSignal): Promise<number>
+export function callThreadsafeFunction(callback: (...args: any[]) => any): void
+export function threadsafeFunctionThrowError(cb: (...args: any[]) => any): void
 export function getBuffer(): Buffer
 export class Animal {
   readonly kind: Kind

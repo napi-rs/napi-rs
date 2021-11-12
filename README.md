@@ -245,5 +245,5 @@ yarn test
 | (NOT YET)               | global                 | 1                                                                               | v8.0.0               |
 | JsSymbol                | Symbol                 | 1                                                                               | v8.0.0               |
 | (NOT YET)               | ArrayBuffer/TypedArray | 1                                                                               | v8.0.0               |
-| (NOT YET)               | threadsafe function    | 4                                                                               | v10.6.0              | napi4                    |
+| JsFunction              | threadsafe function    | 4                                                                               | v10.6.0              | napi4                    |
 | BigInt                  | BigInt                 | 6                                                                               | v10.7.0              | napi6                    |
