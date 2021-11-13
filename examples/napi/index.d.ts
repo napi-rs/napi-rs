@@ -24,6 +24,7 @@ export function add(a: number, b: number): number
 export function fibonacci(n: number): number
 export function listObjKeys(obj: object): Array<string>
 export function createObj(): object
+export function asyncPlus100(p: Promise<number>): Promise<number>
 interface PackageJson {
   name: string
   version: string

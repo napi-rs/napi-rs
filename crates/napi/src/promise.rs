@@ -1,6 +1,7 @@
+use std::ffi::CString;
 use std::future::Future;
 use std::marker::PhantomData;
-use std::os::raw::{c_char, c_void};
+use std::os::raw::c_void;
 use std::ptr;
 
 use crate::{check_status, sys, JsError, Result};
@@ -12,7 +13,6 @@ pub struct FuturePromise<Data, Resolver: FnOnce(sys::napi_env, Data) -> Result<s
   async_resource_name: sys::napi_value,
   resolver: Resolver,
   _data: PhantomData<Data>,
-  _value: PhantomData<sys::napi_value>,
 }
 
 unsafe impl<T, F: FnOnce(sys::napi_env, T) -> Result<sys::napi_value>> Send
@@ -23,26 +23,20 @@ unsafe impl<T, F: FnOnce(sys::napi_env, T) -> Result<sys::napi_value>> Send
 impl<Data, Resolver: FnOnce(sys::napi_env, Data) -> Result<sys::napi_value>>
   FuturePromise<Data, Resolver>
 {
-  pub fn new(env: sys::napi_env, dererred: sys::napi_deferred, resolver: Resolver) -> Result<Self> {
+  pub fn new(env: sys::napi_env, deferred: sys::napi_deferred, resolver: Resolver) -> Result<Self> {
     let mut async_resource_name = ptr::null_mut();
-    let s = "napi_resolve_promise_from_future";
+    let s = CString::new("napi_resolve_promise_from_future")?;
     check_status!(unsafe {
-      sys::napi_create_string_utf8(
-        env,
-        s.as_ptr() as *const c_char,
-        s.len(),
-        &mut async_resource_name,
-      )
+      sys::napi_create_string_utf8(env, s.as_ptr(), 32, &mut async_resource_name)
     })?;
 
     Ok(FuturePromise {
-      deferred: dererred,
+      deferred,
       resolver,
       env,
       tsfn: ptr::null_mut(),
       async_resource_name,
       _data: PhantomData,
-      _value: PhantomData,
     })
   }
 
@@ -83,7 +77,7 @@ pub(crate) async fn resolve_from_future<Data: Send, Fut: Future<Output = Result<
   check_status!(unsafe {
     sys::napi_call_threadsafe_function(
       tsfn_value.0,
-      Box::into_raw(Box::from(val)) as *mut Data as *mut c_void,
+      Box::into_raw(Box::from(val)) as *mut c_void,
       sys::napi_threadsafe_function_call_mode::napi_tsfn_nonblocking,
     )
   })
@@ -117,7 +111,26 @@ unsafe extern "C" fn call_js_cb<
       debug_assert!(status == sys::Status::napi_ok, "Resolve promise failed");
     }
     Err(e) => {
-      let status = sys::napi_reject_deferred(env, deferred, JsError::from(e).into_value(env));
+      let status = sys::napi_reject_deferred(
+        env,
+        deferred,
+        if e.maybe_raw.is_null() {
+          JsError::from(e).into_value(env)
+        } else {
+          let mut err = ptr::null_mut();
+          let get_err_status = sys::napi_get_reference_value(env, e.maybe_raw, &mut err);
+          debug_assert!(
+            get_err_status == sys::Status::napi_ok,
+            "Get Error from Reference failed"
+          );
+          let delete_reference_status = sys::napi_delete_reference(env, e.maybe_raw);
+          debug_assert!(
+            delete_reference_status == sys::Status::napi_ok,
+            "Delete Error Reference failed"
+          );
+          err
+        },
+      );
       debug_assert!(status == sys::Status::napi_ok, "Reject promise failed");
     }
   };

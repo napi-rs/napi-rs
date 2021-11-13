@@ -40,6 +40,7 @@ import {
   createBigIntI64,
   callThreadsafeFunction,
   threadsafeFunctionThrowError,
+  asyncPlus100,
 } from '../'
 
 test('number', (t) => {
@@ -238,10 +239,9 @@ BigIntTest('create BigInt i64', (t) => {
   t.is(createBigIntI64(), BigInt(100))
 })
 
-const ThreadsafeFunctionTest =
-  Number(process.versions.napi) >= 4 ? test : test.skip
+const Napi4Test = Number(process.versions.napi) >= 4 ? test : test.skip
 
-ThreadsafeFunctionTest('call thread safe function', (t) => {
+Napi4Test('call thread safe function', (t) => {
   let i = 0
   let value = 0
   return new Promise((resolve) => {
@@ -260,10 +260,26 @@ ThreadsafeFunctionTest('call thread safe function', (t) => {
   })
 })
 
-ThreadsafeFunctionTest('throw error from thread safe function', async (t) => {
+Napi4Test('throw error from thread safe function', async (t) => {
   const throwPromise = new Promise((_, reject) => {
     threadsafeFunctionThrowError(reject)
   })
   const err = await t.throwsAsync(throwPromise)
   t.is(err.message, 'ThrowFromNative')
+})
+
+Napi4Test('await Promise in rust', async (t) => {
+  const fx = 20
+  const result = await asyncPlus100(
+    new Promise((resolve) => {
+      setTimeout(() => resolve(fx), 50)
+    }),
+  )
+  t.is(result, fx + 100)
+})
+
+Napi4Test('Promise should reject raw error in rust', async (t) => {
+  const fxError = new Error('What is Happy Planet')
+  const err = await t.throwsAsync(() => asyncPlus100(Promise.reject(fxError)))
+  t.is(err, fxError)
 })

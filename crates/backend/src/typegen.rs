@@ -155,6 +155,8 @@ pub fn ty_to_ts_type(ty: &Type, is_return_ty: bool) -> String {
           .with(|c| c.borrow_mut().get(rust_ty.as_str()).cloned())
         {
           ts_ty = Some(t);
+        } else if rust_ty == "Promise" {
+          ts_ty = Some(format!("Promise<{}>", args.first().unwrap()));
         } else {
           // there should be runtime registered type in else
           ts_ty = Some(rust_ty);

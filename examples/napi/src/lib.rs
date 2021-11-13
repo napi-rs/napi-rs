@@ -15,6 +15,7 @@ mod error;
 mod nullable;
 mod number;
 mod object;
+mod promise;
 mod serde;
 mod string;
 mod task;
