@@ -1,5 +1,3 @@
-use napi::bindgen_prelude::*;
-
 #[napi]
 fn get_words() -> Vec<&'static str> {
   vec!["foo", "bar"]

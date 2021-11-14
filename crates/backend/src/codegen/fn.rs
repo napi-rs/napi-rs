@@ -33,7 +33,7 @@ impl TryToTokens for NapiFn {
         quote! { Ok(#receiver(#(#arg_names),*).await) }
       };
       quote! {
-        execute_tokio_future(env, async move { #call }, |env, #receiver_ret_name| {
+        napi::bindgen_prelude::execute_tokio_future(env, async move { #call }, |env, #receiver_ret_name| {
           #ret
         })
       }
@@ -47,20 +47,20 @@ impl TryToTokens for NapiFn {
       quote! { #native_call }
     } else if self.kind == FnKind::Constructor {
       quote! {
-        let call_from_factory = ___CALL_FROM_FACTORY.load(std::sync::atomic::Ordering::Relaxed);
+        let call_from_factory = napi::bindgen_prelude::___CALL_FROM_FACTORY.load(std::sync::atomic::Ordering::Relaxed);
         // constructor function is called from class `factory`
         // so we should skip the original `constructor` logic
         if call_from_factory {
           return std::ptr::null_mut();
         }
-        CallbackInfo::<#args_len>::new(env, cb, None).and_then(|mut cb| {
+        napi::bindgen_prelude::CallbackInfo::<#args_len>::new(env, cb, None).and_then(|mut cb| {
           #(#arg_conversions)*
           #native_call
         })
       }
     } else {
       quote! {
-        CallbackInfo::<#args_len>::new(env, cb, None).and_then(|mut cb| {
+        napi::bindgen_prelude::CallbackInfo::<#args_len>::new(env, cb, None).and_then(|mut cb| {
           #(#arg_conversions)*
           #native_call
         })
@@ -73,13 +73,13 @@ impl TryToTokens for NapiFn {
       #[allow(non_snake_case)]
       #[allow(clippy::all)]
       extern "C" fn #intermediate_ident(
-        env: sys::napi_env,
-        cb: sys::napi_callback_info
-      ) -> sys::napi_value {
+        env: napi::bindgen_prelude::sys::napi_env,
+        cb: napi::bindgen_prelude::sys::napi_callback_info
+      ) -> napi::bindgen_prelude::sys::napi_value {
         unsafe {
           #function_call.unwrap_or_else(|e| {
-            JsError::from(e).throw_into(env);
-            std::ptr::null_mut::<sys::napi_value__>()
+            napi::bindgen_prelude::JsError::from(e).throw_into(env);
+            std::ptr::null_mut::<napi::bindgen_prelude::sys::napi_value__>()
           })
         }
       }
@@ -118,7 +118,7 @@ impl NapiFn {
       match arg {
         NapiFnArgKind::PatType(path) => {
           if &path.ty.to_token_stream().to_string() == "Env" {
-            args.push(quote! { Env::from(env) });
+            args.push(quote! { napi::bindgen_prelude::Env::from(env) });
             skipped_arg_count += 1;
           } else {
             arg_conversions.push(self.gen_ty_arg_conversion(&ident, i, path));
@@ -149,18 +149,18 @@ impl NapiFn {
         ..
       }) => {
         quote! {
-          let #arg_name = <#elem as FromNapiMutRef>::from_napi_mut_ref(env, cb.get_arg(#index))?;
+          let #arg_name = <#elem as napi::bindgen_prelude::FromNapiMutRef>::from_napi_mut_ref(env, cb.get_arg(#index))?;
         }
       }
       syn::Type::Reference(syn::TypeReference { elem, .. }) => {
         quote! {
-          let #arg_name = <#elem as FromNapiRef>::from_napi_ref(env, cb.get_arg(#index))?;
+          let #arg_name = <#elem as napi::bindgen_prelude::FromNapiRef>::from_napi_ref(env, cb.get_arg(#index))?;
         }
       }
       _ => {
         let type_check = if self.strict {
           quote! {
-            <#ty as ValidateNapiValue>::validate(env, cb.get_arg(#index))?;
+            <#ty as napi::bindgen_prelude::ValidateNapiValue>::validate(env, cb.get_arg(#index))?;
           }
         } else {
           quote! {}
@@ -169,7 +169,7 @@ impl NapiFn {
         quote! {
           let #arg_name = {
             #type_check
-            <#ty as FromNapiValue>::from_napi_value(env, cb.get_arg(#index))?
+            <#ty as napi::bindgen_prelude::FromNapiValue>::from_napi_value(env, cb.get_arg(#index))?
           };
         }
       }
@@ -183,13 +183,15 @@ impl NapiFn {
     for (i, ty) in cb.args.iter().enumerate() {
       let cb_arg_ident = Ident::new(&format!("callback_arg_{}", i), Span::call_site());
       inputs.push(quote! { #cb_arg_ident: #ty });
-      arg_conversions.push(quote! { <#ty as ToNapiValue>::to_napi_value(env, #cb_arg_ident)? });
+      arg_conversions.push(
+        quote! { <#ty as napi::bindgen_prelude::ToNapiValue>::to_napi_value(env, #cb_arg_ident)? },
+      );
     }
 
     let ret = match &cb.ret {
       Some(ty) => {
         quote! {
-          let ret = <#ty as FromNapiValue>::from_napi_value(env, ret_ptr)?;
+          let ret = <#ty as napi::bindgen_prelude::FromNapiValue>::from_napi_value(env, ret_ptr)?;
 
           Ok(ret)
         }
@@ -198,7 +200,7 @@ impl NapiFn {
     };
 
     quote! {
-      assert_type_of!(env, cb.get_arg(#index), ValueType::Function)?;
+      napi::bindgen_prelude::assert_type_of!(env, cb.get_arg(#index), napi::bindgen_prelude::ValueType::Function)?;
       let #arg_name = |#(#inputs),*| {
         let args = vec![
           #(#arg_conversions),*
@@ -206,8 +208,8 @@ impl NapiFn {
 
         let mut ret_ptr = std::ptr::null_mut();
 
-        check_status!(
-          sys::napi_call_function(
+        napi::bindgen_prelude::check_status!(
+          napi::bindgen_prelude::sys::napi_call_function(
             env,
             cb.this(),
             cb.get_arg(#index),
@@ -258,14 +260,14 @@ impl NapiFn {
       } else if self.is_ret_result {
         if self.is_async {
           quote! {
-            <#ty as ToNapiValue>::to_napi_value(env, #ret)
+            <#ty as napi::bindgen_prelude::ToNapiValue>::to_napi_value(env, #ret)
           }
         } else {
           quote! {
             match #ret {
-              Ok(value) => ToNapiValue::to_napi_value(env, value),
+              Ok(value) => napi::bindgen_prelude::ToNapiValue::to_napi_value(env, value),
               Err(err) => {
-                JsError::from(err).throw_into(env);
+                napi::bindgen_prelude::JsError::from(err).throw_into(env);
                 Ok(std::ptr::null_mut())
               },
             }
@@ -273,12 +275,12 @@ impl NapiFn {
         }
       } else {
         quote! {
-          <#ty as ToNapiValue>::to_napi_value(env, #ret)
+          <#ty as napi::bindgen_prelude::ToNapiValue>::to_napi_value(env, #ret)
         }
       }
     } else {
       quote! {
-        <() as ToNapiValue>::to_napi_value(env, ())
+        <() as napi::bindgen_prelude::ToNapiValue>::to_napi_value(env, ())
       }
     }
   }
@@ -296,13 +298,13 @@ impl NapiFn {
       quote! {
         #[allow(clippy::all)]
         #[allow(non_snake_case)]
-        #[ctor]
+        #[napi::bindgen_prelude::ctor]
         fn #module_register_name() {
-          unsafe fn cb(env: sys::napi_env) -> Result<sys::napi_value> {
+          unsafe fn cb(env: napi::bindgen_prelude::sys::napi_env) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
             let mut fn_ptr = std::ptr::null_mut();
 
-            check_status!(
-              sys::napi_create_function(
+            napi::bindgen_prelude::check_status!(
+              napi::bindgen_prelude::sys::napi_create_function(
                 env,
                 #js_name.as_ptr() as *const _,
                 #name_len,
@@ -317,7 +319,7 @@ impl NapiFn {
             Ok(fn_ptr)
           }
 
-          register_module_export(#js_name, cb);
+          napi::bindgen_prelude::register_module_export(#js_name, cb);
         }
       }
     }
