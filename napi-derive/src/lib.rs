@@ -249,12 +249,12 @@ pub fn module_exports(_attr: TokenStream, input: TokenStream) -> TokenStream {
       match hook_result.and_then(move |_| result) {
         Ok(_) => raw_exports,
         Err(e) => {
+          let c_string = CString::from_vec_unchecked(format!("Error initializing module: {}", e).into());
           unsafe {
             napi::sys::napi_throw_error(
               raw_env,
               ptr::null(),
-              CString::from_vec_unchecked(format!("Error initializing module: {}", e).into())
-                .as_ptr(),
+              c_string.as_ptr(),
             )
           };
           ptr::null_mut()

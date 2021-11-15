@@ -694,14 +694,14 @@ impl Env {
   #[inline]
   /// This API throws a JavaScript Error with the text provided.
   pub fn throw_error(&self, msg: &str, code: Option<&str>) -> Result<()> {
+    let code = code.and_then(|s| CString::new(s).ok());
+    let msg = CString::new(msg)?;
+
     check_status!(unsafe {
       sys::napi_throw_error(
         self.0,
-        match code {
-          Some(s) => CString::new(s)?.as_ptr(),
-          None => ptr::null_mut(),
-        },
-        CString::new(msg)?.as_ptr(),
+        code.map(|s| s.as_ptr()).unwrap_or(ptr::null_mut()),
+        msg.as_ptr(),
       )
     })
   }
@@ -714,14 +714,13 @@ impl Env {
   #[inline]
   /// This API throws a JavaScript RangeError with the text provided.
   pub fn throw_range_error(&self, msg: &str, code: Option<&str>) -> Result<()> {
+    let code = code.and_then(|s| CString::new(s).ok());
+    let msg = CString::new(msg)?;
     check_status!(unsafe {
       sys::napi_throw_range_error(
         self.0,
-        match code {
-          Some(s) => CString::new(s)?.as_ptr(),
-          None => ptr::null_mut(),
-        },
-        CString::new(msg)?.as_ptr(),
+        code.map(|s| s.as_ptr()).unwrap_or(ptr::null_mut()),
+        msg.as_ptr(),
       )
     })
   }
@@ -729,14 +728,13 @@ impl Env {
   #[inline]
   /// This API throws a JavaScript TypeError with the text provided.
   pub fn throw_type_error(&self, msg: &str, code: Option<&str>) -> Result<()> {
+    let code = code.and_then(|s| CString::new(s).ok());
+    let msg = CString::new(msg)?;
     check_status!(unsafe {
       sys::napi_throw_type_error(
         self.0,
-        match code {
-          Some(s) => CString::new(s)?.as_ptr(),
-          None => ptr::null_mut(),
-        },
-        CString::new(msg)?.as_ptr(),
+        code.map(|s| s.as_ptr()).unwrap_or(ptr::null_mut()),
+        msg.as_ptr(),
       )
     })
   }
