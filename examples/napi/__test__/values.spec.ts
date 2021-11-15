@@ -41,6 +41,9 @@ import {
   callThreadsafeFunction,
   threadsafeFunctionThrowError,
   asyncPlus100,
+  getGlobal,
+  getUndefined,
+  getNull,
 } from '../'
 
 test('number', (t) => {
@@ -135,6 +138,22 @@ test('callback', (t) => {
 test('object', (t) => {
   t.deepEqual(listObjKeys({ name: 'John Doe', age: 20 }), ['name', 'age'])
   t.deepEqual(createObj(), { test: 1 })
+})
+
+test('global', (t) => {
+  t.is(getGlobal(), global)
+})
+
+test('get undefined', (t) => {
+  for (const _ of Array.from({ length: 100 })) {
+    t.is(getUndefined(), undefined)
+  }
+})
+
+test('get null', (t) => {
+  for (const _ of Array.from({ length: 100 })) {
+    t.is(getNull(), null)
+  }
 })
 
 test('Option', (t) => {

@@ -75,6 +75,7 @@ static KNOWN_TYPES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     ("external", "object"),
     ("AbortSignal", "AbortSignal"),
     ("JsFunction", "(...args: any[]) => any"),
+    ("JsGlobal", "typeof global"),
   ]);
 
   map

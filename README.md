@@ -242,7 +242,7 @@ yarn test
 | T: Fn(...) -> Result<T> | Function               | 1                                                                               | v8.0.0               |
 | Async/Future            | Promise<T>             | 4                                                                               | v10.6.0              | async                    |
 | AsyncTask               | Promise<T>             | 1                                                                               | v8.5.0               |
-| (NOT YET)               | global                 | 1                                                                               | v8.0.0               |
+| JsGlobal                | global                 | 1                                                                               | v8.0.0               |
 | JsSymbol                | Symbol                 | 1                                                                               | v8.0.0               |
 | (NOT YET)               | ArrayBuffer/TypedArray | 1                                                                               | v8.0.0               |
 | JsFunction              | threadsafe function    | 4                                                                               | v10.6.0              | napi4                    |

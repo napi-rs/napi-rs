@@ -1,6 +1,8 @@
 use serde_json::{Map, Value};
 
-use crate::{bindgen_runtime::Null, check_status, sys, type_of, Error, Result, Status, ValueType};
+use crate::{
+  bindgen_runtime::Null, check_status, sys, type_of, Error, JsObject, Result, Status, ValueType,
+};
 
 use super::{FromNapiValue, Object, ToNapiValue};
 
@@ -78,10 +80,11 @@ impl ToNapiValue for Map<String, Value> {
 
 impl FromNapiValue for Map<String, Value> {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
-    let obj = Object {
+    let obj = JsObject(crate::Value {
       env,
-      inner: napi_val,
-    };
+      value: napi_val,
+      value_type: ValueType::Object,
+    });
 
     let mut map = Map::new();
     for key in Object::keys(&obj)?.into_iter() {

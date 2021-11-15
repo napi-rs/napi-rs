@@ -8,7 +8,6 @@ use std::ptr;
 #[cfg(feature = "napi5")]
 use super::check_status;
 use super::Value;
-use crate::bindgen_runtime::TypeName;
 #[cfg(feature = "napi5")]
 use crate::sys;
 #[cfg(feature = "napi5")]
@@ -17,19 +16,8 @@ use crate::Env;
 use crate::Error;
 #[cfg(feature = "napi5")]
 use crate::Result;
-use crate::ValueType;
 
 pub struct JsObject(pub(crate) Value);
-
-impl TypeName for JsObject {
-  fn type_name() -> &'static str {
-    "Object"
-  }
-
-  fn value_type() -> crate::ValueType {
-    ValueType::Object
-  }
-}
 
 #[cfg(feature = "napi5")]
 pub struct FinalizeContext<T: 'static, Hint: 'static> {

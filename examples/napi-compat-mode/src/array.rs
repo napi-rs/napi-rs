@@ -7,7 +7,7 @@ use napi::{
 
 #[contextless_function]
 fn test_create_array(env: Env) -> ContextlessResult<JsObject> {
-  env.create_array().map(Some)
+  env.create_empty_array().map(Some)
 }
 
 #[js_function(1)]
