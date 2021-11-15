@@ -18,6 +18,7 @@ mod object;
 mod promise;
 mod serde;
 mod string;
+mod symbol;
 mod task;
 mod threadsafe_function;
 mod typed_array;

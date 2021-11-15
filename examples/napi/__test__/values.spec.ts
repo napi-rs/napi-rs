@@ -44,6 +44,8 @@ import {
   getGlobal,
   getUndefined,
   getNull,
+  setSymbolInObj,
+  createSymbol,
 } from '../'
 
 test('number', (t) => {
@@ -154,6 +156,16 @@ test('get null', (t) => {
   for (const _ of Array.from({ length: 100 })) {
     t.is(getNull(), null)
   }
+})
+
+test('pass symbol in', (t) => {
+  const sym = Symbol('test')
+  const obj = setSymbolInObj(sym)
+  t.is(obj[sym], 'a symbol')
+})
+
+test('create symbol', (t) => {
+  t.is(createSymbol().toString(), 'Symbol(a symbol)')
 })
 
 test('Option', (t) => {
