@@ -1,5 +1,3 @@
-use napi::bindgen_prelude::*;
-
 #[napi]
 pub struct ClassWithFactory {
   pub name: String,
