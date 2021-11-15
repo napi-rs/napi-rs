@@ -155,6 +155,35 @@ macro_rules! assert_type_of {
   };
 }
 
+#[allow(dead_code)]
+#[cfg(debug_assertions)]
+pub(crate) unsafe fn log_js_value<V: AsRef<[sys::napi_value]>>(
+  // `info`, `log`, `warning` or `error`
+  method: &str,
+  env: sys::napi_env,
+  values: V,
+) {
+  use std::ffi::CString;
+  use std::ptr;
+
+  let mut g = ptr::null_mut();
+  sys::napi_get_global(env, &mut g);
+  let mut console = ptr::null_mut();
+  let console_c_string = CString::new("console").unwrap();
+  let method_c_string = CString::new(method).unwrap();
+  sys::napi_get_named_property(env, g, console_c_string.as_ptr(), &mut console);
+  let mut method_js_fn = ptr::null_mut();
+  sys::napi_get_named_property(env, console, method_c_string.as_ptr(), &mut method_js_fn);
+  sys::napi_call_function(
+    env,
+    console,
+    method_js_fn,
+    values.as_ref().len(),
+    values.as_ref().as_ptr(),
+    ptr::null_mut(),
+  );
+}
+
 pub mod bindgen_prelude {
   #[cfg(feature = "compat-mode")]
   pub use crate::bindgen_runtime::register_module_exports;
