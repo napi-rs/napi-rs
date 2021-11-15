@@ -13,6 +13,7 @@ mod map;
 mod nil;
 mod number;
 mod object;
+mod promise;
 #[cfg(feature = "serde-json")]
 mod serde;
 mod string;
@@ -27,6 +28,7 @@ pub use either::*;
 pub use function::*;
 pub use nil::*;
 pub use object::*;
+pub use promise::*;
 pub use string::*;
 pub use task::*;
 

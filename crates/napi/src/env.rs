@@ -629,42 +629,39 @@ impl Env {
 
   /// This API throws a JavaScript Error with the text provided.
   pub fn throw_error(&self, msg: &str, code: Option<&str>) -> Result<()> {
+    let code = code.and_then(|s| CString::new(s).ok());
+    let msg = CString::new(msg)?;
     check_status!(unsafe {
       sys::napi_throw_error(
         self.0,
-        match code {
-          Some(s) => CString::new(s)?.as_ptr(),
-          None => ptr::null_mut(),
-        },
-        CString::new(msg)?.as_ptr(),
+        code.map(|s| s.as_ptr()).unwrap_or(ptr::null_mut()),
+        msg.as_ptr(),
       )
     })
   }
 
   /// This API throws a JavaScript RangeError with the text provided.
   pub fn throw_range_error(&self, msg: &str, code: Option<&str>) -> Result<()> {
+    let code = code.and_then(|s| CString::new(s).ok());
+    let msg = CString::new(msg)?;
     check_status!(unsafe {
       sys::napi_throw_range_error(
         self.0,
-        match code {
-          Some(s) => CString::new(s)?.as_ptr(),
-          None => ptr::null_mut(),
-        },
-        CString::new(msg)?.as_ptr(),
+        code.map(|s| s.as_ptr()).unwrap_or(ptr::null_mut()),
+        msg.as_ptr(),
       )
     })
   }
 
   /// This API throws a JavaScript TypeError with the text provided.
   pub fn throw_type_error(&self, msg: &str, code: Option<&str>) -> Result<()> {
+    let code = code.and_then(|s| CString::new(s).ok());
+    let msg = CString::new(msg)?;
     check_status!(unsafe {
       sys::napi_throw_type_error(
         self.0,
-        match code {
-          Some(s) => CString::new(s)?.as_ptr(),
-          None => ptr::null_mut(),
-        },
-        CString::new(msg)?.as_ptr(),
+        code.map(|s| s.as_ptr()).unwrap_or(ptr::null_mut()),
+        msg.as_ptr(),
       )
     })
   }
@@ -714,11 +711,11 @@ impl Env {
       .iter()
       .map(|prop| prop.raw())
       .collect::<Vec<sys::napi_property_descriptor>>();
-
+    let c_name = CString::new(name)?;
     check_status!(unsafe {
       sys::napi_define_class(
         self.0,
-        name.as_ptr() as *const c_char,
+        c_name.as_ptr() as *const c_char,
         name.len(),
         Some(constructor_cb),
         ptr::null_mut(),
@@ -756,15 +753,17 @@ impl Env {
       let type_id = unknown_tagged_object as *const TypeId;
       if *type_id == TypeId::of::<T>() {
         let tagged_object = unknown_tagged_object as *mut TaggedObject<T>;
-        (*tagged_object).object.as_mut().ok_or(Error {
-          status: Status::InvalidArg,
-          reason: "Invalid argument, nothing attach to js_object".to_owned(),
+        (*tagged_object).object.as_mut().ok_or_else(|| {
+          Error::new(
+            Status::InvalidArg,
+            "Invalid argument, nothing attach to js_object".to_owned(),
+          )
         })
       } else {
-        Err(Error {
-          status: Status::InvalidArg,
-          reason: "Invalid argument, T on unrwap is not the type of wrapped object".to_owned(),
-        })
+        Err(Error::new(
+          Status::InvalidArg,
+          "Invalid argument, T on unrwap is not the type of wrapped object".to_owned(),
+        ))
       }
     }
   }
@@ -781,15 +780,17 @@ impl Env {
       let type_id = unknown_tagged_object as *const TypeId;
       if *type_id == TypeId::of::<T>() {
         let tagged_object = unknown_tagged_object as *mut TaggedObject<T>;
-        (*tagged_object).object.as_mut().ok_or(Error {
-          status: Status::InvalidArg,
-          reason: "Invalid argument, nothing attach to js_object".to_owned(),
+        (*tagged_object).object.as_mut().ok_or_else(|| {
+          Error::new(
+            Status::InvalidArg,
+            "Invalid argument, nothing attach to js_object".to_owned(),
+          )
         })
       } else {
-        Err(Error {
-          status: Status::InvalidArg,
-          reason: "Invalid argument, T on unrwap is not the type of wrapped object".to_owned(),
-        })
+        Err(Error::new(
+          Status::InvalidArg,
+          "Invalid argument, T on unrwap is not the type of wrapped object".to_owned(),
+        ))
       }
     }
   }
@@ -807,10 +808,10 @@ impl Env {
         Box::from_raw(unknown_tagged_object as *mut TaggedObject<T>);
         Ok(())
       } else {
-        Err(Error {
-          status: Status::InvalidArg,
-          reason: "Invalid argument, T on unrwap is not the type of wrapped object".to_owned(),
-        })
+        Err(Error::new(
+          Status::InvalidArg,
+          "Invalid argument, T on unrwap is not the type of wrapped object".to_owned(),
+        ))
       }
     }
   }
@@ -905,15 +906,17 @@ impl Env {
       let type_id = unknown_tagged_object as *const TypeId;
       if *type_id == TypeId::of::<T>() {
         let tagged_object = unknown_tagged_object as *mut TaggedObject<T>;
-        (*tagged_object).object.as_mut().ok_or(Error {
-          status: Status::InvalidArg,
-          reason: "nothing attach to js_external".to_owned(),
+        (*tagged_object).object.as_mut().ok_or_else(|| {
+          Error::new(
+            Status::InvalidArg,
+            "nothing attach to js_external".to_owned(),
+          )
         })
       } else {
-        Err(Error {
-          status: Status::InvalidArg,
-          reason: "T on get_value_external is not the type of wrapped object".to_owned(),
-        })
+        Err(Error::new(
+          Status::InvalidArg,
+          "T on get_value_external is not the type of wrapped object".to_owned(),
+        ))
       }
     }
   }
@@ -1103,15 +1106,17 @@ impl Env {
       }
       if *type_id == TypeId::of::<T>() {
         let tagged_object = unknown_tagged_object as *mut TaggedObject<T>;
-        (*tagged_object).object.as_mut().map(Some).ok_or(Error {
-          status: Status::InvalidArg,
-          reason: "Invalid argument, nothing attach to js_object".to_owned(),
+        (*tagged_object).object.as_mut().map(Some).ok_or_else(|| {
+          Error::new(
+            Status::InvalidArg,
+            "Invalid argument, nothing attach to js_object".to_owned(),
+          )
         })
       } else {
-        Err(Error {
-          status: Status::InvalidArg,
-          reason: "Invalid argument, T on unrwap is not the type of wrapped object".to_owned(),
-        })
+        Err(Error::new(
+          Status::InvalidArg,
+          "Invalid argument, T on unrwap is not the type of wrapped object".to_owned(),
+        ))
       }
     }
   }

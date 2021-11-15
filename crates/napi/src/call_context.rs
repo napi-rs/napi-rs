@@ -47,10 +47,10 @@ impl<'env> CallContext<'env> {
 
   pub fn get<ArgType: NapiValue>(&self, index: usize) -> Result<ArgType> {
     if index >= self.arg_len() {
-      Err(Error {
-        status: Status::GenericFailure,
-        reason: "Arguments index out of range".to_owned(),
-      })
+      Err(Error::new(
+        Status::GenericFailure,
+        "Arguments index out of range".to_owned(),
+      ))
     } else {
       Ok(unsafe { ArgType::from_raw_unchecked(self.env.0, self.args[index]) })
     }
@@ -58,10 +58,10 @@ impl<'env> CallContext<'env> {
 
   pub fn try_get<ArgType: NapiValue>(&self, index: usize) -> Result<Either<ArgType, JsUndefined>> {
     if index >= self.arg_len() {
-      Err(Error {
-        status: Status::GenericFailure,
-        reason: "Arguments index out of range".to_owned(),
-      })
+      Err(Error::new(
+        Status::GenericFailure,
+        "Arguments index out of range".to_owned(),
+      ))
     } else if index < self.length {
       unsafe { ArgType::from_raw(self.env.0, self.args[index]) }.map(Either::A)
     } else {

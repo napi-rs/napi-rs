@@ -59,11 +59,12 @@ pub fn run<T: Task>(
     napi_async_work: ptr::null_mut(),
     status: task_status.clone(),
   }));
+  let async_work_name = CString::new("napi_rs_async_work")?;
   check_status!(unsafe {
     sys::napi_create_async_work(
       env,
       raw_resource,
-      CString::new("napi_rs_async_work")?.as_ptr() as *mut _,
+      async_work_name.as_ptr() as *mut _,
       Some(execute::<T> as unsafe extern "C" fn(env: sys::napi_env, data: *mut c_void)),
       Some(
         complete::<T>

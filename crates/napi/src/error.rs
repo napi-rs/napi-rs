@@ -23,7 +23,13 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub struct Error {
   pub status: Status,
   pub reason: String,
+  // Convert raw `JsError` into Error
+  // Only be used in `async fn(p: Promise<T>)` scenario
+  pub(crate) maybe_raw: sys::napi_ref,
 }
+
+unsafe impl Send for Error {}
+unsafe impl Sync for Error {}
 
 impl error::Error for Error {}
 
@@ -48,6 +54,16 @@ impl From<SerdeJSONError> for Error {
   }
 }
 
+impl From<sys::napi_ref> for Error {
+  fn from(value: sys::napi_ref) -> Self {
+    Self {
+      status: Status::InvalidArg,
+      reason: "".to_string(),
+      maybe_raw: value,
+    }
+  }
+}
+
 impl fmt::Display for Error {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     if !self.reason.is_empty() {
@@ -60,13 +76,18 @@ impl fmt::Display for Error {
 
 impl Error {
   pub fn new(status: Status, reason: String) -> Self {
-    Error { status, reason }
+    Error {
+      status,
+      reason,
+      maybe_raw: ptr::null_mut(),
+    }
   }
 
   pub fn from_status(status: Status) -> Self {
     Error {
       status,
       reason: "".to_owned(),
+      maybe_raw: ptr::null_mut(),
     }
   }
 
@@ -74,6 +95,7 @@ impl Error {
     Error {
       status: Status::GenericFailure,
       reason,
+      maybe_raw: ptr::null_mut(),
     }
   }
 }
@@ -83,6 +105,7 @@ impl From<std::ffi::NulError> for Error {
     Error {
       status: Status::GenericFailure,
       reason: format!("{}", error),
+      maybe_raw: ptr::null_mut(),
     }
   }
 }
@@ -92,6 +115,7 @@ impl From<std::io::Error> for Error {
     Error {
       status: Status::GenericFailure,
       reason: format!("{}", error),
+      maybe_raw: ptr::null_mut(),
     }
   }
 }
@@ -163,8 +187,10 @@ macro_rules! impl_object_methods {
       pub unsafe fn throw_into(self, env: sys::napi_env) {
         #[cfg(debug_assertions)]
         let reason = self.0.reason.clone();
-        #[cfg(debug_assertions)]
         let status = self.0.status;
+        if status == Status::PendingException {
+          return;
+        }
         let js_error = self.into_value(env);
         #[cfg(debug_assertions)]
         let throw_status = sys::napi_throw(env, js_error);
