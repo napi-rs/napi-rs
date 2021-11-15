@@ -175,14 +175,9 @@ macro_rules! register_module {
       match hook_result.and_then(move |_| result) {
         Ok(_) => cjs_module.exports.raw(),
         Err(e) => {
-          unsafe {
-            $crate::sys::napi_throw_error(
-              raw_env,
-              ptr::null(),
-              CString::from_vec_unchecked(format!("Error initializing module: {}", e).into())
-                .as_ptr(),
-            )
-          };
+          let c_string =
+            CString::from_vec_unchecked(format!("Error initializing module: {}", e).into());
+          unsafe { $crate::sys::napi_throw_error(raw_env, ptr::null(), c_string.as_ptr()) };
           ptr::null_mut()
         }
       }
