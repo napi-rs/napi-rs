@@ -17,6 +17,7 @@ mod promise;
 #[cfg(feature = "serde-json")]
 mod serde;
 mod string;
+mod symbol;
 mod task;
 
 pub use array::*;
@@ -30,6 +31,7 @@ pub use nil::*;
 pub use object::*;
 pub use promise::*;
 pub use string::*;
+pub use symbol::*;
 pub use task::*;
 
 #[cfg(feature = "latin1")]

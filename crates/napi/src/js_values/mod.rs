@@ -260,12 +260,13 @@ macro_rules! impl_js_value_methods {
 macro_rules! impl_object_methods {
   ($js_value:ident) => {
     impl $js_value {
-      pub fn set_property<V>(&mut self, key: JsString, value: V) -> Result<()>
+      pub fn set_property<K, V>(&mut self, key: K, value: V) -> Result<()>
       where
+        K: NapiRaw,
         V: NapiRaw,
       {
         check_status!(unsafe {
-          sys::napi_set_property(self.0.env, self.0.value, key.0.value, value.raw())
+          sys::napi_set_property(self.0.env, self.0.value, key.raw(), value.raw())
         })
       }
 
