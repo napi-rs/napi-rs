@@ -43,23 +43,16 @@ pub type Callback = extern "C" fn(sys::napi_env, sys::napi_callback_info) -> sys
 /// Notification of this event is delivered through the callbacks given to `Env::add_env_cleanup_hook` and `Env::set_instance_data`.
 pub struct Env(pub(crate) sys::napi_env);
 
+impl From<sys::napi_env> for Env {
+  fn from(env: sys::napi_env) -> Self {
+    Env(env)
+  }
+}
+
 impl Env {
   #[allow(clippy::missing_safety_doc)]
   pub unsafe fn from_raw(env: sys::napi_env) -> Self {
     Env(env)
-  }
-
-  /// Get [JsUndefined](./struct.JsUndefined.html) value
-  pub fn get_undefined(&self) -> Result<JsUndefined> {
-    let mut raw_value = ptr::null_mut();
-    check_status!(unsafe { sys::napi_get_undefined(self.0, &mut raw_value) })?;
-    Ok(unsafe { JsUndefined::from_raw_unchecked(self.0, raw_value) })
-  }
-
-  pub fn get_null(&self) -> Result<JsNull> {
-    let mut raw_value = ptr::null_mut();
-    check_status!(unsafe { sys::napi_get_null(self.0, &mut raw_value) })?;
-    Ok(unsafe { JsNull::from_raw_unchecked(self.0, raw_value) })
   }
 
   pub fn get_boolean(&self, value: bool) -> Result<JsBoolean> {
@@ -231,7 +224,7 @@ impl Env {
     Ok(unsafe { JsObject::from_raw_unchecked(self.0, raw_value) })
   }
 
-  pub fn create_array(&self) -> Result<JsObject> {
+  pub fn create_empty_array(&self) -> Result<JsObject> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe { sys::napi_create_array(self.0, &mut raw_value) })?;
     Ok(unsafe { JsObject::from_raw_unchecked(self.0, raw_value) })
@@ -947,12 +940,6 @@ impl Env {
 
     check_status!(unsafe { sys::napi_close_handle_scope(self.0, handle_scope) })?;
     result
-  }
-
-  pub fn get_global(&self) -> Result<JsGlobal> {
-    let mut raw_global = ptr::null_mut();
-    check_status!(unsafe { sys::napi_get_global(self.0, &mut raw_global) })?;
-    Ok(unsafe { JsGlobal::from_raw_unchecked(self.0, raw_global) })
   }
 
   pub fn get_napi_version(&self) -> Result<u32> {

@@ -1,10 +1,7 @@
-use crate::{bindgen_prelude::*, check_status, sys, type_of, ValueType};
+use crate::{bindgen_prelude::*, check_status, sys, type_of, JsObject, ValueType};
 use std::{ffi::CString, ptr};
 
-pub struct Object {
-  pub(crate) env: sys::napi_env,
-  pub(crate) inner: sys::napi_value,
-}
+pub type Object = JsObject;
 
 impl Object {
   pub(crate) fn new(env: sys::napi_env) -> Result<Self> {
@@ -16,7 +13,11 @@ impl Object {
       )?;
     }
 
-    Ok(Object { env, inner: ptr })
+    Ok(Self(crate::Value {
+      env,
+      value: ptr,
+      value_type: ValueType::Object,
+    }))
   }
 
   pub fn get<K: AsRef<str>, V: FromNapiValue>(&self, field: K) -> Result<Option<V>> {
@@ -26,17 +27,17 @@ impl Object {
       let mut ret = ptr::null_mut();
 
       check_status!(
-        sys::napi_get_named_property(self.env, self.inner, c_field.as_ptr(), &mut ret),
+        sys::napi_get_named_property(self.0.env, self.0.value, c_field.as_ptr(), &mut ret),
         "Failed to get property with field `{}`",
         c_field.to_string_lossy(),
       )?;
 
-      let ty = type_of!(self.env, ret)?;
+      let ty = type_of!(self.0.env, ret)?;
 
       Ok(if ty == ValueType::Undefined {
         None
       } else {
-        Some(V::from_napi_value(self.env, ret)?)
+        Some(V::from_napi_value(self.0.env, ret)?)
       })
     }
   }
@@ -45,10 +46,10 @@ impl Object {
     let c_field = CString::new(field.as_ref())?;
 
     unsafe {
-      let napi_val = V::to_napi_value(self.env, val)?;
+      let napi_val = V::to_napi_value(self.0.env, val)?;
 
       check_status!(
-        sys::napi_set_named_property(self.env, self.inner, c_field.as_ptr(), napi_val),
+        sys::napi_set_named_property(self.0.env, self.0.value, c_field.as_ptr(), napi_val),
         "Failed to set property with field `{}`",
         c_field.to_string_lossy(),
       )?;
@@ -61,12 +62,12 @@ impl Object {
     let mut names = ptr::null_mut();
     unsafe {
       check_status!(
-        sys::napi_get_property_names(obj.env, obj.inner, &mut names),
+        sys::napi_get_property_names(obj.0.env, obj.0.value, &mut names),
         "Failed to get property names of given object"
       )?;
     }
 
-    let names = unsafe { Array::from_napi_value(obj.env, names)? };
+    let names = unsafe { Array::from_napi_value(obj.0.env, names)? };
     let mut ret = vec![];
 
     for i in 0..names.len() {
@@ -84,27 +85,5 @@ impl TypeName for Object {
 
   fn value_type() -> ValueType {
     ValueType::Object
-  }
-}
-
-impl ToNapiValue for Object {
-  unsafe fn to_napi_value(_env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
-    Ok(val.inner)
-  }
-}
-
-impl FromNapiValue for Object {
-  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
-    let value_type = type_of!(env, napi_val)?;
-    match value_type {
-      ValueType::Object => Ok(Self {
-        inner: napi_val,
-        env,
-      }),
-      _ => Err(Error::new(
-        Status::InvalidArg,
-        "Given napi value is not an object".to_owned(),
-      )),
-    }
   }
 }
