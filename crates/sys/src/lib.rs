@@ -242,7 +242,7 @@ extern "C" {
   pub fn napi_create_function(
     env: napi_env,
     utf8name: *const c_char,
-    length: usize,
+    length: isize,
     cb: napi_callback,
     data: *mut c_void,
     result: *mut napi_value,

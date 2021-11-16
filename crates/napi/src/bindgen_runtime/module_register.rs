@@ -49,34 +49,31 @@ pub fn register_class(rust_name: &'static str, js_name: &'static str, props: Vec
 }
 
 #[no_mangle]
-unsafe extern "C" fn napi_register_module_v1(
+pub unsafe extern "C" fn napi_register_module_v1(
   env: sys::napi_env,
   exports: sys::napi_value,
 ) -> sys::napi_value {
   MODULE_REGISTER_CALLBACK.with(|to_register_exports| {
-    to_register_exports
-      .take()
-      .into_iter()
-      .for_each(|(name, callback)| {
-        let js_name = CString::new(name).unwrap();
-        unsafe {
-          if let Err(e) = callback(env).and_then(|v| {
-            check_status!(
-              sys::napi_set_named_property(env, exports, js_name.as_ptr(), v),
-              "Failed to register export `{}`",
-              name,
-            )
-          }) {
-            JsError::from(e).throw_into(env)
-          }
+    for (name, callback) in to_register_exports.borrow().iter() {
+      let js_name = CString::from_vec_unchecked(name.as_bytes().to_vec());
+      unsafe {
+        if let Err(e) = callback(env).and_then(|v| {
+          check_status!(
+            sys::napi_set_named_property(env, exports, js_name.as_ptr(), v),
+            "Failed to register export `{}`",
+            name,
+          )
+        }) {
+          JsError::from(e).throw_into(env)
         }
-      })
+      }
+    }
   });
 
   MODULE_CLASS_PROPERTIES.with(|to_register_classes| {
-    for (rust_name, (js_name, props)) in to_register_classes.take().into_iter() {
+    for (rust_name, (js_name, props)) in to_register_classes.borrow().iter() {
       unsafe {
-        let (ctor, props): (Vec<_>, Vec<_>) = props.into_iter().partition(|prop| prop.is_ctor);
+        let (ctor, props): (Vec<_>, Vec<_>) = props.iter().partition(|prop| prop.is_ctor);
         // one or more or zero?
         // zero is for `#[napi(task)]`
         if ctor.is_empty() && props.is_empty() {
@@ -85,7 +82,7 @@ unsafe extern "C" fn napi_register_module_v1(
         let ctor = ctor.get(0).map(|c| c.raw().method.unwrap()).unwrap_or(noop);
         let raw_props: Vec<_> = props.iter().map(|prop| prop.raw()).collect();
 
-        let js_class_name = CString::new(js_name).unwrap();
+        let js_class_name = CString::from_vec_unchecked(js_name.as_bytes().to_vec());
         let mut class_ptr = ptr::null_mut();
 
         check_status_or_throw!(
@@ -106,7 +103,11 @@ unsafe extern "C" fn napi_register_module_v1(
         );
 
         let mut ctor_ref = ptr::null_mut();
-        sys::napi_create_reference(env, class_ptr, 1, &mut ctor_ref);
+        let create_reference_status = sys::napi_create_reference(env, class_ptr, 1, &mut ctor_ref);
+        debug_assert!(
+          create_reference_status == sys::Status::napi_ok,
+          "Create class reference failed"
+        );
 
         REGISTERED_CLASSES.with(|registered_classes| {
           let mut registered_class = registered_classes.borrow_mut();
@@ -115,7 +116,7 @@ unsafe extern "C" fn napi_register_module_v1(
 
         check_status_or_throw!(
           env,
-          sys::napi_set_named_property(env, exports, js_class_name.as_ptr(), class_ptr),
+          sys::napi_set_named_property(env, exports, js_class_name.into_raw(), class_ptr),
           "Failed to register class `{}` generate by struct `{}`",
           &js_name,
           &rust_name

@@ -2,6 +2,7 @@ name: Windows i686
 
 env:
   DEBUG: 'napi:*'
+  RUST_BACKTRACE: 1
 
 on:
   push:
@@ -64,21 +65,15 @@ jobs:
           path: ~/.cargo/git
           key: stable-windows-i686-node@lts-cargo-index-trimmed-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Check build
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: --all --bins --examples --tests --target i686-pc-windows-msvc -vvv
+      # - name: Check build
+      #   uses: actions-rs/cargo@v1
+      #   with:
+      #     command: check
+      #     args: --all --bins --examples --tests --target i686-pc-windows-msvc -vvv
 
       - name: Build Tests
         run: |
-          yarn --cwd ./examples/napi-compat-mode build-i686
-          yarn --cwd ./examples/napi build-i686
-          yarn test
+          yarn --cwd ./examples/napi build-i686 --release
+          node ./examples/napi/test.js
         env:
           RUST_BACKTRACE: 1
-
-      - name: Clear the cargo caches
-        run: |
-          cargo install cargo-cache --no-default-features --features ci-autoclean
-          cargo-cache

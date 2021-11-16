@@ -13,3 +13,4 @@ members = [
 
 [profile.release]
 lto = true
+debug = 2

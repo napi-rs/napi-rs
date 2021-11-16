@@ -1,0 +1,9 @@
+[target.i686-pc-windows-msvc]
+rustflags = [
+  "-C",
+  "link-args=/LARGEADDRESSAWARE",
+  "-C",
+  "link-args=/VERBOSE",
+  "-C",
+  "link-args=/OPT:NOICF"
+]

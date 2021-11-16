@@ -459,13 +459,12 @@ impl Env {
   /// Instead, a property must be explicitly set on any object that is visible to JavaScript, in order for the function to be accessible from script.
   pub fn create_function(&self, name: &str, callback: Callback) -> Result<JsFunction> {
     let mut raw_result = ptr::null_mut();
-    let len = name.len();
     let name = CString::new(name)?;
     check_status!(unsafe {
       sys::napi_create_function(
         self.0,
         name.as_ptr(),
-        len,
+        -1,
         Some(callback),
         ptr::null_mut(),
         &mut raw_result,
@@ -486,13 +485,12 @@ impl Env {
     let closure_data_ptr: *mut F = Box::into_raw(boxed_callback);
 
     let mut raw_result = ptr::null_mut();
-    let len = name.len();
     let name = CString::new(name)?;
     check_status!(unsafe {
       sys::napi_create_function(
         self.0,
         name.as_ptr(),
-        len,
+        -1,
         Some({
           unsafe extern "C" fn trampoline<R: NapiRaw, F: Fn(CallContext<'_>) -> Result<R>>(
             raw_env: sys::napi_env,

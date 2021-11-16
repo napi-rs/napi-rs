@@ -306,13 +306,12 @@ macro_rules! impl_object_methods {
 
       pub fn create_named_method(&mut self, name: &str, function: Callback) -> Result<()> {
         let mut js_function = ptr::null_mut();
-        let len = name.len();
         let name = CString::new(name)?;
         check_status!(unsafe {
           sys::napi_create_function(
             self.0.env,
             name.as_ptr(),
-            len,
+            -1,
             Some(function),
             ptr::null_mut(),
             &mut js_function,
