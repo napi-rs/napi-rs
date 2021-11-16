@@ -30,11 +30,18 @@ fn gen_callback_type(callback: &CallbackArg) -> String {
       .args
       .iter()
       .enumerate()
-      .map(|(i, arg)| { format!("arg{}: {}", i, ty_to_ts_type(arg, false)) })
+      .map(|(i, arg)| {
+        let (arg, is_optional) = ty_to_ts_type(arg, false);
+        if is_optional {
+          format!("arg{}?: {}", i, arg)
+        } else {
+          format!("arg{}: {}", i, arg)
+        }
+      })
       .collect::<Vec<_>>()
       .join(", "),
     ret = match &callback.ret {
-      Some(ty) => ty_to_ts_type(ty, true),
+      Some(ty) => ty_to_ts_type(ty, true).0,
       None => "void".to_owned(),
     }
   )
@@ -56,8 +63,9 @@ impl NapiFn {
             i.mutability = None;
           }
           let mut arg = path.pat.to_token_stream().to_string().to_case(Case::Camel);
-          arg.push_str(": ");
-          arg.push_str(&ty_to_ts_type(&path.ty, false));
+          let (ts_arg, is_optional) = ty_to_ts_type(&path.ty, false);
+          arg.push_str(if is_optional { "?: " } else { ": " });
+          arg.push_str(&ts_arg);
 
           Some(arg)
         }
@@ -100,7 +108,7 @@ impl NapiFn {
         .unwrap_or_else(|| "".to_owned()),
       _ => {
         let ret = if let Some(ret) = &self.ret {
-          let ts_type = ty_to_ts_type(ret, true);
+          let (ts_type, _) = ty_to_ts_type(ret, true);
           if ts_type == "undefined" {
             "void".to_owned()
           } else {

@@ -79,6 +79,7 @@ impl Blake2bKey {
 #[napi]
 pub struct Context {
   data: String,
+  pub maybe_need: Option<bool>,
 }
 
 // Test for return `napi::Result` and `Result`
@@ -88,12 +89,16 @@ impl Context {
   pub fn new() -> napi::Result<Self> {
     Ok(Self {
       data: "not empty".into(),
+      maybe_need: None,
     })
   }
 
   #[napi(factory)]
   pub fn with_data(data: String) -> Result<Self> {
-    Ok(Self { data })
+    Ok(Self {
+      data,
+      maybe_need: Some(true),
+    })
   }
 
   #[napi]

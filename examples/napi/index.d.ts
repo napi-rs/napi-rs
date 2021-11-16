@@ -7,7 +7,7 @@ export function bigintAdd(a: BigInt, b: BigInt): BigInt
 export function createBigInt(): BigInt
 export function createBigIntI64(): BigInt
 export function getCwd(callback: (arg0: string) => void): void
-export function readFile(callback: (arg0: Error | undefined, arg1: string | null) => void): void
+export function readFile(callback: (arg0: Error | undefined, arg1?: string | undefined | null) => void): void
 export function eitherStringOrNumber(input: string | number): number
 export function returnEither(input: number): string | number
 export function either3(input: string | number | boolean): number
@@ -19,7 +19,7 @@ export enum Kind { Dog = 0, Cat = 1, Duck = 2 }
 export enum CustomNumEnum { One = 1, Two = 2, Three = 3, Four = 4, Six = 6, Eight = 8, Nine = 9, Ten = 10 }
 export function enumToI32(e: CustomNumEnum): number
 export function throwError(): void
-export function mapOption(val: number | null): number | null
+export function mapOption(val?: number | undefined | null): number | undefined | null
 export function add(a: number, b: number): number
 export function fibonacci(n: number): number
 export function listObjKeys(obj: object): Array<string>
@@ -31,8 +31,8 @@ export function asyncPlus100(p: Promise<number>): Promise<number>
 interface PackageJson {
   name: string
   version: string
-  dependencies: Record<string, any> | null
-  devDependencies: Record<string, any> | null
+  dependencies?: Record<string, any> | undefined | null
+  devDependencies?: Record<string, any> | undefined | null
 }
 export function readPackageJson(): PackageJson
 export function getPackageJsonName(packageJson: PackageJson): string
@@ -64,7 +64,7 @@ export class Blake2BKey {
   
 }
 export class Context {
-  
+  maybeNeed?: boolean | undefined | null
   constructor()
   static withData(data: string): Context
   method(): string

@@ -32,7 +32,7 @@ impl ToTypeDef for NapiImpl {
     if let Some(output_type) = &self.task_output_type {
       TASK_STRUCTS.with(|t| {
         t.borrow_mut()
-          .insert(self.js_name.clone(), ty_to_ts_type(output_type, false));
+          .insert(self.js_name.clone(), ty_to_ts_type(output_type, false).0);
       });
     }
     TypeDef {
@@ -61,7 +61,9 @@ impl NapiStruct {
         if !f.setter {
           field_str.push_str("readonly ")
         }
-        let arg = format!("{}: {}", &f.js_name, ty_to_ts_type(&f.ty, false));
+        let (arg, is_optional) = ty_to_ts_type(&f.ty, false);
+        let sep = if is_optional { "?" } else { "" };
+        let arg = format!("{}{}: {}", &f.js_name, sep, arg);
         if self.kind == NapiStructKind::Constructor {
           ctor_args.push(arg.clone());
         }
