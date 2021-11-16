@@ -345,7 +345,7 @@ async function writeJsBinding(
     }, '')
     await writeFileAsync(
       distFileName,
-      template + declareCodes + exportsCode,
+      template + declareCodes + exportsCode + '\n',
       'utf8',
     )
   }
