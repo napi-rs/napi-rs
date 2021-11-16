@@ -3,6 +3,16 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.0.0-alpha.5](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.0.0-alpha.4...@napi-rs/cli@2.0.0-alpha.5) (2021-11-16)
+
+### Bug Fixes
+
+- always add a newline at the end of the file when generating js-binding.js ([753bb1e](https://github.com/napi-rs/napi-rs/commit/753bb1e31b375bb546523d372bcc0a079bae3ed5))
+
+### Features
+
+- **napi:** add pipe flag to pipe the generated files into custom command ([e37c3fd](https://github.com/napi-rs/napi-rs/commit/e37c3fd9089d13c7ee34109ad779b50c77f1b761))
+
 # [2.0.0-alpha.4](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.0.0-alpha.3...@napi-rs/cli@2.0.0-alpha.4) (2021-11-09)
 
 ### Features
