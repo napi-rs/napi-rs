@@ -31,7 +31,7 @@ ctor = "0.1"
 napi-sys = {version = "1.1.2", path = "../sys"}
 
 [target.'cfg(windows)'.dependencies]
-winapi = {version = "0.3.9", features = ["winuser", "minwindef", "ntdef", "libloaderapi"]}
+windows = {version = "0.27", features = ["Win32_System_WindowsProgramming", "Win32_System_LibraryLoader", "Win32_Foundation"]}
 
 [dependencies.encoding_rs]
 optional = true
