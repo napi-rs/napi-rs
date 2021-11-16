@@ -80,6 +80,12 @@ export class BuildCommand extends Command {
     )} file`,
   })
 
+  pipe?: string = Option.String('--pipe', {
+    description: `Pipe [${chalk.green(
+      '.js/.ts',
+    )}] files to this command, eg ${chalk.green('prettier -w')}`,
+  })
+
   destDir = Option.String({
     required: false,
   })
@@ -234,18 +240,45 @@ export class BuildCommand extends Command {
     debug(`Write binary content to [${chalk.yellowBright(distModulePath)}]`)
     await copyFileAsync(sourcePath, distModulePath)
 
+    const dtsFilePath = join(
+      process.cwd(),
+      this.destDir ?? '.',
+      this.dts ?? 'index.d.ts',
+    )
+
     const idents = await processIntermediateTypeFile(
       intermediateTypeFile,
-      join(this.destDir ?? '.', this.dts ?? 'index.d.ts'),
+      dtsFilePath,
     )
-    await writeJsBinding(
-      binaryName,
-      packageName,
+    if (this.pipe) {
+      const pipeCommand = `${this.pipe} ${dtsFilePath}`
+      console.info(`Run ${chalk.green(pipeCommand)}`)
+      try {
+        execSync(pipeCommand, { stdio: 'inherit', env: process.env })
+      } catch (e) {
+        console.warn(
+          chalk.bgYellowBright('Pipe the dts file to command failed'),
+          e,
+        )
+      }
+    }
+    const jsBindingFilePath =
       this.jsBinding && this.jsBinding !== 'false'
         ? join(process.cwd(), this.jsBinding)
-        : null,
-      idents,
-    )
+        : null
+    await writeJsBinding(binaryName, packageName, jsBindingFilePath, idents)
+    if (this.pipe && jsBindingFilePath) {
+      const pipeCommand = `${this.pipe} ${jsBindingFilePath}`
+      console.info(`Run ${chalk.green(pipeCommand)}`)
+      try {
+        execSync(pipeCommand, { stdio: 'inherit', env: process.env })
+      } catch (e) {
+        console.warn(
+          chalk.bgYellowBright('Pipe the js binding file to command failed'),
+          e,
+        )
+      }
+    }
   }
 }
 
