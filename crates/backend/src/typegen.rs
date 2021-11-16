@@ -65,6 +65,7 @@ static KNOWN_TYPES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     ("ArrayBuffer", "ArrayBuffer"),
     ("DataView", "DataView"),
     ("Date", "Date"),
+    ("JsBuffer", "Buffer"),
     ("Buffer", "Buffer"),
     // TODO: Vec<u8> should be Buffer, now is Array<number>
     ("Vec", "Array<{}>"),
