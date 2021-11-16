@@ -4,6 +4,7 @@ use std::{ffi::CString, ptr};
 pub type Object = JsObject;
 
 impl Object {
+  #[cfg(feature = "serde-json")]
   pub(crate) fn new(env: sys::napi_env) -> Result<Self> {
     let mut ptr = ptr::null_mut();
     unsafe {

@@ -13,6 +13,7 @@ mod map;
 mod nil;
 mod number;
 mod object;
+#[cfg(all(feature = "tokio_rt", feature = "napi4"))]
 mod promise;
 #[cfg(feature = "serde-json")]
 mod serde;
@@ -29,6 +30,7 @@ pub use either::*;
 pub use function::*;
 pub use nil::*;
 pub use object::*;
+#[cfg(all(feature = "tokio_rt", feature = "napi4"))]
 pub use promise::*;
 pub use string::*;
 pub use symbol::*;
