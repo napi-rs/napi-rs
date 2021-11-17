@@ -53,4 +53,5 @@ napi_ast_impl! {
  (Struct, NapiStruct),
  (Impl, NapiImpl),
  (Enum, NapiEnum),
+ (Const, NapiConst),
 }

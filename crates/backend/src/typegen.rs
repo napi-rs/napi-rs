@@ -1,3 +1,4 @@
+mod r#const;
 mod r#enum;
 mod r#fn;
 pub(crate) mod r#struct;

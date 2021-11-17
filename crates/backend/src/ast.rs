@@ -1,5 +1,5 @@
 use proc_macro2::Ident;
-use syn::{Attribute, Type};
+use syn::{Attribute, Expr, Type};
 
 #[derive(Debug, Clone)]
 pub struct NapiFn {
@@ -92,4 +92,12 @@ pub struct NapiEnumVariant {
   pub name: Ident,
   pub val: i32,
   pub comments: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct NapiConst {
+  pub name: Ident,
+  pub js_name: String,
+  pub type_name: Type,
+  pub value: Expr,
 }
