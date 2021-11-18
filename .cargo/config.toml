@@ -1,9 +1,7 @@
 [target.i686-pc-windows-msvc]
 rustflags = [
   "-C",
-  "link-args=/LARGEADDRESSAWARE",
+  "codegen-units=1024",
   "-C",
-  "link-args=/VERBOSE",
-  "-C",
-  "link-args=/OPT:NOICF"
+  "inline-threshold=0"
 ]

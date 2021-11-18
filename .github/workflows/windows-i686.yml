@@ -3,6 +3,7 @@ name: Windows i686
 env:
   DEBUG: 'napi:*'
   RUST_BACKTRACE: 1
+  CARGO_PROFILE_RELEASE_LTO: 'false'
 
 on:
   push:
