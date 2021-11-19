@@ -17,7 +17,7 @@ const SUPPORTED_PLATFORM = new Set([
   'freebsd',
 ])
 
-const tripleLists = RAW_LIST.trim()
+const tripleLists: { [key: string]: { platform?: string } } = RAW_LIST.trim()
   .split('\n')
   .filter((line) => !line.startsWith('wasm') && line.trim().length)
   .map(parseTriple)
@@ -28,8 +28,8 @@ const tripleLists = RAW_LIST.trim()
 
 const platformArchTriples = mapValues(
   groupBy(
-    Object.values(tripleLists).filter((k: { platform?: string }) =>
-      SUPPORTED_PLATFORM.has(k.platform),
+    Object.values(tripleLists).filter((k) =>
+      SUPPORTED_PLATFORM.has(k.platform!),
     ),
     'platform',
   ),

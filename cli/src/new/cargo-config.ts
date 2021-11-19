@@ -3,25 +3,19 @@ export const createCargoConfig = (
   enableLinuxArm8Gnu: boolean,
   enableLinuxArm8Musl: boolean,
 ) => {
-  let result = ''
+  const result: string[] = []
   if (enableLinuxArm8Gnu) {
-    result += `[target.aarch64-unknown-linux-gnu]
-linker = "aarch64-linux-gnu-gcc"
-
-`
+    result.push(`[target.aarch64-unknown-linux-gnu]
+linker = "aarch64-linux-gnu-gcc"`)
   }
   if (enableLinuxArm8Musl) {
-    result += `[target.aarch64-unknown-linux-musl]
+    result.push(`[target.aarch64-unknown-linux-musl]
 linker = "aarch64-linux-musl-gcc"
-rustflags = ["-C", "target-feature=-crt-static"]
-
-`
+rustflags = ["-C", "target-feature=-crt-static"]`)
   }
   if (enableLinuxArm7) {
-    result += `[target.armv7-unknown-linux-gnueabihf]
-linker = "arm-linux-gnueabihf-gcc"
-
-`
+    result.push(`[target.armv7-unknown-linux-gnueabihf]
+linker = "arm-linux-gnueabihf-gcc"`)
   }
-  return result
+  return result.join('\n')
 }

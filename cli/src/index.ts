@@ -1,6 +1,6 @@
-#!/usr/bin/env node
-
 import { Cli } from 'clipanion'
+
+import { version } from '../package.json'
 
 import { ArtifactsCommand } from './artifacts'
 import { BuildCommand } from './build'
@@ -11,7 +11,7 @@ import { VersionCommand } from './version'
 
 const cli = new Cli({
   binaryName: 'napi',
-  binaryVersion: require('../package.json').version,
+  binaryVersion: version,
 })
 
 cli.register(ArtifactsCommand)

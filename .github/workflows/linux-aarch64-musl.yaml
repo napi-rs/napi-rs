@@ -2,7 +2,6 @@ name: Linux-aarch64-musl
 
 env:
   DEBUG: 'napi:*'
-  CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: 'aarch64-linux-musl-gcc'
 
 on:
   push:
@@ -12,8 +11,8 @@ on:
 
 jobs:
   build:
-    name: stable - aarch64-unknown-linux-gnu - node@14
-    runs-on: ubuntu-20.04
+    name: stable - aarch64-unknown-linux-gnu - node@16
+    runs-on: ubuntu-latest
 
     steps:
       - run: docker run --rm --privileged multiarch/qemu-user-static:register --reset
@@ -23,8 +22,9 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v2
         with:
-          node-version: 14
+          node-version: 16
           check-latest: true
+          cache: 'yarn'
 
       - name: Install
         uses: actions-rs/toolchain@v1
@@ -36,28 +36,11 @@ jobs:
       - name: Install aarch64 toolchain
         run: rustup target add aarch64-unknown-linux-gnu
 
-      - name: Generate Cargo.lock
-        uses: actions-rs/cargo@v1
-        with:
-          command: generate-lockfile
-
-      - name: Cache cargo registry
-        uses: actions/cache@v2
-        with:
-          path: ~/.cargo/registry
-          key: stable-linux-aarch64-gnu-node@14-cargo-registry-trimmed-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Cache cargo index
-        uses: actions/cache@v2
-        with:
-          path: ~/.cargo/git
-          key: stable-linux-aarch64-gnu-node@14-cargo-index-trimmed-${{ hashFiles('**/Cargo.lock') }}
-
       - name: Cache NPM dependencies
         uses: actions/cache@v2
         with:
           path: node_modules
-          key: npm-cache-linux-aarch64-gnu-node@14-${{ hashFiles('yarn.lock') }}
+          key: npm-cache-linux-aarch64-gnu-node@16-${{ hashFiles('yarn.lock') }}
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile --ignore-platform --registry https://registry.npmjs.org --network-timeout 300000
@@ -65,19 +48,15 @@ jobs:
       - name: 'Build TypeScript'
         run: yarn build
 
-      - name: Pull docker image
-        run: |
-          docker login -u $DOCKER_USERNAME -p $DOCKER_PASSWORD $DOCKER_REGISTRY_URL
-          docker pull $DOCKER_REGISTRY_URL/${{ github.repository }}/nodejs-rust:lts-alpine
-          docker tag $DOCKER_REGISTRY_URL/${{ github.repository }}/nodejs-rust:lts-alpine builder
-        env:
-          DOCKER_REGISTRY_URL: ghcr.io
-          DOCKER_USERNAME: ${{ github.actor }}
-          DOCKER_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Cross build native tests
-        run: |
-          docker run -v ~/.cargo/git:/root/.cargo/git -v ~/.cargo/registry:/root/.cargo/registry -v $(pwd):/napi-rs -w /napi-rs -e CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-musl-gcc builder sh -c "yarn --cwd ./examples/napi-compat-mode build --target aarch64-unknown-linux-musl && yarn --cwd ./examples/napi build --target aarch64-unknown-linux-musl"
+        uses: addnab/docker-run-action@v3
+        with:
+          image: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
+          options: -v ${{ github.workspace }}:/napi-rs -w /napi-rs
+          run: |
+            export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-musl-gcc
+            yarn --cwd ./examples/napi-compat-mode build --target aarch64-unknown-linux-musl
+            yarn --cwd ./examples/napi build --target aarch64-unknown-linux-musl
 
       - name: Setup and run tests
         uses: docker://multiarch/alpine:aarch64-latest-stable

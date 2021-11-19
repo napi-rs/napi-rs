@@ -28,7 +28,7 @@ test.serial('should reject error from tokio future', async (t) => {
     await bindings.testTokioError(filepath)
     throw new TypeError('Unreachable')
   } catch (e) {
-    t.is(e.message, 'Error from tokio future')
+    t.is((e as Error).message, 'Error from tokio future')
   }
 })
 

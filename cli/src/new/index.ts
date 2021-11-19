@@ -174,6 +174,12 @@ export class NewProjectCommand extends Command {
         this.writeFile(join('.cargo', 'config.toml'), cargoConfig)
       }
     }
+    this.writeFile(
+      'rustfmt.toml',
+      `tab_spaces = 2
+edition = "2021"
+`,
+    )
   }
 
   private writeFile(path: string, content: string) {

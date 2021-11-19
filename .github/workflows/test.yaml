@@ -28,6 +28,7 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           check-latest: true
+          cache: 'yarn'
 
       - name: Install
         uses: actions-rs/toolchain@v1

@@ -17,38 +17,25 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
-      - name: Cache cargo registry
-        uses: actions/cache@v2
+      - name: Setup node
+        uses: actions/setup-node@v2
         with:
-          path: ~/.cargo/registry
-          key: stable-alpine-node-alpine-@lts-cargo-registry-trimmed-${{ hashFiles('**/Cargo.lock') }}
+          node-version: 16
+          check-latest: true
+          cache: 'yarn'
 
-      - name: Cache cargo index
-        uses: actions/cache@v2
-        with:
-          path: ~/.cargo/git
-          key: stable-alpine-node-alpine-@lts-cargo-index-trimmed-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Pull docker image
-        run: |
-          docker login -u $DOCKER_USERNAME -p $DOCKER_PASSWORD $DOCKER_REGISTRY_URL
-          docker pull $DOCKER_REGISTRY_URL/${{ github.repository }}/nodejs-rust:lts-alpine
-          docker tag $DOCKER_REGISTRY_URL/${{ github.repository }}/nodejs-rust:lts-alpine builder
-        env:
-          DOCKER_REGISTRY_URL: ghcr.io
-          DOCKER_USERNAME: ${{ github.actor }}
-          DOCKER_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: 'Install node dependencies'
-        run: docker run --rm -v ~/.cargo/git:/root/.cargo/git -v ~/.cargo/registry:/root/.cargo/registry -v $(pwd):/napi-rs -w /napi-rs builder yarn
+      - name: 'Install dependencies'
+        run: yarn install --ignore-platform --frozen-lockfile --registry https://registry.npmjs.org --network-timeout 300000
 
       - name: 'Build TypeScript'
-        run: docker run --rm -v ~/.cargo/git:/root/.cargo/git -v ~/.cargo/registry:/root/.cargo/registry -v $(pwd):/napi-rs -w /napi-rs builder yarn build
+        run: yarn build
 
-      - name: Run check
-        run: |
-          docker run --rm -v ~/.cargo/git:/root/.cargo/git -v ~/.cargo/registry:/root/.cargo/registry -v $(pwd):/napi-rs -w /napi-rs builder cargo check -vvv
-
-      - name: Unit test
-        run: |
-          docker run --rm -v ~/.cargo/git:/root/.cargo/git -v ~/.cargo/registry:/root/.cargo/registry -v $(pwd):/napi-rs -w /napi-rs -e RUST_BACKTRACE=1 builder sh -c "yarn build:test && yarn test"
+      - name: Setup and run tests
+        uses: addnab/docker-run-action@v3
+        with:
+          image: ghcr.io/${{ github.repository }}/nodejs-rust:lts-alpine
+          options: -v ${{ github.workspace }}:/napi-rs -w /napi-rs
+          run: |
+            cargo check -vvv
+            yarn build:test
+            yarn test

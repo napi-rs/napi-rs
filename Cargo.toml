@@ -11,5 +11,9 @@ members = [
   "./memory-testing",
 ]
 
+exclude = [
+  "./testing"
+]
+
 [profile.release]
 lto = true

@@ -1,3 +1,4 @@
+import { version } from '../../package.json'
 import { DefaultPlatforms } from '../parse-triple'
 
 export const createPackageJson = (
@@ -14,11 +15,8 @@ export const createPackageJson = (
       name: binaryName,
     },
     license: 'MIT',
-    dependencies: {
-      '@node-rs/helper': '^1.2.1',
-    },
     devDependencies: {
-      '@napi-rs/cli': '^1.2.1',
+      '@napi-rs/cli': `^${version}`,
     },
     engines: {
       node: '>= 10',

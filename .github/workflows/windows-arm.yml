@@ -11,7 +11,7 @@ on:
 
 jobs:
   build_and_test:
-    name: stable - windows-latest - arm64 - node@14
+    name: stable - windows-latest - arm64 - node@16
     runs-on: windows-latest
 
     steps:
@@ -20,13 +20,9 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v1
         with:
-          node-version: 14
-
-      - name: Cache NPM dependencies
-        uses: actions/cache@v2
-        with:
-          path: node_modules
-          key: npm-cache-windows-arm64-node@lts-${{ hashFiles('yarn.lock') }}
+          node-version: 16
+          check-latest: true
+          cache: 'yarn'
 
       - name: 'Install dependencies'
         run: yarn install --frozen-lockfile --registry https://registry.npmjs.org --network-timeout 300000

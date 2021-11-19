@@ -12,7 +12,7 @@ on:
 
 jobs:
   build:
-    name: stable - armv7-unknown-linux-gnu - node@14
+    name: stable - armv7-unknown-linux-gnu - node@16
     runs-on: ubuntu-latest
 
     steps:
@@ -23,8 +23,9 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v2
         with:
-          node-version: 14
+          node-version: 16
           check-latest: true
+          cache: 'yarn'
 
       - name: Install
         uses: actions-rs/toolchain@v1
@@ -45,19 +46,19 @@ jobs:
         uses: actions/cache@v2
         with:
           path: ~/.cargo/registry
-          key: stable-linux-armv7-gnu-node@14-cargo-registry-trimmed-${{ hashFiles('**/Cargo.lock') }}
+          key: stable-linux-armv7-gnu-node@16-cargo-registry-trimmed-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache cargo index
         uses: actions/cache@v2
         with:
           path: ~/.cargo/git
-          key: stable-linux-armv7-gnu-node@14-cargo-index-trimmed-${{ hashFiles('**/Cargo.lock') }}
+          key: stable-linux-armv7-gnu-node@16-cargo-index-trimmed-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache NPM dependencies
         uses: actions/cache@v2
         with:
           path: node_modules
-          key: npm-cache-linux-armv7-gnu-node@14-${{ hashFiles('yarn.lock') }}
+          key: npm-cache-linux-armv7-gnu-node@16-${{ hashFiles('yarn.lock') }}
 
       - name: Install cross compile toolchain
         run: |
@@ -76,6 +77,6 @@ jobs:
       - name: Setup and run tests
         uses: addnab/docker-run-action@v3
         with:
-          image: ghcr.io/napi-rs/napi-rs/nodejs:armhf-14
+          image: ghcr.io/napi-rs/napi-rs/nodejs:armhf-16
           options: -v ${{ github.workspace }}:/build -w /build
           run: yarn test
