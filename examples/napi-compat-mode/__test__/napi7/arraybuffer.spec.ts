@@ -13,7 +13,7 @@ test('should be able to detach ArrayBuffer', (t) => {
     bindings.testDetachArrayBuffer(ab)
     t.is(ab.byteLength, 0)
   } catch (e) {
-    t.is(e.code, 'DetachableArraybufferExpected')
+    t.is((e as any).code, 'DetachableArraybufferExpected')
   }
 })
 
@@ -28,6 +28,6 @@ test('is detached arraybuffer should work fine', (t) => {
     t.false(bindings.testIsDetachedArrayBuffer(nonDetachedArrayBuffer))
     t.true(bindings.testIsDetachedArrayBuffer(detachedArrayBuffer))
   } catch (e) {
-    t.is(e.code, 'DetachableArraybufferExpected')
+    t.is((e as any).code, 'DetachableArraybufferExpected')
   }
 })

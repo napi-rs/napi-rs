@@ -13,3 +13,4 @@ __mock__
 target
 scripts
 triples/index.js
+rollup.config.js

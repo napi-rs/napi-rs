@@ -30,34 +30,32 @@ jobs:
         settings:
           - host: macos-latest
             target: 'x86_64-apple-darwin'
+            architecture: 'x64'
             build: |
               yarn build
               strip -x *.node
           - host: windows-latest
             build: yarn build
             target: 'x86_64-pc-windows-msvc'
+            architecture: 'x64'
           - host: windows-latest
             build: |
-              export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=64;
-              export CARGO_PROFILE_RELEASE_LTO=false
               yarn build --target i686-pc-windows-msvc
               yarn test
             target: 'i686-pc-windows-msvc'
-            setup: |
-              choco install nodejs-lts --x86 -y --force
-              echo "C:\\Program Files (x86)\\nodejs" >> $GITHUB_PATH
+            architecture: 'x86'
           - host: ubuntu-latest
             target: 'x86_64-unknown-linux-gnu'
+            architecture: 'x64'
             docker: |
-              docker login -u $DOCKER_USERNAME -p $DOCKER_PASSWORD $DOCKER_REGISTRY_URL
               docker pull $DOCKER_REGISTRY_URL/napi-rs/napi-rs/nodejs-rust:lts-debian
               docker tag $DOCKER_REGISTRY_URL/napi-rs/napi-rs/nodejs-rust:lts-debian builder
             build: |
               docker run --rm -v ~/.cargo/git:/root/.cargo/git -v ~/.cargo/registry:/root/.cargo/registry -v $(pwd):/build -w /build builder yarn build && strip ${app}.linux-x64-gnu.node
           - host: ubuntu-latest
             target: 'x86_64-unknown-linux-musl'
+            architecture: 'x64'
             docker: |
-              docker login -u $DOCKER_USERNAME -p $DOCKER_PASSWORD $DOCKER_REGISTRY_URL
               docker pull $DOCKER_REGISTRY_URL/napi-rs/napi-rs/nodejs-rust:lts-alpine
               docker tag $DOCKER_REGISTRY_URL/napi-rs/napi-rs/nodejs-rust:lts-alpine builder
             build: docker run --rm -v ~/.cargo/git:/root/.cargo/git -v ~/.cargo/registry:/root/.cargo/registry -v $(pwd):/build -w /build builder yarn build && strip ${app}.linux-x64-musl.node
@@ -67,6 +65,7 @@ jobs:
               yarn build --target=aarch64-apple-darwin
               strip -x *.node
           - host: ubuntu-latest
+            architecture: 'x64'
             target: 'aarch64-unknown-linux-gnu'
             setup: |
               sudo apt-get update
@@ -75,6 +74,7 @@ jobs:
               yarn build --target=aarch64-unknown-linux-gnu
               aarch64-linux-gnu-strip ${app}.linux-arm64-gnu.node
           - host: ubuntu-latest
+            architecture: 'x64'
             target: 'armv7-unknown-linux-gnueabihf'
             setup: |
               sudo apt-get update
@@ -83,25 +83,27 @@ jobs:
               yarn build --target=armv7-unknown-linux-gnueabihf
               arm-linux-gnueabihf-strip ${app}.linux-arm-gnueabihf.node
           - host: ubuntu-latest
+            architecture: 'x64'
             target: 'aarch64-linux-android'
             build: |
               export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="\${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
               yarn build --target aarch64-linux-android
               \${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android-strip *.node
           - host: ubuntu-latest
+            architecture: 'x64'
             target: 'aarch64-unknown-linux-musl'
             downloadTarget: 'aarch64-unknown-linux-musl'
             docker: |
-              docker login -u $DOCKER_USERNAME -p $DOCKER_PASSWORD $DOCKER_REGISTRY_URL
               docker pull ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
               docker tag ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine builder
             build: |
               docker run --rm -v ~/.cargo/git:/root/.cargo/git -v ~/.cargo/registry:/root/.cargo/registry -v $(pwd):/build -w /build builder sh -c "yarn build --target=aarch64-unknown-linux-musl && /aarch64-linux-musl-cross/bin/aarch64-linux-musl-strip ${app}.linux-arm64-musl.node"
           - host: windows-latest
+            architecture: 'x64'
             target: 'aarch64-pc-windows-msvc'
             build: yarn build --target aarch64-pc-windows-msvc
 
-    name: stable - \${{ matrix.settings.target }} - node@14
+    name: stable - \${{ matrix.settings.target }} - node@16
     runs-on: \${{ matrix.settings.host }}
 
     steps:
@@ -110,8 +112,10 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v2
         with:
-          node-version: 14
+          node-version: 16
           check-latest: true
+          cache: 'yarn'
+          architecture: \${{ matrix.settings.architecture }}
 
       - name: Install
         uses: actions-rs/toolchain@v1
@@ -130,26 +134,24 @@ jobs:
         uses: actions/cache@v2
         with:
           path: ~/.cargo/registry
-          key: \${{ matrix.settings.target }}-node@14-cargo-registry-trimmed-\${{ hashFiles('**/Cargo.lock') }}
+          key: \${{ matrix.settings.target }}-node@16-cargo-registry-trimmed-\${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache cargo index
         uses: actions/cache@v2
         with:
           path: ~/.cargo/git
-          key: \${{ matrix.settings.target }}-node@14-cargo-index-trimmed-\${{ hashFiles('**/Cargo.lock') }}
+          key: \${{ matrix.settings.target }}-node@16-cargo-index-trimmed-\${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache NPM dependencies
         uses: actions/cache@v2
         with:
           path: node_modules
-          key: npm-cache-\${{ matrix.settings.target }}-node@14-\${{ hashFiles('yarn.lock') }}
+          key: npm-cache-\${{ matrix.settings.target }}-node@16-\${{ hashFiles('yarn.lock') }}
 
       - name: Pull latest image
         run: \${{ matrix.settings.docker }}
         env:
           DOCKER_REGISTRY_URL: ghcr.io
-          DOCKER_USERNAME: \${{ github.actor }}
-          DOCKER_PASSWORD: \${{ secrets.GITHUB_TOKEN }}
         if: \${{ matrix.settings.docker }}
 
       - name: Setup toolchain
@@ -209,6 +211,7 @@ jobs:
             freebsd-version
             yarn install --ignore-scripts --frozen-lockfile --registry https://registry.npmjs.org --network-timeout 300000
             yarn build
+            strip -x *.node
             yarn test
             rm -rf node_modules
             rm -rf target
@@ -241,6 +244,7 @@ jobs:
         with:
           node-version: \${{ matrix.node }}
           check-latest: true
+          cache: 'yarn'
 
       - name: Cache NPM dependencies
         uses: actions/cache@v2
@@ -282,6 +286,7 @@ jobs:
         with:
           node-version: \${{ matrix.node }}
           check-latest: true
+          cache: 'yarn'
 
       - name: Cache NPM dependencies
         uses: actions/cache@v2
@@ -323,6 +328,7 @@ jobs:
         with:
           node-version: \${{ matrix.node }}
           check-latest: true
+          cache: 'yarn'
 
       - name: Cache NPM dependencies
         uses: actions/cache@v2
@@ -493,8 +499,9 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v2
         with:
-          node-version: 14
+          node-version: 16
           check-latest: true
+          cache: 'yarn'
 
       - name: Cache NPM dependencies
         uses: actions/cache@v2

@@ -86,6 +86,21 @@ export class BuildCommand extends Command {
     )}] files to this command, eg ${chalk.green('prettier -w')}`,
   })
 
+  // https://github.com/napi-rs/napi-rs/issues/297
+  disableWindowsX32Optimize?: boolean = Option.Boolean(
+    '--disable-windows-x32-optimize',
+    true,
+    {
+      description: `Disable windows x32 ${chalk.green(
+        'lto',
+      )} and increase ${chalk.green(
+        'codegen-units',
+      )}. Enabled by default. See ${chalk.underline.blue(
+        'https://github.com/napi-rs/napi-rs/issues/297',
+      )}`,
+    },
+  )
+
   destDir = Option.String({
     required: false,
   })
@@ -118,9 +133,22 @@ export class BuildCommand extends Command {
     const cargoCommand = `cargo build ${externalFlags}`
     const intermediateTypeFile = join(__dirname, `type_def.${Date.now()}.tmp`)
     debug(`Run ${chalk.green(cargoCommand)}`)
+    const additionalEnv = {}
+    if (
+      triple.arch === 'ia32' &&
+      triple.platform === 'win32' &&
+      triple.abi === 'msvc' &&
+      this.disableWindowsX32Optimize
+    ) {
+      Object.assign(additionalEnv, {
+        CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 256,
+        CARGO_PROFILE_RELEASE_LTO: false,
+      })
+    }
     execSync(cargoCommand, {
       env: {
         ...process.env,
+        ...additionalEnv,
         TYPE_DEF_TMP_PATH: intermediateTypeFile,
       },
       stdio: 'inherit',

@@ -54,7 +54,7 @@ export class PrePublishCommand extends Command {
       })
     }
 
-    const { owner, repo, pkgInfo } = await this.createGhRelease(
+    const { owner, repo, pkgInfo, octokit } = await this.createGhRelease(
       packageName,
       version,
     )
@@ -83,16 +83,25 @@ export class PrePublishCommand extends Command {
               dstPath,
             )}] to Github release, [${chalk.greenBright(pkgInfo.tag)}]`,
           )
-          const putasset = require('putasset')
           try {
-            const downloadUrl = await putasset(process.env.GITHUB_TOKEN, {
-              owner,
-              repo,
-              tag: pkgInfo.tag,
-              filename: dstPath,
+            const releaseInfo = await octokit!.repos.getReleaseByTag({
+              repo: repo!,
+              owner: owner!,
+              tag: pkgInfo.tag!,
+            })
+            const assetInfo = await octokit!.repos.uploadReleaseAsset({
+              owner: owner!,
+              repo: repo!,
+              data: dstPath,
+              name: filename,
+              release_id: releaseInfo.data.id,
             })
             console.info(`${chalk.green(dstPath)} upload success`)
-            console.info(`Download url: ${chalk.blueBright(downloadUrl)}`)
+            console.info(
+              `Download url: ${chalk.blueBright(
+                assetInfo.data.browser_download_url,
+              )}`,
+            )
           } catch (e) {
             debug(
               `Param: ${JSON.stringify(
@@ -166,7 +175,7 @@ export class PrePublishCommand extends Command {
         console.error(e)
       }
     }
-    return { owner, repo, pkgInfo }
+    return { owner, repo, pkgInfo, octokit }
   }
 
   private parseTag(tag: string) {

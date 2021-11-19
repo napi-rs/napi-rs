@@ -23,10 +23,9 @@
     "stripInternal": true,
     "resolveJsonModule": true,
     "importsNotUsedAsValues": "remove",
-    "rootDir": "./cli/src",
-    "outDir": "./cli/scripts",
+    "outDir": "scripts",
     "lib": ["dom", "DOM.Iterable", "ES2019", "ES2020", "esnext"]
   },
-  "include": ["cli"],
-  "exclude": ["node_modules", "bench", "cli/scripts"]
+  "include": ["."],
+  "exclude": ["node_modules", "bench", "cli/scripts", "scripts"]
 }
