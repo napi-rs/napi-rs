@@ -242,3 +242,9 @@ test('is promise', (t) => {
     ),
   )
 })
+
+test('set symbol', (t) => {
+  const desc = 'foo'
+  const obj = bindings.setSymbol(desc)
+  t.is(obj.test_symbol.toString(), `Symbol(${desc})`)
+})

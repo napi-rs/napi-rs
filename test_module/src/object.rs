@@ -163,6 +163,15 @@ fn test_is_promise(ctx: CallContext) -> Result<JsBoolean> {
   ctx.env.get_boolean(obj.is_promise()?)
 }
 
+#[js_function(1)]
+fn set_symbol(ctx: CallContext) -> Result<JsObject> {
+  let desc = ctx.get::<JsString>(0)?.into_utf8()?;
+  let symbol = ctx.env.create_symbol(Some(desc.as_str()?))?;
+  let mut obj = ctx.env.create_object()?;
+  obj.set_named_property("test_symbol", symbol)?;
+  Ok(obj)
+}
+
 pub fn register_js(exports: &mut JsObject) -> Result<()> {
   exports.create_named_method("testSetProperty", test_set_property)?;
   exports.create_named_method("testGetProperty", test_get_property)?;
@@ -186,5 +195,6 @@ pub fn register_js(exports: &mut JsObject) -> Result<()> {
   exports.create_named_method("testDefineProperties", test_define_properties)?;
 
   exports.create_named_method("testIsPromise", test_is_promise)?;
+  exports.create_named_method("setSymbol", set_symbol)?;
   Ok(())
 }
