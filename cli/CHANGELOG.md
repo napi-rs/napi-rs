@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.0.0-alpha.7](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.0.0-alpha.6...@napi-rs/cli@2.0.0-alpha.7) (2021-11-21)
+
+### Bug Fixes
+
+- **cli:** ExternalObject type decalare ([1f64f9f](https://github.com/napi-rs/napi-rs/commit/1f64f9fbf3c9c36ea0f3a843a4754443d2d37daa))
+
 # [2.0.0-alpha.6](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.0.0-alpha.5...@napi-rs/cli@2.0.0-alpha.6) (2021-11-21)
 
 ### Features
