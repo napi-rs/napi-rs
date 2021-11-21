@@ -153,6 +153,18 @@ macro_rules! impl_js_value_methods {
         unsafe { JsUnknown::from_raw_unchecked(self.0.env, self.0.value) }
       }
 
+      pub fn coerce_to_bool(self) -> Result<JsBoolean> {
+        let mut new_raw_value = ptr::null_mut();
+        check_status!(unsafe {
+          sys::napi_coerce_to_bool(self.0.env, self.0.value, &mut new_raw_value)
+        })?;
+        Ok(JsBoolean(Value {
+          env: self.0.env,
+          value: new_raw_value,
+          value_type: ValueType::Boolean,
+        }))
+      }
+
       pub fn coerce_to_number(self) -> Result<JsNumber> {
         let mut new_raw_value = ptr::null_mut();
         check_status!(unsafe {
@@ -190,7 +202,6 @@ macro_rules! impl_js_value_methods {
       }
 
       #[cfg(feature = "napi5")]
-
       pub fn is_date(&self) -> Result<bool> {
         let mut is_date = true;
         check_status!(unsafe { sys::napi_is_date(self.0.env, self.0.value, &mut is_date) })?;
