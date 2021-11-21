@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.0.0-alpha.6](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.0.0-alpha.5...@napi-rs/cli@2.0.0-alpha.6) (2021-11-21)
+
+### Features
+
+- **cli:** refactor cli build ([4c3fe26](https://github.com/napi-rs/napi-rs/commit/4c3fe2647871ca8eede3097235b8ff9acbe64d17))
+- **napi:** implement external value ([bdfb150](https://github.com/napi-rs/napi-rs/commit/bdfb1506a22d67633ef26db49a0e1b683cad9c19))
+
 # [2.0.0-alpha.5](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.0.0-alpha.4...@napi-rs/cli@2.0.0-alpha.5) (2021-11-16)
 
 ### Bug Fixes
