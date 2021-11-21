@@ -879,10 +879,12 @@ impl Env {
       )
     })?;
     if let Some(changed) = size_hint {
-      let mut adjusted_value = 0i64;
-      check_status!(unsafe {
-        sys::napi_adjust_external_memory(self.0, changed, &mut adjusted_value)
-      })?;
+      if changed != 0 {
+        let mut adjusted_value = 0i64;
+        check_status!(unsafe {
+          sys::napi_adjust_external_memory(self.0, changed, &mut adjusted_value)
+        })?;
+      }
     };
     Ok(unsafe { JsExternal::from_raw_unchecked(self.0, object_value) })
   }
@@ -1260,12 +1262,14 @@ pub(crate) unsafe extern "C" fn raw_finalize<T>(
   if !finalize_hint.is_null() {
     let size_hint = *Box::from_raw(finalize_hint as *mut Option<i64>);
     if let Some(changed) = size_hint {
-      let mut adjusted = 0i64;
-      let status = sys::napi_adjust_external_memory(env, -changed, &mut adjusted);
-      debug_assert!(
-        status == sys::Status::napi_ok,
-        "Calling napi_adjust_external_memory failed"
-      );
+      if changed != 0 {
+        let mut adjusted = 0i64;
+        let status = sys::napi_adjust_external_memory(env, -changed, &mut adjusted);
+        debug_assert!(
+          status == sys::Status::napi_ok,
+          "Calling napi_adjust_external_memory failed"
+        );
+      }
     };
   }
 }

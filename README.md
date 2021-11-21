@@ -236,6 +236,7 @@ yarn test
 | Array                   | Array<any>             | 1                                                                               | v8.0.0               |
 | Vec<T>                  | Array<T>               | 1                                                                               | v8.0.0               |
 | Buffer                  | Buffer                 | 1                                                                               | v8.0.0               |
+| External<T>             | External<T>            | 1                                                                               | v8.0.0               |                          |
 | Null                    | null                   | 1                                                                               | v8.0.0               |
 | Undefined/()            | undefined              | 1                                                                               | v8.0.0               |
 | Result<()>              | Error                  | 1                                                                               | v8.0.0               |

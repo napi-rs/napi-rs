@@ -8,6 +8,7 @@ mod bigint;
 mod boolean;
 mod buffer;
 mod either;
+mod external;
 mod function;
 mod map;
 mod nil;
@@ -26,6 +27,7 @@ pub use array::*;
 pub use bigint::*;
 pub use buffer::*;
 pub use either::*;
+pub use external::*;
 #[cfg(feature = "napi4")]
 pub use function::*;
 pub use nil::*;
