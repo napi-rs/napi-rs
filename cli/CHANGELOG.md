@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.0.0-alpha.9](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.0.0-alpha.8...@napi-rs/cli@2.0.0-alpha.9) (2021-11-21)
+
+### Bug Fixes
+
+- **cli:** wrong release assets content ([458c5c9](https://github.com/napi-rs/napi-rs/commit/458c5c94574a6ee3563bc8c9953f09b74d794bdc))
+
 # [2.0.0-alpha.8](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.0.0-alpha.7...@napi-rs/cli@2.0.0-alpha.8) (2021-11-21)
 
 ### Features
