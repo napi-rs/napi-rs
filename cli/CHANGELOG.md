@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.0.0-alpha.8](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.0.0-alpha.7...@napi-rs/cli@2.0.0-alpha.8) (2021-11-21)
+
+### Features
+
+- **cli:** export android toolchains to PATH before build ([dca5ada](https://github.com/napi-rs/napi-rs/commit/dca5ada9959adb52db073c89f2823908d57c2a51))
+
 # [2.0.0-alpha.7](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.0.0-alpha.6...@napi-rs/cli@2.0.0-alpha.7) (2021-11-21)
 
 ### Bug Fixes
