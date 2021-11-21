@@ -239,18 +239,6 @@ macro_rules! impl_js_value_methods {
         })?;
         Ok(result)
       }
-
-      #[cfg(feature = "napi8")]
-      #[inline]
-      pub fn freeze(&mut self) -> Result<()> {
-        check_status!(unsafe { sys::napi_object_freeze(self.0.env, self.0.value) })
-      }
-
-      #[cfg(feature = "napi8")]
-      #[inline]
-      pub fn seal(&mut self) -> Result<()> {
-        check_status!(unsafe { sys::napi_object_seal(self.0.env, self.0.value) })
-      }
     }
   };
 }
@@ -584,6 +572,18 @@ macro_rules! impl_object_methods {
           sys::napi_get_array_length(self.0.env, self.0.value, &mut length)
         })?;
         Ok(length)
+      }
+
+      #[cfg(feature = "napi8")]
+      #[inline]
+      pub fn freeze(&mut self) -> Result<()> {
+        check_status!(unsafe { sys::napi_object_freeze(self.0.env, self.0.value) })
+      }
+
+      #[cfg(feature = "napi8")]
+      #[inline]
+      pub fn seal(&mut self) -> Result<()> {
+        check_status!(unsafe { sys::napi_object_seal(self.0.env, self.0.value) })
       }
     }
   };
