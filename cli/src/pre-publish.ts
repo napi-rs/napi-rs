@@ -1,3 +1,4 @@
+import { createReadStream, existsSync, statSync } from 'fs'
 import { join } from 'path'
 
 import { Octokit } from '@octokit/rest'
@@ -8,7 +9,6 @@ import { getNapiConfig } from './consts'
 import { debugFactory } from './debug'
 import { spawn } from './spawn'
 import { updatePackageJson } from './update-package'
-import { existsAsync } from './utils'
 import { VersionCommand } from './version'
 
 const debug = debugFactory('prepublish')
@@ -69,7 +69,7 @@ export class PrePublishCommand extends Command {
       const dstPath = join(pkgDir, filename)
 
       if (!this.isDryRun) {
-        if (!(await existsAsync(dstPath))) {
+        if (!existsSync(dstPath)) {
           console.warn(`[${chalk.yellowBright(dstPath)}] is not existed`)
           continue
         }
@@ -89,12 +89,19 @@ export class PrePublishCommand extends Command {
               owner: owner!,
               tag: pkgInfo.tag!,
             })
+            const dstFileStats = statSync(dstPath)
             const assetInfo = await octokit!.repos.uploadReleaseAsset({
               owner: owner!,
               repo: repo!,
-              data: dstPath,
               name: filename,
               release_id: releaseInfo.data.id,
+              mediaType: { format: 'raw' },
+              headers: {
+                'content-length': dstFileStats.size,
+                'content-type': 'application/octet-stream',
+              },
+              // @ts-expect-error
+              data: createReadStream(dstPath),
             })
             console.info(`${chalk.green(dstPath)} upload success`)
             console.info(
