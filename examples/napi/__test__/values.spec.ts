@@ -47,6 +47,7 @@ import {
   getNull,
   setSymbolInObj,
   createSymbol,
+  threadsafeFunctionFatalMode,
 } from '../'
 
 test('export const', (t) => {
@@ -302,6 +303,13 @@ Napi4Test('throw error from thread safe function', async (t) => {
   })
   const err = await t.throwsAsync(throwPromise)
   t.is(err.message, 'ThrowFromNative')
+})
+
+Napi4Test('throw error from thread safe function fatal mode', async (t) => {
+  const tsfnFatalMode = new Promise<boolean>((resolve) => {
+    threadsafeFunctionFatalMode(resolve)
+  })
+  t.true(await tsfnFatalMode)
 })
 
 Napi4Test('await Promise in rust', async (t) => {

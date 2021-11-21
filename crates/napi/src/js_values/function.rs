@@ -120,15 +120,16 @@ impl JsFunction {
   }
 
   #[cfg(feature = "napi4")]
-  pub fn create_threadsafe_function<T, V, F>(
+  pub fn create_threadsafe_function<T, V, F, ES>(
     &self,
     max_queue_size: usize,
     callback: F,
-  ) -> Result<ThreadsafeFunction<T>>
+  ) -> Result<ThreadsafeFunction<T, ES>>
   where
     T: 'static,
     V: NapiRaw,
     F: 'static + Send + FnMut(ThreadSafeCallContext<T>) -> Result<Vec<V>>,
+    ES: crate::threadsafe_function::ErrorStrategy::T,
   {
     ThreadsafeFunction::create(self.0.env, self.0.value, max_queue_size, callback)
   }
