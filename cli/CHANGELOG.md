@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.0.0-alpha.10](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.0.0-alpha.9...@napi-rs/cli@2.0.0-alpha.10) (2021-11-21)
+
+### Features
+
+- **cli:** create pre-release if tag includes alpha/beta/rc ([7b797d3](https://github.com/napi-rs/napi-rs/commit/7b797d3caf2d7beaa8d48b73a585e5c4f4400532))
+
 # [2.0.0-alpha.9](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.0.0-alpha.8...@napi-rs/cli@2.0.0-alpha.9) (2021-11-21)
 
 ### Bug Fixes
