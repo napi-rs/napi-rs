@@ -48,6 +48,10 @@ import {
   setSymbolInObj,
   createSymbol,
   threadsafeFunctionFatalMode,
+  createExternal,
+  getExternal,
+  mutateExternal,
+  createExternalString,
 } from '../'
 
 test('export const', (t) => {
@@ -237,12 +241,26 @@ test('either4', (t) => {
   t.is(either4({ v: 'world' }), 'world'.length)
 })
 
-test('async task without abort controller', async (t) => {
-  t.is(await withoutAbortController(1, 2), 3)
+test('external', (t) => {
+  const FX = 42
+  const ext = createExternal(FX)
+  t.is(getExternal(ext), FX)
+  mutateExternal(ext, FX + 1)
+  t.is(getExternal(ext), FX + 1)
+  // @ts-expect-error
+  t.throws(() => getExternal({}))
+  const ext2 = createExternalString('wtf')
+  // @ts-expect-error
+  const e = t.throws(() => getExternal(ext2))
+  t.is(e.message, 'T on `get_value_external` is not the type of wrapped object')
 })
 
 const AbortSignalTest =
   typeof AbortController !== 'undefined' ? test : test.skip
+
+AbortSignalTest('async task without abort controller', async (t) => {
+  t.is(await withoutAbortController(1, 2), 3)
+})
 
 AbortSignalTest('async task with abort controller', async (t) => {
   const ctrl = new AbortController()

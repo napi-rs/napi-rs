@@ -15,6 +15,7 @@ mod class_factory;
 mod either;
 mod r#enum;
 mod error;
+mod external;
 mod nullable;
 mod number;
 mod object;
