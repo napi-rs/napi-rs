@@ -1,4 +1,5 @@
 import { execSync } from 'child_process'
+import { existsSync } from 'fs'
 import { join, parse, sep } from 'path'
 
 import { Instance } from 'chalk'
@@ -11,7 +12,6 @@ import { createJsBinding } from './js-binding-template'
 import { getDefaultTargetTriple, parseTriple } from './parse-triple'
 import {
   copyFileAsync,
-  existsAsync,
   mkdirAsync,
   readFileAsync,
   unlinkAsync,
@@ -243,7 +243,7 @@ export class BuildCommand extends Command {
 
     const parsedDist = parse(distModulePath)
 
-    if (parsedDist.dir && !(await existsAsync(parsedDist.dir))) {
+    if (parsedDist.dir && !existsSync(parsedDist.dir)) {
       await mkdirAsync(parsedDist.dir, { recursive: true }).catch((e) => {
         console.warn(
           chalk.bgYellowBright(
@@ -260,7 +260,7 @@ export class BuildCommand extends Command {
       `${dylibName}${libExt}`,
     )
 
-    if (await existsAsync(distModulePath)) {
+    if (existsSync(distModulePath)) {
       debug(`remove old binary [${chalk.yellowBright(distModulePath)}]`)
       await unlinkAsync(distModulePath)
     }
@@ -312,7 +312,7 @@ export class BuildCommand extends Command {
 
 async function findUp(dir = process.cwd()): Promise<string | null> {
   const dist = join(dir, 'target')
-  if (await existsAsync(dist)) {
+  if (existsSync(dist)) {
     return dir
   }
   const dirs = dir.split(sep)
@@ -334,7 +334,7 @@ async function processIntermediateTypeFile(
   target: string,
 ): Promise<string[]> {
   const idents: string[] = []
-  if (!(await existsAsync(source))) {
+  if (!existsSync(source)) {
     debug(`do not find tmp type file. skip type generation`)
     return idents
   }

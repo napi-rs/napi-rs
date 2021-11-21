@@ -170,6 +170,10 @@ export class PrePublishCommand extends Command {
           owner,
           repo,
           tag_name: pkgInfo.tag,
+          prerelease:
+            version.includes('alpha') ||
+            version.includes('beta') ||
+            version.includes('rc'),
         })
       } catch (e) {
         debug(
