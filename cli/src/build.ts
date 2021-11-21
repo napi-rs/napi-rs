@@ -344,9 +344,13 @@ async function processIntermediateTypeFile(
     .split('\n')
     .map((line) => line.trim())
     .filter(Boolean)
-  let dts = `export class ExternalObject<T> {
-  private readonly __type: unique symbol;
-  [val: unique symbol]: T
+  let dts = `/* eslint-disable */
+
+export class ExternalObject<T> {
+  readonly '': {
+    readonly '': unique symbol
+    [K: symbol]: T
+  }
 }\n`
   const classes = new Map<string, string>()
   const impls = new Map<string, string>()

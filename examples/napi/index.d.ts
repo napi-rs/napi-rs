@@ -1,6 +1,10 @@
+/* eslint-disable */
+
 export class ExternalObject<T> {
-  private readonly __type: unique symbol;
-  [val: unique symbol]: T
+  readonly '': {
+    readonly '': unique symbol
+    [K: symbol]: T
+  }
 }
 export const DEFAULT_COST: number
 export function getWords(): Array<string>
