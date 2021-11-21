@@ -2,14 +2,15 @@ use std::thread;
 
 use napi::{
   bindgen_prelude::*,
-  threadsafe_function::{ThreadSafeCallContext, ThreadsafeFunctionCallMode},
+  threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode},
 };
 
 #[napi]
 pub fn call_threadsafe_function(callback: JsFunction) -> Result<()> {
-  let tsfn = callback.create_threadsafe_function(0, |ctx: ThreadSafeCallContext<u32>| {
-    ctx.env.create_uint32(ctx.value + 1).map(|v| vec![v])
-  })?;
+  let tsfn: ThreadsafeFunction<u32, ErrorStrategy::CalleeHandled> = callback
+    .create_threadsafe_function(0, |ctx| {
+      ctx.env.create_uint32(ctx.value + 1).map(|v| vec![v])
+    })?;
   for n in 0..100 {
     let tsfn = tsfn.clone();
     thread::spawn(move || {
@@ -21,9 +22,8 @@ pub fn call_threadsafe_function(callback: JsFunction) -> Result<()> {
 
 #[napi]
 pub fn threadsafe_function_throw_error(cb: JsFunction) -> Result<()> {
-  let tsfn = cb.create_threadsafe_function(0, |ctx: ThreadSafeCallContext<bool>| {
-    ctx.env.get_boolean(ctx.value).map(|v| vec![v])
-  })?;
+  let tsfn: ThreadsafeFunction<bool, ErrorStrategy::CalleeHandled> =
+    cb.create_threadsafe_function(0, |ctx| ctx.env.get_boolean(ctx.value).map(|v| vec![v]))?;
   thread::spawn(move || {
     tsfn.call(
       Err(Error::new(
@@ -32,6 +32,16 @@ pub fn threadsafe_function_throw_error(cb: JsFunction) -> Result<()> {
       )),
       ThreadsafeFunctionCallMode::Blocking,
     );
+  });
+  Ok(())
+}
+
+#[napi]
+pub fn threadsafe_function_fatal_mode(cb: JsFunction) -> Result<()> {
+  let tsfn: ThreadsafeFunction<bool, ErrorStrategy::Fatal> =
+    cb.create_threadsafe_function(0, |ctx| ctx.env.get_boolean(ctx.value).map(|v| vec![v]))?;
+  thread::spawn(move || {
+    tsfn.call(true, ThreadsafeFunctionCallMode::Blocking);
   });
   Ok(())
 }
