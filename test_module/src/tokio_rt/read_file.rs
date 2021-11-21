@@ -1,6 +1,5 @@
 use futures::prelude::*;
 use napi::{CallContext, Error, JsObject, JsString, Result, Status};
-use tokio;
 
 #[js_function(1)]
 pub fn test_execute_tokio_readfile(ctx: CallContext) -> Result<JsObject> {

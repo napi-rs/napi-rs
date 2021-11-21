@@ -6,7 +6,6 @@ use napi::{
   CallContext, Error, JsBoolean, JsFunction, JsNumber, JsObject, JsString, JsUndefined, Ref,
   Result, Status,
 };
-use tokio;
 
 #[js_function(1)]
 pub fn test_threadsafe_function(ctx: CallContext) -> Result<JsUndefined> {
@@ -28,13 +27,13 @@ pub fn test_threadsafe_function(ctx: CallContext) -> Result<JsUndefined> {
   thread::spawn(move || {
     let output: Vec<u32> = vec![0, 1, 2, 3];
     // It's okay to call a threadsafe function multiple times.
-    tsfn.call(Ok(output.clone()), ThreadsafeFunctionCallMode::Blocking);
+    tsfn.call(Ok(output), ThreadsafeFunctionCallMode::Blocking);
   });
 
   thread::spawn(move || {
     let output: Vec<u32> = vec![3, 2, 1, 0];
     // It's okay to call a threadsafe function multiple times.
-    tsfn_cloned.call(Ok(output.clone()), ThreadsafeFunctionCallMode::NonBlocking);
+    tsfn_cloned.call(Ok(output), ThreadsafeFunctionCallMode::NonBlocking);
   });
 
   ctx.env.get_undefined()
@@ -143,7 +142,7 @@ pub fn test_tokio_readfile(ctx: CallContext) -> Result<JsUndefined> {
     .map_err(|e| Error::from_reason(format!("Create tokio runtime failed {}", e)))?;
 
   rt.block_on(async move {
-    let ret = read_file_content(&Path::new(&path_str)).await;
+    let ret = read_file_content(Path::new(&path_str)).await;
     tsfn.call(ret, ThreadsafeFunctionCallMode::Blocking);
   });
 

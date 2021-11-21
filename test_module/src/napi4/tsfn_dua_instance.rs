@@ -23,7 +23,7 @@ pub fn constructor(ctx: CallContext) -> napi::Result<JsUndefined> {
           .map(|js_string| vec![js_string])
       })?;
 
-  cb.unref(&ctx.env)?;
+  cb.unref(ctx.env)?;
 
   let mut this: JsObject = ctx.this_unchecked();
   let obj = A { cb };
