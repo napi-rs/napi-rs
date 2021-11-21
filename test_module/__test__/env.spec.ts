@@ -16,3 +16,14 @@ test('should be able to throw syntax error', (t) => {
     t.is((e as SyntaxError).message, msg)
   }
 })
+
+test('should be able to coerceToBool', (t) => {
+  t.true(bindings.coerceToBool(true))
+  t.true(bindings.coerceToBool(1))
+  t.true(bindings.coerceToBool({}))
+  t.true(bindings.coerceToBool(Symbol()))
+  t.false(bindings.coerceToBool(0))
+  t.false(bindings.coerceToBool(undefined))
+  t.false(bindings.coerceToBool(null))
+  t.false(bindings.coerceToBool(NaN))
+})

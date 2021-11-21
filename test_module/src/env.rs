@@ -53,6 +53,12 @@ fn get_env_variable(env: Env) -> ContextlessResult<JsString> {
     .map(Some)
 }
 
+#[js_function(1)]
+fn coerce_to_bool(ctx: CallContext) -> Result<JsBoolean> {
+  let arg: JsUnknown = ctx.get(0)?;
+  arg.coerce_to_bool()
+}
+
 pub fn register_js(exports: &mut JsObject) -> Result<()> {
   exports.create_named_method("instanceof", instanceof)?;
   exports.create_named_method("isTypedarray", is_typedarray)?;
@@ -61,5 +67,6 @@ pub fn register_js(exports: &mut JsObject) -> Result<()> {
   exports.create_named_method("castUnknown", cast_unknown)?;
   exports.create_named_method("getEnvVariable", get_env_variable)?;
   exports.create_named_method("throwSyntaxError", throw_syntax_error)?;
+  exports.create_named_method("coerceToBool", coerce_to_bool)?;
   Ok(())
 }

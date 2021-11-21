@@ -140,6 +140,19 @@ macro_rules! impl_js_value_methods {
       }
 
       #[inline]
+      pub fn coerce_to_bool(self) -> Result<JsBoolean> {
+        let mut new_raw_value = ptr::null_mut();
+        check_status!(unsafe {
+          sys::napi_coerce_to_bool(self.0.env, self.0.value, &mut new_raw_value)
+        })?;
+        Ok(JsBoolean(Value {
+          env: self.0.env,
+          value: new_raw_value,
+          value_type: ValueType::Boolean,
+        }))
+      }
+
+      #[inline]
       pub fn coerce_to_number(self) -> Result<JsNumber> {
         let mut new_raw_value = ptr::null_mut();
         check_status!(unsafe {
