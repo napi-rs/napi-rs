@@ -1,5 +1,6 @@
 use std::ptr;
 
+use crate::bindgen_runtime::{FromNapiValue, TypeName};
 use crate::check_status;
 use crate::{sys, Either, Env, Error, JsUndefined, NapiValue, Result, Status};
 
@@ -45,18 +46,21 @@ impl<'env> CallContext<'env> {
     }
   }
 
-  pub fn get<ArgType: NapiValue>(&self, index: usize) -> Result<ArgType> {
+  pub fn get<ArgType: FromNapiValue>(&self, index: usize) -> Result<ArgType> {
     if index >= self.arg_len() {
       Err(Error::new(
         Status::GenericFailure,
         "Arguments index out of range".to_owned(),
       ))
     } else {
-      Ok(unsafe { ArgType::from_raw_unchecked(self.env.0, self.args[index]) })
+      unsafe { ArgType::from_napi_value(self.env.0, self.args[index]) }
     }
   }
 
-  pub fn try_get<ArgType: NapiValue>(&self, index: usize) -> Result<Either<ArgType, JsUndefined>> {
+  pub fn try_get<ArgType: NapiValue + TypeName + FromNapiValue>(
+    &self,
+    index: usize,
+  ) -> Result<Either<ArgType, JsUndefined>> {
     if index >= self.arg_len() {
       Err(Error::new(
         Status::GenericFailure,
