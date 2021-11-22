@@ -1,4 +1,4 @@
-use std::ffi::{c_void, CString};
+use std::ffi::{c_void, CStr};
 use std::future;
 use std::pin::Pin;
 use std::ptr;
@@ -15,7 +15,6 @@ pub struct Promise<T: FromNapiValue> {
 }
 
 unsafe impl<T: FromNapiValue> Send for Promise<T> {}
-unsafe impl<T: FromNapiValue> Sync for Promise<T> {}
 
 impl<T: FromNapiValue> FromNapiValue for Promise<T> {
   unsafe fn from_napi_value(
@@ -23,7 +22,7 @@ impl<T: FromNapiValue> FromNapiValue for Promise<T> {
     napi_val: napi_sys::napi_value,
   ) -> crate::Result<Self> {
     let mut then = ptr::null_mut();
-    let then_c_string = CString::new("then")?;
+    let then_c_string = CStr::from_bytes_with_nul_unchecked(b"then\0");
     check_status!(
       napi_sys::napi_get_named_property(env, napi_val, then_c_string.as_ptr(), &mut then,),
       "Failed to get then function"
@@ -55,7 +54,7 @@ impl<T: FromNapiValue> FromNapiValue for Promise<T> {
       "Failed to call then method"
     )?;
     let mut catch = ptr::null_mut();
-    let catch_c_string = CString::new("catch")?;
+    let catch_c_string = CStr::from_bytes_with_nul_unchecked(b"catch\0");
     check_status!(
       napi_sys::napi_get_named_property(
         env,

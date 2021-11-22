@@ -378,7 +378,7 @@ impl NapiStruct {
   fn gen_register(&self) -> TokenStream {
     let name_str = self.name.to_string();
     let struct_register_name = get_register_ident(&format!("{}_struct", name_str));
-    let js_name = &self.js_name;
+    let js_name = format!("{}\0", self.js_name);
     let mut props = vec![];
 
     if self.kind == NapiStructKind::Constructor {
@@ -436,7 +436,7 @@ impl TryToTokens for NapiImpl {
 impl NapiImpl {
   fn gen_helper_mod(&self) -> BindgenResult<TokenStream> {
     let name_str = self.name.to_string();
-    let js_name = &self.js_name;
+    let js_name = format!("{}\0", self.js_name);
     let mod_name = Ident::new(
       &format!("__napi_impl_helper__{}", name_str),
       Span::call_site(),

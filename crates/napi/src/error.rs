@@ -1,6 +1,6 @@
 use std::convert::{From, TryFrom};
 use std::error;
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 use std::fmt;
 #[cfg(feature = "serde-json")]
 use std::fmt::Display;
@@ -206,11 +206,13 @@ macro_rules! impl_object_methods {
       }
 
       pub fn throw(&self, env: sys::napi_env) -> Result<()> {
-        let error_status = format!("{:?}", self.0.status);
+        let error_status = format!("{:?}\0", self.0.status);
         let status_len = error_status.len();
-        let error_code_string = CString::new(error_status).unwrap();
+        let error_code_string =
+          unsafe { CStr::from_bytes_with_nul_unchecked(error_status.as_bytes()) };
         let reason_len = self.0.reason.len();
-        let reason = CString::new(self.0.reason.clone()).unwrap();
+        let reason_c_string = format!("{}\0", self.0.reason.clone());
+        let reason = unsafe { CStr::from_bytes_with_nul_unchecked(reason_c_string.as_bytes()) };
         let mut error_code = ptr::null_mut();
         let mut reason_string = ptr::null_mut();
         let mut js_error = ptr::null_mut();

@@ -290,36 +290,41 @@ impl NapiFn {
       quote! {}
     } else {
       let name_str = self.name.to_string();
-      let js_name = &self.js_name;
+      let js_name = format!("{}\0", &self.js_name);
       let name_len = js_name.len();
       let module_register_name = get_register_ident(&name_str);
       let intermediate_ident = get_intermediate_ident(&name_str);
 
+      let cb_name = Ident::new(
+        &format!("__register__fn__{}_callback__", name_str),
+        Span::call_site(),
+      );
+
       quote! {
+        unsafe fn #cb_name(env: napi::bindgen_prelude::sys::napi_env) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
+          let mut fn_ptr = std::ptr::null_mut();
+
+          napi::bindgen_prelude::check_status!(
+            napi::bindgen_prelude::sys::napi_create_function(
+              env,
+              #js_name.as_ptr() as *const _,
+              #name_len,
+              Some(#intermediate_ident),
+              std::ptr::null_mut(),
+              &mut fn_ptr,
+            ),
+            "Failed to register function `{}`",
+            #name_str,
+          )?;
+
+          Ok(fn_ptr)
+        }
+
         #[allow(clippy::all)]
         #[allow(non_snake_case)]
         #[napi::bindgen_prelude::ctor]
         fn #module_register_name() {
-          unsafe fn cb(env: napi::bindgen_prelude::sys::napi_env) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
-            let mut fn_ptr = std::ptr::null_mut();
-
-            napi::bindgen_prelude::check_status!(
-              napi::bindgen_prelude::sys::napi_create_function(
-                env,
-                #js_name.as_ptr() as *const _,
-                #name_len,
-                Some(#intermediate_ident),
-                std::ptr::null_mut(),
-                &mut fn_ptr,
-              ),
-              "Failed to register function `{}`",
-              #name_str,
-            )?;
-
-            Ok(fn_ptr)
-          }
-
-          napi::bindgen_prelude::register_module_export(#js_name, cb);
+          napi::bindgen_prelude::register_module_export(#js_name, #cb_name);
         }
       }
     }

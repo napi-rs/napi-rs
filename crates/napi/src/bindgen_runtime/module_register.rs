@@ -1,4 +1,7 @@
-use std::{cell::RefCell, collections::HashMap, ffi::CString, ptr};
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::ffi::CStr;
+use std::ptr;
 
 use crate::{check_status, check_status_or_throw, sys, JsError, Property, Result};
 
@@ -56,9 +59,9 @@ unsafe extern "C" fn napi_register_module_v1(
   MODULE_REGISTER_CALLBACK.with(|to_register_exports| {
     to_register_exports
       .take()
-      .into_iter()
+      .iter()
       .for_each(|(name, callback)| {
-        let js_name = CString::new(name).unwrap();
+        let js_name = CStr::from_bytes_with_nul_unchecked(name.as_bytes());
         unsafe {
           if let Err(e) = callback(env).and_then(|v| {
             check_status!(
@@ -85,7 +88,7 @@ unsafe extern "C" fn napi_register_module_v1(
         let ctor = ctor.get(0).map(|c| c.raw().method.unwrap()).unwrap_or(noop);
         let raw_props: Vec<_> = props.iter().map(|prop| prop.raw()).collect();
 
-        let js_class_name = CString::new(js_name).unwrap();
+        let js_class_name = CStr::from_bytes_with_nul_unchecked(js_name.as_bytes());
         let mut class_ptr = ptr::null_mut();
 
         check_status_or_throw!(
