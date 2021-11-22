@@ -1,5 +1,6 @@
-use crate::{bindgen_prelude::*, check_status, sys, ValueType};
 use std::ptr;
+
+use crate::{bindgen_prelude::*, check_status, sys, ValueType};
 
 pub struct Array {
   env: sys::napi_env,
@@ -113,6 +114,20 @@ impl FromNapiValue for Array {
         "Given napi value is not an array".to_owned(),
       ))
     }
+  }
+}
+
+impl Array {
+  pub fn from_vec<T>(env: &Env, value: Vec<T>) -> Result<Self>
+  where
+    T: ToNapiValue,
+  {
+    let mut arr = Array::new(env.0, value.len() as u32)?;
+    value.into_iter().try_for_each(|val| {
+      arr.insert(val)?;
+      Ok::<(), Error>(())
+    })?;
+    Ok(arr)
   }
 }
 

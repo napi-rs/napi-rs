@@ -26,8 +26,9 @@ impl NapiConst {
       &format!("__register__const__{}_callback__", register_name),
       self.name.span(),
     );
-
     quote! {
+      #[allow(non_snake_case)]
+      #[allow(clippy::all)]
       unsafe fn #cb_name(env: napi::sys::napi_env) -> napi::Result<napi::sys::napi_value> {
         <#type_name as napi::bindgen_prelude::ToNapiValue>::to_napi_value(env, #name_ident)
       }
