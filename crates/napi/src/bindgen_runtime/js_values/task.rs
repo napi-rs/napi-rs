@@ -44,7 +44,7 @@ impl<T: Task> AsyncTask<T> {
   }
 }
 
-/// https://developer.mozilla.org/zh-CN/docs/Web/API/AbortController
+/// <https://developer.mozilla.org/zh-CN/docs/Web/API/AbortController>
 pub struct AbortSignal {
   raw_work: Rc<AtomicPtr<napi_sys::napi_async_work__>>,
   raw_deferred: Rc<AtomicPtr<napi_sys::napi_deferred__>>,

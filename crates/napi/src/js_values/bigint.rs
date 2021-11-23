@@ -196,7 +196,7 @@ impl TryFrom<JsBigInt> for u64 {
 }
 
 impl JsBigInt {
-  /// https://nodejs.org/api/n-api.html#n_api_napi_get_value_bigint_words
+  /// <https://nodejs.org/api/n-api.html#n_api_napi_get_value_bigint_words>
   pub fn get_words(&mut self) -> Result<(bool, Vec<u64>)> {
     let mut words: Vec<u64> = Vec::with_capacity(self.word_count as usize);
     let word_count = &mut self.word_count;

@@ -437,7 +437,7 @@ macro_rules! impl_object_methods {
         Ok(unsafe { JsObject::from_raw_unchecked(self.0.env, raw_value) })
       }
 
-      /// https://nodejs.org/api/n-api.html#n_api_napi_get_all_property_names
+      /// <https://nodejs.org/api/n-api.html#n_api_napi_get_all_property_names>
       /// return `Array` of property names
       #[cfg(feature = "napi6")]
       pub fn get_all_property_names(
