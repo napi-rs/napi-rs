@@ -16,6 +16,7 @@ mod either;
 mod r#enum;
 mod error;
 mod external;
+mod js_mod;
 mod nullable;
 mod number;
 mod object;

@@ -23,6 +23,7 @@ impl ToTypeDef for NapiStruct {
       }),
       name: self.js_name.to_owned(),
       def: self.gen_ts_class(),
+      js_mod: self.js_mod.to_owned(),
     }
   }
 }
@@ -44,6 +45,7 @@ impl ToTypeDef for NapiImpl {
         .map(|f| f.to_type_def().def)
         .collect::<Vec<_>>()
         .join("\\n"),
+      js_mod: self.js_mod.to_owned(),
     }
   }
 }

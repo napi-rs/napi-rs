@@ -21,6 +21,7 @@ pub struct i64n(pub i64);
 
 /// <https://nodejs.org/api/n-api.html#napi_create_bigint_words>
 /// The resulting BigInt is calculated as: (–1)^sign_bit (words\[0\] × (2^64)^0 + words\[1\] × (2^64)^1 + …)
+#[derive(Debug, Clone)]
 pub struct BigInt {
   /// true for negative numbers
   pub sign_bit: bool,

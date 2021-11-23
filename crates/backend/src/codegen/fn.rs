@@ -2,7 +2,7 @@ use proc_macro2::{Ident, Span, TokenStream};
 use quote::ToTokens;
 
 use crate::{
-  codegen::{get_intermediate_ident, get_register_ident},
+  codegen::{get_intermediate_ident, get_register_ident, js_mod_to_token_stream},
   BindgenResult, CallbackArg, FnKind, FnSelf, NapiFn, NapiFnArgKind, TryToTokens,
 };
 
@@ -294,12 +294,11 @@ impl NapiFn {
       let name_len = js_name.len();
       let module_register_name = get_register_ident(&name_str);
       let intermediate_ident = get_intermediate_ident(&name_str);
-
+      let js_mod_ident = js_mod_to_token_stream(self.js_mod.as_ref());
       let cb_name = Ident::new(
         &format!("__register__fn__{}_callback__", name_str),
         Span::call_site(),
       );
-
       quote! {
         unsafe fn #cb_name(env: napi::bindgen_prelude::sys::napi_env) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
           let mut fn_ptr = std::ptr::null_mut();
@@ -324,7 +323,7 @@ impl NapiFn {
         #[allow(non_snake_case)]
         #[napi::bindgen_prelude::ctor]
         fn #module_register_name() {
-          napi::bindgen_prelude::register_module_export(#js_name, #cb_name);
+          napi::bindgen_prelude::register_module_export(#js_mod_ident, #js_name, #cb_name);
         }
       }
     }

@@ -5,7 +5,7 @@ use napi::Task;
 
 struct DelaySum(u32, u32);
 
-#[napi(task)]
+#[napi]
 impl Task for DelaySum {
   type Output = u32;
   type JsValue = u32;

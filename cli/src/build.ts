@@ -4,6 +4,7 @@ import { join, parse, sep } from 'path'
 
 import { Instance } from 'chalk'
 import { Command, Option } from 'clipanion'
+import { groupBy } from 'lodash-es'
 import toml from 'toml'
 
 import { getNapiConfig } from './consts'
@@ -327,6 +328,7 @@ interface TypeDef {
   kind: 'fn' | 'struct' | 'impl' | 'enum' | 'interface'
   name: string
   def: string
+  js_mod?: string
 }
 
 async function processIntermediateTypeFile(
@@ -344,7 +346,7 @@ async function processIntermediateTypeFile(
     .split('\n')
     .map((line) => line.trim())
     .filter(Boolean)
-  let dts = `/* eslint-disable */
+  const dtsHeader = `/* eslint-disable */
 
 export class ExternalObject<T> {
   readonly '': {
@@ -352,43 +354,75 @@ export class ExternalObject<T> {
     [K: symbol]: T
   }
 }\n`
-  const classes = new Map<string, string>()
-  const impls = new Map<string, string>()
 
-  lines.forEach((line) => {
-    const def = JSON.parse(line) as TypeDef
+  const allDefs = lines.map((line) => JSON.parse(line) as TypeDef)
 
-    switch (def.kind) {
-      case 'struct':
-        idents.push(def.name)
-        classes.set(def.name, def.def)
-        break
-      case 'impl':
-        impls.set(def.name, def.def)
-        break
-      case 'interface':
-        dts += `interface ${def.name} {\n${indentLines(def.def, 2)}\n}\n`
-        break
-      default:
-        idents.push(def.name)
-        dts += def.def + '\n'
+  function convertDefs(defs: TypeDef[], nested = false): string {
+    const classes = new Map<string, string>()
+    const impls = new Map<string, string>()
+    let dts = ''
+    const lineStart = nested ? '  ' : ''
+    defs.forEach((def) => {
+      switch (def.kind) {
+        case 'struct':
+          if (!nested) {
+            idents.push(def.name)
+          }
+          classes.set(def.name, def.def)
+          break
+        case 'impl':
+          impls.set(def.name, def.def)
+          break
+        case 'interface':
+          dts += `${lineStart}interface ${def.name} {\n${indentLines(
+            def.def,
+            nested ? 4 : 2,
+          )}\n}\n`
+          break
+        default:
+          if (!nested) {
+            idents.push(def.name)
+          }
+          dts += lineStart + def.def + '\n'
+      }
+    })
+
+    for (const [name, classDef] of classes.entries()) {
+      const implDef = impls.get(name)
+
+      dts += `${lineStart}export class ${name} {\n${indentLines(
+        classDef,
+        nested ? 4 : 2,
+      )}`
+
+      if (implDef) {
+        dts += `\n${indentLines(implDef, nested ? 4 : 2)}`
+      }
+
+      dts += `\n${lineStart}}\n`
     }
-  })
-
-  for (const [name, classDef] of classes.entries()) {
-    const implDef = impls.get(name)
-
-    dts += `export class ${name} {\n${indentLines(classDef, 2)}`
-
-    if (implDef) {
-      dts += `\n${indentLines(implDef, 2)}`
-    }
-
-    dts += '\n}\n'
+    return dts
   }
 
+  const topLevelDef = convertDefs(allDefs.filter((def) => !def.js_mod))
+
+  const namespaceDefs = Object.entries(
+    groupBy(
+      allDefs.filter((def) => def.js_mod),
+      'js_mod',
+    ),
+  ).reduce((acc, [mod, defs]) => {
+    idents.push(mod)
+    return (
+      acc +
+      `export namespace ${mod} {
+${convertDefs(defs, true)}
+}\n`
+    )
+  }, '')
+
   await unlinkAsync(source)
-  await writeFileAsync(target, dts, 'utf8')
+  await writeFileAsync(target, dtsHeader + topLevelDef + namespaceDefs, 'utf8')
   return idents
 }
 

@@ -1,7 +1,10 @@
 use proc_macro2::{Ident, Literal, Span, TokenStream};
 use quote::ToTokens;
 
-use crate::{codegen::get_register_ident, BindgenResult, NapiEnum, TryToTokens};
+use crate::{
+  codegen::{get_register_ident, js_mod_to_token_stream},
+  BindgenResult, NapiEnum, TryToTokens,
+};
 
 impl TryToTokens for NapiEnum {
   fn try_to_tokens(&self, tokens: &mut TokenStream) -> BindgenResult<()> {
@@ -124,6 +127,8 @@ impl NapiEnum {
       Span::call_site(),
     );
 
+    let js_mod_ident = js_mod_to_token_stream(self.js_mod.as_ref());
+
     quote! {
       unsafe fn #callback_name(env: napi::bindgen_prelude::sys::napi_env) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
         use std::ffi::CString;
@@ -144,7 +149,7 @@ impl NapiEnum {
       #[allow(clippy::all)]
       #[napi::bindgen_prelude::ctor]
       fn #register_name() {
-        napi::bindgen_prelude::register_module_export(#js_name_lit, #callback_name);
+        napi::bindgen_prelude::register_module_export(#js_mod_ident, #js_name_lit, #callback_name);
       }
     }
   }

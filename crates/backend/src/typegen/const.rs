@@ -12,6 +12,7 @@ impl ToTypeDef for NapiConst {
         &self.js_name,
         ty_to_ts_type(&self.type_name, false).0
       ),
+      js_mod: self.js_mod.to_owned(),
     }
   }
 }
