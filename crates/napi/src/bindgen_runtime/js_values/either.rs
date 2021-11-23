@@ -17,6 +17,8 @@ impl<
     B: TypeName + FromNapiValue + ToNapiValue + NapiRaw,
   > Either<A, B>
 {
+  /// # Safety
+  /// Backward compatible with `Either` in **v1**
   pub unsafe fn raw(&self) -> napi_sys::napi_value {
     match &self {
       Self::A(a) => a.raw(),
