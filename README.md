@@ -10,7 +10,7 @@
 
 A minimal library for building compiled `Node.js` add-ons in `Rust`.
 
-_Main branch is now under napi@next developing. Checkout [v1 docs](https://napi.rs) for napi@1.x._
+_Main branch is now under napi@next developing. Checkout [v1 docs](https://napi.rs) for `napi@1.x`._
 
 <p>
   <a href="https://docs.rs/crate/napi"><img src="https://docs.rs/napi/badge.svg"></img></a>
