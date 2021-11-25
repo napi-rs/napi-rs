@@ -264,28 +264,24 @@ impl NapiFn {
           quote! {
             <#ty as napi::bindgen_prelude::ToNapiValue>::to_napi_value(env, #ret)
           }
+        } else if is_return_self {
+          quote! { #ret.map(|_| cb.this) }
         } else {
-          if is_return_self {
-            quote! { #ret.map(|_| cb.this) }
-          } else {
-            quote! {
-              match #ret {
-                Ok(value) => napi::bindgen_prelude::ToNapiValue::to_napi_value(env, value),
-                Err(err) => {
-                  napi::bindgen_prelude::JsError::from(err).throw_into(env);
-                  Ok(std::ptr::null_mut())
-                },
-              }
+          quote! {
+            match #ret {
+              Ok(value) => napi::bindgen_prelude::ToNapiValue::to_napi_value(env, value),
+              Err(err) => {
+                napi::bindgen_prelude::JsError::from(err).throw_into(env);
+                Ok(std::ptr::null_mut())
+              },
             }
           }
         }
+      } else if is_return_self {
+        quote! { Ok(cb.this) }
       } else {
-        if is_return_self {
-          quote! { Ok(cb.this) }
-        } else {
-          quote! {
-            <#ty as napi::bindgen_prelude::ToNapiValue>::to_napi_value(env, #ret)
-          }
+        quote! {
+          <#ty as napi::bindgen_prelude::ToNapiValue>::to_napi_value(env, #ret)
         }
       }
     } else {
