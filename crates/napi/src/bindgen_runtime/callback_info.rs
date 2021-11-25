@@ -12,7 +12,7 @@ pub static ___CALL_FROM_FACTORY: AtomicBool = AtomicBool::new(false);
 
 pub struct CallbackInfo<const N: usize> {
   env: sys::napi_env,
-  this: sys::napi_value,
+  pub this: sys::napi_value,
   pub args: [sys::napi_value; N],
 }
 

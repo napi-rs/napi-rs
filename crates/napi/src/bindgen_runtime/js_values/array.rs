@@ -123,8 +123,8 @@ impl Array {
     T: ToNapiValue,
   {
     let mut arr = Array::new(env.0, value.len() as u32)?;
-    value.into_iter().try_for_each(|val| {
-      arr.insert(val)?;
+    value.into_iter().enumerate().try_for_each(|(index, val)| {
+      arr.set(index as u32, val)?;
       Ok::<(), Error>(())
     })?;
     Ok(arr)

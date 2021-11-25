@@ -245,6 +245,8 @@ impl NapiFn {
     let js_name = &self.js_name;
 
     if let Some(ty) = &self.ret {
+      let ty_string = ty.into_token_stream().to_string();
+      let is_return_self = ty_string == "& Self" || ty_string == "&mut Self";
       if self.kind == FnKind::Constructor {
         if self.is_ret_result {
           quote! { cb.construct(#js_name, #ret?) }
@@ -263,19 +265,27 @@ impl NapiFn {
             <#ty as napi::bindgen_prelude::ToNapiValue>::to_napi_value(env, #ret)
           }
         } else {
-          quote! {
-            match #ret {
-              Ok(value) => napi::bindgen_prelude::ToNapiValue::to_napi_value(env, value),
-              Err(err) => {
-                napi::bindgen_prelude::JsError::from(err).throw_into(env);
-                Ok(std::ptr::null_mut())
-              },
+          if is_return_self {
+            quote! { #ret.map(|_| cb.this) }
+          } else {
+            quote! {
+              match #ret {
+                Ok(value) => napi::bindgen_prelude::ToNapiValue::to_napi_value(env, value),
+                Err(err) => {
+                  napi::bindgen_prelude::JsError::from(err).throw_into(env);
+                  Ok(std::ptr::null_mut())
+                },
+              }
             }
           }
         }
       } else {
-        quote! {
-          <#ty as napi::bindgen_prelude::ToNapiValue>::to_napi_value(env, #ret)
+        if is_return_self {
+          quote! { Ok(cb.this) }
+        } else {
+          quote! {
+            <#ty as napi::bindgen_prelude::ToNapiValue>::to_napi_value(env, #ret)
+          }
         }
       }
     } else {
