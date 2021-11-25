@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.0.0-alpha.11](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.0.0-alpha.10...@napi-rs/cli@2.0.0-alpha.11) (2021-11-25)
+
+### Features
+
+- **napi:** support export rust mod as ts namespace ([1fe39ff](https://github.com/napi-rs/napi-rs/commit/1fe39ff66dceaacca7b99207e13ae1ab8f7bdf39))
+
 # [2.0.0-alpha.10](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.0.0-alpha.9...@napi-rs/cli@2.0.0-alpha.10) (2021-11-21)
 
 ### Features
