@@ -229,7 +229,7 @@ impl DerefMut for JsArrayBufferValue {
 
 impl JsTypedArray {
   /// get TypeArray info
-  /// https://nodejs.org/api/n-api.html#n_api_napi_get_typedarray_info
+  /// <https://nodejs.org/api/n-api.html#n_api_napi_get_typedarray_info>
   ///
   /// ***Warning***: Use caution while using this API since the underlying data buffer is managed by the VM.
   pub fn into_value(self) -> Result<JsTypedArrayValue> {

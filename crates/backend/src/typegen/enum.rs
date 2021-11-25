@@ -11,6 +11,7 @@ impl ToTypeDef for NapiEnum {
         js_name = &self.js_name,
         variants = self.gen_ts_variants()
       ),
+      js_mod: self.js_mod.to_owned(),
     }
   }
 }

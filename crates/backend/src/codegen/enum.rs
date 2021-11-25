@@ -1,7 +1,10 @@
-use proc_macro2::{Literal, TokenStream};
+use proc_macro2::{Ident, Literal, Span, TokenStream};
 use quote::ToTokens;
 
-use crate::{codegen::get_register_ident, BindgenResult, NapiEnum, TryToTokens};
+use crate::{
+  codegen::{get_register_ident, js_mod_to_token_stream},
+  BindgenResult, NapiEnum, TryToTokens,
+};
 
 impl TryToTokens for NapiEnum {
   fn try_to_tokens(&self, tokens: &mut TokenStream) -> BindgenResult<()> {
@@ -98,18 +101,18 @@ impl NapiEnum {
 
   fn gen_module_register(&self) -> TokenStream {
     let name_str = self.name.to_string();
-    let js_name_lit = Literal::string(&self.js_name);
+    let js_name_lit = Literal::string(&format!("{}\0", &self.js_name));
     let register_name = get_register_ident(&name_str);
 
     let mut define_properties = vec![];
 
     for variant in self.variants.iter() {
-      let name_lit = Literal::string(&variant.name.to_string());
+      let name_lit = Literal::string(&format!("{}\0", variant.name.to_string()));
       let val_lit = Literal::i32_unsuffixed(variant.val);
 
       define_properties.push(quote! {
         {
-          let name = CString::new(#name_lit)?;
+          let name = std::ffi::CStr::from_bytes_with_nul_unchecked(#name_lit.as_bytes());
           napi::bindgen_prelude::check_status!(
             napi::bindgen_prelude::sys::napi_set_named_property(env, obj_ptr, name.as_ptr(), i32::to_napi_value(env, #val_lit)?),
             "Failed to defined enum `{}`",
@@ -119,28 +122,34 @@ impl NapiEnum {
       })
     }
 
+    let callback_name = Ident::new(
+      &format!("__register__enum__{}_callback__", name_str),
+      Span::call_site(),
+    );
+
+    let js_mod_ident = js_mod_to_token_stream(self.js_mod.as_ref());
+
     quote! {
+      unsafe fn #callback_name(env: napi::bindgen_prelude::sys::napi_env) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
+        use std::ffi::CString;
+        use std::ptr;
+
+        let mut obj_ptr = ptr::null_mut();
+
+        napi::bindgen_prelude::check_status!(
+          napi::bindgen_prelude::sys::napi_create_object(env, &mut obj_ptr),
+          "Failed to create napi object"
+        )?;
+
+        #(#define_properties)*
+
+        Ok(obj_ptr)
+      }
       #[allow(non_snake_case)]
       #[allow(clippy::all)]
       #[napi::bindgen_prelude::ctor]
       fn #register_name() {
-        use std::ffi::CString;
-        use std::ptr;
-
-        unsafe fn cb(env: napi::bindgen_prelude::sys::napi_env) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
-          let mut obj_ptr = ptr::null_mut();
-
-          napi::bindgen_prelude::check_status!(
-            napi::bindgen_prelude::sys::napi_create_object(env, &mut obj_ptr),
-            "Failed to create napi object"
-          )?;
-
-          #(#define_properties)*
-
-          Ok(obj_ptr)
-        }
-
-        napi::bindgen_prelude::register_module_export(#js_name_lit, cb);
+        napi::bindgen_prelude::register_module_export(#js_mod_ident, #js_name_lit, #callback_name);
       }
     }
   }

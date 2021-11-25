@@ -12,9 +12,10 @@ use napi_derive_backend::{BindgenResult, TryToTokens};
 
 #[cfg(feature = "type-def")]
 use napi_derive_backend::{ToTypeDef, TypeDef};
-use parser::ParseNapi;
+use parser::{attrs::BindgenAttrs, ParseNapi};
 use proc_macro::TokenStream as RawStream;
-use proc_macro2::TokenStream;
+use proc_macro2::{TokenStream, TokenTree};
+use quote::ToTokens;
 use std::env;
 #[cfg(feature = "type-def")]
 use std::{
@@ -23,6 +24,7 @@ use std::{
 };
 #[cfg(feature = "compat-mode")]
 use syn::{fold::Fold, parse_macro_input, ItemFn};
+use syn::{Attribute, Item};
 
 /// ```ignore
 /// #[napi]
@@ -49,21 +51,78 @@ pub fn napi(attr: RawStream, input: RawStream) -> RawStream {
 
 fn expand(attr: TokenStream, input: TokenStream) -> BindgenResult<TokenStream> {
   let mut item = syn::parse2::<syn::Item>(input)?;
-  let opts = syn::parse2(attr)?;
-
+  let opts: BindgenAttrs = syn::parse2(attr)?;
   let mut tokens = proc_macro2::TokenStream::new();
-
-  let napi = item.parse_napi(&mut tokens, opts)?;
-  napi.try_to_tokens(&mut tokens)?;
-
-  #[cfg(feature = "type-def")]
-  if let Ok(type_def_file) = env::var("TYPE_DEF_TMP_PATH") {
-    if let Err(e) = output_type_def(type_def_file, napi.to_type_def()) {
-      println!("Failed to write type def file: {:?}", e);
+  if let Item::Mod(mut js_mod) = item {
+    let js_name = opts.js_name().map_or_else(
+      || js_mod.ident.to_string(),
+      |(js_name, _)| js_name.to_owned(),
+    );
+    if let Some((_, mut items)) = js_mod.content.clone() {
+      for item in items.iter_mut() {
+        let mut empty_attrs = vec![];
+        if let Some(item_opts) = replace_napi_attr_in_mod(
+          js_name.clone(),
+          match item {
+            syn::Item::Fn(ref mut function) => &mut function.attrs,
+            syn::Item::Struct(ref mut struct_) => &mut struct_.attrs,
+            syn::Item::Enum(ref mut enum_) => &mut enum_.attrs,
+            syn::Item::Const(ref mut const_) => &mut const_.attrs,
+            syn::Item::Impl(ref mut impl_) => &mut impl_.attrs,
+            syn::Item::Mod(mod_) => {
+              let mod_in_mod = mod_
+                .attrs
+                .iter()
+                .enumerate()
+                .find(|(_, m)| m.path.segments[0].ident == "napi");
+              if mod_in_mod.is_some() {
+                bail_span!(
+                  mod_,
+                  "napi module cannot be nested under another napi module"
+                );
+              } else {
+                &mut empty_attrs
+              }
+            }
+            _ => &mut empty_attrs,
+          },
+        ) {
+          let napi = item.parse_napi(&mut tokens, item_opts)?;
+          napi.try_to_tokens(&mut tokens)?;
+          #[cfg(feature = "type-def")]
+          if let Ok(type_def_file) = env::var("TYPE_DEF_TMP_PATH") {
+            if let Err(e) = output_type_def(type_def_file, napi.to_type_def()) {
+              println!("Failed to write type def file: {:?}", e);
+            };
+          }
+        } else {
+          item.to_tokens(&mut tokens);
+        };
+      }
+      js_mod.content = None;
     };
-  }
+    let js_mod_attrs: Vec<Attribute> = js_mod
+      .attrs
+      .clone()
+      .into_iter()
+      .filter(|attr| attr.path.segments[0].ident != "napi")
+      .collect();
+    let mod_name = js_mod.ident;
+    let visible = js_mod.vis;
+    let mod_tokens = quote! { #(#js_mod_attrs)* #visible mod #mod_name { #tokens } };
+    Ok(mod_tokens)
+  } else {
+    let napi = item.parse_napi(&mut tokens, opts)?;
+    napi.try_to_tokens(&mut tokens)?;
 
-  Ok(tokens)
+    #[cfg(feature = "type-def")]
+    if let Ok(type_def_file) = env::var("TYPE_DEF_TMP_PATH") {
+      if let Err(e) = output_type_def(type_def_file, napi.to_type_def()) {
+        println!("Failed to write type def file: {:?}", e);
+      };
+    }
+    Ok(tokens)
+  }
 }
 
 #[cfg(feature = "type-def")]
@@ -212,4 +271,50 @@ pub fn module_exports(_attr: RawStream, input: RawStream) -> RawStream {
     #register
   })
   .into()
+}
+
+fn replace_napi_attr_in_mod(
+  js_namespace: String,
+  attrs: &mut Vec<syn::Attribute>,
+) -> Option<BindgenAttrs> {
+  let napi_attr = attrs.clone();
+  let napi_attr = napi_attr
+    .iter()
+    .enumerate()
+    .find(|(_, m)| m.path.segments[0].ident == "napi");
+  if let Some((index, napi_attr)) = napi_attr {
+    let attr_token_stream = napi_attr.tokens.clone();
+    let raw_attr_stream = attr_token_stream.to_string();
+    let raw_attr_stream = if !raw_attr_stream.is_empty() {
+      raw_attr_stream
+        .strip_prefix('(')
+        .unwrap()
+        .strip_suffix(')')
+        .unwrap()
+        .to_string()
+    } else {
+      raw_attr_stream
+    };
+    let raw_attr_token_stream = syn::parse_str::<TokenStream>(raw_attr_stream.as_str()).unwrap();
+
+    let new_attr: syn::Attribute = if !raw_attr_stream.is_empty() {
+      syn::parse_quote!(
+        #[napi(#raw_attr_token_stream, namespace = #js_namespace)]
+      )
+    } else {
+      syn::parse_quote!(
+        #[napi(namespace = #js_namespace)]
+      )
+    };
+    let struct_opts: BindgenAttrs;
+    if let Some(TokenTree::Group(g)) = new_attr.tokens.into_iter().next() {
+      struct_opts = syn::parse2(g.stream()).ok()?;
+    } else {
+      struct_opts = syn::parse2(quote! {}).ok()?;
+    }
+    attrs.remove(index);
+    Some(struct_opts)
+  } else {
+    None
+  }
 }

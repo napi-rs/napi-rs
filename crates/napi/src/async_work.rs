@@ -1,8 +1,9 @@
+use std::ffi::CStr;
 use std::mem;
 use std::os::raw::c_void;
 use std::ptr;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicU8, Ordering};
-use std::{ffi::CString, rc::Rc};
 
 use crate::{
   bindgen_runtime::ToNapiValue, check_status, js_values::NapiValue, sys, Env, JsError, JsObject,
@@ -59,7 +60,7 @@ pub fn run<T: Task>(
     napi_async_work: ptr::null_mut(),
     status: task_status.clone(),
   }));
-  let async_work_name = CString::new("napi_rs_async_work")?;
+  let async_work_name = unsafe { CStr::from_bytes_with_nul_unchecked(b"napi_rs_async_work\0") };
   check_status!(unsafe {
     sys::napi_create_async_work(
       env,

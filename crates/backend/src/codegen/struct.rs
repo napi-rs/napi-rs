@@ -4,7 +4,7 @@ use proc_macro2::{Ident, Literal, Span, TokenStream};
 use quote::ToTokens;
 
 use crate::{
-  codegen::{get_intermediate_ident, get_register_ident},
+  codegen::{get_intermediate_ident, get_register_ident, js_mod_to_token_stream},
   BindgenResult, FnKind, NapiImpl, NapiStruct, NapiStructKind, TryToTokens,
 };
 
@@ -378,7 +378,7 @@ impl NapiStruct {
   fn gen_register(&self) -> TokenStream {
     let name_str = self.name.to_string();
     let struct_register_name = get_register_ident(&format!("{}_struct", name_str));
-    let js_name = &self.js_name;
+    let js_name = format!("{}\0", self.js_name);
     let mut props = vec![];
 
     if self.kind == NapiStructKind::Constructor {
@@ -413,13 +413,13 @@ impl NapiStruct {
 
       props.push(prop);
     }
-
+    let js_mod_ident = js_mod_to_token_stream(self.js_mod.as_ref());
     quote! {
       #[allow(non_snake_case)]
       #[allow(clippy::all)]
       #[napi::bindgen_prelude::ctor]
       fn #struct_register_name() {
-        napi::bindgen_prelude::register_class(#name_str, #js_name, vec![#(#props),*]);
+        napi::bindgen_prelude::register_class(#name_str, #js_mod_ident, #js_name, vec![#(#props),*]);
       }
     }
   }
@@ -436,7 +436,7 @@ impl TryToTokens for NapiImpl {
 impl NapiImpl {
   fn gen_helper_mod(&self) -> BindgenResult<TokenStream> {
     let name_str = self.name.to_string();
-    let js_name = &self.js_name;
+    let js_name = format!("{}\0", self.js_name);
     let mod_name = Ident::new(
       &format!("__napi_impl_helper__{}", name_str),
       Span::call_site(),
@@ -478,7 +478,7 @@ impl NapiImpl {
     let mut props: Vec<_> = props.into_iter().collect();
     props.sort_by_key(|(_, prop)| prop.to_string());
     let props = props.into_iter().map(|(_, prop)| prop);
-
+    let js_mod_ident = js_mod_to_token_stream(self.js_mod.as_ref());
     Ok(quote! {
       #[allow(non_snake_case)]
       #[allow(clippy::all)]
@@ -488,7 +488,7 @@ impl NapiImpl {
 
         #[napi::bindgen_prelude::ctor]
         fn #register_name() {
-          napi::bindgen_prelude::register_class(#name_str, #js_name, vec![#(#props),*]);
+          napi::bindgen_prelude::register_class(#name_str, #js_mod_ident, #js_name, vec![#(#props),*]);
         }
       }
     })

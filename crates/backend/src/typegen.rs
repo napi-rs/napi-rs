@@ -1,6 +1,7 @@
 mod r#const;
 mod r#enum;
 mod r#fn;
+mod js_mod;
 pub(crate) mod r#struct;
 
 use std::collections::HashMap;
@@ -13,13 +14,19 @@ pub struct TypeDef {
   pub kind: String,
   pub name: String,
   pub def: String,
+  pub js_mod: Option<String>,
 }
 
 impl ToString for TypeDef {
   fn to_string(&self) -> String {
+    let js_mod = if let Some(js_mod) = &self.js_mod {
+      format!(", \"js_mod\": \"{}\"", js_mod)
+    } else {
+      "".to_owned()
+    };
     format!(
-      r#"{{"kind": "{}", "name": "{}", "def": "{}"}}"#,
-      self.kind, self.name, self.def,
+      r#"{{"kind": "{}", "name": "{}", "def": "{}"{}}}"#,
+      self.kind, self.name, self.def, js_mod,
     )
   }
 }

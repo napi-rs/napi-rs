@@ -574,6 +574,7 @@ fn napi_fn_from_decl(
       parent: parent.cloned(),
       attrs,
       strict: opts.strict().is_some(),
+      js_mod: opts.namespace().map(|(m, _)| m.to_owned()),
     }
   })
 }
@@ -588,7 +589,7 @@ impl ParseNapi for syn::Item {
       syn::Item::Const(c) => c.parse_napi(tokens, opts),
       _ => bail_span!(
         self,
-        "#[napi] can only be applied to a function, struct, enum or impl."
+        "#[napi] can only be applied to a function, struct, enum, const, mod or impl."
       ),
     }
   }
@@ -735,7 +736,6 @@ impl ConvertToAST for syn::ItemStruct {
         setter: !(ignored || readonly),
       })
     }
-
     record_struct(&struct_name, js_name.clone(), &opts);
 
     Diagnostic::from_vec(errors).map(|()| Napi {
@@ -747,13 +747,14 @@ impl ConvertToAST for syn::ItemStruct {
         fields,
         is_tuple,
         kind: struct_kind,
+        js_mod: opts.namespace().map(|(m, _)| m.to_owned()),
       }),
     })
   }
 }
 
 impl ConvertToAST for syn::ItemImpl {
-  fn convert_to_ast(&mut self, _opts: BindgenAttrs) -> BindgenResult<Napi> {
+  fn convert_to_ast(&mut self, impl_opts: BindgenAttrs) -> BindgenResult<Napi> {
     let struct_name = match get_ty(&self.self_ty) {
       syn::Type::Path(syn::TypePath {
         ref path,
@@ -823,6 +824,7 @@ impl ConvertToAST for syn::ItemImpl {
         js_name: struct_js_name,
         items,
         task_output_type,
+        js_mod: impl_opts.namespace().map(|(m, _)| m.to_owned()),
       }),
     })
   }
@@ -916,6 +918,7 @@ impl ConvertToAST for syn::ItemEnum {
         name: self.ident.clone(),
         js_name,
         variants,
+        js_mod: opts.namespace().map(|(m, _)| m.to_owned()),
       }),
     })
   }
@@ -933,6 +936,7 @@ impl ConvertToAST for syn::ItemConst {
             .map_or_else(|| self.ident.to_string(), |(s, _)| s.to_string()),
           type_name: *self.ty.clone(),
           value: *self.expr.clone(),
+          js_mod: opts.namespace().map(|(m, _)| m.to_owned()),
         }),
       }),
       _ => bail_span!(self, "only public const allowed"),

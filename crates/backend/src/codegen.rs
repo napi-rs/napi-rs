@@ -5,6 +5,7 @@ use crate::BindgenResult;
 mod r#const;
 mod r#enum;
 mod r#fn;
+mod js_mod;
 mod r#struct;
 
 pub trait TryToTokens {
@@ -26,4 +27,13 @@ fn get_intermediate_ident(name: &str) -> Ident {
 fn get_register_ident(name: &str) -> Ident {
   let new_name = format!("__napi_register__{}", name);
   Ident::new(&new_name, Span::call_site())
+}
+
+fn js_mod_to_token_stream(js_mod: Option<&String>) -> TokenStream {
+  js_mod
+    .map(|i| {
+      let i = format!("{}\0", i);
+      quote! { Some(#i) }
+    })
+    .unwrap_or_else(|| quote! { None })
 }

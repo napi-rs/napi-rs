@@ -35,9 +35,16 @@ impl<T: Task> AsyncTask<T> {
       abort_signal: Some(signal),
     }
   }
+
+  pub fn with_optional_signal(task: T, signal: Option<AbortSignal>) -> Self {
+    Self {
+      inner: task,
+      abort_signal: signal,
+    }
+  }
 }
 
-/// https://developer.mozilla.org/zh-CN/docs/Web/API/AbortController
+/// <https://developer.mozilla.org/zh-CN/docs/Web/API/AbortController>
 pub struct AbortSignal {
   raw_work: Rc<AtomicPtr<napi_sys::napi_async_work__>>,
   raw_deferred: Rc<AtomicPtr<napi_sys::napi_deferred__>>,

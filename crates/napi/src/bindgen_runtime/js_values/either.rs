@@ -1,5 +1,5 @@
 use super::{FromNapiValue, ToNapiValue, TypeName};
-use crate::{type_of, Status, ValueType};
+use crate::{type_of, JsNull, JsUndefined, NapiRaw, Status, ValueType};
 
 const ERROR_MSG: &str = "The return value of typeof(T) should not be equal in Either";
 
@@ -12,6 +12,21 @@ pub enum Either<
   B(B),
 }
 
+impl<
+    A: TypeName + FromNapiValue + ToNapiValue + NapiRaw,
+    B: TypeName + FromNapiValue + ToNapiValue + NapiRaw,
+  > Either<A, B>
+{
+  /// # Safety
+  /// Backward compatible with `Either` in **v1**
+  pub unsafe fn raw(&self) -> napi_sys::napi_value {
+    match &self {
+      Self::A(a) => a.raw(),
+      Self::B(b) => b.raw(),
+    }
+  }
+}
+
 impl<A: TypeName + FromNapiValue + ToNapiValue, B: TypeName + FromNapiValue + ToNapiValue> TypeName
   for Either<A, B>
 {
@@ -21,6 +36,25 @@ impl<A: TypeName + FromNapiValue + ToNapiValue, B: TypeName + FromNapiValue + To
 
   fn value_type() -> ValueType {
     ValueType::Unknown
+  }
+}
+
+// Backwards compatibility with v1
+impl<T: TypeName + FromNapiValue + ToNapiValue> From<Either<T, JsUndefined>> for Option<T> {
+  fn from(value: Either<T, JsUndefined>) -> Option<T> {
+    match value {
+      Either::A(v) => Some(v),
+      Either::B(_) => None,
+    }
+  }
+}
+
+impl<T: TypeName + FromNapiValue + ToNapiValue> From<Either<T, JsNull>> for Option<T> {
+  fn from(value: Either<T, JsNull>) -> Option<T> {
+    match value {
+      Either::A(v) => Some(v),
+      Either::B(_) => None,
+    }
   }
 }
 

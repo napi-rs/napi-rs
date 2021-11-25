@@ -156,7 +156,6 @@ macro_rules! assert_type_of {
 }
 
 #[allow(dead_code)]
-#[cfg(debug_assertions)]
 pub(crate) unsafe fn log_js_value<V: AsRef<[sys::napi_value]>>(
   // `info`, `log`, `warning` or `error`
   method: &str,

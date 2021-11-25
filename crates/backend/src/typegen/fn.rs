@@ -19,6 +19,7 @@ impl ToTypeDef for NapiFn {
       kind: "fn".to_owned(),
       name: self.js_name.clone(),
       def,
+      js_mod: self.js_mod.to_owned(),
     }
   }
 }
@@ -111,6 +112,8 @@ impl NapiFn {
           let (ts_type, _) = ty_to_ts_type(ret, true);
           if ts_type == "undefined" {
             "void".to_owned()
+          } else if ts_type == "Self" {
+            "this".to_owned()
           } else {
             ts_type
           }

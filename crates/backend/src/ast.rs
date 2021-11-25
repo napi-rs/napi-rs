@@ -15,6 +15,7 @@ pub struct NapiFn {
   pub vis: syn::Visibility,
   pub parent: Option<Ident>,
   pub strict: bool,
+  pub js_mod: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -54,6 +55,7 @@ pub struct NapiStruct {
   pub fields: Vec<NapiStructField>,
   pub is_tuple: bool,
   pub kind: NapiStructKind,
+  pub js_mod: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -78,6 +80,7 @@ pub struct NapiImpl {
   pub js_name: String,
   pub items: Vec<NapiFn>,
   pub task_output_type: Option<Type>,
+  pub js_mod: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -85,6 +88,7 @@ pub struct NapiEnum {
   pub name: Ident,
   pub js_name: String,
   pub variants: Vec<NapiEnumVariant>,
+  pub js_mod: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -100,4 +104,11 @@ pub struct NapiConst {
   pub js_name: String,
   pub type_name: Type,
   pub value: Expr,
+  pub js_mod: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct NapiMod {
+  pub name: Ident,
+  pub js_name: String,
 }

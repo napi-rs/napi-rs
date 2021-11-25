@@ -94,7 +94,7 @@ impl JsFunction {
     unsafe { JsUnknown::from_raw(self.0.env, return_value) }
   }
 
-  /// https://nodejs.org/api/n-api.html#n_api_napi_new_instance
+  /// <https://nodejs.org/api/n-api.html#n_api_napi_new_instance>
   ///
   /// This method is used to instantiate a new `JavaScript` value using a given `JsFunction` that represents the constructor for the object.
   pub fn new_instance<V>(&self, args: &[V]) -> Result<JsObject>

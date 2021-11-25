@@ -52,6 +52,9 @@ import {
   getExternal,
   mutateExternal,
   createExternalString,
+  xxh2,
+  xxh3,
+  xxh64Alias,
 } from '../'
 
 test('export const', (t) => {
@@ -292,6 +295,18 @@ BigIntTest('create BigInt', (t) => {
 
 BigIntTest('create BigInt i64', (t) => {
   t.is(createBigIntI64(), BigInt(100))
+})
+
+BigIntTest('js mod test', (t) => {
+  t.is(xxh64Alias(Buffer.from('hello world')), BigInt('1116'))
+  t.is(xxh3.xxh3_64(Buffer.from('hello world')), BigInt('1116'))
+  t.is(xxh3.xxh128(Buffer.from('hello world')), BigInt('1116'))
+  t.is(xxh2.xxh2Plus(1, 2), 3)
+  t.is(xxh2.xxh3Xxh64Alias(Buffer.from('hello world')), BigInt('1116'))
+  t.is(xxh3.ALIGNMENT, 16)
+  const xx3 = new xxh3.Xxh3()
+  xx3.update(Buffer.from('hello world'))
+  t.is(xx3.digest(), BigInt('1116'))
 })
 
 const Napi4Test = Number(process.versions.napi) >= 4 ? test : test.skip

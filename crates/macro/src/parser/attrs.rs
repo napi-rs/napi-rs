@@ -27,6 +27,7 @@ struct AttributeParseState {
   checks: Cell<usize>,
 }
 
+#[derive(Debug)]
 /// Parsed attributes from a `#[napi(..)]`.
 pub struct BindgenAttrs {
   /// Whether `#[napi]` attribute exists
@@ -51,7 +52,7 @@ macro_rules! attrgen {
       (skip, Skip(Span)),
       (strict, Strict(Span)),
       (object, Object(Span)),
-      (task, Task(Span)),
+      (namespace, Namespace(Span, String, Span)),
 
       // impl later
       // (inspectable, Inspectable(Span)),
@@ -169,11 +170,11 @@ impl BindgenAttrs {
         .enumerate()
         .find(|&(_, m)| m.path.segments[0].ident == "napi");
 
-      let pos = match &napi_attr {
+      let pos = match napi_attr {
         Some((pos, raw_attr)) => {
           ret.exists = true;
           ret.span = raw_attr.tokens.span();
-          *pos
+          pos
         }
         None => return Ok(ret),
       };
@@ -216,6 +217,7 @@ impl Default for BindgenAttrs {
 macro_rules! gen_bindgen_attr {
   ($( ($method:ident, $($variants:tt)*) ,)*) => {
     /// The possible attributes in the `#[napi]`.
+    #[derive(Debug)]
     pub enum BindgenAttr {
       $($($variants)*,)*
     }
@@ -243,7 +245,6 @@ pub fn record_struct(ident: &Ident, js_name: String, opts: &BindgenAttrs) {
 pub fn check_recorded_struct_for_impl(ident: &Ident, opts: &BindgenAttrs) -> BindgenResult<String> {
   STRUCTS.with(|state| {
     let struct_name = ident.to_string();
-
     let mut map = state.parsed.borrow_mut();
     if let Some(parsed) = map.get_mut(&struct_name) {
       if opts.constructor().is_some() && !cfg!(debug_assertions) {

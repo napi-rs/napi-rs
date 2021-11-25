@@ -1,4 +1,4 @@
-use std::ffi::CString;
+use std::ffi::CStr;
 use std::future::Future;
 use std::marker::PhantomData;
 use std::os::raw::c_void;
@@ -25,7 +25,7 @@ impl<Data, Resolver: FnOnce(sys::napi_env, Data) -> Result<sys::napi_value>>
 {
   pub fn new(env: sys::napi_env, deferred: sys::napi_deferred, resolver: Resolver) -> Result<Self> {
     let mut async_resource_name = ptr::null_mut();
-    let s = CString::new("napi_resolve_promise_from_future")?;
+    let s = unsafe { CStr::from_bytes_with_nul_unchecked(b"napi_resolve_promise_from_future\0") };
     check_status!(unsafe {
       sys::napi_create_string_utf8(env, s.as_ptr(), 32, &mut async_resource_name)
     })?;
