@@ -87,6 +87,7 @@ export class Context {
 export class ClassWithFactory {
   name: string
   static withName(name: string): ClassWithFactory
+  setName(name: string): this
 }
 export namespace xxh3 {
   export const ALIGNMENT: number

@@ -112,6 +112,10 @@ test('class factory', (t) => {
   const duck = ClassWithFactory.withName('Default')
   t.is(duck.name, 'Default')
 
+  const ret = duck.setName('D')
+  t.is(ret.name, 'D')
+  t.is(ret, duck)
+
   duck.name = '周黑鸭'
   t.is(duck.name, '周黑鸭')
 
