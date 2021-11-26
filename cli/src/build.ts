@@ -359,7 +359,7 @@ export class ExternalObject<T> {
   const allDefs = lines.map((line) => JSON.parse(line) as TypeDef)
 
   function convertDefs(defs: TypeDef[], nested = false): string {
-    const classes = new Map<string, [string, string]>()
+    const classes = new Map<string, { def: string; js_doc: string }>()
     const impls = new Map<string, string>()
     let dts = ''
     const lineStart = nested ? '  ' : ''
@@ -369,7 +369,7 @@ export class ExternalObject<T> {
           if (!nested) {
             idents.push(def.name)
           }
-          classes.set(def.name, [def.js_doc, def.def])
+          classes.set(def.name, { def: def.def, js_doc: def.js_doc })
           break
         case 'impl':
           impls.set(def.name, `${def.js_doc}${def.def}`)
@@ -390,11 +390,11 @@ export class ExternalObject<T> {
       }
     })
 
-    for (const [name, [js_doc, classDef]] of classes.entries()) {
+    for (const [name, { js_doc, def }] of classes.entries()) {
       const implDef = impls.get(name)
 
       dts += `${lineStart}${js_doc}export class ${name} {\n${indentLines(
-        classDef,
+        def,
         nested ? 4 : 2,
       )}`
 
