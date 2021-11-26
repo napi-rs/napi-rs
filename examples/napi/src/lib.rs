@@ -16,6 +16,7 @@ mod either;
 mod r#enum;
 mod error;
 mod external;
+mod fn_ts_override;
 mod js_mod;
 mod nullable;
 mod number;

@@ -11,8 +11,15 @@ impl ToTypeDef for NapiFn {
       r#"{prefix} {name}({args}){ret}"#,
       prefix = self.gen_ts_func_prefix(),
       name = &self.js_name,
-      args = self.gen_ts_func_args(),
-      ret = self.gen_ts_func_ret(),
+      args = self
+        .ts_args_type
+        .clone()
+        .unwrap_or_else(|| self.gen_ts_func_args()),
+      ret = self
+        .ts_return_type
+        .clone()
+        .map(|t| format!(": {}", t))
+        .unwrap_or_else(|| self.gen_ts_func_ret()),
     );
 
     TypeDef {

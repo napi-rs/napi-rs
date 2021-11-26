@@ -575,6 +575,8 @@ fn napi_fn_from_decl(
       attrs,
       strict: opts.strict().is_some(),
       js_mod: opts.namespace().map(|(m, _)| m.to_owned()),
+      ts_args_type: opts.ts_args_type().map(|(m, _)| m.to_owned()),
+      ts_return_type: opts.ts_return_type().map(|(m, _)| m.to_owned()),
     }
   })
 }
@@ -603,6 +605,12 @@ impl ParseNapi for syn::ItemFn {
 }
 impl ParseNapi for syn::ItemStruct {
   fn parse_napi(&mut self, tokens: &mut TokenStream, opts: BindgenAttrs) -> BindgenResult<Napi> {
+    if opts.ts_args_type().is_some() || opts.ts_return_type().is_some() {
+      bail_span!(
+        self,
+        "#[napi] can't be applied to a struct with #[napi(ts_args_type)] or #[napi(ts_return_type)]"
+      );
+    }
     let napi = self.convert_to_ast(opts);
     self.to_tokens(tokens);
 
@@ -611,6 +619,12 @@ impl ParseNapi for syn::ItemStruct {
 }
 impl ParseNapi for syn::ItemImpl {
   fn parse_napi(&mut self, tokens: &mut TokenStream, opts: BindgenAttrs) -> BindgenResult<Napi> {
+    if opts.ts_args_type().is_some() || opts.ts_return_type().is_some() {
+      bail_span!(
+        self,
+        "#[napi] can't be applied to impl with #[napi(ts_args_type)] or #[napi(ts_return_type)]"
+      );
+    }
     // #[napi] macro will be remove from impl items after converted to ast
     let napi = self.convert_to_ast(opts);
     self.to_tokens(tokens);
@@ -618,18 +632,28 @@ impl ParseNapi for syn::ItemImpl {
     napi
   }
 }
-
 impl ParseNapi for syn::ItemEnum {
   fn parse_napi(&mut self, tokens: &mut TokenStream, opts: BindgenAttrs) -> BindgenResult<Napi> {
+    if opts.ts_args_type().is_some() || opts.ts_return_type().is_some() {
+      bail_span!(
+        self,
+        "#[napi] can't be applied to a enum with #[napi(ts_args_type)] or #[napi(ts_return_type)]"
+      );
+    }
     let napi = self.convert_to_ast(opts);
     self.to_tokens(tokens);
 
     napi
   }
 }
-
 impl ParseNapi for syn::ItemConst {
   fn parse_napi(&mut self, tokens: &mut TokenStream, opts: BindgenAttrs) -> BindgenResult<Napi> {
+    if opts.ts_args_type().is_some() || opts.ts_return_type().is_some() {
+      bail_span!(
+        self,
+        "#[napi] can't be applied to a const with #[napi(ts_args_type)] or #[napi(ts_return_type)]"
+      );
+    }
     let napi = self.convert_to_ast(opts);
     self.to_tokens(tokens);
     napi

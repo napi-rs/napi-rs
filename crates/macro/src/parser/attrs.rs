@@ -53,12 +53,13 @@ macro_rules! attrgen {
       (strict, Strict(Span)),
       (object, Object(Span)),
       (namespace, Namespace(Span, String, Span)),
+      (ts_args_type, TsArgsType(Span, String, Span)),
+      (ts_return_type, TsReturnType(Span, String, Span)),
 
       // impl later
       // (inspectable, Inspectable(Span)),
       // (typescript_custom_section, TypescriptCustomSection(Span)),
       // (skip_typescript, SkipTypescript(Span)),
-      // (typescript_type, TypeScriptType(Span, String, Span)),
       // (getter_with_clone, GetterWithClone(Span)),
 
       // For testing purposes only.

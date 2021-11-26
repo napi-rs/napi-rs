@@ -32,6 +32,7 @@ export function createExternal(size: number): ExternalObject<number>
 export function createExternalString(content: string): ExternalObject<string>
 export function getExternal(external: ExternalObject<number>): number
 export function mutateExternal(external: ExternalObject<number>, newVal: number): void
+export function tsRename(a: { foo: number }): string[]
 export function xxh64Alias(input: Buffer): BigInt
 export function mapOption(val?: number | undefined | null): number | undefined | null
 export function add(a: number, b: number): number

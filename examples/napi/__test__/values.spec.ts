@@ -55,6 +55,7 @@ import {
   xxh2,
   xxh3,
   xxh64Alias,
+  tsRename,
 } from '../'
 
 test('export const', (t) => {
@@ -192,6 +193,10 @@ test('Option', (t) => {
 
 test('Result', (t) => {
   t.throws(() => throwError(), null, 'Manual Error')
+})
+
+test('function ts type override', (t) => {
+  t.deepEqual(tsRename({ foo: 1, bar: 2, baz: 2 }), ['foo', 'bar', 'baz'])
 })
 
 test('serde-json', (t) => {
