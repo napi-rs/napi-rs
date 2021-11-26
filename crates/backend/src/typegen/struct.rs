@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 use super::{ToTypeDef, TypeDef};
-use crate::{ty_to_ts_type, NapiImpl, NapiStruct, NapiStructKind};
+use crate::{js_doc_from_comments, ty_to_ts_type, NapiImpl, NapiStruct, NapiStructKind};
 
 thread_local! {
   pub(crate) static TASK_STRUCTS: RefCell<HashMap<String, String>> = Default::default();
@@ -24,6 +24,7 @@ impl ToTypeDef for NapiStruct {
       name: self.js_name.to_owned(),
       def: self.gen_ts_class(),
       js_mod: self.js_mod.to_owned(),
+      js_doc: js_doc_from_comments(&self.comments),
     }
   }
 }
@@ -42,10 +43,17 @@ impl ToTypeDef for NapiImpl {
       def: self
         .items
         .iter()
-        .map(|f| f.to_type_def().def)
+        .map(|f| {
+          format!(
+            "{}{}",
+            js_doc_from_comments(&f.comments),
+            f.to_type_def().def
+          )
+        })
         .collect::<Vec<_>>()
         .join("\\n"),
       js_mod: self.js_mod.to_owned(),
+      js_doc: "".to_string(),
     }
   }
 }
@@ -59,6 +67,10 @@ impl NapiStruct {
       .filter(|f| f.getter)
       .map(|f| {
         let mut field_str = String::from("");
+
+        if !f.comments.is_empty() {
+          field_str.push_str(&js_doc_from_comments(&f.comments))
+        }
 
         if !f.setter {
           field_str.push_str("readonly ")

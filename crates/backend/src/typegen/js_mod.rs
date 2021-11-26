@@ -7,6 +7,7 @@ impl ToTypeDef for NapiMod {
       name: self.js_name.clone(),
       def: "".to_owned(),
       js_mod: None,
+      js_doc: "".to_owned(),
     }
   }
 }

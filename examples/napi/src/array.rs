@@ -4,6 +4,7 @@ fn get_words() -> Vec<&'static str> {
 }
 
 #[napi]
+/// Gets some numbers
 fn get_nums() -> Vec<u32> {
   vec![1, 1, 2, 3, 5, 8]
 }

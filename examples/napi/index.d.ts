@@ -6,8 +6,10 @@ export class ExternalObject<T> {
     [K: symbol]: T
   }
 }
+/** This is a const */
 export const DEFAULT_COST: number
 export function getWords(): Array<string>
+/** Gets some numbers */
 export function getNums(): Array<number>
 export function sumNums(nums: Array<number>): number
 export function readFileAsync(path: string): Promise<Buffer>
@@ -16,6 +18,7 @@ export function bigintAdd(a: BigInt, b: BigInt): BigInt
 export function createBigInt(): BigInt
 export function createBigIntI64(): BigInt
 export function getCwd(callback: (arg0: string) => void): void
+/** napi = { version = 2, features = ["serde-json"] } */
 export function readFile(callback: (arg0: Error | undefined, arg1?: string | undefined | null) => void): void
 export function eitherStringOrNumber(input: string | number): number
 export function returnEither(input: number): string | number
@@ -24,8 +27,26 @@ interface Obj {
   v: string | number
 }
 export function either4(input: string | number | boolean | Obj): number
-export enum Kind { Dog = 0, Cat = 1, Duck = 2 }
-export enum CustomNumEnum { One = 1, Two = 2, Three = 3, Four = 4, Six = 6, Eight = 8, Nine = 9, Ten = 10 }
+/** default enum values are continuos i32s start from 0 */
+export enum Kind {
+  /** Barks */
+  Dog = 0,
+  /** Kills birds */
+  Cat = 1,
+  /** Tasty */
+  Duck = 2
+}
+/** You could break the step and for an new continuous value. */
+export enum CustomNumEnum {
+  One = 1,
+  Two = 2,
+  Three = 3,
+  Four = 4,
+  Six = 6,
+  Eight = 8,
+  Nine = 9,
+  Ten = 10
+}
 export function enumToI32(e: CustomNumEnum): number
 export function throwError(): void
 export function createExternal(size: number): ExternalObject<number>
@@ -43,8 +64,10 @@ export function getGlobal(): typeof global
 export function getUndefined(): void
 export function getNull(): JsNull
 export function asyncPlus100(p: Promise<number>): Promise<number>
+/** This is an interface for package.json */
 interface PackageJson {
   name: string
+  /** The version of the package */
   version: string
   dependencies?: Record<string, any> | undefined | null
   devDependencies?: Record<string, any> | undefined | null
@@ -63,15 +86,30 @@ export function callThreadsafeFunction(callback: (...args: any[]) => any): void
 export function threadsafeFunctionThrowError(cb: (...args: any[]) => any): void
 export function threadsafeFunctionFatalMode(cb: (...args: any[]) => any): void
 export function getBuffer(): Buffer
+/**
+ * `constructor` option for `struct` requires all fields to be public,
+ * otherwise tag impl fn as constructor
+ * #[napi(constructor)]
+ */
 export class Animal {
+  /** Kind of animal */
   readonly kind: Kind
+  /** This is the constructor */
   constructor(kind: Kind, name: string)
+  /** This is a factory method */
   static withKind(kind: Kind): Animal
   get name(): string
   set name(name: string)
+  /**
+  * This is a
+  * multi-line comment
+  * with an emoji 🚀
+  */
   whoami(): string
+  /** This is static... */
   static getDogKind(): Kind
 }
+/** Smoking test for type generation */
 export class Blake2BHasher {
   
   static withKey(key: Blake2bKey): Blake2BHasher

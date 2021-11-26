@@ -1,6 +1,6 @@
 use super::{ToTypeDef, TypeDef};
 
-use crate::{ty_to_ts_type, NapiConst};
+use crate::{js_doc_from_comments, ty_to_ts_type, NapiConst};
 
 impl ToTypeDef for NapiConst {
   fn to_type_def(&self) -> TypeDef {
@@ -13,6 +13,7 @@ impl ToTypeDef for NapiConst {
         ty_to_ts_type(&self.type_name, false).0
       ),
       js_mod: self.js_mod.to_owned(),
+      js_doc: js_doc_from_comments(&self.comments),
     }
   }
 }

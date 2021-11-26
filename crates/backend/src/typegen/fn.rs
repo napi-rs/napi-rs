@@ -3,7 +3,7 @@ use quote::ToTokens;
 use syn::Pat;
 
 use super::{ty_to_ts_type, ToTypeDef, TypeDef};
-use crate::{CallbackArg, FnKind, NapiFn};
+use crate::{js_doc_from_comments, CallbackArg, FnKind, NapiFn};
 
 impl ToTypeDef for NapiFn {
   fn to_type_def(&self) -> TypeDef {
@@ -27,6 +27,7 @@ impl ToTypeDef for NapiFn {
       name: self.js_name.clone(),
       def,
       js_mod: self.js_mod.to_owned(),
+      js_doc: js_doc_from_comments(&self.comments),
     }
   }
 }

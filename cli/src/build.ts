@@ -329,6 +329,7 @@ interface TypeDef {
   name: string
   def: string
   js_mod?: string
+  js_doc: string
 }
 
 async function processIntermediateTypeFile(
@@ -358,7 +359,7 @@ export class ExternalObject<T> {
   const allDefs = lines.map((line) => JSON.parse(line) as TypeDef)
 
   function convertDefs(defs: TypeDef[], nested = false): string {
-    const classes = new Map<string, string>()
+    const classes = new Map<string, [string, string]>()
     const impls = new Map<string, string>()
     let dts = ''
     const lineStart = nested ? '  ' : ''
@@ -368,29 +369,31 @@ export class ExternalObject<T> {
           if (!nested) {
             idents.push(def.name)
           }
-          classes.set(def.name, def.def)
+          classes.set(def.name, [def.js_doc, def.def])
           break
         case 'impl':
-          impls.set(def.name, def.def)
+          impls.set(def.name, `${def.js_doc}${def.def}`)
           break
         case 'interface':
-          dts += `${lineStart}interface ${def.name} {\n${indentLines(
-            def.def,
-            nested ? 4 : 2,
-          )}\n}\n`
+          const fields = indentLines(def.def, nested ? 4 : 2)
+          dts += `${lineStart}${def.js_doc}interface ${def.name} {\n${fields}\n}\n`
+          break
+        case 'enum':
+          const variants = indentLines(def.def, nested ? 4 : 2)
+          dts += `${lineStart}${def.js_doc}export enum ${def.name} {\n${variants}\n}\n`
           break
         default:
           if (!nested) {
             idents.push(def.name)
           }
-          dts += lineStart + def.def + '\n'
+          dts += `${lineStart}${def.js_doc}${def.def}\n`
       }
     })
 
-    for (const [name, classDef] of classes.entries()) {
+    for (const [name, [js_doc, classDef]] of classes.entries()) {
       const implDef = impls.get(name)
 
-      dts += `${lineStart}export class ${name} {\n${indentLines(
+      dts += `${lineStart}${js_doc}export class ${name} {\n${indentLines(
         classDef,
         nested ? 4 : 2,
       )}`

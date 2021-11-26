@@ -18,7 +18,6 @@ pub use typegen::*;
 
 #[derive(Debug)]
 pub struct Napi {
-  pub comments: Vec<String>,
   pub item: NapiItem,
 }
 
