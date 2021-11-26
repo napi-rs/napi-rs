@@ -67,6 +67,7 @@ static KNOWN_TYPES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     ("char", "string"),
     ("JsObject", "object"),
     ("Object", "object"),
+    ("Array", "unknown[]"),
     ("Value", "any"),
     ("Map", "Record<string, any>"),
     ("HashMap", "Record<{}, {}>"),
