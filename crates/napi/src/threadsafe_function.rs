@@ -10,8 +10,6 @@ use std::sync::Arc;
 
 use crate::{check_status, sys, Env, Error, JsError, NapiRaw, Result, Status};
 
-use sys::napi_threadsafe_function_call_mode;
-
 /// ThreadSafeFunction Context object
 /// the `value` is the value passed to `call` method
 pub struct ThreadSafeCallContext<T: 'static> {
@@ -25,15 +23,11 @@ pub enum ThreadsafeFunctionCallMode {
   Blocking,
 }
 
-impl From<ThreadsafeFunctionCallMode> for napi_threadsafe_function_call_mode {
+impl From<ThreadsafeFunctionCallMode> for sys::napi_threadsafe_function_call_mode {
   fn from(value: ThreadsafeFunctionCallMode) -> Self {
     match value {
-      ThreadsafeFunctionCallMode::Blocking => {
-        napi_threadsafe_function_call_mode::napi_tsfn_blocking
-      }
-      ThreadsafeFunctionCallMode::NonBlocking => {
-        napi_threadsafe_function_call_mode::napi_tsfn_nonblocking
-      }
+      ThreadsafeFunctionCallMode::Blocking => sys::ThreadsafeFunctionCallMode::blocking,
+      ThreadsafeFunctionCallMode::NonBlocking => sys::ThreadsafeFunctionCallMode::nonblocking,
     }
   }
 }
@@ -261,7 +255,7 @@ impl<T: 'static, ES: ErrorStrategy::T> ThreadsafeFunction<T, ES> {
     check_status!(unsafe {
       sys::napi_release_threadsafe_function(
         self.raw_tsfn,
-        sys::napi_threadsafe_function_release_mode::napi_tsfn_abort,
+        sys::ThreadsafeFunctionReleaseMode::abort,
       )
     })?;
     self.aborted.store(true, Ordering::Release);
@@ -316,7 +310,7 @@ impl<T: 'static, ES: ErrorStrategy::T> Drop for ThreadsafeFunction<T, ES> {
       let release_status = unsafe {
         sys::napi_release_threadsafe_function(
           self.raw_tsfn,
-          sys::napi_threadsafe_function_release_mode::napi_tsfn_release,
+          sys::ThreadsafeFunctionReleaseMode::release,
         )
       };
       assert!(

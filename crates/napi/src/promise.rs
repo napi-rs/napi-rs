@@ -78,15 +78,12 @@ pub(crate) async fn resolve_from_future<Data: Send, Fut: Future<Output = Result<
     sys::napi_call_threadsafe_function(
       tsfn_value.0,
       Box::into_raw(Box::from(val)) as *mut c_void,
-      sys::napi_threadsafe_function_call_mode::napi_tsfn_nonblocking,
+      sys::ThreadsafeFunctionCallMode::nonblocking,
     )
   })
   .expect("Failed to call thread safe function");
   check_status!(unsafe {
-    sys::napi_release_threadsafe_function(
-      tsfn_value.0,
-      sys::napi_threadsafe_function_release_mode::napi_tsfn_release,
-    )
+    sys::napi_release_threadsafe_function(tsfn_value.0, sys::ThreadsafeFunctionReleaseMode::release)
   })
   .expect("Failed to release thread safe function");
 }
