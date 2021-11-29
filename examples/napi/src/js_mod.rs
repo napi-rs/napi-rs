@@ -15,6 +15,7 @@ mod xxh3 {
   }
 
   #[napi]
+  /// xxh128 function
   pub fn xxh128(input: Buffer) -> u128 {
     let mut h: u128 = 0;
     for i in input.as_ref() {
@@ -24,6 +25,7 @@ mod xxh3 {
   }
 
   #[napi]
+  /// Xxh3 class
   pub struct Xxh3 {
     inner: BigInt,
   }
@@ -41,6 +43,7 @@ mod xxh3 {
     }
 
     #[napi]
+    /// update
     pub fn update(&mut self, input: Buffer) {
       for i in input.as_ref() {
         self.inner = BigInt {

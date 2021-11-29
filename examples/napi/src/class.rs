@@ -8,17 +8,21 @@ use crate::r#enum::Kind;
 #[napi]
 pub struct Animal {
   #[napi(readonly)]
+  /// Kind of animal
   pub kind: Kind,
+
   name: String,
 }
 
 #[napi]
 impl Animal {
+  /// This is the constructor
   #[napi(constructor)]
   pub fn new(kind: Kind, name: String) -> Self {
     Animal { kind, name }
   }
 
+  /// This is a factory method
   #[napi(factory)]
   pub fn with_kind(kind: Kind) -> Self {
     Animal {
@@ -37,6 +41,9 @@ impl Animal {
     self.name = name;
   }
 
+  /// This is a
+  /// multi-line comment
+  /// with an emoji 🚀
   #[napi]
   pub fn whoami(&self) -> String {
     match self.kind {
@@ -49,6 +56,7 @@ impl Animal {
   }
 
   #[napi]
+  /// This is static...
   pub fn get_dog_kind() -> Kind {
     Kind::Dog
   }

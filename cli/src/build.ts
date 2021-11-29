@@ -329,6 +329,7 @@ interface TypeDef {
   name: string
   def: string
   js_mod?: string
+  js_doc: string
 }
 
 async function processIntermediateTypeFile(
@@ -358,49 +359,65 @@ export class ExternalObject<T> {
   const allDefs = lines.map((line) => JSON.parse(line) as TypeDef)
 
   function convertDefs(defs: TypeDef[], nested = false): string {
-    const classes = new Map<string, string>()
+    const classes = new Map<string, { def: string; js_doc: string }>()
     const impls = new Map<string, string>()
     let dts = ''
-    const lineStart = nested ? '  ' : ''
+    const nest = nested ? 2 : 0
+
     defs.forEach((def) => {
       switch (def.kind) {
         case 'struct':
           if (!nested) {
             idents.push(def.name)
           }
-          classes.set(def.name, def.def)
+          classes.set(def.name, { def: def.def, js_doc: def.js_doc })
           break
         case 'impl':
-          impls.set(def.name, def.def)
+          impls.set(def.name, `${def.js_doc}${def.def}`)
           break
         case 'interface':
-          dts += `${lineStart}interface ${def.name} {\n${indentLines(
-            def.def,
-            nested ? 4 : 2,
-          )}\n}\n`
+          dts +=
+            indentLines(`${def.js_doc}export interface ${def.name} {`, nest) +
+            '\n'
+          dts += indentLines(def.def, nest + 2) + '\n'
+          dts += indentLines(`}`, nest) + '\n'
+          break
+        case 'enum':
+          dts +=
+            indentLines(`${def.js_doc}export enum ${def.name} {`, nest) + '\n'
+          dts += indentLines(def.def, nest + 2) + '\n'
+          dts += indentLines(`}`, nest) + '\n'
           break
         default:
           if (!nested) {
             idents.push(def.name)
           }
-          dts += lineStart + def.def + '\n'
+          dts += indentLines(`${def.js_doc}${def.def}`, nest) + '\n'
       }
     })
 
-    for (const [name, classDef] of classes.entries()) {
+    for (const [name, { js_doc, def }] of classes.entries()) {
       const implDef = impls.get(name)
 
-      dts += `${lineStart}export class ${name} {\n${indentLines(
-        classDef,
-        nested ? 4 : 2,
-      )}`
+      dts += indentLines(`${js_doc}export class ${name} {`, nest)
 
-      if (implDef) {
-        dts += `\n${indentLines(implDef, nested ? 4 : 2)}`
+      if (def) {
+        dts += '\n' + indentLines(def, nest + 2)
       }
 
-      dts += `\n${lineStart}}\n`
+      if (implDef) {
+        dts += '\n' + indentLines(implDef, nest + 2)
+      }
+
+      if (def || implDef) {
+        dts += '\n'
+      } else {
+        dts += ` `
+      }
+
+      dts += indentLines(`}`, nest) + '\n'
     }
+
     return dts
   }
 
@@ -413,12 +430,7 @@ export class ExternalObject<T> {
     ),
   ).reduce((acc, [mod, defs]) => {
     idents.push(mod)
-    return (
-      acc +
-      `export namespace ${mod} {
-${convertDefs(defs, true)}
-}\n`
-    )
+    return acc + `export namespace ${mod} {\n${convertDefs(defs, true)}}\n`
   }, '')
 
   await unlinkAsync(source)
@@ -429,7 +441,11 @@ ${convertDefs(defs, true)}
 function indentLines(input: string, spaces: number) {
   return input
     .split('\n')
-    .map((line) => ''.padEnd(spaces, ' ') + line.trim())
+    .map(
+      (line) =>
+        ''.padEnd(spaces, ' ') +
+        (line.startsWith(' *') ? line.trimEnd() : line.trim()),
+    )
     .join('\n')
 }
 
@@ -442,9 +458,10 @@ async function writeJsBinding(
   if (distFileName) {
     const template = createJsBinding(localName, packageName)
     const declareCodes = `const { ${idents.join(', ')} } = nativeBinding\n`
-    const exportsCode = idents.reduce((acc, cur) => {
-      return `${acc}\nmodule.exports.${cur} = ${cur}`
-    }, '')
+    const exportsCode = idents.reduce(
+      (acc, cur) => `${acc}\nmodule.exports.${cur} = ${cur}`,
+      '',
+    )
     await writeFileAsync(
       distFileName,
       template + declareCodes + exportsCode + '\n',

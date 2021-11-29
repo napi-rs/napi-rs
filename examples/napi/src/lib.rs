@@ -4,6 +4,7 @@ extern crate napi_derive;
 extern crate serde_derive;
 
 #[napi]
+/// This is a const
 pub const DEFAULT_COST: u32 = 12;
 
 mod array;

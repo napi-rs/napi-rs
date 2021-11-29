@@ -4,8 +4,10 @@ use std::fs;
 
 #[napi(object)]
 #[derive(Serialize, Deserialize, Debug)]
+/// This is an interface for package.json
 struct PackageJson {
   pub name: String,
+  /// The version of the package
   pub version: String,
   pub dependencies: Option<Map<String, Value>>,
   #[serde(rename = "devDependencies")]

@@ -18,6 +18,7 @@ pub struct NapiFn {
   pub js_mod: Option<String>,
   pub ts_args_type: Option<String>,
   pub ts_return_type: Option<String>,
+  pub comments: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -58,6 +59,7 @@ pub struct NapiStruct {
   pub is_tuple: bool,
   pub kind: NapiStructKind,
   pub js_mod: Option<String>,
+  pub comments: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -74,6 +76,7 @@ pub struct NapiStructField {
   pub ty: syn::Type,
   pub getter: bool,
   pub setter: bool,
+  pub comments: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -83,6 +86,7 @@ pub struct NapiImpl {
   pub items: Vec<NapiFn>,
   pub task_output_type: Option<Type>,
   pub js_mod: Option<String>,
+  pub comments: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -91,6 +95,7 @@ pub struct NapiEnum {
   pub js_name: String,
   pub variants: Vec<NapiEnumVariant>,
   pub js_mod: Option<String>,
+  pub comments: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -107,6 +112,7 @@ pub struct NapiConst {
   pub type_name: Type,
   pub value: Expr,
   pub js_mod: Option<String>,
+  pub comments: Vec<String>,
 }
 
 #[derive(Debug, Clone)]

@@ -572,6 +572,7 @@ fn napi_fn_from_decl(
       kind: fn_kind(opts),
       fn_self,
       parent: parent.cloned(),
+      comments: extract_doc_comments(&attrs),
       attrs,
       strict: opts.strict().is_some(),
       js_mod: opts.namespace().map(|(m, _)| m.to_owned()),
@@ -693,7 +694,6 @@ impl ConvertToAST for syn::ItemFn {
     )?;
 
     Ok(Napi {
-      comments: vec![],
       item: NapiItem::Fn(func),
     })
   }
@@ -758,12 +758,13 @@ impl ConvertToAST for syn::ItemStruct {
         ty: field.ty.clone(),
         getter: !ignored,
         setter: !(ignored || readonly),
+        comments: extract_doc_comments(&field.attrs),
       })
     }
+
     record_struct(&struct_name, js_name.clone(), &opts);
 
     Diagnostic::from_vec(errors).map(|()| Napi {
-      comments: vec![],
       item: NapiItem::Struct(NapiStruct {
         js_name,
         name: struct_name,
@@ -772,6 +773,7 @@ impl ConvertToAST for syn::ItemStruct {
         is_tuple,
         kind: struct_kind,
         js_mod: opts.namespace().map(|(m, _)| m.to_owned()),
+        comments: extract_doc_comments(&self.attrs),
       }),
     })
   }
@@ -842,13 +844,13 @@ impl ConvertToAST for syn::ItemImpl {
     }
 
     Ok(Napi {
-      comments: vec![],
       item: NapiItem::Impl(NapiImpl {
         name: struct_name,
         js_name: struct_js_name,
         items,
         task_output_type,
         js_mod: impl_opts.namespace().map(|(m, _)| m.to_owned()),
+        comments: extract_doc_comments(&self.attrs),
       }),
     })
   }
@@ -925,24 +927,22 @@ impl ConvertToAST for syn::ItemEnum {
         };
 
         last_variant_val = val;
-        let comments = extract_doc_comments(&v.attrs);
+
         Ok(NapiEnumVariant {
           name: v.ident.clone(),
           val,
-          comments,
+          comments: extract_doc_comments(&v.attrs),
         })
       })
       .collect::<BindgenResult<Vec<NapiEnumVariant>>>()?;
 
-    let comments = extract_doc_comments(&self.attrs);
-
     Ok(Napi {
-      comments,
       item: NapiItem::Enum(NapiEnum {
         name: self.ident.clone(),
         js_name,
         variants,
         js_mod: opts.namespace().map(|(m, _)| m.to_owned()),
+        comments: extract_doc_comments(&self.attrs),
       }),
     })
   }
@@ -952,7 +952,6 @@ impl ConvertToAST for syn::ItemConst {
   fn convert_to_ast(&mut self, opts: BindgenAttrs) -> BindgenResult<Napi> {
     match self.vis {
       Visibility::Public(_) => Ok(Napi {
-        comments: vec![],
         item: NapiItem::Const(NapiConst {
           name: self.ident.clone(),
           js_name: opts
@@ -961,6 +960,7 @@ impl ConvertToAST for syn::ItemConst {
           type_name: *self.ty.clone(),
           value: *self.expr.clone(),
           js_mod: opts.namespace().map(|(m, _)| m.to_owned()),
+          comments: extract_doc_comments(&self.attrs),
         }),
       }),
       _ => bail_span!(self, "only public const allowed"),

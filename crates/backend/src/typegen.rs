@@ -15,6 +15,51 @@ pub struct TypeDef {
   pub name: String,
   pub def: String,
   pub js_mod: Option<String>,
+  pub js_doc: String,
+}
+
+pub fn js_doc_from_comments(comments: &[String]) -> String {
+  if comments.is_empty() {
+    return "".to_owned();
+  }
+
+  if comments.len() == 1 {
+    return format!("/**{} */\n", comments[0]);
+  }
+
+  format!(
+    "/**\n{} */\n",
+    comments
+      .iter()
+      .map(|c| format!(" *{}\n", c))
+      .collect::<Vec<String>>()
+      .join("")
+  )
+}
+
+fn escape_json(src: &str) -> String {
+  use std::fmt::Write;
+  let mut escaped = String::with_capacity(src.len());
+  let mut utf16_buf = [0u16; 2];
+  for c in src.chars() {
+    match c {
+      '\x08' => escaped += "\\b",
+      '\x0c' => escaped += "\\f",
+      '\n' => escaped += "\\n",
+      '\r' => escaped += "\\r",
+      '\t' => escaped += "\\t",
+      '"' => escaped += "\\\"",
+      '\\' => escaped += "\\",
+      c if c.is_ascii_graphic() => escaped.push(c),
+      c => {
+        let encoded = c.encode_utf16(&mut utf16_buf);
+        for utf16 in encoded {
+          write!(&mut escaped, "\\u{:04X}", utf16).unwrap();
+        }
+      }
+    }
+  }
+  escaped
 }
 
 impl ToString for TypeDef {
@@ -25,8 +70,12 @@ impl ToString for TypeDef {
       "".to_owned()
     };
     format!(
-      r#"{{"kind": "{}", "name": "{}", "def": "{}"{}}}"#,
-      self.kind, self.name, self.def, js_mod,
+      r#"{{"kind": "{}", "name": "{}", "js_doc": "{}", "def": "{}"{}}}"#,
+      self.kind,
+      self.name,
+      escape_json(&self.js_doc),
+      escape_json(&self.def),
+      js_mod,
     )
   }
 }
