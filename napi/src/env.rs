@@ -893,7 +893,7 @@ impl Env {
   }
 
   #[inline]
-  /// This API create a new reference with the specified reference count to the Object passed in.
+  /// This API create a new reference with the initial 1 ref count to the Object passed in.
   pub fn create_reference<T>(&self, value: T) -> Result<Ref<()>>
   where
     T: NapiRaw,
@@ -907,6 +907,25 @@ impl Env {
     Ok(Ref {
       raw_ref,
       count: 1,
+      inner: (),
+      raw_value,
+    })
+  }
+
+  #[inline]
+  /// This API create a new reference with the specified reference count to the Object passed in.
+  pub fn create_reference_with_refcount<T>(&self, value: T, ref_count: u32) -> Result<Ref<()>>
+  where
+    T: NapiRaw,
+  {
+    let mut raw_ref = ptr::null_mut();
+    let raw_value = unsafe { value.raw() };
+    check_status!(unsafe {
+      sys::napi_create_reference(self.0, raw_value, ref_count, &mut raw_ref)
+    })?;
+    Ok(Ref {
+      raw_ref,
+      count: ref_count,
       inner: (),
       raw_value,
     })
