@@ -362,7 +362,8 @@ export class ExternalObject<T> {
     const classes = new Map<string, { def: string; js_doc: string }>()
     const impls = new Map<string, string>()
     let dts = ''
-    const lineStart = nested ? '  ' : ''
+    const nest = nested ? 2 : 0
+
     defs.forEach((def) => {
       switch (def.kind) {
         case 'struct':
@@ -375,35 +376,48 @@ export class ExternalObject<T> {
           impls.set(def.name, `${def.js_doc}${def.def}`)
           break
         case 'interface':
-          const fields = indentLines(def.def, nested ? 4 : 2)
-          dts += `${lineStart}${def.js_doc}interface ${def.name} {\n${fields}\n}\n`
+          dts +=
+            indentLines(`${def.js_doc}export interface ${def.name} {`, nest) +
+            '\n'
+          dts += indentLines(def.def, nest + 2) + '\n'
+          dts += indentLines(`}`, nest) + '\n'
           break
         case 'enum':
-          const variants = indentLines(def.def, nested ? 4 : 2)
-          dts += `${lineStart}${def.js_doc}export enum ${def.name} {\n${variants}\n}\n`
+          dts +=
+            indentLines(`${def.js_doc}export enum ${def.name} {`, nest) + '\n'
+          dts += indentLines(def.def, nest + 2) + '\n'
+          dts += indentLines(`}`, nest) + '\n'
           break
         default:
           if (!nested) {
             idents.push(def.name)
           }
-          dts += `${lineStart}${def.js_doc}${def.def}\n`
+          dts += indentLines(`${def.js_doc}${def.def}`, nest) + '\n'
       }
     })
 
     for (const [name, { js_doc, def }] of classes.entries()) {
       const implDef = impls.get(name)
 
-      dts += `${lineStart}${js_doc}export class ${name} {\n${indentLines(
-        def,
-        nested ? 4 : 2,
-      )}`
+      dts += indentLines(`${js_doc}export class ${name} {`, nest)
 
-      if (implDef) {
-        dts += `\n${indentLines(implDef, nested ? 4 : 2)}`
+      if (def) {
+        dts += '\n' + indentLines(def, nest + 2)
       }
 
-      dts += `\n${lineStart}}\n`
+      if (implDef) {
+        dts += '\n' + indentLines(implDef, nest + 2)
+      }
+
+      if (def || implDef) {
+        dts += '\n'
+      } else {
+        dts += ` `
+      }
+
+      dts += indentLines(`}`, nest) + '\n'
     }
+
     return dts
   }
 
@@ -416,12 +430,7 @@ export class ExternalObject<T> {
     ),
   ).reduce((acc, [mod, defs]) => {
     idents.push(mod)
-    return (
-      acc +
-      `export namespace ${mod} {
-${convertDefs(defs, true)}
-}\n`
-    )
+    return acc + `export namespace ${mod} {\n${convertDefs(defs, true)}}\n`
   }, '')
 
   await unlinkAsync(source)
@@ -432,7 +441,11 @@ ${convertDefs(defs, true)}
 function indentLines(input: string, spaces: number) {
   return input
     .split('\n')
-    .map((line) => ''.padEnd(spaces, ' ') + line.trim())
+    .map(
+      (line) =>
+        ''.padEnd(spaces, ' ') +
+        (line.startsWith(' *') ? line.trimEnd() : line.trim()),
+    )
     .join('\n')
 }
 
@@ -445,9 +458,10 @@ async function writeJsBinding(
   if (distFileName) {
     const template = createJsBinding(localName, packageName)
     const declareCodes = `const { ${idents.join(', ')} } = nativeBinding\n`
-    const exportsCode = idents.reduce((acc, cur) => {
-      return `${acc}\nmodule.exports.${cur} = ${cur}`
-    }, '')
+    const exportsCode = idents.reduce(
+      (acc, cur) => `${acc}\nmodule.exports.${cur} = ${cur}`,
+      '',
+    )
     await writeFileAsync(
       distFileName,
       template + declareCodes + exportsCode + '\n',

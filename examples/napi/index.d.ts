@@ -101,22 +101,19 @@ export class Animal {
   get name(): string
   set name(name: string)
   /**
-  * This is a
-  * multi-line comment
-  * with an emoji 🚀
-  */
+   * This is a
+   * multi-line comment
+   * with an emoji 🚀
+   */
   whoami(): string
   /** This is static... */
   static getDogKind(): Kind
 }
 /** Smoking test for type generation */
 export class Blake2BHasher {
-  
   static withKey(key: Blake2bKey): Blake2BHasher
 }
-export class Blake2BKey {
-  
-}
+export class Blake2BKey { }
 export class Context {
   maybeNeed?: boolean | undefined | null
   constructor()
@@ -131,17 +128,17 @@ export class ClassWithFactory {
 export namespace xxh3 {
   export const ALIGNMENT: number
   export function xxh3_64(input: Buffer): BigInt
+  /** xxh128 function */
   export function xxh128(input: Buffer): BigInt
+  /** Xxh3 class */
   export class Xxh3 {
-    
     constructor()
+    /** update */
     update(input: Buffer): void
     digest(): BigInt
   }
-
 }
 export namespace xxh2 {
   export function xxh2Plus(a: number, b: number): number
   export function xxh3Xxh64Alias(input: Buffer): BigInt
-
 }
