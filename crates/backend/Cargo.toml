@@ -6,7 +6,7 @@ license = "MIT"
 name = "napi-derive-backend"
 readme = "README.md"
 repository = "https://github.com/napi-rs/napi-rs"
-version = "1.0.10"
+version = "1.0.11"
 
 [features]
 strict = []
