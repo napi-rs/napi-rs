@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.0.0-alpha.12](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.0.0-alpha.11...@napi-rs/cli@2.0.0-alpha.12) (2021-11-30)
+
+### Features
+
+- **napi:** output Rust doc comments in definitions as jsdoc comments ([18d2743](https://github.com/napi-rs/napi-rs/commit/18d2743862819a35261cc70556e44fbcfe8bb47d))
+
 # [2.0.0-alpha.11](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.0.0-alpha.10...@napi-rs/cli@2.0.0-alpha.11) (2021-11-25)
 
 ### Features
