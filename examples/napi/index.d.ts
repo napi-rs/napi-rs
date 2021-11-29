@@ -23,7 +23,7 @@ export function readFile(callback: (arg0: Error | undefined, arg1?: string | und
 export function eitherStringOrNumber(input: string | number): number
 export function returnEither(input: number): string | number
 export function either3(input: string | number | boolean): number
-interface Obj {
+export interface Obj {
   v: string | number
 }
 export function either4(input: string | number | boolean | Obj): number
@@ -65,7 +65,7 @@ export function getUndefined(): void
 export function getNull(): JsNull
 export function asyncPlus100(p: Promise<number>): Promise<number>
 /** This is an interface for package.json */
-interface PackageJson {
+export interface PackageJson {
   name: string
   /** The version of the package */
   version: string
