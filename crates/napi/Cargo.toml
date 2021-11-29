@@ -7,7 +7,7 @@ license = "MIT"
 name = "napi"
 readme = "README.md"
 repository = "https://github.com/napi-rs/napi-rs"
-version = "2.0.0-alpha.7"
+version = "2.0.0-alpha.8"
 
 [features]
 async = ["tokio_rt"]
@@ -28,7 +28,7 @@ tokio_rt = ["tokio", "once_cell", "napi4"]
 
 [dependencies]
 ctor = "0.1"
-napi-sys = {version = "1.1.2", path = "../sys"}
+napi-sys = {version = "2.0.0", path = "../sys"}
 
 [target.'cfg(windows)'.dependencies]
 windows = {version = "0.27", features = ["Win32_System_WindowsProgramming", "Win32_System_LibraryLoader", "Win32_Foundation"]}

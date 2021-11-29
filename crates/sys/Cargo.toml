@@ -8,9 +8,10 @@ license = "MIT"
 name = "napi-sys"
 readme = "README.md"
 repository = "https://github.com/napi-rs/napi-rs"
-version = "1.1.2"
+version = "2.0.0"
 
 [features]
+experimental = []
 napi1 = []
 napi2 = ["napi1"]
 napi3 = ["napi2"]
@@ -19,7 +20,6 @@ napi5 = ["napi4"]
 napi6 = ["napi5"]
 napi7 = ["napi6"]
 napi8 = ["napi7"]
-experimental = []
 
 [package.metadata.workspaces]
 independent = true
