@@ -98,8 +98,12 @@ impl TryFrom<sys::napi_key_collection_mode> for KeyCollectionMode {
 
   fn try_from(value: sys::napi_key_collection_mode) -> Result<Self> {
     match value {
-      sys::napi_key_collection_mode::napi_key_include_prototypes => Ok(Self::IncludePrototypes),
-      sys::napi_key_collection_mode::napi_key_own_only => Ok(Self::OwnOnly),
+      sys::KeyCollectionMode::include_prototypes => Ok(Self::IncludePrototypes),
+      sys::KeyCollectionMode::own_only => Ok(Self::OwnOnly),
+      _ => Err(Error::new(
+        crate::Status::InvalidArg,
+        format!("Invalid key collection mode: {}", value),
+      )),
     }
   }
 }
@@ -108,10 +112,8 @@ impl TryFrom<sys::napi_key_collection_mode> for KeyCollectionMode {
 impl From<KeyCollectionMode> for sys::napi_key_collection_mode {
   fn from(value: KeyCollectionMode) -> Self {
     match value {
-      KeyCollectionMode::IncludePrototypes => {
-        sys::napi_key_collection_mode::napi_key_include_prototypes
-      }
-      KeyCollectionMode::OwnOnly => sys::napi_key_collection_mode::napi_key_own_only,
+      KeyCollectionMode::IncludePrototypes => sys::KeyCollectionMode::include_prototypes,
+      KeyCollectionMode::OwnOnly => sys::KeyCollectionMode::own_only,
     }
   }
 }
@@ -132,12 +134,16 @@ impl TryFrom<sys::napi_key_filter> for KeyFilter {
 
   fn try_from(value: sys::napi_key_filter) -> Result<Self> {
     match value {
-      sys::napi_key_filter::napi_key_all_properties => Ok(Self::AllProperties),
-      sys::napi_key_filter::napi_key_writable => Ok(Self::Writable),
-      sys::napi_key_filter::napi_key_enumerable => Ok(Self::Enumerable),
-      sys::napi_key_filter::napi_key_configurable => Ok(Self::Configurable),
-      sys::napi_key_filter::napi_key_skip_strings => Ok(Self::SkipStrings),
-      sys::napi_key_filter::napi_key_skip_symbols => Ok(Self::SkipSymbols),
+      sys::KeyFilter::all_properties => Ok(Self::AllProperties),
+      sys::KeyFilter::writable => Ok(Self::Writable),
+      sys::KeyFilter::enumerable => Ok(Self::Enumerable),
+      sys::KeyFilter::configurable => Ok(Self::Configurable),
+      sys::KeyFilter::skip_strings => Ok(Self::SkipStrings),
+      sys::KeyFilter::skip_symbols => Ok(Self::SkipSymbols),
+      _ => Err(Error::new(
+        crate::Status::InvalidArg,
+        format!("Invalid key filter [{}]", value),
+      )),
     }
   }
 }
@@ -146,12 +152,12 @@ impl TryFrom<sys::napi_key_filter> for KeyFilter {
 impl From<KeyFilter> for sys::napi_key_filter {
   fn from(value: KeyFilter) -> Self {
     match value {
-      KeyFilter::AllProperties => Self::napi_key_all_properties,
-      KeyFilter::Writable => Self::napi_key_writable,
-      KeyFilter::Enumerable => Self::napi_key_enumerable,
-      KeyFilter::Configurable => Self::napi_key_configurable,
-      KeyFilter::SkipStrings => Self::napi_key_skip_strings,
-      KeyFilter::SkipSymbols => Self::napi_key_skip_symbols,
+      KeyFilter::AllProperties => sys::KeyFilter::all_properties,
+      KeyFilter::Writable => sys::KeyFilter::writable,
+      KeyFilter::Enumerable => sys::KeyFilter::enumerable,
+      KeyFilter::Configurable => sys::KeyFilter::configurable,
+      KeyFilter::SkipStrings => sys::KeyFilter::skip_strings,
+      KeyFilter::SkipSymbols => sys::KeyFilter::skip_symbols,
     }
   }
 }
@@ -168,8 +174,12 @@ impl TryFrom<sys::napi_key_conversion> for KeyConversion {
 
   fn try_from(value: sys::napi_key_conversion) -> Result<Self> {
     match value {
-      sys::napi_key_conversion::napi_key_keep_numbers => Ok(Self::KeepNumbers),
-      sys::napi_key_conversion::napi_key_numbers_to_strings => Ok(Self::NumbersToStrings),
+      sys::KeyConversion::keep_numbers => Ok(Self::KeepNumbers),
+      sys::KeyConversion::numbers_to_strings => Ok(Self::NumbersToStrings),
+      _ => Err(Error::new(
+        crate::Status::InvalidArg,
+        format!("Invalid key conversion [{}]", value),
+      )),
     }
   }
 }
@@ -178,8 +188,8 @@ impl TryFrom<sys::napi_key_conversion> for KeyConversion {
 impl From<KeyConversion> for sys::napi_key_conversion {
   fn from(value: KeyConversion) -> Self {
     match value {
-      KeyConversion::KeepNumbers => Self::napi_key_keep_numbers,
-      KeyConversion::NumbersToStrings => Self::napi_key_numbers_to_strings,
+      KeyConversion::KeepNumbers => sys::KeyConversion::keep_numbers,
+      KeyConversion::NumbersToStrings => sys::KeyConversion::numbers_to_strings,
     }
   }
 }

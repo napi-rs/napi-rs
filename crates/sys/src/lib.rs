@@ -57,17 +57,19 @@ pub struct uv_loop_s {
 }
 pub type napi_deferred = *mut napi_deferred__;
 
-#[repr(C)]
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-pub enum napi_property_attributes {
-  napi_default = 0,
-  napi_writable = 1 << 0,
-  napi_enumerable = 1 << 1,
-  napi_configurable = 1 << 2,
+pub type napi_property_attributes = i32;
+
+pub mod PropertyAttributes {
+  use super::napi_property_attributes;
+
+  pub const default: napi_property_attributes = 0;
+  pub const writable: napi_property_attributes = 1 << 0;
+  pub const enumerable: napi_property_attributes = 1 << 1;
+  pub const configurable: napi_property_attributes = 1 << 2;
 
   // Used with napi_define_class to distinguish static properties
   // from instance properties. Ignored by napi_define_properties.
-  napi_static = 1 << 10,
+  pub const static_: napi_property_attributes = 1 << 10;
 }
 
 pub type napi_valuetype = i32;
@@ -89,19 +91,19 @@ pub mod ValueType {
 pub type napi_typedarray_type = i32;
 
 pub mod TypedarrayType {
-  pub const napi_int8_array: i32 = 0;
-  pub const napi_uint8_array: i32 = 1;
-  pub const napi_uint8_clamped_array: i32 = 2;
-  pub const napi_int16_array: i32 = 3;
-  pub const napi_uint16_array: i32 = 4;
-  pub const napi_int32_array: i32 = 5;
-  pub const napi_uint32_array: i32 = 6;
-  pub const napi_float32_array: i32 = 7;
-  pub const napi_float64_array: i32 = 8;
+  pub const int8_array: i32 = 0;
+  pub const uint8_array: i32 = 1;
+  pub const uint8_clamped_array: i32 = 2;
+  pub const int16_array: i32 = 3;
+  pub const uint16_array: i32 = 4;
+  pub const int32_array: i32 = 5;
+  pub const uint32_array: i32 = 6;
+  pub const float32_array: i32 = 7;
+  pub const float64_array: i32 = 8;
   #[cfg(feature = "napi6")]
-  pub const napi_bigint64_array: i32 = 9;
+  pub const bigint64_array: i32 = 9;
   #[cfg(feature = "napi6")]
-  pub const napi_biguint64_array: i32 = 10;
+  pub const biguint64_array: i32 = 10;
 }
 
 pub type napi_status = i32;
@@ -158,29 +160,40 @@ pub struct napi_extended_error_info {
   pub error_code: napi_status,
 }
 
-#[repr(C)]
-#[derive(Copy, Clone, PartialEq, Eq, Hash)]
-pub enum napi_key_collection_mode {
-  napi_key_include_prototypes,
-  napi_key_own_only,
+#[cfg(feature = "napi6")]
+pub type napi_key_collection_mode = i32;
+
+#[cfg(feature = "napi6")]
+pub mod KeyCollectionMode {
+  pub use super::napi_key_collection_mode;
+  pub const include_prototypes: napi_key_collection_mode = 0;
+  pub const own_only: napi_key_collection_mode = 1;
 }
 
-#[repr(C)]
-#[derive(Copy, Clone, PartialEq, Eq, Hash)]
-pub enum napi_key_filter {
-  napi_key_all_properties = 0,
-  napi_key_writable = 1,
-  napi_key_enumerable = 1 << 1,
-  napi_key_configurable = 1 << 2,
-  napi_key_skip_strings = 1 << 3,
-  napi_key_skip_symbols = 1 << 4,
+#[cfg(feature = "napi6")]
+pub type napi_key_filter = i32;
+
+#[cfg(feature = "napi6")]
+pub mod KeyFilter {
+  use super::napi_key_filter;
+
+  pub const all_properties: napi_key_filter = 0;
+  pub const writable: napi_key_filter = 1;
+  pub const enumerable: napi_key_filter = 1 << 1;
+  pub const configurable: napi_key_filter = 1 << 2;
+  pub const skip_strings: napi_key_filter = 1 << 3;
+  pub const skip_symbols: napi_key_filter = 1 << 4;
 }
 
-#[repr(C)]
-#[derive(Copy, Clone, PartialEq, Eq, Hash)]
-pub enum napi_key_conversion {
-  napi_key_keep_numbers,
-  napi_key_numbers_to_strings,
+#[cfg(feature = "napi6")]
+pub type napi_key_conversion = i32;
+
+#[cfg(feature = "napi6")]
+pub mod KeyConversion {
+  use super::napi_key_conversion;
+
+  pub const keep_numbers: napi_key_conversion = 0;
+  pub const numbers_to_strings: napi_key_conversion = 1;
 }
 
 #[cfg(feature = "napi8")]
@@ -834,6 +847,11 @@ extern "C" {
   pub fn napi_object_seal(env: napi_env, object: napi_value) -> napi_status;
 }
 
+#[cfg(feature = "experimental")]
+extern "C" {
+  pub fn node_api_get_module_file_name(env: napi_env, result: *mut *const c_char) -> napi_status;
+}
+
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct napi_callback_scope__ {
@@ -864,19 +882,24 @@ pub struct napi_threadsafe_function__ {
 pub type napi_threadsafe_function = *mut napi_threadsafe_function__;
 
 #[cfg(feature = "napi4")]
-#[repr(C)]
-#[derive(Copy, Clone, PartialEq, Eq, Hash)]
-pub enum napi_threadsafe_function_release_mode {
-  napi_tsfn_release,
-  napi_tsfn_abort,
+pub type napi_threadsafe_function_release_mode = i32;
+
+#[cfg(feature = "napi4")]
+pub mod ThreadsafeFunctionReleaseMode {
+  use super::napi_threadsafe_function_release_mode;
+  pub const release: napi_threadsafe_function_release_mode = 0;
+  pub const abort: napi_threadsafe_function_release_mode = 1;
 }
 
 #[cfg(feature = "napi4")]
-#[repr(C)]
-#[derive(Copy, Clone, PartialEq, Eq, Hash)]
-pub enum napi_threadsafe_function_call_mode {
-  napi_tsfn_nonblocking,
-  napi_tsfn_blocking,
+pub type napi_threadsafe_function_call_mode = i32;
+
+#[cfg(feature = "napi4")]
+pub mod ThreadsafeFunctionCallMode {
+  use super::napi_threadsafe_function_call_mode;
+
+  pub const nonblocking: napi_threadsafe_function_call_mode = 0;
+  pub const blocking: napi_threadsafe_function_call_mode = 1;
 }
 
 pub type napi_async_execute_callback =

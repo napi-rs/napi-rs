@@ -88,19 +88,19 @@ pub enum TypedArrayType {
 impl From<sys::napi_typedarray_type> for TypedArrayType {
   fn from(value: sys::napi_typedarray_type) -> Self {
     match value {
-      sys::TypedarrayType::napi_int8_array => Self::Int8,
-      sys::TypedarrayType::napi_uint8_array => Self::Uint8,
-      sys::TypedarrayType::napi_uint8_clamped_array => Self::Uint8Clamped,
-      sys::TypedarrayType::napi_int16_array => Self::Int16,
-      sys::TypedarrayType::napi_uint16_array => Self::Uint16,
-      sys::TypedarrayType::napi_int32_array => Self::Int32,
-      sys::TypedarrayType::napi_uint32_array => Self::Uint32,
-      sys::TypedarrayType::napi_float32_array => Self::Float32,
-      sys::TypedarrayType::napi_float64_array => Self::Float64,
+      sys::TypedarrayType::int8_array => Self::Int8,
+      sys::TypedarrayType::uint8_array => Self::Uint8,
+      sys::TypedarrayType::uint8_clamped_array => Self::Uint8Clamped,
+      sys::TypedarrayType::int16_array => Self::Int16,
+      sys::TypedarrayType::uint16_array => Self::Uint16,
+      sys::TypedarrayType::int32_array => Self::Int32,
+      sys::TypedarrayType::uint32_array => Self::Uint32,
+      sys::TypedarrayType::float32_array => Self::Float32,
+      sys::TypedarrayType::float64_array => Self::Float64,
       #[cfg(feature = "napi6")]
-      sys::TypedarrayType::napi_bigint64_array => Self::BigInt64,
+      sys::TypedarrayType::bigint64_array => Self::BigInt64,
       #[cfg(feature = "napi6")]
-      sys::TypedarrayType::napi_biguint64_array => Self::BigUint64,
+      sys::TypedarrayType::biguint64_array => Self::BigUint64,
       _ => Self::Unknown,
     }
   }
