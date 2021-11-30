@@ -3,6 +3,7 @@ use std::ptr;
 use crate::{check_status, sys, Error, JsUnknown, NapiRaw, NapiValue, Result, Status, ValueType};
 
 mod array;
+mod arraybuffer;
 #[cfg(feature = "napi6")]
 mod bigint;
 mod boolean;
@@ -23,6 +24,7 @@ mod symbol;
 mod task;
 
 pub use array::*;
+pub use arraybuffer::*;
 #[cfg(feature = "napi6")]
 pub use bigint::*;
 pub use buffer::*;

@@ -5,7 +5,6 @@ use crate::BindgenResult;
 mod r#const;
 mod r#enum;
 mod r#fn;
-mod js_mod;
 mod r#struct;
 
 pub trait TryToTokens {

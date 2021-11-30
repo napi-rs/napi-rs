@@ -86,6 +86,9 @@ export function callThreadsafeFunction(callback: (...args: any[]) => any): void
 export function threadsafeFunctionThrowError(cb: (...args: any[]) => any): void
 export function threadsafeFunctionFatalMode(cb: (...args: any[]) => any): void
 export function getBuffer(): Buffer
+export function convertU32Array(input: Uint32Array): Array<number>
+export function createExternalTypedArray(): Uint32Array
+export function mutateTypedArray(input: Float32Array): void
 /**
  * `constructor` option for `struct` requires all fields to be public,
  * otherwise tag impl fn as constructor

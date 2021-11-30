@@ -1,7 +1,6 @@
 mod r#const;
 mod r#enum;
 mod r#fn;
-mod js_mod;
 pub(crate) mod r#struct;
 
 use std::collections::HashMap;
@@ -121,6 +120,17 @@ static KNOWN_TYPES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     ("Map", "Record<string, any>"),
     ("HashMap", "Record<{}, {}>"),
     ("ArrayBuffer", "ArrayBuffer"),
+    ("Int8Array", "Int8Array"),
+    ("Uint8Array", "Uint8Array"),
+    ("Uint8ClampedArray", "Uint8ClampedArray"),
+    ("Int16Array", "Int16Array"),
+    ("Uint16Array", "Uint16Array"),
+    ("Int32Array", "Int32Array"),
+    ("Uint32Array", "Uint32Array"),
+    ("Float32Array", "Float32Array"),
+    ("Float64Array", "Float64Array"),
+    ("BigInt64Array", "BigInt64Array"),
+    ("BigUint64Array", "BigUint64Array"),
     ("DataView", "DataView"),
     ("Date", "Date"),
     ("JsBuffer", "Buffer"),

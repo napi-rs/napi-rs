@@ -39,8 +39,8 @@ impl TypeName for JsTypedArray {
 pub struct JsTypedArrayValue {
   pub arraybuffer: JsArrayBuffer,
   data: *mut c_void,
-  pub byte_offset: u64,
-  pub length: u64,
+  pub byte_offset: usize,
+  pub length: usize,
   pub typedarray_type: TypedArrayType,
 }
 
@@ -234,19 +234,19 @@ impl JsTypedArray {
   /// ***Warning***: Use caution while using this API since the underlying data buffer is managed by the VM.
   pub fn into_value(self) -> Result<JsTypedArrayValue> {
     let mut typedarray_type = 0;
-    let mut len = 0u64;
+    let mut len = 0;
     let mut data = ptr::null_mut();
     let mut arraybuffer_value = ptr::null_mut();
-    let mut byte_offset = 0u64;
+    let mut byte_offset = 0;
     check_status!(unsafe {
       sys::napi_get_typedarray_info(
         self.0.env,
         self.0.value,
         &mut typedarray_type,
-        &mut len as *mut u64 as *mut _,
+        &mut len,
         &mut data,
         &mut arraybuffer_value,
-        &mut byte_offset as *mut u64 as *mut usize,
+        &mut byte_offset,
       )
     })?;
 
@@ -260,34 +260,51 @@ impl JsTypedArray {
   }
 }
 
+impl JsTypedArrayValue {
+  #[inline]
+  fn is_valid_as_ref(&self, dest_type: TypedArrayType) {
+    if self.typedarray_type == TypedArrayType::Uint8Clamped && dest_type != TypedArrayType::Uint8 {
+      return;
+    }
+    if self.typedarray_type != dest_type {
+      panic!(
+        "invalid typedarray type: expected {:?}, got {:?}",
+        dest_type, self.typedarray_type
+      );
+    }
+  }
+}
+
 macro_rules! impl_as_ref {
-  ($ref_type:ident) => {
+  ($ref_type:ident, $expect_type:expr) => {
     impl AsRef<[$ref_type]> for JsTypedArrayValue {
       fn as_ref(&self) -> &[$ref_type] {
-        unsafe { slice::from_raw_parts(self.data as *const $ref_type, self.length as usize) }
+        self.is_valid_as_ref($expect_type);
+        unsafe { slice::from_raw_parts(self.data as *const $ref_type, self.length) }
       }
     }
 
     impl AsMut<[$ref_type]> for JsTypedArrayValue {
       fn as_mut(&mut self) -> &mut [$ref_type] {
-        unsafe { slice::from_raw_parts_mut(self.data as *mut $ref_type, self.length as usize) }
+        self.is_valid_as_ref($expect_type);
+        unsafe { slice::from_raw_parts_mut(self.data as *mut $ref_type, self.length) }
       }
     }
   };
 }
 
-impl_as_ref!(u8);
-impl_as_ref!(i8);
-impl_as_ref!(u16);
-impl_as_ref!(i16);
-impl_as_ref!(u32);
-impl_as_ref!(i32);
-impl_as_ref!(f32);
-impl_as_ref!(f64);
+impl_as_ref!(u8, TypedArrayType::Uint8);
+impl_as_ref!(i8, TypedArrayType::Int8);
+impl_as_ref!(u16, TypedArrayType::Uint16);
+impl_as_ref!(i16, TypedArrayType::Int16);
+impl_as_ref!(u32, TypedArrayType::Uint32);
+impl_as_ref!(i32, TypedArrayType::Int32);
+impl_as_ref!(f32, TypedArrayType::Float32);
+impl_as_ref!(f64, TypedArrayType::Float64);
 #[cfg(feature = "napi6")]
-impl_as_ref!(i64);
+impl_as_ref!(i64, TypedArrayType::BigInt64);
 #[cfg(feature = "napi6")]
-impl_as_ref!(u64);
+impl_as_ref!(u64, TypedArrayType::BigUint64);
 
 impl JsDataView {
   pub fn into_value(self) -> Result<JsDataViewValue> {

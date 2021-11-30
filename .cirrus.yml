@@ -22,7 +22,7 @@ task:
       echo "~~~~ yarn --version ~~~~"
       yarn --version
   test_script:
-    - yarn install --ignore-platform --frozen-lockfile --registry https://registry.npmjs.org
+    - yarn install --ignore-platform --ignore-scripts --frozen-lockfile --registry https://registry.npmjs.org
     - yarn build
     - cargo test -p napi-sys --lib -- --nocapture
     - yarn build:test
