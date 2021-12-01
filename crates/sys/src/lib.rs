@@ -850,6 +850,17 @@ extern "C" {
 #[cfg(feature = "experimental")]
 extern "C" {
   pub fn node_api_get_module_file_name(env: napi_env, result: *mut *const c_char) -> napi_status;
+  pub fn node_api_create_syntax_error(
+    env: napi_env,
+    code: napi_value,
+    msg: napi_value,
+    result: *mut napi_value,
+  ) -> napi_status;
+  pub fn node_api_throw_syntax_error(
+    env: napi_env,
+    code: *const c_char,
+    msg: *const c_char,
+  ) -> napi_status;
 }
 
 #[repr(C)]

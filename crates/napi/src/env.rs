@@ -659,6 +659,20 @@ impl Env {
     })
   }
 
+  /// This API throws a JavaScript SyntaxError with the text provided.
+  #[cfg(feature = "experimental")]
+  pub fn throw_syntax_error(&self, msg: &str, code: Option<&str>) -> Result<()> {
+    let code = code.and_then(|s| CString::new(s).ok());
+    let msg = CString::new(msg)?;
+    check_status!(unsafe {
+      sys::node_api_throw_syntax_error(
+        self.0,
+        code.map(|s| s.as_ptr()).unwrap_or(ptr::null_mut()),
+        msg.as_ptr(),
+      )
+    })
+  }
+
   #[allow(clippy::expect_fun_call)]
   /// In the event of an unrecoverable error in a native module
   ///
