@@ -70,7 +70,10 @@ export const DefaultPlatforms: PlatformDetail[] = [
  *   - `sys` = The system name, for example `linux`, `windows`, `darwin`, etc. none is typically used for bare-metal without an OS.
  *   - `abi` = The ABI, for example `gnu`, `android`, `eabi`, etc.
  */
-export function parseTriple(triple: string): PlatformDetail {
+export function parseTriple(rawTriple: string): PlatformDetail {
+  const triple = rawTriple.endsWith('eabi')
+    ? `${rawTriple.slice(0, -4)}-eabi`
+    : rawTriple
   const triples = triple.split('-')
   let cpu: string
   let sys: string
@@ -91,7 +94,7 @@ export function parseTriple(triple: string): PlatformDetail {
     platformArchABI: abi
       ? `${platformName}-${arch}-${abi}`
       : `${platformName}-${arch}`,
-    raw: triple,
+    raw: rawTriple,
   }
 }
 

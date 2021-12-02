@@ -1,4 +1,4 @@
-name: Android-aarch64
+name: Android-armv7
 
 on:
   push:
@@ -10,14 +10,14 @@ env:
   DEBUG: 'napi:*'
 
 jobs:
-  build-android-aarch64:
-    name: Build - Android - aarch64
+  build-android-armv7:
+    name: Build - Android - armv7
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
 
       - name: Setup node
-        uses: actions/setup-node@v2
+        uses: actions/setup-node@v1
         with:
           node-version: 16
           cache: 'yarn'
@@ -32,7 +32,7 @@ jobs:
           toolchain: stable
           profile: minimal
           override: true
-          target: 'aarch64-linux-android'
+          target: 'armv7-linux-androideabi'
 
       - name: Generate Cargo.lock
         uses: actions-rs/cargo@v1
@@ -43,7 +43,7 @@ jobs:
         uses: actions/cache@v2
         with:
           path: ~/.cargo/registry
-          key: stable-linux-android-node@16-cargo-registry-trimmed-${{ hashFiles('**/Cargo.lock') }}
+          key: stable-linux-android-armv7-node@16-cargo-registry-trimmed-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache cargo index
         uses: actions/cache@v2
@@ -58,12 +58,15 @@ jobs:
           key: npm-cache-linux-android-node@16-${{ hashFiles('yarn.lock') }}
 
       - name: Install dependencies
-        run: yarn install --frozen-lockfile --registry https://registry.npmjs.org --network-timeout 300000
+        run: yarn install --ignore-scripts --frozen-lockfile --registry https://registry.npmjs.org --network-timeout 300000
 
       - name: 'Build TypeScript'
         run: yarn build
 
-      - name: Cross build native tests
+      - name: Cross build
         run: |
-          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
-          yarn build:test:android
+          export CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi24-clang"
+          yarn build:test:android:armv7
+          du -sh examples/napi/index.node
+          ${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/arm-linux-androideabi-strip examples/napi/index.node
+          du -sh examples/napi/index.node
