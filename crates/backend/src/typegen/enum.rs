@@ -1,8 +1,9 @@
-use super::{ToTypeDef, TypeDef};
+use super::{add_alias, ToTypeDef, TypeDef};
 use crate::{js_doc_from_comments, NapiEnum};
 
 impl ToTypeDef for NapiEnum {
   fn to_type_def(&self) -> TypeDef {
+    add_alias(self.name.to_string(), self.js_name.to_string());
     TypeDef {
       kind: "enum".to_owned(),
       name: self.js_name.to_owned(),

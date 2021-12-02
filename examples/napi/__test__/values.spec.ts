@@ -59,6 +59,10 @@ import {
   convertU32Array,
   createExternalTypedArray,
   mutateTypedArray,
+  receiveAllOptionalObject,
+  fnReceivedAliased,
+  ALIAS,
+  AliasedStruct,
 } from '../'
 
 test('export const', (t) => {
@@ -200,6 +204,20 @@ test('Result', (t) => {
 
 test('function ts type override', (t) => {
   t.deepEqual(tsRename({ foo: 1, bar: 2, baz: 2 }), ['foo', 'bar', 'baz'])
+})
+
+test('option object', (t) => {
+  t.notThrows(() => receiveAllOptionalObject())
+  t.notThrows(() => receiveAllOptionalObject({}))
+})
+
+test('aliased rust struct and enum', (t) => {
+  const a: ALIAS = ALIAS.A
+  const b: AliasedStruct = {
+    a,
+    b: 1,
+  }
+  t.notThrows(() => fnReceivedAliased(b, ALIAS.B))
 })
 
 test('serde-json', (t) => {

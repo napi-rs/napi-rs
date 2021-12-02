@@ -1,9 +1,8 @@
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
+
 use napi_derive_backend::{bail_span, BindgenResult, Diagnostic};
 use proc_macro2::{Delimiter, Ident, Span, TokenTree};
-use std::{
-  cell::{Cell, RefCell},
-  collections::HashMap,
-};
 use syn::spanned::Spanned;
 
 thread_local! {

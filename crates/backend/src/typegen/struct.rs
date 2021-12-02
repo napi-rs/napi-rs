@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use super::{ToTypeDef, TypeDef};
+use super::{add_alias, ToTypeDef, TypeDef};
 use crate::{js_doc_from_comments, ty_to_ts_type, NapiImpl, NapiStruct, NapiStructKind};
 
 thread_local! {
@@ -15,6 +15,7 @@ impl ToTypeDef for NapiStruct {
       c.borrow_mut()
         .insert(self.name.to_string(), self.js_name.clone());
     });
+    add_alias(self.name.to_string(), self.js_name.to_string());
     TypeDef {
       kind: String::from(if self.kind == NapiStructKind::Object {
         "interface"

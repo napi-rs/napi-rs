@@ -1,9 +1,10 @@
 use super::{ToTypeDef, TypeDef};
 
-use crate::{js_doc_from_comments, ty_to_ts_type, NapiConst};
+use crate::{js_doc_from_comments, ty_to_ts_type, typegen::add_alias, NapiConst};
 
 impl ToTypeDef for NapiConst {
   fn to_type_def(&self) -> TypeDef {
+    add_alias(self.name.to_string(), self.js_name.to_string());
     TypeDef {
       kind: "const".to_owned(),
       name: self.js_name.to_owned(),
