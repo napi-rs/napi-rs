@@ -55,20 +55,20 @@ _Main branch is now under napi@next developing. Checkout [v1 docs](https://napi.
 [![Windows arm64](https://github.com/napi-rs/napi-rs/actions/workflows/windows-arm.yml/badge.svg)](https://github.com/napi-rs/napi-rs/actions/workflows/windows-arm.yml)
 [![FreeBSD](https://api.cirrus-ci.com/github/napi-rs/napi-rs.svg)](https://cirrus-ci.com/github/napi-rs/napi-rs?branch=main)
 
-|                       | node12 | node14 | node16 |
-| --------------------- | ------ | ------ | ------ |
-| Windows x64           | ✓      | ✓      | ✓      |
-| Windows x86           | ✓      | ✓      | ✓      |
-| Windows arm64         | ✓      | ✓      | ✓      |
-| macOS x64             | ✓      | ✓      | ✓      |
-| macOS aarch64         | ✓      | ✓      | ✓      |
-| Linux x64 gnu         | ✓      | ✓      | ✓      |
-| Linux x64 musl        | ✓      | ✓      | ✓      |
-| Linux aarch64 gnu     | ✓      | ✓      | ✓      |
-| Linux aarch64 musl    | ✓      | ✓      | ✓      |
-| Linux arm gnueabihf   | ✓      | ✓      | ✓      |
-| Linux aarch64 android | ✓      | ✓      | ✓      |
-| FreeBSD x64           | ✓      | ✓      | ✓      |
+|                       | node12 | node14 | node16 | node17 |
+| --------------------- | ------ | ------ | ------ | ------ |
+| Windows x64           | ✓      | ✓      | ✓      | ✓      |
+| Windows x86           | ✓      | ✓      | ✓      | ✓      |
+| Windows arm64         | ✓      | ✓      | ✓      | ✓      |
+| macOS x64             | ✓      | ✓      | ✓      | ✓      |
+| macOS aarch64         | ✓      | ✓      | ✓      | ✓      |
+| Linux x64 gnu         | ✓      | ✓      | ✓      | ✓      |
+| Linux x64 musl        | ✓      | ✓      | ✓      | ✓      |
+| Linux aarch64 gnu     | ✓      | ✓      | ✓      | ✓      |
+| Linux aarch64 musl    | ✓      | ✓      | ✓      | ✓      |
+| Linux arm gnueabihf   | ✓      | ✓      | ✓      | ✓      |
+| Linux aarch64 android | ✓      | ✓      | ✓      | ✓      |
+| FreeBSD x64           | ✓      | ✓      | ✓      | ✓      |
 
 This library depends on Node-API and requires `Node@10.0.0` or later.
 
@@ -221,30 +221,30 @@ yarn test
 
 ## Features table
 
-| Rust Type               | Node Type              | [NAPI Version](https://nodejs.org/api/n-api.html#n_api_node_api_version_matrix) | Minimal Node version | Enable by `napi` feature |
-| ----------------------- | ---------------------- | ------------------------------------------------------------------------------- | -------------------- | ------------------------ |
-| u32                     | Number                 | 1                                                                               | v8.0.0               |
-| i32/i64                 | Number                 | 1                                                                               | v8.0.0               |
-| f64                     | Number                 | 1                                                                               | v8.0.0               |
-| bool                    | Boolean                | 1                                                                               | v8.0.0               |
-| String/&'a str          | String                 | 1                                                                               | v8.0.0               |
-| Latin1String            | String                 | 1                                                                               | v8.0.0               | latin1                   |
-| UTF16String             | String                 | 1                                                                               | v8.0.0               |
-| Object                  | Object                 | 1                                                                               | v8.0.0               |
-| serde_json::Map         | Object                 | 1                                                                               | v8.0.0               | serde-json               |
-| serde_json::Value       | any                    | 1                                                                               | v8.0.0               | serde-json               |
-| Array                   | Array<any>             | 1                                                                               | v8.0.0               |
-| Vec<T>                  | Array<T>               | 1                                                                               | v8.0.0               |
-| Buffer                  | Buffer                 | 1                                                                               | v8.0.0               |
-| External<T>             | External<T>            | 1                                                                               | v8.0.0               |                          |
-| Null                    | null                   | 1                                                                               | v8.0.0               |
-| Undefined/()            | undefined              | 1                                                                               | v8.0.0               |
-| Result<()>              | Error                  | 1                                                                               | v8.0.0               |
-| T: Fn(...) -> Result<T> | Function               | 1                                                                               | v8.0.0               |
-| Async/Future            | Promise<T>             | 4                                                                               | v10.6.0              | async                    |
-| AsyncTask               | Promise<T>             | 1                                                                               | v8.5.0               |
-| JsGlobal                | global                 | 1                                                                               | v8.0.0               |
-| JsSymbol                | Symbol                 | 1                                                                               | v8.0.0               |
-| (NOT YET)               | ArrayBuffer/TypedArray | 1                                                                               | v8.0.0               |
-| JsFunction              | threadsafe function    | 4                                                                               | v10.6.0              | napi4                    |
-| BigInt                  | BigInt                 | 6                                                                               | v10.7.0              | napi6                    |
+| Rust Type                | Node Type           | [NAPI Version](https://nodejs.org/api/n-api.html#n_api_node_api_version_matrix) | Minimal Node version | Enable by `napi` feature |
+| ------------------------ | ------------------- | ------------------------------------------------------------------------------- | -------------------- | ------------------------ |
+| u32                      | Number              | 1                                                                               | v8.0.0               |
+| i32/i64                  | Number              | 1                                                                               | v8.0.0               |
+| f64                      | Number              | 1                                                                               | v8.0.0               |
+| bool                     | Boolean             | 1                                                                               | v8.0.0               |
+| String/&'a str           | String              | 1                                                                               | v8.0.0               |
+| Latin1String             | String              | 1                                                                               | v8.0.0               | latin1                   |
+| UTF16String              | String              | 1                                                                               | v8.0.0               |
+| Object                   | Object              | 1                                                                               | v8.0.0               |
+| serde_json::Map          | Object              | 1                                                                               | v8.0.0               | serde-json               |
+| serde_json::Value        | any                 | 1                                                                               | v8.0.0               | serde-json               |
+| Array                    | Array<any>          | 1                                                                               | v8.0.0               |
+| Vec<T>                   | Array<T>            | 1                                                                               | v8.0.0               |
+| Buffer                   | Buffer              | 1                                                                               | v8.0.0               |
+| External<T>              | External<T>         | 1                                                                               | v8.0.0               |                          |
+| Null                     | null                | 1                                                                               | v8.0.0               |
+| Undefined/()             | undefined           | 1                                                                               | v8.0.0               |
+| Result<()>               | Error               | 1                                                                               | v8.0.0               |
+| T: Fn(...) -> Result<T>  | Function            | 1                                                                               | v8.0.0               |
+| Async/Future             | Promise<T>          | 4                                                                               | v10.6.0              | async                    |
+| AsyncTask                | Promise<T>          | 1                                                                               | v8.5.0               |
+| JsGlobal                 | global              | 1                                                                               | v8.0.0               |
+| JsSymbol                 | Symbol              | 1                                                                               | v8.0.0               |
+| Int8Array/Uint8Array ... | TypedArray          | 1                                                                               | v8.0.0               |
+| JsFunction               | threadsafe function | 4                                                                               | v10.6.0              | napi4                    |
+| BigInt                   | BigInt              | 6                                                                               | v10.7.0              | napi6                    |

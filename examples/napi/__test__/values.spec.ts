@@ -56,6 +56,9 @@ import {
   xxh3,
   xxh64Alias,
   tsRename,
+  convertU32Array,
+  createExternalTypedArray,
+  mutateTypedArray,
 } from '../'
 
 test('export const', (t) => {
@@ -211,6 +214,21 @@ test('serde-json', (t) => {
 
 test('buffer', (t) => {
   t.is(getBuffer().toString('utf-8'), 'Hello world')
+})
+
+test('convert typedarray to vec', (t) => {
+  const input = new Uint32Array([1, 2, 3, 4, 5])
+  t.deepEqual(convertU32Array(input), Array.from(input))
+})
+
+test('create external TypedArray', (t) => {
+  t.deepEqual(createExternalTypedArray(), new Uint32Array([1, 2, 3, 4, 5]))
+})
+
+test('mutate TypedArray', (t) => {
+  const input = new Float32Array([1, 2, 3, 4, 5])
+  mutateTypedArray(input)
+  t.deepEqual(input, new Float32Array([2.0, 4.0, 6.0, 8.0, 10.0]))
 })
 
 test('async', async (t) => {

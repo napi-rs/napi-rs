@@ -3,7 +3,11 @@
   "version": "0.0.0",
   "description": "A minimal library for building compiled Node add-ons in Rust.",
   "private": "true",
-  "workspaces": ["cli", "triples", "memory-testing"],
+  "workspaces": [
+    "cli",
+    "triples",
+    "memory-testing"
+  ],
   "repository": {
     "type": "git",
     "url": "git@github.com:Brooooooklyn/napi-rs.git"
@@ -44,10 +48,18 @@
     "arrowParens": "always"
   },
   "lint-staged": {
-    "*.js": ["prettier --write"],
-    "*.@(yml|yaml)": ["prettier --parser yaml --write"],
-    "*.json": ["prettier --parser json --write"],
-    "*.md": ["prettier --parser markdown --write"]
+    "*.js": [
+      "prettier --write"
+    ],
+    "*.@(yml|yaml)": [
+      "prettier --parser yaml --write"
+    ],
+    "*.json": [
+      "prettier --parser json --write"
+    ],
+    "*.md": [
+      "prettier --parser markdown --write"
+    ]
   },
   "husky": {
     "hooks": {
@@ -62,15 +74,16 @@
     "@rollup/plugin-replace": "^3.0.0",
     "@types/debug": "^4.1.7",
     "@types/lodash-es": "^4.17.5",
-    "@types/node": "^16.11.10",
+    "@types/node": "^16.11.11",
     "@types/sinon": "^10.0.6",
     "@typescript-eslint/eslint-plugin": "^5.5.0",
     "@typescript-eslint/parser": "^5.5.0",
     "ava": "^3.15.0",
     "benny": "^3.7.1",
     "c8": "^7.10.0",
+    "chalk": "4",
     "cross-env": "^7.0.3",
-    "esbuild": "^0.14.0",
+    "esbuild": "^0.14.1",
     "eslint": "^8.3.0",
     "eslint-config-prettier": "^8.3.0",
     "eslint-plugin-import": "^2.25.3",
@@ -80,7 +93,7 @@
     "lint-staged": "^12.1.2",
     "npm-run-all": "^4.1.5",
     "prettier": "^2.5.0",
-    "rollup": "^2.60.1",
+    "rollup": "^2.60.2",
     "shx": "^0.3.3",
     "sinon": "^12.0.1",
     "source-map-support": "^0.5.21",
