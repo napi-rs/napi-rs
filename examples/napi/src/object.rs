@@ -42,3 +42,20 @@ fn receive_all_optional_object(obj: Option<AllOptionalObject>) -> Result<()> {
   }
   Ok(())
 }
+
+#[napi(js_name = "ALIAS")]
+pub enum AliasedEnum {
+  A,
+  B,
+}
+
+#[napi(object, js_name = "AliasedStruct")]
+pub struct StructContainsAliasedEnum {
+  pub a: AliasedEnum,
+  pub b: u32,
+}
+
+#[napi]
+fn fn_received_aliased(mut s: StructContainsAliasedEnum, e: AliasedEnum) {
+  s.a = e;
+}

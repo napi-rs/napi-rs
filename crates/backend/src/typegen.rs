@@ -3,7 +3,7 @@ mod r#enum;
 mod r#fn;
 pub(crate) mod r#struct;
 
-use std::collections::HashMap;
+use std::{cell::RefCell, collections::HashMap};
 
 use once_cell::sync::Lazy;
 use syn::Type;
@@ -15,6 +15,16 @@ pub struct TypeDef {
   pub def: String,
   pub js_mod: Option<String>,
   pub js_doc: String,
+}
+
+thread_local! {
+  static ALIAS: RefCell<HashMap<String, String>> = Default::default();
+}
+
+fn add_alias(name: String, alias: String) {
+  ALIAS.with(|aliases| {
+    aliases.borrow_mut().insert(name, alias);
+  });
 }
 
 pub fn js_doc_from_comments(comments: &[String]) -> String {
@@ -248,7 +258,13 @@ pub fn ty_to_ts_type(ty: &Type, is_return_ty: bool) -> (String, bool) {
           ));
         } else {
           // there should be runtime registered type in else
-          ts_ty = Some((rust_ty, false));
+          let type_alias = ALIAS.with(|aliases| {
+            aliases
+              .borrow()
+              .get(rust_ty.as_str())
+              .map(|a| (a.to_owned(), false))
+          });
+          ts_ty = type_alias.or_else(|| Some((rust_ty, false)));
         }
       }
 
