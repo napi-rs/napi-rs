@@ -383,6 +383,9 @@ export class ExternalObject<T> {
           dts += indentLines(`}`, nest) + '\n'
           break
         case 'enum':
+          if (!nested) {
+            idents.push(def.name)
+          }
           dts +=
             indentLines(`${def.js_doc}export enum ${def.name} {`, nest) + '\n'
           dts += indentLines(def.def, nest + 2) + '\n'
