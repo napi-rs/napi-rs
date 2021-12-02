@@ -172,6 +172,7 @@ jobs:
         with:
           name: bindings-\${{ matrix.settings.target }}
           path: \${{ env.APP_NAME }}.*.node
+          if-no-files-found: error
 
   build-freebsd:
     runs-on: macos-10.15
@@ -221,6 +222,7 @@ jobs:
         with:
           name: bindings-freebsd
           path: \${{ env.APP_NAME }}.*.node
+          if-no-files-found: error
 
   test-macOS-windows-binding:
     name: Test bindings on \${{ matrix.settings.target }} - node@\${{ matrix.node }}
