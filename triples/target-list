@@ -7,7 +7,6 @@ aarch64-unknown-linux-gnu
 aarch64-unknown-linux-musl
 aarch64-unknown-none
 aarch64-unknown-none-softfloat
-arm-linux-androideabi
 arm-unknown-linux-gnueabi
 arm-unknown-linux-gnueabihf
 arm-unknown-linux-musleabi
@@ -24,10 +23,6 @@ armv7-unknown-linux-musleabihf
 armv7a-none-eabi
 armv7r-none-eabi
 armv7r-none-eabihf
-asmjs-unknown-emscripten
-i586-pc-windows-msvc
-i586-unknown-linux-gnu
-i586-unknown-linux-musl
 i686-linux-android
 i686-pc-windows-gnu
 i686-pc-windows-msvc
@@ -55,18 +50,6 @@ riscv64imac-unknown-none-elf
 s390x-unknown-linux-gnu
 sparc64-unknown-linux-gnu
 sparcv9-sun-solaris
-thumbv6m-none-eabi
-thumbv7em-none-eabi
-thumbv7em-none-eabihf
-thumbv7m-none-eabi
-thumbv7neon-linux-androideabi
-thumbv7neon-unknown-linux-gnueabihf
-thumbv8m.base-none-eabi
-thumbv8m.main-none-eabi
-thumbv8m.main-none-eabihf
-wasm32-unknown-emscripten
-wasm32-unknown-unknown
-wasm32-wasi
 x86_64-apple-darwin
 x86_64-apple-ios
 x86_64-fortanix-unknown-sgx
