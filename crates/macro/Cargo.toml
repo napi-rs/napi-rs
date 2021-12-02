@@ -7,7 +7,7 @@ license = "MIT"
 name = "napi-derive"
 readme = "README.md"
 repository = "https://github.com/napi-rs/napi-rs"
-version = "2.0.0-alpha.10"
+version = "2.0.0-beta.0"
 
 [features]
 compat-mode = []
@@ -18,7 +18,7 @@ type-def = ["napi-derive-backend/type-def"]
 
 [dependencies]
 convert_case = "0.4"
-napi-derive-backend = {version = "1.0.11", path = "../backend"}
+napi-derive-backend = {version = "1.0.12", path = "../backend"}
 proc-macro2 = "1.0"
 quote = "1.0"
 syn = {version = "1.0", features = ["fold", "full", "extra-traits"]}
