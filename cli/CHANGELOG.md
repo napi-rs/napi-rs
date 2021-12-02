@@ -3,6 +3,14 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.0.0-beta.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.0.0-alpha.12...@napi-rs/cli@2.0.0-beta.0) (2021-12-02)
+
+### Features
+
+- **cli:** fail the pipeline if artifacts not been built ([5f22203](https://github.com/napi-rs/napi-rs/commit/5f222038d316b5e5b6ca2a1debd69e7c26843704))
+- **cli:** support android armv7 target ([68b0483](https://github.com/napi-rs/napi-rs/commit/68b0483c81c5cbddc7b0294ae36772701549cbe2))
+- **napi:** support TypedArray input and output ([d9c53d7](https://github.com/napi-rs/napi-rs/commit/d9c53d728be02b01f0e2ff19845cd652068f9303))
+
 # [2.0.0-alpha.12](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.0.0-alpha.11...@napi-rs/cli@2.0.0-alpha.12) (2021-11-30)
 
 ### Features

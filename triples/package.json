@@ -1,6 +1,6 @@
 {
   "name": "@napi-rs/triples",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "description": "Rust target triples objects",
   "keywords": ["Rust", "cross-compile", "napi", "n-api", "node-rs", "napi-rs"],
   "author": "LongYinan <lynweklm@gmail.com>",
