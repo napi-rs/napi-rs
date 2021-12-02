@@ -49,21 +49,24 @@ jobs:
         uses: actions/cache@v2
         with:
           path: ~/.cargo/git
-          key: stable-macos-android-node@16-cargo-index-trimmed-${{ hashFiles('**/Cargo.lock') }}
+          key: stable-linux-android-node@16-cargo-index-trimmed-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache NPM dependencies
         uses: actions/cache@v2
         with:
           path: node_modules
-          key: npm-cache-macos-android-node@16-${{ hashFiles('yarn.lock') }}
+          key: npm-cache-linux-android-node@16-${{ hashFiles('yarn.lock') }}
 
       - name: Install dependencies
-        run: yarn install --frozen-lockfile --registry https://registry.npmjs.org --network-timeout 300000
+        run: yarn install --ignore-scripts --frozen-lockfile --registry https://registry.npmjs.org --network-timeout 300000
 
       - name: 'Build TypeScript'
         run: yarn build
 
-      - name: Cross build native tests
+      - name: Cross build
         run: |
-          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi24-clang"
-          yarn build:test:android
+          export CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi24-clang"
+          yarn build:test:android:armv7
+          du -sh examples/napi/index.node
+          ${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/arm-linux-androideabi-strip examples/napi/index.node
+          du -sh examples/napi/index.node

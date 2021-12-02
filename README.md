@@ -68,6 +68,7 @@ _Main branch is now under napi@next developing. Checkout [v1 docs](https://napi.
 | Linux aarch64 musl    | ✓      | ✓      | ✓      | ✓      |
 | Linux arm gnueabihf   | ✓      | ✓      | ✓      | ✓      |
 | Linux aarch64 android | ✓      | ✓      | ✓      | ✓      |
+| Linux armv7 android   | ✓      | ✓      | ✓      | ✓      |
 | FreeBSD x64           | ✓      | ✓      | ✓      | ✓      |
 
 This library depends on Node-API and requires `Node@10.0.0` or later.

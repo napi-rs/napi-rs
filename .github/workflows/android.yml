@@ -1,4 +1,4 @@
-name: macOS-Android
+name: Android-aarch64
 
 on:
   push:
@@ -12,12 +12,12 @@ env:
 jobs:
   build-android-aarch64:
     name: Build - Android - aarch64
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
 
       - name: Setup node
-        uses: actions/setup-node@v1
+        uses: actions/setup-node@v2
         with:
           node-version: 16
           cache: 'yarn'
@@ -43,19 +43,19 @@ jobs:
         uses: actions/cache@v2
         with:
           path: ~/.cargo/registry
-          key: stable-macos-android-node@16-cargo-registry-trimmed-${{ hashFiles('**/Cargo.lock') }}
+          key: stable-linux-android-node@16-cargo-registry-trimmed-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache cargo index
         uses: actions/cache@v2
         with:
           path: ~/.cargo/git
-          key: stable-macos-android-node@16-cargo-index-trimmed-${{ hashFiles('**/Cargo.lock') }}
+          key: stable-linux-android-node@16-cargo-index-trimmed-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache NPM dependencies
         uses: actions/cache@v2
         with:
           path: node_modules
-          key: npm-cache-macos-android-node@16-${{ hashFiles('yarn.lock') }}
+          key: npm-cache-linux-android-node@16-${{ hashFiles('yarn.lock') }}
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile --registry https://registry.npmjs.org --network-timeout 300000
@@ -65,5 +65,5 @@ jobs:
 
       - name: Cross build native tests
         run: |
-          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/darwin-x86_64/bin/aarch64-linux-android24-clang"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
           yarn build:test:android
