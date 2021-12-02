@@ -36,7 +36,7 @@ struct AllOptionalObject {
 
 #[napi]
 fn receive_all_optional_object(obj: Option<AllOptionalObject>) -> Result<()> {
-  if !obj.is_none() {
+  if obj.is_some() {
     assert!(obj.as_ref().unwrap().name.is_none());
     assert!(obj.as_ref().unwrap().age.is_none());
   }

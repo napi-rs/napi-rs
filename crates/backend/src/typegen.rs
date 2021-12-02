@@ -264,7 +264,7 @@ pub fn ty_to_ts_type(ty: &Type, is_return_ty: bool) -> (String, bool) {
               .get(rust_ty.as_str())
               .map(|a| (a.to_owned(), false))
           });
-          ts_ty = type_alias.or_else(|| Some((rust_ty, false)));
+          ts_ty = type_alias.or(Some((rust_ty, false)));
         }
       }
 

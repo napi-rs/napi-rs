@@ -245,7 +245,7 @@ impl NapiStruct {
       }) = &ty
       {
         if let Some(last_path) = segments.last() {
-          last_path.ident.to_string() == "Option"
+          last_path.ident == "Option"
         } else {
           false
         }
