@@ -63,6 +63,11 @@ export function createObj(): object
 export function getGlobal(): typeof global
 export function getUndefined(): void
 export function getNull(): JsNull
+export interface AllOptionalObject {
+  name?: string | undefined | null
+  age?: number | undefined | null
+}
+export function receiveAllOptionalObject(obj?: AllOptionalObject | undefined | null): void
 export function asyncPlus100(p: Promise<number>): Promise<number>
 /** This is an interface for package.json */
 export interface PackageJson {

@@ -239,17 +239,37 @@ impl NapiStruct {
     for field in self.fields.iter() {
       let field_js_name = &field.js_name;
       let ty = &field.ty;
-
+      let is_optional_field = if let syn::Type::Path(syn::TypePath {
+        path: syn::Path { segments, .. },
+        ..
+      }) = &ty
+      {
+        if let Some(last_path) = segments.last() {
+          last_path.ident.to_string() == "Option"
+        } else {
+          false
+        }
+      } else {
+        false
+      };
       match &field.name {
         syn::Member::Named(ident) => {
           field_destructions.push(quote! { #ident });
           obj_field_setters.push(quote! { obj.set(#field_js_name, #ident)?; });
-          obj_field_getters.push(quote! { let #ident: #ty = obj.get(#field_js_name)?.expect(&format!("Field {} should exist", #field_js_name)); });
+          if is_optional_field {
+            obj_field_getters.push(quote! { let #ident: #ty = obj.get(#field_js_name)?; });
+          } else {
+            obj_field_getters.push(quote! { let #ident: #ty = obj.get(#field_js_name)?.expect(&format!("Field {} should exist", #field_js_name)); });
+          }
         }
         syn::Member::Unnamed(i) => {
           field_destructions.push(quote! { arg#i });
           obj_field_setters.push(quote! { obj.set(#field_js_name, arg#1)?; });
-          obj_field_getters.push(quote! { let arg#i: #ty = obj.get(#field_js_name)?.expect(&format!("Field {} should exist", #field_js_name)); });
+          if is_optional_field {
+            obj_field_getters.push(quote! { let arg#i: #ty = obj.get(#field_js_name)?; });
+          } else {
+            obj_field_getters.push(quote! { let arg#i: #ty = obj.get(#field_js_name)?.expect(&format!("Field {} should exist", #field_js_name)); });
+          }
         }
       }
     }
