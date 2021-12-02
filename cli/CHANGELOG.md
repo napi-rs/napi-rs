@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.0.0-beta.2](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.0.0-beta.1...@napi-rs/cli@2.0.0-beta.2) (2021-12-02)
+
+### Bug Fixes
+
+- **cli:** android armv7 CI config in new command ([d495cc1](https://github.com/napi-rs/napi-rs/commit/d495cc11f805e0c85327850f25d91e1d58c48ff2))
+
 # [2.0.0-beta.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.0.0-beta.0...@napi-rs/cli@2.0.0-beta.1) (2021-12-02)
 
 ### Bug Fixes
