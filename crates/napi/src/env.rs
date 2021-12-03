@@ -1194,7 +1194,7 @@ impl Env {
     })
   }
 
-  /// # Serialize `Rust Struct` into `JavaScript Value`
+  /// ### Serialize `Rust Struct` into `JavaScript Value`
   ///
   /// ```
   /// #[derive(Serialize, Debug, Deserialize)]
@@ -1220,7 +1220,7 @@ impl Env {
     node.serialize(s).map(JsUnknown)
   }
 
-  /// # Deserialize data from `JsValue`
+  /// ### Deserialize data from `JsValue`
   /// ```
   /// #[derive(Serialize, Debug, Deserialize)]
   /// struct AnObject {
