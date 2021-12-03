@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.0.0-beta.3](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.0.0-beta.2...@napi-rs/cli@2.0.0-beta.3) (2021-12-03)
+
+### Features
+
+- **napi:** add -p flag which will be bypassed to cargo ([8de30a9](https://github.com/napi-rs/napi-rs/commit/8de30a9287b3586efe81edf4f2745032c07b298a))
+
 # [2.0.0-beta.2](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.0.0-beta.1...@napi-rs/cli@2.0.0-beta.2) (2021-12-02)
 
 ### Bug Fixes
