@@ -183,6 +183,8 @@ pub(crate) unsafe fn log_js_value<V: AsRef<[sys::napi_value]>>(
   );
 }
 
+pub use crate::bindgen_runtime::ctor as module_init;
+
 pub mod bindgen_prelude {
   #[cfg(feature = "compat-mode")]
   pub use crate::bindgen_runtime::register_module_exports;

@@ -3,7 +3,7 @@ use std::hash::Hash;
 
 use crate::bindgen_prelude::{Env, Result, ToNapiValue, *};
 
-impl<K, V> TypeName for HashMap<K, V> {
+impl<K, V, S> TypeName for HashMap<K, V, S> {
   fn type_name() -> &'static str {
     "HashMap"
   }
@@ -13,7 +13,7 @@ impl<K, V> TypeName for HashMap<K, V> {
   }
 }
 
-impl<K, V> ToNapiValue for HashMap<K, V>
+impl<K, V, S> ToNapiValue for HashMap<K, V, S>
 where
   K: AsRef<str>,
   V: ToNapiValue,

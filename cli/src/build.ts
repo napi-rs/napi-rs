@@ -65,6 +65,10 @@ export class BuildCommand extends Command {
     )} file, relative to cwd`,
   })
 
+  project = Option.String('-p', {
+    description: `Bypass to ${chalk.green('cargo -p')}`,
+  })
+
   cargoFlags = Option.String('--cargo-flags', '', {
     description: `All the others flag passed to ${chalk.yellow('cargo')}`,
   })
@@ -123,10 +127,12 @@ export class BuildCommand extends Command {
           }).toString('utf8'),
         )
     debug(`Current triple is: ${chalk.green(triple.raw)}`)
+    const pFlag = this.project ? `-p ${this.project}` : ''
     const externalFlags = [
       releaseFlag,
       targetFlag,
       featuresFlag,
+      pFlag,
       this.cargoFlags,
     ]
       .filter((flag) => Boolean(flag))

@@ -2,7 +2,7 @@ use napi::{CallContext, JsExternal, JsObject, JsString};
 
 #[derive(Clone)]
 pub struct QueryEngine {
-  datamodel: String,
+  pub datamodel: String,
 }
 
 unsafe impl Sync for QueryEngine {}

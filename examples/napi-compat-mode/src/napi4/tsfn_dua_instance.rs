@@ -5,8 +5,8 @@ use napi::{
 use napi_derive::js_function;
 
 #[derive(Clone)]
-struct A {
-  cb: ThreadsafeFunction<String>,
+pub struct A {
+  pub cb: ThreadsafeFunction<String>,
 }
 
 #[js_function(1)]

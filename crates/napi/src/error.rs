@@ -151,6 +151,9 @@ pub struct JsTypeError(Error);
 
 pub struct JsRangeError(Error);
 
+#[cfg(feature = "experimental")]
+pub struct JsSyntaxError(Error);
+
 macro_rules! impl_object_methods {
   ($js_value:ident, $kind:expr) => {
     impl $js_value {

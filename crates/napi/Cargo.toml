@@ -11,9 +11,10 @@ version = "2.0.0-beta.1"
 
 [features]
 async = ["tokio_rt"]
+experimental = ["napi-sys/experimental"]
 compat-mode = []
 default = ["napi3", "compat-mode"] # for most Node.js users
-full = ["latin1", "napi8", "async", "serde-json"]
+full = ["latin1", "napi8", "async", "serde-json", "experimental"]
 latin1 = ["encoding_rs"]
 napi1 = []
 napi2 = ["napi1"]
