@@ -6,7 +6,7 @@
     "build": "node ../cli/scripts/index.js build --release"
   },
   "dependencies": {
-    "chalk": "4",
+    "chalk": "5",
     "dockerode": "^3.3.1",
     "pretty-bytes": "^5.6.0",
     "table": "^6.7.5"
