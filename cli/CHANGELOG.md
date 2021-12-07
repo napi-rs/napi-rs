@@ -3,6 +3,16 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.0.0-beta.4](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.0.0-beta.3...@napi-rs/cli@2.0.0-beta.4) (2021-12-07)
+
+### Features
+
+- **cli:** workaround for Windows i686 ICE in dev mode ([11a5a35](https://github.com/napi-rs/napi-rs/commit/11a5a35485853c722d55dca32a6c3175ecdea8fb))
+
+### Reverts
+
+- Revert "build(deps): bump chalk from 4.1.2 to 5.0.0" ([8b362d8](https://github.com/napi-rs/napi-rs/commit/8b362d8eb1fcb3028e6621bf6f889890b97f28a9))
+
 # [2.0.0-beta.3](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.0.0-beta.2...@napi-rs/cli@2.0.0-beta.3) (2021-12-03)
 
 ### Features
