@@ -230,7 +230,6 @@ pub mod latin1_string {
     }
   }
 
-  #[cfg(feature = "latin1")]
   impl FromNapiValue for Latin1String {
     unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
       let mut len = 0;

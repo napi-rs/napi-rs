@@ -224,7 +224,7 @@ test('serde-json', (t) => {
   const packageJson = readPackageJson()
   t.is(packageJson.name, 'napi-rs')
   t.is(packageJson.version, '0.0.0')
-  t.is(packageJson.dependencies, null)
+  t.is(packageJson.dependencies, undefined)
   t.snapshot(Object.keys(packageJson.devDependencies!).sort())
 
   t.is(getPackageJsonName(packageJson), 'napi-rs')

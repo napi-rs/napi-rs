@@ -148,6 +148,7 @@ export class BuildCommand extends Command {
       this.disableWindowsX32Optimize
     ) {
       Object.assign(additionalEnv, {
+        CARGO_PROFILE_DEBUG_CODEGEN_UNITS: 256,
         CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 256,
         CARGO_PROFILE_RELEASE_LTO: false,
       })
