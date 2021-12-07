@@ -7,13 +7,13 @@ license = "MIT"
 name = "napi"
 readme = "README.md"
 repository = "https://github.com/napi-rs/napi-rs"
-version = "2.0.0-beta.3"
+version = "2.0.0-beta.4"
 
 [features]
 async = ["tokio_rt"]
-experimental = ["napi-sys/experimental"]
 compat-mode = []
 default = ["napi3", "compat-mode"] # for most Node.js users
+experimental = ["napi-sys/experimental"]
 full = ["latin1", "napi8", "async", "serde-json", "experimental"]
 latin1 = ["encoding_rs"]
 napi1 = []
@@ -32,7 +32,7 @@ ctor = "0.1"
 napi-sys = {version = "2.1.0", path = "../sys"}
 
 [target.'cfg(windows)'.dependencies]
-windows = {version = "0.27", features = ["Win32_System_WindowsProgramming", "Win32_System_LibraryLoader", "Win32_Foundation"]}
+windows = {version = "0.28", features = ["Win32_System_WindowsProgramming", "Win32_System_LibraryLoader", "Win32_Foundation"]}
 
 [dependencies.encoding_rs]
 optional = true
