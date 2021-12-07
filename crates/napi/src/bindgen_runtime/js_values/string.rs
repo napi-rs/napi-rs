@@ -71,6 +71,37 @@ impl TypeName for &str {
   }
 }
 
+impl FromNapiValue for &str {
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
+    let mut len = 0;
+
+    check_status!(
+      sys::napi_get_value_string_utf8(env, napi_val, ptr::null_mut(), 0, &mut len),
+      "Failed to convert napi `string` into rust type `String`",
+    )?;
+
+    // end char len in C
+    len += 1;
+    let mut ret = Vec::with_capacity(len);
+    let buf_ptr = ret.as_mut_ptr();
+
+    let mut written_char_count = 0;
+
+    check_status!(
+      sys::napi_get_value_string_utf8(env, napi_val, buf_ptr, len, &mut written_char_count),
+      "Failed to convert napi `string` into rust type `String`"
+    )?;
+
+    match CStr::from_ptr(buf_ptr).to_str() {
+      Err(e) => Err(Error::new(
+        Status::InvalidArg,
+        format!("Failed to read utf8 string, {}", e),
+      )),
+      Ok(s) => Ok(s),
+    }
+  }
+}
+
 impl ToNapiValue for &str {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     String::to_napi_value(env, val.to_owned())
