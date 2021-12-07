@@ -255,7 +255,15 @@ impl NapiStruct {
       match &field.name {
         syn::Member::Named(ident) => {
           field_destructions.push(quote! { #ident });
-          obj_field_setters.push(quote! { obj.set(#field_js_name, #ident)?; });
+          if is_optional_field {
+            obj_field_setters.push(quote! {
+              if #ident.is_some() {
+                obj.set(#field_js_name, #ident)?;
+              }
+            });
+          } else {
+            obj_field_setters.push(quote! { obj.set(#field_js_name, #ident)?; });
+          }
           if is_optional_field {
             obj_field_getters.push(quote! { let #ident: #ty = obj.get(#field_js_name)?; });
           } else {
@@ -264,7 +272,15 @@ impl NapiStruct {
         }
         syn::Member::Unnamed(i) => {
           field_destructions.push(quote! { arg#i });
-          obj_field_setters.push(quote! { obj.set(#field_js_name, arg#1)?; });
+          if is_optional_field {
+            obj_field_setters.push(quote! {
+              if arg#1.is_some() {
+                obj.set(#field_js_name, arg#i)?;
+              }
+            });
+          } else {
+            obj_field_setters.push(quote! { obj.set(#field_js_name, arg#1)?; });
+          }
           if is_optional_field {
             obj_field_getters.push(quote! { let arg#i: #ty = obj.get(#field_js_name)?; });
           } else {
