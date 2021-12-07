@@ -118,6 +118,7 @@ impl FromNapiValue for Array {
 }
 
 impl Array {
+  /// Create `Array` from `Vec<T>`
   pub fn from_vec<T>(env: &Env, value: Vec<T>) -> Result<Self>
   where
     T: ToNapiValue,
@@ -125,6 +126,29 @@ impl Array {
     let mut arr = Array::new(env.0, value.len() as u32)?;
     value.into_iter().enumerate().try_for_each(|(index, val)| {
       arr.set(index as u32, val)?;
+      Ok::<(), Error>(())
+    })?;
+    Ok(arr)
+  }
+
+  /// Create `Array` from `&Vec<String>`
+  pub fn from_ref_vec_string(env: &Env, value: &[String]) -> Result<Self> {
+    let mut arr = Array::new(env.0, value.len() as u32)?;
+    value.iter().enumerate().try_for_each(|(index, val)| {
+      arr.set(index as u32, val.as_str())?;
+      Ok::<(), Error>(())
+    })?;
+    Ok(arr)
+  }
+
+  /// Create `Array` from `&Vec<T: Copy + ToNapiValue>`
+  pub fn from_ref_vec<T>(env: &Env, value: &[T]) -> Result<Self>
+  where
+    T: ToNapiValue + Copy,
+  {
+    let mut arr = Array::new(env.0, value.len() as u32)?;
+    value.iter().enumerate().try_for_each(|(index, val)| {
+      arr.set(index as u32, *val)?;
       Ok::<(), Error>(())
     })?;
     Ok(arr)
@@ -156,6 +180,40 @@ where
 
     for (i, v) in val.into_iter().enumerate() {
       arr.set(i as u32, v)?;
+    }
+
+    Array::to_napi_value(env, arr)
+  }
+}
+
+macro_rules! impl_for_primitive_type {
+  ($primitive_type:ident) => {
+    impl ToNapiValue for &Vec<$primitive_type> {
+      unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+        let mut arr = Array::new(env, val.len() as u32)?;
+
+        for (i, v) in val.iter().enumerate() {
+          arr.set(i as u32, *v)?;
+        }
+
+        Array::to_napi_value(env, arr)
+      }
+    }
+  };
+}
+
+impl_for_primitive_type!(u32);
+impl_for_primitive_type!(i32);
+impl_for_primitive_type!(i64);
+impl_for_primitive_type!(f64);
+impl_for_primitive_type!(bool);
+
+impl ToNapiValue for &Vec<String> {
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    let mut arr = Array::new(env, val.len() as u32)?;
+
+    for (i, v) in val.iter().enumerate() {
+      arr.set(i as u32, v.as_str())?;
     }
 
     Array::to_napi_value(env, arr)
