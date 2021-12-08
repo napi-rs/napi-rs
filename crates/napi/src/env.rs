@@ -11,7 +11,7 @@ use crate::{
   js_values::*,
   sys,
   task::Task,
-  Error, ExtendedErrorInfo, JsError, NodeVersion, Result, Status, ValueType,
+  Error, ExtendedErrorInfo, NodeVersion, Result, Status, ValueType,
 };
 
 #[cfg(feature = "napi8")]
@@ -22,6 +22,8 @@ use crate::cleanup_env::{CleanupEnvHook, CleanupEnvHookData};
 use crate::js_values::{De, Ser};
 #[cfg(feature = "napi4")]
 use crate::threadsafe_function::{ThreadSafeCallContext, ThreadsafeFunction};
+#[cfg(feature = "napi3")]
+use crate::JsError;
 #[cfg(all(feature = "serde-json"))]
 use serde::de::DeserializeOwned;
 #[cfg(all(feature = "serde-json"))]

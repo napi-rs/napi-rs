@@ -1,7 +1,7 @@
 [package]
 authors = ["LongYinan <lynweklm@gmail.com>"]
 description = "NodeJS N-API raw binding"
-edition = "2018"
+edition = "2021"
 include = ["src/**/*", "Cargo.toml", "build.rs", ".node-headers/**/*"]
 keywords = ["NodeJS", "FFI", "NAPI", "n-api"]
 license = "MIT"

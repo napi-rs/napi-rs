@@ -1,6 +1,6 @@
 [package]
 authors = ["LongYinan <lynweklm@gmail.com>"]
-edition = "2018"
+edition = "2021"
 name = "napi-bench"
 publish = false
 version = "0.1.0"

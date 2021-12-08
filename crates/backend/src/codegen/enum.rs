@@ -107,7 +107,7 @@ impl NapiEnum {
     let mut define_properties = vec![];
 
     for variant in self.variants.iter() {
-      let name_lit = Literal::string(&format!("{}\0", variant.name.to_string()));
+      let name_lit = Literal::string(&format!("{}\0", variant.name));
       let val_lit = Literal::i32_unsuffixed(variant.val);
 
       define_properties.push(quote! {

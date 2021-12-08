@@ -1,7 +1,7 @@
 [package]
 authors = ["LongYinan <lynweklm@gmail.com>", "Forehalo <forehalo@gmail.com>"]
 description = "N-API procedural macros"
-edition = "2018"
+edition = "2021"
 keywords = ["NodeJS", "FFI", "NAPI", "n-api"]
 license = "MIT"
 name = "napi-derive"
@@ -13,9 +13,9 @@ version = "2.0.0-beta.4"
 compat-mode = []
 default = ["compat-mode", "full"]
 full = ["type-def", "strict"]
+noop = ["napi-derive-backend/noop"]
 strict = ["napi-derive-backend/strict"]
 type-def = ["napi-derive-backend/type-def"]
-noop = ["napi-derive-backend/noop"]
 
 [dependencies]
 convert_case = "0.4"

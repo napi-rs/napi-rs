@@ -1,7 +1,7 @@
 [package]
 authors = ["LongYinan <lynweklm@gmail.com>"]
 description = "N-API build support"
-edition = "2018"
+edition = "2021"
 include = ["src/**/*", "Cargo.toml", "README.md", "LICENSE"]
 keywords = ["NodeJS", "FFI", "NAPI", "n-api"]
 license = "MIT"

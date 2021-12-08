@@ -1,6 +1,6 @@
 [package]
 description = "Codegen backend for napi procedural macro"
-edition = "2018"
+edition = "2021"
 homepage = "https://napi.rs"
 license = "MIT"
 name = "napi-derive-backend"
@@ -9,9 +9,9 @@ repository = "https://github.com/napi-rs/napi-rs"
 version = "1.0.16"
 
 [features]
+noop = []
 strict = []
 type-def = ["regex", "once_cell"]
-noop = []
 
 [dependencies]
 convert_case = "0.4"

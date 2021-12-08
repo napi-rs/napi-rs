@@ -55,6 +55,10 @@ _Main branch is now under napi@next developing. Checkout [v1 docs](https://napi.
 [![Windows arm64](https://github.com/napi-rs/napi-rs/actions/workflows/windows-arm.yml/badge.svg)](https://github.com/napi-rs/napi-rs/actions/workflows/windows-arm.yml)
 [![FreeBSD](https://api.cirrus-ci.com/github/napi-rs/napi-rs.svg)](https://cirrus-ci.com/github/napi-rs/napi-rs?branch=main)
 
+## MSRV
+
+**Rust** `1.57.0`
+
 |                       | node12 | node14 | node16 | node17 |
 | --------------------- | ------ | ------ | ------ | ------ |
 | Windows x64           | ✓      | ✓      | ✓      | ✓      |
