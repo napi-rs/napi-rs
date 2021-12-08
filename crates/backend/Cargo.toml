@@ -6,11 +6,12 @@ license = "MIT"
 name = "napi-derive-backend"
 readme = "README.md"
 repository = "https://github.com/napi-rs/napi-rs"
-version = "1.0.15"
+version = "1.0.16"
 
 [features]
 strict = []
 type-def = ["regex", "once_cell"]
+noop = []
 
 [dependencies]
 convert_case = "0.4"

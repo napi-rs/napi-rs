@@ -327,7 +327,7 @@ impl NapiFn {
 
         #[allow(clippy::all)]
         #[allow(non_snake_case)]
-        #[cfg(not(test))]
+        #[cfg(all(not(test), not(feature = "noop")))]
         #[napi::bindgen_prelude::ctor]
         fn #module_register_name() {
           napi::bindgen_prelude::register_module_export(#js_mod_ident, #js_name, #cb_name);

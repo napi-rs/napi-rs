@@ -147,7 +147,7 @@ impl NapiEnum {
       }
       #[allow(non_snake_case)]
       #[allow(clippy::all)]
-      #[cfg(not(test))]
+      #[cfg(all(not(test), not(feature = "noop")))]
       #[napi::bindgen_prelude::ctor]
       fn #register_name() {
         napi::bindgen_prelude::register_module_export(#js_mod_ident, #js_name_lit, #callback_name);

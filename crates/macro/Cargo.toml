@@ -7,7 +7,7 @@ license = "MIT"
 name = "napi-derive"
 readme = "README.md"
 repository = "https://github.com/napi-rs/napi-rs"
-version = "2.0.0-beta.3"
+version = "2.0.0-beta.4"
 
 [features]
 compat-mode = []
@@ -15,6 +15,7 @@ default = ["compat-mode", "full"]
 full = ["type-def", "strict"]
 strict = ["napi-derive-backend/strict"]
 type-def = ["napi-derive-backend/type-def"]
+noop = ["napi-derive-backend/noop"]
 
 [dependencies]
 convert_case = "0.4"
