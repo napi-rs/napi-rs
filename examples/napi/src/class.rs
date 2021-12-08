@@ -114,3 +114,9 @@ impl Context {
     self.data.clone()
   }
 }
+
+#[napi(constructor)]
+pub struct AnimalWithDefaultConstructor {
+  pub name: String,
+  pub kind: u32,
+}

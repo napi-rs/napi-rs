@@ -120,9 +120,9 @@ impl NapiStruct {
       let ty = &field.ty;
       match &field.name {
         syn::Member::Named(ident) => fields
-          .push(quote! { #ident: <#ty as FromNapiValue>::from_napi_value(env, cb.get_arg(#i))? }),
+          .push(quote! { #ident: <#ty as napi::bindgen_prelude::FromNapiValue>::from_napi_value(env, cb.get_arg(#i))? }),
         syn::Member::Unnamed(_) => {
-          fields.push(quote! { <#ty as FromNapiValue>::from_napi_value(env, cb.get_arg(#i))? });
+          fields.push(quote! { <#ty as napi::bindgen_prelude::FromNapiValue>::from_napi_value(env, cb.get_arg(#i))? });
         }
       }
     }
@@ -171,11 +171,15 @@ impl NapiStruct {
       match &field.name {
         syn::Member::Named(ident) => {
           field_destructions.push(quote! { #ident });
-          field_conversions.push(quote! { <#ty as ToNapiValue>::to_napi_value(env, #ident)? });
+          field_conversions.push(
+            quote! { <#ty as napi::bindgen_prelude::ToNapiValue>::to_napi_value(env, #ident)? },
+          );
         }
         syn::Member::Unnamed(i) => {
           field_destructions.push(quote! { arg #i });
-          field_conversions.push(quote! { <#ty as ToNapiValue>::to_napi_value(env, arg #i)? });
+          field_conversions.push(
+            quote! { <#ty as napi::bindgen_prelude::ToNapiValue>::to_napi_value(env, arg #i)? },
+          );
         }
       }
     }

@@ -137,6 +137,11 @@ export class Context {
   static withData(data: string): Context
   method(): string
 }
+export class AnimalWithDefaultConstructor {
+  name: string
+  kind: number
+  constructor(name: string, kind: number)
+}
 export class ClassWithFactory {
   name: string
   static withName(name: string): ClassWithFactory
