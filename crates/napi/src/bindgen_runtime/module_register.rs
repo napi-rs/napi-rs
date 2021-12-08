@@ -249,8 +249,16 @@ unsafe extern "C" fn napi_register_module_v1(
 }
 
 pub(crate) unsafe extern "C" fn noop(
-  _env: sys::napi_env,
+  env: sys::napi_env,
   _info: sys::napi_callback_info,
 ) -> sys::napi_value {
+  if !crate::bindgen_runtime::___CALL_FROM_FACTORY.load(std::sync::atomic::Ordering::Relaxed) {
+    sys::napi_throw_error(
+      env,
+      ptr::null_mut(),
+      CStr::from_bytes_with_nul_unchecked(b"Class contains no `constructor`, can not new it!")
+        .as_ptr(),
+    );
+  }
   ptr::null_mut()
 }

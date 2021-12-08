@@ -132,6 +132,13 @@ test('class factory', (t) => {
 
   doge.name = '旺财'
   t.is(doge.name, '旺财')
+
+  const error = t.throws(() => new ClassWithFactory())
+  t.true(
+    error.message.startsWith(
+      'Class contains no `constructor`, can not new it!',
+    ),
+  )
 })
 
 test('class constructor return Result', (t) => {
