@@ -62,7 +62,7 @@ jobs:
         run: cargo fmt -- --check
 
       - name: Clippy
-        run: cargo clippy --all-features
+        run: cargo clippy
 
       - name: Clear the cargo caches
         run: |

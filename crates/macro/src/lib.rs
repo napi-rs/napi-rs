@@ -8,22 +8,29 @@ extern crate syn;
 extern crate napi_derive_backend;
 #[macro_use]
 extern crate quote;
-use napi_derive_backend::{BindgenResult, TryToTokens};
 
-#[cfg(feature = "type-def")]
-use napi_derive_backend::{ToTypeDef, TypeDef};
-use parser::{attrs::BindgenAttrs, ParseNapi};
-use proc_macro::TokenStream as RawStream;
-use proc_macro2::{TokenStream, TokenTree};
-use quote::ToTokens;
+#[cfg(not(feature = "noop"))]
 use std::env;
-#[cfg(feature = "type-def")]
+#[cfg(all(feature = "type-def", not(feature = "noop")))]
 use std::{
   fs,
   io::{BufWriter, Result as IOResult, Write},
 };
+
+#[cfg(not(feature = "noop"))]
+use napi_derive_backend::{BindgenResult, TryToTokens};
+#[cfg(all(feature = "type-def", not(feature = "noop")))]
+use napi_derive_backend::{ToTypeDef, TypeDef};
+#[cfg(not(feature = "noop"))]
+use parser::{attrs::BindgenAttrs, ParseNapi};
+use proc_macro::TokenStream as RawStream;
+#[cfg(not(feature = "noop"))]
+use proc_macro2::{TokenStream, TokenTree};
+#[cfg(not(feature = "noop"))]
+use quote::ToTokens;
 #[cfg(feature = "compat-mode")]
 use syn::{fold::Fold, parse_macro_input, ItemFn};
+#[cfg(not(feature = "noop"))]
 use syn::{Attribute, Item};
 
 /// ```ignore
@@ -32,12 +39,13 @@ use syn::{Attribute, Item};
 ///   "hello" + name
 /// }
 /// ```
+#[cfg(not(feature = "noop"))]
 #[proc_macro_attribute]
 pub fn napi(attr: RawStream, input: RawStream) -> RawStream {
   match expand(attr.into(), input.into()) {
     Ok(tokens) => {
       if env::var("DEBUG_GENERATED_CODE").is_ok() {
-        println!("{}", tokens.to_string());
+        println!("{}", tokens);
       }
       tokens.into()
     }
@@ -49,6 +57,13 @@ pub fn napi(attr: RawStream, input: RawStream) -> RawStream {
   }
 }
 
+#[cfg(feature = "noop")]
+#[proc_macro_attribute]
+pub fn napi(_attr: RawStream, input: RawStream) -> RawStream {
+  input
+}
+
+#[cfg(not(feature = "noop"))]
 fn expand(attr: TokenStream, input: TokenStream) -> BindgenResult<TokenStream> {
   let mut item = syn::parse2::<syn::Item>(input)?;
   let opts: BindgenAttrs = syn::parse2(attr)?;
@@ -125,7 +140,7 @@ fn expand(attr: TokenStream, input: TokenStream) -> BindgenResult<TokenStream> {
   }
 }
 
-#[cfg(feature = "type-def")]
+#[cfg(all(feature = "type-def", not(feature = "noop")))]
 fn output_type_def(type_def_file: String, type_def: TypeDef) -> IOResult<()> {
   let file = fs::OpenOptions::new()
     .append(true)
@@ -273,6 +288,7 @@ pub fn module_exports(_attr: RawStream, input: RawStream) -> RawStream {
   .into()
 }
 
+#[cfg(not(feature = "noop"))]
 fn replace_napi_attr_in_mod(
   js_namespace: String,
   attrs: &mut Vec<syn::Attribute>,

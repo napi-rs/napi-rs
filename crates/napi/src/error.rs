@@ -25,6 +25,7 @@ pub struct Error {
   pub reason: String,
   // Convert raw `JsError` into Error
   // Only be used in `async fn(p: Promise<T>)` scenario
+  #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
   pub(crate) maybe_raw: sys::napi_ref,
 }
 
@@ -54,6 +55,7 @@ impl From<SerdeJSONError> for Error {
   }
 }
 
+#[cfg(all(feature = "tokio_rt", feature = "napi4"))]
 impl From<sys::napi_ref> for Error {
   fn from(value: sys::napi_ref) -> Self {
     Self {
@@ -79,6 +81,7 @@ impl Error {
     Error {
       status,
       reason,
+      #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
       maybe_raw: ptr::null_mut(),
     }
   }
@@ -87,6 +90,7 @@ impl Error {
     Error {
       status,
       reason: "".to_owned(),
+      #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
       maybe_raw: ptr::null_mut(),
     }
   }
@@ -95,6 +99,7 @@ impl Error {
     Error {
       status: Status::GenericFailure,
       reason,
+      #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
       maybe_raw: ptr::null_mut(),
     }
   }
@@ -105,6 +110,7 @@ impl From<std::ffi::NulError> for Error {
     Error {
       status: Status::GenericFailure,
       reason: format!("{}", error),
+      #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
       maybe_raw: ptr::null_mut(),
     }
   }
@@ -115,6 +121,7 @@ impl From<std::io::Error> for Error {
     Error {
       status: Status::GenericFailure,
       reason: format!("{}", error),
+      #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
       maybe_raw: ptr::null_mut(),
     }
   }

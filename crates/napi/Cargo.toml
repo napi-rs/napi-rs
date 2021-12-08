@@ -1,7 +1,7 @@
 [package]
 authors = ["Nathan Sobo <nathan@github.com>", "Yinan Long <lynweklm@gmail.com>"]
 description = "N-API bindings"
-edition = "2018"
+edition = "2021"
 keywords = ["NodeJS", "Node", "FFI", "NAPI", "n-api"]
 license = "MIT"
 name = "napi"

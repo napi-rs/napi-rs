@@ -82,10 +82,7 @@ impl TryToTokens for NapiStruct {
 
 impl NapiStruct {
   fn gen_helper_mod(&self) -> TokenStream {
-    let mod_name = Ident::new(
-      &format!("__napi_helper__{}", self.name.to_string()),
-      Span::call_site(),
-    );
+    let mod_name = Ident::new(&format!("__napi_helper__{}", self.name), Span::call_site());
 
     let ctor = if self.kind == NapiStructKind::Constructor {
       self.gen_default_ctor()
@@ -177,8 +174,8 @@ impl NapiStruct {
           field_conversions.push(quote! { <#ty as ToNapiValue>::to_napi_value(env, #ident)? });
         }
         syn::Member::Unnamed(i) => {
-          field_destructions.push(quote! { arg#i });
-          field_conversions.push(quote! { <#ty as ToNapiValue>::to_napi_value(env, arg#i)? });
+          field_destructions.push(quote! { arg #i });
+          field_conversions.push(quote! { <#ty as ToNapiValue>::to_napi_value(env, arg #i)? });
         }
       }
     }
@@ -271,20 +268,20 @@ impl NapiStruct {
           }
         }
         syn::Member::Unnamed(i) => {
-          field_destructions.push(quote! { arg#i });
+          field_destructions.push(quote! { arg #i });
           if is_optional_field {
             obj_field_setters.push(quote! {
-              if arg#1.is_some() {
-                obj.set(#field_js_name, arg#i)?;
+              if arg #1.is_some() {
+                obj.set(#field_js_name, arg #i)?;
               }
             });
           } else {
-            obj_field_setters.push(quote! { obj.set(#field_js_name, arg#1)?; });
+            obj_field_setters.push(quote! { obj.set(#field_js_name, arg #1)?; });
           }
           if is_optional_field {
-            obj_field_getters.push(quote! { let arg#i: #ty = obj.get(#field_js_name)?; });
+            obj_field_getters.push(quote! { let arg #i: #ty = obj.get(#field_js_name)?; });
           } else {
-            obj_field_getters.push(quote! { let arg#i: #ty = obj.get(#field_js_name)?.expect(&format!("Field {} should exist", #field_js_name)); });
+            obj_field_getters.push(quote! { let arg #i: #ty = obj.get(#field_js_name)?.expect(&format!("Field {} should exist", #field_js_name)); });
           }
         }
       }
@@ -453,7 +450,7 @@ impl NapiStruct {
     quote! {
       #[allow(non_snake_case)]
       #[allow(clippy::all)]
-      #[cfg(not(test))]
+      #[cfg(all(not(test), not(feature = "noop")))]
       #[napi::bindgen_prelude::ctor]
       fn #struct_register_name() {
         napi::bindgen_prelude::register_class(#name_str, #js_mod_ident, #js_name, vec![#(#props),*]);
@@ -523,7 +520,7 @@ impl NapiImpl {
         use super::*;
         #(#methods)*
 
-        #[cfg(not(test))]
+        #[cfg(all(not(test), not(feature = "noop")))]
         #[napi::bindgen_prelude::ctor]
         fn #register_name() {
           napi::bindgen_prelude::register_class(#name_str, #js_mod_ident, #js_name, vec![#(#props),*]);
