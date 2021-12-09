@@ -394,7 +394,8 @@ export class ExternalObject<T> {
             idents.push(def.name)
           }
           dts +=
-            indentLines(`${def.js_doc}export enum ${def.name} {`, nest) + '\n'
+            indentLines(`${def.js_doc}export const enum ${def.name} {`, nest) +
+            '\n'
           dts += indentLines(def.def, nest + 2) + '\n'
           dts += indentLines(`}`, nest) + '\n'
           break

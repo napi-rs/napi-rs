@@ -28,7 +28,7 @@ export interface Obj {
 }
 export function either4(input: string | number | boolean | Obj): number
 /** default enum values are continuos i32s start from 0 */
-export enum Kind {
+export const enum Kind {
   /** Barks */
   Dog = 0,
   /** Kills birds */
@@ -37,7 +37,7 @@ export enum Kind {
   Duck = 2
 }
 /** You could break the step and for an new continuous value. */
-export enum CustomNumEnum {
+export const enum CustomNumEnum {
   One = 1,
   Two = 2,
   Three = 3,
@@ -68,7 +68,7 @@ export interface AllOptionalObject {
   age?: number | undefined | null
 }
 export function receiveAllOptionalObject(obj?: AllOptionalObject | undefined | null): void
-export enum ALIAS {
+export const enum ALIAS {
   A = 0,
   B = 1
 }
