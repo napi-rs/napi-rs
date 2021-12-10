@@ -51,14 +51,14 @@ jobs:
               docker pull $DOCKER_REGISTRY_URL/napi-rs/napi-rs/nodejs-rust:lts-debian
               docker tag $DOCKER_REGISTRY_URL/napi-rs/napi-rs/nodejs-rust:lts-debian builder
             build: |
-              docker run --rm -v ~/.cargo/git:/root/.cargo/git -v ~/.cargo/registry:/root/.cargo/registry -v $(pwd):/build -w /build builder yarn build && strip ${app}.linux-x64-gnu.node
+              docker run --rm -v ~/.cargo/git:/root/.cargo/git -v ~/.cargo/registry:/root/.cargo/registry -v $(pwd):/build -w /build builder yarn build && strip *.node
           - host: ubuntu-latest
             target: 'x86_64-unknown-linux-musl'
             architecture: 'x64'
             docker: |
               docker pull $DOCKER_REGISTRY_URL/napi-rs/napi-rs/nodejs-rust:lts-alpine
               docker tag $DOCKER_REGISTRY_URL/napi-rs/napi-rs/nodejs-rust:lts-alpine builder
-            build: docker run --rm -v ~/.cargo/git:/root/.cargo/git -v ~/.cargo/registry:/root/.cargo/registry -v $(pwd):/build -w /build builder yarn build && strip ${app}.linux-x64-musl.node
+            build: docker run --rm -v ~/.cargo/git:/root/.cargo/git -v ~/.cargo/registry:/root/.cargo/registry -v $(pwd):/build -w /build builder yarn build && strip *.node
           - host: macos-latest
             target: 'aarch64-apple-darwin'
             build: |
@@ -72,7 +72,7 @@ jobs:
               sudo apt-get install g++-aarch64-linux-gnu gcc-aarch64-linux-gnu -y
             build: |
               yarn build --target=aarch64-unknown-linux-gnu
-              aarch64-linux-gnu-strip ${app}.linux-arm64-gnu.node
+              aarch64-linux-gnu-strip *.node
           - host: ubuntu-latest
             architecture: 'x64'
             target: 'armv7-unknown-linux-gnueabihf'
@@ -81,7 +81,7 @@ jobs:
               sudo apt-get install gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf -y
             build: |
               yarn build --target=armv7-unknown-linux-gnueabihf
-              arm-linux-gnueabihf-strip ${app}.linux-arm-gnueabihf.node
+              arm-linux-gnueabihf-strip *.node
           - host: ubuntu-latest
             architecture: 'x64'
             target: 'aarch64-linux-android'
@@ -110,7 +110,7 @@ jobs:
               docker pull ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
               docker tag ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine builder
             build: |
-              docker run --rm -v ~/.cargo/git:/root/.cargo/git -v ~/.cargo/registry:/root/.cargo/registry -v $(pwd):/build -w /build builder sh -c "yarn build --target=aarch64-unknown-linux-musl && /aarch64-linux-musl-cross/bin/aarch64-linux-musl-strip ${app}.linux-arm64-musl.node"
+              docker run --rm -v ~/.cargo/git:/root/.cargo/git -v ~/.cargo/registry:/root/.cargo/registry -v $(pwd):/build -w /build builder sh -c "yarn build --target=aarch64-unknown-linux-musl && /aarch64-linux-musl-cross/bin/aarch64-linux-musl-strip *.node"
           - host: windows-latest
             architecture: 'x64'
             target: 'aarch64-pc-windows-msvc'
@@ -323,7 +323,7 @@ jobs:
         shell: bash
 
       - name: Test bindings
-        run: docker run --rm -v $(pwd):/${app} -w /${app} node:\${{ matrix.node }}-slim yarn test
+        run: docker run --rm -v $(pwd):/build -w /build node:\${{ matrix.node }}-slim yarn test
 
   test-linux-x64-musl-binding:
     name: Test bindings on x86_64-unknown-linux-musl - node@\${{ matrix.node }}
@@ -365,7 +365,7 @@ jobs:
         shell: bash
 
       - name: Test bindings
-        run: docker run --rm -v $(pwd):/${app} -w /${app} node:\${{ matrix.node }}-alpine yarn test
+        run: docker run --rm -v $(pwd):/build -w /build node:\${{ matrix.node }}-alpine yarn test
 
   test-linux-aarch64-gnu-binding:
     name: Test bindings on aarch64-unknown-linux-gnu - node@\${{ matrix.node }}

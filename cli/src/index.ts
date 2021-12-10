@@ -7,6 +7,7 @@ import { BuildCommand } from './build'
 import { CreateNpmDirCommand } from './create-npm-dir'
 import { NewProjectCommand } from './new'
 import { PrePublishCommand } from './pre-publish'
+import { RenameCommand } from './rename'
 import { VersionCommand } from './version'
 
 const cli = new Cli({
@@ -20,6 +21,7 @@ cli.register(CreateNpmDirCommand)
 cli.register(PrePublishCommand)
 cli.register(VersionCommand)
 cli.register(NewProjectCommand)
+cli.register(RenameCommand)
 
 cli
   .run(process.argv.slice(2), {
