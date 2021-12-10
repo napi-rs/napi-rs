@@ -55,6 +55,7 @@ export class CreateNpmDirCommand extends Command {
               'description',
               'keywords',
               'author',
+              'authors',
               'homepage',
               'license',
               'engines',
