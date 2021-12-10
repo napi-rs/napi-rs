@@ -3,6 +3,17 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.0.0-beta.5](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.0.0-beta.4...@napi-rs/cli@2.0.0-beta.5) (2021-12-10)
+
+### Bug Fixes
+
+- **cli:** enum TypeScript type should be const enum ([f4b0a2e](https://github.com/napi-rs/napi-rs/commit/f4b0a2e3228eb9d6d2c8f51e31d250930799ce1d))
+- **cli:** preserve authors field while creating npm dir ([ecb6522](https://github.com/napi-rs/napi-rs/commit/ecb6522f508688e982d3649218334df4228d6edd))
+
+### Features
+
+- **cli:** provide rename command to rename everything in package-template project ([b977265](https://github.com/napi-rs/napi-rs/commit/b977265cfa06a1e33cca4b2579b561ed73f8a1b1))
+
 # [2.0.0-beta.4](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.0.0-beta.3...@napi-rs/cli@2.0.0-beta.4) (2021-12-07)
 
 ### Features
