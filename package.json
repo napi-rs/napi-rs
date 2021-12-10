@@ -3,7 +3,11 @@
   "version": "0.0.0",
   "description": "A minimal library for building compiled Node add-ons in Rust.",
   "private": "true",
-  "workspaces": ["cli", "triples", "memory-testing"],
+  "workspaces": [
+    "cli",
+    "triples",
+    "memory-testing"
+  ],
   "repository": {
     "type": "git",
     "url": "git@github.com:Brooooooklyn/napi-rs.git"
@@ -20,7 +24,8 @@
     "build:test:android:armv7": "yarn --cwd ./examples/napi-compat-mode build --target armv7-linux-androideabi && yarn --cwd ./examples/napi build --target armv7-linux-androideabi",
     "build:test:armv7": "yarn --cwd ./examples/napi-compat-mode build-armv7 && yarn --cwd ./examples/napi build-armv7",
     "bundle": "rollup -c rollup.config.js",
-    "format": "prettier . -w && yarn format:rs",
+    "format": "run-p format:prettier format:rs",
+    "format:prettier": "prettier . -w",
     "format:rs": "cargo fmt",
     "lint": "eslint -c .eslintrc.yml .",
     "prepublishOnly": "npm run build && pinst --disable",
@@ -41,10 +46,9 @@
     "arrowParens": "always"
   },
   "lint-staged": {
-    "*.js": ["prettier --write"],
-    "*.@(yml|yaml)": ["prettier --parser yaml --write"],
-    "*.json": ["prettier --parser json --write"],
-    "*.md": ["prettier --parser markdown --write"]
+    "*.@(js|json|md|yml|yaml)": [
+      "prettier --write"
+    ]
   },
   "husky": {
     "hooks": {

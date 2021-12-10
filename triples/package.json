@@ -2,7 +2,14 @@
   "name": "@napi-rs/triples",
   "version": "1.1.0",
   "description": "Rust target triples objects",
-  "keywords": ["Rust", "cross-compile", "napi", "n-api", "node-rs", "napi-rs"],
+  "keywords": [
+    "Rust",
+    "cross-compile",
+    "napi",
+    "n-api",
+    "node-rs",
+    "napi-rs"
+  ],
   "author": "LongYinan <lynweklm@gmail.com>",
   "homepage": "https://github.com/napi-rs/napi-rs/tree/main/triples#readme",
   "license": "MIT",
@@ -12,7 +19,10 @@
     "registry": "https://registry.npmjs.org/",
     "access": "public"
   },
-  "files": ["index.js", "index.d.ts"],
+  "files": [
+    "index.js",
+    "index.d.ts"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/napi-rs/napi-rs.git"
