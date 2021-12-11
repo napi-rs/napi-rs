@@ -12,10 +12,10 @@ pub fn create_external_string(content: String) -> External<String> {
 
 #[napi]
 pub fn get_external(external: External<u32>) -> u32 {
-  *external.as_ref()
+  *external
 }
 
 #[napi]
 pub fn mutate_external(mut external: External<u32>, new_val: u32) {
-  *external.as_mut() = new_val;
+  *external = new_val;
 }

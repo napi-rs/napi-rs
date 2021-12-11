@@ -1,4 +1,7 @@
-use std::any::TypeId;
+use std::{
+  any::TypeId,
+  ops::{Deref, DerefMut},
+};
 
 use crate::{check_status, Error, Status, TaggedObject};
 
@@ -70,6 +73,20 @@ impl<T: 'static> AsRef<T> for External<T> {
 impl<T: 'static> AsMut<T> for External<T> {
   fn as_mut(&mut self) -> &mut T {
     unsafe { Box::leak(Box::from_raw(self.obj)).object.as_mut().unwrap() }
+  }
+}
+
+impl<T: 'static> Deref for External<T> {
+  type Target = T;
+
+  fn deref(&self) -> &Self::Target {
+    self.as_ref()
+  }
+}
+
+impl<T: 'static> DerefMut for External<T> {
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    self.as_mut()
   }
 }
 
