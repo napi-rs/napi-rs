@@ -1,3 +1,4 @@
+import { exec } from 'child_process'
 import { join } from 'path'
 
 import test from 'ava'
@@ -390,11 +391,32 @@ Napi4Test('throw error from thread safe function', async (t) => {
   t.is(err.message, 'ThrowFromNative')
 })
 
-Napi4Test('throw error from thread safe function fatal mode', async (t) => {
+Napi4Test('resolve value from thread safe function fatal mode', async (t) => {
   const tsfnFatalMode = new Promise<boolean>((resolve) => {
     threadsafeFunctionFatalMode(resolve)
   })
   t.true(await tsfnFatalMode)
+})
+
+Napi4Test('throw error from thread safe function fatal mode', (t) => {
+  const p = exec('node ./tsfn-error.js', {
+    cwd: __dirname,
+  })
+  let stderr = Buffer.from([])
+  p.stderr?.on('data', (data) => {
+    stderr = Buffer.concat([stderr, Buffer.from(data)])
+  })
+  return new Promise<void>((resolve) => {
+    p.on('exit', (code) => {
+      t.is(code, 1)
+      t.true(
+        stderr
+          .toString('utf8')
+          .includes(`[Error: Generic tsfn error] { code: 'GenericFailure' }`),
+      )
+      resolve()
+    })
+  })
 })
 
 Napi4Test('await Promise in rust', async (t) => {

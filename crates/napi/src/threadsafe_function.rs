@@ -382,7 +382,7 @@ unsafe extern "C" fn call_js_cb<T: 'static, V: NapiRaw, R, ES>(
       );
     }
     Err(e) if ES::VALUE == ErrorStrategy::Fatal::VALUE => {
-      panic!("{}", e);
+      status = sys::napi_fatal_exception(raw_env, JsError::from(e).into_value(raw_env));
     }
     Err(e) => {
       status = sys::napi_call_function(
