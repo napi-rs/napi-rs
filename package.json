@@ -6,7 +6,8 @@
   "workspaces": [
     "cli",
     "triples",
-    "memory-testing"
+    "memory-testing",
+    "examples/napi"
   ],
   "repository": {
     "type": "git",

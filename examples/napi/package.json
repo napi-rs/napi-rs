@@ -1,6 +1,7 @@
 {
   "name": "napi-examples",
   "private": true,
+  "version": "0.0.0",
   "main": "./index.node",
   "types": "./index.d.ts",
   "scripts": {
@@ -10,5 +11,9 @@
     "build-i686": "node ../../cli/scripts/index.js build --js false --target i686-pc-windows-msvc",
     "build-i686-release": "node ../../cli/scripts/index.js build --js false --release --target i686-pc-windows-msvc",
     "build-release": "node ../../cli/scripts/index.js build --js false --release"
+  },
+  "dependencies": {
+    "@types/lodash": "^4.14.178",
+    "lodash": "4.17.21"
   }
 }
