@@ -73,6 +73,8 @@ If not set, cli will read the `package.name` field in `Cargo.toml` under `proces
 
 > default `undefined`
 
+> Note you should have `rustup` installed if omit the `--target` flag. The `@napi-rs/cli` will try to find the default target on your system via `rustup` if no `--target` specified.
+
 You can also define this value using the `RUST_TARGET` environment variable.
 
 This value will be passed to `Cargo build` command directly. eg: `napi build --target x86_64-unknown-linux-musl`
