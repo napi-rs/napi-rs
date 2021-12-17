@@ -3,6 +3,10 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.0.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.0.0-beta.5...@napi-rs/cli@2.0.0) (2021-12-17)
+
+**Note:** Version bump only for package @napi-rs/cli
+
 # [2.0.0-beta.5](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.0.0-beta.4...@napi-rs/cli@2.0.0-beta.5) (2021-12-10)
 
 ### Bug Fixes
