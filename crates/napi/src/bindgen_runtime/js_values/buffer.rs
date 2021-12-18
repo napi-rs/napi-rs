@@ -16,6 +16,12 @@ impl From<Vec<u8>> for Buffer {
   }
 }
 
+impl From<Buffer> for Vec<u8> {
+  fn from(buf: Buffer) -> Self {
+    buf.inner.to_vec()
+  }
+}
+
 impl From<&[u8]> for Buffer {
   fn from(inner: &[u8]) -> Self {
     Buffer::from(inner.to_owned())

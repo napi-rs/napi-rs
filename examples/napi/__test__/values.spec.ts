@@ -64,6 +64,7 @@ import {
   fnReceivedAliased,
   ALIAS,
   AliasedStruct,
+  appendBuffer,
 } from '../'
 
 test('export const', (t) => {
@@ -239,7 +240,10 @@ test('serde-json', (t) => {
 })
 
 test('buffer', (t) => {
-  t.is(getBuffer().toString('utf-8'), 'Hello world')
+  let buf = getBuffer()
+  t.is(buf.toString('utf-8'), 'Hello world')
+  buf = appendBuffer(buf)
+  t.is(buf.toString('utf-8'), 'Hello world!')
 })
 
 test('convert typedarray to vec', (t) => {
