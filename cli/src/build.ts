@@ -354,6 +354,11 @@ async function processIntermediateTypeFile(
     .split('\n')
     .map((line) => line.trim())
     .filter(Boolean)
+
+  if (!lines.length) {
+    return idents
+  }
+
   const dtsHeader = `/* eslint-disable */
 
 export class ExternalObject<T> {
@@ -466,7 +471,7 @@ async function writeJsBinding(
   distFileName: string | null,
   idents: string[],
 ) {
-  if (distFileName) {
+  if (distFileName && idents.length) {
     const template = createJsBinding(localName, packageName)
     const declareCodes = `const { ${idents.join(', ')} } = nativeBinding\n`
     const exportsCode = idents.reduce(
