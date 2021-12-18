@@ -76,7 +76,7 @@ export class BuildCommand extends Command {
   jsBinding = Option.String('--js', 'index.js', {
     description: `Path to the JS binding file, pass ${chalk.underline(
       chalk.yellow('false'),
-    )} to disable it`,
+    )} to disable it. Only affect if ${chalk.green('--target')} specified.`,
   })
 
   cargoCwd?: string = Option.String('--cargo-cwd', {
@@ -299,7 +299,9 @@ export class BuildCommand extends Command {
       }
     }
     const jsBindingFilePath =
-      this.jsBinding && this.jsBinding !== 'false'
+      this.jsBinding &&
+      this.jsBinding !== 'false' &&
+      this.appendPlatformToFilename
         ? join(process.cwd(), this.jsBinding)
         : null
     await writeJsBinding(binaryName, packageName, jsBindingFilePath, idents)
