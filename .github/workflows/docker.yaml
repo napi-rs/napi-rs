@@ -46,7 +46,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        version: ['12', '14', '16']
+        version: ['12', '14', '16', '17']
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
