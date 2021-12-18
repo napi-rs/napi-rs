@@ -6,6 +6,13 @@ fn get_buffer() -> Buffer {
 }
 
 #[napi]
+fn append_buffer(buf: Buffer) -> Buffer {
+  let mut buf = Vec::<u8>::from(buf);
+  buf.push('!' as u8);
+  buf.into()
+}
+
+#[napi]
 fn convert_u32_array(input: Uint32Array) -> Vec<u32> {
   input.to_vec()
 }
