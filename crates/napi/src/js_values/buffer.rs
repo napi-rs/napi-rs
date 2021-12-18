@@ -86,7 +86,7 @@ impl AsMut<[u8]> for JsBufferValue {
 impl Deref for JsBufferValue {
   type Target = [u8];
 
-  fn deref(&self) -> &[u8] {
+  fn deref(&self) -> &Self::Target {
     self.data.as_slice()
   }
 }

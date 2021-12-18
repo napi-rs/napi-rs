@@ -216,7 +216,7 @@ impl AsMut<[u8]> for JsArrayBufferValue {
 impl Deref for JsArrayBufferValue {
   type Target = [u8];
 
-  fn deref(&self) -> &[u8] {
+  fn deref(&self) -> &Self::Target {
     self.as_ref()
   }
 }
