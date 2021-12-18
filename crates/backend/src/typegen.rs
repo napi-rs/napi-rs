@@ -98,6 +98,7 @@ static KNOWN_TYPES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
   map.extend([
     ("JsUndefined", "undefined"),
     ("()", "undefined"),
+    ("Undefined", "undefined"),
     ("JsNumber", "number"),
     ("i8", "number"),
     ("i16", "number"),
@@ -152,6 +153,7 @@ static KNOWN_TYPES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     ("Either4", "{} | {} | {} | {}"),
     ("Either5", "{} | {} | {} | {} | {}"),
     ("unknown", "unknown"),
+    ("Null", "null"),
     ("null", "null"),
     ("Symbol", "symbol"),
     ("JsSymbol", "symbol"),

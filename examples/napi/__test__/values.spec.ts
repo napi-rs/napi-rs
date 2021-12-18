@@ -65,6 +65,8 @@ import {
   ALIAS,
   AliasedStruct,
   appendBuffer,
+  returnNull,
+  returnUndefined,
 } from '../'
 
 test('export const', (t) => {
@@ -190,6 +192,14 @@ test('get null', (t) => {
   for (const _ of Array.from({ length: 100 })) {
     t.is(getNull(), null)
   }
+})
+
+test('return Null', (t) => {
+  t.is(returnNull(), null)
+})
+
+test('return Undefined', (t) => {
+  t.is(returnUndefined(), undefined)
 })
 
 test('pass symbol in', (t) => {
