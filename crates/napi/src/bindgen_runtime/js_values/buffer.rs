@@ -37,7 +37,7 @@ impl AsMut<[u8]> for Buffer {
 impl Deref for Buffer {
   type Target = [u8];
 
-  fn deref(&self) -> &[u8] {
+  fn deref(&self) -> &Self::Target {
     self.inner.as_slice()
   }
 }
