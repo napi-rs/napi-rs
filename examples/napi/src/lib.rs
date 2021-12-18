@@ -22,6 +22,7 @@ mod error;
 mod external;
 mod fn_ts_override;
 mod js_mod;
+mod map;
 mod nullable;
 mod number;
 mod object;
