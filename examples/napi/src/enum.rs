@@ -28,3 +28,10 @@ pub enum CustomNumEnum {
 fn enum_to_i32(e: CustomNumEnum) -> i32 {
   e as i32
 }
+
+#[napi(skip_typescript)]
+pub enum SkippedEnums {
+  One = 1,
+  Two,
+  Tree,
+}

@@ -120,3 +120,42 @@ pub struct AnimalWithDefaultConstructor {
   pub name: String,
   pub kind: u32,
 }
+
+// Test for skip_typescript
+#[napi]
+pub struct NinjaTurtle {
+  pub name: String,
+  #[napi(skip_typescript)]
+  pub mask_color: String,
+}
+
+#[napi]
+impl NinjaTurtle {
+  /// Create your ninja turtle! 🐢
+  #[napi(factory)]
+  pub fn new_raph() -> Self {
+    Self {
+      name: "Raphael".to_owned(),
+      mask_color: "Red".to_owned(),
+    }
+  }
+
+  /// We are not going to expose this character, so we just skip it...
+  #[napi(factory, skip_typescript)]
+  pub fn new_leo() -> Self {
+    Self {
+      name: "Leonardo".to_owned(),
+      mask_color: "Blue".to_owned(),
+    }
+  }
+
+  #[napi]
+  pub fn get_mask_color(&self) -> &str {
+    self.mask_color.as_str()
+  }
+
+  #[napi]
+  pub fn get_name(&self) -> &str {
+    self.name.as_str()
+  }
+}

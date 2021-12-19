@@ -146,6 +146,13 @@ export class AnimalWithDefaultConstructor {
   kind: number
   constructor(name: string, kind: number)
 }
+export class NinjaTurtle {
+  name: string
+  /** Create your ninja turtle! 🐢 */
+  static newRaph(): NinjaTurtle
+  getMaskColor(): string
+  getName(): string
+}
 export class ClassWithFactory {
   name: string
   static withName(name: string): ClassWithFactory

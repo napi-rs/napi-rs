@@ -73,12 +73,12 @@ impl NapiStruct {
       .fields
       .iter()
       .filter(|f| f.getter)
-      .map(|f| {
-        let mut field_str = String::from("");
-
+      .filter_map(|f| {
         if f.skip_typescript {
-          return field_str;
+          return None;
         }
+
+        let mut field_str = String::from("");
 
         if !f.comments.is_empty() {
           field_str.push_str(&js_doc_from_comments(&f.comments))
@@ -95,7 +95,7 @@ impl NapiStruct {
         }
         field_str.push_str(&arg);
 
-        field_str
+        Some(field_str)
       })
       .collect::<Vec<_>>()
       .join("\\n");
