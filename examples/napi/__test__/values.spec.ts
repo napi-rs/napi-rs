@@ -14,6 +14,8 @@ import {
   getNums,
   getWords,
   sumNums,
+  getMapping,
+  sumMapping,
   getCwd,
   Animal,
   Kind,
@@ -102,6 +104,11 @@ test('array', (t) => {
   t.deepEqual(getWords(), ['foo', 'bar'])
 
   t.is(sumNums([1, 2, 3, 4, 5]), 15)
+})
+
+test('map', (t) => {
+  t.deepEqual(getMapping(), { a: 101, b: 102 })
+  t.is(sumMapping({ a: 101, b: 102 }), 203)
 })
 
 test('enum', (t) => {

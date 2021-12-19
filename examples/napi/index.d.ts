@@ -58,6 +58,8 @@ export function getExternal(external: ExternalObject<number>): number
 export function mutateExternal(external: ExternalObject<number>, newVal: number): void
 export function tsRename(a: { foo: number }): string[]
 export function xxh64Alias(input: Buffer): BigInt
+export function getMapping(): Record<string, number>
+export function sumMapping(nums: Record<string, number>): number
 export function mapOption(val?: number | undefined | null): number | undefined | null
 export function returnNull(): null
 export function returnUndefined(): void
