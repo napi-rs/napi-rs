@@ -58,7 +58,7 @@ macro_rules! attrgen {
       // impl later
       // (inspectable, Inspectable(Span)),
       // (typescript_custom_section, TypescriptCustomSection(Span)),
-      // (skip_typescript, SkipTypescript(Span)),
+      (skip_typescript, SkipTypescript(Span)),
       // (getter_with_clone, GetterWithClone(Span)),
 
       // For testing purposes only.

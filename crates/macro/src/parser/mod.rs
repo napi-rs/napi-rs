@@ -578,6 +578,7 @@ fn napi_fn_from_decl(
       js_mod: opts.namespace().map(|(m, _)| m.to_owned()),
       ts_args_type: opts.ts_args_type().map(|(m, _)| m.to_owned()),
       ts_return_type: opts.ts_return_type().map(|(m, _)| m.to_owned()),
+      skip_typescript: opts.skip_typescript().is_some(),
     }
   })
 }
@@ -606,10 +607,13 @@ impl ParseNapi for syn::ItemFn {
 }
 impl ParseNapi for syn::ItemStruct {
   fn parse_napi(&mut self, tokens: &mut TokenStream, opts: BindgenAttrs) -> BindgenResult<Napi> {
-    if opts.ts_args_type().is_some() || opts.ts_return_type().is_some() {
+    if opts.ts_args_type().is_some()
+      || opts.ts_return_type().is_some()
+      || opts.skip_typescript().is_some()
+    {
       bail_span!(
         self,
-        "#[napi] can't be applied to a struct with #[napi(ts_args_type)] or #[napi(ts_return_type)]"
+        "#[napi] can't be applied to a struct with #[napi(ts_args_type)] or #[napi(ts_return_type)] or #[napi(skip_typescript)]"
       );
     }
     let napi = self.convert_to_ast(opts);
@@ -620,10 +624,13 @@ impl ParseNapi for syn::ItemStruct {
 }
 impl ParseNapi for syn::ItemImpl {
   fn parse_napi(&mut self, tokens: &mut TokenStream, opts: BindgenAttrs) -> BindgenResult<Napi> {
-    if opts.ts_args_type().is_some() || opts.ts_return_type().is_some() {
+    if opts.ts_args_type().is_some()
+      || opts.ts_return_type().is_some()
+      || opts.skip_typescript().is_some()
+    {
       bail_span!(
         self,
-        "#[napi] can't be applied to impl with #[napi(ts_args_type)] or #[napi(ts_return_type)]"
+        "#[napi] can't be applied to impl with #[napi(ts_args_type)] or #[napi(ts_return_type)] or #[napi(skip_typescript)]"
       );
     }
     // #[napi] macro will be remove from impl items after converted to ast
@@ -751,6 +758,7 @@ impl ConvertToAST for syn::ItemStruct {
 
       let ignored = field_opts.skip().is_some();
       let readonly = field_opts.readonly().is_some();
+      let skip_typescript = field_opts.skip_typescript().is_some();
 
       fields.push(NapiStructField {
         name,
@@ -759,6 +767,7 @@ impl ConvertToAST for syn::ItemStruct {
         getter: !ignored,
         setter: !(ignored || readonly),
         comments: extract_doc_comments(&field.attrs),
+        skip_typescript,
       })
     }
 
@@ -943,6 +952,7 @@ impl ConvertToAST for syn::ItemEnum {
         variants,
         js_mod: opts.namespace().map(|(m, _)| m.to_owned()),
         comments: extract_doc_comments(&self.attrs),
+        skip_typescript: opts.skip_typescript().is_some(),
       }),
     })
   }
@@ -961,6 +971,7 @@ impl ConvertToAST for syn::ItemConst {
           value: *self.expr.clone(),
           js_mod: opts.namespace().map(|(m, _)| m.to_owned()),
           comments: extract_doc_comments(&self.attrs),
+          skip_typescript: opts.skip_typescript().is_some(),
         }),
       }),
       _ => bail_span!(self, "only public const allowed"),
