@@ -6,7 +6,11 @@ use super::{ty_to_ts_type, ToTypeDef, TypeDef};
 use crate::{js_doc_from_comments, CallbackArg, FnKind, NapiFn};
 
 impl ToTypeDef for NapiFn {
-  fn to_type_def(&self) -> TypeDef {
+  fn to_type_def(&self) -> Option<TypeDef> {
+    if self.skip_typescript {
+      return None;
+    }
+
     let def = format!(
       r#"{prefix} {name}({args}){ret}"#,
       prefix = self.gen_ts_func_prefix(),
@@ -22,13 +26,13 @@ impl ToTypeDef for NapiFn {
         .unwrap_or_else(|| self.gen_ts_func_ret()),
     );
 
-    TypeDef {
+    Some(TypeDef {
       kind: "fn".to_owned(),
       name: self.js_name.clone(),
       def,
       js_mod: self.js_mod.to_owned(),
       js_doc: js_doc_from_comments(&self.comments),
-    }
+    })
   }
 }
 

@@ -90,7 +90,7 @@ impl ToString for TypeDef {
 }
 
 pub trait ToTypeDef {
-  fn to_type_def(&self) -> TypeDef;
+  fn to_type_def(&self) -> Option<TypeDef>;
 }
 
 static KNOWN_TYPES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {

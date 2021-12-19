@@ -2,15 +2,20 @@ use super::{add_alias, ToTypeDef, TypeDef};
 use crate::{js_doc_from_comments, NapiEnum};
 
 impl ToTypeDef for NapiEnum {
-  fn to_type_def(&self) -> TypeDef {
+  fn to_type_def(&self) -> Option<TypeDef> {
+    if self.skip_typescript {
+      return None;
+    }
+
     add_alias(self.name.to_string(), self.js_name.to_string());
-    TypeDef {
+
+    Some(TypeDef {
       kind: "enum".to_owned(),
       name: self.js_name.to_owned(),
       def: self.gen_ts_variants(),
       js_doc: js_doc_from_comments(&self.comments),
       js_mod: self.js_mod.to_owned(),
-    }
+    })
   }
 }
 

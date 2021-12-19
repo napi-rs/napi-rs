@@ -18,6 +18,7 @@ pub struct NapiFn {
   pub js_mod: Option<String>,
   pub ts_args_type: Option<String>,
   pub ts_return_type: Option<String>,
+  pub skip_typescript: bool,
   pub comments: Vec<String>,
 }
 
@@ -77,6 +78,7 @@ pub struct NapiStructField {
   pub getter: bool,
   pub setter: bool,
   pub comments: Vec<String>,
+  pub skip_typescript: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -96,6 +98,7 @@ pub struct NapiEnum {
   pub variants: Vec<NapiEnumVariant>,
   pub js_mod: Option<String>,
   pub comments: Vec<String>,
+  pub skip_typescript: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -113,6 +116,7 @@ pub struct NapiConst {
   pub value: Expr,
   pub js_mod: Option<String>,
   pub comments: Vec<String>,
+  pub skip_typescript: bool,
 }
 
 #[derive(Debug, Clone)]

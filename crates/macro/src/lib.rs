@@ -141,15 +141,19 @@ fn expand(attr: TokenStream, input: TokenStream) -> BindgenResult<TokenStream> {
 }
 
 #[cfg(all(feature = "type-def", not(feature = "noop")))]
-fn output_type_def(type_def_file: String, type_def: TypeDef) -> IOResult<()> {
-  let file = fs::OpenOptions::new()
-    .append(true)
-    .create(true)
-    .open(type_def_file)?;
+fn output_type_def(type_def_file: String, type_def: Option<TypeDef>) -> IOResult<()> {
+  if type_def.is_some() {
+    let file = fs::OpenOptions::new()
+      .append(true)
+      .create(true)
+      .open(type_def_file)?;
 
-  let mut writer = BufWriter::<fs::File>::new(file);
-  writer.write_all(type_def.to_string().as_bytes())?;
-  writer.write_all("\n".as_bytes())
+    let mut writer = BufWriter::<fs::File>::new(file);
+    writer.write_all(type_def.unwrap().to_string().as_bytes())?;
+    writer.write_all("\n".as_bytes())
+  } else {
+    IOResult::Ok(())
+  }
 }
 
 #[cfg(feature = "compat-mode")]
