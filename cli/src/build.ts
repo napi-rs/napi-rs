@@ -3,6 +3,7 @@ import { existsSync } from 'fs'
 import { join, parse, sep } from 'path'
 
 import { Instance } from 'chalk'
+import chokidar from 'chokidar'
 import { Command, Option } from 'clipanion'
 import { groupBy } from 'lodash-es'
 import toml from 'toml'
@@ -33,6 +34,10 @@ export class BuildCommand extends Command {
     description: `Add platform triple to the .node file. ${chalk.green(
       '[name].linux-x64-gnu.node',
     )} for example`,
+  })
+
+  isWatch = Option.Boolean(`--watch`, false, {
+    description: 'watch and rebuild napi package'
   })
 
   isRelease = Option.Boolean(`--release`, false, {
@@ -122,10 +127,10 @@ export class BuildCommand extends Command {
     const triple = this.targetTripleDir
       ? parseTriple(this.targetTripleDir)
       : getDefaultTargetTriple(
-          execSync('rustup show active-toolchain', {
-            env: process.env,
-          }).toString('utf8'),
-        )
+        execSync('rustup show active-toolchain', {
+          env: process.env,
+        }).toString('utf8'),
+      )
     debug(`Current triple is: ${chalk.green(triple.raw)}`)
     const pFlag = this.project ? `-p ${this.project}` : ''
     const externalFlags = [
@@ -153,169 +158,186 @@ export class BuildCommand extends Command {
         CARGO_PROFILE_RELEASE_LTO: false,
       })
     }
-    execSync(cargoCommand, {
-      env: {
-        ...process.env,
-        ...additionalEnv,
-        TYPE_DEF_TMP_PATH: intermediateTypeFile,
-      },
-      stdio: 'inherit',
-      cwd,
-    })
-    const { binaryName, packageName } = getNapiConfig(this.configFileName)
-    let dylibName = this.cargoName
-    if (!dylibName) {
-      let tomlContentString: string
-      let tomlContent: any
-      try {
-        debug('Start read toml')
-        tomlContentString = await readFileAsync(
-          join(cwd, 'Cargo.toml'),
-          'utf-8',
-        )
-      } catch {
-        throw new TypeError(`Could not find Cargo.toml in ${cwd}`)
-      }
-
-      try {
-        debug('Start parse toml')
-        tomlContent = toml.parse(tomlContentString)
-      } catch {
-        throw new TypeError('Could not parse the Cargo.toml')
-      }
-
-      if (tomlContent.package?.name) {
-        dylibName = tomlContent.package.name.replace(/-/g, '_')
-      } else {
-        throw new TypeError('No package.name field in Cargo.toml')
-      }
-
-      if (!tomlContent.lib?.['crate-type']?.includes?.('cdylib')) {
-        throw new TypeError(
-          `Missing ${chalk.green('create-type = ["cdylib"]')} in ${chalk.green(
-            '[lib]',
-          )}`,
-        )
-      }
-    }
-
-    debug(`Dylib name: ${chalk.greenBright(dylibName)}`)
-
-    const platform = triple.platform
-    let libExt
-
-    debug(`Platform: ${chalk.greenBright(platform)}`)
-
-    // Platform based massaging for build commands
-    switch (platform) {
-      case 'darwin':
-        libExt = '.dylib'
-        dylibName = `lib${dylibName}`
-        break
-      case 'win32':
-        libExt = '.dll'
-        break
-      case 'linux':
-      case 'freebsd':
-      case 'openbsd':
-      case 'android':
-      case 'sunos':
-        dylibName = `lib${dylibName}`
-        libExt = '.so'
-        break
-      default:
-        throw new TypeError(
-          'Operating system not currently supported or recognized by the build script',
-        )
-    }
-
-    const targetRootDir = await findUp(cwd)
-
-    if (!targetRootDir) {
-      throw new TypeError('No target dir found')
-    }
-
-    const targetDir = join(
-      this.targetTripleDir,
-      this.isRelease ? 'release' : 'debug',
-    )
-
-    const platformName = this.appendPlatformToFilename
-      ? `.${triple.platformArchABI}`
-      : ''
-
-    debug(`Platform name: ${platformName || chalk.green('[Empty]')}`)
-    const distFileName = `${binaryName}${platformName}.node`
-
-    const distModulePath = join(this.destDir ?? '.', distFileName)
-
-    const parsedDist = parse(distModulePath)
-
-    if (parsedDist.dir && !existsSync(parsedDist.dir)) {
-      await mkdirAsync(parsedDist.dir, { recursive: true }).catch((e) => {
-        console.warn(
-          chalk.bgYellowBright(
-            `Create dir [${parsedDist.dir}] failed, reason: ${e.message}`,
-          ),
-        )
+    const buildTask = async () => {
+      execSync(cargoCommand, {
+        env: {
+          ...process.env,
+          ...additionalEnv,
+          TYPE_DEF_TMP_PATH: intermediateTypeFile,
+        },
+        stdio: 'inherit',
+        cwd,
       })
-    }
+      const { binaryName, packageName } = getNapiConfig(this.configFileName)
+      let dylibName = this.cargoName
+      if (!dylibName) {
+        let tomlContentString: string
+        let tomlContent: any
+        try {
+          debug('Start read toml')
+          tomlContentString = await readFileAsync(
+            join(cwd, 'Cargo.toml'),
+            'utf-8',
+          )
+        } catch {
+          throw new TypeError(`Could not find Cargo.toml in ${cwd}`)
+        }
 
-    const sourcePath = join(
-      targetRootDir,
-      'target',
-      targetDir,
-      `${dylibName}${libExt}`,
-    )
+        try {
+          debug('Start parse toml')
+          tomlContent = toml.parse(tomlContentString)
+        } catch {
+          throw new TypeError('Could not parse the Cargo.toml')
+        }
 
-    if (existsSync(distModulePath)) {
-      debug(`remove old binary [${chalk.yellowBright(distModulePath)}]`)
-      await unlinkAsync(distModulePath)
-    }
+        if (tomlContent.package?.name) {
+          dylibName = tomlContent.package.name.replace(/-/g, '_')
+        } else {
+          throw new TypeError('No package.name field in Cargo.toml')
+        }
 
-    debug(`Write binary content to [${chalk.yellowBright(distModulePath)}]`)
-    await copyFileAsync(sourcePath, distModulePath)
+        if (!tomlContent.lib?.['crate-type']?.includes?.('cdylib')) {
+          throw new TypeError(
+            `Missing ${chalk.green('create-type = ["cdylib"]')} in ${chalk.green(
+              '[lib]',
+            )}`,
+          )
+        }
+      }
 
-    const dtsFilePath = join(
-      process.cwd(),
-      this.destDir ?? '.',
-      this.dts ?? 'index.d.ts',
-    )
+      debug(`Dylib name: ${chalk.greenBright(dylibName)}`)
 
-    const idents = await processIntermediateTypeFile(
-      intermediateTypeFile,
-      dtsFilePath,
-    )
-    if (this.pipe) {
-      const pipeCommand = `${this.pipe} ${dtsFilePath}`
-      console.info(`Run ${chalk.green(pipeCommand)}`)
-      try {
-        execSync(pipeCommand, { stdio: 'inherit', env: process.env })
-      } catch (e) {
-        console.warn(
-          chalk.bgYellowBright('Pipe the dts file to command failed'),
-          e,
-        )
+      const platform = triple.platform
+      let libExt
+
+      debug(`Platform: ${chalk.greenBright(platform)}`)
+
+      // Platform based massaging for build commands
+      switch (platform) {
+        case 'darwin':
+          libExt = '.dylib'
+          dylibName = `lib${dylibName}`
+          break
+        case 'win32':
+          libExt = '.dll'
+          break
+        case 'linux':
+        case 'freebsd':
+        case 'openbsd':
+        case 'android':
+        case 'sunos':
+          dylibName = `lib${dylibName}`
+          libExt = '.so'
+          break
+        default:
+          throw new TypeError(
+            'Operating system not currently supported or recognized by the build script',
+          )
+      }
+
+      const targetRootDir = await findUp(cwd)
+
+      if (!targetRootDir) {
+        throw new TypeError('No target dir found')
+      }
+
+      const targetDir = join(
+        this.targetTripleDir,
+        this.isRelease ? 'release' : 'debug',
+      )
+
+      const platformName = this.appendPlatformToFilename
+        ? `.${triple.platformArchABI}`
+        : ''
+
+      debug(`Platform name: ${platformName || chalk.green('[Empty]')}`)
+      const distFileName = `${binaryName}${platformName}.node`
+
+      const distModulePath = join(this.destDir ?? '.', distFileName)
+
+      const parsedDist = parse(distModulePath)
+
+      if (parsedDist.dir && !existsSync(parsedDist.dir)) {
+        await mkdirAsync(parsedDist.dir, { recursive: true }).catch((e) => {
+          console.warn(
+            chalk.bgYellowBright(
+              `Create dir [${parsedDist.dir}] failed, reason: ${e.message}`,
+            ),
+          )
+        })
+      }
+
+      const sourcePath = join(
+        targetRootDir,
+        'target',
+        targetDir,
+        `${dylibName}${libExt}`,
+      )
+
+      if (existsSync(distModulePath)) {
+        debug(`remove old binary [${chalk.yellowBright(distModulePath)}]`)
+        await unlinkAsync(distModulePath)
+      }
+
+      debug(`Write binary content to [${chalk.yellowBright(distModulePath)}]`)
+      await copyFileAsync(sourcePath, distModulePath)
+
+      const dtsFilePath = join(
+        process.cwd(),
+        this.destDir ?? '.',
+        this.dts ?? 'index.d.ts',
+      )
+
+      const idents = await processIntermediateTypeFile(
+        intermediateTypeFile,
+        dtsFilePath,
+      )
+      if (this.pipe) {
+        const pipeCommand = `${this.pipe} ${dtsFilePath}`
+        console.info(`Run ${chalk.green(pipeCommand)}`)
+        try {
+          execSync(pipeCommand, { stdio: 'inherit', env: process.env })
+        } catch (e) {
+          console.warn(
+            chalk.bgYellowBright('Pipe the dts file to command failed'),
+            e,
+          )
+        }
+      }
+      const jsBindingFilePath =
+        this.jsBinding &&
+          this.jsBinding !== 'false' &&
+          this.appendPlatformToFilename
+          ? join(process.cwd(), this.jsBinding)
+          : null
+      await writeJsBinding(binaryName, packageName, jsBindingFilePath, idents)
+      if (this.pipe && jsBindingFilePath) {
+        const pipeCommand = `${this.pipe} ${jsBindingFilePath}`
+        console.info(`Run ${chalk.green(pipeCommand)}`)
+        try {
+          execSync(pipeCommand, { stdio: 'inherit', env: process.env })
+        } catch (e) {
+          console.warn(
+            chalk.bgYellowBright('Pipe the js binding file to command failed'),
+            e,
+          )
+        }
       }
     }
-    const jsBindingFilePath =
-      this.jsBinding &&
-      this.jsBinding !== 'false' &&
-      this.appendPlatformToFilename
-        ? join(process.cwd(), this.jsBinding)
-        : null
-    await writeJsBinding(binaryName, packageName, jsBindingFilePath, idents)
-    if (this.pipe && jsBindingFilePath) {
-      const pipeCommand = `${this.pipe} ${jsBindingFilePath}`
-      console.info(`Run ${chalk.green(pipeCommand)}`)
-      try {
-        execSync(pipeCommand, { stdio: 'inherit', env: process.env })
-      } catch (e) {
-        console.warn(
-          chalk.bgYellowBright('Pipe the js binding file to command failed'),
-          e,
-        )
-      }
+    await buildTask()
+    if (this.isWatch) {
+      await new Promise((_) => {
+        const watcher = chokidar.watch(join(cwd, 'src'), {
+          persistent: true,
+          ignoreInitial: true,
+        })
+        watcher.on('all', (event, path) => {
+          console.info(`Auto reload. ${event} ${path}`)
+          buildTask().catch(() => {
+            console.warn(`build error.`)
+          })
+        })
+      })
     }
   }
 }

@@ -53,7 +53,8 @@
     "lodash-es": "4.17.21",
     "toml": "^3.0.0",
     "tslib": "^2.3.1",
-    "typanion": "^3.7.1"
+    "typanion": "^3.7.1",
+    "chokidar": "^3.5.2"
   },
   "funding": {
     "type": "github",
