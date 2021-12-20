@@ -1,4 +1,4 @@
-use napi::Result;
+use napi::{bindgen_prelude::Buffer, Result};
 
 use crate::r#enum::Kind;
 
@@ -72,6 +72,14 @@ impl Blake2bHasher {
   #[napi(factory)]
   pub fn with_key(key: &Blake2bKey) -> Self {
     Blake2bHasher(key.get_inner())
+  }
+}
+
+#[napi]
+impl Blake2bHasher {
+  #[napi]
+  pub fn update(&mut self, data: Buffer) {
+    self.0 += data.len() as u32;
   }
 }
 
