@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use proc_macro2::{Ident, Literal, Span, TokenStream};
 use quote::ToTokens;
@@ -7,6 +8,8 @@ use crate::{
   codegen::{get_intermediate_ident, get_register_ident, js_mod_to_token_stream},
   BindgenResult, FnKind, NapiImpl, NapiStruct, NapiStructKind, TryToTokens,
 };
+
+static NAPI_IMPL_ID: AtomicU32 = AtomicU32::new(0);
 
 // Generate trait implementations for given Struct.
 fn gen_napi_value_map_impl(name: &Ident, to_napi_val_impl: TokenStream) -> TokenStream {
@@ -476,7 +479,11 @@ impl NapiImpl {
     let name_str = self.name.to_string();
     let js_name = format!("{}\0", self.js_name);
     let mod_name = Ident::new(
-      &format!("__napi_impl_helper__{}", name_str),
+      &format!(
+        "__napi_impl_helper__{}__{}",
+        name_str,
+        NAPI_IMPL_ID.fetch_add(1, Ordering::SeqCst)
+      ),
       Span::call_site(),
     );
 

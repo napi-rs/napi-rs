@@ -1,5 +1,5 @@
 #[napi]
-fn get_words() -> Vec<&'static str> {
+pub fn get_words() -> Vec<&'static str> {
   vec!["foo", "bar"]
 }
 
