@@ -37,7 +37,7 @@ export class BuildCommand extends Command {
   })
 
   isWatch = Option.Boolean(`--watch`, false, {
-    description: 'watch and rebuild napi package'
+    description: 'watch and rebuild napi package',
   })
 
   isRelease = Option.Boolean(`--release`, false, {
@@ -127,10 +127,10 @@ export class BuildCommand extends Command {
     const triple = this.targetTripleDir
       ? parseTriple(this.targetTripleDir)
       : getDefaultTargetTriple(
-        execSync('rustup show active-toolchain', {
-          env: process.env,
-        }).toString('utf8'),
-      )
+          execSync('rustup show active-toolchain', {
+            env: process.env,
+          }).toString('utf8'),
+        )
     debug(`Current triple is: ${chalk.green(triple.raw)}`)
     const pFlag = this.project ? `-p ${this.project}` : ''
     const externalFlags = [
@@ -198,9 +198,9 @@ export class BuildCommand extends Command {
 
         if (!tomlContent.lib?.['crate-type']?.includes?.('cdylib')) {
           throw new TypeError(
-            `Missing ${chalk.green('create-type = ["cdylib"]')} in ${chalk.green(
-              '[lib]',
-            )}`,
+            `Missing ${chalk.green(
+              'create-type = ["cdylib"]',
+            )} in ${chalk.green('[lib]')}`,
           )
         }
       }
@@ -306,8 +306,8 @@ export class BuildCommand extends Command {
       }
       const jsBindingFilePath =
         this.jsBinding &&
-          this.jsBinding !== 'false' &&
-          this.appendPlatformToFilename
+        this.jsBinding !== 'false' &&
+        this.appendPlatformToFilename
           ? join(process.cwd(), this.jsBinding)
           : null
       await writeJsBinding(binaryName, packageName, jsBindingFilePath, idents)
