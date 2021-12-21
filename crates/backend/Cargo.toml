@@ -6,7 +6,10 @@ license = "MIT"
 name = "napi-derive-backend"
 readme = "README.md"
 repository = "https://github.com/napi-rs/napi-rs"
-version = "1.0.17"
+version = "1.0.18"
+
+[package.metadata.workspaces]
+independent = true
 
 [features]
 noop = []
@@ -26,6 +29,3 @@ version = "1"
 [dependencies.once_cell]
 optional = true
 version = "1"
-
-[package.metadata.workspaces]
-independent = true
