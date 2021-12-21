@@ -8,7 +8,7 @@ fn get_buffer() -> Buffer {
 #[napi]
 fn append_buffer(buf: Buffer) -> Buffer {
   let mut buf = Vec::<u8>::from(buf);
-  buf.push(b'!' as u8);
+  buf.push(b'!');
   buf.into()
 }
 

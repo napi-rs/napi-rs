@@ -25,10 +25,11 @@ napi6 = ["napi5", "napi-sys/napi6"]
 napi7 = ["napi6", "napi-sys/napi7"]
 napi8 = ["napi7", "napi-sys/napi8"]
 serde-json = ["serde", "serde_json"]
-tokio_rt = ["tokio", "once_cell", "napi4"]
+tokio_rt = ["tokio", "napi4"]
 
 [dependencies]
 ctor = "0.1"
+lazy_static = "1"
 napi-sys = {version = "2.1.0", path = "../sys"}
 
 [target.'cfg(windows)'.dependencies]
@@ -40,10 +41,6 @@ version = "0.8"
 
 [dependencies.tokio]
 features = ["rt", "rt-multi-thread", "sync"]
-optional = true
-version = "1"
-
-[dependencies.once_cell]
 optional = true
 version = "1"
 
