@@ -1,35 +1,52 @@
-use std::{ffi::c_void, future::Future, ptr};
+use std::ffi::c_void;
+use std::future::Future;
+use std::ptr;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use lazy_static::lazy_static;
+use tokio::{
+  runtime::Handle,
+  sync::mpsc::{self, error::TrySendError},
+};
 
 use crate::{check_status, promise, sys, Result};
-use once_cell::sync::Lazy;
-use tokio::{runtime::Handle, sync::mpsc};
 
-static RT: Lazy<(Handle, mpsc::Sender<()>)> = Lazy::new(|| {
-  let runtime = tokio::runtime::Runtime::new();
-  let (sender, mut receiver) = mpsc::channel::<()>(1);
-  runtime
-    .map(|rt| {
-      let h = rt.handle();
-      let handle = h.clone();
-      handle.spawn(async move {
-        if receiver.recv().await.is_some() {
-          rt.shutdown_background();
-        }
-      });
+lazy_static! {
+  pub(crate) static ref RT: (Handle, mpsc::Sender<()>) = {
+    let runtime = tokio::runtime::Runtime::new();
+    let (sender, mut receiver) = mpsc::channel::<()>(1);
+    runtime
+      .map(|rt| {
+        let h = rt.handle();
+        let handle = h.clone();
+        handle.spawn(async move {
+          if receiver.recv().await.is_some() {
+            rt.shutdown_background();
+          }
+        });
 
-      (handle, sender)
-    })
-    .expect("Create tokio runtime failed")
-});
+        (handle, sender)
+      })
+      .expect("Create tokio runtime failed")
+  };
+}
+
+pub(crate) static TOKIO_RT_REF_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 #[doc(hidden)]
 #[inline(never)]
 pub extern "C" fn shutdown_tokio_rt(_arg: *mut c_void) {
-  let sender = &RT.1;
-  sender
-    .clone()
-    .try_send(())
-    .expect("Shutdown tokio runtime failed");
+  if TOKIO_RT_REF_COUNT.fetch_sub(1, Ordering::Relaxed) == 0 {
+    let sender = &RT.1;
+    if let Err(e) = sender.clone().try_send(()) {
+      match e {
+        TrySendError::Closed(_) => {}
+        TrySendError::Full(_) => {
+          panic!("Send shutdown signal to tokio runtime failed, queue is full");
+        }
+      }
+    }
+  }
 }
 
 pub fn spawn<F>(fut: F)
