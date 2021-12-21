@@ -2,4 +2,6 @@ const { parentPort } = require('worker_threads')
 
 const native = require('../index')
 
-parentPort.postMessage(native.DEFAULT_COST)
+parentPort.postMessage(
+  native.Animal.withKind(native.Kind.Cat).whoami() + native.DEFAULT_COST,
+)
