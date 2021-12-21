@@ -3,6 +3,17 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.1.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.0.0...@napi-rs/cli@2.1.0) (2021-12-21)
+
+### Bug Fixes
+
+- **cli:** disable js binding generation if no --platform flag ([f577512](https://github.com/napi-rs/napi-rs/commit/f577512952b0409ab76422ce539872af16a98d77))
+- keep .d.ts and .js untouched if native doesn't change ([09c7df3](https://github.com/napi-rs/napi-rs/commit/09c7df3c5ce612736011079ddaffa5701522d811))
+
+### Features
+
+- **napi:** add ts typegen skip ([df9dc91](https://github.com/napi-rs/napi-rs/commit/df9dc91562e648b21eaa97bae9f2c9354ed1b976))
+
 # [2.0.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.0.0-beta.5...@napi-rs/cli@2.0.0) (2021-12-17)
 
 **Note:** Version bump only for package @napi-rs/cli
