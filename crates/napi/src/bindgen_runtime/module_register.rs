@@ -238,11 +238,13 @@ unsafe extern "C" fn napi_register_module_v1(
   });
 
   #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
-  if let Err(e) = check_status!(
-    sys::napi_add_env_cleanup_hook(env, Some(crate::shutdown_tokio_rt), ptr::null_mut()),
-    "Failed to initialize module",
-  ) {
-    JsError::from(e).throw_into(env);
+  {
+    let _ = crate::tokio_runtime::RT.clone();
+    crate::tokio_runtime::TOKIO_RT_REF_COUNT.fetch_add(1, Ordering::Relaxed);
+    assert_eq!(
+      sys::napi_add_env_cleanup_hook(env, Some(crate::shutdown_tokio_rt), ptr::null_mut()),
+      sys::Status::napi_ok
+    );
   }
 
   exports
