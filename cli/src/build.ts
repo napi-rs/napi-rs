@@ -199,7 +199,7 @@ export class BuildCommand extends Command {
 
       if (!tomlContent.lib?.['crate-type']?.includes?.('cdylib')) {
         throw new TypeError(
-          `Missing ${chalk.green('create-type = ["cdylib"]')} in ${chalk.green(
+          `Missing ${chalk.green('crate-type = ["cdylib"]')} in ${chalk.green(
             '[lib]',
           )}`,
         )
