@@ -88,8 +88,11 @@ unsafe impl<K, V> Sync for PersistedSingleThreadHashMap<K, V> {}
 lazy_static! {
   static ref MODULE_REGISTER_CALLBACK: ModuleRegisterCallback = Default::default();
   static ref MODULE_CLASS_PROPERTIES: ModuleClassProperty = Default::default();
-  // compatibility for #[module_exports]
-  #[cfg(feature = "compat-mode")]
+}
+
+#[cfg(feature = "compat-mode")]
+// compatibility for #[module_exports]
+lazy_static! {
   static ref MODULE_EXPORTS: PersistedSingleThreadVec<ModuleExportsCallback> = Default::default();
 }
 
