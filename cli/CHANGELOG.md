@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.2.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.1.0...@napi-rs/cli@2.2.0) (2021-12-22)
+
+### Features
+
+- **cli:** provide a way to override the native package name ([046f75d](https://github.com/napi-rs/napi-rs/commit/046f75dc29f8ea2319311006b2743749427d7ed4))
+
 # [2.1.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.0.0...@napi-rs/cli@2.1.0) (2021-12-21)
 
 ### Bug Fixes
