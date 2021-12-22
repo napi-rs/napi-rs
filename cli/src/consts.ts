@@ -18,10 +18,10 @@ export function getNapiConfig(
   const platforms = [...defaultPlatforms, ...additionPlatforms]
   const releaseVersion = process.env.RELEASE_VERSION
   const releaseVersionWithoutPrefix = releaseVersion?.startsWith('v')
-    ? releaseVersion.substr(1)
+    ? releaseVersion.substring(1)
     : releaseVersion
   const version = releaseVersionWithoutPrefix ?? packageVersion
-  const packageName = name
+  const packageName = napi?.package?.name ?? name
 
   const binaryName: string = napi?.name ?? 'index'
 

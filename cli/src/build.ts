@@ -79,6 +79,13 @@ export class BuildCommand extends Command {
     )} to disable it. Only affect if ${chalk.green('--target')} specified.`,
   })
 
+  jsPackageName = Option.String('--js-package-name', {
+    description: `Package name in generated js binding file, Only affect if ${chalk.green(
+      '--target',
+    )} specified and ${chalk.green('--js')} is not false.`,
+    required: false,
+  })
+
   cargoCwd?: string = Option.String('--cargo-cwd', {
     description: `The cwd of ${chalk.underline(
       chalk.yellow('Cargo.toml'),
@@ -304,7 +311,12 @@ export class BuildCommand extends Command {
       this.appendPlatformToFilename
         ? join(process.cwd(), this.jsBinding)
         : null
-    await writeJsBinding(binaryName, packageName, jsBindingFilePath, idents)
+    await writeJsBinding(
+      binaryName,
+      this.jsPackageName ?? packageName,
+      jsBindingFilePath,
+      idents,
+    )
     if (this.pipe && jsBindingFilePath) {
       const pipeCommand = `${this.pipe} ${jsBindingFilePath}`
       console.info(`Run ${chalk.green(pipeCommand)}`)
