@@ -36,7 +36,7 @@ export class BuildCommand extends Command {
   })
 
   isRelease = Option.Boolean(`--release`, false, {
-    description: `Bypass to ${chalk.green('cargo --release')}`,
+    description: `Bypass to ${chalk.green('cargo build --release')}`,
   })
 
   configFileName?: string = Option.String('--config,-c', {
@@ -52,11 +52,11 @@ export class BuildCommand extends Command {
   })
 
   targetTripleDir = Option.String('--target', process.env.RUST_TARGET ?? '', {
-    description: `Bypass to ${chalk.green('cargo --target')}`,
+    description: `Bypass to ${chalk.green('cargo build --target')}`,
   })
 
   features?: string = Option.String('--features', {
-    description: `Bypass to ${chalk.green('cargo --features')}`,
+    description: `Bypass to ${chalk.green('cargo build --features')}`,
   })
 
   dts?: string = Option.String('--dts', 'index.d.ts', {
@@ -70,13 +70,13 @@ export class BuildCommand extends Command {
   })
 
   cargoFlags = Option.String('--cargo-flags', '', {
-    description: `All the others flag passed to ${chalk.yellow('cargo')}`,
+    description: `All the others flag passed to ${chalk.yellow('cargo build')}`,
   })
 
   jsBinding = Option.String('--js', 'index.js', {
     description: `Path to the JS binding file, pass ${chalk.underline(
       chalk.yellow('false'),
-    )} to disable it. Only affect if ${chalk.green('--target')} specified.`,
+    )} to disable it. Only affect if ${chalk.green('--target')} is specified.`,
   })
 
   jsPackageName = Option.String('--js-package-name', {
