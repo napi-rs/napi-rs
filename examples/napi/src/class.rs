@@ -60,6 +60,18 @@ impl Animal {
   pub fn get_dog_kind() -> Kind {
     Kind::Dog
   }
+
+  #[napi]
+  pub fn return_other_class(&self) -> Dog {
+    Dog {
+      name: "Doge".to_owned(),
+    }
+  }
+}
+
+#[napi(constructor)]
+pub struct Dog {
+  pub name: String,
 }
 
 /// Smoking test for type generation

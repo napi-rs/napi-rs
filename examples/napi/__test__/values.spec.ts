@@ -69,6 +69,7 @@ import {
   appendBuffer,
   returnNull,
   returnUndefined,
+  Dog,
 } from '../'
 
 test('export const', (t) => {
@@ -125,6 +126,7 @@ test('class', (t) => {
 
   dog.name = '可乐'
   t.is(dog.name, '可乐')
+  t.deepEqual(dog.returnOtherClass(), new Dog('Doge'))
 })
 
 test('class factory', (t) => {

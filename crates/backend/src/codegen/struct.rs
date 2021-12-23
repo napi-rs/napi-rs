@@ -163,7 +163,7 @@ impl NapiStruct {
 
   fn gen_to_napi_value_ctor_impl(&self) -> TokenStream {
     let name = &self.name;
-    let js_name_str = &self.js_name;
+    let js_name_str = format!("{}\0", &self.js_name);
 
     let mut field_conversions = vec![];
     let mut field_destructions = vec![];
