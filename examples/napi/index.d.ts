@@ -134,6 +134,11 @@ export class Animal {
   whoami(): string
   /** This is static... */
   static getDogKind(): Kind
+  returnOtherClass(): Dog
+}
+export class Dog {
+  name: string
+  constructor(name: string)
 }
 /** Smoking test for type generation */
 export class Blake2BHasher {
