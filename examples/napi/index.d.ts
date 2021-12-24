@@ -144,6 +144,7 @@ export class Dog {
 export class Bird {
   name: string
   constructor(name: string)
+  getCount(): number
 }
 /** Smoking test for type generation */
 export class Blake2BHasher {
