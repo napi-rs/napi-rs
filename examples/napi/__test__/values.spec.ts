@@ -129,6 +129,7 @@ test('class', (t) => {
   t.is(dog.name, '可乐')
   t.deepEqual(dog.returnOtherClass(), new Dog('Doge'))
   t.deepEqual(dog.returnOtherClassWithCustomConstructor(), new Bird('parrot'))
+  t.is(dog.returnOtherClassWithCustomConstructor().getCount(), 1234)
 })
 
 test('class factory', (t) => {

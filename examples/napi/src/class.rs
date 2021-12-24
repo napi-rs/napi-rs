@@ -90,6 +90,11 @@ impl Bird {
   pub fn new(name: String) -> Self {
     Bird { name }
   }
+
+  #[napi]
+  pub fn get_count(&self) -> u32 {
+    1234
+  }
 }
 
 /// Smoking test for type generation

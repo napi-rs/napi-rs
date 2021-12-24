@@ -170,25 +170,37 @@ impl NapiStruct {
     quote! {
       impl napi::bindgen_prelude::ToNapiValue for #name {
         unsafe fn to_napi_value(
-          env: napi::bindgen_prelude::sys::napi_env, val: #name
-        ) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
+          env: napi::sys::napi_env, val: #name
+        ) -> napi::Result<napi::bindgen_prelude::sys::napi_value> {
           if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name_str) {
             let mut ctor = std::ptr::null_mut();
 
-            napi::bindgen_prelude::check_status!(
-              napi::bindgen_prelude::sys::napi_get_reference_value(env, ctor_ref, &mut ctor),
+            napi::check_status!(
+              napi::sys::napi_get_reference_value(env, ctor_ref, &mut ctor),
               "Failed to get constructor of class `{}`",
               #js_name_str
             )?;
 
             let mut result = std::ptr::null_mut();
             napi::bindgen_prelude::___CALL_FROM_FACTORY.store(true, std::sync::atomic::Ordering::Relaxed);
-            napi::bindgen_prelude::check_status!(
-              napi::bindgen_prelude::sys::napi_new_instance(env, ctor, 0, std::ptr::null_mut(), &mut result),
+            napi::check_status!(
+              napi::sys::napi_new_instance(env, ctor, 0, std::ptr::null_mut(), &mut result),
               "Failed to construct class `{}`",
               #js_name_str
             )?;
             napi::bindgen_prelude::___CALL_FROM_FACTORY.store(false, std::sync::atomic::Ordering::Relaxed);
+            napi::check_status!(
+              napi::sys::napi_wrap(
+                env,
+                result,
+                Box::into_raw(Box::new(val)) as *mut std::ffi::c_void,
+                Some(napi::bindgen_prelude::raw_finalize_unchecked::<#name>),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+              ),
+              "Failed to wrap native object of class `{}`",
+              #js_name_str
+            )?;
             Ok(result)
           } else {
             Err(napi::bindgen_prelude::Error::new(
