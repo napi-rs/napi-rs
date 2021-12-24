@@ -1,3 +1,5 @@
+import { platform } from 'os'
+
 import test from 'ava'
 
 import { parseTriple, getDefaultTargetTriple } from '../parse-triple'
@@ -93,6 +95,26 @@ const triples = [
       raw: 'armv7-unknown-linux-gnueabihf',
     } as const,
   },
+  {
+    name: 'aarch64-linux-android',
+    expected: {
+      abi: null,
+      arch: 'arm64',
+      platform: 'android',
+      platformArchABI: 'android-arm64',
+      raw: 'aarch64-linux-android',
+    },
+  } as const,
+  {
+    name: 'armv7-linux-androideabi',
+    expected: {
+      abi: 'eabi',
+      arch: 'arm',
+      platform: 'android',
+      platformArchABI: 'android-arm-eabi',
+      raw: 'armv7-linux-androideabi',
+    },
+  } as const,
 ]
 
 for (const triple of triples) {
@@ -101,7 +123,10 @@ for (const triple of triples) {
   })
 }
 
-test('should parse default triple from rustup show active', (t) => {
+const MaybeTest =
+  process.arch !== 'x64' && platform() === 'linux' ? test.skip : test
+
+MaybeTest('should parse default triple from rustup show active', (t) => {
   t.deepEqual(
     getDefaultTargetTriple(
       `x86_64-unknown-linux-gnu (directory override for '/home/runner/work/fast-escape/fast-escape')`,

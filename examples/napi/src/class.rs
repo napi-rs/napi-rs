@@ -67,11 +67,29 @@ impl Animal {
       name: "Doge".to_owned(),
     }
   }
+
+  #[napi]
+  pub fn return_other_class_with_custom_constructor(&self) -> Bird {
+    Bird::new("parrot".to_owned())
+  }
 }
 
 #[napi(constructor)]
 pub struct Dog {
   pub name: String,
+}
+
+#[napi]
+pub struct Bird {
+  pub name: String,
+}
+
+#[napi]
+impl Bird {
+  #[napi(constructor)]
+  pub fn new(name: String) -> Self {
+    Bird { name }
+  }
 }
 
 /// Smoking test for type generation

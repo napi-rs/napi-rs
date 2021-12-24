@@ -70,6 +70,7 @@ import {
   returnNull,
   returnUndefined,
   Dog,
+  Bird,
 } from '../'
 
 test('export const', (t) => {
@@ -127,6 +128,7 @@ test('class', (t) => {
   dog.name = '可乐'
   t.is(dog.name, '可乐')
   t.deepEqual(dog.returnOtherClass(), new Dog('Doge'))
+  t.deepEqual(dog.returnOtherClassWithCustomConstructor(), new Bird('parrot'))
 })
 
 test('class factory', (t) => {

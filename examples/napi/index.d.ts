@@ -135,8 +135,13 @@ export class Animal {
   /** This is static... */
   static getDogKind(): Kind
   returnOtherClass(): Dog
+  returnOtherClassWithCustomConstructor(): Bird
 }
 export class Dog {
+  name: string
+  constructor(name: string)
+}
+export class Bird {
   name: string
   constructor(name: string)
 }
