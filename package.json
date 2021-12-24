@@ -15,8 +15,8 @@
   },
   "license": "MIT",
   "scripts": {
-    "bench": "cross-env TS_NODE_PROJECT='./bench/tsconfig.json' node -r ts-node/register/transpile-only bench/bench.ts",
-    "build": "tsc -p tsconfig.json -m esnext && yarn bundle && shx chmod 777 cli/scripts/index.js && node -r ts-node/register/transpile-only ./generate-triple-list.ts",
+    "bench": "cross-env TS_NODE_PROJECT='./bench/tsconfig.json' node -r @swc-node/register bench/bench.ts",
+    "build": "tsc -p tsconfig.json -m esnext && yarn bundle && shx chmod 777 cli/scripts/index.js && cross-env TS_NODE_PROJECT=tsconfig.test.json node -r @swc-node/register ./generate-triple-list.ts",
     "build:bench": "yarn --cwd ./bench build",
     "build:memory": "yarn --cwd ./memory-testing build",
     "build:test": "yarn --cwd ./examples/napi-compat-mode build && yarn --cwd ./examples/napi build",
@@ -62,6 +62,7 @@
     "@rollup/plugin-json": "^4.1.0",
     "@rollup/plugin-node-resolve": "^13.1.1",
     "@rollup/plugin-replace": "^3.0.0",
+    "@swc-node/register": "^1.4.2",
     "@types/debug": "^4.1.7",
     "@types/lodash-es": "^4.17.5",
     "@types/node": "^17.0.1",
@@ -87,7 +88,6 @@
     "shx": "^0.3.3",
     "sinon": "^12.0.1",
     "source-map-support": "^0.5.21",
-    "ts-node": "^10.4.0",
     "tslib": "^2.3.1",
     "typescript": "^4.5.4"
   }

@@ -1,9 +1,9 @@
 const configuration = {
   extensions: ['ts', 'tsx'],
   files: ['cli/**/*.spec.ts', 'examples/**/__test__/**/*.spec.ts'],
-  require: ['ts-node/register/transpile-only'],
+  require: ['@swc-node/register'],
   environmentVariables: {
-    TS_NODE_PROJECT: './examples/tsconfig.json',
+    SWC_NODE_PROJECT: 'tsconfig.test.json',
   },
   timeout: '1m',
 }
