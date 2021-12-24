@@ -130,6 +130,8 @@ impl NapiEnum {
     let js_mod_ident = js_mod_to_token_stream(self.js_mod.as_ref());
 
     quote! {
+      #[allow(non_snake_case)]
+      #[allow(clippy::all)]
       unsafe fn #callback_name(env: napi::bindgen_prelude::sys::napi_env) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
         use std::ffi::CString;
         use std::ptr;
