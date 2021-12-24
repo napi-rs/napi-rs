@@ -1,6 +1,6 @@
 const configuration = {
   extensions: ['ts', 'tsx'],
-  files: ['examples/**/__test__/**/*.spec.ts'],
+  files: ['cli/**/*.spec.ts', 'examples/**/__test__/**/*.spec.ts'],
   require: ['ts-node/register/transpile-only'],
   environmentVariables: {
     TS_NODE_PROJECT: './examples/tsconfig.json',

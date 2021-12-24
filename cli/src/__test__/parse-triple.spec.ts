@@ -93,6 +93,26 @@ const triples = [
       raw: 'armv7-unknown-linux-gnueabihf',
     } as const,
   },
+  {
+    name: 'aarch64-linux-android',
+    expected: {
+      abi: null,
+      arch: 'arm64',
+      platform: 'android',
+      platformArchABI: 'android-arm64',
+      raw: 'aarch64-linux-android',
+    },
+  } as const,
+  {
+    name: 'armv7-linux-androideabi',
+    expected: {
+      abi: 'eabi',
+      arch: 'arm',
+      platform: 'android',
+      platformArchABI: 'android-arm-eabi',
+      raw: 'armv7-linux-androideabi',
+    },
+  } as const,
 ]
 
 for (const triple of triples) {
