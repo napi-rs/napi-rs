@@ -306,6 +306,8 @@ impl NapiFn {
         Span::call_site(),
       );
       quote! {
+        #[allow(non_snake_case)]
+        #[allow(clippy::all)]
         unsafe fn #cb_name(env: napi::bindgen_prelude::sys::napi_env) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
           let mut fn_ptr = std::ptr::null_mut();
 
