@@ -153,11 +153,50 @@ impl NapiStruct {
 
   fn gen_napi_value_map_impl(&self) -> TokenStream {
     match self.kind {
-      NapiStructKind::None => gen_napi_value_map_impl(&self.name, quote! {}),
+      NapiStructKind::None => gen_napi_value_map_impl(
+        &self.name,
+        self.gen_to_napi_value_ctor_impl_for_non_default_constructor_struct(),
+      ),
       NapiStructKind::Constructor => {
         gen_napi_value_map_impl(&self.name, self.gen_to_napi_value_ctor_impl())
       }
       NapiStructKind::Object => self.gen_to_napi_value_obj_impl(),
+    }
+  }
+
+  fn gen_to_napi_value_ctor_impl_for_non_default_constructor_struct(&self) -> TokenStream {
+    let name = &self.name;
+    let js_name_str = format!("{}\0", &self.js_name);
+    quote! {
+      impl napi::bindgen_prelude::ToNapiValue for #name {
+        unsafe fn to_napi_value(
+          env: napi::bindgen_prelude::sys::napi_env, val: #name
+        ) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
+          if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name_str) {
+            let mut ctor = std::ptr::null_mut();
+
+            napi::bindgen_prelude::check_status!(
+              napi::bindgen_prelude::sys::napi_get_reference_value(env, ctor_ref, &mut ctor),
+              "Failed to get constructor of class `{}`",
+              #js_name_str
+            )?;
+
+            let mut result = std::ptr::null_mut();
+            napi::bindgen_prelude::___CALL_FROM_FACTORY.store(true, std::sync::atomic::Ordering::Relaxed);
+            napi::bindgen_prelude::check_status!(
+              napi::bindgen_prelude::sys::napi_new_instance(env, ctor, 0, std::ptr::null_mut(), &mut result),
+              "Failed to construct class `{}`",
+              #js_name_str
+            )?;
+            napi::bindgen_prelude::___CALL_FROM_FACTORY.store(false, std::sync::atomic::Ordering::Relaxed);
+            Ok(result)
+          } else {
+            Err(napi::bindgen_prelude::Error::new(
+              napi::bindgen_prelude::Status::InvalidArg, format!("Failed to get constructor of class `{}`", #js_name_str))
+            )
+          }
+        }
+      }
     }
   }
 
