@@ -47,10 +47,9 @@ impl TryToTokens for NapiFn {
       quote! { #native_call }
     } else if self.kind == FnKind::Constructor {
       quote! {
-        let call_from_factory = napi::bindgen_prelude::___CALL_FROM_FACTORY.load(std::sync::atomic::Ordering::Relaxed);
         // constructor function is called from class `factory`
         // so we should skip the original `constructor` logic
-        if call_from_factory {
+        if napi::bindgen_prelude::___CALL_FROM_FACTORY.load(std::sync::atomic::Ordering::Relaxed) {
           return std::ptr::null_mut();
         }
         napi::bindgen_prelude::CallbackInfo::<#args_len>::new(env, cb, None).and_then(|mut cb| {

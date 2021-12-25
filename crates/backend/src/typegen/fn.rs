@@ -29,6 +29,7 @@ impl ToTypeDef for NapiFn {
     Some(TypeDef {
       kind: "fn".to_owned(),
       name: self.js_name.clone(),
+      original_name: None,
       def,
       js_mod: self.js_mod.to_owned(),
       js_doc: js_doc_from_comments(&self.comments),

@@ -202,3 +202,35 @@ impl NinjaTurtle {
     self.name.as_str()
   }
 }
+
+#[napi(js_name = "Assets")]
+pub struct JsAssets {}
+
+#[napi]
+impl JsAssets {
+  #[napi(constructor)]
+  pub fn new() -> Self {
+    JsAssets {}
+  }
+
+  #[napi]
+  pub fn get(&mut self, _id: u32) -> Option<JsAsset> {
+    Some(JsAsset {})
+  }
+}
+
+#[napi(js_name = "Asset")]
+pub struct JsAsset {}
+
+#[napi]
+impl JsAsset {
+  #[napi(constructor)]
+  pub fn new() -> Self {
+    Self {}
+  }
+
+  #[napi(getter)]
+  pub fn get_file_path(&self) -> u32 {
+    return 1;
+  }
+}

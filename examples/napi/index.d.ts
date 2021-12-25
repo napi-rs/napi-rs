@@ -146,10 +146,12 @@ export class Bird {
   constructor(name: string)
   getCount(): number
 }
+export type Blake2bHasher = Blake2BHasher
 /** Smoking test for type generation */
 export class Blake2BHasher {
   static withKey(key: Blake2bKey): Blake2BHasher
 }
+export type Blake2bKey = Blake2BKey
 export class Blake2BKey { }
 export class Context {
   maybeNeed?: boolean | undefined | null
@@ -168,6 +170,16 @@ export class NinjaTurtle {
   static newRaph(): NinjaTurtle
   getMaskColor(): string
   getName(): string
+}
+export type JsAssets = Assets
+export class Assets {
+  constructor()
+  get(id: number): JsAsset | undefined | null
+}
+export type JsAsset = Asset
+export class Asset {
+  constructor()
+  get filePath(): number
 }
 export class ClassWithFactory {
   name: string

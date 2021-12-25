@@ -348,6 +348,7 @@ async function findUp(dir = process.cwd()): Promise<string | null> {
 interface TypeDef {
   kind: 'fn' | 'struct' | 'impl' | 'enum' | 'interface'
   name: string
+  original_name?: string
   def: string
   js_mod?: string
   js_doc: string
@@ -388,7 +389,10 @@ export class ExternalObject<T> {
   const allDefs = lines.map((line) => JSON.parse(line) as TypeDef)
 
   function convertDefs(defs: TypeDef[], nested = false): string {
-    const classes = new Map<string, { def: string; js_doc: string }>()
+    const classes = new Map<
+      string,
+      { def: string; js_doc: string; original_name?: string }
+    >()
     const impls = new Map<string, string>()
     let dts = ''
     const nest = nested ? 2 : 0
@@ -399,7 +403,11 @@ export class ExternalObject<T> {
           if (!nested) {
             idents.push(def.name)
           }
-          classes.set(def.name, { def: def.def, js_doc: def.js_doc })
+          classes.set(def.name, {
+            original_name: def.original_name,
+            def: def.def,
+            js_doc: def.js_doc,
+          })
           break
         case 'impl':
           impls.set(def.name, `${def.js_doc}${def.def}`)
@@ -429,8 +437,12 @@ export class ExternalObject<T> {
       }
     })
 
-    for (const [name, { js_doc, def }] of classes.entries()) {
+    for (const [name, { js_doc, def, original_name }] of classes.entries()) {
       const implDef = impls.get(name)
+
+      if (original_name && name !== original_name) {
+        dts += indentLines(`export type ${original_name} = ${name}\n`, nest)
+      }
 
       dts += indentLines(`${js_doc}export class ${name} {`, nest)
 

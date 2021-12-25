@@ -188,7 +188,6 @@ impl NapiStruct {
               "Failed to construct class `{}`",
               #js_name_str
             )?;
-            napi::bindgen_prelude::___CALL_FROM_FACTORY.store(false, std::sync::atomic::Ordering::Relaxed);
             napi::check_status!(
               napi::sys::napi_wrap(
                 env,
@@ -201,6 +200,7 @@ impl NapiStruct {
               "Failed to wrap native object of class `{}`",
               #js_name_str
             )?;
+            napi::bindgen_prelude::___CALL_FROM_FACTORY.store(false, std::sync::atomic::Ordering::Relaxed);
             Ok(result)
           } else {
             Err(napi::bindgen_prelude::Error::new(

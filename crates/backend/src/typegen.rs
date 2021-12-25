@@ -12,6 +12,7 @@ use syn::Type;
 pub struct TypeDef {
   pub kind: String,
   pub name: String,
+  pub original_name: Option<String>,
   pub def: String,
   pub js_mod: Option<String>,
   pub js_doc: String,
@@ -78,12 +79,18 @@ impl ToString for TypeDef {
     } else {
       "".to_owned()
     };
+    let original_name = if let Some(original_name) = &self.original_name {
+      format!(", \"original_name\": \"{}\"", original_name)
+    } else {
+      "".to_owned()
+    };
     format!(
-      r#"{{"kind": "{}", "name": "{}", "js_doc": "{}", "def": "{}"{}}}"#,
+      r#"{{"kind": "{}", "name": "{}", "js_doc": "{}", "def": "{}"{}{}}}"#,
       self.kind,
       self.name,
       escape_json(&self.js_doc),
       escape_json(&self.def),
+      original_name,
       js_mod,
     )
   }

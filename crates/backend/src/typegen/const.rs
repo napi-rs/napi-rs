@@ -13,6 +13,7 @@ impl ToTypeDef for NapiConst {
     Some(TypeDef {
       kind: "const".to_owned(),
       name: self.js_name.to_owned(),
+      original_name: Some(self.name.to_string()),
       def: format!(
         "export const {}: {}",
         &self.js_name,
