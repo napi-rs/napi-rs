@@ -71,6 +71,7 @@ import {
   returnUndefined,
   Dog,
   Bird,
+  Assets,
 } from '../'
 
 test('export const', (t) => {
@@ -130,6 +131,8 @@ test('class', (t) => {
   t.deepEqual(dog.returnOtherClass(), new Dog('Doge'))
   t.deepEqual(dog.returnOtherClassWithCustomConstructor(), new Bird('parrot'))
   t.is(dog.returnOtherClassWithCustomConstructor().getCount(), 1234)
+  const assets = new Assets()
+  t.is(assets.get(1)?.filePath, 1)
 })
 
 test('class factory', (t) => {

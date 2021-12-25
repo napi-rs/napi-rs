@@ -27,5 +27,5 @@
     "lib": ["dom", "DOM.Iterable", "ES2019", "ES2020", "esnext"]
   },
   "include": ["."],
-  "exclude": ["node_modules", "bench", "cli/scripts", "scripts"]
+  "exclude": ["node_modules", "bench", "cli/scripts", "scripts", "examples"]
 }

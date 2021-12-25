@@ -24,6 +24,7 @@ impl ToTypeDef for NapiStruct {
         "struct"
       }),
       name: self.js_name.to_owned(),
+      original_name: Some(self.name.to_string()),
       def: self.gen_ts_class(),
       js_mod: self.js_mod.to_owned(),
       js_doc: js_doc_from_comments(&self.comments),
@@ -43,6 +44,7 @@ impl ToTypeDef for NapiImpl {
     Some(TypeDef {
       kind: "impl".to_owned(),
       name: self.js_name.to_owned(),
+      original_name: None,
       def: self
         .items
         .iter()

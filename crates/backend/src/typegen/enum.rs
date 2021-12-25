@@ -12,6 +12,7 @@ impl ToTypeDef for NapiEnum {
     Some(TypeDef {
       kind: "enum".to_owned(),
       name: self.js_name.to_owned(),
+      original_name: Some(self.name.to_string()),
       def: self.gen_ts_variants(),
       js_doc: js_doc_from_comments(&self.comments),
       js_mod: self.js_mod.to_owned(),
