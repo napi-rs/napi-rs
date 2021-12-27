@@ -147,7 +147,7 @@ export class PrePublishCommand extends Command {
         .split('\n')
         .map((line) => line.trim())
         .filter((line, index) => line.length && index)
-        .map((line) => line.substr(2))
+        .map((line) => line.substring(2))
         .map(this.parseTag)
       pkgInfo = packagesToPublish.find(
         (pkgInfo) => pkgInfo.name === packageName,
