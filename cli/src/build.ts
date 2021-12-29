@@ -1,16 +1,17 @@
 import { execSync } from 'child_process'
-import { existsSync } from 'fs'
+import { existsSync, mkdirSync, writeFileSync } from 'fs'
 import { join, parse, sep } from 'path'
 
 import { Instance } from 'chalk'
 import { Command, Option } from 'clipanion'
+import envPaths from 'env-paths'
 import { groupBy } from 'lodash-es'
 import toml from 'toml'
 
 import { getNapiConfig } from './consts'
 import { debugFactory } from './debug'
 import { createJsBinding } from './js-binding-template'
-import { getDefaultTargetTriple, parseTriple } from './parse-triple'
+import { getCpuArch, getDefaultTargetTriple, parseTriple } from './parse-triple'
 import {
   copyFileAsync,
   mkdirAsync,
@@ -117,6 +118,10 @@ export class BuildCommand extends Command {
     required: false,
   })
 
+  useZig = Option.Boolean(`--zig`, false, {
+    description: `Use ${chalk.green('zig')} as linker`,
+  })
+
   async execute() {
     const cwd = this.cargoCwd
       ? join(process.cwd(), this.cargoCwd)
@@ -160,6 +165,26 @@ export class BuildCommand extends Command {
         CARGO_PROFILE_RELEASE_LTO: false,
       })
     }
+
+    if (this.useZig && triple.platform === 'linux') {
+      const paths = envPaths('napi-rs')
+      const cpuArch = getCpuArch(triple.arch)
+      const linkerWrapper = join(paths.cache, `zig-cc-${triple.abi}.sh`)
+      const zigTarget = `${cpuArch}-linux-${triple.abi}`
+      mkdirSync(paths.cache, { recursive: true })
+      writeFileSync(
+        linkerWrapper,
+        `#!/bin/bash\nzig cc \${@/-lgcc_s/-lunwind} -target ${zigTarget}\n`,
+        { mode: 0o700 },
+      )
+      const envTarget = triple.raw.replaceAll('-', '_').toUpperCase()
+      Object.assign(additionalEnv, {
+        TARGET_CC: linkerWrapper,
+        TARGET_CXX: `zig c++ -target ${zigTarget}`,
+      })
+      additionalEnv[`CARGO_TARGET_${envTarget}_LINKER`] = linkerWrapper
+    }
+
     execSync(cargoCommand, {
       env: {
         ...process.env,
