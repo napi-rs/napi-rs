@@ -166,6 +166,14 @@ export class BuildCommand extends Command {
       })
     }
 
+    if (triple.raw.includes('musl')) {
+      let rustflags = process.env.RUSTFLAGS ?? ''
+      if (!rustflags.includes('target-feature=-crt-static')) {
+        rustflags += '-C target-feature=-crt-static'
+        additionalEnv['RUSTFLAGS'] = rustflags
+      }
+    }
+
     if (this.useZig && triple.platform === 'linux') {
       const paths = envPaths('napi-rs')
       const cpuArch = getCpuArch(triple.arch)
