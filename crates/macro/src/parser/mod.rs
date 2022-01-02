@@ -15,6 +15,7 @@ use napi_derive_backend::{
 };
 use proc_macro2::{Ident, TokenStream, TokenTree};
 use quote::ToTokens;
+use syn::ext::IdentExt;
 use syn::parse::{Parse, ParseStream, Result as SynResult};
 use syn::{Attribute, Signature, Type, Visibility};
 
@@ -745,7 +746,7 @@ impl ConvertToAST for syn::ItemStruct {
       let (js_name, name) = match &field.ident {
         Some(ident) => (
           field_opts.js_name().map_or_else(
-            || ident.to_string().to_case(Case::Camel),
+            || ident.unraw().to_string().to_case(Case::Camel),
             |(js_name, _)| js_name.to_owned(),
           ),
           syn::Member::Named(ident.clone()),
