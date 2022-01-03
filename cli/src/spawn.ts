@@ -11,7 +11,7 @@ export function spawn(
   const [cmd, ...args] = command.split(' ').map((s) => s.trim())
   debug(`execute ${cmd} ${args.join(' ')}`)
   return new Promise((resolve, reject) => {
-    const spawnStream = _spawn(cmd, args, { ...options, shell: 'bash' })
+    const spawnStream = _spawn(cmd, args, { ...options, shell: true })
     const chunks: Buffer[] = []
     process.stdin.pipe(spawnStream.stdin)
     spawnStream.stdout?.on('data', (chunk) => {
