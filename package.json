@@ -67,7 +67,7 @@
     "@types/node": "^17.0.7",
     "@types/sinon": "^10.0.6",
     "@typescript-eslint/eslint-plugin": "^5.9.0",
-    "@typescript-eslint/parser": "^5.8.1",
+    "@typescript-eslint/parser": "^5.9.0",
     "ava": "^3.15.0",
     "benny": "^3.7.1",
     "c8": "^7.11.0",
