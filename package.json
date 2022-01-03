@@ -70,7 +70,7 @@
     "@typescript-eslint/parser": "^5.8.1",
     "ava": "^3.15.0",
     "benny": "^3.7.1",
-    "c8": "^7.10.0",
+    "c8": "^7.11.0",
     "chalk": "4",
     "cross-env": "^7.0.3",
     "esbuild": "^0.14.8",
