@@ -61,7 +61,7 @@
     "@rollup/plugin-commonjs": "^21.0.1",
     "@rollup/plugin-json": "^4.1.0",
     "@rollup/plugin-node-resolve": "^13.1.2",
-    "@rollup/plugin-replace": "^3.0.0",
+    "@rollup/plugin-replace": "^3.0.1",
     "@types/debug": "^4.1.7",
     "@types/lodash-es": "^4.17.5",
     "@types/node": "^17.0.7",
