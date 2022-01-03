@@ -64,7 +64,7 @@
     "@rollup/plugin-replace": "^3.0.0",
     "@types/debug": "^4.1.7",
     "@types/lodash-es": "^4.17.5",
-    "@types/node": "^17.0.5",
+    "@types/node": "^17.0.7",
     "@types/sinon": "^10.0.6",
     "@typescript-eslint/eslint-plugin": "^5.8.1",
     "@typescript-eslint/parser": "^5.8.1",
