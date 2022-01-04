@@ -1,5 +1,5 @@
 import { execSync } from 'child_process'
-import { existsSync, mkdirSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync } from 'fs'
 import { join, parse, sep } from 'path'
 
 import { Instance } from 'chalk'
@@ -11,7 +11,7 @@ import toml from 'toml'
 import { getNapiConfig } from './consts'
 import { debugFactory } from './debug'
 import { createJsBinding } from './js-binding-template'
-import { getCpuArch, getDefaultTargetTriple, parseTriple } from './parse-triple'
+import { getDefaultTargetTriple, parseTriple } from './parse-triple'
 import {
   copyFileAsync,
   mkdirAsync,
@@ -22,6 +22,36 @@ import {
 
 const debug = debugFactory('build')
 const chalk = new Instance({ level: 1 })
+
+const ZIG_PLATFORM_TARGET_MAP = {
+  'x86_64-unknown-linux-musl': 'x86_64-linux-musl',
+  'x86_64-unknown-linux-gnu': 'x86_64-linux-gnu',
+  // Doesn't support Windows MSVC for now
+  // 'x86_64-pc-windows-gnu': 'x86_64-windows-gnu',
+  // https://github.com/ziglang/zig/issues/1759
+  // 'x86_64-unknown-freebsd': 'x86_64-freebsd',
+  'x86_64-apple-darwin': 'x86_64-macos-gnu',
+  'aarch64-apple-darwin': 'aarch64-macos-gnu',
+  'aarch64-unknown-linux-gnu': 'aarch64-linux-gnu',
+  'aarch64-unknown-linux-musl': 'aarch64-linux-musl',
+}
+
+function processZigLinkerArgs(platform: string, args: string[]) {
+  if (platform.includes('apple')) {
+    const newArgs = args.filter(
+      (arg) =>
+        !arg.startsWith('-Wl,-exported_symbols_list') &&
+        arg !== '-Wl,-dylib' &&
+        arg !== '-liconv',
+    )
+    newArgs.push('-Wl,"-undefined=dynamic_lookup"', '-dead_strip')
+    return newArgs
+  }
+  if (platform.includes('linux')) {
+    return args.filter((arg) => arg !== '-lgcc_s' && arg !== '-lunwind')
+  }
+  return args
+}
 
 export class BuildCommand extends Command {
   static usage = Command.Usage({
@@ -119,7 +149,9 @@ export class BuildCommand extends Command {
   })
 
   useZig = Option.Boolean(`--zig`, false, {
-    description: `Use ${chalk.green('zig')} as linker`,
+    description: `Use ${chalk.green('zig')} as linker ${chalk.yellowBright(
+      '(Experimental)',
+    )}`,
   })
 
   async execute() {
@@ -127,6 +159,7 @@ export class BuildCommand extends Command {
       ? join(process.cwd(), this.cargoCwd)
       : process.cwd()
     const releaseFlag = this.isRelease ? `--release` : ''
+
     const targetFlag = this.targetTripleDir
       ? `--target ${this.targetTripleDir}`
       : ''
@@ -174,23 +207,50 @@ export class BuildCommand extends Command {
       }
     }
 
-    if (this.useZig && triple.platform === 'linux') {
+    if (this.useZig) {
+      const zigTarget = ZIG_PLATFORM_TARGET_MAP[triple.raw]
+      if (!zigTarget) {
+        throw new Error(`${triple.raw} can not be cross compiled by zig`)
+      }
       const paths = envPaths('napi-rs')
-      const cpuArch = getCpuArch(triple.arch)
-      const linkerWrapper = join(paths.cache, `zig-cc-${triple.abi}.sh`)
-      const zigTarget = `${cpuArch}-linux-${triple.abi}`
+      const linkerWrapperShell = join(
+        paths.cache,
+        `zig-cc-${triple.raw}.${process.platform === 'win32' ? 'bat' : 'sh'}`,
+      )
+      const linkerWrapper = join(paths.cache, `zig-cc-${triple.raw}.js`)
       mkdirSync(paths.cache, { recursive: true })
-      writeFileSync(
+      const forwardArgs = process.platform === 'win32' ? '%*' : '$@'
+      await writeFileAsync(
+        linkerWrapperShell,
+        `node ${linkerWrapper} ${forwardArgs}`,
+        {
+          mode: '777',
+        },
+      )
+      await writeFileAsync(
         linkerWrapper,
-        `#!/bin/bash\nzig cc \${@/-lgcc_s/-lunwind} -target ${zigTarget}\n`,
-        { mode: 0o700 },
+        `#!/usr/bin/env node\nconst{writeFileSync} = require('fs')\n${processZigLinkerArgs.toString()}\nconst {status} = require('child_process').spawnSync('zig', ['${
+          triple.platform === 'win32' ? 'c++' : 'cc'
+        }', ...processZigLinkerArgs('${
+          triple.raw
+        }', process.argv.slice(2)), '-target', '${
+          ZIG_PLATFORM_TARGET_MAP[triple.raw]
+        }'], { stdio: 'inherit', shell: true })\nwriteFileSync('${linkerWrapper.replaceAll(
+          '\\',
+          '/',
+        )}.args.log', process.argv.slice(2).join(' '))\n\nprocess.exit(status || 0)\n`,
+        {
+          mode: '777',
+        },
       )
       const envTarget = triple.raw.replaceAll('-', '_').toUpperCase()
       Object.assign(additionalEnv, {
-        TARGET_CC: linkerWrapper,
+        CC: `zig cc -target ${zigTarget}`,
+        CXX: `zig c++ -target ${zigTarget}`,
+        TARGET_CC: `zig cc -target ${zigTarget}`,
         TARGET_CXX: `zig c++ -target ${zigTarget}`,
       })
-      additionalEnv[`CARGO_TARGET_${envTarget}_LINKER`] = linkerWrapper
+      additionalEnv[`CARGO_TARGET_${envTarget}_LINKER`] = linkerWrapperShell
     }
 
     execSync(cargoCommand, {
