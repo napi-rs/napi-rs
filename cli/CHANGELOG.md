@@ -3,6 +3,16 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.2.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.2.0...@napi-rs/cli@2.2.1) (2022-01-04)
+
+### Bug Fixes
+
+- **cli:** fix crate-type hint ([894334e](https://github.com/napi-rs/napi-rs/commit/894334e8f1ba138d029cc861dfc836edc95c17d3))
+- **cli:** handle lld not found ([eb79cce](https://github.com/napi-rs/napi-rs/commit/eb79ccebbeb0f9d1a3b4f4eff5e9a7271ff6f431))
+- **cli:** shell: true instead of bash ([bc570c2](https://github.com/napi-rs/napi-rs/commit/bc570c29183f20139f8a80aa54d219cc1a590a2b))
+- **napi-derive,cli:** export type alias for original name ([556ace8](https://github.com/napi-rs/napi-rs/commit/556ace8f3302d9dd0b5aec237c3aa49caf58d7dd))
+- **napi-derive:** return instance from non-default constructor class ([e6a30ff](https://github.com/napi-rs/napi-rs/commit/e6a30ffcca38f1b6d72211931f32675a53f12dcf))
+
 # [2.2.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.1.0...@napi-rs/cli@2.2.0) (2021-12-22)
 
 ### Features
