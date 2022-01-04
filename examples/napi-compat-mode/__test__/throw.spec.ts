@@ -8,7 +8,7 @@ test('should be able to throw error from native', (t) => {
 
 test('should be able to throw error from native with reason', (t) => {
   const reason = 'Fatal'
-  t.throws(() => bindings.testThrowWithReason(reason), null, reason)
+  t.throws(() => bindings.testThrowWithReason(reason), void 0, reason)
 })
 
 test('should throw if argument type is not match', (t) => {

@@ -85,7 +85,7 @@ test('number', (t) => {
   t.throws(
     // @ts-expect-error
     () => fibonacci(''),
-    null,
+    void 0,
     'Expect value to be Number, but received String',
   )
 })
@@ -154,7 +154,7 @@ test('class factory', (t) => {
 
   const error = t.throws(() => new ClassWithFactory())
   t.true(
-    error.message.startsWith(
+    error!.message.startsWith(
       'Class contains no `constructor`, can not new it!',
     ),
   )
@@ -178,7 +178,7 @@ test('callback', (t) => {
   t.throws(
     // @ts-expect-error
     () => getCwd(),
-    null,
+    void 0,
     'Expect value to be Function, but received Undefined',
   )
 
@@ -233,7 +233,7 @@ test('Option', (t) => {
 })
 
 test('Result', (t) => {
-  t.throws(() => throwError(), null, 'Manual Error')
+  t.throws(() => throwError(), void 0, 'Manual Error')
 })
 
 test('function ts type override', (t) => {
@@ -337,7 +337,10 @@ test('external', (t) => {
   const ext2 = createExternalString('wtf')
   // @ts-expect-error
   const e = t.throws(() => getExternal(ext2))
-  t.is(e.message, 'T on `get_value_external` is not the type of wrapped object')
+  t.is(
+    e!.message,
+    'T on `get_value_external` is not the type of wrapped object',
+  )
 })
 
 const AbortSignalTest =
@@ -417,7 +420,7 @@ Napi4Test('throw error from thread safe function', async (t) => {
     threadsafeFunctionThrowError(reject)
   })
   const err = await t.throwsAsync(throwPromise)
-  t.is(err.message, 'ThrowFromNative')
+  t.is(err!.message, 'ThrowFromNative')
 })
 
 Napi4Test('resolve value from thread safe function fatal mode', async (t) => {
