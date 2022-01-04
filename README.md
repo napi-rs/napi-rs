@@ -45,12 +45,12 @@ _Main branch is now under napi@next developing. Checkout [v1 docs](https://napi.
 ## Platform Support
 
 ![Lint](https://github.com/napi-rs/napi-rs/workflows/Lint/badge.svg)
-![Linux N-API@3](https://github.com/napi-rs/napi-rs/workflows/Linux%20N-API@3/badge.svg)
 ![Linux musl](https://github.com/napi-rs/napi-rs/workflows/Linux%20musl/badge.svg)
 ![macOS/Windows/Linux x64](https://github.com/napi-rs/napi-rs/workflows/macOS/Windows/Linux%20x64/badge.svg)
 ![Linux-aarch64](https://github.com/napi-rs/napi-rs/workflows/Linux-aarch64/badge.svg)
 ![Linux-armv7](https://github.com/napi-rs/napi-rs/workflows/Linux-armv7/badge.svg)
 ![macOS-Android](https://github.com/napi-rs/napi-rs/workflows/macOS-Android/badge.svg)
+[![Android-armv7](https://github.com/napi-rs/napi-rs/actions/workflows/android-armv7.yml/badge.svg)](https://github.com/napi-rs/napi-rs/actions/workflows/android-armv7.yml)
 ![Windows i686](https://github.com/napi-rs/napi-rs/workflows/Windows%20i686/badge.svg)
 [![Windows arm64](https://github.com/napi-rs/napi-rs/actions/workflows/windows-arm.yml/badge.svg)](https://github.com/napi-rs/napi-rs/actions/workflows/windows-arm.yml)
 [![FreeBSD](https://api.cirrus-ci.com/github/napi-rs/napi-rs.svg)](https://cirrus-ci.com/github/napi-rs/napi-rs?branch=main)

@@ -1,0 +1,13 @@
+{
+  "extends": ["config:base", ":preserveSemverRanges"],
+  "packageRules": [
+    {
+      "automerge": true,
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"]
+    }
+  ],
+  "lockFileMaintenance": {
+    "enabled": true,
+    "extends": ["schedule:monthly"]
+  }
+}
