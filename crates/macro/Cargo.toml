@@ -21,7 +21,7 @@ strict = ["napi-derive-backend/strict"]
 type-def = ["napi-derive-backend/type-def"]
 
 [dependencies]
-convert_case = "0.4"
+convert_case = "0.5"
 napi-derive-backend = {version = "1.0.21", path = "../backend"}
 proc-macro2 = "1.0"
 quote = "1.0"
