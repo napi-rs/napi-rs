@@ -17,7 +17,7 @@ strict = []
 type-def = ["regex", "once_cell"]
 
 [dependencies]
-convert_case = "0.4"
+convert_case = "0.5"
 proc-macro2 = "1"
 quote = "1"
 syn = {version = "1", features = ["fold", "full", "extra-traits"]}
