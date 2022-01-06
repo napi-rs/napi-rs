@@ -30,6 +30,8 @@ export interface Obj {
   v: string | number
 }
 export function either4(input: string | number | boolean | Obj): number
+export function receiveClassOrNumber(either: number | JsClassForEither): number
+export function receiveMutClassOrNumber(either: number | JsClassForEither): number
 /** default enum values are continuos i32s start from 0 */
 export const enum Kind {
   /** Barks */
@@ -189,6 +191,9 @@ export class ClassWithFactory {
   name: string
   static withName(name: string): ClassWithFactory
   setName(name: string): this
+}
+export class JsClassForEither {
+  constructor()
 }
 export namespace xxh3 {
   export const ALIGNMENT: number

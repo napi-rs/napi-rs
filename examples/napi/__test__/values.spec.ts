@@ -73,6 +73,9 @@ import {
   Bird,
   Assets,
   receiveStrictObject,
+  receiveClassOrNumber,
+  JsClassForEither,
+  receiveMutClassOrNumber,
 } from '../'
 
 test('export const', (t) => {
@@ -318,6 +321,13 @@ test('either', (t) => {
 test('return either', (t) => {
   t.is(returnEither(2), 2)
   t.is(returnEither(42), '42')
+})
+
+test('receive class reference in either', (t) => {
+  const c = new JsClassForEither()
+  t.is(receiveClassOrNumber(1), 2)
+  t.is(receiveClassOrNumber(c), 100)
+  t.is(receiveMutClassOrNumber(c), 100)
 })
 
 test('either3', (t) => {

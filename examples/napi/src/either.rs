@@ -55,3 +55,30 @@ fn either4(input: Either4<String, u32, bool, Obj>) -> u32 {
     },
   }
 }
+
+#[napi]
+struct JsClassForEither {}
+
+#[napi]
+impl JsClassForEither {
+  #[napi(constructor)]
+  pub fn new() -> Self {
+    JsClassForEither {}
+  }
+}
+
+#[napi]
+fn receive_class_or_number(either: Either<u32, &JsClassForEither>) -> u32 {
+  match either {
+    Either::A(n) => n + 1,
+    Either::B(_) => 100,
+  }
+}
+
+#[napi]
+fn receive_mut_class_or_number(either: Either<u32, &mut JsClassForEither>) -> u32 {
+  match either {
+    Either::A(n) => n + 1,
+    Either::B(_) => 100,
+  }
+}

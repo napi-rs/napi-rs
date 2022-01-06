@@ -25,6 +25,26 @@ fn gen_napi_value_map_impl(name: &Ident, to_napi_val_impl: TokenStream) -> Token
       }
     }
 
+    impl napi::bindgen_prelude::TypeName for &#name {
+      fn type_name() -> &'static str {
+        #name_str
+      }
+
+      fn value_type() -> napi::ValueType {
+        napi::ValueType::Object
+      }
+    }
+
+    impl napi::bindgen_prelude::TypeName for &mut #name {
+      fn type_name() -> &'static str {
+        #name_str
+      }
+
+      fn value_type() -> napi::ValueType {
+        napi::ValueType::Object
+      }
+    }
+
     #to_napi_val_impl
 
     impl napi::bindgen_prelude::FromNapiRef for #name {
@@ -58,6 +78,36 @@ fn gen_napi_value_map_impl(name: &Ident, to_napi_val_impl: TokenStream) -> Token
         )?;
 
         Ok(&mut *(wrapped_val as *mut #name))
+      }
+    }
+
+    impl napi::bindgen_prelude::FromNapiValue for &#name {
+      unsafe fn from_napi_value(
+        env: napi::bindgen_prelude::sys::napi_env,
+        napi_val: napi::bindgen_prelude::sys::napi_value
+      ) -> napi::bindgen_prelude::Result<Self> {
+        napi::bindgen_prelude::FromNapiRef::from_napi_ref(env, napi_val)
+      }
+    }
+
+    impl napi::bindgen_prelude::FromNapiValue for &mut #name {
+      unsafe fn from_napi_value(
+        env: napi::bindgen_prelude::sys::napi_env,
+        napi_val: napi::bindgen_prelude::sys::napi_value
+      ) -> napi::bindgen_prelude::Result<Self> {
+        napi::bindgen_prelude::FromNapiMutRef::from_napi_mut_ref(env, napi_val)
+      }
+    }
+
+    impl napi::NapiRaw for &#name {
+      unsafe fn raw(&self) -> napi::sys::napi_value {
+        unreachable!()
+      }
+    }
+
+    impl napi::NapiRaw for &mut #name {
+      unsafe fn raw(&self) -> napi::sys::napi_value {
+        unreachable!()
       }
     }
   }
