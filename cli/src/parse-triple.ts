@@ -21,14 +21,6 @@ const CpuToNodeArch: { [index: string]: NodeJSArch } = {
   armv7: 'arm',
 }
 
-const NodeArchToCpu: { [index: string]: string } = {
-  arm64: 'aarch64',
-  ppc: 'powerpc',
-  ppc64: 'powerpc64',
-  x32: 'i686',
-  x64: 'x86_64',
-}
-
 const SysToNodePlatform: { [index: string]: NodeJS.Platform } = {
   linux: 'linux',
   freebsd: 'freebsd',
@@ -132,8 +124,4 @@ export function getDefaultTargetTriple(rustcfg: string): PlatformDetail {
     throw new TypeError(`Can not parse target triple from ${currentTriple}`)
   }
   return parseTriple(triple)
-}
-
-export function getCpuArch(nodeArch: NodeJSArch): string {
-  return NodeArchToCpu[nodeArch] || nodeArch
 }
