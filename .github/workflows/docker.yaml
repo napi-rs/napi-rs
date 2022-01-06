@@ -41,6 +41,14 @@ jobs:
           push: true
           tags: ghcr.io/${{ github.repository }}/nodejs-rust:lts-debian
 
+      - name: Build and push debian with zig
+        uses: docker/build-push-action@v2
+        with:
+          file: debian-zig.Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/${{ github.repository }}/nodejs-rust:lts-debian-zig
+
   build_image_arm:
     name: Build Node.js arm images
     strategy:
