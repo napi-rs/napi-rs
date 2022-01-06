@@ -72,6 +72,7 @@ import {
   Dog,
   Bird,
   Assets,
+  receiveStrictObject,
 } from '../'
 
 test('export const', (t) => {
@@ -243,6 +244,15 @@ test('function ts type override', (t) => {
 test('option object', (t) => {
   t.notThrows(() => receiveAllOptionalObject())
   t.notThrows(() => receiveAllOptionalObject({}))
+})
+
+test('should throw if object type is not matched', (t) => {
+  // @ts-expect-error
+  const err1 = t.throws(() => receiveStrictObject({ name: 1 }))
+  t.is(err1!.message, 'Failed to convert napi `string` into rust type `String`')
+  // @ts-expect-error
+  const err2 = t.throws(() => receiveStrictObject({ bar: 1 }))
+  t.is(err2!.message, 'Missing field `name`')
 })
 
 test('aliased rust struct and enum', (t) => {

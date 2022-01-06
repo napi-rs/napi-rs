@@ -59,3 +59,13 @@ pub struct StructContainsAliasedEnum {
 fn fn_received_aliased(mut s: StructContainsAliasedEnum, e: AliasedEnum) {
   s.a = e;
 }
+
+#[napi(object)]
+pub struct StrictObject {
+  pub name: String,
+}
+
+#[napi]
+pub fn receive_strict_object(strict_object: StrictObject) {
+  assert_eq!(strict_object.name, "strict");
+}

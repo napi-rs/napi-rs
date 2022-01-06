@@ -322,7 +322,12 @@ impl NapiStruct {
           if is_optional_field {
             obj_field_getters.push(quote! { let #ident: #ty = obj.get(#field_js_name)?; });
           } else {
-            obj_field_getters.push(quote! { let #ident: #ty = obj.get(#field_js_name)?.expect(&format!("Field {} should exist", #field_js_name)); });
+            obj_field_getters.push(quote! {
+              let #ident: #ty = obj.get(#field_js_name)?.ok_or_else(|| napi::bindgen_prelude::Error::new(
+                napi::bindgen_prelude::Status::InvalidArg,
+                format!("Missing field `{}`", #field_js_name),
+              ))?;
+            });
           }
         }
         syn::Member::Unnamed(i) => {
@@ -339,7 +344,12 @@ impl NapiStruct {
           if is_optional_field {
             obj_field_getters.push(quote! { let arg #i: #ty = obj.get(#field_js_name)?; });
           } else {
-            obj_field_getters.push(quote! { let arg #i: #ty = obj.get(#field_js_name)?.expect(&format!("Field {} should exist", #field_js_name)); });
+            obj_field_getters.push(quote! {
+              let arg #i: #ty = obj.get(#field_js_name)?.ok_or_else(|| napi::bindgen_prelude::Error::new(
+                napi::bindgen_prelude::Status::InvalidArg,
+                format!("Missing field `{}`", #field_js_name),
+              ))?;
+            });
           }
         }
       }
