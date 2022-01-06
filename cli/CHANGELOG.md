@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.3.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.2.1...@napi-rs/cli@2.3.0) (2022-01-06)
+
+### Features
+
+- **cli:** support macOS with --zig flag ([0db94cc](https://github.com/napi-rs/napi-rs/commit/0db94ccd669d095321a544a195f30fde6af71eec))
+
 ## [2.2.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.2.0...@napi-rs/cli@2.2.1) (2022-01-04)
 
 ### Bug Fixes
