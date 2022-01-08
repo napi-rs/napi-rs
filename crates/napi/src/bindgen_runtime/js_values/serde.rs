@@ -1,4 +1,4 @@
-use serde_json::{Map, Value};
+use serde_json::{Map, Number, Value};
 
 use crate::{
   bindgen_runtime::Null, check_status, sys, type_of, Error, JsObject, Result, Status, ValueType,
@@ -11,20 +11,7 @@ impl ToNapiValue for Value {
     match val {
       Value::Null => unsafe { Null::to_napi_value(env, Null) },
       Value::Bool(b) => unsafe { bool::to_napi_value(env, b) },
-      Value::Number(n) => {
-        if n.is_i64() {
-          unsafe { i64::to_napi_value(env, n.as_i64().unwrap()) }
-        } else if n.is_f64() {
-          unsafe { f64::to_napi_value(env, n.as_f64().unwrap()) }
-        } else {
-          let n = n.as_u64().unwrap();
-          if n > u32::MAX as u64 {
-            todo!("impl BigInt")
-          } else {
-            unsafe { u32::to_napi_value(env, n as u32) }
-          }
-        }
-      }
+      Value::Number(n) => unsafe { Number::to_napi_value(env, n) },
       Value::String(s) => unsafe { String::to_napi_value(env, s) },
       Value::Array(arr) => unsafe { Vec::<Value>::to_napi_value(env, arr) },
       Value::Object(obj) => unsafe { Map::to_napi_value(env, obj) },
@@ -37,12 +24,7 @@ impl FromNapiValue for Value {
     let ty = type_of!(env, napi_val)?;
     let val = match ty {
       ValueType::Boolean => Value::Bool(unsafe { bool::from_napi_value(env, napi_val)? }),
-      ValueType::Number => {
-        return Err(Error::new(
-          Status::InvalidArg,
-          "Js Number is not be able to convert to rust.".to_owned(),
-        ));
-      }
+      ValueType::Number => Value::Number(unsafe { Number::from_napi_value(env, napi_val)? }),
       ValueType::String => Value::String(unsafe { String::from_napi_value(env, napi_val)? }),
       ValueType::Object => {
         let mut is_arr = false;
@@ -94,5 +76,33 @@ impl FromNapiValue for Map<String, Value> {
     }
 
     Ok(map)
+  }
+}
+
+impl ToNapiValue for Number {
+  unsafe fn to_napi_value(env: sys::napi_env, n: Self) -> Result<sys::napi_value> {
+    if n.is_i64() {
+      unsafe { i64::to_napi_value(env, n.as_i64().unwrap()) }
+    } else if n.is_f64() {
+      unsafe { f64::to_napi_value(env, n.as_f64().unwrap()) }
+    } else {
+      let n = n.as_u64().unwrap();
+      if n > u32::MAX as u64 {
+        todo!("impl BigInt")
+      } else {
+        unsafe { u32::to_napi_value(env, n as u32) }
+      }
+    }
+  }
+}
+
+impl FromNapiValue for Number {
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
+    Number::from_f64(unsafe { f64::from_napi_value(env, napi_val)? }).ok_or_else(|| {
+      Error::new(
+        Status::InvalidArg,
+        "Failed to convert js number to serde_json::Number".to_owned(),
+      )
+    })
   }
 }
