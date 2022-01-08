@@ -76,6 +76,7 @@ import {
   receiveClassOrNumber,
   JsClassForEither,
   receiveMutClassOrNumber,
+  testSerdeNumber,
 } from '../'
 
 test('export const', (t) => {
@@ -275,6 +276,16 @@ test('serde-json', (t) => {
   t.snapshot(Object.keys(packageJson.devDependencies!).sort())
 
   t.is(getPackageJsonName(packageJson), 'napi-rs')
+})
+
+test('serde-number', (t) => {
+  t.is(testSerdeNumber(1), 1)
+  t.is(testSerdeNumber(1.2), 1.2)
+  t.is(testSerdeNumber(-1), -1)
+
+  t.deepEqual(testSerdeNumber([1, 1.2, -1]), [1, 1.2, -1])
+  t.deepEqual(testSerdeNumber({ a: 1, b: 1.2, c: -1 }), { a: 1, b: 1.2, c: -1 })
+  t.throws(() => testSerdeNumber(NaN))
 })
 
 test('buffer', (t) => {
