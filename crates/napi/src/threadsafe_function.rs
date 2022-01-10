@@ -211,9 +211,13 @@ impl<T: 'static, ES: ErrorStrategy::T> ThreadsafeFunction<T, ES> {
       )
     })?;
 
+    let aborted = Arc::new(AtomicBool::new(false));
+    let aborted_ptr = Arc::into_raw(aborted.clone()) as *mut c_void;
+    check_status!(unsafe { sys::napi_add_env_cleanup_hook(env, Some(cleanup_cb), aborted_ptr) })?;
+
     Ok(ThreadsafeFunction {
       raw_tsfn,
-      aborted: Arc::new(AtomicBool::new(false)),
+      aborted,
       ref_count: Arc::new(AtomicUsize::new(initial_thread_count)),
       _phantom: PhantomData,
     })
@@ -321,6 +325,11 @@ impl<T: 'static, ES: ErrorStrategy::T> Drop for ThreadsafeFunction<T, ES> {
   }
 }
 
+unsafe extern "C" fn cleanup_cb(cleanup_data: *mut c_void) {
+  let aborted = unsafe { Arc::<AtomicBool>::from_raw(cleanup_data.cast()) };
+  aborted.store(true, Ordering::SeqCst);
+}
+
 unsafe extern "C" fn thread_finalize_cb<T: 'static, V: NapiRaw, R>(
   _raw_env: sys::napi_env,
   finalize_data: *mut c_void,
@@ -341,6 +350,11 @@ unsafe extern "C" fn call_js_cb<T: 'static, V: NapiRaw, R, ES>(
   R: 'static + Send + FnMut(ThreadSafeCallContext<T>) -> Result<Vec<V>>,
   ES: ErrorStrategy::T,
 {
+  // env and/or callback can be null when shutting down
+  if raw_env.is_null() || js_callback.is_null() {
+    return;
+  }
+
   let ctx: &mut R = unsafe { &mut *context.cast::<R>() };
   let val: Result<T> = unsafe {
     match ES::VALUE {
@@ -410,10 +424,10 @@ unsafe extern "C" fn call_js_cb<T: 'static, V: NapiRaw, R, ES>(
       unsafe { sys::napi_get_and_clear_last_exception(raw_env, &mut error_result) },
       sys::Status::napi_ok
     );
-    assert_eq!(
-      unsafe { sys::napi_fatal_exception(raw_env, error_result) },
-      sys::Status::napi_ok
-    );
+
+    // When shutting down, napi_fatal_exception sometimes returns another exception
+    let stat = unsafe { sys::napi_fatal_exception(raw_env, error_result) };
+    assert!(stat == sys::Status::napi_ok || stat == sys::Status::napi_pending_exception);
   } else {
     let error_code: Status = status.into();
     let error_code_string = format!("{:?}", error_code);
