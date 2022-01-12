@@ -1,6 +1,6 @@
 use crate::{bindgen_prelude::*, check_status, sys, Error, Result, Status};
 
-use std::ffi::CStr;
+use std::ffi::{c_void, CStr};
 use std::fmt::Display;
 #[cfg(feature = "latin1")]
 use std::mem;
@@ -84,7 +84,6 @@ impl FromNapiValue for &str {
     len += 1;
     let mut ret = Vec::with_capacity(len);
     let buf_ptr = ret.as_mut_ptr();
-
     let mut written_char_count = 0;
 
     check_status!(
@@ -92,6 +91,22 @@ impl FromNapiValue for &str {
       "Failed to convert napi `string` into rust type `String`"
     )?;
 
+    // The `&str` should only be accepted from function arguments.
+    // We shouldn't implement `FromNapiValue` for it before.
+    // When it's used with `Object.get` scenario, the memory which `&str` point to will be invalid.
+    // For this scenario, we create a temporary empty `Object` here and assign the `Vec<u8>` under `&str` to it.
+    // So we can safely forget the `Vec<u8>` here which could fix the memory issue here.
+    // FIXME: This implementation should be removed in next major release.
+    let mut temporary_external_object = ptr::null_mut();
+    check_status!(sys::napi_create_external(
+      env,
+      buf_ptr as *mut c_void,
+      Some(release_string),
+      Box::into_raw(Box::new(len)) as *mut c_void,
+      &mut temporary_external_object,
+    ))?;
+
+    std::mem::forget(ret);
     match CStr::from_ptr(buf_ptr).to_str() {
       Err(e) => Err(Error::new(
         Status::InvalidArg,
@@ -278,4 +293,9 @@ pub mod latin1_string {
       Ok(ptr)
     }
   }
+}
+
+unsafe extern "C" fn release_string(_env: sys::napi_env, data: *mut c_void, len: *mut c_void) {
+  let len = *Box::from_raw(len as *mut usize);
+  Vec::from_raw_parts(data as *mut u8, len, len);
 }
