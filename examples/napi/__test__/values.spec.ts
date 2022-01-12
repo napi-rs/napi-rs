@@ -76,6 +76,7 @@ import {
   receiveClassOrNumber,
   JsClassForEither,
   receiveMutClassOrNumber,
+  getStrFromObject,
 } from '../'
 
 test('export const', (t) => {
@@ -195,6 +196,10 @@ test('callback', (t) => {
 test('object', (t) => {
   t.deepEqual(listObjKeys({ name: 'John Doe', age: 20 }), ['name', 'age'])
   t.deepEqual(createObj(), { test: 1 })
+})
+
+test('get str from object', (t) => {
+  t.notThrows(() => getStrFromObject())
 })
 
 test('global', (t) => {
