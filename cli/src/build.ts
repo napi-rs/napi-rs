@@ -211,19 +211,21 @@ export class BuildCommand extends Command {
       })
     }
 
-    let rustflags = process.env.RUSTFLAGS ?? ''
+    const rustflags = process.env.RUSTFLAGS
+      ? process.env.RUSTFLAGS.split(' ')
+      : []
     if (triple.raw.includes('musl')) {
       if (!rustflags.includes('target-feature=-crt-static')) {
-        rustflags += '-C target-feature=-crt-static'
+        rustflags.push('-C target-feature=-crt-static')
       }
     }
 
     if (this.isStrip && !rustflags.includes('-C link-arg=-s')) {
-      rustflags += '-C link-arg=-s'
+      rustflags.push('-C link-arg=-s')
     }
 
     if (rustflags.length > 0) {
-      additionalEnv['RUSTFLAGS'] = rustflags
+      additionalEnv['RUSTFLAGS'] = rustflags.join(' ')
     }
 
     if (this.useZig) {
