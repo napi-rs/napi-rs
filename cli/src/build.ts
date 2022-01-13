@@ -162,6 +162,10 @@ export class BuildCommand extends Command {
     )} ${chalk.green('--zig-abi-suffix=2.17')}`,
   })
 
+  isStrip = Option.Boolean(`--strip`, false, {
+    description: `${chalk.green('Strip')} the library for minimum file size`,
+  })
+
   async execute() {
     const cwd = this.cargoCwd
       ? join(process.cwd(), this.cargoCwd)
@@ -207,12 +211,19 @@ export class BuildCommand extends Command {
       })
     }
 
+    let rustflags = process.env.RUSTFLAGS ?? ''
     if (triple.raw.includes('musl')) {
-      let rustflags = process.env.RUSTFLAGS ?? ''
       if (!rustflags.includes('target-feature=-crt-static')) {
         rustflags += '-C target-feature=-crt-static'
-        additionalEnv['RUSTFLAGS'] = rustflags
       }
+    }
+
+    if (this.isStrip && !rustflags.includes('-C link-arg=-s')) {
+      rustflags += '-C link-arg=-s'
+    }
+
+    if (rustflags.length > 0) {
+      additionalEnv['RUSTFLAGS'] = rustflags
     }
 
     if (this.useZig) {
