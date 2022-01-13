@@ -38,7 +38,7 @@ impl ToNapiValue for Null {
     let mut ret = ptr::null_mut();
 
     check_status!(
-      sys::napi_get_null(env, &mut ret),
+      unsafe { sys::napi_get_null(env, &mut ret) },
       "Failed to create napi null value"
     )?;
 
@@ -80,7 +80,7 @@ impl ToNapiValue for Undefined {
     let mut ret = ptr::null_mut();
 
     check_status!(
-      sys::napi_get_undefined(env, &mut ret),
+      unsafe { sys::napi_get_undefined(env, &mut ret) },
       "Failed to create napi null value"
     )?;
 

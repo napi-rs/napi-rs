@@ -167,18 +167,20 @@ unsafe extern "C" fn napi_register_module_v1(
         } else {
           check_status_or_throw!(
             env,
-            sys::napi_create_object(env, &mut exports_js_mod),
+            unsafe { sys::napi_create_object(env, &mut exports_js_mod) },
             "Create export JavaScript Object [{}] failed",
             js_mod_str
           );
           check_status_or_throw!(
             env,
-            sys::napi_set_named_property(
-              env,
-              exports,
-              js_mod_str.as_ptr() as *const _,
-              exports_js_mod
-            ),
+            unsafe {
+              sys::napi_set_named_property(
+                env,
+                exports,
+                js_mod_str.as_ptr() as *const _,
+                exports_js_mod,
+              )
+            },
             "Set exports Object [{}] into exports object failed",
             js_mod_str
           );
@@ -186,7 +188,7 @@ unsafe extern "C" fn napi_register_module_v1(
         }
       }
       for (name, callback) in items {
-        let js_name = CStr::from_bytes_with_nul_unchecked(name.as_bytes());
+        let js_name = unsafe { CStr::from_bytes_with_nul_unchecked(name.as_bytes()) };
         unsafe {
           if let Err(e) = callback(env).and_then(|v| {
             check_status!(
@@ -299,18 +301,23 @@ unsafe extern "C" fn napi_register_module_v1(
     });
 
   #[cfg(feature = "compat-mode")]
-  MODULE_EXPORTS.borrow_mut().iter().for_each(|callback| {
-    if let Err(e) = callback(env, exports) {
-      JsError::from(e).throw_into(env);
-    }
-  });
+  MODULE_EXPORTS
+    .borrow_mut()
+    .iter()
+    .for_each(|callback| unsafe {
+      if let Err(e) = callback(env, exports) {
+        JsError::from(e).throw_into(env);
+      }
+    });
 
   #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
   {
     let _ = crate::tokio_runtime::RT.clone();
     crate::tokio_runtime::TOKIO_RT_REF_COUNT.fetch_add(1, Ordering::Relaxed);
     assert_eq!(
-      sys::napi_add_env_cleanup_hook(env, Some(crate::shutdown_tokio_rt), ptr::null_mut()),
+      unsafe {
+        sys::napi_add_env_cleanup_hook(env, Some(crate::shutdown_tokio_rt), ptr::null_mut())
+      },
       sys::Status::napi_ok
     );
   }
@@ -323,12 +330,14 @@ pub(crate) unsafe extern "C" fn noop(
   _info: sys::napi_callback_info,
 ) -> sys::napi_value {
   if !crate::bindgen_runtime::___CALL_FROM_FACTORY.load(std::sync::atomic::Ordering::Relaxed) {
-    sys::napi_throw_error(
-      env,
-      ptr::null_mut(),
-      CStr::from_bytes_with_nul_unchecked(b"Class contains no `constructor`, can not new it!")
-        .as_ptr(),
-    );
+    unsafe {
+      sys::napi_throw_error(
+        env,
+        ptr::null_mut(),
+        CStr::from_bytes_with_nul_unchecked(b"Class contains no `constructor`, can not new it!")
+          .as_ptr(),
+      );
+    }
   }
   ptr::null_mut()
 }

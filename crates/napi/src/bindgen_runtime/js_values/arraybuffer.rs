@@ -117,15 +117,17 @@ macro_rules! impl_typed_array {
         let mut array_buffer = ptr::null_mut();
         let mut byte_offset = 0;
         check_status!(
-          sys::napi_get_typedarray_info(
-            env,
-            napi_val,
-            &mut typed_array_type,
-            &mut length,
-            &mut data,
-            &mut array_buffer,
-            &mut byte_offset
-          ),
+          unsafe {
+            sys::napi_get_typedarray_info(
+              env,
+              napi_val,
+              &mut typed_array_type,
+              &mut length,
+              &mut data,
+              &mut array_buffer,
+              &mut byte_offset,
+            )
+          },
           "Get TypedArray info failed"
         )?;
         if typed_array_type != $typed_array_type as i32 {
@@ -155,26 +157,30 @@ macro_rules! impl_typed_array {
           val.finalizer_notify,
         )));
         check_status!(
-          sys::napi_create_external_arraybuffer(
-            env,
-            val.data as *mut c_void,
-            length,
-            Some(finalizer::<$rust_type>),
-            hint_ptr as *mut c_void,
-            &mut arraybuffer_value
-          ),
+          unsafe {
+            sys::napi_create_external_arraybuffer(
+              env,
+              val.data as *mut c_void,
+              length,
+              Some(finalizer::<$rust_type>),
+              hint_ptr as *mut c_void,
+              &mut arraybuffer_value,
+            )
+          },
           "Create external arraybuffer failed"
         )?;
         let mut napi_val = ptr::null_mut();
         check_status!(
-          sys::napi_create_typedarray(
-            env,
-            $typed_array_type as i32,
-            val.length,
-            arraybuffer_value,
-            0,
-            &mut napi_val,
-          ),
+          unsafe {
+            sys::napi_create_typedarray(
+              env,
+              $typed_array_type as i32,
+              val.length,
+              arraybuffer_value,
+              0,
+              &mut napi_val,
+            )
+          },
           "Create TypedArray failed"
         )?;
         Ok(napi_val)
@@ -188,15 +194,16 @@ unsafe extern "C" fn finalizer<T>(
   finalize_data: *mut c_void,
   finalize_hint: *mut c_void,
 ) {
-  let (data_managed_type, length, finalizer_notify) =
-    *Box::from_raw(finalize_hint as *mut (DataManagedType, usize, Box<dyn FnOnce(*mut T, usize)>));
+  let (data_managed_type, length, finalizer_notify) = unsafe {
+    *Box::from_raw(finalize_hint as *mut (DataManagedType, usize, Box<dyn FnOnce(*mut T, usize)>))
+  };
   match data_managed_type {
     DataManagedType::Vm => {
       // do nothing
     }
     DataManagedType::Owned => {
       let length = length;
-      Vec::from_raw_parts(finalize_data as *mut T, length, length);
+      unsafe { Vec::from_raw_parts(finalize_data as *mut T, length, length) };
     }
     DataManagedType::External => {
       (finalizer_notify)(finalize_data as *mut T, length);

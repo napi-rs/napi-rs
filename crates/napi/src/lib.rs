@@ -1,4 +1,5 @@
 #![deny(clippy::all)]
+#![forbid(unsafe_op_in_unsafe_fn)]
 
 //! High level Node.js [N-API](https://nodejs.org/api/n-api.html) binding
 //!
@@ -130,7 +131,8 @@ pub type ContextlessResult<T> = Result<Option<T>>;
 macro_rules! type_of {
   ($env:expr, $value:expr) => {{
     let mut value_type = 0;
-    check_status!($crate::sys::napi_typeof($env, $value, &mut value_type))
+    #[allow(unused_unsafe)]
+    check_status!(unsafe { $crate::sys::napi_typeof($env, $value, &mut value_type) })
       .and_then(|_| Ok($crate::ValueType::from(value_type)))
   }};
 }
@@ -166,21 +168,25 @@ pub(crate) unsafe fn log_js_value<V: AsRef<[sys::napi_value]>>(
   use std::ptr;
 
   let mut g = ptr::null_mut();
-  sys::napi_get_global(env, &mut g);
+  unsafe { sys::napi_get_global(env, &mut g) };
   let mut console = ptr::null_mut();
   let console_c_string = CString::new("console").unwrap();
   let method_c_string = CString::new(method).unwrap();
-  sys::napi_get_named_property(env, g, console_c_string.as_ptr(), &mut console);
+  unsafe { sys::napi_get_named_property(env, g, console_c_string.as_ptr(), &mut console) };
   let mut method_js_fn = ptr::null_mut();
-  sys::napi_get_named_property(env, console, method_c_string.as_ptr(), &mut method_js_fn);
-  sys::napi_call_function(
-    env,
-    console,
-    method_js_fn,
-    values.as_ref().len(),
-    values.as_ref().as_ptr(),
-    ptr::null_mut(),
-  );
+  unsafe {
+    sys::napi_get_named_property(env, console, method_c_string.as_ptr(), &mut method_js_fn)
+  };
+  unsafe {
+    sys::napi_call_function(
+      env,
+      console,
+      method_js_fn,
+      values.as_ref().len(),
+      values.as_ref().as_ptr(),
+      ptr::null_mut(),
+    )
+  };
 }
 
 pub use crate::bindgen_runtime::ctor as module_init;

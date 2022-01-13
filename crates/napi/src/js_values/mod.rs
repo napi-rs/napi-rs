@@ -681,6 +681,6 @@ impl JsUnknown {
   where
     V: NapiValue,
   {
-    V::from_raw_unchecked(self.0.env, self.0.value)
+    unsafe { V::from_raw_unchecked(self.0.env, self.0.value) }
   }
 }

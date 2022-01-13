@@ -22,7 +22,7 @@ impl ToNapiValue for String {
     let mut ptr = ptr::null_mut();
 
     check_status!(
-      sys::napi_create_string_utf8(env, val.as_ptr() as *const _, val.len(), &mut ptr),
+      unsafe { sys::napi_create_string_utf8(env, val.as_ptr() as *const _, val.len(), &mut ptr) },
       "Failed to convert rust `String` into napi `string`"
     )?;
 
@@ -35,7 +35,7 @@ impl FromNapiValue for String {
     let mut len = 0;
 
     check_status!(
-      sys::napi_get_value_string_utf8(env, napi_val, ptr::null_mut(), 0, &mut len),
+      unsafe { sys::napi_get_value_string_utf8(env, napi_val, ptr::null_mut(), 0, &mut len) },
       "Failed to convert napi `string` into rust type `String`",
     )?;
 
@@ -47,11 +47,13 @@ impl FromNapiValue for String {
     let mut written_char_count = 0;
 
     check_status!(
-      sys::napi_get_value_string_utf8(env, napi_val, buf_ptr, len, &mut written_char_count),
+      unsafe {
+        sys::napi_get_value_string_utf8(env, napi_val, buf_ptr, len, &mut written_char_count)
+      },
       "Failed to convert napi `string` into rust type `String`"
     )?;
 
-    match CStr::from_ptr(buf_ptr).to_str() {
+    match unsafe { CStr::from_ptr(buf_ptr) }.to_str() {
       Err(e) => Err(Error::new(
         Status::InvalidArg,
         format!("Failed to read utf8 string, {}", e),
@@ -76,7 +78,7 @@ impl FromNapiValue for &str {
     let mut len = 0;
 
     check_status!(
-      sys::napi_get_value_string_utf8(env, napi_val, ptr::null_mut(), 0, &mut len),
+      unsafe { sys::napi_get_value_string_utf8(env, napi_val, ptr::null_mut(), 0, &mut len) },
       "Failed to convert napi `string` into rust type `String`",
     )?;
 
@@ -87,7 +89,9 @@ impl FromNapiValue for &str {
     let mut written_char_count = 0;
 
     check_status!(
-      sys::napi_get_value_string_utf8(env, napi_val, buf_ptr, len, &mut written_char_count),
+      unsafe {
+        sys::napi_get_value_string_utf8(env, napi_val, buf_ptr, len, &mut written_char_count)
+      },
       "Failed to convert napi `string` into rust type `String`"
     )?;
 
@@ -98,16 +102,18 @@ impl FromNapiValue for &str {
     // So we can safely forget the `Vec<u8>` here which could fix the memory issue here.
     // FIXME: This implementation should be removed in next major release.
     let mut temporary_external_object = ptr::null_mut();
-    check_status!(sys::napi_create_external(
-      env,
-      buf_ptr as *mut c_void,
-      Some(release_string),
-      Box::into_raw(Box::new(len)) as *mut c_void,
-      &mut temporary_external_object,
-    ))?;
+    check_status!(unsafe {
+      sys::napi_create_external(
+        env,
+        buf_ptr as *mut c_void,
+        Some(release_string),
+        Box::into_raw(Box::new(len)) as *mut c_void,
+        &mut temporary_external_object,
+      )
+    })?;
 
     std::mem::forget(ret);
-    match CStr::from_ptr(buf_ptr).to_str() {
+    match unsafe { CStr::from_ptr(buf_ptr) }.to_str() {
       Err(e) => Err(Error::new(
         Status::InvalidArg,
         format!("Failed to read utf8 string, {}", e),
@@ -119,7 +125,7 @@ impl FromNapiValue for &str {
 
 impl ToNapiValue for &str {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
-    String::to_napi_value(env, val.to_owned())
+    unsafe { String::to_napi_value(env, val.to_owned()) }
   }
 }
 
@@ -161,7 +167,7 @@ impl FromNapiValue for Utf16String {
     let mut len = 0;
 
     check_status!(
-      sys::napi_get_value_string_utf16(env, napi_val, ptr::null_mut(), 0, &mut len),
+      unsafe { sys::napi_get_value_string_utf16(env, napi_val, ptr::null_mut(), 0, &mut len) },
       "Failed to convert napi `utf16 string` into rust type `String`",
     )?;
 
@@ -171,13 +177,15 @@ impl FromNapiValue for Utf16String {
     let mut written_char_count = 0;
 
     check_status!(
-      sys::napi_get_value_string_utf16(
-        env,
-        napi_val,
-        ret.as_mut_ptr(),
-        len,
-        &mut written_char_count
-      ),
+      unsafe {
+        sys::napi_get_value_string_utf16(
+          env,
+          napi_val,
+          ret.as_mut_ptr(),
+          len,
+          &mut written_char_count,
+        )
+      },
       "Failed to convert napi `utf16 string` into rust type `String`",
     )?;
 
@@ -200,7 +208,9 @@ impl ToNapiValue for Utf16String {
     let encoded = val.0.encode_utf16().collect::<Vec<_>>();
 
     check_status!(
-      sys::napi_create_string_utf16(env, encoded.as_ptr() as *const _, encoded.len(), &mut ptr),
+      unsafe {
+        sys::napi_create_string_utf16(env, encoded.as_ptr() as *const _, encoded.len(), &mut ptr)
+      },
       "Failed to convert napi `string` into rust type `String`"
     )?;
 
@@ -250,7 +260,7 @@ pub mod latin1_string {
       let mut len = 0;
 
       check_status!(
-        sys::napi_get_value_string_latin1(env, napi_val, ptr::null_mut(), 0, &mut len),
+        unsafe { sys::napi_get_value_string_latin1(env, napi_val, ptr::null_mut(), 0, &mut len) },
         "Failed to convert napi `latin1 string` into rust type `String`",
       )?;
 
@@ -264,17 +274,22 @@ pub mod latin1_string {
       mem::forget(buf);
 
       check_status!(
-        sys::napi_get_value_string_latin1(env, napi_val, buf_ptr, len, &mut written_char_count),
+        unsafe {
+          sys::napi_get_value_string_latin1(env, napi_val, buf_ptr, len, &mut written_char_count)
+        },
         "Failed to convert napi `latin1 string` into rust type `String`"
       )?;
 
-      let buf = Vec::from_raw_parts(buf_ptr as *mut _, written_char_count, written_char_count);
+      let buf =
+        unsafe { Vec::from_raw_parts(buf_ptr as *mut _, written_char_count, written_char_count) };
       let mut dst_slice = vec![0; buf.len() * 2];
       let written =
         encoding_rs::mem::convert_latin1_to_utf8(buf.as_slice(), dst_slice.as_mut_slice());
       dst_slice.truncate(written);
 
-      Ok(Latin1String(String::from_utf8_unchecked(dst_slice)))
+      Ok(Latin1String(unsafe {
+        String::from_utf8_unchecked(dst_slice)
+      }))
     }
   }
 
@@ -286,7 +301,9 @@ pub mod latin1_string {
       encoding_rs::mem::convert_utf8_to_latin1_lossy(val.0.as_bytes(), dst.as_mut_slice());
 
       check_status!(
-        sys::napi_create_string_latin1(env, dst.as_ptr() as *const _, dst.len(), &mut ptr),
+        unsafe {
+          sys::napi_create_string_latin1(env, dst.as_ptr() as *const _, dst.len(), &mut ptr)
+        },
         "Failed to convert rust type `String` into napi `latin1 string`"
       )?;
 
@@ -296,6 +313,6 @@ pub mod latin1_string {
 }
 
 unsafe extern "C" fn release_string(_env: sys::napi_env, data: *mut c_void, len: *mut c_void) {
-  let len = *Box::from_raw(len as *mut usize);
-  Vec::from_raw_parts(data as *mut u8, len, len);
+  let len = unsafe { *Box::from_raw(len as *mut usize) };
+  unsafe { Vec::from_raw_parts(data as *mut u8, len, len) };
 }

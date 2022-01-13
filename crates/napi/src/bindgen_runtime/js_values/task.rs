@@ -56,7 +56,7 @@ impl FromNapiValue for AbortSignal {
     env: napi_sys::napi_env,
     napi_val: napi_sys::napi_value,
   ) -> crate::Result<Self> {
-    let mut signal = JsObject::from_raw_unchecked(env, napi_val);
+    let mut signal = unsafe { JsObject::from_raw_unchecked(env, napi_val) };
     let async_work_inner: Rc<AtomicPtr<napi_sys::napi_async_work__>> =
       Rc::new(AtomicPtr::new(ptr::null_mut()));
     let raw_promise: Rc<AtomicPtr<napi_sys::napi_deferred__>> =
@@ -67,15 +67,17 @@ impl FromNapiValue for AbortSignal {
       raw_deferred: raw_promise.clone(),
       status: task_status.clone(),
     };
-    let js_env = Env::from_raw(env);
-    check_status!(napi_sys::napi_wrap(
-      env,
-      signal.0.value,
-      Box::into_raw(Box::new(abort_controller)) as *mut _,
-      Some(async_task_abort_controller_finalize),
-      ptr::null_mut(),
-      ptr::null_mut(),
-    ))?;
+    let js_env = unsafe { Env::from_raw(env) };
+    check_status!(unsafe {
+      napi_sys::napi_wrap(
+        env,
+        signal.0.value,
+        Box::into_raw(Box::new(abort_controller)) as *mut _,
+        Some(async_task_abort_controller_finalize),
+        ptr::null_mut(),
+        ptr::null_mut(),
+      )
+    })?;
     signal.set_named_property("onabort", js_env.create_function("onabort", on_abort)?)?;
     Ok(AbortSignal {
       raw_work: async_work_inner,
@@ -162,5 +164,5 @@ unsafe extern "C" fn async_task_abort_controller_finalize(
   finalize_data: *mut c_void,
   _finalize_hint: *mut c_void,
 ) {
-  Box::from_raw(finalize_data as *mut AbortSignal);
+  unsafe { Box::from_raw(finalize_data as *mut AbortSignal) };
 }

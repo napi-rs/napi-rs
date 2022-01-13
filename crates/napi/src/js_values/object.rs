@@ -73,12 +73,13 @@ unsafe extern "C" fn finalize_callback<T, Hint, F>(
   Hint: 'static,
   F: FnOnce(FinalizeContext<T, Hint>),
 {
-  let (value, callback, raw_ref) = *Box::from_raw(finalize_data as *mut (T, F, sys::napi_ref));
-  let hint = *Box::from_raw(finalize_hint as *mut Hint);
-  let env = Env::from_raw(raw_env);
+  let (value, callback, raw_ref) =
+    unsafe { *Box::from_raw(finalize_data as *mut (T, F, sys::napi_ref)) };
+  let hint = unsafe { *Box::from_raw(finalize_hint as *mut Hint) };
+  let env = unsafe { Env::from_raw(raw_env) };
   callback(FinalizeContext { env, value, hint });
   if !raw_ref.is_null() {
-    let status = sys::napi_delete_reference(raw_env, raw_ref);
+    let status = unsafe { sys::napi_delete_reference(raw_env, raw_ref) };
     debug_assert!(
       status == sys::Status::napi_ok,
       "Delete reference in finalize callback failed"

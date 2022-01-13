@@ -136,13 +136,15 @@ impl<'env> NapiRaw for &'env JsBigInt {
 impl NapiValue for JsBigInt {
   unsafe fn from_raw(env: sys::napi_env, value: sys::napi_value) -> Result<Self> {
     let mut word_count = 0usize;
-    check_status!(sys::napi_get_value_bigint_words(
-      env,
-      value,
-      ptr::null_mut(),
-      &mut word_count,
-      ptr::null_mut(),
-    ))?;
+    check_status!(unsafe {
+      sys::napi_get_value_bigint_words(
+        env,
+        value,
+        ptr::null_mut(),
+        &mut word_count,
+        ptr::null_mut(),
+      )
+    })?;
     Ok(JsBigInt {
       raw: Value {
         env,
@@ -155,13 +157,15 @@ impl NapiValue for JsBigInt {
 
   unsafe fn from_raw_unchecked(env: sys::napi_env, value: sys::napi_value) -> Self {
     let mut word_count = 0usize;
-    let status = sys::napi_get_value_bigint_words(
-      env,
-      value,
-      ptr::null_mut(),
-      &mut word_count,
-      ptr::null_mut(),
-    );
+    let status = unsafe {
+      sys::napi_get_value_bigint_words(
+        env,
+        value,
+        ptr::null_mut(),
+        &mut word_count,
+        ptr::null_mut(),
+      )
+    };
     debug_assert!(
       Status::from(status) == Status::Ok,
       "napi_get_value_bigint_words failed"

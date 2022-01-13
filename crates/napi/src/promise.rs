@@ -97,37 +97,39 @@ unsafe extern "C" fn call_js_cb<
   context: *mut c_void,
   data: *mut c_void,
 ) {
-  let future_promise = Box::from_raw(context as *mut FuturePromise<Data, Resolver>);
-  let value = Box::from_raw(data as *mut Result<Data>);
+  let future_promise = unsafe { Box::from_raw(context as *mut FuturePromise<Data, Resolver>) };
+  let value = unsafe { Box::from_raw(data as *mut Result<Data>) };
   let resolver = future_promise.resolver;
   let deferred = future_promise.deferred;
   let js_value_to_resolve = value.and_then(move |v| (resolver)(env, v));
   match js_value_to_resolve {
     Ok(v) => {
-      let status = sys::napi_resolve_deferred(env, deferred, v);
+      let status = unsafe { sys::napi_resolve_deferred(env, deferred, v) };
       debug_assert!(status == sys::Status::napi_ok, "Resolve promise failed");
     }
     Err(e) => {
-      let status = sys::napi_reject_deferred(
-        env,
-        deferred,
-        if e.maybe_raw.is_null() {
-          JsError::from(e).into_value(env)
-        } else {
-          let mut err = ptr::null_mut();
-          let get_err_status = sys::napi_get_reference_value(env, e.maybe_raw, &mut err);
-          debug_assert!(
-            get_err_status == sys::Status::napi_ok,
-            "Get Error from Reference failed"
-          );
-          let delete_reference_status = sys::napi_delete_reference(env, e.maybe_raw);
-          debug_assert!(
-            delete_reference_status == sys::Status::napi_ok,
-            "Delete Error Reference failed"
-          );
-          err
-        },
-      );
+      let status = unsafe {
+        sys::napi_reject_deferred(
+          env,
+          deferred,
+          if e.maybe_raw.is_null() {
+            JsError::from(e).into_value(env)
+          } else {
+            let mut err = ptr::null_mut();
+            let get_err_status = sys::napi_get_reference_value(env, e.maybe_raw, &mut err);
+            debug_assert!(
+              get_err_status == sys::Status::napi_ok,
+              "Get Error from Reference failed"
+            );
+            let delete_reference_status = sys::napi_delete_reference(env, e.maybe_raw);
+            debug_assert!(
+              delete_reference_status == sys::Status::napi_ok,
+              "Delete Error Reference failed"
+            );
+            err
+          },
+        )
+      };
       debug_assert!(status == sys::Status::napi_ok, "Reject promise failed");
     }
   };

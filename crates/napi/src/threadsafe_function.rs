@@ -329,7 +329,7 @@ unsafe extern "C" fn thread_finalize_cb<T: 'static, V: NapiRaw, R>(
   R: 'static + Send + FnMut(ThreadSafeCallContext<T>) -> Result<Vec<V>>,
 {
   // cleanup
-  drop(Box::<R>::from_raw(finalize_data.cast()));
+  drop(unsafe { Box::<R>::from_raw(finalize_data.cast()) });
 }
 
 unsafe extern "C" fn call_js_cb<T: 'static, V: NapiRaw, R, ES>(
@@ -341,18 +341,20 @@ unsafe extern "C" fn call_js_cb<T: 'static, V: NapiRaw, R, ES>(
   R: 'static + Send + FnMut(ThreadSafeCallContext<T>) -> Result<Vec<V>>,
   ES: ErrorStrategy::T,
 {
-  let ctx: &mut R = &mut *context.cast::<R>();
-  let val: Result<T> = match ES::VALUE {
-    ErrorStrategy::CalleeHandled::VALUE => *Box::<Result<T>>::from_raw(data.cast()),
-    ErrorStrategy::Fatal::VALUE => Ok(*Box::<T>::from_raw(data.cast())),
+  let ctx: &mut R = unsafe { &mut *context.cast::<R>() };
+  let val: Result<T> = unsafe {
+    match ES::VALUE {
+      ErrorStrategy::CalleeHandled::VALUE => *Box::<Result<T>>::from_raw(data.cast()),
+      ErrorStrategy::Fatal::VALUE => Ok(*Box::<T>::from_raw(data.cast())),
+    }
   };
 
   let mut recv = ptr::null_mut();
-  sys::napi_get_undefined(raw_env, &mut recv);
+  unsafe { sys::napi_get_undefined(raw_env, &mut recv) };
 
   let ret = val.and_then(|v| {
     (ctx)(ThreadSafeCallContext {
-      env: Env::from_raw(raw_env),
+      env: unsafe { Env::from_raw(raw_env) },
       value: v,
     })
   });
@@ -364,35 +366,39 @@ unsafe extern "C" fn call_js_cb<T: 'static, V: NapiRaw, R, ES>(
   // If the Result is an error, pass that as the first argument.
   match ret {
     Ok(values) => {
-      let values = values.iter().map(|v| v.raw());
+      let values = values.iter().map(|v| unsafe { v.raw() });
       let args: Vec<sys::napi_value> = if ES::VALUE == ErrorStrategy::CalleeHandled::VALUE {
         let mut js_null = ptr::null_mut();
-        sys::napi_get_null(raw_env, &mut js_null);
+        unsafe { sys::napi_get_null(raw_env, &mut js_null) };
         ::core::iter::once(js_null).chain(values).collect()
       } else {
         values.collect()
       };
-      status = sys::napi_call_function(
-        raw_env,
-        recv,
-        js_callback,
-        args.len(),
-        args.as_ptr(),
-        ptr::null_mut(),
-      );
+      status = unsafe {
+        sys::napi_call_function(
+          raw_env,
+          recv,
+          js_callback,
+          args.len(),
+          args.as_ptr(),
+          ptr::null_mut(),
+        )
+      };
     }
     Err(e) if ES::VALUE == ErrorStrategy::Fatal::VALUE => {
-      status = sys::napi_fatal_exception(raw_env, JsError::from(e).into_value(raw_env));
+      status = unsafe { sys::napi_fatal_exception(raw_env, JsError::from(e).into_value(raw_env)) };
     }
     Err(e) => {
-      status = sys::napi_call_function(
-        raw_env,
-        recv,
-        js_callback,
-        1,
-        [JsError::from(e).into_value(raw_env)].as_mut_ptr(),
-        ptr::null_mut(),
-      );
+      status = unsafe {
+        sys::napi_call_function(
+          raw_env,
+          recv,
+          js_callback,
+          1,
+          [JsError::from(e).into_value(raw_env)].as_mut_ptr(),
+          ptr::null_mut(),
+        )
+      };
     }
   }
   if status == sys::Status::napi_ok {
@@ -401,11 +407,11 @@ unsafe extern "C" fn call_js_cb<T: 'static, V: NapiRaw, R, ES>(
   if status == sys::Status::napi_pending_exception {
     let mut error_result = ptr::null_mut();
     assert_eq!(
-      sys::napi_get_and_clear_last_exception(raw_env, &mut error_result),
+      unsafe { sys::napi_get_and_clear_last_exception(raw_env, &mut error_result) },
       sys::Status::napi_ok
     );
     assert_eq!(
-      sys::napi_fatal_exception(raw_env, error_result),
+      unsafe { sys::napi_fatal_exception(raw_env, error_result) },
       sys::Status::napi_ok
     );
   } else {
@@ -413,32 +419,38 @@ unsafe extern "C" fn call_js_cb<T: 'static, V: NapiRaw, R, ES>(
     let error_code_string = format!("{:?}", error_code);
     let mut error_code_value = ptr::null_mut();
     assert_eq!(
-      sys::napi_create_string_utf8(
-        raw_env,
-        error_code_string.as_ptr() as *const _,
-        error_code_string.len(),
-        &mut error_code_value
-      ),
+      unsafe {
+        sys::napi_create_string_utf8(
+          raw_env,
+          error_code_string.as_ptr() as *const _,
+          error_code_string.len(),
+          &mut error_code_value,
+        )
+      },
       sys::Status::napi_ok,
     );
     let error_msg = "Call JavaScript callback failed in thread safe function";
     let mut error_msg_value = ptr::null_mut();
     assert_eq!(
-      sys::napi_create_string_utf8(
-        raw_env,
-        error_msg.as_ptr() as *const _,
-        error_msg.len(),
-        &mut error_msg_value,
-      ),
+      unsafe {
+        sys::napi_create_string_utf8(
+          raw_env,
+          error_msg.as_ptr() as *const _,
+          error_msg.len(),
+          &mut error_msg_value,
+        )
+      },
       sys::Status::napi_ok,
     );
     let mut error_value = ptr::null_mut();
     assert_eq!(
-      sys::napi_create_error(raw_env, error_code_value, error_msg_value, &mut error_value),
+      unsafe {
+        sys::napi_create_error(raw_env, error_code_value, error_msg_value, &mut error_value)
+      },
       sys::Status::napi_ok,
     );
     assert_eq!(
-      sys::napi_fatal_exception(raw_env, error_value),
+      unsafe { sys::napi_fatal_exception(raw_env, error_value) },
       sys::Status::napi_ok
     );
   }

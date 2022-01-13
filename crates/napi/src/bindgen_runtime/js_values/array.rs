@@ -91,7 +91,7 @@ impl FromNapiValue for Array {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
     let mut is_arr = false;
     check_status!(
-      sys::napi_is_array(env, napi_val, &mut is_arr),
+      unsafe { sys::napi_is_array(env, napi_val, &mut is_arr) },
       "Failed to check given napi value is array"
     )?;
 
@@ -99,7 +99,7 @@ impl FromNapiValue for Array {
       let mut len = 0;
 
       check_status!(
-        sys::napi_get_array_length(env, napi_val, &mut len),
+        unsafe { sys::napi_get_array_length(env, napi_val, &mut len) },
         "Failed to get Array length",
       )?;
 
@@ -182,7 +182,7 @@ where
       arr.set(i as u32, v)?;
     }
 
-    Array::to_napi_value(env, arr)
+    unsafe { Array::to_napi_value(env, arr) }
   }
 }
 
@@ -196,7 +196,7 @@ macro_rules! impl_for_primitive_type {
           arr.set(i as u32, *v)?;
         }
 
-        Array::to_napi_value(env, arr)
+        unsafe { Array::to_napi_value(env, arr) }
       }
     }
   };
@@ -216,7 +216,7 @@ impl ToNapiValue for &Vec<String> {
       arr.set(i as u32, v.as_str())?;
     }
 
-    Array::to_napi_value(env, arr)
+    unsafe { Array::to_napi_value(env, arr) }
   }
 }
 
@@ -225,7 +225,7 @@ where
   T: FromNapiValue,
 {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
-    let arr = Array::from_napi_value(env, napi_val)?;
+    let arr = unsafe { Array::from_napi_value(env, napi_val)? };
     let mut vec = vec![];
 
     for i in 0..arr.len() {
