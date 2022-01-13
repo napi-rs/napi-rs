@@ -41,7 +41,37 @@ impl FromNapiValue for Value {
       }
       #[cfg(feature = "napi6")]
       ValueType::BigInt => todo!(),
-      _ => Value::Null,
+      ValueType::Null => Value::Null,
+      ValueType::Function => {
+        return Err(Error::new(
+          Status::InvalidArg,
+          "JS functions cannot be represented as a serde_json::Value".to_owned(),
+        ))
+      }
+      ValueType::Undefined => {
+        return Err(Error::new(
+          Status::InvalidArg,
+          "undefined cannot be represented as a serde_json::Value".to_owned(),
+        ))
+      }
+      ValueType::Symbol => {
+        return Err(Error::new(
+          Status::InvalidArg,
+          "JS symbols cannot be represented as a serde_json::Value".to_owned(),
+        ))
+      }
+      ValueType::External => {
+        return Err(Error::new(
+          Status::InvalidArg,
+          "External JS objects cannot be represented as a serde_json::Value".to_owned(),
+        ))
+      }
+      _ => {
+        return Err(Error::new(
+          Status::InvalidArg,
+          "Unknown JS variables cannot be represented as a serde_json::Value".to_owned(),
+        ))
+      }
     };
 
     Ok(val)
