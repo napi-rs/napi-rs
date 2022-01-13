@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.3.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.3.0...@napi-rs/cli@2.3.1) (2022-01-13)
+
+### Bug Fixes
+
+- **cli:** missing zig-abi-suffix support ([472ac10](https://github.com/napi-rs/napi-rs/commit/472ac10c67b7b239bb9bfcc3a1e897508cfc3314))
+
 # [2.3.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.2.1...@napi-rs/cli@2.3.0) (2022-01-06)
 
 ### Features
