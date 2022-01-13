@@ -68,13 +68,13 @@ impl TypeName for JsUnknown {
 
 impl<T: NapiRaw> ToNapiValue for T {
   unsafe fn to_napi_value(_env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
-    Ok(NapiRaw::raw(&val))
+    Ok(unsafe { NapiRaw::raw(&val) })
   }
 }
 
 impl<T: NapiValue> FromNapiValue for T {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
-    Ok(T::from_raw_unchecked(env, napi_val))
+    Ok(unsafe { T::from_raw_unchecked(env, napi_val) })
   }
 }
 
@@ -118,7 +118,7 @@ pub trait ValidateNapiValue: FromNapiValue + TypeName {
 
     let mut result = -1;
     check_status!(
-      sys::napi_typeof(env, napi_val, &mut result),
+      unsafe { sys::napi_typeof(env, napi_val, &mut result) },
       "Failed to detect napi value type",
     )?;
 
@@ -162,13 +162,13 @@ where
     let mut val_type = 0;
 
     check_status!(
-      sys::napi_typeof(env, napi_val, &mut val_type),
+      unsafe { sys::napi_typeof(env, napi_val, &mut val_type) },
       "Failed to convert napi value into rust type `Option<T>`",
     )?;
 
     match val_type {
       sys::ValueType::napi_undefined | sys::ValueType::napi_null => Ok(None),
-      _ => Ok(Some(T::from_napi_value(env, napi_val)?)),
+      _ => Ok(Some(unsafe { T::from_napi_value(env, napi_val)? })),
     }
   }
 }
@@ -179,11 +179,11 @@ where
 {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     match val {
-      Some(val) => T::to_napi_value(env, val),
+      Some(val) => unsafe { T::to_napi_value(env, val) },
       None => {
         let mut ptr = ptr::null_mut();
         check_status!(
-          sys::napi_get_null(env, &mut ptr),
+          unsafe { sys::napi_get_null(env, &mut ptr) },
           "Failed to convert rust type `Option<T>` into napi value",
         )?;
         Ok(ptr)
@@ -198,13 +198,13 @@ where
 {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     match val {
-      Ok(v) => T::to_napi_value(env, v),
+      Ok(v) => unsafe { T::to_napi_value(env, v) },
       Err(e) => {
-        let error_code = String::to_napi_value(env, format!("{:?}", e.status))?;
-        let reason = String::to_napi_value(env, e.reason)?;
+        let error_code = unsafe { String::to_napi_value(env, format!("{:?}", e.status))? };
+        let reason = unsafe { String::to_napi_value(env, e.reason)? };
         let mut error = ptr::null_mut();
         check_status!(
-          sys::napi_create_error(env, error_code, reason, &mut error),
+          unsafe { sys::napi_create_error(env, error_code, reason, &mut error) },
           "Failed to create napi error"
         )?;
 

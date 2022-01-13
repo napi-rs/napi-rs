@@ -43,12 +43,12 @@ impl<T: 'static> FromNapiValue for External<T> {
   ) -> crate::Result<Self> {
     let mut unknown_tagged_object = std::ptr::null_mut();
     check_status!(
-      napi_sys::napi_get_value_external(env, napi_val, &mut unknown_tagged_object),
+      unsafe { napi_sys::napi_get_value_external(env, napi_val, &mut unknown_tagged_object) },
       "Failed to get external value"
     )?;
 
     let type_id = unknown_tagged_object as *const TypeId;
-    if *type_id == TypeId::of::<T>() {
+    if unsafe { *type_id } == TypeId::of::<T>() {
       let tagged_object = unknown_tagged_object as *mut TaggedObject<T>;
       Ok(Self {
         obj: tagged_object,
@@ -97,13 +97,15 @@ impl<T: 'static> ToNapiValue for External<T> {
   ) -> crate::Result<napi_sys::napi_value> {
     let mut napi_value = std::ptr::null_mut();
     check_status!(
-      napi_sys::napi_create_external(
-        env,
-        val.obj as *mut _,
-        Some(crate::raw_finalize::<T>),
-        Box::into_raw(Box::new(Some(val.size_hint as i64))) as *mut _,
-        &mut napi_value
-      ),
+      unsafe {
+        napi_sys::napi_create_external(
+          env,
+          val.obj as *mut _,
+          Some(crate::raw_finalize::<T>),
+          Box::into_raw(Box::new(Some(val.size_hint as i64))) as *mut _,
+          &mut napi_value,
+        )
+      },
       "Create external value failed"
     )?;
 
@@ -111,16 +113,18 @@ impl<T: 'static> ToNapiValue for External<T> {
 
     if val.size_hint != 0 {
       check_status!(
-        napi_sys::napi_adjust_external_memory(
-          env,
-          val.size_hint as i64,
-          adjusted_external_memory_size.as_mut_ptr()
-        ),
+        unsafe {
+          napi_sys::napi_adjust_external_memory(
+            env,
+            val.size_hint as i64,
+            adjusted_external_memory_size.as_mut_ptr(),
+          )
+        },
         "Adjust external memory failed"
       )?;
     };
 
-    val.adjusted_size = adjusted_external_memory_size.assume_init();
+    val.adjusted_size = unsafe { adjusted_external_memory_size.assume_init() };
 
     Ok(napi_value)
   }

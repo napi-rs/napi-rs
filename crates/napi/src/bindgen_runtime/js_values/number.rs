@@ -27,7 +27,7 @@ macro_rules! impl_number_conversions {
           let mut ptr = std::ptr::null_mut();
 
           check_status!(
-            sys::$create(env, val, &mut ptr),
+            unsafe { sys::$create(env, val, &mut ptr) },
 						"Failed to convert rust type `{}` into napi value",
 						$name,
           )?;
@@ -42,7 +42,7 @@ macro_rules! impl_number_conversions {
 					let mut ret = 0 as $t;
 
           check_status!(
-            sys::$get(env, napi_val, &mut ret),
+            unsafe { sys::$get(env, napi_val, &mut ret) },
 						"Failed to convert napi value into rust type `{}`",
             $name
           )?;

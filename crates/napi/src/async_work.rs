@@ -92,7 +92,7 @@ unsafe impl<T: Task> Sync for AsyncWork<T> {}
 /// env here is the same with the one in `CallContext`.
 /// So it actually could do nothing here, because `execute` function is called in the other thread mostly.
 unsafe extern "C" fn execute<T: Task>(_env: sys::napi_env, data: *mut c_void) {
-  let mut work = Box::from_raw(data as *mut AsyncWork<T>);
+  let mut work = unsafe { Box::from_raw(data as *mut AsyncWork<T>) };
   let _ = mem::replace(
     &mut work.value,
     work.inner_task.compute().map(mem::MaybeUninit::new),
@@ -105,36 +105,39 @@ unsafe extern "C" fn complete<T: Task>(
   status: sys::napi_status,
   data: *mut c_void,
 ) {
-  let mut work = Box::from_raw(data as *mut AsyncWork<T>);
+  let mut work = unsafe { Box::from_raw(data as *mut AsyncWork<T>) };
   let value_ptr = mem::replace(&mut work.value, Ok(mem::MaybeUninit::zeroed()));
   let deferred = mem::replace(&mut work.deferred, ptr::null_mut());
   let napi_async_work = mem::replace(&mut work.napi_async_work, ptr::null_mut());
   let value = match value_ptr {
     Ok(v) => {
-      let output = v.assume_init();
-      work.inner_task.resolve(Env::from_raw(env), output)
+      let output = unsafe { v.assume_init() };
+      work
+        .inner_task
+        .resolve(unsafe { Env::from_raw(env) }, output)
     }
-    Err(e) => work.inner_task.reject(Env::from_raw(env), e),
+    Err(e) => work.inner_task.reject(unsafe { Env::from_raw(env) }, e),
   };
   if status != sys::Status::napi_cancelled && work.status.load(Ordering::Relaxed) != 2 {
     match check_status!(status)
       .and_then(move |_| value)
-      .and_then(|v| ToNapiValue::to_napi_value(env, v))
+      .and_then(|v| unsafe { ToNapiValue::to_napi_value(env, v) })
     {
       Ok(v) => {
-        let status = sys::napi_resolve_deferred(env, deferred, v);
+        let status = unsafe { sys::napi_resolve_deferred(env, deferred, v) };
         debug_assert!(status == sys::Status::napi_ok, "Resolve promise failed");
       }
       Err(e) => {
-        let status = sys::napi_reject_deferred(env, deferred, JsError::from(e).into_value(env));
+        let status =
+          unsafe { sys::napi_reject_deferred(env, deferred, JsError::from(e).into_value(env)) };
         debug_assert!(status == sys::Status::napi_ok, "Reject promise failed");
       }
     };
   }
-  if let Err(e) = work.inner_task.finally(Env::from_raw(env)) {
+  if let Err(e) = work.inner_task.finally(unsafe { Env::from_raw(env) }) {
     debug_assert!(false, "Panic in Task finally fn: {:?}", e);
   }
-  let delete_status = sys::napi_delete_async_work(env, napi_async_work);
+  let delete_status = unsafe { sys::napi_delete_async_work(env, napi_async_work) };
   debug_assert!(
     delete_status == sys::Status::napi_ok,
     "Delete async work failed"

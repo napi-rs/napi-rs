@@ -21,7 +21,7 @@ impl ToNapiValue for bool {
     let mut ptr = std::ptr::null_mut();
 
     check_status!(
-      sys::napi_get_boolean(env, val, &mut ptr),
+      unsafe { sys::napi_get_boolean(env, val, &mut ptr) },
       "Failed to convert rust type `bool` into napi value",
     )?;
 
@@ -34,7 +34,7 @@ impl FromNapiValue for bool {
     let mut ret = false;
 
     check_status!(
-      sys::napi_get_value_bool(env, napi_val, &mut ret),
+      unsafe { sys::napi_get_value_bool(env, napi_val, &mut ret) },
       "Failed to convert napi value into rust type `bool`",
     )?;
 

@@ -41,24 +41,29 @@ impl TypeName for BigInt {
 impl FromNapiValue for BigInt {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
     let mut word_count = 0usize;
-    check_status!(sys::napi_get_value_bigint_words(
-      env,
-      napi_val,
-      ptr::null_mut(),
-      &mut word_count,
-      ptr::null_mut(),
-    ))?;
+    check_status!(unsafe {
+      sys::napi_get_value_bigint_words(
+        env,
+        napi_val,
+        ptr::null_mut(),
+        &mut word_count,
+        ptr::null_mut(),
+      )
+    })?;
     let mut words: Vec<u64> = Vec::with_capacity(word_count as usize);
     let mut sign_bit = 0;
-    check_status!(sys::napi_get_value_bigint_words(
-      env,
-      napi_val,
-      &mut sign_bit,
-      &mut word_count,
-      words.as_mut_ptr(),
-    ))?;
 
-    words.set_len(word_count as usize);
+    unsafe {
+      check_status!(sys::napi_get_value_bigint_words(
+        env,
+        napi_val,
+        &mut sign_bit,
+        &mut word_count,
+        words.as_mut_ptr(),
+      ))?;
+
+      words.set_len(word_count as usize);
+    }
     Ok(BigInt {
       sign_bit: sign_bit == 1,
       words,
@@ -126,16 +131,18 @@ impl ToNapiValue for BigInt {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> crate::Result<sys::napi_value> {
     let mut raw_value = ptr::null_mut();
     let len = val.words.len();
-    check_status!(sys::napi_create_bigint_words(
-      env,
-      match val.sign_bit {
-        true => 1,
-        false => 0,
-      },
-      len,
-      val.words.as_ptr(),
-      &mut raw_value,
-    ))?;
+    check_status!(unsafe {
+      sys::napi_create_bigint_words(
+        env,
+        match val.sign_bit {
+          true => 1,
+          false => 0,
+        },
+        len,
+        val.words.as_ptr(),
+        &mut raw_value,
+      )
+    })?;
     Ok(raw_value)
   }
 }
@@ -145,13 +152,9 @@ impl ToNapiValue for i128 {
     let mut raw_value = ptr::null_mut();
     let sign_bit = if val > 0 { 0 } else { 1 };
     let words = &val as *const i128 as *const u64;
-    check_status!(sys::napi_create_bigint_words(
-      env,
-      sign_bit,
-      2,
-      words,
-      &mut raw_value
-    ))?;
+    check_status!(unsafe {
+      sys::napi_create_bigint_words(env, sign_bit, 2, words, &mut raw_value)
+    })?;
     Ok(raw_value)
   }
 }
@@ -160,13 +163,7 @@ impl ToNapiValue for u128 {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> crate::Result<sys::napi_value> {
     let mut raw_value = ptr::null_mut();
     let words = &val as *const u128 as *const u64;
-    check_status!(sys::napi_create_bigint_words(
-      env,
-      0,
-      2,
-      words,
-      &mut raw_value
-    ))?;
+    check_status!(unsafe { sys::napi_create_bigint_words(env, 0, 2, words, &mut raw_value) })?;
     Ok(raw_value)
   }
 }
@@ -174,7 +171,7 @@ impl ToNapiValue for u128 {
 impl ToNapiValue for i64n {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> crate::Result<sys::napi_value> {
     let mut raw_value = ptr::null_mut();
-    check_status!(sys::napi_create_bigint_int64(env, val.0, &mut raw_value))?;
+    check_status!(unsafe { sys::napi_create_bigint_int64(env, val.0, &mut raw_value) })?;
     Ok(raw_value)
   }
 }
@@ -182,7 +179,7 @@ impl ToNapiValue for i64n {
 impl ToNapiValue for u64 {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> crate::Result<sys::napi_value> {
     let mut raw_value = ptr::null_mut();
-    check_status!(sys::napi_create_bigint_uint64(env, val, &mut raw_value))?;
+    check_status!(unsafe { sys::napi_create_bigint_uint64(env, val, &mut raw_value) })?;
     Ok(raw_value)
   }
 }
@@ -190,11 +187,7 @@ impl ToNapiValue for u64 {
 impl ToNapiValue for usize {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> crate::Result<sys::napi_value> {
     let mut raw_value = ptr::null_mut();
-    check_status!(sys::napi_create_bigint_uint64(
-      env,
-      val as u64,
-      &mut raw_value
-    ))?;
+    check_status!(unsafe { sys::napi_create_bigint_uint64(env, val as u64, &mut raw_value) })?;
     Ok(raw_value)
   }
 }
@@ -202,11 +195,7 @@ impl ToNapiValue for usize {
 impl ToNapiValue for isize {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> crate::Result<sys::napi_value> {
     let mut raw_value = ptr::null_mut();
-    check_status!(sys::napi_create_bigint_int64(
-      env,
-      val as i64,
-      &mut raw_value
-    ))?;
+    check_status!(unsafe { sys::napi_create_bigint_int64(env, val as i64, &mut raw_value) })?;
     Ok(raw_value)
   }
 }

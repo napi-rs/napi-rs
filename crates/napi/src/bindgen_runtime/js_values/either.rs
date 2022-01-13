@@ -21,8 +21,8 @@ impl<
   /// Backward compatible with `Either` in **v1**
   pub unsafe fn raw(&self) -> napi_sys::napi_value {
     match &self {
-      Self::A(a) => a.raw(),
-      Self::B(b) => b.raw(),
+      Self::A(a) => unsafe { a.raw() },
+      Self::B(b) => unsafe { b.raw() },
     }
   }
 }
@@ -68,9 +68,9 @@ impl<A: TypeName + FromNapiValue + ToNapiValue, B: TypeName + FromNapiValue + To
     debug_assert!(A::value_type() != B::value_type(), "{}", ERROR_MSG);
     let js_type = type_of!(env, napi_val)?;
     if js_type == A::value_type() {
-      A::from_napi_value(env, napi_val).map(Self::A)
+      unsafe { A::from_napi_value(env, napi_val).map(Self::A) }
     } else if js_type == B::value_type() {
-      B::from_napi_value(env, napi_val).map(Self::B)
+      unsafe { B::from_napi_value(env, napi_val).map(Self::B) }
     } else {
       Err(crate::Error::new(
         Status::InvalidArg,
@@ -93,8 +93,8 @@ impl<A: TypeName + FromNapiValue + ToNapiValue, B: TypeName + FromNapiValue + To
     value: Self,
   ) -> crate::Result<crate::sys::napi_value> {
     match value {
-      Self::A(a) => A::to_napi_value(env, a),
-      Self::B(b) => B::to_napi_value(env, b),
+      Self::A(a) => unsafe { A::to_napi_value(env, a) },
+      Self::B(b) => unsafe { B::to_napi_value(env, b) },
     }
   }
 }
@@ -146,11 +146,11 @@ impl<
     );
     let js_type = type_of!(env, napi_val)?;
     if js_type == A::value_type() {
-      A::from_napi_value(env, napi_val).map(Self::A)
+      unsafe { A::from_napi_value(env, napi_val).map(Self::A) }
     } else if js_type == B::value_type() {
-      B::from_napi_value(env, napi_val).map(Self::B)
+      unsafe { B::from_napi_value(env, napi_val).map(Self::B) }
     } else if js_type == C::value_type() {
-      C::from_napi_value(env, napi_val).map(Self::C)
+      unsafe { C::from_napi_value(env, napi_val).map(Self::C) }
     } else {
       Err(crate::Error::new(
         Status::InvalidArg,
@@ -177,9 +177,9 @@ impl<
     value: Self,
   ) -> crate::Result<crate::sys::napi_value> {
     match value {
-      Self::A(a) => A::to_napi_value(env, a),
-      Self::B(b) => B::to_napi_value(env, b),
-      Self::C(c) => C::to_napi_value(env, c),
+      Self::A(a) => unsafe { A::to_napi_value(env, a) },
+      Self::B(b) => unsafe { B::to_napi_value(env, b) },
+      Self::C(c) => unsafe { C::to_napi_value(env, c) },
     }
   }
 }
@@ -240,13 +240,13 @@ impl<
     );
     let js_type = type_of!(env, napi_val)?;
     if js_type == A::value_type() {
-      A::from_napi_value(env, napi_val).map(Self::A)
+      unsafe { A::from_napi_value(env, napi_val).map(Self::A) }
     } else if js_type == B::value_type() {
-      B::from_napi_value(env, napi_val).map(Self::B)
+      unsafe { B::from_napi_value(env, napi_val).map(Self::B) }
     } else if js_type == C::value_type() {
-      C::from_napi_value(env, napi_val).map(Self::C)
+      unsafe { C::from_napi_value(env, napi_val).map(Self::C) }
     } else if js_type == D::value_type() {
-      D::from_napi_value(env, napi_val).map(Self::D)
+      unsafe { D::from_napi_value(env, napi_val).map(Self::D) }
     } else {
       Err(crate::Error::new(
         Status::InvalidArg,
@@ -275,10 +275,10 @@ impl<
     value: Self,
   ) -> crate::Result<crate::sys::napi_value> {
     match value {
-      Self::A(a) => A::to_napi_value(env, a),
-      Self::B(b) => B::to_napi_value(env, b),
-      Self::C(c) => C::to_napi_value(env, c),
-      Self::D(d) => D::to_napi_value(env, d),
+      Self::A(a) => unsafe { A::to_napi_value(env, a) },
+      Self::B(b) => unsafe { B::to_napi_value(env, b) },
+      Self::C(c) => unsafe { C::to_napi_value(env, c) },
+      Self::D(d) => unsafe { D::to_napi_value(env, d) },
     }
   }
 }
@@ -344,15 +344,15 @@ impl<
     );
     let js_type = type_of!(env, napi_val)?;
     if js_type == A::value_type() {
-      A::from_napi_value(env, napi_val).map(Self::A)
+      unsafe { A::from_napi_value(env, napi_val).map(Self::A) }
     } else if js_type == B::value_type() {
-      B::from_napi_value(env, napi_val).map(Self::B)
+      unsafe { B::from_napi_value(env, napi_val).map(Self::B) }
     } else if js_type == C::value_type() {
-      C::from_napi_value(env, napi_val).map(Self::C)
+      unsafe { C::from_napi_value(env, napi_val).map(Self::C) }
     } else if js_type == D::value_type() {
-      D::from_napi_value(env, napi_val).map(Self::D)
+      unsafe { D::from_napi_value(env, napi_val).map(Self::D) }
     } else if js_type == E::value_type() {
-      E::from_napi_value(env, napi_val).map(Self::E)
+      unsafe { E::from_napi_value(env, napi_val).map(Self::E) }
     } else {
       Err(crate::Error::new(
         Status::InvalidArg,
@@ -383,11 +383,11 @@ impl<
     value: Self,
   ) -> crate::Result<crate::sys::napi_value> {
     match value {
-      Self::A(a) => A::to_napi_value(env, a),
-      Self::B(b) => B::to_napi_value(env, b),
-      Self::C(c) => C::to_napi_value(env, c),
-      Self::D(d) => D::to_napi_value(env, d),
-      Self::E(e) => E::to_napi_value(env, e),
+      Self::A(a) => unsafe { A::to_napi_value(env, a) },
+      Self::B(b) => unsafe { B::to_napi_value(env, b) },
+      Self::C(c) => unsafe { C::to_napi_value(env, c) },
+      Self::D(d) => unsafe { D::to_napi_value(env, d) },
+      Self::E(e) => unsafe { E::to_napi_value(env, e) },
     }
   }
 }

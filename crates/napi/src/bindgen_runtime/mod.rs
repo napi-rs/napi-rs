@@ -22,12 +22,12 @@ pub unsafe extern "C" fn raw_finalize_unchecked<T>(
   finalize_hint: *mut c_void,
 ) {
   let obj = finalize_data as *mut T;
-  Box::from_raw(obj);
+  unsafe { Box::from_raw(obj) };
   if !finalize_hint.is_null() {
-    let size_hint = *Box::from_raw(finalize_hint as *mut Option<i64>);
+    let size_hint = unsafe { *Box::from_raw(finalize_hint as *mut Option<i64>) };
     if let Some(changed) = size_hint {
       let mut adjusted = 0i64;
-      let status = sys::napi_adjust_external_memory(env, -changed, &mut adjusted);
+      let status = unsafe { sys::napi_adjust_external_memory(env, -changed, &mut adjusted) };
       debug_assert!(
         status == sys::Status::napi_ok,
         "Calling napi_adjust_external_memory failed"
@@ -45,6 +45,8 @@ pub unsafe extern "C" fn drop_buffer(
   finalize_hint: *mut c_void,
 ) {
   let length_ptr = finalize_hint as *mut (usize, usize);
-  let (length, cap) = *Box::from_raw(length_ptr);
-  mem::drop(Vec::from_raw_parts(finalize_data as *mut u8, length, cap));
+  unsafe {
+    let (length, cap) = *Box::from_raw(length_ptr);
+    mem::drop(Vec::from_raw_parts(finalize_data as *mut u8, length, cap));
+  }
 }

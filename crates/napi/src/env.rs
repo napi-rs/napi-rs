@@ -169,13 +169,8 @@ impl Env {
     len: usize,
   ) -> Result<JsString> {
     let mut raw_value = ptr::null_mut();
-    check_status!(sys::napi_create_string_utf8(
-      self.0,
-      data_ptr,
-      len,
-      &mut raw_value
-    ))?;
-    Ok(JsString::from_raw_unchecked(self.0, raw_value))
+    check_status!(unsafe { sys::napi_create_string_utf8(self.0, data_ptr, len, &mut raw_value) })?;
+    Ok(unsafe { JsString::from_raw_unchecked(self.0, raw_value) })
   }
 
   pub fn create_string_utf16(&self, chars: &[u16]) -> Result<JsString> {
@@ -301,28 +296,30 @@ impl Env {
     Finalize: FnOnce(Hint, Env),
   {
     let mut raw_value = ptr::null_mut();
-    check_status!(sys::napi_create_external_buffer(
-      self.0,
-      length,
-      data as *mut c_void,
-      Some(
-        raw_finalize_with_custom_callback::<Hint, Finalize>
-          as unsafe extern "C" fn(
-            env: sys::napi_env,
-            finalize_data: *mut c_void,
-            finalize_hint: *mut c_void,
-          )
-      ),
-      Box::into_raw(Box::new((hint, finalize_callback))) as *mut c_void,
-      &mut raw_value,
-    ))?;
+    check_status!(unsafe {
+      sys::napi_create_external_buffer(
+        self.0,
+        length,
+        data as *mut c_void,
+        Some(
+          raw_finalize_with_custom_callback::<Hint, Finalize>
+            as unsafe extern "C" fn(
+              env: sys::napi_env,
+              finalize_data: *mut c_void,
+              finalize_hint: *mut c_void,
+            ),
+        ),
+        Box::into_raw(Box::new((hint, finalize_callback))) as *mut c_void,
+        &mut raw_value,
+      )
+    })?;
     Ok(JsBufferValue::new(
       JsBuffer(Value {
         env: self.0,
         value: raw_value,
         value_type: ValueType::Object,
       }),
-      mem::ManuallyDrop::new(Vec::from_raw_parts(data as *mut u8, length, length)),
+      mem::ManuallyDrop::new(unsafe { Vec::from_raw_parts(data as *mut u8, length, length) }),
     ))
   }
 
@@ -426,21 +423,23 @@ impl Env {
     Finalize: FnOnce(Hint, Env),
   {
     let mut raw_value = ptr::null_mut();
-    check_status!(sys::napi_create_external_arraybuffer(
-      self.0,
-      data as *mut c_void,
-      length,
-      Some(
-        raw_finalize_with_custom_callback::<Hint, Finalize>
-          as unsafe extern "C" fn(
-            env: sys::napi_env,
-            finalize_data: *mut c_void,
-            finalize_hint: *mut c_void,
-          )
-      ),
-      Box::into_raw(Box::new((hint, finalize_callback))) as *mut c_void,
-      &mut raw_value,
-    ))?;
+    check_status!(unsafe {
+      sys::napi_create_external_arraybuffer(
+        self.0,
+        data as *mut c_void,
+        length,
+        Some(
+          raw_finalize_with_custom_callback::<Hint, Finalize>
+            as unsafe extern "C" fn(
+              env: sys::napi_env,
+              finalize_data: *mut c_void,
+              finalize_hint: *mut c_void,
+            ),
+        ),
+        Box::into_raw(Box::new((hint, finalize_callback))) as *mut c_void,
+        &mut raw_value,
+      )
+    })?;
     Ok(JsArrayBufferValue::new(
       JsArrayBuffer(Value {
         env: self.0,
@@ -505,14 +504,16 @@ impl Env {
               let (raw_this, ref raw_args, closure_data_ptr) = {
                 let argc = {
                   let mut argc = 0;
-                  let status = sys::napi_get_cb_info(
-                    raw_env,
-                    cb_info,
-                    &mut argc,
-                    ptr::null_mut(),
-                    ptr::null_mut(),
-                    ptr::null_mut(),
-                  );
+                  let status = unsafe {
+                    sys::napi_get_cb_info(
+                      raw_env,
+                      cb_info,
+                      &mut argc,
+                      ptr::null_mut(),
+                      ptr::null_mut(),
+                      ptr::null_mut(),
+                    )
+                  };
                   debug_assert!(
                     Status::from(status) == Status::Ok,
                     "napi_get_cb_info failed"
@@ -523,14 +524,16 @@ impl Env {
                 let mut raw_this = ptr::null_mut();
                 let mut closure_data_ptr = ptr::null_mut();
 
-                let status = sys::napi_get_cb_info(
-                  raw_env,
-                  cb_info,
-                  &mut { argc },
-                  raw_args.as_mut_ptr(),
-                  &mut raw_this,
-                  &mut closure_data_ptr,
-                );
+                let status = unsafe {
+                  sys::napi_get_cb_info(
+                    raw_env,
+                    cb_info,
+                    &mut { argc },
+                    raw_args.as_mut_ptr(),
+                    &mut raw_this,
+                    &mut closure_data_ptr,
+                  )
+                };
                 debug_assert!(
                   Status::from(status) == Status::Ok,
                   "napi_get_cb_info failed"
@@ -538,13 +541,15 @@ impl Env {
                 (raw_this, raw_args, closure_data_ptr)
               };
 
-              let closure: &F = closure_data_ptr
-                .cast::<F>()
-                .as_ref()
-                .expect("`napi_get_cb_info` should have yielded non-`NULL` assoc data");
-              let env = &mut Env::from_raw(raw_env);
+              let closure: &F = unsafe {
+                closure_data_ptr
+                  .cast::<F>()
+                  .as_ref()
+                  .expect("`napi_get_cb_info` should have yielded non-`NULL` assoc data")
+              };
+              let env = &mut unsafe { Env::from_raw(raw_env) };
               let ctx = CallContext::new(env, cb_info, raw_this, raw_args, raw_args.len());
-              closure(ctx).map(|ret: R| ret.raw())
+              closure(ctx).map(|ret: R| unsafe { ret.raw() })
             }))
             .map_err(|e| {
               Error::from_reason(format!(
@@ -560,7 +565,7 @@ impl Env {
             })
             .and_then(|v| v)
             .unwrap_or_else(|e| {
-              JsError::from(e).throw_into(raw_env);
+              unsafe { JsError::from(e).throw_into(raw_env) };
               ptr::null_mut()
             })
           }
@@ -591,7 +596,7 @@ impl Env {
             closure_data_ptr: *mut c_void,
             _finalize_hint: *mut c_void,
           ) {
-            drop(Box::<F>::from_raw(closure_data_ptr.cast()))
+            drop(unsafe { Box::<F>::from_raw(closure_data_ptr.cast()) })
           }
 
           finalize_box_trampoline::<F>
@@ -1282,8 +1287,8 @@ unsafe extern "C" fn drop_buffer(
   hint: *mut c_void,
 ) {
   let length_ptr = hint as *mut (usize, usize);
-  let (length, cap) = *Box::from_raw(length_ptr);
-  mem::drop(Vec::from_raw_parts(finalize_data as *mut u8, length, cap));
+  let (length, cap) = unsafe { *Box::from_raw(length_ptr) };
+  mem::drop(unsafe { Vec::from_raw_parts(finalize_data as *mut u8, length, cap) });
 }
 
 pub(crate) unsafe extern "C" fn raw_finalize<T>(
@@ -1292,13 +1297,13 @@ pub(crate) unsafe extern "C" fn raw_finalize<T>(
   finalize_hint: *mut c_void,
 ) {
   let tagged_object = finalize_data as *mut TaggedObject<T>;
-  Box::from_raw(tagged_object);
+  unsafe { Box::from_raw(tagged_object) };
   if !finalize_hint.is_null() {
-    let size_hint = *Box::from_raw(finalize_hint as *mut Option<i64>);
+    let size_hint = unsafe { *Box::from_raw(finalize_hint as *mut Option<i64>) };
     if let Some(changed) = size_hint {
       if changed != 0 {
         let mut adjusted = 0i64;
-        let status = sys::napi_adjust_external_memory(env, -changed, &mut adjusted);
+        let status = unsafe { sys::napi_adjust_external_memory(env, -changed, &mut adjusted) };
         debug_assert!(
           status == sys::Status::napi_ok,
           "Calling napi_adjust_external_memory failed"
@@ -1318,9 +1323,9 @@ unsafe extern "C" fn set_instance_finalize_callback<T, Hint, F>(
   Hint: 'static,
   F: FnOnce(FinalizeContext<T, Hint>),
 {
-  let (value, callback) = *Box::from_raw(finalize_data as *mut (TaggedObject<T>, F));
-  let hint = *Box::from_raw(finalize_hint as *mut Hint);
-  let env = Env::from_raw(raw_env);
+  let (value, callback) = unsafe { *Box::from_raw(finalize_data as *mut (TaggedObject<T>, F)) };
+  let hint = unsafe { *Box::from_raw(finalize_hint as *mut Hint) };
+  let env = unsafe { Env::from_raw(raw_env) };
   callback(FinalizeContext {
     value: value.object.unwrap(),
     hint,
@@ -1330,7 +1335,7 @@ unsafe extern "C" fn set_instance_finalize_callback<T, Hint, F>(
 
 #[cfg(feature = "napi3")]
 unsafe extern "C" fn cleanup_env<T: 'static>(hook_data: *mut c_void) {
-  let cleanup_env_hook = Box::from_raw(hook_data as *mut CleanupEnvHookData<T>);
+  let cleanup_env_hook = unsafe { Box::from_raw(hook_data as *mut CleanupEnvHookData<T>) };
   (cleanup_env_hook.hook)(cleanup_env_hook.data);
 }
 
@@ -1341,8 +1346,8 @@ unsafe extern "C" fn raw_finalize_with_custom_callback<Hint, Finalize>(
 ) where
   Finalize: FnOnce(Hint, Env),
 {
-  let (hint, callback) = *Box::from_raw(finalize_hint as *mut (Hint, Finalize));
-  callback(hint, Env::from_raw(env));
+  let (hint, callback) = unsafe { *Box::from_raw(finalize_hint as *mut (Hint, Finalize)) };
+  callback(hint, unsafe { Env::from_raw(env) });
 }
 
 #[cfg(feature = "napi8")]
@@ -1353,10 +1358,10 @@ unsafe extern "C" fn async_finalize<Arg, F>(
   Arg: 'static,
   F: FnOnce(Arg),
 {
-  let (arg, callback) = *Box::from_raw(data as *mut (Arg, F));
+  let (arg, callback) = unsafe { *Box::from_raw(data as *mut (Arg, F)) };
   callback(arg);
   if !handle.is_null() {
-    let status = sys::napi_remove_async_cleanup_hook(handle);
+    let status = unsafe { sys::napi_remove_async_cleanup_hook(handle) };
     assert!(
       status == sys::Status::napi_ok,
       "Remove async cleanup hook failed after async cleanup callback"

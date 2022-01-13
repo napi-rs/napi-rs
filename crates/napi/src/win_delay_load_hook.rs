@@ -27,7 +27,7 @@ unsafe extern "C" fn load_exe_hook(event: u32, info: *const DELAYLOAD_INFO) -> H
     return HINSTANCE::default();
   }
 
-  let dll_name = CStr::from_ptr((*info).TargetDllName.0 as *mut i8);
+  let dll_name = unsafe { CStr::from_ptr((*info).TargetDllName.0 as *mut i8) };
   if !HOST_BINARIES
     .iter()
     .any(|&host_name| host_name == dll_name.to_bytes())
@@ -35,7 +35,7 @@ unsafe extern "C" fn load_exe_hook(event: u32, info: *const DELAYLOAD_INFO) -> H
     return HINSTANCE::default();
   }
 
-  GetModuleHandleA(PSTR::default())
+  unsafe { GetModuleHandleA(PSTR::default()) }
 }
 
 #[no_mangle]
