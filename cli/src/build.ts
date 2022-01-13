@@ -154,6 +154,14 @@ export class BuildCommand extends Command {
     )}`,
   })
 
+  zigABIVersion = Option.String(`--zig-abi-suffix`, {
+    description: `The suffix of the ${chalk.green(
+      'zig --target',
+    )} ABI version. Eg. ${chalk.cyan(
+      '--target x86_64-unknown-linux-gnu',
+    )} ${chalk.green('--zig-abi-suffix=2.17')}`,
+  })
+
   async execute() {
     const cwd = this.cargoCwd
       ? join(process.cwd(), this.cargoCwd)
@@ -208,7 +216,9 @@ export class BuildCommand extends Command {
     }
 
     if (this.useZig) {
-      const zigTarget = ZIG_PLATFORM_TARGET_MAP[triple.raw]
+      const zigTarget = `${ZIG_PLATFORM_TARGET_MAP[triple.raw]}${
+        this.zigABIVersion ? `.${this.zigABIVersion}` : ''
+      }`
       if (!zigTarget) {
         throw new Error(`${triple.raw} can not be cross compiled by zig`)
       }
