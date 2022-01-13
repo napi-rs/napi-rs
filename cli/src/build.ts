@@ -254,9 +254,7 @@ export class BuildCommand extends Command {
           triple.platform === 'win32' ? 'c++' : 'cc'
         }', ...processZigLinkerArgs('${
           triple.raw
-        }', process.argv.slice(2)), '-target', '${
-          ZIG_PLATFORM_TARGET_MAP[triple.raw]
-        }'], { stdio: 'inherit', shell: true })\nwriteFileSync('${linkerWrapper.replaceAll(
+        }', process.argv.slice(2)), '-target', '${zigTarget}'], { stdio: 'inherit', shell: true })\nwriteFileSync('${linkerWrapper.replaceAll(
           '\\',
           '/',
         )}.args.log', process.argv.slice(2).join(' '))\n\nprocess.exit(status || 0)\n`,
