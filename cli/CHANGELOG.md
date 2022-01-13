@@ -3,6 +3,16 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.4.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.3.1...@napi-rs/cli@2.4.0) (2022-01-13)
+
+### Bug Fixes
+
+- **cli:** zig abi should pass to linker ([95d49f8](https://github.com/napi-rs/napi-rs/commit/95d49f8cf4485fcf8a882291b9bd64d5667668c6))
+
+### Features
+
+- **cli:** add `--strip` option for removing symbols ([887bdb9](https://github.com/napi-rs/napi-rs/commit/887bdb9d2908576f5d3468cfdcf662538f1fbe8d))
+
 ## [2.3.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.3.0...@napi-rs/cli@2.3.1) (2022-01-13)
 
 ### Bug Fixes
