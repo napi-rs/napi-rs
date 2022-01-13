@@ -80,7 +80,6 @@ import {
   receiveMutClassOrNumber,
   getStrFromObject,
   returnJsFunction,
-  testSerdeNumber,
   testSerdeRoundtrip,
 } from '../'
 
@@ -317,13 +316,16 @@ test('serde-roundtrip', (t) => {
   t.is(testSerdeRoundtrip(null), null)
 
   let err = t.throws(() => testSerdeRoundtrip(undefined))
-  t.is(err!.message, 'undefined cannot be represented')
+  t.is(err!.message, 'undefined cannot be represented as a serde_json::Value')
 
   err = t.throws(() => testSerdeRoundtrip(() => {}))
-  t.is(err!.message, 'JS functions cannot be represented')
+  t.is(
+    err!.message,
+    'JS functions cannot be represented as a serde_json::Value',
+  )
 
   err = t.throws(() => testSerdeRoundtrip(Symbol.for('foo')))
-  t.is(err!.message, 'JS symbols cannot be represented')
+  t.is(err!.message, 'JS symbols cannot be represented as a serde_json::Value')
 })
 
 test('buffer', (t) => {
