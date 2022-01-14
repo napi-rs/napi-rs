@@ -11,6 +11,7 @@ pub struct Ref<T> {
   pub(crate) raw_value: sys::napi_value,
 }
 
+#[allow(clippy::non_send_fields_in_send_ty)]
 unsafe impl<T> Send for Ref<T> {}
 unsafe impl<T> Sync for Ref<T> {}
 
