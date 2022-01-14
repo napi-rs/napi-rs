@@ -15,6 +15,7 @@ pub struct FuturePromise<Data, Resolver: FnOnce(sys::napi_env, Data) -> Result<s
   _data: PhantomData<Data>,
 }
 
+#[allow(clippy::non_send_fields_in_send_ty)]
 unsafe impl<T, F: FnOnce(sys::napi_env, T) -> Result<sys::napi_value>> Send
   for FuturePromise<T, F>
 {

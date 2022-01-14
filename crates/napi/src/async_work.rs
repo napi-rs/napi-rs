@@ -85,6 +85,7 @@ pub fn run<T: Task>(
   })
 }
 
+#[allow(clippy::non_send_fields_in_send_ty)]
 unsafe impl<T: Task> Send for AsyncWork<T> {}
 
 unsafe impl<T: Task> Sync for AsyncWork<T> {}
