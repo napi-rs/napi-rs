@@ -128,11 +128,30 @@ impl ToNapiValue for Number {
 
 impl FromNapiValue for Number {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
-    Number::from_f64(unsafe { f64::from_napi_value(env, napi_val)? }).ok_or_else(|| {
+    let n = unsafe { f64::from_napi_value(env, napi_val)? };
+    // Try to auto-convert to integers
+    let n = if n.trunc() == n {
+      if n >= 0.0f64 && n <= u32::MAX as f64 {
+        // This can be represented as u32
+        Some(Number::from(n as u32))
+      } else if n < 0.0f64 && n >= i32::MIN as f64 {
+        Some(Number::from(n as i32))
+      } else {
+        // must be a float
+        Number::from_f64(n)
+      }
+    } else {
+      // must be a float
+      Number::from_f64(n)
+    };
+
+    let n = n.ok_or_else(|| {
       Error::new(
         Status::InvalidArg,
         "Failed to convert js number to serde_json::Number".to_owned(),
       )
-    })
+    })?;
+
+    Ok(n)
   }
 }
