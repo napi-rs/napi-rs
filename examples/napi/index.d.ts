@@ -141,6 +141,11 @@ export class Animal {
   whoami(): string
   /** This is static... */
   static getDogKind(): Kind
+  /**
+   * Here are some characters and character sequences
+   * that should be escaped correctly:
+   * \[]{}/\:""
+   */
   returnOtherClass(): Dog
   returnOtherClassWithCustomConstructor(): Bird
 }
