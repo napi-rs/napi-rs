@@ -51,7 +51,16 @@ fn escape_json(src: &str) -> String {
   use std::fmt::Write;
   let mut escaped = String::with_capacity(src.len());
   let mut utf16_buf = [0u16; 2];
+  let mut pending_backslash = false;
   for c in src.chars() {
+    if pending_backslash {
+      match c {
+        'b' | 'f' | 'n' | 'r' | 't' | 'u' | '"' => escaped += "\\",
+        _ => escaped += "\\\\",
+      }
+      pending_backslash = false;
+    }
+
     match c {
       '\x08' => escaped += "\\b",
       '\x0c' => escaped += "\\f",
@@ -59,7 +68,10 @@ fn escape_json(src: &str) -> String {
       '\r' => escaped += "\\r",
       '\t' => escaped += "\\t",
       '"' => escaped += "\\\"",
-      '\\' => escaped += "\\",
+      '\\' => {
+        pending_backslash = true;
+      }
+      ' ' => escaped += " ",
       c if c.is_ascii_graphic() => escaped.push(c),
       c => {
         let encoded = c.encode_utf16(&mut utf16_buf);
@@ -69,6 +81,12 @@ fn escape_json(src: &str) -> String {
       }
     }
   }
+
+  // cater for trailing backslash
+  if pending_backslash {
+    escaped += "\\\\"
+  }
+
   escaped
 }
 
