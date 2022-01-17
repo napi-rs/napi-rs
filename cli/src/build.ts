@@ -48,7 +48,12 @@ function processZigLinkerArgs(platform: string, args: string[]) {
     return newArgs
   }
   if (platform.includes('linux')) {
-    return args.filter((arg) => arg !== '-lgcc_s' && arg !== '-lunwind')
+    return args.map((arg) => {
+      if (arg === '-lgcc_s') {
+        return '-lunwind'
+      }
+      return arg
+    })
   }
   return args
 }
