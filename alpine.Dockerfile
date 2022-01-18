@@ -22,7 +22,7 @@ RUN apk add --update --no-cache wget musl-dev && \
   tar \
   ninja && \
   apk upgrade && \
-  npm install -g pnpm
+  npm install -g pnpm lerna
 
 RUN rustup-init -y && \
   yarn global add pnpm && \

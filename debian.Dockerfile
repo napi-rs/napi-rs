@@ -6,8 +6,7 @@ ENV RUSTUP_HOME=/usr/local/rustup \
   CARGO_HOME=/usr/local/cargo \
   PATH=/usr/local/cargo/bin:$PATH \
   CC=clang \
-  CXX=clang++ \
-  CXXFLAGS="-stdlib=libc++ -std=c++20 -static"
+  CXX=clang++
 
 RUN wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add - && \
   echo "deb http://apt.llvm.org/stretch/ llvm-toolchain-stretch main" >> /etc/apt/sources.list && \
@@ -33,9 +32,8 @@ RUN wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add - && \
   curl https://sh.rustup.rs -sSf | sh -s -- -y && \
   rustup target add aarch64-unknown-linux-gnu && \
   rustup target add armv7-unknown-linux-gnueabihf && \
-  npm install -g pnpm && \
-  ln -sf /usr/bin/clang /usr/bin/cc && \
-  echo '[target.x86_64-unknown-linux-gnu]\nrustflags = ["-C", "linker=clang", "-C", "link-arg=-fuse-ld=lld", "-C", "link-arg=-Wl", "-C", "link-arg=-lc++"]' > /usr/local/cargo/config.toml
+  npm install -g pnpm lerna && \
+  ln -sf /usr/bin/clang /usr/bin/cc
 
 RUN wget https://www.nasm.us/pub/nasm/releasebuilds/${NASM_VERSION}/nasm-${NASM_VERSION}.tar.xz && \
   tar -xf nasm-${NASM_VERSION}.tar.xz && \
