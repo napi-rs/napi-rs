@@ -250,7 +250,7 @@ export class BuildCommand extends Command {
       const forwardArgs = process.platform === 'win32' ? '%*' : '$@'
       await writeFileAsync(
         linkerWrapperShell,
-        `node ${linkerWrapper} ${forwardArgs}`,
+        `#!/bin/sh\nnode ${linkerWrapper} ${forwardArgs}`,
         {
           mode: '777',
         },
