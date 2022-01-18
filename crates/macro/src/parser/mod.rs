@@ -760,6 +760,7 @@ impl ConvertToAST for syn::ItemStruct {
       let ignored = field_opts.skip().is_some();
       let readonly = field_opts.readonly().is_some();
       let skip_typescript = field_opts.skip_typescript().is_some();
+      let ts_type = field_opts.ts_type().map(|e| e.0.to_string());
 
       fields.push(NapiStructField {
         name,
@@ -769,6 +770,7 @@ impl ConvertToAST for syn::ItemStruct {
         setter: !(ignored || readonly),
         comments: extract_doc_comments(&field.attrs),
         skip_typescript,
+        ts_type,
       })
     }
 

@@ -54,6 +54,7 @@ macro_rules! attrgen {
       (namespace, Namespace(Span, String, Span)),
       (ts_args_type, TsArgsType(Span, String, Span)),
       (ts_return_type, TsReturnType(Span, String, Span)),
+      (ts_type, TsType(Span, String, Span)),
 
       // impl later
       // (inspectable, Inspectable(Span)),
