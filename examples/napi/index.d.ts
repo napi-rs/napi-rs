@@ -15,6 +15,7 @@ export function getWords(): Array<string>
 /** Gets some numbers */
 export function getNums(): Array<number>
 export function sumNums(nums: Array<number>): number
+export function toJsObj(): object
 export function readFileAsync(path: string): Promise<Buffer>
 export function asyncMultiTwo(arg: number): Promise<number>
 export function bigintAdd(a: bigint, b: bigint): bigint
