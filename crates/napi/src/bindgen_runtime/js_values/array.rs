@@ -1,6 +1,6 @@
 use std::ptr;
 
-use crate::{bindgen_prelude::*, check_status, sys, ValueType};
+use crate::{bindgen_prelude::*, check_status, sys, JsObject, Value, ValueType};
 
 pub struct Array {
   env: sys::napi_env,
@@ -68,6 +68,16 @@ impl Array {
   #[allow(clippy::len_without_is_empty)]
   pub fn len(&self) -> u32 {
     self.len
+  }
+
+  pub fn coerce_to_object(self) -> Result<JsObject> {
+    let mut new_raw_value = ptr::null_mut();
+    check_status!(unsafe { sys::napi_coerce_to_object(self.env, self.inner, &mut new_raw_value) })?;
+    Ok(JsObject(Value {
+      env: self.env,
+      value: new_raw_value,
+      value_type: ValueType::Object,
+    }))
   }
 }
 
