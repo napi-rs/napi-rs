@@ -92,6 +92,10 @@ export interface StrictObject {
 }
 export function receiveStrictObject(strictObject: StrictObject): void
 export function getStrFromObject(): void
+export interface TsTypeChanged {
+  typeOverride: object
+  typeOverrideOptional?: object
+}
 export function asyncPlus100(p: Promise<number>): Promise<number>
 /** This is an interface for package.json */
 export interface PackageJson {

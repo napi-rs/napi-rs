@@ -76,3 +76,12 @@ pub fn get_str_from_object(env: Env) {
   obj.set("name", "value").unwrap();
   assert_eq!(obj.get("name").unwrap(), Some("value"));
 }
+
+#[napi(object)]
+pub struct TsTypeChanged {
+  #[napi(ts_type = "object")]
+  pub type_override: String,
+
+  #[napi(ts_type = "object")]
+  pub type_override_optional: Option<String>,
+}
