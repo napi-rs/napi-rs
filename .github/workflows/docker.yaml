@@ -49,6 +49,14 @@ jobs:
           push: true
           tags: ghcr.io/${{ github.repository }}/nodejs-rust:lts-debian-zig
 
+      - name: Build and push alpine with zig
+        uses: docker/build-push-action@v2
+        with:
+          file: alpine-zig.Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/${{ github.repository }}/nodejs-rust:lts-alpine-zig
+
   build_image_arm:
     name: Build Node.js arm images
     strategy:
