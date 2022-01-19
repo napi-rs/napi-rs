@@ -602,6 +602,12 @@ impl ParseNapi for syn::Item {
 
 impl ParseNapi for syn::ItemFn {
   fn parse_napi(&mut self, tokens: &mut TokenStream, opts: BindgenAttrs) -> BindgenResult<Napi> {
+    if opts.ts_type().is_some() {
+      bail_span!(
+        self,
+        "#[napi] can't be applied to a function with #[napi(ts_type)]"
+      );
+    }
     self.to_tokens(tokens);
     self.convert_to_ast(opts)
   }
@@ -611,10 +617,11 @@ impl ParseNapi for syn::ItemStruct {
     if opts.ts_args_type().is_some()
       || opts.ts_return_type().is_some()
       || opts.skip_typescript().is_some()
+      || opts.ts_type().is_some()
     {
       bail_span!(
         self,
-        "#[napi] can't be applied to a struct with #[napi(ts_args_type)] or #[napi(ts_return_type)] or #[napi(skip_typescript)]"
+        "#[napi] can't be applied to a struct with #[napi(ts_args_type)], #[napi(ts_return_type)], #[napi(skip_typescript)] or #[napi(ts_type)]"
       );
     }
     let napi = self.convert_to_ast(opts);
@@ -628,10 +635,11 @@ impl ParseNapi for syn::ItemImpl {
     if opts.ts_args_type().is_some()
       || opts.ts_return_type().is_some()
       || opts.skip_typescript().is_some()
+      || opts.ts_type().is_some()
     {
       bail_span!(
         self,
-        "#[napi] can't be applied to impl with #[napi(ts_args_type)] or #[napi(ts_return_type)] or #[napi(skip_typescript)]"
+        "#[napi] can't be applied to impl with #[napi(ts_args_type)], #[napi(ts_return_type)], #[napi(skip_typescript)] or #[napi(ts_type)]"
       );
     }
     // #[napi] macro will be remove from impl items after converted to ast
@@ -643,10 +651,11 @@ impl ParseNapi for syn::ItemImpl {
 }
 impl ParseNapi for syn::ItemEnum {
   fn parse_napi(&mut self, tokens: &mut TokenStream, opts: BindgenAttrs) -> BindgenResult<Napi> {
-    if opts.ts_args_type().is_some() || opts.ts_return_type().is_some() {
+    if opts.ts_args_type().is_some() || opts.ts_return_type().is_some() || opts.ts_type().is_some()
+    {
       bail_span!(
         self,
-        "#[napi] can't be applied to a enum with #[napi(ts_args_type)] or #[napi(ts_return_type)]"
+        "#[napi] can't be applied to a enum with #[napi(ts_args_type)], #[napi(ts_return_type)] or #[napi(ts_type)]"
       );
     }
     let napi = self.convert_to_ast(opts);
@@ -657,10 +666,11 @@ impl ParseNapi for syn::ItemEnum {
 }
 impl ParseNapi for syn::ItemConst {
   fn parse_napi(&mut self, tokens: &mut TokenStream, opts: BindgenAttrs) -> BindgenResult<Napi> {
-    if opts.ts_args_type().is_some() || opts.ts_return_type().is_some() {
+    if opts.ts_args_type().is_some() || opts.ts_return_type().is_some() || opts.ts_type().is_some()
+    {
       bail_span!(
         self,
-        "#[napi] can't be applied to a const with #[napi(ts_args_type)] or #[napi(ts_return_type)]"
+        "#[napi] can't be applied to a const with #[napi(ts_args_type)], #[napi(ts_return_type)] or #[napi(ts_type)]"
       );
     }
     let napi = self.convert_to_ast(opts);
