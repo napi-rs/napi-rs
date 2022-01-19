@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.4.2](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.4.1...@napi-rs/cli@2.4.2) (2022-01-19)
+
+### Bug Fixes
+
+- **cli:** js binding template ([25f6754](https://github.com/napi-rs/napi-rs/commit/25f6754a71dfa4736c75eb91bf9f2562543f5d08))
+
 ## [2.4.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.4.0...@napi-rs/cli@2.4.1) (2022-01-18)
 
 ### Bug Fixes
