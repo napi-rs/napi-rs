@@ -1,9 +1,56 @@
 use convert_case::{Case, Casing};
 use quote::ToTokens;
+use std::fmt::{Display, Formatter};
 use syn::Pat;
 
 use super::{ty_to_ts_type, ToTypeDef, TypeDef};
 use crate::{js_doc_from_comments, CallbackArg, FnKind, NapiFn};
+
+struct FnArg {
+  arg: String,
+  ts_type: String,
+  is_optional: bool,
+}
+
+struct FnArgList {
+  args: Vec<FnArg>,
+  last_required: Option<usize>,
+}
+
+impl Display for FnArgList {
+  fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    for (i, arg) in self.args.iter().enumerate() {
+      if i != 0 {
+        write!(f, ", ")?;
+      }
+      let is_optional = arg.is_optional
+        && self
+          .last_required
+          .map_or(true, |last_required| i > last_required);
+      if is_optional {
+        write!(f, "{}?: {}", arg.arg, arg.ts_type)?;
+      } else {
+        write!(f, "{}: {}", arg.arg, arg.ts_type)?;
+      }
+    }
+    Ok(())
+  }
+}
+
+impl FromIterator<FnArg> for FnArgList {
+  fn from_iter<T: IntoIterator<Item = FnArg>>(iter: T) -> Self {
+    let args = iter.into_iter().collect::<Vec<_>>();
+    let last_required = args
+      .iter()
+      .enumerate()
+      .rfind(|(_, arg)| !arg.is_optional)
+      .map(|(i, _)| i);
+    FnArgList {
+      args,
+      last_required,
+    }
+  }
+}
 
 impl ToTypeDef for NapiFn {
   fn to_type_def(&self) -> Option<TypeDef> {
@@ -45,15 +92,14 @@ fn gen_callback_type(callback: &CallbackArg) -> String {
       .iter()
       .enumerate()
       .map(|(i, arg)| {
-        let (arg, is_optional) = ty_to_ts_type(arg, false);
-        if is_optional {
-          format!("arg{}?: {}", i, arg)
-        } else {
-          format!("arg{}: {}", i, arg)
+        let (ts_type, is_optional) = ty_to_ts_type(arg, false);
+        FnArg {
+          arg: format!("arg{}", i),
+          ts_type,
+          is_optional,
         }
       })
-      .collect::<Vec<_>>()
-      .join(", "),
+      .collect::<FnArgList>(),
     ret = match &callback.ret {
       Some(ty) => ty_to_ts_type(ty, true).0,
       None => "void".to_owned(),
@@ -63,36 +109,43 @@ fn gen_callback_type(callback: &CallbackArg) -> String {
 
 impl NapiFn {
   fn gen_ts_func_args(&self) -> String {
-    self
-      .args
-      .iter()
-      .filter_map(|arg| match arg {
-        crate::NapiFnArgKind::PatType(path) => {
-          if path.ty.to_token_stream().to_string() == "Env" {
-            return None;
-          }
-          let mut path = path.clone();
-          // remove mutability from PatIdent
-          if let Pat::Ident(i) = path.pat.as_mut() {
-            i.mutability = None;
-          }
-          let mut arg = path.pat.to_token_stream().to_string().to_case(Case::Camel);
-          let (ts_arg, is_optional) = ty_to_ts_type(&path.ty, false);
-          arg.push_str(if is_optional { "?: " } else { ": " });
-          arg.push_str(&ts_arg);
+    format!(
+      "{}",
+      self
+        .args
+        .iter()
+        .filter_map(|arg| match arg {
+          crate::NapiFnArgKind::PatType(path) => {
+            if path.ty.to_token_stream().to_string() == "Env" {
+              return None;
+            }
+            let mut path = path.clone();
+            // remove mutability from PatIdent
+            if let Pat::Ident(i) = path.pat.as_mut() {
+              i.mutability = None;
+            }
+            let arg = path.pat.to_token_stream().to_string().to_case(Case::Camel);
+            let (ts_type, is_optional) = ty_to_ts_type(&path.ty, false);
 
-          Some(arg)
-        }
-        crate::NapiFnArgKind::Callback(cb) => {
-          let mut arg = cb.pat.to_token_stream().to_string().to_case(Case::Camel);
-          arg.push_str(": ");
-          arg.push_str(&gen_callback_type(cb));
+            Some(FnArg {
+              arg,
+              ts_type,
+              is_optional,
+            })
+          }
+          crate::NapiFnArgKind::Callback(cb) => {
+            let arg = cb.pat.to_token_stream().to_string().to_case(Case::Camel);
+            let ts_type = gen_callback_type(cb);
 
-          Some(arg)
-        }
-      })
-      .collect::<Vec<_>>()
-      .join(", ")
+            Some(FnArg {
+              arg,
+              ts_type,
+              is_optional: false,
+            })
+          }
+        })
+        .collect::<FnArgList>()
+    )
   }
 
   fn gen_ts_func_prefix(&self) -> &'static str {

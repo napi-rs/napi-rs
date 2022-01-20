@@ -6,6 +6,26 @@ fn get_cwd<T: Fn(String) -> Result<()>>(callback: T) {
   callback(env::current_dir().unwrap().to_string_lossy().to_string()).unwrap();
 }
 
+#[napi]
+fn option_end<T: Fn(String, Option<String>) -> Result<()>>(callback: T) {
+  callback("Hello".to_string(), None).unwrap();
+}
+
+#[napi]
+fn option_start<T: Fn(Option<String>, String) -> Result<()>>(callback: T) {
+  callback(None, "World".to_string()).unwrap();
+}
+
+#[napi]
+fn option_start_end<T: Fn(Option<String>, String, Option<String>) -> Result<()>>(callback: T) {
+  callback(None, "World".to_string(), None).unwrap();
+}
+
+#[napi]
+fn option_only<T: Fn(Option<String>) -> Result<()>>(callback: T) {
+  callback(None).unwrap();
+}
+
 /// napi = { version = 2, features = ["serde-json"] }
 #[napi]
 fn read_file<T: Fn(Result<()>, Option<String>) -> Result<()>>(callback: T) {
