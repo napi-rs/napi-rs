@@ -35,6 +35,7 @@ jobs:
         with:
           toolchain: nightly
           profile: minimal
+          components: rust-src
           override: true
 
       - name: Generate Cargo.lock
@@ -66,15 +67,9 @@ jobs:
       - name: 'Build TypeScript'
         run: yarn build
 
-      - name: Check build
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: --all --bins --examples --tests -vvv
-
       - name: Unit tests with address sanitizer
         run: |
-          yarn build:test
+          yarn build:test:asan
           LD_PRELOAD=/usr/lib/gcc/x86_64-linux-gnu/9/libasan.so yarn test
         env:
           RUST_TARGET: x86_64-unknown-linux-gnu

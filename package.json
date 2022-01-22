@@ -20,6 +20,7 @@
     "build:bench": "yarn --cwd ./bench build",
     "build:memory": "yarn --cwd ./memory-testing build",
     "build:test": "yarn --cwd ./examples/napi-compat-mode build && yarn --cwd ./examples/napi build",
+    "build:test:asan": "yarn --cwd ./examples/napi-compat-mode build --cargo-flags='-Zbuild-std' && yarn --cwd ./examples/napi build --cargo-flags='-Zbuild-std'",
     "build:test:aarch64": "yarn --cwd ./examples/napi-compat-mode build-aarch64 && yarn --cwd ./examples/napi build-aarch64",
     "build:test:android": "yarn --cwd ./examples/napi-compat-mode build --target aarch64-linux-android && yarn --cwd ./examples/napi build --target aarch64-linux-android",
     "build:test:android:armv7": "yarn --cwd ./examples/napi-compat-mode build --target armv7-linux-androideabi && yarn --cwd ./examples/napi build --target armv7-linux-androideabi",
