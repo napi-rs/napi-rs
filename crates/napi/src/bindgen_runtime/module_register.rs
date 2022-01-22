@@ -334,7 +334,7 @@ pub(crate) unsafe extern "C" fn noop(
       sys::napi_throw_error(
         env,
         ptr::null_mut(),
-        CStr::from_bytes_with_nul_unchecked(b"Class contains no `constructor`, can not new it!")
+        CStr::from_bytes_with_nul_unchecked(b"Class contains no `constructor`, can not new it!\0")
           .as_ptr(),
       );
     }
