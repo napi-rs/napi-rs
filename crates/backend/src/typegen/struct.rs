@@ -89,7 +89,10 @@ impl NapiStruct {
         if !f.setter {
           field_str.push_str("readonly ")
         }
+
         let (arg, is_optional) = ty_to_ts_type(&f.ty, false);
+        let arg = f.ts_type.as_ref().map(|ty| ty.to_string()).unwrap_or(arg);
+
         let sep = if is_optional { "?" } else { "" };
         let arg = format!("{}{}: {}", &f.js_name, sep, arg);
         if self.kind == NapiStructKind::Constructor {

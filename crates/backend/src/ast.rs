@@ -79,6 +79,7 @@ pub struct NapiStructField {
   pub setter: bool,
   pub comments: Vec<String>,
   pub skip_typescript: bool,
+  pub ts_type: Option<String>,
 }
 
 #[derive(Debug, Clone)]
