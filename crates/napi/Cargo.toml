@@ -31,7 +31,19 @@ napi6 = ["napi5", "napi-sys/napi6"]
 napi7 = ["napi6", "napi-sys/napi7"]
 napi8 = ["napi7", "napi-sys/napi8"]
 serde-json = ["serde", "serde_json"]
+tokio_fs = ["tokio/fs"]
+tokio_full = ["tokio/full"]
+tokio_io_std = ["tokio/io-std"]
+tokio_io_util = ["tokio/io-util"]
+tokio_macros = ["tokio/macros"]
+tokio_net = ["tokio/net"]
+tokio_process = ["tokio/process"]
 tokio_rt = ["tokio", "napi4"]
+tokio_signal = ["tokio/signal"]
+tokio_stats = ["tokio/stats"]
+tokio_sync = ["tokio/sync"]
+tokio_test_util = ["tokio/test-util"]
+tokio_time = ["tokio/time"]
 
 [dependencies]
 ctor = "0.1"
@@ -56,4 +68,4 @@ optional = true
 version = "1"
 
 [target.'cfg(windows)'.dependencies]
-windows = {version = "0.29", features = ["Win32_System_WindowsProgramming", "Win32_System_LibraryLoader", "Win32_Foundation"]}
+windows = {version = "0.30", features = ["Win32_System_WindowsProgramming", "Win32_System_LibraryLoader", "Win32_Foundation"]}

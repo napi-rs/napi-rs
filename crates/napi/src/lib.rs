@@ -23,12 +23,10 @@
 //! use napi::{CallContext, Error, JsObject, JsString, Result, Status};
 //! use tokio;
 //!
-//! #[js_function(1)]
-//! pub fn tokio_readfile(ctx: CallContext) -> Result<JsObject> {
-//!     let js_filepath = ctx.get::<JsString>(0)?;
-//!     let path_str = js_filepath.as_str()?;
+//! #[napi]
+//! pub async fn tokio_readfile(js_filepath: String) -> Result<JsBuffer> {
 //!     ctx.env.execute_tokio_future(
-//!         tokio::fs::read(path_str.to_owned())
+//!         tokio::fs::read(js_filepath)
 //!           .map(|v| v.map_err(|e| Error::new(Status::Unknown, format!("failed to read file, {}", e)))),
 //!         |&mut env, data| env.create_buffer_with_data(data),
 //!     )
@@ -61,17 +59,16 @@
 //!     c: String,
 //! }
 //!
-//! #[js_function(1)]
-//! fn deserialize_from_js(ctx: CallContext) -> Result<JsUndefined> {
-//!     let arg0 = ctx.get::<JsUnknown>(0)?;
+//! #[napi]
+//! fn deserialize_from_js(arg0: JsUnknown) -> Result<JsUndefined> {
 //!     let de_serialized: AnObject = ctx.env.from_js_value(arg0)?;
 //!     ...
 //! }
 //!
-//! #[js_function]
-//! fn serialize(ctx: CallContext) -> Result<JsUnknown> {
+//! #[napi]
+//! fn serialize(env: Env) -> Result<JsUnknown> {
 //!     let value = AnyObject { a: 1, b: vec![0.1, 2.22], c: "hello" };
-//!     ctx.env.to_js_value(&value)
+//!     env.to_js_value(&value)
 //! }
 //! ```
 //!
@@ -201,3 +198,6 @@ pub mod bindgen_prelude {
     type_of, JsError, Property, PropertyAttributes, Result, Status, Task, ValueType,
   };
 }
+
+#[cfg(feature = "tokio_rt")]
+pub extern crate tokio;

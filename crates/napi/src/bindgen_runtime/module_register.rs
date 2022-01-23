@@ -161,6 +161,23 @@ pub fn register_class(
 }
 
 #[inline]
+/// Get `JsFunction` from defined Rust `fn`
+/// ```rust
+/// #[napi]
+/// fn some_fn() -> u32 {
+///     1
+/// }
+///
+/// #[napi]
+/// fn return_some_fn() -> Result<JsFunction> {
+///     get_js_function(some_fn_js_function)
+/// }
+/// ```
+///
+/// ```js
+/// returnSomeFn()(); // 1
+/// ```
+///
 pub fn get_js_function(raw_fn: ExportRegisterCallback) -> Result<JsFunction> {
   FN_REGISTER_MAP
     .borrow_mut()
