@@ -77,6 +77,7 @@ import {
   JsClassForEither,
   receiveMutClassOrNumber,
   getStrFromObject,
+  returnJsFunction,
 } from '../'
 
 test('export const', (t) => {
@@ -190,6 +191,16 @@ test('callback', (t) => {
   readFile((err, content) => {
     t.is(err, undefined)
     t.is(content, 'hello world')
+  })
+})
+
+test('return function', (t) => {
+  return new Promise<void>((resolve) => {
+    returnJsFunction()((err: Error | undefined, content: string) => {
+      t.is(err, undefined)
+      t.is(content, 'hello world')
+      resolve()
+    })
   })
 })
 

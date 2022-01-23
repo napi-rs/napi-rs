@@ -300,10 +300,7 @@ impl NapiFn {
       let module_register_name = get_register_ident(&name_str);
       let intermediate_ident = get_intermediate_ident(&name_str);
       let js_mod_ident = js_mod_to_token_stream(self.js_mod.as_ref());
-      let cb_name = Ident::new(
-        &format!("__register__fn__{}_callback__", name_str),
-        Span::call_site(),
-      );
+      let cb_name = Ident::new(&format!("{}_js_function", name_str), Span::call_site());
       quote! {
         #[allow(non_snake_case)]
         #[allow(clippy::all)]
@@ -322,7 +319,7 @@ impl NapiFn {
             "Failed to register function `{}`",
             #name_str,
           )?;
-
+          napi::bindgen_prelude::register_js_function(#js_name, env, #cb_name, Some(#intermediate_ident));
           Ok(fn_ptr)
         }
 

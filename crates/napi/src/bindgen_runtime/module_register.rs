@@ -6,7 +6,9 @@ use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 
 use lazy_static::lazy_static;
 
-use crate::{check_status, check_status_or_throw, sys, JsError, Property, Result};
+use crate::{
+  check_status, check_status_or_throw, sys, JsError, JsFunction, Property, Result, Value, ValueType,
+};
 
 pub type ExportRegisterCallback = unsafe fn(sys::napi_env) -> Result<sys::napi_value>;
 pub type ModuleExportsCallback =
@@ -82,12 +84,18 @@ type ModuleClassProperty = PersistedSingleThreadHashMap<
   HashMap<Option<&'static str>, (&'static str, Vec<Property>)>,
 >;
 
+type FnRegisterMap = PersistedSingleThreadHashMap<
+  ExportRegisterCallback,
+  (sys::napi_env, sys::napi_callback, &'static str),
+>;
+
 unsafe impl<K, V> Send for PersistedSingleThreadHashMap<K, V> {}
 unsafe impl<K, V> Sync for PersistedSingleThreadHashMap<K, V> {}
 
 lazy_static! {
   static ref MODULE_REGISTER_CALLBACK: ModuleRegisterCallback = Default::default();
   static ref MODULE_CLASS_PROPERTIES: ModuleClassProperty = Default::default();
+  static ref FN_REGISTER_MAP: FnRegisterMap = Default::default();
 }
 
 #[cfg(feature = "compat-mode")]
@@ -103,6 +111,7 @@ thread_local! {
   >> = Default::default();
 }
 
+#[doc(hidden)]
 pub fn get_class_constructor(js_name: &'static str) -> Option<sys::napi_ref> {
   REGISTERED_CLASSES.with(|registered_classes| {
     let classes = registered_classes.borrow();
@@ -110,12 +119,14 @@ pub fn get_class_constructor(js_name: &'static str) -> Option<sys::napi_ref> {
   })
 }
 
+#[doc(hidden)]
 #[cfg(feature = "compat-mode")]
 // compatibility for #[module_exports]
 pub fn register_module_exports(callback: ModuleExportsCallback) {
   MODULE_EXPORTS.push(callback);
 }
 
+#[doc(hidden)]
 pub fn register_module_export(
   js_mod: Option<&'static str>,
   name: &'static str,
@@ -124,6 +135,17 @@ pub fn register_module_export(
   MODULE_REGISTER_CALLBACK.push((js_mod, (name, cb)));
 }
 
+#[doc(hidden)]
+pub fn register_js_function(
+  name: &'static str,
+  env: sys::napi_env,
+  cb: ExportRegisterCallback,
+  c_fn: sys::napi_callback,
+) {
+  FN_REGISTER_MAP.borrow_mut().insert(cb, (env, c_fn, name));
+}
+
+#[doc(hidden)]
 pub fn register_class(
   rust_name: &'static str,
   js_mod: Option<&'static str>,
@@ -136,6 +158,40 @@ pub fn register_class(
 
   val.0 = js_name;
   val.1.extend(props.into_iter());
+}
+
+#[inline]
+pub fn get_js_function(raw_fn: ExportRegisterCallback) -> Result<JsFunction> {
+  FN_REGISTER_MAP
+    .borrow_mut()
+    .get(&raw_fn)
+    .and_then(|(env, cb, name)| {
+      let mut function = ptr::null_mut();
+      let name_len = name.len() - 1;
+      let fn_name = unsafe { CStr::from_bytes_with_nul_unchecked(name.as_bytes()) };
+      check_status!(unsafe {
+        sys::napi_create_function(
+          *env,
+          fn_name.as_ptr(),
+          name_len,
+          *cb,
+          ptr::null_mut(),
+          &mut function,
+        )
+      })
+      .ok()?;
+      Some(JsFunction(Value {
+        env: *env,
+        value: function,
+        value_type: ValueType::Function,
+      }))
+    })
+    .ok_or_else(|| {
+      crate::Error::new(
+        crate::Status::InvalidArg,
+        "JavaScript function not existed".to_owned(),
+      )
+    })
 }
 
 #[no_mangle]
@@ -191,17 +247,13 @@ unsafe extern "C" fn napi_register_module_v1(
         let js_name = unsafe { CStr::from_bytes_with_nul_unchecked(name.as_bytes()) };
         unsafe {
           if let Err(e) = callback(env).and_then(|v| {
+            let exported_object = if exports_js_mod.is_null() {
+              exports
+            } else {
+              exports_js_mod
+            };
             check_status!(
-              sys::napi_set_named_property(
-                env,
-                if exports_js_mod.is_null() {
-                  exports
-                } else {
-                  exports_js_mod
-                },
-                js_name.as_ptr(),
-                v
-              ),
+              sys::napi_set_named_property(env, exported_object, js_name.as_ptr(), v),
               "Failed to register export `{}`",
               name,
             )
