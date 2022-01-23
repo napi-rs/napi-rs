@@ -1,5 +1,6 @@
-use napi::bindgen_prelude::*;
 use std::env;
+
+use napi::bindgen_prelude::*;
 
 #[napi]
 fn get_cwd<T: Fn(String) -> Result<()>>(callback: T) {
@@ -39,4 +40,9 @@ fn read_file<T: Fn(Result<()>, Option<String>) -> Result<()>>(callback: T) {
 fn read_file_content() -> Result<String> {
   // serde_json::from_str(&s)?;
   Ok("hello world".to_string())
+}
+
+#[napi]
+fn return_js_function() -> Result<JsFunction> {
+  get_js_function(read_file_js_function)
 }
