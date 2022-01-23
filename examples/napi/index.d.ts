@@ -22,6 +22,10 @@ export function bigintAdd(a: bigint, b: bigint): bigint
 export function createBigInt(): bigint
 export function createBigIntI64(): bigint
 export function getCwd(callback: (arg0: string) => void): void
+export function optionEnd(callback: (arg0: string, arg1?: string | undefined | null) => void): void
+export function optionStart(callback: (arg0: string | undefined | null, arg1: string) => void): void
+export function optionStartEnd(callback: (arg0: string | undefined | null, arg1: string, arg2?: string | undefined | null) => void): void
+export function optionOnly(callback: (arg0?: string | undefined | null) => void): void
 /** napi = { version = 2, features = ["serde-json"] } */
 export function readFile(callback: (arg0: Error | undefined, arg1?: string | undefined | null) => void): void
 export function eitherStringOrNumber(input: string | number): number
@@ -197,6 +201,12 @@ export type JsAsset = Asset
 export class Asset {
   constructor()
   get filePath(): number
+}
+export class Optional {
+  static optionEnd(required: string, optional?: string | undefined | null): string
+  static optionStart(optional: string | undefined | null, required: string): string
+  static optionStartEnd(optional1: string | undefined | null, required: string, optional2?: string | undefined | null): string
+  static optionOnly(optional?: string | undefined | null): string
 }
 export class ClassWithFactory {
   name: string

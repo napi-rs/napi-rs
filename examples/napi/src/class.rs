@@ -237,3 +237,47 @@ impl JsAsset {
     return 1;
   }
 }
+
+#[napi]
+pub struct Optional {}
+
+#[napi]
+impl Optional {
+  #[napi]
+  pub fn option_end(required: String, optional: Option<String>) -> String {
+    match optional {
+      None => required,
+      Some(optional) => format!("{} {}", required, optional),
+    }
+  }
+
+  #[napi]
+  pub fn option_start(optional: Option<String>, required: String) -> String {
+    match optional {
+      None => required,
+      Some(optional) => format!("{} {}", optional, required),
+    }
+  }
+
+  #[napi]
+  pub fn option_start_end(
+    optional1: Option<String>,
+    required: String,
+    optional2: Option<String>,
+  ) -> String {
+    match (optional1, optional2) {
+      (None, None) => required,
+      (None, Some(optional2)) => format!("{} {}", required, optional2),
+      (Some(optional1), None) => format!("{} {}", optional1, required),
+      (Some(optional1), Some(optional2)) => format!("{} {} {}", optional1, required, optional2),
+    }
+  }
+
+  #[napi]
+  pub fn option_only(optional: Option<String>) -> String {
+    match optional {
+      None => "".to_string(),
+      Some(optional) => format!("{}", optional),
+    }
+  }
+}
