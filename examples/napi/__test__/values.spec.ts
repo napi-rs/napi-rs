@@ -320,7 +320,7 @@ test('async', async (t) => {
   await t.notThrowsAsync(bufPromise)
   const buf = await bufPromise
   const { name } = JSON.parse(buf.toString())
-  t.is(name, 'napi-examples')
+  t.is(name, 'examples')
 
   await t.throwsAsync(() => readFileAsync('some_nonexist_path.file'))
 })

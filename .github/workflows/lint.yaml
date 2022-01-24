@@ -53,7 +53,7 @@ jobs:
           key: lint-${{ hashFiles('yarn.lock') }}
 
       - name: 'Install dependencies'
-        run: yarn install --frozen-lockfile --registry https://registry.npmjs.org --network-timeout 300000
+        run: yarn install --immutable --network-timeout 300000
 
       - name: 'Lint JS/TS'
         run: yarn lint

@@ -1,5 +1,5 @@
 {
-  "name": "test-module",
+  "name": "compat-mode-examples",
   "version": "1.0.0",
   "scripts": {
     "build": "node ../../cli/scripts/index.js build --js false --features \"latest\"",

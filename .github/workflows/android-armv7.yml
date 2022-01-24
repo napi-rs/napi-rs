@@ -58,7 +58,7 @@ jobs:
           key: npm-cache-linux-android-node@16-${{ hashFiles('yarn.lock') }}
 
       - name: Install dependencies
-        run: yarn install --ignore-scripts --frozen-lockfile --registry https://registry.npmjs.org --network-timeout 300000
+        run: yarn install --immutable --network-timeout 300000
 
       - name: 'Build TypeScript'
         run: yarn build
