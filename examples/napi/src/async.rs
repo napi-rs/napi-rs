@@ -1,6 +1,6 @@
 use futures::prelude::*;
 use napi::bindgen_prelude::*;
-use tokio::fs;
+use napi::tokio::{self, fs};
 
 #[napi]
 async fn read_file_async(path: String) -> Result<Buffer> {
