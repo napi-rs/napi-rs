@@ -51,7 +51,7 @@ jobs:
           path: node_modules
           key: npm-cache-linux-aarch64-gnu-node@16-${{ hashFiles('yarn.lock') }}
       - name: Install dependencies
-        run: yarn install --frozen-lockfile --ignore-platform --registry https://registry.npmjs.org --network-timeout 300000
+        run: yarn install --immutable --network-timeout 300000
       - name: 'Build TypeScript'
         run: yarn build
       - name: Cross build native tests
@@ -103,7 +103,7 @@ jobs:
           path: node_modules
           key: npm-cache-${{ matrix.settings.host }}-node@16-${{ hashFiles('yarn.lock') }}
       - name: Install dependencies
-        run: yarn install --frozen-lockfile --ignore-platform --registry https://registry.npmjs.org --network-timeout 300000
+        run: yarn install --immutable --network-timeout 300000
       - name: Download artifacts
         uses: actions/download-artifact@v2
         with:

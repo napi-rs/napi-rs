@@ -1,5 +1,5 @@
 {
-  "name": "napi-examples",
+  "name": "examples",
   "private": true,
   "version": "0.0.0",
   "main": "./index.node",

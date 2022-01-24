@@ -3,3 +3,4 @@ node_modules
 scripts
 triples/index.js
 examples/napi/index.d.ts
+.yarn
