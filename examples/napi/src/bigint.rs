@@ -17,3 +17,8 @@ fn create_big_int() -> BigInt {
 fn create_big_int_i64() -> i64n {
   i64n(100)
 }
+
+#[napi]
+pub fn bigint_get_u64_as_string(bi: BigInt) -> String {
+  bi.get_u64().1.to_string()
+}
