@@ -11,6 +11,7 @@ import {
   concatLatin1,
   concatStr,
   concatUtf16,
+  roundtripStr,
   getNums,
   getWords,
   sumNums,
@@ -105,6 +106,10 @@ test('string', (t) => {
   t.is(
     concatUtf16('JavaScript 🌳 你好 napi'),
     'JavaScript 🌳 你好 napi + Rust 🦀 string!',
+  )
+  t.is(
+    roundtripStr('what up?!\u0000after the NULL'),
+    'what up?!\u0000after the NULL',
   )
 })
 

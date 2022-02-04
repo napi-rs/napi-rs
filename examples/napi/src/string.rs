@@ -20,3 +20,8 @@ fn concat_utf16(s: Utf16String) -> Utf16String {
 fn concat_latin1(s: Latin1String) -> String {
   format!("{} + Rust 🦀 string!", s)
 }
+
+#[napi]
+pub fn roundtrip_str(s: String) -> String {
+  s
+}
