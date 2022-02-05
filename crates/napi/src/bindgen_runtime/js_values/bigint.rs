@@ -64,6 +64,9 @@ impl FromNapiValue for BigInt {
 
       words.set_len(word_count as usize);
     }
+    if word_count == 0 {
+      words = vec![0];
+    }
     Ok(BigInt {
       sign_bit: sign_bit == 1,
       words,

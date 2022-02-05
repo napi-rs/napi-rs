@@ -43,6 +43,7 @@ import {
   bigintAdd,
   createBigInt,
   createBigIntI64,
+  bigintGetU64AsString,
   callThreadsafeFunction,
   threadsafeFunctionThrowError,
   asyncPlus100,
@@ -421,6 +422,10 @@ BigIntTest('create BigInt', (t) => {
 
 BigIntTest('create BigInt i64', (t) => {
   t.is(createBigIntI64(), BigInt(100))
+})
+
+BigIntTest('BigInt get_u64', (t) => {
+  t.is(bigintGetU64AsString(BigInt(0)), '0')
 })
 
 BigIntTest('js mod test', (t) => {
