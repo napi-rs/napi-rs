@@ -206,7 +206,7 @@ pub fn get_js_function(raw_fn: ExportRegisterCallback) -> Result<JsFunction> {
     .ok_or_else(|| {
       crate::Error::new(
         crate::Status::InvalidArg,
-        "JavaScript function does not exists".to_owned(),
+        "JavaScript function does not exist".to_owned(),
       )
     })
 }
@@ -238,7 +238,7 @@ pub fn get_c_callback(raw_fn: ExportRegisterCallback) -> Result<crate::Callback>
     .ok_or_else(|| {
       crate::Error::new(
         crate::Status::InvalidArg,
-        "JavaScript function does not exists".to_owned(),
+        "JavaScript function does not exist".to_owned(),
       )
     })
 }
