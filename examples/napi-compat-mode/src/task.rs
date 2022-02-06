@@ -60,7 +60,7 @@ impl Task for CountBufferLength {
     if self.data.len() == 10 {
       return Err(Error::from_reason("len can't be 5".to_string()));
     }
-    Ok((&self.data).len())
+    Ok(self.data.len())
   }
 
   fn resolve(&mut self, env: Env, output: Self::Output) -> Result<Self::JsValue> {

@@ -76,7 +76,7 @@ fn escape_json(src: &str) -> String {
       c => {
         let encoded = c.encode_utf16(&mut utf16_buf);
         for utf16 in encoded {
-          write!(&mut escaped, "\\u{:04X}", utf16).unwrap();
+          write!(escaped, "\\u{:04X}", utf16).unwrap();
         }
       }
     }
