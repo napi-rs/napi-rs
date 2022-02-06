@@ -82,6 +82,7 @@ import {
   returnJsFunction,
   testSerdeRoundtrip,
   createObjWithProperty,
+  dateToNumber,
 } from '../'
 
 test('export const', (t) => {
@@ -547,4 +548,11 @@ Napi4Test('Promise should reject raw error in rust', async (t) => {
   const fxError = new Error('What is Happy Planet')
   const err = await t.throwsAsync(() => asyncPlus100(Promise.reject(fxError)))
   t.is(err, fxError)
+})
+
+const Napi5Test = Number(process.versions.napi) >= 5 ? test : test.skip
+
+Napi5Test('Date test', (t) => {
+  const fixture = new Date('2016-12-24')
+  t.is(dateToNumber(fixture), fixture.valueOf())
 })

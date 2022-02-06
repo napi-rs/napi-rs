@@ -169,6 +169,7 @@ static KNOWN_TYPES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     ("BigUint64Array", "BigUint64Array"),
     ("DataView", "DataView"),
     ("Date", "Date"),
+    ("JsDate", "Date"),
     ("JsBuffer", "Buffer"),
     ("Buffer", "Buffer"),
     ("Vec", "Array<{}>"),

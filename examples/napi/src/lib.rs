@@ -18,6 +18,7 @@ mod bigint;
 mod callback;
 mod class;
 mod class_factory;
+mod date;
 mod either;
 mod r#enum;
 mod error;
