@@ -30,6 +30,7 @@ export function optionOnly(callback: (arg0?: string | undefined | null) => void)
 /** napi = { version = 2, features = ["serde-json"] } */
 export function readFile(callback: (arg0: Error | undefined, arg1?: string | undefined | null) => void): void
 export function returnJsFunction(): (...args: any[]) => any
+export function dateToNumber(input: Date): number
 export function eitherStringOrNumber(input: string | number): number
 export function returnEither(input: number): string | number
 export function either3(input: string | number | boolean): number

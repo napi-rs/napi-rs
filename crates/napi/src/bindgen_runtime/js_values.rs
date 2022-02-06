@@ -23,6 +23,8 @@ mod string;
 mod symbol;
 mod task;
 
+#[cfg(feature = "napi5")]
+pub use crate::JsDate as Date;
 pub use array::*;
 pub use arraybuffer::*;
 #[cfg(feature = "napi6")]
