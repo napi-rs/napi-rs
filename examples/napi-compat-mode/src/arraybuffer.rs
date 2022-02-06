@@ -6,7 +6,7 @@ use napi::{CallContext, JsArrayBuffer, JsNumber, JsObject, JsTypedArray, JsUndef
 #[js_function(1)]
 pub fn get_arraybuffer_length(ctx: CallContext) -> Result<JsNumber> {
   let buffer = ctx.get::<JsArrayBuffer>(0)?.into_value()?;
-  ctx.env.create_uint32((&buffer).len() as u32)
+  ctx.env.create_uint32(buffer.len() as u32)
 }
 
 #[js_function(1)]

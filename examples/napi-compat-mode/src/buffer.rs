@@ -9,7 +9,7 @@ use napi::{
 #[js_function(1)]
 pub fn get_buffer_length(ctx: CallContext) -> Result<JsNumber> {
   let buffer = ctx.get::<JsBuffer>(0)?.into_value()?;
-  ctx.env.create_uint32((&buffer).len() as u32)
+  ctx.env.create_uint32(buffer.len() as u32)
 }
 
 #[js_function(1)]

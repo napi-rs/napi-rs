@@ -234,7 +234,7 @@ impl JsAsset {
 
   #[napi(getter)]
   pub fn get_file_path(&self) -> u32 {
-    return 1;
+    1
   }
 }
 
@@ -277,7 +277,7 @@ impl Optional {
   pub fn option_only(optional: Option<String>) -> String {
     match optional {
       None => "".to_string(),
-      Some(optional) => format!("{}", optional),
+      Some(optional) => optional,
     }
   }
 }
