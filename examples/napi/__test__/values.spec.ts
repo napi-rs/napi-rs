@@ -80,6 +80,7 @@ import {
   receiveMutClassOrNumber,
   getStrFromObject,
   returnJsFunction,
+  testSerdeRoundtrip,
 } from '../'
 
 test('export const', (t) => {
@@ -297,6 +298,34 @@ test('serde-json', (t) => {
   t.snapshot(Object.keys(packageJson.devDependencies!).sort())
 
   t.is(getPackageJsonName(packageJson), 'napi-rs')
+})
+
+test('serde-roundtrip', (t) => {
+  t.is(testSerdeRoundtrip(1), 1)
+  t.is(testSerdeRoundtrip(1.2), 1.2)
+  t.is(testSerdeRoundtrip(-1), -1)
+
+  t.deepEqual(testSerdeRoundtrip([1, 1.2, -1]), [1, 1.2, -1])
+  t.deepEqual(testSerdeRoundtrip({ a: 1, b: 1.2, c: -1 }), {
+    a: 1,
+    b: 1.2,
+    c: -1,
+  })
+  t.throws(() => testSerdeRoundtrip(NaN))
+
+  t.is(testSerdeRoundtrip(null), null)
+
+  let err = t.throws(() => testSerdeRoundtrip(undefined))
+  t.is(err!.message, 'undefined cannot be represented as a serde_json::Value')
+
+  err = t.throws(() => testSerdeRoundtrip(() => {}))
+  t.is(
+    err!.message,
+    'JS functions cannot be represented as a serde_json::Value',
+  )
+
+  err = t.throws(() => testSerdeRoundtrip(Symbol.for('foo')))
+  t.is(err!.message, 'JS symbols cannot be represented as a serde_json::Value')
 })
 
 test('buffer', (t) => {

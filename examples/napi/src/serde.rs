@@ -25,3 +25,8 @@ fn read_package_json() -> Result<PackageJson> {
 fn get_package_json_name(package_json: PackageJson) -> String {
   package_json.name
 }
+
+#[napi]
+fn test_serde_roundtrip(data: Value) -> Value {
+  data
+}
