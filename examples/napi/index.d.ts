@@ -102,6 +102,8 @@ export interface TsTypeChanged {
   typeOverride: object
   typeOverrideOptional?: object
 }
+export function createObjWithProperty(): { value: ArrayBuffer, get getter(): number }
+export function getterFromObj(): number
 export function asyncPlus100(p: Promise<number>): Promise<number>
 /** This is an interface for package.json */
 export interface PackageJson {

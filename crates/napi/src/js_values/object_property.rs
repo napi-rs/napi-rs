@@ -2,16 +2,31 @@ use std::convert::From;
 use std::ffi::CString;
 use std::ptr;
 
-use crate::{sys, Callback, Result};
+use crate::{sys, Callback, NapiRaw, Result};
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct Property {
   pub name: CString,
   getter: sys::napi_callback,
   setter: sys::napi_callback,
   method: sys::napi_callback,
   attrs: PropertyAttributes,
+  value: sys::napi_value,
   pub(crate) is_ctor: bool,
+}
+
+impl Default for Property {
+  fn default() -> Self {
+    Property {
+      name: Default::default(),
+      getter: Default::default(),
+      setter: Default::default(),
+      method: Default::default(),
+      attrs: Default::default(),
+      value: ptr::null_mut(),
+      is_ctor: Default::default(),
+    }
+  }
 }
 
 #[repr(i32)]
@@ -75,6 +90,11 @@ impl Property {
     self
   }
 
+  pub fn with_value<T: NapiRaw>(mut self, value: &T) -> Self {
+    self.value = unsafe { T::raw(value) };
+    self
+  }
+
   pub(crate) fn raw(&self) -> sys::napi_property_descriptor {
     sys::napi_property_descriptor {
       utf8name: self.name.as_ptr(),
@@ -82,7 +102,7 @@ impl Property {
       method: self.method,
       getter: self.getter,
       setter: self.setter,
-      value: ptr::null_mut(),
+      value: self.value,
       attributes: self.attrs.into(),
       data: ptr::null_mut(),
     }

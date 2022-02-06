@@ -31,7 +31,7 @@ use serde::Serialize;
 #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
 use std::future::Future;
 
-pub type Callback = extern "C" fn(sys::napi_env, sys::napi_callback_info) -> sys::napi_value;
+pub type Callback = unsafe extern "C" fn(sys::napi_env, sys::napi_callback_info) -> sys::napi_value;
 
 #[derive(Clone, Copy)]
 /// `Env` is used to represent a context that the underlying N-API implementation can use to persist VM-specific state.
