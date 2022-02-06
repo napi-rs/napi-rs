@@ -1,4 +1,4 @@
-use napi::{bindgen_prelude::*, JsGlobal, JsNull, JsUndefined};
+use napi::{bindgen_prelude::*, JsGlobal, JsNull, JsObject, JsUndefined, Property};
 
 #[napi]
 fn list_obj_keys(obj: Object) -> Vec<String> {
@@ -84,4 +84,20 @@ pub struct TsTypeChanged {
 
   #[napi(ts_type = "object")]
   pub type_override_optional: Option<String>,
+}
+
+#[napi(ts_return_type = "{ value: ArrayBuffer, get getter(): number }")]
+pub fn create_obj_with_property(env: Env) -> Result<JsObject> {
+  let mut obj = env.create_object()?;
+  let arraybuffer = env.create_arraybuffer(10)?.into_raw();
+  obj.define_properties(&[
+    Property::new("value")?.with_value(&arraybuffer),
+    Property::new("getter")?.with_getter(get_c_callback(getter_from_obj_js_function)?),
+  ])?;
+  Ok(obj)
+}
+
+#[napi]
+fn getter_from_obj() -> u32 {
+  42
 }

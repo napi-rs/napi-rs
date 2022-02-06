@@ -81,6 +81,7 @@ import {
   getStrFromObject,
   returnJsFunction,
   testSerdeRoundtrip,
+  createObjWithProperty,
 } from '../'
 
 test('export const', (t) => {
@@ -218,6 +219,12 @@ test('object', (t) => {
 
 test('get str from object', (t) => {
   t.notThrows(() => getStrFromObject())
+})
+
+test('create object from Property', (t) => {
+  const obj = createObjWithProperty()
+  t.true(obj.value instanceof ArrayBuffer)
+  t.is(obj.getter, 42)
 })
 
 test('global', (t) => {

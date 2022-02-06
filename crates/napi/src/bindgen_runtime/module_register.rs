@@ -211,6 +211,38 @@ pub fn get_js_function(raw_fn: ExportRegisterCallback) -> Result<JsFunction> {
     })
 }
 
+/// Get `C Callback` from defined Rust `fn`
+/// ```rust
+/// #[napi]
+/// fn some_fn() -> u32 {
+///     1
+/// }
+///
+/// #[napi]
+/// fn create_obj(env: Env) -> Result<JsObject> {
+///     let mut obj = env.create_object()?;
+///     obj.define_property(&[Property::new("getter")?.with_getter(get_c_callback(some_fn_js_function)?)])?;
+///     Ok(obj)
+/// }
+/// ```
+///
+/// ```js
+/// console.log(createObj().getter) // 1
+/// ```
+///
+pub fn get_c_callback(raw_fn: ExportRegisterCallback) -> Result<crate::Callback> {
+  FN_REGISTER_MAP
+    .borrow_mut()
+    .get(&raw_fn)
+    .and_then(|(_env, cb, _name)| *cb)
+    .ok_or_else(|| {
+      crate::Error::new(
+        crate::Status::InvalidArg,
+        "JavaScript function does not exists".to_owned(),
+      )
+    })
+}
+
 #[no_mangle]
 unsafe extern "C" fn napi_register_module_v1(
   env: sys::napi_env,
