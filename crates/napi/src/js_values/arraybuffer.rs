@@ -263,7 +263,8 @@ impl JsTypedArray {
 impl JsTypedArrayValue {
   #[inline]
   fn is_valid_as_ref(&self, dest_type: TypedArrayType) {
-    if self.typedarray_type == TypedArrayType::Uint8Clamped && dest_type != TypedArrayType::Uint8 {
+    // deref `Uint8ClampedArray` as `&[u8]` is valid
+    if self.typedarray_type == TypedArrayType::Uint8Clamped && dest_type == TypedArrayType::Uint8 {
       return;
     }
     if self.typedarray_type != dest_type {

@@ -83,6 +83,7 @@ import {
   testSerdeRoundtrip,
   createObjWithProperty,
   dateToNumber,
+  derefUint8Array,
 } from '../'
 
 test('export const', (t) => {
@@ -356,6 +357,13 @@ test('mutate TypedArray', (t) => {
   const input = new Float32Array([1, 2, 3, 4, 5])
   mutateTypedArray(input)
   t.deepEqual(input, new Float32Array([2.0, 4.0, 6.0, 8.0, 10.0]))
+})
+
+test('deref uint8 array', (t) => {
+  t.is(
+    derefUint8Array(new Uint8Array([1, 2]), new Uint8ClampedArray([3, 4])),
+    4,
+  )
 })
 
 test('async', async (t) => {
