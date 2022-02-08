@@ -1,3 +1,5 @@
+import 'core-js/es/string/replace-all'
+
 import { Cli } from 'clipanion'
 
 import { version } from '../package.json'

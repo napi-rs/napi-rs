@@ -49,6 +49,9 @@ export default {
       NAPI_VERSION,
       NAPI_DERIVE_VERSION,
       NAPI_BUILD_VERSION,
+      'node:path': 'path',
+      'node:os': 'os',
+      'node:process': 'process',
       preventAssignment: true,
     }),
     alias({

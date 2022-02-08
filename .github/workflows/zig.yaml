@@ -29,7 +29,8 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v2
         with:
-          node-version: 16
+          # Testing for compatibility with node v12.x
+          node-version: 12
           check-latest: true
           cache: 'yarn'
       - name: Install
