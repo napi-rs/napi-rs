@@ -954,6 +954,7 @@ __metadata:
     "@types/lodash-es": ^4.17.5
     clipanion: ^3.1.0
     colorette: ^2.0.16
+    core-js: ^3.21.0
     debug: ^4.3.3
     env-paths: ^3.0.0
     fdir: ^5.2.0
@@ -2896,6 +2897,13 @@ __metadata:
   version: 1.0.2
   resolution: "convert-to-spaces@npm:1.0.2"
   checksum: e73f2ae39eb2b184f0796138eaab9c088b03b94937377d31be5b2282aef6a6ccce6b46f51bd99b3b7dfc70f516e2a6b16c0dd911883bfadf8d1073f462480224
+  languageName: node
+  linkType: hard
+
+"core-js@npm:^3.21.0":
+  version: 3.21.0
+  resolution: "core-js@npm:3.21.0"
+  checksum: 87df49aa2c5d0a521c52102b6669842dd30b334742e86dd4e0173c51230bc48d610060ab6de0f149766d188325b8c1b84598f901cf455674fe6c03ccc5c8026f
   languageName: node
   linkType: hard
 
