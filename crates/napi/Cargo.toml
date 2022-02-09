@@ -18,9 +18,10 @@ independent = true
 [features]
 async = ["tokio_rt"]
 compat-mode = []
-default = ["napi3", "compat-mode"] # for most Node.js users
+default = ["napi3", "compat-mode"]                                               # for most Node.js users
 experimental = ["napi-sys/experimental"]
-full = ["latin1", "napi8", "async", "serde-json", "experimental"]
+chrono_date = ["chrono"]
+full = ["latin1", "napi8", "async", "serde-json", "experimental", "chrono_date"]
 latin1 = ["encoding_rs"]
 napi1 = []
 napi2 = ["napi1"]
@@ -48,11 +49,15 @@ tokio_time = ["tokio/time"]
 [dependencies]
 ctor = "0.1"
 lazy_static = "1"
-napi-sys = {version = "2.1.0", path = "../sys"}
+napi-sys = { version = "2.1.0", path = "../sys" }
 
 [dependencies.encoding_rs]
 optional = true
 version = "0.8"
+
+[dependencies.chrono]
+optional = true
+version = "0.4"
 
 [dependencies.tokio]
 features = ["rt", "rt-multi-thread", "sync"]
@@ -68,4 +73,8 @@ optional = true
 version = "1"
 
 [target.'cfg(windows)'.dependencies]
-windows = {version = "0.30", features = ["Win32_System_WindowsProgramming", "Win32_System_LibraryLoader", "Win32_Foundation"]}
+windows = { version = "0.30", features = [
+    "Win32_System_WindowsProgramming",
+    "Win32_System_LibraryLoader",
+    "Win32_Foundation",
+] }

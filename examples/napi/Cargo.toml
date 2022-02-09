@@ -9,12 +9,22 @@ version = "0.1.0"
 crate-type = ["cdylib"]
 
 [dependencies]
+chrono = "0.4"
 futures = "0.3"
-napi = {path = "../../crates/napi", default-features = false, features = ["tokio_fs", "napi8", "tokio_rt", "serde-json", "async", "experimental", "latin1"]}
-napi-derive = {path = "../../crates/macro", features = ["type-def"]}
+napi = { path = "../../crates/napi", default-features = false, features = [
+    "tokio_fs",
+    "napi8",
+    "tokio_rt",
+    "serde-json",
+    "async",
+    "experimental",
+    "latin1",
+    "chrono_date",
+] }
+napi-derive = { path = "../../crates/macro", features = ["type-def"] }
 serde = "1"
 serde_derive = "1"
 serde_json = "1"
 
 [build-dependencies]
-napi-build = {path = "../../crates/build"}
+napi-build = { path = "../../crates/build" }

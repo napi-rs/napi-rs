@@ -8,6 +8,8 @@ mod arraybuffer;
 mod bigint;
 mod boolean;
 mod buffer;
+#[cfg(all(feature = "chrono_date", feature = "napi5"))]
+mod date;
 mod either;
 mod external;
 mod function;
