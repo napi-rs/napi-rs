@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.4.3](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.4.2...@napi-rs/cli@2.4.3) (2022-02-09)
+
+### Bug Fixes
+
+- **cli:** compatible for Node.js 10x ([5f359df](https://github.com/napi-rs/napi-rs/commit/5f359dfaae809a2b97a25b8ed12914152a9696d9))
+
 ## [2.4.2](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.4.1...@napi-rs/cli@2.4.2) (2022-01-19)
 
 ### Bug Fixes
