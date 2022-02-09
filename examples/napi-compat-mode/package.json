@@ -1,6 +1,7 @@
 {
   "name": "compat-mode-examples",
   "version": "1.0.0",
+  "private": true,
   "scripts": {
     "build": "node ../../cli/scripts/index.js build --js false --features \"latest\"",
     "build-napi3": "node ../../cli/scripts/index.js build --js false --features \"napi3\"",
