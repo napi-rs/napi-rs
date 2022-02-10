@@ -27,9 +27,10 @@
     "build:test:android:armv7": "yarn workspace compat-mode-examples build --target armv7-linux-androideabi && yarn workspace examples build --target armv7-linux-androideabi",
     "build:test:armv7": "yarn workspace compat-mode-examples build-armv7 && yarn workspace examples build-armv7",
     "bundle": "rollup -c rollup.config.js",
-    "format": "run-p format:prettier format:rs",
+    "format": "run-p format:prettier format:rs format:toml",
     "format:prettier": "prettier . -w",
     "format:rs": "cargo fmt",
+    "format:toml": "taplo format",
     "lint": "eslint -c .eslintrc.yml .",
     "prepublishOnly": "npm run build && pinst --disable",
     "test": "ava",
@@ -54,6 +55,12 @@
     ],
     "*.@(js||ts|json|md|yml|yaml)": [
       "prettier --write"
+    ],
+    "*.toml": [
+      "taplo format"
+    ],
+    "*.rs": [
+      "cargo fmt"
     ]
   },
   "husky": {
@@ -67,6 +74,7 @@
     "@rollup/plugin-json": "^4.1.0",
     "@rollup/plugin-node-resolve": "^13.1.3",
     "@rollup/plugin-replace": "^3.0.1",
+    "@taplo/cli": "^0.3.2",
     "@types/debug": "^4.1.7",
     "@types/lodash-es": "^4.17.5",
     "@types/node": "^17.0.10",
