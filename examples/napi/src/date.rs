@@ -15,3 +15,9 @@ fn chrono_date_to_millis(input: chrono::DateTime<Utc>) -> i64 {
 fn chrono_date_add_1_minute(input: chrono::DateTime<Utc>) -> chrono::DateTime<Utc> {
   input + Duration::minutes(1)
 }
+
+#[napi(object)]
+pub struct Dates {
+  pub start: chrono::DateTime<Utc>,
+  pub end: Option<chrono::DateTime<Utc>>,
+}

@@ -33,6 +33,10 @@ export function returnJsFunction(): (...args: any[]) => any
 export function dateToNumber(input: Date): number
 export function chronoDateToMillis(input: Date): number
 export function chronoDateAdd1Minute(input: Date): Date
+export interface Dates {
+  start: Date
+  end?: Date | undefined | null
+}
 export function eitherStringOrNumber(input: string | number): number
 export function returnEither(input: number): string | number
 export function either3(input: string | number | boolean): number
