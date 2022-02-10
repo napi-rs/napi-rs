@@ -11,9 +11,11 @@
 
 use std::ffi::CStr;
 
-use windows::Win32::Foundation::{HINSTANCE, PSTR};
-use windows::Win32::System::LibraryLoader::GetModuleHandleA;
-use windows::Win32::System::WindowsProgramming::{DELAYLOAD_INFO, PDELAYLOAD_FAILURE_DLL_CALLBACK};
+use windows_sys::Win32::Foundation::{HINSTANCE, PSTR};
+use windows_sys::Win32::System::LibraryLoader::GetModuleHandleA;
+use windows_sys::Win32::System::WindowsProgramming::{
+  DELAYLOAD_INFO, PDELAYLOAD_FAILURE_DLL_CALLBACK,
+};
 
 // Structures hand-copied from
 // https://docs.microsoft.com/en-us/cpp/build/reference/structure-and-constant-definitions

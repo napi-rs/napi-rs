@@ -68,4 +68,4 @@ optional = true
 version = "1"
 
 [target.'cfg(windows)'.dependencies]
-windows = {version = "0.30", features = ["Win32_System_WindowsProgramming", "Win32_System_LibraryLoader", "Win32_Foundation"]}
+windows-sys = {version = "0.32", features = ["Win32_System_WindowsProgramming", "Win32_System_LibraryLoader", "Win32_Foundation"]}
