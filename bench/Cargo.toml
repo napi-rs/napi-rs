@@ -9,13 +9,17 @@ version = "0.1.0"
 crate-type = ["cdylib"]
 
 [dependencies]
-napi = {path = "../crates/napi", features = ["tokio_rt", "serde-json", "compat-mode"]}
-napi-derive = {path = "../crates/macro", features = ["compat-mode"]}
+napi = { path = "../crates/napi", features = [
+  "tokio_rt",
+  "serde-json",
+  "compat-mode",
+] }
+napi-derive = { path = "../crates/macro", features = ["compat-mode"] }
 serde = "1"
 serde_json = "1"
 
 [target.'cfg(all(target_arch = "x86_64", not(target_env = "musl")))'.dependencies]
-mimalloc = {version = "0.1"}
+mimalloc = { version = "0.1" }
 
 [build-dependencies]
-napi-build = {path = "../crates/build"}
+napi-build = { path = "../crates/build" }
