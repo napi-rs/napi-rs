@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.4.4](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.4.3...@napi-rs/cli@2.4.4) (2022-02-11)
+
+### Bug Fixes
+
+- **cli:** generate ExternalObject type on demand ([f9c618e](https://github.com/napi-rs/napi-rs/commit/f9c618e0462c3f75593b0a980f4babcb265ffc0c))
+
 ## [2.4.3](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.4.2...@napi-rs/cli@2.4.3) (2022-02-09)
 
 ### Bug Fixes
