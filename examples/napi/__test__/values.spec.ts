@@ -83,7 +83,9 @@ import {
   testSerdeRoundtrip,
   createObjWithProperty,
   dateToNumber,
+  chronoDateToMillis,
   derefUint8Array,
+  chronoDateAdd1Minute,
 } from '../'
 
 test('export const', (t) => {
@@ -563,4 +565,13 @@ const Napi5Test = Number(process.versions.napi) >= 5 ? test : test.skip
 Napi5Test('Date test', (t) => {
   const fixture = new Date('2016-12-24')
   t.is(dateToNumber(fixture), fixture.valueOf())
+})
+
+Napi5Test('Date to chrono test', (t) => {
+  const fixture = new Date('2022-02-09T19:31:55.396Z')
+  t.is(chronoDateToMillis(fixture), fixture.getTime())
+  t.deepEqual(
+    chronoDateAdd1Minute(fixture),
+    new Date(fixture.getTime() + 60 * 1000),
+  )
 })
