@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::ffi::c_void;
 use std::ffi::CStr;
 use std::ptr;
 use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
@@ -417,7 +418,7 @@ unsafe extern "C" fn napi_register_module_v1(
     crate::tokio_runtime::TOKIO_RT_REF_COUNT.fetch_add(1, Ordering::Relaxed);
     assert_eq!(
       unsafe {
-        sys::napi_add_env_cleanup_hook(env, Some(crate::shutdown_tokio_rt), ptr::null_mut())
+        sys::napi_add_env_cleanup_hook(env, Some(crate::shutdown_tokio_rt), env as *mut c_void)
       },
       sys::Status::napi_ok
     );
