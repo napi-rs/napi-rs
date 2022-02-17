@@ -35,7 +35,7 @@ pub(crate) static TOKIO_RT_REF_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 #[doc(hidden)]
 #[inline(never)]
-pub extern "C" fn shutdown_tokio_rt(_arg: *mut c_void) {
+pub unsafe extern "C" fn shutdown_tokio_rt(arg: *mut c_void) {
   if TOKIO_RT_REF_COUNT.fetch_sub(1, Ordering::Relaxed) == 0 {
     let sender = &RT.1;
     if let Err(e) = sender.clone().try_send(()) {
@@ -46,6 +46,11 @@ pub extern "C" fn shutdown_tokio_rt(_arg: *mut c_void) {
         }
       }
     }
+  }
+
+  unsafe {
+    let env: sys::napi_env = arg as *mut sys::napi_env__;
+    sys::napi_remove_env_cleanup_hook(env, Some(shutdown_tokio_rt), arg);
   }
 }
 
