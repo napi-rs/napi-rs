@@ -142,6 +142,7 @@ export function convertU32Array(input: Uint32Array): Array<number>
 export function createExternalTypedArray(): Uint32Array
 export function mutateTypedArray(input: Float32Array): void
 export function derefUint8Array(a: Uint8Array, b: Uint8ClampedArray): number
+export function bufferPassThrough(buf: Buffer): Promise<Buffer>
 /**
  * `constructor` option for `struct` requires all fields to be public,
  * otherwise tag impl fn as constructor

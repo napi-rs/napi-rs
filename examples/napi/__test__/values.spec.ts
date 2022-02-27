@@ -86,6 +86,7 @@ import {
   chronoDateToMillis,
   derefUint8Array,
   chronoDateAdd1Minute,
+  bufferPassThrough,
 } from '../'
 
 test('export const', (t) => {
@@ -380,6 +381,12 @@ test('async', async (t) => {
 
 test('async move', async (t) => {
   t.is(await asyncMultiTwo(2), 4)
+})
+
+test('buffer passthrough', async (t) => {
+  const fixture = Buffer.from('hello world')
+  const ret = await bufferPassThrough(fixture)
+  t.deepEqual(ret, fixture)
 })
 
 test('either', (t) => {
