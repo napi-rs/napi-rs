@@ -33,3 +33,8 @@ fn mutate_typed_array(mut input: Float32Array) {
 fn deref_uint8_array(a: Uint8Array, b: Uint8ClampedArray) -> u32 {
   (a.len() + b.len()) as u32
 }
+
+#[napi]
+async fn buffer_pass_through(buf: Buffer) -> Result<Buffer> {
+  Ok(buf)
+}
