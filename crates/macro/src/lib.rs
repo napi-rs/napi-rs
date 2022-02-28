@@ -326,12 +326,12 @@ fn replace_napi_attr_in_mod(
         #[napi(namespace = #js_namespace)]
       )
     };
-    let struct_opts: BindgenAttrs;
-    if let Some(TokenTree::Group(g)) = new_attr.tokens.into_iter().next() {
-      struct_opts = syn::parse2(g.stream()).ok()?;
-    } else {
-      struct_opts = syn::parse2(quote! {}).ok()?;
-    }
+    let struct_opts: BindgenAttrs =
+      if let Some(TokenTree::Group(g)) = new_attr.tokens.into_iter().next() {
+        syn::parse2(g.stream()).ok()?
+      } else {
+        syn::parse2(quote! {}).ok()?
+      };
     attrs.remove(index);
     Some(struct_opts)
   } else {

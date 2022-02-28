@@ -373,12 +373,10 @@ unsafe extern "C" fn call_js_cb<T: 'static, V: NapiRaw, R, ES>(
     })
   });
 
-  let status;
-
   // Follow async callback conventions: https://nodejs.org/en/knowledge/errors/what-are-the-error-conventions/
   // Check if the Result is okay, if so, pass a null as the first (error) argument automatically.
   // If the Result is an error, pass that as the first argument.
-  match ret {
+  let status = match ret {
     Ok(values) => {
       let values = values.iter().map(|v| unsafe { v.raw() });
       let args: Vec<sys::napi_value> = if ES::VALUE == ErrorStrategy::CalleeHandled::VALUE {
@@ -388,7 +386,7 @@ unsafe extern "C" fn call_js_cb<T: 'static, V: NapiRaw, R, ES>(
       } else {
         values.collect()
       };
-      status = unsafe {
+      unsafe {
         sys::napi_call_function(
           raw_env,
           recv,
@@ -397,24 +395,22 @@ unsafe extern "C" fn call_js_cb<T: 'static, V: NapiRaw, R, ES>(
           args.as_ptr(),
           ptr::null_mut(),
         )
-      };
+      }
     }
-    Err(e) if ES::VALUE == ErrorStrategy::Fatal::VALUE => {
-      status = unsafe { sys::napi_fatal_exception(raw_env, JsError::from(e).into_value(raw_env)) };
-    }
-    Err(e) => {
-      status = unsafe {
-        sys::napi_call_function(
-          raw_env,
-          recv,
-          js_callback,
-          1,
-          [JsError::from(e).into_value(raw_env)].as_mut_ptr(),
-          ptr::null_mut(),
-        )
-      };
-    }
-  }
+    Err(e) if ES::VALUE == ErrorStrategy::Fatal::VALUE => unsafe {
+      sys::napi_fatal_exception(raw_env, JsError::from(e).into_value(raw_env))
+    },
+    Err(e) => unsafe {
+      sys::napi_call_function(
+        raw_env,
+        recv,
+        js_callback,
+        1,
+        [JsError::from(e).into_value(raw_env)].as_mut_ptr(),
+        ptr::null_mut(),
+      )
+    },
+  };
   if status == sys::Status::napi_ok {
     return;
   }
