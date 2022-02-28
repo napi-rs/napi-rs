@@ -60,7 +60,7 @@
       "taplo format"
     ],
     "*.rs": [
-      "cargo fmt"
+      "cargo fmt --"
     ]
   },
   "husky": {

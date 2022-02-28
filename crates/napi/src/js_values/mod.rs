@@ -669,7 +669,7 @@ impl<'env> NapiRaw for &'env JsUnknown {
 
 impl JsUnknown {
   pub fn get_type(&self) -> Result<ValueType> {
-    unsafe { type_of!(self.0.env, self.0.value) }
+    type_of!(self.0.env, self.0.value)
   }
 
   /// # Safety

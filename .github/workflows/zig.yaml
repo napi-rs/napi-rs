@@ -27,7 +27,7 @@ jobs:
       - run: docker run --rm --privileged multiarch/qemu-user-static:register --reset
       - uses: actions/checkout@v2
       - name: Setup node
-        uses: actions/setup-node@v2
+        uses: actions/setup-node@v3
         with:
           # Testing for compatibility with node v12.x
           node-version: 12
@@ -93,7 +93,7 @@ jobs:
         if: matrix.settings.host == 'ubuntu-latest'
       - uses: actions/checkout@v2
       - name: Setup node
-        uses: actions/setup-node@v2
+        uses: actions/setup-node@v3
         with:
           node-version: 16
           check-latest: true

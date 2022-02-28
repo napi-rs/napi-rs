@@ -6,7 +6,7 @@ const configuration = {
     TS_NODE_PROJECT: './examples/tsconfig.json',
   },
   timeout: '1m',
-  workerThreads: false,
+  workerThreads: true,
 }
 
 if (parseInt(process.versions.napi, 10) < 4) {

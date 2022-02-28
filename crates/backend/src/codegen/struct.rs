@@ -232,7 +232,7 @@ impl NapiStruct {
             )?;
 
             let mut result = std::ptr::null_mut();
-            napi::bindgen_prelude::___CALL_FROM_FACTORY.store(true, std::sync::atomic::Ordering::Relaxed);
+            napi::bindgen_prelude::___CALL_FROM_FACTORY.with(|inner| inner.store(true, std::sync::atomic::Ordering::Relaxed));
             napi::check_status!(
               napi::sys::napi_new_instance(env, ctor, 0, std::ptr::null_mut(), &mut result),
               "Failed to construct class `{}`",
@@ -250,7 +250,7 @@ impl NapiStruct {
               "Failed to wrap native object of class `{}`",
               #js_name_str
             )?;
-            napi::bindgen_prelude::___CALL_FROM_FACTORY.store(false, std::sync::atomic::Ordering::Relaxed);
+            napi::bindgen_prelude::___CALL_FROM_FACTORY.with(|inner| inner.store(false, std::sync::atomic::Ordering::Relaxed));
             Ok(result)
           } else {
             Err(napi::bindgen_prelude::Error::new(

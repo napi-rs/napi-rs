@@ -4,11 +4,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::{bindgen_prelude::*, check_status, sys, Result};
 
-#[doc(hidden)]
-/// Determined is `constructor` called from Class `factory`
-/// Ugly but works
-/// We can even be more ugly without `atomic`
-pub static ___CALL_FROM_FACTORY: AtomicBool = AtomicBool::new(false);
+thread_local! {
+  #[doc(hidden)]
+  /// Determined is `constructor` called from Class `factory`
+  pub static ___CALL_FROM_FACTORY: AtomicBool = AtomicBool::new(false);
+}
 
 pub struct CallbackInfo<const N: usize> {
   env: sys::napi_env,
@@ -90,9 +90,9 @@ impl<const N: usize> CallbackInfo<N> {
     let this = self.this();
     let mut instance = ptr::null_mut();
     unsafe {
-      ___CALL_FROM_FACTORY.store(true, Ordering::Relaxed);
+      ___CALL_FROM_FACTORY.with(|inner| inner.store(true, Ordering::Relaxed));
       let status = sys::napi_new_instance(self.env, this, 0, ptr::null_mut(), &mut instance);
-      ___CALL_FROM_FACTORY.store(false, Ordering::Relaxed);
+      ___CALL_FROM_FACTORY.with(|inner| inner.store(false, Ordering::Relaxed));
       // Error thrown in `constructor`
       if status == sys::Status::napi_pending_exception {
         let mut exception = ptr::null_mut();
