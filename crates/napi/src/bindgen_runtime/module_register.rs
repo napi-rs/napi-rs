@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
 use std::ffi::c_void;
 use std::ffi::{CStr, CString};
@@ -86,16 +86,12 @@ type ModuleClassProperty = PersistedSingleThreadHashMap<
   HashMap<Option<&'static str>, (&'static str, Vec<Property>)>,
 >;
 
-type FnRegisterMap =
-  PersistedSingleThreadHashMap<ExportRegisterCallback, (sys::napi_callback, &'static str)>;
-
 unsafe impl<K, V> Send for PersistedSingleThreadHashMap<K, V> {}
 unsafe impl<K, V> Sync for PersistedSingleThreadHashMap<K, V> {}
 
 lazy_static! {
   static ref MODULE_REGISTER_CALLBACK: ModuleRegisterCallback = Default::default();
   static ref MODULE_CLASS_PROPERTIES: ModuleClassProperty = Default::default();
-  static ref FN_REGISTER_MAP: FnRegisterMap = Default::default();
   static ref MODULE_REGISTER_LOCK: Mutex<()> = Mutex::new(());
   static ref REGISTERED: AtomicBool = AtomicBool::new(false);
 }
@@ -118,6 +114,7 @@ thread_local! {
     /* export name */ String,
     /* constructor */ sys::napi_ref,
   >> = Default::default();
+  static FN_REGISTER_MAP: RefCell<HashMap<ExportRegisterCallback, (sys::napi_callback, String)>> = Default::default();
 }
 
 #[doc(hidden)]
@@ -151,8 +148,8 @@ pub fn register_js_function(
   cb: ExportRegisterCallback,
   c_fn: sys::napi_callback,
 ) {
-  FN_REGISTER_MAP.borrow_mut(|inner| {
-    inner.insert(cb, (c_fn, name));
+  FN_REGISTER_MAP.with(|inner| {
+    inner.borrow_mut().insert(cb, (c_fn, name.to_owned()));
   });
 }
 
@@ -191,8 +188,9 @@ pub fn register_class(
 ///
 pub fn get_js_function(env: &Env, raw_fn: ExportRegisterCallback) -> Result<JsFunction> {
   wait_first_thread_registered();
-  FN_REGISTER_MAP.borrow_mut(|inner| {
+  FN_REGISTER_MAP.with(|inner| {
     inner
+      .borrow()
       .get(&raw_fn)
       .and_then(|(cb, name)| {
         let mut function = ptr::null_mut();
@@ -245,8 +243,9 @@ pub fn get_js_function(env: &Env, raw_fn: ExportRegisterCallback) -> Result<JsFu
 ///
 pub fn get_c_callback(raw_fn: ExportRegisterCallback) -> Result<crate::Callback> {
   wait_first_thread_registered();
-  FN_REGISTER_MAP.borrow_mut(|inner| {
+  FN_REGISTER_MAP.with(|inner| {
     inner
+      .borrow()
       .get(&raw_fn)
       .and_then(|(cb, _name)| *cb)
       .ok_or_else(|| {
@@ -266,7 +265,7 @@ unsafe extern "C" fn napi_register_module_v1(
   let lock = MODULE_REGISTER_LOCK
     .lock()
     .expect("Failed to acquire module register lock");
-  let mut exports_objects: HashMap<Option<&'static str>, sys::napi_value> = HashMap::default();
+  let mut exports_objects: HashSet<String> = HashSet::default();
   MODULE_REGISTER_CALLBACK.borrow_mut(|inner| {
     inner
       .iter_mut()
@@ -285,8 +284,22 @@ unsafe extern "C" fn napi_register_module_v1(
       .for_each(|(js_mod, items)| {
         let mut exports_js_mod = ptr::null_mut();
         if let Some(js_mod_str) = js_mod {
-          if let Some(exports_object) = exports_objects.get(js_mod) {
-            exports_js_mod = *exports_object;
+          let mod_name_c_str =
+            unsafe { CStr::from_bytes_with_nul_unchecked(js_mod_str.as_bytes()) };
+          if exports_objects.contains(*js_mod_str) {
+            check_status_or_throw!(
+              env,
+              unsafe {
+                sys::napi_get_named_property(
+                  env,
+                  exports,
+                  mod_name_c_str.as_ptr(),
+                  &mut exports_js_mod,
+                )
+              },
+              "Get mod {} from exports failed",
+              js_mod_str,
+            );
           } else {
             check_status_or_throw!(
               env,
@@ -297,17 +310,12 @@ unsafe extern "C" fn napi_register_module_v1(
             check_status_or_throw!(
               env,
               unsafe {
-                sys::napi_set_named_property(
-                  env,
-                  exports,
-                  js_mod_str.as_ptr() as *const _,
-                  exports_js_mod,
-                )
+                sys::napi_set_named_property(env, exports, mod_name_c_str.as_ptr(), exports_js_mod)
               },
               "Set exports Object [{}] into exports object failed",
               js_mod_str
             );
-            exports_objects.insert(*js_mod, exports_js_mod);
+            exports_objects.insert(js_mod_str.to_string());
           }
         }
         for (name, callback) in items {
@@ -338,8 +346,19 @@ unsafe extern "C" fn napi_register_module_v1(
         let mut exports_js_mod = ptr::null_mut();
         unsafe {
           if let Some(js_mod_str) = js_mod {
-            if let Some(exports_object) = exports_objects.get(js_mod) {
-              exports_js_mod = *exports_object;
+            let mod_name_c_str = CStr::from_bytes_with_nul_unchecked(js_mod_str.as_bytes());
+            if exports_objects.contains(*js_mod_str) {
+              check_status_or_throw!(
+                env,
+                sys::napi_get_named_property(
+                  env,
+                  exports,
+                  mod_name_c_str.as_ptr(),
+                  &mut exports_js_mod,
+                ),
+                "Get mod {} from exports failed",
+                js_mod_str,
+              );
             } else {
               check_status_or_throw!(
                 env,
@@ -349,16 +368,11 @@ unsafe extern "C" fn napi_register_module_v1(
               );
               check_status_or_throw!(
                 env,
-                sys::napi_set_named_property(
-                  env,
-                  exports,
-                  CStr::from_bytes_with_nul_unchecked(js_mod_str.as_bytes()).as_ptr(),
-                  exports_js_mod
-                ),
+                sys::napi_set_named_property(env, exports, mod_name_c_str.as_ptr(), exports_js_mod),
                 "Set exports Object [{}] into exports object failed",
                 js_mod_str
               );
-              exports_objects.insert(*js_mod, exports_js_mod);
+              exports_objects.insert(js_mod_str.to_string());
             }
           }
           let (ctor, props): (Vec<_>, Vec<_>) = props.iter().partition(|prop| prop.is_ctor);
