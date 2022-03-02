@@ -1,5 +1,6 @@
 import { execSync } from 'child_process'
 import { existsSync, mkdirSync } from 'fs'
+import { tmpdir } from 'os'
 import { join, parse, sep } from 'path'
 
 import { Instance } from 'chalk'
@@ -200,7 +201,7 @@ export class BuildCommand extends Command {
       .filter((flag) => Boolean(flag))
       .join(' ')
     const cargoCommand = `cargo build ${externalFlags}`
-    const intermediateTypeFile = join(__dirname, `type_def.${Date.now()}.tmp`)
+    const intermediateTypeFile = join(tmpdir(), `type_def.${Date.now()}.tmp`)
     debug(`Run ${chalk.green(cargoCommand)}`)
     const additionalEnv = {}
     if (
