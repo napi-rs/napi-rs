@@ -61,6 +61,7 @@ where
   RT.0.spawn(fut);
 }
 
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn execute_tokio_future<
   Data: 'static + Send,
   Fut: 'static + Send + Future<Output = Result<Data>>,

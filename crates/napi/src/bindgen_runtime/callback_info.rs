@@ -17,6 +17,7 @@ pub struct CallbackInfo<const N: usize> {
 }
 
 impl<const N: usize> CallbackInfo<N> {
+  #[allow(clippy::not_unsafe_ptr_arg_deref)]
   pub fn new(
     env: sys::napi_env,
     callback_info: sys::napi_callback_info,
