@@ -11,7 +11,8 @@
 
 use std::ffi::CStr;
 
-use windows::Win32::Foundation::{HINSTANCE, PSTR};
+use windows::core::PCSTR;
+use windows::Win32::Foundation::HINSTANCE;
 use windows::Win32::System::LibraryLoader::GetModuleHandleA;
 use windows::Win32::System::WindowsProgramming::{DELAYLOAD_INFO, PDELAYLOAD_FAILURE_DLL_CALLBACK};
 
@@ -35,7 +36,7 @@ unsafe extern "C" fn load_exe_hook(event: u32, info: *const DELAYLOAD_INFO) -> H
     return HINSTANCE::default();
   }
 
-  unsafe { GetModuleHandleA(PSTR::default()) }
+  unsafe { GetModuleHandleA(PCSTR::default()) }
 }
 
 #[no_mangle]
