@@ -10,6 +10,8 @@ const configuration = {
   timeout: '1m',
   workerThreads: true,
   concurrency: process.env.CI ? 2 : cpus().length,
+  failFast: false,
+  verbose: !!process.env.CI,
 }
 
 if (parseInt(process.versions.napi, 10) < 4) {
