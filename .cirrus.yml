@@ -1,5 +1,5 @@
 freebsd_instance:
-  image: freebsd-12-2-release-amd64
+  image: freebsd-13-0-release-amd64
 
 task:
   name: FreeBSD
@@ -8,7 +8,8 @@ task:
     RUSTUP_HOME: /usr/local/rustup
     CARGO_HOME: /usr/local/cargo
     PATH: /usr/local/cargo/bin:$PATH
-    RUSTUP_IO_THREADS: 1
+    RUSTUP_IO_THREADS: '1'
+    CI: '1'
   setup_script:
     - pkg update
     - pkg install -y -f curl node16 libnghttp2
@@ -28,4 +29,4 @@ task:
     - yarn build
     - cargo test -p napi-sys --lib -- --nocapture
     - yarn build:test
-    - yarn test
+    - yarn test --verbose

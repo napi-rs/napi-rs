@@ -26,7 +26,7 @@ jobs:
           cache: 'yarn'
 
       - name: 'Install dependencies'
-        run: yarn install --immutable --network-timeout 300000
+        run: yarn install --mode=skip-build --immutable --network-timeout 300000
 
       - name: 'Build TypeScript'
         run: yarn build
@@ -68,7 +68,7 @@ jobs:
         run: |
           yarn --cwd ./examples/napi-compat-mode build-i686 --release
           yarn --cwd ./examples/napi build-i686 --release
-          yarn test
+          yarn test --verbose
         env:
           RUST_BACKTRACE: 1
 
