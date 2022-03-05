@@ -2,10 +2,26 @@ use std::{ffi::CString, ptr};
 
 use crate::check_status;
 
-use super::ToNapiValue;
+use super::{FromNapiValue, ToNapiValue, TypeName, ValidateNapiValue};
 
 pub struct Symbol {
   desc: Option<String>,
+}
+
+impl TypeName for Symbol {
+  fn type_name() -> &'static str {
+    "Symbol"
+  }
+
+  fn value_type() -> crate::ValueType {
+    crate::ValueType::Object
+  }
+}
+
+impl ValidateNapiValue for Symbol {
+  fn type_of() -> Vec<crate::ValueType> {
+    vec![crate::ValueType::Symbol]
+  }
 }
 
 impl Symbol {
@@ -46,5 +62,14 @@ impl ToNapiValue for Symbol {
       )
     })?;
     Ok(symbol_value)
+  }
+}
+
+impl FromNapiValue for Symbol {
+  unsafe fn from_napi_value(
+    _env: napi_sys::napi_env,
+    _napi_val: napi_sys::napi_value,
+  ) -> crate::Result<Self> {
+    Ok(Self { desc: None })
   }
 }

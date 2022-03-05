@@ -51,8 +51,9 @@ impl NapiEnum {
         unsafe fn validate(
           env: napi::bindgen_prelude::sys::napi_env,
           napi_val: napi::bindgen_prelude::sys::napi_value
-        ) -> napi::bindgen_prelude::Result<()> {
-          napi::bindgen_prelude::assert_type_of!(env, napi_val, napi::bindgen_prelude::ValueType::Number)
+        ) -> napi::bindgen_prelude::Result<napi::sys::napi_value> {
+          napi::bindgen_prelude::assert_type_of!(env, napi_val, napi::bindgen_prelude::ValueType::Number)?;
+          Ok(std::ptr::null_mut())
         }
       }
 

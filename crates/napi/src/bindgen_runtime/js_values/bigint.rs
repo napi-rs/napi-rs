@@ -12,7 +12,7 @@ use std::ptr;
 
 use crate::{check_status, sys};
 
-use super::{FromNapiValue, ToNapiValue, TypeName};
+use super::{FromNapiValue, ToNapiValue, TypeName, ValidateNapiValue};
 
 /// i64 is converted to `Number`
 #[repr(transparent)]
@@ -35,6 +35,12 @@ impl TypeName for BigInt {
 
   fn value_type() -> crate::ValueType {
     crate::ValueType::BigInt
+  }
+}
+
+impl ValidateNapiValue for BigInt {
+  fn type_of() -> Vec<crate::ValueType> {
+    vec![crate::ValueType::BigInt]
   }
 }
 

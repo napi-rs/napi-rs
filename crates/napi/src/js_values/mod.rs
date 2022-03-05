@@ -3,7 +3,8 @@ use std::ffi::CString;
 use std::ptr;
 
 use crate::{
-  bindgen_runtime::TypeName, check_status, sys, type_of, Callback, Error, Result, Status, ValueType,
+  bindgen_runtime::{TypeName, ValidateNapiValue},
+  check_status, sys, type_of, Callback, Error, Result, Status, ValueType,
 };
 
 #[cfg(feature = "serde-json")]
@@ -82,6 +83,12 @@ impl TypeName for JsSymbol {
 
   fn value_type() -> ValueType {
     ValueType::Symbol
+  }
+}
+
+impl ValidateNapiValue for JsSymbol {
+  fn type_of() -> Vec<ValueType> {
+    vec![ValueType::Symbol]
   }
 }
 

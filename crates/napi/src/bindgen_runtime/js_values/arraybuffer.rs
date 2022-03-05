@@ -6,7 +6,7 @@ use std::ptr;
 pub use crate::js_values::TypedArrayType;
 use crate::{check_status, sys, Error, Result, Status};
 
-use super::{FromNapiValue, ToNapiValue, TypeName};
+use super::{FromNapiValue, ToNapiValue, TypeName, ValidateNapiValue};
 
 macro_rules! impl_typed_array {
   ($name:ident, $rust_type:ident, $typed_array_type:expr) => {
@@ -98,11 +98,31 @@ macro_rules! impl_typed_array {
 
     impl TypeName for $name {
       fn type_name() -> &'static str {
-        "TypedArray"
+        concat!("TypedArray<", stringify!($rust_type), ">")
       }
 
       fn value_type() -> crate::ValueType {
         crate::ValueType::Object
+      }
+    }
+
+    impl ValidateNapiValue for $name {
+      unsafe fn validate(
+        env: sys::napi_env,
+        napi_val: sys::napi_value,
+      ) -> Result<$crate::sys::napi_value> {
+        let mut is_typed_array = false;
+        check_status!(
+          unsafe { sys::napi_is_typedarray(env, napi_val, &mut is_typed_array) },
+          "Failed to check if value is typed array"
+        )?;
+        if !is_typed_array {
+          return Err(Error::new(
+            Status::InvalidArg,
+            "Expected a TypedArray value".to_owned(),
+          ));
+        }
+        Ok(ptr::null_mut())
       }
     }
 

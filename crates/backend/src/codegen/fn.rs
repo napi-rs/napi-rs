@@ -159,7 +159,10 @@ impl NapiFn {
       _ => {
         let type_check = if self.strict {
           quote! {
-            <#ty as napi::bindgen_prelude::ValidateNapiValue>::validate(env, cb.get_arg(#index))?;
+            let maybe_promise = <#ty as napi::bindgen_prelude::ValidateNapiValue>::validate(env, cb.get_arg(#index))?;
+            if !maybe_promise.is_null() {
+              return Ok(maybe_promise);
+            }
           }
         } else {
           quote! {}

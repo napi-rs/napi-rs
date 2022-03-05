@@ -114,10 +114,13 @@ pub trait ValidateNapiValue: FromNapiValue + TypeName {
   /// # Safety
   ///
   /// this function called to validate whether napi value passed to rust is valid type
-  unsafe fn validate(env: sys::napi_env, napi_val: sys::napi_value) -> Result<()> {
+  unsafe fn validate(
+    env: sys::napi_env,
+    napi_val: sys::napi_value,
+  ) -> Result<napi_sys::napi_value> {
     let available_types = Self::type_of();
     if available_types.is_empty() {
-      return Ok(());
+      return Ok(ptr::null_mut());
     }
 
     let mut result = -1;
@@ -128,7 +131,7 @@ pub trait ValidateNapiValue: FromNapiValue + TypeName {
 
     let received_type = ValueType::from(result);
     if available_types.contains(&received_type) {
-      Ok(())
+      Ok(ptr::null_mut())
     } else {
       Err(Error::new(
         Status::InvalidArg,
