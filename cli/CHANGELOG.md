@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.4.5](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.4.4...@napi-rs/cli@2.4.5) (2022-03-05)
+
+### Bug Fixes
+
+- **cli:** temporary dts path may not be writable ([e69f023](https://github.com/napi-rs/napi-rs/commit/e69f0230c24cb74d55287fe191d05edf53d7830a))
+- **napi:** race issues with Node.js worker_thread ([#1081](https://github.com/napi-rs/napi-rs/issues/1081)) ([9f3fbaa](https://github.com/napi-rs/napi-rs/commit/9f3fbaa8e0b6c0bcdd740d39d16de35a4ec18aa8))
+
 ## [2.4.4](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.4.3...@napi-rs/cli@2.4.4) (2022-02-11)
 
 ### Bug Fixes
