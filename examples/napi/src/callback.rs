@@ -43,6 +43,6 @@ fn read_file_content() -> Result<String> {
 }
 
 #[napi]
-fn return_js_function() -> Result<JsFunction> {
-  get_js_function(read_file_js_function)
+fn return_js_function(env: Env) -> Result<JsFunction> {
+  get_js_function(&env, read_file_js_function)
 }

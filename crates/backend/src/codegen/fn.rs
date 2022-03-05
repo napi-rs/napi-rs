@@ -49,7 +49,7 @@ impl TryToTokens for NapiFn {
       quote! {
         // constructor function is called from class `factory`
         // so we should skip the original `constructor` logic
-        if napi::bindgen_prelude::___CALL_FROM_FACTORY.load(std::sync::atomic::Ordering::Relaxed) {
+        if napi::bindgen_prelude::___CALL_FROM_FACTORY.with(|inner| inner.load(std::sync::atomic::Ordering::Relaxed)) {
           return std::ptr::null_mut();
         }
         napi::bindgen_prelude::CallbackInfo::<#args_len>::new(env, cb, None).and_then(|mut cb| {
@@ -319,7 +319,7 @@ impl NapiFn {
             "Failed to register function `{}`",
             #name_str,
           )?;
-          napi::bindgen_prelude::register_js_function(#js_name, env, #cb_name, Some(#intermediate_ident));
+          napi::bindgen_prelude::register_js_function(#js_name, #cb_name, Some(#intermediate_ident));
           Ok(fn_ptr)
         }
 

@@ -1,4 +1,5 @@
 use super::{check_status, sys, Result};
+use crate::type_of;
 
 macro_rules! impl_number_conversions {
 	( $( ($name:literal, $t:ty, $get:ident, $create:ident) ,)* ) => {
@@ -43,11 +44,12 @@ macro_rules! impl_number_conversions {
 
           check_status!(
             unsafe { sys::$get(env, napi_val, &mut ret) },
-						"Failed to convert napi value into rust type `{}`",
-            $name
+            "Failed to convert napi value {:?} into rust type `{}`",
+            type_of!(env, napi_val),
+            $name,
           )?;
 
-					Ok(ret)
+            Ok(ret)
 				}
       }
 		)*

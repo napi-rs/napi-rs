@@ -36,7 +36,7 @@ pub(crate) static TOKIO_RT_REF_COUNT: AtomicUsize = AtomicUsize::new(0);
 #[doc(hidden)]
 #[inline(never)]
 pub unsafe extern "C" fn shutdown_tokio_rt(arg: *mut c_void) {
-  if TOKIO_RT_REF_COUNT.fetch_sub(1, Ordering::Relaxed) == 0 {
+  if TOKIO_RT_REF_COUNT.fetch_sub(1, Ordering::SeqCst) == 0 {
     let sender = &RT.1;
     if let Err(e) = sender.clone().try_send(()) {
       match e {
