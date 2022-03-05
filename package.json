@@ -33,7 +33,7 @@
     "format:toml": "taplo format",
     "lint": "eslint -c .eslintrc.yml .",
     "prepublishOnly": "npm run build && pinst --disable",
-    "test": "ava \"./examples/napi/**/*.ts\" && ava \"./examples/napi-compat-mode/**/*.ts\" && \"ava ./cli/**/*.ts\"",
+    "test": "ava \"./examples/napi/**/*.ts\" && ava --no-worker-threads \"./examples/napi-compat-mode/**/*.ts\" && ava \"./cli/**/*.ts\"",
     "test:memory": "node memory-testing/index.mjs",
     "postinstall": "husky install",
     "postpublish": "pinst --enable"
