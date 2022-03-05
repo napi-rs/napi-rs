@@ -5,12 +5,28 @@ use std::{
 
 use crate::{check_status, Error, Status, TaggedObject};
 
-use super::{FromNapiValue, ToNapiValue};
+use super::{FromNapiValue, ToNapiValue, TypeName, ValidateNapiValue};
 
 pub struct External<T: 'static> {
   obj: *mut TaggedObject<T>,
   size_hint: usize,
   pub adjusted_size: i64,
+}
+
+impl<T: 'static> TypeName for External<T> {
+  fn type_name() -> &'static str {
+    "External"
+  }
+
+  fn value_type() -> crate::ValueType {
+    crate::ValueType::External
+  }
+}
+
+impl<T: 'static> ValidateNapiValue for External<T> {
+  fn type_of() -> Vec<crate::ValueType> {
+    vec![crate::ValueType::External]
+  }
 }
 
 impl<T: 'static> External<T> {

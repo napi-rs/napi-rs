@@ -8,10 +8,77 @@ use tokio::sync::oneshot::{channel, Receiver, Sender};
 
 use crate::{check_status, Error, Result, Status};
 
-use super::FromNapiValue;
+use super::{FromNapiValue, TypeName, ValidateNapiValue};
 
 pub struct Promise<T: FromNapiValue> {
   value: Pin<Box<Receiver<*mut Result<T>>>>,
+}
+
+impl<T: FromNapiValue> TypeName for Promise<T> {
+  fn type_name() -> &'static str {
+    "Promise"
+  }
+
+  fn value_type() -> crate::ValueType {
+    crate::ValueType::Object
+  }
+}
+
+impl<T: FromNapiValue> ValidateNapiValue for Promise<T> {
+  fn type_of() -> Vec<crate::ValueType> {
+    vec![crate::ValueType::Object]
+  }
+
+  unsafe fn validate(
+    env: crate::sys::napi_env,
+    napi_val: crate::sys::napi_value,
+  ) -> Result<napi_sys::napi_value> {
+    let mut is_promise = false;
+    check_status!(
+      unsafe { crate::sys::napi_is_promise(env, napi_val, &mut is_promise) },
+      "Failed to check if value is promise"
+    )?;
+    if !is_promise {
+      let mut deferred = ptr::null_mut();
+      let mut promise = ptr::null_mut();
+      check_status!(
+        unsafe { crate::sys::napi_create_promise(env, &mut deferred, &mut promise) },
+        "Failed to create promise"
+      )?;
+      let mut err = ptr::null_mut();
+      let mut code = ptr::null_mut();
+      let mut message = ptr::null_mut();
+      check_status!(
+        unsafe {
+          crate::sys::napi_create_string_utf8(
+            env,
+            CStr::from_bytes_with_nul_unchecked(b"InvalidArg\0").as_ptr(),
+            10,
+            &mut code,
+          )
+        },
+        "Failed to create error message"
+      )?;
+      check_status!(
+        unsafe {
+          crate::sys::napi_create_string_utf8(
+            env,
+            CStr::from_bytes_with_nul_unchecked(b"Expected Promise object\0").as_ptr(),
+            23,
+            &mut message,
+          )
+        },
+        "Failed to create error message"
+      )?;
+      check_status!(
+        unsafe { crate::sys::napi_create_error(env, code, message, &mut err) },
+        "Failed to create rejected error"
+      )?;
+      check_status!(unsafe { crate::sys::napi_reject_deferred(env, deferred, err) })?;
+      return Ok(promise);
+    }
+    Ok(ptr::null_mut())
+  }
 }
 
 unsafe impl<T: FromNapiValue> Send for Promise<T> {}

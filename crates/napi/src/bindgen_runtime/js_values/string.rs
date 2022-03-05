@@ -16,6 +16,12 @@ impl TypeName for String {
   }
 }
 
+impl ValidateNapiValue for String {
+  fn type_of() -> Vec<ValueType> {
+    vec![ValueType::String]
+  }
+}
+
 impl ToNapiValue for String {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     let mut ptr = ptr::null_mut();
@@ -72,6 +78,12 @@ impl TypeName for &str {
 
   fn value_type() -> ValueType {
     ValueType::String
+  }
+}
+
+impl ValidateNapiValue for &str {
+  fn type_of() -> Vec<ValueType> {
+    vec![ValueType::String]
   }
 }
 
@@ -133,6 +145,12 @@ impl ToNapiValue for &str {
 
 #[derive(Debug)]
 pub struct Utf16String(String);
+
+impl ValidateNapiValue for Utf16String {
+  fn type_of() -> Vec<ValueType> {
+    vec![ValueType::String]
+  }
+}
 
 impl From<String> for Utf16String {
   fn from(s: String) -> Self {
@@ -226,6 +244,12 @@ pub mod latin1_string {
 
   #[derive(Debug)]
   pub struct Latin1String(String);
+
+  impl ValidateNapiValue for Latin1String {
+    fn type_of() -> Vec<ValueType> {
+      vec![ValueType::String]
+    }
+  }
 
   impl From<String> for Latin1String {
     fn from(s: String) -> Self {

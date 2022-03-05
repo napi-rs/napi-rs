@@ -88,3 +88,9 @@ impl TypeName for Object {
     ValueType::Object
   }
 }
+
+impl ValidateNapiValue for Object {
+  fn type_of() -> Vec<ValueType> {
+    vec![ValueType::Object]
+  }
+}

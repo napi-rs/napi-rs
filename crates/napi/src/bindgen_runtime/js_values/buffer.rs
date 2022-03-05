@@ -140,7 +140,18 @@ impl ToNapiValue for Buffer {
 }
 
 impl ValidateNapiValue for Buffer {
-  fn type_of() -> Vec<ValueType> {
-    vec![ValueType::Object]
+  unsafe fn validate(env: sys::napi_env, napi_val: sys::napi_value) -> Result<sys::napi_value> {
+    let mut is_buffer = false;
+    check_status!(
+      unsafe { sys::napi_is_buffer(env, napi_val, &mut is_buffer) },
+      "Failed to validate napi buffer"
+    )?;
+    if !is_buffer {
+      return Err(Error::new(
+        Status::InvalidArg,
+        "Expected a Buffer value".to_owned(),
+      ));
+    }
+    Ok(ptr::null_mut())
   }
 }

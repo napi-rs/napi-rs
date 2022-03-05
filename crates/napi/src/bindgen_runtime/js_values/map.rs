@@ -13,6 +13,12 @@ impl<K, V, S> TypeName for HashMap<K, V, S> {
   }
 }
 
+impl<K: From<String> + Eq + Hash, V: FromNapiValue> ValidateNapiValue for HashMap<K, V> {
+  fn type_of() -> Vec<crate::ValueType> {
+    vec![crate::ValueType::Object]
+  }
+}
+
 impl<K, V, S> ToNapiValue for HashMap<K, V, S>
 where
   K: AsRef<str>,

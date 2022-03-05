@@ -257,7 +257,21 @@ impl<T> ValidateNapiValue for Vec<T>
 where
   T: FromNapiValue,
 {
-  fn type_of() -> Vec<ValueType> {
-    vec![ValueType::Object]
+  unsafe fn validate(
+    env: sys::napi_env,
+    napi_val: sys::napi_value,
+  ) -> Result<napi_sys::napi_value> {
+    let mut is_array = false;
+    check_status!(
+      unsafe { sys::napi_is_array(env, napi_val, &mut is_array) },
+      "Failed to check given napi value is array"
+    )?;
+    if !is_array {
+      return Err(Error::new(
+        Status::InvalidArg,
+        "Expected an array".to_owned(),
+      ));
+    }
+    Ok(ptr::null_mut())
   }
 }

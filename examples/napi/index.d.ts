@@ -72,6 +72,22 @@ export function createExternal(size: number): ExternalObject<number>
 export function createExternalString(content: string): ExternalObject<string>
 export function getExternal(external: ExternalObject<number>): number
 export function mutateExternal(external: ExternalObject<number>, newVal: number): void
+export function validateArray(arr: Array<number>): number
+export function validateBuffer(b: Buffer): number
+export function validateTypedArray(input: Uint8Array): number
+export function validateBigint(input: bigint): bigint
+export function validateBoolean(i: boolean): boolean
+export function validateDate(d: Date): number
+export function validateDateTime(d: Date): number
+export function validateExternal(e: ExternalObject<number>): number
+export function validateFunction(cb: () => number): number
+export function validateHashMap(input: Record<string, number>): number
+export function validateNull(i: null): boolean
+export function validateUndefined(i: undefined): boolean
+export function validateNumber(i: number): number
+export function validatePromise(p: Promise<number>): Promise<number>
+export function validateString(s: string): string
+export function validateSymbol(s: symbol): boolean
 export function tsRename(a: { foo: number }): string[]
 export function xxh64Alias(input: Buffer): bigint
 export function getMapping(): Record<string, number>

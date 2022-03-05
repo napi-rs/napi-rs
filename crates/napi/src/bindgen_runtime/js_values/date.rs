@@ -1,5 +1,8 @@
-use crate::{bindgen_prelude::*, check_status, sys, ValueType};
+use std::ptr;
+
 use chrono::{DateTime, NaiveDateTime, Utc};
+
+use crate::{bindgen_prelude::*, check_status, sys, ValueType};
 
 impl TypeName for DateTime<Utc> {
   fn type_name() -> &'static str {
@@ -12,8 +15,20 @@ impl TypeName for DateTime<Utc> {
 }
 
 impl ValidateNapiValue for DateTime<Utc> {
-  fn type_of() -> Vec<ValueType> {
-    vec![ValueType::Object]
+  unsafe fn validate(
+    env: sys::napi_env,
+    napi_val: sys::napi_value,
+  ) -> Result<napi_sys::napi_value> {
+    let mut is_date = false;
+    check_status!(unsafe { napi_sys::napi_is_date(env, napi_val, &mut is_date) })?;
+    if !is_date {
+      return Err(Error::new(
+        Status::InvalidArg,
+        "Expected a Date object".to_owned(),
+      ));
+    }
+
+    Ok(ptr::null_mut())
   }
 }
 
