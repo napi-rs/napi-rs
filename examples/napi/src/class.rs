@@ -212,6 +212,7 @@ pub struct JsAssets {}
 #[napi]
 impl JsAssets {
   #[napi(constructor)]
+  #[allow(clippy::new_without_default)]
   pub fn new() -> Self {
     JsAssets {}
   }
@@ -228,6 +229,7 @@ pub struct JsAsset {}
 #[napi]
 impl JsAsset {
   #[napi(constructor)]
+  #[allow(clippy::new_without_default)]
   pub fn new() -> Self {
     Self {}
   }

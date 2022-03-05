@@ -33,6 +33,7 @@ mod xxh3 {
   #[napi]
   impl Xxh3 {
     #[napi(constructor)]
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Xxh3 {
       Xxh3 {
         inner: BigInt {

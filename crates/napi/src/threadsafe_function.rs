@@ -175,7 +175,7 @@ unsafe impl<T, ES: ErrorStrategy::T> Sync for ThreadsafeFunction<T, ES> {}
 impl<T: 'static, ES: ErrorStrategy::T> ThreadsafeFunction<T, ES> {
   /// See [napi_create_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_create_threadsafe_function)
   /// for more information.
-  pub fn create<
+  pub(crate) fn create<
     V: NapiRaw,
     R: 'static + Send + FnMut(ThreadSafeCallContext<T>) -> Result<Vec<V>>,
   >(

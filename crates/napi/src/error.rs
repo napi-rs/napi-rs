@@ -213,6 +213,7 @@ macro_rules! impl_object_methods {
         );
       }
 
+      #[allow(clippy::not_unsafe_ptr_arg_deref)]
       pub fn throw(&self, env: sys::napi_env) -> Result<()> {
         let error_status = format!("{:?}\0", self.0.status);
         let status_len = error_status.len();
