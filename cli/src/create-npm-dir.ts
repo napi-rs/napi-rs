@@ -40,33 +40,40 @@ export class CreateNpmDirCommand extends Command {
       const binaryFileName = `${binaryName}.${platformDetail.platformArchABI}.node`
       const targetPackageJson = join(targetDir, 'package.json')
       debug(`Write file [${chalk.yellowBright(targetPackageJson)}]`)
+      const packageJson: {
+        name: string
+        libc?: string[]
+      } = {
+        name: `${packageName}-${platformDetail.platformArchABI}`,
+        version,
+        os: [platformDetail.platform],
+        cpu: [platformDetail.arch],
+        main: binaryFileName,
+        files: [binaryFileName],
+        ...pick(
+          content,
+          'description',
+          'keywords',
+          'author',
+          'authors',
+          'homepage',
+          'license',
+          'engines',
+          'publishConfig',
+          'repository',
+          'bugs',
+        ),
+      }
+      // Only works with yarn 3.1+
+      // https://github.com/yarnpkg/berry/pull/3981
+      if (platformDetail.abi === 'gnu') {
+        packageJson.libc = ['glibc']
+      } else if (platformDetail.abi === 'musl') {
+        packageJson.libc = ['musl']
+      }
       await writeFileAsync(
         targetPackageJson,
-        JSON.stringify(
-          {
-            name: `${packageName}-${platformDetail.platformArchABI}`,
-            version,
-            os: [platformDetail.platform],
-            cpu: [platformDetail.arch],
-            main: binaryFileName,
-            files: [binaryFileName],
-            ...pick(
-              content,
-              'description',
-              'keywords',
-              'author',
-              'authors',
-              'homepage',
-              'license',
-              'engines',
-              'publishConfig',
-              'repository',
-              'bugs',
-            ),
-          },
-          null,
-          2,
-        ),
+        JSON.stringify(packageJson, null, 2),
       )
       const targetReadme = join(targetDir, 'README.md')
       debug(`Write target README.md [${chalk.yellowBright(targetReadme)}]`)
