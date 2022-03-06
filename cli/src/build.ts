@@ -550,6 +550,7 @@ async function processIntermediateTypeFile(
 
       if (original_name && name !== original_name) {
         dts += indentLines(`export type ${original_name} = ${name}\n`, nest)
+        dts += indentLines(`export const ${original_name} = ${name}\n`, nest)
       }
 
       dts += indentLines(`${js_doc}export class ${name} {`, nest)
