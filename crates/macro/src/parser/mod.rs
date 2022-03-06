@@ -457,6 +457,10 @@ fn extract_fn_closure_generics(
   Diagnostic::from_vec(errors).and(Ok(map))
 }
 
+fn is_snake_case(string: &str) -> bool {
+  string == string.to_case(Case::Snake) || string == string.to_lowercase()
+}
+
 fn napi_fn_from_decl(
   sig: Signature,
   opts: &BindgenAttrs,
@@ -534,53 +538,68 @@ fn napi_fn_from_decl(
     }
   };
 
-  Diagnostic::from_vec(errors).map(|_| {
-    let js_name = if let Some(prop_name) = opts.getter() {
-      if let Some(ident) = prop_name {
-        ident.to_string()
-      } else {
-        ident
-          .to_string()
-          .trim_start_matches("get_")
-          .to_case(Case::Camel)
-      }
-    } else if let Some(prop_name) = opts.setter() {
-      if let Some(ident) = prop_name {
-        ident.to_string()
-      } else {
-        ident
-          .to_string()
-          .trim_start_matches("set_")
-          .to_case(Case::Camel)
-      }
-    } else if opts.constructor().is_some() {
-      "constructor".to_owned()
+  let js_name = if let Some(prop_name) = opts.getter() {
+    if let Some(ident) = prop_name {
+      ident.to_string()
     } else {
-      opts.js_name().map_or_else(
-        || ident.to_string().to_case(Case::Camel),
-        |(js_name, _)| js_name.to_owned(),
-      )
-    };
-
-    NapiFn {
-      name: ident,
-      js_name,
-      args,
-      ret,
-      is_ret_result,
-      is_async: asyncness.is_some(),
-      vis,
-      kind: fn_kind(opts),
-      fn_self,
-      parent: parent.cloned(),
-      comments: extract_doc_comments(&attrs),
-      attrs,
-      strict: opts.strict().is_some(),
-      js_mod: opts.namespace().map(|(m, _)| m.to_owned()),
-      ts_args_type: opts.ts_args_type().map(|(m, _)| m.to_owned()),
-      ts_return_type: opts.ts_return_type().map(|(m, _)| m.to_owned()),
-      skip_typescript: opts.skip_typescript().is_some(),
+      let ident_str = ident.to_string();
+      if !is_snake_case(ident_str.trim_start_matches("get_")) {
+        errors.push(err_span!(
+          ident_str,
+          "#[napi] requires function in snake case"
+        ))
+      }
+      ident_str.trim_start_matches("get_").to_case(Case::Camel)
     }
+  } else if let Some(prop_name) = opts.setter() {
+    if let Some(ident) = prop_name {
+      ident.to_string()
+    } else {
+      let ident_str = ident.to_string();
+      if !is_snake_case(ident_str.trim_start_matches("set_")) {
+        errors.push(err_span!(
+          ident_str,
+          "#[napi] requires function in snake case"
+        ))
+      }
+      ident_str.trim_start_matches("set_").to_case(Case::Camel)
+    }
+  } else if opts.constructor().is_some() {
+    "constructor".to_owned()
+  } else {
+    opts.js_name().map_or_else(
+      || {
+        let ident_str = ident.to_string();
+        if !is_snake_case(&ident_str) {
+          errors.push(err_span!(
+            ident_str,
+            "#[napi] requires function in snake case"
+          ))
+        }
+        ident_str.to_case(Case::Camel)
+      },
+      |(js_name, _)| js_name.to_owned(),
+    )
+  };
+
+  Diagnostic::from_vec(errors).map(|_| NapiFn {
+    name: ident,
+    js_name,
+    args,
+    ret,
+    is_ret_result,
+    is_async: asyncness.is_some(),
+    vis,
+    kind: fn_kind(opts),
+    fn_self,
+    parent: parent.cloned(),
+    comments: extract_doc_comments(&attrs),
+    attrs,
+    strict: opts.strict().is_some(),
+    js_mod: opts.namespace().map(|(m, _)| m.to_owned()),
+    ts_args_type: opts.ts_args_type().map(|(m, _)| m.to_owned()),
+    ts_return_type: opts.ts_return_type().map(|(m, _)| m.to_owned()),
+    skip_typescript: opts.skip_typescript().is_some(),
   })
 }
 
