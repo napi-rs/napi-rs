@@ -45,7 +45,7 @@ jobs:
       - name: Install ziglang
         uses: goto-bus-stop/setup-zig@v1
         with:
-          version: 0.9.0
+          version: 0.9.1
       - name: Cache NPM dependencies
         uses: actions/cache@v2
         with:

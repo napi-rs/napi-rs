@@ -1,6 +1,6 @@
 FROM ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
 
-ARG ZIG_VERSION=0.9.0
+ARG ZIG_VERSION=0.9.1
 
 RUN apk add xz && \
   rustup target add x86_64-unknown-linux-gnu && \

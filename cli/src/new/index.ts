@@ -115,8 +115,12 @@ export class NewProjectCommand extends Command {
 
     debug(`Running command: ${chalk.green('[${command}]')}`)
     if (!this.dryRun) {
-      mkdirSync(join(process.cwd(), this.dirname!))
-      mkdirSync(join(process.cwd(), this.dirname!, 'src'))
+      mkdirSync(join(process.cwd(), this.dirname!), {
+        recursive: true,
+      })
+      mkdirSync(join(process.cwd(), this.dirname!, 'src'), {
+        recursive: true,
+      })
     }
 
     const [s, pkgName] = this.name!.split('/')
@@ -135,12 +139,27 @@ export class NewProjectCommand extends Command {
     )
     this.writeFile('src/lib.rs', LibRs)
 
+    mkdirSync(join(process.cwd(), this.dirname!, '__test__'), {
+      recursive: true,
+    })
+    this.writeFile(
+      '__test__/index.spec.mjs',
+      `import test from 'ava'
+
+import { sum } from '../index.js'
+
+test('sum from native', (t) => {
+  t.is(sum(1, 2), 3)
+})
+`,
+    )
+
     if (this.enableGithubActions) {
       const githubDir = join(process.cwd(), this.dirname!, '.github')
       const workflowsDir = join(githubDir, 'workflows')
       if (!this.dryRun) {
-        mkdirSync(githubDir)
-        mkdirSync(workflowsDir)
+        mkdirSync(githubDir, { recursive: true })
+        mkdirSync(workflowsDir, { recursive: true })
       }
       this.writeFile(
         join('.github', 'workflows', 'CI.yml'),
@@ -171,7 +190,7 @@ export class NewProjectCommand extends Command {
     if (cargoConfig.length) {
       const configDir = join(process.cwd(), this.dirname!, '.cargo')
       if (!this.dryRun) {
-        mkdirSync(configDir)
+        mkdirSync(configDir, { recursive: true })
         this.writeFile(join('.cargo', 'config.toml'), cargoConfig)
       }
     }
