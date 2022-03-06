@@ -884,9 +884,6 @@ impl ConvertToAST for syn::ItemEnum {
       Visibility::Public(_) => {}
       _ => bail_span!(self, "only public enum allowed"),
     }
-    if self.variants.is_empty() {
-      bail_span!(self, "cannot export empty enum to JS");
-    }
 
     self.attrs.push(Attribute {
       pound_token: Default::default(),
