@@ -55,6 +55,9 @@ export const enum Kind {
   /** Tasty */
   Duck = 2
 }
+export const enum Empty {
+  
+}
 /** You could break the step and for an new continuous value. */
 export const enum CustomNumEnum {
   One = 1,

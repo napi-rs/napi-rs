@@ -11,6 +11,9 @@ pub enum Kind {
   Duck,
 }
 
+#[napi]
+pub enum Empty {}
+
 /// You could break the step and for an new continuous value.
 #[napi]
 pub enum CustomNumEnum {
