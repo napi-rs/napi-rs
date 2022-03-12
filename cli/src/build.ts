@@ -242,9 +242,18 @@ export class BuildCommand extends Command {
         throw new Error(`${triple.raw} can not be cross compiled by zig`)
       }
       const paths = envPaths('napi-rs')
+      const shellFileExt = process.platform === 'win32' ? 'bat' : 'sh'
       const linkerWrapperShell = join(
         paths.cache,
-        `zig-cc-${triple.raw}.${process.platform === 'win32' ? 'bat' : 'sh'}`,
+        `zig-linker-${triple.raw}.${shellFileExt}`,
+      )
+      const CCWrapperShell = join(
+        paths.cache,
+        `zig-cc-${triple.raw}.${shellFileExt}`,
+      )
+      const CXXWrapperShell = join(
+        paths.cache,
+        `zig-cxx-${triple.raw}.${shellFileExt}`,
       )
       const linkerWrapper = join(paths.cache, `zig-cc-${triple.raw}.js`)
       mkdirSync(paths.cache, { recursive: true })
@@ -252,6 +261,20 @@ export class BuildCommand extends Command {
       await writeFileAsync(
         linkerWrapperShell,
         `#!/bin/sh\nnode ${linkerWrapper} ${forwardArgs}`,
+        {
+          mode: '777',
+        },
+      )
+      await writeFileAsync(
+        CCWrapperShell,
+        `#!/bin/sh\nzig cc -target ${zigTarget} ${forwardArgs}`,
+        {
+          mode: '777',
+        },
+      )
+      await writeFileAsync(
+        CXXWrapperShell,
+        `#!/bin/sh\nzig c++ -target ${zigTarget} ${forwardArgs}`,
         {
           mode: '777',
         },
@@ -272,10 +295,10 @@ export class BuildCommand extends Command {
       )
       const envTarget = triple.raw.replaceAll('-', '_').toUpperCase()
       Object.assign(additionalEnv, {
-        CC: `zig cc -target ${zigTarget}`,
-        CXX: `zig c++ -target ${zigTarget}`,
-        TARGET_CC: `zig cc -target ${zigTarget}`,
-        TARGET_CXX: `zig c++ -target ${zigTarget}`,
+        CC: CCWrapperShell,
+        CXX: CXXWrapperShell,
+        TARGET_CC: CCWrapperShell,
+        TARGET_CXX: CXXWrapperShell,
       })
       additionalEnv[`CARGO_TARGET_${envTarget}_LINKER`] = linkerWrapperShell
     }
