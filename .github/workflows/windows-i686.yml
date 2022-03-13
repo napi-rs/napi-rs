@@ -22,11 +22,12 @@ jobs:
         with:
           node-version: 16
           check-latest: true
-          architecture: 'x86'
+          architecture: 'x64'
           cache: 'yarn'
 
       - name: 'Install dependencies'
-        run: yarn install --mode=skip-build --immutable --network-timeout 300000
+        run: |
+          yarn install --mode=skip-build --immutable
 
       - name: 'Build TypeScript'
         run: yarn build
@@ -37,14 +38,7 @@ jobs:
           toolchain: stable
           profile: minimal
           override: true
-
-      - name: Install i686 toolchain
-        run: rustup target add i686-pc-windows-msvc
-
-      - name: Generate Cargo.lock
-        uses: actions-rs/cargo@v1
-        with:
-          command: generate-lockfile
+          target: i686-pc-windows-msvc
 
       - name: Cache cargo registry
         uses: actions/cache@v2
@@ -64,10 +58,17 @@ jobs:
           command: check
           args: --all --bins --examples --tests --target i686-pc-windows-msvc -vvv
 
+      - name: Setup node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 16
+          check-latest: true
+          architecture: 'x86'
+
       - name: Build Tests
         run: |
-          yarn --cwd ./examples/napi-compat-mode build-i686 --release
-          yarn --cwd ./examples/napi build-i686 --release
+          yarn workspace compat-mode-examples build-i686 --release
+          yarn workspace examples build-i686 --release
           yarn test --verbose
         env:
           RUST_BACKTRACE: 1

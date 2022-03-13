@@ -133,7 +133,6 @@ test('testDeleteProperty', (t) => {
   t.true(bindings.testDeleteProperty(obj, 'k4'))
   t.true(bindings.testDeleteProperty(obj, '__NOT_EXISTED__'))
   t.true(bindings.testDeleteProperty(obj, k1))
-  // @ts-expect-error
   t.deepEqual(obj, { [k3]: 'k3' })
 })
 
@@ -157,7 +156,6 @@ test('testDeleteNamedProperty', (t) => {
   t.true(bindings.testDeleteNamedProperty(obj, 'k4'))
   t.true(bindings.testDeleteNamedProperty(obj, '__NOT_EXISTED__'))
   t.true(bindings.testDeleteNamedProperty(obj, k1))
-  // @ts-expect-error
   t.deepEqual(obj, { [k3]: 'k3' })
 })
 

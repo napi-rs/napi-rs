@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+#![allow(unreachable_code)]
 
 #[macro_use]
 extern crate napi_derive;
