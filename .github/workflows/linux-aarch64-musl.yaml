@@ -55,8 +55,8 @@ jobs:
           options: -v ${{ github.workspace }}:/napi-rs -w /napi-rs
           run: |
             export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-musl-gcc
-            yarn --cwd ./examples/napi-compat-mode build --target aarch64-unknown-linux-musl
-            yarn --cwd ./examples/napi build --target aarch64-unknown-linux-musl
+            yarn workspace compat-mode-examples build --target aarch64-unknown-linux-musl
+            yarn workspace examples build --target aarch64-unknown-linux-musl
 
       - name: Setup and run tests
         uses: docker://multiarch/alpine:aarch64-latest-stable

@@ -57,8 +57,8 @@ jobs:
         run: yarn build
       - name: Cross build native tests
         run: |
-          yarn --cwd ./examples/napi-compat-mode build --target ${{ matrix.target }} --zig
-          yarn --cwd ./examples/napi build --target ${{ matrix.target }} --zig
+          yarn workspace compat-mode-examples build --target ${{ matrix.target }} --zig
+          yarn workspace examples build --target ${{ matrix.target }} --zig
       - name: Upload artifacts
         uses: actions/upload-artifact@v2
         with:

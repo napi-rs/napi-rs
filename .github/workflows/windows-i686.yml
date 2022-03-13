@@ -66,8 +66,8 @@ jobs:
 
       - name: Build Tests
         run: |
-          yarn --cwd ./examples/napi-compat-mode build-i686 --release
-          yarn --cwd ./examples/napi build-i686 --release
+          yarn workspace compat-mode-examples build-i686 --release
+          yarn workspace examples build-i686 --release
           yarn test --verbose
         env:
           RUST_BACKTRACE: 1
