@@ -250,6 +250,13 @@ export class ClassWithFactory {
 export class JsClassForEither {
   constructor()
 }
+export class JsRepo {
+  constructor(dir: string)
+  remote(): JsRemote
+}
+export class JsRemote {
+  name(): string
+}
 export namespace xxh3 {
   export const ALIGNMENT: number
   export function xxh3_64(input: Buffer): bigint

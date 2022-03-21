@@ -87,6 +87,7 @@ import {
   derefUint8Array,
   chronoDateAdd1Minute,
   bufferPassThrough,
+  JsRepo,
 } from '../'
 
 test('export const', (t) => {
@@ -187,6 +188,11 @@ test('class constructor return Result', (t) => {
 test('class Factory return Result', (t) => {
   const c = Context.withData('not empty')
   t.is(c.method(), 'not empty')
+})
+
+test('should be able to create object reference and shared reference', (t) => {
+  const repo = new JsRepo('.')
+  t.is(repo.remote().name(), 'origin')
 })
 
 test('callback', (t) => {

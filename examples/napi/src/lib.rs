@@ -32,6 +32,7 @@ mod nullable;
 mod number;
 mod object;
 mod promise;
+mod reference;
 mod serde;
 mod string;
 mod symbol;

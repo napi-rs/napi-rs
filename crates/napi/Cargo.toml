@@ -73,7 +73,7 @@ optional = true
 version = "1"
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.33", features = [
+windows = { version = "0.34", features = [
   "Win32_System_WindowsProgramming",
   "Win32_System_LibraryLoader",
   "Win32_Foundation",
