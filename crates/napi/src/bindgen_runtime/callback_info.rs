@@ -64,29 +64,34 @@ impl<const N: usize> CallbackInfo<N> {
     self.this
   }
 
-  pub fn construct<T>(&self, js_name: &str, obj: T) -> Result<sys::napi_value> {
+  pub fn construct<T: 'static>(&self, js_name: &str, obj: T) -> Result<sys::napi_value> {
     let obj = Box::new(obj);
     let this = self.this();
-
+    let value_ref = Box::into_raw(obj) as *mut c_void;
+    let mut object_ref = ptr::null_mut();
     unsafe {
       check_status!(
         sys::napi_wrap(
           self.env,
           this,
-          Box::into_raw(obj) as *mut std::ffi::c_void,
+          value_ref,
           Some(raw_finalize_unchecked::<T>),
           ptr::null_mut(),
-          &mut std::ptr::null_mut()
+          &mut object_ref
         ),
         "Failed to initialize class `{}`",
         js_name,
       )?;
     };
 
+    Reference::<T>::add_ref(
+      std::any::TypeId::of::<T>(),
+      (value_ref, self.env, object_ref),
+    );
     Ok(this)
   }
 
-  pub fn factory<T>(&self, js_name: &str, obj: T) -> Result<sys::napi_value> {
+  pub fn factory<T: 'static>(&self, js_name: &str, obj: T) -> Result<sys::napi_value> {
     let obj = Box::new(obj);
     let this = self.this();
     let mut instance = ptr::null_mut();
@@ -102,18 +107,25 @@ impl<const N: usize> CallbackInfo<N> {
         return Ok(ptr::null_mut());
       }
 
+      let mut object_ref = ptr::null_mut();
+      let value_ref = Box::into_raw(obj) as *mut c_void;
       check_status!(
         sys::napi_wrap(
           self.env,
           instance,
-          Box::into_raw(obj) as *mut std::ffi::c_void,
+          value_ref,
           Some(raw_finalize_unchecked::<T>),
           ptr::null_mut(),
-          &mut std::ptr::null_mut()
+          &mut object_ref
         ),
         "Failed to initialize class `{}`",
         js_name,
       )?;
+
+      Reference::<T>::add_ref(
+        std::any::TypeId::of::<T>(),
+        (value_ref, self.env, object_ref),
+      );
     };
 
     Ok(instance)
