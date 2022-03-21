@@ -24,6 +24,7 @@ mod serde;
 mod string;
 mod symbol;
 mod task;
+mod value_ref;
 
 #[cfg(feature = "napi5")]
 pub use crate::JsDate as Date;
@@ -43,6 +44,7 @@ pub use promise::*;
 pub use string::*;
 pub use symbol::*;
 pub use task::*;
+pub use value_ref::*;
 
 #[cfg(feature = "latin1")]
 pub use string::latin1_string::*;
