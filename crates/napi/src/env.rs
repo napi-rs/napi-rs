@@ -236,8 +236,7 @@ impl Env {
   /// This API allocates a node::Buffer object. While this is still a fully-supported data structure, in most cases using a TypedArray will suffice.
   pub fn create_buffer(&self, length: usize) -> Result<JsBufferValue> {
     let mut raw_value = ptr::null_mut();
-    let mut data: Vec<u8> = Vec::with_capacity(length);
-    let mut data_ptr = data.as_mut_ptr() as *mut c_void;
+    let mut data_ptr = ptr::null_mut();
     check_status!(unsafe {
       sys::napi_create_buffer(self.0, length, &mut data_ptr, &mut raw_value)
     })?;
@@ -248,7 +247,7 @@ impl Env {
         value: raw_value,
         value_type: ValueType::Object,
       }),
-      mem::ManuallyDrop::new(data),
+      mem::ManuallyDrop::new(unsafe { Vec::from_raw_parts(data_ptr as *mut _, length, length) }),
     ))
   }
 
@@ -366,8 +365,7 @@ impl Env {
 
   pub fn create_arraybuffer(&self, length: usize) -> Result<JsArrayBufferValue> {
     let mut raw_value = ptr::null_mut();
-    let mut data: Vec<u8> = Vec::with_capacity(length as usize);
-    let mut data_ptr = data.as_mut_ptr() as *mut c_void;
+    let mut data_ptr = ptr::null_mut();
     check_status!(unsafe {
       sys::napi_create_arraybuffer(self.0, length, &mut data_ptr, &mut raw_value)
     })?;
