@@ -2217,6 +2217,14 @@ __metadata:
   languageName: node
   linkType: hard
 
+"binary@workspace:examples/binary":
+  version: 0.0.0-use.local
+  resolution: "binary@workspace:examples/binary"
+  bin:
+    binary: napi-examples-binary
+  languageName: unknown
+  linkType: soft
+
 "bl@npm:^4.0.3, bl@npm:^4.1.0":
   version: 4.1.0
   resolution: "bl@npm:4.1.0"

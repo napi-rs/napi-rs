@@ -100,6 +100,10 @@ export class BuildCommand extends Command {
     description: `Bypass to ${chalk.green('cargo build --features')}`,
   })
 
+  bin?: string = Option.String('--bin', {
+    description: `Bypass to ${chalk.green('cargo build --bin')}`,
+  })
+
   dts?: string = Option.String('--dts', 'index.d.ts', {
     description: `The filename and path of ${chalk.green(
       '.d.ts',
@@ -180,12 +184,54 @@ export class BuildCommand extends Command {
     const cwd = this.cargoCwd
       ? join(process.cwd(), this.cargoCwd)
       : process.cwd()
+
+    let tomlContentString: string
+    let tomlContent: any
+    try {
+      debug('Start read toml')
+      tomlContentString = await readFileAsync(join(cwd, 'Cargo.toml'), 'utf-8')
+    } catch {
+      throw new TypeError(`Could not find Cargo.toml in ${cwd}`)
+    }
+
+    try {
+      debug('Start parse toml')
+      tomlContent = toml.parse(tomlContentString)
+    } catch {
+      throw new TypeError('Could not parse the Cargo.toml')
+    }
+
+    let cargoPackageName: string
+    if (tomlContent.package?.name) {
+      cargoPackageName = tomlContent.package.name
+    } else {
+      throw new TypeError('No package.name field in Cargo.toml')
+    }
+
+    const cargoMetadata = JSON.parse(
+      execSync('cargo metadata --format-version 1', {
+        stdio: 'pipe',
+      }).toString('utf8'),
+    )
+    const packages = cargoMetadata.packages
+    const cargoPackage = packages.find(
+      (p: { name: string }) => p.name === cargoPackageName,
+    )
+    if (
+      !this.bin &&
+      cargoPackage?.targets?.length === 1 &&
+      cargoPackage?.targets[0].kind.length === 1 &&
+      cargoPackage?.targets[0].kind[0] === 'bin'
+    ) {
+      this.bin = cargoPackageName
+    }
     const releaseFlag = this.isRelease ? `--release` : ''
 
     const targetFlag = this.targetTripleDir
       ? `--target ${this.targetTripleDir}`
       : ''
     const featuresFlag = this.features ? `--features ${this.features}` : ''
+    const binFlag = this.bin ? `--bin ${this.bin}` : ''
     const triple = this.targetTripleDir
       ? parseTriple(this.targetTripleDir)
       : getDefaultTargetTriple(
@@ -199,6 +245,7 @@ export class BuildCommand extends Command {
       releaseFlag,
       targetFlag,
       featuresFlag,
+      binFlag,
       pFlag,
       this.cargoFlags,
     ]
@@ -224,7 +271,7 @@ export class BuildCommand extends Command {
     const rustflags = process.env.RUSTFLAGS
       ? process.env.RUSTFLAGS.split(' ')
       : []
-    if (triple.raw.includes('musl')) {
+    if (triple.raw.includes('musl') && !this.bin) {
       if (!rustflags.includes('target-feature=-crt-static')) {
         rustflags.push('-C target-feature=-crt-static')
       }
@@ -317,34 +364,15 @@ export class BuildCommand extends Command {
       cwd,
     })
     const { binaryName, packageName } = getNapiConfig(this.configFileName)
-    let dylibName = this.cargoName
-    if (!dylibName) {
-      let tomlContentString: string
-      let tomlContent: any
-      try {
-        debug('Start read toml')
-        tomlContentString = await readFileAsync(
-          join(cwd, 'Cargo.toml'),
-          'utf-8',
-        )
-      } catch {
-        throw new TypeError(`Could not find Cargo.toml in ${cwd}`)
-      }
-
-      try {
-        debug('Start parse toml')
-        tomlContent = toml.parse(tomlContentString)
-      } catch {
-        throw new TypeError('Could not parse the Cargo.toml')
-      }
-
-      if (tomlContent.package?.name) {
-        dylibName = tomlContent.package.name.replace(/-/g, '_')
+    let cargoArtifactName = this.cargoName
+    if (!cargoArtifactName) {
+      if (this.bin) {
+        cargoArtifactName = cargoPackageName
       } else {
-        throw new TypeError('No package.name field in Cargo.toml')
+        cargoArtifactName = cargoPackageName.replace(/-/g, '_')
       }
 
-      if (!tomlContent.lib?.['crate-type']?.includes?.('cdylib')) {
+      if (!this.bin && !tomlContent.lib?.['crate-type']?.includes?.('cdylib')) {
         throw new TypeError(
           `Missing ${chalk.green('crate-type = ["cdylib"]')} in ${chalk.green(
             '[lib]',
@@ -353,34 +381,40 @@ export class BuildCommand extends Command {
       }
     }
 
-    debug(`Dylib name: ${chalk.greenBright(dylibName)}`)
+    if (this.bin) {
+      debug(`Binary name: ${chalk.greenBright(cargoArtifactName)}`)
+    } else {
+      debug(`Dylib name: ${chalk.greenBright(cargoArtifactName)}`)
+    }
 
     const platform = triple.platform
-    let libExt
+    let libExt = ''
 
     debug(`Platform: ${chalk.greenBright(platform)}`)
 
     // Platform based massaging for build commands
-    switch (platform) {
-      case 'darwin':
-        libExt = '.dylib'
-        dylibName = `lib${dylibName}`
-        break
-      case 'win32':
-        libExt = '.dll'
-        break
-      case 'linux':
-      case 'freebsd':
-      case 'openbsd':
-      case 'android':
-      case 'sunos':
-        dylibName = `lib${dylibName}`
-        libExt = '.so'
-        break
-      default:
-        throw new TypeError(
-          'Operating system not currently supported or recognized by the build script',
-        )
+    if (!this.bin) {
+      switch (platform) {
+        case 'darwin':
+          libExt = '.dylib'
+          cargoArtifactName = `lib${cargoArtifactName}`
+          break
+        case 'win32':
+          libExt = '.dll'
+          break
+        case 'linux':
+        case 'freebsd':
+        case 'openbsd':
+        case 'android':
+        case 'sunos':
+          cargoArtifactName = `lib${cargoArtifactName}`
+          libExt = '.so'
+          break
+        default:
+          throw new TypeError(
+            'Operating system not currently supported or recognized by the build script',
+          )
+      }
     }
 
     const targetRootDir = await findUp(cwd)
@@ -399,7 +433,9 @@ export class BuildCommand extends Command {
       : ''
 
     debug(`Platform name: ${platformName || chalk.green('[Empty]')}`)
-    const distFileName = `${binaryName}${platformName}.node`
+    const distFileName = this.bin
+      ? cargoArtifactName!
+      : `${binaryName}${platformName}.node`
 
     const distModulePath = join(this.destDir ?? '.', distFileName)
 
@@ -419,7 +455,7 @@ export class BuildCommand extends Command {
       targetRootDir,
       'target',
       targetDir,
-      `${dylibName}${libExt}`,
+      `${cargoArtifactName}${libExt}`,
     )
 
     if (existsSync(distModulePath)) {
@@ -430,50 +466,52 @@ export class BuildCommand extends Command {
     debug(`Write binary content to [${chalk.yellowBright(distModulePath)}]`)
     await copyFileAsync(sourcePath, distModulePath)
 
-    const dtsFilePath = join(
-      process.cwd(),
-      this.destDir ?? '.',
-      this.dts ?? 'index.d.ts',
-    )
+    if (!this.bin) {
+      const dtsFilePath = join(
+        process.cwd(),
+        this.destDir ?? '.',
+        this.dts ?? 'index.d.ts',
+      )
 
-    const idents = await processIntermediateTypeFile(
-      intermediateTypeFile,
-      dtsFilePath,
-    )
-    if (this.pipe) {
-      const pipeCommand = `${this.pipe} ${dtsFilePath}`
-      console.info(`Run ${chalk.green(pipeCommand)}`)
-      try {
-        execSync(pipeCommand, { stdio: 'inherit', env: process.env })
-      } catch (e) {
-        console.warn(
-          chalk.bgYellowBright('Pipe the dts file to command failed'),
-          e,
-        )
+      if (this.pipe) {
+        const pipeCommand = `${this.pipe} ${dtsFilePath}`
+        console.info(`Run ${chalk.green(pipeCommand)}`)
+        try {
+          execSync(pipeCommand, { stdio: 'inherit', env: process.env })
+        } catch (e) {
+          console.warn(
+            chalk.bgYellowBright('Pipe the dts file to command failed'),
+            e,
+          )
+        }
       }
-    }
-    const jsBindingFilePath =
-      this.jsBinding &&
-      this.jsBinding !== 'false' &&
-      this.appendPlatformToFilename
-        ? join(process.cwd(), this.jsBinding)
-        : null
-    await writeJsBinding(
-      binaryName,
-      this.jsPackageName ?? packageName,
-      jsBindingFilePath,
-      idents,
-    )
-    if (this.pipe && jsBindingFilePath) {
-      const pipeCommand = `${this.pipe} ${jsBindingFilePath}`
-      console.info(`Run ${chalk.green(pipeCommand)}`)
-      try {
-        execSync(pipeCommand, { stdio: 'inherit', env: process.env })
-      } catch (e) {
-        console.warn(
-          chalk.bgYellowBright('Pipe the js binding file to command failed'),
-          e,
-        )
+      const jsBindingFilePath =
+        this.jsBinding &&
+        this.jsBinding !== 'false' &&
+        this.appendPlatformToFilename
+          ? join(process.cwd(), this.jsBinding)
+          : null
+      const idents = await processIntermediateTypeFile(
+        intermediateTypeFile,
+        dtsFilePath,
+      )
+      await writeJsBinding(
+        binaryName,
+        this.jsPackageName ?? packageName,
+        jsBindingFilePath,
+        idents,
+      )
+      if (this.pipe && jsBindingFilePath) {
+        const pipeCommand = `${this.pipe} ${jsBindingFilePath}`
+        console.info(`Run ${chalk.green(pipeCommand)}`)
+        try {
+          execSync(pipeCommand, { stdio: 'inherit', env: process.env })
+        } catch (e) {
+          console.warn(
+            chalk.bgYellowBright('Pipe the js binding file to command failed'),
+            e,
+          )
+        }
       }
     }
   }
