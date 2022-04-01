@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
 
       - name: Setup node
         uses: actions/setup-node@v3
@@ -32,31 +32,22 @@ jobs:
           profile: default
           override: true
 
-      - name: Generate Cargo.lock
-        uses: actions-rs/cargo@v1
+      - name: Cache cargo
+        uses: actions/cache@v3
         with:
-          command: generate-lockfile
-
-      - name: Cache cargo registry
-        uses: actions/cache@v2
-        with:
-          path: ~/.cargo/registry
-          key: bench-cargo-registry-trimmed-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Cache cargo index
-        uses: actions/cache@v2
-        with:
-          path: ~/.cargo/git
-          key: bench-cargo-index-trimmed-${{ hashFiles('**/Cargo.lock') }}
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: bench-cargo-cache
 
       - name: Cache NPM dependencies
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
-          path: node_modules
-          key: bench-${{ hashFiles('yarn.lock') }}
+          path: .yarn/cache
+          key: bench-yarn-cache
 
       - name: 'Install dependencies'
-        run: yarn install --immutable --network-timeout 300000
+        run: yarn install --immutable --mode=skip-build
 
       - name: 'Build ts'
         run: yarn build

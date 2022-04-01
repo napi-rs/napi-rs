@@ -15,7 +15,7 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
 
       - name: Setup node
         uses: actions/setup-node@v3
@@ -24,6 +24,12 @@ jobs:
           check-latest: true
           architecture: 'x64'
           cache: 'yarn'
+
+      - name: Cache NPM dependencies
+        uses: actions/cache@v3
+        with:
+          path: .yarn/cache
+          key: npm-cache-windows-i686-msvc-node@16
 
       - name: 'Install dependencies'
         run: |
@@ -40,14 +46,14 @@ jobs:
           override: true
           target: i686-pc-windows-msvc
 
-      - name: Cache cargo registry
-        uses: actions/cache@v2
+      - name: Cache cargo
+        uses: actions/cache@v3
         with:
           path: ~/.cargo/registry
           key: stable-windows-i686-node@lts-cargo-registry
 
       - name: Cache cargo index
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: ~/.cargo/git
           key: stable-windows-i686-node@lts-cargo-index

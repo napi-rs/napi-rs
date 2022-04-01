@@ -15,7 +15,7 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
 
       - name: Setup node
         uses: actions/setup-node@v3
@@ -25,7 +25,7 @@ jobs:
           cache: 'yarn'
 
       - name: 'Install dependencies'
-        run: yarn install --mode=skip-build --immutable --network-timeout 300000
+        run: yarn install --mode=skip-build --immutable
 
       - name: 'Build TypeScript'
         run: yarn build
@@ -36,26 +36,21 @@ jobs:
           toolchain: stable
           profile: minimal
           override: true
+          target: aarch64-pc-windows-msvc
 
-      - name: Install arm64 toolchain
-        run: rustup target add aarch64-pc-windows-msvc
-
-      - name: Generate Cargo.lock
-        uses: actions-rs/cargo@v1
+      - name: Cache NPM dependencies
+        uses: actions/cache@v3
         with:
-          command: generate-lockfile
+          path: .yarn/cache
+          key: npm-cache-windows-aarch64-msvc-node@16
 
-      - name: Cache cargo registry
-        uses: actions/cache@v2
+      - name: Cache cargo
+        uses: actions/cache@v3
         with:
-          path: ~/.cargo/registry
-          key: stable-windows-arm64-node@lts-cargo-registry-trimmed-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Cache cargo index
-        uses: actions/cache@v2
-        with:
-          path: ~/.cargo/git
-          key: stable-windows-arm64-node@lts-cargo-index-trimmed-${{ hashFiles('**/Cargo.lock') }}
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: stable-windows-arm64-node@16-cargo-cache
 
       - name: Check build
         uses: actions-rs/cargo@v1

@@ -150,7 +150,7 @@ jobs:
         with:
           command: generate-lockfile
 
-      - name: Cache cargo registry
+      - name: Cache cargo
         uses: actions/cache@v2
         with:
           path: ~/.cargo/registry

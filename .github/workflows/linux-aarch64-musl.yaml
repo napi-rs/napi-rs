@@ -17,7 +17,7 @@ jobs:
     steps:
       - run: docker run --rm --privileged multiarch/qemu-user-static:register --reset
 
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
 
       - name: Setup node
         uses: actions/setup-node@v3
@@ -26,24 +26,14 @@ jobs:
           check-latest: true
           cache: 'yarn'
 
-      - name: Install
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
-          override: true
-
-      - name: Install aarch64 toolchain
-        run: rustup target add aarch64-unknown-linux-gnu
-
       - name: Cache NPM dependencies
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
-          path: node_modules
-          key: npm-cache-linux-aarch64-gnu-node@16-${{ hashFiles('yarn.lock') }}
+          path: .yarn/cache
+          key: npm-cache-linux-aarch64-gnu-node@16
 
       - name: Install dependencies
-        run: yarn install --immutable --network-timeout 300000
+        run: yarn install --immutable --mode=skip-build
 
       - name: 'Build TypeScript'
         run: yarn build
