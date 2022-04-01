@@ -1,0 +1,57 @@
+name: Cli Build Binary
+
+env:
+  DEBUG: 'napi:*'
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  build_binary_crate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 16
+          check-latest: true
+          cache: 'yarn'
+
+      - name: Install
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+
+      - name: Cache cargo registry
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: stable-cargo-cache-build-binary
+
+      - name: 'Install dependencies'
+        run: yarn install --mode=skip-build --immutable --network-timeout 300000
+
+      - name: 'Build TypeScript'
+        run: yarn build
+
+      - name: Build and run binary
+        run: |
+          yarn workspace binary build
+          ./examples/binary/napi-examples-binary
+        env:
+          RUST_BACKTRACE: 1
+
+      - name: Clear the cargo caches
+        run: |
+          cargo install cargo-cache --no-default-features --features ci-autoclean
+          cargo-cache
