@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.6.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.6.0...@napi-rs/cli@2.6.1) (2022-04-01)
+
+### Bug Fixes
+
+- **cli:** should not throw if cargoName is provided but no package.name ([8700da1](https://github.com/napi-rs/napi-rs/commit/8700da17763ed5c9fd5ddda8f7a8af4d922ecbed))
+
 # [2.6.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.4.5...@napi-rs/cli@2.6.0) (2022-04-01)
 
 ### Bug Fixes
