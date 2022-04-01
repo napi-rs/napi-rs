@@ -116,7 +116,8 @@ impl NapiFn {
         .iter()
         .filter_map(|arg| match arg {
           crate::NapiFnArgKind::PatType(path) => {
-            if path.ty.to_token_stream().to_string() == "Env" {
+            let ty_string = path.ty.to_token_stream().to_string();
+            if ty_string == "Env" || ty_string.replace(' ', "").starts_with("Reference<") {
               return None;
             }
             let mut path = path.clone();
