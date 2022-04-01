@@ -77,7 +77,7 @@ export class PrePublishCommand extends Command {
           cwd: pkgDir,
           env: process.env,
         })
-        if (!this.skipGHRelease) {
+        if (!this.skipGHRelease && repo && owner) {
           debug(
             `Start upload [${chalk.greenBright(
               dstPath,
@@ -85,14 +85,14 @@ export class PrePublishCommand extends Command {
           )
           try {
             const releaseInfo = await octokit!.repos.getReleaseByTag({
-              repo: repo!,
-              owner: owner!,
-              tag: pkgInfo.tag!,
+              repo: repo,
+              owner: owner,
+              tag: pkgInfo.tag,
             })
             const dstFileStats = statSync(dstPath)
             const assetInfo = await octokit!.repos.uploadReleaseAsset({
-              owner: owner!,
-              repo: repo!,
+              owner: owner,
+              repo: repo,
               name: filename,
               release_id: releaseInfo.data.id,
               mediaType: { format: 'raw' },
@@ -135,9 +135,16 @@ export class PrePublishCommand extends Command {
     const headCommit = (await spawn('git log -1 --pretty=%B'))
       .toString('utf8')
       .trim()
-
-    debug(`Github repository: ${process.env.GITHUB_REPOSITORY}`)
-    const [owner, repo] = process.env.GITHUB_REPOSITORY!.split('/')
+    const { GITHUB_REPOSITORY } = process.env
+    if (!GITHUB_REPOSITORY) {
+      return {
+        owner: null,
+        repo: null,
+        pkgInfo: { name: null, version: null, tag: null },
+      }
+    }
+    debug(`Github repository: ${GITHUB_REPOSITORY}`)
+    const [owner, repo] = GITHUB_REPOSITORY.split('/')
     const octokit = new Octokit({
       auth: process.env.GITHUB_TOKEN,
     })
