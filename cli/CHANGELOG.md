@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.6.2](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.6.1...@napi-rs/cli@2.6.2) (2022-04-01)
+
+### Bug Fixes
+
+- cargo metadata with large project ([#1117](https://github.com/napi-rs/napi-rs/issues/1117)) ([6bef28a](https://github.com/napi-rs/napi-rs/commit/6bef28a59bcfe3850f8d31d6eeaffdba5c251050))
+
 ## [2.6.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.6.0...@napi-rs/cli@2.6.1) (2022-04-01)
 
 ### Bug Fixes
