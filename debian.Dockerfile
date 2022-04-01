@@ -8,8 +8,7 @@ ENV RUSTUP_HOME=/usr/local/rustup \
   CC=clang \
   CXX=clang++ \
   CC_x86_64_unknown_linux_gnu=clang \
-  CXX_x86_64_unknown_linux_gnu=clang++ \
-  CARGO_BUILD_TARGET=""
+  CXX_x86_64_unknown_linux_gnu=clang++
 
 RUN wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add - && \
   echo "deb http://apt.llvm.org/focal/ llvm-toolchain-focal-13 main" >> /etc/apt/sources.list && \
