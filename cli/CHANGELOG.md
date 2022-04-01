@@ -3,6 +3,20 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.6.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.4.5...@napi-rs/cli@2.6.0) (2022-04-01)
+
+### Bug Fixes
+
+- **cli:** prevent crash if GITHUB_REPOSITORY is not specified ([ac8406c](https://github.com/napi-rs/napi-rs/commit/ac8406c8428227a1ee45c2b4606cc09eae6f44c5))
+- **cli:** respect CARGO_BUILD_TARGET env variable ([bd08787](https://github.com/napi-rs/napi-rs/commit/bd0878727036678eca984e754a1eeda9915f4042))
+- **cli:** use shell file path instead of commands for zig CC and CXX ([09ccfaa](https://github.com/napi-rs/napi-rs/commit/09ccfaad1d3c1fd00784aae4a2206366ea3123e8))
+
+### Features
+
+- **cli:** add libc filed in native package.json ([ee0279e](https://github.com/napi-rs/napi-rs/commit/ee0279e540238683a8f43cb92ef790e10a3591d9))
+- **cli:** add support for building binaries ([20b1edc](https://github.com/napi-rs/napi-rs/commit/20b1edc53b38fe3b4cf3c628351fcdfcdeff8037))
+- **cli:** upgrade ci.yml templates ([1cac0ac](https://github.com/napi-rs/napi-rs/commit/1cac0ac804d526932ccd1c24602976c7ce564a4e))
+
 # [2.5.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.4.5...@napi-rs/cli@2.5.0) (2022-03-22)
 
 ### Bug Fixes
