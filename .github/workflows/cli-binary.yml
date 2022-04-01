@@ -51,6 +51,13 @@ jobs:
         env:
           RUST_BACKTRACE: 1
 
+      - name: Pass -p and --cargo-name to build
+        run: |
+          node ./cli/scripts/index.js build -p napi-examples-binary --cargo-name napi-examples-binary 
+          ./napi-examples-binary
+        env:
+          RUST_BACKTRACE: 1
+
       - name: Clear the cargo caches
         run: |
           cargo install cargo-cache --no-default-features --features ci-autoclean
