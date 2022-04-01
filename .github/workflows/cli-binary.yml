@@ -30,7 +30,7 @@ jobs:
           profile: minimal
           override: true
 
-      - name: Cache cargo registry
+      - name: Cache cargo
         uses: actions/cache@v3
         with:
           path: |
@@ -39,7 +39,7 @@ jobs:
           key: stable-cargo-cache-build-binary
 
       - name: 'Install dependencies'
-        run: yarn install --mode=skip-build --immutable --network-timeout 300000
+        run: yarn install --mode=skip-build --immutable
 
       - name: 'Build TypeScript'
         run: yarn build

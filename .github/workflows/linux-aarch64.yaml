@@ -18,7 +18,7 @@ jobs:
     steps:
       - run: docker run --rm --privileged multiarch/qemu-user-static:register --reset
 
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
 
       - name: Setup node
         uses: actions/setup-node@v3
@@ -37,28 +37,19 @@ jobs:
       - name: Install aarch64 toolchain
         run: rustup target add aarch64-unknown-linux-gnu
 
-      - name: Generate Cargo.lock
-        uses: actions-rs/cargo@v1
+      - name: Cache cargo
+        uses: actions/cache@v3
         with:
-          command: generate-lockfile
-
-      - name: Cache cargo registry
-        uses: actions/cache@v2
-        with:
-          path: ~/.cargo/registry
-          key: stable-linux-aarch64-gnu-node@16-cargo-registry-trimmed-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Cache cargo index
-        uses: actions/cache@v2
-        with:
-          path: ~/.cargo/git
-          key: stable-linux-aarch64-gnu-node@16-cargo-index-trimmed-${{ hashFiles('**/Cargo.lock') }}
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: stable-linux-aarch64-gnu-node@16-cargo-cache
 
       - name: Cache NPM dependencies
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
-          path: node_modules
-          key: npm-cache-linux-aarch64-gnu-node@16-${{ hashFiles('yarn.lock') }}
+          path: .yarn/cache
+          key: npm-cache-linux-aarch64-gnu-node@16
 
       - name: Install cross compile toolchain
         run: |
@@ -66,7 +57,7 @@ jobs:
           sudo apt-get install gcc-aarch64-linux-gnu g++-aarch64-linux-gnu -y
 
       - name: Install dependencies
-        run: yarn install --immutable --network-timeout 300000
+        run: yarn install --immutable --mode=skip-build
 
       - name: 'Build TypeScript'
         run: yarn build
