@@ -213,6 +213,7 @@ export class BuildCommand extends Command {
     const cargoMetadata = JSON.parse(
       execSync('cargo metadata --format-version 1', {
         stdio: 'pipe',
+        maxBuffer: 1024 * 1024 * 10,
       }).toString('utf8'),
     )
     const packages = cargoMetadata.packages
