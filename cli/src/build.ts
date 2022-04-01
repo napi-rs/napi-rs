@@ -204,6 +204,8 @@ export class BuildCommand extends Command {
     let cargoPackageName: string
     if (tomlContent.package?.name) {
       cargoPackageName = tomlContent.package.name
+    } else if (this.cargoName) {
+      cargoPackageName = this.cargoName
     } else {
       throw new TypeError('No package.name field in Cargo.toml')
     }
