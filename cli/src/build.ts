@@ -88,9 +88,13 @@ export class BuildCommand extends Command {
     )} field in ${chalk.underline(chalk.yellowBright('Cargo.toml'))}`,
   })
 
-  targetTripleDir = Option.String('--target', process.env.RUST_TARGET ?? '', {
-    description: `Bypass to ${chalk.green('cargo build --target')}`,
-  })
+  targetTripleDir = Option.String(
+    '--target',
+    process.env.RUST_TARGET ?? process.env.CARGO_BUILD_TARGET ?? '',
+    {
+      description: `Bypass to ${chalk.green('cargo build --target')}`,
+    },
+  )
 
   features?: string = Option.String('--features', {
     description: `Bypass to ${chalk.green('cargo build --features')}`,
