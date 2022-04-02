@@ -35,11 +35,9 @@ impl JsRepo {
   }
 
   #[napi]
-  pub fn remote(&self) -> Result<JsRemote> {
+  pub fn remote(&self, reference: Reference<JsRepo>, env: Env) -> Result<JsRemote> {
     Ok(JsRemote {
-      inner: self
-        .create_reference()?
-        .share_with(|repo| Ok(repo.inner.remote()))?,
+      inner: reference.share_with(env, |repo| Ok(repo.inner.remote()))?,
     })
   }
 }

@@ -100,10 +100,16 @@ impl NapiFn {
     if let Some(parent) = &self.parent {
       match self.fn_self {
         Some(FnSelf::Ref) => {
-          arg_conversions.push(quote! { let this = cb.unwrap_borrow::<#parent>()?; });
+          arg_conversions.push(quote! {
+            let this_ptr = unsafe { cb.unwrap_raw::<#parent>()? };
+            let this: &#parent = Box::leak(Box::from_raw(this_ptr));
+          });
         }
         Some(FnSelf::MutRef) => {
-          arg_conversions.push(quote! { let this = cb.unwrap_borrow_mut::<#parent>()?; });
+          arg_conversions.push(quote! {
+            let this_ptr = unsafe { cb.unwrap_raw::<#parent>()? };
+            let this: &mut #parent = Box::leak(Box::from_raw(this_ptr));
+          });
         }
         _ => {}
       };
@@ -120,6 +126,30 @@ impl NapiFn {
             args.push(quote! { napi::bindgen_prelude::Env::from(env) });
             skipped_arg_count += 1;
           } else {
+            if self.parent.is_some() {
+              if let syn::Type::Path(path) = path.ty.as_ref() {
+                if let Some(p) = path.path.segments.first() {
+                  if p.ident == "Reference" {
+                    if let syn::PathArguments::AngleBracketed(
+                      syn::AngleBracketedGenericArguments { args: angle_bracketed_args, .. },
+                    ) = &p.arguments
+                    {
+                      if let Some(syn::GenericArgument::Type(syn::Type::Path(path))) = angle_bracketed_args.first() {
+                          if let Some(p) = path.path.segments.first() {
+                            if p.ident == *self.parent.as_ref().unwrap() {
+                              args.push(
+                                quote! { napi::bindgen_prelude::Reference::from_value_ptr(this_ptr as *mut std::ffi::c_void, env)? },
+                              );
+                              skipped_arg_count += 1;
+                              return;
+                            }
+                          }
+                      }
+                    }
+                  }
+                }
+              }
+            }
             arg_conversions.push(self.gen_ty_arg_conversion(&ident, i, path));
             args.push(quote! { #ident });
           }
