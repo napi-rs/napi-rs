@@ -1,5 +1,7 @@
+use std::cell::Cell;
 use std::ffi::c_void;
 use std::ptr;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::{bindgen_prelude::*, check_status, sys, Result};
@@ -69,6 +71,8 @@ impl<const N: usize> CallbackInfo<N> {
     let this = self.this();
     let value_ref = Box::into_raw(obj) as *mut c_void;
     let mut object_ref = ptr::null_mut();
+    let initial_finalize: Box<dyn FnOnce()> = Box::new(|| {});
+    let finalize_callbacks_ptr = Rc::into_raw(Rc::new(Cell::new(Box::into_raw(initial_finalize))));
     unsafe {
       check_status!(
         sys::napi_wrap(
@@ -84,15 +88,11 @@ impl<const N: usize> CallbackInfo<N> {
       )?;
     };
 
-    Reference::<T>::add_ref(
-      std::any::TypeId::of::<T>(),
-      (value_ref, self.env, object_ref),
-    );
+    Reference::<T>::add_ref(value_ref, (value_ref, object_ref, finalize_callbacks_ptr));
     Ok(this)
   }
 
   pub fn factory<T: 'static>(&self, js_name: &str, obj: T) -> Result<sys::napi_value> {
-    let obj = Box::new(obj);
     let this = self.this();
     let mut instance = ptr::null_mut();
     unsafe {
@@ -106,7 +106,10 @@ impl<const N: usize> CallbackInfo<N> {
         sys::napi_throw(self.env, exception);
         return Ok(ptr::null_mut());
       }
-
+      let obj = Box::new(obj);
+      let initial_finalize: Box<dyn FnOnce()> = Box::new(|| {});
+      let finalize_callbacks_ptr =
+        Rc::into_raw(Rc::new(Cell::new(Box::into_raw(initial_finalize))));
       let mut object_ref = ptr::null_mut();
       let value_ref = Box::into_raw(obj) as *mut c_void;
       check_status!(
@@ -122,10 +125,7 @@ impl<const N: usize> CallbackInfo<N> {
         js_name,
       )?;
 
-      Reference::<T>::add_ref(
-        std::any::TypeId::of::<T>(),
-        (value_ref, self.env, object_ref),
-      );
+      Reference::<T>::add_ref(value_ref, (value_ref, object_ref, finalize_callbacks_ptr));
     };
 
     Ok(instance)
@@ -134,6 +134,23 @@ impl<const N: usize> CallbackInfo<N> {
   pub fn unwrap_borrow_mut<T>(&mut self) -> Result<&'static mut T>
   where
     T: FromNapiMutRef + TypeName,
+  {
+    unsafe { self.unwrap_raw::<T>() }.map(|raw| Box::leak(unsafe { Box::from_raw(raw) }))
+  }
+
+  pub fn unwrap_borrow<T>(&mut self) -> Result<&'static T>
+  where
+    T: FromNapiRef + TypeName,
+  {
+    unsafe { self.unwrap_raw::<T>() }
+      .map(|raw| Box::leak(unsafe { Box::from_raw(raw) }) as &'static T)
+  }
+
+  #[doc(hidden)]
+  #[inline]
+  pub unsafe fn unwrap_raw<T>(&mut self) -> Result<*mut T>
+  where
+    T: TypeName,
   {
     let mut wrapped_val: *mut c_void = std::ptr::null_mut();
 
@@ -144,24 +161,7 @@ impl<const N: usize> CallbackInfo<N> {
         T::type_name(),
       )?;
 
-      Ok(&mut *(wrapped_val as *mut T))
-    }
-  }
-
-  pub fn unwrap_borrow<T>(&mut self) -> Result<&'static T>
-  where
-    T: FromNapiRef + TypeName,
-  {
-    let mut wrapped_val: *mut c_void = std::ptr::null_mut();
-
-    unsafe {
-      check_status!(
-        sys::napi_unwrap(self.env, self.this, &mut wrapped_val),
-        "Failed to unwrap shared reference of `{}` type from napi value",
-        T::type_name(),
-      )?;
-
-      Ok(&*(wrapped_val as *const T))
+      Ok(wrapped_val as *mut T)
     }
   }
 }
