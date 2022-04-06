@@ -1,3 +1,5 @@
+use napi::{bindgen_prelude::*, Env};
+
 #[macro_use]
 extern crate napi_derive;
 #[macro_use]
@@ -34,8 +36,8 @@ pub struct Room {
   name: String,
 }
 
-#[js_function]
-fn test_async(ctx: napi::CallContext) -> napi::Result<napi::JsObject> {
+#[napi]
+pub fn test_async(env: Env) -> napi::Result<napi::JsObject> {
   let data = serde_json::json!({
       "findFirstBooking": {
           "id": "ckovh15xa104945sj64rdk8oas",
@@ -57,26 +59,62 @@ fn test_async(ctx: napi::CallContext) -> napi::Result<napi::JsObject> {
           "room": { "id": "ckovh15xa104955sj6r2tqaw1c", "name": "38683b87f2664" }
       }
   });
-
-  ctx.env.execute_tokio_future(
+  env.execute_tokio_future(
     async move { Ok(serde_json::to_string(&data).unwrap()) },
-    |env, response| {
-      env.adjust_external_memory(response.len() as i64)?;
-      env.create_string_from_std(response)
+    |env, res| {
+      env.adjust_external_memory(res.len() as i64)?;
+      env.create_string_from_std(res)
     },
   )
 }
 
-#[js_function(1)]
-fn from_js(ctx: napi::CallContext) -> napi::Result<napi::JsString> {
-  let input_object = ctx.get::<napi::JsObject>(0)?;
-  let a: Welcome = ctx.env.from_js_value(&input_object)?;
-  ctx.env.create_string_from_std(serde_json::to_string(&a)?)
+#[napi]
+pub fn from_js(env: Env, input_object: Object) -> napi::Result<String> {
+  let a: Welcome = env.from_js_value(&input_object)?;
+  Ok(serde_json::to_string(&a)?)
 }
 
-#[module_exports]
-fn init(mut exports: napi::JsObject) -> napi::Result<()> {
-  exports.create_named_method("testAsync", test_async)?;
-  exports.create_named_method("convertFromJS", from_js)?;
-  Ok(())
+pub struct ChildHolder {
+  inner: &'static MemoryHolder,
+}
+
+impl ChildHolder {
+  fn count(&self) -> usize {
+    self.inner.0.len()
+  }
+}
+
+#[napi]
+pub struct MemoryHolder(Vec<u8>);
+
+#[napi]
+impl MemoryHolder {
+  #[napi(constructor)]
+  pub fn new(mut env: Env, len: u32) -> Result<Self> {
+    env.adjust_external_memory(len as i64)?;
+    Ok(Self(vec![42; len as usize]))
+  }
+
+  #[napi]
+  pub fn create_reference(
+    &self,
+    env: Env,
+    holder_ref: Reference<MemoryHolder>,
+  ) -> Result<ChildReference> {
+    let child_holder =
+      holder_ref.share_with(env, |holder_ref| Ok(ChildHolder { inner: holder_ref }))?;
+    Ok(ChildReference(child_holder))
+  }
+}
+
+#[napi]
+pub struct ChildReference(SharedReference<MemoryHolder, ChildHolder>);
+
+#[napi]
+
+impl ChildReference {
+  #[napi]
+  pub fn count(&self) -> u32 {
+    self.0.count() as u32
+  }
 }
