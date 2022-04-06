@@ -1,6 +1,10 @@
-const displayMemoryUsageFromNode = require('./util')
+import { createRequire } from 'module'
+
+import { displayMemoryUsageFromNode } from './util.mjs'
 
 const initialMemoryUsage = process.memoryUsage()
+
+const require = createRequire(import.meta.url)
 
 const api = require(`./index.node`)
 
