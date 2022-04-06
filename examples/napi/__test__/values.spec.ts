@@ -88,6 +88,7 @@ import {
   chronoDateAdd1Minute,
   bufferPassThrough,
   JsRepo,
+  asyncReduceBuffer,
 } from '../'
 
 test('export const', (t) => {
@@ -393,6 +394,15 @@ test('buffer passthrough', async (t) => {
   const fixture = Buffer.from('hello world')
   const ret = await bufferPassThrough(fixture)
   t.deepEqual(ret, fixture)
+})
+
+test('async reduce buffer', async (t) => {
+  const input = [1, 2, 3, 4, 5, 6]
+  const fixture = Buffer.from(input)
+  t.is(
+    await asyncReduceBuffer(fixture),
+    input.reduce((acc, cur) => acc + cur),
+  )
 })
 
 test('either', (t) => {

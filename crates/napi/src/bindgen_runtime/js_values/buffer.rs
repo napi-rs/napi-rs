@@ -1,13 +1,17 @@
+use std::mem;
 use std::ops::{Deref, DerefMut};
-use std::{mem, ptr};
+use std::ptr;
+use std::slice;
 
 use crate::{bindgen_prelude::*, check_status, sys, Result, ValueType};
 
 /// Zero copy u8 vector shared between rust and napi.
 /// Auto reference the raw JavaScript value, and release it when dropped.
 /// So it is safe to use it in `async fn`, the `&[u8]` under the hood will not be dropped until the `drop` called.
+/// Clone will create a new `Reference` to the same underlying `JavaScript Buffer`.
 pub struct Buffer {
-  inner: mem::ManuallyDrop<Vec<u8>>,
+  inner: &'static mut [u8],
+  capacity: usize,
   raw: Option<(sys::napi_ref, sys::napi_env)>,
 }
 
@@ -16,7 +20,7 @@ impl Drop for Buffer {
     if let Some((ref_, env)) = self.raw {
       check_status_or_throw!(
         env,
-        unsafe { sys::napi_delete_reference(env, ref_) },
+        unsafe { sys::napi_reference_unref(env, ref_, &mut 0) },
         "Failed to delete Buffer reference in drop"
       );
     }
@@ -25,10 +29,36 @@ impl Drop for Buffer {
 
 unsafe impl Send for Buffer {}
 
+impl Buffer {
+  pub fn clone(&mut self, env: &Env) -> Result<Self> {
+    if let Some((ref_, _)) = self.raw {
+      check_status!(
+        unsafe { sys::napi_reference_ref(env.0, ref_, &mut 0) },
+        "Failed to ref Buffer reference in Buffer::clone"
+      )?;
+      Ok(Self {
+        inner: unsafe { slice::from_raw_parts_mut(self.inner.as_mut_ptr(), self.inner.len()) },
+        capacity: self.capacity,
+        raw: Some((ref_, env.0)),
+      })
+    } else {
+      Err(Error::new(
+        Status::InvalidArg,
+        "clone only available when the buffer is created from a JavaScript Buffer".to_owned(),
+      ))
+    }
+  }
+}
+
 impl From<Vec<u8>> for Buffer {
-  fn from(data: Vec<u8>) -> Self {
+  fn from(mut data: Vec<u8>) -> Self {
+    let inner_ptr = data.as_mut_ptr();
+    let len = data.len();
+    let capacity = data.capacity();
+    mem::forget(data);
     Buffer {
-      inner: mem::ManuallyDrop::new(data),
+      inner: unsafe { slice::from_raw_parts_mut(inner_ptr, len) },
+      capacity,
       raw: None,
     }
   }
@@ -48,13 +78,13 @@ impl From<&[u8]> for Buffer {
 
 impl AsRef<[u8]> for Buffer {
   fn as_ref(&self) -> &[u8] {
-    self.inner.as_slice()
+    self.inner
   }
 }
 
 impl AsMut<[u8]> for Buffer {
   fn as_mut(&mut self) -> &mut [u8] {
-    self.inner.as_mut_slice()
+    self.inner
   }
 }
 
@@ -62,13 +92,13 @@ impl Deref for Buffer {
   type Target = [u8];
 
   fn deref(&self) -> &Self::Target {
-    self.inner.as_slice()
+    self.inner
   }
 }
 
 impl DerefMut for Buffer {
   fn deref_mut(&mut self) -> &mut Self::Target {
-    self.inner.as_mut_slice()
+    self.inner
   }
 }
 
@@ -97,7 +127,8 @@ impl FromNapiValue for Buffer {
     )?;
 
     Ok(Self {
-      inner: mem::ManuallyDrop::new(unsafe { Vec::from_raw_parts(buf as *mut _, len, len) }),
+      inner: unsafe { slice::from_raw_parts_mut(buf as *mut _, len) },
+      capacity: len,
       raw: Some((ref_, env)),
     })
   }
@@ -128,7 +159,7 @@ impl ToNapiValue for Buffer {
           len,
           val.inner.as_mut_ptr() as *mut _,
           Some(drop_buffer),
-          Box::into_raw(Box::new((len, val.inner.capacity()))) as *mut _,
+          Box::into_raw(Box::new((len, val.capacity))) as *mut _,
           &mut ret,
         )
       },
