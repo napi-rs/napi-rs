@@ -1,6 +1,10 @@
-const displayMemoryUsageFromNode = require('./util')
+import { createRequire } from 'module'
+
+import { displayMemoryUsageFromNode } from './util.mjs'
 
 const initialMemoryUsage = process.memoryUsage()
+
+const require = createRequire(import.meta.url)
 
 const api = require(`./index.node`)
 
@@ -27,7 +31,7 @@ const data = {
 let i = 1
 // eslint-disable-next-line no-constant-condition
 while (true) {
-  api.convertFromJS(data)
+  api.fromJs(data)
   if (i % 100000 === 0) {
     displayMemoryUsageFromNode(initialMemoryUsage)
   }

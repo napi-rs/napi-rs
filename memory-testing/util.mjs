@@ -1,8 +1,8 @@
-const { whiteBright, red, green, gray } = require('colorette')
-const prettyBytes = require('pretty-bytes')
-const { table } = require('table')
+import { whiteBright, red, green, gray } from 'colorette'
+import prettyBytes from 'pretty-bytes'
+import { table } from 'table'
 
-module.exports = function displayMemoryUsageFromNode(initialMemoryUsage) {
+export function displayMemoryUsageFromNode(initialMemoryUsage) {
   const finalMemoryUsage = process.memoryUsage()
   const titles = Object.keys(initialMemoryUsage).map((k) => whiteBright(k))
   const tableData = [titles]
