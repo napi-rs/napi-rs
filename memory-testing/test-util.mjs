@@ -14,7 +14,7 @@ export async function createSuite(testFile, maxMemoryUsage) {
 
   const container = await client.createContainer({
     Image: 'node:lts-slim',
-    Cmd: ['/bin/bash', '-c', `node memory-testing/${testFile}.js`],
+    Cmd: ['/bin/bash', '-c', `node --expose-gc memory-testing/${testFile}.mjs`],
     AttachStdout: true,
     AttachStderr: true,
     Tty: true,

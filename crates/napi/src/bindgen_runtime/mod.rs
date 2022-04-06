@@ -30,6 +30,8 @@ pub unsafe extern "C" fn raw_finalize_unchecked<T>(
     REFERENCE_MAP.with(|reference_map| reference_map.borrow_mut().remove(&finalize_data))
   {
     let finalize_callbacks_rc = unsafe { Rc::from_raw(finalize_callbacks_ptr) };
+    debug_assert!(Rc::strong_count(&finalize_callbacks_rc) == 1);
+    debug_assert!(Rc::weak_count(&finalize_callbacks_rc) == 0);
     let finalize = unsafe { Box::from_raw(finalize_callbacks_rc.get()) };
     finalize();
     let delete_reference_status = unsafe { sys::napi_delete_reference(env, ref_val) };

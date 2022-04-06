@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "build": "node ../cli/scripts/index.js build --release"
+    "build": "node ../cli/scripts/index.js build --release --js false"
   },
   "dependencies": {
     "colorette": "^2.0.16",
