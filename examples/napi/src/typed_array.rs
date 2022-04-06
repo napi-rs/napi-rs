@@ -38,3 +38,28 @@ fn deref_uint8_array(a: Uint8Array, b: Uint8ClampedArray) -> u32 {
 async fn buffer_pass_through(buf: Buffer) -> Result<Buffer> {
   Ok(buf)
 }
+
+struct AsyncBuffer {
+  buf: Buffer,
+}
+
+#[napi]
+impl Task for AsyncBuffer {
+  type Output = u32;
+  type JsValue = u32;
+
+  fn compute(&mut self) -> Result<Self::Output> {
+    Ok(self.buf.iter().fold(0u32, |a, b| a + *b as u32))
+  }
+
+  fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+    Ok(output)
+  }
+}
+
+#[napi]
+fn async_reduce_buffer(mut buf: Buffer, env: Env) -> Result<AsyncTask<AsyncBuffer>> {
+  Ok(AsyncTask::new(AsyncBuffer {
+    buf: buf.clone(&env)?,
+  }))
+}
