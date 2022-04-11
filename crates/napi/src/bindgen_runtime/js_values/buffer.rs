@@ -1,9 +1,18 @@
+#[cfg(debug_assertions)]
+use std::collections::HashSet;
 use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::ptr;
 use std::slice;
+#[cfg(debug_assertions)]
+use std::sync::Mutex;
 
 use crate::{bindgen_prelude::*, check_status, sys, Result, ValueType};
+
+#[cfg(debug_assertions)]
+thread_local! {
+  pub (crate) static BUFFER_DATA: Mutex<HashSet<*mut u8>> = Default::default();
+}
 
 /// Zero copy u8 vector shared between rust and napi.
 /// Auto reference the raw JavaScript value, and release it when dropped.
@@ -53,6 +62,16 @@ impl Buffer {
 impl From<Vec<u8>> for Buffer {
   fn from(mut data: Vec<u8>) -> Self {
     let inner_ptr = data.as_mut_ptr();
+    #[cfg(debug_assertions)]
+    {
+      let is_existed = BUFFER_DATA.with(|buffer_data| {
+        let buffer = buffer_data.lock().expect("Unlock buffer data failed");
+        buffer.contains(&inner_ptr)
+      });
+      if is_existed {
+        panic!("Share the same data between different buffers is not allowed, see: https://github.com/nodejs/node/issues/32463#issuecomment-631974747");
+      }
+    }
     let len = data.len();
     let capacity = data.capacity();
     mem::forget(data);
