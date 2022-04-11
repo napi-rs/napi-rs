@@ -52,6 +52,13 @@ pub unsafe extern "C" fn drop_buffer(
   finalize_hint: *mut c_void,
 ) {
   let length_ptr = finalize_hint as *mut (usize, usize);
+  #[cfg(debug_assertions)]
+  {
+    js_values::BUFFER_DATA.with(|buffer_data| {
+      let mut buffer = buffer_data.lock().expect("Unlock Buffer data failed");
+      buffer.remove(&(finalize_data as *mut u8));
+    });
+  }
   unsafe {
     let (length, cap) = *Box::from_raw(length_ptr);
     mem::drop(Vec::from_raw_parts(finalize_data as *mut u8, length, cap));
