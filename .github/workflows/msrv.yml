@@ -1,0 +1,70 @@
+name: Test MSRV Rust
+
+env:
+  DEBUG: 'napi:*'
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  test-msrv-rust:
+    name: 1.57.0 - ubuntu-latest - node@16
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 16
+          check-latest: true
+          cache: 'yarn'
+
+      - name: Install
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: 1.57.0
+          profile: minimal
+          override: true
+
+      - name: Cache cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: stable-ubuntu-latest-node@16-cargo-cache
+
+      - name: Cache NPM dependencies
+        uses: actions/cache@v3
+        with:
+          path: .yarn/cache
+          key: npm-cache-ubuntu-latest-node@16
+
+      - name: 'Install dependencies'
+        run: yarn install --mode=skip-build --immutable
+
+      - name: 'Build TypeScript'
+        run: yarn build
+
+      - name: Check build
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: --all --bins --examples --tests -vvv
+
+      - name: Unit tests
+        run: |
+          yarn build:test
+          yarn test --verbose
+        env:
+          RUST_BACKTRACE: 1
+
+      - name: Clear the cargo caches
+        run: |
+          cargo install cargo-cache --no-default-features --features ci-autoclean
+          cargo-cache
