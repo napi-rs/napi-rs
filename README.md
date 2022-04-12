@@ -57,7 +57,7 @@ _Main branch is now under napi@next developing. Checkout [v1 docs](https://napi.
 
 ## MSRV
 
-**Rust** `1.57.0`
+**Rust** `1.58.0`
 
 |                       | node12 | node14 | node16 | node17 |
 | --------------------- | ------ | ------ | ------ | ------ |
