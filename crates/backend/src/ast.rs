@@ -16,6 +16,7 @@ pub struct NapiFn {
   pub parent: Option<Ident>,
   pub strict: bool,
   pub js_mod: Option<String>,
+  pub ts_generic_types: Option<String>,
   pub ts_args_type: Option<String>,
   pub ts_return_type: Option<String>,
   pub skip_typescript: bool,
