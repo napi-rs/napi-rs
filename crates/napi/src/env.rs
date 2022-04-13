@@ -774,7 +774,7 @@ impl Env {
       } else {
         Err(Error::new(
           Status::InvalidArg,
-          "Invalid argument, T on unrwap is not the type of wrapped object".to_owned(),
+          "Invalid argument, T on unwrap is not the type of wrapped object".to_owned(),
         ))
       }
     }
@@ -801,7 +801,7 @@ impl Env {
       } else {
         Err(Error::new(
           Status::InvalidArg,
-          "Invalid argument, T on unrwap is not the type of wrapped object".to_owned(),
+          "Invalid argument, T on unwrap is not the type of wrapped object".to_owned(),
         ))
       }
     }
@@ -822,7 +822,7 @@ impl Env {
       } else {
         Err(Error::new(
           Status::InvalidArg,
-          "Invalid argument, T on unrwap is not the type of wrapped object".to_owned(),
+          "Invalid argument, T on unwrap is not the type of wrapped object".to_owned(),
         ))
       }
     }
@@ -1141,7 +1141,7 @@ impl Env {
       } else {
         Err(Error::new(
           Status::InvalidArg,
-          "Invalid argument, T on unrwap is not the type of wrapped object".to_owned(),
+          "Invalid argument, T on unwrap is not the type of wrapped object".to_owned(),
         ))
       }
     }
