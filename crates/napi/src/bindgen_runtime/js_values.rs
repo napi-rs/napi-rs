@@ -89,6 +89,10 @@ pub trait FromNapiValue: Sized {
   ///
   /// this function called to convert napi values to native rust values
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self>;
+
+  fn from_unknown(value: JsUnknown) -> Result<Self> {
+    unsafe { Self::from_napi_value(value.0.env, value.0.value) }
+  }
 }
 
 pub trait FromNapiRef {
