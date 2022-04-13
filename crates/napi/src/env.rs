@@ -1,10 +1,14 @@
 use std::any::TypeId;
 use std::convert::TryInto;
 use std::ffi::CString;
+#[cfg(all(feature = "tokio_rt", feature = "napi4"))]
+use std::future::Future;
 use std::mem;
 use std::os::raw::{c_char, c_void};
 use std::ptr;
 
+#[cfg(all(feature = "tokio_rt", feature = "napi4"))]
+use crate::bindgen_runtime::ToNapiValue;
 use crate::{
   async_work::{self, AsyncWorkPromise},
   check_status,
@@ -28,8 +32,6 @@ use crate::JsError;
 use serde::de::DeserializeOwned;
 #[cfg(all(feature = "serde-json"))]
 use serde::Serialize;
-#[cfg(all(feature = "tokio_rt", feature = "napi4"))]
-use std::future::Future;
 
 pub type Callback = unsafe extern "C" fn(sys::napi_env, sys::napi_callback_info) -> sys::napi_value;
 
@@ -1038,7 +1040,7 @@ impl Env {
   #[cfg(feature = "napi4")]
   pub fn create_threadsafe_function<
     T: Send,
-    V: NapiRaw,
+    V: ToNapiValue,
     R: 'static + Send + FnMut(ThreadSafeCallContext<T>) -> Result<Vec<V>>,
   >(
     &self,
@@ -1052,7 +1054,7 @@ impl Env {
   #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
   pub fn execute_tokio_future<
     T: 'static + Send,
-    V: 'static + NapiValue,
+    V: 'static + ToNapiValue,
     F: 'static + Send + Future<Output = Result<T>>,
     R: 'static + Send + Sync + FnOnce(&mut Env, T) -> Result<V>,
   >(
@@ -1063,7 +1065,7 @@ impl Env {
     use crate::tokio_runtime;
 
     let promise = tokio_runtime::execute_tokio_future(self.0, fut, |env, val| unsafe {
-      resolver(&mut Env::from_raw(env), val).map(|v| v.raw())
+      resolver(&mut Env::from_raw(env), val).and_then(|v| ToNapiValue::to_napi_value(env, v))
     })?;
 
     Ok(unsafe { JsObject::from_raw_unchecked(self.0, promise) })

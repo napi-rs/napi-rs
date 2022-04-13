@@ -8,7 +8,8 @@ use std::ptr;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use crate::{check_status, sys, Env, Error, JsError, NapiRaw, Result, Status};
+use crate::bindgen_runtime::ToNapiValue;
+use crate::{check_status, sys, Env, Error, JsError, Result, Status};
 
 /// ThreadSafeFunction Context object
 /// the `value` is the value passed to `call` method
@@ -176,7 +177,7 @@ impl<T: 'static, ES: ErrorStrategy::T> ThreadsafeFunction<T, ES> {
   /// See [napi_create_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_create_threadsafe_function)
   /// for more information.
   pub(crate) fn create<
-    V: NapiRaw,
+    V: ToNapiValue,
     R: 'static + Send + FnMut(ThreadSafeCallContext<T>) -> Result<Vec<V>>,
   >(
     env: sys::napi_env,
@@ -330,7 +331,7 @@ unsafe extern "C" fn cleanup_cb(cleanup_data: *mut c_void) {
   aborted.store(true, Ordering::SeqCst);
 }
 
-unsafe extern "C" fn thread_finalize_cb<T: 'static, V: NapiRaw, R>(
+unsafe extern "C" fn thread_finalize_cb<T: 'static, V: ToNapiValue, R>(
   _raw_env: sys::napi_env,
   finalize_data: *mut c_void,
   _finalize_hint: *mut c_void,
@@ -341,7 +342,7 @@ unsafe extern "C" fn thread_finalize_cb<T: 'static, V: NapiRaw, R>(
   drop(unsafe { Box::<R>::from_raw(finalize_data.cast()) });
 }
 
-unsafe extern "C" fn call_js_cb<T: 'static, V: NapiRaw, R, ES>(
+unsafe extern "C" fn call_js_cb<T: 'static, V: ToNapiValue, R, ES>(
   raw_env: sys::napi_env,
   js_callback: sys::napi_value,
   context: *mut c_void,
@@ -378,23 +379,42 @@ unsafe extern "C" fn call_js_cb<T: 'static, V: NapiRaw, R, ES>(
   // If the Result is an error, pass that as the first argument.
   let status = match ret {
     Ok(values) => {
-      let values = values.iter().map(|v| unsafe { v.raw() });
-      let args: Vec<sys::napi_value> = if ES::VALUE == ErrorStrategy::CalleeHandled::VALUE {
+      let values = values
+        .into_iter()
+        .map(|v| unsafe { ToNapiValue::to_napi_value(raw_env, v) });
+      let args: Result<Vec<sys::napi_value>> = if ES::VALUE == ErrorStrategy::CalleeHandled::VALUE {
         let mut js_null = ptr::null_mut();
         unsafe { sys::napi_get_null(raw_env, &mut js_null) };
-        ::core::iter::once(js_null).chain(values).collect()
+        ::core::iter::once(Ok(js_null)).chain(values).collect()
       } else {
         values.collect()
       };
-      unsafe {
-        sys::napi_call_function(
-          raw_env,
-          recv,
-          js_callback,
-          args.len(),
-          args.as_ptr(),
-          ptr::null_mut(),
-        )
+      match args {
+        Ok(args) => unsafe {
+          sys::napi_call_function(
+            raw_env,
+            recv,
+            js_callback,
+            args.len(),
+            args.as_ptr(),
+            ptr::null_mut(),
+          )
+        },
+        Err(e) => match ES::VALUE {
+          ErrorStrategy::Fatal::VALUE => unsafe {
+            sys::napi_fatal_exception(raw_env, JsError::from(e).into_value(raw_env))
+          },
+          ErrorStrategy::CalleeHandled::VALUE => unsafe {
+            sys::napi_call_function(
+              raw_env,
+              recv,
+              js_callback,
+              1,
+              [JsError::from(e).into_value(raw_env)].as_mut_ptr(),
+              ptr::null_mut(),
+            )
+          },
+        },
       }
     }
     Err(e) if ES::VALUE == ErrorStrategy::Fatal::VALUE => unsafe {

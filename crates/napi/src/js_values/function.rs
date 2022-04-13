@@ -3,7 +3,10 @@ use std::ptr;
 use super::Value;
 use crate::bindgen_runtime::TypeName;
 #[cfg(feature = "napi4")]
-use crate::threadsafe_function::{ThreadSafeCallContext, ThreadsafeFunction};
+use crate::{
+  bindgen_runtime::ToNapiValue,
+  threadsafe_function::{ThreadSafeCallContext, ThreadsafeFunction},
+};
 use crate::{check_status, ValueType};
 use crate::{sys, Env, Error, JsObject, JsUnknown, NapiRaw, NapiValue, Result, Status};
 
@@ -127,7 +130,7 @@ impl JsFunction {
   ) -> Result<ThreadsafeFunction<T, ES>>
   where
     T: 'static,
-    V: NapiRaw,
+    V: ToNapiValue,
     F: 'static + Send + FnMut(ThreadSafeCallContext<T>) -> Result<Vec<V>>,
     ES: crate::threadsafe_function::ErrorStrategy::T,
   {
