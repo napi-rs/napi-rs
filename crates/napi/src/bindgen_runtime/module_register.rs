@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
 use std::ffi::c_void;
-use std::ffi::{CStr, CString};
+use std::ffi::CStr;
 use std::mem;
 use std::ptr;
 use std::sync::atomic::AtomicBool;
@@ -384,7 +384,7 @@ unsafe extern "C" fn napi_register_module_v1(
           let ctor = ctor.get(0).map(|c| c.raw().method.unwrap()).unwrap_or(noop);
           let raw_props: Vec<_> = props.iter().map(|prop| prop.raw()).collect();
 
-          let js_class_name = CString::from_vec_with_nul_unchecked(js_name.as_bytes().to_vec());
+          let js_class_name = CStr::from_bytes_with_nul_unchecked(js_name.as_bytes());
           let mut class_ptr = ptr::null_mut();
 
           check_status_or_throw!(
