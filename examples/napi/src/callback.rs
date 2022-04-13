@@ -53,7 +53,8 @@ fn return_js_function(env: Env) -> Result<JsFunction> {
 
 #[napi(
   ts_generic_types = "T",
-  ts_args_type = "functionInput: () => T | Promise<T>, callback: (err: Error | null, result: T) => void"
+  ts_args_type = "functionInput: () => T | Promise<T>, callback: (err: Error | null, result: T) => void",
+  ts_return_type = "T | Promise<T>"
 )]
 fn callback_return_promise<T: Fn() -> Result<JsUnknown>>(
   env: Env,
