@@ -59,9 +59,14 @@ impl ToTypeDef for NapiFn {
     }
 
     let def = format!(
-      r#"{prefix} {name}({args}){ret}"#,
+      r#"{prefix} {name}{generic}({args}){ret}"#,
       prefix = self.gen_ts_func_prefix(),
       name = &self.js_name,
+      generic = &self
+        .ts_generic_types
+        .as_ref()
+        .map(|g| format!("<{}>", g))
+        .unwrap_or("".to_string()),
       args = self
         .ts_args_type
         .clone()

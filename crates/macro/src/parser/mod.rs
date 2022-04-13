@@ -577,6 +577,7 @@ fn napi_fn_from_decl(
       attrs,
       strict: opts.strict().is_some(),
       js_mod: opts.namespace().map(|(m, _)| m.to_owned()),
+      ts_generic_types: opts.ts_generic_types().map(|(m, _)| m.to_owned()),
       ts_args_type: opts.ts_args_type().map(|(m, _)| m.to_owned()),
       ts_return_type: opts.ts_return_type().map(|(m, _)| m.to_owned()),
       skip_typescript: opts.skip_typescript().is_some(),
