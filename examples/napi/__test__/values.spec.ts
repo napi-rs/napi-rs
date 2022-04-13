@@ -2,6 +2,7 @@ import { exec } from 'child_process'
 import { join } from 'path'
 
 import test from 'ava'
+import { spy } from 'sinon'
 
 import {
   DEFAULT_COST,
@@ -89,6 +90,7 @@ import {
   bufferPassThrough,
   JsRepo,
   asyncReduceBuffer,
+  callbackReturnPromise,
 } from '../'
 
 test('export const', (t) => {
@@ -222,6 +224,21 @@ test('return function', (t) => {
       resolve()
     })
   })
+})
+
+test('function return Promise', async (t) => {
+  const cbSpy = spy()
+  await callbackReturnPromise<string>(() => '1', spy)
+  t.is(cbSpy.callCount, 0)
+  await callbackReturnPromise(
+    () => Promise.resolve('42'),
+    (err, res) => {
+      t.is(err, null)
+      cbSpy(res)
+    },
+  )
+  t.is(cbSpy.callCount, 1)
+  t.deepEqual(cbSpy.args, [['42']])
 })
 
 test('object', (t) => {
