@@ -38,6 +38,7 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
+            target
           key: bench-cargo-cache
 
       - name: Cache NPM dependencies

@@ -50,6 +50,7 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
+            target
           key: stable-windows-arm64-node@16-cargo-cache
 
       - name: Check build

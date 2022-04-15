@@ -40,6 +40,14 @@ jobs:
           profile: minimal
           override: true
           target: ${{ matrix.target }}
+      - name: Cache cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: stable-zig-${{ matrix.target }}-cargo-cache
       - name: Install aarch64 toolchain
         run: rustup target add aarch64-unknown-linux-gnu
       - name: Install ziglang
@@ -50,7 +58,7 @@ jobs:
         uses: actions/cache@v3
         with:
           path: .yarn/cache
-          key: npm-cache-linux-aarch64-gnu-node@16
+          key: npm-cache-ubuntu-latest-gnu-node@16
       - name: Install dependencies
         run: yarn install --immutable --mode=skip-build
       - name: 'Build TypeScript'

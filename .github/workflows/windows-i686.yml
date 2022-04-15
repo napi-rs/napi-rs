@@ -49,14 +49,11 @@ jobs:
       - name: Cache cargo
         uses: actions/cache@v3
         with:
-          path: ~/.cargo/registry
-          key: stable-windows-i686-node@lts-cargo-registry
-
-      - name: Cache cargo index
-        uses: actions/cache@v3
-        with:
-          path: ~/.cargo/git
-          key: stable-windows-i686-node@lts-cargo-index
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: stable-windows-i686-node@16-cargo-cache
 
       - name: Check build
         uses: actions-rs/cargo@v1
@@ -78,8 +75,3 @@ jobs:
           yarn test --verbose
         env:
           RUST_BACKTRACE: 1
-
-      - name: Clear the cargo caches
-        run: |
-          cargo install cargo-cache --no-default-features --features ci-autoclean
-          cargo-cache

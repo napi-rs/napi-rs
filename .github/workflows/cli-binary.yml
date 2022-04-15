@@ -36,6 +36,7 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
+            target
           key: stable-cargo-cache-build-binary
 
       - name: 'Install dependencies'
