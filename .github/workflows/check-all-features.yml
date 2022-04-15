@@ -1,0 +1,54 @@
+name: Check NAPI-RS features
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  build_and_test:
+    strategy:
+      fail-fast: false
+      matrix:
+        features:
+          [
+            'napi3',
+            'napi4',
+            'napi5',
+            'napi6',
+            'napi7',
+            'napi8',
+            'experimental',
+            'async',
+            'chrono_date',
+            'latin1',
+            'full',
+          ]
+
+    name: stable - ubuntu-latest
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+
+      - name: Cache cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: stable-check-ubuntu-latest-cargo-cache-features-${{ matrix.features }}
+
+      - name: Check build
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: -p napi --no-default-features --features ${{ matrix.features }}
