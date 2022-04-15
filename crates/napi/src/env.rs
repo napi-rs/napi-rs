@@ -7,7 +7,7 @@ use std::mem;
 use std::os::raw::{c_char, c_void};
 use std::ptr;
 
-#[cfg(all(feature = "tokio_rt", feature = "napi4"))]
+#[cfg(all(feature = "napi4"))]
 use crate::bindgen_runtime::ToNapiValue;
 use crate::{
   async_work::{self, AsyncWorkPromise},
