@@ -43,6 +43,7 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
+            target
           key: stable-${{ matrix.os }}-node@${{ matrix.node }}-cargo-cache
 
       - name: Cache NPM dependencies
@@ -69,8 +70,3 @@ jobs:
           yarn test --verbose
         env:
           RUST_BACKTRACE: 1
-
-      - name: Clear the cargo caches
-        run: |
-          cargo install cargo-cache --no-default-features --features ci-autoclean
-          cargo-cache
