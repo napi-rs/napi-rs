@@ -20,7 +20,6 @@ RUN apk add --update --no-cache wget build-base musl-dev && \
   gn \
   tar \
   ninja && \
-  apk upgrade && \
   npm install -g pnpm lerna
 
 RUN rustup-init -y && \
