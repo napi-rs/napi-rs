@@ -1,4 +1,4 @@
-FROM node:lts-alpine
+FROM node:14-alpine
 
 ENV PATH="/aarch64-linux-musl-cross/bin:/usr/local/cargo/bin/rustup:/root/.cargo/bin:$PATH" \
   RUSTFLAGS="-C target-feature=-crt-static" \
@@ -6,10 +6,11 @@ ENV PATH="/aarch64-linux-musl-cross/bin:/usr/local/cargo/bin/rustup:/root/.cargo
   CXX="clang++" \
   GN_EXE=gn
 
-RUN apk add --update --no-cache wget build-base musl-dev && \
+RUN apk add --update --no-cache wget musl-dev && \
   sed -i -e 's/v[[:digit:]]\..*\//edge\//g' /etc/apk/repositories && \
   apk add --update --no-cache --repository http://dl-cdn.alpinelinux.org/alpine/edge/testing \
   rustup \
+  build-base \
   bash \
   python3 \
   python2 \
@@ -19,8 +20,7 @@ RUN apk add --update --no-cache wget build-base musl-dev && \
   llvm \
   gn \
   tar \
-  ninja && \
-  npm install -g pnpm lerna
+  ninja
 
 RUN rustup-init -y && \
   yarn global add pnpm && \
