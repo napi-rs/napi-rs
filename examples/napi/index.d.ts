@@ -36,7 +36,7 @@ export function chronoDateToMillis(input: Date): number
 export function chronoDateAdd1Minute(input: Date): Date
 export interface Dates {
   start: Date
-  end?: Date | undefined | null
+  end?: Date
 }
 export function eitherStringOrNumber(input: string | number): number
 export function returnEither(input: number): string | number
@@ -96,7 +96,7 @@ export function tsRename(a: { foo: number }): string[]
 export function xxh64Alias(input: Buffer): bigint
 export function getMapping(): Record<string, number>
 export function sumMapping(nums: Record<string, number>): number
-export function mapOption(val?: number | undefined | null): number | undefined | null
+export function mapOption(val?: number | undefined | null): number?
 export function returnNull(): null
 export function returnUndefined(): void
 export function add(a: number, b: number): number
@@ -107,8 +107,8 @@ export function getGlobal(): typeof global
 export function getUndefined(): void
 export function getNull(): JsNull
 export interface AllOptionalObject {
-  name?: string | undefined | null
-  age?: number | undefined | null
+  name?: string
+  age?: number
 }
 export function receiveAllOptionalObject(obj?: AllOptionalObject | undefined | null): void
 export const enum ALIAS {
@@ -137,8 +137,8 @@ export interface PackageJson {
   name: string
   /** The version of the package */
   version: string
-  dependencies?: Record<string, any> | undefined | null
-  devDependencies?: Record<string, any> | undefined | null
+  dependencies?: Record<string, any>
+  devDependencies?: Record<string, any>
 }
 export function readPackageJson(): PackageJson
 export function getPackageJsonName(packageJson: PackageJson): string
@@ -211,7 +211,7 @@ export class Blake2BHasher {
 export type Blake2bKey = Blake2BKey
 export class Blake2BKey { }
 export class Context {
-  maybeNeed?: boolean | undefined | null
+  maybeNeed?: boolean
   constructor()
   static withData(data: string): Context
   method(): string
@@ -231,7 +231,7 @@ export class NinjaTurtle {
 export type JsAssets = Assets
 export class Assets {
   constructor()
-  get(id: number): JsAsset | undefined | null
+  get(id: number): JsAsset?
 }
 export type JsAsset = Asset
 export class Asset {
