@@ -97,7 +97,7 @@ fn gen_callback_type(callback: &CallbackArg) -> String {
       .iter()
       .enumerate()
       .map(|(i, arg)| {
-        let (ts_type, is_optional) = ty_to_ts_type(arg, false);
+        let (ts_type, is_optional) = ty_to_ts_type(arg, false, false);
         FnArg {
           arg: format!("arg{}", i),
           ts_type,
@@ -106,7 +106,7 @@ fn gen_callback_type(callback: &CallbackArg) -> String {
       })
       .collect::<FnArgList>(),
     ret = match &callback.ret {
-      Some(ty) => ty_to_ts_type(ty, true).0,
+      Some(ty) => ty_to_ts_type(ty, true, false).0,
       None => "void".to_owned(),
     }
   )
@@ -131,7 +131,7 @@ impl NapiFn {
               i.mutability = None;
             }
             let arg = path.pat.to_token_stream().to_string().to_case(Case::Camel);
-            let (ts_type, is_optional) = ty_to_ts_type(&path.ty, false);
+            let (ts_type, is_optional) = ty_to_ts_type(&path.ty, false, false);
 
             Some(FnArg {
               arg,
@@ -181,7 +181,7 @@ impl NapiFn {
         .unwrap_or_else(|| "".to_owned()),
       _ => {
         let ret = if let Some(ret) = &self.ret {
-          let (ts_type, _) = ty_to_ts_type(ret, true);
+          let (ts_type, _) = ty_to_ts_type(ret, true, false);
           if ts_type == "undefined" {
             "void".to_owned()
           } else if ts_type == "Self" {

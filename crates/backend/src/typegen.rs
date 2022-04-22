@@ -213,9 +213,9 @@ fn fill_ty(template: &str, args: Vec<String>) -> String {
   ret
 }
 
-pub fn ty_to_ts_type(ty: &Type, is_return_ty: bool) -> (String, bool) {
+pub fn ty_to_ts_type(ty: &Type, is_return_ty: bool, is_struct_field: bool) -> (String, bool) {
   match ty {
-    Type::Reference(r) => ty_to_ts_type(&r.elem, is_return_ty),
+    Type::Reference(r) => ty_to_ts_type(&r.elem, is_return_ty, is_struct_field),
     Type::Tuple(tuple) => {
       if tuple.elems.is_empty() {
         ("undefined".to_owned(), false)
@@ -226,7 +226,7 @@ pub fn ty_to_ts_type(ty: &Type, is_return_ty: bool) -> (String, bool) {
             tuple
               .elems
               .iter()
-              .map(|elem| ty_to_ts_type(elem, false).0)
+              .map(|elem| ty_to_ts_type(elem, false, false).0)
               .collect::<Vec<_>>()
               .join(", ")
           ),
@@ -244,7 +244,9 @@ pub fn ty_to_ts_type(ty: &Type, is_return_ty: bool) -> (String, bool) {
             .args
             .iter()
             .filter_map(|arg| match arg {
-              syn::GenericArgument::Type(generic_ty) => Some(ty_to_ts_type(generic_ty, false)),
+              syn::GenericArgument::Type(generic_ty) => {
+                Some(ty_to_ts_type(generic_ty, false, false))
+              }
               _ => None,
             })
             .collect::<Vec<_>>()
@@ -255,9 +257,18 @@ pub fn ty_to_ts_type(ty: &Type, is_return_ty: bool) -> (String, bool) {
         if rust_ty == "Result" && is_return_ty {
           ts_ty = Some(args.first().unwrap().to_owned());
         } else if rust_ty == "Option" {
-          ts_ty = args
-            .first()
-            .map(|(arg, _)| (format!("{} | undefined | null", arg), true));
+          ts_ty = args.first().map(|(arg, _)| {
+            (
+              if is_struct_field {
+                arg.to_string()
+              } else if is_return_ty {
+                format!("{}?", arg)
+              } else {
+                format!("{} | undefined | null", arg)
+              },
+              true,
+            )
+          });
         } else if rust_ty == "AsyncTask" {
           ts_ty = r#struct::TASK_STRUCTS.with(|t| {
             let (output_type, _) = args.first().unwrap().to_owned();
@@ -299,7 +310,7 @@ pub fn ty_to_ts_type(ty: &Type, is_return_ty: bool) -> (String, bool) {
 
       ts_ty.unwrap_or_else(|| ("any".to_owned(), false))
     }
-    Type::Group(g) => ty_to_ts_type(&g.elem, is_return_ty),
+    Type::Group(g) => ty_to_ts_type(&g.elem, is_return_ty, is_struct_field),
     _ => ("any".to_owned(), false),
   }
 }
