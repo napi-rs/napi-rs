@@ -208,3 +208,12 @@ impl ToNapiValue for isize {
     Ok(raw_value)
   }
 }
+
+impl From<u64> for BigInt {
+  fn from(val: u64) -> Self {
+    BigInt {
+      sign_bit: false,
+      words: vec![val],
+    }
+  }
+}
