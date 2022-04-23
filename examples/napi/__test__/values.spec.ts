@@ -33,6 +33,7 @@ import {
   readPackageJson,
   getPackageJsonName,
   getBuffer,
+  getEmptyBuffer,
   readFileAsync,
   eitherStringOrNumber,
   returnEither,
@@ -369,6 +370,11 @@ test('buffer', (t) => {
   t.is(buf.toString('utf-8'), 'Hello world')
   buf = appendBuffer(buf)
   t.is(buf.toString('utf-8'), 'Hello world!')
+
+  const a = getEmptyBuffer()
+  const b = getEmptyBuffer()
+  t.is(a.toString(), '')
+  t.is(b.toString(), '')
 })
 
 test('convert typedarray to vec', (t) => {

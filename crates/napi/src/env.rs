@@ -264,7 +264,14 @@ impl Env {
       sys::napi_create_external_buffer(
         self.0,
         length,
-        data_ptr as *mut c_void,
+        if length == 0 {
+          // Rust uses 0x1 as the data pointer for empty buffers,
+          // but NAPI/V8 only allows multiple buffers to have
+          // the same data pointer if it's 0x0.
+          ptr::null_mut()
+        } else {
+          data_ptr as *mut c_void
+        },
         Some(drop_buffer),
         Box::into_raw(Box::new((length, data.capacity()))) as *mut c_void,
         &mut raw_value,
@@ -301,7 +308,14 @@ impl Env {
       sys::napi_create_external_buffer(
         self.0,
         length,
-        data as *mut c_void,
+        if length == 0 {
+          // Rust uses 0x1 as the data pointer for empty buffers,
+          // but NAPI/V8 only allows multiple buffers to have
+          // the same data pointer if it's 0x0.
+          ptr::null_mut()
+        } else {
+          data as *mut c_void
+        },
         Some(
           raw_finalize_with_custom_callback::<Hint, Finalize>
             as unsafe extern "C" fn(
@@ -386,7 +400,14 @@ impl Env {
     check_status!(unsafe {
       sys::napi_create_external_arraybuffer(
         self.0,
-        data_ptr as *mut c_void,
+        if length == 0 {
+          // Rust uses 0x1 as the data pointer for empty buffers,
+          // but NAPI/V8 only allows multiple buffers to have
+          // the same data pointer if it's 0x0.
+          ptr::null_mut()
+        } else {
+          data_ptr as *mut c_void
+        },
         length,
         Some(drop_buffer),
         Box::into_raw(Box::new((length, data.capacity()))) as *mut c_void,
@@ -426,7 +447,14 @@ impl Env {
     check_status!(unsafe {
       sys::napi_create_external_arraybuffer(
         self.0,
-        data as *mut c_void,
+        if length == 0 {
+          // Rust uses 0x1 as the data pointer for empty buffers,
+          // but NAPI/V8 only allows multiple buffers to have
+          // the same data pointer if it's 0x0.
+          ptr::null_mut()
+        } else {
+          data as *mut c_void
+        },
         length,
         Some(
           raw_finalize_with_custom_callback::<Hint, Finalize>
