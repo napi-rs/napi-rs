@@ -180,7 +180,14 @@ macro_rules! impl_typed_array {
           unsafe {
             sys::napi_create_external_arraybuffer(
               env,
-              val.data as *mut c_void,
+              if length == 0 {
+                // Rust uses 0x1 as the data pointer for empty buffers,
+                // but NAPI/V8 only allows multiple buffers to have
+                // the same data pointer if it's 0x0.
+                ptr::null_mut()
+              } else {
+                val.data as *mut c_void
+              },
               length,
               Some(finalizer::<$rust_type>),
               hint_ptr as *mut c_void,
