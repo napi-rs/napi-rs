@@ -13,6 +13,11 @@ fn append_buffer(buf: Buffer) -> Buffer {
 }
 
 #[napi]
+fn get_empty_buffer() -> Buffer {
+  vec![].into()
+}
+
+#[napi]
 fn convert_u32_array(input: Uint32Array) -> Vec<u32> {
   input.to_vec()
 }

@@ -33,6 +33,16 @@ test('should create borrowed buffer with finalize', (t) => {
   )
 })
 
+test('should create empty borrowed buffer with finalize', (t) => {
+  t.is(bindings.createEmptyBorrowedBufferWithFinalize().toString(), '')
+  t.is(bindings.createEmptyBorrowedBufferWithFinalize().toString(), '')
+})
+
+test('should create empty buffer', (t) => {
+  t.is(bindings.createEmptyBuffer().toString(), '')
+  t.is(bindings.createEmptyBuffer().toString(), '')
+})
+
 test('should be able to mutate buffer', (t) => {
   const fixture = Buffer.from([0, 1])
   bindings.mutateBuffer(fixture)
