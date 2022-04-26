@@ -816,7 +816,7 @@ impl ConvertToAST for syn::ItemImpl {
 
     let struct_name = extract_path_ident(struct_name)?;
 
-    let mut struct_js_name = struct_name.to_string();
+    let mut struct_js_name = struct_name.to_string().to_case(Case::UpperCamel);
     let mut items = vec![];
     let mut task_output_type = None;
     for item in self.items.iter_mut() {
