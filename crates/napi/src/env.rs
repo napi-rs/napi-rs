@@ -35,6 +35,8 @@ use serde::Serialize;
 
 pub type Callback = unsafe extern "C" fn(sys::napi_env, sys::napi_callback_info) -> sys::napi_value;
 
+pub(crate) static EMPTY_VEC: Vec<u8> = vec![];
+
 #[derive(Clone, Copy)]
 /// `Env` is used to represent a context that the underlying N-API implementation can use to persist VM-specific state.
 ///
@@ -261,21 +263,21 @@ impl Env {
     let mut raw_value = ptr::null_mut();
     let data_ptr = data.as_mut_ptr();
     check_status!(unsafe {
-      sys::napi_create_external_buffer(
-        self.0,
-        length,
-        if length == 0 {
-          // Rust uses 0x1 as the data pointer for empty buffers,
-          // but NAPI/V8 only allows multiple buffers to have
-          // the same data pointer if it's 0x0.
-          ptr::null_mut()
-        } else {
-          data_ptr as *mut c_void
-        },
-        Some(drop_buffer),
-        Box::into_raw(Box::new((length, data.capacity()))) as *mut c_void,
-        &mut raw_value,
-      )
+      if length == 0 {
+        // Rust uses 0x1 as the data pointer for empty buffers,
+        // but NAPI/V8 only allows multiple buffers to have
+        // the same data pointer if it's 0x0.
+        sys::napi_create_buffer(self.0, length, ptr::null_mut(), &mut raw_value)
+      } else {
+        sys::napi_create_external_buffer(
+          self.0,
+          length,
+          data_ptr as *mut c_void,
+          Some(drop_buffer),
+          Box::into_raw(Box::new((length, data.capacity()))) as *mut c_void,
+          &mut raw_value,
+        )
+      }
     })?;
     Ok(JsBufferValue::new(
       JsBuffer(Value {
@@ -304,18 +306,17 @@ impl Env {
     Finalize: FnOnce(Hint, Env),
   {
     let mut raw_value = ptr::null_mut();
+    if data.is_null() || data == EMPTY_VEC.as_ptr() {
+      return Err(Error::new(
+        Status::InvalidArg,
+        "Borrowed data should not be null".to_owned(),
+      ));
+    }
     check_status!(unsafe {
       sys::napi_create_external_buffer(
         self.0,
         length,
-        if length == 0 {
-          // Rust uses 0x1 as the data pointer for empty buffers,
-          // but NAPI/V8 only allows multiple buffers to have
-          // the same data pointer if it's 0x0.
-          ptr::null_mut()
-        } else {
-          data as *mut c_void
-        },
+        data as *mut c_void,
         Some(
           raw_finalize_with_custom_callback::<Hint, Finalize>
             as unsafe extern "C" fn(
@@ -393,26 +394,26 @@ impl Env {
     ))
   }
 
-  pub fn create_arraybuffer_with_data(&self, data: Vec<u8>) -> Result<JsArrayBufferValue> {
+  pub fn create_arraybuffer_with_data(&self, mut data: Vec<u8>) -> Result<JsArrayBufferValue> {
     let length = data.len();
     let mut raw_value = ptr::null_mut();
-    let data_ptr = data.as_ptr();
+    let data_ptr = data.as_mut_ptr();
     check_status!(unsafe {
-      sys::napi_create_external_arraybuffer(
-        self.0,
-        if length == 0 {
-          // Rust uses 0x1 as the data pointer for empty buffers,
-          // but NAPI/V8 only allows multiple buffers to have
-          // the same data pointer if it's 0x0.
-          ptr::null_mut()
-        } else {
-          data_ptr as *mut c_void
-        },
-        length,
-        Some(drop_buffer),
-        Box::into_raw(Box::new((length, data.capacity()))) as *mut c_void,
-        &mut raw_value,
-      )
+      if length == 0 {
+        // Rust uses 0x1 as the data pointer for empty buffers,
+        // but NAPI/V8 only allows multiple buffers to have
+        // the same data pointer if it's 0x0.
+        sys::napi_create_arraybuffer(self.0, length, ptr::null_mut(), &mut raw_value)
+      } else {
+        sys::napi_create_external_arraybuffer(
+          self.0,
+          data_ptr as *mut c_void,
+          length,
+          Some(drop_buffer),
+          Box::into_raw(Box::new((length, data.capacity()))) as *mut c_void,
+          &mut raw_value,
+        )
+      }
     })?;
 
     mem::forget(data);
@@ -609,7 +610,7 @@ impl Env {
     // `&'static dyn Fn…` in Rust parlance, in that thanks to `Box::into_raw()`
     // we are sure the context won't be freed, and thus the callback may use
     // it to call the actual method thanks to the trampoline…
-    // But we thus have a data leak: there is nothing yet reponsible for
+    // But we thus have a data leak: there is nothing yet responsible for
     // running the `drop(Box::from_raw(…))` cleanup code.
     //
     // To solve that, according to the docs, we need to attach a finalizer:

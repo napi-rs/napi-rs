@@ -377,6 +377,16 @@ test('buffer', (t) => {
   t.is(b.toString(), '')
 })
 
+test('reset empty buffer', (t) => {
+  const empty = getEmptyBuffer()
+
+  const shared = new ArrayBuffer(0)
+  const buffer = Buffer.from(shared)
+  t.notThrows(() => {
+    buffer.set(empty)
+  })
+})
+
 test('convert typedarray to vec', (t) => {
   const input = new Uint32Array([1, 2, 3, 4, 5])
   t.deepEqual(convertU32Array(input), Array.from(input))
