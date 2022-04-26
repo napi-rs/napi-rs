@@ -4,7 +4,7 @@ use std::ffi::c_void;
 use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 
-use crate::{check_status, Env, Error, Result, Status};
+use crate::{bindgen_runtime::ToNapiValue, check_status, Env, Error, Result, Status};
 
 type RefInformation = (
   *mut c_void,
@@ -20,7 +20,7 @@ thread_local! {
 ///
 /// Create a `reference` from `Class` instance.
 /// Unref the `Reference` when the `Reference` is dropped.
-pub struct Reference<T> {
+pub struct Reference<T: 'static> {
   raw: *mut T,
   napi_ref: crate::sys::napi_ref,
   env: *mut c_void,
@@ -42,7 +42,7 @@ impl<T> Drop for Reference<T> {
   }
 }
 
-impl<T> Reference<T> {
+impl<T: 'static> Reference<T> {
   #[doc(hidden)]
   pub fn add_ref(t: *mut c_void, value: RefInformation) {
     REFERENCE_MAP.with(|map| {
@@ -75,6 +75,17 @@ impl<T> Reference<T> {
         format!("Class for Type {:?} not found", t),
       ))
     }
+  }
+}
+
+impl<T: 'static> ToNapiValue for Reference<T> {
+  unsafe fn to_napi_value(env: crate::sys::napi_env, val: Self) -> Result<crate::sys::napi_value> {
+    let mut result = std::ptr::null_mut();
+    check_status!(
+      unsafe { crate::sys::napi_get_reference_value(env, val.napi_ref, &mut result) },
+      "Failed to get reference value"
+    )?;
+    Ok(result)
   }
 }
 
@@ -114,7 +125,7 @@ impl<T: 'static> Reference<T> {
   }
 }
 
-impl<T> Deref for Reference<T> {
+impl<T: 'static> Deref for Reference<T> {
   type Target = T;
 
   fn deref(&self) -> &Self::Target {
@@ -122,7 +133,7 @@ impl<T> Deref for Reference<T> {
   }
 }
 
-impl<T> DerefMut for Reference<T> {
+impl<T: 'static> DerefMut for Reference<T> {
   fn deref_mut(&mut self) -> &mut Self::Target {
     unsafe { Box::leak(Box::from_raw(self.raw)) }
   }
@@ -131,7 +142,7 @@ impl<T> DerefMut for Reference<T> {
 /// ### Experimental feature
 ///
 /// Create a `SharedReference` from an existed `Reference`.
-pub struct SharedReference<T, S> {
+pub struct SharedReference<T: 'static, S: 'static> {
   raw: *mut S,
   owner: Reference<T>,
 }
@@ -168,7 +179,18 @@ impl<T: 'static, S: 'static> SharedReference<T, S> {
   }
 }
 
-impl<T, S> Deref for SharedReference<T, S> {
+impl<T: 'static, S: 'static> ToNapiValue for SharedReference<T, S> {
+  unsafe fn to_napi_value(env: crate::sys::napi_env, val: Self) -> Result<crate::sys::napi_value> {
+    let mut result = std::ptr::null_mut();
+    check_status!(
+      unsafe { crate::sys::napi_get_reference_value(env, val.owner.napi_ref, &mut result) },
+      "Failed to get reference value"
+    )?;
+    Ok(result)
+  }
+}
+
+impl<T: 'static, S: 'static> Deref for SharedReference<T, S> {
   type Target = S;
 
   fn deref(&self) -> &Self::Target {
@@ -176,7 +198,7 @@ impl<T, S> Deref for SharedReference<T, S> {
   }
 }
 
-impl<T, S> DerefMut for SharedReference<T, S> {
+impl<T: 'static, S: 'static> DerefMut for SharedReference<T, S> {
   fn deref_mut(&mut self) -> &mut Self::Target {
     unsafe { Box::leak(Box::from_raw(self.raw)) }
   }

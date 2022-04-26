@@ -278,6 +278,15 @@ pub fn ty_to_ts_type(ty: &Type, is_return_ty: bool, is_struct_field: bool) -> (S
               Some(("Promise<unknown>".to_owned(), false))
             }
           });
+        } else if rust_ty == "Reference" {
+          ts_ty = r#struct::TASK_STRUCTS.with(|t| {
+            let (output_type, _) = args.first().unwrap().to_owned();
+            if let Some(o) = t.borrow().get(&output_type) {
+              Some((o.to_owned(), false))
+            } else {
+              Some((output_type, false))
+            }
+          });
         } else if let Some(&known_ty) = KNOWN_TYPES.get(rust_ty.as_str()) {
           if known_ty.contains("{}") {
             ts_ty = Some((
