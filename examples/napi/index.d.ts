@@ -207,6 +207,7 @@ export class Bird {
 export type Blake2bHasher = Blake2BHasher
 /** Smoking test for type generation */
 export class Blake2BHasher {
+  static withKey(key: Blake2bKey): Blake2BHasher
   update(data: Buffer): void
 }
 export type Blake2bKey = Blake2BKey

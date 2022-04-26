@@ -592,7 +592,11 @@ async function processIntermediateTypeFile(
           })
           break
         case 'impl':
-          impls.set(def.name, `${def.js_doc}${def.def}`)
+          const existed = impls.get(def.name)
+          impls.set(
+            def.name,
+            `${existed ? existed + '\n' : ''}${def.js_doc}${def.def}`,
+          )
           break
         case 'interface':
           dts +=
