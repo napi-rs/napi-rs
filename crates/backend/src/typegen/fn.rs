@@ -66,7 +66,7 @@ impl ToTypeDef for NapiFn {
         .ts_generic_types
         .as_ref()
         .map(|g| format!("<{}>", g))
-        .unwrap_or("".to_string()),
+        .unwrap_or_else(|| "".to_string()),
       args = self
         .ts_args_type
         .clone()

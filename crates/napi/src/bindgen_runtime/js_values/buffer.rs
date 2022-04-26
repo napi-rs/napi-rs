@@ -172,22 +172,22 @@ impl ToNapiValue for Buffer {
     let len = val.inner.len();
     let mut ret = ptr::null_mut();
     check_status!(
-      unsafe {
-        sys::napi_create_external_buffer(
-          env,
-          len,
-          if len == 0 {
-            // Rust uses 0x1 as the data pointer for empty buffers,
-            // but NAPI/V8 only allows multiple buffers to have
-            // the same data pointer if it's 0x0.
-            ptr::null_mut()
-          } else {
-            val.inner.as_mut_ptr() as *mut _
-          },
-          Some(drop_buffer),
-          Box::into_raw(Box::new((len, val.capacity))) as *mut _,
-          &mut ret,
-        )
+      if len == 0 {
+        // Rust uses 0x1 as the data pointer for empty buffers,
+        // but NAPI/V8 only allows multiple buffers to have
+        // the same data pointer if it's 0x0.
+        unsafe { sys::napi_create_buffer(env, len, ptr::null_mut(), &mut ret) }
+      } else {
+        unsafe {
+          sys::napi_create_external_buffer(
+            env,
+            len,
+            val.inner.as_mut_ptr() as *mut _,
+            Some(drop_buffer),
+            Box::into_raw(Box::new((len, val.capacity))) as *mut _,
+            &mut ret,
+          )
+        }
       },
       "Failed to create napi buffer"
     )?;

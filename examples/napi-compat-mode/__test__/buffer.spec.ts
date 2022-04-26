@@ -34,8 +34,12 @@ test('should create borrowed buffer with finalize', (t) => {
 })
 
 test('should create empty borrowed buffer with finalize', (t) => {
-  t.is(bindings.createEmptyBorrowedBufferWithFinalize().toString(), '')
-  t.is(bindings.createEmptyBorrowedBufferWithFinalize().toString(), '')
+  t.throws(() => bindings.createEmptyBorrowedBufferWithFinalize().toString(), {
+    message: 'Borrowed data should not be null',
+  })
+  t.throws(() => bindings.createEmptyBorrowedBufferWithFinalize().toString(), {
+    message: 'Borrowed data should not be null',
+  })
 })
 
 test('should create empty buffer', (t) => {
