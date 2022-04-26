@@ -261,6 +261,15 @@ export class JsRepo {
 export class JsRemote {
   name(): string
 }
+export type CSSRuleList = CssRuleList
+export class CssRuleList {
+  getRules(): Array<string>
+}
+export type CSSStyleSheet = CssStyleSheet
+export class CssStyleSheet {
+  constructor(rules: Array<string>)
+  get rules(): CssRuleList
+}
 export namespace xxh3 {
   export const ALIGNMENT: number
   export function xxh3_64(input: Buffer): bigint

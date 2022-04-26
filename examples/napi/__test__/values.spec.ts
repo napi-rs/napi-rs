@@ -90,6 +90,7 @@ import {
   chronoDateAdd1Minute,
   bufferPassThrough,
   JsRepo,
+  CssStyleSheet,
   asyncReduceBuffer,
   callbackReturnPromise,
 } from '../'
@@ -197,6 +198,13 @@ test('class Factory return Result', (t) => {
 test('should be able to create object reference and shared reference', (t) => {
   const repo = new JsRepo('.')
   t.is(repo.remote().name(), 'origin')
+})
+
+test('should be able to into_reference', (t) => {
+  const rules = ['body: { color: red }', 'div: { color: blue }']
+  const sheet = new CssStyleSheet(rules)
+  t.is(sheet.rules, sheet.rules)
+  t.deepEqual(sheet.rules.getRules(), rules)
 })
 
 test('callback', (t) => {

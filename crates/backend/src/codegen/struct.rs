@@ -216,52 +216,77 @@ impl NapiStruct {
 
   fn gen_to_napi_value_ctor_impl_for_non_default_constructor_struct(&self) -> TokenStream {
     let name = &self.name;
-    let js_name_str = format!("{}\0", &self.js_name);
+    let js_name_raw = &self.js_name;
+    let js_name_str = format!("{}\0", js_name_raw);
     quote! {
       impl napi::bindgen_prelude::ToNapiValue for #name {
         unsafe fn to_napi_value(
-          env: napi::sys::napi_env, val: #name
+          env: napi::sys::napi_env,
+          val: #name
         ) -> napi::Result<napi::bindgen_prelude::sys::napi_value> {
           if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name_str) {
-            let mut ctor = std::ptr::null_mut();
-
-            napi::check_status!(
-              napi::sys::napi_get_reference_value(env, ctor_ref, &mut ctor),
-              "Failed to get constructor of class `{}`",
-              #js_name_str
-            )?;
-
-            let mut result = std::ptr::null_mut();
-            napi::bindgen_prelude::___CALL_FROM_FACTORY.with(|inner| inner.store(true, std::sync::atomic::Ordering::Relaxed));
-            napi::check_status!(
-              napi::sys::napi_new_instance(env, ctor, 0, std::ptr::null_mut(), &mut result),
-              "Failed to construct class `{}`",
-              #js_name_str
-            )?;
             let wrapped_value = Box::into_raw(Box::new(val)) as *mut std::ffi::c_void;
-            let mut object_ref = std::ptr::null_mut();
-            let initial_finalize: Box<dyn FnOnce()> = Box::new(|| {});
-            let finalize_callbacks_ptr = std::rc::Rc::into_raw(std::rc::Rc::new(std::cell::Cell::new(Box::into_raw(initial_finalize))));
-            napi::check_status!(
-              napi::sys::napi_wrap(
-                env,
-                result,
-                wrapped_value,
-                Some(napi::bindgen_prelude::raw_finalize_unchecked::<#name>),
-                std::ptr::null_mut(),
-                &mut object_ref,
-              ),
-              "Failed to wrap native object of class `{}`",
-              #js_name_str
-            )?;
-            napi::bindgen_prelude::Reference::<#name>::add_ref(wrapped_value, (wrapped_value, object_ref, finalize_callbacks_ptr));
-            napi::bindgen_prelude::___CALL_FROM_FACTORY.with(|inner| inner.store(false, std::sync::atomic::Ordering::Relaxed));
-            Ok(result)
+            #name::new_instance(env, wrapped_value, ctor_ref)
           } else {
             Err(napi::bindgen_prelude::Error::new(
-              napi::bindgen_prelude::Status::InvalidArg, format!("Failed to get constructor of class `{}`", #js_name_str))
+              napi::bindgen_prelude::Status::InvalidArg, format!("Failed to get constructor of class `{}`", #js_name_raw))
             )
           }
+        }
+      }
+
+      impl #name {
+        pub fn into_reference(val: #name, env: napi::Env) -> napi::Result<napi::bindgen_prelude::Reference<#name>> {
+          if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name_str) {
+            unsafe {
+              let wrapped_value = Box::into_raw(Box::new(val)) as *mut std::ffi::c_void;
+              #name::new_instance(env.raw(), wrapped_value, ctor_ref)?;
+              napi::bindgen_prelude::Reference::<#name>::from_value_ptr(wrapped_value, env.raw())
+            }
+          } else {
+            Err(napi::bindgen_prelude::Error::new(
+              napi::bindgen_prelude::Status::InvalidArg, format!("Failed to get constructor of class `{}`", #js_name_raw))
+            )
+          }
+        }
+
+        unsafe fn new_instance(
+          env: napi::sys::napi_env,
+          wrapped_value: *mut std::ffi::c_void,
+          ctor_ref: napi::sys::napi_ref,
+        ) -> napi::Result<napi::bindgen_prelude::sys::napi_value> {
+          let mut ctor = std::ptr::null_mut();
+          napi::check_status!(
+            napi::sys::napi_get_reference_value(env, ctor_ref, &mut ctor),
+            "Failed to get constructor of class `{}`",
+            #js_name_raw
+          )?;
+
+          let mut result = std::ptr::null_mut();
+          napi::bindgen_prelude::___CALL_FROM_FACTORY.with(|inner| inner.store(true, std::sync::atomic::Ordering::Relaxed));
+          napi::check_status!(
+            napi::sys::napi_new_instance(env, ctor, 0, std::ptr::null_mut(), &mut result),
+            "Failed to construct class `{}`",
+            #js_name_raw
+          )?;
+          let mut object_ref = std::ptr::null_mut();
+          let initial_finalize: Box<dyn FnOnce()> = Box::new(|| {});
+          let finalize_callbacks_ptr = std::rc::Rc::into_raw(std::rc::Rc::new(std::cell::Cell::new(Box::into_raw(initial_finalize))));
+          napi::check_status!(
+            napi::sys::napi_wrap(
+              env,
+              result,
+              wrapped_value,
+              Some(napi::bindgen_prelude::raw_finalize_unchecked::<#name>),
+              std::ptr::null_mut(),
+              &mut object_ref,
+            ),
+            "Failed to wrap native object of class `{}`",
+            #js_name_raw
+          )?;
+          napi::bindgen_prelude::Reference::<#name>::add_ref(wrapped_value, (wrapped_value, object_ref, finalize_callbacks_ptr));
+          napi::bindgen_prelude::___CALL_FROM_FACTORY.with(|inner| inner.store(false, std::sync::atomic::Ordering::Relaxed));
+          Ok(result)
         }
       }
     }
