@@ -49,15 +49,20 @@ export default {
       NAPI_VERSION,
       NAPI_DERIVE_VERSION,
       NAPI_BUILD_VERSION,
+      // Do not external `node:xx` because we need to replace it with `xx` to compatible with `node@12`
       'node:path': 'path',
       'node:os': 'os',
       'node:process': 'process',
+      'node:tty': 'tty',
       preventAssignment: true,
     }),
     alias({
       entries: [{ find: 'readable-stream', replacement: 'stream' }],
     }),
-    nodeResolve({ preferBuiltins: true }),
+    nodeResolve({
+      preferBuiltins: true,
+      exportConditions: ['node', 'default', 'module', 'export'],
+    }),
     commonjs(),
     json(),
   ],
