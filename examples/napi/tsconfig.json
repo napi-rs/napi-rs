@@ -4,7 +4,8 @@
   "compilerOptions": {
     "outDir": "./dist",
     "rootDir": "__test__",
-    "target": "ES2018"
+    "target": "ES2018",
+    "skipLibCheck": false
   },
-  "exclude": ["dist", "index.d.ts"]
+  "exclude": ["dist"]
 }

@@ -181,6 +181,7 @@ static KNOWN_TYPES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     ("Either5", "{} | {} | {} | {} | {}"),
     ("unknown", "unknown"),
     ("Null", "null"),
+    ("JsNull", "null"),
     ("null", "null"),
     ("Symbol", "symbol"),
     ("JsSymbol", "symbol"),
@@ -262,7 +263,7 @@ pub fn ty_to_ts_type(ty: &Type, is_return_ty: bool, is_struct_field: bool) -> (S
               if is_struct_field {
                 arg.to_string()
               } else if is_return_ty {
-                format!("{}?", arg)
+                format!("{} | null", arg)
               } else {
                 format!("{} | undefined | null", arg)
               },

@@ -96,7 +96,7 @@ export function tsRename(a: { foo: number }): string[]
 export function xxh64Alias(input: Buffer): bigint
 export function getMapping(): Record<string, number>
 export function sumMapping(nums: Record<string, number>): number
-export function mapOption(val?: number | undefined | null): number?
+export function mapOption(val?: number | undefined | null): number | null
 export function returnNull(): null
 export function returnUndefined(): void
 export function add(a: number, b: number): number
@@ -105,7 +105,7 @@ export function listObjKeys(obj: object): Array<string>
 export function createObj(): object
 export function getGlobal(): typeof global
 export function getUndefined(): void
-export function getNull(): JsNull
+export function getNull(): null
 export interface AllOptionalObject {
   name?: string
   age?: number
@@ -233,7 +233,7 @@ export class NinjaTurtle {
 export type JsAssets = Assets
 export class Assets {
   constructor()
-  get(id: number): JsAsset?
+  get(id: number): JsAsset | null
 }
 export type JsAsset = Asset
 export class Asset {
