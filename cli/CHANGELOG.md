@@ -3,6 +3,16 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.7.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.6.2...@napi-rs/cli@2.7.0) (2022-04-27)
+
+### Bug Fixes
+
+- **cli:** generated type def on multi impl blocks ([c3a35a0](https://github.com/napi-rs/napi-rs/commit/c3a35a070440b1253c172a0e5e4be0a018206946))
+
+### Features
+
+- **cli:** add build option to not include the header in dts file ([#1140](https://github.com/napi-rs/napi-rs/issues/1140)) ([c390609](https://github.com/napi-rs/napi-rs/commit/c39060984d4cae560da7c1a7994ba6c1e33fa101))
+
 ## [2.6.2](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.6.1...@napi-rs/cli@2.6.2) (2022-04-01)
 
 ### Bug Fixes
