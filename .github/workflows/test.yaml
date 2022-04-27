@@ -68,5 +68,6 @@ jobs:
         run: |
           yarn build:test
           yarn test --verbose
+          yarn tsc -p examples/napi/tsconfig.json --noEmit
         env:
           RUST_BACKTRACE: 1
