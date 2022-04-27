@@ -10,6 +10,7 @@
 //! [win_delay_load_hook.cc]: https://github.com/nodejs/node-gyp/blob/e18a61afc1669d4897e6c5c8a6694f4995a0f4d6/src/win_delay_load_hook.cc
 
 use std::ffi::CStr;
+use std::os::raw::c_char;
 
 use windows::core::PCSTR;
 use windows::Win32::Foundation::HINSTANCE;
@@ -36,7 +37,20 @@ unsafe extern "C" fn load_exe_hook(event: u32, info: *const DELAYLOAD_INFO) -> H
     return HINSTANCE::default();
   }
 
-  unsafe { GetModuleHandleA(PCSTR::default()) }
+  match unsafe { GetModuleHandleA(PCSTR::default()) } {
+    Ok(h) => h,
+    Err(e) => unsafe {
+      let location = "win_delay_load_hook.rs\0";
+      let err = format!("{}", e);
+      crate::sys::napi_fatal_error(
+        location.as_ptr() as *const c_char,
+        22,
+        format!("{}\0", err).as_ptr() as *const c_char,
+        err.len(),
+      );
+      unreachable!();
+    },
+  }
 }
 
 #[no_mangle]
