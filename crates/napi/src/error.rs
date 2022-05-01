@@ -95,10 +95,10 @@ impl Error {
     }
   }
 
-  pub fn from_reason(reason: String) -> Self {
+  pub fn from_reason<T: Into<String>>(reason: T) -> Self {
     Error {
       status: Status::GenericFailure,
-      reason,
+      reason: reason.into(),
       #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
       maybe_raw: ptr::null_mut(),
     }
