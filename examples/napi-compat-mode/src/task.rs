@@ -58,7 +58,7 @@ impl Task for CountBufferLength {
 
   fn compute(&mut self) -> Result<Self::Output> {
     if self.data.len() == 10 {
-      return Err(Error::from_reason("len can't be 5".to_string()));
+      return Err(Error::from_reason("len can't be 5"));
     }
     Ok(self.data.len())
   }
