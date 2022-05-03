@@ -41,6 +41,7 @@ pub use buffer::*;
 pub use date::*;
 #[cfg(feature = "serde-json")]
 pub(crate) use de::De;
+#[cfg(not(target_arch = "wasm32"))]
 pub use either::Either;
 pub use escapable_handle_scope::EscapableHandleScope;
 pub use function::JsFunction;

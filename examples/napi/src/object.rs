@@ -1,4 +1,6 @@
-use napi::{bindgen_prelude::*, JsGlobal, JsNull, JsObject, JsUndefined, Property};
+use napi::{bindgen_prelude::*, JsGlobal, JsNull, JsUndefined};
+#[cfg(not(target_arch = "wasm32"))]
+use napi::{JsObject, Property};
 
 #[napi]
 fn list_obj_keys(obj: Object) -> Vec<String> {
@@ -87,6 +89,7 @@ pub struct TsTypeChanged {
 }
 
 #[napi(ts_return_type = "{ value: ArrayBuffer, get getter(): number }")]
+#[cfg(not(target_arch = "wasm32"))]
 pub fn create_obj_with_property(env: Env) -> Result<JsObject> {
   let mut obj = env.create_object()?;
   let arraybuffer = env.create_arraybuffer(10)?.into_raw();

@@ -1,8 +1,12 @@
 use std::ptr;
 
-use crate::bindgen_runtime::{FromNapiValue, TypeName};
+use crate::bindgen_runtime::FromNapiValue;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::bindgen_runtime::TypeName;
 use crate::check_status;
-use crate::{sys, Either, Env, Error, JsUndefined, NapiValue, Result, Status};
+use crate::{sys, Env, Error, NapiValue, Result, Status};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::{Either, JsUndefined};
 
 /// Function call context
 pub struct CallContext<'env> {
@@ -57,6 +61,7 @@ impl<'env> CallContext<'env> {
     }
   }
 
+  #[cfg(not(target_arch = "wasm32"))]
   pub fn try_get<ArgType: NapiValue + TypeName + FromNapiValue>(
     &self,
     index: usize,

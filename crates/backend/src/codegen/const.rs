@@ -33,12 +33,13 @@ impl NapiConst {
     quote! {
       #[allow(non_snake_case)]
       #[allow(clippy::all)]
+      #[cfg(not(target_arch = "wasm32"))]
       unsafe fn #cb_name(env: napi::sys::napi_env) -> napi::Result<napi::sys::napi_value> {
         <#type_name as napi::bindgen_prelude::ToNapiValue>::to_napi_value(env, #name_ident)
       }
       #[allow(non_snake_case)]
       #[allow(clippy::all)]
-      #[cfg(all(not(test), not(feature = "noop")))]
+      #[cfg(all(not(test), not(feature = "noop"), not(target_arch = "wasm32")))]
       #[napi::bindgen_prelude::ctor]
       fn #register_name() {
         napi::bindgen_prelude::register_module_export(#js_mod_ident, #js_name_lit, #cb_name);

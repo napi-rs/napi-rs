@@ -20,6 +20,7 @@ mod callback;
 mod class;
 mod class_factory;
 mod date;
+#[cfg(not(target_arch = "wasm32"))]
 mod either;
 mod r#enum;
 mod error;
@@ -33,6 +34,7 @@ mod nullable;
 mod number;
 mod object;
 mod promise;
+#[cfg(not(target_arch = "wasm32"))]
 mod reference;
 mod serde;
 mod string;

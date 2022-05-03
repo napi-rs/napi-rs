@@ -1,3 +1,4 @@
+#[cfg(not(target_arch = "wasm32"))]
 use napi::bindgen_prelude::*;
 
 /// default enum values are continuos i32s start from 0

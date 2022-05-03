@@ -193,6 +193,7 @@ impl NapiStruct {
     };
 
     quote! {
+      #[cfg(not(target_arch = "wasm32"))]
       extern "C" fn constructor(
         env: napi::bindgen_prelude::sys::napi_env,
         cb: napi::bindgen_prelude::sys::napi_callback_info
@@ -226,6 +227,7 @@ impl NapiStruct {
     let js_name_str = format!("{}\0", js_name_raw);
     let iterator_implementation = self.gen_iterator_property(name);
     quote! {
+      #[cfg(not(target_arch = "wasm32"))]
       impl napi::bindgen_prelude::ToNapiValue for #name {
         unsafe fn to_napi_value(
           env: napi::sys::napi_env,
@@ -244,6 +246,7 @@ impl NapiStruct {
         }
       }
 
+      #[cfg(not(target_arch = "wasm32"))]
       impl #name {
         pub fn into_reference(val: #name, env: napi::Env) -> napi::Result<napi::bindgen_prelude::Reference<#name>> {
           if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name_str) {
@@ -353,6 +356,7 @@ impl NapiStruct {
     };
 
     quote! {
+      #[cfg(not(target_arch = "wasm32"))]
       impl napi::bindgen_prelude::ToNapiValue for #name {
         unsafe fn to_napi_value(
           env: napi::bindgen_prelude::sys::napi_env,
@@ -471,6 +475,7 @@ impl NapiStruct {
     };
 
     quote! {
+      #[cfg(not(target_arch = "wasm32"))]
       impl napi::bindgen_prelude::TypeName for #name {
         fn type_name() -> &'static str {
           #name_str
@@ -481,6 +486,7 @@ impl NapiStruct {
         }
       }
 
+      #[cfg(not(target_arch = "wasm32"))]
       impl napi::bindgen_prelude::ToNapiValue for #name {
         unsafe fn to_napi_value(env: napi::bindgen_prelude::sys::napi_env, val: #name) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
           let env_wrapper = napi::bindgen_prelude::Env::from(env);
@@ -493,6 +499,7 @@ impl NapiStruct {
         }
       }
 
+      #[cfg(not(target_arch = "wasm32"))]
       impl napi::bindgen_prelude::FromNapiValue for #name {
         unsafe fn from_napi_value(
           env: napi::bindgen_prelude::sys::napi_env,
@@ -530,6 +537,7 @@ impl NapiStruct {
         getters_setters.push((
           field.js_name.clone(),
           quote! {
+            #[cfg(not(target_arch = "wasm32"))]
             extern "C" fn #getter_name(
               env: napi::bindgen_prelude::sys::napi_env,
               cb: napi::bindgen_prelude::sys::napi_callback_info
@@ -553,6 +561,7 @@ impl NapiStruct {
         getters_setters.push((
           field.js_name.clone(),
           quote! {
+            #[cfg(not(target_arch = "wasm32"))]
             extern "C" fn #setter_name(
               env: napi::bindgen_prelude::sys::napi_env,
               cb: napi::bindgen_prelude::sys::napi_callback_info
@@ -623,7 +632,7 @@ impl NapiStruct {
     quote! {
       #[allow(non_snake_case)]
       #[allow(clippy::all)]
-      #[cfg(all(not(test), not(feature = "noop")))]
+      #[cfg(all(not(test), not(feature = "noop"), not(target_arch = "wasm32")))]
       #[napi::bindgen_prelude::ctor]
       fn #struct_register_name() {
         napi::__private::register_class(#name_str, #js_mod_ident, #js_name, vec![#(#props),*]);
@@ -693,6 +702,7 @@ impl NapiImpl {
     Ok(quote! {
       #[allow(non_snake_case)]
       #[allow(clippy::all)]
+      #[cfg(not(target_arch = "wasm32"))]
       mod #mod_name {
         use super::*;
         #(#methods)*

@@ -72,6 +72,7 @@ impl TryToTokens for NapiFn {
       #[doc(hidden)]
       #[allow(non_snake_case)]
       #[allow(clippy::all)]
+      #[cfg(not(target_arch = "wasm32"))]
       extern "C" fn #intermediate_ident(
         env: napi::bindgen_prelude::sys::napi_env,
         cb: napi::bindgen_prelude::sys::napi_callback_info
@@ -350,6 +351,7 @@ impl NapiFn {
       quote! {
         #[allow(non_snake_case)]
         #[allow(clippy::all)]
+        #[cfg(not(target_arch = "wasm32"))]
         unsafe fn #cb_name(env: napi::bindgen_prelude::sys::napi_env) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
           let mut fn_ptr = std::ptr::null_mut();
 
@@ -371,7 +373,7 @@ impl NapiFn {
 
         #[allow(clippy::all)]
         #[allow(non_snake_case)]
-        #[cfg(all(not(test), not(feature = "noop")))]
+        #[cfg(all(not(test), not(feature = "noop"), not(target_arch = "wasm32")))]
         #[napi::bindgen_prelude::ctor]
         fn #module_register_name() {
           napi::bindgen_prelude::register_module_export(#js_mod_ident, #js_name, #cb_name);

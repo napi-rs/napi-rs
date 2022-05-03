@@ -47,6 +47,7 @@ fn read_file_content() -> Result<String> {
 }
 
 #[napi]
+#[cfg(not(target_arch = "wasm32"))]
 fn return_js_function(env: Env) -> Result<JsFunction> {
   get_js_function(&env, read_file_js_function)
 }

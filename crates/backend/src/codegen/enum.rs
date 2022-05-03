@@ -133,6 +133,7 @@ impl NapiEnum {
     quote! {
       #[allow(non_snake_case)]
       #[allow(clippy::all)]
+      #[cfg(not(target_arch = "wasm32"))]
       unsafe fn #callback_name(env: napi::bindgen_prelude::sys::napi_env) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
         use std::ffi::CString;
         use std::ptr;
@@ -150,7 +151,7 @@ impl NapiEnum {
       }
       #[allow(non_snake_case)]
       #[allow(clippy::all)]
-      #[cfg(all(not(test), not(feature = "noop")))]
+      #[cfg(all(not(test), not(feature = "noop"), not(target_arch = "wasm32")))]
       #[napi::bindgen_prelude::ctor]
       fn #register_name() {
         napi::bindgen_prelude::register_module_export(#js_mod_ident, #js_name_lit, #callback_name);

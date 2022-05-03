@@ -1,0 +1,57 @@
+name: wasm32-unknown-unknown
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+env:
+  DEBUG: 'napi:*'
+
+jobs:
+  test-wasm:
+    name: Build - wasm32-unknown-unknown
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 16
+          cache: 'yarn'
+          check-latest: true
+
+      - name: Install
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+          target: 'wasm32-unknown-unknown'
+
+      - name: Cache cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: stable-wasm32-unknown-unknown-node@16-cargo-cache
+
+      - name: Cache NPM dependencies
+        uses: actions/cache@v3
+        with:
+          path: .yarn/cache
+          key: npm-cache-wasm32-unknown-unknown-node@16
+
+      - name: Install dependencies
+        run: yarn install --immutable --mode=skip-build
+
+      - name: 'Build TypeScript'
+        run: yarn build
+
+      - name: Testing wasm
+        run: |
+          cargo build -p napi-examples --target wasm32-unknown-unknown

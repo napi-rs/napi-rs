@@ -34,6 +34,7 @@ pub use arraybuffer::*;
 #[cfg(feature = "napi6")]
 pub use bigint::*;
 pub use buffer::*;
+#[cfg(not(target_arch = "wasm32"))]
 pub use either::*;
 pub use external::*;
 #[cfg(feature = "napi4")]
