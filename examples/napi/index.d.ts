@@ -269,6 +269,11 @@ export type CSSStyleSheet = CssStyleSheet
 export class CssStyleSheet {
   constructor(rules: Array<string>)
   get rules(): CssRuleList
+  anotherCssStyleSheet(): AnotherCssStyleSheet
+}
+export type AnotherCSSStyleSheet = AnotherCssStyleSheet
+export class AnotherCssStyleSheet {
+  get rules(): CssRuleList
 }
 export namespace xxh3 {
   export const ALIGNMENT: number
