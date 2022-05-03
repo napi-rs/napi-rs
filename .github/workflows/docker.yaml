@@ -41,6 +41,14 @@ jobs:
           push: true
           tags: ghcr.io/${{ github.repository }}/nodejs-rust:lts-debian
 
+      - name: Build and push debian aarch64 cross
+        uses: docker/build-push-action@v2
+        with:
+          file: debian-aarch64.Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/${{ github.repository }}/nodejs-rust:lts-debian-aarch64
+
       - name: Build and push debian with zig
         uses: docker/build-push-action@v2
         with:

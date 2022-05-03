@@ -9,6 +9,7 @@ import { CreateNpmDirCommand } from '../create-npm-dir'
 import { debugFactory } from '../debug'
 import { DefaultPlatforms } from '../parse-triple'
 
+import { GitIgnore } from './.gitignore-template'
 import { createCargoContent } from './cargo'
 import { createCargoConfig } from './cargo-config'
 import { createGithubActionsCIYml } from './ci-yml'
@@ -200,6 +201,7 @@ test('sum from native', (t) => {
 edition = "2021"
 `,
     )
+    this.writeFile('.gitignore', GitIgnore)
   }
 
   private writeFile(path: string, content: string) {
