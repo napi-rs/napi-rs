@@ -46,12 +46,11 @@ jobs:
             architecture: 'x86'
           - host: ubuntu-latest
             target: 'x86_64-unknown-linux-gnu'
-            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine-zig
+            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian
             build: >-
               set -e &&\n
-              rustup target add x86_64-unknown-linux-gnu &&\n
-              yarn build --target x86_64-unknown-linux-gnu --zig --zig-abi-suffix 2.12 &&\n
-              llvm-strip -x *.node
+              yarn build --target x86_64-unknown-linux-gnu &&\n
+              strip *.node
           - host: ubuntu-latest
             target: 'x86_64-unknown-linux-musl'
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
@@ -71,12 +70,11 @@ jobs:
               strip -x *.node
           - host: ubuntu-latest
             target: 'aarch64-unknown-linux-gnu'
-            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine-zig
+            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-aarch64
             build: >-
               set -e &&\n
-              rustup target add aarch64-unknown-linux-gnu &&\n
-              yarn build --target aarch64-unknown-linux-gnu --zig --zig-abi-suffix 2.17 &&\n
-              llvm-strip -x *.node
+              yarn build --target aarch64-unknown-linux-gnu &&\n
+              aarch64-unknown-linux-gnu-strip *.node
           - host: ubuntu-latest
             architecture: 'x64'
             target: 'armv7-unknown-linux-gnueabihf'
@@ -144,26 +142,21 @@ jobs:
           toolchain: stable
           target: \${{ matrix.settings.target }}
 
-      - name: Generate Cargo.lock
-        uses: actions-rs/cargo@v1
-        if: \${{ !matrix.settings.docker }}
-        with:
-          command: generate-lockfile
-
       - name: Cache cargo
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
-          path: ~/.cargo/registry
-          key: \${{ matrix.settings.target }}-cargo-registry
-
-      - name: Cache cargo index
-        uses: actions/cache@v2
-        with:
-          path: ~/.cargo/git
-          key: \${{ matrix.settings.target }}-cargo-index
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            .cargo-cache/registry/index/
+            .cargo-cache/registry/cache/
+            .cargo-cache/git/db/
+            target/
+          key: \${{ matrix.settings.target }}-cargo-\${{ matrix.settings.host }}
 
       - name: Cache NPM dependencies
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: node_modules
           key: npm-cache-build-\${{ matrix.settings.target }}-node@16
@@ -181,7 +174,7 @@ jobs:
         if: \${{ matrix.settings.docker }}
         with:
           image: \${{ matrix.settings.docker }}
-          options: -v \${{ env.HOME }}/.cargo/git:/root/.cargo/git -v \${{ env.HOME }}/.cargo/registry:/root/.cargo/registry -v \${{ github.workspace }}:/build -w /build
+          options: --user 0:0 -v \${{ github.workspace }}/.cargo-cache/git/db:/root/.cargo/git/db -v \${{ github.workspace }}/.cargo/registry/cache:/root/.cargo/registry/cache -v \${{ github.workspace }}/.cargo/registry/index:/root/.cargo/registry/index -v \${{ github.workspace }}:/build -w /build
           run: \${{ matrix.settings.build }}
 
       - name: 'Build'
@@ -190,7 +183,7 @@ jobs:
         shell: bash
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: bindings-\${{ matrix.settings.target }}
           path: \${{ env.APP_NAME }}.*.node
@@ -258,7 +251,7 @@ jobs:
             target: 'x86_64-apple-darwin'
           - host: windows-latest
             target: 'x86_64-pc-windows-msvc'
-        node: ['12', '14', '16']
+        node: ['14', '16', '18']
     runs-on: \${{ matrix.settings.host }}
 
     steps:
@@ -272,7 +265,7 @@ jobs:
           cache: 'yarn'
 
       - name: Cache NPM dependencies
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: node_modules
           key: npm-cache-test-\${{ matrix.settings.target }}-\${{ matrix.node }}-\${{ hashFiles('yarn.lock') }}
@@ -300,7 +293,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['12', '14', '16']
+        node: ['14', '16', '18']
     runs-on: ubuntu-latest
 
     steps:
@@ -314,10 +307,10 @@ jobs:
           cache: 'yarn'
 
       - name: Cache NPM dependencies
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: node_modules
-          key: npm-cache-test-linux-x64-gnu-\${{ matrix.node }}-\${{ hashFiles('yarn.lock') }}
+          key: npm-cache-test-linux-x64-gnu-\${{ matrix.node }}
 
       - name: 'Install dependencies'
         run: yarn install --ignore-scripts --frozen-lockfile --registry https://registry.npmjs.org --network-timeout 300000
@@ -342,7 +335,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['12', '14', '16']
+        node: ['14', '16', '18']
     runs-on: ubuntu-latest
 
     steps:
@@ -356,10 +349,10 @@ jobs:
           cache: 'yarn'
 
       - name: Cache NPM dependencies
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: node_modules
-          key: npm-cache-test-x86_64-unknown-linux-musl-\${{ matrix.node }}-\${{ hashFiles('yarn.lock') }}
+          key: npm-cache-test-x86_64-unknown-linux-musl-\${{ matrix.node }}
 
       - name: 'Install dependencies'
         run: yarn install --ignore-scripts --frozen-lockfile --registry https://registry.npmjs.org --network-timeout 300000
@@ -384,7 +377,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['12', '14', '16']
+        node: ['14', '16', '18']
     runs-on: ubuntu-latest
 
     steps:
@@ -403,10 +396,10 @@ jobs:
         shell: bash
 
       - name: Cache NPM dependencies
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: node_modules
-          key: npm-cache-test-linux-aarch64-gnu-\${{ matrix.node }}-\${{ hashFiles('yarn.lock') }}
+          key: npm-cache-test-linux-aarch64-gnu-\${{ matrix.node }}
 
       - name: Install dependencies
         run: yarn install --ignore-scripts --ignore-platform --frozen-lockfile --registry https://registry.npmjs.org --network-timeout 300000
@@ -444,10 +437,10 @@ jobs:
         shell: bash
 
       - name: Cache NPM dependencies
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: node_modules
-          key: npm-cache-test-linux-aarch64-musl-\${{ matrix.node }}-\${{ hashFiles('yarn.lock') }}
+          key: npm-cache-test-linux-aarch64-musl-\${{ matrix.node }}
 
       - name: Install dependencies
         run: yarn install --ignore-scripts --ignore-platform --frozen-lockfile --registry https://registry.npmjs.org --network-timeout 300000
@@ -469,7 +462,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['12', '14', '16']
+        node: ['14', '16', '18']
     runs-on: ubuntu-latest
 
     steps:
@@ -488,10 +481,10 @@ jobs:
         shell: bash
 
       - name: Cache NPM dependencies
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: node_modules
-          key: npm-cache-test-linux-arm-gnueabihf-\${{ matrix.node }}-\${{ hashFiles('yarn.lock') }}
+          key: npm-cache-test-linux-arm-gnueabihf-\${{ matrix.node }}
 
       - name: Install dependencies
         run: yarn install --ignore-scripts --ignore-platform --frozen-lockfile --registry https://registry.npmjs.org --network-timeout 300000
@@ -529,12 +522,10 @@ jobs:
           cache: 'yarn'
 
       - name: Cache NPM dependencies
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: node_modules
-          key: npm-cache-ubuntu-latest-\${{ hashFiles('yarn.lock') }}
-          restore-keys: |
-            npm-cache-
+          key: npm-cache-ubuntu-latest-publish
       - name: 'Install dependencies'
         run: yarn install --ignore-scripts --frozen-lockfile --registry https://registry.npmjs.org --network-timeout 300000
 
