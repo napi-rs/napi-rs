@@ -205,6 +205,8 @@ test('should be able to into_reference', (t) => {
   const sheet = new CssStyleSheet(rules)
   t.is(sheet.rules, sheet.rules)
   t.deepEqual(sheet.rules.getRules(), rules)
+  const anotherStyleSheet = sheet.anotherCssStyleSheet()
+  t.is(anotherStyleSheet.rules, sheet.rules)
 })
 
 test('callback', (t) => {

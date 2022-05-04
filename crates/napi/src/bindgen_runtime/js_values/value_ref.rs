@@ -32,13 +32,25 @@ unsafe impl<T: Sync> Sync for Reference<T> {}
 
 impl<T> Drop for Reference<T> {
   fn drop(&mut self) {
-    let status = unsafe {
-      crate::sys::napi_reference_unref(self.env as crate::sys::napi_env, self.napi_ref, &mut 0)
+    let rc_strong_count = Rc::strong_count(&self.finalize_callbacks);
+    let mut ref_count = 0;
+    // If Rc strong count == 1, then the referenced object is dropped on GC
+    // It would happen when the process is exiting
+    // In general, the `drop` of the `Reference` would happen first
+    if rc_strong_count > 1 {
+      let status = unsafe {
+        crate::sys::napi_reference_unref(
+          self.env as crate::sys::napi_env,
+          self.napi_ref,
+          &mut ref_count,
+        )
+      };
+      debug_assert!(
+        status == crate::sys::Status::napi_ok,
+        "Reference unref failed, status code: {}",
+        crate::Status::from(status)
+      );
     };
-    debug_assert!(
-      status == crate::sys::Status::napi_ok,
-      "Reference unref failed"
-    );
   }
 }
 

@@ -77,25 +77,53 @@ impl CSSRuleList {
 #[napi]
 pub struct CSSStyleSheet {
   inner: Rc<RefCell<OwnedStyleSheet>>,
+  rules: Option<Reference<CSSRuleList>>,
+}
+
+#[napi]
+pub struct AnotherCSSStyleSheet {
+  inner: Rc<RefCell<OwnedStyleSheet>>,
   rules: Reference<CSSRuleList>,
+}
+
+#[napi]
+impl AnotherCSSStyleSheet {
+  #[napi(getter)]
+  pub fn rules(&self, env: Env) -> Result<Reference<CSSRuleList>> {
+    self.rules.clone(env)
+  }
 }
 
 #[napi]
 impl CSSStyleSheet {
   #[napi(constructor)]
-  pub fn new(env: Env, rules: Vec<String>) -> Result<Self> {
+  pub fn new(rules: Vec<String>) -> Result<Self> {
     let inner = Rc::new(RefCell::new(OwnedStyleSheet { rules }));
-    let rules = CSSRuleList::into_reference(
-      CSSRuleList {
-        owned: inner.clone(),
-      },
-      env,
-    )?;
-    Ok(CSSStyleSheet { inner, rules })
+    Ok(CSSStyleSheet { inner, rules: None })
   }
 
   #[napi(getter)]
-  pub fn rules(&self, env: Env) -> Result<Reference<CSSRuleList>> {
-    self.rules.clone(env)
+  pub fn rules(&mut self, env: Env) -> Result<Reference<CSSRuleList>> {
+    if let Some(rules) = &self.rules {
+      return rules.clone(env);
+    }
+
+    let rules = CSSRuleList::into_reference(
+      CSSRuleList {
+        owned: self.inner.clone(),
+      },
+      env,
+    )?;
+
+    self.rules = Some(rules.clone(env)?);
+    Ok(rules)
+  }
+
+  #[napi]
+  pub fn another_css_style_sheet(&self, env: Env) -> Result<AnotherCSSStyleSheet> {
+    Ok(AnotherCSSStyleSheet {
+      inner: self.inner.clone(),
+      rules: self.rules.as_ref().unwrap().clone(env)?,
+    })
   }
 }
