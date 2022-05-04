@@ -5,8 +5,8 @@ ENV RUSTUP_HOME=/usr/local/rustup \
   PATH=/usr/local/cargo/bin:$PATH \
   CC=clang \
   CXX=clang++ \
-  CC_aarch64_unknown_linux_gnu=clang \
-  CXX_aarch64_unknown_linux_gnu=clang++ \
+  CC_aarch64_unknown_linux_gnu="clang --sysroot=/usr/aarch64-unknown-linux-gnu/aarch64-unknown-linux-gnu/sysroot" \
+  CXX_aarch64_unknown_linux_gnu="clang++ --sysroot=/usr/aarch64-unknown-linux-gnu/aarch64-unknown-linux-gnu/sysroot" \
   C_INCLUDE_PATH=/usr/aarch64-unknown-linux-gnu/aarch64-unknown-linux-gnu/sysroot/usr/include
 
 RUN wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add - && \
