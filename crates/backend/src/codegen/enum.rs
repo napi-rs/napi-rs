@@ -37,6 +37,7 @@ impl NapiEnum {
     });
 
     quote! {
+      #[cfg(not(target_arch = "wasm32"))]
       impl napi::bindgen_prelude::TypeName for #name {
         fn type_name() -> &'static str {
           #name_str
@@ -47,6 +48,7 @@ impl NapiEnum {
         }
       }
 
+      #[cfg(not(target_arch = "wasm32"))]
       impl napi::bindgen_prelude::ValidateNapiValue for #name {
         unsafe fn validate(
           env: napi::bindgen_prelude::sys::napi_env,
@@ -57,6 +59,7 @@ impl NapiEnum {
         }
       }
 
+      #[cfg(not(target_arch = "wasm32"))]
       impl napi::bindgen_prelude::FromNapiValue for #name {
         unsafe fn from_napi_value(
           env: napi::bindgen_prelude::sys::napi_env,
@@ -85,6 +88,7 @@ impl NapiEnum {
         }
       }
 
+      #[cfg(not(target_arch = "wasm32"))]
       impl napi::bindgen_prelude::ToNapiValue for #name {
         unsafe fn to_napi_value(
           env: napi::bindgen_prelude::sys::napi_env,

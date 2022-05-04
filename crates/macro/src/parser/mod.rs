@@ -628,8 +628,9 @@ impl ParseNapi for syn::ItemFn {
         "#[napi] can't be applied to a function with #[napi(ts_type)]"
       );
     }
+    let napi = self.convert_to_ast(opts)?;
     self.to_tokens(tokens);
-    self.convert_to_ast(opts)
+    Ok(napi)
   }
 }
 impl ParseNapi for syn::ItemStruct {
@@ -730,6 +731,14 @@ impl ConvertToAST for syn::ItemFn {
       self.vis.clone(),
       None,
     )?;
+
+    self.attrs.push(Attribute {
+      pound_token: Default::default(),
+      style: syn::AttrStyle::Outer,
+      bracket_token: Default::default(),
+      path: syn::parse_quote! { cfg_attr },
+      tokens: quote! { (target_arch = "wasm32", napi::wasm_bindgen::prelude::wasm_bindgen) },
+    });
 
     Ok(Napi {
       item: NapiItem::Fn(func),
@@ -946,6 +955,14 @@ impl ConvertToAST for syn::ItemEnum {
       tokens: quote! { (Copy, Clone) },
     });
 
+    self.attrs.push(Attribute {
+      pound_token: Default::default(),
+      style: syn::AttrStyle::Outer,
+      bracket_token: Default::default(),
+      path: syn::parse_quote! { cfg_attr },
+      tokens: quote! { (target_arch = "wasm32", napi::wasm_bindgen::prelude::wasm_bindgen) },
+    });
+
     let js_name = opts
       .js_name()
       .map_or_else(|| self.ident.to_string(), |(s, _)| s.to_string());
@@ -983,14 +1000,14 @@ impl ConvertToAST for syn::ItemEnum {
                 Err(_) => {
                   bail_span!(
                     int_lit,
-                    "enums with #[wasm_bindgen] can only support \
+                    "enums with #[napi] can only support \
                       numbers that can be represented as i32",
                   );
                 }
               },
               _ => bail_span!(
                 expr,
-                "enums with #[wasm_bindgen] may only have \
+                "enums with #[napi] may only have \
                   number literal values",
               ),
             }

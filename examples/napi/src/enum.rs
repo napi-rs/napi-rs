@@ -12,10 +12,12 @@ pub enum Kind {
   Duck,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[napi]
 pub enum Empty {}
 
 /// You could break the step and for an new continuous value.
+#[cfg(not(target_arch = "wasm32"))]
 #[napi]
 pub enum CustomNumEnum {
   One = 1,
@@ -28,11 +30,13 @@ pub enum CustomNumEnum {
   Ten,  // 10
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[napi]
-fn enum_to_i32(e: CustomNumEnum) -> i32 {
+pub fn enum_to_i32(e: CustomNumEnum) -> i32 {
   e as i32
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[napi(skip_typescript)]
 pub enum SkippedEnums {
   One = 1,

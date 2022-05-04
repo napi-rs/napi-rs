@@ -184,6 +184,20 @@ impl NapiFn {
         }
       }
       syn::Type::Reference(syn::TypeReference { elem, .. }) => {
+        if let syn::Type::Path(syn::TypePath {
+          path: syn::Path { segments, .. },
+          ..
+        }) = elem.as_ref()
+        {
+          if let Some(syn::PathSegment { ident, .. }) = segments.last() {
+            if ident == "str" {
+              return quote! {
+                let #arg_name = <String as napi::bindgen_prelude::FromNapiValue>::from_napi_value(env, cb.get_arg(#index))?;
+                let #arg_name = #arg_name.as_str();
+              };
+            }
+          }
+        }
         quote! {
           let #arg_name = <#elem as napi::bindgen_prelude::FromNapiRef>::from_napi_ref(env, cb.get_arg(#index))?;
         }

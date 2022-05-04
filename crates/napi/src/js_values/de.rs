@@ -2,6 +2,7 @@ use std::convert::TryInto;
 
 use serde::de::Visitor;
 use serde::de::{DeserializeSeed, EnumAccess, MapAccess, SeqAccess, Unexpected, VariantAccess};
+use serde::forward_to_deserialize_any;
 
 #[cfg(feature = "napi6")]
 use crate::JsBigInt;

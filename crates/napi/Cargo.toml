@@ -75,3 +75,6 @@ version = "1"
 [dependencies.serde_json]
 optional = true
 version = "1"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"

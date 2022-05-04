@@ -15,6 +15,7 @@ static NAPI_IMPL_ID: AtomicU32 = AtomicU32::new(0);
 fn gen_napi_value_map_impl(name: &Ident, to_napi_val_impl: TokenStream) -> TokenStream {
   let name_str = name.to_string();
   quote! {
+    #[cfg(not(target_arch = "wasm32"))]
     impl napi::bindgen_prelude::TypeName for #name {
       fn type_name() -> &'static str {
         #name_str
@@ -25,6 +26,7 @@ fn gen_napi_value_map_impl(name: &Ident, to_napi_val_impl: TokenStream) -> Token
       }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     impl napi::bindgen_prelude::TypeName for &#name {
       fn type_name() -> &'static str {
         #name_str
@@ -35,6 +37,7 @@ fn gen_napi_value_map_impl(name: &Ident, to_napi_val_impl: TokenStream) -> Token
       }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     impl napi::bindgen_prelude::TypeName for &mut #name {
       fn type_name() -> &'static str {
         #name_str
@@ -47,6 +50,7 @@ fn gen_napi_value_map_impl(name: &Ident, to_napi_val_impl: TokenStream) -> Token
 
     #to_napi_val_impl
 
+    #[cfg(not(target_arch = "wasm32"))]
     impl napi::bindgen_prelude::FromNapiRef for #name {
       unsafe fn from_napi_ref(
         env: napi::bindgen_prelude::sys::napi_env,
@@ -64,6 +68,7 @@ fn gen_napi_value_map_impl(name: &Ident, to_napi_val_impl: TokenStream) -> Token
       }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     impl napi::bindgen_prelude::FromNapiMutRef for #name {
       unsafe fn from_napi_mut_ref(
         env: napi::bindgen_prelude::sys::napi_env,
@@ -81,6 +86,7 @@ fn gen_napi_value_map_impl(name: &Ident, to_napi_val_impl: TokenStream) -> Token
       }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     impl napi::bindgen_prelude::FromNapiValue for &#name {
       unsafe fn from_napi_value(
         env: napi::bindgen_prelude::sys::napi_env,
@@ -90,6 +96,7 @@ fn gen_napi_value_map_impl(name: &Ident, to_napi_val_impl: TokenStream) -> Token
       }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     impl napi::bindgen_prelude::FromNapiValue for &mut #name {
       unsafe fn from_napi_value(
         env: napi::bindgen_prelude::sys::napi_env,
@@ -99,12 +106,14 @@ fn gen_napi_value_map_impl(name: &Ident, to_napi_val_impl: TokenStream) -> Token
       }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     impl napi::NapiRaw for &#name {
       unsafe fn raw(&self) -> napi::sys::napi_value {
         unreachable!()
       }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     impl napi::NapiRaw for &mut #name {
       unsafe fn raw(&self) -> napi::sys::napi_value {
         unreachable!()
