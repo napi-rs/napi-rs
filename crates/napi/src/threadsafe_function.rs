@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use crate::bindgen_runtime::ToNapiValue;
-use crate::{check_status, sys, Env, Error, JsError, Result, Status};
+use crate::{check_status, sys, Env, Error, JsError, NapiValue, Result, Status};
 
 /// ThreadSafeFunction Context object
 /// the `value` is the value passed to `call` method
@@ -196,6 +196,10 @@ impl<T: 'static, ES: ErrorStrategy::T> ThreadsafeFunction<T, ES> {
     let initial_thread_count = 1usize;
     let mut raw_tsfn = ptr::null_mut();
     let ptr = Box::into_raw(Box::new(callback)) as *mut c_void;
+
+    let call_js_cb_return_value = ptr::null_mut() as *mut c_void;
+    let mut call_js_cb_context = [ptr, call_js_cb_return_value];
+
     check_status!(unsafe {
       sys::napi_create_threadsafe_function(
         env,
@@ -206,7 +210,7 @@ impl<T: 'static, ES: ErrorStrategy::T> ThreadsafeFunction<T, ES> {
         initial_thread_count,
         ptr,
         Some(thread_finalize_cb::<T, V, R>),
-        ptr,
+        call_js_cb_context.as_mut_ptr() as *mut _,
         Some(call_js_cb::<T, V, R, ES>),
         &mut raw_tsfn,
       )
@@ -342,6 +346,8 @@ unsafe extern "C" fn thread_finalize_cb<T: 'static, V: ToNapiValue, R>(
   drop(unsafe { Box::<R>::from_raw(finalize_data.cast()) });
 }
 
+pub(crate) static THREAD_SAFE_CALL_JS_CB_ID: AtomicUsize = AtomicUsize::new(0);
+
 unsafe extern "C" fn call_js_cb<T: 'static, V: ToNapiValue, R, ES>(
   raw_env: sys::napi_env,
   js_callback: sys::napi_value,
@@ -355,8 +361,12 @@ unsafe extern "C" fn call_js_cb<T: 'static, V: ToNapiValue, R, ES>(
   if raw_env.is_null() || js_callback.is_null() {
     return;
   }
+  THREAD_SAFE_CALL_JS_CB_ID.fetch_add(1, Ordering::SeqCst);
 
-  let ctx: &mut R = unsafe { &mut *context.cast::<R>() };
+  let ctx = unsafe { &mut *context.cast::<[sys::napi_value; 2]>() };
+  let native_passed_cb: &mut R = unsafe { &mut *ctx[0].cast::<R>() };
+  let return_value = &mut ctx[1];
+
   let val: Result<T> = unsafe {
     match ES::VALUE {
       ErrorStrategy::CalleeHandled::VALUE => *Box::<Result<T>>::from_raw(data.cast()),
@@ -368,7 +378,7 @@ unsafe extern "C" fn call_js_cb<T: 'static, V: ToNapiValue, R, ES>(
   unsafe { sys::napi_get_undefined(raw_env, &mut recv) };
 
   let ret = val.and_then(|v| {
-    (ctx)(ThreadSafeCallContext {
+    (native_passed_cb)(ThreadSafeCallContext {
       env: unsafe { Env::from_raw(raw_env) },
       value: v,
     })
@@ -397,7 +407,7 @@ unsafe extern "C" fn call_js_cb<T: 'static, V: ToNapiValue, R, ES>(
             js_callback,
             args.len(),
             args.as_ptr(),
-            ptr::null_mut(),
+            return_value,
           )
         },
         Err(e) => match ES::VALUE {
@@ -411,7 +421,7 @@ unsafe extern "C" fn call_js_cb<T: 'static, V: ToNapiValue, R, ES>(
               js_callback,
               1,
               [JsError::from(e).into_value(raw_env)].as_mut_ptr(),
-              ptr::null_mut(),
+              return_value,
             )
           },
         },
@@ -427,10 +437,11 @@ unsafe extern "C" fn call_js_cb<T: 'static, V: ToNapiValue, R, ES>(
         js_callback,
         1,
         [JsError::from(e).into_value(raw_env)].as_mut_ptr(),
-        ptr::null_mut(),
+        return_value,
       )
     },
   };
+
   if status == sys::Status::napi_ok {
     return;
   }

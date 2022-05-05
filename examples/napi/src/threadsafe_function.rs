@@ -12,7 +12,7 @@ pub fn call_threadsafe_function(callback: JsFunction) -> Result<()> {
     .create_threadsafe_function(0, |ctx| {
       ctx.env.create_uint32(ctx.value + 1).map(|v| vec![v])
     })?;
-  for n in 0..100 {
+  for n in 0..1 {
     let tsfn = tsfn.clone();
     thread::spawn(move || {
       tsfn.call(Ok(n), ThreadsafeFunctionCallMode::Blocking);
