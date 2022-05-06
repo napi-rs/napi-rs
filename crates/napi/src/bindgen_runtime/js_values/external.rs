@@ -3,7 +3,7 @@ use std::{
   ops::{Deref, DerefMut},
 };
 
-use crate::{check_status, Error, Status, TaggedObject};
+use crate::{check_status, sys, Error, Status, TaggedObject};
 
 use super::{FromNapiValue, ToNapiValue, TypeName, ValidateNapiValue};
 
@@ -53,13 +53,10 @@ impl<T: 'static> External<T> {
 }
 
 impl<T: 'static> FromNapiValue for External<T> {
-  unsafe fn from_napi_value(
-    env: napi_sys::napi_env,
-    napi_val: napi_sys::napi_value,
-  ) -> crate::Result<Self> {
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
     let mut unknown_tagged_object = std::ptr::null_mut();
     check_status!(
-      unsafe { napi_sys::napi_get_value_external(env, napi_val, &mut unknown_tagged_object) },
+      unsafe { sys::napi_get_value_external(env, napi_val, &mut unknown_tagged_object) },
       "Failed to get external value"
     )?;
 
@@ -107,14 +104,11 @@ impl<T: 'static> DerefMut for External<T> {
 }
 
 impl<T: 'static> ToNapiValue for External<T> {
-  unsafe fn to_napi_value(
-    env: napi_sys::napi_env,
-    mut val: Self,
-  ) -> crate::Result<napi_sys::napi_value> {
+  unsafe fn to_napi_value(env: sys::napi_env, mut val: Self) -> crate::Result<sys::napi_value> {
     let mut napi_value = std::ptr::null_mut();
     check_status!(
       unsafe {
-        napi_sys::napi_create_external(
+        sys::napi_create_external(
           env,
           val.obj as *mut _,
           Some(crate::raw_finalize::<T>),
@@ -130,7 +124,7 @@ impl<T: 'static> ToNapiValue for External<T> {
     if val.size_hint != 0 {
       check_status!(
         unsafe {
-          napi_sys::napi_adjust_external_memory(
+          sys::napi_adjust_external_memory(
             env,
             val.size_hint as i64,
             adjusted_external_memory_size.as_mut_ptr(),

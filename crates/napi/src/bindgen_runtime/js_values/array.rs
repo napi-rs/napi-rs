@@ -257,10 +257,7 @@ impl<T> ValidateNapiValue for Vec<T>
 where
   T: FromNapiValue,
 {
-  unsafe fn validate(
-    env: sys::napi_env,
-    napi_val: sys::napi_value,
-  ) -> Result<napi_sys::napi_value> {
+  unsafe fn validate(env: sys::napi_env, napi_val: sys::napi_value) -> Result<sys::napi_value> {
     let mut is_array = false;
     check_status!(
       unsafe { sys::napi_is_array(env, napi_val, &mut is_array) },

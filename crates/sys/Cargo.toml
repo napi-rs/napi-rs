@@ -23,3 +23,9 @@ napi8 = ["napi7"]
 
 [package.metadata.workspaces]
 independent = true
+
+[target.'cfg(windows)'.dependencies.libloading]
+version = "0.7"
+
+[target.'cfg(windows)'.dependencies.ctor]
+version = "0.1"

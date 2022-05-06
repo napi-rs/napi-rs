@@ -1,5 +1,5 @@
 use super::{FromNapiValue, ToNapiValue, TypeName};
-use crate::{type_of, JsNull, JsUndefined, NapiRaw, Status, ValueType};
+use crate::{sys, type_of, JsNull, JsUndefined, NapiRaw, Status, ValueType};
 
 const ERROR_MSG: &str = "The return value of typeof(T) should not be equal in Either";
 
@@ -19,7 +19,7 @@ impl<
 {
   /// # Safety
   /// Backward compatible with `Either` in **v1**
-  pub unsafe fn raw(&self) -> napi_sys::napi_value {
+  pub unsafe fn raw(&self) -> sys::napi_value {
     match &self {
       Self::A(a) => unsafe { a.raw() },
       Self::B(b) => unsafe { b.raw() },
@@ -61,10 +61,7 @@ impl<T: TypeName + FromNapiValue + ToNapiValue> From<Either<T, JsNull>> for Opti
 impl<A: TypeName + FromNapiValue + ToNapiValue, B: TypeName + FromNapiValue + ToNapiValue>
   FromNapiValue for Either<A, B>
 {
-  unsafe fn from_napi_value(
-    env: napi_sys::napi_env,
-    napi_val: napi_sys::napi_value,
-  ) -> crate::Result<Self> {
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
     debug_assert!(A::value_type() != B::value_type(), "{}", ERROR_MSG);
     let js_type = type_of!(env, napi_val)?;
     if js_type == A::value_type() {
@@ -89,7 +86,7 @@ impl<A: TypeName + FromNapiValue + ToNapiValue, B: TypeName + FromNapiValue + To
   ToNapiValue for Either<A, B>
 {
   unsafe fn to_napi_value(
-    env: napi_sys::napi_env,
+    env: sys::napi_env,
     value: Self,
   ) -> crate::Result<crate::sys::napi_value> {
     match value {
@@ -131,10 +128,7 @@ impl<
     C: TypeName + FromNapiValue + ToNapiValue,
   > FromNapiValue for Either3<A, B, C>
 {
-  unsafe fn from_napi_value(
-    env: napi_sys::napi_env,
-    napi_val: napi_sys::napi_value,
-  ) -> crate::Result<Self> {
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
     debug_assert!(
       {
         let mut types = vec![A::value_type(), B::value_type(), C::value_type()];
@@ -173,7 +167,7 @@ impl<
   > ToNapiValue for Either3<A, B, C>
 {
   unsafe fn to_napi_value(
-    env: napi_sys::napi_env,
+    env: sys::napi_env,
     value: Self,
   ) -> crate::Result<crate::sys::napi_value> {
     match value {
@@ -220,10 +214,7 @@ impl<
     D: TypeName + FromNapiValue + ToNapiValue,
   > FromNapiValue for Either4<A, B, C, D>
 {
-  unsafe fn from_napi_value(
-    env: napi_sys::napi_env,
-    napi_val: napi_sys::napi_value,
-  ) -> crate::Result<Self> {
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
     debug_assert!(
       {
         let mut types = vec![
@@ -271,7 +262,7 @@ impl<
   > ToNapiValue for Either4<A, B, C, D>
 {
   unsafe fn to_napi_value(
-    env: napi_sys::napi_env,
+    env: sys::napi_env,
     value: Self,
   ) -> crate::Result<crate::sys::napi_value> {
     match value {
@@ -323,10 +314,7 @@ impl<
     E: TypeName + FromNapiValue + ToNapiValue,
   > FromNapiValue for Either5<A, B, C, D, E>
 {
-  unsafe fn from_napi_value(
-    env: napi_sys::napi_env,
-    napi_val: napi_sys::napi_value,
-  ) -> crate::Result<Self> {
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
     debug_assert!(
       {
         let mut types = vec![
@@ -379,7 +367,7 @@ impl<
   > ToNapiValue for Either5<A, B, C, D, E>
 {
   unsafe fn to_napi_value(
-    env: napi_sys::napi_env,
+    env: sys::napi_env,
     value: Self,
   ) -> crate::Result<crate::sys::napi_value> {
     match value {
