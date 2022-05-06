@@ -86,11 +86,9 @@ One nice feature is that this crate allows you to build add-ons purely with the 
 ### Define JavaScript functions
 
 ```rust
-#[macro_use]
-extern crate napi;
-
 /// import the preludes
 use napi::bindgen_prelude::*;
+use napi_derive::napi;
 
 /// module registration is done by the runtime, no need to explicitly do it now.
 #[napi]
