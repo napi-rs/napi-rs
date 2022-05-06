@@ -1,7 +1,7 @@
 use convert_case::{Case, Casing};
 use quote::ToTokens;
 use std::fmt::{Display, Formatter};
-use syn::Pat;
+use syn::{Pat, PathArguments, PathSegment};
 
 use super::{ty_to_ts_type, ToTypeDef, TypeDef};
 use crate::{js_doc_from_comments, CallbackArg, FnKind, NapiFn};
@@ -122,9 +122,21 @@ impl NapiFn {
         .filter_map(|arg| match arg {
           crate::NapiFnArgKind::PatType(path) => {
             let ty_string = path.ty.to_token_stream().to_string();
-            if ty_string == "Env" || ty_string.replace(' ', "").starts_with("Reference<") {
+            if ty_string == "Env" {
               return None;
             }
+            if let syn::Type::Path(path) = path.ty.as_ref() {
+              if let Some(PathSegment {
+                ident,
+                arguments: PathArguments::AngleBracketed(_),
+              }) = path.path.segments.last()
+              {
+                if ident == "Reference" {
+                  return None;
+                }
+              }
+            }
+
             let mut path = path.clone();
             // remove mutability from PatIdent
             if let Pat::Ident(i) = path.pat.as_mut() {

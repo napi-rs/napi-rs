@@ -1,12 +1,11 @@
 use std::thread::sleep;
 
 use napi::bindgen_prelude::*;
-use napi::Task;
 
 struct DelaySum(u32, u32);
 
 #[napi]
-impl Task for DelaySum {
+impl napi::Task for DelaySum {
   type Output = u32;
   type JsValue = u32;
 

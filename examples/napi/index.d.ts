@@ -254,6 +254,10 @@ export class ClassWithFactory {
 export class JsClassForEither {
   constructor()
 }
+export class Fib {
+  [Symbol.iterator](): Iterator<number, void, number>
+  constructor()
+}
 export class JsRepo {
   constructor(dir: string)
   remote(): JsRemote

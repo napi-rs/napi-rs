@@ -24,6 +24,7 @@ pub struct Napi {
 macro_rules! napi_ast_impl {
   ( $( ($v:ident, $ast:ident), )* ) => {
     #[derive(Debug)]
+    #[allow(clippy::large_enum_variant)]
     pub enum NapiItem {
       $($v($ast)),*
     }

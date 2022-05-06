@@ -1,7 +1,7 @@
 #[macro_use]
 pub mod attrs;
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::str::Chars;
 
@@ -17,9 +17,13 @@ use proc_macro2::{Ident, TokenStream, TokenTree};
 use quote::ToTokens;
 use syn::ext::IdentExt;
 use syn::parse::{Parse, ParseStream, Result as SynResult};
-use syn::{Attribute, Signature, Type, Visibility};
+use syn::{Attribute, PathSegment, Signature, Type, Visibility};
 
 use crate::parser::attrs::{check_recorded_struct_for_impl, record_struct};
+
+thread_local! {
+  static GENERATOR_STRUCT: RefCell<HashMap<String, bool>> = Default::default();
+}
 
 struct AnyIdent(Ident);
 
@@ -562,6 +566,20 @@ fn napi_fn_from_decl(
       )
     };
 
+    let namespace = opts.namespace().map(|(m, _)| m.to_owned());
+    let parent_is_generator = if let Some(p) = parent {
+      GENERATOR_STRUCT.with(|inner| {
+        let inner = inner.borrow();
+        let key = namespace
+          .as_ref()
+          .map(|n| format!("{}::{}", n, p))
+          .unwrap_or_else(|| p.to_string());
+        *inner.get(&key).unwrap_or(&false)
+      })
+    } else {
+      false
+    };
+
     NapiFn {
       name: ident,
       js_name,
@@ -581,6 +599,7 @@ fn napi_fn_from_decl(
       ts_args_type: opts.ts_args_type().map(|(m, _)| m.to_owned()),
       ts_return_type: opts.ts_return_type().map(|(m, _)| m.to_owned()),
       skip_typescript: opts.skip_typescript().is_some(),
+      parent_is_generator,
     }
   })
 }
@@ -786,6 +805,16 @@ impl ConvertToAST for syn::ItemStruct {
     }
 
     record_struct(&struct_name, js_name.clone(), &opts);
+    let namespace = opts.namespace().map(|(m, _)| m.to_owned());
+    let implement_iterator = opts.iterator().is_some();
+    GENERATOR_STRUCT.with(|inner| {
+      let mut inner = inner.borrow_mut();
+      let key = namespace
+        .as_ref()
+        .map(|n| format!("{}::{}", n, struct_name))
+        .unwrap_or_else(|| struct_name.to_string());
+      inner.insert(key, implement_iterator);
+    });
 
     Diagnostic::from_vec(errors).map(|()| Napi {
       item: NapiItem::Struct(NapiStruct {
@@ -795,8 +824,9 @@ impl ConvertToAST for syn::ItemStruct {
         fields,
         is_tuple,
         kind: struct_kind,
-        js_mod: opts.namespace().map(|(m, _)| m.to_owned()),
+        js_mod: namespace,
         comments: extract_doc_comments(&self.attrs),
+        implement_iterator,
       }),
     })
   }
@@ -819,13 +849,30 @@ impl ConvertToAST for syn::ItemImpl {
     let mut struct_js_name = struct_name.to_string().to_case(Case::UpperCamel);
     let mut items = vec![];
     let mut task_output_type = None;
+    let mut iterator_yield_type = None;
+    let mut iterator_next_type = None;
+    let mut iterator_return_type = None;
     for item in self.items.iter_mut() {
       if let Some(method) = match item {
         syn::ImplItem::Method(m) => Some(m),
         syn::ImplItem::Type(m) => {
-          if m.ident == *"JsValue" {
-            if let Type::Path(_) = &m.ty {
-              task_output_type = Some(m.ty.clone());
+          if let Some((_, t, _)) = &self.trait_ {
+            if let Some(PathSegment { ident, .. }) = t.segments.last() {
+              if ident == "Task" && m.ident == "JsValue" {
+                if let Type::Path(_) = &m.ty {
+                  task_output_type = Some(m.ty.clone());
+                }
+              } else if ident == "Generator" {
+                if let Type::Path(_) = &m.ty {
+                  if m.ident == "Yield" {
+                    iterator_yield_type = Some(m.ty.clone());
+                  } else if m.ident == "Next" {
+                    iterator_next_type = Some(m.ty.clone());
+                  } else if m.ident == "Return" {
+                    iterator_return_type = Some(m.ty.clone());
+                  }
+                }
+              }
             }
           }
           None
@@ -866,13 +913,18 @@ impl ConvertToAST for syn::ItemImpl {
       }
     }
 
+    let namespace = impl_opts.namespace().map(|(m, _)| m.to_owned());
+
     Ok(Napi {
       item: NapiItem::Impl(NapiImpl {
         name: struct_name,
         js_name: struct_js_name,
         items,
         task_output_type,
-        js_mod: impl_opts.namespace().map(|(m, _)| m.to_owned()),
+        iterator_yield_type,
+        iterator_next_type,
+        iterator_return_type,
+        js_mod: namespace,
         comments: extract_doc_comments(&self.attrs),
       }),
     })

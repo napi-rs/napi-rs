@@ -21,6 +21,7 @@ pub struct NapiFn {
   pub ts_return_type: Option<String>,
   pub skip_typescript: bool,
   pub comments: Vec<String>,
+  pub parent_is_generator: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -62,6 +63,7 @@ pub struct NapiStruct {
   pub kind: NapiStructKind,
   pub js_mod: Option<String>,
   pub comments: Vec<String>,
+  pub implement_iterator: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -89,6 +91,9 @@ pub struct NapiImpl {
   pub js_name: String,
   pub items: Vec<NapiFn>,
   pub task_output_type: Option<Type>,
+  pub iterator_yield_type: Option<Type>,
+  pub iterator_next_type: Option<Type>,
+  pub iterator_return_type: Option<Type>,
   pub js_mod: Option<String>,
   pub comments: Vec<String>,
 }

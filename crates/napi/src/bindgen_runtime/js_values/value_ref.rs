@@ -170,6 +170,10 @@ impl<T: 'static, S: 'static> SharedReference<T, S> {
     })
   }
 
+  pub fn clone_owner(&self, env: Env) -> Result<Reference<T>> {
+    self.owner.clone(env)
+  }
+
   /// Safety to share because caller can provide `Env`
   pub fn share_with<U: 'static, F: FnOnce(&'static mut S) -> Result<U>>(
     self,

@@ -108,6 +108,7 @@ pub use napi_sys as sys;
 pub use async_work::AsyncWorkPromise;
 pub use call_context::CallContext;
 
+pub use bindgen_runtime::iterator;
 pub use env::*;
 pub use error::*;
 pub use js_values::*;
@@ -154,38 +155,6 @@ macro_rules! assert_type_of {
   };
 }
 
-#[allow(dead_code)]
-pub(crate) unsafe fn log_js_value<V: AsRef<[sys::napi_value]>>(
-  // `info`, `log`, `warning` or `error`
-  method: &str,
-  env: sys::napi_env,
-  values: V,
-) {
-  use std::ffi::CString;
-  use std::ptr;
-
-  let mut g = ptr::null_mut();
-  unsafe { sys::napi_get_global(env, &mut g) };
-  let mut console = ptr::null_mut();
-  let console_c_string = CString::new("console").unwrap();
-  let method_c_string = CString::new(method).unwrap();
-  unsafe { sys::napi_get_named_property(env, g, console_c_string.as_ptr(), &mut console) };
-  let mut method_js_fn = ptr::null_mut();
-  unsafe {
-    sys::napi_get_named_property(env, console, method_c_string.as_ptr(), &mut method_js_fn)
-  };
-  unsafe {
-    sys::napi_call_function(
-      env,
-      console,
-      method_js_fn,
-      values.as_ref().len(),
-      values.as_ref().as_ptr(),
-      ptr::null_mut(),
-    )
-  };
-}
-
 pub use crate::bindgen_runtime::ctor as module_init;
 
 pub mod bindgen_prelude {
@@ -197,6 +166,46 @@ pub mod bindgen_prelude {
     assert_type_of, bindgen_runtime::*, check_status, check_status_or_throw, error, error::*, sys,
     type_of, JsError, Property, PropertyAttributes, Result, Status, Task, ValueType,
   };
+}
+
+#[doc(hidden)]
+pub mod __private {
+  pub use crate::bindgen_runtime::{
+    get_class_constructor, iterator::create_iterator, register_class,
+  };
+
+  use crate::sys;
+
+  pub unsafe fn log_js_value<V: AsRef<[sys::napi_value]>>(
+    // `info`, `log`, `warning` or `error`
+    method: &str,
+    env: sys::napi_env,
+    values: V,
+  ) {
+    use std::ffi::CString;
+    use std::ptr;
+
+    let mut g = ptr::null_mut();
+    unsafe { sys::napi_get_global(env, &mut g) };
+    let mut console = ptr::null_mut();
+    let console_c_string = CString::new("console").unwrap();
+    let method_c_string = CString::new(method).unwrap();
+    unsafe { sys::napi_get_named_property(env, g, console_c_string.as_ptr(), &mut console) };
+    let mut method_js_fn = ptr::null_mut();
+    unsafe {
+      sys::napi_get_named_property(env, console, method_c_string.as_ptr(), &mut method_js_fn)
+    };
+    unsafe {
+      sys::napi_call_function(
+        env,
+        console,
+        method_js_fn,
+        values.as_ref().len(),
+        values.as_ref().as_ptr(),
+        ptr::null_mut(),
+      )
+    };
+  }
 }
 
 #[cfg(feature = "tokio_rt")]

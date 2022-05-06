@@ -186,13 +186,19 @@ impl NapiStruct {
       quote! { #name {#(#fields),*} }
     };
 
+    let constructor = if self.implement_iterator {
+      quote! { unsafe { cb.construct_generator(#js_name_str, #construct) } }
+    } else {
+      quote! { unsafe { cb.construct(#js_name_str, #construct) } }
+    };
+
     quote! {
       extern "C" fn constructor(
         env: napi::bindgen_prelude::sys::napi_env,
         cb: napi::bindgen_prelude::sys::napi_callback_info
       ) -> napi::bindgen_prelude::sys::napi_value {
         napi::bindgen_prelude::CallbackInfo::<#fields_len>::new(env, cb, None)
-          .and_then(|cb| unsafe { cb.construct(#js_name_str, #construct) })
+          .and_then(|cb| #constructor)
           .unwrap_or_else(|e| {
             unsafe { napi::bindgen_prelude::JsError::from(e).throw_into(env) };
             std::ptr::null_mut::<napi::bindgen_prelude::sys::napi_value__>()
@@ -218,18 +224,21 @@ impl NapiStruct {
     let name = &self.name;
     let js_name_raw = &self.js_name;
     let js_name_str = format!("{}\0", js_name_raw);
+    let iterator_implementation = self.gen_iterator_property(name);
     quote! {
       impl napi::bindgen_prelude::ToNapiValue for #name {
         unsafe fn to_napi_value(
           env: napi::sys::napi_env,
           val: #name
         ) -> napi::Result<napi::bindgen_prelude::sys::napi_value> {
-          if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name_str) {
-            let wrapped_value = Box::into_raw(Box::new(val)) as *mut std::ffi::c_void;
-            #name::new_instance(env, wrapped_value, ctor_ref)
+          if let Some(ctor_ref) = napi::__private::get_class_constructor(#js_name_str) {
+            let wrapped_value = Box::into_raw(Box::new(val));
+            let instance_value = #name::new_instance(env, wrapped_value as *mut std::ffi::c_void, ctor_ref)?;
+            #iterator_implementation
+            Ok(instance_value)
           } else {
             Err(napi::bindgen_prelude::Error::new(
-              napi::bindgen_prelude::Status::InvalidArg, format!("Failed to get constructor of class `{}`", #js_name_raw))
+              napi::bindgen_prelude::Status::InvalidArg, format!("Failed to get constructor of class `{}` in `ToNapiValue`", #js_name_raw))
             )
           }
         }
@@ -239,9 +248,13 @@ impl NapiStruct {
         pub fn into_reference(val: #name, env: napi::Env) -> napi::Result<napi::bindgen_prelude::Reference<#name>> {
           if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name_str) {
             unsafe {
-              let wrapped_value = Box::into_raw(Box::new(val)) as *mut std::ffi::c_void;
-              #name::new_instance(env.raw(), wrapped_value, ctor_ref)?;
-              napi::bindgen_prelude::Reference::<#name>::from_value_ptr(wrapped_value, env.raw())
+              let wrapped_value = Box::into_raw(Box::new(val));
+              let instance_value = #name::new_instance(env.raw(), wrapped_value as *mut std::ffi::c_void, ctor_ref)?;
+              {
+                let env = env.raw();
+                #iterator_implementation
+              }
+              napi::bindgen_prelude::Reference::<#name>::from_value_ptr(wrapped_value as *mut std::ffi::c_void, env.raw())
             }
           } else {
             Err(napi::bindgen_prelude::Error::new(
@@ -258,7 +271,7 @@ impl NapiStruct {
           let mut ctor = std::ptr::null_mut();
           napi::check_status!(
             napi::sys::napi_get_reference_value(env, ctor_ref, &mut ctor),
-            "Failed to get constructor of class `{}`",
+            "Failed to get constructor reference of class `{}`",
             #js_name_raw
           )?;
 
@@ -289,6 +302,15 @@ impl NapiStruct {
           Ok(result)
         }
       }
+    }
+  }
+
+  fn gen_iterator_property(&self, name: &Ident) -> TokenStream {
+    if !self.implement_iterator {
+      return quote! {};
+    }
+    quote! {
+      napi::__private::create_iterator::<#name>(env, instance_value, wrapped_value);
     }
   }
 
@@ -331,28 +353,29 @@ impl NapiStruct {
     quote! {
       impl napi::bindgen_prelude::ToNapiValue for #name {
         unsafe fn to_napi_value(
-          env: napi::bindgen_prelude::sys::napi_env, val: #name
+          env: napi::bindgen_prelude::sys::napi_env,
+          val: #name,
         ) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
           if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name_str) {
             let mut ctor = std::ptr::null_mut();
 
             napi::bindgen_prelude::check_status!(
               napi::bindgen_prelude::sys::napi_get_reference_value(env, ctor_ref, &mut ctor),
-              "Failed to get constructor of class `{}`",
+              "Failed to get constructor reference of class `{}`",
               #js_name_str
             )?;
 
-            let mut result = std::ptr::null_mut();
+            let mut instance_value = std::ptr::null_mut();
             let #destructed_fields = val;
             let args = vec![#(#field_conversions),*];
 
             napi::bindgen_prelude::check_status!(
-              napi::bindgen_prelude::sys::napi_new_instance(env, ctor, args.len(), args.as_ptr(), &mut result),
+              napi::bindgen_prelude::sys::napi_new_instance(env, ctor, args.len(), args.as_ptr(), &mut instance_value),
               "Failed to construct class `{}`",
               #js_name_str
             )?;
 
-            Ok(result)
+            Ok(instance_value)
           } else {
             Err(napi::bindgen_prelude::Error::new(
               napi::bindgen_prelude::Status::InvalidArg, format!("Failed to get constructor of class `{}`", #js_name_str))
@@ -601,7 +624,7 @@ impl NapiStruct {
       #[cfg(all(not(test), not(feature = "noop")))]
       #[napi::bindgen_prelude::ctor]
       fn #struct_register_name() {
-        napi::bindgen_prelude::register_class(#name_str, #js_mod_ident, #js_name, vec![#(#props),*]);
+        napi::__private::register_class(#name_str, #js_mod_ident, #js_name, vec![#(#props),*]);
       }
     }
   }
@@ -675,7 +698,7 @@ impl NapiImpl {
         #[cfg(all(not(test), not(feature = "noop")))]
         #[napi::bindgen_prelude::ctor]
         fn #register_name() {
-          napi::bindgen_prelude::register_class(#name_str, #js_mod_ident, #js_name, vec![#(#props),*]);
+          napi::__private::register_class(#name_str, #js_mod_ident, #js_name, vec![#(#props),*]);
         }
       }
     })
