@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.8.0-alpha.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.7.0...@napi-rs/cli@2.8.0-alpha.0) (2022-05-06)
+
+### Features
+
+- **cli:** new command upgrade ([652aa3c](https://github.com/napi-rs/napi-rs/commit/652aa3cc57c6f4d5b72491f1ad3fc44ac8ab7780))
+
 # [2.7.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.6.2...@napi-rs/cli@2.7.0) (2022-04-27)
 
 ### Bug Fixes
