@@ -150,7 +150,7 @@ export class BuildCommand extends Command {
   // https://github.com/napi-rs/napi-rs/issues/297
   disableWindowsX32Optimize?: boolean = Option.Boolean(
     '--disable-windows-x32-optimize',
-    true,
+    false,
     {
       description: `Disable windows x32 ${chalk.green(
         'lto',
@@ -262,18 +262,6 @@ export class BuildCommand extends Command {
     const intermediateTypeFile = join(tmpdir(), `type_def.${Date.now()}.tmp`)
     debug(`Run ${chalk.green(cargoCommand)}`)
     const additionalEnv = {}
-    if (
-      triple.arch === 'ia32' &&
-      triple.platform === 'win32' &&
-      triple.abi === 'msvc' &&
-      this.disableWindowsX32Optimize
-    ) {
-      Object.assign(additionalEnv, {
-        CARGO_PROFILE_DEBUG_CODEGEN_UNITS: 256,
-        CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 256,
-        CARGO_PROFILE_RELEASE_LTO: false,
-      })
-    }
 
     const rustflags = process.env.RUSTFLAGS
       ? process.env.RUSTFLAGS.split(' ')

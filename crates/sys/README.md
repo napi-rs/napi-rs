@@ -1,5 +1,7 @@
 # napi-sys
 
+Dynamic loading logic copied from https://github.com/neon-bindings/neon/tree/0.10.0/crates/neon-runtime/src/napi/bindings.
+
 <a href="https://docs.rs/crate/napi-sys"><img src="https://docs.rs/napi-sys/badge.svg"></img></a>
 <a href="https://crates.io/crates/napi-sys"><img src="https://img.shields.io/crates/v/napi-sys.svg"></img></a>
 <a href="https://discord.gg/SpWzYHsKHs">

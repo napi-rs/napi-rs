@@ -127,10 +127,7 @@ macro_rules! impl_typed_array {
     }
 
     impl FromNapiValue for $name {
-      unsafe fn from_napi_value(
-        env: napi_sys::napi_env,
-        napi_val: napi_sys::napi_value,
-      ) -> Result<Self> {
+      unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
         let mut typed_array_type = 0;
         let mut length = 0;
         let mut data = ptr::null_mut();

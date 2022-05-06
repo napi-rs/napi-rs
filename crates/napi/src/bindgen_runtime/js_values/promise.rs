@@ -6,7 +6,7 @@ use std::task::{Context, Poll};
 
 use tokio::sync::oneshot::{channel, Receiver, Sender};
 
-use crate::{check_status, Error, Result, Status};
+use crate::{check_status, sys, Error, Result, Status};
 
 use super::{FromNapiValue, TypeName, ValidateNapiValue};
 
@@ -32,7 +32,7 @@ impl<T: FromNapiValue> ValidateNapiValue for Promise<T> {
   unsafe fn validate(
     env: crate::sys::napi_env,
     napi_val: crate::sys::napi_value,
-  ) -> Result<napi_sys::napi_value> {
+  ) -> Result<sys::napi_value> {
     let mut is_promise = false;
     check_status!(
       unsafe { crate::sys::napi_is_promise(env, napi_val, &mut is_promise) },
@@ -84,16 +84,11 @@ impl<T: FromNapiValue> ValidateNapiValue for Promise<T> {
 unsafe impl<T: FromNapiValue> Send for Promise<T> {}
 
 impl<T: FromNapiValue> FromNapiValue for Promise<T> {
-  unsafe fn from_napi_value(
-    env: napi_sys::napi_env,
-    napi_val: napi_sys::napi_value,
-  ) -> crate::Result<Self> {
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
     let mut then = ptr::null_mut();
     let then_c_string = unsafe { CStr::from_bytes_with_nul_unchecked(b"then\0") };
     check_status!(
-      unsafe {
-        napi_sys::napi_get_named_property(env, napi_val, then_c_string.as_ptr(), &mut then)
-      },
+      unsafe { sys::napi_get_named_property(env, napi_val, then_c_string.as_ptr(), &mut then) },
       "Failed to get then function"
     )?;
     let mut promise_after_then = ptr::null_mut();
@@ -102,7 +97,7 @@ impl<T: FromNapiValue> FromNapiValue for Promise<T> {
     let tx_ptr = Box::into_raw(Box::new(tx));
     check_status!(
       unsafe {
-        napi_sys::napi_create_function(
+        sys::napi_create_function(
           env,
           then_c_string.as_ptr(),
           4,
@@ -115,7 +110,7 @@ impl<T: FromNapiValue> FromNapiValue for Promise<T> {
     )?;
     check_status!(
       unsafe {
-        napi_sys::napi_call_function(
+        sys::napi_call_function(
           env,
           napi_val,
           then,
@@ -130,19 +125,14 @@ impl<T: FromNapiValue> FromNapiValue for Promise<T> {
     let catch_c_string = unsafe { CStr::from_bytes_with_nul_unchecked(b"catch\0") };
     check_status!(
       unsafe {
-        napi_sys::napi_get_named_property(
-          env,
-          promise_after_then,
-          catch_c_string.as_ptr(),
-          &mut catch,
-        )
+        sys::napi_get_named_property(env, promise_after_then, catch_c_string.as_ptr(), &mut catch)
       },
       "Failed to get then function"
     )?;
     let mut catch_js_cb = ptr::null_mut();
     check_status!(
       unsafe {
-        napi_sys::napi_create_function(
+        sys::napi_create_function(
           env,
           catch_c_string.as_ptr(),
           5,
@@ -155,7 +145,7 @@ impl<T: FromNapiValue> FromNapiValue for Promise<T> {
     )?;
     check_status!(
       unsafe {
-        napi_sys::napi_call_function(
+        sys::napi_call_function(
           env,
           promise_after_then,
           catch,
@@ -187,14 +177,14 @@ impl<T: FromNapiValue> future::Future for Promise<T> {
 }
 
 unsafe extern "C" fn then_callback<T: FromNapiValue>(
-  env: napi_sys::napi_env,
-  info: napi_sys::napi_callback_info,
-) -> napi_sys::napi_value {
+  env: sys::napi_env,
+  info: sys::napi_callback_info,
+) -> sys::napi_value {
   let mut data = ptr::null_mut();
-  let mut resolved_value: [napi_sys::napi_value; 1] = [ptr::null_mut()];
+  let mut resolved_value: [sys::napi_value; 1] = [ptr::null_mut()];
   let mut this = ptr::null_mut();
   let get_cb_status = unsafe {
-    napi_sys::napi_get_cb_info(
+    sys::napi_get_cb_info(
       env,
       info,
       &mut 1,
@@ -204,7 +194,7 @@ unsafe extern "C" fn then_callback<T: FromNapiValue>(
     )
   };
   debug_assert!(
-    get_cb_status == napi_sys::Status::napi_ok,
+    get_cb_status == sys::Status::napi_ok,
     "Get callback info from Promise::then failed"
   );
   let resolve_value_t = Box::new(unsafe { T::from_napi_value(env, resolved_value[0]) });
@@ -216,15 +206,15 @@ unsafe extern "C" fn then_callback<T: FromNapiValue>(
 }
 
 unsafe extern "C" fn catch_callback<T: FromNapiValue>(
-  env: napi_sys::napi_env,
-  info: napi_sys::napi_callback_info,
-) -> napi_sys::napi_value {
+  env: sys::napi_env,
+  info: sys::napi_callback_info,
+) -> sys::napi_value {
   let mut data = ptr::null_mut();
-  let mut rejected_value: [napi_sys::napi_value; 1] = [ptr::null_mut()];
+  let mut rejected_value: [sys::napi_value; 1] = [ptr::null_mut()];
   let mut this = ptr::null_mut();
   let mut argc = 1;
   let get_cb_status = unsafe {
-    napi_sys::napi_get_cb_info(
+    sys::napi_get_cb_info(
       env,
       info,
       &mut argc,
@@ -234,15 +224,15 @@ unsafe extern "C" fn catch_callback<T: FromNapiValue>(
     )
   };
   debug_assert!(
-    get_cb_status == napi_sys::Status::napi_ok,
+    get_cb_status == sys::Status::napi_ok,
     "Get callback info from Promise::catch failed"
   );
   let rejected_value = rejected_value[0];
   let mut error_ref = ptr::null_mut();
   let create_ref_status =
-    unsafe { napi_sys::napi_create_reference(env, rejected_value, 1, &mut error_ref) };
+    unsafe { sys::napi_create_reference(env, rejected_value, 1, &mut error_ref) };
   debug_assert!(
-    create_ref_status == napi_sys::Status::napi_ok,
+    create_ref_status == sys::Status::napi_ok,
     "Create Error reference failed"
   );
   let sender = unsafe { Box::from_raw(data as *mut Sender<*mut Result<T>>) };

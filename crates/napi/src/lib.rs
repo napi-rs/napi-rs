@@ -100,8 +100,6 @@ pub use cleanup_env::CleanupEnvHook;
 pub mod threadsafe_function;
 
 mod version;
-#[cfg(target_os = "windows")]
-mod win_delay_load_hook;
 
 pub use napi_sys as sys;
 
