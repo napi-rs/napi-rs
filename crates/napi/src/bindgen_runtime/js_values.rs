@@ -26,6 +26,7 @@ mod symbol;
 mod task;
 mod value_ref;
 
+pub use crate::js_values::JsUnknown as Unknown;
 #[cfg(feature = "napi5")]
 pub use crate::JsDate as Date;
 pub use array::*;
@@ -159,7 +160,7 @@ pub trait ValidateNapiValue: FromNapiValue + TypeName {
 
 impl<T: TypeName> TypeName for Option<T> {
   fn type_name() -> &'static str {
-    "Option"
+    T::type_name()
   }
 
   fn value_type() -> ValueType {

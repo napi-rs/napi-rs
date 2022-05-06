@@ -376,11 +376,7 @@ unsafe extern "C" fn napi_register_module_v1(
             }
           }
           let (ctor, props): (Vec<_>, Vec<_>) = props.iter().partition(|prop| prop.is_ctor);
-          // one or more or zero?
-          // zero is for `#[napi(task)]`
-          if ctor.is_empty() && props.is_empty() {
-            continue;
-          }
+
           let ctor = ctor.get(0).map(|c| c.raw().method.unwrap()).unwrap_or(noop);
           let raw_props: Vec<_> = props.iter().map(|prop| prop.raw()).collect();
 

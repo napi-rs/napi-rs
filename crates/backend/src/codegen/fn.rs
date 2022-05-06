@@ -128,7 +128,7 @@ impl NapiFn {
           } else {
             if self.parent.is_some() {
               if let syn::Type::Path(path) = path.ty.as_ref() {
-                if let Some(p) = path.path.segments.first() {
+                if let Some(p) = path.path.segments.last() {
                   if p.ident == "Reference" {
                     if let syn::PathArguments::AngleBracketed(
                       syn::AngleBracketedGenericArguments { args: angle_bracketed_args, .. },
@@ -281,7 +281,13 @@ impl NapiFn {
       let is_return_self = ty_string == "& Self" || ty_string == "&mut Self";
       if self.kind == FnKind::Constructor {
         if self.is_ret_result {
-          quote! { cb.construct(#js_name, #ret?) }
+          if self.parent_is_generator {
+            quote! { cb.construct_generator(#js_name, #ret?) }
+          } else {
+            quote! { cb.construct(#js_name, #ret?) }
+          }
+        } else if self.parent_is_generator {
+          quote! { cb.construct_generator(#js_name, #ret) }
         } else {
           quote! { cb.construct(#js_name, #ret) }
         }

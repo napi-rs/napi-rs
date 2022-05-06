@@ -5,6 +5,7 @@ use std::rc::Rc;
 pub use callback_info::*;
 pub use ctor::ctor;
 pub use env::*;
+pub use iterator::Generator;
 pub use js_values::*;
 pub use module_register::*;
 
@@ -14,12 +15,14 @@ use crate::Status;
 mod callback_info;
 mod env;
 mod error;
+pub mod iterator;
 mod js_values;
 mod module_register;
 
 /// # Safety
 ///
 /// called when node wrapper objects destroyed
+#[doc(hidden)]
 pub unsafe extern "C" fn raw_finalize_unchecked<T>(
   env: sys::napi_env,
   finalize_data: *mut c_void,
@@ -63,6 +66,7 @@ pub unsafe extern "C" fn raw_finalize_unchecked<T>(
 /// # Safety
 ///
 /// called when node buffer is ready for gc
+#[doc(hidden)]
 pub unsafe extern "C" fn drop_buffer(
   _env: sys::napi_env,
   finalize_data: *mut c_void,

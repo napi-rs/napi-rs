@@ -43,30 +43,56 @@ impl ToTypeDef for NapiImpl {
       });
     }
 
-    Some(TypeDef {
-      kind: "impl".to_owned(),
-      name: self.js_name.to_owned(),
-      original_name: None,
-      def: self
-        .items
-        .iter()
-        .filter_map(|f| {
-          if f.skip_typescript {
-            None
-          } else {
-            Some(format!(
-              "{}{}",
-              js_doc_from_comments(&f.comments),
-              f.to_type_def()
-                .map_or(String::default(), |type_def| type_def.def)
-            ))
-          }
-        })
-        .collect::<Vec<_>>()
-        .join("\\n"),
-      js_mod: self.js_mod.to_owned(),
-      js_doc: "".to_string(),
-    })
+    if let Some(output_type) = &self.iterator_yield_type {
+      let next_type = if let Some(ref ty) = self.iterator_next_type {
+        ty_to_ts_type(ty, false, false).0
+      } else {
+        "void".to_owned()
+      };
+      let return_type = if let Some(ref ty) = self.iterator_return_type {
+        ty_to_ts_type(ty, false, false).0
+      } else {
+        "void".to_owned()
+      };
+      Some(TypeDef {
+        kind: "impl".to_owned(),
+        name: self.js_name.to_owned(),
+        original_name: None,
+        def: format!(
+          "[Symbol.iterator](): Iterator<{}, {}, {}>",
+          ty_to_ts_type(output_type, false, true).0,
+          return_type,
+          next_type,
+        ),
+        js_mod: self.js_mod.to_owned(),
+        js_doc: "".to_string(),
+      })
+    } else {
+      Some(TypeDef {
+        kind: "impl".to_owned(),
+        name: self.js_name.to_owned(),
+        original_name: None,
+        def: self
+          .items
+          .iter()
+          .filter_map(|f| {
+            if f.skip_typescript {
+              None
+            } else {
+              Some(format!(
+                "{}{}",
+                js_doc_from_comments(&f.comments),
+                f.to_type_def()
+                  .map_or(String::default(), |type_def| type_def.def)
+              ))
+            }
+          })
+          .collect::<Vec<_>>()
+          .join("\\n"),
+        js_mod: self.js_mod.to_owned(),
+        js_doc: "".to_string(),
+      })
+    }
   }
 }
 

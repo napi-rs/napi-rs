@@ -66,10 +66,10 @@ impl<const N: usize> CallbackInfo<N> {
     self.this
   }
 
-  pub fn construct<T: 'static>(&self, js_name: &str, obj: T) -> Result<sys::napi_value> {
+  fn _construct<T: 'static>(&self, js_name: &str, obj: T) -> Result<(sys::napi_value, *mut T)> {
     let obj = Box::new(obj);
     let this = self.this();
-    let value_ref = Box::into_raw(obj) as *mut c_void;
+    let value_ref = Box::into_raw(obj);
     let mut object_ref = ptr::null_mut();
     let initial_finalize: Box<dyn FnOnce()> = Box::new(|| {});
     let finalize_callbacks_ptr = Rc::into_raw(Rc::new(Cell::new(Box::into_raw(initial_finalize))));
@@ -78,7 +78,7 @@ impl<const N: usize> CallbackInfo<N> {
         sys::napi_wrap(
           self.env,
           this,
-          value_ref,
+          value_ref as *mut c_void,
           Some(raw_finalize_unchecked::<T>),
           ptr::null_mut(),
           &mut object_ref
@@ -88,8 +88,25 @@ impl<const N: usize> CallbackInfo<N> {
       )?;
     };
 
-    Reference::<T>::add_ref(value_ref, (value_ref, object_ref, finalize_callbacks_ptr));
-    Ok(this)
+    Reference::<T>::add_ref(
+      value_ref as *mut c_void,
+      (value_ref as *mut c_void, object_ref, finalize_callbacks_ptr),
+    );
+    Ok((this, value_ref))
+  }
+
+  pub fn construct<T: 'static>(&self, js_name: &str, obj: T) -> Result<sys::napi_value> {
+    self._construct(js_name, obj).map(|(v, _)| v)
+  }
+
+  pub fn construct_generator<T: Generator + 'static>(
+    &self,
+    js_name: &str,
+    obj: T,
+  ) -> Result<sys::napi_value> {
+    let (instance, generator_ptr) = self._construct(js_name, obj)?;
+    crate::__private::create_iterator(self.env, instance, generator_ptr);
+    Ok(instance)
   }
 
   pub fn factory<T: 'static>(&self, js_name: &str, obj: T) -> Result<sys::napi_value> {

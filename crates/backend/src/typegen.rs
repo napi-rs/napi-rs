@@ -179,7 +179,6 @@ static KNOWN_TYPES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     ("Either3", "{} | {} | {}"),
     ("Either4", "{} | {} | {} | {}"),
     ("Either5", "{} | {} | {} | {} | {}"),
-    ("unknown", "unknown"),
     ("Null", "null"),
     ("JsNull", "null"),
     ("null", "null"),
@@ -190,6 +189,8 @@ static KNOWN_TYPES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     ("JsFunction", "(...args: any[]) => any"),
     ("JsGlobal", "typeof global"),
     ("External", "ExternalObject<{}>"),
+    ("unknown", "unknown"),
+    ("Unknown", "unknown"),
     ("JsUnknown", "unknown"),
   ]);
 
@@ -281,11 +282,17 @@ pub fn ty_to_ts_type(ty: &Type, is_return_ty: bool, is_struct_field: bool) -> (S
           });
         } else if rust_ty == "Reference" {
           ts_ty = r#struct::TASK_STRUCTS.with(|t| {
-            let (output_type, _) = args.first().unwrap().to_owned();
-            if let Some(o) = t.borrow().get(&output_type) {
-              Some((o.to_owned(), false))
+            // Reference<T> => T
+            if let Some(arg) = args.first() {
+              let (output_type, _) = arg.to_owned();
+              if let Some(o) = t.borrow().get(&output_type) {
+                Some((o.to_owned(), false))
+              } else {
+                Some((output_type, false))
+              }
             } else {
-              Some((output_type, false))
+              // Not NAPI-RS `Reference`
+              Some((rust_ty, false))
             }
           });
         } else if let Some(&known_ty) = KNOWN_TYPES.get(rust_ty.as_str()) {
