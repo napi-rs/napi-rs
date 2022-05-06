@@ -20,6 +20,7 @@ use crate::{
 
 #[cfg(feature = "napi8")]
 use crate::async_cleanup_hook::AsyncCleanupHook;
+use crate::bindgen_runtime::FromNapiValue;
 #[cfg(feature = "napi3")]
 use crate::cleanup_env::{CleanupEnvHook, CleanupEnvHookData};
 #[cfg(all(feature = "serde-json"))]
@@ -1071,13 +1072,22 @@ impl Env {
     T: Send,
     V: ToNapiValue,
     R: 'static + Send + FnMut(ThreadSafeCallContext<T>) -> Result<Vec<V>>,
+    RE: FromNapiValue,
+    RECB: 'static + Send + FnMut(RE),
   >(
     &self,
     func: &JsFunction,
     max_queue_size: usize,
     callback: R,
+    result_callback: RECB,
   ) -> Result<ThreadsafeFunction<T>> {
-    ThreadsafeFunction::create(self.0, func.0.value, max_queue_size, callback)
+    ThreadsafeFunction::create(
+      self.0,
+      func.0.value,
+      max_queue_size,
+      callback,
+      result_callback,
+    )
   }
 
   #[cfg(all(feature = "tokio_rt", feature = "napi4"))]

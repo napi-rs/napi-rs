@@ -13,15 +13,17 @@ pub struct A {
 pub fn constructor(ctx: CallContext) -> napi::Result<JsUndefined> {
   let callback = ctx.get::<JsFunction>(0)?;
 
-  let mut cb =
-    ctx
-      .env
-      .create_threadsafe_function(&callback, 0, |ctx: ThreadSafeCallContext<String>| {
-        ctx
-          .env
-          .create_string_from_std(ctx.value)
-          .map(|js_string| vec![js_string])
-      })?;
+  let mut cb = ctx.env.create_threadsafe_function(
+    &callback,
+    0,
+    |ctx: ThreadSafeCallContext<String>| {
+      ctx
+        .env
+        .create_string_from_std(ctx.value)
+        .map(|js_string| vec![js_string])
+    },
+    |_: JsUndefined| (),
+  )?;
 
   cb.unref(ctx.env)?;
 
