@@ -8,7 +8,7 @@ license = "MIT"
 name = "napi-sys"
 readme = "README.md"
 repository = "https://github.com/napi-rs/napi-rs"
-version = "2.2.0"
+version = "2.2.1"
 
 [features]
 experimental = []
