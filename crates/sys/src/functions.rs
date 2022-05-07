@@ -739,10 +739,13 @@ pub use napi8::*;
 
 #[cfg(windows)]
 pub(super) unsafe fn load() -> Result<(), libloading::Error> {
-  #[cfg(not(windows))]
-  let host = libloading::os::unix::Library::this().into();
-  #[cfg(windows)]
-  let host = libloading::os::windows::Library::this()?.into();
+  let host = match libloading::os::windows::Library::this() {
+    Ok(lib) => lib.into(),
+    Err(err) => {
+      eprintln!("Initialize libloading failed {}", err);
+      return Err(err);
+    }
+  };
 
   napi1::load(&host)?;
   #[cfg(feature = "napi2")]
