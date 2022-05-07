@@ -81,7 +81,10 @@ static SETUP: Once = Once::new();
 /// they will panic.
 /// Safety: `env` must be a valid `napi_env` for the current thread
 #[cfg(windows)]
-#[ctor::ctor]
-unsafe fn setup() {
-  SETUP.call_once(|| load().expect("Failed to load N-API symbols"));
+pub unsafe fn setup() {
+  SETUP.call_once(|| {
+    if let Err(err) = load() {
+      panic!("{}", err);
+    }
+  });
 }

@@ -2,7 +2,7 @@
 authors = ["LongYinan <lynweklm@gmail.com>"]
 description = "NodeJS N-API raw binding"
 edition = "2021"
-include = ["src/**/*", "Cargo.toml", "build.rs", ".node-headers/**/*"]
+include = ["src/**/*", "Cargo.toml"]
 keywords = ["NodeJS", "FFI", "NAPI", "n-api"]
 license = "MIT"
 name = "napi-sys"
@@ -26,6 +26,3 @@ independent = true
 
 [target.'cfg(windows)'.dependencies.libloading]
 version = "0.7"
-
-[target.'cfg(windows)'.dependencies.ctor]
-version = "0.1"

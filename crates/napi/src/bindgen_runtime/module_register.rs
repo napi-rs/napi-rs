@@ -262,6 +262,10 @@ unsafe extern "C" fn napi_register_module_v1(
   env: sys::napi_env,
   exports: sys::napi_value,
 ) -> sys::napi_value {
+  #[cfg(windows)]
+  unsafe {
+    sys::setup();
+  }
   let lock = MODULE_REGISTER_LOCK
     .lock()
     .expect("Failed to acquire module register lock");
