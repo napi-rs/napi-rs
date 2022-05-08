@@ -131,7 +131,7 @@ impl NapiFn {
                 arguments: PathArguments::AngleBracketed(_),
               }) = path.path.segments.last()
               {
-                if ident == "Reference" {
+                if ident == "Reference" || ident == "WeakReference" {
                   return None;
                 }
               }

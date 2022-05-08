@@ -202,9 +202,11 @@ test('should be able to create object reference and shared reference', (t) => {
 
 test('should be able to into_reference', (t) => {
   const rules = ['body: { color: red }', 'div: { color: blue }']
-  const sheet = new CssStyleSheet(rules)
+  const sheet = new CssStyleSheet('test.css', rules)
   t.is(sheet.rules, sheet.rules)
   t.deepEqual(sheet.rules.getRules(), rules)
+  t.is(sheet.rules.parentStyleSheet, sheet)
+  t.is(sheet.rules.name, 'test.css')
   const anotherStyleSheet = sheet.anotherCssStyleSheet()
   t.is(anotherStyleSheet.rules, sheet.rules)
 })
