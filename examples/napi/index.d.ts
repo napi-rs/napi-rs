@@ -258,6 +258,16 @@ export class Fib {
   [Symbol.iterator](): Iterator<number, void, number>
   constructor()
 }
+export class Fib2 {
+  [Symbol.iterator](): Iterator<number, void, number>
+  static create(seed: number): Fib2
+}
+export class Fib3 {
+  current: number
+  next: number
+  constructor(current: number, next: number)
+  [Symbol.iterator](): Iterator<number, void, number>
+}
 export class JsRepo {
   constructor(dir: string)
   remote(): JsRemote

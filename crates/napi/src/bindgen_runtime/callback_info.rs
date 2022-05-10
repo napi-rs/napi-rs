@@ -113,43 +113,59 @@ impl<const N: usize> CallbackInfo<N> {
   }
 
   pub fn factory<T: 'static>(&self, js_name: &str, obj: T) -> Result<sys::napi_value> {
+    self._factory(js_name, obj).map(|(value, _)| value)
+  }
+
+  pub fn generator_factory<T: Generator + 'static>(
+    &self,
+    js_name: &str,
+    obj: T,
+  ) -> Result<sys::napi_value> {
+    let (instance, generator_ptr) = self._factory(js_name, obj)?;
+    crate::__private::create_iterator(self.env, instance, generator_ptr);
+    Ok(instance)
+  }
+
+  fn _factory<T: 'static>(&self, js_name: &str, obj: T) -> Result<(sys::napi_value, *mut T)> {
     let this = self.this();
     let mut instance = ptr::null_mut();
-    unsafe {
-      let inner = ___CALL_FROM_FACTORY.get_or_default();
-      inner.store(true, Ordering::Relaxed);
-      let status = sys::napi_new_instance(self.env, this, 0, ptr::null_mut(), &mut instance);
-      inner.store(false, Ordering::Relaxed);
-      // Error thrown in `constructor`
-      if status == sys::Status::napi_pending_exception {
-        let mut exception = ptr::null_mut();
-        sys::napi_get_and_clear_last_exception(self.env, &mut exception);
-        sys::napi_throw(self.env, exception);
-        return Ok(ptr::null_mut());
-      }
-      let obj = Box::new(obj);
-      let initial_finalize: Box<dyn FnOnce()> = Box::new(|| {});
-      let finalize_callbacks_ptr =
-        Rc::into_raw(Rc::new(Cell::new(Box::into_raw(initial_finalize))));
-      let mut object_ref = ptr::null_mut();
-      let value_ref = Box::into_raw(obj) as *mut c_void;
-      check_status!(
+    let inner = ___CALL_FROM_FACTORY.get_or_default();
+    inner.store(true, Ordering::Relaxed);
+    let status =
+      unsafe { sys::napi_new_instance(self.env, this, 0, ptr::null_mut(), &mut instance) };
+    inner.store(false, Ordering::Relaxed);
+    // Error thrown in `constructor`
+    if status == sys::Status::napi_pending_exception {
+      let mut exception = ptr::null_mut();
+      unsafe { sys::napi_get_and_clear_last_exception(self.env, &mut exception) };
+      unsafe { sys::napi_throw(self.env, exception) };
+      return Ok((ptr::null_mut(), ptr::null_mut()));
+    }
+    let obj = Box::new(obj);
+    let initial_finalize: Box<dyn FnOnce()> = Box::new(|| {});
+    let finalize_callbacks_ptr = Rc::into_raw(Rc::new(Cell::new(Box::into_raw(initial_finalize))));
+    let mut object_ref = ptr::null_mut();
+    let value_ref = Box::into_raw(obj);
+    check_status!(
+      unsafe {
         sys::napi_wrap(
           self.env,
           instance,
-          value_ref,
+          value_ref as *mut c_void,
           Some(raw_finalize_unchecked::<T>),
           ptr::null_mut(),
-          &mut object_ref
-        ),
-        "Failed to initialize class `{}`",
-        js_name,
-      )?;
+          &mut object_ref,
+        )
+      },
+      "Failed to initialize class `{}`",
+      js_name,
+    )?;
 
-      Reference::<T>::add_ref(value_ref, (value_ref, object_ref, finalize_callbacks_ptr));
-    };
-
-    Ok(instance)
+    Reference::<T>::add_ref(
+      value_ref as *mut c_void,
+      (value_ref as *mut c_void, object_ref, finalize_callbacks_ptr),
+    );
+    Ok((instance, value_ref))
   }
 
   pub fn unwrap_borrow_mut<T>(&mut self) -> Result<&'static mut T>

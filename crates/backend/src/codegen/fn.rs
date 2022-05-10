@@ -294,7 +294,13 @@ impl NapiFn {
         }
       } else if self.kind == FnKind::Factory {
         if self.is_ret_result {
-          quote! { cb.factory(#js_name, #ret?) }
+          if self.parent_is_generator {
+            quote! { cb.generator_factory(#js_name, #ret?) }
+          } else {
+            quote! { cb.factory(#js_name, #ret?) }
+          }
+        } else if self.parent_is_generator {
+          quote! { cb.generator_factory(#js_name, #ret) }
         } else {
           quote! { cb.factory(#js_name, #ret) }
         }
