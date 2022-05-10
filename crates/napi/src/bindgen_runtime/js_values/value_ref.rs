@@ -1,10 +1,14 @@
-use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::cell::Cell;
 use std::ffi::c_void;
 use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 
-use crate::{bindgen_runtime::ToNapiValue, check_status, Env, Error, Result, Status};
+use lazy_static::lazy_static;
+
+use crate::{
+  bindgen_runtime::{PersistedSingleThreadHashMap, ToNapiValue},
+  check_status, Env, Error, Result, Status,
+};
 
 type RefInformation = (
   *mut c_void,
@@ -12,8 +16,9 @@ type RefInformation = (
   *const Cell<*mut dyn FnOnce()>,
 );
 
-thread_local! {
-  pub(crate) static REFERENCE_MAP: RefCell<HashMap<*mut c_void, RefInformation>> = Default::default();
+lazy_static! {
+  pub(crate) static ref REFERENCE_MAP: PersistedSingleThreadHashMap<*mut c_void, RefInformation> =
+    Default::default();
 }
 
 /// ### Experimental feature
@@ -57,15 +62,15 @@ impl<T> Drop for Reference<T> {
 impl<T: 'static> Reference<T> {
   #[doc(hidden)]
   pub fn add_ref(t: *mut c_void, value: RefInformation) {
-    REFERENCE_MAP.with(|map| {
-      map.borrow_mut().insert(t, value);
+    REFERENCE_MAP.borrow_mut(|map| {
+      map.insert(t, value);
     });
   }
 
   #[doc(hidden)]
   pub unsafe fn from_value_ptr(t: *mut c_void, env: crate::sys::napi_env) -> Result<Self> {
     if let Some((wrapped_value, napi_ref, finalize_callbacks_ptr)) =
-      REFERENCE_MAP.with(|map| map.borrow().get(&t).cloned())
+      REFERENCE_MAP.borrow_mut(|map| map.get(&t).cloned())
     {
       check_status!(
         unsafe { crate::sys::napi_reference_ref(env, napi_ref, &mut 0) },

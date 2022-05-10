@@ -30,7 +30,7 @@ pub unsafe extern "C" fn raw_finalize_unchecked<T>(
 ) {
   unsafe { Box::from_raw(finalize_data as *mut T) };
   if let Some((_, ref_val, finalize_callbacks_ptr)) =
-    REFERENCE_MAP.with(|reference_map| reference_map.borrow_mut().remove(&finalize_data))
+    REFERENCE_MAP.borrow_mut(|reference_map| reference_map.remove(&finalize_data))
   {
     let finalize_callbacks_rc = unsafe { Rc::from_raw(finalize_callbacks_ptr) };
 

@@ -1,11 +1,10 @@
-use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
 use std::ffi::c_void;
 use std::ffi::CStr;
 use std::mem;
 use std::ptr;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicPtr};
 use std::sync::{atomic::Ordering, Mutex};
 
 use lazy_static::lazy_static;
@@ -56,11 +55,11 @@ impl<T> PersistedSingleThreadVec<T> {
 unsafe impl<T> Send for PersistedSingleThreadVec<T> {}
 unsafe impl<T> Sync for PersistedSingleThreadVec<T> {}
 
-struct PersistedSingleThreadHashMap<K, V>(Mutex<HashMap<K, V>>);
+pub(crate) struct PersistedSingleThreadHashMap<K, V>(Mutex<HashMap<K, V>>);
 
 impl<K, V> PersistedSingleThreadHashMap<K, V> {
   #[allow(clippy::mut_from_ref)]
-  fn borrow_mut<F, R>(&self, f: F) -> R
+  pub(crate) fn borrow_mut<F, R>(&self, f: F) -> R
   where
     F: FnOnce(&mut HashMap<K, V>) -> R,
   {
@@ -89,11 +88,17 @@ type ModuleClassProperty = PersistedSingleThreadHashMap<
 unsafe impl<K, V> Send for PersistedSingleThreadHashMap<K, V> {}
 unsafe impl<K, V> Sync for PersistedSingleThreadHashMap<K, V> {}
 
+type FnRegisterMap =
+  PersistedSingleThreadHashMap<ExportRegisterCallback, (sys::napi_callback, &'static str)>;
+
 lazy_static! {
   static ref MODULE_REGISTER_CALLBACK: ModuleRegisterCallback = Default::default();
   static ref MODULE_CLASS_PROPERTIES: ModuleClassProperty = Default::default();
   static ref MODULE_REGISTER_LOCK: Mutex<()> = Mutex::new(());
   static ref REGISTERED: AtomicBool = AtomicBool::new(false);
+  static ref REGISTERED_CLASSES: thread_local::ThreadLocal<AtomicPtr<RegisteredClasses>> =
+    thread_local::ThreadLocal::new();
+  static ref FN_REGISTER_MAP: FnRegisterMap = Default::default();
 }
 
 #[inline]
@@ -103,27 +108,22 @@ fn wait_first_thread_registered() {
   }
 }
 
+type RegisteredClasses =
+  HashMap</* export name */ String, /* constructor */ sys::napi_ref>;
+
 #[cfg(feature = "compat-mode")]
 // compatibility for #[module_exports]
 lazy_static! {
   static ref MODULE_EXPORTS: PersistedSingleThreadVec<ModuleExportsCallback> = Default::default();
 }
 
-thread_local! {
-  static REGISTERED_CLASSES: RefCell<HashMap<
-    /* export name */ String,
-    /* constructor */ sys::napi_ref,
-  >> = Default::default();
-  static FN_REGISTER_MAP: RefCell<HashMap<ExportRegisterCallback, (sys::napi_callback, String)>> = Default::default();
-}
-
 #[doc(hidden)]
 pub fn get_class_constructor(js_name: &'static str) -> Option<sys::napi_ref> {
   wait_first_thread_registered();
-  REGISTERED_CLASSES.with(|registered_classes| {
-    let classes = registered_classes.borrow();
-    classes.get(js_name).copied()
-  })
+  let registered_classes = REGISTERED_CLASSES.get().unwrap();
+  let registered_classes =
+    Box::leak(unsafe { Box::from_raw(registered_classes.load(Ordering::Relaxed)) });
+  registered_classes.get(js_name).copied()
 }
 
 #[doc(hidden)]
@@ -148,8 +148,8 @@ pub fn register_js_function(
   cb: ExportRegisterCallback,
   c_fn: sys::napi_callback,
 ) {
-  FN_REGISTER_MAP.with(|inner| {
-    inner.borrow_mut().insert(cb, (c_fn, name.to_owned()));
+  FN_REGISTER_MAP.borrow_mut(|inner| {
+    inner.insert(cb, (c_fn, name));
   });
 }
 
@@ -188,9 +188,8 @@ pub fn register_class(
 ///
 pub fn get_js_function(env: &Env, raw_fn: ExportRegisterCallback) -> Result<JsFunction> {
   wait_first_thread_registered();
-  FN_REGISTER_MAP.with(|inner| {
+  FN_REGISTER_MAP.borrow_mut(|inner| {
     inner
-      .borrow()
       .get(&raw_fn)
       .and_then(|(cb, name)| {
         let mut function = ptr::null_mut();
@@ -243,9 +242,8 @@ pub fn get_js_function(env: &Env, raw_fn: ExportRegisterCallback) -> Result<JsFu
 ///
 pub fn get_c_callback(raw_fn: ExportRegisterCallback) -> Result<crate::Callback> {
   wait_first_thread_registered();
-  FN_REGISTER_MAP.with(|inner| {
+  FN_REGISTER_MAP.borrow_mut(|inner| {
     inner
-      .borrow()
       .get(&raw_fn)
       .and_then(|(cb, _name)| *cb)
       .ok_or_else(|| {
@@ -266,6 +264,8 @@ unsafe extern "C" fn napi_register_module_v1(
   unsafe {
     sys::setup();
   }
+  crate::__private::___CALL_FROM_FACTORY.get_or_default();
+  let registered_classes_ptr = REGISTERED_CLASSES.get_or_default();
   let lock = MODULE_REGISTER_LOCK
     .lock()
     .expect("Failed to acquire module register lock");
@@ -344,6 +344,9 @@ unsafe extern "C" fn napi_register_module_v1(
       })
   });
 
+  let mut registered_classes: RegisteredClasses =
+    HashMap::with_capacity(MODULE_CLASS_PROPERTIES.borrow_mut(|inner| inner.len()));
+
   MODULE_CLASS_PROPERTIES.borrow_mut(|inner| {
     inner.iter().for_each(|(rust_name, js_mods)| {
       for (js_mod, (js_name, props)) in js_mods {
@@ -407,10 +410,7 @@ unsafe extern "C" fn napi_register_module_v1(
           let mut ctor_ref = ptr::null_mut();
           sys::napi_create_reference(env, class_ptr, 1, &mut ctor_ref);
 
-          REGISTERED_CLASSES.with(|registered_classes| {
-            let mut registered_class = registered_classes.borrow_mut();
-            registered_class.insert(js_name.to_string(), ctor_ref);
-          });
+          registered_classes.insert(js_name.to_string(), ctor_ref);
 
           check_status_or_throw!(
             env,
@@ -430,7 +430,11 @@ unsafe extern "C" fn napi_register_module_v1(
           );
         }
       }
-    })
+    });
+    registered_classes_ptr.store(
+      Box::into_raw(Box::new(registered_classes)),
+      Ordering::Relaxed,
+    );
   });
 
   #[cfg(feature = "compat-mode")]
@@ -462,7 +466,8 @@ pub(crate) unsafe extern "C" fn noop(
   env: sys::napi_env,
   _info: sys::napi_callback_info,
 ) -> sys::napi_value {
-  if !crate::bindgen_runtime::___CALL_FROM_FACTORY.with(|inner| inner.load(Ordering::Relaxed)) {
+  let inner = crate::bindgen_runtime::___CALL_FROM_FACTORY.get_or_default();
+  if !inner.load(Ordering::Relaxed) {
     unsafe {
       sys::napi_throw_error(
         env,
