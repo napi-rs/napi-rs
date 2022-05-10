@@ -268,10 +268,12 @@ export class JsRemote {
 export type CSSRuleList = CssRuleList
 export class CssRuleList {
   getRules(): Array<string>
+  get parentStyleSheet(): CSSStyleSheet
+  get name(): string | null
 }
 export type CSSStyleSheet = CssStyleSheet
 export class CssStyleSheet {
-  constructor(rules: Array<string>)
+  constructor(name: string, rules: Array<string>)
   get rules(): CssRuleList
   anotherCssStyleSheet(): AnotherCssStyleSheet
 }

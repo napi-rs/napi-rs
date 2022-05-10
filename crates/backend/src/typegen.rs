@@ -280,7 +280,7 @@ pub fn ty_to_ts_type(ty: &Type, is_return_ty: bool, is_struct_field: bool) -> (S
               Some(("Promise<unknown>".to_owned(), false))
             }
           });
-        } else if rust_ty == "Reference" {
+        } else if rust_ty == "Reference" || rust_ty == "WeakReference" {
           ts_ty = r#struct::TASK_STRUCTS.with(|t| {
             // Reference<T> => T
             if let Some(arg) = args.first() {

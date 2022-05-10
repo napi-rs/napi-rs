@@ -37,7 +37,6 @@ pub unsafe extern "C" fn raw_finalize_unchecked<T>(
     #[cfg(debug_assertions)]
     {
       let rc_strong_count = Rc::strong_count(&finalize_callbacks_rc);
-      let rc_weak_count = Rc::weak_count(&finalize_callbacks_rc);
       // If `Rc` strong count is 2, it means the finalize of referenced `Object` is called before the `fn drop` of the `Reference`
       // It always happened on exiting process
       // In general, the `fn drop` would happen first
@@ -45,11 +44,6 @@ pub unsafe extern "C" fn raw_finalize_unchecked<T>(
         rc_strong_count == 1 || rc_strong_count == 2,
         "Rc strong count is: {}, it should be 1 or 2",
         rc_strong_count
-      );
-      assert!(
-        rc_weak_count == 0,
-        "Rc weak count is: {}, it should be 0",
-        rc_weak_count
       );
     }
     let finalize = unsafe { Box::from_raw(finalize_callbacks_rc.get()) };

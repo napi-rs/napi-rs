@@ -1,7 +1,7 @@
 use std::cell::Cell;
 use std::ffi::c_void;
 use std::ops::{Deref, DerefMut};
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 use lazy_static::lazy_static;
 
@@ -121,6 +121,14 @@ impl<T: 'static> Reference<T> {
     })
   }
 
+  pub fn downgrade(&self) -> WeakReference<T> {
+    WeakReference {
+      raw: self.raw,
+      napi_ref: self.napi_ref,
+      finalize_callbacks: Rc::downgrade(&self.finalize_callbacks),
+    }
+  }
+
   /// Safety to share because caller can provide `Env`
   pub fn share_with<S: 'static, F: FnOnce(&'static mut T) -> Result<S>>(
     self,
@@ -153,6 +161,53 @@ impl<T: 'static> Deref for Reference<T> {
 impl<T: 'static> DerefMut for Reference<T> {
   fn deref_mut(&mut self) -> &mut Self::Target {
     unsafe { Box::leak(Box::from_raw(self.raw)) }
+  }
+}
+
+pub struct WeakReference<T: 'static> {
+  raw: *mut T,
+  napi_ref: crate::sys::napi_ref,
+  finalize_callbacks: Weak<Cell<*mut dyn FnOnce()>>,
+}
+
+impl<T> Clone for WeakReference<T> {
+  fn clone(&self) -> Self {
+    Self {
+      raw: self.raw,
+      napi_ref: self.napi_ref,
+      finalize_callbacks: self.finalize_callbacks.clone(),
+    }
+  }
+}
+
+impl<T: 'static> ToNapiValue for WeakReference<T> {
+  unsafe fn to_napi_value(env: crate::sys::napi_env, val: Self) -> Result<crate::sys::napi_value> {
+    let mut result = std::ptr::null_mut();
+    check_status!(
+      unsafe { crate::sys::napi_get_reference_value(env, val.napi_ref, &mut result) },
+      "Failed to get reference value"
+    )?;
+    Ok(result)
+  }
+}
+
+impl<T: 'static> WeakReference<T> {
+  pub fn upgrade(&self, env: Env) -> Result<Option<Reference<T>>> {
+    if let Some(finalize_callbacks) = self.finalize_callbacks.upgrade() {
+      let mut ref_count = 0;
+      check_status!(
+        unsafe { crate::sys::napi_reference_ref(env.0, self.napi_ref, &mut ref_count) },
+        "Failed to ref napi reference"
+      )?;
+      Ok(Some(Reference {
+        raw: self.raw,
+        napi_ref: self.napi_ref,
+        env: env.0 as *mut c_void,
+        finalize_callbacks,
+      }))
+    } else {
+      Ok(None)
+    }
   }
 }
 
