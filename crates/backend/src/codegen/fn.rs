@@ -49,7 +49,8 @@ impl TryToTokens for NapiFn {
       quote! {
         // constructor function is called from class `factory`
         // so we should skip the original `constructor` logic
-        if napi::bindgen_prelude::___CALL_FROM_FACTORY.with(|inner| inner.load(std::sync::atomic::Ordering::Relaxed)) {
+        let inner = napi::__private::___CALL_FROM_FACTORY.get_or_default();
+        if inner.load(std::sync::atomic::Ordering::Relaxed) {
           return std::ptr::null_mut();
         }
         napi::bindgen_prelude::CallbackInfo::<#args_len>::new(env, cb, None).and_then(|mut cb| {

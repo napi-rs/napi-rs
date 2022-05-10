@@ -75,7 +75,6 @@
 
 #[cfg(feature = "napi8")]
 mod async_cleanup_hook;
-
 #[cfg(feature = "napi8")]
 pub use async_cleanup_hook::AsyncCleanupHook;
 mod async_work;
@@ -86,7 +85,6 @@ mod cleanup_env;
 mod env;
 mod error;
 mod js_values;
-
 #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
 mod promise;
 mod status;
@@ -169,7 +167,7 @@ pub mod bindgen_prelude {
 #[doc(hidden)]
 pub mod __private {
   pub use crate::bindgen_runtime::{
-    get_class_constructor, iterator::create_iterator, register_class,
+    get_class_constructor, iterator::create_iterator, register_class, ___CALL_FROM_FACTORY,
   };
 
   use crate::sys;

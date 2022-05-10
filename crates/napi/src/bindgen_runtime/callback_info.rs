@@ -4,12 +4,15 @@ use std::ptr;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use lazy_static::lazy_static;
+use thread_local::ThreadLocal;
+
 use crate::{bindgen_prelude::*, check_status, sys, Result};
 
-thread_local! {
+lazy_static! {
   #[doc(hidden)]
   /// Determined is `constructor` called from Class `factory`
-  pub static ___CALL_FROM_FACTORY: AtomicBool = AtomicBool::new(false);
+  pub static ref ___CALL_FROM_FACTORY: ThreadLocal<AtomicBool> = ThreadLocal::new();
 }
 
 pub struct CallbackInfo<const N: usize> {
@@ -113,9 +116,10 @@ impl<const N: usize> CallbackInfo<N> {
     let this = self.this();
     let mut instance = ptr::null_mut();
     unsafe {
-      ___CALL_FROM_FACTORY.with(|inner| inner.store(true, Ordering::Relaxed));
+      let inner = ___CALL_FROM_FACTORY.get_or_default();
+      inner.store(true, Ordering::Relaxed);
       let status = sys::napi_new_instance(self.env, this, 0, ptr::null_mut(), &mut instance);
-      ___CALL_FROM_FACTORY.with(|inner| inner.store(false, Ordering::Relaxed));
+      inner.store(false, Ordering::Relaxed);
       // Error thrown in `constructor`
       if status == sys::Status::napi_pending_exception {
         let mut exception = ptr::null_mut();

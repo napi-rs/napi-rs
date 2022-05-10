@@ -35,7 +35,19 @@ macro_rules! generate {
       ) -> Result<(), libloading::Error> {
           NAPI = Napi {
               $(
-                  $name: *host.get(stringify!($name).as_bytes())?,
+                  $name: {
+                    let symbol: Result<libloading::Symbol<unsafe extern "C" fn ($(_: $ptype,)*)$( -> $rtype)*>, libloading::Error> = host.get(stringify!($name).as_bytes());
+                    match symbol {
+                      Ok(f) => *f,
+                      Err(e) => {
+                        debug_assert!({
+                          println!("Load Node-API [{}] from host runtime failed: {}", stringify!($name), e);
+                          true
+                        });
+                        return Ok(());
+                      }
+                    }
+                  },
               )*
           };
 
@@ -44,6 +56,7 @@ macro_rules! generate {
 
       $(
           #[inline]
+          #[allow(clippy::missing_safety_doc)]
           pub unsafe fn $name($($param: $ptype,)*)$( -> $rtype)* {
               (NAPI.$name)($($param,)*)
           }
@@ -81,6 +94,7 @@ static SETUP: Once = Once::new();
 /// they will panic.
 /// Safety: `env` must be a valid `napi_env` for the current thread
 #[cfg(windows)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn setup() {
   SETUP.call_once(|| {
     if let Err(err) = load() {

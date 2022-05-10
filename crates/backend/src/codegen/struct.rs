@@ -276,12 +276,14 @@ impl NapiStruct {
           )?;
 
           let mut result = std::ptr::null_mut();
-          napi::bindgen_prelude::___CALL_FROM_FACTORY.with(|inner| inner.store(true, std::sync::atomic::Ordering::Relaxed));
+          let inner = napi::__private::___CALL_FROM_FACTORY.get_or_default();
+          inner.store(true, std::sync::atomic::Ordering::Relaxed);
           napi::check_status!(
             napi::sys::napi_new_instance(env, ctor, 0, std::ptr::null_mut(), &mut result),
             "Failed to construct class `{}`",
             #js_name_raw
           )?;
+          inner.store(false, std::sync::atomic::Ordering::Relaxed);
           let mut object_ref = std::ptr::null_mut();
           let initial_finalize: Box<dyn FnOnce()> = Box::new(|| {});
           let finalize_callbacks_ptr = std::rc::Rc::into_raw(std::rc::Rc::new(std::cell::Cell::new(Box::into_raw(initial_finalize))));
@@ -298,7 +300,6 @@ impl NapiStruct {
             #js_name_raw
           )?;
           napi::bindgen_prelude::Reference::<#name>::add_ref(wrapped_value, (wrapped_value, object_ref, finalize_callbacks_ptr));
-          napi::bindgen_prelude::___CALL_FROM_FACTORY.with(|inner| inner.store(false, std::sync::atomic::Ordering::Relaxed));
           Ok(result)
         }
       }
@@ -316,6 +317,7 @@ impl NapiStruct {
 
   fn gen_to_napi_value_ctor_impl(&self) -> TokenStream {
     let name = &self.name;
+    let js_name_without_null = &self.js_name;
     let js_name_str = format!("{}\0", &self.js_name);
 
     let mut field_conversions = vec![];
@@ -362,7 +364,7 @@ impl NapiStruct {
             napi::bindgen_prelude::check_status!(
               napi::bindgen_prelude::sys::napi_get_reference_value(env, ctor_ref, &mut ctor),
               "Failed to get constructor reference of class `{}`",
-              #js_name_str
+              #js_name_without_null
             )?;
 
             let mut instance_value = std::ptr::null_mut();
@@ -372,7 +374,7 @@ impl NapiStruct {
             napi::bindgen_prelude::check_status!(
               napi::bindgen_prelude::sys::napi_new_instance(env, ctor, args.len(), args.as_ptr(), &mut instance_value),
               "Failed to construct class `{}`",
-              #js_name_str
+              #js_name_without_null
             )?;
 
             Ok(instance_value)
