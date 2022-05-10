@@ -7,7 +7,7 @@ license = "MIT"
 name = "napi"
 readme = "README.md"
 repository = "https://github.com/napi-rs/napi-rs"
-version = "2.4.1"
+version = "2.4.2"
 
 [package.metadata.docs.rs]
 all-features = true
@@ -52,7 +52,7 @@ lazy_static = "1"
 thread_local = "1"
 
 [dependencies.napi-sys]
-version = "2.1.1"
+version = "2.2.2"
 path = "../sys"
 
 [dependencies.encoding_rs]

@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::ffi::c_void;
 use std::ffi::CStr;
 use std::mem;
 use std::ptr;
@@ -451,7 +450,11 @@ unsafe extern "C" fn napi_register_module_v1(
     crate::tokio_runtime::TOKIO_RT_REF_COUNT.fetch_add(1, Ordering::SeqCst);
     assert_eq!(
       unsafe {
-        sys::napi_add_env_cleanup_hook(env, Some(crate::shutdown_tokio_rt), env as *mut c_void)
+        sys::napi_add_env_cleanup_hook(
+          env,
+          Some(crate::shutdown_tokio_rt),
+          env as *mut std::ffi::c_void,
+        )
       },
       sys::Status::napi_ok
     );
