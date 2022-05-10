@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-#[cfg(all(feature = "tokio_rt", feature = "napi4"))]
 use std::ffi::c_void;
 use std::ffi::CStr;
 use std::mem;

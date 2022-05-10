@@ -35,6 +35,7 @@
     "lint": "eslint -c .eslintrc.yml .",
     "prepublishOnly": "npm run build && pinst --disable",
     "test": "ava \"./examples/napi/**/*.ts\" && ava --no-worker-threads \"./examples/napi-compat-mode/**/*.ts\" && ava \"./cli/**/*.ts\"",
+    "test:electron": "electron examples/napi/electron.js",
     "test:memory": "node memory-testing/index.mjs",
     "postinstall": "husky install",
     "postpublish": "pinst --enable"
@@ -87,6 +88,7 @@
     "c8": "^7.11.2",
     "colorette": "^2.0.16",
     "cross-env": "^7.0.3",
+    "electron": "^18.2.0",
     "esbuild": "^0.14.38",
     "eslint": "^8.14.0",
     "eslint-config-prettier": "^8.5.0",

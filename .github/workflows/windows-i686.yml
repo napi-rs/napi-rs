@@ -73,5 +73,7 @@ jobs:
           yarn workspace compat-mode-examples build-i686 --release
           yarn workspace examples build-i686 --release
           yarn test --verbose
+          node ./node_modules/electron/install.js
+          yarn test:electron
         env:
           RUST_BACKTRACE: 1

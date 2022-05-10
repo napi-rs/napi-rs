@@ -2,6 +2,7 @@ name: macOS/Windows/Linux x64
 
 env:
   DEBUG: 'napi:*'
+  RUST_BACKTRACE: 1
 
 on:
   push:
@@ -69,5 +70,15 @@ jobs:
           yarn build:test
           yarn test --verbose
           yarn tsc -p examples/napi/tsconfig.json --noEmit
-        env:
-          RUST_BACKTRACE: 1
+
+      - name: Electron tests
+        if: matrix.os != 'ubuntu-latest'
+        run: |
+          node ./node_modules/electron/install.js
+          yarn test:electron
+
+      - name: Electron tests
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          node ./node_modules/electron/install.js
+          xvfb-run --auto-servernum yarn test:electron
