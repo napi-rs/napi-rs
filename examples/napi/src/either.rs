@@ -82,3 +82,17 @@ fn receive_mut_class_or_number(either: Either<u32, &mut JsClassForEither>) -> u3
     Either::B(_) => 100,
   }
 }
+
+#[napi]
+fn return_either_class(input: i32) -> Either<u32, JsClassForEither> {
+  if input > 0 {
+    Either::A(input as u32)
+  } else {
+    Either::B(JsClassForEither {})
+  }
+}
+
+#[napi]
+fn either_from_option() -> Either<JsClassForEither, Undefined> {
+  Some(JsClassForEither {}).into()
+}

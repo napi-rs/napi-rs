@@ -93,6 +93,8 @@ import {
   CssStyleSheet,
   asyncReduceBuffer,
   callbackReturnPromise,
+  returnEitherClass,
+  eitherFromOption,
 } from '../'
 
 test('export const', (t) => {
@@ -465,6 +467,15 @@ test('receive class reference in either', (t) => {
   t.is(receiveClassOrNumber(1), 2)
   t.is(receiveClassOrNumber(c), 100)
   t.is(receiveMutClassOrNumber(c), 100)
+})
+
+test('return either class', (t) => {
+  t.is(returnEitherClass(1), 1)
+  t.true(returnEitherClass(-1) instanceof JsClassForEither)
+})
+
+test('either from option', (t) => {
+  t.true(eitherFromOption() instanceof JsClassForEither)
 })
 
 test('either3', (t) => {
