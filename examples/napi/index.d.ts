@@ -47,6 +47,8 @@ export interface Obj {
 export function either4(input: string | number | boolean | Obj): number
 export function receiveClassOrNumber(either: number | JsClassForEither): number
 export function receiveMutClassOrNumber(either: number | JsClassForEither): number
+export function returnEitherClass(input: number): number | JsClassForEither
+export function eitherFromOption(): JsClassForEither | undefined
 /** default enum values are continuos i32s start from 0 */
 export const enum Kind {
   /** Barks */
