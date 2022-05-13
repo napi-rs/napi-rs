@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use crate::bindgen_runtime::{FromNapiValue, ToNapiValue};
-use crate::{check_status, sys, Env, Error, JsError, JsUndefined, Result, Status};
+use crate::{check_status, sys, Env, Error, JsError, Result, Status};
 
 /// ThreadSafeFunction Context object
 /// the `value` is the value passed to `call` method

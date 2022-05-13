@@ -1,12 +1,11 @@
 use std::ptr;
 
 use super::Value;
-use crate::bindgen_runtime::{FromNapiValue, TypeName};
-use crate::threadsafe_function::ThreadSafeResultContext;
+use crate::bindgen_runtime::TypeName;
 #[cfg(feature = "napi4")]
 use crate::{
-  bindgen_runtime::ToNapiValue,
-  threadsafe_function::{ThreadSafeCallContext, ThreadsafeFunction},
+  bindgen_runtime::{FromNapiValue, ToNapiValue},
+  threadsafe_function::{ThreadSafeCallContext, ThreadSafeResultContext, ThreadsafeFunction},
 };
 use crate::{check_status, ValueType};
 use crate::{sys, Env, Error, JsObject, JsUnknown, NapiRaw, NapiValue, Result, Status};

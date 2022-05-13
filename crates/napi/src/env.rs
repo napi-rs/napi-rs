@@ -24,9 +24,10 @@ use crate::async_cleanup_hook::AsyncCleanupHook;
 use crate::cleanup_env::{CleanupEnvHook, CleanupEnvHookData};
 #[cfg(all(feature = "serde-json"))]
 use crate::js_values::{De, Ser};
-use crate::threadsafe_function::ThreadSafeResultContext;
 #[cfg(feature = "napi4")]
-use crate::threadsafe_function::{ThreadSafeCallContext, ThreadsafeFunction};
+use crate::threadsafe_function::{
+  ThreadSafeCallContext, ThreadSafeResultContext, ThreadsafeFunction,
+};
 #[cfg(feature = "napi3")]
 use crate::JsError;
 #[cfg(all(feature = "serde-json"))]
