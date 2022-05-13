@@ -8,7 +8,7 @@ use std::os::raw::{c_char, c_void};
 use std::ptr;
 
 #[cfg(all(feature = "napi4"))]
-use crate::bindgen_runtime::ToNapiValue;
+use crate::bindgen_runtime::{FromNapiValue, ToNapiValue};
 use crate::{
   async_work::{self, AsyncWorkPromise},
   check_status,
@@ -20,11 +20,11 @@ use crate::{
 
 #[cfg(feature = "napi8")]
 use crate::async_cleanup_hook::AsyncCleanupHook;
-use crate::bindgen_runtime::FromNapiValue;
 #[cfg(feature = "napi3")]
 use crate::cleanup_env::{CleanupEnvHook, CleanupEnvHookData};
 #[cfg(all(feature = "serde-json"))]
 use crate::js_values::{De, Ser};
+use crate::threadsafe_function::ThreadSafeResultContext;
 #[cfg(feature = "napi4")]
 use crate::threadsafe_function::{ThreadSafeCallContext, ThreadsafeFunction};
 #[cfg(feature = "napi3")]
@@ -1073,7 +1073,7 @@ impl Env {
     V: ToNapiValue,
     R: 'static + Send + FnMut(ThreadSafeCallContext<T>) -> Result<Vec<V>>,
     RE: FromNapiValue,
-    RECB: 'static + Send + FnMut(RE),
+    RECB: 'static + Send + FnMut(ThreadSafeResultContext<RE>),
   >(
     &self,
     func: &JsFunction,

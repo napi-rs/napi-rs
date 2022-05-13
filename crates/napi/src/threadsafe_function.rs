@@ -9,13 +9,20 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use crate::bindgen_runtime::{FromNapiValue, ToNapiValue};
-use crate::{check_status, sys, Env, Error, JsError, Result, Status};
+use crate::{check_status, sys, Env, Error, JsError, JsUndefined, Result, Status};
 
 /// ThreadSafeFunction Context object
 /// the `value` is the value passed to `call` method
 pub struct ThreadSafeCallContext<T: 'static> {
   pub env: Env,
   pub value: T,
+}
+
+/// ThreadSafeFunction Context object
+/// the `value` is the value returned from `node` side
+pub struct ThreadSafeResultContext<T: FromNapiValue> {
+  pub env: Env,
+  pub return_value: T,
 }
 
 #[repr(u8)]
@@ -180,7 +187,7 @@ impl<T: 'static, ES: ErrorStrategy::T> ThreadsafeFunction<T, ES> {
     V: ToNapiValue,
     R: 'static + Send + FnMut(ThreadSafeCallContext<T>) -> Result<Vec<V>>,
     RE: FromNapiValue,
-    RECB: 'static + Send + FnMut(RE),
+    RECB: 'static + Send + FnMut(ThreadSafeResultContext<RE>),
   >(
     env: sys::napi_env,
     func: sys::napi_value,
@@ -360,7 +367,7 @@ unsafe extern "C" fn call_js_cb<T: 'static, V: ToNapiValue, R, RE, ES, RECB>(
   R: 'static + Send + FnMut(ThreadSafeCallContext<T>) -> Result<Vec<V>>,
   ES: ErrorStrategy::T,
   RE: FromNapiValue,
-  RECB: 'static + Send + FnMut(RE),
+  RECB: 'static + Send + FnMut(ThreadSafeResultContext<RE>),
 {
   // env and/or callback can be null when shutting down
   if raw_env.is_null() || js_callback.is_null() {
@@ -417,13 +424,12 @@ unsafe extern "C" fn call_js_cb<T: 'static, V: ToNapiValue, R, RE, ES, RECB>(
             &mut return_value,
           );
 
-          let mut is_promise = false;
-          crate::sys::napi_is_promise(raw_env, return_value, &mut is_promise);
-          println!("is promise {}", is_promise);
-
-          let native_result = RE::from_napi_value(raw_env, return_value)
+          let return_value = RE::from_napi_value(raw_env, return_value)
             .expect("convert threadsafe js callback return value error");
-          (native_result_cb)(native_result);
+          (native_result_cb)(ThreadSafeResultContext {
+            env: Env::from_raw(raw_env),
+            return_value,
+          });
 
           status
         },

@@ -21,17 +21,13 @@ impl TypeName for JsNumber {
 impl JsNumber {
   pub fn get_uint32(&self) -> Result<u32> {
     let mut result = 0;
-    println!("u32 self 0 {:#?} {:#?}", self.0.value, self.0.env);
     check_status!(unsafe { sys::napi_get_value_uint32(self.0.env, self.0.value, &mut result) })?;
-    println!("u32 done");
     Ok(result)
   }
 
   pub fn get_int32(&self) -> Result<i32> {
     let mut result = 0;
-    println!("i32 self 0 {:#?} {:#?}", self.0.value, self.0.env);
     check_status!(unsafe { sys::napi_get_value_int32(self.0.env, self.0.value, &mut result) })?;
-    println!("i32 done");
     Ok(result)
   }
 

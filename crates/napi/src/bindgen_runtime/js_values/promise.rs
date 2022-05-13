@@ -108,7 +108,6 @@ impl<T: FromNapiValue> FromNapiValue for Promise<T> {
       },
       "Failed to create then callback"
     )?;
-    println!("created");
     check_status!(
       unsafe {
         sys::napi_call_function(
@@ -122,7 +121,6 @@ impl<T: FromNapiValue> FromNapiValue for Promise<T> {
       },
       "Failed to call then method"
     )?;
-    println!("call then");
     let mut catch = ptr::null_mut();
     let catch_c_string = unsafe { CStr::from_bytes_with_nul_unchecked(b"catch\0") };
     check_status!(
@@ -199,20 +197,11 @@ unsafe extern "C" fn then_callback<T: FromNapiValue>(
     get_cb_status == sys::Status::napi_ok,
     "Get callback info from Promise::then failed"
   );
-  println!("resolved value {:?}", resolved_value[0]);
   let resolve_value_t = Box::new(unsafe { T::from_napi_value(env, resolved_value[0]) });
   let sender = unsafe { Box::from_raw(data as *mut Sender<*mut Result<T>>) };
-  let to_be_sent = Box::into_raw(resolve_value_t);
-  println!("to be sent {:?}", to_be_sent);
-
-  println!("is receiver closed {}", sender.is_closed());
-
-  match sender.send(to_be_sent) {
-    Err(err) => {
-      println!("error encountered {:?}", err as *mut _);
-    }
-    _ => (),
-  }
+  sender
+    .send(Box::into_raw(resolve_value_t))
+    .expect("Send Promise resolved value error");
   this
 }
 

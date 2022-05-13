@@ -21,7 +21,7 @@ pub fn test_threadsafe_function(ctx: CallContext) -> Result<JsUndefined> {
         .map(|v| ctx.env.create_uint32(*v))
         .collect::<Result<Vec<JsNumber>>>()
     },
-    |_: JsUndefined| (),
+    |_: napi::threadsafe_function::ThreadSafeResultContext<JsUndefined>| (),
   )?;
 
   let tsfn_cloned = tsfn.clone();
@@ -55,7 +55,7 @@ pub fn test_abort_threadsafe_function(ctx: CallContext) -> Result<JsBoolean> {
         .map(|v| ctx.env.create_uint32(*v))
         .collect::<Result<Vec<JsNumber>>>()
     },
-    |_: JsUndefined| (),
+    |_: napi::threadsafe_function::ThreadSafeResultContext<JsUndefined>| (),
   )?;
 
   let tsfn_cloned = tsfn.clone();
@@ -72,14 +72,14 @@ pub fn test_abort_independent_threadsafe_function(ctx: CallContext) -> Result<Js
     &func,
     0,
     |ctx: ThreadSafeCallContext<u32>| ctx.env.create_uint32(ctx.value).map(|v| vec![v]),
-    |_: JsUndefined| (),
+    |_: napi::threadsafe_function::ThreadSafeResultContext<JsUndefined>| (),
   )?;
 
   let tsfn_other = ctx.env.create_threadsafe_function(
     &func,
     0,
     |ctx: ThreadSafeCallContext<u32>| ctx.env.create_uint32(ctx.value).map(|v| vec![v]),
-    |_: JsUndefined| (),
+    |_: napi::threadsafe_function::ThreadSafeResultContext<JsUndefined>| (),
   )?;
 
   tsfn_other.abort()?;
@@ -94,7 +94,7 @@ pub fn test_call_aborted_threadsafe_function(ctx: CallContext) -> Result<JsUndef
     &func,
     0,
     |ctx: ThreadSafeCallContext<u32>| ctx.env.create_uint32(ctx.value).map(|v| vec![v]),
-    |_: JsUndefined| (),
+    |_: napi::threadsafe_function::ThreadSafeResultContext<JsUndefined>| (),
   )?;
 
   let tsfn_clone = tsfn.clone();
@@ -112,7 +112,7 @@ pub fn test_tsfn_error(ctx: CallContext) -> Result<JsUndefined> {
     &func,
     0,
     |ctx: ThreadSafeCallContext<()>| ctx.env.get_undefined().map(|v| vec![v]),
-    |_: JsUndefined| (),
+    |_: napi::threadsafe_function::ThreadSafeResultContext<JsUndefined>| (),
   )?;
   thread::spawn(move || {
     tsfn.call(
@@ -145,7 +145,7 @@ pub fn test_tokio_readfile(ctx: CallContext) -> Result<JsUndefined> {
         .create_buffer_with_data(ctx.value)
         .map(|v| vec![v.into_raw()])
     },
-    |_: JsUndefined| (),
+    |_: napi::threadsafe_function::ThreadSafeResultContext<JsUndefined>| (),
   )?;
   let rt = tokio::runtime::Runtime::new()
     .map_err(|e| Error::from_reason(format!("Create tokio runtime failed {}", e)))?;
@@ -172,7 +172,7 @@ pub fn test_tsfn_with_ref(ctx: CallContext) -> Result<JsUndefined> {
         .get_reference_value_unchecked::<JsObject>(&ctx.value)
         .and_then(|obj| ctx.value.unref(ctx.env).map(|_| vec![obj]))
     },
-    |_: JsUndefined| (),
+    |_: napi::threadsafe_function::ThreadSafeResultContext<JsUndefined>| (),
   )?;
 
   thread::spawn(move || {

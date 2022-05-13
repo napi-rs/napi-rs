@@ -22,7 +22,7 @@ pub fn constructor(ctx: CallContext) -> napi::Result<JsUndefined> {
         .create_string_from_std(ctx.value)
         .map(|js_string| vec![js_string])
     },
-    |_: JsUndefined| (),
+    |_: napi::threadsafe_function::ThreadSafeResultContext<JsUndefined>| (),
   )?;
 
   cb.unref(ctx.env)?;

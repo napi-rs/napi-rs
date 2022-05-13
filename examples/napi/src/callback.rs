@@ -67,7 +67,7 @@ fn callback_return_promise<T: Fn() -> Result<JsUnknown>>(
     let fn_out_tsfn: ThreadsafeFunction<String> = fn_out.create_threadsafe_function(
       0,
       |ctx: ThreadSafeCallContext<String>| Ok(vec![ctx.value]),
-      |_: JsUndefined| (),
+      |_: napi::threadsafe_function::ThreadSafeResultContext<JsUndefined>| (),
     )?;
     env
       .execute_tokio_future(

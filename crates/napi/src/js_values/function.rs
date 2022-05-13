@@ -2,6 +2,7 @@ use std::ptr;
 
 use super::Value;
 use crate::bindgen_runtime::{FromNapiValue, TypeName};
+use crate::threadsafe_function::ThreadSafeResultContext;
 #[cfg(feature = "napi4")]
 use crate::{
   bindgen_runtime::ToNapiValue,
@@ -134,7 +135,7 @@ impl JsFunction {
     V: ToNapiValue,
     F: 'static + Send + FnMut(ThreadSafeCallContext<T>) -> Result<Vec<V>>,
     RE: FromNapiValue,
-    RECB: 'static + Send + FnMut(RE),
+    RECB: 'static + Send + FnMut(ThreadSafeResultContext<RE>),
     ES: crate::threadsafe_function::ErrorStrategy::T,
   {
     ThreadsafeFunction::create(
