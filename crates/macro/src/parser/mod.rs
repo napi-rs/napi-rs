@@ -540,23 +540,33 @@ fn napi_fn_from_decl(
 
   Diagnostic::from_vec(errors).map(|_| {
     let js_name = if let Some(prop_name) = opts.getter() {
-      if let Some(ident) = prop_name {
-        ident.to_string()
-      } else {
-        ident
-          .to_string()
-          .trim_start_matches("get_")
-          .to_case(Case::Camel)
-      }
+      opts.js_name().map_or_else(
+        || {
+          if let Some(ident) = prop_name {
+            ident.to_string()
+          } else {
+            ident
+              .to_string()
+              .trim_start_matches("get_")
+              .to_case(Case::Camel)
+          }
+        },
+        |(js_name, _)| js_name.to_owned(),
+      )
     } else if let Some(prop_name) = opts.setter() {
-      if let Some(ident) = prop_name {
-        ident.to_string()
-      } else {
-        ident
-          .to_string()
-          .trim_start_matches("set_")
-          .to_case(Case::Camel)
-      }
+      opts.js_name().map_or_else(
+        || {
+          if let Some(ident) = prop_name {
+            ident.to_string()
+          } else {
+            ident
+              .to_string()
+              .trim_start_matches("set_")
+              .to_case(Case::Camel)
+          }
+        },
+        |(js_name, _)| js_name.to_owned(),
+      )
     } else if opts.constructor().is_some() {
       "constructor".to_owned()
     } else {

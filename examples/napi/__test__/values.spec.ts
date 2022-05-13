@@ -158,6 +158,9 @@ test('class', (t) => {
   t.deepEqual(dog.returnOtherClass(), new Dog('Doge'))
   t.deepEqual(dog.returnOtherClassWithCustomConstructor(), new Bird('parrot'))
   t.is(dog.returnOtherClassWithCustomConstructor().getCount(), 1234)
+  t.is(dog.type, Kind.Dog)
+  dog.type = Kind.Cat
+  t.is(dog.type, Kind.Cat)
   const assets = new Assets()
   t.is(assets.get(1)?.filePath, 1)
 })
