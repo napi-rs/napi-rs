@@ -258,7 +258,8 @@ export class BuildCommand extends Command {
     ]
       .filter((flag) => Boolean(flag))
       .join(' ')
-    const cargoCommand = `cargo build ${externalFlags}`
+    const cargo = process.env.CARGO ?? 'cargo'
+    const cargoCommand = `${cargo} build ${externalFlags}`
     const intermediateTypeFile = join(tmpdir(), `type_def.${Date.now()}.tmp`)
     debug(`Run ${chalk.green(cargoCommand)}`)
     const additionalEnv = {}
