@@ -66,11 +66,8 @@ fn callback_return_promise<T: Fn() -> Result<JsUnknown>>(
   let ret = fn_in()?;
   if ret.is_promise()? {
     let p = Promise::<String>::from_unknown(ret)?;
-    let fn_out_tsfn: ThreadsafeFunction<String> = fn_out.create_threadsafe_function(
-      0,
-      |ctx: ThreadSafeCallContext<String>| Ok(vec![ctx.value]),
-      |_: ThreadSafeResultContext<JsUndefined>| (),
-    )?;
+    let fn_out_tsfn: ThreadsafeFunction<String, JsUndefined> = fn_out
+      .create_threadsafe_function(0, |ctx: ThreadSafeCallContext<String>| Ok(vec![ctx.value]))?;
     env
       .execute_tokio_future(
         async move {

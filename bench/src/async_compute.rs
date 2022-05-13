@@ -34,7 +34,7 @@ fn bench_threadsafe_function(ctx: CallContext) -> Result<JsUndefined> {
   let buffer_ref = ctx.get::<JsBuffer>(0)?.into_ref()?;
   let callback = ctx.get::<JsFunction>(1)?;
 
-  let tsfn = ctx.env.create_threadsafe_function(
+  let mut tsfn = ctx.env.create_threadsafe_function::<_, JsUndefined, _, _>(
     &callback,
     0,
     |mut ctx: ThreadSafeCallContext<(usize, Ref<JsBufferValue>)>| {
@@ -43,7 +43,6 @@ fn bench_threadsafe_function(ctx: CallContext) -> Result<JsUndefined> {
         .create_uint32(ctx.value.0 as u32)
         .and_then(|v| ctx.value.1.unref(ctx.env).map(|_| vec![v]))
     },
-    |_: ThreadSafeResultContext<JsUndefined>| (),
   )?;
 
   std::thread::spawn(move || {

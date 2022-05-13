@@ -6,24 +6,22 @@ use napi_derive::js_function;
 
 #[derive(Clone)]
 pub struct A {
-  pub cb: ThreadsafeFunction<String>,
+  pub cb: ThreadsafeFunction<String, JsUndefined>,
 }
 
 #[js_function(1)]
 pub fn constructor(ctx: CallContext) -> napi::Result<JsUndefined> {
   let callback = ctx.get::<JsFunction>(0)?;
 
-  let mut cb = ctx.env.create_threadsafe_function(
-    &callback,
-    0,
-    |ctx: ThreadSafeCallContext<String>| {
-      ctx
-        .env
-        .create_string_from_std(ctx.value)
-        .map(|js_string| vec![js_string])
-    },
-    |_: ThreadSafeResultContext<JsUndefined>| (),
-  )?;
+  let mut cb =
+    ctx
+      .env
+      .create_threadsafe_function(&callback, 0, |ctx: ThreadSafeCallContext<String>| {
+        ctx
+          .env
+          .create_string_from_std(ctx.value)
+          .map(|js_string| vec![js_string])
+      })?;
 
   cb.unref(ctx.env)?;
 

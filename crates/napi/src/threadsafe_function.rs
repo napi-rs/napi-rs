@@ -6,7 +6,7 @@ use std::marker::PhantomData;
 use std::os::raw::c_void;
 use std::ptr;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::bindgen_runtime::{FromNapiValue, ToNapiValue};
 use crate::{check_status, sys, Env, Error, JsError, Result, Status};
@@ -20,7 +20,7 @@ pub struct ThreadSafeCallContext<T: 'static> {
 
 /// ThreadSafeFunction Context object
 /// the `value` is the value returned from `node` side
-pub struct ThreadSafeResultContext<T: FromNapiValue> {
+pub struct ThreadSafeResultContext<T: 'static + FromNapiValue> {
   pub env: Env,
   pub return_value: T,
 }
@@ -151,14 +151,23 @@ type_level_enum! {
 ///   ctx.env.get_undefined()
 /// }
 /// ```
-pub struct ThreadsafeFunction<T: 'static, ES: ErrorStrategy::T = ErrorStrategy::CalleeHandled> {
+pub struct ThreadsafeFunction<
+  T: 'static,
+  RE: 'static + FromNapiValue,
+  ES: ErrorStrategy::T = ErrorStrategy::CalleeHandled,
+> {
   raw_tsfn: sys::napi_threadsafe_function,
   aborted: Arc<AtomicBool>,
   ref_count: Arc<AtomicUsize>,
+  result_callback: Arc<Mutex<Option<ThreadsafeFunctionResultCallback<RE>>>>,
   _phantom: PhantomData<(T, ES)>,
 }
 
-impl<T: 'static, ES: ErrorStrategy::T> Clone for ThreadsafeFunction<T, ES> {
+type ThreadsafeFunctionResultCallback<T> = fn(ctx: ThreadSafeResultContext<T>) -> Result<()>;
+
+impl<T: 'static, RE: 'static + FromNapiValue, ES: ErrorStrategy::T> Clone
+  for ThreadsafeFunction<T, RE, ES>
+{
   fn clone(&self) -> Self {
     if !self.aborted.load(Ordering::Acquire) {
       let acquire_status = unsafe { sys::napi_acquire_threadsafe_function(self.raw_tsfn) };
@@ -172,28 +181,26 @@ impl<T: 'static, ES: ErrorStrategy::T> Clone for ThreadsafeFunction<T, ES> {
       raw_tsfn: self.raw_tsfn,
       aborted: Arc::clone(&self.aborted),
       ref_count: Arc::clone(&self.ref_count),
+      result_callback: Default::default(),
       _phantom: PhantomData,
     }
   }
 }
 
-unsafe impl<T, ES: ErrorStrategy::T> Send for ThreadsafeFunction<T, ES> {}
-unsafe impl<T, ES: ErrorStrategy::T> Sync for ThreadsafeFunction<T, ES> {}
+unsafe impl<T, RE: FromNapiValue, ES: ErrorStrategy::T> Send for ThreadsafeFunction<T, RE, ES> {}
+unsafe impl<T, RE: FromNapiValue, ES: ErrorStrategy::T> Sync for ThreadsafeFunction<T, RE, ES> {}
 
-impl<T: 'static, ES: ErrorStrategy::T> ThreadsafeFunction<T, ES> {
+impl<T: 'static, RE: FromNapiValue, ES: ErrorStrategy::T> ThreadsafeFunction<T, RE, ES> {
   /// See [napi_create_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_create_threadsafe_function)
   /// for more information.
   pub(crate) fn create<
     V: ToNapiValue,
     R: 'static + Send + FnMut(ThreadSafeCallContext<T>) -> Result<Vec<V>>,
-    RE: FromNapiValue,
-    RECB: 'static + Send + FnMut(ThreadSafeResultContext<RE>),
   >(
     env: sys::napi_env,
     func: sys::napi_value,
     max_queue_size: usize,
     callback: R,
-    result_callback: RECB,
   ) -> Result<Self> {
     let mut async_resource_name = ptr::null_mut();
     let s = "napi_rs_threadsafe_function";
@@ -206,9 +213,10 @@ impl<T: 'static, ES: ErrorStrategy::T> ThreadsafeFunction<T, ES> {
     let initial_thread_count = 1usize;
     let mut raw_tsfn = ptr::null_mut();
     let callback_ptr = Box::into_raw(Box::new(callback)) as *mut c_void;
-    let result_callback_ptr = Box::into_raw(Box::new(result_callback)) as *mut c_void;
 
-    let mut call_js_cb_context = [callback_ptr, result_callback_ptr];
+    let mut result_callback = Default::default();
+    let result_callbacks_ptr = Arc::into_raw(Arc::clone(&result_callback));
+    let mut call_js_cb_context = [callback_ptr, result_callbacks_ptr as *mut c_void];
 
     check_status!(unsafe {
       sys::napi_create_threadsafe_function(
@@ -221,7 +229,7 @@ impl<T: 'static, ES: ErrorStrategy::T> ThreadsafeFunction<T, ES> {
         callback_ptr,
         Some(thread_finalize_cb::<T, V, R>),
         call_js_cb_context.as_mut_ptr() as *mut _,
-        Some(call_js_cb::<T, V, R, RE, ES, RECB>),
+        Some(call_js_cb::<T, V, R, RE, ES>),
         &mut raw_tsfn,
       )
     })?;
@@ -234,8 +242,16 @@ impl<T: 'static, ES: ErrorStrategy::T> ThreadsafeFunction<T, ES> {
       raw_tsfn,
       aborted,
       ref_count: Arc::new(AtomicUsize::new(initial_thread_count)),
+      result_callback,
       _phantom: PhantomData,
     })
+  }
+
+  pub fn register_result_callback(
+    &mut self,
+    result_callback: ThreadsafeFunctionResultCallback<RE>,
+  ) {
+    self.result_callback.lock().unwrap().insert(result_callback);
   }
 
   /// See [napi_ref_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_ref_threadsafe_function)
@@ -287,7 +303,9 @@ impl<T: 'static, ES: ErrorStrategy::T> ThreadsafeFunction<T, ES> {
   }
 }
 
-impl<T: 'static> ThreadsafeFunction<T, ErrorStrategy::CalleeHandled> {
+impl<T: 'static, RE: 'static + FromNapiValue>
+  ThreadsafeFunction<T, RE, ErrorStrategy::CalleeHandled>
+{
   /// See [napi_call_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_call_threadsafe_function)
   /// for more information.
   pub fn call(&self, value: Result<T>, mode: ThreadsafeFunctionCallMode) -> Status {
@@ -305,7 +323,7 @@ impl<T: 'static> ThreadsafeFunction<T, ErrorStrategy::CalleeHandled> {
   }
 }
 
-impl<T: 'static> ThreadsafeFunction<T, ErrorStrategy::Fatal> {
+impl<T: 'static, RE: 'static + FromNapiValue> ThreadsafeFunction<T, RE, ErrorStrategy::Fatal> {
   /// See [napi_call_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_call_threadsafe_function)
   /// for more information.
   pub fn call(&self, value: T, mode: ThreadsafeFunctionCallMode) -> Status {
@@ -323,7 +341,9 @@ impl<T: 'static> ThreadsafeFunction<T, ErrorStrategy::Fatal> {
   }
 }
 
-impl<T: 'static, ES: ErrorStrategy::T> Drop for ThreadsafeFunction<T, ES> {
+impl<T: 'static, RE: 'static + FromNapiValue, ES: ErrorStrategy::T> Drop
+  for ThreadsafeFunction<T, RE, ES>
+{
   fn drop(&mut self) {
     if !self.aborted.load(Ordering::Acquire) && self.ref_count.load(Ordering::Acquire) > 0usize {
       let release_status = unsafe {
@@ -358,7 +378,7 @@ unsafe extern "C" fn thread_finalize_cb<T: 'static, V: ToNapiValue, R>(
 
 pub(crate) static THREAD_SAFE_CALL_JS_CB_ID: AtomicUsize = AtomicUsize::new(0);
 
-unsafe extern "C" fn call_js_cb<T: 'static, V: ToNapiValue, R, RE, ES, RECB>(
+unsafe extern "C" fn call_js_cb<T: 'static, V: ToNapiValue, R, RE, ES>(
   raw_env: sys::napi_env,
   js_callback: sys::napi_value,
   context: *mut c_void,
@@ -366,8 +386,7 @@ unsafe extern "C" fn call_js_cb<T: 'static, V: ToNapiValue, R, RE, ES, RECB>(
 ) where
   R: 'static + Send + FnMut(ThreadSafeCallContext<T>) -> Result<Vec<V>>,
   ES: ErrorStrategy::T,
-  RE: FromNapiValue,
-  RECB: 'static + Send + FnMut(ThreadSafeResultContext<RE>),
+  RE: FromNapiValue + 'static,
 {
   // env and/or callback can be null when shutting down
   if raw_env.is_null() || js_callback.is_null() {
@@ -377,7 +396,8 @@ unsafe extern "C" fn call_js_cb<T: 'static, V: ToNapiValue, R, RE, ES, RECB>(
 
   let ctx = unsafe { &mut *context.cast::<[sys::napi_value; 2]>() };
   let native_passed_cb: &mut R = unsafe { &mut *ctx[0].cast::<R>() };
-  let native_result_cb: &mut RECB = unsafe { &mut *ctx[1].cast::<RECB>() };
+  let native_result_cbs: &mut Mutex<ThreadsafeFunctionResultCallback<RE>> =
+    unsafe { &mut *ctx[1].cast::<Vec<ThreadsafeFunctionResultCallback<RE>>>() };
 
   let mut return_value = ptr::null_mut();
 
@@ -424,12 +444,23 @@ unsafe extern "C" fn call_js_cb<T: 'static, V: ToNapiValue, R, RE, ES, RECB>(
             &mut return_value,
           );
 
-          let return_value = RE::from_napi_value(raw_env, return_value)
-            .expect("convert threadsafe js callback return value error");
-          (native_result_cb)(ThreadSafeResultContext {
-            env: Env::from_raw(raw_env),
-            return_value,
+          println!("{:#?}", native_result_cbs);
+
+          native_result_cbs.iter().for_each(|cb| {
+            let return_value = RE::from_napi_value(raw_env, return_value)
+              .expect("convert threadsafe js callback return value error");
+
+            cb(ThreadSafeResultContext {
+              env: Env::from_raw(raw_env),
+              return_value,
+            })
+            .expect("failed to call threadsafe result callback");
           });
+
+          // (native_result_cb)(ThreadSafeResultContext {
+          //   env: Env::from_raw(raw_env),
+          //   return_value,
+          // });
 
           status
         },

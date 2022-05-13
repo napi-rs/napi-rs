@@ -8,14 +8,21 @@ use napi::{
   JsBoolean, JsUndefined,
 };
 
+fn thread_safe_cb(ctx: ThreadSafeResultContext<napi::JsNumber>) -> Result<()> {
+  let number = ctx.return_value.coerce_to_number()?.get_uint32()?;
+  println!("get number from js side {}", number);
+  Ok(())
+}
+
 #[napi]
 pub fn call_threadsafe_function(callback: JsFunction) -> Result<()> {
-  let tsfn: ThreadsafeFunction<u32, ErrorStrategy::CalleeHandled> = callback
-    .create_threadsafe_function(
-      0,
-      |ctx| ctx.env.create_uint32(ctx.value + 1).map(|v| vec![v]),
-      |_ctx: ThreadSafeResultContext<JsUndefined>| (),
-    )?;
+  let mut tsfn: ThreadsafeFunction<u32, napi::JsNumber, ErrorStrategy::CalleeHandled> = callback
+    .create_threadsafe_function(0, |ctx| {
+      ctx.env.create_uint32(ctx.value + 1).map(|v| vec![v])
+    })?;
+
+  tsfn.register_result_callback(thread_safe_cb);
+
   for n in 0..100 {
     let tsfn = tsfn.clone();
     thread::spawn(move || {
@@ -27,12 +34,8 @@ pub fn call_threadsafe_function(callback: JsFunction) -> Result<()> {
 
 #[napi]
 pub fn threadsafe_function_throw_error(cb: JsFunction) -> Result<()> {
-  let tsfn: ThreadsafeFunction<bool, ErrorStrategy::CalleeHandled> = cb
-    .create_threadsafe_function(
-      0,
-      |ctx| ctx.env.get_boolean(ctx.value).map(|v| vec![v]),
-      |_: ThreadSafeResultContext<JsUndefined>| (),
-    )?;
+  let tsfn: ThreadsafeFunction<bool, JsUndefined, ErrorStrategy::CalleeHandled> =
+    cb.create_threadsafe_function(0, |ctx| ctx.env.get_boolean(ctx.value).map(|v| vec![v]))?;
   thread::spawn(move || {
     tsfn.call(
       Err(Error::new(
@@ -47,11 +50,8 @@ pub fn threadsafe_function_throw_error(cb: JsFunction) -> Result<()> {
 
 #[napi]
 pub fn threadsafe_function_fatal_mode(cb: JsFunction) -> Result<()> {
-  let tsfn: ThreadsafeFunction<bool, ErrorStrategy::Fatal> = cb.create_threadsafe_function(
-    0,
-    |ctx| ctx.env.get_boolean(ctx.value).map(|v| vec![v]),
-    |_: ThreadSafeResultContext<JsUndefined>| (),
-  )?;
+  let tsfn: ThreadsafeFunction<bool, JsUndefined, ErrorStrategy::Fatal> =
+    cb.create_threadsafe_function(0, |ctx| ctx.env.get_boolean(ctx.value).map(|v| vec![v]))?;
   thread::spawn(move || {
     tsfn.call(true, ThreadsafeFunctionCallMode::Blocking);
   });
@@ -60,16 +60,13 @@ pub fn threadsafe_function_fatal_mode(cb: JsFunction) -> Result<()> {
 
 #[napi]
 pub fn threadsafe_function_fatal_mode_error(cb: JsFunction) -> Result<()> {
-  let tsfn: ThreadsafeFunction<bool, ErrorStrategy::Fatal> = cb.create_threadsafe_function(
-    0,
-    |_ctx| {
+  let tsfn: ThreadsafeFunction<bool, JsUndefined, ErrorStrategy::Fatal> = cb
+    .create_threadsafe_function(0, |_ctx| {
       Err::<Vec<JsBoolean>, Error>(Error::new(
         Status::GenericFailure,
         "Generic tsfn error".to_owned(),
       ))
-    },
-    |_: ThreadSafeResultContext<JsUndefined>| (),
-  )?;
+    })?;
   thread::spawn(move || {
     tsfn.call(true, ThreadsafeFunctionCallMode::Blocking);
   });
