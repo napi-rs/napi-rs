@@ -41,6 +41,16 @@ impl Animal {
     self.name = name;
   }
 
+  #[napi(getter, js_name = "type")]
+  pub fn kind(&self) -> Kind {
+    self.kind
+  }
+
+  #[napi(setter, js_name = "type")]
+  pub fn set_kind(&mut self, kind: Kind) {
+    self.kind = kind;
+  }
+
   /// This is a
   /// multi-line comment
   /// with an emoji 🚀

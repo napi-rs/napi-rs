@@ -181,6 +181,8 @@ export class Animal {
   static withKind(kind: Kind): Animal
   get name(): string
   set name(name: string)
+  get type(): Kind
+  set type(kind: Kind)
   /**
    * This is a
    * multi-line comment
