@@ -43,7 +43,7 @@ fn bench_threadsafe_function(ctx: CallContext) -> Result<JsUndefined> {
         .create_uint32(ctx.value.0 as u32)
         .and_then(|v| ctx.value.1.unref(ctx.env).map(|_| vec![v]))
     },
-    |_: napi::threadsafe_function::ThreadSafeResultContext<JsUndefined>| (),
+    |_: ThreadSafeResultContext<JsUndefined>| (),
   )?;
 
   std::thread::spawn(move || {

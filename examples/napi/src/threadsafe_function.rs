@@ -31,7 +31,7 @@ pub fn threadsafe_function_throw_error(cb: JsFunction) -> Result<()> {
     .create_threadsafe_function(
       0,
       |ctx| ctx.env.get_boolean(ctx.value).map(|v| vec![v]),
-      |_: napi::threadsafe_function::ThreadSafeResultContext<JsUndefined>| (),
+      |_: ThreadSafeResultContext<JsUndefined>| (),
     )?;
   thread::spawn(move || {
     tsfn.call(
@@ -50,7 +50,7 @@ pub fn threadsafe_function_fatal_mode(cb: JsFunction) -> Result<()> {
   let tsfn: ThreadsafeFunction<bool, ErrorStrategy::Fatal> = cb.create_threadsafe_function(
     0,
     |ctx| ctx.env.get_boolean(ctx.value).map(|v| vec![v]),
-    |_: napi::threadsafe_function::ThreadSafeResultContext<JsUndefined>| (),
+    |_: ThreadSafeResultContext<JsUndefined>| (),
   )?;
   thread::spawn(move || {
     tsfn.call(true, ThreadsafeFunctionCallMode::Blocking);
@@ -68,7 +68,7 @@ pub fn threadsafe_function_fatal_mode_error(cb: JsFunction) -> Result<()> {
         "Generic tsfn error".to_owned(),
       ))
     },
-    |_: napi::threadsafe_function::ThreadSafeResultContext<JsUndefined>| (),
+    |_: ThreadSafeResultContext<JsUndefined>| (),
   )?;
   thread::spawn(move || {
     tsfn.call(true, ThreadsafeFunctionCallMode::Blocking);

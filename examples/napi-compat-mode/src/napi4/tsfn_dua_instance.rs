@@ -1,5 +1,5 @@
 use napi::{
-  threadsafe_function::{ThreadSafeCallContext, ThreadsafeFunction},
+  threadsafe_function::{ThreadSafeCallContext, ThreadSafeResultContext, ThreadsafeFunction},
   CallContext, JsFunction, JsObject, JsUndefined,
 };
 use napi_derive::js_function;
@@ -22,7 +22,7 @@ pub fn constructor(ctx: CallContext) -> napi::Result<JsUndefined> {
         .create_string_from_std(ctx.value)
         .map(|js_string| vec![js_string])
     },
-    |_: napi::threadsafe_function::ThreadSafeResultContext<JsUndefined>| (),
+    |_: ThreadSafeResultContext<JsUndefined>| (),
   )?;
 
   cb.unref(ctx.env)?;
