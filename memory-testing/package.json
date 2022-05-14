@@ -12,6 +12,6 @@
     "table": "^6.8.0"
   },
   "devDependencies": {
-    "@types/dockerode": "^3.3.8"
+    "@types/dockerode": "^3.3.9"
   }
 }
