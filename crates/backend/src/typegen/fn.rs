@@ -119,7 +119,7 @@ impl NapiFn {
       self
         .args
         .iter()
-        .filter_map(|arg| match arg {
+        .filter_map(|arg| match &arg.kind {
           crate::NapiFnArgKind::PatType(path) => {
             let ty_string = path.ty.to_token_stream().to_string();
             if ty_string == "Env" {
@@ -142,8 +142,10 @@ impl NapiFn {
             if let Pat::Ident(i) = path.pat.as_mut() {
               i.mutability = None;
             }
-            let arg = path.pat.to_token_stream().to_string().to_case(Case::Camel);
+
             let (ts_type, is_optional) = ty_to_ts_type(&path.ty, false, false);
+            let ts_type = arg.use_overridden_type_or(|| ts_type);
+            let arg = path.pat.to_token_stream().to_string().to_case(Case::Camel);
 
             Some(FnArg {
               arg,
@@ -152,8 +154,8 @@ impl NapiFn {
             })
           }
           crate::NapiFnArgKind::Callback(cb) => {
+            let ts_type = arg.use_overridden_type_or(|| gen_callback_type(cb));
             let arg = cb.pat.to_token_stream().to_string().to_case(Case::Camel);
-            let ts_type = gen_callback_type(cb);
 
             Some(FnArg {
               arg,

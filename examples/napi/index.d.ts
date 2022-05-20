@@ -95,6 +95,8 @@ export function validatePromise(p: Promise<number>): Promise<number>
 export function validateString(s: string): string
 export function validateSymbol(s: symbol): boolean
 export function tsRename(a: { foo: number }): string[]
+export function overrideIndividualArgOnFunction(notOverridden: string, f: () => string, notOverridden2: number): string
+export function overrideIndividualArgOnFunctionWithCbArg(callback: (town: string, name?: string | undefined | null) => string, notOverridden: number): object
 export function xxh64Alias(input: Buffer): bigint
 export function getMapping(): Record<string, number>
 export function sumMapping(nums: Record<string, number>): number
@@ -198,6 +200,7 @@ export class Animal {
    */
   returnOtherClass(): Dog
   returnOtherClassWithCustomConstructor(): Bird
+  overrideIndividualArgOnMethod(normalTy: string, overriddenTy: {n: string}): Bird
 }
 export class Dog {
   name: string

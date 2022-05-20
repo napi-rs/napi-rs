@@ -10,14 +10,14 @@ use attrs::{BindgenAttr, BindgenAttrs};
 use convert_case::{Case, Casing};
 use napi_derive_backend::{
   BindgenResult, CallbackArg, Diagnostic, FnKind, FnSelf, Napi, NapiConst, NapiEnum,
-  NapiEnumVariant, NapiFn, NapiFnArgKind, NapiImpl, NapiItem, NapiStruct, NapiStructField,
-  NapiStructKind,
+  NapiEnumVariant, NapiFn, NapiFnArg, NapiFnArgKind, NapiImpl, NapiItem, NapiStruct,
+  NapiStructField, NapiStructKind,
 };
-use proc_macro2::{Ident, TokenStream, TokenTree};
+use proc_macro2::{Ident, Span, TokenStream, TokenTree};
 use quote::ToTokens;
 use syn::ext::IdentExt;
 use syn::parse::{Parse, ParseStream, Result as SynResult};
-use syn::{Attribute, PathSegment, Signature, Type, Visibility};
+use syn::{Attribute, Meta, NestedMeta, PatType, PathSegment, Signature, Type, Visibility};
 
 use crate::parser::attrs::{check_recorded_struct_for_impl, record_struct};
 
@@ -153,6 +153,60 @@ pub trait ConvertToAST {
 
 pub trait ParseNapi {
   fn parse_napi(&mut self, tokens: &mut TokenStream, opts: BindgenAttrs) -> BindgenResult<Napi>;
+}
+
+/// This function does a few things:
+/// - parses the tokens for the given argument `p` to find the `#[napi(ts_arg_type = "MyType")]`
+///   attribute and return the manually overridden type.
+/// - If both the `ts_args_type` override and the `ts_arg_type` override are present, bail
+///   since it should only allow one at a time.
+/// - Bails if it finds the `#[napi...]` attribute but it has the wrong data.
+/// - Removes the attribute from the output token stream so this
+///   `pub fn add(u: u32, #[napi(ts_arg_type = "MyType")] f: String)`
+///    turns into
+///   `pub fn add(u: u32, f: String)`
+///    otherwise it won't compile
+fn find_ts_arg_type_and_remove_attribute(
+  p: &mut PatType,
+  ts_args_type: Option<&(&str, Span)>,
+) -> BindgenResult<Option<String>> {
+  for (idx, attr) in p.attrs.iter().enumerate() {
+    if let Ok(Meta::List(meta_list)) = attr.parse_meta() {
+      if meta_list.path.get_ident() != Some(&format_ident!("napi")) {
+        // If this attribute is not for `napi` ignore it.
+        continue;
+      }
+
+      if let Some((ts_args_type, _)) = ts_args_type {
+        bail_span!(
+          meta_list,
+          "Found a 'ts_args_type'=\"{}\" override. Cannot use 'ts_arg_type' at the same time since they are mutually exclusive.",
+          ts_args_type
+        );
+      }
+
+      let nested = meta_list.nested.first();
+
+      let nm = if let Some(NestedMeta::Meta(Meta::NameValue(nm))) = nested {
+        nm
+      } else {
+        bail_span!(meta_list.nested, "Expected Name Value");
+      };
+
+      if Some(&format_ident!("ts_arg_type")) != nm.path.get_ident() {
+        bail_span!(nm.path, "Did not find 'ts_arg_type'");
+      }
+
+      if let syn::Lit::Str(lit) = &nm.lit {
+        p.attrs.remove(idx);
+        return Ok(Some(lit.value()));
+      } else {
+        bail_span!(nm.lit, "Expected a string literal");
+      }
+    }
+  }
+
+  Ok(None)
 }
 
 fn get_ty(mut ty: &syn::Type) -> &syn::Type {
@@ -462,7 +516,7 @@ fn extract_fn_closure_generics(
 }
 
 fn napi_fn_from_decl(
-  sig: Signature,
+  sig: &mut Signature,
   opts: &BindgenAttrs,
   attrs: Vec<Attribute>,
   vis: Visibility,
@@ -473,36 +527,48 @@ fn napi_fn_from_decl(
   let syn::Signature {
     ident,
     asyncness,
-    inputs,
     output,
     generics,
     ..
-  } = sig;
+  } = sig.clone();
 
   let mut fn_self = None;
   let callback_traits = extract_fn_closure_generics(&generics)?;
 
-  let args = inputs
-    .into_iter()
+  let args = sig
+    .inputs
+    .iter_mut()
     .filter_map(|arg| match arg {
-      syn::FnArg::Typed(mut p) => {
+      syn::FnArg::Typed(ref mut p) => {
+        let ts_arg_type = find_ts_arg_type_and_remove_attribute(p, opts.ts_args_type().as_ref())
+          .unwrap_or_else(|e| {
+            errors.push(e);
+            None
+          });
+
         let ty_str = p.ty.to_token_stream().to_string();
         if let Some(path_arguments) = callback_traits.get(&ty_str) {
           match extract_callback_trait_types(path_arguments) {
-            Ok((fn_args, fn_ret)) => Some(NapiFnArgKind::Callback(Box::new(CallbackArg {
-              pat: p.pat,
-              args: fn_args,
-              ret: fn_ret,
-            }))),
+            Ok((fn_args, fn_ret)) => Some(NapiFnArg {
+              kind: NapiFnArgKind::Callback(Box::new(CallbackArg {
+                pat: p.pat.clone(),
+                args: fn_args,
+                ret: fn_ret,
+              })),
+              ts_arg_type,
+            }),
             Err(e) => {
               errors.push(e);
               None
             }
           }
         } else {
-          let ty = replace_self(*p.ty, parent);
+          let ty = replace_self(p.ty.as_ref().clone(), parent);
           p.ty = Box::new(ty);
-          Some(NapiFnArgKind::PatType(Box::new(p)))
+          Some(NapiFnArg {
+            kind: NapiFnArgKind::PatType(Box::new(p.clone())),
+            ts_arg_type,
+          })
         }
       }
       syn::FnArg::Receiver(r) => {
@@ -638,8 +704,10 @@ impl ParseNapi for syn::ItemFn {
         "#[napi] can't be applied to a function with #[napi(ts_type)]"
       );
     }
+    let napi = self.convert_to_ast(opts);
     self.to_tokens(tokens);
-    self.convert_to_ast(opts)
+
+    napi
   }
 }
 impl ParseNapi for syn::ItemStruct {
@@ -734,7 +802,7 @@ fn fn_kind(opts: &BindgenAttrs) -> FnKind {
 impl ConvertToAST for syn::ItemFn {
   fn convert_to_ast(&mut self, opts: BindgenAttrs) -> BindgenResult<Napi> {
     let func = napi_fn_from_decl(
-      self.sig.clone(),
+      &mut self.sig,
       &opts,
       self.attrs.clone(),
       self.vis.clone(),
@@ -912,7 +980,7 @@ impl ConvertToAST for syn::ItemImpl {
         }
 
         let func = napi_fn_from_decl(
-          method.sig.clone(),
+          &mut method.sig,
           &opts,
           method.attrs.clone(),
           vis,
