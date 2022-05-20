@@ -12,7 +12,7 @@ import toml from 'toml'
 import { getNapiConfig } from './consts'
 import { debugFactory } from './debug'
 import { createJsBinding } from './js-binding-template'
-import { getDefaultTargetTriple, parseTriple } from './parse-triple'
+import { getHostTargetTriple, parseTriple } from './parse-triple'
 import {
   copyFileAsync,
   mkdirAsync,
@@ -241,11 +241,7 @@ export class BuildCommand extends Command {
     const binFlag = this.bin ? `--bin ${this.bin}` : ''
     const triple = this.targetTripleDir
       ? parseTriple(this.targetTripleDir)
-      : getDefaultTargetTriple(
-          execSync('rustup show active-toolchain', {
-            env: process.env,
-          }).toString('utf8'),
-        )
+      : getHostTargetTriple()
     debug(`Current triple is: ${chalk.green(triple.raw)}`)
     const pFlag = this.project ? `-p ${this.project}` : ''
     const externalFlags = [
