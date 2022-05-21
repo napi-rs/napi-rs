@@ -1,0 +1,5 @@
+error: Found a 'ts_args_type'="u: number, fn: object" override. Cannot use 'ts_arg_type' at the same time since they are mutually exclusive.
+ --> tests/build_error_tests/ts_arg_type_1.rs:7:22
+  |
+7 | pub fn add(u: u32, #[napi(ts_arg_type = "object")] f: Option<String>) {
+  |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^

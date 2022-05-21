@@ -1,0 +1,5 @@
+error: Did not find 'ts_arg_type'
+ --> tests/build_error_tests/ts_arg_type_4.rs:7:27
+  |
+7 | pub fn add(u: u32, #[napi(not_expected = "obj")] f: Option<String>) {
+  |                           ^^^^^^^^^^^^
