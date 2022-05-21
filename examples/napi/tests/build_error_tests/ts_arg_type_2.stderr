@@ -1,0 +1,5 @@
+error: Expected a string literal
+ --> tests/build_error_tests/ts_arg_type_2.rs:7:41
+  |
+7 | pub fn add(u: u32, #[napi(ts_arg_type = 32)] f: Option<String>) {
+  |                                         ^^

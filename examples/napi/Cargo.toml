@@ -28,3 +28,6 @@ serde_json = "1"
 
 [build-dependencies]
 napi-build = { path = "../../crates/build" }
+
+[dev-dependencies]
+trybuild = "1.0"

@@ -70,6 +70,7 @@ jobs:
           yarn build:test
           yarn test --verbose
           yarn tsc -p examples/napi/tsconfig.json --noEmit
+          yarn test:macro
 
       - name: Electron tests
         if: matrix.os != 'ubuntu-latest'

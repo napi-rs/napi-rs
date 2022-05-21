@@ -1,0 +1,5 @@
+error: Expected Name Value
+ --> tests/build_error_tests/ts_arg_type_3.rs:7:27
+  |
+7 | pub fn add(u: u32, #[napi(ts_arg_type, not_expected)] f: Option<String>) {
+  |                           ^^^^^^^^^^^^^^^^^^^^^^^^^

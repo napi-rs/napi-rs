@@ -36,6 +36,7 @@
     "prepublishOnly": "npm run build && pinst --disable",
     "test": "ava \"./examples/napi/**/*.ts\" && ava --no-worker-threads \"./examples/napi-compat-mode/**/*.ts\" && ava \"./cli/**/*.ts\"",
     "test:electron": "electron examples/napi/electron.js",
+    "test:macro": "cargo test -p napi-examples",
     "test:memory": "node memory-testing/index.mjs",
     "postinstall": "husky install",
     "postpublish": "pinst --enable"
