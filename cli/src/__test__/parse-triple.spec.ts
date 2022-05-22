@@ -1,8 +1,6 @@
-import { platform } from 'os'
-
 import test from 'ava'
 
-import { parseTriple, getDefaultTargetTriple } from '../parse-triple'
+import { parseTriple } from '../parse-triple'
 
 const triples = [
   {
@@ -122,23 +120,3 @@ for (const triple of triples) {
     t.deepEqual(parseTriple(triple.name), triple.expected)
   })
 }
-
-const MaybeTest =
-  process.arch !== 'x64' && platform() === 'linux' ? test.skip : test
-
-MaybeTest('should parse default triple from rustup show active', (t) => {
-  t.deepEqual(
-    getDefaultTargetTriple(
-      `x86_64-unknown-linux-gnu (directory override for '/home/runner/work/fast-escape/fast-escape')`,
-    ),
-    parseTriple('x86_64-unknown-linux-gnu'),
-  )
-  t.deepEqual(
-    getDefaultTargetTriple(`stable-x86_64-apple-darwin (default)`),
-    parseTriple(`x86_64-apple-darwin`),
-  )
-  t.deepEqual(
-    getDefaultTargetTriple(`nightly-2020-08-29-x86_64-apple-darwin (default)`),
-    parseTriple('x86_64-apple-darwin'),
-  )
-})

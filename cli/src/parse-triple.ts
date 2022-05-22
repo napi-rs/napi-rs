@@ -98,30 +98,16 @@ export function parseTriple(rawTriple: string): PlatformDetail {
   }
 }
 
-// x86_64-unknown-linux-gnu (directory override for '/home/runner/work/fast-escape/fast-escape')
-// stable-x86_64-apple-darwin (default)
-// nightly-2020-08-29-x86_64-apple-darwin (default)
-export function getDefaultTargetTriple(rustcfg: string): PlatformDetail {
-  const currentTriple = rustcfg
-    .trim()
-    .replace(/\(.*?\)/, '')
-    .trim()
-  const allTriples = execSync(`rustup target list`, {
+export function getHostTargetTriple(): PlatformDetail {
+  const host = execSync(`rustc -vV`, {
     env: process.env,
   })
     .toString('utf8')
     .split('\n')
-    .map((line) =>
-      line
-        .trim()
-        // remove (installed) from x86_64-apple-darwin (installed)
-        .replace(/\(.*?\)/, '')
-        .trim(),
-    )
-    .filter((line) => line.length)
-  const triple = allTriples.find((triple) => currentTriple.indexOf(triple) > -1)
+    .find((line) => line.startsWith('host: '))
+  const triple = host?.slice('host: '.length)
   if (!triple) {
-    throw new TypeError(`Can not parse target triple from ${currentTriple}`)
+    throw new TypeError(`Can not parse target triple from host`)
   }
   return parseTriple(triple)
 }
