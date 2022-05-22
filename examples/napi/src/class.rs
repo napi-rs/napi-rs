@@ -85,6 +85,18 @@ impl Animal {
   pub fn return_other_class_with_custom_constructor(&self) -> Bird {
     Bird::new("parrot".to_owned())
   }
+
+  #[napi]
+  pub fn override_individual_arg_on_method(
+    &self,
+    normal_ty: String,
+    #[napi(ts_arg_type = "{n: string}")] overridden_ty: napi::JsObject,
+  ) -> Bird {
+    let obj = overridden_ty.coerce_to_object().unwrap();
+    let the_n: Option<String> = obj.get("n").unwrap();
+
+    Bird::new(format!("{}-{}", normal_ty, the_n.unwrap()))
+  }
 }
 
 #[napi(constructor)]

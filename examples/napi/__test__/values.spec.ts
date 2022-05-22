@@ -95,6 +95,8 @@ import {
   callbackReturnPromise,
   returnEitherClass,
   eitherFromOption,
+  overrideIndividualArgOnFunction,
+  overrideIndividualArgOnFunctionWithCbArg,
 } from '../'
 
 test('export const', (t) => {
@@ -157,6 +159,10 @@ test('class', (t) => {
   t.is(dog.name, '可乐')
   t.deepEqual(dog.returnOtherClass(), new Dog('Doge'))
   t.deepEqual(dog.returnOtherClassWithCustomConstructor(), new Bird('parrot'))
+  t.is(
+    dog.overrideIndividualArgOnMethod('Jafar', { n: 'Iago' }).name,
+    'Jafar-Iago',
+  )
   t.is(dog.returnOtherClassWithCustomConstructor().getCount(), 1234)
   t.is(dog.type, Kind.Dog)
   dog.type = Kind.Cat
@@ -319,6 +325,20 @@ test('Result', (t) => {
 
 test('function ts type override', (t) => {
   t.deepEqual(tsRename({ foo: 1, bar: 2, baz: 2 }), ['foo', 'bar', 'baz'])
+})
+
+test('function individual ts arg type override', (t) => {
+  t.is(
+    overrideIndividualArgOnFunction('someStr', () => 'anotherStr', 42),
+    'oia: someStr-42-anotherStr',
+  )
+  t.deepEqual(
+    overrideIndividualArgOnFunctionWithCbArg(
+      (town, opt) => `im: ${town}-${opt}`,
+      89,
+    ),
+    'im: World(89)-null',
+  )
 })
 
 test('option object', (t) => {

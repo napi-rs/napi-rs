@@ -121,7 +121,7 @@ impl NapiFn {
       let i = i - skipped_arg_count;
       let ident = Ident::new(&format!("arg{}", i), Span::call_site());
 
-      match arg {
+      match &arg.kind {
         NapiFnArgKind::PatType(path) => {
           if &path.ty.to_token_stream().to_string() == "Env" {
             args.push(quote! { napi::bindgen_prelude::Env::from(env) });

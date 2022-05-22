@@ -6,7 +6,7 @@ pub struct NapiFn {
   pub name: Ident,
   pub js_name: String,
   pub attrs: Vec<Attribute>,
-  pub args: Vec<NapiFnArgKind>,
+  pub args: Vec<NapiFnArg>,
   pub ret: Option<syn::Type>,
   pub is_ret_result: bool,
   pub is_async: bool,
@@ -29,6 +29,23 @@ pub struct CallbackArg {
   pub pat: Box<syn::Pat>,
   pub args: Vec<syn::Type>,
   pub ret: Option<syn::Type>,
+}
+
+#[derive(Debug, Clone)]
+pub struct NapiFnArg {
+  pub kind: NapiFnArgKind,
+  pub ts_arg_type: Option<String>,
+}
+
+impl NapiFnArg {
+  /// if type was overridden with `#[napi(ts_arg_type = "...")]` use that instead
+  pub fn use_overridden_type_or(&self, default: impl FnOnce() -> String) -> String {
+    self
+      .ts_arg_type
+      .as_ref()
+      .map(|ts| ts.clone())
+      .unwrap_or_else(default)
+  }
 }
 
 #[derive(Debug, Clone)]
