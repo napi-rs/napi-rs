@@ -1,5 +1,5 @@
-use super::{check_status, sys, Result};
-use crate::type_of;
+use super::{check_status, sys};
+use crate::{type_of, Error, Result};
 
 macro_rules! impl_number_conversions {
   ( $( ($name:literal, $t:ty as $st:ty, $get:ident, $create:ident) ,)* ) => {
@@ -50,7 +50,7 @@ macro_rules! impl_number_conversions {
             $name,
           )?;
 
-          Ok(ret.try_into().expect(concat!("Failed to convert ", stringify!($st), " to ", stringify!($t))))
+          ret.try_into().map_err(|_| Error::from_reason(concat!("Failed to convert ", stringify!($st), " to ", stringify!($t))))
         }
       }
     )*
