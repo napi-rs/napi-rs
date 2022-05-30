@@ -34,6 +34,12 @@ unsafe impl Sync for Error {}
 
 impl error::Error for Error {}
 
+impl From<std::convert::Infallible> for Error {
+  fn from(_: std::convert::Infallible) -> Self {
+    unreachable!()
+  }
+}
+
 #[cfg(feature = "serde-json")]
 impl ser::Error for Error {
   fn custom<T: Display>(msg: T) -> Self {
