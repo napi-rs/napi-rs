@@ -212,6 +212,10 @@ macro_rules! impl_for_primitive_type {
   };
 }
 
+impl_for_primitive_type!(u8);
+impl_for_primitive_type!(i8);
+impl_for_primitive_type!(u16);
+impl_for_primitive_type!(i16);
 impl_for_primitive_type!(u32);
 impl_for_primitive_type!(i32);
 impl_for_primitive_type!(i64);
