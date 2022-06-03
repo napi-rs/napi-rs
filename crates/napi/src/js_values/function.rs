@@ -7,8 +7,10 @@ use crate::{
   bindgen_runtime::ToNapiValue,
   threadsafe_function::{ThreadSafeCallContext, ThreadsafeFunction},
 };
-use crate::{check_status, ValueType};
-use crate::{sys, Env, Error, JsObject, JsUnknown, NapiRaw, NapiValue, Result, Status};
+use crate::{
+  bindgen_runtime::ValidateNapiValue, check_status, sys, Env, Error, JsObject, JsUnknown, NapiRaw,
+  NapiValue, Result, Status, ValueType,
+};
 
 pub struct JsFunction(pub(crate) Value);
 
@@ -19,6 +21,12 @@ impl TypeName for JsFunction {
 
   fn value_type() -> crate::ValueType {
     ValueType::Function
+  }
+}
+
+impl ValidateNapiValue for JsFunction {
+  fn type_of() -> Vec<crate::ValueType> {
+    vec![crate::ValueType::Function]
   }
 }
 

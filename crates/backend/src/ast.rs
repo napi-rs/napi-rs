@@ -28,7 +28,10 @@ pub struct NapiFn {
 pub struct CallbackArg {
   pub pat: Box<syn::Pat>,
   pub args: Vec<syn::Type>,
+  pub raw_ret: Option<proc_macro2::TokenStream>,
   pub ret: Option<syn::Type>,
+  pub pure_fn: bool,
+  pub generic_name: String,
 }
 
 #[derive(Debug, Clone)]

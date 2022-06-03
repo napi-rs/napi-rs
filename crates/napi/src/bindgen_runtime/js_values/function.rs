@@ -1,9 +1,27 @@
-use super::ValidateNapiValue;
+use std::ops::{Deref, DerefMut};
 
 pub use crate::JsFunction;
 
-impl ValidateNapiValue for JsFunction {
-  fn type_of() -> Vec<crate::ValueType> {
-    vec![crate::ValueType::Function]
+pub struct Function<T> {
+  inner: T,
+}
+
+impl<T> Function<T> {
+  pub fn new(inner: T) -> Self {
+    Self { inner }
+  }
+}
+
+impl<T> Deref for Function<T> {
+  type Target = T;
+
+  fn deref(&self) -> &Self::Target {
+    &self.inner
+  }
+}
+
+impl<T> DerefMut for Function<T> {
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    &mut self.inner
   }
 }

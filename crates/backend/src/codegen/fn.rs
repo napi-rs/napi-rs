@@ -94,9 +94,8 @@ impl TryToTokens for NapiFn {
 
 impl NapiFn {
   fn gen_arg_conversions(&self) -> (Vec<TokenStream>, Vec<TokenStream>) {
-    let mut arg_conversions = vec![];
-    let mut args = vec![];
-
+    let mut arg_conversions = Vec::with_capacity(self.args.len());
+    let mut args = Vec::with_capacity(self.args.len());
     // fetch this
     if let Some(parent) = &self.parent {
       match self.fn_self {
@@ -232,9 +231,8 @@ impl NapiFn {
       None => quote! { Ok(()) },
     };
 
-    quote! {
-      napi::bindgen_prelude::assert_type_of!(env, cb.get_arg(#index), napi::bindgen_prelude::ValueType::Function)?;
-      let #arg_name = |#(#inputs),*| {
+    let lambda = quote! {
+      |#(#inputs),*| {
         let args = vec![
           #(#arg_conversions),*
         ];
@@ -254,7 +252,20 @@ impl NapiFn {
         )?;
 
         #ret
-      };
+      }
+    };
+    if cb.pure_fn {
+      quote! {
+        #[cfg(any(debug_assertions, feature = "strict"))]
+        napi::bindgen_prelude::assert_type_of!(env, cb.get_arg(#index), napi::bindgen_prelude::ValueType::Function)?;
+        let #arg_name = #lambda;
+      }
+    } else {
+      quote! {
+        #[cfg(any(debug_assertions, feature = "strict"))]
+        napi::bindgen_prelude::assert_type_of!(env, cb.get_arg(#index), napi::bindgen_prelude::ValueType::Function)?;
+        let #arg_name = Function::new(#lambda);
+      }
     }
   }
 
