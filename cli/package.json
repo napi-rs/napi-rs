@@ -45,8 +45,8 @@
     "@types/js-yaml": "^4.0.5",
     "@types/lodash-es": "^4.17.6",
     "clipanion": "^3.1.0",
-    "colorette": "^2.0.16",
-    "core-js": "^3.22.5",
+    "colorette": "^2.0.17",
+    "core-js": "^3.22.8",
     "debug": "^4.3.4",
     "env-paths": "^3.0.0",
     "fdir": "^5.2.0",
@@ -55,7 +55,7 @@
     "lodash-es": "4.17.21",
     "toml": "^3.0.0",
     "tslib": "^2.4.0",
-    "typanion": "^3.8.0"
+    "typanion": "^3.9.0"
   },
   "funding": {
     "type": "github",
