@@ -97,6 +97,8 @@ import {
   eitherFromOption,
   overrideIndividualArgOnFunction,
   overrideIndividualArgOnFunctionWithCbArg,
+  createObjectWithClassField,
+  receiveObjectWithClassField,
 } from '../'
 
 test('export const', (t) => {
@@ -204,6 +206,12 @@ test('class constructor return Result', (t) => {
 test('class Factory return Result', (t) => {
   const c = Context.withData('not empty')
   t.is(c.method(), 'not empty')
+})
+
+test('class in object field', (t) => {
+  const obj = createObjectWithClassField()
+  t.is(obj.bird.name, 'Carolyn')
+  t.is(receiveObjectWithClassField(obj), obj.bird)
 })
 
 test('should be able to create object reference and shared reference', (t) => {

@@ -8,6 +8,7 @@ mod arraybuffer;
 mod bigint;
 mod boolean;
 mod buffer;
+mod class;
 #[cfg(all(feature = "chrono_date", feature = "napi5"))]
 mod date;
 mod either;
@@ -34,6 +35,7 @@ pub use arraybuffer::*;
 #[cfg(feature = "napi6")]
 pub use bigint::*;
 pub use buffer::*;
+pub use class::*;
 pub use either::*;
 pub use external::*;
 #[cfg(feature = "napi4")]

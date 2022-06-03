@@ -263,6 +263,21 @@ impl NapiStruct {
           }
         }
 
+        pub fn into_instance(self, env: napi::Env) -> napi::Result<napi::bindgen_prelude::ClassInstance<#name>> {
+          if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name_str) {
+            unsafe {
+              let wrapped_value = Box::leak(Box::new(self));
+              let instance_value = #name::new_instance(env.raw(), wrapped_value as *mut _ as *mut std::ffi::c_void, ctor_ref)?;
+
+              Ok(napi::bindgen_prelude::ClassInstance::<#name>::new(instance_value, wrapped_value))
+            }
+          } else {
+            Err(napi::bindgen_prelude::Error::new(
+              napi::bindgen_prelude::Status::InvalidArg, format!("Failed to get constructor of class `{}`", #js_name_raw))
+            )
+          }
+        }
+
         unsafe fn new_instance(
           env: napi::sys::napi_env,
           wrapped_value: *mut std::ffi::c_void,
