@@ -175,6 +175,7 @@ static KNOWN_TYPES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     ("Buffer", "Buffer"),
     ("Vec", "Array<{}>"),
     ("Result", "Error | {}"),
+    ("ClassInstance", "{}"),
     ("Either", "{} | {}"),
     ("Either3", "{} | {} | {}"),
     ("Either4", "{} | {} | {} | {}"),

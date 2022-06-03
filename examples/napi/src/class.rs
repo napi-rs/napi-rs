@@ -1,4 +1,7 @@
-use napi::{bindgen_prelude::Buffer, Result};
+use napi::{
+  bindgen_prelude::{Buffer, ClassInstance},
+  Env, Result,
+};
 
 use crate::r#enum::Kind;
 
@@ -304,4 +307,26 @@ impl Optional {
       Some(optional) => optional,
     }
   }
+}
+
+#[napi(object)]
+pub struct ObjectFieldClassInstance {
+  pub bird: ClassInstance<Bird>,
+}
+
+#[napi]
+pub fn create_object_with_class_field(env: Env) -> Result<ObjectFieldClassInstance> {
+  Ok(ObjectFieldClassInstance {
+    bird: Bird {
+      name: "Carolyn".to_owned(),
+    }
+    .into_instance(env)?,
+  })
+}
+
+#[napi]
+pub fn receive_object_with_class_field(
+  object: ObjectFieldClassInstance,
+) -> Result<ClassInstance<Bird>> {
+  Ok(object.bird)
 }
