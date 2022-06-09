@@ -60,5 +60,5 @@ jobs:
           export CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi24-clang"
           yarn build:test:android:armv7
           du -sh examples/napi/index.node
-          ${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/arm-linux-androideabi-strip examples/napi/index.node
+          ${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip examples/napi/index.node
           du -sh examples/napi/index.node
