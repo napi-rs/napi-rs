@@ -17,7 +17,7 @@ export const createPackageJson = (
     license: 'MIT',
     devDependencies: {
       '@napi-rs/cli': `^${version}`,
-      ava: '^4.2.0',
+      ava: '^4.3.0',
     },
     engines: {
       node: '>= 10',
