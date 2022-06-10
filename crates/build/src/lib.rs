@@ -7,7 +7,7 @@ pub fn setup() {
     Ok("macos") => {
       macos::setup();
     }
-    Ok("android") => if let Ok(_) = android::setup() {},
+    Ok("android") => if android::setup().is_ok() {},
     _ => {}
   }
 }

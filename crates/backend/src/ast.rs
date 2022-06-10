@@ -40,11 +40,7 @@ pub struct NapiFnArg {
 impl NapiFnArg {
   /// if type was overridden with `#[napi(ts_arg_type = "...")]` use that instead
   pub fn use_overridden_type_or(&self, default: impl FnOnce() -> String) -> String {
-    self
-      .ts_arg_type
-      .as_ref()
-      .map(|ts| ts.clone())
-      .unwrap_or_else(default)
+    self.ts_arg_type.as_ref().cloned().unwrap_or_else(default)
   }
 }
 

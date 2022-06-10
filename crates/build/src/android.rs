@@ -9,7 +9,7 @@ pub fn setup() -> Result<(), Error> {
   let mut dist = path::PathBuf::from(&out_dir);
   dist.push("libgcc.a");
   let mut libgcc = fs::File::create(&dist)?;
-  libgcc.write(b"INPUT(-lunwind)")?;
+  let _ = libgcc.write(b"INPUT(-lunwind)")?;
   drop(libgcc);
   println!("cargo:rustc-link-search={}", &out_dir);
   Ok(())
