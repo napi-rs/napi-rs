@@ -3,6 +3,16 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.10.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.9.0...@napi-rs/cli@2.10.0) (2022-06-10)
+
+### Bug Fixes
+
+- **cli:** parse host target triple from `rustc -vV` ([#1191](https://github.com/napi-rs/napi-rs/issues/1191)) ([beb7511](https://github.com/napi-rs/napi-rs/commit/beb75111fcf46f60edfc00d83f6141a67f145cb3))
+
+### Features
+
+- **cli:** upgrade new project template to yarn3 ([8f6a10c](https://github.com/napi-rs/napi-rs/commit/8f6a10c89a33cc61655ee204684d5535b51dd931))
+
 # [2.9.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.8.0...@napi-rs/cli@2.9.0) (2022-05-14)
 
 ### Features
