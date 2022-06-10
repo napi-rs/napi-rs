@@ -8,6 +8,7 @@ import inquirer, { prompt } from 'inquirer'
 import { CreateNpmDirCommand } from '../create-npm-dir'
 import { debugFactory } from '../debug'
 import { DefaultPlatforms } from '../parse-triple'
+import { spawn } from '../spawn'
 
 import { GitIgnore } from './.gitignore-template'
 import { createCargoContent } from './cargo'
@@ -202,6 +203,13 @@ edition = "2021"
 `,
     )
     this.writeFile('.gitignore', GitIgnore)
+    this.writeFile('.yarnrc.yml', 'nodeLinker: node-modules')
+    await spawn(`yarn set version stable`, {
+      cwd: join(process.cwd(), this.dirname!),
+    })
+    await spawn(`yarn install`, {
+      cwd: join(process.cwd(), this.dirname!),
+    })
   }
 
   private writeFile(path: string, content: string) {

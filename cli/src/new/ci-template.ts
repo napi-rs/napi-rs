@@ -30,20 +30,17 @@ jobs:
         settings:
           - host: macos-latest
             target: 'x86_64-apple-darwin'
-            architecture: 'x64'
             build: |
               yarn build
               strip -x *.node
           - host: windows-latest
             build: yarn build
             target: 'x86_64-pc-windows-msvc'
-            architecture: 'x64'
           - host: windows-latest
             build: |
               yarn build --target i686-pc-windows-msvc
               yarn test
             target: 'i686-pc-windows-msvc'
-            architecture: 'x86'
           - host: ubuntu-latest
             target: 'x86_64-unknown-linux-gnu'
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian
@@ -76,7 +73,6 @@ jobs:
               yarn build --target aarch64-unknown-linux-gnu &&\n
               aarch64-unknown-linux-gnu-strip *.node
           - host: ubuntu-latest
-            architecture: 'x64'
             target: 'armv7-unknown-linux-gnueabihf'
             setup: |
               sudo apt-get update
@@ -85,7 +81,6 @@ jobs:
               yarn build --target=armv7-unknown-linux-gnueabihf
               arm-linux-gnueabihf-strip *.node
           - host: ubuntu-latest
-            architecture: 'x64'
             target: 'aarch64-linux-android'
             build: |
               export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="\${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
@@ -93,9 +88,8 @@ jobs:
               export CXX="\${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++"
               export PATH="\${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin:\${PATH}"
               yarn build --target aarch64-linux-android
-              \${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android-strip *.node
+              \${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip *.node
           - host: ubuntu-latest
-            architecture: 'x64'
             target: 'armv7-linux-androideabi'
             build: |
               export CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER="\${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi24-clang"
@@ -103,9 +97,8 @@ jobs:
               export CXX="\${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi24-clang++"
               export PATH="\${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin:\${PATH}"
               yarn build --target armv7-linux-androideabi
-              \${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/arm-linux-androideabi-strip *.node
+              \${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip *.node
           - host: ubuntu-latest
-            architecture: 'x64'
             target: 'aarch64-unknown-linux-musl'
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
             build: >-
@@ -114,7 +107,6 @@ jobs:
               yarn build --target aarch64-unknown-linux-musl &&\n
               /aarch64-linux-musl-cross/bin/aarch64-linux-musl-strip *.node
           - host: windows-latest
-            architecture: 'x64'
             target: 'aarch64-pc-windows-msvc'
             build: yarn build --target aarch64-pc-windows-msvc
 
@@ -131,7 +123,6 @@ jobs:
           node-version: 16
           check-latest: true
           cache: yarn
-          architecture: \${{ matrix.settings.architecture }}
 
       - name: Install
         uses: actions-rs/toolchain@v1
@@ -158,7 +149,7 @@ jobs:
       - name: Cache NPM dependencies
         uses: actions/cache@v3
         with:
-          path: node_modules
+          path: .yarn/cache
           key: npm-cache-build-\${{ matrix.settings.target }}-node@16
 
       - name: Setup toolchain
@@ -166,8 +157,22 @@ jobs:
         if: \${{ matrix.settings.setup }}
         shell: bash
 
+      - name: Setup node x86
+        if: matrix.settings.target == 'i686-pc-windows-msvc'
+        run: yarn config set supportedArchitectures.cpu "ia32"
+        shell: bash
+
       - name: 'Install dependencies'
-        run: yarn install --ignore-scripts --frozen-lockfile --registry https://registry.npmjs.org --network-timeout 300000
+        run: yarn install
+
+      - name: Setup node x86
+        uses: actions/setup-node@v3
+        if: matrix.settings.target == 'i686-pc-windows-msvc'
+        with:
+          node-version: 16
+          check-latest: true
+          cache: yarn
+          architecture: x86
 
       - name: Build in docker
         uses: addnab/docker-run-action@v3
@@ -226,7 +231,7 @@ jobs:
             whoami
             env
             freebsd-version
-            yarn install --ignore-scripts --frozen-lockfile --registry https://registry.npmjs.org --network-timeout 300000
+            yarn install
             yarn build
             strip -x *.node
             yarn test
@@ -267,11 +272,11 @@ jobs:
       - name: Cache NPM dependencies
         uses: actions/cache@v3
         with:
-          path: node_modules
+          path: .yarn/cache
           key: npm-cache-test-\${{ matrix.settings.target }}-\${{ matrix.node }}-\${{ hashFiles('yarn.lock') }}
 
       - name: 'Install dependencies'
-        run: yarn install --ignore-scripts --frozen-lockfile --registry https://registry.npmjs.org --network-timeout 300000
+        run: yarn install
 
       - name: Download artifacts
         uses: actions/download-artifact@v3
@@ -309,11 +314,11 @@ jobs:
       - name: Cache NPM dependencies
         uses: actions/cache@v3
         with:
-          path: node_modules
+          path: .yarn/cache
           key: npm-cache-test-linux-x64-gnu-\${{ matrix.node }}
 
       - name: 'Install dependencies'
-        run: yarn install --ignore-scripts --frozen-lockfile --registry https://registry.npmjs.org --network-timeout 300000
+        run: yarn install
 
       - name: Download artifacts
         uses: actions/download-artifact@v3
@@ -351,11 +356,13 @@ jobs:
       - name: Cache NPM dependencies
         uses: actions/cache@v3
         with:
-          path: node_modules
+          path: .yarn/cache
           key: npm-cache-test-x86_64-unknown-linux-musl-\${{ matrix.node }}
 
       - name: 'Install dependencies'
-        run: yarn install --ignore-scripts --frozen-lockfile --registry https://registry.npmjs.org --network-timeout 300000
+        run: |
+          yarn config set supportedArchitectures.libc "musl"
+          yarn install
 
       - name: Download artifacts
         uses: actions/download-artifact@v3
@@ -398,11 +405,14 @@ jobs:
       - name: Cache NPM dependencies
         uses: actions/cache@v3
         with:
-          path: node_modules
+          path: .yarn/cache
           key: npm-cache-test-linux-aarch64-gnu-\${{ matrix.node }}
 
       - name: Install dependencies
-        run: yarn install --ignore-scripts --ignore-platform --frozen-lockfile --registry https://registry.npmjs.org --network-timeout 300000
+        run: |
+          yarn config set supportedArchitectures.cpu "arm64"
+          yarn config set supportedArchitectures.libc "glibc"
+          yarn install
 
       - name: Setup and run tests
         uses: addnab/docker-run-action@v3
@@ -439,11 +449,14 @@ jobs:
       - name: Cache NPM dependencies
         uses: actions/cache@v3
         with:
-          path: node_modules
+          path: .yarn/cache
           key: npm-cache-test-linux-aarch64-musl-\${{ matrix.node }}
 
       - name: Install dependencies
-        run: yarn install --ignore-scripts --ignore-platform --frozen-lockfile --registry https://registry.npmjs.org --network-timeout 300000
+        run: |
+          yarn config set supportedArchitectures.cpu "arm64"
+          yarn config set supportedArchitectures.libc "musl"
+          yarn install
 
       - name: Setup and run tests
         uses: addnab/docker-run-action@v3
@@ -483,11 +496,13 @@ jobs:
       - name: Cache NPM dependencies
         uses: actions/cache@v3
         with:
-          path: node_modules
+          path: .yarn/cache
           key: npm-cache-test-linux-arm-gnueabihf-\${{ matrix.node }}
 
       - name: Install dependencies
-        run: yarn install --ignore-scripts --ignore-platform --frozen-lockfile --registry https://registry.npmjs.org --network-timeout 300000
+        run: |
+          yarn config set supportedArchitectures.cpu "arm"
+          yarn install
 
       - name: Setup and run tests
         uses: addnab/docker-run-action@v3
@@ -524,10 +539,10 @@ jobs:
       - name: Cache NPM dependencies
         uses: actions/cache@v3
         with:
-          path: node_modules
+          path: .yarn/cache
           key: npm-cache-ubuntu-latest-publish
       - name: 'Install dependencies'
-        run: yarn install --ignore-scripts --frozen-lockfile --registry https://registry.npmjs.org --network-timeout 300000
+        run: yarn install
 
       - name: Download all artifacts
         uses: actions/download-artifact@v3
