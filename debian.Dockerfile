@@ -13,7 +13,7 @@ ENV RUSTUP_HOME=/usr/local/rustup \
 
 RUN apt-get update && \
   apt-get install -y --fix-missing --no-install-recommends gpg-agent ca-certificates openssl && \
-  wget -qO - https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add - && \
+  wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add - && \
   echo "deb http://apt.llvm.org/focal/ llvm-toolchain-focal-14 main" >> /etc/apt/sources.list && \
   echo "deb-src http://apt.llvm.org/focal/ llvm-toolchain-focal-14 main" >> /etc/apt/sources.list && \
   curl -sL https://deb.nodesource.com/setup_16.x | bash - && \
