@@ -3,7 +3,7 @@ use std::ffi::c_void;
 use std::ops::{Deref, DerefMut};
 use std::rc::{Rc, Weak};
 
-use lazy_static::lazy_static;
+use once_cell::sync::Lazy;
 
 use crate::{
   bindgen_runtime::{PersistedSingleThreadHashMap, ToNapiValue},
@@ -16,10 +16,8 @@ type RefInformation = (
   *const Cell<*mut dyn FnOnce()>,
 );
 
-lazy_static! {
-  pub(crate) static ref REFERENCE_MAP: PersistedSingleThreadHashMap<*mut c_void, RefInformation> =
-    Default::default();
-}
+pub(crate) static REFERENCE_MAP: Lazy<PersistedSingleThreadHashMap<*mut c_void, RefInformation>> =
+  Lazy::new(Default::default);
 
 /// ### Experimental feature
 ///
