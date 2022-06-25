@@ -4,16 +4,14 @@ use std::ptr;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use lazy_static::lazy_static;
+use once_cell::sync::Lazy;
 use thread_local::ThreadLocal;
 
 use crate::{bindgen_prelude::*, check_status, sys, Result};
 
-lazy_static! {
-  #[doc(hidden)]
-  /// Determined is `constructor` called from Class `factory`
-  pub static ref ___CALL_FROM_FACTORY: ThreadLocal<AtomicBool> = ThreadLocal::new();
-}
+#[doc(hidden)]
+/// Determined is `constructor` called from Class `factory`
+pub static ___CALL_FROM_FACTORY: Lazy<ThreadLocal<AtomicBool>> = Lazy::new(ThreadLocal::new);
 
 pub struct CallbackInfo<const N: usize> {
   env: sys::napi_env,

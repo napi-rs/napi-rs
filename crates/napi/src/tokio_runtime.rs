@@ -3,7 +3,7 @@ use std::future::Future;
 use std::ptr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use lazy_static::lazy_static;
+use once_cell::sync::Lazy;
 use tokio::{
   runtime::Handle,
   sync::mpsc::{self, error::TrySendError},
@@ -11,25 +11,23 @@ use tokio::{
 
 use crate::{check_status, promise, sys, Result};
 
-lazy_static! {
-  pub(crate) static ref RT: (Handle, mpsc::Sender<()>) = {
-    let runtime = tokio::runtime::Runtime::new();
-    let (sender, mut receiver) = mpsc::channel::<()>(1);
-    runtime
-      .map(|rt| {
-        let h = rt.handle();
-        let handle = h.clone();
-        handle.spawn(async move {
-          if receiver.recv().await.is_some() {
-            rt.shutdown_background();
-          }
-        });
+pub(crate) static RT: Lazy<(Handle, mpsc::Sender<()>)> = Lazy::new(|| {
+  let runtime = tokio::runtime::Runtime::new();
+  let (sender, mut receiver) = mpsc::channel::<()>(1);
+  runtime
+    .map(|rt| {
+      let h = rt.handle();
+      let handle = h.clone();
+      handle.spawn(async move {
+        if receiver.recv().await.is_some() {
+          rt.shutdown_background();
+        }
+      });
 
-        (handle, sender)
-      })
-      .expect("Create tokio runtime failed")
-  };
-}
+      (handle, sender)
+    })
+    .expect("Create tokio runtime failed")
+});
 
 pub(crate) static TOKIO_RT_REF_COUNT: AtomicUsize = AtomicUsize::new(0);
 

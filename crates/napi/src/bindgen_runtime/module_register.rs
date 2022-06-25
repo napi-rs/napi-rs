@@ -5,7 +5,7 @@ use std::ptr;
 use std::sync::atomic::{AtomicBool, AtomicPtr};
 use std::sync::{atomic::Ordering, Mutex};
 
-use lazy_static::lazy_static;
+use once_cell::sync::Lazy;
 
 use crate::{
   check_status, check_status_or_throw, sys, Env, JsError, JsFunction, Property, Result, Value,
@@ -89,15 +89,13 @@ unsafe impl<K, V> Sync for PersistedSingleThreadHashMap<K, V> {}
 type FnRegisterMap =
   PersistedSingleThreadHashMap<ExportRegisterCallback, (sys::napi_callback, &'static str)>;
 
-lazy_static! {
-  static ref MODULE_REGISTER_CALLBACK: ModuleRegisterCallback = Default::default();
-  static ref MODULE_CLASS_PROPERTIES: ModuleClassProperty = Default::default();
-  static ref MODULE_REGISTER_LOCK: Mutex<()> = Mutex::new(());
-  static ref REGISTERED: AtomicBool = AtomicBool::new(false);
-  static ref REGISTERED_CLASSES: thread_local::ThreadLocal<AtomicPtr<RegisteredClasses>> =
-    thread_local::ThreadLocal::new();
-  static ref FN_REGISTER_MAP: FnRegisterMap = Default::default();
-}
+static MODULE_REGISTER_CALLBACK: Lazy<ModuleRegisterCallback> = Lazy::new(Default::default);
+static MODULE_CLASS_PROPERTIES: Lazy<ModuleClassProperty> = Lazy::new(Default::default);
+static MODULE_REGISTER_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
+static REGISTERED: Lazy<AtomicBool> = Lazy::new(|| AtomicBool::new(false));
+static REGISTERED_CLASSES: Lazy<thread_local::ThreadLocal<AtomicPtr<RegisteredClasses>>> =
+  Lazy::new(thread_local::ThreadLocal::new);
+static FN_REGISTER_MAP: Lazy<FnRegisterMap> = Lazy::new(Default::default);
 
 #[inline]
 fn wait_first_thread_registered() {
@@ -111,9 +109,9 @@ type RegisteredClasses =
 
 #[cfg(feature = "compat-mode")]
 // compatibility for #[module_exports]
-lazy_static! {
-  static ref MODULE_EXPORTS: PersistedSingleThreadVec<ModuleExportsCallback> = Default::default();
-}
+
+static MODULE_EXPORTS: Lazy<PersistedSingleThreadVec<ModuleExportsCallback>> =
+  Lazy::new(Default::default);
 
 #[doc(hidden)]
 pub fn get_class_constructor(js_name: &'static str) -> Option<sys::napi_ref> {
