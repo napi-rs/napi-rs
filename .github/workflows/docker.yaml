@@ -70,7 +70,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        version: ['12', '14', '16', '18']
+        version: ['14', '16', '18']
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
