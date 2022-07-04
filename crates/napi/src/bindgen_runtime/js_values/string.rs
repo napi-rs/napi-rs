@@ -4,6 +4,7 @@ use std::ffi::{c_void, CStr};
 use std::fmt::Display;
 use std::mem;
 use std::ops::Deref;
+use std::os::raw::c_char;
 use std::ptr;
 
 impl TypeName for String {
@@ -44,24 +45,38 @@ impl FromNapiValue for String {
       "Failed to convert napi `string` into rust type `String`",
     )?;
 
-    // end char len in C
+    // adding null terminator
     len += 1;
-    let mut ret = Vec::with_capacity(len);
-    let buf_ptr = ret.as_mut_ptr();
-
+    let mut buf = mem::ManuallyDrop::new(Vec::<c_char>::with_capacity(len));
     let mut written_char_count = 0;
 
     check_status!(
       unsafe {
-        sys::napi_get_value_string_utf8(env, napi_val, buf_ptr, len, &mut written_char_count)
+        sys::napi_get_value_string_utf8(
+          env,
+          napi_val,
+          buf.as_mut_ptr(),
+          len,
+          &mut written_char_count,
+        )
       },
       "Failed to convert napi `string` into rust type `String`"
     )?;
 
-    let mut ret = mem::ManuallyDrop::new(ret);
-    let buf_ptr = ret.as_mut_ptr();
-    let bytes = unsafe { Vec::from_raw_parts(buf_ptr as *mut u8, written_char_count, len) };
-    match String::from_utf8(bytes) {
+    if written_char_count != (len - 1) {
+      return Err(Error::new(
+        Status::InvalidArg,
+        "Failed to read the napi `string` correctly, length mismatches".to_string(),
+      ));
+    }
+
+    // SAFETY: `c_char` (which is a type alias to `i8`) has the same size as `u8`.
+    // We could use `mem::transmute` but we don't want to copy the
+    // data, so let's use this hack.
+    let buf =
+      unsafe { Vec::from_raw_parts(buf.as_mut_ptr() as *mut u8, buf.len(), buf.capacity()) };
+
+    match String::from_utf8(buf) {
       Err(e) => Err(Error::new(
         Status::InvalidArg,
         format!("Failed to read utf8 string, {}", e),
