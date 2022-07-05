@@ -1,7 +1,7 @@
 use std::convert::TryFrom;
 
 use super::Value;
-use crate::bindgen_runtime::TypeName;
+use crate::bindgen_runtime::{TypeName, ValidateNapiValue};
 use crate::{check_status, ValueType};
 use crate::{sys, Error, Result};
 
@@ -17,6 +17,8 @@ impl TypeName for JsNumber {
     ValueType::Number
   }
 }
+
+impl ValidateNapiValue for JsNumber {}
 
 impl JsNumber {
   pub fn get_uint32(&self) -> Result<u32> {

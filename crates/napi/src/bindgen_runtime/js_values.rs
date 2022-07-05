@@ -38,7 +38,6 @@ pub use buffer::*;
 pub use class::*;
 pub use either::*;
 pub use external::*;
-#[cfg(feature = "napi4")]
 pub use function::*;
 pub use nil::*;
 pub use object::*;
@@ -116,16 +115,15 @@ pub trait FromNapiMutRef {
 }
 
 pub trait ValidateNapiValue: FromNapiValue + TypeName {
-  fn type_of() -> Vec<ValueType> {
-    vec![]
-  }
-
   /// # Safety
   ///
   /// this function called to validate whether napi value passed to rust is valid type
+  /// The reason why this function return `napi_value` is that if a `Promise<T>` passed in
+  /// we need to return `Promise.reject(T)`, not the `T`.
+  /// So we need to create `Promise.reject(T)` in this function.
   unsafe fn validate(env: sys::napi_env, napi_val: sys::napi_value) -> Result<sys::napi_value> {
-    let available_types = Self::type_of();
-    if available_types.is_empty() {
+    let value_type = Self::value_type();
+    if value_type == ValueType::Unknown {
       return Ok(ptr::null_mut());
     }
 
@@ -136,22 +134,15 @@ pub trait ValidateNapiValue: FromNapiValue + TypeName {
     )?;
 
     let received_type = ValueType::from(result);
-    if available_types.contains(&received_type) {
+    if value_type == received_type {
       Ok(ptr::null_mut())
     } else {
       Err(Error::new(
         Status::InvalidArg,
-        if available_types.len() > 1 {
-          format!(
-            "Expect value to be one of {:?}, but received {}",
-            available_types, received_type
-          )
-        } else {
-          format!(
-            "Expect value to be {}, but received {}",
-            available_types[0], received_type
-          )
-        },
+        format!(
+          "Expect value to be {}, but received {}",
+          value_type, received_type
+        ),
       ))
     }
   }

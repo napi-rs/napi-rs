@@ -1,7 +1,7 @@
 use std::convert::TryFrom;
 
 use super::Value;
-use crate::bindgen_runtime::TypeName;
+use crate::bindgen_runtime::{TypeName, ValidateNapiValue};
 use crate::{check_status, ValueType};
 use crate::{sys, Error, Result};
 
@@ -17,6 +17,8 @@ impl TypeName for JsBoolean {
     ValueType::Boolean
   }
 }
+
+impl ValidateNapiValue for JsBoolean {}
 
 impl JsBoolean {
   pub fn get_value(&self) -> Result<bool> {

@@ -14,6 +14,38 @@ static NAPI_IMPL_ID: AtomicU32 = AtomicU32::new(0);
 // Generate trait implementations for given Struct.
 fn gen_napi_value_map_impl(name: &Ident, to_napi_val_impl: TokenStream) -> TokenStream {
   let name_str = name.to_string();
+  let js_name_str = format!("{}\0", name_str);
+  let validate = quote! {
+    unsafe fn validate(env: napi::sys::napi_env, napi_val: napi::sys::napi_value) -> napi::Result<napi::sys::napi_value> {
+      if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name_str) {
+        let mut ctor = std::ptr::null_mut();
+        napi::check_status!(
+          napi::sys::napi_get_reference_value(env, ctor_ref, &mut ctor),
+          "Failed to get constructor reference of class `{}`",
+          #name_str
+        )?;
+        let mut is_instance_of = false;
+        napi::check_status!(
+          napi::sys::napi_instanceof(env, napi_val, ctor, &mut is_instance_of),
+          "Failed to get external value of class `{}`",
+          #name_str
+        )?;
+        if is_instance_of {
+          Ok(std::ptr::null_mut())
+        } else {
+          Err(napi::Error::new(
+            napi::Status::InvalidArg,
+            format!("Value is not instanceof class `{}`", #name_str)
+          ))
+        }
+      } else {
+        Err(napi::Error::new(
+          napi::Status::InvalidArg,
+          format!("Failed to get constructor of class `{}`", #name_str)
+        ))
+      }
+    }
+  };
   quote! {
     impl napi::bindgen_prelude::TypeName for #name {
       fn type_name() -> &'static str {
@@ -97,6 +129,14 @@ fn gen_napi_value_map_impl(name: &Ident, to_napi_val_impl: TokenStream) -> Token
       ) -> napi::bindgen_prelude::Result<Self> {
         napi::bindgen_prelude::FromNapiMutRef::from_napi_mut_ref(env, napi_val)
       }
+    }
+
+    impl napi::bindgen_prelude::ValidateNapiValue for &#name {
+      #validate
+    }
+
+    impl napi::bindgen_prelude::ValidateNapiValue for &mut #name {
+      #validate
     }
 
     impl napi::NapiRaw for &#name {
@@ -523,6 +563,8 @@ impl NapiStruct {
           Ok(val)
         }
       }
+
+      impl napi::bindgen_prelude::ValidateNapiValue for #name {}
     }
   }
 

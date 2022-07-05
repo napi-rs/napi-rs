@@ -165,11 +165,7 @@ impl Array {
   }
 }
 
-impl ValidateNapiValue for Array {
-  fn type_of() -> Vec<ValueType> {
-    vec![ValueType::Object]
-  }
-}
+impl ValidateNapiValue for Array {}
 
 impl<T> TypeName for Vec<T> {
   fn type_name() -> &'static str {

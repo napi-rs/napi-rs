@@ -99,6 +99,8 @@ import {
   overrideIndividualArgOnFunctionWithCbArg,
   createObjectWithClassField,
   receiveObjectWithClassField,
+  AnotherClassForEither,
+  receiveDifferentClass,
 } from '../'
 
 test('export const', (t) => {
@@ -498,6 +500,13 @@ test('receive class reference in either', (t) => {
   t.is(receiveClassOrNumber(1), 2)
   t.is(receiveClassOrNumber(c), 100)
   t.is(receiveMutClassOrNumber(c), 100)
+})
+
+test('receive different class', (t) => {
+  const a = new JsClassForEither()
+  const b = new AnotherClassForEither()
+  t.is(receiveDifferentClass(a), 42)
+  t.is(receiveDifferentClass(b), 100)
 })
 
 test('return either class', (t) => {

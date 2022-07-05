@@ -73,6 +73,8 @@ impl TypeName for JsNull {
   }
 }
 
+impl ValidateNapiValue for JsNull {}
+
 #[derive(Clone, Copy)]
 pub struct JsSymbol(pub(crate) Value);
 
@@ -86,11 +88,7 @@ impl TypeName for JsSymbol {
   }
 }
 
-impl ValidateNapiValue for JsSymbol {
-  fn type_of() -> Vec<ValueType> {
-    vec![ValueType::Symbol]
-  }
-}
+impl ValidateNapiValue for JsSymbol {}
 
 pub struct JsExternal(pub(crate) Value);
 
@@ -103,6 +101,8 @@ impl TypeName for JsExternal {
     ValueType::External
   }
 }
+
+impl ValidateNapiValue for JsExternal {}
 
 macro_rules! impl_napi_value_trait {
   ($js_value:ident, $value_type:ident) => {

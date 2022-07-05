@@ -2,6 +2,7 @@ use std::mem;
 use std::ptr;
 
 use crate::bindgen_runtime::TypeName;
+use crate::bindgen_runtime::ValidateNapiValue;
 use crate::ValueType;
 use crate::{check_status, sys, Result, Value};
 
@@ -25,6 +26,8 @@ impl TypeName for JsString {
     ValueType::String
   }
 }
+
+impl ValidateNapiValue for JsString {}
 
 impl JsString {
   pub fn utf8_len(&self) -> Result<usize> {

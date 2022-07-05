@@ -1,10 +1,8 @@
-use super::{FromNapiValue, ToNapiValue, TypeName};
+use super::{FromNapiValue, ToNapiValue, TypeName, ValidateNapiValue};
 use crate::{
   bindgen_runtime::{Null, Undefined},
-  sys, type_of, JsUndefined, NapiRaw, Status, ValueType,
+  sys, Error, JsUndefined, NapiRaw, Status, ValueType,
 };
-
-const ERROR_MSG: &str = "The return value of typeof(T) should not be equal in Either";
 
 #[derive(Debug, Clone, Copy)]
 pub enum Either<A, B> {
@@ -61,22 +59,23 @@ impl<T> From<Either<T, Null>> for Option<T> {
   }
 }
 
-impl<A: TypeName + FromNapiValue, B: TypeName + FromNapiValue> FromNapiValue for Either<A, B> {
+impl<
+    A: TypeName + FromNapiValue + ValidateNapiValue,
+    B: TypeName + FromNapiValue + ValidateNapiValue,
+  > FromNapiValue for Either<A, B>
+{
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
-    debug_assert!(A::value_type() != B::value_type(), "{}", ERROR_MSG);
-    let js_type = type_of!(env, napi_val)?;
-    if js_type == A::value_type() {
-      unsafe { A::from_napi_value(env, napi_val).map(Self::A) }
-    } else if js_type == B::value_type() {
-      unsafe { B::from_napi_value(env, napi_val).map(Self::B) }
+    if unsafe { A::validate(env, napi_val) }.is_ok() {
+      unsafe { A::from_napi_value(env, napi_val) }.map(Either::A)
+    } else if unsafe { B::validate(env, napi_val) }.is_ok() {
+      unsafe { B::from_napi_value(env, napi_val).map(Either::B) }
     } else {
-      Err(crate::Error::new(
+      Err(Error::new(
         Status::InvalidArg,
         format!(
-          "Expect type {} or {}, but got {}",
-          A::value_type(),
-          B::value_type(),
-          js_type
+          "Value is not either {} or {}",
+          A::type_name(),
+          B::type_name()
         ),
       ))
     }
@@ -95,238 +94,82 @@ impl<A: ToNapiValue, B: ToNapiValue> ToNapiValue for Either<A, B> {
   }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum Either3<A, B, C> {
-  A(A),
-  B(B),
-  C(C),
-}
-
-impl<A: TypeName, B: TypeName, C: TypeName> TypeName for Either3<A, B, C> {
-  fn type_name() -> &'static str {
-    "Either3"
-  }
-
-  fn value_type() -> ValueType {
-    ValueType::Unknown
-  }
-}
-
-impl<A: TypeName + FromNapiValue, B: TypeName + FromNapiValue, C: TypeName + FromNapiValue>
-  FromNapiValue for Either3<A, B, C>
-{
-  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
-    debug_assert!(
-      {
-        let mut types = vec![A::value_type(), B::value_type(), C::value_type()];
-        types.dedup();
-        types.len() == 3
-      },
-      "{}",
-      ERROR_MSG
-    );
-    let js_type = type_of!(env, napi_val)?;
-    if js_type == A::value_type() {
-      unsafe { A::from_napi_value(env, napi_val).map(Self::A) }
-    } else if js_type == B::value_type() {
-      unsafe { B::from_napi_value(env, napi_val).map(Self::B) }
-    } else if js_type == C::value_type() {
-      unsafe { C::from_napi_value(env, napi_val).map(Self::C) }
-    } else {
-      Err(crate::Error::new(
-        Status::InvalidArg,
-        format!(
-          "Expect type {} or {} or {}, but got {}",
-          A::value_type(),
-          B::value_type(),
-          C::value_type(),
-          js_type
-        ),
-      ))
+macro_rules! either_n {
+  ( $either_name:ident, $( $parameter:ident ),+ $( , )* ) => {
+    #[derive(Debug, Clone, Copy)]
+    pub enum $either_name< $( $parameter ),+ > {
+      $( $parameter ( $parameter ) ),+
     }
-  }
-}
 
-impl<A: ToNapiValue, B: ToNapiValue, C: ToNapiValue> ToNapiValue for Either3<A, B, C> {
-  unsafe fn to_napi_value(
-    env: sys::napi_env,
-    value: Self,
-  ) -> crate::Result<crate::sys::napi_value> {
-    match value {
-      Self::A(a) => unsafe { A::to_napi_value(env, a) },
-      Self::B(b) => unsafe { B::to_napi_value(env, b) },
-      Self::C(c) => unsafe { C::to_napi_value(env, c) },
+    impl< $( $parameter ),+ > TypeName for $either_name < $( $parameter ),+ >
+      where $( $parameter: TypeName ),+
+    {
+      fn type_name() -> &'static str {
+        stringify!( $either_name )
+      }
+
+      fn value_type() -> ValueType {
+        ValueType::Unknown
+      }
     }
-  }
-}
 
-#[derive(Debug, Clone, Copy)]
-pub enum Either4<A, B, C, D> {
-  A(A),
-  B(B),
-  C(C),
-  D(D),
-}
-
-impl<A: TypeName, B: TypeName, C: TypeName, D: TypeName> TypeName for Either4<A, B, C, D> {
-  fn type_name() -> &'static str {
-    "Either4"
-  }
-
-  fn value_type() -> ValueType {
-    ValueType::Unknown
-  }
-}
-
-impl<
-    A: TypeName + FromNapiValue,
-    B: TypeName + FromNapiValue,
-    C: TypeName + FromNapiValue,
-    D: TypeName + FromNapiValue,
-  > FromNapiValue for Either4<A, B, C, D>
-{
-  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
-    debug_assert!(
-      {
-        let mut types = vec![
-          A::value_type(),
-          B::value_type(),
-          C::value_type(),
-          D::value_type(),
-        ];
-        types.dedup();
-        types.len() == 4
-      },
-      "{}",
-      ERROR_MSG
-    );
-    let js_type = type_of!(env, napi_val)?;
-    if js_type == A::value_type() {
-      unsafe { A::from_napi_value(env, napi_val).map(Self::A) }
-    } else if js_type == B::value_type() {
-      unsafe { B::from_napi_value(env, napi_val).map(Self::B) }
-    } else if js_type == C::value_type() {
-      unsafe { C::from_napi_value(env, napi_val).map(Self::C) }
-    } else if js_type == D::value_type() {
-      unsafe { D::from_napi_value(env, napi_val).map(Self::D) }
-    } else {
-      Err(crate::Error::new(
-        Status::InvalidArg,
-        format!(
-          "Expect type {} or {} or {} or {}, but got {}",
-          A::value_type(),
-          B::value_type(),
-          C::value_type(),
-          D::value_type(),
-          js_type
-        ),
-      ))
+    impl< $( $parameter ),+ > FromNapiValue for $either_name < $( $parameter ),+ >
+      where $( $parameter: TypeName + FromNapiValue + ValidateNapiValue ),+
+    {
+      unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
+        $(
+          if unsafe { $parameter::validate(env, napi_val).is_ok() } {
+            unsafe { $parameter ::from_napi_value(env, napi_val).map(Self:: $parameter ) }
+          } else
+        )+
+        {
+          Err(crate::Error::new(
+            Status::InvalidArg,
+            format!(
+              concat!("Value is non of these types ", $( "`{", stringify!( $parameter ), "}`, " ),+ ),
+              $( $parameter = $parameter::value_type(), )+
+            ),
+          ))
+        }
+      }
     }
-  }
-}
 
-impl<A: ToNapiValue, B: ToNapiValue, C: ToNapiValue, D: ToNapiValue> ToNapiValue
-  for Either4<A, B, C, D>
-{
-  unsafe fn to_napi_value(
-    env: sys::napi_env,
-    value: Self,
-  ) -> crate::Result<crate::sys::napi_value> {
-    match value {
-      Self::A(a) => unsafe { A::to_napi_value(env, a) },
-      Self::B(b) => unsafe { B::to_napi_value(env, b) },
-      Self::C(c) => unsafe { C::to_napi_value(env, c) },
-      Self::D(d) => unsafe { D::to_napi_value(env, d) },
+    impl< $( $parameter ),+ > ToNapiValue for $either_name < $( $parameter ),+ >
+      where $( $parameter: ToNapiValue ),+
+    {
+      unsafe fn to_napi_value(
+        env: sys::napi_env,
+        value: Self
+      ) -> crate::Result<crate::sys::napi_value> {
+        match value {
+          $( Self:: $parameter (v) => unsafe { $parameter ::to_napi_value(env, v) } ),+
+        }
+      }
     }
-  }
+  };
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum Either5<A, B, C, D, E> {
-  A(A),
-  B(B),
-  C(C),
-  D(D),
-  E(E),
-}
-
-impl<A: TypeName, B: TypeName, C: TypeName, D: TypeName, E: TypeName> TypeName
-  for Either5<A, B, C, D, E>
-{
-  fn type_name() -> &'static str {
-    "Either5"
-  }
-
-  fn value_type() -> ValueType {
-    ValueType::Unknown
-  }
-}
-
-impl<
-    A: TypeName + FromNapiValue,
-    B: TypeName + FromNapiValue,
-    C: TypeName + FromNapiValue,
-    D: TypeName + FromNapiValue,
-    E: TypeName + FromNapiValue,
-  > FromNapiValue for Either5<A, B, C, D, E>
-{
-  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
-    debug_assert!(
-      {
-        let mut types = vec![
-          A::value_type(),
-          B::value_type(),
-          C::value_type(),
-          D::value_type(),
-          E::value_type(),
-        ];
-        types.dedup();
-        types.len() == 5
-      },
-      "{}",
-      ERROR_MSG
-    );
-    let js_type = type_of!(env, napi_val)?;
-    if js_type == A::value_type() {
-      unsafe { A::from_napi_value(env, napi_val).map(Self::A) }
-    } else if js_type == B::value_type() {
-      unsafe { B::from_napi_value(env, napi_val).map(Self::B) }
-    } else if js_type == C::value_type() {
-      unsafe { C::from_napi_value(env, napi_val).map(Self::C) }
-    } else if js_type == D::value_type() {
-      unsafe { D::from_napi_value(env, napi_val).map(Self::D) }
-    } else if js_type == E::value_type() {
-      unsafe { E::from_napi_value(env, napi_val).map(Self::E) }
-    } else {
-      Err(crate::Error::new(
-        Status::InvalidArg,
-        format!(
-          "Expect type {} or {} or {} or {} or {}, but got {}",
-          A::value_type(),
-          B::value_type(),
-          C::value_type(),
-          D::value_type(),
-          E::value_type(),
-          js_type
-        ),
-      ))
-    }
-  }
-}
-
-impl<A: ToNapiValue, B: ToNapiValue, C: ToNapiValue, D: ToNapiValue, E: ToNapiValue> ToNapiValue
-  for Either5<A, B, C, D, E>
-{
-  unsafe fn to_napi_value(
-    env: sys::napi_env,
-    value: Self,
-  ) -> crate::Result<crate::sys::napi_value> {
-    match value {
-      Self::A(a) => unsafe { A::to_napi_value(env, a) },
-      Self::B(b) => unsafe { B::to_napi_value(env, b) },
-      Self::C(c) => unsafe { C::to_napi_value(env, c) },
-      Self::D(d) => unsafe { D::to_napi_value(env, d) },
-      Self::E(e) => unsafe { E::to_napi_value(env, e) },
-    }
-  }
-}
+either_n!(Either3, A, B, C);
+either_n!(Either4, A, B, C, D);
+either_n!(Either5, A, B, C, D, E);
+either_n!(Either6, A, B, C, D, E, F);
+either_n!(Either7, A, B, C, D, E, F, G);
+either_n!(Either8, A, B, C, D, E, F, G, H);
+either_n!(Either9, A, B, C, D, E, F, G, H, I);
+either_n!(Either10, A, B, C, D, E, F, G, H, I, J);
+either_n!(Either11, A, B, C, D, E, F, G, H, I, J, K);
+either_n!(Either12, A, B, C, D, E, F, G, H, I, J, K, L);
+either_n!(Either13, A, B, C, D, E, F, G, H, I, J, K, L, M);
+either_n!(Either14, A, B, C, D, E, F, G, H, I, J, K, L, M, N);
+either_n!(Either15, A, B, C, D, E, F, G, H, I, J, K, L, M, N, O);
+either_n!(Either16, A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P);
+either_n!(Either17, A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q);
+either_n!(Either18, A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R);
+either_n!(Either19, A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S);
+either_n!(Either20, A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T);
+either_n!(Either21, A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U);
+either_n!(Either22, A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V);
+either_n!(Either23, A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W);
+either_n!(Either24, A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X);
+either_n!(Either25, A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y);
+either_n!(Either26, A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z);

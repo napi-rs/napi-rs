@@ -10,11 +10,7 @@ impl TypeName for bool {
   }
 }
 
-impl ValidateNapiValue for bool {
-  fn type_of() -> Vec<ValueType> {
-    vec![ValueType::Boolean]
-  }
-}
+impl ValidateNapiValue for bool {}
 
 impl ToNapiValue for bool {
   unsafe fn to_napi_value(env: sys::napi_env, val: bool) -> Result<sys::napi_value> {
