@@ -50,6 +50,7 @@ macro_rules! attrgen {
       (readonly, Readonly(Span)),
       (skip, Skip(Span)),
       (strict, Strict(Span)),
+      (return_if_invalid, ReturnIfInvalid(Span)),
       (object, Object(Span)),
       (namespace, Namespace(Span, String, Span)),
       (iterator, Iterator(Span)),

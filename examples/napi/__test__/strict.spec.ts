@@ -17,6 +17,8 @@ import {
   validateSymbol,
   validateNull,
   validateUndefined,
+  returnUndefinedIfInvalid,
+  returnUndefinedIfInvalidPromise,
 } from '../index'
 
 test('should validate array', (t) => {
@@ -165,4 +167,16 @@ test('should validate undefined', (t) => {
     code: 'InvalidArg',
     message: 'Expect value to be Undefined, but received Number',
   })
+})
+
+test('should return undefined if arg is invalid', (t) => {
+  t.is(returnUndefinedIfInvalid(true), false)
+  // @ts-expect-error
+  t.is(returnUndefinedIfInvalid(1), undefined)
+})
+
+test('should return Promise.reject() if arg is not Promise', async (t) => {
+  t.is(await returnUndefinedIfInvalidPromise(Promise.resolve(true)), false)
+  // @ts-expect-error
+  await t.throwsAsync(() => returnUndefinedIfInvalidPromise(1))
 })

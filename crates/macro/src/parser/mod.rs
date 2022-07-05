@@ -670,6 +670,7 @@ fn napi_fn_from_decl(
       comments: extract_doc_comments(&attrs),
       attrs,
       strict: opts.strict().is_some(),
+      return_if_invalid: opts.return_if_invalid().is_some(),
       js_mod: opts.namespace().map(|(m, _)| m.to_owned()),
       ts_generic_types: opts.ts_generic_types().map(|(m, _)| m.to_owned()),
       ts_args_type: opts.ts_args_type().map(|(m, _)| m.to_owned()),
