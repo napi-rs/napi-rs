@@ -100,6 +100,8 @@ export function validateNumber(i: number): number
 export function validatePromise(p: Promise<number>): Promise<number>
 export function validateString(s: string): string
 export function validateSymbol(s: symbol): boolean
+export function returnUndefinedIfInvalid(input: boolean): boolean
+export function returnUndefinedIfInvalidPromise(input: Promise<boolean>): Promise<boolean>
 export function tsRename(a: { foo: number }): string[]
 export function overrideIndividualArgOnFunction(notOverridden: string, f: () => string, notOverridden2: number): string
 export function overrideIndividualArgOnFunctionWithCbArg(callback: (town: string, name?: string | undefined | null) => string, notOverridden: number): object

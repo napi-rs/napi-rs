@@ -87,3 +87,14 @@ fn validate_string(s: String) -> String {
 fn validate_symbol(_s: JsSymbol) -> bool {
   true
 }
+
+#[napi(return_if_invalid)]
+fn return_undefined_if_invalid(input: bool) -> bool {
+  !input
+}
+
+#[napi(return_if_invalid)]
+async fn return_undefined_if_invalid_promise(input: Promise<bool>) -> Result<bool> {
+  let input_value = input.await?;
+  Ok(!input_value)
+}
