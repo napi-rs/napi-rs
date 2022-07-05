@@ -3,7 +3,10 @@ use std::ops::{Deref, DerefMut};
 use std::ptr;
 
 use super::{Value, ValueType};
-use crate::{bindgen_runtime::TypeName, check_status, sys, JsUnknown, NapiValue, Ref, Result};
+use crate::bindgen_runtime::ValidateNapiValue;
+use crate::{
+  bindgen_runtime::TypeName, check_status, sys, Error, JsUnknown, NapiValue, Ref, Result, Status,
+};
 
 pub struct JsBuffer(pub(crate) Value);
 
@@ -14,6 +17,20 @@ impl TypeName for JsBuffer {
 
   fn value_type() -> ValueType {
     ValueType::Object
+  }
+}
+
+impl ValidateNapiValue for JsBuffer {
+  unsafe fn validate(env: sys::napi_env, napi_val: sys::napi_value) -> Result<sys::napi_value> {
+    let mut is_buffer = false;
+    check_status!(unsafe { sys::napi_is_buffer(env, napi_val, &mut is_buffer) })?;
+    if !is_buffer {
+      return Err(Error::new(
+        Status::InvalidArg,
+        "Value is not a buffer".to_owned(),
+      ));
+    }
+    Ok(ptr::null_mut())
   }
 }
 

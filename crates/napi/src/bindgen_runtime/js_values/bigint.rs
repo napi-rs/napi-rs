@@ -38,11 +38,7 @@ impl TypeName for BigInt {
   }
 }
 
-impl ValidateNapiValue for BigInt {
-  fn type_of() -> Vec<crate::ValueType> {
-    vec![crate::ValueType::BigInt]
-  }
-}
+impl ValidateNapiValue for BigInt {}
 
 impl FromNapiValue for BigInt {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {

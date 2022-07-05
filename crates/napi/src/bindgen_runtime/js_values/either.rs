@@ -1,10 +1,8 @@
-use super::{FromNapiValue, ToNapiValue, TypeName};
+use super::{FromNapiValue, ToNapiValue, TypeName, ValidateNapiValue};
 use crate::{
   bindgen_runtime::{Null, Undefined},
-  sys, type_of, JsUndefined, NapiRaw, Status, ValueType,
+  sys, Error, JsUndefined, NapiRaw, Status, ValueType,
 };
-
-const ERROR_MSG: &str = "The return value of typeof(T) should not be equal in Either";
 
 #[derive(Debug, Clone, Copy)]
 pub enum Either<A, B> {
@@ -61,22 +59,23 @@ impl<T> From<Either<T, Null>> for Option<T> {
   }
 }
 
-impl<A: TypeName + FromNapiValue, B: TypeName + FromNapiValue> FromNapiValue for Either<A, B> {
+impl<
+    A: TypeName + FromNapiValue + ValidateNapiValue,
+    B: TypeName + FromNapiValue + ValidateNapiValue,
+  > FromNapiValue for Either<A, B>
+{
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
-    debug_assert!(A::value_type() != B::value_type(), "{}", ERROR_MSG);
-    let js_type = type_of!(env, napi_val)?;
-    if js_type == A::value_type() {
-      unsafe { A::from_napi_value(env, napi_val).map(Self::A) }
-    } else if js_type == B::value_type() {
-      unsafe { B::from_napi_value(env, napi_val).map(Self::B) }
+    if unsafe { A::validate(env, napi_val) }.is_ok() {
+      unsafe { A::from_napi_value(env, napi_val) }.map(Either::A)
+    } else if unsafe { B::validate(env, napi_val) }.is_ok() {
+      unsafe { B::from_napi_value(env, napi_val).map(Either::B) }
     } else {
-      Err(crate::Error::new(
+      Err(Error::new(
         Status::InvalidArg,
         format!(
-          "Expect type {} or {}, but got {}",
-          A::value_type(),
-          B::value_type(),
-          js_type
+          "Value is not either {} or {}",
+          A::type_name(),
+          B::type_name()
         ),
       ))
     }
@@ -93,18 +92,6 @@ impl<A: ToNapiValue, B: ToNapiValue> ToNapiValue for Either<A, B> {
       Self::B(b) => unsafe { B::to_napi_value(env, b) },
     }
   }
-}
-
-macro_rules! count_idents {
-  ( $( $idents:ident ),* $( , )* ) => {
-    {
-      #[allow(dead_code, non_camel_case_types)]
-      enum Idents { $( $idents, )* __LastVariant }
-      const COUNT: usize = Idents::__LastVariant as usize;
-
-      COUNT
-    }
-  };
 }
 
 macro_rules! either_n {
@@ -127,24 +114,11 @@ macro_rules! either_n {
     }
 
     impl< $( $parameter ),+ > FromNapiValue for $either_name < $( $parameter ),+ >
-      where $( $parameter: TypeName + FromNapiValue ),+
+      where $( $parameter: TypeName + FromNapiValue + ValidateNapiValue ),+
     {
       unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
-        debug_assert!(
-          {
-            let mut types = vec![ $( $parameter ::value_type() ),+ ];
-            types.dedup();
-
-            types.len() == count_idents!( $( $parameter ),+ )
-          },
-          "{}",
-          ERROR_MSG
-        );
-
-        let js_type = type_of!(env, napi_val)?;
-
         $(
-          if js_type == $parameter::value_type() {
+          if unsafe { $parameter::validate(env, napi_val).is_ok() } {
             unsafe { $parameter ::from_napi_value(env, napi_val).map(Self:: $parameter ) }
           } else
         )+
@@ -152,9 +126,8 @@ macro_rules! either_n {
           Err(crate::Error::new(
             Status::InvalidArg,
             format!(
-              concat!("Expect type ", $( "`{", stringify!( $parameter ), "}`, " ),+ , "but got {js_type}"),
+              concat!("Value is non of these types ", $( "`{", stringify!( $parameter ), "}`, " ),+ ),
               $( $parameter = $parameter::value_type(), )+
-              js_type = js_type,
             ),
           ))
         }

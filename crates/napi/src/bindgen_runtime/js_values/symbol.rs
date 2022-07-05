@@ -14,15 +14,11 @@ impl TypeName for Symbol {
   }
 
   fn value_type() -> crate::ValueType {
-    crate::ValueType::Object
+    crate::ValueType::Symbol
   }
 }
 
-impl ValidateNapiValue for Symbol {
-  fn type_of() -> Vec<crate::ValueType> {
-    vec![crate::ValueType::Symbol]
-  }
-}
+impl ValidateNapiValue for Symbol {}
 
 impl Symbol {
   pub fn new(desc: String) -> Self {

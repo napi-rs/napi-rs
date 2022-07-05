@@ -1,4 +1,7 @@
-use crate::{bindgen_runtime::TypeName, ValueType};
+use crate::{
+  bindgen_runtime::{TypeName, ValidateNapiValue},
+  ValueType,
+};
 
 use super::Value;
 
@@ -14,3 +17,5 @@ impl TypeName for JsUndefined {
     ValueType::Undefined
   }
 }
+
+impl ValidateNapiValue for JsUndefined {}

@@ -3,8 +3,10 @@ use std::os::raw::c_void;
 use std::ptr;
 use std::slice;
 
-use crate::bindgen_runtime::TypeName;
-use crate::{check_status, sys, JsUnknown, NapiValue, Ref, Result, Value, ValueType};
+use crate::bindgen_runtime::{TypeName, ValidateNapiValue};
+use crate::{
+  check_status, sys, Error, JsUnknown, NapiValue, Ref, Result, Status, Value, ValueType,
+};
 
 pub struct JsArrayBuffer(pub(crate) Value);
 
@@ -15,6 +17,20 @@ impl TypeName for JsArrayBuffer {
 
   fn value_type() -> ValueType {
     ValueType::Object
+  }
+}
+
+impl ValidateNapiValue for JsArrayBuffer {
+  unsafe fn validate(env: sys::napi_env, napi_val: sys::napi_value) -> Result<sys::napi_value> {
+    let mut is_array_buffer = false;
+    check_status!(unsafe { sys::napi_is_arraybuffer(env, napi_val, &mut is_array_buffer) })?;
+    if !is_array_buffer {
+      return Err(Error::new(
+        Status::InvalidArg,
+        "Value is not an array buffer".to_owned(),
+      ));
+    }
+    Ok(ptr::null_mut())
   }
 }
 

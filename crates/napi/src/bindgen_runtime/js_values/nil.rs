@@ -15,11 +15,7 @@ impl TypeName for Null {
   }
 }
 
-impl ValidateNapiValue for Null {
-  fn type_of() -> Vec<ValueType> {
-    vec![ValueType::Null]
-  }
-}
+impl ValidateNapiValue for Null {}
 
 impl FromNapiValue for Null {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
@@ -56,11 +52,7 @@ impl TypeName for Undefined {
   }
 }
 
-impl ValidateNapiValue for Undefined {
-  fn type_of() -> Vec<ValueType> {
-    vec![ValueType::Undefined]
-  }
-}
+impl ValidateNapiValue for Undefined {}
 
 impl FromNapiValue for Undefined {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {

@@ -23,11 +23,7 @@ impl<T: 'static> TypeName for External<T> {
   }
 }
 
-impl<T: 'static> ValidateNapiValue for External<T> {
-  fn type_of() -> Vec<crate::ValueType> {
-    vec![crate::ValueType::External]
-  }
-}
+impl<T: 'static> ValidateNapiValue for External<T> {}
 
 impl<T: 'static> External<T> {
   pub fn new(value: T) -> Self {

@@ -52,6 +52,7 @@ export interface Obj {
 export function either4(input: string | number | boolean | Obj): number
 export function receiveClassOrNumber(either: number | JsClassForEither): number
 export function receiveMutClassOrNumber(either: number | JsClassForEither): number
+export function receiveDifferentClass(either: JsClassForEither | AnotherClassForEither): number
 export function returnEitherClass(input: number): number | JsClassForEither
 export function eitherFromOption(): JsClassForEither | undefined
 /** default enum values are continuos i32s start from 0 */
@@ -264,6 +265,9 @@ export class ClassWithFactory {
   setName(name: string): this
 }
 export class JsClassForEither {
+  constructor()
+}
+export class AnotherClassForEither {
   constructor()
 }
 export class Fib {

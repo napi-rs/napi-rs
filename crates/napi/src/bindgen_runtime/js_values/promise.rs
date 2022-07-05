@@ -25,10 +25,6 @@ impl<T: FromNapiValue> TypeName for Promise<T> {
 }
 
 impl<T: FromNapiValue> ValidateNapiValue for Promise<T> {
-  fn type_of() -> Vec<crate::ValueType> {
-    vec![crate::ValueType::Object]
-  }
-
   unsafe fn validate(
     env: crate::sys::napi_env,
     napi_val: crate::sys::napi_value,

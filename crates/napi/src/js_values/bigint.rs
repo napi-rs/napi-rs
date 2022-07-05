@@ -20,6 +20,8 @@ impl TypeName for JsBigInt {
   }
 }
 
+impl ValidateNapiValue for JsBigInt {}
+
 impl JsBigInt {
   pub(crate) fn from_raw_unchecked(
     env: sys::napi_env,

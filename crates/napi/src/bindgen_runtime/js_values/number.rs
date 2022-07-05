@@ -15,12 +15,7 @@ macro_rules! impl_number_conversions {
         }
       }
 
-      impl $crate::bindgen_prelude::ValidateNapiValue for $t {
-        #[inline(always)]
-        fn type_of() -> Vec<$crate::ValueType> {
-          vec![$crate::ValueType::Number]
-        }
-      }
+      impl $crate::bindgen_prelude::ValidateNapiValue for $t { }
 
       impl $crate::bindgen_prelude::ToNapiValue for $t {
         #[inline(always)]
