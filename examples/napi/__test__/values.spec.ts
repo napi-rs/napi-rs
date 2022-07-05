@@ -21,6 +21,7 @@ import {
   getCwd,
   Animal,
   Kind,
+  NinjaTurtle,
   ClassWithFactory,
   CustomNumEnum,
   Context,
@@ -173,6 +174,8 @@ test('class', (t) => {
   t.is(dog.type, Kind.Cat)
   const assets = new Assets()
   t.is(assets.get(1)?.filePath, 1)
+  const turtle = NinjaTurtle.newRaph()
+  t.is(turtle.returnThis(), turtle)
 })
 
 test('class factory', (t) => {

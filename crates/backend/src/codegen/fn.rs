@@ -12,7 +12,7 @@ impl TryToTokens for NapiFn {
     let intermediate_ident = get_intermediate_ident(&name_str);
     let args_len = self.args.len();
 
-    let (arg_conversions, arg_names) = self.gen_arg_conversions();
+    let (arg_conversions, arg_names) = self.gen_arg_conversions()?;
     let receiver = self.gen_fn_receiver();
     let receiver_ret_name = Ident::new("_ret", Span::call_site());
     let ret = self.gen_fn_return(&receiver_ret_name);
@@ -93,7 +93,7 @@ impl TryToTokens for NapiFn {
 }
 
 impl NapiFn {
-  fn gen_arg_conversions(&self) -> (Vec<TokenStream>, Vec<TokenStream>) {
+  fn gen_arg_conversions(&self) -> BindgenResult<(Vec<TokenStream>, Vec<TokenStream>)> {
     let mut arg_conversions = vec![];
     let mut args = vec![];
 
@@ -117,7 +117,7 @@ impl NapiFn {
     }
 
     let mut skipped_arg_count = 0;
-    self.args.iter().enumerate().for_each(|(i, arg)| {
+    for (i, arg) in self.args.iter().enumerate() {
       let i = i - skipped_arg_count;
       let ident = Ident::new(&format!("arg{}", i), Span::call_site());
 
@@ -127,27 +127,41 @@ impl NapiFn {
             args.push(quote! { napi::bindgen_prelude::Env::from(env) });
             skipped_arg_count += 1;
           } else {
-            if self.parent.is_some() {
-              if let syn::Type::Path(path) = path.ty.as_ref() {
-                if let Some(p) = path.path.segments.last() {
-                  if p.ident == "Reference" {
-                    if let syn::PathArguments::AngleBracketed(
-                      syn::AngleBracketedGenericArguments { args: angle_bracketed_args, .. },
-                    ) = &p.arguments
+            let is_in_class = self.parent.is_some();
+            if let syn::Type::Path(path) = path.ty.as_ref() {
+              if let Some(p) = path.path.segments.last() {
+                if p.ident == "Reference" {
+                  if !is_in_class {
+                    bail_span!(p, "`Reference` is only allowed in class methods");
+                  }
+                  if let syn::PathArguments::AngleBracketed(syn::AngleBracketedGenericArguments {
+                    args: angle_bracketed_args,
+                    ..
+                  }) = &p.arguments
+                  {
+                    if let Some(syn::GenericArgument::Type(syn::Type::Path(path))) =
+                      angle_bracketed_args.first()
                     {
-                      if let Some(syn::GenericArgument::Type(syn::Type::Path(path))) = angle_bracketed_args.first() {
-                          if let Some(p) = path.path.segments.first() {
-                            if p.ident == *self.parent.as_ref().unwrap() {
-                              args.push(
-                                quote! { napi::bindgen_prelude::Reference::from_value_ptr(this_ptr as *mut std::ffi::c_void, env)? },
-                              );
-                              skipped_arg_count += 1;
-                              return;
-                            }
-                          }
+                      if let Some(p) = path.path.segments.first() {
+                        if p.ident == *self.parent.as_ref().unwrap() {
+                          args.push(
+                              quote! { napi::bindgen_prelude::Reference::from_value_ptr(this_ptr as *mut std::ffi::c_void, env)? },
+                            );
+                          skipped_arg_count += 1;
+                          continue;
+                        }
                       }
                     }
                   }
+                } else if p.ident == "This" {
+                  if !is_in_class {
+                    bail_span!(p, "`This` is only allowed in class methods");
+                  }
+                  args.push(
+                    quote! { <napi::bindgen_prelude::This as napi::NapiValue>::from_raw_unchecked(env, cb.this) },
+                  );
+                  skipped_arg_count += 1;
+                  continue;
                 }
               }
             }
@@ -160,9 +174,9 @@ impl NapiFn {
           args.push(quote! { #ident });
         }
       }
-    });
+    }
 
-    (arg_conversions, args)
+    Ok((arg_conversions, args))
   }
 
   fn gen_ty_arg_conversion(
