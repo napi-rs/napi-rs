@@ -2,7 +2,7 @@ import { join } from 'path'
 
 import chalk from 'chalk'
 import { Command, Option } from 'clipanion'
-import { prompt } from 'inquirer'
+import inquirer from 'inquirer'
 import { load, dump } from 'js-yaml'
 
 import { debugFactory } from './debug'
@@ -46,7 +46,7 @@ export class RenameCommand extends Command {
     const name =
       this.name ??
       (
-        await prompt({
+        await inquirer.prompt({
           name: 'name',
           type: 'input',
           suffix: chalk.dim(' name field in package.json'),
@@ -55,7 +55,7 @@ export class RenameCommand extends Command {
     const napiName =
       this.napiName ??
       (
-        await prompt({
+        await inquirer.prompt({
           name: 'napi name',
           type: 'input',
           default: name.split('/')[1],
@@ -67,7 +67,7 @@ export class RenameCommand extends Command {
     const repository =
       this.repository ??
       (
-        await prompt({
+        await inquirer.prompt({
           name: 'repository',
           type: 'input',
           suffix: chalk.dim(' Leave empty to skip'),
@@ -79,7 +79,7 @@ export class RenameCommand extends Command {
     const description =
       this.description ??
       (
-        await prompt({
+        await inquirer.prompt({
           name: 'description',
           type: 'input',
           suffix: chalk.dim(' Leave empty to skip'),

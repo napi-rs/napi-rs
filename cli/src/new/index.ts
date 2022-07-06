@@ -3,7 +3,7 @@ import { join } from 'path'
 
 import chalk from 'chalk'
 import { Command, Option } from 'clipanion'
-import inquirer, { prompt } from 'inquirer'
+import inquirer from 'inquirer'
 
 import { CreateNpmDirCommand } from '../create-npm-dir'
 import { debugFactory } from '../debug'
@@ -75,7 +75,7 @@ export class NewProjectCommand extends Command {
     if (!this.dirname) {
       const [scope, name] = this.name?.split('/') ?? []
       const defaultProjectDir = name ?? scope
-      const dirAnswer = await prompt({
+      const dirAnswer = await inquirer.prompt({
         type: 'input',
         name: DIR_PROMOTE_NAME,
         default: defaultProjectDir,
@@ -222,7 +222,7 @@ edition = "2021"
 
   private async getName() {
     if (!this.name) {
-      const nameAnswer = await prompt({
+      const nameAnswer = await inquirer.prompt({
         type: 'input',
         name: NAME_PROMOTE_NAME,
         suffix: ' (The name filed in your package.json)',

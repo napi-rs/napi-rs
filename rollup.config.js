@@ -54,6 +54,8 @@ export default {
       'node:os': 'os',
       'node:process': 'process',
       'node:tty': 'tty',
+      'node:assert': 'assert',
+      'node:readline': 'readline',
       preventAssignment: true,
     }),
     alias({
