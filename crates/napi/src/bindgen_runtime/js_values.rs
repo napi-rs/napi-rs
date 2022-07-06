@@ -74,6 +74,8 @@ impl TypeName for JsUnknown {
   }
 }
 
+impl ValidateNapiValue for JsUnknown {}
+
 impl<T: NapiRaw> ToNapiValue for T {
   unsafe fn to_napi_value(_env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     Ok(unsafe { NapiRaw::raw(&val) })
@@ -155,6 +157,32 @@ impl<T: TypeName> TypeName for Option<T> {
 
   fn value_type() -> ValueType {
     T::value_type()
+  }
+}
+
+impl<T: ValidateNapiValue> ValidateNapiValue for Option<T> {
+  unsafe fn validate(env: sys::napi_env, napi_val: sys::napi_value) -> Result<sys::napi_value> {
+    let mut result = -1;
+    check_status!(
+      unsafe { sys::napi_typeof(env, napi_val, &mut result) },
+      "Failed to detect napi value type",
+    )?;
+
+    let received_type = ValueType::from(result);
+    if received_type == ValueType::Null {
+      Ok(ptr::null_mut())
+    } else if let Ok(validate_ret) = unsafe { T::validate(env, napi_val) } {
+      Ok(validate_ret)
+    } else {
+      Err(Error::new(
+        Status::InvalidArg,
+        format!(
+          "Expect value to be Option<{}>, but received {}",
+          T::value_type(),
+          received_type
+        ),
+      ))
+    }
   }
 }
 

@@ -88,6 +88,11 @@ fn validate_symbol(_s: JsSymbol) -> bool {
   true
 }
 
+#[napi(strict)]
+fn validate_optional(input1: Option<String>, input2: Option<bool>) -> bool {
+  input1.is_some() || input2.unwrap_or(false)
+}
+
 #[napi(return_if_invalid)]
 fn return_undefined_if_invalid(input: bool) -> bool {
   !input
