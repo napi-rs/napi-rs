@@ -177,6 +177,7 @@ export function createExternalTypedArray(): Uint32Array
 export function mutateTypedArray(input: Float32Array): void
 export function derefUint8Array(a: Uint8Array, b: Uint8ClampedArray): number
 export function bufferPassThrough(buf: Buffer): Promise<Buffer>
+export function arrayBufferPassThrough(buf: Uint8Array): Promise<Uint8Array>
 export function asyncReduceBuffer(buf: Buffer): Promise<number>
 /**
  * `constructor` option for `struct` requires all fields to be public,
@@ -230,8 +231,10 @@ export type Blake2bKey = Blake2BKey
 export class Blake2BKey { }
 export class Context {
   maybeNeed?: boolean
+  buffer: Uint8Array
   constructor()
   static withData(data: string): Context
+  static withBuffer(buf: Uint8Array): Context
   method(): string
 }
 export class AnimalWithDefaultConstructor {

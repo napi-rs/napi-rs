@@ -44,6 +44,11 @@ async fn buffer_pass_through(buf: Buffer) -> Result<Buffer> {
   Ok(buf)
 }
 
+#[napi]
+async fn array_buffer_pass_through(buf: Uint8Array) -> Result<Uint8Array> {
+  Ok(buf)
+}
+
 struct AsyncBuffer {
   buf: Buffer,
 }

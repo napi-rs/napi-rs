@@ -4,6 +4,7 @@ use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::ptr;
 use std::slice;
+use std::sync::Arc;
 #[cfg(debug_assertions)]
 use std::sync::Mutex;
 
@@ -19,6 +20,7 @@ thread_local! {
 /// So it is safe to use it in `async fn`, the `&[u8]` under the hood will not be dropped until the `drop` called.
 /// Clone will create a new `Reference` to the same underlying `JavaScript Buffer`.
 pub struct Buffer {
+  data_reference: Option<Arc<()>>,
   inner: &'static mut [u8],
   capacity: usize,
   raw: Option<(sys::napi_ref, sys::napi_env)>,
@@ -40,22 +42,21 @@ unsafe impl Send for Buffer {}
 
 impl Buffer {
   pub fn clone(&mut self, env: &Env) -> Result<Self> {
-    if let Some((ref_, _)) = self.raw {
+    let raw = if let Some((ref_, _)) = self.raw {
       check_status!(
         unsafe { sys::napi_reference_ref(env.0, ref_, &mut 0) },
         "Failed to ref Buffer reference in Buffer::clone"
       )?;
-      Ok(Self {
-        inner: unsafe { slice::from_raw_parts_mut(self.inner.as_mut_ptr(), self.inner.len()) },
-        capacity: self.capacity,
-        raw: Some((ref_, env.0)),
-      })
+      Some((ref_, env.0))
     } else {
-      Err(Error::new(
-        Status::InvalidArg,
-        "clone only available when the buffer is created from a JavaScript Buffer".to_owned(),
-      ))
-    }
+      None
+    };
+    Ok(Self {
+      data_reference: self.data_reference.clone(),
+      inner: unsafe { slice::from_raw_parts_mut(self.inner.as_mut_ptr(), self.inner.len()) },
+      capacity: self.capacity,
+      raw,
+    })
   }
 }
 
@@ -76,6 +77,7 @@ impl From<Vec<u8>> for Buffer {
     let capacity = data.capacity();
     mem::forget(data);
     Buffer {
+      data_reference: Some(Arc::new(())),
       inner: unsafe { slice::from_raw_parts_mut(inner_ptr, len) },
       capacity,
       raw: None,
@@ -146,6 +148,7 @@ impl FromNapiValue for Buffer {
     )?;
 
     Ok(Self {
+      data_reference: None,
       inner: unsafe { slice::from_raw_parts_mut(buf as *mut _, len) },
       capacity: len,
       raw: Some((ref_, env)),
@@ -193,6 +196,32 @@ impl ToNapiValue for Buffer {
     )?;
 
     Ok(ret)
+  }
+}
+
+impl ToNapiValue for &mut Buffer {
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    // From Node.js value, not from `Vec<u8>`
+    if let Some((ref_, _)) = val.raw {
+      let mut buf = ptr::null_mut();
+      check_status!(
+        unsafe { sys::napi_get_reference_value(env, ref_, &mut buf) },
+        "Failed to get Buffer value from reference"
+      )?;
+      check_status!(
+        unsafe { sys::napi_delete_reference(env, ref_) },
+        "Failed to delete Buffer reference"
+      )?;
+      Ok(buf)
+    } else {
+      let buf = Buffer {
+        data_reference: val.data_reference.clone(),
+        inner: unsafe { slice::from_raw_parts_mut(val.inner.as_mut_ptr(), val.capacity) },
+        capacity: val.capacity,
+        raw: None,
+      };
+      unsafe { ToNapiValue::to_napi_value(env, buf) }
+    }
   }
 }
 

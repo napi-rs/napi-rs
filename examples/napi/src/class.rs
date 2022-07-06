@@ -1,5 +1,5 @@
 use napi::{
-  bindgen_prelude::{Buffer, ClassInstance, This},
+  bindgen_prelude::{Buffer, ClassInstance, This, Uint8Array},
   Env, Result,
 };
 
@@ -159,6 +159,7 @@ impl Blake2bKey {
 pub struct Context {
   data: String,
   pub maybe_need: Option<bool>,
+  pub buffer: Uint8Array,
 }
 
 // Test for return `napi::Result` and `Result`
@@ -169,6 +170,7 @@ impl Context {
     Ok(Self {
       data: "not empty".into(),
       maybe_need: None,
+      buffer: Uint8Array::new(vec![0, 1, 2, 3]),
     })
   }
 
@@ -177,7 +179,17 @@ impl Context {
     Ok(Self {
       data,
       maybe_need: Some(true),
+      buffer: Uint8Array::new(vec![0, 1, 2, 3]),
     })
+  }
+
+  #[napi(factory)]
+  pub fn with_buffer(buf: Uint8Array) -> Self {
+    Self {
+      data: "not empty".into(),
+      maybe_need: None,
+      buffer: buf,
+    }
   }
 
   #[napi]
