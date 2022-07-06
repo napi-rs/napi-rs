@@ -19,6 +19,7 @@ import {
   validateUndefined,
   returnUndefinedIfInvalid,
   returnUndefinedIfInvalidPromise,
+  validateOptional,
 } from '../index'
 
 test('should validate array', (t) => {
@@ -179,4 +180,17 @@ test('should return Promise.reject() if arg is not Promise', async (t) => {
   t.is(await returnUndefinedIfInvalidPromise(Promise.resolve(true)), false)
   // @ts-expect-error
   await t.throwsAsync(() => returnUndefinedIfInvalidPromise(1))
+})
+
+test('should validate Option<T>', (t) => {
+  t.is(validateOptional(null, null), false)
+  t.is(validateOptional(null, false), false)
+  t.is(validateOptional('1', false), true)
+  t.is(validateOptional(null, true), true)
+  // @ts-expect-error
+  t.throws(() => validateOptional(1, null))
+  // @ts-expect-error
+  t.throws(() => validateOptional(null, 2))
+  // @ts-expect-error
+  t.throws(() => validateOptional(1, 2))
 })

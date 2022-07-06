@@ -56,7 +56,6 @@ impl ValidateNapiValue for Undefined {}
 
 impl FromNapiValue for Undefined {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
-    // TODO: with typecheck
     match type_of!(env, napi_val) {
       Ok(ValueType::Undefined) => Ok(()),
       _ => Err(Error::new(
@@ -73,7 +72,7 @@ impl ToNapiValue for Undefined {
 
     check_status!(
       unsafe { sys::napi_get_undefined(env, &mut ret) },
-      "Failed to create napi null value"
+      "Failed to create napi undefined value"
     )?;
 
     Ok(ret)

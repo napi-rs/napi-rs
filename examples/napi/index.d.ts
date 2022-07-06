@@ -100,6 +100,7 @@ export function validateNumber(i: number): number
 export function validatePromise(p: Promise<number>): Promise<number>
 export function validateString(s: string): string
 export function validateSymbol(s: symbol): boolean
+export function validateOptional(input1?: string | undefined | null, input2?: boolean | undefined | null): boolean
 export function returnUndefinedIfInvalid(input: boolean): boolean
 export function returnUndefinedIfInvalidPromise(input: Promise<boolean>): Promise<boolean>
 export function tsRename(a: { foo: number }): string[]
