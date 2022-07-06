@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.10.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.10.0...@napi-rs/cli@2.10.1) (2022-07-06)
+
+### Bug Fixes
+
+- **cli:** android CI template ([227de9e](https://github.com/napi-rs/napi-rs/commit/227de9efe0ff883af48be29996d436a185bc7ca6))
+
 # [2.10.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.9.0...@napi-rs/cli@2.10.0) (2022-06-10)
 
 ### Bug Fixes
