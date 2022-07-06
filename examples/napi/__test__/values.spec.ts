@@ -90,6 +90,7 @@ import {
   derefUint8Array,
   chronoDateAdd1Minute,
   bufferPassThrough,
+  arrayBufferPassThrough,
   JsRepo,
   CssStyleSheet,
   asyncReduceBuffer,
@@ -206,6 +207,14 @@ test('class factory', (t) => {
 test('class constructor return Result', (t) => {
   const c = new Context()
   t.is(c.method(), 'not empty')
+})
+
+test('class default field is TypedArray', (t) => {
+  const c = new Context()
+  t.deepEqual(c.buffer, new Uint8Array([0, 1, 2, 3]))
+  const fixture = new Uint8Array([0, 1, 2, 3, 4, 5, 6])
+  const c2 = Context.withBuffer(fixture)
+  t.is(c2.buffer, fixture)
 })
 
 test('class Factory return Result', (t) => {
@@ -476,6 +485,12 @@ test('async move', async (t) => {
 test('buffer passthrough', async (t) => {
   const fixture = Buffer.from('hello world')
   const ret = await bufferPassThrough(fixture)
+  t.deepEqual(ret, fixture)
+})
+
+test('arraybuffer passthrough', async (t) => {
+  const fixture = new Uint8Array([1, 2, 3, 4, 5])
+  const ret = await arrayBufferPassThrough(fixture)
   t.deepEqual(ret, fixture)
 })
 
