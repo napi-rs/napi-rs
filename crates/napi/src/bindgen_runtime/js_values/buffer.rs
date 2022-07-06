@@ -1,5 +1,6 @@
 #[cfg(debug_assertions)]
 use std::collections::HashSet;
+use std::ffi::c_void;
 use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::ptr;
@@ -20,9 +21,9 @@ thread_local! {
 /// So it is safe to use it in `async fn`, the `&[u8]` under the hood will not be dropped until the `drop` called.
 /// Clone will create a new `Reference` to the same underlying `JavaScript Buffer`.
 pub struct Buffer {
-  data_reference: Option<Arc<()>>,
-  inner: &'static mut [u8],
-  capacity: usize,
+  pub(crate) data_reference: Option<Arc<()>>,
+  pub(crate) inner: &'static mut [u8],
+  pub(crate) capacity: usize,
   raw: Option<(sys::napi_ref, sys::napi_env)>,
 }
 
@@ -181,13 +182,14 @@ impl ToNapiValue for Buffer {
         // the same data pointer if it's 0x0.
         unsafe { sys::napi_create_buffer(env, len, ptr::null_mut(), &mut ret) }
       } else {
+        let val_ptr = val.inner.as_mut_ptr();
         unsafe {
           sys::napi_create_external_buffer(
             env,
             len,
-            val.inner.as_mut_ptr() as *mut _,
+            val_ptr as *mut c_void,
             Some(drop_buffer),
-            Box::into_raw(Box::new((len, val.capacity))) as *mut _,
+            Box::into_raw(Box::new(val)) as *mut c_void,
             &mut ret,
           )
         }
