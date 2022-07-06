@@ -1,5 +1,5 @@
 use napi::{
-  bindgen_prelude::{Buffer, ClassInstance},
+  bindgen_prelude::{Buffer, ClassInstance, This},
   Env, Result,
 };
 
@@ -228,6 +228,11 @@ impl NinjaTurtle {
   #[napi]
   pub fn get_name(&self) -> &str {
     self.name.as_str()
+  }
+
+  #[napi]
+  pub fn return_this(&self, this: This) -> This {
+    this
   }
 }
 

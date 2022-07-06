@@ -214,6 +214,7 @@ static KNOWN_TYPES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     ("unknown", "unknown"),
     ("Unknown", "unknown"),
     ("JsUnknown", "unknown"),
+    ("This", "this")
   ]);
 
   map

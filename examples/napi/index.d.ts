@@ -244,6 +244,7 @@ export class NinjaTurtle {
   static newRaph(): NinjaTurtle
   getMaskColor(): string
   getName(): string
+  returnThis(this: this): this
 }
 export type JsAssets = Assets
 export class Assets {
