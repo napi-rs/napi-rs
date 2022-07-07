@@ -169,7 +169,7 @@ impl<T: ValidateNapiValue> ValidateNapiValue for Option<T> {
     )?;
 
     let received_type = ValueType::from(result);
-    if received_type == ValueType::Null {
+    if received_type == ValueType::Null || received_type == ValueType::Undefined {
       Ok(ptr::null_mut())
     } else if let Ok(validate_ret) = unsafe { T::validate(env, napi_val) } {
       Ok(validate_ret)
