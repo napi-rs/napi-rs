@@ -638,6 +638,25 @@ impl Env {
     Ok(unsafe { JsFunction::from_raw_unchecked(self.0, raw_result) })
   }
 
+  /// This API retrieves the file path of the currently running JS module as a URL. For a file on
+  /// the local file system it will start with `file://`.
+  ///
+  /// TODO: Determine the encoding of the `CStr` provided.
+  ///
+  /// # Errors
+  ///
+  /// The retrieved string may be empty if the add-on loading process fails to establish the
+  /// add-on's file name.
+  #[cfg(feature = "experimental")]
+  pub fn get_module_file_name(&self, f: impl FnOnce(Result<&std::ffi::CStr>)) {
+    let mut char_ptr = ptr::null();
+    let status = unsafe { sys::node_api_get_module_file_name(self.0, &mut char_ptr) };
+    // SAFETY: This is safe because `char_ptr` is guaranteed to not be `null`, and point to
+    // null-terminated string data.
+    let res = check_status!(status).map(|()| unsafe { std::ffi::CStr::from_ptr(char_ptr) });
+    f(res)
+  }
+
   /// This API retrieves a napi_extended_error_info structure with information about the last error that occurred.
   ///
   /// The content of the napi_extended_error_info returned is only valid up until an n-api function is called on the same env.
