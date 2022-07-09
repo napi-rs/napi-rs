@@ -5,8 +5,8 @@ use std::ffi::CString;
 use std::marker::PhantomData;
 use std::os::raw::c_void;
 use std::ptr;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::Mutex;
 
 use crate::bindgen_runtime::ToNapiValue;
 use crate::{check_status, sys, Env, Error, JsError, Result, Status};
@@ -146,19 +146,22 @@ type_level_enum! {
 /// ```
 pub struct ThreadsafeFunction<T: 'static, ES: ErrorStrategy::T = ErrorStrategy::CalleeHandled> {
   raw_tsfn: sys::napi_threadsafe_function,
-  aborted: Arc<AtomicBool>,
+  aborted: Arc<Mutex<bool>>,
   _phantom: PhantomData<(T, ES)>,
 }
 
 impl<T: 'static, ES: ErrorStrategy::T> Clone for ThreadsafeFunction<T, ES> {
   fn clone(&self) -> Self {
-    if !self.aborted.load(Ordering::Acquire) {
+    let aborted_lock_guard = self.aborted.lock().unwrap();
+    if !*aborted_lock_guard {
       let acquire_status = unsafe { sys::napi_acquire_threadsafe_function(self.raw_tsfn) };
       debug_assert!(
         acquire_status == sys::Status::napi_ok,
         "Acquire threadsafe function failed in clone"
       );
     }
+
+    drop(aborted_lock_guard);
 
     Self {
       raw_tsfn: self.raw_tsfn,
@@ -194,13 +197,8 @@ impl<T: 'static, ES: ErrorStrategy::T> ThreadsafeFunction<T, ES> {
     let initial_thread_count = 1usize;
     let mut raw_tsfn = ptr::null_mut();
     let ptr = Box::into_raw(Box::new(callback)) as *mut c_void;
-    let aborted = Arc::new(AtomicBool::new(false));
+    let aborted = Arc::new(Mutex::new(false));
     let aborted_ptr = Arc::into_raw(aborted.clone()) as *mut c_void;
-    // `aborted_ptr` is passed into both `finalize_callback` and `env_cleanup_callback`.
-    // So increase strong count here to prevent it from being dropped twice.
-    unsafe {
-      Arc::increment_strong_count(aborted_ptr);
-    }
     check_status!(unsafe {
       sys::napi_create_threadsafe_function(
         env,
@@ -217,8 +215,6 @@ impl<T: 'static, ES: ErrorStrategy::T> ThreadsafeFunction<T, ES> {
       )
     })?;
 
-    check_status!(unsafe { sys::napi_add_env_cleanup_hook(env, Some(cleanup_cb), aborted_ptr) })?;
-
     Ok(ThreadsafeFunction {
       raw_tsfn,
       aborted,
@@ -231,7 +227,8 @@ impl<T: 'static, ES: ErrorStrategy::T> ThreadsafeFunction<T, ES> {
   ///
   /// "ref" is a keyword so that we use "refer" here.
   pub fn refer(&mut self, env: &Env) -> Result<()> {
-    if self.aborted.load(Ordering::Acquire) {
+    let aborted_lock_guard = self.aborted.lock().unwrap();
+    if *aborted_lock_guard {
       return Err(Error::new(
         Status::Closing,
         "Can not ref, Thread safe function already aborted".to_string(),
@@ -243,7 +240,8 @@ impl<T: 'static, ES: ErrorStrategy::T> ThreadsafeFunction<T, ES> {
   /// See [napi_unref_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_unref_threadsafe_function)
   /// for more information.
   pub fn unref(&mut self, env: &Env) -> Result<()> {
-    if self.aborted.load(Ordering::Acquire) {
+    let aborted_lock_guard = self.aborted.lock().unwrap();
+    if *aborted_lock_guard {
       return Err(Error::new(
         Status::Closing,
         "Can not unref, Thread safe function already aborted".to_string(),
@@ -253,17 +251,22 @@ impl<T: 'static, ES: ErrorStrategy::T> ThreadsafeFunction<T, ES> {
   }
 
   pub fn aborted(&self) -> bool {
-    self.aborted.load(Ordering::Acquire)
+    let aborted_lock_guard = self.aborted.lock().unwrap();
+    *aborted_lock_guard
   }
 
   pub fn abort(self) -> Result<()> {
+    let mut aborted_lock_guard = self.aborted.lock().unwrap();
+    if *aborted_lock_guard {
+      return Ok(());
+    }
     check_status!(unsafe {
       sys::napi_release_threadsafe_function(
         self.raw_tsfn,
         sys::ThreadsafeFunctionReleaseMode::abort,
       )
     })?;
-    self.aborted.store(true, Ordering::Release);
+    *aborted_lock_guard = true;
     Ok(())
   }
 
@@ -277,7 +280,8 @@ impl<T: 'static> ThreadsafeFunction<T, ErrorStrategy::CalleeHandled> {
   /// See [napi_call_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_call_threadsafe_function)
   /// for more information.
   pub fn call(&self, value: Result<T>, mode: ThreadsafeFunctionCallMode) -> Status {
-    if self.aborted.load(Ordering::Acquire) {
+    let mut aborted_lock_guard = self.aborted.lock().unwrap();
+    if *aborted_lock_guard {
       return Status::Closing;
     }
     let status = unsafe {
@@ -289,7 +293,7 @@ impl<T: 'static> ThreadsafeFunction<T, ErrorStrategy::CalleeHandled> {
     }
     .into();
     if status == Status::Closing {
-      self.aborted.store(true, Ordering::Release);
+      *aborted_lock_guard = true;
     }
     status
   }
@@ -299,7 +303,8 @@ impl<T: 'static> ThreadsafeFunction<T, ErrorStrategy::Fatal> {
   /// See [napi_call_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_call_threadsafe_function)
   /// for more information.
   pub fn call(&self, value: T, mode: ThreadsafeFunctionCallMode) -> Status {
-    if self.aborted.load(Ordering::Acquire) {
+    let mut aborted_lock_guard = self.aborted.lock().unwrap();
+    if *aborted_lock_guard {
       return Status::Closing;
     }
     let status = unsafe {
@@ -311,7 +316,7 @@ impl<T: 'static> ThreadsafeFunction<T, ErrorStrategy::Fatal> {
     }
     .into();
     if status == Status::Closing {
-      self.aborted.store(true, Ordering::Release);
+      *aborted_lock_guard = true;
     }
     status
   }
@@ -319,7 +324,8 @@ impl<T: 'static> ThreadsafeFunction<T, ErrorStrategy::Fatal> {
 
 impl<T: 'static, ES: ErrorStrategy::T> Drop for ThreadsafeFunction<T, ES> {
   fn drop(&mut self) {
-    if !self.aborted.load(Ordering::Acquire) {
+    let aborted_lock_guard = self.aborted.lock().unwrap();
+    if *aborted_lock_guard {
       let release_status = unsafe {
         sys::napi_release_threadsafe_function(
           self.raw_tsfn,
@@ -334,11 +340,6 @@ impl<T: 'static, ES: ErrorStrategy::T> Drop for ThreadsafeFunction<T, ES> {
   }
 }
 
-unsafe extern "C" fn cleanup_cb(cleanup_data: *mut c_void) {
-  let aborted = unsafe { Arc::<AtomicBool>::from_raw(cleanup_data.cast()) };
-  aborted.store(true, Ordering::Release);
-}
-
 unsafe extern "C" fn thread_finalize_cb<T: 'static, V: ToNapiValue, R>(
   _raw_env: sys::napi_env,
   finalize_data: *mut c_void,
@@ -348,8 +349,9 @@ unsafe extern "C" fn thread_finalize_cb<T: 'static, V: ToNapiValue, R>(
 {
   // cleanup
   drop(unsafe { Box::<R>::from_raw(finalize_data.cast()) });
-  let aborted = unsafe { Arc::<AtomicBool>::from_raw(finalize_hint.cast()) };
-  aborted.store(true, Ordering::Release);
+  let aborted = unsafe { Arc::<Mutex<bool>>::from_raw(finalize_hint.cast()) };
+  let mut aborted_lock_guard = aborted.lock().unwrap();
+  *aborted_lock_guard = true;
 }
 
 unsafe extern "C" fn call_js_cb<T: 'static, V: ToNapiValue, R, ES>(
