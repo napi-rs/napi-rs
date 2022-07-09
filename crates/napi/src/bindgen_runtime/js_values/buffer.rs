@@ -5,6 +5,7 @@ use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::ptr;
 use std::slice;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 #[cfg(debug_assertions)]
 use std::sync::Mutex;
@@ -21,20 +22,33 @@ thread_local! {
 /// So it is safe to use it in `async fn`, the `&[u8]` under the hood will not be dropped until the `drop` called.
 /// Clone will create a new `Reference` to the same underlying `JavaScript Buffer`.
 pub struct Buffer {
-  pub(crate) data_reference: Option<Arc<()>>,
   pub(crate) inner: &'static mut [u8],
   pub(crate) capacity: usize,
   raw: Option<(sys::napi_ref, sys::napi_env)>,
+  // use it as ref count
+  pub(crate) drop_in_vm: Arc<AtomicBool>,
 }
 
 impl Drop for Buffer {
   fn drop(&mut self) {
-    if let Some((ref_, env)) = self.raw {
-      check_status_or_throw!(
-        env,
-        unsafe { sys::napi_reference_unref(env, ref_, &mut 0) },
-        "Failed to delete Buffer reference in drop"
-      );
+    if Arc::strong_count(&self.drop_in_vm) == 1 {
+      if let Some((ref_, env)) = self.raw {
+        check_status_or_throw!(
+          env,
+          unsafe { sys::napi_reference_unref(env, ref_, &mut 0) },
+          "Failed to unref Buffer reference in drop"
+        );
+        return;
+      }
+      // Drop in Rust side
+      // ```rust
+      // #[napi]
+      // fn buffer_len() -> u32 {
+      //     Buffer::from(vec![1, 2, 3]).len() as u32
+      // }
+      if !self.drop_in_vm.load(Ordering::Acquire) {
+        unsafe { Vec::from_raw_parts(self.inner.as_mut_ptr(), self.inner.len(), self.capacity) };
+      }
     }
   }
 }
@@ -53,10 +67,10 @@ impl Buffer {
       None
     };
     Ok(Self {
-      data_reference: self.data_reference.clone(),
       inner: unsafe { slice::from_raw_parts_mut(self.inner.as_mut_ptr(), self.inner.len()) },
       capacity: self.capacity,
       raw,
+      drop_in_vm: self.drop_in_vm.clone(),
     })
   }
 }
@@ -78,10 +92,10 @@ impl From<Vec<u8>> for Buffer {
     let capacity = data.capacity();
     mem::forget(data);
     Buffer {
-      data_reference: Some(Arc::new(())),
       inner: unsafe { slice::from_raw_parts_mut(inner_ptr, len) },
       capacity,
       raw: None,
+      drop_in_vm: Arc::new(AtomicBool::new(false)),
     }
   }
 }
@@ -149,16 +163,16 @@ impl FromNapiValue for Buffer {
     )?;
 
     Ok(Self {
-      data_reference: None,
       inner: unsafe { slice::from_raw_parts_mut(buf as *mut _, len) },
       capacity: len,
       raw: Some((ref_, env)),
+      drop_in_vm: Arc::new(AtomicBool::new(true)),
     })
   }
 }
 
 impl ToNapiValue for Buffer {
-  unsafe fn to_napi_value(env: sys::napi_env, mut val: Self) -> Result<sys::napi_value> {
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     // From Node.js value, not from `Vec<u8>`
     if let Some((ref_, _)) = val.raw {
       let mut buf = ptr::null_mut();
@@ -166,14 +180,10 @@ impl ToNapiValue for Buffer {
         unsafe { sys::napi_get_reference_value(env, ref_, &mut buf) },
         "Failed to get Buffer value from reference"
       )?;
-      check_status!(
-        unsafe { sys::napi_delete_reference(env, ref_) },
-        "Failed to delete Buffer reference"
-      )?;
-      val.raw = None; // Prevent double free
       return Ok(buf);
     }
     let len = val.inner.len();
+    val.drop_in_vm.store(true, Ordering::Release);
     let mut ret = ptr::null_mut();
     check_status!(
       if len == 0 {
@@ -210,17 +220,13 @@ impl ToNapiValue for &mut Buffer {
         unsafe { sys::napi_get_reference_value(env, ref_, &mut buf) },
         "Failed to get Buffer value from reference"
       )?;
-      check_status!(
-        unsafe { sys::napi_delete_reference(env, ref_) },
-        "Failed to delete Buffer reference"
-      )?;
       Ok(buf)
     } else {
       let buf = Buffer {
-        data_reference: val.data_reference.clone(),
         inner: unsafe { slice::from_raw_parts_mut(val.inner.as_mut_ptr(), val.capacity) },
         capacity: val.capacity,
         raw: None,
+        drop_in_vm: Arc::new(AtomicBool::new(true)),
       };
       unsafe { ToNapiValue::to_napi_value(env, buf) }
     }
