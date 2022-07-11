@@ -141,3 +141,23 @@ pub fn leaking_func(env: Env, func: JsFunction) -> napi::Result<()> {
 
   Ok(())
 }
+
+#[napi]
+pub fn buffer_convert(buffer: Buffer) -> Buffer {
+  Buffer::from(vec![0; buffer.len()])
+}
+
+#[napi]
+pub fn buffer_len() -> u32 {
+  Buffer::from(vec![0; 1024 * 10240]).len() as u32
+}
+
+#[napi]
+pub fn array_buffer_convert(array_buffer: Uint8Array) -> Uint8Array {
+  Uint8Array::new(vec![1; array_buffer.len()])
+}
+
+#[napi]
+pub fn array_buffer_len() -> u32 {
+  Uint8Array::new(vec![1; 1024 * 10240]).len() as u32
+}

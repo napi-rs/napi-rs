@@ -2,7 +2,10 @@ use std::ffi::c_void;
 use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::ptr;
-use std::sync::Arc;
+use std::sync::{
+  atomic::{AtomicBool, Ordering},
+  Arc,
+};
 
 pub use crate::js_values::TypedArrayType;
 use crate::{check_status, sys, Error, Result, Status};
@@ -24,13 +27,14 @@ trait Finalizer {
 macro_rules! impl_typed_array {
   ($name:ident, $rust_type:ident, $typed_array_type:expr) => {
     pub struct $name {
-      /// Used for `clone_reference` Owned | External TypedArray
-      data_reference: Option<Arc<()>>,
       data: *mut $rust_type,
       length: usize,
       data_managed_type: DataManagedType,
       byte_offset: usize,
       raw: Option<(crate::sys::napi_ref, crate::sys::napi_env)>,
+      // Use `Arc` for ref count
+      // Use `AtomicBool` for flag to indicate whether the value is dropped in VM
+      drop_in_vm: Arc<AtomicBool>,
       finalizer_notify: Box<dyn FnOnce(*mut $rust_type, usize)>,
     }
 
@@ -52,22 +56,35 @@ macro_rules! impl_typed_array {
       }
 
       fn ref_count(&self) -> usize {
-        if let Some(inner) = &self.data_reference {
-          Arc::strong_count(inner)
-        } else {
-          0
-        }
+        Arc::strong_count(&self.drop_in_vm)
       }
     }
 
     impl Drop for $name {
       fn drop(&mut self) {
-        if let Some((ref_, env)) = self.raw {
-          crate::check_status_or_throw!(
-            env,
-            unsafe { sys::napi_reference_unref(env, ref_, &mut 0) },
-            "Failed to delete Buffer reference in drop"
-          );
+        if Arc::strong_count(&self.drop_in_vm) == 1 {
+          if let Some((ref_, env)) = self.raw {
+            crate::check_status_or_throw!(
+              env,
+              unsafe { sys::napi_reference_unref(env, ref_, &mut 0) },
+              "Failed to delete Buffer reference in drop"
+            );
+            return;
+          }
+          if !self.drop_in_vm.load(Ordering::Acquire) {
+            match &self.data_managed_type {
+              DataManagedType::Owned => {
+                let length = self.length;
+                unsafe { Vec::from_raw_parts(self.data, length, length) };
+              }
+              DataManagedType::External => {
+                let mut finalizer: Box<dyn FnOnce(*mut $rust_type, usize)> = Box::new(|_a, _b| {});
+                std::mem::swap(&mut finalizer, &mut self.finalizer_notify);
+                (finalizer)(self.data, self.length);
+              }
+              _ => {}
+            }
+          }
         }
       }
     }
@@ -77,12 +94,12 @@ macro_rules! impl_typed_array {
 
       pub fn new(mut data: Vec<$rust_type>) -> Self {
         let ret = $name {
-          data_reference: Some(Arc::new(())),
           data: data.as_mut_ptr(),
           length: data.len(),
           data_managed_type: DataManagedType::Owned,
           byte_offset: 0,
           raw: None,
+          drop_in_vm: Arc::new(AtomicBool::new(false)),
           finalizer_notify: Box::new(Self::noop_finalize),
         };
         mem::forget(data);
@@ -95,12 +112,12 @@ macro_rules! impl_typed_array {
       {
         let mut data_copied = data.as_ref().to_vec();
         let ret = $name {
-          data_reference: Some(Arc::new(())),
           data: data_copied.as_mut_ptr(),
           length: data.as_ref().len(),
           data_managed_type: DataManagedType::Owned,
           finalizer_notify: Box::new(Self::noop_finalize),
           raw: None,
+          drop_in_vm: Arc::new(AtomicBool::new(false)),
           byte_offset: 0,
         };
         mem::forget(data_copied);
@@ -115,39 +132,29 @@ macro_rules! impl_typed_array {
         F: 'static + FnOnce(*mut $rust_type, usize),
       {
         $name {
-          data_reference: Some(Arc::new(())),
           data,
           length,
           data_managed_type: DataManagedType::External,
           finalizer_notify: Box::new(notify),
           raw: None,
+          drop_in_vm: Arc::new(AtomicBool::new(false)),
           byte_offset: 0,
         }
       }
+    }
 
+    impl Clone for $name {
       /// Clone reference, the inner data is not copied nor moved
-      pub fn clone(&mut self, env: crate::Env) -> crate::Result<$name> {
-        let raw = if let Some((ref_, _)) = self.raw {
-          crate::check_status!(
-            unsafe { sys::napi_reference_ref(env.0, ref_, &mut 0) },
-            "Failed to ref Buffer reference in TypedArray::clone"
-          )?;
-          Some((ref_, env.0))
-        } else {
-          None
-        };
-        Ok(Self {
-          data_reference: match self.data_managed_type {
-            DataManagedType::Owned | DataManagedType::External => self.data_reference.clone(),
-            _ => None,
-          },
+      fn clone(&self) -> $name {
+        Self {
           data: self.data,
           length: self.length,
           data_managed_type: self.data_managed_type,
           finalizer_notify: Box::new(Self::noop_finalize),
-          raw,
+          raw: self.raw,
+          drop_in_vm: self.drop_in_vm.clone(),
           byte_offset: self.byte_offset,
-        })
+        }
       }
     }
 
@@ -244,11 +251,11 @@ macro_rules! impl_typed_array {
           ));
         }
         Ok($name {
-          data_reference: None,
           data: data as *mut $rust_type,
           length,
           byte_offset,
           raw: Some((ref_, env)),
+          drop_in_vm: Arc::new(AtomicBool::new(true)),
           data_managed_type: DataManagedType::Vm,
           finalizer_notify: Box::new(Self::noop_finalize),
         })
@@ -256,14 +263,13 @@ macro_rules! impl_typed_array {
     }
 
     impl ToNapiValue for $name {
-      unsafe fn to_napi_value(env: sys::napi_env, mut val: Self) -> Result<sys::napi_value> {
+      unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
         if let Some((ref_, _)) = val.raw {
           let mut napi_value = std::ptr::null_mut();
           check_status!(
             unsafe { sys::napi_get_reference_value(env, ref_, &mut napi_value) },
             "Failed to delete reference from Buffer"
           )?;
-          val.raw = None;
           return Ok(napi_value);
         }
         let mut arraybuffer_value = ptr::null_mut();
@@ -271,6 +277,7 @@ macro_rules! impl_typed_array {
         let length = val.length * ratio;
         let val_data = val.data;
         let val_length = val.length;
+        val.drop_in_vm.store(true, Ordering::Release);
         let hint_ptr = Box::into_raw(Box::new(val));
         check_status!(
           if length == 0 {
@@ -323,10 +330,7 @@ macro_rules! impl_typed_array {
           Ok(napi_value)
         } else {
           let cloned_value = $name {
-            data_reference: match val.data_managed_type {
-              DataManagedType::Owned | DataManagedType::External => val.data_reference.clone(),
-              _ => None,
-            },
+            drop_in_vm: val.drop_in_vm.clone(),
             data: val.data,
             length: val.length,
             data_managed_type: val.data_managed_type,
@@ -355,13 +359,13 @@ unsafe extern "C" fn finalizer<Data, T: Finalizer<RustType = Data>>(
       // do nothing
     }
     DataManagedType::Owned => {
-      if data.ref_count() == 0 {
+      if data.ref_count() == 1 {
         let length = length;
         unsafe { Vec::from_raw_parts(finalize_data as *mut Data, length, length) };
       }
     }
     DataManagedType::External => {
-      if data.ref_count() == 0 {
+      if data.ref_count() == 1 {
         (finalizer_notify)(finalize_data as *mut Data, length);
       }
     }

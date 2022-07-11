@@ -76,14 +76,12 @@ pub unsafe extern "C" fn drop_buffer(
   }
   unsafe {
     let buf = Box::from_raw(finalize_hint as *mut Buffer);
-    if let Some(data_reference) = buf.data_reference.as_ref() {
-      if Arc::strong_count(data_reference) == 0 {
-        mem::drop(Vec::from_raw_parts(
-          finalize_data as *mut u8,
-          buf.inner.len(),
-          buf.capacity,
-        ));
-      }
+    if Arc::strong_count(&buf.drop_in_vm) == 1 {
+      mem::drop(Vec::from_raw_parts(
+        finalize_data as *mut u8,
+        buf.inner.len(),
+        buf.capacity,
+      ));
     }
   }
 }
