@@ -186,6 +186,28 @@ impl NapiFn {
     path: &syn::PatType,
   ) -> TokenStream {
     let ty = &*path.ty;
+
+    let type_check = if self.return_if_invalid {
+      quote! {
+        if let Ok(maybe_promise) = <#ty as napi::bindgen_prelude::ValidateNapiValue>::validate(env, cb.get_arg(#index)) {
+          if !maybe_promise.is_null() {
+            return Ok(maybe_promise);
+          }
+        } else {
+          return Ok(std::ptr::null_mut());
+        }
+      }
+    } else if self.strict {
+      quote! {
+        let maybe_promise = <#ty as napi::bindgen_prelude::ValidateNapiValue>::validate(env, cb.get_arg(#index))?;
+        if !maybe_promise.is_null() {
+          return Ok(maybe_promise);
+        }
+      }
+    } else {
+      quote! {}
+    };
+
     match ty {
       syn::Type::Reference(syn::TypeReference {
         mutability: Some(_),
@@ -193,36 +215,21 @@ impl NapiFn {
         ..
       }) => {
         quote! {
-          let #arg_name = <#elem as napi::bindgen_prelude::FromNapiMutRef>::from_napi_mut_ref(env, cb.get_arg(#index))?;
+          let #arg_name = {
+            #type_check
+            <#elem as napi::bindgen_prelude::FromNapiMutRef>::from_napi_mut_ref(env, cb.get_arg(#index))?
+          };
         }
       }
       syn::Type::Reference(syn::TypeReference { elem, .. }) => {
         quote! {
-          let #arg_name = <#elem as napi::bindgen_prelude::FromNapiRef>::from_napi_ref(env, cb.get_arg(#index))?;
+          let #arg_name = {
+            #type_check
+            <#elem as napi::bindgen_prelude::FromNapiRef>::from_napi_ref(env, cb.get_arg(#index))?
+          };
         }
       }
       _ => {
-        let type_check = if self.return_if_invalid {
-          quote! {
-            if let Ok(maybe_promise) = <#ty as napi::bindgen_prelude::ValidateNapiValue>::validate(env, cb.get_arg(#index)) {
-              if !maybe_promise.is_null() {
-                return Ok(maybe_promise);
-              }
-            } else {
-              return Ok(std::ptr::null_mut());
-            }
-          }
-        } else if self.strict {
-          quote! {
-            let maybe_promise = <#ty as napi::bindgen_prelude::ValidateNapiValue>::validate(env, cb.get_arg(#index))?;
-            if !maybe_promise.is_null() {
-              return Ok(maybe_promise);
-            }
-          }
-        } else {
-          quote! {}
-        };
-
         quote! {
           let #arg_name = {
             #type_check
