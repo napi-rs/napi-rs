@@ -58,7 +58,7 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable --mode=skip-build
 
-      - name: 'Build TypeScript'
+      - name: Build CLI
         run: yarn build
 
       - name: Cross build native tests

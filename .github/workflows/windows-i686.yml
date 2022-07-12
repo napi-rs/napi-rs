@@ -23,7 +23,7 @@ jobs:
           node-version: 16
           check-latest: true
           architecture: 'x64'
-          cache: 'yarn'
+          cache: yarn
 
       - name: Cache NPM dependencies
         uses: actions/cache@v3
@@ -34,9 +34,6 @@ jobs:
       - name: 'Install dependencies'
         run: |
           yarn install --mode=skip-build --immutable
-
-      - name: 'Build TypeScript'
-        run: yarn build
 
       - name: Install
         uses: actions-rs/toolchain@v1
@@ -61,6 +58,12 @@ jobs:
           command: check
           args: --all --bins --examples --tests --target i686-pc-windows-msvc -vvv
 
+      - name: Build
+        run: |
+          yarn build
+          yarn workspace compat-mode-examples build-i686 --release
+          yarn workspace examples build-i686 --release
+
       - name: Setup node
         uses: actions/setup-node@v3
         with:
@@ -70,8 +73,6 @@ jobs:
 
       - name: Build Tests
         run: |
-          yarn workspace compat-mode-examples build-i686 --release
-          yarn workspace examples build-i686 --release
           yarn test --verbose
           node ./node_modules/electron/install.js
           yarn test:electron

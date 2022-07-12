@@ -49,7 +49,7 @@ jobs:
       - name: 'Install dependencies'
         run: yarn install --immutable
 
-      - name: 'Build TypeScript'
+      - name: Build CLI
         run: yarn build
 
       - name: 'Pull docker image'

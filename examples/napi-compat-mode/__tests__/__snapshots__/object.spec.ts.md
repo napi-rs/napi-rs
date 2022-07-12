@@ -1,4 +1,4 @@
-# Snapshot report for `examples/napi-compat-mode/__test__/object.spec.ts`
+# Snapshot report for `examples/napi-compat-mode/__tests__/object.spec.ts`
 
 The actual snapshot is saved in `object.spec.ts.snap`.
 

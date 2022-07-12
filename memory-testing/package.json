@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "build": "node ../cli/scripts/index.js build --release --js false"
+    "build": "napi build --release --no-js"
   },
   "dependencies": {
     "colorette": "^2.0.19",
@@ -12,6 +12,7 @@
     "table": "^6.8.0"
   },
   "devDependencies": {
-    "@types/dockerode": "^3.3.9"
+    "@types/dockerode": "^3.3.9",
+    "napi-cli": "workspace:*"
   }
 }

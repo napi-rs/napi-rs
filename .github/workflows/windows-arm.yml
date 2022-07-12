@@ -27,9 +27,6 @@ jobs:
       - name: 'Install dependencies'
         run: yarn install --mode=skip-build --immutable
 
-      - name: 'Build TypeScript'
-        run: yarn build
-
       - name: Install
         uses: actions-rs/toolchain@v1
         with:
@@ -60,7 +57,10 @@ jobs:
           args: --all --bins --examples --tests --target aarch64-pc-windows-msvc -vvv
 
       - name: Build release target
-        run: cargo build --release --target aarch64-pc-windows-msvc
+        run: |
+          yarn build
+          yarn workspace compat-mode-examples build --target aarch64-pc-windows-msvc
+          yarn workspace examples build --target aarch64-pc-windows-msvc
 
       - name: Clear the cargo caches
         run: |

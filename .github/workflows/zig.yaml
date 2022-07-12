@@ -61,12 +61,12 @@ jobs:
           key: npm-cache-ubuntu-latest-gnu-node@16
       - name: Install dependencies
         run: yarn install --immutable --mode=skip-build
-      - name: 'Build TypeScript'
+      - name: Build CLI
         run: yarn build
       - name: Cross build native tests
         run: |
-          yarn workspace compat-mode-examples build --target ${{ matrix.target }} --zig
-          yarn workspace examples build --target ${{ matrix.target }} --zig
+          yarn workspace compat-mode-examples build --target ${{ matrix.target }} --cross-compile
+          yarn workspace examples build --target ${{ matrix.target }} --cross-compile
       - name: Upload artifacts
         uses: actions/upload-artifact@v2
         with:

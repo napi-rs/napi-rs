@@ -56,7 +56,7 @@ jobs:
       - name: 'Install dependencies'
         run: yarn install --mode=skip-build --immutable
 
-      - name: 'Build TypeScript'
+      - name: Build CLI
         run: yarn build
 
       - name: Check build
@@ -64,6 +64,9 @@ jobs:
         with:
           command: check
           args: --all --bins --examples --tests -vvv
+
+      - name: Cargo test
+        run: cargo test -p napi-cli
 
       - name: Unit tests
         run: |

@@ -1,0 +1,10 @@
+{
+  "name": "napi-cli",
+  "private": true,
+  "bin": {
+    "napi": "./index.js"
+  },
+  "scripts": {
+    "build": "cargo build -p napi-cli"
+  }
+}

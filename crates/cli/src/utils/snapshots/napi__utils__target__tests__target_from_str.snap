@@ -1,0 +1,115 @@
+---
+source: crates/cli/src/utils/target.rs
+expression: "&targets"
+---
+[
+    Target {
+        triple: "aarch64-apple-darwin",
+        platform_arch_abi: "darwin-arm64",
+        platform: Darwin,
+        arch: arm64,
+        abi: None,
+    },
+    Target {
+        triple: "aarch64-linux-android",
+        platform_arch_abi: "android-arm64",
+        platform: Android,
+        arch: arm64,
+        abi: None,
+    },
+    Target {
+        triple: "aarch64-unknown-linux-gnu",
+        platform_arch_abi: "linux-arm64-gnu",
+        platform: Linux,
+        arch: arm64,
+        abi: Some(
+            "gnu",
+        ),
+    },
+    Target {
+        triple: "aarch64-unknown-linux-musl",
+        platform_arch_abi: "linux-arm64-musl",
+        platform: Linux,
+        arch: arm64,
+        abi: Some(
+            "musl",
+        ),
+    },
+    Target {
+        triple: "aarch64-pc-windows-msvc",
+        platform_arch_abi: "win32-arm64-msvc",
+        platform: Windows,
+        arch: arm64,
+        abi: Some(
+            "msvc",
+        ),
+    },
+    Target {
+        triple: "x86_64-apple-darwin",
+        platform_arch_abi: "darwin-x64",
+        platform: Darwin,
+        arch: x64,
+        abi: None,
+    },
+    Target {
+        triple: "x86_64-pc-windows-msvc",
+        platform_arch_abi: "win32-x64-msvc",
+        platform: Windows,
+        arch: x64,
+        abi: Some(
+            "msvc",
+        ),
+    },
+    Target {
+        triple: "x86_64-unknown-linux-gnu",
+        platform_arch_abi: "linux-x64-gnu",
+        platform: Linux,
+        arch: x64,
+        abi: Some(
+            "gnu",
+        ),
+    },
+    Target {
+        triple: "x86_64-unknown-linux-musl",
+        platform_arch_abi: "linux-x64-musl",
+        platform: Linux,
+        arch: x64,
+        abi: Some(
+            "musl",
+        ),
+    },
+    Target {
+        triple: "x86_64-unknown-freebsd",
+        platform_arch_abi: "freebsd-x64",
+        platform: Freebsd,
+        arch: x64,
+        abi: None,
+    },
+    Target {
+        triple: "i686-pc-windows-msvc",
+        platform_arch_abi: "win32-ia32-msvc",
+        platform: Windows,
+        arch: ia32,
+        abi: Some(
+            "msvc",
+        ),
+    },
+    Target {
+        triple: "armv7-unknown-linux-gnueabihf",
+        platform_arch_abi: "linux-arm-gnueabihf",
+        platform: Linux,
+        arch: arm,
+        abi: Some(
+            "gnueabihf",
+        ),
+    },
+    Target {
+        triple: "armv7-linux-androideabi",
+        platform_arch_abi: "android-arm-eabi",
+        platform: Android,
+        arch: arm,
+        abi: Some(
+            "eabi",
+        ),
+    },
+]

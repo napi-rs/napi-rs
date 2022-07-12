@@ -10,6 +10,9 @@ repository = "https://github.com/napi-rs/napi-rs"
 rust-version = "1.57"
 version = "2.8.0"
 
+[lib]
+doctest = false
+
 [package.metadata.docs.rs]
 all-features = true
 

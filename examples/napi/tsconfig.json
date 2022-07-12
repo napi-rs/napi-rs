@@ -3,7 +3,7 @@
   "include": ["."],
   "compilerOptions": {
     "outDir": "./dist",
-    "rootDir": "__test__",
+    "rootDir": "__tests__",
     "target": "ES2018",
     "skipLibCheck": false
   },

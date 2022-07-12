@@ -6,6 +6,7 @@ members = [
   "./crates/macro",
   "./crates/napi",
   "./crates/sys",
+  "./crates/cli",
   "./examples/napi",
   "./examples/napi-compat-mode",
   "./examples/binary",

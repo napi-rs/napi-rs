@@ -27,9 +27,6 @@ jobs:
       - name: 'Install dependencies'
         run: yarn install --immutable --mode=skip-build
 
-      - name: 'Build TypeScript'
-        run: yarn build
-
       - name: Setup and run tests
         uses: addnab/docker-run-action@v3
         with:
@@ -37,5 +34,6 @@ jobs:
           options: -v ${{ github.workspace }}:/napi-rs -w /napi-rs
           run: |
             cargo check -vvv
+            yarn build
             yarn build:test
             yarn test

@@ -211,14 +211,7 @@ overrides:
       project: ./bench/tsconfig.json
 
   - files:
-      - ./memory-testing/*.{js,mjs}
-    plugins:
-      - '@typescript-eslint'
-    parserOptions:
-      project: ./tsconfig.root-lint.json
-
-  - files:
-      - ./*.js
+      - ./**/*.{js,mjs}
     plugins:
       - '@typescript-eslint'
     parserOptions:

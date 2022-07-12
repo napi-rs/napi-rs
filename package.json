@@ -9,7 +9,8 @@
     "memory-testing",
     "examples/napi",
     "examples/napi-compat-mode",
-    "examples/binary"
+    "examples/binary",
+    "crates/cli"
   ],
   "repository": {
     "type": "git",
@@ -18,11 +19,11 @@
   "license": "MIT",
   "scripts": {
     "bench": "cross-env TS_NODE_PROJECT='./bench/tsconfig.json' node -r ts-node/register/transpile-only bench/bench.ts",
-    "build": "tsc -p tsconfig.json -m esnext && yarn bundle && shx chmod 777 cli/scripts/index.js && node -r ts-node/register/transpile-only ./generate-triple-list.ts",
+    "build": "node -r ts-node/register/transpile-only ./generate-triple-list.ts && yarn workspace napi-cli build",
     "build:bench": "yarn workspace bench build",
     "build:memory": "yarn workspace memory-testing build",
     "build:test": "yarn workspace compat-mode-examples build && yarn workspace examples build",
-    "build:test:asan": "yarn workspace compat-mode-examples build --cargo-flags='-Zbuild-std' && yarn workspace examples build --cargo-flags='-Zbuild-std'",
+    "build:test:asan": "yarn workspace compat-mode-examples build -- -Zbuild-std && yarn workspace examples build -- -Zbuild-std",
     "build:test:aarch64": "yarn workspace compat-mode-examples build-aarch64 && yarn workspace examples build-aarch64",
     "build:test:android": "yarn workspace compat-mode-examples build --target aarch64-linux-android && yarn workspace examples build --target aarch64-linux-android",
     "build:test:android:armv7": "yarn workspace compat-mode-examples build --target armv7-linux-androideabi && yarn workspace examples build --target armv7-linux-androideabi",
@@ -34,7 +35,7 @@
     "format:toml": "taplo format",
     "lint": "eslint -c .eslintrc.yml .",
     "prepublishOnly": "npm run build && pinst --disable",
-    "test": "ava \"./examples/napi/**/*.ts\" && ava --no-worker-threads \"./examples/napi-compat-mode/**/*.ts\" && ava \"./cli/**/*.ts\"",
+    "test": "ava ./examples/napi && ava --no-worker-threads ./examples/napi-compat-mode",
     "test:electron": "electron examples/napi/electron.js",
     "test:macro": "cargo test -p napi-examples",
     "test:memory": "node memory-testing/index.mjs",
@@ -98,6 +99,7 @@
     "husky": "^8.0.1",
     "lerna": "^5.1.6",
     "lint-staged": "^13.0.3",
+    "napi-cli": "workspace:*",
     "npm-run-all": "^4.1.5",
     "prettier": "^2.7.1",
     "rollup": "^2.75.7",

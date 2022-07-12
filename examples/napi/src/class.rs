@@ -77,7 +77,8 @@ impl Animal {
   #[napi]
   /// Here are some characters and character sequences
   /// that should be escaped correctly:
-  /// \[]{}/\:""
+  /// \[]{}/\:""{
+  /// }
   pub fn return_other_class(&self) -> Dog {
     Dog {
       name: "Doge".to_owned(),

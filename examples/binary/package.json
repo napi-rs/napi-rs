@@ -4,11 +4,14 @@
   "version": "0.0.0",
   "bin": "napi-examples-binary",
   "scripts": {
-    "build": "node ../../cli/scripts/index.js build --js false",
-    "build-aarch64": "node ../../cli/scripts/index.js build --js false --target aarch64-unknown-linux-gnu",
-    "build-armv7": "node ../../cli/scripts/index.js build --js false --target armv7-unknown-linux-gnueabihf",
-    "build-i686": "node ../../cli/scripts/index.js build --js false --target i686-pc-windows-msvc",
-    "build-i686-release": "node ../../cli/scripts/index.js build --js false --release --target i686-pc-windows-msvc",
-    "build-release": "node ../../cli/scripts/index.js build --js false --release"
+    "build": "napi build",
+    "build-aarch64": "napi build --target aarch64-unknown-linux-gnu",
+    "build-armv7": "napi build --target armv7-unknown-linux-gnueabihf",
+    "build-i686": "napi build --target i686-pc-windows-msvc",
+    "build-i686-release": "napi build --release --target i686-pc-windows-msvc",
+    "build-release": "napi build --release"
+  },
+  "devDependencies": {
+    "napi-cli": "workspace:*"
   }
 }

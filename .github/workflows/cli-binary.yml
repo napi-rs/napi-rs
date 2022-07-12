@@ -42,20 +42,13 @@ jobs:
       - name: 'Install dependencies'
         run: yarn install --mode=skip-build --immutable
 
-      - name: 'Build TypeScript'
+      - name: Build CLI
         run: yarn build
 
       - name: Build and run binary
         run: |
           yarn workspace binary build
           ./examples/binary/napi-examples-binary
-        env:
-          RUST_BACKTRACE: 1
-
-      - name: Pass -p and --cargo-name to build
-        run: |
-          node ./cli/scripts/index.js build -p napi-examples-binary --cargo-name napi-examples-binary 
-          ./napi-examples-binary
         env:
           RUST_BACKTRACE: 1
 

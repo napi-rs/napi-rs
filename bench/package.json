@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "build": "node ../cli/scripts/index.js build --js false --release"
+    "build": "napi build --js false --release"
+  },
+  "devDependencies": {
+    "napi-cli": "workspace:*"
   }
 }

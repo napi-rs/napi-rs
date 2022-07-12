@@ -12,9 +12,6 @@
   "author": "LongYinan <lynweklm@gmail.com>",
   "homepage": "https://github.com/napi-rs/napi-rs",
   "license": "MIT",
-  "bin": {
-    "napi": "./scripts/index.js"
-  },
   "files": [
     "scripts"
   ],
