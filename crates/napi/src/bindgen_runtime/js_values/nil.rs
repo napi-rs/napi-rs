@@ -2,7 +2,7 @@ use std::ptr;
 
 use crate::{bindgen_prelude::*, check_status, sys, type_of, Error, Result, Status, ValueType};
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
 pub struct Null;
 pub type Undefined = ();
 
