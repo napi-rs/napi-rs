@@ -39,4 +39,5 @@ mod string;
 mod symbol;
 mod task;
 mod threadsafe_function;
+mod tokio_outside_async;
 mod typed_array;

@@ -25,6 +25,7 @@ napi-derive = { path = "../../crates/macro", features = ["type-def"] }
 serde = "1"
 serde_derive = "1"
 serde_json = "1"
+tokio = { version = "1.20.0", features = ["full"] }
 
 [build-dependencies]
 napi-build = { path = "../../crates/build" }

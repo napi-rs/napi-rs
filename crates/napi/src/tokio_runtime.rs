@@ -59,6 +59,16 @@ where
   RT.0.spawn(fut);
 }
 
+// This function's signature must be kept in sync with the one in lib.rs, otherwise napi
+// will fail to compile with the `tokio_rt` feature.
+
+/// If the feature `tokio_rt` has been enabled this will enter the runtime context and
+/// then call the provided closure. Otherwise it will just call the provided closure.
+pub fn within_runtime_if_available<F: FnOnce() -> T, T>(f: F) -> T {
+  let _rt_guard = RT.0.enter();
+  f()
+}
+
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn execute_tokio_future<
   Data: 'static + Send,
