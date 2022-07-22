@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.10.2](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.10.1...@napi-rs/cli@2.10.2) (2022-07-22)
+
+### Bug Fixes
+
+- **cli:** upgrade freebsd ci ([ed5fd40](https://github.com/napi-rs/napi-rs/commit/ed5fd4083c16832d01ce7c843f6b3c2acf2290a4))
+
 ## [2.10.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.10.0...@napi-rs/cli@2.10.1) (2022-07-06)
 
 ### Bug Fixes
