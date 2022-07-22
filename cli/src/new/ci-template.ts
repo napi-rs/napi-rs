@@ -197,13 +197,13 @@ jobs:
           if-no-files-found: error
 
   build-freebsd:
-    runs-on: macos-10.15
+    runs-on: macos-12
     name: Build FreeBSD
     steps:
       - uses: actions/checkout@v3
       - name: Build
         id: build
-        uses: vmactions/freebsd-vm@v0.1.6
+        uses: vmactions/freebsd-vm@v0.2.0
         env:
           DEBUG: 'napi:*'
           RUSTUP_HOME: /usr/local/rustup
