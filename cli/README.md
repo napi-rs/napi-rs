@@ -53,7 +53,7 @@ Cargo features, passthrough to `cargo build` command.
     "name": "fib", // binary name
     "triples": {
       "defaults": true, // default true, if this value is true, will build `x86_64-pc-windows-msvc`, `x86_64-apple-darwin` and `x86_64-unknown-linux-gnu`
-      "addition": [
+      "additional": [
         "x86_64-unknown-linux-musl",
         "x86_64-unknown-freebsd",
         "aarch64-unknown-linux-gnu"
