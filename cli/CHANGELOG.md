@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.10.3](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.10.2...@napi-rs/cli@2.10.3) (2022-07-27)
+
+### Bug Fixes
+
+- **cli:** android build due to GitHub Actions environments change ([fd2060b](https://github.com/napi-rs/napi-rs/commit/fd2060baa49c1e7f815f9d95f79fdd8a496afba7))
+
 ## [2.10.2](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.10.1...@napi-rs/cli@2.10.2) (2022-07-22)
 
 ### Bug Fixes
