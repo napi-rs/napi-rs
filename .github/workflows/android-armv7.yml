@@ -24,7 +24,7 @@ jobs:
           check-latest: true
 
       - name: List NDK Home
-        run: ls -R "${ANDROID_NDK_HOME}"
+        run: ls -R "${ANDROID_NDK_LATEST_HOME}"
 
       - name: Install
         uses: actions-rs/toolchain@v1
@@ -57,8 +57,8 @@ jobs:
 
       - name: Cross build
         run: |
-          export CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi24-clang"
+          export CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER="${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi24-clang"
           yarn build:test:android:armv7
           du -sh examples/napi/index.node
-          ${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip examples/napi/index.node
+          ${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip examples/napi/index.node
           du -sh examples/napi/index.node
