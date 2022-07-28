@@ -409,7 +409,7 @@ export class BuildCommand extends Command {
       }
     }
 
-    const targetRootDir = process.env.CARGO_TARGET_DIR ?? await findUp(cwd)
+    const targetRootDir = process.env.CARGO_TARGET_DIR || await findUp(cwd)
 
     if (!targetRootDir) {
       throw new TypeError('No target dir found')
