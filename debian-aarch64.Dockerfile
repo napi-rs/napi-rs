@@ -20,11 +20,14 @@ RUN apt-get update && \
   llvm-14 \
   clang-14 \
   lld-14 \
+  libc++-14-dev \
+  libc++abi-14-dev \
   nodejs \
   xz-utils \
   rcs \
   git \
   make \
+  cmake \
   ninja-build && \
   apt-get autoremove -y && \
   curl https://sh.rustup.rs -sSf | sh -s -- -y && \

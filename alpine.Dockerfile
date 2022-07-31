@@ -6,7 +6,7 @@ ENV PATH="/aarch64-linux-musl-cross/bin:/usr/local/cargo/bin/rustup:/root/.cargo
   CXX="clang++" \
   GN_EXE=gn
 
-RUN apk add --update --no-cache bash wget musl-dev clang llvm build-base python3 && \
+RUN apk add --update --no-cache bash wget cmake musl-dev clang llvm build-base python3 && \
   sed -i -e 's/v[[:digit:]]\..*\//edge\//g' /etc/apk/repositories && \
   apk add --update --no-cache --repository https://dl-cdn.alpinelinux.org/alpine/edge/testing \
   rustup \
@@ -18,6 +18,6 @@ RUN apk add --update --no-cache bash wget musl-dev clang llvm build-base python3
 RUN rustup-init -y && \
   yarn global add pnpm lerna && \
   rustup target add aarch64-unknown-linux-musl && \
-  wget https://musl.cc/aarch64-linux-musl-cross.tgz && \
+  wget https://github.com/napi-rs/napi-rs/releases/download/linux-musl-cross%4011.2.1/aarch64-linux-musl-cross.tgz && \
   tar -xvf aarch64-linux-musl-cross.tgz && \
   rm aarch64-linux-musl-cross.tgz

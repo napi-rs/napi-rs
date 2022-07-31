@@ -22,20 +22,17 @@ RUN apt-get update && \
   llvm-14 \
   clang-14 \
   lld-14 \
+  libc++-14-dev \
+  libc++abi-14-dev \
   nodejs \
   xz-utils \
   rcs \
   git \
   make \
-  gcc-aarch64-linux-gnu \
-  g++-aarch64-linux-gnu \
-  gcc-arm-linux-gnueabihf \
-  g++-arm-linux-gnueabihf \
+  cmake \
   ninja-build && \
   apt-get autoremove -y && \
   curl https://sh.rustup.rs -sSf | sh -s -- -y && \
-  rustup target add aarch64-unknown-linux-gnu && \
-  rustup target add armv7-unknown-linux-gnueabihf && \
   npm install -g yarn pnpm lerna && \
   ln -sf /usr/bin/clang-14 /usr/bin/clang && \
   ln -sf /usr/bin/clang++-14 /usr/bin/clang++ && \
