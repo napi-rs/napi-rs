@@ -142,9 +142,7 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            .cargo-cache/registry/index/
-            .cargo-cache/registry/cache/
-            .cargo-cache/git/db/
+            .cargo-cache
             target/
           key: \${{ matrix.settings.target }}-cargo-\${{ matrix.settings.host }}
 
@@ -181,7 +179,7 @@ jobs:
         if: \${{ matrix.settings.docker }}
         with:
           image: \${{ matrix.settings.docker }}
-          options: --user 0:0 -v \${{ github.workspace }}/.cargo-cache/git/db:/root/.cargo/git/db -v \${{ github.workspace }}/.cargo/registry/cache:/root/.cargo/registry/cache -v \${{ github.workspace }}/.cargo/registry/index:/root/.cargo/registry/index -v \${{ github.workspace }}:/build -w /build
+          options: --user 0:0 -v \${{ github.workspace }}/.cargo-cache/git/db:/usr/local/cargo/git/db -v \${{ github.workspace }}/.cargo/registry/cache:/usr/local/cargo/registry/cache -v \${{ github.workspace }}/.cargo/registry/index:/usr/local/cargo/registry/index -v \${{ github.workspace }}:/build -w /build
           run: \${{ matrix.settings.build }}
 
       - name: 'Build'
@@ -203,7 +201,7 @@ jobs:
       - uses: actions/checkout@v3
       - name: Build
         id: build
-        uses: vmactions/freebsd-vm@v0.2.0
+        uses: vmactions/freebsd-vm@v0.2.3
         env:
           DEBUG: 'napi:*'
           RUSTUP_HOME: /usr/local/rustup
