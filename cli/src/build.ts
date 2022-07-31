@@ -410,9 +410,11 @@ export class BuildCommand extends Command {
     }
 
     const targetRootDir =
+      // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
       process.env.CARGO_TARGET_DIR ||
+      // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
       process.env.CARGO_BUILD_TARGET_DIR ||
-      (await findUp(cwd));
+      (await findUp(cwd))
 
     if (!targetRootDir) {
       throw new TypeError('No target dir found')
