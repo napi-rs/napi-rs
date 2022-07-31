@@ -19,6 +19,7 @@ pub struct ThreadSafeCallContext<T: 'static> {
 }
 
 #[repr(u8)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ThreadsafeFunctionCallMode {
   NonBlocking,
   Blocking,
