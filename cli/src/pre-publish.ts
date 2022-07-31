@@ -38,8 +38,14 @@ export class PrePublishCommand extends Command {
   skipGHRelease = Option.Boolean('--skip-gh-release', false)
 
   async execute() {
-    const { packageJsonPath, platforms, version, packageName, binaryName } =
-      getNapiConfig(this.configFileName)
+    const {
+      packageJsonPath,
+      platforms,
+      version,
+      packageName,
+      binaryName,
+      npmClient,
+    } = getNapiConfig(this.configFileName)
     debug(`Update optionalDependencies in [${packageJsonPath}]`)
     if (!this.isDryRun) {
       await VersionCommand.updatePackageJson(this.prefix, this.configFileName)
@@ -73,7 +79,7 @@ export class PrePublishCommand extends Command {
           console.warn(`[${chalk.yellowBright(dstPath)}] is not existed`)
           continue
         }
-        await spawn('npm publish', {
+        await spawn(`${npmClient} publish`, {
           cwd: pkgDir,
           env: process.env,
         })
