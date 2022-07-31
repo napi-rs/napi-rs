@@ -22,6 +22,7 @@ export function getNapiConfig(
     : releaseVersion
   const version = releaseVersionWithoutPrefix ?? packageVersion
   const packageName = napi?.package?.name ?? name
+  const npmClient: string = napi?.npmClient ?? 'npm'
 
   const binaryName: string = napi?.name ?? 'index'
 
@@ -32,5 +33,6 @@ export function getNapiConfig(
     binaryName,
     packageJsonPath,
     content: pkgJson,
+    npmClient,
   }
 }
