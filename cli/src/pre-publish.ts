@@ -37,6 +37,8 @@ export class PrePublishCommand extends Command {
 
   skipGHRelease = Option.Boolean('--skip-gh-release', false)
 
+  ghReleaseName?: string = Option.String('--gh-release-name')
+
   async execute() {
     const {
       packageJsonPath,
@@ -183,6 +185,7 @@ export class PrePublishCommand extends Command {
           owner,
           repo,
           tag_name: pkgInfo.tag,
+          name: this.ghReleaseName,
           prerelease:
             version.includes('alpha') ||
             version.includes('beta') ||
