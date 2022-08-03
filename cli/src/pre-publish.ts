@@ -76,7 +76,7 @@ export class PrePublishCommand extends Command {
 
       if (!this.isDryRun) {
         if (!existsSync(dstPath)) {
-          console.warn(`[${chalk.yellowBright(dstPath)}] is not existed`)
+          console.warn(`[${chalk.yellowBright(dstPath)}] doesn't exist`)
           continue
         }
         await spawn(`${npmClient} publish`, {
