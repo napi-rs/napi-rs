@@ -103,6 +103,7 @@ import {
   receiveObjectWithClassField,
   AnotherClassForEither,
   receiveDifferentClass,
+  useTokioWithoutAsync,
 } from '../'
 
 test('export const', (t) => {
@@ -689,6 +690,12 @@ Napi4Test('await Promise in rust', async (t) => {
     }),
   )
   t.is(result, fx + 100)
+})
+
+Napi4Test('Run function which uses tokio internally but is not async', (t) => {
+  useTokioWithoutAsync()
+  // The prior didn't throw an exception, so it worked.
+  t.assert(true)
 })
 
 Napi4Test('Promise should reject raw error in rust', async (t) => {
