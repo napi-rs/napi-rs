@@ -39,6 +39,8 @@ export class PrePublishCommand extends Command {
 
   ghReleaseName?: string = Option.String('--gh-release-name')
 
+  existingReleaseId?: string = Option.String('--gh-release-id')
+
   async execute() {
     const {
       packageJsonPath,
@@ -62,10 +64,9 @@ export class PrePublishCommand extends Command {
       })
     }
 
-    const { owner, repo, pkgInfo, octokit } = await this.createGhRelease(
-      packageName,
-      version,
-    )
+    const { owner, repo, pkgInfo, octokit } = this.existingReleaseId
+      ? await this.getRepoInfo(packageName, version)
+      : await this.createGhRelease(packageName, version)
 
     for (const platformDetail of platforms) {
       const pkgDir = join(
@@ -92,17 +93,21 @@ export class PrePublishCommand extends Command {
             )}] to Github release, [${chalk.greenBright(pkgInfo.tag)}]`,
           )
           try {
-            const releaseInfo = await octokit!.repos.getReleaseByTag({
-              repo: repo,
-              owner: owner,
-              tag: pkgInfo.tag,
-            })
+            const releaseId = this.existingReleaseId
+              ? Number(this.existingReleaseId)
+              : (
+                  await octokit!.repos.getReleaseByTag({
+                    repo: repo,
+                    owner: owner,
+                    tag: pkgInfo.tag,
+                  })
+                ).data.id
             const dstFileStats = statSync(dstPath)
             const assetInfo = await octokit!.repos.uploadReleaseAsset({
               owner: owner,
               repo: repo,
               name: filename,
-              release_id: releaseInfo.data.id,
+              release_id: releaseId,
               mediaType: { format: 'raw' },
               headers: {
                 'content-length': dstFileStats.size,
@@ -140,6 +145,46 @@ export class PrePublishCommand extends Command {
         pkgInfo: { name: null, version: null, tag: null },
       }
     }
+    const { repo, owner, pkgInfo, octokit } = await this.getRepoInfo(
+      packageName,
+      version,
+    )
+
+    if (!repo || !owner) {
+      return {
+        owner: null,
+        repo: null,
+        pkgInfo: { name: null, version: null, tag: null },
+      }
+    }
+
+    if (!this.isDryRun) {
+      try {
+        await octokit.repos.createRelease({
+          owner,
+          repo,
+          tag_name: pkgInfo.tag,
+          name: this.ghReleaseName,
+          prerelease:
+            version.includes('alpha') ||
+            version.includes('beta') ||
+            version.includes('rc'),
+        })
+      } catch (e) {
+        debug(
+          `Params: ${JSON.stringify(
+            { owner, repo, tag_name: pkgInfo.tag },
+            null,
+            2,
+          )}`,
+        )
+        console.error(e)
+      }
+    }
+    return { owner, repo, pkgInfo, octokit }
+  }
+
+  private async getRepoInfo(packageName: string, version: string) {
     const headCommit = (await spawn('git log -1 --pretty=%B'))
       .toString('utf8')
       .trim()
@@ -177,29 +222,6 @@ export class PrePublishCommand extends Command {
         tag: `v${version}`,
         version,
         name: packageName,
-      }
-    }
-    if (!this.isDryRun) {
-      try {
-        await octokit.repos.createRelease({
-          owner,
-          repo,
-          tag_name: pkgInfo.tag,
-          name: this.ghReleaseName,
-          prerelease:
-            version.includes('alpha') ||
-            version.includes('beta') ||
-            version.includes('rc'),
-        })
-      } catch (e) {
-        debug(
-          `Params: ${JSON.stringify(
-            { owner, repo, tag_name: pkgInfo.tag },
-            null,
-            2,
-          )}`,
-        )
-        console.error(e)
       }
     }
     return { owner, repo, pkgInfo, octokit }
