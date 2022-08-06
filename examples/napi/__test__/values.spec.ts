@@ -97,6 +97,7 @@ import {
   callbackReturnPromise,
   returnEitherClass,
   eitherFromOption,
+  eitherFromObjects,
   overrideIndividualArgOnFunction,
   overrideIndividualArgOnFunctionWithCbArg,
   createObjectWithClassField,
@@ -542,6 +543,12 @@ test('return either class', (t) => {
 
 test('either from option', (t) => {
   t.true(eitherFromOption() instanceof JsClassForEither)
+})
+
+test('either from objects', (t) => {
+  t.is(eitherFromObjects({ foo: 1 }), 'A')
+  t.is(eitherFromObjects({ bar: 2 }), 'B')
+  t.is(eitherFromObjects({ baz: 3 }), 'C')
 })
 
 test('either3', (t) => {
