@@ -48,6 +48,9 @@ macro_rules! attrgen {
       (getter, Getter(Span, Option<Ident>)),
       (setter, Setter(Span, Option<Ident>)),
       (readonly, Readonly(Span)),
+      (enumerable, Enumerable(Span, Option<bool>)),
+      (writable, Writable(Span, Option<bool>)),
+      (configurable, Configurable(Span, Option<bool>)),
       (skip, Skip(Span)),
       (strict, Strict(Span)),
       (return_if_invalid, ReturnIfInvalid(Span)),
@@ -113,6 +116,22 @@ macro_rules! methods {
           _ => None,
         })
         .next()
+    }
+  };
+
+  (@method $name:ident, $variant:ident(Span, Option<bool>)) => {
+    pub fn $name(&self) -> bool {
+      self.attrs
+        .iter()
+        .filter_map(|a| match &a.1 {
+          BindgenAttr::$variant(_, s) => {
+            a.0.set(true);
+            *s
+          }
+          _ => None,
+        })
+        .next()
+        .unwrap_or(true)
     }
   };
 

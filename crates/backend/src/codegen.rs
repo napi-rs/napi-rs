@@ -7,6 +7,11 @@ mod r#enum;
 mod r#fn;
 mod r#struct;
 
+pub const PROPERTY_ATTRIBUTE_DEFAULT: i32 = 0;
+pub const PROPERTY_ATTRIBUTE_WRITABLE: i32 = 1 << 0;
+pub const PROPERTY_ATTRIBUTE_ENUMERABLE: i32 = 1 << 1;
+pub const PROPERTY_ATTRIBUTE_CONFIGURABLE: i32 = 1 << 2;
+
 pub trait TryToTokens {
   fn try_to_tokens(&self, tokens: &mut TokenStream) -> BindgenResult<()>;
 

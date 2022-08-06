@@ -2,6 +2,8 @@ use std::convert::From;
 use std::ffi::CString;
 use std::ptr;
 
+use bitflags::bitflags;
+
 use crate::{sys, Callback, NapiRaw, Result};
 
 #[derive(Clone)]
@@ -29,31 +31,25 @@ impl Default for Property {
   }
 }
 
-#[repr(i32)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum PropertyAttributes {
-  Default = sys::PropertyAttributes::default,
-  Writable = sys::PropertyAttributes::writable,
-  Enumerable = sys::PropertyAttributes::enumerable,
-  Configurable = sys::PropertyAttributes::configurable,
-  Static = sys::PropertyAttributes::static_,
+bitflags! {
+  pub struct PropertyAttributes: i32 {
+    const Default = sys::PropertyAttributes::default;
+    const Writable = sys::PropertyAttributes::writable;
+    const Enumerable = sys::PropertyAttributes::enumerable;
+    const Configurable = sys::PropertyAttributes::configurable;
+    const Static = sys::PropertyAttributes::static_;
+  }
 }
 
 impl Default for PropertyAttributes {
   fn default() -> Self {
-    PropertyAttributes::Default
+    PropertyAttributes::Configurable | PropertyAttributes::Enumerable | PropertyAttributes::Writable
   }
 }
 
 impl From<PropertyAttributes> for sys::napi_property_attributes {
   fn from(value: PropertyAttributes) -> Self {
-    match value {
-      PropertyAttributes::Default => sys::PropertyAttributes::default,
-      PropertyAttributes::Writable => sys::PropertyAttributes::writable,
-      PropertyAttributes::Enumerable => sys::PropertyAttributes::enumerable,
-      PropertyAttributes::Configurable => sys::PropertyAttributes::configurable,
-      PropertyAttributes::Static => sys::PropertyAttributes::static_,
-    }
+    value.bits()
   }
 }
 

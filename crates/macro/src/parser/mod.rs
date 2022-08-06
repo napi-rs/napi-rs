@@ -111,6 +111,21 @@ impl Parse for BindgenAttr {
           return Ok(BindgenAttr::$variant(attr_span, val, span))
         });
 
+        (@parser $variant:ident(Span, Option<bool>)) => ({
+          if let Ok(_) = input.parse::<Token![=]>() {
+            let (val, _) = match input.parse::<syn::LitBool>() {
+              Ok(str) => (str.value(), str.span()),
+              Err(_) => {
+                let ident = input.parse::<AnyIdent>()?.0;
+                (true, ident.span())
+              }
+            };
+            return Ok::<BindgenAttr, syn::Error>(BindgenAttr::$variant(attr_span, Some(val)))
+          } else {
+            return Ok(BindgenAttr::$variant(attr_span, Some(true)))
+          }
+        });
+
         (@parser $variant:ident(Span, Vec<String>, Vec<Span>)) => ({
           input.parse::<Token![=]>()?;
           let (vals, spans) = match input.parse::<syn::ExprArray>() {
@@ -677,6 +692,9 @@ fn napi_fn_from_decl(
       ts_return_type: opts.ts_return_type().map(|(m, _)| m.to_owned()),
       skip_typescript: opts.skip_typescript().is_some(),
       parent_is_generator,
+      writable: opts.writable(),
+      enumerable: opts.enumerable(),
+      configurable: opts.configurable(),
     }
   })
 }
@@ -868,6 +886,9 @@ impl ConvertToAST for syn::ItemStruct {
 
       let ignored = field_opts.skip().is_some();
       let readonly = field_opts.readonly().is_some();
+      let writable = field_opts.writable();
+      let enumerable = field_opts.enumerable();
+      let configurable = field_opts.configurable();
       let skip_typescript = field_opts.skip_typescript().is_some();
       let ts_type = field_opts.ts_type().map(|e| e.0.to_string());
 
@@ -877,6 +898,9 @@ impl ConvertToAST for syn::ItemStruct {
         ty: field.ty.clone(),
         getter: !ignored,
         setter: !(ignored || readonly),
+        writable,
+        enumerable,
+        configurable,
         comments: extract_doc_comments(&field.attrs),
         skip_typescript,
         ts_type,

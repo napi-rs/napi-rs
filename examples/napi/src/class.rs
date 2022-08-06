@@ -347,3 +347,17 @@ pub fn receive_object_with_class_field(
 ) -> Result<ClassInstance<Bird>> {
   Ok(object.bird)
 }
+
+#[napi(constructor)]
+pub struct NotWritableClass {
+  #[napi(writable = false)]
+  pub name: String,
+}
+
+#[napi]
+impl NotWritableClass {
+  #[napi(writable = false)]
+  pub fn set_name(&mut self, name: String) {
+    self.name = name;
+  }
+}

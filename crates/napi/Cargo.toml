@@ -51,6 +51,7 @@ tokio_time = ["tokio/time"]
 ctor = "0.1"
 once_cell = "1"
 thread_local = "1"
+bitflags = "1"
 
 [dependencies.napi-sys]
 version = "2.2.2"
