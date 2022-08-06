@@ -55,6 +55,16 @@ export function receiveMutClassOrNumber(either: number | JsClassForEither): numb
 export function receiveDifferentClass(either: JsClassForEither | AnotherClassForEither): number
 export function returnEitherClass(input: number): number | JsClassForEither
 export function eitherFromOption(): JsClassForEither | undefined
+export interface A {
+  foo: number
+}
+export interface B {
+  bar: number
+}
+export interface C {
+  baz: number
+}
+export function eitherFromObjects(input: A | B | C): string
 /** default enum values are continuos i32s start from 0 */
 export const enum Kind {
   /** Barks */

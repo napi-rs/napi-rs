@@ -115,3 +115,27 @@ fn return_either_class(input: i32) -> Either<u32, JsClassForEither> {
 fn either_from_option() -> Either<JsClassForEither, Undefined> {
   Some(JsClassForEither {}).into()
 }
+
+#[napi(object)]
+pub struct A {
+  pub foo: u32,
+}
+
+#[napi(object)]
+pub struct B {
+  pub bar: u32,
+}
+
+#[napi(object)]
+pub struct C {
+  pub baz: u32,
+}
+
+#[napi]
+pub fn either_from_objects(input: Either3<A, B, C>) -> String {
+  match &input {
+    Either3::A(_) => "A".to_owned(),
+    Either3::B(_) => "B".to_owned(),
+    Either3::C(_) => "C".to_owned(),
+  }
+}
