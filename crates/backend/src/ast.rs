@@ -23,6 +23,9 @@ pub struct NapiFn {
   pub skip_typescript: bool,
   pub comments: Vec<String>,
   pub parent_is_generator: bool,
+  pub writable: bool,
+  pub enumerable: bool,
+  pub configurable: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -94,6 +97,9 @@ pub struct NapiStructField {
   pub ty: syn::Type,
   pub getter: bool,
   pub setter: bool,
+  pub writable: bool,
+  pub enumerable: bool,
+  pub configurable: bool,
   pub comments: Vec<String>,
   pub skip_typescript: bool,
   pub ts_type: Option<String>,

@@ -162,6 +162,13 @@ test('class', (t) => {
   t.is(dog.kind, Kind.Dog)
   t.is(dog.whoami(), 'Dog: 旺财')
 
+  t.notThrows(() => {
+    const rawMethod = dog.whoami
+    dog.whoami = function (...args) {
+      return rawMethod.apply(this, args)
+    }
+  })
+
   dog.name = '可乐'
   t.is(dog.name, '可乐')
   t.deepEqual(dog.returnOtherClass(), new Dog('Doge'))

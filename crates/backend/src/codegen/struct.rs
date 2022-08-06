@@ -695,9 +695,21 @@ impl NapiStruct {
       }
 
       let js_name = &field.js_name;
+      let mut attribute = super::PROPERTY_ATTRIBUTE_DEFAULT;
+      if field.writable {
+        attribute |= super::PROPERTY_ATTRIBUTE_WRITABLE;
+      }
+      if field.enumerable {
+        attribute |= super::PROPERTY_ATTRIBUTE_ENUMERABLE;
+      }
+      if field.configurable {
+        attribute |= super::PROPERTY_ATTRIBUTE_CONFIGURABLE;
+      }
+
       let mut prop = quote! {
         napi::bindgen_prelude::Property::new(#js_name)
           .unwrap()
+          .with_property_attributes(napi::bindgen_prelude::PropertyAttributes::from_bits(#attribute).unwrap())
       };
 
       if field.getter {
@@ -705,7 +717,7 @@ impl NapiStruct {
         (quote! { .with_getter(#getter_name) }).to_tokens(&mut prop);
       }
 
-      if field.setter {
+      if field.writable && field.setter {
         let setter_name = Ident::new(&format!("set_{}", field_name), Span::call_site());
         (quote! { .with_setter(#setter_name) }).to_tokens(&mut prop);
       }
@@ -757,9 +769,20 @@ impl NapiImpl {
       let intermediate_name = get_intermediate_ident(&item_str);
       methods.push(item.try_to_token_stream()?);
 
+      let mut attribute = super::PROPERTY_ATTRIBUTE_DEFAULT;
+      if item.writable {
+        attribute |= super::PROPERTY_ATTRIBUTE_WRITABLE;
+      }
+      if item.enumerable {
+        attribute |= super::PROPERTY_ATTRIBUTE_ENUMERABLE;
+      }
+      if item.configurable {
+        attribute |= super::PROPERTY_ATTRIBUTE_CONFIGURABLE;
+      }
+
       let prop = props.entry(&item.js_name).or_insert_with(|| {
         quote! {
-          napi::bindgen_prelude::Property::new(#js_name).unwrap()
+          napi::bindgen_prelude::Property::new(#js_name).unwrap().with_property_attributes(napi::bindgen_prelude::PropertyAttributes::from_bits(#attribute).unwrap())
         }
       });
 
