@@ -1,4 +1,4 @@
-use std::any::TypeId;
+use std::any::{type_name, TypeId};
 use std::convert::TryInto;
 use std::ffi::CString;
 #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
@@ -805,7 +805,10 @@ impl Env {
       } else {
         Err(Error::new(
           Status::InvalidArg,
-          "Invalid argument, T on unwrap is not the type of wrapped object".to_owned(),
+          format!(
+            "Invalid argument, {} on unwrap is not the type of wrapped object",
+            type_name::<T>()
+          ),
         ))
       }
     }
@@ -832,7 +835,10 @@ impl Env {
       } else {
         Err(Error::new(
           Status::InvalidArg,
-          "Invalid argument, T on unwrap is not the type of wrapped object".to_owned(),
+          format!(
+            "Invalid argument, {} on unwrap is not the type of wrapped object",
+            type_name::<T>()
+          ),
         ))
       }
     }
@@ -853,7 +859,10 @@ impl Env {
       } else {
         Err(Error::new(
           Status::InvalidArg,
-          "Invalid argument, T on unwrap is not the type of wrapped object".to_owned(),
+          format!(
+            "Invalid argument, {} on unwrap is not the type of wrapped object",
+            type_name::<T>()
+          ),
         ))
       }
     }
@@ -1172,7 +1181,10 @@ impl Env {
       } else {
         Err(Error::new(
           Status::InvalidArg,
-          "Invalid argument, T on unwrap is not the type of wrapped object".to_owned(),
+          format!(
+            "Invalid argument, {} on unwrap is not the type of wrapped object",
+            type_name::<T>()
+          ),
         ))
       }
     }
