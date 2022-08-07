@@ -3,6 +3,14 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.11.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.10.3...@napi-rs/cli@2.11.0) (2022-08-07)
+
+- feat(cli): support npmClient config by @Brooooooklyn in https://github.com/napi-rs/napi-rs/pull/1253
+- feat(cli): use `CARGO_TARGET_DIR` if set by @amrbashir in https://github.com/napi-rs/napi-rs/pull/1251
+- chore(cli): improve `-.node` doesn't exist warning msg wording by @amrbashir in https://github.com/napi-rs/napi-rs/pull/1254
+- feat(cli): add an option to specify the github release name by @amrbashir in https://github.com/napi-rs/napi-rs/pull/1255
+- feat(cli): allow specifying an existing release by @amrbashir in https://github.com/napi-rs/napi-rs/pull/1256
+
 ## [2.10.3](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.10.2...@napi-rs/cli@2.10.3) (2022-07-27)
 
 ### Bug Fixes
