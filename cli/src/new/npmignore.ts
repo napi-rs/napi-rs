@@ -8,4 +8,7 @@ npm
 rustfmt.toml
 yarn.lock
 *.node
+.yarn
+__test__
+renovate.json
 `
