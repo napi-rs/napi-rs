@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.11.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.11.0...@napi-rs/cli@2.11.1) (2022-08-09)
+
+### Bug Fixes
+
+- **cli:** add .yarn and **test** folder to .npmignore ([1cf5a0d](https://github.com/napi-rs/napi-rs/commit/1cf5a0dc75c99628095cae0262fc47693fa08b63))
+
 ## [2.11.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.10.3...@napi-rs/cli@2.11.0) (2022-08-07)
 
 - feat(cli): support npmClient config by @Brooooooklyn in https://github.com/napi-rs/napi-rs/pull/1253
