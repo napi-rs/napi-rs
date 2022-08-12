@@ -1,6 +1,6 @@
 {
   "name": "@napi-rs/cli",
-  "version": "2.11.3",
+  "version": "2.11.4",
   "description": "Cli tools for napi-rs",
   "keywords": [
     "cli",

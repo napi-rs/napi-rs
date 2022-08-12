@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.11.4](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.11.3...@napi-rs/cli@2.11.4) (2022-08-12)
+
+### Bug Fixes
+
+- **cli:** zig cross to \*-apple-darwin target ([14aab06](https://github.com/napi-rs/napi-rs/commit/14aab065e7e7f3fe927d1dbb72bce8a8d419b711))
+
 ## [2.11.3](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.11.2...@napi-rs/cli@2.11.3) (2022-08-12)
 
 ### Bug Fixes
