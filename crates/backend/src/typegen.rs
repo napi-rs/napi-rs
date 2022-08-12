@@ -351,6 +351,10 @@ pub fn ty_to_ts_type(ty: &Type, is_return_ty: bool, is_struct_field: bool) -> (S
       ts_ty.unwrap_or_else(|| ("any".to_owned(), false))
     }
     Type::Group(g) => ty_to_ts_type(&g.elem, is_return_ty, is_struct_field),
+    Type::Array(a) => {
+      let (element_type, is_optional) = ty_to_ts_type(&a.elem, is_return_ty, is_struct_field);
+      (format!("{}[]", element_type), is_optional)
+    }
     _ => ("any".to_owned(), false),
   }
 }

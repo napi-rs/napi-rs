@@ -23,3 +23,13 @@ fn to_js_obj(env: Env) -> napi::Result<JsObject> {
   arr.insert(42)?;
   arr.coerce_to_object()
 }
+
+#[napi]
+fn get_num_arr() -> [u32; 2] {
+  [1, 2]
+}
+
+#[napi]
+fn get_nested_num_arr() -> [[[u32; 1]; 1]; 2] {
+  [[[1]], [[1]]]
+}
