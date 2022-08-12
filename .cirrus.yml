@@ -14,7 +14,7 @@ task:
     - pkg update
     - pkg install -y -f curl node16 libnghttp2
     - curl -qL https://www.npmjs.com/install.sh | sh
-    - npm install -g yarn
+    - npm install --location=global --ignore-scripts yarn
     - curl https://sh.rustup.rs -sSf --output rustup.sh
     - sh rustup.sh -y --profile minimal --default-toolchain stable
     - |
