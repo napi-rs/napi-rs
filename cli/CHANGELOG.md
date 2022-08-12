@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.11.3](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.11.2...@napi-rs/cli@2.11.3) (2022-08-12)
+
+### Bug Fixes
+
+- **cli:** ignore preinstall scripts on FreeBSD while installing yarn ([1d1ef3d](https://github.com/napi-rs/napi-rs/commit/1d1ef3d69eb5be24896e8c2c50499c8cc7a5471d))
+
 ## [2.11.2](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.11.1...@napi-rs/cli@2.11.2) (2022-08-12)
 
 ### Bug Fixes
