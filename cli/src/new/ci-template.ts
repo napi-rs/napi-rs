@@ -201,7 +201,7 @@ jobs:
       - uses: actions/checkout@v3
       - name: Build
         id: build
-        uses: vmactions/freebsd-vm@v0.2.3
+        uses: vmactions/freebsd-vm@v0
         env:
           DEBUG: 'napi:*'
           RUSTUP_HOME: /usr/local/rustup
