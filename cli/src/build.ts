@@ -40,10 +40,13 @@ const ZIG_PLATFORM_TARGET_MAP = {
 function processZigLinkerArgs(platform: string, args: string[]) {
   if (platform.includes('apple')) {
     const newArgs = args.filter(
-      (arg) =>
+      (arg, index) =>
         !arg.startsWith('-Wl,-exported_symbols_list') &&
         arg !== '-Wl,-dylib' &&
-        arg !== '-liconv',
+        arg !== '-liconv' &&
+        arg !== '-Wl,-dead_strip' &&
+        !(arg === '-framework' && args[index + 1] === 'CoreFoundation') &&
+        !(arg === 'CoreFoundation' && args[index - 1] === '-framework'),
     )
     newArgs.push('-Wl,"-undefined=dynamic_lookup"', '-dead_strip')
     return newArgs
