@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.11.2](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.11.1...@napi-rs/cli@2.11.2) (2022-08-12)
+
+### Bug Fixes
+
+- **cli:** npm i -g flag is deprecated ([9b9cd5d](https://github.com/napi-rs/napi-rs/commit/9b9cd5d23b0f3be01b8b42bc808f96557c6e22e0))
+
 ## [2.11.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.11.0...@napi-rs/cli@2.11.1) (2022-08-09)
 
 ### Bug Fixes
