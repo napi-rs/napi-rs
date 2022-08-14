@@ -217,3 +217,6 @@ pub mod __private {
 
 #[cfg(feature = "tokio_rt")]
 pub extern crate tokio;
+
+#[cfg(feature = "error_anyhow")]
+pub extern crate anyhow;

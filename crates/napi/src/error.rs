@@ -72,6 +72,13 @@ impl From<sys::napi_ref> for Error {
   }
 }
 
+#[cfg(feature = "anyhow")]
+impl From<anyhow::Error> for Error {
+  fn from(value: anyhow::Error) -> Self {
+    Error::new(Status::GenericFailure, format!("{}", value))
+  }
+}
+
 impl fmt::Display for Error {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     if !self.reason.is_empty() {
@@ -159,6 +166,13 @@ impl TryFrom<sys::napi_extended_error_info> for ExtendedErrorInfo {
 }
 
 pub struct JsError(Error);
+
+#[cfg(feature = "anyhow")]
+impl From<anyhow::Error> for JsError {
+  fn from(value: anyhow::Error) -> Self {
+    JsError(Error::new(Status::GenericFailure, value.to_string()))
+  }
+}
 
 pub struct JsTypeError(Error);
 
