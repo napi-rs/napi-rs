@@ -1,25 +1,23 @@
-use std::any::{type_name, TypeId};
-use std::convert::TryInto;
-use std::ffi::CString;
 #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
 use std::future::Future;
-use std::mem;
-use std::os::raw::{c_char, c_void};
-use std::ptr;
-
-#[cfg(all(feature = "napi4"))]
-use crate::bindgen_runtime::ToNapiValue;
-use crate::{
-  async_work::{self, AsyncWorkPromise},
-  check_status,
-  js_values::*,
-  sys,
-  task::Task,
-  Error, ExtendedErrorInfo, NodeVersion, Result, Status, ValueType,
+use std::{
+  any::{type_name, TypeId},
+  convert::TryInto,
+  ffi::CString,
+  mem,
+  os::raw::{c_char, c_void},
+  ptr,
 };
+
+#[cfg(all(feature = "serde-json"))]
+use serde::de::DeserializeOwned;
+#[cfg(all(feature = "serde-json"))]
+use serde::Serialize;
 
 #[cfg(feature = "napi8")]
 use crate::async_cleanup_hook::AsyncCleanupHook;
+#[cfg(all(feature = "napi4"))]
+use crate::bindgen_runtime::ToNapiValue;
 #[cfg(feature = "napi3")]
 use crate::cleanup_env::{CleanupEnvHook, CleanupEnvHookData};
 #[cfg(all(feature = "serde-json"))]
@@ -28,10 +26,14 @@ use crate::js_values::{De, Ser};
 use crate::threadsafe_function::{ThreadSafeCallContext, ThreadsafeFunction};
 #[cfg(feature = "napi3")]
 use crate::JsError;
-#[cfg(all(feature = "serde-json"))]
-use serde::de::DeserializeOwned;
-#[cfg(all(feature = "serde-json"))]
-use serde::Serialize;
+use crate::{
+  async_work::{self, AsyncWorkPromise},
+  check_status,
+  js_values::*,
+  sys,
+  task::Task,
+  Error, ExtendedErrorInfo, NodeVersion, Result, Status, ValueType,
+};
 
 pub type Callback = unsafe extern "C" fn(sys::napi_env, sys::napi_callback_info) -> sys::napi_value;
 
@@ -854,7 +856,7 @@ impl Env {
       ))?;
       let type_id = unknown_tagged_object as *const TypeId;
       if *type_id == TypeId::of::<T>() {
-        Box::from_raw(unknown_tagged_object as *mut TaggedObject<T>);
+        drop(Box::from_raw(unknown_tagged_object as *mut TaggedObject<T>));
         Ok(())
       } else {
         Err(Error::new(
