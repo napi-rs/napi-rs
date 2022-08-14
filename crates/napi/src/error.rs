@@ -1,11 +1,13 @@
-use std::convert::{From, TryFrom};
-use std::error;
-use std::ffi::{CStr, CString};
-use std::fmt;
 #[cfg(feature = "serde-json")]
 use std::fmt::Display;
-use std::os::raw::{c_char, c_void};
-use std::ptr;
+use std::{
+  convert::{From, TryFrom},
+  error,
+  ffi::{CStr, CString},
+  fmt,
+  os::raw::{c_char, c_void},
+  ptr,
+};
 
 #[cfg(feature = "serde-json")]
 use serde::{de, ser};
@@ -159,6 +161,13 @@ impl TryFrom<sys::napi_extended_error_info> for ExtendedErrorInfo {
 }
 
 pub struct JsError(Error);
+
+#[cfg(feature = "anyhow")]
+impl From<anyhow::Error> for JsError {
+  fn from(value: anyhow::Error) -> Self {
+    JsError(Error::new(Status::GenericFailure, value.to_string()))
+  }
+}
 
 pub struct JsTypeError(Error);
 
