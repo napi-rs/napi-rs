@@ -74,6 +74,13 @@ impl From<sys::napi_ref> for Error {
   }
 }
 
+#[cfg(feature = "anyhow")]
+impl From<anyhow::Error> for Error {
+  fn from(value: anyhow::Error) -> Self {
+    Error::new(Status::GenericFailure, format!("{}", value))
+  }
+}
+
 impl fmt::Display for Error {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     if !self.reason.is_empty() {
