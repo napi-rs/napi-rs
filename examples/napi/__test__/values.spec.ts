@@ -191,6 +191,7 @@ test('class', (t) => {
   t.is(assets.get(1)?.filePath, 1)
   const turtle = NinjaTurtle.newRaph()
   t.is(turtle.returnThis(), turtle)
+  t.is(NinjaTurtle.isInstanceOf(turtle), true)
 })
 
 test('class factory', (t) => {
