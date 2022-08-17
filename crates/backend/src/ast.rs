@@ -54,7 +54,7 @@ pub enum NapiFnArgKind {
   Callback(Box<CallbackArg>),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FnKind {
   Normal,
   Constructor,
@@ -84,7 +84,7 @@ pub struct NapiStruct {
   pub use_custom_finalize: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NapiStructKind {
   None,
   Constructor,

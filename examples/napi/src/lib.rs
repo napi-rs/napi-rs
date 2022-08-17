@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 #![allow(unreachable_code)]
+#![allow(clippy::blacklisted_name)]
 
 #[macro_use]
 extern crate napi_derive;

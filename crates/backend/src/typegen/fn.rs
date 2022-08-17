@@ -153,7 +153,7 @@ impl NapiFn {
                 }
                 if ident == "This" {
                   if let Some(syn::GenericArgument::Type(ty)) = angle_bracketed_args.first() {
-                    let (ts_type, _) = ty_to_ts_type(&ty, false, false);
+                    let (ts_type, _) = ty_to_ts_type(ty, false, false);
                     return Some(FnArg {
                       arg: "this".to_owned(),
                       ts_type,
