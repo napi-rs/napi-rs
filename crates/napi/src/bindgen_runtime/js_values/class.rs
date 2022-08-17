@@ -2,9 +2,10 @@ use std::any::type_name;
 use std::ops::{Deref, DerefMut};
 use std::ptr;
 
-use crate::{bindgen_runtime::FromNapiValue, check_status, sys, JsObject, NapiRaw};
+use super::Object;
+use crate::{bindgen_runtime::FromNapiValue, check_status, sys, NapiRaw};
 
-pub type This = JsObject;
+pub type This<T = Object> = T;
 
 pub struct ClassInstance<T: 'static> {
   pub value: sys::napi_value,

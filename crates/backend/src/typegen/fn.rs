@@ -13,14 +13,18 @@ struct FnArg {
 }
 
 struct FnArgList {
+  this: Option<FnArg>,
   args: Vec<FnArg>,
   last_required: Option<usize>,
 }
 
 impl Display for FnArgList {
   fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    if let Some(this) = &self.this {
+      write!(f, "this: {}", this.ts_type)?;
+    }
     for (i, arg) in self.args.iter().enumerate() {
-      if i != 0 {
+      if i != 0 || self.this.is_some() {
         write!(f, ", ")?;
       }
       let is_optional = arg.is_optional
@@ -39,13 +43,22 @@ impl Display for FnArgList {
 
 impl FromIterator<FnArg> for FnArgList {
   fn from_iter<T: IntoIterator<Item = FnArg>>(iter: T) -> Self {
-    let args = iter.into_iter().collect::<Vec<_>>();
+    let mut args = Vec::new();
+    let mut this = None;
+    for arg in iter.into_iter() {
+      if arg.arg != "this" {
+        args.push(arg);
+      } else {
+        this = Some(arg);
+      }
+    }
     let last_required = args
       .iter()
       .enumerate()
       .rfind(|(_, arg)| !arg.is_optional)
       .map(|(i, _)| i);
     FnArgList {
+      this,
       args,
       last_required,
     }
@@ -128,10 +141,25 @@ impl NapiFn {
             if let syn::Type::Path(path) = path.ty.as_ref() {
               if let Some(PathSegment {
                 ident,
-                arguments: PathArguments::AngleBracketed(_),
+                arguments:
+                  PathArguments::AngleBracketed(syn::AngleBracketedGenericArguments {
+                    args: angle_bracketed_args,
+                    ..
+                  }),
               }) = path.path.segments.last()
               {
                 if ident == "Reference" || ident == "WeakReference" {
+                  return None;
+                }
+                if ident == "This" {
+                  if let Some(syn::GenericArgument::Type(ty)) = angle_bracketed_args.first() {
+                    let (ts_type, _) = ty_to_ts_type(&ty, false, false);
+                    return Some(FnArg {
+                      arg: "this".to_owned(),
+                      ts_type,
+                      is_optional: false,
+                    });
+                  }
                   return None;
                 }
               }

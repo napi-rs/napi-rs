@@ -108,6 +108,8 @@ import {
   getNumArr,
   getNestedNumArr,
   CustomFinalize,
+  plusOne,
+  Width,
 } from '../'
 
 test('export const', (t) => {
@@ -161,7 +163,7 @@ test('enum', (t) => {
   t.is(enumToI32(CustomNumEnum.Eight), 8)
 })
 
-test('class', (t) => {
+test.only('class', (t) => {
   const dog = new Animal(Kind.Dog, '旺财')
 
   t.is(dog.name, '旺财')
@@ -192,6 +194,13 @@ test('class', (t) => {
   const turtle = NinjaTurtle.newRaph()
   t.is(turtle.returnThis(), turtle)
   t.is(NinjaTurtle.isInstanceOf(turtle), true)
+  // Inject this to function
+  const width = new Width(1)
+  t.is(plusOne.call(width), 2)
+  t.throws(() => {
+    // @ts-expect-error
+    plusOne.call('')
+  })
 })
 
 test('class factory', (t) => {
