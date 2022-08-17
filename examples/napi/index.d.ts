@@ -38,6 +38,7 @@ export interface ObjectFieldClassInstance {
 }
 export function createObjectWithClassField(): ObjectFieldClassInstance
 export function receiveObjectWithClassField(object: ObjectFieldClassInstance): Bird
+export function plusOne(this: Width): number
 export function dateToNumber(input: Date): number
 export function chronoDateToMillis(input: Date): number
 export function chronoDateAdd1Minute(input: Date): Date
@@ -287,6 +288,10 @@ export class NotWritableClass {
 }
 export class CustomFinalize {
   constructor(width: number, height: number)
+}
+export class Width {
+  value: number
+  constructor(value: number)
 }
 export class ClassWithFactory {
   name: string

@@ -156,8 +156,63 @@ impl NapiFn {
                     }
                   }
                 } else if p.ident == "This" {
-                  if !is_in_class {
-                    bail_span!(p, "`This` is only allowed in class methods");
+                  if let syn::PathArguments::AngleBracketed(syn::AngleBracketedGenericArguments {
+                    args: angle_bracketed_args,
+                    ..
+                  }) = &p.arguments
+                  {
+                    if let Some(syn::GenericArgument::Type(generic_type)) =
+                      angle_bracketed_args.first()
+                    {
+                      if let syn::Type::Path(syn::TypePath {
+                        path: syn::Path { segments, .. },
+                        ..
+                      }) = generic_type
+                      {
+                        if let Some(syn::PathSegment { ident, .. }) = segments.first() {
+                          if let Some((primitive_type, _)) =
+                            crate::PRIMITIVE_TYPES.iter().find(|(p, _)| ident == *p)
+                          {
+                            bail_span!(
+                              ident,
+                              "This type must not be {} \nthis in JavaScript function must be `Object` type or `undefined`",
+                              primitive_type
+                            );
+                          }
+                          args.push(
+                            quote! {
+                              {
+                                <#ident as napi::bindgen_prelude::FromNapiValue>::from_napi_value(env, cb.this)?
+                              }
+                            },
+                          );
+                          skipped_arg_count += 1;
+                          continue;
+                        }
+                      } else if let syn::Type::Reference(syn::TypeReference {
+                        elem,
+                        mutability,
+                        ..
+                      }) = generic_type
+                      {
+                        if let syn::Type::Path(syn::TypePath {
+                          path: syn::Path { segments, .. },
+                          ..
+                        }) = elem.as_ref()
+                        {
+                          if let Some(syn::PathSegment { ident, .. }) = segments.first() {
+                            let token = if mutability.is_some() {
+                              quote! { <#ident as napi::bindgen_prelude::FromNapiMutRef>::from_napi_mut_ref(env, cb.this)? }
+                            } else {
+                              quote! { <#ident as napi::bindgen_prelude::FromNapiRef>::from_napi_ref(env, cb.this)? }
+                            };
+                            args.push(token);
+                            skipped_arg_count += 1;
+                            continue;
+                          }
+                        }
+                      }
+                    }
                   }
                   args.push(
                     quote! { <napi::bindgen_prelude::This as napi::NapiValue>::from_raw_unchecked(env, cb.this) },

@@ -395,3 +395,13 @@ impl ObjectFinalize for CustomFinalize {
     Ok(())
   }
 }
+
+#[napi(constructor)]
+pub struct Width {
+  pub value: i32,
+}
+
+#[napi]
+pub fn plus_one(this: This<&Width>) -> i32 {
+  this.value + 1
+}

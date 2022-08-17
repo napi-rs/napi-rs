@@ -41,7 +41,7 @@ macro_rules! impl_number_conversions {
           check_status!(
             unsafe { sys::$get(env, napi_val, &mut ret) },
             "Failed to convert napi value {:?} into rust type `{}`",
-            type_of!(env, napi_val),
+            type_of!(env, napi_val)?,
             $name,
           )?;
 
