@@ -180,6 +180,15 @@ impl<T> Clone for WeakReference<T> {
 
 impl<T: 'static> ToNapiValue for WeakReference<T> {
   unsafe fn to_napi_value(env: crate::sys::napi_env, val: Self) -> Result<crate::sys::napi_value> {
+    if Weak::strong_count(&val.finalize_callbacks) == 0 {
+      return Err(Error::new(
+        Status::GenericFailure,
+        format!(
+          "The original reference that WeakReference<{}> is pointing to is dropped",
+          std::any::type_name::<T>()
+        ),
+      ));
+    };
     let mut result = std::ptr::null_mut();
     check_status!(
       unsafe { crate::sys::napi_get_reference_value(env, val.napi_ref, &mut result) },
@@ -205,6 +214,22 @@ impl<T: 'static> WeakReference<T> {
       }))
     } else {
       Ok(None)
+    }
+  }
+
+  pub fn get(&self) -> Option<&T> {
+    if Weak::strong_count(&self.finalize_callbacks) == 0 {
+      None
+    } else {
+      Some(unsafe { Box::leak(Box::from_raw(self.raw)) })
+    }
+  }
+
+  pub fn get_mut(&mut self) -> Option<&mut T> {
+    if Weak::strong_count(&self.finalize_callbacks) == 0 {
+      None
+    } else {
+      Some(unsafe { Box::leak(Box::from_raw(self.raw)) })
     }
   }
 }
