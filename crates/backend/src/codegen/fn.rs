@@ -147,8 +147,8 @@ impl NapiFn {
                       if let Some(p) = path.path.segments.first() {
                         if p.ident == *self.parent.as_ref().unwrap() {
                           args.push(
-                              quote! { napi::bindgen_prelude::Reference::from_value_ptr(this_ptr as *mut std::ffi::c_void, env)? },
-                            );
+                            quote! { napi::bindgen_prelude::Reference::from_value_ptr(this_ptr as *mut std::ffi::c_void, env)? },
+                          );
                           skipped_arg_count += 1;
                           continue;
                         }
