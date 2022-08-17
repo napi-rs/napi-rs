@@ -741,22 +741,39 @@ impl ParseNapi for syn::ItemStruct {
         "#[napi] can't be applied to a struct with #[napi(ts_args_type)], #[napi(ts_return_type)], #[napi(skip_typescript)] or #[napi(ts_type)]"
       );
     }
+    if opts.return_if_invalid().is_some() {
+      bail_span!(
+        self,
+        "#[napi(return_if_invalid)] can only be applied to a function or method."
+      );
+    }
+    if opts.object().is_some() && opts.custom_finalize().is_some() {
+      bail_span!(self, "Custom finalize is not supported for #[napi(object)]");
+    }
     let napi = self.convert_to_ast(opts);
     self.to_tokens(tokens);
 
     napi
   }
 }
+
 impl ParseNapi for syn::ItemImpl {
   fn parse_napi(&mut self, tokens: &mut TokenStream, opts: BindgenAttrs) -> BindgenResult<Napi> {
     if opts.ts_args_type().is_some()
       || opts.ts_return_type().is_some()
       || opts.skip_typescript().is_some()
       || opts.ts_type().is_some()
+      || opts.custom_finalize().is_some()
     {
       bail_span!(
         self,
-        "#[napi] can't be applied to impl with #[napi(ts_args_type)], #[napi(ts_return_type)], #[napi(skip_typescript)] or #[napi(ts_type)]"
+        "#[napi] can't be applied to impl with #[napi(ts_args_type)], #[napi(ts_return_type)], #[napi(skip_typescript)] or #[napi(ts_type)] or #[napi(custom_finalize)]"
+      );
+    }
+    if opts.return_if_invalid().is_some() {
+      bail_span!(
+        self,
+        "#[napi(return_if_invalid)] can only be applied to a function or method."
       );
     }
     // #[napi] macro will be remove from impl items after converted to ast
@@ -766,13 +783,23 @@ impl ParseNapi for syn::ItemImpl {
     napi
   }
 }
+
 impl ParseNapi for syn::ItemEnum {
   fn parse_napi(&mut self, tokens: &mut TokenStream, opts: BindgenAttrs) -> BindgenResult<Napi> {
-    if opts.ts_args_type().is_some() || opts.ts_return_type().is_some() || opts.ts_type().is_some()
+    if opts.ts_args_type().is_some()
+      || opts.ts_return_type().is_some()
+      || opts.ts_type().is_some()
+      || opts.custom_finalize().is_some()
     {
       bail_span!(
         self,
-        "#[napi] can't be applied to a enum with #[napi(ts_args_type)], #[napi(ts_return_type)] or #[napi(ts_type)]"
+        "#[napi] can't be applied to a enum with #[napi(ts_args_type)], #[napi(ts_return_type)] or #[napi(ts_type)] or #[napi(custom_finalize)]"
+      );
+    }
+    if opts.return_if_invalid().is_some() {
+      bail_span!(
+        self,
+        "#[napi(return_if_invalid)] can only be applied to a function or method."
       );
     }
     let napi = self.convert_to_ast(opts);
@@ -783,11 +810,20 @@ impl ParseNapi for syn::ItemEnum {
 }
 impl ParseNapi for syn::ItemConst {
   fn parse_napi(&mut self, tokens: &mut TokenStream, opts: BindgenAttrs) -> BindgenResult<Napi> {
-    if opts.ts_args_type().is_some() || opts.ts_return_type().is_some() || opts.ts_type().is_some()
+    if opts.ts_args_type().is_some()
+      || opts.ts_return_type().is_some()
+      || opts.ts_type().is_some()
+      || opts.custom_finalize().is_some()
     {
       bail_span!(
         self,
-        "#[napi] can't be applied to a const with #[napi(ts_args_type)], #[napi(ts_return_type)] or #[napi(ts_type)]"
+        "#[napi] can't be applied to a const with #[napi(ts_args_type)], #[napi(ts_return_type)] or #[napi(ts_type)] or #[napi(custom_finalize)]"
+      );
+    }
+    if opts.return_if_invalid().is_some() {
+      bail_span!(
+        self,
+        "#[napi(return_if_invalid)] can only be applied to a function or method."
       );
     }
     let napi = self.convert_to_ast(opts);
@@ -930,6 +966,7 @@ impl ConvertToAST for syn::ItemStruct {
         js_mod: namespace,
         comments: extract_doc_comments(&self.attrs),
         implement_iterator,
+        use_custom_finalize: opts.custom_finalize().is_some(),
       }),
     })
   }

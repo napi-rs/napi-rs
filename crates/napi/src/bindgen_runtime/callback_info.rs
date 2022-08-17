@@ -67,7 +67,11 @@ impl<const N: usize> CallbackInfo<N> {
     self.this
   }
 
-  fn _construct<T: 'static>(&self, js_name: &str, obj: T) -> Result<(sys::napi_value, *mut T)> {
+  fn _construct<T: ObjectFinalize + 'static>(
+    &self,
+    js_name: &str,
+    obj: T,
+  ) -> Result<(sys::napi_value, *mut T)> {
     let obj = Box::new(obj);
     let this = self.this();
     let value_ref = Box::into_raw(obj);
@@ -96,11 +100,15 @@ impl<const N: usize> CallbackInfo<N> {
     Ok((this, value_ref))
   }
 
-  pub fn construct<T: 'static>(&self, js_name: &str, obj: T) -> Result<sys::napi_value> {
+  pub fn construct<T: ObjectFinalize + 'static>(
+    &self,
+    js_name: &str,
+    obj: T,
+  ) -> Result<sys::napi_value> {
     self._construct(js_name, obj).map(|(v, _)| v)
   }
 
-  pub fn construct_generator<T: Generator + 'static>(
+  pub fn construct_generator<T: Generator + ObjectFinalize + 'static>(
     &self,
     js_name: &str,
     obj: T,
@@ -110,11 +118,15 @@ impl<const N: usize> CallbackInfo<N> {
     Ok(instance)
   }
 
-  pub fn factory<T: 'static>(&self, js_name: &str, obj: T) -> Result<sys::napi_value> {
+  pub fn factory<T: ObjectFinalize + 'static>(
+    &self,
+    js_name: &str,
+    obj: T,
+  ) -> Result<sys::napi_value> {
     self._factory(js_name, obj).map(|(value, _)| value)
   }
 
-  pub fn generator_factory<T: Generator + 'static>(
+  pub fn generator_factory<T: ObjectFinalize + Generator + 'static>(
     &self,
     js_name: &str,
     obj: T,
@@ -124,7 +136,11 @@ impl<const N: usize> CallbackInfo<N> {
     Ok(instance)
   }
 
-  fn _factory<T: 'static>(&self, js_name: &str, obj: T) -> Result<(sys::napi_value, *mut T)> {
+  fn _factory<T: ObjectFinalize + 'static>(
+    &self,
+    js_name: &str,
+    obj: T,
+  ) -> Result<(sys::napi_value, *mut T)> {
     let this = self.this();
     let mut instance = ptr::null_mut();
     let inner = ___CALL_FROM_FACTORY.get_or_default();

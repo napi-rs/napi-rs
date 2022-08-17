@@ -278,6 +278,11 @@ impl NapiStruct {
     let js_name_raw = &self.js_name;
     let js_name_str = format!("{}\0", js_name_raw);
     let iterator_implementation = self.gen_iterator_property(name);
+    let finalize_trait = if self.use_custom_finalize {
+      quote! {}
+    } else {
+      quote! { impl napi::bindgen_prelude::ObjectFinalize for #name {} }
+    };
     quote! {
       impl napi::bindgen_prelude::ToNapiValue for #name {
         unsafe fn to_napi_value(
@@ -296,6 +301,8 @@ impl NapiStruct {
           }
         }
       }
+
+      #finalize_trait
 
       impl #name {
         pub fn into_reference(val: #name, env: napi::Env) -> napi::Result<napi::bindgen_prelude::Reference<#name>> {
@@ -420,6 +427,12 @@ impl NapiStruct {
       }
     };
 
+    let finalize_trait = if self.use_custom_finalize {
+      quote! {}
+    } else {
+      quote! { impl napi::bindgen_prelude::ObjectFinalize for #name {} }
+    };
+
     quote! {
       impl napi::bindgen_prelude::ToNapiValue for #name {
         unsafe fn to_napi_value(
@@ -453,6 +466,8 @@ impl NapiStruct {
           }
         }
       }
+
+      #finalize_trait
     }
   }
 

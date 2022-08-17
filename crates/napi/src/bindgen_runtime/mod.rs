@@ -11,7 +11,7 @@ pub use js_values::*;
 pub use module_register::*;
 
 use super::sys;
-use crate::Status;
+use crate::{JsError, Result, Status};
 
 mod callback_info;
 mod env;
@@ -20,16 +20,27 @@ pub mod iterator;
 mod js_values;
 mod module_register;
 
+pub trait ObjectFinalize: Sized {
+  #[allow(unused)]
+  fn finalize(self, env: Env) -> Result<()> {
+    Ok(())
+  }
+}
+
 /// # Safety
 ///
 /// called when node wrapper objects destroyed
 #[doc(hidden)]
-pub unsafe extern "C" fn raw_finalize_unchecked<T>(
+pub unsafe extern "C" fn raw_finalize_unchecked<T: ObjectFinalize>(
   env: sys::napi_env,
   finalize_data: *mut c_void,
   _finalize_hint: *mut c_void,
 ) {
-  unsafe { Box::from_raw(finalize_data as *mut T) };
+  let data = *unsafe { Box::from_raw(finalize_data as *mut T) };
+  if let Err(err) = data.finalize(unsafe { Env::from_raw(env) }) {
+    let e: JsError = err.into();
+    unsafe { e.throw_into(env) };
+  }
   if let Some((_, ref_val, finalize_callbacks_ptr)) =
     REFERENCE_MAP.borrow_mut(|reference_map| reference_map.remove(&finalize_data))
   {
