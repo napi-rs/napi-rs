@@ -24,6 +24,7 @@ experimental = ["napi-sys/experimental"]
 chrono_date = ["chrono", "napi5"]
 full = ["latin1", "napi8", "async", "serde-json", "experimental", "chrono_date"]
 latin1 = ["encoding_rs"]
+error_anyhow = ["anyhow"]
 napi1 = []
 napi2 = ["napi1"]
 napi3 = ["napi2", "napi-sys/napi3"]
@@ -52,6 +53,10 @@ ctor = "0.1"
 once_cell = "1"
 thread_local = "1"
 bitflags = "1"
+
+[dependencies.anyhow]
+version = "1"
+optional = true
 
 [dependencies.napi-sys]
 version = "2.2.2"
