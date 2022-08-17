@@ -257,6 +257,7 @@ export class AnimalWithDefaultConstructor {
 }
 export class NinjaTurtle {
   name: string
+  static isInstanceOf(value: unknown): boolean
   /** Create your ninja turtle! 🐢 */
   static newRaph(): NinjaTurtle
   getMaskColor(): string

@@ -1,5 +1,5 @@
 use napi::{
-  bindgen_prelude::{Buffer, ClassInstance, ObjectFinalize, This, Uint8Array},
+  bindgen_prelude::{Buffer, ClassInstance, ObjectFinalize, This, Uint8Array, Unknown},
   Env, Result,
 };
 
@@ -214,6 +214,11 @@ pub struct NinjaTurtle {
 
 #[napi]
 impl NinjaTurtle {
+  #[napi]
+  pub fn is_instance_of(env: Env, value: Unknown) -> Result<bool> {
+    Self::instance_of(env, value)
+  }
+
   /// Create your ninja turtle! 🐢
   #[napi(factory)]
   pub fn new_raph() -> Self {

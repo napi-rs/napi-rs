@@ -283,6 +283,7 @@ impl NapiStruct {
     } else {
       quote! { impl napi::bindgen_prelude::ObjectFinalize for #name {} }
     };
+    let instance_of_impl = self.gen_instance_of_impl(name, &js_name_str);
     quote! {
       impl napi::bindgen_prelude::ToNapiValue for #name {
         unsafe fn to_napi_value(
@@ -303,7 +304,7 @@ impl NapiStruct {
       }
 
       #finalize_trait
-
+      #instance_of_impl
       impl #name {
         pub fn into_reference(val: #name, env: napi::Env) -> napi::Result<napi::bindgen_prelude::Reference<#name>> {
           if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name_str) {
@@ -394,6 +395,7 @@ impl NapiStruct {
     let name = &self.name;
     let js_name_without_null = &self.js_name;
     let js_name_str = format!("{}\0", &self.js_name);
+    let instance_of_impl = self.gen_instance_of_impl(name, &js_name_str);
 
     let mut field_conversions = vec![];
     let mut field_destructions = vec![];
@@ -466,7 +468,7 @@ impl NapiStruct {
           }
         }
       }
-
+      #instance_of_impl
       #finalize_trait
     }
   }
@@ -747,6 +749,32 @@ impl NapiStruct {
       #[napi::bindgen_prelude::ctor]
       fn #struct_register_name() {
         napi::__private::register_class(#name_str, #js_mod_ident, #js_name, vec![#(#props),*]);
+      }
+    }
+  }
+
+  fn gen_instance_of_impl(&self, name: &Ident, js_name: &str) -> TokenStream {
+    quote! {
+      impl #name {
+        pub fn instance_of<V: napi::NapiRaw>(env: napi::Env, value: V) -> napi::Result<bool> {
+          if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name) {
+            let mut ctor = std::ptr::null_mut();
+            napi::check_status!(
+              unsafe { napi::sys::napi_get_reference_value(env.raw(), ctor_ref, &mut ctor) },
+              "Failed to get constructor reference of class `{}`",
+              #js_name
+            )?;
+            let mut is_instance_of = false;
+            napi::check_status!(
+              unsafe { napi::sys::napi_instanceof(env.raw(), value.raw(), ctor, &mut is_instance_of) },
+              "Failed to run instanceof for class `{}`",
+              #js_name
+            )?;
+            Ok(is_instance_of)
+          } else {
+            Err(napi::Error::new(napi::Status::GenericFailure, format!("Failed to get constructor of class `{}`", #js_name)))
+          }
+        }
       }
     }
   }
