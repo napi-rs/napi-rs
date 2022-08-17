@@ -1,5 +1,5 @@
 use napi::{
-  bindgen_prelude::{Buffer, ClassInstance, This, Uint8Array},
+  bindgen_prelude::{Buffer, ClassInstance, ObjectFinalize, This, Uint8Array},
   Env, Result,
 };
 
@@ -359,5 +359,34 @@ impl NotWritableClass {
   #[napi(writable = false)]
   pub fn set_name(&mut self, name: String) {
     self.name = name;
+  }
+}
+
+#[napi(custom_finalize)]
+pub struct CustomFinalize {
+  width: u32,
+  height: u32,
+  inner: Vec<u8>,
+}
+
+#[napi]
+impl CustomFinalize {
+  #[napi(constructor)]
+  pub fn new(mut env: Env, width: u32, height: u32) -> Result<Self> {
+    let inner = vec![0; (width * height * 4) as usize];
+    let inner_size = inner.len();
+    env.adjust_external_memory(inner_size as i64)?;
+    Ok(Self {
+      width,
+      height,
+      inner,
+    })
+  }
+}
+
+impl ObjectFinalize for CustomFinalize {
+  fn finalize(self, mut env: Env) -> Result<()> {
+    env.adjust_external_memory(-(self.inner.len() as i64))?;
+    Ok(())
   }
 }

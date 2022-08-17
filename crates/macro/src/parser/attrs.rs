@@ -55,6 +55,7 @@ macro_rules! attrgen {
       (strict, Strict(Span)),
       (return_if_invalid, ReturnIfInvalid(Span)),
       (object, Object(Span)),
+      (custom_finalize, CustomFinalize(Span)),
       (namespace, Namespace(Span, String, Span)),
       (iterator, Iterator(Span)),
       (ts_args_type, TsArgsType(Span, String, Span)),

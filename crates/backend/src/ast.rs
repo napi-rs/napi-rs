@@ -81,6 +81,7 @@ pub struct NapiStruct {
   pub js_mod: Option<String>,
   pub comments: Vec<String>,
   pub implement_iterator: bool,
+  pub use_custom_finalize: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
