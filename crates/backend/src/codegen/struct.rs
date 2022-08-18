@@ -405,9 +405,11 @@ impl NapiStruct {
 
       match &field.name {
         syn::Member::Named(ident) => {
-          field_destructions.push(quote! { #ident });
+          // alias here prevents field name shadowing
+          let alias_ident = format_ident!("{}_", ident);
+          field_destructions.push(quote! { #ident: #alias_ident });
           field_conversions.push(
-            quote! { <#ty as napi::bindgen_prelude::ToNapiValue>::to_napi_value(env, #ident)? },
+            quote! { <#ty as napi::bindgen_prelude::ToNapiValue>::to_napi_value(env, #alias_ident)? },
           );
         }
         syn::Member::Unnamed(i) => {
@@ -499,21 +501,22 @@ impl NapiStruct {
       };
       match &field.name {
         syn::Member::Named(ident) => {
-          field_destructions.push(quote! { #ident });
+          let alias_ident = format_ident!("{}_", ident);
+          field_destructions.push(quote! { #ident: #alias_ident });
           if is_optional_field {
             obj_field_setters.push(quote! {
-              if #ident.is_some() {
-                obj.set(#field_js_name, #ident)?;
+              if #alias_ident.is_some() {
+                obj.set(#field_js_name, #alias_ident)?;
               }
             });
           } else {
-            obj_field_setters.push(quote! { obj.set(#field_js_name, #ident)?; });
+            obj_field_setters.push(quote! { obj.set(#field_js_name, #alias_ident)?; });
           }
           if is_optional_field {
-            obj_field_getters.push(quote! { let #ident: #ty = obj.get(#field_js_name)?; });
+            obj_field_getters.push(quote! { let #alias_ident: #ty = obj.get(#field_js_name)?; });
           } else {
             obj_field_getters.push(quote! {
-              let #ident: #ty = obj.get(#field_js_name)?.ok_or_else(|| napi::bindgen_prelude::Error::new(
+              let #alias_ident: #ty = obj.get(#field_js_name)?.ok_or_else(|| napi::bindgen_prelude::Error::new(
                 napi::bindgen_prelude::Status::InvalidArg,
                 format!("Missing field `{}`", #field_js_name),
               ))?;
