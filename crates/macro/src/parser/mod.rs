@@ -695,6 +695,7 @@ fn napi_fn_from_decl(
       writable: opts.writable(),
       enumerable: opts.enumerable(),
       configurable: opts.configurable(),
+      catch_unwind: opts.catch_unwind().is_some(),
     }
   })
 }
@@ -747,6 +748,12 @@ impl ParseNapi for syn::ItemStruct {
         "#[napi(return_if_invalid)] can only be applied to a function or method."
       );
     }
+    if opts.catch_unwind().is_some() {
+      bail_span!(
+        self,
+        "#[napi(catch_unwind)] can only be applied to a function or method."
+      );
+    }
     if opts.object().is_some() && opts.custom_finalize().is_some() {
       bail_span!(self, "Custom finalize is not supported for #[napi(object)]");
     }
@@ -776,6 +783,12 @@ impl ParseNapi for syn::ItemImpl {
         "#[napi(return_if_invalid)] can only be applied to a function or method."
       );
     }
+    if opts.catch_unwind().is_some() {
+      bail_span!(
+        self,
+        "#[napi(catch_unwind)] can only be applied to a function or method."
+      );
+    }
     // #[napi] macro will be remove from impl items after converted to ast
     let napi = self.convert_to_ast(opts);
     self.to_tokens(tokens);
@@ -802,6 +815,12 @@ impl ParseNapi for syn::ItemEnum {
         "#[napi(return_if_invalid)] can only be applied to a function or method."
       );
     }
+    if opts.catch_unwind().is_some() {
+      bail_span!(
+        self,
+        "#[napi(catch_unwind)] can only be applied to a function or method."
+      );
+    }
     let napi = self.convert_to_ast(opts);
     self.to_tokens(tokens);
 
@@ -824,6 +843,12 @@ impl ParseNapi for syn::ItemConst {
       bail_span!(
         self,
         "#[napi(return_if_invalid)] can only be applied to a function or method."
+      );
+    }
+    if opts.catch_unwind().is_some() {
+      bail_span!(
+        self,
+        "#[napi(catch_unwind)] can only be applied to a function or method."
       );
     }
     let napi = self.convert_to_ast(opts);

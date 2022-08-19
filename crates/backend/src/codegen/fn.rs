@@ -69,6 +69,20 @@ impl TryToTokens for NapiFn {
       }
     };
 
+    let function_call = if self.catch_unwind {
+      quote! {
+        {
+          std::panic::catch_unwind(|| { #function_call })
+            .map_err(|e| napi::Error::new(napi::Status::GenericFailure, format!("{:?}", e)))
+            .and_then(|r| r)
+        }
+      }
+    } else {
+      quote! {
+        #function_call
+      }
+    };
+
     (quote! {
       #(#attrs)*
       #[doc(hidden)]

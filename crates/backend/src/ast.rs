@@ -26,6 +26,7 @@ pub struct NapiFn {
   pub writable: bool,
   pub enumerable: bool,
   pub configurable: bool,
+  pub catch_unwind: bool,
 }
 
 #[derive(Debug, Clone)]
