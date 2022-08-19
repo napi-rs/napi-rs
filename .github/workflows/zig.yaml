@@ -129,6 +129,8 @@ jobs:
           ls ./examples/napi-compat-mode
       - name: Test
         run: yarn test --verbose
+        env:
+          SKIP_UNWIND_TEST: 1
         if: matrix.settings.host == 'macos-latest'
       - name: Test
         uses: docker://multiarch/alpine:aarch64-latest-stable

@@ -38,7 +38,7 @@ impl<T> PersistedSingleThreadVec<T> {
       .inner
       .lock()
       .expect("Acquire persisted thread vec lock failed");
-    f(&mut *locked);
+    f(&mut locked);
   }
 
   fn push(&self, item: T) {

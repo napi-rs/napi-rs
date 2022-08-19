@@ -854,7 +854,7 @@ impl Env {
       ))?;
       let type_id = unknown_tagged_object as *const TypeId;
       if *type_id == TypeId::of::<T>() {
-        Box::from_raw(unknown_tagged_object as *mut TaggedObject<T>);
+        drop(Box::from_raw(unknown_tagged_object as *mut TaggedObject<T>));
         Ok(())
       } else {
         Err(Error::new(

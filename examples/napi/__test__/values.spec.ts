@@ -31,6 +31,7 @@ import {
   mapOption,
   readFile,
   throwError,
+  panic,
   readPackageJson,
   getPackageJsonName,
   getBuffer,
@@ -163,7 +164,7 @@ test('enum', (t) => {
   t.is(enumToI32(CustomNumEnum.Eight), 8)
 })
 
-test.only('class', (t) => {
+test('class', (t) => {
   const dog = new Animal(Kind.Dog, '旺财')
 
   t.is(dog.name, '旺财')
@@ -371,6 +372,9 @@ test('Option', (t) => {
 
 test('Result', (t) => {
   t.throws(() => throwError(), void 0, 'Manual Error')
+  if (!process.env.SKIP_UNWIND_TEST) {
+    t.throws(() => panic(), void 0, `Don't panic`)
+  }
 })
 
 test('function ts type override', (t) => {

@@ -32,7 +32,7 @@ const ZIG_PLATFORM_TARGET_MAP = {
   // https://github.com/ziglang/zig/issues/1759
   // 'x86_64-unknown-freebsd': 'x86_64-freebsd',
   'x86_64-apple-darwin': 'x86_64-macos-gnu',
-  'aarch64-apple-darwin': 'aarch64-macos-gnu',
+  'aarch64-apple-darwin': 'aarch64-macos',
   'aarch64-unknown-linux-gnu': 'aarch64-linux-gnu',
   'aarch64-unknown-linux-musl': 'aarch64-linux-musl',
 }
@@ -48,7 +48,7 @@ function processZigLinkerArgs(platform: string, args: string[]) {
         !(arg === '-framework' && args[index + 1] === 'CoreFoundation') &&
         !(arg === 'CoreFoundation' && args[index - 1] === '-framework'),
     )
-    newArgs.push('-Wl,"-undefined=dynamic_lookup"', '-dead_strip')
+    newArgs.push('-Wl,"-undefined=dynamic_lookup"', '-dead_strip', '-lunwind')
     return newArgs
   }
   if (platform.includes('linux')) {
@@ -334,7 +334,9 @@ export class BuildCommand extends Command {
         }', process.argv.slice(2)), '-target', '${zigTarget}'], { stdio: 'inherit', shell: true })\nwriteFileSync('${linkerWrapper.replaceAll(
           '\\',
           '/',
-        )}.args.log', process.argv.slice(2).join(' '))\n\nprocess.exit(status || 0)\n`,
+        )}.args.log', processZigLinkerArgs('${
+          triple.raw
+        }', process.argv.slice(2)).join(' '))\n\nprocess.exit(status || 0)\n`,
         {
           mode: '777',
         },
