@@ -50,6 +50,7 @@ import {
   bigintGetU64AsString,
   callThreadsafeFunction,
   threadsafeFunctionThrowError,
+  threadsafeFunctionClosureCapture,
   asyncPlus100,
   getGlobal,
   getUndefined,
@@ -689,6 +690,15 @@ Napi4Test('throw error from thread safe function', async (t) => {
   })
   const err = await t.throwsAsync(throwPromise)
   t.is(err!.message, 'ThrowFromNative')
+})
+
+Napi4Test('thread safe function closure capture data', (t) => {
+  return new Promise((resolve) => {
+    threadsafeFunctionClosureCapture(() => {
+      resolve()
+      t.pass()
+    })
+  })
 })
 
 Napi4Test('resolve value from thread safe function fatal mode', async (t) => {
