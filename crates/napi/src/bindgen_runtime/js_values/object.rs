@@ -30,7 +30,7 @@ impl Object {
       check_status!(
         sys::napi_get_named_property(self.0.env, self.0.value, c_field.as_ptr(), &mut ret),
         "Failed to get property with field `{}`",
-        c_field.to_string_lossy(),
+        field.as_ref(),
       )?;
 
       let ty = type_of!(self.0.env, ret)?;
