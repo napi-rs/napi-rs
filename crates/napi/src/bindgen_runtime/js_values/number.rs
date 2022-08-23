@@ -1,11 +1,10 @@
 use super::{check_status, sys};
-use crate::{type_of, Error, Result};
+use crate::{bindgen_prelude::ToNapiValue, type_of, Error, Result};
 
 macro_rules! impl_number_conversions {
   ( $( ($name:literal, $t:ty as $st:ty, $get:ident, $create:ident) ,)* ) => {
     $(
       impl $crate::bindgen_prelude::TypeName for $t {
-        #[inline(always)]
         fn type_name() -> &'static str {
           $name
         }
@@ -17,8 +16,7 @@ macro_rules! impl_number_conversions {
 
       impl $crate::bindgen_prelude::ValidateNapiValue for $t { }
 
-      impl $crate::bindgen_prelude::ToNapiValue for $t {
-        #[inline(always)]
+      impl ToNapiValue for $t {
         unsafe fn to_napi_value(env: $crate::sys::napi_env, val: $t) -> Result<$crate::sys::napi_value> {
           let mut ptr = std::ptr::null_mut();
           let val: $st = val.into();
@@ -34,7 +32,6 @@ macro_rules! impl_number_conversions {
       }
 
       impl $crate::bindgen_prelude::FromNapiValue for $t {
-        #[inline(always)]
         unsafe fn from_napi_value(env: $crate::sys::napi_env, napi_val: $crate::sys::napi_value) -> Result<Self> {
           let mut ret = 0 as $st;
 
@@ -62,3 +59,16 @@ impl_number_conversions!(
   ("i64", i64 as i64, napi_get_value_int64, napi_create_int64),
   ("f64", f64 as f64, napi_get_value_double, napi_create_double),
 );
+
+impl ToNapiValue for f32 {
+  unsafe fn to_napi_value(env: crate::sys::napi_env, val: f32) -> Result<crate::sys::napi_value> {
+    let mut ptr = std::ptr::null_mut();
+
+    check_status!(
+      unsafe { sys::napi_create_double(env, val.into(), &mut ptr) },
+      "Failed to convert rust type `f32` into napi value",
+    )?;
+
+    Ok(ptr)
+  }
+}
