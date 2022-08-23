@@ -1,7 +1,7 @@
 use super::{FromNapiValue, ToNapiValue, TypeName, ValidateNapiValue};
 use crate::{
-  bindgen_runtime::{Null, Undefined},
-  sys, Error, JsUndefined, NapiRaw, Status, ValueType,
+  bindgen_runtime::{Null, Undefined, Unknown},
+  sys, Env, Error, JsUndefined, NapiRaw, NapiValue, Status, ValueType,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -18,6 +18,15 @@ impl<A: NapiRaw, B: NapiRaw> Either<A, B> {
       Self::A(a) => unsafe { a.raw() },
       Self::B(b) => unsafe { b.raw() },
     }
+  }
+}
+
+impl<A: ValidateNapiValue, B: ValidateNapiValue> ValidateNapiValue for Either<A, B> {
+  unsafe fn validate(
+    env: sys::napi_env,
+    napi_val: sys::napi_value,
+  ) -> crate::Result<sys::napi_value> {
+    unsafe { A::validate(env, napi_val).or_else(|_| B::validate(env, napi_val)) }
   }
 }
 
@@ -128,7 +137,7 @@ macro_rules! either_n {
             Status::InvalidArg,
             format!(
               concat!("Value is non of these types ", $( "`{", stringify!( $parameter ), "}`, " ),+ ),
-              $( $parameter = $parameter::value_type(), )+
+              $( $parameter = $parameter::type_name(), )+
             ),
           ))
         }
@@ -144,6 +153,38 @@ macro_rules! either_n {
       ) -> crate::Result<crate::sys::napi_value> {
         match value {
           $( Self:: $parameter (v) => unsafe { $parameter ::to_napi_value(env, v) } ),+
+        }
+      }
+    }
+
+    impl< $( $parameter ),+ > ValidateNapiValue for $either_name < $( $parameter ),+ >
+      where $( $parameter: ValidateNapiValue ),+
+    {
+      unsafe fn validate(
+        env: sys::napi_env,
+        napi_val: sys::napi_value,
+      ) -> crate::Result<sys::napi_value> {
+        let mut ret: crate::Result<sys::napi_value>;
+        $(
+          if unsafe {
+            ret = $parameter::validate(env, napi_val);
+            ret.is_ok()
+          } {
+            ret
+          } else
+        )+
+        {
+          ret
+        }
+      }
+    }
+
+    impl< $( $parameter ),+ > $either_name < $( $parameter ),+ >
+      where $( $parameter: NapiRaw ),+
+    {
+      pub fn as_unknown(&self, env: Env) -> Unknown {
+        match &self {
+          $( Self:: $parameter (v) => unsafe { Unknown::from_raw_unchecked(env.raw(), v.raw()) } ),+
         }
       }
     }
