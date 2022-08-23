@@ -724,6 +724,12 @@ impl ParseNapi for syn::ItemFn {
         "#[napi] can't be applied to a function with #[napi(ts_type)]"
       );
     }
+    if opts.return_if_invalid().is_some() && opts.strict().is_some() {
+      bail_span!(
+        self,
+        "#[napi(return_if_invalid)] can't be used with #[napi(strict)]"
+      );
+    }
     let napi = self.convert_to_ast(opts);
     self.to_tokens(tokens);
 
