@@ -3,7 +3,10 @@ use std::ops::{Deref, DerefMut};
 use std::ptr;
 
 use super::Object;
-use crate::{bindgen_runtime::FromNapiValue, check_status, sys, NapiRaw};
+use crate::{
+  bindgen_runtime::{FromNapiValue, TypeName, ValidateNapiValue},
+  check_status, sys, Env, NapiRaw, NapiValue, ValueType,
+};
 
 pub type This<T = Object> = T;
 
@@ -17,11 +20,40 @@ impl<T: 'static> ClassInstance<T> {
   pub fn new(value: sys::napi_value, inner: &'static mut T) -> Self {
     Self { value, inner }
   }
+
+  pub fn as_object(&self, env: Env) -> Object {
+    unsafe { Object::from_raw_unchecked(env.raw(), self.value) }
+  }
 }
 
 impl<T: 'static> NapiRaw for ClassInstance<T> {
   unsafe fn raw(&self) -> sys::napi_value {
     self.value
+  }
+}
+
+impl<T: 'static> TypeName for ClassInstance<T>
+where
+  &'static T: TypeName,
+{
+  fn type_name() -> &'static str {
+    type_name::<&T>()
+  }
+
+  fn value_type() -> ValueType {
+    <&T>::value_type()
+  }
+}
+
+impl<T: 'static> ValidateNapiValue for ClassInstance<T>
+where
+  &'static T: ValidateNapiValue,
+{
+  unsafe fn validate(
+    env: sys::napi_env,
+    napi_val: sys::napi_value,
+  ) -> crate::Result<sys::napi_value> {
+    unsafe { <&T>::validate(env, napi_val) }
   }
 }
 
