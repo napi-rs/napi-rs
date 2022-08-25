@@ -375,7 +375,7 @@ impl NapiStruct {
             "Failed to wrap native object of class `{}`",
             #js_name_raw
           )?;
-          napi::bindgen_prelude::Reference::<#name>::add_ref(wrapped_value, (wrapped_value, object_ref, finalize_callbacks_ptr));
+          napi::bindgen_prelude::Reference::<#name>::add_ref(env, wrapped_value, (wrapped_value, object_ref, finalize_callbacks_ptr));
           Ok(result)
         }
       }
