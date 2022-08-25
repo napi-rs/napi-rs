@@ -59,9 +59,12 @@ impl<T> Drop for Reference<T> {
 
 impl<T: 'static> Reference<T> {
   #[doc(hidden)]
-  pub fn add_ref(t: *mut c_void, value: RefInformation) {
+  pub fn add_ref(env: crate::sys::napi_env, t: *mut c_void, value: RefInformation) {
     REFERENCE_MAP.borrow_mut(|map| {
-      map.insert(t, value);
+      if let Some((_, previous_ref, previous_rc)) = map.insert(t, value) {
+        unsafe { Rc::from_raw(previous_rc) };
+        unsafe { crate::sys::napi_delete_reference(env, previous_ref) };
+      }
     });
   }
 

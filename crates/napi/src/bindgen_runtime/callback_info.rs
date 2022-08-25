@@ -94,6 +94,7 @@ impl<const N: usize> CallbackInfo<N> {
     };
 
     Reference::<T>::add_ref(
+      self.env,
       value_ref as *mut c_void,
       (value_ref as *mut c_void, object_ref, finalize_callbacks_ptr),
     );
@@ -176,6 +177,7 @@ impl<const N: usize> CallbackInfo<N> {
     )?;
 
     Reference::<T>::add_ref(
+      self.env,
       value_ref as *mut c_void,
       (value_ref as *mut c_void, object_ref, finalize_callbacks_ptr),
     );
