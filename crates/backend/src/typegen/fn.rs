@@ -139,24 +139,31 @@ impl NapiFn {
               return None;
             }
             if let syn::Type::Path(path) = path.ty.as_ref() {
-              if let Some(PathSegment {
-                ident,
-                arguments:
-                  PathArguments::AngleBracketed(syn::AngleBracketedGenericArguments {
-                    args: angle_bracketed_args,
-                    ..
-                  }),
-              }) = path.path.segments.last()
-              {
+              if let Some(PathSegment { ident, arguments }) = path.path.segments.last() {
                 if ident == "Reference" || ident == "WeakReference" {
                   return None;
                 }
-                if ident == "This" {
-                  if let Some(syn::GenericArgument::Type(ty)) = angle_bracketed_args.first() {
-                    let (ts_type, _) = ty_to_ts_type(ty, false, false);
+                if ident == "This" || ident == "this" {
+                  if self.kind != FnKind::Normal {
+                    return None;
+                  }
+                  if let PathArguments::AngleBracketed(syn::AngleBracketedGenericArguments {
+                    args: angle_bracketed_args,
+                    ..
+                  }) = arguments
+                  {
+                    if let Some(syn::GenericArgument::Type(ty)) = angle_bracketed_args.first() {
+                      let (ts_type, _) = ty_to_ts_type(ty, false, false);
+                      return Some(FnArg {
+                        arg: "this".to_owned(),
+                        ts_type,
+                        is_optional: false,
+                      });
+                    }
+                  } else {
                     return Some(FnArg {
                       arg: "this".to_owned(),
-                      ts_type,
+                      ts_type: "this".to_owned(),
                       is_optional: false,
                     });
                   }

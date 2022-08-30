@@ -65,6 +65,7 @@ pub(crate) static PRIMITIVE_TYPES: &[(&str, &str)] = &[
   ("i16", "number"),
   ("i32", "number"),
   ("i64", "number"),
+  ("f32", "number"),
   ("f64", "number"),
   ("u8", "number"),
   ("u16", "number"),
