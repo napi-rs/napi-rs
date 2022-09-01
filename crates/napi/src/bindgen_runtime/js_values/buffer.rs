@@ -5,7 +5,6 @@ use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::ptr::{self, NonNull};
 use std::slice;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 #[cfg(debug_assertions)]
 use std::sync::Mutex;
@@ -27,7 +26,7 @@ pub struct Buffer {
   pub(crate) capacity: usize,
   raw: Option<(sys::napi_ref, sys::napi_env)>,
   // use it as ref count
-  pub(crate) drop_in_vm: Arc<AtomicBool>,
+  pub(crate) drop_in_vm: Arc<()>,
 }
 
 impl Drop for Buffer {
@@ -42,15 +41,7 @@ impl Drop for Buffer {
     }
 
     if Arc::strong_count(&self.drop_in_vm) == 1 {
-      // Drop in Rust side
-      // ```rust
-      // #[napi]
-      // fn buffer_len() -> u32 {
-      //     Buffer::from(vec![1, 2, 3]).len() as u32
-      // }
-      if !self.drop_in_vm.load(Ordering::Acquire) {
-        unsafe { Vec::from_raw_parts(self.inner.as_ptr(), self.len, self.capacity) };
-      }
+      unsafe { Vec::from_raw_parts(self.inner.as_ptr(), self.len, self.capacity) };
     }
   }
 }
@@ -104,7 +95,7 @@ impl From<Vec<u8>> for Buffer {
       len,
       capacity,
       raw: None,
-      drop_in_vm: Arc::new(AtomicBool::new(false)),
+      drop_in_vm: Arc::new(()),
     }
   }
 }
@@ -193,7 +184,7 @@ impl FromNapiValue for Buffer {
       len,
       capacity: len,
       raw: Some((ref_, env)),
-      drop_in_vm: Arc::new(AtomicBool::new(true)),
+      drop_in_vm: Arc::new(()),
     })
   }
 }
@@ -210,7 +201,6 @@ impl ToNapiValue for Buffer {
       return Ok(buf);
     }
     let len = val.len;
-    val.drop_in_vm.store(true, Ordering::Release);
     let mut ret = ptr::null_mut();
     check_status!(
       if len == 0 {
