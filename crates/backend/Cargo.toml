@@ -21,7 +21,7 @@ type-def = ["regex", "once_cell"]
 convert_case = "0.5"
 proc-macro2 = "1"
 quote = "1"
-syn = { version = "1", features = ["fold", "full", "extra-traits"] }
+syn = { version = "1.0.61", features = ["fold", "full", "extra-traits"] }
 
 [dependencies.regex]
 optional = true
