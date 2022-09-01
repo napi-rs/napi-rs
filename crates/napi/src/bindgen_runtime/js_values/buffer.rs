@@ -31,15 +31,16 @@ pub struct Buffer {
 
 impl Drop for Buffer {
   fn drop(&mut self) {
+    if let Some((ref_, env)) = self.raw {
+      check_status_or_throw!(
+        env,
+        unsafe { sys::napi_reference_unref(env, ref_, &mut 0) },
+        "Failed to unref Buffer reference in drop"
+      );
+      return;
+    }
+
     if Arc::strong_count(&self.drop_in_vm) == 1 {
-      if let Some((ref_, env)) = self.raw {
-        check_status_or_throw!(
-          env,
-          unsafe { sys::napi_reference_unref(env, ref_, &mut 0) },
-          "Failed to unref Buffer reference in drop"
-        );
-        return;
-      }
       // Drop in Rust side
       // ```rust
       // #[napi]
