@@ -90,7 +90,7 @@ pub unsafe extern "C" fn drop_buffer(
     if Arc::strong_count(&buf.drop_in_vm) == 1 {
       mem::drop(Vec::from_raw_parts(
         finalize_data as *mut u8,
-        buf.inner.len(),
+        buf.len,
         buf.capacity,
       ));
     }
