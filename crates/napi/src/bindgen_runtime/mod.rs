@@ -1,7 +1,5 @@
 use std::ffi::c_void;
-use std::mem;
 use std::rc::Rc;
-use std::sync::Arc;
 
 pub use callback_info::*;
 pub use ctor::ctor;
@@ -86,13 +84,6 @@ pub unsafe extern "C" fn drop_buffer(
     });
   }
   unsafe {
-    let buf = Box::from_raw(finalize_hint as *mut Buffer);
-    if Arc::strong_count(&buf.drop_in_vm) == 1 {
-      mem::drop(Vec::from_raw_parts(
-        finalize_data as *mut u8,
-        buf.inner.len(),
-        buf.capacity,
-      ));
-    }
+    drop(Box::from_raw(finalize_hint as *mut Buffer));
   }
 }
