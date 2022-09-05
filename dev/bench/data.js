@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1662001088638,
+  "lastUpdate": 1662354705677,
   "repoUrl": "https://github.com/napi-rs/napi-rs",
   "entries": {
     "Benchmark": [
@@ -23085,6 +23085,177 @@ window.BENCHMARK_DATA = {
             "range": "±2.18%",
             "unit": "ops/sec",
             "extra": "80 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "git@seri.tools",
+            "name": "Dennis Duda",
+            "username": "seritools"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fc63ba8b52ac0fb8773e3988856aefa5c45de711",
+          "message": "fix(napi): some of the unsoundness in `Buffer` (#1294)\n\n* fix leaked napi refcount in `Buffer` when cloning\r\n\r\nCloning unconditionally increased the refcount in `Buffer::clone`, but only called `napi_reference_unref` on dropping the last Buffer (the one with `strong_count == 1`). This means that the refcount will never drop back to zero after cloning, leaking the Buffer.\r\n\r\nThis commit changes it to also unconditionally unref the buffer.\r\n\r\n* fix multiple sources of UB in `Buffer`\r\n\r\n- `slice::from_raw_parts` may never be created with a null pointer, but `napi_get_buffer_info` was not sufficiently checked → UB when passing an empty Buffer\r\n- `&'static mut [u8],` is invalid, as it certainly doesn't live for `'static`\r\n\r\nSwitching to `NonNull<u8>` and a `len` field fixes both of these.\r\n\r\n- I also don't really understand how the `impl ToNapiValue for &mut Buffer` could have been sound. It creates an entirely new `Arc`, but reuses the same `Vec` allocation, leading to... a double free of the `Vec` on drop? I have replaced it with a simple call to `clone` instead.\r\n\r\n* remove overcomplicated bool and drop impl\r\n\r\nAs far as I can tell, by just removing the bool and letting the drop code do its thing we clean up correctly in all cases. Because `napi_create_external_buffer` gets an owned `Buffer` attached to it via the Box, we can rely on `from_raw` retrieving it in the `drop_buffer` function.",
+          "timestamp": "2022-09-05T13:04:43+08:00",
+          "tree_id": "3965c7416e08854d803918f53980abdb3cd517f2",
+          "url": "https://github.com/napi-rs/napi-rs/commit/fc63ba8b52ac0fb8773e3988856aefa5c45de711"
+        },
+        "date": 1662354704547,
+        "tool": "benchmarkjs",
+        "benches": [
+          {
+            "name": "noop#napi-rs",
+            "value": 58678015,
+            "range": "±0.22%",
+            "unit": "ops/sec",
+            "extra": "96 samples"
+          },
+          {
+            "name": "noop#JavaScript",
+            "value": 590095079,
+            "range": "±0.21%",
+            "unit": "ops/sec",
+            "extra": "95 samples"
+          },
+          {
+            "name": "Plus number#napi-rs",
+            "value": 20170837,
+            "range": "±0.88%",
+            "unit": "ops/sec",
+            "extra": "95 samples"
+          },
+          {
+            "name": "Plus number#JavaScript",
+            "value": 592460819,
+            "range": "±0.1%",
+            "unit": "ops/sec",
+            "extra": "99 samples"
+          },
+          {
+            "name": "Create buffer#napi-rs",
+            "value": 458414,
+            "range": "±6.78%",
+            "unit": "ops/sec",
+            "extra": "75 samples"
+          },
+          {
+            "name": "Create buffer#JavaScript",
+            "value": 2032296,
+            "range": "±5.47%",
+            "unit": "ops/sec",
+            "extra": "80 samples"
+          },
+          {
+            "name": "createArray#createArrayJson",
+            "value": 43178,
+            "range": "±0.15%",
+            "unit": "ops/sec",
+            "extra": "94 samples"
+          },
+          {
+            "name": "createArray#create array for loop",
+            "value": 7990,
+            "range": "±0.09%",
+            "unit": "ops/sec",
+            "extra": "99 samples"
+          },
+          {
+            "name": "createArray#create array with serde trait",
+            "value": 8106,
+            "range": "±0.1%",
+            "unit": "ops/sec",
+            "extra": "99 samples"
+          },
+          {
+            "name": "getArrayFromJs#get array from json string",
+            "value": 18356,
+            "range": "±0.09%",
+            "unit": "ops/sec",
+            "extra": "94 samples"
+          },
+          {
+            "name": "getArrayFromJs#get array from serde",
+            "value": 10307,
+            "range": "±0.11%",
+            "unit": "ops/sec",
+            "extra": "99 samples"
+          },
+          {
+            "name": "getArrayFromJs#get array with for loop",
+            "value": 12615,
+            "range": "±0.21%",
+            "unit": "ops/sec",
+            "extra": "95 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from native#u32",
+            "value": 390993,
+            "range": "±4.19%",
+            "unit": "ops/sec",
+            "extra": "80 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from JavaScript#u32",
+            "value": 344619,
+            "range": "±4.09%",
+            "unit": "ops/sec",
+            "extra": "86 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from native#string",
+            "value": 362522,
+            "range": "±4.39%",
+            "unit": "ops/sec",
+            "extra": "82 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from JavaScript#string",
+            "value": 326577,
+            "range": "±4.19%",
+            "unit": "ops/sec",
+            "extra": "85 samples"
+          },
+          {
+            "name": "Async task#spawn task",
+            "value": 37069,
+            "range": "±0.89%",
+            "unit": "ops/sec",
+            "extra": "81 samples"
+          },
+          {
+            "name": "Async task#ThreadSafeFunction",
+            "value": 2263,
+            "range": "±2.43%",
+            "unit": "ops/sec",
+            "extra": "60 samples"
+          },
+          {
+            "name": "Async task#Tokio future to Promise",
+            "value": 32268,
+            "range": "±0.63%",
+            "unit": "ops/sec",
+            "extra": "84 samples"
+          },
+          {
+            "name": "Query#query * 100",
+            "value": 2164,
+            "range": "±1.5%",
+            "unit": "ops/sec",
+            "extra": "89 samples"
+          },
+          {
+            "name": "Query#query * 1",
+            "value": 32145,
+            "range": "±1.96%",
+            "unit": "ops/sec",
+            "extra": "82 samples"
           }
         ]
       }
