@@ -143,14 +143,25 @@ fn expand(attr: TokenStream, input: TokenStream) -> BindgenResult<TokenStream> {
 #[cfg(all(feature = "type-def", not(feature = "noop")))]
 fn output_type_def(type_def_file: String, type_def: Option<TypeDef>) -> IOResult<()> {
   if type_def.is_some() {
+    let current_crate = format!("{}\n", env!("CARGO_PKG_NAME"));
     let file = fs::OpenOptions::new()
       .append(true)
       .create(true)
-      .open(type_def_file)?;
+      .open(&type_def_file)?;
 
     let mut writer = BufWriter::<fs::File>::new(file);
+    writer.write_all(current_crate.as_bytes())?;
+
     writer.write_all(type_def.unwrap().to_string().as_bytes())?;
-    writer.write_all("\n".as_bytes())
+    writer.write_all("\n".as_bytes())?;
+
+    // Record crates that have been compiled, so we can know if there are some type info missing
+    let crates_record = fs::OpenOptions::new()
+      .append(true)
+      .create(true)
+      .open(type_def_file + "-crates")?;
+    let mut writer = BufWriter::<fs::File>::new(crates_record);
+    writer.write_all(current_crate.as_bytes())
   } else {
     IOResult::Ok(())
   }

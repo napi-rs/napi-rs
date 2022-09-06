@@ -554,16 +554,53 @@ async function processIntermediateTypeFile(
   }
 
   const tmpFile = await readFileAsync(source, 'utf8')
-  const lines = tmpFile
+
+  // rawLines are crate_name\n typedef\n ...
+  const rawLines = tmpFile
     .split('\n')
-    .map((line) => line.trim())
+    .map((line: string) => line.trim())
     .filter(Boolean)
+
+  const isEven = (i: number) => i % 2 !== 0
+  const isOdd = (i: number) => i % 2 === 0
+
+  const cargo_names: string[] = rawLines.filter((_, i) => isOdd(i))
+  const lines: string[] = rawLines.filter((_, i) => isEven(i))
+
+  // Make it Array<[crate_name, type_def]>
+  const typeWithCrates = cargo_names.map((name, i) => [name, lines[i]])
+
+  const prevLines = existsSync(source + '-old')
+    ? (await readFileAsync(source + '-old', 'utf8'))
+        .split('\n')
+        .map((line: string) => line.trim())
+        .filter(Boolean)
+    : []
+
+  // This is empty array, it means that all compilation is skipped by cargo cache,
+  // then we can just resume type info from last compilation
+  const currentCrates: Set<string> = new Set(
+    existsSync(source + '-crates')
+      ? (await readFileAsync(source + '-crates', 'utf-8'))
+          .split('\n')
+          .filter(Boolean)
+      : [],
+  )
+  for (const [crate, def] of prevLines) {
+    // this type info is not been collected by this compilation, reuse last one
+    if (!currentCrates.has(crate)) {
+      lines.push(def)
+    }
+  }
+
+  // record as old tmp file for next gen
+  await writeFileAsync(source + '-old', typeWithCrates.join('\n'), 'utf8')
 
   if (!lines.length) {
     return idents
   }
 
-  const allDefs = lines.map((line) => JSON.parse(line) as TypeDef)
+  const allDefs: TypeDef[] = lines.map((line) => JSON.parse(line) as TypeDef)
 
   function convertDefs(defs: TypeDef[], nested = false): string {
     const classes = new Map<
@@ -679,6 +716,8 @@ async function processIntermediateTypeFile(
       : ''
 
   await unlinkAsync(source)
+  await unlinkAsync(source + '-crates')
+
   await writeFileAsync(
     target,
     dtsHeader + externalDef + topLevelDef + namespaceDefs,
