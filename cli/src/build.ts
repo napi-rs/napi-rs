@@ -455,7 +455,6 @@ export class BuildCommand extends Command {
 
     const sourcePath = join(
       targetRootDir,
-      'target',
       targetDir,
       `${cargoArtifactName}${libExt}`,
     )
@@ -523,7 +522,7 @@ export class BuildCommand extends Command {
 async function findUp(dir = process.cwd()): Promise<string | null> {
   const dist = join(dir, 'target')
   if (existsSync(dist)) {
-    return dir
+    return dist
   }
   const dirs = dir.split(sep)
   if (dirs.length < 2) {
