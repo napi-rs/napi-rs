@@ -145,6 +145,6 @@ jobs:
         uses: addnab/docker-run-action@v3
         if: matrix.settings.target == 'x86_64-unknown-linux-musl'
         with:
-          image: ghcr.io/${{ github.repository }}/nodejs-rust:lts-alpine
+          image: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
           options: -v ${{ github.workspace }}:/napi-rs -w /napi-rs
           run: yarn test
