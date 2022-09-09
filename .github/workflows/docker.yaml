@@ -31,7 +31,7 @@ jobs:
           file: alpine.Dockerfile
           platforms: linux/amd64
           push: true
-          tags: ghcr.io/${{ github.repository }}/nodejs-rust:lts-alpine
+          tags: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
 
       - name: Build and push debian
         uses: docker/build-push-action@v2
@@ -39,7 +39,7 @@ jobs:
           file: debian.Dockerfile
           platforms: linux/amd64
           push: true
-          tags: ghcr.io/${{ github.repository }}/nodejs-rust:lts-debian
+          tags: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian
 
       - name: Build and push debian aarch64 cross
         uses: docker/build-push-action@v2
@@ -47,7 +47,7 @@ jobs:
           file: debian-aarch64.Dockerfile
           platforms: linux/amd64
           push: true
-          tags: ghcr.io/${{ github.repository }}/nodejs-rust:lts-debian-aarch64
+          tags: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-aarch64
 
       - name: Build and push debian with zig
         uses: docker/build-push-action@v2
@@ -55,7 +55,7 @@ jobs:
           file: debian-zig.Dockerfile
           platforms: linux/amd64
           push: true
-          tags: ghcr.io/${{ github.repository }}/nodejs-rust:lts-debian-zig
+          tags: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-zig
 
       - name: Build and push alpine with zig
         uses: docker/build-push-action@v2
@@ -63,7 +63,7 @@ jobs:
           file: alpine-zig.Dockerfile
           platforms: linux/amd64
           push: true
-          tags: ghcr.io/${{ github.repository }}/nodejs-rust:lts-alpine-zig
+          tags: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine-zig
 
   build_image_arm:
     name: Build Node.js arm images
@@ -93,7 +93,7 @@ jobs:
         with:
           file: armhf.Dockerfile
           push: true
-          tags: ghcr.io/${{ github.repository }}/nodejs:armhf-${{ matrix.version }}
+          tags: ghcr.io/napi-rs/napi-rs/nodejs:armhf-${{ matrix.version }}
           build-args: |
             NODE_VERSION=${{ matrix.version }}
 
@@ -102,6 +102,6 @@ jobs:
         with:
           file: aarch64.Dockerfile
           push: true
-          tags: ghcr.io/${{ github.repository }}/nodejs:aarch64-${{ matrix.version }}
+          tags: ghcr.io/napi-rs/napi-rs/nodejs:aarch64-${{ matrix.version }}
           build-args: |
             NODE_VERSION=${{ matrix.version }}

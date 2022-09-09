@@ -33,7 +33,7 @@ jobs:
       - name: Setup and run tests
         uses: addnab/docker-run-action@v3
         with:
-          image: ghcr.io/${{ github.repository }}/nodejs-rust:lts-alpine
+          image: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
           options: -v ${{ github.workspace }}:/napi-rs -w /napi-rs
           run: |
             cargo check -vvv
