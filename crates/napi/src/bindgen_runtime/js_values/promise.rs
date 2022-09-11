@@ -6,7 +6,7 @@ use std::task::{Context, Poll};
 
 use tokio::sync::oneshot::{channel, Receiver, Sender};
 
-use crate::{check_status, sys, Error, Result, Status};
+use crate::{check_status, sys, Error, JsUnknown, NapiValue, Result, Status};
 
 use super::{FromNapiValue, TypeName, ValidateNapiValue};
 
@@ -224,16 +224,11 @@ unsafe extern "C" fn catch_callback<T: FromNapiValue>(
     "Get callback info from Promise::catch failed"
   );
   let rejected_value = rejected_value[0];
-  let mut error_ref = ptr::null_mut();
-  let create_ref_status =
-    unsafe { sys::napi_create_reference(env, rejected_value, 1, &mut error_ref) };
-  debug_assert!(
-    create_ref_status == sys::Status::napi_ok,
-    "Create Error reference failed"
-  );
   let sender = unsafe { Box::from_raw(data as *mut Sender<*mut Result<T>>) };
   sender
-    .send(Box::into_raw(Box::new(Err(Error::from(error_ref)))))
+    .send(Box::into_raw(Box::new(Err(Error::from(unsafe {
+      JsUnknown::from_raw_unchecked(env, rejected_value)
+    })))))
     .expect("Send Promise resolved value error");
   this
 }

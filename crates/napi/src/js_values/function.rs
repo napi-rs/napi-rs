@@ -7,7 +7,7 @@ use crate::{
   bindgen_runtime::ToNapiValue,
   threadsafe_function::{ThreadSafeCallContext, ThreadsafeFunction},
 };
-use crate::{check_status, ValueType};
+use crate::{check_pending_exception, ValueType};
 use crate::{sys, Env, Error, JsObject, JsUnknown, NapiRaw, NapiValue, Result, Status};
 
 pub struct JsFunction(pub(crate) Value);
@@ -56,7 +56,7 @@ impl JsFunction {
       .map(|arg| unsafe { arg.raw() })
       .collect::<Vec<sys::napi_value>>();
     let mut return_value = ptr::null_mut();
-    check_status!(unsafe {
+    check_pending_exception!(self.0.env, unsafe {
       sys::napi_call_function(
         self.0.env,
         raw_this,
@@ -83,7 +83,7 @@ impl JsFunction {
       })
       .ok_or_else(|| Error::new(Status::GenericFailure, "Get raw this failed".to_owned()))?;
     let mut return_value = ptr::null_mut();
-    check_status!(unsafe {
+    check_pending_exception!(self.0.env, unsafe {
       sys::napi_call_function(
         self.0.env,
         raw_this,
@@ -110,7 +110,7 @@ impl JsFunction {
       .iter()
       .map(|arg| unsafe { arg.raw() })
       .collect::<Vec<sys::napi_value>>();
-    check_status!(unsafe {
+    check_pending_exception!(self.0.env, unsafe {
       sys::napi_new_instance(
         self.0.env,
         self.0.value,

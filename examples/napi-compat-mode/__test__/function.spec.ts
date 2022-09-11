@@ -20,3 +20,14 @@ test('should set "this" properly', (t) => {
     t.is(this, obj)
   })
 })
+
+test('should handle errors', (t) => {
+  bindings.testCallFunctionError(
+    () => {
+      throw new Error('Testing')
+    },
+    (err: Error) => {
+      t.is(err.message, 'Testing')
+    },
+  )
+})

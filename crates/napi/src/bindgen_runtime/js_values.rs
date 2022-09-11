@@ -233,7 +233,7 @@ where
       Ok(v) => unsafe { T::to_napi_value(env, v) },
       Err(e) => {
         let error_code = unsafe { String::to_napi_value(env, format!("{:?}", e.status))? };
-        let reason = unsafe { String::to_napi_value(env, e.reason)? };
+        let reason = unsafe { String::to_napi_value(env, e.reason.clone())? };
         let mut error = ptr::null_mut();
         check_status!(
           unsafe { sys::napi_create_error(env, error_code, reason, &mut error) },
