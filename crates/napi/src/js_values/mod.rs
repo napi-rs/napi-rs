@@ -19,6 +19,8 @@ mod boolean;
 mod buffer;
 #[cfg(feature = "napi5")]
 mod date;
+#[cfg(feature = "napi4")]
+mod deferred;
 mod either;
 mod escapable_handle_scope;
 mod function;
@@ -41,6 +43,8 @@ pub use buffer::*;
 pub use date::*;
 #[cfg(feature = "serde-json")]
 pub(crate) use de::De;
+#[cfg(feature = "napi4")]
+pub use deferred::*;
 pub use either::Either;
 pub use escapable_handle_scope::EscapableHandleScope;
 pub use function::JsFunction;

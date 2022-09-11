@@ -1,5 +1,6 @@
 use napi::{Env, JsObject, Result};
 
+mod deferred;
 mod tsfn;
 mod tsfn_dua_instance;
 
@@ -23,6 +24,7 @@ pub fn register_js(exports: &mut JsObject, env: &Env) -> Result<()> {
     test_call_aborted_threadsafe_function,
   )?;
   exports.create_named_method("testTsfnWithRef", test_tsfn_with_ref)?;
+  exports.create_named_method("testDeferred", deferred::test_deferred)?;
 
   let obj = env.define_class("A", constructor, &[])?;
 
