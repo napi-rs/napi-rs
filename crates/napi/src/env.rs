@@ -994,7 +994,7 @@ impl Env {
   }
 
   pub fn create_error(&self, e: Error) -> Result<JsObject> {
-    let reason = e.reason;
+    let reason = &e.reason;
     let reason_string = self.create_string(reason.as_str())?;
     let mut result = ptr::null_mut();
     check_status!(unsafe {

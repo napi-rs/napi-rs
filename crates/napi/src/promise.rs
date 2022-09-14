@@ -109,28 +109,8 @@ unsafe extern "C" fn call_js_cb<
       debug_assert!(status == sys::Status::napi_ok, "Resolve promise failed");
     }
     Err(e) => {
-      let status = unsafe {
-        sys::napi_reject_deferred(
-          env,
-          deferred,
-          if e.maybe_raw.is_null() {
-            JsError::from(e).into_value(env)
-          } else {
-            let mut err = ptr::null_mut();
-            let get_err_status = sys::napi_get_reference_value(env, e.maybe_raw, &mut err);
-            debug_assert!(
-              get_err_status == sys::Status::napi_ok,
-              "Get Error from Reference failed"
-            );
-            let delete_reference_status = sys::napi_delete_reference(env, e.maybe_raw);
-            debug_assert!(
-              delete_reference_status == sys::Status::napi_ok,
-              "Delete Error Reference failed"
-            );
-            err
-          },
-        )
-      };
+      let status =
+        unsafe { sys::napi_reject_deferred(env, deferred, JsError::from(e).into_value(env)) };
       debug_assert!(status == sys::Status::napi_ok, "Reject promise failed");
     }
   };

@@ -12,7 +12,7 @@ use serde::{de, ser};
 #[cfg(feature = "serde-json")]
 use serde_json::Error as SerdeJSONError;
 
-use crate::{check_status, sys, Status};
+use crate::{check_status, sys, Env, JsUnknown, NapiValue, Status};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -24,9 +24,8 @@ pub struct Error {
   pub status: Status,
   pub reason: String,
   // Convert raw `JsError` into Error
-  // Only be used in `async fn(p: Promise<T>)` scenario
-  #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
-  pub(crate) maybe_raw: sys::napi_ref,
+  maybe_raw: sys::napi_ref,
+  maybe_env: sys::napi_env,
 }
 
 unsafe impl Send for Error {}
@@ -61,13 +60,18 @@ impl From<SerdeJSONError> for Error {
   }
 }
 
-#[cfg(all(feature = "tokio_rt", feature = "napi4"))]
-impl From<sys::napi_ref> for Error {
-  fn from(value: sys::napi_ref) -> Self {
+impl From<JsUnknown> for Error {
+  fn from(value: JsUnknown) -> Self {
+    let mut result = std::ptr::null_mut();
+    let status = unsafe { sys::napi_create_reference(value.0.env, value.0.value, 0, &mut result) };
+    if status != sys::Status::napi_ok {
+      return Error::new(Status::from(status), "".to_owned());
+    }
     Self {
-      status: Status::InvalidArg,
+      status: Status::GenericFailure,
       reason: "".to_string(),
-      maybe_raw: value,
+      maybe_raw: result,
+      maybe_env: value.0.env,
     }
   }
 }
@@ -94,8 +98,8 @@ impl Error {
     Error {
       status,
       reason,
-      #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
       maybe_raw: ptr::null_mut(),
+      maybe_env: ptr::null_mut(),
     }
   }
 
@@ -103,8 +107,8 @@ impl Error {
     Error {
       status,
       reason: "".to_owned(),
-      #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
       maybe_raw: ptr::null_mut(),
+      maybe_env: ptr::null_mut(),
     }
   }
 
@@ -112,8 +116,8 @@ impl Error {
     Error {
       status: Status::GenericFailure,
       reason: reason.into(),
-      #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
       maybe_raw: ptr::null_mut(),
+      maybe_env: ptr::null_mut(),
     }
   }
 }
@@ -123,8 +127,8 @@ impl From<std::ffi::NulError> for Error {
     Error {
       status: Status::GenericFailure,
       reason: format!("{}", error),
-      #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
       maybe_raw: ptr::null_mut(),
+      maybe_env: ptr::null_mut(),
     }
   }
 }
@@ -134,8 +138,21 @@ impl From<std::io::Error> for Error {
     Error {
       status: Status::GenericFailure,
       reason: format!("{}", error),
-      #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
       maybe_raw: ptr::null_mut(),
+      maybe_env: ptr::null_mut(),
+    }
+  }
+}
+
+impl Drop for Error {
+  fn drop(&mut self) {
+    if !self.maybe_env.is_null() && !self.maybe_raw.is_null() {
+      let delete_reference_status =
+        unsafe { sys::napi_delete_reference(self.maybe_env, self.maybe_raw) };
+      debug_assert!(
+        delete_reference_status == sys::Status::napi_ok,
+        "Delete Error Reference failed"
+      );
     }
   }
 }
@@ -188,11 +205,22 @@ macro_rules! impl_object_methods {
       ///
       /// This function is safety if env is not null ptr.
       pub unsafe fn into_value(self, env: sys::napi_env) -> sys::napi_value {
+        if !self.0.maybe_raw.is_null() {
+          let mut err = ptr::null_mut();
+          let get_err_status =
+            unsafe { sys::napi_get_reference_value(env, self.0.maybe_raw, &mut err) };
+          debug_assert!(
+            get_err_status == sys::Status::napi_ok,
+            "Get Error from Reference failed"
+          );
+          return err;
+        }
+
         let error_status = format!("{:?}", self.0.status);
         let status_len = error_status.len();
         let error_code_string = CString::new(error_status).unwrap();
         let reason_len = self.0.reason.len();
-        let reason = CString::new(self.0.reason).unwrap();
+        let reason = CString::new(self.0.reason.as_str()).unwrap();
         let mut error_code = ptr::null_mut();
         let mut reason_string = ptr::null_mut();
         let mut js_error = ptr::null_mut();
@@ -207,6 +235,11 @@ macro_rules! impl_object_methods {
         let create_error_status = unsafe { $kind(env, error_code, reason_string, &mut js_error) };
         debug_assert!(create_error_status == sys::Status::napi_ok);
         js_error
+      }
+
+      pub fn into_unknown(self, env: Env) -> JsUnknown {
+        let value = unsafe { self.into_value(env.raw()) };
+        unsafe { JsUnknown::from_raw_unchecked(env.raw(), value) }
       }
 
       /// # Safety
@@ -294,6 +327,28 @@ macro_rules! check_status {
     match c {
       $crate::sys::Status::napi_ok => Ok(()),
       _ => Err($crate::Error::new($crate::Status::from(c), format!($($msg)*))),
+    }
+  }};
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! check_pending_exception {
+  ($env: expr, $code:expr) => {{
+    let c = $code;
+    match c {
+      $crate::sys::Status::napi_ok => Ok(()),
+      $crate::sys::Status::napi_pending_exception => {
+        let mut error_result = std::ptr::null_mut();
+        assert_eq!(
+          unsafe { $crate::sys::napi_get_and_clear_last_exception($env, &mut error_result) },
+          $crate::sys::Status::napi_ok
+        );
+        return Err(Error::from(unsafe {
+          JsUnknown::from_raw_unchecked($env, error_result)
+        }));
+      }
+      _ => Err($crate::Error::new($crate::Status::from(c), "".to_owned())),
     }
   }};
 }
