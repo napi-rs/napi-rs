@@ -112,6 +112,7 @@ import {
   CustomFinalize,
   plusOne,
   Width,
+  captureErrorInCallback,
 } from '../'
 
 test('export const', (t) => {
@@ -290,6 +291,15 @@ test('callback', (t) => {
     t.is(err, undefined)
     t.is(content, 'hello world')
   })
+
+  captureErrorInCallback(
+    () => {
+      throw new Error('Testing')
+    },
+    (err) => {
+      t.is((err as Error).message, 'Testing')
+    },
+  )
 })
 
 test('return function', (t) => {

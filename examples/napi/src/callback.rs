@@ -80,3 +80,15 @@ fn callback_return_promise<T: Fn() -> Result<JsUnknown>>(
     Ok(ret)
   }
 }
+
+#[napi]
+pub fn capture_error_in_callback<C: Fn() -> Result<()>, E: Fn(Error) -> Result<()>>(
+  cb1: C,
+  cb2: E,
+) -> Result<()> {
+  if let Err(e) = cb1() {
+    cb2(e)
+  } else {
+    Ok(())
+  }
+}

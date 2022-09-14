@@ -343,7 +343,8 @@ impl NapiFn {
 
         let mut ret_ptr = std::ptr::null_mut();
 
-        napi::bindgen_prelude::check_status!(
+        napi::bindgen_prelude::check_pending_exception!(
+          env,
           napi::bindgen_prelude::sys::napi_call_function(
             env,
             cb.this(),
@@ -351,8 +352,7 @@ impl NapiFn {
             args.len(),
             args.as_ptr(),
             &mut ret_ptr
-          ),
-          "Failed to call napi callback",
+          )
         )?;
 
         #ret
