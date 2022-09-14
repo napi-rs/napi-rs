@@ -12,6 +12,7 @@ use serde::{de, ser};
 #[cfg(feature = "serde-json")]
 use serde_json::Error as SerdeJSONError;
 
+use crate::bindgen_runtime::ToNapiValue;
 use crate::{check_status, sys, Env, JsUnknown, NapiValue, Status};
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -26,6 +27,21 @@ pub struct Error {
   // Convert raw `JsError` into Error
   maybe_raw: sys::napi_ref,
   maybe_env: sys::napi_env,
+}
+
+impl ToNapiValue for Error {
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    if val.maybe_raw.is_null() {
+      let err = unsafe { JsError::from(val).into_value(env) };
+      Ok(err)
+    } else {
+      let mut value = std::ptr::null_mut();
+      check_status!(unsafe {
+        sys::napi_get_reference_value(val.maybe_env, val.maybe_raw, &mut value)
+      })?;
+      Ok(value)
+    }
+  }
 }
 
 unsafe impl Send for Error {}
@@ -294,6 +310,12 @@ macro_rules! impl_object_methods {
         Self(err)
       }
     }
+
+    impl crate::bindgen_prelude::ToNapiValue for $js_value {
+      unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+        unsafe { ToNapiValue::to_napi_value(env, val.0) }
+      }
+    }
   };
 }
 
@@ -334,7 +356,8 @@ macro_rules! check_status {
 #[doc(hidden)]
 #[macro_export]
 macro_rules! check_pending_exception {
-  ($env: expr, $code:expr) => {{
+  ($env:expr, $code:expr) => {{
+    use $crate::NapiValue;
     let c = $code;
     match c {
       $crate::sys::Status::napi_ok => Ok(()),
@@ -344,11 +367,30 @@ macro_rules! check_pending_exception {
           unsafe { $crate::sys::napi_get_and_clear_last_exception($env, &mut error_result) },
           $crate::sys::Status::napi_ok
         );
-        return Err(Error::from(unsafe {
-          JsUnknown::from_raw_unchecked($env, error_result)
+        return Err($crate::Error::from(unsafe {
+          $crate::bindgen_prelude::Unknown::from_raw_unchecked($env, error_result)
         }));
       }
       _ => Err($crate::Error::new($crate::Status::from(c), "".to_owned())),
+    }
+  }};
+
+  ($env:expr, $code:expr, $($msg:tt)*) => {{
+    use $crate::NapiValue;
+    let c = $code;
+    match c {
+      $crate::sys::Status::napi_ok => Ok(()),
+      $crate::sys::Status::napi_pending_exception => {
+        let mut error_result = std::ptr::null_mut();
+        assert_eq!(
+          unsafe { $crate::sys::napi_get_and_clear_last_exception($env, &mut error_result) },
+          $crate::sys::Status::napi_ok
+        );
+        return Err($crate::Error::from(unsafe {
+          $crate::bindgen_prelude::Unknown::from_raw_unchecked($env, error_result)
+        }));
+      }
+      _ => Err($crate::Error::new($crate::Status::from(c), format!($($msg)*))),
     }
   }};
 }

@@ -160,8 +160,9 @@ pub mod bindgen_prelude {
   #[cfg(feature = "tokio_rt")]
   pub use crate::tokio_runtime::*;
   pub use crate::{
-    assert_type_of, bindgen_runtime::*, check_status, check_status_or_throw, error, error::*, sys,
-    type_of, JsError, Property, PropertyAttributes, Result, Status, Task, ValueType,
+    assert_type_of, bindgen_runtime::*, check_pending_exception, check_status,
+    check_status_or_throw, error, error::*, sys, type_of, JsError, Property, PropertyAttributes,
+    Result, Status, Task, ValueType,
   };
 
   // This function's signature must be kept in sync with the one in tokio_runtime.rs, otherwise napi

@@ -33,6 +33,7 @@ export function optionOnly(callback: (arg0?: string | undefined | null) => void)
 export function readFile(callback: (arg0: Error | undefined, arg1?: string | undefined | null) => void): void
 export function returnJsFunction(): (...args: any[]) => any
 export function callbackReturnPromise<T>(functionInput: () => T | Promise<T>, callback: (err: Error | null, result: T) => void): T | Promise<T>
+export function captureErrorInCallback(cb1: () => void, cb2: (arg0: Error) => void): void
 export interface ObjectFieldClassInstance {
   bird: Bird
 }
