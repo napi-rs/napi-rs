@@ -1,18 +1,19 @@
-freebsd_instance:
-  image: freebsd-13-0-release-amd64
+env:
+  DEBUG: 'napi:*'
+  CI: '1'
 
-task:
-  name: FreeBSD
-  env:
-    DEBUG: 'napi:*'
-    RUSTUP_HOME: /usr/local/rustup
-    CARGO_HOME: /usr/local/cargo
-    PATH: /usr/local/cargo/bin:$PATH
-    RUSTUP_IO_THREADS: '1'
-    CI: '1'
-  setup_script:
-    - pkg update
-    - pkg install -y -f curl node16 libnghttp2
+build_and_test: &BUILD_AND_TEST
+  registry_cache:
+    folder: $HOME/.cargo/registry
+    fingerprint_script:
+      - echo $CIRRUS_OS
+      - cat crates/*/Cargo.toml
+  target_cache:
+    folder: target
+    fingerprint_script:
+      - echo $CIRRUS_OS
+      - cat crates/*/Cargo.toml
+  install_script:
     - curl -qL https://www.npmjs.com/install.sh | sh
     - npm install --location=global --ignore-scripts yarn
     - curl https://sh.rustup.rs -sSf --output rustup.sh
@@ -30,3 +31,27 @@ task:
     - cargo test -p napi-sys --lib -- --nocapture
     - yarn build:test
     - yarn test --verbose
+
+freebsd_task:
+  name: FreeBSD
+  freebsd_instance:
+    image: freebsd-13-0-release-amd64
+  env:
+    RUSTUP_HOME: /usr/local/rustup
+    CARGO_HOME: /usr/local/cargo
+    PATH: /usr/local/cargo/bin:$PATH
+    RUSTUP_IO_THREADS: '1'
+  setup_script:
+    - pkg update
+    - pkg install -y -f curl node16 libnghttp2
+  <<: *BUILD_AND_TEST
+
+macos_arm64_task:
+  name: macOS arm64
+  macos_instance:
+    image: ghcr.io/cirruslabs/macos-monterey-xcode
+  env:
+    PATH: $HOME/.cargo/bin:$PATH
+  setup_script:
+    - brew install node
+  <<: *BUILD_AND_TEST
