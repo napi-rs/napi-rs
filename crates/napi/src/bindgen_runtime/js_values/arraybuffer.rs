@@ -395,3 +395,9 @@ impl_typed_array!(Float64Array, f64, TypedArrayType::Float64);
 impl_typed_array!(BigInt64Array, i64, TypedArrayType::BigInt64);
 #[cfg(feature = "napi6")]
 impl_typed_array!(BigUint64Array, u64, TypedArrayType::BigUint64);
+
+impl<T: Into<Vec<u8>>> From<T> for Uint8Array {
+  fn from(data: T) -> Self {
+    Uint8Array::new(data.into())
+  }
+}
