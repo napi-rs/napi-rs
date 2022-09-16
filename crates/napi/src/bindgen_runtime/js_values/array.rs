@@ -119,9 +119,34 @@ impl FromNapiValue for Array {
         len,
       })
     } else {
+      let mut len = 0;
+
+      if sys::Status::napi_ok
+        == unsafe { sys::napi_get_value_string_utf8(env, napi_val, ptr::null_mut(), 0, &mut len) }
+      {
+        len += 1;
+        let mut buf_ptr = ptr::null_mut();
+        let mut buf = ptr::null_mut();
+        unsafe {
+          check_status!(sys::napi_create_buffer(env, len, &mut buf_ptr, &mut buf))?;
+          check_status!(sys::napi_get_value_string_utf8(
+            env,
+            napi_val,
+            buf_ptr as _,
+            len,
+            &mut len
+          ))?;
+        }
+        return Ok(Array {
+          inner: buf,
+          env,
+          len: len as _,
+        });
+      }
+
       Err(Error::new(
         Status::InvalidArg,
-        "Given napi value is not an array".to_owned(),
+        "Given napi value is not an array or string".to_owned(),
       ))
     }
   }
