@@ -3,9 +3,8 @@ use std::{
   ops::{Deref, DerefMut},
 };
 
-use crate::{check_status, sys, Error, Status, TaggedObject};
-
 use super::{FromNapiValue, ToNapiValue, TypeName, ValidateNapiValue};
+use crate::{check_status, sys, Error, Status, TaggedObject};
 
 pub struct External<T: 'static> {
   obj: *mut TaggedObject<T>,
@@ -20,6 +19,12 @@ impl<T: 'static> TypeName for External<T> {
 
   fn value_type() -> crate::ValueType {
     crate::ValueType::External
+  }
+}
+
+impl<T: 'static> From<T> for External<T> {
+  fn from(t: T) -> Self {
+    External::new(t)
   }
 }
 
