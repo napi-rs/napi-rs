@@ -3,15 +3,16 @@ use std::{
   ops::{Deref, DerefMut},
 };
 
-use crate::{check_status, sys, Error, Status, TaggedObject};
-
 use super::{FromNapiValue, ToNapiValue, TypeName, ValidateNapiValue};
+use crate::{check_status, sys, Error, Status, TaggedObject};
 
 pub struct External<T: 'static> {
   obj: *mut TaggedObject<T>,
   size_hint: usize,
   pub adjusted_size: i64,
 }
+
+unsafe impl<T: 'static> Send for External<T> {}
 
 impl<T: 'static> TypeName for External<T> {
   fn type_name() -> &'static str {
