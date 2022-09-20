@@ -10,8 +10,8 @@ pub enum Either<A, B> {
   B(B),
 }
 
-unsafe impl<A, B> Send for Either<A, B> {}
-unsafe impl<A, B> Sync for Either<A, B> {}
+unsafe impl<A: Send, B: Send> Send for Either<A, B> {}
+unsafe impl<A: Sync, B: Sync> Sync for Either<A, B> {}
 
 impl<A: AsRef<T>, B: AsRef<T>, T> AsRef<T> for Either<A, B>
 where
