@@ -126,7 +126,7 @@ impl<'x, 'de, 'env> serde::de::Deserializer<'x> for &'de mut De<'env> {
           ))
         } else {
           let key = properties.get_element::<JsString>(0)?;
-          let value: JsUnknown = js_object.get_property(&key)?;
+          let value: JsUnknown = js_object.get_property(key)?;
           visitor.visit_enum(JsEnumAccess::new(
             key.into_utf8()?.into_owned()?,
             Some(&value.0),
@@ -354,7 +354,7 @@ impl<'de, 'env> MapAccess<'de> for JsObjectAccess<'env> {
       ));
     }
     let prop_name = self.properties.get_element::<JsString>(self.idx)?;
-    let value: JsUnknown = self.value.get_property(&prop_name)?;
+    let value: JsUnknown = self.value.get_property(prop_name)?;
 
     self.idx += 1;
     let mut de = De(&value.0);

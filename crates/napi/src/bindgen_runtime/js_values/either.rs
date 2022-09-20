@@ -10,6 +10,21 @@ pub enum Either<A, B> {
   B(B),
 }
 
+unsafe impl<A: Send, B: Send> Send for Either<A, B> {}
+unsafe impl<A: Sync, B: Sync> Sync for Either<A, B> {}
+
+impl<A: AsRef<T>, B: AsRef<T>, T> AsRef<T> for Either<A, B>
+where
+  T: ?Sized,
+{
+  fn as_ref(&self) -> &T {
+    match &self {
+      Self::A(a) => a.as_ref(),
+      Self::B(b) => b.as_ref(),
+    }
+  }
+}
+
 impl<A: NapiRaw, B: NapiRaw> Either<A, B> {
   /// # Safety
   /// Backward compatible with `Either` in **v1**
