@@ -1,3 +1,5 @@
+use std::{iter::IntoIterator, vec::Vec};
+
 use super::{FromNapiValue, ToNapiValue, TypeName, ValidateNapiValue};
 use crate::{
   bindgen_runtime::{Null, Undefined, Unknown},
@@ -83,6 +85,19 @@ impl<T> From<Either<T, Null>> for Option<T> {
   }
 }
 
+impl<A, B: Into<Vec<A>>> IntoIterator for Either<A, B> {
+  type Item = A;
+  type IntoIter = std::vec::IntoIter<Self::Item>;
+
+  fn into_iter(self) -> Self::IntoIter {
+    match self {
+      Self::A(a) => vec![a],
+      Self::B(b) => b.into(),
+    }
+    .into_iter()
+  }
+}
+
 impl<
     A: TypeName + FromNapiValue + ValidateNapiValue,
     B: TypeName + FromNapiValue + ValidateNapiValue,
@@ -127,82 +142,82 @@ macro_rules! either_n {
 
     impl< $( $parameter ),+ > TypeName for $either_name < $( $parameter ),+ >
       where $( $parameter: TypeName ),+
-    {
-      fn type_name() -> &'static str {
-        stringify!( $either_name )
-      }
+      {
+        fn type_name() -> &'static str {
+          stringify!( $either_name )
+        }
 
-      fn value_type() -> ValueType {
-        ValueType::Unknown
+        fn value_type() -> ValueType {
+          ValueType::Unknown
+        }
       }
-    }
 
     impl< $( $parameter ),+ > FromNapiValue for $either_name < $( $parameter ),+ >
       where $( $parameter: TypeName + FromNapiValue + ValidateNapiValue ),+
-    {
-      unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
-        let mut ret = Err(Error::new(Status::InvalidArg, "Invalid value".to_owned()));
-        $(
-          if unsafe { $parameter::validate(env, napi_val).is_ok() && { ret = $parameter ::from_napi_value(env, napi_val).map(Self:: $parameter ); ret.is_ok() } } {
-            ret
-          } else
-        )+
-        {
-          Err(crate::Error::new(
-            Status::InvalidArg,
-            format!(
-              concat!("Value is non of these types ", $( "`{", stringify!( $parameter ), "}`, " ),+ ),
-              $( $parameter = $parameter::type_name(), )+
-            ),
-          ))
+      {
+        unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
+          let mut ret = Err(Error::new(Status::InvalidArg, "Invalid value".to_owned()));
+          $(
+            if unsafe { $parameter::validate(env, napi_val).is_ok() && { ret = $parameter ::from_napi_value(env, napi_val).map(Self:: $parameter ); ret.is_ok() } } {
+              ret
+            } else
+          )+
+            {
+              Err(crate::Error::new(
+                  Status::InvalidArg,
+                  format!(
+                    concat!("Value is non of these types ", $( "`{", stringify!( $parameter ), "}`, " ),+ ),
+                    $( $parameter = $parameter::type_name(), )+
+                  ),
+              ))
+            }
         }
       }
-    }
 
     impl< $( $parameter ),+ > ToNapiValue for $either_name < $( $parameter ),+ >
       where $( $parameter: ToNapiValue ),+
-    {
-      unsafe fn to_napi_value(
-        env: sys::napi_env,
-        value: Self
-      ) -> crate::Result<crate::sys::napi_value> {
-        match value {
-          $( Self:: $parameter (v) => unsafe { $parameter ::to_napi_value(env, v) } ),+
+      {
+        unsafe fn to_napi_value(
+          env: sys::napi_env,
+          value: Self
+        ) -> crate::Result<crate::sys::napi_value> {
+          match value {
+            $( Self:: $parameter (v) => unsafe { $parameter ::to_napi_value(env, v) } ),+
+          }
         }
       }
-    }
 
     impl< $( $parameter ),+ > ValidateNapiValue for $either_name < $( $parameter ),+ >
       where $( $parameter: ValidateNapiValue ),+
-    {
-      unsafe fn validate(
-        env: sys::napi_env,
-        napi_val: sys::napi_value,
-      ) -> crate::Result<sys::napi_value> {
-        let mut ret: crate::Result<sys::napi_value>;
-        $(
-          if unsafe {
-            ret = $parameter::validate(env, napi_val);
-            ret.is_ok()
-          } {
-            ret
-          } else
-        )+
-        {
-          ret
+      {
+        unsafe fn validate(
+          env: sys::napi_env,
+          napi_val: sys::napi_value,
+        ) -> crate::Result<sys::napi_value> {
+          let mut ret: crate::Result<sys::napi_value>;
+          $(
+            if unsafe {
+              ret = $parameter::validate(env, napi_val);
+              ret.is_ok()
+            } {
+              ret
+            } else
+          )+
+            {
+              ret
+            }
         }
       }
-    }
 
     impl< $( $parameter ),+ > $either_name < $( $parameter ),+ >
       where $( $parameter: NapiRaw ),+
-    {
-      pub fn as_unknown(&self, env: Env) -> Unknown {
-        match &self {
-          $( Self:: $parameter (v) => unsafe { Unknown::from_raw_unchecked(env.raw(), v.raw()) } ),+
+      {
+        pub fn as_unknown(&self, env: Env) -> Unknown {
+          match &self {
+            $( Self:: $parameter (v) => unsafe { Unknown::from_raw_unchecked(env.raw(), v.raw()) } ),+
+          }
         }
       }
-    }
   };
 }
 
