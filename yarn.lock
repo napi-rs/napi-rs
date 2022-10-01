@@ -1035,10 +1035,18 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@ltd/j-toml@npm:^1.35.2":
+  version: 1.35.2
+  resolution: "@ltd/j-toml@npm:1.35.2"
+  checksum: 631f23d63c0963288d6d28748c706f0d74ddf977f40d2b461e0cd9a3e638d723e4b3b7587adc9879657168c07fd734a08f238abe89446d4fbc3c106075c97a0a
+  languageName: node
+  linkType: hard
+
 "@napi-rs/cli@workspace:cli":
   version: 0.0.0-use.local
   resolution: "@napi-rs/cli@workspace:cli"
   dependencies:
+    "@ltd/j-toml": ^1.35.2
     "@octokit/rest": ^19.0.4
     "@types/inquirer": ^9.0.1
     "@types/js-yaml": ^4.0.5
@@ -1052,7 +1060,6 @@ __metadata:
     inquirer: ^9.1.0
     js-yaml: ^4.1.0
     lodash-es: 4.17.21
-    toml: ^3.0.0
     tslib: ^2.4.0
     typanion: ^3.9.0
   bin:
@@ -8982,13 +8989,6 @@ __metadata:
   dependencies:
     is-number: ^7.0.0
   checksum: f76fa01b3d5be85db6a2a143e24df9f60dd047d151062d0ba3df62953f2f697b16fe5dad9b0ac6191c7efc7b1d9dcaa4b768174b7b29da89d4428e64bc0a20ed
-  languageName: node
-  linkType: hard
-
-"toml@npm:^3.0.0":
-  version: 3.0.0
-  resolution: "toml@npm:3.0.0"
-  checksum: 5d7f1d8413ad7780e9bdecce8ea4c3f5130dd53b0a4f2e90b93340979a137739879d7b9ce2ce05c938b8cc828897fe9e95085197342a1377dd8850bf5125f15f
   languageName: node
   linkType: hard
 

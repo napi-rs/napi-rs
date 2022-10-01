@@ -3,11 +3,11 @@ import { existsSync, mkdirSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, parse, sep } from 'path'
 
+import * as toml from '@ltd/j-toml'
 import { Instance } from 'chalk'
 import { Command, Option } from 'clipanion'
 import envPaths from 'env-paths'
 import { groupBy } from 'lodash-es'
-import toml from 'toml'
 
 import { getNapiConfig } from './consts'
 import { debugFactory } from './debug'

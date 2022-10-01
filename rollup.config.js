@@ -6,7 +6,7 @@ import commonjs from '@rollup/plugin-commonjs'
 import json from '@rollup/plugin-json'
 import nodeResolve from '@rollup/plugin-node-resolve'
 import replace from '@rollup/plugin-replace'
-import toml from 'toml'
+import * as toml from '@ltd/j-toml'
 
 const NAPI_CARGO_TOML = readFileSync(
   join(__dirname, 'crates', 'napi', 'Cargo.toml'),

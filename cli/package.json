@@ -40,6 +40,7 @@
     "url": "https://github.com/napi-rs/napi-rs/issues"
   },
   "devDependencies": {
+    "@ltd/j-toml": "^1.35.2",
     "@octokit/rest": "^19.0.4",
     "@types/inquirer": "^9.0.1",
     "@types/js-yaml": "^4.0.5",
@@ -53,7 +54,6 @@
     "inquirer": "^9.1.0",
     "js-yaml": "^4.1.0",
     "lodash-es": "4.17.21",
-    "toml": "^3.0.0",
     "tslib": "^2.4.0",
     "typanion": "^3.9.0"
   },
