@@ -7,7 +7,6 @@ import { Instance } from 'chalk'
 import { Command, Option } from 'clipanion'
 import envPaths from 'env-paths'
 import { groupBy } from 'lodash-es'
-import toml from 'toml'
 
 import { getNapiConfig } from './consts'
 import { debugFactory } from './debug'
@@ -191,39 +190,39 @@ export class BuildCommand extends Command {
     const cwd = this.cargoCwd
       ? join(process.cwd(), this.cargoCwd)
       : process.cwd()
+    const cargoTomlPath = join(cwd, 'Cargo.toml')
 
-    let tomlContentString: string
-    let tomlContent: any
-    try {
-      debug('Start read toml')
-      tomlContentString = await readFileAsync(join(cwd, 'Cargo.toml'), 'utf-8')
-    } catch {
-      throw new TypeError(`Could not find Cargo.toml in ${cwd}`)
-    }
+    let cargoMetadata: any
 
     try {
       debug('Start parse toml')
-      tomlContent = toml.parse(tomlContentString)
-    } catch {
-      throw new TypeError('Could not parse the Cargo.toml')
+      cargoMetadata = JSON.parse(
+        execSync(
+          `cargo metadata --format-version 1 --manifest-path ${cargoTomlPath}`,
+          {
+            stdio: 'pipe',
+            maxBuffer: 1024 * 1024 * 10,
+          },
+        ).toString('utf8'),
+      )
+    } catch (e) {
+      throw new TypeError('Could not parse the Cargo.toml: ' + e)
     }
+    const packages = cargoMetadata.packages
 
     let cargoPackageName: string
-    if (tomlContent.package?.name) {
-      cargoPackageName = tomlContent.package.name
-    } else if (this.cargoName) {
+    if (this.cargoName) {
       cargoPackageName = this.cargoName
     } else {
-      throw new TypeError('No package.name field in Cargo.toml')
+      const root = cargoMetadata.resolve.root
+      if (root) {
+        const rootPackage = packages.find((p: { id: string }) => p.id === root)
+        cargoPackageName = rootPackage.name
+      } else {
+        throw new TypeError('No package.name field in Cargo.toml')
+      }
     }
 
-    const cargoMetadata = JSON.parse(
-      execSync('cargo metadata --format-version 1', {
-        stdio: 'pipe',
-        maxBuffer: 1024 * 1024 * 10,
-      }).toString('utf8'),
-    )
-    const packages = cargoMetadata.packages
     const cargoPackage = packages.find(
       (p: { name: string }) => p.name === cargoPackageName,
     )
@@ -369,7 +368,12 @@ export class BuildCommand extends Command {
         cargoArtifactName = cargoPackageName.replace(/-/g, '_')
       }
 
-      if (!this.bin && !tomlContent.lib?.['crate-type']?.includes?.('cdylib')) {
+      if (
+        !this.bin &&
+        !cargoPackage.targets.some((target: { crate_types: string[] }) =>
+          target.crate_types.includes('cdylib'),
+        )
+      ) {
         throw new TypeError(
           `Missing ${chalk.green('crate-type = ["cdylib"]')} in ${chalk.green(
             '[lib]',
