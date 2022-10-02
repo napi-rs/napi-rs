@@ -74,6 +74,10 @@ export async function createSuite(testFile, maxMemoryUsage) {
 
   shouldAssertMemoryUsage = true
 
-  await container.stop()
-  await container.remove()
+  try {
+    await container.stop()
+    await container.remove()
+  } catch (e) {
+    console.error(e)
+  }
 }
