@@ -67,6 +67,11 @@ macro_rules! impl_typed_array {
             crate::check_status_or_throw!(
               env,
               unsafe { sys::napi_reference_unref(env, ref_, &mut 0) },
+              "Failed to unref Buffer reference in drop"
+            );
+            crate::check_status_or_throw!(
+              env,
+              unsafe { sys::napi_delete_reference(env, ref_) },
               "Failed to delete Buffer reference in drop"
             );
             return;

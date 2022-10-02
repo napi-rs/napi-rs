@@ -18,6 +18,8 @@ while (true) {
   api.arrayBufferConvert(
     Uint8Array.from(Array.from({ length: 1024 * 10240 }).fill(1)),
   )
+  api.bufferPassThrough(Buffer.from('hello world'.repeat(1024 * 1024)))
+  api.arrayBufferPassThrough(Uint8Array.from('hello world'.repeat(1024 * 1024)))
   if (i % 10 === 0) {
     await setTimeout(100)
     displayMemoryUsageFromNode(initialMemoryUsage)
