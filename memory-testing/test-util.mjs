@@ -10,7 +10,7 @@ const sleep = promisify(setTimeout)
 const client = new Dockerode()
 
 export async function createSuite(testFile, maxMemoryUsage) {
-  console.info(chalk.cyanBright('Create container'))
+  console.info(chalk.cyanBright(`Create container to test ${testFile}`))
 
   const container = await client.createContainer({
     Image: 'node:lts-slim',
