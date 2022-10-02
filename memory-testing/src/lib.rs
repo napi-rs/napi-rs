@@ -161,3 +161,13 @@ pub fn array_buffer_convert(array_buffer: Uint8Array) -> Uint8Array {
 pub fn array_buffer_len() -> u32 {
   Uint8Array::new(vec![1; 1024 * 10240]).len() as u32
 }
+
+#[napi]
+pub fn buffer_pass_through(buffer: Buffer) -> Buffer {
+  buffer
+}
+
+#[napi]
+pub fn array_buffer_pass_through(array_buffer: Uint8Array) -> Uint8Array {
+  array_buffer
+}

@@ -73,7 +73,7 @@ pub unsafe extern "C" fn raw_finalize_unchecked<T: ObjectFinalize>(
 #[doc(hidden)]
 pub unsafe extern "C" fn drop_buffer(
   _env: sys::napi_env,
-  finalize_data: *mut c_void,
+  #[allow(unused)] finalize_data: *mut c_void,
   finalize_hint: *mut c_void,
 ) {
   #[cfg(debug_assertions)]

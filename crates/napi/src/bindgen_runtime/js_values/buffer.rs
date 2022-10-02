@@ -25,23 +25,27 @@ pub struct Buffer {
   pub(crate) len: usize,
   pub(crate) capacity: usize,
   raw: Option<(sys::napi_ref, sys::napi_env)>,
-  // use it as ref count
-  pub(crate) drop_in_vm: Arc<()>,
+  pub(crate) ref_count: Arc<()>,
 }
 
 impl Drop for Buffer {
   fn drop(&mut self) {
-    if let Some((ref_, env)) = self.raw {
-      check_status_or_throw!(
-        env,
-        unsafe { sys::napi_reference_unref(env, ref_, &mut 0) },
-        "Failed to unref Buffer reference in drop"
-      );
-      return;
-    }
-
-    if Arc::strong_count(&self.drop_in_vm) == 1 {
-      unsafe { Vec::from_raw_parts(self.inner.as_ptr(), self.len, self.capacity) };
+    if Arc::strong_count(&self.ref_count) == 1 {
+      if let Some((ref_, env)) = self.raw {
+        let mut ref_count = 0;
+        check_status_or_throw!(
+          env,
+          unsafe { sys::napi_reference_unref(env, ref_, &mut ref_count) },
+          "Failed to unref Buffer reference in drop"
+        );
+        check_status_or_throw!(
+          env,
+          unsafe { sys::napi_delete_reference(env, ref_) },
+          "Failed to delete Buffer reference in drop"
+        );
+      } else {
+        unsafe { Vec::from_raw_parts(self.inner.as_ptr(), self.len, self.capacity) };
+      }
     }
   }
 }
@@ -50,24 +54,15 @@ impl Drop for Buffer {
 // without synchronization. Also see the docs for the `AsMut` impl.
 unsafe impl Send for Buffer {}
 
-impl Buffer {
-  pub fn clone(&mut self, env: &Env) -> Result<Self> {
-    let raw = if let Some((ref_, _)) = self.raw {
-      check_status!(
-        unsafe { sys::napi_reference_ref(env.0, ref_, &mut 0) },
-        "Failed to ref Buffer reference in Buffer::clone"
-      )?;
-      Some((ref_, env.0))
-    } else {
-      None
-    };
-    Ok(Self {
+impl Clone for Buffer {
+  fn clone(&self) -> Self {
+    Self {
       inner: self.inner,
       len: self.len,
       capacity: self.capacity,
-      raw,
-      drop_in_vm: self.drop_in_vm.clone(),
-    })
+      raw: self.raw,
+      ref_count: self.ref_count.clone(),
+    }
   }
 }
 
@@ -95,7 +90,7 @@ impl From<Vec<u8>> for Buffer {
       len,
       capacity,
       raw: None,
-      drop_in_vm: Arc::new(()),
+      ref_count: Arc::new(()),
     }
   }
 }
@@ -184,7 +179,7 @@ impl FromNapiValue for Buffer {
       len,
       capacity: len,
       raw: Some((ref_, env)),
-      drop_in_vm: Arc::new(()),
+      ref_count: Arc::new(()),
     })
   }
 }
@@ -227,9 +222,16 @@ impl ToNapiValue for Buffer {
   }
 }
 
+impl ToNapiValue for &Buffer {
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    let buf = val.clone();
+    unsafe { ToNapiValue::to_napi_value(env, buf) }
+  }
+}
+
 impl ToNapiValue for &mut Buffer {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
-    let buf = val.clone(&Env::from(env))?;
+    let buf = val.clone();
     unsafe { ToNapiValue::to_napi_value(env, buf) }
   }
 }

@@ -68,8 +68,6 @@ impl Task for AsyncBuffer {
 }
 
 #[napi]
-fn async_reduce_buffer(mut buf: Buffer, env: Env) -> Result<AsyncTask<AsyncBuffer>> {
-  Ok(AsyncTask::new(AsyncBuffer {
-    buf: buf.clone(&env)?,
-  }))
+fn async_reduce_buffer(buf: Buffer) -> Result<AsyncTask<AsyncBuffer>> {
+  Ok(AsyncTask::new(AsyncBuffer { buf: buf.clone() }))
 }
