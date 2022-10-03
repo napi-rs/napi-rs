@@ -9,7 +9,7 @@ use tokio::{
   sync::mpsc::{self, error::TrySendError},
 };
 
-use crate::{check_status, promise, sys, Result};
+use crate::{check_status, sys, JsDeferred, JsUnknown, NapiValue, Result};
 
 pub(crate) static RT: Lazy<(Handle, mpsc::Sender<()>)> = Lazy::new(|| {
   let runtime = tokio::runtime::Runtime::new();
@@ -84,9 +84,16 @@ pub fn execute_tokio_future<
 
   check_status!(unsafe { sys::napi_create_promise(env, &mut deferred, &mut promise) })?;
 
-  let future_promise = promise::FuturePromise::new(env, deferred, resolver)?;
-  let future_to_resolve = promise::resolve_from_future(future_promise.start()?, fut);
-  spawn(future_to_resolve);
+  let (deferred, promise) = JsDeferred::new(env)?;
 
-  Ok(promise)
+  spawn(async move {
+    match fut.await {
+      Ok(v) => deferred.resolve(|env| {
+        resolver(env.raw(), v).map(|v| unsafe { JsUnknown::from_raw_unchecked(env.raw(), v) })
+      }),
+      Err(e) => deferred.reject(e),
+    }
+  });
+
+  Ok(promise.0.value)
 }

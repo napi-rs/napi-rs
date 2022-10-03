@@ -1109,6 +1109,14 @@ impl Env {
     Ok(unsafe { JsObject::from_raw_unchecked(self.0, promise) })
   }
 
+  /// Creates a deferred promise, which can be resolved or rejected from a background thread.
+  #[cfg(feature = "napi4")]
+  pub fn create_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>>(
+    &self,
+  ) -> Result<(JsDeferred<Data, Resolver>, JsObject)> {
+    JsDeferred::new(self.raw())
+  }
+
   /// This API does not observe leap seconds; they are ignored, as ECMAScript aligns with POSIX time specification.
   ///
   /// This API allocates a JavaScript Date object.
