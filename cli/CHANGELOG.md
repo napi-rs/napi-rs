@@ -3,6 +3,17 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.12.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.11.4...@napi-rs/cli@2.12.0) (2022-10-04)
+
+### Bug Fixes
+
+- **cli:** custom Cargo (build) target directories ([#1300](https://github.com/napi-rs/napi-rs/issues/1300)) ([f7c26cc](https://github.com/napi-rs/napi-rs/commit/f7c26cccbffa12879f2c2f8331b66bec8582d4de))
+
+### Features
+
+- **cli:** parse `Cargo.toml` using `cargo metadata` ([#1330](https://github.com/napi-rs/napi-rs/issues/1330)) ([4279291](https://github.com/napi-rs/napi-rs/commit/4279291f4ba9848b92f62b0fb496fe436fa5256c))
+- **napi-derive:** catch_unwind attribute ([#1280](https://github.com/napi-rs/napi-rs/issues/1280)) ([b7a3103](https://github.com/napi-rs/napi-rs/commit/b7a3103f0c80eef19d9fe653f3bc7fdd14f90df1))
+
 ## [2.11.4](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.11.3...@napi-rs/cli@2.11.4) (2022-08-12)
 
 ### Bug Fixes
