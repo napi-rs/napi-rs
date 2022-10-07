@@ -35,7 +35,40 @@ impl TryToTokens for NapiFn {
         quote! { Ok(#receiver(#(#arg_names),*).await) }
       };
       quote! {
-        napi::bindgen_prelude::execute_tokio_future(env, async move { #call }, |env, #receiver_ret_name| {
+        struct NapiRefContainer([Option<napi::bindgen_prelude::sys::napi_ref>; #args_len], Option<napi::bindgen_prelude::sys::napi_ref>);
+        impl NapiRefContainer {
+          fn drop(self, env: napi::bindgen_prelude::sys::napi_env) {
+            for r in self.0.into_iter().filter_map(|a| a).chain(self.1) {
+              assert_eq!(
+                unsafe { napi::bindgen_prelude::sys::napi_delete_reference(env, r) },
+                napi::bindgen_prelude::sys::Status::napi_ok,
+                "failed to delete napi ref"
+              );
+            }
+          }
+        }
+        unsafe impl Send for NapiRefContainer {}
+        unsafe impl Sync for NapiRefContainer {}
+        let _make_ref = |a: ::std::ptr::NonNull<napi::bindgen_prelude::sys::napi_value__>| {
+          let mut node_ref = ::std::mem::MaybeUninit::uninit();
+          let ref_status = unsafe {
+            napi::bindgen_prelude::sys::napi_create_reference(env, a.as_ptr(), 1, node_ref.as_mut_ptr())
+          };
+          let ref_made = ref_status == napi::bindgen_prelude::sys::Status::napi_ok;
+          ref_made.then(|| unsafe { node_ref.assume_init() })
+        };
+        let mut _arg_iter = cb.args.iter().copied().filter_map(::std::ptr::NonNull::new).map(_make_ref);
+        let mut _args_array = [None; #args_len];
+        for arg in _args_array.iter_mut() {
+            *arg = _arg_iter.next().expect("infallible");
+        }
+        assert!(_arg_iter.next().is_none());
+        let _args_ref = NapiRefContainer(
+          _args_array,
+          ::std::ptr::NonNull::new(cb.this).and_then(_make_ref)
+        );
+        napi::bindgen_prelude::execute_tokio_future(env, async move { #call }, move |env, #receiver_ret_name| {
+          _args_ref.drop(env);
           #ret
         })
       }
@@ -45,6 +78,7 @@ impl TryToTokens for NapiFn {
       && self.fn_self.is_none()
       && self.kind != FnKind::Constructor
       && self.kind != FnKind::Factory
+      && !self.is_async
     {
       quote! { #native_call }
     } else if self.kind == FnKind::Constructor {
