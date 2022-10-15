@@ -24,7 +24,7 @@ impl TryToTokens for NapiFn {
     let register = self.gen_fn_register();
     let attrs = &self.attrs;
 
-    let ref_container = if self.is_async {
+    let build_ref_container = if self.is_async {
       quote! {
           struct NapiRefContainer([napi::bindgen_prelude::sys::napi_ref; #arg_ref_count]);
           impl NapiRefContainer {
@@ -52,12 +52,9 @@ impl TryToTokens for NapiFn {
           };
           let mut _args_array = [::std::ptr::null_mut::<napi::bindgen_prelude::sys::napi_ref__>(); #arg_ref_count];
           let mut _arg_write_index = 0;
-      }
-    } else {
-      quote! {}
-    };
-    let finish_ref_container = if self.is_async {
-      quote! {
+
+          #(#refs)*
+
           if cfg!(debug_assert) {
               for a in &_args_array {
                 assert!(!a.is_null(), "failed to initialize napi ref");
@@ -91,19 +88,9 @@ impl TryToTokens for NapiFn {
       }
     };
 
-    let refs_token = if self.is_async {
-      quote! {
-        #(#refs)*
-      }
-    } else {
-      quote! {}
-    };
-
     let function_call_inner = quote! {
       napi::bindgen_prelude::CallbackInfo::<#args_len>::new(env, cb, None).and_then(|mut cb| {
-          #ref_container
-          #refs_token
-          #finish_ref_container
+          #build_ref_container
           #(#arg_conversions)*
           #native_call
         })
