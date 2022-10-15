@@ -12,46 +12,61 @@ impl TryToTokens for NapiFn {
     let intermediate_ident = get_intermediate_ident(&name_str);
     let args_len = self.args.len();
 
-    let (arg_conversions, arg_names, arg_ref_count) = self.gen_arg_conversions()?;
+    let ArgConversions {
+      arg_conversions,
+      args: arg_names,
+      refs,
+    } = self.gen_arg_conversions()?;
+    let arg_ref_count = refs.len();
     let receiver = self.gen_fn_receiver();
     let receiver_ret_name = Ident::new("_ret", Span::call_site());
     let ret = self.gen_fn_return(&receiver_ret_name);
     let register = self.gen_fn_register();
     let attrs = &self.attrs;
 
-    let ref_container = quote! {
-        struct NapiRefContainer([napi::bindgen_prelude::sys::napi_ref; #arg_ref_count]);
-        impl NapiRefContainer {
-          fn drop(self, env: napi::bindgen_prelude::sys::napi_env) {
-            for r in self.0.into_iter() {
-              assert_eq!(
-                unsafe { napi::bindgen_prelude::sys::napi_delete_reference(env, r) },
-                napi::bindgen_prelude::sys::Status::napi_ok,
-                "failed to delete napi ref"
-              );
+    let ref_container = if self.is_async {
+      quote! {
+          struct NapiRefContainer([napi::bindgen_prelude::sys::napi_ref; #arg_ref_count]);
+          impl NapiRefContainer {
+            fn drop(self, env: napi::bindgen_prelude::sys::napi_env) {
+              for r in self.0.into_iter() {
+                assert_eq!(
+                  unsafe { napi::bindgen_prelude::sys::napi_delete_reference(env, r) },
+                  napi::bindgen_prelude::sys::Status::napi_ok,
+                  "failed to delete napi ref"
+                );
+              }
             }
           }
-        }
-        unsafe impl Send for NapiRefContainer {}
-        unsafe impl Sync for NapiRefContainer {}
-        let _make_ref = |a: ::std::ptr::NonNull<napi::bindgen_prelude::sys::napi_value__>| {
-          let mut node_ref = ::std::mem::MaybeUninit::uninit();
-          assert_eq!(unsafe {
-              napi::bindgen_prelude::sys::napi_create_reference(env, a.as_ptr(), 1, node_ref.as_mut_ptr())
-            },
-            napi::bindgen_prelude::sys::Status::napi_ok,
-            "failed to create napi ref"
-          );
-          unsafe { node_ref.assume_init() }
-        };
-        let mut _args_array = [::std::ptr::null_mut::<napi::bindgen_prelude::sys::napi_ref__>(); #arg_ref_count];
-        let mut _arg_write_index = 0;
+          unsafe impl Send for NapiRefContainer {}
+          unsafe impl Sync for NapiRefContainer {}
+          let _make_ref = |a: ::std::ptr::NonNull<napi::bindgen_prelude::sys::napi_value__>| {
+            let mut node_ref = ::std::mem::MaybeUninit::uninit();
+            assert_eq!(unsafe {
+                napi::bindgen_prelude::sys::napi_create_reference(env, a.as_ptr(), 1, node_ref.as_mut_ptr())
+              },
+              napi::bindgen_prelude::sys::Status::napi_ok,
+              "failed to create napi ref"
+            );
+            unsafe { node_ref.assume_init() }
+          };
+          let mut _args_array = [::std::ptr::null_mut::<napi::bindgen_prelude::sys::napi_ref__>(); #arg_ref_count];
+          let mut _arg_write_index = 0;
+      }
+    } else {
+      quote! {}
     };
-    let finish_ref_container = quote! {
-        for a in &_args_array {
-          assert!(!a.is_null(), "failed to initialize napi ref");
-        }
-        let _args_ref = NapiRefContainer(_args_array);
+    let finish_ref_container = if self.is_async {
+      quote! {
+          if cfg!(debug_assert) {
+              for a in &_args_array {
+                assert!(!a.is_null(), "failed to initialize napi ref");
+              }
+          }
+          let _args_ref = NapiRefContainer(_args_array);
+      }
+    } else {
+      quote! {}
     };
     let native_call = if !self.is_async {
       quote! {
@@ -59,7 +74,6 @@ impl TryToTokens for NapiFn {
           let #receiver_ret_name = {
             #receiver(#(#arg_names),*)
           };
-          _args_ref.drop(env);
           #ret
         })
       }
@@ -77,11 +91,20 @@ impl TryToTokens for NapiFn {
       }
     };
 
+    let refs_token = if self.is_async {
+      quote! {
+        #(#refs)*
+      }
+    } else {
+      quote! {}
+    };
+
     let function_call_inner = quote! {
       napi::bindgen_prelude::CallbackInfo::<#args_len>::new(env, cb, None).and_then(|mut cb| {
           #ref_container
-          #(#arg_conversions)*
+          #refs_token
           #finish_ref_container
+          #(#arg_conversions)*
           #native_call
         })
     };
@@ -92,11 +115,7 @@ impl TryToTokens for NapiFn {
       && self.kind != FnKind::Factory
       && !self.is_async
     {
-      quote! {
-        #ref_container
-        #finish_ref_container
-        #native_call
-      }
+      quote! { #native_call }
     } else if self.kind == FnKind::Constructor {
       quote! {
         // constructor function is called from class `factory`
@@ -151,12 +170,10 @@ impl TryToTokens for NapiFn {
 }
 
 impl NapiFn {
-  fn gen_arg_conversions(&self) -> BindgenResult<(Vec<TokenStream>, Vec<TokenStream>, usize)> {
+  fn gen_arg_conversions(&self) -> BindgenResult<ArgConversions> {
     let mut arg_conversions = vec![];
     let mut args = vec![];
-    // arg_ref_count should be incremented any time make_ref is used. make_ref should be used
-    // when the argument is a reference to data that could be garbage collected.
-    let mut arg_ref_count = 0;
+    let mut refs = vec![];
     let make_ref = |input| {
       quote! {
         _args_array[_arg_write_index] = _make_ref(::std::ptr::NonNull::new(#input).expect("ref ptr was null"));
@@ -168,21 +185,17 @@ impl NapiFn {
     if let Some(parent) = &self.parent {
       match self.fn_self {
         Some(FnSelf::Ref) => {
-          arg_ref_count += 1;
-          let r = make_ref(quote! { cb.this });
+          refs.push(make_ref(quote! { cb.this }));
           arg_conversions.push(quote! {
             let this_ptr = unsafe { cb.unwrap_raw::<#parent>()? };
             let this: &#parent = Box::leak(Box::from_raw(this_ptr));
-            #r
           });
         }
         Some(FnSelf::MutRef) => {
-          arg_ref_count += 1;
-          let r = make_ref(quote! { cb.this });
+          refs.push(make_ref(quote! { cb.this }));
           arg_conversions.push(quote! {
             let this_ptr = unsafe { cb.unwrap_raw::<#parent>()? };
             let this: &mut #parent = Box::leak(Box::from_raw(this_ptr));
-            #r
           });
         }
         _ => {}
@@ -272,26 +285,22 @@ impl NapiFn {
                         }) = elem.as_ref()
                         {
                           if let Some(syn::PathSegment { ident, .. }) = segments.first() {
-                            let r = make_ref(quote! { cb.this });
+                            refs.push(make_ref(quote! { cb.this }));
                             let token = if mutability.is_some() {
                               quote! { <#ident as napi::bindgen_prelude::FromNapiMutRef>::from_napi_mut_ref(env, cb.this)? }
                             } else {
                               quote! { <#ident as napi::bindgen_prelude::FromNapiRef>::from_napi_ref(env, cb.this)? }
                             };
-                            arg_conversions.push(r);
                             args.push(token);
                             skipped_arg_count += 1;
-                            arg_ref_count += 1;
                             continue;
                           }
                         }
                       }
                     }
                   }
-                  let r = make_ref(quote! { cb.this });
-                  arg_conversions.push(r);
+                  refs.push(make_ref(quote! { cb.this }));
                   args.push(quote! { <napi::bindgen_prelude::This as napi::NapiValue>::from_raw_unchecked(env, cb.this) });
-                  arg_ref_count += 1;
                   skipped_arg_count += 1;
                   continue;
                 }
@@ -299,15 +308,9 @@ impl NapiFn {
             }
             let (arg_conversion, is_ref) = self.gen_ty_arg_conversion(&ident, i, path);
             if is_ref {
-              let r = make_ref(quote! { cb.get_arg(#i) });
-              arg_ref_count += 1;
-              arg_conversions.push(quote! {
-                #r
-                #arg_conversion
-              });
-            } else {
-              arg_conversions.push(arg_conversion);
+              refs.push(make_ref(quote! { cb.get_arg(#i) }));
             }
+            arg_conversions.push(arg_conversion);
             args.push(quote! { #ident });
           }
         }
@@ -318,7 +321,11 @@ impl NapiFn {
       }
     }
 
-    Ok((arg_conversions, args, arg_ref_count))
+    Ok(ArgConversions {
+      arg_conversions,
+      args,
+      refs,
+    })
   }
 
   /// Returns a type conversion, and a boolean indicating whether this value needs to have a reference created to extend the lifetime
@@ -556,4 +563,10 @@ impl NapiFn {
       }
     }
   }
+}
+
+struct ArgConversions {
+  pub args: Vec<TokenStream>,
+  pub arg_conversions: Vec<TokenStream>,
+  pub refs: Vec<TokenStream>,
 }
