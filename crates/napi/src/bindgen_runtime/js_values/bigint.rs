@@ -85,7 +85,7 @@ impl BigInt {
     (
       self.sign_bit,
       self.words[0],
-      self.sign_bit && self.words.len() == 1,
+      !self.sign_bit && self.words.len() == 1,
     )
   }
 
