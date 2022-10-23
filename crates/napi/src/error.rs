@@ -351,6 +351,32 @@ macro_rules! check_status {
       _ => Err($crate::Error::new($crate::Status::from(c), format!($($msg)*))),
     }
   }};
+
+  ($code:expr, $msg:expr, $env:expr, $val:expr) => {{
+    let c = $code;
+    match c {
+      $crate::sys::Status::napi_ok => Ok(()),
+      _ => Err($crate::Error::new($crate::Status::from(c), format!($msg, $crate::type_of!($env, $val)?))),
+    }
+  }};
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! check_status_and_type {
+  ($code:expr, $env:ident, $val:ident, $msg:expr) => {{
+    let c = $code;
+    match c {
+      $crate::sys::Status::napi_ok => Ok(()),
+      _ => {
+        let value_type = $crate::type_of!($env, $val)?;
+        Err($crate::Error::new(
+          $crate::Status::from(c),
+          format!($msg, value_type),
+        ))
+      }
+    }
+  }};
 }
 
 #[doc(hidden)]
