@@ -29,8 +29,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v3
         with:
-          # Testing for compatibility with node v12.x
-          node-version: 12
+          node-version: 16
           check-latest: true
           cache: 'yarn'
       - name: Install
@@ -63,6 +62,12 @@ jobs:
         run: yarn install --immutable --mode=skip-build
       - name: 'Build TypeScript'
         run: yarn build
+      - name: Setup node
+        uses: actions/setup-node@v3
+        with:
+          # Testing for compatibility with node v12.x
+          node-version: 12
+          check-latest: true
       - name: Cross build native tests
         run: |
           yarn workspace compat-mode-examples build --target ${{ matrix.target }} --zig
