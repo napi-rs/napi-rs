@@ -1,4 +1,4 @@
-use crate::{bindgen_prelude::*, check_status, sys, Error, Result, Status};
+use crate::{bindgen_prelude::*, check_status, check_status_and_type, sys, Error, Result, Status};
 
 use std::ffi::{c_void, CStr};
 use std::fmt::Display;
@@ -35,9 +35,11 @@ impl FromNapiValue for String {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
     let mut len = 0;
 
-    check_status!(
+    check_status_and_type!(
       unsafe { sys::napi_get_value_string_utf8(env, napi_val, ptr::null_mut(), 0, &mut len) },
-      "Failed to convert napi `string` into rust type `String`",
+      env,
+      napi_val,
+      "Failed to convert napi `{}` into rust type `String`"
     )?;
 
     // end char len in C
@@ -47,11 +49,13 @@ impl FromNapiValue for String {
 
     let mut written_char_count = 0;
 
-    check_status!(
+    check_status_and_type!(
       unsafe {
         sys::napi_get_value_string_utf8(env, napi_val, buf_ptr, len, &mut written_char_count)
       },
-      "Failed to convert napi `string` into rust type `String`"
+      env,
+      napi_val,
+      "Failed to convert napi `{}` into rust type `String`"
     )?;
 
     let mut ret = mem::ManuallyDrop::new(ret);
@@ -83,9 +87,11 @@ impl FromNapiValue for &str {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
     let mut len = 0;
 
-    check_status!(
+    check_status_and_type!(
       unsafe { sys::napi_get_value_string_utf8(env, napi_val, ptr::null_mut(), 0, &mut len) },
-      "Failed to convert napi `string` into rust type `String`",
+      env,
+      napi_val,
+      "Failed to convert napi `{}` into rust type `String`"
     )?;
 
     // end char len in C
@@ -94,11 +100,13 @@ impl FromNapiValue for &str {
     let buf_ptr = ret.as_mut_ptr();
     let mut written_char_count = 0;
 
-    check_status!(
+    check_status_and_type!(
       unsafe {
         sys::napi_get_value_string_utf8(env, napi_val, buf_ptr, len, &mut written_char_count)
       },
-      "Failed to convert napi `string` into rust type `String`"
+      env,
+      napi_val,
+      "Failed to convert napi `{}` into rust type `String`"
     )?;
 
     // The `&str` should only be accepted from function arguments.
