@@ -33,9 +33,7 @@ jobs:
           toolchain: stable
           profile: minimal
           override: true
-
-      - name: Install aarch64 toolchain
-        run: rustup target add aarch64-unknown-linux-gnu
+          target: aarch64-unknown-linux-gnu
 
       - name: Cache cargo
         uses: actions/cache@v3

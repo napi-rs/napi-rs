@@ -1,5 +1,6 @@
 import { readFileSync } from 'fs'
 import { join } from 'path'
+import { fileURLToPath } from 'url'
 
 import alias from '@rollup/plugin-alias'
 import commonjs from '@rollup/plugin-commonjs'
@@ -7,6 +8,8 @@ import json from '@rollup/plugin-json'
 import nodeResolve from '@rollup/plugin-node-resolve'
 import replace from '@rollup/plugin-replace'
 import toml from 'toml'
+
+const __dirname = join(fileURLToPath(import.meta.url), '..')
 
 const NAPI_CARGO_TOML = readFileSync(
   join(__dirname, 'crates', 'napi', 'Cargo.toml'),
@@ -37,12 +40,12 @@ console.info('napi-build version: ', NAPI_BUILD_VERSION)
 
 export default {
   input: './scripts/cli/src/index.js',
-  inlineDynamicImports: true,
   output: {
     banner: '#!/usr/bin/env node',
     file: './cli/scripts/index.js',
     format: 'cjs',
     sourcemap: 'inline',
+    inlineDynamicImports: true,
   },
   plugins: [
     replace({
