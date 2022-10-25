@@ -52,11 +52,15 @@ pub unsafe extern "C" fn shutdown_tokio_rt(arg: *mut c_void) {
   }
 }
 
-pub fn spawn<F>(fut: F)
+/// Spawns a future onto the Tokio runtime.
+///
+/// Depending on where you use it, you should await or abort the future in your drop function.
+/// To avoid undefined behavior and memory corruptions.
+pub fn spawn<F>(fut: F) -> tokio::task::JoinHandle<F::Output>
 where
   F: 'static + Send + Future<Output = ()>,
 {
-  RT.0.spawn(fut);
+  RT.0.spawn(fut)
 }
 
 // This function's signature must be kept in sync with the one in lib.rs, otherwise napi
