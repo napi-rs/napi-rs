@@ -59,6 +59,16 @@ where
   RT.0.spawn(fut);
 }
 
+/// Runs a future to completion
+/// This is blocking, meaning that it pauses other execution until the future is complete,
+/// only use it when it is absolutely necessary, in other places use async functions instead.
+pub fn block_on<F>(fut: F) -> F::Output
+where
+  F: 'static + Send + Future<Output = ()>,
+{
+  RT.0.block_on(fut)
+}
+
 // This function's signature must be kept in sync with the one in lib.rs, otherwise napi
 // will fail to compile with the `tokio_rt` feature.
 
