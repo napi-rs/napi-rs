@@ -5,7 +5,10 @@ import test from 'ava'
 
 import { Animal, Kind, DEFAULT_COST } from '../index'
 
-test('should be able to require in worker thread', async (t) => {
+const t =
+  process.arch === 'arm64' && process.platform === 'linux' ? test.skip : test
+
+t('should be able to require in worker thread', async (t) => {
   await Promise.all(
     Array.from({ length: 100 }).map(() => {
       const w = new Worker(join(__dirname, 'worker.js'))
