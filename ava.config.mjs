@@ -7,7 +7,7 @@ const configuration = {
   environmentVariables: {
     TS_NODE_PROJECT: './examples/tsconfig.json',
   },
-  timeout: '2m',
+  timeout: '5m',
   workerThreads: true,
   concurrency: process.env.CI ? 2 : cpus().length,
   failFast: false,
