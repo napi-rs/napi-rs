@@ -7,6 +7,7 @@ import { version } from '../package.json'
 import { ArtifactsCommand } from './artifacts'
 import { BuildCommand } from './build'
 import { CreateNpmDirCommand } from './create-npm-dir'
+import { HelpCommand } from './help'
 import { NewProjectCommand } from './new'
 import { PrePublishCommand } from './pre-publish'
 import { RenameCommand } from './rename'
@@ -24,6 +25,7 @@ cli.register(PrePublishCommand)
 cli.register(VersionCommand)
 cli.register(NewProjectCommand)
 cli.register(RenameCommand)
+cli.register(HelpCommand)
 
 cli
   .run(process.argv.slice(2), {
