@@ -12,16 +12,16 @@ ENV RUSTUP_HOME=/usr/local/rustup \
 RUN apt-get update && \
   apt-get install -y --fix-missing --no-install-recommends gpg-agent ca-certificates openssl && \
   wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add - && \
-  echo "deb http://apt.llvm.org/focal/ llvm-toolchain-focal-14 main" >> /etc/apt/sources.list && \
-  echo "deb-src http://apt.llvm.org/focal/ llvm-toolchain-focal-14 main" >> /etc/apt/sources.list && \
+  echo "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-15 main" >> /etc/apt/sources.list && \
+  echo "deb-src http://apt.llvm.org/jammy/ llvm-toolchain-jammy-15 main" >> /etc/apt/sources.list && \
   curl -sL https://deb.nodesource.com/setup_16.x | bash - && \
   apt-get install -y --fix-missing --no-install-recommends \
   curl \
-  llvm-14 \
-  clang-14 \
-  lld-14 \
-  libc++-14-dev \
-  libc++abi-14-dev \
+  llvm-15 \
+  clang-15 \
+  lld-15 \
+  libc++-15-dev \
+  libc++abi-15-dev \
   nodejs \
   xz-utils \
   rcs \
@@ -35,7 +35,7 @@ RUN apt-get update && \
   npm install -g yarn pnpm lerna && \
   npm cache clean --force && \
   npm cache verify && \
-  ln -sf /usr/bin/clang-14 /usr/bin/clang && \
-  ln -sf /usr/bin/clang++-14 /usr/bin/clang++ && \
-  ln -sf /usr/bin/lld-14 /usr/bin/lld && \
-  ln -sf /usr/bin/clang-14 /usr/bin/cc
+  ln -sf /usr/bin/clang-15 /usr/bin/clang && \
+  ln -sf /usr/bin/clang++-15 /usr/bin/clang++ && \
+  ln -sf /usr/bin/lld-15 /usr/bin/lld && \
+  ln -sf /usr/bin/clang-15 /usr/bin/cc
