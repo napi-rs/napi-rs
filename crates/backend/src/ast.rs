@@ -64,7 +64,7 @@ pub enum FnKind {
   Setter,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FnSelf {
   Value,
   Ref,

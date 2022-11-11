@@ -1,9 +1,10 @@
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::ToTokens;
+use syn::spanned::Spanned;
 
 use crate::{
   codegen::{get_intermediate_ident, get_register_ident, js_mod_to_token_stream},
-  BindgenResult, CallbackArg, FnKind, FnSelf, NapiFn, NapiFnArgKind, TryToTokens,
+  BindgenResult, CallbackArg, Diagnostic, FnKind, FnSelf, NapiFn, NapiFnArgKind, TryToTokens,
 };
 
 impl TryToTokens for NapiFn {
@@ -16,7 +17,29 @@ impl TryToTokens for NapiFn {
       arg_conversions,
       args: arg_names,
       refs,
+      mut_ref_spans,
     } = self.gen_arg_conversions()?;
+    // The JS engine can't properly track mutability in an async context, so refuse to compile
+    // code that tries to use async and mutability together.
+    if self.is_async && !mut_ref_spans.is_empty() {
+      return Diagnostic::from_vec(
+        mut_ref_spans
+          .into_iter()
+          .map(|s| {
+            Diagnostic::span_error(
+              s,
+              "mutable reference is incompatible with async napi methods",
+            )
+          })
+          .collect(),
+      );
+    }
+    if Some(FnSelf::MutRef) == self.fn_self && self.is_async {
+      return Err(Diagnostic::span_error(
+        self.name.span(),
+        "&mut self is incompatible with async napi methods",
+      ));
+    }
     let arg_ref_count = refs.len();
     let receiver = self.gen_fn_receiver();
     let receiver_ret_name = Ident::new("_ret", Span::call_site());
@@ -161,6 +184,7 @@ impl NapiFn {
     let mut arg_conversions = vec![];
     let mut args = vec![];
     let mut refs = vec![];
+    let mut mut_ref_spans = vec![];
     let make_ref = |input| {
       quote! {
         _args_array[_arg_write_index] = _make_ref(::std::ptr::NonNull::new(#input).expect("ref ptr was null"));
@@ -274,6 +298,7 @@ impl NapiFn {
                           if let Some(syn::PathSegment { ident, .. }) = segments.first() {
                             refs.push(make_ref(quote! { cb.this }));
                             let token = if mutability.is_some() {
+                              mut_ref_spans.push(generic_type.span());
                               quote! { <#ident as napi::bindgen_prelude::FromNapiMutRef>::from_napi_mut_ref(env, cb.this)? }
                             } else {
                               quote! { <#ident as napi::bindgen_prelude::FromNapiRef>::from_napi_ref(env, cb.this)? }
@@ -293,8 +318,11 @@ impl NapiFn {
                 }
               }
             }
-            let (arg_conversion, is_ref) = self.gen_ty_arg_conversion(&ident, i, path);
-            if is_ref {
+            let (arg_conversion, arg_type) = self.gen_ty_arg_conversion(&ident, i, path);
+            if NapiArgType::MutRef == arg_type {
+              mut_ref_spans.push(path.ty.span());
+            }
+            if arg_type.is_ref() {
               refs.push(make_ref(quote! { cb.get_arg(#i) }));
             }
             arg_conversions.push(arg_conversion);
@@ -312,6 +340,7 @@ impl NapiFn {
       arg_conversions,
       args,
       refs,
+      mut_ref_spans,
     })
   }
 
@@ -322,7 +351,7 @@ impl NapiFn {
     arg_name: &Ident,
     index: usize,
     path: &syn::PatType,
-  ) -> (TokenStream, bool) {
+  ) -> (TokenStream, NapiArgType) {
     let ty = &*path.ty;
     let type_check = if self.return_if_invalid {
       quote! {
@@ -357,7 +386,7 @@ impl NapiFn {
             <#elem as napi::bindgen_prelude::FromNapiMutRef>::from_napi_mut_ref(env, cb.get_arg(#index))?
           };
         };
-        (q, true)
+        (q, NapiArgType::MutRef)
       }
       syn::Type::Reference(syn::TypeReference { elem, .. }) => {
         let q = quote! {
@@ -366,7 +395,7 @@ impl NapiFn {
             <#elem as napi::bindgen_prelude::FromNapiRef>::from_napi_ref(env, cb.get_arg(#index))?
           };
         };
-        (q, true)
+        (q, NapiArgType::Ref)
       }
       _ => {
         let q = quote! {
@@ -375,7 +404,7 @@ impl NapiFn {
             <#ty as napi::bindgen_prelude::FromNapiValue>::from_napi_value(env, cb.get_arg(#index))?
           };
         };
-        (q, false)
+        (q, NapiArgType::Value)
       }
     }
   }
@@ -556,4 +585,18 @@ struct ArgConversions {
   pub args: Vec<TokenStream>,
   pub arg_conversions: Vec<TokenStream>,
   pub refs: Vec<TokenStream>,
+  pub mut_ref_spans: Vec<Span>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum NapiArgType {
+  Ref,
+  MutRef,
+  Value,
+}
+
+impl NapiArgType {
+  fn is_ref(&self) -> bool {
+    matches!(self, NapiArgType::Ref | NapiArgType::MutRef)
+  }
 }
