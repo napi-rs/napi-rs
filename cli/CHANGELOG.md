@@ -3,6 +3,14 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.12.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.12.0...@napi-rs/cli@2.12.1) (2022-11-12)
+
+### Bug Fixes
+
+- **cli:** compatible with zig 0.10.0 ([32cf02e](https://github.com/napi-rs/napi-rs/commit/32cf02e633030bc46ec963d47b0e11dd17f89cda))
+- **cli:** incorrent version without npm folder ([caeef4a](https://github.com/napi-rs/napi-rs/commit/caeef4a6757a811d23bb76bd2c441587178ec6f5))
+- **cli:** support help command ([#1355](https://github.com/napi-rs/napi-rs/issues/1355)) ([7f82c95](https://github.com/napi-rs/napi-rs/commit/7f82c95525a7619b5baadca6cfc1bd0f98213244))
+
 # [2.12.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.11.4...@napi-rs/cli@2.12.0) (2022-10-04)
 
 ### Bug Fixes
