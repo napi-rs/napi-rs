@@ -22,7 +22,6 @@ on:
 
 jobs:
   build:
-    if: "!contains(github.event.head_commit.message, 'skip ci')"
 
     strategy:
       fail-fast: false
