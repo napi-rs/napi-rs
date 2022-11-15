@@ -36,6 +36,8 @@ const ZIG_PLATFORM_TARGET_MAP = {
   'aarch64-unknown-linux-musl': 'aarch64-linux-musl',
 }
 
+const DEFAULT_GLIBC_TARGET = process.env.GLIBC_ABI_TARGET ?? '2.17'
+
 function processZigLinkerArgs(platform: string, args: string[]) {
   if (platform.includes('apple')) {
     const newArgs = args.filter(
@@ -158,7 +160,7 @@ export class BuildCommand extends Command {
         'lto',
       )} and increase ${chalk.green(
         'codegen-units',
-      )}. Enabled by default. See ${chalk.underline.blue(
+      )}. Disabled by default. See ${chalk.underline.blue(
         'https://github.com/napi-rs/napi-rs/issues/297',
       )}`,
     },
@@ -256,7 +258,13 @@ export class BuildCommand extends Command {
     ]
       .filter((flag) => Boolean(flag))
       .join(' ')
-    const cargo = process.env.CARGO ?? 'cargo'
+    const isCrossForWin =
+      triple.platform === 'win32' && process.platform !== 'win32'
+    const isCrossForLinux =
+      triple.platform === 'linux' && process.platform !== 'linux'
+    const isCrossForMacOS =
+      triple.platform === 'darwin' && process.platform !== 'darwin'
+    const cargo = process.env.CARGO ?? isCrossForWin ? 'cargo-xwin' : 'cargo'
     const cargoCommand = `${cargo} build ${externalFlags}`
     const intermediateTypeFile = join(tmpdir(), `type_def.${Date.now()}.tmp`)
     debug(`Run ${chalk.green(cargoCommand)}`)
@@ -279,9 +287,13 @@ export class BuildCommand extends Command {
       additionalEnv['RUSTFLAGS'] = rustflags.join(' ')
     }
 
-    if (this.useZig) {
+    if (this.useZig || isCrossForLinux || isCrossForMacOS) {
+      const zigABIVersion =
+        this.zigABIVersion ?? (isCrossForLinux && triple.abi === 'gnu')
+          ? DEFAULT_GLIBC_TARGET
+          : null
       const zigTarget = `${ZIG_PLATFORM_TARGET_MAP[triple.raw]}${
-        this.zigABIVersion ? `.${this.zigABIVersion}` : ''
+        zigABIVersion ? `.${zigABIVersion}` : ''
       }`
       if (!zigTarget) {
         throw new Error(`${triple.raw} can not be cross compiled by zig`)
@@ -350,15 +362,50 @@ export class BuildCommand extends Command {
       additionalEnv[`CARGO_TARGET_${envTarget}_LINKER`] = linkerWrapperShell
     }
 
-    execSync(cargoCommand, {
-      env: {
-        ...process.env,
-        ...additionalEnv,
-        TYPE_DEF_TMP_PATH: intermediateTypeFile,
-      },
-      stdio: 'inherit',
-      cwd,
-    })
+    if (triple.platform === 'android') {
+      const { ANDROID_NDK_LATEST_HOME } = process.env
+      if (!ANDROID_NDK_LATEST_HOME) {
+        console.info(
+          `${chalk.yellow(
+            'ANDROID_NDK_LATEST_HOME',
+          )} environment variable is missing`,
+        )
+      }
+      const targetArch = triple.arch === 'arm' ? 'armv7a' : 'aarch64'
+      Object.assign(additionalEnv, {
+        CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/${targetArch}-linux-android24-clang`,
+        CC: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/${targetArch}-linux-android24-clang`,
+        CXX: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/${targetArch}-linux-android24-clang++`,
+        AR: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar`,
+        PATH: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin:${process.env.PATH}`,
+      })
+    }
+    try {
+      execSync(cargoCommand, {
+        env: {
+          ...process.env,
+          ...additionalEnv,
+          TYPE_DEF_TMP_PATH: intermediateTypeFile,
+        },
+        stdio: 'inherit',
+        cwd,
+      })
+    } catch (e) {
+      if (cargo === 'cargo-xwin') {
+        console.warn(
+          `You are cross compiling ${chalk.underline(
+            triple.raw,
+          )} target on ${chalk.green(process.platform)} host`,
+        )
+      } else if (isCrossForLinux || isCrossForMacOS) {
+        console.warn(
+          `You are cross compiling ${chalk.underline(
+            triple.raw,
+          )} on ${chalk.green(process.platform)} host`,
+        )
+      }
+      throw e
+    }
     const { binaryName, packageName } = getNapiConfig(this.configFileName)
     let cargoArtifactName = this.cargoName
     if (!cargoArtifactName) {
