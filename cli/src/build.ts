@@ -268,7 +268,7 @@ export class BuildCommand extends Command {
       triple.platform === 'darwin' && process.platform !== 'darwin'
     const cargo = process.env.CARGO ?? isCrossForWin ? 'cargo-xwin' : 'cargo'
     if (isCrossForWin && triple.arch === 'ia32') {
-      additionalEnv['XWIN_VARIANT'] = 'x86'
+      additionalEnv['XWIN_ARCH'] = 'x86'
     }
     const cargoCommand = `${cargo} build ${externalFlags}`
     const intermediateTypeFile = join(tmpdir(), `type_def.${Date.now()}.tmp`)
