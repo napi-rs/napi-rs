@@ -258,17 +258,21 @@ export class BuildCommand extends Command {
     ]
       .filter((flag) => Boolean(flag))
       .join(' ')
+    const additionalEnv = {}
     const isCrossForWin =
       triple.platform === 'win32' && process.platform !== 'win32'
     const isCrossForLinux =
-      triple.platform === 'linux' && process.platform !== 'linux'
+      triple.platform === 'linux' &&
+      (process.platform !== 'linux' || triple.arch !== process.arch)
     const isCrossForMacOS =
       triple.platform === 'darwin' && process.platform !== 'darwin'
     const cargo = process.env.CARGO ?? isCrossForWin ? 'cargo-xwin' : 'cargo'
+    if (isCrossForWin && triple.arch === 'ia32') {
+      additionalEnv['XWIN_VARIANT'] = 'x86'
+    }
     const cargoCommand = `${cargo} build ${externalFlags}`
     const intermediateTypeFile = join(tmpdir(), `type_def.${Date.now()}.tmp`)
     debug(`Run ${chalk.green(cargoCommand)}`)
-    const additionalEnv = {}
 
     const rustflags = process.env.RUSTFLAGS
       ? process.env.RUSTFLAGS.split(' ')
