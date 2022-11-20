@@ -8,6 +8,7 @@ import { Command, Option } from 'clipanion'
 import envPaths from 'env-paths'
 import { groupBy } from 'lodash-es'
 
+import { ARM_FEATURES_H } from './arm-features.h'
 import { getNapiConfig } from './consts'
 import { debugFactory } from './debug'
 import { createJsBinding } from './js-binding-template'
@@ -34,9 +35,13 @@ const ZIG_PLATFORM_TARGET_MAP = {
   'aarch64-apple-darwin': 'aarch64-macos',
   'aarch64-unknown-linux-gnu': 'aarch64-linux-gnu',
   'aarch64-unknown-linux-musl': 'aarch64-linux-musl',
+  'armv7-unknown-linux-gnueabihf': 'arm-linux-gnueabihf',
 }
 
 const DEFAULT_GLIBC_TARGET = process.env.GLIBC_ABI_TARGET ?? '2.17'
+
+const SHEBANG_NODE = process.platform === 'win32' ? '' : '#!/usr/bin/env node\n'
+const SHEBANG_SH = process.platform === 'win32' ? '' : '#!/usr/bin/env bash\n'
 
 function processZigLinkerArgs(platform: string, args: string[]) {
   if (platform.includes('apple')) {
@@ -319,30 +324,34 @@ export class BuildCommand extends Command {
       const linkerWrapper = join(paths.cache, `zig-cc-${triple.raw}.js`)
       mkdirSync(paths.cache, { recursive: true })
       const forwardArgs = process.platform === 'win32' ? '%*' : '$@'
+      if (triple.arch === 'arm') {
+        await patchArmFeaturesHForArmTargets()
+      }
       await writeFileAsync(
         linkerWrapperShell,
-        `#!/bin/sh\nnode ${linkerWrapper} ${forwardArgs}`,
+        `${SHEBANG_SH}node ${linkerWrapper} ${forwardArgs}`,
         {
           mode: '777',
         },
       )
       await writeFileAsync(
         CCWrapperShell,
-        `#!/bin/sh\nzig cc -target ${zigTarget} ${forwardArgs}`,
+        `${SHEBANG_SH}zig cc -target ${zigTarget} ${forwardArgs}`,
         {
           mode: '777',
         },
       )
       await writeFileAsync(
         CXXWrapperShell,
-        `#!/bin/sh\nzig c++ -target ${zigTarget} ${forwardArgs}`,
+        `${SHEBANG_SH}zig c++ -target ${zigTarget} ${forwardArgs}`,
         {
           mode: '777',
         },
       )
+
       await writeFileAsync(
         linkerWrapper,
-        `#!/usr/bin/env node\nconst{writeFileSync} = require('fs')\n${processZigLinkerArgs.toString()}\nconst {status} = require('child_process').spawnSync('zig', ['${
+        `${SHEBANG_NODE}const{writeFileSync} = require('fs')\n${processZigLinkerArgs.toString()}\nconst {status} = require('child_process').spawnSync('zig', ['${
           triple.platform === 'win32' ? 'c++' : 'cc'
         }', ...processZigLinkerArgs('${
           triple.raw
@@ -769,6 +778,33 @@ async function writeJsBinding(
       distFileName,
       template + declareCodes + exportsCode + '\n',
       'utf8',
+    )
+  }
+}
+
+async function patchArmFeaturesHForArmTargets() {
+  let zigExePath: string
+  try {
+    const zigEnv = JSON.parse(execSync(`zig env`, { encoding: 'utf8' }).trim())
+    zigExePath = zigEnv['zig_exe']
+  } catch (e) {
+    throw new Error(
+      'Cannot get zig env correctly, please ensure the zig is installed correctly on your system',
+    )
+  }
+  try {
+    await writeFileAsync(
+      join(zigExePath, '../lib/libc/glibc/sysdeps/arm/arm-features.h'),
+      ARM_FEATURES_H,
+      {
+        mode: 0o644,
+      },
+    )
+  } catch (e) {
+    throw new Error(
+      `Cannot patch arm-features.h, error: ${
+        (e as Error).message || e
+      }. See: https://github.com/ziglang/zig/issues/3287`,
     )
   }
 }
