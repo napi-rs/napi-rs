@@ -108,5 +108,5 @@
     "tslib": "^2.4.1",
     "typescript": "^4.9.3"
   },
-  "packageManager": "yarn@3.2.4"
+  "packageManager": "yarn@3.3.0"
 }
