@@ -303,8 +303,27 @@ export class BuildCommand extends Command {
     if (rustflags.length > 0) {
       additionalEnv['RUSTFLAGS'] = rustflags.join(' ')
     }
+    let isZigExisted = false
+    if (isCrossForLinux || isCrossForMacOS) {
+      try {
+        execSync('zig version')
+        isZigExisted = true
+      } catch (e) {
+        if (this.useZig) {
+          throw new TypeError(
+            `Could not find ${chalk.green('zig')} on the PATH`,
+          )
+        } else {
+          debug(
+            `Could not find ${chalk.green(
+              'zig',
+            )} on the PATH, fallback to normal linker`,
+          )
+        }
+      }
+    }
 
-    if (this.useZig || isCrossForLinux || isCrossForMacOS) {
+    if ((this.useZig || isCrossForLinux || isCrossForMacOS) && isZigExisted) {
       const zigABIVersion =
         this.zigABIVersion ?? (isCrossForLinux && triple.abi === 'gnu')
           ? DEFAULT_GLIBC_TARGET
