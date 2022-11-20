@@ -41,7 +41,7 @@ const ZIG_PLATFORM_TARGET_MAP = {
 const DEFAULT_GLIBC_TARGET = process.env.GLIBC_ABI_TARGET ?? '2.17'
 
 const SHEBANG_NODE = process.platform === 'win32' ? '' : '#!/usr/bin/env node\n'
-const SHEBANG_SH = process.platform === 'win32' ? '' : '#!/usr/bin/env bash\n'
+const SHEBANG_SH = process.platform === 'win32' ? '' : '#!/usr/bin/env sh\n'
 
 function processZigLinkerArgs(platform: string, args: string[]) {
   if (platform.includes('apple')) {
@@ -308,7 +308,7 @@ export class BuildCommand extends Command {
         throw new Error(`${triple.raw} can not be cross compiled by zig`)
       }
       const paths = envPaths('napi-rs')
-      const shellFileExt = process.platform === 'win32' ? 'bat' : 'sh'
+      const shellFileExt = process.platform === 'win32' ? 'cmd' : 'sh'
       const linkerWrapperShell = join(
         paths.cache,
         `zig-linker-${triple.raw}.${shellFileExt}`,
@@ -323,13 +323,21 @@ export class BuildCommand extends Command {
       )
       const linkerWrapper = join(paths.cache, `zig-cc-${triple.raw}.js`)
       mkdirSync(paths.cache, { recursive: true })
-      const forwardArgs = process.platform === 'win32' ? '%*' : '$@'
+      const forwardArgs = process.platform === 'win32' ? '"%*"' : '$@'
       if (triple.arch === 'arm') {
         await patchArmFeaturesHForArmTargets()
       }
       await writeFileAsync(
         linkerWrapperShell,
-        `${SHEBANG_SH}node ${linkerWrapper} ${forwardArgs}`,
+        process.platform === 'win32'
+          ? `@IF EXIST "%~dp0\\node.exe" (
+  "%~dp0\\node.exe" "${linkerWrapper}" %*
+) ELSE (
+  @SETLOCAL
+  @SET PATHEXT=%PATHEXT:;.JS;=;%
+  node "${linkerWrapper}" %*
+)`
+          : `${SHEBANG_SH}node ${linkerWrapper} ${forwardArgs}`,
         {
           mode: '777',
         },
@@ -375,7 +383,7 @@ export class BuildCommand extends Command {
       additionalEnv[`CARGO_TARGET_${envTarget}_LINKER`] = linkerWrapperShell
     }
 
-    if (triple.platform === 'android') {
+    if (triple.platform.includes('android')) {
       const { ANDROID_NDK_LATEST_HOME } = process.env
       if (!ANDROID_NDK_LATEST_HOME) {
         console.info(
