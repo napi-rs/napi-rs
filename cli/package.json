@@ -41,12 +41,12 @@
   },
   "devDependencies": {
     "@octokit/rest": "^19.0.5",
-    "@types/inquirer": "^9.0.2",
+    "@types/inquirer": "^9.0.3",
     "@types/js-yaml": "^4.0.5",
     "@types/lodash-es": "^4.17.6",
     "clipanion": "^3.1.0",
     "colorette": "^2.0.19",
-    "core-js": "^3.25.5",
+    "core-js": "^3.26.1",
     "debug": "^4.3.4",
     "env-paths": "^3.0.0",
     "fdir": "^5.3.0",
@@ -54,7 +54,7 @@
     "js-yaml": "^4.1.0",
     "lodash-es": "4.17.21",
     "toml": "^3.0.0",
-    "tslib": "^2.4.0",
+    "tslib": "^2.4.1",
     "typanion": "^3.12.1"
   },
   "funding": {
