@@ -268,7 +268,15 @@ export class BuildCommand extends Command {
       triple.platform === 'win32' && process.platform !== 'win32'
     const isCrossForLinux =
       triple.platform === 'linux' &&
-      (process.platform !== 'linux' || triple.arch !== process.arch)
+      (process.platform !== 'linux' ||
+        triple.arch !== process.arch ||
+        (function () {
+          const glibcVersionRuntime =
+            // @ts-expect-error
+            process.report?.getReport()?.header?.glibcVersionRuntime
+          const libc = glibcVersionRuntime ? 'gnu' : 'musl'
+          return triple.abi !== libc
+        })())
     const isCrossForMacOS =
       triple.platform === 'darwin' && process.platform !== 'darwin'
     const cargo = process.env.CARGO ?? isCrossForWin ? 'cargo-xwin' : 'cargo'
