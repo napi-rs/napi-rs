@@ -382,8 +382,8 @@ export class BuildCommand extends Command {
       })
       additionalEnv[`CARGO_TARGET_${envTarget}_LINKER`] = linkerWrapperShell
     }
-
-    if (triple.platform.includes('android')) {
+    debug(`Platform: ${JSON.stringify(triple, null, 2)}`)
+    if (triple.platform === 'android') {
       const { ANDROID_NDK_LATEST_HOME } = process.env
       if (!ANDROID_NDK_LATEST_HOME) {
         console.info(
@@ -393,10 +393,13 @@ export class BuildCommand extends Command {
         )
       }
       const targetArch = triple.arch === 'arm' ? 'armv7a' : 'aarch64'
+      const targetPlatform =
+        triple.arch === 'arm' ? 'androideabi24' : 'android24'
       Object.assign(additionalEnv, {
         CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/${targetArch}-linux-android24-clang`,
-        CC: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/${targetArch}-linux-android24-clang`,
-        CXX: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/${targetArch}-linux-android24-clang++`,
+        CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/${targetArch}-linux-androideabi24-clang`,
+        CC: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/${targetArch}-linux-${targetPlatform}-clang`,
+        CXX: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/${targetArch}-linux-${targetPlatform}-clang++`,
         AR: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar`,
         PATH: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin:${process.env.PATH}`,
       })
