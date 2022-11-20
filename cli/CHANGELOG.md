@@ -3,6 +3,36 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.13.0-alpha.6](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.13.0-alpha.5...@napi-rs/cli@2.13.0-alpha.6) (2022-11-20)
+
+**Note:** Version bump only for package @napi-rs/cli
+
+# [2.13.0-alpha.5](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.13.0-alpha.4...@napi-rs/cli@2.13.0-alpha.5) (2022-11-20)
+
+**Note:** Version bump only for package @napi-rs/cli
+
+# [2.13.0-alpha.4](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.13.0-alpha.3...@napi-rs/cli@2.13.0-alpha.4) (2022-11-20)
+
+**Note:** Version bump only for package @napi-rs/cli
+
+# [2.13.0-alpha.3](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.13.0-alpha.2...@napi-rs/cli@2.13.0-alpha.3) (2022-11-20)
+
+**Note:** Version bump only for package @napi-rs/cli
+
+# [2.13.0-alpha.2](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.13.0-alpha.1...@napi-rs/cli@2.13.0-alpha.2) (2022-11-17)
+
+**Note:** Version bump only for package @napi-rs/cli
+
+# [2.13.0-alpha.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.13.0-alpha.0...@napi-rs/cli@2.13.0-alpha.1) (2022-11-17)
+
+**Note:** Version bump only for package @napi-rs/cli
+
+# [2.13.0-alpha.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.12.1...@napi-rs/cli@2.13.0-alpha.0) (2022-11-17)
+
+### Features
+
+- **cli:** auto choose the tooling for cross compiling ([7faf4fc](https://github.com/napi-rs/napi-rs/commit/7faf4fc4cc3b2e9dc47c892a9acf9bcf7e0571ad))
+
 ## [2.12.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.12.0...@napi-rs/cli@2.12.1) (2022-11-12)
 
 ### Bug Fixes

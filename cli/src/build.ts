@@ -8,6 +8,7 @@ import { Command, Option } from 'clipanion'
 import envPaths from 'env-paths'
 import { groupBy } from 'lodash-es'
 
+import { ARM_FEATURES_H } from './arm-features.h'
 import { getNapiConfig } from './consts'
 import { debugFactory } from './debug'
 import { createJsBinding } from './js-binding-template'
@@ -34,7 +35,13 @@ const ZIG_PLATFORM_TARGET_MAP = {
   'aarch64-apple-darwin': 'aarch64-macos',
   'aarch64-unknown-linux-gnu': 'aarch64-linux-gnu',
   'aarch64-unknown-linux-musl': 'aarch64-linux-musl',
+  'armv7-unknown-linux-gnueabihf': 'arm-linux-gnueabihf',
 }
+
+const DEFAULT_GLIBC_TARGET = process.env.GLIBC_ABI_TARGET ?? '2.17'
+
+const SHEBANG_NODE = process.platform === 'win32' ? '' : '#!/usr/bin/env node\n'
+const SHEBANG_SH = process.platform === 'win32' ? '' : '#!/usr/bin/env sh\n'
 
 function processZigLinkerArgs(platform: string, args: string[]) {
   if (platform.includes('apple')) {
@@ -158,7 +165,7 @@ export class BuildCommand extends Command {
         'lto',
       )} and increase ${chalk.green(
         'codegen-units',
-      )}. Enabled by default. See ${chalk.underline.blue(
+      )}. Disabled by default. See ${chalk.underline.blue(
         'https://github.com/napi-rs/napi-rs/issues/297',
       )}`,
     },
@@ -256,11 +263,29 @@ export class BuildCommand extends Command {
     ]
       .filter((flag) => Boolean(flag))
       .join(' ')
-    const cargo = process.env.CARGO ?? 'cargo'
+    const additionalEnv = {}
+    const isCrossForWin =
+      triple.platform === 'win32' && process.platform !== 'win32'
+    const isCrossForLinux =
+      triple.platform === 'linux' &&
+      (process.platform !== 'linux' ||
+        triple.arch !== process.arch ||
+        (function () {
+          const glibcVersionRuntime =
+            // @ts-expect-error
+            process.report?.getReport()?.header?.glibcVersionRuntime
+          const libc = glibcVersionRuntime ? 'gnu' : 'musl'
+          return triple.abi !== libc
+        })())
+    const isCrossForMacOS =
+      triple.platform === 'darwin' && process.platform !== 'darwin'
+    const cargo = process.env.CARGO ?? isCrossForWin ? 'cargo-xwin' : 'cargo'
+    if (isCrossForWin && triple.arch === 'ia32') {
+      additionalEnv['XWIN_ARCH'] = 'x86'
+    }
     const cargoCommand = `${cargo} build ${externalFlags}`
     const intermediateTypeFile = join(tmpdir(), `type_def.${Date.now()}.tmp`)
     debug(`Run ${chalk.green(cargoCommand)}`)
-    const additionalEnv = {}
 
     const rustflags = process.env.RUSTFLAGS
       ? process.env.RUSTFLAGS.split(' ')
@@ -278,16 +303,39 @@ export class BuildCommand extends Command {
     if (rustflags.length > 0) {
       additionalEnv['RUSTFLAGS'] = rustflags.join(' ')
     }
+    let isZigExisted = false
+    if (isCrossForLinux || isCrossForMacOS) {
+      try {
+        execSync('zig version')
+        isZigExisted = true
+      } catch (e) {
+        if (this.useZig) {
+          throw new TypeError(
+            `Could not find ${chalk.green('zig')} on the PATH`,
+          )
+        } else {
+          debug(
+            `Could not find ${chalk.green(
+              'zig',
+            )} on the PATH, fallback to normal linker`,
+          )
+        }
+      }
+    }
 
-    if (this.useZig) {
+    if ((this.useZig || isCrossForLinux || isCrossForMacOS) && isZigExisted) {
+      const zigABIVersion =
+        this.zigABIVersion ?? (isCrossForLinux && triple.abi === 'gnu')
+          ? DEFAULT_GLIBC_TARGET
+          : null
       const zigTarget = `${ZIG_PLATFORM_TARGET_MAP[triple.raw]}${
-        this.zigABIVersion ? `.${this.zigABIVersion}` : ''
+        zigABIVersion ? `.${zigABIVersion}` : ''
       }`
       if (!zigTarget) {
         throw new Error(`${triple.raw} can not be cross compiled by zig`)
       }
       const paths = envPaths('napi-rs')
-      const shellFileExt = process.platform === 'win32' ? 'bat' : 'sh'
+      const shellFileExt = process.platform === 'win32' ? 'cmd' : 'sh'
       const linkerWrapperShell = join(
         paths.cache,
         `zig-linker-${triple.raw}.${shellFileExt}`,
@@ -302,31 +350,43 @@ export class BuildCommand extends Command {
       )
       const linkerWrapper = join(paths.cache, `zig-cc-${triple.raw}.js`)
       mkdirSync(paths.cache, { recursive: true })
-      const forwardArgs = process.platform === 'win32' ? '%*' : '$@'
+      const forwardArgs = process.platform === 'win32' ? '"%*"' : '$@'
+      if (triple.arch === 'arm') {
+        await patchArmFeaturesHForArmTargets()
+      }
       await writeFileAsync(
         linkerWrapperShell,
-        `#!/bin/sh\nnode ${linkerWrapper} ${forwardArgs}`,
+        process.platform === 'win32'
+          ? `@IF EXIST "%~dp0\\node.exe" (
+  "%~dp0\\node.exe" "${linkerWrapper}" %*
+) ELSE (
+  @SETLOCAL
+  @SET PATHEXT=%PATHEXT:;.JS;=;%
+  node "${linkerWrapper}" %*
+)`
+          : `${SHEBANG_SH}node ${linkerWrapper} ${forwardArgs}`,
         {
           mode: '777',
         },
       )
       await writeFileAsync(
         CCWrapperShell,
-        `#!/bin/sh\nzig cc -target ${zigTarget} ${forwardArgs}`,
+        `${SHEBANG_SH}zig cc -target ${zigTarget} ${forwardArgs}`,
         {
           mode: '777',
         },
       )
       await writeFileAsync(
         CXXWrapperShell,
-        `#!/bin/sh\nzig c++ -target ${zigTarget} ${forwardArgs}`,
+        `${SHEBANG_SH}zig c++ -target ${zigTarget} ${forwardArgs}`,
         {
           mode: '777',
         },
       )
+
       await writeFileAsync(
         linkerWrapper,
-        `#!/usr/bin/env node\nconst{writeFileSync} = require('fs')\n${processZigLinkerArgs.toString()}\nconst {status} = require('child_process').spawnSync('zig', ['${
+        `${SHEBANG_NODE}const{writeFileSync} = require('fs')\n${processZigLinkerArgs.toString()}\nconst {status} = require('child_process').spawnSync('zig', ['${
           triple.platform === 'win32' ? 'c++' : 'cc'
         }', ...processZigLinkerArgs('${
           triple.raw
@@ -349,16 +409,54 @@ export class BuildCommand extends Command {
       })
       additionalEnv[`CARGO_TARGET_${envTarget}_LINKER`] = linkerWrapperShell
     }
-
-    execSync(cargoCommand, {
-      env: {
-        ...process.env,
-        ...additionalEnv,
-        TYPE_DEF_TMP_PATH: intermediateTypeFile,
-      },
-      stdio: 'inherit',
-      cwd,
-    })
+    debug(`Platform: ${JSON.stringify(triple, null, 2)}`)
+    if (triple.platform === 'android') {
+      const { ANDROID_NDK_LATEST_HOME } = process.env
+      if (!ANDROID_NDK_LATEST_HOME) {
+        console.info(
+          `${chalk.yellow(
+            'ANDROID_NDK_LATEST_HOME',
+          )} environment variable is missing`,
+        )
+      }
+      const targetArch = triple.arch === 'arm' ? 'armv7a' : 'aarch64'
+      const targetPlatform =
+        triple.arch === 'arm' ? 'androideabi24' : 'android24'
+      Object.assign(additionalEnv, {
+        CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/${targetArch}-linux-android24-clang`,
+        CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/${targetArch}-linux-androideabi24-clang`,
+        CC: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/${targetArch}-linux-${targetPlatform}-clang`,
+        CXX: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/${targetArch}-linux-${targetPlatform}-clang++`,
+        AR: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar`,
+        PATH: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin:${process.env.PATH}`,
+      })
+    }
+    try {
+      execSync(cargoCommand, {
+        env: {
+          ...process.env,
+          ...additionalEnv,
+          TYPE_DEF_TMP_PATH: intermediateTypeFile,
+        },
+        stdio: 'inherit',
+        cwd,
+      })
+    } catch (e) {
+      if (cargo === 'cargo-xwin') {
+        console.warn(
+          `You are cross compiling ${chalk.underline(
+            triple.raw,
+          )} target on ${chalk.green(process.platform)} host`,
+        )
+      } else if (isCrossForLinux || isCrossForMacOS) {
+        console.warn(
+          `You are cross compiling ${chalk.underline(
+            triple.raw,
+          )} on ${chalk.green(process.platform)} host`,
+        )
+      }
+      throw e
+    }
     const { binaryName, packageName } = getNapiConfig(this.configFileName)
     let cargoArtifactName = this.cargoName
     if (!cargoArtifactName) {
@@ -718,6 +816,33 @@ async function writeJsBinding(
       distFileName,
       template + declareCodes + exportsCode + '\n',
       'utf8',
+    )
+  }
+}
+
+async function patchArmFeaturesHForArmTargets() {
+  let zigExePath: string
+  try {
+    const zigEnv = JSON.parse(execSync(`zig env`, { encoding: 'utf8' }).trim())
+    zigExePath = zigEnv['zig_exe']
+  } catch (e) {
+    throw new Error(
+      'Cannot get zig env correctly, please ensure the zig is installed correctly on your system',
+    )
+  }
+  try {
+    await writeFileAsync(
+      join(zigExePath, '../lib/libc/glibc/sysdeps/arm/arm-features.h'),
+      ARM_FEATURES_H,
+      {
+        mode: 0o644,
+      },
+    )
+  } catch (e) {
+    throw new Error(
+      `Cannot patch arm-features.h, error: ${
+        (e as Error).message || e
+      }. See: https://github.com/ziglang/zig/issues/3287`,
     )
   }
 }
