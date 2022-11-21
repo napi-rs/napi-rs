@@ -237,6 +237,7 @@ export class Bird {
   name: string
   constructor(name: string)
   getCount(): number
+  getNameAsync(): Promise<string>
 }
 export type Blake2bHasher = Blake2BHasher
 /** Smoking test for type generation */

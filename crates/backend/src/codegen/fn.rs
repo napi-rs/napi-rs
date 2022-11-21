@@ -18,19 +18,15 @@ impl TryToTokens for NapiFn {
       args: arg_names,
       refs,
       mut_ref_spans,
+      unsafe_,
     } = self.gen_arg_conversions()?;
     // The JS engine can't properly track mutability in an async context, so refuse to compile
-    // code that tries to use async and mutability together.
-    if self.is_async && !mut_ref_spans.is_empty() {
+    // code that tries to use async and mutability together without `unsafe` mark.
+    if self.is_async && !mut_ref_spans.is_empty() && !unsafe_ {
       return Diagnostic::from_vec(
         mut_ref_spans
           .into_iter()
-          .map(|s| {
-            Diagnostic::span_error(
-              s,
-              "mutable reference is incompatible with async napi methods",
-            )
-          })
+          .map(|s| Diagnostic::span_error(s, "mutable reference is unsafe with async"))
           .collect(),
       );
     }
@@ -49,13 +45,13 @@ impl TryToTokens for NapiFn {
 
     let build_ref_container = if self.is_async {
       quote! {
-          struct NapiRefContainer([napi::bindgen_prelude::sys::napi_ref; #arg_ref_count]);
+          struct NapiRefContainer([napi::sys::napi_ref; #arg_ref_count]);
           impl NapiRefContainer {
-            fn drop(self, env: napi::bindgen_prelude::sys::napi_env) {
+            fn drop(self, env: napi::sys::napi_env) {
               for r in self.0.into_iter() {
                 assert_eq!(
-                  unsafe { napi::bindgen_prelude::sys::napi_delete_reference(env, r) },
-                  napi::bindgen_prelude::sys::Status::napi_ok,
+                  unsafe { napi::sys::napi_delete_reference(env, r) },
+                  napi::sys::Status::napi_ok,
                   "failed to delete napi ref"
                 );
               }
@@ -78,7 +74,8 @@ impl TryToTokens for NapiFn {
 
           #(#refs)*
 
-          if cfg!(debug_assert) {
+          #[cfg(debug_assert)]
+          {
               for a in &_args_array {
                 assert!(!a.is_null(), "failed to initialize napi ref");
               }
@@ -341,6 +338,7 @@ impl NapiFn {
       args,
       refs,
       mut_ref_spans,
+      unsafe_: self.unsafe_,
     })
   }
 
@@ -586,6 +584,7 @@ struct ArgConversions {
   pub arg_conversions: Vec<TokenStream>,
   pub refs: Vec<TokenStream>,
   pub mut_ref_spans: Vec<Span>,
+  pub unsafe_: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]

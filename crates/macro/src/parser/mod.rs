@@ -696,6 +696,7 @@ fn napi_fn_from_decl(
       enumerable: opts.enumerable(),
       configurable: opts.configurable(),
       catch_unwind: opts.catch_unwind().is_some(),
+      unsafe_: sig.unsafety.is_some(),
     }
   })
 }
