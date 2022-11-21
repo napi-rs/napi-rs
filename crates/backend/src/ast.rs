@@ -27,6 +27,7 @@ pub struct NapiFn {
   pub enumerable: bool,
   pub configurable: bool,
   pub catch_unwind: bool,
+  pub unsafe_: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -64,7 +65,7 @@ pub enum FnKind {
   Setter,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FnSelf {
   Value,
   Ref,

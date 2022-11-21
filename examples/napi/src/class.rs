@@ -123,6 +123,12 @@ impl Bird {
   pub fn get_count(&self) -> u32 {
     1234
   }
+
+  #[napi]
+  pub async fn get_name_async(&self) -> &str {
+    tokio::time::sleep(std::time::Duration::new(1, 0)).await;
+    self.name.as_str()
+  }
 }
 
 /// Smoking test for type generation

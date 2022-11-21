@@ -206,6 +206,11 @@ test('class', (t) => {
   })
 })
 
+test('async self in class', async (t) => {
+  const b = new Bird('foo')
+  t.is(await b.getNameAsync(), 'foo')
+})
+
 test('class factory', (t) => {
   const duck = ClassWithFactory.withName('Default')
   t.is(duck.name, 'Default')
