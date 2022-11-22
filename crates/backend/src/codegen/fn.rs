@@ -61,13 +61,12 @@ impl TryToTokens for NapiFn {
           unsafe impl Sync for NapiRefContainer {}
           let _make_ref = |a: ::std::ptr::NonNull<napi::bindgen_prelude::sys::napi_value__>| {
             let mut node_ref = ::std::mem::MaybeUninit::uninit();
-            assert_eq!(unsafe {
-                napi::bindgen_prelude::sys::napi_create_reference(env, a.as_ptr(), 1, node_ref.as_mut_ptr())
+            napi::bindgen_prelude::check_status!(unsafe {
+                napi::bindgen_prelude::sys::napi_create_reference(env, a.as_ptr(), 0, node_ref.as_mut_ptr())
               },
-              napi::bindgen_prelude::sys::Status::napi_ok,
               "failed to create napi ref"
-            );
-            unsafe { node_ref.assume_init() }
+            )?;
+            Ok::<napi::sys::napi_ref, napi::Error>(unsafe { node_ref.assume_init() })
           };
           let mut _args_array = [::std::ptr::null_mut::<napi::bindgen_prelude::sys::napi_ref__>(); #arg_ref_count];
           let mut _arg_write_index = 0;
@@ -184,7 +183,10 @@ impl NapiFn {
     let mut mut_ref_spans = vec![];
     let make_ref = |input| {
       quote! {
-        _args_array[_arg_write_index] = _make_ref(::std::ptr::NonNull::new(#input).expect("ref ptr was null"));
+        _args_array[_arg_write_index] = _make_ref(
+          ::std::ptr::NonNull::new(#input)
+            .ok_or_else(|| napi::Error::new(napi::Status::InvalidArg, "referenced ptr is null".to_owned()))?
+        )?;
         _arg_write_index += 1;
       }
     };

@@ -185,7 +185,6 @@ export function threadsafeFunctionThrowError(cb: (...args: any[]) => any): void
 export function threadsafeFunctionFatalMode(cb: (...args: any[]) => any): void
 export function threadsafeFunctionFatalModeError(cb: (...args: any[]) => any): void
 export function threadsafeFunctionClosureCapture(func: (...args: any[]) => any): void
-export function useTokioWithoutAsync(): void
 export function getBuffer(): Buffer
 export function appendBuffer(buf: Buffer): Buffer
 export function getEmptyBuffer(): Buffer
