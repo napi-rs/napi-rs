@@ -17,6 +17,13 @@ test('should be able to mutate Uint8Array', (t) => {
   t.is(fixture[0], 42)
 })
 
+test('should be able to mutate Uint8Array in its middle', (t) => {
+  const fixture = new Uint8Array([0, 1, 2])
+  const view = new Uint8Array(fixture.buffer, 1, 1)
+  bindings.mutateUint8Array(view)
+  t.is(fixture[1], 42)
+})
+
 test('should be able to mutate Uint16Array', (t) => {
   const fixture = new Uint16Array([0, 1, 2])
   bindings.mutateUint16Array(fixture)

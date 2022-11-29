@@ -207,16 +207,12 @@ macro_rules! impl_typed_array {
     impl AsRef<[$rust_type]> for $name {
       fn as_ref(&self) -> &[$rust_type] {
         unsafe { std::slice::from_raw_parts(self.data, self.length) }
-          .split_at(self.byte_offset)
-          .1
       }
     }
 
     impl AsMut<[$rust_type]> for $name {
       fn as_mut(&mut self) -> &mut [$rust_type] {
         unsafe { std::slice::from_raw_parts_mut(self.data, self.length) }
-          .split_at_mut(self.byte_offset)
-          .1
       }
     }
 

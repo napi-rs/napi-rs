@@ -1,7 +1,10 @@
 use std::f64::consts::PI;
 use std::str;
 
-use napi::{CallContext, JsArrayBuffer, JsNumber, JsObject, JsTypedArray, JsUndefined, Result};
+use napi::{
+  bindgen_prelude::Uint8Array, CallContext, JsArrayBuffer, JsNumber, JsObject, JsTypedArray,
+  JsUndefined, Result,
+};
 
 #[js_function(1)]
 pub fn get_arraybuffer_length(ctx: CallContext) -> Result<JsNumber> {
@@ -11,7 +14,7 @@ pub fn get_arraybuffer_length(ctx: CallContext) -> Result<JsNumber> {
 
 #[js_function(1)]
 pub fn mutate_uint8_array(ctx: CallContext) -> Result<JsUndefined> {
-  let mut buffer = ctx.get::<JsTypedArray>(0)?.into_value()?;
+  let mut buffer = ctx.get::<Uint8Array>(0)?;
   let buffer_mut_ref: &mut [u8] = buffer.as_mut();
   buffer_mut_ref[0] = 42;
   ctx.env.get_undefined()
