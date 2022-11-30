@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1669130842379,
+  "lastUpdate": 1669813549928,
   "repoUrl": "https://github.com/napi-rs/napi-rs",
   "entries": {
     "Benchmark": [
@@ -29070,6 +29070,177 @@ window.BENCHMARK_DATA = {
             "range": "±3.1%",
             "unit": "ops/sec",
             "extra": "74 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "nihohit@gmail.com",
+            "name": "nihohit",
+            "username": "nihohit"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1cf32631bf2c118fd261fe217feedebbaf988b39",
+          "message": "fix(napi): typed arrays ref shouldn't use offset. (#1376)\n\nNotice from the n-api docs that the data returned from\r\n`napi_get_typedarray_info` is already adjusted by the byte offset.\r\nhttps://nodejs.org/api/n-api.html#napi_get_typedarray_info\r\n\r\nThis means that when `as_ref`/`as_mut` apply the byte offset, the\r\noffset is in practice applied twice.\r\nThis wasn't caught in tests because no test tried to modify a typed\r\narray with a byte offset, and the test didn't us the typed array\r\nstructs, only `JsTypedArray`. If you want, I can modify the rest of the\r\nfunctions in examples/napi-compt-mode/src/arraybuffers.rs\r\nand the matching tests, to test all typed arrays.\r\n\r\nIMO the `byte_offset` field can be removed entirely from the struct,\r\nbut I wanted to submit a minimal PR.",
+          "timestamp": "2022-11-30T20:54:13+08:00",
+          "tree_id": "9108e85a35d783af6924aca9416703fd4d558a98",
+          "url": "https://github.com/napi-rs/napi-rs/commit/1cf32631bf2c118fd261fe217feedebbaf988b39"
+        },
+        "date": 1669813547879,
+        "tool": "benchmarkjs",
+        "benches": [
+          {
+            "name": "noop#napi-rs",
+            "value": 45898847,
+            "range": "±0.95%",
+            "unit": "ops/sec",
+            "extra": "87 samples"
+          },
+          {
+            "name": "noop#JavaScript",
+            "value": 650127566,
+            "range": "±1.1%",
+            "unit": "ops/sec",
+            "extra": "85 samples"
+          },
+          {
+            "name": "Plus number#napi-rs",
+            "value": 16080455,
+            "range": "±1.31%",
+            "unit": "ops/sec",
+            "extra": "88 samples"
+          },
+          {
+            "name": "Plus number#JavaScript",
+            "value": 633655438,
+            "range": "±1.16%",
+            "unit": "ops/sec",
+            "extra": "86 samples"
+          },
+          {
+            "name": "Create buffer#napi-rs",
+            "value": 332982,
+            "range": "±11.15%",
+            "unit": "ops/sec",
+            "extra": "66 samples"
+          },
+          {
+            "name": "Create buffer#JavaScript",
+            "value": 1569110,
+            "range": "±8.09%",
+            "unit": "ops/sec",
+            "extra": "73 samples"
+          },
+          {
+            "name": "createArray#createArrayJson",
+            "value": 32573,
+            "range": "±1.87%",
+            "unit": "ops/sec",
+            "extra": "87 samples"
+          },
+          {
+            "name": "createArray#create array for loop",
+            "value": 6136,
+            "range": "±1.41%",
+            "unit": "ops/sec",
+            "extra": "91 samples"
+          },
+          {
+            "name": "createArray#create array with serde trait",
+            "value": 6151,
+            "range": "±1.12%",
+            "unit": "ops/sec",
+            "extra": "87 samples"
+          },
+          {
+            "name": "getArrayFromJs#get array from json string",
+            "value": 13773,
+            "range": "±1.09%",
+            "unit": "ops/sec",
+            "extra": "90 samples"
+          },
+          {
+            "name": "getArrayFromJs#get array from serde",
+            "value": 7928,
+            "range": "±0.95%",
+            "unit": "ops/sec",
+            "extra": "87 samples"
+          },
+          {
+            "name": "getArrayFromJs#get array with for loop",
+            "value": 10061,
+            "range": "±0.94%",
+            "unit": "ops/sec",
+            "extra": "90 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from native#u32",
+            "value": 346884,
+            "range": "±4.89%",
+            "unit": "ops/sec",
+            "extra": "75 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from JavaScript#u32",
+            "value": 285000,
+            "range": "±4.88%",
+            "unit": "ops/sec",
+            "extra": "78 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from native#string",
+            "value": 296539,
+            "range": "±4.84%",
+            "unit": "ops/sec",
+            "extra": "74 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from JavaScript#string",
+            "value": 266806,
+            "range": "±4.7%",
+            "unit": "ops/sec",
+            "extra": "77 samples"
+          },
+          {
+            "name": "Async task#spawn task",
+            "value": 27112,
+            "range": "±2.02%",
+            "unit": "ops/sec",
+            "extra": "80 samples"
+          },
+          {
+            "name": "Async task#ThreadSafeFunction",
+            "value": 2075,
+            "range": "±5.5%",
+            "unit": "ops/sec",
+            "extra": "45 samples"
+          },
+          {
+            "name": "Async task#Tokio future to Promise",
+            "value": 24894,
+            "range": "±4.58%",
+            "unit": "ops/sec",
+            "extra": "74 samples"
+          },
+          {
+            "name": "Query#query * 100",
+            "value": 1482,
+            "range": "±6.79%",
+            "unit": "ops/sec",
+            "extra": "73 samples"
+          },
+          {
+            "name": "Query#query * 1",
+            "value": 21815,
+            "range": "±3%",
+            "unit": "ops/sec",
+            "extra": "75 samples"
           }
         ]
       }
