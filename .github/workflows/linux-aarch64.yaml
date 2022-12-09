@@ -2,7 +2,6 @@ name: Linux-aarch64
 
 env:
   DEBUG: 'napi:*'
-  CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: 'aarch64-linux-gnu-gcc-9'
 
 on:
   push:
@@ -41,7 +40,7 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: stable-linux-aarch64-gnu-node@16-cargo-cache
+          key: stable-linux-aarch64-gnu-node@18-cargo-cache
 
       - name: Install ziglang
         uses: goto-bus-stop/setup-zig@v2
