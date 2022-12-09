@@ -140,7 +140,18 @@ impl TryToTokens for NapiFn {
       quote! {
         {
           std::panic::catch_unwind(|| { #function_call })
-            .map_err(|e| napi::Error::new(napi::Status::GenericFailure, format!("{:?}", e)))
+            .map_err(|e| {
+              let message = {
+                if let Some(string) = e.downcast_ref::<String>() {
+                  string.clone()
+                } else if let Some(string) = e.downcast_ref::<&str>() {
+                  string.to_string()
+                } else {
+                  format!("panic from Rust code: {:?}", e)
+                }
+              };
+              napi::Error::new(napi::Status::GenericFailure, message)
+            })
             .and_then(|r| r)
         }
       }
