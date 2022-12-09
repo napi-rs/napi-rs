@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.13.2](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.13.1...@napi-rs/cli@2.13.2) (2022-12-09)
+
+### Bug Fixes
+
+- **cli:** ci template upgrade ([bd1d3fe](https://github.com/napi-rs/napi-rs/commit/bd1d3fe0a6d1ce5f237f51ac81704e60c584b6f2))
+
 ## [2.13.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.13.0...@napi-rs/cli@2.13.1) (2022-12-09)
 
 ### Bug Fixes
