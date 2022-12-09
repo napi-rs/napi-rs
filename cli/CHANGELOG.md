@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.13.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.13.0...@napi-rs/cli@2.13.1) (2022-12-09)
+
+### Bug Fixes
+
+- **cli:** zig cross armv7 ([#1384](https://github.com/napi-rs/napi-rs/issues/1384)) ([2abc946](https://github.com/napi-rs/napi-rs/commit/2abc94681ecc1010106ae4e2a9c076a9e964094d))
+
 # [2.13.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.12.1...@napi-rs/cli@2.13.0) (2022-11-20)
 
 ### Features
