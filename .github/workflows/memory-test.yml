@@ -20,7 +20,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v3
         with:
-          node-version: 16
+          node-version: 18
           check-latest: true
           cache: 'yarn'
 
@@ -35,16 +35,14 @@ jobs:
         uses: actions/cache@v3
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            .cargo-cache/registry/index/
+            .cargo-cache/registry/cache/
+            .cargo-cache/git/db/
+            target/
           key: stable-memory-leak-detect-cargo-cache
-
-      - name: Cache NPM dependencies
-        uses: actions/cache@v3
-        with:
-          path: .yarn/cache
-          key: memory-leak-detect
 
       - name: 'Install dependencies'
         run: yarn install --immutable
@@ -55,8 +53,12 @@ jobs:
       - name: 'Pull docker image'
         run: docker pull node:lts-slim
 
-      - name: 'Build memory test specs'
-        run: yarn build:memory
+      - name: Build in docker
+        uses: addnab/docker-run-action@v3
+        with:
+          image: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian
+          options: '--user 0:0 -v ${{ github.workspace }}/.cargo-cache/git/db:/usr/local/cargo/git/db -v ${{ github.workspace }}/.cargo/registry/cache:/usr/local/cargo/registry/cache -v ${{ github.workspace }}/.cargo/registry/index:/usr/local/cargo/registry/index -v ${{ github.workspace }}:/build -w /build'
+          run: yarn build:memory
 
       - name: Memory leak tests
         run: yarn test:memory

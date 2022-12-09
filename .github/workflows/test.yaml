@@ -47,12 +47,6 @@ jobs:
             target
           key: stable-${{ matrix.os }}-node@${{ matrix.node }}-cargo-cache
 
-      - name: Cache NPM dependencies
-        uses: actions/cache@v3
-        with:
-          path: .yarn/cache
-          key: npm-cache-${{ matrix.os }}-node@${{ matrix.node }}
-
       - name: 'Install dependencies'
         run: yarn install --mode=skip-build --immutable
 

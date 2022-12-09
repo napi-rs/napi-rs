@@ -19,7 +19,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v3
         with:
-          node-version: 16
+          node-version: 18
           check-latest: true
           cache: 'yarn'
 
@@ -54,7 +54,7 @@ jobs:
 
       - name: Pass -p and --cargo-name to build
         run: |
-          node ./cli/scripts/index.js build -p napi-examples-binary --cargo-name napi-examples-binary 
+          node ./cli/scripts/index.js build -p napi-examples-binary --cargo-name napi-examples-binary
           ./napi-examples-binary
         env:
           RUST_BACKTRACE: 1

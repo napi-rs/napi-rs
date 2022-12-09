@@ -11,7 +11,7 @@ on:
 
 jobs:
   build_and_test:
-    name: stable - windows-latest - arm64 - node@16
+    name: stable - windows-latest - arm64 - node@18
     runs-on: windows-latest
 
     steps:
@@ -20,7 +20,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v3
         with:
-          node-version: 16
+          node-version: 18
           check-latest: true
           cache: 'yarn'
 
@@ -37,12 +37,6 @@ jobs:
           profile: minimal
           override: true
           target: aarch64-pc-windows-msvc
-
-      - name: Cache NPM dependencies
-        uses: actions/cache@v3
-        with:
-          path: .yarn/cache
-          key: npm-cache-windows-aarch64-msvc-node@16
 
       - name: Cache cargo
         uses: actions/cache@v3
