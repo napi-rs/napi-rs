@@ -75,7 +75,7 @@ jobs:
             target: 'armv7-unknown-linux-gnueabihf'
             setup: |
               sudo apt-get update
-              sudo apt-get install gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf -y
+              sudo apt-get install gcc-arm-linux-gnueabihf -y
             build: |
               yarn build --target=armv7-unknown-linux-gnueabihf
               arm-linux-gnueabihf-strip *.node
@@ -145,11 +145,10 @@ jobs:
             target/
           key: \${{ matrix.settings.target }}-cargo-\${{ matrix.settings.host }}
 
-      - name: Cache NPM dependencies
-        uses: actions/cache@v3
-        with:
-          path: .yarn/cache
-          key: npm-cache-build-\${{ matrix.settings.target }}-node@16
+      - uses: goto-bus-stop/setup-zig@v2
+          if: \${{ matrix.settings.target == 'armv7-unknown-linux-gnueabihf' }}
+          with:
+            version: 0.10.0
 
       - name: Setup toolchain
         run: \${{ matrix.settings.setup }}
@@ -211,7 +210,7 @@ jobs:
           usesh: true
           mem: 3000
           prepare: |
-            pkg install -y curl node16 python2
+            pkg install -y -f curl node libnghttp2
             curl -qL https://www.npmjs.com/install.sh | sh
             npm install --location=global --ignore-scripts yarn
             curl https://sh.rustup.rs -sSf --output rustup.sh
