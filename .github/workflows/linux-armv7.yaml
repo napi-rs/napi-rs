@@ -2,7 +2,6 @@ name: Linux-armv7
 
 env:
   DEBUG: 'napi:*'
-  CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER: 'arm-linux-gnueabihf-gcc'
 
 on:
   push:
@@ -12,7 +11,7 @@ on:
 
 jobs:
   build:
-    name: stable - armv7-unknown-linux-gnu - node@16
+    name: stable - armv7-unknown-linux-gnu - node@18
     runs-on: ubuntu-latest
 
     steps:
@@ -23,7 +22,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v3
         with:
-          node-version: 16
+          node-version: 18
           check-latest: true
           cache: 'yarn'
 
@@ -35,25 +34,19 @@ jobs:
           override: true
           target: armv7-unknown-linux-gnueabihf
 
+      - name: Install ziglang
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.10.0
+
       - name: Cache cargo
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: stable-linux-armv7-gnu-node@16-cargo-cache
-
-      - name: Cache NPM dependencies
-        uses: actions/cache@v2
-        with:
-          path: node_modules
-          key: npm-cache-linux-armv7-gnu-node@16-${{ hashFiles('yarn.lock') }}
-
-      - name: Install cross compile toolchain
-        run: |
-          sudo apt-get update
-          sudo apt-get install gcc-arm-linux-gnueabihf -y
+          key: stable-linux-armv7-gnu-node@18-cargo-cache
 
       - name: Install dependencies
         run: yarn install --immutable --mode=skip-build

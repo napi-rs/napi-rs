@@ -11,7 +11,7 @@ on:
 
 jobs:
   build:
-    name: stable - x86_64-unknown-linux-musl - node@lts
+    name: stable - x86_64-unknown-linux-musl - node@18
     runs-on: ubuntu-latest
 
     steps:
@@ -20,7 +20,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v3
         with:
-          node-version: 16
+          node-version: 18
           check-latest: true
           cache: 'yarn'
 

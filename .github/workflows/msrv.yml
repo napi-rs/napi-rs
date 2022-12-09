@@ -11,7 +11,7 @@ on:
 
 jobs:
   test-msrv-rust:
-    name: 1.57.0 - ubuntu-latest - node@16
+    name: 1.57.0 - ubuntu-latest - node@18
     runs-on: ubuntu-latest
 
     steps:
@@ -20,7 +20,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v3
         with:
-          node-version: 16
+          node-version: 18
           check-latest: true
           cache: 'yarn'
 
@@ -38,12 +38,6 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
           key: stable-ubuntu-latest-node@16-cargo-cache
-
-      - name: Cache NPM dependencies
-        uses: actions/cache@v3
-        with:
-          path: .yarn/cache
-          key: npm-cache-ubuntu-latest-node@16
 
       - name: 'Install dependencies'
         run: yarn install --mode=skip-build --immutable

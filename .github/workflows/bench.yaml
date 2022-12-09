@@ -21,7 +21,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v3
         with:
-          node-version: 16
+          node-version: 18
           check-latest: true
           cache: 'yarn'
 
@@ -40,12 +40,6 @@ jobs:
             ~/.cargo/git
             target
           key: bench-cargo-cache
-
-      - name: Cache NPM dependencies
-        uses: actions/cache@v3
-        with:
-          path: .yarn/cache
-          key: bench-yarn-cache
 
       - name: 'Install dependencies'
         run: yarn install --immutable --mode=skip-build

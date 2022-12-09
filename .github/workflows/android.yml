@@ -19,7 +19,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v3
         with:
-          node-version: 16
+          node-version: 18
           cache: 'yarn'
           check-latest: true
 
@@ -42,12 +42,6 @@ jobs:
             ~/.cargo/git
             target
           key: stable-linux-android-node@16-cargo-cache
-
-      - name: Cache NPM dependencies
-        uses: actions/cache@v3
-        with:
-          path: .yarn/cache
-          key: npm-cache-linux-android-node@16
 
       - name: Install dependencies
         run: yarn install --immutable --mode=skip-build
