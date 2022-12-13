@@ -13,6 +13,7 @@ type NodeJSArch =
   | 's390x'
   | 'x32'
   | 'x64'
+  | 'universal'
 
 const CpuToNodeArch: { [index: string]: NodeJSArch } = {
   x86_64: 'x64',
