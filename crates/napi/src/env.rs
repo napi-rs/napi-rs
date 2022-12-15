@@ -1020,6 +1020,13 @@ impl Env {
     check_status!(unsafe { sys::napi_close_handle_scope(self.0, handle_scope) })?;
     result
   }
+  
+  pub fn run_script(&self, script: &str)->Result<JsObject> {
+    let s = self.create_string(script)?;
+    let mut raw_value = ptr::null_mut();
+    check_status!(unsafe { sys::napi_run_script(self.0, s.raw(), &mut raw_value) })?;
+    Ok(unsafe { JsObject::from_raw_unchecked(self.0, raw_value) })
+  }
 
   pub fn get_napi_version(&self) -> Result<u32> {
     let global = self.get_global()?;
