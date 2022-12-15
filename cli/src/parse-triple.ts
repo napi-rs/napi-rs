@@ -29,6 +29,10 @@ const SysToNodePlatform: { [index: string]: NodeJS.Platform } = {
   windows: 'win32',
 }
 
+export const UniArchsByPlatform: Record<string, NodeJSArch[]> = {
+  darwin: ['x64', 'arm64'],
+}
+
 export interface PlatformDetail {
   platform: NodeJS.Platform
   platformArchABI: string
