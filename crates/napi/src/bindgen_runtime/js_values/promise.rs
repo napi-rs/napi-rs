@@ -77,7 +77,7 @@ impl<T: FromNapiValue> ValidateNapiValue for Promise<T> {
   }
 }
 
-unsafe impl<T: FromNapiValue> Send for Promise<T> {}
+unsafe impl<T: FromNapiValue + Send> Send for Promise<T> {}
 
 impl<T: FromNapiValue> FromNapiValue for Promise<T> {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {

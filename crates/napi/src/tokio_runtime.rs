@@ -1,7 +1,5 @@
-use std::ffi::c_void;
 use std::future::Future;
 use std::ptr;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use once_cell::sync::Lazy;
 use tokio::{
@@ -29,26 +27,16 @@ pub(crate) static RT: Lazy<(Handle, mpsc::Sender<()>)> = Lazy::new(|| {
     .expect("Create tokio runtime failed")
 });
 
-pub(crate) static TOKIO_RT_REF_COUNT: AtomicUsize = AtomicUsize::new(0);
-
-#[doc(hidden)]
-#[inline(never)]
-pub unsafe extern "C" fn shutdown_tokio_rt(arg: *mut c_void) {
-  if TOKIO_RT_REF_COUNT.fetch_sub(1, Ordering::SeqCst) == 0 {
-    let sender = &RT.1;
-    if let Err(e) = sender.clone().try_send(()) {
-      match e {
-        TrySendError::Closed(_) => {}
-        TrySendError::Full(_) => {
-          panic!("Send shutdown signal to tokio runtime failed, queue is full");
-        }
+#[ctor::dtor]
+fn shutdown_tokio() {
+  let sender = &RT.1;
+  if let Err(e) = sender.clone().try_send(()) {
+    match e {
+      TrySendError::Closed(_) => {}
+      TrySendError::Full(_) => {
+        panic!("Send shutdown signal to tokio runtime failed, queue is full");
       }
     }
-  }
-
-  unsafe {
-    let env: sys::napi_env = arg as *mut sys::napi_env__;
-    sys::napi_remove_env_cleanup_hook(env, Some(shutdown_tokio_rt), arg);
   }
 }
 
