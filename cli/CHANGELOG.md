@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.13.3](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.13.2...@napi-rs/cli@2.13.3) (2022-12-15)
+
+### Bug Fixes
+
+- **cli:** set cmake toolchain for android cross build ([#1394](https://github.com/napi-rs/napi-rs/issues/1394)) ([f2c10af](https://github.com/napi-rs/napi-rs/commit/f2c10affee0f8250e3b695d85aa3e3c8c8c791fd))
+- **cli:** template to works with nix ([#1391](https://github.com/napi-rs/napi-rs/issues/1391)) ([36a897e](https://github.com/napi-rs/napi-rs/commit/36a897e27a6093be69710f8c61dfbea29975cb9b))
+
 ## [2.13.2](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.13.1...@napi-rs/cli@2.13.2) (2022-12-09)
 
 ### Bug Fixes
