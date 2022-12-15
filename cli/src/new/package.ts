@@ -31,6 +31,7 @@ export const createPackageJson = (
       'build:debug': 'napi build --platform',
       prepublishOnly: 'napi prepublish -t npm',
       test: 'ava',
+      universal: 'napi universal',
       version: 'napi version',
     },
   }

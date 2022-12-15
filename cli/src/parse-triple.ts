@@ -22,6 +22,13 @@ const CpuToNodeArch: { [index: string]: NodeJSArch } = {
   armv7: 'arm',
 }
 
+export const NodeArchToCpu: { [index: string]: string } = {
+  x64: 'x86_64',
+  arm64: 'aarch64',
+  ia32: 'i686',
+  arm: 'armv7',
+}
+
 const SysToNodePlatform: { [index: string]: NodeJS.Platform } = {
   linux: 'linux',
   freebsd: 'freebsd',
