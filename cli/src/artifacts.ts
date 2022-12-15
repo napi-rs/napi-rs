@@ -60,6 +60,7 @@ export class ArtifactsCommand extends Command {
                 _binaryName,
               )}] is not matched with [${chalk.greenBright(binaryName)}], skip`,
             )
+            return
           }
           const dir = distDirs.find((dir) => dir.includes(platformArchABI))
           if (!dir && universalSourceBins.has(platformArchABI)) {
