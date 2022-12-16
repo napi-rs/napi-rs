@@ -9,6 +9,10 @@ use crate::{check_status, sys, JsDeferred, JsUnknown, NapiValue, Result};
 pub(crate) static RT: Lazy<Runtime> =
   Lazy::new(|| tokio::runtime::Runtime::new().expect("Create tokio runtime failed"));
 
+pub fn runtime() -> &'static Runtime {
+  &RT
+}
+
 /// Spawns a future onto the Tokio runtime.
 ///
 /// Depending on where you use it, you should await or abort the future in your drop function.
