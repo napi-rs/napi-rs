@@ -19,13 +19,6 @@ type RefInformation = (
 pub(crate) static REFERENCE_MAP: Lazy<PersistedPerInstanceHashMap<*mut c_void, RefInformation>> =
   Lazy::new(Default::default);
 
-#[ctor::dtor]
-fn de_init() {
-  REFERENCE_MAP.borrow_mut(|reference_map| {
-    std::mem::take(reference_map);
-  });
-}
-
 /// ### Experimental feature
 ///
 /// Create a `reference` from `Class` instance.
