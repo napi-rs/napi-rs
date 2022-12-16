@@ -1,4 +1,4 @@
-use std::ffi::CStr;
+use std::ffi::CString;
 use std::mem;
 use std::os::raw::c_void;
 use std::ptr;
@@ -60,12 +60,18 @@ pub fn run<T: Task>(
     napi_async_work: ptr::null_mut(),
     status: task_status.clone(),
   }));
-  let async_work_name = unsafe { CStr::from_bytes_with_nul_unchecked(b"napi_rs_async_work\0") };
+  let mut async_work_name = ptr::null_mut();
+  let s = "napi_rs_async_work";
+  let len = s.len();
+  let s = CString::new(s)?;
+  check_status!(unsafe {
+    sys::napi_create_string_utf8(env, s.as_ptr(), len, &mut async_work_name)
+  })?;
   check_status!(unsafe {
     sys::napi_create_async_work(
       env,
       raw_resource,
-      async_work_name.as_ptr() as *mut _,
+      async_work_name,
       Some(execute::<T> as unsafe extern "C" fn(env: sys::napi_env, data: *mut c_void)),
       Some(
         complete::<T>
