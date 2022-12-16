@@ -35,7 +35,7 @@ impl JsString {
     check_status!(unsafe {
       sys::napi_get_value_string_utf8(self.0.env, self.0.value, ptr::null_mut(), 0, &mut length)
     })?;
-    Ok(length as usize)
+    Ok(length)
   }
 
   pub fn utf16_len(&self) -> Result<usize> {
@@ -43,7 +43,7 @@ impl JsString {
     check_status!(unsafe {
       sys::napi_get_value_string_utf16(self.0.env, self.0.value, ptr::null_mut(), 0, &mut length)
     })?;
-    Ok(length as usize)
+    Ok(length)
   }
 
   pub fn latin1_len(&self) -> Result<usize> {
@@ -51,7 +51,7 @@ impl JsString {
     check_status!(unsafe {
       sys::napi_get_value_string_latin1(self.0.env, self.0.value, ptr::null_mut(), 0, &mut length)
     })?;
-    Ok(length as usize)
+    Ok(length)
   }
 
   pub fn into_utf8(self) -> Result<JsStringUtf8> {

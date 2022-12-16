@@ -7,8 +7,6 @@ use std::sync::{
   Arc,
 };
 
-#[cfg(feature = "napi4")]
-use crate::bindgen_prelude::{CUSTOM_GC_TSFN, CUSTOM_GC_TSFN_CLOSED, MAIN_THREAD_ID};
 pub use crate::js_values::TypedArrayType;
 use crate::{check_status, sys, Error, Result, Status};
 
@@ -66,31 +64,6 @@ macro_rules! impl_typed_array {
       fn drop(&mut self) {
         if Arc::strong_count(&self.drop_in_vm) == 1 {
           if let Some((ref_, env)) = self.raw {
-            #[cfg(feature = "napi4")]
-            {
-              if CUSTOM_GC_TSFN_CLOSED.load(std::sync::atomic::Ordering::SeqCst) {
-                return;
-              }
-              if !MAIN_THREAD_ID
-                .get()
-                .map(|id| &std::thread::current().id() == id)
-                .unwrap_or(false)
-              {
-                let status = unsafe {
-                  sys::napi_call_threadsafe_function(
-                    CUSTOM_GC_TSFN.load(std::sync::atomic::Ordering::SeqCst),
-                    ref_ as *mut c_void,
-                    1,
-                  )
-                };
-                assert!(
-                  status == sys::Status::napi_ok,
-                  "Call custom GC in ArrayBuffer::drop failed {:?}",
-                  Status::from(status)
-                );
-                return;
-              }
-            }
             crate::check_status_or_throw!(
               env,
               unsafe { sys::napi_reference_unref(env, ref_, &mut 0) },

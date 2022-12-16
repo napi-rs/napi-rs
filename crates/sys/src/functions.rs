@@ -738,7 +738,7 @@ pub use napi7::*;
 pub use napi8::*;
 
 #[cfg(windows)]
-pub(super) unsafe fn load() -> Result<(), libloading::Error> {
+pub(super) unsafe fn load() -> Result<libloading::Library, libloading::Error> {
   let host = match libloading::os::windows::Library::this() {
     Ok(lib) => lib.into(),
     Err(err) => {
@@ -764,5 +764,5 @@ pub(super) unsafe fn load() -> Result<(), libloading::Error> {
   napi8::load(&host)?;
   #[cfg(feature = "experimental")]
   experimental::load(&host)?;
-  Ok(())
+  Ok(host)
 }

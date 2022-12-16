@@ -1,4 +1,4 @@
-#[cfg(debug_assertions)]
+#[cfg(all(debug_assertions, not(windows)))]
 use std::collections::HashSet;
 use std::ffi::c_void;
 use std::mem;
@@ -6,12 +6,12 @@ use std::ops::{Deref, DerefMut};
 use std::ptr::{self, NonNull};
 use std::slice;
 use std::sync::Arc;
-#[cfg(debug_assertions)]
+#[cfg(all(debug_assertions, not(windows)))]
 use std::sync::Mutex;
 
 use crate::{bindgen_prelude::*, check_status, sys, Result, ValueType};
 
-#[cfg(debug_assertions)]
+#[cfg(all(debug_assertions, not(windows)))]
 thread_local! {
   pub (crate) static BUFFER_DATA: Mutex<HashSet<*mut u8>> = Default::default();
 }
@@ -32,31 +32,6 @@ impl Drop for Buffer {
   fn drop(&mut self) {
     if Arc::strong_count(&self.ref_count) == 1 {
       if let Some((ref_, env)) = self.raw {
-        #[cfg(feature = "napi4")]
-        {
-          if CUSTOM_GC_TSFN_CLOSED.load(std::sync::atomic::Ordering::SeqCst) {
-            return;
-          }
-          if !MAIN_THREAD_ID
-            .get()
-            .map(|id| &std::thread::current().id() == id)
-            .unwrap_or(false)
-          {
-            let status = unsafe {
-              sys::napi_call_threadsafe_function(
-                CUSTOM_GC_TSFN.load(std::sync::atomic::Ordering::SeqCst),
-                ref_ as *mut c_void,
-                1,
-              )
-            };
-            assert!(
-              status == sys::Status::napi_ok,
-              "Call custom GC in Buffer::drop failed {:?}",
-              Status::from(status)
-            );
-            return;
-          }
-        }
         let mut ref_count = 0;
         check_status_or_throw!(
           env,
@@ -94,7 +69,7 @@ impl Clone for Buffer {
 impl From<Vec<u8>> for Buffer {
   fn from(mut data: Vec<u8>) -> Self {
     let inner_ptr = data.as_mut_ptr();
-    #[cfg(debug_assertions)]
+    #[cfg(all(debug_assertions, not(windows)))]
     {
       let is_existed = BUFFER_DATA.with(|buffer_data| {
         let buffer = buffer_data.lock().expect("Unlock buffer data failed");

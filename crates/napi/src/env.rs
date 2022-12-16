@@ -115,7 +115,7 @@ impl Env {
   #[cfg(feature = "napi6")]
   pub fn create_bigint_from_i128(&self, value: i128) -> Result<JsBigInt> {
     let mut raw_value = ptr::null_mut();
-    let sign_bit = if value > 0 { 0 } else { 1 };
+    let sign_bit = i32::from(value <= 0);
     let words = &value as *const i128 as *const u64;
     check_status!(unsafe {
       sys::napi_create_bigint_words(self.0, sign_bit, 2, words, &mut raw_value)

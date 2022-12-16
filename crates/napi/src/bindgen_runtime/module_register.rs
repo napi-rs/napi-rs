@@ -1,21 +1,11 @@
 use std::collections::{HashMap, HashSet};
-#[cfg(feature = "napi4")]
-use std::ffi::c_void;
 use std::ffi::CStr;
-use std::mem;
-#[cfg(feature = "napi4")]
-use std::os::raw::c_char;
 use std::ptr;
-use std::sync::{
-  atomic::{AtomicBool, AtomicPtr, Ordering},
-  Mutex,
-};
-#[cfg(feature = "napi4")]
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 use std::thread::ThreadId;
 
 use once_cell::sync::Lazy;
-#[cfg(feature = "napi4")]
-use once_cell::sync::OnceCell;
 
 use crate::{
   check_status, check_status_or_throw, sys, Env, JsError, JsFunction, Property, Result, Value,
@@ -26,120 +16,131 @@ pub type ExportRegisterCallback = unsafe fn(sys::napi_env) -> Result<sys::napi_v
 pub type ModuleExportsCallback =
   unsafe fn(env: sys::napi_env, exports: sys::napi_value) -> Result<()>;
 
-#[cfg(feature = "napi4")]
-pub(crate) static CUSTOM_GC_TSFN: AtomicPtr<sys::napi_threadsafe_function__> =
-  AtomicPtr::new(ptr::null_mut());
-#[cfg(feature = "napi4")]
-// CustomGC ThreadsafeFunction may be deleted during the process exit.
-// And there may still some Buffer alive after that.
-pub(crate) static CUSTOM_GC_TSFN_CLOSED: AtomicBool = AtomicBool::new(false);
-#[cfg(feature = "napi4")]
-pub(crate) static MAIN_THREAD_ID: OnceCell<ThreadId> = OnceCell::new();
-
-struct PersistedSingleThreadVec<T> {
-  inner: Mutex<Vec<T>>,
+struct PersistedPerInstanceVec<T> {
+  inner: AtomicPtr<T>,
+  length: AtomicUsize,
 }
 
-impl<T> Default for PersistedSingleThreadVec<T> {
+impl<T> Default for PersistedPerInstanceVec<T> {
   fn default() -> Self {
-    PersistedSingleThreadVec {
-      inner: Mutex::new(Vec::new()),
-    }
+    let mut vec: Vec<T> = Vec::with_capacity(1);
+    let ret = Self {
+      inner: AtomicPtr::new(vec.as_mut_ptr()),
+      length: AtomicUsize::new(0),
+    };
+    std::mem::forget(vec);
+    ret
   }
 }
 
-impl<T> PersistedSingleThreadVec<T> {
+impl<T> PersistedPerInstanceVec<T> {
   #[allow(clippy::mut_from_ref)]
   fn borrow_mut<F>(&self, f: F)
   where
     F: FnOnce(&mut [T]),
   {
-    let mut locked = self
-      .inner
-      .lock()
-      .expect("Acquire persisted thread vec lock failed");
-    f(&mut locked);
+    let length = self.length.load(Ordering::Relaxed);
+    if length == 0 {
+      f(&mut []);
+    } else {
+      let inner = self.inner.load(Ordering::Relaxed);
+      let mut temp = unsafe { Vec::from_raw_parts(inner, length, length) };
+      f(temp.as_mut_slice());
+      // Inner Vec has been reallocated, so we need to update the pointer
+      if temp.as_mut_ptr() != inner {
+        self.inner.store(temp.as_mut_ptr(), Ordering::Relaxed);
+      }
+      self.length.store(temp.len(), Ordering::Relaxed);
+      std::mem::forget(temp);
+    }
   }
 
   fn push(&self, item: T) {
-    let mut locked = self
-      .inner
-      .lock()
-      .expect("Acquire persisted thread vec lock failed");
-    locked.push(item);
+    let length = self.length.load(Ordering::Relaxed);
+    let inner = self.inner.load(Ordering::Relaxed);
+    let mut temp = unsafe { Vec::from_raw_parts(inner, length, length) };
+    temp.push(item);
+    // Inner Vec has been reallocated, so we need to update the pointer
+    if temp.as_mut_ptr() != inner {
+      self.inner.store(temp.as_mut_ptr(), Ordering::Relaxed);
+    }
+    std::mem::forget(temp);
+
+    self.length.fetch_add(1, Ordering::Relaxed);
   }
 }
 
-unsafe impl<T> Send for PersistedSingleThreadVec<T> {}
-unsafe impl<T> Sync for PersistedSingleThreadVec<T> {}
+unsafe impl<T: Send> Send for PersistedPerInstanceVec<T> {}
+unsafe impl<T: Sync> Sync for PersistedPerInstanceVec<T> {}
 
-pub(crate) struct PersistedSingleThreadHashMap<K, V>(Mutex<HashMap<K, V>>);
+pub(crate) struct PersistedPerInstanceHashMap<K, V>(*mut HashMap<K, V>);
 
-impl<K, V> PersistedSingleThreadHashMap<K, V> {
+impl<K, V> PersistedPerInstanceHashMap<K, V> {
+  pub(crate) fn from_hashmap(hashmap: HashMap<K, V>) -> Self {
+    Self(Box::into_raw(Box::new(hashmap)))
+  }
+
   #[allow(clippy::mut_from_ref)]
   pub(crate) fn borrow_mut<F, R>(&self, f: F) -> R
   where
     F: FnOnce(&mut HashMap<K, V>) -> R,
   {
-    let mut lock = self
-      .0
-      .lock()
-      .expect("Acquire persisted thread hash map lock failed");
-    f(&mut *lock)
+    f(unsafe { Box::leak(Box::from_raw(self.0)) })
   }
 }
 
-impl<K, V> Default for PersistedSingleThreadHashMap<K, V> {
+impl<K, V> Default for PersistedPerInstanceHashMap<K, V> {
   fn default() -> Self {
-    PersistedSingleThreadHashMap(Mutex::new(Default::default()))
+    let map = Default::default();
+    Self(Box::into_raw(Box::new(map)))
   }
 }
 
 type ModuleRegisterCallback =
-  PersistedSingleThreadVec<(Option<&'static str>, (&'static str, ExportRegisterCallback))>;
+  PersistedPerInstanceVec<(Option<&'static str>, (&'static str, ExportRegisterCallback))>;
 
-type ModuleClassProperty = PersistedSingleThreadHashMap<
+type ModuleClassProperty = PersistedPerInstanceHashMap<
   &'static str,
   HashMap<Option<&'static str>, (&'static str, Vec<Property>)>,
 >;
 
-unsafe impl<K, V> Send for PersistedSingleThreadHashMap<K, V> {}
-unsafe impl<K, V> Sync for PersistedSingleThreadHashMap<K, V> {}
+unsafe impl<K, V> Send for PersistedPerInstanceHashMap<K, V> {}
+unsafe impl<K, V> Sync for PersistedPerInstanceHashMap<K, V> {}
 
 type FnRegisterMap =
-  PersistedSingleThreadHashMap<ExportRegisterCallback, (sys::napi_callback, &'static str)>;
+  PersistedPerInstanceHashMap<ExportRegisterCallback, (sys::napi_callback, &'static str)>;
+type RegisteredClassesMap = PersistedPerInstanceHashMap<ThreadId, RegisteredClasses>;
 
 static MODULE_REGISTER_CALLBACK: Lazy<ModuleRegisterCallback> = Lazy::new(Default::default);
 static MODULE_CLASS_PROPERTIES: Lazy<ModuleClassProperty> = Lazy::new(Default::default);
-static MODULE_REGISTER_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
-static REGISTERED: Lazy<AtomicBool> = Lazy::new(|| AtomicBool::new(false));
-static REGISTERED_CLASSES: Lazy<thread_local::ThreadLocal<AtomicPtr<RegisteredClasses>>> =
-  Lazy::new(thread_local::ThreadLocal::new);
+static IS_FIRST_MODULE: AtomicBool = AtomicBool::new(true);
+static FIRST_MODULE_REGISTERED: AtomicBool = AtomicBool::new(false);
+static REGISTERED_CLASSES: Lazy<RegisteredClassesMap> = Lazy::new(Default::default);
 static FN_REGISTER_MAP: Lazy<FnRegisterMap> = Lazy::new(Default::default);
+
+type RegisteredClasses =
+  PersistedPerInstanceHashMap</* export name */ String, /* constructor */ sys::napi_ref>;
+
+#[cfg(feature = "compat-mode")]
+// compatibility for #[module_exports]
+static MODULE_EXPORTS: Lazy<PersistedPerInstanceVec<ModuleExportsCallback>> =
+  Lazy::new(Default::default);
 
 #[inline]
 fn wait_first_thread_registered() {
-  while !REGISTERED.load(Ordering::SeqCst) {
+  while !FIRST_MODULE_REGISTERED.load(Ordering::SeqCst) {
     std::hint::spin_loop();
   }
 }
 
-type RegisteredClasses =
-  HashMap</* export name */ String, /* constructor */ sys::napi_ref>;
-
-#[cfg(feature = "compat-mode")]
-// compatibility for #[module_exports]
-
-static MODULE_EXPORTS: Lazy<PersistedSingleThreadVec<ModuleExportsCallback>> =
-  Lazy::new(Default::default);
-
 #[doc(hidden)]
 pub fn get_class_constructor(js_name: &'static str) -> Option<sys::napi_ref> {
-  wait_first_thread_registered();
-  let registered_classes = REGISTERED_CLASSES.get().unwrap();
-  let registered_classes =
-    Box::leak(unsafe { Box::from_raw(registered_classes.load(Ordering::Relaxed)) });
-  registered_classes.get(js_name).copied()
+  let current_id = std::thread::current().id();
+  REGISTERED_CLASSES.borrow_mut(|map| {
+    map
+      .get(&current_id)
+      .map(|m| m.borrow_mut(|map| map.get(js_name).copied()))
+  })?
 }
 
 #[doc(hidden)]
@@ -203,7 +204,6 @@ pub fn register_class(
 /// ```
 ///
 pub fn get_js_function(env: &Env, raw_fn: ExportRegisterCallback) -> Result<JsFunction> {
-  wait_first_thread_registered();
   FN_REGISTER_MAP.borrow_mut(|inner| {
     inner
       .get(&raw_fn)
@@ -257,7 +257,6 @@ pub fn get_js_function(env: &Env, raw_fn: ExportRegisterCallback) -> Result<JsFu
 /// ```
 ///
 pub fn get_c_callback(raw_fn: ExportRegisterCallback) -> Result<crate::Callback> {
-  wait_first_thread_registered();
   FN_REGISTER_MAP.borrow_mut(|inner| {
     inner
       .get(&raw_fn)
@@ -271,20 +270,25 @@ pub fn get_c_callback(raw_fn: ExportRegisterCallback) -> Result<crate::Callback>
   })
 }
 
+#[cfg(windows)]
+#[ctor::ctor]
+fn load_host() {
+  unsafe {
+    sys::setup();
+  }
+}
+
 #[no_mangle]
 unsafe extern "C" fn napi_register_module_v1(
   env: sys::napi_env,
   exports: sys::napi_value,
 ) -> sys::napi_value {
-  #[cfg(windows)]
-  unsafe {
-    sys::setup();
+  if IS_FIRST_MODULE.load(Ordering::SeqCst) {
+    IS_FIRST_MODULE.store(false, Ordering::SeqCst);
+  } else {
+    wait_first_thread_registered();
   }
   crate::__private::___CALL_FROM_FACTORY.get_or_default();
-  let registered_classes_ptr = REGISTERED_CLASSES.get_or_default();
-  let lock = MODULE_REGISTER_LOCK
-    .lock()
-    .expect("Failed to acquire module register lock");
   let mut exports_objects: HashSet<String> = HashSet::default();
   MODULE_REGISTER_CALLBACK.borrow_mut(|inner| {
     inner
@@ -360,8 +364,7 @@ unsafe extern "C" fn napi_register_module_v1(
       })
   });
 
-  let mut registered_classes: RegisteredClasses =
-    HashMap::with_capacity(MODULE_CLASS_PROPERTIES.borrow_mut(|inner| inner.len()));
+  let mut registered_classes = HashMap::new();
 
   MODULE_CLASS_PROPERTIES.borrow_mut(|inner| {
     inner.iter().for_each(|(rust_name, js_mods)| {
@@ -447,10 +450,13 @@ unsafe extern "C" fn napi_register_module_v1(
         }
       }
     });
-    registered_classes_ptr.store(
-      Box::into_raw(Box::new(registered_classes)),
-      Ordering::Relaxed,
-    );
+
+    REGISTERED_CLASSES.borrow_mut(|map| {
+      map.insert(
+        std::thread::current().id(),
+        PersistedPerInstanceHashMap::from_hashmap(registered_classes),
+      )
+    });
   });
 
   #[cfg(feature = "compat-mode")]
@@ -462,26 +468,18 @@ unsafe extern "C" fn napi_register_module_v1(
     })
   });
 
-  #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
+  #[cfg(all(windows, feature = "napi4", feature = "tokio_rt"))]
   {
-    let _ = crate::tokio_runtime::RT.clone();
-    crate::tokio_runtime::TOKIO_RT_REF_COUNT.fetch_add(1, Ordering::SeqCst);
-    assert_eq!(
-      unsafe {
-        sys::napi_add_env_cleanup_hook(
-          env,
-          Some(crate::shutdown_tokio_rt),
-          env as *mut std::ffi::c_void,
-        )
-      },
-      sys::Status::napi_ok
-    );
+    crate::tokio_runtime::RT_REFERENCE_COUNT.fetch_add(1, Ordering::SeqCst);
+    unsafe {
+      sys::napi_add_env_cleanup_hook(
+        env,
+        Some(crate::tokio_runtime::drop_runtime),
+        ptr::null_mut(),
+      )
+    };
   }
-  mem::drop(lock);
-
-  #[cfg(feature = "napi4")]
-  create_custom_gc(env);
-  REGISTERED.store(true, Ordering::SeqCst);
+  FIRST_MODULE_REGISTERED.store(true, Ordering::SeqCst);
   exports
 }
 
@@ -501,100 +499,4 @@ pub(crate) unsafe extern "C" fn noop(
     }
   }
   ptr::null_mut()
-}
-
-#[cfg(feature = "napi4")]
-fn create_custom_gc(env: sys::napi_env) {
-  let mut custom_gc_fn = ptr::null_mut();
-  check_status_or_throw!(
-    env,
-    unsafe {
-      sys::napi_create_function(
-        env,
-        "custom_gc".as_ptr() as *const c_char,
-        9,
-        Some(empty),
-        ptr::null_mut(),
-        &mut custom_gc_fn,
-      )
-    },
-    "Create Custom GC Function in napi_register_module_v1 failed"
-  );
-  let mut async_resource_name = ptr::null_mut();
-  check_status_or_throw!(
-    env,
-    unsafe {
-      sys::napi_create_string_utf8(
-        env,
-        "CustomGC".as_ptr() as *const c_char,
-        8,
-        &mut async_resource_name,
-      )
-    },
-    "Create async resource string in napi_register_module_v1 napi_register_module_v1"
-  );
-  let mut custom_gc_tsfn = ptr::null_mut();
-  check_status_or_throw!(
-    env,
-    unsafe {
-      sys::napi_create_threadsafe_function(
-        env,
-        custom_gc_fn,
-        ptr::null_mut(),
-        async_resource_name,
-        0,
-        1,
-        ptr::null_mut(),
-        Some(custom_gc_finalize),
-        ptr::null_mut(),
-        Some(custom_gc),
-        &mut custom_gc_tsfn,
-      )
-    },
-    "Create Custom GC ThreadsafeFunction in napi_register_module_v1 failed"
-  );
-  check_status_or_throw!(
-    env,
-    unsafe { sys::napi_unref_threadsafe_function(env, custom_gc_tsfn) },
-    "Unref Custom GC ThreadsafeFunction in napi_register_module_v1 failed"
-  );
-  CUSTOM_GC_TSFN.store(custom_gc_tsfn, Ordering::SeqCst);
-  MAIN_THREAD_ID.get_or_init(|| std::thread::current().id());
-}
-
-#[cfg(feature = "napi4")]
-#[allow(unused)]
-unsafe extern "C" fn empty(env: sys::napi_env, info: sys::napi_callback_info) -> sys::napi_value {
-  ptr::null_mut()
-}
-
-#[cfg(feature = "napi4")]
-#[allow(unused)]
-unsafe extern "C" fn custom_gc_finalize(
-  env: sys::napi_env,
-  finalize_data: *mut c_void,
-  finalize_hint: *mut c_void,
-) {
-  CUSTOM_GC_TSFN_CLOSED.store(true, Ordering::SeqCst);
-}
-
-#[cfg(feature = "napi4")]
-// recycle the ArrayBuffer/Buffer Reference if the ArrayBuffer/Buffer is not dropped on the main thread
-extern "C" fn custom_gc(
-  env: sys::napi_env,
-  _js_callback: sys::napi_value,
-  _context: *mut c_void,
-  data: *mut c_void,
-) {
-  let mut ref_count = 0;
-  check_status_or_throw!(
-    env,
-    unsafe { sys::napi_reference_unref(env, data as sys::napi_ref, &mut ref_count) },
-    "Failed to unref Buffer reference in Custom GC"
-  );
-  check_status_or_throw!(
-    env,
-    unsafe { sys::napi_delete_reference(env, data as sys::napi_ref) },
-    "Failed to delete Buffer reference in Custom GC"
-  );
 }

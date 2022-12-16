@@ -1,54 +1,33 @@
-use std::ffi::c_void;
 use std::future::Future;
 use std::ptr;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use once_cell::sync::Lazy;
-use tokio::{
-  runtime::Handle,
-  sync::mpsc::{self, error::TrySendError},
-};
+use tokio::runtime::Runtime;
 
 use crate::{check_status, sys, JsDeferred, JsUnknown, NapiValue, Result};
 
-pub(crate) static RT: Lazy<(Handle, mpsc::Sender<()>)> = Lazy::new(|| {
-  let runtime = tokio::runtime::Runtime::new();
-  let (sender, mut receiver) = mpsc::channel::<()>(1);
-  runtime
-    .map(|rt| {
-      let h = rt.handle();
-      let handle = h.clone();
-      handle.spawn(async move {
-        if receiver.recv().await.is_some() {
-          rt.shutdown_background();
-        }
-      });
-
-      (handle, sender)
-    })
-    .expect("Create tokio runtime failed")
+pub(crate) static mut RT: Lazy<Option<Runtime>> = Lazy::new(|| {
+  let runtime = tokio::runtime::Runtime::new().expect("Create tokio runtime failed");
+  Some(runtime)
 });
 
-pub(crate) static TOKIO_RT_REF_COUNT: AtomicUsize = AtomicUsize::new(0);
+#[cfg(windows)]
+pub(crate) static RT_REFERENCE_COUNT: std::sync::atomic::AtomicUsize =
+  std::sync::atomic::AtomicUsize::new(0);
 
-#[doc(hidden)]
-#[inline(never)]
-pub unsafe extern "C" fn shutdown_tokio_rt(arg: *mut c_void) {
-  if TOKIO_RT_REF_COUNT.fetch_sub(1, Ordering::SeqCst) == 0 {
-    let sender = &RT.1;
-    if let Err(e) = sender.clone().try_send(()) {
-      match e {
-        TrySendError::Closed(_) => {}
-        TrySendError::Full(_) => {
-          panic!("Send shutdown signal to tokio runtime failed, queue is full");
-        }
-      }
+#[cfg(windows)]
+pub(crate) unsafe extern "C" fn drop_runtime(arg: *mut std::ffi::c_void) {
+  use std::sync::atomic::Ordering;
+
+  if RT_REFERENCE_COUNT.fetch_sub(1, Ordering::SeqCst) == 1 {
+    if let Some(rt) = Lazy::get_mut(unsafe { &mut RT }) {
+      rt.take();
     }
   }
 
   unsafe {
     let env: sys::napi_env = arg as *mut sys::napi_env__;
-    sys::napi_remove_env_cleanup_hook(env, Some(shutdown_tokio_rt), arg);
+    sys::napi_remove_env_cleanup_hook(env, Some(drop_runtime), arg);
   }
 }
 
@@ -60,7 +39,7 @@ pub fn spawn<F>(fut: F) -> tokio::task::JoinHandle<F::Output>
 where
   F: 'static + Send + Future<Output = ()>,
 {
-  RT.0.spawn(fut)
+  unsafe { RT.as_ref() }.unwrap().spawn(fut)
 }
 
 /// Runs a future to completion
@@ -70,7 +49,7 @@ pub fn block_on<F>(fut: F) -> F::Output
 where
   F: 'static + Send + Future<Output = ()>,
 {
-  RT.0.block_on(fut)
+  unsafe { RT.as_ref() }.unwrap().block_on(fut)
 }
 
 // This function's signature must be kept in sync with the one in lib.rs, otherwise napi
@@ -78,8 +57,9 @@ where
 
 /// If the feature `tokio_rt` has been enabled this will enter the runtime context and
 /// then call the provided closure. Otherwise it will just call the provided closure.
+#[inline]
 pub fn within_runtime_if_available<F: FnOnce() -> T, T>(f: F) -> T {
-  let _rt_guard = RT.0.enter();
+  let _rt_guard = unsafe { RT.as_ref() }.unwrap().enter();
   f()
 }
 

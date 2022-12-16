@@ -77,17 +77,11 @@ macro_rules! generate {
   };
 }
 
-#[cfg(windows)]
-use std::sync::Once;
-
 mod functions;
 mod types;
 
 pub use functions::*;
 pub use types::*;
-
-#[cfg(windows)]
-static SETUP: Once = Once::new();
 
 /// Loads N-API symbols from host process.
 /// Must be called at least once before using any functions in bindings or
@@ -95,10 +89,9 @@ static SETUP: Once = Once::new();
 /// Safety: `env` must be a valid `napi_env` for the current thread
 #[cfg(windows)]
 #[allow(clippy::missing_safety_doc)]
-pub unsafe fn setup() {
-  SETUP.call_once(|| {
-    if let Err(err) = load() {
-      panic!("{}", err);
-    }
-  });
+pub unsafe fn setup() -> libloading::Library {
+  match load() {
+    Err(err) => panic!("{}", err),
+    Ok(l) => l,
+  }
 }

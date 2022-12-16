@@ -75,7 +75,7 @@ pub fn test_async(env: Env) -> napi::Result<napi::JsObject> {
 
 #[napi]
 pub fn from_js(env: Env, input_object: Object) -> napi::Result<String> {
-  let a: Welcome = env.from_js_value(&input_object)?;
+  let a: Welcome = env.from_js_value(input_object)?;
   Ok(serde_json::to_string(&a)?)
 }
 

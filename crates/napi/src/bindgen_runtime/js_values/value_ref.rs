@@ -6,7 +6,7 @@ use std::rc::{Rc, Weak};
 use once_cell::sync::Lazy;
 
 use crate::{
-  bindgen_runtime::{PersistedSingleThreadHashMap, ToNapiValue},
+  bindgen_runtime::{PersistedPerInstanceHashMap, ToNapiValue},
   check_status, Env, Error, Result, Status,
 };
 
@@ -16,7 +16,7 @@ type RefInformation = (
   *const Cell<*mut dyn FnOnce()>,
 );
 
-pub(crate) static REFERENCE_MAP: Lazy<PersistedSingleThreadHashMap<*mut c_void, RefInformation>> =
+pub(crate) static REFERENCE_MAP: Lazy<PersistedPerInstanceHashMap<*mut c_void, RefInformation>> =
   Lazy::new(Default::default);
 
 /// ### Experimental feature
@@ -59,6 +59,7 @@ impl<T> Drop for Reference<T> {
 
 impl<T: 'static> Reference<T> {
   #[doc(hidden)]
+  #[allow(clippy::not_unsafe_ptr_arg_deref)]
   pub fn add_ref(env: crate::sys::napi_env, t: *mut c_void, value: RefInformation) {
     REFERENCE_MAP.borrow_mut(|map| {
       if let Some((_, previous_ref, previous_rc)) = map.insert(t, value) {

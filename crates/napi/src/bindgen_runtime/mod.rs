@@ -76,7 +76,7 @@ pub unsafe extern "C" fn drop_buffer(
   #[allow(unused)] finalize_data: *mut c_void,
   finalize_hint: *mut c_void,
 ) {
-  #[cfg(debug_assertions)]
+  #[cfg(all(debug_assertions, not(windows)))]
   {
     js_values::BUFFER_DATA.with(|buffer_data| {
       let mut buffer = buffer_data.lock().expect("Unlock Buffer data failed");
