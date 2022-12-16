@@ -204,7 +204,7 @@ impl TryFrom<JsBigInt> for u64 {
 impl JsBigInt {
   /// <https://nodejs.org/api/n-api.html#n_api_napi_get_value_bigint_words>
   pub fn get_words(&mut self) -> Result<(bool, Vec<u64>)> {
-    let mut words: Vec<u64> = Vec::with_capacity(self.word_count as usize);
+    let mut words: Vec<u64> = Vec::with_capacity(self.word_count);
     let word_count = &mut self.word_count;
     let mut sign_bit = 0;
     check_status!(unsafe {
@@ -218,7 +218,7 @@ impl JsBigInt {
     })?;
 
     unsafe {
-      words.set_len(self.word_count as usize);
+      words.set_len(self.word_count);
     };
 
     Ok((sign_bit == 1, words))

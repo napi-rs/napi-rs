@@ -22,13 +22,7 @@ fn either3(input: Either3<String, u32, bool>) -> u32 {
   match input {
     Either3::A(s) => s.len() as u32,
     Either3::B(n) => n,
-    Either3::C(b) => {
-      if b {
-        1
-      } else {
-        0
-      }
-    }
+    Either3::C(b) => u32::from(b),
   }
 }
 
@@ -42,13 +36,7 @@ fn either4(input: Either4<String, u32, bool, Obj>) -> u32 {
   match input {
     Either4::A(s) => s.len() as u32,
     Either4::B(n) => n,
-    Either4::C(b) => {
-      if b {
-        1
-      } else {
-        0
-      }
-    }
+    Either4::C(b) => u32::from(b),
     Either4::D(f) => match f.v {
       Either::A(s) => s.len() as u32,
       Either::B(n) => n,

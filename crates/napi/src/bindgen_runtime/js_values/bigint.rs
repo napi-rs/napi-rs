@@ -52,7 +52,7 @@ impl FromNapiValue for BigInt {
         ptr::null_mut(),
       )
     })?;
-    let mut words: Vec<u64> = Vec::with_capacity(word_count as usize);
+    let mut words: Vec<u64> = Vec::with_capacity(word_count);
     let mut sign_bit = 0;
 
     unsafe {
@@ -64,7 +64,7 @@ impl FromNapiValue for BigInt {
         words.as_mut_ptr(),
       ))?;
 
-      words.set_len(word_count as usize);
+      words.set_len(word_count);
     }
     if word_count == 0 {
       words = vec![0];
@@ -155,7 +155,7 @@ impl ToNapiValue for BigInt {
 impl ToNapiValue for i128 {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> crate::Result<sys::napi_value> {
     let mut raw_value = ptr::null_mut();
-    let sign_bit = if val > 0 { 0 } else { 1 };
+    let sign_bit = i32::from(val <= 0);
     let words = &val as *const i128 as *const u64;
     check_status!(unsafe {
       sys::napi_create_bigint_words(env, sign_bit, 2, words, &mut raw_value)

@@ -87,7 +87,7 @@ fn test_delete_named_property(ctx: CallContext) -> Result<JsBoolean> {
 fn test_get_property(ctx: CallContext) -> Result<JsUnknown> {
   let obj = ctx.get::<JsObject>(0)?;
   let key = ctx.get::<JsUnknown>(1)?;
-  obj.get_property(&key)
+  obj.get_property(key)
 }
 
 #[js_function(1)]

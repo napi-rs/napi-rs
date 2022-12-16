@@ -66,6 +66,7 @@ impl<T> Drop for Reference<T> {
 
 impl<T: 'static> Reference<T> {
   #[doc(hidden)]
+  #[allow(clippy::not_unsafe_ptr_arg_deref)]
   pub fn add_ref(env: crate::sys::napi_env, t: *mut c_void, value: RefInformation) {
     REFERENCE_MAP.borrow_mut(|map| {
       if let Some((_, previous_ref, previous_rc)) = map.insert(t, value) {
