@@ -1,8 +1,9 @@
 use std::collections::{HashMap, HashSet};
-use std::ffi::CStr;
+use std::ffi::{c_void, CStr};
 use std::ptr;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
+use std::thread::ThreadId;
 
 use once_cell::sync::Lazy;
 
@@ -18,6 +19,17 @@ pub type ModuleExportsCallback =
 struct PersistedPerInstanceVec<T> {
   inner: AtomicPtr<T>,
   length: AtomicUsize,
+}
+
+impl<T> Drop for PersistedPerInstanceVec<T> {
+  fn drop(&mut self) {
+    let length = self.length.load(Ordering::Relaxed);
+    if length == 0 {
+      return;
+    }
+    let inner = self.inner.load(Ordering::Relaxed);
+    unsafe { Vec::from_raw_parts(inner, length, length) };
+  }
 }
 
 impl<T> Default for PersistedPerInstanceVec<T> {
@@ -74,7 +86,17 @@ unsafe impl<T: Sync> Sync for PersistedPerInstanceVec<T> {}
 
 pub(crate) struct PersistedPerInstanceHashMap<K, V>(*mut HashMap<K, V>);
 
+impl<K, V> Drop for PersistedPerInstanceHashMap<K, V> {
+  fn drop(&mut self) {
+    unsafe { Box::from_raw(self.0) };
+  }
+}
+
 impl<K, V> PersistedPerInstanceHashMap<K, V> {
+  pub(crate) fn from_hashmap(hashmap: HashMap<K, V>) -> Self {
+    Self(Box::into_raw(Box::new(hashmap)))
+  }
+
   #[allow(clippy::mut_from_ref)]
   pub(crate) fn borrow_mut<F, R>(&self, f: F) -> R
   where
@@ -104,12 +126,12 @@ unsafe impl<K, V> Sync for PersistedPerInstanceHashMap<K, V> {}
 
 type FnRegisterMap =
   PersistedPerInstanceHashMap<ExportRegisterCallback, (sys::napi_callback, &'static str)>;
+type RegisteredClassesMap = PersistedPerInstanceHashMap<ThreadId, RegisteredClasses>;
 
 static MODULE_REGISTER_CALLBACK: Lazy<ModuleRegisterCallback> = Lazy::new(Default::default);
 static MODULE_CLASS_PROPERTIES: Lazy<ModuleClassProperty> = Lazy::new(Default::default);
 static REGISTERED: AtomicBool = AtomicBool::new(false);
-static REGISTERED_CLASSES: Lazy<thread_local::ThreadLocal<AtomicPtr<RegisteredClasses>>> =
-  Lazy::new(thread_local::ThreadLocal::new);
+static REGISTERED_CLASSES: Lazy<RegisteredClassesMap> = Lazy::new(Default::default);
 static FN_REGISTER_MAP: Lazy<FnRegisterMap> = Lazy::new(Default::default);
 
 #[ctor::dtor]
@@ -135,21 +157,22 @@ fn wait_first_thread_registered() {
 }
 
 type RegisteredClasses =
-  HashMap</* export name */ String, /* constructor */ sys::napi_ref>;
+  PersistedPerInstanceHashMap</* export name */ String, /* constructor */ sys::napi_ref>;
 
 #[cfg(feature = "compat-mode")]
 // compatibility for #[module_exports]
-
 static MODULE_EXPORTS: Lazy<PersistedPerInstanceVec<ModuleExportsCallback>> =
   Lazy::new(Default::default);
 
 #[doc(hidden)]
 pub fn get_class_constructor(js_name: &'static str) -> Option<sys::napi_ref> {
   wait_first_thread_registered();
-  let registered_classes = REGISTERED_CLASSES.get().unwrap();
-  let registered_classes =
-    Box::leak(unsafe { Box::from_raw(registered_classes.load(Ordering::Relaxed)) });
-  registered_classes.get(js_name).copied()
+  let current_id = std::thread::current().id();
+  REGISTERED_CLASSES.borrow_mut(|map| {
+    map
+      .get(&current_id)
+      .map(|m| m.borrow_mut(|map| map.get(js_name).copied()))
+  })?
 }
 
 #[doc(hidden)]
@@ -295,7 +318,6 @@ unsafe extern "C" fn napi_register_module_v1(
   exports: sys::napi_value,
 ) -> sys::napi_value {
   crate::__private::___CALL_FROM_FACTORY.get_or_default();
-  let registered_classes_ptr = REGISTERED_CLASSES.get_or_default();
   let mut exports_objects: HashSet<String> = HashSet::default();
   MODULE_REGISTER_CALLBACK.borrow_mut(|inner| {
     inner
@@ -371,7 +393,7 @@ unsafe extern "C" fn napi_register_module_v1(
       })
   });
 
-  let mut registered_classes: RegisteredClasses =
+  let mut registered_classes =
     HashMap::with_capacity(MODULE_CLASS_PROPERTIES.borrow_mut(|inner| inner.len()));
 
   MODULE_CLASS_PROPERTIES.borrow_mut(|inner| {
@@ -458,10 +480,13 @@ unsafe extern "C" fn napi_register_module_v1(
         }
       }
     });
-    registered_classes_ptr.store(
-      Box::into_raw(Box::new(registered_classes)),
-      Ordering::Relaxed,
-    );
+
+    REGISTERED_CLASSES.borrow_mut(|map| {
+      map.insert(
+        std::thread::current().id(),
+        PersistedPerInstanceHashMap::from_hashmap(registered_classes),
+      )
+    });
   });
 
   #[cfg(feature = "compat-mode")]
@@ -473,8 +498,27 @@ unsafe extern "C" fn napi_register_module_v1(
     })
   });
 
+  #[cfg(feature = "napi3")]
+  {
+    unsafe {
+      sys::napi_add_env_cleanup_hook(env, Some(remove_registered_classes), env as *mut c_void)
+    };
+  }
   REGISTERED.store(true, Ordering::SeqCst);
   exports
+}
+
+unsafe extern "C" fn remove_registered_classes(env: *mut c_void) {
+  let env = env as sys::napi_env;
+  if let Some(registered_classes) =
+    REGISTERED_CLASSES.borrow_mut(|map| map.remove(&std::thread::current().id()))
+  {
+    registered_classes.borrow_mut(|map| {
+      map.iter().for_each(|(_, v)| {
+        unsafe { sys::napi_delete_reference(env, *v) };
+      })
+    });
+  }
 }
 
 pub(crate) unsafe extern "C" fn noop(
