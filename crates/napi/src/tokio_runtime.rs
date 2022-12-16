@@ -6,11 +6,29 @@ use tokio::runtime::Runtime;
 
 use crate::{check_status, sys, JsDeferred, JsUnknown, NapiValue, Result};
 
-pub(crate) static RT: Lazy<Runtime> =
-  Lazy::new(|| tokio::runtime::Runtime::new().expect("Create tokio runtime failed"));
+pub(crate) static mut RT: Lazy<Option<Runtime>> = Lazy::new(|| {
+  let runtime = tokio::runtime::Runtime::new().expect("Create tokio runtime failed");
+  Some(runtime)
+});
 
-pub fn runtime() -> &'static Runtime {
-  &RT
+#[cfg(windows)]
+pub(crate) static RT_REFERENCE_COUNT: std::sync::atomic::AtomicUsize =
+  std::sync::atomic::AtomicUsize::new(0);
+
+#[cfg(windows)]
+pub(crate) unsafe extern "C" fn drop_runtime(arg: *mut std::ffi::c_void) {
+  use std::sync::atomic::Ordering;
+
+  if RT_REFERENCE_COUNT.fetch_sub(1, Ordering::SeqCst) == 1 {
+    if let Some(rt) = Lazy::get_mut(unsafe { &mut RT }) {
+      rt.take();
+    }
+  }
+
+  unsafe {
+    let env: sys::napi_env = arg as *mut sys::napi_env__;
+    sys::napi_remove_env_cleanup_hook(env, Some(drop_runtime), arg);
+  }
 }
 
 /// Spawns a future onto the Tokio runtime.
@@ -21,7 +39,7 @@ pub fn spawn<F>(fut: F) -> tokio::task::JoinHandle<F::Output>
 where
   F: 'static + Send + Future<Output = ()>,
 {
-  RT.spawn(fut)
+  unsafe { RT.as_ref() }.unwrap().spawn(fut)
 }
 
 /// Runs a future to completion
@@ -31,7 +49,7 @@ pub fn block_on<F>(fut: F) -> F::Output
 where
   F: 'static + Send + Future<Output = ()>,
 {
-  RT.block_on(fut)
+  unsafe { RT.as_ref() }.unwrap().block_on(fut)
 }
 
 // This function's signature must be kept in sync with the one in lib.rs, otherwise napi
@@ -41,7 +59,7 @@ where
 /// then call the provided closure. Otherwise it will just call the provided closure.
 #[inline]
 pub fn within_runtime_if_available<F: FnOnce() -> T, T>(f: F) -> T {
-  let _rt_guard = RT.enter();
+  let _rt_guard = unsafe { RT.as_ref() }.unwrap().enter();
   f()
 }
 
