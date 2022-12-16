@@ -1021,7 +1021,7 @@ impl Env {
     result
   }
   
-  pub fn run_script(&self, script: &str)->Result<JsObject> {
+  pub fn run_script<S: AsRef<str>>(&self, script: S)->Result<JsObject> {
     let s = self.create_string(script)?;
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe { sys::napi_run_script(self.0, s.raw(), &mut raw_value) })?;
