@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::ffi::{c_void, CStr};
+use std::ffi::CStr;
 use std::ptr;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
@@ -473,25 +473,8 @@ unsafe extern "C" fn napi_register_module_v1(
     })
   });
 
-  #[cfg(feature = "napi3")]
-  {
-    unsafe {
-      sys::napi_add_env_cleanup_hook(env, Some(remove_registered_classes), env as *mut c_void)
-    };
-  }
   REGISTERED.store(true, Ordering::SeqCst);
   exports
-}
-
-unsafe extern "C" fn remove_registered_classes(env: *mut c_void) {
-  let env = env as sys::napi_env;
-  if let Some(s) = REGISTERED_CLASSES.get() {
-    let registered_classes = unsafe { Box::from_raw(s.load(Ordering::Relaxed)) };
-    registered_classes.iter().for_each(|(_, v)| {
-      unsafe { sys::napi_delete_reference(env, *v) };
-    });
-    s.store(ptr::null_mut(), Ordering::Relaxed);
-  }
 }
 
 pub(crate) unsafe extern "C" fn noop(

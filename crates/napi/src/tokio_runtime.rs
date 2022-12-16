@@ -2,43 +2,12 @@ use std::future::Future;
 use std::ptr;
 
 use once_cell::sync::Lazy;
-use tokio::{
-  runtime::Handle,
-  sync::mpsc::{self, error::TrySendError},
-};
+use tokio::runtime::Runtime;
 
 use crate::{check_status, sys, JsDeferred, JsUnknown, NapiValue, Result};
 
-pub(crate) static RT: Lazy<(Handle, mpsc::Sender<()>)> = Lazy::new(|| {
-  let runtime = tokio::runtime::Runtime::new();
-  let (sender, mut receiver) = mpsc::channel::<()>(1);
-  runtime
-    .map(|rt| {
-      let h = rt.handle();
-      let handle = h.clone();
-      handle.spawn(async move {
-        if receiver.recv().await.is_some() {
-          rt.shutdown_background();
-        }
-      });
-
-      (handle, sender)
-    })
-    .expect("Create tokio runtime failed")
-});
-
-#[ctor::dtor]
-fn shutdown_tokio() {
-  let sender = &RT.1;
-  if let Err(e) = sender.clone().try_send(()) {
-    match e {
-      TrySendError::Closed(_) => {}
-      TrySendError::Full(_) => {
-        panic!("Send shutdown signal to tokio runtime failed, queue is full");
-      }
-    }
-  }
-}
+pub(crate) static RT: Lazy<Runtime> =
+  Lazy::new(|| tokio::runtime::Runtime::new().expect("Create tokio runtime failed"));
 
 /// Spawns a future onto the Tokio runtime.
 ///
@@ -48,7 +17,7 @@ pub fn spawn<F>(fut: F) -> tokio::task::JoinHandle<F::Output>
 where
   F: 'static + Send + Future<Output = ()>,
 {
-  RT.0.spawn(fut)
+  RT.spawn(fut)
 }
 
 /// Runs a future to completion
@@ -58,7 +27,7 @@ pub fn block_on<F>(fut: F) -> F::Output
 where
   F: 'static + Send + Future<Output = ()>,
 {
-  RT.0.block_on(fut)
+  RT.block_on(fut)
 }
 
 // This function's signature must be kept in sync with the one in lib.rs, otherwise napi
@@ -66,8 +35,9 @@ where
 
 /// If the feature `tokio_rt` has been enabled this will enter the runtime context and
 /// then call the provided closure. Otherwise it will just call the provided closure.
+#[inline]
 pub fn within_runtime_if_available<F: FnOnce() -> T, T>(f: F) -> T {
-  let _rt_guard = RT.0.enter();
+  let _rt_guard = RT.enter();
   f()
 }
 
