@@ -105,6 +105,15 @@ switch (platform) {
     }
     break
   case 'darwin':
+    localFileExisted = existsSync(join(__dirname, '${localName}.darwin-universal.node'))
+    try {
+      if (localFileExisted) {
+        nativeBinding = require('./${localName}.darwin-universal.node')
+      } else {
+        nativeBinding = require('${pkgName}-darwin-universal')
+      }
+      break
+    } catch {}
     switch (arch) {
       case 'x64':
         localFileExisted = existsSync(join(__dirname, '${localName}.darwin-x64.node'))

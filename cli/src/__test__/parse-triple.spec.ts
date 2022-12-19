@@ -113,6 +113,16 @@ const triples = [
       raw: 'armv7-linux-androideabi',
     },
   } as const,
+  {
+    name: 'universal-apple-darwin',
+    expected: {
+      abi: null,
+      arch: 'universal',
+      platform: 'darwin',
+      platformArchABI: 'darwin-universal',
+      raw: 'universal-apple-darwin',
+    },
+  } as const,
 ]
 
 for (const triple of triples) {

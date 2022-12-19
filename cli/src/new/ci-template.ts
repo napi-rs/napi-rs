@@ -57,11 +57,6 @@ jobs:
           - host: macos-latest
             target: 'aarch64-apple-darwin'
             build: |
-              sudo rm -Rf /Library/Developer/CommandLineTools/SDKs/*;
-              export CC=$(xcrun -f clang);
-              export CXX=$(xcrun -f clang++);
-              SYSROOT=$(xcrun --sdk macosx --show-sdk-path);
-              export CFLAGS="-isysroot $SYSROOT -isystem $SYSROOT";
               yarn build --target aarch64-apple-darwin
               strip -x *.node
           - host: ubuntu-latest
@@ -146,9 +141,9 @@ jobs:
           key: \${{ matrix.settings.target }}-cargo-\${{ matrix.settings.host }}
 
       - uses: goto-bus-stop/setup-zig@v2
-          if: \${{ matrix.settings.target == 'armv7-unknown-linux-gnueabihf' }}
-          with:
-            version: 0.10.0
+        if: \${{ matrix.settings.target == 'armv7-unknown-linux-gnueabihf' }}
+        with:
+          version: 0.10.0
 
       - name: Setup toolchain
         run: \${{ matrix.settings.setup }}
@@ -511,6 +506,52 @@ jobs:
             set -e
             yarn test
             ls -la
+
+  universal-macOS:
+    name: Build universal macOS binary
+    needs:
+      - build
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 16
+          check-latest: true
+          cache: yarn
+
+      - name: Cache NPM dependencies
+        uses: actions/cache@v3
+        with:
+          path: .yarn/cache
+          key: npm-cache-test-x86_64-apple-darwin-16-\${{ hashFiles('yarn.lock') }}
+
+      - name: 'Install dependencies'
+        run: yarn install
+
+      - name: Download macOS x64 artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: bindings-x86_64-apple-darwin
+          path: artifacts
+      - name: Download macOS arm64 artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: bindings-aarch64-apple-darwin
+          path: artifacts
+
+      - name: Combine binaries
+        run: yarn universal
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: bindings-universal-apple-darwin
+          path: \${{ env.APP_NAME }}.*.node
+          if-no-files-found: error
 
   publish:
     name: Publish

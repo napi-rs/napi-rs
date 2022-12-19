@@ -6,6 +6,7 @@ import { fdir } from 'fdir'
 
 import { getNapiConfig } from './consts'
 import { debugFactory } from './debug'
+import { UniArchsByPlatform } from './parse-triple'
 import { readFileAsync, writeFileAsync } from './utils'
 
 const debug = debugFactory('artifacts')
@@ -38,6 +39,14 @@ export class ArtifactsCommand extends Command {
       join(process.cwd(), this.distDir, platform.platformArchABI),
     )
 
+    const universalSourceBins = new Set(
+      platforms
+        .filter((platform) => platform.arch === 'universal')
+        .flatMap((p) =>
+          UniArchsByPlatform[p.platform].map((a) => `${p.platform}-${a}`),
+        ),
+    )
+
     await sourceApi.withPromise().then((output) =>
       Promise.all(
         (output as string[]).map(async (filePath) => {
@@ -51,8 +60,17 @@ export class ArtifactsCommand extends Command {
                 _binaryName,
               )}] is not matched with [${chalk.greenBright(binaryName)}], skip`,
             )
+            return
           }
           const dir = distDirs.find((dir) => dir.includes(platformArchABI))
+          if (!dir && universalSourceBins.has(platformArchABI)) {
+            debug(
+              `[${chalk.yellowBright(
+                platformArchABI,
+              )}] has no dist dir but it is source bin for universal arch, skip`,
+            )
+            return
+          }
           if (!dir) {
             throw new TypeError(`No dist dir found for ${filePath}`)
           }

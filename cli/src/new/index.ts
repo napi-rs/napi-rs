@@ -45,6 +45,7 @@ const SupportedPlatforms: string[] = [
   'x86_64-unknown-freebsd',
   'i686-pc-windows-msvc',
   'armv7-linux-androideabi',
+  'universal-apple-darwin',
 ]
 
 export class NewProjectCommand extends Command {

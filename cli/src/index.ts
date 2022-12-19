@@ -11,6 +11,7 @@ import { HelpCommand } from './help'
 import { NewProjectCommand } from './new'
 import { PrePublishCommand } from './pre-publish'
 import { RenameCommand } from './rename'
+import { UniversalCommand } from './universal'
 import { VersionCommand } from './version'
 
 const cli = new Cli({
@@ -23,6 +24,7 @@ cli.register(BuildCommand)
 cli.register(CreateNpmDirCommand)
 cli.register(PrePublishCommand)
 cli.register(VersionCommand)
+cli.register(UniversalCommand)
 cli.register(NewProjectCommand)
 cli.register(RenameCommand)
 cli.register(HelpCommand)

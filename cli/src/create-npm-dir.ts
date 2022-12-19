@@ -47,7 +47,10 @@ export class CreateNpmDirCommand extends Command {
         name: `${packageName}-${platformDetail.platformArchABI}`,
         version,
         os: [platformDetail.platform],
-        cpu: [platformDetail.arch],
+        cpu:
+          platformDetail.arch !== 'universal'
+            ? [platformDetail.arch]
+            : undefined,
         main: binaryFileName,
         files: [binaryFileName],
         ...pick(

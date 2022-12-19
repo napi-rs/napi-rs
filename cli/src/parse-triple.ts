@@ -13,6 +13,7 @@ type NodeJSArch =
   | 's390x'
   | 'x32'
   | 'x64'
+  | 'universal'
 
 const CpuToNodeArch: { [index: string]: NodeJSArch } = {
   x86_64: 'x64',
@@ -21,11 +22,22 @@ const CpuToNodeArch: { [index: string]: NodeJSArch } = {
   armv7: 'arm',
 }
 
+export const NodeArchToCpu: { [index: string]: string } = {
+  x64: 'x86_64',
+  arm64: 'aarch64',
+  ia32: 'i686',
+  arm: 'armv7',
+}
+
 const SysToNodePlatform: { [index: string]: NodeJS.Platform } = {
   linux: 'linux',
   freebsd: 'freebsd',
   darwin: 'darwin',
   windows: 'win32',
+}
+
+export const UniArchsByPlatform: Record<string, NodeJSArch[]> = {
+  darwin: ['x64', 'arm64'],
 }
 
 export interface PlatformDetail {
