@@ -117,6 +117,16 @@ static IS_FIRST_MODULE: AtomicBool = AtomicBool::new(true);
 static FIRST_MODULE_REGISTERED: AtomicBool = AtomicBool::new(false);
 static REGISTERED_CLASSES: Lazy<RegisteredClassesMap> = Lazy::new(Default::default);
 static FN_REGISTER_MAP: Lazy<FnRegisterMap> = Lazy::new(Default::default);
+#[cfg(feature = "napi4")]
+pub(crate) static CUSTOM_GC_TSFN: AtomicPtr<sys::napi_threadsafe_function__> =
+  AtomicPtr::new(ptr::null_mut());
+#[cfg(feature = "napi4")]
+// CustomGC ThreadsafeFunction may be deleted during the process exit.
+// And there may still some Buffer alive after that.
+pub(crate) static CUSTOM_GC_TSFN_CLOSED: AtomicBool = AtomicBool::new(false);
+#[cfg(feature = "napi4")]
+pub(crate) static MAIN_THREAD_ID: once_cell::sync::OnceCell<ThreadId> =
+  once_cell::sync::OnceCell::new();
 
 type RegisteredClasses =
   PersistedPerInstanceHashMap</* export name */ String, /* constructor */ sys::napi_ref>;
@@ -479,6 +489,8 @@ unsafe extern "C" fn napi_register_module_v1(
       )
     };
   }
+  #[cfg(feature = "napi4")]
+  create_custom_gc(env);
   FIRST_MODULE_REGISTERED.store(true, Ordering::SeqCst);
   exports
 }
@@ -499,4 +511,102 @@ pub(crate) unsafe extern "C" fn noop(
     }
   }
   ptr::null_mut()
+}
+
+#[cfg(feature = "napi4")]
+fn create_custom_gc(env: sys::napi_env) {
+  use std::os::raw::c_char;
+
+  let mut custom_gc_fn = ptr::null_mut();
+  check_status_or_throw!(
+    env,
+    unsafe {
+      sys::napi_create_function(
+        env,
+        "custom_gc".as_ptr() as *const c_char,
+        9,
+        Some(empty),
+        ptr::null_mut(),
+        &mut custom_gc_fn,
+      )
+    },
+    "Create Custom GC Function in napi_register_module_v1 failed"
+  );
+  let mut async_resource_name = ptr::null_mut();
+  check_status_or_throw!(
+    env,
+    unsafe {
+      sys::napi_create_string_utf8(
+        env,
+        "CustomGC".as_ptr() as *const c_char,
+        8,
+        &mut async_resource_name,
+      )
+    },
+    "Create async resource string in napi_register_module_v1 napi_register_module_v1"
+  );
+  let mut custom_gc_tsfn = ptr::null_mut();
+  check_status_or_throw!(
+    env,
+    unsafe {
+      sys::napi_create_threadsafe_function(
+        env,
+        custom_gc_fn,
+        ptr::null_mut(),
+        async_resource_name,
+        0,
+        1,
+        ptr::null_mut(),
+        Some(custom_gc_finalize),
+        ptr::null_mut(),
+        Some(custom_gc),
+        &mut custom_gc_tsfn,
+      )
+    },
+    "Create Custom GC ThreadsafeFunction in napi_register_module_v1 failed"
+  );
+  check_status_or_throw!(
+    env,
+    unsafe { sys::napi_unref_threadsafe_function(env, custom_gc_tsfn) },
+    "Unref Custom GC ThreadsafeFunction in napi_register_module_v1 failed"
+  );
+  CUSTOM_GC_TSFN.store(custom_gc_tsfn, Ordering::SeqCst);
+  MAIN_THREAD_ID.get_or_init(|| std::thread::current().id());
+}
+
+#[cfg(feature = "napi4")]
+#[allow(unused)]
+unsafe extern "C" fn empty(env: sys::napi_env, info: sys::napi_callback_info) -> sys::napi_value {
+  ptr::null_mut()
+}
+
+#[cfg(feature = "napi4")]
+#[allow(unused)]
+unsafe extern "C" fn custom_gc_finalize(
+  env: sys::napi_env,
+  finalize_data: *mut std::ffi::c_void,
+  finalize_hint: *mut std::ffi::c_void,
+) {
+  CUSTOM_GC_TSFN_CLOSED.store(true, Ordering::SeqCst);
+}
+
+#[cfg(feature = "napi4")]
+// recycle the ArrayBuffer/Buffer Reference if the ArrayBuffer/Buffer is not dropped on the main thread
+extern "C" fn custom_gc(
+  env: sys::napi_env,
+  _js_callback: sys::napi_value,
+  _context: *mut std::ffi::c_void,
+  data: *mut std::ffi::c_void,
+) {
+  let mut ref_count = 0;
+  check_status_or_throw!(
+    env,
+    unsafe { sys::napi_reference_unref(env, data as sys::napi_ref, &mut ref_count) },
+    "Failed to unref Buffer reference in Custom GC"
+  );
+  check_status_or_throw!(
+    env,
+    unsafe { sys::napi_delete_reference(env, data as sys::napi_ref) },
+    "Failed to delete Buffer reference in Custom GC"
+  );
 }
