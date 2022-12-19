@@ -9,6 +9,8 @@ use std::sync::Arc;
 #[cfg(all(debug_assertions, not(windows)))]
 use std::sync::Mutex;
 
+#[cfg(feature = "napi4")]
+use crate::bindgen_prelude::{CUSTOM_GC_TSFN, CUSTOM_GC_TSFN_CLOSED, MAIN_THREAD_ID};
 use crate::{bindgen_prelude::*, check_status, sys, Result, ValueType};
 
 #[cfg(all(debug_assertions, not(windows)))]
@@ -43,6 +45,30 @@ impl Drop for Buffer {
           unsafe { sys::napi_delete_reference(env, ref_) },
           "Failed to delete Buffer reference in drop"
         );
+        #[cfg(feature = "napi4")]
+        {
+          if CUSTOM_GC_TSFN_CLOSED.load(std::sync::atomic::Ordering::SeqCst) {
+            return;
+          }
+          if !MAIN_THREAD_ID
+            .get()
+            .map(|id| &std::thread::current().id() == id)
+            .unwrap_or(false)
+          {
+            let status = unsafe {
+              sys::napi_call_threadsafe_function(
+                CUSTOM_GC_TSFN.load(std::sync::atomic::Ordering::SeqCst),
+                ref_ as *mut c_void,
+                1,
+              )
+            };
+            assert!(
+              status == sys::Status::napi_ok,
+              "Call custom GC in ArrayBuffer::drop failed {:?}",
+              Status::from(status)
+            );
+          }
+        }
       } else {
         unsafe { Vec::from_raw_parts(self.inner.as_ptr(), self.len, self.capacity) };
       }
