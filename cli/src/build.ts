@@ -191,6 +191,10 @@ export class BuildCommand extends Command {
     )} ${chalk.green('--zig-abi-suffix=2.17')}`,
   })
 
+  zigLinkOnly = Option.Boolean(`--zig-link-only`, false, {
+    description: `Only link the library with ${chalk.green('zig')}`,
+  })
+
   isStrip = Option.Boolean(`--strip`, false, {
     description: `${chalk.green('Strip')} the library for minimum file size`,
   })
@@ -402,12 +406,14 @@ export class BuildCommand extends Command {
         },
       )
       const envTarget = triple.raw.replaceAll('-', '_').toUpperCase()
-      Object.assign(additionalEnv, {
-        CC: CCWrapperShell,
-        CXX: CXXWrapperShell,
-        TARGET_CC: CCWrapperShell,
-        TARGET_CXX: CXXWrapperShell,
-      })
+      if (!this.zigLinkOnly) {
+        Object.assign(additionalEnv, {
+          CC: CCWrapperShell,
+          CXX: CXXWrapperShell,
+          TARGET_CC: CCWrapperShell,
+          TARGET_CXX: CXXWrapperShell,
+        })
+      }
       additionalEnv[`CARGO_TARGET_${envTarget}_LINKER`] = linkerWrapperShell
     }
     debug(`Platform: ${JSON.stringify(triple, null, 2)}`)
