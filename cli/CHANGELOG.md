@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.14.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.13.3...@napi-rs/cli@2.14.0) (2022-12-25)
+
+### Features
+
+- **cli:** add --zig-link-only option ([#1400](https://github.com/napi-rs/napi-rs/issues/1400)) ([bc41c97](https://github.com/napi-rs/napi-rs/commit/bc41c9778f152aba9663b105f8259c3a3bb692a2))
+
 ## [2.13.3](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.13.2...@napi-rs/cli@2.13.3) (2022-12-15)
 
 ### Bug Fixes
