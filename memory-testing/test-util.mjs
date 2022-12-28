@@ -44,14 +44,19 @@ export async function createSuite(testFile, maxMemoryUsage) {
   const stats = await container.stats()
 
   let shouldAssertMemoryUsage = false
-
-  const initialMemoryUsage = await new Promise((resolve, reject) => {
+  let initialMemoryUsage
+  await new Promise((resolve, reject) => {
+    const initialDate = Date.now()
     stats.on('data', (d) => {
       const { memory_stats } = JSON.parse(d.toString('utf8'))
-      resolve(memory_stats.usage)
+      if (Date.now() - initialDate > 10000 && !shouldAssertMemoryUsage) {
+        resolve()
+        initialMemoryUsage = memory_stats.usage
+        shouldAssertMemoryUsage = true
+      }
       if (shouldAssertMemoryUsage && memory_stats?.usage) {
         const memoryGrowth = memory_stats.usage - initialMemoryUsage
-        if (memoryGrowth > maxMemoryUsage ?? initialMemoryUsage) {
+        if (memoryGrowth > (maxMemoryUsage ?? initialMemoryUsage)) {
           console.info(
             chalk.redBright(
               `Potential memory leak, memory growth: ${prettyBytes(
@@ -71,8 +76,6 @@ export async function createSuite(testFile, maxMemoryUsage) {
   )
 
   await sleep(60000)
-
-  shouldAssertMemoryUsage = true
 
   try {
     await container.stop()
