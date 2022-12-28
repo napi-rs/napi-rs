@@ -171,3 +171,6 @@ pub fn buffer_pass_through(buffer: Buffer) -> Buffer {
 pub fn array_buffer_pass_through(array_buffer: Uint8Array) -> Uint8Array {
   array_buffer
 }
+
+#[napi]
+pub async fn returns_future() {}
