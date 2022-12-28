@@ -1,10 +1,9 @@
 use std::future::Future;
-use std::ptr;
 
 use once_cell::sync::Lazy;
 use tokio::runtime::Runtime;
 
-use crate::{check_status, sys, JsDeferred, JsUnknown, NapiValue, Result};
+use crate::{sys, JsDeferred, JsUnknown, NapiValue, Result};
 
 pub(crate) static mut RT: Lazy<Option<Runtime>> = Lazy::new(|| {
   let runtime = tokio::runtime::Runtime::new().expect("Create tokio runtime failed");
@@ -73,11 +72,6 @@ pub fn execute_tokio_future<
   fut: Fut,
   resolver: Resolver,
 ) -> Result<sys::napi_value> {
-  let mut promise = ptr::null_mut();
-  let mut deferred = ptr::null_mut();
-
-  check_status!(unsafe { sys::napi_create_promise(env, &mut deferred, &mut promise) })?;
-
   let (deferred, promise) = JsDeferred::new(env)?;
 
   spawn(async move {
