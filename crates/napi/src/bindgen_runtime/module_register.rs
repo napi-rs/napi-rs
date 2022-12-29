@@ -598,12 +598,6 @@ extern "C" fn custom_gc(
   _context: *mut std::ffi::c_void,
   data: *mut std::ffi::c_void,
 ) {
-  let mut ref_count = 0;
-  check_status_or_throw!(
-    env,
-    unsafe { sys::napi_reference_unref(env, data as sys::napi_ref, &mut ref_count) },
-    "Failed to unref Buffer reference in Custom GC"
-  );
   check_status_or_throw!(
     env,
     unsafe { sys::napi_delete_reference(env, data as sys::napi_ref) },
