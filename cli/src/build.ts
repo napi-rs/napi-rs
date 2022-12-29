@@ -211,7 +211,7 @@ export class BuildCommand extends Command {
       debug('Start parse toml')
       cargoMetadata = JSON.parse(
         execSync(
-          `cargo metadata --format-version 1 --manifest-path ${cargoTomlPath}`,
+          `cargo metadata --format-version 1 --manifest-path "${cargoTomlPath}"`,
           {
             stdio: 'pipe',
             maxBuffer: 1024 * 1024 * 10,
