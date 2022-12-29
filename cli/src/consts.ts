@@ -34,5 +34,6 @@ export function getNapiConfig(
     packageJsonPath,
     content: pkgJson,
     npmClient,
+    jsFile,
   }
 }
