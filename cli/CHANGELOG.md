@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.14.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.14.0...@napi-rs/cli@2.14.1) (2023-01-03)
+
+### Bug Fixes
+
+- **cli:** android cmake build ([895e4ca](https://github.com/napi-rs/napi-rs/commit/895e4caf952de3dbe4989435fdb566088c801c30))
+- **cli:** quote toml path ([#1410](https://github.com/napi-rs/napi-rs/issues/1410)) ([c58972e](https://github.com/napi-rs/napi-rs/commit/c58972ee0a1ebc1abfd684f125735964caea1384))
+
 # [2.14.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.13.3...@napi-rs/cli@2.14.0) (2022-12-25)
 
 ### Features
