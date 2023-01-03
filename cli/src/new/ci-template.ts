@@ -77,21 +77,11 @@ jobs:
           - host: ubuntu-latest
             target: 'aarch64-linux-android'
             build: |
-              export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="\${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
-              export CC="\${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
-              export CXX="\${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++"
-              export AR="\${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
-              export PATH="\${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin:\${PATH}"
               yarn build --target aarch64-linux-android
               \${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip *.node
           - host: ubuntu-latest
             target: 'armv7-linux-androideabi'
             build: |
-              export CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER="\${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi24-clang"
-              export CC="\${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi24-clang"
-              export CXX="\${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi24-clang++"
-              export AR="\${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
-              export PATH="\${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin:\${PATH}"
               yarn build --target armv7-linux-androideabi
               \${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip *.node
           - host: ubuntu-latest
@@ -106,7 +96,7 @@ jobs:
             target: 'aarch64-pc-windows-msvc'
             build: yarn build --target aarch64-pc-windows-msvc
 
-    name: stable - \${{ matrix.settings.target }} - node@16
+    name: stable - \${{ matrix.settings.target }} - node@18
     runs-on: \${{ matrix.settings.host }}
 
     steps:
@@ -116,18 +106,16 @@ jobs:
         uses: actions/setup-node@v3
         if: \${{ !matrix.settings.docker }}
         with:
-          node-version: 16
+          node-version: 18
           check-latest: true
           cache: yarn
 
       - name: Install
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         if: \${{ !matrix.settings.docker }}
         with:
-          profile: minimal
-          override: true
           toolchain: stable
-          target: \${{ matrix.settings.target }}
+          targets: \${{ matrix.settings.target }}
 
       - name: Cache cargo
         uses: actions/cache@v3
@@ -162,7 +150,7 @@ jobs:
         uses: actions/setup-node@v3
         if: matrix.settings.target == 'i686-pc-windows-msvc'
         with:
-          node-version: 16
+          node-version: 18
           check-latest: true
           cache: yarn
           architecture: x86
@@ -230,6 +218,7 @@ jobs:
             yarn test
             rm -rf node_modules
             rm -rf target
+            rm -rf .yarn/cache
       - name: Upload artifact
         uses: actions/upload-artifact@v3
         with:
@@ -261,12 +250,6 @@ jobs:
           node-version: \${{ matrix.node }}
           check-latest: true
           cache: 'yarn'
-
-      - name: Cache NPM dependencies
-        uses: actions/cache@v3
-        with:
-          path: .yarn/cache
-          key: npm-cache-test-\${{ matrix.settings.target }}-\${{ matrix.node }}-\${{ hashFiles('yarn.lock') }}
 
       - name: 'Install dependencies'
         run: yarn install
@@ -304,12 +287,6 @@ jobs:
           check-latest: true
           cache: 'yarn'
 
-      - name: Cache NPM dependencies
-        uses: actions/cache@v3
-        with:
-          path: .yarn/cache
-          key: npm-cache-test-linux-x64-gnu-\${{ matrix.node }}
-
       - name: 'Install dependencies'
         run: yarn install
 
@@ -345,12 +322,6 @@ jobs:
           node-version: \${{ matrix.node }}
           check-latest: true
           cache: 'yarn'
-
-      - name: Cache NPM dependencies
-        uses: actions/cache@v3
-        with:
-          path: .yarn/cache
-          key: npm-cache-test-x86_64-unknown-linux-musl-\${{ matrix.node }}
 
       - name: 'Install dependencies'
         run: |
@@ -395,12 +366,6 @@ jobs:
         run: ls -R .
         shell: bash
 
-      - name: Cache NPM dependencies
-        uses: actions/cache@v3
-        with:
-          path: .yarn/cache
-          key: npm-cache-test-linux-aarch64-gnu-\${{ matrix.node }}
-
       - name: Install dependencies
         run: |
           yarn config set supportedArchitectures.cpu "arm64"
@@ -438,12 +403,6 @@ jobs:
       - name: List packages
         run: ls -R .
         shell: bash
-
-      - name: Cache NPM dependencies
-        uses: actions/cache@v3
-        with:
-          path: .yarn/cache
-          key: npm-cache-test-linux-aarch64-musl-\${{ matrix.node }}
 
       - name: Install dependencies
         run: |
@@ -486,12 +445,6 @@ jobs:
         run: ls -R .
         shell: bash
 
-      - name: Cache NPM dependencies
-        uses: actions/cache@v3
-        with:
-          path: .yarn/cache
-          key: npm-cache-test-linux-arm-gnueabihf-\${{ matrix.node }}
-
       - name: Install dependencies
         run: |
           yarn config set supportedArchitectures.cpu "arm"
@@ -519,15 +472,9 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v3
         with:
-          node-version: 16
+          node-version: 18
           check-latest: true
           cache: yarn
-
-      - name: Cache NPM dependencies
-        uses: actions/cache@v3
-        with:
-          path: .yarn/cache
-          key: npm-cache-test-x86_64-apple-darwin-16-\${{ hashFiles('yarn.lock') }}
 
       - name: 'Install dependencies'
         run: yarn install
@@ -571,15 +518,10 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v3
         with:
-          node-version: 16
+          node-version: 18
           check-latest: true
           cache: 'yarn'
 
-      - name: Cache NPM dependencies
-        uses: actions/cache@v3
-        with:
-          path: .yarn/cache
-          key: npm-cache-ubuntu-latest-publish
       - name: 'Install dependencies'
         run: yarn install
 
