@@ -435,8 +435,7 @@ export class BuildCommand extends Command {
         CC: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/${targetArch}-linux-${targetPlatform}-clang`,
         CXX: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/${targetArch}-linux-${targetPlatform}-clang++`,
         AR: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar`,
-        CMAKE_TOOLCHAIN_FILE_armv7_linux_androideabi: `${ANDROID_NDK_LATEST_HOME}/build/cmake/android.toolchain.cmake`,
-        CMAKE_TOOLCHAIN_FILE_aarch64_linux_android: `${ANDROID_NDK_LATEST_HOME}/build/cmake/android.toolchain.cmake`,
+        ANDROID_NDK: ANDROID_NDK_LATEST_HOME,
         PATH: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin:${process.env.PATH}`,
       })
     }

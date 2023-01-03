@@ -179,10 +179,7 @@ test('sum from native', (t) => {
     const enableLinuxArm8Musl = this.targets!.includes(
       'aarch64-unknown-linux-musl',
     )
-    const enableLinuxArm7 = this.targets!.includes(
-      'armv7-unknown-linux-gnueabihf',
-    )
-    const cargoConfig = createCargoConfig(enableLinuxArm7, enableLinuxArm8Musl)
+    const cargoConfig = createCargoConfig(enableLinuxArm8Musl)
     if (cargoConfig.length) {
       const configDir = join(process.cwd(), this.dirname!, '.cargo')
       if (!this.dryRun) {
