@@ -466,7 +466,7 @@ export class BuildCommand extends Command {
       throw e
     }
     const { binaryName, packageName, jsFile } = getNapiConfig(
-      this.configFileName
+      this.configFileName,
     )
     let cargoArtifactName = this.cargoName
     if (!cargoArtifactName) {
