@@ -337,7 +337,7 @@ export class BuildCommand extends Command {
       const mappedZigTarget = ZIG_PLATFORM_TARGET_MAP[triple.raw]
       const zigTarget = `${mappedZigTarget}${
         zigABIVersion ? `.${zigABIVersion}` : ''
-        }`
+      }`
       if (!mappedZigTarget) {
         throw new Error(`${triple.raw} can not be cross compiled by zig`)
       }
@@ -465,7 +465,9 @@ export class BuildCommand extends Command {
       }
       throw e
     }
-    const { binaryName, packageName, jsFile } = getNapiConfig(this.configFileName)
+    const { binaryName, packageName, jsFile } = getNapiConfig(
+      this.configFileName
+    )
     let cargoArtifactName = this.cargoName
     if (!cargoArtifactName) {
       if (this.bin) {
@@ -598,8 +600,8 @@ export class BuildCommand extends Command {
       }
       const jsBindingFilePath =
         (this.jsBinding ?? jsFile) &&
-          this.jsBinding !== 'false' &&
-          this.appendPlatformToFilename
+        this.jsBinding !== 'false' &&
+        this.appendPlatformToFilename
           ? join(process.cwd(), this.jsBinding)
           : null
       const idents = await processIntermediateTypeFile(
@@ -778,7 +780,7 @@ async function processIntermediateTypeFile(
 
   const externalDef =
     topLevelDef.indexOf('ExternalObject<') > -1 ||
-      namespaceDefs.indexOf('ExternalObject<') > -1
+    namespaceDefs.indexOf('ExternalObject<') > -1
       ? `export class ExternalObject<T> {
   readonly '': {
     readonly '': unique symbol
