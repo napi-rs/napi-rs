@@ -125,6 +125,7 @@ macro_rules! impl_typed_array {
       fn noop_finalize(_data: *mut $rust_type, _length: usize) {}
 
       pub fn new(mut data: Vec<$rust_type>) -> Self {
+        data.shrink_to_fit();
         let ret = $name {
           data: data.as_mut_ptr(),
           length: data.len(),

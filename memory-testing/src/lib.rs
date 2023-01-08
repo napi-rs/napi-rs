@@ -158,6 +158,13 @@ pub fn array_buffer_convert(array_buffer: Uint8Array) -> Uint8Array {
 }
 
 #[napi]
+pub fn array_buffer_create_from_vec_with_spare_capacity() -> Uint8Array {
+  let mut v = vec![1; 1024 * 10240];
+  v.truncate(1);
+  Uint8Array::new(v)
+}
+
+#[napi]
 pub fn array_buffer_len() -> u32 {
   Uint8Array::new(vec![1; 1024 * 10240]).len() as u32
 }
