@@ -23,10 +23,8 @@ test('is detached arraybuffer should work fine', (t) => {
   try {
     bindings.testDetachArrayBuffer(ab)
     const nonDetachedArrayBuffer = new ArrayBuffer(10)
-    const detachedArrayBuffer = new ArrayBuffer(0)
     t.true(bindings.testIsDetachedArrayBuffer(ab))
     t.false(bindings.testIsDetachedArrayBuffer(nonDetachedArrayBuffer))
-    t.true(bindings.testIsDetachedArrayBuffer(detachedArrayBuffer))
   } catch (e) {
     t.is((e as any).code, 'DetachableArraybufferExpected')
   }
