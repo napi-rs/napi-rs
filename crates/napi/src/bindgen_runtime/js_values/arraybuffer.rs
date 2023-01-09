@@ -17,7 +17,7 @@ use super::{FromNapiValue, ToNapiValue, TypeName, ValidateNapiValue};
 trait Finalizer {
   type RustType;
 
-  fn finalizer(&mut self) -> Box<dyn FnOnce(*mut Self::RustType, usize)>;
+  fn finalizer_notify(&self) -> *mut dyn FnOnce(*mut Self::RustType, usize);
 
   fn data_managed_type(&self) -> &DataManagedType;
 
@@ -37,7 +37,7 @@ macro_rules! impl_typed_array {
       // Use `Arc` for ref count
       // Use `AtomicBool` for flag to indicate whether the value is dropped in VM
       drop_in_vm: Arc<AtomicBool>,
-      finalizer_notify: Box<dyn FnOnce(*mut $rust_type, usize)>,
+      finalizer_notify: *mut dyn FnOnce(*mut $rust_type, usize),
     }
 
     unsafe impl Send for $name {}
@@ -45,8 +45,8 @@ macro_rules! impl_typed_array {
     impl Finalizer for $name {
       type RustType = $rust_type;
 
-      fn finalizer(&mut self) -> Box<dyn FnOnce(*mut Self::RustType, usize)> {
-        std::mem::replace(&mut self.finalizer_notify, Box::new($name::noop_finalize))
+      fn finalizer_notify(&self) -> *mut dyn FnOnce(*mut Self::RustType, usize) {
+        self.finalizer_notify
       }
 
       fn data_managed_type(&self) -> &DataManagedType {
@@ -110,8 +110,7 @@ macro_rules! impl_typed_array {
                 unsafe { Vec::from_raw_parts(self.data, length, length) };
               }
               DataManagedType::External => {
-                let mut finalizer: Box<dyn FnOnce(*mut $rust_type, usize)> = Box::new(|_a, _b| {});
-                std::mem::swap(&mut finalizer, &mut self.finalizer_notify);
+                let finalizer = unsafe { Box::from_raw(self.finalizer_notify) };
                 (finalizer)(self.data, self.length);
               }
               _ => {}
@@ -133,7 +132,7 @@ macro_rules! impl_typed_array {
           byte_offset: 0,
           raw: None,
           drop_in_vm: Arc::new(AtomicBool::new(false)),
-          finalizer_notify: Box::new(Self::noop_finalize),
+          finalizer_notify: Box::into_raw(Box::new(Self::noop_finalize)),
         };
         mem::forget(data);
         ret
@@ -148,7 +147,7 @@ macro_rules! impl_typed_array {
           data: data_copied.as_mut_ptr(),
           length: data.as_ref().len(),
           data_managed_type: DataManagedType::Owned,
-          finalizer_notify: Box::new(Self::noop_finalize),
+          finalizer_notify: Box::into_raw(Box::new(Self::noop_finalize)),
           raw: None,
           drop_in_vm: Arc::new(AtomicBool::new(false)),
           byte_offset: 0,
@@ -168,7 +167,7 @@ macro_rules! impl_typed_array {
           data,
           length,
           data_managed_type: DataManagedType::External,
-          finalizer_notify: Box::new(notify),
+          finalizer_notify: Box::into_raw(Box::new(notify)),
           raw: None,
           drop_in_vm: Arc::new(AtomicBool::new(false)),
           byte_offset: 0,
@@ -183,7 +182,7 @@ macro_rules! impl_typed_array {
           data: self.data,
           length: self.length,
           data_managed_type: self.data_managed_type,
-          finalizer_notify: Box::new(Self::noop_finalize),
+          finalizer_notify: self.finalizer_notify,
           raw: self.raw,
           drop_in_vm: self.drop_in_vm.clone(),
           byte_offset: self.byte_offset,
@@ -286,7 +285,7 @@ macro_rules! impl_typed_array {
           raw: Some((ref_, env)),
           drop_in_vm: Arc::new(AtomicBool::new(true)),
           data_managed_type: DataManagedType::Vm,
-          finalizer_notify: Box::new(Self::noop_finalize),
+          finalizer_notify: Box::into_raw(Box::new(Self::noop_finalize)),
         })
       }
     }
@@ -363,7 +362,7 @@ macro_rules! impl_typed_array {
             data: val.data,
             length: val.length,
             data_managed_type: val.data_managed_type,
-            finalizer_notify: Box::new($name::noop_finalize),
+            finalizer_notify: Box::into_raw(Box::new($name::noop_finalize)),
             raw: None,
             byte_offset: val.byte_offset,
           };
@@ -379,10 +378,9 @@ unsafe extern "C" fn finalizer<Data, T: Finalizer<RustType = Data>>(
   finalize_data: *mut c_void,
   finalize_hint: *mut c_void,
 ) {
-  let mut data = unsafe { *Box::from_raw(finalize_hint as *mut T) };
+  let data = unsafe { *Box::from_raw(finalize_hint as *mut T) };
   let data_managed_type = *data.data_managed_type();
   let length = *data.len();
-  let finalizer_notify = data.finalizer();
   match data_managed_type {
     DataManagedType::Vm => {
       // do nothing
@@ -395,6 +393,7 @@ unsafe extern "C" fn finalizer<Data, T: Finalizer<RustType = Data>>(
     }
     DataManagedType::External => {
       if data.ref_count() == 1 {
+        let finalizer_notify = unsafe { Box::from_raw(data.finalizer_notify()) };
         (finalizer_notify)(finalize_data as *mut Data, length);
       }
     }
