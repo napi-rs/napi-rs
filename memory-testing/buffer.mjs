@@ -17,6 +17,7 @@ while (true) {
   api.arrayBufferLen()
   api.bufferConvert(Buffer.from(FIXTURE))
   api.arrayBufferConvert(Uint8Array.from(FIXTURE))
+  api.arrayBufferCreateFromVecWithSpareCapacity()
   api.bufferPassThrough(Buffer.from(FIXTURE))
   api.arrayBufferPassThrough(Uint8Array.from(FIXTURE))
   if (i % 10 === 0) {
