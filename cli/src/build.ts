@@ -285,7 +285,7 @@ export class BuildCommand extends Command {
         })())
     const isCrossForMacOS =
       triple.platform === 'darwin' && process.platform !== 'darwin'
-    const cargo = process.env.CARGO ?? isCrossForWin ? 'cargo-xwin' : 'cargo'
+    const cargo = process.env.CARGO ?? (isCrossForWin ? 'cargo-xwin' : 'cargo')
     if (isCrossForWin && triple.arch === 'ia32') {
       additionalEnv['XWIN_ARCH'] = 'x86'
     }
