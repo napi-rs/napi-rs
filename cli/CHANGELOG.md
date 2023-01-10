@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.14.2](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.14.1...@napi-rs/cli@2.14.2) (2023-01-10)
+
+### Bug Fixes
+
+- **cli:** CARGO env var ([#1426](https://github.com/napi-rs/napi-rs/issues/1426)) ([cc53807](https://github.com/napi-rs/napi-rs/commit/cc53807fe263060ecf76848a0c9ff61717762f77))
+
 ## [2.14.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.14.0...@napi-rs/cli@2.14.1) (2023-01-03)
 
 ### Bug Fixes
