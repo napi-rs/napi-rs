@@ -1116,6 +1116,23 @@ impl Env {
     Ok(unsafe { JsObject::from_raw_unchecked(self.0, promise) })
   }
 
+  #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
+  pub fn spawn_future<
+    T: 'static + Send + ToNapiValue,
+    F: 'static + Send + Future<Output = Result<T>>,
+  >(
+    &self,
+    fut: F,
+  ) -> Result<JsObject> {
+    use crate::tokio_runtime;
+
+    let promise = tokio_runtime::execute_tokio_future(self.0, fut, |env, val| unsafe {
+      ToNapiValue::to_napi_value(env, val)
+    })?;
+
+    Ok(unsafe { JsObject::from_raw_unchecked(self.0, promise) })
+  }
+
   /// Creates a deferred promise, which can be resolved or rejected from a background thread.
   #[cfg(feature = "napi4")]
   pub fn create_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>>(

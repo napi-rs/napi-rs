@@ -51,6 +51,8 @@ import {
   callThreadsafeFunction,
   threadsafeFunctionThrowError,
   threadsafeFunctionClosureCapture,
+  tsfnCallWithCallback,
+  tsfnAsyncCall,
   asyncPlus100,
   getGlobal,
   getUndefined,
@@ -757,6 +759,30 @@ Napi4Test('Promise should reject raw error in rust', async (t) => {
   const fxError = new Error('What is Happy Planet')
   const err = await t.throwsAsync(() => asyncPlus100(Promise.reject(fxError)))
   t.is(err, fxError)
+})
+
+Napi4Test('call ThreadsafeFunction with callback', async (t) => {
+  await t.notThrowsAsync(
+    () =>
+      new Promise<void>((resolve) => {
+        tsfnCallWithCallback(() => {
+          resolve()
+          return 'ReturnFromJavaScriptRawCallback'
+        })
+      }),
+  )
+})
+
+Napi4Test('async call ThreadsafeFunction', async (t) => {
+  await t.notThrowsAsync(() =>
+    tsfnAsyncCall((err, arg1, arg2, arg3) => {
+      t.is(err, null)
+      t.is(arg1, 0)
+      t.is(arg2, 1)
+      t.is(arg3, 2)
+      return 'ReturnFromJavaScriptRawCallback'
+    }),
+  )
 })
 
 const Napi5Test = Number(process.versions.napi) >= 5 ? test : test.skip
