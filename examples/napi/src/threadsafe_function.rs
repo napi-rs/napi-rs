@@ -76,3 +76,31 @@ fn threadsafe_function_closure_capture(func: JsFunction) -> napi::Result<()> {
 
   Ok(())
 }
+
+#[napi]
+pub fn tsfn_call_with_callback(func: JsFunction) -> napi::Result<()> {
+  let tsfn: ThreadsafeFunction<()> =
+    func.create_threadsafe_function(0, move |_| Ok(Vec::<JsString>::new()))?;
+  tsfn.call_with_return_value(
+    Ok(()),
+    ThreadsafeFunctionCallMode::NonBlocking,
+    |value: String| {
+      println!("{}", value);
+      assert_eq!(value, "ReturnFromJavaScriptRawCallback".to_owned());
+      Ok(())
+    },
+  );
+  Ok(())
+}
+
+#[napi(ts_return_type = "Promise<void>")]
+pub fn tsfn_async_call(env: Env, func: JsFunction) -> napi::Result<Object> {
+  let tsfn: ThreadsafeFunction<()> =
+    func.create_threadsafe_function(0, move |_| Ok(vec![0u32, 1u32, 2u32]))?;
+
+  env.spawn_future(async move {
+    let msg: String = tsfn.call_async(Ok(())).await?;
+    assert_eq!(msg, "ReturnFromJavaScriptRawCallback".to_owned());
+    Ok(())
+  })
+}

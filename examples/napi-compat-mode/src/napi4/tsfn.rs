@@ -95,7 +95,7 @@ pub fn test_call_aborted_threadsafe_function(ctx: CallContext) -> Result<JsUndef
   tsfn_clone.abort()?;
 
   let call_status = tsfn.call(Ok(1), ThreadsafeFunctionCallMode::NonBlocking);
-  assert!(call_status == Status::Closing);
+  assert!(call_status != Status::Ok);
   ctx.env.get_undefined()
 }
 
