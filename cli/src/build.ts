@@ -309,11 +309,12 @@ export class BuildCommand extends Command {
     if (rustflags.length > 0) {
       additionalEnv['RUSTFLAGS'] = rustflags.join(' ')
     }
-    let isZigExisted = false
-    if (isCrossForLinux || isCrossForMacOS) {
+
+    let useZig = false
+    if (this.useZig || isCrossForLinux || isCrossForMacOS) {
       try {
         execSync('zig version')
-        isZigExisted = true
+        useZig = true
       } catch (e) {
         if (this.useZig) {
           throw new TypeError(
@@ -329,15 +330,15 @@ export class BuildCommand extends Command {
       }
     }
 
-    if ((this.useZig || isCrossForLinux || isCrossForMacOS) && isZigExisted) {
+    if (useZig) {
       const zigABIVersion =
-        this.zigABIVersion ?? (isCrossForLinux && triple.abi === 'gnu')
-          ? DEFAULT_GLIBC_TARGET
-          : null
+        this.zigABIVersion ??
+        (isCrossForLinux && triple.abi === 'gnu' ? DEFAULT_GLIBC_TARGET : null)
       const mappedZigTarget = ZIG_PLATFORM_TARGET_MAP[triple.raw]
       const zigTarget = `${mappedZigTarget}${
         zigABIVersion ? `.${zigABIVersion}` : ''
       }`
+      debug(`Using Zig with target ${chalk.green(zigTarget)}`)
       if (!mappedZigTarget) {
         throw new Error(`${triple.raw} can not be cross compiled by zig`)
       }
