@@ -56,6 +56,7 @@ impl Drop for Buffer {
               "Call custom GC in ArrayBuffer::drop failed {:?}",
               Status::from(status)
             );
+            return;
           }
         }
         let mut ref_count = 0;
