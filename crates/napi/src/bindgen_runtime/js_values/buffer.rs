@@ -34,17 +34,6 @@ impl Drop for Buffer {
   fn drop(&mut self) {
     if Arc::strong_count(&self.ref_count) == 1 {
       if let Some((ref_, env)) = self.raw {
-        let mut ref_count = 0;
-        check_status_or_throw!(
-          env,
-          unsafe { sys::napi_reference_unref(env, ref_, &mut ref_count) },
-          "Failed to unref Buffer reference in drop"
-        );
-        check_status_or_throw!(
-          env,
-          unsafe { sys::napi_delete_reference(env, ref_) },
-          "Failed to delete Buffer reference in drop"
-        );
         #[cfg(feature = "napi4")]
         {
           if CUSTOM_GC_TSFN_CLOSED.load(std::sync::atomic::Ordering::SeqCst) {
@@ -69,6 +58,17 @@ impl Drop for Buffer {
             );
           }
         }
+        let mut ref_count = 0;
+        check_status_or_throw!(
+          env,
+          unsafe { sys::napi_reference_unref(env, ref_, &mut ref_count) },
+          "Failed to unref Buffer reference in drop"
+        );
+        check_status_or_throw!(
+          env,
+          unsafe { sys::napi_delete_reference(env, ref_) },
+          "Failed to delete Buffer reference in drop"
+        );
       } else {
         unsafe { Vec::from_raw_parts(self.inner.as_ptr(), self.len, self.capacity) };
       }
