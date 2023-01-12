@@ -17,21 +17,23 @@ use std::{
   io::{BufWriter, Result as IOResult, Write},
 };
 
+use napi_derive_backend::BindgenResult;
 #[cfg(not(feature = "noop"))]
-use napi_derive_backend::{BindgenResult, TryToTokens};
+use napi_derive_backend::TryToTokens;
 #[cfg(all(feature = "type-def", not(feature = "noop")))]
 use napi_derive_backend::{ToTypeDef, TypeDef};
 #[cfg(not(feature = "noop"))]
 use parser::{attrs::BindgenAttrs, ParseNapi};
 use proc_macro::TokenStream as RawStream;
+use proc_macro2::TokenStream;
 #[cfg(not(feature = "noop"))]
-use proc_macro2::{TokenStream, TokenTree};
-#[cfg(not(feature = "noop"))]
+use proc_macro2::TokenTree;
 use quote::ToTokens;
+use syn::Attribute;
+#[cfg(not(feature = "noop"))]
+use syn::Item;
 #[cfg(feature = "compat-mode")]
 use syn::{fold::Fold, parse_macro_input, ItemFn};
-#[cfg(not(feature = "noop"))]
-use syn::{Attribute, Item};
 
 /// ```ignore
 /// #[napi]
@@ -59,8 +61,50 @@ pub fn napi(attr: RawStream, input: RawStream) -> RawStream {
 
 #[cfg(feature = "noop")]
 #[proc_macro_attribute]
-pub fn napi(_attr: RawStream, input: RawStream) -> RawStream {
-  input
+pub fn napi(attr: RawStream, input: RawStream) -> RawStream {
+  match expand(attr.into(), input.into()) {
+    Ok(tokens) => tokens.into(),
+    Err(diagnostic) => {
+      println!("`napi` macro expand failed.");
+
+      (quote! { #diagnostic }).into()
+    }
+  }
+}
+
+#[cfg(feature = "noop")]
+fn expand(_attr: TokenStream, input: TokenStream) -> BindgenResult<TokenStream> {
+  let mut item = syn::parse2::<syn::Item>(input.into())?;
+  let mut tokens = proc_macro2::TokenStream::new();
+
+  match item {
+    syn::Item::Struct(ref mut struct_) => struct_
+      .fields
+      .iter_mut()
+      .for_each(|field| find_and_remove_napi_attr(&mut field.attrs)),
+    _ => {}
+  }
+
+  item.to_tokens(&mut tokens);
+
+  Ok(tokens)
+}
+
+#[cfg(feature = "noop")]
+fn find_and_remove_napi_attr(attrs: &mut Vec<Attribute>) {
+  loop {
+    let napi_attr = attrs
+      .iter()
+      .enumerate()
+      .find(|&(_, m)| m.path.segments[0].ident == "napi");
+
+    let pos = match napi_attr {
+      Some((pos, _raw_attr)) => pos,
+      None => break,
+    };
+
+    attrs.remove(pos);
+  }
 }
 
 #[cfg(not(feature = "noop"))]
