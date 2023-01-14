@@ -118,74 +118,75 @@ pub trait ToTypeDef {
   fn to_type_def(&self) -> Option<TypeDef>;
 }
 
-static KNOWN_TYPES: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
+/// Mapping from `rust_type` to (`ts_type`, `is_ts_function_type_notation`, `is_ts_union_type`)
+static KNOWN_TYPES: Lazy<HashMap<&'static str, (&'static str, bool, bool)>> = Lazy::new(|| {
   let mut map = HashMap::default();
   map.extend(crate::PRIMITIVE_TYPES.iter().cloned());
   map.extend([
-    ("JsObject", "object"),
-    ("Object", "object"),
-    ("Array", "unknown[]"),
-    ("Value", "any"),
-    ("Map", "Record<string, any>"),
-    ("HashMap", "Record<{}, {}>"),
-    ("ArrayBuffer", "ArrayBuffer"),
-    ("Int8Array", "Int8Array"),
-    ("Uint8Array", "Uint8Array"),
-    ("Uint8ClampedArray", "Uint8ClampedArray"),
-    ("Int16Array", "Int16Array"),
-    ("Uint16Array", "Uint16Array"),
-    ("Int32Array", "Int32Array"),
-    ("Uint32Array", "Uint32Array"),
-    ("Float32Array", "Float32Array"),
-    ("Float64Array", "Float64Array"),
-    ("BigInt64Array", "BigInt64Array"),
-    ("BigUint64Array", "BigUint64Array"),
-    ("DataView", "DataView"),
-    ("DateTime", "Date"),
-    ("Date", "Date"),
-    ("JsDate", "Date"),
-    ("JsBuffer", "Buffer"),
-    ("Buffer", "Buffer"),
-    ("Vec", "Array<{}>"),
-    ("Result", "Error | {}"),
-    ("Error", "Error"),
-    ("JsError", "Error"),
-    ("JsTypeError", "TypeError"),
-    ("JsRangeError", "RangeError"),
-    ("ClassInstance", "{}"),
-    ("Either", "{} | {}"),
-    ("Either3", "{} | {} | {}"),
-    ("Either4", "{} | {} | {} | {}"),
-    ("Either5", "{} | {} | {} | {} | {}"),
-    ("Either6", "{} | {} | {} | {} | {} | {}"),
-    ("Either7", "{} | {} | {} | {} | {} | {} | {}"),
-    ("Either8", "{} | {} | {} | {} | {} | {} | {} | {}"),
-    ("Either9", "{} | {} | {} | {} | {} | {} | {} | {} | {}"),
-    ("Either10", "{} | {} | {} | {} | {} | {} | {} | {} | {} | {}"),
-    ("Either11", "{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}"),
-    ("Either12", "{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}"),
-    ("Either13", "{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}"),
-    ("Either14", "{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}"),
-    ("Either15", "{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}"),
-    ("Either16", "{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}"),
-    ("Either17", "{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}"),
-    ("Either18", "{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}"),
-    ("Either19", "{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}"),
-    ("Either20", "{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}"),
-    ("Either21", "{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}"),
-    ("Either22", "{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}"),
-    ("Either23", "{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}"),
-    ("Either24", "{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}"),
-    ("Either25", "{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}"),
-    ("Either26", "{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}"),
-    ("external", "object"),
-    ("AbortSignal", "AbortSignal"),
-    ("JsGlobal", "typeof global"),
-    ("External", "ExternalObject<{}>"),
-    ("unknown", "unknown"),
-    ("Unknown", "unknown"),
-    ("JsUnknown", "unknown"),
-    ("This", "this")
+    ("JsObject", ("object", false, false)),
+    ("Object", ("object", false, false)),
+    ("Array", ("unknown[]", false, false)),
+    ("Value", ("any", false, false)),
+    ("Map", ("Record<string, any>", false, false)),
+    ("HashMap", ("Record<{}, {}>", false, false)),
+    ("ArrayBuffer", ("ArrayBuffer", false, false)),
+    ("Int8Array", ("Int8Array", false, false)),
+    ("Uint8Array", ("Uint8Array", false, false)),
+    ("Uint8ClampedArray", ("Uint8ClampedArray", false, false)),
+    ("Int16Array", ("Int16Array", false, false)),
+    ("Uint16Array", ("Uint16Array", false, false)),
+    ("Int32Array", ("Int32Array", false, false)),
+    ("Uint32Array", ("Uint32Array", false, false)),
+    ("Float32Array", ("Float32Array", false, false)),
+    ("Float64Array", ("Float64Array", false, false)),
+    ("BigInt64Array", ("BigInt64Array", false, false)),
+    ("BigUint64Array", ("BigUint64Array", false, false)),
+    ("DataView", ("DataView", false, false)),
+    ("DateTime", ("Date", false, false)),
+    ("Date", ("Date", false, false)),
+    ("JsDate", ("Date", false, false)),
+    ("JsBuffer", ("Buffer", false, false)),
+    ("Buffer", ("Buffer", false, false)),
+    ("Vec", ("Array<{}>", false, false)),
+    ("Result", ("Error | {}", false, true)),
+    ("Error", ("Error", false, false)),
+    ("JsError", ("Error", false, false)),
+    ("JsTypeError", ("TypeError", false, false)),
+    ("JsRangeError", ("RangeError", false, false)),
+    ("ClassInstance", ("{}", false, false)),
+    ("Either", ("{} | {}", false, true)),
+    ("Either3", ("{} | {} | {}", false, true)),
+    ("Either4", ("{} | {} | {} | {}", false, true)),
+    ("Either5", ("{} | {} | {} | {} | {}", false, true)),
+    ("Either6", ("{} | {} | {} | {} | {} | {}", false, true)),
+    ("Either7", ("{} | {} | {} | {} | {} | {} | {}", false, true)),
+    ("Either8", ("{} | {} | {} | {} | {} | {} | {} | {}", false, true)),
+    ("Either9", ("{} | {} | {} | {} | {} | {} | {} | {} | {}",false, true)),
+    ("Either10", ("{} | {} | {} | {} | {} | {} | {} | {} | {} | {}", false, true)),
+    ("Either11", ("{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}", false, true)),
+    ("Either12", ("{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}", false, true)),
+    ("Either13", ("{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}", false, true)),
+    ("Either14", ("{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}", false, true)),
+    ("Either15", ("{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}", false, true)),
+    ("Either16", ("{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}", false, true)),
+    ("Either17", ("{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}", false, true)),
+    ("Either18", ("{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}", false, true)),
+    ("Either19", ("{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}", false, true)),
+    ("Either20", ("{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}", false, true)),
+    ("Either21", ("{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}", false, true)),
+    ("Either22", ("{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}", false, true)),
+    ("Either23", ("{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}", false, true)),
+    ("Either24", ("{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}", false, true)),
+    ("Either25", ("{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}", false, true)),
+    ("Either26", ("{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}", false, true)),
+    ("external", ("object", false, false)),
+    ("AbortSignal", ("AbortSignal", false, false)),
+    ("JsGlobal", ("typeof global", false, false)),
+    ("External", ("ExternalObject<{}>", false, false)),
+    ("unknown", ("unknown", false, false)),
+    ("Unknown", ("unknown", false, false)),
+    ("JsUnknown", ("unknown", false, false)),
+    ("This", ("this", false, false))
   ]);
 
   map
@@ -207,6 +208,30 @@ fn fill_ty(template: &str, args: Vec<String>) -> String {
 
   ret.push_str(&template[prev..]);
   ret
+}
+
+fn is_ts_union_type(rust_ty: &str) -> bool {
+  KNOWN_TYPES
+    .get(rust_ty)
+    .map(|&(_, _, is_union_type)| is_union_type)
+    .unwrap_or(false)
+}
+
+fn is_ts_function_type_notation(ty: &Type) -> bool {
+  match ty {
+    Type::Path(syn::TypePath { qself: None, path }) => {
+      if let Some(syn::PathSegment { ident, .. }) = path.segments.last() {
+        let rust_ty = ident.to_string();
+        return KNOWN_TYPES
+          .get(&*rust_ty)
+          .map(|&(_, is_ts_fn, _)| is_ts_fn)
+          .unwrap_or(false);
+      }
+
+      false
+    }
+    _ => false,
+  }
 }
 
 pub fn ty_to_ts_type(ty: &Type, is_return_ty: bool, is_struct_field: bool) -> (String, bool) {
@@ -235,13 +260,19 @@ pub fn ty_to_ts_type(ty: &Type, is_return_ty: bool, is_struct_field: bool) -> (S
 
       if let Some(syn::PathSegment { ident, arguments }) = path.segments.last() {
         let rust_ty = ident.to_string();
+        let is_ts_union_type = is_ts_union_type(&rust_ty);
         let args = if let syn::PathArguments::AngleBracketed(arguments) = arguments {
           arguments
             .args
             .iter()
             .filter_map(|arg| match arg {
               syn::GenericArgument::Type(generic_ty) => {
-                Some(ty_to_ts_type(generic_ty, false, false))
+                Some(ty_to_ts_type(generic_ty, false, false)).map(|(mut ty, is_struct_field)| {
+                  if is_ts_union_type && is_ts_function_type_notation(generic_ty) {
+                    ty = format!("({})", ty);
+                  }
+                  (ty, is_struct_field)
+                })
               }
               _ => None,
             })
@@ -289,7 +320,7 @@ pub fn ty_to_ts_type(ty: &Type, is_return_ty: bool, is_struct_field: bool) -> (S
               Some((rust_ty, false))
             }
           });
-        } else if let Some(&known_ty) = KNOWN_TYPES.get(rust_ty.as_str()) {
+        } else if let Some(&(known_ty, _, _)) = KNOWN_TYPES.get(rust_ty.as_str()) {
           if known_ty.contains("{}") {
             ts_ty = Some((
               fill_ty(known_ty, args.into_iter().map(|(arg, _)| arg).collect()),
