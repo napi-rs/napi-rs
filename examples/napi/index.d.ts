@@ -69,6 +69,7 @@ export interface C {
   baz: number
 }
 export function eitherFromObjects(input: A | B | C): string
+export function eitherBoolOrFunction(input: boolean | ((...args: any[]) => any)): void
 /** default enum values are continuos i32s start from 0 */
 export const enum Kind {
   /** Barks */
