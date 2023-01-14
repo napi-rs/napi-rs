@@ -267,11 +267,11 @@ pub fn ty_to_ts_type(ty: &Type, is_return_ty: bool, is_struct_field: bool) -> (S
             .iter()
             .filter_map(|arg| match arg {
               syn::GenericArgument::Type(generic_ty) => {
-                Some(ty_to_ts_type(generic_ty, false, false)).map(|(mut ty, is_strict_field)| {
+                Some(ty_to_ts_type(generic_ty, false, false)).map(|(mut ty, is_struct_field)| {
                   if is_ts_union_type && is_ts_function_type_notation(generic_ty) {
                     ty = format!("({})", ty);
                   }
-                  (ty, is_strict_field)
+                  (ty, is_struct_field)
                 })
               }
               _ => None,
