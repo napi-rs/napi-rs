@@ -127,3 +127,6 @@ pub fn either_from_objects(input: Either3<A, B, C>) -> String {
     Either3::C(_) => "C".to_owned(),
   }
 }
+
+#[napi]
+pub fn either_bool_or_function(_input: Either<bool, JsFunction>) {}
