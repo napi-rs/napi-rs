@@ -205,11 +205,41 @@ impl ToNapiValue for isize {
   }
 }
 
+impl From<i64> for BigInt {
+  fn from(val: i64) -> Self {
+    BigInt {
+      sign_bit: val < 0,
+      words: vec![val as u64],
+    }
+  }
+}
+
 impl From<u64> for BigInt {
   fn from(val: u64) -> Self {
     BigInt {
       sign_bit: false,
       words: vec![val],
+    }
+  }
+}
+
+impl From<i128> for BigInt {
+  fn from(val: i128) -> Self {
+    let sign_bit = val < 0;
+    let words = (if sign_bit { -val } else { val }).to_ne_bytes();
+    BigInt {
+      sign_bit,
+      words: unsafe { std::slice::from_raw_parts(words.as_ptr() as *mut _, 2).to_vec() },
+    }
+  }
+}
+
+impl From<u128> for BigInt {
+  fn from(val: u128) -> Self {
+    let words = val.to_ne_bytes();
+    BigInt {
+      sign_bit: false,
+      words: unsafe { std::slice::from_raw_parts(words.as_ptr() as *mut _, 2).to_vec() },
     }
   }
 }

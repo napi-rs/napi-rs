@@ -114,6 +114,8 @@ import {
   plusOne,
   Width,
   captureErrorInCallback,
+  bigintFromI128,
+  bigintFromI64,
 } from '../'
 
 test('export const', (t) => {
@@ -677,6 +679,11 @@ BigIntTest('js mod test', (t) => {
   const xx3 = new xxh3.Xxh3()
   xx3.update(Buffer.from('hello world'))
   t.is(xx3.digest(), BigInt('1116'))
+})
+
+BigIntTest('from i128 i64', (t) => {
+  t.is(bigintFromI64(), BigInt('100'))
+  t.is(bigintFromI128(), BigInt('-100'))
 })
 
 const Napi4Test = Number(process.versions.napi) >= 4 ? test : test.skip
