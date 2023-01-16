@@ -24,6 +24,8 @@ export function bigintAdd(a: bigint, b: bigint): bigint
 export function createBigInt(): bigint
 export function createBigIntI64(): bigint
 export function bigintGetU64AsString(bi: bigint): string
+export function bigintFromI64(): bigint
+export function bigintFromI128(): bigint
 export function getCwd(callback: (arg0: string) => void): void
 export function optionEnd(callback: (arg0: string, arg1?: string | undefined | null) => void): void
 export function optionStart(callback: (arg0: string | undefined | null, arg1: string) => void): void

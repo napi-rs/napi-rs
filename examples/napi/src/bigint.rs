@@ -22,3 +22,13 @@ fn create_big_int_i64() -> i64n {
 pub fn bigint_get_u64_as_string(bi: BigInt) -> String {
   bi.get_u64().1.to_string()
 }
+
+#[napi]
+pub fn bigint_from_i64() -> BigInt {
+  BigInt::from(100i64)
+}
+
+#[napi]
+pub fn bigint_from_i128() -> BigInt {
+  BigInt::from(-100i128)
+}
