@@ -246,8 +246,6 @@ impl<T: 'static, ES: ErrorStrategy::T> ThreadsafeFunction<T, ES> {
       )
     })?;
 
-    check_status!(unsafe { sys::napi_acquire_threadsafe_function(raw_tsfn) })?;
-
     Ok(ThreadsafeFunction {
       handle: Arc::new(ThreadsafeFunctionHandle {
         raw: raw_tsfn,
