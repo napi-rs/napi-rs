@@ -46,7 +46,7 @@
     "@types/lodash-es": "^4.17.6",
     "clipanion": "^3.1.0",
     "colorette": "^2.0.19",
-    "core-js": "^3.26.1",
+    "core-js": "^3.27.1",
     "debug": "^4.3.4",
     "env-paths": "^3.0.0",
     "fdir": "^5.3.0",

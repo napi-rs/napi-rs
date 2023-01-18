@@ -53,6 +53,8 @@ rules:
       },
     ]
 
+  'import/no-extraneous-dependencies': 2
+
   '@typescript-eslint/adjacent-overload-signatures': 2
 
   '@typescript-eslint/await-thenable': 2
