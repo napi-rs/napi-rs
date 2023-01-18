@@ -1,7 +1,7 @@
 import { join } from 'path'
 
-import chalk from 'chalk'
 import { Command, Option } from 'clipanion'
+import * as chalk from 'colorette'
 import inquirer from 'inquirer'
 import { load, dump } from 'js-yaml'
 

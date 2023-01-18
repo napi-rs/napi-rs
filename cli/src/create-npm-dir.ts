@@ -1,8 +1,8 @@
 import { mkdirSync } from 'fs'
 import { join } from 'path'
 
-import chalk from 'chalk'
 import { Command, Option } from 'clipanion'
+import * as chalk from 'colorette'
 
 import { getNapiConfig } from './consts'
 import { debugFactory } from './debug'

@@ -1,7 +1,7 @@
 import { setTimeout } from 'timers'
 import { promisify } from 'util'
 
-import chalk from 'chalk'
+import * as chalk from 'colorette'
 import Dockerode from 'dockerode'
 import prettyBytes from 'pretty-bytes'
 

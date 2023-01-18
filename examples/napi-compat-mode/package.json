@@ -11,5 +11,8 @@
     "build-i686-release": "node ../../cli/scripts/index.js build --js false --release --features \"latest\" --target i686-pc-windows-msvc",
     "build-release": "node ../../cli/scripts/index.js build --js false --features \"latest\" --release",
     "test": "node ./index.js"
+  },
+  "devDependencies": {
+    "sinon": "^15.0.1"
   }
 }

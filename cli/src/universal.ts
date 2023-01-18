@@ -1,8 +1,8 @@
 import { spawnSync } from 'child_process'
 import { join } from 'path'
 
-import chalk from 'chalk'
 import { Command, Option } from 'clipanion'
+import * as chalk from 'colorette'
 
 import { getNapiConfig } from './consts'
 import { debugFactory } from './debug'
@@ -61,7 +61,9 @@ export class UniversalCommand extends Command {
     }
 
     debug(
-      `Looking up source binaries to combine: ${chalk.yellowBright(srcFiles)}`,
+      `Looking up source binaries to combine: ${chalk.yellowBright(
+        srcFiles.join(', '),
+      )}`,
     )
     const srcFileLookup = await Promise.all(
       srcFiles.map((f) => fileExists(join(this.sourceDir, f))),

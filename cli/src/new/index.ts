@@ -1,8 +1,8 @@
 import { writeFileSync, mkdirSync } from 'fs'
 import { join } from 'path'
 
-import chalk from 'chalk'
 import { Command, Option } from 'clipanion'
+import * as chalk from 'colorette'
 import inquirer from 'inquirer'
 
 import { CreateNpmDirCommand } from '../create-npm-dir'

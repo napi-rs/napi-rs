@@ -3,8 +3,8 @@ import { existsSync, mkdirSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, parse, sep } from 'path'
 
-import { Instance } from 'chalk'
 import { Command, Option } from 'clipanion'
+import * as chalk from 'colorette'
 import envPaths from 'env-paths'
 import { groupBy } from 'lodash-es'
 
@@ -22,7 +22,6 @@ import {
 } from './utils'
 
 const debug = debugFactory('build')
-const chalk = new Instance({ level: 1 })
 
 const ZIG_PLATFORM_TARGET_MAP = {
   'x86_64-unknown-linux-musl': 'x86_64-linux-musl',
@@ -167,8 +166,8 @@ export class BuildCommand extends Command {
         'lto',
       )} and increase ${chalk.green(
         'codegen-units',
-      )}. Disabled by default. See ${chalk.underline.blue(
-        'https://github.com/napi-rs/napi-rs/issues/297',
+      )}. Disabled by default. See ${chalk.underline(
+        chalk.blue('https://github.com/napi-rs/napi-rs/issues/297'),
       )}`,
     },
   )

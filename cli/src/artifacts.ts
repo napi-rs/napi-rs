@@ -1,7 +1,7 @@
 import { join, parse } from 'path'
 
-import chalk from 'chalk'
 import { Command, Option } from 'clipanion'
+import * as chalk from 'colorette'
 import { fdir } from 'fdir'
 
 import { getNapiConfig } from './consts'
