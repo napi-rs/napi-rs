@@ -89,7 +89,7 @@
     "c8": "^7.12.0",
     "colorette": "^2.0.19",
     "cross-env": "^7.0.3",
-    "electron": "20.3.3",
+    "electron": "22.0.3",
     "esbuild": "^0.17.2",
     "eslint": "^8.32.0",
     "eslint-config-prettier": "^8.6.0",

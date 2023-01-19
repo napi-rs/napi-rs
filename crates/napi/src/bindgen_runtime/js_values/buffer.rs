@@ -231,16 +231,31 @@ impl ToNapiValue for Buffer {
         // the same data pointer if it's 0x0.
         unsafe { sys::napi_create_buffer(env, len, ptr::null_mut(), &mut ret) }
       } else {
-        unsafe {
+        let value_ptr = val.inner.as_ptr();
+        let val_box_ptr = Box::into_raw(Box::new(val));
+        let mut status = unsafe {
           sys::napi_create_external_buffer(
             env,
             len,
-            val.inner.as_ptr() as *mut c_void,
+            value_ptr as *mut c_void,
             Some(drop_buffer),
-            Box::into_raw(Box::new(val)) as *mut c_void,
+            val_box_ptr as *mut c_void,
             &mut ret,
           )
+        };
+        if status == napi_sys::Status::napi_no_external_buffers_allowed {
+          let value = unsafe { Box::from_raw(val_box_ptr) };
+          status = unsafe {
+            sys::napi_create_buffer_copy(
+              env,
+              len,
+              value.inner.as_ptr() as *mut c_void,
+              ptr::null_mut(),
+              &mut ret,
+            )
+          };
         }
+        status
       },
       "Failed to create napi buffer"
     )?;
