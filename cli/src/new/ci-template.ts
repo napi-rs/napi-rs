@@ -131,7 +131,7 @@ jobs:
       - uses: goto-bus-stop/setup-zig@v2
         if: \${{ matrix.settings.target == 'armv7-unknown-linux-gnueabihf' }}
         with:
-          version: 0.10.0
+          version: 0.10.1
 
       - name: Setup toolchain
         run: \${{ matrix.settings.setup }}

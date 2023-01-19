@@ -17,7 +17,7 @@ export const createPackageJson = (
     license: 'MIT',
     devDependencies: {
       '@napi-rs/cli': `^${version}`,
-      ava: '^4.3.3',
+      ava: '^5.1.1',
     },
     ava: {
       timeout: '3m',

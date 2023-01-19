@@ -37,7 +37,7 @@ jobs:
       - name: Install ziglang
         uses: goto-bus-stop/setup-zig@v2
         with:
-          version: 0.10.0
+          version: 0.10.1
 
       - name: Cache cargo
         uses: actions/cache@v3
