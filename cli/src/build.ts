@@ -844,14 +844,18 @@ async function patchArmFeaturesHForArmTargets() {
     const p = zigLibDir
       ? join(zigLibDir, 'libc/glibc/sysdeps/arm/arm-features.h')
       : join(zigExePath, '../lib/libc/glibc/sysdeps/arm/arm-features.h')
-    await writeFileAsync(p, ARM_FEATURES_H, {
-      mode: 0o644,
-    })
+    if (!existsSync(p)) {
+      await writeFileAsync(p, ARM_FEATURES_H, {
+        mode: 0o644,
+      })
+    }
   } catch (e) {
-    throw new Error(
-      `Cannot patch arm-features.h, error: ${
-        (e as Error).message || e
-      }. See: https://github.com/ziglang/zig/issues/3287`,
+    console.error(
+      Error(
+        `Cannot patch arm-features.h, error: ${
+          (e as Error).message || e
+        }. See: https://github.com/ziglang/zig/issues/3287`,
+      ),
     )
   }
 }
