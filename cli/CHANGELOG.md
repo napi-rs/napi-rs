@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.14.4](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.14.3...@napi-rs/cli@2.14.4) (2023-01-20)
+
+### Bug Fixes
+
+- **napi:** build error with zig@0.10.1 ([2f52793](https://github.com/napi-rs/napi-rs/commit/2f527938b27074116a89b9248e218a2ed073be34))
+
 ## [2.14.2](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.14.1...@napi-rs/cli@2.14.2) (2023-01-10)
 
 ### Bug Fixes
