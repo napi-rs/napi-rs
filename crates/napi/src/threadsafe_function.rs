@@ -569,7 +569,19 @@ unsafe extern "C" fn call_js_cb<T: 'static, V: ToNapiValue, R, ES>(
           value: return_value,
           value_type: crate::ValueType::Unknown,
         })) {
-          unsafe { sys::napi_throw(raw_env, JsError::from(err).into_value(raw_env)) };
+          let message = format!(
+            "Failed to convert return value in ThreadsafeFunction callback into Rust value: {}",
+            err
+          );
+          let message_length = message.len();
+          unsafe {
+            sys::napi_fatal_error(
+              "threadsafe_function.rs:573\0".as_ptr().cast(),
+              26,
+              CString::new(message).unwrap().into_raw(),
+              message_length,
+            )
+          };
         }
       }
       status
