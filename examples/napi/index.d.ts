@@ -190,6 +190,8 @@ export function threadsafeFunctionFatalModeError(cb: (...args: any[]) => any): v
 export function threadsafeFunctionClosureCapture(func: (...args: any[]) => any): void
 export function tsfnCallWithCallback(func: (...args: any[]) => any): void
 export function tsfnAsyncCall(func: (...args: any[]) => any): Promise<void>
+export function acceptThreadsafeFunction(func: (err: Error | null, value: number) => any): void
+export function acceptThreadsafeFunctionFatal(func: (value: number) => any): void
 export function getBuffer(): Buffer
 export function appendBuffer(buf: Buffer): Buffer
 export function getEmptyBuffer(): Buffer

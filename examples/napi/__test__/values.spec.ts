@@ -116,6 +116,8 @@ import {
   captureErrorInCallback,
   bigintFromI128,
   bigintFromI64,
+  acceptThreadsafeFunction,
+  acceptThreadsafeFunctionFatal,
 } from '../'
 
 test('export const', (t) => {
@@ -790,6 +792,28 @@ Napi4Test('async call ThreadsafeFunction', async (t) => {
       return 'ReturnFromJavaScriptRawCallback'
     }),
   )
+})
+
+Napi4Test('accept ThreadsafeFunction', async (t) => {
+  await new Promise<void>((resolve, reject) => {
+    acceptThreadsafeFunction((err, value) => {
+      if (err) {
+        reject(err)
+      } else {
+        t.is(value, 1)
+        resolve()
+      }
+    })
+  })
+})
+
+Napi4Test('accept ThreadsafeFunction Fatal', async (t) => {
+  await new Promise<void>((resolve) => {
+    acceptThreadsafeFunctionFatal((value) => {
+      t.is(value, 1)
+      resolve()
+    })
+  })
 })
 
 const Napi5Test = Number(process.versions.napi) >= 5 ? test : test.skip

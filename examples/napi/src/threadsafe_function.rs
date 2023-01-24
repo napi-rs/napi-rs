@@ -102,3 +102,17 @@ pub fn tsfn_async_call(env: Env, func: JsFunction) -> napi::Result<Object> {
     Ok(())
   })
 }
+
+#[napi]
+pub fn accept_threadsafe_function(func: ThreadsafeFunction<u32>) {
+  thread::spawn(move || {
+    func.call(Ok(1), ThreadsafeFunctionCallMode::NonBlocking);
+  });
+}
+
+#[napi]
+pub fn accept_threadsafe_function_fatal(func: ThreadsafeFunction<u32, ErrorStrategy::Fatal>) {
+  thread::spawn(move || {
+    func.call(1, ThreadsafeFunctionCallMode::NonBlocking);
+  });
+}

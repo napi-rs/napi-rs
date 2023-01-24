@@ -180,6 +180,7 @@ static KNOWN_TYPES: Lazy<HashMap<&'static str, (&'static str, bool, bool)>> = La
     ("Either25", ("{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}", false, true)),
     ("Either26", ("{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}", false, true)),
     ("external", ("object", false, false)),
+    ("Promise", ("Promise<{}>", false, false)),
     ("AbortSignal", ("AbortSignal", false, false)),
     ("JsGlobal", ("typeof global", false, false)),
     ("External", ("ExternalObject<{}>", false, false)),
@@ -333,11 +334,20 @@ pub fn ty_to_ts_type(ty: &Type, is_return_ty: bool, is_struct_field: bool) -> (S
           .with(|c| c.borrow_mut().get(rust_ty.as_str()).cloned())
         {
           ts_ty = Some((t, false));
-        } else if rust_ty == "Promise" {
-          ts_ty = Some((
-            format!("Promise<{}>", args.first().map(|(arg, _)| arg).unwrap()),
-            false,
-          ));
+        } else if rust_ty == "ThreadsafeFunction" {
+          let fatal_tsfn = match args.get(1) {
+            Some((arg, _)) => arg == "Fatal",
+            _ => false,
+          };
+          let first_arg = args.first().map(|(arg, _)| arg).unwrap();
+          ts_ty = if fatal_tsfn {
+            Some((format!("(value: {}) => any", first_arg), false))
+          } else {
+            Some((
+              format!("(err: Error | null, value: {}) => any", first_arg),
+              false,
+            ))
+          };
         } else {
           // there should be runtime registered type in else
           let type_alias = ALIAS.with(|aliases| {
