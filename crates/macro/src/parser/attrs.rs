@@ -56,6 +56,8 @@ macro_rules! attrgen {
       (strict, Strict(Span)),
       (return_if_invalid, ReturnIfInvalid(Span)),
       (object, Object(Span)),
+      (object_from_js, ObjectFromJs(Span, Option<bool>)),
+      (object_to_js, ObjectToJs(Span, Option<bool>)),
       (custom_finalize, CustomFinalize(Span)),
       (namespace, Namespace(Span, String, Span)),
       (iterator, Iterator(Span)),

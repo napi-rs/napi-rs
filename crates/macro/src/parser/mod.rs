@@ -995,6 +995,8 @@ impl ConvertToAST for syn::ItemStruct {
         fields,
         is_tuple,
         kind: struct_kind,
+        object_from_js: opts.object_from_js(),
+        object_to_js: opts.object_to_js(),
         js_mod: namespace,
         comments: extract_doc_comments(&self.attrs),
         implement_iterator,

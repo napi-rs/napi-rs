@@ -1,4 +1,7 @@
-use napi::{bindgen_prelude::*, JsGlobal, JsNull, JsObject, JsUndefined, Property};
+use napi::{
+  bindgen_prelude::*, threadsafe_function::ThreadsafeFunction, JsGlobal, JsNull, JsObject,
+  JsUndefined, Property,
+};
 
 #[napi]
 fn list_obj_keys(obj: Object) -> Vec<String> {
@@ -100,4 +103,24 @@ pub fn create_obj_with_property(env: Env) -> Result<JsObject> {
 #[napi]
 fn getter_from_obj() -> u32 {
   42
+}
+
+#[napi(object, object_to_js = false)]
+struct ObjectOnlyFromJs {
+  pub count: u32,
+  pub callback: ThreadsafeFunction<u32>,
+}
+
+#[napi]
+fn receive_object_only_from_js(
+  #[napi(ts_arg_type = "{ count: number, callback: (err: Error | null, count: number) => void }")]
+  obj: ObjectOnlyFromJs,
+) {
+  let ObjectOnlyFromJs { callback, count } = obj;
+  std::thread::spawn(move || {
+    callback.call(
+      Ok(count),
+      napi::threadsafe_function::ThreadsafeFunctionCallMode::NonBlocking,
+    );
+  });
 }

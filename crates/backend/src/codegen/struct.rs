@@ -558,6 +558,46 @@ impl NapiStruct {
       }
     };
 
+    let to_napi_value = if self.object_to_js {
+      quote! {
+        impl napi::bindgen_prelude::ToNapiValue for #name {
+          unsafe fn to_napi_value(env: napi::bindgen_prelude::sys::napi_env, val: #name) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
+            let env_wrapper = napi::bindgen_prelude::Env::from(env);
+            let mut obj = env_wrapper.create_object()?;
+
+            let #destructed_fields = val;
+            #(#obj_field_setters)*
+
+            napi::bindgen_prelude::Object::to_napi_value(env, obj)
+          }
+        }
+      }
+    } else {
+      quote! {}
+    };
+
+    let from_napi_value = if self.object_from_js {
+      quote! {
+        impl napi::bindgen_prelude::FromNapiValue for #name {
+          unsafe fn from_napi_value(
+            env: napi::bindgen_prelude::sys::napi_env,
+            napi_val: napi::bindgen_prelude::sys::napi_value
+          ) -> napi::bindgen_prelude::Result<Self> {
+            let env_wrapper = napi::bindgen_prelude::Env::from(env);
+            let mut obj = napi::bindgen_prelude::Object::from_napi_value(env, napi_val)?;
+
+            #(#obj_field_getters)*
+
+            let val = #destructed_fields;
+
+            Ok(val)
+          }
+        }
+      }
+    } else {
+      quote! {}
+    };
+
     quote! {
       impl napi::bindgen_prelude::TypeName for #name {
         fn type_name() -> &'static str {
@@ -569,33 +609,9 @@ impl NapiStruct {
         }
       }
 
-      impl napi::bindgen_prelude::ToNapiValue for #name {
-        unsafe fn to_napi_value(env: napi::bindgen_prelude::sys::napi_env, val: #name) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
-          let env_wrapper = napi::bindgen_prelude::Env::from(env);
-          let mut obj = env_wrapper.create_object()?;
+      #to_napi_value
 
-          let #destructed_fields = val;
-          #(#obj_field_setters)*
-
-          napi::bindgen_prelude::Object::to_napi_value(env, obj)
-        }
-      }
-
-      impl napi::bindgen_prelude::FromNapiValue for #name {
-        unsafe fn from_napi_value(
-          env: napi::bindgen_prelude::sys::napi_env,
-          napi_val: napi::bindgen_prelude::sys::napi_value
-        ) -> napi::bindgen_prelude::Result<Self> {
-          let env_wrapper = napi::bindgen_prelude::Env::from(env);
-          let mut obj = napi::bindgen_prelude::Object::from_napi_value(env, napi_val)?;
-
-          #(#obj_field_getters)*
-
-          let val = #destructed_fields;
-
-          Ok(val)
-        }
-      }
+      #from_napi_value
 
       impl napi::bindgen_prelude::ValidateNapiValue for #name {}
     }
