@@ -30,10 +30,10 @@ impl TryToTokens for NapiFn {
           .collect(),
       );
     }
-    if Some(FnSelf::MutRef) == self.fn_self && self.is_async {
+    if Some(FnSelf::MutRef) == self.fn_self && self.is_async && !self.unsafe_ {
       return Err(Diagnostic::span_error(
         self.name.span(),
-        "&mut self is incompatible with async napi methods",
+        "&mut self in async napi methods should be marked as unsafe",
       ));
     }
     let arg_ref_count = refs.len();
