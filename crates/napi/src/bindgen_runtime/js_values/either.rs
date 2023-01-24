@@ -1,29 +1,8 @@
 use super::{FromNapiValue, ToNapiValue, TypeName, ValidateNapiValue};
 use crate::{
   bindgen_runtime::{Null, Undefined, Unknown},
-  sys, Env, Error, JsUndefined, NapiRaw, NapiValue, Status, ValueType,
+  check_status, sys, Env, Error, JsUndefined, NapiRaw, NapiValue, Status, ValueType,
 };
-
-#[derive(Debug, Clone, Copy)]
-pub enum Either<A, B> {
-  A(A),
-  B(B),
-}
-
-unsafe impl<A: Send, B: Send> Send for Either<A, B> {}
-unsafe impl<A: Sync, B: Sync> Sync for Either<A, B> {}
-
-impl<A: AsRef<T>, B: AsRef<T>, T> AsRef<T> for Either<A, B>
-where
-  T: ?Sized,
-{
-  fn as_ref(&self) -> &T {
-    match &self {
-      Self::A(a) => a.as_ref(),
-      Self::B(b) => b.as_ref(),
-    }
-  }
-}
 
 impl<A: NapiRaw, B: NapiRaw> Either<A, B> {
   /// # Safety
@@ -33,25 +12,6 @@ impl<A: NapiRaw, B: NapiRaw> Either<A, B> {
       Self::A(a) => unsafe { a.raw() },
       Self::B(b) => unsafe { b.raw() },
     }
-  }
-}
-
-impl<A: ValidateNapiValue, B: ValidateNapiValue> ValidateNapiValue for Either<A, B> {
-  unsafe fn validate(
-    env: sys::napi_env,
-    napi_val: sys::napi_value,
-  ) -> crate::Result<sys::napi_value> {
-    unsafe { A::validate(env, napi_val).or_else(|_| B::validate(env, napi_val)) }
-  }
-}
-
-impl<A: TypeName, B: TypeName> TypeName for Either<A, B> {
-  fn type_name() -> &'static str {
-    "Either"
-  }
-
-  fn value_type() -> ValueType {
-    ValueType::Unknown
   }
 }
 
@@ -83,41 +43,6 @@ impl<T> From<Either<T, Null>> for Option<T> {
   }
 }
 
-impl<
-    A: TypeName + FromNapiValue + ValidateNapiValue,
-    B: TypeName + FromNapiValue + ValidateNapiValue,
-  > FromNapiValue for Either<A, B>
-{
-  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
-    if unsafe { A::validate(env, napi_val) }.is_ok() {
-      unsafe { A::from_napi_value(env, napi_val) }.map(Either::A)
-    } else if unsafe { B::validate(env, napi_val) }.is_ok() {
-      unsafe { B::from_napi_value(env, napi_val).map(Either::B) }
-    } else {
-      Err(Error::new(
-        Status::InvalidArg,
-        format!(
-          "Value is not either {} or {}",
-          A::type_name(),
-          B::type_name()
-        ),
-      ))
-    }
-  }
-}
-
-impl<A: ToNapiValue, B: ToNapiValue> ToNapiValue for Either<A, B> {
-  unsafe fn to_napi_value(
-    env: sys::napi_env,
-    value: Self,
-  ) -> crate::Result<crate::sys::napi_value> {
-    match value {
-      Self::A(a) => unsafe { A::to_napi_value(env, a) },
-      Self::B(b) => unsafe { B::to_napi_value(env, b) },
-    }
-  }
-}
-
 macro_rules! either_n {
   ( $either_name:ident, $( $parameter:ident ),+ $( , )* ) => {
     #[derive(Debug, Clone, Copy)]
@@ -143,7 +68,19 @@ macro_rules! either_n {
       unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
         let mut ret = Err(Error::new(Status::InvalidArg, "Invalid value".to_owned()));
         $(
-          if unsafe { $parameter::validate(env, napi_val).is_ok() && { ret = $parameter ::from_napi_value(env, napi_val).map(Self:: $parameter ); ret.is_ok() } } {
+          if unsafe {
+            match $parameter::validate(env, napi_val) {
+              Ok(maybe_rejected_promise) => {
+                if maybe_rejected_promise.is_null() {
+                  true
+                } else {
+                  silence_rejected_promise(env, maybe_rejected_promise)?;
+                  false
+                }
+              },
+              Err(_) => false
+            }
+          } && unsafe { { ret = $parameter ::from_napi_value(env, napi_val).map(Self:: $parameter ); ret.is_ok() } } {
             ret
           } else
         )+
@@ -194,6 +131,16 @@ macro_rules! either_n {
       }
     }
 
+    impl<Data, $( $parameter: AsRef<Data> ),+ > AsRef<Data> for $either_name < $( $parameter ),+ >
+      where Data: ?Sized,
+    {
+      fn as_ref(&self) -> &Data {
+        match &self {
+          $( Self:: $parameter (v) => v.as_ref() ),+
+        }
+      }
+    }
+
     impl< $( $parameter ),+ > $either_name < $( $parameter ),+ >
       where $( $parameter: NapiRaw ),+
     {
@@ -206,6 +153,7 @@ macro_rules! either_n {
   };
 }
 
+either_n!(Either, A, B);
 either_n!(Either3, A, B, C);
 either_n!(Either4, A, B, C, D);
 either_n!(Either5, A, B, C, D, E);
@@ -230,3 +178,36 @@ either_n!(Either23, A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, 
 either_n!(Either24, A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X);
 either_n!(Either25, A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y);
 either_n!(Either26, A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z);
+
+fn silence_rejected_promise(env: sys::napi_env, promise: sys::napi_value) -> crate::Result<()> {
+  let mut catch_method = std::ptr::null_mut();
+  check_status!(unsafe {
+    sys::napi_get_named_property(env, promise, "catch\0".as_ptr().cast(), &mut catch_method)
+  })?;
+  let mut catch_noop_callback = std::ptr::null_mut();
+  check_status!(unsafe {
+    sys::napi_create_function(
+      env,
+      "catch\0".as_ptr().cast(),
+      5,
+      Some(noop),
+      std::ptr::null_mut(),
+      &mut catch_noop_callback,
+    )
+  })?;
+  check_status!(unsafe {
+    sys::napi_call_function(
+      env,
+      promise,
+      catch_method,
+      1,
+      vec![catch_noop_callback].as_ptr().cast(),
+      std::ptr::null_mut(),
+    )
+  })?;
+  Ok(())
+}
+
+unsafe extern "C" fn noop(_env: sys::napi_env, _info: sys::napi_callback_info) -> sys::napi_value {
+  std::ptr::null_mut()
+}

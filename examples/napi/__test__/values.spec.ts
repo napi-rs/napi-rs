@@ -119,6 +119,7 @@ import {
   bigintFromI64,
   acceptThreadsafeFunction,
   acceptThreadsafeFunctionFatal,
+  promiseInEither,
 } from '../'
 
 test('export const', (t) => {
@@ -831,6 +832,15 @@ Napi4Test('object only from js', (t) => {
       },
     })
   })
+})
+
+Napi4Test('promise in either', async (t) => {
+  t.is(await promiseInEither(1), false)
+  t.is(await promiseInEither(20), true)
+  t.is(await promiseInEither(Promise.resolve(1)), false)
+  t.is(await promiseInEither(Promise.resolve(20)), true)
+  // @ts-expect-error
+  t.throws(() => promiseInEither('1'))
 })
 
 const Napi5Test = Number(process.versions.napi) >= 5 ? test : test.skip
