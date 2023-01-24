@@ -5,6 +5,7 @@ const {
   readFileAsync,
   callThreadsafeFunction,
   withAbortController,
+  createExternalTypedArray,
 } = require('./index')
 
 const FILE_CONTENT = readFileSync(__filename, 'utf8')
@@ -43,6 +44,7 @@ async function main() {
     value ===
       Array.from({ length: 100 }, (_, i) => i + 1).reduce((a, b) => a + b),
   )
+  console.info(createExternalTypedArray())
   process.exit(0)
 }
 

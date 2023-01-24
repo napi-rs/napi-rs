@@ -316,7 +316,7 @@ macro_rules! impl_typed_array {
               sys::napi_create_arraybuffer(env, length, ptr::null_mut(), &mut arraybuffer_value)
             }
           } else {
-            unsafe {
+            let status = unsafe {
               sys::napi_create_external_arraybuffer(
                 env,
                 val_data as *mut c_void,
@@ -325,6 +325,22 @@ macro_rules! impl_typed_array {
                 hint_ptr as *mut c_void,
                 &mut arraybuffer_value,
               )
+            };
+            if status == napi_sys::Status::napi_no_external_buffers_allowed {
+              let hint = unsafe { Box::from_raw(hint_ptr) };
+              let mut underlying_data = ptr::null_mut();
+              let status = unsafe {
+                sys::napi_create_arraybuffer(
+                  env,
+                  length,
+                  &mut underlying_data,
+                  &mut arraybuffer_value,
+                )
+              };
+              unsafe { std::ptr::swap(hint.data, underlying_data as *mut _) };
+              status
+            } else {
+              status
             }
           },
           "Create external arraybuffer failed"
