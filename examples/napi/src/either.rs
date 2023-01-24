@@ -130,3 +130,14 @@ pub fn either_from_objects(input: Either3<A, B, C>) -> String {
 
 #[napi]
 pub fn either_bool_or_function(_input: Either<bool, JsFunction>) {}
+
+#[napi]
+pub async fn promise_in_either(input: Either<u32, Promise<u32>>) -> Result<bool> {
+  match input {
+    Either::A(a) => Ok(a > 10),
+    Either::B(b) => {
+      let r = b.await?;
+      Ok(r > 10)
+    }
+  }
+}
