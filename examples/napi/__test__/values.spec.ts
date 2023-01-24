@@ -89,6 +89,7 @@ import {
   returnJsFunction,
   testSerdeRoundtrip,
   createObjWithProperty,
+  receiveObjectOnlyFromJs,
   dateToNumber,
   chronoDateToMillis,
   derefUint8Array,
@@ -812,6 +813,22 @@ Napi4Test('accept ThreadsafeFunction Fatal', async (t) => {
     acceptThreadsafeFunctionFatal((value) => {
       t.is(value, 1)
       resolve()
+    })
+  })
+})
+
+Napi4Test('object only from js', (t) => {
+  return new Promise((resolve, reject) => {
+    receiveObjectOnlyFromJs({
+      count: 100,
+      callback: (err: Error | null, count: number) => {
+        if (err) {
+          reject(err)
+        } else {
+          t.is(count, 100)
+          resolve()
+        }
+      },
     })
   })
 })

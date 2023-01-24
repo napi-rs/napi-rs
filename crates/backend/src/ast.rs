@@ -80,6 +80,8 @@ pub struct NapiStruct {
   pub fields: Vec<NapiStructField>,
   pub is_tuple: bool,
   pub kind: NapiStructKind,
+  pub object_from_js: bool,
+  pub object_to_js: bool,
   pub js_mod: Option<String>,
   pub comments: Vec<String>,
   pub implement_iterator: bool,
