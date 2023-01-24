@@ -208,6 +208,12 @@ impl<T: 'static, ES: ErrorStrategy::T> Clone for ThreadsafeFunction<T, ES> {
   }
 }
 
+impl<T: ToNapiValue + 'static, ES: ErrorStrategy::T> FromNapiValue for ThreadsafeFunction<T, ES> {
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
+    Self::create(env, napi_val, 0, |ctx| Ok(vec![ctx.value]))
+  }
+}
+
 impl<T: 'static, ES: ErrorStrategy::T> ThreadsafeFunction<T, ES> {
   /// See [napi_create_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_create_threadsafe_function)
   /// for more information.
