@@ -8,7 +8,7 @@ use std::ptr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 
-use crate::bindgen_runtime::{FromNapiValue, ToNapiValue};
+use crate::bindgen_runtime::{FromNapiValue, ToNapiValue, TypeName, ValidateNapiValue};
 use crate::{check_status, sys, Env, JsError, JsUnknown, Result, Status};
 
 /// ThreadSafeFunction Context object
@@ -747,3 +747,23 @@ macro_rules! type_level_enum {(
 )}
 
 use type_level_enum;
+
+pub struct UnknownReturnValue;
+
+impl TypeName for UnknownReturnValue {
+  fn type_name() -> &'static str {
+    "UnknownReturnValue"
+  }
+
+  fn value_type() -> crate::ValueType {
+    crate::ValueType::Unknown
+  }
+}
+
+impl ValidateNapiValue for UnknownReturnValue {}
+
+impl FromNapiValue for UnknownReturnValue {
+  unsafe fn from_napi_value(_env: sys::napi_env, _napi_val: sys::napi_value) -> Result<Self> {
+    Ok(UnknownReturnValue)
+  }
+}
