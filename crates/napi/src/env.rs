@@ -357,7 +357,7 @@ impl Env {
           &mut raw_value,
         );
         data = result_data.cast();
-        finalize(hint, self.clone());
+        finalize(hint, *self);
         check_status!(status)?;
       } else {
         check_status!(status)?;
@@ -520,7 +520,7 @@ impl Env {
         let status =
           sys::napi_create_arraybuffer(self.0, length, &mut underlying_data, &mut raw_value);
         data = underlying_data.cast();
-        finalize(hint, self.clone());
+        finalize(hint, *self);
         check_status!(status)?;
       } else {
         check_status!(status)?;
