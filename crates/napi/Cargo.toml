@@ -8,7 +8,7 @@ name = "napi"
 readme = "README.md"
 repository = "https://github.com/napi-rs/napi-rs"
 rust-version = "1.57"
-version = "2.10.12"
+version = "2.10.13"
 
 [package.metadata.docs.rs]
 all-features = true
