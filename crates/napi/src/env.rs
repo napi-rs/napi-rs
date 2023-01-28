@@ -262,6 +262,7 @@ impl Env {
     let length = data.len();
     let mut raw_value = ptr::null_mut();
     let data_ptr = data.as_mut_ptr();
+    let hint_ptr = Box::into_raw(Box::new((length, data.capacity())));
     check_status!(unsafe {
       if length == 0 {
         // Rust uses 0x1 as the data pointer for empty buffers,
@@ -269,14 +270,30 @@ impl Env {
         // the same data pointer if it's 0x0.
         sys::napi_create_buffer(self.0, length, ptr::null_mut(), &mut raw_value)
       } else {
-        sys::napi_create_external_buffer(
+        let status = sys::napi_create_external_buffer(
           self.0,
           length,
-          data_ptr as *mut c_void,
+          data_ptr.cast(),
           Some(drop_buffer),
-          Box::into_raw(Box::new((length, data.capacity()))) as *mut c_void,
+          hint_ptr.cast(),
           &mut raw_value,
-        )
+        );
+        // electron doesn't support external buffers
+        if status == sys::Status::napi_no_external_buffers_allowed {
+          drop(Box::from_raw(hint_ptr));
+          let mut dest_data_ptr = ptr::null_mut();
+          let status = sys::napi_create_buffer_copy(
+            self.0,
+            length,
+            data.as_ptr().cast(),
+            &mut dest_data_ptr,
+            &mut raw_value,
+          );
+          data = Vec::from_raw_parts(dest_data_ptr.cast(), length, length);
+          status
+        } else {
+          status
+        }
       }
     })?;
     Ok(JsBufferValue::new(
@@ -297,7 +314,7 @@ impl Env {
   /// You can pass in `noop_finalize` if you have nothing to do in finalize phase.
   pub unsafe fn create_buffer_with_borrowed_data<Hint, Finalize>(
     &self,
-    data: *const u8,
+    mut data: *const u8,
     length: usize,
     hint: Hint,
     finalize_callback: Finalize,
@@ -312,8 +329,9 @@ impl Env {
         "Borrowed data should not be null".to_owned(),
       ));
     }
-    check_status!(unsafe {
-      sys::napi_create_external_buffer(
+    let hint_ptr = Box::into_raw(Box::new((hint, finalize_callback)));
+    unsafe {
+      let status = sys::napi_create_external_buffer(
         self.0,
         length,
         data as *mut c_void,
@@ -325,10 +343,26 @@ impl Env {
               finalize_hint: *mut c_void,
             ),
         ),
-        Box::into_raw(Box::new((hint, finalize_callback))) as *mut c_void,
+        hint_ptr.cast(),
         &mut raw_value,
-      )
-    })?;
+      );
+      if status == sys::Status::napi_no_external_buffers_allowed {
+        let (hint, finalize) = *Box::from_raw(hint_ptr);
+        let mut result_data = ptr::null_mut();
+        let status = sys::napi_create_buffer_copy(
+          self.0,
+          length,
+          data.cast(),
+          &mut result_data,
+          &mut raw_value,
+        );
+        data = result_data.cast();
+        finalize(hint, *self);
+        check_status!(status)?;
+      } else {
+        check_status!(status)?;
+      }
+    };
     Ok(JsBufferValue::new(
       JsBuffer(Value {
         env: self.0,
@@ -405,14 +439,25 @@ impl Env {
         // the same data pointer if it's 0x0.
         sys::napi_create_arraybuffer(self.0, length, ptr::null_mut(), &mut raw_value)
       } else {
-        sys::napi_create_external_arraybuffer(
+        let hint_ptr = Box::into_raw(Box::new((length, data.capacity())));
+        let status = sys::napi_create_external_arraybuffer(
           self.0,
-          data_ptr as *mut c_void,
+          data_ptr.cast(),
           length,
           Some(drop_buffer),
-          Box::into_raw(Box::new((length, data.capacity()))) as *mut c_void,
+          hint_ptr.cast(),
           &mut raw_value,
-        )
+        );
+        if status == sys::Status::napi_no_external_buffers_allowed {
+          drop(Box::from_raw(hint_ptr));
+          let mut underlying_data = ptr::null_mut();
+          let status =
+            sys::napi_create_arraybuffer(self.0, length, &mut underlying_data, &mut raw_value);
+          ptr::swap(underlying_data.cast(), data_ptr);
+          status
+        } else {
+          status
+        }
       }
     })?;
 
@@ -436,7 +481,7 @@ impl Env {
   /// You can pass in `noop_finalize` if you have nothing to do in finalize phase.
   pub unsafe fn create_arraybuffer_with_borrowed_data<Hint, Finalize>(
     &self,
-    data: *const u8,
+    mut data: *const u8,
     length: usize,
     hint: Hint,
     finalize_callback: Finalize,
@@ -445,8 +490,9 @@ impl Env {
     Finalize: FnOnce(Hint, Env),
   {
     let mut raw_value = ptr::null_mut();
-    check_status!(unsafe {
-      sys::napi_create_external_arraybuffer(
+    let hint_ptr = Box::into_raw(Box::new((hint, finalize_callback)));
+    unsafe {
+      let status = sys::napi_create_external_arraybuffer(
         self.0,
         if length == 0 {
           // Rust uses 0x1 as the data pointer for empty buffers,
@@ -465,10 +511,21 @@ impl Env {
               finalize_hint: *mut c_void,
             ),
         ),
-        Box::into_raw(Box::new((hint, finalize_callback))) as *mut c_void,
+        hint_ptr.cast(),
         &mut raw_value,
-      )
-    })?;
+      );
+      if status == sys::Status::napi_no_external_buffers_allowed {
+        let (hint, finalize) = *Box::from_raw(hint_ptr);
+        let mut underlying_data = ptr::null_mut();
+        let status =
+          sys::napi_create_arraybuffer(self.0, length, &mut underlying_data, &mut raw_value);
+        data = underlying_data.cast();
+        finalize(hint, *self);
+        check_status!(status)?;
+      } else {
+        check_status!(status)?;
+      }
+    };
     Ok(JsArrayBufferValue::new(
       JsArrayBuffer(Value {
         env: self.0,

@@ -1,4 +1,5 @@
 #![allow(unused_variables)]
+#![allow(clippy::uninlined_format_args)]
 
 #[macro_use]
 extern crate napi_derive;
