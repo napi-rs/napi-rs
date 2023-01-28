@@ -29,6 +29,7 @@ pub enum Status {
   ArrayBufferExpected,
   DetachableArraybufferExpected,
   WouldDeadlock,
+  NoExternalBuffersAllowed,
   Unknown = 1024, // unknown status. for example, using napi3 module in napi7 Node.js, and generate an invalid napi3 status
 }
 
@@ -64,6 +65,7 @@ impl From<i32> for Status {
       sys::Status::napi_arraybuffer_expected => Status::ArrayBufferExpected,
       sys::Status::napi_detachable_arraybuffer_expected => Status::DetachableArraybufferExpected,
       sys::Status::napi_would_deadlock => Status::WouldDeadlock,
+      sys::Status::napi_no_external_buffers_allowed => Status::NoExternalBuffersAllowed,
       _ => Status::Unknown,
     }
   }
@@ -94,6 +96,7 @@ impl From<Status> for i32 {
       Status::ArrayBufferExpected => sys::Status::napi_arraybuffer_expected,
       Status::DetachableArraybufferExpected => sys::Status::napi_detachable_arraybuffer_expected,
       Status::WouldDeadlock => sys::Status::napi_would_deadlock,
+      Status::NoExternalBuffersAllowed => sys::Status::napi_no_external_buffers_allowed,
       Status::Unknown => sys::Status::napi_generic_failure,
     }
   }
