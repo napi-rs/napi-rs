@@ -208,9 +208,42 @@ impl<T: 'static, ES: ErrorStrategy::T> Clone for ThreadsafeFunction<T, ES> {
   }
 }
 
-impl<T: ToNapiValue + 'static, ES: ErrorStrategy::T> FromNapiValue for ThreadsafeFunction<T, ES> {
+pub trait JsValuesTupleToVec {
+  fn to_vec(self, env: &Env) -> Result<Vec<JsUnknown>>;
+}
+
+impl<A: ToNapiValue, B: ToNapiValue> JsValuesTupleToVec for (A, B) {
+  fn to_vec(self, env: &Env) -> Result<Vec<JsUnknown>> {
+    Ok(vec![
+      JsUnknown(crate::Value {
+        env: env.0,
+        value: unsafe { <A as ToNapiValue>::to_napi_value(env.0, self.0)? },
+        value_type: crate::ValueType::Unknown,
+      }),
+      JsUnknown(crate::Value {
+        env: env.0,
+        value: unsafe { <B as ToNapiValue>::to_napi_value(env.0, self.1)? },
+        value_type: crate::ValueType::Unknown,
+      }),
+    ])
+  }
+}
+
+impl<T: ToNapiValue> JsValuesTupleToVec for T {
+  fn to_vec(self, env: &Env) -> Result<Vec<JsUnknown>> {
+    Ok(vec![JsUnknown(crate::Value {
+      env: env.0,
+      value: unsafe { <T as ToNapiValue>::to_napi_value(env.0, self)? },
+      value_type: crate::ValueType::Unknown,
+    })])
+  }
+}
+
+impl<T: JsValuesTupleToVec + 'static, ES: ErrorStrategy::T> FromNapiValue
+  for ThreadsafeFunction<T, ES>
+{
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
-    Self::create(env, napi_val, 0, |ctx| Ok(vec![ctx.value]))
+    Self::create(env, napi_val, 0, |ctx| ctx.value.to_vec(&ctx.env))
   }
 }
 

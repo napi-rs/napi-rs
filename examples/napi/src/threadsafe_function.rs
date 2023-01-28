@@ -116,3 +116,12 @@ pub fn accept_threadsafe_function_fatal(func: ThreadsafeFunction<u32, ErrorStrat
     func.call(1, ThreadsafeFunctionCallMode::NonBlocking);
   });
 }
+
+#[napi]
+pub fn accept_threadsafe_function_tuple_args(
+  func: ThreadsafeFunction<(u32, bool), ErrorStrategy::Fatal>,
+) {
+  thread::spawn(move || {
+    func.call((1, false), ThreadsafeFunctionCallMode::NonBlocking);
+  });
+}
