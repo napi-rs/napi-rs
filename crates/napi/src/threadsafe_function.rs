@@ -767,3 +767,58 @@ impl FromNapiValue for UnknownReturnValue {
     Ok(UnknownReturnValue)
   }
 }
+
+pub trait JsValuesTupleIntoVec {
+  fn into_vec(self, env: &Env) -> Result<Vec<JsUnknown>>;
+}
+
+macro_rules! impl_tuple_to_vec {
+  ( $( $parameter:ident ),+ $( , )* ) => {
+    #[allow(unused_parens)]
+    impl< $( $parameter ),+ > JsValuesTupleIntoVec for ( $( $parameter ),+, )
+    where $( $parameter: ToNapiValue ),+
+    {
+      #[allow(non_snake_case)]
+      fn into_vec(self, env: &Env) -> Result<Vec<JsUnknown>> {
+        let ( $( $parameter ),+, ) = self;
+        let vec = unsafe {
+          vec![
+            $(
+              JsUnknown::from_napi_value(
+                env.raw(),
+                ToNapiValue::to_napi_value(env.raw(), $parameter)?,
+              )?
+            ),+
+          ]
+        };
+        Ok(vec)
+      }
+    }
+  };
+}
+
+impl_tuple_to_vec!(A);
+impl_tuple_to_vec!(A, B);
+impl_tuple_to_vec!(A, B, C);
+impl_tuple_to_vec!(A, B, C, D);
+impl_tuple_to_vec!(A, B, C, D, E);
+impl_tuple_to_vec!(A, B, C, D, E, F);
+impl_tuple_to_vec!(A, B, C, D, E, F, G);
+impl_tuple_to_vec!(A, B, C, D, E, F, G, H);
+impl_tuple_to_vec!(A, B, C, D, E, F, G, H, I);
+impl_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J);
+
+impl <T: ToNapiValue> JsValuesTupleIntoVec for T {
+  fn into_vec(self, env: &Env) -> Result<Vec<JsUnknown>> {
+    let vec = unsafe {
+      vec![
+        JsUnknown::from_napi_value(
+          env.raw(),
+          ToNapiValue::to_napi_value(env.raw(), self)?,
+        )?
+      ]
+    };
+    Ok(vec)
+  }
+}
+
