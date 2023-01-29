@@ -17,7 +17,7 @@ build_and_test: &BUILD_AND_TEST
     - curl -qL https://www.npmjs.com/install.sh | sh
     - npm install --location=global --ignore-scripts yarn
     - curl https://sh.rustup.rs -sSf --output rustup.sh
-    - sh rustup.sh -y --profile minimal --default-toolchain stable
+    - sh rustup.sh -y --profile minimal --default-toolchain beta
     - |
       echo "~~~~ rustc --version ~~~~"
       rustc --version
