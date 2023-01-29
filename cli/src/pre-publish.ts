@@ -1,4 +1,4 @@
-import { createReadStream, existsSync, statSync } from 'fs'
+import { existsSync, statSync } from 'fs'
 import { join } from 'path'
 
 import { Octokit } from '@octokit/rest'
@@ -9,6 +9,7 @@ import { getNapiConfig } from './consts'
 import { debugFactory } from './debug'
 import { spawn } from './spawn'
 import { updatePackageJson } from './update-package'
+import { readFileAsync } from './utils'
 import { VersionCommand } from './version'
 
 const debug = debugFactory('prepublish')
@@ -114,7 +115,7 @@ export class PrePublishCommand extends Command {
                 'content-type': 'application/octet-stream',
               },
               // @ts-expect-error
-              data: createReadStream(dstPath),
+              data: await readFileAsync(dstPath),
             })
             console.info(`${chalk.green(dstPath)} upload success`)
             console.info(
