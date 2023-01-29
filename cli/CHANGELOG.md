@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.14.5](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.14.4...@napi-rs/cli@2.14.5) (2023-01-29)
+
+### Bug Fixes
+
+- **cli:** upload GitHub assets issue ([a302c9c](https://github.com/napi-rs/napi-rs/commit/a302c9cb18710d8d71045d11780f09d4eaf1ecde))
+
 ## [2.14.4](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.14.3...@napi-rs/cli@2.14.4) (2023-01-20)
 
 ### Bug Fixes
