@@ -208,6 +208,7 @@ export function derefUint8Array(a: Uint8Array, b: Uint8ClampedArray): number
 export function bufferPassThrough(buf: Buffer): Promise<Buffer>
 export function arrayBufferPassThrough(buf: Uint8Array): Promise<Uint8Array>
 export function asyncReduceBuffer(buf: Buffer): Promise<number>
+export function runScript(script: string): unknown
 /**
  * `constructor` option for `struct` requires all fields to be public,
  * otherwise tag impl fn as constructor

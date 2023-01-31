@@ -16,19 +16,19 @@ pub trait Generator {
   type Return: FromNapiValue;
 
   /// Handle the `Generator.next()`
-  /// https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Generator/next
+  /// <https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Generator/next>
   fn next(&mut self, value: Option<Self::Next>) -> Option<Self::Yield>;
 
   #[allow(unused_variables)]
   /// Implement complete to handle the `Generator.return()`
-  /// https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Generator/return
+  /// <https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Generator/return>
   fn complete(&mut self, value: Option<Self::Return>) -> Option<Self::Yield> {
     None
   }
 
   #[allow(unused_variables)]
   /// Implement catch to handle the `Generator.throw()`
-  /// https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Generator/throw
+  /// <https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Generator/throw>
   fn catch(&mut self, env: Env, value: Unknown) -> Result<Option<Self::Yield>, Unknown> {
     Err(value)
   }
