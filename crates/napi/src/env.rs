@@ -7,6 +7,7 @@ use std::mem;
 use std::os::raw::{c_char, c_void};
 use std::ptr;
 
+use crate::bindgen_runtime::FromNapiValue;
 #[cfg(all(feature = "napi4"))]
 use crate::bindgen_runtime::ToNapiValue;
 use crate::{
@@ -1078,13 +1079,19 @@ impl Env {
     result
   }
 
-  pub fn run_script<S: AsRef<str>>(&self, script: S) -> Result<JsObject> {
+  /// Node-API provides an API for executing a string containing JavaScript using the underlying JavaScript engine.
+  /// This function executes a string of JavaScript code and returns its result with the following caveats:
+  /// - Unlike `eval`, this function does not allow the script to access the current lexical scope, and therefore also does not allow to access the [module scope](https://nodejs.org/api/modules.html#the-module-scope), meaning that pseudo-globals such as require will not be available.
+  /// - The script can access the [global scope](https://nodejs.org/api/globals.html). Function and `var` declarations in the script will be added to the [global](https://nodejs.org/api/globals.html#global) object. Variable declarations made using `let` and `const` will be visible globally, but will not be added to the global object.
+  /// - The value of this is [global](https://nodejs.org/api/globals.html) within the script.
+  pub fn run_script<S: AsRef<str>, V: FromNapiValue>(&self, script: S) -> Result<V> {
     let s = self.create_string(script.as_ref())?;
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe { sys::napi_run_script(self.0, s.raw(), &mut raw_value) })?;
-    Ok(unsafe { JsObject::from_raw_unchecked(self.0, raw_value) })
+    unsafe { V::from_napi_value(self.0, raw_value) }
   }
 
+  /// `process.versions.napi`
   pub fn get_napi_version(&self) -> Result<u32> {
     let global = self.get_global()?;
     let process: JsObject = global.get_named_property("process")?;

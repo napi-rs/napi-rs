@@ -3,6 +3,8 @@
 #![allow(clippy::disallowed_names)]
 #![allow(clippy::uninlined_format_args)]
 
+use napi::{Env, JsUnknown};
+
 #[macro_use]
 extern crate napi_derive;
 #[macro_use]
@@ -46,3 +48,8 @@ mod symbol;
 mod task;
 mod threadsafe_function;
 mod typed_array;
+
+#[napi]
+pub fn run_script(env: Env, script: String) -> napi::Result<JsUnknown> {
+  env.run_script(&script)
+}

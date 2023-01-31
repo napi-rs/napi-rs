@@ -120,6 +120,7 @@ import {
   acceptThreadsafeFunction,
   acceptThreadsafeFunctionFatal,
   promiseInEither,
+  runScript,
 } from '../'
 
 test('export const', (t) => {
@@ -628,6 +629,11 @@ test('external', (t) => {
     e!.message,
     'T on `get_value_external` is not the type of wrapped object',
   )
+})
+
+test('should be able to run script', async (t) => {
+  t.is(runScript(`1 + 1`), 2)
+  t.is(await runScript(`Promise.resolve(1)`), 1)
 })
 
 const AbortSignalTest =
