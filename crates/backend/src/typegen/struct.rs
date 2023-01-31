@@ -37,7 +37,7 @@ impl ToTypeDef for NapiImpl {
     if let Some(output_type) = &self.task_output_type {
       TASK_STRUCTS.with(|t| {
         t.borrow_mut().insert(
-          self.js_name.clone(),
+          self.name.to_string(),
           ty_to_ts_type(output_type, false, true).0,
         );
       });
