@@ -72,7 +72,7 @@ jobs:
               sudo apt-get update
               sudo apt-get install gcc-arm-linux-gnueabihf -y
             build: |
-              yarn build --target=armv7-unknown-linux-gnueabihf
+              yarn build --target armv7-unknown-linux-gnueabihf
               arm-linux-gnueabihf-strip *.node
           - host: ubuntu-latest
             target: 'aarch64-linux-android'
@@ -197,7 +197,7 @@ jobs:
             curl -qL https://www.npmjs.com/install.sh | sh
             npm install --location=global --ignore-scripts yarn
             curl https://sh.rustup.rs -sSf --output rustup.sh
-            sh rustup.sh -y --profile minimal --default-toolchain stable
+            sh rustup.sh -y --profile minimal --default-toolchain beta
             export PATH="/usr/local/cargo/bin:$PATH"
             echo "~~~~ rustc --version ~~~~"
             rustc --version
@@ -352,8 +352,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - run: docker run --rm --privileged multiarch/qemu-user-static:register --reset
-
       - uses: actions/checkout@v3
 
       - name: Download artifacts
@@ -371,12 +369,18 @@ jobs:
           yarn config set supportedArchitectures.cpu "arm64"
           yarn config set supportedArchitectures.libc "glibc"
           yarn install
+      
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+        with:
+          platforms: arm64
+      - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
 
       - name: Setup and run tests
         uses: addnab/docker-run-action@v3
         with:
-          image: ghcr.io/napi-rs/napi-rs/nodejs:aarch64-\${{ matrix.node }}
-          options: -v \${{ github.workspace }}:/build -w /build
+          image: node:\${{ matrix.node }}-slim
+          options: --platform linux/arm64 -v \${{ github.workspace }}:/build -w /build
           run: |
             set -e
             yarn test
@@ -390,8 +394,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - run: docker run --rm --privileged multiarch/qemu-user-static:register --reset
-
       - uses: actions/checkout@v3
 
       - name: Download artifacts
@@ -410,14 +412,19 @@ jobs:
           yarn config set supportedArchitectures.libc "musl"
           yarn install
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+        with:
+          platforms: arm64
+      - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+
       - name: Setup and run tests
         uses: addnab/docker-run-action@v3
         with:
-          image: multiarch/alpine:aarch64-latest-stable
-          options: -v \${{ github.workspace }}:/build -w /build
+          image: node:lts-alpine
+          options: --platform linux/arm64 -v \${{ github.workspace }}:/build -w /build
           run: |
             set -e
-            apk add nodejs npm yarn
             yarn test
 
   test-linux-arm-gnueabihf-binding:
@@ -431,8 +438,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - run: docker run --rm --privileged multiarch/qemu-user-static:register --reset
-
       - uses: actions/checkout@v3
 
       - name: Download artifacts
@@ -450,11 +455,17 @@ jobs:
           yarn config set supportedArchitectures.cpu "arm"
           yarn install
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+        with:
+          platforms: arm
+      - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+
       - name: Setup and run tests
         uses: addnab/docker-run-action@v3
         with:
-          image: ghcr.io/napi-rs/napi-rs/nodejs:armhf-\${{ matrix.node }}
-          options: -v \${{ github.workspace }}:/build -w /build
+          image: node:\${{ matrix.node }}-bullseye-slim
+          options: --platform linux/arm/v7 -v \${{ github.workspace }}:/build -w /build
           run: |
             set -e
             yarn test
