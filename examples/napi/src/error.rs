@@ -9,3 +9,8 @@ pub fn throw_error() -> Result<()> {
 pub fn panic() {
   panic!("Don't panic");
 }
+
+#[napi]
+pub fn receive_string(s: String) -> String {
+  s
+}

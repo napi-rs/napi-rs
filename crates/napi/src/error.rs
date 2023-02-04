@@ -369,11 +369,49 @@ macro_rules! check_status_and_type {
     match c {
       $crate::sys::Status::napi_ok => Ok(()),
       _ => {
+        use $crate::js_values::NapiValue;
         let value_type = $crate::type_of!($env, $val)?;
-        Err($crate::Error::new(
-          $crate::Status::from(c),
-          format!($msg, value_type),
-        ))
+        let error_msg = match value_type {
+          ValueType::Function => {
+            let function_name = unsafe { JsFunction::from_raw_unchecked($env, $val).name()? };
+            format!(
+              $msg,
+              format!(
+                "function {}(..) ",
+                if function_name.len() == 0 {
+                  "anonymous".to_owned()
+                } else {
+                  function_name
+                }
+              )
+            )
+          }
+          ValueType::Object => {
+            let env_ = $crate::Env::from($env);
+            let json: $crate::JSON = env_.get_global()?.get_named_property_unchecked("JSON")?;
+            let object = json.stringify($crate::JsObject($crate::Value {
+              value: $val,
+              env: $env,
+              value_type: ValueType::Object,
+            }))?;
+            format!($msg, format!("Object {}", object))
+          }
+          ValueType::Boolean | ValueType::Number => {
+            let value =
+              unsafe { $crate::JsUnknown::from_raw_unchecked($env, $val).coerce_to_string()? }
+                .into_utf8()?;
+            format!($msg, format!("{} {} ", value_type, value.as_str()?))
+          }
+          #[cfg(feature = "napi6")]
+          ValueType::BigInt => {
+            let value =
+              unsafe { $crate::JsUnknown::from_raw_unchecked($env, $val).coerce_to_string()? }
+                .into_utf8()?;
+            format!($msg, format!("{} {} ", value_type, value.as_str()?))
+          }
+          _ => format!($msg, value_type),
+        };
+        Err($crate::Error::new($crate::Status::from(c), error_msg))
       }
     }
   }};

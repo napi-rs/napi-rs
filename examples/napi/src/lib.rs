@@ -51,5 +51,5 @@ mod typed_array;
 
 #[napi]
 pub fn run_script(env: Env, script: String) -> napi::Result<JsUnknown> {
-  env.run_script(&script)
+  env.run_script(script)
 }

@@ -1,12 +1,12 @@
 use std::ptr;
 
 use super::Value;
-use crate::bindgen_runtime::TypeName;
 #[cfg(feature = "napi4")]
 use crate::{
   bindgen_runtime::ToNapiValue,
   threadsafe_function::{ThreadSafeCallContext, ThreadsafeFunction},
 };
+use crate::{bindgen_runtime::TypeName, JsString};
 use crate::{check_pending_exception, ValueType};
 use crate::{sys, Env, Error, JsObject, JsUnknown, NapiRaw, NapiValue, Result, Status};
 
@@ -120,6 +120,21 @@ impl JsFunction {
       )
     })?;
     Ok(unsafe { JsObject::from_raw_unchecked(self.0.env, js_instance) })
+  }
+
+  /// function name
+  pub fn name(&self) -> Result<String> {
+    let mut name = ptr::null_mut();
+    check_pending_exception!(self.0.env, unsafe {
+      sys::napi_get_named_property(
+        self.0.env,
+        self.0.value,
+        "name\0".as_ptr().cast(),
+        &mut name,
+      )
+    })?;
+    let name_value = unsafe { JsString::from_raw_unchecked(self.0.env, name) };
+    Ok(name_value.into_utf8()?.as_str()?.to_owned())
   }
 
   #[cfg(feature = "napi4")]

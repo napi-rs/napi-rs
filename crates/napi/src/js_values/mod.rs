@@ -3,7 +3,7 @@ use std::ffi::CString;
 use std::ptr;
 
 use crate::{
-  bindgen_runtime::{TypeName, ValidateNapiValue},
+  bindgen_runtime::{FromNapiValue, TypeName, ValidateNapiValue},
   check_status, sys, type_of, Callback, Error, Result, Status, ValueType,
 };
 
@@ -337,26 +337,26 @@ macro_rules! impl_object_methods {
 
       pub fn get_named_property<T>(&self, name: &str) -> Result<T>
       where
-        T: NapiValue,
+        T: FromNapiValue,
       {
         let key = CString::new(name)?;
         let mut raw_value = ptr::null_mut();
         check_status!(unsafe {
           sys::napi_get_named_property(self.0.env, self.0.value, key.as_ptr(), &mut raw_value)
         })?;
-        unsafe { T::from_raw(self.0.env, raw_value) }
+        unsafe { <T as FromNapiValue>::from_napi_value(self.0.env, raw_value) }
       }
 
       pub fn get_named_property_unchecked<T>(&self, name: &str) -> Result<T>
       where
-        T: NapiValue,
+        T: FromNapiValue,
       {
         let key = CString::new(name)?;
         let mut raw_value = ptr::null_mut();
         check_status!(unsafe {
           sys::napi_get_named_property(self.0.env, self.0.value, key.as_ptr(), &mut raw_value)
         })?;
-        Ok(unsafe { T::from_raw_unchecked(self.0.env, raw_value) })
+        unsafe { <T as FromNapiValue>::from_napi_value(self.0.env, raw_value) }
       }
 
       pub fn has_named_property(&self, name: &str) -> Result<bool> {
@@ -618,6 +618,7 @@ impl_js_value_methods!(JsFunction);
 impl_js_value_methods!(JsExternal);
 impl_js_value_methods!(JsSymbol);
 impl_js_value_methods!(JsTimeout);
+impl_js_value_methods!(JSON);
 
 impl_object_methods!(JsObject);
 impl_object_methods!(JsBuffer);
@@ -625,6 +626,7 @@ impl_object_methods!(JsArrayBuffer);
 impl_object_methods!(JsTypedArray);
 impl_object_methods!(JsDataView);
 impl_object_methods!(JsGlobal);
+impl_object_methods!(JSON);
 
 use ValueType::*;
 

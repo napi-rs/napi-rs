@@ -39,7 +39,7 @@ impl FromNapiValue for String {
       unsafe { sys::napi_get_value_string_utf8(env, napi_val, ptr::null_mut(), 0, &mut len) },
       env,
       napi_val,
-      "Failed to convert napi `{}` into rust type `String`"
+      "Failed to convert JavaScript value `{}` into rust type `String`"
     )?;
 
     // end char len in C
@@ -106,7 +106,7 @@ impl FromNapiValue for &str {
       },
       env,
       napi_val,
-      "Failed to convert napi `{}` into rust type `String`"
+      "Failed to convert JavaScript value `{}` into rust type `String`"
     )?;
 
     // The `&str` should only be accepted from function arguments.

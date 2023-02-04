@@ -427,7 +427,10 @@ test('option object', (t) => {
 test('should throw if object type is not matched', (t) => {
   // @ts-expect-error
   const err1 = t.throws(() => receiveStrictObject({ name: 1 }))
-  t.is(err1!.message, 'Failed to convert napi `Number` into rust type `String`')
+  t.is(
+    err1!.message,
+    'Failed to convert JavaScript value `Number 1 ` into rust type `String`',
+  )
   // @ts-expect-error
   const err2 = t.throws(() => receiveStrictObject({ bar: 1 }))
   t.is(err2!.message, 'Missing field `name`')
