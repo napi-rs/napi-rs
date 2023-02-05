@@ -218,7 +218,7 @@ fn is_ts_union_type(rust_ty: &str) -> bool {
     .unwrap_or(false)
 }
 
-const TSFN_RUST_TY: &'static str = "ThreadsafeFunction";
+const TSFN_RUST_TY: &str = "ThreadsafeFunction";
 
 fn should_convert_tuple_to_variadic(rust_ty: &str) -> bool {
   rust_ty == TSFN_RUST_TY
@@ -252,37 +252,35 @@ pub fn ty_to_ts_type(
     Type::Tuple(tuple) => {
       if tuple.elems.is_empty() {
         ("undefined".to_owned(), false, false)
+      } else if convert_tuple_to_variadic {
+        let variadic = &tuple
+          .elems
+          .iter()
+          .enumerate()
+          .map(|(i, arg)| {
+            let (ts_type, is_optional, _) = ty_to_ts_type(arg, false, false, false);
+            r#fn::FnArg {
+              arg: format!("arg{}", i),
+              ts_type,
+              is_optional,
+            }
+          })
+          .collect::<r#fn::FnArgList>();
+        (format!("{variadic}"), false, true)
       } else {
-        if convert_tuple_to_variadic {
-          let variadic = &tuple
-            .elems
-            .iter()
-            .enumerate()
-            .map(|(i, arg)| {
-              let (ts_type, is_optional, _) = ty_to_ts_type(arg, false, false, false);
-              r#fn::FnArg {
-                arg: format!("arg{}", i),
-                ts_type,
-                is_optional,
-              }
-            })
-            .collect::<r#fn::FnArgList>();
-          (format!("{variadic}"), false, true)
-        } else {
-          (
-            format!(
-              "[{}]",
-              tuple
-                .elems
-                .iter()
-                .map(|elem| ty_to_ts_type(elem, false, false, false).0)
-                .collect::<Vec<_>>()
-                .join(", ")
-            ),
-            false,
-            false,
-          )
-        }
+        (
+          format!(
+            "[{}]",
+            tuple
+              .elems
+              .iter()
+              .map(|elem| ty_to_ts_type(elem, false, false, false).0)
+              .collect::<Vec<_>>()
+              .join(", ")
+          ),
+          false,
+          false,
+        )
       }
     }
     Type::Path(syn::TypePath { qself: None, path }) => {
@@ -426,7 +424,7 @@ pub fn ty_to_ts_type(
     Type::Paren(p) => {
       let (element_type, is_optional, _) =
         ty_to_ts_type(&p.elem, is_return_ty, is_struct_field, false);
-      (format!("{}", element_type), is_optional, false)
+      (element_type, is_optional, false)
     }
     _ => ("any".to_owned(), false, false),
   }

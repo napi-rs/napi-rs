@@ -2,7 +2,6 @@ import { exec } from 'child_process'
 import { join } from 'path'
 
 import test from 'ava'
-import { reject } from 'lodash'
 import { spy } from 'sinon'
 
 import {
@@ -830,7 +829,7 @@ Napi4Test('accept ThreadsafeFunction Fatal', async (t) => {
 })
 
 Napi4Test('accept ThreadsafeFunction tuple args', async (t) => {
-  await new Promise<void>((resolve) => {
+  await new Promise<void>((resolve, reject) => {
     acceptThreadsafeFunctionTupleArgs((err, num, bool, str) => {
       if (err) {
         return reject(err)
