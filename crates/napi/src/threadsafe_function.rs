@@ -208,9 +208,72 @@ impl<T: 'static, ES: ErrorStrategy::T> Clone for ThreadsafeFunction<T, ES> {
   }
 }
 
-impl<T: ToNapiValue + 'static, ES: ErrorStrategy::T> FromNapiValue for ThreadsafeFunction<T, ES> {
+pub trait JsValuesTupleToVec {
+  fn to_vec(self, env: &Env) -> Result<Vec<JsUnknown>>;
+}
+
+impl<T: ToNapiValue> JsValuesTupleToVec for T {
+  fn to_vec(self, env: &Env) -> Result<Vec<JsUnknown>> {
+    Ok(vec![JsUnknown(crate::Value {
+      env: env.0,
+      value: unsafe { <T as ToNapiValue>::to_napi_value(env.0, self)? },
+      value_type: crate::ValueType::Unknown,
+    })])
+  }
+}
+
+macro_rules! impl_js_value_tuple_to_vec {
+  ($($ident:ident),*) => {
+    impl<$($ident: ToNapiValue),*> JsValuesTupleToVec for ($($ident,)*) {
+      fn to_vec(self, env: &Env) -> Result<Vec<JsUnknown>> {
+        #[allow(non_snake_case)]
+        let ($($ident,)*) = self;
+        Ok(vec![$(JsUnknown($crate::Value {
+          env: env.0,
+          value: unsafe { <$ident as ToNapiValue>::to_napi_value(env.0, $ident)? },
+          value_type: $crate::ValueType::Unknown,
+        })),*])
+      }
+    }
+  };
+}
+
+impl_js_value_tuple_to_vec!(A);
+impl_js_value_tuple_to_vec!(A, B);
+impl_js_value_tuple_to_vec!(A, B, C);
+impl_js_value_tuple_to_vec!(A, B, C, D);
+impl_js_value_tuple_to_vec!(A, B, C, D, E);
+impl_js_value_tuple_to_vec!(A, B, C, D, E, F);
+impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G);
+impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H);
+impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I);
+impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J);
+impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K);
+impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K, L);
+impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K, L, M);
+impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K, L, M, N);
+impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O);
+impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P);
+impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q);
+impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R);
+impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S);
+impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T);
+impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U);
+impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V);
+impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W);
+impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X);
+impl_js_value_tuple_to_vec!(
+  A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y
+);
+impl_js_value_tuple_to_vec!(
+  A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z
+);
+
+impl<T: JsValuesTupleToVec + 'static, ES: ErrorStrategy::T> FromNapiValue
+  for ThreadsafeFunction<T, ES>
+{
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
-    Self::create(env, napi_val, 0, |ctx| Ok(vec![ctx.value]))
+    Self::create(env, napi_val, 0, |ctx| ctx.value.to_vec(&ctx.env))
   }
 }
 
