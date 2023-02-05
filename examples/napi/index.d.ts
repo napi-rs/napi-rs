@@ -99,6 +99,7 @@ export const enum CustomNumEnum {
 export function enumToI32(e: CustomNumEnum): number
 export function throwError(): void
 export function panic(): void
+export function receiveString(s: string): string
 export function createExternal(size: number): ExternalObject<number>
 export function createExternalString(content: string): ExternalObject<string>
 export function getExternal(external: ExternalObject<number>): number
