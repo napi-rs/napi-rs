@@ -38,8 +38,6 @@ impl ToTypeDef for NapiImpl {
       TASK_STRUCTS.with(|t| {
         t.borrow_mut().insert(
           self.name.to_string(),
-          ty_to_ts_type(output_type, false, true).0,
-          self.js_name.clone(),
           ty_to_ts_type(output_type, false, true, false).0,
         );
       });

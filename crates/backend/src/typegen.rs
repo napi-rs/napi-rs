@@ -245,7 +245,7 @@ pub fn ty_to_ts_type(
   ty: &Type,
   is_return_ty: bool,
   is_struct_field: bool,
-  tuple_to_variadic: bool,
+  convert_tuple_to_variadic: bool,
 ) -> (String, bool, bool) {
   match ty {
     Type::Reference(r) => ty_to_ts_type(&r.elem, is_return_ty, is_struct_field, false),
@@ -253,7 +253,7 @@ pub fn ty_to_ts_type(
       if tuple.elems.is_empty() {
         ("undefined".to_owned(), false, false)
       } else {
-        if tuple_to_variadic {
+        if convert_tuple_to_variadic {
           let variadic = &tuple
             .elems
             .iter()
