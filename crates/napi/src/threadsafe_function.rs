@@ -208,12 +208,12 @@ impl<T: 'static, ES: ErrorStrategy::T> Clone for ThreadsafeFunction<T, ES> {
   }
 }
 
-pub trait JsValuesTupleToVec {
-  fn to_vec(self, env: &Env) -> Result<Vec<JsUnknown>>;
+pub trait JsValuesTupleIntoVec {
+  fn into_vec(self, env: &Env) -> Result<Vec<JsUnknown>>;
 }
 
-impl<T: ToNapiValue> JsValuesTupleToVec for T {
-  fn to_vec(self, env: &Env) -> Result<Vec<JsUnknown>> {
+impl<T: ToNapiValue> JsValuesTupleIntoVec for T {
+  fn into_vec(self, env: &Env) -> Result<Vec<JsUnknown>> {
     Ok(vec![JsUnknown(crate::Value {
       env: env.0,
       value: unsafe { <T as ToNapiValue>::to_napi_value(env.0, self)? },
@@ -224,8 +224,8 @@ impl<T: ToNapiValue> JsValuesTupleToVec for T {
 
 macro_rules! impl_js_value_tuple_to_vec {
   ($($ident:ident),*) => {
-    impl<$($ident: ToNapiValue),*> JsValuesTupleToVec for ($($ident,)*) {
-      fn to_vec(self, env: &Env) -> Result<Vec<JsUnknown>> {
+    impl<$($ident: ToNapiValue),*> JsValuesTupleIntoVec for ($($ident,)*) {
+      fn into_vec(self, env: &Env) -> Result<Vec<JsUnknown>> {
         #[allow(non_snake_case)]
         let ($($ident,)*) = self;
         Ok(vec![$(JsUnknown($crate::Value {
@@ -269,11 +269,11 @@ impl_js_value_tuple_to_vec!(
   A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z
 );
 
-impl<T: JsValuesTupleToVec + 'static, ES: ErrorStrategy::T> FromNapiValue
+impl<T: JsValuesTupleIntoVec + 'static, ES: ErrorStrategy::T> FromNapiValue
   for ThreadsafeFunction<T, ES>
 {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
-    Self::create(env, napi_val, 0, |ctx| ctx.value.to_vec(&ctx.env))
+    Self::create(env, napi_val, 0, |ctx| ctx.value.into_vec(&ctx.env))
   }
 }
 
