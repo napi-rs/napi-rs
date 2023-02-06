@@ -266,7 +266,7 @@ pub fn ty_to_ts_type(
             }
           })
           .collect::<r#fn::FnArgList>();
-        (format!("{variadic}"), false, true)
+        (format!("{}", variadic), false, true)
       } else {
         (
           format!(
@@ -380,9 +380,9 @@ pub fn ty_to_ts_type(
             Some((
               {
                 if *is_variadic {
-                  format!("({args}) => any")
+                  format!("({}) => any", args)
                 } else {
-                  format!("(value: {args}) => any")
+                  format!("(value: {}) => any", args)
                 }
               },
               false,
@@ -392,9 +392,9 @@ pub fn ty_to_ts_type(
             Some((
               {
                 if *is_variadic {
-                  format!("(err: Error | null, {args}) => any")
+                  format!("(err: Error | null, {}) => any", args)
                 } else {
-                  format!("(err: Error | null, value: {args}) => any")
+                  format!("(err: Error | null, value: {}) => any", args)
                 }
               },
               false,
