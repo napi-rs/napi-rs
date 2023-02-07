@@ -162,13 +162,16 @@ impl From<std::io::Error> for Error {
 
 impl Drop for Error {
   fn drop(&mut self) {
-    if !self.maybe_env.is_null() && !self.maybe_raw.is_null() {
-      let delete_reference_status =
-        unsafe { sys::napi_delete_reference(self.maybe_env, self.maybe_raw) };
-      debug_assert!(
-        delete_reference_status == sys::Status::napi_ok,
-        "Delete Error Reference failed"
-      );
+    #[cfg(not(feature = "noop"))]
+    {
+      if !self.maybe_env.is_null() && !self.maybe_raw.is_null() {
+        let delete_reference_status =
+          unsafe { sys::napi_delete_reference(self.maybe_env, self.maybe_raw) };
+        debug_assert!(
+          delete_reference_status == sys::Status::napi_ok,
+          "Delete Error Reference failed"
+        );
+      }
     }
   }
 }
