@@ -1,0 +1,10 @@
+{
+  "extends": "../tsconfig.json",
+  "include": [".", "package.json"],
+  "compilerOptions": {
+    "composite": true,
+    "outDir": "dist",
+    "resolveJsonModule": true
+  },
+  "exclude": ["node_modules", "scripts", "dist"]
+}

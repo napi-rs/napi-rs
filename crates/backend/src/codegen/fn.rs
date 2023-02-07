@@ -474,7 +474,7 @@ impl NapiFn {
     match self.fn_self {
       Some(FnSelf::Value) => {
         // impossible, panic! in parser
-        unimplemented!();
+        unreachable!();
       }
       Some(FnSelf::Ref) | Some(FnSelf::MutRef) => quote! { this.#name },
       None => match &self.parent {
@@ -552,11 +552,14 @@ impl NapiFn {
     } else {
       let name_str = self.name.to_string();
       let js_name = format!("{}\0", &self.js_name);
-      let name_len = js_name.len();
+      let name_len = self.js_name.len();
       let module_register_name = get_register_ident(&name_str);
       let intermediate_ident = get_intermediate_ident(&name_str);
       let js_mod_ident = js_mod_to_token_stream(self.js_mod.as_ref());
       let cb_name = Ident::new(&format!("{}_js_function", name_str), Span::call_site());
+      crate::codegen::REGISTER_IDENTS.with(|c| {
+        c.borrow_mut().push(module_register_name.to_string());
+      });
       quote! {
         #[allow(non_snake_case)]
         #[allow(clippy::all)]
@@ -566,7 +569,7 @@ impl NapiFn {
           napi::bindgen_prelude::check_status!(
             napi::bindgen_prelude::sys::napi_create_function(
               env,
-              #js_name.as_ptr() as *const _,
+              #js_name.as_ptr().cast(),
               #name_len,
               Some(#intermediate_ident),
               std::ptr::null_mut(),
@@ -581,9 +584,17 @@ impl NapiFn {
 
         #[allow(clippy::all)]
         #[allow(non_snake_case)]
-        #[cfg(all(not(test), not(feature = "noop")))]
+        #[cfg(all(not(test), not(feature = "noop"), not(target_arch = "wasm32")))]
         #[napi::bindgen_prelude::ctor]
         fn #module_register_name() {
+          napi::bindgen_prelude::register_module_export(#js_mod_ident, #js_name, #cb_name);
+        }
+
+        #[allow(clippy::all)]
+        #[allow(non_snake_case)]
+        #[cfg(all(not(test), not(feature = "noop"), target_arch = "wasm32"))]
+        #[no_mangle]
+        extern "C" fn #module_register_name() {
           napi::bindgen_prelude::register_module_export(#js_mod_ident, #js_name, #cb_name);
         }
       }

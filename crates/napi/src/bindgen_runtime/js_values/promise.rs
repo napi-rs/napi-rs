@@ -3,19 +3,18 @@ use std::future;
 use std::pin::Pin;
 use std::ptr;
 use std::sync::{
-  atomic::{AtomicBool, Ordering},
+  atomic::{AtomicBool, AtomicPtr, Ordering},
   Arc,
 };
-use std::task::{Context, Poll};
+use std::task::{Context, Poll, Waker};
 
-use tokio::sync::oneshot::{channel, Receiver, Sender};
-
-use crate::{check_status, sys, Error, JsUnknown, NapiValue, Result, Status};
+use crate::{check_status, sys, Error, JsUnknown, NapiValue, Result};
 
 use super::{FromNapiValue, TypeName, ValidateNapiValue};
 
 pub struct Promise<T: FromNapiValue> {
-  value: Pin<Box<Receiver<*mut Result<T>>>>,
+  value: *mut Result<T>,
+  waker: *mut Waker,
   aborted: Arc<AtomicBool>,
 }
 
@@ -100,9 +99,10 @@ impl<T: FromNapiValue> FromNapiValue for Promise<T> {
     )?;
     let mut promise_after_then = ptr::null_mut();
     let mut then_js_cb = ptr::null_mut();
-    let (tx, rx) = channel();
     let aborted = Arc::new(AtomicBool::new(false));
-    let tx_ptr = Box::into_raw(Box::new((tx, aborted.clone())));
+    let value_ptr = Box::into_raw(Box::new(AtomicPtr::new(ptr::null_mut::<Result<T>>())));
+    let waker_ptr = Box::into_raw(Box::new(AtomicPtr::new(ptr::null_mut::<Waker>())));
+    let context_ptr = Box::into_raw(Box::new((value_ptr, waker_ptr, aborted.clone())));
     check_status!(
       unsafe {
         sys::napi_create_function(
@@ -110,7 +110,7 @@ impl<T: FromNapiValue> FromNapiValue for Promise<T> {
           then_c_string.as_ptr(),
           4,
           Some(then_callback::<T>),
-          tx_ptr.cast(),
+          context_ptr.cast(),
           &mut then_js_cb,
         )
       },
@@ -145,7 +145,7 @@ impl<T: FromNapiValue> FromNapiValue for Promise<T> {
           catch_c_string.as_ptr(),
           5,
           Some(catch_callback::<T>),
-          tx_ptr.cast(),
+          context_ptr.cast(),
           &mut catch_js_cb,
         )
       },
@@ -165,7 +165,8 @@ impl<T: FromNapiValue> FromNapiValue for Promise<T> {
       "Failed to call catch method"
     )?;
     Ok(Promise {
-      value: Box::pin(rx),
+      value: ptr::null_mut(),
+      waker: ptr::null_mut(),
       aborted,
     })
   }
@@ -175,12 +176,13 @@ impl<T: FromNapiValue> future::Future for Promise<T> {
   type Output = Result<T>;
 
   fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-    match self.value.as_mut().poll(cx) {
-      Poll::Pending => Poll::Pending,
-      Poll::Ready(v) => Poll::Ready(
-        v.map_err(|e| Error::new(Status::GenericFailure, format!("{}", e)))
-          .and_then(|v| unsafe { *Box::from_raw(v) }.map_err(Error::from)),
-      ),
+    if self.value.is_null() {
+      if self.waker.is_null() {
+        self.waker = Box::into_raw(Box::new(cx.waker().clone()));
+      }
+      Poll::Pending
+    } else {
+      Poll::Ready(unsafe { *Box::from_raw(self.value) }.map_err(Error::from))
     }
   }
 }
@@ -206,15 +208,26 @@ unsafe extern "C" fn then_callback<T: FromNapiValue>(
     get_cb_status == sys::Status::napi_ok,
     "Get callback info from Promise::then failed"
   );
-  let (sender, aborted) =
-    *unsafe { Box::from_raw(data as *mut (Sender<*mut Result<T>>, Arc<AtomicBool>)) };
+  let (data, waker, aborted) = *unsafe {
+    Box::from_raw(
+      data
+        as *mut (
+          *mut AtomicPtr<Result<T>>,
+          *mut AtomicPtr<Waker>,
+          Arc<AtomicBool>,
+        ),
+    )
+  };
   if aborted.load(Ordering::SeqCst) {
     return this;
   }
   let resolve_value_t = Box::new(unsafe { T::from_napi_value(env, resolved_value[0]) });
-  sender
-    .send(Box::into_raw(resolve_value_t))
-    .expect("Send Promise resolved value error");
+  Box::leak(unsafe { Box::from_raw(data) })
+    .store(Box::into_raw(resolve_value_t), Ordering::Relaxed);
+  let waker = Box::leak(unsafe { Box::from_raw(waker) }).load(Ordering::Relaxed);
+  if !waker.is_null() {
+    unsafe { Box::from_raw(waker) }.wake();
+  }
   this
 }
 
@@ -241,15 +254,28 @@ unsafe extern "C" fn catch_callback<T: FromNapiValue>(
     "Get callback info from Promise::catch failed"
   );
   let rejected_value = rejected_value[0];
-  let (sender, aborted) =
-    *unsafe { Box::from_raw(data as *mut (Sender<*mut Result<T>>, Arc<AtomicBool>)) };
+  let (data, waker, aborted) = *unsafe {
+    Box::from_raw(
+      data
+        as *mut (
+          *mut AtomicPtr<Result<T>>,
+          *mut AtomicPtr<Waker>,
+          Arc<AtomicBool>,
+        ),
+    )
+  };
   if aborted.load(Ordering::SeqCst) {
     return this;
   }
-  sender
-    .send(Box::into_raw(Box::new(Err(Error::from(unsafe {
+  Box::leak(unsafe { Box::from_raw(data) }).store(
+    Box::into_raw(Box::new(Err(Error::from(unsafe {
       JsUnknown::from_raw_unchecked(env, rejected_value)
-    })))))
-    .expect("Send Promise resolved value error");
+    })))),
+    Ordering::Relaxed,
+  );
+  let waker = Box::leak(unsafe { Box::from_raw(waker) }).load(Ordering::Relaxed);
+  if !waker.is_null() {
+    unsafe { Box::from_raw(waker) }.wake();
+  }
   this
 }

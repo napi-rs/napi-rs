@@ -5,7 +5,7 @@
     "downlevelIteration": true,
     "importHelpers": true,
     "allowJs": true,
-    "module": "CommonJS",
+    "module": "ESNext",
     "moduleResolution": "node",
     "newLine": "LF",
     "noEmitHelpers": true,
@@ -26,6 +26,12 @@
     "outDir": "scripts",
     "lib": ["dom", "DOM.Iterable", "ES2019", "ES2020", "esnext"]
   },
-  "include": ["."],
-  "exclude": ["node_modules", "bench", "cli/scripts", "scripts", "target"]
+  "exclude": [
+    "node_modules",
+    "bench",
+    "cli/scripts",
+    "scripts",
+    "target",
+    "examples"
+  ]
 }

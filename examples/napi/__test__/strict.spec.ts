@@ -1,5 +1,4 @@
 import test from 'ava'
-
 import {
   validateArray,
   validateTypedArray,
@@ -20,7 +19,7 @@ import {
   returnUndefinedIfInvalid,
   returnUndefinedIfInvalidPromise,
   validateOptional,
-} from '../index'
+} from 'examples'
 
 test('should validate array', (t) => {
   t.is(validateArray([1, 2, 3]), 3)
@@ -123,8 +122,17 @@ test('should validate Map', (t) => {
   })
 })
 
-test('should validate promise', async (t) => {
-  t.is(await validatePromise(Promise.resolve(1)), 2)
+test.only('should validate promise', async (t) => {
+  t.is(
+    await validatePromise(
+      new Promise((resolve) => {
+        setTimeout(() => {
+          resolve(1)
+        }, 100)
+      }),
+    ),
+    2,
+  )
   // @ts-expect-error
   await t.throwsAsync(() => validatePromise(1), {
     code: 'InvalidArg',

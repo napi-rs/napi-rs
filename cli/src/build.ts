@@ -13,6 +13,7 @@ import { ARM_FEATURES_H } from './arm-features.h'
 import { getNapiConfig } from './consts'
 import { debugFactory } from './debug'
 import { createJsBinding } from './js-binding-template'
+import { createWasiBinding } from './load-wasi-template'
 import { getHostTargetTriple, parseTriple } from './parse-triple'
 import {
   copyFileAsync,
@@ -311,10 +312,6 @@ export class BuildCommand extends Command {
       rustflags.push('-C link-arg=-s')
     }
 
-    if (rustflags.length > 0) {
-      additionalEnv['RUSTFLAGS'] = rustflags.join(' ')
-    }
-
     let useZig = false
     if (this.useZig || isCrossForLinux || isCrossForMacOS) {
       try {
@@ -452,6 +449,23 @@ export class BuildCommand extends Command {
       tsConstEnum: tsConstEnumFromConfig,
     } = getNapiConfig(this.configFileName)
     const tsConstEnum = this.constEnum ?? tsConstEnumFromConfig
+    if (triple.platform === 'wasi') {
+      try {
+        const emnapiDir = require.resolve('emnapi')
+        const linkDir = join(emnapiDir, '..', 'lib', 'wasm32-wasi')
+        additionalEnv['EMNAPI_LINK_DIR'] = linkDir
+        rustflags.push('-Z wasi-exec-model=reactor')
+      } catch (e) {
+        const err = new Error(`Could not find emnapi, please install emnapi`)
+        err.cause = e
+        throw err
+      }
+    }
+    if (rustflags.length > 0) {
+      additionalEnv['RUSTFLAGS'] = rustflags.join(' ')
+    }
+
+    const { binaryName, packageName } = getNapiConfig(this.configFileName)
     let cargoArtifactName = this.cargoName
     if (!cargoArtifactName) {
       if (this.bin) {
@@ -479,13 +493,17 @@ export class BuildCommand extends Command {
     } else {
       debug(`Dylib name: ${chalk.greenBright(cargoArtifactName)}`)
     }
-
+    const cwdSha = createHash('sha256')
+      .update(process.cwd())
+      .digest('hex')
+      .substring(0, 8)
     const intermediateTypeFile = join(
       tmpdir(),
-      `${cargoArtifactName}-${createHash('sha256')
-        .update(process.cwd())
-        .digest('hex')
-        .substring(0, 8)}.napi_type_def.tmp`,
+      `${cargoArtifactName}-${cwdSha}.napi_type_def.tmp`,
+    )
+    const intermediateWasiRegisterFile = join(
+      tmpdir(),
+      `${cargoArtifactName}-${cwdSha}.napi_wasi_register.tmp`,
     )
     debug(`intermediate type def file: ${intermediateTypeFile}`)
 
@@ -495,6 +513,7 @@ export class BuildCommand extends Command {
           ...process.env,
           ...additionalEnv,
           TYPE_DEF_TMP_PATH: intermediateTypeFile,
+          WASI_REGISTER_TMP_PATH: intermediateWasiRegisterFile,
         },
         stdio: 'inherit',
         cwd,
@@ -539,9 +558,12 @@ export class BuildCommand extends Command {
           cargoArtifactName = `lib${cargoArtifactName}`
           libExt = '.so'
           break
+        case 'wasi':
+          libExt = '.wasm'
+          break
         default:
           throw new TypeError(
-            'Operating system not currently supported or recognized by the build script',
+            `Operating system ${platform} not currently supported or recognized by the build script`,
           )
       }
     }
@@ -567,9 +589,10 @@ export class BuildCommand extends Command {
       : ''
 
     debug(`Platform name: ${platformName || chalk.green('[Empty]')}`)
+    const ext = platform === 'wasi' ? '.wasm' : '.node'
     const distFileName = this.bin
       ? cargoArtifactName!
-      : `${binaryName}${platformName}.node`
+      : `${binaryName}${platformName}${ext}`
 
     const distModulePath = join(this.destDir ?? '.', distFileName)
 
@@ -630,9 +653,30 @@ export class BuildCommand extends Command {
         this.noDtsHeader,
         tsConstEnum,
       )
+      const wasiRegisterFunctions =
+        triple.arch === 'wasm32'
+          ? JSON.parse(
+              await readFileAsync(intermediateWasiRegisterFile, 'utf8').catch(
+                (err) => {
+                  console.warn(
+                    `Read ${chalk.yellowBright(
+                      intermediateWasiRegisterFile,
+                    )} failed, reason: ${err.message}`,
+                  )
+                  return `[]`
+                },
+              ),
+            )
+          : []
       await writeJsBinding(
         binaryName,
         this.jsPackageName ?? packageName,
+        jsBindingFilePath,
+        idents,
+      )
+      await writeWasiBinding(
+        binaryName,
+        wasiRegisterFunctions,
         jsBindingFilePath,
         idents,
       )
@@ -849,6 +893,33 @@ async function writeJsBinding(
     await writeFileAsync(
       distFileName,
       template + declareCodes + exportsCode + '\n',
+      'utf8',
+    )
+  }
+}
+
+async function writeWasiBinding(
+  localName: string,
+  wasiRegisterFunctions: string[],
+  distFileName: string | null,
+  idents: string[],
+) {
+  if (distFileName && wasiRegisterFunctions.length) {
+    const { name, dir } = parse(distFileName)
+    const newPath = join(dir, `${name}.wasi.mjs`)
+    const declareCodes = `const { ${idents
+      .map((ident) => `${ident}: _${ident}`)
+      .join(', ')} } = binding\n`
+    const exportsCode = idents.reduce(
+      (acc, cur) => `${acc}\nexport const ${cur} = _${cur}`,
+      '',
+    )
+    await writeFileAsync(
+      newPath,
+      createWasiBinding(localName, wasiRegisterFunctions) +
+        declareCodes +
+        exportsCode +
+        '\n',
       'utf8',
     )
   }

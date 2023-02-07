@@ -2,10 +2,11 @@
   "name": "examples",
   "private": true,
   "version": "0.0.0",
-  "main": "./index.node",
+  "main": "./index.js",
   "types": "./index.d.ts",
+  "type": "module",
   "scripts": {
-    "build": "node ../../cli/scripts/index.js build --js false",
+    "build": "node ../../cli/scripts/index.js --platform build",
     "build-aarch64": "node ../../cli/scripts/index.js build --js false --target aarch64-unknown-linux-gnu",
     "build-armv7": "node ../../cli/scripts/index.js build --js false --target armv7-unknown-linux-gnueabihf",
     "build-i686": "node ../../cli/scripts/index.js build --js false --target i686-pc-windows-msvc",
@@ -13,8 +14,21 @@
     "build-release": "node ../../cli/scripts/index.js build --js false --release"
   },
   "dependencies": {
+    "@emnapi/core": "0.34.0",
     "@types/lodash": "^4.14.191",
     "lodash": "^4.17.21",
     "sinon": "^15.0.1"
+  },
+  "exports": {
+    ".": {
+      "require": "./index.js",
+      "import": "./index.wasi.mjs"
+    }
+  },
+  "imports": {
+    "#index": {
+      "require": "./index.js",
+      "import": "./index.wasi.mjs"
+    }
   }
 }

@@ -39,7 +39,7 @@ console.info('napi-derive version: ', NAPI_DERIVE_VERSION)
 console.info('napi-build version: ', NAPI_BUILD_VERSION)
 
 export default {
-  input: './scripts/cli/src/index.js',
+  input: './cli/dist/src/index.js',
   output: {
     banner: '#!/usr/bin/env node',
     file: './cli/scripts/index.js',

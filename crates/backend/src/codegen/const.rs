@@ -30,6 +30,9 @@ impl NapiConst {
       self.name.span(),
     );
     let js_mod_ident = js_mod_to_token_stream(self.js_mod.as_ref());
+    crate::codegen::REGISTER_IDENTS.with(|c| {
+      c.borrow_mut().push(register_name.to_string());
+    });
     quote! {
       #[allow(non_snake_case)]
       #[allow(clippy::all)]
@@ -38,9 +41,17 @@ impl NapiConst {
       }
       #[allow(non_snake_case)]
       #[allow(clippy::all)]
-      #[cfg(all(not(test), not(feature = "noop")))]
+      #[cfg(all(not(test), not(feature = "noop"), not(target_arch = "wasm32")))]
       #[napi::bindgen_prelude::ctor]
       fn #register_name() {
+        napi::bindgen_prelude::register_module_export(#js_mod_ident, #js_name_lit, #cb_name);
+      }
+
+      #[allow(non_snake_case)]
+      #[allow(clippy::all)]
+      #[cfg(all(not(test), not(feature = "noop"), target_arch = "wasm32"))]
+      #[no_mangle]
+      unsafe extern "C" fn #register_name() {
         napi::bindgen_prelude::register_module_export(#js_mod_ident, #js_name_lit, #cb_name);
       }
     }

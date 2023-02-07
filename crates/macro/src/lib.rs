@@ -18,9 +18,9 @@ use std::{
   io::{BufWriter, Result as IOResult, Write},
 };
 
-use napi_derive_backend::BindgenResult;
 #[cfg(not(feature = "noop"))]
 use napi_derive_backend::TryToTokens;
+use napi_derive_backend::{BindgenResult, REGISTER_IDENTS};
 #[cfg(all(feature = "type-def", not(feature = "noop")))]
 use napi_derive_backend::{ToTypeDef, TypeDef};
 #[cfg(not(feature = "noop"))]
@@ -64,8 +64,18 @@ pub fn napi(attr: RawStream, input: RawStream) -> RawStream {
     #[cfg(feature = "type-def")]
     if let Ok(type_def_file) = env::var("TYPE_DEF_TMP_PATH") {
       if let Err(_e) = fs::remove_file(type_def_file) {
-        // should only input in debug mode
-        // println!("Failed to manipulate type def file: {:?}", e);
+        #[cfg(debug_assertions)]
+        {
+          println!("Failed to manipulate type def file: {:?}", _e);
+        }
+      }
+    }
+    if let Ok(wasi_register_file) = env::var("WASI_REGISTER_TMP_PATH") {
+      if let Err(_e) = fs::remove_file(wasi_register_file) {
+        #[cfg(debug_assertions)]
+        {
+          println!("Failed to manipulate wasi register file: {:?}", _e);
+        }
       }
     }
   }
@@ -75,6 +85,15 @@ pub fn napi(attr: RawStream, input: RawStream) -> RawStream {
       if env::var("DEBUG_GENERATED_CODE").is_ok() {
         println!("{}", tokens);
       }
+      REGISTER_IDENTS.with(|idents| {
+        if let Ok(wasi_register_file) = env::var("WASI_REGISTER_TMP_PATH") {
+          let mut file =
+            fs::File::create(wasi_register_file).expect("Create wasi register file failed");
+          file
+            .write_all(format!("{:?}", idents.borrow()).as_bytes())
+            .expect("Write wasi register file failed");
+        }
+      });
       tokens.into()
     }
     Err(diagnostic) => {
@@ -338,7 +357,7 @@ pub fn module_exports(_attr: RawStream, input: RawStream) -> RawStream {
   };
 
   let register = quote! {
-    #[napi::bindgen_prelude::ctor]
+    #[cfg_attr(not(target_arch = "wasm32"), napi::bindgen_prelude::ctor)]
     fn __napi__explicit_module_register() {
       unsafe fn register(raw_env: napi::sys::napi_env, raw_exports: napi::sys::napi_value) -> napi::Result<()> {
         use napi::{Env, JsObject, NapiValue};

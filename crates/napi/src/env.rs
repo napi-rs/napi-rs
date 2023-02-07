@@ -567,7 +567,7 @@ impl Env {
   pub fn create_function_from_closure<R, F>(&self, name: &str, callback: F) -> Result<JsFunction>
   where
     F: 'static + Fn(crate::CallContext<'_>) -> Result<R>,
-    R: NapiRaw,
+    R: ToNapiValue,
   {
     use crate::CallContext;
     let boxed_callback = Box::new(callback);
@@ -582,7 +582,7 @@ impl Env {
         name.as_ptr(),
         len,
         Some({
-          unsafe extern "C" fn trampoline<R: NapiRaw, F: Fn(CallContext<'_>) -> Result<R>>(
+          unsafe extern "C" fn trampoline<R: ToNapiValue, F: Fn(CallContext<'_>) -> Result<R>>(
             raw_env: sys::napi_env,
             cb_info: sys::napi_callback_info,
           ) -> sys::napi_value {
@@ -636,7 +636,8 @@ impl Env {
               };
               let env = &mut unsafe { Env::from_raw(raw_env) };
               let ctx = CallContext::new(env, cb_info, raw_this, raw_args, raw_args.len());
-              closure(ctx).map(|ret: R| unsafe { ret.raw() })
+              closure(ctx)
+                .and_then(|ret: R| unsafe { <R as ToNapiValue>::to_napi_value(env.0, ret) })
             }))
             .map_err(|e| {
               Error::from_reason(format!(

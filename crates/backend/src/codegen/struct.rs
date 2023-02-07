@@ -760,12 +760,23 @@ impl NapiStruct {
       props.push(prop);
     }
     let js_mod_ident = js_mod_to_token_stream(self.js_mod.as_ref());
+    crate::codegen::REGISTER_IDENTS.with(|c| {
+      c.borrow_mut().push(struct_register_name.to_string());
+    });
     quote! {
       #[allow(non_snake_case)]
       #[allow(clippy::all)]
-      #[cfg(all(not(test), not(feature = "noop")))]
+      #[cfg(all(not(test), not(feature = "noop"), not(target_arch = "wasm32")))]
       #[napi::bindgen_prelude::ctor]
       fn #struct_register_name() {
+        napi::__private::register_class(#name_str, #js_mod_ident, #js_name, vec![#(#props),*]);
+      }
+
+      #[allow(non_snake_case)]
+      #[allow(clippy::all)]
+      #[cfg(all(not(test), not(feature = "noop"), target_arch = "wasm32"))]
+      #[no_mangle]
+      extern "C" fn #struct_register_name() {
         napi::__private::register_class(#name_str, #js_mod_ident, #js_name, vec![#(#props),*]);
       }
     }
@@ -866,7 +877,11 @@ impl NapiImpl {
     let mut props: Vec<_> = props.into_iter().collect();
     props.sort_by_key(|(_, prop)| prop.to_string());
     let props = props.into_iter().map(|(_, prop)| prop);
+    let props_wasm = props.clone();
     let js_mod_ident = js_mod_to_token_stream(self.js_mod.as_ref());
+    crate::codegen::REGISTER_IDENTS.with(|c| {
+      c.borrow_mut().push(register_name.to_string());
+    });
     Ok(quote! {
       #[allow(non_snake_case)]
       #[allow(clippy::all)]
@@ -874,10 +889,16 @@ impl NapiImpl {
         use super::*;
         #(#methods)*
 
-        #[cfg(all(not(test), not(feature = "noop")))]
+        #[cfg(all(not(test), not(feature = "noop"), not(target_arch = "wasm32")))]
         #[napi::bindgen_prelude::ctor]
         fn #register_name() {
           napi::__private::register_class(#name_str, #js_mod_ident, #js_name, vec![#(#props),*]);
+        }
+
+        #[cfg(all(not(test), not(feature = "noop"), target_arch = "wasm32"))]
+        #[no_mangle]
+        extern "C" fn #register_name() {
+          napi::__private::register_class(#name_str, #js_mod_ident, #js_name, vec![#(#props_wasm),*]);
         }
       }
     })

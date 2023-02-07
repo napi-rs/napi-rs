@@ -1,10 +1,8 @@
 {
   "extends": "./tsconfig.json",
-  "include": [
-    "./ava.config.js",
-    "./generate-triplelist.js",
-    "./triples/index.js",
-    "./memory-testing/*.js",
-    "./memory-testing/*.mjs"
-  ]
+  "compilerOptions": {
+    "allowJs": true
+  },
+  "include": ["."],
+  "exclude": ["node_modules", "target", "dist", "script"]
 }

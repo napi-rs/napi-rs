@@ -5,7 +5,11 @@
     "outDir": "./dist",
     "rootDir": "__test__",
     "target": "ES2018",
-    "skipLibCheck": false
+    "skipLibCheck": false,
+    "baseUrl": ".",
+    "paths": {
+      "#index": ["./index.d.ts"]
+    }
   },
-  "exclude": ["dist", "electron.js"]
+  "exclude": ["dist", "electron.js", "index.js", "index.wasi.mjs"]
 }

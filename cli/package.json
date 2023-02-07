@@ -40,7 +40,10 @@
     "url": "https://github.com/napi-rs/napi-rs/issues"
   },
   "devDependencies": {
+    "@emnapi/runtime": "0.34.0",
     "@octokit/rest": "^19.0.5",
+    "@tybys/wasm-util": "0.7.0",
+    "@types/debug": "^4.1.7",
     "@types/inquirer": "^9.0.3",
     "@types/js-yaml": "^4.0.5",
     "@types/lodash-es": "^4.17.6",
@@ -48,6 +51,7 @@
     "colorette": "^2.0.19",
     "core-js": "^3.27.1",
     "debug": "^4.3.4",
+    "emnapi": "0.33.1",
     "env-paths": "^3.0.0",
     "fdir": "^5.3.0",
     "inquirer": "^9.1.4",
@@ -56,6 +60,22 @@
     "toml": "^3.0.0",
     "tslib": "^2.4.1",
     "typanion": "^3.12.1"
+  },
+  "peerDependencies": {
+    "@emnapi/runtime": "0.34.0",
+    "@tybys/wasm-util": "0.8.0",
+    "emnapi": "0.33.1"
+  },
+  "peerDependenciesMeta": {
+    "@emnapi/runtime": {
+      "optional": true
+    },
+    "@tybys/wasm-util": {
+      "optional": true
+    },
+    "emnapi": {
+      "optional": true
+    }
   },
   "funding": {
     "type": "github",

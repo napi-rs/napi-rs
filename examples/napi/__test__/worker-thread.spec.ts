@@ -3,10 +3,13 @@ import { Worker } from 'worker_threads'
 
 import test from 'ava'
 
-import { Animal, Kind, DEFAULT_COST } from '../index'
+import { Animal, Kind, DEFAULT_COST } from '#index'
 
 const t =
-  process.arch === 'arm64' && process.platform === 'linux' ? test.skip : test
+  (process.arch === 'arm64' && process.platform === 'linux') ||
+  process.env.WASI_TEST
+    ? test.skip
+    : test
 
 t('should be able to require in worker thread', async (t) => {
   await Promise.all(

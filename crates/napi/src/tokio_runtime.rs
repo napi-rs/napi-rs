@@ -6,8 +6,19 @@ use tokio::runtime::Runtime;
 use crate::{sys, JsDeferred, JsUnknown, NapiValue, Result};
 
 pub(crate) static mut RT: Lazy<Option<Runtime>> = Lazy::new(|| {
-  let runtime = tokio::runtime::Runtime::new().expect("Create tokio runtime failed");
-  Some(runtime)
+  #[cfg(not(target_arch = "wasm32"))]
+  {
+    let runtime = tokio::runtime::Runtime::new().expect("Create tokio runtime failed");
+    Some(runtime)
+  }
+
+  #[cfg(target_arch = "wasm32")]
+  {
+    tokio::runtime::Builder::new_current_thread()
+      .enable_all()
+      .build()
+      .ok()
+  }
 });
 
 #[cfg(windows)]
@@ -74,14 +85,20 @@ pub fn execute_tokio_future<
 ) -> Result<sys::napi_value> {
   let (deferred, promise) = JsDeferred::new(env)?;
 
-  spawn(async move {
+  let inner = async move {
     match fut.await {
       Ok(v) => deferred.resolve(|env| {
         resolver(env.raw(), v).map(|v| unsafe { JsUnknown::from_raw_unchecked(env.raw(), v) })
       }),
       Err(e) => deferred.reject(e),
     }
-  });
+  };
+
+  #[cfg(not(target_arch = "wasm32"))]
+  spawn(inner);
+
+  #[cfg(target_arch = "wasm32")]
+  block_on(inner);
 
   Ok(promise.0.value)
 }
