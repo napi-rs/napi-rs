@@ -6,13 +6,13 @@ use syn::{Pat, PathArguments, PathSegment};
 use super::{ty_to_ts_type, ToTypeDef, TypeDef};
 use crate::{js_doc_from_comments, CallbackArg, FnKind, NapiFn};
 
-struct FnArg {
-  arg: String,
-  ts_type: String,
-  is_optional: bool,
+pub(crate) struct FnArg {
+  pub(crate) arg: String,
+  pub(crate) ts_type: String,
+  pub(crate) is_optional: bool,
 }
 
-struct FnArgList {
+pub(crate) struct FnArgList {
   this: Option<FnArg>,
   args: Vec<FnArg>,
   last_required: Option<usize>,
@@ -110,7 +110,7 @@ fn gen_callback_type(callback: &CallbackArg) -> String {
       .iter()
       .enumerate()
       .map(|(i, arg)| {
-        let (ts_type, is_optional) = ty_to_ts_type(arg, false, false);
+        let (ts_type, is_optional, _) = ty_to_ts_type(arg, false, false, false);
         FnArg {
           arg: format!("arg{}", i),
           ts_type,
@@ -119,7 +119,7 @@ fn gen_callback_type(callback: &CallbackArg) -> String {
       })
       .collect::<FnArgList>(),
     ret = match &callback.ret {
-      Some(ty) => ty_to_ts_type(ty, true, false).0,
+      Some(ty) => ty_to_ts_type(ty, true, false, false).0,
       None => "void".to_owned(),
     }
   )
@@ -153,7 +153,7 @@ impl NapiFn {
                   }) = arguments
                   {
                     if let Some(syn::GenericArgument::Type(ty)) = angle_bracketed_args.first() {
-                      let (ts_type, _) = ty_to_ts_type(ty, false, false);
+                      let (ts_type, _, _) = ty_to_ts_type(ty, false, false, false);
                       return Some(FnArg {
                         arg: "this".to_owned(),
                         ts_type,
@@ -178,7 +178,7 @@ impl NapiFn {
               i.mutability = None;
             }
 
-            let (ts_type, is_optional) = ty_to_ts_type(&path.ty, false, false);
+            let (ts_type, is_optional, _) = ty_to_ts_type(&path.ty, false, false, false);
             let ts_type = arg.use_overridden_type_or(|| ts_type);
             let arg = path.pat.to_token_stream().to_string().to_case(Case::Camel);
 
@@ -230,7 +230,7 @@ impl NapiFn {
         .unwrap_or_else(|| "".to_owned()),
       _ => {
         let ret = if let Some(ret) = &self.ret {
-          let (ts_type, _) = ty_to_ts_type(ret, true, false);
+          let (ts_type, _, _) = ty_to_ts_type(ret, true, false, false);
           if ts_type == "undefined" {
             "void".to_owned()
           } else if ts_type == "Self" {

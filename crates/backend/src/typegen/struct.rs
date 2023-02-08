@@ -38,19 +38,19 @@ impl ToTypeDef for NapiImpl {
       TASK_STRUCTS.with(|t| {
         t.borrow_mut().insert(
           self.name.to_string(),
-          ty_to_ts_type(output_type, false, true).0,
+          ty_to_ts_type(output_type, false, true, false).0,
         );
       });
     }
 
     if let Some(output_type) = &self.iterator_yield_type {
       let next_type = if let Some(ref ty) = self.iterator_next_type {
-        ty_to_ts_type(ty, false, false).0
+        ty_to_ts_type(ty, false, false, false).0
       } else {
         "void".to_owned()
       };
       let return_type = if let Some(ref ty) = self.iterator_return_type {
-        ty_to_ts_type(ty, false, false).0
+        ty_to_ts_type(ty, false, false, false).0
       } else {
         "void".to_owned()
       };
@@ -60,7 +60,7 @@ impl ToTypeDef for NapiImpl {
         original_name: None,
         def: format!(
           "[Symbol.iterator](): Iterator<{}, {}, {}>",
-          ty_to_ts_type(output_type, false, true).0,
+          ty_to_ts_type(output_type, false, true, false).0,
           return_type,
           next_type,
         ),
@@ -118,7 +118,7 @@ impl NapiStruct {
           field_str.push_str("readonly ")
         }
 
-        let (arg, is_optional) = ty_to_ts_type(&f.ty, false, true);
+        let (arg, is_optional, _) = ty_to_ts_type(&f.ty, false, true, false);
         let arg = f.ts_type.as_ref().map(|ty| ty.to_string()).unwrap_or(arg);
 
         let sep = if is_optional { "?" } else { "" };

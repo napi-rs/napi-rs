@@ -199,6 +199,7 @@ export function tsfnCallWithCallback(func: (...args: any[]) => any): void
 export function tsfnAsyncCall(func: (...args: any[]) => any): Promise<void>
 export function acceptThreadsafeFunction(func: (err: Error | null, value: number) => any): void
 export function acceptThreadsafeFunctionFatal(func: (value: number) => any): void
+export function acceptThreadsafeFunctionTupleArgs(func: (err: Error | null, arg0: number, arg1: boolean, arg2: string) => any): void
 export function getBuffer(): Buffer
 export function appendBuffer(buf: Buffer): Buffer
 export function getEmptyBuffer(): Buffer

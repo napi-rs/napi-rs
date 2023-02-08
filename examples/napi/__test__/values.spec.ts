@@ -119,6 +119,7 @@ import {
   bigintFromI64,
   acceptThreadsafeFunction,
   acceptThreadsafeFunctionFatal,
+  acceptThreadsafeFunctionTupleArgs,
   promiseInEither,
   runScript,
 } from '../'
@@ -822,6 +823,20 @@ Napi4Test('accept ThreadsafeFunction Fatal', async (t) => {
   await new Promise<void>((resolve) => {
     acceptThreadsafeFunctionFatal((value) => {
       t.is(value, 1)
+      resolve()
+    })
+  })
+})
+
+Napi4Test('accept ThreadsafeFunction tuple args', async (t) => {
+  await new Promise<void>((resolve, reject) => {
+    acceptThreadsafeFunctionTupleArgs((err, num, bool, str) => {
+      if (err) {
+        return reject(err)
+      }
+      t.is(num, 1)
+      t.is(bool, false)
+      t.is(str, 'NAPI-RS')
       resolve()
     })
   })
