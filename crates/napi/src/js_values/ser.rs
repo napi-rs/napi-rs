@@ -95,10 +95,18 @@ impl<'env> Serializer for Ser<'env> {
 
   #[cfg(feature = "napi6")]
   fn serialize_u64(self, v: u64) -> Result<Self::Ok> {
-    self
-      .0
-      .create_bigint_from_u64(v)
-      .map(|js_number| js_number.raw)
+    // https://github.com/napi-rs/napi-rs/issues/1470
+    // serde_json::Value by default uses u64 for positive integers. This results in napirs using a BigInt instead of a number when converting to a js value.
+    // To avoid this, we need to check if the value fits into a smaller number type.
+    // If this is the case, we use the smaller type instead.
+    if v <= u32::MAX.into() {
+      self.serialize_u32(v as u32)
+    } else {
+      self
+        .0
+        .create_bigint_from_u64(v)
+        .map(|js_number| js_number.raw)
+    }
   }
 
   #[cfg(all(
