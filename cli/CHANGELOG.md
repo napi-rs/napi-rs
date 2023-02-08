@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.14.7](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.14.6...@napi-rs/cli@2.14.7) (2023-02-08)
+
+### Bug Fixes
+
+- **cli:** JS bindgen file now respects destDir ([#1481](https://github.com/napi-rs/napi-rs/issues/1481)) ([cb529d2](https://github.com/napi-rs/napi-rs/commit/cb529d21cf92dfaa279bfe10dde5ad87441b47ba))
+
 ## [2.14.6](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.14.5...@napi-rs/cli@2.14.6) (2023-02-02)
 
 **Note:** Version bump only for package @napi-rs/cli
