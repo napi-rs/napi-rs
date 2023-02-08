@@ -12,6 +12,9 @@ pub struct External<T: 'static> {
   pub adjusted_size: i64,
 }
 
+unsafe impl<T: 'static + Send> Send for External<T> {}
+unsafe impl<T: 'static + Sync> Sync for External<T> {}
+
 impl<T: 'static> TypeName for External<T> {
   fn type_name() -> &'static str {
     "External"
