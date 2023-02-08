@@ -600,7 +600,7 @@ export class BuildCommand extends Command {
         this.jsBinding &&
         this.jsBinding !== 'false' &&
         this.appendPlatformToFilename
-          ? join(process.cwd(), this.jsBinding)
+          ? join(process.cwd(), this.destDir ?? '.', this.jsBinding)
           : null
       const idents = await processIntermediateTypeFile(
         intermediateTypeFile,
