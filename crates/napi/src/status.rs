@@ -40,6 +40,37 @@ impl Display for Status {
   }
 }
 
+impl AsRef<str> for Status {
+  fn as_ref(&self) -> &str {
+    match self {
+      Status::Ok => "Ok",
+      Status::InvalidArg => "InvalidArg",
+      Status::ObjectExpected => "ObjectExpected",
+      Status::StringExpected => "StringExpected",
+      Status::NameExpected => "NameExpected",
+      Status::FunctionExpected => "FunctionExpected",
+      Status::NumberExpected => "NumberExpected",
+      Status::BooleanExpected => "BooleanExpected",
+      Status::ArrayExpected => "ArrayExpected",
+      Status::GenericFailure => "GenericFailure",
+      Status::PendingException => "PendingException",
+      Status::Cancelled => "Cancelled",
+      Status::EscapeCalledTwice => "EscapeCalledTwice",
+      Status::HandleScopeMismatch => "HandleScopeMismatch",
+      Status::CallbackScopeMismatch => "CallbackScopeMismatch",
+      Status::QueueFull => "QueueFull",
+      Status::Closing => "Closing",
+      Status::BigintExpected => "BigintExpected",
+      Status::DateExpected => "DateExpected",
+      Status::ArrayBufferExpected => "ArrayBufferExpected",
+      Status::DetachableArraybufferExpected => "DetachableArraybufferExpected",
+      Status::WouldDeadlock => "WouldDeadlock",
+      Status::NoExternalBuffersAllowed => "NoExternalBuffersAllowed",
+      _ => "Unknown",
+    }
+  }
+}
+
 impl From<i32> for Status {
   fn from(code: i32) -> Self {
     match code {

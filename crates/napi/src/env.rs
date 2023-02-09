@@ -834,7 +834,7 @@ impl Env {
       sys::napi_wrap(
         self.0,
         js_object.0.value,
-        Box::into_raw(Box::new(TaggedObject::new(native_object))) as *mut c_void,
+        Box::into_raw(Box::new(TaggedObject::new(native_object))).cast(),
         Some(raw_finalize::<T>),
         ptr::null_mut(),
         ptr::null_mut(),
@@ -1007,9 +1007,9 @@ impl Env {
     check_status!(unsafe {
       sys::napi_create_external(
         self.0,
-        Box::into_raw(Box::new(TaggedObject::new(native_object))) as *mut c_void,
+        Box::into_raw(Box::new(TaggedObject::new(native_object))).cast(),
         Some(raw_finalize::<T>),
-        Box::into_raw(Box::new(size_hint)) as *mut c_void,
+        Box::into_raw(Box::new(size_hint)).cast(),
         &mut object_value,
       )
     })?;

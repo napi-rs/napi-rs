@@ -14,3 +14,22 @@ pub fn panic() {
 pub fn receive_string(s: String) -> String {
   s
 }
+
+pub enum CustomError {
+  NapiError(Error<Status>),
+  Panic,
+}
+
+impl AsRef<str> for CustomError {
+  fn as_ref(&self) -> &str {
+    match self {
+      CustomError::Panic => "Panic",
+      CustomError::NapiError(e) => e.status.as_ref(),
+    }
+  }
+}
+
+#[napi]
+pub fn custom_status_code() -> Result<(), CustomError> {
+  Err(Error::new(CustomError::Panic, "don't panic"))
+}
