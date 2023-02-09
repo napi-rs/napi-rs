@@ -31,6 +31,7 @@ import {
   mapOption,
   readFile,
   throwError,
+  customStatusCode,
   panic,
   readPackageJson,
   getPackageJsonName,
@@ -400,6 +401,12 @@ test('Result', (t) => {
   if (!process.env.SKIP_UNWIND_TEST) {
     t.throws(() => panic(), void 0, `Don't panic`)
   }
+})
+
+test('custom status code in Error', (t) => {
+  t.throws(() => customStatusCode(), {
+    code: 'Panic',
+  })
 })
 
 test('function ts type override', (t) => {

@@ -15,21 +15,21 @@ use serde_json::Error as SerdeJSONError;
 use crate::bindgen_runtime::ToNapiValue;
 use crate::{check_status, sys, Env, JsUnknown, NapiValue, Status};
 
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T, S = Status> = std::result::Result<T, Error<S>>;
 
 /// Represent `JsError`.
 /// Return this Error in `js_function`, **napi-rs** will throw it as `JsError` for you.
 /// If you want throw it as `TypeError` or `RangeError`, you can use `JsTypeError/JsRangeError::from(Error).throw_into(env)`
 #[derive(Debug, Clone)]
-pub struct Error {
-  pub status: Status,
+pub struct Error<S: AsRef<str> = Status> {
+  pub status: S,
   pub reason: String,
   // Convert raw `JsError` into Error
   maybe_raw: sys::napi_ref,
   maybe_env: sys::napi_env,
 }
 
-impl ToNapiValue for Error {
+impl<S: AsRef<str>> ToNapiValue for Error<S> {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     if val.maybe_raw.is_null() {
       let err = unsafe { JsError::from(val).into_value(env) };
@@ -109,17 +109,17 @@ impl fmt::Display for Error {
   }
 }
 
-impl Error {
-  pub fn new(status: Status, reason: String) -> Self {
+impl<S: AsRef<str>> Error<S> {
+  pub fn new<R: ToString>(status: S, reason: R) -> Self {
     Error {
       status,
-      reason,
+      reason: reason.to_string(),
       maybe_raw: ptr::null_mut(),
       maybe_env: ptr::null_mut(),
     }
   }
 
-  pub fn from_status(status: Status) -> Self {
+  pub fn from_status(status: S) -> Self {
     Error {
       status,
       reason: "".to_owned(),
@@ -127,7 +127,9 @@ impl Error {
       maybe_env: ptr::null_mut(),
     }
   }
+}
 
+impl Error {
   pub fn from_reason<T: Into<String>>(reason: T) -> Self {
     Error {
       status: Status::GenericFailure,
@@ -160,7 +162,7 @@ impl From<std::io::Error> for Error {
   }
 }
 
-impl Drop for Error {
+impl<S: AsRef<str>> Drop for Error<S> {
   fn drop(&mut self) {
     #[cfg(not(feature = "noop"))]
     {
@@ -201,7 +203,7 @@ impl TryFrom<sys::napi_extended_error_info> for ExtendedErrorInfo {
   }
 }
 
-pub struct JsError(Error);
+pub struct JsError<S: AsRef<str> = Status>(Error<S>);
 
 #[cfg(feature = "anyhow")]
 impl From<anyhow::Error> for JsError {
@@ -210,16 +212,16 @@ impl From<anyhow::Error> for JsError {
   }
 }
 
-pub struct JsTypeError(Error);
+pub struct JsTypeError<S: AsRef<str> = Status>(Error<S>);
 
-pub struct JsRangeError(Error);
+pub struct JsRangeError<S: AsRef<str> = Status>(Error<S>);
 
 #[cfg(feature = "experimental")]
-pub struct JsSyntaxError(Error);
+pub struct JsSyntaxError<S: AsRef<str> = Status>(Error<S>);
 
 macro_rules! impl_object_methods {
   ($js_value:ident, $kind:expr) => {
-    impl $js_value {
+    impl<S: AsRef<str>> $js_value<S> {
       /// # Safety
       ///
       /// This function is safety if env is not null ptr.
@@ -235,7 +237,7 @@ macro_rules! impl_object_methods {
           return err;
         }
 
-        let error_status = format!("{:?}", self.0.status);
+        let error_status = self.0.status.as_ref();
         let status_len = error_status.len();
         let error_code_string = CString::new(error_status).unwrap();
         let reason_len = self.0.reason.len();
@@ -267,8 +269,8 @@ macro_rules! impl_object_methods {
       pub unsafe fn throw_into(self, env: sys::napi_env) {
         #[cfg(debug_assertions)]
         let reason = self.0.reason.clone();
-        let status = self.0.status;
-        if status == Status::PendingException {
+        let status = self.0.status.as_ref().to_string();
+        if status == Status::PendingException.as_ref() {
           return;
         }
         let js_error = unsafe { self.into_value(env) };
@@ -281,13 +283,13 @@ macro_rules! impl_object_methods {
           "Throw error failed, status: [{}], raw message: \"{}\", raw status: [{}]",
           Status::from(throw_status),
           reason,
-          Status::from(status)
+          status
         );
       }
 
       #[allow(clippy::not_unsafe_ptr_arg_deref)]
       pub fn throw(&self, env: sys::napi_env) -> Result<()> {
-        let error_status = format!("{:?}\0", self.0.status);
+        let error_status = format!("{:?}\0", self.0.status.as_ref());
         let status_len = error_status.len();
         let error_code_string =
           unsafe { CStr::from_bytes_with_nul_unchecked(error_status.as_bytes()) };
@@ -308,8 +310,8 @@ macro_rules! impl_object_methods {
       }
     }
 
-    impl From<Error> for $js_value {
-      fn from(err: Error) -> Self {
+    impl<S: AsRef<str>> From<Error<S>> for $js_value<S> {
+      fn from(err: Error<S>) -> Self {
         Self(err)
       }
     }
