@@ -44,8 +44,8 @@ impl<S: AsRef<str>> ToNapiValue for Error<S> {
   }
 }
 
-unsafe impl Send for Error {}
-unsafe impl Sync for Error {}
+unsafe impl<S> Send for Error<S> where S: Send + AsRef<str> {}
+unsafe impl<S> Sync for Error<S> where S: Sync + AsRef<str> {}
 
 impl error::Error for Error {}
 
