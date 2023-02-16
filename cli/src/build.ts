@@ -465,7 +465,9 @@ export class BuildCommand extends Command {
       }
       throw e
     }
-    const { binaryName, packageName } = getNapiConfig(this.configFileName)
+    const { binaryName, packageName, jsFile } = getNapiConfig(
+      this.configFileName,
+    )
     let cargoArtifactName = this.cargoName
     if (!cargoArtifactName) {
       if (this.bin) {
@@ -597,7 +599,7 @@ export class BuildCommand extends Command {
         }
       }
       const jsBindingFilePath =
-        this.jsBinding &&
+        (this.jsBinding ?? jsFile) &&
         this.jsBinding !== 'false' &&
         this.appendPlatformToFilename
           ? join(process.cwd(), this.destDir ?? '.', this.jsBinding)
