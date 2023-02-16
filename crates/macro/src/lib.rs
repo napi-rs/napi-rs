@@ -11,6 +11,7 @@ extern crate quote;
 
 #[cfg(not(feature = "noop"))]
 use std::env;
+use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(all(feature = "type-def", not(feature = "noop")))]
 use std::{
   fs,
@@ -35,6 +36,17 @@ use syn::Item;
 #[cfg(feature = "compat-mode")]
 use syn::{fold::Fold, parse_macro_input, ItemFn};
 
+/// a flag indicate whether or never at least one `napi` macro has been expanded.
+/// ```ignore
+/// if BUILT_FLAG
+///  .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+///  .is_ok() {
+///   // logic on first macro expansion
+/// }
+///
+/// ```
+static BUILT_FLAG: AtomicBool = AtomicBool::new(false);
+
 /// ```ignore
 /// #[napi]
 /// fn test(ctx: CallContext, name: String) {
@@ -44,6 +56,20 @@ use syn::{fold::Fold, parse_macro_input, ItemFn};
 #[cfg(not(feature = "noop"))]
 #[proc_macro_attribute]
 pub fn napi(attr: RawStream, input: RawStream) -> RawStream {
+  if BUILT_FLAG
+    .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+    .is_ok()
+  {
+    // logic on first macro expansion
+    #[cfg(feature = "type-def")]
+    if let Ok(type_def_file) = env::var("TYPE_DEF_TMP_PATH") {
+      if let Err(_e) = fs::remove_file(type_def_file) {
+        // should only input in debug mode
+        // println!("Failed to manipulate type def file: {:?}", e);
+      }
+    }
+  }
+
   match expand(attr.into(), input.into()) {
     Ok(tokens) => {
       if env::var("DEBUG_GENERATED_CODE").is_ok() {
