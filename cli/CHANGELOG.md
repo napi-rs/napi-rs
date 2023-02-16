@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.14.8](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.14.7...@napi-rs/cli@2.14.8) (2023-02-16)
+
+### Bug Fixes
+
+- **cli:** always generate typedef file even native code never changes ([#1489](https://github.com/napi-rs/napi-rs/issues/1489)) ([7281f53](https://github.com/napi-rs/napi-rs/commit/7281f533bd73d6c6255244c9f1556a0e39c47738))
+
 ## [2.14.7](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.14.6...@napi-rs/cli@2.14.7) (2023-02-08)
 
 ### Bug Fixes
