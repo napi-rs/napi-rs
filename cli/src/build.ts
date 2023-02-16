@@ -1,4 +1,5 @@
 import { execSync } from 'child_process'
+import { createHash } from 'crypto'
 import { existsSync, mkdirSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, parse, sep } from 'path'
@@ -289,7 +290,6 @@ export class BuildCommand extends Command {
       additionalEnv['XWIN_ARCH'] = 'x86'
     }
     const cargoCommand = `${cargo} build ${externalFlags}`
-    const intermediateTypeFile = join(tmpdir(), `type_def.${Date.now()}.tmp`)
     debug(`Run ${chalk.green(cargoCommand)}`)
 
     const rustflags = process.env.RUSTFLAGS
@@ -439,32 +439,7 @@ export class BuildCommand extends Command {
         PATH: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin:${process.env.PATH}`,
       })
     }
-    try {
-      execSync(cargoCommand, {
-        env: {
-          ...process.env,
-          ...additionalEnv,
-          TYPE_DEF_TMP_PATH: intermediateTypeFile,
-        },
-        stdio: 'inherit',
-        cwd,
-      })
-    } catch (e) {
-      if (cargo === 'cargo-xwin') {
-        console.warn(
-          `You are cross compiling ${chalk.underline(
-            triple.raw,
-          )} target on ${chalk.green(process.platform)} host`,
-        )
-      } else if (isCrossForLinux || isCrossForMacOS) {
-        console.warn(
-          `You are cross compiling ${chalk.underline(
-            triple.raw,
-          )} on ${chalk.green(process.platform)} host`,
-        )
-      }
-      throw e
-    }
+
     const { binaryName, packageName } = getNapiConfig(this.configFileName)
     let cargoArtifactName = this.cargoName
     if (!cargoArtifactName) {
@@ -492,6 +467,42 @@ export class BuildCommand extends Command {
       debug(`Binary name: ${chalk.greenBright(cargoArtifactName)}`)
     } else {
       debug(`Dylib name: ${chalk.greenBright(cargoArtifactName)}`)
+    }
+
+    const intermediateTypeFile = join(
+      tmpdir(),
+      `${cargoArtifactName}-${createHash('sha256')
+        .update(process.cwd())
+        .digest('hex')
+        .substring(0, 8)}.napi_type_def.tmp`,
+    )
+    debug(`intermediate type def file: ${intermediateTypeFile}`)
+
+    try {
+      execSync(cargoCommand, {
+        env: {
+          ...process.env,
+          ...additionalEnv,
+          TYPE_DEF_TMP_PATH: intermediateTypeFile,
+        },
+        stdio: 'inherit',
+        cwd,
+      })
+    } catch (e) {
+      if (cargo === 'cargo-xwin') {
+        console.warn(
+          `You are cross compiling ${chalk.underline(
+            triple.raw,
+          )} target on ${chalk.green(process.platform)} host`,
+        )
+      } else if (isCrossForLinux || isCrossForMacOS) {
+        console.warn(
+          `You are cross compiling ${chalk.underline(
+            triple.raw,
+          )} on ${chalk.green(process.platform)} host`,
+        )
+      }
+      throw e
     }
 
     const platform = triple.platform
@@ -787,7 +798,6 @@ async function processIntermediateTypeFile(
 }\n`
       : ''
 
-  await unlinkAsync(source)
   await writeFileAsync(
     target,
     dtsHeader + externalDef + topLevelDef + namespaceDefs,
