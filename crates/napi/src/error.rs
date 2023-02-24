@@ -47,9 +47,9 @@ impl<S: AsRef<str>> ToNapiValue for Error<S> {
 unsafe impl<S> Send for Error<S> where S: Send + AsRef<str> {}
 unsafe impl<S> Sync for Error<S> where S: Sync + AsRef<str> {}
 
-impl error::Error for Error {}
+impl<S: AsRef<str> + std::fmt::Debug> error::Error for Error<S> {}
 
-impl From<std::convert::Infallible> for Error {
+impl<S: AsRef<str>> From<std::convert::Infallible> for Error<S> {
   fn from(_: std::convert::Infallible) -> Self {
     unreachable!()
   }
@@ -99,7 +99,7 @@ impl From<anyhow::Error> for Error {
   }
 }
 
-impl fmt::Display for Error {
+impl<S: AsRef<str> + std::fmt::Debug> fmt::Display for Error<S> {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     if !self.reason.is_empty() {
       write!(f, "{:?}, {}", self.status, self.reason)
