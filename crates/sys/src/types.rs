@@ -55,6 +55,13 @@ pub struct napi_deferred__ {
 pub struct uv_loop_s {
   _unused: [u8; 0],
 }
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub enum uv_run_mode {
+  UV_RUN_DEFAULT = 0,
+  UV_RUN_ONCE = 1,
+  UV_RUN_NOWAIT = 2,
+}
 pub type napi_deferred = *mut napi_deferred__;
 
 pub type napi_property_attributes = i32;
