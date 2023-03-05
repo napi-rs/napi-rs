@@ -298,7 +298,6 @@ unsafe extern "C" fn napi_register_module_v1(
   } else {
     wait_first_thread_registered();
   }
-  crate::__private::___CALL_FROM_FACTORY.get_or_default();
   let mut exports_objects: HashSet<String> = HashSet::default();
   MODULE_REGISTER_CALLBACK.borrow_mut(|inner| {
     inner
@@ -499,8 +498,7 @@ pub(crate) unsafe extern "C" fn noop(
   env: sys::napi_env,
   _info: sys::napi_callback_info,
 ) -> sys::napi_value {
-  let inner = crate::bindgen_runtime::___CALL_FROM_FACTORY.get_or_default();
-  if !inner.load(Ordering::Relaxed) {
+  if !crate::bindgen_runtime::___CALL_FROM_FACTORY.with(|s| s.load(Ordering::Relaxed)) {
     unsafe {
       sys::napi_throw_error(
         env,

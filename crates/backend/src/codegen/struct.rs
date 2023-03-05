@@ -352,14 +352,13 @@ impl NapiStruct {
           )?;
 
           let mut result = std::ptr::null_mut();
-          let inner = napi::__private::___CALL_FROM_FACTORY.get_or_default();
-          inner.store(true, std::sync::atomic::Ordering::Relaxed);
+          napi::__private::___CALL_FROM_FACTORY.with(|inner| inner.store(true, std::sync::atomic::Ordering::Relaxed));
           napi::check_status!(
             napi::sys::napi_new_instance(env, ctor, 0, std::ptr::null_mut(), &mut result),
             "Failed to construct class `{}`",
             #js_name_raw
           )?;
-          inner.store(false, std::sync::atomic::Ordering::Relaxed);
+          napi::__private::___CALL_FROM_FACTORY.with(|inner| inner.store(false, std::sync::atomic::Ordering::Relaxed));
           let mut object_ref = std::ptr::null_mut();
           let initial_finalize: Box<dyn FnOnce()> = Box::new(|| {});
           let finalize_callbacks_ptr = std::rc::Rc::into_raw(std::rc::Rc::new(std::cell::Cell::new(Box::into_raw(initial_finalize))));
