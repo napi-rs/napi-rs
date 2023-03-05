@@ -13,6 +13,7 @@ t('should be able to require in worker thread', async (t) => {
     Array.from({ length: 100 }).map(() => {
       const w = new Worker(join(__dirname, 'worker.js'))
       return new Promise<void>((resolve, reject) => {
+        w.postMessage({ type: 'require' })
         w.on('message', (msg) => {
           t.is(msg, Animal.withKind(Kind.Cat).whoami() + DEFAULT_COST)
           resolve()
@@ -26,5 +27,44 @@ t('should be able to require in worker thread', async (t) => {
           t.pass()
         })
     }),
+  )
+})
+
+t('custom GC works on worker_threads', async (t) => {
+  await Promise.all(
+    Array.from({ length: 50 }).map(() =>
+      Promise.all([
+        new Promise<Worker>((resolve, reject) => {
+          const w = new Worker(join(__dirname, 'worker.js'))
+          w.postMessage({
+            type: 'async:buffer',
+          })
+          w.on('message', (msg) => {
+            t.is(msg, 'done')
+            resolve(w)
+          })
+          w.on('error', (err) => {
+            reject(err)
+          })
+        }).then((w) => {
+          return w.terminate()
+        }),
+        new Promise<Worker>((resolve, reject) => {
+          const w = new Worker(join(__dirname, 'worker.js'))
+          w.postMessage({
+            type: 'async:arraybuffer',
+          })
+          w.on('message', (msg) => {
+            t.is(msg, 'done')
+            resolve(w)
+          })
+          w.on('error', (err) => {
+            reject(err)
+          })
+        }).then((w) => {
+          return w.terminate()
+        }),
+      ]),
+    ),
   )
 })
