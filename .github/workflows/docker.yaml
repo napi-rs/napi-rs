@@ -64,6 +64,7 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-aarch64
+          context: .
 
       - name: Cleanup
         run: rm -rf "${{ github.workspace }}/lib"
