@@ -21,7 +21,6 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: 18
-          check-latest: true
           cache: 'yarn'
 
       - name: 'Install dependencies'
@@ -31,12 +30,10 @@ jobs:
         run: yarn build
 
       - name: Install
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-          profile: minimal
-          override: true
-          target: aarch64-pc-windows-msvc
+          targets: aarch64-pc-windows-msvc
 
       - name: Cache cargo
         uses: actions/cache@v3

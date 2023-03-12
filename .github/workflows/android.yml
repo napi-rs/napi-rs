@@ -21,18 +21,15 @@ jobs:
         with:
           node-version: 18
           cache: 'yarn'
-          check-latest: true
 
       - name: List NDK Home
         run: ls -R "${ANDROID_NDK_LATEST_HOME}"
 
       - name: Install
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-          profile: minimal
-          override: true
-          target: 'aarch64-linux-android'
+          targets: aarch64-linux-android
 
       - name: Cache cargo
         uses: actions/cache@v3

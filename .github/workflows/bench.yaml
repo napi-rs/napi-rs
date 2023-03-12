@@ -26,11 +26,9 @@ jobs:
           cache: 'yarn'
 
       - name: Install
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-          profile: default
-          override: true
 
       - name: Cache cargo
         uses: actions/cache@v3

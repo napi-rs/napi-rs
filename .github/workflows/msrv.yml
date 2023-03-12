@@ -21,15 +21,12 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: 18
-          check-latest: true
           cache: 'yarn'
 
       - name: Install
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.57.0
-          profile: minimal
-          override: true
 
       - name: Cache cargo
         uses: actions/cache@v3
