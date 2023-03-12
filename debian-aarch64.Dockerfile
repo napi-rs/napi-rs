@@ -9,19 +9,19 @@ ENV RUSTUP_HOME=/usr/local/rustup \
   CXX_aarch64_unknown_linux_gnu="clang++ --sysroot=/usr/aarch64-unknown-linux-gnu/aarch64-unknown-linux-gnu/sysroot" \
   C_INCLUDE_PATH=/usr/aarch64-unknown-linux-gnu/aarch64-unknown-linux-gnu/sysroot/usr/include
 
+ADD ./lib/llvm-15 /usr/aarch64-unknown-linux-gnu/lib/llvm-15
+
 RUN apt-get update && \
   apt-get install -y --fix-missing --no-install-recommends gpg-agent ca-certificates openssl && \
   wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add - && \
   echo "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-15 main" >> /etc/apt/sources.list && \
   echo "deb-src http://apt.llvm.org/jammy/ llvm-toolchain-jammy-15 main" >> /etc/apt/sources.list && \
-  curl -sL https://deb.nodesource.com/setup_16.x | bash - && \
+  curl -sL https://deb.nodesource.com/setup_18.x | bash - && \
   apt-get install -y --fix-missing --no-install-recommends \
   curl \
   llvm-15 \
   clang-15 \
   lld-15 \
-  libc++-15-dev \
-  libc++abi-15-dev \
   nodejs \
   xz-utils \
   rcs \
