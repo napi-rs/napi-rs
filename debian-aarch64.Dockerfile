@@ -22,6 +22,8 @@ RUN apt-get update && \
   llvm-15 \
   clang-15 \
   lld-15 \
+  libc++-15-dev \
+  libc++abi-15-dev \
   nodejs \
   xz-utils \
   rcs \
