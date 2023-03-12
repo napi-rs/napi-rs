@@ -3,6 +3,7 @@ name: Docker nightly build
 on:
   schedule:
     - cron: '0 0 1 * *'
+  workflow_dispatch:
 
 jobs:
   build_image:
@@ -41,6 +42,21 @@ jobs:
           push: true
           tags: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian
 
+      - name: Install latest libc++-dev for cross build
+        uses: addnab/docker-run-action@v3
+        with:
+          image: node:lts-slim
+          options: '--platform linux/arm64 --user 0:0 -e GITHUB_TOKEN -v ${{ github.workspace }}/lib/llvm-15:/usr/lib/llvm-15'
+          run: >-
+            apt-get update &&
+            apt-get install -y wget gnupg2 &&
+            wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add - &&
+            echo "deb http://apt.llvm.org/focal/ llvm-toolchain-focal-15 main" >> /etc/apt/sources.list &&
+            echo "deb-src http://apt.llvm.org/focal/ llvm-toolchain-focal-15 main" >> /etc/apt/sources.list &&
+            apt-get update &&
+            apt-get install libc++-15-dev libc++abi-15-dev -y --fix-missing --no-install-recommends &&
+            rm /usr/lib/llvm-15/lib/libc++abi.so
+
       - name: Build and push debian aarch64 cross
         uses: docker/build-push-action@v2
         with:
@@ -48,6 +64,9 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-aarch64
+
+      - name: Cleanup
+        run: rm -rf "${{ github.workspace }}/lib"
 
       - name: Build and push debian with zig
         uses: docker/build-push-action@v2
@@ -64,44 +83,3 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine-zig
-
-  build_image_arm:
-    name: Build Node.js arm images
-    strategy:
-      fail-fast: false
-      matrix:
-        version: ['14', '16', '18']
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Setup QEMU
-        uses: docker/setup-qemu-action@v1
-
-      - name: Setup Docker Buildx
-        uses: docker/setup-buildx-action@v1
-
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v1
-        with:
-          registry: ghcr.io
-          username: ${{ secrets.GH_CONTAINER_UNAME }}
-          password: ${{ secrets.GH_TOKEN }}
-
-      - name: Build and push armhf
-        uses: docker/build-push-action@v2
-        with:
-          file: armhf.Dockerfile
-          push: true
-          tags: ghcr.io/napi-rs/napi-rs/nodejs:armhf-${{ matrix.version }}
-          build-args: |
-            NODE_VERSION=${{ matrix.version }}
-
-      - name: Build and push aarch64
-        uses: docker/build-push-action@v2
-        with:
-          file: aarch64.Dockerfile
-          push: true
-          tags: ghcr.io/napi-rs/napi-rs/nodejs:aarch64-${{ matrix.version }}
-          build-args: |
-            NODE_VERSION=${{ matrix.version }}

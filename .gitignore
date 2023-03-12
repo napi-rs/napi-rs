@@ -153,6 +153,7 @@ Temporary Items
 
 # End of https://www.gitignore.io/api/macos
 scripts
+lib
 
 sys/.node-headers
 bench.txt
