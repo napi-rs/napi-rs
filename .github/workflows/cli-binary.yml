@@ -3,6 +3,10 @@ name: Cli Build Binary
 env:
   DEBUG: 'napi:*'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches:
