@@ -15,15 +15,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - run: docker run --rm --privileged multiarch/qemu-user-static:register --reset
-
       - uses: actions/checkout@v3
 
       - name: Setup node
         uses: actions/setup-node@v3
         with:
           node-version: 18
-          check-latest: true
           cache: 'yarn'
 
       - name: Install dependencies
@@ -42,11 +39,13 @@ jobs:
             yarn workspace compat-mode-examples build --target aarch64-unknown-linux-musl
             yarn workspace examples build --target aarch64-unknown-linux-musl
 
+      - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+
       - name: Setup and run tests
-        uses: docker://multiarch/alpine:aarch64-latest-stable
+        uses: addnab/docker-run-action@v3
         with:
-          args: >
-            sh -c "
-              apk add nodejs yarn && \
-              yarn test
-            "
+          image: node:lts-alpine
+          options: --platform linux/arm64 -v ${{ github.workspace }}:/build -w /build
+          run: |
+            set -e
+            yarn test

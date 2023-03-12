@@ -20,17 +20,14 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v3
         with:
-          node-version: 16
-          check-latest: true
+          node-version: 18
           cache: 'yarn'
 
       - name: Install
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: nightly
-          profile: minimal
           components: rust-src
-          override: true
 
       - name: Cache cargo
         uses: actions/cache@v3
@@ -38,13 +35,7 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: nightly-ubuntu-node@16-cargo-cache
-
-      - name: Cache NPM dependencies
-        uses: actions/cache@v3
-        with:
-          path: .yarn/cache
-          key: npm-cache-ubuntu-node@16
+          key: nightly-ubuntu-node@18-cargo-cache
 
       - name: 'Install dependencies'
         run: yarn install --immutable --mode=skip-build

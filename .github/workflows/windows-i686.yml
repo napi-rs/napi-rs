@@ -21,8 +21,6 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: 18
-          check-latest: true
-          architecture: 'x64'
           cache: 'yarn'
 
       - name: 'Install dependencies'
@@ -33,12 +31,10 @@ jobs:
         run: yarn build
 
       - name: Install
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-          profile: minimal
-          override: true
-          target: i686-pc-windows-msvc
+          targets: i686-pc-windows-msvc
 
       - name: Cache cargo
         uses: actions/cache@v3
@@ -47,7 +43,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: stable-windows-i686-node@16-cargo-cache
+          key: stable-windows-i686-node@18-cargo-cache
 
       - name: Check build
         uses: actions-rs/cargo@v1
@@ -58,7 +54,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v3
         with:
-          node-version: 16
+          node-version: 18
           check-latest: true
           architecture: 'x86'
 
