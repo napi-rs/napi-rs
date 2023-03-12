@@ -1,6 +1,6 @@
 FROM messense/manylinux2014-cross:x86_64
 
-ARG NASM_VERSION=2.15.05
+ARG NASM_VERSION=2.16.01
 
 ENV RUSTUP_HOME=/usr/local/rustup \
   CARGO_HOME=/usr/local/cargo \
