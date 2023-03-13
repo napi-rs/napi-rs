@@ -126,3 +126,24 @@ pub fn accept_threadsafe_function_tuple_args(func: ThreadsafeFunction<(u32, bool
     );
   });
 }
+
+#[napi]
+pub async fn tsfn_return_promise(func: ThreadsafeFunction<u32>) -> Result<u32> {
+  let val = func.call_async::<Promise<u32>>(Ok(1)).await?.await?;
+  Ok(val + 2)
+}
+
+#[napi]
+pub async fn tsfn_return_promise_timeout(func: ThreadsafeFunction<u32>) -> Result<u32> {
+  use tokio::time::{self, Duration};
+  let promise = func.call_async::<Promise<u32>>(Ok(1)).await?;
+  let sleep = time::sleep(Duration::from_millis(200));
+  tokio::select! {
+    _ = sleep => {
+      return Err(Error::new(Status::GenericFailure, "Timeout".to_owned()));
+    }
+    value = promise => {
+      return Ok(value? + 2);
+    }
+  }
+}
