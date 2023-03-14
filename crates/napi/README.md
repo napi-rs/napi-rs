@@ -1,43 +1,18 @@
 # napi-rs
 
-<a href="https://stakes.social/0x2C9F5c3ebC01A45D34198229E60eE186eCDc5C5E"><img src="https://badge.devprotocol.xyz/0x2C9F5c3ebC01A45D34198229E60eE186eCDc5C5E/descriptive" alt="Stake to support us"></img></a>
-<a href="https://discord.gg/SpWzYHsKHs">
-<img src="https://img.shields.io/discord/874290842444111882.svg?logo=discord&style=flat-square"
-    alt="chat" />
-</a>
-
 > This project was initialized from [xray](https://github.com/atom/xray)
 
-A minimal library for building compiled `Node.js` add-ons in `Rust`.
+A framework for building compiled `Node.js` add-ons in `Rust` via Node-API. Website: https://napi.rs
 
 <p>
+  <a href="https://discord.gg/SpWzYHsKHs">
+  <img src="https://img.shields.io/discord/874290842444111882.svg?logo=discord&style=flat-square"
+      alt="chat" />
+  </a>
   <a href="https://docs.rs/crate/napi"><img src="https://docs.rs/napi/badge.svg"></img></a>
   <a href="https://crates.io/crates/napi"><img src="https://img.shields.io/crates/v/napi.svg"></img></a>
   <a href="https://www.npmjs.com/package/@napi-rs/cli"><img src="https://img.shields.io/npm/v/@napi-rs/cli.svg"></img></a>
-</p>
-
-## Ecosystem
-
-<p align="center">
-  <a href="https://www.prisma.io/" target="_blank">
-    <img alt="Prisma" src="https://raw.githubusercontent.com/napi-rs/napi-rs/main/images/prisma.svg" height="50px">
-  </a>
-  &nbsp;
-  &nbsp;
-  <a href="https://swc.rs/" target="_blank">
-    <img alt="swc" src="https://raw.githubusercontent.com/swc-project/logo/master/swc.png" height="50px">
-  </a>
-  &nbsp;
-  &nbsp;
-  <a href="https://parceljs.org/" target="_blank">
-    <img alt="Parcel" src="https://user-images.githubusercontent.com/19409/31321658-f6aed0f2-ac3d-11e7-8100-1587e676e0ec.png" height="50px">
-  </a>
-  &nbsp;
-  <a href="https://nextjs.org/">
-    <img alt="next.js" src="https://assets.vercel.com/image/upload/v1607554385/repositories/next-js/next-logo.png" height="50px">
-    &nbsp;
-    <img alt="nextjs.svg" src="https://raw.githubusercontent.com/napi-rs/napi-rs/main/images/nextjs.svg" height="50px">
-  </a>
+  <a href="https://stakes.social/0x2C9F5c3ebC01A45D34198229E60eE186eCDc5C5E"><img src="https://badge.devprotocol.xyz/0x2C9F5c3ebC01A45D34198229E60eE186eCDc5C5E/descriptive" alt="Stake to support us"></img></a>
 </p>
 
 ## Platform Support
