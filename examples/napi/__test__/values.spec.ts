@@ -123,6 +123,8 @@ import {
   acceptThreadsafeFunctionTupleArgs,
   promiseInEither,
   runScript,
+  tsfnReturnPromise,
+  tsfnReturnPromiseTimeout,
 } from '../'
 
 test('export const', (t) => {
@@ -847,6 +849,34 @@ Napi4Test('accept ThreadsafeFunction tuple args', async (t) => {
       resolve()
     })
   })
+})
+
+test('threadsafe function return Promise and await in Rust', async (t) => {
+  const value = await tsfnReturnPromise((err, value) => {
+    if (err) {
+      throw err
+    }
+    return Promise.resolve(value + 2)
+  })
+  t.is(value, 5)
+  await t.throwsAsync(
+    () =>
+      tsfnReturnPromiseTimeout((err, value) => {
+        if (err) {
+          throw err
+        }
+        return new Promise((resolve) => {
+          setTimeout(() => {
+            resolve(value + 2)
+          }, 300)
+        })
+      }),
+    {
+      message: 'Timeout',
+    },
+  )
+  // trigger Promise.then in Rust after `Promise` is dropped
+  await new Promise((resolve) => setTimeout(resolve, 400))
 })
 
 Napi4Test('object only from js', (t) => {

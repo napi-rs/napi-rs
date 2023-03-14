@@ -1,7 +1,11 @@
-use std::ffi::{c_void, CStr};
+use std::ffi::CStr;
 use std::future;
 use std::pin::Pin;
 use std::ptr;
+use std::sync::{
+  atomic::{AtomicBool, Ordering},
+  Arc,
+};
 use std::task::{Context, Poll};
 
 use tokio::sync::oneshot::{channel, Receiver, Sender};
@@ -12,6 +16,13 @@ use super::{FromNapiValue, TypeName, ValidateNapiValue};
 
 pub struct Promise<T: FromNapiValue> {
   value: Pin<Box<Receiver<*mut Result<T>>>>,
+  aborted: Arc<AtomicBool>,
+}
+
+impl<T: FromNapiValue> Drop for Promise<T> {
+  fn drop(&mut self) {
+    self.aborted.store(true, Ordering::SeqCst);
+  }
 }
 
 impl<T: FromNapiValue> TypeName for Promise<T> {
@@ -90,7 +101,8 @@ impl<T: FromNapiValue> FromNapiValue for Promise<T> {
     let mut promise_after_then = ptr::null_mut();
     let mut then_js_cb = ptr::null_mut();
     let (tx, rx) = channel();
-    let tx_ptr = Box::into_raw(Box::new(tx));
+    let aborted = Arc::new(AtomicBool::new(false));
+    let tx_ptr = Box::into_raw(Box::new((tx, aborted.clone())));
     check_status!(
       unsafe {
         sys::napi_create_function(
@@ -98,7 +110,7 @@ impl<T: FromNapiValue> FromNapiValue for Promise<T> {
           then_c_string.as_ptr(),
           4,
           Some(then_callback::<T>),
-          tx_ptr as *mut _,
+          tx_ptr.cast(),
           &mut then_js_cb,
         )
       },
@@ -133,7 +145,7 @@ impl<T: FromNapiValue> FromNapiValue for Promise<T> {
           catch_c_string.as_ptr(),
           5,
           Some(catch_callback::<T>),
-          tx_ptr as *mut c_void,
+          tx_ptr.cast(),
           &mut catch_js_cb,
         )
       },
@@ -154,6 +166,7 @@ impl<T: FromNapiValue> FromNapiValue for Promise<T> {
     )?;
     Ok(Promise {
       value: Box::pin(rx),
+      aborted,
     })
   }
 }
@@ -193,8 +206,12 @@ unsafe extern "C" fn then_callback<T: FromNapiValue>(
     get_cb_status == sys::Status::napi_ok,
     "Get callback info from Promise::then failed"
   );
+  let (sender, aborted) =
+    *unsafe { Box::from_raw(data as *mut (Sender<*mut Result<T>>, Arc<AtomicBool>)) };
+  if aborted.load(Ordering::SeqCst) {
+    return this;
+  }
   let resolve_value_t = Box::new(unsafe { T::from_napi_value(env, resolved_value[0]) });
-  let sender = unsafe { Box::from_raw(data as *mut Sender<*mut Result<T>>) };
   sender
     .send(Box::into_raw(resolve_value_t))
     .expect("Send Promise resolved value error");
@@ -224,7 +241,11 @@ unsafe extern "C" fn catch_callback<T: FromNapiValue>(
     "Get callback info from Promise::catch failed"
   );
   let rejected_value = rejected_value[0];
-  let sender = unsafe { Box::from_raw(data as *mut Sender<*mut Result<T>>) };
+  let (sender, aborted) =
+    *unsafe { Box::from_raw(data as *mut (Sender<*mut Result<T>>, Arc<AtomicBool>)) };
+  if aborted.load(Ordering::SeqCst) {
+    return this;
+  }
   sender
     .send(Box::into_raw(Box::new(Err(Error::from(unsafe {
       JsUnknown::from_raw_unchecked(env, rejected_value)
