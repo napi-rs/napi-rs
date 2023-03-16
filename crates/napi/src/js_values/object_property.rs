@@ -32,6 +32,7 @@ impl Default for Property {
 }
 
 bitflags! {
+  #[derive(Debug, Copy, Clone)]
   pub struct PropertyAttributes: i32 {
     const Default = sys::PropertyAttributes::default;
     const Writable = sys::PropertyAttributes::writable;
