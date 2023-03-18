@@ -4,10 +4,9 @@ use std::convert::Into;
 use std::ffi::CString;
 use std::marker::PhantomData;
 use std::os::raw::c_void;
-use std::pin::Pin;
 use std::ptr::{self, null_mut};
 use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, Weak};
 
 use crate::bindgen_runtime::{FromNapiValue, ToNapiValue, TypeName, ValidateNapiValue};
 use crate::{check_status, sys, Env, JsError, JsUnknown, Result, Status};
@@ -103,20 +102,17 @@ struct ThreadsafeFunctionHandle {
   referred: AtomicBool,
 }
 
-unsafe impl Send for ThreadsafeFunctionHandle {}
-unsafe impl Sync for ThreadsafeFunctionHandle {}
-
 impl ThreadsafeFunctionHandle {
-  /// create a pinned Arc to hold the `ThreadsafeFunctionHandle`
-  fn new(raw: sys::napi_threadsafe_function) -> Pin<Arc<Self>> {
-    Arc::pin(Self {
+  /// create a Arc to hold the `ThreadsafeFunctionHandle`
+  fn new(raw: sys::napi_threadsafe_function) -> Arc<Self> {
+    Arc::new(Self {
       raw: AtomicPtr::new(raw),
       aborted: RwLock::new(false),
       referred: AtomicBool::new(true),
     })
   }
 
-  fn null() -> Pin<Arc<Self>> {
+  fn null() -> Arc<Self> {
     Self::new(null_mut())
   }
 
@@ -215,7 +211,7 @@ struct ThreadsafeFunctionCallJsBackData<T> {
 /// }
 /// ```
 pub struct ThreadsafeFunction<T: 'static, ES: ErrorStrategy::T = ErrorStrategy::CalleeHandled> {
-  handle: Pin<Arc<ThreadsafeFunctionHandle>>,
+  handle: Arc<ThreadsafeFunctionHandle>,
   _phantom: PhantomData<(T, ES)>,
 }
 
@@ -337,7 +333,7 @@ impl<T: 'static, ES: ErrorStrategy::T> ThreadsafeFunction<T, ES> {
         async_resource_name,
         max_queue_size,
         1,
-        Arc::into_raw(Pin::into_inner(handle.clone())) as *mut c_void, // pass handler to thread_finalize_cb
+        Arc::downgrade(&handle).into_raw() as *mut c_void, // pass handler to thread_finalize_cb
         Some(thread_finalize_cb::<T, V, R>),
         callback_ptr.cast(),
         Some(call_js_cb::<T, V, R, ES>),
@@ -569,13 +565,18 @@ unsafe extern "C" fn thread_finalize_cb<T: 'static, V: ToNapiValue, R>(
 ) where
   R: 'static + Send + FnMut(ThreadSafeCallContext<T>) -> Result<Vec<V>>,
 {
-  let handle = unsafe { Arc::from_raw(finalize_data.cast::<ThreadsafeFunctionHandle>()) };
-  let mut aborted_guard = handle
-    .aborted
-    .write()
-    .expect("Threadsafe Function Handle aborted lock failed");
-  if !*aborted_guard {
-    *aborted_guard = true;
+  let handle_option =
+    unsafe { Weak::from_raw(finalize_data.cast::<ThreadsafeFunctionHandle>()).upgrade() };
+
+  if let Some(handle) = handle_option {
+    let mut aborted_guard = handle
+      .aborted
+      .write()
+      .expect("Threadsafe Function Handle aborted lock failed");
+
+    if !*aborted_guard {
+      *aborted_guard = true;
+    }
   }
 
   // cleanup
