@@ -137,7 +137,6 @@ pub async fn tsfn_return_promise(func: ThreadsafeFunction<u32>) -> Result<u32> {
 pub async fn tsfn_return_promise_timeout(func: ThreadsafeFunction<u32>) -> Result<u32> {
   use tokio::time::{self, Duration};
   let promise = func.call_async::<Promise<u32>>(Ok(1)).await?;
-  let sleep = time::sleep(Duration::from_millis(100));
   let sleep = time::sleep(Duration::from_nanos(1));
   tokio::select! {
     _ = sleep => {
