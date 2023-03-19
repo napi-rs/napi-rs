@@ -6,6 +6,18 @@ use bitflags::bitflags;
 
 use crate::{sys, Callback, NapiRaw, Result, JsError, Status, Env};
 
+#[derive(Copy, Clone)]
+pub struct PropertyClosures {
+  setter_closure: *mut c_void,
+  getter_closure: *mut c_void,
+}
+
+impl Default for PropertyClosures {
+  fn default() -> Self {
+    Self { setter_closure: ptr::null_mut(), getter_closure: ptr::null_mut() }
+  }
+}
+
 #[derive(Clone)]
 pub struct Property {
   pub name: CString,
@@ -15,8 +27,7 @@ pub struct Property {
   attrs: PropertyAttributes,
   value: sys::napi_value,
   pub(crate) is_ctor: bool,
-  setter_closure: *mut c_void,
-  getter_closure: *mut c_void,
+  closures: PropertyClosures,
 }
 
 impl Default for Property {
@@ -29,8 +40,7 @@ impl Default for Property {
       attrs: Default::default(),
       value: ptr::null_mut(),
       is_ctor: Default::default(),
-      setter_closure: ptr::null_mut(),
-      getter_closure: ptr::null_mut(),
+      closures: PropertyClosures::default(),
     }
   }
 }
@@ -88,7 +98,7 @@ impl Property {
     use crate::CallContext;
     let boxed_callback = Box::new(callback);
     let closure_data_ptr: *mut F = Box::into_raw(boxed_callback);
-    self.getter_closure = closure_data_ptr as * mut c_void;
+    self.closures.getter_closure = closure_data_ptr as * mut c_void;
 
     let fun = {
       unsafe extern "C" fn trampoline<R: NapiRaw, F: Fn(CallContext<'_>) -> Result<R>>(
@@ -97,7 +107,7 @@ impl Property {
       ) -> sys::napi_value {
         use ::std::panic::{self, AssertUnwindSafe};
         panic::catch_unwind(AssertUnwindSafe(|| {
-          let (raw_this, ref raw_args, getter_data_pointer) = {
+          let (raw_this, ref raw_args, closures_data_pointer) = {
             let argc = {
               let mut argc = 0;
               let status = unsafe {
@@ -118,7 +128,7 @@ impl Property {
             };
             let mut raw_args = vec![ptr::null_mut(); argc];
             let mut raw_this = ptr::null_mut();
-            let mut getter_data_pointer = ptr::null_mut();
+            let mut closures_data_pointer = ptr::null_mut();
 
             let status = unsafe {
               sys::napi_get_cb_info(
@@ -127,16 +137,17 @@ impl Property {
                 &mut { argc },
                 raw_args.as_mut_ptr(),
                 &mut raw_this,
-                &mut getter_data_pointer,
+                &mut closures_data_pointer,
               )
             };
             debug_assert!(
               Status::from(status) == Status::Ok,
               "napi_get_cb_info failed"
             );
-            (raw_this, raw_args, getter_data_pointer)
+            (raw_this, raw_args, closures_data_pointer)
           };
-          let closure: &F = unsafe { getter_data_pointer.cast::<F>().as_ref().expect("cannot cast") };
+          let closures = unsafe { closures_data_pointer.cast::<PropertyClosures>().as_ref().expect("cannot cast") };
+          let closure: &F = unsafe { closures.getter_closure.cast::<F>().as_ref().expect("cannot cast") };
           let env = &mut unsafe { Env::from_raw(raw_env) };
           let ctx = CallContext::new(env, cb_info, raw_this, raw_args, raw_args.len());
           closure(ctx).map(|ret: R| unsafe { ret.raw() })
@@ -171,6 +182,93 @@ impl Property {
     self
   }
 
+  pub fn with_setter_closure<R, F>(mut self, callback: F) -> Self where
+    F: 'static + Fn(crate::CallContext<'_>) -> Result<R>,
+    R: NapiRaw
+  {
+    use crate::CallContext;
+    let boxed_callback = Box::new(callback);
+    let closure_data_ptr: *mut F = Box::into_raw(boxed_callback);
+    self.closures.setter_closure = closure_data_ptr as * mut c_void;
+
+    let fun = {
+      unsafe extern "C" fn trampoline<R: NapiRaw, F: Fn(CallContext<'_>) -> Result<R>>(
+        raw_env: sys::napi_env,
+        cb_info: sys::napi_callback_info,
+      ) -> sys::napi_value {
+        use ::std::panic::{self, AssertUnwindSafe};
+        panic::catch_unwind(AssertUnwindSafe(|| {
+          let (raw_this, ref raw_args, closures_data_pointer) = {
+            let argc = {
+              let mut argc = 0;
+              let status = unsafe {
+                sys::napi_get_cb_info(
+                  raw_env,
+                  cb_info,
+                  &mut argc,
+                  ptr::null_mut(),
+                  ptr::null_mut(),
+                  ptr::null_mut(),
+                )
+              };
+              debug_assert!(
+                Status::from(status) == Status::Ok,
+                "napi_get_cb_info failed"
+              );
+              argc
+            };
+            let mut raw_args = vec![ptr::null_mut(); argc];
+            let mut raw_this = ptr::null_mut();
+            let mut closures_data_pointer = ptr::null_mut();
+
+            let status = unsafe {
+              sys::napi_get_cb_info(
+                raw_env,
+                cb_info,
+                &mut { argc },
+                raw_args.as_mut_ptr(),
+                &mut raw_this,
+                &mut closures_data_pointer,
+              )
+            };
+            debug_assert!(
+              Status::from(status) == Status::Ok,
+              "napi_get_cb_info failed"
+            );
+            (raw_this, raw_args, closures_data_pointer)
+          };
+          let closures = unsafe { closures_data_pointer.cast::<PropertyClosures>().as_ref().expect("cannot cast") };
+          let closure: &F = unsafe { closures.setter_closure.cast::<F>().as_ref().expect("cannot cast") };
+          let env = &mut unsafe { Env::from_raw(raw_env) };
+          let ctx = CallContext::new(env, cb_info, raw_this, raw_args, raw_args.len());
+          closure(ctx).map(|ret: R| unsafe { ret.raw() })
+        }))
+          .map_err(|e| {
+            crate::Error::from_reason(format!(
+              "panic from Rust code: {}",
+              if let Some(s) = e.downcast_ref::<String>() {
+                s
+              } else if let Some(s) = e.downcast_ref::<&str>() {
+                s
+              } else {
+                "<no error message>"
+              },
+            ))
+          })
+          .and_then(|v| v)
+          .unwrap_or_else(|e| {
+            unsafe { JsError::from(e).throw_into(raw_env) };
+            ptr::null_mut()
+          })
+      }
+
+      trampoline::<R, F>
+    };
+    self.setter = Some(fun);
+    self
+  }
+
+
   pub fn with_property_attributes(mut self, attributes: PropertyAttributes) -> Self {
     self.attrs = attributes;
     self
@@ -182,6 +280,7 @@ impl Property {
   }
 
   pub(crate) fn raw(&self) -> sys::napi_property_descriptor {
+    let closures = Box::into_raw(Box::new(self.closures));
     sys::napi_property_descriptor {
       utf8name: self.name.as_ptr(),
       name: ptr::null_mut(),
@@ -190,7 +289,7 @@ impl Property {
       setter: self.setter,
       value: self.value,
       attributes: self.attrs.into(),
-      data: self.getter_closure,
+      data: closures as * mut c_void,
     }
   }
 
