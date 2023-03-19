@@ -15,7 +15,8 @@ pub struct Property {
   attrs: PropertyAttributes,
   value: sys::napi_value,
   pub(crate) is_ctor: bool,
-  closures: (*mut c_void, *mut c_void),
+  setter_closure: *mut c_void,
+  getter_closure: *mut c_void,
 }
 
 impl Default for Property {
@@ -28,7 +29,8 @@ impl Default for Property {
       attrs: Default::default(),
       value: ptr::null_mut(),
       is_ctor: Default::default(),
-      closures: (ptr::null_mut(), ptr::null_mut()),
+      setter_closure: ptr::null_mut(),
+      getter_closure: ptr::null_mut(),
     }
   }
 }
@@ -86,7 +88,7 @@ impl Property {
     use crate::CallContext;
     let boxed_callback = Box::new(callback);
     let closure_data_ptr: *mut F = Box::into_raw(boxed_callback);
-    self.closures.0 = closure_data_ptr as * mut c_void;
+    self.getter_closure = closure_data_ptr as * mut c_void;
 
     let fun = {
       unsafe extern "C" fn trampoline<R: NapiRaw, F: Fn(CallContext<'_>) -> Result<R>>(
@@ -95,7 +97,7 @@ impl Property {
       ) -> sys::napi_value {
         use ::std::panic::{self, AssertUnwindSafe};
         panic::catch_unwind(AssertUnwindSafe(|| {
-          let (raw_this, ref raw_args, getter_setter_data_pointer) = {
+          let (raw_this, ref raw_args, getter_data_pointer) = {
             let argc = {
               let mut argc = 0;
               let status = unsafe {
@@ -116,7 +118,7 @@ impl Property {
             };
             let mut raw_args = vec![ptr::null_mut(); argc];
             let mut raw_this = ptr::null_mut();
-            let mut getter_setter_data_pointer = ptr::null_mut();
+            let mut getter_data_pointer = ptr::null_mut();
 
             let status = unsafe {
               sys::napi_get_cb_info(
@@ -125,18 +127,16 @@ impl Property {
                 &mut { argc },
                 raw_args.as_mut_ptr(),
                 &mut raw_this,
-                &mut getter_setter_data_pointer,
+                &mut getter_data_pointer,
               )
             };
             debug_assert!(
               Status::from(status) == Status::Ok,
               "napi_get_cb_info failed"
             );
-            (raw_this, raw_args, getter_setter_data_pointer)
+            (raw_this, raw_args, getter_data_pointer)
           };
-          let setter_getter_pointers: * mut (*mut c_void, *mut c_void) = getter_setter_data_pointer.cast::<(*mut c_void, *mut c_void)>();
-          let setter_getter = unsafe { *setter_getter_pointers };
-          let closure: &F = unsafe { setter_getter.0.cast::<F>().as_ref().expect("cannot cast") };
+          let closure: &F = unsafe { getter_data_pointer.cast::<F>().as_ref().expect("cannot cast") };
           let env = &mut unsafe { Env::from_raw(raw_env) };
           let ctx = CallContext::new(env, cb_info, raw_this, raw_args, raw_args.len());
           closure(ctx).map(|ret: R| unsafe { ret.raw() })
@@ -190,12 +190,7 @@ impl Property {
       setter: self.setter,
       value: self.value,
       attributes: self.attrs.into(),
-      data: unsafe {
-        let immut = &self.closures as * const (*mut c_void, *mut c_void);
-        let immut2 = immut as * const c_void;
-        let mut_ = immut2 as * mut c_void;
-        mut_
-      },
+      data: self.getter_closure,
     }
   }
 
