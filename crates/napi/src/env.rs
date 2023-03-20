@@ -1428,8 +1428,9 @@ pub(crate) unsafe extern "C" fn trampoline<
   use crate::CallContext;
 
   let (raw_this, raw_args, closure_data_ptr, argc) = {
-    let mut argc = 1;
-    let mut raw_args = vec![ptr::null_mut(); 1];
+    // Fast path for 4 arguments or less.
+    let mut argc = 4;
+    let mut raw_args = Vec::with_capacity(4);
     let mut raw_this = ptr::null_mut();
     let mut closure_data_ptr = ptr::null_mut();
 
@@ -1443,11 +1444,32 @@ pub(crate) unsafe extern "C" fn trampoline<
         &mut closure_data_ptr,
       )
     };
-    unsafe { raw_args.set_len(argc) };
     debug_assert!(
       Status::from(status) == Status::Ok,
       "napi_get_cb_info failed"
     );
+
+    // Arguments length greater than 4, resize the vector.
+    if argc > 4 {
+      raw_args = vec![ptr::null_mut(); argc];
+      let status = unsafe {
+        sys::napi_get_cb_info(
+          raw_env,
+          cb_info,
+          &mut argc,
+          raw_args.as_mut_ptr(),
+          &mut raw_this,
+          &mut closure_data_ptr,
+        )
+      };
+      debug_assert!(
+        Status::from(status) == Status::Ok,
+        "napi_get_cb_info failed"
+      );
+    } else {
+      unsafe { raw_args.set_len(argc) };
+    }
+
     (raw_this, raw_args, closure_data_ptr, argc)
   };
 
