@@ -315,6 +315,9 @@ export class Width {
   value: number
   constructor(value: number)
 }
+export class GetterSetterWithClosures {
+  constructor()
+}
 export class ClassWithFactory {
   name: string
   static withName(name: string): ClassWithFactory

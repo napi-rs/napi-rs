@@ -569,9 +569,7 @@ impl Env {
     F: 'static + Fn(crate::CallContext<'_>) -> Result<R>,
     R: ToNapiValue,
   {
-    use crate::CallContext;
-    let boxed_callback = Box::new(callback);
-    let closure_data_ptr: *mut F = Box::into_raw(boxed_callback);
+    let closure_data_ptr = Box::into_raw(Box::new(callback));
 
     let mut raw_result = ptr::null_mut();
     let len = name.len();
@@ -581,85 +579,7 @@ impl Env {
         self.0,
         name.as_ptr(),
         len,
-        Some({
-          unsafe extern "C" fn trampoline<R: ToNapiValue, F: Fn(CallContext<'_>) -> Result<R>>(
-            raw_env: sys::napi_env,
-            cb_info: sys::napi_callback_info,
-          ) -> sys::napi_value {
-            use ::std::panic::{self, AssertUnwindSafe};
-            panic::catch_unwind(AssertUnwindSafe(|| {
-              let (raw_this, ref raw_args, closure_data_ptr) = {
-                let argc = {
-                  let mut argc = 0;
-                  let status = unsafe {
-                    sys::napi_get_cb_info(
-                      raw_env,
-                      cb_info,
-                      &mut argc,
-                      ptr::null_mut(),
-                      ptr::null_mut(),
-                      ptr::null_mut(),
-                    )
-                  };
-                  debug_assert!(
-                    Status::from(status) == Status::Ok,
-                    "napi_get_cb_info failed"
-                  );
-                  argc
-                };
-                let mut raw_args = vec![ptr::null_mut(); argc];
-                let mut raw_this = ptr::null_mut();
-                let mut closure_data_ptr = ptr::null_mut();
-
-                let status = unsafe {
-                  sys::napi_get_cb_info(
-                    raw_env,
-                    cb_info,
-                    &mut { argc },
-                    raw_args.as_mut_ptr(),
-                    &mut raw_this,
-                    &mut closure_data_ptr,
-                  )
-                };
-                debug_assert!(
-                  Status::from(status) == Status::Ok,
-                  "napi_get_cb_info failed"
-                );
-                (raw_this, raw_args, closure_data_ptr)
-              };
-
-              let closure: &F = unsafe {
-                closure_data_ptr
-                  .cast::<F>()
-                  .as_ref()
-                  .expect("`napi_get_cb_info` should have yielded non-`NULL` assoc data")
-              };
-              let env = &mut unsafe { Env::from_raw(raw_env) };
-              let ctx = CallContext::new(env, cb_info, raw_this, raw_args, raw_args.len());
-              closure(ctx)
-                .and_then(|ret: R| unsafe { <R as ToNapiValue>::to_napi_value(env.0, ret) })
-            }))
-            .map_err(|e| {
-              Error::from_reason(format!(
-                "panic from Rust code: {}",
-                if let Some(s) = e.downcast_ref::<String>() {
-                  s
-                } else if let Some(s) = e.downcast_ref::<&str>() {
-                  s
-                } else {
-                  "<no error message>"
-                },
-              ))
-            })
-            .and_then(|v| v)
-            .unwrap_or_else(|e| {
-              unsafe { JsError::from(e).throw_into(raw_env) };
-              ptr::null_mut()
-            })
-          }
-
-          trampoline::<R, F>
-        }),
+        Some(trampoline::<R, F>),
         closure_data_ptr.cast(), // We let it borrow the data here
         &mut raw_result,
       )
@@ -678,17 +598,7 @@ impl Env {
         self.0,
         raw_result,
         closure_data_ptr.cast(),
-        Some({
-          unsafe extern "C" fn finalize_box_trampoline<F>(
-            _raw_env: sys::napi_env,
-            closure_data_ptr: *mut c_void,
-            _finalize_hint: *mut c_void,
-          ) {
-            drop(unsafe { Box::<F>::from_raw(closure_data_ptr.cast()) })
-          }
-
-          finalize_box_trampoline::<F>
-        }),
+        Some(finalize_box_trampoline::<F>),
         ptr::null_mut(),
         ptr::null_mut(),
       )
@@ -1505,4 +1415,153 @@ unsafe extern "C" fn async_finalize<Arg, F>(
       "Remove async cleanup hook failed after async cleanup callback"
     );
   }
+}
+
+#[cfg(feature = "napi5")]
+pub(crate) unsafe extern "C" fn trampoline<
+  R: ToNapiValue,
+  F: Fn(crate::CallContext) -> Result<R>,
+>(
+  raw_env: sys::napi_env,
+  cb_info: sys::napi_callback_info,
+) -> sys::napi_value {
+  use crate::CallContext;
+
+  let (raw_this, raw_args, closure_data_ptr, argc) = {
+    let mut argc = 1;
+    let mut raw_args = vec![ptr::null_mut(); 1];
+    let mut raw_this = ptr::null_mut();
+    let mut closure_data_ptr = ptr::null_mut();
+
+    let status = unsafe {
+      sys::napi_get_cb_info(
+        raw_env,
+        cb_info,
+        &mut argc,
+        raw_args.as_mut_ptr(),
+        &mut raw_this,
+        &mut closure_data_ptr,
+      )
+    };
+    unsafe { raw_args.set_len(argc) };
+    debug_assert!(
+      Status::from(status) == Status::Ok,
+      "napi_get_cb_info failed"
+    );
+    (raw_this, raw_args, closure_data_ptr, argc)
+  };
+
+  let closure: &F = Box::leak(unsafe { Box::from_raw(closure_data_ptr.cast()) });
+  let mut env = unsafe { Env::from_raw(raw_env) };
+  let call_context = CallContext::new(&mut env, cb_info, raw_this, raw_args.as_slice(), argc);
+  closure(call_context)
+    .and_then(|ret: R| unsafe { <R as ToNapiValue>::to_napi_value(env.0, ret) })
+    .unwrap_or_else(|e| {
+      unsafe { JsError::from(e).throw_into(raw_env) };
+      ptr::null_mut()
+    })
+}
+
+#[cfg(feature = "napi5")]
+pub(crate) unsafe extern "C" fn trampoline_setter<
+  V: FromNapiValue,
+  F: Fn(Env, crate::bindgen_runtime::Object, V) -> Result<()>,
+>(
+  raw_env: sys::napi_env,
+  cb_info: sys::napi_callback_info,
+) -> sys::napi_value {
+  use crate::bindgen_runtime::Object;
+
+  let (raw_args, raw_this, closure_data_ptr) = {
+    let mut argc = 1;
+    let mut raw_args = vec![ptr::null_mut(); 1];
+    let mut raw_this = ptr::null_mut();
+    let mut closure_data_ptr = ptr::null_mut();
+
+    let status = unsafe {
+      sys::napi_get_cb_info(
+        raw_env,
+        cb_info,
+        &mut argc,
+        raw_args.as_mut_ptr(),
+        &mut raw_this,
+        &mut closure_data_ptr,
+      )
+    };
+    unsafe { raw_args.set_len(argc) };
+    debug_assert!(
+      Status::from(status) == Status::Ok,
+      "napi_get_cb_info failed"
+    );
+    (raw_args, raw_this, closure_data_ptr)
+  };
+
+  let closure: &F = Box::leak(unsafe { Box::from_raw(closure_data_ptr.cast()) });
+  let env = unsafe { Env::from_raw(raw_env) };
+  raw_args
+    .get(0)
+    .ok_or_else(|| Error::new(Status::InvalidArg, "Missing argument in property setter"))
+    .and_then(|value| unsafe { V::from_napi_value(raw_env, *value) })
+    .and_then(|value| {
+      closure(
+        env,
+        unsafe { Object::from_raw_unchecked(raw_env, raw_this) },
+        value,
+      )
+    })
+    .map(|_| std::ptr::null_mut())
+    .unwrap_or_else(|e| {
+      unsafe { JsError::from(e).throw_into(raw_env) };
+      ptr::null_mut()
+    })
+}
+
+#[cfg(feature = "napi5")]
+pub(crate) unsafe extern "C" fn trampoline_getter<
+  R: ToNapiValue,
+  F: Fn(Env, crate::bindgen_runtime::This) -> Result<R>,
+>(
+  raw_env: sys::napi_env,
+  cb_info: sys::napi_callback_info,
+) -> sys::napi_value {
+  let (raw_this, closure_data_ptr) = {
+    let mut raw_this = ptr::null_mut();
+    let mut closure_data_ptr = ptr::null_mut();
+
+    let status = unsafe {
+      sys::napi_get_cb_info(
+        raw_env,
+        cb_info,
+        &mut 0,
+        ptr::null_mut(),
+        &mut raw_this,
+        &mut closure_data_ptr,
+      )
+    };
+    debug_assert!(
+      Status::from(status) == Status::Ok,
+      "napi_get_cb_info failed"
+    );
+    (raw_this, closure_data_ptr)
+  };
+
+  let closure: &F = Box::leak(unsafe { Box::from_raw(closure_data_ptr.cast()) });
+  let env = unsafe { Env::from_raw(raw_env) };
+  closure(env, unsafe {
+    crate::bindgen_runtime::Object::from_raw_unchecked(raw_env, raw_this)
+  })
+  .and_then(|ret: R| unsafe { <R as ToNapiValue>::to_napi_value(env.0, ret) })
+  .unwrap_or_else(|e| {
+    unsafe { JsError::from(e).throw_into(raw_env) };
+    ptr::null_mut()
+  })
+}
+
+#[cfg(feature = "napi5")]
+pub(crate) unsafe extern "C" fn finalize_box_trampoline<F>(
+  _raw_env: sys::napi_env,
+  closure_data_ptr: *mut c_void,
+  _finalize_hint: *mut c_void,
+) {
+  drop(unsafe { Box::<F>::from_raw(closure_data_ptr.cast()) })
 }

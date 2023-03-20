@@ -1,6 +1,6 @@
 use napi::{
   bindgen_prelude::{Buffer, ClassInstance, ObjectFinalize, This, Uint8Array, Unknown},
-  Env, Result,
+  Env, Property, Result,
 };
 
 use crate::r#enum::Kind;
@@ -410,4 +410,24 @@ pub struct Width {
 #[napi]
 pub fn plus_one(this: This<&Width>) -> i32 {
   this.value + 1
+}
+
+#[napi]
+pub struct GetterSetterWithClosures {}
+
+#[napi]
+impl GetterSetterWithClosures {
+  #[napi(constructor)]
+  pub fn new(mut this: This) -> Result<Self> {
+    this.define_properties(&[
+      Property::new("name")?
+        .with_setter_closure(move |_env, mut this, value: String| {
+          this.set_named_property("_name", format!("I'm {}", value))?;
+          Ok(())
+        })
+        .with_getter_closure(|_env, this| this.get_named_property_unchecked::<Unknown>("_name")),
+      Property::new("age")?.with_getter_closure(|_env, _this| Ok(0.3)),
+    ])?;
+    Ok(Self {})
+  }
 }
