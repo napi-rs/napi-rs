@@ -674,7 +674,7 @@ unsafe extern "C" fn call_js_cb<T: 'static, V: ToNapiValue, R, ES>(
           let message_length = message.len();
           unsafe {
             sys::napi_fatal_error(
-              "threadsafe_function.rs:573\0".as_ptr().cast(),
+              "threadsafe_function.rs:642\0".as_ptr().cast(),
               26,
               CString::new(message).unwrap().into_raw(),
               message_length,

@@ -7,7 +7,7 @@ use std::sync::{
   Arc,
 };
 
-#[cfg(feature = "napi4")]
+#[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
 use crate::bindgen_prelude::{CUSTOM_GC_TSFN, CUSTOM_GC_TSFN_CLOSED, MAIN_THREAD_ID};
 pub use crate::js_values::TypedArrayType;
 use crate::{check_status, sys, Error, Result, Status};
@@ -66,7 +66,7 @@ macro_rules! impl_typed_array {
       fn drop(&mut self) {
         if Arc::strong_count(&self.drop_in_vm) == 1 {
           if let Some((ref_, env)) = self.raw {
-            #[cfg(feature = "napi4")]
+            #[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
             {
               if CUSTOM_GC_TSFN_CLOSED.load(std::sync::atomic::Ordering::SeqCst) {
                 return;

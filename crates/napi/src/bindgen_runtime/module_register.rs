@@ -117,14 +117,14 @@ static IS_FIRST_MODULE: AtomicBool = AtomicBool::new(true);
 static FIRST_MODULE_REGISTERED: AtomicBool = AtomicBool::new(false);
 static REGISTERED_CLASSES: Lazy<RegisteredClassesMap> = Lazy::new(Default::default);
 static FN_REGISTER_MAP: Lazy<FnRegisterMap> = Lazy::new(Default::default);
-#[cfg(feature = "napi4")]
+#[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
 pub(crate) static CUSTOM_GC_TSFN: AtomicPtr<sys::napi_threadsafe_function__> =
   AtomicPtr::new(ptr::null_mut());
-#[cfg(feature = "napi4")]
+#[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
 // CustomGC ThreadsafeFunction may be deleted during the process exit.
 // And there may still some Buffer alive after that.
 pub(crate) static CUSTOM_GC_TSFN_CLOSED: AtomicBool = AtomicBool::new(false);
-#[cfg(feature = "napi4")]
+#[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
 pub(crate) static MAIN_THREAD_ID: once_cell::sync::OnceCell<ThreadId> =
   once_cell::sync::OnceCell::new();
 
@@ -286,6 +286,15 @@ fn load_host() {
   unsafe {
     sys::setup();
   }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+unsafe extern "C" fn napi_register_wasm_v1(
+  env: sys::napi_env,
+  exports: sys::napi_value,
+) -> sys::napi_value {
+  unsafe { napi_register_module_v1(env, exports) }
 }
 
 #[no_mangle]
@@ -488,7 +497,7 @@ unsafe extern "C" fn napi_register_module_v1(
       )
     };
   }
-  #[cfg(feature = "napi4")]
+  #[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
   create_custom_gc(env);
   FIRST_MODULE_REGISTERED.store(true, Ordering::SeqCst);
   exports
@@ -511,7 +520,7 @@ pub(crate) unsafe extern "C" fn noop(
   ptr::null_mut()
 }
 
-#[cfg(feature = "napi4")]
+#[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
 fn create_custom_gc(env: sys::napi_env) {
   use std::os::raw::c_char;
 
@@ -572,13 +581,13 @@ fn create_custom_gc(env: sys::napi_env) {
   MAIN_THREAD_ID.get_or_init(|| std::thread::current().id());
 }
 
-#[cfg(feature = "napi4")]
+#[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
 #[allow(unused)]
 unsafe extern "C" fn empty(env: sys::napi_env, info: sys::napi_callback_info) -> sys::napi_value {
   ptr::null_mut()
 }
 
-#[cfg(feature = "napi4")]
+#[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
 #[allow(unused)]
 unsafe extern "C" fn custom_gc_finalize(
   env: sys::napi_env,
@@ -588,7 +597,7 @@ unsafe extern "C" fn custom_gc_finalize(
   CUSTOM_GC_TSFN_CLOSED.store(true, Ordering::SeqCst);
 }
 
-#[cfg(feature = "napi4")]
+#[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
 // recycle the ArrayBuffer/Buffer Reference if the ArrayBuffer/Buffer is not dropped on the main thread
 extern "C" fn custom_gc(
   env: sys::napi_env,

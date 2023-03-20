@@ -15,21 +15,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        features:
-          [
-            'napi3',
-            'napi4',
-            'napi5',
-            'napi6',
-            'napi7',
-            'napi8',
-            'experimental',
-            'async',
-            'chrono_date',
-            'latin1',
-            'full',
-          ]
-
+        settings:
+          - features: 'napi1,napi2,napi3,napi4,napi5,napi6,napi7,napi8,experimental,async,chrono_date,latin1,full'
+            package: 'napi'
+          - features: 'compat-mode,strict,type-def,noop,full,default'
+            package: 'napi-derive'
     name: stable - ubuntu-latest
     runs-on: ubuntu-latest
 
@@ -47,10 +37,7 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: stable-check-ubuntu-latest-cargo-cache-features-${{ matrix.features }}
+          key: stable-check-ubuntu-latest-cargo-cache-features-${{ matrix.settings.package }}-${{ matrix.features }}
 
       - name: Check build
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: -p napi --no-default-features --features ${{ matrix.features }}
+        run: cargo check -p ${{ matrix.settings.package }} -F ${{ matrix.settings.features }}

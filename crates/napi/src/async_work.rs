@@ -77,7 +77,7 @@ pub fn run<T: Task>(
         complete::<T>
           as unsafe extern "C" fn(env: sys::napi_env, status: sys::napi_status, data: *mut c_void),
       ),
-      result as *mut _ as *mut c_void,
+      (result as *mut AsyncWork<T>).cast(),
       &mut result.napi_async_work,
     )
   })?;
@@ -91,10 +91,8 @@ pub fn run<T: Task>(
   })
 }
 
-#[allow(clippy::non_send_fields_in_send_ty)]
-unsafe impl<T: Task> Send for AsyncWork<T> {}
-
-unsafe impl<T: Task> Sync for AsyncWork<T> {}
+unsafe impl<T: Task + Send> Send for AsyncWork<T> {}
+unsafe impl<T: Task + Sync> Sync for AsyncWork<T> {}
 
 /// env here is the same with the one in `CallContext`.
 /// So it actually could do nothing here, because `execute` function is called in the other thread mostly.
