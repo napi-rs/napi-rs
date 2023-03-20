@@ -9,7 +9,7 @@ use std::sync::Arc;
 #[cfg(all(debug_assertions, not(windows)))]
 use std::sync::Mutex;
 
-#[cfg(feature = "napi4")]
+#[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
 use crate::bindgen_prelude::{CUSTOM_GC_TSFN, CUSTOM_GC_TSFN_CLOSED, MAIN_THREAD_ID};
 use crate::{bindgen_prelude::*, check_status, sys, Result, ValueType};
 
@@ -34,7 +34,7 @@ impl Drop for Buffer {
   fn drop(&mut self) {
     if Arc::strong_count(&self.ref_count) == 1 {
       if let Some((ref_, env)) = self.raw {
-        #[cfg(feature = "napi4")]
+        #[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
         {
           if CUSTOM_GC_TSFN_CLOSED.load(std::sync::atomic::Ordering::SeqCst) {
             return;

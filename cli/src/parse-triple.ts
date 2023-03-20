@@ -14,6 +14,7 @@ type NodeJSArch =
   | 'x32'
   | 'x64'
   | 'universal'
+  | 'wasm32'
 
 const CpuToNodeArch: { [index: string]: NodeJSArch } = {
   x86_64: 'x64',
@@ -41,7 +42,7 @@ export const UniArchsByPlatform: Record<string, NodeJSArch[]> = {
 }
 
 export interface PlatformDetail {
-  platform: NodeJS.Platform
+  platform: NodeJS.Platform | 'wasi'
   platformArchABI: string
   arch: NodeJSArch
   raw: string

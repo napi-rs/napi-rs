@@ -311,10 +311,6 @@ export class BuildCommand extends Command {
       rustflags.push('-C link-arg=-s')
     }
 
-    if (rustflags.length > 0) {
-      additionalEnv['RUSTFLAGS'] = rustflags.join(' ')
-    }
-
     let useZig = false
     if (this.useZig || isCrossForLinux || isCrossForMacOS) {
       try {
@@ -452,6 +448,22 @@ export class BuildCommand extends Command {
       tsConstEnum: tsConstEnumFromConfig,
     } = getNapiConfig(this.configFileName)
     const tsConstEnum = this.constEnum ?? tsConstEnumFromConfig
+    if (triple.platform === 'wasi') {
+      try {
+        const emnapiDir = require.resolve('emnapi')
+        const linkDir = join(emnapiDir, '..', 'lib', 'wasm32-wasi')
+        additionalEnv['EMNAPI_LINK_DIR'] = linkDir
+        rustflags.push('-Z wasi-exec-model=reactor')
+      } catch (e) {
+        const err = new Error(`Could not find emnapi, please install emnapi`)
+        err.cause = e
+        throw err
+      }
+    }
+    if (rustflags.length > 0) {
+      additionalEnv['RUSTFLAGS'] = rustflags.join(' ')
+    }
+
     let cargoArtifactName = this.cargoName
     if (!cargoArtifactName) {
       if (this.bin) {
@@ -479,23 +491,30 @@ export class BuildCommand extends Command {
     } else {
       debug(`Dylib name: ${chalk.greenBright(cargoArtifactName)}`)
     }
-
+    const cwdSha = createHash('sha256')
+      .update(process.cwd())
+      .digest('hex')
+      .substring(0, 8)
     const intermediateTypeFile = join(
       tmpdir(),
-      `${cargoArtifactName}-${createHash('sha256')
-        .update(process.cwd())
-        .digest('hex')
-        .substring(0, 8)}.napi_type_def.tmp`,
+      `${cargoArtifactName}-${cwdSha}.napi_type_def.tmp`,
+    )
+    const intermediateWasiRegisterFile = join(
+      tmpdir(),
+      `${cargoArtifactName}-${cwdSha}.napi_wasi_register.tmp`,
     )
     debug(`intermediate type def file: ${intermediateTypeFile}`)
 
+    const commandEnv = {
+      ...process.env,
+      ...additionalEnv,
+      TYPE_DEF_TMP_PATH: intermediateTypeFile,
+      WASI_REGISTER_TMP_PATH: intermediateWasiRegisterFile,
+    }
+
     try {
       execSync(cargoCommand, {
-        env: {
-          ...process.env,
-          ...additionalEnv,
-          TYPE_DEF_TMP_PATH: intermediateTypeFile,
-        },
+        env: commandEnv,
         stdio: 'inherit',
         cwd,
       })
@@ -606,18 +625,6 @@ export class BuildCommand extends Command {
         this.dts ?? 'index.d.ts',
       )
 
-      if (this.pipe) {
-        const pipeCommand = `${this.pipe} ${dtsFilePath}`
-        console.info(`Run ${chalk.green(pipeCommand)}`)
-        try {
-          execSync(pipeCommand, { stdio: 'inherit', env: process.env })
-        } catch (e) {
-          console.warn(
-            chalk.bgYellowBright('Pipe the dts file to command failed'),
-            e,
-          )
-        }
-      }
       const jsBindingFilePath =
         this.jsBinding &&
         this.jsBinding !== 'false' &&
@@ -640,7 +647,7 @@ export class BuildCommand extends Command {
         const pipeCommand = `${this.pipe} ${jsBindingFilePath}`
         console.info(`Run ${chalk.green(pipeCommand)}`)
         try {
-          execSync(pipeCommand, { stdio: 'inherit', env: process.env })
+          execSync(pipeCommand, { stdio: 'inherit', env: commandEnv })
         } catch (e) {
           console.warn(
             chalk.bgYellowBright('Pipe the js binding file to command failed'),
