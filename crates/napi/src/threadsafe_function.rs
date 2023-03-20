@@ -117,9 +117,7 @@ impl ThreadsafeFunctionHandle {
   }
 
   fn get_raw(&self) -> sys::napi_threadsafe_function {
-    let raw = self.raw.load(Ordering::SeqCst);
-    assert!(!raw.is_null());
-    raw
+    self.raw.load(Ordering::SeqCst)
   }
 
   fn set_raw(&self, raw: sys::napi_threadsafe_function) {
@@ -133,7 +131,7 @@ impl Drop for ThreadsafeFunctionHandle {
       .aborted
       .read()
       .expect("Threadsafe Function aborted lock failed");
-    if !*aborted_guard && self.referred.load(Ordering::Acquire) {
+    if !*aborted_guard {
       let release_status = unsafe {
         sys::napi_release_threadsafe_function(
           self.get_raw(),
@@ -358,9 +356,9 @@ impl<T: 'static, ES: ErrorStrategy::T> ThreadsafeFunction<T, ES> {
       .aborted
       .read()
       .expect("Threadsafe Function aborted lock failed");
-    if !*aborted_guard && !self.handle.referred.load(Ordering::Acquire) {
+    if !*aborted_guard && !self.handle.referred.load(Ordering::Relaxed) {
       check_status!(unsafe { sys::napi_ref_threadsafe_function(env.0, self.handle.get_raw()) })?;
-      self.handle.referred.store(true, Ordering::Release);
+      self.handle.referred.store(true, Ordering::Relaxed);
     }
     Ok(())
   }
@@ -373,9 +371,9 @@ impl<T: 'static, ES: ErrorStrategy::T> ThreadsafeFunction<T, ES> {
       .aborted
       .read()
       .expect("Threadsafe Function aborted lock failed");
-    if !*aborted_guard && self.handle.referred.load(Ordering::Acquire) {
+    if !*aborted_guard && self.handle.referred.load(Ordering::Relaxed) {
       check_status!(unsafe { sys::napi_unref_threadsafe_function(env.0, self.handle.get_raw()) })?;
-      self.handle.referred.store(false, Ordering::Release);
+      self.handle.referred.store(false, Ordering::Relaxed);
     }
     Ok(())
   }
