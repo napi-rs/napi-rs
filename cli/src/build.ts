@@ -121,6 +121,12 @@ export class BuildCommand extends Command {
     )} file, relative to cwd`,
   })
 
+  constEnum?: boolean = Option.Boolean('--const-enum', true, {
+    description: `Generate ${chalk.green(
+      'const enum',
+    )} in .d.ts file or not, default is ${chalk.green('true')}`,
+  })
+
   noDtsHeader = Option.Boolean('--no-dts-header', false, {
     description: `Don't generate ${chalk.green('.d.ts')} header`,
   })
@@ -440,7 +446,12 @@ export class BuildCommand extends Command {
       })
     }
 
-    const { binaryName, packageName } = getNapiConfig(this.configFileName)
+    const {
+      binaryName,
+      packageName,
+      tsConstEnum: tsConstEnumFromConfig,
+    } = getNapiConfig(this.configFileName)
+    const tsConstEnum = this.constEnum ?? tsConstEnumFromConfig
     let cargoArtifactName = this.cargoName
     if (!cargoArtifactName) {
       if (this.bin) {
@@ -617,6 +628,7 @@ export class BuildCommand extends Command {
         intermediateTypeFile,
         dtsFilePath,
         this.noDtsHeader,
+        tsConstEnum,
       )
       await writeJsBinding(
         binaryName,
@@ -666,6 +678,7 @@ async function processIntermediateTypeFile(
   source: string,
   target: string,
   noDtsHeader: boolean,
+  tsConstEnum: boolean,
 ): Promise<string[]> {
   const idents: string[] = []
   if (!existsSync(source)) {
@@ -724,9 +737,12 @@ async function processIntermediateTypeFile(
           if (!nested) {
             idents.push(def.name)
           }
+          const enumPrefix = tsConstEnum ? ' const' : ''
           dts +=
-            indentLines(`${def.js_doc}export const enum ${def.name} {`, nest) +
-            '\n'
+            indentLines(
+              `${def.js_doc}export${enumPrefix} enum ${def.name} {`,
+              nest,
+            ) + '\n'
           dts += indentLines(def.def, nest + 2) + '\n'
           dts += indentLines(`}`, nest) + '\n'
           break
