@@ -330,7 +330,7 @@ test('return function', (t) => {
   })
 })
 
-test('function return Promise', async (t) => {
+test('callback function return Promise', async (t) => {
   const cbSpy = spy()
   await callbackReturnPromise<string>(() => '1', spy)
   t.is(cbSpy.callCount, 0)
