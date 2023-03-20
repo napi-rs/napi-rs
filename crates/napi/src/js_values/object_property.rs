@@ -1,5 +1,7 @@
 use std::convert::From;
-use std::ffi::{c_void, CString};
+#[cfg(feature = "napi5")]
+use std::ffi::c_void;
+use std::ffi::CString;
 use std::ptr;
 
 use bitflags::bitflags;
@@ -51,6 +53,7 @@ impl Default for Property {
       attrs: Default::default(),
       value: ptr::null_mut(),
       is_ctor: Default::default(),
+      #[cfg(feature = "napi5")]
       closures: PropertyClosures::default(),
     }
   }
@@ -158,6 +161,8 @@ impl Property {
       setter: self.setter,
       value: self.value,
       attributes: self.attrs.into(),
+      #[cfg(not(feature = "napi5"))]
+      data: ptr::null_mut(),
       #[cfg(feature = "napi5")]
       data: closures.cast(),
     }
