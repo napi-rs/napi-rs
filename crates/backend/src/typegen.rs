@@ -92,6 +92,7 @@ fn escape_json(src: &str) -> String {
 
 impl ToString for TypeDef {
   fn to_string(&self) -> String {
+    let pkg_name = std::env::var("CARGO_PKG_NAME").expect("CARGO_PKG_NAME is not set");
     let js_mod = if let Some(js_mod) = &self.js_mod {
       format!(", \"js_mod\": \"{}\"", js_mod)
     } else {
@@ -103,7 +104,8 @@ impl ToString for TypeDef {
       "".to_owned()
     };
     format!(
-      r#"{{"kind": "{}", "name": "{}", "js_doc": "{}", "def": "{}"{}{}}}"#,
+      r#"{}:{{"kind": "{}", "name": "{}", "js_doc": "{}", "def": "{}"{}{}}}"#,
+      pkg_name,
       self.kind,
       self.name,
       escape_json(&self.js_doc),

@@ -140,10 +140,10 @@ pub async fn tsfn_return_promise_timeout(func: ThreadsafeFunction<u32>) -> Resul
   let sleep = time::sleep(Duration::from_nanos(1));
   tokio::select! {
     _ = sleep => {
-      return Err(Error::new(Status::GenericFailure, "Timeout".to_owned()));
+      Err(Error::new(Status::GenericFailure, "Timeout".to_owned()))
     }
     value = promise => {
-      return Ok(value? + 2);
+      Ok(value? + 2)
     }
   }
 }

@@ -43,6 +43,7 @@ mod object;
 mod promise;
 mod reference;
 mod serde;
+mod shared;
 mod string;
 mod symbol;
 mod task;

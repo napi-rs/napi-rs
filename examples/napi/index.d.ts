@@ -9,6 +9,9 @@ export class ExternalObject<T> {
     [K: symbol]: T
   }
 }
+export interface Shared {
+  value: number
+}
 /** This is a const */
 export const DEFAULT_COST: number
 export function getWords(): Array<string>
@@ -182,6 +185,7 @@ export interface PackageJson {
 export function readPackageJson(): PackageJson
 export function getPackageJsonName(packageJson: PackageJson): string
 export function testSerdeRoundtrip(data: any): any
+export function returnFromSharedCrate(): Shared
 export function contains(source: string, target: string): boolean
 export function concatStr(s: string): string
 export function concatUtf16(s: string): string

@@ -1,19 +1,11 @@
 [package]
 authors = ["LongYinan <lynweklm@gmail.com>"]
 edition = "2021"
-name = "napi-examples"
+name = "napi-shared"
 publish = false
 version = "0.1.0"
 
-[lib]
-crate-type = ["cdylib"]
-
-[features]
-snmalloc = ["snmalloc-rs"]
-
 [dependencies]
-chrono = "0.4"
-futures = "0.3"
 napi = { path = "../../crates/napi", default-features = false, features = [
   "tokio_fs",
   "napi8",
@@ -25,19 +17,6 @@ napi = { path = "../../crates/napi", default-features = false, features = [
   "chrono_date",
 ] }
 napi-derive = { path = "../../crates/macro", features = ["type-def"] }
-napi-shared = { path = "../napi-shared" }
-serde = "1"
-serde_derive = "1"
-serde_json = "1"
-tokio = { version = "1.20.0", features = ["full"] }
-
-[dependencies.snmalloc-rs]
-version = "0.3"
-features = ["build_cc", "local_dynamic_tls"]
-optional = true
 
 [build-dependencies]
 napi-build = { path = "../../crates/build" }
-
-[dev-dependencies]
-trybuild = "1.0"
