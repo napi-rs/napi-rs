@@ -3,6 +3,16 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.15.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.14.8...@napi-rs/cli@2.15.0) (2023-03-21)
+
+### Bug Fixes
+
+- **cli:** export non const enums when generating typedefs ([#1527](https://github.com/napi-rs/napi-rs/issues/1527)) ([c8bd892](https://github.com/napi-rs/napi-rs/commit/c8bd8924e220ac39cfc29cf9e0e18eee6c36a912))
+
+### Features
+
+- export registers in wasm32 target ([#1529](https://github.com/napi-rs/napi-rs/issues/1529)) ([550ef7c](https://github.com/napi-rs/napi-rs/commit/550ef7c3ccd56ea5b06a9cc90a5363d83105b8b7))
+
 ## [2.14.8](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.14.7...@napi-rs/cli@2.14.8) (2023-02-16)
 
 ### Bug Fixes
