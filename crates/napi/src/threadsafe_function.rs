@@ -6,7 +6,7 @@ use std::marker::PhantomData;
 use std::os::raw::c_void;
 use std::ptr::{self, null_mut};
 use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
-use std::sync::{Arc, RwLock, Weak};
+use std::sync::{Arc, RwLock, RwLockWriteGuard, Weak};
 
 use crate::bindgen_runtime::{FromNapiValue, ToNapiValue, TypeName, ValidateNapiValue};
 use crate::{check_status, sys, Env, JsError, JsUnknown, Result, Status};
@@ -112,6 +112,30 @@ impl ThreadsafeFunctionHandle {
     })
   }
 
+  /// Lock `aborted` with read access, call `f` with the value of `aborted`, then unlock it
+  fn with_read_aborted<RT, F>(&self, f: F) -> RT
+  where
+    F: FnOnce(bool) -> RT,
+  {
+    let aborted_guard = self
+      .aborted
+      .read()
+      .expect("Threadsafe Function aborted lock failed");
+    f(*aborted_guard)
+  }
+
+  /// Lock `aborted` with write access, call `f` with the `RwLockWriteGuard`, then unlock it
+  fn with_write_aborted<RT, F>(&self, f: F) -> RT
+  where
+    F: FnOnce(RwLockWriteGuard<bool>) -> RT,
+  {
+    let aborted_guard = self
+      .aborted
+      .write()
+      .expect("Threadsafe Function aborted lock failed");
+    f(aborted_guard)
+  }
+
   fn null() -> Arc<Self> {
     Self::new(null_mut())
   }
@@ -127,23 +151,21 @@ impl ThreadsafeFunctionHandle {
 
 impl Drop for ThreadsafeFunctionHandle {
   fn drop(&mut self) {
-    let aborted_guard = self
-      .aborted
-      .read()
-      .expect("Threadsafe Function aborted lock failed");
-    if !*aborted_guard {
-      let release_status = unsafe {
-        sys::napi_release_threadsafe_function(
-          self.get_raw(),
-          sys::ThreadsafeFunctionReleaseMode::release,
-        )
-      };
-      assert!(
-        release_status == sys::Status::napi_ok,
-        "Threadsafe Function release failed {}",
-        Status::from(release_status)
-      );
-    }
+    self.with_read_aborted(|aborted| {
+      if !aborted {
+        let release_status = unsafe {
+          sys::napi_release_threadsafe_function(
+            self.get_raw(),
+            sys::ThreadsafeFunctionReleaseMode::release,
+          )
+        };
+        assert!(
+          release_status == sys::Status::napi_ok,
+          "Threadsafe Function release failed {}",
+          Status::from(release_status)
+        );
+      }
+    })
   }
 }
 
@@ -215,19 +237,16 @@ pub struct ThreadsafeFunction<T: 'static, ES: ErrorStrategy::T = ErrorStrategy::
 
 impl<T: 'static, ES: ErrorStrategy::T> Clone for ThreadsafeFunction<T, ES> {
   fn clone(&self) -> Self {
-    let aborted_guard = self
-      .handle
-      .aborted
-      .read()
-      .expect("Threadsafe Function aborted lock failed");
-    if *aborted_guard {
-      panic!("ThreadsafeFunction was aborted, can not clone it");
-    }
+    self.handle.with_read_aborted(|aborted| {
+      if aborted {
+        panic!("ThreadsafeFunction was aborted, can not clone it");
+      };
 
-    Self {
-      handle: self.handle.clone(),
-      _phantom: PhantomData,
-    }
+      Self {
+        handle: self.handle.clone(),
+        _phantom: PhantomData,
+      }
+    })
   }
 }
 
@@ -351,58 +370,46 @@ impl<T: 'static, ES: ErrorStrategy::T> ThreadsafeFunction<T, ES> {
   ///
   /// "ref" is a keyword so that we use "refer" here.
   pub fn refer(&mut self, env: &Env) -> Result<()> {
-    let aborted_guard = self
-      .handle
-      .aborted
-      .read()
-      .expect("Threadsafe Function aborted lock failed");
-    if !*aborted_guard && !self.handle.referred.load(Ordering::Relaxed) {
-      check_status!(unsafe { sys::napi_ref_threadsafe_function(env.0, self.handle.get_raw()) })?;
-      self.handle.referred.store(true, Ordering::Relaxed);
-    }
-    Ok(())
+    self.handle.with_read_aborted(|aborted| {
+      if !aborted && !self.handle.referred.load(Ordering::Relaxed) {
+        check_status!(unsafe { sys::napi_ref_threadsafe_function(env.0, self.handle.get_raw()) })?;
+        self.handle.referred.store(true, Ordering::Relaxed);
+      }
+      Ok(())
+    })
   }
 
   /// See [napi_unref_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_unref_threadsafe_function)
   /// for more information.
   pub fn unref(&mut self, env: &Env) -> Result<()> {
-    let aborted_guard = self
-      .handle
-      .aborted
-      .read()
-      .expect("Threadsafe Function aborted lock failed");
-    if !*aborted_guard && self.handle.referred.load(Ordering::Relaxed) {
-      check_status!(unsafe { sys::napi_unref_threadsafe_function(env.0, self.handle.get_raw()) })?;
-      self.handle.referred.store(false, Ordering::Relaxed);
-    }
-    Ok(())
+    self.handle.with_read_aborted(|aborted| {
+      if !aborted && self.handle.referred.load(Ordering::Relaxed) {
+        check_status!(unsafe {
+          sys::napi_unref_threadsafe_function(env.0, self.handle.get_raw())
+        })?;
+        self.handle.referred.store(false, Ordering::Relaxed);
+      }
+      Ok(())
+    })
   }
 
   pub fn aborted(&self) -> bool {
-    let aborted_guard = self
-      .handle
-      .aborted
-      .read()
-      .expect("Threadsafe Function aborted lock failed");
-    *aborted_guard
+    self.handle.with_read_aborted(|aborted| aborted)
   }
 
   pub fn abort(self) -> Result<()> {
-    let mut aborted_guard = self
-      .handle
-      .aborted
-      .write()
-      .expect("Threadsafe Function aborted lock failed");
-    if !*aborted_guard {
-      check_status!(unsafe {
-        sys::napi_release_threadsafe_function(
-          self.handle.get_raw(),
-          sys::ThreadsafeFunctionReleaseMode::abort,
-        )
-      })?;
-      *aborted_guard = true;
-    }
-    Ok(())
+    self.handle.with_write_aborted(|mut aborted_guard| {
+      if !*aborted_guard {
+        check_status!(unsafe {
+          sys::napi_release_threadsafe_function(
+            self.handle.get_raw(),
+            sys::ThreadsafeFunctionReleaseMode::abort,
+          )
+        })?;
+        *aborted_guard = true;
+      }
+      Ok(())
+    })
   }
 
   /// Get the raw `ThreadSafeFunction` pointer
@@ -567,14 +574,11 @@ unsafe extern "C" fn thread_finalize_cb<T: 'static, V: ToNapiValue, R>(
     unsafe { Weak::from_raw(finalize_data.cast::<ThreadsafeFunctionHandle>()).upgrade() };
 
   if let Some(handle) = handle_option {
-    let mut aborted_guard = handle
-      .aborted
-      .write()
-      .expect("Threadsafe Function Handle aborted lock failed");
-
-    if !*aborted_guard {
-      *aborted_guard = true;
-    }
+    handle.with_write_aborted(|mut aborted_guard| {
+      if !*aborted_guard {
+        *aborted_guard = true;
+      }
+    });
   }
 
   // cleanup
