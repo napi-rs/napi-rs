@@ -463,7 +463,7 @@ fn remove_existed_type_def(type_def_file: &str) -> std::io::Result<()> {
       .open(type_def_file)?;
 
     content.write_all(cleaned_content.as_bytes())?;
-    content.write(b"\n")?;
+    content.write_all(b"\n")?;
   }
   Ok(())
 }

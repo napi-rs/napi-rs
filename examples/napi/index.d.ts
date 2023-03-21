@@ -9,6 +9,9 @@ export class ExternalObject<T> {
     [K: symbol]: T
   }
 }
+export interface Shared {
+  value: number
+}
 /** This is a const */
 export const DEFAULT_COST: number
 export function getWords(): Array<string>
