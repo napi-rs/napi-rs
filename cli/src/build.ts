@@ -646,14 +646,28 @@ export class BuildCommand extends Command {
         jsBindingFilePath,
         idents,
       )
-      if (this.pipe && jsBindingFilePath) {
-        const pipeCommand = `${this.pipe} ${jsBindingFilePath}`
+      if (this.pipe) {
+        if (jsBindingFilePath) {
+          const pipeCommand = `${this.pipe} ${jsBindingFilePath}`
+          console.info(`Run ${chalk.green(pipeCommand)}`)
+          try {
+            execSync(pipeCommand, { stdio: 'inherit', env: commandEnv })
+          } catch (e) {
+            console.warn(
+              chalk.bgYellowBright(
+                'Pipe the js binding file to command failed',
+              ),
+              e,
+            )
+          }
+        }
+        const pipeCommand = `${this.pipe} ${dtsFilePath}`
         console.info(`Run ${chalk.green(pipeCommand)}`)
         try {
           execSync(pipeCommand, { stdio: 'inherit', env: commandEnv })
         } catch (e) {
           console.warn(
-            chalk.bgYellowBright('Pipe the js binding file to command failed'),
+            chalk.bgYellowBright('Pipe the dts file to command failed'),
             e,
           )
         }
