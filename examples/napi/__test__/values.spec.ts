@@ -25,6 +25,7 @@ import {
   ClassWithFactory,
   CustomNumEnum,
   Context,
+  GetterSetterWithClosures,
   enumToI32,
   listObjKeys,
   createObj,
@@ -329,7 +330,7 @@ test('return function', (t) => {
   })
 })
 
-test('function return Promise', async (t) => {
+test('callback function return Promise', async (t) => {
   const cbSpy = spy()
   await callbackReturnPromise<string>(() => '1', spy)
   t.is(cbSpy.callCount, 0)
@@ -918,4 +919,15 @@ Napi5Test('Date to chrono test', (t) => {
     chronoDateAdd1Minute(fixture),
     new Date(fixture.getTime() + 60 * 1000),
   )
+})
+
+Napi5Test('Class with getter setter closures', (t) => {
+  const instance = new GetterSetterWithClosures()
+  // @ts-expect-error
+  instance.name = 'Allie'
+  t.pass()
+  // @ts-expect-error
+  t.is(instance.name, `I'm Allie`)
+  // @ts-expect-error
+  t.is(instance.age, 0.3)
 })

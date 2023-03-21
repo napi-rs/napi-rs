@@ -43,6 +43,19 @@ pub fn call_function_error(ctx: CallContext) -> Result<JsUnknown> {
   }
 }
 
+#[js_function(0)]
+pub fn test_create_function_from_closure(ctx: CallContext) -> Result<JsFunction> {
+  ctx
+    .env
+    .create_function_from_closure("functionFromClosure", move |ctx| {
+      if ctx.length != 0 {
+        let max: u32 = ctx.get(ctx.length - 1)?;
+        assert_eq!(max, ctx.length as u32 - 1);
+      }
+      Ok(format!("arguments length: {}", ctx.length))
+    })
+}
+
 pub fn register_js(exports: &mut JsObject) -> Result<()> {
   exports.create_named_method("testCallFunction", call_function)?;
   exports.create_named_method(
@@ -51,5 +64,9 @@ pub fn register_js(exports: &mut JsObject) -> Result<()> {
   )?;
   exports.create_named_method("testCallFunctionWithThis", call_function_with_this)?;
   exports.create_named_method("testCallFunctionError", call_function_error)?;
+  exports.create_named_method(
+    "testCreateFunctionFromClosure",
+    test_create_function_from_closure,
+  )?;
   Ok(())
 }

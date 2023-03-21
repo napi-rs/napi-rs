@@ -1,10 +1,34 @@
 use std::convert::From;
+#[cfg(feature = "napi5")]
+use std::ffi::c_void;
 use std::ffi::CString;
 use std::ptr;
 
 use bitflags::bitflags;
 
+#[cfg(feature = "napi5")]
+use crate::{
+  bindgen_runtime::{FromNapiValue, This, ToNapiValue},
+  Env,
+};
 use crate::{sys, Callback, NapiRaw, Result};
+
+#[cfg(feature = "napi5")]
+#[derive(Copy, Clone)]
+pub struct PropertyClosures {
+  setter_closure: *mut c_void,
+  getter_closure: *mut c_void,
+}
+
+#[cfg(feature = "napi5")]
+impl Default for PropertyClosures {
+  fn default() -> Self {
+    Self {
+      setter_closure: ptr::null_mut(),
+      getter_closure: ptr::null_mut(),
+    }
+  }
+}
 
 #[derive(Clone)]
 pub struct Property {
@@ -15,6 +39,8 @@ pub struct Property {
   attrs: PropertyAttributes,
   value: sys::napi_value,
   pub(crate) is_ctor: bool,
+  #[cfg(feature = "napi5")]
+  pub(crate) closures: PropertyClosures,
 }
 
 impl Default for Property {
@@ -27,6 +53,8 @@ impl Default for Property {
       attrs: Default::default(),
       value: ptr::null_mut(),
       is_ctor: Default::default(),
+      #[cfg(feature = "napi5")]
+      closures: PropertyClosures::default(),
     }
   }
 }
@@ -77,8 +105,38 @@ impl Property {
     self
   }
 
+  #[cfg(feature = "napi5")]
+  pub fn with_getter_closure<R, F>(mut self, callback: F) -> Self
+  where
+    F: 'static + Fn(Env, This) -> Result<R>,
+    R: ToNapiValue,
+  {
+    let boxed_callback = Box::new(callback);
+    let closure_data_ptr: *mut F = Box::into_raw(boxed_callback);
+    self.closures.getter_closure = closure_data_ptr.cast();
+
+    let fun = crate::trampoline_getter::<R, F>;
+    self.getter = Some(fun);
+    self
+  }
+
   pub fn with_setter(mut self, callback: Callback) -> Self {
     self.setter = Some(callback);
+    self
+  }
+
+  #[cfg(feature = "napi5")]
+  pub fn with_setter_closure<F, V>(mut self, callback: F) -> Self
+  where
+    F: 'static + Fn(crate::Env, This, V) -> Result<()>,
+    V: FromNapiValue,
+  {
+    let boxed_callback = Box::new(callback);
+    let closure_data_ptr: *mut F = Box::into_raw(boxed_callback);
+    self.closures.setter_closure = closure_data_ptr.cast();
+
+    let fun = crate::trampoline_setter::<V, F>;
+    self.setter = Some(fun);
     self
   }
 
@@ -93,6 +151,8 @@ impl Property {
   }
 
   pub(crate) fn raw(&self) -> sys::napi_property_descriptor {
+    #[cfg(feature = "napi5")]
+    let closures = Box::into_raw(Box::new(self.closures));
     sys::napi_property_descriptor {
       utf8name: self.name.as_ptr(),
       name: ptr::null_mut(),
@@ -101,7 +161,10 @@ impl Property {
       setter: self.setter,
       value: self.value,
       attributes: self.attrs.into(),
+      #[cfg(not(feature = "napi5"))]
       data: ptr::null_mut(),
+      #[cfg(feature = "napi5")]
+      data: closures.cast(),
     }
   }
 

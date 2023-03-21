@@ -1,9 +1,11 @@
 use std::convert::TryFrom;
+#[cfg(feature = "napi5")]
+use std::ffi::c_void;
 use std::ffi::CString;
 use std::ptr;
 
 use crate::{
-  bindgen_runtime::{FromNapiValue, TypeName, ValidateNapiValue},
+  bindgen_runtime::{FromNapiValue, ToNapiValue, TypeName, ValidateNapiValue},
   check_status, sys, type_of, Callback, Error, Result, Status, ValueType,
 };
 
@@ -308,11 +310,16 @@ macro_rules! impl_object_methods {
 
       pub fn set_named_property<T>(&mut self, name: &str, value: T) -> Result<()>
       where
-        T: NapiRaw,
+        T: ToNapiValue,
       {
         let key = CString::new(name)?;
         check_status!(unsafe {
-          sys::napi_set_named_property(self.0.env, self.0.value, key.as_ptr(), value.raw())
+          sys::napi_set_named_property(
+            self.0.env,
+            self.0.value,
+            key.as_ptr(),
+            T::to_napi_value(self.0.env, value)?,
+          )
         })
       }
 
@@ -347,7 +354,7 @@ macro_rules! impl_object_methods {
         unsafe { <T as FromNapiValue>::from_napi_value(self.0.env, raw_value) }
       }
 
-      pub fn get_named_property_unchecked<T>(&self, name: &str) -> Result<T>
+      pub fn get_named_property_unchecked<T: FromNapiValue>(&self, name: &str) -> Result<T>
       where
         T: FromNapiValue,
       {
@@ -539,14 +546,33 @@ macro_rules! impl_object_methods {
 
       /// This method allows the efficient definition of multiple properties on a given object.
       pub fn define_properties(&mut self, properties: &[Property]) -> Result<()> {
+        let properties_iter = properties.iter().map(|property| property.raw());
+        #[cfg(feature = "napi5")]
+        {
+          let mut closures = properties_iter
+            .clone()
+            .map(|p| p.data)
+            .filter(|data| !data.is_null())
+            .collect::<Vec<*mut std::ffi::c_void>>();
+          let len = Box::into_raw(Box::new(closures.len()));
+          check_status!(unsafe {
+            sys::napi_add_finalizer(
+              self.0.env,
+              self.0.value,
+              closures.as_mut_ptr().cast(),
+              Some(finalize_closures),
+              len.cast(),
+              ptr::null_mut(),
+            )
+          })?;
+          std::mem::forget(closures);
+        }
         check_status!(unsafe {
           sys::napi_define_properties(
             self.0.env,
             self.0.value,
             properties.len(),
-            properties
-              .iter()
-              .map(|property| property.raw())
+            properties_iter
               .collect::<Vec<sys::napi_property_descriptor>>()
               .as_ptr(),
           )
@@ -695,5 +721,15 @@ impl JsUnknown {
     V: NapiValue,
   {
     unsafe { V::from_raw_unchecked(self.0.env, self.0.value) }
+  }
+}
+
+#[cfg(feature = "napi5")]
+unsafe extern "C" fn finalize_closures(_env: sys::napi_env, data: *mut c_void, len: *mut c_void) {
+  let length: usize = *unsafe { Box::from_raw(len.cast()) };
+  let closures: Vec<*mut PropertyClosures> =
+    unsafe { Vec::from_raw_parts(data.cast(), length, length) };
+  for closure in closures.into_iter() {
+    drop(unsafe { Box::from_raw(closure) });
   }
 }
