@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.15.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.15.0...@napi-rs/cli@2.15.1) (2023-03-21)
+
+### Bug Fixes
+
+- **cli,napi-derive:** re-export types from shared crate ([#1531](https://github.com/napi-rs/napi-rs/issues/1531)) ([3d48d44](https://github.com/napi-rs/napi-rs/commit/3d48d4464bd3b5c7866183bad007fcc9269d8721))
+- **cli:** dts pipe ([#1532](https://github.com/napi-rs/napi-rs/issues/1532)) ([0f0837f](https://github.com/napi-rs/napi-rs/commit/0f0837f5ca4b2938aa316b91cb7aacb6446e4fe8))
+
 # [2.15.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.14.8...@napi-rs/cli@2.15.0) (2023-03-21)
 
 ### Bug Fixes
