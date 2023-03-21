@@ -50,9 +50,9 @@ export async function createSuite(testFile, maxMemoryUsage) {
     stats.on('data', (d) => {
       const { memory_stats } = JSON.parse(d.toString('utf8'))
       if (Date.now() - initialDate > 10000 && !shouldAssertMemoryUsage) {
-        resolve()
         initialMemoryUsage = memory_stats.usage
         shouldAssertMemoryUsage = true
+        resolve()
       }
       if (shouldAssertMemoryUsage && memory_stats?.usage) {
         const memoryGrowth = memory_stats.usage - initialMemoryUsage
