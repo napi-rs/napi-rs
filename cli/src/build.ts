@@ -9,6 +9,8 @@ import * as chalk from 'colorette'
 import envPaths from 'env-paths'
 import { groupBy } from 'lodash-es'
 
+import { version } from '../package.json'
+
 import { ARM_FEATURES_H } from './arm-features.h'
 import { getNapiConfig } from './consts'
 import { debugFactory } from './debug'
@@ -493,6 +495,7 @@ export class BuildCommand extends Command {
     }
     const cwdSha = createHash('sha256')
       .update(process.cwd())
+      .update(version)
       .digest('hex')
       .substring(0, 8)
     const intermediateTypeFile = join(
@@ -698,6 +701,15 @@ async function processIntermediateTypeFile(
     .split('\n')
     .map((line) => line.trim())
     .filter(Boolean)
+    .map((line) => {
+      // compatible with old version
+      if (line.startsWith('{')) {
+        return line
+      } else {
+        const [_crateName, ...rest] = line.split(':')
+        return rest.join(':')
+      }
+    })
 
   if (!lines.length) {
     return idents

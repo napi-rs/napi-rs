@@ -126,6 +126,7 @@ import {
   runScript,
   tsfnReturnPromise,
   tsfnReturnPromiseTimeout,
+  returnFromSharedCrate,
 } from '../'
 
 test('export const', (t) => {
@@ -648,6 +649,12 @@ test('external', (t) => {
 test('should be able to run script', async (t) => {
   t.is(runScript(`1 + 1`), 2)
   t.is(await runScript(`Promise.resolve(1)`), 1)
+})
+
+test('should be able to return object from shared crate', (t) => {
+  t.deepEqual(returnFromSharedCrate(), {
+    value: 42,
+  })
 })
 
 const AbortSignalTest =

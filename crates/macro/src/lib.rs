@@ -67,8 +67,8 @@ pub fn napi(attr: RawStream, input: RawStream) -> RawStream {
   {
     // logic on first macro expansion
     #[cfg(feature = "type-def")]
-    if let Ok(type_def_file) = env::var("TYPE_DEF_TMP_PATH") {
-      if let Err(_e) = fs::remove_file(type_def_file) {
+    if let Ok(ref type_def_file) = env::var("TYPE_DEF_TMP_PATH") {
+      if let Err(_e) = remove_existed_type_def(type_def_file) {
         #[cfg(debug_assertions)]
         {
           println!("Failed to manipulate type def file: {:?}", _e);
@@ -431,4 +431,39 @@ fn replace_napi_attr_in_mod(
   } else {
     None
   }
+}
+
+#[cfg(all(feature = "type-def", not(feature = "noop")))]
+fn remove_existed_type_def(type_def_file: &str) -> std::io::Result<()> {
+  use std::io::{BufRead, BufReader};
+
+  let pkg_name = std::env::var("CARGO_PKG_NAME").expect("CARGO_PKG_NAME is not set");
+  if let Ok(content) = std::fs::File::open(type_def_file) {
+    let reader = BufReader::new(content);
+    let cleaned_content = reader
+      .lines()
+      .filter_map(|line| {
+        if let Ok(line) = line {
+          if let Some((package_name, _)) = line.split_once(':') {
+            if pkg_name == package_name {
+              return None;
+            }
+          }
+          Some(line)
+        } else {
+          None
+        }
+      })
+      .collect::<Vec<String>>()
+      .join("\n");
+    let mut content = std::fs::OpenOptions::new()
+      .read(true)
+      .write(true)
+      .truncate(true)
+      .open(type_def_file)?;
+
+    content.write_all(cleaned_content.as_bytes())?;
+    content.write(b"\n")?;
+  }
+  Ok(())
 }
