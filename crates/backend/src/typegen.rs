@@ -3,10 +3,18 @@ mod r#enum;
 mod r#fn;
 pub(crate) mod r#struct;
 
-use std::{cell::RefCell, collections::HashMap};
+use std::{cell::RefCell, collections::HashMap, env};
 
 use once_cell::sync::Lazy;
 use syn::Type;
+
+pub static NAPI_RS_CLI_VERSION: Lazy<semver::Version> = Lazy::new(|| {
+  let version = env::var("CARGO_CFG_NAPI_RS_CLI_VERSION").unwrap_or_else(|_| "0.0.0".to_string());
+  semver::Version::parse(&version).unwrap_or_else(|_| semver::Version::new(0, 0, 0))
+});
+
+pub static NAPI_RS_CLI_VERSION_WITH_SHARED_CRATES_FIX: Lazy<semver::Version> =
+  Lazy::new(|| semver::Version::new(2, 15, 1));
 
 #[derive(Default, Debug)]
 pub struct TypeDef {
@@ -103,9 +111,17 @@ impl ToString for TypeDef {
     } else {
       "".to_owned()
     };
+    // TODO: remove this in v3
+    // This is a workaround for lower version of @napi-rs/cli
+    // See https://github.com/napi-rs/napi-rs/pull/1531
+    let prefix = if *NAPI_RS_CLI_VERSION >= *NAPI_RS_CLI_VERSION_WITH_SHARED_CRATES_FIX {
+      format!("{}:", pkg_name)
+    } else {
+      "".to_string()
+    };
     format!(
-      r#"{}:{{"kind": "{}", "name": "{}", "js_doc": "{}", "def": "{}"{}{}}}"#,
-      pkg_name,
+      r#"{}{{"kind": "{}", "name": "{}", "js_doc": "{}", "def": "{}"{}{}}}"#,
+      prefix,
       self.kind,
       self.name,
       escape_json(&self.js_doc),

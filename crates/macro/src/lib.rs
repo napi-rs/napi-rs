@@ -68,7 +68,12 @@ pub fn napi(attr: RawStream, input: RawStream) -> RawStream {
     // logic on first macro expansion
     #[cfg(feature = "type-def")]
     if let Ok(ref type_def_file) = env::var("TYPE_DEF_TMP_PATH") {
-      if let Err(_e) = remove_existed_type_def(type_def_file) {
+      use napi_derive_backend::{NAPI_RS_CLI_VERSION, NAPI_RS_CLI_VERSION_WITH_SHARED_CRATES_FIX};
+      if let Err(_e) = if *NAPI_RS_CLI_VERSION >= *NAPI_RS_CLI_VERSION_WITH_SHARED_CRATES_FIX {
+        remove_existed_type_def(type_def_file)
+      } else {
+        fs::remove_file(type_def_file)
+      } {
         #[cfg(debug_assertions)]
         {
           println!("Failed to manipulate type def file: {:?}", _e);
