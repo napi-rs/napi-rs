@@ -513,6 +513,7 @@ export class BuildCommand extends Command {
       ...additionalEnv,
       TYPE_DEF_TMP_PATH: intermediateTypeFile,
       WASI_REGISTER_TMP_PATH: intermediateWasiRegisterFile,
+      CARGO_CFG_NAPI_RS_CLI_VERSION: version,
     }
 
     try {
