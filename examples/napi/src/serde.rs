@@ -30,3 +30,9 @@ fn get_package_json_name(package_json: PackageJson) -> String {
 fn test_serde_roundtrip(data: Value) -> Value {
   data
 }
+
+#[napi]
+fn test_serde_big_number_precision(number: String) -> Value {
+  let data = format!("{{\"number\":{number}}}");
+  serde_json::from_str(&data).unwrap()
+}
