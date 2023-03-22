@@ -119,7 +119,7 @@ impl ToNapiValue for Number {
       let n = n.as_i64().unwrap();
       #[cfg(feature = "napi6")]
       {
-        if n > MAX_SAFE_INT || n < -MAX_SAFE_INT {
+        if !(-MAX_SAFE_INT..=MAX_SAFE_INT).contains(&n) {
           return unsafe { BigInt::to_napi_value(env, BigInt::from(n)) };
         }
       }
