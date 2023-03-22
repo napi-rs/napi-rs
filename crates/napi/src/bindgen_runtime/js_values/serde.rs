@@ -4,7 +4,9 @@ use crate::{
   bindgen_runtime::Null, check_status, sys, type_of, Error, JsObject, Result, Status, ValueType,
 };
 
-use super::{BigInt, FromNapiValue, Object, ToNapiValue};
+#[cfg(feature = "napi6")]
+use super::BigInt;
+use super::{FromNapiValue, Object, ToNapiValue};
 
 impl ToNapiValue for Value {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
@@ -111,20 +113,33 @@ impl FromNapiValue for Map<String, Value> {
 
 impl ToNapiValue for Number {
   unsafe fn to_napi_value(env: sys::napi_env, n: Self) -> Result<sys::napi_value> {
+    #[cfg(feature = "napi6")]
     let max_safe_int = (2f64.powi(53) - 1f64) as i64;
     if n.is_i64() {
       let n = n.as_i64().unwrap();
-      if n <= max_safe_int {
-        unsafe { i64::to_napi_value(env, n as i64) }
-      } else {
-        unsafe { BigInt::to_napi_value(env, BigInt::from(n)) }
+      #[cfg(feature = "napi6")]
+      {
+        if n > max_safe_int || n < -max_safe_int {
+          return unsafe { BigInt::to_napi_value(env, BigInt::from(n)) };
+        }
       }
+
+      unsafe { i64::to_napi_value(env, n as i64) }
     } else if n.is_f64() {
       unsafe { f64::to_napi_value(env, n.as_f64().unwrap()) }
     } else {
       let n = n.as_u64().unwrap();
       if n > u32::MAX as u64 {
-        unsafe { BigInt::to_napi_value(env, BigInt::from(n)) }
+        #[cfg(feature = "napi6")]
+        {
+          return unsafe { BigInt::to_napi_value(env, BigInt::from(n)) };
+        }
+
+        #[cfg(not(feature = "napi6"))]
+        return Err(Error::new(
+          Status::InvalidArg,
+          "Number is too large to be represented as a JS number".to_owned(),
+        ));
       } else {
         unsafe { u32::to_napi_value(env, n as u32) }
       }
