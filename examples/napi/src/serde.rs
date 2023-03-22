@@ -33,6 +33,6 @@ fn test_serde_roundtrip(data: Value) -> Value {
 
 #[napi]
 fn test_serde_big_number_precision(number: String) -> Value {
-  let data = format!("{{\"number\":{number}}}");
+  let data = format!("{{\"number\":{}}}", number);
   serde_json::from_str(&data).unwrap()
 }
