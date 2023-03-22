@@ -197,6 +197,7 @@ export function createSymbol(): symbol
 export function withoutAbortController(a: number, b: number): Promise<number>
 export function withAbortController(a: number, b: number, signal: AbortSignal): Promise<number>
 export function callThreadsafeFunction(callback: (...args: any[]) => any): void
+export function callLongThreadsafeFunction(callback: (...args: any[]) => any): void
 export function threadsafeFunctionThrowError(cb: (...args: any[]) => any): void
 export function threadsafeFunctionFatalMode(cb: (...args: any[]) => any): void
 export function threadsafeFunctionFatalModeError(cb: (...args: any[]) => any): void

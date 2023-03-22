@@ -1,7 +1,7 @@
 const { ipcRenderer } = require('electron')
 
-const { callThreadsafeFunction } = require('../index')
+const { callLongThreadsafeFunction } = require('../index')
 
-callThreadsafeFunction(() => {})
+callLongThreadsafeFunction(() => {})
 
 ipcRenderer.on('ping', () => ipcRenderer.send('pong'))
