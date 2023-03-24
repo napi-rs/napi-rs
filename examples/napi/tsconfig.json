@@ -7,5 +7,5 @@
     "target": "ES2018",
     "skipLibCheck": false
   },
-  "exclude": ["dist", "electron.js"]
+  "exclude": ["dist", "electron.js", "electron-renderer"]
 }

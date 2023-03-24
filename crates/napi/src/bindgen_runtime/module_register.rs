@@ -488,6 +488,8 @@ unsafe extern "C" fn napi_register_module_v1(
 
   #[cfg(all(windows, feature = "napi4", feature = "tokio_rt"))]
   {
+    crate::tokio_runtime::ensure_runtime();
+
     crate::tokio_runtime::RT_REFERENCE_COUNT.fetch_add(1, Ordering::SeqCst);
     unsafe {
       sys::napi_add_env_cleanup_hook(
