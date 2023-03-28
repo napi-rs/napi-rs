@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1679557346159,
+  "lastUpdate": 1679976459783,
   "repoUrl": "https://github.com/napi-rs/napi-rs",
   "entries": {
     "Benchmark": [
@@ -46854,6 +46854,177 @@ window.BENCHMARK_DATA = {
             "range": "±1.17%",
             "unit": "ops/sec",
             "extra": "87 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "bertonzh@gmail.com",
+            "name": "Bo",
+            "username": "meowtec"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e47c13f177f66f3b9e8f4b2027c62b4f5a14f19e",
+          "message": "fix(napi): check if the tokio runtime exists when registering the module\n\nAnd recreate it if it does not exist.\r\n\r\nIn windows, electron renderer process will crash if:\r\n1. Import some NAPI module that enable `tokio-rt` flag in renderer process.\r\n2. Reload the page.\r\n3. Call a function imported from that NAPI module.\r\n\r\nBecause the tokio runtime will be dropped when reloading the page, and won't create again, but currently we assume that the runtime must exist in tokio-based `within_runtime_if_available`.\r\nThis will cause some panic like this:\r\n\r\n```\r\nthread '<unnamed>' panicked at 'called `Option::unwrap()` on a `None` value', napi-rs\\crates\\napi\\src\\tokio_runtime.rs:72:42\r\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\r\nError: Renderer process crashed: crashed, exitCode: -529697949\r\n    at EventEmitter.<anonymous> (napi-rs\\examples\\napi\\electron.js:33:9)\r\n    at EventEmitter.emit (node:events:525:35)\r\n```",
+          "timestamp": "2023-03-28T12:03:00+08:00",
+          "tree_id": "2bfa0f18c468d0fd634a1d8aa2e17104d2122b18",
+          "url": "https://github.com/napi-rs/napi-rs/commit/e47c13f177f66f3b9e8f4b2027c62b4f5a14f19e"
+        },
+        "date": 1679976457189,
+        "tool": "benchmarkjs",
+        "benches": [
+          {
+            "name": "noop#napi-rs",
+            "value": 43653510,
+            "range": "±0.9%",
+            "unit": "ops/sec",
+            "extra": "89 samples"
+          },
+          {
+            "name": "noop#JavaScript",
+            "value": 681184360,
+            "range": "±0.91%",
+            "unit": "ops/sec",
+            "extra": "90 samples"
+          },
+          {
+            "name": "Plus number#napi-rs",
+            "value": 13344301,
+            "range": "±1.07%",
+            "unit": "ops/sec",
+            "extra": "91 samples"
+          },
+          {
+            "name": "Plus number#JavaScript",
+            "value": 670873710,
+            "range": "±0.85%",
+            "unit": "ops/sec",
+            "extra": "89 samples"
+          },
+          {
+            "name": "Create buffer#napi-rs",
+            "value": 297023,
+            "range": "±11.83%",
+            "unit": "ops/sec",
+            "extra": "66 samples"
+          },
+          {
+            "name": "Create buffer#JavaScript",
+            "value": 1628443,
+            "range": "±5.83%",
+            "unit": "ops/sec",
+            "extra": "81 samples"
+          },
+          {
+            "name": "createArray#createArrayJson",
+            "value": 32725,
+            "range": "±0.92%",
+            "unit": "ops/sec",
+            "extra": "91 samples"
+          },
+          {
+            "name": "createArray#create array for loop",
+            "value": 5466,
+            "range": "±1.28%",
+            "unit": "ops/sec",
+            "extra": "87 samples"
+          },
+          {
+            "name": "createArray#create array with serde trait",
+            "value": 5444,
+            "range": "±1.22%",
+            "unit": "ops/sec",
+            "extra": "88 samples"
+          },
+          {
+            "name": "getArrayFromJs#get array from json string",
+            "value": 13466,
+            "range": "±1.32%",
+            "unit": "ops/sec",
+            "extra": "85 samples"
+          },
+          {
+            "name": "getArrayFromJs#get array from serde",
+            "value": 7737,
+            "range": "±1.04%",
+            "unit": "ops/sec",
+            "extra": "85 samples"
+          },
+          {
+            "name": "getArrayFromJs#get array with for loop",
+            "value": 9563,
+            "range": "±0.93%",
+            "unit": "ops/sec",
+            "extra": "90 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from native#u32",
+            "value": 338975,
+            "range": "±10.29%",
+            "unit": "ops/sec",
+            "extra": "72 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from JavaScript#u32",
+            "value": 304224,
+            "range": "±10.58%",
+            "unit": "ops/sec",
+            "extra": "74 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from native#string",
+            "value": 347784,
+            "range": "±4.22%",
+            "unit": "ops/sec",
+            "extra": "77 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from JavaScript#string",
+            "value": 277241,
+            "range": "±19.26%",
+            "unit": "ops/sec",
+            "extra": "70 samples"
+          },
+          {
+            "name": "Async task#spawn task",
+            "value": 21314,
+            "range": "±4.83%",
+            "unit": "ops/sec",
+            "extra": "73 samples"
+          },
+          {
+            "name": "Async task#ThreadSafeFunction",
+            "value": 1497,
+            "range": "±5.86%",
+            "unit": "ops/sec",
+            "extra": "40 samples"
+          },
+          {
+            "name": "Async task#Tokio future to Promise",
+            "value": 21719,
+            "range": "±2.84%",
+            "unit": "ops/sec",
+            "extra": "75 samples"
+          },
+          {
+            "name": "Query#query * 100",
+            "value": 1442,
+            "range": "±2.05%",
+            "unit": "ops/sec",
+            "extra": "78 samples"
+          },
+          {
+            "name": "Query#query * 1",
+            "value": 19001,
+            "range": "±2.84%",
+            "unit": "ops/sec",
+            "extra": "60 samples"
           }
         ]
       }
