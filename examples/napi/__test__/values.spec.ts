@@ -90,6 +90,7 @@ import {
   getStrFromObject,
   returnJsFunction,
   testSerdeRoundtrip,
+  testSerdeBigNumberPrecision,
   createObjWithProperty,
   receiveObjectOnlyFromJs,
   dateToNumber,
@@ -493,6 +494,23 @@ test('serde-roundtrip', (t) => {
 
   err = t.throws(() => testSerdeRoundtrip(Symbol.for('foo')))
   t.is(err!.message, 'JS symbols cannot be represented as a serde_json::Value')
+})
+
+test('serde-large-number-precision', (t) => {
+  t.is(testSerdeBigNumberPrecision('12345').number, 12345)
+  t.is(
+    testSerdeBigNumberPrecision('123456789012345678901234567890').number,
+    1.2345678901234568e29,
+  )
+  t.is(
+    testSerdeBigNumberPrecision('123456789012345678901234567890.123456789')
+      .number,
+    1.2345678901234568e29,
+  )
+  t.is(
+    testSerdeBigNumberPrecision('109775245175819965').number.toString(),
+    '109775245175819965',
+  )
 })
 
 test('buffer', (t) => {

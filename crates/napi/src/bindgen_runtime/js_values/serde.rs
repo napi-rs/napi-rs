@@ -4,6 +4,8 @@ use crate::{
   bindgen_runtime::Null, check_status, sys, type_of, Error, JsObject, Result, Status, ValueType,
 };
 
+#[cfg(feature = "napi6")]
+use super::BigInt;
 use super::{FromNapiValue, Object, ToNapiValue};
 
 impl ToNapiValue for Value {
@@ -111,14 +113,30 @@ impl FromNapiValue for Map<String, Value> {
 
 impl ToNapiValue for Number {
   unsafe fn to_napi_value(env: sys::napi_env, n: Self) -> Result<sys::napi_value> {
+    #[cfg(feature = "napi6")]
+    const MAX_SAFE_INT: i64 = 9007199254740991i64; // 2 ^ 53 - 1
     if n.is_i64() {
-      unsafe { i64::to_napi_value(env, n.as_i64().unwrap()) }
+      let n = n.as_i64().unwrap();
+      #[cfg(feature = "napi6")]
+      {
+        if !(-MAX_SAFE_INT..=MAX_SAFE_INT).contains(&n) {
+          return unsafe { BigInt::to_napi_value(env, BigInt::from(n)) };
+        }
+      }
+
+      unsafe { i64::to_napi_value(env, n) }
     } else if n.is_f64() {
       unsafe { f64::to_napi_value(env, n.as_f64().unwrap()) }
     } else {
       let n = n.as_u64().unwrap();
       if n > u32::MAX as u64 {
-        todo!("impl BigInt")
+        #[cfg(feature = "napi6")]
+        {
+          return unsafe { BigInt::to_napi_value(env, BigInt::from(n)) };
+        }
+
+        #[cfg(not(feature = "napi6"))]
+        return unsafe { String::to_napi_value(env, n.to_string()) };
       } else {
         unsafe { u32::to_napi_value(env, n as u32) }
       }

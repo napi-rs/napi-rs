@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.15.2](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.15.1...@napi-rs/cli@2.15.2) (2023-03-22)
+
+### Bug Fixes
+
+- **cli,napi-derive:** backward compatible with older cli with [#1531](https://github.com/napi-rs/napi-rs/issues/1531) ([#1536](https://github.com/napi-rs/napi-rs/issues/1536)) ([5398b16](https://github.com/napi-rs/napi-rs/commit/5398b16238dfc04562376d66d502d78357198c2f))
+
 ## [2.15.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.15.0...@napi-rs/cli@2.15.1) (2023-03-21)
 
 ### Bug Fixes
