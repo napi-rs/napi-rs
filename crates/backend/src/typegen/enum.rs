@@ -1,5 +1,5 @@
 use super::{add_alias, ToTypeDef, TypeDef};
-use crate::{js_doc_from_comments, NapiEnum};
+use crate::{js_doc_from_comments, NapiEnum, NapiEnumValue};
 
 impl ToTypeDef for NapiEnum {
   fn to_type_def(&self) -> Option<TypeDef> {
@@ -26,12 +26,11 @@ impl NapiEnum {
       .variants
       .iter()
       .map(|v| {
-        format!(
-          "{}{} = {}",
-          js_doc_from_comments(&v.comments),
-          v.name,
-          v.val,
-        )
+        let val = match &v.val {
+          NapiEnumValue::Number(num) => format!("{}", num),
+          NapiEnumValue::String(string) => format!("'{}'", string),
+        };
+        format!("{}{} = {}", js_doc_from_comments(&v.comments), v.name, val)
       })
       .collect::<Vec<_>>()
       .join(",\n ")

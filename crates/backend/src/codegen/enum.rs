@@ -29,7 +29,7 @@ impl NapiEnum {
     let mut to_napi_branches = vec![];
 
     self.variants.iter().for_each(|v| {
-      let val = Literal::i32_unsuffixed(v.val);
+      let val: Literal = (&v.val).into();
       let v_name = &v.name;
 
       from_napi_branches.push(quote! { #val => Ok(#name::#v_name) });
@@ -62,7 +62,7 @@ impl NapiEnum {
           env: napi::bindgen_prelude::sys::napi_env,
           napi_val: napi::bindgen_prelude::sys::napi_value
         ) -> napi::bindgen_prelude::Result<Self> {
-          let val = i32::from_napi_value(env, napi_val).map_err(|e| {
+          let val = FromNapiValue::from_napi_value(env, napi_val).map_err(|e| {
             napi::bindgen_prelude::error!(
               e.status,
               "Failed to convert napi value into enum `{}`. {}",
@@ -76,7 +76,7 @@ impl NapiEnum {
             _ => {
               Err(napi::bindgen_prelude::error!(
                 napi::bindgen_prelude::Status::InvalidArg,
-                "value `{}` does not match any variant of enum `{}`",
+                "value `{:?}` does not match any variant of enum `{}`",
                 val,
                 #name_str
               ))
@@ -94,7 +94,7 @@ impl NapiEnum {
             #(#to_napi_branches,)*
           };
 
-          i32::to_napi_value(env, val)
+          ToNapiValue::to_napi_value(env, val)
         }
       }
     }
@@ -109,13 +109,17 @@ impl NapiEnum {
 
     for variant in self.variants.iter() {
       let name_lit = Literal::string(&format!("{}\0", variant.name));
-      let val_lit = Literal::i32_unsuffixed(variant.val);
+      let val_lit: Literal = (&variant.val).into();
 
       define_properties.push(quote! {
         {
           let name = std::ffi::CStr::from_bytes_with_nul_unchecked(#name_lit.as_bytes());
           napi::bindgen_prelude::check_status!(
-            napi::bindgen_prelude::sys::napi_set_named_property(env, obj_ptr, name.as_ptr(), i32::to_napi_value(env, #val_lit)?),
+            napi::bindgen_prelude::sys::napi_set_named_property(
+              env,
+              obj_ptr, name.as_ptr(),
+              ToNapiValue::to_napi_value(env, #val_lit)?
+            ),
             "Failed to defined enum `{}`",
             #js_name_lit
           )?;

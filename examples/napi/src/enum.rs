@@ -14,6 +14,13 @@ pub enum Kind {
 #[napi]
 pub enum Empty {}
 
+#[napi(string_enum)]
+pub enum Status {
+  Pristine,
+  Loading,
+  Ready,
+}
+
 /// You could break the step and for an new continuous value.
 #[napi]
 pub enum CustomNumEnum {

@@ -38,7 +38,7 @@ pub struct BindgenAttrs {
 }
 
 // NOTE: borrowed from wasm-bindgen
-// some of them may useless is #[napi] macro
+// some of them may useless in #[napi] macro
 macro_rules! attrgen {
   ($mac:ident) => {
     $mac! {
@@ -65,6 +65,7 @@ macro_rules! attrgen {
       (ts_return_type, TsReturnType(Span, String, Span)),
       (ts_type, TsType(Span, String, Span)),
       (ts_generic_types, TsGenericTypes(Span, String, Span)),
+      (string_enum, StringEnum(Span)),
 
       // impl later
       // (inspectable, Inspectable(Span)),

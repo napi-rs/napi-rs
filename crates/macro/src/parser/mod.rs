@@ -9,7 +9,7 @@ use attrs::{BindgenAttr, BindgenAttrs};
 
 use convert_case::{Case, Casing};
 use napi_derive_backend::{
-  BindgenResult, CallbackArg, Diagnostic, FnKind, FnSelf, Napi, NapiConst, NapiEnum,
+  BindgenResult, CallbackArg, Diagnostic, FnKind, FnSelf, Napi, NapiConst, NapiEnum, NapiEnumValue,
   NapiEnumVariant, NapiFn, NapiFnArg, NapiFnArgKind, NapiImpl, NapiItem, NapiStruct,
   NapiStructField, NapiStructKind,
 };
@@ -1124,63 +1124,87 @@ impl ConvertToAST for syn::ItemEnum {
       .js_name()
       .map_or_else(|| self.ident.to_string(), |(s, _)| s.to_string());
 
-    let mut last_variant_val: i32 = -1;
-    let variants = self
-      .variants
-      .iter()
-      .map(|v| {
-        match v.fields {
-          syn::Fields::Unit => {}
-          _ => bail_span!(v.fields, "Structured enum is not supported in #[napi]"),
-        };
-
-        let val = match &v.discriminant {
-          Some((_, expr)) => {
-            let mut symbol = 1;
-            let mut inner_expr = get_expr(expr);
-            if let syn::Expr::Unary(syn::ExprUnary {
-              attrs: _,
-              op: syn::UnOp::Neg(_),
-              expr,
-            }) = inner_expr
-            {
-              symbol = -1;
-              inner_expr = expr;
-            }
-
-            match inner_expr {
-              syn::Expr::Lit(syn::ExprLit {
-                attrs: _,
-                lit: syn::Lit::Int(int_lit),
-              }) => match int_lit.base10_digits().parse::<i32>() {
-                Ok(v) => symbol * v,
-                Err(_) => {
-                  bail_span!(
-                    int_lit,
-                    "enums with #[wasm_bindgen] can only support \
-                      numbers that can be represented as i32",
-                  );
-                }
-              },
-              _ => bail_span!(
-                expr,
-                "enums with #[wasm_bindgen] may only have \
-                  number literal values",
-              ),
-            }
+    let variants = match opts.string_enum() {
+      Some(_) => self
+        .variants
+        .iter()
+        .map(|v| {
+          if !matches!(v.fields, syn::Fields::Unit) {
+            bail_span!(v.fields, "Structured enum is not supported in #[napi]")
           }
-          None => last_variant_val + 1,
-        };
-
-        last_variant_val = val;
-
-        Ok(NapiEnumVariant {
-          name: v.ident.clone(),
-          val,
-          comments: extract_doc_comments(&v.attrs),
+          if matches!(&v.discriminant, Some((_, _))) {
+            bail_span!(
+              v.fields,
+              "Literal values are not supported with string enum in #[napi]"
+            )
+          }
+          Ok(NapiEnumVariant {
+            name: v.ident.clone(),
+            val: NapiEnumValue::String(v.ident.to_string()),
+            comments: extract_doc_comments(&v.attrs),
+          })
         })
-      })
-      .collect::<BindgenResult<Vec<NapiEnumVariant>>>()?;
+        .collect::<BindgenResult<Vec<NapiEnumVariant>>>()?,
+      None => {
+        let mut last_variant_val: i32 = -1;
+
+        self
+          .variants
+          .iter()
+          .map(|v| {
+            if !matches!(v.fields, syn::Fields::Unit) {
+              bail_span!(v.fields, "Structured enum is not supported in #[napi]")
+            }
+
+            let val = match &v.discriminant {
+              Some((_, expr)) => {
+                let mut symbol = 1;
+                let mut inner_expr = get_expr(expr);
+                if let syn::Expr::Unary(syn::ExprUnary {
+                  attrs: _,
+                  op: syn::UnOp::Neg(_),
+                  expr,
+                }) = inner_expr
+                {
+                  symbol = -1;
+                  inner_expr = expr;
+                }
+
+                match inner_expr {
+                  syn::Expr::Lit(syn::ExprLit {
+                    attrs: _,
+                    lit: syn::Lit::Int(int_lit),
+                  }) => match int_lit.base10_digits().parse::<i32>() {
+                    Ok(v) => symbol * v,
+                    Err(_) => {
+                      bail_span!(
+                        int_lit,
+                        "enums with #[wasm_bindgen] can only support \
+                      numbers that can be represented as i32",
+                      );
+                    }
+                  },
+                  _ => bail_span!(
+                    expr,
+                    "enums with #[wasm_bindgen] may only have \
+                  number literal values",
+                  ),
+                }
+              }
+              None => last_variant_val + 1,
+            };
+
+            last_variant_val = val;
+
+            Ok(NapiEnumVariant {
+              name: v.ident.clone(),
+              val: NapiEnumValue::Number(val),
+              comments: extract_doc_comments(&v.attrs),
+            })
+          })
+          .collect::<BindgenResult<Vec<NapiEnumVariant>>>()?
+      }
+    };
 
     Ok(Napi {
       item: NapiItem::Enum(NapiEnum {
