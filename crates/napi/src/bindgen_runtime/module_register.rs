@@ -200,7 +200,7 @@ pub fn get_class_constructor(js_name: &'static str) -> Option<sys::napi_ref> {
 }
 
 #[doc(hidden)]
-#[cfg(feature = "compat-mode")]
+#[cfg(all(feature = "compat-mode", not(feature = "noop")))]
 // compatibility for #[module_exports]
 pub fn register_module_exports(callback: ModuleExportsCallback) {
   MODULE_EXPORTS.push(callback);
@@ -326,7 +326,7 @@ pub fn get_c_callback(raw_fn: ExportRegisterCallback) -> Result<crate::Callback>
   })
 }
 
-#[cfg(windows)]
+#[cfg(all(windows, not(feature = "noop")))]
 #[ctor::ctor]
 fn load_host() {
   unsafe {
@@ -334,7 +334,7 @@ fn load_host() {
   }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", not(feature = "noop")))]
 #[no_mangle]
 unsafe extern "C" fn napi_register_wasm_v1(
   env: sys::napi_env,
@@ -343,6 +343,7 @@ unsafe extern "C" fn napi_register_wasm_v1(
   unsafe { napi_register_module_v1(env, exports) }
 }
 
+#[cfg(not(feature = "noop"))]
 #[no_mangle]
 unsafe extern "C" fn napi_register_module_v1(
   env: sys::napi_env,
@@ -555,6 +556,7 @@ unsafe extern "C" fn napi_register_module_v1(
   exports
 }
 
+#[cfg(not(feature = "noop"))]
 pub(crate) unsafe extern "C" fn noop(
   env: sys::napi_env,
   _info: sys::napi_callback_info,
@@ -572,7 +574,7 @@ pub(crate) unsafe extern "C" fn noop(
   ptr::null_mut()
 }
 
-#[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
+#[cfg(all(feature = "napi4", not(target_arch = "wasm32"), not(feature = "noop")))]
 fn create_custom_gc(env: sys::napi_env) {
   use std::os::raw::c_char;
 
@@ -646,7 +648,7 @@ fn create_custom_gc(env: sys::napi_env) {
   );
 }
 
-#[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
+#[cfg(all(feature = "napi4", not(target_arch = "wasm32"), not(feature = "noop")))]
 unsafe extern "C" fn remove_thread_id(id: *mut std::ffi::c_void) {
   let thread_id = unsafe { Box::from_raw(id.cast::<ThreadId>()) };
   THREADS_CAN_ACCESS_ENV
@@ -654,13 +656,13 @@ unsafe extern "C" fn remove_thread_id(id: *mut std::ffi::c_void) {
     .remove(&*thread_id);
 }
 
-#[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
+#[cfg(all(feature = "napi4", not(target_arch = "wasm32"), not(feature = "noop")))]
 #[allow(unused)]
 unsafe extern "C" fn empty(env: sys::napi_env, info: sys::napi_callback_info) -> sys::napi_value {
   ptr::null_mut()
 }
 
-#[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
+#[cfg(all(feature = "napi4", not(target_arch = "wasm32"), not(feature = "noop")))]
 #[allow(unused)]
 unsafe extern "C" fn custom_gc_finalize(
   env: sys::napi_env,
@@ -672,7 +674,7 @@ unsafe extern "C" fn custom_gc_finalize(
   });
 }
 
-#[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
+#[cfg(all(feature = "napi4", not(target_arch = "wasm32"), not(feature = "noop")))]
 // recycle the ArrayBuffer/Buffer Reference if the ArrayBuffer/Buffer is not dropped on the main thread
 extern "C" fn custom_gc(
   env: sys::napi_env,
