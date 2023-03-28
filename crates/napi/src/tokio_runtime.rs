@@ -1,11 +1,11 @@
-use std::future::Future;
+use std::{future::Future, sync::RwLock};
 
 use once_cell::sync::Lazy;
 use tokio::runtime::Runtime;
 
 use crate::{sys, JsDeferred, JsUnknown, NapiValue, Result};
 
-pub(crate) static mut RT: Lazy<Option<Runtime>> = Lazy::new(|| {
+fn create_runtime() -> Option<Runtime> {
   #[cfg(not(target_arch = "wasm32"))]
   {
     let runtime = tokio::runtime::Runtime::new().expect("Create tokio runtime failed");
@@ -19,20 +19,32 @@ pub(crate) static mut RT: Lazy<Option<Runtime>> = Lazy::new(|| {
       .build()
       .ok()
   }
-});
+}
+
+pub(crate) static RT: Lazy<RwLock<Option<Runtime>>> = Lazy::new(|| RwLock::new(create_runtime()));
 
 #[cfg(windows)]
 pub(crate) static RT_REFERENCE_COUNT: std::sync::atomic::AtomicUsize =
   std::sync::atomic::AtomicUsize::new(0);
+
+/// Ensure that the Tokio runtime is initialized.
+/// In windows the Tokio runtime will be dropped when Node env exits.
+/// But in Electron renderer process, the Node env will exits and recreate when the window reloads.
+/// So we need to ensure that the Tokio runtime is initialized when the Node env is created.
+#[cfg(windows)]
+pub(crate) fn ensure_runtime() {
+  let mut rt = RT.write().unwrap();
+  if rt.is_none() {
+    *rt = create_runtime();
+  }
+}
 
 #[cfg(windows)]
 pub(crate) unsafe extern "C" fn drop_runtime(arg: *mut std::ffi::c_void) {
   use std::sync::atomic::Ordering;
 
   if RT_REFERENCE_COUNT.fetch_sub(1, Ordering::SeqCst) == 1 {
-    if let Some(rt) = Lazy::get_mut(unsafe { &mut RT }) {
-      rt.take();
-    }
+    RT.write().unwrap().take();
   }
 
   unsafe {
@@ -49,7 +61,7 @@ pub fn spawn<F>(fut: F) -> tokio::task::JoinHandle<F::Output>
 where
   F: 'static + Send + Future<Output = ()>,
 {
-  unsafe { RT.as_ref() }.unwrap().spawn(fut)
+  RT.read().unwrap().as_ref().unwrap().spawn(fut)
 }
 
 /// Runs a future to completion
@@ -59,7 +71,7 @@ pub fn block_on<F>(fut: F) -> F::Output
 where
   F: 'static + Send + Future<Output = ()>,
 {
-  unsafe { RT.as_ref() }.unwrap().block_on(fut)
+  RT.read().unwrap().as_ref().unwrap().block_on(fut)
 }
 
 // This function's signature must be kept in sync with the one in lib.rs, otherwise napi
@@ -69,7 +81,7 @@ where
 /// then call the provided closure. Otherwise it will just call the provided closure.
 #[inline]
 pub fn within_runtime_if_available<F: FnOnce() -> T, T>(f: F) -> T {
-  let _rt_guard = unsafe { RT.as_ref() }.unwrap().enter();
+  let _rt_guard = RT.read().unwrap().as_ref().unwrap().enter();
   f()
 }
 
