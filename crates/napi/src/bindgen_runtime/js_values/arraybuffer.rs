@@ -301,12 +301,11 @@ macro_rules! impl_typed_array {
           return Ok(napi_value);
         }
         let mut arraybuffer_value = ptr::null_mut();
-        let ratio = mem::size_of::<$rust_type>() / mem::size_of::<u8>();
-        let length = val.length * ratio;
-        let val_data = val.data;
+        let ratio = mem::size_of::<$rust_type>();
         let val_length = val.length;
+        let length = val_length * ratio;
+        let val_data = val.data;
         val.drop_in_vm.store(true, Ordering::Release);
-        let hint_ptr = Box::into_raw(Box::new(val));
         check_status!(
           if length == 0 {
             // Rust uses 0x1 as the data pointer for empty buffers,
@@ -316,13 +315,14 @@ macro_rules! impl_typed_array {
               sys::napi_create_arraybuffer(env, length, ptr::null_mut(), &mut arraybuffer_value)
             }
           } else {
+            let hint_ptr = Box::into_raw(Box::new(val));
             let status = unsafe {
               sys::napi_create_external_arraybuffer(
                 env,
-                val_data as *mut c_void,
+                val_data.cast(),
                 length,
                 Some(finalizer::<$rust_type, $name>),
-                hint_ptr as *mut c_void,
+                hint_ptr.cast(),
                 &mut arraybuffer_value,
               )
             };
@@ -337,7 +337,7 @@ macro_rules! impl_typed_array {
                   &mut arraybuffer_value,
                 )
               };
-              unsafe { std::ptr::swap(hint.data, underlying_data as *mut _) };
+              unsafe { std::ptr::copy(hint.data.cast(), underlying_data, length) };
               status
             } else {
               status
