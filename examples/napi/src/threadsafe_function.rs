@@ -1,4 +1,4 @@
-use std::thread;
+use std::{thread, time::Duration};
 
 use napi::{
   bindgen_prelude::*,
@@ -16,6 +16,19 @@ pub fn call_threadsafe_function(callback: JsFunction) -> Result<()> {
       tsfn.call(Ok(n), ThreadsafeFunctionCallMode::NonBlocking);
     });
   }
+  Ok(())
+}
+
+#[napi]
+pub fn call_long_threadsafe_function(callback: JsFunction) -> Result<()> {
+  let tsfn: ThreadsafeFunction<u32, ErrorStrategy::CalleeHandled> =
+    callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value + 1]))?;
+  thread::spawn(move || {
+    for n in 0..10 {
+      thread::sleep(Duration::from_millis(100));
+      tsfn.call(Ok(n), ThreadsafeFunctionCallMode::NonBlocking);
+    }
+  });
   Ok(())
 }
 
