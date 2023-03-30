@@ -1,31 +1,58 @@
 {
   "name": "@napi-rs/cli",
-  "version": "2.15.2",
+  "version": "3.0.0",
   "description": "Cli tools for napi-rs",
+  "author": "LongYinan <lynweklm@gmail.com>",
+  "homepage": "https://github.com/napi-rs/napi-rs",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">= 16"
+  },
+  "bin": {
+    "napi": "./dist/cli.js",
+    "napi-raw": "./cli.mjs"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "exports": {
+    ".": {
+      "import": {
+        "default": "./dist/index.js",
+        "types": "./dist/index.d.ts"
+      },
+      "require": {
+        "default": "./dist/index.cjs",
+        "types": "./dist/index.d.ts"
+      }
+    },
+    "./package.json": {
+      "import": "./package.json",
+      "require": "./package.json"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
   "keywords": [
     "cli",
     "rust",
     "napi",
     "n-api",
+    "node-api",
+    "node-addon",
     "neon"
   ],
-  "author": "LongYinan <lynweklm@gmail.com>",
-  "homepage": "https://github.com/napi-rs/napi-rs",
-  "license": "MIT",
-  "bin": {
-    "napi": "./scripts/index.js"
-  },
-  "files": [
-    "scripts"
-  ],
-  "engines": {
-    "node": ">= 10"
-  },
   "maintainers": [
     {
       "name": "LongYinan",
       "email": "lynweklm@gmail.com",
       "homepage": "https://github.com/Brooooooklyn"
+    },
+    {
+      "name": "forehalo",
+      "homepage": "https://github.com/forehalo"
     }
   ],
   "repository": {
@@ -39,26 +66,34 @@
   "bugs": {
     "url": "https://github.com/napi-rs/napi-rs/issues"
   },
+  "dependencies": {
+    "@octokit/rest": "^19.0.7",
+    "clipanion": "^3.2.0",
+    "colorette": "^2.0.19",
+    "debug": "^4.3.4",
+    "inquirer": "^9.1.5",
+    "js-yaml": "^4.1.0",
+    "lodash-es": "^4.17.21",
+    "typanion": "^3.12.1"
+  },
   "devDependencies": {
-    "@octokit/rest": "^19.0.5",
     "@types/inquirer": "^9.0.3",
     "@types/js-yaml": "^4.0.5",
     "@types/lodash-es": "^4.17.6",
-    "clipanion": "^3.1.0",
-    "colorette": "^2.0.19",
-    "core-js": "^3.27.1",
-    "debug": "^4.3.4",
-    "env-paths": "^3.0.0",
-    "fdir": "^5.3.0",
-    "inquirer": "^9.1.4",
-    "js-yaml": "^4.1.0",
-    "lodash-es": "4.17.21",
-    "toml": "^3.0.0",
-    "tslib": "^2.4.1",
-    "typanion": "^3.12.1"
+    "ava": "^5.2.0",
+    "esbuild": "^0.17.14",
+    "prettier": "^2.8.7",
+    "ts-node": "^10.9.1",
+    "typescript": "^4.9.4"
   },
   "funding": {
     "type": "github",
     "url": "https://github.com/sponsors/Brooooooklyn"
+  },
+  "scripts": {
+    "codegen": "node --loader ts-node/esm/transpile-only ./codegen/index.ts",
+    "build": "tsc && yarn build:cjs",
+    "build:cjs": "node ./esbuild.mjs",
+    "test": "ava"
   }
 }

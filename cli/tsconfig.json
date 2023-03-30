@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "nodenext",
+    "resolveJsonModule": true,
+    "allowSyntheticDefaultImports": true,
+    "declaration": true,
+    "rootDir": "./src",
+    "baseUrl": ".",
+    "outDir": "dist",
+    "allowJs": false
+  },
+  "include": ["./src"]
+}

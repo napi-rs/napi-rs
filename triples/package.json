@@ -13,8 +13,21 @@
   "author": "LongYinan <lynweklm@gmail.com>",
   "homepage": "https://github.com/napi-rs/napi-rs/tree/main/triples#readme",
   "license": "MIT",
+  "type": "module",
   "main": "./index.js",
   "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "default": "./index.js",
+        "types": "./index.d.ts"
+      },
+      "require": {
+        "default": "./index.cjs",
+        "types": "./index.d.ts"
+      }
+    }
+  },
   "publishConfig": {
     "registry": "https://registry.npmjs.org/",
     "access": "public"
@@ -29,5 +42,13 @@
   },
   "bugs": {
     "url": "https://github.com/napi-rs/napi-rs/issues"
+  },
+  "scripts": {
+    "build": "node --loader ts-node/esm/transpile-only ./generate-triple-list.ts"
+  },
+  "devDependencies": {
+    "lodash-es": "^4.17.21",
+    "ts-node": "^10.9.1",
+    "typescript": "^4.9.4"
   }
 }

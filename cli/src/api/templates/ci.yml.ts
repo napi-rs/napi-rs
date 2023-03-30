@@ -1,0 +1,116 @@
+import { load, dump } from 'js-yaml'
+
+import {
+  NodeArchToCpu,
+  UniArchsByPlatform,
+  parseTriple,
+} from '../../utils/index.js'
+
+import { YAML } from './ci-template.js'
+
+const BUILD_FREEBSD = 'build-freebsd'
+const TEST_MACOS_WINDOWS = 'test-macOS-windows-binding'
+const TEST_LINUX_X64_GNU = 'test-linux-x64-gnu-binding'
+const TEST_LINUX_X64_MUSL = 'test-linux-x64-musl-binding'
+const TEST_LINUX_AARCH64_GNU = 'test-linux-aarch64-gnu-binding'
+const TEST_LINUX_AARCH64_MUSL = 'test-linux-aarch64-musl-binding'
+const TEST_LINUX_ARM_GNUEABIHF = 'test-linux-arm-gnueabihf-binding'
+const UNIVERSAL_MACOS = 'universal-macOS'
+
+export const createGithubActionsCIYml = (
+  binaryName: string,
+  targets: string[],
+) => {
+  const allTargets = new Set(
+    targets.flatMap((t) => {
+      const platform = parseTriple(t)
+      if (platform.arch === 'universal') {
+        const srcTriples = UniArchsByPlatform[platform.platform]?.map((arch) =>
+          t.replace('universal', NodeArchToCpu[arch]),
+        )
+        return [t, ...(srcTriples ?? [])]
+      }
+      return [t]
+    }),
+  )
+
+  const fullTemplate = load(YAML()) as any
+
+  const requiredSteps = []
+  const enableWindowsX86 = allTargets.has('x86_64-pc-windows-msvc')
+  const enableMacOSX86 = allTargets.has('x86_64-apple-darwin')
+  const enableLinuxX86Gnu = allTargets.has('x86_64-unknown-linux-gnu')
+  const enableLinuxX86Musl = allTargets.has('x86_64-unknown-linux-musl')
+  const enableLinuxArm8Gnu = allTargets.has('aarch64-unknown-linux-gnu')
+  const enableLinuxArm8Musl = allTargets.has('aarch64-unknown-linux-musl')
+  const enableLinuxArm7 = allTargets.has('armv7-unknown-linux-gnueabihf')
+  const enableFreeBSD = allTargets.has('x86_64-unknown-freebsd')
+  const enableMacOSUni = allTargets.has('universal-apple-darwin')
+  fullTemplate.jobs.build.strategy.matrix.settings =
+    fullTemplate.jobs.build.strategy.matrix.settings.filter(
+      ({ target }: { target: string }) => allTargets.has(target),
+    )
+  if (!fullTemplate.jobs.build.strategy.matrix.settings.length) {
+    delete fullTemplate.jobs.build.strategy.matrix
+  }
+
+  if (!enableFreeBSD) {
+    delete fullTemplate.jobs[BUILD_FREEBSD]
+  } else {
+    requiredSteps.push(BUILD_FREEBSD)
+  }
+
+  if (!enableWindowsX86 && !enableMacOSX86) {
+    delete fullTemplate.jobs[TEST_MACOS_WINDOWS]
+  } else {
+    const filterTarget = enableWindowsX86 ? 'macos-latest' : 'windows-latest'
+    fullTemplate.jobs[TEST_MACOS_WINDOWS].strategy.matrix.settings =
+      fullTemplate.jobs[TEST_MACOS_WINDOWS].strategy.matrix.settings.filter(
+        ({ host }: { host: string; target: string }) => host !== filterTarget,
+      )
+
+    requiredSteps.push(TEST_MACOS_WINDOWS)
+  }
+
+  if (!enableLinuxX86Gnu) {
+    delete fullTemplate.jobs[TEST_LINUX_X64_GNU]
+  } else {
+    requiredSteps.push(TEST_LINUX_X64_GNU)
+  }
+
+  if (!enableLinuxX86Musl) {
+    delete fullTemplate.jobs[TEST_LINUX_X64_MUSL]
+  } else {
+    requiredSteps.push(TEST_LINUX_X64_MUSL)
+  }
+
+  if (!enableLinuxArm8Gnu) {
+    delete fullTemplate.jobs[TEST_LINUX_AARCH64_GNU]
+  } else {
+    requiredSteps.push(TEST_LINUX_AARCH64_GNU)
+  }
+
+  if (!enableLinuxArm8Musl) {
+    delete fullTemplate.jobs[TEST_LINUX_AARCH64_MUSL]
+  } else {
+    requiredSteps.push(TEST_LINUX_AARCH64_MUSL)
+  }
+
+  if (!enableLinuxArm7) {
+    delete fullTemplate.jobs[TEST_LINUX_ARM_GNUEABIHF]
+  } else {
+    requiredSteps.push(TEST_LINUX_ARM_GNUEABIHF)
+  }
+
+  if (!enableMacOSUni) {
+    delete fullTemplate.jobs[UNIVERSAL_MACOS]
+  } else {
+    requiredSteps.push(UNIVERSAL_MACOS)
+  }
+
+  fullTemplate.jobs.publish.needs = requiredSteps
+
+  return dump(fullTemplate, {
+    lineWidth: 1000,
+  })
+}

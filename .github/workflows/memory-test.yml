@@ -49,9 +49,6 @@ jobs:
       - name: 'Install dependencies'
         run: yarn install --immutable
 
-      - name: 'Build TypeScript'
-        run: yarn build
-
       - name: 'Pull docker image'
         run: docker pull node:lts-slim
 

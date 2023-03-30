@@ -1,0 +1,201 @@
+{"kind": "const", "name": "DEFAULT_COST", "js_doc": "/** This is a const */\n", "def": "export const DEFAULT_COST: number", "original_name": "DEFAULT_COST"}
+{"kind": "fn", "name": "getWords", "js_doc": "", "def": "export function getWords(): Array<string>"}
+{"kind": "fn", "name": "getNums", "js_doc": "/** Gets some numbers */\n", "def": "export function getNums(): Array<number>"}
+{"kind": "fn", "name": "sumNums", "js_doc": "", "def": "export function sumNums(nums: Array<number>): number"}
+{"kind": "fn", "name": "toJsObj", "js_doc": "", "def": "export function toJsObj(): object"}
+{"kind": "fn", "name": "getNumArr", "js_doc": "", "def": "export function getNumArr(): number[]"}
+{"kind": "fn", "name": "getNestedNumArr", "js_doc": "", "def": "export function getNestedNumArr(): number[][][]"}
+{"kind": "fn", "name": "readFileAsync", "js_doc": "", "def": "export function readFileAsync(path: string): Promise<Buffer>"}
+{"kind": "fn", "name": "asyncMultiTwo", "js_doc": "", "def": "export function asyncMultiTwo(arg: number): Promise<number>"}
+{"kind": "fn", "name": "bigintAdd", "js_doc": "", "def": "export function bigintAdd(a: bigint, b: bigint): bigint"}
+{"kind": "fn", "name": "createBigInt", "js_doc": "", "def": "export function createBigInt(): bigint"}
+{"kind": "fn", "name": "createBigIntI64", "js_doc": "", "def": "export function createBigIntI64(): bigint"}
+{"kind": "fn", "name": "bigintGetU64AsString", "js_doc": "", "def": "export function bigintGetU64AsString(bi: bigint): string"}
+{"kind": "fn", "name": "bigintFromI64", "js_doc": "", "def": "export function bigintFromI64(): bigint"}
+{"kind": "fn", "name": "bigintFromI128", "js_doc": "", "def": "export function bigintFromI128(): bigint"}
+{"kind": "fn", "name": "getCwd", "js_doc": "", "def": "export function getCwd(callback: (arg0: string) => void): void"}
+{"kind": "fn", "name": "optionEnd", "js_doc": "", "def": "export function optionEnd(callback: (arg0: string, arg1?: string | undefined | null) => void): void"}
+{"kind": "fn", "name": "optionStart", "js_doc": "", "def": "export function optionStart(callback: (arg0: string | undefined | null, arg1: string) => void): void"}
+{"kind": "fn", "name": "optionStartEnd", "js_doc": "", "def": "export function optionStartEnd(callback: (arg0: string | undefined | null, arg1: string, arg2?: string | undefined | null) => void): void"}
+{"kind": "fn", "name": "optionOnly", "js_doc": "", "def": "export function optionOnly(callback: (arg0?: string | undefined | null) => void): void"}
+{"kind": "fn", "name": "readFile", "js_doc": "/** napi = { version = 2, features = [\"serde-json\"] } */\n", "def": "export function readFile(callback: (arg0: Error | undefined, arg1?: string | undefined | null) => void): void"}
+{"kind": "fn", "name": "returnJsFunction", "js_doc": "", "def": "export function returnJsFunction(): (...args: any[]) => any"}
+{"kind": "fn", "name": "callbackReturnPromise", "js_doc": "", "def": "export function callbackReturnPromise<T>(functionInput: () => T | Promise<T>, callback: (err: Error | null, result: T) => void): T | Promise<T>"}
+{"kind": "fn", "name": "captureErrorInCallback", "js_doc": "", "def": "export function captureErrorInCallback(cb1: () => void, cb2: (arg0: Error) => void): void"}
+{"kind": "struct", "name": "Animal", "js_doc": "/**\n * `constructor` option for `struct` requires all fields to be public,\n * otherwise tag impl fn as constructor\n * #[napi(constructor)]\n */\n", "def": "/** Kind of animal */\nreadonly kind: Kind", "original_name": "Animal"}
+{"kind": "impl", "name": "Animal", "js_doc": "", "def": "/** This is the constructor */\n constructor(kind: Kind, name: string)\n/** This is a factory method */\nstatic withKind(kind: Kind): Animal\nget name(): string\nset name(name: string)\nget type(): Kind\nset type(kind: Kind)\n/**\n * This is a\n * multi-line comment\n * with an emoji \uD83D\uDE80\n */\n whoami(): string\n/** This is static... */\nstatic getDogKind(): Kind\n/**\n * Here are some characters and character sequences\n * that should be escaped correctly:\n * \\[]{}/\\:\"\"{\n * }\n */\n returnOtherClass(): Dog\n returnOtherClassWithCustomConstructor(): Bird\n overrideIndividualArgOnMethod(normalTy: string, overriddenTy: {n: string}): Bird"}
+{"kind": "struct", "name": "Dog", "js_doc": "", "def": "name: string\nconstructor(name: string)", "original_name": "Dog"}
+{"kind": "struct", "name": "Bird", "js_doc": "", "def": "name: string", "original_name": "Bird"}
+{"kind": "impl", "name": "Bird", "js_doc": "", "def": " constructor(name: string)\n getCount(): number\n getNameAsync(): Promise<string>"}
+{"kind": "struct", "name": "Blake2BHasher", "js_doc": "/** Smoking test for type generation */\n", "def": "", "original_name": "Blake2bHasher"}
+{"kind": "impl", "name": "Blake2BHasher", "js_doc": "", "def": "static withKey(key: Blake2bKey): Blake2BHasher"}
+{"kind": "impl", "name": "Blake2BHasher", "js_doc": "", "def": " update(data: Buffer): void"}
+{"kind": "struct", "name": "Blake2BKey", "js_doc": "", "def": "", "original_name": "Blake2bKey"}
+{"kind": "struct", "name": "Context", "js_doc": "", "def": "maybeNeed?: boolean\nbuffer: Uint8Array", "original_name": "Context"}
+{"kind": "impl", "name": "Context", "js_doc": "", "def": " constructor()\nstatic withData(data: string): Context\nstatic withBuffer(buf: Uint8Array): Context\n method(): string"}
+{"kind": "struct", "name": "AnimalWithDefaultConstructor", "js_doc": "", "def": "name: string\nkind: number\nconstructor(name: string, kind: number)", "original_name": "AnimalWithDefaultConstructor"}
+{"kind": "struct", "name": "NinjaTurtle", "js_doc": "", "def": "name: string", "original_name": "NinjaTurtle"}
+{"kind": "impl", "name": "NinjaTurtle", "js_doc": "", "def": "static isInstanceOf(value: unknown): boolean\n/** Create your ninja turtle! \uD83D\uDC22 */\nstatic newRaph(): NinjaTurtle\n getMaskColor(): string\n getName(): string\n returnThis(this: this): this"}
+{"kind": "struct", "name": "Assets", "js_doc": "", "def": "", "original_name": "JsAssets"}
+{"kind": "impl", "name": "Assets", "js_doc": "", "def": " constructor()\n get(id: number): JsAsset | null"}
+{"kind": "struct", "name": "Asset", "js_doc": "", "def": "", "original_name": "JsAsset"}
+{"kind": "impl", "name": "Asset", "js_doc": "", "def": " constructor()\nget filePath(): number"}
+{"kind": "struct", "name": "Optional", "js_doc": "", "def": "", "original_name": "Optional"}
+{"kind": "impl", "name": "Optional", "js_doc": "", "def": "static optionEnd(required: string, optional?: string | undefined | null): string\nstatic optionStart(optional: string | undefined | null, required: string): string\nstatic optionStartEnd(optional1: string | undefined | null, required: string, optional2?: string | undefined | null): string\nstatic optionOnly(optional?: string | undefined | null): string"}
+{"kind": "interface", "name": "ObjectFieldClassInstance", "js_doc": "", "def": "bird: Bird", "original_name": "ObjectFieldClassInstance"}
+{"kind": "fn", "name": "createObjectWithClassField", "js_doc": "", "def": "export function createObjectWithClassField(): ObjectFieldClassInstance"}
+{"kind": "fn", "name": "receiveObjectWithClassField", "js_doc": "", "def": "export function receiveObjectWithClassField(object: ObjectFieldClassInstance): Bird"}
+{"kind": "struct", "name": "NotWritableClass", "js_doc": "", "def": "name: string\nconstructor(name: string)", "original_name": "NotWritableClass"}
+{"kind": "impl", "name": "NotWritableClass", "js_doc": "", "def": " setName(name: string): void"}
+{"kind": "struct", "name": "CustomFinalize", "js_doc": "", "def": "", "original_name": "CustomFinalize"}
+{"kind": "impl", "name": "CustomFinalize", "js_doc": "", "def": " constructor(width: number, height: number)"}
+{"kind": "struct", "name": "Width", "js_doc": "", "def": "value: number\nconstructor(value: number)", "original_name": "Width"}
+{"kind": "fn", "name": "plusOne", "js_doc": "", "def": "export function plusOne(this: Width): number"}
+{"kind": "struct", "name": "ClassWithFactory", "js_doc": "", "def": "name: string", "original_name": "ClassWithFactory"}
+{"kind": "impl", "name": "ClassWithFactory", "js_doc": "", "def": "static withName(name: string): ClassWithFactory\n setName(name: string): this"}
+{"kind": "fn", "name": "dateToNumber", "js_doc": "", "def": "export function dateToNumber(input: Date): number"}
+{"kind": "fn", "name": "chronoDateToMillis", "js_doc": "", "def": "export function chronoDateToMillis(input: Date): number"}
+{"kind": "fn", "name": "chronoDateAdd1Minute", "js_doc": "", "def": "export function chronoDateAdd1Minute(input: Date): Date"}
+{"kind": "interface", "name": "Dates", "js_doc": "", "def": "start: Date\nend?: Date", "original_name": "Dates"}
+{"kind": "fn", "name": "eitherStringOrNumber", "js_doc": "", "def": "export function eitherStringOrNumber(input: string | number): number"}
+{"kind": "fn", "name": "returnEither", "js_doc": "", "def": "export function returnEither(input: number): string | number"}
+{"kind": "fn", "name": "either3", "js_doc": "", "def": "export function either3(input: string | number | boolean): number"}
+{"kind": "interface", "name": "Obj", "js_doc": "", "def": "v: string | number", "original_name": "Obj"}
+{"kind": "fn", "name": "either4", "js_doc": "", "def": "export function either4(input: string | number | boolean | Obj): number"}
+{"kind": "struct", "name": "JsClassForEither", "js_doc": "", "def": "", "original_name": "JsClassForEither"}
+{"kind": "impl", "name": "JsClassForEither", "js_doc": "", "def": " constructor()"}
+{"kind": "struct", "name": "AnotherClassForEither", "js_doc": "", "def": "", "original_name": "AnotherClassForEither"}
+{"kind": "impl", "name": "AnotherClassForEither", "js_doc": "", "def": " constructor()"}
+{"kind": "fn", "name": "receiveClassOrNumber", "js_doc": "", "def": "export function receiveClassOrNumber(either: number | JsClassForEither): number"}
+{"kind": "fn", "name": "receiveMutClassOrNumber", "js_doc": "", "def": "export function receiveMutClassOrNumber(either: number | JsClassForEither): number"}
+{"kind": "fn", "name": "receiveDifferentClass", "js_doc": "", "def": "export function receiveDifferentClass(either: JsClassForEither | AnotherClassForEither): number"}
+{"kind": "fn", "name": "returnEitherClass", "js_doc": "", "def": "export function returnEitherClass(input: number): number | JsClassForEither"}
+{"kind": "fn", "name": "eitherFromOption", "js_doc": "", "def": "export function eitherFromOption(): JsClassForEither | undefined"}
+{"kind": "interface", "name": "A", "js_doc": "", "def": "foo: number", "original_name": "A"}
+{"kind": "interface", "name": "B", "js_doc": "", "def": "bar: number", "original_name": "B"}
+{"kind": "interface", "name": "C", "js_doc": "", "def": "baz: number", "original_name": "C"}
+{"kind": "fn", "name": "eitherFromObjects", "js_doc": "", "def": "export function eitherFromObjects(input: A | B | C): string"}
+{"kind": "fn", "name": "eitherBoolOrFunction", "js_doc": "", "def": "export function eitherBoolOrFunction(input: boolean | ((...args: any[]) => any)): void"}
+{"kind": "fn", "name": "promiseInEither", "js_doc": "", "def": "export function promiseInEither(input: number | Promise<number>): Promise<boolean>"}
+{"kind": "enum", "name": "Kind", "js_doc": "/** default enum values are continuos i32s start from 0 */\n", "def": "/** Barks */\nDog = 0,\n /** Kills birds */\nCat = 1,\n /** Tasty */\nDuck = 2", "original_name": "Kind"}
+{"kind": "enum", "name": "Empty", "js_doc": "", "def": "", "original_name": "Empty"}
+{"kind": "enum", "name": "CustomNumEnum", "js_doc": "/** You could break the step and for an new continuous value. */\n", "def": "One = 1,\n Two = 2,\n Three = 3,\n Four = 4,\n Six = 6,\n Eight = 8,\n Nine = 9,\n Ten = 10", "original_name": "CustomNumEnum"}
+{"kind": "fn", "name": "enumToI32", "js_doc": "", "def": "export function enumToI32(e: CustomNumEnum): number"}
+{"kind": "fn", "name": "throwError", "js_doc": "", "def": "export function throwError(): void"}
+{"kind": "fn", "name": "panic", "js_doc": "", "def": "export function panic(): void"}
+{"kind": "fn", "name": "receiveString", "js_doc": "", "def": "export function receiveString(s: string): string"}
+{"kind": "fn", "name": "customStatusCode", "js_doc": "", "def": "export function customStatusCode(): void"}
+{"kind": "fn", "name": "createExternal", "js_doc": "", "def": "export function createExternal(size: number): ExternalObject<number>"}
+{"kind": "fn", "name": "createExternalString", "js_doc": "", "def": "export function createExternalString(content: string): ExternalObject<string>"}
+{"kind": "fn", "name": "getExternal", "js_doc": "", "def": "export function getExternal(external: ExternalObject<number>): number"}
+{"kind": "fn", "name": "mutateExternal", "js_doc": "", "def": "export function mutateExternal(external: ExternalObject<number>, newVal: number): void"}
+{"kind": "fn", "name": "validateArray", "js_doc": "", "def": "export function validateArray(arr: Array<number>): number"}
+{"kind": "fn", "name": "validateBuffer", "js_doc": "", "def": "export function validateBuffer(b: Buffer): number"}
+{"kind": "fn", "name": "validateTypedArray", "js_doc": "", "def": "export function validateTypedArray(input: Uint8Array): number"}
+{"kind": "fn", "name": "validateBigint", "js_doc": "", "def": "export function validateBigint(input: bigint): bigint"}
+{"kind": "fn", "name": "validateBoolean", "js_doc": "", "def": "export function validateBoolean(i: boolean): boolean"}
+{"kind": "fn", "name": "validateDate", "js_doc": "", "def": "export function validateDate(d: Date): number"}
+{"kind": "fn", "name": "validateDateTime", "js_doc": "", "def": "export function validateDateTime(d: Date): number"}
+{"kind": "fn", "name": "validateExternal", "js_doc": "", "def": "export function validateExternal(e: ExternalObject<number>): number"}
+{"kind": "fn", "name": "validateFunction", "js_doc": "", "def": "export function validateFunction(cb: () => number): number"}
+{"kind": "fn", "name": "validateHashMap", "js_doc": "", "def": "export function validateHashMap(input: Record<string, number>): number"}
+{"kind": "fn", "name": "validateNull", "js_doc": "", "def": "export function validateNull(i: null): boolean"}
+{"kind": "fn", "name": "validateUndefined", "js_doc": "", "def": "export function validateUndefined(i: undefined): boolean"}
+{"kind": "fn", "name": "validateNumber", "js_doc": "", "def": "export function validateNumber(i: number): number"}
+{"kind": "fn", "name": "validatePromise", "js_doc": "", "def": "export function validatePromise(p: Promise<number>): Promise<number>"}
+{"kind": "fn", "name": "validateString", "js_doc": "", "def": "export function validateString(s: string): string"}
+{"kind": "fn", "name": "validateSymbol", "js_doc": "", "def": "export function validateSymbol(s: symbol): boolean"}
+{"kind": "fn", "name": "validateOptional", "js_doc": "", "def": "export function validateOptional(input1?: string | undefined | null, input2?: boolean | undefined | null): boolean"}
+{"kind": "fn", "name": "returnUndefinedIfInvalid", "js_doc": "", "def": "export function returnUndefinedIfInvalid(input: boolean): boolean"}
+{"kind": "fn", "name": "returnUndefinedIfInvalidPromise", "js_doc": "", "def": "export function returnUndefinedIfInvalidPromise(input: Promise<boolean>): Promise<boolean>"}
+{"kind": "fn", "name": "tsRename", "js_doc": "", "def": "export function tsRename(a: { foo: number }): string[]"}
+{"kind": "fn", "name": "overrideIndividualArgOnFunction", "js_doc": "", "def": "export function overrideIndividualArgOnFunction(notOverridden: string, f: () => string, notOverridden2: number): string"}
+{"kind": "fn", "name": "overrideIndividualArgOnFunctionWithCbArg", "js_doc": "", "def": "export function overrideIndividualArgOnFunctionWithCbArg(callback: (town: string, name?: string | undefined | null) => string, notOverridden: number): object"}
+{"kind": "struct", "name": "Fib", "js_doc": "", "def": "", "original_name": "Fib"}
+{"kind": "impl", "name": "Fib", "js_doc": "", "def": "[Symbol.iterator](): Iterator<number, void, number>"}
+{"kind": "impl", "name": "Fib", "js_doc": "", "def": " constructor()"}
+{"kind": "struct", "name": "Fib2", "js_doc": "", "def": "", "original_name": "Fib2"}
+{"kind": "impl", "name": "Fib2", "js_doc": "", "def": "[Symbol.iterator](): Iterator<number, void, number>"}
+{"kind": "impl", "name": "Fib2", "js_doc": "", "def": "static create(seed: number): Fib2"}
+{"kind": "struct", "name": "Fib3", "js_doc": "", "def": "current: number\nnext: number\nconstructor(current: number, next: number)", "original_name": "Fib3"}
+{"kind": "impl", "name": "Fib3", "js_doc": "", "def": "[Symbol.iterator](): Iterator<number, void, number>"}
+{"kind": "const", "name": "ALIGNMENT", "js_doc": "", "def": "export const ALIGNMENT: number", "original_name": "ALIGNMENT", "js_mod": "xxh3"}
+{"kind": "fn", "name": "xxh3_64", "js_doc": "", "def": "export function xxh3_64(input: Buffer): bigint", "js_mod": "xxh3"}
+{"kind": "fn", "name": "xxh128", "js_doc": "/** xxh128 function */\n", "def": "export function xxh128(input: Buffer): bigint", "js_mod": "xxh3"}
+{"kind": "struct", "name": "Xxh3", "js_doc": "/** Xxh3 class */\n", "def": "", "original_name": "Xxh3", "js_mod": "xxh3"}
+{"kind": "impl", "name": "Xxh3", "js_doc": "", "def": " constructor()\n/** update */\n update(input: Buffer): void\n digest(): bigint", "js_mod": "xxh3"}
+{"kind": "fn", "name": "xxh2Plus", "js_doc": "", "def": "export function xxh2Plus(a: number, b: number): number", "js_mod": "xxh2"}
+{"kind": "fn", "name": "xxh3Xxh64Alias", "js_doc": "", "def": "export function xxh3Xxh64Alias(input: Buffer): bigint", "js_mod": "xxh2"}
+{"kind": "fn", "name": "xxh64Alias", "js_doc": "", "def": "export function xxh64Alias(input: Buffer): bigint"}
+{"kind": "fn", "name": "getMapping", "js_doc": "", "def": "export function getMapping(): Record<string, number>"}
+{"kind": "fn", "name": "sumMapping", "js_doc": "", "def": "export function sumMapping(nums: Record<string, number>): number"}
+{"kind": "fn", "name": "mapOption", "js_doc": "", "def": "export function mapOption(val?: number | undefined | null): number | null"}
+{"kind": "fn", "name": "returnNull", "js_doc": "", "def": "export function returnNull(): null"}
+{"kind": "fn", "name": "returnUndefined", "js_doc": "", "def": "export function returnUndefined(): void"}
+{"kind": "fn", "name": "add", "js_doc": "", "def": "export function add(a: number, b: number): number"}
+{"kind": "fn", "name": "fibonacci", "js_doc": "", "def": "export function fibonacci(n: number): number"}
+{"kind": "fn", "name": "listObjKeys", "js_doc": "", "def": "export function listObjKeys(obj: object): Array<string>"}
+{"kind": "fn", "name": "createObj", "js_doc": "", "def": "export function createObj(): object"}
+{"kind": "fn", "name": "getGlobal", "js_doc": "", "def": "export function getGlobal(): typeof global"}
+{"kind": "fn", "name": "getUndefined", "js_doc": "", "def": "export function getUndefined(): void"}
+{"kind": "fn", "name": "getNull", "js_doc": "", "def": "export function getNull(): null"}
+{"kind": "interface", "name": "AllOptionalObject", "js_doc": "", "def": "name?: string\nage?: number", "original_name": "AllOptionalObject"}
+{"kind": "fn", "name": "receiveAllOptionalObject", "js_doc": "", "def": "export function receiveAllOptionalObject(obj?: AllOptionalObject | undefined | null): void"}
+{"kind": "enum", "name": "ALIAS", "js_doc": "", "def": "A = 0,\n B = 1", "original_name": "AliasedEnum"}
+{"kind": "interface", "name": "AliasedStruct", "js_doc": "", "def": "a: ALIAS\nb: number", "original_name": "StructContainsAliasedEnum"}
+{"kind": "fn", "name": "fnReceivedAliased", "js_doc": "", "def": "export function fnReceivedAliased(s: AliasedStruct, e: ALIAS): void"}
+{"kind": "interface", "name": "StrictObject", "js_doc": "", "def": "name: string", "original_name": "StrictObject"}
+{"kind": "fn", "name": "receiveStrictObject", "js_doc": "", "def": "export function receiveStrictObject(strictObject: StrictObject): void"}
+{"kind": "fn", "name": "getStrFromObject", "js_doc": "", "def": "export function getStrFromObject(): void"}
+{"kind": "interface", "name": "TsTypeChanged", "js_doc": "", "def": "typeOverride: object\ntypeOverrideOptional?: object", "original_name": "TsTypeChanged"}
+{"kind": "fn", "name": "createObjWithProperty", "js_doc": "", "def": "export function createObjWithProperty(): { value: ArrayBuffer, get getter(): number }"}
+{"kind": "fn", "name": "getterFromObj", "js_doc": "", "def": "export function getterFromObj(): number"}
+{"kind": "interface", "name": "ObjectOnlyFromJs", "js_doc": "", "def": "count: number\ncallback: (err: Error | null, value: number) => any", "original_name": "ObjectOnlyFromJs"}
+{"kind": "fn", "name": "receiveObjectOnlyFromJs", "js_doc": "", "def": "export function receiveObjectOnlyFromJs(obj: { count: number, callback: (err: Error | null, count: number) => void }): void"}
+{"kind": "fn", "name": "asyncPlus100", "js_doc": "", "def": "export function asyncPlus100(p: Promise<number>): Promise<number>"}
+{"kind": "struct", "name": "JsRepo", "js_doc": "", "def": "", "original_name": "JsRepo"}
+{"kind": "impl", "name": "JsRepo", "js_doc": "", "def": " constructor(dir: string)\n remote(): JsRemote"}
+{"kind": "struct", "name": "JsRemote", "js_doc": "", "def": "", "original_name": "JsRemote"}
+{"kind": "impl", "name": "JsRemote", "js_doc": "", "def": " name(): string"}
+{"kind": "struct", "name": "CssRuleList", "js_doc": "", "def": "", "original_name": "CSSRuleList"}
+{"kind": "impl", "name": "CssRuleList", "js_doc": "", "def": " getRules(): Array<string>\nget parentStyleSheet(): CSSStyleSheet\nget name(): string | null"}
+{"kind": "struct", "name": "CssStyleSheet", "js_doc": "", "def": "", "original_name": "CSSStyleSheet"}
+{"kind": "struct", "name": "AnotherCssStyleSheet", "js_doc": "", "def": "", "original_name": "AnotherCSSStyleSheet"}
+{"kind": "impl", "name": "AnotherCssStyleSheet", "js_doc": "", "def": "get rules(): CssRuleList"}
+{"kind": "impl", "name": "CssStyleSheet", "js_doc": "", "def": " constructor(name: string, rules: Array<string>)\nget rules(): CssRuleList\n anotherCssStyleSheet(): AnotherCssStyleSheet"}
+{"kind": "interface", "name": "PackageJson", "js_doc": "/** This is an interface for package.json */\n", "def": "name: string\n/** The version of the package */\nversion: string\ndependencies?: Record<string, any>\ndevDependencies?: Record<string, any>", "original_name": "PackageJson"}
+{"kind": "fn", "name": "readPackageJson", "js_doc": "", "def": "export function readPackageJson(): PackageJson"}
+{"kind": "fn", "name": "getPackageJsonName", "js_doc": "", "def": "export function getPackageJsonName(packageJson: PackageJson): string"}
+{"kind": "fn", "name": "testSerdeRoundtrip", "js_doc": "", "def": "export function testSerdeRoundtrip(data: any): any"}
+{"kind": "fn", "name": "contains", "js_doc": "", "def": "export function contains(source: string, target: string): boolean"}
+{"kind": "fn", "name": "concatStr", "js_doc": "", "def": "export function concatStr(s: string): string"}
+{"kind": "fn", "name": "concatUtf16", "js_doc": "", "def": "export function concatUtf16(s: string): string"}
+{"kind": "fn", "name": "concatLatin1", "js_doc": "", "def": "export function concatLatin1(s: string): string"}
+{"kind": "fn", "name": "roundtripStr", "js_doc": "", "def": "export function roundtripStr(s: string): string"}
+{"kind": "fn", "name": "setSymbolInObj", "js_doc": "", "def": "export function setSymbolInObj(symbol: symbol): object"}
+{"kind": "fn", "name": "createSymbol", "js_doc": "", "def": "export function createSymbol(): symbol"}
+{"kind": "impl", "name": "DelaySum", "js_doc": "", "def": ""}
+{"kind": "fn", "name": "withoutAbortController", "js_doc": "", "def": "export function withoutAbortController(a: number, b: number): Promise<number>"}
+{"kind": "fn", "name": "withAbortController", "js_doc": "", "def": "export function withAbortController(a: number, b: number, signal: AbortSignal): Promise<number>"}
+{"kind": "fn", "name": "callThreadsafeFunction", "js_doc": "", "def": "export function callThreadsafeFunction(callback: (...args: any[]) => any): void"}
+{"kind": "fn", "name": "threadsafeFunctionThrowError", "js_doc": "", "def": "export function threadsafeFunctionThrowError(cb: (...args: any[]) => any): void"}
+{"kind": "fn", "name": "threadsafeFunctionFatalMode", "js_doc": "", "def": "export function threadsafeFunctionFatalMode(cb: (...args: any[]) => any): void"}
+{"kind": "fn", "name": "threadsafeFunctionFatalModeError", "js_doc": "", "def": "export function threadsafeFunctionFatalModeError(cb: (...args: any[]) => any): void"}
+{"kind": "fn", "name": "threadsafeFunctionClosureCapture", "js_doc": "", "def": "export function threadsafeFunctionClosureCapture(func: (...args: any[]) => any): void"}
+{"kind": "fn", "name": "tsfnCallWithCallback", "js_doc": "", "def": "export function tsfnCallWithCallback(func: (...args: any[]) => any): void"}
+{"kind": "fn", "name": "tsfnAsyncCall", "js_doc": "", "def": "export function tsfnAsyncCall(func: (...args: any[]) => any): Promise<void>"}
+{"kind": "fn", "name": "acceptThreadsafeFunction", "js_doc": "", "def": "export function acceptThreadsafeFunction(func: (err: Error | null, value: number) => any): void"}
+{"kind": "fn", "name": "acceptThreadsafeFunctionFatal", "js_doc": "", "def": "export function acceptThreadsafeFunctionFatal(func: (value: number) => any): void"}
+{"kind": "fn", "name": "acceptThreadsafeFunctionTupleArgs", "js_doc": "", "def": "export function acceptThreadsafeFunctionTupleArgs(func: (err: Error | null, arg0: number, arg1: boolean, arg2: string) => any): void"}
+{"kind": "fn", "name": "getBuffer", "js_doc": "", "def": "export function getBuffer(): Buffer"}
+{"kind": "fn", "name": "appendBuffer", "js_doc": "", "def": "export function appendBuffer(buf: Buffer): Buffer"}
+{"kind": "fn", "name": "getEmptyBuffer", "js_doc": "", "def": "export function getEmptyBuffer(): Buffer"}
+{"kind": "fn", "name": "convertU32Array", "js_doc": "", "def": "export function convertU32Array(input: Uint32Array): Array<number>"}
+{"kind": "fn", "name": "createExternalTypedArray", "js_doc": "", "def": "export function createExternalTypedArray(): Uint32Array"}
+{"kind": "fn", "name": "mutateTypedArray", "js_doc": "", "def": "export function mutateTypedArray(input: Float32Array): void"}
+{"kind": "fn", "name": "derefUint8Array", "js_doc": "", "def": "export function derefUint8Array(a: Uint8Array, b: Uint8ClampedArray): number"}
+{"kind": "fn", "name": "bufferPassThrough", "js_doc": "", "def": "export function bufferPassThrough(buf: Buffer): Promise<Buffer>"}
+{"kind": "fn", "name": "arrayBufferPassThrough", "js_doc": "", "def": "export function arrayBufferPassThrough(buf: Uint8Array): Promise<Uint8Array>"}
+{"kind": "impl", "name": "AsyncBuffer", "js_doc": "", "def": ""}
+{"kind": "fn", "name": "asyncReduceBuffer", "js_doc": "", "def": "export function asyncReduceBuffer(buf: Buffer): Promise<number>"}
+{"kind": "fn", "name": "runScript", "js_doc": "", "def": "export function runScript(script: string): unknown"}

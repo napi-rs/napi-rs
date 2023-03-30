@@ -1,42 +1,31 @@
-import 'core-js/es/string/replace-all'
+import { collectArtifacts } from './api/artifacts.js'
+import { buildProject } from './api/build.js'
+import { createNpmDirs } from './api/create-npm-dirs.js'
+import { newProject } from './api/new.js'
+import { prePublish } from './api/pre-publish.js'
+import { renameProject } from './api/rename.js'
+import { universalizeBinaries } from './api/universalize.js'
+import { version } from './api/version.js'
 
-import { Cli } from 'clipanion'
-
-import { version } from '../package.json'
-
-import { ArtifactsCommand } from './artifacts'
-import { BuildCommand } from './build'
-import { CreateNpmDirCommand } from './create-npm-dir'
-import { HelpCommand } from './help'
-import { NewProjectCommand } from './new'
-import { PrePublishCommand } from './pre-publish'
-import { RenameCommand } from './rename'
-import { UniversalCommand } from './universal'
-import { VersionCommand } from './version'
-
-const cli = new Cli({
-  binaryName: 'napi',
-  binaryVersion: version,
-})
-
-cli.register(ArtifactsCommand)
-cli.register(BuildCommand)
-cli.register(CreateNpmDirCommand)
-cli.register(PrePublishCommand)
-cli.register(VersionCommand)
-cli.register(UniversalCommand)
-cli.register(NewProjectCommand)
-cli.register(RenameCommand)
-cli.register(HelpCommand)
-
-cli
-  .run(process.argv.slice(2), {
-    ...Cli.defaultContext,
-  })
-  .then((status) => {
-    process.exit(status)
-  })
-  .catch((e) => {
-    console.error(e)
-    process.exit(1)
-  })
+/**
+ *
+ * @usage
+ *
+ * ```ts
+ * const cli = new NapiCli()
+ *
+ * cli.build({
+ *   cwd: '/path/to/your/project',
+ * })
+ * ```
+ */
+export class NapiCli {
+  artifacts = collectArtifacts
+  new = newProject
+  build = buildProject
+  createNpmDirs = createNpmDirs
+  prePublish = prePublish
+  rename = renameProject
+  universalize = universalizeBinaries
+  version = version
+}

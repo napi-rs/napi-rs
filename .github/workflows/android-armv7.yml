@@ -47,13 +47,10 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable --mode=skip-build
 
-      - name: 'Build TypeScript'
-        run: yarn build
-
       - name: Cross build
         run: |
           export CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER="${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi24-clang"
-          yarn build:test:android:armv7
+          yarn build:test -- --target armv7-linux-androideabi
           du -sh examples/napi/index.node
           ${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip examples/napi/index.node
           du -sh examples/napi/index.node

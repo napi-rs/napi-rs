@@ -44,12 +44,10 @@ jobs:
       - name: 'Install dependencies'
         run: yarn install --immutable --mode=skip-build
 
-      - name: 'Build TypeScript'
-        run: yarn build
-
       - name: Unit tests with address sanitizer
         run: |
-          yarn build:test:asan
+          yarn workspace @examples/napi build -- -Z build-std
+          yarn workspace @examples/compat-mode build -- -Z build-std
           LD_PRELOAD=/usr/lib/gcc/x86_64-linux-gnu/9/libasan.so yarn test
         env:
           RUST_TARGET: x86_64-unknown-linux-gnu

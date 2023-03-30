@@ -1,20 +1,34 @@
 {
-  "name": "examples",
+  "name": "@examples/napi",
   "private": true,
   "version": "0.0.0",
   "main": "./index.node",
   "types": "./index.d.ts",
   "scripts": {
-    "build": "node ../../cli/scripts/index.js build --js false",
-    "build-aarch64": "node ../../cli/scripts/index.js build --js false --target aarch64-unknown-linux-gnu",
-    "build-armv7": "node ../../cli/scripts/index.js build --js false --target armv7-unknown-linux-gnueabihf",
-    "build-i686": "node ../../cli/scripts/index.js build --js false --target i686-pc-windows-msvc",
-    "build-i686-release": "node ../../cli/scripts/index.js build --js false --release --target i686-pc-windows-msvc",
-    "build-release": "node ../../cli/scripts/index.js build --js false --release"
+    "build": "napi-raw build --no-js",
+    "test": "ava"
   },
-  "dependencies": {
+  "devDependencies": {
+    "@napi-rs/cli": "workspace:*",
     "@types/lodash": "^4.14.191",
+    "ava": "^5.2.0",
     "lodash": "^4.17.21",
     "sinon": "^15.0.1"
+  },
+  "ava": {
+    "extensions": [
+      "ts",
+      "tsx"
+    ],
+    "require": [
+      "ts-node/register/transpile-only"
+    ],
+    "files": [
+      "__tests__/**/*.spec.ts"
+    ],
+    "environmentVariables": {
+      "TS_NODE_PROJECT": "../tsconfig.json"
+    },
+    "timeout": "5m"
   }
 }
