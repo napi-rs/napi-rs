@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 #[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
-use crate::bindgen_prelude::{CUSTOM_GC_TSFN, CUSTOM_GC_TSFN_CLOSED, MAIN_THREAD_ID};
+use crate::bindgen_prelude::{CUSTOM_GC_TSFN, CUSTOM_GC_TSFN_CLOSED, THREADS_CAN_ACCESS_ENV};
 use crate::{bindgen_prelude::*, check_status, sys, Result, ValueType};
 
 #[cfg(all(debug_assertions, not(windows)))]
@@ -36,18 +36,18 @@ impl Drop for Buffer {
       if let Some((ref_, env)) = self.raw {
         #[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
         {
-          if CUSTOM_GC_TSFN_CLOSED.load(std::sync::atomic::Ordering::SeqCst) {
+          if CUSTOM_GC_TSFN_CLOSED.with(|closed| closed.load(std::sync::atomic::Ordering::Relaxed))
+          {
             return;
           }
-          if !MAIN_THREAD_ID
-            .get()
-            .map(|id| &std::thread::current().id() == id)
-            .unwrap_or(false)
+          if !THREADS_CAN_ACCESS_ENV
+            .get_or_init(Default::default)
+            .contains(&std::thread::current().id())
           {
             let status = unsafe {
               sys::napi_call_threadsafe_function(
                 CUSTOM_GC_TSFN.load(std::sync::atomic::Ordering::SeqCst),
-                ref_ as *mut c_void,
+                ref_.cast(),
                 1,
               )
             };
