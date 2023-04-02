@@ -16,8 +16,8 @@ use crate::{sys, Callback, NapiRaw, Result};
 #[cfg(feature = "napi5")]
 #[derive(Copy, Clone)]
 pub struct PropertyClosures {
-  setter_closure: *mut c_void,
-  getter_closure: *mut c_void,
+  pub setter_closure: *mut c_void,
+  pub getter_closure: *mut c_void,
 }
 
 #[cfg(feature = "napi5")]
