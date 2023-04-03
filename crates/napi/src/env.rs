@@ -1498,7 +1498,7 @@ pub(crate) unsafe extern "C" fn trampoline_setter<
     let mut argc = 1;
     let mut raw_args = vec![ptr::null_mut(); 1];
     let mut raw_this = ptr::null_mut();
-    let mut closure_data_ptr = ptr::null_mut();
+    let mut data_ptr = ptr::null_mut();
 
     let status = unsafe {
       sys::napi_get_cb_info(
@@ -1507,7 +1507,7 @@ pub(crate) unsafe extern "C" fn trampoline_setter<
         &mut argc,
         raw_args.as_mut_ptr(),
         &mut raw_this,
-        &mut closure_data_ptr,
+        &mut data_ptr,
       )
     };
     unsafe { raw_args.set_len(argc) };
@@ -1515,6 +1515,8 @@ pub(crate) unsafe extern "C" fn trampoline_setter<
       Status::from(status) == Status::Ok,
       "napi_get_cb_info failed"
     );
+
+    let closure_data_ptr = unsafe { *(data_ptr as *mut PropertyClosures) }.setter_closure;
     (raw_args, raw_this, closure_data_ptr)
   };
 
@@ -1548,7 +1550,7 @@ pub(crate) unsafe extern "C" fn trampoline_getter<
 ) -> sys::napi_value {
   let (raw_this, closure_data_ptr) = {
     let mut raw_this = ptr::null_mut();
-    let mut closure_data_ptr = ptr::null_mut();
+    let mut data_ptr = ptr::null_mut();
 
     let status = unsafe {
       sys::napi_get_cb_info(
@@ -1557,13 +1559,15 @@ pub(crate) unsafe extern "C" fn trampoline_getter<
         &mut 0,
         ptr::null_mut(),
         &mut raw_this,
-        &mut closure_data_ptr,
+        &mut data_ptr,
       )
     };
     debug_assert!(
       Status::from(status) == Status::Ok,
       "napi_get_cb_info failed"
     );
+
+    let closure_data_ptr = unsafe { *(data_ptr as *mut PropertyClosures) }.getter_closure;
     (raw_this, closure_data_ptr)
   };
 
