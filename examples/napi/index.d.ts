@@ -88,6 +88,11 @@ export const enum Kind {
 export const enum Empty {
   
 }
+export const enum Status {
+  Pristine = 'Pristine',
+  Loading = 'Loading',
+  Ready = 'Ready'
+}
 /** You could break the step and for an new continuous value. */
 export const enum CustomNumEnum {
   One = 1,

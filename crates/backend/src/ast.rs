@@ -1,4 +1,4 @@
-use proc_macro2::Ident;
+use proc_macro2::{Ident, Literal};
 use syn::{Attribute, Expr, Type};
 
 #[derive(Debug, Clone)]
@@ -134,9 +134,24 @@ pub struct NapiEnum {
 }
 
 #[derive(Debug, Clone)]
+pub enum NapiEnumValue {
+  String(String),
+  Number(i32),
+}
+
+impl Into<Literal> for &NapiEnumValue {
+  fn into(self) -> Literal {
+    match self {
+      NapiEnumValue::String(string) => Literal::string(string),
+      NapiEnumValue::Number(number) => Literal::i32_unsuffixed(number.to_owned()),
+    }
+  }
+}
+
+#[derive(Debug, Clone)]
 pub struct NapiEnumVariant {
   pub name: Ident,
-  pub val: i32,
+  pub val: NapiEnumValue,
   pub comments: Vec<String>,
 }
 
