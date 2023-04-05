@@ -24,8 +24,7 @@ fn create_runtime() -> Option<Runtime> {
 pub(crate) static RT: Lazy<RwLock<Option<Runtime>>> = Lazy::new(|| RwLock::new(create_runtime()));
 
 #[cfg(windows)]
-pub(crate) static RT_REFERENCE_COUNT: std::sync::atomic::AtomicUsize =
-  std::sync::atomic::AtomicUsize::new(0);
+static RT_REFERENCE_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 /// Ensure that the Tokio runtime is initialized.
 /// In windows the Tokio runtime will be dropped when Node env exits.
@@ -33,23 +32,22 @@ pub(crate) static RT_REFERENCE_COUNT: std::sync::atomic::AtomicUsize =
 /// So we need to ensure that the Tokio runtime is initialized when the Node env is created.
 #[cfg(windows)]
 pub(crate) fn ensure_runtime() {
+  use std::sync::atomic::Ordering;
+
   let mut rt = RT.write().unwrap();
   if rt.is_none() {
     *rt = create_runtime();
   }
+
+  RT_REFERENCE_COUNT.fetch_add(1, Ordering::Relaxed);
 }
 
 #[cfg(windows)]
-pub(crate) unsafe extern "C" fn drop_runtime(arg: *mut std::ffi::c_void) {
+pub(crate) unsafe extern "C" fn drop_runtime(_arg: *mut std::ffi::c_void) {
   use std::sync::atomic::Ordering;
 
-  if RT_REFERENCE_COUNT.fetch_sub(1, Ordering::SeqCst) == 1 {
+  if RT_REFERENCE_COUNT.fetch_sub(1, Ordering::AcqRel) == 1 {
     RT.write().unwrap().take();
-  }
-
-  unsafe {
-    let env: sys::napi_env = arg as *mut sys::napi_env__;
-    sys::napi_remove_env_cleanup_hook(env, Some(drop_runtime), arg);
   }
 }
 
