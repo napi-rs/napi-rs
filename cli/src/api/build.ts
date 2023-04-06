@@ -297,6 +297,10 @@ class Builder {
   private setEnvs() {
     // type definition intermediate file
     this.envs.TYPE_DEF_TMP_PATH = this.getIntermediateTypeFile()
+    // WASI register intermediate file
+    this.envs.WASI_REGISTER_TMP_PATH = this.getIntermediateWasiRegisterFile()
+    // TODO:
+    //   remove after napi-derive@v3 release
     this.envs.CARGO_CFG_NAPI_RS_CLI_VERSION = CLI_VERSION
 
     // RUSTFLAGS
@@ -410,6 +414,17 @@ class Builder {
         .update(CLI_VERSION)
         .digest('hex')
         .substring(0, 8)}.napi_type_def.tmp`,
+    )
+  }
+
+  private getIntermediateWasiRegisterFile() {
+    return join(
+      tmpdir(),
+      `${this.crate.name}-${createHash('sha256')
+        .update(this.crate.manifest_path)
+        .update(CLI_VERSION)
+        .digest('hex')
+        .substring(0, 8)}.napi_wasi_register.tmp`,
     )
   }
 
