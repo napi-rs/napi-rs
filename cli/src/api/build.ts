@@ -324,7 +324,9 @@ class Builder {
     // END RUSTFLAGS
 
     // LINKER
-    const linker = getTargetLinker(this.target.triple)
+    const linker = this.options.crossCompile
+      ? void 0
+      : getTargetLinker(this.target.triple)
     // TODO:
     //   directly set CARGO_TARGET_<target>_LINKER will cover .cargo/config.toml
     //   will detect by cargo config when it becomes stable
