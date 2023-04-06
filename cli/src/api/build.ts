@@ -297,6 +297,10 @@ class Builder {
   private setEnvs() {
     // type definition intermediate file
     this.envs.TYPE_DEF_TMP_PATH = this.getIntermediateTypeFile()
+    // WASI register intermediate file
+    this.envs.WASI_REGISTER_TMP_PATH = this.getIntermediateWasiRegisterFile()
+    // TODO:
+    //   remove after napi-derive@v3 release
     this.envs.CARGO_CFG_NAPI_RS_CLI_VERSION = CLI_VERSION
 
     // RUSTFLAGS
@@ -320,13 +324,18 @@ class Builder {
     // END RUSTFLAGS
 
     // LINKER
-    const linker = getTargetLinker(this.target.triple)
-    if (
-      linker &&
-      !process.env.RUSTC_LINKER &&
-      !process.env[`CARGET_TARGET_${targetToEnvVar(this.target.triple)}_LINKER`]
-    ) {
-      this.envs.RUSTC_LINKER = linker
+    const linker = this.options.crossCompile
+      ? void 0
+      : getTargetLinker(this.target.triple)
+    // TODO:
+    //   directly set CARGO_TARGET_<target>_LINKER will cover .cargo/config.toml
+    //   will detect by cargo config when it becomes stable
+    //   see: https://github.com/rust-lang/cargo/issues/9301
+    const linkerEnv = `CARGO_TARGET_${targetToEnvVar(
+      this.target.triple,
+    )}_LINKER`
+    if (linker && !process.env[linkerEnv]) {
+      this.envs[linkerEnv] = linker
     }
 
     if (this.target.platform === 'android') {
@@ -407,6 +416,17 @@ class Builder {
         .update(CLI_VERSION)
         .digest('hex')
         .substring(0, 8)}.napi_type_def.tmp`,
+    )
+  }
+
+  private getIntermediateWasiRegisterFile() {
+    return join(
+      tmpdir(),
+      `${this.crate.name}-${createHash('sha256')
+        .update(this.crate.manifest_path)
+        .update(CLI_VERSION)
+        .digest('hex')
+        .substring(0, 8)}.napi_wasi_register.tmp`,
     )
   }
 

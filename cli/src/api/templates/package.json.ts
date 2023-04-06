@@ -23,7 +23,7 @@ export const createPackageJson = ({
     "node": "${engineRequirement}"
   },
   "napi": {
-    "name": "${binaryName}",
+    "binaryName": "${binaryName}",
     "targets": [
       ${targets.map((t) => `"${t}"`).join(',\n      ')}
     ]
