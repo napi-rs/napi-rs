@@ -52,7 +52,7 @@ module.exports.platformArchTriples = {
     ],
     "arm": [
       {
-        "triple": "armv7-linux-android-eabi",
+        "triple": "armv7-linux-androideabi",
         "platformArchABI": "android-arm-eabi",
         "platform": "android",
         "arch": "arm",
@@ -140,7 +140,7 @@ module.exports.platformArchTriples = {
     ],
     "arm": [
       {
-        "triple": "arm-unknown-linux-gnu-eabi",
+        "triple": "arm-unknown-linux-gnueabi",
         "platformArchABI": "linux-arm-gnu",
         "platform": "linux",
         "arch": "arm",
@@ -154,7 +154,7 @@ module.exports.platformArchTriples = {
         "abi": "gnueabihf"
       },
       {
-        "triple": "arm-unknown-linux-musl-eabi",
+        "triple": "arm-unknown-linux-musleabi",
         "platformArchABI": "linux-arm-musl",
         "platform": "linux",
         "arch": "arm",
@@ -168,7 +168,7 @@ module.exports.platformArchTriples = {
         "abi": "musleabihf"
       },
       {
-        "triple": "armv7-unknown-linux-gnu-eabi",
+        "triple": "armv7-unknown-linux-gnueabi",
         "platformArchABI": "linux-arm-gnu",
         "platform": "linux",
         "arch": "arm",
@@ -182,7 +182,7 @@ module.exports.platformArchTriples = {
         "abi": "gnueabihf"
       },
       {
-        "triple": "armv7-unknown-linux-musl-eabi",
+        "triple": "armv7-unknown-linux-musleabi",
         "platformArchABI": "linux-arm-musl",
         "platform": "linux",
         "arch": "arm",
@@ -198,14 +198,14 @@ module.exports.platformArchTriples = {
     ],
     "armv5te": [
       {
-        "triple": "armv5te-unknown-linux-gnu-eabi",
+        "triple": "armv5te-unknown-linux-gnueabi",
         "platformArchABI": "linux-armv5te-gnu",
         "platform": "linux",
         "arch": "armv5te",
         "abi": "gnu"
       },
       {
-        "triple": "armv5te-unknown-linux-musl-eabi",
+        "triple": "armv5te-unknown-linux-musleabi",
         "platformArchABI": "linux-armv5te-musl",
         "platform": "linux",
         "arch": "armv5te",
