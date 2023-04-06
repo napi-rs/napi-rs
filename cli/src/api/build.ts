@@ -321,12 +321,15 @@ class Builder {
 
     // LINKER
     const linker = getTargetLinker(this.target.triple)
-    if (
-      linker &&
-      !process.env.RUSTC_LINKER &&
-      !process.env[`CARGET_TARGET_${targetToEnvVar(this.target.triple)}_LINKER`]
-    ) {
-      this.envs.RUSTC_LINKER = linker
+    // TODO:
+    //   directly set CARGO_TARGET_<target>_LINKER will cover .cargo/config.toml
+    //   will detect by cargo config when it becomes stable
+    //   see: https://github.com/rust-lang/cargo/issues/9301
+    const linkerEnv = `CARGO_TARGET_${targetToEnvVar(
+      this.target.triple,
+    )}_LINKER`
+    if (linker && !process.env[linkerEnv]) {
+      this.envs[linkerEnv] = linker
     }
 
     if (this.target.platform === 'android') {
