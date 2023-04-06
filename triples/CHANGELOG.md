@@ -3,6 +3,16 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.0.0-alpha.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/triples@1.1.0...@napi-rs/triples@2.0.0-alpha.0) (2023-04-06)
+
+### Features
+
+- **cli:** brand new cli tool with both cli and programmatical usage ([#1492](https://github.com/napi-rs/napi-rs/issues/1492)) ([a781a4f](https://github.com/napi-rs/napi-rs/commit/a781a4f27e19ffaf3e42a470a6d4a990c34c9e3b))
+
+### BREAKING CHANGES
+
+- **cli:** requires node >= 16 and some cli options have been renamed
+
 # [1.1.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/triples@1.0.3...@napi-rs/triples@1.1.0) (2021-12-02)
 
 ### Features
