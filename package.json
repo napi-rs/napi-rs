@@ -34,8 +34,7 @@
     "test:macro": "cargo test -p napi-examples",
     "test:memory": "node memory-testing/index.mjs",
     "postinstall": "husky install",
-    "prepublishOnly": "yarn build && pinst --disable",
-    "postpublish": "pinst --enable"
+    "prepublish": "yarn build"
   },
   "bugs": {
     "url": "https://github.com/napi-rs/napi-rs/issues"
