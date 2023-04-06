@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.0.0-alpha.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/triples@2.0.0-alpha.0...@napi-rs/triples@2.0.0-alpha.1) (2023-04-06)
+
+### Bug Fixes
+
+- **triples:** wrong raw triple in some eabi targets ([7c9a4ba](https://github.com/napi-rs/napi-rs/commit/7c9a4bae2da98752dbf683b1d8c9add81f30a61e))
+
 # [2.0.0-alpha.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/triples@1.1.0...@napi-rs/triples@2.0.0-alpha.0) (2023-04-06)
 
 ### Features

@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.0...@napi-rs/cli@3.0.0-alpha.1) (2023-04-06)
+
+### Bug Fixes
+
+- **cli:** missing shebang prefix in cli entries ([e4c4a5f](https://github.com/napi-rs/napi-rs/commit/e4c4a5fe5df7abfdbae1ce5e19e686b55624a283))
+
 # [3.0.0-alpha.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.15.2...@napi-rs/cli@3.0.0-alpha.0) (2023-04-06)
 
 ### Features
