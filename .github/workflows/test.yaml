@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['14', '16', '18']
+        node: ['16', '18']
         os: [ubuntu-latest, macos-latest, windows-latest]
 
     name: stable - ${{ matrix.os }} - node@${{ matrix.node }}
@@ -51,9 +51,6 @@ jobs:
       - name: 'Install dependencies'
         run: yarn install --mode=skip-build --immutable
 
-      - name: 'Build TypeScript'
-        run: yarn build
-
       - name: Check build
         uses: actions-rs/cargo@v1
         with:
@@ -62,6 +59,7 @@ jobs:
 
       - name: Unit tests
         run: |
+          yarn test:cli
           yarn build:test
           yarn test --verbose
           yarn tsc -p examples/napi/tsconfig.json --noEmit

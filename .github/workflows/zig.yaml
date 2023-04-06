@@ -56,17 +56,15 @@ jobs:
           version: 0.10.1
       - name: Install dependencies
         run: yarn install --immutable --mode=skip-build
-      - name: 'Build TypeScript'
-        run: yarn build
-      - name: Setup node
-        uses: actions/setup-node@v3
-        with:
-          # Testing for compatibility with node v12.x
-          node-version: 12
-      - name: Cross build native tests
+      - name: install MacOS SDK
+        if: contains(matrix.target, 'apple')
         run: |
-          yarn workspace compat-mode-examples build --target ${{ matrix.target }} --zig
-          yarn workspace examples build --target ${{ matrix.target }} --zig
+          curl -L "https://github.com/phracker/MacOSX-SDKs/releases/download/11.3/MacOSX11.3.sdk.tar.xz" | tar -J -x -C /opt
+      - name: Cross build native tests
+        env:
+          SDKROOT: /opt/MacOSX11.3.sdk
+        run: |
+          yarn build:test -- --target ${{ matrix.target }} --cross-compile
       - name: Upload artifacts
         uses: actions/upload-artifact@v3
         with:

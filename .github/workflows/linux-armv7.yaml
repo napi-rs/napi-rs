@@ -51,11 +51,8 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable --mode=skip-build
 
-      - name: 'Build TypeScript'
-        run: yarn build
-
       - name: Cross build native tests
-        run: yarn build:test:armv7
+        run: yarn build:test -- --target armv7-unknown-linux-gnueabihf --cross-compile
 
       - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
 

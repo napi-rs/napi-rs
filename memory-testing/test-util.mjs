@@ -1,7 +1,7 @@
 import { setTimeout } from 'timers'
 import { promisify } from 'util'
 
-import * as chalk from 'colorette'
+import * as colors from 'colorette'
 import Dockerode from 'dockerode'
 import prettyBytes from 'pretty-bytes'
 
@@ -10,7 +10,7 @@ const sleep = promisify(setTimeout)
 const client = new Dockerode()
 
 export async function createSuite(testFile, maxMemoryUsage) {
-  console.info(chalk.cyanBright(`Create container to test ${testFile}`))
+  console.info(colors.cyanBright(`Create container to test ${testFile}`))
 
   const container = await client.createContainer({
     Image: 'node:lts-slim',
@@ -26,7 +26,7 @@ export async function createSuite(testFile, maxMemoryUsage) {
     },
   })
 
-  console.info(chalk.cyanBright('Container created, starting ...'))
+  console.info(colors.cyanBright('Container created, starting ...'))
 
   await container.start()
 
@@ -58,7 +58,7 @@ export async function createSuite(testFile, maxMemoryUsage) {
         const memoryGrowth = memory_stats.usage - initialMemoryUsage
         if (memoryGrowth > (maxMemoryUsage ?? initialMemoryUsage)) {
           console.info(
-            chalk.redBright(
+            colors.redBright(
               `Potential memory leak, memory growth: ${prettyBytes(
                 memoryGrowth,
               )}`,
@@ -72,7 +72,7 @@ export async function createSuite(testFile, maxMemoryUsage) {
   })
 
   console.info(
-    chalk.red(`Initial memory usage: ${prettyBytes(initialMemoryUsage)}`),
+    colors.red(`Initial memory usage: ${prettyBytes(initialMemoryUsage ?? 0)}`),
   )
 
   await sleep(60000)

@@ -1,18 +1,31 @@
 {
-  "name": "compat-mode-examples",
+  "name": "@examples/compat-mode",
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "build": "node ../../cli/scripts/index.js build --js false --features \"latest\"",
-    "build-napi3": "node ../../cli/scripts/index.js build --js false --features \"napi3\"",
-    "build-aarch64": "node ../../cli/scripts/index.js build --js false --features \"latest\" --target aarch64-unknown-linux-gnu",
-    "build-armv7": "node ../../cli/scripts/index.js build --js false --features \"latest\" --target armv7-unknown-linux-gnueabihf",
-    "build-i686": "node ../../cli/scripts/index.js build --js false --features \"latest\" --target i686-pc-windows-msvc",
-    "build-i686-release": "node ../../cli/scripts/index.js build --js false --release --features \"latest\" --target i686-pc-windows-msvc",
-    "build-release": "node ../../cli/scripts/index.js build --js false --features \"latest\" --release",
-    "test": "node ./index.js"
+    "build": "napi-raw build --no-js --features latest",
+    "test": "ava"
   },
   "devDependencies": {
+    "@napi-rs/cli": "workspace:*",
+    "ava": "^5.2.0",
     "sinon": "^15.0.1"
+  },
+  "ava": {
+    "extensions": [
+      "ts",
+      "tsx"
+    ],
+    "require": [
+      "ts-node/register/transpile-only"
+    ],
+    "files": [
+      "__tests__/**/*.spec.ts"
+    ],
+    "environmentVariables": {
+      "TS_NODE_PROJECT": "../tsconfig.json"
+    },
+    "workerThreads": false,
+    "timeout": "5m"
   }
 }

@@ -31,9 +31,6 @@ jobs:
         run: |
           yarn install --mode=skip-build --immutable
 
-      - name: 'Build TypeScript'
-        run: yarn build
-
       - name: Install
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -55,6 +52,11 @@ jobs:
           command: check
           args: --all --bins --examples --tests --target i686-pc-windows-msvc -vvv
 
+      - name: Build
+        run: |
+          yarn workspace @examples/napi build --target i686-pc-windows-msvc --release
+          yarn workspace @examples/compat-mode build --target i686-pc-windows-msvc --release
+
       - name: Setup node
         uses: actions/setup-node@v3
         with:
@@ -64,8 +66,6 @@ jobs:
 
       - name: Build Tests
         run: |
-          yarn workspace compat-mode-examples build-i686 --release
-          yarn workspace examples build-i686 --release
           yarn test --verbose
           node ./node_modules/electron/install.js
           yarn test:electron

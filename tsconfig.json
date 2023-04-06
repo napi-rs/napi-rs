@@ -5,8 +5,8 @@
     "downlevelIteration": true,
     "importHelpers": true,
     "allowJs": true,
-    "module": "CommonJS",
-    "moduleResolution": "node",
+    "module": "NodeNext",
+    "moduleResolution": "nodenext",
     "newLine": "LF",
     "noEmitHelpers": true,
     "noUnusedLocals": true,
@@ -17,14 +17,14 @@
     "suppressExcessPropertyErrors": true,
     "forceConsistentCasingInFileNames": true,
     "preserveSymlinks": true,
-    "target": "ES2015",
+    "target": "ES2022",
     "sourceMap": true,
     "esModuleInterop": true,
     "stripInternal": true,
     "resolveJsonModule": true,
     "importsNotUsedAsValues": "remove",
     "outDir": "scripts",
-    "lib": ["dom", "DOM.Iterable", "ES2019", "ES2020", "esnext"]
+    "lib": ["ES2022"]
   },
   "include": ["."],
   "exclude": ["node_modules", "bench", "cli/scripts", "scripts", "target"]

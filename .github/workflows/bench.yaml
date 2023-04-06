@@ -46,9 +46,6 @@ jobs:
       - name: 'Install dependencies'
         run: yarn install --immutable --mode=skip-build
 
-      - name: 'Build ts'
-        run: yarn build
-
       - name: 'Build bench'
         run: yarn build:bench
 

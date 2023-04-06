@@ -30,9 +30,6 @@ jobs:
       - name: 'Install dependencies'
         run: yarn install --mode=skip-build --immutable
 
-      - name: 'Build TypeScript'
-        run: yarn build
-
       - name: Install
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -55,7 +52,9 @@ jobs:
           args: --all --bins --examples --tests --target aarch64-pc-windows-msvc -vvv
 
       - name: Build release target
-        run: cargo build --release --target aarch64-pc-windows-msvc
+        run: |
+          yarn workspace @examples/napi build --target aarch64-pc-windows-msvc --release
+          yarn workspace @examples/compat-mode build --target aarch64-pc-windows-msvc --release
 
       - name: Clear the cargo caches
         run: |

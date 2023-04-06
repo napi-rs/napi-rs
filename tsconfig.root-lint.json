@@ -1,10 +1,10 @@
 {
   "extends": "./tsconfig.json",
   "include": [
-    "./ava.config.js",
-    "./generate-triplelist.js",
+    "./ava.config.mjs",
     "./triples/index.js",
     "./memory-testing/*.js",
-    "./memory-testing/*.mjs"
+    "./memory-testing/*.mjs",
+    "./crates/cli/index.js"
   ]
 }

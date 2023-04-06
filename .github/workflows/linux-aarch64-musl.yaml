@@ -30,9 +30,6 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable --mode=skip-build
 
-      - name: 'Build TypeScript'
-        run: yarn build
-
       - name: Cross build native tests
         uses: addnab/docker-run-action@v3
         with:
@@ -40,8 +37,7 @@ jobs:
           options: -v ${{ github.workspace }}:/napi-rs -w /napi-rs
           run: |
             export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-musl-gcc
-            yarn workspace compat-mode-examples build --target aarch64-unknown-linux-musl
-            yarn workspace examples build --target aarch64-unknown-linux-musl
+            yarn build:test -- --target aarch64-unknown-linux-musl
 
       - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
 
