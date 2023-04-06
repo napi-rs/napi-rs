@@ -5,7 +5,12 @@ import { promisify } from 'util'
 import { debug } from './log.js'
 
 const require = createRequire(import.meta.url)
-const pkgJson = require('../../package.json')
+// NOTE:
+//   import pkgJson from '@napi-rs/cli/package.json' assert { type: 'json' }
+//   is experimental feature now, avoid using it.
+//   see: https://nodejs.org/api/esm.html#import-assertions
+// eslint-disable-next-line import/no-extraneous-dependencies
+const pkgJson = require('@napi-rs/cli/package.json')
 
 export const readFileAsync = promisify(readFile)
 export const writeFileAsync = promisify(writeFile)
