@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.3](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.2...@napi-rs/cli@3.0.0-alpha.3) (2023-04-07)
+
+### Bug Fixes
+
+- **cli:** incorrect new project template content ([7fcd68f](https://github.com/napi-rs/napi-rs/commit/7fcd68f14d0bd3b278abefd88d08ecb508f25f50))
+
 # [3.0.0-alpha.2](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.1...@napi-rs/cli@3.0.0-alpha.2) (2023-04-06)
 
 **Note:** Version bump only for package @napi-rs/cli
