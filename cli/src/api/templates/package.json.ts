@@ -29,12 +29,11 @@ export const createPackageJson = ({
     ]
   },
   "scripts": {
-    "test": "yarn build:debug --platform && node -e \\"assert(require('.').sum(1, 2) === 3)\\"",
+    "test": "node -e \\"assert(require('.').sum(1, 2) === 3)\\"",
     "build": "napi build --release --platform --strip",
     "build:debug": "napi build",
     "prepublishOnly": "napi prepublish -t npm",
     "artifacts": "napi artifacts",
-    "universal": "napi universal",
     "version": "napi version"
   },
   "devDependencies": {

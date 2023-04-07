@@ -71,7 +71,7 @@ jobs:
               sudo apt-get update
               sudo apt-get install gcc-arm-linux-gnueabihf -y
             build: |
-              yarn build --platform --target armv7-unknown-linux-gnueabihf
+              yarn build --platform --target armv7-unknown-linux-gnueabihf --cross-compile
               arm-linux-gnueabihf-strip *.node
           - host: ubuntu-latest
             target: 'aarch64-linux-android'
@@ -237,7 +237,7 @@ jobs:
             target: 'x86_64-apple-darwin'
           - host: windows-latest
             target: 'x86_64-pc-windows-msvc'
-        node: ['14', '16', '18']
+        node: ['16', '18']
     runs-on: \${{ matrix.settings.host }}
 
     steps:
@@ -273,7 +273,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['14', '16', '18']
+        node: ['16', '18']
     runs-on: ubuntu-latest
 
     steps:
@@ -309,7 +309,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['14', '16', '18']
+        node: ['16', '18']
     runs-on: ubuntu-latest
 
     steps:
@@ -347,7 +347,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['14', '16', '18']
+        node: ['16', '18']
     runs-on: ubuntu-latest
 
     steps:
@@ -433,7 +433,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['14', '16', '18']
+        node: ['16', '18']
     runs-on: ubuntu-latest
 
     steps:
@@ -493,15 +493,15 @@ jobs:
         uses: actions/download-artifact@v3
         with:
           name: bindings-x86_64-apple-darwin
-          path: artifacts
+          path: .
       - name: Download macOS arm64 artifact
         uses: actions/download-artifact@v3
         with:
           name: bindings-aarch64-apple-darwin
-          path: artifacts
+          path: .
 
       - name: Combine binaries
-        run: yarn universal
+        run: yarn napi universalize
 
       - name: Upload artifact
         uses: actions/upload-artifact@v3
