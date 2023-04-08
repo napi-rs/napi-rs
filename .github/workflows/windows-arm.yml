@@ -46,10 +46,7 @@ jobs:
           key: stable-windows-arm64-node@16-cargo-cache
 
       - name: Check build
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: --all --bins --examples --tests --target aarch64-pc-windows-msvc -vvv
+        run: cargo check --all --bins --examples --tests --target aarch64-pc-windows-msvc -vvv
 
       - name: Build release target
         run: |

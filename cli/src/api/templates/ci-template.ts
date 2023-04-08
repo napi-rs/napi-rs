@@ -106,7 +106,6 @@ jobs:
         if: \${{ !matrix.settings.docker }}
         with:
           node-version: 18
-          check-latest: true
           cache: yarn
 
       - name: Install
@@ -150,7 +149,6 @@ jobs:
         if: matrix.settings.target == 'i686-pc-windows-msvc'
         with:
           node-version: 18
-          check-latest: true
           cache: yarn
           architecture: x86
 
@@ -247,7 +245,6 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: \${{ matrix.node }}
-          check-latest: true
           cache: 'yarn'
 
       - name: 'Install dependencies'
@@ -283,7 +280,6 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: \${{ matrix.node }}
-          check-latest: true
           cache: 'yarn'
 
       - name: 'Install dependencies'
@@ -319,7 +315,6 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: \${{ matrix.node }}
-          check-latest: true
           cache: 'yarn'
 
       - name: 'Install dependencies'
@@ -368,7 +363,7 @@ jobs:
           yarn config set supportedArchitectures.cpu "arm64"
           yarn config set supportedArchitectures.libc "glibc"
           yarn install
-      
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v2
         with:
@@ -483,7 +478,6 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: 18
-          check-latest: true
           cache: yarn
 
       - name: 'Install dependencies'
@@ -529,7 +523,6 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: 18
-          check-latest: true
           cache: 'yarn'
 
       - name: 'Install dependencies'
