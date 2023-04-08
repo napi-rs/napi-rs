@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1680851165958,
+  "lastUpdate": 1680966916963,
   "repoUrl": "https://github.com/napi-rs/napi-rs",
   "entries": {
     "Benchmark": [
@@ -49932,6 +49932,177 @@ window.BENCHMARK_DATA = {
             "range": "±3.52%",
             "unit": "ops/sec",
             "extra": "74 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alex@aqrln.net",
+            "name": "Alexey Orlenko",
+            "username": "aqrln"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2d1e4144b315894164c8316a5fcfa2bc887a19d0",
+          "message": "fix: prevent crashing when napi_register_module_v1 is called twice (#1554)\n\n* fix: prevent crashing when napi_register_module_v1 is called twice\r\n\r\nCurrently napi-rs addons can lead to the Node.js process aborting with\r\nthe following error when initialising the addon on Windows:\r\n\r\n```\r\nc:\\ws\\src\\cleanup_queue-inl.h:32: Assertion `(insertion_info.second)\r\n== (true)' failed.\r\n```\r\n\r\nThis happens because `napi_add_env_cleanup_hook` must not be called\r\nwith the same arguments multiple times unless the previously scheduled\r\ncleanup hook with the same arguments was already executed. However,\r\nthe cleanup hook added by `napi_register_module_v1` in napi-rs on\r\nWindows was always created with `ptr::null_mut()` as an argument.\r\n\r\nOne case where this causes a problem is when using the addon from\r\nmultiple contexts (e.g. Node.js worker threads) at the same\r\ntime. However, Node.js doesn't provide any guarantees that the N-API\r\naddon initialisation code will run only once even per thread and\r\ncontext. In fact, it's totally valid to run `process.dlopen()`\r\nmultiple times from JavaScript land in Node.js, and this will lead to\r\nthe initialisation code being run multiple times as different\r\n`exports` objects may need to be populated. This may happen in\r\nnumerous cases, e.g.:\r\n\r\n- When it's not possible or not desirable to use `require()` and users\r\n  must resort to using `process.dlopen()` (one use case is passing\r\n  non-default flags to `dlopen(3)`, another is ES modules). Caching\r\n  the results of `process.dlopen()` to avoid running it more than once\r\n  may not always be possible reliably in all cases (for example,\r\n  because of Jest sandbox).\r\n\r\n- When the `require` cache is cleared.\r\n\r\n- On Windows: `require(\"./addon.node\")` and then\r\n  `require(path.toNamespacedPath(\"./addon.node\"))`.\r\n\r\nAnother issue is fixed inside `napi::tokio_runtime::drop_runtime`:\r\nthere's no need to call `napi_remove_env_cleanup_hook` (it's only\r\nuseful to cancel the hooks that haven't been executed yet). Null\r\npointer retrieved from `arg` was being passed as the `env` argument of\r\nthat function, so it didn't do anything and just returned\r\n`napi_invalid_arg`.\r\n\r\nThis patch makes `napi_register_module_v1` use a counter as the\r\ncleanup hook argument, so that the value is always different. An\r\nalternative might have been to use a higher-level abstraction around\r\n`sys::napi_env_cleanup_hook` that would take ownership of a boxed\r\nclosure, if there is something like this in the API already. Another\r\nalternative could have been to heap-allocate a value so that we would\r\nhave a unique valid memory address.\r\n\r\nThe patch also contains a minor code cleanup related to\r\n`RT_REFERENCE_COUNT` along the way: the counter is encapsulated inside\r\nits module and `ensure_runtime` takes care of incrementing it, and\r\nless strict memory ordering is now used as there's no need for\r\n`SeqCst` here. If desired, it can be further optimised to\r\n`Ordering::Release` and a separate acquire fence inside the if\r\nstatement in `drop_runtime`, as `AcqRel` for every decrement is also a\r\nbit stricter than necessary (although simpler). These changes are not\r\nnecessary to fix the issue and can be extracted to a separate patch.\r\n\r\nAt first it was tempting to use the loaded value of\r\n`RT_REFERENCE_COUNT` as the argument for the cleanup hook but it would\r\nhave been wrong: a simple counterexample is the following sequence:\r\n\r\n1. init in the first context (queue: 0)\r\n2. init in the second context (queue: 0, 1)\r\n3. destroy the first context (queue: 1)\r\n4. init in the third context (queue: 1, 1)\r\n\r\n* test(napi): unload test was excluded unexpected\r\n\r\n---------\r\n\r\nCo-authored-by: LongYinan <lynweklm@gmail.com>",
+          "timestamp": "2023-04-08T23:08:48+08:00",
+          "tree_id": "4ca1a7c6f72ce6051b83b3afb3c7784c6d178c56",
+          "url": "https://github.com/napi-rs/napi-rs/commit/2d1e4144b315894164c8316a5fcfa2bc887a19d0"
+        },
+        "date": 1680966914381,
+        "tool": "benchmarkjs",
+        "benches": [
+          {
+            "name": "noop#napi-rs",
+            "value": 48750402,
+            "range": "±0.23%",
+            "unit": "ops/sec",
+            "extra": "94 samples"
+          },
+          {
+            "name": "noop#JavaScript",
+            "value": 589657933,
+            "range": "±0.23%",
+            "unit": "ops/sec",
+            "extra": "93 samples"
+          },
+          {
+            "name": "Plus number#napi-rs",
+            "value": 14542785,
+            "range": "±0.22%",
+            "unit": "ops/sec",
+            "extra": "97 samples"
+          },
+          {
+            "name": "Plus number#JavaScript",
+            "value": 587792445,
+            "range": "±0.15%",
+            "unit": "ops/sec",
+            "extra": "94 samples"
+          },
+          {
+            "name": "Create buffer#napi-rs",
+            "value": 342417,
+            "range": "±9.27%",
+            "unit": "ops/sec",
+            "extra": "69 samples"
+          },
+          {
+            "name": "Create buffer#JavaScript",
+            "value": 1684885,
+            "range": "±6.98%",
+            "unit": "ops/sec",
+            "extra": "68 samples"
+          },
+          {
+            "name": "createArray#createArrayJson",
+            "value": 32389,
+            "range": "±0.11%",
+            "unit": "ops/sec",
+            "extra": "93 samples"
+          },
+          {
+            "name": "createArray#create array for loop",
+            "value": 5992,
+            "range": "±0.13%",
+            "unit": "ops/sec",
+            "extra": "95 samples"
+          },
+          {
+            "name": "createArray#create array with serde trait",
+            "value": 6010,
+            "range": "±0.46%",
+            "unit": "ops/sec",
+            "extra": "94 samples"
+          },
+          {
+            "name": "getArrayFromJs#get array from json string",
+            "value": 14438,
+            "range": "±0.2%",
+            "unit": "ops/sec",
+            "extra": "95 samples"
+          },
+          {
+            "name": "getArrayFromJs#get array from serde",
+            "value": 8551,
+            "range": "±0.19%",
+            "unit": "ops/sec",
+            "extra": "96 samples"
+          },
+          {
+            "name": "getArrayFromJs#get array with for loop",
+            "value": 10294,
+            "range": "±0.5%",
+            "unit": "ops/sec",
+            "extra": "93 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from native#u32",
+            "value": 387746,
+            "range": "±8.39%",
+            "unit": "ops/sec",
+            "extra": "77 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from JavaScript#u32",
+            "value": 339210,
+            "range": "±8.98%",
+            "unit": "ops/sec",
+            "extra": "84 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from native#string",
+            "value": 384173,
+            "range": "±3.31%",
+            "unit": "ops/sec",
+            "extra": "85 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from JavaScript#string",
+            "value": 311238,
+            "range": "±14.18%",
+            "unit": "ops/sec",
+            "extra": "86 samples"
+          },
+          {
+            "name": "Async task#spawn task",
+            "value": 31470,
+            "range": "±0.8%",
+            "unit": "ops/sec",
+            "extra": "81 samples"
+          },
+          {
+            "name": "Async task#ThreadSafeFunction",
+            "value": 1901,
+            "range": "±19.13%",
+            "unit": "ops/sec",
+            "extra": "36 samples"
+          },
+          {
+            "name": "Async task#Tokio future to Promise",
+            "value": 27100,
+            "range": "±1.47%",
+            "unit": "ops/sec",
+            "extra": "85 samples"
+          },
+          {
+            "name": "Query#query * 100",
+            "value": 1481,
+            "range": "±1.71%",
+            "unit": "ops/sec",
+            "extra": "80 samples"
+          },
+          {
+            "name": "Query#query * 1",
+            "value": 27949,
+            "range": "±0.64%",
+            "unit": "ops/sec",
+            "extra": "82 samples"
           }
         ]
       }
