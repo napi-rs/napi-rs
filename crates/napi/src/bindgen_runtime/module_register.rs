@@ -5,8 +5,7 @@ use std::hash::Hash;
 #[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
 use std::ops::Deref;
 use std::ptr;
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering};
 use std::thread::ThreadId;
 
 use once_cell::sync::Lazy;
@@ -534,15 +533,19 @@ unsafe extern "C" fn napi_register_module_v1(
   });
 
   #[cfg(all(windows, feature = "napi4", feature = "tokio_rt"))]
+  #[cfg(all(feature = "napi4", feature = "tokio_rt"))]
   {
     crate::tokio_runtime::ensure_runtime();
 
-    crate::tokio_runtime::RT_REFERENCE_COUNT.fetch_add(1, Ordering::SeqCst);
+    static init_counter: AtomicUsize = AtomicUsize::new(0);
+    let cleanup_hook_payload =
+      init_counter.fetch_add(1, Ordering::Relaxed) as *mut std::ffi::c_void;
+
     unsafe {
       sys::napi_add_env_cleanup_hook(
         env,
         Some(crate::tokio_runtime::drop_runtime),
-        ptr::null_mut(),
+        cleanup_hook_payload,
       )
     };
   }

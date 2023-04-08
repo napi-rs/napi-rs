@@ -18,13 +18,15 @@
   "ava": {
     "extensions": [
       "ts",
-      "tsx"
+      "tsx",
+      "js"
     ],
     "require": [
       "ts-node/register/transpile-only"
     ],
     "files": [
-      "__tests__/**/*.spec.ts"
+      "__tests__/**/*.spec.ts",
+      "__tests__/**/*.spec.js"
     ],
     "environmentVariables": {
       "TS_NODE_PROJECT": "../tsconfig.json"
