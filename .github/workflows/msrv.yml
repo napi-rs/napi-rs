@@ -44,10 +44,7 @@ jobs:
         run: yarn install --mode=skip-build --immutable
 
       - name: Check build
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: --all --bins --examples --tests -vvv
+        run: cargo check --all --bins --examples --tests -vvv
 
       - name: Unit tests
         run: |

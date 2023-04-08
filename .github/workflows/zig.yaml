@@ -102,7 +102,6 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: 18
-          check-latest: true
           cache: 'yarn'
       - name: Install dependencies
         run: yarn install --immutable --mode=skip-build
