@@ -115,12 +115,20 @@ extern "C" fn napi_resolve_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> 
   match result {
     Ok(res) => {
       let status = unsafe { sys::napi_resolve_deferred(env, deferred, res) };
-      debug_assert!(status == sys::Status::napi_ok, "Resolve promise failed");
+      debug_assert!(
+        status == sys::Status::napi_ok,
+        "Resolve promise failed {:?}",
+        crate::Status::from(status)
+      );
     }
     Err(e) => {
       let status =
         unsafe { sys::napi_reject_deferred(env, deferred, JsError::from(e).into_value(env)) };
-      debug_assert!(status == sys::Status::napi_ok, "Reject promise failed");
+      debug_assert!(
+        status == sys::Status::napi_ok,
+        "Reject promise failed {:?}",
+        crate::Status::from(status)
+      );
     }
   }
 }
