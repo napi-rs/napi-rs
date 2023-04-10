@@ -41,6 +41,7 @@ freebsd_task:
     CARGO_HOME: /usr/local/cargo
     PATH: /usr/local/cargo/bin:$PATH
     RUSTUP_IO_THREADS: '1'
+    NX_NON_NATIVE_HASHER: 'true'
   setup_script:
     - pkg update
     - pkg install -y -f curl node libnghttp2

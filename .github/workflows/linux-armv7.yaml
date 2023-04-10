@@ -49,7 +49,9 @@ jobs:
           key: stable-linux-armv7-gnu-node@18-cargo-cache
 
       - name: Install dependencies
-        run: yarn install --immutable --mode=skip-build
+        run: |
+          yarn config set --json supportedArchitectures.cpu '["arm", "current"]'
+          yarn install --immutable --mode=skip-build
 
       - name: Cross build native tests
         run: yarn build:test -- --target armv7-unknown-linux-gnueabihf --cross-compile

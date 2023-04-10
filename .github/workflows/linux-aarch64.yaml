@@ -47,7 +47,10 @@ jobs:
           version: 0.10.1
 
       - name: Install dependencies
-        run: yarn install --immutable --mode=skip-build
+        run: |
+          yarn config set --json supportedArchitectures.cpu '["current", "arm64"]'
+          yarn config set supportedArchitectures.libc "glibc"
+          yarn install --immutable --mode=skip-build
 
       - name: Cross build native tests
         run: yarn build:test -- --target aarch64-unknown-linux-gnu --cross-compile
