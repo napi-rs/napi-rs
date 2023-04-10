@@ -20,6 +20,7 @@ all-features = true
 independent = true
 
 [features]
+noop = []
 async = ["tokio_rt"]
 compat-mode = []
 default = ["napi3", "compat-mode"]                                               # for most Node.js users
