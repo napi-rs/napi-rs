@@ -178,7 +178,7 @@ enum ThreadsafeFunctionCallVariant {
 struct ThreadsafeFunctionCallJsBackData<T> {
   data: T,
   call_variant: ThreadsafeFunctionCallVariant,
-  callback: Box<dyn FnOnce(JsUnknown) -> Result<()>>,
+  callback: Box<dyn FnOnce(Result<JsUnknown>) -> Result<()>>,
 }
 
 /// Communicate with the addon's main thread by invoking a JavaScript function from other threads.
@@ -434,7 +434,7 @@ impl<T: 'static> ThreadsafeFunction<T, ErrorStrategy::CalleeHandled> {
             ThreadsafeFunctionCallJsBackData {
               data,
               call_variant: ThreadsafeFunctionCallVariant::Direct,
-              callback: Box::new(|_d: JsUnknown| Ok(())),
+              callback: Box::new(|_d: Result<JsUnknown>| Ok(())),
             }
           })))
           .cast(),
@@ -463,8 +463,8 @@ impl<T: 'static> ThreadsafeFunction<T, ErrorStrategy::CalleeHandled> {
             ThreadsafeFunctionCallJsBackData {
               data,
               call_variant: ThreadsafeFunctionCallVariant::WithCallback,
-              callback: Box::new(move |d: JsUnknown| {
-                D::from_napi_value(d.0.env, d.0.value).and_then(cb)
+              callback: Box::new(move |d: Result<JsUnknown>| {
+                d.and_then(|d| D::from_napi_value(d.0.env, d.0.value).and_then(cb))
               }),
             }
           })))
@@ -478,7 +478,7 @@ impl<T: 'static> ThreadsafeFunction<T, ErrorStrategy::CalleeHandled> {
 
   #[cfg(feature = "tokio_rt")]
   pub async fn call_async<D: 'static + FromNapiValue>(&self, value: Result<T>) -> Result<D> {
-    let (sender, receiver) = tokio::sync::oneshot::channel::<D>();
+    let (sender, receiver) = tokio::sync::oneshot::channel::<Result<D>>();
 
     self.handle.with_read_aborted(|aborted| {
       if aborted {
@@ -492,12 +492,12 @@ impl<T: 'static> ThreadsafeFunction<T, ErrorStrategy::CalleeHandled> {
             ThreadsafeFunctionCallJsBackData {
               data,
               call_variant: ThreadsafeFunctionCallVariant::WithCallback,
-              callback: Box::new(move |d: JsUnknown| {
-                D::from_napi_value(d.0.env, d.0.value).and_then(move |d| {
-                  sender.send(d).map_err(|_| {
+              callback: Box::new(move |d: Result<JsUnknown>| {
+                sender
+                  .send(d.and_then(|d| D::from_napi_value(d.0.env, d.0.value)))
+                  .map_err(|_| {
                     crate::Error::from_reason("Failed to send return value to tokio sender")
                   })
-                })
               }),
             }
           })))
@@ -508,7 +508,13 @@ impl<T: 'static> ThreadsafeFunction<T, ErrorStrategy::CalleeHandled> {
     })?;
     receiver
       .await
-      .map_err(|err| crate::Error::new(Status::GenericFailure, format!("{}", err)))
+      .map_err(|_| {
+        crate::Error::new(
+          Status::GenericFailure,
+          "Receive value from threadsafe function sender failed",
+        )
+      })
+      .and_then(|ret| ret)
   }
 }
 
@@ -527,7 +533,7 @@ impl<T: 'static> ThreadsafeFunction<T, ErrorStrategy::Fatal> {
           Box::into_raw(Box::new(ThreadsafeFunctionCallJsBackData {
             data: value,
             call_variant: ThreadsafeFunctionCallVariant::Direct,
-            callback: Box::new(|_d: JsUnknown| Ok(())),
+            callback: Box::new(|_d: Result<JsUnknown>| Ok(())),
           }))
           .cast(),
           mode.into(),
@@ -554,8 +560,8 @@ impl<T: 'static> ThreadsafeFunction<T, ErrorStrategy::Fatal> {
           Box::into_raw(Box::new(ThreadsafeFunctionCallJsBackData {
             data: value,
             call_variant: ThreadsafeFunctionCallVariant::WithCallback,
-            callback: Box::new(move |d: JsUnknown| {
-              D::from_napi_value(d.0.env, d.0.value).and_then(cb)
+            callback: Box::new(move |d: Result<JsUnknown>| {
+              d.and_then(|d| D::from_napi_value(d.0.env, d.0.value).and_then(cb))
             }),
           }))
           .cast(),
@@ -581,10 +587,12 @@ impl<T: 'static> ThreadsafeFunction<T, ErrorStrategy::Fatal> {
           Box::into_raw(Box::new(ThreadsafeFunctionCallJsBackData {
             data: value,
             call_variant: ThreadsafeFunctionCallVariant::WithCallback,
-            callback: Box::new(move |d: JsUnknown| {
-              D::from_napi_value(d.0.env, d.0.value).and_then(move |d| {
-                sender.send(d).map_err(|_| {
-                  crate::Error::from_reason("Failed to send return value to tokio sender")
+            callback: Box::new(move |d: Result<JsUnknown>| {
+              d.and_then(|d| {
+                D::from_napi_value(d.0.env, d.0.value).and_then(move |d| {
+                  sender.send(d).map_err(|_| {
+                    crate::Error::from_reason("Failed to send return value to tokio sender")
+                  })
                 })
               })
             }),
@@ -677,7 +685,7 @@ unsafe extern "C" fn call_js_cb<T: 'static, V: ToNapiValue, R, ES>(
         values.collect()
       };
       let mut return_value = ptr::null_mut();
-      let status = match args {
+      let mut status = match args {
         Ok(args) => unsafe {
           sys::napi_call_function(
             raw_env,
@@ -705,11 +713,26 @@ unsafe extern "C" fn call_js_cb<T: 'static, V: ToNapiValue, R, ES>(
         },
       };
       if let ThreadsafeFunctionCallVariant::WithCallback = call_variant {
-        if let Err(err) = callback(JsUnknown(crate::Value {
-          env: raw_env,
-          value: return_value,
-          value_type: crate::ValueType::Unknown,
-        })) {
+        // throw Error in JavaScript callback
+        let callback_arg = if status == sys::Status::napi_pending_exception {
+          let mut exception = ptr::null_mut();
+          status = unsafe { sys::napi_get_and_clear_last_exception(raw_env, &mut exception) };
+          Err(
+            JsUnknown(crate::Value {
+              env: raw_env,
+              value: exception,
+              value_type: crate::ValueType::Unknown,
+            })
+            .into(),
+          )
+        } else {
+          Ok(JsUnknown(crate::Value {
+            env: raw_env,
+            value: return_value,
+            value_type: crate::ValueType::Unknown,
+          }))
+        };
+        if let Err(err) = callback(callback_arg) {
           let message = format!(
             "Failed to convert return value in ThreadsafeFunction callback into Rust value: {}",
             err
@@ -717,7 +740,7 @@ unsafe extern "C" fn call_js_cb<T: 'static, V: ToNapiValue, R, ES>(
           let message_length = message.len();
           unsafe {
             sys::napi_fatal_error(
-              "threadsafe_function.rs:642\0".as_ptr().cast(),
+              "threadsafe_function.rs:720\0".as_ptr().cast(),
               26,
               CString::new(message).unwrap().into_raw(),
               message_length,
@@ -769,7 +792,7 @@ unsafe extern "C" fn call_js_cb<T: 'static, V: ToNapiValue, R, ES>(
       },
       sys::Status::napi_ok,
     );
-    let error_msg = "Call JavaScript callback failed in thread safe function";
+    let error_msg = "Call JavaScript callback failed in threadsafe function";
     let mut error_msg_value = ptr::null_mut();
     assert_eq!(
       unsafe {

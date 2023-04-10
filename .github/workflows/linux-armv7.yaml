@@ -2,6 +2,7 @@ name: Linux-armv7
 
 env:
   DEBUG: 'napi:*'
+  RUST_BACKTRACE: 1
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

@@ -50,12 +50,7 @@ pub fn create_iterator<T: Generator>(
   check_status_or_throw!(
     env,
     unsafe {
-      sys::napi_get_named_property(
-        env,
-        global,
-        "Symbol\0".as_ptr() as *const c_char,
-        &mut symbol_object,
-      )
+      sys::napi_get_named_property(env, global, "Symbol\0".as_ptr().cast(), &mut symbol_object)
     },
     "Get global object failed",
   );
@@ -66,7 +61,7 @@ pub fn create_iterator<T: Generator>(
       sys::napi_get_named_property(
         env,
         symbol_object,
-        "iterator\0".as_ptr() as *const c_char,
+        "iterator\0".as_ptr().cast(),
         &mut iterator_symbol,
       )
     },
@@ -78,7 +73,7 @@ pub fn create_iterator<T: Generator>(
     unsafe {
       sys::napi_create_function(
         env,
-        "Iterator\0".as_ptr() as *const c_char,
+        "Iterator\0".as_ptr().cast(),
         8,
         Some(symbol_generator::<T>),
         generator_ptr as *mut c_void,
@@ -129,7 +124,7 @@ pub unsafe extern "C" fn symbol_generator<T: Generator>(
     unsafe {
       sys::napi_create_function(
         env,
-        "next\0".as_ptr() as *const c_char,
+        "next\0".as_ptr().cast(),
         4,
         Some(generator_next::<T>),
         generator_ptr,
@@ -144,7 +139,7 @@ pub unsafe extern "C" fn symbol_generator<T: Generator>(
     unsafe {
       sys::napi_create_function(
         env,
-        "return\0".as_ptr() as *const c_char,
+        "return\0".as_ptr().cast(),
         6,
         Some(generator_return::<T>),
         generator_ptr,
@@ -159,7 +154,7 @@ pub unsafe extern "C" fn symbol_generator<T: Generator>(
     unsafe {
       sys::napi_create_function(
         env,
-        "throw\0".as_ptr() as *const c_char,
+        "throw\0".as_ptr().cast(),
         5,
         Some(generator_throw::<T>),
         generator_ptr,
@@ -175,7 +170,7 @@ pub unsafe extern "C" fn symbol_generator<T: Generator>(
       sys::napi_set_named_property(
         env,
         generator_object,
-        "next\0".as_ptr() as *const c_char,
+        "next\0".as_ptr().cast(),
         next_function,
       )
     },
@@ -188,7 +183,7 @@ pub unsafe extern "C" fn symbol_generator<T: Generator>(
       sys::napi_set_named_property(
         env,
         generator_object,
-        "return\0".as_ptr() as *const c_char,
+        "return\0".as_ptr().cast(),
         return_function,
       )
     },
@@ -201,7 +196,7 @@ pub unsafe extern "C" fn symbol_generator<T: Generator>(
       sys::napi_set_named_property(
         env,
         generator_object,
-        "throw\0".as_ptr() as *const c_char,
+        "throw\0".as_ptr().cast(),
         throw_function,
       )
     },
@@ -216,7 +211,7 @@ pub unsafe extern "C" fn symbol_generator<T: Generator>(
   );
 
   let properties = vec![sys::napi_property_descriptor {
-    utf8name: GENERATOR_STATE_KEY.as_ptr() as *const c_char,
+    utf8name: GENERATOR_STATE_KEY.as_ptr().cast(),
     name: ptr::null_mut(),
     method: None,
     getter: None,
@@ -264,7 +259,7 @@ extern "C" fn generator_next<T: Generator>(
       sys::napi_get_named_property(
         env,
         this,
-        GENERATOR_STATE_KEY.as_ptr() as *const c_char,
+        GENERATOR_STATE_KEY.as_ptr().cast(),
         &mut generator_state,
       )
     },
@@ -385,7 +380,7 @@ extern "C" fn generator_return<T: Generator>(
       sys::napi_set_named_property(
         env,
         this,
-        GENERATOR_STATE_KEY.as_ptr() as *const c_char,
+        GENERATOR_STATE_KEY.as_ptr().cast(),
         generator_state,
       )
     },
@@ -498,7 +493,7 @@ extern "C" fn generator_throw<T: Generator>(
           sys::napi_set_named_property(
             env,
             this,
-            GENERATOR_STATE_KEY.as_ptr() as *const c_char,
+            GENERATOR_STATE_KEY.as_ptr().cast(),
             generator_state,
           )
         },
@@ -530,7 +525,7 @@ extern "C" fn generator_throw<T: Generator>(
       sys::napi_set_named_property(
         env,
         this,
-        GENERATOR_STATE_KEY.as_ptr() as *const c_char,
+        GENERATOR_STATE_KEY.as_ptr().cast(),
         generator_state,
       )
     },
@@ -538,14 +533,7 @@ extern "C" fn generator_throw<T: Generator>(
   );
   check_status_or_throw!(
     env,
-    unsafe {
-      sys::napi_set_named_property(
-        env,
-        result,
-        "done\0".as_ptr() as *const c_char,
-        generator_state,
-      )
-    },
+    unsafe { sys::napi_set_named_property(env, result, "done\0".as_ptr().cast(), generator_state) },
     "Get generator state failed"
   );
 

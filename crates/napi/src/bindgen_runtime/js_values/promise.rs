@@ -1,31 +1,28 @@
-use std::ffi::{c_void, CStr};
+use std::ffi::CStr;
 use std::future;
 use std::pin::Pin;
 use std::ptr;
 use std::sync::{
-  atomic::{AtomicBool, AtomicPtr, Ordering},
+  atomic::{AtomicBool, Ordering},
   Arc,
 };
-use std::task::{Context, Poll, Waker};
+use std::task::{Context, Poll};
 
-use crate::{check_status, sys, Error, JsUnknown, NapiValue, Result};
+use tokio::sync::oneshot::{channel, Receiver, Sender};
+
+use crate::{check_status, sys, Error, JsUnknown, NapiValue, Result, Status};
 
 use super::{FromNapiValue, TypeName, ValidateNapiValue};
 
-struct PromiseInner<T: FromNapiValue> {
-  value: AtomicPtr<Result<T>>,
-  waker: AtomicPtr<Waker>,
-  aborted: AtomicBool,
+pub struct Promise<T: FromNapiValue> {
+  value: Pin<Box<Receiver<*mut Result<T>>>>,
+  aborted: Arc<AtomicBool>,
 }
 
-impl<T: FromNapiValue> Drop for PromiseInner<T> {
+impl<T: FromNapiValue> Drop for Promise<T> {
   fn drop(&mut self) {
     self.aborted.store(true, Ordering::SeqCst);
   }
-}
-
-pub struct Promise<T: FromNapiValue> {
-  inner: Arc<PromiseInner<T>>,
 }
 
 impl<T: FromNapiValue> TypeName for Promise<T> {
@@ -103,13 +100,9 @@ impl<T: FromNapiValue> FromNapiValue for Promise<T> {
     )?;
     let mut promise_after_then = ptr::null_mut();
     let mut then_js_cb = ptr::null_mut();
-    let promise_inner = PromiseInner {
-      value: AtomicPtr::new(ptr::null_mut()),
-      waker: AtomicPtr::new(ptr::null_mut()),
-      aborted: AtomicBool::new(false),
-    };
-    let shared_inner = Arc::new(promise_inner);
-    let context_ptr = Arc::into_raw(shared_inner.clone());
+    let (tx, rx) = channel();
+    let aborted = Arc::new(AtomicBool::new(false));
+    let tx_ptr = Box::into_raw(Box::new((tx, aborted.clone())));
     check_status!(
       unsafe {
         sys::napi_create_function(
@@ -117,7 +110,7 @@ impl<T: FromNapiValue> FromNapiValue for Promise<T> {
           then_c_string.as_ptr(),
           4,
           Some(then_callback::<T>),
-          context_ptr as *mut c_void,
+          tx_ptr.cast(),
           &mut then_js_cb,
         )
       },
@@ -152,7 +145,7 @@ impl<T: FromNapiValue> FromNapiValue for Promise<T> {
           catch_c_string.as_ptr(),
           5,
           Some(catch_callback::<T>),
-          context_ptr as *mut c_void,
+          tx_ptr.cast(),
           &mut catch_js_cb,
         )
       },
@@ -172,7 +165,8 @@ impl<T: FromNapiValue> FromNapiValue for Promise<T> {
       "Failed to call catch method"
     )?;
     Ok(Promise {
-      inner: shared_inner,
+      value: Box::pin(rx),
+      aborted,
     })
   }
 }
@@ -180,19 +174,13 @@ impl<T: FromNapiValue> FromNapiValue for Promise<T> {
 impl<T: FromNapiValue> future::Future for Promise<T> {
   type Output = Result<T>;
 
-  fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-    if self.inner.value.load(Ordering::Relaxed).is_null() {
-      if self.inner.waker.load(Ordering::Acquire).is_null() {
-        self.inner.waker.store(
-          Box::into_raw(Box::new(cx.waker().clone())),
-          Ordering::Release,
-        );
-      }
-      Poll::Pending
-    } else {
-      Poll::Ready(
-        unsafe { Box::from_raw(self.inner.value.load(Ordering::Relaxed)) }.map_err(Error::from),
-      )
+  fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+    match self.value.as_mut().poll(cx) {
+      Poll::Pending => Poll::Pending,
+      Poll::Ready(v) => Poll::Ready(
+        v.map_err(|e| Error::new(Status::GenericFailure, format!("{}", e)))
+          .and_then(|v| unsafe { *Box::from_raw(v) }.map_err(Error::from)),
+      ),
     }
   }
 }
@@ -218,20 +206,15 @@ unsafe extern "C" fn then_callback<T: FromNapiValue>(
     get_cb_status == sys::Status::napi_ok,
     "Get callback info from Promise::then failed"
   );
-  let PromiseInner {
-    value,
-    waker,
-    aborted,
-  } = &*unsafe { Arc::from_raw(data as *mut PromiseInner<T>) };
+  let (sender, aborted) =
+    *unsafe { Box::from_raw(data as *mut (Sender<*mut Result<T>>, Arc<AtomicBool>)) };
   if aborted.load(Ordering::SeqCst) {
     return this;
   }
   let resolve_value_t = Box::new(unsafe { T::from_napi_value(env, resolved_value[0]) });
-  value.store(Box::into_raw(resolve_value_t), Ordering::Relaxed);
-  let waker = waker.load(Ordering::Acquire);
-  if !waker.is_null() {
-    unsafe { Box::from_raw(waker) }.wake();
-  }
+  sender
+    .send(Box::into_raw(resolve_value_t))
+    .expect("Send Promise resolved value error");
   this
 }
 
@@ -258,23 +241,15 @@ unsafe extern "C" fn catch_callback<T: FromNapiValue>(
     "Get callback info from Promise::catch failed"
   );
   let rejected_value = rejected_value[0];
-  let PromiseInner {
-    value,
-    waker,
-    aborted,
-  } = &*unsafe { Arc::from_raw(data as *mut PromiseInner<T>) };
+  let (sender, aborted) =
+    *unsafe { Box::from_raw(data as *mut (Sender<*mut Result<T>>, Arc<AtomicBool>)) };
   if aborted.load(Ordering::SeqCst) {
     return this;
   }
-  value.store(
-    Box::into_raw(Box::new(Err(Error::from(unsafe {
+  sender
+    .send(Box::into_raw(Box::new(Err(Error::from(unsafe {
       JsUnknown::from_raw_unchecked(env, rejected_value)
-    })))),
-    Ordering::Relaxed,
-  );
-  let waker = waker.load(Ordering::Acquire);
-  if !waker.is_null() {
-    unsafe { Box::from_raw(waker) }.wake();
-  }
+    })))))
+    .expect("Send Promise resolved value error");
   this
 }

@@ -81,7 +81,10 @@ impl From<JsUnknown> for Error {
     let mut result = std::ptr::null_mut();
     let status = unsafe { sys::napi_create_reference(value.0.env, value.0.value, 0, &mut result) };
     if status != sys::Status::napi_ok {
-      return Error::new(Status::from(status), "".to_owned());
+      return Error::new(
+        Status::from(status),
+        "Create Error reference failed".to_owned(),
+      );
     }
     Self {
       status: Status::GenericFailure,
