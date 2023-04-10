@@ -55,6 +55,7 @@ import {
   threadsafeFunctionClosureCapture,
   tsfnCallWithCallback,
   tsfnAsyncCall,
+  tsfnThrowFromJs,
   asyncPlus100,
   getGlobal,
   getUndefined,
@@ -843,6 +844,19 @@ Napi4Test('async call ThreadsafeFunction', async (t) => {
   )
 })
 
+test('Throw from ThreadsafeFunction JavaScript callback', async (t) => {
+  const errMsg = 'ThrowFromJavaScriptRawCallback'
+  await t.throwsAsync(
+    () =>
+      tsfnThrowFromJs(() => {
+        throw new Error(errMsg)
+      }),
+    {
+      message: errMsg,
+    },
+  )
+})
+
 Napi4Test('accept ThreadsafeFunction', async (t) => {
   await new Promise<void>((resolve, reject) => {
     acceptThreadsafeFunction((err, value) => {
@@ -923,7 +937,7 @@ Napi4Test('object only from js', (t) => {
   })
 })
 
-Napi4Test('promise in either', async (t) => {
+test('promise in either', async (t) => {
   t.is(await promiseInEither(1), false)
   t.is(await promiseInEither(20), true)
   t.is(await promiseInEither(Promise.resolve(1)), false)

@@ -160,3 +160,8 @@ pub async fn tsfn_return_promise_timeout(func: ThreadsafeFunction<u32>) -> Resul
     }
   }
 }
+
+#[napi]
+pub async fn tsfn_throw_from_js(tsfn: ThreadsafeFunction<u32>) -> napi::Result<u32> {
+  tsfn.call_async::<Promise<u32>>(Ok(42)).await?.await
+}

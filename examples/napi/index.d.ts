@@ -508,6 +508,8 @@ export function tsfnReturnPromise(func: (err: Error | null, value: number) => an
 
 export function tsfnReturnPromiseTimeout(func: (err: Error | null, value: number) => any): Promise<number>
 
+export function tsfnThrowFromJs(tsfn: (err: Error | null, value: number) => any): Promise<number>
+
 export function tsRename(a: { foo: number }): string[]
 
 export interface TsTypeChanged {
