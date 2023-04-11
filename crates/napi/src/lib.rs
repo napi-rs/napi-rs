@@ -151,7 +151,7 @@ macro_rules! assert_type_of {
 pub use crate::bindgen_runtime::ctor as module_init;
 
 pub mod bindgen_prelude {
-  #[cfg(feature = "compat-mode")]
+  #[cfg(all(feature = "compat-mode", not(feature = "noop")))]
   pub use crate::bindgen_runtime::register_module_exports;
   #[cfg(feature = "tokio_rt")]
   pub use crate::tokio_runtime::*;

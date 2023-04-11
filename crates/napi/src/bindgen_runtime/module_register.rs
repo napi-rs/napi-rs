@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::ffi::CStr;
-#[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
+#[cfg(all(feature = "napi4", not(target_arch = "wasm32"), not(feature = "noop")))]
 use std::hash::Hash;
 #[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
 use std::ops::Deref;
@@ -10,10 +10,9 @@ use std::thread::ThreadId;
 
 use once_cell::sync::Lazy;
 
-use crate::{
-  check_status, check_status_or_throw, sys, Env, JsError, JsFunction, Property, Result, Value,
-  ValueType,
-};
+use crate::{check_status, sys, Env, JsFunction, Property, Result, Value, ValueType};
+#[cfg(not(feature = "noop"))]
+use crate::{check_status_or_throw, JsError};
 
 pub type ExportRegisterCallback = unsafe fn(sys::napi_env) -> Result<sys::napi_value>;
 pub type ModuleExportsCallback =
@@ -37,6 +36,7 @@ impl<T> Default for PersistedPerInstanceVec<T> {
 }
 
 impl<T> PersistedPerInstanceVec<T> {
+  #[cfg(not(feature = "noop"))]
   #[allow(clippy::mut_from_ref)]
   fn borrow_mut<F>(&self, f: F)
   where
@@ -81,6 +81,7 @@ pub(crate) struct PersistedPerInstanceHashSet<T: 'static> {
   inner: *mut HashSet<T>,
 }
 
+#[cfg(not(feature = "noop"))]
 #[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
 impl<T: 'static + PartialEq + Eq + Hash> PersistedPerInstanceHashSet<T> {
   pub(crate) fn insert(&self, item: T) {
@@ -118,6 +119,7 @@ unsafe impl<T: Sync> Sync for PersistedPerInstanceHashSet<T> {}
 pub(crate) struct PersistedPerInstanceHashMap<K, V>(*mut HashMap<K, V>);
 
 impl<K, V> PersistedPerInstanceHashMap<K, V> {
+  #[cfg(not(feature = "noop"))]
   pub(crate) fn from_hashmap(hashmap: HashMap<K, V>) -> Self {
     Self(Box::into_raw(Box::new(hashmap)))
   }
@@ -155,7 +157,9 @@ type RegisteredClassesMap = PersistedPerInstanceHashMap<ThreadId, RegisteredClas
 
 static MODULE_REGISTER_CALLBACK: Lazy<ModuleRegisterCallback> = Lazy::new(Default::default);
 static MODULE_CLASS_PROPERTIES: Lazy<ModuleClassProperty> = Lazy::new(Default::default);
+#[cfg(not(feature = "noop"))]
 static IS_FIRST_MODULE: AtomicBool = AtomicBool::new(true);
+#[cfg(not(feature = "noop"))]
 static FIRST_MODULE_REGISTERED: AtomicBool = AtomicBool::new(false);
 static REGISTERED_CLASSES: Lazy<RegisteredClassesMap> = Lazy::new(Default::default);
 static FN_REGISTER_MAP: Lazy<FnRegisterMap> = Lazy::new(Default::default);
@@ -177,11 +181,12 @@ pub(crate) static THREADS_CAN_ACCESS_ENV: once_cell::sync::OnceCell<
 type RegisteredClasses =
   PersistedPerInstanceHashMap</* export name */ String, /* constructor */ sys::napi_ref>;
 
-#[cfg(feature = "compat-mode")]
+#[cfg(all(feature = "compat-mode", not(feature = "noop")))]
 // compatibility for #[module_exports]
 static MODULE_EXPORTS: Lazy<PersistedPerInstanceVec<ModuleExportsCallback>> =
   Lazy::new(Default::default);
 
+#[cfg(not(feature = "noop"))]
 #[inline]
 fn wait_first_thread_registered() {
   while !FIRST_MODULE_REGISTERED.load(Ordering::SeqCst) {
