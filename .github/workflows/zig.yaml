@@ -95,8 +95,6 @@ jobs:
             target: aarch64-unknown-linux-musl
 
     steps:
-      - run: docker run --rm --privileged multiarch/qemu-user-static:register --reset
-        if: matrix.settings.host == 'ubuntu-latest'
       - uses: actions/checkout@v3
       - name: Setup node
         uses: actions/setup-node@v3
@@ -104,7 +102,10 @@ jobs:
           node-version: 18
           cache: 'yarn'
       - name: Install dependencies
-        run: yarn install --immutable --mode=skip-build
+        run: |
+          yarn config set --json supportedArchitectures.libc '["current", "musl"]'
+          yarn config set --json supportedArchitectures.cpu '["current", "arm64"]'
+          yarn install --immutable --mode=skip-build
       - name: Download artifacts
         uses: actions/download-artifact@v3
         with:
@@ -124,19 +125,21 @@ jobs:
         env:
           SKIP_UNWIND_TEST: 1
         if: matrix.settings.host == 'macos-latest'
+      - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+        if: matrix.settings.host == 'ubuntu-latest'
       - name: Test
-        uses: docker://multiarch/alpine:aarch64-latest-stable
+        uses: addnab/docker-run-action@v3
         if: matrix.settings.target == 'aarch64-unknown-linux-musl'
         with:
-          args: >
-            sh -c "
-              apk add nodejs yarn && \
-              yarn test
-            "
+          image: node:lts-alpine
+          options: --platform linux/arm64 -v ${{ github.workspace }}:/build -w /build
+          run: |
+            set -e
+            yarn test
       - name: Test
         uses: addnab/docker-run-action@v3
         if: matrix.settings.target == 'x86_64-unknown-linux-musl'
         with:
-          image: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
+          image: node:lts-alpine
           options: -v ${{ github.workspace }}:/napi-rs -w /napi-rs
           run: yarn test

@@ -28,7 +28,10 @@ jobs:
           cache: 'yarn'
 
       - name: Install dependencies
-        run: yarn install --immutable --mode=skip-build
+        run: |
+          yarn config set --json supportedArchitectures.cpu '["current", "arm64"]'
+          yarn config set --json supportedArchitectures.libc '["current", "musl"]'
+          yarn install --immutable --mode=skip-build
 
       - name: Cross build native tests
         uses: addnab/docker-run-action@v3
