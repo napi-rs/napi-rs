@@ -22,7 +22,7 @@
     "build": "lerna run build --scope '@napi-rs/*'",
     "build:bench": "yarn workspace bench build",
     "build:memory": "yarn workspace memory-testing build",
-    "build:test": "lerna run build --scope '@examples/*'",
+    "build:test": "lerna run build --stream --concurrency 1 --scope '@examples/*'",
     "format": "run-p format:prettier format:rs format:toml",
     "format:prettier": "prettier . -w",
     "format:rs": "cargo fmt",
