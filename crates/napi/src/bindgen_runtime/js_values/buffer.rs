@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 #[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
-use crate::bindgen_prelude::{CUSTOM_GC_TSFN, CUSTOM_GC_TSFN_CLOSED, THREADS_CAN_ACCESS_ENV};
+use crate::bindgen_prelude::{CUSTOM_GC_TSFN, THREADS_CAN_ACCESS_ENV, THREAD_DESTROYED};
 use crate::{bindgen_prelude::*, check_status, sys, Result, ValueType};
 
 #[cfg(all(debug_assertions, not(windows)))]
@@ -36,8 +36,7 @@ impl Drop for Buffer {
       if let Some((ref_, env)) = self.raw {
         #[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
         {
-          if CUSTOM_GC_TSFN_CLOSED.with(|closed| closed.load(std::sync::atomic::Ordering::Relaxed))
-          {
+          if THREAD_DESTROYED.with(|closed| closed.load(std::sync::atomic::Ordering::Relaxed)) {
             return;
           }
           if !THREADS_CAN_ACCESS_ENV

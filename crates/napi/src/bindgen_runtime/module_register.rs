@@ -170,7 +170,7 @@ pub(crate) static CUSTOM_GC_TSFN: AtomicPtr<sys::napi_threadsafe_function__> =
 thread_local! {
   // CustomGC ThreadsafeFunction may be deleted during the process exit.
   // And there may still some Buffer alive after that.
-  pub(crate) static CUSTOM_GC_TSFN_CLOSED: AtomicBool = AtomicBool::new(false);
+  pub(crate) static THREAD_DESTROYED: AtomicBool = AtomicBool::new(false);
 }
 #[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
 // Store thread id of the thread that created the CustomGC ThreadsafeFunction.
@@ -674,7 +674,7 @@ unsafe extern "C" fn custom_gc_finalize(
   finalize_data: *mut std::ffi::c_void,
   finalize_hint: *mut std::ffi::c_void,
 ) {
-  CUSTOM_GC_TSFN_CLOSED.with(|closed| {
+  THREAD_DESTROYED.with(|closed| {
     closed.store(true, Ordering::Relaxed);
   });
 }

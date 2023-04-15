@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use std::os::raw::c_void;
 use std::ptr;
 
-use crate::bindgen_runtime::ToNapiValue;
+use crate::bindgen_runtime::{ToNapiValue, THREAD_DESTROYED};
 use crate::{check_status, JsError, JsObject, Value};
 use crate::{sys, Env, Error, Result};
 
@@ -106,6 +106,12 @@ extern "C" fn napi_resolve_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> 
   context: *mut c_void,
   data: *mut c_void,
 ) {
+  #[cfg(not(target_arch = "wasm32"))]
+  {
+    if THREAD_DESTROYED.with(|closed| closed.load(std::sync::atomic::Ordering::Relaxed)) {
+      return;
+    }
+  }
   let deferred = context as sys::napi_deferred;
   let resolver = unsafe { Box::from_raw(data as *mut Result<Resolver>) };
   let result = resolver
