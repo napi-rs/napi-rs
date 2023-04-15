@@ -26,4 +26,4 @@ napi8 = ["napi7"]
 independent = true
 
 [target.'cfg(windows)'.dependencies.libloading]
-version = "0.7"
+version = "0.8"
