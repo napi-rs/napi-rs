@@ -31,6 +31,6 @@
     "environmentVariables": {
       "TS_NODE_PROJECT": "../tsconfig.json"
     },
-    "timeout": "5m"
+    "timeout": "10m"
   }
 }

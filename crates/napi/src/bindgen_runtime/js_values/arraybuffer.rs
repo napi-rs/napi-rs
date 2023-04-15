@@ -8,7 +8,7 @@ use std::sync::{
 };
 
 #[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
-use crate::bindgen_prelude::{CUSTOM_GC_TSFN, CUSTOM_GC_TSFN_CLOSED, THREADS_CAN_ACCESS_ENV};
+use crate::bindgen_prelude::{CUSTOM_GC_TSFN, THREADS_CAN_ACCESS_ENV, THREAD_DESTROYED};
 pub use crate::js_values::TypedArrayType;
 use crate::{check_status, sys, Error, Result, Status};
 
@@ -68,9 +68,7 @@ macro_rules! impl_typed_array {
           if let Some((ref_, env)) = self.raw {
             #[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
             {
-              if CUSTOM_GC_TSFN_CLOSED
-                .with(|closed| closed.load(std::sync::atomic::Ordering::Relaxed))
-              {
+              if THREAD_DESTROYED.with(|closed| closed.load(std::sync::atomic::Ordering::Relaxed)) {
                 return;
               }
               if !THREADS_CAN_ACCESS_ENV
