@@ -1,14 +1,10 @@
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::ffi::c_void;
 use std::ops::{Deref, DerefMut};
 use std::rc::{Rc, Weak};
 
-use once_cell::sync::Lazy;
-
-use crate::{
-  bindgen_runtime::{PersistedPerInstanceHashMap, ToNapiValue},
-  check_status, Env, Error, Result, Status,
-};
+use crate::{bindgen_runtime::ToNapiValue, check_status, Env, Error, Result, Status};
 
 type RefInformation = (
   *mut c_void,
@@ -16,8 +12,9 @@ type RefInformation = (
   *const Cell<*mut dyn FnOnce()>,
 );
 
-pub(crate) static REFERENCE_MAP: Lazy<PersistedPerInstanceHashMap<*mut c_void, RefInformation>> =
-  Lazy::new(Default::default);
+thread_local! {
+  pub(crate) static REFERENCE_MAP: RefCell<HashMap<*mut c_void, RefInformation>> = RefCell::new(HashMap::default());
+}
 
 /// ### Experimental feature
 ///
@@ -61,8 +58,8 @@ impl<T: 'static> Reference<T> {
   #[doc(hidden)]
   #[allow(clippy::not_unsafe_ptr_arg_deref)]
   pub fn add_ref(env: crate::sys::napi_env, t: *mut c_void, value: RefInformation) {
-    REFERENCE_MAP.borrow_mut(|map| {
-      if let Some((_, previous_ref, previous_rc)) = map.insert(t, value) {
+    REFERENCE_MAP.with(|map| {
+      if let Some((_, previous_ref, previous_rc)) = map.borrow_mut().insert(t, value) {
         unsafe { Rc::from_raw(previous_rc) };
         unsafe { crate::sys::napi_delete_reference(env, previous_ref) };
       }
@@ -72,7 +69,7 @@ impl<T: 'static> Reference<T> {
   #[doc(hidden)]
   pub unsafe fn from_value_ptr(t: *mut c_void, env: crate::sys::napi_env) -> Result<Self> {
     if let Some((wrapped_value, napi_ref, finalize_callbacks_ptr)) =
-      REFERENCE_MAP.borrow_mut(|map| map.get(&t).cloned())
+      REFERENCE_MAP.with(|map| map.borrow().get(&t).cloned())
     {
       check_status!(
         unsafe { crate::sys::napi_reference_ref(env, napi_ref, &mut 0) },

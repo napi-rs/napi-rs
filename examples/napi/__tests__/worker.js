@@ -36,6 +36,13 @@ parentPort.on('message', ({ type }) => {
         })
 
       break
+    case 'constructor':
+      let ellie
+      for (let i = 0; i < 10000; i++) {
+        ellie = new native.Animal(native.Kind.Cat, 'Ellie')
+      }
+      parentPort.postMessage(ellie.name)
+      break
     default:
       throw new TypeError(`Unknown message type: ${type}`)
   }
