@@ -5,7 +5,11 @@ import test from 'ava'
 
 import { Animal, Kind, DEFAULT_COST } from '../index'
 
-test('should be able to require in worker thread', async (t) => {
+// aarch64-unknown-linux-gnu is extremely slow in CI, skip it or it will timeout
+const t =
+  process.arch === 'arm64' && process.platform === 'linux' ? test.skip : test
+
+t('should be able to require in worker thread', async (t) => {
   await Promise.all(
     Array.from({ length: 100 }).map(() => {
       const w = new Worker(join(__dirname, 'worker.js'))
@@ -27,7 +31,7 @@ test('should be able to require in worker thread', async (t) => {
   )
 })
 
-test('custom GC works on worker_threads', async (t) => {
+t('custom GC works on worker_threads', async (t) => {
   await Promise.all(
     Array.from({ length: 50 }).map(() =>
       Promise.all([
@@ -66,7 +70,7 @@ test('custom GC works on worker_threads', async (t) => {
   )
 })
 
-test('should be able to new Class in worker thread concurrently', async (t) => {
+t('should be able to new Class in worker thread concurrently', async (t) => {
   await Promise.all(
     Array.from({ length: 100 }).map(() => {
       const w = new Worker(join(__dirname, 'worker.js'))
