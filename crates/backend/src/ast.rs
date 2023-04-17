@@ -139,9 +139,9 @@ pub enum NapiEnumValue {
   Number(i32),
 }
 
-impl Into<Literal> for &NapiEnumValue {
-  fn into(self) -> Literal {
-    match self {
+impl From<&NapiEnumValue> for Literal {
+  fn from(val: &NapiEnumValue) -> Self {
+    match val {
       NapiEnumValue::String(string) => Literal::string(string),
       NapiEnumValue::Number(number) => Literal::i32_unsuffixed(number.to_owned()),
     }

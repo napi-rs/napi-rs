@@ -27,6 +27,7 @@ napi-derive-backend = { version = "1.0.49", path = "../backend" }
 proc-macro2 = "1.0"
 quote = "1.0"
 syn = { version = "1.0.61", features = ["fold", "full", "extra-traits"] }
+cfg-if = "1.0"
 
 [lib]
 proc-macro = true
