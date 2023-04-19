@@ -1,4 +1,4 @@
-use std::ptr;
+use std::{ptr, sync::{Arc, Mutex}, rc::Rc};
 
 use crate::{check_status, sys, Error, JsUnknown, NapiRaw, NapiValue, Result, Status, ValueType};
 
@@ -241,6 +241,191 @@ where
         )?;
 
         Ok(error)
+      }
+    }
+  }
+}
+
+impl<T: TypeName> TypeName for Rc<T> {
+  fn type_name() -> &'static str {
+    T::type_name()
+  }
+
+  fn value_type() -> ValueType {
+    T::value_type()
+  }
+}
+
+impl<T: ValidateNapiValue> ValidateNapiValue for Rc<T> {
+  unsafe fn validate(env: sys::napi_env, napi_val: sys::napi_value) -> Result<sys::napi_value> {
+    let mut result = -1;
+    check_status!(
+      unsafe { sys::napi_typeof(env, napi_val, &mut result) },
+      "Failed to detect napi value type",
+    )?;
+
+    let received_type = ValueType::from(result);
+    if let Ok(validate_ret) = unsafe { T::validate(env, napi_val) } {
+      Ok(validate_ret)
+    } else {
+      Err(Error::new(
+        Status::InvalidArg,
+        format!(
+          "Expect value to be Rc<{}>, but received {}",
+          T::value_type(),
+          received_type
+        ),
+      ))
+    }
+  }
+}
+
+impl<T> FromNapiValue for Rc<T>
+where
+  T: FromNapiValue,
+{
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
+    let mut val_type = 0;
+
+    check_status!(
+      unsafe { sys::napi_typeof(env, napi_val, &mut val_type) },
+      "Failed to convert napi value into rust type `Rc<T>`",
+    )?;
+
+    Ok(Rc::new(unsafe { T::from_napi_value(env, napi_val)? }))
+  }
+}
+
+impl<T> ToNapiValue for Rc<T>
+where
+  T: ToNapiValue + Clone,
+{
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    unsafe { T::to_napi_value(env, (*val).clone()) }
+  }
+}
+
+impl<T: TypeName> TypeName for Arc<T> {
+  fn type_name() -> &'static str {
+    T::type_name()
+  }
+
+  fn value_type() -> ValueType {
+    T::value_type()
+  }
+}
+
+impl<T: ValidateNapiValue> ValidateNapiValue for Arc<T> {
+  unsafe fn validate(env: sys::napi_env, napi_val: sys::napi_value) -> Result<sys::napi_value> {
+    let mut result = -1;
+    check_status!(
+      unsafe { sys::napi_typeof(env, napi_val, &mut result) },
+      "Failed to detect napi value type",
+    )?;
+
+    let received_type = ValueType::from(result);
+    if let Ok(validate_ret) = unsafe { T::validate(env, napi_val) } {
+      Ok(validate_ret)
+    } else {
+      Err(Error::new(
+        Status::InvalidArg,
+        format!(
+          "Expect value to be Arc<{}>, but received {}",
+          T::value_type(),
+          received_type
+        ),
+      ))
+    }
+  }
+}
+
+impl<T> FromNapiValue for Arc<T>
+where
+  T: FromNapiValue,
+{
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
+    let mut val_type = 0;
+
+    check_status!(
+      unsafe { sys::napi_typeof(env, napi_val, &mut val_type) },
+      "Failed to convert napi value into rust type `Arc<T>`",
+    )?;
+
+    Ok(Arc::new(unsafe { T::from_napi_value(env, napi_val)? }))
+  }
+}
+
+impl<T> ToNapiValue for Arc<T>
+where
+  T: ToNapiValue + Clone,
+{
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    unsafe { T::to_napi_value(env, (*val).clone()) }
+  }
+}
+
+impl<T: TypeName> TypeName for Mutex<T> {
+  fn type_name() -> &'static str {
+    T::type_name()
+  }
+
+  fn value_type() -> ValueType {
+    T::value_type()
+  }
+}
+
+impl<T: ValidateNapiValue> ValidateNapiValue for Mutex<T> {
+  unsafe fn validate(env: sys::napi_env, napi_val: sys::napi_value) -> Result<sys::napi_value> {
+    let mut result = -1;
+    check_status!(
+      unsafe { sys::napi_typeof(env, napi_val, &mut result) },
+      "Failed to detect napi value type",
+    )?;
+
+    let received_type = ValueType::from(result);
+    if let Ok(validate_ret) = unsafe { T::validate(env, napi_val) } {
+      Ok(validate_ret)
+    } else {
+      Err(Error::new(
+        Status::InvalidArg,
+        format!(
+          "Expect value to be Mutex<{}>, but received {}",
+          T::value_type(),
+          received_type
+        ),
+      ))
+    }
+  }
+}
+
+impl<T> FromNapiValue for Mutex<T>
+where
+  T: FromNapiValue,
+{
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
+    let mut val_type = 0;
+
+    check_status!(
+      unsafe { sys::napi_typeof(env, napi_val, &mut val_type) },
+      "Failed to convert napi value into rust type `Mutex<T>`",
+    )?;
+
+    Ok(Mutex::new(unsafe { T::from_napi_value(env, napi_val)? }))
+  }
+}
+
+impl<T> ToNapiValue for Mutex<T>
+where
+  T: ToNapiValue + Clone,
+{
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    unsafe {
+      match val.lock() {
+        Ok(inner) => T::to_napi_value(env, inner.clone()),
+        Err(_) => Err(Error::new(
+          Status::GenericFailure,
+          format!("Failed to acquire a lock"),
+        )),
       }
     }
   }
