@@ -1,4 +1,8 @@
-use std::{ptr, sync::{Arc, Mutex}, rc::Rc};
+use std::{
+  ptr,
+  rc::Rc,
+  sync::{Arc, Mutex},
+};
 
 use crate::{check_status, sys, Error, JsUnknown, NapiRaw, NapiValue, Result, Status, ValueType};
 
