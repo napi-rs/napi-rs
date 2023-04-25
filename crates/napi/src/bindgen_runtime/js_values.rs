@@ -428,7 +428,7 @@ where
         Ok(inner) => T::to_napi_value(env, inner.clone()),
         Err(_) => Err(Error::new(
           Status::GenericFailure,
-          format!("Failed to acquire a lock"),
+          "Failed to acquire a lock",
         )),
       }
     }
