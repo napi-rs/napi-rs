@@ -50,6 +50,11 @@ impl TryToTokens for NapiFn {
             fn drop(self, env: napi::sys::napi_env) {
               for r in self.0.into_iter() {
                 assert_eq!(
+                  unsafe { napi::sys::napi_reference_unref(env, r, &mut 0) },
+                  napi::sys::Status::napi_ok,
+                  "failed to delete napi ref"
+                );
+                assert_eq!(
                   unsafe { napi::sys::napi_delete_reference(env, r) },
                   napi::sys::Status::napi_ok,
                   "failed to delete napi ref"
@@ -62,7 +67,7 @@ impl TryToTokens for NapiFn {
           let _make_ref = |a: ::std::ptr::NonNull<napi::bindgen_prelude::sys::napi_value__>| {
             let mut node_ref = ::std::mem::MaybeUninit::uninit();
             napi::bindgen_prelude::check_status!(unsafe {
-                napi::bindgen_prelude::sys::napi_create_reference(env, a.as_ptr(), 0, node_ref.as_mut_ptr())
+                napi::bindgen_prelude::sys::napi_create_reference(env, a.as_ptr(), 1, node_ref.as_mut_ptr())
               },
               "failed to create napi ref"
             )?;
