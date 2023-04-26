@@ -82,7 +82,7 @@ impl<const N: usize> CallbackInfo<N> {
         sys::napi_wrap(
           self.env,
           this,
-          value_ref as *mut c_void,
+          value_ref.cast(),
           Some(raw_finalize_unchecked::<T>),
           ptr::null_mut(),
           &mut object_ref
@@ -94,8 +94,8 @@ impl<const N: usize> CallbackInfo<N> {
 
     Reference::<T>::add_ref(
       self.env,
-      value_ref as *mut c_void,
-      (value_ref as *mut c_void, object_ref, finalize_callbacks_ptr),
+      value_ref.cast(),
+      (value_ref.cast(), object_ref, finalize_callbacks_ptr),
     );
     Ok((this, value_ref))
   }
@@ -176,8 +176,8 @@ impl<const N: usize> CallbackInfo<N> {
 
     Reference::<T>::add_ref(
       self.env,
-      value_ref as *mut c_void,
-      (value_ref as *mut c_void, object_ref, finalize_callbacks_ptr),
+      value_ref.cast(),
+      (value_ref.cast(), object_ref, finalize_callbacks_ptr),
     );
     Ok((instance, value_ref))
   }
@@ -212,7 +212,7 @@ impl<const N: usize> CallbackInfo<N> {
         T::type_name(),
       )?;
 
-      Ok(wrapped_val as *mut T)
+      Ok(wrapped_val.cast())
     }
   }
 }
