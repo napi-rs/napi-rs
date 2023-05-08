@@ -97,6 +97,11 @@ export abstract class BaseBuildCommand extends Command {
       '[experimental] cross-compile for the specified target with `cargo-xwin` on windows and `cargo-zigbuild` on other platform',
   })
 
+  useCross?: boolean = Option.Boolean('--use-cross', {
+    description:
+      '[experimental] use [cross](https://github.com/cross-rs/cross) instead of `cargo`',
+  })
+
   watch?: boolean = Option.Boolean('--watch,-w', {
     description:
       'watch the crate changes and build continiously with `cargo-watch` crates',
@@ -135,6 +140,7 @@ export abstract class BaseBuildCommand extends Command {
       bin: this.bin,
       package: this.package,
       crossCompile: this.crossCompile,
+      useCross: this.useCross,
       watch: this.watch,
       features: this.features,
       allFeatures: this.allFeatures,
@@ -223,6 +229,10 @@ export interface BuildOptions {
    * [experimental] cross-compile for the specified target with `cargo-xwin` on windows and `cargo-zigbuild` on other platform
    */
   crossCompile?: boolean
+  /**
+   * [experimental] use [cross](https://github.com/cross-rs/cross) instead of `cargo`
+   */
+  useCross?: boolean
   /**
    * watch the crate changes and build continiously with `cargo-watch` crates
    */
