@@ -228,6 +228,12 @@ const BUILD_OPTIONS: CommandSchema = {
       short: 'x',
     },
     {
+      name: 'useCross',
+      type: 'boolean',
+      description:
+        '[experimental] use [cross](https://github.com/cross-rs/cross) instead of `cargo`',
+    },
+    {
       name: 'watch',
       type: 'boolean',
       description:
