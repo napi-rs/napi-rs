@@ -69,9 +69,9 @@
   "dependencies": {
     "@octokit/rest": "^19.0.7",
     "clipanion": "^3.2.0",
-    "colorette": "^2.0.19",
+    "colorette": "^2.0.20",
     "debug": "^4.3.4",
-    "inquirer": "^9.1.5",
+    "inquirer": "^9.2.2",
     "js-yaml": "^4.1.0",
     "lodash-es": "^4.17.21",
     "typanion": "^3.12.1"
@@ -81,8 +81,8 @@
     "@types/js-yaml": "^4.0.5",
     "@types/lodash-es": "^4.17.7",
     "ava": "^5.2.0",
-    "esbuild": "^0.17.16",
-    "prettier": "^2.8.7",
+    "esbuild": "^0.17.18",
+    "prettier": "^2.8.8",
     "ts-node": "^10.9.1",
     "typescript": "^5.0.4"
   },

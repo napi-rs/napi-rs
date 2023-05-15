@@ -10,10 +10,10 @@
   },
   "devDependencies": {
     "@napi-rs/cli": "workspace:*",
-    "@types/lodash": "^4.14.192",
+    "@types/lodash": "^4.14.194",
     "ava": "^5.2.0",
     "lodash": "^4.17.21",
-    "sinon": "^15.0.3"
+    "sinon": "^15.0.4"
   },
   "ava": {
     "extensions": [
