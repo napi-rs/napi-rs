@@ -1,4 +1,4 @@
-use std::env;
+use std::{env, format};
 
 use napi::{
   bindgen_prelude::*,
@@ -79,6 +79,18 @@ fn callback_return_promise<T: Fn() -> Result<JsUnknown>>(
   } else {
     Ok(ret)
   }
+}
+
+#[napi(ts_return_type = "Promise<string>")]
+pub fn callback_return_promise_and_spawn<F: Fn(String) -> Result<Promise<String>>>(
+  env: Env,
+  js_func: F,
+) -> napi::Result<Object> {
+  let promise = js_func("Hello".to_owned())?;
+  env.spawn_future(async move {
+    let resolved = promise.await?;
+    Ok::<String, napi::Error>(format!("{} 😼", resolved))
+  })
 }
 
 #[napi]
