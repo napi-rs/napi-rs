@@ -246,6 +246,8 @@ export interface C {
 
 export function callbackReturnPromise<T>(functionInput: () => T | Promise<T>, callback: (err: Error | null, result: T) => void): T | Promise<T>
 
+export function callbackReturnPromiseAndSpawn(jsFunc: (arg0: string) => Promise<string>): Promise<string>
+
 export function callLongThreadsafeFunction(callback: (...args: any[]) => any): void
 
 export function callThreadsafeFunction(callback: (...args: any[]) => any): void

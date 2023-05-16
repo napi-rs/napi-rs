@@ -104,6 +104,7 @@ import {
   CssStyleSheet,
   asyncReduceBuffer,
   callbackReturnPromise,
+  callbackReturnPromiseAndSpawn,
   returnEitherClass,
   eitherFromOption,
   eitherFromObjects,
@@ -346,6 +347,13 @@ test('callback function return Promise', async (t) => {
   )
   t.is(cbSpy.callCount, 1)
   t.deepEqual(cbSpy.args, [['42']])
+})
+
+test('callback function return Promise and spawn', async (t) => {
+  const finalReturn = await callbackReturnPromiseAndSpawn((input) =>
+    Promise.resolve(`${input} world`),
+  )
+  t.is(finalReturn, 'Hello world 😼')
 })
 
 test('object', (t) => {
