@@ -245,20 +245,49 @@ impl JsBigInt {
 
   pub fn get_i128(&mut self) -> Result<(i128, bool)> {
     let (signed, words) = self.get_words()?;
-    let len = words.len();
-    let i128_words: [i64; 2] = [words[0] as _, words[1] as _];
-    let mut val = unsafe { ptr::read(i128_words.as_ptr() as *const i128) };
+
+    let high_part = words.first().copied().unwrap_or(0).to_le_bytes();
+    let low_part = words.get(1).copied().unwrap_or(0).to_le_bytes();
+
+    let mut val = [0_u8; std::mem::size_of::<i128>()];
+
+    let (high_val, low_val) = val.split_at_mut(low_part.len());
+
+    high_val.copy_from_slice(&high_part);
+    low_val.copy_from_slice(&low_part);
+
+    let mut val = i128::from_le_bytes(val);
+
+    let mut loss = words.len() > 2;
+    let mut overflow = false;
+
     if signed {
-      val = -val;
+      let result = val.overflowing_neg();
+      val = result.0;
+      overflow = result.1;
     }
-    Ok((val, len > 2))
+
+    loss = overflow || loss;
+
+    Ok((val, loss))
   }
 
   pub fn get_u128(&mut self) -> Result<(bool, u128, bool)> {
     let (signed, words) = self.get_words()?;
+
+    let high_part = words.first().copied().unwrap_or(0).to_le_bytes();
+    let low_part = words.get(1).copied().unwrap_or(0).to_le_bytes();
+
+    let mut val = [0_u8; std::mem::size_of::<u128>()];
+
+    let (high_val, low_val) = val.split_at_mut(low_part.len());
+
+    high_val.copy_from_slice(&high_part);
+    low_val.copy_from_slice(&low_part);
+
+    let val = u128::from_le_bytes(val);
     let len = words.len();
-    let u128_words: [u64; 2] = [words[0], words[1]];
-    let val = unsafe { ptr::read(u128_words.as_ptr() as *const u128) };
+
     Ok((signed, val, len > 2))
   }
 }

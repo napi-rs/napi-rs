@@ -56,11 +56,15 @@ impl<'x, 'de, 'env> serde::de::Deserializer<'x> for &'de mut De<'env> {
       #[cfg(feature = "napi6")]
       ValueType::BigInt => {
         let mut js_bigint = unsafe { JsBigInt::from_raw(self.0.env, self.0.value)? };
-        let (signed, v, _loss) = js_bigint.get_u128()?;
-        if signed {
-          visitor.visit_i128(-(v as i128))
-        } else {
-          visitor.visit_u128(v)
+
+        let (signed, words) = js_bigint.get_words()?;
+        let word_sized = words.len() < 2;
+
+        match (signed, word_sized) {
+          (true, true) => visitor.visit_i64(js_bigint.get_i64()?.0),
+          (true, false) => visitor.visit_i128(js_bigint.get_i128()?.0),
+          (false, true) => visitor.visit_u64(js_bigint.get_u64()?.0),
+          (false, false) => visitor.visit_u128(js_bigint.get_u128()?.1),
         }
       }
       ValueType::External | ValueType::Function | ValueType::Symbol => Err(Error::new(
