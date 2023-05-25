@@ -15,6 +15,7 @@ export const AVAILABLE_TARGETS = [
   'armv7-unknown-linux-gnueabihf',
   'armv7-linux-androideabi',
   'universal-apple-darwin',
+  'riscv64gc-unknown-linux-gnu',
 ] as const
 
 export type TargetTriple = (typeof AVAILABLE_TARGETS)[number]
@@ -27,6 +28,7 @@ export const DEFAULT_TARGETS = [
 
 export const TARGET_LINKER: Record<string, string> = {
   'aarch64-unknown-linux-musl': 'aarch64-linux-musl-gcc',
+  'riscv64gc-unknown-linux-gnu': 'riscv64-linux-gnu-gcc',
 }
 
 // https://nodejs.org/api/process.html#process_process_arch
@@ -38,6 +40,7 @@ type NodeJSArch =
   | 'mipsel'
   | 'ppc'
   | 'ppc64'
+  | 'riscv64'
   | 's390'
   | 's390x'
   | 'x32'
@@ -49,6 +52,7 @@ const CpuToNodeArch: Record<string, NodeJSArch> = {
   aarch64: 'arm64',
   i686: 'ia32',
   armv7: 'arm',
+  riscv64gc: 'riscv64',
 }
 
 export const NodeArchToCpu: Record<string, string> = {
@@ -56,6 +60,7 @@ export const NodeArchToCpu: Record<string, string> = {
   arm64: 'aarch64',
   ia32: 'i686',
   arm: 'armv7',
+  riscv64: 'riscv64gc',
 }
 
 const SysToNodePlatform: Record<string, NodeJS.Platform> = {

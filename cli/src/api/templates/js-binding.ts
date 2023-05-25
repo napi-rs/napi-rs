@@ -85,6 +85,11 @@ function loadNapiModule(binaryName: string, packageName: string) {
         case 'arm':
           candidates.push('linux-arm-gnueabihf')
           break
+        // type Architecture doesn't contain riscv64 yet
+        // @ts-expect-error
+        case 'riscv64':
+          candidates.push('linux-riscv64-gnu')
+          break
       }
       break
   }

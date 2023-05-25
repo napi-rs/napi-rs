@@ -319,12 +319,12 @@ module.exports.platformArchTriples = {
         "abi": "gnu"
       }
     ],
-    "riscv64gc": [
+    "riscv64": [
       {
         "triple": "riscv64gc-unknown-linux-gnu",
-        "platformArchABI": "linux-riscv64gc-gnu",
+        "platformArchABI": "linux-riscv64-gnu",
         "platform": "linux",
-        "arch": "riscv64gc",
+        "arch": "riscv64",
         "abi": "gnu"
       }
     ],
