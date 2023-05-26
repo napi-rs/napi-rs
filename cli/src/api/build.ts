@@ -460,12 +460,13 @@ class Builder {
       return
     }
 
-    const src = join(
-      this.targetDir,
-      this.target.triple,
-      this.options.release ? 'release' : 'debug',
-      srcName,
-    )
+    let outputFolder = this.options.release ? 'release' : 'debug'
+    if (this.options.cargoOptions?.includes('--profile')) {
+      const args = this.options.cargoOptions
+      const profileIndex = args.indexOf('--profile')
+      outputFolder = args[profileIndex + 1]
+    }
+    const src = join(this.targetDir, this.target.triple, outputFolder, srcName)
     const dest = join(this.outputDir, destName)
 
     try {
