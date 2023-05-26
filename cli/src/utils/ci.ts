@@ -99,4 +99,13 @@ export const CIConfig: Partial<
     ],
     test: false,
   },
+  'riscv64gc-unknown-linux-gnu': {
+    host: 'ubuntu-latest',
+    build_setup: [
+      'sudo apt-get update',
+      'sudo apt-get install g++-riscv64-linux-gnu gcc-riscv64-linux-gnu -y',
+    ],
+    // No official nodejs docker image for riscv64
+    test: false,
+  },
 }
