@@ -130,6 +130,8 @@ import {
   tsfnReturnPromise,
   tsfnReturnPromiseTimeout,
   returnFromSharedCrate,
+  chronoNativeDateTime,
+  chronoNativeDateTimeReturn,
 } from '../'
 
 test('export const', (t) => {
@@ -979,4 +981,15 @@ Napi5Test('Class with getter setter closures', (t) => {
   t.is(instance.name, `I'm Allie`)
   // @ts-expect-error
   t.is(instance.age, 0.3)
+})
+
+Napi5Test('Date to chrono::NativeDateTime test', (t) => {
+  const fixture = new Date()
+  t.is(chronoNativeDateTime(fixture), fixture.valueOf())
+})
+
+Napi5Test('Date from chrono::NativeDateTime test', (t) => {
+  const fixture = chronoNativeDateTimeReturn()
+  t.true(fixture instanceof Date)
+  t.is(fixture?.toISOString(), '2016-12-23T15:25:59.325Z')
 })
