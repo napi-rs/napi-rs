@@ -258,6 +258,10 @@ export function chronoDateAdd1Minute(input: Date): Date
 
 export function chronoDateToMillis(input: Date): number
 
+export function chronoNativeDateTime(date: Date): number
+
+export function chronoNativeDateTimeReturn(): Date | null
+
 export function concatLatin1(s: string): string
 
 export function concatStr(s: string): string
