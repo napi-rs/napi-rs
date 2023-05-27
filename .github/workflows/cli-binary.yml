@@ -47,10 +47,6 @@ jobs:
         run: |
           yarn workspace binary build
           ./examples/binary/napi-examples-binary
+          yarn workspace binary build --profile napi-rs-custom
         env:
           RUST_BACKTRACE: 1
-
-      - name: Clear the cargo caches
-        run: |
-          cargo install cargo-cache --no-default-features --features ci-autoclean
-          cargo-cache

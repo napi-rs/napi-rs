@@ -43,6 +43,7 @@ new NapiCli().build({
 | verbose           | --verbose,-v          | boolean  | false    |         | Verbosely log build command trace                                                                                         |
 | bin               | --bin                 | string   | false    |         | Build only the specified binary                                                                                           |
 | package           | --package,-p          | string   | false    |         | Build the specified library or the one at cwd                                                                             |
+| profile           | --profile             | string   | false    |         | Build artifacts with the specified profile                                                                                |
 | crossCompile      | --cross-compile,-x    | boolean  | false    |         | [experimental] cross-compile for the specified target with `cargo-xwin` on windows and `cargo-zigbuild` on other platform |
 | useCross          | --use-cross           | boolean  | false    |         | [experimental] use [cross](https://github.com/cross-rs/cross) instead of `cargo`                                          |
 | watch             | --watch,-w            | boolean  | false    |         | watch the crate changes and build continiously with `cargo-watch` crates                                                  |

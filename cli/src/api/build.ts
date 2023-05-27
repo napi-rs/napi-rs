@@ -402,6 +402,10 @@ class Builder {
       this.args.push('--target-dir', this.options.targetDir)
     }
 
+    if (this.options.profile) {
+      this.args.push('--profile', this.options.profile)
+    }
+
     if (this.options.cargoOptions?.length) {
       this.args.push(...this.options.cargoOptions)
     }
@@ -460,13 +464,10 @@ class Builder {
       return
     }
 
-    let outputFolder = this.options.release ? 'release' : 'debug'
-    if (this.options.cargoOptions?.includes('--profile')) {
-      const args = this.options.cargoOptions
-      const profileIndex = args.indexOf('--profile')
-      outputFolder = args[profileIndex + 1]
-    }
-    const src = join(this.targetDir, this.target.triple, outputFolder, srcName)
+    const profile =
+      this.options.profile ?? (this.options.release ? 'release' : 'debug')
+    const src = join(this.targetDir, this.target.triple, profile, srcName)
+    debug(`Copy artifact from: [${src}]`)
     const dest = join(this.outputDir, destName)
 
     try {
