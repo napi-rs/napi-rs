@@ -150,7 +150,8 @@ class Builder {
     const controller = new AbortController()
 
     const buildTask = new Promise<void>((resolve, reject) => {
-      const command = this.options.useCross ? 'cross' : 'cargo'
+      const command =
+        process.env.CARGO ?? (this.options.useCross ? 'cross' : 'cargo')
       const buildProcess = spawn(command, this.args, {
         env: {
           ...process.env,
