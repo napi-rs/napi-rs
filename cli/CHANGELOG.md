@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.16.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.15.2...@napi-rs/cli@2.16.0) (2023-05-27)
+
+### Features
+
+- **cli:** support --profile flag ([dfbe464](https://github.com/napi-rs/napi-rs/commit/dfbe4645f9f84283d233d96c2ea6fa7fd68d5b8c))
+
 ## [2.15.2](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.15.1...@napi-rs/cli@2.15.2) (2023-03-22)
 
 ### Bug Fixes
