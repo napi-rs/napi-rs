@@ -137,6 +137,10 @@ export class BuildCommand extends Command {
     description: `Bypass to ${chalk.green('cargo -p')}`,
   })
 
+  profile = Option.String('--profile', {
+    description: `Bypass to ${chalk.green('cargo --profile')}`,
+  })
+
   cargoFlags = Option.String('--cargo-flags', '', {
     description: `All the others flag passed to ${chalk.yellow('cargo build')}`,
   })
@@ -267,12 +271,14 @@ export class BuildCommand extends Command {
       : getHostTargetTriple()
     debug(`Current triple is: ${chalk.green(triple.raw)}`)
     const pFlag = this.project ? `-p ${this.project}` : ''
+    const profileFlag = this.profile ? `--profile ${this.profile}` : ''
     const externalFlags = [
       releaseFlag,
       targetFlag,
       featuresFlag,
       binFlag,
       pFlag,
+      profileFlag,
       this.cargoFlags,
     ]
       .filter((flag) => Boolean(flag))
@@ -582,7 +588,7 @@ export class BuildCommand extends Command {
 
     const targetDir = join(
       this.targetTripleDir,
-      this.isRelease ? 'release' : 'debug',
+      this.profile ?? this.isRelease ? 'release' : 'debug',
     )
 
     const platformName = this.appendPlatformToFilename
