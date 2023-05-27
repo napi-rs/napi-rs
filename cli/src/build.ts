@@ -588,7 +588,7 @@ export class BuildCommand extends Command {
 
     const targetDir = join(
       this.targetTripleDir,
-      this.profile ?? this.isRelease ? 'release' : 'debug',
+      this.profile ?? (this.isRelease ? 'release' : 'debug'),
     )
 
     const platformName = this.appendPlatformToFilename
