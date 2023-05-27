@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.0.0-alpha.2](https://github.com/napi-rs/napi-rs/compare/@napi-rs/triples@2.0.0-alpha.1...@napi-rs/triples@2.0.0-alpha.2) (2023-05-27)
+
+### Features
+
+- **target:** riscv64gc-unknown-linux-gnu ([72fcd03](https://github.com/napi-rs/napi-rs/commit/72fcd03d982e2926bcc623061bbf287e2990f1e1))
+
 # [2.0.0-alpha.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/triples@2.0.0-alpha.0...@napi-rs/triples@2.0.0-alpha.1) (2023-04-06)
 
 ### Bug Fixes

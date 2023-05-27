@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.4](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.3...@napi-rs/cli@3.0.0-alpha.4) (2023-05-27)
+
+### Bug Fixes
+
+- **cli:** add back override cargo by env ([9abce20](https://github.com/napi-rs/napi-rs/commit/9abce20beb50e9d9f81f2b80b7f370f7fea035f1))
+- **cli:** revert back js-binding file ([#1603](https://github.com/napi-rs/napi-rs/issues/1603)) ([82c2113](https://github.com/napi-rs/napi-rs/commit/82c2113c242b48c62e651791528559f039852255))
+
+### Features
+
+- **cli:** add --use-cross command for building with `cross` ([#1584](https://github.com/napi-rs/napi-rs/issues/1584)) ([5860088](https://github.com/napi-rs/napi-rs/commit/58600883dd6ac69b8ffd1e51d7c5b00adcc09c33)), closes [#1582](https://github.com/napi-rs/napi-rs/issues/1582)
+- **cli:** detect Cargo `--profile` argument ([#1598](https://github.com/napi-rs/napi-rs/issues/1598)) ([8583603](https://github.com/napi-rs/napi-rs/commit/85836034ff522dedcd694debd2e0e2046aa97776))
+- **target:** riscv64gc-unknown-linux-gnu ([72fcd03](https://github.com/napi-rs/napi-rs/commit/72fcd03d982e2926bcc623061bbf287e2990f1e1))
+
 # [3.0.0-alpha.3](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.2...@napi-rs/cli@3.0.0-alpha.3) (2023-04-07)
 
 ### Bug Fixes
