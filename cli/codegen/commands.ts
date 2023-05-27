@@ -221,6 +221,11 @@ const BUILD_OPTIONS: CommandSchema = {
       short: 'p',
     },
     {
+      name: 'profile',
+      type: 'string',
+      description: 'Build artifacts with the specified profile',
+    },
+    {
       name: 'crossCompile',
       type: 'boolean',
       description:

@@ -73,3 +73,6 @@ jobs:
         run: |
           node ./node_modules/electron/install.js
           xvfb-run --auto-servernum yarn test:electron
+
+      - name: Test build with profile
+        run: yarn workspace @examples/napi build --profile napi-rs-custom
