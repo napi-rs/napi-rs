@@ -3604,16 +3604,16 @@ __metadata:
   languageName: node
   linkType: hard
 
-"electron@npm:24.4.0":
-  version: 24.4.0
-  resolution: "electron@npm:24.4.0"
+"electron@npm:24.4.1":
+  version: 24.4.1
+  resolution: "electron@npm:24.4.1"
   dependencies:
     "@electron/get": ^2.0.0
     "@types/node": ^18.11.18
     extract-zip: ^2.0.1
   bin:
     electron: cli.js
-  checksum: 352a1f80c30b3c44a6224df2690984b6fa8cb6bccfce54f530f58fe3b26540d8c98064e57644ecd9cfca3e0c7bd316d09ddfbce24f77b0f56397b1f20029aeb6
+  checksum: 52c6478d462fc7b1c06c92431c588d31bd375ec480e7053e2364f75a98ab4ff9bdb4db86e0adc5e16f224fda109747565323a9be42d1d5f0b12eb2a945fc8e19
   languageName: node
   linkType: hard
 
@@ -6943,7 +6943,7 @@ __metadata:
     ava: ^5.2.0
     c8: ^7.13.0
     cross-env: ^7.0.3
-    electron: 24.4.0
+    electron: 24.4.1
     esbuild: ^0.17.16
     eslint: ^8.38.0
     eslint-config-prettier: ^8.8.0
