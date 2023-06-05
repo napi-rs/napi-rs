@@ -88,3 +88,5 @@ impl TypeName for Object {
     ValueType::Object
   }
 }
+
+impl ValidateNapiValue for JsObject {}

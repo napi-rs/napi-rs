@@ -1,4 +1,4 @@
-name: Cli Build Binary
+name: Linux-riscv64
 
 env:
   DEBUG: 'napi:*'
@@ -14,7 +14,8 @@ on:
   pull_request:
 
 jobs:
-  build_binary_crate:
+  build:
+    name: stable - riscv64-unknown-linux-gnu - node@18
     runs-on: ubuntu-latest
 
     steps:
@@ -30,6 +31,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
+          targets: riscv64gc-unknown-linux-gnu
 
       - name: Cache cargo
         uses: actions/cache@v3
@@ -37,16 +39,15 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
-          key: stable-cargo-cache-build-binary
+          key: stable-linux-riscv64-gnu-node@18-cargo-cache
 
-      - name: 'Install dependencies'
-        run: yarn install --mode=skip-build --immutable
-
-      - name: Build and run binary
+      - name: Install dependencies
         run: |
-          yarn workspace binary build
-          ./examples/binary/napi-examples-binary
-          yarn workspace binary build --profile napi-rs-custom
-        env:
-          RUST_BACKTRACE: 1
+          sudo apt-get update
+          sudo apt-get install -y gcc-riscv64-linux-gnu
+          yarn config set --json supportedArchitectures.cpu '["current", "riscv64"]'
+          yarn config set supportedArchitectures.libc "glibc"
+          yarn install --immutable --mode=skip-build
+
+      - name: Cross build native tests
+        run: yarn build:test -- --target riscv64gc-unknown-linux-gnu

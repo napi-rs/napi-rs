@@ -161,6 +161,7 @@ static KNOWN_TYPES: Lazy<HashMap<&'static str, (&'static str, bool, bool)>> = La
     ("BigUint64Array", ("BigUint64Array", false, false)),
     ("DataView", ("DataView", false, false)),
     ("DateTime", ("Date", false, false)),
+    ("NaiveDateTime", ("Date", false ,false)),
     ("Date", ("Date", false, false)),
     ("JsDate", ("Date", false, false)),
     ("JsBuffer", ("Buffer", false, false)),

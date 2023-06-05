@@ -150,7 +150,9 @@ class Builder {
     const controller = new AbortController()
 
     const buildTask = new Promise<void>((resolve, reject) => {
-      const buildProcess = spawn('cargo', this.args, {
+      const command =
+        process.env.CARGO ?? (this.options.useCross ? 'cross' : 'cargo')
+      const buildProcess = spawn(command, this.args, {
         env: {
           ...process.env,
           ...this.envs,
@@ -401,6 +403,10 @@ class Builder {
       this.args.push('--target-dir', this.options.targetDir)
     }
 
+    if (this.options.profile) {
+      this.args.push('--profile', this.options.profile)
+    }
+
     if (this.options.cargoOptions?.length) {
       this.args.push(...this.options.cargoOptions)
     }
@@ -459,12 +465,10 @@ class Builder {
       return
     }
 
-    const src = join(
-      this.targetDir,
-      this.target.triple,
-      this.options.release ? 'release' : 'debug',
-      srcName,
-    )
+    const profile =
+      this.options.profile ?? (this.options.release ? 'release' : 'debug')
+    const src = join(this.targetDir, this.target.triple, profile, srcName)
+    debug(`Copy artifact from: [${src}]`)
     const dest = join(this.outputDir, destName)
 
     try {

@@ -221,11 +221,22 @@ const BUILD_OPTIONS: CommandSchema = {
       short: 'p',
     },
     {
+      name: 'profile',
+      type: 'string',
+      description: 'Build artifacts with the specified profile',
+    },
+    {
       name: 'crossCompile',
       type: 'boolean',
       description:
         '[experimental] cross-compile for the specified target with `cargo-xwin` on windows and `cargo-zigbuild` on other platform',
       short: 'x',
+    },
+    {
+      name: 'useCross',
+      type: 'boolean',
+      description:
+        '[experimental] use [cross](https://github.com/cross-rs/cross) instead of `cargo`',
     },
     {
       name: 'watch',
