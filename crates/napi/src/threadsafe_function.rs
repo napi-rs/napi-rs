@@ -230,12 +230,28 @@ struct ThreadsafeFunctionCallJsBackData<T> {
 ///   ctx.env.get_undefined()
 /// }
 /// ```
-pub struct ThreadsafeFunction<T: 'static, ES: ErrorStrategy::T = ErrorStrategy::CalleeHandled> {
+pub struct ThreadsafeFunction<
+  T: 'static,
+  Return: 'static + FromNapiValue = (),
+  ES: ErrorStrategy::T = ErrorStrategy::CalleeHandled,
+> {
   handle: Arc<ThreadsafeFunctionHandle>,
-  _phantom: PhantomData<(T, ES)>,
+  _phantom: PhantomData<(T, ES, Return)>,
 }
 
-impl<T: 'static, ES: ErrorStrategy::T> Clone for ThreadsafeFunction<T, ES> {
+unsafe impl<T: 'static, Return: 'static + FromNapiValue, ES: ErrorStrategy::T> Send
+  for ThreadsafeFunction<T, Return, ES>
+{
+}
+
+unsafe impl<T: 'static, Return: 'static + FromNapiValue, ES: ErrorStrategy::T> Sync
+  for ThreadsafeFunction<T, Return, ES>
+{
+}
+
+impl<T: 'static, ES: ErrorStrategy::T, Return: 'static + FromNapiValue> Clone
+  for ThreadsafeFunction<T, Return, ES>
+{
   fn clone(&self) -> Self {
     self.handle.with_read_aborted(|aborted| {
       if aborted {
@@ -311,15 +327,17 @@ impl_js_value_tuple_to_vec!(
   A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z
 );
 
-impl<T: JsValuesTupleIntoVec + 'static, ES: ErrorStrategy::T> FromNapiValue
-  for ThreadsafeFunction<T, ES>
+impl<T: JsValuesTupleIntoVec + 'static, ES: ErrorStrategy::T, Return: 'static + FromNapiValue>
+  FromNapiValue for ThreadsafeFunction<T, Return, ES>
 {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
     Self::create(env, napi_val, 0, |ctx| ctx.value.into_vec(&ctx.env))
   }
 }
 
-impl<T: 'static, ES: ErrorStrategy::T> ThreadsafeFunction<T, ES> {
+impl<T: 'static, ES: ErrorStrategy::T, Return: 'static + FromNapiValue>
+  ThreadsafeFunction<T, Return, ES>
+{
   /// See [napi_create_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_create_threadsafe_function)
   /// for more information.
   pub(crate) fn create<
@@ -353,7 +371,7 @@ impl<T: 'static, ES: ErrorStrategy::T> ThreadsafeFunction<T, ES> {
         Arc::downgrade(&handle).into_raw() as *mut c_void, // pass handler to thread_finalize_cb
         Some(thread_finalize_cb::<T, V, R>),
         callback_ptr.cast(),
-        Some(call_js_cb::<T, V, R, ES>),
+        Some(call_js_cb::<T, V, R, ES, Return>),
         &mut raw_tsfn,
       )
     })?;
@@ -418,7 +436,9 @@ impl<T: 'static, ES: ErrorStrategy::T> ThreadsafeFunction<T, ES> {
   }
 }
 
-impl<T: 'static> ThreadsafeFunction<T, ErrorStrategy::CalleeHandled> {
+impl<T: 'static, Return: 'static + FromNapiValue>
+  ThreadsafeFunction<T, Return, ErrorStrategy::CalleeHandled>
+{
   /// See [napi_call_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_call_threadsafe_function)
   /// for more information.
   pub fn call(&self, value: Result<T>, mode: ThreadsafeFunctionCallMode) -> Status {
@@ -445,7 +465,7 @@ impl<T: 'static> ThreadsafeFunction<T, ErrorStrategy::CalleeHandled> {
     })
   }
 
-  pub fn call_with_return_value<D: FromNapiValue, F: 'static + FnOnce(D) -> Result<()>>(
+  pub fn call_with_return_value<F: 'static + FnOnce(Return) -> Result<()>>(
     &self,
     value: Result<T>,
     mode: ThreadsafeFunctionCallMode,
@@ -464,7 +484,7 @@ impl<T: 'static> ThreadsafeFunction<T, ErrorStrategy::CalleeHandled> {
               data,
               call_variant: ThreadsafeFunctionCallVariant::WithCallback,
               callback: Box::new(move |d: Result<JsUnknown>| {
-                d.and_then(|d| D::from_napi_value(d.0.env, d.0.value).and_then(cb))
+                d.and_then(|d| Return::from_napi_value(d.0.env, d.0.value).and_then(cb))
               }),
             }
           })))
@@ -477,8 +497,8 @@ impl<T: 'static> ThreadsafeFunction<T, ErrorStrategy::CalleeHandled> {
   }
 
   #[cfg(feature = "tokio_rt")]
-  pub async fn call_async<D: 'static + FromNapiValue>(&self, value: Result<T>) -> Result<D> {
-    let (sender, receiver) = tokio::sync::oneshot::channel::<Result<D>>();
+  pub async fn call_async(&self, value: Result<T>) -> Result<Return> {
+    let (sender, receiver) = tokio::sync::oneshot::channel::<Result<Return>>();
 
     self.handle.with_read_aborted(|aborted| {
       if aborted {
@@ -494,7 +514,7 @@ impl<T: 'static> ThreadsafeFunction<T, ErrorStrategy::CalleeHandled> {
               call_variant: ThreadsafeFunctionCallVariant::WithCallback,
               callback: Box::new(move |d: Result<JsUnknown>| {
                 sender
-                  .send(d.and_then(|d| D::from_napi_value(d.0.env, d.0.value)))
+                  .send(d.and_then(|d| Return::from_napi_value(d.0.env, d.0.value)))
                   .map_err(|_| {
                     crate::Error::from_reason("Failed to send return value to tokio sender")
                   })
@@ -518,7 +538,9 @@ impl<T: 'static> ThreadsafeFunction<T, ErrorStrategy::CalleeHandled> {
   }
 }
 
-impl<T: 'static> ThreadsafeFunction<T, ErrorStrategy::Fatal> {
+impl<T: 'static, Return: 'static + FromNapiValue>
+  ThreadsafeFunction<T, Return, ErrorStrategy::Fatal>
+{
   /// See [napi_call_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_call_threadsafe_function)
   /// for more information.
   pub fn call(&self, value: T, mode: ThreadsafeFunctionCallMode) -> Status {
@@ -543,7 +565,7 @@ impl<T: 'static> ThreadsafeFunction<T, ErrorStrategy::Fatal> {
     })
   }
 
-  pub fn call_with_return_value<D: FromNapiValue, F: 'static + FnOnce(D) -> Result<()>>(
+  pub fn call_with_return_value<F: 'static + FnOnce(Return) -> Result<()>>(
     &self,
     value: T,
     mode: ThreadsafeFunctionCallMode,
@@ -561,7 +583,7 @@ impl<T: 'static> ThreadsafeFunction<T, ErrorStrategy::Fatal> {
             data: value,
             call_variant: ThreadsafeFunctionCallVariant::WithCallback,
             callback: Box::new(move |d: Result<JsUnknown>| {
-              d.and_then(|d| D::from_napi_value(d.0.env, d.0.value).and_then(cb))
+              d.and_then(|d| Return::from_napi_value(d.0.env, d.0.value).and_then(cb))
             }),
           }))
           .cast(),
@@ -573,8 +595,8 @@ impl<T: 'static> ThreadsafeFunction<T, ErrorStrategy::Fatal> {
   }
 
   #[cfg(feature = "tokio_rt")]
-  pub async fn call_async<D: 'static + FromNapiValue>(&self, value: T) -> Result<D> {
-    let (sender, receiver) = tokio::sync::oneshot::channel::<D>();
+  pub async fn call_async(&self, value: T) -> Result<Return> {
+    let (sender, receiver) = tokio::sync::oneshot::channel::<Return>();
 
     self.handle.with_read_aborted(|aborted| {
       if aborted {
@@ -589,7 +611,7 @@ impl<T: 'static> ThreadsafeFunction<T, ErrorStrategy::Fatal> {
             call_variant: ThreadsafeFunctionCallVariant::WithCallback,
             callback: Box::new(move |d: Result<JsUnknown>| {
               d.and_then(|d| {
-                D::from_napi_value(d.0.env, d.0.value).and_then(move |d| {
+                Return::from_napi_value(d.0.env, d.0.value).and_then(move |d| {
                   sender.send(d).map_err(|_| {
                     crate::Error::from_reason("Failed to send return value to tokio sender")
                   })
@@ -632,7 +654,7 @@ unsafe extern "C" fn thread_finalize_cb<T: 'static, V: ToNapiValue, R>(
   drop(unsafe { Box::<R>::from_raw(finalize_hint.cast()) });
 }
 
-unsafe extern "C" fn call_js_cb<T: 'static, V: ToNapiValue, R, ES>(
+unsafe extern "C" fn call_js_cb<T: 'static, V: ToNapiValue, R, ES, Return>(
   raw_env: sys::napi_env,
   js_callback: sys::napi_value,
   context: *mut c_void,
@@ -640,6 +662,7 @@ unsafe extern "C" fn call_js_cb<T: 'static, V: ToNapiValue, R, ES>(
 ) where
   R: 'static + Send + FnMut(ThreadSafeCallContext<T>) -> Result<Vec<V>>,
   ES: ErrorStrategy::T,
+  Return: 'static + FromNapiValue,
 {
   // env and/or callback can be null when shutting down
   if raw_env.is_null() || js_callback.is_null() {
