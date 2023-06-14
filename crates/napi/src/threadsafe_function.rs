@@ -235,6 +235,9 @@ pub struct ThreadsafeFunction<T: 'static, ES: ErrorStrategy::T = ErrorStrategy::
   _phantom: PhantomData<(T, ES)>,
 }
 
+unsafe impl<T: 'static, ES: ErrorStrategy::T> Send for ThreadsafeFunction<T, ES> {}
+unsafe impl<T: 'static, ES: ErrorStrategy::T> Sync for ThreadsafeFunction<T, ES> {}
+
 impl<T: 'static, ES: ErrorStrategy::T> Clone for ThreadsafeFunction<T, ES> {
   fn clone(&self) -> Self {
     self.handle.with_read_aborted(|aborted| {
