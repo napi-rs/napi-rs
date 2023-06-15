@@ -103,6 +103,12 @@ const NEW_OPTIONS: CommandSchema = {
       description: 'Whether to run the command in dry-run mode',
       default: false,
     },
+    {
+      name: 'esm',
+      type: 'boolean',
+      description: 'Whether enable ESM support',
+      default: false,
+    },
   ],
 }
 

@@ -146,6 +146,7 @@ function generatePackageJson(options: NewOptions): Output {
       license: options.license,
       engineRequirement: napiEngineRequirement(options.minNodeApiVersion),
       cliVersion: CLI_VERSION,
+      esm: options.esm,
     }),
   }
 }

@@ -40,6 +40,7 @@ export class NewCommand extends BaseNewCommand {
       return {
         ...cmdOptions,
         name: await this.fetchName(path.parse(cmdOptions.path).base),
+        esm: await this.fetchEnableEsm(),
         minNodeApiVersion: await this.fetchNapiVersion(),
         targets: await this.fetchTargets(),
         license: await this.fetchLicense(),
@@ -130,5 +131,16 @@ export class NewCommand extends BaseNewCommand {
     })
 
     return enableGithubActions
+  }
+
+  private async fetchEnableEsm(): Promise<boolean> {
+    const { esm } = await inquirer.prompt({
+      name: 'esm',
+      type: 'confirm',
+      message: 'Enable ESM support',
+      default: this.esm,
+    })
+
+    return esm
   }
 }

@@ -49,7 +49,7 @@ interface UserNapiConfig {
   }
 }
 
-interface CommonPackageJsonFields {
+export interface CommonPackageJsonFields {
   name: string
   version: string
   description?: string
@@ -64,6 +64,17 @@ interface CommonPackageJsonFields {
   bugs?: any
   // eslint-disable-next-line no-use-before-define
   napi?: UserNapiConfig
+  type?: 'module' | 'commonjs'
+  scripts?: Record<string, string>
+
+  // modules
+  main?: string
+  module?: string
+  types?: string
+  exports?: any
+
+  dependencies?: Record<string, string>
+  devDependencies?: Record<string, string>
 }
 
 export type NapiConfig = Required<

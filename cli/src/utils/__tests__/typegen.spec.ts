@@ -36,7 +36,7 @@ test('should ident string correctly', (t) => {
 })
 
 test('should process type def correctly', async (t) => {
-  const dts = await processTypeDef(
+  const { dts } = await processTypeDef(
     join(
       fileURLToPath(import.meta.url),
       '../',
