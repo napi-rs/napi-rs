@@ -253,5 +253,6 @@ if (!nativeBinding) {
   throw new Error(\`Failed to load native binding\`)
 }
 
+module.exports = nativeBinding
 `
 }
