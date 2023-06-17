@@ -5,7 +5,8 @@
     "outDir": "./dist",
     "rootDir": "__tests__",
     "target": "ES2018",
-    "skipLibCheck": false
+    "skipLibCheck": false,
+    "noEmit": true
   },
   "exclude": ["dist", "electron.js", "electron-renderer"]
 }

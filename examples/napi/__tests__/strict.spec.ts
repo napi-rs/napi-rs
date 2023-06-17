@@ -20,7 +20,7 @@ import {
   returnUndefinedIfInvalid,
   returnUndefinedIfInvalidPromise,
   validateOptional,
-} from '../index'
+} from '..'
 
 test('should validate array', (t) => {
   t.is(validateArray([1, 2, 3]), 3)

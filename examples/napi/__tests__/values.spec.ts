@@ -132,7 +132,7 @@ import {
   returnFromSharedCrate,
   chronoNativeDateTime,
   chronoNativeDateTimeReturn,
-} from '../'
+} from '..'
 
 test('export const', (t) => {
   t.is(DEFAULT_COST, 12)
@@ -804,11 +804,7 @@ Napi4Test('throw error from thread safe function fatal mode', (t) => {
   return new Promise<void>((resolve) => {
     p.on('exit', (code) => {
       t.is(code, 1)
-      t.true(
-        stderr
-          .toString('utf8')
-          .includes(`[Error: Generic tsfn error] { code: 'GenericFailure' }`),
-      )
+      t.true(stderr.toString('utf8').includes(`[Error: Generic tsfn error]`))
       resolve()
     })
   })

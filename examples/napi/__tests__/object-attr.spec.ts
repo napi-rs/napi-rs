@@ -1,6 +1,6 @@
 import test from 'ava'
 
-import { NotWritableClass } from '../index'
+import { NotWritableClass } from '..'
 
 test('Not Writable Class', (t) => {
   const obj = new NotWritableClass('1')
