@@ -31,13 +31,5 @@ jobs:
         with:
           toolchain: stable
 
-      - name: Cache cargo
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: stable-check-ubuntu-latest-cargo-cache-features-${{ matrix.settings.package }}-${{ matrix.features }}
-
       - name: Check build
         run: cargo check -p ${{ matrix.settings.package }} -F ${{ matrix.settings.features }}

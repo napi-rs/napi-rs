@@ -2,7 +2,7 @@
   "compilerOptions": {
     "strict": true,
     "target": "ES2022",
-    "module": "NodeNext",
+    "module": "ESNext",
     "moduleResolution": "nodenext",
     "resolveJsonModule": true,
     "allowSyntheticDefaultImports": true,
@@ -12,5 +12,9 @@
     "outDir": "dist",
     "allowJs": false
   },
-  "include": ["./src"]
+  "include": ["./src"],
+  "ts-node": {
+    "esm": true,
+    "experimentalSpecifierResolution": "node"
+  }
 }

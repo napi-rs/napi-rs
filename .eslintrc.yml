@@ -57,8 +57,6 @@ rules:
 
   '@typescript-eslint/adjacent-overload-signatures': 2
 
-  '@typescript-eslint/await-thenable': 2
-
   '@typescript-eslint/consistent-type-assertions': 2
 
   '@typescript-eslint/ban-types':
@@ -93,46 +91,6 @@ rules:
     ]
 
   '@typescript-eslint/method-signature-style': 2
-
-  '@typescript-eslint/no-floating-promises': 2
-
-  '@typescript-eslint/no-implied-eval': 2
-
-  '@typescript-eslint/no-for-in-array': 2
-
-  '@typescript-eslint/no-inferrable-types': 2
-
-  '@typescript-eslint/no-invalid-void-type': 2
-
-  '@typescript-eslint/no-misused-new': 2
-
-  '@typescript-eslint/no-misused-promises': 2
-
-  '@typescript-eslint/no-namespace': 2
-
-  '@typescript-eslint/no-non-null-asserted-optional-chain': 2
-
-  '@typescript-eslint/no-throw-literal': 2
-
-  '@typescript-eslint/no-unnecessary-boolean-literal-compare': 2
-
-  '@typescript-eslint/prefer-for-of': 2
-
-  '@typescript-eslint/prefer-nullish-coalescing': 2
-
-  '@typescript-eslint/switch-exhaustiveness-check': 2
-
-  '@typescript-eslint/prefer-optional-chain': 2
-
-  '@typescript-eslint/prefer-readonly': 2
-
-  '@typescript-eslint/prefer-string-starts-ends-with': 0
-
-  '@typescript-eslint/no-array-constructor': 2
-
-  '@typescript-eslint/require-await': 2
-
-  '@typescript-eslint/return-await': 2
 
   '@typescript-eslint/ban-ts-comment':
     [
@@ -197,6 +155,48 @@ overrides:
       - '@typescript-eslint'
     parserOptions:
       project: ./tsconfig.json
+    rules:
+      '@typescript-eslint/await-thenable': 2
+
+      '@typescript-eslint/no-floating-promises': 2
+
+      '@typescript-eslint/no-implied-eval': 2
+
+      '@typescript-eslint/no-for-in-array': 2
+
+      '@typescript-eslint/no-inferrable-types': 2
+
+      '@typescript-eslint/no-invalid-void-type': 2
+
+      '@typescript-eslint/no-misused-new': 2
+
+      '@typescript-eslint/no-misused-promises': 2
+
+      '@typescript-eslint/no-namespace': 2
+
+      '@typescript-eslint/no-non-null-asserted-optional-chain': 2
+
+      '@typescript-eslint/no-throw-literal': 2
+
+      '@typescript-eslint/no-unnecessary-boolean-literal-compare': 2
+
+      '@typescript-eslint/prefer-for-of': 2
+
+      '@typescript-eslint/prefer-nullish-coalescing': 2
+
+      '@typescript-eslint/switch-exhaustiveness-check': 2
+
+      '@typescript-eslint/prefer-optional-chain': 2
+
+      '@typescript-eslint/prefer-readonly': 2
+
+      '@typescript-eslint/prefer-string-starts-ends-with': 0
+
+      '@typescript-eslint/no-array-constructor': 2
+
+      '@typescript-eslint/require-await': 2
+
+      '@typescript-eslint/return-await': 2
   - files:
       - ./examples/**/*.{ts,js}
     plugins:

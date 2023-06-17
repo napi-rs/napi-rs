@@ -1,8 +1,9 @@
-name: macOS/Windows/Linux x64
+name: Test
 
 env:
   DEBUG: 'napi:*'
   RUST_BACKTRACE: 1
+  CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: aarch64-linux-gnu-gcc
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -19,11 +20,69 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['16', '18']
-        os: [ubuntu-latest, macos-latest, windows-latest]
-
-    name: stable - ${{ matrix.os }} - node@${{ matrix.node }}
-    runs-on: ${{ matrix.os }}
+        node: ['16', '18', '20']
+        settings:
+          - host: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            build: yarn build:test
+            test: |
+              yarn test:cli
+              yarn test --verbose
+              yarn tsc -p examples/napi/tsconfig.json --noEmit
+              yarn test:macro
+            toolchain: stable
+          - host: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            build: yarn build:test
+            test: |
+              yarn test:cli
+              yarn test --verbose
+              yarn tsc -p examples/napi/tsconfig.json --noEmit
+              yarn test:macro
+            toolchain: 1.57.0
+          - host: macos-latest
+            target: x86_64-apple-darwin
+            build: yarn build:test
+            test: |
+              yarn test:cli
+              yarn test --verbose
+              yarn tsc -p examples/napi/tsconfig.json --noEmit
+              yarn test:macro
+            toolchain: stable
+          - host: windows-latest
+            target: x86_64-pc-windows-msvc
+            build: yarn build:test
+            test: |
+              yarn test:cli
+              yarn test --verbose
+              yarn tsc -p examples/napi/tsconfig.json --noEmit
+              yarn test:macro
+            toolchain: stable
+          - host: windows-latest
+            target: i686-pc-windows-msvc
+            build: |
+              yarn workspace @examples/napi build --target i686-pc-windows-msvc --release
+              yarn workspace @examples/compat-mode build --target i686-pc-windows-msvc --release
+            test: |
+              yarn test --verbose
+              node ./node_modules/electron/install.js
+              yarn test:electron
+            toolchain: stable
+        exclude:
+          - settings:
+              toolchain: 1.57.0
+            node: 18
+          - settings:
+              toolchain: 1.57.0
+            node: 20
+          - settings:
+              target: i686-pc-windows-msvc
+            node: 16
+          - settings:
+              target: i686-pc-windows-msvc
+            node: 18
+    name: stable - ${{ matrix.settings.host }} - node@${{ matrix.node }}
+    runs-on: ${{ matrix.settings.host }}
 
     steps:
       - uses: actions/checkout@v3
@@ -37,7 +96,8 @@ jobs:
       - name: Install
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
+          toolchain: ${{ matrix.settings.toolchain }}
+          targets: ${{ matrix.settings.target }}
 
       - name: Cache cargo
         uses: actions/cache@v3
@@ -46,33 +106,217 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: stable-${{ matrix.os }}-node@${{ matrix.node }}-cargo-cache
+          key: ${{ matrix.settings.host }}-${{ matrix.settings.toolchain }}-${{ matrix.settings.target }}-cargo-cache
 
       - name: 'Install dependencies'
         run: yarn install --mode=skip-build --immutable
 
       - name: Check build
-        run: cargo check --all --bins --examples --tests -vvv
+        run: cargo check --target ${{ matrix.settings.target }} --all --bins --examples --tests -vvv
+
+      - name: Build tests
+        if: matrix.settings.build
+        run: ${{ matrix.settings.build }}
+
+      - name: Setup node
+        uses: actions/setup-node@v3
+        if: matrix.settings.target == 'i686-pc-windows-msvc'
+        with:
+          node-version: 18
+          architecture: 'x86'
 
       - name: Unit tests
-        run: |
-          yarn test:cli
-          yarn build:test
-          yarn test --verbose
-          yarn tsc -p examples/napi/tsconfig.json --noEmit
-          yarn test:macro
+        if: matrix.settings.test
+        run: ${{ matrix.settings.test }}
 
       - name: Electron tests
-        if: matrix.os != 'ubuntu-latest'
+        if: matrix.settings.target == 'x86_64-apple-darwin' || matrix.settings.target == 'x86_64-pc-windows-msvc'
         run: |
           node ./node_modules/electron/install.js
           yarn test:electron
 
       - name: Electron tests
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.settings.target == 'x86_64-unknown-linux-gnu'
         run: |
           node ./node_modules/electron/install.js
           xvfb-run --auto-servernum yarn test:electron
 
       - name: Test build with profile
         run: yarn workspace @examples/napi build --profile napi-rs-custom
+
+  build_only:
+    name: Build only test - ${{ matrix.settings.target }}
+    runs-on: ${{ matrix.settings.host }}
+    strategy:
+      fail-fast: false
+      matrix:
+        settings:
+          - host: ubuntu-latest
+            target: aarch64-linux-android
+          - host: ubuntu-latest
+            target: armv7-linux-androideabi
+          - host: ubuntu-latest
+            target: riscv64gc-unknown-linux-gnu
+            setup: |
+              sudo apt-get update
+              sudo apt-get install -y gcc-riscv64-linux-gnu
+          - host: windows-latest
+            target: aarch64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+          cache: 'yarn'
+
+      - name: Install
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.settings.target }}
+
+      - name: Cache cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: stable-${{ matrix.settings.host }}-${{ matrix.settings.target }}-cargo-cache
+
+      - name: Setup toolchain
+        if: matrix.settings.setup
+        run: ${{ matrix.settings.setup }}
+
+      - name: Install dependencies
+        run: yarn install --immutable --mode=skip-build
+
+      - name: Cross build native tests
+        run: yarn build:test -- --target ${{ matrix.settings.target }} --release
+        shell: bash
+
+  build_in_docker:
+    name: build - ${{ matrix.settings.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        settings:
+          - image: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
+            target: x86_64-unknown-linux-musl
+            libc: 'musl'
+            arch: 'x64'
+          - image: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
+            target: aarch64-unknown-linux-musl
+          - image: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-aarch64
+            target: aarch64-unknown-linux-gnu
+            arch: 'arm64'
+            libc: 'gnu'
+          - image: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian
+            target: x86_64-unknown-linux-gnu
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+          cache: 'yarn'
+
+      - name: Install dependencies
+        run: yarn install --immutable --mode=skip-build
+
+      - name: Cache cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            .cargo-cache/registry
+            .cargo-cache/git
+            target
+          key: stable-${{ matrix.settings.target }}-cargo-cache
+
+      - name: Cross build native tests
+        uses: addnab/docker-run-action@v3
+        with:
+          image: ${{ matrix.settings.image }}
+          options: -v ${{ github.workspace }}/.cargo-cache/registry:/usr/local/cargo/registry -v ${{ github.workspace }}/.cargo-cache/git:/usr/local/cargo/git -v ${{ github.workspace }}:/napi-rs -w /napi-rs
+          run: |
+            yarn build:test -- --target ${{ matrix.settings.target }}
+
+      - uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.settings.target }}-example
+          path: examples/napi/index.node
+      - uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.settings.target }}-example-compat
+          path: examples/napi-compat-mode/index.node
+
+  test_in_docker:
+    name: Test - ${{ matrix.settings.target }} - ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    needs: build_in_docker
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [16, 18, 20]
+        settings:
+          - image: 'node:{:version}-slim'
+            target: x86_64-unknown-linux-gnu
+            args: ''
+            arch: 'x64'
+            libc: 'gnu'
+          - image: 'node:{:version}-slim'
+            target: aarch64-unknown-linux-gnu
+            args: '--platform linux/arm64'
+            arch: 'arm64'
+            libc: 'gnu'
+          - image: 'node:{:version}-alpine'
+            target: x86_64-unknown-linux-musl
+            args: ''
+            arch: 'x64'
+            libc: 'musl'
+          - image: 'node:{:version}-alpine'
+            target: aarch64-unknown-linux-musl
+            args: '--platform linux/arm64'
+            arch: 'arm64'
+            libc: 'musl'
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+          cache: 'yarn'
+      - uses: actions/download-artifact@v3
+        with:
+          name: ${{ matrix.settings.target }}-example
+          path: examples/napi/index.node
+      - uses: actions/download-artifact@v3
+        with:
+          name: ${{ matrix.settings.target }}-example-compat
+          path: examples/napi-compat-mode/index.node
+      - name: Install dependencies
+        run: |
+          yarn config set --json supportedArchitectures.cpu '["current", "${{ matrix.settings.arch }}"]'
+          yarn config set --json supportedArchitectures.libc '["current", "${{ matrix.settings.libc }}"]'
+          yarn install --immutable --mode=skip-build
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+        with:
+          platforms: all
+      - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+      - name: Setup image name
+        id: image-name
+        run: |
+          node -e "console.info('docker-image=${{ matrix.settings.image }}'.replace('{:version}', ${{ matrix.node }}))" >> "$GITHUB_OUTPUT"
+      - name: Setup and run tests
+        uses: addnab/docker-run-action@v3
+        with:
+          image: ${{ steps.image-name.outputs.docker-image }}
+          options: ${{ matrix.settings.args }} -v ${{ github.workspace }}:/build -w /build
+          run: yarn test
