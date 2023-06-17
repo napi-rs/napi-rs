@@ -28,7 +28,7 @@ import {
   writeFileAsync,
 } from '../utils/index.js'
 
-import { createEsmBinding, createCjsBinding } from './templates/index.js'
+import { createCjsBinding } from './templates/index.js'
 
 const debug = debugFactory('build')
 
@@ -560,16 +560,16 @@ class Builder {
       return
     }
 
-    const enableEsm = this.config.packageJson.type === 'module'
     const name = parse(this.options.jsBinding ?? 'index.js').name
 
     const cjs = createCjsBinding(
       this.config.binaryName,
       this.config.packageName,
+      idents,
     )
 
     try {
-      const dest = join(this.outputDir, `${name}.${enableEsm ? 'cjs' : 'js'}`)
+      const dest = join(this.outputDir, `${name}.js`)
       debug('Writing js binding to:')
       debug('  %i', dest)
       await writeFileAsync(dest, cjs, 'utf-8')
@@ -579,22 +579,6 @@ class Builder {
       })
     } catch (e) {
       throw new Error('Failed to write js binding file', { cause: e })
-    }
-
-    if (enableEsm) {
-      const esm = createEsmBinding(name, idents)
-      try {
-        const dest = join(this.outputDir, `${name}.js`)
-        debug('Writing js binding to:')
-        debug('  %i', dest)
-        await writeFileAsync(dest, esm, 'utf-8')
-        this.outputs.push({
-          kind: 'js',
-          path: dest,
-        })
-      } catch (e) {
-        throw new Error('Failed to write js binding file', { cause: e })
-      }
     }
   }
 }
