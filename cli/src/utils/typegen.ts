@@ -54,6 +54,7 @@ export async function processTypeDef(
   intermediateTypeFile: string,
   header?: string,
 ) {
+  const exports: string[] = []
   const defs = await readIntermediateTypeFile(intermediateTypeFile)
   const groupedDefs = preprocessTypeDef(defs)
 
@@ -65,8 +66,23 @@ export async function processTypeDef(
       if (namespace === TOP_LEVEL_NAMESPACE) {
         for (const def of defs) {
           dts += prettyPrint(def, 0) + '\n\n'
+          switch (def.kind) {
+            case TypeDefKind.Const:
+            case TypeDefKind.Enum:
+            case TypeDefKind.Fn:
+            case TypeDefKind.Struct: {
+              exports.push(def.name)
+              if (def.original_name && def.original_name !== def.name) {
+                exports.push(def.original_name)
+              }
+              break
+            }
+            default:
+              break
+          }
         }
       } else {
+        exports.push(namespace)
         dts += `export namespace ${namespace} {\n`
         for (const def of defs) {
           dts += prettyPrint(def, 2) + '\n'
@@ -87,7 +103,10 @@ export class ExternalObject<T> {
 `
   }
 
-  return header + dts
+  return {
+    dts: header + dts,
+    exports,
+  }
 }
 
 async function readIntermediateTypeFile(file: string) {

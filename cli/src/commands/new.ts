@@ -40,6 +40,7 @@ export class NewCommand extends BaseNewCommand {
       return {
         ...cmdOptions,
         name: await this.fetchName(path.parse(cmdOptions.path).base),
+        esm: await this.fetchEnableEsm(),
         minNodeApiVersion: await this.fetchNapiVersion(),
         targets: await this.fetchTargets(),
         license: await this.fetchLicense(),
@@ -94,10 +95,6 @@ export class NewCommand extends BaseNewCommand {
   }
 
   private async fetchTargets(): Promise<TargetTriple[]> {
-    if (this.enableDefaultTargets) {
-      return DEFAULT_TARGETS.concat()
-    }
-
     if (this.enableAllTargets) {
       return AVAILABLE_TARGETS.concat()
     }
@@ -107,7 +104,7 @@ export class NewCommand extends BaseNewCommand {
       type: 'checkbox',
       loop: false,
       message: 'Choose target(s) your crate will be compiled to',
-      default: DEFAULT_TARGETS,
+      default: this.enableDefaultTargets ? DEFAULT_TARGETS : [],
       choices: AVAILABLE_TARGETS,
     })
 
@@ -134,5 +131,16 @@ export class NewCommand extends BaseNewCommand {
     })
 
     return enableGithubActions
+  }
+
+  private async fetchEnableEsm(): Promise<boolean> {
+    const { esm } = await inquirer.prompt({
+      name: 'esm',
+      type: 'confirm',
+      message: 'Enable ESM support',
+      default: this.esm,
+    })
+
+    return esm
   }
 }
