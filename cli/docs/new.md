@@ -35,4 +35,3 @@ new NapiCli().new({
 | enableTypeDef        | --enable-type-def        | boolean  | false    | true    | Whether enable the `type-def` feature for typescript definitions auto-generation |
 | enableGithubActions  | --enable-github-actions  | boolean  | false    | true    | Whether generate preconfigured GitHub Actions workflow                           |
 | dryRun               | --dry-run                | boolean  | false    | false   | Whether to run the command in dry-run mode                                       |
-| esm                  | --esm                    | boolean  | false    | false   | Whether enable ESM support                                                       |

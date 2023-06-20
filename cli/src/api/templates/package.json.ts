@@ -7,7 +7,6 @@ export const createPackageJson = ({
   license,
   engineRequirement,
   cliVersion,
-  esm,
 }: {
   name: string
   binaryName: string
@@ -15,7 +14,6 @@ export const createPackageJson = ({
   license: string
   engineRequirement: string
   cliVersion: string
-  esm: boolean
 }) => {
   const content: CommonPackageJsonFields = {
     name,
@@ -44,24 +42,6 @@ export const createPackageJson = ({
     devDependencies: {
       '@napi-rs/cli': `^${cliVersion}`,
     },
-  }
-
-  if (esm) {
-    content.type = 'module'
-    content.main = 'index.cjs'
-    content.module = 'index.js'
-    content.exports = {
-      '.': {
-        import: {
-          default: './index.js',
-          types: './index.d.ts',
-        },
-        require: {
-          default: './index.cjs',
-          types: './index.d.ts',
-        },
-      },
-    }
   }
 
   return JSON.stringify(content, null, 2)
