@@ -149,6 +149,7 @@ class Builder {
 
     const controller = new AbortController()
 
+    const watch = this.options.watch
     const buildTask = new Promise<void>((resolve, reject) => {
       const command =
         process.env.CARGO ?? (this.options.useCross ? 'cross' : 'cargo')
@@ -157,7 +158,7 @@ class Builder {
           ...process.env,
           ...this.envs,
         },
-        stdio: 'inherit',
+        stdio: watch ? ['inherit', 'inherit', 'pipe'] : 'inherit',
         cwd: this.cwd,
         signal: controller.signal,
       })
@@ -177,6 +178,15 @@ class Builder {
             cause: e,
           }),
         )
+      })
+
+      // watch mode only, they are piped through stderr
+      buildProcess.stderr?.on('data', (data) => {
+        const output = data.toString()
+        console.error(output)
+        if (/Finished\s(dev|release)/.test(output)) {
+          this.postBuild().catch(() => {})
+        }
       })
     })
 
@@ -207,6 +217,7 @@ class Builder {
           this.crateDir,
           '--',
           'cargo',
+          'build',
         )
         set = true
       }

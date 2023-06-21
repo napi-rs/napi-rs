@@ -51,10 +51,6 @@ export abstract class BaseNewCommand extends Command {
     description: 'Whether to run the command in dry-run mode',
   })
 
-  esm = Option.Boolean('--esm', false, {
-    description: 'Whether enable ESM support',
-  })
-
   getOptions() {
     return {
       path: this.$$path,
@@ -67,7 +63,6 @@ export abstract class BaseNewCommand extends Command {
       enableTypeDef: this.enableTypeDef,
       enableGithubActions: this.enableGithubActions,
       dryRun: this.dryRun,
-      esm: this.esm,
     }
   }
 }
@@ -132,12 +127,6 @@ export interface NewOptions {
    * @default false
    */
   dryRun?: boolean
-  /**
-   * Whether enable ESM support
-   *
-   * @default false
-   */
-  esm?: boolean
 }
 
 export function applyDefaultNewOptions(options: NewOptions) {
@@ -150,7 +139,6 @@ export function applyDefaultNewOptions(options: NewOptions) {
     enableTypeDef: true,
     enableGithubActions: true,
     dryRun: false,
-    esm: false,
     ...options,
   }
 }
