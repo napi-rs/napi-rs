@@ -74,7 +74,8 @@ impl DeferredTrace {
         status.as_ptr() as *const std::os::raw::c_char,
         status.len(),
         &mut raw_status,
-      )};
+      )
+    };
     debug_assert!(
       create_status_status == sys::Status::napi_ok,
       "Failed to convert error status"
