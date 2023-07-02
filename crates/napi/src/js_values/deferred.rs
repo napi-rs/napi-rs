@@ -6,6 +6,8 @@ use std::ptr;
 use crate::bindgen_runtime::{ToNapiValue, THREAD_DESTROYED};
 use crate::{check_status, JsObject, Value};
 use crate::{sys, Env, Error, Result};
+#[cfg(feature = "deferred_trace")]
+use crate::{NapiRaw, NapiValue};
 
 #[cfg(feature = "deferred_trace")]
 /// A javascript error which keeps a stack trace
@@ -23,83 +25,35 @@ struct DeferredTrace {
 
 #[cfg(feature = "deferred_trace")]
 impl DeferredTrace {
-  fn new(env: sys::napi_env) -> Self {
-    // The message will be replaced by the actual error message when the promise is rejected.
-    let none = unsafe { CStr::from_bytes_with_nul_unchecked(b"none\0") };
+  fn new(raw_env: sys::napi_env) -> Self {
+    let env = unsafe { Env::from_raw(raw_env) };
+    let reason = env.create_string("none").unwrap();
 
-    let mut error_code = ptr::null_mut();
-    let mut reason_string = ptr::null_mut();
     let mut js_error = ptr::null_mut();
-    let create_code_status =
-      unsafe { sys::napi_create_string_utf8(env, none.as_ptr(), 4, &mut error_code) };
-    debug_assert!(create_code_status == sys::Status::napi_ok);
-    let create_reason_status =
-      unsafe { sys::napi_create_string_utf8(env, none.as_ptr(), 4, &mut reason_string) };
-    debug_assert!(create_reason_status == sys::Status::napi_ok);
     let create_error_status =
-      unsafe { sys::napi_create_error(env, error_code, reason_string, &mut js_error) };
+      unsafe { sys::napi_create_error(raw_env, ptr::null_mut(), reason.raw(), &mut js_error) };
     debug_assert!(create_error_status == sys::Status::napi_ok);
 
     let mut result = ptr::null_mut();
-    let status = unsafe { sys::napi_create_reference(env, js_error, 1, &mut result) };
+    let status = unsafe { sys::napi_create_reference(raw_env, js_error, 1, &mut result) };
     debug_assert!(status == sys::Status::napi_ok);
 
     Self {
       value: result,
       #[cfg(not(feature = "noop"))]
-      env,
+      env: raw_env,
     }
   }
 
-  fn into_rejected(self, env: sys::napi_env, err: Error) -> sys::napi_value {
-    let mut raw_reason = ptr::null_mut();
-    let create_reason_status = unsafe {
-      sys::napi_create_string_utf8(
-        env,
-        err.reason.as_ptr() as *const std::os::raw::c_char,
-        err.reason.len(),
-        &mut raw_reason,
-      )
-    };
-    debug_assert!(
-      create_reason_status == sys::Status::napi_ok,
-      "Failed to convert error reason"
-    );
+  fn into_rejected(self, raw_env: sys::napi_env, err: Error) -> Result<sys::napi_value> {
+    let env = unsafe { Env::from_raw(raw_env) };
+    let raw = unsafe { DeferredTrace::to_napi_value(raw_env, self)? };
 
-    let status = err.status.to_string();
-    let mut raw_status = ptr::null_mut();
-    let create_status_status = unsafe {
-      sys::napi_create_string_utf8(
-        env,
-        status.as_ptr() as *const std::os::raw::c_char,
-        status.len(),
-        &mut raw_status,
-      )
-    };
-    debug_assert!(
-      create_status_status == sys::Status::napi_ok,
-      "Failed to convert error status"
-    );
+    let mut obj = unsafe { JsObject::from_raw(raw_env, raw)? };
+    obj.set_named_property("message", env.create_string(&err.reason)?)?;
+    obj.set_named_property("code", env.create_string_from_std(err.status.to_string())?)?;
 
-    let raw = unsafe { DeferredTrace::to_napi_value(env, self) }.unwrap();
-    let message = unsafe { CStr::from_bytes_with_nul_unchecked(b"message\0") };
-
-    let set_message_status =
-      unsafe { sys::napi_set_named_property(env, raw, message.as_ptr(), raw_reason) };
-    debug_assert!(
-      set_message_status == sys::Status::napi_ok,
-      "Failed to set error message"
-    );
-
-    let code = unsafe { CStr::from_bytes_with_nul_unchecked(b"code\0") };
-    let set_code_status =
-      unsafe { sys::napi_set_named_property(env, raw, code.as_ptr(), raw_status) };
-    debug_assert!(
-      set_code_status == sys::Status::napi_ok,
-      "Failed to set error code"
-    );
-
-    raw
+    Ok(raw)
   }
 }
 
@@ -276,7 +230,7 @@ extern "C" fn napi_resolve_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> 
     }
     Err(e) => {
       #[cfg(feature = "deferred_trace")]
-      let error = deferred_data.trace.into_rejected(env, e);
+      let error = deferred_data.trace.into_rejected(env, e).unwrap();
       #[cfg(not(feature = "deferred_trace"))]
       let error = unsafe { crate::JsError::from(e).into_value(env) };
 
