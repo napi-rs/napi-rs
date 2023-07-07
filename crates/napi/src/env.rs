@@ -566,7 +566,7 @@ impl Env {
   #[cfg(feature = "napi5")]
   pub fn create_function_from_closure<R, F>(&self, name: &str, callback: F) -> Result<JsFunction>
   where
-    F: 'static + Fn(crate::CallContext<'_>) -> Result<R>,
+    F: 'static + Fn(crate::CallContext) -> Result<R>,
     R: ToNapiValue,
   {
     let closure_data_ptr = Box::into_raw(Box::new(callback));
@@ -1474,8 +1474,8 @@ pub(crate) unsafe extern "C" fn trampoline<
   };
 
   let closure: &F = Box::leak(unsafe { Box::from_raw(closure_data_ptr.cast()) });
-  let mut env = unsafe { Env::from_raw(raw_env) };
-  let call_context = CallContext::new(&mut env, cb_info, raw_this, raw_args.as_slice(), argc);
+  let env = unsafe { Env::from_raw(raw_env) };
+  let call_context = CallContext::new(Box::new(env), cb_info, raw_this, raw_args, argc);
   closure(call_context)
     .and_then(|ret: R| unsafe { <R as ToNapiValue>::to_napi_value(env.0, ret) })
     .unwrap_or_else(|e| {

@@ -102,10 +102,7 @@ pub fn js_function(attr: TokenStream, input: TokenStream) -> TokenStream {
       use std::ffi::CString;
       use napi::{Env, Error, Status, NapiValue, NapiRaw, CallContext};
       let mut argc = #arg_len_span as usize;
-      #[cfg(all(target_os = "windows", target_arch = "x86"))]
       let mut raw_args = vec![ptr::null_mut(); #arg_len_span];
-      #[cfg(not(all(target_os = "windows", target_arch = "x86")))]
-      let mut raw_args = [ptr::null_mut(); #arg_len_span];
       let mut raw_this = ptr::null_mut();
 
       unsafe {
@@ -121,10 +118,7 @@ pub fn js_function(attr: TokenStream, input: TokenStream) -> TokenStream {
       }
 
       let mut env = unsafe { Env::from_raw(raw_env) };
-      #[cfg(all(target_os = "windows", target_arch = "x86"))]
-      let ctx = CallContext::new(&mut env, cb_info, raw_this, raw_args.as_slice(), argc);
-      #[cfg(not(all(target_os = "windows", target_arch = "x86")))]
-      let ctx = CallContext::new(&mut env, cb_info, raw_this, &raw_args, argc);
+      let ctx = CallContext::new(Box::new(env), cb_info, raw_this, raw_args, argc);
       #execute_js_function
     }
   };

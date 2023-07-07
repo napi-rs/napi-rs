@@ -11,7 +11,7 @@ fn add_cleanup_hook(mut env: Env) -> ContextlessResult<JsExternal> {
 }
 
 #[js_function(1)]
-fn remove_cleanup_hook(ctx: CallContext) -> Result<JsUndefined> {
+fn remove_cleanup_hook(mut ctx: CallContext) -> Result<JsUndefined> {
   let hook_external = ctx.get::<JsExternal>(0)?;
   let hook = *ctx
     .env

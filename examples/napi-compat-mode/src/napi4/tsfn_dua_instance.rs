@@ -45,6 +45,6 @@ pub fn call(ctx: CallContext) -> napi::Result<JsUndefined> {
 pub fn unref(ctx: CallContext) -> napi::Result<JsUndefined> {
   let this = ctx.this_unchecked();
   let obj = ctx.env.unwrap::<A>(&this)?;
-  obj.cb.unref(ctx.env)?;
+  obj.cb.unref(&ctx.env)?;
   ctx.env.get_undefined()
 }

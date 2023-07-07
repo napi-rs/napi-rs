@@ -5,16 +5,28 @@ use crate::check_status;
 use crate::{sys, Either, Env, Error, JsUndefined, NapiValue, Result, Status};
 
 /// Function call context
-pub struct CallContext<'env> {
-  pub env: &'env mut Env,
+pub struct CallContext {
+  pub env: Box<Env>,
   raw_this: sys::napi_value,
   callback_info: sys::napi_callback_info,
-  args: &'env [sys::napi_value],
+  args: Vec<sys::napi_value>,
   /// arguments.length
   pub length: usize,
 }
 
-impl<'env> CallContext<'env> {
+impl Clone for CallContext {
+  fn clone(&self) -> Self {
+    Self {
+      env: self.env.clone(),
+      raw_this: self.raw_this,
+      callback_info: self.callback_info,
+      args: self.args.clone(),
+      length: self.length,
+    }
+  }
+}
+
+impl CallContext {
   /// The number of N-api obtained values. In practice this is the numeric
   /// parameter provided to the `#[js_function(arg_len)]` macro.
   ///
@@ -31,10 +43,10 @@ impl<'env> CallContext<'env> {
   }
 
   pub fn new(
-    env: &'env mut Env,
+    env: Box<Env>,
     callback_info: sys::napi_callback_info,
     raw_this: sys::napi_value,
-    args: &'env [sys::napi_value],
+    args: Vec<sys::napi_value>,
     length: usize,
   ) -> Self {
     Self {
