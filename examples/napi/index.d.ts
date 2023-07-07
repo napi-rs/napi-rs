@@ -244,6 +244,8 @@ export interface C {
   baz: number
 }
 
+export function callbackArgsWithCallEmit(callback: (...args: any[]) => any): object
+
 export function callbackReturnPromise<T>(functionInput: () => T | Promise<T>, callback: (err: Error | null, result: T) => void): T | Promise<T>
 
 export function callbackReturnPromiseAndSpawn(jsFunc: (arg0: string) => Promise<string>): Promise<string>
@@ -327,6 +329,8 @@ export function eitherFromObjects(input: A | B | C): string
 export function eitherFromOption(): JsClassForEither | undefined
 
 export function eitherStringOrNumber(input: string | number): number
+
+export function emitterSync(callback: (...args: any[]) => any): void
 
 export const enum Empty {
 

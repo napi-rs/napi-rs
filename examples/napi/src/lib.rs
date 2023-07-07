@@ -31,6 +31,7 @@ mod date;
 mod either;
 mod r#enum;
 mod error;
+mod events;
 mod external;
 mod fn_strict;
 mod fn_ts_override;
