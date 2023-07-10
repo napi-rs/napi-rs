@@ -17,17 +17,10 @@ A framework for building compiled `Node.js` add-ons in `Rust` via Node-API. Webs
 
 ## Platform Support
 
-![Lint](https://github.com/napi-rs/napi-rs/workflows/Lint/badge.svg)
-![Linux musl](https://github.com/napi-rs/napi-rs/workflows/Linux%20musl/badge.svg)
-![macOS/Windows/Linux x64](https://github.com/napi-rs/napi-rs/workflows/macOS/Windows/Linux%20x64/badge.svg)
-![Linux-aarch64](https://github.com/napi-rs/napi-rs/workflows/Linux-aarch64/badge.svg)
-![Linux-armv7](https://github.com/napi-rs/napi-rs/workflows/Linux-armv7/badge.svg)
-![Linux-riscv64](https://github.com/napi-rs/napi-rs/actions/workflows/linux-riscv64.yaml/badge.svg)
-![macOS-Android](https://github.com/napi-rs/napi-rs/workflows/macOS-Android/badge.svg)
-[![Android-armv7](https://github.com/napi-rs/napi-rs/actions/workflows/android-armv7.yml/badge.svg)](https://github.com/napi-rs/napi-rs/actions/workflows/android-armv7.yml)
-![Windows i686](https://github.com/napi-rs/napi-rs/workflows/Windows%20i686/badge.svg)
-[![Windows arm64](https://github.com/napi-rs/napi-rs/actions/workflows/windows-arm.yml/badge.svg)](https://github.com/napi-rs/napi-rs/actions/workflows/windows-arm.yml)
+[![macOS/Windows/Linux x64](https://github.com/napi-rs/napi-rs/actions/workflows/test.yaml/badge.svg)](https://github.com/napi-rs/napi-rs/actions/workflows/test.yaml)
 [![FreeBSD](https://api.cirrus-ci.com/github/napi-rs/napi-rs.svg)](https://cirrus-ci.com/github/napi-rs/napi-rs?branch=main)
+[![Address Sanitizer](https://github.com/napi-rs/napi-rs/actions/workflows/asan.yml/badge.svg)](https://github.com/napi-rs/napi-rs/actions/workflows/asan.yml)
+[![Memory Leak Detect](https://github.com/napi-rs/napi-rs/actions/workflows/memory-test.yml/badge.svg)](https://github.com/napi-rs/napi-rs/actions/workflows/memory-test.yml)
 
 ## MSRV
 

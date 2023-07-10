@@ -14,8 +14,6 @@ build_and_test: &BUILD_AND_TEST
       - echo $CIRRUS_OS
       - cat crates/*/Cargo.toml
   install_script:
-    - curl -qL https://www.npmjs.com/install.sh | sh
-    - npm install --location=global --ignore-scripts yarn
     - curl https://sh.rustup.rs -sSf --output rustup.sh
     - sh rustup.sh -y --profile minimal --default-toolchain beta
     - |
@@ -44,7 +42,7 @@ freebsd_task:
     NX_NON_NATIVE_HASHER: 'true'
   setup_script:
     - pkg update
-    - pkg install -y -f curl node libnghttp2
+    - pkg install -y -f curl node libnghttp2 npm yarn
   <<: *BUILD_AND_TEST
 
 macos_arm64_task:
@@ -54,5 +52,5 @@ macos_arm64_task:
   env:
     PATH: $HOME/.cargo/bin:$PATH
   setup_script:
-    - brew install node
+    - brew install node yarn
   <<: *BUILD_AND_TEST
