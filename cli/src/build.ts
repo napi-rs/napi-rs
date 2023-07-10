@@ -123,7 +123,7 @@ export class BuildCommand extends Command {
     )} file, relative to cwd`,
   })
 
-  constEnum?: boolean = Option.Boolean('--const-enum', true, {
+  constEnum?: boolean = Option.Boolean('--const-enum', {
     description: `Generate ${chalk.green(
       'const enum',
     )} in .d.ts file or not, default is ${chalk.green('true')}`,
@@ -455,7 +455,7 @@ export class BuildCommand extends Command {
       packageName,
       tsConstEnum: tsConstEnumFromConfig,
     } = getNapiConfig(this.configFileName)
-    const tsConstEnum = this.constEnum ?? tsConstEnumFromConfig
+    const tsConstEnum = this.constEnum ?? tsConstEnumFromConfig ?? true
     if (triple.platform === 'wasi') {
       try {
         const emnapiDir = require.resolve('emnapi')
