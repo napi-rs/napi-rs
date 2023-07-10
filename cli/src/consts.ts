@@ -15,7 +15,7 @@ export function getNapiConfig(
   ).map(parseTriple)
   const defaultPlatforms =
     napi?.triples?.defaults === false ? [] : [...DefaultPlatforms]
-  const tsConstEnum: boolean = napi?.ts?.constEnum ?? true
+  const tsConstEnum: boolean | undefined = napi?.ts?.constEnum
   const platforms = [...defaultPlatforms, ...additionPlatforms]
   const releaseVersion = process.env.RELEASE_VERSION
   const releaseVersionWithoutPrefix = releaseVersion?.startsWith('v')
