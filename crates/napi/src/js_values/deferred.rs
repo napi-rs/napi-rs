@@ -78,7 +78,7 @@ impl ToNapiValue for DeferredTrace {
     let mut value = ptr::null_mut();
     check_status!(unsafe { sys::napi_get_reference_value(env, val.value, &mut value) })?;
 
-    if value == ptr::null_mut() {
+    if value.is_null() {
       // This shouldn't happen but a panic is better than a segfault
       Err(Error::new(
         crate::Status::GenericFailure,
