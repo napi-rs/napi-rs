@@ -4,7 +4,7 @@ use std::os::raw::c_void;
 use std::ptr;
 
 use crate::bindgen_runtime::{ToNapiValue, THREAD_DESTROYED};
-use crate::{check_status, JsObject, Value};
+use crate::{check_status, JsError, JsObject, Value};
 use crate::{sys, Env, Error, Result};
 #[cfg(feature = "deferred_trace")]
 use crate::{NapiRaw, NapiValue};
@@ -50,10 +50,25 @@ impl DeferredTrace {
     let raw = unsafe { DeferredTrace::to_napi_value(raw_env, self)? };
 
     let mut obj = unsafe { JsObject::from_raw(raw_env, raw)? };
-    obj.set_named_property("message", env.create_string(&err.reason)?)?;
-    obj.set_named_property("code", env.create_string_from_std(err.status.to_string())?)?;
+    if err.reason.is_empty() && err.status == crate::Status::GenericFailure {
+      // Can't clone err as the clone containing napi pointers will
+      // be freed when this function returns, causing err to be freed twice.
+      // Someone should probably fix this.
+      let err_obj = JsError::from(err).into_unknown(env).coerce_to_object()?;
 
-    Ok(raw)
+      if err_obj.has_named_property("message")? {
+        // The error was already created inside the JS engine, just return it
+        Ok(unsafe { JsError::from(Error::from(err_obj.into_unknown())).into_value(raw_env) })
+      } else {
+        obj.set_named_property("message", "")?;
+        obj.set_named_property("code", "")?;
+        Ok(raw)
+      }
+    } else {
+      obj.set_named_property("message", env.create_string(&err.reason)?)?;
+      obj.set_named_property("code", env.create_string_from_std(err.status.to_string())?)?;
+      Ok(raw)
+    }
   }
 }
 
