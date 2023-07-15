@@ -132,6 +132,7 @@ import {
   returnFromSharedCrate,
   chronoNativeDateTime,
   chronoNativeDateTimeReturn,
+  throwAsyncError,
 } from '..'
 
 test('export const', (t) => {
@@ -418,6 +419,13 @@ test('Result', (t) => {
   if (!process.env.SKIP_UNWIND_TEST) {
     t.throws(() => panic(), void 0, `Don't panic`)
   }
+})
+
+test('Async error with stack trace', async (t) => {
+  const err = await t.throwsAsync(() => throwAsyncError())
+  t.not(err?.stack, undefined)
+  t.deepEqual(err!.message, 'Async Error')
+  t.regex(err!.stack!, /.+at .+values\.spec\.ts:\d+:\d+.+/gm)
 })
 
 test('custom status code in Error', (t) => {

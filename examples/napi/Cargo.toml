@@ -23,6 +23,7 @@ napi = { path = "../../crates/napi", default-features = false, features = [
   "experimental",
   "latin1",
   "chrono_date",
+  "deferred_trace",
 ] }
 napi-derive = { path = "../../crates/macro", features = ["type-def"] }
 napi-shared = { path = "../napi-shared" }
