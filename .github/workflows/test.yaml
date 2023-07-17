@@ -109,6 +109,7 @@ jobs:
           key: ${{ matrix.settings.host }}-${{ matrix.settings.toolchain }}-${{ matrix.settings.target }}-cargo-cache
 
       - name: 'Install dependencies'
+        shell: bash
         run: yarn install --mode=skip-build --immutable
 
       - name: Check build
@@ -227,7 +228,10 @@ jobs:
           cache: 'yarn'
 
       - name: Install dependencies
-        run: yarn install --immutable --mode=skip-build
+        run: |
+          yarn config set supportedArchitectures.cpu --json '["x64", "arm64"]'
+          yarn config set supportedArchitectures.libc --json '["musl", "glibc"]'
+          yarn install --immutable --mode=skip-build
 
       - name: Cache cargo
         uses: actions/cache@v3

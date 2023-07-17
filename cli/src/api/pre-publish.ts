@@ -129,11 +129,14 @@ export async function prePublish(userOptions: PrePublishOptions) {
   if (!options.dryRun) {
     await version(userOptions)
     await updatePackageJson(packageJsonPath, {
-      optionalDependencies: targets.reduce((deps, target) => {
-        deps[`${packageName}-${target.platformArchABI}`] = packageJson.version
+      optionalDependencies: targets.reduce(
+        (deps, target) => {
+          deps[`${packageName}-${target.platformArchABI}`] = packageJson.version
 
-        return deps
-      }, {} as Record<string, string>),
+          return deps
+        },
+        {} as Record<string, string>,
+      ),
     })
   }
 

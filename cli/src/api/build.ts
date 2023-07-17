@@ -565,6 +565,7 @@ class Builder {
   private async writeJsBinding(idents: string[]) {
     if (
       !this.options.platform ||
+      // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
       this.options.noJsBinding ||
       idents.length === 0
     ) {
