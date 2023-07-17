@@ -5,7 +5,7 @@ parserOptions:
     jsx: true
   ecmaVersion: latest
   sourceType: module
-  extraFileExtensions: ['.cjs', '.mjs']
+  project: ./tsconfig.root-lint.json
 
 env:
   browser: true
@@ -18,7 +18,7 @@ plugins:
 
 extends:
   - eslint:recommended
-  - plugin:prettier/recommended
+  - prettier
 
 globals:
   BigInt: 'readonly'

@@ -2,7 +2,7 @@
   "extends": "./tsconfig.json",
   "include": [
     "./ava.config.js",
-    "./generate-triplelist.js",
+    "./generate-triple-list.ts",
     "./triples/index.js",
     "./memory-testing/*.js",
     "./memory-testing/*.mjs"

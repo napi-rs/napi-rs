@@ -13,8 +13,8 @@
     "build-release": "node ../../cli/scripts/index.js build --js false --release"
   },
   "dependencies": {
-    "@types/lodash": "^4.14.191",
+    "@types/lodash": "^4.14.195",
     "lodash": "^4.17.21",
-    "sinon": "^15.0.1"
+    "sinon": "^15.2.0"
   }
 }
