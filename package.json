@@ -1,6 +1,7 @@
 {
   "name": "napi-rs",
   "version": "0.0.0",
+  "private": true,
   "description": "A minimal library for building compiled Node add-ons in Rust.",
   "workspaces": [
     "bench",
@@ -33,13 +34,11 @@
     "format:rs": "cargo fmt",
     "format:toml": "taplo format",
     "lint": "eslint -c .eslintrc.yml .",
-    "prepublishOnly": "npm run build && pinst --disable",
     "test": "ava \"./examples/napi/**/*.ts\" && ava --no-worker-threads \"./examples/napi-compat-mode/**/*.ts\" && ava \"./cli/**/*.ts\"",
     "test:electron": "electron examples/napi/electron.js",
     "test:macro": "cargo test -p napi-examples",
     "test:memory": "node memory-testing/index.mjs",
-    "postinstall": "husky install",
-    "postpublish": "pinst --enable"
+    "postinstall": "husky install"
   },
   "bugs": {
     "url": "https://github.com/napi-rs/napi-rs/issues"
