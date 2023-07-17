@@ -4,7 +4,9 @@ use std::os::raw::c_void;
 use std::ptr;
 
 use crate::bindgen_runtime::{ToNapiValue, THREAD_DESTROYED};
-use crate::{check_status, JsError, JsObject, Value};
+#[cfg(feature = "deferred_trace")]
+use crate::JsError;
+use crate::{check_status, JsObject, Value};
 use crate::{sys, Env, Error, Result};
 #[cfg(feature = "deferred_trace")]
 use crate::{NapiRaw, NapiValue};
