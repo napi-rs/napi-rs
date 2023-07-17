@@ -4,7 +4,7 @@ import { join } from 'path'
 import * as esbuild from 'esbuild'
 import { groupBy, mapValues } from 'lodash'
 
-import { parseTriple } from './cli/src/parse-triple'
+import { PlatformDetail, parseTriple } from './cli/src/parse-triple'
 
 const RAW_LIST = readFileSync(join(__dirname, 'triples', 'target-list'), 'utf8')
 
@@ -21,7 +21,7 @@ const tripleLists: { [key: string]: { platform?: string } } = RAW_LIST.trim()
   .split('\n')
   .filter((line) => !line.startsWith('wasm') && line.trim().length)
   .map(parseTriple)
-  .reduce((acc, cur) => {
+  .reduce((acc: Record<string, PlatformDetail>, cur) => {
     acc[cur.raw] = cur
     return acc
   }, {})

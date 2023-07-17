@@ -3,7 +3,7 @@ import test from 'ava'
 const bindings = require('../index.node')
 
 test('setProperty', (t) => {
-  const obj = {}
+  const obj: Record<string, unknown> = {}
   const key = 'jsPropertyKey'
   bindings.testSetProperty(obj, key)
   t.snapshot(obj[key])
@@ -19,7 +19,7 @@ test('testGetProperty', (t) => {
 })
 
 test('setNamedProperty', (t) => {
-  const obj = {}
+  const obj: Record<string, any> = {}
   const property = Symbol('JsSymbol')
   bindings.testSetNamedProperty(obj, property)
   const keys = Object.keys(obj)

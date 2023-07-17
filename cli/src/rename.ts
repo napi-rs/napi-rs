@@ -36,7 +36,6 @@ export class RenameCommand extends Command {
 
   cwd = Option.String({
     required: false,
-    description: 'The working directory, default is [process.cwd()]',
   })
 
   async execute() {

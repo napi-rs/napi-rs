@@ -388,7 +388,7 @@ test('return Undefined', (t) => {
 
 test('pass symbol in', (t) => {
   const sym = Symbol('test')
-  const obj = setSymbolInObj(sym)
+  const obj = setSymbolInObj(sym) as Record<string | symbol, string>
   t.is(obj[sym], 'a symbol')
 })
 
@@ -415,6 +415,7 @@ test('custom status code in Error', (t) => {
 })
 
 test('function ts type override', (t) => {
+  // @ts-expect-error
   t.deepEqual(tsRename({ foo: 1, bar: 2, baz: 2 }), ['foo', 'bar', 'baz'])
 })
 

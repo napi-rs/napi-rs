@@ -26,7 +26,7 @@ import {
 
 const debug = debugFactory('build')
 
-const ZIG_PLATFORM_TARGET_MAP = {
+const ZIG_PLATFORM_TARGET_MAP: Record<string, string> = {
   'x86_64-unknown-linux-musl': 'x86_64-linux-musl',
   'x86_64-unknown-linux-gnu': 'x86_64-linux-gnu',
   // Doesn't support Windows MSVC for now
@@ -283,7 +283,7 @@ export class BuildCommand extends Command {
     ]
       .filter((flag) => Boolean(flag))
       .join(' ')
-    const additionalEnv = {}
+    const additionalEnv: Record<string, string> = {}
     const isCrossForWin =
       triple.platform === 'win32' && process.platform !== 'win32'
     const isCrossForLinux =

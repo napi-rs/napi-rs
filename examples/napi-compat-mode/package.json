@@ -13,6 +13,6 @@
     "test": "node ./index.js"
   },
   "devDependencies": {
-    "sinon": "^15.0.1"
+    "sinon": "^15.2.0"
   }
 }

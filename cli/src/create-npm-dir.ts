@@ -43,6 +43,11 @@ export class CreateNpmDirCommand extends Command {
       const packageJson: {
         name: string
         libc?: string[]
+        version: string
+        os?: string[]
+        cpu?: string[]
+        main: string
+        files: string[]
       } = {
         name: `${packageName}-${platformDetail.platformArchABI}`,
         version,
