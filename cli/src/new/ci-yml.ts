@@ -58,10 +58,16 @@ export const createGithubActionsCIYml = (
   if (!enableWindowsX86 && !enableMacOSX86) {
     delete fullTemplate.jobs[TEST_MACOS_WINDOWS]
   } else {
-    const filterTarget = enableWindowsX86 ? 'macos-latest' : 'windows-latest'
+    const filterTargets = new Set<string>()
+    if (enableWindowsX86) {
+      filterTargets.add('windows-latest')
+    }
+    if (enableMacOSX86 || enableMacOSUni) {
+      filterTargets.add('macos-latest')
+    }
     fullTemplate.jobs[TEST_MACOS_WINDOWS].strategy.matrix.settings =
       fullTemplate.jobs[TEST_MACOS_WINDOWS].strategy.matrix.settings.filter(
-        ({ host }: { host: string; target: string }) => host !== filterTarget,
+        ({ host }: { host: string; target: string }) => filterTargets.has(host),
       )
 
     requiredSteps.push(TEST_MACOS_WINDOWS)
