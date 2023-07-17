@@ -3,6 +3,14 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.16.2](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.16.1...@napi-rs/cli@2.16.2) (2023-07-17)
+
+### Bug Fixes
+
+- **cli:** install npm and yarn via pkg on FreeBSD ([544a17e](https://github.com/napi-rs/napi-rs/commit/544a17e43a65e28a8caa12c53f5c697c64a6608e))
+- **cli:** new created CI template doesn't contains macOS testing ([b2239cc](https://github.com/napi-rs/napi-rs/commit/b2239ccb20baea66e90cecad33b962847178e8a3))
+- **cli:** ts constEnum option not working when set in package.json ([#1647](https://github.com/napi-rs/napi-rs/issues/1647)) ([28cbe25](https://github.com/napi-rs/napi-rs/commit/28cbe2519301e81f6945d94f20214a7fa412343f))
+
 ## [2.16.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.16.0...@napi-rs/cli@2.16.1) (2023-05-27)
 
 ### Bug Fixes
