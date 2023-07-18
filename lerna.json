@@ -1,5 +1,5 @@
 {
   "version": "independent",
   "npmClient": "yarn",
-  "message": "chore: publish"
+  "message": "chore(release): publish"
 }

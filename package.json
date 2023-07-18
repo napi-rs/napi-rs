@@ -60,11 +60,6 @@
       "cargo fmt --"
     ]
   },
-  "husky": {
-    "hooks": {
-      "pre-commit": "lint-staged && cargo fmt --all"
-    }
-  },
   "devDependencies": {
     "@napi-rs/cli": "workspace:*",
     "@rollup/plugin-alias": "^5.0.0",
