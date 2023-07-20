@@ -244,8 +244,28 @@ extern "C" fn napi_resolve_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> 
     #[cfg(not(feature = "deferred_trace"))]
     let error = Ok::<sys::napi_value, Error>(unsafe { crate::JsError::from(e).into_value(env) });
 
-    if let Ok(error) = error {
-      unsafe { sys::napi_reject_deferred(env, deferred, error) };
+    match error {
+      Ok(error) => {
+        unsafe { sys::napi_reject_deferred(env, deferred, error) };
+      }
+      Err(err) => {
+        #[cfg(debug_assertions)]
+        {
+          println!("Failed to reject deferred: {:?}", err);
+          let mut err = ptr::null_mut();
+          let mut err_msg = ptr::null_mut();
+          unsafe {
+            sys::napi_create_string_utf8(
+              env,
+              "Rejection failed\0".as_ptr().cast(),
+              0,
+              &mut err_msg,
+            );
+            sys::napi_create_error(env, ptr::null_mut(), err_msg, &mut err);
+            sys::napi_reject_deferred(env, deferred, ptr::null_mut());
+          }
+        }
+      }
     }
   }
 }
