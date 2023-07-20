@@ -124,7 +124,7 @@ jobs:
           - settings:
               target: i686-pc-windows-msvc
             node: 18
-    name: stable - ${{ matrix.settings.host }} - node@${{ matrix.node }}
+    name: ${{ matrix.settings.host }} - node@${{ matrix.node }} - toolchain@ ${{ matrix.settings.toolchain }}
     runs-on: ${{ matrix.settings.host }}
 
     steps:
