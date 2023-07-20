@@ -48,7 +48,7 @@ impl DeferredTrace {
   }
 
   fn into_rejected(self, raw_env: sys::napi_env, err: Error) -> Result<sys::napi_value> {
-    let env = unsafe { Env::from_raw(raw_env) };
+    let env: Env = unsafe { Env::from_raw(raw_env) };
     let raw = unsafe { DeferredTrace::to_napi_value(raw_env, self)? };
 
     let mut obj = unsafe { JsObject::from_raw(raw_env, raw)? };
@@ -153,7 +153,7 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
         1,
         ptr::null_mut(),
         None,
-        raw_deferred as *mut c_void,
+        raw_deferred.cast(),
         Some(napi_resolve_deferred::<Data, Resolver>),
         &mut tsfn,
       )
@@ -198,8 +198,8 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
     let status = unsafe {
       sys::napi_call_threadsafe_function(
         self.tsfn,
-        Box::into_raw(Box::from(data)) as *mut c_void,
-        sys::ThreadsafeFunctionCallMode::nonblocking,
+        Box::into_raw(Box::from(data)).cast(),
+        sys::ThreadsafeFunctionCallMode::blocking,
       )
     };
     debug_assert!(
@@ -229,34 +229,23 @@ extern "C" fn napi_resolve_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> 
       return;
     }
   }
-  let deferred = context as sys::napi_deferred;
-  let deferred_data = unsafe { Box::from_raw(data as *mut DeferredData<Data, Resolver>) };
+  let deferred = context.cast();
+  let deferred_data: Box<DeferredData<Data, Resolver>> = unsafe { Box::from_raw(data.cast()) };
   let result = deferred_data
     .resolver
     .and_then(|resolver| resolver(unsafe { Env::from_raw(env) }))
     .and_then(|res| unsafe { ToNapiValue::to_napi_value(env, res) });
 
-  match result {
-    Ok(res) => {
-      let status = unsafe { sys::napi_resolve_deferred(env, deferred, res) };
-      debug_assert!(
-        status == sys::Status::napi_ok,
-        "Resolve promise failed {:?}",
-        crate::Status::from(status)
-      );
-    }
-    Err(e) => {
-      #[cfg(feature = "deferred_trace")]
-      let error = deferred_data.trace.into_rejected(env, e).unwrap();
-      #[cfg(not(feature = "deferred_trace"))]
-      let error = unsafe { crate::JsError::from(e).into_value(env) };
+  if let Err(e) =
+    result.and_then(|res| check_status!(unsafe { sys::napi_resolve_deferred(env, deferred, res) }))
+  {
+    #[cfg(feature = "deferred_trace")]
+    let error = deferred_data.trace.into_rejected(env, e);
+    #[cfg(not(feature = "deferred_trace"))]
+    let error = Ok::<sys::napi_value, Error>(unsafe { crate::JsError::from(e).into_value(env) });
 
-      let status = unsafe { sys::napi_reject_deferred(env, deferred, error) };
-      debug_assert!(
-        status == sys::Status::napi_ok,
-        "Reject promise failed {:?}",
-        crate::Status::from(status)
-      );
+    if let Ok(error) = error {
+      unsafe { sys::napi_reject_deferred(env, deferred, error) };
     }
   }
 }
