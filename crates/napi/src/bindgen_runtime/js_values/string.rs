@@ -34,7 +34,10 @@ impl ToNapiValue for &String {
 impl ToNapiValue for String {
   #[inline]
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
-    unsafe { ToNapiValue::to_napi_value(env, &val) }
+    #[allow(clippy::needless_borrow)]
+    unsafe {
+      ToNapiValue::to_napi_value(env, &val)
+    }
   }
 }
 
