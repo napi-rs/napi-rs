@@ -236,27 +236,16 @@ extern "C" fn napi_resolve_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> 
     .and_then(|resolver| resolver(unsafe { Env::from_raw(env) }))
     .and_then(|res| unsafe { ToNapiValue::to_napi_value(env, res) });
 
-  match result {
-    Ok(res) => {
-      let status = unsafe { sys::napi_resolve_deferred(env, deferred, res) };
-      debug_assert!(
-        status == sys::Status::napi_ok,
-        "Resolve promise failed {:?}",
-        crate::Status::from(status)
-      );
-    }
-    Err(e) => {
-      #[cfg(feature = "deferred_trace")]
-      let error = deferred_data.trace.into_rejected(env, e).unwrap();
-      #[cfg(not(feature = "deferred_trace"))]
-      let error = unsafe { crate::JsError::from(e).into_value(env) };
+  if let Err(err) =
+    result.and_then(|res| check_status!(unsafe { sys::napi_resolve_deferred(env, deferred, res) }))
+  {
+    #[cfg(feature = "deferred_trace")]
+    let error = deferred_data.trace.into_rejected(env, err);
+    #[cfg(not(feature = "deferred_trace"))]
+    let error = Ok::<sys::napi_value, Error>(unsafe { crate::JsError::from(err).into_value(env) });
 
-      let status = unsafe { sys::napi_reject_deferred(env, deferred, error) };
-      debug_assert!(
-        status == sys::Status::napi_ok,
-        "Reject promise failed {:?}",
-        crate::Status::from(status)
-      );
+    if let Ok(err_ptr) = error {
+      unsafe { sys::napi_reject_deferred(env, deferred, err_ptr) };
     }
   }
 }
