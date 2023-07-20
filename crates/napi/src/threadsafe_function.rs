@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 use std::sync::{Arc, RwLock, RwLockWriteGuard, Weak};
 
 use crate::bindgen_runtime::{FromNapiValue, ToNapiValue, TypeName, ValidateNapiValue};
-use crate::{check_status, sys, Env, JsError, JsUnknown, Result, Status};
+use crate::{check_status, check_status_or_throw, sys, Env, JsError, JsUnknown, Result, Status};
 
 /// ThreadSafeFunction Context object
 /// the `value` is the value passed to `call` method
@@ -720,14 +720,18 @@ unsafe extern "C" fn call_js_cb<T: 'static, V: ToNapiValue, R, ES>(
         let callback_arg = if status == sys::Status::napi_pending_exception {
           let mut exception = ptr::null_mut();
           status = unsafe { sys::napi_get_and_clear_last_exception(raw_env, &mut exception) };
-          Err(
-            JsUnknown(crate::Value {
-              env: raw_env,
-              value: exception,
-              value_type: crate::ValueType::Unknown,
-            })
-            .into(),
-          )
+          let mut exception_ref = ptr::null_mut();
+          check_status_or_throw!(
+            raw_env,
+            unsafe { sys::napi_create_reference(raw_env, exception, 1, &mut exception_ref) },
+            "Create object reference from threadsafe function callback exception failed"
+          );
+          Err(crate::Error {
+            status: Status::PendingException,
+            reason: String::new(),
+            maybe_raw: exception_ref,
+            maybe_env: raw_env,
+          })
         } else {
           Ok(JsUnknown(crate::Value {
             env: raw_env,

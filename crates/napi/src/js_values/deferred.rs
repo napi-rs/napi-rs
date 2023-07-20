@@ -244,9 +244,12 @@ extern "C" fn napi_resolve_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> 
     .and_then(|resolver| resolver(unsafe { Env::from_raw(env) }))
     .and_then(|res| unsafe { ToNapiValue::to_napi_value(env, res) });
 
-  if let Err(e) =
-    result.and_then(|res| check_status!(unsafe { sys::napi_resolve_deferred(env, deferred, res) }))
-  {
+  if let Err(e) = result.and_then(|res| {
+    check_status!(
+      unsafe { sys::napi_resolve_deferred(env, deferred, res) },
+      "Resolve deferred value failed"
+    )
+  }) {
     #[cfg(feature = "deferred_trace")]
     let error = deferred_data.trace.into_rejected(env, e);
     #[cfg(not(feature = "deferred_trace"))]
