@@ -53,6 +53,8 @@ impl DeferredTrace {
 
     let mut obj = unsafe { JsObject::from_raw(raw_env, raw)? };
     if err.reason.is_empty() && err.status == crate::Status::GenericFailure {
+      let status = err.status;
+      let reason = err.reason.clone();
       // Can't clone err as the clone containing napi pointers will
       // be freed when this function returns, causing err to be freed twice.
       // Someone should probably fix this.
@@ -62,13 +64,16 @@ impl DeferredTrace {
         // The error was already created inside the JS engine, just return it
         Ok(unsafe { JsError::from(Error::from(err_obj.into_unknown())).into_value(raw_env) })
       } else {
-        obj.set_named_property("message", "")?;
-        obj.set_named_property("code", "")?;
+        obj.set_named_property("message", reason)?;
+        obj.set_named_property("code", format!("{}", status))?;
         Ok(raw)
       }
     } else {
-      obj.set_named_property("message", env.create_string(&err.reason)?)?;
-      obj.set_named_property("code", env.create_string_from_std(err.status.to_string())?)?;
+      obj.set_named_property("message", &err.reason)?;
+      obj.set_named_property(
+        "code",
+        env.create_string_from_std(format!("{}", err.status))?,
+      )?;
       Ok(raw)
     }
   }
@@ -78,7 +83,10 @@ impl DeferredTrace {
 impl ToNapiValue for DeferredTrace {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     let mut value = ptr::null_mut();
-    check_status!(unsafe { sys::napi_get_reference_value(env, val.value, &mut value) })?;
+    check_status!(
+      unsafe { sys::napi_get_reference_value(env, val.value, &mut value) },
+      "Failed to get referenced value in DeferredTrace"
+    )?;
 
     if value.is_null() {
       // This shouldn't happen but a panic is better than a segfault
