@@ -1,6 +1,6 @@
 use std::convert::{From, TryFrom};
 use std::error;
-use std::ffi::{CStr, CString};
+use std::ffi::CString;
 use std::fmt;
 #[cfg(feature = "serde-json")]
 use std::fmt::Display;
@@ -165,22 +165,6 @@ impl From<std::io::Error> for Error {
   }
 }
 
-impl<S: AsRef<str>> Drop for Error<S> {
-  fn drop(&mut self) {
-    #[cfg(not(feature = "noop"))]
-    {
-      if !self.maybe_env.is_null() && !self.maybe_raw.is_null() {
-        let delete_reference_status =
-          unsafe { sys::napi_delete_reference(self.maybe_env, self.maybe_raw) };
-        debug_assert!(
-          delete_reference_status == sys::Status::napi_ok,
-          "Delete Error Reference failed"
-        );
-      }
-    }
-  }
-}
-
 #[derive(Clone, Debug)]
 pub struct ExtendedErrorInfo {
   pub message: String,
@@ -237,6 +221,11 @@ macro_rules! impl_object_methods {
             get_err_status == sys::Status::napi_ok,
             "Get Error from Reference failed"
           );
+          let delete_err_status = unsafe { sys::napi_delete_reference(env, self.0.maybe_raw) };
+          debug_assert!(
+            delete_err_status == sys::Status::napi_ok,
+            "Delete Error Reference failed"
+          );
           return err;
         }
 
@@ -288,28 +277,6 @@ macro_rules! impl_object_methods {
           reason,
           status
         );
-      }
-
-      #[allow(clippy::not_unsafe_ptr_arg_deref)]
-      pub fn throw(&self, env: sys::napi_env) -> Result<()> {
-        let error_status = format!("{:?}\0", self.0.status.as_ref());
-        let status_len = error_status.len();
-        let error_code_string =
-          unsafe { CStr::from_bytes_with_nul_unchecked(error_status.as_bytes()) };
-        let reason_len = self.0.reason.len();
-        let reason_c_string = format!("{}\0", self.0.reason.clone());
-        let reason = unsafe { CStr::from_bytes_with_nul_unchecked(reason_c_string.as_bytes()) };
-        let mut error_code = ptr::null_mut();
-        let mut reason_string = ptr::null_mut();
-        let mut js_error = ptr::null_mut();
-        check_status!(unsafe {
-          sys::napi_create_string_utf8(env, error_code_string.as_ptr(), status_len, &mut error_code)
-        })?;
-        check_status!(unsafe {
-          sys::napi_create_string_utf8(env, reason.as_ptr(), reason_len, &mut reason_string)
-        })?;
-        check_status!(unsafe { $kind(env, error_code, reason_string, &mut js_error) })?;
-        check_status!(unsafe { sys::napi_throw(env, js_error) })
       }
     }
 
