@@ -26,7 +26,6 @@ pub struct Error<S: AsRef<str> = Status> {
   pub reason: String,
   // Convert raw `JsError` into Error
   pub(crate) maybe_raw: sys::napi_ref,
-  pub(crate) maybe_env: sys::napi_env,
 }
 
 impl<S: AsRef<str>> ToNapiValue for Error<S> {
@@ -36,9 +35,14 @@ impl<S: AsRef<str>> ToNapiValue for Error<S> {
       Ok(err)
     } else {
       let mut value = std::ptr::null_mut();
-      check_status!(unsafe {
-        sys::napi_get_reference_value(val.maybe_env, val.maybe_raw, &mut value)
-      })?;
+      check_status!(
+        unsafe { sys::napi_get_reference_value(env, val.maybe_raw, &mut value) },
+        "Get error reference in `to_napi_value` failed"
+      )?;
+      check_status!(
+        unsafe { sys::napi_delete_reference(env, val.maybe_raw) },
+        "Delete error reference in `to_napi_value` failed"
+      )?;
       Ok(value)
     }
   }
@@ -90,7 +94,6 @@ impl From<JsUnknown> for Error {
       status: Status::GenericFailure,
       reason: "".to_string(),
       maybe_raw: result,
-      maybe_env: value.0.env,
     }
   }
 }
@@ -118,7 +121,6 @@ impl<S: AsRef<str>> Error<S> {
       status,
       reason: reason.to_string(),
       maybe_raw: ptr::null_mut(),
-      maybe_env: ptr::null_mut(),
     }
   }
 
@@ -127,7 +129,6 @@ impl<S: AsRef<str>> Error<S> {
       status,
       reason: "".to_owned(),
       maybe_raw: ptr::null_mut(),
-      maybe_env: ptr::null_mut(),
     }
   }
 }
@@ -138,7 +139,6 @@ impl Error {
       status: Status::GenericFailure,
       reason: reason.into(),
       maybe_raw: ptr::null_mut(),
-      maybe_env: ptr::null_mut(),
     }
   }
 }
@@ -149,7 +149,6 @@ impl From<std::ffi::NulError> for Error {
       status: Status::GenericFailure,
       reason: format!("{}", error),
       maybe_raw: ptr::null_mut(),
-      maybe_env: ptr::null_mut(),
     }
   }
 }
@@ -160,7 +159,6 @@ impl From<std::io::Error> for Error {
       status: Status::GenericFailure,
       reason: format!("{}", error),
       maybe_raw: ptr::null_mut(),
-      maybe_env: ptr::null_mut(),
     }
   }
 }
