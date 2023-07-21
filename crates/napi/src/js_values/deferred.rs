@@ -145,7 +145,7 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
     let deferred = Self {
       tsfn,
       #[cfg(feature = "deferred_trace")]
-      trace: DeferredTrace::new(env),
+      trace: DeferredTrace::new(env)?,
       _data: PhantomData,
       _resolver: PhantomData,
     };
