@@ -4,8 +4,6 @@ use std::os::raw::c_void;
 use std::ptr;
 
 use crate::bindgen_runtime::{ToNapiValue, THREAD_DESTROYED};
-#[cfg(feature = "deferred_trace")]
-use crate::JsError;
 use crate::{check_status, JsObject, Value};
 use crate::{sys, Env, Error, Result};
 #[cfg(feature = "deferred_trace")]
@@ -19,11 +17,8 @@ use crate::{NapiRaw, NapiValue};
 ///
 /// See this issue for more details:
 /// https://github.com/nodejs/node-addon-api/issues/595
-struct DeferredTrace {
-  value: sys::napi_ref,
-  #[cfg(not(feature = "noop"))]
-  env: sys::napi_env,
-}
+#[repr(transparent)]
+struct DeferredTrace(sys::napi_ref);
 
 #[cfg(feature = "deferred_trace")]
 impl DeferredTrace {
@@ -40,25 +35,21 @@ impl DeferredTrace {
     let status = unsafe { sys::napi_create_reference(raw_env, js_error, 1, &mut result) };
     debug_assert!(status == sys::Status::napi_ok);
 
-    Self {
-      value: result,
-      #[cfg(not(feature = "noop"))]
-      env: raw_env,
-    }
+    Self(result)
   }
 
   fn into_rejected(self, raw_env: sys::napi_env, err: Error) -> Result<sys::napi_value> {
     let env: Env = unsafe { Env::from_raw(raw_env) };
     let raw = unsafe { DeferredTrace::to_napi_value(raw_env, self)? };
 
-    let mut obj = unsafe { JsObject::from_raw(raw_env, raw)? };
+    let mut obj = unsafe { JsObject::from_raw_unchecked(raw_env, raw) };
     if err.reason.is_empty() && err.status == crate::Status::GenericFailure {
       let err_obj =
         unsafe { JsObject::from_raw_unchecked(raw_env, ToNapiValue::to_napi_value(raw_env, err)?) };
 
       if err_obj.has_named_property("message")? {
         // The error was already created inside the JS engine, just return it
-        Ok(unsafe { JsError::from(Error::from(err_obj.into_unknown())).into_value(raw_env) })
+        Ok(unsafe { err_obj.raw() })
       } else {
         obj.set_named_property("message", "")?;
         obj.set_named_property("code", "")?;
@@ -80,35 +71,16 @@ impl ToNapiValue for DeferredTrace {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     let mut value = ptr::null_mut();
     check_status!(
-      unsafe { sys::napi_get_reference_value(env, val.value, &mut value) },
+      unsafe { sys::napi_get_reference_value(env, val.0, &mut value) },
       "Failed to get referenced value in DeferredTrace"
     )?;
 
-    if value.is_null() {
-      // This shouldn't happen but a panic is better than a segfault
-      Err(Error::new(
-        crate::Status::GenericFailure,
-        "Failed to get deferred error reference",
-      ))
-    } else {
-      Ok(value)
-    }
-  }
-}
+    check_status!(
+      unsafe { sys::napi_delete_reference(env, val.0) },
+      "Failed to get referenced value in DeferredTrace"
+    )?;
 
-#[cfg(feature = "deferred_trace")]
-impl Drop for DeferredTrace {
-  fn drop(&mut self) {
-    #[cfg(not(feature = "noop"))]
-    {
-      if !self.env.is_null() && !self.value.is_null() {
-        let delete_reference_status = unsafe { sys::napi_delete_reference(self.env, self.value) };
-        debug_assert!(
-          delete_reference_status == sys::Status::napi_ok,
-          "Delete Error Reference failed"
-        );
-      }
-    }
+    Ok(value)
   }
 }
 
@@ -142,26 +114,30 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
     // Create a threadsafe function so we can call back into the JS thread when we are done.
     let mut async_resource_name = ptr::null_mut();
     let s = unsafe { CStr::from_bytes_with_nul_unchecked(b"napi_resolve_deferred\0") };
-    check_status!(unsafe {
-      sys::napi_create_string_utf8(env, s.as_ptr(), 22, &mut async_resource_name)
-    })?;
+    check_status!(
+      unsafe { sys::napi_create_string_utf8(env, s.as_ptr(), 22, &mut async_resource_name) },
+      "Create async resource name in JsDeferred failed"
+    )?;
 
     let mut tsfn = ptr::null_mut();
-    check_status! {unsafe {
-      sys::napi_create_threadsafe_function(
-        env,
-        ptr::null_mut(),
-        ptr::null_mut(),
-        async_resource_name,
-        0,
-        1,
-        ptr::null_mut(),
-        None,
-        raw_deferred.cast(),
-        Some(napi_resolve_deferred::<Data, Resolver>),
-        &mut tsfn,
-      )
-    }}?;
+    check_status!(
+      unsafe {
+        sys::napi_create_threadsafe_function(
+          env,
+          ptr::null_mut(),
+          ptr::null_mut(),
+          async_resource_name,
+          0,
+          1,
+          ptr::null_mut(),
+          None,
+          raw_deferred.cast(),
+          Some(napi_resolve_deferred::<Data, Resolver>),
+          &mut tsfn,
+        )
+      },
+      "Create threadsafe function in JsDeferred failed"
+    )?;
 
     let deferred = Self {
       tsfn,
@@ -208,7 +184,7 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
     };
     debug_assert!(
       status == sys::Status::napi_ok,
-      "Call threadsafe function failed"
+      "Call threadsafe function in JsDeferred failed"
     );
 
     let status = unsafe {
@@ -216,7 +192,7 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
     };
     debug_assert!(
       status == sys::Status::napi_ok,
-      "Release threadsafe function failed"
+      "Release threadsafe function in JsDeferred failed"
     );
   }
 }
