@@ -375,12 +375,12 @@ macro_rules! impl_object_methods {
         unsafe { <T as FromNapiValue>::from_napi_value(self.0.env, raw_value) }
       }
 
-      pub fn has_named_property(&self, name: &str) -> Result<bool> {
+      pub fn has_named_property<N: AsRef<str>>(&self, name: N) -> Result<bool> {
         let mut result = false;
-        let key = CString::new(name)?;
+        let key = format!("{}\0", name.as_ref());
         check_status!(
           unsafe {
-            sys::napi_has_named_property(self.0.env, self.0.value, key.as_ptr(), &mut result)
+            sys::napi_has_named_property(self.0.env, self.0.value, key.as_ptr().cast(), &mut result)
           },
           "napi_has_named_property error"
         )?;
