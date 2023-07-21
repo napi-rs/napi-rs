@@ -292,6 +292,8 @@ jobs:
           options: -v ${{ github.workspace }}/.cargo-cache/registry:/usr/local/cargo/registry -v ${{ github.workspace }}/.cargo-cache/git:/usr/local/cargo/git -v ${{ github.workspace }}:/napi-rs -w /napi-rs
           run: |
             yarn build:test -- --target ${{ matrix.settings.target }}
+            chmod 777 -R .cargo-cache
+            chmod 777 -R target
 
       - uses: actions/upload-artifact@v3
         with:
