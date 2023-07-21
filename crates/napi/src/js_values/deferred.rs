@@ -22,20 +22,23 @@ struct DeferredTrace(sys::napi_ref);
 
 #[cfg(feature = "deferred_trace")]
 impl DeferredTrace {
-  fn new(raw_env: sys::napi_env) -> Self {
+  fn new(raw_env: sys::napi_env) -> Result<Self> {
     let env = unsafe { Env::from_raw(raw_env) };
     let reason = env.create_string("none").unwrap();
 
     let mut js_error = ptr::null_mut();
-    let create_error_status =
-      unsafe { sys::napi_create_error(raw_env, ptr::null_mut(), reason.raw(), &mut js_error) };
-    debug_assert!(create_error_status == sys::Status::napi_ok);
+    check_status!(
+      unsafe { sys::napi_create_error(raw_env, ptr::null_mut(), reason.raw(), &mut js_error) },
+      "Create error in DeferredTrace failed"
+    )?;
 
     let mut result = ptr::null_mut();
-    let status = unsafe { sys::napi_create_reference(raw_env, js_error, 1, &mut result) };
-    debug_assert!(status == sys::Status::napi_ok);
+    check_status!(
+      unsafe { sys::napi_create_reference(raw_env, js_error, 1, &mut result) },
+      "Create reference in DeferredTrace failed"
+    )?;
 
-    Self(result)
+    Ok(Self(result))
   }
 
   fn into_rejected(self, raw_env: sys::napi_env, err: Error) -> Result<sys::napi_value> {
@@ -43,7 +46,7 @@ impl DeferredTrace {
     let raw = unsafe { DeferredTrace::to_napi_value(raw_env, self)? };
 
     let mut obj = unsafe { JsObject::from_raw_unchecked(raw_env, raw) };
-    if err.reason.is_empty() && err.status == crate::Status::GenericFailure {
+    if !err.maybe_raw.is_null() {
       let err_obj =
         unsafe { JsObject::from_raw_unchecked(raw_env, ToNapiValue::to_napi_value(raw_env, err)?) };
 
