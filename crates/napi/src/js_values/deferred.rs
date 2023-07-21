@@ -42,15 +42,29 @@ impl DeferredTrace {
   }
 
   fn into_rejected(self, raw_env: sys::napi_env, err: Error) -> Result<sys::napi_value> {
-    let env: Env = unsafe { Env::from_raw(raw_env) };
-    let raw = unsafe { DeferredTrace::to_napi_value(raw_env, self)? };
+    let env = unsafe { Env::from_raw(raw_env) };
+    let mut raw = ptr::null_mut();
+    check_status!(
+      unsafe { sys::napi_get_reference_value(raw_env, self.0, &mut raw) },
+      "Failed to get referenced value in DeferredTrace"
+    )?;
 
     let mut obj = unsafe { JsObject::from_raw_unchecked(raw_env, raw) };
-    if !err.maybe_raw.is_null() {
+    let err_value = if !err.maybe_raw.is_null() {
       let err_obj =
         unsafe { JsObject::from_raw_unchecked(raw_env, ToNapiValue::to_napi_value(raw_env, err)?) };
 
-      if err_obj.has_named_property("message")? {
+      if err_obj.has_named_property("message").map_err(|err| {
+        let mut err_obj_type = 0;
+        let status = unsafe { sys::napi_typeof(raw_env, raw, &mut err_obj_type) };
+        println!(
+          "typeof err_obj: {} {} {:p}",
+          crate::Status::from(status),
+          crate::ValueType::from(err_obj_type),
+          raw
+        );
+        err
+      })? {
         // The error was already created inside the JS engine, just return it
         Ok(unsafe { err_obj.raw() })
       } else {
@@ -65,25 +79,12 @@ impl DeferredTrace {
         env.create_string_from_std(format!("{}", err.status))?,
       )?;
       Ok(raw)
-    }
-  }
-}
-
-#[cfg(feature = "deferred_trace")]
-impl ToNapiValue for DeferredTrace {
-  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
-    let mut value = ptr::null_mut();
+    };
     check_status!(
-      unsafe { sys::napi_get_reference_value(env, val.0, &mut value) },
+      unsafe { sys::napi_delete_reference(raw_env, self.0) },
       "Failed to get referenced value in DeferredTrace"
     )?;
-
-    check_status!(
-      unsafe { sys::napi_delete_reference(env, val.0) },
-      "Failed to get referenced value in DeferredTrace"
-    )?;
-
-    Ok(value)
+    err_value
   }
 }
 
