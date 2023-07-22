@@ -51,12 +51,16 @@ impl DeferredTrace {
 
     let mut obj = unsafe { JsObject::from_raw_unchecked(raw_env, raw) };
     let err_value = if !err.maybe_raw.is_null() {
-      let err_obj =
-        unsafe { JsObject::from_raw_unchecked(raw_env, ToNapiValue::to_napi_value(raw_env, err)?) };
+      let mut err_raw_value = std::ptr::null_mut();
+      check_status!(
+        unsafe { sys::napi_get_reference_value(raw_env, err.maybe_raw, &mut err_raw_value) },
+        "Get error reference in `to_napi_value` failed"
+      )?;
+      let err_obj = unsafe { JsObject::from_raw_unchecked(raw_env, err_raw_value) };
 
-      if err_obj.has_named_property("message").map_err(|err| {
+      let err_value = if err_obj.has_named_property("message").map_err(|err| {
         let mut err_obj_type = 0;
-        let status = unsafe { sys::napi_typeof(raw_env, raw, &mut err_obj_type) };
+        let status = unsafe { sys::napi_typeof(raw_env, err_raw_value, &mut err_obj_type) };
         println!(
           "typeof err_obj: {} {} {:p}",
           crate::Status::from(status),
@@ -71,7 +75,12 @@ impl DeferredTrace {
         obj.set_named_property("message", "")?;
         obj.set_named_property("code", "")?;
         Ok(raw)
-      }
+      };
+      check_status!(
+        unsafe { sys::napi_delete_reference(raw_env, err.maybe_raw) },
+        "Delete error reference in `to_napi_value` failed"
+      )?;
+      err_value
     } else {
       obj.set_named_property("message", &err.reason)?;
       obj.set_named_property(
@@ -249,7 +258,7 @@ extern "C" fn napi_resolve_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> 
               &mut err_msg,
             );
             sys::napi_create_error(env, ptr::null_mut(), err_msg, &mut err);
-            sys::napi_reject_deferred(env, deferred, ptr::null_mut());
+            sys::napi_reject_deferred(env, deferred, err);
           }
         }
       }

@@ -377,10 +377,10 @@ macro_rules! impl_object_methods {
 
       pub fn has_named_property<N: AsRef<str>>(&self, name: N) -> Result<bool> {
         let mut result = false;
-        let key = format!("{}\0", name.as_ref());
+        let key = CString::new(name.as_ref())?;
         check_status!(
           unsafe {
-            sys::napi_has_named_property(self.0.env, self.0.value, key.as_ptr().cast(), &mut result)
+            sys::napi_has_named_property(self.0.env, self.0.value, key.as_ptr(), &mut result)
           },
           "napi_has_named_property error"
         )?;
