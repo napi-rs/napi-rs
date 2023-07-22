@@ -65,7 +65,7 @@ impl DeferredTrace {
           "typeof err_obj: {} {} {:p}",
           crate::Status::from(status),
           crate::ValueType::from(err_obj_type),
-          raw
+          err_raw_value
         );
         err
       })? {
