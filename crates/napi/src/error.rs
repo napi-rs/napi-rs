@@ -83,7 +83,7 @@ impl From<SerdeJSONError> for Error {
 impl From<JsUnknown> for Error {
   fn from(value: JsUnknown) -> Self {
     let mut result = std::ptr::null_mut();
-    let status = unsafe { sys::napi_create_reference(value.0.env, value.0.value, 0, &mut result) };
+    let status = unsafe { sys::napi_create_reference(value.0.env, value.0.value, 1, &mut result) };
     if status != sys::Status::napi_ok {
       return Error::new(
         Status::from(status),
