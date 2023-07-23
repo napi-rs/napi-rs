@@ -367,8 +367,16 @@ jobs:
         uses: addnab/docker-run-action@v3
         with:
           image: ${{ steps.image-name.outputs.docker-image }}
-          options: ${{ matrix.settings.args }} -v ${{ github.workspace }}:/build -w /build
-          run: yarn test
+          options: ${{ matrix.settings.args }} -v ${{ github.workspace }}/cores:/cores -v ${{ github.workspace }}:/build -w /build
+          run: >-
+            ulimit -c &&
+            ulimit -c unlimited &&
+            ulimit -c &&
+            yarn test
+      - name: List files
+        run: |
+          ls -la .
+          ls -la /cores
 
   build-and-test-linux-armv7:
     name: stable - armv7-unknown-linux-gnu - node@18
