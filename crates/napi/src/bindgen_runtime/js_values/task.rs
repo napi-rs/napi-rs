@@ -159,5 +159,5 @@ unsafe extern "C" fn async_task_abort_controller_finalize(
   finalize_data: *mut c_void,
   _finalize_hint: *mut c_void,
 ) {
-  unsafe { Box::from_raw(finalize_data as *mut AbortSignal) };
+  drop(unsafe { Box::from_raw(finalize_data as *mut AbortSignal) });
 }
