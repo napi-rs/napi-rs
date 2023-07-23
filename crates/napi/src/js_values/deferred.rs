@@ -58,17 +58,7 @@ impl DeferredTrace {
       )?;
       let err_obj = unsafe { JsObject::from_raw_unchecked(raw_env, err_raw_value) };
 
-      let err_value = if err_obj.has_named_property("message").map_err(|err| {
-        let mut err_obj_type = 0;
-        let status = unsafe { sys::napi_typeof(raw_env, err_raw_value, &mut err_obj_type) };
-        println!(
-          "typeof err_obj: {} {} {:p}",
-          crate::Status::from(status),
-          crate::ValueType::from(err_obj_type),
-          err_raw_value
-        );
-        err
-      })? {
+      let err_value = if err_obj.has_named_property("message")? {
         // The error was already created inside the JS engine, just return it
         Ok(unsafe { err_obj.raw() })
       } else {
