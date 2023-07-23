@@ -376,7 +376,7 @@ jobs:
       - name: List files
         run: |
           ls -la .
-          ls -la /cores
+          ls -la ./cores
 
   build-and-test-linux-armv7:
     name: stable - armv7-unknown-linux-gnu - node@18
