@@ -72,11 +72,8 @@ pub fn run<T: Task>(
       env,
       raw_resource,
       async_work_name,
-      Some(execute::<T> as unsafe extern "C" fn(env: sys::napi_env, data: *mut c_void)),
-      Some(
-        complete::<T>
-          as unsafe extern "C" fn(env: sys::napi_env, status: sys::napi_status, data: *mut c_void),
-      ),
+      Some(execute::<T>),
+      Some(complete::<T>),
       (result as *mut AsyncWork<T>).cast(),
       &mut result.napi_async_work,
     )

@@ -337,9 +337,12 @@ macro_rules! impl_object_methods {
             &mut js_function,
           )
         })?;
-        check_status!(unsafe {
-          sys::napi_set_named_property(self.0.env, self.0.value, name.as_ptr(), js_function)
-        })
+        check_status!(
+          unsafe {
+            sys::napi_set_named_property(self.0.env, self.0.value, name.as_ptr(), js_function)
+          },
+          "create_named_method error"
+        )
       }
 
       pub fn get_named_property<T>(&self, name: &str) -> Result<T>
@@ -348,9 +351,12 @@ macro_rules! impl_object_methods {
       {
         let key = CString::new(name)?;
         let mut raw_value = ptr::null_mut();
-        check_status!(unsafe {
-          sys::napi_get_named_property(self.0.env, self.0.value, key.as_ptr(), &mut raw_value)
-        })?;
+        check_status!(
+          unsafe {
+            sys::napi_get_named_property(self.0.env, self.0.value, key.as_ptr(), &mut raw_value)
+          },
+          "get_named_property error"
+        )?;
         unsafe { <T as FromNapiValue>::from_napi_value(self.0.env, raw_value) }
       }
 
@@ -360,18 +366,24 @@ macro_rules! impl_object_methods {
       {
         let key = CString::new(name)?;
         let mut raw_value = ptr::null_mut();
-        check_status!(unsafe {
-          sys::napi_get_named_property(self.0.env, self.0.value, key.as_ptr(), &mut raw_value)
-        })?;
+        check_status!(
+          unsafe {
+            sys::napi_get_named_property(self.0.env, self.0.value, key.as_ptr(), &mut raw_value)
+          },
+          "get_named_property_unchecked error"
+        )?;
         unsafe { <T as FromNapiValue>::from_napi_value(self.0.env, raw_value) }
       }
 
-      pub fn has_named_property(&self, name: &str) -> Result<bool> {
+      pub fn has_named_property<N: AsRef<str>>(&self, name: N) -> Result<bool> {
         let mut result = false;
-        let key = CString::new(name)?;
-        check_status!(unsafe {
-          sys::napi_has_named_property(self.0.env, self.0.value, key.as_ptr(), &mut result)
-        })?;
+        let key = CString::new(name.as_ref())?;
+        check_status!(
+          unsafe {
+            sys::napi_has_named_property(self.0.env, self.0.value, key.as_ptr(), &mut result)
+          },
+          "napi_has_named_property error"
+        )?;
         Ok(result)
       }
 

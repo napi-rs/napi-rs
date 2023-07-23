@@ -488,26 +488,29 @@ impl<T: 'static> ThreadsafeFunction<T, ErrorStrategy::CalleeHandled> {
         return Err(crate::Error::from_status(Status::Closing));
       }
 
-      check_status!(unsafe {
-        sys::napi_call_threadsafe_function(
-          self.handle.get_raw(),
-          Box::into_raw(Box::new(value.map(|data| {
-            ThreadsafeFunctionCallJsBackData {
-              data,
-              call_variant: ThreadsafeFunctionCallVariant::WithCallback,
-              callback: Box::new(move |d: Result<JsUnknown>| {
-                sender
-                  .send(d.and_then(|d| D::from_napi_value(d.0.env, d.0.value)))
-                  .map_err(|_| {
-                    crate::Error::from_reason("Failed to send return value to tokio sender")
-                  })
-              }),
-            }
-          })))
-          .cast(),
-          ThreadsafeFunctionCallMode::NonBlocking.into(),
-        )
-      })
+      check_status!(
+        unsafe {
+          sys::napi_call_threadsafe_function(
+            self.handle.get_raw(),
+            Box::into_raw(Box::new(value.map(|data| {
+              ThreadsafeFunctionCallJsBackData {
+                data,
+                call_variant: ThreadsafeFunctionCallVariant::WithCallback,
+                callback: Box::new(move |d: Result<JsUnknown>| {
+                  sender
+                    .send(d.and_then(|d| D::from_napi_value(d.0.env, d.0.value)))
+                    .map_err(|_| {
+                      crate::Error::from_reason("Failed to send return value to tokio sender")
+                    })
+                }),
+              }
+            })))
+            .cast(),
+            ThreadsafeFunctionCallMode::NonBlocking.into(),
+          )
+        },
+        "Threadsafe function call_async failed"
+      )
     })?;
     receiver
       .await
@@ -741,11 +744,12 @@ unsafe extern "C" fn call_js_cb<T: 'static, V: ToNapiValue, R, ES>(
             err
           );
           let message_length = message.len();
+          let c_message = CString::new(message).unwrap();
           unsafe {
             sys::napi_fatal_error(
-              "threadsafe_function.rs:720\0".as_ptr().cast(),
+              "threadsafe_function.rs:749\0".as_ptr().cast(),
               26,
-              CString::new(message).unwrap().into_raw(),
+              c_message.as_ptr(),
               message_length,
             )
           };

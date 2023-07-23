@@ -124,7 +124,7 @@ jobs:
           - settings:
               target: i686-pc-windows-msvc
             node: 18
-    name: stable - ${{ matrix.settings.host }} - node@${{ matrix.node }}
+    name: ${{ matrix.settings.host }} - node@${{ matrix.node }} - toolchain@ ${{ matrix.settings.toolchain }}
     runs-on: ${{ matrix.settings.host }}
 
     steps:
@@ -292,6 +292,8 @@ jobs:
           options: -v ${{ github.workspace }}/.cargo-cache/registry:/usr/local/cargo/registry -v ${{ github.workspace }}/.cargo-cache/git:/usr/local/cargo/git -v ${{ github.workspace }}:/napi-rs -w /napi-rs
           run: |
             yarn build:test -- --target ${{ matrix.settings.target }}
+            chmod 777 -R .cargo-cache
+            chmod 777 -R target
 
       - uses: actions/upload-artifact@v3
         with:
@@ -365,8 +367,16 @@ jobs:
         uses: addnab/docker-run-action@v3
         with:
           image: ${{ steps.image-name.outputs.docker-image }}
-          options: ${{ matrix.settings.args }} -v ${{ github.workspace }}:/build -w /build
-          run: yarn test
+          options: ${{ matrix.settings.args }} -v ${{ github.workspace }}/cores:/cores -v ${{ github.workspace }}:/build -w /build
+          run: >-
+            ulimit -c &&
+            ulimit -c unlimited &&
+            ulimit -c &&
+            yarn test
+      - name: List files
+        run: |
+          ls -la .
+          ls -la ./cores
 
   build-and-test-linux-armv7:
     name: stable - armv7-unknown-linux-gnu - node@18

@@ -268,7 +268,7 @@ impl<T: 'static, S: 'static> SharedReference<T, S> {
     let raw = Box::into_raw(Box::new(s));
     let prev_drop_fn = unsafe { Box::from_raw(self.owner.finalize_callbacks.get()) };
     let drop_fn = Box::new(move || {
-      unsafe { Box::from_raw(raw) };
+      drop(unsafe { Box::from_raw(raw) });
       prev_drop_fn();
     });
     self.owner.finalize_callbacks.set(Box::into_raw(drop_fn));

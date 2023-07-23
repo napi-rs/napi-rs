@@ -81,7 +81,10 @@ impl<T: FromNapiValue> ValidateNapiValue for Promise<T> {
         unsafe { crate::sys::napi_create_error(env, code, message, &mut err) },
         "Failed to create rejected error"
       )?;
-      check_status!(unsafe { crate::sys::napi_reject_deferred(env, deferred, err) })?;
+      check_status!(
+        unsafe { crate::sys::napi_reject_deferred(env, deferred, err) },
+        "Failed to reject promise in validate"
+      )?;
       return Ok(promise);
     }
     Ok(ptr::null_mut())

@@ -18,7 +18,7 @@ impl TypeName for String {
 
 impl ValidateNapiValue for String {}
 
-impl ToNapiValue for String {
+impl ToNapiValue for &String {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     let mut ptr = ptr::null_mut();
 
@@ -28,6 +28,16 @@ impl ToNapiValue for String {
     )?;
 
     Ok(ptr)
+  }
+}
+
+impl ToNapiValue for String {
+  #[inline]
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    #[allow(clippy::needless_borrow)]
+    unsafe {
+      ToNapiValue::to_napi_value(env, &val)
+    }
   }
 }
 
