@@ -18,6 +18,11 @@
       "#index": ["./index.d.ts"]
     }
   },
-  "exclude": ["dist", "electron.js", "electron-renderer"]
-  "exclude": ["dist", "electron.js", "index.js", "index.wasi.mjs"]
+  "exclude": [
+    "dist",
+    "electron.js",
+    "electron-renderer",
+    "index.js",
+    "index.wasi.mjs"
+  ]
 }
