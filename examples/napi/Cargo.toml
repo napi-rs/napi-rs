@@ -14,23 +14,42 @@ snmalloc = ["snmalloc-rs"]
 [dependencies]
 chrono = "0.4"
 futures = "0.3"
-napi = { path = "../../crates/napi", default-features = false, features = [
-  "tokio_fs",
-  "napi9",
-  "tokio_rt",
-  "serde-json",
-  "async",
-  "experimental",
-  "latin1",
-  "chrono_date",
-  "deferred_trace",
-] }
 napi-derive = { path = "../../crates/macro", features = ["type-def"] }
 napi-shared = { path = "../napi-shared" }
 serde = "1"
 serde_derive = "1"
 serde_json = "1"
-tokio = { version = "1.20.0", features = ["full"] }
+tokio = { version = "1.20.0", features = ["rt", "time"] }
+
+[target.'cfg(not(target_os = "wasi"))'.dependencies]
+napi = { path = "../../crates/napi", default-features = false, features = [
+  "napi9",
+  "serde-json",
+  "experimental",
+  "latin1",
+  "chrono_date",
+  "tokio",
+  "async",
+  "tokio_rt",
+  "tokio_fs",
+  "tokio_macros",
+  "deferred_trace",
+] }
+
+[target.'cfg(target_os = "wasi")'.dependencies]
+napi = { path = "../../crates/napi", default-features = false, features = [
+  "napi9",
+  "serde-json",
+  "experimental",
+  "latin1",
+  "chrono_date",
+  "tokio",
+  "async",
+  "tokio_rt",
+  "tokio_macros",
+  "tokio_sync",
+  "deferred_trace",
+] }
 
 [dependencies.snmalloc-rs]
 version = "0.3"

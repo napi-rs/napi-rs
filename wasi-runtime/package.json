@@ -1,0 +1,12 @@
+{
+  "name": "@napi-rs/wasi-runtime",
+  "version": "0.0.0",
+  "description": "Runtime wrapper for WASI target",
+  "dependencies": {
+    "@emnapi/core": "0.34.0",
+    "@emnapi/runtime": "0.34.0"
+  },
+  "devDependencies": {
+    "@types/node": "^18.15.1"
+  }
+}

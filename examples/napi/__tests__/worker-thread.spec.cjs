@@ -7,7 +7,10 @@ const { Animal, Kind, DEFAULT_COST } = require('../index.node')
 
 // aarch64-unknown-linux-gnu is extremely slow in CI, skip it or it will timeout
 const t =
-  process.arch === 'arm64' && process.platform === 'linux' ? test.skip : test
+  (process.arch === 'arm64' && process.platform === 'linux') ||
+  process.env.WASI_TEST
+    ? test.skip
+    : test
 
 const concurrency = process.platform === 'win32' || process.platform === 'darwin' || (process.platform === 'linux' && process.arch === 'x64') ? 50 : 10
 

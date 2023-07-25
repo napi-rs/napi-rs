@@ -5,6 +5,8 @@ import test from 'ava'
 const require = createRequire(import.meta.url)
 
 const { receiveString }: typeof import('../index.js') = require('../index.node')
+import { receiveString } from '..'
+import { receiveString } from 'examples'
 
 test('Function message', (t) => {
   // @ts-expect-error

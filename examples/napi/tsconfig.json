@@ -12,4 +12,12 @@
     "importHelpers": false
   },
   "exclude": ["dist", "electron.cjs", "electron-renderer", "node_modules"]
+    "noEmit": true
+    "baseUrl": ".",
+    "paths": {
+      "#index": ["./index.d.ts"]
+    }
+  },
+  "exclude": ["dist", "electron.js", "electron-renderer"]
+  "exclude": ["dist", "electron.js", "index.js", "index.wasi.mjs"]
 }

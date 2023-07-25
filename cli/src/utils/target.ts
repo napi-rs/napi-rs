@@ -1,5 +1,7 @@
 import { execSync } from 'child_process'
 
+export type Platform = NodeJS.Platform | 'wasm' | 'wasi'
+
 export const AVAILABLE_TARGETS = [
   'aarch64-apple-darwin',
   'aarch64-linux-android',
@@ -63,24 +65,22 @@ export const NodeArchToCpu: Record<string, string> = {
   riscv64: 'riscv64gc',
 }
 
-const SysToNodePlatform: Record<string, NodeJS.Platform> = {
+const SysToNodePlatform: Record<string, Platform> = {
   linux: 'linux',
   freebsd: 'freebsd',
   darwin: 'darwin',
   windows: 'win32',
 }
 
-export const UniArchsByPlatform: Partial<
-  Record<NodeJS.Platform, NodeJSArch[]>
-> = {
+export const UniArchsByPlatform: Partial<Record<Platform, NodeJSArch[]>> = {
   darwin: ['x64', 'arm64'],
 }
 
 export interface Target {
   triple: string
   platformArchABI: string
-  platform: NodeJS.Platform
-  arch: NodeJSArch
+  platform: Platform
+  arch: NodeJSArch | 'wasm32'
   abi: string | null
 }
 
@@ -114,7 +114,7 @@ export function parseTriple(rawTriple: string): Target {
     ;[cpu, , sys, abi = null] = triples
   }
 
-  const platform = SysToNodePlatform[sys] ?? (sys as NodeJS.Platform)
+  const platform = SysToNodePlatform[sys] ?? (sys as Platform)
   const arch = CpuToNodeArch[cpu] ?? (cpu as NodeJSArch)
   return {
     triple: rawTriple,

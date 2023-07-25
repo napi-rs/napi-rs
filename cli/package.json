@@ -68,23 +68,46 @@
   },
   "dependencies": {
     "@octokit/rest": "^20.0.1",
+    "@tybys/wasm-util": "0.7.0",
     "clipanion": "^3.2.1",
     "colorette": "^2.0.20",
     "debug": "^4.3.4",
+    "emnapi": "0.41.0",
     "inquirer": "^9.2.8",
     "js-yaml": "^4.1.0",
     "lodash-es": "^4.17.21",
+    "toml": "^3.0.0",
     "typanion": "^3.13.0"
   },
   "devDependencies": {
+    "@emnapi/runtime": "0.41.0",
+    "@types/debug": "^4.1.7",
     "@types/inquirer": "^9.0.3",
     "@types/js-yaml": "^4.0.5",
     "@types/lodash-es": "^4.17.8",
     "ava": "^5.3.1",
-    "esbuild": "^0.19.0",
+    "env-paths": "^3.0.0",
+    "esbuild": "^0.18.13",
     "prettier": "^3.0.0",
     "ts-node": "^10.9.1",
+    "tslib": "^2.6.1",
     "typescript": "^5.1.6"
+  },
+  "peerDependencies": {
+    "@emnapi/runtime": "0.41.0",
+    "@tybys/wasm-util": "0.8.0",
+    "emnapi": "0.41.0"
+  },
+  "peerDependenciesMeta": {
+    "@emnapi/runtime": {
+      "optional": true
+    },
+    "@tybys/wasm-util": {
+      "optional": true
+    },
+    "emnapi": {
+      "optional": true
+    }
   },
   "funding": {
     "type": "github",

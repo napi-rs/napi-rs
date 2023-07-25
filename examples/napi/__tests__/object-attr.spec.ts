@@ -7,6 +7,8 @@ const require = createRequire(import.meta.url)
 const {
   NotWritableClass,
 }: typeof import('../index.js') = require('../index.node')
+import { NotWritableClass } from '..'
+import { NotWritableClass } from 'examples'
 
 test('Not Writable Class', (t) => {
   const obj = new NotWritableClass('1')

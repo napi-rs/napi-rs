@@ -20,6 +20,7 @@ import {
   parseMetadata,
   parseTriple,
   processTypeDef,
+  readFileAsync,
   readNapiConfig,
   Target,
   targetToEnvVar,
@@ -28,11 +29,12 @@ import {
   writeFileAsync,
 } from '../utils/index.js'
 
+import { createWasiBinding } from './load-wasi-template.js'
 import { createCjsBinding } from './templates/index.js'
 
 const debug = debugFactory('build')
 
-type OutputKind = 'js' | 'dts' | 'node' | 'exe'
+type OutputKind = 'js' | 'dts' | 'node' | 'exe' | 'wasm'
 type Output = {
   kind: OutputKind
   path: string
@@ -471,7 +473,34 @@ class Builder {
     // only for cdylib
     if (this.cdyLibName) {
       const idents = await this.generateTypeDef()
-      await this.writeJsBinding(idents)
+      const intermediateWasiRegisterFile = this.envs.WASI_REGISTER_TMP_PATH
+      const wasiRegisterFunctions =
+        this.target.arch === 'wasm32'
+          ? JSON.parse(
+              await readFileAsync(intermediateWasiRegisterFile, 'utf8').catch(
+                (err) => {
+                  console.warn(
+                    `Read ${colors.yellowBright(
+                      intermediateWasiRegisterFile,
+                    )} failed, reason: ${err.message}`,
+                  )
+                  return `[]`
+                },
+              ),
+            )
+          : []
+      const jsOutput = await this.writeJsBinding(idents)
+      const wasmOutput = await this.writeWasiBinding(
+        wasiRegisterFunctions,
+        jsOutput?.path,
+        idents,
+      )
+      if (jsOutput) {
+        this.outputs.push(jsOutput)
+      }
+      if (wasmOutput) {
+        this.outputs.push(wasmOutput)
+      }
     }
 
     return this.outputs
@@ -517,6 +546,8 @@ class Builder {
           ? `lib${cdyLib}.dylib`
           : this.target.platform === 'win32'
           ? `${cdyLib}.dll`
+          : this.target.platform === 'wasi' || this.target.platform === 'wasm'
+          ? `${cdyLib}.wasm`
           : `lib${cdyLib}.so`
 
       let destName = this.config.binaryName
@@ -592,12 +623,43 @@ class Builder {
       debug('Writing js binding to:')
       debug('  %i', dest)
       await writeFileAsync(dest, cjs, 'utf-8')
-      this.outputs.push({
+      return {
         kind: 'js',
         path: dest,
-      })
+      } satisfies Output
     } catch (e) {
       throw new Error('Failed to write js binding file', { cause: e })
     }
+  }
+
+  private async writeWasiBinding(
+    wasiRegisterFunctions: string[],
+    distFileName: string | undefined,
+    idents: string[],
+  ) {
+    if (distFileName && wasiRegisterFunctions.length) {
+      const { name, dir } = parse(distFileName)
+      const newPath = join(dir, `${name}.wasi.mjs`)
+      const declareCodes = `const { ${idents
+        .map((ident) => `${ident}: _${ident}`)
+        .join(', ')} } = binding\n`
+      const exportsCode = idents.reduce(
+        (acc, cur) => `${acc}\nexport const ${cur} = _${cur}`,
+        '',
+      )
+      await writeFileAsync(
+        newPath,
+        createWasiBinding(this.config.binaryName, wasiRegisterFunctions) +
+          declareCodes +
+          exportsCode +
+          '\n',
+        'utf8',
+      )
+      return {
+        kind: 'wasm',
+        path: newPath,
+      } satisfies Output
+    }
+    return null
   }
 }

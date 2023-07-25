@@ -95,6 +95,8 @@ mod value_type;
 pub use cleanup_env::CleanupEnvHook;
 #[cfg(feature = "napi4")]
 pub mod threadsafe_function;
+// #[cfg(target_arch = "wasm32")]
+mod wasm_async_runtime;
 
 mod version;
 

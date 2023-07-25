@@ -1,3 +1,3 @@
-const { threadsafeFunctionFatalModeError } = require('../index.node')
+const { threadsafeFunctionFatalModeError } = require('../index')
 
 threadsafeFunctionFatalModeError(() => {})

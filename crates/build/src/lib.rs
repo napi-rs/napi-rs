@@ -1,5 +1,6 @@
 mod android;
 mod macos;
+mod wasi;
 
 pub fn setup() {
   println!("cargo:rerun-if-env-changed=DEBUG_GENERATED_CODE");
@@ -9,6 +10,9 @@ pub fn setup() {
       macos::setup();
     }
     Ok("android") => if android::setup().is_ok() {},
+    Ok("wasi") => {
+      wasi::setup();
+    }
     _ => {}
   }
 }

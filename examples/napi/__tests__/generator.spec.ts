@@ -9,6 +9,8 @@ const {
   Fib2,
   Fib3,
 }: typeof import('../index.js') = require('../index.node')
+import { Fib, Fib2, Fib3 } from '..'
+import { Fib, Fib2, Fib3 } from 'examples'
 
 for (const [index, factory] of [
   () => new Fib(),

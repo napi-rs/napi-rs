@@ -5,7 +5,8 @@ parserOptions:
     jsx: true
   ecmaVersion: latest
   sourceType: module
-  extraFileExtensions: ['.cjs', '.mjs']
+  project:
+    - ./tsconfig.root-lint.json
 
 env:
   browser: true
@@ -205,6 +206,15 @@ overrides:
       project:
         - ./examples/tsconfig.json
     rules:
+      'import/order':
+        [
+          2,
+          {
+            'newlines-between': 'always',
+            'alphabetize': { 'order': 'asc', 'caseInsensitive': true },
+          },
+        ]
+
       'import/no-extraneous-dependencies': 0
 
   - files:
