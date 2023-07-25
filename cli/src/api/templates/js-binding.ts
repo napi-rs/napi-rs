@@ -17,51 +17,51 @@ let localFileExisted = false
 let loadError = null
 
 const isMusl = () => {
-  let musl = false;
+  let musl = false
   if (process.platform === 'linux') {
-    musl = isMuslFromFilesystem();
+    musl = isMuslFromFilesystem()
     if (musl === null) {
-      musl = isMuslFromReport();
+      musl = isMuslFromReport()
     }
     if (musl === null) {
-      musl = isMuslFromChildProcess();
+      musl = isMuslFromChildProcess()
     }
   }
-  return musl;
-};
+  return musl
+}
 
-const isFileMusl = (f) => f.includes('libc.musl-') || f.includes('ld-musl-');
+const isFileMusl = (f) => f.includes('libc.musl-') || f.includes('ld-musl-')
 
 const isMuslFromFilesystem = () => {
   try {
-    return readFileSync('/usr/bin/ldd', 'utf-8').includes('musl');
+    return readFileSync('/usr/bin/ldd', 'utf-8').includes('musl')
   } catch {
-    return null;
+    return null
   }
 }
 
 const isMuslFromReport = () => {
-  const report = typeof process.report.getReport === 'function' ? process.report.getReport() : null;
+  const report = typeof process.report.getReport === 'function' ? process.report.getReport() : null
   if (!report) {
-    return null;
+    return null
   }
   if (report.header && report.header.glibcVersionRuntime) {
-    return false;
+    return false
   }
   if (Array.isArray(report.sharedObjects)) {
     if (report.sharedObjects.some(isFileMusl)) {
-      return true;
+      return true
     }
   }
-  return false;
-};
+  return false
+}
 
 const isMuslFromChildProcess = () => {
   try {
-    return require('child_process').execSync('ldd --version', { encoding: 'utf8' }).includes('musl');
+    return require('child_process').execSync('ldd --version', { encoding: 'utf8' }).includes('musl')
   } catch (e) {
     // If we reach this case, we don't know if the system is musl or not, so is better to just fallback to false
-    return false;
+    return false
   }
 }
 
