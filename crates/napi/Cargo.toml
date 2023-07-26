@@ -8,7 +8,7 @@ name = "napi"
 readme = "README.md"
 repository = "https://github.com/napi-rs/napi-rs"
 rust-version = "1.57"
-version = "2.13.1"
+version = "2.13.2"
 
 [lib]
 doctest = false
@@ -51,6 +51,7 @@ tokio_stats = ["tokio/stats"]
 tokio_sync = ["tokio/sync"]
 tokio_test_util = ["tokio/test-util"]
 tokio_time = ["tokio/time"]
+deferred_trace = ["napi4"]
 
 [dependencies]
 ctor = "0.2"

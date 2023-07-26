@@ -1,6 +1,6 @@
 const { parentPort } = require('worker_threads')
 
-const native = require('../index')
+const native = require('../index.node')
 
 parentPort.on('message', ({ type }) => {
   switch (type) {

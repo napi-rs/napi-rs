@@ -1,6 +1,6 @@
 import test from 'ava'
 
-import { receiveString } from '../index'
+import { receiveString } from '..'
 
 test('Function message', (t) => {
   // @ts-expect-error

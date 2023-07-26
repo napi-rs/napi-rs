@@ -502,6 +502,8 @@ export function threadsafeFunctionFatalModeError(cb: (...args: any[]) => any): v
 
 export function threadsafeFunctionThrowError(cb: (...args: any[]) => any): void
 
+export function throwAsyncError(): Promise<void>
+
 export function throwError(): void
 
 export function toJsObj(): object

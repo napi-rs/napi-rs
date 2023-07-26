@@ -33,3 +33,8 @@ impl AsRef<str> for CustomError {
 pub fn custom_status_code() -> Result<(), CustomError> {
   Err(Error::new(CustomError::Panic, "don't panic"))
 }
+
+#[napi]
+pub async fn throw_async_error() -> Result<()> {
+  Err(Error::new(Status::InvalidArg, "Async Error".to_owned()))
+}

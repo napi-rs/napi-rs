@@ -10,6 +10,8 @@
     "@napi-rs/cli": "workspace:*",
     "ava": "^5.2.0",
     "sinon": "^15.0.4"
+    "ava": "^5.3.1",
+    "sinon": "^15.2.0"
   },
   "ava": {
     "extensions": [

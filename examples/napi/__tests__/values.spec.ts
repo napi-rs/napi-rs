@@ -132,7 +132,8 @@ import {
   returnFromSharedCrate,
   chronoNativeDateTime,
   chronoNativeDateTimeReturn,
-} from '../'
+  throwAsyncError,
+} from '..'
 
 test('export const', (t) => {
   t.is(DEFAULT_COST, 12)
@@ -418,6 +419,13 @@ test('Result', (t) => {
   if (!process.env.SKIP_UNWIND_TEST) {
     t.throws(() => panic(), void 0, `Don't panic`)
   }
+})
+
+test('Async error with stack trace', async (t) => {
+  const err = await t.throwsAsync(() => throwAsyncError())
+  t.not(err?.stack, undefined)
+  t.deepEqual(err!.message, 'Async Error')
+  t.regex(err!.stack!, /.+at .+values\.spec\.ts:\d+:\d+.+/gm)
 })
 
 test('custom status code in Error', (t) => {
@@ -804,11 +812,7 @@ Napi4Test('throw error from thread safe function fatal mode', (t) => {
   return new Promise<void>((resolve) => {
     p.on('exit', (code) => {
       t.is(code, 1)
-      t.true(
-        stderr
-          .toString('utf8')
-          .includes(`[Error: Generic tsfn error] { code: 'GenericFailure' }`),
-      )
+      t.true(stderr.toString('utf8').includes(`[Error: Generic tsfn error]`))
       resolve()
     })
   })

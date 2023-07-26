@@ -539,7 +539,6 @@ unsafe extern "C" fn napi_register_module_v1(
   });
 
   #[cfg(all(windows, feature = "napi4", feature = "tokio_rt"))]
-  #[cfg(all(feature = "napi4", feature = "tokio_rt"))]
   {
     crate::tokio_runtime::ensure_runtime();
 

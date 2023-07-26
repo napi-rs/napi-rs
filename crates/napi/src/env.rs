@@ -1345,7 +1345,7 @@ pub(crate) unsafe extern "C" fn raw_finalize<T>(
   finalize_hint: *mut c_void,
 ) {
   let tagged_object = finalize_data as *mut TaggedObject<T>;
-  unsafe { Box::from_raw(tagged_object) };
+  drop(unsafe { Box::from_raw(tagged_object) });
   if !finalize_hint.is_null() {
     let size_hint = unsafe { *Box::from_raw(finalize_hint as *mut Option<i64>) };
     if let Some(changed) = size_hint {

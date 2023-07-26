@@ -30,8 +30,8 @@ export async function collectArtifacts(userOptions: ArtifactsOptions) {
   const universalSourceBins = new Set(
     targets
       .filter((platform) => platform.arch === 'universal')
-      .flatMap((p) =>
-        UniArchsByPlatform[p.platform]?.map((a) => `${p.platform}-${a}`),
+      .flatMap(
+        (p) => UniArchsByPlatform[p.platform]?.map((a) => `${p.platform}-${a}`),
       )
       .filter(Boolean) as string[],
   )

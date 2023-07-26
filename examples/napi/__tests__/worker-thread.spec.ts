@@ -3,7 +3,7 @@ import { Worker } from 'worker_threads'
 
 import test from 'ava'
 
-import { Animal, Kind, DEFAULT_COST } from '../index'
+import { Animal, Kind, DEFAULT_COST } from '..'
 
 // aarch64-unknown-linux-gnu is extremely slow in CI, skip it or it will timeout
 const t =

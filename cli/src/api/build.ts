@@ -28,7 +28,7 @@ import {
   writeFileAsync,
 } from '../utils/index.js'
 
-import { createJsBinding } from './templates/index.js'
+import { createCjsBinding } from './templates/index.js'
 
 const debug = debugFactory('build')
 
@@ -149,6 +149,7 @@ class Builder {
 
     const controller = new AbortController()
 
+    const watch = this.options.watch
     const buildTask = new Promise<void>((resolve, reject) => {
       const command =
         process.env.CARGO ?? (this.options.useCross ? 'cross' : 'cargo')
@@ -157,7 +158,7 @@ class Builder {
           ...process.env,
           ...this.envs,
         },
-        stdio: 'inherit',
+        stdio: watch ? ['inherit', 'inherit', 'pipe'] : 'inherit',
         cwd: this.cwd,
         signal: controller.signal,
       })
@@ -177,6 +178,15 @@ class Builder {
             cause: e,
           }),
         )
+      })
+
+      // watch mode only, they are piped through stderr
+      buildProcess.stderr?.on('data', (data) => {
+        const output = data.toString()
+        console.error(output)
+        if (/Finished\s(dev|release)/.test(output)) {
+          this.postBuild().catch(() => {})
+        }
       })
     })
 
@@ -207,6 +217,7 @@ class Builder {
           this.crateDir,
           '--',
           'cargo',
+          'build',
         )
         set = true
       }
@@ -452,8 +463,8 @@ class Builder {
 
     // only for cdylib
     if (this.cdyLibName) {
-      await this.generateTypeDef()
-      await this.writeJsBinding()
+      const idents = await this.generateTypeDef()
+      await this.writeJsBinding(idents)
     }
 
     return this.outputs
@@ -523,12 +534,12 @@ class Builder {
 
   private async generateTypeDef() {
     if (!(await fileExists(this.envs.TYPE_DEF_TMP_PATH))) {
-      return
+      return []
     }
 
     const dest = join(this.outputDir, this.options.dts ?? 'index.d.ts')
 
-    const dts = await processTypeDef(
+    const { dts, exports } = await processTypeDef(
       this.envs.TYPE_DEF_TMP_PATH,
       !this.options.noDtsHeader
         ? this.options.dtsHeader ?? DEFAULT_TYPE_DEF_HEADER
@@ -547,21 +558,33 @@ class Builder {
       debug.error('Failed to write type def file')
       debug.error(e as Error)
     }
+
+    return exports
   }
 
-  private async writeJsBinding() {
-    if (!this.options.platform || this.options.noJsBinding) {
+  private async writeJsBinding(idents: string[]) {
+    if (
+      !this.options.platform ||
+      // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
+      this.options.noJsBinding ||
+      idents.length === 0
+    ) {
       return
     }
 
-    const dest = join(this.outputDir, this.options.jsBinding ?? 'index.js')
+    const name = parse(this.options.jsBinding ?? 'index.js').name
 
-    const js = createJsBinding(this.config.binaryName, this.config.packageName)
+    const cjs = createCjsBinding(
+      this.config.binaryName,
+      this.config.packageName,
+      idents,
+    )
 
     try {
+      const dest = join(this.outputDir, `${name}.js`)
       debug('Writing js binding to:')
       debug('  %i', dest)
-      await writeFileAsync(dest, js, 'utf-8')
+      await writeFileAsync(dest, cjs, 'utf-8')
       this.outputs.push({
         kind: 'js',
         path: dest,
