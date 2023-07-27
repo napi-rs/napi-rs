@@ -5,6 +5,10 @@ env:
   DEBUG: 'napi:*'
   MACOSX_DEPLOYMENT_TARGET: '10.13'
 
+permissions:
+  contents: write
+  id-token: write
+
 on:
   push:
     branches:
@@ -390,6 +394,10 @@ jobs:
     name: Test bindings on aarch64-unknown-linux-musl - node@\${{ matrix.node }}
     needs:
       - build
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['16', '18']
 
     runs-on: ubuntu-latest
 
@@ -421,7 +429,7 @@ jobs:
       - name: Setup and run tests
         uses: addnab/docker-run-action@v3
         with:
-          image: node:lts-alpine
+          image: node:\${{ matrix.node }}-alpine
           options: --platform linux/arm64 -v \${{ github.workspace }}:/build -w /build
           run: |
             set -e
@@ -548,6 +556,7 @@ jobs:
 
       - name: Publish
         run: |
+          npm config set provenance true
           if git log -1 --pretty=%B | grep "^[0-9]\\+\\.[0-9]\\+\\.[0-9]\\+$";
           then
             echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" >> ~/.npmrc
