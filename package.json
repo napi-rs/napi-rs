@@ -80,7 +80,7 @@
     "electron": "25.4.0",
     "esbuild": "^0.18.13",
     "eslint": "^8.45.0",
-    "eslint-config-prettier": "^8.8.0",
+    "eslint-config-prettier": "^9.0.0",
     "eslint-plugin-import": "^2.27.5",
     "husky": "^8.0.3",
     "lerna": "^7.1.4",
