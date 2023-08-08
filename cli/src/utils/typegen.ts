@@ -25,7 +25,11 @@ interface TypeDefLine {
   js_mod?: string
 }
 
-function prettyPrint(line: TypeDefLine, ident: number): string {
+function prettyPrint(
+  line: TypeDefLine,
+  ident: number,
+  noConstEnum?: boolean,
+): string {
   let s = line.js_doc ?? ''
   switch (line.kind) {
     case TypeDefKind.Interface:
@@ -33,7 +37,9 @@ function prettyPrint(line: TypeDefLine, ident: number): string {
       break
 
     case TypeDefKind.Enum:
-      s += `export const enum ${line.name} {\n${line.def}\n}`
+      s += `export ${noConstEnum ? 'enum' : 'const enum'} ${line.name} {\n${
+        line.def
+      }\n}`
       break
 
     case TypeDefKind.Struct:
@@ -53,6 +59,7 @@ function prettyPrint(line: TypeDefLine, ident: number): string {
 export async function processTypeDef(
   intermediateTypeFile: string,
   header?: string,
+  noConstEnum?: boolean,
 ) {
   const exports: string[] = []
   const defs = await readIntermediateTypeFile(intermediateTypeFile)
@@ -65,7 +72,7 @@ export async function processTypeDef(
     ([namespace, defs]) => {
       if (namespace === TOP_LEVEL_NAMESPACE) {
         for (const def of defs) {
-          dts += prettyPrint(def, 0) + '\n\n'
+          dts += prettyPrint(def, 0, noConstEnum) + '\n\n'
           switch (def.kind) {
             case TypeDefKind.Const:
             case TypeDefKind.Enum:

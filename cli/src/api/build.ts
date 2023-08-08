@@ -550,6 +550,7 @@ class Builder {
       !this.options.noDtsHeader
         ? this.options.dtsHeader ?? DEFAULT_TYPE_DEF_HEADER
         : '',
+      this.options.noConstEnum,
     )
 
     try {
