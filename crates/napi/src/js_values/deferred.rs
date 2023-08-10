@@ -235,8 +235,7 @@ extern "C" fn napi_resolve_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> 
         unsafe { sys::napi_reject_deferred(env, deferred, error) };
       }
       Err(err) => {
-        #[cfg(debug_assertions)]
-        {
+        if cfg!(debug_assertions) {
           println!("Failed to reject deferred: {:?}", err);
           let mut err = ptr::null_mut();
           let mut err_msg = ptr::null_mut();
