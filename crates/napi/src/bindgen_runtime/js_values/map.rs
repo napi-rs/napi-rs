@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::hash::Hash;
+use std::hash::{BuildHasher, Hash};
 
 use crate::bindgen_prelude::{Env, Result, ToNapiValue, *};
 
@@ -31,14 +31,15 @@ where
   }
 }
 
-impl<K, V> FromNapiValue for HashMap<K, V>
+impl<K, V, S> FromNapiValue for HashMap<K, V, S>
 where
   K: From<String> + Eq + Hash,
   V: FromNapiValue,
+  S: Default + BuildHasher,
 {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
     let obj = unsafe { Object::from_napi_value(env, napi_val)? };
-    let mut map = HashMap::new();
+    let mut map = HashMap::default();
     for key in Object::keys(&obj)?.into_iter() {
       if let Some(val) = obj.get(&key)? {
         map.insert(K::from(key), val);
