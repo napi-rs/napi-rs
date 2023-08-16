@@ -67,7 +67,10 @@ function processZigLinkerArgs(platform: string, args: string[]) {
         }
         return arg
       })
-      .filter((arg) => arg !== '-march=armv7-a')
+      .filter(
+        (arg) =>
+          arg !== '-march=armv7-a' && arg !== '-Wl,--no-undefined-version',
+      )
   }
   return args
 }
@@ -445,6 +448,7 @@ export class BuildCommand extends Command {
         CC: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/${targetArch}-linux-${targetPlatform}-clang`,
         CXX: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/${targetArch}-linux-${targetPlatform}-clang++`,
         AR: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar`,
+        RANLIB: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ranlib`,
         ANDROID_NDK: ANDROID_NDK_LATEST_HOME,
         PATH: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin:${process.env.PATH}`,
       })

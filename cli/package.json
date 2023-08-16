@@ -46,16 +46,16 @@
     "@types/lodash-es": "^4.17.8",
     "clipanion": "^3.2.1",
     "colorette": "^2.0.20",
-    "core-js": "^3.31.1",
+    "core-js": "^3.32.0",
     "debug": "^4.3.4",
     "env-paths": "^3.0.0",
-    "fdir": "^6.0.1",
+    "fdir": "^6.1.0",
     "inquirer": "9.2.3",
     "js-yaml": "^4.1.0",
     "lodash-es": "4.17.21",
     "toml": "^3.0.0",
-    "tslib": "^2.6.0",
-    "typanion": "^3.13.0"
+    "tslib": "^2.6.1",
+    "typanion": "^3.14.0"
   },
   "funding": {
     "type": "github",
