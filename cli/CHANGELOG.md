@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.16.3](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.16.2...@napi-rs/cli@2.16.3) (2023-08-16)
+
+### Bug Fixes
+
+- **cli:** zig 0.11 link args ([235956c](https://github.com/napi-rs/napi-rs/commit/235956cb9458b2b2466471ffc6cc5645762ef8c4))
+
 ## [2.16.2](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.16.1...@napi-rs/cli@2.16.2) (2023-07-17)
 
 ### Bug Fixes
