@@ -628,8 +628,14 @@ impl NapiStruct {
       };
       let ty = &field.ty;
 
-      let getter_name = Ident::new(&format!("get_{}", field_name), Span::call_site());
-      let setter_name = Ident::new(&format!("set_{}", field_name), Span::call_site());
+      let getter_name = Ident::new(
+        &format!("get_{}", rm_raw_prefix(&field_name)),
+        Span::call_site(),
+      );
+      let setter_name = Ident::new(
+        &format!("set_{}", rm_raw_prefix(&field_name)),
+        Span::call_site(),
+      );
 
       if field.getter {
         let default_to_napi_value_convert = quote! {
@@ -748,12 +754,18 @@ impl NapiStruct {
       };
 
       if field.getter {
-        let getter_name = Ident::new(&format!("get_{}", field_name), Span::call_site());
+        let getter_name = Ident::new(
+          &format!("get_{}", rm_raw_prefix(&field_name)),
+          Span::call_site(),
+        );
         (quote! { .with_getter(#getter_name) }).to_tokens(&mut prop);
       }
 
       if field.writable && field.setter {
-        let setter_name = Ident::new(&format!("set_{}", field_name), Span::call_site());
+        let setter_name = Ident::new(
+          &format!("set_{}", rm_raw_prefix(&field_name)),
+          Span::call_site(),
+        );
         (quote! { .with_setter(#setter_name) }).to_tokens(&mut prop);
       }
 
@@ -902,5 +914,13 @@ impl NapiImpl {
         }
       }
     })
+  }
+}
+
+fn rm_raw_prefix(s: &str) -> &str {
+  if s.starts_with("r#") {
+    &s[2..]
+  } else {
+    s
   }
 }
