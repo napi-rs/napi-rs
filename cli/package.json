@@ -67,6 +67,11 @@
     "url": "https://github.com/napi-rs/napi-rs/issues"
   },
   "dependencies": {
+    "@octokit/rest": "^19.0.7",
+    "clipanion": "^3.2.0",
+    "colorette": "^2.0.20",
+    "debug": "^4.3.4",
+    "inquirer": "^9.2.2",
     "@octokit/rest": "^20.0.1",
     "clipanion": "^3.2.1",
     "colorette": "^2.0.20",
@@ -79,6 +84,10 @@
   "devDependencies": {
     "@types/inquirer": "^9.0.3",
     "@types/js-yaml": "^4.0.5",
+    "@types/lodash-es": "^4.17.7",
+    "ava": "^5.2.0",
+    "esbuild": "^0.17.18",
+    "prettier": "^2.8.8",
     "@types/lodash-es": "^4.17.8",
     "ava": "^5.3.1",
     "esbuild": "^0.19.0",
