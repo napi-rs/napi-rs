@@ -17,36 +17,31 @@ A framework for building compiled `Node.js` add-ons in `Rust` via Node-API. Webs
 
 ## Platform Support
 
-![Lint](https://github.com/napi-rs/napi-rs/workflows/Lint/badge.svg)
-![Linux musl](https://github.com/napi-rs/napi-rs/workflows/Linux%20musl/badge.svg)
-![macOS/Windows/Linux x64](https://github.com/napi-rs/napi-rs/workflows/macOS/Windows/Linux%20x64/badge.svg)
-![Linux-aarch64](https://github.com/napi-rs/napi-rs/workflows/Linux-aarch64/badge.svg)
-![Linux-armv7](https://github.com/napi-rs/napi-rs/workflows/Linux-armv7/badge.svg)
-![macOS-Android](https://github.com/napi-rs/napi-rs/workflows/macOS-Android/badge.svg)
-[![Android-armv7](https://github.com/napi-rs/napi-rs/actions/workflows/android-armv7.yml/badge.svg)](https://github.com/napi-rs/napi-rs/actions/workflows/android-armv7.yml)
-![Windows i686](https://github.com/napi-rs/napi-rs/workflows/Windows%20i686/badge.svg)
-[![Windows arm64](https://github.com/napi-rs/napi-rs/actions/workflows/windows-arm.yml/badge.svg)](https://github.com/napi-rs/napi-rs/actions/workflows/windows-arm.yml)
+[![Test & Release](https://github.com/napi-rs/napi-rs/actions/workflows/test-release.yaml/badge.svg)](https://github.com/napi-rs/napi-rs/actions/workflows/test-release.yaml)
 [![FreeBSD](https://api.cirrus-ci.com/github/napi-rs/napi-rs.svg)](https://cirrus-ci.com/github/napi-rs/napi-rs?branch=main)
+[![Address Sanitizer](https://github.com/napi-rs/napi-rs/actions/workflows/asan.yml/badge.svg)](https://github.com/napi-rs/napi-rs/actions/workflows/asan.yml)
+[![Memory Leak Detect](https://github.com/napi-rs/napi-rs/actions/workflows/memory-test.yml/badge.svg)](https://github.com/napi-rs/napi-rs/actions/workflows/memory-test.yml)
 
 ## MSRV
 
-**Rust** `1.57.0`
+**Rust** `1.63.0`
 
-|                       | node12 | node14 | node16 | node18 |
-| --------------------- | ------ | ------ | ------ | ------ |
-| Windows x64           | ✓      | ✓      | ✓      | ✓      |
-| Windows x86           | ✓      | ✓      | ✓      | ✓      |
-| Windows arm64         | ✓      | ✓      | ✓      | ✓      |
-| macOS x64             | ✓      | ✓      | ✓      | ✓      |
-| macOS aarch64         | ✓      | ✓      | ✓      | ✓      |
-| Linux x64 gnu         | ✓      | ✓      | ✓      | ✓      |
-| Linux x64 musl        | ✓      | ✓      | ✓      | ✓      |
-| Linux aarch64 gnu     | ✓      | ✓      | ✓      | ✓      |
-| Linux aarch64 musl    | ✓      | ✓      | ✓      | ✓      |
-| Linux arm gnueabihf   | ✓      | ✓      | ✓      | ✓      |
-| Linux aarch64 android | ✓      | ✓      | ✓      | ✓      |
-| Linux armv7 android   | ✓      | ✓      | ✓      | ✓      |
-| FreeBSD x64           | ✓      | ✓      | ✓      | ✓      |
+|                       | node12 | node14 | node16 | node18 | node20 |
+| --------------------- | ------ | ------ | ------ | ------ | ------ |
+| Windows x64           | ✓      | ✓      | ✓      | ✓      | ✓      |
+| Windows x86           | ✓      | ✓      | ✓      | ✓      | ✓      |
+| Windows arm64         | ✓      | ✓      | ✓      | ✓      | ✓      |
+| macOS x64             | ✓      | ✓      | ✓      | ✓      | ✓      |
+| macOS aarch64         | ✓      | ✓      | ✓      | ✓      | ✓      |
+| Linux x64 gnu         | ✓      | ✓      | ✓      | ✓      | ✓      |
+| Linux x64 musl        | ✓      | ✓      | ✓      | ✓      | ✓      |
+| Linux aarch64 gnu     | ✓      | ✓      | ✓      | ✓      | ✓      |
+| Linux aarch64 musl    | ✓      | ✓      | ✓      | ✓      | ✓      |
+| Linux arm gnueabihf   | ✓      | ✓      | ✓      | ✓      | ✓      |
+| Linux riscv64 gnu     | N/A    | N/A    | ✓      | ✓      | ✓      |
+| Linux aarch64 android | ✓      | ✓      | ✓      | ✓      | ✓      |
+| Linux armv7 android   | ✓      | ✓      | ✓      | ✓      | ✓      |
+| FreeBSD x64           | ✓      | ✓      | ✓      | ✓      | ✓      |
 
 This library depends on Node-API and requires `Node@10.0.0` or later.
 

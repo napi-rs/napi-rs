@@ -92,9 +92,18 @@ export abstract class BaseBuildCommand extends Command {
     description: 'Build the specified library or the one at cwd',
   })
 
+  profile?: string = Option.String('--profile', {
+    description: 'Build artifacts with the specified profile',
+  })
+
   crossCompile?: boolean = Option.Boolean('--cross-compile,-x', {
     description:
       '[experimental] cross-compile for the specified target with `cargo-xwin` on windows and `cargo-zigbuild` on other platform',
+  })
+
+  useCross?: boolean = Option.Boolean('--use-cross', {
+    description:
+      '[experimental] use [cross](https://github.com/cross-rs/cross) instead of `cargo`',
   })
 
   watch?: boolean = Option.Boolean('--watch,-w', {
@@ -134,7 +143,9 @@ export abstract class BaseBuildCommand extends Command {
       verbose: this.verbose,
       bin: this.bin,
       package: this.package,
+      profile: this.profile,
       crossCompile: this.crossCompile,
+      useCross: this.useCross,
       watch: this.watch,
       features: this.features,
       allFeatures: this.allFeatures,
@@ -220,9 +231,17 @@ export interface BuildOptions {
    */
   package?: string
   /**
+   * Build artifacts with the specified profile
+   */
+  profile?: string
+  /**
    * [experimental] cross-compile for the specified target with `cargo-xwin` on windows and `cargo-zigbuild` on other platform
    */
   crossCompile?: boolean
+  /**
+   * [experimental] use [cross](https://github.com/cross-rs/cross) instead of `cargo`
+   */
+  useCross?: boolean
   /**
    * watch the crate changes and build continiously with `cargo-watch` crates
    */

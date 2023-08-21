@@ -4,3 +4,4 @@ scripts
 triples/index.js
 examples/napi/index.d.ts
 .yarn
+yarn.lock

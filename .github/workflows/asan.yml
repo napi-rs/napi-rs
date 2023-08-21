@@ -14,8 +14,8 @@ on:
   pull_request:
 
 jobs:
-  build_and_test:
-    name: nightly - ubuntu - node@16
+  test:
+    name: Address sanitizer
     runs-on: ubuntu-20.04
 
     steps:

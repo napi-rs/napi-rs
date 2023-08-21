@@ -3,6 +3,22 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.5](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.3...@napi-rs/cli@3.0.0-alpha.5) (2023-07-18)
+
+### Bug Fixes
+
+- **cli:** add back override cargo by env ([#1605](https://github.com/napi-rs/napi-rs/issues/1605)) ([e60b1a5](https://github.com/napi-rs/napi-rs/commit/e60b1a599b8f3649cafc2908d974565ac95eec2f))
+- **cli:** created template missing macOS testing ([#1659](https://github.com/napi-rs/napi-rs/issues/1659)) ([4e0c9b1](https://github.com/napi-rs/napi-rs/commit/4e0c9b14e449beb8aa6872b8b85db922535a3eca))
+- **cli:** incorrect behaviors ([#1626](https://github.com/napi-rs/napi-rs/issues/1626)) ([fb22a5a](https://github.com/napi-rs/napi-rs/commit/fb22a5ae07a53ce0eace25fdd3831ecf899dd654))
+- **cli:** revert back js-binding file ([#1603](https://github.com/napi-rs/napi-rs/issues/1603)) ([82c2113](https://github.com/napi-rs/napi-rs/commit/82c2113c242b48c62e651791528559f039852255))
+- **deps:** update dependency @octokit/rest to v20 ([#1653](https://github.com/napi-rs/napi-rs/issues/1653)) ([f610129](https://github.com/napi-rs/napi-rs/commit/f610129b112fd07c721d5e91fa0b4111a970290e))
+
+### Features
+
+- **cli:** add --use-cross command for building with `cross` ([#1584](https://github.com/napi-rs/napi-rs/issues/1584)) ([5860088](https://github.com/napi-rs/napi-rs/commit/58600883dd6ac69b8ffd1e51d7c5b00adcc09c33)), closes [#1582](https://github.com/napi-rs/napi-rs/issues/1582)
+- **cli:** detect Cargo `--profile` argument ([#1598](https://github.com/napi-rs/napi-rs/issues/1598)) ([8583603](https://github.com/napi-rs/napi-rs/commit/85836034ff522dedcd694debd2e0e2046aa97776))
+- **target:** riscv64gc-unknown-linux-gnu ([72fcd03](https://github.com/napi-rs/napi-rs/commit/72fcd03d982e2926bcc623061bbf287e2990f1e1))
+
 # [3.0.0-alpha.3](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.2...@napi-rs/cli@3.0.0-alpha.3) (2023-04-07)
 
 ### Bug Fixes

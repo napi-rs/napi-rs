@@ -8,7 +8,7 @@ use std::os::raw::{c_char, c_void};
 use std::ptr;
 
 use crate::bindgen_runtime::FromNapiValue;
-#[cfg(all(feature = "napi4"))]
+#[cfg(feature = "napi4")]
 use crate::bindgen_runtime::ToNapiValue;
 use crate::{
   async_work::{self, AsyncWorkPromise},
@@ -23,15 +23,15 @@ use crate::{
 use crate::async_cleanup_hook::AsyncCleanupHook;
 #[cfg(feature = "napi3")]
 use crate::cleanup_env::{CleanupEnvHook, CleanupEnvHookData};
-#[cfg(all(feature = "serde-json"))]
+#[cfg(feature = "serde-json")]
 use crate::js_values::{De, Ser};
 #[cfg(feature = "napi4")]
 use crate::threadsafe_function::{ThreadSafeCallContext, ThreadsafeFunction};
 #[cfg(feature = "napi3")]
 use crate::JsError;
-#[cfg(all(feature = "serde-json"))]
+#[cfg(feature = "serde-json")]
 use serde::de::DeserializeOwned;
-#[cfg(all(feature = "serde-json"))]
+#[cfg(feature = "serde-json")]
 use serde::Serialize;
 
 pub type Callback = unsafe extern "C" fn(sys::napi_env, sys::napi_callback_info) -> sys::napi_value;
@@ -1345,7 +1345,7 @@ pub(crate) unsafe extern "C" fn raw_finalize<T>(
   finalize_hint: *mut c_void,
 ) {
   let tagged_object = finalize_data as *mut TaggedObject<T>;
-  unsafe { Box::from_raw(tagged_object) };
+  drop(unsafe { Box::from_raw(tagged_object) });
   if !finalize_hint.is_null() {
     let size_hint = unsafe { *Box::from_raw(finalize_hint as *mut Option<i64>) };
     if let Some(changed) = size_hint {

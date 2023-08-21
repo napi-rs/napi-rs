@@ -246,6 +246,8 @@ export interface C {
 
 export function callbackReturnPromise<T>(functionInput: () => T | Promise<T>, callback: (err: Error | null, result: T) => void): T | Promise<T>
 
+export function callbackReturnPromiseAndSpawn(jsFunc: (arg0: string) => Promise<string>): Promise<string>
+
 export function callLongThreadsafeFunction(callback: (...args: any[]) => any): void
 
 export function callThreadsafeFunction(callback: (...args: any[]) => any): void
@@ -255,6 +257,10 @@ export function captureErrorInCallback(cb1: () => void, cb2: (arg0: Error) => vo
 export function chronoDateAdd1Minute(input: Date): Date
 
 export function chronoDateToMillis(input: Date): number
+
+export function chronoNativeDateTime(date: Date): number
+
+export function chronoNativeDateTimeReturn(): Date | null
 
 export function concatLatin1(s: string): string
 
@@ -495,6 +501,8 @@ export function threadsafeFunctionFatalMode(cb: (...args: any[]) => any): void
 export function threadsafeFunctionFatalModeError(cb: (...args: any[]) => any): void
 
 export function threadsafeFunctionThrowError(cb: (...args: any[]) => any): void
+
+export function throwAsyncError(): Promise<void>
 
 export function throwError(): void
 

@@ -6,13 +6,13 @@
     "build": "napi-raw build --release --no-js"
   },
   "dependencies": {
-    "colorette": "^2.0.19",
+    "colorette": "^2.0.20",
     "dockerode": "^3.3.5",
-    "pretty-bytes": "^6.1.0",
+    "pretty-bytes": "^6.1.1",
     "table": "^6.8.1"
   },
   "devDependencies": {
     "@napi-rs/cli": "workspace:*",
-    "@types/dockerode": "^3.3.16"
+    "@types/dockerode": "^3.3.19"
   }
 }

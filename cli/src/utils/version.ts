@@ -68,7 +68,7 @@ function toEngineRequirement(versions: NodeVersion[]): string {
     requirements.push(req)
   })
 
-  return requirements.join(' && ')
+  return requirements.join(' ')
 }
 
 export function napiEngineRequirement(napiVersion: NapiVersion): string {

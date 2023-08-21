@@ -5,6 +5,10 @@ env:
   DEBUG: 'napi:*'
   MACOSX_DEPLOYMENT_TARGET: '10.13'
 
+permissions:
+  contents: write
+  id-token: write
+
 on:
   push:
     branches:
@@ -94,6 +98,14 @@ jobs:
           - host: windows-latest
             target: 'aarch64-pc-windows-msvc'
             build: yarn build --platform --target aarch64-pc-windows-msvc
+          - host: ubuntu-latest
+            target: 'riscv64gc-unknown-linux-gnu'
+            setup: |
+              sudo apt-get update
+              sudo apt-get install gcc-riscv64-linux-gnu -y
+            build: |
+              yarn build --platform --target riscv64gc-unknown-linux-gnu
+              riscv64-linux-gnu-strip *.node
 
     name: stable - \${{ matrix.settings.target }} - node@18
     runs-on: \${{ matrix.settings.host }}
@@ -190,9 +202,7 @@ jobs:
           usesh: true
           mem: 3000
           prepare: |
-            pkg install -y -f curl node libnghttp2
-            curl -qL https://www.npmjs.com/install.sh | sh
-            npm install --location=global --ignore-scripts yarn
+            pkg install -y -f curl node libnghttp2 npm yarn
             curl https://sh.rustup.rs -sSf --output rustup.sh
             sh rustup.sh -y --profile minimal --default-toolchain beta
             export PATH="/usr/local/cargo/bin:$PATH"
@@ -384,6 +394,10 @@ jobs:
     name: Test bindings on aarch64-unknown-linux-musl - node@\${{ matrix.node }}
     needs:
       - build
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['16', '18']
 
     runs-on: ubuntu-latest
 
@@ -415,7 +429,7 @@ jobs:
       - name: Setup and run tests
         uses: addnab/docker-run-action@v3
         with:
-          image: node:lts-alpine
+          image: node:\${{ matrix.node }}-alpine
           options: --platform linux/arm64 -v \${{ github.workspace }}:/build -w /build
           run: |
             set -e
@@ -542,6 +556,7 @@ jobs:
 
       - name: Publish
         run: |
+          npm config set provenance true
           if git log -1 --pretty=%B | grep "^[0-9]\\+\\.[0-9]\\+\\.[0-9]\\+$";
           then
             echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" >> ~/.npmrc

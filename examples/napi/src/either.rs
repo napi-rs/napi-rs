@@ -50,6 +50,7 @@ struct JsClassForEither {}
 #[napi]
 impl JsClassForEither {
   #[napi(constructor)]
+  #[allow(clippy::new_without_default)]
   pub fn new() -> Self {
     JsClassForEither {}
   }
@@ -60,6 +61,7 @@ struct AnotherClassForEither {}
 
 #[napi]
 impl AnotherClassForEither {
+  #[allow(clippy::new_without_default)]
   #[napi(constructor)]
   pub fn new() -> Self {
     Self {}

@@ -28,7 +28,7 @@ import {
   writeFileAsync,
 } from '../utils/index.js'
 
-import { createJsBinding } from './templates/index.js'
+import { createCjsBinding } from './templates/index.js'
 
 const debug = debugFactory('build')
 
@@ -149,13 +149,16 @@ class Builder {
 
     const controller = new AbortController()
 
+    const watch = this.options.watch
     const buildTask = new Promise<void>((resolve, reject) => {
-      const buildProcess = spawn('cargo', this.args, {
+      const command =
+        process.env.CARGO ?? (this.options.useCross ? 'cross' : 'cargo')
+      const buildProcess = spawn(command, this.args, {
         env: {
           ...process.env,
           ...this.envs,
         },
-        stdio: 'inherit',
+        stdio: watch ? ['inherit', 'inherit', 'pipe'] : 'inherit',
         cwd: this.cwd,
         signal: controller.signal,
       })
@@ -175,6 +178,15 @@ class Builder {
             cause: e,
           }),
         )
+      })
+
+      // watch mode only, they are piped through stderr
+      buildProcess.stderr?.on('data', (data) => {
+        const output = data.toString()
+        console.error(output)
+        if (/Finished\s(dev|release)/.test(output)) {
+          this.postBuild().catch(() => {})
+        }
       })
     })
 
@@ -205,6 +217,7 @@ class Builder {
           this.crateDir,
           '--',
           'cargo',
+          'build',
         )
         set = true
       }
@@ -351,14 +364,21 @@ class Builder {
       const targetArch = this.target.arch === 'arm' ? 'armv7a' : 'aarch64'
       const targetPlatform =
         this.target.arch === 'arm' ? 'androideabi24' : 'android24'
+      const hostPlatform =
+        process.platform === 'darwin'
+          ? 'darwin'
+          : process.platform === 'win32'
+          ? 'windows'
+          : 'linux'
       Object.assign(this.envs, {
-        CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/${targetArch}-linux-android24-clang`,
-        CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/${targetArch}-linux-androideabi24-clang`,
-        CC: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/${targetArch}-linux-${targetPlatform}-clang`,
-        CXX: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/${targetArch}-linux-${targetPlatform}-clang++`,
-        AR: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar`,
+        CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/${hostPlatform}-x86_64/bin/${targetArch}-linux-android24-clang`,
+        CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/${hostPlatform}-x86_64/bin/${targetArch}-linux-androideabi24-clang`,
+        CC: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/${hostPlatform}-x86_64/bin/${targetArch}-linux-${targetPlatform}-clang`,
+        CXX: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/${hostPlatform}-x86_64/bin/${targetArch}-linux-${targetPlatform}-clang++`,
+        AR: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/${hostPlatform}-x86_64/bin/llvm-ar`,
+        RANLIB: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/${hostPlatform}-x86_64/bin/llvm-ranlib`,
         ANDROID_NDK: ANDROID_NDK_LATEST_HOME,
-        PATH: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin:${process.env.PATH}`,
+        PATH: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/${hostPlatform}-x86_64/bin:${process.env.PATH}`,
       })
     }
     // END LINKER
@@ -399,6 +419,10 @@ class Builder {
 
     if (this.options.targetDir) {
       this.args.push('--target-dir', this.options.targetDir)
+    }
+
+    if (this.options.profile) {
+      this.args.push('--profile', this.options.profile)
     }
 
     if (this.options.cargoOptions?.length) {
@@ -446,8 +470,8 @@ class Builder {
 
     // only for cdylib
     if (this.cdyLibName) {
-      await this.generateTypeDef()
-      await this.writeJsBinding()
+      const idents = await this.generateTypeDef()
+      await this.writeJsBinding(idents)
     }
 
     return this.outputs
@@ -459,12 +483,10 @@ class Builder {
       return
     }
 
-    const src = join(
-      this.targetDir,
-      this.target.triple,
-      this.options.release ? 'release' : 'debug',
-      srcName,
-    )
+    const profile =
+      this.options.profile ?? (this.options.release ? 'release' : 'debug')
+    const src = join(this.targetDir, this.target.triple, profile, srcName)
+    debug(`Copy artifact from: [${src}]`)
     const dest = join(this.outputDir, destName)
 
     try {
@@ -519,12 +541,12 @@ class Builder {
 
   private async generateTypeDef() {
     if (!(await fileExists(this.envs.TYPE_DEF_TMP_PATH))) {
-      return
+      return []
     }
 
     const dest = join(this.outputDir, this.options.dts ?? 'index.d.ts')
 
-    const dts = await processTypeDef(
+    const { dts, exports } = await processTypeDef(
       this.envs.TYPE_DEF_TMP_PATH,
       !this.options.noDtsHeader
         ? this.options.dtsHeader ?? DEFAULT_TYPE_DEF_HEADER
@@ -543,21 +565,33 @@ class Builder {
       debug.error('Failed to write type def file')
       debug.error(e as Error)
     }
+
+    return exports
   }
 
-  private async writeJsBinding() {
-    if (!this.options.platform || this.options.noJsBinding) {
+  private async writeJsBinding(idents: string[]) {
+    if (
+      !this.options.platform ||
+      // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
+      this.options.noJsBinding ||
+      idents.length === 0
+    ) {
       return
     }
 
-    const dest = join(this.outputDir, this.options.jsBinding ?? 'index.js')
+    const name = parse(this.options.jsBinding ?? 'index.js').name
 
-    const js = createJsBinding(this.config.binaryName, this.config.packageName)
+    const cjs = createCjsBinding(
+      this.config.binaryName,
+      this.config.packageName,
+      idents,
+    )
 
     try {
+      const dest = join(this.outputDir, `${name}.js`)
       debug('Writing js binding to:')
       debug('  %i', dest)
-      await writeFileAsync(dest, js, 'utf-8')
+      await writeFileAsync(dest, cjs, 'utf-8')
       this.outputs.push({
         kind: 'js',
         path: dest,

@@ -104,6 +104,7 @@ import {
   CssStyleSheet,
   asyncReduceBuffer,
   callbackReturnPromise,
+  callbackReturnPromiseAndSpawn,
   returnEitherClass,
   eitherFromOption,
   eitherFromObjects,
@@ -129,7 +130,10 @@ import {
   tsfnReturnPromise,
   tsfnReturnPromiseTimeout,
   returnFromSharedCrate,
-} from '../'
+  chronoNativeDateTime,
+  chronoNativeDateTimeReturn,
+  throwAsyncError,
+} from '..'
 
 test('export const', (t) => {
   t.is(DEFAULT_COST, 12)
@@ -348,6 +352,13 @@ test('callback function return Promise', async (t) => {
   t.deepEqual(cbSpy.args, [['42']])
 })
 
+test('callback function return Promise and spawn', async (t) => {
+  const finalReturn = await callbackReturnPromiseAndSpawn((input) =>
+    Promise.resolve(`${input} world`),
+  )
+  t.is(finalReturn, 'Hello world 😼')
+})
+
 test('object', (t) => {
   t.deepEqual(listObjKeys({ name: 'John Doe', age: 20 }), ['name', 'age'])
   t.deepEqual(createObj(), { test: 1 })
@@ -408,6 +419,13 @@ test('Result', (t) => {
   if (!process.env.SKIP_UNWIND_TEST) {
     t.throws(() => panic(), void 0, `Don't panic`)
   }
+})
+
+test('Async error with stack trace', async (t) => {
+  const err = await t.throwsAsync(() => throwAsyncError())
+  t.not(err?.stack, undefined)
+  t.deepEqual(err!.message, 'Async Error')
+  t.regex(err!.stack!, /.+at .+values\.spec\.ts:\d+:\d+.+/gm)
 })
 
 test('custom status code in Error', (t) => {
@@ -794,11 +812,7 @@ Napi4Test('throw error from thread safe function fatal mode', (t) => {
   return new Promise<void>((resolve) => {
     p.on('exit', (code) => {
       t.is(code, 1)
-      t.true(
-        stderr
-          .toString('utf8')
-          .includes(`[Error: Generic tsfn error] { code: 'GenericFailure' }`),
-      )
+      t.true(stderr.toString('utf8').includes(`[Error: Generic tsfn error]`))
       resolve()
     })
   })
@@ -971,4 +985,15 @@ Napi5Test('Class with getter setter closures', (t) => {
   t.is(instance.name, `I'm Allie`)
   // @ts-expect-error
   t.is(instance.age, 0.3)
+})
+
+Napi5Test('Date to chrono::NativeDateTime test', (t) => {
+  const fixture = new Date()
+  t.is(chronoNativeDateTime(fixture), fixture.valueOf())
+})
+
+Napi5Test('Date from chrono::NativeDateTime test', (t) => {
+  const fixture = chronoNativeDateTimeReturn()
+  t.true(fixture instanceof Date)
+  t.is(fixture?.toISOString(), '2016-12-23T15:25:59.325Z')
 })
