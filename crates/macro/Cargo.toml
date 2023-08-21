@@ -26,7 +26,7 @@ convert_case = "0.6"
 napi-derive-backend = { version = "1.0.52", path = "../backend" }
 proc-macro2 = "1.0"
 quote = "1.0"
-syn = { version = "1.0.61", features = ["fold", "full", "extra-traits"] }
+syn = { version = "2.0.29", features = ["fold", "full", "extra-traits"] }
 cfg-if = "1.0"
 
 [lib]

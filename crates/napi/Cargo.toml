@@ -55,7 +55,7 @@ deferred_trace = ["napi4"]
 
 [dependencies]
 ctor = "0.2"
-once_cell = "1.16"
+once_cell = "1.18"
 bitflags = "2"
 
 [dependencies.anyhow]
