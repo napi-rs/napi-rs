@@ -184,6 +184,14 @@ export class Optional {
   static optionOnly(optional?: string | undefined | null): string
 }
 
+export class Selector {
+  orderBy: Array<string>
+  select: Array<string>
+  struct: string
+  where?: string
+  constructor(orderBy: Array<string>, select: Array<string>, struct: string, where?: string)
+}
+
 export class Width {
   value: number
   constructor(value: number)
