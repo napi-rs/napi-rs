@@ -50,7 +50,7 @@ fn add_native_count(ctx: CallContext) -> Result<JsNumber> {
 #[js_function]
 fn renew_wrapped(ctx: CallContext) -> Result<JsUndefined> {
   let mut this: JsObject = ctx.this_unchecked();
-  ctx.env.drop_wrapped::<NativeClass>(&mut this)?;
+  ctx.env.drop_wrapped::<NativeClass>(&this)?;
   ctx.env.wrap(&mut this, NativeClass { value: 42 })?;
   ctx.env.get_undefined()
 }

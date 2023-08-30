@@ -918,8 +918,8 @@ impl NapiImpl {
 }
 
 fn rm_raw_prefix(s: &str) -> &str {
-  if s.starts_with("r#") {
-    &s[2..]
+  if let Some(stripped) = s.strip_prefix("r#") {
+    stripped
   } else {
     s
   }

@@ -150,6 +150,6 @@ impl FromNapiValue for DateTime<Utc> {
       (milliseconds_since_epoch_utc % 1_000 * 1_000_000) as u32,
     )
     .ok_or_else(|| Error::new(Status::DateExpected, "Found invalid date".to_owned()))?;
-    Ok(DateTime::<Utc>::from_utc(naive, Utc))
+    Ok(DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc))
   }
 }
