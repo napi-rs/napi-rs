@@ -402,7 +402,6 @@ unsafe extern "C" fn finalizer<Data, T: Finalizer<RustType = Data>>(
     }
     DataManagedType::Owned => {
       if data.ref_count() == 1 {
-        let length = length;
         unsafe { Vec::from_raw_parts(finalize_data as *mut Data, length, length) };
       }
     }

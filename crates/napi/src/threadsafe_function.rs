@@ -136,6 +136,7 @@ impl ThreadsafeFunctionHandle {
     f(aborted_guard)
   }
 
+  #[allow(clippy::arc_with_non_send_sync)]
   fn null() -> Arc<Self> {
     Self::new(null_mut())
   }

@@ -138,7 +138,7 @@ impl<T: 'static> Reference<T> {
     let s_ptr = Box::into_raw(Box::new(s));
     let prev_drop_fn = unsafe { Box::from_raw(self.finalize_callbacks.get()) };
     let drop_fn = Box::new(move || {
-      unsafe { Box::from_raw(s_ptr) };
+      drop(unsafe { Box::from_raw(s_ptr) });
       prev_drop_fn();
     });
     self.finalize_callbacks.set(Box::into_raw(drop_fn));

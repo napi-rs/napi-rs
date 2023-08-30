@@ -740,6 +740,7 @@ impl Env {
     Ok(unsafe { JsFunction::from_raw_unchecked(self.0, raw_result) })
   }
 
+  #[allow(clippy::needless_pass_by_ref_mut)]
   pub fn wrap<T: 'static>(&self, js_object: &mut JsObject, native_object: T) -> Result<()> {
     check_status!(unsafe {
       sys::napi_wrap(
@@ -813,7 +814,7 @@ impl Env {
     }
   }
 
-  pub fn drop_wrapped<T: 'static>(&self, js_object: &mut JsObject) -> Result<()> {
+  pub fn drop_wrapped<T: 'static>(&self, js_object: &JsObject) -> Result<()> {
     unsafe {
       let mut unknown_tagged_object = ptr::null_mut();
       check_status!(sys::napi_remove_wrap(
