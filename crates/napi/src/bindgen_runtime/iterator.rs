@@ -210,7 +210,7 @@ pub unsafe extern "C" fn symbol_generator<T: Generator>(
     "Create generator state failed"
   );
 
-  let properties = vec![sys::napi_property_descriptor {
+  let properties = [sys::napi_property_descriptor {
     utf8name: GENERATOR_STATE_KEY.as_ptr().cast(),
     name: ptr::null_mut(),
     method: None,

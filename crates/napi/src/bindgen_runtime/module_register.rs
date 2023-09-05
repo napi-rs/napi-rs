@@ -242,7 +242,7 @@ pub fn register_class(
     let val = inner.entry(rust_name).or_default();
     let val = val.entry(js_mod).or_default();
     val.0 = js_name;
-    val.1.extend(props.into_iter());
+    val.1.extend(props);
   });
 }
 
