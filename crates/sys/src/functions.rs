@@ -712,18 +712,6 @@ mod napi9 {
         length: usize,
         result: *mut napi_value,
       ) -> napi_status;
-    }
-  );
-}
-
-#[cfg(feature = "experimental")]
-mod experimental {
-  use std::os::raw::c_char;
-
-  use super::super::types::*;
-
-  generate!(
-    extern "C" {
       fn node_api_get_module_file_name(env: napi_env, result: *mut *const c_char) -> napi_status;
       fn node_api_create_syntax_error(
         env: napi_env,
@@ -735,6 +723,37 @@ mod experimental {
         env: napi_env,
         code: *const c_char,
         msg: *const c_char,
+      ) -> napi_status;
+    }
+  );
+}
+
+#[cfg(feature = "experimental")]
+mod experimental {
+  use std::os::raw::{c_char, c_void};
+
+  use super::super::types::*;
+
+  generate!(
+    extern "C" {
+      fn node_api_create_external_string_latin1(
+        env: napi_env,
+        str_: *const c_char,
+        length: usize,
+        napi_finalize: napi_finalize,
+        finalize_hint: *mut c_void,
+        result: *mut napi_value,
+        copied: *mut bool,
+      ) -> napi_status;
+
+      fn node_api_create_external_string_utf16(
+        env: napi_env,
+        str_: *const u16,
+        length: usize,
+        napi_finalize: napi_finalize,
+        finalize_hint: *mut c_void,
+        result: *mut napi_value,
+        copied: *mut bool,
       ) -> napi_status;
     }
   );
