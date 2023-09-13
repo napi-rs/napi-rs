@@ -201,7 +201,7 @@ pub struct JsTypeError<S: AsRef<str> = Status>(Error<S>);
 
 pub struct JsRangeError<S: AsRef<str> = Status>(Error<S>);
 
-#[cfg(feature = "experimental")]
+#[cfg(feature = "napi9")]
 pub struct JsSyntaxError<S: AsRef<str> = Status>(Error<S>);
 
 macro_rules! impl_object_methods {
@@ -295,7 +295,7 @@ macro_rules! impl_object_methods {
 impl_object_methods!(JsError, sys::napi_create_error);
 impl_object_methods!(JsTypeError, sys::napi_create_type_error);
 impl_object_methods!(JsRangeError, sys::napi_create_range_error);
-#[cfg(feature = "experimental")]
+#[cfg(feature = "napi9")]
 impl_object_methods!(JsSyntaxError, sys::node_api_create_syntax_error);
 
 #[doc(hidden)]

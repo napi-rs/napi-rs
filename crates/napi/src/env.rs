@@ -665,7 +665,7 @@ impl Env {
   }
 
   /// This API throws a JavaScript SyntaxError with the text provided.
-  #[cfg(feature = "experimental")]
+  #[cfg(feature = "napi9")]
   pub fn throw_syntax_error(&self, msg: &str, code: Option<&str>) -> Result<()> {
     let code = code.and_then(|s| CString::new(s).ok());
     let msg = CString::new(msg)?;
