@@ -62,6 +62,7 @@ import {
   getNull,
   setSymbolInObj,
   createSymbol,
+  createSymbolFor,
   threadsafeFunctionFatalMode,
   createExternal,
   getExternal,
@@ -996,4 +997,10 @@ Napi5Test('Date from chrono::NativeDateTime test', (t) => {
   const fixture = chronoNativeDateTimeReturn()
   t.true(fixture instanceof Date)
   t.is(fixture?.toISOString(), '2016-12-23T15:25:59.325Z')
+})
+
+const Napi9Test = Number(process.versions.napi) >= 9 ? test : test.skip
+
+Napi9Test('create symbol for', (t) => {
+  t.is(createSymbolFor('foo'), Symbol.for('foo'))
 })

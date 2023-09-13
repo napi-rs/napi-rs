@@ -27,7 +27,7 @@
     "format:rs": "cargo fmt",
     "format:toml": "taplo format",
     "lint": "eslint -c .eslintrc.yml .",
-    "test": "lerna run test --ignore @napi-rs/cli",
+    "test": "lerna run test --concurrency=1 --ignore @napi-rs/cli",
     "test:cli": "yarn workspace @napi-rs/cli test",
     "test:electron": "electron examples/napi/electron.js",
     "test:macro": "cargo test -p napi-examples",
