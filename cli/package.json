@@ -95,5 +95,13 @@
     "build": "tsc && yarn build:cjs",
     "build:cjs": "node ./esbuild.mjs",
     "test": "node --loader ts-node/esm/transpile-only ../node_modules/ava/entrypoints/cli.mjs"
+  },
+  "ava": {
+    "extensions": {
+      "ts": "module"
+    },
+    "files": [
+      "**/__tests__/**/*.spec.ts"
+    ]
   }
 }
