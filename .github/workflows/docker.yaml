@@ -30,7 +30,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           file: alpine.Dockerfile
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
 
@@ -38,7 +38,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           file: debian.Dockerfile
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian
 
@@ -61,7 +61,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           file: debian-aarch64.Dockerfile
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-aarch64
           context: .
@@ -73,7 +73,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           file: debian-zig.Dockerfile
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-zig
 
@@ -81,6 +81,6 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           file: alpine-zig.Dockerfile
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine-zig
