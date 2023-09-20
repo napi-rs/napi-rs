@@ -1,6 +1,14 @@
+import { createRequire } from 'node:module'
+
 import test from 'ava'
 
-import { Fib, Fib2, Fib3 } from '..'
+const require = createRequire(import.meta.url)
+
+const {
+  Fib,
+  Fib2,
+  Fib3,
+}: typeof import('../index.js') = require('../index.node')
 
 for (const [index, factory] of [
   () => new Fib(),

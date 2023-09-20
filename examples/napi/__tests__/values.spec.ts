@@ -1,10 +1,18 @@
-import { exec } from 'child_process'
-import { join } from 'path'
+import { exec } from 'node:child_process'
+import { createRequire } from 'node:module'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-import test from 'ava'
 import { spy } from 'sinon'
 
-import {
+import type { AliasedStruct } from '../index.js'
+
+import { test } from './test.framework.js'
+
+const require = createRequire(import.meta.url)
+const __dirname = join(fileURLToPath(import.meta.url), '..')
+
+const {
   DEFAULT_COST,
   add,
   fibonacci,
@@ -78,7 +86,6 @@ import {
   receiveAllOptionalObject,
   fnReceivedAliased,
   ALIAS,
-  AliasedStruct,
   appendBuffer,
   returnNull,
   returnUndefined,
@@ -134,7 +141,7 @@ import {
   chronoNativeDateTime,
   chronoNativeDateTimeReturn,
   throwAsyncError,
-} from '..'
+}: typeof import('../index.d.ts') = require('../index.node')
 
 test('export const', (t) => {
   t.is(DEFAULT_COST, 12)
@@ -251,7 +258,7 @@ test('class factory', (t) => {
 
   const error = t.throws(() => new ClassWithFactory())
   t.true(
-    error!.message.startsWith(
+    error?.message.startsWith(
       'Class contains no `constructor`, can not new it!',
     ),
   )
@@ -463,7 +470,7 @@ test('should throw if object type is not matched', (t) => {
   // @ts-expect-error
   const err1 = t.throws(() => receiveStrictObject({ name: 1 }))
   t.is(
-    err1!.message,
+    err1?.message,
     'Failed to convert JavaScript value `Number 1 ` into rust type `String`',
   )
   // @ts-expect-error
@@ -472,7 +479,7 @@ test('should throw if object type is not matched', (t) => {
 })
 
 test('aliased rust struct and enum', (t) => {
-  const a: ALIAS = ALIAS.A
+  const a = ALIAS.A
   const b: AliasedStruct = {
     a,
     b: 1,
@@ -506,7 +513,7 @@ test('serde-roundtrip', (t) => {
   t.is(testSerdeRoundtrip(null), null)
 
   let err = t.throws(() => testSerdeRoundtrip(undefined))
-  t.is(err!.message, 'undefined cannot be represented as a serde_json::Value')
+  t.is(err?.message, 'undefined cannot be represented as a serde_json::Value')
 
   err = t.throws(() => testSerdeRoundtrip(() => {}))
   t.is(
@@ -681,7 +688,7 @@ test('external', (t) => {
   // @ts-expect-error
   const e = t.throws(() => getExternal(ext2))
   t.is(
-    e!.message,
+    e?.message,
     'T on `get_value_external` is not the type of wrapped object',
   )
 })
@@ -783,7 +790,7 @@ Napi4Test('throw error from thread safe function', async (t) => {
     threadsafeFunctionThrowError(reject)
   })
   const err = await t.throwsAsync(throwPromise)
-  t.is(err!.message, 'ThrowFromNative')
+  t.is(err?.message, 'ThrowFromNative')
 })
 
 Napi4Test('thread safe function closure capture data', (t) => {
@@ -803,7 +810,7 @@ Napi4Test('resolve value from thread safe function fatal mode', async (t) => {
 })
 
 Napi4Test('throw error from thread safe function fatal mode', (t) => {
-  const p = exec('node ./tsfn-error.js', {
+  const p = exec('node ./tsfn-error.cjs', {
     cwd: __dirname,
   })
   let stderr = Buffer.from([])
