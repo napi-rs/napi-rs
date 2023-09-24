@@ -92,6 +92,12 @@ impl Clone for Buffer {
   }
 }
 
+impl Default for Buffer {
+  fn default() -> Self {
+    Self::from(Vec::default())
+  }
+}
+
 impl From<Vec<u8>> for Buffer {
   fn from(mut data: Vec<u8>) -> Self {
     let inner_ptr = data.as_mut_ptr();
