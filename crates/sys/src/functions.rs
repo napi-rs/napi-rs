@@ -698,6 +698,24 @@ mod napi8 {
   );
 }
 
+#[cfg(feature = "napi9")]
+mod napi9 {
+  use std::os::raw::c_char;
+
+  use super::super::types::*;
+
+  generate!(
+    extern "C" {
+      fn node_api_symbol_for(
+        env: napi_env,
+        utf8name: *const c_char,
+        length: usize,
+        result: *mut napi_value,
+      ) -> napi_status;
+    }
+  );
+}
+
 #[cfg(feature = "experimental")]
 mod experimental {
   use std::os::raw::c_char;
@@ -739,6 +757,8 @@ pub use napi6::*;
 pub use napi7::*;
 #[cfg(feature = "napi8")]
 pub use napi8::*;
+#[cfg(feature = "napi9")]
+pub use napi9::*;
 
 #[cfg(windows)]
 pub(super) unsafe fn load() -> Result<libloading::Library, libloading::Error> {

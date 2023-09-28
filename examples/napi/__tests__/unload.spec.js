@@ -1,8 +1,12 @@
 // use the commonjs syntax to prevent compiler from transpiling the module syntax
 
-const path = require('path')
+import { createRequire } from 'node:module'
+import * as path from 'node:path'
 
-const test = require('ava').default
+import test from 'ava'
+
+const require = createRequire(import.meta.url)
+const __dirname = path.dirname(new URL(import.meta.url).pathname)
 
 test('unload module', (t) => {
   const { add } = require('../index.node')

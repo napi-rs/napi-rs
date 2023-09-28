@@ -2,35 +2,34 @@
   "name": "@examples/napi",
   "private": true,
   "version": "0.0.0",
+  "type": "module",
   "main": "./index.node",
   "types": "./index.d.ts",
   "scripts": {
     "build": "napi-raw build --no-js",
-    "test": "ava"
+    "test": "cross-env TS_NODE_PROJECT=./tsconfig.json node --es-module-specifier-resolution=node --loader ts-node/esm/transpile-only ../../node_modules/ava/entrypoints/cli.mjs"
   },
   "devDependencies": {
     "@napi-rs/cli": "workspace:*",
     "@types/lodash": "^4.14.195",
     "ava": "^5.3.1",
+    "cross-env": "7.0.3",
+    "electron": "^26.2.1",
     "lodash": "^4.17.21",
     "sinon": "^15.2.0"
   },
   "ava": {
-    "extensions": [
-      "ts",
-      "tsx",
-      "js"
-    ],
-    "require": [
-      "ts-node/register/transpile-only"
-    ],
+    "extensions": {
+      "ts": "module",
+      "cts": "commonjs",
+      "cjs": true
+    },
     "files": [
       "__tests__/**/*.spec.ts",
-      "__tests__/**/*.spec.js"
+      "__tests__/**/*.spec.cts",
+      "__tests__/**/*.spec.js",
+      "__tests__/**/*.spec.cjs"
     ],
-    "environmentVariables": {
-      "TS_NODE_PROJECT": "../tsconfig.json"
-    },
     "timeout": "10m"
   }
 }

@@ -355,7 +355,7 @@ jobs:
           yarn config set --json supportedArchitectures.libc '["current", "${{ matrix.settings.libc }}"]'
           yarn install --immutable --mode=skip-build
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
+        uses: docker/setup-qemu-action@v3
         with:
           platforms: all
       - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
@@ -400,7 +400,7 @@ jobs:
       - name: Install ziglang
         uses: goto-bus-stop/setup-zig@v2
         with:
-          version: 0.10.1
+          version: 0.11.0
 
       - name: Cache cargo
         uses: actions/cache@v3
@@ -485,6 +485,43 @@ jobs:
 
       - name: Check build
         run: cargo check -p ${{ matrix.settings.package }} -F ${{ matrix.settings.features }}
+
+  test-latest-bun:
+    runs-on: ubuntu-latest
+    name: Test latest bun
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+      - name: Setup node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+          cache: 'yarn'
+      - name: Install
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: x86_64-unknown-linux-gnu
+      - name: Cache cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: stable-x86_64-unknown-linux-gnu-node@18-cargo-cache
+      - name: Install dependencies
+        run: yarn install --immutable --mode=skip-build
+      - name: Build
+        run: |
+          bun run build
+          bun run build:test
+      - name: Test
+        run: bun run test:bun
 
   release-npm:
     runs-on: ubuntu-latest
