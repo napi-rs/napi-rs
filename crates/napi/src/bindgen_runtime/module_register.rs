@@ -350,6 +350,13 @@ unsafe extern "C" fn napi_register_wasm_v1(
 
 #[cfg(not(feature = "noop"))]
 #[no_mangle]
+/// Register the n-api module exports.
+/// 
+/// # Safety
+/// This method is meant to be called by Node.js while importing the n-api module.
+/// Only call this method if the current module is **not** imported by a node-like runtime.
+/// 
+/// Arguments `env` and `exports` must **not** be null.
 pub unsafe extern "C" fn napi_register_module_v1(
   env: sys::napi_env,
   exports: sys::napi_value,
