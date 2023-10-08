@@ -350,7 +350,7 @@ unsafe extern "C" fn napi_register_wasm_v1(
 
 #[cfg(not(feature = "noop"))]
 #[no_mangle]
-unsafe extern "C" fn napi_register_module_v1(
+pub unsafe extern "C" fn napi_register_module_v1(
   env: sys::napi_env,
   exports: sys::napi_value,
 ) -> sys::napi_value {
