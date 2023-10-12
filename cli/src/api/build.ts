@@ -1,7 +1,8 @@
-import { spawn } from 'child_process'
-import { createHash } from 'crypto'
-import { tmpdir } from 'os'
-import { parse, join, resolve } from 'path'
+import { spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { createRequire } from 'node:module'
+import { tmpdir } from 'node:os'
+import { parse, join, resolve } from 'node:path'
 
 import * as colors from 'colorette'
 
@@ -33,6 +34,7 @@ import { createWasiBinding } from './load-wasi-template.js'
 import { createCjsBinding } from './templates/index.js'
 
 const debug = debugFactory('build')
+const require = createRequire(import.meta.url)
 
 type OutputKind = 'js' | 'dts' | 'node' | 'exe' | 'wasm'
 type Output = {
@@ -385,6 +387,11 @@ class Builder {
     }
     // END LINKER
 
+    if (this.target.platform === 'wasi') {
+      const emnapi = join(require.resolve('emnapi'), '..', 'lib', 'wasm32-wasi')
+      this.envs.EMNAPI_LINK_DIR = emnapi
+    }
+
     debug('Set envs: ')
     Object.entries(this.envs).forEach(([k, v]) => {
       debug('  %i', `${k}=${v}`)
@@ -492,7 +499,7 @@ class Builder {
       const jsOutput = await this.writeJsBinding(idents)
       const wasmOutput = await this.writeWasiBinding(
         wasiRegisterFunctions,
-        jsOutput?.path,
+        jsOutput?.path ?? 'index',
         idents,
       )
       if (jsOutput) {
@@ -557,7 +564,11 @@ class Builder {
       if (this.options.platform) {
         destName += `.${this.target.platformArchABI}`
       }
-      destName += '.node'
+      if (srcName.endsWith('.wasm')) {
+        destName += '.wasi-wasm32.wasm'
+      } else {
+        destName += '.node'
+      }
 
       return [srcName, destName]
     } else if (this.binName) {

@@ -10,9 +10,7 @@ crate-type = ["cdylib", "lib"]
 
 [dependencies]
 napi = { path = "../../crates/napi", default-features = false, features = [
-  "tokio_fs",
   "napi8",
-  "tokio_rt",
   "serde-json",
   "async",
   "experimental",

@@ -2,6 +2,7 @@
   "extends": "../tsconfig.json",
   "include": ["."],
   "compilerOptions": {
+    "moduleResolution": "node",
     "outDir": "./dist",
     "rootDir": ".",
     "target": "ESNext",
@@ -9,10 +10,7 @@
     "skipLibCheck": false,
     "noEmit": true,
     "types": ["bun-types"],
-    "importHelpers": false
-  },
-  "exclude": ["dist", "electron.cjs", "electron-renderer", "node_modules"]
-    "noEmit": true
+    "importHelpers": false,
     "baseUrl": ".",
     "paths": {
       "#index": ["./index.d.ts"]

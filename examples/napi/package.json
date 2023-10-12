@@ -33,7 +33,7 @@
     "timeout": "10m"
   },
   "dependencies": {
-    "@emnapi/core": "0.34.0",
+    "@emnapi/core": "0.42.0",
     "@types/lodash": "^4.14.191",
     "lodash": "^4.17.21",
     "sinon": "^15.0.1"

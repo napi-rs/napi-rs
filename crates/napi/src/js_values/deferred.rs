@@ -3,7 +3,9 @@ use std::marker::PhantomData;
 use std::os::raw::c_void;
 use std::ptr;
 
-use crate::bindgen_runtime::{ToNapiValue, THREAD_DESTROYED};
+#[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
+use crate::bindgen_prelude::THREAD_DESTROYED;
+use crate::bindgen_runtime::ToNapiValue;
 use crate::{check_status, JsObject, Value};
 use crate::{sys, Env, Error, Result};
 #[cfg(feature = "deferred_trace")]

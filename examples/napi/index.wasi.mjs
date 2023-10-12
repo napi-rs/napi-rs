@@ -60,175 +60,188 @@ function __napi_rs_initialize_modules() {
   instance.exports['__napi_register__read_file_21']()
   instance.exports['__napi_register__return_js_function_22']()
   instance.exports['__napi_register__callback_return_promise_23']()
-  instance.exports['__napi_register__capture_error_in_callback_24']()
-  instance.exports['__napi_register__Animal_struct_25']()
-  instance.exports['__napi_register__Animal_impl_26']()
-  instance.exports['__napi_register__Dog_struct_27']()
-  instance.exports['__napi_register__Bird_struct_28']()
-  instance.exports['__napi_register__Bird_impl_29']()
-  instance.exports['__napi_register__Blake2bHasher_struct_30']()
-  instance.exports['__napi_register__Blake2bHasher_impl_31']()
+  instance.exports['__napi_register__callback_return_promise_and_spawn_24']()
+  instance.exports['__napi_register__capture_error_in_callback_25']()
+  instance.exports['__napi_register__Animal_struct_26']()
+  instance.exports['__napi_register__Animal_impl_27']()
+  instance.exports['__napi_register__Dog_struct_28']()
+  instance.exports['__napi_register__Bird_struct_29']()
+  instance.exports['__napi_register__Bird_impl_30']()
+  instance.exports['__napi_register__Blake2bHasher_struct_31']()
   instance.exports['__napi_register__Blake2bHasher_impl_32']()
-  instance.exports['__napi_register__Blake2bKey_struct_33']()
-  instance.exports['__napi_register__Context_struct_34']()
-  instance.exports['__napi_register__Context_impl_35']()
-  instance.exports['__napi_register__AnimalWithDefaultConstructor_struct_36']()
-  instance.exports['__napi_register__NinjaTurtle_struct_37']()
-  instance.exports['__napi_register__NinjaTurtle_impl_38']()
-  instance.exports['__napi_register__JsAssets_struct_39']()
-  instance.exports['__napi_register__JsAssets_impl_40']()
-  instance.exports['__napi_register__JsAsset_struct_41']()
-  instance.exports['__napi_register__JsAsset_impl_42']()
-  instance.exports['__napi_register__Optional_struct_43']()
-  instance.exports['__napi_register__Optional_impl_44']()
-  instance.exports['__napi_register__create_object_with_class_field_45']()
-  instance.exports['__napi_register__receive_object_with_class_field_46']()
-  instance.exports['__napi_register__NotWritableClass_struct_47']()
-  instance.exports['__napi_register__NotWritableClass_impl_48']()
-  instance.exports['__napi_register__CustomFinalize_struct_49']()
-  instance.exports['__napi_register__CustomFinalize_impl_50']()
-  instance.exports['__napi_register__Width_struct_51']()
-  instance.exports['__napi_register__plus_one_52']()
-  instance.exports['__napi_register__ClassWithFactory_struct_53']()
-  instance.exports['__napi_register__ClassWithFactory_impl_54']()
-  instance.exports['__napi_register__date_to_number_55']()
-  instance.exports['__napi_register__chrono_date_to_millis_56']()
-  instance.exports['__napi_register__chrono_date_add_1_minute_57']()
-  instance.exports['__napi_register__either_string_or_number_58']()
-  instance.exports['__napi_register__return_either_59']()
-  instance.exports['__napi_register__either3_60']()
-  instance.exports['__napi_register__either4_61']()
-  instance.exports['__napi_register__JsClassForEither_struct_62']()
-  instance.exports['__napi_register__JsClassForEither_impl_63']()
-  instance.exports['__napi_register__AnotherClassForEither_struct_64']()
-  instance.exports['__napi_register__AnotherClassForEither_impl_65']()
-  instance.exports['__napi_register__receive_class_or_number_66']()
-  instance.exports['__napi_register__receive_mut_class_or_number_67']()
-  instance.exports['__napi_register__receive_different_class_68']()
-  instance.exports['__napi_register__return_either_class_69']()
-  instance.exports['__napi_register__either_from_option_70']()
-  instance.exports['__napi_register__either_from_objects_71']()
-  instance.exports['__napi_register__either_bool_or_function_72']()
-  instance.exports['__napi_register__promise_in_either_73']()
-  instance.exports['__napi_register__Kind_74']()
-  instance.exports['__napi_register__Empty_75']()
-  instance.exports['__napi_register__CustomNumEnum_76']()
-  instance.exports['__napi_register__enum_to_i32_77']()
-  instance.exports['__napi_register__SkippedEnums_78']()
-  instance.exports['__napi_register__throw_error_79']()
-  instance.exports['__napi_register__panic_80']()
-  instance.exports['__napi_register__receive_string_81']()
-  instance.exports['__napi_register__custom_status_code_82']()
-  instance.exports['__napi_register__create_external_83']()
-  instance.exports['__napi_register__create_external_string_84']()
-  instance.exports['__napi_register__get_external_85']()
-  instance.exports['__napi_register__mutate_external_86']()
-  instance.exports['__napi_register__validate_array_87']()
-  instance.exports['__napi_register__validate_buffer_88']()
-  instance.exports['__napi_register__validate_typed_array_89']()
-  instance.exports['__napi_register__validate_bigint_90']()
-  instance.exports['__napi_register__validate_boolean_91']()
-  instance.exports['__napi_register__validate_date_92']()
-  instance.exports['__napi_register__validate_date_time_93']()
-  instance.exports['__napi_register__validate_external_94']()
-  instance.exports['__napi_register__validate_function_95']()
-  instance.exports['__napi_register__validate_hash_map_96']()
-  instance.exports['__napi_register__validate_null_97']()
-  instance.exports['__napi_register__validate_undefined_98']()
-  instance.exports['__napi_register__validate_number_99']()
-  instance.exports['__napi_register__validate_promise_100']()
-  instance.exports['__napi_register__validate_string_101']()
-  instance.exports['__napi_register__validate_symbol_102']()
-  instance.exports['__napi_register__validate_optional_103']()
-  instance.exports['__napi_register__return_undefined_if_invalid_104']()
-  instance.exports['__napi_register__return_undefined_if_invalid_promise_105']()
-  instance.exports['__napi_register__ts_rename_106']()
-  instance.exports['__napi_register__override_individual_arg_on_function_107']()
-  instance.exports['__napi_register__override_individual_arg_on_function_with_cb_arg_108']()
-  instance.exports['__napi_register__Fib_struct_109']()
-  instance.exports['__napi_register__Fib_impl_110']()
-  instance.exports['__napi_register__Fib_impl_111']()
-  instance.exports['__napi_register__Fib2_struct_112']()
-  instance.exports['__napi_register__Fib2_impl_113']()
-  instance.exports['__napi_register__Fib2_impl_114']()
-  instance.exports['__napi_register__Fib3_struct_115']()
-  instance.exports['__napi_register__Fib3_impl_116']()
-  instance.exports['__napi_register__ALIGNMENT_117']()
-  instance.exports['__napi_register__xxh64_118']()
-  instance.exports['__napi_register__xxh128_119']()
-  instance.exports['__napi_register__Xxh3_struct_120']()
-  instance.exports['__napi_register__Xxh3_impl_121']()
-  instance.exports['__napi_register__xxh2_plus_122']()
-  instance.exports['__napi_register__xxh3_xxh64_alias_123']()
-  instance.exports['__napi_register__xxh64_alias_124']()
-  instance.exports['__napi_register__get_mapping_125']()
-  instance.exports['__napi_register__sum_mapping_126']()
-  instance.exports['__napi_register__map_option_127']()
-  instance.exports['__napi_register__return_null_128']()
-  instance.exports['__napi_register__return_undefined_129']()
-  instance.exports['__napi_register__add_130']()
-  instance.exports['__napi_register__fibonacci_131']()
-  instance.exports['__napi_register__list_obj_keys_132']()
-  instance.exports['__napi_register__create_obj_133']()
-  instance.exports['__napi_register__get_global_134']()
-  instance.exports['__napi_register__get_undefined_135']()
-  instance.exports['__napi_register__get_null_136']()
-  instance.exports['__napi_register__receive_all_optional_object_137']()
-  instance.exports['__napi_register__AliasedEnum_138']()
-  instance.exports['__napi_register__fn_received_aliased_139']()
-  instance.exports['__napi_register__receive_strict_object_140']()
-  instance.exports['__napi_register__get_str_from_object_141']()
-  instance.exports['__napi_register__create_obj_with_property_142']()
-  instance.exports['__napi_register__getter_from_obj_143']()
-  instance.exports['__napi_register__receive_object_only_from_js_144']()
-  instance.exports['__napi_register__async_plus_100_145']()
-  instance.exports['__napi_register__JsRepo_struct_146']()
-  instance.exports['__napi_register__JsRepo_impl_147']()
-  instance.exports['__napi_register__JsRemote_struct_148']()
-  instance.exports['__napi_register__JsRemote_impl_149']()
-  instance.exports['__napi_register__CSSRuleList_struct_150']()
-  instance.exports['__napi_register__CSSRuleList_impl_151']()
-  instance.exports['__napi_register__CSSStyleSheet_struct_152']()
-  instance.exports['__napi_register__AnotherCSSStyleSheet_struct_153']()
-  instance.exports['__napi_register__AnotherCSSStyleSheet_impl_154']()
-  instance.exports['__napi_register__CSSStyleSheet_impl_155']()
-  instance.exports['__napi_register__read_package_json_156']()
-  instance.exports['__napi_register__get_package_json_name_157']()
-  instance.exports['__napi_register__test_serde_roundtrip_158']()
-  instance.exports['__napi_register__contains_159']()
-  instance.exports['__napi_register__concat_str_160']()
-  instance.exports['__napi_register__concat_utf16_161']()
-  instance.exports['__napi_register__concat_latin1_162']()
-  instance.exports['__napi_register__roundtrip_str_163']()
-  instance.exports['__napi_register__set_symbol_in_obj_164']()
-  instance.exports['__napi_register__create_symbol_165']()
-  instance.exports['__napi_register__DelaySum_impl_166']()
-  instance.exports['__napi_register__without_abort_controller_167']()
-  instance.exports['__napi_register__with_abort_controller_168']()
-  instance.exports['__napi_register__call_threadsafe_function_169']()
-  instance.exports['__napi_register__threadsafe_function_throw_error_170']()
-  instance.exports['__napi_register__threadsafe_function_fatal_mode_171']()
-  instance.exports['__napi_register__threadsafe_function_fatal_mode_error_172']()
-  instance.exports['__napi_register__threadsafe_function_closure_capture_173']()
-  instance.exports['__napi_register__tsfn_call_with_callback_174']()
-  instance.exports['__napi_register__tsfn_async_call_175']()
-  instance.exports['__napi_register__accept_threadsafe_function_176']()
-  instance.exports['__napi_register__accept_threadsafe_function_fatal_177']()
-  instance.exports['__napi_register__accept_threadsafe_function_tuple_args_178']()
-  instance.exports['__napi_register__tsfn_return_promise_179']()
-  instance.exports['__napi_register__tsfn_return_promise_timeout_180']()
-  instance.exports['__napi_register__get_buffer_181']()
-  instance.exports['__napi_register__append_buffer_182']()
-  instance.exports['__napi_register__get_empty_buffer_183']()
-  instance.exports['__napi_register__convert_u32_array_184']()
-  instance.exports['__napi_register__create_external_typed_array_185']()
-  instance.exports['__napi_register__mutate_typed_array_186']()
-  instance.exports['__napi_register__deref_uint8_array_187']()
-  instance.exports['__napi_register__buffer_pass_through_188']()
-  instance.exports['__napi_register__array_buffer_pass_through_189']()
-  instance.exports['__napi_register__AsyncBuffer_impl_190']()
-  instance.exports['__napi_register__async_reduce_buffer_191']()
-  instance.exports['__napi_register__run_script_192']()
+  instance.exports['__napi_register__Blake2bHasher_impl_33']()
+  instance.exports['__napi_register__Blake2bKey_struct_34']()
+  instance.exports['__napi_register__Context_struct_35']()
+  instance.exports['__napi_register__Context_impl_36']()
+  instance.exports['__napi_register__AnimalWithDefaultConstructor_struct_37']()
+  instance.exports['__napi_register__NinjaTurtle_struct_38']()
+  instance.exports['__napi_register__NinjaTurtle_impl_39']()
+  instance.exports['__napi_register__JsAssets_struct_40']()
+  instance.exports['__napi_register__JsAssets_impl_41']()
+  instance.exports['__napi_register__JsAsset_struct_42']()
+  instance.exports['__napi_register__JsAsset_impl_43']()
+  instance.exports['__napi_register__Optional_struct_44']()
+  instance.exports['__napi_register__Optional_impl_45']()
+  instance.exports['__napi_register__create_object_with_class_field_46']()
+  instance.exports['__napi_register__receive_object_with_class_field_47']()
+  instance.exports['__napi_register__NotWritableClass_struct_48']()
+  instance.exports['__napi_register__NotWritableClass_impl_49']()
+  instance.exports['__napi_register__CustomFinalize_struct_50']()
+  instance.exports['__napi_register__CustomFinalize_impl_51']()
+  instance.exports['__napi_register__Width_struct_52']()
+  instance.exports['__napi_register__plus_one_53']()
+  instance.exports['__napi_register__GetterSetterWithClosures_struct_54']()
+  instance.exports['__napi_register__GetterSetterWithClosures_impl_55']()
+  instance.exports['__napi_register__ClassWithFactory_struct_56']()
+  instance.exports['__napi_register__ClassWithFactory_impl_57']()
+  instance.exports['__napi_register__Selector_struct_58']()
+  instance.exports['__napi_register__date_to_number_59']()
+  instance.exports['__napi_register__chrono_date_to_millis_60']()
+  instance.exports['__napi_register__chrono_date_add_1_minute_61']()
+  instance.exports['__napi_register__chrono_native_date_time_62']()
+  instance.exports['__napi_register__chrono_native_date_time_return_63']()
+  instance.exports['__napi_register__either_string_or_number_64']()
+  instance.exports['__napi_register__return_either_65']()
+  instance.exports['__napi_register__either3_66']()
+  instance.exports['__napi_register__either4_67']()
+  instance.exports['__napi_register__JsClassForEither_struct_68']()
+  instance.exports['__napi_register__JsClassForEither_impl_69']()
+  instance.exports['__napi_register__AnotherClassForEither_struct_70']()
+  instance.exports['__napi_register__AnotherClassForEither_impl_71']()
+  instance.exports['__napi_register__receive_class_or_number_72']()
+  instance.exports['__napi_register__receive_mut_class_or_number_73']()
+  instance.exports['__napi_register__receive_different_class_74']()
+  instance.exports['__napi_register__return_either_class_75']()
+  instance.exports['__napi_register__either_from_option_76']()
+  instance.exports['__napi_register__either_from_objects_77']()
+  instance.exports['__napi_register__either_bool_or_function_78']()
+  instance.exports['__napi_register__promise_in_either_79']()
+  instance.exports['__napi_register__Kind_80']()
+  instance.exports['__napi_register__Empty_81']()
+  instance.exports['__napi_register__Status_82']()
+  instance.exports['__napi_register__CustomNumEnum_83']()
+  instance.exports['__napi_register__enum_to_i32_84']()
+  instance.exports['__napi_register__SkippedEnums_85']()
+  instance.exports['__napi_register__throw_error_86']()
+  instance.exports['__napi_register__panic_87']()
+  instance.exports['__napi_register__receive_string_88']()
+  instance.exports['__napi_register__custom_status_code_89']()
+  instance.exports['__napi_register__throw_async_error_90']()
+  instance.exports['__napi_register__create_external_91']()
+  instance.exports['__napi_register__create_external_string_92']()
+  instance.exports['__napi_register__get_external_93']()
+  instance.exports['__napi_register__mutate_external_94']()
+  instance.exports['__napi_register__validate_array_95']()
+  instance.exports['__napi_register__validate_buffer_96']()
+  instance.exports['__napi_register__validate_typed_array_97']()
+  instance.exports['__napi_register__validate_bigint_98']()
+  instance.exports['__napi_register__validate_boolean_99']()
+  instance.exports['__napi_register__validate_date_100']()
+  instance.exports['__napi_register__validate_date_time_101']()
+  instance.exports['__napi_register__validate_external_102']()
+  instance.exports['__napi_register__validate_function_103']()
+  instance.exports['__napi_register__validate_hash_map_104']()
+  instance.exports['__napi_register__validate_null_105']()
+  instance.exports['__napi_register__validate_undefined_106']()
+  instance.exports['__napi_register__validate_number_107']()
+  instance.exports['__napi_register__validate_promise_108']()
+  instance.exports['__napi_register__validate_string_109']()
+  instance.exports['__napi_register__validate_symbol_110']()
+  instance.exports['__napi_register__validate_optional_111']()
+  instance.exports['__napi_register__return_undefined_if_invalid_112']()
+  instance.exports['__napi_register__return_undefined_if_invalid_promise_113']()
+  instance.exports['__napi_register__ts_rename_114']()
+  instance.exports['__napi_register__override_individual_arg_on_function_115']()
+  instance.exports['__napi_register__override_individual_arg_on_function_with_cb_arg_116']()
+  instance.exports['__napi_register__Fib_struct_117']()
+  instance.exports['__napi_register__Fib_impl_118']()
+  instance.exports['__napi_register__Fib_impl_119']()
+  instance.exports['__napi_register__Fib2_struct_120']()
+  instance.exports['__napi_register__Fib2_impl_121']()
+  instance.exports['__napi_register__Fib2_impl_122']()
+  instance.exports['__napi_register__Fib3_struct_123']()
+  instance.exports['__napi_register__Fib3_impl_124']()
+  instance.exports['__napi_register__ALIGNMENT_125']()
+  instance.exports['__napi_register__xxh64_126']()
+  instance.exports['__napi_register__xxh128_127']()
+  instance.exports['__napi_register__Xxh3_struct_128']()
+  instance.exports['__napi_register__Xxh3_impl_129']()
+  instance.exports['__napi_register__xxh2_plus_130']()
+  instance.exports['__napi_register__xxh3_xxh64_alias_131']()
+  instance.exports['__napi_register__xxh64_alias_132']()
+  instance.exports['__napi_register__get_mapping_133']()
+  instance.exports['__napi_register__sum_mapping_134']()
+  instance.exports['__napi_register__map_option_135']()
+  instance.exports['__napi_register__return_null_136']()
+  instance.exports['__napi_register__return_undefined_137']()
+  instance.exports['__napi_register__add_138']()
+  instance.exports['__napi_register__fibonacci_139']()
+  instance.exports['__napi_register__list_obj_keys_140']()
+  instance.exports['__napi_register__create_obj_141']()
+  instance.exports['__napi_register__get_global_142']()
+  instance.exports['__napi_register__get_undefined_143']()
+  instance.exports['__napi_register__get_null_144']()
+  instance.exports['__napi_register__receive_all_optional_object_145']()
+  instance.exports['__napi_register__AliasedEnum_146']()
+  instance.exports['__napi_register__fn_received_aliased_147']()
+  instance.exports['__napi_register__receive_strict_object_148']()
+  instance.exports['__napi_register__get_str_from_object_149']()
+  instance.exports['__napi_register__create_obj_with_property_150']()
+  instance.exports['__napi_register__getter_from_obj_151']()
+  instance.exports['__napi_register__receive_object_only_from_js_152']()
+  instance.exports['__napi_register__async_plus_100_153']()
+  instance.exports['__napi_register__JsRepo_struct_154']()
+  instance.exports['__napi_register__JsRepo_impl_155']()
+  instance.exports['__napi_register__JsRemote_struct_156']()
+  instance.exports['__napi_register__JsRemote_impl_157']()
+  instance.exports['__napi_register__CSSRuleList_struct_158']()
+  instance.exports['__napi_register__CSSRuleList_impl_159']()
+  instance.exports['__napi_register__CSSStyleSheet_struct_160']()
+  instance.exports['__napi_register__AnotherCSSStyleSheet_struct_161']()
+  instance.exports['__napi_register__AnotherCSSStyleSheet_impl_162']()
+  instance.exports['__napi_register__CSSStyleSheet_impl_163']()
+  instance.exports['__napi_register__read_package_json_164']()
+  instance.exports['__napi_register__get_package_json_name_165']()
+  instance.exports['__napi_register__test_serde_roundtrip_166']()
+  instance.exports['__napi_register__test_serde_big_number_precision_167']()
+  instance.exports['__napi_register__return_from_shared_crate_168']()
+  instance.exports['__napi_register__contains_169']()
+  instance.exports['__napi_register__concat_str_170']()
+  instance.exports['__napi_register__concat_utf16_171']()
+  instance.exports['__napi_register__concat_latin1_172']()
+  instance.exports['__napi_register__roundtrip_str_173']()
+  instance.exports['__napi_register__set_symbol_in_obj_174']()
+  instance.exports['__napi_register__create_symbol_175']()
+  instance.exports['__napi_register__create_symbol_for_176']()
+  instance.exports['__napi_register__DelaySum_impl_177']()
+  instance.exports['__napi_register__without_abort_controller_178']()
+  instance.exports['__napi_register__with_abort_controller_179']()
+  instance.exports['__napi_register__call_threadsafe_function_180']()
+  instance.exports['__napi_register__call_long_threadsafe_function_181']()
+  instance.exports['__napi_register__threadsafe_function_throw_error_182']()
+  instance.exports['__napi_register__threadsafe_function_fatal_mode_183']()
+  instance.exports['__napi_register__threadsafe_function_fatal_mode_error_184']()
+  instance.exports['__napi_register__threadsafe_function_closure_capture_185']()
+  instance.exports['__napi_register__tsfn_call_with_callback_186']()
+  instance.exports['__napi_register__tsfn_async_call_187']()
+  instance.exports['__napi_register__accept_threadsafe_function_188']()
+  instance.exports['__napi_register__accept_threadsafe_function_fatal_189']()
+  instance.exports['__napi_register__accept_threadsafe_function_tuple_args_190']()
+  instance.exports['__napi_register__tsfn_return_promise_191']()
+  instance.exports['__napi_register__tsfn_return_promise_timeout_192']()
+  instance.exports['__napi_register__tsfn_throw_from_js_193']()
+  instance.exports['__napi_register__get_buffer_194']()
+  instance.exports['__napi_register__append_buffer_195']()
+  instance.exports['__napi_register__get_empty_buffer_196']()
+  instance.exports['__napi_register__convert_u32_array_197']()
+  instance.exports['__napi_register__create_external_typed_array_198']()
+  instance.exports['__napi_register__mutate_typed_array_199']()
+  instance.exports['__napi_register__deref_uint8_array_200']()
+  instance.exports['__napi_register__buffer_pass_through_201']()
+  instance.exports['__napi_register__array_buffer_pass_through_202']()
+  instance.exports['__napi_register__AsyncBuffer_impl_203']()
+  instance.exports['__napi_register__async_reduce_buffer_204']()
+  instance.exports['__napi_register__run_script_205']()
 }
 
 __napi_rs_initialize_modules()
@@ -239,165 +252,185 @@ const binding = napiModule.init({
   memory: instance.exports.memory,
   table: instance.exports.__indirect_function_table,
 })
-const { DEFAULT_COST: _DEFAULT_COST, getWords: _getWords, getNums: _getNums, sumNums: _sumNums, toJsObj: _toJsObj, getNumArr: _getNumArr, getNestedNumArr: _getNestedNumArr, readFileAsync: _readFileAsync, asyncMultiTwo: _asyncMultiTwo, bigintAdd: _bigintAdd, createBigInt: _createBigInt, createBigIntI64: _createBigIntI64, bigintGetU64AsString: _bigintGetU64AsString, bigintFromI64: _bigintFromI64, bigintFromI128: _bigintFromI128, getCwd: _getCwd, optionEnd: _optionEnd, optionStart: _optionStart, optionStartEnd: _optionStartEnd, optionOnly: _optionOnly, readFile: _readFile, returnJsFunction: _returnJsFunction, callbackReturnPromise: _callbackReturnPromise, captureErrorInCallback: _captureErrorInCallback, Animal: _Animal, Dog: _Dog, Bird: _Bird, Blake2BHasher: _Blake2BHasher, Blake2BKey: _Blake2BKey, Context: _Context, AnimalWithDefaultConstructor: _AnimalWithDefaultConstructor, NinjaTurtle: _NinjaTurtle, Assets: _Assets, Asset: _Asset, Optional: _Optional, createObjectWithClassField: _createObjectWithClassField, receiveObjectWithClassField: _receiveObjectWithClassField, NotWritableClass: _NotWritableClass, CustomFinalize: _CustomFinalize, Width: _Width, plusOne: _plusOne, ClassWithFactory: _ClassWithFactory, dateToNumber: _dateToNumber, chronoDateToMillis: _chronoDateToMillis, chronoDateAdd1Minute: _chronoDateAdd1Minute, eitherStringOrNumber: _eitherStringOrNumber, returnEither: _returnEither, either3: _either3, either4: _either4, JsClassForEither: _JsClassForEither, AnotherClassForEither: _AnotherClassForEither, receiveClassOrNumber: _receiveClassOrNumber, receiveMutClassOrNumber: _receiveMutClassOrNumber, receiveDifferentClass: _receiveDifferentClass, returnEitherClass: _returnEitherClass, eitherFromOption: _eitherFromOption, eitherFromObjects: _eitherFromObjects, eitherBoolOrFunction: _eitherBoolOrFunction, promiseInEither: _promiseInEither, Kind: _Kind, Empty: _Empty, CustomNumEnum: _CustomNumEnum, enumToI32: _enumToI32, throwError: _throwError, panic: _panic, receiveString: _receiveString, customStatusCode: _customStatusCode, createExternal: _createExternal, createExternalString: _createExternalString, getExternal: _getExternal, mutateExternal: _mutateExternal, validateArray: _validateArray, validateBuffer: _validateBuffer, validateTypedArray: _validateTypedArray, validateBigint: _validateBigint, validateBoolean: _validateBoolean, validateDate: _validateDate, validateDateTime: _validateDateTime, validateExternal: _validateExternal, validateFunction: _validateFunction, validateHashMap: _validateHashMap, validateNull: _validateNull, validateUndefined: _validateUndefined, validateNumber: _validateNumber, validatePromise: _validatePromise, validateString: _validateString, validateSymbol: _validateSymbol, validateOptional: _validateOptional, returnUndefinedIfInvalid: _returnUndefinedIfInvalid, returnUndefinedIfInvalidPromise: _returnUndefinedIfInvalidPromise, tsRename: _tsRename, overrideIndividualArgOnFunction: _overrideIndividualArgOnFunction, overrideIndividualArgOnFunctionWithCbArg: _overrideIndividualArgOnFunctionWithCbArg, Fib: _Fib, Fib2: _Fib2, Fib3: _Fib3, xxh64Alias: _xxh64Alias, getMapping: _getMapping, sumMapping: _sumMapping, mapOption: _mapOption, returnNull: _returnNull, returnUndefined: _returnUndefined, add: _add, fibonacci: _fibonacci, listObjKeys: _listObjKeys, createObj: _createObj, getGlobal: _getGlobal, getUndefined: _getUndefined, getNull: _getNull, receiveAllOptionalObject: _receiveAllOptionalObject, ALIAS: _ALIAS, fnReceivedAliased: _fnReceivedAliased, receiveStrictObject: _receiveStrictObject, getStrFromObject: _getStrFromObject, createObjWithProperty: _createObjWithProperty, getterFromObj: _getterFromObj, receiveObjectOnlyFromJs: _receiveObjectOnlyFromJs, asyncPlus100: _asyncPlus100, JsRepo: _JsRepo, JsRemote: _JsRemote, CssRuleList: _CssRuleList, CssStyleSheet: _CssStyleSheet, AnotherCssStyleSheet: _AnotherCssStyleSheet, readPackageJson: _readPackageJson, getPackageJsonName: _getPackageJsonName, testSerdeRoundtrip: _testSerdeRoundtrip, contains: _contains, concatStr: _concatStr, concatUtf16: _concatUtf16, concatLatin1: _concatLatin1, roundtripStr: _roundtripStr, setSymbolInObj: _setSymbolInObj, createSymbol: _createSymbol, withoutAbortController: _withoutAbortController, withAbortController: _withAbortController, callThreadsafeFunction: _callThreadsafeFunction, threadsafeFunctionThrowError: _threadsafeFunctionThrowError, threadsafeFunctionFatalMode: _threadsafeFunctionFatalMode, threadsafeFunctionFatalModeError: _threadsafeFunctionFatalModeError, threadsafeFunctionClosureCapture: _threadsafeFunctionClosureCapture, tsfnCallWithCallback: _tsfnCallWithCallback, tsfnAsyncCall: _tsfnAsyncCall, acceptThreadsafeFunction: _acceptThreadsafeFunction, acceptThreadsafeFunctionFatal: _acceptThreadsafeFunctionFatal, acceptThreadsafeFunctionTupleArgs: _acceptThreadsafeFunctionTupleArgs, tsfnReturnPromise: _tsfnReturnPromise, tsfnReturnPromiseTimeout: _tsfnReturnPromiseTimeout, getBuffer: _getBuffer, appendBuffer: _appendBuffer, getEmptyBuffer: _getEmptyBuffer, convertU32Array: _convertU32Array, createExternalTypedArray: _createExternalTypedArray, mutateTypedArray: _mutateTypedArray, derefUint8Array: _derefUint8Array, bufferPassThrough: _bufferPassThrough, arrayBufferPassThrough: _arrayBufferPassThrough, asyncReduceBuffer: _asyncReduceBuffer, runScript: _runScript, xxh3: _xxh3, xxh2: _xxh2 } = binding
+const { Animal: _Animal, AnimalWithDefaultConstructor: _AnimalWithDefaultConstructor, AnotherClassForEither: _AnotherClassForEither, AnotherCssStyleSheet: _AnotherCssStyleSheet, AnotherCSSStyleSheet: _AnotherCSSStyleSheet, Asset: _Asset, JsAsset: _JsAsset, Assets: _Assets, JsAssets: _JsAssets, Bird: _Bird, Blake2BHasher: _Blake2BHasher, Blake2bHasher: _Blake2bHasher, Blake2BKey: _Blake2BKey, Blake2bKey: _Blake2bKey, ClassWithFactory: _ClassWithFactory, Context: _Context, CssRuleList: _CssRuleList, CSSRuleList: _CSSRuleList, CssStyleSheet: _CssStyleSheet, CSSStyleSheet: _CSSStyleSheet, CustomFinalize: _CustomFinalize, Dog: _Dog, Fib: _Fib, Fib2: _Fib2, Fib3: _Fib3, GetterSetterWithClosures: _GetterSetterWithClosures, JsClassForEither: _JsClassForEither, JsRemote: _JsRemote, JsRepo: _JsRepo, NinjaTurtle: _NinjaTurtle, NotWritableClass: _NotWritableClass, Optional: _Optional, Selector: _Selector, Width: _Width, acceptThreadsafeFunction: _acceptThreadsafeFunction, acceptThreadsafeFunctionFatal: _acceptThreadsafeFunctionFatal, acceptThreadsafeFunctionTupleArgs: _acceptThreadsafeFunctionTupleArgs, add: _add, ALIAS: _ALIAS, AliasedEnum: _AliasedEnum, appendBuffer: _appendBuffer, arrayBufferPassThrough: _arrayBufferPassThrough, asyncMultiTwo: _asyncMultiTwo, asyncPlus100: _asyncPlus100, asyncReduceBuffer: _asyncReduceBuffer, bigintAdd: _bigintAdd, bigintFromI128: _bigintFromI128, bigintFromI64: _bigintFromI64, bigintGetU64AsString: _bigintGetU64AsString, bufferPassThrough: _bufferPassThrough, callbackReturnPromise: _callbackReturnPromise, callbackReturnPromiseAndSpawn: _callbackReturnPromiseAndSpawn, callLongThreadsafeFunction: _callLongThreadsafeFunction, callThreadsafeFunction: _callThreadsafeFunction, captureErrorInCallback: _captureErrorInCallback, chronoDateAdd1Minute: _chronoDateAdd1Minute, chronoDateToMillis: _chronoDateToMillis, chronoNativeDateTime: _chronoNativeDateTime, chronoNativeDateTimeReturn: _chronoNativeDateTimeReturn, concatLatin1: _concatLatin1, concatStr: _concatStr, concatUtf16: _concatUtf16, contains: _contains, convertU32Array: _convertU32Array, createBigInt: _createBigInt, createBigIntI64: _createBigIntI64, createExternal: _createExternal, createExternalString: _createExternalString, createExternalTypedArray: _createExternalTypedArray, createObj: _createObj, createObjectWithClassField: _createObjectWithClassField, createObjWithProperty: _createObjWithProperty, createSymbol: _createSymbol, createSymbolFor: _createSymbolFor, CustomNumEnum: _CustomNumEnum, customStatusCode: _customStatusCode, dateToNumber: _dateToNumber, DEFAULT_COST: _DEFAULT_COST, derefUint8Array: _derefUint8Array, either3: _either3, either4: _either4, eitherBoolOrFunction: _eitherBoolOrFunction, eitherFromObjects: _eitherFromObjects, eitherFromOption: _eitherFromOption, eitherStringOrNumber: _eitherStringOrNumber, Empty: _Empty, enumToI32: _enumToI32, fibonacci: _fibonacci, fnReceivedAliased: _fnReceivedAliased, getBuffer: _getBuffer, getCwd: _getCwd, getEmptyBuffer: _getEmptyBuffer, getExternal: _getExternal, getGlobal: _getGlobal, getMapping: _getMapping, getNestedNumArr: _getNestedNumArr, getNull: _getNull, getNumArr: _getNumArr, getNums: _getNums, getPackageJsonName: _getPackageJsonName, getStrFromObject: _getStrFromObject, getterFromObj: _getterFromObj, getUndefined: _getUndefined, getWords: _getWords, Kind: _Kind, listObjKeys: _listObjKeys, mapOption: _mapOption, mutateExternal: _mutateExternal, mutateTypedArray: _mutateTypedArray, optionEnd: _optionEnd, optionOnly: _optionOnly, optionStart: _optionStart, optionStartEnd: _optionStartEnd, overrideIndividualArgOnFunction: _overrideIndividualArgOnFunction, overrideIndividualArgOnFunctionWithCbArg: _overrideIndividualArgOnFunctionWithCbArg, panic: _panic, plusOne: _plusOne, promiseInEither: _promiseInEither, readFile: _readFile, readFileAsync: _readFileAsync, readPackageJson: _readPackageJson, receiveAllOptionalObject: _receiveAllOptionalObject, receiveClassOrNumber: _receiveClassOrNumber, receiveDifferentClass: _receiveDifferentClass, receiveMutClassOrNumber: _receiveMutClassOrNumber, receiveObjectOnlyFromJs: _receiveObjectOnlyFromJs, receiveObjectWithClassField: _receiveObjectWithClassField, receiveStrictObject: _receiveStrictObject, receiveString: _receiveString, returnEither: _returnEither, returnEitherClass: _returnEitherClass, returnFromSharedCrate: _returnFromSharedCrate, returnJsFunction: _returnJsFunction, returnNull: _returnNull, returnUndefined: _returnUndefined, returnUndefinedIfInvalid: _returnUndefinedIfInvalid, returnUndefinedIfInvalidPromise: _returnUndefinedIfInvalidPromise, roundtripStr: _roundtripStr, runScript: _runScript, setSymbolInObj: _setSymbolInObj, Status: _Status, sumMapping: _sumMapping, sumNums: _sumNums, testSerdeBigNumberPrecision: _testSerdeBigNumberPrecision, testSerdeRoundtrip: _testSerdeRoundtrip, threadsafeFunctionClosureCapture: _threadsafeFunctionClosureCapture, threadsafeFunctionFatalMode: _threadsafeFunctionFatalMode, threadsafeFunctionFatalModeError: _threadsafeFunctionFatalModeError, threadsafeFunctionThrowError: _threadsafeFunctionThrowError, throwAsyncError: _throwAsyncError, throwError: _throwError, toJsObj: _toJsObj, tsfnAsyncCall: _tsfnAsyncCall, tsfnCallWithCallback: _tsfnCallWithCallback, tsfnReturnPromise: _tsfnReturnPromise, tsfnReturnPromiseTimeout: _tsfnReturnPromiseTimeout, tsfnThrowFromJs: _tsfnThrowFromJs, tsRename: _tsRename, validateArray: _validateArray, validateBigint: _validateBigint, validateBoolean: _validateBoolean, validateBuffer: _validateBuffer, validateDate: _validateDate, validateDateTime: _validateDateTime, validateExternal: _validateExternal, validateFunction: _validateFunction, validateHashMap: _validateHashMap, validateNull: _validateNull, validateNumber: _validateNumber, validateOptional: _validateOptional, validatePromise: _validatePromise, validateString: _validateString, validateSymbol: _validateSymbol, validateTypedArray: _validateTypedArray, validateUndefined: _validateUndefined, withAbortController: _withAbortController, withoutAbortController: _withoutAbortController, xxh64Alias: _xxh64Alias, xxh2: _xxh2, xxh3: _xxh3 } = binding
 
-export const DEFAULT_COST = _DEFAULT_COST
-export const getWords = _getWords
-export const getNums = _getNums
-export const sumNums = _sumNums
-export const toJsObj = _toJsObj
-export const getNumArr = _getNumArr
-export const getNestedNumArr = _getNestedNumArr
-export const readFileAsync = _readFileAsync
-export const asyncMultiTwo = _asyncMultiTwo
-export const bigintAdd = _bigintAdd
-export const createBigInt = _createBigInt
-export const createBigIntI64 = _createBigIntI64
-export const bigintGetU64AsString = _bigintGetU64AsString
-export const bigintFromI64 = _bigintFromI64
-export const bigintFromI128 = _bigintFromI128
-export const getCwd = _getCwd
-export const optionEnd = _optionEnd
-export const optionStart = _optionStart
-export const optionStartEnd = _optionStartEnd
-export const optionOnly = _optionOnly
-export const readFile = _readFile
-export const returnJsFunction = _returnJsFunction
-export const callbackReturnPromise = _callbackReturnPromise
-export const captureErrorInCallback = _captureErrorInCallback
 export const Animal = _Animal
-export const Dog = _Dog
+export const AnimalWithDefaultConstructor = _AnimalWithDefaultConstructor
+export const AnotherClassForEither = _AnotherClassForEither
+export const AnotherCssStyleSheet = _AnotherCssStyleSheet
+export const AnotherCSSStyleSheet = _AnotherCSSStyleSheet
+export const Asset = _Asset
+export const JsAsset = _JsAsset
+export const Assets = _Assets
+export const JsAssets = _JsAssets
 export const Bird = _Bird
 export const Blake2BHasher = _Blake2BHasher
+export const Blake2bHasher = _Blake2bHasher
 export const Blake2BKey = _Blake2BKey
-export const Context = _Context
-export const AnimalWithDefaultConstructor = _AnimalWithDefaultConstructor
-export const NinjaTurtle = _NinjaTurtle
-export const Assets = _Assets
-export const Asset = _Asset
-export const Optional = _Optional
-export const createObjectWithClassField = _createObjectWithClassField
-export const receiveObjectWithClassField = _receiveObjectWithClassField
-export const NotWritableClass = _NotWritableClass
-export const CustomFinalize = _CustomFinalize
-export const Width = _Width
-export const plusOne = _plusOne
+export const Blake2bKey = _Blake2bKey
 export const ClassWithFactory = _ClassWithFactory
-export const dateToNumber = _dateToNumber
-export const chronoDateToMillis = _chronoDateToMillis
-export const chronoDateAdd1Minute = _chronoDateAdd1Minute
-export const eitherStringOrNumber = _eitherStringOrNumber
-export const returnEither = _returnEither
-export const either3 = _either3
-export const either4 = _either4
+export const Context = _Context
+export const CssRuleList = _CssRuleList
+export const CSSRuleList = _CSSRuleList
+export const CssStyleSheet = _CssStyleSheet
+export const CSSStyleSheet = _CSSStyleSheet
+export const CustomFinalize = _CustomFinalize
+export const Dog = _Dog
+export const Fib = _Fib
+export const Fib2 = _Fib2
+export const Fib3 = _Fib3
+export const GetterSetterWithClosures = _GetterSetterWithClosures
 export const JsClassForEither = _JsClassForEither
-export const AnotherClassForEither = _AnotherClassForEither
-export const receiveClassOrNumber = _receiveClassOrNumber
-export const receiveMutClassOrNumber = _receiveMutClassOrNumber
-export const receiveDifferentClass = _receiveDifferentClass
-export const returnEitherClass = _returnEitherClass
-export const eitherFromOption = _eitherFromOption
-export const eitherFromObjects = _eitherFromObjects
-export const eitherBoolOrFunction = _eitherBoolOrFunction
-export const promiseInEither = _promiseInEither
-export const Kind = _Kind
-export const Empty = _Empty
-export const CustomNumEnum = _CustomNumEnum
-export const enumToI32 = _enumToI32
-export const throwError = _throwError
-export const panic = _panic
-export const receiveString = _receiveString
-export const customStatusCode = _customStatusCode
+export const JsRemote = _JsRemote
+export const JsRepo = _JsRepo
+export const NinjaTurtle = _NinjaTurtle
+export const NotWritableClass = _NotWritableClass
+export const Optional = _Optional
+export const Selector = _Selector
+export const Width = _Width
+export const acceptThreadsafeFunction = _acceptThreadsafeFunction
+export const acceptThreadsafeFunctionFatal = _acceptThreadsafeFunctionFatal
+export const acceptThreadsafeFunctionTupleArgs = _acceptThreadsafeFunctionTupleArgs
+export const add = _add
+export const ALIAS = _ALIAS
+export const AliasedEnum = _AliasedEnum
+export const appendBuffer = _appendBuffer
+export const arrayBufferPassThrough = _arrayBufferPassThrough
+export const asyncMultiTwo = _asyncMultiTwo
+export const asyncPlus100 = _asyncPlus100
+export const asyncReduceBuffer = _asyncReduceBuffer
+export const bigintAdd = _bigintAdd
+export const bigintFromI128 = _bigintFromI128
+export const bigintFromI64 = _bigintFromI64
+export const bigintGetU64AsString = _bigintGetU64AsString
+export const bufferPassThrough = _bufferPassThrough
+export const callbackReturnPromise = _callbackReturnPromise
+export const callbackReturnPromiseAndSpawn = _callbackReturnPromiseAndSpawn
+export const callLongThreadsafeFunction = _callLongThreadsafeFunction
+export const callThreadsafeFunction = _callThreadsafeFunction
+export const captureErrorInCallback = _captureErrorInCallback
+export const chronoDateAdd1Minute = _chronoDateAdd1Minute
+export const chronoDateToMillis = _chronoDateToMillis
+export const chronoNativeDateTime = _chronoNativeDateTime
+export const chronoNativeDateTimeReturn = _chronoNativeDateTimeReturn
+export const concatLatin1 = _concatLatin1
+export const concatStr = _concatStr
+export const concatUtf16 = _concatUtf16
+export const contains = _contains
+export const convertU32Array = _convertU32Array
+export const createBigInt = _createBigInt
+export const createBigIntI64 = _createBigIntI64
 export const createExternal = _createExternal
 export const createExternalString = _createExternalString
+export const createExternalTypedArray = _createExternalTypedArray
+export const createObj = _createObj
+export const createObjectWithClassField = _createObjectWithClassField
+export const createObjWithProperty = _createObjWithProperty
+export const createSymbol = _createSymbol
+export const createSymbolFor = _createSymbolFor
+export const CustomNumEnum = _CustomNumEnum
+export const customStatusCode = _customStatusCode
+export const dateToNumber = _dateToNumber
+export const DEFAULT_COST = _DEFAULT_COST
+export const derefUint8Array = _derefUint8Array
+export const either3 = _either3
+export const either4 = _either4
+export const eitherBoolOrFunction = _eitherBoolOrFunction
+export const eitherFromObjects = _eitherFromObjects
+export const eitherFromOption = _eitherFromOption
+export const eitherStringOrNumber = _eitherStringOrNumber
+export const Empty = _Empty
+export const enumToI32 = _enumToI32
+export const fibonacci = _fibonacci
+export const fnReceivedAliased = _fnReceivedAliased
+export const getBuffer = _getBuffer
+export const getCwd = _getCwd
+export const getEmptyBuffer = _getEmptyBuffer
 export const getExternal = _getExternal
+export const getGlobal = _getGlobal
+export const getMapping = _getMapping
+export const getNestedNumArr = _getNestedNumArr
+export const getNull = _getNull
+export const getNumArr = _getNumArr
+export const getNums = _getNums
+export const getPackageJsonName = _getPackageJsonName
+export const getStrFromObject = _getStrFromObject
+export const getterFromObj = _getterFromObj
+export const getUndefined = _getUndefined
+export const getWords = _getWords
+export const Kind = _Kind
+export const listObjKeys = _listObjKeys
+export const mapOption = _mapOption
 export const mutateExternal = _mutateExternal
+export const mutateTypedArray = _mutateTypedArray
+export const optionEnd = _optionEnd
+export const optionOnly = _optionOnly
+export const optionStart = _optionStart
+export const optionStartEnd = _optionStartEnd
+export const overrideIndividualArgOnFunction = _overrideIndividualArgOnFunction
+export const overrideIndividualArgOnFunctionWithCbArg = _overrideIndividualArgOnFunctionWithCbArg
+export const panic = _panic
+export const plusOne = _plusOne
+export const promiseInEither = _promiseInEither
+export const readFile = _readFile
+export const readFileAsync = _readFileAsync
+export const readPackageJson = _readPackageJson
+export const receiveAllOptionalObject = _receiveAllOptionalObject
+export const receiveClassOrNumber = _receiveClassOrNumber
+export const receiveDifferentClass = _receiveDifferentClass
+export const receiveMutClassOrNumber = _receiveMutClassOrNumber
+export const receiveObjectOnlyFromJs = _receiveObjectOnlyFromJs
+export const receiveObjectWithClassField = _receiveObjectWithClassField
+export const receiveStrictObject = _receiveStrictObject
+export const receiveString = _receiveString
+export const returnEither = _returnEither
+export const returnEitherClass = _returnEitherClass
+export const returnFromSharedCrate = _returnFromSharedCrate
+export const returnJsFunction = _returnJsFunction
+export const returnNull = _returnNull
+export const returnUndefined = _returnUndefined
+export const returnUndefinedIfInvalid = _returnUndefinedIfInvalid
+export const returnUndefinedIfInvalidPromise = _returnUndefinedIfInvalidPromise
+export const roundtripStr = _roundtripStr
+export const runScript = _runScript
+export const setSymbolInObj = _setSymbolInObj
+export const Status = _Status
+export const sumMapping = _sumMapping
+export const sumNums = _sumNums
+export const testSerdeBigNumberPrecision = _testSerdeBigNumberPrecision
+export const testSerdeRoundtrip = _testSerdeRoundtrip
+export const threadsafeFunctionClosureCapture = _threadsafeFunctionClosureCapture
+export const threadsafeFunctionFatalMode = _threadsafeFunctionFatalMode
+export const threadsafeFunctionFatalModeError = _threadsafeFunctionFatalModeError
+export const threadsafeFunctionThrowError = _threadsafeFunctionThrowError
+export const throwAsyncError = _throwAsyncError
+export const throwError = _throwError
+export const toJsObj = _toJsObj
+export const tsfnAsyncCall = _tsfnAsyncCall
+export const tsfnCallWithCallback = _tsfnCallWithCallback
+export const tsfnReturnPromise = _tsfnReturnPromise
+export const tsfnReturnPromiseTimeout = _tsfnReturnPromiseTimeout
+export const tsfnThrowFromJs = _tsfnThrowFromJs
+export const tsRename = _tsRename
 export const validateArray = _validateArray
-export const validateBuffer = _validateBuffer
-export const validateTypedArray = _validateTypedArray
 export const validateBigint = _validateBigint
 export const validateBoolean = _validateBoolean
+export const validateBuffer = _validateBuffer
 export const validateDate = _validateDate
 export const validateDateTime = _validateDateTime
 export const validateExternal = _validateExternal
 export const validateFunction = _validateFunction
 export const validateHashMap = _validateHashMap
 export const validateNull = _validateNull
-export const validateUndefined = _validateUndefined
 export const validateNumber = _validateNumber
+export const validateOptional = _validateOptional
 export const validatePromise = _validatePromise
 export const validateString = _validateString
 export const validateSymbol = _validateSymbol
-export const validateOptional = _validateOptional
-export const returnUndefinedIfInvalid = _returnUndefinedIfInvalid
-export const returnUndefinedIfInvalidPromise = _returnUndefinedIfInvalidPromise
-export const tsRename = _tsRename
-export const overrideIndividualArgOnFunction = _overrideIndividualArgOnFunction
-export const overrideIndividualArgOnFunctionWithCbArg = _overrideIndividualArgOnFunctionWithCbArg
-export const Fib = _Fib
-export const Fib2 = _Fib2
-export const Fib3 = _Fib3
-export const xxh64Alias = _xxh64Alias
-export const getMapping = _getMapping
-export const sumMapping = _sumMapping
-export const mapOption = _mapOption
-export const returnNull = _returnNull
-export const returnUndefined = _returnUndefined
-export const add = _add
-export const fibonacci = _fibonacci
-export const listObjKeys = _listObjKeys
-export const createObj = _createObj
-export const getGlobal = _getGlobal
-export const getUndefined = _getUndefined
-export const getNull = _getNull
-export const receiveAllOptionalObject = _receiveAllOptionalObject
-export const ALIAS = _ALIAS
-export const fnReceivedAliased = _fnReceivedAliased
-export const receiveStrictObject = _receiveStrictObject
-export const getStrFromObject = _getStrFromObject
-export const createObjWithProperty = _createObjWithProperty
-export const getterFromObj = _getterFromObj
-export const receiveObjectOnlyFromJs = _receiveObjectOnlyFromJs
-export const asyncPlus100 = _asyncPlus100
-export const JsRepo = _JsRepo
-export const JsRemote = _JsRemote
-export const CssRuleList = _CssRuleList
-export const CssStyleSheet = _CssStyleSheet
-export const AnotherCssStyleSheet = _AnotherCssStyleSheet
-export const readPackageJson = _readPackageJson
-export const getPackageJsonName = _getPackageJsonName
-export const testSerdeRoundtrip = _testSerdeRoundtrip
-export const contains = _contains
-export const concatStr = _concatStr
-export const concatUtf16 = _concatUtf16
-export const concatLatin1 = _concatLatin1
-export const roundtripStr = _roundtripStr
-export const setSymbolInObj = _setSymbolInObj
-export const createSymbol = _createSymbol
-export const withoutAbortController = _withoutAbortController
+export const validateTypedArray = _validateTypedArray
+export const validateUndefined = _validateUndefined
 export const withAbortController = _withAbortController
-export const callThreadsafeFunction = _callThreadsafeFunction
-export const threadsafeFunctionThrowError = _threadsafeFunctionThrowError
-export const threadsafeFunctionFatalMode = _threadsafeFunctionFatalMode
-export const threadsafeFunctionFatalModeError = _threadsafeFunctionFatalModeError
-export const threadsafeFunctionClosureCapture = _threadsafeFunctionClosureCapture
-export const tsfnCallWithCallback = _tsfnCallWithCallback
-export const tsfnAsyncCall = _tsfnAsyncCall
-export const acceptThreadsafeFunction = _acceptThreadsafeFunction
-export const acceptThreadsafeFunctionFatal = _acceptThreadsafeFunctionFatal
-export const acceptThreadsafeFunctionTupleArgs = _acceptThreadsafeFunctionTupleArgs
-export const tsfnReturnPromise = _tsfnReturnPromise
-export const tsfnReturnPromiseTimeout = _tsfnReturnPromiseTimeout
-export const getBuffer = _getBuffer
-export const appendBuffer = _appendBuffer
-export const getEmptyBuffer = _getEmptyBuffer
-export const convertU32Array = _convertU32Array
-export const createExternalTypedArray = _createExternalTypedArray
-export const mutateTypedArray = _mutateTypedArray
-export const derefUint8Array = _derefUint8Array
-export const bufferPassThrough = _bufferPassThrough
-export const arrayBufferPassThrough = _arrayBufferPassThrough
-export const asyncReduceBuffer = _asyncReduceBuffer
-export const runScript = _runScript
-export const xxh3 = _xxh3
+export const withoutAbortController = _withoutAbortController
+export const xxh64Alias = _xxh64Alias
 export const xxh2 = _xxh2
+export const xxh3 = _xxh3
