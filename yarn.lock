@@ -3233,26 +3233,26 @@ __metadata:
   languageName: node
   linkType: hard
 
-"docker-modem@npm:^3.0.0":
-  version: 3.0.8
-  resolution: "docker-modem@npm:3.0.8"
+"docker-modem@npm:^5.0.0":
+  version: 5.0.0
+  resolution: "docker-modem@npm:5.0.0"
   dependencies:
     debug: ^4.1.1
     readable-stream: ^3.5.0
     split-ca: ^1.0.1
     ssh2: ^1.11.0
-  checksum: e3675c9b1ad800be8fb1cb9c5621fbef20a75bfedcd6e01b69808eadd7f0165681e4e30d1700897b788a67dbf4769964fcccd19c3d66f6d2499bb7aede6b34df
+  checksum: 79e8f0dddfc788b1af80a73f527d514a8ea33ac55f4572f75b0ede12c114cd1092576e087ae0442110b6f762c14e923d368101bbbc30d6345a6c980ffb4c878d
   languageName: node
   linkType: hard
 
-"dockerode@npm:^3.3.5":
-  version: 3.3.5
-  resolution: "dockerode@npm:3.3.5"
+"dockerode@npm:^4.0.0":
+  version: 4.0.0
+  resolution: "dockerode@npm:4.0.0"
   dependencies:
     "@balena/dockerignore": ^1.0.2
-    docker-modem: ^3.0.0
+    docker-modem: ^5.0.0
     tar-fs: ~2.0.1
-  checksum: 7f6650422b07fa7ea9d5801f04b1a432634446b5fe37b995b8302b953b64e93abf1bb4596c2fb574ba47aafee685ef2ab959cc86c9654add5a26d09541bbbcc6
+  checksum: 115bdf856c6b3d6039f5514cf2ec20612ac1acad7857c0bf988d3201a6de374ef19464d90899926a60591a9b7c5ae53bea638c09b48fa96c90c6d1204a6c1c8c
   languageName: node
   linkType: hard
 
@@ -6153,7 +6153,7 @@ __metadata:
     "@napi-rs/cli": "workspace:*"
     "@types/dockerode": ^3.3.19
     colorette: ^2.0.20
-    dockerode: ^3.3.5
+    dockerode: ^4.0.0
     pretty-bytes: ^6.1.1
     table: ^6.8.1
   languageName: unknown
