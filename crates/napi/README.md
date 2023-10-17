@@ -24,7 +24,7 @@ A framework for building compiled `Node.js` add-ons in `Rust` via Node-API. Webs
 
 ## MSRV
 
-**Rust** `1.63.0`
+**Rust** `1.65.0`
 
 |                       | node12 | node14 | node16 | node18 | node20 |
 | --------------------- | ------ | ------ | ------ | ------ | ------ |
