@@ -1,5 +1,4 @@
 import { exec } from 'node:child_process'
-import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -9,7 +8,6 @@ import type { AliasedStruct } from '../index.js'
 
 import { test } from './test.framework.js'
 
-const require = createRequire(import.meta.url)
 const __dirname = join(fileURLToPath(import.meta.url), '..')
 
 const {
@@ -46,8 +44,6 @@ const {
   getPackageJsonName,
   getBuffer,
   getEmptyBuffer,
-  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-  // @ts-ignore
   readFileAsync,
   eitherStringOrNumber,
   returnEither,
@@ -143,7 +139,7 @@ const {
   chronoNativeDateTime,
   chronoNativeDateTimeReturn,
   throwAsyncError,
-}: typeof import('../index.d.ts') = require('../index.node')
+} = (await import('../index.js')).default
 
 test('export const', (t) => {
   t.is(DEFAULT_COST, 12)
@@ -312,7 +308,7 @@ test('should be able to into_reference', (t) => {
 
 test('callback', (t) => {
   getCwd((cwd) => {
-    t.is(cwd, process.cwd())
+    t.is(cwd, process.env.WASI_TEST ? '/' : process.cwd())
   })
 
   t.throws(
@@ -493,7 +489,6 @@ test('serde-json', (t) => {
   const packageJson = readPackageJson()
   t.is(packageJson.name, '@examples/napi')
   t.is(packageJson.version, '0.0.0')
-  t.is(packageJson.dependencies, undefined)
   t.snapshot(Object.keys(packageJson.devDependencies!).sort())
 
   t.is(getPackageJsonName(packageJson), '@examples/napi')

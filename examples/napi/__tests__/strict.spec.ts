@@ -1,11 +1,6 @@
-import { createRequire } from 'node:module'
-
 import test from 'ava'
 
-const require = createRequire(import.meta.url)
-
 const {
-import {
   validateArray,
   validateTypedArray,
   validateBigint,
@@ -25,9 +20,7 @@ import {
   returnUndefinedIfInvalid,
   returnUndefinedIfInvalidPromise,
   validateOptional,
-}: typeof import('../index.d.ts') = require('../index.node')
-} from '..'
-} from 'examples'
+} = (await import('../index.js')).default
 
 test('should validate array', (t) => {
   t.is(validateArray([1, 2, 3]), 3)

@@ -1,3 +1,3 @@
-const { threadsafeFunctionFatalModeError } = require('../index')
-
-threadsafeFunctionFatalModeError(() => {})
+import('../index.js').then(({ default: { threadsafeFunctionFatalModeError } }) => {
+  return threadsafeFunctionFatalModeError(() => {})
+})
