@@ -82,7 +82,7 @@ jobs:
               yarn test --verbose
               yarn tsc -p examples/napi/tsconfig.json --noEmit
               yarn test:macro
-            toolchain: 1.63.0
+            toolchain: 1.65.0
           - host: macos-latest
             target: x86_64-apple-darwin
             build: yarn build:test
@@ -113,10 +113,10 @@ jobs:
             toolchain: stable
         exclude:
           - settings:
-              toolchain: 1.63.0
+              toolchain: 1.65.0
             node: 18
           - settings:
-              toolchain: 1.63.0
+              toolchain: 1.65.0
             node: 20
           - settings:
               target: i686-pc-windows-msvc
