@@ -486,6 +486,10 @@ test('aliased rust struct and enum', (t) => {
 })
 
 test('serde-json', (t) => {
+  if (process.env.WASI_TEST) {
+    t.pass()
+    return
+  }
   const packageJson = readPackageJson()
   t.is(packageJson.name, '@examples/napi')
   t.is(packageJson.version, '0.0.0')

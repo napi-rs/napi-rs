@@ -388,7 +388,12 @@ class Builder {
     // END LINKER
 
     if (this.target.platform === 'wasi') {
-      const emnapi = join(require.resolve('emnapi'), '..', 'lib', 'wasm32-wasi')
+      const emnapi = join(
+        require.resolve('emnapi'),
+        '..',
+        'lib',
+        'wasm32-wasi-threads',
+      )
       this.envs.EMNAPI_LINK_DIR = emnapi
     }
 
@@ -651,13 +656,10 @@ class Builder {
     if (distFileName && wasiRegisterFunctions.length) {
       const { name, dir } = parse(distFileName)
       const newPath = join(dir, `${name}.wasi.mjs`)
-      const declareCodes = `const { ${idents
-        .map((ident) => `${ident}: _${ident}`)
-        .join(', ')} } = binding\n`
-      const exportsCode = idents.reduce(
-        (acc, cur) => `${acc}\nexport const ${cur} = _${cur}`,
-        '',
-      )
+      const declareCodes = `const { ${idents.join(', ')} } = binding\n`
+      const exportsCode = `export {\n${idents
+        .map((ident) => `  ${ident}`)
+        .join(',\n')}\n}`
       await writeFileAsync(
         newPath,
         createWasiBinding(this.config.binaryName, wasiRegisterFunctions) +
