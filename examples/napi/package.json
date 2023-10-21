@@ -7,7 +7,7 @@
   "types": "./index.d.ts",
   "scripts": {
     "build": "napi-raw build",
-    "test": "cross-env TS_NODE_PROJECT=./tsconfig.json node --es-module-specifier-resolution=node --loader ts-node/esm/transpile-only ../../node_modules/ava/entrypoints/cli.mjs"
+    "test": "cross-env TS_NODE_PROJECT=./tsconfig.json node --es-module-specifier-resolution=node --loader ts-node/esm/transpile-only --experimental-wasi-unstable-preview1 ../../node_modules/ava/entrypoints/cli.mjs"
   },
   "devDependencies": {
     "@napi-rs/cli": "workspace:*",
@@ -33,21 +33,10 @@
     "timeout": "10m"
   },
   "dependencies": {
-    "@emnapi/core": "0.42.0",
+    "@emnapi/core": "0.43.0",
+    "@tybys/wasm-util": "^0.8.0",
     "@types/lodash": "^4.14.191",
     "lodash": "^4.17.21",
     "sinon": "^15.0.1"
-  },
-  "exports": {
-    ".": {
-      "require": "./index.js",
-      "import": "./index.wasi.mjs"
-    }
-  },
-  "imports": {
-    "#index": {
-      "require": "./index.js",
-      "import": "./index.wasi.mjs"
-    }
   }
 }

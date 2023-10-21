@@ -7,9 +7,10 @@
 import * as __nodeFsPromises from 'node:fs/promises'
 import * as __nodePath from 'node:path'
 import { WASI as __nodeWASI } from 'node:wasi'
+import { Worker } from 'node:worker_threads'
 import * as __nodeURL from 'node:url'
 
-import { createNapiModule as __emnapiCreateNapiModule } from '@emnapi/core'
+import { instantiateNapiModule as __emnapiInstantiateNapiModule } from '@emnapi/core'
 import { getDefaultContext as __emnapiGetDefaultContext } from '@emnapi/runtime'
 
 const __wasi = new __nodeWASI()
@@ -18,24 +19,36 @@ const __dirname = __nodePath.join(__nodeURL.fileURLToPath(import.meta.url), '..'
 
 const __emnapiContext = __emnapiGetDefaultContext()
 
-const __napiModule = __emnapiCreateNapiModule({
+const __sharedMemory = new WebAssembly.Memory({
+  initial: 1024,
+  maximum: 10240,
+  shared: true,
+})
+
+const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule } = await __emnapiInstantiateNapiModule(__nodeFsPromises.readFile(__nodePath.join(__dirname, 'index.wasi-wasm32.wasm')), {
   context: __emnapiContext,
-})
-
-const __wasmBuffer = await __nodeFsPromises.readFile(__nodePath.join(__dirname, 'index.wasi-wasm32.wasm'))
-
-const { instance: __napiInstance, module: __wasiModule } = await WebAssembly.instantiate(__wasmBuffer, {
-  wasi_snapshot_preview1: __wasi.wasiImport,
-  env: {
-    ...__napiModule.imports.env,
-    ...__napiModule.imports.napi,
-    ...__napiModule.imports.emnapi,
+  asyncWorkPoolSize: 4,
+  wasi: __wasi,
+  onCreateWorker() {
+    return new Worker(__nodePath.join(__dirname, 'emnapi-worker.cjs'), {
+      env: process.env,
+      execArgv: ['--experimental-wasi-unstable-preview1'],
+    })
   },
+  overwriteImports(importObject) {
+    importObject.env = {
+      ...importObject.env,
+      ...importObject.napi,
+      ...importObject.emnapi,
+      memory: __sharedMemory,
+    }
+  },
+  beforeInit({ instance }) {
+    __napi_rs_initialize_modules(instance)
+  }
 })
 
-__wasi.initialize(__napiInstance)
-
-function __napi_rs_initialize_modules() {
+function __napi_rs_initialize_modules(__napiInstance) {
   __napiInstance.exports['__napi_register__DEFAULT_COST_0']()
   __napiInstance.exports['__napi_register__TYPE_SKIPPED_CONST_1']()
   __napiInstance.exports['__napi_register__get_words_2']()
@@ -244,14 +257,7 @@ function __napi_rs_initialize_modules() {
   __napiInstance.exports['__napi_register__run_script_205']()
 }
 
-__napi_rs_initialize_modules()
-
-const binding = __napiModule.init({
-  instance: __napiInstance,
-  module: __wasiModule,
-  memory: __napiInstance.exports.memory,
-  table: __napiInstance.exports.__indirect_function_table,
-})
+const binding = __napiModule.exports
 const { Animal, AnimalWithDefaultConstructor, AnotherClassForEither, AnotherCssStyleSheet, AnotherCSSStyleSheet, Asset, JsAsset, Assets, JsAssets, Bird, Blake2BHasher, Blake2bHasher, Blake2BKey, Blake2bKey, ClassWithFactory, Context, CssRuleList, CSSRuleList, CssStyleSheet, CSSStyleSheet, CustomFinalize, Dog, Fib, Fib2, Fib3, GetterSetterWithClosures, JsClassForEither, JsRemote, JsRepo, NinjaTurtle, NotWritableClass, Optional, Selector, Width, acceptThreadsafeFunction, acceptThreadsafeFunctionFatal, acceptThreadsafeFunctionTupleArgs, add, ALIAS, AliasedEnum, appendBuffer, arrayBufferPassThrough, asyncMultiTwo, asyncPlus100, asyncReduceBuffer, bigintAdd, bigintFromI128, bigintFromI64, bigintGetU64AsString, bufferPassThrough, callbackReturnPromise, callbackReturnPromiseAndSpawn, callLongThreadsafeFunction, callThreadsafeFunction, captureErrorInCallback, chronoDateAdd1Minute, chronoDateToMillis, chronoNativeDateTime, chronoNativeDateTimeReturn, concatLatin1, concatStr, concatUtf16, contains, convertU32Array, createBigInt, createBigIntI64, createExternal, createExternalString, createExternalTypedArray, createObj, createObjectWithClassField, createObjWithProperty, createSymbol, createSymbolFor, CustomNumEnum, customStatusCode, dateToNumber, DEFAULT_COST, derefUint8Array, either3, either4, eitherBoolOrFunction, eitherFromObjects, eitherFromOption, eitherStringOrNumber, Empty, enumToI32, fibonacci, fnReceivedAliased, getBuffer, getCwd, getEmptyBuffer, getExternal, getGlobal, getMapping, getNestedNumArr, getNull, getNumArr, getNums, getPackageJsonName, getStrFromObject, getterFromObj, getUndefined, getWords, Kind, listObjKeys, mapOption, mutateExternal, mutateTypedArray, optionEnd, optionOnly, optionStart, optionStartEnd, overrideIndividualArgOnFunction, overrideIndividualArgOnFunctionWithCbArg, panic, plusOne, promiseInEither, readFile, readFileAsync, readPackageJson, receiveAllOptionalObject, receiveClassOrNumber, receiveDifferentClass, receiveMutClassOrNumber, receiveObjectOnlyFromJs, receiveObjectWithClassField, receiveStrictObject, receiveString, returnEither, returnEitherClass, returnFromSharedCrate, returnJsFunction, returnNull, returnUndefined, returnUndefinedIfInvalid, returnUndefinedIfInvalidPromise, roundtripStr, runScript, setSymbolInObj, Status, sumMapping, sumNums, testSerdeBigNumberPrecision, testSerdeRoundtrip, threadsafeFunctionClosureCapture, threadsafeFunctionFatalMode, threadsafeFunctionFatalModeError, threadsafeFunctionThrowError, throwAsyncError, throwError, toJsObj, tsfnAsyncCall, tsfnCallWithCallback, tsfnReturnPromise, tsfnReturnPromiseTimeout, tsfnThrowFromJs, tsRename, validateArray, validateBigint, validateBoolean, validateBuffer, validateDate, validateDateTime, validateExternal, validateFunction, validateHashMap, validateNull, validateNumber, validateOptional, validatePromise, validateString, validateSymbol, validateTypedArray, validateUndefined, withAbortController, withoutAbortController, xxh64Alias, xxh2, xxh3 } = binding
 export {
   Animal,

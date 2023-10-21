@@ -6,13 +6,13 @@ use tokio::runtime::Runtime;
 use crate::{sys, JsDeferred, JsUnknown, NapiValue, Result};
 
 fn create_runtime() -> Option<Runtime> {
-  #[cfg(not(target_arch = "wasm32"))]
+  #[cfg(not(target_os = "wasi"))]
   {
     let runtime = tokio::runtime::Runtime::new().expect("Create tokio runtime failed");
     Some(runtime)
   }
 
-  #[cfg(target_arch = "wasm32")]
+  #[cfg(target_os = "wasi")]
   {
     tokio::runtime::Builder::new_current_thread()
       .enable_all()

@@ -9,9 +9,10 @@ export const createWasiBinding = (
 import * as __nodeFsPromises from 'node:fs/promises'
 import * as __nodePath from 'node:path'
 import { WASI as __nodeWASI } from 'node:wasi'
+import { Worker } from 'node:worker_threads'
 import * as __nodeURL from 'node:url'
 
-import { createNapiModule as __emnapiCreateNapiModule } from '@emnapi/core'
+import { instantiateNapiModule as __emnapiInstantiateNapiModule } from '@emnapi/core'
 import { getDefaultContext as __emnapiGetDefaultContext } from '@emnapi/runtime'
 
 const __wasi = new __nodeWASI()
@@ -20,35 +21,40 @@ const __dirname = __nodePath.join(__nodeURL.fileURLToPath(import.meta.url), '..'
 
 const __emnapiContext = __emnapiGetDefaultContext()
 
-const __napiModule = __emnapiCreateNapiModule({
+const __sharedMemory = new WebAssembly.Memory({
+  initial: 1024,
+  maximum: 10240,
+  shared: true,
+})
+
+const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule } = await __emnapiInstantiateNapiModule(__nodeFsPromises.readFile(__nodePath.join(__dirname, '${localName}.wasi-wasm32.wasm')), {
   context: __emnapiContext,
-})
-
-const __wasmBuffer = await __nodeFsPromises.readFile(__nodePath.join(__dirname, '${localName}.wasi-wasm32.wasm'))
-
-const { instance: __napiInstance, module: __wasiModule } = await WebAssembly.instantiate(__wasmBuffer, {
-  wasi_snapshot_preview1: __wasi.wasiImport,
-  env: {
-    ...__napiModule.imports.env,
-    ...__napiModule.imports.napi,
-    ...__napiModule.imports.emnapi,
+  asyncWorkPoolSize: 4,
+  wasi: __wasi,
+  onCreateWorker() {
+    return new Worker(__nodePath.join(__dirname, 'emnapi-worker.cjs'), {
+      env: process.env,
+      execArgv: ['--experimental-wasi-unstable-preview1'],
+    })
   },
+  overwriteImports(importObject) {
+    importObject.env = {
+      ...importObject.env,
+      ...importObject.napi,
+      ...importObject.emnapi,
+      memory: __sharedMemory,
+    }
+  },
+  beforeInit({ instance }) {
+    __napi_rs_initialize_modules(instance)
+  }
 })
 
-__wasi.initialize(__napiInstance)
-
-function __napi_rs_initialize_modules() {
+function __napi_rs_initialize_modules(__napiInstance) {
 ${wasiRegisterFunctions
   .map((name) => `  __napiInstance.exports['${name}']()`)
   .join('\n')}
 }
 
-__napi_rs_initialize_modules()
-
-const binding = __napiModule.init({
-  instance: __napiInstance,
-  module: __wasiModule,
-  memory: __napiInstance.exports.memory,
-  table: __napiInstance.exports.__indirect_function_table,
-})
+const binding = __napiModule.exports
 `

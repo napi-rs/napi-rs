@@ -125,21 +125,21 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@emnapi/core@npm:0.42.0":
-  version: 0.42.0
-  resolution: "@emnapi/core@npm:0.42.0"
+"@emnapi/core@npm:0.43.0":
+  version: 0.43.0
+  resolution: "@emnapi/core@npm:0.43.0"
   dependencies:
     tslib: ^2.4.0
-  checksum: 8198e4e10a46256ae6ba383b72bdb2fd737640a715d09adb8a9fa7fa10d138f96ba97cbecd2312cbf5a745d2583844e955ed6e7eeba9d42f427c12c621ed98c8
+  checksum: 257731e654106bcd58dd215d36e0e0b7c1d01f5cb124932225a4d7641748695ba7e6e07a55bf7b42e0bd505cba16aa3aa8658b3c06e20cfeba8b82c3c49d376b
   languageName: node
   linkType: hard
 
-"@emnapi/runtime@npm:0.42.0":
-  version: 0.42.0
-  resolution: "@emnapi/runtime@npm:0.42.0"
+"@emnapi/runtime@npm:0.43.0":
+  version: 0.43.0
+  resolution: "@emnapi/runtime@npm:0.43.0"
   dependencies:
     tslib: ^2.4.0
-  checksum: 722239711ea3190b6bed83a3f200536011ed30dc67beac12a46ac6944fb240c530f24d557779b15833e4710c5d93a2421b43d4d7850be3d52b4b98f6430d739f
+  checksum: 5165fab711b07e2ba832f54bad420aa7b341f58c511c71ee8ee9675c6e142723f72af0dff2e852b3a6829c376460d080a2bc4fbb5856c23f938d5ec081d3fb4d
   languageName: node
   linkType: hard
 
@@ -507,8 +507,9 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@examples/napi@workspace:examples/napi"
   dependencies:
-    "@emnapi/core": 0.42.0
+    "@emnapi/core": 0.43.0
     "@napi-rs/cli": "workspace:*"
+    "@tybys/wasm-util": ^0.8.0
     "@types/lodash": ^4.14.195
     ava: ^5.3.1
     cross-env: 7.0.3
@@ -671,7 +672,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@napi-rs/cli@workspace:cli"
   dependencies:
-    "@emnapi/runtime": 0.42.0
+    "@emnapi/runtime": 0.43.0
     "@octokit/rest": ^20.0.1
     "@tybys/wasm-util": 0.8.0
     "@types/debug": ^4.1.7
@@ -682,7 +683,7 @@ __metadata:
     clipanion: ^3.2.1
     colorette: ^2.0.20
     debug: ^4.3.4
-    emnapi: 0.41.0
+    emnapi: 0.43.0
     env-paths: ^3.0.0
     esbuild: ^0.18.13
     inquirer: ^9.2.8
@@ -695,9 +696,9 @@ __metadata:
     typanion: ^3.13.0
     typescript: ^5.1.6
   peerDependencies:
-    "@emnapi/runtime": 0.42.0
+    "@emnapi/runtime": 0.43.0
     "@tybys/wasm-util": 0.8.0
-    emnapi: 0.42.0
+    emnapi: 0.43.0
   peerDependenciesMeta:
     "@emnapi/runtime":
       optional: true
@@ -1472,7 +1473,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@tybys/wasm-util@npm:0.8.0":
+"@tybys/wasm-util@npm:0.8.0, @tybys/wasm-util@npm:^0.8.0":
   version: 0.8.0
   resolution: "@tybys/wasm-util@npm:0.8.0"
   dependencies:
@@ -3557,15 +3558,15 @@ __metadata:
   languageName: node
   linkType: hard
 
-"emnapi@npm:0.41.0":
-  version: 0.41.0
-  resolution: "emnapi@npm:0.41.0"
+"emnapi@npm:0.43.0":
+  version: 0.43.0
+  resolution: "emnapi@npm:0.43.0"
   peerDependencies:
     node-addon-api: ">= 6.1.0"
   peerDependenciesMeta:
     node-addon-api:
       optional: true
-  checksum: a863ee58bb4b776a5f7f0648b30921ed91ce0e7f471af59a017ac0017710572f1efbfa3498034547fa83b7c5ef9a0240e40f5b19f3456f739973e6b88a12da00
+  checksum: 1d5d40fed004fa356a0eb27b61220e36ca1fd4bad85aa79d7d8627ad2a719eb8cd7d788714466703c9e385bd6df459008592eb18d040394aa4b94c72b49e62e5
   languageName: node
   linkType: hard
 
