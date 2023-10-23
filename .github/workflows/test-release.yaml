@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup node
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: 18
           cache: 'yarn'
@@ -131,7 +131,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup node
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
           cache: 'yarn'
@@ -163,7 +163,7 @@ jobs:
         run: ${{ matrix.settings.build }}
 
       - name: Setup node
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         if: matrix.settings.target == 'i686-pc-windows-msvc'
         with:
           node-version: 18
@@ -210,7 +210,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup node
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: 18
           cache: 'yarn'
@@ -265,7 +265,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup node
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: 18
           cache: 'yarn'
@@ -337,7 +337,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup node
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: 18
           cache: 'yarn'
@@ -386,7 +386,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup node
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: 18
           cache: 'yarn'
@@ -435,7 +435,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup node
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: 18
           cache: 'yarn'
@@ -497,7 +497,7 @@ jobs:
         with:
           bun-version: latest
       - name: Setup node
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: 18
           cache: 'yarn'
@@ -531,7 +531,7 @@ jobs:
     if: "startsWith(github.event.head_commit.message, 'chore(release): publish')"
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v4
         with:
           node-version: 18
           cache: 'yarn'
