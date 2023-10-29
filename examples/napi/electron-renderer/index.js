@@ -1,6 +1,6 @@
 const { ipcRenderer } = require('electron')
 
-const { callLongThreadsafeFunction } = require('../index')
+const { callLongThreadsafeFunction } = require('../index.node')
 
 callLongThreadsafeFunction(() => {})
 
