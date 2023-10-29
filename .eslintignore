@@ -16,3 +16,4 @@ triples/index.js
 rollup.config.js
 crates/cli/index.js
 examples/napi/index.wasi.mjs
+examples/napi/wasi-worker.mjs

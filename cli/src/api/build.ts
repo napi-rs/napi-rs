@@ -32,6 +32,7 @@ import {
 
 import { createWasiBinding } from './load-wasi-template.js'
 import { createCjsBinding } from './templates/index.js'
+import { WASI_WORKER_TEMPLATE } from './wasi-worker-template.js'
 
 const debug = debugFactory('build')
 const require = createRequire(import.meta.url)
@@ -656,6 +657,7 @@ class Builder {
     if (distFileName && wasiRegisterFunctions.length) {
       const { name, dir } = parse(distFileName)
       const newPath = join(dir, `${name}.wasi.mjs`)
+      const workerPath = join(dir, 'wasi-worker.mjs')
       const declareCodes = `const { ${idents.join(', ')} } = binding\n`
       const exportsCode = `export {\n${idents
         .map((ident) => `  ${ident}`)
@@ -668,6 +670,7 @@ class Builder {
           '\n',
         'utf8',
       )
+      await writeFileAsync(workerPath, WASI_WORKER_TEMPLATE, 'utf8')
       return {
         kind: 'wasm',
         path: newPath,

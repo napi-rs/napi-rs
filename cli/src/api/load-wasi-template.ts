@@ -37,7 +37,7 @@ const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule
   asyncWorkPoolSize: 4,
   wasi: __wasi,
   onCreateWorker() {
-    return new Worker(__nodePath.join(__dirname, 'emnapi-worker.cjs'), {
+    return new Worker(__nodePath.join(__dirname, 'wasi-worker.mjs'), {
       env: process.env,
       execArgv: ['--experimental-wasi-unstable-preview1'],
     })

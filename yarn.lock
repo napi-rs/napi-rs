@@ -518,6 +518,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@napi-rs/cli@workspace:cli"
   dependencies:
+    "@emnapi/core": 0.43.1
     "@emnapi/runtime": 0.43.1
     "@octokit/rest": ^20.0.1
     "@tybys/wasm-util": 0.8.0
