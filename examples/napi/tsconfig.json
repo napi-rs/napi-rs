@@ -10,11 +10,7 @@
     "skipLibCheck": false,
     "noEmit": true,
     "types": ["bun-types"],
-    "importHelpers": false,
-    "baseUrl": ".",
-    "paths": {
-      "#index": ["./index.d.ts"]
-    }
+    "importHelpers": false
   },
   "exclude": [
     "dist",

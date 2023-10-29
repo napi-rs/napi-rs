@@ -1,9 +1,12 @@
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { Worker } from 'node:worker_threads'
 
 import test from 'ava'
 
 const { Animal, Kind, DEFAULT_COST } = (await import('../index.js')).default
+
+const __dirname = join(fileURLToPath(import.meta.url), '..')
 
 // aarch64-unknown-linux-gnu is extremely slow in CI, skip it or it will timeout
 const t =
