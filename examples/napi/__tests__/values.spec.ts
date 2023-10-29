@@ -845,7 +845,9 @@ Napi4Test('throw error from thread safe function fatal mode', (t) => {
   return new Promise<void>((resolve) => {
     p.on('exit', (code) => {
       t.is(code, 1)
-      t.true(stderr.toString('utf8').includes(`Error: Generic tsfn error`))
+      const stderrMsg = stderr.toString('utf8')
+      console.info(stderrMsg)
+      t.true(stderrMsg.includes(`Error: Generic tsfn error`))
       resolve()
     })
   })
