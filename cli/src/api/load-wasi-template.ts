@@ -15,7 +15,12 @@ import * as __nodeURL from 'node:url'
 import { instantiateNapiModule as __emnapiInstantiateNapiModule } from '@emnapi/core'
 import { getDefaultContext as __emnapiGetDefaultContext } from '@emnapi/runtime'
 
-const __wasi = new __nodeWASI()
+const __wasi = new __nodeWASI({
+  env: process.env,
+  preopens: {
+    '/': __nodePath.join(__nodeURL.fileURLToPath(import.meta.url), '..'),
+  }
+})
 
 const __dirname = __nodePath.join(__nodeURL.fileURLToPath(import.meta.url), '..')
 

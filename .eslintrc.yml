@@ -235,6 +235,7 @@ overrides:
   - files:
       - ./*.js
       - ./*.cjs
+      - ./*.mjs
     plugins:
       - '@typescript-eslint'
     parserOptions:

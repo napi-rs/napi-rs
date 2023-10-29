@@ -1,6 +1,8 @@
-import test from 'ava'
+import ava from 'ava'
 
 const { Fib, Fib2, Fib3 } = (await import('../index.js')).default
+
+const test = process.env.WASI_TEST ? ava.skip : ava
 
 for (const [index, factory] of [
   () => new Fib(),

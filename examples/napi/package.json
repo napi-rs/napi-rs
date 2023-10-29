@@ -25,15 +25,12 @@
       "cjs": true
     },
     "files": [
-      "__tests__/**/*.spec.ts",
-      "__tests__/**/*.spec.cts",
-      "__tests__/**/*.spec.js",
-      "__tests__/**/*.spec.cjs"
+      "__tests__/**/*.spec.{ts,cts,js,cjs,mjs}"
     ],
     "timeout": "10m"
   },
   "dependencies": {
-    "@emnapi/core": "0.43.0",
+    "@emnapi/core": "0.43.1",
     "@tybys/wasm-util": "^0.8.0",
     "@types/lodash": "^4.14.191",
     "lodash": "^4.17.21",

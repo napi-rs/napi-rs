@@ -1,7 +1,2 @@
-[target.wasm32-wasi-preview1-threads]
-rustflags = [
-  "-Z",
-  "wasi-exec-model=reactor",              # +nightly
-  "-C",
-  "target-feature=+atomics,+bulk-memory",
-]
+[target.'cfg(target_os = "wasi")']
+rustflags = ["-C", "target-feature=+atomics,+bulk-memory"]

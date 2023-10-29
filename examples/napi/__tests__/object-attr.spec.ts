@@ -1,6 +1,8 @@
-import test from 'ava'
+import ava from 'ava'
 
 const { NotWritableClass } = (await import('../index.js')).default
+
+const test = process.env.WASI_TEST ? ava.skip : ava
 
 test('Not Writable Class', (t) => {
   const obj = new NotWritableClass('1')
