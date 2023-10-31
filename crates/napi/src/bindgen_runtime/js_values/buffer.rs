@@ -92,6 +92,18 @@ impl Clone for Buffer {
   }
 }
 
+impl<const N: usize> From<[u8; N]> for Buffer {
+  fn from(data: [u8; N]) -> Self {
+    data[..].into()
+  }
+}
+
+impl From<String> for Buffer {
+  fn from(data: String) -> Self {
+    data.as_bytes().into()
+  }
+}
+
 impl From<Vec<u8>> for Buffer {
   fn from(mut data: Vec<u8>) -> Self {
     let inner_ptr = data.as_mut_ptr();
@@ -118,6 +130,12 @@ impl From<Vec<u8>> for Buffer {
       raw: None,
       ref_count: Arc::new(()),
     }
+  }
+}
+
+impl From<Buffer> for Box<[u8]> {
+  fn from(buf: Buffer) -> Self {
+    buf.as_ref().into()
   }
 }
 

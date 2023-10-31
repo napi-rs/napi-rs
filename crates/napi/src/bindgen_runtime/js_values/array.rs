@@ -91,6 +91,25 @@ impl TypeName for Array {
   }
 }
 
+impl<T1: ToNapiValue, T2: ToNapiValue> ToNapiValue for Vec<(T1, T2)> {
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    let mut li = Array::new(env, val.len() as u32)?;
+
+    val
+      .into_iter()
+      .enumerate()
+      .try_for_each(|(pos, (t1, t2))| {
+        let mut t = Array::new(env, 2)?;
+        t.set(0, t1)?;
+        t.set(1, t2)?;
+        li.set(pos as u32, t)?;
+        Ok::<_, crate::Error>(())
+      })?;
+
+    unsafe { Array::to_napi_value(env, li) }
+  }
+}
+
 impl ToNapiValue for Array {
   unsafe fn to_napi_value(_env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     Ok(val.inner)

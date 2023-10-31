@@ -30,7 +30,7 @@ napi-shared = { path = "../napi-shared" }
 serde = "1"
 serde_derive = "1"
 serde_json = "1"
-tokio = { version = "1.20.0", features = ["full"] }
+tokio = { version = "1.32.0", features = ["full"] }
 
 [dependencies.snmalloc-rs]
 version = "0.3"

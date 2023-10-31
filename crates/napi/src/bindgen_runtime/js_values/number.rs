@@ -60,6 +60,31 @@ impl_number_conversions!(
   ("f64", f64 as f64, napi_get_value_double, napi_create_double),
 );
 
+impl crate::bindgen_prelude::FromNapiValue for u64 {
+  unsafe fn from_napi_value(
+    env: crate::sys::napi_env,
+    napi_val: crate::sys::napi_value,
+  ) -> Result<Self> {
+    let mut ret = 0 as i64;
+
+    check_status!(
+      unsafe { sys::napi_get_value_int64(env, napi_val, &mut ret) },
+      "Failed to convert napi value {:?} into rust type `{}`",
+      type_of!(env, napi_val)?,
+      "u64",
+    )?;
+
+    ret.try_into().map_err(|_| {
+      Error::from_reason(concat!(
+        "Failed to convert ",
+        stringify!($st),
+        " to ",
+        stringify!($t)
+      ))
+    })
+  }
+}
+
 impl ToNapiValue for f32 {
   unsafe fn to_napi_value(env: crate::sys::napi_env, val: f32) -> Result<crate::sys::napi_value> {
     let mut ptr = std::ptr::null_mut();
