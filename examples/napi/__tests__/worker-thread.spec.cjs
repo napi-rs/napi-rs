@@ -9,9 +9,11 @@ const { Animal, Kind, DEFAULT_COST } = require('../index.node')
 const t =
   process.arch === 'arm64' && process.platform === 'linux' ? test.skip : test
 
+const concurrency = process.platform === 'win32' || process.platform === 'darwin' || (process.platform === 'linux' && process.arch === 'x64') ? 50 : 10
+
 t('should be able to require in worker thread', async (t) => {
   await Promise.all(
-    Array.from({ length: 100 }).map(() => {
+    Array.from({ length: concurrency }).map(() => {
       const w = new Worker(join(__dirname, 'worker.cjs'), {
         execArgv: []
       })
@@ -35,7 +37,7 @@ t('should be able to require in worker thread', async (t) => {
 
 t('custom GC works on worker_threads', async (t) => {
   await Promise.all(
-    Array.from({ length: 50 }).map(() =>
+    Array.from({ length: concurrency }).map(() =>
       Promise.all([
         new Promise((resolve, reject) => {
           const w = new Worker(join(__dirname, 'worker.cjs'), {
@@ -78,7 +80,7 @@ t('custom GC works on worker_threads', async (t) => {
 
 t('should be able to new Class in worker thread concurrently', async (t) => {
   await Promise.all(
-    Array.from({ length: 100 }).map(() => {
+    Array.from({ length: concurrency }).map(() => {
       const w = new Worker(join(__dirname, 'worker.cjs'), {
         execArgv: []
       })

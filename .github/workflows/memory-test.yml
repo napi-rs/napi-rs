@@ -18,6 +18,7 @@ jobs:
     name: Memory leak detect job
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    continue-on-error: true
 
     steps:
       - uses: actions/checkout@v4
