@@ -104,14 +104,13 @@ jobs:
     runs-on: \${{ matrix.settings.host }}
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Setup node
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         if: \${{ !matrix.settings.docker }}
         with:
           node-version: 18
-          check-latest: true
           cache: yarn
 
       - name: Install
@@ -135,7 +134,7 @@ jobs:
       - uses: goto-bus-stop/setup-zig@v2
         if: \${{ matrix.settings.target == 'armv7-unknown-linux-gnueabihf' }}
         with:
-          version: 0.10.1
+          version: 0.11.0
 
       - name: Setup toolchain
         run: \${{ matrix.settings.setup }}
@@ -151,11 +150,10 @@ jobs:
         run: yarn install
 
       - name: Setup node x86
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         if: matrix.settings.target == 'i686-pc-windows-msvc'
         with:
           node-version: 18
-          check-latest: true
           cache: yarn
           architecture: x86
 
@@ -183,32 +181,32 @@ jobs:
     runs-on: macos-12
     name: Build FreeBSD
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Build
         id: build
-        uses: vmactions/freebsd-vm@v0
+        uses: cross-platform-actions/action@v0.21.0
         env:
           DEBUG: 'napi:*'
-          RUSTUP_HOME: /usr/local/rustup
-          CARGO_HOME: /usr/local/cargo
           RUSTUP_IO_THREADS: 1
         with:
-          envs: 'DEBUG RUSTUP_HOME CARGO_HOME RUSTUP_IO_THREADS'
-          usesh: true
-          mem: 3000
+          operating_system: freebsd
+          version: '13.2'
+          memory: 13G
+          cpu_count: 3
+          environment_variables: 'DEBUG RUSTUP_IO_THREADS'
+          shell: bash
           prepare: |
-            pkg install -y -f curl node libnghttp2 npm yarn
+            sudo pkg install -y -f curl node libnghttp2 npm
+            sudo npm install -g yarn --ignore-scripts
             curl https://sh.rustup.rs -sSf --output rustup.sh
-            sh rustup.sh -y --profile minimal --default-toolchain beta
-            export PATH="/usr/local/cargo/bin:$PATH"
+            sh rustup.sh -y --profile minimal --default-toolchain stable
+            source "$HOME/.cargo/env"
             echo "~~~~ rustc --version ~~~~"
             rustc --version
             echo "~~~~ node -v ~~~~"
             node -v
             echo "~~~~ yarn --version ~~~~"
             yarn --version
-          run: |
-            export PATH="/usr/local/cargo/bin:$PATH"
             pwd
             ls -lah
             whoami
@@ -240,17 +238,16 @@ jobs:
             target: 'x86_64-apple-darwin'
           - host: windows-latest
             target: 'x86_64-pc-windows-msvc'
-        node: ['14', '16', '18']
+        node: ['18', '20']
     runs-on: \${{ matrix.settings.host }}
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Setup node
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: \${{ matrix.node }}
-          check-latest: true
           cache: 'yarn'
 
       - name: 'Install dependencies'
@@ -276,17 +273,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['14', '16', '18']
+        node: ['18', '20']
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Setup node
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: \${{ matrix.node }}
-          check-latest: true
           cache: 'yarn'
 
       - name: 'Install dependencies'
@@ -312,17 +308,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['14', '16', '18']
+        node: ['18', '20']
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Setup node
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: \${{ matrix.node }}
-          check-latest: true
           cache: 'yarn'
 
       - name: 'Install dependencies'
@@ -350,11 +345,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['14', '16', '18']
+        node: ['18', '20']
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Download artifacts
         uses: actions/download-artifact@v3
@@ -373,7 +368,7 @@ jobs:
           yarn install
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
+        uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
       - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
@@ -396,7 +391,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Download artifacts
         uses: actions/download-artifact@v3
@@ -415,7 +410,7 @@ jobs:
           yarn install
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
+        uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
       - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
@@ -436,11 +431,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['14', '16', '18']
+        node: ['18', '20']
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Download artifacts
         uses: actions/download-artifact@v3
@@ -458,7 +453,7 @@ jobs:
           yarn install
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
+        uses: docker/setup-qemu-action@v3
         with:
           platforms: arm
       - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
@@ -480,13 +475,12 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Setup node
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: 18
-          check-latest: true
           cache: yarn
 
       - name: 'Install dependencies'
@@ -526,13 +520,12 @@ jobs:
       - build-freebsd
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Setup node
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: 18
-          check-latest: true
           cache: 'yarn'
 
       - name: 'Install dependencies'
