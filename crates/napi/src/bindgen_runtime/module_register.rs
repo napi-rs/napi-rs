@@ -47,7 +47,8 @@ impl<T> PersistedPerInstanceVec<T> {
       f(&mut []);
     } else {
       let inner = self.inner.load(Ordering::Relaxed);
-      let mut temp = std::mem::ManuallyDrop::new(unsafe { Vec::from_raw_parts(inner, length, length) });
+      let mut temp =
+        std::mem::ManuallyDrop::new(unsafe { Vec::from_raw_parts(inner, length, length) });
       f(temp.as_mut_slice());
       // Inner Vec has been reallocated, so we need to update the pointer
       if temp.as_mut_ptr() != inner {
@@ -60,7 +61,8 @@ impl<T> PersistedPerInstanceVec<T> {
   fn push(&self, item: T) {
     let length = self.length.load(Ordering::Relaxed);
     let inner = self.inner.load(Ordering::Relaxed);
-    let mut temp = std::mem::ManuallyDrop::new(unsafe { Vec::from_raw_parts(inner, length, length) });
+    let mut temp =
+      std::mem::ManuallyDrop::new(unsafe { Vec::from_raw_parts(inner, length, length) });
     temp.push(item);
     // Inner Vec has been reallocated, so we need to update the pointer
     if temp.as_mut_ptr() != inner {
