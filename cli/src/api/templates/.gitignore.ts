@@ -195,4 +195,5 @@ Cargo.lock
 !.yarn/versions
 
 *.node
+*.wasm
 `

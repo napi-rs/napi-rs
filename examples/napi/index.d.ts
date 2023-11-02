@@ -298,6 +298,8 @@ export function createObjWithProperty(): { value: ArrayBuffer, get getter(): num
 
 export function createSymbol(): symbol
 
+export function createSymbolFor(desc: string): symbol
+
 /** You could break the step and for an new continuous value. */
 export const enum CustomNumEnum {
   One = 1,

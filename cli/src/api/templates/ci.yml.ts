@@ -17,10 +17,7 @@ const TEST_LINUX_AARCH64_MUSL = 'test-linux-aarch64-musl-binding'
 const TEST_LINUX_ARM_GNUEABIHF = 'test-linux-arm-gnueabihf-binding'
 const UNIVERSAL_MACOS = 'universal-macOS'
 
-export const createGithubActionsCIYml = (
-  binaryName: string,
-  targets: string[],
-) => {
+export const createGithubActionsCIYml = (targets: string[]) => {
   const allTargets = new Set(
     targets.flatMap((t) => {
       const platform = parseTriple(t)

@@ -5,6 +5,9 @@
     "./triples/index.js",
     "./memory-testing/*.js",
     "./memory-testing/*.mjs",
-    "./crates/cli/index.js"
+    "./crates/cli/index.js",
+    "./examples/**/*.js",
+    "./examples/**/*.mjs",
+    "./examples/**/*.cjs"
   ]
 }

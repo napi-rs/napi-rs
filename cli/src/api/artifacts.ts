@@ -1,4 +1,4 @@
-import { join, parse, resolve } from 'path'
+import { join, parse, resolve } from 'node:path'
 
 import * as colors from 'colorette'
 

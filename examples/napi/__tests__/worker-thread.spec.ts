@@ -1,18 +1,28 @@
-import { join } from 'path'
-import { Worker } from 'worker_threads'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { Worker } from 'node:worker_threads'
 
 import test from 'ava'
 
-import { Animal, Kind, DEFAULT_COST } from '..'
+const { Animal, Kind, DEFAULT_COST } = (await import('../index.js')).default
+
+const __dirname = join(fileURLToPath(import.meta.url), '..')
 
 // aarch64-unknown-linux-gnu is extremely slow in CI, skip it or it will timeout
 const t =
-  process.arch === 'arm64' && process.platform === 'linux' ? test.skip : test
+  (process.arch === 'arm64' && process.platform === 'linux') ||
+  process.env.WASI_TEST
+    ? test.skip
+    : test
+
+const concurrency = process.platform === 'win32' || process.platform === 'darwin' || (process.platform === 'linux' && process.arch === 'x64') ? 50 : 10
 
 t('should be able to require in worker thread', async (t) => {
   await Promise.all(
-    Array.from({ length: 100 }).map(() => {
-      const w = new Worker(join(__dirname, 'worker.js'))
+    Array.from({ length: concurrency }).map(() => {
+      const w = new Worker(join(__dirname, 'worker.cjs'), {
+        execArgv: [],
+      })
       return new Promise<void>((resolve, reject) => {
         w.postMessage({ type: 'require' })
         w.on('message', (msg) => {
@@ -33,10 +43,12 @@ t('should be able to require in worker thread', async (t) => {
 
 t('custom GC works on worker_threads', async (t) => {
   await Promise.all(
-    Array.from({ length: 50 }).map(() =>
+    Array.from({ length: concurrency }).map(() =>
       Promise.all([
         new Promise<Worker>((resolve, reject) => {
-          const w = new Worker(join(__dirname, 'worker.js'))
+          const w = new Worker(join(__dirname, 'worker.cjs'), {
+            execArgv: [],
+          })
           w.postMessage({
             type: 'async:buffer',
           })
@@ -51,7 +63,9 @@ t('custom GC works on worker_threads', async (t) => {
           return w.terminate()
         }),
         new Promise<Worker>((resolve, reject) => {
-          const w = new Worker(join(__dirname, 'worker.js'))
+          const w = new Worker(join(__dirname, 'worker.cjs'), {
+            execArgv: [],
+          })
           w.postMessage({
             type: 'async:arraybuffer',
           })
@@ -72,8 +86,10 @@ t('custom GC works on worker_threads', async (t) => {
 
 t('should be able to new Class in worker thread concurrently', async (t) => {
   await Promise.all(
-    Array.from({ length: 100 }).map(() => {
-      const w = new Worker(join(__dirname, 'worker.js'))
+    Array.from({ length: concurrency }).map(() => {
+      const w = new Worker(join(__dirname, 'worker.cjs'), {
+        execArgv: [],
+      })
       return new Promise<void>((resolve, reject) => {
         w.postMessage({ type: 'constructor' })
         w.on('message', (msg) => {

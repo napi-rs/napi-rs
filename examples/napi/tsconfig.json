@@ -2,11 +2,21 @@
   "extends": "../tsconfig.json",
   "include": ["."],
   "compilerOptions": {
+    "moduleResolution": "node",
     "outDir": "./dist",
-    "rootDir": "__tests__",
-    "target": "ES2018",
+    "rootDir": ".",
+    "target": "ESNext",
+    "module": "ESNext",
     "skipLibCheck": false,
-    "noEmit": true
+    "noEmit": true,
+    "types": ["bun-types"],
+    "importHelpers": false
   },
-  "exclude": ["dist", "electron.js", "electron-renderer"]
+  "exclude": [
+    "dist",
+    "electron.js",
+    "electron-renderer",
+    "index.js",
+    "index.wasi.mjs"
+  ]
 }

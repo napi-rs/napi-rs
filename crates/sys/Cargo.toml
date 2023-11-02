@@ -8,7 +8,7 @@ license = "MIT"
 name = "napi-sys"
 readme = "README.md"
 repository = "https://github.com/napi-rs/napi-rs"
-rust-version = "1.63"
+rust-version = "1.65"
 version = "2.2.3"
 
 [features]
@@ -21,6 +21,7 @@ napi5 = ["napi4"]
 napi6 = ["napi5"]
 napi7 = ["napi6"]
 napi8 = ["napi7"]
+napi9 = ["napi8"]
 
 [package.metadata.workspaces]
 independent = true

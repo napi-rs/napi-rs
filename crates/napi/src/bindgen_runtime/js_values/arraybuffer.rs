@@ -7,12 +7,23 @@ use std::sync::{
   Arc,
 };
 
-#[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
+#[cfg(all(feature = "napi4", not(target_os = "wasi")))]
 use crate::bindgen_prelude::{CUSTOM_GC_TSFN, THREADS_CAN_ACCESS_ENV, THREAD_DESTROYED};
 pub use crate::js_values::TypedArrayType;
 use crate::{check_status, sys, Error, Result, Status};
 
 use super::{FromNapiValue, ToNapiValue, TypeName, ValidateNapiValue};
+
+#[cfg(target_os = "wasi")]
+extern "C" {
+  fn emnapi_sync_memory(
+    env: crate::sys::napi_env,
+    js_to_wasm: bool,
+    arraybuffer_or_view: crate::sys::napi_value,
+    byte_offset: usize,
+    length: usize,
+  ) -> crate::sys::napi_status;
+}
 
 trait Finalizer {
   type RustType;
@@ -121,6 +132,49 @@ macro_rules! impl_typed_array {
 
     impl $name {
       fn noop_finalize(_data: *mut $rust_type, _length: usize) {}
+
+      #[cfg(target_os = "wasi")]
+      pub fn sync(&mut self, env: &crate::Env) {
+        if let Some((reference, _)) = self.raw {
+          let mut value = ptr::null_mut();
+          let mut array_buffer = ptr::null_mut();
+          crate::check_status_or_throw!(
+            env.raw(),
+            unsafe { crate::sys::napi_get_reference_value(env.raw(), reference, &mut value) },
+            "Failed to get reference value from TypedArray while syncing"
+          );
+          crate::check_status_or_throw!(
+            env.raw(),
+            unsafe {
+              crate::sys::napi_get_typedarray_info(
+                env.raw(),
+                value,
+                &mut ($typed_array_type as i32) as *mut i32,
+                &mut self.length as *mut usize,
+                ptr::null_mut(),
+                &mut array_buffer,
+                &mut self.byte_offset as *mut usize,
+              )
+            },
+            "Failed to get ArrayBuffer under the TypedArray while syncing"
+          );
+          crate::check_status_or_throw!(
+            env.raw(),
+            unsafe {
+              emnapi_sync_memory(
+                env.raw(),
+                false,
+                array_buffer,
+                self.byte_offset,
+                self.length,
+              )
+            },
+            "Failed to sync memory"
+          );
+        } else {
+          return;
+        }
+      }
 
       pub fn new(mut data: Vec<$rust_type>) -> Self {
         data.shrink_to_fit();

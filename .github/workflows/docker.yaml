@@ -11,34 +11,34 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Setup QEMU
-        uses: docker/setup-qemu-action@v2
+        uses: docker/setup-qemu-action@v3
 
       - name: Setup Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v2
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ secrets.GH_CONTAINER_UNAME }}
           password: ${{ secrets.GH_TOKEN }}
 
       - name: Build and push alpine
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v5
         with:
           file: alpine.Dockerfile
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
 
       - name: Build and push debian
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v5
         with:
           file: debian.Dockerfile
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian
 
@@ -58,10 +58,10 @@ jobs:
             rm /usr/lib/llvm-15/lib/libc++abi.so
 
       - name: Build and push debian aarch64 cross
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v5
         with:
           file: debian-aarch64.Dockerfile
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-aarch64
           context: .
@@ -70,17 +70,17 @@ jobs:
         run: sudo rm -rf "${{ github.workspace }}/lib"
 
       - name: Build and push debian with zig
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v5
         with:
           file: debian-zig.Dockerfile
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-zig
 
       - name: Build and push alpine with zig
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v5
         with:
           file: alpine-zig.Dockerfile
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine-zig

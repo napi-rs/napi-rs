@@ -157,10 +157,7 @@ function generateGithubWorkflow(options: NewOptions): Output | null {
 
   return {
     target: './.github/workflows/ci.yml',
-    content: createGithubActionsCIYml(
-      getBinaryName(options.name),
-      options.targets,
-    ),
+    content: createGithubActionsCIYml(options.targets),
   }
 }
 

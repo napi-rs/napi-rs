@@ -7,7 +7,7 @@ license = "MIT"
 name = "napi"
 readme = "README.md"
 repository = "https://github.com/napi-rs/napi-rs"
-rust-version = "1.63"
+rust-version = "1.65"
 version = "2.13.3"
 
 [lib]
@@ -26,7 +26,7 @@ compat-mode = []
 default = ["napi3", "compat-mode"]                                               # for most Node.js users
 experimental = ["napi-sys/experimental"]
 chrono_date = ["chrono", "napi5"]
-full = ["latin1", "napi8", "async", "serde-json", "experimental", "chrono_date"]
+full = ["latin1", "napi9", "async", "serde-json", "experimental", "chrono_date"]
 latin1 = ["encoding_rs"]
 error_anyhow = ["anyhow"]
 napi1 = []
@@ -37,6 +37,7 @@ napi5 = ["napi4", "napi-sys/napi5"]
 napi6 = ["napi5", "napi-sys/napi6"]
 napi7 = ["napi6", "napi-sys/napi7"]
 napi8 = ["napi7", "napi-sys/napi8"]
+napi9 = ["napi8", "napi-sys/napi9"]
 serde-json = ["serde", "serde_json"]
 tokio_fs = ["tokio/fs"]
 tokio_full = ["tokio/full"]
@@ -74,11 +75,11 @@ version = "0.8"
 optional = true
 version = "0.4"
 
-[target.'cfg(target_arch = "wasm32")'.dependencies]
+[target.'cfg(target_os = "wasi")'.dependencies]
 tokio = { version = "1", optional = true, features = ["rt", "sync"] }
 napi-derive = { path = "../macro", version = "2.10.1", default-features = false }
 
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+[target.'cfg(not(target_os = "wasi"))'.dependencies]
 tokio = { version = "1", optional = true, features = [
   "rt",
   "rt-multi-thread",
