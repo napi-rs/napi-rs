@@ -62,7 +62,7 @@ impl NapiEnum {
           env: napi::bindgen_prelude::sys::napi_env,
           napi_val: napi::bindgen_prelude::sys::napi_value
         ) -> napi::bindgen_prelude::Result<Self> {
-          let val = FromNapiValue::from_napi_value(env, napi_val).map_err(|e| {
+          let val = napi::bindgen_prelude::FromNapiValue::from_napi_value(env, napi_val).map_err(|e| {
             napi::bindgen_prelude::error!(
               e.status,
               "Failed to convert napi value into enum `{}`. {}",
@@ -94,7 +94,7 @@ impl NapiEnum {
             #(#to_napi_branches,)*
           };
 
-          ToNapiValue::to_napi_value(env, val)
+          napi::bindgen_prelude::ToNapiValue::to_napi_value(env, val)
         }
       }
     }
@@ -118,7 +118,7 @@ impl NapiEnum {
             napi::bindgen_prelude::sys::napi_set_named_property(
               env,
               obj_ptr, name.as_ptr(),
-              ToNapiValue::to_napi_value(env, #val_lit)?
+              napi::bindgen_prelude::ToNapiValue::to_napi_value(env, #val_lit)?
             ),
             "Failed to defined enum `{}`",
             #js_name_lit
