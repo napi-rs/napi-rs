@@ -90,6 +90,18 @@ impl From<JsUnknown> for Error {
         "Create Error reference failed".to_owned(),
       );
     }
+
+    let maybe_error_message = value
+      .coerce_to_string()
+      .and_then(|a| a.into_utf8().and_then(|a| a.into_owned()));
+    if let Ok(error_message) = maybe_error_message {
+      return Self {
+        status: Status::GenericFailure,
+        reason: error_message,
+        maybe_raw: result,
+      };
+    }
+
     Self {
       status: Status::GenericFailure,
       reason: "".to_string(),
