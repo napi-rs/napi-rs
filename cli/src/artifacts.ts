@@ -53,7 +53,10 @@ export class ArtifactsCommand extends Command {
           debug(`Read [${chalk.yellowBright(filePath)}]`)
           const sourceContent = await readFileAsync(filePath)
           const parsedName = parse(filePath)
-          const [_binaryName, platformArchABI] = parsedName.name.split('.')
+          const terms = parsedName.name.split('.')
+          const platformArchABI = terms.pop()!
+          const _binaryName = terms.join('.')
+
           if (_binaryName !== binaryName) {
             debug(
               `[${chalk.yellowBright(
