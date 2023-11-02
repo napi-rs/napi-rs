@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.16.5](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.16.4...@napi-rs/cli@2.16.5) (2023-11-02)
+
+### Bug Fixes
+
+- **cli:** switch name parsing to allow periods in name ([d4f8eee](https://github.com/napi-rs/napi-rs/commit/d4f8eee0d55ee5f845c880618901961f663aac2b))
+
 ## [2.16.4](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.16.3...@napi-rs/cli@2.16.4) (2023-11-01)
 
 **Note:** Version bump only for package @napi-rs/cli
