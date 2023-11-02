@@ -1,14 +1,7 @@
-const assert = require('assert')
-const { readFileSync } = require('fs')
+const assert = require('node:assert')
+const { readFileSync } = require('node:fs')
 
 const { app, BrowserWindow, ipcMain } = require('electron')
-
-const {
-  readFileAsync,
-  callThreadsafeFunction,
-  withAbortController,
-  createExternalTypedArray,
-} = require('./index')
 
 const FILE_CONTENT = readFileSync(__filename, 'utf8')
 
@@ -39,16 +32,30 @@ const createWindowAndReload = async () => {
     // reload to check if there is any crash
     win.reload()
 
+    // make sure the renderer process is still alive
+    ipcMain.once('pong', () => {
+      console.info('pong')
+      resolve()
+    })
+
     // Wait for a while to make sure if a crash happens, the 'resolve' function should be called after the crash
     setTimeout(() => {
-      // make sure the renderer process is still alive
-      ipcMain.once('pong', () => resolve())
       win.webContents.send('ping')
-    }, 500)
+      console.info('ping')
+    }, 1000)
   })
 }
 
 async function main() {
+  const {
+    default: {
+      readFileAsync,
+      callThreadsafeFunction,
+      withAbortController,
+      createExternalTypedArray,
+    },
+  } = await import('./index.js')
+
   const ctrl = new AbortController()
   const promise = withAbortController(1, 2, ctrl.signal)
   try {

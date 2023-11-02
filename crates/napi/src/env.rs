@@ -374,6 +374,7 @@ impl Env {
     ))
   }
 
+  #[cfg(not(target_os = "wasi"))]
   /// This function gives V8 an indication of the amount of externally allocated memory that is kept alive by JavaScript objects (i.e. a JavaScript object that points to its own memory allocated by a native module).
   ///
   /// Registering externally allocated memory will trigger global garbage collections more often than it would otherwise.
@@ -383,6 +384,12 @@ impl Env {
     let mut changed = 0i64;
     check_status!(unsafe { sys::napi_adjust_external_memory(self.0, size, &mut changed) })?;
     Ok(changed)
+  }
+
+  #[cfg(target_os = "wasi")]
+  #[allow(unused_variables)]
+  pub fn adjust_external_memory(&mut self, size: i64) -> Result<i64> {
+    Ok(0)
   }
 
   /// This API allocates a node::Buffer object and initializes it with data copied from the passed-in buffer.

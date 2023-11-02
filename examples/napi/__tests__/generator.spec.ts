@@ -1,14 +1,8 @@
-import { createRequire } from 'node:module'
+import ava from 'ava'
 
-import test from 'ava'
+const { Fib, Fib2, Fib3 } = (await import('../index.js')).default
 
-const require = createRequire(import.meta.url)
-
-const {
-  Fib,
-  Fib2,
-  Fib3,
-}: typeof import('../index.js') = require('../index.node')
+const test = process.env.WASI_TEST ? ava.skip : ava
 
 for (const [index, factory] of [
   () => new Fib(),

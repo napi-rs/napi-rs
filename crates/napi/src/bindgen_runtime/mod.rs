@@ -34,17 +34,18 @@ pub unsafe extern "C" fn raw_finalize_unchecked<T: ObjectFinalize>(
   finalize_data: *mut c_void,
   _finalize_hint: *mut c_void,
 ) {
-  let data = *unsafe { Box::from_raw(finalize_data as *mut T) };
+  let data: Box<T> = unsafe { Box::from_raw(finalize_data.cast()) };
   if let Err(err) = data.finalize(unsafe { Env::from_raw(env) }) {
     let e: JsError = err.into();
     unsafe { e.throw_into(env) };
+    return;
   }
   if let Some((_, ref_val, finalize_callbacks_ptr)) =
     REFERENCE_MAP.with(|reference_map| reference_map.borrow_mut().remove(&finalize_data))
   {
     let finalize_callbacks_rc = unsafe { Rc::from_raw(finalize_callbacks_ptr) };
 
-    #[cfg(debug_assertions)]
+    #[cfg(all(debug_assertions, not(target_os = "wasi")))]
     {
       let rc_strong_count = Rc::strong_count(&finalize_callbacks_rc);
       // If `Rc` strong count is 2, it means the finalize of referenced `Object` is called before the `fn drop` of the `Reference`

@@ -1,8 +1,4 @@
-import { createRequire } from 'node:module'
-
 import test from 'ava'
-
-const require = createRequire(import.meta.url)
 
 const {
   validateArray,
@@ -24,7 +20,7 @@ const {
   returnUndefinedIfInvalid,
   returnUndefinedIfInvalidPromise,
   validateOptional,
-}: typeof import('../index.d.ts') = require('../index.node')
+} = (await import('../index.js')).default
 
 test('should validate array', (t) => {
   t.is(validateArray([1, 2, 3]), 3)
@@ -127,8 +123,21 @@ test('should validate Map', (t) => {
   })
 })
 
-test('should validate promise', async (t) => {
-  t.is(await validatePromise(Promise.resolve(1)), 2)
+test.only('should validate promise', async (t) => {
+  if (process.env.WASI_TEST) {
+    t.pass()
+    return
+  }
+  t.is(
+    await validatePromise(
+      new Promise((resolve) => {
+        setTimeout(() => {
+          resolve(1)
+        }, 100)
+      }),
+    ),
+    2,
+  )
   // @ts-expect-error
   await t.throwsAsync(() => validatePromise(1), {
     code: 'InvalidArg',

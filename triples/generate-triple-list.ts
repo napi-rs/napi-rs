@@ -23,7 +23,7 @@ const tripleLists: { [key: string]: { platform?: string } } = RAW_LIST.trim()
   .split('\n')
   .filter((line) => !line.startsWith('wasm') && line.trim().length)
   .map(parseTriple)
-  .reduce((acc, cur) => {
+  .reduce((acc: Record<string, { platform?: string }>, cur) => {
     acc[cur.triple] = cur
     return acc
   }, {})

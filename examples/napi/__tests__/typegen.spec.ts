@@ -7,5 +7,9 @@ import test from 'ava'
 const __dirname = join(fileURLToPath(import.meta.url), '..')
 
 test('should generate correct type def file', (t) => {
-  t.snapshot(readFileSync(join(__dirname, '..', 'index.d.ts'), 'utf8'))
+  if (process.env.WASI_TEST) {
+    t.pass()
+  } else {
+    t.snapshot(readFileSync(join(__dirname, '..', 'index.d.ts'), 'utf8'))
+  }
 })

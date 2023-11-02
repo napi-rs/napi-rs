@@ -2,6 +2,7 @@
   "extends": "../tsconfig.json",
   "include": ["."],
   "compilerOptions": {
+    "moduleResolution": "node",
     "outDir": "./dist",
     "rootDir": ".",
     "target": "ESNext",
@@ -11,5 +12,11 @@
     "types": ["bun-types"],
     "importHelpers": false
   },
-  "exclude": ["dist", "electron.cjs", "electron-renderer", "node_modules"]
+  "exclude": [
+    "dist",
+    "electron.js",
+    "electron-renderer",
+    "index.js",
+    "index.wasi.mjs"
+  ]
 }

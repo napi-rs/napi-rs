@@ -5,7 +5,8 @@ parserOptions:
     jsx: true
   ecmaVersion: latest
   sourceType: module
-  extraFileExtensions: ['.cjs', '.mjs']
+  project:
+    - ./tsconfig.root-lint.json
 
 env:
   browser: true
@@ -23,6 +24,7 @@ extends:
 globals:
   BigInt: 'readonly'
   NodeJS: 'readonly'
+  globalThis: true
 
 rules:
   # 0 = off, 1 = warn, 2 = error
@@ -205,6 +207,15 @@ overrides:
       project:
         - ./examples/tsconfig.json
     rules:
+      'import/order':
+        [
+          2,
+          {
+            'newlines-between': 'always',
+            'alphabetize': { 'order': 'asc', 'caseInsensitive': true },
+          },
+        ]
+
       'import/no-extraneous-dependencies': 0
 
   - files:
@@ -223,6 +234,8 @@ overrides:
 
   - files:
       - ./*.js
+      - ./*.cjs
+      - ./*.mjs
     plugins:
       - '@typescript-eslint'
     parserOptions:

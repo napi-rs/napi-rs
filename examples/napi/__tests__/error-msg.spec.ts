@@ -1,10 +1,6 @@
-import { createRequire } from 'node:module'
-
 import test from 'ava'
 
-const require = createRequire(import.meta.url)
-
-const { receiveString }: typeof import('../index.js') = require('../index.node')
+const { receiveString } = (await import('../index.js')).default
 
 test('Function message', (t) => {
   // @ts-expect-error

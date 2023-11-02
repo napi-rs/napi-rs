@@ -1,12 +1,8 @@
-import { createRequire } from 'node:module'
+import ava from 'ava'
 
-import test from 'ava'
+const { NotWritableClass } = (await import('../index.js')).default
 
-const require = createRequire(import.meta.url)
-
-const {
-  NotWritableClass,
-}: typeof import('../index.js') = require('../index.node')
+const test = process.env.WASI_TEST ? ava.skip : ava
 
 test('Not Writable Class', (t) => {
   const obj = new NotWritableClass('1')

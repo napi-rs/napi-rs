@@ -75,11 +75,11 @@ version = "0.8"
 optional = true
 version = "0.4"
 
-[target.'cfg(target_arch = "wasm32")'.dependencies]
+[target.'cfg(target_os = "wasi")'.dependencies]
 tokio = { version = "1", optional = true, features = ["rt", "sync"] }
 napi-derive = { path = "../macro", version = "2.10.1", default-features = false }
 
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+[target.'cfg(not(target_os = "wasi"))'.dependencies]
 tokio = { version = "1", optional = true, features = [
   "rt",
   "rt-multi-thread",

@@ -80,7 +80,7 @@
     "c8": "^8.0.0",
     "cross-env": "^7.0.3",
     "electron": "^27.0.0",
-    "esbuild": "^0.19.0",
+    "esbuild": "^0.19.5",
     "eslint": "^8.45.0",
     "eslint-config-prettier": "^9.0.0",
     "eslint-plugin-import": "^2.27.5",

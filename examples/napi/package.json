@@ -3,11 +3,11 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "main": "./index.node",
+  "main": "./index.js",
   "types": "./index.d.ts",
   "scripts": {
-    "build": "napi-raw build --no-js",
-    "test": "cross-env TS_NODE_PROJECT=./tsconfig.json node --es-module-specifier-resolution=node --loader ts-node/esm/transpile-only ../../node_modules/ava/entrypoints/cli.mjs"
+    "build": "napi-raw build",
+    "test": "cross-env TS_NODE_PROJECT=./tsconfig.json node --es-module-specifier-resolution=node --loader ts-node/esm/transpile-only --experimental-wasi-unstable-preview1 ../../node_modules/ava/entrypoints/cli.mjs"
   },
   "devDependencies": {
     "@napi-rs/cli": "workspace:*",
@@ -25,11 +25,15 @@
       "cjs": true
     },
     "files": [
-      "__tests__/**/*.spec.ts",
-      "__tests__/**/*.spec.cts",
-      "__tests__/**/*.spec.js",
-      "__tests__/**/*.spec.cjs"
+      "__tests__/**/*.spec.{ts,cts,js,cjs,mjs}"
     ],
     "timeout": "10m"
+  },
+  "dependencies": {
+    "@emnapi/core": "0.43.1",
+    "@tybys/wasm-util": "^0.8.0",
+    "@types/lodash": "^4.14.191",
+    "lodash": "^4.17.21",
+    "sinon": "^15.0.1"
   }
 }
