@@ -51,6 +51,7 @@ macos_arm64_task:
     image: ghcr.io/cirruslabs/macos-monterey-xcode
   env:
     PATH: $HOME/.cargo/bin:$PATH
+    YARN_IGNORE_NODE: '1'
   setup_script:
     - brew install node yarn
   <<: *BUILD_AND_TEST

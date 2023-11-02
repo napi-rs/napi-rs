@@ -346,7 +346,7 @@ __metadata:
   dependencies:
     "@napi-rs/cli": "workspace:*"
     ava: "npm:^5.3.1"
-    sinon: "npm:^15.2.0"
+    sinon: "npm:^17.0.1"
   languageName: unknown
   linkType: soft
 
@@ -360,7 +360,7 @@ __metadata:
     "@types/lodash": "npm:^4.14.195"
     ava: "npm:^5.3.1"
     cross-env: "npm:7.0.3"
-    electron: "npm:^26.2.1"
+    electron: "npm:^27.0.3"
     lodash: "npm:^4.17.21"
     sinon: "npm:^15.2.0"
   languageName: unknown
@@ -3558,19 +3558,6 @@ __metadata:
   bin:
     ejs: bin/cli.js
   checksum: f0e249c79128810f5f6d5cbf347fc906d86bb9384263db0b2a9004aea649f2bc2d112736de5716c509c80afb4721c47281bd5b57c757d3b63f1bf5ac5f885893
-  languageName: node
-  linkType: hard
-
-"electron@npm:^26.2.1":
-  version: 26.4.3
-  resolution: "electron@npm:26.4.3"
-  dependencies:
-    "@electron/get": "npm:^2.0.0"
-    "@types/node": "npm:^18.11.18"
-    extract-zip: "npm:^2.0.1"
-  bin:
-    electron: cli.js
-  checksum: 85868551b8c3f6d04fddd95e9e27a3358f39e2ce9372884fa1ad23f621a7584dd39edfc4e5793a6ee5fd556db7a4552a4a49abfc4e1f08fdebcfd73a38be6418
   languageName: node
   linkType: hard
 

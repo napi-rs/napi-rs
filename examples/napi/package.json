@@ -14,7 +14,7 @@
     "@types/lodash": "^4.14.195",
     "ava": "^5.3.1",
     "cross-env": "7.0.3",
-    "electron": "^26.2.1",
+    "electron": "^27.0.3",
     "lodash": "^4.17.21",
     "sinon": "^15.2.0"
   },
@@ -32,8 +32,8 @@
   "dependencies": {
     "@emnapi/core": "0.43.1",
     "@tybys/wasm-util": "^0.8.0",
-    "@types/lodash": "^4.14.191",
+    "@types/lodash": "^4.14.200",
     "lodash": "^4.17.21",
-    "sinon": "^15.0.1"
+    "sinon": "^17.0.1"
   }
 }
