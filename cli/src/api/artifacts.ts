@@ -43,7 +43,10 @@ export async function collectArtifacts(userOptions: ArtifactsOptions) {
           debug.info(`Read [${colors.yellowBright(filePath)}]`)
           const sourceContent = await readFileAsync(filePath)
           const parsedName = parse(filePath)
-          const [_binaryName, platformArchABI] = parsedName.name.split('.')
+          const terms = parsedName.name.split('.')
+          const platformArchABI = terms.pop()!
+          const _binaryName = terms.join('.')
+
           if (_binaryName !== binaryName) {
             debug.warn(
               `[${_binaryName}] is not matched with [${binaryName}], skip`,
