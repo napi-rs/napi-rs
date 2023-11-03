@@ -9,8 +9,8 @@ use std::sync::Arc;
 #[cfg(all(debug_assertions, not(windows)))]
 use std::sync::Mutex;
 
-#[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
-use crate::bindgen_prelude::{CUSTOM_GC_TSFN, THREADS_CAN_ACCESS_ENV, THREAD_DESTROYED};
+#[cfg(all(feature = "napi4", not(target_os = "wasi")))]
+use crate::bindgen_prelude::{CUSTOM_GC_TSFN, CUSTOM_GC_TSFN_DESTROYED, THREADS_CAN_ACCESS_ENV};
 use crate::{bindgen_prelude::*, check_status, sys, Result, ValueType};
 
 #[cfg(all(debug_assertions, not(windows)))]
@@ -34,15 +34,16 @@ impl Drop for Buffer {
   fn drop(&mut self) {
     if Arc::strong_count(&self.ref_count) == 1 {
       if let Some((ref_, env)) = self.raw {
-        #[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
+        if ref_.is_null() {
+          return;
+        }
+        #[cfg(not(target_os = "wasi"))]
+        if CUSTOM_GC_TSFN_DESTROYED.load(std::sync::atomic::Ordering::SeqCst) {
+          return;
+        }
+        #[cfg(all(feature = "napi4", not(target_os = "wasi")))]
         {
-          if THREAD_DESTROYED.with(|closed| closed.load(std::sync::atomic::Ordering::Relaxed)) {
-            return;
-          }
-          if !THREADS_CAN_ACCESS_ENV
-            .get_or_init(Default::default)
-            .contains(&std::thread::current().id())
-          {
+          if !THREADS_CAN_ACCESS_ENV.borrow_mut(|m| m.get(&std::thread::current().id()).is_some()) {
             let status = unsafe {
               sys::napi_call_threadsafe_function(
                 CUSTOM_GC_TSFN.load(std::sync::atomic::Ordering::SeqCst),
@@ -51,8 +52,8 @@ impl Drop for Buffer {
               )
             };
             assert!(
-              status == sys::Status::napi_ok,
-              "Call custom GC in ArrayBuffer::drop failed {:?}",
+              status == sys::Status::napi_ok || status == sys::Status::napi_closing,
+              "Call custom GC in Buffer::drop failed {}",
               Status::from(status)
             );
             return;
@@ -63,6 +64,10 @@ impl Drop for Buffer {
           env,
           unsafe { sys::napi_reference_unref(env, ref_, &mut ref_count) },
           "Failed to unref Buffer reference in drop"
+        );
+        debug_assert!(
+          ref_count == 0,
+          "Buffer reference count in Buffer::drop is not zero"
         );
         check_status_or_throw!(
           env,
@@ -217,7 +222,7 @@ impl FromNapiValue for Buffer {
 }
 
 impl ToNapiValue for Buffer {
-  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+  unsafe fn to_napi_value(env: sys::napi_env, mut val: Self) -> Result<sys::napi_value> {
     // From Node.js value, not from `Vec<u8>`
     if let Some((ref_, _)) = val.raw {
       let mut buf = ptr::null_mut();
@@ -225,6 +230,14 @@ impl ToNapiValue for Buffer {
         unsafe { sys::napi_get_reference_value(env, ref_, &mut buf) },
         "Failed to get Buffer value from reference"
       )?;
+      // fast path for Buffer::drop
+      if Arc::strong_count(&val.ref_count) == 1 {
+        check_status!(
+          unsafe { sys::napi_delete_reference(env, ref_) },
+          "Failed to delete Buffer reference in Buffer::to_napi_value"
+        )?;
+        val.raw = Some((ptr::null_mut(), ptr::null_mut()));
+      }
       return Ok(buf);
     }
     let len = val.len;

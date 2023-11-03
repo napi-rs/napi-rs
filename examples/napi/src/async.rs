@@ -1,13 +1,13 @@
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_os = "wasi"))]
 use futures::prelude::*;
 use napi::bindgen_prelude::*;
 use napi::tokio;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_os = "wasi"))]
 use napi::tokio::fs;
 
 #[napi]
 async fn read_file_async(path: String) -> Result<Buffer> {
-  #[cfg(not(target_arch = "wasm32"))]
+  #[cfg(not(target_os = "wasi"))]
   {
     fs::read(path)
       .map(|r| match r {
@@ -19,7 +19,7 @@ async fn read_file_async(path: String) -> Result<Buffer> {
       })
       .await
   }
-  #[cfg(target_arch = "wasm32")]
+  #[cfg(target_os = "wasi")]
   {
     let conetent = std::fs::read(path)?;
     Ok(conetent.into())

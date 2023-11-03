@@ -1,5 +1,3 @@
-use napi::bindgen_prelude::*;
-
 /// default enum values are continuos i32s start from 0
 #[napi]
 pub enum Kind {

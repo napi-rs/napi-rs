@@ -8,14 +8,19 @@ const { Animal, Kind, DEFAULT_COST } = (await import('../index.js')).default
 
 const __dirname = join(fileURLToPath(import.meta.url), '..')
 
-// aarch64-unknown-linux-gnu is extremely slow in CI, skip it or it will timeout
 const t =
+  // aarch64-unknown-linux-gnu is extremely slow in CI, skip it or it will timeout
   (process.arch === 'arm64' && process.platform === 'linux') ||
   process.env.WASI_TEST
     ? test.skip
     : test
 
-const concurrency = process.platform === 'win32' || process.platform === 'darwin' || (process.platform === 'linux' && process.arch === 'x64') ? 50 : 10
+const concurrency =
+  process.platform === 'win32' ||
+  process.platform === 'darwin' ||
+  (process.platform === 'linux' && process.arch === 'x64')
+    ? 50
+    : 10
 
 t('should be able to require in worker thread', async (t) => {
   await Promise.all(

@@ -8,7 +8,7 @@ use std::sync::{
 };
 
 #[cfg(all(feature = "napi4", not(target_os = "wasi")))]
-use crate::bindgen_prelude::{CUSTOM_GC_TSFN, THREADS_CAN_ACCESS_ENV, THREAD_DESTROYED};
+use crate::bindgen_prelude::{CUSTOM_GC_TSFN, CUSTOM_GC_TSFN_DESTROYED, THREADS_CAN_ACCESS_ENV};
 pub use crate::js_values::TypedArrayType;
 use crate::{check_status, sys, Error, Result, Status};
 
@@ -77,14 +77,17 @@ macro_rules! impl_typed_array {
       fn drop(&mut self) {
         if Arc::strong_count(&self.drop_in_vm) == 1 {
           if let Some((ref_, env)) = self.raw {
-            #[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
+            if ref_.is_null() {
+              return;
+            }
+            #[cfg(not(target_os = "wasi"))]
+            if CUSTOM_GC_TSFN_DESTROYED.load(Ordering::SeqCst) {
+              return;
+            }
+            #[cfg(all(feature = "napi4", not(target_os = "wasi")))]
             {
-              if THREAD_DESTROYED.with(|closed| closed.load(std::sync::atomic::Ordering::Relaxed)) {
-                return;
-              }
               if !THREADS_CAN_ACCESS_ENV
-                .get_or_init(Default::default)
-                .contains(&std::thread::current().id())
+                .borrow_mut(|m| m.get(&std::thread::current().id()).is_some())
               {
                 let status = unsafe {
                   sys::napi_call_threadsafe_function(
@@ -94,17 +97,22 @@ macro_rules! impl_typed_array {
                   )
                 };
                 assert!(
-                  status == sys::Status::napi_ok,
-                  "Call custom GC in ArrayBuffer::drop failed {:?}",
+                  status == sys::Status::napi_ok || status == sys::Status::napi_closing,
+                  "Call custom GC in ArrayBuffer::drop failed {}",
                   Status::from(status)
                 );
                 return;
               }
             }
+            let mut ref_count = 0;
             crate::check_status_or_throw!(
               env,
-              unsafe { sys::napi_reference_unref(env, ref_, &mut 0) },
+              unsafe { sys::napi_reference_unref(env, ref_, &mut ref_count) },
               "Failed to unref ArrayBuffer reference in drop"
+            );
+            debug_assert!(
+              ref_count == 0,
+              "ArrayBuffer reference count in ArrayBuffer::drop is not zero"
             );
             crate::check_status_or_throw!(
               env,
@@ -344,13 +352,21 @@ macro_rules! impl_typed_array {
     }
 
     impl ToNapiValue for $name {
-      unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+      unsafe fn to_napi_value(env: sys::napi_env, mut val: Self) -> Result<sys::napi_value> {
         if let Some((ref_, _)) = val.raw {
           let mut napi_value = std::ptr::null_mut();
           check_status!(
             unsafe { sys::napi_get_reference_value(env, ref_, &mut napi_value) },
-            "Failed to delete reference from Buffer"
+            "Failed to get reference from ArrayBuffer"
           )?;
+          // fast path for ArrayBuffer::drop
+          if Arc::strong_count(&val.drop_in_vm) == 1 {
+            check_status!(
+              unsafe { sys::napi_delete_reference(env, ref_) },
+              "Failed to delete reference in ArrayBuffer::to_napi_value"
+            )?;
+            val.raw = Some((ptr::null_mut(), ptr::null_mut()));
+          }
           return Ok(napi_value);
         }
         let mut arraybuffer_value = ptr::null_mut();
@@ -422,7 +438,7 @@ macro_rules! impl_typed_array {
           let mut napi_value = std::ptr::null_mut();
           check_status!(
             unsafe { sys::napi_get_reference_value(env, ref_, &mut napi_value) },
-            "Failed to delete reference from Buffer"
+            "Failed to get reference from ArrayBuffer"
           )?;
           Ok(napi_value)
         } else {
