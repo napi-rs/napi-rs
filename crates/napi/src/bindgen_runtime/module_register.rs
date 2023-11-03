@@ -1,11 +1,14 @@
 use std::collections::{HashMap, HashSet};
 use std::ffi::CStr;
-#[cfg(all(feature = "napi4", not(target_arch = "wasm32"), not(feature = "noop")))]
-use std::hash::Hash;
-#[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
-use std::ops::Deref;
 use std::ptr;
-use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering};
+#[cfg(all(
+  any(target_os = "windows", target_os = "freebsd"),
+  feature = "napi4",
+  feature = "tokio_rt"
+))]
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
+use std::sync::RwLock;
 use std::thread::ThreadId;
 
 use once_cell::sync::Lazy;
@@ -18,109 +21,13 @@ pub type ExportRegisterCallback = unsafe fn(sys::napi_env) -> Result<sys::napi_v
 pub type ModuleExportsCallback =
   unsafe fn(env: sys::napi_env, exports: sys::napi_value) -> Result<()>;
 
-struct PersistedPerInstanceVec<T> {
-  inner: AtomicPtr<T>,
-  length: AtomicUsize,
-}
-
-impl<T> Default for PersistedPerInstanceVec<T> {
-  fn default() -> Self {
-    let mut vec: Vec<T> = Vec::with_capacity(1);
-    let ret = Self {
-      inner: AtomicPtr::new(vec.as_mut_ptr()),
-      length: AtomicUsize::new(0),
-    };
-    std::mem::forget(vec);
-    ret
-  }
-}
-
-impl<T> PersistedPerInstanceVec<T> {
-  #[cfg(not(feature = "noop"))]
-  #[allow(clippy::mut_from_ref)]
-  fn borrow_mut<F>(&self, f: F)
-  where
-    F: FnOnce(&mut [T]),
-  {
-    let length = self.length.load(Ordering::Relaxed);
-    if length == 0 {
-      f(&mut []);
-    } else {
-      let inner = self.inner.load(Ordering::Relaxed);
-      let mut temp =
-        std::mem::ManuallyDrop::new(unsafe { Vec::from_raw_parts(inner, length, length) });
-      f(temp.as_mut_slice());
-      // Inner Vec has been reallocated, so we need to update the pointer
-      if temp.as_mut_ptr() != inner {
-        self.inner.store(temp.as_mut_ptr(), Ordering::Relaxed);
-      }
-      self.length.store(temp.len(), Ordering::Relaxed);
-    }
-  }
-
-  fn push(&self, item: T) {
-    let length = self.length.load(Ordering::Relaxed);
-    let inner = self.inner.load(Ordering::Relaxed);
-    let mut temp =
-      std::mem::ManuallyDrop::new(unsafe { Vec::from_raw_parts(inner, length, length) });
-    temp.push(item);
-    // Inner Vec has been reallocated, so we need to update the pointer
-    if temp.as_mut_ptr() != inner {
-      self.inner.store(temp.as_mut_ptr(), Ordering::Relaxed);
-    }
-    self.length.fetch_add(1, Ordering::Relaxed);
-  }
-}
-
-unsafe impl<T: Send> Send for PersistedPerInstanceVec<T> {}
-unsafe impl<T: Sync> Sync for PersistedPerInstanceVec<T> {}
-
-#[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
-pub(crate) struct PersistedPerInstanceHashSet<T: 'static> {
-  inner: *mut HashSet<T>,
-}
-
-#[cfg(not(feature = "noop"))]
-#[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
-impl<T: 'static + PartialEq + Eq + Hash> PersistedPerInstanceHashSet<T> {
-  pub(crate) fn insert(&self, item: T) {
-    Box::leak(unsafe { Box::from_raw(self.inner) }).insert(item);
-  }
-
-  fn remove(&self, item: &T) {
-    Box::leak(unsafe { Box::from_raw(self.inner) }).remove(item);
-  }
-}
-
-#[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
-impl<T: 'static> Deref for PersistedPerInstanceHashSet<T> {
-  type Target = HashSet<T>;
-
-  fn deref(&self) -> &Self::Target {
-    Box::leak(unsafe { Box::from_raw(self.inner) })
-  }
-}
-
-#[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
-impl<T: 'static> Default for PersistedPerInstanceHashSet<T> {
-  fn default() -> Self {
-    Self {
-      inner: Box::leak(Box::default()),
-    }
-  }
-}
-
-#[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
-unsafe impl<T: Send> Send for PersistedPerInstanceHashSet<T> {}
-#[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
-unsafe impl<T: Sync> Sync for PersistedPerInstanceHashSet<T> {}
-
-pub(crate) struct PersistedPerInstanceHashMap<K, V>(*mut HashMap<K, V>);
+#[repr(transparent)]
+pub(crate) struct PersistedPerInstanceHashMap<K, V>(RwLock<HashMap<K, V>>);
 
 impl<K, V> PersistedPerInstanceHashMap<K, V> {
   #[cfg(not(feature = "noop"))]
   pub(crate) fn from_hashmap(hashmap: HashMap<K, V>) -> Self {
-    Self(Box::into_raw(Box::new(hashmap)))
+    Self(RwLock::new(hashmap))
   }
 
   #[allow(clippy::mut_from_ref)]
@@ -128,19 +35,19 @@ impl<K, V> PersistedPerInstanceHashMap<K, V> {
   where
     F: FnOnce(&mut HashMap<K, V>) -> R,
   {
-    f(unsafe { Box::leak(Box::from_raw(self.0)) })
+    let mut write_lock = self.0.write().unwrap();
+    f(&mut *write_lock)
   }
 }
 
 impl<K, V> Default for PersistedPerInstanceHashMap<K, V> {
   fn default() -> Self {
-    let map = Default::default();
-    Self(Box::into_raw(Box::new(map)))
+    Self(RwLock::new(HashMap::default()))
   }
 }
 
 type ModuleRegisterCallback =
-  PersistedPerInstanceVec<(Option<&'static str>, (&'static str, ExportRegisterCallback))>;
+  RwLock<Vec<(Option<&'static str>, (&'static str, ExportRegisterCallback))>>;
 
 type ModuleClassProperty = PersistedPerInstanceHashMap<
   &'static str,
@@ -162,28 +69,23 @@ static IS_FIRST_MODULE: AtomicBool = AtomicBool::new(true);
 static FIRST_MODULE_REGISTERED: AtomicBool = AtomicBool::new(false);
 static REGISTERED_CLASSES: Lazy<RegisteredClassesMap> = Lazy::new(Default::default);
 static FN_REGISTER_MAP: Lazy<FnRegisterMap> = Lazy::new(Default::default);
-#[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
+#[cfg(all(feature = "napi4", not(target_os = "wasi")))]
 pub(crate) static CUSTOM_GC_TSFN: AtomicPtr<sys::napi_threadsafe_function__> =
   AtomicPtr::new(ptr::null_mut());
-#[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
-thread_local! {
-  // CustomGC ThreadsafeFunction may be deleted during the process exit.
-  // And there may still some Buffer alive after that.
-  pub(crate) static THREAD_DESTROYED: AtomicBool = AtomicBool::new(false);
-}
-#[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
+#[cfg(all(feature = "napi4", not(target_os = "wasi")))]
+pub(crate) static CUSTOM_GC_TSFN_DESTROYED: AtomicBool = AtomicBool::new(false);
+#[cfg(all(feature = "napi4", not(target_os = "wasi")))]
 // Store thread id of the thread that created the CustomGC ThreadsafeFunction.
-pub(crate) static THREADS_CAN_ACCESS_ENV: once_cell::sync::OnceCell<
-  PersistedPerInstanceHashSet<ThreadId>,
-> = once_cell::sync::OnceCell::new();
+pub(crate) static THREADS_CAN_ACCESS_ENV: once_cell::sync::Lazy<
+  PersistedPerInstanceHashMap<ThreadId, bool>,
+> = once_cell::sync::Lazy::new(Default::default);
 
 type RegisteredClasses =
   PersistedPerInstanceHashMap</* export name */ String, /* constructor */ sys::napi_ref>;
 
 #[cfg(all(feature = "compat-mode", not(feature = "noop")))]
 // compatibility for #[module_exports]
-static MODULE_EXPORTS: Lazy<PersistedPerInstanceVec<ModuleExportsCallback>> =
-  Lazy::new(Default::default);
+static MODULE_EXPORTS: Lazy<RwLock<Vec<ModuleExportsCallback>>> = Lazy::new(Default::default);
 
 #[cfg(not(feature = "noop"))]
 #[inline]
@@ -207,7 +109,10 @@ pub fn get_class_constructor(js_name: &'static str) -> Option<sys::napi_ref> {
 #[cfg(all(feature = "compat-mode", not(feature = "noop")))]
 // compatibility for #[module_exports]
 pub fn register_module_exports(callback: ModuleExportsCallback) {
-  MODULE_EXPORTS.push(callback);
+  MODULE_EXPORTS
+    .write()
+    .expect("Register module exports failed")
+    .push(callback);
 }
 
 #[doc(hidden)]
@@ -216,7 +121,10 @@ pub fn register_module_export(
   name: &'static str,
   cb: ExportRegisterCallback,
 ) {
-  MODULE_REGISTER_CALLBACK.push((js_mod, (name, cb)));
+  MODULE_REGISTER_CALLBACK
+    .write()
+    .expect("Register module export failed")
+    .push((js_mod, (name, cb)));
 }
 
 #[doc(hidden)]
@@ -338,7 +246,7 @@ fn load_host() {
   }
 }
 
-#[cfg(all(target_arch = "wasm32", not(feature = "noop")))]
+#[cfg(all(target_os = "wasi", not(feature = "noop")))]
 #[no_mangle]
 unsafe extern "C" fn napi_register_wasm_v1(
   env: sys::napi_env,
@@ -366,8 +274,12 @@ pub unsafe extern "C" fn napi_register_module_v1(
     wait_first_thread_registered();
   }
   let mut exports_objects: HashSet<String> = HashSet::default();
-  MODULE_REGISTER_CALLBACK.borrow_mut(|inner| {
-    inner
+
+  {
+    let mut register_callback = MODULE_REGISTER_CALLBACK
+      .write()
+      .expect("Write MODULE_REGISTER_CALLBACK in napi_register_module_v1 failed");
+    register_callback
       .iter_mut()
       .fold(
         HashMap::<Option<&'static str>, Vec<(&'static str, ExportRegisterCallback)>>::new(),
@@ -437,8 +349,8 @@ pub unsafe extern "C" fn napi_register_module_v1(
             }
           }
         }
-      })
-  });
+      });
+  }
 
   let mut registered_classes = HashMap::new();
 
@@ -536,15 +448,20 @@ pub unsafe extern "C" fn napi_register_module_v1(
   });
 
   #[cfg(feature = "compat-mode")]
-  MODULE_EXPORTS.borrow_mut(|inner| {
-    inner.iter().for_each(|callback| unsafe {
+  {
+    let module_exports = MODULE_EXPORTS.read().expect("Read MODULE_EXPORTS failed");
+    module_exports.iter().for_each(|callback| unsafe {
       if let Err(e) = callback(env, exports) {
         JsError::from(e).throw_into(env);
       }
     })
-  });
+  }
 
-  #[cfg(all(windows, feature = "napi4", feature = "tokio_rt"))]
+  #[cfg(all(
+    any(target_os = "windows", target_os = "freebsd"),
+    feature = "napi4",
+    feature = "tokio_rt"
+  ))]
   {
     crate::tokio_runtime::ensure_runtime();
 
@@ -560,7 +477,7 @@ pub unsafe extern "C" fn napi_register_module_v1(
       )
     };
   }
-  #[cfg(all(feature = "napi4", not(target_arch = "wasm32")))]
+  #[cfg(all(feature = "napi4", not(target_os = "wasi")))]
   create_custom_gc(env);
   FIRST_MODULE_REGISTERED.store(true, Ordering::SeqCst);
   exports
@@ -584,67 +501,69 @@ pub(crate) unsafe extern "C" fn noop(
   ptr::null_mut()
 }
 
-#[cfg(all(feature = "napi4", not(target_arch = "wasm32"), not(feature = "noop")))]
+#[cfg(all(feature = "napi4", not(target_os = "wasi"), not(feature = "noop")))]
 fn create_custom_gc(env: sys::napi_env) {
   use std::os::raw::c_char;
 
-  let mut custom_gc_fn = ptr::null_mut();
-  check_status_or_throw!(
-    env,
-    unsafe {
-      sys::napi_create_function(
-        env,
-        "custom_gc".as_ptr() as *const c_char,
-        9,
-        Some(empty),
-        ptr::null_mut(),
-        &mut custom_gc_fn,
-      )
-    },
-    "Create Custom GC Function in napi_register_module_v1 failed"
-  );
-  let mut async_resource_name = ptr::null_mut();
-  check_status_or_throw!(
-    env,
-    unsafe {
-      sys::napi_create_string_utf8(
-        env,
-        "CustomGC".as_ptr() as *const c_char,
-        8,
-        &mut async_resource_name,
-      )
-    },
-    "Create async resource string in napi_register_module_v1"
-  );
-  let mut custom_gc_tsfn = ptr::null_mut();
-  check_status_or_throw!(
-    env,
-    unsafe {
-      sys::napi_create_threadsafe_function(
-        env,
-        custom_gc_fn,
-        ptr::null_mut(),
-        async_resource_name,
-        0,
-        1,
-        ptr::null_mut(),
-        Some(custom_gc_finalize),
-        ptr::null_mut(),
-        Some(custom_gc),
-        &mut custom_gc_tsfn,
-      )
-    },
-    "Create Custom GC ThreadsafeFunction in napi_register_module_v1 failed"
-  );
-  check_status_or_throw!(
-    env,
-    unsafe { sys::napi_unref_threadsafe_function(env, custom_gc_tsfn) },
-    "Unref Custom GC ThreadsafeFunction in napi_register_module_v1 failed"
-  );
-  CUSTOM_GC_TSFN.store(custom_gc_tsfn, Ordering::Relaxed);
-  let threads = THREADS_CAN_ACCESS_ENV.get_or_init(Default::default);
+  if !FIRST_MODULE_REGISTERED.load(Ordering::SeqCst) {
+    let mut custom_gc_fn = ptr::null_mut();
+    check_status_or_throw!(
+      env,
+      unsafe {
+        sys::napi_create_function(
+          env,
+          "custom_gc".as_ptr().cast(),
+          9,
+          Some(empty),
+          ptr::null_mut(),
+          &mut custom_gc_fn,
+        )
+      },
+      "Create Custom GC Function in napi_register_module_v1 failed"
+    );
+    let mut async_resource_name = ptr::null_mut();
+    check_status_or_throw!(
+      env,
+      unsafe {
+        sys::napi_create_string_utf8(
+          env,
+          "CustomGC".as_ptr() as *const c_char,
+          8,
+          &mut async_resource_name,
+        )
+      },
+      "Create async resource string in napi_register_module_v1"
+    );
+    let mut custom_gc_tsfn = ptr::null_mut();
+    check_status_or_throw!(
+      env,
+      unsafe {
+        sys::napi_create_threadsafe_function(
+          env,
+          custom_gc_fn,
+          ptr::null_mut(),
+          async_resource_name,
+          0,
+          1,
+          ptr::null_mut(),
+          Some(custom_gc_finalize),
+          ptr::null_mut(),
+          Some(custom_gc),
+          &mut custom_gc_tsfn,
+        )
+      },
+      "Create Custom GC ThreadsafeFunction in napi_register_module_v1 failed"
+    );
+    check_status_or_throw!(
+      env,
+      unsafe { sys::napi_unref_threadsafe_function(env, custom_gc_tsfn) },
+      "Unref Custom GC ThreadsafeFunction in napi_register_module_v1 failed"
+    );
+    CUSTOM_GC_TSFN.store(custom_gc_tsfn, Ordering::Relaxed);
+  }
+
   let current_thread_id = std::thread::current().id();
-  threads.insert(current_thread_id);
+  THREADS_CAN_ACCESS_ENV.borrow_mut(|m| m.insert(current_thread_id, true));
   check_status_or_throw!(
     env,
     unsafe {
@@ -658,33 +577,29 @@ fn create_custom_gc(env: sys::napi_env) {
   );
 }
 
-#[cfg(all(feature = "napi4", not(target_arch = "wasm32"), not(feature = "noop")))]
+#[cfg(all(feature = "napi4", not(target_os = "wasi"), not(feature = "noop")))]
 unsafe extern "C" fn remove_thread_id(id: *mut std::ffi::c_void) {
   let thread_id = unsafe { Box::from_raw(id.cast::<ThreadId>()) };
-  THREADS_CAN_ACCESS_ENV
-    .get_or_init(Default::default)
-    .remove(&*thread_id);
+  THREADS_CAN_ACCESS_ENV.borrow_mut(|m| m.insert(*thread_id, false));
 }
 
-#[cfg(all(feature = "napi4", not(target_arch = "wasm32"), not(feature = "noop")))]
+#[cfg(all(feature = "napi4", not(target_os = "wasi"), not(feature = "noop")))]
 #[allow(unused)]
 unsafe extern "C" fn empty(env: sys::napi_env, info: sys::napi_callback_info) -> sys::napi_value {
   ptr::null_mut()
 }
 
-#[cfg(all(feature = "napi4", not(target_arch = "wasm32"), not(feature = "noop")))]
-#[allow(unused)]
+#[cfg(all(feature = "napi4", not(target_os = "wasi"), not(feature = "noop")))]
+#[allow(unused_variables)]
 unsafe extern "C" fn custom_gc_finalize(
   env: sys::napi_env,
   finalize_data: *mut std::ffi::c_void,
   finalize_hint: *mut std::ffi::c_void,
 ) {
-  THREAD_DESTROYED.with(|closed| {
-    closed.store(true, Ordering::Relaxed);
-  });
+  CUSTOM_GC_TSFN_DESTROYED.store(true, Ordering::SeqCst);
 }
 
-#[cfg(all(feature = "napi4", not(target_arch = "wasm32"), not(feature = "noop")))]
+#[cfg(all(feature = "napi4", not(target_os = "wasi"), not(feature = "noop")))]
 // recycle the ArrayBuffer/Buffer Reference if the ArrayBuffer/Buffer is not dropped on the main thread
 extern "C" fn custom_gc(
   env: sys::napi_env,
@@ -692,9 +607,14 @@ extern "C" fn custom_gc(
   _context: *mut std::ffi::c_void,
   data: *mut std::ffi::c_void,
 ) {
+  // current thread was destroyed
+  if THREADS_CAN_ACCESS_ENV.borrow_mut(|m| m.get(&std::thread::current().id()) == Some(&false)) {
+    return;
+  }
+  let mut reference = 0;
   check_status_or_throw!(
     env,
-    unsafe { sys::napi_delete_reference(env, data as sys::napi_ref) },
+    unsafe { sys::napi_reference_unref(env, data.cast(), &mut reference) },
     "Failed to delete Buffer reference in Custom GC"
   );
 }

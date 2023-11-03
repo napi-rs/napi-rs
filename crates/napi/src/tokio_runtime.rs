@@ -23,14 +23,14 @@ fn create_runtime() -> Option<Runtime> {
 
 pub(crate) static RT: Lazy<RwLock<Option<Runtime>>> = Lazy::new(|| RwLock::new(create_runtime()));
 
-#[cfg(windows)]
+#[cfg(any(target_os = "windows", target_os = "freebsd"))]
 static RT_REFERENCE_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 /// Ensure that the Tokio runtime is initialized.
 /// In windows the Tokio runtime will be dropped when Node env exits.
 /// But in Electron renderer process, the Node env will exits and recreate when the window reloads.
 /// So we need to ensure that the Tokio runtime is initialized when the Node env is created.
-#[cfg(windows)]
+#[cfg(any(target_os = "windows", target_os = "freebsd"))]
 pub(crate) fn ensure_runtime() {
   use std::sync::atomic::Ordering;
 
@@ -42,7 +42,7 @@ pub(crate) fn ensure_runtime() {
   RT_REFERENCE_COUNT.fetch_add(1, Ordering::Relaxed);
 }
 
-#[cfg(windows)]
+#[cfg(any(target_os = "windows", target_os = "freebsd"))]
 pub(crate) unsafe extern "C" fn drop_runtime(_arg: *mut std::ffi::c_void) {
   use std::sync::atomic::Ordering;
 
@@ -104,10 +104,10 @@ pub fn execute_tokio_future<
     }
   };
 
-  #[cfg(not(target_arch = "wasm32"))]
+  #[cfg(not(target_os = "wasi"))]
   spawn(inner);
 
-  #[cfg(target_arch = "wasm32")]
+  #[cfg(target_os = "wasi")]
   block_on(inner);
 
   Ok(promise.0.value)
