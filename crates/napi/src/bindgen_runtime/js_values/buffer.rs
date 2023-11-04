@@ -37,12 +37,11 @@ impl Drop for Buffer {
         if ref_.is_null() {
           return;
         }
-        #[cfg(not(target_os = "wasi"))]
-        if CUSTOM_GC_TSFN_DESTROYED.load(std::sync::atomic::Ordering::SeqCst) {
-          return;
-        }
         #[cfg(all(feature = "napi4", not(target_os = "wasi")))]
         {
+          if CUSTOM_GC_TSFN_DESTROYED.load(std::sync::atomic::Ordering::SeqCst) {
+            return;
+          }
           if !THREADS_CAN_ACCESS_ENV.borrow_mut(|m| m.get(&std::thread::current().id()).is_some()) {
             let status = unsafe {
               sys::napi_call_threadsafe_function(

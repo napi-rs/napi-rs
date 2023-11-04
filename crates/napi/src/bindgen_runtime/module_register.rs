@@ -1,13 +1,18 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+#[cfg(not(feature = "noop"))]
+use std::collections::HashSet;
 use std::ffi::CStr;
 use std::ptr;
+#[cfg(all(feature = "napi4", not(target_os = "wasi")))]
+use std::sync::atomic::AtomicPtr;
 #[cfg(all(
   any(target_os = "windows", target_os = "freebsd"),
   feature = "napi4",
   feature = "tokio_rt"
 ))]
 use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
+#[cfg(not(feature = "noop"))]
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::RwLock;
 use std::thread::ThreadId;
 

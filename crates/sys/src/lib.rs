@@ -1,3 +1,5 @@
+#![allow(ambiguous_glob_reexports)]
+
 #[cfg(windows)]
 macro_rules! generate {
   (extern "C" {
@@ -30,6 +32,7 @@ macro_rules! generate {
           }
       };
 
+      #[allow(clippy::missing_safety_doc)]
       pub unsafe fn load(
           host: &libloading::Library,
       ) -> Result<(), libloading::Error> {
