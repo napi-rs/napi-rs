@@ -16,6 +16,7 @@ pub struct CallbackInfo<const N: usize> {
   env: sys::napi_env,
   pub this: sys::napi_value,
   pub args: [sys::napi_value; N],
+  this_reference: sys::napi_ref,
 }
 
 impl<const N: usize> CallbackInfo<N> {
@@ -24,6 +25,9 @@ impl<const N: usize> CallbackInfo<N> {
     env: sys::napi_env,
     callback_info: sys::napi_callback_info,
     required_argc: Option<usize>,
+    // for async class factory, the `this` will be used after the async call
+    // so we must create reference for it and use it after async resolved
+    use_after_async: bool,
   ) -> Result<Self> {
     let mut this = ptr::null_mut();
     let mut args = [ptr::null_mut(); N];
@@ -55,7 +59,21 @@ impl<const N: usize> CallbackInfo<N> {
       }
     }
 
-    Ok(Self { env, this, args })
+    let mut this_reference = ptr::null_mut();
+
+    if use_after_async {
+      check_status!(
+        unsafe { sys::napi_create_reference(env, this, 1, &mut this_reference) },
+        "Failed to create reference for `this` in async class factory"
+      )?;
+    }
+
+    Ok(Self {
+      env,
+      this,
+      args,
+      this_reference,
+    })
   }
 
   pub fn get_arg(&self, index: usize) -> sys::napi_value {
@@ -141,8 +159,18 @@ impl<const N: usize> CallbackInfo<N> {
     js_name: &str,
     obj: T,
   ) -> Result<(sys::napi_value, *mut T)> {
-    let this = self.this();
+    let mut this = self.this();
     let mut instance = ptr::null_mut();
+    if !self.this_reference.is_null() {
+      check_status!(
+        unsafe { sys::napi_get_reference_value(self.env, self.this_reference, &mut this) },
+        "Failed to get reference value for `this` in async class factory"
+      )?;
+      check_status!(
+        unsafe { sys::napi_delete_reference(self.env, self.this_reference) },
+        "Failed to delete reference for `this` in async class factory"
+      )?;
+    }
     ___CALL_FROM_FACTORY.with(|s| s.store(true, Ordering::Relaxed));
     let status =
       unsafe { sys::napi_new_instance(self.env, this, 0, ptr::null_mut(), &mut instance) };
@@ -154,6 +182,7 @@ impl<const N: usize> CallbackInfo<N> {
       unsafe { sys::napi_throw(self.env, exception) };
       return Ok((ptr::null_mut(), ptr::null_mut()));
     }
+    check_status!(status, "Failed to create instance of class `{}`", js_name)?;
     let obj = Box::new(obj);
     let initial_finalize: Box<dyn FnOnce()> = Box::new(|| {});
     let finalize_callbacks_ptr = Rc::into_raw(Rc::new(Cell::new(Box::into_raw(initial_finalize))));
@@ -164,7 +193,7 @@ impl<const N: usize> CallbackInfo<N> {
         sys::napi_wrap(
           self.env,
           instance,
-          value_ref as *mut c_void,
+          value_ref.cast(),
           Some(raw_finalize_unchecked::<T>),
           ptr::null_mut(),
           &mut object_ref,

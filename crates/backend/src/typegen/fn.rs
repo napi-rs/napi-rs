@@ -226,7 +226,14 @@ impl NapiFn {
       FnKind::Factory => self
         .parent
         .clone()
-        .map(|i| format!(": {}", i.to_string().to_case(Case::Pascal)))
+        .map(|i| {
+          let parent = i.to_string().to_case(Case::Pascal);
+          if self.is_async {
+            format!(": Promise<{}>", parent)
+          } else {
+            format!(": {}", parent)
+          }
+        })
         .unwrap_or_else(|| "".to_owned()),
       _ => {
         let ret = if let Some(ret) = &self.ret {

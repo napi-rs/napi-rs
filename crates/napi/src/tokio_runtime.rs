@@ -1,4 +1,4 @@
-use std::{future::Future, sync::RwLock};
+use std::{future::Future, marker::PhantomData, sync::RwLock};
 
 use once_cell::sync::Lazy;
 use tokio::runtime::Runtime;
@@ -83,11 +83,43 @@ pub fn within_runtime_if_available<F: FnOnce() -> T, T>(f: F) -> T {
   f()
 }
 
+struct SendableResolver<
+  Data: 'static + Send,
+  R: 'static + FnOnce(sys::napi_env, Data) -> Result<sys::napi_value>,
+> {
+  inner: R,
+  _data: PhantomData<Data>,
+}
+
+// the `SendableResolver` will be only called in the `threadsafe_function_call_js` callback
+// which means it will be always called in the Node.js JavaScript thread
+// so the inner function is not required to be `Send`
+// but the `Send` bound is required by the `execute_tokio_future` function
+unsafe impl<Data: 'static + Send, R: 'static + FnOnce(sys::napi_env, Data) -> Result<sys::napi_value>>
+  Send for SendableResolver<Data, R>
+{
+}
+
+impl<Data: 'static + Send, R: 'static + FnOnce(sys::napi_env, Data) -> Result<sys::napi_value>>
+  SendableResolver<Data, R>
+{
+  fn new(inner: R) -> Self {
+    Self {
+      inner,
+      _data: PhantomData,
+    }
+  }
+
+  fn resolve(self, env: sys::napi_env, data: Data) -> Result<sys::napi_value> {
+    (self.inner)(env, data)
+  }
+}
+
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn execute_tokio_future<
   Data: 'static + Send,
   Fut: 'static + Send + Future<Output = Result<Data>>,
-  Resolver: 'static + Send + Sync + FnOnce(sys::napi_env, Data) -> Result<sys::napi_value>,
+  Resolver: 'static + FnOnce(sys::napi_env, Data) -> Result<sys::napi_value>,
 >(
   env: sys::napi_env,
   fut: Fut,
@@ -95,10 +127,14 @@ pub fn execute_tokio_future<
 ) -> Result<sys::napi_value> {
   let (deferred, promise) = JsDeferred::new(env)?;
 
-  let inner = async move {
+  let sendable_resolver = SendableResolver::new(resolver);
+
+  let inner = async {
     match fut.await {
-      Ok(v) => deferred.resolve(|env| {
-        resolver(env.raw(), v).map(|v| unsafe { JsUnknown::from_raw_unchecked(env.raw(), v) })
+      Ok(v) => deferred.resolve(move |env| {
+        sendable_resolver
+          .resolve(env.raw(), v)
+          .map(|v| unsafe { JsUnknown::from_raw_unchecked(env.raw(), v) })
       }),
       Err(e) => deferred.reject(e),
     }

@@ -112,8 +112,15 @@ impl TryToTokens for NapiFn {
       }
     };
 
+    // async factory only
+    let use_after_async = if self.is_async && self.parent.is_some() && self.fn_self.is_none() {
+      quote! { true }
+    } else {
+      quote! { false }
+    };
+
     let function_call_inner = quote! {
-      napi::bindgen_prelude::CallbackInfo::<#args_len>::new(env, cb, None).and_then(|mut cb| {
+      napi::bindgen_prelude::CallbackInfo::<#args_len>::new(env, cb, None, #use_after_async).and_then(|mut cb| {
           #build_ref_container
           #(#arg_conversions)*
           #native_call
@@ -511,6 +518,8 @@ impl NapiFn {
         if self.is_ret_result {
           if self.parent_is_generator {
             quote! { cb.generator_factory(#js_name, #ret?) }
+          } else if self.is_async {
+            quote! { cb.factory(#js_name, #ret) }
           } else {
             quote! { cb.factory(#js_name, #ret?) }
           }
