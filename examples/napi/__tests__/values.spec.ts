@@ -139,6 +139,8 @@ const {
   chronoNativeDateTime,
   chronoNativeDateTimeReturn,
   throwAsyncError,
+  getModuleFileName,
+  throwSyntaxError,
 } = (await import('../index.js')).default
 
 const Napi4Test = Number(process.versions.napi) >= 4 ? test : test.skip
@@ -1068,4 +1070,26 @@ const Napi9Test = Number(process.versions.napi) >= 9 ? test : test.skip
 
 Napi9Test('create symbol for', (t) => {
   t.is(createSymbolFor('foo'), Symbol.for('foo'))
+})
+
+Napi9Test('get module file name', (t) => {
+  if (isWasiTest) {
+    t.pass()
+    return
+  }
+  console.info(getModuleFileName())
+  t.true(getModuleFileName().includes('examples/napi/index.node'))
+})
+
+test('throw syntax error', (t) => {
+  const message = `Syntax Error: Unexpected token '}'`
+  const code = 'InvalidCharacterError'
+  t.throws(
+    () => throwSyntaxError(message, code),
+    {
+      code,
+      instanceOf: SyntaxError,
+    },
+    message,
+  )
 })

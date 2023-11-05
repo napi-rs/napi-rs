@@ -37,7 +37,7 @@ napi5 = ["napi4", "napi-sys/napi5"]
 napi6 = ["napi5", "napi-sys/napi6"]
 napi7 = ["napi6", "napi-sys/napi7"]
 napi8 = ["napi7", "napi-sys/napi8"]
-napi9 = ["napi8", "napi-sys/napi9", "byteorder"]
+napi9 = ["napi8", "napi-sys/napi9"]
 noop = []
 serde-json = ["serde", "serde_json"]
 tokio_fs = ["tokio/fs"]
@@ -74,10 +74,6 @@ version = "0.8"
 [dependencies.chrono]
 optional = true
 version = "0.4"
-
-[dependencies.byteorder]
-optional = true
-version = "1.5"
 
 [target.'cfg(target_os = "wasi")'.dependencies]
 napi-derive = { path = "../macro", version = "2.10.1", default-features = false }
