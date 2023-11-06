@@ -6,7 +6,7 @@ use std::ptr;
 #[cfg(all(feature = "napi4", not(target_os = "wasi")))]
 use std::sync::atomic::AtomicPtr;
 #[cfg(all(
-  any(target_os = "windows", target_os = "freebsd"),
+  not(any(target_os = "macos", target_os = "wasi")),
   feature = "napi4",
   feature = "tokio_rt"
 ))]
@@ -463,7 +463,7 @@ pub unsafe extern "C" fn napi_register_module_v1(
   }
 
   #[cfg(all(
-    any(target_os = "windows", target_os = "freebsd"),
+    not(any(target_os = "macos", target_os = "wasi")),
     feature = "napi4",
     feature = "tokio_rt"
   ))]
