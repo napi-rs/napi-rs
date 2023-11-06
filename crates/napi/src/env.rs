@@ -155,11 +155,11 @@ impl Env {
   }
 
   pub fn create_string(&self, s: &str) -> Result<JsString> {
-    unsafe { self.create_string_from_c_char(s.as_ptr() as *const c_char, s.len()) }
+    unsafe { self.create_string_from_c_char(s.as_ptr().cast(), s.len()) }
   }
 
   pub fn create_string_from_std(&self, s: String) -> Result<JsString> {
-    unsafe { self.create_string_from_c_char(s.as_ptr() as *const c_char, s.len()) }
+    unsafe { self.create_string_from_c_char(s.as_ptr().cast(), s.len()) }
   }
 
   /// This API is used for C ffi scenario.
