@@ -362,6 +362,8 @@ export function getGlobal(): typeof global
 
 export function getMapping(): Record<string, number>
 
+export function getModuleFileName(): string
+
 export function getNestedNumArr(): number[][][]
 
 export function getNull(): null
@@ -517,6 +519,8 @@ export function threadsafeFunctionThrowError(cb: (...args: any[]) => any): void
 export function throwAsyncError(): Promise<void>
 
 export function throwError(): void
+
+export function throwSyntaxError(error: string, code?: string | undefined | null): void
 
 export function toJsObj(): object
 

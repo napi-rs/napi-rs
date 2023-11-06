@@ -673,16 +673,19 @@ impl Env {
 
   /// This API throws a JavaScript SyntaxError with the text provided.
   #[cfg(feature = "napi9")]
-  pub fn throw_syntax_error(&self, msg: &str, code: Option<&str>) -> Result<()> {
-    let code = code.and_then(|s| CString::new(s).ok());
-    let msg = CString::new(msg)?;
-    check_status!(unsafe {
-      sys::node_api_throw_syntax_error(
-        self.0,
-        code.map(|s| s.as_ptr()).unwrap_or(ptr::null_mut()),
-        msg.as_ptr(),
-      )
-    })
+  pub fn throw_syntax_error<S: AsRef<str>, C: AsRef<str>>(&self, msg: S, code: Option<C>) {
+    use crate::check_status_or_throw;
+
+    let code = code.as_ref().map(|c| c.as_ref()).unwrap_or("");
+    let c_code = CString::new(code).expect("code must be a valid utf-8 string");
+    let code_ptr = c_code.as_ptr();
+    let msg: CString = CString::new(msg.as_ref()).expect("msg must be a valid utf-8 string");
+    let msg_ptr = msg.as_ptr();
+    check_status_or_throw!(
+      self.0,
+      unsafe { sys::node_api_throw_syntax_error(self.0, code_ptr, msg_ptr,) },
+      "Throw syntax error failed"
+    );
   }
 
   #[allow(clippy::expect_fun_call)]
@@ -1286,17 +1289,8 @@ impl Env {
     // SAFETY: This is safe because `char_ptr` is guaranteed to not be `null`, and point to
     // null-terminated string data.
     let module_filename = unsafe { std::ffi::CStr::from_ptr(char_ptr) };
-    #[cfg(windows)]
-    {
-      let byte_len = module_filename.to_bytes().len();
-      let mut utf16_buf = vec![0u16; byte_len / 2];
-      byteorder::LittleEndian::read_u16_into(module_filename.to_bytes(), &mut utf16_buf);
-      Ok(String::from_utf16_lossy(utf16_buf))
-    }
-    #[cfg(not(windows))]
-    {
-      Ok(module_filename.to_string_lossy().into_owned())
-    }
+
+    Ok(module_filename.to_string_lossy().into_owned())
   }
 
   /// ### Serialize `Rust Struct` into `JavaScript Value`

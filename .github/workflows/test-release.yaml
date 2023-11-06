@@ -523,7 +523,6 @@ jobs:
     runs-on: ubuntu-latest
     name: Test latest bun
     timeout-minutes: 10
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v1
@@ -554,6 +553,7 @@ jobs:
           bun run build
           bun run build:test
       - name: Test
+        continue-on-error: true
         run: bun run test:bun
 
   release-npm:
