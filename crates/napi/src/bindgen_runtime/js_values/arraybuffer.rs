@@ -80,12 +80,11 @@ macro_rules! impl_typed_array {
             if ref_.is_null() {
               return;
             }
-            #[cfg(not(target_os = "wasi"))]
-            if CUSTOM_GC_TSFN_DESTROYED.load(Ordering::SeqCst) {
-              return;
-            }
             #[cfg(all(feature = "napi4", not(target_os = "wasi")))]
             {
+              if CUSTOM_GC_TSFN_DESTROYED.load(Ordering::SeqCst) {
+                return;
+              }
               if !THREADS_CAN_ACCESS_ENV
                 .borrow_mut(|m| m.get(&std::thread::current().id()).is_some())
               {
