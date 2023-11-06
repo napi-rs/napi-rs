@@ -265,6 +265,13 @@ test('class factory', (t) => {
   )
 })
 
+test('async class factory', async (t) => {
+  const instance = await ClassWithFactory.with4Name('foo')
+  t.is(instance.name, 'foo-4')
+  const instance2 = await ClassWithFactory.with4NameResult('foo')
+  t.is(instance2.name, 'foo-4')
+})
+
 test('class constructor return Result', (t) => {
   const c = new Context()
   t.is(c.method(), 'not empty')

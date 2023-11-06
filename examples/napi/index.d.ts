@@ -92,6 +92,8 @@ export type Blake2bKey = Blake2BKey
 export class ClassWithFactory {
   name: string
   static withName(name: string): ClassWithFactory
+  static with4Name(name: string): Promise<ClassWithFactory>
+  static with4NameResult(name: string): Promise<ClassWithFactory>
   setName(name: string): this
 }
 

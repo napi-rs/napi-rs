@@ -1084,7 +1084,7 @@ impl Env {
     T: 'static + Send,
     V: 'static + ToNapiValue,
     F: 'static + Send + Future<Output = Result<T>>,
-    R: 'static + Send + Sync + FnOnce(&mut Env, T) -> Result<V>,
+    R: 'static + Send + FnOnce(&mut Env, T) -> Result<V>,
   >(
     &self,
     fut: F,

@@ -250,7 +250,7 @@ impl NapiStruct {
         env: napi::bindgen_prelude::sys::napi_env,
         cb: napi::bindgen_prelude::sys::napi_callback_info
       ) -> napi::bindgen_prelude::sys::napi_value {
-        napi::bindgen_prelude::CallbackInfo::<#fields_len>::new(env, cb, None)
+        napi::bindgen_prelude::CallbackInfo::<#fields_len>::new(env, cb, None, false)
           .and_then(|cb| #constructor)
           .unwrap_or_else(|e| {
             unsafe { napi::bindgen_prelude::JsError::from(e).throw_into(env) };
@@ -669,7 +669,7 @@ impl NapiStruct {
               env: napi::bindgen_prelude::sys::napi_env,
               cb: napi::bindgen_prelude::sys::napi_callback_info
             ) -> napi::bindgen_prelude::sys::napi_value {
-              napi::bindgen_prelude::CallbackInfo::<0>::new(env, cb, Some(0))
+              napi::bindgen_prelude::CallbackInfo::<0>::new(env, cb, Some(0), false)
                 .and_then(|mut cb| unsafe { cb.unwrap_borrow_mut::<#struct_name>() })
                 .and_then(|obj| {
                   #to_napi_value_convert
@@ -691,7 +691,7 @@ impl NapiStruct {
               env: napi::bindgen_prelude::sys::napi_env,
               cb: napi::bindgen_prelude::sys::napi_callback_info
             ) -> napi::bindgen_prelude::sys::napi_value {
-              napi::bindgen_prelude::CallbackInfo::<1>::new(env, cb, Some(1))
+              napi::bindgen_prelude::CallbackInfo::<1>::new(env, cb, Some(1), false)
                 .and_then(|mut cb_info| unsafe {
                   cb_info.unwrap_borrow_mut::<#struct_name>()
                     .and_then(|obj| {
