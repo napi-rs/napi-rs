@@ -1269,6 +1269,36 @@ impl Env {
     Ok(unsafe { JsSymbol::from_raw_unchecked(self.0, result) })
   }
 
+  #[cfg(feature = "napi9")]
+  /// This API retrieves the file path of the currently running JS module as a URL. For a file on
+  /// the local file system it will start with `file://`.
+  ///
+  /// # Errors
+  ///
+  /// The retrieved string may be empty if the add-on loading process fails to establish the
+  /// add-on's file name.
+  pub fn get_module_file_name(&self) -> Result<String> {
+    let mut char_ptr = ptr::null();
+    check_status!(
+      unsafe { sys::node_api_get_module_file_name(self.0, &mut char_ptr) },
+      "call node_api_get_module_file_name failed"
+    )?;
+    // SAFETY: This is safe because `char_ptr` is guaranteed to not be `null`, and point to
+    // null-terminated string data.
+    let module_filename = unsafe { std::ffi::CStr::from_ptr(char_ptr) };
+    #[cfg(windows)]
+    {
+      let byte_len = module_filename.to_bytes().len();
+      let mut utf16_buf = vec![0u16; byte_len / 2];
+      byteorder::LittleEndian::read_u16_into(module_filename.to_bytes(), &mut utf16_buf);
+      Ok(String::from_utf16_lossy(utf16_buf))
+    }
+    #[cfg(not(windows))]
+    {
+      Ok(module_filename.to_string_lossy().into_owned())
+    }
+  }
+
   /// ### Serialize `Rust Struct` into `JavaScript Value`
   ///
   /// ```
