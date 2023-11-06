@@ -144,7 +144,11 @@ pub fn execute_tokio_future<
   spawn(inner);
 
   #[cfg(target_os = "wasi")]
-  block_on(inner);
+  {
+    std::thread::spawn(|| {
+      block_on(inner);
+    });
+  }
 
   Ok(promise.0.value)
 }

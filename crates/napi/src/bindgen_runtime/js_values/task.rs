@@ -70,7 +70,7 @@ impl FromNapiValue for AbortSignal {
       sys::napi_wrap(
         env,
         signal.0.value,
-        Box::into_raw(Box::new(abort_controller)) as *mut _,
+        Box::into_raw(Box::new(abort_controller)).cast(),
         Some(async_task_abort_controller_finalize),
         ptr::null_mut(),
         ptr::null_mut(),

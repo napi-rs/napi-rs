@@ -124,10 +124,6 @@ test('should validate Map', (t) => {
 })
 
 test.only('should validate promise', async (t) => {
-  if (process.env.WASI_TEST) {
-    t.pass()
-    return
-  }
   t.is(
     await validatePromise(
       new Promise((resolve) => {
