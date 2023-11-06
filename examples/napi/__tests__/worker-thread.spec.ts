@@ -10,23 +10,22 @@ const __dirname = join(fileURLToPath(import.meta.url), '..')
 
 const t =
   // aarch64-unknown-linux-gnu is extremely slow in CI, skip it or it will timeout
-  (process.arch === 'arm64' && process.platform === 'linux') ||
-  process.env.WASI_TEST
-    ? test.skip
-    : test
+  process.arch === 'arm64' && process.platform === 'linux' ? test.skip : test
 
-const concurrency =
-  process.platform === 'win32' ||
-  process.platform === 'darwin' ||
-  (process.platform === 'linux' && process.arch === 'x64')
-    ? 50
-    : 10
+const concurrency = process.env.WASI_TEST
+  ? 1
+  : process.platform === 'win32' ||
+    process.platform === 'darwin' ||
+    (process.platform === 'linux' && process.arch === 'x64')
+  ? 50
+  : 10
 
 t('should be able to require in worker thread', async (t) => {
   await Promise.all(
     Array.from({ length: concurrency }).map(() => {
       const w = new Worker(join(__dirname, 'worker.cjs'), {
-        execArgv: [],
+        execArgv: ['--experimental-wasi-unstable-preview1'],
+        env: process.env,
       })
       return new Promise<void>((resolve, reject) => {
         w.postMessage({ type: 'require' })
@@ -52,7 +51,8 @@ t('custom GC works on worker_threads', async (t) => {
       Promise.all([
         new Promise<Worker>((resolve, reject) => {
           const w = new Worker(join(__dirname, 'worker.cjs'), {
-            execArgv: [],
+            execArgv: ['--experimental-wasi-unstable-preview1'],
+            env: process.env,
           })
           w.postMessage({
             type: 'async:buffer',
@@ -93,7 +93,8 @@ t('should be able to new Class in worker thread concurrently', async (t) => {
   await Promise.all(
     Array.from({ length: concurrency }).map(() => {
       const w = new Worker(join(__dirname, 'worker.cjs'), {
-        execArgv: [],
+        execArgv: ['--experimental-wasi-unstable-preview1'],
+        env: process.env,
       })
       return new Promise<void>((resolve, reject) => {
         w.postMessage({ type: 'constructor' })

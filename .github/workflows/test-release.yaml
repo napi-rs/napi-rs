@@ -513,11 +513,12 @@ jobs:
       - name: Build
         run: |
           yarn build
-          yarn workspace @examples/napi build --target wasm32-wasi-preview1-threads
+          yarn workspace @examples/napi build --target wasm32-wasi-preview1-threads --release
       - name: Test
         run: yarn workspace @examples/napi test -s
         env:
           WASI_TEST: 'true'
+          NODE_OPTIONS: '--max-old-space-size=8192'
 
   test-latest-bun:
     runs-on: ubuntu-latest
