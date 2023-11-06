@@ -90,7 +90,7 @@ pub use types::*;
 #[cfg(windows)]
 #[allow(clippy::missing_safety_doc)]
 pub unsafe fn setup() -> libloading::Library {
-  match load() {
+  match load_all() {
     Err(err) => panic!("{}", err),
     Ok(l) => l,
   }
