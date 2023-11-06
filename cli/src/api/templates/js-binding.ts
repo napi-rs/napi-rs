@@ -290,7 +290,7 @@ if (!nativeBinding) {
 }
 
 ${idents
-  .map((ident) => `module.exports.${ident} = binding.${ident}`)
+  .map((ident) => `module.exports.${ident} = nativeBinding.${ident}`)
   .join('\n')}
 `
 }
