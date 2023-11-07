@@ -3,6 +3,17 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.0.0-alpha.4](https://github.com/napi-rs/napi-rs/compare/@napi-rs/triples@2.0.0-alpha.1...@napi-rs/triples@2.0.0-alpha.4) (2023-11-07)
+
+### Bug Fixes
+
+- **cli:** created template missing macOS testing ([#1659](https://github.com/napi-rs/napi-rs/issues/1659)) ([4e0c9b1](https://github.com/napi-rs/napi-rs/commit/4e0c9b14e449beb8aa6872b8b85db922535a3eca))
+
+### Features
+
+- integrate with emnapi ([#1669](https://github.com/napi-rs/napi-rs/issues/1669)) ([13d0ce0](https://github.com/napi-rs/napi-rs/commit/13d0ce075e8b10702d675db2f45a721eac0dd30d))
+- **target:** riscv64gc-unknown-linux-gnu ([72fcd03](https://github.com/napi-rs/napi-rs/commit/72fcd03d982e2926bcc623061bbf287e2990f1e1))
+
 # [2.0.0-alpha.3](https://github.com/napi-rs/napi-rs/compare/@napi-rs/triples@2.0.0-alpha.1...@napi-rs/triples@2.0.0-alpha.3) (2023-07-18)
 
 ### Bug Fixes

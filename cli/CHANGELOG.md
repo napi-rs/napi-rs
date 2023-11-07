@@ -3,6 +3,24 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.6](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.5...@napi-rs/cli@3.0.0-alpha.6) (2023-11-07)
+
+### Bug Fixes
+
+- **cli:** js binding template ([#1788](https://github.com/napi-rs/napi-rs/issues/1788)) ([dac0738](https://github.com/napi-rs/napi-rs/commit/dac073805bd469b6a75ba0e12dc402d82608f296))
+- **cli:** pick right android tools while cross compiling ([#1675](https://github.com/napi-rs/napi-rs/issues/1675)) ([f2f4b48](https://github.com/napi-rs/napi-rs/commit/f2f4b48e8aa311b5670e972f4d0fde3e34803d39))
+- **cli:** set RANLIB while building android targets ([5d0240e](https://github.com/napi-rs/napi-rs/commit/5d0240e8ad90af18bdf426b3b00f023c03505f30))
+- **cli:** switch name parsing to allow periods in name ([fcb5c2b](https://github.com/napi-rs/napi-rs/commit/fcb5c2bdd0239c47eec95aa3af94417e9d495995))
+
+### Features
+
+- **cli:** add provenance to ci template ([#1671](https://github.com/napi-rs/napi-rs/issues/1671)) ([9ebe404](https://github.com/napi-rs/napi-rs/commit/9ebe404e9a4ec068d66d7011d3bc1fbd52c23325))
+- integrate with emnapi ([#1669](https://github.com/napi-rs/napi-rs/issues/1669)) ([13d0ce0](https://github.com/napi-rs/napi-rs/commit/13d0ce075e8b10702d675db2f45a721eac0dd30d))
+
+### Performance Improvements
+
+- **cli:** improve musl verification ([#1660](https://github.com/napi-rs/napi-rs/issues/1660)) ([3ee6be4](https://github.com/napi-rs/napi-rs/commit/3ee6be4e5f97a431735d12b610c8851d549c68b2))
+
 # [3.0.0-alpha.5](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.3...@napi-rs/cli@3.0.0-alpha.5) (2023-07-18)
 
 ### Bug Fixes
