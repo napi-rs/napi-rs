@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.7](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.6...@napi-rs/cli@3.0.0-alpha.7) (2023-11-08)
+
+### Bug Fixes
+
+- **cli:** artifacts command backward compatibility ([#1797](https://github.com/napi-rs/napi-rs/issues/1797)) ([6ec46b7](https://github.com/napi-rs/napi-rs/commit/6ec46b749e74e7de1e4ec1c612d1a2be888cc52f))
+- **cli:** wrong wasm file name with --platform flag ([#1798](https://github.com/napi-rs/napi-rs/issues/1798)) ([8ddd35c](https://github.com/napi-rs/napi-rs/commit/8ddd35c7880d436bad95f294c69778081590eb3a))
+
 # [3.0.0-alpha.6](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.5...@napi-rs/cli@3.0.0-alpha.6) (2023-11-07)
 
 ### Bug Fixes
