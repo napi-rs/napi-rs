@@ -263,6 +263,7 @@ fn is_ts_function_type_notation(ty: &Type) -> bool {
   }
 }
 
+// return (type, is_optional, is_variadic)
 pub fn ty_to_ts_type(
   ty: &Type,
   is_return_ty: bool,
