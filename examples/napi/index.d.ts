@@ -236,6 +236,8 @@ export function asyncPlus100(p: Promise<number>): Promise<number>
 
 export function asyncReduceBuffer(buf: Buffer): Promise<number>
 
+export function asyncTaskVoidReturn(): Promise<void>
+
 export interface B {
   bar: number
 }
