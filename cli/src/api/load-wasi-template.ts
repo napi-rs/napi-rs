@@ -1,5 +1,5 @@
 export const createWasiBinding = (
-  localName: string,
+  wasmFileName: string,
   wasiRegisterFunctions: string[],
 ) => `/* eslint-disable */
 /* prettier-ignore */
@@ -32,7 +32,7 @@ const __sharedMemory = new WebAssembly.Memory({
   shared: true,
 })
 
-const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule } = await __emnapiInstantiateNapiModule(__nodeFsPromises.readFile(__nodePath.join(__dirname, '${localName}.wasi-wasm32.wasm')), {
+const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule } = await __emnapiInstantiateNapiModule(__nodeFsPromises.readFile(__nodePath.join(__dirname, '${wasmFileName}.wasm')), {
   context: __emnapiContext,
   asyncWorkPoolSize: 4,
   wasi: __wasi,
