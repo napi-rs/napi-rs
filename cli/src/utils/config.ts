@@ -41,7 +41,7 @@ interface UserNapiConfig {
     /**
      * Whether enable default targets
      */
-    default: boolean
+    defaults: boolean
     /**
      * Additional targets to be compiled for
      */
@@ -119,7 +119,7 @@ export async function readNapiConfig(path: string): Promise<NapiConfig> {
   }
 
   if (!targets.length) {
-    if (userNapiConfig.triples?.default) {
+    if (userNapiConfig.triples?.defaults) {
       targets = targets.concat(DEFAULT_TARGETS)
     }
 
