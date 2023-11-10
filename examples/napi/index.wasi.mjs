@@ -29,7 +29,7 @@ const __sharedMemory = new WebAssembly.Memory({
   shared: true,
 })
 
-const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule } = await __emnapiInstantiateNapiModule(__nodeFsPromises.readFile(__nodePath.join(__dirname, 'index.wasi-wasm32.wasm')), {
+const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule } = await __emnapiInstantiateNapiModule(__nodeFsPromises.readFile(__nodePath.join(__dirname, 'index.wasm32-wasi-preview1-threads.wasi-wasm32.wasm')), {
   context: __emnapiContext,
   asyncWorkPoolSize: 4,
   wasi: __wasi,
@@ -236,35 +236,39 @@ function __napi_rs_initialize_modules(__napiInstance) {
   __napiInstance.exports['__napi_register__DelaySum_impl_180']()
   __napiInstance.exports['__napi_register__without_abort_controller_181']()
   __napiInstance.exports['__napi_register__with_abort_controller_182']()
-  __napiInstance.exports['__napi_register__call_threadsafe_function_183']()
-  __napiInstance.exports['__napi_register__call_long_threadsafe_function_184']()
-  __napiInstance.exports['__napi_register__threadsafe_function_throw_error_185']()
-  __napiInstance.exports['__napi_register__threadsafe_function_fatal_mode_186']()
-  __napiInstance.exports['__napi_register__threadsafe_function_fatal_mode_error_187']()
-  __napiInstance.exports['__napi_register__threadsafe_function_closure_capture_188']()
-  __napiInstance.exports['__napi_register__tsfn_call_with_callback_189']()
-  __napiInstance.exports['__napi_register__tsfn_async_call_190']()
-  __napiInstance.exports['__napi_register__accept_threadsafe_function_191']()
-  __napiInstance.exports['__napi_register__accept_threadsafe_function_fatal_192']()
-  __napiInstance.exports['__napi_register__accept_threadsafe_function_tuple_args_193']()
-  __napiInstance.exports['__napi_register__tsfn_return_promise_194']()
-  __napiInstance.exports['__napi_register__tsfn_return_promise_timeout_195']()
-  __napiInstance.exports['__napi_register__tsfn_throw_from_js_196']()
-  __napiInstance.exports['__napi_register__get_buffer_197']()
-  __napiInstance.exports['__napi_register__append_buffer_198']()
-  __napiInstance.exports['__napi_register__get_empty_buffer_199']()
-  __napiInstance.exports['__napi_register__convert_u32_array_200']()
-  __napiInstance.exports['__napi_register__create_external_typed_array_201']()
-  __napiInstance.exports['__napi_register__mutate_typed_array_202']()
-  __napiInstance.exports['__napi_register__deref_uint8_array_203']()
-  __napiInstance.exports['__napi_register__buffer_pass_through_204']()
-  __napiInstance.exports['__napi_register__array_buffer_pass_through_205']()
-  __napiInstance.exports['__napi_register__AsyncBuffer_impl_206']()
-  __napiInstance.exports['__napi_register__async_reduce_buffer_207']()
+  __napiInstance.exports['__napi_register__AsyncTaskVoidReturn_impl_183']()
+  __napiInstance.exports['__napi_register__async_task_void_return_184']()
+  __napiInstance.exports['__napi_register__AsyncTaskOptionalReturn_impl_185']()
+  __napiInstance.exports['__napi_register__async_task_optional_return_186']()
+  __napiInstance.exports['__napi_register__call_threadsafe_function_187']()
+  __napiInstance.exports['__napi_register__call_long_threadsafe_function_188']()
+  __napiInstance.exports['__napi_register__threadsafe_function_throw_error_189']()
+  __napiInstance.exports['__napi_register__threadsafe_function_fatal_mode_190']()
+  __napiInstance.exports['__napi_register__threadsafe_function_fatal_mode_error_191']()
+  __napiInstance.exports['__napi_register__threadsafe_function_closure_capture_192']()
+  __napiInstance.exports['__napi_register__tsfn_call_with_callback_193']()
+  __napiInstance.exports['__napi_register__tsfn_async_call_194']()
+  __napiInstance.exports['__napi_register__accept_threadsafe_function_195']()
+  __napiInstance.exports['__napi_register__accept_threadsafe_function_fatal_196']()
+  __napiInstance.exports['__napi_register__accept_threadsafe_function_tuple_args_197']()
+  __napiInstance.exports['__napi_register__tsfn_return_promise_198']()
+  __napiInstance.exports['__napi_register__tsfn_return_promise_timeout_199']()
+  __napiInstance.exports['__napi_register__tsfn_throw_from_js_200']()
+  __napiInstance.exports['__napi_register__get_buffer_201']()
+  __napiInstance.exports['__napi_register__append_buffer_202']()
+  __napiInstance.exports['__napi_register__get_empty_buffer_203']()
+  __napiInstance.exports['__napi_register__convert_u32_array_204']()
+  __napiInstance.exports['__napi_register__create_external_typed_array_205']()
+  __napiInstance.exports['__napi_register__mutate_typed_array_206']()
+  __napiInstance.exports['__napi_register__deref_uint8_array_207']()
+  __napiInstance.exports['__napi_register__buffer_pass_through_208']()
+  __napiInstance.exports['__napi_register__array_buffer_pass_through_209']()
+  __napiInstance.exports['__napi_register__AsyncBuffer_impl_210']()
+  __napiInstance.exports['__napi_register__async_reduce_buffer_211']()
 }
 
 const binding = __napiModule.exports
-const { Animal, AnimalWithDefaultConstructor, AnotherClassForEither, AnotherCssStyleSheet, AnotherCSSStyleSheet, Asset, JsAsset, Assets, JsAssets, Bird, Blake2BHasher, Blake2bHasher, Blake2BKey, Blake2bKey, ClassWithFactory, Context, CssRuleList, CSSRuleList, CssStyleSheet, CSSStyleSheet, CustomFinalize, Dog, Fib, Fib2, Fib3, GetterSetterWithClosures, JsClassForEither, JsRemote, JsRepo, NinjaTurtle, NotWritableClass, Optional, Selector, Width, acceptThreadsafeFunction, acceptThreadsafeFunctionFatal, acceptThreadsafeFunctionTupleArgs, add, ALIAS, AliasedEnum, appendBuffer, arrayBufferPassThrough, asyncMultiTwo, asyncPlus100, asyncReduceBuffer, bigintAdd, bigintFromI128, bigintFromI64, bigintGetU64AsString, bufferPassThrough, callbackReturnPromise, callbackReturnPromiseAndSpawn, callLongThreadsafeFunction, callThreadsafeFunction, captureErrorInCallback, chronoDateAdd1Minute, chronoDateToMillis, chronoNativeDateTime, chronoNativeDateTimeReturn, concatLatin1, concatStr, concatUtf16, contains, convertU32Array, createBigInt, createBigIntI64, createExternal, createExternalString, createExternalTypedArray, createObj, createObjectWithClassField, createObjWithProperty, createSymbol, createSymbolFor, CustomNumEnum, customStatusCode, dateToNumber, DEFAULT_COST, derefUint8Array, either3, either4, eitherBoolOrFunction, eitherFromObjects, eitherFromOption, eitherStringOrNumber, Empty, enumToI32, fibonacci, fnReceivedAliased, getBuffer, getCwd, getEmptyBuffer, getExternal, getGlobal, getMapping, getModuleFileName, getNestedNumArr, getNull, getNumArr, getNums, getPackageJsonName, getStrFromObject, getterFromObj, getUndefined, getWords, Kind, listObjKeys, mapOption, mutateExternal, mutateTypedArray, optionEnd, optionOnly, optionStart, optionStartEnd, overrideIndividualArgOnFunction, overrideIndividualArgOnFunctionWithCbArg, panic, plusOne, promiseInEither, readFile, readFileAsync, readPackageJson, receiveAllOptionalObject, receiveClassOrNumber, receiveDifferentClass, receiveMutClassOrNumber, receiveObjectOnlyFromJs, receiveObjectWithClassField, receiveStrictObject, receiveString, returnEither, returnEitherClass, returnFromSharedCrate, returnJsFunction, returnNull, returnUndefined, returnUndefinedIfInvalid, returnUndefinedIfInvalidPromise, roundtripStr, runScript, setSymbolInObj, Status, sumMapping, sumNums, testSerdeBigNumberPrecision, testSerdeRoundtrip, threadsafeFunctionClosureCapture, threadsafeFunctionFatalMode, threadsafeFunctionFatalModeError, threadsafeFunctionThrowError, throwAsyncError, throwError, throwSyntaxError, toJsObj, tsfnAsyncCall, tsfnCallWithCallback, tsfnReturnPromise, tsfnReturnPromiseTimeout, tsfnThrowFromJs, tsRename, validateArray, validateBigint, validateBoolean, validateBuffer, validateDate, validateDateTime, validateExternal, validateFunction, validateHashMap, validateNull, validateNumber, validateOptional, validatePromise, validateString, validateSymbol, validateTypedArray, validateUndefined, withAbortController, withoutAbortController, xxh64Alias, xxh2, xxh3 } = binding
+const { Animal, AnimalWithDefaultConstructor, AnotherClassForEither, AnotherCssStyleSheet, AnotherCSSStyleSheet, Asset, JsAsset, Assets, JsAssets, Bird, Blake2BHasher, Blake2bHasher, Blake2BKey, Blake2bKey, ClassWithFactory, Context, CssRuleList, CSSRuleList, CssStyleSheet, CSSStyleSheet, CustomFinalize, Dog, Fib, Fib2, Fib3, GetterSetterWithClosures, JsClassForEither, JsRemote, JsRepo, NinjaTurtle, NotWritableClass, Optional, Selector, Width, acceptThreadsafeFunction, acceptThreadsafeFunctionFatal, acceptThreadsafeFunctionTupleArgs, add, ALIAS, AliasedEnum, appendBuffer, arrayBufferPassThrough, asyncMultiTwo, asyncPlus100, asyncReduceBuffer, asyncTaskOptionalReturn, asyncTaskVoidReturn, bigintAdd, bigintFromI128, bigintFromI64, bigintGetU64AsString, bufferPassThrough, callbackReturnPromise, callbackReturnPromiseAndSpawn, callLongThreadsafeFunction, callThreadsafeFunction, captureErrorInCallback, chronoDateAdd1Minute, chronoDateToMillis, chronoNativeDateTime, chronoNativeDateTimeReturn, concatLatin1, concatStr, concatUtf16, contains, convertU32Array, createBigInt, createBigIntI64, createExternal, createExternalString, createExternalTypedArray, createObj, createObjectWithClassField, createObjWithProperty, createSymbol, createSymbolFor, CustomNumEnum, customStatusCode, dateToNumber, DEFAULT_COST, derefUint8Array, either3, either4, eitherBoolOrFunction, eitherFromObjects, eitherFromOption, eitherStringOrNumber, Empty, enumToI32, fibonacci, fnReceivedAliased, getBuffer, getCwd, getEmptyBuffer, getExternal, getGlobal, getMapping, getModuleFileName, getNestedNumArr, getNull, getNumArr, getNums, getPackageJsonName, getStrFromObject, getterFromObj, getUndefined, getWords, Kind, listObjKeys, mapOption, mutateExternal, mutateTypedArray, optionEnd, optionOnly, optionStart, optionStartEnd, overrideIndividualArgOnFunction, overrideIndividualArgOnFunctionWithCbArg, panic, plusOne, promiseInEither, readFile, readFileAsync, readPackageJson, receiveAllOptionalObject, receiveClassOrNumber, receiveDifferentClass, receiveMutClassOrNumber, receiveObjectOnlyFromJs, receiveObjectWithClassField, receiveStrictObject, receiveString, returnEither, returnEitherClass, returnFromSharedCrate, returnJsFunction, returnNull, returnUndefined, returnUndefinedIfInvalid, returnUndefinedIfInvalidPromise, roundtripStr, runScript, setSymbolInObj, Status, sumMapping, sumNums, testSerdeBigNumberPrecision, testSerdeRoundtrip, threadsafeFunctionClosureCapture, threadsafeFunctionFatalMode, threadsafeFunctionFatalModeError, threadsafeFunctionThrowError, throwAsyncError, throwError, throwSyntaxError, toJsObj, tsfnAsyncCall, tsfnCallWithCallback, tsfnReturnPromise, tsfnReturnPromiseTimeout, tsfnThrowFromJs, tsRename, validateArray, validateBigint, validateBoolean, validateBuffer, validateDate, validateDateTime, validateExternal, validateFunction, validateHashMap, validateNull, validateNumber, validateOptional, validatePromise, validateString, validateSymbol, validateTypedArray, validateUndefined, withAbortController, withoutAbortController, xxh64Alias, xxh2, xxh3 } = binding
 export {
   Animal,
   AnimalWithDefaultConstructor,
@@ -311,6 +315,8 @@ export {
   asyncMultiTwo,
   asyncPlus100,
   asyncReduceBuffer,
+  asyncTaskOptionalReturn,
+  asyncTaskVoidReturn,
   bigintAdd,
   bigintFromI128,
   bigintFromI64,

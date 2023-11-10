@@ -481,7 +481,7 @@ class Builder {
       })
     }
 
-    await this.copyArtifact()
+    const dest = await this.copyArtifact()
 
     // only for cdylib
     if (this.cdyLibName) {
@@ -505,7 +505,7 @@ class Builder {
       const jsOutput = await this.writeJsBinding(idents)
       const wasmOutput = await this.writeWasiBinding(
         wasiRegisterFunctions,
-        jsOutput?.path ?? 'index',
+        dest ?? 'index.wasm',
         idents,
       )
       if (jsOutput) {
@@ -543,6 +543,7 @@ class Builder {
         kind: dest.endsWith('.node') ? 'node' : 'exe',
         path: dest,
       })
+      return dest
     } catch (e) {
       throw new Error('Failed to copy artifact', {
         cause: e,
@@ -656,7 +657,7 @@ class Builder {
   ) {
     if (distFileName && wasiRegisterFunctions.length) {
       const { name, dir } = parse(distFileName)
-      const newPath = join(dir, `${name}.wasi.mjs`)
+      const newPath = join(dir, `${this.config.binaryName}.wasi.mjs`)
       const workerPath = join(dir, 'wasi-worker.mjs')
       const declareCodes = `const { ${idents.join(', ')} } = binding\n`
       const exportsCode = `export {\n${idents
@@ -664,7 +665,7 @@ class Builder {
         .join(',\n')}\n}`
       await writeFileAsync(
         newPath,
-        createWasiBinding(this.config.binaryName, wasiRegisterFunctions) +
+        createWasiBinding(name, wasiRegisterFunctions) +
           declareCodes +
           exportsCode +
           '\n',

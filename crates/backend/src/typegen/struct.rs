@@ -36,9 +36,18 @@ impl ToTypeDef for NapiImpl {
   fn to_type_def(&self) -> Option<TypeDef> {
     if let Some(output_type) = &self.task_output_type {
       TASK_STRUCTS.with(|t| {
+        let (resolved_type, is_optional, _) = ty_to_ts_type(output_type, false, true, false);
         t.borrow_mut().insert(
           self.name.to_string(),
-          ty_to_ts_type(output_type, false, true, false).0,
+          if resolved_type == "undefined" {
+            "void".to_owned()
+          } else {
+            if is_optional {
+              format!("{} | null", resolved_type)
+            } else {
+              resolved_type
+            }
+          },
         );
       });
     }
