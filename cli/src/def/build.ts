@@ -62,6 +62,11 @@ export abstract class BaseBuildCommand extends Command {
       'Path and filename of generated type def file. Relative to `--output_dir`',
   })
 
+  noConstEnum?: boolean = Option.Boolean('--no-const-enum', {
+    description:
+      'Generate plain `enum` in .d.ts file instead of `const enum`, default is false (const enum)',
+  })
+
   dtsHeader?: string = Option.String('--dts-header', {
     description:
       'Custom file header for generated type def file. Only works when `typedef` feature enabled.',
@@ -136,6 +141,7 @@ export abstract class BaseBuildCommand extends Command {
       jsBinding: this.jsBinding,
       noJsBinding: this.noJsBinding,
       dts: this.dts,
+      noConstEnum: this.noConstEnum,
       dtsHeader: this.dtsHeader,
       noDtsHeader: this.noDtsHeader,
       strip: this.strip,
@@ -202,6 +208,10 @@ export interface BuildOptions {
    * Path and filename of generated type def file. Relative to `--output_dir`
    */
   dts?: string
+  /**
+   * Whether to generate const enum or plain enum. Default is false.
+   */
+  noConstEnum?: boolean
   /**
    * Custom file header for generated type def file. Only works when `typedef` feature enabled.
    */
