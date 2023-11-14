@@ -96,5 +96,5 @@
     "tslib": "^2.6.2",
     "typescript": "^5.2.2"
   },
-  "packageManager": "yarn@4.0.1"
+  "packageManager": "yarn@4.0.2"
 }
