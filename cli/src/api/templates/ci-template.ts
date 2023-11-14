@@ -543,6 +543,7 @@ jobs:
         with:
           node-version: 18
           cache: 'yarn'
+          registry-url: 'https://registry.npmjs.org'
 
       - name: 'Install dependencies'
         run: yarn install
@@ -561,19 +562,16 @@ jobs:
 
       - name: Publish
         run: |
-          npm config set provenance true
           if git log -1 --pretty=%B | grep "^[0-9]\\+\\.[0-9]\\+\\.[0-9]\\+$";
           then
-            echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" >> ~/.npmrc
-            npm publish --access public
+            npm publish --access public --provenance
           elif git log -1 --pretty=%B | grep "^[0-9]\\+\\.[0-9]\\+\\.[0-9]\\+";
           then
-            echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" >> ~/.npmrc
-            npm publish --tag next --access public
+            npm publish --tag next --access public --provenance
           else
             echo "Not a release, skipping publish"
           fi
         env:
           GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: \${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: \${{ secrets.NPM_TOKEN }}
 `
