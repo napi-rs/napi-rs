@@ -51,11 +51,11 @@ jobs:
             apt-get update &&
             apt-get install -y wget gnupg2 &&
             wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add - &&
-            echo "deb http://apt.llvm.org/focal/ llvm-toolchain-focal-15 main" >> /etc/apt/sources.list &&
-            echo "deb-src http://apt.llvm.org/focal/ llvm-toolchain-focal-15 main" >> /etc/apt/sources.list &&
+            echo "deb http://apt.llvm.org/focal/ llvm-toolchain-focal-16 main" >> /etc/apt/sources.list &&
+            echo "deb-src http://apt.llvm.org/focal/ llvm-toolchain-focal-16 main" >> /etc/apt/sources.list &&
             apt-get update &&
-            apt-get install libc++-15-dev libc++abi-15-dev -y --fix-missing --no-install-recommends &&
-            rm /usr/lib/llvm-15/lib/libc++abi.so
+            apt-get install libc++-16-dev libc++abi-16-dev -y --fix-missing --no-install-recommends &&
+            rm /usr/lib/llvm-16/lib/libc++abi.so
 
       - name: Build and push debian aarch64 cross
         uses: docker/build-push-action@v5
