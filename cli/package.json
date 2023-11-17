@@ -80,7 +80,7 @@
     "typanion": "^3.14.0"
   },
   "devDependencies": {
-    "@emnapi/core": "0.43.1",
+    "@emnapi/core": "0.44.0",
     "@emnapi/runtime": "0.43.1",
     "@types/debug": "^4.1.10",
     "@types/inquirer": "^9.0.6",
