@@ -41,12 +41,10 @@ impl ToTypeDef for NapiImpl {
           self.name.to_string(),
           if resolved_type == "undefined" {
             "void".to_owned()
+          } else if is_optional {
+            format!("{} | null", resolved_type)
           } else {
-            if is_optional {
-              format!("{} | null", resolved_type)
-            } else {
-              resolved_type
-            }
+            resolved_type
           },
         );
       });
