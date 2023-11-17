@@ -81,7 +81,7 @@
   },
   "devDependencies": {
     "@emnapi/core": "0.44.0",
-    "@emnapi/runtime": "0.43.1",
+    "@emnapi/runtime": "0.44.0",
     "@types/debug": "^4.1.10",
     "@types/inquirer": "^9.0.6",
     "@types/js-yaml": "^4.0.8",
@@ -95,7 +95,7 @@
     "typescript": "^5.2.2"
   },
   "peerDependencies": {
-    "@emnapi/runtime": "0.43.1",
+    "@emnapi/runtime": "0.44.0",
     "@tybys/wasm-util": "0.8.0",
     "emnapi": "0.43.1"
   },
