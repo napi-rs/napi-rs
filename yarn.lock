@@ -135,6 +135,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@emnapi/core@npm:0.44.0":
+  version: 0.44.0
+  resolution: "@emnapi/core@npm:0.44.0"
+  dependencies:
+    tslib: "npm:^2.4.0"
+  checksum: 554ad897ae5d6e49471f1922113e60f74ecdc7617ea83ba070b022e7878d7f35160b26d42da98f692f915ba89ccc8900a57ee1afeafbe9fc225c0b92db5772f4
+  languageName: node
+  linkType: hard
+
 "@emnapi/runtime@npm:0.43.1":
   version: 0.43.1
   resolution: "@emnapi/runtime@npm:0.43.1"
@@ -566,7 +575,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@napi-rs/cli@workspace:cli"
   dependencies:
-    "@emnapi/core": "npm:0.43.1"
+    "@emnapi/core": "npm:0.44.0"
     "@emnapi/runtime": "npm:0.43.1"
     "@octokit/rest": "npm:^20.0.2"
     "@tybys/wasm-util": "npm:0.8.0"
