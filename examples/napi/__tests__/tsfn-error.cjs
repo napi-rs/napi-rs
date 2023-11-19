@@ -1,3 +1,5 @@
-import('../index.js').then(({ default: { threadsafeFunctionFatalModeError } }) => {
-  return threadsafeFunctionFatalModeError(() => {})
-})
+import('../index.js').then(
+  ({ default: { threadsafeFunctionFatalModeError } }) => {
+    return threadsafeFunctionFatalModeError(() => {})
+  },
+)
