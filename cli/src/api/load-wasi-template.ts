@@ -16,6 +16,7 @@ import { instantiateNapiModule as __emnapiInstantiateNapiModule } from '@emnapi/
 import { getDefaultContext as __emnapiGetDefaultContext } from '@emnapi/runtime'
 
 const __wasi = new __nodeWASI({
+  version: 'preview1',
   env: process.env,
   preopens: {
     '/': __nodePath.join(__nodeURL.fileURLToPath(import.meta.url), '..'),
