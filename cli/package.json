@@ -72,7 +72,7 @@
     "clipanion": "^3.2.1",
     "colorette": "^2.0.20",
     "debug": "^4.3.4",
-    "emnapi": "0.43.1",
+    "emnapi": "0.44.0",
     "inquirer": "^9.2.11",
     "js-yaml": "^4.1.0",
     "lodash-es": "^4.17.21",
@@ -97,7 +97,7 @@
   "peerDependencies": {
     "@emnapi/runtime": "0.44.0",
     "@tybys/wasm-util": "0.8.0",
-    "emnapi": "0.43.1"
+    "emnapi": "0.44.0"
   },
   "peerDependenciesMeta": {
     "@emnapi/runtime": {
