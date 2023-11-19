@@ -13,6 +13,7 @@ import { instantiateNapiModule as __emnapiInstantiateNapiModule } from '@emnapi/
 import { getDefaultContext as __emnapiGetDefaultContext } from '@emnapi/runtime'
 
 const __wasi = new __nodeWASI({
+  version: 'preview1',
   env: process.env,
   preopens: {
     '/': __nodePath.join(__nodeURL.fileURLToPath(import.meta.url), '..'),
@@ -29,7 +30,7 @@ const __sharedMemory = new WebAssembly.Memory({
   shared: true,
 })
 
-const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule } = await __emnapiInstantiateNapiModule(__nodeFsPromises.readFile(__nodePath.join(__dirname, 'index.wasm32-wasi-preview1-threads.wasi-wasm32.wasm')), {
+const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule } = await __emnapiInstantiateNapiModule(__nodeFsPromises.readFile(__nodePath.join(__dirname, 'index.wasi-wasm32.wasm')), {
   context: __emnapiContext,
   asyncWorkPoolSize: 4,
   wasi: __wasi,

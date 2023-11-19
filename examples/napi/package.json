@@ -11,12 +11,12 @@
   },
   "devDependencies": {
     "@napi-rs/cli": "workspace:*",
-    "@types/lodash": "^4.14.195",
+    "@types/lodash": "^4.14.201",
     "ava": "^5.3.1",
     "cross-env": "7.0.3",
-    "electron": "^27.0.3",
+    "electron": "^27.1.0",
     "lodash": "^4.17.21",
-    "sinon": "^15.2.0"
+    "sinon": "^17.0.1"
   },
   "ava": {
     "extensions": {
@@ -30,7 +30,7 @@
     "timeout": "10m"
   },
   "dependencies": {
-    "@emnapi/core": "0.43.1",
+    "@emnapi/core": "0.44.0",
     "@tybys/wasm-util": "^0.8.0",
     "@types/lodash": "^4.14.200",
     "lodash": "^4.17.21",
