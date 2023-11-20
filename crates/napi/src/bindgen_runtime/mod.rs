@@ -45,7 +45,7 @@ pub unsafe extern "C" fn raw_finalize_unchecked<T: ObjectFinalize>(
   {
     let finalize_callbacks_rc = unsafe { Rc::from_raw(finalize_callbacks_ptr) };
 
-    #[cfg(all(debug_assertions, not(target_os = "wasi")))]
+    #[cfg(all(debug_assertions, not(target_family = "wasm")))]
     {
       let rc_strong_count = Rc::strong_count(&finalize_callbacks_rc);
       // If `Rc` strong count is 2, it means the finalize of referenced `Object` is called before the `fn drop` of the `Reference`

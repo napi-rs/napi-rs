@@ -778,7 +778,7 @@ impl NapiStruct {
     quote! {
       #[allow(non_snake_case)]
       #[allow(clippy::all)]
-      #[cfg(all(not(test), not(feature = "noop"), not(target_os = "wasi")))]
+      #[cfg(all(not(test), not(feature = "noop"), not(target_family = "wasm")))]
       #[napi::bindgen_prelude::ctor]
       fn #struct_register_name() {
         napi::__private::register_class(#name_str, #js_mod_ident, #js_name, vec![#(#props),*]);
@@ -786,7 +786,7 @@ impl NapiStruct {
 
       #[allow(non_snake_case)]
       #[allow(clippy::all)]
-      #[cfg(all(not(test), not(feature = "noop"), target_os = "wasi"))]
+      #[cfg(all(not(test), not(feature = "noop"), target_family = "wasm"))]
       #[no_mangle]
       extern "C" fn #struct_register_name() {
         napi::__private::register_class(#name_str, #js_mod_ident, #js_name, vec![#(#props),*]);
@@ -901,13 +901,13 @@ impl NapiImpl {
         use super::*;
         #(#methods)*
 
-        #[cfg(all(not(test), not(feature = "noop"), not(target_os = "wasi")))]
+        #[cfg(all(not(test), not(feature = "noop"), not(target_family = "wasm")))]
         #[napi::bindgen_prelude::ctor]
         fn #register_name() {
           napi::__private::register_class(#name_str, #js_mod_ident, #js_name, vec![#(#props),*]);
         }
 
-        #[cfg(all(not(test), not(feature = "noop"), target_os = "wasi"))]
+        #[cfg(all(not(test), not(feature = "noop"), target_family = "wasm"))]
         #[no_mangle]
         extern "C" fn #register_name() {
           napi::__private::register_class(#name_str, #js_mod_ident, #js_name, vec![#(#props_wasm),*]);

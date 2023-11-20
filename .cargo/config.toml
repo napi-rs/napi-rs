@@ -1,2 +1,2 @@
-[target.'cfg(target_os = "wasi")']
+[target.'cfg(target_family = "wasm")']
 rustflags = ["-C", "target-feature=+atomics,+bulk-memory"]

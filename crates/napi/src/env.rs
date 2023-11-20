@@ -374,7 +374,7 @@ impl Env {
     ))
   }
 
-  #[cfg(not(target_os = "wasi"))]
+  #[cfg(not(target_family = "wasm"))]
   /// This function gives V8 an indication of the amount of externally allocated memory that is kept alive by JavaScript objects (i.e. a JavaScript object that points to its own memory allocated by a native module).
   ///
   /// Registering externally allocated memory will trigger global garbage collections more often than it would otherwise.
@@ -386,7 +386,7 @@ impl Env {
     Ok(changed)
   }
 
-  #[cfg(target_os = "wasi")]
+  #[cfg(target_family = "wasm")]
   #[allow(unused_variables)]
   pub fn adjust_external_memory(&mut self, size: i64) -> Result<i64> {
     Ok(0)
