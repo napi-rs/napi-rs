@@ -6,9 +6,9 @@ use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::parser::{attrs::BindgenAttrs, ParseNapi};
+use napi_derive_backend::{BindgenResult, TryToTokens, REGISTER_IDENTS};
 #[cfg(feature = "type-def")]
-use napi_derive_backend::ToTypeDef;
-use napi_derive_backend::{BindgenResult, Napi, TryToTokens, REGISTER_IDENTS};
+use napi_derive_backend::{Napi, ToTypeDef};
 use proc_macro2::{TokenStream, TokenTree};
 use quote::ToTokens;
 use syn::{Attribute, Item};
