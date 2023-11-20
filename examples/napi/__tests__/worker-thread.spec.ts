@@ -15,10 +15,13 @@ const t =
 const concurrency = process.env.WASI_TEST
   ? 1
   : process.platform === 'win32' ||
-    process.platform === 'darwin' ||
-    (process.platform === 'linux' && process.arch === 'x64')
-  ? 50
-  : 10
+      process.platform === 'darwin' ||
+      (process.platform === 'linux' &&
+        process.arch === 'x64' &&
+        // @ts-expect-error
+        process?.report?.getReport()?.header?.glibcVersionRuntime)
+    ? 50
+    : 10
 
 t('should be able to require in worker thread', async (t) => {
   await Promise.all(
