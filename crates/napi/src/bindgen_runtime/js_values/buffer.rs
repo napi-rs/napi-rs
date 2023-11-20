@@ -9,7 +9,7 @@ use std::sync::Arc;
 #[cfg(all(debug_assertions, not(windows)))]
 use std::sync::Mutex;
 
-#[cfg(all(feature = "napi4", not(target_os = "wasi")))]
+#[cfg(all(feature = "napi4", not(feature = "noop"), not(target_os = "wasi")))]
 use crate::bindgen_prelude::{CUSTOM_GC_TSFN, CUSTOM_GC_TSFN_DESTROYED, THREADS_CAN_ACCESS_ENV};
 use crate::{bindgen_prelude::*, check_status, sys, Result, ValueType};
 
@@ -37,7 +37,7 @@ impl Drop for Buffer {
         if ref_.is_null() {
           return;
         }
-        #[cfg(all(feature = "napi4", not(target_os = "wasi")))]
+        #[cfg(all(feature = "napi4", not(feature = "noop"), not(target_os = "wasi")))]
         {
           if CUSTOM_GC_TSFN_DESTROYED.load(std::sync::atomic::Ordering::SeqCst) {
             return;
