@@ -61,7 +61,7 @@ export async function createSuite(testFile, maxMemoryUsage) {
             colors.redBright(
               `Potential memory leak, memory growth: ${prettyBytes(
                 memoryGrowth,
-              )}`,
+              )}, test file: ${testFile}`,
             ),
           )
           process.exit(1)
