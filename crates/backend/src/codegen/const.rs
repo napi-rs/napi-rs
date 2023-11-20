@@ -41,7 +41,7 @@ impl NapiConst {
       }
       #[allow(non_snake_case)]
       #[allow(clippy::all)]
-      #[cfg(all(not(test), not(feature = "noop"), not(target_os = "wasi")))]
+      #[cfg(all(not(test), not(feature = "noop"), not(target_family = "wasm")))]
       #[napi::bindgen_prelude::ctor]
       fn #register_name() {
         napi::bindgen_prelude::register_module_export(#js_mod_ident, #js_name_lit, #cb_name);
@@ -49,7 +49,7 @@ impl NapiConst {
 
       #[allow(non_snake_case)]
       #[allow(clippy::all)]
-      #[cfg(all(not(test), not(feature = "noop"), target_os = "wasi"))]
+      #[cfg(all(not(test), not(feature = "noop"), target_family = "wasm"))]
       #[no_mangle]
       unsafe extern "C" fn #register_name() {
         napi::bindgen_prelude::register_module_export(#js_mod_ident, #js_name_lit, #cb_name);

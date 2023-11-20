@@ -7,14 +7,14 @@ use std::sync::{
   Arc,
 };
 
-#[cfg(all(feature = "napi4", not(feature = "noop"), not(target_os = "wasi")))]
+#[cfg(all(feature = "napi4", not(feature = "noop"), not(target_family = "wasm")))]
 use crate::bindgen_prelude::{CUSTOM_GC_TSFN, CUSTOM_GC_TSFN_DESTROYED, THREADS_CAN_ACCESS_ENV};
 pub use crate::js_values::TypedArrayType;
 use crate::{check_status, sys, Error, Result, Status};
 
 use super::{FromNapiValue, ToNapiValue, TypeName, ValidateNapiValue};
 
-#[cfg(target_os = "wasi")]
+#[cfg(target_family = "wasm")]
 extern "C" {
   fn emnapi_sync_memory(
     env: crate::sys::napi_env,
@@ -80,7 +80,7 @@ macro_rules! impl_typed_array {
             if ref_.is_null() {
               return;
             }
-            #[cfg(all(feature = "napi4", not(feature = "noop"), not(target_os = "wasi")))]
+            #[cfg(all(feature = "napi4", not(feature = "noop"), not(target_family = "wasm")))]
             {
               if CUSTOM_GC_TSFN_DESTROYED.load(Ordering::SeqCst) {
                 return;
@@ -140,7 +140,7 @@ macro_rules! impl_typed_array {
     impl $name {
       fn noop_finalize(_data: *mut $rust_type, _length: usize) {}
 
-      #[cfg(target_os = "wasi")]
+      #[cfg(target_family = "wasm")]
       pub fn sync(&mut self, env: &crate::Env) {
         if let Some((reference, _)) = self.raw {
           let mut value = ptr::null_mut();

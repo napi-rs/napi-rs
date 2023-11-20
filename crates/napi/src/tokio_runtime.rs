@@ -6,13 +6,13 @@ use tokio::runtime::Runtime;
 use crate::{sys, JsDeferred, JsUnknown, NapiValue, Result};
 
 fn create_runtime() -> Option<Runtime> {
-  #[cfg(not(target_os = "wasi"))]
+  #[cfg(not(target_family = "wasm"))]
   {
     let runtime = tokio::runtime::Runtime::new().expect("Create tokio runtime failed");
     Some(runtime)
   }
 
-  #[cfg(target_os = "wasi")]
+  #[cfg(target_family = "wasm")]
   {
     tokio::runtime::Builder::new_current_thread()
       .enable_all()
@@ -23,14 +23,14 @@ fn create_runtime() -> Option<Runtime> {
 
 pub(crate) static RT: Lazy<RwLock<Option<Runtime>>> = Lazy::new(|| RwLock::new(create_runtime()));
 
-#[cfg(not(any(target_os = "macos", target_os = "wasi")))]
+#[cfg(not(any(target_os = "macos", target_family = "wasm")))]
 static RT_REFERENCE_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 /// Ensure that the Tokio runtime is initialized.
 /// In windows the Tokio runtime will be dropped when Node env exits.
 /// But in Electron renderer process, the Node env will exits and recreate when the window reloads.
 /// So we need to ensure that the Tokio runtime is initialized when the Node env is created.
-#[cfg(not(any(target_os = "macos", target_os = "wasi")))]
+#[cfg(not(any(target_os = "macos", target_family = "wasm")))]
 pub(crate) fn ensure_runtime() {
   use std::sync::atomic::Ordering;
 
@@ -42,7 +42,7 @@ pub(crate) fn ensure_runtime() {
   RT_REFERENCE_COUNT.fetch_add(1, Ordering::Relaxed);
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "wasi")))]
+#[cfg(not(any(target_os = "macos", target_family = "wasm")))]
 pub(crate) unsafe extern "C" fn drop_runtime(_arg: *mut std::ffi::c_void) {
   use std::sync::atomic::Ordering;
 
@@ -140,10 +140,10 @@ pub fn execute_tokio_future<
     }
   };
 
-  #[cfg(not(target_os = "wasi"))]
+  #[cfg(not(target_family = "wasm"))]
   spawn(inner);
 
-  #[cfg(target_os = "wasi")]
+  #[cfg(target_family = "wasm")]
   {
     std::thread::spawn(|| {
       block_on(inner);

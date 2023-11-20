@@ -3,10 +3,10 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::ffi::CStr;
 use std::ptr;
-#[cfg(all(feature = "napi4", not(target_os = "wasi")))]
+#[cfg(all(feature = "napi4", not(target_family = "wasm")))]
 use std::sync::atomic::AtomicPtr;
 #[cfg(all(
-  not(any(target_os = "macos", target_os = "wasi")),
+  not(any(target_os = "macos", target_family = "wasm")),
   feature = "napi4",
   feature = "tokio_rt"
 ))]
@@ -74,12 +74,12 @@ static IS_FIRST_MODULE: AtomicBool = AtomicBool::new(true);
 static FIRST_MODULE_REGISTERED: AtomicBool = AtomicBool::new(false);
 static REGISTERED_CLASSES: Lazy<RegisteredClassesMap> = Lazy::new(Default::default);
 static FN_REGISTER_MAP: Lazy<FnRegisterMap> = Lazy::new(Default::default);
-#[cfg(all(feature = "napi4", not(feature = "noop"), not(target_os = "wasi")))]
+#[cfg(all(feature = "napi4", not(feature = "noop"), not(target_family = "wasm")))]
 pub(crate) static CUSTOM_GC_TSFN: AtomicPtr<sys::napi_threadsafe_function__> =
   AtomicPtr::new(ptr::null_mut());
-#[cfg(all(feature = "napi4", not(feature = "noop"), not(target_os = "wasi")))]
+#[cfg(all(feature = "napi4", not(feature = "noop"), not(target_family = "wasm")))]
 pub(crate) static CUSTOM_GC_TSFN_DESTROYED: AtomicBool = AtomicBool::new(false);
-#[cfg(all(feature = "napi4", not(feature = "noop"), not(target_os = "wasi")))]
+#[cfg(all(feature = "napi4", not(feature = "noop"), not(target_family = "wasm")))]
 // Store thread id of the thread that created the CustomGC ThreadsafeFunction.
 pub(crate) static THREADS_CAN_ACCESS_ENV: once_cell::sync::Lazy<
   PersistedPerInstanceHashMap<ThreadId, bool>,
@@ -251,7 +251,7 @@ fn load_host() {
   }
 }
 
-#[cfg(all(target_os = "wasi", not(feature = "noop")))]
+#[cfg(all(target_family = "wasm", not(feature = "noop")))]
 #[no_mangle]
 unsafe extern "C" fn napi_register_wasm_v1(
   env: sys::napi_env,
@@ -463,7 +463,7 @@ pub unsafe extern "C" fn napi_register_module_v1(
   }
 
   #[cfg(all(
-    not(any(target_os = "macos", target_os = "wasi")),
+    not(any(target_os = "macos", target_family = "wasm")),
     feature = "napi4",
     feature = "tokio_rt"
   ))]
@@ -482,7 +482,7 @@ pub unsafe extern "C" fn napi_register_module_v1(
       )
     };
   }
-  #[cfg(all(feature = "napi4", not(target_os = "wasi")))]
+  #[cfg(all(feature = "napi4", not(target_family = "wasm")))]
   create_custom_gc(env);
   FIRST_MODULE_REGISTERED.store(true, Ordering::SeqCst);
   exports
@@ -506,7 +506,7 @@ pub(crate) unsafe extern "C" fn noop(
   ptr::null_mut()
 }
 
-#[cfg(all(feature = "napi4", not(target_os = "wasi"), not(feature = "noop")))]
+#[cfg(all(feature = "napi4", not(target_family = "wasm"), not(feature = "noop")))]
 fn create_custom_gc(env: sys::napi_env) {
   use std::os::raw::c_char;
 
@@ -582,19 +582,19 @@ fn create_custom_gc(env: sys::napi_env) {
   );
 }
 
-#[cfg(all(feature = "napi4", not(target_os = "wasi"), not(feature = "noop")))]
+#[cfg(all(feature = "napi4", not(target_family = "wasm"), not(feature = "noop")))]
 unsafe extern "C" fn remove_thread_id(id: *mut std::ffi::c_void) {
   let thread_id = unsafe { Box::from_raw(id.cast::<ThreadId>()) };
   THREADS_CAN_ACCESS_ENV.borrow_mut(|m| m.insert(*thread_id, false));
 }
 
-#[cfg(all(feature = "napi4", not(target_os = "wasi"), not(feature = "noop")))]
+#[cfg(all(feature = "napi4", not(target_family = "wasm"), not(feature = "noop")))]
 #[allow(unused)]
 unsafe extern "C" fn empty(env: sys::napi_env, info: sys::napi_callback_info) -> sys::napi_value {
   ptr::null_mut()
 }
 
-#[cfg(all(feature = "napi4", not(target_os = "wasi"), not(feature = "noop")))]
+#[cfg(all(feature = "napi4", not(target_family = "wasm"), not(feature = "noop")))]
 #[allow(unused_variables)]
 unsafe extern "C" fn custom_gc_finalize(
   env: sys::napi_env,
@@ -604,7 +604,7 @@ unsafe extern "C" fn custom_gc_finalize(
   CUSTOM_GC_TSFN_DESTROYED.store(true, Ordering::SeqCst);
 }
 
-#[cfg(all(feature = "napi4", not(target_os = "wasi"), not(feature = "noop")))]
+#[cfg(all(feature = "napi4", not(target_family = "wasm"), not(feature = "noop")))]
 // recycle the ArrayBuffer/Buffer Reference if the ArrayBuffer/Buffer is not dropped on the main thread
 extern "C" fn custom_gc(
   env: sys::napi_env,

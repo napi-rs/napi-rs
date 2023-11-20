@@ -1,13 +1,13 @@
-#[cfg(not(target_os = "wasi"))]
+#[cfg(not(target_family = "wasm"))]
 use futures::prelude::*;
 use napi::bindgen_prelude::*;
 use napi::tokio;
-#[cfg(not(target_os = "wasi"))]
+#[cfg(not(target_family = "wasm"))]
 use napi::tokio::fs;
 
 #[napi]
 async fn read_file_async(path: String) -> Result<Buffer> {
-  #[cfg(not(target_os = "wasi"))]
+  #[cfg(not(target_family = "wasm"))]
   {
     fs::read(path)
       .map(|r| match r {
@@ -19,7 +19,7 @@ async fn read_file_async(path: String) -> Result<Buffer> {
       })
       .await
   }
-  #[cfg(target_os = "wasi")]
+  #[cfg(target_family = "wasm")]
   {
     let conetent = std::fs::read(path)?;
     Ok(conetent.into())

@@ -20,7 +20,7 @@ serde = "1"
 serde_derive = "1"
 serde_json = "1"
 
-[target.'cfg(not(target_os = "wasi"))'.dependencies]
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
 napi = { path = "../../crates/napi", default-features = false, features = [
   "napi9",
   "serde-json",
@@ -36,7 +36,7 @@ napi = { path = "../../crates/napi", default-features = false, features = [
 ] }
 tokio = { version = "1", features = ["rt", "time"] }
 
-[target.'cfg(target_os = "wasi")'.dependencies]
+[target.'cfg(target_family = "wasm")'.dependencies]
 napi = { path = "../../crates/napi", default-features = false, features = [
   "napi9",
   "serde-json",
