@@ -7,7 +7,7 @@ name = "napi-derive-backend"
 readme = "README.md"
 repository = "https://github.com/napi-rs/napi-rs"
 rust-version = "1.65"
-version = "1.0.54"
+version = "1.0.55"
 
 [package.metadata.workspaces]
 independent = true
