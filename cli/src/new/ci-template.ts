@@ -99,6 +99,15 @@ jobs:
           - host: windows-latest
             target: 'aarch64-pc-windows-msvc'
             build: yarn build --target aarch64-pc-windows-msvc
+          - host: ubuntu-latest
+            target: 'riscv64gc-unknown-linux-gnu'
+            setup: |
+              sudo apt-get update
+              sudo apt-get install gcc-riscv64-linux-gnu -y
+            build: |
+              yarn build --target riscv64gc-unknown-linux-gnu
+              riscv64-linux-gnu-strip *.node
+
 
     name: stable - \${{ matrix.settings.target }} - node@18
     runs-on: \${{ matrix.settings.host }}

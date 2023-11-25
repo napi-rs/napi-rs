@@ -94,6 +94,16 @@ const triples = [
     } as const,
   },
   {
+    name: 'riscv64gc-unknown-linux-gnu',
+    expected: {
+      abi: 'gnu',
+      arch: 'riscv64',
+      platform: 'linux',
+      platformArchABI: 'linux-riscv64-gnu',
+      raw: 'riscv64gc-unknown-linux-gnu',
+    } as const,
+  },
+  {
     name: 'aarch64-linux-android',
     expected: {
       abi: null,

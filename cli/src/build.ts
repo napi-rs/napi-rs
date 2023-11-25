@@ -272,6 +272,7 @@ export class BuildCommand extends Command {
     const triple = this.targetTripleDir
       ? parseTriple(this.targetTripleDir)
       : getHostTargetTriple()
+    const envTarget = triple.raw.replaceAll('-', '_').toUpperCase()
     debug(`Current triple is: ${chalk.green(triple.raw)}`)
     const pFlag = this.project ? `-p ${this.project}` : ''
     const profileFlag = this.profile ? `--profile ${this.profile}` : ''
@@ -323,7 +324,16 @@ export class BuildCommand extends Command {
     }
 
     let useZig = false
-    if (this.useZig || isCrossForLinux || isCrossForMacOS) {
+
+    if (
+      !this.useZig &&
+      isCrossForLinux &&
+      triple.raw === 'riscv64gc-unknown-linux-gnu'
+    ) {
+      // Linking with zig fails for riscv64. Don't default to zig for riscv64.
+      additionalEnv[`CARGO_TARGET_${envTarget}_LINKER`] =
+        'riscv64-linux-gnu-gcc'
+    } else if (this.useZig || isCrossForLinux || isCrossForMacOS) {
       try {
         execSync('zig version')
         useZig = true
@@ -418,7 +428,6 @@ export class BuildCommand extends Command {
           mode: '777',
         },
       )
-      const envTarget = triple.raw.replaceAll('-', '_').toUpperCase()
       if (!this.zigLinkOnly) {
         Object.assign(additionalEnv, {
           CC: CCWrapperShell,

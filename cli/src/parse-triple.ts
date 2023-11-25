@@ -9,6 +9,7 @@ type NodeJSArch =
   | 'mipsel'
   | 'ppc'
   | 'ppc64'
+  | 'riscv64'
   | 's390'
   | 's390x'
   | 'x32'
@@ -21,6 +22,7 @@ const CpuToNodeArch: { [index: string]: NodeJSArch } = {
   aarch64: 'arm64',
   i686: 'ia32',
   armv7: 'arm',
+  riscv64gc: 'riscv64',
 }
 
 export const NodeArchToCpu: { [index: string]: string } = {
@@ -28,6 +30,7 @@ export const NodeArchToCpu: { [index: string]: string } = {
   arm64: 'aarch64',
   ia32: 'i686',
   arm: 'armv7',
+  riscv64: 'riscv64gc',
 }
 
 const SysToNodePlatform: { [index: string]: NodeJS.Platform } = {
