@@ -25,6 +25,7 @@
     "build:test": "yarn workspace compat-mode-examples build && yarn workspace examples build",
     "build:test:asan": "yarn workspace compat-mode-examples build --cargo-flags='-Zbuild-std' && yarn workspace examples build --cargo-flags='-Zbuild-std'",
     "build:test:aarch64": "yarn workspace compat-mode-examples build-aarch64 && yarn workspace examples build-aarch64",
+    "build:test:riscv64": "yarn workspace compat-mode-examples build-riscv64 && yarn workspace examples build-riscv64",
     "build:test:android": "yarn workspace compat-mode-examples build --target aarch64-linux-android && yarn workspace examples build --target aarch64-linux-android",
     "build:test:android:armv7": "yarn workspace compat-mode-examples build --target armv7-linux-androideabi && yarn workspace examples build --target armv7-linux-androideabi",
     "build:test:armv7": "yarn workspace compat-mode-examples build-armv7 && yarn workspace examples build-armv7",
