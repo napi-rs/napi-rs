@@ -3,6 +3,17 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.9](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.8...@napi-rs/cli@3.0.0-alpha.9) (2023-11-30)
+
+### Bug Fixes
+
+- **cli:** add back constEnum option ([#1829](https://github.com/napi-rs/napi-rs/issues/1829)) ([afa0406](https://github.com/napi-rs/napi-rs/commit/afa040660cd4d4a53a0ed4f3757b2b2aad8084e5))
+
+### Features
+
+- **cli:** export parseTriple function ([#1830](https://github.com/napi-rs/napi-rs/issues/1830)) ([5949fc9](https://github.com/napi-rs/napi-rs/commit/5949fc9682c088180f2e96d4a3d3b9c93541baa9))
+- update cli template with edtion2021([#1739](https://github.com/napi-rs/napi-rs/issues/1739)) ([#1828](https://github.com/napi-rs/napi-rs/issues/1828)) ([4301b9a](https://github.com/napi-rs/napi-rs/commit/4301b9a7c35ca576dea6454fcb45dd7f3afcf7c0))
+
 # [3.0.0-alpha.8](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.7...@napi-rs/cli@3.0.0-alpha.8) (2023-11-20)
 
 **Note:** Version bump only for package @napi-rs/cli
