@@ -25,6 +25,11 @@ interface UserNapiConfig {
   npmClient?: string
 
   /**
+   * Whether generate const enum for typescript bindings
+   */
+  constEnum?: boolean
+
+  /**
    * @deprecated binaryName instead
    */
   name?: string
@@ -114,8 +119,8 @@ export async function readNapiConfig(path: string): Promise<NapiConfig> {
   let targets: string[] = userNapiConfig.targets ?? []
 
   // compatible with old config
-  if (userNapiConfig.package?.name) {
-    napiConfig.packageName = userNapiConfig.package.name
+  if (userNapiConfig?.name) {
+    napiConfig.packageName = userNapiConfig.name
   }
 
   if (!targets.length) {

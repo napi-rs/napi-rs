@@ -33,6 +33,7 @@ new NapiCli().build({
 | outputDir         | --output-dir,-o       | string   | false    |         | Path to where all the built files would be put. Default to the crate folder                                               |
 | platform          | --platform            | boolean  | false    |         | Add platform triple to the generated nodejs binding file, eg: `[name].linux-x64-gnu.node`                                 |
 | jsPackageName     | --js-package-name     | string   | false    |         | Package name in generated js binding file. Only works with `--platform` flag                                              |
+| constEnum         | --const-enum          | boolean  | false    |         | Whether generate const enum for typescript bindings                                                                       |
 | jsBinding         | --js                  | string   | false    |         | Path and filename of generated JS binding file. Only works with `--platform` flag. Relative to `--output_dir`.            |
 | noJsBinding       | --no-js               | boolean  | false    |         | Whether to disable the generation JS binding file. Only works with `--platform` flag.                                     |
 | dts               | --dts                 | string   | false    |         | Path and filename of generated type def file. Relative to `--output_dir`                                                  |

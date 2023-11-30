@@ -47,6 +47,10 @@ export abstract class BaseBuildCommand extends Command {
       'Package name in generated js binding file. Only works with `--platform` flag',
   })
 
+  constEnum?: boolean = Option.Boolean('--const-enum', {
+    description: 'Whether generate const enum for typescript bindings',
+  })
+
   jsBinding?: string = Option.String('--js', {
     description:
       'Path and filename of generated JS binding file. Only works with `--platform` flag. Relative to `--output_dir`.',
@@ -133,6 +137,7 @@ export abstract class BaseBuildCommand extends Command {
       outputDir: this.outputDir,
       platform: this.platform,
       jsPackageName: this.jsPackageName,
+      constEnum: this.constEnum,
       jsBinding: this.jsBinding,
       noJsBinding: this.noJsBinding,
       dts: this.dts,
@@ -190,6 +195,10 @@ export interface BuildOptions {
    * Package name in generated js binding file. Only works with `--platform` flag
    */
   jsPackageName?: string
+  /**
+   * Whether generate const enum for typescript bindings
+   */
+  constEnum?: boolean
   /**
    * Path and filename of generated JS binding file. Only works with `--platform` flag. Relative to `--output_dir`.
    */

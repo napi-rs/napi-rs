@@ -160,6 +160,11 @@ const BUILD_OPTIONS: CommandSchema = {
         'Package name in generated js binding file. Only works with `--platform` flag',
     },
     {
+      name: 'constEnum',
+      type: 'boolean',
+      description: 'Whether generate const enum for typescript bindings',
+    },
+    {
       name: 'jsBinding',
       type: 'string',
       description:

@@ -18,13 +18,13 @@ test('should ident string correctly', (t) => {
     foo() {
       a = b
     }
-  
+
   bar = () => {
-  
+
   }
       boz = 1
     }
-  
+
   namespace B {
       namespace C {
   type D = A
@@ -43,6 +43,21 @@ test('should process type def correctly', async (t) => {
       '__fixtures__',
       'napi_type_def',
     ),
+    true,
+  )
+
+  t.snapshot(dts)
+})
+
+test('should process type def with noConstEnum correctly', async (t) => {
+  const { dts } = await processTypeDef(
+    join(
+      fileURLToPath(import.meta.url),
+      '../',
+      '__fixtures__',
+      'napi_type_def',
+    ),
+    false,
   )
 
   t.snapshot(dts)
