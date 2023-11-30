@@ -658,12 +658,14 @@ class Builder {
   ) {
     if (distFileName && wasiRegisterFunctions.length) {
       const { name, dir } = parse(distFileName)
-      const newPath = join(dir, `${this.config.binaryName}.wasi.mjs`)
+      const newPath = join(dir, `${this.config.binaryName}.wasi.cjs`)
       const workerPath = join(dir, 'wasi-worker.mjs')
-      const declareCodes = `const { ${idents.join(', ')} } = binding\n`
-      const exportsCode = `export {\n${idents
-        .map((ident) => `  ${ident}`)
-        .join(',\n')}\n}`
+      const declareCodes = `const { ${idents.join(
+        ', ',
+      )} } = __napiModule.exports\n`
+      const exportsCode = idents
+        .map((ident) => `module.exports.${ident} = ${ident}`)
+        .join(',\n')
       await writeFileAsync(
         newPath,
         createWasiBinding(name, wasiRegisterFunctions) +
