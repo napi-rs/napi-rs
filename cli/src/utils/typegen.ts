@@ -25,7 +25,11 @@ interface TypeDefLine {
   js_mod?: string
 }
 
-function prettyPrint(line: TypeDefLine, ident: number): string {
+function prettyPrint(
+  line: TypeDefLine,
+  constEnum: boolean,
+  ident: number,
+): string {
   let s = line.js_doc ?? ''
   switch (line.kind) {
     case TypeDefKind.Interface:
@@ -33,7 +37,8 @@ function prettyPrint(line: TypeDefLine, ident: number): string {
       break
 
     case TypeDefKind.Enum:
-      s += `export const enum ${line.name} {\n${line.def}\n}`
+      const enumName = constEnum ? 'const enum' : 'enum'
+      s += `export ${enumName} ${line.name} {\n${line.def}\n}`
       break
 
     case TypeDefKind.Struct:
@@ -52,6 +57,7 @@ function prettyPrint(line: TypeDefLine, ident: number): string {
 
 export async function processTypeDef(
   intermediateTypeFile: string,
+  constEnum: boolean,
   header?: string,
 ) {
   const exports: string[] = []
@@ -65,7 +71,7 @@ export async function processTypeDef(
     ([namespace, defs]) => {
       if (namespace === TOP_LEVEL_NAMESPACE) {
         for (const def of defs) {
-          dts += prettyPrint(def, 0) + '\n\n'
+          dts += prettyPrint(def, constEnum, 0) + '\n\n'
           switch (def.kind) {
             case TypeDefKind.Const:
             case TypeDefKind.Enum:
@@ -85,7 +91,7 @@ export async function processTypeDef(
         exports.push(namespace)
         dts += `export namespace ${namespace} {\n`
         for (const def of defs) {
-          dts += prettyPrint(def, 2) + '\n'
+          dts += prettyPrint(def, constEnum, 2) + '\n'
         }
         dts += '}\n\n'
       }

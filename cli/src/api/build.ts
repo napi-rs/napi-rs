@@ -81,8 +81,8 @@ export async function buildProject(options: BuildOptions) {
     options.target
       ? parseTriple(options.target)
       : process.env.CARGO_BUILD_TARGET
-      ? parseTriple(process.env.CARGO_BUILD_TARGET)
-      : getSystemDefaultTarget(),
+        ? parseTriple(process.env.CARGO_BUILD_TARGET)
+        : getSystemDefaultTarget(),
     crateDir,
     resolvePath(options.outputDir ?? crateDir),
     options.targetDir ??
@@ -373,8 +373,8 @@ class Builder {
         process.platform === 'darwin'
           ? 'darwin'
           : process.platform === 'win32'
-          ? 'windows'
-          : 'linux'
+            ? 'windows'
+            : 'linux'
       Object.assign(this.envs, {
         CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/${hostPlatform}-x86_64/bin/${targetArch}-linux-android24-clang`,
         CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/${hostPlatform}-x86_64/bin/${targetArch}-linux-androideabi24-clang`,
@@ -559,10 +559,10 @@ class Builder {
         this.target.platform === 'darwin'
           ? `lib${cdyLib}.dylib`
           : this.target.platform === 'win32'
-          ? `${cdyLib}.dll`
-          : this.target.platform === 'wasi' || this.target.platform === 'wasm'
-          ? `${cdyLib}.wasm`
-          : `lib${cdyLib}.so`
+            ? `${cdyLib}.dll`
+            : this.target.platform === 'wasi' || this.target.platform === 'wasm'
+              ? `${cdyLib}.wasm`
+              : `lib${cdyLib}.so`
 
       let destName = this.config.binaryName
       // add platform suffix to binary name
@@ -597,6 +597,7 @@ class Builder {
 
     const { dts, exports } = await processTypeDef(
       this.envs.TYPE_DEF_TMP_PATH,
+      this.options.constEnum ?? true,
       !this.options.noDtsHeader
         ? this.options.dtsHeader ?? DEFAULT_TYPE_DEF_HEADER
         : '',
