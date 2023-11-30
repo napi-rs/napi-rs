@@ -5,7 +5,7 @@ const require = createRequire(import.meta.url)
 let exports
 
 if (process.env.WASI_TEST) {
-  exports = await import('./index.wasi.mjs')
+  exports = require('./index.wasi.cjs')
 } else {
   exports = require('./index.node')
 }
