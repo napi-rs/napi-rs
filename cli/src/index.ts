@@ -29,3 +29,5 @@ export class NapiCli {
   universalize = universalizeBinaries
   version = version
 }
+
+export { parseTriple } from './utils/target.js'
