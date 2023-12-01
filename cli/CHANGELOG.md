@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.10](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.9...@napi-rs/cli@3.0.0-alpha.10) (2023-12-01)
+
+### Features
+
+- **cli:** change wasm binding output format to cjs ([#1831](https://github.com/napi-rs/napi-rs/issues/1831)) ([d5ecf90](https://github.com/napi-rs/napi-rs/commit/d5ecf90d292c6e21614a40663b99b64ad4a983b9))
+
 # [3.0.0-alpha.9](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.8...@napi-rs/cli@3.0.0-alpha.9) (2023-11-30)
 
 ### Bug Fixes
