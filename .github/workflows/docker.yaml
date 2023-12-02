@@ -46,7 +46,7 @@ jobs:
         uses: addnab/docker-run-action@v3
         with:
           image: node:lts-slim
-          options: '--platform linux/arm64 --user 0:0 -e GITHUB_TOKEN -v ${{ github.workspace }}/lib/llvm-15:/usr/lib/llvm-15'
+          options: '--platform linux/arm64 --user 0:0 -e GITHUB_TOKEN -v ${{ github.workspace }}/lib/llvm-16:/usr/lib/llvm-16'
           run: >-
             apt-get update &&
             apt-get install -y wget gnupg2 &&
