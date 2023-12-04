@@ -245,7 +245,6 @@ jobs:
             target: 'x86_64-apple-darwin'
           - host: windows-latest
             target: 'x86_64-pc-windows-msvc'
-        node: ['16', '18']
         node: ['18', '20']
     runs-on: \${{ matrix.settings.host }}
 
@@ -281,7 +280,6 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['16', '18']
         node: ['18', '20']
     runs-on: ubuntu-latest
 
@@ -317,7 +315,6 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['16', '18']
         node: ['18', '20']
     runs-on: ubuntu-latest
 
@@ -355,7 +352,6 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['16', '18']
         node: ['18', '20']
     runs-on: ubuntu-latest
 
@@ -401,7 +397,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['16', '18']
+        node: ['18', '20']
 
     runs-on: ubuntu-latest
 
@@ -446,7 +442,6 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['16', '18']
         node: ['18', '20']
     runs-on: ubuntu-latest
 
