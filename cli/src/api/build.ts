@@ -227,6 +227,18 @@ class Builder {
           'include/',
         )
       }
+      if (!process.env.CC && !process.env.TARGET_CC) {
+        this.envs[`CC`] = join(
+          toolchainPath,
+          'bin',
+          `${this.target.triple}-gcc`,
+        )
+        this.envs[`TARGET_CC`] = join(
+          toolchainPath,
+          'bin',
+          `${this.target.triple}-gcc`,
+        )
+      }
       if (
         (process.env.CC === 'clang' &&
           (process.env.TARGET_CC === 'clang' || !process.env.TARGET_CC)) ||
