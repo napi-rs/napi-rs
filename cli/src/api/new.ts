@@ -10,6 +10,8 @@ import {
   debugFactory,
   DEFAULT_TARGETS,
   mkdirAsync,
+  readdirAsync,
+  statAsync,
   writeFileAsync,
 } from '../utils/index.js'
 import { napiEngineRequirement } from '../utils/version.js'
@@ -69,19 +71,43 @@ export async function newProject(userOptions: RawNewOptions) {
 
   const outputs = generateFiles(options)
 
-  try {
-    debug(`Try to create target directory: ${options.path}`)
-    if (!options.dryRun) {
-      await mkdirAsync(options.path, { recursive: true })
-    }
-  } catch (e) {
-    throw new Error(`Failed to create target directory: ${options.path}`, {
-      cause: e,
-    })
-  }
+  await ensurePath(options.path, options.dryRun)
 
   await dumpOutputs(outputs, options.dryRun)
   debug(`Project created at: ${options.path}`)
+}
+
+async function ensurePath(path: string, dryRun = false) {
+  const stat = await statAsync(path, {}).catch(() => undefined)
+
+  // file descriptor exists
+  if (stat) {
+    if (stat.isFile()) {
+      throw new Error(
+        `Path ${path} for creating new napi-rs project already exists and it's not a directory.`,
+      )
+    } else if (stat.isDirectory()) {
+      const files = await readdirAsync(path)
+      if (files.length) {
+        throw new Error(
+          `Path ${path} for creating new napi-rs project already exists and it's not empty.`,
+        )
+      }
+    }
+  }
+
+  if (!dryRun) {
+    try {
+      debug(`Try to create target directory: ${path}`)
+      if (!dryRun) {
+        await mkdirAsync(path, { recursive: true })
+      }
+    } catch (e) {
+      throw new Error(`Failed to create target directory: ${path}`, {
+        cause: e,
+      })
+    }
+  }
 }
 
 function generateFiles(options: NewOptions): Output[] {
