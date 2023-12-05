@@ -110,6 +110,11 @@ export abstract class BaseBuildCommand extends Command {
       '[experimental] use [cross](https://github.com/cross-rs/cross) instead of `cargo`',
   })
 
+  useNapiCross?: boolean = Option.Boolean('--use-napi-cross', {
+    description:
+      '[experimental] use @napi-rs/cross-toolchain to cross-compile Linux arm/arm64/x64 gnu targets',
+  })
+
   watch?: boolean = Option.Boolean('--watch,-w', {
     description:
       'watch the crate changes and build continiously with `cargo-watch` crates',
@@ -151,6 +156,7 @@ export abstract class BaseBuildCommand extends Command {
       profile: this.profile,
       crossCompile: this.crossCompile,
       useCross: this.useCross,
+      useNapiCross: this.useNapiCross,
       watch: this.watch,
       features: this.features,
       allFeatures: this.allFeatures,
@@ -251,6 +257,10 @@ export interface BuildOptions {
    * [experimental] use [cross](https://github.com/cross-rs/cross) instead of `cargo`
    */
   useCross?: boolean
+  /**
+   * [experimental] use @napi-rs/cross-toolchain to cross-compile Linux arm/arm64/x64 gnu targets
+   */
+  useNapiCross?: boolean
   /**
    * watch the crate changes and build continiously with `cargo-watch` crates
    */

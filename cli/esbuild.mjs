@@ -5,6 +5,7 @@ await esbuild.build({
   outfile: './dist/index.cjs',
   bundle: true,
   platform: 'node',
+  external: ['@napi-rs/lzma', '@napi-rs/tar'],
   define: {
     'import.meta.url': '__filename',
   },

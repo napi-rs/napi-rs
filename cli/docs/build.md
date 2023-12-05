@@ -47,6 +47,7 @@ new NapiCli().build({
 | profile           | --profile             | string   | false    |         | Build artifacts with the specified profile                                                                                |
 | crossCompile      | --cross-compile,-x    | boolean  | false    |         | [experimental] cross-compile for the specified target with `cargo-xwin` on windows and `cargo-zigbuild` on other platform |
 | useCross          | --use-cross           | boolean  | false    |         | [experimental] use [cross](https://github.com/cross-rs/cross) instead of `cargo`                                          |
+| useNapiCross      | --use-napi-cross      | boolean  | false    |         | [experimental] use @napi-rs/cross-toolchain to cross-compile Linux arm/arm64/x64 gnu targets                              |
 | watch             | --watch,-w            | boolean  | false    |         | watch the crate changes and build continiously with `cargo-watch` crates                                                  |
 | features          | --features,-F         | string[] | false    |         | Space-separated list of features to activate                                                                              |
 | allFeatures       | --all-features        | boolean  | false    |         | Activate all available features                                                                                           |

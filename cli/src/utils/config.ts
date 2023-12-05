@@ -120,7 +120,7 @@ export async function readNapiConfig(path: string): Promise<NapiConfig> {
 
   // compatible with old config
   if (userNapiConfig?.name) {
-    napiConfig.packageName = userNapiConfig.name
+    napiConfig.binaryName = userNapiConfig.name
   }
 
   if (!targets.length) {
