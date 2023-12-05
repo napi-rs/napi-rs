@@ -394,11 +394,6 @@ jobs:
           toolchain: stable
           targets: armv7-unknown-linux-gnueabihf
 
-      - name: Install ziglang
-        uses: goto-bus-stop/setup-zig@v2
-        with:
-          version: 0.11.0
-
       - name: Cache cargo
         uses: actions/cache@v3
         with:
@@ -414,14 +409,14 @@ jobs:
           yarn install --immutable --mode=skip-build
 
       - name: Cross build native tests
-        run: yarn build:test -- --target armv7-unknown-linux-gnueabihf --cross-compile
+        run: yarn build:test -- --target armv7-unknown-linux-gnueabihf --use-napi-cross
 
       - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
 
       - name: Setup and run tests
         uses: addnab/docker-run-action@v3
         with:
-          image: node:lts-bullseye-slim
+          image: node:lts-slim
           options: --platform linux/arm/v7 -v ${{ github.workspace }}:/build -w /build
           run: yarn test
 

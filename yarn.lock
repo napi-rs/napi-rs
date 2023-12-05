@@ -556,6 +556,7 @@ __metadata:
   dependencies:
     "@emnapi/core": "npm:0.44.0"
     "@emnapi/runtime": "npm:0.44.0"
+    "@napi-rs/cross-toolchain": "npm:^0.0.12"
     "@octokit/rest": "npm:^20.0.2"
     "@tybys/wasm-util": "npm:0.8.0"
     "@types/debug": "npm:^4.1.12"
@@ -594,6 +595,315 @@ __metadata:
     napi-raw: ./cli.mjs
   languageName: unknown
   linkType: soft
+
+"@napi-rs/cross-toolchain@npm:^0.0.12":
+  version: 0.0.12
+  resolution: "@napi-rs/cross-toolchain@npm:0.0.12"
+  dependencies:
+    "@napi-rs/lzma": "npm:^1.2.1"
+    "@napi-rs/tar": "npm:^0.0.1"
+    debug: "npm:^4.3.4"
+  peerDependencies:
+    "@napi-rs/cross-toolchain-arm64-target-aarch64": ^0.0.12
+    "@napi-rs/cross-toolchain-arm64-target-armv7": ^0.0.12
+    "@napi-rs/cross-toolchain-arm64-target-x86_64": ^0.0.12
+    "@napi-rs/cross-toolchain-x64-target-aarch64": ^0.0.12
+    "@napi-rs/cross-toolchain-x64-target-armv7": ^0.0.12
+    "@napi-rs/cross-toolchain-x64-target-x86_64": ^0.0.12
+  peerDependenciesMeta:
+    "@napi-rs/cross-toolchain-arm64-target-aarch64":
+      optional: true
+    "@napi-rs/cross-toolchain-arm64-target-armv7":
+      optional: true
+    "@napi-rs/cross-toolchain-arm64-target-x86_64":
+      optional: true
+    "@napi-rs/cross-toolchain-x64-target-aarch64":
+      optional: true
+    "@napi-rs/cross-toolchain-x64-target-armv7":
+      optional: true
+    "@napi-rs/cross-toolchain-x64-target-x86_64":
+      optional: true
+  checksum: de65d9ce93d9754d46322bd0ebda9c7e2bf63e1fa57777e843cac1f5a0c94ca57af208ff22fad15ef9cc9661575ffc1787e8d946c455dd04cecbb5c44f174655
+  languageName: node
+  linkType: hard
+
+"@napi-rs/lzma-android-arm-eabi@npm:1.2.1":
+  version: 1.2.1
+  resolution: "@napi-rs/lzma-android-arm-eabi@npm:1.2.1"
+  conditions: os=android & cpu=arm
+  languageName: node
+  linkType: hard
+
+"@napi-rs/lzma-android-arm64@npm:1.2.1":
+  version: 1.2.1
+  resolution: "@napi-rs/lzma-android-arm64@npm:1.2.1"
+  conditions: os=android & cpu=arm64
+  languageName: node
+  linkType: hard
+
+"@napi-rs/lzma-darwin-arm64@npm:1.2.1":
+  version: 1.2.1
+  resolution: "@napi-rs/lzma-darwin-arm64@npm:1.2.1"
+  conditions: os=darwin & cpu=arm64
+  languageName: node
+  linkType: hard
+
+"@napi-rs/lzma-darwin-x64@npm:1.2.1":
+  version: 1.2.1
+  resolution: "@napi-rs/lzma-darwin-x64@npm:1.2.1"
+  conditions: os=darwin & cpu=x64
+  languageName: node
+  linkType: hard
+
+"@napi-rs/lzma-freebsd-x64@npm:1.2.1":
+  version: 1.2.1
+  resolution: "@napi-rs/lzma-freebsd-x64@npm:1.2.1"
+  conditions: os=freebsd & cpu=x64
+  languageName: node
+  linkType: hard
+
+"@napi-rs/lzma-linux-arm-gnueabihf@npm:1.2.1":
+  version: 1.2.1
+  resolution: "@napi-rs/lzma-linux-arm-gnueabihf@npm:1.2.1"
+  conditions: os=linux & cpu=arm
+  languageName: node
+  linkType: hard
+
+"@napi-rs/lzma-linux-arm64-gnu@npm:1.2.1":
+  version: 1.2.1
+  resolution: "@napi-rs/lzma-linux-arm64-gnu@npm:1.2.1"
+  conditions: os=linux & cpu=arm64 & libc=glibc
+  languageName: node
+  linkType: hard
+
+"@napi-rs/lzma-linux-arm64-musl@npm:1.2.1":
+  version: 1.2.1
+  resolution: "@napi-rs/lzma-linux-arm64-musl@npm:1.2.1"
+  conditions: os=linux & cpu=arm64 & libc=musl
+  languageName: node
+  linkType: hard
+
+"@napi-rs/lzma-linux-x64-gnu@npm:1.2.1":
+  version: 1.2.1
+  resolution: "@napi-rs/lzma-linux-x64-gnu@npm:1.2.1"
+  conditions: os=linux & cpu=x64 & libc=glibc
+  languageName: node
+  linkType: hard
+
+"@napi-rs/lzma-linux-x64-musl@npm:1.2.1":
+  version: 1.2.1
+  resolution: "@napi-rs/lzma-linux-x64-musl@npm:1.2.1"
+  conditions: os=linux & cpu=x64 & libc=musl
+  languageName: node
+  linkType: hard
+
+"@napi-rs/lzma-win32-arm64-msvc@npm:1.2.1":
+  version: 1.2.1
+  resolution: "@napi-rs/lzma-win32-arm64-msvc@npm:1.2.1"
+  conditions: os=win32 & cpu=arm64
+  languageName: node
+  linkType: hard
+
+"@napi-rs/lzma-win32-ia32-msvc@npm:1.2.1":
+  version: 1.2.1
+  resolution: "@napi-rs/lzma-win32-ia32-msvc@npm:1.2.1"
+  conditions: os=win32 & cpu=ia32
+  languageName: node
+  linkType: hard
+
+"@napi-rs/lzma-win32-x64-msvc@npm:1.2.1":
+  version: 1.2.1
+  resolution: "@napi-rs/lzma-win32-x64-msvc@npm:1.2.1"
+  conditions: os=win32 & cpu=x64
+  languageName: node
+  linkType: hard
+
+"@napi-rs/lzma@npm:^1.2.1":
+  version: 1.2.1
+  resolution: "@napi-rs/lzma@npm:1.2.1"
+  dependencies:
+    "@napi-rs/lzma-android-arm-eabi": "npm:1.2.1"
+    "@napi-rs/lzma-android-arm64": "npm:1.2.1"
+    "@napi-rs/lzma-darwin-arm64": "npm:1.2.1"
+    "@napi-rs/lzma-darwin-x64": "npm:1.2.1"
+    "@napi-rs/lzma-freebsd-x64": "npm:1.2.1"
+    "@napi-rs/lzma-linux-arm-gnueabihf": "npm:1.2.1"
+    "@napi-rs/lzma-linux-arm64-gnu": "npm:1.2.1"
+    "@napi-rs/lzma-linux-arm64-musl": "npm:1.2.1"
+    "@napi-rs/lzma-linux-x64-gnu": "npm:1.2.1"
+    "@napi-rs/lzma-linux-x64-musl": "npm:1.2.1"
+    "@napi-rs/lzma-win32-arm64-msvc": "npm:1.2.1"
+    "@napi-rs/lzma-win32-ia32-msvc": "npm:1.2.1"
+    "@napi-rs/lzma-win32-x64-msvc": "npm:1.2.1"
+  dependenciesMeta:
+    "@napi-rs/lzma-android-arm-eabi":
+      optional: true
+    "@napi-rs/lzma-android-arm64":
+      optional: true
+    "@napi-rs/lzma-darwin-arm64":
+      optional: true
+    "@napi-rs/lzma-darwin-x64":
+      optional: true
+    "@napi-rs/lzma-freebsd-x64":
+      optional: true
+    "@napi-rs/lzma-linux-arm-gnueabihf":
+      optional: true
+    "@napi-rs/lzma-linux-arm64-gnu":
+      optional: true
+    "@napi-rs/lzma-linux-arm64-musl":
+      optional: true
+    "@napi-rs/lzma-linux-x64-gnu":
+      optional: true
+    "@napi-rs/lzma-linux-x64-musl":
+      optional: true
+    "@napi-rs/lzma-win32-arm64-msvc":
+      optional: true
+    "@napi-rs/lzma-win32-ia32-msvc":
+      optional: true
+    "@napi-rs/lzma-win32-x64-msvc":
+      optional: true
+  checksum: 8fc856aa1f547a2ca5477afd4aa7079069d7fb0ce5da64ba4a3d5eb243210a6bb591f1f0fa9584f0f272952bd1d11b99eb097a1d2be9f919c8a9dcd1d8bceb2c
+  languageName: node
+  linkType: hard
+
+"@napi-rs/tar-android-arm-eabi@npm:0.0.1":
+  version: 0.0.1
+  resolution: "@napi-rs/tar-android-arm-eabi@npm:0.0.1"
+  conditions: os=android & cpu=arm
+  languageName: node
+  linkType: hard
+
+"@napi-rs/tar-android-arm64@npm:0.0.1":
+  version: 0.0.1
+  resolution: "@napi-rs/tar-android-arm64@npm:0.0.1"
+  conditions: os=android & cpu=arm64
+  languageName: node
+  linkType: hard
+
+"@napi-rs/tar-darwin-arm64@npm:0.0.1":
+  version: 0.0.1
+  resolution: "@napi-rs/tar-darwin-arm64@npm:0.0.1"
+  conditions: os=darwin & cpu=arm64
+  languageName: node
+  linkType: hard
+
+"@napi-rs/tar-darwin-x64@npm:0.0.1":
+  version: 0.0.1
+  resolution: "@napi-rs/tar-darwin-x64@npm:0.0.1"
+  conditions: os=darwin & cpu=x64
+  languageName: node
+  linkType: hard
+
+"@napi-rs/tar-freebsd-x64@npm:0.0.1":
+  version: 0.0.1
+  resolution: "@napi-rs/tar-freebsd-x64@npm:0.0.1"
+  conditions: os=freebsd & cpu=x64
+  languageName: node
+  linkType: hard
+
+"@napi-rs/tar-linux-arm-gnueabihf@npm:0.0.1":
+  version: 0.0.1
+  resolution: "@napi-rs/tar-linux-arm-gnueabihf@npm:0.0.1"
+  conditions: os=linux & cpu=arm
+  languageName: node
+  linkType: hard
+
+"@napi-rs/tar-linux-arm64-gnu@npm:0.0.1":
+  version: 0.0.1
+  resolution: "@napi-rs/tar-linux-arm64-gnu@npm:0.0.1"
+  conditions: os=linux & cpu=arm64 & libc=glibc
+  languageName: node
+  linkType: hard
+
+"@napi-rs/tar-linux-arm64-musl@npm:0.0.1":
+  version: 0.0.1
+  resolution: "@napi-rs/tar-linux-arm64-musl@npm:0.0.1"
+  conditions: os=linux & cpu=arm64 & libc=musl
+  languageName: node
+  linkType: hard
+
+"@napi-rs/tar-linux-x64-gnu@npm:0.0.1":
+  version: 0.0.1
+  resolution: "@napi-rs/tar-linux-x64-gnu@npm:0.0.1"
+  conditions: os=linux & cpu=x64 & libc=glibc
+  languageName: node
+  linkType: hard
+
+"@napi-rs/tar-linux-x64-musl@npm:0.0.1":
+  version: 0.0.1
+  resolution: "@napi-rs/tar-linux-x64-musl@npm:0.0.1"
+  conditions: os=linux & cpu=x64 & libc=musl
+  languageName: node
+  linkType: hard
+
+"@napi-rs/tar-win32-arm64-msvc@npm:0.0.1":
+  version: 0.0.1
+  resolution: "@napi-rs/tar-win32-arm64-msvc@npm:0.0.1"
+  conditions: os=win32 & cpu=arm64
+  languageName: node
+  linkType: hard
+
+"@napi-rs/tar-win32-ia32-msvc@npm:0.0.1":
+  version: 0.0.1
+  resolution: "@napi-rs/tar-win32-ia32-msvc@npm:0.0.1"
+  conditions: os=win32 & cpu=ia32
+  languageName: node
+  linkType: hard
+
+"@napi-rs/tar-win32-x64-msvc@npm:0.0.1":
+  version: 0.0.1
+  resolution: "@napi-rs/tar-win32-x64-msvc@npm:0.0.1"
+  conditions: os=win32 & cpu=x64
+  languageName: node
+  linkType: hard
+
+"@napi-rs/tar@npm:^0.0.1":
+  version: 0.0.1
+  resolution: "@napi-rs/tar@npm:0.0.1"
+  dependencies:
+    "@napi-rs/tar-android-arm-eabi": "npm:0.0.1"
+    "@napi-rs/tar-android-arm64": "npm:0.0.1"
+    "@napi-rs/tar-darwin-arm64": "npm:0.0.1"
+    "@napi-rs/tar-darwin-x64": "npm:0.0.1"
+    "@napi-rs/tar-freebsd-x64": "npm:0.0.1"
+    "@napi-rs/tar-linux-arm-gnueabihf": "npm:0.0.1"
+    "@napi-rs/tar-linux-arm64-gnu": "npm:0.0.1"
+    "@napi-rs/tar-linux-arm64-musl": "npm:0.0.1"
+    "@napi-rs/tar-linux-x64-gnu": "npm:0.0.1"
+    "@napi-rs/tar-linux-x64-musl": "npm:0.0.1"
+    "@napi-rs/tar-win32-arm64-msvc": "npm:0.0.1"
+    "@napi-rs/tar-win32-ia32-msvc": "npm:0.0.1"
+    "@napi-rs/tar-win32-x64-msvc": "npm:0.0.1"
+  dependenciesMeta:
+    "@napi-rs/tar-android-arm-eabi":
+      optional: true
+    "@napi-rs/tar-android-arm64":
+      optional: true
+    "@napi-rs/tar-darwin-arm64":
+      optional: true
+    "@napi-rs/tar-darwin-x64":
+      optional: true
+    "@napi-rs/tar-freebsd-x64":
+      optional: true
+    "@napi-rs/tar-linux-arm-gnueabihf":
+      optional: true
+    "@napi-rs/tar-linux-arm64-gnu":
+      optional: true
+    "@napi-rs/tar-linux-arm64-musl":
+      optional: true
+    "@napi-rs/tar-linux-x64-gnu":
+      optional: true
+    "@napi-rs/tar-linux-x64-musl":
+      optional: true
+    "@napi-rs/tar-win32-arm64-msvc":
+      optional: true
+    "@napi-rs/tar-win32-ia32-msvc":
+      optional: true
+    "@napi-rs/tar-win32-x64-msvc":
+      optional: true
+  checksum: f38bc820f20be8e6c7b95bb846e1bedd2ab8b09da4565b18b1ac5396c9e63d5c409b7774d687568b45602f84484436fd86e5891d98db2d6ff8f8b8597194e158
+  languageName: node
+  linkType: hard
 
 "@napi-rs/triples@workspace:triples":
   version: 0.0.0-use.local

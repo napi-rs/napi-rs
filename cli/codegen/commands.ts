@@ -244,6 +244,12 @@ const BUILD_OPTIONS: CommandSchema = {
         '[experimental] use [cross](https://github.com/cross-rs/cross) instead of `cargo`',
     },
     {
+      name: 'useNapiCross',
+      type: 'boolean',
+      description:
+        '[experimental] use @napi-rs/cross-toolchain to cross-compile Linux arm/arm64/x64 gnu targets.',
+    },
+    {
       name: 'watch',
       type: 'boolean',
       description:

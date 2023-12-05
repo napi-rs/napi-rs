@@ -1,7 +1,8 @@
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
+import { existsSync, mkdirSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { tmpdir } from 'node:os'
+import { tmpdir, homedir } from 'node:os'
 import { parse, join, resolve } from 'node:path'
 
 import * as colors from 'colorette'
@@ -143,9 +144,101 @@ class Builder {
       .setPackage()
       .setFeatures()
       .setTarget()
+      .pickCrossToolchain()
       .setEnvs()
       .setBypassArgs()
       .exec()
+  }
+
+  private pickCrossToolchain() {
+    if (!this.options.useNapiCross) {
+      return this
+    }
+    if (this.options.useCross) {
+      debug.warn(
+        'You are trying to use both `--cross` and `--use-napi-cross` options, `--use-cross` will be ignored.',
+      )
+    }
+
+    if (this.options.crossCompile) {
+      debug.warn(
+        'You are trying to use both `--cross-compile` and `--use-napi-cross` options, `--cross-compile` will be ignored.',
+      )
+    }
+
+    try {
+      const { version, download } = require('@napi-rs/cross-toolchain')
+
+      const toolchainPath = join(
+        homedir(),
+        '.napi-rs',
+        'cross-toolchain',
+        version,
+        this.target.triple,
+      )
+      mkdirSync(toolchainPath, { recursive: true })
+      if (existsSync(join(toolchainPath, 'package.json'))) {
+        debug(`Toolchain ${toolchainPath} exists, skip extracting`)
+      } else {
+        const tarArchive = download(process.arch, this.target.triple)
+        tarArchive.unpack(toolchainPath)
+      }
+      const upperCaseTarget = targetToEnvVar(this.target.triple)
+      const linkerEnv = `CARGO_TARGET_${upperCaseTarget}_LINKER`
+      this.envs[linkerEnv] = join(
+        toolchainPath,
+        'bin',
+        `${this.target.triple}-gcc`,
+      )
+      if (!process.env.TARGET_SYSROOT) {
+        this.envs[`TARGET_SYSROOT`] = join(
+          toolchainPath,
+          this.target.triple,
+          'sysroot',
+        )
+      }
+      if (!process.env.TARGET_AR) {
+        this.envs[`TARGET_AR`] = join(
+          toolchainPath,
+          'bin',
+          `${this.target.triple}-ar`,
+        )
+      }
+      if (!process.env.TARGET_RANLIB) {
+        this.envs[`TARGET_RANLIB`] = join(
+          toolchainPath,
+          'bin',
+          `${this.target.triple}-ranlib`,
+        )
+      }
+      if (!process.env.TARGET_READELF) {
+        this.envs[`TARGET_READELF`] = join(
+          toolchainPath,
+          'bin',
+          `${this.target.triple}-readelf`,
+        )
+      }
+      if (!process.env.TARGET_C_INCLUDE_PATH) {
+        this.envs[`TARGET_C_INCLUDE_PATH`] = join(
+          toolchainPath,
+          this.target.triple,
+          'sysroot',
+          'usr',
+          'include/',
+        )
+      }
+      if (
+        (process.env.CC === 'clang' &&
+          (process.env.TARGET_CC === 'clang' || !process.env.TARGET_CC)) ||
+        process.env.TARGET_CC === 'clang'
+      ) {
+        this.envs.C_FLAGS = `--sysroot=${this.envs.TARGET_SYSROOT}`
+      }
+    } catch (e) {
+      debug.warn('Pick cross toolchain failed', e as Error)
+      // ignore, do nothing
+    }
+    return this
   }
 
   private exec() {
@@ -156,6 +249,11 @@ class Builder {
 
     const watch = this.options.watch
     const buildTask = new Promise<void>((resolve, reject) => {
+      if (this.options.useCross && this.options.crossCompile) {
+        throw new Error(
+          '`--use-cross` and `--cross-compile` can not be used together',
+        )
+      }
       const command =
         process.env.CARGO ?? (this.options.useCross ? 'cross' : 'cargo')
       const buildProcess = spawn(command, this.args, {
