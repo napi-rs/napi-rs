@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.12](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.11...@napi-rs/cli@3.0.0-alpha.12) (2023-12-05)
+
+### Bug Fixes
+
+- **cli:** set CC env if not existed ([#1839](https://github.com/napi-rs/napi-rs/issues/1839)) ([a87e4a6](https://github.com/napi-rs/napi-rs/commit/a87e4a6d9560afc7f44f92cb01b2294cfaa97a37))
+
 # [3.0.0-alpha.11](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.10...@napi-rs/cli@3.0.0-alpha.11) (2023-12-05)
 
 ### Bug Fixes
