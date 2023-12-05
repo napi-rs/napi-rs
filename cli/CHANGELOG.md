@@ -3,6 +3,17 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.11](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.10...@napi-rs/cli@3.0.0-alpha.11) (2023-12-05)
+
+### Bug Fixes
+
+- **cli:** duplicated node matrix ([#1835](https://github.com/napi-rs/napi-rs/issues/1835)) ([830dd8b](https://github.com/napi-rs/napi-rs/commit/830dd8b6bef2afc309718a81f4dd6e237ca7e324))
+- **cli:** throws if target path of new command test fails ([#1834](https://github.com/napi-rs/napi-rs/issues/1834)) ([5160857](https://github.com/napi-rs/napi-rs/commit/516085701f395e64d92582ad99788b67de431dfd))
+
+### Features
+
+- **cli:** support @napi-rs/cross-toolchain ([#1838](https://github.com/napi-rs/napi-rs/issues/1838)) ([91c0eb8](https://github.com/napi-rs/napi-rs/commit/91c0eb8ce8bf452b4843dd33540185a10d73d53a))
+
 # [3.0.0-alpha.10](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.9...@napi-rs/cli@3.0.0-alpha.10) (2023-12-01)
 
 ### Features
