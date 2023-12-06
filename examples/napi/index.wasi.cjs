@@ -8,15 +8,19 @@ const __nodePath = require('node:path')
 const { WASI: __nodeWASI } = require('node:wasi')
 const { Worker } = require('node:worker_threads')
 
-const { instantiateNapiModuleSync: __emnapiInstantiateNapiModuleSync } = require('@emnapi/core')
-const { getDefaultContext: __emnapiGetDefaultContext } = require('@emnapi/runtime')
+const {
+  instantiateNapiModuleSync: __emnapiInstantiateNapiModuleSync,
+} = require('@emnapi/core')
+const {
+  getDefaultContext: __emnapiGetDefaultContext,
+} = require('@emnapi/runtime')
 
 const __wasi = new __nodeWASI({
   version: 'preview1',
   env: process.env,
   preopens: {
     '/': __dirname,
-  }
+  },
 })
 
 const __emnapiContext = __emnapiGetDefaultContext()
@@ -27,29 +31,36 @@ const __sharedMemory = new WebAssembly.Memory({
   shared: true,
 })
 
-const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule } = __emnapiInstantiateNapiModuleSync(__nodeFs.readFileSync(__nodePath.join(__dirname, 'index.wasi-wasm32.wasm')), {
-  context: __emnapiContext,
-  asyncWorkPoolSize: 4,
-  wasi: __wasi,
-  onCreateWorker() {
-    return new Worker(__nodePath.join(__dirname, 'wasi-worker.mjs'), {
-      env: process.env,
-      execArgv: ['--experimental-wasi-unstable-preview1'],
-    })
+const {
+  instance: __napiInstance,
+  module: __wasiModule,
+  napiModule: __napiModule,
+} = __emnapiInstantiateNapiModuleSync(
+  __nodeFs.readFileSync(__nodePath.join(__dirname, 'index.wasi-wasm32.wasm')),
+  {
+    context: __emnapiContext,
+    asyncWorkPoolSize: 4,
+    wasi: __wasi,
+    onCreateWorker() {
+      return new Worker(__nodePath.join(__dirname, 'wasi-worker.mjs'), {
+        env: process.env,
+        execArgv: ['--experimental-wasi-unstable-preview1'],
+      })
+    },
+    overwriteImports(importObject) {
+      importObject.env = {
+        ...importObject.env,
+        ...importObject.napi,
+        ...importObject.emnapi,
+        memory: __sharedMemory,
+      }
+      return importObject
+    },
+    beforeInit({ instance }) {
+      __napi_rs_initialize_modules(instance)
+    },
   },
-  overwriteImports(importObject) {
-    importObject.env = {
-      ...importObject.env,
-      ...importObject.napi,
-      ...importObject.emnapi,
-      memory: __sharedMemory,
-    }
-    return importObject
-  },
-  beforeInit({ instance }) {
-    __napi_rs_initialize_modules(instance)
-  }
-})
+)
 
 function __napi_rs_initialize_modules(__napiInstance) {
   __napiInstance.exports['__napi_register__DEFAULT_COST_0']()
@@ -76,7 +87,9 @@ function __napi_rs_initialize_modules(__napiInstance) {
   __napiInstance.exports['__napi_register__read_file_21']()
   __napiInstance.exports['__napi_register__return_js_function_22']()
   __napiInstance.exports['__napi_register__callback_return_promise_23']()
-  __napiInstance.exports['__napi_register__callback_return_promise_and_spawn_24']()
+  __napiInstance.exports[
+    '__napi_register__callback_return_promise_and_spawn_24'
+  ]()
   __napiInstance.exports['__napi_register__capture_error_in_callback_25']()
   __napiInstance.exports['__napi_register__Animal_struct_26']()
   __napiInstance.exports['__napi_register__Animal_impl_27']()
@@ -89,7 +102,9 @@ function __napi_rs_initialize_modules(__napiInstance) {
   __napiInstance.exports['__napi_register__Blake2bKey_struct_34']()
   __napiInstance.exports['__napi_register__Context_struct_35']()
   __napiInstance.exports['__napi_register__Context_impl_36']()
-  __napiInstance.exports['__napi_register__AnimalWithDefaultConstructor_struct_37']()
+  __napiInstance.exports[
+    '__napi_register__AnimalWithDefaultConstructor_struct_37'
+  ]()
   __napiInstance.exports['__napi_register__NinjaTurtle_struct_38']()
   __napiInstance.exports['__napi_register__NinjaTurtle_impl_39']()
   __napiInstance.exports['__napi_register__JsAssets_struct_40']()
@@ -99,14 +114,18 @@ function __napi_rs_initialize_modules(__napiInstance) {
   __napiInstance.exports['__napi_register__Optional_struct_44']()
   __napiInstance.exports['__napi_register__Optional_impl_45']()
   __napiInstance.exports['__napi_register__create_object_with_class_field_46']()
-  __napiInstance.exports['__napi_register__receive_object_with_class_field_47']()
+  __napiInstance.exports[
+    '__napi_register__receive_object_with_class_field_47'
+  ]()
   __napiInstance.exports['__napi_register__NotWritableClass_struct_48']()
   __napiInstance.exports['__napi_register__NotWritableClass_impl_49']()
   __napiInstance.exports['__napi_register__CustomFinalize_struct_50']()
   __napiInstance.exports['__napi_register__CustomFinalize_impl_51']()
   __napiInstance.exports['__napi_register__Width_struct_52']()
   __napiInstance.exports['__napi_register__plus_one_53']()
-  __napiInstance.exports['__napi_register__GetterSetterWithClosures_struct_54']()
+  __napiInstance.exports[
+    '__napi_register__GetterSetterWithClosures_struct_54'
+  ]()
   __napiInstance.exports['__napi_register__GetterSetterWithClosures_impl_55']()
   __napiInstance.exports['__napi_register__ClassWithFactory_struct_56']()
   __napiInstance.exports['__napi_register__ClassWithFactory_impl_57']()
@@ -168,10 +187,16 @@ function __napi_rs_initialize_modules(__napiInstance) {
   __napiInstance.exports['__napi_register__validate_symbol_113']()
   __napiInstance.exports['__napi_register__validate_optional_114']()
   __napiInstance.exports['__napi_register__return_undefined_if_invalid_115']()
-  __napiInstance.exports['__napi_register__return_undefined_if_invalid_promise_116']()
+  __napiInstance.exports[
+    '__napi_register__return_undefined_if_invalid_promise_116'
+  ]()
   __napiInstance.exports['__napi_register__ts_rename_117']()
-  __napiInstance.exports['__napi_register__override_individual_arg_on_function_118']()
-  __napiInstance.exports['__napi_register__override_individual_arg_on_function_with_cb_arg_119']()
+  __napiInstance.exports[
+    '__napi_register__override_individual_arg_on_function_118'
+  ]()
+  __napiInstance.exports[
+    '__napi_register__override_individual_arg_on_function_with_cb_arg_119'
+  ]()
   __napiInstance.exports['__napi_register__Fib_struct_120']()
   __napiInstance.exports['__napi_register__Fib_impl_121']()
   __napiInstance.exports['__napi_register__Fib_impl_122']()
@@ -222,7 +247,9 @@ function __napi_rs_initialize_modules(__napiInstance) {
   __napiInstance.exports['__napi_register__read_package_json_167']()
   __napiInstance.exports['__napi_register__get_package_json_name_168']()
   __napiInstance.exports['__napi_register__test_serde_roundtrip_169']()
-  __napiInstance.exports['__napi_register__test_serde_big_number_precision_170']()
+  __napiInstance.exports[
+    '__napi_register__test_serde_big_number_precision_170'
+  ]()
   __napiInstance.exports['__napi_register__return_from_shared_crate_171']()
   __napiInstance.exports['__napi_register__contains_172']()
   __napiInstance.exports['__napi_register__concat_str_173']()
@@ -241,15 +268,27 @@ function __napi_rs_initialize_modules(__napiInstance) {
   __napiInstance.exports['__napi_register__async_task_optional_return_186']()
   __napiInstance.exports['__napi_register__call_threadsafe_function_187']()
   __napiInstance.exports['__napi_register__call_long_threadsafe_function_188']()
-  __napiInstance.exports['__napi_register__threadsafe_function_throw_error_189']()
-  __napiInstance.exports['__napi_register__threadsafe_function_fatal_mode_190']()
-  __napiInstance.exports['__napi_register__threadsafe_function_fatal_mode_error_191']()
-  __napiInstance.exports['__napi_register__threadsafe_function_closure_capture_192']()
+  __napiInstance.exports[
+    '__napi_register__threadsafe_function_throw_error_189'
+  ]()
+  __napiInstance.exports[
+    '__napi_register__threadsafe_function_fatal_mode_190'
+  ]()
+  __napiInstance.exports[
+    '__napi_register__threadsafe_function_fatal_mode_error_191'
+  ]()
+  __napiInstance.exports[
+    '__napi_register__threadsafe_function_closure_capture_192'
+  ]()
   __napiInstance.exports['__napi_register__tsfn_call_with_callback_193']()
   __napiInstance.exports['__napi_register__tsfn_async_call_194']()
   __napiInstance.exports['__napi_register__accept_threadsafe_function_195']()
-  __napiInstance.exports['__napi_register__accept_threadsafe_function_fatal_196']()
-  __napiInstance.exports['__napi_register__accept_threadsafe_function_tuple_args_197']()
+  __napiInstance.exports[
+    '__napi_register__accept_threadsafe_function_fatal_196'
+  ]()
+  __napiInstance.exports[
+    '__napi_register__accept_threadsafe_function_tuple_args_197'
+  ]()
   __napiInstance.exports['__napi_register__tsfn_return_promise_198']()
   __napiInstance.exports['__napi_register__tsfn_return_promise_timeout_199']()
   __napiInstance.exports['__napi_register__tsfn_throw_from_js_200']()
@@ -265,188 +304,381 @@ function __napi_rs_initialize_modules(__napiInstance) {
   __napiInstance.exports['__napi_register__AsyncBuffer_impl_210']()
   __napiInstance.exports['__napi_register__async_reduce_buffer_211']()
 }
-const { Animal, AnimalWithDefaultConstructor, AnotherClassForEither, AnotherCssStyleSheet, AnotherCSSStyleSheet, Asset, JsAsset, Assets, JsAssets, Bird, Blake2BHasher, Blake2bHasher, Blake2BKey, Blake2bKey, ClassWithFactory, Context, CssRuleList, CSSRuleList, CssStyleSheet, CSSStyleSheet, CustomFinalize, Dog, Fib, Fib2, Fib3, GetterSetterWithClosures, JsClassForEither, JsRemote, JsRepo, NinjaTurtle, NotWritableClass, Optional, Selector, Width, acceptThreadsafeFunction, acceptThreadsafeFunctionFatal, acceptThreadsafeFunctionTupleArgs, add, ALIAS, AliasedEnum, appendBuffer, arrayBufferPassThrough, asyncMultiTwo, asyncPlus100, asyncReduceBuffer, asyncTaskOptionalReturn, asyncTaskVoidReturn, bigintAdd, bigintFromI128, bigintFromI64, bigintGetU64AsString, bufferPassThrough, callbackReturnPromise, callbackReturnPromiseAndSpawn, callLongThreadsafeFunction, callThreadsafeFunction, captureErrorInCallback, chronoDateAdd1Minute, chronoDateToMillis, chronoNativeDateTime, chronoNativeDateTimeReturn, concatLatin1, concatStr, concatUtf16, contains, convertU32Array, createBigInt, createBigIntI64, createExternal, createExternalString, createExternalTypedArray, createObj, createObjectWithClassField, createObjWithProperty, createSymbol, createSymbolFor, CustomNumEnum, customStatusCode, dateToNumber, DEFAULT_COST, derefUint8Array, either3, either4, eitherBoolOrFunction, eitherFromObjects, eitherFromOption, eitherStringOrNumber, Empty, enumToI32, fibonacci, fnReceivedAliased, getBuffer, getCwd, getEmptyBuffer, getExternal, getGlobal, getMapping, getModuleFileName, getNestedNumArr, getNull, getNumArr, getNums, getPackageJsonName, getStrFromObject, getterFromObj, getUndefined, getWords, Kind, listObjKeys, mapOption, mutateExternal, mutateTypedArray, optionEnd, optionOnly, optionStart, optionStartEnd, overrideIndividualArgOnFunction, overrideIndividualArgOnFunctionWithCbArg, panic, plusOne, promiseInEither, readFile, readFileAsync, readPackageJson, receiveAllOptionalObject, receiveClassOrNumber, receiveDifferentClass, receiveMutClassOrNumber, receiveObjectOnlyFromJs, receiveObjectWithClassField, receiveStrictObject, receiveString, returnEither, returnEitherClass, returnFromSharedCrate, returnJsFunction, returnNull, returnUndefined, returnUndefinedIfInvalid, returnUndefinedIfInvalidPromise, roundtripStr, runScript, setSymbolInObj, Status, sumMapping, sumNums, testSerdeBigNumberPrecision, testSerdeRoundtrip, threadsafeFunctionClosureCapture, threadsafeFunctionFatalMode, threadsafeFunctionFatalModeError, threadsafeFunctionThrowError, throwAsyncError, throwError, throwSyntaxError, toJsObj, tsfnAsyncCall, tsfnCallWithCallback, tsfnReturnPromise, tsfnReturnPromiseTimeout, tsfnThrowFromJs, tsRename, validateArray, validateBigint, validateBoolean, validateBuffer, validateDate, validateDateTime, validateExternal, validateFunction, validateHashMap, validateNull, validateNumber, validateOptional, validatePromise, validateString, validateSymbol, validateTypedArray, validateUndefined, withAbortController, withoutAbortController, xxh64Alias, xxh2, xxh3 } = __napiModule.exports
-module.exports.Animal = Animal,
-module.exports.AnimalWithDefaultConstructor = AnimalWithDefaultConstructor,
-module.exports.AnotherClassForEither = AnotherClassForEither,
-module.exports.AnotherCssStyleSheet = AnotherCssStyleSheet,
-module.exports.AnotherCSSStyleSheet = AnotherCSSStyleSheet,
-module.exports.Asset = Asset,
-module.exports.JsAsset = JsAsset,
-module.exports.Assets = Assets,
-module.exports.JsAssets = JsAssets,
-module.exports.Bird = Bird,
-module.exports.Blake2BHasher = Blake2BHasher,
-module.exports.Blake2bHasher = Blake2bHasher,
-module.exports.Blake2BKey = Blake2BKey,
-module.exports.Blake2bKey = Blake2bKey,
-module.exports.ClassWithFactory = ClassWithFactory,
-module.exports.Context = Context,
-module.exports.CssRuleList = CssRuleList,
-module.exports.CSSRuleList = CSSRuleList,
-module.exports.CssStyleSheet = CssStyleSheet,
-module.exports.CSSStyleSheet = CSSStyleSheet,
-module.exports.CustomFinalize = CustomFinalize,
-module.exports.Dog = Dog,
-module.exports.Fib = Fib,
-module.exports.Fib2 = Fib2,
-module.exports.Fib3 = Fib3,
-module.exports.GetterSetterWithClosures = GetterSetterWithClosures,
-module.exports.JsClassForEither = JsClassForEither,
-module.exports.JsRemote = JsRemote,
-module.exports.JsRepo = JsRepo,
-module.exports.NinjaTurtle = NinjaTurtle,
-module.exports.NotWritableClass = NotWritableClass,
-module.exports.Optional = Optional,
-module.exports.Selector = Selector,
-module.exports.Width = Width,
-module.exports.acceptThreadsafeFunction = acceptThreadsafeFunction,
-module.exports.acceptThreadsafeFunctionFatal = acceptThreadsafeFunctionFatal,
-module.exports.acceptThreadsafeFunctionTupleArgs = acceptThreadsafeFunctionTupleArgs,
-module.exports.add = add,
-module.exports.ALIAS = ALIAS,
-module.exports.AliasedEnum = AliasedEnum,
-module.exports.appendBuffer = appendBuffer,
-module.exports.arrayBufferPassThrough = arrayBufferPassThrough,
-module.exports.asyncMultiTwo = asyncMultiTwo,
-module.exports.asyncPlus100 = asyncPlus100,
-module.exports.asyncReduceBuffer = asyncReduceBuffer,
-module.exports.asyncTaskOptionalReturn = asyncTaskOptionalReturn,
-module.exports.asyncTaskVoidReturn = asyncTaskVoidReturn,
-module.exports.bigintAdd = bigintAdd,
-module.exports.bigintFromI128 = bigintFromI128,
-module.exports.bigintFromI64 = bigintFromI64,
-module.exports.bigintGetU64AsString = bigintGetU64AsString,
-module.exports.bufferPassThrough = bufferPassThrough,
-module.exports.callbackReturnPromise = callbackReturnPromise,
-module.exports.callbackReturnPromiseAndSpawn = callbackReturnPromiseAndSpawn,
-module.exports.callLongThreadsafeFunction = callLongThreadsafeFunction,
-module.exports.callThreadsafeFunction = callThreadsafeFunction,
-module.exports.captureErrorInCallback = captureErrorInCallback,
-module.exports.chronoDateAdd1Minute = chronoDateAdd1Minute,
-module.exports.chronoDateToMillis = chronoDateToMillis,
-module.exports.chronoNativeDateTime = chronoNativeDateTime,
-module.exports.chronoNativeDateTimeReturn = chronoNativeDateTimeReturn,
-module.exports.concatLatin1 = concatLatin1,
-module.exports.concatStr = concatStr,
-module.exports.concatUtf16 = concatUtf16,
-module.exports.contains = contains,
-module.exports.convertU32Array = convertU32Array,
-module.exports.createBigInt = createBigInt,
-module.exports.createBigIntI64 = createBigIntI64,
-module.exports.createExternal = createExternal,
-module.exports.createExternalString = createExternalString,
-module.exports.createExternalTypedArray = createExternalTypedArray,
-module.exports.createObj = createObj,
-module.exports.createObjectWithClassField = createObjectWithClassField,
-module.exports.createObjWithProperty = createObjWithProperty,
-module.exports.createSymbol = createSymbol,
-module.exports.createSymbolFor = createSymbolFor,
-module.exports.CustomNumEnum = CustomNumEnum,
-module.exports.customStatusCode = customStatusCode,
-module.exports.dateToNumber = dateToNumber,
-module.exports.DEFAULT_COST = DEFAULT_COST,
-module.exports.derefUint8Array = derefUint8Array,
-module.exports.either3 = either3,
-module.exports.either4 = either4,
-module.exports.eitherBoolOrFunction = eitherBoolOrFunction,
-module.exports.eitherFromObjects = eitherFromObjects,
-module.exports.eitherFromOption = eitherFromOption,
-module.exports.eitherStringOrNumber = eitherStringOrNumber,
-module.exports.Empty = Empty,
-module.exports.enumToI32 = enumToI32,
-module.exports.fibonacci = fibonacci,
-module.exports.fnReceivedAliased = fnReceivedAliased,
-module.exports.getBuffer = getBuffer,
-module.exports.getCwd = getCwd,
-module.exports.getEmptyBuffer = getEmptyBuffer,
-module.exports.getExternal = getExternal,
-module.exports.getGlobal = getGlobal,
-module.exports.getMapping = getMapping,
-module.exports.getModuleFileName = getModuleFileName,
-module.exports.getNestedNumArr = getNestedNumArr,
-module.exports.getNull = getNull,
-module.exports.getNumArr = getNumArr,
-module.exports.getNums = getNums,
-module.exports.getPackageJsonName = getPackageJsonName,
-module.exports.getStrFromObject = getStrFromObject,
-module.exports.getterFromObj = getterFromObj,
-module.exports.getUndefined = getUndefined,
-module.exports.getWords = getWords,
-module.exports.Kind = Kind,
-module.exports.listObjKeys = listObjKeys,
-module.exports.mapOption = mapOption,
-module.exports.mutateExternal = mutateExternal,
-module.exports.mutateTypedArray = mutateTypedArray,
-module.exports.optionEnd = optionEnd,
-module.exports.optionOnly = optionOnly,
-module.exports.optionStart = optionStart,
-module.exports.optionStartEnd = optionStartEnd,
-module.exports.overrideIndividualArgOnFunction = overrideIndividualArgOnFunction,
-module.exports.overrideIndividualArgOnFunctionWithCbArg = overrideIndividualArgOnFunctionWithCbArg,
-module.exports.panic = panic,
-module.exports.plusOne = plusOne,
-module.exports.promiseInEither = promiseInEither,
-module.exports.readFile = readFile,
-module.exports.readFileAsync = readFileAsync,
-module.exports.readPackageJson = readPackageJson,
-module.exports.receiveAllOptionalObject = receiveAllOptionalObject,
-module.exports.receiveClassOrNumber = receiveClassOrNumber,
-module.exports.receiveDifferentClass = receiveDifferentClass,
-module.exports.receiveMutClassOrNumber = receiveMutClassOrNumber,
-module.exports.receiveObjectOnlyFromJs = receiveObjectOnlyFromJs,
-module.exports.receiveObjectWithClassField = receiveObjectWithClassField,
-module.exports.receiveStrictObject = receiveStrictObject,
-module.exports.receiveString = receiveString,
-module.exports.returnEither = returnEither,
-module.exports.returnEitherClass = returnEitherClass,
-module.exports.returnFromSharedCrate = returnFromSharedCrate,
-module.exports.returnJsFunction = returnJsFunction,
-module.exports.returnNull = returnNull,
-module.exports.returnUndefined = returnUndefined,
-module.exports.returnUndefinedIfInvalid = returnUndefinedIfInvalid,
-module.exports.returnUndefinedIfInvalidPromise = returnUndefinedIfInvalidPromise,
-module.exports.roundtripStr = roundtripStr,
-module.exports.runScript = runScript,
-module.exports.setSymbolInObj = setSymbolInObj,
-module.exports.Status = Status,
-module.exports.sumMapping = sumMapping,
-module.exports.sumNums = sumNums,
-module.exports.testSerdeBigNumberPrecision = testSerdeBigNumberPrecision,
-module.exports.testSerdeRoundtrip = testSerdeRoundtrip,
-module.exports.threadsafeFunctionClosureCapture = threadsafeFunctionClosureCapture,
-module.exports.threadsafeFunctionFatalMode = threadsafeFunctionFatalMode,
-module.exports.threadsafeFunctionFatalModeError = threadsafeFunctionFatalModeError,
-module.exports.threadsafeFunctionThrowError = threadsafeFunctionThrowError,
-module.exports.throwAsyncError = throwAsyncError,
-module.exports.throwError = throwError,
-module.exports.throwSyntaxError = throwSyntaxError,
-module.exports.toJsObj = toJsObj,
-module.exports.tsfnAsyncCall = tsfnAsyncCall,
-module.exports.tsfnCallWithCallback = tsfnCallWithCallback,
-module.exports.tsfnReturnPromise = tsfnReturnPromise,
-module.exports.tsfnReturnPromiseTimeout = tsfnReturnPromiseTimeout,
-module.exports.tsfnThrowFromJs = tsfnThrowFromJs,
-module.exports.tsRename = tsRename,
-module.exports.validateArray = validateArray,
-module.exports.validateBigint = validateBigint,
-module.exports.validateBoolean = validateBoolean,
-module.exports.validateBuffer = validateBuffer,
-module.exports.validateDate = validateDate,
-module.exports.validateDateTime = validateDateTime,
-module.exports.validateExternal = validateExternal,
-module.exports.validateFunction = validateFunction,
-module.exports.validateHashMap = validateHashMap,
-module.exports.validateNull = validateNull,
-module.exports.validateNumber = validateNumber,
-module.exports.validateOptional = validateOptional,
-module.exports.validatePromise = validatePromise,
-module.exports.validateString = validateString,
-module.exports.validateSymbol = validateSymbol,
-module.exports.validateTypedArray = validateTypedArray,
-module.exports.validateUndefined = validateUndefined,
-module.exports.withAbortController = withAbortController,
-module.exports.withoutAbortController = withoutAbortController,
-module.exports.xxh64Alias = xxh64Alias,
-module.exports.xxh2 = xxh2,
-module.exports.xxh3 = xxh3
+const {
+  Animal,
+  AnimalWithDefaultConstructor,
+  AnotherClassForEither,
+  AnotherCssStyleSheet,
+  AnotherCSSStyleSheet,
+  Asset,
+  JsAsset,
+  Assets,
+  JsAssets,
+  Bird,
+  Blake2BHasher,
+  Blake2bHasher,
+  Blake2BKey,
+  Blake2bKey,
+  ClassWithFactory,
+  Context,
+  CssRuleList,
+  CSSRuleList,
+  CssStyleSheet,
+  CSSStyleSheet,
+  CustomFinalize,
+  Dog,
+  Fib,
+  Fib2,
+  Fib3,
+  GetterSetterWithClosures,
+  JsClassForEither,
+  JsRemote,
+  JsRepo,
+  NinjaTurtle,
+  NotWritableClass,
+  Optional,
+  Selector,
+  Width,
+  acceptThreadsafeFunction,
+  acceptThreadsafeFunctionFatal,
+  acceptThreadsafeFunctionTupleArgs,
+  add,
+  ALIAS,
+  AliasedEnum,
+  appendBuffer,
+  arrayBufferPassThrough,
+  asyncMultiTwo,
+  asyncPlus100,
+  asyncReduceBuffer,
+  asyncTaskOptionalReturn,
+  asyncTaskVoidReturn,
+  bigintAdd,
+  bigintFromI128,
+  bigintFromI64,
+  bigintGetU64AsString,
+  bufferPassThrough,
+  callbackReturnPromise,
+  callbackReturnPromiseAndSpawn,
+  callLongThreadsafeFunction,
+  callThreadsafeFunction,
+  captureErrorInCallback,
+  chronoDateAdd1Minute,
+  chronoDateToMillis,
+  chronoNativeDateTime,
+  chronoNativeDateTimeReturn,
+  concatLatin1,
+  concatStr,
+  concatUtf16,
+  contains,
+  convertU32Array,
+  createBigInt,
+  createBigIntI64,
+  createExternal,
+  createExternalString,
+  createExternalTypedArray,
+  createObj,
+  createObjectWithClassField,
+  createObjWithProperty,
+  createSymbol,
+  createSymbolFor,
+  CustomNumEnum,
+  customStatusCode,
+  dateToNumber,
+  DEFAULT_COST,
+  derefUint8Array,
+  either3,
+  either4,
+  eitherBoolOrFunction,
+  eitherFromObjects,
+  eitherFromOption,
+  eitherStringOrNumber,
+  Empty,
+  enumToI32,
+  fibonacci,
+  fnReceivedAliased,
+  getBuffer,
+  getCwd,
+  getEmptyBuffer,
+  getExternal,
+  getGlobal,
+  getMapping,
+  getModuleFileName,
+  getNestedNumArr,
+  getNull,
+  getNumArr,
+  getNums,
+  getPackageJsonName,
+  getStrFromObject,
+  getterFromObj,
+  getUndefined,
+  getWords,
+  Kind,
+  listObjKeys,
+  mapOption,
+  mutateExternal,
+  mutateTypedArray,
+  optionEnd,
+  optionOnly,
+  optionStart,
+  optionStartEnd,
+  overrideIndividualArgOnFunction,
+  overrideIndividualArgOnFunctionWithCbArg,
+  panic,
+  plusOne,
+  promiseInEither,
+  readFile,
+  readFileAsync,
+  readPackageJson,
+  receiveAllOptionalObject,
+  receiveClassOrNumber,
+  receiveDifferentClass,
+  receiveMutClassOrNumber,
+  receiveObjectOnlyFromJs,
+  receiveObjectWithClassField,
+  receiveStrictObject,
+  receiveString,
+  returnEither,
+  returnEitherClass,
+  returnFromSharedCrate,
+  returnJsFunction,
+  returnNull,
+  returnUndefined,
+  returnUndefinedIfInvalid,
+  returnUndefinedIfInvalidPromise,
+  roundtripStr,
+  runScript,
+  setSymbolInObj,
+  Status,
+  sumMapping,
+  sumNums,
+  testSerdeBigNumberPrecision,
+  testSerdeRoundtrip,
+  threadsafeFunctionClosureCapture,
+  threadsafeFunctionFatalMode,
+  threadsafeFunctionFatalModeError,
+  threadsafeFunctionThrowError,
+  throwAsyncError,
+  throwError,
+  throwSyntaxError,
+  toJsObj,
+  tsfnAsyncCall,
+  tsfnCallWithCallback,
+  tsfnReturnPromise,
+  tsfnReturnPromiseTimeout,
+  tsfnThrowFromJs,
+  tsRename,
+  validateArray,
+  validateBigint,
+  validateBoolean,
+  validateBuffer,
+  validateDate,
+  validateDateTime,
+  validateExternal,
+  validateFunction,
+  validateHashMap,
+  validateNull,
+  validateNumber,
+  validateOptional,
+  validatePromise,
+  validateString,
+  validateSymbol,
+  validateTypedArray,
+  validateUndefined,
+  withAbortController,
+  withoutAbortController,
+  xxh64Alias,
+  xxh2,
+  xxh3,
+} = __napiModule.exports
+;(module.exports.Animal = Animal),
+  (module.exports.AnimalWithDefaultConstructor = AnimalWithDefaultConstructor),
+  (module.exports.AnotherClassForEither = AnotherClassForEither),
+  (module.exports.AnotherCssStyleSheet = AnotherCssStyleSheet),
+  (module.exports.AnotherCSSStyleSheet = AnotherCSSStyleSheet),
+  (module.exports.Asset = Asset),
+  (module.exports.JsAsset = JsAsset),
+  (module.exports.Assets = Assets),
+  (module.exports.JsAssets = JsAssets),
+  (module.exports.Bird = Bird),
+  (module.exports.Blake2BHasher = Blake2BHasher),
+  (module.exports.Blake2bHasher = Blake2bHasher),
+  (module.exports.Blake2BKey = Blake2BKey),
+  (module.exports.Blake2bKey = Blake2bKey),
+  (module.exports.ClassWithFactory = ClassWithFactory),
+  (module.exports.Context = Context),
+  (module.exports.CssRuleList = CssRuleList),
+  (module.exports.CSSRuleList = CSSRuleList),
+  (module.exports.CssStyleSheet = CssStyleSheet),
+  (module.exports.CSSStyleSheet = CSSStyleSheet),
+  (module.exports.CustomFinalize = CustomFinalize),
+  (module.exports.Dog = Dog),
+  (module.exports.Fib = Fib),
+  (module.exports.Fib2 = Fib2),
+  (module.exports.Fib3 = Fib3),
+  (module.exports.GetterSetterWithClosures = GetterSetterWithClosures),
+  (module.exports.JsClassForEither = JsClassForEither),
+  (module.exports.JsRemote = JsRemote),
+  (module.exports.JsRepo = JsRepo),
+  (module.exports.NinjaTurtle = NinjaTurtle),
+  (module.exports.NotWritableClass = NotWritableClass),
+  (module.exports.Optional = Optional),
+  (module.exports.Selector = Selector),
+  (module.exports.Width = Width),
+  (module.exports.acceptThreadsafeFunction = acceptThreadsafeFunction),
+  (module.exports.acceptThreadsafeFunctionFatal =
+    acceptThreadsafeFunctionFatal),
+  (module.exports.acceptThreadsafeFunctionTupleArgs =
+    acceptThreadsafeFunctionTupleArgs),
+  (module.exports.add = add),
+  (module.exports.ALIAS = ALIAS),
+  (module.exports.AliasedEnum = AliasedEnum),
+  (module.exports.appendBuffer = appendBuffer),
+  (module.exports.arrayBufferPassThrough = arrayBufferPassThrough),
+  (module.exports.asyncMultiTwo = asyncMultiTwo),
+  (module.exports.asyncPlus100 = asyncPlus100),
+  (module.exports.asyncReduceBuffer = asyncReduceBuffer),
+  (module.exports.asyncTaskOptionalReturn = asyncTaskOptionalReturn),
+  (module.exports.asyncTaskVoidReturn = asyncTaskVoidReturn),
+  (module.exports.bigintAdd = bigintAdd),
+  (module.exports.bigintFromI128 = bigintFromI128),
+  (module.exports.bigintFromI64 = bigintFromI64),
+  (module.exports.bigintGetU64AsString = bigintGetU64AsString),
+  (module.exports.bufferPassThrough = bufferPassThrough),
+  (module.exports.callbackReturnPromise = callbackReturnPromise),
+  (module.exports.callbackReturnPromiseAndSpawn =
+    callbackReturnPromiseAndSpawn),
+  (module.exports.callLongThreadsafeFunction = callLongThreadsafeFunction),
+  (module.exports.callThreadsafeFunction = callThreadsafeFunction),
+  (module.exports.captureErrorInCallback = captureErrorInCallback),
+  (module.exports.chronoDateAdd1Minute = chronoDateAdd1Minute),
+  (module.exports.chronoDateToMillis = chronoDateToMillis),
+  (module.exports.chronoNativeDateTime = chronoNativeDateTime),
+  (module.exports.chronoNativeDateTimeReturn = chronoNativeDateTimeReturn),
+  (module.exports.concatLatin1 = concatLatin1),
+  (module.exports.concatStr = concatStr),
+  (module.exports.concatUtf16 = concatUtf16),
+  (module.exports.contains = contains),
+  (module.exports.convertU32Array = convertU32Array),
+  (module.exports.createBigInt = createBigInt),
+  (module.exports.createBigIntI64 = createBigIntI64),
+  (module.exports.createExternal = createExternal),
+  (module.exports.createExternalString = createExternalString),
+  (module.exports.createExternalTypedArray = createExternalTypedArray),
+  (module.exports.createObj = createObj),
+  (module.exports.createObjectWithClassField = createObjectWithClassField),
+  (module.exports.createObjWithProperty = createObjWithProperty),
+  (module.exports.createSymbol = createSymbol),
+  (module.exports.createSymbolFor = createSymbolFor),
+  (module.exports.CustomNumEnum = CustomNumEnum),
+  (module.exports.customStatusCode = customStatusCode),
+  (module.exports.dateToNumber = dateToNumber),
+  (module.exports.DEFAULT_COST = DEFAULT_COST),
+  (module.exports.derefUint8Array = derefUint8Array),
+  (module.exports.either3 = either3),
+  (module.exports.either4 = either4),
+  (module.exports.eitherBoolOrFunction = eitherBoolOrFunction),
+  (module.exports.eitherFromObjects = eitherFromObjects),
+  (module.exports.eitherFromOption = eitherFromOption),
+  (module.exports.eitherStringOrNumber = eitherStringOrNumber),
+  (module.exports.Empty = Empty),
+  (module.exports.enumToI32 = enumToI32),
+  (module.exports.fibonacci = fibonacci),
+  (module.exports.fnReceivedAliased = fnReceivedAliased),
+  (module.exports.getBuffer = getBuffer),
+  (module.exports.getCwd = getCwd),
+  (module.exports.getEmptyBuffer = getEmptyBuffer),
+  (module.exports.getExternal = getExternal),
+  (module.exports.getGlobal = getGlobal),
+  (module.exports.getMapping = getMapping),
+  (module.exports.getModuleFileName = getModuleFileName),
+  (module.exports.getNestedNumArr = getNestedNumArr),
+  (module.exports.getNull = getNull),
+  (module.exports.getNumArr = getNumArr),
+  (module.exports.getNums = getNums),
+  (module.exports.getPackageJsonName = getPackageJsonName),
+  (module.exports.getStrFromObject = getStrFromObject),
+  (module.exports.getterFromObj = getterFromObj),
+  (module.exports.getUndefined = getUndefined),
+  (module.exports.getWords = getWords),
+  (module.exports.Kind = Kind),
+  (module.exports.listObjKeys = listObjKeys),
+  (module.exports.mapOption = mapOption),
+  (module.exports.mutateExternal = mutateExternal),
+  (module.exports.mutateTypedArray = mutateTypedArray),
+  (module.exports.optionEnd = optionEnd),
+  (module.exports.optionOnly = optionOnly),
+  (module.exports.optionStart = optionStart),
+  (module.exports.optionStartEnd = optionStartEnd),
+  (module.exports.overrideIndividualArgOnFunction =
+    overrideIndividualArgOnFunction),
+  (module.exports.overrideIndividualArgOnFunctionWithCbArg =
+    overrideIndividualArgOnFunctionWithCbArg),
+  (module.exports.panic = panic),
+  (module.exports.plusOne = plusOne),
+  (module.exports.promiseInEither = promiseInEither),
+  (module.exports.readFile = readFile),
+  (module.exports.readFileAsync = readFileAsync),
+  (module.exports.readPackageJson = readPackageJson),
+  (module.exports.receiveAllOptionalObject = receiveAllOptionalObject),
+  (module.exports.receiveClassOrNumber = receiveClassOrNumber),
+  (module.exports.receiveDifferentClass = receiveDifferentClass),
+  (module.exports.receiveMutClassOrNumber = receiveMutClassOrNumber),
+  (module.exports.receiveObjectOnlyFromJs = receiveObjectOnlyFromJs),
+  (module.exports.receiveObjectWithClassField = receiveObjectWithClassField),
+  (module.exports.receiveStrictObject = receiveStrictObject),
+  (module.exports.receiveString = receiveString),
+  (module.exports.returnEither = returnEither),
+  (module.exports.returnEitherClass = returnEitherClass),
+  (module.exports.returnFromSharedCrate = returnFromSharedCrate),
+  (module.exports.returnJsFunction = returnJsFunction),
+  (module.exports.returnNull = returnNull),
+  (module.exports.returnUndefined = returnUndefined),
+  (module.exports.returnUndefinedIfInvalid = returnUndefinedIfInvalid),
+  (module.exports.returnUndefinedIfInvalidPromise =
+    returnUndefinedIfInvalidPromise),
+  (module.exports.roundtripStr = roundtripStr),
+  (module.exports.runScript = runScript),
+  (module.exports.setSymbolInObj = setSymbolInObj),
+  (module.exports.Status = Status),
+  (module.exports.sumMapping = sumMapping),
+  (module.exports.sumNums = sumNums),
+  (module.exports.testSerdeBigNumberPrecision = testSerdeBigNumberPrecision),
+  (module.exports.testSerdeRoundtrip = testSerdeRoundtrip),
+  (module.exports.threadsafeFunctionClosureCapture =
+    threadsafeFunctionClosureCapture),
+  (module.exports.threadsafeFunctionFatalMode = threadsafeFunctionFatalMode),
+  (module.exports.threadsafeFunctionFatalModeError =
+    threadsafeFunctionFatalModeError),
+  (module.exports.threadsafeFunctionThrowError = threadsafeFunctionThrowError),
+  (module.exports.throwAsyncError = throwAsyncError),
+  (module.exports.throwError = throwError),
+  (module.exports.throwSyntaxError = throwSyntaxError),
+  (module.exports.toJsObj = toJsObj),
+  (module.exports.tsfnAsyncCall = tsfnAsyncCall),
+  (module.exports.tsfnCallWithCallback = tsfnCallWithCallback),
+  (module.exports.tsfnReturnPromise = tsfnReturnPromise),
+  (module.exports.tsfnReturnPromiseTimeout = tsfnReturnPromiseTimeout),
+  (module.exports.tsfnThrowFromJs = tsfnThrowFromJs),
+  (module.exports.tsRename = tsRename),
+  (module.exports.validateArray = validateArray),
+  (module.exports.validateBigint = validateBigint),
+  (module.exports.validateBoolean = validateBoolean),
+  (module.exports.validateBuffer = validateBuffer),
+  (module.exports.validateDate = validateDate),
+  (module.exports.validateDateTime = validateDateTime),
+  (module.exports.validateExternal = validateExternal),
+  (module.exports.validateFunction = validateFunction),
+  (module.exports.validateHashMap = validateHashMap),
+  (module.exports.validateNull = validateNull),
+  (module.exports.validateNumber = validateNumber),
+  (module.exports.validateOptional = validateOptional),
+  (module.exports.validatePromise = validatePromise),
+  (module.exports.validateString = validateString),
+  (module.exports.validateSymbol = validateSymbol),
+  (module.exports.validateTypedArray = validateTypedArray),
+  (module.exports.validateUndefined = validateUndefined),
+  (module.exports.withAbortController = withAbortController),
+  (module.exports.withoutAbortController = withoutAbortController),
+  (module.exports.xxh64Alias = xxh64Alias),
+  (module.exports.xxh2 = xxh2),
+  (module.exports.xxh3 = xxh3)

@@ -86,14 +86,14 @@
     "@types/debug": "^4.1.12",
     "@types/inquirer": "^9.0.7",
     "@types/js-yaml": "^4.0.9",
-    "@types/lodash-es": "^4.17.11",
-    "ava": "^5.3.1",
+    "@types/lodash-es": "^4.17.12",
+    "ava": "^6.0.0",
     "env-paths": "^3.0.0",
-    "esbuild": "^0.19.5",
+    "esbuild": "^0.19.8",
     "prettier": "^3.1.0",
     "ts-node": "^10.9.1",
     "tslib": "^2.6.2",
-    "typescript": "^5.2.2"
+    "typescript": "^5.3.2"
   },
   "peerDependencies": {
     "@emnapi/runtime": "0.44.0",
