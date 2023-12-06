@@ -87,7 +87,7 @@
     "@types/inquirer": "^9.0.7",
     "@types/js-yaml": "^4.0.9",
     "@types/lodash-es": "^4.17.11",
-    "ava": "^5.3.1",
+    "ava": "^6.0.0",
     "env-paths": "^3.0.0",
     "esbuild": "^0.19.5",
     "prettier": "^3.1.0",
