@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.13](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.12...@napi-rs/cli@3.0.0-alpha.13) (2023-12-06)
+
+### Bug Fixes
+
+- **cli:** C_FLAGS should be CFLAGS ([266d1f2](https://github.com/napi-rs/napi-rs/commit/266d1f21ec16ad992b553540b612bed833621215))
+
 # [3.0.0-alpha.12](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.11...@napi-rs/cli@3.0.0-alpha.12) (2023-12-05)
 
 ### Bug Fixes
