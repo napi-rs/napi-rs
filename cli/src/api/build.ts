@@ -244,7 +244,7 @@ class Builder {
           (process.env.TARGET_CC === 'clang' || !process.env.TARGET_CC)) ||
         process.env.TARGET_CC === 'clang'
       ) {
-        this.envs.C_FLAGS = `--sysroot=${this.envs.TARGET_SYSROOT}`
+        this.envs.CFLAGS = `--sysroot=${this.envs.TARGET_SYSROOT}`
       }
     } catch (e) {
       debug.warn('Pick cross toolchain failed', e as Error)
