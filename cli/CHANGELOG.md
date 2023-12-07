@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.14](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.13...@napi-rs/cli@3.0.0-alpha.14) (2023-12-07)
+
+### Bug Fixes
+
+- **cli:** --features and --no-default-features should not be exclusive ([#1846](https://github.com/napi-rs/napi-rs/issues/1846)) ([f43d483](https://github.com/napi-rs/napi-rs/commit/f43d483090008a63716459a5a19b38772bd4d1f8))
+
 # [3.0.0-alpha.13](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.12...@napi-rs/cli@3.0.0-alpha.13) (2023-12-06)
 
 ### Bug Fixes
