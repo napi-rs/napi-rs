@@ -518,11 +518,17 @@ class Builder {
 
   private setFeatures() {
     const args = []
+    if (this.options.allFeatures && this.options.allFeatures) {
+      throw new Error(
+        'Cannot specify --all-features and --no-default-features together',
+      )
+    }
     if (this.options.allFeatures) {
       args.push('--all-features')
     } else if (this.options.noDefaultFeatures) {
       args.push('--no-default-features')
-    } else if (this.options.features) {
+    }
+    if (this.options.features) {
       args.push('--features', ...this.options.features)
     }
 
