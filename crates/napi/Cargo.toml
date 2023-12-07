@@ -57,7 +57,7 @@ tokio_time = ["tokio/time"]
 [dependencies]
 bitflags = "2"
 ctor = "0.2"
-once_cell = "1.16"
+once_cell = "1.19"
 
 [dependencies.anyhow]
 optional = true
