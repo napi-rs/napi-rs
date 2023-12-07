@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [1.2.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/triples@1.1.0...@napi-rs/triples@1.2.0) (2023-12-07)
+
+### Features
+
+- add support for riscv64gc-unknown-linux-gnu ([#1826](https://github.com/napi-rs/napi-rs/issues/1826)) ([e73e74d](https://github.com/napi-rs/napi-rs/commit/e73e74d63bca2624887b8819e800498fc6322714))
+
 # [1.1.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/triples@1.0.3...@napi-rs/triples@1.1.0) (2021-12-02)
 
 ### Features

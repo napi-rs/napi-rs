@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.17.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.16.5...@napi-rs/cli@2.17.0) (2023-12-07)
+
+### Features
+
+- add support for riscv64gc-unknown-linux-gnu ([#1826](https://github.com/napi-rs/napi-rs/issues/1826)) ([e73e74d](https://github.com/napi-rs/napi-rs/commit/e73e74d63bca2624887b8819e800498fc6322714))
+
 ## [2.16.5](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.16.4...@napi-rs/cli@2.16.5) (2023-11-02)
 
 ### Bug Fixes
