@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.15](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.14...@napi-rs/cli@3.0.0-alpha.15) (2023-12-08)
+
+### Bug Fixes
+
+- **cli:** manifestPath and js binding output path ([#1847](https://github.com/napi-rs/napi-rs/issues/1847)) ([1273735](https://github.com/napi-rs/napi-rs/commit/12737352502d532be2471fce126c765879d178c5))
+
 # [3.0.0-alpha.14](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.13...@napi-rs/cli@3.0.0-alpha.14) (2023-12-07)
 
 ### Bug Fixes
