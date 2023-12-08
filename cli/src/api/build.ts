@@ -556,6 +556,10 @@ class Builder {
       this.args.push('--profile', this.options.profile)
     }
 
+    if (this.options.manifestPath) {
+      this.args.push('--manifest-path', this.options.manifestPath)
+    }
+
     if (this.options.cargoOptions?.length) {
       this.args.push(...this.options.cargoOptions)
     }
@@ -745,7 +749,7 @@ class Builder {
       return
     }
 
-    const name = parse(this.options.jsBinding ?? 'index.js').name
+    const name = this.options.jsBinding ?? 'index.js'
 
     const cjs = createCjsBinding(
       this.config.binaryName,
@@ -754,7 +758,7 @@ class Builder {
     )
 
     try {
-      const dest = join(this.outputDir, `${name}.js`)
+      const dest = join(this.outputDir, name)
       debug('Writing js binding to:')
       debug('  %i', dest)
       await writeFileAsync(dest, cjs, 'utf-8')
