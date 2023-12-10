@@ -4,6 +4,7 @@ pub mod attrs;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::str::Chars;
+use std::sync::atomic::AtomicUsize;
 
 use attrs::{BindgenAttr, BindgenAttrs};
 
@@ -23,6 +24,17 @@ use crate::parser::attrs::{check_recorded_struct_for_impl, record_struct};
 
 thread_local! {
   static GENERATOR_STRUCT: RefCell<HashMap<String, bool>> = Default::default();
+}
+
+static REGISTER_INDEX: AtomicUsize = AtomicUsize::new(0);
+
+fn get_register_ident(name: &str) -> Ident {
+  let new_name = format!(
+    "__napi_register__{}_{}",
+    name,
+    REGISTER_INDEX.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+  );
+  Ident::new(&new_name, Span::call_site())
 }
 
 struct AnyIdent(Ident);
@@ -672,7 +684,7 @@ fn napi_fn_from_decl(
     };
 
     NapiFn {
-      name: ident,
+      name: ident.clone(),
       js_name,
       args,
       ret,
@@ -697,6 +709,7 @@ fn napi_fn_from_decl(
       configurable: opts.configurable(),
       catch_unwind: opts.catch_unwind().is_some(),
       unsafe_: sig.unsafety.is_some(),
+      register_name: get_register_ident(ident.to_string().as_str()),
     }
   })
 }
@@ -990,7 +1003,7 @@ impl ConvertToAST for syn::ItemStruct {
     Diagnostic::from_vec(errors).map(|()| Napi {
       item: NapiItem::Struct(NapiStruct {
         js_name,
-        name: struct_name,
+        name: struct_name.clone(),
         vis,
         fields,
         is_tuple,
@@ -1001,6 +1014,7 @@ impl ConvertToAST for syn::ItemStruct {
         comments: extract_doc_comments(&self.attrs),
         implement_iterator,
         use_custom_finalize: opts.custom_finalize().is_some(),
+        register_name: get_register_ident(format!("{struct_name}_struct").as_str()),
       }),
     })
   }
@@ -1089,7 +1103,7 @@ impl ConvertToAST for syn::ItemImpl {
 
     Ok(Napi {
       item: NapiItem::Impl(NapiImpl {
-        name: struct_name,
+        name: struct_name.clone(),
         js_name: struct_js_name,
         items,
         task_output_type,
@@ -1098,6 +1112,7 @@ impl ConvertToAST for syn::ItemImpl {
         iterator_return_type,
         js_mod: namespace,
         comments: extract_doc_comments(&self.attrs),
+        register_name: get_register_ident(format!("{struct_name}_impl").as_str()),
       }),
     })
   }
@@ -1212,6 +1227,7 @@ impl ConvertToAST for syn::ItemEnum {
         js_mod: opts.namespace().map(|(m, _)| m.to_owned()),
         comments: extract_doc_comments(&self.attrs),
         skip_typescript: opts.skip_typescript().is_some(),
+        register_name: get_register_ident(self.ident.to_string().as_str()),
       }),
     })
   }
@@ -1231,6 +1247,7 @@ impl ConvertToAST for syn::ItemConst {
           js_mod: opts.namespace().map(|(m, _)| m.to_owned()),
           comments: extract_doc_comments(&self.attrs),
           skip_typescript: opts.skip_typescript().is_some(),
+          register_name: get_register_ident(self.ident.to_string().as_str()),
         }),
       }),
       _ => bail_span!(self, "only public const allowed"),

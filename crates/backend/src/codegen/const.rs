@@ -1,10 +1,7 @@
 use proc_macro2::{Ident, Literal, TokenStream};
 use quote::ToTokens;
 
-use crate::{
-  codegen::{get_register_ident, js_mod_to_token_stream},
-  BindgenResult, NapiConst, TryToTokens,
-};
+use crate::{codegen::js_mod_to_token_stream, BindgenResult, NapiConst, TryToTokens};
 
 impl TryToTokens for NapiConst {
   fn try_to_tokens(&self, tokens: &mut TokenStream) -> BindgenResult<()> {
@@ -20,19 +17,16 @@ impl TryToTokens for NapiConst {
 
 impl NapiConst {
   fn gen_module_register(&self) -> TokenStream {
-    let name_str = self.name.to_string();
-    let name_ident = self.name.clone();
+    let name_ident = &self.name;
     let js_name_lit = Literal::string(&format!("{}\0", self.name));
-    let register_name = get_register_ident(&name_str);
+    let register_name = &self.register_name;
     let type_name = &self.type_name;
     let cb_name = Ident::new(
       &format!("__register__const__{}_callback__", register_name),
       self.name.span(),
     );
     let js_mod_ident = js_mod_to_token_stream(self.js_mod.as_ref());
-    crate::codegen::REGISTER_IDENTS.with(|c| {
-      c.borrow_mut().push(register_name.to_string());
-    });
+
     quote! {
       #[allow(non_snake_case)]
       #[allow(clippy::all)]

@@ -5,7 +5,7 @@ use proc_macro2::{Ident, Literal, Span, TokenStream};
 use quote::ToTokens;
 
 use crate::{
-  codegen::{get_intermediate_ident, get_register_ident, js_mod_to_token_stream},
+  codegen::{get_intermediate_ident, js_mod_to_token_stream},
   BindgenResult, FnKind, NapiImpl, NapiStruct, NapiStructKind, TryToTokens,
 };
 
@@ -717,7 +717,7 @@ impl NapiStruct {
 
   fn gen_register(&self) -> TokenStream {
     let name_str = self.name.to_string();
-    let struct_register_name = get_register_ident(&format!("{}_struct", name_str));
+    let struct_register_name = &self.register_name;
     let js_name = format!("{}\0", self.js_name);
     let mut props = vec![];
 
@@ -772,9 +772,6 @@ impl NapiStruct {
       props.push(prop);
     }
     let js_mod_ident = js_mod_to_token_stream(self.js_mod.as_ref());
-    crate::codegen::REGISTER_IDENTS.with(|c| {
-      c.borrow_mut().push(struct_register_name.to_string());
-    });
     quote! {
       #[allow(non_snake_case)]
       #[allow(clippy::all)]
@@ -842,7 +839,7 @@ impl NapiImpl {
       Span::call_site(),
     );
 
-    let register_name = get_register_ident(&format!("{}_impl", name_str));
+    let register_name = &self.register_name;
 
     let mut methods = vec![];
     let mut props = HashMap::new();
@@ -891,9 +888,6 @@ impl NapiImpl {
     let props = props.into_iter().map(|(_, prop)| prop);
     let props_wasm = props.clone();
     let js_mod_ident = js_mod_to_token_stream(self.js_mod.as_ref());
-    crate::codegen::REGISTER_IDENTS.with(|c| {
-      c.borrow_mut().push(register_name.to_string());
-    });
     Ok(quote! {
       #[allow(non_snake_case)]
       #[allow(clippy::all)]
