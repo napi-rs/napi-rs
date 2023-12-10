@@ -56,7 +56,7 @@ const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule
 
 function __napi_rs_initialize_modules(__napiInstance) {
 ${wasiRegisterFunctions
-  .map((name) => `  __napiInstance.exports['${name}']()`)
+  .map((name) => `  __napiInstance.exports['${name}']?.()`)
   .join('\n')}
 }
 `

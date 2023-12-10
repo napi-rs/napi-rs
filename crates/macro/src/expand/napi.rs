@@ -1,14 +1,13 @@
 use std::env;
 use std::fs;
-#[cfg(feature = "type-def")]
 use std::io::BufWriter;
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::parser::{attrs::BindgenAttrs, ParseNapi};
-use napi_derive_backend::{BindgenResult, TryToTokens, REGISTER_IDENTS};
 #[cfg(feature = "type-def")]
-use napi_derive_backend::{Napi, ToTypeDef};
+use napi_derive_backend::ToTypeDef;
+use napi_derive_backend::{BindgenResult, Napi, TryToTokens};
 use proc_macro2::{TokenStream, TokenTree};
 use quote::ToTokens;
 use syn::{Attribute, Item};
@@ -34,7 +33,7 @@ pub fn expand(attr: TokenStream, input: TokenStream) -> BindgenResult<TokenStrea
     prepare_type_def_file();
 
     if let Ok(wasi_register_file) = env::var("WASI_REGISTER_TMP_PATH") {
-      if let Err(_e) = fs::remove_file(wasi_register_file) {
+      if let Err(_e) = remove_existed_def_file(&wasi_register_file) {
         #[cfg(debug_assertions)]
         {
           println!("Failed to manipulate wasi register file: {:?}", _e);
@@ -85,6 +84,7 @@ pub fn expand(attr: TokenStream, input: TokenStream) -> BindgenResult<TokenStrea
 
           #[cfg(feature = "type-def")]
           output_type_def(&napi);
+          output_wasi_register_def(&napi);
         } else {
           item.to_tokens(&mut tokens);
         };
@@ -108,18 +108,26 @@ pub fn expand(attr: TokenStream, input: TokenStream) -> BindgenResult<TokenStrea
 
     #[cfg(feature = "type-def")]
     output_type_def(&napi);
-
-    REGISTER_IDENTS.with(|idents| {
-      if let Ok(wasi_register_file) = env::var("WASI_REGISTER_TMP_PATH") {
-        let mut file =
-          fs::File::create(wasi_register_file).expect("Create wasi register file failed");
-        file
-          .write_all(format!("{:?}", idents.borrow()).as_bytes())
-          .expect("Write wasi register file failed");
-      }
-    });
-
+    output_wasi_register_def(&napi);
     Ok(tokens)
+  }
+}
+
+fn output_wasi_register_def(napi: &Napi) {
+  if let Ok(wasi_register_file) = env::var("WASI_REGISTER_TMP_PATH") {
+    fs::OpenOptions::new()
+      .append(true)
+      .create(true)
+      .open(wasi_register_file)
+      .and_then(|file| {
+        let mut writer = BufWriter::<fs::File>::new(file);
+        let pkg_name: String = std::env::var("CARGO_PKG_NAME").expect("CARGO_PKG_NAME is not set");
+        writer.write_all(format!("{pkg_name}: {}", napi.register_name()).as_bytes())?;
+        writer.write_all("\n".as_bytes())
+      })
+      .unwrap_or_else(|e| {
+        println!("Failed to write wasi register file: {:?}", e);
+      });
   }
 }
 
@@ -194,7 +202,7 @@ fn prepare_type_def_file() {
   if let Ok(ref type_def_file) = env::var("TYPE_DEF_TMP_PATH") {
     use napi_derive_backend::{NAPI_RS_CLI_VERSION, NAPI_RS_CLI_VERSION_WITH_SHARED_CRATES_FIX};
     if let Err(_e) = if *NAPI_RS_CLI_VERSION >= *NAPI_RS_CLI_VERSION_WITH_SHARED_CRATES_FIX {
-      remove_existed_type_def(type_def_file)
+      remove_existed_def_file(type_def_file)
     } else {
       fs::remove_file(type_def_file)
     } {
@@ -206,12 +214,11 @@ fn prepare_type_def_file() {
   }
 }
 
-#[cfg(feature = "type-def")]
-fn remove_existed_type_def(type_def_file: &str) -> std::io::Result<()> {
+fn remove_existed_def_file(def_file: &str) -> std::io::Result<()> {
   use std::io::{BufRead, BufReader};
 
   let pkg_name = std::env::var("CARGO_PKG_NAME").expect("CARGO_PKG_NAME is not set");
-  if let Ok(content) = std::fs::File::open(type_def_file) {
+  if let Ok(content) = std::fs::File::open(def_file) {
     let reader = BufReader::new(content);
     let cleaned_content = reader
       .lines()
@@ -229,14 +236,7 @@ fn remove_existed_type_def(type_def_file: &str) -> std::io::Result<()> {
       })
       .collect::<Vec<String>>()
       .join("\n");
-    let mut content = std::fs::OpenOptions::new()
-      .read(true)
-      .write(true)
-      .truncate(true)
-      .open(type_def_file)?;
-
-    content.write_all(cleaned_content.as_bytes())?;
-    content.write_all(b"\n")?;
+    std::fs::write(def_file, format!("{cleaned_content}\n"))?;
   }
   Ok(())
 }

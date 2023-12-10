@@ -609,18 +609,27 @@ class Builder {
       const intermediateWasiRegisterFile = this.envs.WASI_REGISTER_TMP_PATH
       const wasiRegisterFunctions =
         this.target.arch === 'wasm32'
-          ? JSON.parse(
-              await readFileAsync(intermediateWasiRegisterFile, 'utf8').catch(
-                (err) => {
-                  console.warn(
-                    `Read ${colors.yellowBright(
-                      intermediateWasiRegisterFile,
-                    )} failed, reason: ${err.message}`,
-                  )
-                  return `[]`
-                },
-              ),
-            )
+          ? await (async function readIntermediateWasiRegisterFile() {
+              const fileContent = await readFileAsync(
+                intermediateWasiRegisterFile,
+                'utf8',
+              ).catch((err) => {
+                console.warn(
+                  `Read ${colors.yellowBright(
+                    intermediateWasiRegisterFile,
+                  )} failed, reason: ${err.message}`,
+                )
+                return ``
+              })
+              return fileContent
+                .split('\n')
+                .map((l) => l.trim())
+                .filter((l) => l.length)
+                .map((line) => {
+                  const [_, fn] = line.split(':')
+                  return fn.trim()
+                })
+            })()
           : []
       const jsOutput = await this.writeJsBinding(idents)
       const wasmOutput = await this.writeWasiBinding(
@@ -780,18 +789,14 @@ class Builder {
       const { name, dir } = parse(distFileName)
       const newPath = join(dir, `${this.config.binaryName}.wasi.cjs`)
       const workerPath = join(dir, 'wasi-worker.mjs')
-      const declareCodes = `const { ${idents.join(
-        ', ',
-      )} } = __napiModule.exports\n`
       const exportsCode = idents
-        .map((ident) => `module.exports.${ident} = ${ident}`)
+        .map(
+          (ident) => `module.exports.${ident} = __napiModule.exports.${ident}`,
+        )
         .join(',\n')
       await writeFileAsync(
         newPath,
-        createWasiBinding(name, wasiRegisterFunctions) +
-          declareCodes +
-          exportsCode +
-          '\n',
+        createWasiBinding(name, wasiRegisterFunctions) + exportsCode + '\n',
         'utf8',
       )
       await writeFileAsync(workerPath, WASI_WORKER_TEMPLATE, 'utf8')

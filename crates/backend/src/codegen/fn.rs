@@ -3,7 +3,7 @@ use quote::ToTokens;
 use syn::spanned::Spanned;
 
 use crate::{
-  codegen::{get_intermediate_ident, get_register_ident, js_mod_to_token_stream},
+  codegen::{get_intermediate_ident, js_mod_to_token_stream},
   BindgenResult, CallbackArg, Diagnostic, FnKind, FnSelf, NapiFn, NapiFnArgKind, TryToTokens,
 };
 
@@ -567,13 +567,11 @@ impl NapiFn {
       let name_str = self.name.to_string();
       let js_name = format!("{}\0", &self.js_name);
       let name_len = self.js_name.len();
-      let module_register_name = get_register_ident(&name_str);
+      let module_register_name = &self.register_name;
       let intermediate_ident = get_intermediate_ident(&name_str);
       let js_mod_ident = js_mod_to_token_stream(self.js_mod.as_ref());
       let cb_name = Ident::new(&format!("{}_js_function", name_str), Span::call_site());
-      crate::codegen::REGISTER_IDENTS.with(|c| {
-        c.borrow_mut().push(module_register_name.to_string());
-      });
+
       quote! {
         #[allow(non_snake_case)]
         #[allow(clippy::all)]
