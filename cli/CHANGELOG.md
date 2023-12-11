@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.16](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.15...@napi-rs/cli@3.0.0-alpha.16) (2023-12-11)
+
+### Bug Fixes
+
+- **napi-derive,cli:** register function cross crates ([#1848](https://github.com/napi-rs/napi-rs/issues/1848)) ([dab4ce7](https://github.com/napi-rs/napi-rs/commit/dab4ce7fe0020f3187ee139d63726197c46535b1))
+
 # [3.0.0-alpha.15](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.14...@napi-rs/cli@3.0.0-alpha.15) (2023-12-08)
 
 ### Bug Fixes
