@@ -72,7 +72,7 @@ export function applyDefaultArtifactsOptions(options: ArtifactsOptions) {
   return {
     cwd: process.cwd(),
     packageJsonPath: 'package.json',
-    outputDir: './',
+    outputDir: './artifacts',
     npmDir: 'npm',
     ...options,
   }
