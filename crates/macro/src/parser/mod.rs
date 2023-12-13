@@ -18,7 +18,8 @@ use proc_macro2::{Ident, Span, TokenStream};
 use quote::ToTokens;
 use syn::ext::IdentExt;
 use syn::parse::{Parse, ParseStream, Result as SynResult};
-use syn::{Attribute, ExprLit, PatType, PathSegment, Signature, Type, Visibility};
+use syn::spanned::Spanned;
+use syn::{Attribute, ExprLit, Meta, PatType, PathSegment, Signature, Type, Visibility};
 
 use crate::parser::attrs::{check_recorded_struct_for_impl, record_struct};
 
@@ -81,29 +82,61 @@ fn find_ts_arg_type_and_remove_attribute(
           ts_args_type
         );
       }
-      let inner: syn::Expr = attr.parse_args()?;
-      match inner {
-        syn::Expr::Assign(syn::ExprAssign { left, right, .. }) => {
-          let left = match *left {
-            syn::Expr::Path(syn::ExprPath { path, .. }) => path,
-            _ => bail_span!(left, "Expected path"),
-          };
 
-          if !left.is_ident("ts_arg_type") {
-            bail_span!(left, "Expected 'ts_arg_type'");
-          }
-
-          let right = match *right {
-            syn::Expr::Lit(syn::ExprLit {
-              lit: syn::Lit::Str(lit),
-              ..
-            }) => lit,
-            _ => bail_span!(right, "Expected string literal"),
-          };
-          ts_type_attr = Some((idx, right.value()));
+      match &attr.meta {
+        syn::Meta::Path(_) | syn::Meta::NameValue(_) => {
+          bail_span!(
+            attr,
+            "Expects an assignment #[napi(ts_arg_type = \"MyType\")]"
+          )
         }
-        _ => bail_span!(inner, "Expected assignment [ts_arg_type = \"MyType\"]"),
-      };
+        syn::Meta::List(list) => {
+          let mut found = false;
+          list
+            .parse_args_with(|tokens: &syn::parse::ParseBuffer<'_>| {
+              // tokens:
+              // #[napi(xxx, xxx=xxx)]
+              //        ^^^^^^^^^^^^
+              let list = tokens.parse_terminated(Meta::parse, Token![,])?;
+
+              for meta in list {
+                if meta.path().is_ident("ts_arg_type") {
+                  match meta {
+                    Meta::Path(_) | Meta::List(_) => {
+                      return Err(syn::Error::new(
+                        meta.path().span(),
+                        "Expects an assignment (ts_arg_type = \"MyType\")",
+                      ))
+                    }
+                    Meta::NameValue(name_value) => match name_value.value {
+                      syn::Expr::Lit(syn::ExprLit {
+                        lit: syn::Lit::Str(str),
+                        ..
+                      }) => {
+                        let value = str.value();
+                        found = true;
+                        ts_type_attr = Some((idx, value));
+                      }
+                      _ => {
+                        return Err(syn::Error::new(
+                          name_value.value.span(),
+                          "Expects a string literal",
+                        ))
+                      }
+                    },
+                  }
+                }
+              }
+
+              Ok(())
+            })
+            .map_err(Diagnostic::from)?;
+
+          if !found {
+            bail_span!(attr, "Expects a 'ts_arg_type'");
+          }
+        }
+      }
     }
   }
 
