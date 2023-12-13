@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.17](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.16...@napi-rs/cli@3.0.0-alpha.17) (2023-12-13)
+
+### Bug Fixes
+
+- **binding:** add riscv64 binding ([#1851](https://github.com/napi-rs/napi-rs/issues/1851)) ([e3902e0](https://github.com/napi-rs/napi-rs/commit/e3902e001fea095045a04d472f3cba029c1e746e))
+- **cli:** make outputDir option of artifacts command compatible with v2 ([#1850](https://github.com/napi-rs/napi-rs/issues/1850)) ([a697cf1](https://github.com/napi-rs/napi-rs/commit/a697cf1cf54e0ca8dfa8e0b5b288c3bd55b895af))
+
 # [3.0.0-alpha.16](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.15...@napi-rs/cli@3.0.0-alpha.16) (2023-12-11)
 
 ### Bug Fixes
