@@ -8,7 +8,7 @@ use crate::parser::{attrs::BindgenAttrs, ParseNapi};
 #[cfg(feature = "type-def")]
 use napi_derive_backend::ToTypeDef;
 use napi_derive_backend::{BindgenResult, Napi, TryToTokens};
-use proc_macro2::{TokenStream, TokenTree};
+use proc_macro2::TokenStream;
 use quote::ToTokens;
 use syn::{Attribute, Item};
 
@@ -66,7 +66,7 @@ pub fn expand(attr: TokenStream, input: TokenStream) -> BindgenResult<TokenStrea
                 .attrs
                 .iter()
                 .enumerate()
-                .find(|(_, m)| m.path.segments[0].ident == "napi");
+                .find(|(_, m)| m.path().is_ident("napi"));
               if mod_in_mod.is_some() {
                 bail_span!(
                   mod_,
@@ -79,7 +79,8 @@ pub fn expand(attr: TokenStream, input: TokenStream) -> BindgenResult<TokenStrea
             _ => &mut empty_attrs,
           },
         ) {
-          let napi = item.parse_napi(&mut tokens, item_opts)?;
+          let napi = item.parse_napi(&mut tokens, &item_opts)?;
+          item_opts.check_used()?;
           napi.try_to_tokens(&mut tokens)?;
 
           #[cfg(feature = "type-def")]
@@ -96,14 +97,15 @@ pub fn expand(attr: TokenStream, input: TokenStream) -> BindgenResult<TokenStrea
       .attrs
       .clone()
       .into_iter()
-      .filter(|attr| attr.path.segments[0].ident != "napi")
+      .filter(|attr| attr.path().is_ident("napi"))
       .collect();
     let mod_name = js_mod.ident;
     let visible = js_mod.vis;
     let mod_tokens = quote! { #(#js_mod_attrs)* #visible mod #mod_name { #tokens } };
     Ok(mod_tokens)
   } else {
-    let napi = item.parse_napi(&mut tokens, opts)?;
+    let napi = item.parse_napi(&mut tokens, &opts)?;
+    opts.check_used()?;
     napi.try_to_tokens(&mut tokens)?;
 
     #[cfg(feature = "type-def")]
@@ -155,41 +157,28 @@ fn replace_napi_attr_in_mod(
   js_namespace: String,
   attrs: &mut Vec<syn::Attribute>,
 ) -> Option<BindgenAttrs> {
-  let napi_attr = attrs.clone();
-  let napi_attr = napi_attr
+  let napi_attr = attrs
     .iter()
     .enumerate()
-    .find(|(_, m)| m.path.segments[0].ident == "napi");
-  if let Some((index, napi_attr)) = napi_attr {
-    let attr_token_stream = napi_attr.tokens.clone();
-    let raw_attr_stream = attr_token_stream.to_string();
-    let raw_attr_stream = if !raw_attr_stream.is_empty() {
-      raw_attr_stream
-        .strip_prefix('(')
-        .unwrap()
-        .strip_suffix(')')
-        .unwrap()
-        .to_string()
-    } else {
-      raw_attr_stream
-    };
-    let raw_attr_token_stream = syn::parse_str::<TokenStream>(raw_attr_stream.as_str()).unwrap();
+    .find(|(_, m)| m.path().is_ident("napi"));
 
-    let new_attr: syn::Attribute = if !raw_attr_stream.is_empty() {
-      syn::parse_quote!(
-        #[napi(#raw_attr_token_stream, namespace = #js_namespace)]
-      )
-    } else {
-      syn::parse_quote!(
-        #[napi(namespace = #js_namespace)]
-      )
+  if let Some((index, napi_attr)) = napi_attr {
+    // adds `namespace = #js_namespace` into `#[napi]` attribute
+    let new_attr = match &napi_attr.meta {
+      syn::Meta::Path(_) => {
+        syn::parse_quote!(#[napi(namespace = #js_namespace)])
+      }
+      syn::Meta::List(list) => {
+        let existing = list.tokens.clone();
+        syn::parse_quote!(#[napi(#existing, namespace = #js_namespace)])
+      }
+      syn::Meta::NameValue(name_value) => {
+        let existing = &name_value.value;
+        syn::parse_quote!(#[napi(#existing, namespace = #js_namespace)])
+      }
     };
-    let struct_opts: BindgenAttrs =
-      if let Some(TokenTree::Group(g)) = new_attr.tokens.into_iter().next() {
-        syn::parse2(g.stream()).ok()?
-      } else {
-        syn::parse2(quote! {}).ok()?
-      };
+
+    let struct_opts = BindgenAttrs::try_from(&new_attr).unwrap();
     attrs.remove(index);
     Some(struct_opts)
   } else {

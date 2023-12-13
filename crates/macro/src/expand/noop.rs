@@ -24,7 +24,7 @@ fn find_and_remove_napi_attr(attrs: &mut Vec<Attribute>) {
     let napi_attr = attrs
       .iter()
       .enumerate()
-      .find(|&(_, m)| m.path.segments[0].ident == "napi");
+      .find(|&(_, m)| m.path().segments[0].ident == "napi");
 
     let pos = match napi_attr {
       Some((pos, _raw_attr)) => pos,

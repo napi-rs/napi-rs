@@ -24,9 +24,9 @@ type-def = ["napi-derive-backend/type-def"]
 [dependencies]
 convert_case = "0.6"
 napi-derive-backend = { version = "1.0.56", path = "../backend" }
-proc-macro2 = "1.0"
-quote = "1.0"
-syn = { version = "1.0.61", features = ["fold", "full", "extra-traits"] }
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["fold", "full", "extra-traits"] }
 cfg-if = "1.0"
 
 [lib]

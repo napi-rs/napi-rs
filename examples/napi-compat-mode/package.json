@@ -26,6 +26,7 @@
       "TS_NODE_PROJECT": "../tsconfig.json"
     },
     "workerThreads": false,
+    "cache": false,
     "timeout": "5m"
   }
 }
