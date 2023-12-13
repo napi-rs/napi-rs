@@ -28,6 +28,7 @@ struct ParsedStruct {
 #[derive(Default)]
 struct AttributeParseState {
   parsed: Cell<usize>,
+  #[allow(unused)]
   checks: Cell<usize>,
 }
 
@@ -89,6 +90,7 @@ macro_rules! methods {
     $(methods!(@method $name, $variant($($contents)*));)*
 
     #[cfg(feature = "strict")]
+    #[allow(unused)]
     pub fn check_used(&self) -> Result<(), Diagnostic> {
       // Account for the fact this method was called
       ATTRS.with(|state| state.checks.set(state.checks.get() + 1));
