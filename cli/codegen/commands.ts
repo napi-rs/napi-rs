@@ -300,7 +300,7 @@ const ARTIFACTS_OPTIONS: CommandSchema = {
       description:
         'Path to the folder where all built `.node` files put, same as `--output-dir` of build command',
       short: 'o',
-      default: "'./'",
+      default: "'./artifacts'",
     },
     {
       name: 'npmDir',

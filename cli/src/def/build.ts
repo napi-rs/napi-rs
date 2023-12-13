@@ -112,7 +112,7 @@ export abstract class BaseBuildCommand extends Command {
 
   useNapiCross?: boolean = Option.Boolean('--use-napi-cross', {
     description:
-      '[experimental] use @napi-rs/cross-toolchain to cross-compile Linux arm/arm64/x64 gnu targets',
+      '[experimental] use @napi-rs/cross-toolchain to cross-compile Linux arm/arm64/x64 gnu targets.',
   })
 
   watch?: boolean = Option.Boolean('--watch,-w', {
@@ -258,7 +258,7 @@ export interface BuildOptions {
    */
   useCross?: boolean
   /**
-   * [experimental] use @napi-rs/cross-toolchain to cross-compile Linux arm/arm64/x64 gnu targets
+   * [experimental] use @napi-rs/cross-toolchain to cross-compile Linux arm/arm64/x64 gnu targets.
    */
   useNapiCross?: boolean
   /**

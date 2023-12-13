@@ -19,7 +19,7 @@ export abstract class BaseArtifactsCommand extends Command {
     description: 'Path to `package.json`',
   })
 
-  outputDir = Option.String('--output-dir,-o', './', {
+  outputDir = Option.String('--output-dir,-o', './artifacts', {
     description:
       'Path to the folder where all built `.node` files put, same as `--output-dir` of build command',
   })
@@ -57,7 +57,7 @@ export interface ArtifactsOptions {
   /**
    * Path to the folder where all built `.node` files put, same as `--output-dir` of build command
    *
-   * @default './'
+   * @default './artifacts'
    */
   outputDir?: string
   /**
