@@ -26,6 +26,7 @@ new NapiCli().createNpmDirs({
 | --------------- | ------------------- | ------- | -------- | -------------- | ------------------------------------------------------------------------------------------------------------------ |
 |                 | --help,-h           |         |          |                | get help                                                                                                           |
 | cwd             | --cwd               | string  | false    | process.cwd()  | The working directory of where napi command will be executed in, all other paths options are relative to this path |
+| configPath      | --config-path,-c    | string  | false    |                | Path to `napi` config json file                                                                                    |
 | packageJsonPath | --package-json-path | string  | false    | 'package.json' | Path to `package.json`                                                                                             |
 | npmDir          | --npm-dir           | string  | false    | 'npm'          | Path to the folder where the npm packages put                                                                      |
 | dryRun          | --dry-run           | boolean | false    | false          | Dry run without touching file system                                                                               |

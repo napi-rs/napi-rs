@@ -72,7 +72,7 @@ export abstract class BaseNewCommand extends Command {
  */
 export interface NewOptions {
   /**
-   * The path where the napi-rs project will be created.
+   * The path where the NAPI-RS project will be created.
    */
   path: string
   /**

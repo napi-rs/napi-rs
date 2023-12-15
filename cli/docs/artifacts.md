@@ -26,6 +26,7 @@ new NapiCli().artifacts({
 | --------------- | ------------------- | ------ | -------- | -------------- | ------------------------------------------------------------------------------------------------------------------ |
 |                 | --help,-h           |        |          |                | get help                                                                                                           |
 | cwd             | --cwd               | string | false    | process.cwd()  | The working directory of where napi command will be executed in, all other paths options are relative to this path |
+| configPath      | --config-path,-c    | string | false    |                | Path to `napi` config json file                                                                                    |
 | packageJsonPath | --package-json-path | string | false    | 'package.json' | Path to `package.json`                                                                                             |
 | outputDir       | --output-dir,-o     | string | false    | './artifacts'  | Path to the folder where all built `.node` files put, same as `--output-dir` of build command                      |
 | npmDir          | --npm-dir           | string | false    | 'npm'          | Path to the folder where the npm packages put                                                                      |

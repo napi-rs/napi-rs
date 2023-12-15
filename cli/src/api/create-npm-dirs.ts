@@ -43,10 +43,13 @@ export async function createNpmDirs(userOptions: CreateNpmDirsOptions) {
   const packageJsonPath = resolve(options.cwd, options.packageJsonPath)
   const npmPath = resolve(options.cwd, options.npmDir)
 
-  debug(`Read content from [${packageJsonPath}]`)
+  debug(`Read content from [${options.configPath ?? packageJsonPath}]`)
 
   const { targets, binaryName, packageName, packageJson } =
-    await readNapiConfig(packageJsonPath)
+    await readNapiConfig(
+      packageJsonPath,
+      options.configPath ? resolve(options.cwd, options.configPath) : undefined,
+    )
 
   for (const target of targets) {
     const targetDir = join(npmPath, `${target.platformArchABI}`)

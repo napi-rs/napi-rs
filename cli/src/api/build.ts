@@ -90,7 +90,10 @@ export async function buildProject(options: BuildOptions) {
       process.env.CARGO_BUILD_TARGET_DIR ??
       metadata.target_directory,
     await readNapiConfig(
-      resolvePath(options.packageJsonPath ?? 'package.json'),
+      resolvePath(
+        options.configPath ?? options.packageJsonPath ?? 'package.json',
+      ),
+      options.configPath ? resolvePath(options.configPath) : undefined,
     ),
   )
 

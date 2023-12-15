@@ -14,6 +14,10 @@ export abstract class BaseCreateNpmDirsCommand extends Command {
       'The working directory of where napi command will be executed in, all other paths options are relative to this path',
   })
 
+  configPath?: string = Option.String('--config-path,-c', {
+    description: 'Path to `napi` config json file',
+  })
+
   packageJsonPath = Option.String('--package-json-path', 'package.json', {
     description: 'Path to `package.json`',
   })
@@ -29,6 +33,7 @@ export abstract class BaseCreateNpmDirsCommand extends Command {
   getOptions() {
     return {
       cwd: this.cwd,
+      configPath: this.configPath,
       packageJsonPath: this.packageJsonPath,
       npmDir: this.npmDir,
       dryRun: this.dryRun,
@@ -46,6 +51,10 @@ export interface CreateNpmDirsOptions {
    * @default process.cwd()
    */
   cwd?: string
+  /**
+   * Path to `napi` config json file
+   */
+  configPath?: string
   /**
    * Path to `package.json`
    *
