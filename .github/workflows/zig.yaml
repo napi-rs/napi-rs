@@ -66,13 +66,13 @@ jobs:
         run: |
           yarn build:test -- --target ${{ matrix.target }} --cross-compile
       - name: Upload artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: compat-${{ matrix.target }}
           path: ./examples/napi-compat-mode/index.node
           if-no-files-found: error
       - name: Upload artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: napi-${{ matrix.target }}
           path: ./examples/napi/index.node

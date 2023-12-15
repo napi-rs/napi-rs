@@ -292,11 +292,11 @@ jobs:
             chmod 777 -R .cargo-cache
             chmod 777 -R target
 
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.settings.target }}-example
           path: examples/napi/index.node
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.settings.target }}-example-compat
           path: examples/napi-compat-mode/index.node
