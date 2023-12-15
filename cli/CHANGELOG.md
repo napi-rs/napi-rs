@@ -3,6 +3,16 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.19](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.18...@napi-rs/cli@3.0.0-alpha.19) (2023-12-15)
+
+### Bug Fixes
+
+- **cli:** prepublish command ([#1860](https://github.com/napi-rs/napi-rs/issues/1860)) ([f825972](https://github.com/napi-rs/napi-rs/commit/f825972b7529212e043db2e111179b3b32812293))
+
+### Features
+
+- **cli:** support read config from the given config file ([#1859](https://github.com/napi-rs/napi-rs/issues/1859)) ([5cab2bc](https://github.com/napi-rs/napi-rs/commit/5cab2bc57ba3fdb0c1e5069d604b98d351abdce7))
+
 # [3.0.0-alpha.18](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.17...@napi-rs/cli@3.0.0-alpha.18) (2023-12-13)
 
 ### Bug Fixes
