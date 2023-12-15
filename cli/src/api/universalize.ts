@@ -27,7 +27,10 @@ export async function universalizeBinaries(userOptions: UniversalizeOptions) {
 
   const packageJsonPath = join(options.cwd, options.packageJsonPath)
 
-  const config = await readNapiConfig(packageJsonPath)
+  const config = await readNapiConfig(
+    packageJsonPath,
+    options.configPath ? resolve(options.cwd, options.configPath) : undefined,
+  )
 
   const target = config.targets.find(
     (t) => t.platform === process.platform && t.arch === 'universal',

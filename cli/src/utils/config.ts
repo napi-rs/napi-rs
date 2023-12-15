@@ -1,9 +1,10 @@
+import { underline, yellow } from 'colorette'
 import { merge, omit } from 'lodash-es'
 
 import { fileExists, readFileAsync } from './misc.js'
 import { DEFAULT_TARGETS, parseTriple, Target } from './target.js'
 
-interface UserNapiConfig {
+export interface UserNapiConfig {
   /**
    * Name of the binary to be generated, default to `index`
    */
@@ -89,9 +90,15 @@ export type NapiConfig = Required<
   packageJson: CommonPackageJsonFields
 }
 
-export async function readNapiConfig(path: string): Promise<NapiConfig> {
+export async function readNapiConfig(
+  path: string,
+  configPath?: string,
+): Promise<NapiConfig> {
+  if (configPath && !(await fileExists(configPath))) {
+    throw new Error(`NAPI-RS config not found at ${configPath}`)
+  }
   if (!(await fileExists(path))) {
-    throw new Error(`napi-rs config not found at ${path}`)
+    throw new Error(`package.json not found at ${path}`)
   }
   // May support multiple config sources later on.
   const content = await readFileAsync(path, 'utf8')
@@ -99,12 +106,34 @@ export async function readNapiConfig(path: string): Promise<NapiConfig> {
   try {
     pkgJson = JSON.parse(content) as CommonPackageJsonFields
   } catch (e) {
-    throw new Error('Failed to parse napi-rs config', {
+    throw new Error(`Failed to parse package.json at ${path}`, {
       cause: e,
     })
   }
 
+  let separatedConfig: UserNapiConfig | undefined
+  if (configPath) {
+    const configContent = await readFileAsync(configPath, 'utf8')
+    try {
+      separatedConfig = JSON.parse(configContent) as UserNapiConfig
+    } catch (e) {
+      throw new Error(`Failed to parse NAPI-RS config at ${configPath}`, {
+        cause: e,
+      })
+    }
+  }
+
   const userNapiConfig = pkgJson.napi ?? {}
+  if (pkgJson.napi && separatedConfig) {
+    const pkgJsonPath = underline(path)
+    const configPathUnderline = underline(configPath!)
+    console.warn(
+      yellow(
+        `Both napi field in ${pkgJsonPath} and [NAPI-RS config](${configPathUnderline}) file are found, the NAPI-RS config file will be used.`,
+      ),
+    )
+    Object.assign(userNapiConfig, separatedConfig)
+  }
   const napiConfig: NapiConfig = merge(
     {
       binaryName: 'index',
@@ -120,16 +149,26 @@ export async function readNapiConfig(path: string): Promise<NapiConfig> {
 
   // compatible with old config
   if (userNapiConfig?.name) {
+    console.warn(
+      `[DEPRECATED] napi.name is deprecated, use napi.binaryName instead.`,
+    )
     napiConfig.binaryName = userNapiConfig.name
   }
 
   if (!targets.length) {
+    let deprecatedWarned = false
+    const warning = `[DEPRECATED] napi.triples is deprecated, use napi.targets instead.`
     if (userNapiConfig.triples?.defaults) {
+      deprecatedWarned = true
+      console.warn(warning)
       targets = targets.concat(DEFAULT_TARGETS)
     }
 
     if (userNapiConfig.triples?.additional?.length) {
       targets = targets.concat(userNapiConfig.triples.additional)
+      if (!deprecatedWarned) {
+        console.warn(warning)
+      }
     }
   }
 

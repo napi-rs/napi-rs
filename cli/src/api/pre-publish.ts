@@ -31,10 +31,14 @@ export async function prePublish(userOptions: PrePublishOptions) {
 
   const options = applyDefaultPrePublishOptions(userOptions)
 
+  const configPath = relative(
+    options.cwd,
+    options.configPath ?? options.packageJsonPath,
+  )
   const packageJsonPath = relative(options.cwd, options.packageJsonPath)
 
   const { packageJson, targets, packageName, binaryName, npmClient } =
-    await readNapiConfig(packageJsonPath)
+    await readNapiConfig(configPath, configPath)
 
   async function createGhRelease(packageName: string, version: string) {
     if (!options.ghRelease) {

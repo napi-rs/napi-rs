@@ -31,7 +31,7 @@ const NEW_OPTIONS: CommandSchema = {
     {
       name: 'path',
       type: 'string',
-      description: 'The path where the napi-rs project will be created.',
+      description: 'The path where the NAPI-RS project will be created.',
       required: true,
     },
   ],
@@ -108,7 +108,7 @@ const NEW_OPTIONS: CommandSchema = {
 
 const BUILD_OPTIONS: CommandSchema = {
   name: 'build',
-  description: 'Build the napi-rs project',
+  description: 'Build the NAPI-RS project',
   args: [],
   options: [
     {
@@ -128,6 +128,12 @@ const BUILD_OPTIONS: CommandSchema = {
       name: 'manifestPath',
       type: 'string',
       description: 'Path to `Cargo.toml`',
+    },
+    {
+      name: 'configPath',
+      type: 'string',
+      description: 'Path to `napi` config json file',
+      short: 'c',
     },
     {
       name: 'packageJsonPath',
@@ -253,7 +259,7 @@ const BUILD_OPTIONS: CommandSchema = {
       name: 'watch',
       type: 'boolean',
       description:
-        'watch the crate changes and build continiously with `cargo-watch` crates',
+        'watch the crate changes and build continuously with `cargo-watch` crates',
       short: 'w',
     },
     {
@@ -287,6 +293,12 @@ const ARTIFACTS_OPTIONS: CommandSchema = {
       description:
         'The working directory of where napi command will be executed in, all other paths options are relative to this path',
       default: 'process.cwd()',
+    },
+    {
+      name: 'configPath',
+      type: 'string',
+      description: 'Path to `napi` config json file',
+      short: 'c',
     },
     {
       name: 'packageJsonPath',
@@ -324,6 +336,12 @@ const CREATE_NPM_DIRS_OPTIONS: CommandSchema = {
       default: 'process.cwd()',
     },
     {
+      name: 'configPath',
+      type: 'string',
+      description: 'Path to `napi` config json file',
+      short: 'c',
+    },
+    {
       name: 'packageJsonPath',
       type: 'string',
       description: 'Path to `package.json`',
@@ -346,7 +364,7 @@ const CREATE_NPM_DIRS_OPTIONS: CommandSchema = {
 
 const RENAME_OPTIONS: CommandSchema = {
   name: 'rename',
-  description: 'Rename the napi-rs project',
+  description: 'Rename the NAPI-RS project',
   args: [],
   options: [
     {
@@ -355,6 +373,12 @@ const RENAME_OPTIONS: CommandSchema = {
       description:
         'The working directory of where napi command will be executed in, all other paths options are relative to this path',
       default: 'process.cwd()',
+    },
+    {
+      name: 'configPath',
+      type: 'string',
+      description: 'Path to `napi` config json file',
+      short: 'c',
     },
     {
       name: 'packageJsonPath',
@@ -417,6 +441,12 @@ const UNIVERSALIZE_OPTIONS: CommandSchema = {
       default: 'process.cwd()',
     },
     {
+      name: 'configPath',
+      type: 'string',
+      description: 'Path to `napi` config json file',
+      short: 'c',
+    },
+    {
       name: 'packageJsonPath',
       type: 'string',
       description: 'Path to `package.json`',
@@ -446,6 +476,12 @@ const VERSION_OPTIONS: CommandSchema = {
       default: 'process.cwd()',
     },
     {
+      name: 'configPath',
+      type: 'string',
+      description: 'Path to `napi` config json file',
+      short: 'c',
+    },
+    {
       name: 'packageJsonPath',
       type: 'string',
       description: 'Path to `package.json`',
@@ -471,6 +507,12 @@ const PRE_PUBLISH_OPTIONS: CommandSchema = {
       description:
         'The working directory of where napi command will be executed in, all other paths options are relative to this path',
       default: 'process.cwd()',
+    },
+    {
+      name: 'configPath',
+      type: 'string',
+      description: 'Path to `napi` config json file',
+      short: 'c',
     },
     {
       name: 'packageJsonPath',

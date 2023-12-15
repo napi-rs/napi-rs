@@ -6,7 +6,7 @@ export abstract class BaseBuildCommand extends Command {
   static paths = [['build']]
 
   static usage = Command.Usage({
-    description: 'Build the napi-rs project',
+    description: 'Build the NAPI-RS project',
   })
 
   target?: string = Option.String('--target,-t', {
@@ -21,6 +21,10 @@ export abstract class BaseBuildCommand extends Command {
 
   manifestPath?: string = Option.String('--manifest-path', {
     description: 'Path to `Cargo.toml`',
+  })
+
+  configPath?: string = Option.String('--config-path,-c', {
+    description: 'Path to `napi` config json file',
   })
 
   packageJsonPath?: string = Option.String('--package-json-path', {
@@ -117,7 +121,7 @@ export abstract class BaseBuildCommand extends Command {
 
   watch?: boolean = Option.Boolean('--watch,-w', {
     description:
-      'watch the crate changes and build continiously with `cargo-watch` crates',
+      'watch the crate changes and build continuously with `cargo-watch` crates',
   })
 
   features?: string[] = Option.Array('--features,-F', {
@@ -137,6 +141,7 @@ export abstract class BaseBuildCommand extends Command {
       target: this.target,
       cwd: this.cwd,
       manifestPath: this.manifestPath,
+      configPath: this.configPath,
       packageJsonPath: this.packageJsonPath,
       targetDir: this.targetDir,
       outputDir: this.outputDir,
@@ -166,7 +171,7 @@ export abstract class BaseBuildCommand extends Command {
 }
 
 /**
- * Build the napi-rs project
+ * Build the NAPI-RS project
  */
 export interface BuildOptions {
   /**
@@ -181,6 +186,10 @@ export interface BuildOptions {
    * Path to `Cargo.toml`
    */
   manifestPath?: string
+  /**
+   * Path to `napi` config json file
+   */
+  configPath?: string
   /**
    * Path to `package.json`
    */
@@ -262,7 +271,7 @@ export interface BuildOptions {
    */
   useNapiCross?: boolean
   /**
-   * watch the crate changes and build continiously with `cargo-watch` crates
+   * watch the crate changes and build continuously with `cargo-watch` crates
    */
   watch?: boolean
   /**

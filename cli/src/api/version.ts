@@ -13,7 +13,10 @@ export async function version(userOptions: VersionOptions) {
   const options = applyDefaultVersionOptions(userOptions)
   const packageJsonPath = resolve(options.cwd, options.packageJsonPath)
 
-  const config = await readNapiConfig(packageJsonPath)
+  const config = await readNapiConfig(
+    packageJsonPath,
+    options.configPath ? resolve(options.cwd, options.configPath) : undefined,
+  )
 
   for (const target of config.targets) {
     const pkgDir = resolve(options.cwd, options.npmDir, target.platformArchABI)

@@ -6,12 +6,16 @@ export abstract class BaseRenameCommand extends Command {
   static paths = [['rename']]
 
   static usage = Command.Usage({
-    description: 'Rename the napi-rs project',
+    description: 'Rename the NAPI-RS project',
   })
 
   cwd = Option.String('--cwd', process.cwd(), {
     description:
       'The working directory of where napi command will be executed in, all other paths options are relative to this path',
+  })
+
+  configPath?: string = Option.String('--config-path,-c', {
+    description: 'Path to `napi` config json file',
   })
 
   packageJsonPath = Option.String('--package-json-path', 'package.json', {
@@ -49,6 +53,7 @@ export abstract class BaseRenameCommand extends Command {
   getOptions() {
     return {
       cwd: this.cwd,
+      configPath: this.configPath,
       packageJsonPath: this.packageJsonPath,
       npmDir: this.npmDir,
       name: this.$$name,
@@ -62,7 +67,7 @@ export abstract class BaseRenameCommand extends Command {
 }
 
 /**
- * Rename the napi-rs project
+ * Rename the NAPI-RS project
  */
 export interface RenameOptions {
   /**
@@ -71,6 +76,10 @@ export interface RenameOptions {
    * @default process.cwd()
    */
   cwd?: string
+  /**
+   * Path to `napi` config json file
+   */
+  configPath?: string
   /**
    * Path to `package.json`
    *
