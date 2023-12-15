@@ -107,12 +107,12 @@ jobs:
           yarn config set --json supportedArchitectures.cpu '["current", "arm64"]'
           yarn install --immutable --mode=skip-build
       - name: Download artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: napi-${{ matrix.settings.target }}
           path: ./examples/napi/
       - name: Download artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: compat-${{ matrix.settings.target }}
           path: ./examples/napi-compat-mode/
