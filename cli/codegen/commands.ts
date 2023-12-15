@@ -531,6 +531,7 @@ const PRE_PUBLISH_OPTIONS: CommandSchema = {
       type: "'npm' | 'lerna'",
       description: 'git tag style, `npm` or `lerna`',
       default: "'lerna'",
+      short: 't',
     },
     {
       name: 'ghRelease',
