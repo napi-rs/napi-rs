@@ -1,6 +1,6 @@
 import { execSync } from 'child_process'
 import { existsSync, statSync } from 'fs'
-import { join, relative, resolve } from 'path'
+import { join, resolve } from 'path'
 
 import { Octokit } from '@octokit/rest'
 
@@ -31,14 +31,13 @@ export async function prePublish(userOptions: PrePublishOptions) {
 
   const options = applyDefaultPrePublishOptions(userOptions)
 
-  const configPath = relative(
-    options.cwd,
-    options.configPath ?? options.packageJsonPath,
-  )
-  const packageJsonPath = relative(options.cwd, options.packageJsonPath)
+  const packageJsonPath = resolve(options.cwd, options.packageJsonPath)
 
   const { packageJson, targets, packageName, binaryName, npmClient } =
-    await readNapiConfig(configPath, configPath)
+    await readNapiConfig(
+      packageJsonPath,
+      options.configPath ? resolve(options.cwd, options.configPath) : undefined,
+    )
 
   async function createGhRelease(packageName: string, version: string) {
     if (!options.ghRelease) {

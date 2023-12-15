@@ -29,7 +29,7 @@ new NapiCli().prePublish({
 | configPath      | --config-path,-c    | string           | false    |                | Path to `napi` config json file                                                                                    |
 | packageJsonPath | --package-json-path | string           | false    | 'package.json' | Path to `package.json`                                                                                             |
 | npmDir          | --npm-dir           | string           | false    | 'npm'          | Path to the folder where the npm packages put                                                                      |
-| tagStyle        | --tag-style         | 'npm' \| 'lerna' | false    | 'lerna'        | git tag style, `npm` or `lerna`                                                                                    |
+| tagStyle        | --tag-style,-t      | 'npm' \| 'lerna' | false    | 'lerna'        | git tag style, `npm` or `lerna`                                                                                    |
 | ghRelease       | --gh-release        | boolean          | false    | true           | Whether create GitHub release                                                                                      |
 | ghReleaseName   | --gh-release-name   | string           | false    |                | GitHub release name                                                                                                |
 | ghReleaseId     | --gh-release-id     | string           | false    |                | Existing GitHub release id                                                                                         |

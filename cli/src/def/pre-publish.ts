@@ -27,7 +27,7 @@ export abstract class BasePrePublishCommand extends Command {
     description: 'Path to the folder where the npm packages put',
   })
 
-  tagStyle = Option.String('--tag-style', 'lerna', {
+  tagStyle = Option.String('--tag-style,-t', 'lerna', {
     description: 'git tag style, `npm` or `lerna`',
   })
 
