@@ -85,9 +85,16 @@ function generateCommandDef(command: CommandSchema) {
   const prepare: string[] = []
   const cmdLines: string[] = []
 
+  let paths = `[['${commandPath}']]`
+
+  if (command.alias) {
+    command.alias.unshift(commandPath)
+    paths = `[['${command.alias.join(', ')}']]`
+  }
+
   cmdLines.push(`
 export abstract class Base${PascalCase(command.name)}Command extends Command {
-  static paths = [['${commandPath}']]
+  static paths = ${paths}
 
   static usage = Command.Usage({
     description: '${command.description}',
