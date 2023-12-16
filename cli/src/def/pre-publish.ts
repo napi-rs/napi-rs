@@ -23,11 +23,11 @@ export abstract class BasePrePublishCommand extends Command {
     description: 'Path to `package.json`',
   })
 
-  npmDir = Option.String('--npm-dir', 'npm', {
+  npmDir = Option.String('--npm-dir,-p', 'npm', {
     description: 'Path to the folder where the npm packages put',
   })
 
-  tagStyle = Option.String('--tag-style,-t', 'lerna', {
+  tagStyle = Option.String('--tag-style,--tagstyle,-t', 'lerna', {
     description: 'git tag style, `npm` or `lerna`',
   })
 

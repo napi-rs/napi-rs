@@ -22,15 +22,15 @@ new NapiCli().prePublish({
 
 ## Options
 
-| Options         | CLI Options         | type             | required | default        | description                                                                                                        |
-| --------------- | ------------------- | ---------------- | -------- | -------------- | ------------------------------------------------------------------------------------------------------------------ |
-|                 | --help,-h           |                  |          |                | get help                                                                                                           |
-| cwd             | --cwd               | string           | false    | process.cwd()  | The working directory of where napi command will be executed in, all other paths options are relative to this path |
-| configPath      | --config-path,-c    | string           | false    |                | Path to `napi` config json file                                                                                    |
-| packageJsonPath | --package-json-path | string           | false    | 'package.json' | Path to `package.json`                                                                                             |
-| npmDir          | --npm-dir           | string           | false    | 'npm'          | Path to the folder where the npm packages put                                                                      |
-| tagStyle        | --tag-style,-t      | 'npm' \| 'lerna' | false    | 'lerna'        | git tag style, `npm` or `lerna`                                                                                    |
-| ghRelease       | --gh-release        | boolean          | false    | true           | Whether create GitHub release                                                                                      |
-| ghReleaseName   | --gh-release-name   | string           | false    |                | GitHub release name                                                                                                |
-| ghReleaseId     | --gh-release-id     | string           | false    |                | Existing GitHub release id                                                                                         |
-| dryRun          | --dry-run           | boolean          | false    | false          | Dry run without touching file system                                                                               |
+| Options         | CLI Options               | type             | required | default        | description                                                                                                        |
+| --------------- | ------------------------- | ---------------- | -------- | -------------- | ------------------------------------------------------------------------------------------------------------------ |
+|                 | --help,-h                 |                  |          |                | get help                                                                                                           |
+| cwd             | --cwd                     | string           | false    | process.cwd()  | The working directory of where napi command will be executed in, all other paths options are relative to this path |
+| configPath      | --config-path,-c          | string           | false    |                | Path to `napi` config json file                                                                                    |
+| packageJsonPath | --package-json-path       | string           | false    | 'package.json' | Path to `package.json`                                                                                             |
+| npmDir          | --npm-dir,-p              | string           | false    | 'npm'          | Path to the folder where the npm packages put                                                                      |
+| tagStyle        | --tag-style,--tagstyle,-t | 'npm' \| 'lerna' | false    | 'lerna'        | git tag style, `npm` or `lerna`                                                                                    |
+| ghRelease       | --gh-release              | boolean          | false    | true           | Whether create GitHub release                                                                                      |
+| ghReleaseName   | --gh-release-name         | string           | false    |                | GitHub release name                                                                                                |
+| ghReleaseId     | --gh-release-id           | string           | false    |                | Existing GitHub release id                                                                                         |
+| dryRun          | --dry-run                 | boolean          | false    | false          | Dry run without touching file system                                                                               |

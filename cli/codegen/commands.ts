@@ -11,7 +11,8 @@ export interface OptionSchema {
   description: string
   required?: boolean
   default?: any
-  short?: string
+  short?: string[]
+  alias?: string[]
   long?: string
 }
 
@@ -42,14 +43,14 @@ const NEW_OPTIONS: CommandSchema = {
       type: 'string',
       description:
         'The name of the project, default to the name of the directory if not provided',
-      short: 'n',
+      short: ['n'],
     },
     {
       name: 'minNodeApiVersion',
       type: 'number',
       description: 'The minimum Node-API version to support',
       default: 4,
-      short: 'v',
+      short: ['v'],
       long: 'min-node-api',
     },
     // will support it later
@@ -63,14 +64,14 @@ const NEW_OPTIONS: CommandSchema = {
       name: 'license',
       type: 'string',
       description: 'License for open-sourced project',
-      short: 'l',
+      short: ['l'],
       default: "'MIT'",
     },
     {
       name: 'targets',
       type: 'string[]',
       description: 'All targets the crate will be compiled for.',
-      short: 't',
+      short: ['t'],
       default: '[]',
     },
     {
@@ -117,7 +118,7 @@ const BUILD_OPTIONS: CommandSchema = {
       type: 'string',
       description:
         'Build for the target triple, bypassed to `cargo build --target`',
-      short: 't',
+      short: ['t'],
     },
     {
       name: 'cwd',
@@ -134,7 +135,7 @@ const BUILD_OPTIONS: CommandSchema = {
       name: 'configPath',
       type: 'string',
       description: 'Path to `napi` config json file',
-      short: 'c',
+      short: ['c'],
     },
     {
       name: 'packageJsonPath',
@@ -152,7 +153,7 @@ const BUILD_OPTIONS: CommandSchema = {
       type: 'string',
       description:
         'Path to where all the built files would be put. Default to the crate folder',
-      short: 'o',
+      short: ['o'],
     },
     {
       name: 'platform',
@@ -207,19 +208,19 @@ const BUILD_OPTIONS: CommandSchema = {
       name: 'strip',
       type: 'boolean',
       description: 'Whether strip the library to achieve the minimum file size',
-      short: 's',
+      short: ['s'],
     },
     {
       name: 'release',
       type: 'boolean',
       description: 'Build in release mode',
-      short: 'r',
+      short: ['r'],
     },
     {
       name: 'verbose',
       type: 'boolean',
       description: 'Verbosely log build command trace',
-      short: 'v',
+      short: ['v'],
     },
     {
       name: 'bin',
@@ -230,7 +231,7 @@ const BUILD_OPTIONS: CommandSchema = {
       name: 'package',
       type: 'string',
       description: 'Build the specified library or the one at cwd',
-      short: 'p',
+      short: ['p'],
     },
     {
       name: 'profile',
@@ -242,7 +243,7 @@ const BUILD_OPTIONS: CommandSchema = {
       type: 'boolean',
       description:
         '[experimental] cross-compile for the specified target with `cargo-xwin` on windows and `cargo-zigbuild` on other platform',
-      short: 'x',
+      short: ['x'],
     },
     {
       name: 'useCross',
@@ -261,13 +262,13 @@ const BUILD_OPTIONS: CommandSchema = {
       type: 'boolean',
       description:
         'watch the crate changes and build continuously with `cargo-watch` crates',
-      short: 'w',
+      short: ['w'],
     },
     {
       name: 'features',
       type: 'string[]',
       description: 'Space-separated list of features to activate',
-      short: 'F',
+      short: ['F'],
     },
     {
       name: 'allFeatures',
@@ -299,7 +300,7 @@ const ARTIFACTS_OPTIONS: CommandSchema = {
       name: 'configPath',
       type: 'string',
       description: 'Path to `napi` config json file',
-      short: 'c',
+      short: ['c'],
     },
     {
       name: 'packageJsonPath',
@@ -312,7 +313,7 @@ const ARTIFACTS_OPTIONS: CommandSchema = {
       type: 'string',
       description:
         'Path to the folder where all built `.node` files put, same as `--output-dir` of build command',
-      short: 'o',
+      short: ['o'],
       default: "'./artifacts'",
     },
     {
@@ -340,7 +341,7 @@ const CREATE_NPM_DIRS_OPTIONS: CommandSchema = {
       name: 'configPath',
       type: 'string',
       description: 'Path to `napi` config json file',
-      short: 'c',
+      short: ['c'],
     },
     {
       name: 'packageJsonPath',
@@ -379,7 +380,7 @@ const RENAME_OPTIONS: CommandSchema = {
       name: 'configPath',
       type: 'string',
       description: 'Path to `napi` config json file',
-      short: 'c',
+      short: ['c'],
     },
     {
       name: 'packageJsonPath',
@@ -397,13 +398,13 @@ const RENAME_OPTIONS: CommandSchema = {
       name: 'name',
       type: 'string',
       description: 'The new name of the project',
-      short: 'n',
+      short: ['n'],
     },
     {
       name: 'binaryName',
       type: 'string',
       description: 'The new binary name *.node files',
-      short: 'b',
+      short: ['b'],
     },
     {
       name: 'packageName',
@@ -445,7 +446,7 @@ const UNIVERSALIZE_OPTIONS: CommandSchema = {
       name: 'configPath',
       type: 'string',
       description: 'Path to `napi` config json file',
-      short: 'c',
+      short: ['c'],
     },
     {
       name: 'packageJsonPath',
@@ -458,7 +459,7 @@ const UNIVERSALIZE_OPTIONS: CommandSchema = {
       type: 'string',
       description:
         'Path to the folder where all built `.node` files put, same as `--output-dir` of build command',
-      short: 'o',
+      short: ['o'],
       default: "'./'",
     },
   ],
@@ -480,7 +481,7 @@ const VERSION_OPTIONS: CommandSchema = {
       name: 'configPath',
       type: 'string',
       description: 'Path to `napi` config json file',
-      short: 'c',
+      short: ['c'],
     },
     {
       name: 'packageJsonPath',
@@ -515,7 +516,7 @@ const PRE_PUBLISH_OPTIONS: CommandSchema = {
       name: 'configPath',
       type: 'string',
       description: 'Path to `napi` config json file',
-      short: 'c',
+      short: ['c'],
     },
     {
       name: 'packageJsonPath',
@@ -528,13 +529,15 @@ const PRE_PUBLISH_OPTIONS: CommandSchema = {
       type: 'string',
       description: 'Path to the folder where the npm packages put',
       default: "'npm'",
+      short: ['p'],
     },
     {
       name: 'tagStyle',
       type: "'npm' | 'lerna'",
       description: 'git tag style, `npm` or `lerna`',
       default: "'lerna'",
-      short: 't',
+      alias: ['tagstyle'],
+      short: ['t'],
     },
     {
       name: 'ghRelease',

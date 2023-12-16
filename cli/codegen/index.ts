@@ -67,8 +67,11 @@ function generateOptionsDef(command: CommandSchema) {
 
 function getOptionDescriptor(opt: OptionSchema) {
   let desc = `--${opt.long ?? kebabCase(opt.name)}`
+  if (opt.alias) {
+    desc += `,${opt.alias.map((alias) => `--${alias}`).join(',')}`
+  }
   if (opt.short) {
-    desc += `,-${opt.short}`
+    desc += `,${opt.short.map((short) => `-${short}`).join(',')}`
   }
 
   return desc
