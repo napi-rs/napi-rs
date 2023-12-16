@@ -528,6 +528,7 @@ const PRE_PUBLISH_OPTIONS: CommandSchema = {
       type: 'string',
       description: 'Path to the folder where the npm packages put',
       default: "'npm'",
+      short: 'p',
     },
     {
       name: 'tagStyle',
