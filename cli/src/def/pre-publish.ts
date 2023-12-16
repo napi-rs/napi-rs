@@ -3,7 +3,7 @@
 import { Command, Option } from 'clipanion'
 
 export abstract class BasePrePublishCommand extends Command {
-  static paths = [['pre-publish, prepublish']]
+  static paths = [['pre-publish'], ['prepublish']]
 
   static usage = Command.Usage({
     description:

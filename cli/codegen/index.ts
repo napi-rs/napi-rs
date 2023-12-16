@@ -89,7 +89,7 @@ function generateCommandDef(command: CommandSchema) {
 
   if (command.alias) {
     command.alias.unshift(commandPath)
-    paths = `[['${command.alias.join(', ')}']]`
+    paths = `[${command.alias.map((alias) => `['${alias}']`).join(', ')}]`
   }
 
   cmdLines.push(`
