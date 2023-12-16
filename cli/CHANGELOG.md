@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.22](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.21...@napi-rs/cli@3.0.0-alpha.22) (2023-12-16)
+
+### Bug Fixes
+
+- **cli:** prepublish tagstyle flag ([#1863](https://github.com/napi-rs/napi-rs/issues/1863)) ([0faf752](https://github.com/napi-rs/napi-rs/commit/0faf752c0287b3275505da8539ed86a949c5ab7f))
+
 # [3.0.0-alpha.21](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.20...@napi-rs/cli@3.0.0-alpha.21) (2023-12-16)
 
 ### Bug Fixes
