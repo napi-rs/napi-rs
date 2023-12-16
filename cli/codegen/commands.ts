@@ -17,6 +17,7 @@ export interface OptionSchema {
 
 export interface CommandSchema {
   name: string
+  alias?: string[]
   description: string
   args: ArgSchema[]
   options: OptionSchema[]
@@ -500,6 +501,8 @@ const PRE_PUBLISH_OPTIONS: CommandSchema = {
   name: 'prePublish',
   description: 'Update package.json and copy addons into per platform packages',
   args: [],
+  // compatible with old command name
+  alias: ['prepublish'],
   options: [
     {
       name: 'cwd',
