@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.20](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.19...@napi-rs/cli@3.0.0-alpha.20) (2023-12-16)
+
+### Bug Fixes
+
+- **cli:** make prepublish as pre-publish alias ([#1861](https://github.com/napi-rs/napi-rs/issues/1861)) ([2b7a634](https://github.com/napi-rs/napi-rs/commit/2b7a6348f6f3e7b426fb5ea235c44891a85c4c71))
+
 # [3.0.0-alpha.19](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.18...@napi-rs/cli@3.0.0-alpha.19) (2023-12-15)
 
 ### Bug Fixes
