@@ -67,7 +67,7 @@
     "url": "https://github.com/napi-rs/napi-rs/issues"
   },
   "dependencies": {
-    "@napi-rs/cross-toolchain": "^0.0.12",
+    "@napi-rs/cross-toolchain": "^0.0.13",
     "@octokit/rest": "^20.0.2",
     "@tybys/wasm-util": "0.8.0",
     "clipanion": "^3.2.1",
