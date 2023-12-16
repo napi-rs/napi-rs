@@ -150,14 +150,18 @@ export async function readNapiConfig(
   // compatible with old config
   if (userNapiConfig?.name) {
     console.warn(
-      `[DEPRECATED] napi.name is deprecated, use napi.binaryName instead.`,
+      yellow(
+        `[DEPRECATED] napi.name is deprecated, use napi.binaryName instead.`,
+      ),
     )
     napiConfig.binaryName = userNapiConfig.name
   }
 
   if (!targets.length) {
     let deprecatedWarned = false
-    const warning = `[DEPRECATED] napi.triples is deprecated, use napi.targets instead.`
+    const warning = yellow(
+      `[DEPRECATED] napi.triples is deprecated, use napi.targets instead.`,
+    )
     if (userNapiConfig.triples?.defaults) {
       deprecatedWarned = true
       console.warn(warning)
