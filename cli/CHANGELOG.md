@@ -3,6 +3,10 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.23](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.22...@napi-rs/cli@3.0.0-alpha.23) (2023-12-17)
+
+**Note:** Version bump only for package @napi-rs/cli
+
 # [3.0.0-alpha.22](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.21...@napi-rs/cli@3.0.0-alpha.22) (2023-12-16)
 
 ### Bug Fixes
