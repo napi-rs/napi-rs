@@ -1,6 +1,14 @@
-import { readFile, writeFile, copyFile, mkdir, unlink, stat, readdir } from 'fs'
-import { createRequire } from 'module'
-import { promisify } from 'util'
+import {
+  readFile,
+  writeFile,
+  copyFile,
+  mkdir,
+  unlink,
+  stat,
+  readdir,
+} from 'node:fs'
+import { createRequire } from 'node:module'
+import { promisify } from 'node:util'
 
 import { debug } from './log.js'
 

@@ -31,9 +31,9 @@ import {
   writeFileAsync,
 } from '../utils/index.js'
 
-import { createWasiBinding } from './load-wasi-template.js'
 import { createCjsBinding } from './templates/index.js'
-import { WASI_WORKER_TEMPLATE } from './wasi-worker-template.js'
+import { createWasiBinding } from './templates/load-wasi-template.js'
+import { WASI_WORKER_TEMPLATE } from './templates/wasi-worker-template.js'
 
 const debug = debugFactory('build')
 const require = createRequire(import.meta.url)
@@ -704,7 +704,7 @@ class Builder {
         destName += `.${this.target.platformArchABI}`
       }
       if (srcName.endsWith('.wasm')) {
-        destName += '.wasi-wasm32.wasm'
+        destName += '.wasm'
       } else {
         destName += '.node'
       }

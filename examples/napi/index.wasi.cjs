@@ -15,7 +15,7 @@ const __wasi = new __nodeWASI({
   version: 'preview1',
   env: process.env,
   preopens: {
-    '/': __dirname,
+    '/': '/'
   }
 })
 
@@ -27,7 +27,7 @@ const __sharedMemory = new WebAssembly.Memory({
   shared: true,
 })
 
-const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule } = __emnapiInstantiateNapiModuleSync(__nodeFs.readFileSync(__nodePath.join(__dirname, 'index.wasi-wasm32.wasm')), {
+const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule } = __emnapiInstantiateNapiModuleSync(__nodeFs.readFileSync(__nodePath.join(__dirname, 'index.wasm')), {
   context: __emnapiContext,
   asyncWorkPoolSize: 4,
   wasi: __wasi,

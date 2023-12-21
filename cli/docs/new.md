@@ -25,13 +25,15 @@ new NapiCli().new({
 | Options              | CLI Options              | type     | required | default | description                                                                      |
 | -------------------- | ------------------------ | -------- | -------- | ------- | -------------------------------------------------------------------------------- |
 |                      | --help,-h                |          |          |         | get help                                                                         |
-| path                 | <path>                   | true     | string   |         | The path where the NAPI-RS project will be created.                              |
+| path                 | <path>                   | false    | string   |         | The path where the NAPI-RS project will be created.                              |
 | name                 | --name,-n                | string   | false    |         | The name of the project, default to the name of the directory if not provided    |
 | minNodeApiVersion    | --min-node-api,-v        | number   | false    | 4       | The minimum Node-API version to support                                          |
+| packageManager       | --package-manager        | string   | false    | 'yarn'  | The package manager to use. Only support yarn 4.x for now.                       |
 | license              | --license,-l             | string   | false    | 'MIT'   | License for open-sourced project                                                 |
 | targets              | --targets,-t             | string[] | false    | []      | All targets the crate will be compiled for.                                      |
 | enableDefaultTargets | --enable-default-targets | boolean  | false    | true    | Whether enable default targets                                                   |
 | enableAllTargets     | --enable-all-targets     | boolean  | false    | false   | Whether enable all targets                                                       |
 | enableTypeDef        | --enable-type-def        | boolean  | false    | true    | Whether enable the `type-def` feature for typescript definitions auto-generation |
 | enableGithubActions  | --enable-github-actions  | boolean  | false    | true    | Whether generate preconfigured GitHub Actions workflow                           |
+| testFramework        | --test-framework         | string   | false    | 'ava'   | The JavaScript test framework to use, only support `ava` for now                 |
 | dryRun               | --dry-run                | boolean  | false    | false   | Whether to run the command in dry-run mode                                       |

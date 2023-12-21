@@ -2,6 +2,7 @@ import { load, dump } from 'js-yaml'
 
 import {
   NodeArchToCpu,
+  type SupportedPackageManager,
   UniArchsByPlatform,
   parseTriple,
 } from '../../utils/index.js'
@@ -15,9 +16,13 @@ const TEST_LINUX_X64_MUSL = 'test-linux-x64-musl-binding'
 const TEST_LINUX_AARCH64_GNU = 'test-linux-aarch64-gnu-binding'
 const TEST_LINUX_AARCH64_MUSL = 'test-linux-aarch64-musl-binding'
 const TEST_LINUX_ARM_GNUEABIHF = 'test-linux-arm-gnueabihf-binding'
+const TEST_WASI = 'test-wasi-nodejs'
 const UNIVERSAL_MACOS = 'universal-macOS'
 
-export const createGithubActionsCIYml = (targets: string[]) => {
+export const createGithubActionsCIYml = (
+  targets: string[],
+  packageManager: SupportedPackageManager,
+) => {
   const allTargets = new Set(
     targets.flatMap((t) => {
       const platform = parseTriple(t)
@@ -31,7 +36,7 @@ export const createGithubActionsCIYml = (targets: string[]) => {
     }),
   )
 
-  const fullTemplate = load(YAML()) as any
+  const fullTemplate = load(YAML(packageManager)) as any
 
   const requiredSteps = []
   const enableWindowsX86 = allTargets.has('x86_64-pc-windows-msvc')
@@ -43,6 +48,7 @@ export const createGithubActionsCIYml = (targets: string[]) => {
   const enableLinuxArm7 = allTargets.has('armv7-unknown-linux-gnueabihf')
   const enableFreeBSD = allTargets.has('x86_64-unknown-freebsd')
   const enableMacOSUni = allTargets.has('universal-apple-darwin')
+  const enableWasi = allTargets.has('wasm32-wasi-preview1-threads')
   fullTemplate.jobs.build.strategy.matrix.settings =
     fullTemplate.jobs.build.strategy.matrix.settings.filter(
       ({ target }: { target: string }) => allTargets.has(target),
@@ -109,6 +115,12 @@ export const createGithubActionsCIYml = (targets: string[]) => {
     delete fullTemplate.jobs[UNIVERSAL_MACOS]
   } else {
     requiredSteps.push(UNIVERSAL_MACOS)
+  }
+
+  if (!enableWasi) {
+    delete fullTemplate.jobs[TEST_WASI]
+  } else {
+    requiredSteps.push(TEST_WASI)
   }
 
   fullTemplate.jobs.publish.needs = requiredSteps

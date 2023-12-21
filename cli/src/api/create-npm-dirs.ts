@@ -1,4 +1,4 @@
-import { join, resolve } from 'path'
+import { join, resolve } from 'node:path'
 
 import {
   applyDefaultCreateNpmDirsOptions,
@@ -55,11 +55,13 @@ export async function createNpmDirs(userOptions: CreateNpmDirsOptions) {
     const targetDir = join(npmPath, `${target.platformArchABI}`)
     await mkdirAsync(targetDir)
 
-    const binaryFileName = `${binaryName}.${target.platformArchABI}.node`
+    const binaryFileName =
+      target.arch === 'wasm32'
+        ? `${binaryName}.${target.platformArchABI}.wasm`
+        : `${binaryName}.${target.platformArchABI}.node`
     const scopedPackageJson = {
       name: `${packageName}-${target.platformArchABI}`,
       version: packageJson.version,
-      os: [target.platform],
       cpu: target.arch !== 'universal' ? [target.arch] : undefined,
       main: binaryFileName,
       files: [binaryFileName],
@@ -77,9 +79,11 @@ export async function createNpmDirs(userOptions: CreateNpmDirsOptions) {
         'bugs',
       ),
     }
+    if (target.arch !== 'wasm32') {
+      // @ts-expect-error
+      scopedPackageJson.os = [target.platform]
+    }
 
-    // Only works with yarn 3.1+
-    // https://github.com/yarnpkg/berry/pull/3981
     if (target.abi === 'gnu') {
       // @ts-expect-error
       scopedPackageJson.libc = ['glibc']

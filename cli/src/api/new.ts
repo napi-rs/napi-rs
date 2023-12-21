@@ -1,4 +1,4 @@
-import path from 'path'
+import path from 'node:path'
 
 import {
   applyDefaultNewOptions,
@@ -12,7 +12,9 @@ import {
   mkdirAsync,
   readdirAsync,
   statAsync,
+  type SupportedTestFramework,
   writeFileAsync,
+  SupportedPackageManager,
 } from '../utils/index.js'
 import { napiEngineRequirement } from '../utils/version.js'
 
@@ -37,6 +39,9 @@ type NewOptions = Required<RawNewOptions>
 
 function processOptions(options: RawNewOptions) {
   debug('Processing options...')
+  if (!options.path) {
+    throw new Error('Please provide the path as the argument')
+  }
   options.path = path.resolve(process.cwd(), options.path)
   debug(`Resolved target path to: ${options.path}`)
 
@@ -69,7 +74,7 @@ export async function newProject(userOptions: RawNewOptions) {
   debug('Targets to be enabled:')
   debug(options.targets)
 
-  const outputs = generateFiles(options)
+  const outputs = await generateFiles(options)
 
   await ensurePath(options.path, options.dryRun)
 
@@ -110,30 +115,34 @@ async function ensurePath(path: string, dryRun = false) {
   }
 }
 
-function generateFiles(options: NewOptions): Output[] {
+async function generateFiles(options: NewOptions): Promise<Output[]> {
+  const packageJson = await generatePackageJson(options)
   return [
     generateCargoToml,
     generateLibRs,
     generateBuildRs,
-    generatePackageJson,
     generateGithubWorkflow,
     generateIgnoreFiles,
-  ].flatMap((generator) => {
-    const output = generator(options)
+  ]
+    .flatMap((generator) => {
+      const output = generator(options)
 
-    if (!output) {
-      return []
-    }
+      if (!output) {
+        return []
+      }
 
-    if (Array.isArray(output)) {
-      return output.map((o) => ({
-        ...o,
-        target: path.join(options.path, o.target),
-      }))
-    } else {
-      return [{ ...output, target: path.join(options.path, output.target) }]
-    }
-  })
+      if (Array.isArray(output)) {
+        return output.map((o) => ({
+          ...o,
+          target: path.join(options.path, o.target),
+        }))
+      } else {
+        return [{ ...output, target: path.join(options.path, output.target) }]
+      }
+    })
+    .concat([
+      { ...packageJson, target: path.join(options.path, packageJson.target) },
+    ])
 }
 
 function generateCargoToml(options: NewOptions): Output {
@@ -162,16 +171,17 @@ function generateBuildRs(_options: NewOptions): Output {
   }
 }
 
-function generatePackageJson(options: NewOptions): Output {
+async function generatePackageJson(options: NewOptions): Promise<Output> {
   return {
     target: './package.json',
-    content: createPackageJson({
+    content: await createPackageJson({
       name: options.name,
       binaryName: getBinaryName(options.name),
       targets: options.targets,
       license: options.license,
       engineRequirement: napiEngineRequirement(options.minNodeApiVersion),
       cliVersion: CLI_VERSION,
+      testFramework: options.testFramework as SupportedTestFramework,
     }),
   }
 }
@@ -183,7 +193,10 @@ function generateGithubWorkflow(options: NewOptions): Output | null {
 
   return {
     target: './.github/workflows/ci.yml',
-    content: createGithubActionsCIYml(options.targets),
+    content: createGithubActionsCIYml(
+      options.targets,
+      options.packageManager as SupportedPackageManager,
+    ),
   }
 }
 

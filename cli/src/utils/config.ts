@@ -4,6 +4,18 @@ import { merge, omit } from 'lodash-es'
 import { fileExists, readFileAsync } from './misc.js'
 import { DEFAULT_TARGETS, parseTriple, Target } from './target.js'
 
+export type ValueOfConstArray<T> = T[Exclude<keyof T, keyof Array<any>>]
+
+export const SupportedPackageManagers = ['yarn'] as const
+export const SupportedTestFrameworks = ['ava'] as const
+
+export type SupportedPackageManager = ValueOfConstArray<
+  typeof SupportedPackageManagers
+>
+export type SupportedTestFramework = ValueOfConstArray<
+  typeof SupportedTestFrameworks
+>
+
 export interface UserNapiConfig {
   /**
    * Name of the binary to be generated, default to `index`
@@ -81,6 +93,10 @@ export interface CommonPackageJsonFields {
 
   dependencies?: Record<string, string>
   devDependencies?: Record<string, string>
+
+  ava?: {
+    timeout?: string
+  }
 }
 
 export type NapiConfig = Required<
