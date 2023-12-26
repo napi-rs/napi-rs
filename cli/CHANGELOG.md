@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.24](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.23...@napi-rs/cli@3.0.0-alpha.24) (2023-12-26)
+
+### Features
+
+- **cli:** support wasi target test & release workflow ([#1867](https://github.com/napi-rs/napi-rs/issues/1867)) ([c42f00f](https://github.com/napi-rs/napi-rs/commit/c42f00ff43587ebe99b0cf5784ae1e05013ef57a))
+
 # [3.0.0-alpha.23](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.22...@napi-rs/cli@3.0.0-alpha.23) (2023-12-17)
 
 **Note:** Version bump only for package @napi-rs/cli
