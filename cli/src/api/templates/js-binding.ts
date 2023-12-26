@@ -311,6 +311,21 @@ switch (platform) {
     throw new Error(\`Unsupported OS: \${platform}, architecture: \${arch}\`)
 }
 
+if (!nativeBinding || process.env.NAPI_RS_FORCE_WASI) {
+  try {
+    localFileExisted = existsSync(
+      join(__dirname, '${localName}.wasm32-wasi.wasm')
+    ) && existsSync(join(__dirname, '${localName}.wasi.cjs'))
+    if (localFileExisted) {
+      nativeBinding = require('./${localName}.wasi.cjs')
+    } else {
+      nativeBinding = require('${pkgName}-wasm32-wasi')
+    }
+  } catch {
+    // ignore
+  }
+}
+
 if (!nativeBinding) {
   if (loadError) {
     throw loadError

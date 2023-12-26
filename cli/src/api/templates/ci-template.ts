@@ -1,4 +1,6 @@
-export const YAML = () => `
+import type { SupportedPackageManager } from '../../utils/config.js'
+
+export const YAML = (packageManager: SupportedPackageManager) => `
 name: CI
 
 env:
@@ -32,82 +34,53 @@ jobs:
         settings:
           - host: macos-latest
             target: 'x86_64-apple-darwin'
-            build: |
-              yarn build --platform
-              strip -x *.node
+            build: ${packageManager} build --platform
           - host: windows-latest
-            build: yarn build --platform
+            build: ${packageManager} build --platform
             target: 'x86_64-pc-windows-msvc'
           - host: windows-latest
             build: |
-              yarn build --platform --target i686-pc-windows-msvc
-              yarn test
+              ${packageManager} build --platform --target i686-pc-windows-msvc
+              ${packageManager} test
             target: 'i686-pc-windows-msvc'
           - host: ubuntu-latest
             target: 'x86_64-unknown-linux-gnu'
-            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian
-            build: >-
-              set -e &&\n
-              yarn build --platform --target x86_64-unknown-linux-gnu &&\n
-              strip *.node
+            build: ${packageManager} build --platform --target x86_64-unknown-linux-gnu --use-napi-cross
           - host: ubuntu-latest
             target: 'x86_64-unknown-linux-musl'
-            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
-            build: >-
-              set -e &&
-              yarn build --platform &&
-              strip *.node
+            build: ${packageManager} build --platform --target x86_64-unknown-linux-musl -x
           - host: macos-latest
             target: 'aarch64-apple-darwin'
-            build: |
-              yarn build --platform --target aarch64-apple-darwin
-              strip -x *.node
+            build: ${packageManager} build --platform --target aarch64-apple-darwin
           - host: ubuntu-latest
             target: 'aarch64-unknown-linux-gnu'
-            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-aarch64
-            build: >-
-              set -e &&\n
-              yarn build --platform --target aarch64-unknown-linux-gnu &&\n
-              aarch64-unknown-linux-gnu-strip *.node
+            build: ${packageManager} build --platform --target aarch64-unknown-linux-gnu --use-napi-cross
           - host: ubuntu-latest
             target: 'armv7-unknown-linux-gnueabihf'
-            setup: |
-              sudo apt-get update
-              sudo apt-get install gcc-arm-linux-gnueabihf -y
-            build: |
-              yarn build --platform --target armv7-unknown-linux-gnueabihf --cross-compile
-              arm-linux-gnueabihf-strip *.node
+            build: ${packageManager} build --platform --target armv7-unknown-linux-gnueabihf --use-napi-cross
           - host: ubuntu-latest
             target: 'aarch64-linux-android'
-            build: |
-              yarn build --platform --target aarch64-linux-android
-              \${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip *.node
+            build: ${packageManager} build --platform --target aarch64-linux-android
           - host: ubuntu-latest
             target: 'armv7-linux-androideabi'
-            build: |
-              yarn build --platform --target armv7-linux-androideabi
-              \${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip *.node
+            build: ${packageManager} build --platform --target armv7-linux-androideabi
           - host: ubuntu-latest
             target: 'aarch64-unknown-linux-musl'
-            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
-            build: >-
-              set -e &&\n
-              rustup target add aarch64-unknown-linux-musl &&\n
-              yarn build --platform --target aarch64-unknown-linux-musl &&\n
-              /aarch64-linux-musl-cross/bin/aarch64-linux-musl-strip *.node
+            build: ${packageManager} build --platform --target aarch64-unknown-linux-musl -x
           - host: windows-latest
             target: 'aarch64-pc-windows-msvc'
-            build: yarn build --platform --target aarch64-pc-windows-msvc
+            build: ${packageManager} build --platform --target aarch64-pc-windows-msvc
           - host: ubuntu-latest
             target: 'riscv64gc-unknown-linux-gnu'
             setup: |
               sudo apt-get update
               sudo apt-get install gcc-riscv64-linux-gnu -y
-            build: |
-              yarn build --platform --target riscv64gc-unknown-linux-gnu
-              riscv64-linux-gnu-strip *.node
+            build: ${packageManager} build --platform --target riscv64gc-unknown-linux-gnu
+          - host: ubuntu-latest
+            target: 'wasm32-wasi-preview1-threads'
+            build: ${packageManager} build --platform --target wasm32-wasi-preview1-threads
 
-    name: stable - \${{ matrix.settings.target }} - node@18
+    name: stable - \${{ matrix.settings.target }} - node@20
     runs-on: \${{ matrix.settings.host }}
 
     steps:
@@ -115,14 +88,12 @@ jobs:
 
       - name: Setup node
         uses: actions/setup-node@v4
-        if: \${{ !matrix.settings.docker }}
         with:
-          node-version: 18
-          cache: yarn
+          node-version: 20
+          cache: ${packageManager}
 
       - name: Install
         uses: dtolnay/rust-toolchain@stable
-        if: \${{ !matrix.settings.docker }}
         with:
           toolchain: stable
           targets: \${{ matrix.settings.target }}
@@ -134,12 +105,13 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
+            ~/.napi-rs
             .cargo-cache
             target/
           key: \${{ matrix.settings.target }}-cargo-\${{ matrix.settings.host }}
 
       - uses: goto-bus-stop/setup-zig@v2
-        if: \${{ matrix.settings.target == 'armv7-unknown-linux-gnueabihf' }}
+        if: \${{ contains(matrix.settings.target, 'musl') }}
         with:
           version: 0.11.0
 
@@ -154,34 +126,33 @@ jobs:
         shell: bash
 
       - name: 'Install dependencies'
-        run: yarn install
+        run: ${packageManager} install
 
       - name: Setup node x86
         uses: actions/setup-node@v4
         if: matrix.settings.target == 'i686-pc-windows-msvc'
         with:
-          node-version: 18
-          cache: yarn
+          node-version: 20
           architecture: x86
-
-      - name: Build in docker
-        uses: addnab/docker-run-action@v3
-        if: \${{ matrix.settings.docker }}
-        with:
-          image: \${{ matrix.settings.docker }}
-          options: --user 0:0 -v \${{ github.workspace }}/.cargo-cache/git/db:/usr/local/cargo/git/db -v \${{ github.workspace }}/.cargo/registry/cache:/usr/local/cargo/registry/cache -v \${{ github.workspace }}/.cargo/registry/index:/usr/local/cargo/registry/index -v \${{ github.workspace }}:/build -w /build
-          run: \${{ matrix.settings.build }}
 
       - name: 'Build'
         run: \${{ matrix.settings.build }}
-        if: \${{ !matrix.settings.docker }}
         shell: bash
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
+        if: matrix.settings.target != 'wasm32-wasi-preview1-threads'
         with:
           name: bindings-\${{ matrix.settings.target }}
           path: "*.node"
+          if-no-files-found: error
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        if: matrix.settings.target == 'wasm32-wasi-preview1-threads'
+        with:
+          name: bindings-\${{ matrix.settings.target }}
+          path: "*.wasm"
           if-no-files-found: error
 
   build-freebsd:
@@ -191,7 +162,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build
         id: build
-        uses: cross-platform-actions/action@v0.21.0
+        uses: cross-platform-actions/action@v0.21.1
+        timeout-minutes: 30
         env:
           DEBUG: 'napi:*'
           RUSTUP_IO_THREADS: 1
@@ -202,9 +174,9 @@ jobs:
           cpu_count: 3
           environment_variables: 'DEBUG RUSTUP_IO_THREADS'
           shell: bash
-          prepare: |
+          run: |
             sudo pkg install -y -f curl node libnghttp2 npm
-            sudo npm install -g yarn --ignore-scripts
+            sudo npm install -g ${packageManager} --ignore-scripts
             curl https://sh.rustup.rs -sSf --output rustup.sh
             sh rustup.sh -y --profile minimal --default-toolchain stable
             source "$HOME/.cargo/env"
@@ -219,15 +191,15 @@ jobs:
             whoami
             env
             freebsd-version
-            yarn install
-            yarn build
+            ${packageManager} install
+            ${packageManager} build
             strip -x *.node
             yarn test
             rm -rf node_modules
             rm -rf target
             rm -rf .yarn/cache
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: bindings-freebsd
           path: "*.node"
@@ -255,13 +227,13 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: \${{ matrix.node }}
-          cache: 'yarn'
+          cache: '${packageManager}'
 
       - name: 'Install dependencies'
-        run: yarn install
+        run: ${packageManager} install
 
       - name: Download artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: bindings-\${{ matrix.settings.target }}
           path: .
@@ -271,7 +243,7 @@ jobs:
         shell: bash
 
       - name: Test bindings
-        run: yarn test
+        run: ${packageManager} test
 
   test-linux-x64-gnu-binding:
     name: Test bindings on Linux-x64-gnu - node@\${{ matrix.node }}
@@ -290,13 +262,13 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: \${{ matrix.node }}
-          cache: 'yarn'
+          cache: '${packageManager}'
 
       - name: 'Install dependencies'
-        run: yarn install
+        run: ${packageManager} install
 
       - name: Download artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: bindings-x86_64-unknown-linux-gnu
           path: .
@@ -330,10 +302,10 @@ jobs:
       - name: 'Install dependencies'
         run: |
           yarn config set supportedArchitectures.libc "musl"
-          yarn install
+          ${packageManager} install
 
       - name: Download artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: bindings-x86_64-unknown-linux-musl
           path: .
@@ -352,14 +324,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['18', '20']
+        node: ['20']
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Download artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: bindings-aarch64-unknown-linux-gnu
           path: .
@@ -372,7 +344,7 @@ jobs:
         run: |
           yarn config set supportedArchitectures.cpu "arm64"
           yarn config set supportedArchitectures.libc "glibc"
-          yarn install
+          ${packageManager} install
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -385,10 +357,7 @@ jobs:
         with:
           image: node:\${{ matrix.node }}-slim
           options: --platform linux/arm64 -v \${{ github.workspace }}:/build -w /build
-          run: |
-            set -e
-            yarn test
-            ls -la
+          run: yarn test
 
   test-linux-aarch64-musl-binding:
     name: Test bindings on aarch64-unknown-linux-musl - node@\${{ matrix.node }}
@@ -405,7 +374,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Download artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: bindings-aarch64-unknown-linux-musl
           path: .
@@ -418,7 +387,7 @@ jobs:
         run: |
           yarn config set supportedArchitectures.cpu "arm64"
           yarn config set supportedArchitectures.libc "musl"
-          yarn install
+          ${packageManager} install
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -431,9 +400,7 @@ jobs:
         with:
           image: node:\${{ matrix.node }}-alpine
           options: --platform linux/arm64 -v \${{ github.workspace }}:/build -w /build
-          run: |
-            set -e
-            yarn test
+          run: yarn test
 
   test-linux-arm-gnueabihf-binding:
     name: Test bindings on armv7-unknown-linux-gnueabihf - node@\${{ matrix.node }}
@@ -449,7 +416,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Download artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: bindings-armv7-unknown-linux-gnueabihf
           path: .
@@ -461,7 +428,7 @@ jobs:
       - name: Install dependencies
         run: |
           yarn config set supportedArchitectures.cpu "arm"
-          yarn install
+          ${packageManager} install
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -474,10 +441,7 @@ jobs:
         with:
           image: node:\${{ matrix.node }}-bullseye-slim
           options: --platform linux/arm/v7 -v \${{ github.workspace }}:/build -w /build
-          run: |
-            set -e
-            yarn test
-            ls -la
+          run: ${packageManager} test
 
   universal-macOS:
     name: Build universal macOS binary
@@ -491,32 +455,61 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 18
-          cache: yarn
+          node-version: 20
+          cache: ${packageManager}
 
       - name: 'Install dependencies'
-        run: yarn install
+        run: ${packageManager} install
 
       - name: Download macOS x64 artifact
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: bindings-x86_64-apple-darwin
           path: .
       - name: Download macOS arm64 artifact
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: bindings-aarch64-apple-darwin
           path: .
 
       - name: Combine binaries
-        run: yarn napi universalize
+        run: ${packageManager} napi universalize
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: bindings-universal-apple-darwin
           path: "*.node"
           if-no-files-found: error
+
+  test-wasi-nodejs:
+    name: Test bindings on wasi - node@\${{ matrix.node }}
+    needs:
+      - build
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['18', '20']
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: bindings-wasm32-wasi-preview1-threads
+          path: .
+      - name: List packages
+        run: ls -R .
+      - uses: actions/setup-node@v4
+        with:
+          node-version: \${{ matrix.node }}
+          cache: ${packageManager}
+      - name: 'Install dependencies'
+        run: ${packageManager} install
+      - name: Test
+        run: ${packageManager} test
+        env:
+          NAPI_RS_FORCE_WASI: true
 
   publish:
     name: Publish
@@ -528,6 +521,7 @@ jobs:
       - test-linux-arm-gnueabihf-binding
       - test-macOS-windows-binding
       - test-linux-aarch64-musl-binding
+      - test-wasi-nodejs
       - build-freebsd
 
     steps:
@@ -536,15 +530,15 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 18
-          cache: 'yarn'
+          node-version: 20
+          cache: '${packageManager}'
           registry-url: 'https://registry.npmjs.org'
 
       - name: 'Install dependencies'
-        run: yarn install
+        run: ${packageManager} install
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           path: artifacts
 

@@ -2,6 +2,10 @@ import { execSync } from 'node:child_process'
 
 export type Platform = NodeJS.Platform | 'wasm' | 'wasi'
 
+export const UNIVERSAL_TARGETS = {
+  'universal-apple-darwin': ['aarch64-apple-darwin', 'x86_64-apple-darwin'],
+} as const
+
 export const AVAILABLE_TARGETS = [
   'aarch64-apple-darwin',
   'aarch64-linux-android',
@@ -18,12 +22,14 @@ export const AVAILABLE_TARGETS = [
   'armv7-linux-androideabi',
   'universal-apple-darwin',
   'riscv64gc-unknown-linux-gnu',
+  'wasm32-wasi-preview1-threads',
 ] as const
 
 export type TargetTriple = (typeof AVAILABLE_TARGETS)[number]
 
 export const DEFAULT_TARGETS = [
   'x86_64-apple-darwin',
+  'aarch64-apple-darwin',
   'x86_64-pc-windows-msvc',
   'x86_64-unknown-linux-gnu',
 ] as const
@@ -48,6 +54,7 @@ type NodeJSArch =
   | 'x32'
   | 'x64'
   | 'universal'
+  | 'wasm32'
 
 const CpuToNodeArch: Record<string, NodeJSArch> = {
   x86_64: 'x64',
@@ -80,7 +87,7 @@ export interface Target {
   triple: string
   platformArchABI: string
   platform: Platform
-  arch: NodeJSArch | 'wasm32'
+  arch: NodeJSArch
   abi: string | null
 }
 
@@ -98,7 +105,7 @@ export function parseTriple(rawTriple: string): Target {
   if (rawTriple === 'wasm32-wasi-preview1-threads') {
     return {
       triple: rawTriple,
-      platformArchABI: rawTriple,
+      platformArchABI: 'wasm32-wasi',
       platform: 'wasi',
       arch: 'wasm32',
       abi: 'wasi',

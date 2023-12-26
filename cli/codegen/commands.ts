@@ -34,7 +34,7 @@ const NEW_OPTIONS: CommandSchema = {
       name: 'path',
       type: 'string',
       description: 'The path where the NAPI-RS project will be created.',
-      required: true,
+      required: false,
     },
   ],
   options: [
@@ -53,13 +53,12 @@ const NEW_OPTIONS: CommandSchema = {
       short: ['v'],
       long: 'min-node-api',
     },
-    // will support it later
-    // {
-    //   name: 'packageManager',
-    //   type: 'string',
-    //   description: 'The package manager to use',
-    //   default: "'yarn'",
-    // },
+    {
+      name: 'packageManager',
+      type: 'string',
+      description: 'The package manager to use. Only support yarn 4.x for now.',
+      default: "'yarn'",
+    },
     {
       name: 'license',
       type: 'string',
@@ -98,6 +97,13 @@ const NEW_OPTIONS: CommandSchema = {
       type: 'boolean',
       description: 'Whether generate preconfigured GitHub Actions workflow',
       default: true,
+    },
+    {
+      name: 'testFramework',
+      type: 'string',
+      description:
+        'The JavaScript test framework to use, only support `ava` for now',
+      default: "'ava'",
     },
     {
       name: 'dryRun',

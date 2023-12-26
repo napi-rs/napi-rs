@@ -1,4 +1,4 @@
-import path from 'path'
+import path from 'node:path'
 
 import { Option } from 'clipanion'
 import inquirer from 'inquirer'
@@ -16,7 +16,7 @@ import { napiEngineRequirement } from '../utils/version.js'
 const debug = debugFactory('new')
 
 export class NewCommand extends BaseNewCommand {
-  interactive = Option.Boolean('--interactive,-i', false, {
+  interactive = Option.Boolean('--interactive,-i', true, {
     description:
       'Ask project basic information interactively without just using the default.',
   })
@@ -37,9 +37,19 @@ export class NewCommand extends BaseNewCommand {
     const cmdOptions = super.getOptions()
 
     if (this.interactive) {
+      const targetPath: string = cmdOptions.path
+        ? cmdOptions.path
+        : await inquirer
+            .prompt({
+              type: 'input',
+              name: 'path',
+              message: 'Target path to create the project, relative to cwd',
+            })
+            .then(({ path }) => path)
+      cmdOptions.path = targetPath
       return {
         ...cmdOptions,
-        name: await this.fetchName(path.parse(cmdOptions.path).base),
+        name: await this.fetchName(path.parse(targetPath).base),
         minNodeApiVersion: await this.fetchNapiVersion(),
         targets: await this.fetchTargets(),
         license: await this.fetchLicense(),

@@ -1,5 +1,5 @@
-import { spawnSync } from 'child_process'
-import { join, resolve } from 'path'
+import { spawnSync } from 'node:child_process'
+import { join, resolve } from 'node:path'
 
 import {
   applyDefaultUniversalizeOptions,

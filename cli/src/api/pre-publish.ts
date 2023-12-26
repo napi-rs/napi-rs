@@ -1,6 +1,6 @@
-import { execSync } from 'child_process'
-import { existsSync, statSync } from 'fs'
-import { join, resolve } from 'path'
+import { execSync } from 'node:child_process'
+import { existsSync, statSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 
 import { Octokit } from '@octokit/rest'
 
@@ -153,7 +153,9 @@ export async function prePublish(userOptions: PrePublishOptions) {
       options.npmDir,
       `${target.platformArchABI}`,
     )
-    const filename = `${binaryName}.${target.platformArchABI}.node`
+    const ext =
+      target.platform === 'wasi' || target.platform === 'wasm' ? 'wasm' : 'node'
+    const filename = `${binaryName}.${target.platformArchABI}.${ext}`
     const dstPath = join(pkgDir, filename)
 
     if (!options.dryRun) {

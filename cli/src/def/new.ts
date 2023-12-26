@@ -10,7 +10,7 @@ export abstract class BaseNewCommand extends Command {
     description: 'Create a new project with pre-configured boilerplate',
   })
 
-  $$path = Option.String({ required: true })
+  $$path = Option.String({ required: false })
 
   $$name?: string = Option.String('--name,-n', {
     description:
@@ -20,6 +20,10 @@ export abstract class BaseNewCommand extends Command {
   minNodeApiVersion = Option.String('--min-node-api,-v', '4', {
     validator: typanion.isNumber(),
     description: 'The minimum Node-API version to support',
+  })
+
+  packageManager = Option.String('--package-manager', 'yarn', {
+    description: 'The package manager to use. Only support yarn 4.x for now.',
   })
 
   license = Option.String('--license,-l', 'MIT', {
@@ -47,6 +51,11 @@ export abstract class BaseNewCommand extends Command {
     description: 'Whether generate preconfigured GitHub Actions workflow',
   })
 
+  testFramework = Option.String('--test-framework', 'ava', {
+    description:
+      'The JavaScript test framework to use, only support `ava` for now',
+  })
+
   dryRun = Option.Boolean('--dry-run', false, {
     description: 'Whether to run the command in dry-run mode',
   })
@@ -56,12 +65,14 @@ export abstract class BaseNewCommand extends Command {
       path: this.$$path,
       name: this.$$name,
       minNodeApiVersion: this.minNodeApiVersion,
+      packageManager: this.packageManager,
       license: this.license,
       targets: this.targets,
       enableDefaultTargets: this.enableDefaultTargets,
       enableAllTargets: this.enableAllTargets,
       enableTypeDef: this.enableTypeDef,
       enableGithubActions: this.enableGithubActions,
+      testFramework: this.testFramework,
       dryRun: this.dryRun,
     }
   }
@@ -74,7 +85,7 @@ export interface NewOptions {
   /**
    * The path where the NAPI-RS project will be created.
    */
-  path: string
+  path?: string
   /**
    * The name of the project, default to the name of the directory if not provided
    */
@@ -85,6 +96,12 @@ export interface NewOptions {
    * @default 4
    */
   minNodeApiVersion?: number
+  /**
+   * The package manager to use. Only support yarn 4.x for now.
+   *
+   * @default 'yarn'
+   */
+  packageManager?: string
   /**
    * License for open-sourced project
    *
@@ -122,6 +139,12 @@ export interface NewOptions {
    */
   enableGithubActions?: boolean
   /**
+   * The JavaScript test framework to use, only support `ava` for now
+   *
+   * @default 'ava'
+   */
+  testFramework?: string
+  /**
    * Whether to run the command in dry-run mode
    *
    * @default false
@@ -132,12 +155,14 @@ export interface NewOptions {
 export function applyDefaultNewOptions(options: NewOptions) {
   return {
     minNodeApiVersion: 4,
+    packageManager: 'yarn',
     license: 'MIT',
     targets: [],
     enableDefaultTargets: true,
     enableAllTargets: false,
     enableTypeDef: true,
     enableGithubActions: true,
+    testFramework: 'ava',
     dryRun: false,
     ...options,
   }
