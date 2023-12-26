@@ -2,6 +2,7 @@ name: Zig-Cross-Compile
 
 env:
   DEBUG: 'napi:*'
+  TEST_ZIG_CROSS: '1'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -33,7 +34,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
           cache: 'yarn'
       - name: Install
         uses: dtolnay/rust-toolchain@stable
@@ -99,7 +100,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
           cache: 'yarn'
       - name: Install dependencies
         run: |
