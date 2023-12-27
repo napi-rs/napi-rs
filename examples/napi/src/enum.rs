@@ -26,6 +26,7 @@ pub enum CustomNumEnum {
   Two,
   Three = 3,
   Four,
+  #[doc(hidden)]
   Six = 6,
   Eight = 8,
   Nine, // would be 9
