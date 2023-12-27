@@ -135,11 +135,16 @@ impl TryToTokens for NapiFn {
     {
       quote! { #native_call }
     } else if self.kind == FnKind::Constructor {
+      let return_from_factory = if self.catch_unwind {
+        quote! { return Ok(std::ptr::null_mut()); }
+      } else {
+        quote! { return std::ptr::null_mut(); }
+      };
       quote! {
         // constructor function is called from class `factory`
         // so we should skip the original `constructor` logic
         if napi::__private::___CALL_FROM_FACTORY.with(|inner| inner.load(std::sync::atomic::Ordering::Relaxed)) {
-          return std::ptr::null_mut();
+            #return_from_factory
         }
         #function_call_inner
       }

@@ -89,6 +89,14 @@ export class Blake2BKey {
 }
 export type Blake2bKey = Blake2BKey
 
+export class CatchOnConstructor {
+  constructor()
+}
+
+export class CatchOnConstructor2 {
+  constructor()
+}
+
 export class ClassWithFactory {
   name: string
   static withName(name: string): ClassWithFactory

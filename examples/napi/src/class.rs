@@ -432,3 +432,25 @@ impl GetterSetterWithClosures {
     Ok(Self {})
   }
 }
+
+#[napi]
+pub struct CatchOnConstructor {}
+
+#[napi]
+impl CatchOnConstructor {
+  #[napi(constructor, catch_unwind)]
+  pub fn new() -> Self {
+    Self {}
+  }
+}
+
+#[napi]
+pub struct CatchOnConstructor2 {}
+
+#[napi]
+impl CatchOnConstructor2 {
+  #[napi(constructor, catch_unwind)]
+  pub fn new() -> Self {
+    panic!("CatchOnConstructor2 panic");
+  }
+}

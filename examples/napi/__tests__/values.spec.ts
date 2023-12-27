@@ -108,6 +108,8 @@ const {
   arrayBufferPassThrough,
   JsRepo,
   CssStyleSheet,
+  CatchOnConstructor,
+  CatchOnConstructor2,
   asyncReduceBuffer,
   callbackReturnPromise,
   callbackReturnPromiseAndSpawn,
@@ -234,6 +236,24 @@ test('class', (t) => {
     // @ts-expect-error
     plusOne.call('')
   })
+
+  t.notThrows(() => {
+    new CatchOnConstructor()
+  })
+
+  if (!process.env.TEST_ZIG_CROSS) {
+    t.throws(
+      () => {
+        new CatchOnConstructor2()
+      },
+      (() =>
+        process.env.WASI_TEST
+          ? undefined
+          : {
+              message: 'CatchOnConstructor2 panic',
+            })(),
+    )
+  }
 })
 
 test('async self in class', async (t) => {
