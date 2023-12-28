@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.25](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.24...@napi-rs/cli@3.0.0-alpha.25) (2023-12-28)
+
+### Bug Fixes
+
+- **cli:** compatible with napi artifacts -d option ([#1872](https://github.com/napi-rs/napi-rs/issues/1872)) ([72afe03](https://github.com/napi-rs/napi-rs/commit/72afe03aa4c097ecf14f43d9558f6af4db0e1546))
+
 # [3.0.0-alpha.24](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.23...@napi-rs/cli@3.0.0-alpha.24) (2023-12-26)
 
 ### Features
