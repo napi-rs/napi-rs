@@ -319,7 +319,7 @@ const ARTIFACTS_OPTIONS: CommandSchema = {
       type: 'string',
       description:
         'Path to the folder where all built `.node` files put, same as `--output-dir` of build command',
-      short: ['o'],
+      short: ['o', 'd'],
       default: "'./artifacts'",
     },
     {
