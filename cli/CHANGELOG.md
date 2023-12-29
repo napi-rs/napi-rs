@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.26](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.25...@napi-rs/cli@3.0.0-alpha.26) (2023-12-29)
+
+### Bug Fixes
+
+- **cli:** also load wasm file from packages ([#1876](https://github.com/napi-rs/napi-rs/issues/1876)) ([b0ba466](https://github.com/napi-rs/napi-rs/commit/b0ba466f9521b02eeb94b88aacad01558bfa12bc))
+- **cli:** exclude node_modules in artifacts command ([67743b1](https://github.com/napi-rs/napi-rs/commit/67743b10466a49c0bac145d38e904cb89118fb9f))
+
 # [3.0.0-alpha.25](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.24...@napi-rs/cli@3.0.0-alpha.25) (2023-12-28)
 
 ### Bug Fixes
