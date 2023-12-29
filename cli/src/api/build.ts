@@ -799,7 +799,13 @@ class Builder {
         .join(',\n')
       await writeFileAsync(
         newPath,
-        createWasiBinding(name, wasiRegisterFunctions) + exportsCode + '\n',
+        createWasiBinding(
+          name,
+          this.config.packageName,
+          wasiRegisterFunctions,
+        ) +
+          exportsCode +
+          '\n',
         'utf8',
       )
       await writeFileAsync(workerPath, WASI_WORKER_TEMPLATE, 'utf8')

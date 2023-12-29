@@ -1,5 +1,6 @@
 export const createWasiBinding = (
   wasmFileName: string,
+  packageName: string,
   wasiRegisterFunctions: string[],
 ) => `/* eslint-disable */
 /* prettier-ignore */
@@ -30,9 +31,27 @@ const __sharedMemory = new WebAssembly.Memory({
   shared: true,
 })
 
-const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule } = __emnapiInstantiateNapiModuleSync(__nodeFs.readFileSync(__nodePath.join(__dirname, '${wasmFileName}.wasm')), {
+let __wasmFilePath = __nodePath.join(__dirname, '${wasmFileName}.wasm')
+
+if (!__nodeFs.existsSync(__wasmFilePath)) {
+  try {
+    __wasmFilePath = __nodePath.resolve('${packageName}-wasm32-wasi')
+  } catch {
+    throw new Error('Cannot find ${wasmFileName}.wasm file, and ${packageName}-wasm32-wasi package is not installed.')
+  }
+}
+
+const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule } = __emnapiInstantiateNapiModuleSync(__nodeFs.readFileSync(__wasmFilePath), {
   context: __emnapiContext,
-  asyncWorkPoolSize: 4,
+  asyncWorkPoolSize: (function() {
+    const threadsSizeFromEnv = Number(process.env.NAPI_RS_ASYNC_WORK_POOL_SIZE ?? process.env.UV_THREADPOOL_SIZE)
+    // NaN > 0 is false
+    if (threadsSizeFromEnv > 0) {
+      return threadsSizeFromEnv
+    } else {
+      return 4
+    }
+  })(),
   wasi: __wasi,
   onCreateWorker() {
     return new Worker(__nodePath.join(__dirname, 'wasi-worker.mjs'), {
