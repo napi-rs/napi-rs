@@ -1567,7 +1567,7 @@ pub(crate) unsafe extern "C" fn trampoline_setter<
   let closure: &F = Box::leak(unsafe { Box::from_raw(closure_data_ptr.cast()) });
   let env = unsafe { Env::from_raw(raw_env) };
   raw_args
-    .get(0)
+    .first()
     .ok_or_else(|| Error::new(Status::InvalidArg, "Missing argument in property setter"))
     .and_then(|value| unsafe { V::from_napi_value(raw_env, *value) })
     .and_then(|value| {

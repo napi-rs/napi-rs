@@ -2,6 +2,7 @@
 #![allow(unreachable_code)]
 #![allow(clippy::disallowed_names)]
 #![allow(clippy::uninlined_format_args)]
+#![allow(clippy::new_without_default)]
 
 #[macro_use]
 extern crate napi_derive;
