@@ -135,12 +135,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@emnapi/runtime@npm:0.44.0":
-  version: 0.44.0
-  resolution: "@emnapi/runtime@npm:0.44.0"
+"@emnapi/runtime@npm:0.45.0":
+  version: 0.45.0
+  resolution: "@emnapi/runtime@npm:0.45.0"
   dependencies:
     tslib: "npm:^2.4.0"
-  checksum: 68133f288a5f413787610232c90194ab0b692b859a130866f4869483217d94f71ac3fd23aacfb428e0eb438e4882d0e04874690a1f06386b7b35ebae330e698a
+  checksum: c83052b05efb7147c256bfbb69214c9642fef1dce8d7d901e0314a7b2d2dcd14e1cd75502c6565004847e552658e9913a7e58889c7dca92e240173032f1db5d5
   languageName: node
   linkType: hard
 
@@ -574,7 +574,7 @@ __metadata:
   resolution: "@napi-rs/cli@workspace:cli"
   dependencies:
     "@emnapi/core": "npm:0.44.0"
-    "@emnapi/runtime": "npm:0.44.0"
+    "@emnapi/runtime": "npm:0.45.0"
     "@napi-rs/cross-toolchain": "npm:^0.0.14"
     "@octokit/rest": "npm:^20.0.2"
     "@tybys/wasm-util": "npm:0.8.0"
@@ -599,7 +599,7 @@ __metadata:
     typanion: "npm:^3.14.0"
     typescript: "npm:^5.3.2"
   peerDependencies:
-    "@emnapi/runtime": 0.44.0
+    "@emnapi/runtime": 0.45.0
     "@tybys/wasm-util": 0.8.0
     emnapi: 0.44.0
   peerDependenciesMeta:
