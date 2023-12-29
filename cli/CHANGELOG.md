@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.27](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.26...@napi-rs/cli@3.0.0-alpha.27) (2023-12-29)
+
+### Bug Fixes
+
+- **deps:** update dependency emnapi to v0.45.0 ([#1879](https://github.com/napi-rs/napi-rs/issues/1879)) ([e175e6f](https://github.com/napi-rs/napi-rs/commit/e175e6fbd61821ebe7090c740f64872a80cb6b27))
+
 # [3.0.0-alpha.26](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.25...@napi-rs/cli@3.0.0-alpha.26) (2023-12-29)
 
 ### Bug Fixes
