@@ -90,7 +90,9 @@ async function collectNodeBinaries(root: string) {
 
   const dirs = files.filter((file) => file.isDirectory())
   for (const dir of dirs) {
-    nodeBinaries.push(...(await collectNodeBinaries(join(root, dir.name))))
+    if (dir.name !== 'node_modules') {
+      nodeBinaries.push(...(await collectNodeBinaries(join(root, dir.name))))
+    }
   }
   return nodeBinaries
 }
