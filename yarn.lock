@@ -586,7 +586,7 @@ __metadata:
     clipanion: "npm:^3.2.1"
     colorette: "npm:^2.0.20"
     debug: "npm:^4.3.4"
-    emnapi: "npm:0.44.0"
+    emnapi: "npm:0.45.0"
     env-paths: "npm:^3.0.0"
     esbuild: "npm:^0.19.8"
     inquirer: "npm:^9.2.12"
@@ -601,7 +601,7 @@ __metadata:
   peerDependencies:
     "@emnapi/runtime": 0.44.0
     "@tybys/wasm-util": 0.8.0
-    emnapi: 0.44.0
+    emnapi: 0.45.0
   peerDependenciesMeta:
     "@emnapi/runtime":
       optional: true
@@ -3898,15 +3898,15 @@ __metadata:
   languageName: node
   linkType: hard
 
-"emnapi@npm:0.44.0":
-  version: 0.44.0
-  resolution: "emnapi@npm:0.44.0"
+"emnapi@npm:0.45.0":
+  version: 0.45.0
+  resolution: "emnapi@npm:0.45.0"
   peerDependencies:
     node-addon-api: ">= 6.1.0"
   peerDependenciesMeta:
     node-addon-api:
       optional: true
-  checksum: 26e6391479c80e3eb5234feb944370c963d7f851f1d3c7a140dea514809b690549ba110d09211b57763ad5f7e308180a3bcd745484faf5363eeb12b45079542b
+  checksum: 076411fc611c0e3f1c08a9260babbeac8094474d8a4174e6b9f27dc5ba569b51fd42c2513d17d4056680a680a575fb8c81f18259d7208327b53195bf3f58483b
   languageName: node
   linkType: hard
 
