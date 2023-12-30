@@ -127,12 +127,20 @@ unsafe extern "C" fn complete<T: Task>(
     {
       Ok(v) => {
         let status = unsafe { sys::napi_resolve_deferred(env, deferred, v) };
-        debug_assert!(status == sys::Status::napi_ok, "Resolve promise failed");
+        debug_assert!(
+          status == sys::Status::napi_ok,
+          "Resolve promise failed, status: {:?}",
+          crate::Status::from(status)
+        );
       }
       Err(e) => {
         let status =
           unsafe { sys::napi_reject_deferred(env, deferred, JsError::from(e).into_value(env)) };
-        debug_assert!(status == sys::Status::napi_ok, "Reject promise failed");
+        debug_assert!(
+          status == sys::Status::napi_ok,
+          "Reject promise failedm status: {:?}",
+          crate::Status::from(status)
+        );
       }
     };
   }
@@ -142,7 +150,8 @@ unsafe extern "C" fn complete<T: Task>(
   let delete_status = unsafe { sys::napi_delete_async_work(env, napi_async_work) };
   debug_assert!(
     delete_status == sys::Status::napi_ok,
-    "Delete async work failed"
+    "Delete async work failed, status {:?}",
+    crate::Status::from(delete_status)
   );
   work.status.store(1, Ordering::Relaxed);
 }
