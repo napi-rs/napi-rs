@@ -30,3 +30,4 @@ new NapiCli().artifacts({
 | packageJsonPath | --package-json-path | string | false    | 'package.json' | Path to `package.json`                                                                                             |
 | outputDir       | --output-dir,-o,-d  | string | false    | './artifacts'  | Path to the folder where all built `.node` files put, same as `--output-dir` of build command                      |
 | npmDir          | --npm-dir           | string | false    | 'npm'          | Path to the folder where the npm packages put                                                                      |
+| buildOutputDir  | --build-output-dir  | string | false    |                | Path to the build output dir, only needed when targets contains `wasm32-wasi-*`                                    |

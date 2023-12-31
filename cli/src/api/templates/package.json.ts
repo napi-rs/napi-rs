@@ -4,7 +4,7 @@ import type {
 } from '../../utils/config.js'
 import { UNIVERSAL_TARGETS } from '../../utils/target.js'
 
-interface PackageMeta {
+export interface PackageMeta {
   'dist-tags': { [index: string]: string }
 }
 

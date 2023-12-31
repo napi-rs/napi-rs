@@ -13,6 +13,8 @@ import {
   Target,
 } from '../utils/index.js'
 
+import type { PackageMeta } from './templates/package.json.js'
+
 const debug = debugFactory('create-npm-dirs')
 
 export async function createNpmDirs(userOptions: CreateNpmDirsOptions) {
@@ -82,6 +84,21 @@ export async function createNpmDirs(userOptions: CreateNpmDirsOptions) {
     if (target.arch !== 'wasm32') {
       // @ts-expect-error
       scopedPackageJson.os = [target.platform]
+    } else {
+      const entry = `${binaryName}.wasi.cjs`
+      scopedPackageJson.files.push(entry, `wasi-worker.mjs`)
+      scopedPackageJson.main = entry
+      const emnapiCore = await fetch(
+        `https://registry.npmjs.org/@emnapi/core`,
+      ).then((res) => res.json() as Promise<PackageMeta>)
+      const emnapiRuntime = await fetch(
+        `https://registry.npmjs.org/@emnapi/runtime`,
+      ).then((res) => res.json() as Promise<PackageMeta>)
+      // @ts-expect-error
+      scopedPackageJson.dependencies = {
+        '@emnapi/core': `^${emnapiCore['dist-tags'].latest}`,
+        '@emnapi/runtime': `^${emnapiRuntime['dist-tags'].latest}`,
+      }
     }
 
     if (target.abi === 'gnu') {

@@ -1,4 +1,4 @@
-import { join, parse, resolve } from 'node:path'
+import { join, parse } from 'node:path'
 
 import * as colors from 'colorette'
 
@@ -20,11 +20,11 @@ const debug = debugFactory('artifacts')
 export async function collectArtifacts(userOptions: ArtifactsOptions) {
   const options = applyDefaultArtifactsOptions(userOptions)
 
-  const packageJsonPath = resolve(options.cwd, options.packageJsonPath)
+  const packageJsonPath = join(options.cwd, options.packageJsonPath)
   const { targets, binaryName } = await readNapiConfig(packageJsonPath)
 
   const distDirs = targets.map((platform) =>
-    resolve(options.cwd, options.npmDir, platform.platformArchABI),
+    join(options.cwd, options.npmDir, platform.platformArchABI),
   )
 
   const universalSourceBins = new Set(
@@ -36,7 +36,7 @@ export async function collectArtifacts(userOptions: ArtifactsOptions) {
       .filter(Boolean) as string[],
   )
 
-  await collectNodeBinaries(resolve(options.cwd, options.outputDir)).then(
+  await collectNodeBinaries(join(options.cwd, options.outputDir)).then(
     (output) =>
       Promise.all(
         output.map(async (filePath) => {
@@ -80,6 +80,41 @@ export async function collectArtifacts(userOptions: ArtifactsOptions) {
         }),
       ),
   )
+
+  const wasiTarget = targets.find((t) => t.platform === 'wasi')
+  if (wasiTarget) {
+    const wasiDir = join(
+      options.cwd,
+      options.npmDir,
+      wasiTarget.platformArchABI,
+    )
+    const cjsFile = join(
+      options.buildOutputDir ?? options.cwd,
+      `${binaryName}.wasi.cjs`,
+    )
+    const workerFile = join(
+      options.buildOutputDir ?? options.cwd,
+      `wasi-worker.mjs`,
+    )
+    debug.info(
+      `Move wasi cjs file [${colors.yellowBright(
+        cjsFile,
+      )}] to [${colors.yellowBright(wasiDir)}]`,
+    )
+    await writeFileAsync(
+      join(wasiDir, `${binaryName}.wasi.cjs`),
+      await readFileAsync(cjsFile),
+    )
+    debug.info(
+      `Move wasi worker file [${colors.yellowBright(
+        workerFile,
+      )}] to [${colors.yellowBright(wasiDir)}]`,
+    )
+    await writeFileAsync(
+      join(wasiDir, `wasi-worker.mjs`),
+      await readFileAsync(workerFile),
+    )
+  }
 }
 
 async function collectNodeBinaries(root: string) {
