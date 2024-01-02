@@ -138,7 +138,7 @@ unsafe extern "C" fn complete<T: Task>(
           unsafe { sys::napi_reject_deferred(env, deferred, JsError::from(e).into_value(env)) };
         debug_assert!(
           status == sys::Status::napi_ok,
-          "Reject promise failedm status: {:?}",
+          "Reject promise failed, status: {:?}",
           crate::Status::from(status)
         );
       }
