@@ -120,7 +120,11 @@ export async function collectArtifacts(userOptions: ArtifactsOptions) {
 async function collectNodeBinaries(root: string) {
   const files = await readdirAsync(root, { withFileTypes: true })
   const nodeBinaries = files
-    .filter((file) => file.isFile() && file.name.endsWith('.node'))
+    .filter(
+      (file) =>
+        file.isFile() &&
+        (file.name.endsWith('.node') || file.name.endsWith('.wasm')),
+    )
     .map((file) => join(root, file.name))
 
   const dirs = files.filter((file) => file.isDirectory())
