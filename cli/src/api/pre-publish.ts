@@ -192,7 +192,8 @@ export async function prePublish(userOptions: PrePublishOptions) {
               'content-length': dstFileStats.size,
               'content-type': 'application/octet-stream',
             },
-            data: await readFileAsync(dstPath, { encoding: 'utf-8' }),
+            // @ts-expect-error octokit types are wrong
+            data: await readFileAsync(dstPath),
           })
           debug.info(`GitHub release created`)
           debug.info(`Download URL: %s`, assetInfo.data.browser_download_url)
