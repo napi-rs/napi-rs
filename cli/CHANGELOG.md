@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.30](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.29...@napi-rs/cli@3.0.0-alpha.30) (2024-01-03)
+
+### Bug Fixes
+
+- **cli:** upload to github releases issue ([#1888](https://github.com/napi-rs/napi-rs/issues/1888)) ([3889d8a](https://github.com/napi-rs/napi-rs/commit/3889d8ad17d98c99f5ff9a8fd850d216e6fce40a))
+- **cli:** wasi fallback package load logic ([#1887](https://github.com/napi-rs/napi-rs/issues/1887)) ([5746355](https://github.com/napi-rs/napi-rs/commit/57463554e9113e62798478d6429b053b5145239c))
+
 # [3.0.0-alpha.29](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.28...@napi-rs/cli@3.0.0-alpha.29) (2024-01-02)
 
 ### Bug Fixes
