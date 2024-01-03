@@ -1,5 +1,7 @@
 import { join, resolve } from 'node:path'
 
+import { parse } from 'semver'
+
 import {
   applyDefaultCreateNpmDirsOptions,
   CreateNpmDirsOptions,
@@ -88,6 +90,24 @@ export async function createNpmDirs(userOptions: CreateNpmDirsOptions) {
       const entry = `${binaryName}.wasi.cjs`
       scopedPackageJson.files.push(entry, `wasi-worker.mjs`)
       scopedPackageJson.main = entry
+      let needRestrictNodeVersion = true
+      if (scopedPackageJson.engines?.node) {
+        try {
+          const { major } = parse(scopedPackageJson.engines.node) ?? {
+            major: 0,
+          }
+          if (major >= 14) {
+            needRestrictNodeVersion = false
+          }
+        } catch {
+          // ignore
+        }
+      }
+      if (needRestrictNodeVersion) {
+        scopedPackageJson.engines = {
+          node: '>=14.0.0',
+        }
+      }
       const emnapiCore = await fetch(
         `https://registry.npmjs.org/@emnapi/core`,
       ).then((res) => res.json() as Promise<PackageMeta>)
