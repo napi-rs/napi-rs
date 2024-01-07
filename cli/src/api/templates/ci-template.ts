@@ -170,7 +170,7 @@ jobs:
         with:
           operating_system: freebsd
           version: '13.2'
-          memory: 13G
+          memory: 8G
           cpu_count: 3
           environment_variables: 'DEBUG RUSTUP_IO_THREADS'
           shell: bash

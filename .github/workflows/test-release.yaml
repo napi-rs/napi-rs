@@ -479,16 +479,15 @@ jobs:
         run: cargo check -p ${{ matrix.settings.package }} -F ${{ matrix.settings.features }}
 
   test-node-wasi:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     name: Test node wasi target
     timeout-minutes: 10
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - name: Setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
           cache: 'yarn'
       - name: Install
         uses: dtolnay/rust-toolchain@stable
@@ -502,7 +501,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: stable-wasm32-wasi-preview1-threads-node@18-cargo-cache
+          key: stable-wasm32-wasi-preview1-threads-node@20-cargo-cache
       - name: Install dependencies
         run: yarn install --immutable --mode=skip-build
       - name: Build
@@ -514,6 +513,8 @@ jobs:
         env:
           WASI_TEST: 'true'
           NODE_OPTIONS: '--max-old-space-size=8192'
+      - name: Browser test
+        run: yarn workspace @examples/napi vitest
 
   test-latest-bun:
     runs-on: ubuntu-latest
