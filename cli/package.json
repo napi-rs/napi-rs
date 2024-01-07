@@ -69,7 +69,7 @@
   "dependencies": {
     "@napi-rs/cross-toolchain": "^0.0.14",
     "@octokit/rest": "^20.0.2",
-    "@tybys/wasm-util": "0.8.0",
+    "@tybys/wasm-util": "0.8.1",
     "clipanion": "^3.2.1",
     "colorette": "^2.0.20",
     "debug": "^4.3.4",

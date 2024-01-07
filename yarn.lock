@@ -577,7 +577,7 @@ __metadata:
     "@emnapi/runtime": "npm:^0.45.0"
     "@napi-rs/cross-toolchain": "npm:^0.0.14"
     "@octokit/rest": "npm:^20.0.2"
-    "@tybys/wasm-util": "npm:0.8.0"
+    "@tybys/wasm-util": "npm:0.8.1"
     "@types/debug": "npm:^4.1.12"
     "@types/inquirer": "npm:^9.0.7"
     "@types/js-yaml": "npm:^4.0.9"
@@ -1771,7 +1771,16 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@tybys/wasm-util@npm:0.8.0, @tybys/wasm-util@npm:^0.8.0":
+"@tybys/wasm-util@npm:0.8.1":
+  version: 0.8.1
+  resolution: "@tybys/wasm-util@npm:0.8.1"
+  dependencies:
+    tslib: "npm:^2.4.0"
+  checksum: 4e0975ee0ed8202e4af0be45a379ac11fa98e8c17cb5a038bc1d29f6e1bd37eb84be991d725d214d0f257d4aaccd67e5ac6e68c3c81cdd3c7f3f678d05d52cb7
+  languageName: node
+  linkType: hard
+
+"@tybys/wasm-util@npm:^0.8.0":
   version: 0.8.0
   resolution: "@tybys/wasm-util@npm:0.8.0"
   dependencies:
