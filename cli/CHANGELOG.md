@@ -3,6 +3,16 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.31](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.30...@napi-rs/cli@3.0.0-alpha.31) (2024-01-08)
+
+### Bug Fixes
+
+- **deps:** update dependency @tybys/wasm-util to v0.8.1 ([#1892](https://github.com/napi-rs/napi-rs/issues/1892)) ([ecde07f](https://github.com/napi-rs/napi-rs/commit/ecde07f8c1155432abd28d93e40a2cdae0aae109))
+
+### Features
+
+- **cli:** support generate browser compatible codes ([#1891](https://github.com/napi-rs/napi-rs/issues/1891)) ([7d3b53d](https://github.com/napi-rs/napi-rs/commit/7d3b53d41d2c764403b9cbde005e572a96322e33))
+
 # [3.0.0-alpha.30](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.29...@napi-rs/cli@3.0.0-alpha.30) (2024-01-03)
 
 ### Bug Fixes
