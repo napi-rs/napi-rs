@@ -498,6 +498,10 @@ export function runScript(script: string): unknown
 
 export function setSymbolInObj(symbol: symbol): object
 
+export interface Shared {
+  value: number
+}
+
 export const enum Status {
   Pristine = 'Pristine',
   Loading = 'Loading',
