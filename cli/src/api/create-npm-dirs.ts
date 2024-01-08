@@ -90,6 +90,8 @@ export async function createNpmDirs(userOptions: CreateNpmDirsOptions) {
       const entry = `${binaryName}.wasi.cjs`
       scopedPackageJson.files.push(entry, `wasi-worker.mjs`)
       scopedPackageJson.main = entry
+      // @ts-expect-error
+      scopedPackageJson.browser = `${binaryName}.wasi-browser.js`
       let needRestrictNodeVersion = true
       if (scopedPackageJson.engines?.node) {
         try {
@@ -114,10 +116,18 @@ export async function createNpmDirs(userOptions: CreateNpmDirsOptions) {
       const emnapiRuntime = await fetch(
         `https://registry.npmjs.org/@emnapi/runtime`,
       ).then((res) => res.json() as Promise<PackageMeta>)
+      const wasiUtil = await fetch(
+        `https://registry.npmjs.org/@tybys/wasm-util`,
+      ).then((res) => res.json() as Promise<PackageMeta>)
+      const memfsBrowser = await fetch(
+        `https://registry.npmjs.org/memfs-browser`,
+      ).then((res) => res.json() as Promise<PackageMeta>)
       // @ts-expect-error
       scopedPackageJson.dependencies = {
         '@emnapi/core': `^${emnapiCore['dist-tags'].latest}`,
         '@emnapi/runtime': `^${emnapiRuntime['dist-tags'].latest}`,
+        '@tybys/wasm-util': `^${wasiUtil['dist-tags'].latest}`,
+        'memfs-browser': `^${memfsBrowser['dist-tags'].latest}`,
       }
     }
 
@@ -137,7 +147,7 @@ export async function createNpmDirs(userOptions: CreateNpmDirsOptions) {
     const targetReadme = join(targetDir, 'README.md')
     await writeFileAsync(targetReadme, readme(packageName, target))
 
-    debug.info(`${packageName}-${target.platformArchABI} created`)
+    debug.info(`${packageName} -${target.platformArchABI} created`)
   }
 }
 

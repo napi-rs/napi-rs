@@ -32,8 +32,14 @@ import {
 } from '../utils/index.js'
 
 import { createCjsBinding } from './templates/index.js'
-import { createWasiBinding } from './templates/load-wasi-template.js'
-import { WASI_WORKER_TEMPLATE } from './templates/wasi-worker-template.js'
+import {
+  createWasiBinding,
+  createWasiBrowserBinding,
+} from './templates/load-wasi-template.js'
+import {
+  WASI_WORKER_BROWSER_TEMPLATE,
+  WASI_WORKER_TEMPLATE,
+} from './templates/wasi-worker-template.js'
 
 const debug = debugFactory('build')
 const require = createRequire(import.meta.url)
@@ -635,7 +641,7 @@ class Builder {
             })()
           : []
       const jsOutput = await this.writeJsBinding(idents)
-      const wasmOutput = await this.writeWasiBinding(
+      const wasmBindingsOutput = await this.writeWasiBinding(
         wasiRegisterFunctions,
         dest ?? 'index.wasm',
         idents,
@@ -643,8 +649,8 @@ class Builder {
       if (jsOutput) {
         this.outputs.push(jsOutput)
       }
-      if (wasmOutput) {
-        this.outputs.push(wasmOutput)
+      if (wasmBindingsOutput) {
+        this.outputs.push(...wasmBindingsOutput)
       }
     }
 
@@ -790,15 +796,20 @@ class Builder {
   ) {
     if (distFileName && wasiRegisterFunctions.length) {
       const { name, dir } = parse(distFileName)
-      const newPath = join(dir, `${this.config.binaryName}.wasi.cjs`)
+      const bindingPath = join(dir, `${this.config.binaryName}.wasi.cjs`)
+      const browserBindingPath = join(
+        dir,
+        `${this.config.binaryName}.wasi-browser.js`,
+      )
       const workerPath = join(dir, 'wasi-worker.mjs')
+      const browserWorkerPath = join(dir, 'wasi-worker-browser.mjs')
       const exportsCode = idents
         .map(
           (ident) => `module.exports.${ident} = __napiModule.exports.${ident}`,
         )
-        .join(',\n')
+        .join('\n')
       await writeFileAsync(
-        newPath,
+        bindingPath,
         createWasiBinding(
           name,
           this.config.packageName,
@@ -808,12 +819,43 @@ class Builder {
           '\n',
         'utf8',
       )
+      await writeFileAsync(
+        browserBindingPath,
+        createWasiBrowserBinding(name, wasiRegisterFunctions) +
+          idents
+            .map(
+              (ident) =>
+                `export const ${ident} = __napiModule.exports.${ident}`,
+            )
+            .join('\n') +
+          '\n',
+        'utf8',
+      )
       await writeFileAsync(workerPath, WASI_WORKER_TEMPLATE, 'utf8')
-      return {
-        kind: 'wasm',
-        path: newPath,
-      } satisfies Output
+      await writeFileAsync(
+        browserWorkerPath,
+        WASI_WORKER_BROWSER_TEMPLATE,
+        'utf8',
+      )
+      return [
+        {
+          kind: 'js',
+          path: bindingPath,
+        },
+        {
+          kind: 'js',
+          path: browserBindingPath,
+        },
+        {
+          kind: 'js',
+          path: workerPath,
+        },
+        {
+          kind: 'js',
+          path: browserWorkerPath,
+        },
+      ] satisfies Output[]
     }
-    return null
+    return []
   }
 }

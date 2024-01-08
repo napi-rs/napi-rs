@@ -96,8 +96,16 @@ export async function collectArtifacts(userOptions: ArtifactsOptions) {
       options.buildOutputDir ?? options.cwd,
       `wasi-worker.mjs`,
     )
+    const browserEntry = join(
+      options.buildOutputDir ?? options.cwd,
+      `${binaryName}.wasi-browser.js`,
+    )
+    const browserWorkerFile = join(
+      options.buildOutputDir ?? options.cwd,
+      `wasi-worker-browser.js`,
+    )
     debug.info(
-      `Move wasi cjs file [${colors.yellowBright(
+      `Move wasi binding file [${colors.yellowBright(
         cjsFile,
       )}] to [${colors.yellowBright(wasiDir)}]`,
     )
@@ -113,6 +121,24 @@ export async function collectArtifacts(userOptions: ArtifactsOptions) {
     await writeFileAsync(
       join(wasiDir, `wasi-worker.mjs`),
       await readFileAsync(workerFile),
+    )
+    debug.info(
+      `Move wasi browser entry file [${colors.yellowBright(
+        browserEntry,
+      )}] to [${colors.yellowBright(wasiDir)}]`,
+    )
+    await writeFileAsync(
+      join(wasiDir, `${binaryName}.wasi-browser.js`),
+      await readFileAsync(browserEntry),
+    )
+    debug.info(
+      `Move wasi browser worker file [${colors.yellowBright(
+        browserWorkerFile,
+      )}] to [${colors.yellowBright(wasiDir)}]`,
+    )
+    await writeFileAsync(
+      join(wasiDir, `wasi-worker-browser.js`),
+      await readFileAsync(browserWorkerFile),
     )
   }
 }
