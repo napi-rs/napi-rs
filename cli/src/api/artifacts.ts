@@ -137,7 +137,7 @@ export async function collectArtifacts(userOptions: ArtifactsOptions) {
       )}] to [${colors.yellowBright(wasiDir)}]`,
     )
     await writeFileAsync(
-      join(wasiDir, `wasi-worker-browser.js`),
+      join(wasiDir, `wasi-worker-browser.mjs`),
       await readFileAsync(browserWorkerFile),
     )
   }

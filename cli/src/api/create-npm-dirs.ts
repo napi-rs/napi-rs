@@ -88,10 +88,16 @@ export async function createNpmDirs(userOptions: CreateNpmDirsOptions) {
       scopedPackageJson.os = [target.platform]
     } else {
       const entry = `${binaryName}.wasi.cjs`
-      scopedPackageJson.files.push(entry, `wasi-worker.mjs`)
       scopedPackageJson.main = entry
       // @ts-expect-error
       scopedPackageJson.browser = `${binaryName}.wasi-browser.js`
+      scopedPackageJson.files.push(
+        entry,
+        // @ts-expect-error
+        scopedPackageJson.browser,
+        `wasi-worker.mjs`,
+        `wasi-worker-browser.mjs`,
+      )
       let needRestrictNodeVersion = true
       if (scopedPackageJson.engines?.node) {
         try {
