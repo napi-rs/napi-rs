@@ -27,7 +27,7 @@ const __sharedMemory = new WebAssembly.Memory({
   shared: true,
 })
 
-let __wasmFile = await fetch(__wasmUrl).then((res) => res.arrayBuffer())
+const __wasmFile = await fetch(__wasmUrl).then((res) => res.arrayBuffer())
 
 const {
   instance: __napiInstance,
