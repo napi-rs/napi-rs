@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.32](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.31...@napi-rs/cli@3.0.0-alpha.32) (2024-01-08)
+
+### Bug Fixes
+
+- **cli:** missing files in created wasi package ([#1894](https://github.com/napi-rs/napi-rs/issues/1894)) ([9b8dab6](https://github.com/napi-rs/napi-rs/commit/9b8dab6b6363126f93d35979c215d310fb14ae21))
+
 # [3.0.0-alpha.31](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.30...@napi-rs/cli@3.0.0-alpha.31) (2024-01-08)
 
 ### Bug Fixes
