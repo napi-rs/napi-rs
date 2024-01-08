@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.33](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.32...@napi-rs/cli@3.0.0-alpha.33) (2024-01-08)
+
+### Bug Fixes
+
+- **cli:** artifacts wasi worker name ([#1895](https://github.com/napi-rs/napi-rs/issues/1895)) ([1676930](https://github.com/napi-rs/napi-rs/commit/16769307283c9f1c278340da0f6ddc90744d3668))
+
 # [3.0.0-alpha.32](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.31...@napi-rs/cli@3.0.0-alpha.32) (2024-01-08)
 
 ### Bug Fixes
