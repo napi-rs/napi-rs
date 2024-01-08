@@ -102,7 +102,7 @@ export async function collectArtifacts(userOptions: ArtifactsOptions) {
     )
     const browserWorkerFile = join(
       options.buildOutputDir ?? options.cwd,
-      `wasi-worker-browser.js`,
+      `wasi-worker-browser.mjs`,
     )
     debug.info(
       `Move wasi binding file [${colors.yellowBright(
