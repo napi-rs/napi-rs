@@ -89,6 +89,7 @@ export interface CommonPackageJsonFields {
   main?: string
   module?: string
   types?: string
+  browser?: string
   exports?: any
 
   dependencies?: Record<string, string>

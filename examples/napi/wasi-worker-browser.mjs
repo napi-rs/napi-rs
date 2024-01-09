@@ -12,9 +12,13 @@ const handler = new MessageHandler({
   onLoad({ wasmModule, wasmMemory }) {
     const wasi = new WASI({
       fs,
-      print: function() {
+      print: function () {
         // eslint-disable-next-line no-console
         console.log.apply(console, arguments)
+      },
+      printErr: function() {
+        // eslint-disable-next-line no-console
+        console.error.apply(console, arguments)
       },
     })
     return instantiateNapiModuleSync(wasmModule, {
@@ -32,6 +36,6 @@ const handler = new MessageHandler({
   },
 })
 
-globalThis.onmessage = function(e) {
+globalThis.onmessage = function (e) {
   handler.handle(e)
 }
