@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.34](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.33...@napi-rs/cli@3.0.0-alpha.34) (2024-01-10)
+
+### Bug Fixes
+
+- **cli:** add browser entry ([#1899](https://github.com/napi-rs/napi-rs/issues/1899)) ([fc3d5cb](https://github.com/napi-rs/napi-rs/commit/fc3d5cbcff722ce4ffcd2911afedffe2be768046))
+
 # [3.0.0-alpha.33](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.32...@napi-rs/cli@3.0.0-alpha.33) (2024-01-08)
 
 ### Bug Fixes
