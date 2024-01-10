@@ -48,6 +48,7 @@ export const createPackageJson = async ({
     type: 'commonjs',
     main: 'index.js',
     types: 'index.d.ts',
+    browser: 'browser.js',
     module: undefined,
     exports: undefined,
     napi: {

@@ -21,7 +21,8 @@ export async function collectArtifacts(userOptions: ArtifactsOptions) {
   const options = applyDefaultArtifactsOptions(userOptions)
 
   const packageJsonPath = join(options.cwd, options.packageJsonPath)
-  const { targets, binaryName } = await readNapiConfig(packageJsonPath)
+  const { targets, binaryName, packageName } =
+    await readNapiConfig(packageJsonPath)
 
   const distDirs = targets.map((platform) =>
     join(options.cwd, options.npmDir, platform.platformArchABI),
@@ -129,7 +130,11 @@ export async function collectArtifacts(userOptions: ArtifactsOptions) {
     )
     await writeFileAsync(
       join(wasiDir, `${binaryName}.wasi-browser.js`),
-      await readFileAsync(browserEntry),
+      // https://github.com/vitejs/vite/issues/8427
+      (await readFileAsync(browserEntry, 'utf8')).replace(
+        `new URL('./wasi-worker-browser.mjs', import.meta.url)`,
+        `new URL('${packageName}-wasm32-wasi/wasi-worker-browser.mjs', import.meta.url)`,
+      ),
     )
     debug.info(
       `Move wasi browser worker file [${colors.yellowBright(

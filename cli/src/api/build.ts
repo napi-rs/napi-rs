@@ -803,6 +803,7 @@ class Builder {
       )
       const workerPath = join(dir, 'wasi-worker.mjs')
       const browserWorkerPath = join(dir, 'wasi-worker-browser.mjs')
+      const browserEntryPath = join(dir, 'browser.js')
       const exportsCode = idents
         .map(
           (ident) => `module.exports.${ident} = __napiModule.exports.${ident}`,
@@ -837,6 +838,10 @@ class Builder {
         WASI_WORKER_BROWSER_TEMPLATE,
         'utf8',
       )
+      await writeFileAsync(
+        browserEntryPath,
+        `export * from '${this.config.packageName}-wasm32-wasi'\n`,
+      )
       return [
         {
           kind: 'js',
@@ -853,6 +858,10 @@ class Builder {
         {
           kind: 'js',
           path: browserWorkerPath,
+        },
+        {
+          kind: 'js',
+          path: browserEntryPath,
         },
       ] satisfies Output[]
     }
