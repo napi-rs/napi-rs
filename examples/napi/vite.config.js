@@ -15,7 +15,7 @@ export default defineConfig({
   },
   plugins: [
     nodePolyfills({
-      include: ['util', 'stream'],
+      include: ['buffer', 'util', 'stream'],
     }),
     {
       name: 'configure-response-headers',
