@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.36](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.35...@napi-rs/cli@3.0.0-alpha.36) (2024-01-16)
+
+### Bug Fixes
+
+- **cli,wasm-runtime:** dependencies ([#1905](https://github.com/napi-rs/napi-rs/issues/1905)) ([44dc39f](https://github.com/napi-rs/napi-rs/commit/44dc39f1f0d073f8a768e84c8d5aa4783d90b247))
+
 # [3.0.0-alpha.35](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.34...@napi-rs/cli@3.0.0-alpha.35) (2024-01-16)
 
 ### Features
