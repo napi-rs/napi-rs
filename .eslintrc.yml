@@ -205,7 +205,7 @@ overrides:
       - '@typescript-eslint'
     parserOptions:
       project:
-        - ./examples/tsconfig.json
+        - ./tsconfig.json
     rules:
       'import/order':
         [

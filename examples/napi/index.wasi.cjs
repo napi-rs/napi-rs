@@ -8,15 +8,19 @@ const __nodePath = require('node:path')
 const { WASI: __nodeWASI } = require('node:wasi')
 const { Worker } = require('node:worker_threads')
 
-const { instantiateNapiModuleSync: __emnapiInstantiateNapiModuleSync } = require('@emnapi/core')
-const { getDefaultContext: __emnapiGetDefaultContext } = require('@emnapi/runtime')
+const {
+  instantiateNapiModuleSync: __emnapiInstantiateNapiModuleSync,
+} = require('@emnapi/core')
+const {
+  getDefaultContext: __emnapiGetDefaultContext,
+} = require('@emnapi/runtime')
 
 const __wasi = new __nodeWASI({
   version: 'preview1',
   env: process.env,
   preopens: {
-    '/': '/'
-  }
+    '/': '/',
+  },
 })
 
 const __emnapiContext = __emnapiGetDefaultContext()
@@ -33,14 +37,23 @@ if (!__nodeFs.existsSync(__wasmFilePath)) {
   try {
     __wasmFilePath = __nodePath.resolve('@examples/napi-wasm32-wasi')
   } catch {
-    throw new Error('Cannot find index.wasm file, and @examples/napi-wasm32-wasi package is not installed.')
+    throw new Error(
+      'Cannot find index.wasm file, and @examples/napi-wasm32-wasi package is not installed.',
+    )
   }
 }
 
-const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule } = __emnapiInstantiateNapiModuleSync(__nodeFs.readFileSync(__wasmFilePath), {
+const {
+  instance: __napiInstance,
+  module: __wasiModule,
+  napiModule: __napiModule,
+} = __emnapiInstantiateNapiModuleSync(__nodeFs.readFileSync(__wasmFilePath), {
   context: __emnapiContext,
-  asyncWorkPoolSize: (function() {
-    const threadsSizeFromEnv = Number(process.env.NAPI_RS_ASYNC_WORK_POOL_SIZE ?? process.env.UV_THREADPOOL_SIZE)
+  asyncWorkPoolSize: (function () {
+    const threadsSizeFromEnv = Number(
+      process.env.NAPI_RS_ASYNC_WORK_POOL_SIZE ??
+        process.env.UV_THREADPOOL_SIZE,
+    )
     // NaN > 0 is false
     if (threadsSizeFromEnv > 0) {
       return threadsSizeFromEnv
@@ -66,7 +79,7 @@ const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule
   },
   beforeInit({ instance }) {
     __napi_rs_initialize_modules(instance)
-  }
+  },
 })
 
 function __napi_rs_initialize_modules(__napiInstance) {
@@ -95,7 +108,9 @@ function __napi_rs_initialize_modules(__napiInstance) {
   __napiInstance.exports['__napi_register__read_file_21']?.()
   __napiInstance.exports['__napi_register__return_js_function_22']?.()
   __napiInstance.exports['__napi_register__callback_return_promise_23']?.()
-  __napiInstance.exports['__napi_register__callback_return_promise_and_spawn_24']?.()
+  __napiInstance.exports[
+    '__napi_register__callback_return_promise_and_spawn_24'
+  ]?.()
   __napiInstance.exports['__napi_register__capture_error_in_callback_25']?.()
   __napiInstance.exports['__napi_register__Animal_struct_26']?.()
   __napiInstance.exports['__napi_register__Animal_impl_38']?.()
@@ -108,7 +123,9 @@ function __napi_rs_initialize_modules(__napiInstance) {
   __napiInstance.exports['__napi_register__Blake2bKey_struct_50']?.()
   __napiInstance.exports['__napi_register__Context_struct_51']?.()
   __napiInstance.exports['__napi_register__Context_impl_56']?.()
-  __napiInstance.exports['__napi_register__AnimalWithDefaultConstructor_struct_57']?.()
+  __napiInstance.exports[
+    '__napi_register__AnimalWithDefaultConstructor_struct_57'
+  ]?.()
   __napiInstance.exports['__napi_register__NinjaTurtle_struct_58']?.()
   __napiInstance.exports['__napi_register__NinjaTurtle_impl_65']?.()
   __napiInstance.exports['__napi_register__JsAssets_struct_66']?.()
@@ -117,17 +134,27 @@ function __napi_rs_initialize_modules(__napiInstance) {
   __napiInstance.exports['__napi_register__JsAsset_impl_73']?.()
   __napiInstance.exports['__napi_register__Optional_struct_74']?.()
   __napiInstance.exports['__napi_register__Optional_impl_79']?.()
-  __napiInstance.exports['__napi_register__ObjectFieldClassInstance_struct_80']?.()
-  __napiInstance.exports['__napi_register__create_object_with_class_field_81']?.()
-  __napiInstance.exports['__napi_register__receive_object_with_class_field_82']?.()
+  __napiInstance.exports[
+    '__napi_register__ObjectFieldClassInstance_struct_80'
+  ]?.()
+  __napiInstance.exports[
+    '__napi_register__create_object_with_class_field_81'
+  ]?.()
+  __napiInstance.exports[
+    '__napi_register__receive_object_with_class_field_82'
+  ]?.()
   __napiInstance.exports['__napi_register__NotWritableClass_struct_83']?.()
   __napiInstance.exports['__napi_register__NotWritableClass_impl_85']?.()
   __napiInstance.exports['__napi_register__CustomFinalize_struct_86']?.()
   __napiInstance.exports['__napi_register__CustomFinalize_impl_88']?.()
   __napiInstance.exports['__napi_register__Width_struct_89']?.()
   __napiInstance.exports['__napi_register__plus_one_90']?.()
-  __napiInstance.exports['__napi_register__GetterSetterWithClosures_struct_91']?.()
-  __napiInstance.exports['__napi_register__GetterSetterWithClosures_impl_93']?.()
+  __napiInstance.exports[
+    '__napi_register__GetterSetterWithClosures_struct_91'
+  ]?.()
+  __napiInstance.exports[
+    '__napi_register__GetterSetterWithClosures_impl_93'
+  ]?.()
   __napiInstance.exports['__napi_register__CatchOnConstructor_struct_94']?.()
   __napiInstance.exports['__napi_register__CatchOnConstructor_impl_96']?.()
   __napiInstance.exports['__napi_register__CatchOnConstructor2_struct_97']?.()
@@ -140,7 +167,9 @@ function __napi_rs_initialize_modules(__napiInstance) {
   __napiInstance.exports['__napi_register__chrono_date_add_1_minute_109']?.()
   __napiInstance.exports['__napi_register__Dates_struct_110']?.()
   __napiInstance.exports['__napi_register__chrono_native_date_time_111']?.()
-  __napiInstance.exports['__napi_register__chrono_native_date_time_return_112']?.()
+  __napiInstance.exports[
+    '__napi_register__chrono_native_date_time_return_112'
+  ]?.()
   __napiInstance.exports['__napi_register__either_string_or_number_113']?.()
   __napiInstance.exports['__napi_register__return_either_114']?.()
   __napiInstance.exports['__napi_register__either3_115']?.()
@@ -148,7 +177,9 @@ function __napi_rs_initialize_modules(__napiInstance) {
   __napiInstance.exports['__napi_register__either4_117']?.()
   __napiInstance.exports['__napi_register__JsClassForEither_struct_118']?.()
   __napiInstance.exports['__napi_register__JsClassForEither_impl_120']?.()
-  __napiInstance.exports['__napi_register__AnotherClassForEither_struct_121']?.()
+  __napiInstance.exports[
+    '__napi_register__AnotherClassForEither_struct_121'
+  ]?.()
   __napiInstance.exports['__napi_register__AnotherClassForEither_impl_123']?.()
   __napiInstance.exports['__napi_register__receive_class_or_number_124']?.()
   __napiInstance.exports['__napi_register__receive_mut_class_or_number_125']?.()
@@ -197,10 +228,16 @@ function __napi_rs_initialize_modules(__napiInstance) {
   __napiInstance.exports['__napi_register__validate_symbol_168']?.()
   __napiInstance.exports['__napi_register__validate_optional_169']?.()
   __napiInstance.exports['__napi_register__return_undefined_if_invalid_170']?.()
-  __napiInstance.exports['__napi_register__return_undefined_if_invalid_promise_171']?.()
+  __napiInstance.exports[
+    '__napi_register__return_undefined_if_invalid_promise_171'
+  ]?.()
   __napiInstance.exports['__napi_register__ts_rename_172']?.()
-  __napiInstance.exports['__napi_register__override_individual_arg_on_function_173']?.()
-  __napiInstance.exports['__napi_register__override_individual_arg_on_function_with_cb_arg_174']?.()
+  __napiInstance.exports[
+    '__napi_register__override_individual_arg_on_function_173'
+  ]?.()
+  __napiInstance.exports[
+    '__napi_register__override_individual_arg_on_function_with_cb_arg_174'
+  ]?.()
   __napiInstance.exports['__napi_register__Fib_struct_175']?.()
   __napiInstance.exports['__napi_register__Fib_impl_176']?.()
   __napiInstance.exports['__napi_register__Fib_impl_178']?.()
@@ -232,7 +269,9 @@ function __napi_rs_initialize_modules(__napiInstance) {
   __napiInstance.exports['__napi_register__AllOptionalObject_struct_208']?.()
   __napiInstance.exports['__napi_register__receive_all_optional_object_209']?.()
   __napiInstance.exports['__napi_register__AliasedEnum_210']?.()
-  __napiInstance.exports['__napi_register__StructContainsAliasedEnum_struct_211']?.()
+  __napiInstance.exports[
+    '__napi_register__StructContainsAliasedEnum_struct_211'
+  ]?.()
   __napiInstance.exports['__napi_register__fn_received_aliased_212']?.()
   __napiInstance.exports['__napi_register__StrictObject_struct_213']?.()
   __napiInstance.exports['__napi_register__receive_strict_object_214']?.()
@@ -257,7 +296,9 @@ function __napi_rs_initialize_modules(__napiInstance) {
   __napiInstance.exports['__napi_register__read_package_json_243']?.()
   __napiInstance.exports['__napi_register__get_package_json_name_244']?.()
   __napiInstance.exports['__napi_register__test_serde_roundtrip_245']?.()
-  __napiInstance.exports['__napi_register__test_serde_big_number_precision_246']?.()
+  __napiInstance.exports[
+    '__napi_register__test_serde_big_number_precision_246'
+  ]?.()
   __napiInstance.exports['__napi_register__return_from_shared_crate_247']?.()
   __napiInstance.exports['__napi_register__contains_248']?.()
   __napiInstance.exports['__napi_register__concat_str_249']?.()
@@ -272,19 +313,35 @@ function __napi_rs_initialize_modules(__napiInstance) {
   __napiInstance.exports['__napi_register__with_abort_controller_258']?.()
   __napiInstance.exports['__napi_register__AsyncTaskVoidReturn_impl_259']?.()
   __napiInstance.exports['__napi_register__async_task_void_return_260']?.()
-  __napiInstance.exports['__napi_register__AsyncTaskOptionalReturn_impl_261']?.()
+  __napiInstance.exports[
+    '__napi_register__AsyncTaskOptionalReturn_impl_261'
+  ]?.()
   __napiInstance.exports['__napi_register__async_task_optional_return_262']?.()
   __napiInstance.exports['__napi_register__call_threadsafe_function_263']?.()
-  __napiInstance.exports['__napi_register__call_long_threadsafe_function_264']?.()
-  __napiInstance.exports['__napi_register__threadsafe_function_throw_error_265']?.()
-  __napiInstance.exports['__napi_register__threadsafe_function_fatal_mode_266']?.()
-  __napiInstance.exports['__napi_register__threadsafe_function_fatal_mode_error_267']?.()
-  __napiInstance.exports['__napi_register__threadsafe_function_closure_capture_268']?.()
+  __napiInstance.exports[
+    '__napi_register__call_long_threadsafe_function_264'
+  ]?.()
+  __napiInstance.exports[
+    '__napi_register__threadsafe_function_throw_error_265'
+  ]?.()
+  __napiInstance.exports[
+    '__napi_register__threadsafe_function_fatal_mode_266'
+  ]?.()
+  __napiInstance.exports[
+    '__napi_register__threadsafe_function_fatal_mode_error_267'
+  ]?.()
+  __napiInstance.exports[
+    '__napi_register__threadsafe_function_closure_capture_268'
+  ]?.()
   __napiInstance.exports['__napi_register__tsfn_call_with_callback_269']?.()
   __napiInstance.exports['__napi_register__tsfn_async_call_270']?.()
   __napiInstance.exports['__napi_register__accept_threadsafe_function_271']?.()
-  __napiInstance.exports['__napi_register__accept_threadsafe_function_fatal_272']?.()
-  __napiInstance.exports['__napi_register__accept_threadsafe_function_tuple_args_273']?.()
+  __napiInstance.exports[
+    '__napi_register__accept_threadsafe_function_fatal_272'
+  ]?.()
+  __napiInstance.exports[
+    '__napi_register__accept_threadsafe_function_tuple_args_273'
+  ]?.()
   __napiInstance.exports['__napi_register__tsfn_return_promise_274']?.()
   __napiInstance.exports['__napi_register__tsfn_return_promise_timeout_275']?.()
   __napiInstance.exports['__napi_register__tsfn_throw_from_js_276']?.()
@@ -301,8 +358,10 @@ function __napi_rs_initialize_modules(__napiInstance) {
   __napiInstance.exports['__napi_register__async_reduce_buffer_287']?.()
 }
 module.exports.Animal = __napiModule.exports.Animal
-module.exports.AnimalWithDefaultConstructor = __napiModule.exports.AnimalWithDefaultConstructor
-module.exports.AnotherClassForEither = __napiModule.exports.AnotherClassForEither
+module.exports.AnimalWithDefaultConstructor =
+  __napiModule.exports.AnimalWithDefaultConstructor
+module.exports.AnotherClassForEither =
+  __napiModule.exports.AnotherClassForEither
 module.exports.AnotherCssStyleSheet = __napiModule.exports.AnotherCssStyleSheet
 module.exports.AnotherCSSStyleSheet = __napiModule.exports.AnotherCSSStyleSheet
 module.exports.Asset = __napiModule.exports.Asset
@@ -327,7 +386,8 @@ module.exports.Dog = __napiModule.exports.Dog
 module.exports.Fib = __napiModule.exports.Fib
 module.exports.Fib2 = __napiModule.exports.Fib2
 module.exports.Fib3 = __napiModule.exports.Fib3
-module.exports.GetterSetterWithClosures = __napiModule.exports.GetterSetterWithClosures
+module.exports.GetterSetterWithClosures =
+  __napiModule.exports.GetterSetterWithClosures
 module.exports.JsClassForEither = __napiModule.exports.JsClassForEither
 module.exports.JsRemote = __napiModule.exports.JsRemote
 module.exports.JsRepo = __napiModule.exports.JsRepo
@@ -336,33 +396,44 @@ module.exports.NotWritableClass = __napiModule.exports.NotWritableClass
 module.exports.Optional = __napiModule.exports.Optional
 module.exports.Selector = __napiModule.exports.Selector
 module.exports.Width = __napiModule.exports.Width
-module.exports.acceptThreadsafeFunction = __napiModule.exports.acceptThreadsafeFunction
-module.exports.acceptThreadsafeFunctionFatal = __napiModule.exports.acceptThreadsafeFunctionFatal
-module.exports.acceptThreadsafeFunctionTupleArgs = __napiModule.exports.acceptThreadsafeFunctionTupleArgs
+module.exports.acceptThreadsafeFunction =
+  __napiModule.exports.acceptThreadsafeFunction
+module.exports.acceptThreadsafeFunctionFatal =
+  __napiModule.exports.acceptThreadsafeFunctionFatal
+module.exports.acceptThreadsafeFunctionTupleArgs =
+  __napiModule.exports.acceptThreadsafeFunctionTupleArgs
 module.exports.add = __napiModule.exports.add
 module.exports.ALIAS = __napiModule.exports.ALIAS
 module.exports.AliasedEnum = __napiModule.exports.AliasedEnum
 module.exports.appendBuffer = __napiModule.exports.appendBuffer
-module.exports.arrayBufferPassThrough = __napiModule.exports.arrayBufferPassThrough
+module.exports.arrayBufferPassThrough =
+  __napiModule.exports.arrayBufferPassThrough
 module.exports.asyncMultiTwo = __napiModule.exports.asyncMultiTwo
 module.exports.asyncPlus100 = __napiModule.exports.asyncPlus100
 module.exports.asyncReduceBuffer = __napiModule.exports.asyncReduceBuffer
-module.exports.asyncTaskOptionalReturn = __napiModule.exports.asyncTaskOptionalReturn
+module.exports.asyncTaskOptionalReturn =
+  __napiModule.exports.asyncTaskOptionalReturn
 module.exports.asyncTaskVoidReturn = __napiModule.exports.asyncTaskVoidReturn
 module.exports.bigintAdd = __napiModule.exports.bigintAdd
 module.exports.bigintFromI128 = __napiModule.exports.bigintFromI128
 module.exports.bigintFromI64 = __napiModule.exports.bigintFromI64
 module.exports.bigintGetU64AsString = __napiModule.exports.bigintGetU64AsString
 module.exports.bufferPassThrough = __napiModule.exports.bufferPassThrough
-module.exports.callbackReturnPromise = __napiModule.exports.callbackReturnPromise
-module.exports.callbackReturnPromiseAndSpawn = __napiModule.exports.callbackReturnPromiseAndSpawn
-module.exports.callLongThreadsafeFunction = __napiModule.exports.callLongThreadsafeFunction
-module.exports.callThreadsafeFunction = __napiModule.exports.callThreadsafeFunction
-module.exports.captureErrorInCallback = __napiModule.exports.captureErrorInCallback
+module.exports.callbackReturnPromise =
+  __napiModule.exports.callbackReturnPromise
+module.exports.callbackReturnPromiseAndSpawn =
+  __napiModule.exports.callbackReturnPromiseAndSpawn
+module.exports.callLongThreadsafeFunction =
+  __napiModule.exports.callLongThreadsafeFunction
+module.exports.callThreadsafeFunction =
+  __napiModule.exports.callThreadsafeFunction
+module.exports.captureErrorInCallback =
+  __napiModule.exports.captureErrorInCallback
 module.exports.chronoDateAdd1Minute = __napiModule.exports.chronoDateAdd1Minute
 module.exports.chronoDateToMillis = __napiModule.exports.chronoDateToMillis
 module.exports.chronoNativeDateTime = __napiModule.exports.chronoNativeDateTime
-module.exports.chronoNativeDateTimeReturn = __napiModule.exports.chronoNativeDateTimeReturn
+module.exports.chronoNativeDateTimeReturn =
+  __napiModule.exports.chronoNativeDateTimeReturn
 module.exports.concatLatin1 = __napiModule.exports.concatLatin1
 module.exports.concatStr = __napiModule.exports.concatStr
 module.exports.concatUtf16 = __napiModule.exports.concatUtf16
@@ -372,10 +443,13 @@ module.exports.createBigInt = __napiModule.exports.createBigInt
 module.exports.createBigIntI64 = __napiModule.exports.createBigIntI64
 module.exports.createExternal = __napiModule.exports.createExternal
 module.exports.createExternalString = __napiModule.exports.createExternalString
-module.exports.createExternalTypedArray = __napiModule.exports.createExternalTypedArray
+module.exports.createExternalTypedArray =
+  __napiModule.exports.createExternalTypedArray
 module.exports.createObj = __napiModule.exports.createObj
-module.exports.createObjectWithClassField = __napiModule.exports.createObjectWithClassField
-module.exports.createObjWithProperty = __napiModule.exports.createObjWithProperty
+module.exports.createObjectWithClassField =
+  __napiModule.exports.createObjectWithClassField
+module.exports.createObjWithProperty =
+  __napiModule.exports.createObjWithProperty
 module.exports.createSymbol = __napiModule.exports.createSymbol
 module.exports.createSymbolFor = __napiModule.exports.createSymbolFor
 module.exports.CustomNumEnum = __napiModule.exports.CustomNumEnum
@@ -418,42 +492,57 @@ module.exports.optionEnd = __napiModule.exports.optionEnd
 module.exports.optionOnly = __napiModule.exports.optionOnly
 module.exports.optionStart = __napiModule.exports.optionStart
 module.exports.optionStartEnd = __napiModule.exports.optionStartEnd
-module.exports.overrideIndividualArgOnFunction = __napiModule.exports.overrideIndividualArgOnFunction
-module.exports.overrideIndividualArgOnFunctionWithCbArg = __napiModule.exports.overrideIndividualArgOnFunctionWithCbArg
+module.exports.overrideIndividualArgOnFunction =
+  __napiModule.exports.overrideIndividualArgOnFunction
+module.exports.overrideIndividualArgOnFunctionWithCbArg =
+  __napiModule.exports.overrideIndividualArgOnFunctionWithCbArg
 module.exports.panic = __napiModule.exports.panic
 module.exports.plusOne = __napiModule.exports.plusOne
 module.exports.promiseInEither = __napiModule.exports.promiseInEither
 module.exports.readFile = __napiModule.exports.readFile
 module.exports.readFileAsync = __napiModule.exports.readFileAsync
 module.exports.readPackageJson = __napiModule.exports.readPackageJson
-module.exports.receiveAllOptionalObject = __napiModule.exports.receiveAllOptionalObject
+module.exports.receiveAllOptionalObject =
+  __napiModule.exports.receiveAllOptionalObject
 module.exports.receiveClassOrNumber = __napiModule.exports.receiveClassOrNumber
-module.exports.receiveDifferentClass = __napiModule.exports.receiveDifferentClass
-module.exports.receiveMutClassOrNumber = __napiModule.exports.receiveMutClassOrNumber
-module.exports.receiveObjectOnlyFromJs = __napiModule.exports.receiveObjectOnlyFromJs
-module.exports.receiveObjectWithClassField = __napiModule.exports.receiveObjectWithClassField
+module.exports.receiveDifferentClass =
+  __napiModule.exports.receiveDifferentClass
+module.exports.receiveMutClassOrNumber =
+  __napiModule.exports.receiveMutClassOrNumber
+module.exports.receiveObjectOnlyFromJs =
+  __napiModule.exports.receiveObjectOnlyFromJs
+module.exports.receiveObjectWithClassField =
+  __napiModule.exports.receiveObjectWithClassField
 module.exports.receiveStrictObject = __napiModule.exports.receiveStrictObject
 module.exports.receiveString = __napiModule.exports.receiveString
 module.exports.returnEither = __napiModule.exports.returnEither
 module.exports.returnEitherClass = __napiModule.exports.returnEitherClass
-module.exports.returnFromSharedCrate = __napiModule.exports.returnFromSharedCrate
+module.exports.returnFromSharedCrate =
+  __napiModule.exports.returnFromSharedCrate
 module.exports.returnJsFunction = __napiModule.exports.returnJsFunction
 module.exports.returnNull = __napiModule.exports.returnNull
 module.exports.returnUndefined = __napiModule.exports.returnUndefined
-module.exports.returnUndefinedIfInvalid = __napiModule.exports.returnUndefinedIfInvalid
-module.exports.returnUndefinedIfInvalidPromise = __napiModule.exports.returnUndefinedIfInvalidPromise
+module.exports.returnUndefinedIfInvalid =
+  __napiModule.exports.returnUndefinedIfInvalid
+module.exports.returnUndefinedIfInvalidPromise =
+  __napiModule.exports.returnUndefinedIfInvalidPromise
 module.exports.roundtripStr = __napiModule.exports.roundtripStr
 module.exports.runScript = __napiModule.exports.runScript
 module.exports.setSymbolInObj = __napiModule.exports.setSymbolInObj
 module.exports.Status = __napiModule.exports.Status
 module.exports.sumMapping = __napiModule.exports.sumMapping
 module.exports.sumNums = __napiModule.exports.sumNums
-module.exports.testSerdeBigNumberPrecision = __napiModule.exports.testSerdeBigNumberPrecision
+module.exports.testSerdeBigNumberPrecision =
+  __napiModule.exports.testSerdeBigNumberPrecision
 module.exports.testSerdeRoundtrip = __napiModule.exports.testSerdeRoundtrip
-module.exports.threadsafeFunctionClosureCapture = __napiModule.exports.threadsafeFunctionClosureCapture
-module.exports.threadsafeFunctionFatalMode = __napiModule.exports.threadsafeFunctionFatalMode
-module.exports.threadsafeFunctionFatalModeError = __napiModule.exports.threadsafeFunctionFatalModeError
-module.exports.threadsafeFunctionThrowError = __napiModule.exports.threadsafeFunctionThrowError
+module.exports.threadsafeFunctionClosureCapture =
+  __napiModule.exports.threadsafeFunctionClosureCapture
+module.exports.threadsafeFunctionFatalMode =
+  __napiModule.exports.threadsafeFunctionFatalMode
+module.exports.threadsafeFunctionFatalModeError =
+  __napiModule.exports.threadsafeFunctionFatalModeError
+module.exports.threadsafeFunctionThrowError =
+  __napiModule.exports.threadsafeFunctionThrowError
 module.exports.throwAsyncError = __napiModule.exports.throwAsyncError
 module.exports.throwError = __napiModule.exports.throwError
 module.exports.throwSyntaxError = __napiModule.exports.throwSyntaxError
@@ -461,7 +550,8 @@ module.exports.toJsObj = __napiModule.exports.toJsObj
 module.exports.tsfnAsyncCall = __napiModule.exports.tsfnAsyncCall
 module.exports.tsfnCallWithCallback = __napiModule.exports.tsfnCallWithCallback
 module.exports.tsfnReturnPromise = __napiModule.exports.tsfnReturnPromise
-module.exports.tsfnReturnPromiseTimeout = __napiModule.exports.tsfnReturnPromiseTimeout
+module.exports.tsfnReturnPromiseTimeout =
+  __napiModule.exports.tsfnReturnPromiseTimeout
 module.exports.tsfnThrowFromJs = __napiModule.exports.tsfnThrowFromJs
 module.exports.tsRename = __napiModule.exports.tsRename
 module.exports.validateArray = __napiModule.exports.validateArray
@@ -482,7 +572,8 @@ module.exports.validateSymbol = __napiModule.exports.validateSymbol
 module.exports.validateTypedArray = __napiModule.exports.validateTypedArray
 module.exports.validateUndefined = __napiModule.exports.validateUndefined
 module.exports.withAbortController = __napiModule.exports.withAbortController
-module.exports.withoutAbortController = __napiModule.exports.withoutAbortController
+module.exports.withoutAbortController =
+  __napiModule.exports.withoutAbortController
 module.exports.xxh64Alias = __napiModule.exports.xxh64Alias
 module.exports.xxh2 = __napiModule.exports.xxh2
 module.exports.xxh3 = __napiModule.exports.xxh3

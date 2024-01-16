@@ -1,0 +1,49 @@
+diff --git a/index.js b/index.js
+index 7a0e9c2a123bc9d26c20bb3de4a3c4e49b24ee40..b1a53729c2900ddfca88a0f312a785c51a5aac80 100644
+--- a/index.js
++++ b/index.js
+@@ -8,19 +8,17 @@
+ 
+ 'use strict'
+ 
+-const base64 = require('base64-js')
+-const ieee754 = require('ieee754')
++import * as base64 from 'base64-js'
++import * as ieee754 from 'ieee754'
+ const customInspectSymbol =
+   (typeof Symbol === 'function' && typeof Symbol['for'] === 'function') // eslint-disable-line dot-notation
+     ? Symbol['for']('nodejs.util.inspect.custom') // eslint-disable-line dot-notation
+     : null
+ 
+-exports.Buffer = Buffer
+-exports.SlowBuffer = SlowBuffer
+-exports.INSPECT_MAX_BYTES = 50
++const INSPECT_MAX_BYTES = 50
+ 
+ const K_MAX_LENGTH = 0x7fffffff
+-exports.kMaxLength = K_MAX_LENGTH
++const kMaxLength = K_MAX_LENGTH
+ 
+ /**
+  * If `Buffer.TYPED_ARRAY_SUPPORT`:
+@@ -616,7 +614,7 @@ Buffer.prototype.equals = function equals (b) {
+ 
+ Buffer.prototype.inspect = function inspect () {
+   let str = ''
+-  const max = exports.INSPECT_MAX_BYTES
++  const max = INSPECT_MAX_BYTES
+   str = this.toString('hex', 0, max).replace(/(.{2})/g, '$1 ').trim()
+   if (this.length > max) str += ' ... '
+   return '<Buffer ' + str + '>'
+@@ -2104,3 +2102,10 @@ function defineBigIntMethod (fn) {
+ function BufferBigIntNotDefined () {
+   throw new Error('BigInt not supported')
+ }
++
++export {
++  Buffer,
++  SlowBuffer,
++  INSPECT_MAX_BYTES,
++  kMaxLength,
++}
+\ No newline at end of file

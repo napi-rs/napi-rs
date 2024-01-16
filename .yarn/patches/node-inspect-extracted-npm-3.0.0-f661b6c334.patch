@@ -1,0 +1,3839 @@
+diff --git a/dist/inspect.js b/dist/inspect.js
+index 8a323f4df754c11beffd03bb63c5d24c0ea43724..a79b3ef0801ea5d9bf8e5538052e41428ce65f8e 100644
+--- a/dist/inspect.js
++++ b/dist/inspect.js
+@@ -1 +1,3832 @@
+-!function(t,e){"object"==typeof exports&&"object"==typeof module?module.exports=e():"function"==typeof define&&define.amd?define([],e):"object"==typeof exports?exports.util=e():t.util=e()}(this,(()=>(()=>{"use strict";var t={165:(t,e)=>{function r(t){return r="function"==typeof Symbol&&"symbol"==typeof Symbol.iterator?function(t){return typeof t}:function(t){return t&&"function"==typeof Symbol&&t.constructor===Symbol&&t!==Symbol.prototype?"symbol":typeof t},r(t)}function n(t,e){for(var n=0;n<e.length;n++){var o=e[n];o.enumerable=o.enumerable||!1,o.configurable=!0,"value"in o&&(o.writable=!0),Object.defineProperty(t,(void 0,i=function(t,e){if("object"!==r(t)||null===t)return t;var n=t[Symbol.toPrimitive];if(void 0!==n){var o=n.call(t,"string");if("object"!==r(o))return o;throw new TypeError("@@toPrimitive must return a primitive value.")}return String(t)}(o.key),"symbol"===r(i)?i:String(i)),o)}var i}var o=function(){function t(){!function(t,e){if(!(t instanceof e))throw new TypeError("Cannot call a class as a function")}(this,t)}var e,r;return e=t,r=[{key:"hexSlice",value:function(){var t=arguments.length>0&&void 0!==arguments[0]?arguments[0]:0,e=arguments.length>1?arguments[1]:void 0;return Array.prototype.map.call(this.slice(t,e),(function(t){return("00"+t.toString(16)).slice(-2)})).join("")}}],r&&n(e.prototype,r),Object.defineProperty(e,"prototype",{writable:!1}),t}();e.l=o},777:(t,e,r)=>{function n(t){return n="function"==typeof Symbol&&"symbol"==typeof Symbol.iterator?function(t){return typeof t}:function(t){return t&&"function"==typeof Symbol&&t.constructor===Symbol&&t!==Symbol.prototype?"symbol":typeof t},n(t)}function o(t,e){var r="undefined"!=typeof Symbol&&t[Symbol.iterator]||t["@@iterator"];if(!r){if(Array.isArray(t)||(r=function(t,e){if(t){if("string"==typeof t)return i(t,e);var r=Object.prototype.toString.call(t).slice(8,-1);return"Object"===r&&t.constructor&&(r=t.constructor.name),"Map"===r||"Set"===r?Array.from(t):"Arguments"===r||/^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(r)?i(t,e):void 0}}(t))||e&&t&&"number"==typeof t.length){r&&(t=r);var n=0,o=function(){};return{s:o,n:function(){return n>=t.length?{done:!0}:{done:!1,value:t[n++]}},e:function(t){throw t},f:o}}throw new TypeError("Invalid attempt to iterate non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method.")}var a,c=!0,l=!1;return{s:function(){r=r.call(t)},n:function(){var t=r.next();return c=t.done,t},e:function(t){l=!0,a=t},f:function(){try{c||null==r.return||r.return()}finally{if(l)throw a}}}}function i(t,e){(null==e||e>t.length)&&(e=t.length);for(var r=0,n=new Array(e);r<e;r++)n[r]=t[r];return n}function a(t,e){var r=Object.keys(t);if(Object.getOwnPropertySymbols){var n=Object.getOwnPropertySymbols(t);e&&(n=n.filter((function(e){return Object.getOwnPropertyDescriptor(t,e).enumerable}))),r.push.apply(r,n)}return r}function c(t){for(var e=1;e<arguments.length;e++){var r=null!=arguments[e]?arguments[e]:{};e%2?a(Object(r),!0).forEach((function(e){l(t,e,r[e])})):Object.getOwnPropertyDescriptors?Object.defineProperties(t,Object.getOwnPropertyDescriptors(r)):a(Object(r)).forEach((function(e){Object.defineProperty(t,e,Object.getOwnPropertyDescriptor(r,e))}))}return t}function l(t,e,r){return(e=function(t){var e=function(t,e){if("object"!==n(t)||null===t)return t;var r=t[Symbol.toPrimitive];if(void 0!==r){var o=r.call(t,"string");if("object"!==n(o))return o;throw new TypeError("@@toPrimitive must return a primitive value.")}return String(t)}(t);return"symbol"===n(e)?e:String(e)}(e))in t?Object.defineProperty(t,e,{value:r,enumerable:!0,configurable:!0,writable:!0}):t[e]=r,t}var u,p,f=r(541),y=f.internalBinding,s=f.Array,g=f.ArrayIsArray,d=f.ArrayPrototypeFilter,b=f.ArrayPrototypeForEach,h=f.ArrayPrototypeIncludes,v=f.ArrayPrototypeIndexOf,m=f.ArrayPrototypeJoin,S=f.ArrayPrototypeMap,P=f.ArrayPrototypePop,x=f.ArrayPrototypePush,O=f.ArrayPrototypePushApply,A=f.ArrayPrototypeSlice,w=f.ArrayPrototypeSplice,j=f.ArrayPrototypeSort,E=f.ArrayPrototypeUnshift,_=f.BigIntPrototypeValueOf,F=f.BooleanPrototypeValueOf,L=f.DatePrototypeGetTime,R=f.DatePrototypeToISOString,T=f.DatePrototypeToString,I=f.ErrorPrototypeToString,k=f.FunctionPrototypeBind,z=f.FunctionPrototypeCall,M=f.FunctionPrototypeToString,B=f.JSONStringify,N=f.MapPrototypeGetSize,D=f.MapPrototypeEntries,C=f.MathFloor,H=f.MathMax,G=f.MathMin,W=f.MathRound,U=f.MathSqrt,V=f.MathTrunc,$=f.Number,Z=f.NumberIsFinite,q=f.NumberIsNaN,K=f.NumberParseFloat,Y=f.NumberParseInt,J=f.NumberPrototypeToString,Q=f.NumberPrototypeValueOf,X=f.Object,tt=f.ObjectAssign,et=f.ObjectDefineProperty,rt=f.ObjectGetOwnPropertyDescriptor,nt=f.ObjectGetOwnPropertyNames,ot=f.ObjectGetOwnPropertySymbols,it=f.ObjectGetPrototypeOf,at=f.ObjectIs,ct=f.ObjectKeys,lt=f.ObjectPrototypeHasOwnProperty,ut=f.ObjectPrototypePropertyIsEnumerable,pt=f.ObjectSeal,ft=f.ObjectSetPrototypeOf,yt=f.ReflectApply,st=f.ReflectOwnKeys,gt=f.RegExp,dt=f.RegExpPrototypeExec,bt=f.RegExpPrototypeSymbolReplace,ht=f.RegExpPrototypeSymbolSplit,vt=f.RegExpPrototypeToString,mt=f.SafeStringIterator,St=f.SafeMap,Pt=f.SafeSet,xt=f.SetPrototypeGetSize,Ot=f.SetPrototypeValues,At=f.String,wt=f.StringPrototypeCharCodeAt,jt=f.StringPrototypeCodePointAt,Et=f.StringPrototypeIncludes,_t=f.StringPrototypeIndexOf,Ft=f.StringPrototypeLastIndexOf,Lt=f.StringPrototypeNormalize,Rt=f.StringPrototypePadEnd,Tt=f.StringPrototypePadStart,It=f.StringPrototypeRepeat,kt=f.StringPrototypeReplaceAll,zt=f.StringPrototypeSlice,Mt=f.StringPrototypeSplit,Bt=f.StringPrototypeEndsWith,Nt=f.StringPrototypeStartsWith,Dt=f.StringPrototypeToLowerCase,Ct=f.StringPrototypeTrim,Ht=f.StringPrototypeValueOf,Gt=f.SymbolPrototypeToString,Wt=f.SymbolPrototypeValueOf,Ut=f.SymbolIterator,Vt=f.SymbolToStringTag,$t=f.TypedArrayPrototypeGetLength,Zt=f.TypedArrayPrototypeGetSymbolToStringTag,qt=f.Uint8Array,Kt=f.globalThis,Yt=f.uncurryThis,Jt=r(364),Qt=Jt.constants,Xt=Qt.ALL_PROPERTIES,te=Qt.ONLY_ENUMERABLE,ee=Qt.kPending,re=Qt.kRejected,ne=Jt.getOwnNonIndexProperties,oe=Jt.getPromiseDetails,ie=Jt.getProxyDetails,ae=Jt.previewEntries,ce=Jt.getConstructorName,le=Jt.getExternalValue,ue=Jt.Proxy,pe=r(216),fe=pe.customInspectSymbol,ye=pe.isError,se=pe.join,ge=pe.removeColors,de=r(186).isStackOverflowError,be=r(581),he=be.isAsyncFunction,ve=be.isGeneratorFunction,me=be.isAnyArrayBuffer,Se=be.isArrayBuffer,Pe=be.isArgumentsObject,xe=be.isBoxedPrimitive,Oe=be.isDataView,Ae=be.isExternal,we=be.isMap,je=be.isMapIterator,Ee=be.isModuleNamespaceObject,_e=be.isNativeError,Fe=be.isPromise,Le=be.isSet,Re=be.isSetIterator,Te=be.isWeakMap,Ie=be.isWeakSet,ke=be.isRegExp,ze=be.isDate,Me=be.isTypedArray,Be=be.isStringObject,Ne=be.isNumberObject,De=be.isBooleanObject,Ce=be.isBigIntObject,He=r(87),Ge=r(361).BuiltinModule,We=r(659),Ue=We.validateObject,Ve=We.validateString;var $e,Ze,qe,Ke,Ye,Je=new Pt(d(nt(Kt),(function(t){return null!==dt(/^[A-Z][a-zA-Z0-9]+$/,t)}))),Qe=function(t){return void 0===t&&void 0!==t},Xe=pt({showHidden:!1,depth:2,colors:!1,customInspect:!0,showProxy:!1,maxArrayLength:100,maxStringLength:1e4,breakLength:80,compact:3,sorted:!1,getters:!1,numericSeparator:!1}),tr=0,er=1,rr=2;try{$e=new gt("[\\x00-\\x1f\\x27\\x5c\\x7f-\\x9f]|[\\ud800-\\udbff](?![\\udc00-\\udfff])|(?<![\\ud800-\\udbff])[\\udc00-\\udfff]"),Ze=new gt("[\0-\\x1f\\x27\\x5c\\x7f-\\x9f]|[\\ud800-\\udbff](?![\\udc00-\\udfff])|(?<![\\ud800-\\udbff])[\\udc00-\\udfff]","g"),qe=new gt("[\\x00-\\x1f\\x5c\\x7f-\\x9f]|[\\ud800-\\udbff](?![\\udc00-\\udfff])|(?<![\\ud800-\\udbff])[\\udc00-\\udfff]"),Ke=new gt("[\\x00-\\x1f\\x5c\\x7f-\\x9f]|[\\ud800-\\udbff](?![\\udc00-\\udfff])|(?<![\\ud800-\\udbff])[\\udc00-\\udfff]","g");var nr=new gt("(?<=\\n)");Ye=function(t){return ht(nr,t)}}catch(t){$e=/[\x00-\x1f\x27\x5c\x7f-\x9f]/,Ze=/[\x00-\x1f\x27\x5c\x7f-\x9f]/g,qe=/[\x00-\x1f\x5c\x7f-\x9f]/,Ke=/[\x00-\x1f\x5c\x7f-\x9f]/g,Ye=function(t){var e=ht(/\n/,t),r=P(e),n=S(e,(function(t){return t+"\n"}));return""!==r&&n.push(r),n}}var or,ir=/^[a-zA-Z_][a-zA-Z_0-9]*$/,ar=/^(0|[1-9][0-9]*)$/,cr=/^ {4}at (?:[^/\\(]+ \(|)node:(.+):\d+:\d+\)?$/,lr=/[/\\]node_modules[/\\](.+?)(?=[/\\])/g,ur=/^(\s+[^(]*?)\s*{/,pr=/(\/\/.*?\n)|(\/\*(.|\n)*?\*\/)/g,fr=16,yr=0,sr=1,gr=2,dr=["\\x00","\\x01","\\x02","\\x03","\\x04","\\x05","\\x06","\\x07","\\b","\\t","\\n","\\x0B","\\f","\\r","\\x0E","\\x0F","\\x10","\\x11","\\x12","\\x13","\\x14","\\x15","\\x16","\\x17","\\x18","\\x19","\\x1A","\\x1B","\\x1C","\\x1D","\\x1E","\\x1F","","","","","","","","\\'","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","\\\\","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","\\x7F","\\x80","\\x81","\\x82","\\x83","\\x84","\\x85","\\x86","\\x87","\\x88","\\x89","\\x8A","\\x8B","\\x8C","\\x8D","\\x8E","\\x8F","\\x90","\\x91","\\x92","\\x93","\\x94","\\x95","\\x96","\\x97","\\x98","\\x99","\\x9A","\\x9B","\\x9C","\\x9D","\\x9E","\\x9F"],br=new gt("[\\u001B\\u009B][[\\]()#;?]*(?:(?:(?:(?:;[-a-zA-Z\\d\\/#&.:=?%@~_]+)*|[a-zA-Z\\d]+(?:;[-a-zA-Z\\d\\/#&.:=?%@~_]*)*)?\\u0007)|(?:(?:\\d{1,4}(?:;\\d{0,4})*)?[\\dA-PR-TZcf-ntqry=><~]))","g");function hr(t,e){var r={budget:{},indentationLvl:0,seen:[],currentDepth:0,stylize:wr,showHidden:Xe.showHidden,depth:Xe.depth,colors:Xe.colors,customInspect:Xe.customInspect,showProxy:Xe.showProxy,maxArrayLength:Xe.maxArrayLength,maxStringLength:Xe.maxStringLength,breakLength:Xe.breakLength,compact:Xe.compact,sorted:Xe.sorted,getters:Xe.getters,numericSeparator:Xe.numericSeparator};if(arguments.length>1)if(arguments.length>2&&(void 0!==arguments[2]&&(r.depth=arguments[2]),arguments.length>3&&void 0!==arguments[3]&&(r.colors=arguments[3])),"boolean"==typeof e)r.showHidden=e;else if(e)for(var n=ct(e),o=0;o<n.length;++o){var i=n[o];lt(Xe,i)||"stylize"===i?r[i]=e[i]:void 0===r.userOptions&&(r.userOptions=e)}return r.colors&&(r.stylize=Ar),null===r.maxArrayLength&&(r.maxArrayLength=1/0),null===r.maxStringLength&&(r.maxStringLength=1/0),Ir(r,t,0)}hr.custom=fe,et(hr,"defaultOptions",{__proto__:null,get:function(){return Xe},set:function(t){return Ue(t,"options"),tt(Xe,t)}});var vr=39,mr=49;function Sr(t,e){et(hr.colors,e,{__proto__:null,get:function(){return this[t]},set:function(e){this[t]=e},configurable:!0,enumerable:!1})}function Pr(t,e){return-1===e?'"'.concat(t,'"'):-2===e?"`".concat(t,"`"):"'".concat(t,"'")}function xr(t){var e=wt(t);return dr.length>e?dr[e]:"\\u".concat(J(e,16))}function Or(t){var e=$e,r=Ze,n=39;if(Et(t,"'")&&(Et(t,'"')?Et(t,"`")||Et(t,"${")||(n=-2):n=-1,39!==n&&(e=qe,r=Ke)),t.length<5e3&&null===dt(e,t))return Pr(t,n);if(t.length>100)return Pr(t=bt(r,t,xr),n);for(var o="",i=0,a=0;a<t.length;a++){var c=wt(t,a);if(c===n||92===c||c<32||c>126&&c<160)o+=i===a?dr[c]:"".concat(zt(t,i,a)).concat(dr[c]),i=a+1;else if(c>=55296&&c<=57343){if(c<=56319&&a+1<t.length){var l=wt(t,a+1);if(l>=56320&&l<=57343){a++;continue}}o+="".concat(zt(t,i,a),"\\u").concat(J(c,16)),i=a+1}}return i!==t.length&&(o+=zt(t,i)),Pr(o,n)}function Ar(t,e){var r=hr.styles[e];if(void 0!==r){var n=hr.colors[r];if(void 0!==n)return"[".concat(n[0],"m").concat(t,"[").concat(n[1],"m")}return t}function wr(t){return t}function jr(){return[]}function Er(t,e){try{return t instanceof e}catch(t){return!1}}function _r(t,e,r,n){for(var o,i=t;t||Qe(t);){var a=rt(t,"constructor");if(void 0!==a&&"function"==typeof a.value&&""!==a.value.name&&Er(i,a.value))return void 0===n||o===t&&Je.has(a.value.name)||Fr(e,i,o||i,r,n),At(a.value.name);t=it(t),void 0===o&&(o=t)}if(null===o)return null;var l=ce(i);if(r>e.depth&&null!==e.depth)return"".concat(l," <Complex prototype>");var u=_r(o,e,r+1,n);return null===u?"".concat(l," <").concat(hr(o,c(c({},e),{},{customInspect:!1,depth:-1})),">"):"".concat(l," <").concat(u,">")}function Fr(t,e,r,n,i){var a,c,l=0;do{if(0!==l||e===r){if(null===(r=it(r)))return;var u=rt(r,"constructor");if(void 0!==u&&"function"==typeof u.value&&Je.has(u.value.name))return}0===l?c=new Pt:b(a,(function(t){return c.add(t)})),a=st(r),x(t.seen,e);var p,f=o(a);try{for(f.s();!(p=f.n()).done;){var y=p.value;if(!("constructor"===y||lt(e,y)||0!==l&&c.has(y))){var s=rt(r,y);if("function"!=typeof s.value){var g=on(t,r,n,y,tr,s,e);t.colors?x(i,"[2m".concat(g,"[22m")):x(i,g)}}}}catch(t){f.e(t)}finally{f.f()}P(t.seen)}while(3!=++l)}function Lr(t,e,r){var n=arguments.length>3&&void 0!==arguments[3]?arguments[3]:"";return null===t?""!==e&&r!==e?"[".concat(r).concat(n,": null prototype] [").concat(e,"] "):"[".concat(r).concat(n,": null prototype] "):""!==e&&t!==e?"".concat(t).concat(n," [").concat(e,"] "):"".concat(t).concat(n," ")}function Rr(t,e){var r,n=ot(t);if(e)r=nt(t),0!==n.length&&O(r,n);else{try{r=ct(t)}catch(e){He(_e(e)&&"ReferenceError"===e.name&&Ee(t)),r=nt(t)}0!==n.length&&O(r,d(n,(function(e){return ut(t,e)})))}return r}function Tr(t,e,r){var n="";return null===e&&(n=ce(t))===r&&(n="Object"),Lr(e,r,n)}function Ir(t,e,i,a){if("object"!==n(e)&&"function"!=typeof e&&!Qe(e))return Wr(t.stylize,e,t);if(null===e)return t.stylize("null","null");var l=e,u=ie(e,!!t.showProxy);if(void 0!==u){if(null===u||null===u[0])return t.stylize("<Revoked Proxy>","special");if(t.showProxy)return function(t,e,r){if(r>t.depth&&null!==t.depth)return t.stylize("Proxy [Array]","special");r+=1,t.indentationLvl+=2;var n=[Ir(t,e[0],r),Ir(t,e[1],r)];return t.indentationLvl-=2,cn(t,n,"",["Proxy [","]"],rr,r)}(t,u,i);e=u}if(t.customInspect){var y=e[fe];if("function"==typeof y&&y!==hr&&(!e.constructor||e.constructor.prototype!==e)){var s=null===t.depth?null:t.depth-i,d=z(y,l,s,function(t,e){var r=c({stylize:t.stylize,showHidden:t.showHidden,depth:t.depth,colors:t.colors,customInspect:t.customInspect,showProxy:t.showProxy,maxArrayLength:t.maxArrayLength,maxStringLength:t.maxStringLength,breakLength:t.breakLength,compact:t.compact,sorted:t.sorted,getters:t.getters,numericSeparator:t.numericSeparator},t.userOptions);if(e){ft(r,null);var i,a=o(ct(r));try{for(a.s();!(i=a.n()).done;){var l=i.value;"object"!==n(r[l])&&"function"!=typeof r[l]||null===r[l]||delete r[l]}}catch(t){a.e(t)}finally{a.f()}r.stylize=ft((function(e,r){var n;try{n="".concat(t.stylize(e,r))}catch(t){}return"string"!=typeof n?e:n}),null)}return r}(t,void 0!==u||!(l instanceof X)),hr);if(d!==l)return"string"!=typeof d?Ir(t,d,i):kt(d,"\n","\n".concat(It(" ",t.indentationLvl)))}}if(t.seen.includes(e)){var b=1;return void 0===t.circular?(t.circular=new St,t.circular.set(e,b)):void 0===(b=t.circular.get(e))&&(b=t.circular.size+1,t.circular.set(e,b)),t.stylize("[Circular *".concat(b,"]"),"special")}return function(t,e,n,i){var a,c;t.showHidden&&(n<=t.depth||null===t.depth)&&(c=[]);var l=_r(e,t,n,c);void 0!==c&&0===c.length&&(c=void 0);var u=e[Vt];("string"!=typeof u||""!==u&&(t.showHidden?lt:ut)(e,Vt))&&(u="");var y,s,d="",b=jr,S=!0,P=0,I=t.showHidden?Xt:te,z=tr;if(Ut in e||null===l)if(S=!1,g(e)){var B="Array"!==l||""!==u?Lr(l,u,"Array","(".concat(e.length,")")):"";if(a=ne(e,I),y=["".concat(B,"["),"]"],0===e.length&&0===a.length&&void 0===c)return"".concat(y[0],"]");z=rr,b=Zr}else if(Le(e)){var C=xt(e),H=Lr(l,u,"Set","(".concat(C,")"));if(a=Rr(e,t.showHidden),b=k(Kr,null,null!==l?e:Ot(e)),0===C&&0===a.length&&void 0===c)return"".concat(H,"{}");y=["".concat(H,"{"),"}"]}else if(we(e)){var G=N(e),W=Lr(l,u,"Map","(".concat(G,")"));if(a=Rr(e,t.showHidden),b=k(Yr,null,null!==l?e:D(e)),0===G&&0===a.length&&void 0===c)return"".concat(W,"{}");y=["".concat(W,"{"),"}"]}else if(Me(e)){a=ne(e,I);var U=e,V="";null===l&&(V=Zt(e),U=new f[V](e));var $=$t(e),Z=Lr(l,u,V,"(".concat($,")"));if(y=["".concat(Z,"["),"]"],0===e.length&&0===a.length&&!t.showHidden)return"".concat(y[0],"]");b=k(qr,null,U,$),z=rr}else je(e)?(a=Rr(e,t.showHidden),y=kr("Map",u),b=k(rn,null,y)):Re(e)?(a=Rr(e,t.showHidden),y=kr("Set",u),b=k(rn,null,y)):S=!0;if(S)if(a=Rr(e,t.showHidden),y=["{","}"],"Object"===l){if(Pe(e)?y[0]="[Arguments] {":""!==u&&(y[0]="".concat(Lr(l,u,"Object"),"{")),0===a.length&&void 0===c)return"".concat(y[0],"}")}else if("function"==typeof e){if(d=function(t,e,r){var n=M(t);if(Nt(n,"class")&&Bt(n,"}")){var o=zt(n,5,-1),i=_t(o,"{");if(-1!==i&&(!Et(zt(o,0,i),"(")||null!==dt(ur,bt(pr,o))))return function(t,e,r){var n=lt(t,"name")&&t.name||"(anonymous)",o="class ".concat(n);if("Function"!==e&&null!==e&&(o+=" [".concat(e,"]")),""!==r&&e!==r&&(o+=" [".concat(r,"]")),null!==e){var i=it(t).name;i&&(o+=" extends ".concat(i))}else o+=" extends [null prototype]";return"[".concat(o,"]")}(t,e,r)}var a="Function";ve(t)&&(a="Generator".concat(a)),he(t)&&(a="Async".concat(a));var c="[".concat(a);return null===e&&(c+=" (null prototype)"),""===t.name?c+=" (anonymous)":c+=": ".concat(t.name),c+="]",e!==a&&null!==e&&(c+=" ".concat(e)),""!==r&&e!==r&&(c+=" [".concat(r,"]")),c}(e,l,u),0===a.length&&void 0===c)return t.stylize(d,"special")}else if(ke(e)){d=vt(null!==l?e:new gt(e));var K=Lr(l,u,"RegExp");if("RegExp "!==K&&(d="".concat(K).concat(d)),0===a.length&&void 0===c||n>t.depth&&null!==t.depth)return t.stylize(d,"regexp")}else if(ze(e)){d=q(L(e))?T(e):R(e);var Y=Lr(l,u,"Date");if("Date "!==Y&&(d="".concat(Y).concat(d)),0===a.length&&void 0===c)return t.stylize(d,"date")}else if(ye(e)){if(d=function(t,e,n,i,a){var c=null!=t.name?At(t.name):"Error",l=Mr(t);(function(t,e,r,n){if(!t.showHidden&&0!==e.length)for(var o=0,i=["name","message","stack"];o<i.length;o++){var a=i[o],c=v(e,a);-1!==c&&Et(n,r[a])&&w(e,c,1)}})(i,a,t,l),!("cause"in t)||0!==a.length&&h(a,"cause")||x(a,"cause"),!g(t.errors)||0!==a.length&&h(a,"errors")||x(a,"errors"),l=function(t,e,r,n){var o=r.length;if(null===e||Bt(r,"Error")&&Nt(t,r)&&(t.length===o||":"===t[o]||"\n"===t[o])){var i="Error";if(null===e){var a=dt(/^([A-Z][a-z_ A-Z0-9[\]()-]+)(?::|\n {4}at)/,t)||dt(/^([a-z_A-Z0-9-]*Error)$/,t);o=(i=a&&a[1]||"").length,i=i||"Error"}var c=zt(Lr(e,n,i),0,-1);r!==c&&(t=Et(c,r)?0===o?"".concat(c,": ").concat(t):"".concat(c).concat(zt(t,o)):"".concat(c," [").concat(r,"]").concat(zt(t,o)))}return t}(l,e,c,n);var u=t.message&&_t(l,t.message)||-1;-1!==u&&(u+=t.message.length);var f,y=_t(l,"\n    at",u);if(-1===y)l="[".concat(l,"]");else{var s=zt(l,0,y),d=function(t,e,r){var n,o=Mt(r,"\n");try{n=e.cause}catch(t){}if(null!=n&&ye(n)){var i=Mr(n),a=_t(i,"\n    at");if(-1!==a){var c=zr(o,Mt(zt(i,a+1),"\n")),l=c.len,u=c.offset;if(l>0){var p=l-2,f="    ... ".concat(p," lines matching cause stack trace ...");o.splice(u+1,p,t.stylize(f,"undefined"))}}}return o}(i,t,zt(l,y+1));if(i.colors){var b,S,P=function(){var t;try{t=process.cwd()}catch(t){return}return t}(),O=o(d);try{for(O.s();!(S=O.n()).done;){var A=S.value,j=dt(cr,A);if(null!==j&&Ge.exists(j[1]))s+="\n".concat(i.stylize(A,"undefined"));else{if(s+="\n",A=Br(i,A),void 0!==P){var E=Nr(i,A,P);E===A&&(E=Nr(i,A,b=null==b?(f=P,(p=null==p?r(132):p).pathToFileURL(f).href):b)),A=E}s+=A}}}catch(t){O.e(t)}finally{O.f()}}else s+="\n".concat(m(d,"\n"));l=s}if(0!==i.indentationLvl){var _=It(" ",i.indentationLvl);l=kt(l,"\n","\n".concat(_))}return l}(e,l,u,t,a),0===a.length&&void 0===c)return d}else if(me(e)){var J=Lr(l,u,Se(e)?"ArrayBuffer":"SharedArrayBuffer");if(void 0===i)b=$r;else if(0===a.length&&void 0===c)return J+"{ byteLength: ".concat(Hr(t.stylize,e.byteLength,!1)," }");y[0]="".concat(J,"{"),E(a,"byteLength")}else if(Oe(e))y[0]="".concat(Lr(l,u,"DataView"),"{"),E(a,"byteLength","byteOffset","buffer");else if(Fe(e))y[0]="".concat(Lr(l,u,"Promise"),"{"),b=nn;else if(Ie(e))y[0]="".concat(Lr(l,u,"WeakSet"),"{"),b=t.showHidden?tn:Xr;else if(Te(e))y[0]="".concat(Lr(l,u,"WeakMap"),"{"),b=t.showHidden?en:Xr;else if(Ee(e))y[0]="".concat(Lr(l,u,"Module"),"{"),b=Ur.bind(null,a);else if(xe(e)){if(d=function(t,e,r,n,o){var i,a;Ne(t)?(i=Q,a="Number"):Be(t)?(i=Ht,a="String",r.splice(0,t.length)):De(t)?(i=F,a="Boolean"):Ce(t)?(i=_,a="BigInt"):(i=Wt,a="Symbol");var c="[".concat(a);return a!==n&&(c+=null===n?" (null prototype)":" (".concat(n,")")),c+=": ".concat(Wr(wr,i(t),e),"]"),""!==o&&o!==n&&(c+=" [".concat(o,"]")),0!==r.length||e.stylize===wr?c:e.stylize(c,Dt(a))}(e,t,a,l,u),0===a.length&&void 0===c)return d}else{if(0===a.length&&void 0===c){if(Ae(e)){var X=le(e).toString(16);return t.stylize("[External: ".concat(X,"]"),"special")}return"".concat(Tr(e,l,u),"{}")}y[0]="".concat(Tr(e,l,u),"{")}if(n>t.depth&&null!==t.depth){var tt=zt(Tr(e,l,u),0,-1);return null!==l&&(tt="[".concat(tt,"]")),t.stylize(tt,"special")}n+=1,t.seen.push(e),t.currentDepth=n;var et=t.indentationLvl;try{for(s=b(t,e,n),P=0;P<a.length;P++)x(s,on(t,e,n,a[P],z));void 0!==c&&O(s,c)}catch(r){return function(t,e,r,n){if(de(e))return t.seen.pop(),t.indentationLvl=n,t.stylize("[".concat(r,": Inspection interrupted ")+"prematurely. Maximum call stack size exceeded.]","special");He.fail(e.stack)}(t,r,zt(Tr(e,l,u),0,-1),et)}if(void 0!==t.circular){var rt=t.circular.get(e);if(void 0!==rt){var nt=t.stylize("<ref *".concat(rt,">"),"special");!0!==t.compact?d=""===d?nt:"".concat(nt," ").concat(d):y[0]="".concat(nt," ").concat(y[0])}}if(t.seen.pop(),t.sorted){var ot=!0===t.sorted?void 0:t.sorted;if(z===tr)j(s,ot);else if(a.length>1){var at=j(A(s,s.length-a.length),ot);E(at,s,s.length-a.length,a.length),yt(w,null,at)}}var ct=cn(t,s,d,y,z,n,e),pt=(t.budget[t.indentationLvl]||0)+ct.length;return t.budget[t.indentationLvl]=pt,pt>Math.pow(2,27)&&(t.depth=-1),ct}(t,e,i,a)}function kr(t,e){return e!=="".concat(t," Iterator")&&(""!==e&&(e+="] ["),e+="".concat(t," Iterator")),["[".concat(e,"] {"),"}"]}function zr(t,e){for(var r=0;r<t.length-3;r++){var n=e.indexOf(t[r]);if(-1!==n){var o=e.length-n;if(o>3){for(var i=1,a=G(t.length-r,o);a>i&&t[r+i]===e[n+i];)i++;if(i>3)return{len:i,offset:r}}}}return{len:0,offset:0}}function Mr(t){return t.stack?At(t.stack):I(t)}function Br(t,e){for(var r,n="",o=0;null!==(r=lr.exec(e));)n+=zt(e,o,r.index+14),n+=t.stylize(r[1],"module"),o=r.index+r[0].length;return 0!==o&&(e=n+zt(e,o)),e}function Nr(t,e,r){var n=_t(e,r),o="",i=r.length;if(-1!==n){"file://"===zt(e,n-7,n)&&(i+=7,n-=7);var a="("===e[n-1]?n-1:n,c=a!==n&&Bt(e,")")?-1:e.length,l=n+i+1,u=zt(e,a,l);o+=zt(e,0,a),o+=t.stylize(u,"undefined"),o+=zt(e,l,c),-1===c&&(o+=t.stylize(")","undefined"))}else o+=e;return o}function Dr(t){for(var e="",r=t.length,n=Nt(t,"-")?1:0;r>=n+4;r-=3)e="_".concat(zt(t,r-3,r)).concat(e);return r===t.length?t:"".concat(zt(t,0,r)).concat(e)}hr.colors={__proto__:null,reset:[0,0],bold:[1,22],dim:[2,22],italic:[3,23],underline:[4,24],blink:[5,25],inverse:[7,27],hidden:[8,28],strikethrough:[9,29],doubleunderline:[21,24],black:[30,vr],red:[31,vr],green:[32,vr],yellow:[33,vr],blue:[34,vr],magenta:[35,vr],cyan:[36,vr],white:[37,vr],bgBlack:[40,mr],bgRed:[41,mr],bgGreen:[42,mr],bgYellow:[43,mr],bgBlue:[44,mr],bgMagenta:[45,mr],bgCyan:[46,mr],bgWhite:[47,mr],framed:[51,54],overlined:[53,55],gray:[90,vr],redBright:[91,vr],greenBright:[92,vr],yellowBright:[93,vr],blueBright:[94,vr],magentaBright:[95,vr],cyanBright:[96,vr],whiteBright:[97,vr],bgGray:[100,mr],bgRedBright:[101,mr],bgGreenBright:[102,mr],bgYellowBright:[103,mr],bgBlueBright:[104,mr],bgMagentaBright:[105,mr],bgCyanBright:[106,mr],bgWhiteBright:[107,mr]},Sr("gray","grey"),Sr("gray","blackBright"),Sr("bgGray","bgGrey"),Sr("bgGray","bgBlackBright"),Sr("dim","faint"),Sr("strikethrough","crossedout"),Sr("strikethrough","strikeThrough"),Sr("strikethrough","crossedOut"),Sr("hidden","conceal"),Sr("inverse","swapColors"),Sr("inverse","swapcolors"),Sr("doubleunderline","doubleUnderline"),hr.styles=tt({__proto__:null},{special:"cyan",number:"yellow",bigint:"yellow",boolean:"yellow",undefined:"grey",null:"bold",string:"green",symbol:"green",date:"magenta",regexp:"red",module:"underline"});var Cr=function(t){return"... ".concat(t," more item").concat(t>1?"s":"")};function Hr(t,e,r){if(!r)return at(e,-0)?t("-0","number"):t("".concat(e),"number");var n=V(e),o=At(n);return n===e?!Z(e)||Et(o,"e")?t(o,"number"):t("".concat(Dr(o)),"number"):q(e)?t(o,"number"):t("".concat(Dr(o),".").concat(function(t){for(var e="",r=0;r<t.length-3;r+=3)e+="".concat(zt(t,r,r+3),"_");return 0===r?t:"".concat(e).concat(zt(t,r))}(zt(At(e),o.length+1))),"number")}function Gr(t,e,r){var n=At(e);return t("".concat(r?Dr(n):n,"n"),"bigint")}function Wr(t,e,r){if("string"==typeof e){var n="";if(e.length>r.maxStringLength){var o=e.length-r.maxStringLength;e=zt(e,0,r.maxStringLength),n="... ".concat(o," more character").concat(o>1?"s":"")}return!0!==r.compact&&e.length>fr&&e.length>r.breakLength-r.indentationLvl-4?m(S(Ye(e),(function(e){return t(Or(e),"string")}))," +\n".concat(It(" ",r.indentationLvl+2)))+n:t(Or(e),"string")+n}return"number"==typeof e?Hr(t,e,r.numericSeparator):"bigint"==typeof e?Gr(t,e,r.numericSeparator):"boolean"==typeof e?t("".concat(e),"boolean"):void 0===e?t("undefined","undefined"):t(Gt(e),"symbol")}function Ur(t,e,r,n){for(var o=new s(t.length),i=0;i<t.length;i++)try{o[i]=on(e,r,n,t[i],tr)}catch(r){He(_e(r)&&"ReferenceError"===r.name);var a=l({},t[i],"");o[i]=on(e,a,n,t[i],tr);var c=Ft(o[i]," ");o[i]=zt(o[i],0,c+1)+e.stylize("<uninitialized>","special")}return t.length=0,o}function Vr(t,e,r,n,o,i){for(var a=ct(e),c=i;i<a.length&&o.length<n;i++){var l=a[i],u=+l;if(u>Math.pow(2,32)-2)break;if("".concat(c)!==l){if(null===dt(ar,l))break;var p=u-c,f=p>1?"s":"",y="<".concat(p," empty item").concat(f,">");if(x(o,t.stylize(y,"undefined")),c=u,o.length===n)break}x(o,on(t,e,r,l,er)),c++}var s=e.length-c;if(o.length!==n){if(s>0){var g=s>1?"s":"",d="<".concat(s," empty item").concat(g,">");x(o,t.stylize(d,"undefined"))}}else s>0&&x(o,Cr(s));return o}function $r(t,e){var n;try{n=new qt(e)}catch(e){return[t.stylize("(detached)","special")]}void 0===u&&(u=Yt(r(165).l.prototype.hexSlice));var o=Ct(bt(/(.{2})/g,u(n,0,G(t.maxArrayLength,n.length)),"$1 ")),i=n.length-t.maxArrayLength;return i>0&&(o+=" ... ".concat(i," more byte").concat(i>1?"s":"")),["".concat(t.stylize("[Uint8Contents]","special"),": <").concat(o,">")]}function Zr(t,e,r){for(var n=e.length,o=G(H(0,t.maxArrayLength),n),i=n-o,a=[],c=0;c<o;c++){if(!lt(e,c))return Vr(t,e,r,o,a,c);x(a,on(t,e,r,c,er))}return i>0&&x(a,Cr(i)),a}function qr(t,e,r,n,o){for(var i=G(H(0,r.maxArrayLength),e),a=t.length-i,c=new s(i),l=t.length>0&&"number"==typeof t[0]?Hr:Gr,u=0;u<i;++u)c[u]=l(r.stylize,t[u],r.numericSeparator);if(a>0&&(c[i]=Cr(a)),r.showHidden){r.indentationLvl+=2;for(var p=0,f=["BYTES_PER_ELEMENT","length","byteLength","byteOffset","buffer"];p<f.length;p++){var y=f[p],g=Ir(r,t[y],o,!0);x(c,"[".concat(y,"]: ").concat(g))}r.indentationLvl-=2}return c}function Kr(t,e,r,n){var i=t.size,a=G(H(0,e.maxArrayLength),i),c=i-a,l=[];e.indentationLvl+=2;var u,p=0,f=o(t);try{for(f.s();!(u=f.n()).done;){var y=u.value;if(p>=a)break;x(l,Ir(e,y,n)),p++}}catch(t){f.e(t)}finally{f.f()}return c>0&&x(l,Cr(c)),e.indentationLvl-=2,l}function Yr(t,e,r,n){var i=t.size,a=G(H(0,e.maxArrayLength),i),c=i-a,l=[];e.indentationLvl+=2;var u,p=0,f=o(t);try{for(f.s();!(u=f.n()).done;){var y=u.value,s=y[0],g=y[1];if(p>=a)break;x(l,"".concat(Ir(e,s,n)," => ").concat(Ir(e,g,n))),p++}}catch(t){f.e(t)}finally{f.f()}return c>0&&x(l,Cr(c)),e.indentationLvl-=2,l}function Jr(t,e,r,n){var o=H(t.maxArrayLength,0),i=G(o,r.length),a=new s(i);t.indentationLvl+=2;for(var c=0;c<i;c++)a[c]=Ir(t,r[c],e);t.indentationLvl-=2,n!==yr||t.sorted||j(a);var l=r.length-i;return l>0&&x(a,Cr(l)),a}function Qr(t,e,r,n){var o=H(t.maxArrayLength,0),i=r.length/2,a=i-o,c=G(o,i),l=new s(c),u=0;if(t.indentationLvl+=2,n===yr){for(;u<c;u++){var p=2*u;l[u]="".concat(Ir(t,r[p],e)," => ").concat(Ir(t,r[p+1],e))}t.sorted||j(l)}else for(;u<c;u++){var f=2*u,y=[Ir(t,r[f],e),Ir(t,r[f+1],e)];l[u]=cn(t,y,"",["[","]"],rr,e)}return t.indentationLvl-=2,a>0&&x(l,Cr(a)),l}function Xr(t){return[t.stylize("<items unknown>","special")]}function tn(t,e,r){return Jr(t,r,ae(e),yr)}function en(t,e,r){return Qr(t,r,ae(e),yr)}function rn(t,e,r,n){var o=ae(r,!0),i=o[0];return o[1]?(t[0]=bt(/ Iterator] {$/,t[0]," Entries] {"),Qr(e,n,i,gr)):Jr(e,n,i,sr)}function nn(t,e,r){var n,o=oe(e),i=o[0],a=o[1];if(i===ee)n=[t.stylize("<pending>","special")];else{t.indentationLvl+=2;var c=Ir(t,a,r);t.indentationLvl-=2,n=[i===re?"".concat(t.stylize("<rejected>","special")," ").concat(c):c]}return n}function on(t,e,r,o,i,a){var c,l,u=arguments.length>6&&void 0!==arguments[6]?arguments[6]:e,p=" ";if(void 0!==(a=a||rt(e,o)||{value:e[o],enumerable:!0}).value){var f=!0!==t.compact||i!==tr?2:3;t.indentationLvl+=f,l=Ir(t,a.value,r),3===f&&t.breakLength<or(l,t.colors)&&(p="\n".concat(It(" ",t.indentationLvl))),t.indentationLvl-=f}else if(void 0!==a.get){var y=void 0!==a.set?"Getter/Setter":"Getter",s=t.stylize,g="special";if(t.getters&&(!0===t.getters||"get"===t.getters&&void 0===a.set||"set"===t.getters&&void 0!==a.set))try{var d=z(a.get,u);if(t.indentationLvl+=2,null===d)l="".concat(s("[".concat(y,":"),g)," ").concat(s("null","null")).concat(s("]",g));else if("object"===n(d))l="".concat(s("[".concat(y,"]"),g)," ").concat(Ir(t,d,r));else{var b=Wr(s,d,t);l="".concat(s("[".concat(y,":"),g)," ").concat(b).concat(s("]",g))}t.indentationLvl-=2}catch(t){var h="<Inspection threw (".concat(t.message,")>");l="".concat(s("[".concat(y,":"),g)," ").concat(h).concat(s("]",g))}else l=t.stylize("[".concat(y,"]"),g)}else l=void 0!==a.set?t.stylize("[Setter]","special"):t.stylize("undefined","undefined");if(i===er)return l;if("symbol"===n(o)){var v=bt(Ze,Gt(o),xr);c="[".concat(t.stylize(v,"symbol"),"]")}else if("__proto__"===o)c="['__proto__']";else if(!1===a.enumerable){var m=bt(Ze,o,xr);c="[".concat(m,"]")}else c=null!==dt(ir,o)?t.stylize(o,"name"):t.stylize(Or(o),"string");return"".concat(c,":").concat(p).concat(l)}function an(t,e,r,n){var o=e.length+r;if(o+e.length>t.breakLength)return!1;for(var i=0;i<e.length;i++)if(t.colors?o+=ge(e[i]).length:o+=e[i].length,o>t.breakLength)return!1;return""===n||!Et(n,"\n")}function cn(t,e,r,n,o,i,a){if(!0!==t.compact){if("number"==typeof t.compact&&t.compact>=1){var c=e.length;if(o===rr&&c>6&&(e=function(t,e,r){var n=0,o=0,i=0,a=e.length;t.maxArrayLength<e.length&&a--;for(var c=new s(a);i<a;i++){var l=or(e[i],t.colors);c[i]=l,n+=l+2,o<l&&(o=l)}var u=o+2;if(3*u+t.indentationLvl<t.breakLength&&(n/u>5||o<=6)){var p=U(u-n/e.length),f=H(u-3-p,1),y=G(W(U(2.5*f*a)/f),C((t.breakLength-t.indentationLvl)/u),4*t.compact,15);if(y<=1)return e;for(var g=[],d=[],b=0;b<y;b++){for(var h=0,v=b;v<e.length;v+=y)c[v]>h&&(h=c[v]);h+=2,d[b]=h}var m=Tt;if(void 0!==r)for(var S=0;S<e.length;S++)if("number"!=typeof r[S]&&"bigint"!=typeof r[S]){m=Rt;break}for(var P=0;P<a;P+=y){for(var O=G(P+y,a),A="",w=P;w<O-1;w++){var j=d[w-P]+e[w].length-c[w];A+=m("".concat(e[w],", "),j," ")}if(m===Tt){var E=d[w-P]+e[w].length-c[w]-2;A+=Tt(e[w],E," ")}else A+=e[w];x(g,A)}t.maxArrayLength<e.length&&x(g,e[a]),e=g}return e}(t,e,a)),t.currentDepth-i<t.compact&&c===e.length&&an(t,e,e.length+t.indentationLvl+n[0].length+r.length+10,r)){var l=se(e,", ");if(!Et(l,"\n"))return"".concat(r?"".concat(r," "):"").concat(n[0]," ").concat(l)+" ".concat(n[1])}}var u="\n".concat(It(" ",t.indentationLvl));return"".concat(r?"".concat(r," "):"").concat(n[0]).concat(u,"  ")+"".concat(se(e,",".concat(u,"  "))).concat(u).concat(n[1])}if(an(t,e,0,r))return"".concat(n[0]).concat(r?" ".concat(r):""," ").concat(se(e,", ")," ")+n[1];var p=It(" ",t.indentationLvl),f=""===r&&1===n[0].length?" ":"".concat(r?" ".concat(r):"","\n").concat(p,"  ");return"".concat(n[0]).concat(f).concat(se(e,",\n".concat(p,"  "))," ").concat(n[1])}function ln(t){var e=ie(t,!1);if(void 0!==e){if(null===e)return!0;t=e}if("function"!=typeof t.toString)return!0;if(lt(t,"toString"))return!1;var r=t;do{r=it(r)}while(!lt(r,"toString"));var n=rt(r,"constructor");return void 0!==n&&"function"==typeof n.value&&Je.has(n.value.name)}var un,pn=function(t){return Mt(t.message,"\n",1)[0]};function fn(t){try{return B(t)}catch(t){if(!un)try{var e={};e.a=e,B(e)}catch(t){un=pn(t)}if("TypeError"===t.name&&pn(t)===un)return"[Circular]";throw t}}function yn(t,e){var r;return Hr(wr,t,null!==(r=null==e?void 0:e.numericSeparator)&&void 0!==r?r:Xe.numericSeparator)}function sn(t,e){var r;return Gr(wr,t,null!==(r=null==e?void 0:e.numericSeparator)&&void 0!==r?r:Xe.numericSeparator)}function gn(t,e){var r=e[0],o=0,i="",a="";if("string"==typeof r){if(1===e.length)return r;for(var l,u=0,p=0;p<r.length-1;p++)if(37===wt(r,p)){var f=wt(r,++p);if(o+1!==e.length){switch(f){case 115:var y=e[++o];l="number"==typeof y?yn(y,t):"bigint"==typeof y?sn(y,t):"object"===n(y)&&null!==y&&ln(y)?hr(y,c(c({},t),{},{compact:3,colors:!1,depth:0})):At(y);break;case 106:l=fn(e[++o]);break;case 100:var s=e[++o];l="bigint"==typeof s?sn(s,t):"symbol"===n(s)?"NaN":yn($(s),t);break;case 79:l=hr(e[++o],t);break;case 111:l=hr(e[++o],c(c({},t),{},{showHidden:!0,showProxy:!0,depth:4}));break;case 105:var g=e[++o];l="bigint"==typeof g?sn(g,t):"symbol"===n(g)?"NaN":yn(Y(g),t);break;case 102:var d=e[++o];l="symbol"===n(d)?"NaN":yn(K(d),t);break;case 99:o+=1,l="";break;case 37:i+=zt(r,u,p),u=p+1;continue;default:continue}u!==p-1&&(i+=zt(r,u,p-1)),i+=l,u=p+1}else 37===f&&(i+=zt(r,u,p),u=p+1)}0!==u&&(o++,a=" ",u<r.length&&(i+=zt(r,u)))}for(;o<e.length;){var b=e[o];i+=a,i+="string"!=typeof b?hr(b,t):b,a=" ",o++}return i}function dn(t){return t<=31||t>=127&&t<=159||t>=768&&t<=879||t>=8203&&t<=8207||t>=8400&&t<=8447||t>=65024&&t<=65039||t>=65056&&t<=65071||t>=917760&&t<=917999}if(y("config").hasIntl)He(!1);else{or=function(t){var e=0;(!(arguments.length>1&&void 0!==arguments[1])||arguments[1])&&(t=hn(t)),t=Lt(t,"NFC");var r,n=o(new mt(t));try{for(n.s();!(r=n.n()).done;){var i=r.value,a=jt(i,0);bn(a)?e+=2:dn(a)||e++}}catch(t){n.e(t)}finally{n.f()}return e};var bn=function(t){return t>=4352&&(t<=4447||9001===t||9002===t||t>=11904&&t<=12871&&12351!==t||t>=12880&&t<=19903||t>=19968&&t<=42182||t>=43360&&t<=43388||t>=44032&&t<=55203||t>=63744&&t<=64255||t>=65040&&t<=65049||t>=65072&&t<=65131||t>=65281&&t<=65376||t>=65504&&t<=65510||t>=110592&&t<=110593||t>=127488&&t<=127569||t>=127744&&t<=128591||t>=131072&&t<=262141)}}function hn(t){return Ve(t,"str"),bt(br,t,"")}var vn={34:"&quot;",38:"&amp;",39:"&apos;",60:"&lt;",62:"&gt;",160:"&nbsp;"};function mn(t){return t.replace(/[\u0000-\u002F\u003A-\u0040\u005B-\u0060\u007B-\u00FF]/g,(function(t){var e=At(t.charCodeAt(0));return vn[e]||"&#"+e+";"}))}t.exports={identicalSequenceRange:zr,inspect:hr,inspectDefaultOptions:Xe,format:function(){for(var t=arguments.length,e=new Array(t),r=0;r<t;r++)e[r]=arguments[r];return gn(void 0,e)},formatWithOptions:function(t){Ue(t,"inspectOptions",{allowArray:!0});for(var e=arguments.length,r=new Array(e>1?e-1:0),n=1;n<e;n++)r[n-1]=arguments[n];return gn(t,r)},getStringWidth:or,stripVTControlCharacters:hn,isZeroWidthCodePoint:dn,stylizeWithColor:Ar,stylizeWithHTML:function(t,e){var r=hr.styles[e];return void 0!==r?'<span style="color:'.concat(r,';">').concat(mn(t),"</span>"):mn(t)},Proxy:ue}},87:t=>{function e(t){if(!t)throw new Error("Assertion failed")}e.fail=function(t){throw new Error(t)},t.exports=e},361:(t,e)=>{var r=["_http_agent","_http_client","_http_common","_http_incoming","_http_outgoing","_http_server","_stream_duplex","_stream_passthrough","_stream_readable","_stream_transform","_stream_wrap","_stream_writable","_tls_common","_tls_wrap","assert","assert/strict","async_hooks","buffer","child_process","cluster","console","constants","crypto","dgram","diagnostics_channel","dns","dns/promises","domain","events","fs","fs/promises","http","http2","https","inspector","module","Module","net","os","path","path/posix","path/win32","perf_hooks","process","punycode","querystring","readline","readline/promises","repl","stream","stream/consumers","stream/promises","stream/web","string_decoder","sys","timers","timers/promises","tls","trace_events","tty","url","util","util/types","v8","vm","wasi","worker_threads","zlib"];e.BuiltinModule={exists:function(t){return t.startsWith("internal/")||-1!==r.indexOf(t)}}},709:t=>{t.exports={CHAR_DOT:46,CHAR_FORWARD_SLASH:47,CHAR_BACKWARD_SLASH:92}},186:(t,e,r)=>{function n(t){return n="function"==typeof Symbol&&"symbol"==typeof Symbol.iterator?function(t){return typeof t}:function(t){return t&&"function"==typeof Symbol&&t.constructor===Symbol&&t!==Symbol.prototype?"symbol":typeof t},n(t)}function o(t,e){(null==e||e>t.length)&&(e=t.length);for(var r=0,n=new Array(e);r<e;r++)n[r]=t[r];return n}var i,a,c=r(541),l=c.ArrayIsArray,u=c.ArrayPrototypeIncludes,p=c.ArrayPrototypeIndexOf,f=c.ArrayPrototypeJoin,y=c.ArrayPrototypePop,s=c.ArrayPrototypePush,g=c.ArrayPrototypeSplice,d=c.ErrorCaptureStackTrace,b=c.ObjectDefineProperty,h=c.ReflectApply,v=c.RegExpPrototypeTest,m=c.SafeMap,S=c.StringPrototypeEndsWith,P=c.StringPrototypeIncludes,x=c.StringPrototypeSlice,O=c.StringPrototypeToLowerCase,A=new m,w={},j=/^([A-Z][a-z0-9]*)+$/,E=["string","function","number","object","Function","Object","boolean","bigint","symbol"],_=null;function F(){return _||(_=r(777)),_}var L=R((function(t,e,r){(t=D(t)).name="".concat(e," [").concat(r,"]"),t.stack,delete t.name}));function R(t){var e="__node_internal_"+t.name;return b(t,"name",{value:e}),t}var T,I,k,z,M,B,N,D=R((function(t){return i=Error.stackTraceLimit,Error.stackTraceLimit=1/0,d(t),Error.stackTraceLimit=i,t}));t.exports={codes:w,hideStackFrames:R,isStackOverflowError:function(t){if(void 0===I)try{!function t(){t()}()}catch(t){I=t.message,T=t.name}return t&&t.name===T&&t.message===I}},k="ERR_INVALID_ARG_TYPE",z=function(t,e,r){a("string"==typeof t,"'name' must be a string"),l(e)||(e=[e]);var i="The ";if(S(t," argument"))i+="".concat(t," ");else{var c=P(t,".")?"property":"argument";i+='"'.concat(t,'" ').concat(c," ")}i+="must be ";var d,b=[],h=[],m=[],A=function(t,e){var r="undefined"!=typeof Symbol&&t[Symbol.iterator]||t["@@iterator"];if(!r){if(Array.isArray(t)||(r=function(t,e){if(t){if("string"==typeof t)return o(t,e);var r=Object.prototype.toString.call(t).slice(8,-1);return"Object"===r&&t.constructor&&(r=t.constructor.name),"Map"===r||"Set"===r?Array.from(t):"Arguments"===r||/^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(r)?o(t,e):void 0}}(t))||e&&t&&"number"==typeof t.length){r&&(t=r);var n=0,i=function(){};return{s:i,n:function(){return n>=t.length?{done:!0}:{done:!1,value:t[n++]}},e:function(t){throw t},f:i}}throw new TypeError("Invalid attempt to iterate non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method.")}var a,c=!0,l=!1;return{s:function(){r=r.call(t)},n:function(){var t=r.next();return c=t.done,t},e:function(t){l=!0,a=t},f:function(){try{c||null==r.return||r.return()}finally{if(l)throw a}}}}(e);try{for(A.s();!(d=A.n()).done;){var w=d.value;a("string"==typeof w,"All expected entries have to be of type string"),u(E,w)?s(b,O(w)):v(j,w)?s(h,w):(a("object"!==w,'The value "object" should be written as "Object"'),s(m,w))}}catch(t){A.e(t)}finally{A.f()}if(h.length>0){var _=p(b,"object");-1!==_&&(g(b,_,1),s(h,"Object"))}if(b.length>0){if(b.length>2){var L=y(b);i+="one of type ".concat(f(b,", "),", or ").concat(L)}else i+=2===b.length?"one of type ".concat(b[0]," or ").concat(b[1]):"of type ".concat(b[0]);(h.length>0||m.length>0)&&(i+=" or ")}if(h.length>0){if(h.length>2){var R=y(h);i+="an instance of ".concat(f(h,", "),", or ").concat(R)}else i+="an instance of ".concat(h[0]),2===h.length&&(i+=" or ".concat(h[1]));m.length>0&&(i+=" or ")}if(m.length>0)if(m.length>2){var T=y(m);i+="one of ".concat(f(m,", "),", or ").concat(T)}else 2===m.length?i+="one of ".concat(m[0]," or ").concat(m[1]):(O(m[0])!==m[0]&&(i+="an "),i+="".concat(m[0]));if(null==r)i+=". Received ".concat(r);else if("function"==typeof r&&r.name)i+=". Received function ".concat(r.name);else if("object"===n(r))if(r.constructor&&r.constructor.name)i+=". Received an instance of ".concat(r.constructor.name);else{var I=F().inspect(r,{depth:-1});i+=". Received ".concat(I)}else{var k=F().inspect(r,{colors:!1});k.length>25&&(k="".concat(x(k,0,25),"...")),i+=". Received type ".concat(n(r)," (").concat(k,")")}return i},M=TypeError,A.set(k,z),w[k]=(B=M,N=k,function(){var t=Error.stackTraceLimit;Error.stackTraceLimit=0;var e=new B;Error.stackTraceLimit=t;for(var n=arguments.length,o=new Array(n),i=0;i<n;i++)o[i]=arguments[i];var c=function(t,e,n){var o=A.get(t);return void 0===a&&(a=r(87)),a("function"==typeof o),a(o.length<=e.length,"Code: ".concat(t,"; The provided arguments length (").concat(e.length,") does not ")+"match the required ones (".concat(o.length,").")),h(o,n,e)}(N,o,e);return b(e,"message",{value:c,enumerable:!1,writable:!0,configurable:!0}),b(e,"toString",{value:function(){return"".concat(this.name," [").concat(N,"]: ").concat(this.message)},enumerable:!1,writable:!0,configurable:!0}),L(e,B.name,N),e.code=N,e})},132:(t,e,r)=>{var n=r(541),o=n.StringPrototypeCharCodeAt,i=n.StringPrototypeIncludes,a=n.StringPrototypeReplace,c=r(709).CHAR_FORWARD_SLASH,l=r(790),u=/%/g,p=/\\/g,f=/\n/g,y=/\r/g,s=/\t/g;t.exports={pathToFileURL:function(t){var e=new URL("file://"),r=l.resolve(t);return o(t,t.length-1)===c&&r[r.length-1]!==l.sep&&(r+="/"),e.pathname=function(t){return i(t,"%")&&(t=a(t,u,"%25")),i(t,"\\")&&(t=a(t,p,"%5C")),i(t,"\n")&&(t=a(t,f,"%0A")),i(t,"\r")&&(t=a(t,y,"%0D")),i(t,"\t")&&(t=a(t,s,"%09")),t}(r),e}}},216:t=>{var e=/\u001b\[\d\d?m/g;t.exports={customInspectSymbol:Symbol.for("nodejs.util.inspect.custom"),isError:function(t){return t instanceof Error},join:Array.prototype.join.call.bind(Array.prototype.join),removeColors:function(t){return String.prototype.replace.call(t,e,"")}}},581:(t,e,r)=>{function n(t){return n="function"==typeof Symbol&&"symbol"==typeof Symbol.iterator?function(t){return typeof t}:function(t){return t&&"function"==typeof Symbol&&t.constructor===Symbol&&t!==Symbol.prototype?"symbol":typeof t},n(t)}var o=r(364).getConstructorName;function i(t){for(var e=arguments.length,r=new Array(e>1?e-1:0),i=1;i<e;i++)r[i-1]=arguments[i];for(var a=0,c=r;a<c.length;a++){var l=c[a],u=globalThis[l];if(u&&t instanceof u)return!0}for(;t;){if("object"!==n(t))return!1;if(r.indexOf(o(t))>=0)return!0;t=Object.getPrototypeOf(t)}return!1}function a(t){return function(e){if(!i(e,t.name))return!1;try{t.prototype.valueOf.call(e)}catch(t){return!1}return!0}}"object"!==("undefined"==typeof globalThis?"undefined":n(globalThis))&&(Object.defineProperty(Object.prototype,"__magic__",{get:function(){return this},configurable:!0}),__magic__.globalThis=__magic__,delete Object.prototype.__magic__);var c=a(String),l=a(Number),u=a(Boolean),p=a(BigInt),f=a(Symbol);t.exports={isAsyncFunction:function(t){return"function"==typeof t&&Function.prototype.toString.call(t).startsWith("async")},isGeneratorFunction:function(t){return"function"==typeof t&&Function.prototype.toString.call(t).match(/^(async\s+)?function *\*/)},isAnyArrayBuffer:function(t){return i(t,"ArrayBuffer","SharedArrayBuffer")},isArrayBuffer:function(t){return i(t,"ArrayBuffer")},isArgumentsObject:function(t){if(null!==t&&"object"===n(t)&&!Array.isArray(t)&&"number"==typeof t.length&&t.length===(0|t.length)&&t.length>=0){var e=Object.getOwnPropertyDescriptor(t,"callee");return e&&!e.enumerable}return!1},isBoxedPrimitive:function(t){return l(t)||c(t)||u(t)||p(t)||f(t)},isDataView:function(t){return i(t,"DataView")},isExternal:function(t){return"object"===n(t)&&Object.isFrozen(t)&&null==Object.getPrototypeOf(t)},isMap:function(t){if(!i(t,"Map"))return!1;try{t.has()}catch(t){return!1}return!0},isMapIterator:function(t){return"[object Map Iterator]"===Object.prototype.toString.call(Object.getPrototypeOf(t))},isModuleNamespaceObject:function(t){return t&&"object"===n(t)&&"Module"===t[Symbol.toStringTag]},isNativeError:function(t){return t instanceof Error&&i(t,"Error","EvalError","RangeError","ReferenceError","SyntaxError","TypeError","URIError","AggregateError")},isPromise:function(t){return i(t,"Promise")},isSet:function(t){if(!i(t,"Set"))return!1;try{t.has()}catch(t){return!1}return!0},isSetIterator:function(t){return"[object Set Iterator]"===Object.prototype.toString.call(Object.getPrototypeOf(t))},isWeakMap:function(t){return i(t,"WeakMap")},isWeakSet:function(t){return i(t,"WeakSet")},isRegExp:function(t){return i(t,"RegExp")},isDate:function(t){if(i(t,"Date"))try{return Date.prototype.getTime.call(t),!0}catch(t){}return!1},isTypedArray:function(t){return i(t,"Int8Array","Uint8Array","Uint8ClampedArray","Int16Array","Uint16Array","Int32Array","Uint32Array","Float32Array","Float64Array","BigInt64Array","BigUint64Array")},isStringObject:c,isNumberObject:l,isBooleanObject:u,isBigIntObject:p,isSymbolObject:f}},659:(t,e,r)=>{function n(t){return n="function"==typeof Symbol&&"symbol"==typeof Symbol.iterator?function(t){return typeof t}:function(t){return t&&"function"==typeof Symbol&&t.constructor===Symbol&&t!==Symbol.prototype?"symbol":typeof t},n(t)}var o=r(541).ArrayIsArray,i=r(186),a=i.hideStackFrames,c=i.codes.ERR_INVALID_ARG_TYPE,l=a((function(t,e,r){var i=null==r,a=!i&&r.allowArray,l=!i&&r.allowFunction;if((i||!r.nullable)&&null===t||!a&&o(t)||"object"!==n(t)&&(!l||"function"!=typeof t))throw new c(e,"Object",t)}));t.exports={validateObject:l,validateString:function(t,e){if("string"!=typeof t)throw new c(e,"string",t)}}},790:(t,e,r)=>{var n=r(541),o=n.StringPrototypeCharCodeAt,i=n.StringPrototypeLastIndexOf,a=n.StringPrototypeSlice,c=r(709),l=c.CHAR_DOT,u=c.CHAR_FORWARD_SLASH,p=r(659).validateString;function f(t){return t===u}t.exports={resolve:function(){for(var t="",e=!1,r=arguments.length-1;r>=-1&&!e;r--){var n=r>=0?r<0||arguments.length<=r?void 0:arguments[r]:"/";p(n,"path"),0!==n.length&&(t="".concat(n,"/").concat(t),e=o(n,0)===u)}return t=function(t,e,r,n){for(var c="",p=0,f=-1,y=0,s=0,g=0;g<=t.length;++g){if(g<t.length)s=o(t,g);else{if(n(s))break;s=u}if(n(s)){if(f===g-1||1===y);else if(2===y){if(c.length<2||2!==p||o(c,c.length-1)!==l||o(c,c.length-2)!==l){if(c.length>2){var d=i(c,r);-1===d?(c="",p=0):p=(c=a(c,0,d)).length-1-i(c,r),f=g,y=0;continue}if(0!==c.length){c="",p=0,f=g,y=0;continue}}e&&(c+=c.length>0?"".concat(r,".."):"..",p=2)}else c.length>0?c+="".concat(r).concat(a(t,f+1,g)):c=a(t,f+1,g),p=g-f-1;f=g,y=0}else s===l&&-1!==y?++y:y=-1}return c}(t,!e,"/",f),e?"/".concat(t):t.length>0?t:"."}}},541:(t,e,r)=>{function n(t){return n="function"==typeof Symbol&&"symbol"==typeof Symbol.iterator?function(t){return typeof t}:function(t){return t&&"function"==typeof Symbol&&t.constructor===Symbol&&t!==Symbol.prototype?"symbol":typeof t},n(t)}function o(t,e){if("function"!=typeof e&&null!==e)throw new TypeError("Super expression must either be null or a function");t.prototype=Object.create(e&&e.prototype,{constructor:{value:t,writable:!0,configurable:!0}}),Object.defineProperty(t,"prototype",{writable:!1}),e&&u(t,e)}function i(t){var e=l();return function(){var r,o=p(t);if(e){var i=p(this).constructor;r=Reflect.construct(o,arguments,i)}else r=o.apply(this,arguments);return function(t,e){if(e&&("object"===n(e)||"function"==typeof e))return e;if(void 0!==e)throw new TypeError("Derived constructors may only return object or undefined");return function(t){if(void 0===t)throw new ReferenceError("this hasn't been initialised - super() hasn't been called");return t}(t)}(this,r)}}function a(t){var e="function"==typeof Map?new Map:void 0;return a=function(t){if(null===t||(r=t,-1===Function.toString.call(r).indexOf("[native code]")))return t;var r;if("function"!=typeof t)throw new TypeError("Super expression must either be null or a function");if(void 0!==e){if(e.has(t))return e.get(t);e.set(t,n)}function n(){return c(t,arguments,p(this).constructor)}return n.prototype=Object.create(t.prototype,{constructor:{value:n,enumerable:!1,writable:!0,configurable:!0}}),u(n,t)},a(t)}function c(t,e,r){return c=l()?Reflect.construct.bind():function(t,e,r){var n=[null];n.push.apply(n,e);var o=new(Function.bind.apply(t,n));return r&&u(o,r.prototype),o},c.apply(null,arguments)}function l(){if("undefined"==typeof Reflect||!Reflect.construct)return!1;if(Reflect.construct.sham)return!1;if("function"==typeof Proxy)return!0;try{return Boolean.prototype.valueOf.call(Reflect.construct(Boolean,[],(function(){}))),!0}catch(t){return!1}}function u(t,e){return u=Object.setPrototypeOf?Object.setPrototypeOf.bind():function(t,e){return t.__proto__=e,t},u(t,e)}function p(t){return p=Object.setPrototypeOf?Object.getPrototypeOf.bind():function(t){return t.__proto__||Object.getPrototypeOf(t)},p(t)}function f(t,e){if(!(t instanceof e))throw new TypeError("Cannot call a class as a function")}function y(t,e){for(var r=0;r<e.length;r++){var o=e[r];o.enumerable=o.enumerable||!1,o.configurable=!0,"value"in o&&(o.writable=!0),Object.defineProperty(t,(void 0,i=function(t,e){if("object"!==n(t)||null===t)return t;var r=t[Symbol.toPrimitive];if(void 0!==r){var o=r.call(t,"string");if("object"!==n(o))return o;throw new TypeError("@@toPrimitive must return a primitive value.")}return String(t)}(o.key),"symbol"===n(i)?i:String(i)),o)}var i}function s(t,e,r){return e&&y(t.prototype,e),r&&y(t,r),Object.defineProperty(t,"prototype",{writable:!1}),t}var g=function(t,e){var r=function(r){function n(e){f(this,n),this._iterator=t(e)}return s(n,[{key:"next",value:function(){return e(this._iterator)}},{key:Symbol.iterator,value:function(){return this}}]),n}();return Object.setPrototypeOf(r.prototype,null),Object.freeze(r.prototype),Object.freeze(r),r};function d(t,e){return Function.prototype.call.bind(t.prototype.__lookupGetter__(e))}function b(t){return Function.prototype.call.bind(t)}var h=function(t,e){Array.prototype.forEach.call(Reflect.ownKeys(t),(function(r){Reflect.getOwnPropertyDescriptor(e,r)||Reflect.defineProperty(e,r,Reflect.getOwnPropertyDescriptor(t,r))}))},v=function(t,e){if(Symbol.iterator in t.prototype){var r,n=new t;Array.prototype.forEach.call(Reflect.ownKeys(t.prototype),(function(o){if(!Reflect.getOwnPropertyDescriptor(e.prototype,o)){var i=Reflect.getOwnPropertyDescriptor(t.prototype,o);if("function"==typeof i.value&&0===i.value.length&&Symbol.iterator in(Function.prototype.call.call(i.value,n)||{})){var a=b(i.value);null==r&&(r=b(a(n).next));var c=g(a,r);i.value=function(){return new c(this)}}Reflect.defineProperty(e.prototype,o,i)}}))}else h(t.prototype,e.prototype);return h(t,e),Object.setPrototypeOf(e.prototype,null),Object.freeze(e.prototype),Object.freeze(e),e},m=Function.prototype.call.bind(String.prototype[Symbol.iterator]),S=Reflect.getPrototypeOf(m(""));if(t.exports={makeSafe:v,internalBinding:function(t){if("config"===t)return{hasIntl:!1};throw new Error('unknown module: "'.concat(t,'"'))},Array,ArrayIsArray:Array.isArray,ArrayPrototypeFilter:Function.prototype.call.bind(Array.prototype.filter),ArrayPrototypeForEach:Function.prototype.call.bind(Array.prototype.forEach),ArrayPrototypeIncludes:Function.prototype.call.bind(Array.prototype.includes),ArrayPrototypeIndexOf:Function.prototype.call.bind(Array.prototype.indexOf),ArrayPrototypeJoin:Function.prototype.call.bind(Array.prototype.join),ArrayPrototypeMap:Function.prototype.call.bind(Array.prototype.map),ArrayPrototypePop:Function.prototype.call.bind(Array.prototype.pop),ArrayPrototypePush:Function.prototype.call.bind(Array.prototype.push),ArrayPrototypePushApply:Function.apply.bind(Array.prototype.push),ArrayPrototypeSlice:Function.prototype.call.bind(Array.prototype.slice),ArrayPrototypeSort:Function.prototype.call.bind(Array.prototype.sort),ArrayPrototypeSplice:Function.prototype.call.bind(Array.prototype.splice),ArrayPrototypeUnshift:Function.prototype.call.bind(Array.prototype.unshift),BigIntPrototypeValueOf:Function.prototype.call.bind(BigInt.prototype.valueOf),BooleanPrototypeValueOf:Function.prototype.call.bind(Boolean.prototype.valueOf),DatePrototypeGetTime:Function.prototype.call.bind(Date.prototype.getTime),DatePrototypeToISOString:Function.prototype.call.bind(Date.prototype.toISOString),DatePrototypeToString:Function.prototype.call.bind(Date.prototype.toString),ErrorCaptureStackTrace:function(t){var e=(new Error).stack;t.stack=e.replace(/.*\n.*/,"$1")},ErrorPrototypeToString:Function.prototype.call.bind(Error.prototype.toString),FunctionPrototypeBind:Function.prototype.call.bind(Function.prototype.bind),FunctionPrototypeCall:Function.prototype.call.bind(Function.prototype.call),FunctionPrototypeToString:Function.prototype.call.bind(Function.prototype.toString),globalThis:"undefined"==typeof globalThis?r.g:globalThis,JSONStringify:JSON.stringify,MapPrototypeGetSize:d(Map,"size"),MapPrototypeEntries:Function.prototype.call.bind(Map.prototype.entries),MathFloor:Math.floor,MathMax:Math.max,MathMin:Math.min,MathRound:Math.round,MathSqrt:Math.sqrt,MathTrunc:Math.trunc,Number,NumberIsFinite:Number.isFinite,NumberIsNaN:Number.isNaN,NumberParseFloat:Number.parseFloat,NumberParseInt:Number.parseInt,NumberPrototypeToString:Function.prototype.call.bind(Number.prototype.toString),NumberPrototypeValueOf:Function.prototype.call.bind(Number.prototype.valueOf),Object,ObjectAssign:Object.assign,ObjectCreate:Object.create,ObjectDefineProperty:Object.defineProperty,ObjectGetOwnPropertyDescriptor:Object.getOwnPropertyDescriptor,ObjectGetOwnPropertyNames:Object.getOwnPropertyNames,ObjectGetOwnPropertySymbols:Object.getOwnPropertySymbols,ObjectGetPrototypeOf:Object.getPrototypeOf,ObjectIs:Object.is,ObjectKeys:Object.keys,ObjectPrototypeHasOwnProperty:Function.prototype.call.bind(Object.prototype.hasOwnProperty),ObjectPrototypePropertyIsEnumerable:Function.prototype.call.bind(Object.prototype.propertyIsEnumerable),ObjectSeal:Object.seal,ObjectSetPrototypeOf:Object.setPrototypeOf,ReflectApply:Reflect.apply,ReflectOwnKeys:Reflect.ownKeys,RegExp,RegExpPrototypeExec:Function.prototype.call.bind(RegExp.prototype.exec),RegExpPrototypeSymbolReplace:Function.prototype.call.bind(RegExp.prototype[Symbol.replace]),RegExpPrototypeSymbolSplit:Function.prototype.call.bind(RegExp.prototype[Symbol.split]),RegExpPrototypeTest:Function.prototype.call.bind(RegExp.prototype.test),RegExpPrototypeToString:Function.prototype.call.bind(RegExp.prototype.toString),SafeStringIterator:g(m,Function.prototype.call.bind(S.next)),SafeMap:v(Map,function(t){o(r,t);var e=i(r);function r(t){return f(this,r),e.call(this,t)}return s(r)}(a(Map))),SafeSet:v(Set,function(t){o(r,t);var e=i(r);function r(t){return f(this,r),e.call(this,t)}return s(r)}(a(Set))),SetPrototypeGetSize:d(Set,"size"),SetPrototypeValues:Function.prototype.call.bind(Set.prototype.values),String,StringPrototypeCharCodeAt:Function.prototype.call.bind(String.prototype.charCodeAt),StringPrototypeCodePointAt:Function.prototype.call.bind(String.prototype.codePointAt),StringPrototypeEndsWith:Function.prototype.call.bind(String.prototype.endsWith),StringPrototypeIncludes:Function.prototype.call.bind(String.prototype.includes),StringPrototypeIndexOf:Function.prototype.call.bind(String.prototype.indexOf),StringPrototypeLastIndexOf:Function.prototype.call.bind(String.prototype.lastIndexOf),StringPrototypeNormalize:Function.prototype.call.bind(String.prototype.normalize),StringPrototypePadEnd:Function.prototype.call.bind(String.prototype.padEnd),StringPrototypePadStart:Function.prototype.call.bind(String.prototype.padStart),StringPrototypeRepeat:Function.prototype.call.bind(String.prototype.repeat),StringPrototypeReplace:Function.prototype.call.bind(String.prototype.replace),StringPrototypeReplaceAll:Function.prototype.call.bind(String.prototype.replaceAll),StringPrototypeSlice:Function.prototype.call.bind(String.prototype.slice),StringPrototypeSplit:Function.prototype.call.bind(String.prototype.split),StringPrototypeStartsWith:Function.prototype.call.bind(String.prototype.startsWith),StringPrototypeToLowerCase:Function.prototype.call.bind(String.prototype.toLowerCase),StringPrototypeTrim:Function.prototype.call.bind(String.prototype.trim),StringPrototypeValueOf:Function.prototype.call.bind(String.prototype.valueOf),SymbolPrototypeToString:Function.prototype.call.bind(Symbol.prototype.toString),SymbolPrototypeValueOf:Function.prototype.call.bind(Symbol.prototype.valueOf),SymbolIterator:Symbol.iterator,SymbolFor:Symbol.for,SymbolToStringTag:Symbol.toStringTag,TypedArrayPrototypeGetLength:("length",function(t){return t.constructor.prototype.__lookupGetter__("length").call(t)}),Uint8Array,uncurryThis:b},!String.prototype.replaceAll){var P=function(t){if(null==t)throw new TypeError("Can't call method on "+t);return t},x=function(t,e,r,n,o,i){var a=r+t.length,c=n.length,l=/\$([$&'`]|\d{1,2})/;return void 0!==o&&(o=Object(P(o)),l=/\$([$&'`]|\d{1,2}|<[^>]*>)/g),i.replace(l,(function(i,l){var u;switch(l.charAt(0)){case"$":return"$";case"&":return t;case"`":return e.slice(0,r);case"'":return e.slice(a);case"<":u=o[l.slice(1,-1)];break;default:var p=+l;if(0===p)return i;if(p>c){var f=Math.floor(p/10);return 0===f?i:f<=c?void 0===n[f-1]?l.charAt(1):n[f-1]+l.charAt(1):i}u=n[p-1]}return void 0===u?"":u}))};t.exports.StringPrototypeReplaceAll=function(t,e,r){var n,o,i=P(t),a=0,c=0,l="";if(null!=e){if(e instanceof RegExp&&!~e.flags.indexOf("g"))throw new TypeError("`.replaceAll` does not allow non-global regexes");if(n=e[Symbol.replace])return n.call(e,i,r)}var u=String(i),p=String(e),f="function"==typeof r;f||(r=String(r));var y=p.length,s=Math.max(1,y);for(a=u.indexOf(p,0);-1!==a;)o=f?String(r(p,a,u)):x(p,u,a,[],void 0,r),l+=u.slice(c,a)+o,c=a+y,a=u.indexOf(p,a+s);return c<u.length&&(l+=u.slice(c)),l}}},977:t=>{function e(t){return e="function"==typeof Symbol&&"symbol"==typeof Symbol.iterator?function(t){return typeof t}:function(t){return t&&"function"==typeof Symbol&&t.constructor===Symbol&&t!==Symbol.prototype?"symbol":typeof t},e(t)}function r(t,r){for(var n=0;n<r.length;n++){var o=r[n];o.enumerable=o.enumerable||!1,o.configurable=!0,"value"in o&&(o.writable=!0),Object.defineProperty(t,(void 0,i=function(t,r){if("object"!==e(t)||null===t)return t;var n=t[Symbol.toPrimitive];if(void 0!==n){var o=n.call(t,"string");if("object"!==e(o))return o;throw new TypeError("@@toPrimitive must return a primitive value.")}return String(t)}(o.key),"symbol"===e(i)?i:String(i)),o)}var i}var n=new WeakMap,o=function(){function t(e,r){!function(t,e){if(!(t instanceof e))throw new TypeError("Cannot call a class as a function")}(this,t);var o=new Proxy(e,r);return n.set(o,[e,r]),o}var e,o;return e=t,o=[{key:"getProxyDetails",value:function(t){var e=!(arguments.length>1&&void 0!==arguments[1])||arguments[1],r=n.get(t);if(r)return e?r:r[0]}},{key:"revocable",value:function(t,e){var r=Proxy.revocable(t,e);n.set(r.proxy,[t,e]);var o=r.revoke;return r.revoke=function(){n.set(r.proxy,[null,null]),o()},r}}],null&&r(e.prototype,null),o&&r(e,o),Object.defineProperty(e,"prototype",{writable:!1}),t}();t.exports={getProxyDetails:o.getProxyDetails.bind(o),Proxy:o}},364:(t,e,r)=>{function n(t){return n="function"==typeof Symbol&&"symbol"==typeof Symbol.iterator?function(t){return typeof t}:function(t){return t&&"function"==typeof Symbol&&t.constructor===Symbol&&t!==Symbol.prototype?"symbol":typeof t},n(t)}function o(t,e){if(t){if("string"==typeof t)return i(t,e);var r=Object.prototype.toString.call(t).slice(8,-1);return"Object"===r&&t.constructor&&(r=t.constructor.name),"Map"===r||"Set"===r?Array.from(t):"Arguments"===r||/^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(r)?i(t,e):void 0}}function i(t,e){(null==e||e>t.length)&&(e=t.length);for(var r=0,n=new Array(e);r<e;r++)n[r]=t[r];return n}var a=r(977),c=Symbol("kPending"),l=Symbol("kRejected");t.exports={constants:{kPending:c,kRejected:l,ALL_PROPERTIES:0,ONLY_ENUMERABLE:2},getOwnNonIndexProperties:function(t){for(var e=arguments.length>1&&void 0!==arguments[1]?arguments[1]:2,r=Object.getOwnPropertyDescriptors(t),n=[],i=0,a=Object.entries(r);i<a.length;i++){var c=(p=a[i],f=2,function(t){if(Array.isArray(t))return t}(p)||function(t,e){var r=null==t?null:"undefined"!=typeof Symbol&&t[Symbol.iterator]||t["@@iterator"];if(null!=r){var n,o,i,a,c=[],l=!0,u=!1;try{if(i=(r=r.call(t)).next,0===e){if(Object(r)!==r)return;l=!1}else for(;!(l=(n=i.call(r)).done)&&(c.push(n.value),c.length!==e);l=!0);}catch(t){u=!0,o=t}finally{try{if(!l&&null!=r.return&&(a=r.return(),Object(a)!==a))return}finally{if(u)throw o}}return c}}(p,f)||o(p,f)||function(){throw new TypeError("Invalid attempt to destructure non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method.")}()),l=c[0],u=c[1];if(!/^(0|[1-9][0-9]*)$/.test(l)||parseInt(l,10)>=Math.pow(2,32)-1){if(2===e&&!u.enumerable)continue;n.push(l)}}var p,f,y,s=function(t,e){var r="undefined"!=typeof Symbol&&t[Symbol.iterator]||t["@@iterator"];if(!r){if(Array.isArray(t)||(r=o(t))){r&&(t=r);var n=0,i=function(){};return{s:i,n:function(){return n>=t.length?{done:!0}:{done:!1,value:t[n++]}},e:function(t){throw t},f:i}}throw new TypeError("Invalid attempt to iterate non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method.")}var a,c=!0,l=!1;return{s:function(){r=r.call(t)},n:function(){var t=r.next();return c=t.done,t},e:function(t){l=!0,a=t},f:function(){try{c||null==r.return||r.return()}finally{if(l)throw a}}}}(Object.getOwnPropertySymbols(t));try{for(s.s();!(y=s.n()).done;){var g=y.value,d=Object.getOwnPropertyDescriptor(t,g);(2!==e||d.enumerable)&&n.push(g)}}catch(t){s.e(t)}finally{s.f()}return n},getPromiseDetails:function(){return[c,void 0]},getProxyDetails:a.getProxyDetails,Proxy:a.Proxy,previewEntries:function(t){return[[],!1]},getConstructorName:function(t){if(!t||"object"!==n(t))throw new Error("Invalid object");if(t.constructor&&t.constructor.name)return t.constructor.name;var e=Object.prototype.toString.call(t).match(/^\[object ([^\]]+)\]/);return e?e[1]:"Object"},getExternalValue:function(){return BigInt(0)}}}},e={};function r(n){var o=e[n];if(void 0!==o)return o.exports;var i=e[n]={exports:{}};return t[n](i,i.exports,r),i.exports}return r.g=function(){if("object"==typeof globalThis)return globalThis;try{return this||new Function("return this")()}catch(t){if("object"==typeof window)return window}}(),r(777)})()));
+\ No newline at end of file
++var commonjsGlobal = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : {};
++
++function getDefaultExportFromCjs (x) {
++	return x && x.__esModule && Object.prototype.hasOwnProperty.call(x, 'default') ? x['default'] : x;
++}
++
++var primordials = {exports: {}};
++
++// back-patch in primordials in user-land
++
++const createSafeIterator = (factory, next) => {
++  class SafeIterator {
++    constructor(iterable) {
++      this._iterator = factory(iterable);
++    }
++    next() {
++      return next(this._iterator);
++    }
++    [Symbol.iterator]() {
++      return this;
++    }
++  }
++  Object.setPrototypeOf(SafeIterator.prototype, null);
++  Object.freeze(SafeIterator.prototype);
++  Object.freeze(SafeIterator);
++  return SafeIterator;
++};
++
++function getGetter(cls, getter) {
++  // TODO: __lookupGetter__ is deprecated, but Object.getOwnPropertyDescriptor
++  // doesn't work on built-ins like Typed Arrays.
++  return Function.prototype.call.bind(cls.prototype.__lookupGetter__(getter));
++}
++
++function getterCaller(getter) {
++  return (val) => {
++    return val.constructor.prototype.__lookupGetter__(getter).call(val);
++  };
++}
++
++function uncurryThis(func) {
++  return Function.prototype.call.bind(func);
++}
++
++const copyProps = (src, dest) => {
++  Array.prototype.forEach.call(Reflect.ownKeys(src), (key) => {
++    if (!Reflect.getOwnPropertyDescriptor(dest, key)) {
++      Reflect.defineProperty(
++        dest,
++        key,
++        Reflect.getOwnPropertyDescriptor(src, key));
++    }
++  });
++};
++
++const makeSafe = (unsafe, safe) => {
++  if (Symbol.iterator in unsafe.prototype) {
++    const dummy = new unsafe();
++    let next; // We can reuse the same `next` method.
++
++    Array.prototype.forEach.call(Reflect.ownKeys(unsafe.prototype), (key) => {
++      if (!Reflect.getOwnPropertyDescriptor(safe.prototype, key)) {
++        const desc = Reflect.getOwnPropertyDescriptor(unsafe.prototype, key);
++        if (
++          typeof desc.value === 'function' &&
++          desc.value.length === 0 &&
++          Symbol.iterator in (
++            Function.prototype.call.call(desc.value, dummy) || {})) {
++          const createIterator = uncurryThis(desc.value);
++          if (next == null) {
++            next = uncurryThis(createIterator(dummy).next);
++          }
++          const SafeIterator = createSafeIterator(createIterator, next);
++          desc.value = function() {
++            return new SafeIterator(this);
++          };
++        }
++        Reflect.defineProperty(safe.prototype, key, desc);
++      }
++    });
++  } else {
++    copyProps(unsafe.prototype, safe.prototype);
++  }
++  copyProps(unsafe, safe);
++
++  Object.setPrototypeOf(safe.prototype, null);
++  Object.freeze(safe.prototype);
++  Object.freeze(safe);
++  return safe;
++};
++
++const StringIterator =
++  Function.prototype.call.bind(String.prototype[Symbol.iterator]);
++const StringIteratorPrototype = Reflect.getPrototypeOf(StringIterator(''));
++
++function ErrorCaptureStackTrace(targetObject) {
++  const stack = new Error().stack;
++  // Remove the second line, which is this function
++  targetObject.stack = stack.replace(/.*\n.*/, '$1');
++}
++
++primordials.exports = {
++  makeSafe, // exported for testing
++  internalBinding(mod) {
++    if (mod === 'config') {
++      return {
++        hasIntl: false,
++      };
++    }
++    throw new Error(`unknown module: "${mod}"`);
++  },
++  Array,
++  ArrayIsArray: Array.isArray,
++  ArrayPrototypeFilter: Function.prototype.call.bind(Array.prototype.filter),
++  ArrayPrototypeForEach: Function.prototype.call.bind(Array.prototype.forEach),
++  ArrayPrototypeIncludes:
++    Function.prototype.call.bind(Array.prototype.includes),
++  ArrayPrototypeIndexOf: Function.prototype.call.bind(Array.prototype.indexOf),
++  ArrayPrototypeJoin: Function.prototype.call.bind(Array.prototype.join),
++  ArrayPrototypeMap: Function.prototype.call.bind(Array.prototype.map),
++  ArrayPrototypePop: Function.prototype.call.bind(Array.prototype.pop),
++  ArrayPrototypePush: Function.prototype.call.bind(Array.prototype.push),
++  ArrayPrototypePushApply: Function.apply.bind(Array.prototype.push),
++  ArrayPrototypeSlice: Function.prototype.call.bind(Array.prototype.slice),
++  ArrayPrototypeSort: Function.prototype.call.bind(Array.prototype.sort),
++  ArrayPrototypeSplice: Function.prototype.call.bind(Array.prototype.splice),
++  ArrayPrototypeUnshift: Function.prototype.call.bind(Array.prototype.unshift),
++  BigIntPrototypeValueOf:
++    Function.prototype.call.bind(BigInt.prototype.valueOf),
++  BooleanPrototypeValueOf:
++    Function.prototype.call.bind(Boolean.prototype.valueOf),
++  DatePrototypeGetTime: Function.prototype.call.bind(Date.prototype.getTime),
++  DatePrototypeToISOString:
++    Function.prototype.call.bind(Date.prototype.toISOString),
++  DatePrototypeToString:
++    Function.prototype.call.bind(Date.prototype.toString),
++  ErrorCaptureStackTrace,
++  ErrorPrototypeToString:
++    Function.prototype.call.bind(Error.prototype.toString),
++  FunctionPrototypeBind: Function.prototype.call.bind(Function.prototype.bind),
++  FunctionPrototypeCall:
++    Function.prototype.call.bind(Function.prototype.call),
++  FunctionPrototypeToString:
++    Function.prototype.call.bind(Function.prototype.toString),
++  globalThis: (typeof globalThis === 'undefined') ? commonjsGlobal : globalThis,
++  JSONStringify: JSON.stringify,
++  MapPrototypeGetSize: getGetter(Map, 'size'),
++  MapPrototypeEntries: Function.prototype.call.bind(Map.prototype.entries),
++  MathFloor: Math.floor,
++  MathMax: Math.max,
++  MathMin: Math.min,
++  MathRound: Math.round,
++  MathSqrt: Math.sqrt,
++  MathTrunc: Math.trunc,
++  Number,
++  NumberIsFinite: Number.isFinite,
++  NumberIsNaN: Number.isNaN,
++  NumberParseFloat: Number.parseFloat,
++  NumberParseInt: Number.parseInt,
++  NumberPrototypeToString: Function.prototype.call.bind(Number.prototype.toString),
++  NumberPrototypeValueOf:
++    Function.prototype.call.bind(Number.prototype.valueOf),
++  Object,
++  ObjectAssign: Object.assign,
++  ObjectCreate: Object.create,
++  ObjectDefineProperty: Object.defineProperty,
++  ObjectGetOwnPropertyDescriptor: Object.getOwnPropertyDescriptor,
++  ObjectGetOwnPropertyNames: Object.getOwnPropertyNames,
++  ObjectGetOwnPropertySymbols: Object.getOwnPropertySymbols,
++  ObjectGetPrototypeOf: Object.getPrototypeOf,
++  ObjectIs: Object.is,
++  ObjectKeys: Object.keys,
++  ObjectPrototypeHasOwnProperty:
++    Function.prototype.call.bind(Object.prototype.hasOwnProperty),
++  ObjectPrototypePropertyIsEnumerable:
++    Function.prototype.call.bind(Object.prototype.propertyIsEnumerable),
++  ObjectSeal: Object.seal,
++  ObjectSetPrototypeOf: Object.setPrototypeOf,
++  ReflectApply: Reflect.apply,
++  ReflectOwnKeys: Reflect.ownKeys,
++  RegExp,
++  RegExpPrototypeExec: Function.prototype.call.bind(RegExp.prototype.exec),
++  RegExpPrototypeSymbolReplace: Function.prototype.call.bind(RegExp.prototype[Symbol.replace]),
++  RegExpPrototypeSymbolSplit: Function.prototype.call.bind(RegExp.prototype[Symbol.split]),
++  RegExpPrototypeTest: Function.prototype.call.bind(RegExp.prototype.test),
++  RegExpPrototypeToString:
++    Function.prototype.call.bind(RegExp.prototype.toString),
++  SafeStringIterator: createSafeIterator(
++    StringIterator,
++    Function.prototype.call.bind(StringIteratorPrototype.next),
++  ),
++  SafeMap: makeSafe(
++    Map,
++    class SafeMap extends Map {
++      constructor(i) { super(i); } // eslint-disable-line no-useless-constructor
++    }),
++  SafeSet: makeSafe(
++    Set,
++    class SafeSet extends Set {
++      constructor(i) { super(i); } // eslint-disable-line no-useless-constructor
++    }),
++  SetPrototypeGetSize: getGetter(Set, 'size'),
++  SetPrototypeValues: Function.prototype.call.bind(Set.prototype.values),
++  String,
++  StringPrototypeCharCodeAt:
++    Function.prototype.call.bind(String.prototype.charCodeAt),
++  StringPrototypeCodePointAt:
++    Function.prototype.call.bind(String.prototype.codePointAt),
++  StringPrototypeEndsWith:
++    Function.prototype.call.bind(String.prototype.endsWith),
++  StringPrototypeIncludes:
++    Function.prototype.call.bind(String.prototype.includes),
++  StringPrototypeIndexOf:
++    Function.prototype.call.bind(String.prototype.indexOf),
++  StringPrototypeLastIndexOf:
++    Function.prototype.call.bind(String.prototype.lastIndexOf),
++  StringPrototypeNormalize:
++    Function.prototype.call.bind(String.prototype.normalize),
++  StringPrototypePadEnd:
++    Function.prototype.call.bind(String.prototype.padEnd),
++  StringPrototypePadStart:
++    Function.prototype.call.bind(String.prototype.padStart),
++  StringPrototypeRepeat: Function.prototype.call.bind(String.prototype.repeat),
++  StringPrototypeReplace:
++    Function.prototype.call.bind(String.prototype.replace),
++  StringPrototypeReplaceAll:
++    Function.prototype.call.bind(String.prototype.replaceAll),
++  StringPrototypeSlice: Function.prototype.call.bind(String.prototype.slice),
++  StringPrototypeSplit: Function.prototype.call.bind(String.prototype.split),
++  StringPrototypeStartsWith: Function.prototype.call.bind(String.prototype.startsWith),
++  StringPrototypeToLowerCase:
++    Function.prototype.call.bind(String.prototype.toLowerCase),
++  StringPrototypeTrim: Function.prototype.call.bind(String.prototype.trim),
++  StringPrototypeValueOf:
++    Function.prototype.call.bind(String.prototype.valueOf),
++  SymbolPrototypeToString:
++    Function.prototype.call.bind(Symbol.prototype.toString),
++  SymbolPrototypeValueOf:
++    Function.prototype.call.bind(Symbol.prototype.valueOf),
++  SymbolIterator: Symbol.iterator,
++  SymbolFor: Symbol.for,
++  SymbolToStringTag: Symbol.toStringTag,
++  TypedArrayPrototypeGetLength: getterCaller('length'),
++  Uint8Array,
++  uncurryThis,
++};
++
++// Node 14
++/* c8 ignore start */
++if (!String.prototype.replaceAll) {
++  // Lifted and simplified from core-js for the moment.  Will remove when we
++  // drop node 14 support.
++
++  function requireObjectCoercible(it) {
++    if (it == null) throw new TypeError("Can't call method on " + it);
++    return it;
++  }
++
++  function getSubstitution(matched, str, position, captures, namedCaptures, replacement) {
++    const tailPos = position + matched.length;
++    const m = captures.length;
++    let symbols = /\$([$&'`]|\d{1,2})/;
++    if (namedCaptures !== undefined) {
++      namedCaptures = Object(requireObjectCoercible(namedCaptures));
++      symbols = /\$([$&'`]|\d{1,2}|<[^>]*>)/g;
++    }
++    return replacement.replace(symbols, (match, ch) => {
++      let capture;
++      switch (ch.charAt(0)) {
++        case '$': return '$';
++        case '&': return matched;
++        case '`': return str.slice(0, position);
++        case "'": return str.slice(tailPos);
++        case '<':
++          capture = namedCaptures[ch.slice(1, -1)];
++          break;
++        default: { // \d\d?
++          const n = +ch;
++          if (n === 0) return match;
++          if (n > m) {
++            const f = Math.floor(n / 10);
++            if (f === 0) return match;
++            if (f <= m) return captures[f - 1] === undefined ? ch.charAt(1) : captures[f - 1] + ch.charAt(1);
++            return match;
++          }
++          capture = captures[n - 1];
++        }
++      }
++      return capture === undefined ? '' : capture;
++    });
++  }
++
++  primordials.exports.StringPrototypeReplaceAll = (str, searchValue, replaceValue) => {
++    const O = requireObjectCoercible(str);
++    let IS_REG_EXP, flags, replacer, replacement;
++    let position = 0;
++    let endOfLastMatch = 0;
++    let result = '';
++    if (searchValue != null) {
++      IS_REG_EXP = searchValue instanceof RegExp;
++      if (IS_REG_EXP) {
++        flags = searchValue.flags;
++        if (!~flags.indexOf('g')) {
++          throw new TypeError('`.replaceAll` does not allow non-global regexes');
++        }
++      }
++      replacer = searchValue[Symbol.replace];
++      if (replacer) {
++        return replacer.call(searchValue, O, replaceValue);
++      }
++    }
++    const string = String(O);
++    const searchString = String(searchValue);
++    const functionalReplace = (typeof replaceValue === 'function');
++    if (!functionalReplace) replaceValue = String(replaceValue);
++    const searchLength = searchString.length;
++    const advanceBy = Math.max(1, searchLength);
++    position = string.indexOf(searchString, 0);
++    while (position !== -1) {
++      replacement = functionalReplace ?
++        String(replaceValue(searchString, position, string)) :
++        getSubstitution(searchString, string, position, [], undefined, replaceValue);
++      result += string.slice(endOfLastMatch, position) + replacement;
++      endOfLastMatch = position + searchLength;
++      position = string.indexOf(searchString, position + advanceBy);
++    }
++    if (endOfLastMatch < string.length) {
++      result += string.slice(endOfLastMatch);
++    }
++    return result;
++  };
++}
++/* c8 ignore stop */
++
++var primordialsExports = primordials.exports;
++
++const ALL_PROXIES = new WeakMap();
++
++// Wrap Proxy's to remember their details.
++class Prxy {
++  constructor(target, handler) {
++    const p = new Proxy(target, handler);
++    ALL_PROXIES.set(p, [target, handler]);
++    // eslint-disable-next-line no-constructor-return
++    return p;
++  }
++  static getProxyDetails(obj, getFullProxy = true) {
++    const deets = ALL_PROXIES.get(obj);
++    if (!deets) {
++      return undefined;
++    }
++    if (getFullProxy) {
++      return deets;
++    }
++    return deets[0];
++  }
++  static revocable(target, handler) {
++    const p = Proxy.revocable(target, handler);
++    ALL_PROXIES.set(p.proxy, [target, handler]);
++    const revoke = p.revoke;
++    p.revoke = () => {
++      ALL_PROXIES.set(p.proxy, [null, null]);
++      revoke();
++    };
++    return p;
++  }
++}
++
++var proxy = {
++  getProxyDetails: Prxy.getProxyDetails.bind(Prxy),
++  Proxy: Prxy,
++};
++
++const prxy = proxy;
++const ALL_PROPERTIES = 0;
++const ONLY_ENUMERABLE = 2;
++const kPending = Symbol('kPending');
++const kRejected = Symbol('kRejected');
++
++function getOwnNonIndexProperties(a, filter = ONLY_ENUMERABLE) {
++  const desc = Object.getOwnPropertyDescriptors(a);
++  const ret = [];
++  for (const [k, v] of Object.entries(desc)) {
++    if (!/^(0|[1-9][0-9]*)$/.test(k) ||
++        (parseInt(k, 10) >= (2 ** 32 - 1))) { // Arrays are limited in size
++      if ((filter === ONLY_ENUMERABLE) && !v.enumerable) {
++        continue;
++      }
++      ret.push(k);
++    }
++  }
++  for (const s of Object.getOwnPropertySymbols(a)) {
++    const v = Object.getOwnPropertyDescriptor(a, s);
++    if ((filter === ONLY_ENUMERABLE) && !v.enumerable) {
++      continue;
++    }
++    ret.push(s);
++  }
++  return ret;
++}
++
++var util$1 = {
++  constants: {
++    kPending,
++    kRejected,
++    ALL_PROPERTIES,
++    ONLY_ENUMERABLE,
++  },
++  getOwnNonIndexProperties,
++  getPromiseDetails() { return [kPending, undefined]; },
++  getProxyDetails: prxy.getProxyDetails,
++  Proxy: prxy.Proxy,
++  previewEntries(val) {
++    return [[], false];
++  },
++  getConstructorName(val) {
++    if (!val || typeof val !== 'object') {
++      throw new Error('Invalid object');
++    }
++    if (val.constructor && val.constructor.name) {
++      return val.constructor.name;
++    }
++    const str = Object.prototype.toString.call(val);
++    // e.g. [object Boolean]
++    const m = str.match(/^\[object ([^\]]+)\]/);
++    if (m) {
++      return m[1];
++    }
++    return 'Object';
++  },
++  getExternalValue() { return BigInt(0); },
++};
++
++// eslint-disable-next-line no-control-regex
++const colorRegExp = /\u001b\[\d\d?m/g;
++
++var util = {
++  customInspectSymbol: Symbol.for('nodejs.util.inspect.custom'),
++  isError(e) {
++    return e instanceof Error;
++  },
++  join: Array.prototype.join.call.bind(Array.prototype.join),
++  removeColors(str) {
++    return String.prototype.replace.call(str, colorRegExp, '');
++  },
++};
++
++function assert(p) {
++  if (!p) {
++    throw new Error('Assertion failed');
++  }
++}
++
++assert.fail = function fail(message) {
++  throw new Error(message);
++};
++
++var assert_1 = assert;
++
++/* eslint node-core/documented-errors: "error" */
++
++var errors;
++var hasRequiredErrors;
++
++function requireErrors () {
++	if (hasRequiredErrors) return errors;
++	hasRequiredErrors = 1;
++
++	// The whole point behind this internal module is to allow Node.js to no
++	// longer be forced to treat every error message change as a semver-major
++	// change. The NodeError classes here all expose a `code` property whose
++	// value statically and permanently identifies the error. While the error
++	// message may change, the code should not.
++
++	const {
++	  ArrayIsArray,
++	  ArrayPrototypeIncludes,
++	  ArrayPrototypeIndexOf,
++	  ArrayPrototypeJoin,
++	  ArrayPrototypePop,
++	  ArrayPrototypePush,
++	  ArrayPrototypeSplice,
++	  ErrorCaptureStackTrace,
++	  ObjectDefineProperty,
++	  ReflectApply,
++	  RegExpPrototypeTest,
++	  SafeMap,
++	  StringPrototypeEndsWith,
++	  StringPrototypeIncludes,
++	  StringPrototypeSlice,
++	  StringPrototypeToLowerCase,
++	} = primordialsExports;
++
++	const messages = new SafeMap();
++	const codes = {};
++
++	const classRegExp = /^([A-Z][a-z0-9]*)+$/;
++	// Sorted by a rough estimate on most frequently used entries.
++	const kTypes = [
++	  'string',
++	  'function',
++	  'number',
++	  'object',
++	  // Accept 'Function' and 'Object' as alternative to the lower cased version.
++	  'Function',
++	  'Object',
++	  'boolean',
++	  'bigint',
++	  'symbol',
++	];
++
++	let userStackTraceLimit;
++	const nodeInternalPrefix = '__node_internal_';
++
++	// Lazily loaded
++	let assert;
++	let internalUtilInspect = null;
++	function lazyInternalUtilInspect() {
++	  if (!internalUtilInspect) {
++	    internalUtilInspect = requireInspect();
++	  }
++	  return internalUtilInspect;
++	}
++
++	const addCodeToName = hideStackFrames(function addCodeToName(err, name, code) {
++	  // Set the stack
++	  err = captureLargerStackTrace(err);
++	  // Add the error code to the name to include it in the stack trace.
++	  err.name = `${name} [${code}]`;
++	  // Access the stack to generate the error message including the error code
++	  // from the name.
++	  err.stack; // eslint-disable-line no-unused-expressions
++	  // Reset the name to the actual name.
++	  delete err.name;
++	});
++
++	function makeNodeErrorWithCode(Base, key) {
++	  return function NodeError(...args) {
++	    const limit = Error.stackTraceLimit;
++	    Error.stackTraceLimit = 0;
++	    const error = new Base();
++	    // Reset the limit and setting the name property.
++	    Error.stackTraceLimit = limit;
++	    const message = getMessage(key, args, error);
++	    ObjectDefineProperty(error, 'message', {
++	      value: message,
++	      enumerable: false,
++	      writable: true,
++	      configurable: true,
++	    });
++	    ObjectDefineProperty(error, 'toString', {
++	      value() {
++	        return `${this.name} [${key}]: ${this.message}`;
++	      },
++	      enumerable: false,
++	      writable: true,
++	      configurable: true,
++	    });
++	    addCodeToName(error, Base.name, key);
++	    error.code = key;
++	    return error;
++	  };
++	}
++
++	// This function removes unnecessary frames from Node.js core errors.
++	function hideStackFrames(fn) {
++	  // We rename the functions that will be hidden to cut off the stacktrace
++	  // at the outermost one
++	  const hidden = nodeInternalPrefix + fn.name;
++	  ObjectDefineProperty(fn, 'name', { value: hidden });
++	  return fn;
++	}
++
++	// Utility function for registering the error codes. Only used here. Exported
++	// *only* to allow for testing.
++	function E(sym, val, def) {
++	  // Special case for SystemError that formats the error message differently
++	  // The SystemErrors only have SystemError as their base classes.
++	  messages.set(sym, val);
++	  codes[sym] = makeNodeErrorWithCode(def, sym);
++	}
++
++	function getMessage(key, args, self) {
++	  const msg = messages.get(key);
++
++	  if (assert === undefined) assert = assert_1;
++
++	  assert(typeof msg === 'function');
++	  assert(
++	    msg.length <= args.length, // Default options do not count.
++	    `Code: ${key}; The provided arguments length (${args.length}) does not ` +
++	      `match the required ones (${msg.length}).`,
++	  );
++	  return ReflectApply(msg, self, args);
++	}
++
++	const captureLargerStackTrace = hideStackFrames(
++	  function captureLargerStackTrace(err) {
++	    userStackTraceLimit = Error.stackTraceLimit;
++	    Error.stackTraceLimit = Infinity;
++	    ErrorCaptureStackTrace(err);
++	    // Reset the limit
++	    Error.stackTraceLimit = userStackTraceLimit;
++
++	    return err;
++	  });
++
++	let maxStack_ErrorName;
++	let maxStack_ErrorMessage;
++	/**
++	 * Returns true if `err.name` and `err.message` are equal to engine-specific
++	 * values indicating max call stack size has been exceeded.
++	 * "Maximum call stack size exceeded" in V8.
++	 * @param {Error} err
++	 * @returns {boolean}
++	 */
++	function isStackOverflowError(err) {
++	  if (maxStack_ErrorMessage === undefined) {
++	    try {
++	      function overflowStack() { overflowStack(); }
++	      overflowStack();
++	    } catch (err) {
++	      maxStack_ErrorMessage = err.message;
++	      maxStack_ErrorName = err.name;
++	    }
++	  }
++
++	  return err && err.name === maxStack_ErrorName &&
++	         err.message === maxStack_ErrorMessage;
++	}
++
++	errors = {
++	  codes,
++	  hideStackFrames,
++	  isStackOverflowError,
++	};
++
++	E('ERR_INVALID_ARG_TYPE',
++	  (name, expected, actual) => {
++	    assert(typeof name === 'string', "'name' must be a string");
++	    if (!ArrayIsArray(expected)) {
++	      expected = [expected];
++	    }
++
++	    let msg = 'The ';
++	    if (StringPrototypeEndsWith(name, ' argument')) {
++	      // For cases like 'first argument'
++	      msg += `${name} `;
++	    } else {
++	      const type = StringPrototypeIncludes(name, '.') ? 'property' : 'argument';
++	      msg += `"${name}" ${type} `;
++	    }
++	    msg += 'must be ';
++
++	    const types = [];
++	    const instances = [];
++	    const other = [];
++
++	    for (const value of expected) {
++	      assert(typeof value === 'string',
++	             'All expected entries have to be of type string');
++	      if (ArrayPrototypeIncludes(kTypes, value)) {
++	        ArrayPrototypePush(types, StringPrototypeToLowerCase(value));
++	      } else if (RegExpPrototypeTest(classRegExp, value)) {
++	        ArrayPrototypePush(instances, value);
++	      } else {
++	        assert(value !== 'object',
++	               'The value "object" should be written as "Object"');
++	        ArrayPrototypePush(other, value);
++	      }
++	    }
++
++	    // Special handle `object` in case other instances are allowed to outline
++	    // the differences between each other.
++	    if (instances.length > 0) {
++	      const pos = ArrayPrototypeIndexOf(types, 'object');
++	      if (pos !== -1) {
++	        ArrayPrototypeSplice(types, pos, 1);
++	        ArrayPrototypePush(instances, 'Object');
++	      }
++	    }
++
++	    if (types.length > 0) {
++	      if (types.length > 2) {
++	        const last = ArrayPrototypePop(types);
++	        msg += `one of type ${ArrayPrototypeJoin(types, ', ')}, or ${last}`;
++	      } else if (types.length === 2) {
++	        msg += `one of type ${types[0]} or ${types[1]}`;
++	      } else {
++	        msg += `of type ${types[0]}`;
++	      }
++	      if (instances.length > 0 || other.length > 0)
++	        msg += ' or ';
++	    }
++
++	    if (instances.length > 0) {
++	      if (instances.length > 2) {
++	        const last = ArrayPrototypePop(instances);
++	        msg +=
++	          `an instance of ${ArrayPrototypeJoin(instances, ', ')}, or ${last}`;
++	      } else {
++	        msg += `an instance of ${instances[0]}`;
++	        if (instances.length === 2) {
++	          msg += ` or ${instances[1]}`;
++	        }
++	      }
++	      if (other.length > 0)
++	        msg += ' or ';
++	    }
++
++	    if (other.length > 0) {
++	      if (other.length > 2) {
++	        const last = ArrayPrototypePop(other);
++	        msg += `one of ${ArrayPrototypeJoin(other, ', ')}, or ${last}`;
++	      } else if (other.length === 2) {
++	        msg += `one of ${other[0]} or ${other[1]}`;
++	      } else {
++	        if (StringPrototypeToLowerCase(other[0]) !== other[0])
++	          msg += 'an ';
++	        msg += `${other[0]}`;
++	      }
++	    }
++
++	    if (actual == null) {
++	      msg += `. Received ${actual}`;
++	    } else if (typeof actual === 'function' && actual.name) {
++	      msg += `. Received function ${actual.name}`;
++	    } else if (typeof actual === 'object') {
++	      if (actual.constructor && actual.constructor.name) {
++	        msg += `. Received an instance of ${actual.constructor.name}`;
++	      } else {
++	        const inspected = lazyInternalUtilInspect()
++	          .inspect(actual, { depth: -1 });
++	        msg += `. Received ${inspected}`;
++	      }
++	    } else {
++	      let inspected = lazyInternalUtilInspect()
++	        .inspect(actual, { colors: false });
++	      if (inspected.length > 25)
++	        inspected = `${StringPrototypeSlice(inspected, 0, 25)}...`;
++	      msg += `. Received type ${typeof actual} (${inspected})`;
++	    }
++	    return msg;
++	  }, TypeError);
++	return errors;
++}
++
++const { getConstructorName } = util$1;
++
++// From https://mathiasbynens.be/notes/globalthis
++/* c8 ignore start */ // only needed for node 10
++(function() {
++  if (typeof globalThis === 'object') return;
++  Object.defineProperty(Object.prototype, '__magic__', {
++    get: function() {
++      return this;
++    },
++    configurable: true,
++  });
++  // eslint-disable-next-line no-undef
++  __magic__.globalThis = __magic__;
++  delete Object.prototype.__magic__;
++}());
++/* c8 ignore stop */
++
++function constructorNamed(val, ...name) {
++  // Pass in names rather than types, in case SharedArrayBuffer (e.g.) isn't
++  // in your browser
++  for (const n of name) {
++    const typ = globalThis[n];
++    if (typ) {
++      if (val instanceof typ) {
++        return true;
++      }
++    }
++  }
++  // instanceOf doesn't work across vm boundaries, so check the whole
++  // inheritance chain
++  while (val) {
++    if (typeof val !== 'object') {
++      return false;
++    }
++    if (name.indexOf(getConstructorName(val)) >= 0) {
++      return true;
++    }
++    val = Object.getPrototypeOf(val);
++  }
++  return false;
++}
++
++function checkBox(cls) {
++  return (val) => {
++    if (!constructorNamed(val, cls.name)) {
++      return false;
++    }
++    try {
++      cls.prototype.valueOf.call(val);
++    } catch {
++      return false;
++    }
++    return true;
++  };
++}
++
++const isStringObject = checkBox(String);
++const isNumberObject = checkBox(Number);
++const isBooleanObject = checkBox(Boolean);
++const isBigIntObject = checkBox(BigInt);
++const isSymbolObject = checkBox(Symbol);
++
++var types = {
++  isAsyncFunction(val) {
++    return (typeof val === 'function') &&
++      Function.prototype.toString.call(val).startsWith('async');
++  },
++  isGeneratorFunction(val) {
++    return (typeof val === 'function') &&
++      Function.prototype.toString.call(val).match(/^(async\s+)?function *\*/);
++  },
++  isAnyArrayBuffer(val) {
++    return constructorNamed(val, 'ArrayBuffer', 'SharedArrayBuffer');
++  },
++  isArrayBuffer(val) {
++    return constructorNamed(val, 'ArrayBuffer');
++  },
++  isArgumentsObject(val) {
++    const cond = (val !== null) &&
++      (typeof val === 'object') &&
++      !Array.isArray(val) &&
++      (typeof val.length === 'number') &&
++      (val.length === (val.length | 0)) &&
++      (val.length >= 0);
++    if (cond) {
++      const prop = Object.getOwnPropertyDescriptor(val, 'callee');
++      return prop && !prop.enumerable;
++    }
++    return false;
++  },
++  isBoxedPrimitive(val) {
++    return isNumberObject(val) ||
++      isStringObject(val) ||
++      isBooleanObject(val) ||
++      isBigIntObject(val) ||
++      isSymbolObject(val);
++  },
++  isDataView(val) {
++    return constructorNamed(val, 'DataView');
++  },
++  isExternal(val) {
++    return (typeof val === 'object') &&
++      (Object.isFrozen(val)) &&
++      (Object.getPrototypeOf(val) == null);
++  },
++  isMap(val) {
++    if (!constructorNamed(val, 'Map')) {
++      return false;
++    }
++    try {
++      val.has();
++    } catch {
++      return false;
++    }
++    return true;
++  },
++  isMapIterator(val) {
++    return Object.prototype.toString.call(Object.getPrototypeOf(val)) ===
++      '[object Map Iterator]';
++  },
++  isModuleNamespaceObject(val) {
++    // TODO: this is weak and easily faked
++    return val &&
++      (typeof val === 'object') &&
++      (val[Symbol.toStringTag] === 'Module');
++  },
++  isNativeError(val) {
++    return (val instanceof Error) && constructorNamed(
++      val,
++      'Error',
++      'EvalError',
++      'RangeError',
++      'ReferenceError',
++      'SyntaxError',
++      'TypeError',
++      'URIError',
++      'AggregateError');
++  },
++  isPromise(val) {
++    return constructorNamed(val, 'Promise');
++  },
++  isSet(val) {
++    if (!constructorNamed(val, 'Set')) {
++      return false;
++    }
++    try {
++      val.has();
++    } catch {
++      return false;
++    }
++    return true;
++  },
++  isSetIterator(val) {
++    return Object.prototype.toString.call(Object.getPrototypeOf(val)) ===
++      '[object Set Iterator]';
++  },
++  isWeakMap(val) {
++    return constructorNamed(val, 'WeakMap');
++  },
++  isWeakSet(val) {
++    return constructorNamed(val, 'WeakSet');
++  },
++  isRegExp(val) {
++    return constructorNamed(val, 'RegExp');
++  },
++  isDate(val) {
++    if (constructorNamed(val, 'Date')) {
++      try {
++        Date.prototype.getTime.call(val); // Throws for pseudo-dates
++        return true;
++      } catch {
++        // Ignored
++      }
++    }
++    return false;
++  },
++  isTypedArray(val) {
++    return constructorNamed(
++      val,
++      'Int8Array',
++      'Uint8Array',
++      'Uint8ClampedArray',
++      'Int16Array',
++      'Uint16Array',
++      'Int32Array',
++      'Uint32Array',
++      'Float32Array',
++      'Float64Array',
++      'BigInt64Array',
++      'BigUint64Array',
++    );
++  },
++  isStringObject,
++  isNumberObject,
++  isBooleanObject,
++  isBigIntObject,
++  isSymbolObject,
++};
++
++var realm = {};
++
++// This is a snapshot from node 18.11.0
++const builtinModules = [
++  '_http_agent',
++  '_http_client',
++  '_http_common',
++  '_http_incoming',
++  '_http_outgoing',
++  '_http_server',
++  '_stream_duplex',
++  '_stream_passthrough',
++  '_stream_readable',
++  '_stream_transform',
++  '_stream_wrap',
++  '_stream_writable',
++  '_tls_common',
++  '_tls_wrap',
++  'assert',
++  'assert/strict',
++  'async_hooks',
++  'buffer',
++  'child_process',
++  'cluster',
++  'console',
++  'constants',
++  'crypto',
++  'dgram',
++  'diagnostics_channel',
++  'dns',
++  'dns/promises',
++  'domain',
++  'events',
++  'fs',
++  'fs/promises',
++  'http',
++  'http2',
++  'https',
++  'inspector',
++  'module',
++  'Module',
++  'net',
++  'os',
++  'path',
++  'path/posix',
++  'path/win32',
++  'perf_hooks',
++  'process',
++  'punycode',
++  'querystring',
++  'readline',
++  'readline/promises',
++  'repl',
++  'stream',
++  'stream/consumers',
++  'stream/promises',
++  'stream/web',
++  'string_decoder',
++  'sys',
++  'timers',
++  'timers/promises',
++  'tls',
++  'trace_events',
++  'tty',
++  'url',
++  'util',
++  'util/types',
++  'v8',
++  'vm',
++  'wasi',
++  'worker_threads',
++  'zlib',
++];
++
++realm.BuiltinModule = {
++  exists(s) {
++    return s.startsWith('internal/') || builtinModules.indexOf(s) !== -1;
++  },
++};
++
++var validators;
++var hasRequiredValidators;
++
++function requireValidators () {
++	if (hasRequiredValidators) return validators;
++	hasRequiredValidators = 1;
++
++	const {
++	  ArrayIsArray,
++	} = primordialsExports;
++
++	const {
++	  hideStackFrames,
++	  codes: {
++	    ERR_INVALID_ARG_TYPE,
++	  },
++	} = requireErrors();
++
++	/**
++	 * @param {unknown} value
++	 * @param {string} name
++	 * @param {{
++	 *   allowArray?: boolean,
++	 *   allowFunction?: boolean,
++	 *   nullable?: boolean
++	 * }} [options]
++	 */
++	const validateObject = hideStackFrames(
++	  (value, name, options) => {
++	    const useDefaultOptions = options == null;
++	    const allowArray = useDefaultOptions ? false : options.allowArray;
++	    const allowFunction = useDefaultOptions ? false : options.allowFunction;
++	    const nullable = useDefaultOptions ? false : options.nullable;
++	    if ((!nullable && value === null) ||
++	        (!allowArray && ArrayIsArray(value)) ||
++	        (typeof value !== 'object' && (
++	          !allowFunction || typeof value !== 'function'
++	        ))) {
++	      throw new ERR_INVALID_ARG_TYPE(name, 'Object', value);
++	    }
++	  });
++
++	function validateString(value, name) {
++	  if (typeof value !== 'string')
++	    throw new ERR_INVALID_ARG_TYPE(name, 'string', value);
++	}
++
++	validators = {
++	  validateObject,
++	  validateString,
++	};
++	return validators;
++}
++
++var constants;
++var hasRequiredConstants;
++
++function requireConstants () {
++	if (hasRequiredConstants) return constants;
++	hasRequiredConstants = 1;
++
++	constants = {
++	  // Non-alphabetic chars.
++	  CHAR_DOT: 46, /* . */
++	  CHAR_FORWARD_SLASH: 47, /* / */
++	  CHAR_BACKWARD_SLASH: 92, /* \ */
++	};
++	return constants;
++}
++
++var path;
++var hasRequiredPath;
++
++function requirePath () {
++	if (hasRequiredPath) return path;
++	hasRequiredPath = 1;
++
++	const {
++	  StringPrototypeCharCodeAt,
++	  StringPrototypeLastIndexOf,
++	  StringPrototypeSlice,
++	} = primordialsExports;
++
++	const {
++	  CHAR_DOT,
++	  CHAR_FORWARD_SLASH,
++	} = requireConstants();
++	const {
++	  validateString,
++	} = requireValidators();
++
++	function posixCwd() {
++	  return '/'; // Fake for the web case
++	}
++
++	function isPosixPathSeparator(code) {
++	  return code === CHAR_FORWARD_SLASH;
++	}
++
++	// Resolves . and .. elements in a path with directory names
++	function normalizeString(path, allowAboveRoot, separator, isPathSeparator) {
++	  let res = '';
++	  let lastSegmentLength = 0;
++	  let lastSlash = -1;
++	  let dots = 0;
++	  let code = 0;
++	  for (let i = 0; i <= path.length; ++i) {
++	    if (i < path.length)
++	      code = StringPrototypeCharCodeAt(path, i);
++	    else if (isPathSeparator(code))
++	      break;
++	    else
++	      code = CHAR_FORWARD_SLASH;
++
++	    if (isPathSeparator(code)) {
++	      if (lastSlash === i - 1 || dots === 1) ; else if (dots === 2) {
++	        if (res.length < 2 || lastSegmentLength !== 2 ||
++	            StringPrototypeCharCodeAt(res, res.length - 1) !== CHAR_DOT ||
++	            StringPrototypeCharCodeAt(res, res.length - 2) !== CHAR_DOT) {
++	          if (res.length > 2) {
++	            const lastSlashIndex = StringPrototypeLastIndexOf(res, separator);
++	            if (lastSlashIndex === -1) {
++	              res = '';
++	              lastSegmentLength = 0;
++	            } else {
++	              res = StringPrototypeSlice(res, 0, lastSlashIndex);
++	              lastSegmentLength =
++	                res.length - 1 - StringPrototypeLastIndexOf(res, separator);
++	            }
++	            lastSlash = i;
++	            dots = 0;
++	            continue;
++	          } else if (res.length !== 0) {
++	            res = '';
++	            lastSegmentLength = 0;
++	            lastSlash = i;
++	            dots = 0;
++	            continue;
++	          }
++	        }
++	        if (allowAboveRoot) {
++	          res += res.length > 0 ? `${separator}..` : '..';
++	          lastSegmentLength = 2;
++	        }
++	      } else {
++	        if (res.length > 0)
++	          res += `${separator}${StringPrototypeSlice(path, lastSlash + 1, i)}`;
++	        else
++	          res = StringPrototypeSlice(path, lastSlash + 1, i);
++	        lastSegmentLength = i - lastSlash - 1;
++	      }
++	      lastSlash = i;
++	      dots = 0;
++	    } else if (code === CHAR_DOT && dots !== -1) {
++	      ++dots;
++	    } else {
++	      dots = -1;
++	    }
++	  }
++	  return res;
++	}
++
++	function resolve(...args) {
++	  let resolvedPath = '';
++	  let resolvedAbsolute = false;
++
++	  for (let i = args.length - 1; i >= -1 && !resolvedAbsolute; i--) {
++	    const path = i >= 0 ? args[i] : posixCwd();
++
++	    validateString(path, 'path');
++
++	    // Skip empty entries
++	    if (path.length === 0) {
++	      continue;
++	    }
++
++	    resolvedPath = `${path}/${resolvedPath}`;
++	    resolvedAbsolute =
++	      StringPrototypeCharCodeAt(path, 0) === CHAR_FORWARD_SLASH;
++	  }
++
++	  // At this point the path should be resolved to a full absolute path, but
++	  // handle relative paths to be safe (might happen when process.cwd() fails)
++
++	  // Normalize the path
++	  resolvedPath = normalizeString(resolvedPath, !resolvedAbsolute, '/',
++	                                 isPosixPathSeparator);
++
++	  if (resolvedAbsolute) {
++	    return `/${resolvedPath}`;
++	  }
++	  return resolvedPath.length > 0 ? resolvedPath : '.';
++	}
++
++	path = {
++	  resolve,
++	};
++	return path;
++}
++
++var url;
++var hasRequiredUrl;
++
++function requireUrl () {
++	if (hasRequiredUrl) return url;
++	hasRequiredUrl = 1;
++
++	// The main use case is browsers, and I rarely test on Windows, so all of the
++	// Windows-specific stuff is removed.
++
++	const {
++	  StringPrototypeCharCodeAt,
++	  StringPrototypeIncludes,
++	  StringPrototypeReplace,
++	} = primordialsExports;
++
++	const {
++	  CHAR_FORWARD_SLASH,
++	} = requireConstants();
++	const path = requirePath();
++
++	const percentRegEx = /%/g;
++	const backslashRegEx = /\\/g;
++	const newlineRegEx = /\n/g;
++	const carriageReturnRegEx = /\r/g;
++	const tabRegEx = /\t/g;
++
++	function encodePathChars(filepath) {
++	  if (StringPrototypeIncludes(filepath, '%'))
++	    filepath = StringPrototypeReplace(filepath, percentRegEx, '%25');
++	  // In posix, backslash is a valid character in paths:
++	  if (StringPrototypeIncludes(filepath, '\\'))
++	    filepath = StringPrototypeReplace(filepath, backslashRegEx, '%5C');
++	  if (StringPrototypeIncludes(filepath, '\n'))
++	    filepath = StringPrototypeReplace(filepath, newlineRegEx, '%0A');
++	  if (StringPrototypeIncludes(filepath, '\r'))
++	    filepath = StringPrototypeReplace(filepath, carriageReturnRegEx, '%0D');
++	  if (StringPrototypeIncludes(filepath, '\t'))
++	    filepath = StringPrototypeReplace(filepath, tabRegEx, '%09');
++	  return filepath;
++	}
++
++	function pathToFileURL(filepath) {
++	  const outURL = new URL('file://');
++
++	  let resolved = path.resolve(filepath);
++	  // path.resolve strips trailing slashes so we must add them back
++	  const filePathLast = StringPrototypeCharCodeAt(filepath,
++	                                                 filepath.length - 1);
++	  if ((filePathLast === CHAR_FORWARD_SLASH) &&
++	      resolved[resolved.length - 1] !== path.sep)
++	    resolved += '/';
++	  outURL.pathname = encodePathChars(resolved);
++
++	  return outURL;
++	}
++
++	url = {
++	  pathToFileURL,
++	};
++	return url;
++}
++
++var buffer = {};
++
++var hasRequiredBuffer;
++
++function requireBuffer () {
++	if (hasRequiredBuffer) return buffer;
++	hasRequiredBuffer = 1;
++
++	class Buffer {
++	  hexSlice(start = 0, end) {
++	    return Array.prototype.map.call(
++	      this.slice(start, end),
++	      (x) => ('00' + x.toString(16)).slice(-2))
++	      .join('');
++	  }
++	}
++
++	buffer.Buffer = Buffer;
++	return buffer;
++}
++
++var inspect_1;
++var hasRequiredInspect;
++
++function requireInspect () {
++	if (hasRequiredInspect) return inspect_1;
++	hasRequiredInspect = 1;
++
++	const primordials = primordialsExports;
++	const {
++	  internalBinding,
++	  Array,
++	  ArrayIsArray,
++	  ArrayPrototypeFilter,
++	  ArrayPrototypeForEach,
++	  ArrayPrototypeIncludes,
++	  ArrayPrototypeIndexOf,
++	  ArrayPrototypeJoin,
++	  ArrayPrototypeMap,
++	  ArrayPrototypePop,
++	  ArrayPrototypePush,
++	  ArrayPrototypePushApply,
++	  ArrayPrototypeSlice,
++	  ArrayPrototypeSplice,
++	  ArrayPrototypeSort,
++	  ArrayPrototypeUnshift,
++	  BigIntPrototypeValueOf,
++	  BooleanPrototypeValueOf,
++	  DatePrototypeGetTime,
++	  DatePrototypeToISOString,
++	  DatePrototypeToString,
++	  ErrorPrototypeToString,
++	  FunctionPrototypeBind,
++	  FunctionPrototypeCall,
++	  FunctionPrototypeToString,
++	  JSONStringify,
++	  MapPrototypeGetSize,
++	  MapPrototypeEntries,
++	  MathFloor,
++	  MathMax,
++	  MathMin,
++	  MathRound,
++	  MathSqrt,
++	  MathTrunc,
++	  Number,
++	  NumberIsFinite,
++	  NumberIsNaN,
++	  NumberParseFloat,
++	  NumberParseInt,
++	  NumberPrototypeToString,
++	  NumberPrototypeValueOf,
++	  Object,
++	  ObjectAssign,
++	  ObjectDefineProperty,
++	  ObjectGetOwnPropertyDescriptor,
++	  ObjectGetOwnPropertyNames,
++	  ObjectGetOwnPropertySymbols,
++	  ObjectGetPrototypeOf,
++	  ObjectIs,
++	  ObjectKeys,
++	  ObjectPrototypeHasOwnProperty,
++	  ObjectPrototypePropertyIsEnumerable,
++	  ObjectSeal,
++	  ObjectSetPrototypeOf,
++	  ReflectApply,
++	  ReflectOwnKeys,
++	  RegExp,
++	  RegExpPrototypeExec,
++	  RegExpPrototypeSymbolReplace,
++	  RegExpPrototypeSymbolSplit,
++	  RegExpPrototypeToString,
++	  SafeStringIterator,
++	  SafeMap,
++	  SafeSet,
++	  SetPrototypeGetSize,
++	  SetPrototypeValues,
++	  String,
++	  StringPrototypeCharCodeAt,
++	  StringPrototypeCodePointAt,
++	  StringPrototypeIncludes,
++	  StringPrototypeIndexOf,
++	  StringPrototypeLastIndexOf,
++	  StringPrototypeNormalize,
++	  StringPrototypePadEnd,
++	  StringPrototypePadStart,
++	  StringPrototypeRepeat,
++	  StringPrototypeReplaceAll,
++	  StringPrototypeSlice,
++	  StringPrototypeSplit,
++	  StringPrototypeEndsWith,
++	  StringPrototypeStartsWith,
++	  StringPrototypeToLowerCase,
++	  StringPrototypeTrim,
++	  StringPrototypeValueOf,
++	  SymbolPrototypeToString,
++	  SymbolPrototypeValueOf,
++	  SymbolIterator,
++	  SymbolToStringTag,
++	  TypedArrayPrototypeGetLength,
++	  TypedArrayPrototypeGetSymbolToStringTag,
++	  Uint8Array,
++	  globalThis,
++	  uncurryThis,
++	} = primordials;
++
++	const {
++	  constants: {
++	    ALL_PROPERTIES,
++	    ONLY_ENUMERABLE,
++	    kPending,
++	    kRejected,
++	  },
++	  getOwnNonIndexProperties,
++	  getPromiseDetails,
++	  getProxyDetails,
++	  previewEntries,
++	  getConstructorName: internalGetConstructorName,
++	  getExternalValue,
++	  Proxy,
++	} = util$1;
++
++	const {
++	  customInspectSymbol,
++	  isError,
++	  join,
++	  removeColors,
++	} = util;
++
++	const {
++	  isStackOverflowError,
++	} = requireErrors();
++
++	const {
++	  isAsyncFunction,
++	  isGeneratorFunction,
++	  isAnyArrayBuffer,
++	  isArrayBuffer,
++	  isArgumentsObject,
++	  isBoxedPrimitive,
++	  isDataView,
++	  isExternal,
++	  isMap,
++	  isMapIterator,
++	  isModuleNamespaceObject,
++	  isNativeError,
++	  isPromise,
++	  isSet,
++	  isSetIterator,
++	  isWeakMap,
++	  isWeakSet,
++	  isRegExp,
++	  isDate,
++	  isTypedArray,
++	  isStringObject,
++	  isNumberObject,
++	  isBooleanObject,
++	  isBigIntObject,
++	} = types;
++
++	const assert = assert_1;
++
++	const { BuiltinModule } = realm;
++	const {
++	  validateObject,
++	  validateString,
++	} = requireValidators();
++
++	let hexSlice;
++	let internalUrl;
++
++	function pathToFileUrlHref(filepath) {
++	  // Maintain node 14 compat
++	  // internalUrl ??= require('./internal/url');
++	  internalUrl = (internalUrl == null) ? requireUrl() : internalUrl;
++	  return internalUrl.pathToFileURL(filepath).href;
++	}
++
++	const builtInObjects = new SafeSet(
++	  ArrayPrototypeFilter(
++	    ObjectGetOwnPropertyNames(globalThis),
++	    (e) => RegExpPrototypeExec(/^[A-Z][a-zA-Z0-9]+$/, e) !== null,
++	  ),
++	);
++
++	// https://tc39.es/ecma262/#sec-IsHTMLDDA-internal-slot
++	const isUndetectableObject = (v) => typeof v === 'undefined' && v !== undefined;
++
++	// These options must stay in sync with `getUserOptions`. So if any option will
++	// be added or removed, `getUserOptions` must also be updated accordingly.
++	const inspectDefaultOptions = ObjectSeal({
++	  showHidden: false,
++	  depth: 2,
++	  colors: false,
++	  customInspect: true,
++	  showProxy: false,
++	  maxArrayLength: 100,
++	  maxStringLength: 10000,
++	  breakLength: 80,
++	  compact: 3,
++	  sorted: false,
++	  getters: false,
++	  numericSeparator: false,
++	});
++
++	const kObjectType = 0;
++	const kArrayType = 1;
++	const kArrayExtrasType = 2;
++
++	/* eslint-disable no-control-regex */
++	// Work-arounds for Safari not implementing negative look-behinds.
++	// Remove all of this once Safari 16.4 is rolled out "enough".
++	let strEscapeSequencesRegExp,
++	  strEscapeSequencesReplacer,
++	  strEscapeSequencesRegExpSingle,
++	  strEscapeSequencesReplacerSingle,
++	  extractedSplitNewLines;
++	try {
++	  // Change from regex literals to RegExp constructors to avoid unrecoverable
++	  // syntax error at load time.
++	  strEscapeSequencesRegExp =
++	    // eslint-disable-next-line max-len
++	    new RegExp('[\\x00-\\x1f\\x27\\x5c\\x7f-\\x9f]|[\\ud800-\\udbff](?![\\udc00-\\udfff])|(?<![\\ud800-\\udbff])[\\udc00-\\udfff]');
++	  strEscapeSequencesReplacer =
++	    new RegExp(
++	      // eslint-disable-next-line max-len
++	      '[\x00-\\x1f\\x27\\x5c\\x7f-\\x9f]|[\\ud800-\\udbff](?![\\udc00-\\udfff])|(?<![\\ud800-\\udbff])[\\udc00-\\udfff]',
++	      'g',
++	    );
++	  strEscapeSequencesRegExpSingle =
++	    // eslint-disable-next-line max-len
++	    new RegExp('[\\x00-\\x1f\\x5c\\x7f-\\x9f]|[\\ud800-\\udbff](?![\\udc00-\\udfff])|(?<![\\ud800-\\udbff])[\\udc00-\\udfff]');
++	  strEscapeSequencesReplacerSingle =
++	    // eslint-disable-next-line max-len
++	    new RegExp('[\\x00-\\x1f\\x5c\\x7f-\\x9f]|[\\ud800-\\udbff](?![\\udc00-\\udfff])|(?<![\\ud800-\\udbff])[\\udc00-\\udfff]', 'g');
++	  const extractedNewLineRe = new RegExp('(?<=\\n)');
++	  extractedSplitNewLines = (value) => RegExpPrototypeSymbolSplit(extractedNewLineRe, value);
++	  /* c8 ignore start */
++	  // CI doesn't run in an elderly runtime
++	} catch {
++	  // These are from a previous version of node,
++	  // see commit 76372607a6743cc75eae50ca58657c9e8a654428
++	  // dated 2021-12-06
++	  strEscapeSequencesRegExp = /[\x00-\x1f\x27\x5c\x7f-\x9f]/;
++	  strEscapeSequencesReplacer = /[\x00-\x1f\x27\x5c\x7f-\x9f]/g;
++	  strEscapeSequencesRegExpSingle = /[\x00-\x1f\x5c\x7f-\x9f]/;
++	  strEscapeSequencesReplacerSingle = /[\x00-\x1f\x5c\x7f-\x9f]/g;
++	  extractedSplitNewLines = (value) => {
++	    const lines = RegExpPrototypeSymbolSplit(/\n/, value);
++	    const last = ArrayPrototypePop(lines);
++	    const nlLines = ArrayPrototypeMap(lines, (line) => line + '\n');
++	    if (last !== '') {
++	      nlLines.push(last);
++	    }
++	    return nlLines;
++	  };
++	}
++	/* c8 ignore stop */
++	/* eslint-enable no-control-regex */
++
++	const keyStrRegExp = /^[a-zA-Z_][a-zA-Z_0-9]*$/;
++	const numberRegExp = /^(0|[1-9][0-9]*)$/;
++
++	const coreModuleRegExp = /^ {4}at (?:[^/\\(]+ \(|)node:(.+):\d+:\d+\)?$/;
++	const nodeModulesRegExp = /[/\\]node_modules[/\\](.+?)(?=[/\\])/g;
++
++	const classRegExp = /^(\s+[^(]*?)\s*{/;
++	// eslint-disable-next-line node-core/no-unescaped-regexp-dot
++	const stripCommentsRegExp = /(\/\/.*?\n)|(\/\*(.|\n)*?\*\/)/g;
++
++	const kMinLineLength = 16;
++
++	// Constants to map the iterator state.
++	const kWeak = 0;
++	const kIterator = 1;
++	const kMapEntries = 2;
++
++	// Escaped control characters (plus the single quote and the backslash). Use
++	// empty strings to fill up unused entries.
++	const meta = [
++	  '\\x00', '\\x01', '\\x02', '\\x03', '\\x04', '\\x05', '\\x06', '\\x07', // x07
++	  '\\b', '\\t', '\\n', '\\x0B', '\\f', '\\r', '\\x0E', '\\x0F',           // x0F
++	  '\\x10', '\\x11', '\\x12', '\\x13', '\\x14', '\\x15', '\\x16', '\\x17', // x17
++	  '\\x18', '\\x19', '\\x1A', '\\x1B', '\\x1C', '\\x1D', '\\x1E', '\\x1F', // x1F
++	  '', '', '', '', '', '', '', "\\'", '', '', '', '', '', '', '', '',      // x2F
++	  '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '',         // x3F
++	  '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '',         // x4F
++	  '', '', '', '', '', '', '', '', '', '', '', '', '\\\\', '', '', '',     // x5F
++	  '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '',         // x6F
++	  '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '\\x7F',    // x7F
++	  '\\x80', '\\x81', '\\x82', '\\x83', '\\x84', '\\x85', '\\x86', '\\x87', // x87
++	  '\\x88', '\\x89', '\\x8A', '\\x8B', '\\x8C', '\\x8D', '\\x8E', '\\x8F', // x8F
++	  '\\x90', '\\x91', '\\x92', '\\x93', '\\x94', '\\x95', '\\x96', '\\x97', // x97
++	  '\\x98', '\\x99', '\\x9A', '\\x9B', '\\x9C', '\\x9D', '\\x9E', '\\x9F', // x9F
++	];
++
++	// Regex used for ansi escape code splitting
++	// Adopted from https://github.com/chalk/ansi-regex/blob/HEAD/index.js
++	// License: MIT, authors: @sindresorhus, Qix-, arjunmehta and LitoMore
++	// Matches all ansi escape code sequences in a string
++	const ansiPattern = '[\\u001B\\u009B][[\\]()#;?]*' +
++	  '(?:(?:(?:(?:;[-a-zA-Z\\d\\/#&.:=?%@~_]+)*' +
++	  '|[a-zA-Z\\d]+(?:;[-a-zA-Z\\d\\/#&.:=?%@~_]*)*)?\\u0007)' +
++	  '|(?:(?:\\d{1,4}(?:;\\d{0,4})*)?[\\dA-PR-TZcf-ntqry=><~]))';
++	const ansi = new RegExp(ansiPattern, 'g');
++
++	let getStringWidth;
++
++	function getUserOptions(ctx, isCrossContext) {
++	  const ret = {
++	    stylize: ctx.stylize,
++	    showHidden: ctx.showHidden,
++	    depth: ctx.depth,
++	    colors: ctx.colors,
++	    customInspect: ctx.customInspect,
++	    showProxy: ctx.showProxy,
++	    maxArrayLength: ctx.maxArrayLength,
++	    maxStringLength: ctx.maxStringLength,
++	    breakLength: ctx.breakLength,
++	    compact: ctx.compact,
++	    sorted: ctx.sorted,
++	    getters: ctx.getters,
++	    numericSeparator: ctx.numericSeparator,
++	    ...ctx.userOptions,
++	  };
++
++	  // Typically, the target value will be an instance of `Object`. If that is
++	  // *not* the case, the object may come from another vm.Context, and we want
++	  // to avoid passing it objects from this Context in that case, so we remove
++	  // the prototype from the returned object itself + the `stylize()` function,
++	  // and remove all other non-primitives, including non-primitive user options.
++	  if (isCrossContext) {
++	    ObjectSetPrototypeOf(ret, null);
++	    for (const key of ObjectKeys(ret)) {
++	      if ((typeof ret[key] === 'object' || typeof ret[key] === 'function') &&
++	          ret[key] !== null) {
++	        delete ret[key];
++	      }
++	    }
++	    ret.stylize = ObjectSetPrototypeOf((value, flavour) => {
++	      let stylized;
++	      try {
++	        stylized = `${ctx.stylize(value, flavour)}`;
++	      } catch {
++	        // Continue regardless of error.
++	      }
++
++	      if (typeof stylized !== 'string') return value;
++	      // `stylized` is a string as it should be, which is safe to pass along.
++	      return stylized;
++	    }, null);
++	  }
++
++	  return ret;
++	}
++
++	/**
++	 * Echos the value of any input. Tries to print the value out
++	 * in the best way possible given the different types.
++	 * @param {any} value The value to print out.
++	 * @param {object} opts Optional options object that alters the output.
++	 */
++	/* Legacy: value, showHidden, depth, colors */
++	function inspect(value, opts) {
++	  // Default options
++	  const ctx = {
++	    budget: {},
++	    indentationLvl: 0,
++	    seen: [],
++	    currentDepth: 0,
++	    stylize: stylizeNoColor,
++	    showHidden: inspectDefaultOptions.showHidden,
++	    depth: inspectDefaultOptions.depth,
++	    colors: inspectDefaultOptions.colors,
++	    customInspect: inspectDefaultOptions.customInspect,
++	    showProxy: inspectDefaultOptions.showProxy,
++	    maxArrayLength: inspectDefaultOptions.maxArrayLength,
++	    maxStringLength: inspectDefaultOptions.maxStringLength,
++	    breakLength: inspectDefaultOptions.breakLength,
++	    compact: inspectDefaultOptions.compact,
++	    sorted: inspectDefaultOptions.sorted,
++	    getters: inspectDefaultOptions.getters,
++	    numericSeparator: inspectDefaultOptions.numericSeparator,
++	  };
++	  if (arguments.length > 1) {
++	    // Legacy...
++	    if (arguments.length > 2) {
++	      if (arguments[2] !== undefined) {
++	        ctx.depth = arguments[2];
++	      }
++	      if (arguments.length > 3 && arguments[3] !== undefined) {
++	        ctx.colors = arguments[3];
++	      }
++	    }
++	    // Set user-specified options
++	    if (typeof opts === 'boolean') {
++	      ctx.showHidden = opts;
++	    } else if (opts) {
++	      const optKeys = ObjectKeys(opts);
++	      for (let i = 0; i < optKeys.length; ++i) {
++	        const key = optKeys[i];
++	        // TODO(BridgeAR): Find a solution what to do about stylize. Either make
++	        // this function public or add a new API with a similar or better
++	        // functionality.
++	        if (
++	          ObjectPrototypeHasOwnProperty(inspectDefaultOptions, key) ||
++	          key === 'stylize') {
++	          ctx[key] = opts[key];
++	        } else if (ctx.userOptions === undefined) {
++	          // This is required to pass through the actual user input.
++	          ctx.userOptions = opts;
++	        }
++	      }
++	    }
++	  }
++	  if (ctx.colors) ctx.stylize = stylizeWithColor;
++	  if (ctx.maxArrayLength === null) ctx.maxArrayLength = Infinity;
++	  if (ctx.maxStringLength === null) ctx.maxStringLength = Infinity;
++	  return formatValue(ctx, value, 0);
++	}
++	inspect.custom = customInspectSymbol;
++
++	ObjectDefineProperty(inspect, 'defaultOptions', {
++	  __proto__: null,
++	  get() {
++	    return inspectDefaultOptions;
++	  },
++	  set(options) {
++	    validateObject(options, 'options');
++	    return ObjectAssign(inspectDefaultOptions, options);
++	  },
++	});
++
++	// Set Graphics Rendition https://en.wikipedia.org/wiki/ANSI_escape_code#graphics
++	// Each color consists of an array with the color code as first entry and the
++	// reset code as second entry.
++	const defaultFG = 39;
++	const defaultBG = 49;
++	inspect.colors = {
++	  __proto__: null,
++	  reset: [0, 0],
++	  bold: [1, 22],
++	  dim: [2, 22], // Alias: faint
++	  italic: [3, 23],
++	  underline: [4, 24],
++	  blink: [5, 25],
++	  // Swap foreground and background colors
++	  inverse: [7, 27], // Alias: swapcolors, swapColors
++	  hidden: [8, 28], // Alias: conceal
++	  strikethrough: [9, 29], // Alias: strikeThrough, crossedout, crossedOut
++	  doubleunderline: [21, 24], // Alias: doubleUnderline
++	  black: [30, defaultFG],
++	  red: [31, defaultFG],
++	  green: [32, defaultFG],
++	  yellow: [33, defaultFG],
++	  blue: [34, defaultFG],
++	  magenta: [35, defaultFG],
++	  cyan: [36, defaultFG],
++	  white: [37, defaultFG],
++	  bgBlack: [40, defaultBG],
++	  bgRed: [41, defaultBG],
++	  bgGreen: [42, defaultBG],
++	  bgYellow: [43, defaultBG],
++	  bgBlue: [44, defaultBG],
++	  bgMagenta: [45, defaultBG],
++	  bgCyan: [46, defaultBG],
++	  bgWhite: [47, defaultBG],
++	  framed: [51, 54],
++	  overlined: [53, 55],
++	  gray: [90, defaultFG], // Alias: grey, blackBright
++	  redBright: [91, defaultFG],
++	  greenBright: [92, defaultFG],
++	  yellowBright: [93, defaultFG],
++	  blueBright: [94, defaultFG],
++	  magentaBright: [95, defaultFG],
++	  cyanBright: [96, defaultFG],
++	  whiteBright: [97, defaultFG],
++	  bgGray: [100, defaultBG], // Alias: bgGrey, bgBlackBright
++	  bgRedBright: [101, defaultBG],
++	  bgGreenBright: [102, defaultBG],
++	  bgYellowBright: [103, defaultBG],
++	  bgBlueBright: [104, defaultBG],
++	  bgMagentaBright: [105, defaultBG],
++	  bgCyanBright: [106, defaultBG],
++	  bgWhiteBright: [107, defaultBG],
++	};
++
++	function defineColorAlias(target, alias) {
++	  ObjectDefineProperty(inspect.colors, alias, {
++	    __proto__: null,
++	    get() {
++	      return this[target];
++	    },
++	    set(value) {
++	      this[target] = value;
++	    },
++	    configurable: true,
++	    enumerable: false,
++	  });
++	}
++
++	defineColorAlias('gray', 'grey');
++	defineColorAlias('gray', 'blackBright');
++	defineColorAlias('bgGray', 'bgGrey');
++	defineColorAlias('bgGray', 'bgBlackBright');
++	defineColorAlias('dim', 'faint');
++	defineColorAlias('strikethrough', 'crossedout');
++	defineColorAlias('strikethrough', 'strikeThrough');
++	defineColorAlias('strikethrough', 'crossedOut');
++	defineColorAlias('hidden', 'conceal');
++	defineColorAlias('inverse', 'swapColors');
++	defineColorAlias('inverse', 'swapcolors');
++	defineColorAlias('doubleunderline', 'doubleUnderline');
++
++	// TODO(BridgeAR): Add function style support for more complex styles.
++	// Don't use 'blue' not visible on cmd.exe
++	inspect.styles = ObjectAssign({ __proto__: null }, {
++	  special: 'cyan',
++	  number: 'yellow',
++	  bigint: 'yellow',
++	  boolean: 'yellow',
++	  undefined: 'grey',
++	  null: 'bold',
++	  string: 'green',
++	  symbol: 'green',
++	  date: 'magenta',
++	  // "name": intentionally not styling
++	  // TODO(BridgeAR): Highlight regular expressions properly.
++	  regexp: 'red',
++	  module: 'underline',
++	});
++
++	function addQuotes(str, quotes) {
++	  if (quotes === -1) {
++	    return `"${str}"`;
++	  }
++	  if (quotes === -2) {
++	    return `\`${str}\``;
++	  }
++	  return `'${str}'`;
++	}
++
++	function escapeFn(str) {
++	  const charCode = StringPrototypeCharCodeAt(str);
++	  return meta.length > charCode ? meta[charCode] : `\\u${NumberPrototypeToString(charCode, 16)}`;
++	}
++
++	// Escape control characters, single quotes and the backslash.
++	// This is similar to JSON stringify escaping.
++	function strEscape(str) {
++	  let escapeTest = strEscapeSequencesRegExp;
++	  let escapeReplace = strEscapeSequencesReplacer;
++	  let singleQuote = 39;
++
++	  // Check for double quotes. If not present, do not escape single quotes and
++	  // instead wrap the text in double quotes. If double quotes exist, check for
++	  // backticks. If they do not exist, use those as fallback instead of the
++	  // double quotes.
++	  if (StringPrototypeIncludes(str, "'")) {
++	    // This invalidates the charCode and therefore can not be matched for
++	    // anymore.
++	    if (!StringPrototypeIncludes(str, '"')) {
++	      singleQuote = -1;
++	    } else if (!StringPrototypeIncludes(str, '`') &&
++	               !StringPrototypeIncludes(str, '${')) {
++	      singleQuote = -2;
++	    }
++	    if (singleQuote !== 39) {
++	      escapeTest = strEscapeSequencesRegExpSingle;
++	      escapeReplace = strEscapeSequencesReplacerSingle;
++	    }
++	  }
++
++	  // Some magic numbers that worked out fine while benchmarking with v8 6.0
++	  if (str.length < 5000 && RegExpPrototypeExec(escapeTest, str) === null)
++	    return addQuotes(str, singleQuote);
++	  if (str.length > 100) {
++	    str = RegExpPrototypeSymbolReplace(escapeReplace, str, escapeFn);
++	    return addQuotes(str, singleQuote);
++	  }
++
++	  let result = '';
++	  let last = 0;
++	  for (let i = 0; i < str.length; i++) {
++	    const point = StringPrototypeCharCodeAt(str, i);
++	    if (point === singleQuote ||
++	        point === 92 ||
++	        point < 32 ||
++	        (point > 126 && point < 160)) {
++	      if (last === i) {
++	        result += meta[point];
++	      } else {
++	        result += `${StringPrototypeSlice(str, last, i)}${meta[point]}`;
++	      }
++	      last = i + 1;
++	    } else if (point >= 0xd800 && point <= 0xdfff) {
++	      if (point <= 0xdbff && i + 1 < str.length) {
++	        const point = StringPrototypeCharCodeAt(str, i + 1);
++	        if (point >= 0xdc00 && point <= 0xdfff) {
++	          i++;
++	          continue;
++	        }
++	      }
++	      result += `${StringPrototypeSlice(str, last, i)}\\u${NumberPrototypeToString(point, 16)}`;
++	      last = i + 1;
++	    }
++	  }
++
++	  if (last !== str.length) {
++	    result += StringPrototypeSlice(str, last);
++	  }
++	  return addQuotes(result, singleQuote);
++	}
++
++	function stylizeWithColor(str, styleType) {
++	  const style = inspect.styles[styleType];
++	  if (style !== undefined) {
++	    const color = inspect.colors[style];
++	    if (color !== undefined)
++	      return `\u001b[${color[0]}m${str}\u001b[${color[1]}m`;
++	  }
++	  return str;
++	}
++
++	function stylizeNoColor(str) {
++	  return str;
++	}
++
++	// Return a new empty array to push in the results of the default formatter.
++	function getEmptyFormatArray() {
++	  return [];
++	}
++
++	function isInstanceof(object, proto) {
++	  try {
++	    return object instanceof proto;
++	  } catch {
++	    return false;
++	  }
++	}
++
++	function getConstructorName(obj, ctx, recurseTimes, protoProps) {
++	  let firstProto;
++	  const tmp = obj;
++	  while (obj || isUndetectableObject(obj)) {
++	    const descriptor = ObjectGetOwnPropertyDescriptor(obj, 'constructor');
++	    if (descriptor !== undefined &&
++	        typeof descriptor.value === 'function' &&
++	        descriptor.value.name !== '' &&
++	        isInstanceof(tmp, descriptor.value)) {
++	      if (protoProps !== undefined &&
++	         (firstProto !== obj ||
++	         !builtInObjects.has(descriptor.value.name))) {
++	        addPrototypeProperties(
++	          ctx, tmp, firstProto || tmp, recurseTimes, protoProps);
++	      }
++	      return String(descriptor.value.name);
++	    }
++
++	    obj = ObjectGetPrototypeOf(obj);
++	    if (firstProto === undefined) {
++	      firstProto = obj;
++	    }
++	  }
++
++	  if (firstProto === null) {
++	    return null;
++	  }
++
++	  const res = internalGetConstructorName(tmp);
++
++	  if (recurseTimes > ctx.depth && ctx.depth !== null) {
++	    return `${res} <Complex prototype>`;
++	  }
++
++	  const protoConstr = getConstructorName(
++	    firstProto, ctx, recurseTimes + 1, protoProps);
++
++	  if (protoConstr === null) {
++	    return `${res} <${inspect(firstProto, {
++	      ...ctx,
++	      customInspect: false,
++	      depth: -1,
++	    })}>`;
++	  }
++
++	  return `${res} <${protoConstr}>`;
++	}
++
++	// This function has the side effect of adding prototype properties to the
++	// `output` argument (which is an array). This is intended to highlight user
++	// defined prototype properties.
++	function addPrototypeProperties(ctx, main, obj, recurseTimes, output) {
++	  let depth = 0;
++	  let keys;
++	  let keySet;
++	  do {
++	    if (depth !== 0 || main === obj) {
++	      obj = ObjectGetPrototypeOf(obj);
++	      // Stop as soon as a null prototype is encountered.
++	      if (obj === null) {
++	        return;
++	      }
++	      // Stop as soon as a built-in object type is detected.
++	      const descriptor = ObjectGetOwnPropertyDescriptor(obj, 'constructor');
++	      if (descriptor !== undefined &&
++	          typeof descriptor.value === 'function' &&
++	          builtInObjects.has(descriptor.value.name)) {
++	        return;
++	      }
++	    }
++
++	    if (depth === 0) {
++	      keySet = new SafeSet();
++	    } else {
++	      ArrayPrototypeForEach(keys, (key) => keySet.add(key));
++	    }
++	    // Get all own property names and symbols.
++	    keys = ReflectOwnKeys(obj);
++	    ArrayPrototypePush(ctx.seen, main);
++	    for (const key of keys) {
++	      // Ignore the `constructor` property and keys that exist on layers above.
++	      if (key === 'constructor' ||
++	          ObjectPrototypeHasOwnProperty(main, key) ||
++	          (depth !== 0 && keySet.has(key))) {
++	        continue;
++	      }
++	      const desc = ObjectGetOwnPropertyDescriptor(obj, key);
++	      if (typeof desc.value === 'function') {
++	        continue;
++	      }
++	      const value = formatProperty(
++	        ctx, obj, recurseTimes, key, kObjectType, desc, main);
++	      if (ctx.colors) {
++	        // Faint!
++	        ArrayPrototypePush(output, `\u001b[2m${value}\u001b[22m`);
++	      } else {
++	        ArrayPrototypePush(output, value);
++	      }
++	    }
++	    ArrayPrototypePop(ctx.seen);
++	  // Limit the inspection to up to three prototype layers. Using `recurseTimes`
++	  // is not a good choice here, because it's as if the properties are declared
++	  // on the current object from the users perspective.
++	  } while (++depth !== 3);
++	}
++
++	function getPrefix(constructor, tag, fallback, size = '') {
++	  if (constructor === null) {
++	    if (tag !== '' && fallback !== tag) {
++	      return `[${fallback}${size}: null prototype] [${tag}] `;
++	    }
++	    return `[${fallback}${size}: null prototype] `;
++	  }
++
++	  if (tag !== '' && constructor !== tag) {
++	    return `${constructor}${size} [${tag}] `;
++	  }
++	  return `${constructor}${size} `;
++	}
++
++	// Look up the keys of the object.
++	function getKeys(value, showHidden) {
++	  let keys;
++	  const symbols = ObjectGetOwnPropertySymbols(value);
++	  if (showHidden) {
++	    keys = ObjectGetOwnPropertyNames(value);
++	    if (symbols.length !== 0)
++	      ArrayPrototypePushApply(keys, symbols);
++	  } else {
++	    // This might throw if `value` is a Module Namespace Object from an
++	    // unevaluated module, but we don't want to perform the actual type
++	    // check because it's expensive.
++	    // TODO(devsnek): track https://github.com/tc39/ecma262/issues/1209
++	    // and modify this logic as needed.
++	    try {
++	      keys = ObjectKeys(value);
++	    } catch (err) {
++	      assert(isNativeError(err) && err.name === 'ReferenceError' &&
++	             isModuleNamespaceObject(value));
++	      keys = ObjectGetOwnPropertyNames(value);
++	    }
++	    if (symbols.length !== 0) {
++	      const filter = (key) => ObjectPrototypePropertyIsEnumerable(value, key);
++	      ArrayPrototypePushApply(keys, ArrayPrototypeFilter(symbols, filter));
++	    }
++	  }
++	  return keys;
++	}
++
++	function getCtxStyle(value, constructor, tag) {
++	  let fallback = '';
++	  if (constructor === null) {
++	    fallback = internalGetConstructorName(value);
++	    if (fallback === tag) {
++	      fallback = 'Object';
++	    }
++	  }
++	  return getPrefix(constructor, tag, fallback);
++	}
++
++	function formatProxy(ctx, proxy, recurseTimes) {
++	  if (recurseTimes > ctx.depth && ctx.depth !== null) {
++	    return ctx.stylize('Proxy [Array]', 'special');
++	  }
++	  recurseTimes += 1;
++	  ctx.indentationLvl += 2;
++	  const res = [
++	    formatValue(ctx, proxy[0], recurseTimes),
++	    formatValue(ctx, proxy[1], recurseTimes),
++	  ];
++	  ctx.indentationLvl -= 2;
++	  return reduceToSingleString(
++	    ctx, res, '', ['Proxy [', ']'], kArrayExtrasType, recurseTimes);
++	}
++
++	// Note: using `formatValue` directly requires the indentation level to be
++	// corrected by setting `ctx.indentationLvL += diff` and then to decrease the
++	// value afterwards again.
++	function formatValue(ctx, value, recurseTimes, typedArray) {
++	  // Primitive types cannot have properties.
++	  if (typeof value !== 'object' &&
++	      typeof value !== 'function' &&
++	      !isUndetectableObject(value)) {
++	    return formatPrimitive(ctx.stylize, value, ctx);
++	  }
++	  if (value === null) {
++	    return ctx.stylize('null', 'null');
++	  }
++
++	  // Memorize the context for custom inspection on proxies.
++	  const context = value;
++	  // Always check for proxies to prevent side effects and to prevent triggering
++	  // any proxy handlers.
++	  const proxy = getProxyDetails(value, !!ctx.showProxy);
++	  if (proxy !== undefined) {
++	    if (proxy === null || proxy[0] === null) {
++	      return ctx.stylize('<Revoked Proxy>', 'special');
++	    }
++	    if (ctx.showProxy) {
++	      return formatProxy(ctx, proxy, recurseTimes);
++	    }
++	    value = proxy;
++	  }
++
++	  // Provide a hook for user-specified inspect functions.
++	  // Check that value is an object with an inspect function on it.
++	  if (ctx.customInspect) {
++	    const maybeCustom = value[customInspectSymbol];
++	    if (typeof maybeCustom === 'function' &&
++	        // Filter out the util module, its inspect function is special.
++	        maybeCustom !== inspect &&
++	        // Also filter out any prototype objects using the circular check.
++	        !(value.constructor && value.constructor.prototype === value)) {
++	      // This makes sure the recurseTimes are reported as before while using
++	      // a counter internally.
++	      const depth = ctx.depth === null ? null : ctx.depth - recurseTimes;
++	      const isCrossContext =
++	        proxy !== undefined || !(context instanceof Object);
++	      const ret = FunctionPrototypeCall(
++	        maybeCustom,
++	        context,
++	        depth,
++	        getUserOptions(ctx, isCrossContext),
++	        inspect,
++	      );
++	      // If the custom inspection method returned `this`, don't go into
++	      // infinite recursion.
++	      if (ret !== context) {
++	        if (typeof ret !== 'string') {
++	          return formatValue(ctx, ret, recurseTimes);
++	        }
++	        return StringPrototypeReplaceAll(ret, '\n', `\n${StringPrototypeRepeat(' ', ctx.indentationLvl)}`);
++	      }
++	    }
++	  }
++
++	  // Using an array here is actually better for the average case than using
++	  // a Set. `seen` will only check for the depth and will never grow too large.
++	  if (ctx.seen.includes(value)) {
++	    let index = 1;
++	    if (ctx.circular === undefined) {
++	      ctx.circular = new SafeMap();
++	      ctx.circular.set(value, index);
++	    } else {
++	      index = ctx.circular.get(value);
++	      if (index === undefined) {
++	        index = ctx.circular.size + 1;
++	        ctx.circular.set(value, index);
++	      }
++	    }
++	    return ctx.stylize(`[Circular *${index}]`, 'special');
++	  }
++
++	  return formatRaw(ctx, value, recurseTimes, typedArray);
++	}
++
++	function formatRaw(ctx, value, recurseTimes, typedArray) {
++	  let keys;
++	  let protoProps;
++	  if (ctx.showHidden && (recurseTimes <= ctx.depth || ctx.depth === null)) {
++	    protoProps = [];
++	  }
++
++	  const constructor = getConstructorName(value, ctx, recurseTimes, protoProps);
++	  // Reset the variable to check for this later on.
++	  if (protoProps !== undefined && protoProps.length === 0) {
++	    protoProps = undefined;
++	  }
++
++	  let tag = value[SymbolToStringTag];
++	  // Only list the tag in case it's non-enumerable / not an own property.
++	  // Otherwise we'd print this twice.
++	  if (typeof tag !== 'string' ||
++	      (tag !== '' &&
++	      (ctx.showHidden ?
++	        ObjectPrototypeHasOwnProperty :
++	        ObjectPrototypePropertyIsEnumerable)(
++	        value, SymbolToStringTag,
++	      ))) {
++	    tag = '';
++	  }
++	  let base = '';
++	  let formatter = getEmptyFormatArray;
++	  let braces;
++	  let noIterator = true;
++	  let i = 0;
++	  const filter = ctx.showHidden ? ALL_PROPERTIES : ONLY_ENUMERABLE;
++
++	  let extrasType = kObjectType;
++
++	  // Iterators and the rest are split to reduce checks.
++	  // We have to check all values in case the constructor is set to null.
++	  // Otherwise it would not possible to identify all types properly.
++	  if (SymbolIterator in value || constructor === null) {
++	    noIterator = false;
++	    if (ArrayIsArray(value)) {
++	      // Only set the constructor for non ordinary ("Array [...]") arrays.
++	      const prefix = (constructor !== 'Array' || tag !== '') ?
++	        getPrefix(constructor, tag, 'Array', `(${value.length})`) :
++	        '';
++	      keys = getOwnNonIndexProperties(value, filter);
++	      braces = [`${prefix}[`, ']'];
++	      if (value.length === 0 && keys.length === 0 && protoProps === undefined)
++	        return `${braces[0]}]`;
++	      extrasType = kArrayExtrasType;
++	      formatter = formatArray;
++	    } else if (isSet(value)) {
++	      const size = SetPrototypeGetSize(value);
++	      const prefix = getPrefix(constructor, tag, 'Set', `(${size})`);
++	      keys = getKeys(value, ctx.showHidden);
++	      formatter = constructor !== null ?
++	        FunctionPrototypeBind(formatSet, null, value) :
++	        FunctionPrototypeBind(formatSet, null, SetPrototypeValues(value));
++	      if (size === 0 && keys.length === 0 && protoProps === undefined)
++	        return `${prefix}{}`;
++	      braces = [`${prefix}{`, '}'];
++	    } else if (isMap(value)) {
++	      const size = MapPrototypeGetSize(value);
++	      const prefix = getPrefix(constructor, tag, 'Map', `(${size})`);
++	      keys = getKeys(value, ctx.showHidden);
++	      formatter = constructor !== null ?
++	        FunctionPrototypeBind(formatMap, null, value) :
++	        FunctionPrototypeBind(formatMap, null, MapPrototypeEntries(value));
++	      if (size === 0 && keys.length === 0 && protoProps === undefined)
++	        return `${prefix}{}`;
++	      braces = [`${prefix}{`, '}'];
++	    } else if (isTypedArray(value)) {
++	      keys = getOwnNonIndexProperties(value, filter);
++	      let bound = value;
++	      let fallback = '';
++	      if (constructor === null) {
++	        fallback = TypedArrayPrototypeGetSymbolToStringTag(value);
++	        // Reconstruct the array information.
++	        bound = new primordials[fallback](value);
++	      }
++	      const size = TypedArrayPrototypeGetLength(value);
++	      const prefix = getPrefix(constructor, tag, fallback, `(${size})`);
++	      braces = [`${prefix}[`, ']'];
++	      if (value.length === 0 && keys.length === 0 && !ctx.showHidden)
++	        return `${braces[0]}]`;
++	      // Special handle the value. The original value is required below. The
++	      // bound function is required to reconstruct missing information.
++	      formatter = FunctionPrototypeBind(formatTypedArray, null, bound, size);
++	      extrasType = kArrayExtrasType;
++	    } else if (isMapIterator(value)) {
++	      keys = getKeys(value, ctx.showHidden);
++	      braces = getIteratorBraces('Map', tag);
++	      // Add braces to the formatter parameters.
++	      formatter = FunctionPrototypeBind(formatIterator, null, braces);
++	    } else if (isSetIterator(value)) {
++	      keys = getKeys(value, ctx.showHidden);
++	      braces = getIteratorBraces('Set', tag);
++	      // Add braces to the formatter parameters.
++	      formatter = FunctionPrototypeBind(formatIterator, null, braces);
++	    } else {
++	      noIterator = true;
++	    }
++	  }
++	  if (noIterator) {
++	    keys = getKeys(value, ctx.showHidden);
++	    braces = ['{', '}'];
++	    if (constructor === 'Object') {
++	      if (isArgumentsObject(value)) {
++	        braces[0] = '[Arguments] {';
++	      } else if (tag !== '') {
++	        braces[0] = `${getPrefix(constructor, tag, 'Object')}{`;
++	      }
++	      if (keys.length === 0 && protoProps === undefined) {
++	        return `${braces[0]}}`;
++	      }
++	    } else if (typeof value === 'function') {
++	      base = getFunctionBase(value, constructor, tag);
++	      if (keys.length === 0 && protoProps === undefined)
++	        return ctx.stylize(base, 'special');
++	    } else if (isRegExp(value)) {
++	      // Make RegExps say that they are RegExps
++	      base = RegExpPrototypeToString(
++	        constructor !== null ? value : new RegExp(value),
++	      );
++	      const prefix = getPrefix(constructor, tag, 'RegExp');
++	      if (prefix !== 'RegExp ')
++	        base = `${prefix}${base}`;
++	      if ((keys.length === 0 && protoProps === undefined) ||
++	          (recurseTimes > ctx.depth && ctx.depth !== null)) {
++	        return ctx.stylize(base, 'regexp');
++	      }
++	    } else if (isDate(value)) {
++	      // Make dates with properties first say the date
++	      base = NumberIsNaN(DatePrototypeGetTime(value)) ?
++	        DatePrototypeToString(value) :
++	        DatePrototypeToISOString(value);
++	      const prefix = getPrefix(constructor, tag, 'Date');
++	      if (prefix !== 'Date ')
++	        base = `${prefix}${base}`;
++	      if (keys.length === 0 && protoProps === undefined) {
++	        return ctx.stylize(base, 'date');
++	      }
++	    } else if (isError(value)) {
++	      base = formatError(value, constructor, tag, ctx, keys);
++	      if (keys.length === 0 && protoProps === undefined)
++	        return base;
++	    } else if (isAnyArrayBuffer(value)) {
++	      // Fast path for ArrayBuffer and SharedArrayBuffer.
++	      // Can't do the same for DataView because it has a non-primitive
++	      // .buffer property that we need to recurse for.
++	      const arrayType = isArrayBuffer(value) ? 'ArrayBuffer' :
++	        'SharedArrayBuffer';
++	      const prefix = getPrefix(constructor, tag, arrayType);
++	      if (typedArray === undefined) {
++	        formatter = formatArrayBuffer;
++	      } else if (keys.length === 0 && protoProps === undefined) {
++	        return prefix +
++	              `{ byteLength: ${formatNumber(ctx.stylize, value.byteLength, false)} }`;
++	      }
++	      braces[0] = `${prefix}{`;
++	      ArrayPrototypeUnshift(keys, 'byteLength');
++	    } else if (isDataView(value)) {
++	      braces[0] = `${getPrefix(constructor, tag, 'DataView')}{`;
++	      // .buffer goes last, it's not a primitive like the others.
++	      ArrayPrototypeUnshift(keys, 'byteLength', 'byteOffset', 'buffer');
++	    } else if (isPromise(value)) {
++	      braces[0] = `${getPrefix(constructor, tag, 'Promise')}{`;
++	      formatter = formatPromise;
++	    } else if (isWeakSet(value)) {
++	      braces[0] = `${getPrefix(constructor, tag, 'WeakSet')}{`;
++	      formatter = ctx.showHidden ? formatWeakSet : formatWeakCollection;
++	    } else if (isWeakMap(value)) {
++	      braces[0] = `${getPrefix(constructor, tag, 'WeakMap')}{`;
++	      formatter = ctx.showHidden ? formatWeakMap : formatWeakCollection;
++	    } else if (isModuleNamespaceObject(value)) {
++	      braces[0] = `${getPrefix(constructor, tag, 'Module')}{`;
++	      // Special handle keys for namespace objects.
++	      formatter = formatNamespaceObject.bind(null, keys);
++	    } else if (isBoxedPrimitive(value)) {
++	      base = getBoxedBase(value, ctx, keys, constructor, tag);
++	      if (keys.length === 0 && protoProps === undefined) {
++	        return base;
++	      }
++	    } else {
++	      if (keys.length === 0 && protoProps === undefined) {
++	        if (isExternal(value)) {
++	          const address = getExternalValue(value).toString(16);
++	          return ctx.stylize(`[External: ${address}]`, 'special');
++	        }
++	        return `${getCtxStyle(value, constructor, tag)}{}`;
++	      }
++	      braces[0] = `${getCtxStyle(value, constructor, tag)}{`;
++	    }
++	  }
++
++	  if (recurseTimes > ctx.depth && ctx.depth !== null) {
++	    let constructorName = StringPrototypeSlice(getCtxStyle(value, constructor, tag), 0, -1);
++	    if (constructor !== null)
++	      constructorName = `[${constructorName}]`;
++	    return ctx.stylize(constructorName, 'special');
++	  }
++	  recurseTimes += 1;
++
++	  ctx.seen.push(value);
++	  ctx.currentDepth = recurseTimes;
++	  let output;
++	  const indentationLvl = ctx.indentationLvl;
++	  try {
++	    output = formatter(ctx, value, recurseTimes);
++	    for (i = 0; i < keys.length; i++) {
++	      ArrayPrototypePush(
++	        output,
++	        formatProperty(ctx, value, recurseTimes, keys[i], extrasType),
++	      );
++	    }
++	    if (protoProps !== undefined) {
++	      ArrayPrototypePushApply(output, protoProps);
++	    }
++	  } catch (err) {
++	    const constructorName = StringPrototypeSlice(getCtxStyle(value, constructor, tag), 0, -1);
++	    return handleMaxCallStackSize(ctx, err, constructorName, indentationLvl);
++	  }
++	  if (ctx.circular !== undefined) {
++	    const index = ctx.circular.get(value);
++	    if (index !== undefined) {
++	      const reference = ctx.stylize(`<ref *${index}>`, 'special');
++	      // Add reference always to the very beginning of the output.
++	      if (ctx.compact !== true) {
++	        base = base === '' ? reference : `${reference} ${base}`;
++	      } else {
++	        braces[0] = `${reference} ${braces[0]}`;
++	      }
++	    }
++	  }
++	  ctx.seen.pop();
++
++	  if (ctx.sorted) {
++	    const comparator = ctx.sorted === true ? undefined : ctx.sorted;
++	    if (extrasType === kObjectType) {
++	      ArrayPrototypeSort(output, comparator);
++	    } else if (keys.length > 1) {
++	      const sorted = ArrayPrototypeSort(ArrayPrototypeSlice(output, output.length - keys.length), comparator);
++	      ArrayPrototypeUnshift(sorted, output, output.length - keys.length, keys.length);
++	      ReflectApply(ArrayPrototypeSplice, null, sorted);
++	    }
++	  }
++
++	  const res = reduceToSingleString(
++	    ctx, output, base, braces, extrasType, recurseTimes, value);
++	  const budget = ctx.budget[ctx.indentationLvl] || 0;
++	  const newLength = budget + res.length;
++	  ctx.budget[ctx.indentationLvl] = newLength;
++	  // If any indentationLvl exceeds this limit, limit further inspecting to the
++	  // minimum. Otherwise the recursive algorithm might continue inspecting the
++	  // object even though the maximum string size (~2 ** 28 on 32 bit systems and
++	  // ~2 ** 30 on 64 bit systems) exceeded. The actual output is not limited at
++	  // exactly 2 ** 27 but a bit higher. This depends on the object shape.
++	  // This limit also makes sure that huge objects don't block the event loop
++	  // significantly.
++	  if (newLength > 2 ** 27) {
++	    ctx.depth = -1;
++	  }
++	  return res;
++	}
++
++	function getIteratorBraces(type, tag) {
++	  if (tag !== `${type} Iterator`) {
++	    if (tag !== '')
++	      tag += '] [';
++	    tag += `${type} Iterator`;
++	  }
++	  return [`[${tag}] {`, '}'];
++	}
++
++	function getBoxedBase(value, ctx, keys, constructor, tag) {
++	  let fn;
++	  let type;
++	  if (isNumberObject(value)) {
++	    fn = NumberPrototypeValueOf;
++	    type = 'Number';
++	  } else if (isStringObject(value)) {
++	    fn = StringPrototypeValueOf;
++	    type = 'String';
++	    // For boxed Strings, we have to remove the 0-n indexed entries,
++	    // since they just noisy up the output and are redundant
++	    // Make boxed primitive Strings look like such
++	    keys.splice(0, value.length);
++	  } else if (isBooleanObject(value)) {
++	    fn = BooleanPrototypeValueOf;
++	    type = 'Boolean';
++	  } else if (isBigIntObject(value)) {
++	    fn = BigIntPrototypeValueOf;
++	    type = 'BigInt';
++	  } else {
++	    fn = SymbolPrototypeValueOf;
++	    type = 'Symbol';
++	  }
++	  let base = `[${type}`;
++	  if (type !== constructor) {
++	    if (constructor === null) {
++	      base += ' (null prototype)';
++	    } else {
++	      base += ` (${constructor})`;
++	    }
++	  }
++	  base += `: ${formatPrimitive(stylizeNoColor, fn(value), ctx)}]`;
++	  if (tag !== '' && tag !== constructor) {
++	    base += ` [${tag}]`;
++	  }
++	  if (keys.length !== 0 || ctx.stylize === stylizeNoColor)
++	    return base;
++	  return ctx.stylize(base, StringPrototypeToLowerCase(type));
++	}
++
++	function getClassBase(value, constructor, tag) {
++	  const hasName = ObjectPrototypeHasOwnProperty(value, 'name');
++	  const name = (hasName && value.name) || '(anonymous)';
++	  let base = `class ${name}`;
++	  if (constructor !== 'Function' && constructor !== null) {
++	    base += ` [${constructor}]`;
++	  }
++	  if (tag !== '' && constructor !== tag) {
++	    base += ` [${tag}]`;
++	  }
++	  if (constructor !== null) {
++	    const superName = ObjectGetPrototypeOf(value).name;
++	    if (superName) {
++	      base += ` extends ${superName}`;
++	    }
++	  } else {
++	    base += ' extends [null prototype]';
++	  }
++	  return `[${base}]`;
++	}
++
++	function getFunctionBase(value, constructor, tag) {
++	  const stringified = FunctionPrototypeToString(value);
++	  if (StringPrototypeStartsWith(stringified, 'class') && StringPrototypeEndsWith(stringified, '}')) {
++	    const slice = StringPrototypeSlice(stringified, 5, -1);
++	    const bracketIndex = StringPrototypeIndexOf(slice, '{');
++	    if (bracketIndex !== -1 &&
++	        (!StringPrototypeIncludes(StringPrototypeSlice(slice, 0, bracketIndex), '(') ||
++	        // Slow path to guarantee that it's indeed a class.
++	        RegExpPrototypeExec(classRegExp, RegExpPrototypeSymbolReplace(stripCommentsRegExp, slice)) !== null)
++	    ) {
++	      return getClassBase(value, constructor, tag);
++	    }
++	  }
++	  let type = 'Function';
++	  if (isGeneratorFunction(value)) {
++	    type = `Generator${type}`;
++	  }
++	  if (isAsyncFunction(value)) {
++	    type = `Async${type}`;
++	  }
++	  let base = `[${type}`;
++	  if (constructor === null) {
++	    base += ' (null prototype)';
++	  }
++	  if (value.name === '') {
++	    base += ' (anonymous)';
++	  } else {
++	    base += `: ${value.name}`;
++	  }
++	  base += ']';
++	  if (constructor !== type && constructor !== null) {
++	    base += ` ${constructor}`;
++	  }
++	  if (tag !== '' && constructor !== tag) {
++	    base += ` [${tag}]`;
++	  }
++	  return base;
++	}
++
++	function identicalSequenceRange(a, b) {
++	  for (let i = 0; i < a.length - 3; i++) {
++	    // Find the first entry of b that matches the current entry of a.
++	    const pos = b.indexOf(a[i]);
++	    if (pos !== -1) {
++	      const rest = b.length - pos;
++	      if (rest > 3) {
++	        let len = 1;
++	        const maxLen = MathMin(a.length - i, rest);
++	        // Count the number of consecutive entries.
++	        while (maxLen > len && a[i + len] === b[pos + len]) {
++	          len++;
++	        }
++	        if (len > 3) {
++	          return { len, offset: i };
++	        }
++	      }
++	    }
++	  }
++
++	  return { len: 0, offset: 0 };
++	}
++
++	function getStackString(error) {
++	  return error.stack ? String(error.stack) : ErrorPrototypeToString(error);
++	}
++
++	function getStackFrames(ctx, err, stack) {
++	  const frames = StringPrototypeSplit(stack, '\n');
++
++	  let cause;
++	  try {
++	    ({ cause } = err);
++	  } catch {
++	    // If 'cause' is a getter that throws, ignore it.
++	  }
++
++	  // Remove stack frames identical to frames in cause.
++	  if (cause != null && isError(cause)) {
++	    const causeStack = getStackString(cause);
++	    const causeStackStart = StringPrototypeIndexOf(causeStack, '\n    at');
++	    if (causeStackStart !== -1) {
++	      const causeFrames = StringPrototypeSplit(StringPrototypeSlice(causeStack, causeStackStart + 1), '\n');
++	      const { len, offset } = identicalSequenceRange(frames, causeFrames);
++	      if (len > 0) {
++	        const skipped = len - 2;
++	        const msg = `    ... ${skipped} lines matching cause stack trace ...`;
++	        frames.splice(offset + 1, skipped, ctx.stylize(msg, 'undefined'));
++	      }
++	    }
++	  }
++	  return frames;
++	}
++
++	function improveStack(stack, constructor, name, tag) {
++	  // A stack trace may contain arbitrary data. Only manipulate the output
++	  // for "regular errors" (errors that "look normal") for now.
++	  let len = name.length;
++
++	  if (constructor === null ||
++	      (StringPrototypeEndsWith(name, 'Error') &&
++	      StringPrototypeStartsWith(stack, name) &&
++	      (stack.length === len || stack[len] === ':' || stack[len] === '\n'))) {
++	    let fallback = 'Error';
++	    if (constructor === null) {
++	      const start = RegExpPrototypeExec(/^([A-Z][a-z_ A-Z0-9[\]()-]+)(?::|\n {4}at)/, stack) ||
++	      RegExpPrototypeExec(/^([a-z_A-Z0-9-]*Error)$/, stack);
++	      fallback = (start && start[1]) || '';
++	      len = fallback.length;
++	      fallback = fallback || 'Error';
++	    }
++	    const prefix = StringPrototypeSlice(getPrefix(constructor, tag, fallback), 0, -1);
++	    if (name !== prefix) {
++	      if (StringPrototypeIncludes(prefix, name)) {
++	        if (len === 0) {
++	          stack = `${prefix}: ${stack}`;
++	        } else {
++	          stack = `${prefix}${StringPrototypeSlice(stack, len)}`;
++	        }
++	      } else {
++	        stack = `${prefix} [${name}]${StringPrototypeSlice(stack, len)}`;
++	      }
++	    }
++	  }
++	  return stack;
++	}
++
++	function removeDuplicateErrorKeys(ctx, keys, err, stack) {
++	  if (!ctx.showHidden && keys.length !== 0) {
++	    for (const name of ['name', 'message', 'stack']) {
++	      const index = ArrayPrototypeIndexOf(keys, name);
++	      // Only hide the property in case it's part of the original stack
++	      if (index !== -1 && StringPrototypeIncludes(stack, err[name])) {
++	        ArrayPrototypeSplice(keys, index, 1);
++	      }
++	    }
++	  }
++	}
++
++	function markNodeModules(ctx, line) {
++	  let tempLine = '';
++	  let nodeModule;
++	  let pos = 0;
++	  while ((nodeModule = nodeModulesRegExp.exec(line)) !== null) {
++	    // '/node_modules/'.length === 14
++	    tempLine += StringPrototypeSlice(line, pos, nodeModule.index + 14);
++	    tempLine += ctx.stylize(nodeModule[1], 'module');
++	    pos = nodeModule.index + nodeModule[0].length;
++	  }
++	  if (pos !== 0) {
++	    line = tempLine + StringPrototypeSlice(line, pos);
++	  }
++	  return line;
++	}
++
++	function markCwd(ctx, line, workingDirectory) {
++	  let cwdStartPos = StringPrototypeIndexOf(line, workingDirectory);
++	  let tempLine = '';
++	  let cwdLength = workingDirectory.length;
++	  if (cwdStartPos !== -1) {
++	    if (StringPrototypeSlice(line, cwdStartPos - 7, cwdStartPos) === 'file://') {
++	      cwdLength += 7;
++	      cwdStartPos -= 7;
++	    }
++	    const start = line[cwdStartPos - 1] === '(' ? cwdStartPos - 1 : cwdStartPos;
++	    const end = start !== cwdStartPos && StringPrototypeEndsWith(line, ')') ? -1 : line.length;
++	    const workingDirectoryEndPos = cwdStartPos + cwdLength + 1;
++	    const cwdSlice = StringPrototypeSlice(line, start, workingDirectoryEndPos);
++
++	    tempLine += StringPrototypeSlice(line, 0, start);
++	    tempLine += ctx.stylize(cwdSlice, 'undefined');
++	    tempLine += StringPrototypeSlice(line, workingDirectoryEndPos, end);
++	    if (end === -1) {
++	      tempLine += ctx.stylize(')', 'undefined');
++	    }
++	  } else {
++	    tempLine += line;
++	  }
++	  return tempLine;
++	}
++
++	function safeGetCWD() {
++	  let workingDirectory;
++	  try {
++	    workingDirectory = process.cwd();
++	  } catch {
++	    return;
++	  }
++	  return workingDirectory;
++	}
++
++	function formatError(err, constructor, tag, ctx, keys) {
++	  const name = err.name != null ? String(err.name) : 'Error';
++	  let stack = getStackString(err);
++
++	  removeDuplicateErrorKeys(ctx, keys, err, stack);
++
++	  if ('cause' in err &&
++	      (keys.length === 0 || !ArrayPrototypeIncludes(keys, 'cause'))) {
++	    ArrayPrototypePush(keys, 'cause');
++	  }
++
++	  // Print errors aggregated into AggregateError
++	  if (ArrayIsArray(err.errors) &&
++	      (keys.length === 0 || !ArrayPrototypeIncludes(keys, 'errors'))) {
++	    ArrayPrototypePush(keys, 'errors');
++	  }
++
++	  stack = improveStack(stack, constructor, name, tag);
++
++	  // Ignore the error message if it's contained in the stack.
++	  let pos = (err.message && StringPrototypeIndexOf(stack, err.message)) || -1;
++	  if (pos !== -1)
++	    pos += err.message.length;
++	  // Wrap the error in brackets in case it has no stack trace.
++	  const stackStart = StringPrototypeIndexOf(stack, '\n    at', pos);
++	  if (stackStart === -1) {
++	    stack = `[${stack}]`;
++	  } else {
++	    let newStack = StringPrototypeSlice(stack, 0, stackStart);
++	    const stackFramePart = StringPrototypeSlice(stack, stackStart + 1);
++	    const lines = getStackFrames(ctx, err, stackFramePart);
++	    if (ctx.colors) {
++	      // Highlight userland code and node modules.
++	      const workingDirectory = safeGetCWD();
++	      let esmWorkingDirectory;
++	      for (let line of lines) {
++	        const core = RegExpPrototypeExec(coreModuleRegExp, line);
++	        if (core !== null && BuiltinModule.exists(core[1])) {
++	          newStack += `\n${ctx.stylize(line, 'undefined')}`;
++	        } else {
++	          newStack += '\n';
++
++	          line = markNodeModules(ctx, line);
++	          if (workingDirectory !== undefined) {
++	            let newLine = markCwd(ctx, line, workingDirectory);
++	            if (newLine === line) {
++	              // Maintain node 14 compat
++	              // esmWorkingDirectory ??= pathToFileUrlHref(workingDirectory);
++	              esmWorkingDirectory =
++	                (esmWorkingDirectory == null) ? pathToFileUrlHref(workingDirectory) : esmWorkingDirectory;
++	              newLine = markCwd(ctx, line, esmWorkingDirectory);
++	            }
++	            line = newLine;
++	          }
++
++	          newStack += line;
++	        }
++	      }
++	    } else {
++	      newStack += `\n${ArrayPrototypeJoin(lines, '\n')}`;
++	    }
++	    stack = newStack;
++	  }
++	  // The message and the stack have to be indented as well!
++	  if (ctx.indentationLvl !== 0) {
++	    const indentation = StringPrototypeRepeat(' ', ctx.indentationLvl);
++	    stack = StringPrototypeReplaceAll(stack, '\n', `\n${indentation}`);
++	  }
++	  return stack;
++	}
++
++	function groupArrayElements(ctx, output, value) {
++	  let totalLength = 0;
++	  let maxLength = 0;
++	  let i = 0;
++	  let outputLength = output.length;
++	  if (ctx.maxArrayLength < output.length) {
++	    // This makes sure the "... n more items" part is not taken into account.
++	    outputLength--;
++	  }
++	  const separatorSpace = 2; // Add 1 for the space and 1 for the separator.
++	  const dataLen = new Array(outputLength);
++	  // Calculate the total length of all output entries and the individual max
++	  // entries length of all output entries. We have to remove colors first,
++	  // otherwise the length would not be calculated properly.
++	  for (; i < outputLength; i++) {
++	    const len = getStringWidth(output[i], ctx.colors);
++	    dataLen[i] = len;
++	    totalLength += len + separatorSpace;
++	    if (maxLength < len)
++	      maxLength = len;
++	  }
++	  // Add two to `maxLength` as we add a single whitespace character plus a comma
++	  // in-between two entries.
++	  const actualMax = maxLength + separatorSpace;
++	  // Check if at least three entries fit next to each other and prevent grouping
++	  // of arrays that contains entries of very different length (i.e., if a single
++	  // entry is longer than 1/5 of all other entries combined). Otherwise the
++	  // space in-between small entries would be enormous.
++	  if (actualMax * 3 + ctx.indentationLvl < ctx.breakLength &&
++	      (totalLength / actualMax > 5 || maxLength <= 6)) {
++
++	    const approxCharHeights = 2.5;
++	    const averageBias = MathSqrt(actualMax - totalLength / output.length);
++	    const biasedMax = MathMax(actualMax - 3 - averageBias, 1);
++	    // Dynamically check how many columns seem possible.
++	    const columns = MathMin(
++	      // Ideally a square should be drawn. We expect a character to be about 2.5
++	      // times as high as wide. This is the area formula to calculate a square
++	      // which contains n rectangles of size `actualMax * approxCharHeights`.
++	      // Divide that by `actualMax` to receive the correct number of columns.
++	      // The added bias increases the columns for short entries.
++	      MathRound(
++	        MathSqrt(
++	          approxCharHeights * biasedMax * outputLength,
++	        ) / biasedMax,
++	      ),
++	      // Do not exceed the breakLength.
++	      MathFloor((ctx.breakLength - ctx.indentationLvl) / actualMax),
++	      // Limit array grouping for small `compact` modes as the user requested
++	      // minimal grouping.
++	      ctx.compact * 4,
++	      // Limit the columns to a maximum of fifteen.
++	      15,
++	    );
++	    // Return with the original output if no grouping should happen.
++	    if (columns <= 1) {
++	      return output;
++	    }
++	    const tmp = [];
++	    const maxLineLength = [];
++	    for (let i = 0; i < columns; i++) {
++	      let lineMaxLength = 0;
++	      for (let j = i; j < output.length; j += columns) {
++	        if (dataLen[j] > lineMaxLength)
++	          lineMaxLength = dataLen[j];
++	      }
++	      lineMaxLength += separatorSpace;
++	      maxLineLength[i] = lineMaxLength;
++	    }
++	    let order = StringPrototypePadStart;
++	    if (value !== undefined) {
++	      for (let i = 0; i < output.length; i++) {
++	        if (typeof value[i] !== 'number' && typeof value[i] !== 'bigint') {
++	          order = StringPrototypePadEnd;
++	          break;
++	        }
++	      }
++	    }
++	    // Each iteration creates a single line of grouped entries.
++	    for (let i = 0; i < outputLength; i += columns) {
++	      // The last lines may contain less entries than columns.
++	      const max = MathMin(i + columns, outputLength);
++	      let str = '';
++	      let j = i;
++	      for (; j < max - 1; j++) {
++	        // Calculate extra color padding in case it's active. This has to be
++	        // done line by line as some lines might contain more colors than
++	        // others.
++	        const padding = maxLineLength[j - i] + output[j].length - dataLen[j];
++	        str += order(`${output[j]}, `, padding, ' ');
++	      }
++	      if (order === StringPrototypePadStart) {
++	        const padding = maxLineLength[j - i] +
++	                        output[j].length -
++	                        dataLen[j] -
++	                        separatorSpace;
++	        str += StringPrototypePadStart(output[j], padding, ' ');
++	      } else {
++	        str += output[j];
++	      }
++	      ArrayPrototypePush(tmp, str);
++	    }
++	    if (ctx.maxArrayLength < output.length) {
++	      ArrayPrototypePush(tmp, output[outputLength]);
++	    }
++	    output = tmp;
++	  }
++	  return output;
++	}
++
++	function handleMaxCallStackSize(ctx, err, constructorName, indentationLvl) {
++	  if (isStackOverflowError(err)) {
++	    ctx.seen.pop();
++	    ctx.indentationLvl = indentationLvl;
++	    return ctx.stylize(
++	      `[${constructorName}: Inspection interrupted ` +
++	        'prematurely. Maximum call stack size exceeded.]',
++	      'special',
++	    );
++	  }
++	  assert.fail(err.stack);
++	}
++
++	function addNumericSeparator(integerString) {
++	  let result = '';
++	  let i = integerString.length;
++	  const start = StringPrototypeStartsWith(integerString, '-') ? 1 : 0;
++	  for (; i >= start + 4; i -= 3) {
++	    result = `_${StringPrototypeSlice(integerString, i - 3, i)}${result}`;
++	  }
++	  return i === integerString.length ?
++	    integerString :
++	    `${StringPrototypeSlice(integerString, 0, i)}${result}`;
++	}
++
++	function addNumericSeparatorEnd(integerString) {
++	  let result = '';
++	  let i = 0;
++	  for (; i < integerString.length - 3; i += 3) {
++	    result += `${StringPrototypeSlice(integerString, i, i + 3)}_`;
++	  }
++	  return i === 0 ?
++	    integerString :
++	    `${result}${StringPrototypeSlice(integerString, i)}`;
++	}
++
++	const remainingText = (remaining) => `... ${remaining} more item${remaining > 1 ? 's' : ''}`;
++
++	function formatNumber(fn, number, numericSeparator) {
++	  if (!numericSeparator) {
++	    // Format -0 as '-0'. Checking `number === -0` won't distinguish 0 from -0.
++	    if (ObjectIs(number, -0)) {
++	      return fn('-0', 'number');
++	    }
++	    return fn(`${number}`, 'number');
++	  }
++	  const integer = MathTrunc(number);
++	  const string = String(integer);
++	  if (integer === number) {
++	    if (!NumberIsFinite(number) || StringPrototypeIncludes(string, 'e')) {
++	      return fn(string, 'number');
++	    }
++	    return fn(`${addNumericSeparator(string)}`, 'number');
++	  }
++	  if (NumberIsNaN(number)) {
++	    return fn(string, 'number');
++	  }
++	  return fn(`${
++	    addNumericSeparator(string)
++	  }.${
++	    addNumericSeparatorEnd(
++	      StringPrototypeSlice(String(number), string.length + 1),
++	    )
++	  }`, 'number');
++	}
++
++	function formatBigInt(fn, bigint, numericSeparator) {
++	  const string = String(bigint);
++	  if (!numericSeparator) {
++	    return fn(`${string}n`, 'bigint');
++	  }
++	  return fn(`${addNumericSeparator(string)}n`, 'bigint');
++	}
++
++	function formatPrimitive(fn, value, ctx) {
++	  if (typeof value === 'string') {
++	    let trailer = '';
++	    if (value.length > ctx.maxStringLength) {
++	      const remaining = value.length - ctx.maxStringLength;
++	      value = StringPrototypeSlice(value, 0, ctx.maxStringLength);
++	      trailer = `... ${remaining} more character${remaining > 1 ? 's' : ''}`;
++	    }
++	    if (ctx.compact !== true &&
++	        // We do not support handling unicode characters width with
++	        // the readline getStringWidth function as there are
++	        // performance implications.
++	        value.length > kMinLineLength &&
++	        value.length > ctx.breakLength - ctx.indentationLvl - 4) {
++	      return ArrayPrototypeJoin(
++	        ArrayPrototypeMap(
++	          extractedSplitNewLines(value),
++	          (line) => fn(strEscape(line), 'string'),
++	        ),
++	        ` +\n${StringPrototypeRepeat(' ', ctx.indentationLvl + 2)}`,
++	      ) + trailer;
++	    }
++	    return fn(strEscape(value), 'string') + trailer;
++	  }
++	  if (typeof value === 'number')
++	    return formatNumber(fn, value, ctx.numericSeparator);
++	  if (typeof value === 'bigint')
++	    return formatBigInt(fn, value, ctx.numericSeparator);
++	  if (typeof value === 'boolean')
++	    return fn(`${value}`, 'boolean');
++	  if (typeof value === 'undefined')
++	    return fn('undefined', 'undefined');
++	  // es6 symbol primitive
++	  return fn(SymbolPrototypeToString(value), 'symbol');
++	}
++
++	function formatNamespaceObject(keys, ctx, value, recurseTimes) {
++	  const output = new Array(keys.length);
++	  for (let i = 0; i < keys.length; i++) {
++	    try {
++	      output[i] = formatProperty(ctx, value, recurseTimes, keys[i],
++	                                 kObjectType);
++	    } catch (err) {
++	      assert(isNativeError(err) && err.name === 'ReferenceError');
++	      // Use the existing functionality. This makes sure the indentation and
++	      // line breaks are always correct. Otherwise it is very difficult to keep
++	      // this aligned, even though this is a hacky way of dealing with this.
++	      const tmp = { [keys[i]]: '' };
++	      output[i] = formatProperty(ctx, tmp, recurseTimes, keys[i], kObjectType);
++	      const pos = StringPrototypeLastIndexOf(output[i], ' ');
++	      // We have to find the last whitespace and have to replace that value as
++	      // it will be visualized as a regular string.
++	      output[i] = StringPrototypeSlice(output[i], 0, pos + 1) +
++	                  ctx.stylize('<uninitialized>', 'special');
++	    }
++	  }
++	  // Reset the keys to an empty array. This prevents duplicated inspection.
++	  keys.length = 0;
++	  return output;
++	}
++
++	// The array is sparse and/or has extra keys
++	function formatSpecialArray(ctx, value, recurseTimes, maxLength, output, i) {
++	  const keys = ObjectKeys(value);
++	  let index = i;
++	  for (; i < keys.length && output.length < maxLength; i++) {
++	    const key = keys[i];
++	    const tmp = +key;
++	    // Arrays can only have up to 2^32 - 1 entries
++	    if (tmp > 2 ** 32 - 2) {
++	      break;
++	    }
++	    if (`${index}` !== key) {
++	      if (RegExpPrototypeExec(numberRegExp, key) === null) {
++	        break;
++	      }
++	      const emptyItems = tmp - index;
++	      const ending = emptyItems > 1 ? 's' : '';
++	      const message = `<${emptyItems} empty item${ending}>`;
++	      ArrayPrototypePush(output, ctx.stylize(message, 'undefined'));
++	      index = tmp;
++	      if (output.length === maxLength) {
++	        break;
++	      }
++	    }
++	    ArrayPrototypePush(output, formatProperty(ctx, value, recurseTimes, key, kArrayType));
++	    index++;
++	  }
++	  const remaining = value.length - index;
++	  if (output.length !== maxLength) {
++	    if (remaining > 0) {
++	      const ending = remaining > 1 ? 's' : '';
++	      const message = `<${remaining} empty item${ending}>`;
++	      ArrayPrototypePush(output, ctx.stylize(message, 'undefined'));
++	    }
++	  } else if (remaining > 0) {
++	    ArrayPrototypePush(output, remainingText(remaining));
++	  }
++	  return output;
++	}
++
++	function formatArrayBuffer(ctx, value) {
++	  let buffer;
++	  try {
++	    buffer = new Uint8Array(value);
++	  } catch {
++	    return [ctx.stylize('(detached)', 'special')];
++	  }
++	  if (hexSlice === undefined)
++	    hexSlice = uncurryThis(requireBuffer().Buffer.prototype.hexSlice);
++	  let str = StringPrototypeTrim(RegExpPrototypeSymbolReplace(
++	    /(.{2})/g,
++	    hexSlice(buffer, 0, MathMin(ctx.maxArrayLength, buffer.length)),
++	    '$1 ',
++	  ));
++	  const remaining = buffer.length - ctx.maxArrayLength;
++	  if (remaining > 0)
++	    str += ` ... ${remaining} more byte${remaining > 1 ? 's' : ''}`;
++	  return [`${ctx.stylize('[Uint8Contents]', 'special')}: <${str}>`];
++	}
++
++	function formatArray(ctx, value, recurseTimes) {
++	  const valLen = value.length;
++	  const len = MathMin(MathMax(0, ctx.maxArrayLength), valLen);
++
++	  const remaining = valLen - len;
++	  const output = [];
++	  for (let i = 0; i < len; i++) {
++	    // Special handle sparse arrays.
++	    if (!ObjectPrototypeHasOwnProperty(value, i)) {
++	      return formatSpecialArray(ctx, value, recurseTimes, len, output, i);
++	    }
++	    ArrayPrototypePush(output, formatProperty(ctx, value, recurseTimes, i, kArrayType));
++	  }
++	  if (remaining > 0) {
++	    ArrayPrototypePush(output, remainingText(remaining));
++	  }
++	  return output;
++	}
++
++	function formatTypedArray(value, length, ctx, ignored, recurseTimes) {
++	  const maxLength = MathMin(MathMax(0, ctx.maxArrayLength), length);
++	  const remaining = value.length - maxLength;
++	  const output = new Array(maxLength);
++	  const elementFormatter = value.length > 0 && typeof value[0] === 'number' ?
++	    formatNumber :
++	    formatBigInt;
++	  for (let i = 0; i < maxLength; ++i) {
++	    output[i] = elementFormatter(ctx.stylize, value[i], ctx.numericSeparator);
++	  }
++	  if (remaining > 0) {
++	    output[maxLength] = remainingText(remaining);
++	  }
++	  if (ctx.showHidden) {
++	    // .buffer goes last, it's not a primitive like the others.
++	    // All besides `BYTES_PER_ELEMENT` are actually getters.
++	    ctx.indentationLvl += 2;
++	    for (const key of [
++	      'BYTES_PER_ELEMENT',
++	      'length',
++	      'byteLength',
++	      'byteOffset',
++	      'buffer',
++	    ]) {
++	      const str = formatValue(ctx, value[key], recurseTimes, true);
++	      ArrayPrototypePush(output, `[${key}]: ${str}`);
++	    }
++	    ctx.indentationLvl -= 2;
++	  }
++	  return output;
++	}
++
++	function formatSet(value, ctx, ignored, recurseTimes) {
++	  const length = value.size;
++	  const maxLength = MathMin(MathMax(0, ctx.maxArrayLength), length);
++	  const remaining = length - maxLength;
++	  const output = [];
++	  ctx.indentationLvl += 2;
++	  let i = 0;
++	  for (const v of value) {
++	    if (i >= maxLength) break;
++	    ArrayPrototypePush(output, formatValue(ctx, v, recurseTimes));
++	    i++;
++	  }
++	  if (remaining > 0) {
++	    ArrayPrototypePush(output, remainingText(remaining));
++	  }
++	  ctx.indentationLvl -= 2;
++	  return output;
++	}
++
++	function formatMap(value, ctx, ignored, recurseTimes) {
++	  const length = value.size;
++	  const maxLength = MathMin(MathMax(0, ctx.maxArrayLength), length);
++	  const remaining = length - maxLength;
++	  const output = [];
++	  ctx.indentationLvl += 2;
++	  let i = 0;
++	  for (const { 0: k, 1: v } of value) {
++	    if (i >= maxLength) break;
++	    ArrayPrototypePush(
++	      output,
++	      `${formatValue(ctx, k, recurseTimes)} => ${formatValue(ctx, v, recurseTimes)}`,
++	    );
++	    i++;
++	  }
++	  if (remaining > 0) {
++	    ArrayPrototypePush(output, remainingText(remaining));
++	  }
++	  ctx.indentationLvl -= 2;
++	  return output;
++	}
++
++	function formatSetIterInner(ctx, recurseTimes, entries, state) {
++	  const maxArrayLength = MathMax(ctx.maxArrayLength, 0);
++	  const maxLength = MathMin(maxArrayLength, entries.length);
++	  const output = new Array(maxLength);
++	  ctx.indentationLvl += 2;
++	  for (let i = 0; i < maxLength; i++) {
++	    output[i] = formatValue(ctx, entries[i], recurseTimes);
++	  }
++	  ctx.indentationLvl -= 2;
++	  if (state === kWeak && !ctx.sorted) {
++	    // Sort all entries to have a halfway reliable output (if more entries than
++	    // retrieved ones exist, we can not reliably return the same output) if the
++	    // output is not sorted anyway.
++	    ArrayPrototypeSort(output);
++	  }
++	  const remaining = entries.length - maxLength;
++	  if (remaining > 0) {
++	    ArrayPrototypePush(output, remainingText(remaining));
++	  }
++	  return output;
++	}
++
++	function formatMapIterInner(ctx, recurseTimes, entries, state) {
++	  const maxArrayLength = MathMax(ctx.maxArrayLength, 0);
++	  // Entries exist as [key1, val1, key2, val2, ...]
++	  const len = entries.length / 2;
++	  const remaining = len - maxArrayLength;
++	  const maxLength = MathMin(maxArrayLength, len);
++	  const output = new Array(maxLength);
++	  let i = 0;
++	  ctx.indentationLvl += 2;
++	  if (state === kWeak) {
++	    for (; i < maxLength; i++) {
++	      const pos = i * 2;
++	      output[i] =
++	        `${formatValue(ctx, entries[pos], recurseTimes)} => ${formatValue(ctx, entries[pos + 1], recurseTimes)}`;
++	    }
++	    // Sort all entries to have a halfway reliable output (if more entries than
++	    // retrieved ones exist, we can not reliably return the same output) if the
++	    // output is not sorted anyway.
++	    if (!ctx.sorted)
++	      ArrayPrototypeSort(output);
++	  } else {
++	    for (; i < maxLength; i++) {
++	      const pos = i * 2;
++	      const res = [
++	        formatValue(ctx, entries[pos], recurseTimes),
++	        formatValue(ctx, entries[pos + 1], recurseTimes),
++	      ];
++	      output[i] = reduceToSingleString(
++	        ctx, res, '', ['[', ']'], kArrayExtrasType, recurseTimes);
++	    }
++	  }
++	  ctx.indentationLvl -= 2;
++	  if (remaining > 0) {
++	    ArrayPrototypePush(output, remainingText(remaining));
++	  }
++	  return output;
++	}
++
++	function formatWeakCollection(ctx) {
++	  return [ctx.stylize('<items unknown>', 'special')];
++	}
++
++	function formatWeakSet(ctx, value, recurseTimes) {
++	  const entries = previewEntries(value);
++	  return formatSetIterInner(ctx, recurseTimes, entries, kWeak);
++	}
++
++	function formatWeakMap(ctx, value, recurseTimes) {
++	  const entries = previewEntries(value);
++	  return formatMapIterInner(ctx, recurseTimes, entries, kWeak);
++	}
++
++	function formatIterator(braces, ctx, value, recurseTimes) {
++	  const { 0: entries, 1: isKeyValue } = previewEntries(value, true);
++	  if (isKeyValue) {
++	    // Mark entry iterators as such.
++	    braces[0] = RegExpPrototypeSymbolReplace(/ Iterator] {$/, braces[0], ' Entries] {');
++	    return formatMapIterInner(ctx, recurseTimes, entries, kMapEntries);
++	  }
++
++	  return formatSetIterInner(ctx, recurseTimes, entries, kIterator);
++	}
++
++	function formatPromise(ctx, value, recurseTimes) {
++	  let output;
++	  const { 0: state, 1: result } = getPromiseDetails(value);
++	  if (state === kPending) {
++	    output = [ctx.stylize('<pending>', 'special')];
++	  } else {
++	    ctx.indentationLvl += 2;
++	    const str = formatValue(ctx, result, recurseTimes);
++	    ctx.indentationLvl -= 2;
++	    output = [
++	      state === kRejected ?
++	        `${ctx.stylize('<rejected>', 'special')} ${str}` :
++	        str,
++	    ];
++	  }
++	  return output;
++	}
++
++	function formatProperty(ctx, value, recurseTimes, key, type, desc,
++	                        original = value) {
++	  let name, str;
++	  let extra = ' ';
++	  desc = desc || ObjectGetOwnPropertyDescriptor(value, key) ||
++	    { value: value[key], enumerable: true };
++	  if (desc.value !== undefined) {
++	    const diff = (ctx.compact !== true || type !== kObjectType) ? 2 : 3;
++	    ctx.indentationLvl += diff;
++	    str = formatValue(ctx, desc.value, recurseTimes);
++	    if (diff === 3 && ctx.breakLength < getStringWidth(str, ctx.colors)) {
++	      extra = `\n${StringPrototypeRepeat(' ', ctx.indentationLvl)}`;
++	    }
++	    ctx.indentationLvl -= diff;
++	  } else if (desc.get !== undefined) {
++	    const label = desc.set !== undefined ? 'Getter/Setter' : 'Getter';
++	    const s = ctx.stylize;
++	    const sp = 'special';
++	    if (ctx.getters && (ctx.getters === true ||
++	          (ctx.getters === 'get' && desc.set === undefined) ||
++	          (ctx.getters === 'set' && desc.set !== undefined))) {
++	      try {
++	        const tmp = FunctionPrototypeCall(desc.get, original);
++	        ctx.indentationLvl += 2;
++	        if (tmp === null) {
++	          str = `${s(`[${label}:`, sp)} ${s('null', 'null')}${s(']', sp)}`;
++	        } else if (typeof tmp === 'object') {
++	          str = `${s(`[${label}]`, sp)} ${formatValue(ctx, tmp, recurseTimes)}`;
++	        } else {
++	          const primitive = formatPrimitive(s, tmp, ctx);
++	          str = `${s(`[${label}:`, sp)} ${primitive}${s(']', sp)}`;
++	        }
++	        ctx.indentationLvl -= 2;
++	      } catch (err) {
++	        const message = `<Inspection threw (${err.message})>`;
++	        str = `${s(`[${label}:`, sp)} ${message}${s(']', sp)}`;
++	      }
++	    } else {
++	      str = ctx.stylize(`[${label}]`, sp);
++	    }
++	  } else if (desc.set !== undefined) {
++	    str = ctx.stylize('[Setter]', 'special');
++	  } else {
++	    str = ctx.stylize('undefined', 'undefined');
++	  }
++	  if (type === kArrayType) {
++	    return str;
++	  }
++	  if (typeof key === 'symbol') {
++	    const tmp = RegExpPrototypeSymbolReplace(
++	      strEscapeSequencesReplacer,
++	      SymbolPrototypeToString(key),
++	      escapeFn,
++	    );
++	    name = `[${ctx.stylize(tmp, 'symbol')}]`;
++	  } else if (key === '__proto__') {
++	    name = "['__proto__']";
++	  } else if (desc.enumerable === false) {
++	    const tmp = RegExpPrototypeSymbolReplace(
++	      strEscapeSequencesReplacer,
++	      key,
++	      escapeFn,
++	    );
++	    name = `[${tmp}]`;
++	  } else if (RegExpPrototypeExec(keyStrRegExp, key) !== null) {
++	    name = ctx.stylize(key, 'name');
++	  } else {
++	    name = ctx.stylize(strEscape(key), 'string');
++	  }
++	  return `${name}:${extra}${str}`;
++	}
++
++	function isBelowBreakLength(ctx, output, start, base) {
++	  // Each entry is separated by at least a comma. Thus, we start with a total
++	  // length of at least `output.length`. In addition, some cases have a
++	  // whitespace in-between each other that is added to the total as well.
++	  // TODO(BridgeAR): Add unicode support. Use the readline getStringWidth
++	  // function. Check the performance overhead and make it an opt-in in case it's
++	  // significant.
++	  let totalLength = output.length + start;
++	  if (totalLength + output.length > ctx.breakLength)
++	    return false;
++	  for (let i = 0; i < output.length; i++) {
++	    if (ctx.colors) {
++	      totalLength += removeColors(output[i]).length;
++	    } else {
++	      totalLength += output[i].length;
++	    }
++	    if (totalLength > ctx.breakLength) {
++	      return false;
++	    }
++	  }
++	  // Do not line up properties on the same line if `base` contains line breaks.
++	  return base === '' || !StringPrototypeIncludes(base, '\n');
++	}
++
++	function reduceToSingleString(
++	  ctx, output, base, braces, extrasType, recurseTimes, value) {
++	  if (ctx.compact !== true) {
++	    if (typeof ctx.compact === 'number' && ctx.compact >= 1) {
++	      // Memorize the original output length. In case the output is grouped,
++	      // prevent lining up the entries on a single line.
++	      const entries = output.length;
++	      // Group array elements together if the array contains at least six
++	      // separate entries.
++	      if (extrasType === kArrayExtrasType && entries > 6) {
++	        output = groupArrayElements(ctx, output, value);
++	      }
++	      // `ctx.currentDepth` is set to the most inner depth of the currently
++	      // inspected object part while `recurseTimes` is the actual current depth
++	      // that is inspected.
++	      //
++	      // Example:
++	      //
++	      // const a = { first: [ 1, 2, 3 ], second: { inner: [ 1, 2, 3 ] } }
++	      //
++	      // The deepest depth of `a` is 2 (a.second.inner) and `a.first` has a max
++	      // depth of 1.
++	      //
++	      // Consolidate all entries of the local most inner depth up to
++	      // `ctx.compact`, as long as the properties are smaller than
++	      // `ctx.breakLength`.
++	      if (ctx.currentDepth - recurseTimes < ctx.compact &&
++	          entries === output.length) {
++	        // Line up all entries on a single line in case the entries do not
++	        // exceed `breakLength`. Add 10 as constant to start next to all other
++	        // factors that may reduce `breakLength`.
++	        const start = output.length + ctx.indentationLvl +
++	                      braces[0].length + base.length + 10;
++	        if (isBelowBreakLength(ctx, output, start, base)) {
++	          const joinedOutput = join(output, ', ');
++	          if (!StringPrototypeIncludes(joinedOutput, '\n')) {
++	            return `${base ? `${base} ` : ''}${braces[0]} ${joinedOutput}` +
++	              ` ${braces[1]}`;
++	          }
++	        }
++	      }
++	    }
++	    // Line up each entry on an individual line.
++	    const indentation = `\n${StringPrototypeRepeat(' ', ctx.indentationLvl)}`;
++	    return `${base ? `${base} ` : ''}${braces[0]}${indentation}  ` +
++	      `${join(output, `,${indentation}  `)}${indentation}${braces[1]}`;
++	  }
++	  // Line up all entries on a single line in case the entries do not exceed
++	  // `breakLength`.
++	  if (isBelowBreakLength(ctx, output, 0, base)) {
++	    return `${braces[0]}${base ? ` ${base}` : ''} ${join(output, ', ')} ` +
++	      braces[1];
++	  }
++	  const indentation = StringPrototypeRepeat(' ', ctx.indentationLvl);
++	  // If the opening "brace" is too large, like in the case of "Set {",
++	  // we need to force the first item to be on the next line or the
++	  // items will not line up correctly.
++	  const ln = base === '' && braces[0].length === 1 ?
++	    ' ' : `${base ? ` ${base}` : ''}\n${indentation}  `;
++	  // Line up each entry on an individual line.
++	  return `${braces[0]}${ln}${join(output, `,\n${indentation}  `)} ${braces[1]}`;
++	}
++
++	function hasBuiltInToString(value) {
++	  // Prevent triggering proxy traps.
++	  const getFullProxy = false;
++	  const proxyTarget = getProxyDetails(value, getFullProxy);
++	  if (proxyTarget !== undefined) {
++	    if (proxyTarget === null) {
++	      return true;
++	    }
++	    value = proxyTarget;
++	  }
++
++	  // Count objects that have no `toString` function as built-in.
++	  if (typeof value.toString !== 'function') {
++	    return true;
++	  }
++
++	  // The object has a own `toString` property. Thus it's not not a built-in one.
++	  if (ObjectPrototypeHasOwnProperty(value, 'toString')) {
++	    return false;
++	  }
++
++	  // Find the object that has the `toString` property as own property in the
++	  // prototype chain.
++	  let pointer = value;
++	  do {
++	    pointer = ObjectGetPrototypeOf(pointer);
++	  } while (!ObjectPrototypeHasOwnProperty(pointer, 'toString'));
++
++	  // Check closer if the object is a built-in.
++	  const descriptor = ObjectGetOwnPropertyDescriptor(pointer, 'constructor');
++	  return descriptor !== undefined &&
++	    typeof descriptor.value === 'function' &&
++	    builtInObjects.has(descriptor.value.name);
++	}
++
++	const firstErrorLine = (error) => StringPrototypeSplit(error.message, '\n', 1)[0];
++	let CIRCULAR_ERROR_MESSAGE;
++	function tryStringify(arg) {
++	  try {
++	    return JSONStringify(arg);
++	  } catch (err) {
++	    // Populate the circular error message lazily
++	    if (!CIRCULAR_ERROR_MESSAGE) {
++	      try {
++	        const a = {};
++	        a.a = a;
++	        JSONStringify(a);
++	      } catch (circularError) {
++	        CIRCULAR_ERROR_MESSAGE = firstErrorLine(circularError);
++	      }
++	    }
++	    if (err.name === 'TypeError' &&
++	        firstErrorLine(err) === CIRCULAR_ERROR_MESSAGE) {
++	      return '[Circular]';
++	    }
++	    throw err;
++	  }
++	}
++
++	function format(...args) {
++	  return formatWithOptionsInternal(undefined, args);
++	}
++
++	function formatWithOptions(inspectOptions, ...args) {
++	  validateObject(inspectOptions, 'inspectOptions', { allowArray: true });
++	  return formatWithOptionsInternal(inspectOptions, args);
++	}
++
++	function formatNumberNoColor(number, options) {
++	  return formatNumber(
++	    stylizeNoColor,
++	    number,
++	    options?.numericSeparator ?? inspectDefaultOptions.numericSeparator,
++	  );
++	}
++
++	function formatBigIntNoColor(bigint, options) {
++	  return formatBigInt(
++	    stylizeNoColor,
++	    bigint,
++	    options?.numericSeparator ?? inspectDefaultOptions.numericSeparator,
++	  );
++	}
++
++	function formatWithOptionsInternal(inspectOptions, args) {
++	  const first = args[0];
++	  let a = 0;
++	  let str = '';
++	  let join = '';
++
++	  if (typeof first === 'string') {
++	    if (args.length === 1) {
++	      return first;
++	    }
++	    let tempStr;
++	    let lastPos = 0;
++
++	    for (let i = 0; i < first.length - 1; i++) {
++	      if (StringPrototypeCharCodeAt(first, i) === 37) { // '%'
++	        const nextChar = StringPrototypeCharCodeAt(first, ++i);
++	        if (a + 1 !== args.length) {
++	          switch (nextChar) {
++	            case 115: { // 's'
++	              const tempArg = args[++a];
++	              if (typeof tempArg === 'number') {
++	                tempStr = formatNumberNoColor(tempArg, inspectOptions);
++	              } else if (typeof tempArg === 'bigint') {
++	                tempStr = formatBigIntNoColor(tempArg, inspectOptions);
++	              } else if (typeof tempArg !== 'object' ||
++	                         tempArg === null ||
++	                         !hasBuiltInToString(tempArg)) {
++	                tempStr = String(tempArg);
++	              } else {
++	                tempStr = inspect(tempArg, {
++	                  ...inspectOptions,
++	                  compact: 3,
++	                  colors: false,
++	                  depth: 0,
++	                });
++	              }
++	              break;
++	            }
++	            case 106: // 'j'
++	              tempStr = tryStringify(args[++a]);
++	              break;
++	            case 100: { // 'd'
++	              const tempNum = args[++a];
++	              if (typeof tempNum === 'bigint') {
++	                tempStr = formatBigIntNoColor(tempNum, inspectOptions);
++	              } else if (typeof tempNum === 'symbol') {
++	                tempStr = 'NaN';
++	              } else {
++	                tempStr = formatNumberNoColor(Number(tempNum), inspectOptions);
++	              }
++	              break;
++	            }
++	            case 79: // 'O'
++	              tempStr = inspect(args[++a], inspectOptions);
++	              break;
++	            case 111: // 'o'
++	              tempStr = inspect(args[++a], {
++	                ...inspectOptions,
++	                showHidden: true,
++	                showProxy: true,
++	                depth: 4,
++	              });
++	              break;
++	            case 105: { // 'i'
++	              const tempInteger = args[++a];
++	              if (typeof tempInteger === 'bigint') {
++	                tempStr = formatBigIntNoColor(tempInteger, inspectOptions);
++	              } else if (typeof tempInteger === 'symbol') {
++	                tempStr = 'NaN';
++	              } else {
++	                tempStr = formatNumberNoColor(
++	                  NumberParseInt(tempInteger), inspectOptions);
++	              }
++	              break;
++	            }
++	            case 102: { // 'f'
++	              const tempFloat = args[++a];
++	              if (typeof tempFloat === 'symbol') {
++	                tempStr = 'NaN';
++	              } else {
++	                tempStr = formatNumberNoColor(
++	                  NumberParseFloat(tempFloat), inspectOptions);
++	              }
++	              break;
++	            }
++	            case 99: // 'c'
++	              a += 1;
++	              tempStr = '';
++	              break;
++	            case 37: // '%'
++	              str += StringPrototypeSlice(first, lastPos, i);
++	              lastPos = i + 1;
++	              continue;
++	            default: // Any other character is not a correct placeholder
++	              continue;
++	          }
++	          if (lastPos !== i - 1) {
++	            str += StringPrototypeSlice(first, lastPos, i - 1);
++	          }
++	          str += tempStr;
++	          lastPos = i + 1;
++	        } else if (nextChar === 37) {
++	          str += StringPrototypeSlice(first, lastPos, i);
++	          lastPos = i + 1;
++	        }
++	      }
++	    }
++	    if (lastPos !== 0) {
++	      a++;
++	      join = ' ';
++	      if (lastPos < first.length) {
++	        str += StringPrototypeSlice(first, lastPos);
++	      }
++	    }
++	  }
++
++	  while (a < args.length) {
++	    const value = args[a];
++	    str += join;
++	    str += typeof value !== 'string' ? inspect(value, inspectOptions) : value;
++	    join = ' ';
++	    a++;
++	  }
++	  return str;
++	}
++
++	function isZeroWidthCodePoint(code) {
++	  return code <= 0x1F || // C0 control codes
++	    (code >= 0x7F && code <= 0x9F) || // C1 control codes
++	    (code >= 0x300 && code <= 0x36F) || // Combining Diacritical Marks
++	    (code >= 0x200B && code <= 0x200F) || // Modifying Invisible Characters
++	    // Combining Diacritical Marks for Symbols
++	    (code >= 0x20D0 && code <= 0x20FF) ||
++	    (code >= 0xFE00 && code <= 0xFE0F) || // Variation Selectors
++	    (code >= 0xFE20 && code <= 0xFE2F) || // Combining Half Marks
++	    (code >= 0xE0100 && code <= 0xE01EF); // Variation Selectors
++	}
++
++	/* c8 ignore start */
++	if (internalBinding('config').hasIntl) {
++	  assert(false);
++	  // Can't use node internals
++	  // const icu = internalBinding('icu');
++	  // // icu.getStringWidth(string, ambiguousAsFullWidth, expandEmojiSequence)
++	  // // Defaults: ambiguousAsFullWidth = false; expandEmojiSequence = true;
++	  // // TODO(BridgeAR): Expose the options to the user. That is probably the
++	  // // best thing possible at the moment, since it's difficult to know what
++	  // // the receiving end supports.
++	  // getStringWidth = function getStringWidth(str, removeControlChars = true) {
++	  //   let width = 0;
++
++	  //   if (removeControlChars) {
++	  //     str = stripVTControlCharacters(str);
++	  //   }
++	  //   for (let i = 0; i < str.length; i++) {
++	  //     // Try to avoid calling into C++ by first handling the ASCII portion of
++	  //     // the string. If it is fully ASCII, we skip the C++ part.
++	  //     const code = str.charCodeAt(i);
++	  //     if (code >= 127) {
++	  //       width += icu.getStringWidth(StringPrototypeNormalize(StringPrototypeSlice(str, i), 'NFC'));
++	  //       break;
++	  //     }
++	  //     width += code >= 32 ? 1 : 0;
++	  //   }
++	  //   return width;
++	  // };
++	  /* c8 ignore stop */
++	} else {
++	  /**
++	   * Returns the number of columns required to display the given string.
++	   */
++	  getStringWidth = function getStringWidth(str, removeControlChars = true) {
++	    let width = 0;
++
++	    if (removeControlChars)
++	      str = stripVTControlCharacters(str);
++	    str = StringPrototypeNormalize(str, 'NFC');
++	    for (const char of new SafeStringIterator(str)) {
++	      const code = StringPrototypeCodePointAt(char, 0);
++	      if (isFullWidthCodePoint(code)) {
++	        width += 2;
++	      } else if (!isZeroWidthCodePoint(code)) {
++	        width++;
++	      }
++	    }
++
++	    return width;
++	  };
++
++	  /**
++	   * Returns true if the character represented by a given
++	   * Unicode code point is full-width. Otherwise returns false.
++	   */
++	  const isFullWidthCodePoint = (code) => {
++	    // Code points are partially derived from:
++	    // https://www.unicode.org/Public/UNIDATA/EastAsianWidth.txt
++	    return code >= 0x1100 && (
++	      code <= 0x115f ||  // Hangul Jamo
++	      code === 0x2329 || // LEFT-POINTING ANGLE BRACKET
++	      code === 0x232a || // RIGHT-POINTING ANGLE BRACKET
++	      // CJK Radicals Supplement .. Enclosed CJK Letters and Months
++	      (code >= 0x2e80 && code <= 0x3247 && code !== 0x303f) ||
++	      // Enclosed CJK Letters and Months .. CJK Unified Ideographs Extension A
++	      (code >= 0x3250 && code <= 0x4dbf) ||
++	      // CJK Unified Ideographs .. Yi Radicals
++	      (code >= 0x4e00 && code <= 0xa4c6) ||
++	      // Hangul Jamo Extended-A
++	      (code >= 0xa960 && code <= 0xa97c) ||
++	      // Hangul Syllables
++	      (code >= 0xac00 && code <= 0xd7a3) ||
++	      // CJK Compatibility Ideographs
++	      (code >= 0xf900 && code <= 0xfaff) ||
++	      // Vertical Forms
++	      (code >= 0xfe10 && code <= 0xfe19) ||
++	      // CJK Compatibility Forms .. Small Form Variants
++	      (code >= 0xfe30 && code <= 0xfe6b) ||
++	      // Halfwidth and Fullwidth Forms
++	      (code >= 0xff01 && code <= 0xff60) ||
++	      (code >= 0xffe0 && code <= 0xffe6) ||
++	      // Kana Supplement
++	      (code >= 0x1b000 && code <= 0x1b001) ||
++	      // Enclosed Ideographic Supplement
++	      (code >= 0x1f200 && code <= 0x1f251) ||
++	      // Miscellaneous Symbols and Pictographs 0x1f300 - 0x1f5ff
++	      // Emoticons 0x1f600 - 0x1f64f
++	      (code >= 0x1f300 && code <= 0x1f64f) ||
++	      // CJK Unified Ideographs Extension B .. Tertiary Ideographic Plane
++	      (code >= 0x20000 && code <= 0x3fffd)
++	    );
++	  };
++
++	}
++
++	/**
++	 * Remove all VT control characters. Use to estimate displayed string width.
++	 */
++	function stripVTControlCharacters(str) {
++	  validateString(str, 'str');
++	  return RegExpPrototypeSymbolReplace(ansi, str, '');
++	}
++
++	const entities = {
++	  34: '&quot;',
++	  38: '&amp;',
++	  39: '&apos;',
++	  60: '&lt;',
++	  62: '&gt;',
++	  160: '&nbsp;',
++	};
++
++	function escapeHTML(str) {
++	  return str.replace(
++	    // eslint-disable-next-line no-control-regex
++	    /[\u0000-\u002F\u003A-\u0040\u005B-\u0060\u007B-\u00FF]/g,
++	    (c) => {
++	      const code = String(c.charCodeAt(0));
++	      const ent = entities[code];
++	      return ent || ('&#' + code + ';');
++	    },
++	  );
++	}
++
++	inspect_1 = {
++	  identicalSequenceRange,
++	  inspect,
++	  inspectDefaultOptions,
++	  format,
++	  formatWithOptions,
++	  getStringWidth,
++	  stripVTControlCharacters,
++	  isZeroWidthCodePoint,
++	  stylizeWithColor,
++	  stylizeWithHTML(str, styleType) {
++	    const style = inspect.styles[styleType];
++	    if (style !== undefined) {
++	      return `<span style="color:${style};">${escapeHTML(str)}</span>`;
++	    }
++	    return escapeHTML(str);
++	  },
++	  Proxy,
++	};
++	return inspect_1;
++}
++
++var inspectExports = requireInspect();
++var inspect = /*@__PURE__*/getDefaultExportFromCjs(inspectExports);
++
++export { inspect as default };
