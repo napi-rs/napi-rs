@@ -116,24 +116,12 @@ export async function createNpmDirs(userOptions: CreateNpmDirsOptions) {
           node: '>=14.0.0',
         }
       }
-      const emnapiCore = await fetch(
-        `https://registry.npmjs.org/@emnapi/core`,
-      ).then((res) => res.json() as Promise<PackageMeta>)
-      const emnapiRuntime = await fetch(
-        `https://registry.npmjs.org/@emnapi/runtime`,
-      ).then((res) => res.json() as Promise<PackageMeta>)
-      const wasiUtil = await fetch(
-        `https://registry.npmjs.org/@tybys/wasm-util`,
-      ).then((res) => res.json() as Promise<PackageMeta>)
-      const memfsBrowser = await fetch(
-        `https://registry.npmjs.org/memfs-browser`,
+      const wasmRuntime = await fetch(
+        `https://registry.npmjs.org/@napi-rs/wasm-runtime`,
       ).then((res) => res.json() as Promise<PackageMeta>)
       // @ts-expect-error
       scopedPackageJson.dependencies = {
-        '@emnapi/core': `^${emnapiCore['dist-tags'].latest}`,
-        '@emnapi/runtime': `^${emnapiRuntime['dist-tags'].latest}`,
-        '@tybys/wasm-util': `^${wasiUtil['dist-tags'].latest}`,
-        'memfs-browser': `^${memfsBrowser['dist-tags'].latest}`,
+        '@napi-rs/wasm-runtime': `^${wasmRuntime['dist-tags'].latest}`,
       }
     }
 

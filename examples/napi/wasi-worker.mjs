@@ -2,8 +2,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import { parentPort, Worker } from "node:worker_threads";
 
-import { instantiateNapiModuleSync, MessageHandler } from "@emnapi/core";
-import { WASI } from "@tybys/wasm-util";
+import { instantiateNapiModuleSync, MessageHandler, WASI } from "@napi-rs/wasm-runtime";
 
 const require = createRequire(import.meta.url);
 

@@ -59,7 +59,6 @@ const {
 })
 
 function __napi_rs_initialize_modules(__napiInstance) {
-  __napiInstance.exports['__napi_register__Shared_struct_0']?.()
   __napiInstance.exports['__napi_register__DEFAULT_COST_0']?.()
   __napiInstance.exports['__napi_register__TYPE_SKIPPED_CONST_1']?.()
   __napiInstance.exports['__napi_register__get_words_2']?.()
