@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.35](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.34...@napi-rs/cli@3.0.0-alpha.35) (2024-01-16)
+
+### Features
+
+- add wasm runtime package ([#1904](https://github.com/napi-rs/napi-rs/issues/1904)) ([120accd](https://github.com/napi-rs/napi-rs/commit/120accd965f03e1de89d0d9a2fba69b97d70b95c))
+- **cli:** Add support for s390x linux arch in js bindings template ([#1901](https://github.com/napi-rs/napi-rs/issues/1901)) ([ddeaf30](https://github.com/napi-rs/napi-rs/commit/ddeaf30f14c67b2f0dbe50f58a3daae6480ca27a))
+
 # [3.0.0-alpha.34](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.33...@napi-rs/cli@3.0.0-alpha.34) (2024-01-10)
 
 ### Bug Fixes
