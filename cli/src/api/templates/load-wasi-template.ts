@@ -1,10 +1,12 @@
 export const createWasiBrowserBinding = (
   wasiFilename: string,
   wasiRegisterFunctions: string[],
-) => `import { instantiateNapiModuleSync as __emnapiInstantiateNapiModuleSync } from '@emnapi/core'
-import { getDefaultContext as __emnapiGetDefaultContext } from '@emnapi/runtime'
-import { WASI as __WASI } from '@tybys/wasm-util'
-import { Volume as __Volume, createFsFromVolume as __createFsFromVolume } from 'memfs-browser'
+) => `import {
+  instantiateNapiModuleSync as __emnapiInstantiateNapiModuleSync,
+  getDefaultContext as __emnapiGetDefaultContext,
+  WASI as __WASI,
+} from '@napi-rs/wasm-runtime'
+import { Volume as __Volume, createFsFromVolume as __createFsFromVolume } from '@napi-rs/wasm-runtime/fs'
 
 import __wasmUrl from './${wasiFilename}.wasm?url'
 

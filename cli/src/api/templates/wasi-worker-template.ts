@@ -51,9 +51,8 @@ globalThis.onmessage = function (e) {
 };
 `
 
-export const WASI_WORKER_BROWSER_TEMPLATE = `import { instantiateNapiModuleSync, MessageHandler } from '@emnapi/core'
-import { WASI } from '@tybys/wasm-util'
-import { Volume, createFsFromVolume } from 'memfs-browser'
+export const WASI_WORKER_BROWSER_TEMPLATE = `import { instantiateNapiModuleSync, MessageHandler, WASI } from '@napi-rs/wasm-runtime'
+import { Volume, createFsFromVolume } from '@napi-rs/wasm-runtime/fs'
 
 const fs = createFsFromVolume(
   Volume.fromJSON({

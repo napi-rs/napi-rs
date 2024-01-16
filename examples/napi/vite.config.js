@@ -8,14 +8,9 @@ export default defineConfig({
       'Cross-Origin-Embedder-Policy': 'require-corp',
     },
   },
-  define: {
-    process: {
-      env: {},
-    },
-  },
   plugins: [
     nodePolyfills({
-      include: ['buffer', 'util', 'stream'],
+      include: ['util'],
     }),
     {
       name: 'configure-response-headers',
