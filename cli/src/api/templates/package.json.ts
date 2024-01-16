@@ -79,16 +79,11 @@ export const createPackageJson = async ({
   }
 
   if (hasWasmTarget) {
-    const emnapiCoreMeta = await fetch(
-      `https://registry.npmjs.org/@emnapi/core`,
+    const wasmRuntime = await fetch(
+      `https://registry.npmjs.org/@napi-rs/wasm-runtime`,
     ).then((res) => res.json() as Promise<PackageMeta>)
-    const latest = emnapiCoreMeta['dist-tags'].latest
-    content.devDependencies!['@emnapi/core'] = `^${latest}`
-    const emnapiRuntimeMeta = await fetch(
-      `https://registry.npmjs.org/@emnapi/runtime`,
-    ).then((res) => res.json() as Promise<PackageMeta>)
-    const runtimeLatest = emnapiRuntimeMeta['dist-tags'].latest
-    content.devDependencies!['@emnapi/runtime'] = `^${runtimeLatest}`
+    const latest = wasmRuntime['dist-tags'].latest
+    content.devDependencies!['@napi-rs/wasm-runtime'] = `^${latest}`
   }
 
   return JSON.stringify(content, null, 2)

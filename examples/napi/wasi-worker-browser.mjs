@@ -1,8 +1,4 @@
-import {
-  instantiateNapiModuleSync,
-  MessageHandler,
-  WASI,
-} from '@napi-rs/wasm-runtime'
+import { instantiateNapiModuleSync, MessageHandler, WASI } from '@napi-rs/wasm-runtime'
 import { Volume, createFsFromVolume } from '@napi-rs/wasm-runtime/fs'
 
 const fs = createFsFromVolume(
@@ -19,7 +15,7 @@ const handler = new MessageHandler({
         // eslint-disable-next-line no-console
         console.log.apply(console, arguments)
       },
-      printErr: function () {
+      printErr: function() {
         // eslint-disable-next-line no-console
         console.error.apply(console, arguments)
       },
