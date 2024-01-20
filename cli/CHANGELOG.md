@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.18.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.17.0...@napi-rs/cli@2.18.0) (2024-01-20)
+
+### Features
+
+- update ci.yml and binding template ([f720c2d](https://github.com/napi-rs/napi-rs/commit/f720c2d0346130f006f6de986fb37c41545f3666))
+
 # [2.17.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.16.5...@napi-rs/cli@2.17.0) (2023-12-07)
 
 ### Features
