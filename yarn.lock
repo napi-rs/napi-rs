@@ -8854,8 +8854,8 @@ __metadata:
 
 "node-inspect-extracted@patch:node-inspect-extracted@npm%3A3.0.0#~/.yarn/patches/node-inspect-extracted-npm-3.0.0-f661b6c334.patch":
   version: 3.0.0
-  resolution: "node-inspect-extracted@patch:node-inspect-extracted@npm%3A3.0.0#~/.yarn/patches/node-inspect-extracted-npm-3.0.0-f661b6c334.patch::version=3.0.0&hash=519cf0"
-  checksum: 10d926fa12e6c0f3338c2d50946104472d7158b0bbe24f44d98e597038ea3144359e57403ca950d1bf3e68fbe07be24fdb7a0e9fba3fcb0d2511aeca99c87b62
+  resolution: "node-inspect-extracted@patch:node-inspect-extracted@npm%3A3.0.0#~/.yarn/patches/node-inspect-extracted-npm-3.0.0-f661b6c334.patch::version=3.0.0&hash=dbd317"
+  checksum: ebe8a08ad9017dc7f4d96a23da9eee93c8f4880255d3e4b4599cf3def16f2ef957c5314b013fe56feaa36daf0ff3c896e97386d2d9ec00bdf686274fe274df9f
   languageName: node
   linkType: hard
 
