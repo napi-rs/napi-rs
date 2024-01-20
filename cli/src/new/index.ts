@@ -180,7 +180,8 @@ test('sum from native', (t) => {
     const enableLinuxArm8Musl = this.targets!.includes(
       'aarch64-unknown-linux-musl',
     )
-    const cargoConfig = createCargoConfig(enableLinuxArm8Musl)
+    const enableWindowsX64 = this.targets!.includes('x86_64-pc-windows-msvc')
+    const cargoConfig = createCargoConfig(enableLinuxArm8Musl, enableWindowsX64)
     if (cargoConfig.length) {
       const configDir = join(process.cwd(), this.dirname!, '.cargo')
       if (!this.dryRun) {
@@ -196,7 +197,7 @@ edition = "2021"
     )
     this.writeFile('.gitignore', GitIgnore)
     this.writeFile('.yarnrc.yml', 'nodeLinker: node-modules')
-    await spawn(`yarn set version stable`, {
+    await spawn(`yarn set version stable --yarn-path`, {
       cwd: join(process.cwd(), this.dirname!),
     })
     await spawn(`yarn install`, {

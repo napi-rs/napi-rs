@@ -16,4 +16,5 @@ napi-build = "NAPI_BUILD_VERSION"
 
 [profile.release]
 lto = true
+strip = "symbols"
 `
