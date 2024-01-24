@@ -72,6 +72,15 @@ where
   RT.read().unwrap().as_ref().unwrap().block_on(fut)
 }
 
+/// spawn_blocking on the current Tokio runtime.
+pub fn spawn_blocking<F, R>(func: F) -> tokio::task::JoinHandle<R>
+where
+  F: FnOnce() -> R + Send + 'static,
+  R: Send + 'static,
+{
+  RT.read().unwrap().as_ref().unwrap().spawn_blocking(func)
+}
+
 // This function's signature must be kept in sync with the one in lib.rs, otherwise napi
 // will fail to compile with the `tokio_rt` feature.
 
