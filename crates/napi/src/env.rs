@@ -833,7 +833,6 @@ impl Env {
       raw_ref,
       count: 1,
       inner: (),
-      raw_value,
     })
   }
 
@@ -851,7 +850,6 @@ impl Env {
       raw_ref,
       count: ref_count,
       inner: (),
-      raw_value,
     })
   }
 
