@@ -255,30 +255,26 @@ impl<T: 'static, ES: ErrorStrategy::T> Clone for ThreadsafeFunction<T, ES> {
 }
 
 pub trait JsValuesTupleIntoVec {
-  fn into_vec(self, env: &Env) -> Result<Vec<JsUnknown>>;
+  fn into_vec(self, env: sys::napi_env) -> Result<Vec<sys::napi_value>>;
 }
 
 impl<T: ToNapiValue> JsValuesTupleIntoVec for T {
-  fn into_vec(self, env: &Env) -> Result<Vec<JsUnknown>> {
-    Ok(vec![JsUnknown(crate::Value {
-      env: env.0,
-      value: unsafe { <T as ToNapiValue>::to_napi_value(env.0, self)? },
-      value_type: crate::ValueType::Unknown,
-    })])
+  #[allow(clippy::not_unsafe_ptr_arg_deref)]
+  fn into_vec(self, env: sys::napi_env) -> Result<Vec<sys::napi_value>> {
+    Ok(vec![unsafe {
+      <T as ToNapiValue>::to_napi_value(env, self)?
+    }])
   }
 }
 
 macro_rules! impl_js_value_tuple_to_vec {
   ($($ident:ident),*) => {
     impl<$($ident: ToNapiValue),*> JsValuesTupleIntoVec for ($($ident,)*) {
-      fn into_vec(self, env: &Env) -> Result<Vec<JsUnknown>> {
+      #[allow(clippy::not_unsafe_ptr_arg_deref)]
+      fn into_vec(self, env: sys::napi_env) -> Result<Vec<sys::napi_value>> {
         #[allow(non_snake_case)]
         let ($($ident,)*) = self;
-        Ok(vec![$(JsUnknown($crate::Value {
-          env: env.0,
-          value: unsafe { <$ident as ToNapiValue>::to_napi_value(env.0, $ident)? },
-          value_type: $crate::ValueType::Unknown,
-        })),*])
+        Ok(vec![$(unsafe { <$ident as ToNapiValue>::to_napi_value(env, $ident)? }),*])
       }
     }
   };
@@ -319,7 +315,7 @@ impl<T: JsValuesTupleIntoVec + 'static, ES: ErrorStrategy::T> FromNapiValue
   for ThreadsafeFunction<T, ES>
 {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
-    Self::create(env, napi_val, 0, |ctx| ctx.value.into_vec(&ctx.env))
+    Self::create(env, napi_val, 0, |ctx| ctx.value.into_vec(ctx.env.0))
   }
 }
 

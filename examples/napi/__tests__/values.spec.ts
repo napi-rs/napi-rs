@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 
 import { spy } from 'sinon'
 
-import type { AliasedStruct } from '../index.js'
+import type { AliasedStruct, Animal as AnimalClass } from '../index.js'
 
 import { test } from './test.framework.js'
 
@@ -14,6 +14,16 @@ const {
   DEFAULT_COST,
   add,
   fibonacci,
+  call0,
+  call1,
+  call2,
+  apply0,
+  apply1,
+  callFunction,
+  callFunctionWithArg,
+  callFunctionWithArgAndCtx,
+  createReferenceOnFunction,
+  referenceAsCallback,
   contains,
   concatLatin1,
   concatStr,
@@ -196,6 +206,59 @@ test('map', (t) => {
 test('enum', (t) => {
   t.deepEqual([Kind.Dog, Kind.Cat, Kind.Duck], [0, 1, 2])
   t.is(enumToI32(CustomNumEnum.Eight), 8)
+})
+
+test('function call', async (t) => {
+  t.is(
+    call0(() => 42),
+    42,
+  )
+  t.is(
+    call1((a) => a + 10, 42),
+    52,
+  )
+  t.is(
+    call2((a, b) => a + b, 42, 10),
+    52,
+  )
+  const ctx = new Animal(Kind.Dog, '旺财')
+  apply0(ctx, function (this: AnimalClass) {
+    this.name = '可乐'
+  })
+  t.is(ctx.name, '可乐')
+  const ctx2 = new Animal(Kind.Dog, '旺财')
+  apply1(
+    ctx2,
+    function (this: AnimalClass, name: string) {
+      this.name = name
+    },
+    '可乐',
+  )
+  t.is(ctx2.name, '可乐')
+  t.is(
+    callFunction(() => 42),
+    42,
+  )
+  t.is(
+    callFunctionWithArg((a, b) => a + b, 42, 10),
+    52,
+  )
+  const ctx3 = new Animal(Kind.Dog, '旺财')
+  callFunctionWithArgAndCtx(
+    ctx3,
+    function (this: AnimalClass, name: string) {
+      this.name = name
+    },
+    '可乐',
+  )
+  t.is(ctx3.name, '可乐')
+  const cbSpy = spy()
+  await createReferenceOnFunction(cbSpy)
+  t.is(cbSpy.callCount, 1)
+  t.is(
+    referenceAsCallback((a, b) => a + b, 42, 10),
+    52,
+  )
 })
 
 test('class', (t) => {
