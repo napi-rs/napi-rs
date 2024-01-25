@@ -13,7 +13,7 @@ impl ValidateNapiValue for JsFunction {}
 /// A JavaScript function.
 /// It can only live in the scope of a function call.
 /// If you want to use it outside the scope of a function call, you can turn it into a reference.
-/// By calling the `into_ref` method.
+/// By calling the `create_ref` method.
 pub struct Function<'scope, Args: JsValuesTupleIntoVec, Return: FromNapiValue> {
   pub(crate) env: sys::napi_env,
   pub(crate) value: sys::napi_value,
