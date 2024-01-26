@@ -148,6 +148,7 @@ static KNOWN_TYPES: Lazy<HashMap<&'static str, (&'static str, bool, bool)>> = La
     ("Map", ("Record<string, any>", false, false)),
     ("HashMap", ("Record<{}, {}>", false, false)),
     ("ArrayBuffer", ("ArrayBuffer", false, false)),
+    ("JsArrayBuffer", ("ArrayBuffer", false, false)),
     ("Int8Array", ("Int8Array", false, false)),
     ("Uint8Array", ("Uint8Array", false, false)),
     ("Uint8ClampedArray", ("Uint8ClampedArray", false, false)),

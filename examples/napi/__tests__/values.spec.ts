@@ -54,6 +54,7 @@ const {
   getPackageJsonName,
   getBuffer,
   getEmptyBuffer,
+  asyncBufferToArray,
   readFileAsync,
   eitherStringOrNumber,
   returnEither,
@@ -649,6 +650,9 @@ test('buffer', (t) => {
   const b = getEmptyBuffer()
   t.is(a.toString(), '')
   t.is(b.toString(), '')
+
+  // @ts-expect-error
+  t.true(Array.isArray(asyncBufferToArray(Buffer.from([1, 2, 3]).buffer)))
 })
 
 test('reset empty buffer', (t) => {

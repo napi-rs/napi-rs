@@ -311,6 +311,7 @@ function __napi_rs_initialize_modules(__napiInstance) {
   __napiInstance.exports['__napi_register__array_buffer_pass_through_295']?.()
   __napiInstance.exports['__napi_register__AsyncBuffer_impl_296']?.()
   __napiInstance.exports['__napi_register__async_reduce_buffer_297']?.()
+  __napiInstance.exports['__napi_register__async_buffer_to_array_298']?.()
 }
 module.exports.Animal = __napiModule.exports.Animal
 module.exports.AnimalWithDefaultConstructor = __napiModule.exports.AnimalWithDefaultConstructor
@@ -358,6 +359,7 @@ module.exports.appendBuffer = __napiModule.exports.appendBuffer
 module.exports.apply0 = __napiModule.exports.apply0
 module.exports.apply1 = __napiModule.exports.apply1
 module.exports.arrayBufferPassThrough = __napiModule.exports.arrayBufferPassThrough
+module.exports.asyncBufferToArray = __napiModule.exports.asyncBufferToArray
 module.exports.asyncMultiTwo = __napiModule.exports.asyncMultiTwo
 module.exports.asyncPlus100 = __napiModule.exports.asyncPlus100
 module.exports.asyncReduceBuffer = __napiModule.exports.asyncReduceBuffer

@@ -35,7 +35,8 @@
     "test:macro": "cargo test -p napi-examples",
     "test:memory": "node memory-testing/index.mjs",
     "postinstall": "husky install",
-    "prepublish": "yarn build"
+    "prepublish": "yarn build",
+    "prepare": "husky"
   },
   "bugs": {
     "url": "https://github.com/napi-rs/napi-rs/issues"
@@ -80,7 +81,7 @@
     "eslint": "^8.55.0",
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-import": "^2.29.0",
-    "husky": "^9.0.0",
+    "husky": "^9.0.6",
     "lerna": "^8.0.0",
     "lint-staged": "^15.2.0",
     "npm-run-all": "^4.1.5",
