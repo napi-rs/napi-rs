@@ -80,6 +80,12 @@ impl TypeName for JsUnknown {
 
 impl ValidateNapiValue for JsUnknown {}
 
+impl ToNapiValue for sys::napi_value {
+  unsafe fn to_napi_value(_env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    Ok(val)
+  }
+}
+
 impl<T: NapiRaw> ToNapiValue for T {
   unsafe fn to_napi_value(_env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     Ok(unsafe { NapiRaw::raw(&val) })

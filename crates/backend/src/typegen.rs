@@ -173,6 +173,8 @@ static KNOWN_TYPES: Lazy<HashMap<&'static str, (&'static str, bool, bool)>> = La
     ("JsTypeError", ("TypeError", false, false)),
     ("JsRangeError", ("RangeError", false, false)),
     ("ClassInstance", ("{}", false, false)),
+    ("Function", ("({}) => {}", true, false)),
+    ("FunctionRef", ("({}) => {}", true, false)),
     ("Either", ("{} | {}", false, true)),
     ("Either3", ("{} | {} | {}", false, true)),
     ("Either4", ("{} | {} | {} | {}", false, true)),
@@ -241,9 +243,11 @@ fn is_ts_union_type(rust_ty: &str) -> bool {
 }
 
 const TSFN_RUST_TY: &str = "ThreadsafeFunction";
+const FUNCTION_TY: &str = "Function";
+const FUNCTION_REF_TY: &str = "FunctionRef";
 
-fn should_convert_tuple_to_variadic(rust_ty: &str) -> bool {
-  rust_ty == TSFN_RUST_TY
+fn is_generic_function_type(rust_ty: &str) -> bool {
+  rust_ty == TSFN_RUST_TY || rust_ty == FUNCTION_TY || rust_ty == FUNCTION_REF_TY
 }
 
 fn is_ts_function_type_notation(ty: &Type) -> bool {
@@ -253,7 +257,7 @@ fn is_ts_function_type_notation(ty: &Type) -> bool {
         let rust_ty = ident.to_string();
         return KNOWN_TYPES
           .get(&*rust_ty)
-          .map(|&(_, is_ts_fn, _)| is_ts_fn)
+          .map(|&(_, is_fn, _)| is_fn)
           .unwrap_or(false);
       }
 
@@ -263,25 +267,33 @@ fn is_ts_function_type_notation(ty: &Type) -> bool {
   }
 }
 
-// return (type, is_optional, is_variadic)
+// return (type, is_optional)
 pub fn ty_to_ts_type(
   ty: &Type,
   is_return_ty: bool,
   is_struct_field: bool,
   convert_tuple_to_variadic: bool,
-) -> (String, bool, bool) {
+) -> (String, bool) {
   match ty {
     Type::Reference(r) => ty_to_ts_type(&r.elem, is_return_ty, is_struct_field, false),
     Type::Tuple(tuple) => {
       if tuple.elems.is_empty() {
-        ("undefined".to_owned(), false, false)
+        if convert_tuple_to_variadic {
+          if is_return_ty {
+            ("void".to_owned(), false)
+          } else {
+            ("".to_owned(), false)
+          }
+        } else {
+          ("undefined".to_owned(), false)
+        }
       } else if convert_tuple_to_variadic {
         let variadic = &tuple
           .elems
           .iter()
           .enumerate()
           .map(|(i, arg)| {
-            let (ts_type, is_optional, _) = ty_to_ts_type(arg, false, false, false);
+            let (ts_type, is_optional) = ty_to_ts_type(arg, false, false, false);
             r#fn::FnArg {
               arg: format!("arg{}", i),
               ts_type,
@@ -289,7 +301,7 @@ pub fn ty_to_ts_type(
             }
           })
           .collect::<r#fn::FnArgList>();
-        (format!("{}", variadic), false, true)
+        (format!("{}", variadic), false)
       } else {
         (
           format!(
@@ -301,7 +313,6 @@ pub fn ty_to_ts_type(
               .collect::<Vec<_>>()
               .join(", ")
           ),
-          false,
           false,
         )
       }
@@ -316,18 +327,19 @@ pub fn ty_to_ts_type(
           arguments
             .args
             .iter()
-            .filter_map(|arg| match arg {
+            .enumerate()
+            .filter_map(|(index, arg)| match arg {
               syn::GenericArgument::Type(generic_ty) => Some(ty_to_ts_type(
                 generic_ty,
+                index == 1 && is_generic_function_type(&rust_ty),
                 false,
-                false,
-                should_convert_tuple_to_variadic(&rust_ty),
+                is_generic_function_type(&rust_ty),
               ))
-              .map(|(mut ty, is_optional, is_variadic)| {
+              .map(|(mut ty, is_optional)| {
                 if is_ts_union_type && is_ts_function_type_notation(generic_ty) {
                   ty = format!("({})", ty);
                 }
-                (ty, is_optional, is_variadic)
+                (ty, is_optional)
               }),
               _ => None,
             })
@@ -339,7 +351,7 @@ pub fn ty_to_ts_type(
         if rust_ty == "Result" && is_return_ty {
           ts_ty = Some(args.first().unwrap().to_owned());
         } else if rust_ty == "Option" {
-          ts_ty = args.first().map(|(arg, _, _)| {
+          ts_ty = args.first().map(|(arg, _)| {
             (
               if is_struct_field {
                 arg.to_string()
@@ -349,80 +361,57 @@ pub fn ty_to_ts_type(
                 format!("{} | undefined | null", arg)
               },
               true,
-              false,
             )
           });
         } else if rust_ty == "AsyncTask" {
           ts_ty = r#struct::TASK_STRUCTS.with(|t| {
-            let (output_type, _, _) = args.first().unwrap().to_owned();
+            let (output_type, _) = args.first().unwrap().to_owned();
             if let Some(o) = t.borrow().get(&output_type) {
-              Some((format!("Promise<{}>", o), false, false))
+              Some((format!("Promise<{}>", o), false))
             } else {
-              Some(("Promise<unknown>".to_owned(), false, false))
+              Some(("Promise<unknown>".to_owned(), false))
             }
           });
         } else if rust_ty == "Reference" || rust_ty == "WeakReference" {
           ts_ty = r#struct::TASK_STRUCTS.with(|t| {
             // Reference<T> => T
             if let Some(arg) = args.first() {
-              let (output_type, _, _) = arg.to_owned();
+              let (output_type, _) = arg.to_owned();
               if let Some(o) = t.borrow().get(&output_type) {
-                Some((o.to_owned(), false, false))
+                Some((o.to_owned(), false))
               } else {
-                Some((output_type, false, false))
+                Some((output_type, false))
               }
             } else {
               // Not NAPI-RS `Reference`
-              Some((rust_ty, false, false))
+              Some((rust_ty, false))
             }
           });
         } else if let Some(&(known_ty, _, _)) = KNOWN_TYPES.get(rust_ty.as_str()) {
-          if known_ty.contains("{}") {
+          if rust_ty == "()" && is_return_ty {
+            ts_ty = Some(("void".to_owned(), false));
+          } else if known_ty.contains("{}") {
             ts_ty = Some((
-              fill_ty(known_ty, args.into_iter().map(|(arg, _, _)| arg).collect()),
-              false,
+              fill_ty(known_ty, args.into_iter().map(|(arg, _)| arg).collect()),
               false,
             ));
           } else {
-            ts_ty = Some((known_ty.to_owned(), false, false));
+            ts_ty = Some((known_ty.to_owned(), false));
           }
         } else if let Some(t) = crate::typegen::r#struct::CLASS_STRUCTS
           .with(|c| c.borrow_mut().get(rust_ty.as_str()).cloned())
         {
-          ts_ty = Some((t, false, false));
+          ts_ty = Some((t, false));
         } else if rust_ty == TSFN_RUST_TY {
           let fatal_tsfn = match args.get(1) {
-            Some((arg, _, _)) => arg == "Fatal",
+            Some((arg, _)) => arg == "Fatal",
             _ => false,
           };
-          let (args, is_variadic) = args
-            .first()
-            .map(|(arg, _, is_variadic)| (arg, is_variadic))
-            .unwrap();
+          let args = args.first().map(|(arg, _)| arg).unwrap();
           ts_ty = if fatal_tsfn {
-            Some((
-              {
-                if *is_variadic {
-                  format!("({}) => any", args)
-                } else {
-                  format!("(value: {}) => any", args)
-                }
-              },
-              false,
-              false,
-            ))
+            Some((format!("({}) => any", args), false))
           } else {
-            Some((
-              {
-                if *is_variadic {
-                  format!("(err: Error | null, {}) => any", args)
-                } else {
-                  format!("(err: Error | null, value: {}) => any", args)
-                }
-              },
-              false,
-              false,
-            ))
+            Some((format!("(err: Error | null, {}) => any", args), false))
           };
         } else {
           // there should be runtime registered type in else
@@ -430,25 +419,31 @@ pub fn ty_to_ts_type(
             aliases
               .borrow()
               .get(rust_ty.as_str())
-              .map(|a| (a.to_owned(), false, false))
+              .map(|a| (a.to_owned(), false))
           });
-          ts_ty = type_alias.or(Some((rust_ty, false, false)));
+          ts_ty = type_alias.or(Some((rust_ty, false)));
         }
       }
 
-      ts_ty.unwrap_or_else(|| ("any".to_owned(), false, false))
+      let (ty, is_optional) = ts_ty.unwrap_or_else(|| ("any".to_owned(), false));
+      (
+        (convert_tuple_to_variadic && !is_return_ty)
+          .then(|| format!("arg: {ty}"))
+          .unwrap_or(ty),
+        is_optional,
+      )
     }
     Type::Group(g) => ty_to_ts_type(&g.elem, is_return_ty, is_struct_field, false),
     Type::Array(a) => {
-      let (element_type, is_optional, _) =
+      let (element_type, is_optional) =
         ty_to_ts_type(&a.elem, is_return_ty, is_struct_field, false);
-      (format!("{}[]", element_type), is_optional, false)
+      (format!("{}[]", element_type), is_optional)
     }
     Type::Paren(p) => {
-      let (element_type, is_optional, _) =
+      let (element_type, is_optional) =
         ty_to_ts_type(&p.elem, is_return_ty, is_struct_field, false);
-      (element_type, is_optional, false)
+      (element_type, is_optional)
     }
-    _ => ("any".to_owned(), false, false),
+    _ => ("any".to_owned(), false),
   }
 }

@@ -35,6 +35,7 @@ mod error;
 mod external;
 mod fn_strict;
 mod fn_ts_override;
+mod function;
 mod generator;
 mod js_mod;
 mod map;

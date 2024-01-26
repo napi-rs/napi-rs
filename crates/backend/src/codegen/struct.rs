@@ -151,18 +151,6 @@ fn gen_napi_value_map_impl(name: &Ident, to_napi_val_impl: TokenStream) -> Token
     impl napi::bindgen_prelude::ValidateNapiValue for &mut #name {
       #validate
     }
-
-    impl napi::NapiRaw for &#name {
-      unsafe fn raw(&self) -> napi::sys::napi_value {
-        unreachable!()
-      }
-    }
-
-    impl napi::NapiRaw for &mut #name {
-      unsafe fn raw(&self) -> napi::sys::napi_value {
-        unreachable!()
-      }
-    }
   }
 }
 
