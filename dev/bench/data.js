@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1706236227430,
+  "lastUpdate": 1706238086983,
   "repoUrl": "https://github.com/napi-rs/napi-rs",
   "entries": {
     "Benchmark": [
@@ -85329,6 +85329,177 @@ window.BENCHMARK_DATA = {
             "range": "±1.09%",
             "unit": "ops/sec",
             "extra": "82 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "lynweklm@gmail.com",
+            "name": "LongYinan",
+            "username": "Brooooooklyn"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "baf0db2f1973e59b60a2157dc6140cf9673d222d",
+          "message": "feat(napi): new Function/FunctionRef API (#1913)\n\nThis is the experimental feature that provides a all new design `Function` API in NAPI-RS.\r\nThe main motivation to design a new `Function` instead of improving the old `JsFunction` is there are some fundamental problems in the old `JsFunction` API.\r\n1. The old `JsFunction` doesn't contains a lifetime, which means you can send it to a outlive scope and call it later, which would cause a `napi_invalid_arg` error in the underlying `napi_call_function` API. This design issue also happens in the `JsObject`/`JsBuffer` and all other non-primitive types APIs.\r\n2. It's not possible to generate correct TypeScript type definitions for the old `JsFunction` API.\r\n3. The arguments of the old `JsFunction` API must be the same type, which is makes it really unfriendly to use.\r\n\r\nExpect that, we also have a high level and modern Function exists in the `NAPI-RS` which is the Generic type style `Fn(Args) -> Return`.\r\nThis API is pretty nice to use, and more importantly, it's sound.\r\nBut there are some limitations to use it, like create a reference to it to outlive the scope of the JavaScript function under the hood. And you can't use it create a `ThreadsafeFunction`.\r\nSo there is the new design `Function` API, there are some core features:\r\n1. It's a generic typed API, which means you can get more accurate Rust type information and generate correct TypeScript type definitions.\r\n2. It's sound, which means you can't send it to a outlive scope and call it later, if you want do that, you must create a reference to it or create a `ThreadsafeFunction`.\r\n3. It's friendly to use, you can use different types of arguments and return types, and it can covert the Rust tuple type to JavaScript arguments automatically.\r\nHere is some examples to show how to use it:\r\n```rust\r\nuse napi::bindgen_prelude::*;\r\nuse napi_derive::napi;\r\n\r\n#[napi]\r\npub fn callback_javascript_callback(add_one: Function<u32, u32>) -> Result<u32> {\r\n  add_one.call(100)\r\n}\r\n```\r\n⬇️⬇️⬇️\r\n```typescript\r\nexport function callbackJavascriptCallback(add_one: (arg0: number) => number): number;\r\n```\r\n⬇️⬇️⬇️\r\n```javascript\r\ncallbackJavascriptCallback((arg0) => arg0 + 1);\r\n// 101\r\n```\r\nIf you define a tuple as the `Function` arguments, it will be converted to JavaScript arguments automatically.\r\n```rust\r\nuse napi::bindgen_prelude::*;\r\nuse napi_derive::napi;\r\n\r\n#[napi]\r\npub fn callback_javascript_callback(add: Function<(u32, u32), u32>) -> Result<u32> {\r\n  add.call((100, 200))\r\n}\r\n```\r\n⬇️⬇️⬇️\r\n```typescript\r\nexport function callbackJavascriptCallback(add: (arg0: number, arg1: number) => number): number;\r\n```\r\n⬇️⬇️⬇️\r\n```javascript\r\ncallbackJavascriptCallback((arg0, arg1) => arg0 + arg1);\r\n// 300\r\n```\r\nIf you are trying to send it into a outlive scope, you will get a compile error.\r\nFor example, if you are trying to send a callback to `git2-rs` `RemoteCallbacks::credentials` API:\r\n```rust\r\nuse napi::bindgen_prelude::*;\r\nuse napi_derive::napi;\r\n\r\n#[napi]\r\npub fn build_credential(on_credential: Function<(String, Option<String>, CredentialType), ClassInstance<Cred>>) -> Result<()> {\r\n let mut callbacks = git2::RemoteCallbacks::new();\r\n callbacks.credentials(move |url, username_from_url, allowed_types| {\r\n   on_credential.call((url.to_string(), username_from_url.map(|s| s.to_string()), allowed_types.into()))\r\n    .map(...)\r\n    .map_error(...)\r\n });\r\n}\r\n```\r\nYou will get a compile error:\r\n```text\r\nerror[E0597]: `on_credential` does not live long enough\r\n```\r\nTo fix this issue, you can create a reference to it:\r\n```rust\r\nuse napi::bindgen_prelude::*;\r\nuse napi_derive::napi;\r\n#[napi]\r\npub fn build_credential(env: Env. on_credential: Function<(String, Option<String>, CredentialType), ClassInstance<Cred>>) -> Result<()> {\r\n  let mut callbacks = git2::RemoteCallbacks::new();\r\n  let on_credential_ref = on_credential.create_ref()?;\r\n  callbacks.credentials(move |url, username_from_url, allowed_types| {\r\n    let on_credential = on_credential_ref.borrow_back(&env)?;\r\n    on_credential.call((url.to_string(), username_from_url.map(|s| s.to_string()), allowed_types.into()))\r\n    .map(...)\r\n    .map_error(...)\r\n  });\r\n}\r\n```",
+          "timestamp": "2024-01-26T10:58:30+08:00",
+          "tree_id": "61025059027cf2adb2ba5e9355ce1f186c01e8a0",
+          "url": "https://github.com/napi-rs/napi-rs/commit/baf0db2f1973e59b60a2157dc6140cf9673d222d"
+        },
+        "date": 1706238085217,
+        "tool": "benchmarkjs",
+        "benches": [
+          {
+            "name": "noop#napi-rs",
+            "value": 83891707,
+            "range": "±1.32%",
+            "unit": "ops/sec",
+            "extra": "96 samples"
+          },
+          {
+            "name": "noop#JavaScript",
+            "value": 822134719,
+            "range": "±0.09%",
+            "unit": "ops/sec",
+            "extra": "98 samples"
+          },
+          {
+            "name": "Plus number#napi-rs",
+            "value": 19249699,
+            "range": "±0.08%",
+            "unit": "ops/sec",
+            "extra": "99 samples"
+          },
+          {
+            "name": "Plus number#JavaScript",
+            "value": 819646408,
+            "range": "±0.27%",
+            "unit": "ops/sec",
+            "extra": "96 samples"
+          },
+          {
+            "name": "Create buffer#napi-rs",
+            "value": 641222,
+            "range": "±12.49%",
+            "unit": "ops/sec",
+            "extra": "67 samples"
+          },
+          {
+            "name": "Create buffer#JavaScript",
+            "value": 3217336,
+            "range": "±2.56%",
+            "unit": "ops/sec",
+            "extra": "77 samples"
+          },
+          {
+            "name": "createArray#createArrayJson",
+            "value": 53983,
+            "range": "±0.51%",
+            "unit": "ops/sec",
+            "extra": "97 samples"
+          },
+          {
+            "name": "createArray#create array for loop",
+            "value": 10080,
+            "range": "±0.49%",
+            "unit": "ops/sec",
+            "extra": "98 samples"
+          },
+          {
+            "name": "createArray#create array with serde trait",
+            "value": 9977,
+            "range": "±0.34%",
+            "unit": "ops/sec",
+            "extra": "98 samples"
+          },
+          {
+            "name": "getArrayFromJs#get array from json string",
+            "value": 23589,
+            "range": "±0.45%",
+            "unit": "ops/sec",
+            "extra": "98 samples"
+          },
+          {
+            "name": "getArrayFromJs#get array from serde",
+            "value": 12906,
+            "range": "±0.36%",
+            "unit": "ops/sec",
+            "extra": "98 samples"
+          },
+          {
+            "name": "getArrayFromJs#get array with for loop",
+            "value": 16566,
+            "range": "±0.37%",
+            "unit": "ops/sec",
+            "extra": "96 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from native#u32",
+            "value": 557393,
+            "range": "±13.29%",
+            "unit": "ops/sec",
+            "extra": "72 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from JavaScript#u32",
+            "value": 535857,
+            "range": "±2.31%",
+            "unit": "ops/sec",
+            "extra": "90 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from native#string",
+            "value": 549307,
+            "range": "±11.81%",
+            "unit": "ops/sec",
+            "extra": "83 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from JavaScript#string",
+            "value": 509502,
+            "range": "±1.93%",
+            "unit": "ops/sec",
+            "extra": "90 samples"
+          },
+          {
+            "name": "Async task#spawn task",
+            "value": 27327,
+            "range": "±0.35%",
+            "unit": "ops/sec",
+            "extra": "83 samples"
+          },
+          {
+            "name": "Async task#ThreadSafeFunction",
+            "value": 9133,
+            "range": "±1.17%",
+            "unit": "ops/sec",
+            "extra": "86 samples"
+          },
+          {
+            "name": "Async task#Tokio future to Promise",
+            "value": 32465,
+            "range": "±1.18%",
+            "unit": "ops/sec",
+            "extra": "83 samples"
+          },
+          {
+            "name": "Query#query * 100",
+            "value": 3878,
+            "range": "±0.42%",
+            "unit": "ops/sec",
+            "extra": "89 samples"
+          },
+          {
+            "name": "Query#query * 1",
+            "value": 28189,
+            "range": "±1.61%",
+            "unit": "ops/sec",
+            "extra": "81 samples"
           }
         ]
       }
