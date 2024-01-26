@@ -28,8 +28,8 @@ pub fn copy_buffer(ctx: CallContext) -> Result<JsBuffer> {
 
 #[contextless_function]
 pub fn create_borrowed_buffer_with_noop_finalize(env: Env) -> ContextlessResult<JsBuffer> {
-  let data = vec![1, 2, 3];
-  let data_ptr = data.as_ptr();
+  let mut data = vec![1, 2, 3];
+  let data_ptr = data.as_mut_ptr();
   let length = data.len();
   let manually_drop = ManuallyDrop::new(data);
 
@@ -39,8 +39,8 @@ pub fn create_borrowed_buffer_with_noop_finalize(env: Env) -> ContextlessResult<
 
 #[contextless_function]
 pub fn create_borrowed_buffer_with_finalize(env: Env) -> ContextlessResult<JsBuffer> {
-  let data = vec![1, 2, 3];
-  let data_ptr = data.as_ptr();
+  let mut data = vec![1, 2, 3];
+  let data_ptr = data.as_mut_ptr();
   let length = data.len();
   let manually_drop = ManuallyDrop::new(data);
 
@@ -59,8 +59,8 @@ pub fn create_borrowed_buffer_with_finalize(env: Env) -> ContextlessResult<JsBuf
 
 #[contextless_function]
 pub fn create_empty_borrowed_buffer_with_finalize(env: Env) -> ContextlessResult<JsBuffer> {
-  let data = vec![];
-  let data_ptr = data.as_ptr();
+  let mut data = vec![];
+  let data_ptr = data.as_mut_ptr();
   let length = data.len();
   let manually_drop = ManuallyDrop::new(data);
 
