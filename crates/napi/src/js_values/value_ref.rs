@@ -8,7 +8,6 @@ pub struct Ref<T> {
   pub(crate) raw_ref: sys::napi_ref,
   pub(crate) count: u32,
   pub(crate) inner: T,
-  pub(crate) raw_value: sys::napi_value,
 }
 
 #[allow(clippy::non_send_fields_in_send_ty)]
@@ -26,7 +25,6 @@ impl<T> Ref<T> {
       raw_ref,
       count: ref_count,
       inner,
-      raw_value: js_value.value,
     })
   }
 
