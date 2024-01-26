@@ -147,7 +147,7 @@ impl JsArrayBuffer {
     let mut data = ptr::null_mut();
     let mut len: usize = 0;
     check_status!(unsafe {
-      sys::napi_get_arraybuffer_info(self.0.env, self.0.value, &mut data, &mut len as *mut usize)
+      sys::napi_get_arraybuffer_info(self.0.env, self.0.value, &mut data, &mut len)
     })?;
     Ok(JsArrayBufferValue {
       data,

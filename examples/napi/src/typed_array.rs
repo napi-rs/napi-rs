@@ -1,4 +1,4 @@
-use napi::bindgen_prelude::*;
+use napi::{bindgen_prelude::*, JsArrayBuffer};
 
 #[napi]
 fn get_buffer() -> Buffer {
@@ -70,4 +70,9 @@ impl Task for AsyncBuffer {
 #[napi]
 fn async_reduce_buffer(buf: Buffer) -> Result<AsyncTask<AsyncBuffer>> {
   Ok(AsyncTask::new(AsyncBuffer { buf }))
+}
+
+#[napi]
+fn async_buffer_to_array(buf: JsArrayBuffer) -> Result<Vec<u8>> {
+  Ok(buf.into_value()?.as_ref().to_vec())
 }

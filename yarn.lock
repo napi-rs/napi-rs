@@ -6668,12 +6668,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"husky@npm:^9.0.0":
-  version: 9.0.1
-  resolution: "husky@npm:9.0.1"
+"husky@npm:^9.0.6":
+  version: 9.0.6
+  resolution: "husky@npm:9.0.6"
   bin:
     husky: bin.js
-  checksum: d7f3d158fffc8cc91211172637f7069b2173dbf5e732f46596a2a512e5f5f17ddebd895202cc67b0f159b747b698e2cc5601282b198d9cb5d97a5671fcb2afb7
+  checksum: 1ef034899dcdc35e5bf5436e1e02f8a7177dbb8a10dd91b77456d7fe110c204d8d4a7d53180e0651b87e35f39d7e0e95a53b4b7c334f68aefbc0d93bce4b54f8
   languageName: node
   linkType: hard
 
@@ -8705,7 +8705,7 @@ __metadata:
     eslint: "npm:^8.55.0"
     eslint-config-prettier: "npm:^9.1.0"
     eslint-plugin-import: "npm:^2.29.0"
-    husky: "npm:^9.0.0"
+    husky: "npm:^9.0.6"
     lerna: "npm:^8.0.0"
     lint-staged: "npm:^15.2.0"
     npm-run-all: "npm:^4.1.5"

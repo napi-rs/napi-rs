@@ -242,6 +242,8 @@ export function apply1(ctx: Animal, callback: (...args: any[]) => any, name: str
 
 export function arrayBufferPassThrough(buf: Uint8Array): Promise<Uint8Array>
 
+export function asyncBufferToArray(buf: ArrayBuffer): Array<number>
+
 export function asyncMultiTwo(arg: number): Promise<number>
 
 export function asyncPlus100(p: Promise<number>): Promise<number>
