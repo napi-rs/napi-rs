@@ -8,7 +8,9 @@ use std::ptr::{self, null_mut};
 use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 use std::sync::{Arc, RwLock, RwLockWriteGuard, Weak};
 
-use crate::bindgen_runtime::{FromNapiValue, ToNapiValue, TypeName, ValidateNapiValue};
+use crate::bindgen_runtime::{
+  FromNapiValue, JsValuesTupleIntoVec, ToNapiValue, TypeName, ValidateNapiValue,
+};
 use crate::{check_status, sys, Env, JsError, JsUnknown, Result, Status};
 
 /// ThreadSafeFunction Context object
@@ -252,10 +254,6 @@ impl<T: 'static, ES: ErrorStrategy::T> Clone for ThreadsafeFunction<T, ES> {
       }
     })
   }
-}
-
-pub trait JsValuesTupleIntoVec {
-  fn into_vec(self, env: sys::napi_env) -> Result<Vec<sys::napi_value>>;
 }
 
 impl<T: ToNapiValue> JsValuesTupleIntoVec for T {

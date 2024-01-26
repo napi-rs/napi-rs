@@ -3,12 +3,13 @@ use std::ptr;
 use super::{FromNapiValue, ToNapiValue, TypeName, ValidateNapiValue};
 
 pub use crate::JsFunction;
-use crate::{
-  check_pending_exception, check_status, sys, threadsafe_function::JsValuesTupleIntoVec, Env,
-  NapiRaw, Result, ValueType,
-};
+use crate::{check_pending_exception, check_status, sys, Env, NapiRaw, Result, ValueType};
 
 impl ValidateNapiValue for JsFunction {}
+
+pub trait JsValuesTupleIntoVec {
+  fn into_vec(self, env: sys::napi_env) -> Result<Vec<sys::napi_value>>;
+}
 
 /// A JavaScript function.
 /// It can only live in the scope of a function call.
