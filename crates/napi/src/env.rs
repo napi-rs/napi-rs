@@ -461,7 +461,7 @@ impl Env {
           let mut underlying_data = ptr::null_mut();
           let status =
             sys::napi_create_arraybuffer(self.0, length, &mut underlying_data, &mut raw_value);
-          ptr::swap(underlying_data.cast(), data_ptr);
+          ptr::copy_nonoverlapping(underlying_data.cast(), data_ptr, length);
           status
         } else {
           status
@@ -476,7 +476,7 @@ impl Env {
         value: raw_value,
         value_type: ValueType::Object,
       }),
-      data_ptr as *mut c_void,
+      data_ptr.cast(),
       length,
     ))
   }

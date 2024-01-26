@@ -405,7 +405,7 @@ macro_rules! impl_typed_array {
                   &mut arraybuffer_value,
                 )
               };
-              unsafe { std::ptr::copy(hint.data.cast(), underlying_data, length) };
+              unsafe { std::ptr::copy_nonoverlapping(hint.data.cast(), underlying_data, length) };
               status
             } else {
               status
