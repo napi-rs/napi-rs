@@ -94,7 +94,7 @@
     "tslib": "^2.6.2",
     "typescript": "^5.3.2"
   },
-  "packageManager": "yarn@4.0.2",
+  "packageManager": "yarn@4.1.0",
   "resolutions": {
     "node-inspect-extracted": "patch:node-inspect-extracted@npm%3A3.0.0#~/.yarn/patches/node-inspect-extracted-npm-3.0.0-f661b6c334.patch",
     "buffer@npm:^6.0.3": "patch:buffer@npm%3A6.0.3#~/.yarn/patches/buffer-npm-6.0.3-cd90dfedfe.patch"
