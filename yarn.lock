@@ -126,12 +126,21 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@emnapi/core@npm:0.45.0, @emnapi/core@npm:^0.45.0":
+"@emnapi/core@npm:0.45.0":
   version: 0.45.0
   resolution: "@emnapi/core@npm:0.45.0"
   dependencies:
     tslib: "npm:^2.4.0"
   checksum: 10c0/26071cfe32a5a15068483ed36a152c03add319166c30e6cb81f0d6eb2614e69f836daa2d69af5af2e00fc2b8335f172e5ce2ee91f1819b3e689c908a7883433f
+  languageName: node
+  linkType: hard
+
+"@emnapi/core@npm:^1.0.0":
+  version: 1.0.0
+  resolution: "@emnapi/core@npm:1.0.0"
+  dependencies:
+    tslib: "npm:^2.4.0"
+  checksum: 10c0/96f209857cca97ce65150452e460a4169cdc58cb65402b3edb42d1cfca1b31a0563061dbfb592736f47578f3835d6e377851d8c12aa39fff8a2fb85e216e9fb9
   languageName: node
   linkType: hard
 
@@ -740,7 +749,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@napi-rs/cli@workspace:cli"
   dependencies:
-    "@emnapi/core": "npm:^0.45.0"
+    "@emnapi/core": "npm:^1.0.0"
     "@emnapi/runtime": "npm:^0.45.0"
     "@napi-rs/cross-toolchain": "npm:^0.0.14"
     "@octokit/rest": "npm:^20.0.2"
@@ -1108,7 +1117,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@napi-rs/wasm-runtime@workspace:wasm-runtime"
   dependencies:
-    "@emnapi/core": "npm:^0.45.0"
+    "@emnapi/core": "npm:^1.0.0"
     "@emnapi/runtime": "npm:^0.45.0"
     "@rollup/plugin-alias": "npm:^5.1.0"
     "@rollup/plugin-commonjs": "npm:^25.0.7"
