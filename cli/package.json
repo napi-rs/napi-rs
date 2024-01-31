@@ -73,8 +73,8 @@
     "clipanion": "^3.2.1",
     "colorette": "^2.0.20",
     "debug": "^4.3.4",
-    "emnapi": "0.45.0",
-    "inquirer": "^9.2.12",
+    "emnapi": "1.0.0",
+    "inquirer": "^9.2.13",
     "js-yaml": "^4.1.0",
     "lodash-es": "^4.17.21",
     "semver": "^7.5.4",
@@ -82,20 +82,20 @@
     "typanion": "^3.14.0"
   },
   "devDependencies": {
-    "@emnapi/core": "^0.45.0",
-    "@emnapi/runtime": "^0.45.0",
+    "@emnapi/core": "^1.0.0",
+    "@emnapi/runtime": "^1.0.0",
     "@types/debug": "^4.1.12",
     "@types/inquirer": "^9.0.7",
     "@types/js-yaml": "^4.0.9",
     "@types/lodash-es": "^4.17.12",
-    "@types/node": "^20.10.5",
-    "ava": "^6.0.0",
+    "@types/node": "^20.11.13",
+    "ava": "^6.1.1",
     "env-paths": "^3.0.0",
     "esbuild": "^0.20.0",
-    "prettier": "^3.1.0",
-    "ts-node": "^10.9.1",
+    "prettier": "^3.2.4",
+    "ts-node": "^10.9.2",
     "tslib": "^2.6.2",
-    "typescript": "^5.3.2"
+    "typescript": "^5.3.3"
   },
   "peerDependencies": {
     "@emnapi/runtime": "^0.45.0",

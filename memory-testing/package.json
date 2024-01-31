@@ -7,7 +7,7 @@
   },
   "dependencies": {
     "colorette": "^2.0.20",
-    "dockerode": "^4.0.0",
+    "dockerode": "^4.0.2",
     "pretty-bytes": "^6.1.1",
     "table": "^6.8.1"
   },
