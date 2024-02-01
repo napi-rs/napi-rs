@@ -25,7 +25,7 @@
     "@rollup/plugin-alias": "^5.1.0",
     "@rollup/plugin-commonjs": "^25.0.7",
     "@rollup/plugin-inject": "^5.0.5",
-    "@rollup/plugin-json": "^6.0.1",
+    "@rollup/plugin-json": "^6.1.0",
     "@rollup/plugin-node-resolve": "^15.2.3",
     "@rollup/plugin-replace": "^5.0.5",
     "buffer": "^6.0.3",
@@ -34,13 +34,13 @@
     "path-browserify": "^1.0.1",
     "process": "^0.11.10",
     "readable-stream": "^4.5.2",
-    "rollup": "^4.9.5",
+    "rollup": "^4.9.6",
     "rollup-plugin-polyfill-node": "^0.13.0",
     "tslib": "^2.6.2"
   },
   "dependencies": {
-    "@emnapi/core": "^0.45.0",
-    "@emnapi/runtime": "^0.45.0",
+    "@emnapi/core": "^1.0.0",
+    "@emnapi/runtime": "^1.0.0",
     "@tybys/wasm-util": "^0.8.1"
   },
   "scripts": {

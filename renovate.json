@@ -4,6 +4,11 @@
     {
       "automerge": true,
       "matchUpdateTypes": ["minor", "patch", "pin", "digest"]
+    },
+    {
+      "matchPackageNames": ["emnapi", "^@emnapi"],
+      "rangeStrategy": "replace",
+      "groupName": "napi-rs"
     }
   ],
   "lockFileMaintenance": {
