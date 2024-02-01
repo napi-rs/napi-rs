@@ -83,7 +83,7 @@ jobs:
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
               yarn test:macro
             toolchain: 1.65.0
-          - host: macos-latest
+          - host: macos-14
             target: x86_64-apple-darwin
             build: yarn build:test
             test: |
@@ -479,7 +479,7 @@ jobs:
         run: cargo check -p ${{ matrix.settings.package }} -F ${{ matrix.settings.features }}
 
   test-node-wasi:
-    runs-on: macos-latest
+    runs-on: macos-14
     name: Test node wasi target
     timeout-minutes: 10
     steps:
