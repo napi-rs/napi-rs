@@ -2092,12 +2092,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@taplo/cli@npm:^0.5.2":
-  version: 0.5.2
-  resolution: "@taplo/cli@npm:0.5.2"
+"@taplo/cli@npm:^0.7.0":
+  version: 0.7.0
+  resolution: "@taplo/cli@npm:0.7.0"
   bin:
     taplo: dist/cli.js
-  checksum: 10c0/673c0b32c5cabdfd3dfe7054f21202b3ec1601b3ef02f6384f0a09a77dac8888bc777e7c08d374edd34e5bef73927709455e037b346f548158a34ed06782f26b
+  checksum: 10c0/c5a9a34502335731e405547fe24ba1a2f867fccdf8abe4d13e261e30fad6c18a2773a961981206166fde0c85b19accef40381c189c8c6ed4952c5b082c1d4996
   languageName: node
   linkType: hard
 
@@ -8936,7 +8936,7 @@ __metadata:
   resolution: "napi-rs@workspace:."
   dependencies:
     "@napi-rs/cli": "workspace:*"
-    "@taplo/cli": "npm:^0.5.2"
+    "@taplo/cli": "npm:^0.7.0"
     "@types/debug": "npm:^4.1.12"
     "@types/lodash-es": "npm:^4.17.12"
     "@types/node": "npm:^20.11.13"

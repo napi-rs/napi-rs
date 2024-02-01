@@ -65,7 +65,7 @@
   },
   "devDependencies": {
     "@napi-rs/cli": "workspace:*",
-    "@taplo/cli": "^0.5.2",
+    "@taplo/cli": "^0.7.0",
     "@types/debug": "^4.1.12",
     "@types/lodash-es": "^4.17.12",
     "@types/node": "^20.11.13",
