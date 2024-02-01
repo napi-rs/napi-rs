@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1706775055440,
+  "lastUpdate": 1706797007891,
   "repoUrl": "https://github.com/napi-rs/napi-rs",
   "entries": {
     "Benchmark": [
@@ -87894,6 +87894,177 @@ window.BENCHMARK_DATA = {
             "range": "±1.75%",
             "unit": "ops/sec",
             "extra": "81 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "lynweklm@gmail.com",
+            "name": "LongYinan",
+            "username": "Brooooooklyn"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f40747aa4c8b8a0277c2613c7a444388467a2bee",
+          "message": "fix(napi): in \"Object::get\", return null values wrapped in a \"Some\" (#1934)\n\nHi 👋🏻, Alberto from @prisma here.\r\nWe are users of the `serde-json` feature in [https://github.com/prisma/prisma-engines](https://github.com/prisma/prisma-engines/blob/23fdc5965b1e05fc54e5f26ed3de66776b93de64/Cargo.toml#L55-L60).\r\n\r\n## The Problem\r\n\r\nWhile investigating a [user-reported Prisma issue](https://github.com/prisma/prisma/issues/22294), we noticed that napi.rs treats `null` values in `Object` like `undefined` ones.\r\n\r\nHowever, `null` and `undefined` are semantically different in JavaScript:\r\n- `undefined` indicates that a value is not set\r\n- `null` indicates that a value has been explicitly set\r\n\r\nThis PR, which we tested internally, fixes the user's issue on Prisma, and hopefully provides value to the `napi-rs` project as a whole.\r\n\r\n## Scenario\r\n\r\nConsider [this scenario](https://github.com/prisma/prisma-engines/blob/dcb8cb9817af92fefaf0f95117dfb5dc19545a2c/query-engine/driver-adapters/src/napi/result.rs#L32-L33), effectively equivalent to:\r\n\r\n```rust\r\nlet napi_env: napi::sys::napi_env = /* ... */;\r\n\r\nlet value: JsUnknown = object.get_named_property(\"value\")?;\r\n\r\n// napi.rs implements the `FromNapiValue` trait for `serde_json` if\r\n// the `serde_json` feature is enabled (which we use already).\r\nlet json = serde_json::Value::from_napi_value(napi_env, value.raw())?;\r\n\r\nOk(Self::Ok(json.into()));\r\n```\r\n\r\nBy looking at `napi.rs`' [`serde.rs` source file](https://github.com/napi-rs/napi-rs/blob/napi%402.12.4/crates/napi/src/bindgen_runtime/js_values/serde.rs), we [can see](https://github.com/napi-rs/napi-rs/blob/napi%402.12.4/crates/napi/src/bindgen_runtime/js_values/serde.rs#L104-L108) that \"JSON subobjects\" (`Map<String, serde_json::Value>`) are populated only if the value returned by `JsObject::get` is not `None`.\r\n\r\nThis implies that, given `napi-rs`'  [`Object::get` definition](https://github.com/napi-rs/napi-rs/blob/napi%402.12.4/crates/napi/src/bindgen_runtime/js_values/object.rs#L24-L44), `Object::get(\"key\")` returns `None` both when the original object is\r\n\r\n```js\r\n{\r\n  // \"key\" is `undefined`\r\n}\r\n```\r\n\r\nand when the object is\r\n\r\n```js\r\n{\r\n  \"key\": null\r\n}\r\n```\r\n\r\nIt just so happens that `prisma-engines` explicitly set a few `null` values explicitly for the features it offers, but these values are stripped away when we use the [napi-flavoured Prisma Query Engine](https://github.com/prisma/prisma-engines/tree/main/query-engine/query-engine-node-api).\r\n\r\n---\r\n\r\nI am available for further comments, clarifications, and refactorings. Have a good day!",
+          "timestamp": "2024-02-01T22:13:54+08:00",
+          "tree_id": "4428eb821acc71a5a310342bfae5c383aec70ca7",
+          "url": "https://github.com/napi-rs/napi-rs/commit/f40747aa4c8b8a0277c2613c7a444388467a2bee"
+        },
+        "date": 1706797006113,
+        "tool": "benchmarkjs",
+        "benches": [
+          {
+            "name": "noop#napi-rs",
+            "value": 85931870,
+            "range": "±1.13%",
+            "unit": "ops/sec",
+            "extra": "98 samples"
+          },
+          {
+            "name": "noop#JavaScript",
+            "value": 821991374,
+            "range": "±0.16%",
+            "unit": "ops/sec",
+            "extra": "97 samples"
+          },
+          {
+            "name": "Plus number#napi-rs",
+            "value": 19506093,
+            "range": "±0.44%",
+            "unit": "ops/sec",
+            "extra": "99 samples"
+          },
+          {
+            "name": "Plus number#JavaScript",
+            "value": 822309337,
+            "range": "±0.09%",
+            "unit": "ops/sec",
+            "extra": "98 samples"
+          },
+          {
+            "name": "Create buffer#napi-rs",
+            "value": 648740,
+            "range": "±11.85%",
+            "unit": "ops/sec",
+            "extra": "64 samples"
+          },
+          {
+            "name": "Create buffer#JavaScript",
+            "value": 3344814,
+            "range": "±2.28%",
+            "unit": "ops/sec",
+            "extra": "76 samples"
+          },
+          {
+            "name": "createArray#createArrayJson",
+            "value": 55907,
+            "range": "±0.34%",
+            "unit": "ops/sec",
+            "extra": "95 samples"
+          },
+          {
+            "name": "createArray#create array for loop",
+            "value": 9994,
+            "range": "±0.73%",
+            "unit": "ops/sec",
+            "extra": "98 samples"
+          },
+          {
+            "name": "createArray#create array with serde trait",
+            "value": 10068,
+            "range": "±0.33%",
+            "unit": "ops/sec",
+            "extra": "97 samples"
+          },
+          {
+            "name": "getArrayFromJs#get array from json string",
+            "value": 23955,
+            "range": "±0.42%",
+            "unit": "ops/sec",
+            "extra": "95 samples"
+          },
+          {
+            "name": "getArrayFromJs#get array from serde",
+            "value": 13434,
+            "range": "±0.65%",
+            "unit": "ops/sec",
+            "extra": "98 samples"
+          },
+          {
+            "name": "getArrayFromJs#get array with for loop",
+            "value": 16942,
+            "range": "±0.36%",
+            "unit": "ops/sec",
+            "extra": "98 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from native#u32",
+            "value": 574365,
+            "range": "±12.63%",
+            "unit": "ops/sec",
+            "extra": "71 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from JavaScript#u32",
+            "value": 547129,
+            "range": "±2.43%",
+            "unit": "ops/sec",
+            "extra": "87 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from native#string",
+            "value": 566369,
+            "range": "±10.5%",
+            "unit": "ops/sec",
+            "extra": "91 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from JavaScript#string",
+            "value": 520127,
+            "range": "±1.79%",
+            "unit": "ops/sec",
+            "extra": "91 samples"
+          },
+          {
+            "name": "Async task#spawn task",
+            "value": 27012,
+            "range": "±0.72%",
+            "unit": "ops/sec",
+            "extra": "85 samples"
+          },
+          {
+            "name": "Async task#ThreadSafeFunction",
+            "value": 9474,
+            "range": "±1.13%",
+            "unit": "ops/sec",
+            "extra": "86 samples"
+          },
+          {
+            "name": "Async task#Tokio future to Promise",
+            "value": 32843,
+            "range": "±0.62%",
+            "unit": "ops/sec",
+            "extra": "80 samples"
+          },
+          {
+            "name": "Query#query * 100",
+            "value": 3923,
+            "range": "±1.25%",
+            "unit": "ops/sec",
+            "extra": "89 samples"
+          },
+          {
+            "name": "Query#query * 1",
+            "value": 27984,
+            "range": "±1.2%",
+            "unit": "ops/sec",
+            "extra": "82 samples"
           }
         ]
       }
