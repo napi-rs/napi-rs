@@ -35,7 +35,7 @@ impl Object {
 
       let ty = type_of!(self.0.env, ret)?;
 
-      Ok(if ty == ValueType::Undefined || ty == ValueType::Null {
+      Ok(if ty == ValueType::Undefined {
         None
       } else {
         Some(V::from_napi_value(self.0.env, ret)?)
