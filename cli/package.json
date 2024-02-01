@@ -98,9 +98,8 @@
     "typescript": "^5.3.3"
   },
   "peerDependencies": {
-    "@emnapi/runtime": "^0.45.0",
-    "@tybys/wasm-util": "^0.8.0",
-    "emnapi": "^0.45.0"
+    "@emnapi/runtime": "^1.0.0",
+    "emnapi": "^1.0.0"
   },
   "peerDependenciesMeta": {
     "@emnapi/runtime": {
