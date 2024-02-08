@@ -248,6 +248,18 @@ class Builder {
           `${this.target.triple}-gcc`,
         )
       }
+      if (!process.env.CXX && !process.env.TARGET_CXX) {
+        this.envs[`CXX`] = join(
+          toolchainPath,
+          'bin',
+          `${this.target.triple}-g++`,
+        )
+        this.envs[`TARGET_CXX`] = join(
+          toolchainPath,
+          'bin',
+          `${this.target.triple}-g++`,
+        )
+      }
       if (
         (process.env.CC === 'clang' &&
           (process.env.TARGET_CC === 'clang' || !process.env.TARGET_CC)) ||
