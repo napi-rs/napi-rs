@@ -80,6 +80,8 @@ pub(crate) static PRIMITIVE_TYPES: &[(&str, (&str, bool, bool))] = &[
   ("u8", ("number", false, false)),
   ("u16", ("number", false, false)),
   ("u32", ("number", false, false)),
+  // serde `Number`
+  ("Number", ("number", false, false)),
   ("u64", ("bigint", false, false)),
   ("i64n", ("bigint", false, false)),
   ("u128", ("bigint", false, false)),
