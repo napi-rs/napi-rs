@@ -107,7 +107,7 @@ export class ClassWithFactory {
 }
 
 export class Context {
-  maybeNeed?: boolean
+  maybeNeed?: boolean | null
   buffer: Uint8Array
   constructor()
   static withData(data: string): Context
@@ -199,8 +199,8 @@ export class Selector {
   orderBy: Array<string>
   select: Array<string>
   struct: string
-  where?: string
-  constructor(orderBy: Array<string>, select: Array<string>, struct: string, where?: string)
+  where?: string | null
+  constructor(orderBy: Array<string>, select: Array<string>, struct: string, where?: string | null)
 }
 
 export class Width {
@@ -233,8 +233,8 @@ export interface AliasedStruct {
 }
 
 export interface AllOptionalObject {
-  name?: string
-  age?: number
+  name?: string | null
+  age?: number | null
 }
 
 export function appendBuffer(buf: Buffer): Buffer
@@ -353,7 +353,7 @@ export function customStatusCode(): void
 
 export interface Dates {
   start: Date
-  end?: Date
+  end?: Date | null
 }
 
 export function dateToNumber(input: Date): number
@@ -484,8 +484,8 @@ export interface PackageJson {
   name: string
   /** The version of the package */
   version: string
-  dependencies?: Record<string, any>
-  devDependencies?: Record<string, any>
+  dependencies?: Record<string, any> | null
+  devDependencies?: Record<string, any> | null
 }
 
 export function panic(): void
@@ -597,7 +597,7 @@ export function tsRename(a: { foo: number }): string[]
 
 export interface TsTypeChanged {
   typeOverride: object
-  typeOverrideOptional?: object
+  typeOverrideOptional?: object | null
 }
 
 export function u16ArrayToArray(input: any): Array<number>

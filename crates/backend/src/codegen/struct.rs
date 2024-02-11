@@ -502,7 +502,7 @@ impl NapiStruct {
             obj_field_setters.push(quote! { obj.set(#field_js_name, #alias_ident)?; });
           }
           if is_optional_field {
-            obj_field_getters.push(quote! { let #alias_ident: #ty = obj.get(#field_js_name)?; });
+            obj_field_getters.push(quote! { let #alias_ident: #ty = obj.get::<_, #ty>(#field_js_name)?.unwrap_or(None); });
           } else {
             obj_field_getters.push(quote! {
               let #alias_ident: #ty = obj.get(#field_js_name)?.ok_or_else(|| napi::bindgen_prelude::Error::new(
@@ -524,7 +524,9 @@ impl NapiStruct {
             obj_field_setters.push(quote! { obj.set(#field_js_name, arg #1)?; });
           }
           if is_optional_field {
-            obj_field_getters.push(quote! { let arg #i: #ty = obj.get(#field_js_name)?; });
+            obj_field_getters.push(
+              quote! { let arg #i: #ty = obj.get::<_, #ty>(#field_js_name)?.unwrap_or(None); },
+            );
           } else {
             obj_field_getters.push(quote! {
               let arg #i: #ty = obj.get(#field_js_name)?.ok_or_else(|| napi::bindgen_prelude::Error::new(
