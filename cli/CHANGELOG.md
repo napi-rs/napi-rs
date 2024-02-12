@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.37](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.36...@napi-rs/cli@3.0.0-alpha.37) (2024-02-12)
+
+### Bug Fixes
+
+- **cli:** log more wasi load errors ([ff2ccc9](https://github.com/napi-rs/napi-rs/commit/ff2ccc9f37aa8f73a34ebbc303bc60b7f49a3156))
+- **cli:** setup cxx env while using napi-cross ([#1942](https://github.com/napi-rs/napi-rs/issues/1942)) ([0205fd9](https://github.com/napi-rs/napi-rs/commit/0205fd976ea7616fab35db3403f65da048b90a41))
+
 # [3.0.0-alpha.36](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.35...@napi-rs/cli@3.0.0-alpha.36) (2024-01-16)
 
 ### Bug Fixes
