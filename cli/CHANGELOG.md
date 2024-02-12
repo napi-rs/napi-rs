@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.38](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.37...@napi-rs/cli@3.0.0-alpha.38) (2024-02-12)
+
+### Features
+
+- **cli:** respect WASI_SDK_PATH env ([#1946](https://github.com/napi-rs/napi-rs/issues/1946)) ([bec6bd6](https://github.com/napi-rs/napi-rs/commit/bec6bd67befa56992645036d4a8c1da111af2641))
+
 # [3.0.0-alpha.37](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.36...@napi-rs/cli@3.0.0-alpha.37) (2024-02-12)
 
 ### Bug Fixes
