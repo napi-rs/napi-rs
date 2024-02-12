@@ -527,6 +527,31 @@ class Builder {
         'wasm32-wasi-threads',
       )
       this.envs.EMNAPI_LINK_DIR = emnapi
+      const { WASI_SDK_PATH } = process.env
+
+      if (WASI_SDK_PATH && existsSync(WASI_SDK_PATH)) {
+        this.envs.CARGO_TARGET_WASM32_WASI_PREVIEW1_THREADS_LINKER = join(
+          WASI_SDK_PATH,
+          'bin',
+          'wasm-ld',
+        )
+        this.setEnvIfNotExists('CC', join(WASI_SDK_PATH, 'bin', 'clang'))
+        this.setEnvIfNotExists('CXX', join(WASI_SDK_PATH, 'bin', 'clang++'))
+        this.setEnvIfNotExists('AR', join(WASI_SDK_PATH, 'bin', 'ar'))
+        this.setEnvIfNotExists('RANLIB', join(WASI_SDK_PATH, 'bin', 'ranlib'))
+        this.setEnvIfNotExists(
+          'CFLAGS',
+          `--target=wasm32-wasi-threads --sysroot=${WASI_SDK_PATH}/share/wasi-sysroot -pthread`,
+        )
+        this.setEnvIfNotExists(
+          'CXXFLAGS',
+          `--target=wasm32-wasi-threads --sysroot=${WASI_SDK_PATH}/share/wasi-sysroot -pthread`,
+        )
+        this.setEnvIfNotExists(
+          `LDFLAGS`,
+          `-fuse-ld=${WASI_SDK_PATH}/bin/wasm-ld --target=wasm32-wasi-threads`,
+        )
+      }
     }
 
     debug('Set envs: ')
@@ -878,5 +903,11 @@ class Builder {
       ] satisfies Output[]
     }
     return []
+  }
+
+  private setEnvIfNotExists(env: string, value: string) {
+    if (!process.env[env]) {
+      this.envs[env] = value
+    }
   }
 }
