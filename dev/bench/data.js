@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1707758159286,
+  "lastUpdate": 1707798891106,
   "repoUrl": "https://github.com/napi-rs/napi-rs",
   "entries": {
     "Benchmark": [
@@ -89433,6 +89433,177 @@ window.BENCHMARK_DATA = {
             "range": "±1.73%",
             "unit": "ops/sec",
             "extra": "79 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "29139614+renovate[bot]@users.noreply.github.com",
+            "name": "renovate[bot]",
+            "username": "renovate[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "642cecc759e748620d846711dc1d4f52cc4c6895",
+          "message": "chore(deps): update typescript-eslint monorepo to v7 (major) (#1947)\n\n[![Mend Renovate](https://app.renovatebot.com/images/banner.svg)](https://renovatebot.com)\n\nThis PR contains the following updates:\n\n| Package | Change | Age | Adoption | Passing | Confidence |\n|---|---|---|---|---|---|\n| [@typescript-eslint/eslint-plugin](https://togithub.com/typescript-eslint/typescript-eslint) ([source](https://togithub.com/typescript-eslint/typescript-eslint/tree/HEAD/packages/eslint-plugin)) | [`^6.20.0` -> `^7.0.0`](https://renovatebot.com/diffs/npm/@typescript-eslint%2feslint-plugin/6.20.0/7.0.1) | [![age](https://developer.mend.io/api/mc/badges/age/npm/@typescript-eslint%2feslint-plugin/7.0.1?slim=true)](https://docs.renovatebot.com/merge-confidence/) | [![adoption](https://developer.mend.io/api/mc/badges/adoption/npm/@typescript-eslint%2feslint-plugin/7.0.1?slim=true)](https://docs.renovatebot.com/merge-confidence/) | [![passing](https://developer.mend.io/api/mc/badges/compatibility/npm/@typescript-eslint%2feslint-plugin/6.20.0/7.0.1?slim=true)](https://docs.renovatebot.com/merge-confidence/) | [![confidence](https://developer.mend.io/api/mc/badges/confidence/npm/@typescript-eslint%2feslint-plugin/6.20.0/7.0.1?slim=true)](https://docs.renovatebot.com/merge-confidence/) |\n| [@typescript-eslint/parser](https://togithub.com/typescript-eslint/typescript-eslint) ([source](https://togithub.com/typescript-eslint/typescript-eslint/tree/HEAD/packages/parser)) | [`^6.20.0` -> `^7.0.0`](https://renovatebot.com/diffs/npm/@typescript-eslint%2fparser/6.20.0/7.0.1) | [![age](https://developer.mend.io/api/mc/badges/age/npm/@typescript-eslint%2fparser/7.0.1?slim=true)](https://docs.renovatebot.com/merge-confidence/) | [![adoption](https://developer.mend.io/api/mc/badges/adoption/npm/@typescript-eslint%2fparser/7.0.1?slim=true)](https://docs.renovatebot.com/merge-confidence/) | [![passing](https://developer.mend.io/api/mc/badges/compatibility/npm/@typescript-eslint%2fparser/6.20.0/7.0.1?slim=true)](https://docs.renovatebot.com/merge-confidence/) | [![confidence](https://developer.mend.io/api/mc/badges/confidence/npm/@typescript-eslint%2fparser/6.20.0/7.0.1?slim=true)](https://docs.renovatebot.com/merge-confidence/) |\n\n---\n\n### Release Notes\n\n<details>\n<summary>typescript-eslint/typescript-eslint (@&#8203;typescript-eslint/eslint-plugin)</summary>\n\n### [`v7.0.1`](https://togithub.com/typescript-eslint/typescript-eslint/blob/HEAD/packages/eslint-plugin/CHANGELOG.md#701-2024-02-12)\n\n[Compare Source](https://togithub.com/typescript-eslint/typescript-eslint/compare/v7.0.0...v7.0.1)\n\n##### 🩹 Fixes\n\n-   **eslint-plugin:** update peer dep for parser\n\n##### ❤️  Thank You\n\n-   Tim Dorr\n\nYou can read about our [versioning strategy](https://main--typescript-eslint.netlify.app/users/versioning) and [releases](https://main--typescript-eslint.netlify.app/users/releases) on our website.\n\n### [`v7.0.0`](https://togithub.com/typescript-eslint/typescript-eslint/blob/HEAD/packages/eslint-plugin/CHANGELOG.md#700-2024-02-12)\n\n[Compare Source](https://togithub.com/typescript-eslint/typescript-eslint/compare/v6.21.0...v7.0.0)\n\n##### 🚀 Features\n\n-   ⚠️  bump ESLint, NodeJS, and TS minimum version requirements\n\n-   add support for flat configs\n\n##### 🩹 Fixes\n\n-   **eslint-plugin:** \\[prefer-find] stop throwing type errors when converting symbols to numbers\n\n##### ⚠️  Breaking Changes\n\n-   ⚠️  bump ESLint, NodeJS, and TS minimum version requirements\n\n##### ❤️  Thank You\n\n-   Brad Zacher\n-   Kirk Waiblinger\n-   StyleShit\n-   YeonJuan\n\nYou can read about our [versioning strategy](https://main--typescript-eslint.netlify.app/users/versioning) and [releases](https://main--typescript-eslint.netlify.app/users/releases) on our website.\n\n#### 6.21.0 (2024-02-05)\n\n##### 🚀 Features\n\n-   export plugin metadata\n\n-   allow `parserOptions.project: false`\n\n-   **eslint-plugin:** add rule prefer-find\n\n##### 🩹 Fixes\n\n-   **eslint-plugin:** \\[no-unused-vars] don't report on types referenced in export assignment expression\n\n-   **eslint-plugin:** \\[switch-exhaustiveness-check] better support for intersections, infinite types, non-union values\n\n-   **eslint-plugin:** \\[consistent-type-imports] dont report on types used in export assignment expressions\n\n-   **eslint-plugin:** \\[no-unnecessary-condition] handle left-hand optional with exactOptionalPropertyTypes option\n\n-   **eslint-plugin:** \\[class-literal-property-style] allow getter when same key setter exists\n\n-   **eslint-plugin:** \\[no-unnecessary-type-assertion] provide valid fixes for assertions with extra tokens before `as` keyword\n\n##### ❤️  Thank You\n\n-   auvred\n-   Brad Zacher\n-   Kirk Waiblinger\n-   Pete Gonzalez\n-   YeonJuan\n\nYou can read about our [versioning strategy](https://main--typescript-eslint.netlify.app/users/versioning) and [releases](https://main--typescript-eslint.netlify.app/users/releases) on our website.\n\n#### 6.20.0 (2024-01-29)\n\n##### 🚀 Features\n\n-   **eslint-plugin:** \\[member-ordering] allow easy reuse of the default ordering\n\n##### 🩹 Fixes\n\n-   **eslint-plugin:** \\[no-useless-template-literals] incorrect bigint autofix result\n\n-   **eslint-plugin:** \\[prefer-nullish-coalescing] treat any/unknown as non-nullable\n\n-   **eslint-plugin:** \\[no-useless-template-literals] report Infinity & NaN\n\n-   **eslint-plugin:** \\[prefer-readonly] disable checking accessors\n\n##### ❤️  Thank You\n\n-   Alex Parloti\n-   auvred\n-   James Browning\n-   StyleShit\n-   YeonJuan\n\nYou can read about our [versioning strategy](https://main--typescript-eslint.netlify.app/users/versioning) and [releases](https://main--typescript-eslint.netlify.app/users/releases) on our website.\n\n#### 6.19.1 (2024-01-22)\n\n##### 🩹 Fixes\n\n-   **type-utils:** preventing isUnsafeAssignment infinite recursive calls\n\n-   **eslint-plugin:** \\[no-unnecessary-condition] fix false positive for type variable\n\n##### ❤️  Thank You\n\n-   YeonJuan\n\nYou can read about our [versioning strategy](https://main--typescript-eslint.netlify.app/users/versioning) and [releases](https://main--typescript-eslint.netlify.app/users/releases) on our website.\n\n#### 6.19.0 (2024-01-15)\n\n##### 🚀 Features\n\n-   **eslint-plugin:** \\[prefer-promise-reject-errors] add rule\n\n-   **eslint-plugin:** \\[no-array-delete] add new rule\n\n-   **eslint-plugin:** \\[no-useless-template-literals] add fix suggestions\n\n##### 🩹 Fixes\n\n-   **eslint-plugin:** \\[no-unnecessary-type-assertion] detect unnecessary non-null-assertion on a call expression\n\n-   **eslint-plugin:** \\[no-unnecesary-type-assertion] treat unknown/any as nullable\n\n##### ❤️  Thank You\n\n-   auvred\n-   Brad Zacher\n-   Josh Goldberg ✨\n-   Joshua Chen\n-   LJX\n-   Steven\n-   StyleShit\n\nYou can read about our [versioning strategy](https://main--typescript-eslint.netlify.app/users/versioning) and [releases](https://main--typescript-eslint.netlify.app/users/releases) on our website.\n\n#### 6.18.1 (2024-01-08)\n\n##### 🩹 Fixes\n\n-   **eslint-plugin:** \\[no-non-null-assertion] provide valid fix when member access is on next line\n\n-   **eslint-plugin:** \\[no-unnecessary-condition] improve checking optional callee\n\n-   **eslint-plugin:** \\[prefer-readonly] support modifiers of unions and intersections\n\n-   **eslint-plugin:** \\[switch-exhaustiveness-check] fix new allowDefaultCaseForExhaustiveSwitch option\n\n##### ❤️  Thank You\n\n-   auvred\n-   James\n-   Josh Goldberg ✨\n-   YeonJuan\n\nYou can read about our [versioning strategy](https://main--typescript-eslint.netlify.app/users/versioning) and [releases](https://main--typescript-eslint.netlify.app/users/releases) on our website.\n\n#### 6.18.0 (2024-01-06)\n\n##### 🚀 Features\n\n-   **typescript-estree:** throw on invalid update expressions\n\n-   **eslint-plugin:** \\[no-var-requires, no-require-imports] allow option\n\n##### ❤️  Thank You\n\n-   auvred\n-   Joshua Chen\n\nYou can read about our [versioning strategy](https://main--typescript-eslint.netlify.app/users/versioning) and [releases](https://main--typescript-eslint.netlify.app/users/releases) on our website.\n\n### [`v6.21.0`](https://togithub.com/typescript-eslint/typescript-eslint/blob/HEAD/packages/eslint-plugin/CHANGELOG.md#6210-2024-02-05)\n\n[Compare Source](https://togithub.com/typescript-eslint/typescript-eslint/compare/v6.20.0...v6.21.0)\n\n##### 🚀 Features\n\n-   export plugin metadata\n\n-   allow `parserOptions.project: false`\n\n-   **eslint-plugin:** add rule prefer-find\n\n##### 🩹 Fixes\n\n-   **eslint-plugin:** \\[no-unused-vars] don't report on types referenced in export assignment expression\n\n-   **eslint-plugin:** \\[switch-exhaustiveness-check] better support for intersections, infinite types, non-union values\n\n-   **eslint-plugin:** \\[consistent-type-imports] dont report on types used in export assignment expressions\n\n-   **eslint-plugin:** \\[no-unnecessary-condition] handle left-hand optional with exactOptionalPropertyTypes option\n\n-   **eslint-plugin:** \\[class-literal-property-style] allow getter when same key setter exists\n\n-   **eslint-plugin:** \\[no-unnecessary-type-assertion] provide valid fixes for assertions with extra tokens before `as` keyword\n\n##### ❤️  Thank You\n\n-   auvred\n-   Brad Zacher\n-   Kirk Waiblinger\n-   Pete Gonzalez\n-   YeonJuan\n\nYou can read about our [versioning strategy](https://main--typescript-eslint.netlify.app/users/versioning) and [releases](https://main--typescript-eslint.netlify.app/users/releases) on our website.\n\n</details>\n\n<details>\n<summary>typescript-eslint/typescript-eslint (@&#8203;typescript-eslint/parser)</summary>\n\n### [`v7.0.1`](https://togithub.com/typescript-eslint/typescript-eslint/blob/HEAD/packages/parser/CHANGELOG.md#701-2024-02-12)\n\n[Compare Source](https://togithub.com/typescript-eslint/typescript-eslint/compare/v7.0.0...v7.0.1)\n\nThis was a version bump only for parser to align it with other projects, there were no code changes.\n\nYou can read about our [versioning strategy](https://main--typescript-eslint.netlify.app/users/versioning) and [releases](https://main--typescript-eslint.netlify.app/users/releases) on our website.\n\n### [`v7.0.0`](https://togithub.com/typescript-eslint/typescript-eslint/blob/HEAD/packages/parser/CHANGELOG.md#700-2024-02-12)\n\n[Compare Source](https://togithub.com/typescript-eslint/typescript-eslint/compare/v6.21.0...v7.0.0)\n\n##### 🚀 Features\n\n-   ⚠️  bump ESLint, NodeJS, and TS minimum version requirements\n\n-   add support for flat configs\n\n##### ⚠️  Breaking Changes\n\n-   ⚠️  bump ESLint, NodeJS, and TS minimum version requirements\n\n##### ❤️  Thank You\n\n-   Brad Zacher\n-   Kirk Waiblinger\n-   StyleShit\n-   YeonJuan\n\nYou can read about our [versioning strategy](https://main--typescript-eslint.netlify.app/users/versioning) and [releases](https://main--typescript-eslint.netlify.app/users/releases) on our website.\n\n#### 6.21.0 (2024-02-05)\n\n##### 🚀 Features\n\n-   allow `parserOptions.project: false`\n\n##### ❤️  Thank You\n\n-   auvred\n-   Brad Zacher\n-   Kirk Waiblinger\n-   Pete Gonzalez\n-   YeonJuan\n\nYou can read about our [versioning strategy](https://main--typescript-eslint.netlify.app/users/versioning) and [releases](https://main--typescript-eslint.netlify.app/users/releases) on our website.\n\n#### 6.20.0 (2024-01-29)\n\nThis was a version bump only for parser to align it with other projects, there were no code changes.\n\nYou can read about our [versioning strategy](https://main--typescript-eslint.netlify.app/users/versioning) and [releases](https://main--typescript-eslint.netlify.app/users/releases) on our website.\n\n#### 6.19.1 (2024-01-22)\n\nThis was a version bump only for parser to align it with other projects, there were no code changes.\n\nYou can read about our [versioning strategy](https://main--typescript-eslint.netlify.app/users/versioning) and [releases](https://main--typescript-eslint.netlify.app/users/releases) on our website.\n\n#### 6.19.0 (2024-01-15)\n\nThis was a version bump only for parser to align it with other projects, there were no code changes.\n\nYou can read about our [versioning strategy](https://main--typescript-eslint.netlify.app/users/versioning) and [releases](https://main--typescript-eslint.netlify.app/users/releases) on our website.\n\n#### 6.18.1 (2024-01-08)\n\nThis was a version bump only for parser to align it with other projects, there were no code changes.\n\nYou can read about our [versioning strategy](https://main--typescript-eslint.netlify.app/users/versioning) and [releases](https://main--typescript-eslint.netlify.app/users/releases) on our website.\n\n#### 6.18.0 (2024-01-06)\n\nThis was a version bump only for parser to align it with other projects, there were no code changes.\n\nYou can read about our [versioning strategy](https://main--typescript-eslint.netlify.app/users/versioning) and [releases](https://main--typescript-eslint.netlify.app/users/releases) on our website.\n\n### [`v6.21.0`](https://togithub.com/typescript-eslint/typescript-eslint/blob/HEAD/packages/parser/CHANGELOG.md#6210-2024-02-05)\n\n[Compare Source](https://togithub.com/typescript-eslint/typescript-eslint/compare/v6.20.0...v6.21.0)\n\n##### 🚀 Features\n\n-   allow `parserOptions.project: false`\n\n##### ❤️  Thank You\n\n-   auvred\n-   Brad Zacher\n-   Kirk Waiblinger\n-   Pete Gonzalez\n-   YeonJuan\n\nYou can read about our [versioning strategy](https://main--typescript-eslint.netlify.app/users/versioning) and [releases](https://main--typescript-eslint.netlify.app/users/releases) on our website.\n\n</details>\n\n---\n\n### Configuration\n\n📅 **Schedule**: Branch creation - At any time (no schedule defined), Automerge - At any time (no schedule defined).\n\n🚦 **Automerge**: Disabled by config. Please merge this manually once you are satisfied.\n\n♻ **Rebasing**: Whenever PR becomes conflicted, or you tick the rebase/retry checkbox.\n\n🔕 **Ignore**: Close this PR and you won't be reminded about these updates again.\n\n---\n\n - [ ] <!-- rebase-check -->If you want to rebase/retry this PR, check this box\n\n---\n\nThis PR has been generated by [Mend Renovate](https://www.mend.io/free-developer-tools/renovate/). View repository job log [here](https://developer.mend.io/github/napi-rs/napi-rs).\n<!--renovate-debug:eyJjcmVhdGVkSW5WZXIiOiIzNy4xNzMuMCIsInVwZGF0ZWRJblZlciI6IjM3LjE3My4wIiwidGFyZ2V0QnJhbmNoIjoibWFpbiJ9-->",
+          "timestamp": "2024-02-13T12:31:38+08:00",
+          "tree_id": "9718a0d17bb42d0135771a00e22fad032decaee9",
+          "url": "https://github.com/napi-rs/napi-rs/commit/642cecc759e748620d846711dc1d4f52cc4c6895"
+        },
+        "date": 1707798888564,
+        "tool": "benchmarkjs",
+        "benches": [
+          {
+            "name": "noop#napi-rs",
+            "value": 81439888,
+            "range": "±1.81%",
+            "unit": "ops/sec",
+            "extra": "95 samples"
+          },
+          {
+            "name": "noop#JavaScript",
+            "value": 821548088,
+            "range": "±0.11%",
+            "unit": "ops/sec",
+            "extra": "96 samples"
+          },
+          {
+            "name": "Plus number#napi-rs",
+            "value": 19999521,
+            "range": "±0.65%",
+            "unit": "ops/sec",
+            "extra": "98 samples"
+          },
+          {
+            "name": "Plus number#JavaScript",
+            "value": 819639105,
+            "range": "±0.1%",
+            "unit": "ops/sec",
+            "extra": "95 samples"
+          },
+          {
+            "name": "Create buffer#napi-rs",
+            "value": 632401,
+            "range": "±13.52%",
+            "unit": "ops/sec",
+            "extra": "67 samples"
+          },
+          {
+            "name": "Create buffer#JavaScript",
+            "value": 3597506,
+            "range": "±2.44%",
+            "unit": "ops/sec",
+            "extra": "74 samples"
+          },
+          {
+            "name": "createArray#createArrayJson",
+            "value": 55127,
+            "range": "±0.15%",
+            "unit": "ops/sec",
+            "extra": "98 samples"
+          },
+          {
+            "name": "createArray#create array for loop",
+            "value": 10080,
+            "range": "±0.69%",
+            "unit": "ops/sec",
+            "extra": "99 samples"
+          },
+          {
+            "name": "createArray#create array with serde trait",
+            "value": 10132,
+            "range": "±0.21%",
+            "unit": "ops/sec",
+            "extra": "98 samples"
+          },
+          {
+            "name": "getArrayFromJs#get array from json string",
+            "value": 23891,
+            "range": "±0.47%",
+            "unit": "ops/sec",
+            "extra": "96 samples"
+          },
+          {
+            "name": "getArrayFromJs#get array from serde",
+            "value": 13574,
+            "range": "±0.44%",
+            "unit": "ops/sec",
+            "extra": "98 samples"
+          },
+          {
+            "name": "getArrayFromJs#get array with for loop",
+            "value": 16154,
+            "range": "±0.4%",
+            "unit": "ops/sec",
+            "extra": "99 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from native#u32",
+            "value": 581161,
+            "range": "±12.2%",
+            "unit": "ops/sec",
+            "extra": "77 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from JavaScript#u32",
+            "value": 549457,
+            "range": "±2.37%",
+            "unit": "ops/sec",
+            "extra": "88 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from native#string",
+            "value": 560555,
+            "range": "±10.87%",
+            "unit": "ops/sec",
+            "extra": "90 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from JavaScript#string",
+            "value": 519790,
+            "range": "±2.05%",
+            "unit": "ops/sec",
+            "extra": "90 samples"
+          },
+          {
+            "name": "Async task#spawn task",
+            "value": 26956,
+            "range": "±0.84%",
+            "unit": "ops/sec",
+            "extra": "85 samples"
+          },
+          {
+            "name": "Async task#ThreadSafeFunction",
+            "value": 9596,
+            "range": "±1.01%",
+            "unit": "ops/sec",
+            "extra": "86 samples"
+          },
+          {
+            "name": "Async task#Tokio future to Promise",
+            "value": 32724,
+            "range": "±1.23%",
+            "unit": "ops/sec",
+            "extra": "76 samples"
+          },
+          {
+            "name": "Query#query * 100",
+            "value": 3911,
+            "range": "±0.85%",
+            "unit": "ops/sec",
+            "extra": "88 samples"
+          },
+          {
+            "name": "Query#query * 1",
+            "value": 27604,
+            "range": "±1.64%",
+            "unit": "ops/sec",
+            "extra": "83 samples"
           }
         ]
       }
