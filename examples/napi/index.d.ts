@@ -382,6 +382,8 @@ export function fibonacci(n: number): number
 
 export function fnReceivedAliased(s: AliasedStruct, e: ALIAS): void
 
+export function getBtreeMapping(): BTreeMap
+
 export function getBuffer(): Buffer
 
 export function getCwd(callback: (arg0: string) => void): void
@@ -391,6 +393,8 @@ export function getEmptyBuffer(): Buffer
 export function getExternal(external: ExternalObject<number>): number
 
 export function getGlobal(): typeof global
+
+export function getIndexMapping(): IndexMap
 
 export function getMapping(): Record<string, number>
 
@@ -414,6 +418,8 @@ export function getterFromObj(): number
 export function getUndefined(): void
 
 export function getWords(): Array<string>
+
+export function indexmapPassthrough(fixture: IndexMap): IndexMap
 
 /** default enum values are continuos i32s start from 0 */
 export const enum Kind {
@@ -533,6 +539,10 @@ export const enum Status {
 export interface StrictObject {
   name: string
 }
+
+export function sumBtreeMapping(nums: BTreeMap): number
+
+export function sumIndexMapping(nums: IndexMap): number
 
 export function sumMapping(nums: Record<string, number>): number
 

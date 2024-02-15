@@ -19,6 +19,7 @@ napi-shared = { path = "../napi-shared" }
 serde = "1"
 serde_derive = "1"
 serde_json = "1"
+indexmap = "2"
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 napi = { path = "../../crates/napi", default-features = false, features = [
@@ -27,6 +28,7 @@ napi = { path = "../../crates/napi", default-features = false, features = [
   "experimental",
   "latin1",
   "chrono_date",
+  "object_indexmap",
   "tokio",
   "async",
   "tokio_rt",
@@ -43,6 +45,7 @@ napi = { path = "../../crates/napi", default-features = false, features = [
   "experimental",
   "latin1",
   "chrono_date",
+  "object_indexmap",
   "tokio",
   "async",
   "tokio_rt",
