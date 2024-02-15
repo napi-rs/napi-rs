@@ -34,6 +34,11 @@ const {
   sumNums,
   getMapping,
   sumMapping,
+  getBtreeMapping,
+  sumBtreeMapping,
+  getIndexMapping,
+  sumIndexMapping,
+  indexmapPassthrough,
   getCwd,
   Animal,
   Kind,
@@ -202,6 +207,11 @@ test('array', (t) => {
 test('map', (t) => {
   t.deepEqual(getMapping(), { a: 101, b: 102 })
   t.is(sumMapping({ a: 101, b: 102 }), 203)
+  t.deepEqual(getBtreeMapping(), { a: 101, b: 102 })
+  t.is(sumBtreeMapping({ a: 101, b: 102 }), 203)
+  t.deepEqual(getIndexMapping(), { a: 101, b: 102 })
+  t.is(sumIndexMapping({ a: 101, b: 102 }), 203)
+  t.deepEqual(indexmapPassthrough({ a: 101, b: 102 }), { a: 101, b: 102 })
 })
 
 test('enum', (t) => {

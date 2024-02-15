@@ -28,6 +28,7 @@ deferred_trace = ["napi4"]
 error_anyhow = ["anyhow"]
 experimental = ["napi-sys/experimental"]
 full = ["latin1", "napi9", "async", "serde-json", "experimental", "chrono_date"]
+object_indexmap = ["indexmap"]
 latin1 = ["encoding_rs"]
 napi1 = []
 napi2 = ["napi1", "napi-sys/napi2"]
@@ -40,6 +41,7 @@ napi8 = ["napi7", "napi-sys/napi8"]
 napi9 = ["napi8", "napi-sys/napi9"]
 noop = []
 serde-json = ["serde", "serde_json"]
+serde-json-ordered = ["serde-json", "serde_json/preserve_order"]
 tokio_fs = ["tokio/fs"]
 tokio_full = ["tokio/full"]
 tokio_io_std = ["tokio/io-std"]
@@ -93,3 +95,7 @@ version = "1"
 [dependencies.serde_json]
 optional = true
 version = "1"
+
+[dependencies.indexmap]
+optional = true
+version = "2"
