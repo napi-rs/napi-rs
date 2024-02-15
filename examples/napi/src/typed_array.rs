@@ -49,6 +49,61 @@ async fn array_buffer_pass_through(buf: Uint8Array) -> Result<Uint8Array> {
   Ok(buf)
 }
 
+#[napi]
+fn accept_slice(fixture: &[u8]) -> usize {
+  fixture.len()
+}
+
+#[napi]
+fn u8_array_to_array(input: &[u8]) -> Vec<u8> {
+  input.to_vec()
+}
+
+#[napi]
+fn i8_array_to_array(input: &[i8]) -> Vec<i8> {
+  input.to_vec()
+}
+
+#[napi]
+fn u16_array_to_array(input: &[u16]) -> Vec<u16> {
+  input.to_vec()
+}
+
+#[napi]
+fn i16_array_to_array(input: &[i16]) -> Vec<i16> {
+  input.to_vec()
+}
+
+#[napi]
+fn u32_array_to_array(input: &[u32]) -> Vec<u32> {
+  input.to_vec()
+}
+
+#[napi]
+fn i32_array_to_array(input: &[i32]) -> Vec<i32> {
+  input.to_vec()
+}
+
+#[napi]
+fn f32_array_to_array(input: &[f32]) -> Vec<f32> {
+  input.to_vec()
+}
+
+#[napi]
+fn f64_array_to_array(input: &[f64]) -> Vec<f64> {
+  input.to_vec()
+}
+
+#[napi]
+fn u64_array_to_array(input: &[u64]) -> Vec<u64> {
+  input.to_vec()
+}
+
+#[napi]
+fn i64_array_to_array(input: &[i64]) -> Vec<i64> {
+  input.to_vec()
+}
+
 struct AsyncBuffer {
   buf: Buffer,
 }
