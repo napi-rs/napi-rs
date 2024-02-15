@@ -94,6 +94,17 @@ const {
   xxh3,
   xxh64Alias,
   tsRename,
+  acceptSlice,
+  u8ArrayToArray,
+  i8ArrayToArray,
+  u16ArrayToArray,
+  i16ArrayToArray,
+  u32ArrayToArray,
+  i32ArrayToArray,
+  u64ArrayToArray,
+  i64ArrayToArray,
+  f32ArrayToArray,
+  f64ArrayToArray,
   convertU32Array,
   createExternalTypedArray,
   mutateTypedArray,
@@ -663,6 +674,24 @@ test('buffer', (t) => {
 
   // @ts-expect-error
   t.true(Array.isArray(asyncBufferToArray(Buffer.from([1, 2, 3]).buffer)))
+})
+
+test('TypedArray', (t) => {
+  t.is(acceptSlice(new Uint8Array([1, 2, 3])), 3n)
+  t.deepEqual(u8ArrayToArray(new Uint8Array([1, 2, 3])), [1, 2, 3])
+  t.deepEqual(i8ArrayToArray(new Int8Array([1, 2, 3])), [1, 2, 3])
+  t.deepEqual(u16ArrayToArray(new Uint16Array([1, 2, 3])), [1, 2, 3])
+  t.deepEqual(i16ArrayToArray(new Int16Array([1, 2, 3])), [1, 2, 3])
+  t.deepEqual(u32ArrayToArray(new Uint32Array([1, 2, 3])), [1, 2, 3])
+  t.deepEqual(i32ArrayToArray(new Int32Array([1, 2, 3])), [1, 2, 3])
+  t.deepEqual(u64ArrayToArray(new BigUint64Array([1n, 2n, 3n])), [1n, 2n, 3n])
+  t.deepEqual(i64ArrayToArray(new BigInt64Array([1n, 2n, 3n])), [1, 2, 3])
+  t.deepEqual(f32ArrayToArray(new Float32Array([1, 2, 3])), [1, 2, 3])
+  t.deepEqual(f64ArrayToArray(new Float64Array([1, 2, 3])), [1, 2, 3])
+
+  const bird = new Bird('Carolyn')
+
+  t.is(bird.acceptSliceMethod(new Uint8Array([1, 2, 3])), 3)
 })
 
 test('reset empty buffer', (t) => {

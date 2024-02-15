@@ -457,6 +457,46 @@ macro_rules! impl_typed_array {
   };
 }
 
+macro_rules! impl_from_slice {
+  ($name:ident, $rust_type:ident, $typed_array_type:expr) => {
+    impl FromNapiValue for &mut [$rust_type] {
+      unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
+        let mut typed_array_type = 0;
+        let mut length = 0;
+        let mut data = ptr::null_mut();
+        let mut array_buffer = ptr::null_mut();
+        let mut byte_offset = 0;
+        let mut ref_ = ptr::null_mut();
+        check_status!(
+          unsafe { sys::napi_create_reference(env, napi_val, 1, &mut ref_) },
+          "Failed to create reference from Buffer"
+        )?;
+        check_status!(
+          unsafe {
+            sys::napi_get_typedarray_info(
+              env,
+              napi_val,
+              &mut typed_array_type,
+              &mut length,
+              &mut data,
+              &mut array_buffer,
+              &mut byte_offset,
+            )
+          },
+          "Get TypedArray info failed"
+        )?;
+        if typed_array_type != $typed_array_type as i32 {
+          return Err(Error::new(
+            Status::InvalidArg,
+            format!("Expected $name, got {}", typed_array_type),
+          ));
+        }
+        Ok(unsafe { core::slice::from_raw_parts_mut(data as *mut $rust_type, length) })
+      }
+    }
+  };
+}
+
 unsafe extern "C" fn finalizer<Data, T: Finalizer<RustType = Data>>(
   _env: sys::napi_env,
   finalize_data: *mut c_void,
@@ -494,18 +534,30 @@ enum DataManagedType {
 }
 
 impl_typed_array!(Int8Array, i8, TypedArrayType::Int8);
+impl_from_slice!(Int8Array, i8, TypedArrayType::Int8);
 impl_typed_array!(Uint8Array, u8, TypedArrayType::Uint8);
+impl_from_slice!(Uint8Array, u8, TypedArrayType::Uint8);
 impl_typed_array!(Uint8ClampedArray, u8, TypedArrayType::Uint8Clamped);
 impl_typed_array!(Int16Array, i16, TypedArrayType::Int16);
+impl_from_slice!(Int16Array, i16, TypedArrayType::Int16);
 impl_typed_array!(Uint16Array, u16, TypedArrayType::Uint16);
+impl_from_slice!(Uint16Array, u16, TypedArrayType::Uint16);
 impl_typed_array!(Int32Array, i32, TypedArrayType::Int32);
+impl_from_slice!(Int32Array, i32, TypedArrayType::Int32);
 impl_typed_array!(Uint32Array, u32, TypedArrayType::Uint32);
+impl_from_slice!(Uint32Array, u32, TypedArrayType::Uint32);
 impl_typed_array!(Float32Array, f32, TypedArrayType::Float32);
+impl_from_slice!(Float32Array, f32, TypedArrayType::Float32);
 impl_typed_array!(Float64Array, f64, TypedArrayType::Float64);
+impl_from_slice!(Float64Array, f64, TypedArrayType::Float64);
 #[cfg(feature = "napi6")]
 impl_typed_array!(BigInt64Array, i64, TypedArrayType::BigInt64);
 #[cfg(feature = "napi6")]
+impl_from_slice!(BigInt64Array, i64, TypedArrayType::BigInt64);
+#[cfg(feature = "napi6")]
 impl_typed_array!(BigUint64Array, u64, TypedArrayType::BigUint64);
+#[cfg(feature = "napi6")]
+impl_from_slice!(BigUint64Array, u64, TypedArrayType::BigUint64);
 
 impl<T: Into<Vec<u8>>> From<T> for Uint8Array {
   fn from(data: T) -> Self {

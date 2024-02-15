@@ -268,7 +268,7 @@ impl NapiFn {
                       if let Some(p) = path.path.segments.first() {
                         if p.ident == *self.parent.as_ref().unwrap() {
                           args.push(
-                            quote! { napi::bindgen_prelude::Reference::from_value_ptr(this_ptr as *mut std::ffi::c_void, env)? },
+                            quote! { napi::bindgen_prelude::Reference::from_value_ptr(this_ptr.cast(), env)? },
                           );
                           skipped_arg_count += 1;
                           continue;
@@ -344,7 +344,7 @@ impl NapiFn {
                 }
               }
             }
-            let (arg_conversion, arg_type) = self.gen_ty_arg_conversion(&ident, i, path);
+            let (arg_conversion, arg_type) = self.gen_ty_arg_conversion(&ident, i, path)?;
             if NapiArgType::MutRef == arg_type {
               mut_ref_spans.push(path.ty.span());
             }
@@ -378,7 +378,7 @@ impl NapiFn {
     arg_name: &Ident,
     index: usize,
     path: &syn::PatType,
-  ) -> (TokenStream, NapiArgType) {
+  ) -> BindgenResult<(TokenStream, NapiArgType)> {
     let ty = &*path.ty;
     let type_check = if self.return_if_invalid {
       quote! {
@@ -403,6 +403,15 @@ impl NapiFn {
 
     match ty {
       syn::Type::Reference(syn::TypeReference {
+        lifetime: Some(lifetime),
+        ..
+      }) => {
+        return Err(Diagnostic::span_error(
+          lifetime.span(),
+          "lifetime is not allowed in napi function arguments",
+        ));
+      }
+      syn::Type::Reference(syn::TypeReference {
         mutability: Some(_),
         elem,
         ..
@@ -413,16 +422,52 @@ impl NapiFn {
             <#elem as napi::bindgen_prelude::FromNapiMutRef>::from_napi_mut_ref(env, cb.get_arg(#index))?
           };
         };
-        (q, NapiArgType::MutRef)
+        Ok((q, NapiArgType::MutRef))
       }
-      syn::Type::Reference(syn::TypeReference { elem, .. }) => {
-        let q = quote! {
-          let #arg_name = {
-            #type_check
-            <#elem as napi::bindgen_prelude::FromNapiRef>::from_napi_ref(env, cb.get_arg(#index))?
-          };
+      syn::Type::Reference(syn::TypeReference {
+        mutability, elem, ..
+      }) => {
+        if let syn::Type::Slice(slice) = &**elem {
+          if let syn::Type::Path(ele) = &*slice.elem {
+            if let Some(syn::PathSegment { ident, .. }) = ele.path.segments.first() {
+              static TYPEDARRAY_SLICE_TYPES: &[&str] = &[
+                "u8", "i8", "u16", "i16", "u32", "i32", "f32", "f64", "u64", "i64",
+              ];
+              if TYPEDARRAY_SLICE_TYPES.contains(&&*ident.to_string()) {
+                let q = quote! {
+                  let #arg_name = {
+                    #type_check
+                    <&mut #elem as napi::bindgen_prelude::FromNapiValue>::from_napi_value(env, cb.get_arg(#index))?
+                  };
+                };
+                return Ok((q, NapiArgType::Ref));
+              }
+            }
+          }
+        }
+        let q = if mutability.is_some() {
+          quote! {
+            let #arg_name = {
+              #type_check
+              <#elem as napi::bindgen_prelude::FromNapiMutRef>::from_napi_mut_ref(env, cb.get_arg(#index))?
+            }
+          }
+        } else {
+          quote! {
+            let #arg_name = {
+              #type_check
+              <#elem as napi::bindgen_prelude::FromNapiRef>::from_napi_ref(env, cb.get_arg(#index))?
+            };
+          }
         };
-        (q, NapiArgType::Ref)
+        Ok((
+          q,
+          if mutability.is_some() {
+            NapiArgType::MutRef
+          } else {
+            NapiArgType::Ref
+          },
+        ))
       }
       _ => {
         let q = quote! {
@@ -431,7 +476,7 @@ impl NapiFn {
             <#ty as napi::bindgen_prelude::FromNapiValue>::from_napi_value(env, cb.get_arg(#index))?
           };
         };
-        (q, NapiArgType::Value)
+        Ok((q, NapiArgType::Value))
       }
     }
   }

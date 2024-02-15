@@ -130,6 +130,11 @@ impl Bird {
     tokio::time::sleep(std::time::Duration::new(1, 0)).await;
     self.name.as_str()
   }
+
+  #[napi]
+  pub fn accept_slice_method(&self, slice: &[u8]) -> u32 {
+    slice.len() as u32
+  }
 }
 
 /// Smoking test for type generation

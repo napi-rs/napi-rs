@@ -75,6 +75,7 @@ export class Bird {
   constructor(name: string)
   getCount(): number
   getNameAsync(): Promise<string>
+  acceptSliceMethod(slice: any): number
 }
 
 /** Smoking test for type generation */
@@ -210,6 +211,8 @@ export class Width {
 export interface A {
   foo: number
 }
+
+export function acceptSlice(fixture: any): bigint
 
 export function acceptThreadsafeFunction(func: (err: Error | null, arg: number) => any): void
 
@@ -378,6 +381,10 @@ export const enum Empty {
 
 export function enumToI32(e: CustomNumEnum): number
 
+export function f32ArrayToArray(input: any): Array<number>
+
+export function f64ArrayToArray(input: any): Array<number>
+
 export function fibonacci(n: number): number
 
 export function fnReceivedAliased(s: AliasedStruct, e: ALIAS): void
@@ -418,6 +425,14 @@ export function getterFromObj(): number
 export function getUndefined(): void
 
 export function getWords(): Array<string>
+
+export function i16ArrayToArray(input: any): Array<number>
+
+export function i32ArrayToArray(input: any): Array<number>
+
+export function i64ArrayToArray(input: any): Array<number>
+
+export function i8ArrayToArray(input: any): Array<number>
 
 export function indexmapPassthrough(fixture: IndexMap): IndexMap
 
@@ -584,6 +599,14 @@ export interface TsTypeChanged {
   typeOverride: object
   typeOverrideOptional?: object
 }
+
+export function u16ArrayToArray(input: any): Array<number>
+
+export function u32ArrayToArray(input: any): Array<number>
+
+export function u64ArrayToArray(input: any): Array<bigint>
+
+export function u8ArrayToArray(input: any): Array<number>
 
 export function validateArray(arr: Array<number>): number
 
