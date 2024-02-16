@@ -6,8 +6,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  build_image:
-    name: Build nodejs-rust:lts
+  build-alpine-image:
+    name: Build alpine image
     runs-on: ubuntu-latest
 
     steps:
@@ -34,6 +34,26 @@ jobs:
           push: true
           tags: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
 
+  build-debian-image:
+    name: Build debian image
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ secrets.GH_CONTAINER_UNAME }}
+          password: ${{ secrets.GH_TOKEN }}
+
       - name: Build and push debian
         uses: docker/build-push-action@v5
         with:
@@ -42,20 +62,40 @@ jobs:
           push: true
           tags: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian
 
+  build-debian-aarch64-image:
+    name: Build debian image
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ secrets.GH_CONTAINER_UNAME }}
+          password: ${{ secrets.GH_TOKEN }}
+
       - name: Install latest libc++-dev for cross build
         uses: addnab/docker-run-action@v3
         with:
           image: node:lts-slim
-          options: '--platform linux/arm64 --user 0:0 -e GITHUB_TOKEN -v ${{ github.workspace }}/lib/llvm-16:/usr/lib/llvm-16'
+          options: '--platform linux/arm64 --user 0:0 -e GITHUB_TOKEN -v ${{ github.workspace }}/lib/llvm-18:/usr/lib/llvm-18'
           run: >-
             apt-get update &&
             apt-get install -y wget gnupg2 &&
             wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add - &&
-            echo "deb http://apt.llvm.org/focal/ llvm-toolchain-focal-16 main" >> /etc/apt/sources.list &&
-            echo "deb-src http://apt.llvm.org/focal/ llvm-toolchain-focal-16 main" >> /etc/apt/sources.list &&
+            echo "deb http://apt.llvm.org/focal/ llvm-toolchain-focal-18 main" >> /etc/apt/sources.list &&
+            echo "deb-src http://apt.llvm.org/focal/ llvm-toolchain-focal-18 main" >> /etc/apt/sources.list &&
             apt-get update &&
-            apt-get install libc++-16-dev libc++abi-16-dev -y --fix-missing --no-install-recommends &&
-            rm /usr/lib/llvm-16/lib/libc++abi.so
+            apt-get install libc++-18-dev libc++abi-18-dev -y --fix-missing --no-install-recommends &&
+            rm /usr/lib/llvm-18/lib/libc++abi.so
 
       - name: Build and push debian aarch64 cross
         uses: docker/build-push-action@v5
@@ -66,8 +106,28 @@ jobs:
           tags: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-aarch64
           context: .
 
-      - name: Cleanup
-        run: sudo rm -rf "${{ github.workspace }}/lib"
+  build-zig-image:
+    name: Build zig image
+    runs-on: ubuntu-latest
+    needs:
+      - build-alpine-image
+      - build-debian-image
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ secrets.GH_CONTAINER_UNAME }}
+          password: ${{ secrets.GH_TOKEN }}
 
       - name: Build and push debian with zig
         uses: docker/build-push-action@v5
