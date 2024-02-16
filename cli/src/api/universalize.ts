@@ -43,7 +43,7 @@ export async function universalizeBinaries(userOptions: UniversalizeOptions) {
   }
 
   const srcFiles = UniArchsByPlatform[process.platform]?.map(
-    (arch) => `${config.binaryName}.${process.platform}-${arch}.node`,
+    (arch) => resolve(options.cwd, options.outputDir, `${config.binaryName}.${process.platform}-${arch}.node`),
   )
 
   if (!srcFiles || !universalizers[process.platform]) {
@@ -56,7 +56,7 @@ export async function universalizeBinaries(userOptions: UniversalizeOptions) {
   debug('  %O', srcFiles)
 
   const srcFileLookup = await Promise.all(
-    srcFiles.map((f) => fileExists(resolve(options.cwd, options.outputDir, f))),
+    srcFiles.map((f) => fileExists(f)),
   )
 
   const notFoundFiles = srcFiles.filter((_, i) => !srcFileLookup[i])
