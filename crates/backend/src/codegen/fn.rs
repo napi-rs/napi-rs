@@ -267,11 +267,16 @@ impl NapiFn {
                     {
                       if let Some(p) = path.path.segments.first() {
                         if p.ident == *self.parent.as_ref().unwrap() {
-                          args.push(
-                            quote! { napi::bindgen_prelude::Reference::from_value_ptr(this_ptr.cast(), env)? },
-                          );
+                          args.push(quote! {
+                            napi::bindgen_prelude::Reference::from_value_ptr(this_ptr.cast(), env)?
+                          });
                           skipped_arg_count += 1;
                           continue;
+                        } else {
+                          bail_span!(
+                            p,
+                            "The `T` of Reference<T> type must be the same as the class type"
+                          )
                         }
                       }
                     }
@@ -551,16 +556,20 @@ impl NapiFn {
       let ty_string = ty.into_token_stream().to_string();
       let is_return_self = ty_string == "& Self" || ty_string == "&mut Self";
       if self.kind == FnKind::Constructor {
+        let parent = self
+          .parent
+          .as_ref()
+          .expect("Parent must exist for constructor");
         if self.is_ret_result {
           if self.parent_is_generator {
-            quote! { cb.construct_generator(#js_name, #ret?) }
+            quote! { cb.construct_generator::<false, #parent>(#js_name, #ret?) }
           } else {
-            quote! { cb.construct(#js_name, #ret?) }
+            quote! { cb.construct::<false, #parent>(#js_name, #ret?) }
           }
         } else if self.parent_is_generator {
-          quote! { cb.construct_generator(#js_name, #ret) }
+          quote! { cb.construct_generator::<false, #parent>(#js_name, #ret) }
         } else {
-          quote! { cb.construct(#js_name, #ret) }
+          quote! { cb.construct::<false, #parent>(#js_name, #ret) }
         }
       } else if self.kind == FnKind::Factory {
         if self.is_ret_result {
