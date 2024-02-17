@@ -7,9 +7,9 @@ use std::rc::{Rc, Weak};
 use crate::{bindgen_runtime::ToNapiValue, check_status, Env, Error, Result, Status};
 
 type RefInformation = (
-  *mut c_void,
-  crate::sys::napi_ref,
-  *const Cell<*mut dyn FnOnce()>,
+  /* wrapped_value */ *mut c_void,
+  /* napi_ref */ crate::sys::napi_ref,
+  /* finalize_callback */ *const Cell<*mut dyn FnOnce()>,
 );
 
 thread_local! {
@@ -26,9 +26,6 @@ pub struct Reference<T: 'static> {
   env: *mut c_void,
   finalize_callbacks: Rc<Cell<*mut dyn FnOnce()>>,
 }
-
-unsafe impl<T: Send> Send for Reference<T> {}
-unsafe impl<T: Sync> Sync for Reference<T> {}
 
 impl<T> Drop for Reference<T> {
   fn drop(&mut self) {
@@ -71,8 +68,9 @@ impl<T: 'static> Reference<T> {
     if let Some((wrapped_value, napi_ref, finalize_callbacks_ptr)) =
       REFERENCE_MAP.with(|map| map.borrow().get(&t).cloned())
     {
+      let mut ref_count = 0;
       check_status!(
-        unsafe { crate::sys::napi_reference_ref(env, napi_ref, &mut 0) },
+        unsafe { crate::sys::napi_reference_ref(env, napi_ref, &mut ref_count) },
         "Failed to ref napi reference"
       )?;
       let finalize_callbacks_raw = unsafe { Rc::from_raw(finalize_callbacks_ptr) };
@@ -80,9 +78,9 @@ impl<T: 'static> Reference<T> {
       // Leak the raw finalize callbacks
       Rc::into_raw(finalize_callbacks_raw);
       Ok(Self {
-        raw: wrapped_value as *mut T,
+        raw: wrapped_value.cast(),
         napi_ref,
-        env: env as *mut c_void,
+        env: env.cast(),
         finalize_callbacks,
       })
     } else {
@@ -242,9 +240,6 @@ pub struct SharedReference<T: 'static, S: 'static> {
   raw: *mut S,
   owner: Reference<T>,
 }
-
-unsafe impl<T: Send, S: Send> Send for SharedReference<T, S> {}
-unsafe impl<T: Sync, S: Sync> Sync for SharedReference<T, S> {}
 
 impl<T: 'static, S: 'static> SharedReference<T, S> {
   pub fn clone(&self, env: Env) -> Result<Self> {

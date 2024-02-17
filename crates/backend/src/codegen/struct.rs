@@ -227,10 +227,12 @@ impl NapiStruct {
       quote! { #name {#(#fields),*} }
     };
 
+    let is_empty_struct_hint = fields_len == 0;
+
     let constructor = if self.implement_iterator {
-      quote! { unsafe { cb.construct_generator(#js_name_str, #construct) } }
+      quote! { unsafe { cb.construct_generator::<#is_empty_struct_hint, #name>(#js_name_str, #construct) } }
     } else {
-      quote! { unsafe { cb.construct(#js_name_str, #construct) } }
+      quote! { unsafe { cb.construct::<#is_empty_struct_hint, #name>(#js_name_str, #construct) } }
     };
 
     quote! {
@@ -280,7 +282,7 @@ impl NapiStruct {
         ) -> napi::Result<napi::bindgen_prelude::sys::napi_value> {
           if let Some(ctor_ref) = napi::__private::get_class_constructor(#js_name_str) {
             let wrapped_value = Box::into_raw(Box::new(val));
-            let instance_value = #name::new_instance(env, wrapped_value as *mut std::ffi::c_void, ctor_ref)?;
+            let instance_value = #name::new_instance(env, wrapped_value.cast(), ctor_ref)?;
             #iterator_implementation
             Ok(instance_value)
           } else {
@@ -298,12 +300,12 @@ impl NapiStruct {
           if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name_str) {
             unsafe {
               let wrapped_value = Box::into_raw(Box::new(val));
-              let instance_value = #name::new_instance(env.raw(), wrapped_value as *mut std::ffi::c_void, ctor_ref)?;
+              let instance_value = #name::new_instance(env.raw(), wrapped_value.cast(), ctor_ref)?;
               {
                 let env = env.raw();
                 #iterator_implementation
               }
-              napi::bindgen_prelude::Reference::<#name>::from_value_ptr(wrapped_value as *mut std::ffi::c_void, env.raw())
+              napi::bindgen_prelude::Reference::<#name>::from_value_ptr(wrapped_value.cast(), env.raw())
             }
           } else {
             Err(napi::bindgen_prelude::Error::new(
