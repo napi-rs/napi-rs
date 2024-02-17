@@ -49,7 +49,7 @@ pub fn create_reference_on_function(env: Env, cb: Function<(), ()>) -> Result<Js
       Ok(())
     },
     move |env, _| {
-      let cb = reference.borrow_back(&env)?;
+      let cb = reference.borrow_back(env)?;
       cb.call(())?;
       Ok(())
     },
