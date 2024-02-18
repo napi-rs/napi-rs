@@ -3,6 +3,17 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.39](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.38...@napi-rs/cli@3.0.0-alpha.39) (2024-02-18)
+
+### Bug Fixes
+
+- **cli:** ensure cwd and outputDir are used for finding files ([#1949](https://github.com/napi-rs/napi-rs/issues/1949)) ([6aae4ba](https://github.com/napi-rs/napi-rs/commit/6aae4bac0fc16decf904115b5308f7981c43fca7))
+- **cli:** set cxxflags while WASI_SDK_PATH exists ([#1955](https://github.com/napi-rs/napi-rs/issues/1955)) ([09efd41](https://github.com/napi-rs/napi-rs/commit/09efd416e5712575d4d99c6865fd4c2dde8df943))
+
+### Features
+
+- **cli,build:** support setjmp.h ([#1958](https://github.com/napi-rs/napi-rs/issues/1958)) ([08b1f68](https://github.com/napi-rs/napi-rs/commit/08b1f689bf99414e5c7f10728b8e202ae124abca))
+
 # [3.0.0-alpha.38](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.37...@napi-rs/cli@3.0.0-alpha.38) (2024-02-12)
 
 ### Features
