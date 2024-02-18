@@ -744,7 +744,6 @@ __metadata:
     "@emnapi/runtime": "npm:^1.0.0"
     "@napi-rs/cross-toolchain": "npm:^0.0.14"
     "@octokit/rest": "npm:^20.0.2"
-    "@tybys/wasm-util": "npm:0.8.1"
     "@types/debug": "npm:^4.1.12"
     "@types/inquirer": "npm:^9.0.7"
     "@types/js-yaml": "npm:^4.0.9"
@@ -767,6 +766,7 @@ __metadata:
     tslib: "npm:^2.6.2"
     typanion: "npm:^3.14.0"
     typescript: "npm:^5.3.3"
+    wasm-sjlj: "npm:^1.0.4"
   peerDependencies:
     "@emnapi/runtime": ^1.0.0
     emnapi: ^1.0.0
@@ -2177,7 +2177,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@tybys/wasm-util@npm:0.8.1, @tybys/wasm-util@npm:^0.8.1":
+"@tybys/wasm-util@npm:^0.8.1":
   version: 0.8.1
   resolution: "@tybys/wasm-util@npm:0.8.1"
   dependencies:
@@ -12706,6 +12706,15 @@ __metadata:
   bin:
     wait-port: bin/wait-port.js
   checksum: 10c0/1bf321c27ec31b71d2ddb16251bd9bdc3bcdb604a2f895ff780f53b1b97302a1823e4762d0c99954be9ada63d6d2a77e74928e06f11dcd01b9ed1f26eb60b353
+  languageName: node
+  linkType: hard
+
+"wasm-sjlj@npm:^1.0.4":
+  version: 1.0.4
+  resolution: "wasm-sjlj@npm:1.0.4"
+  dependencies:
+    node-gyp: "npm:latest"
+  checksum: 10c0/79b0d48c23e55e98e8cac86610003714dc5b874c76bc88501eab70c4c96f4c6d49420e036825fc7c55f42317620433f25ff7fb0ea2dc9e6db505b79450653301
   languageName: node
   linkType: hard
 
