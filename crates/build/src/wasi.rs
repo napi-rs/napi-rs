@@ -4,8 +4,12 @@ pub fn setup() {
   let link_dir = env::var("EMNAPI_LINK_DIR").expect("EMNAPI_LINK_DIR must be set");
   println!("cargo:rerun-if-env-changed=EMNAPI_LINK_DIR");
   println!("cargo:rerun-if-env-changed=WASI_REGISTER_TMP_PATH");
-  println!("cargo:rustc-link-search={}", link_dir);
+  if let Ok(setjmp_link_dir) = env::var("SETJMP_LINK_DIR") {
+    println!("cargo:rustc-link-search={link_dir}");
+    println!("cargo:rustc-link-search={setjmp_link_dir}");
+  }
   println!("cargo:rustc-link-lib=static=emnapi-basic-mt");
+  println!("cargo:rustc-link-lib=static=setjmp-mt");
   println!("cargo:rustc-link-arg=--export-dynamic");
   println!("cargo:rustc-link-arg=--export=malloc");
   println!("cargo:rustc-link-arg=--export=free");

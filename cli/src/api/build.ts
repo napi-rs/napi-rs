@@ -6,6 +6,7 @@ import { tmpdir, homedir } from 'node:os'
 import { parse, join, resolve } from 'node:path'
 
 import * as colors from 'colorette'
+import { include as setjmpInclude, lib as setjmpLib } from 'wasm-sjlj'
 
 import { BuildOptions as RawBuildOptions } from '../def/build.js'
 import {
@@ -534,6 +535,7 @@ class Builder {
         'wasm32-wasi-threads',
       )
       this.envs.EMNAPI_LINK_DIR = emnapi
+      this.envs.SETJMP_LINK_DIR = setjmpLib
       const { WASI_SDK_PATH } = process.env
 
       if (WASI_SDK_PATH && existsSync(WASI_SDK_PATH)) {
@@ -548,11 +550,11 @@ class Builder {
         this.setEnvIfNotExists('RANLIB', join(WASI_SDK_PATH, 'bin', 'ranlib'))
         this.setEnvIfNotExists(
           'CFLAGS',
-          `--target=wasm32-wasi-threads --sysroot=${WASI_SDK_PATH}/share/wasi-sysroot -pthread`,
+          `--target=wasm32-wasi-threads --sysroot=${WASI_SDK_PATH}/share/wasi-sysroot -pthread -I${setjmpInclude}`,
         )
         this.setEnvIfNotExists(
           'CXXFLAGS',
-          `--target=wasm32-wasi-threads --sysroot=${WASI_SDK_PATH}/share/wasi-sysroot -pthread`,
+          `--target=wasm32-wasi-threads --sysroot=${WASI_SDK_PATH}/share/wasi-sysroot -pthread -I${setjmpInclude}`,
         )
         this.setEnvIfNotExists(
           `LDFLAGS`,

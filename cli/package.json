@@ -69,7 +69,6 @@
   "dependencies": {
     "@napi-rs/cross-toolchain": "^0.0.14",
     "@octokit/rest": "^20.0.2",
-    "@tybys/wasm-util": "0.8.1",
     "clipanion": "^3.2.1",
     "colorette": "^2.0.20",
     "debug": "^4.3.4",
@@ -79,7 +78,8 @@
     "lodash-es": "^4.17.21",
     "semver": "^7.5.4",
     "toml": "^3.0.0",
-    "typanion": "^3.14.0"
+    "typanion": "^3.14.0",
+    "wasm-sjlj": "^1.0.4"
   },
   "devDependencies": {
     "@emnapi/core": "^1.0.0",
