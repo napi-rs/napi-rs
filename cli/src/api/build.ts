@@ -550,11 +550,11 @@ class Builder {
         this.setEnvIfNotExists('RANLIB', join(WASI_SDK_PATH, 'bin', 'ranlib'))
         this.setEnvIfNotExists(
           'CFLAGS',
-          `--target=wasm32-wasi-threads --sysroot=${WASI_SDK_PATH}/share/wasi-sysroot -pthread -I${setjmpInclude}`,
+          `--target=wasm32-wasi-threads --sysroot=${WASI_SDK_PATH}/share/wasi-sysroot -pthread -mllvm -wasm-enable-sjlj -I${setjmpInclude}`,
         )
         this.setEnvIfNotExists(
           'CXXFLAGS',
-          `--target=wasm32-wasi-threads --sysroot=${WASI_SDK_PATH}/share/wasi-sysroot -pthread -I${setjmpInclude}`,
+          `--target=wasm32-wasi-threads --sysroot=${WASI_SDK_PATH}/share/wasi-sysroot -pthread -mllvm -wasm-enable-sjlj -I${setjmpInclude}`,
         )
         this.setEnvIfNotExists(
           `LDFLAGS`,
