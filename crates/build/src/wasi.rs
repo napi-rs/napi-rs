@@ -4,12 +4,8 @@ pub fn setup() {
   let link_dir = env::var("EMNAPI_LINK_DIR").expect("EMNAPI_LINK_DIR must be set");
   println!("cargo:rerun-if-env-changed=EMNAPI_LINK_DIR");
   println!("cargo:rerun-if-env-changed=WASI_REGISTER_TMP_PATH");
-  if let Ok(setjmp_link_dir) = env::var("SETJMP_LINK_DIR") {
-    println!("cargo:rustc-link-search={link_dir}");
-    println!("cargo:rustc-link-search={setjmp_link_dir}");
-  }
+  println!("cargo:rustc-link-search={link_dir}");
   println!("cargo:rustc-link-lib=static=emnapi-basic-mt");
-  println!("cargo:rustc-link-lib=static=setjmp-mt");
   println!("cargo:rustc-link-arg=--export-dynamic");
   println!("cargo:rustc-link-arg=--export=malloc");
   println!("cargo:rustc-link-arg=--export=free");
@@ -26,4 +22,8 @@ pub fn setup() {
   // 0x800000 bytes = 8MiB
   println!("cargo:rustc-link-arg=-zstack-size=0x800000");
   println!("cargo:rustc-link-arg=--no-check-features");
+  if let Ok(setjmp_link_dir) = env::var("SETJMP_LINK_DIR") {
+    println!("cargo:rustc-link-search={setjmp_link_dir}");
+    println!("cargo:rustc-link-lib=static=setjmp-mt");
+  }
 }
