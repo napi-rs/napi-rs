@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.40](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.39...@napi-rs/cli@3.0.0-alpha.40) (2024-02-19)
+
+### Bug Fixes
+
+- **cli,build:** build params ([#1960](https://github.com/napi-rs/napi-rs/issues/1960)) ([ad35076](https://github.com/napi-rs/napi-rs/commit/ad35076d072ddf7e98a1e8e5cc18c87d72f4e5f4))
+
 # [3.0.0-alpha.39](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.38...@napi-rs/cli@3.0.0-alpha.39) (2024-02-18)
 
 ### Bug Fixes
