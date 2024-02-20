@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1708413727168,
+  "lastUpdate": 1708416021912,
   "repoUrl": "https://github.com/napi-rs/napi-rs",
   "entries": {
     "Benchmark": [
@@ -91827,6 +91827,177 @@ window.BENCHMARK_DATA = {
             "range": "±1.76%",
             "unit": "ops/sec",
             "extra": "79 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "29139614+renovate[bot]@users.noreply.github.com",
+            "name": "renovate[bot]",
+            "username": "renovate[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1d93461dcd536e15a203a7ff9738c0063b678f27",
+          "message": "chore(deps): update dependency electron to v29 (#1962)\n\n[![Mend Renovate](https://app.renovatebot.com/images/banner.svg)](https://renovatebot.com)\n\nThis PR contains the following updates:\n\n| Package | Change | Age | Adoption | Passing | Confidence |\n|---|---|---|---|---|---|\n| [electron](https://togithub.com/electron/electron) | [`^28.2.0` -> `^29.0.0`](https://renovatebot.com/diffs/npm/electron/28.2.1/29.0.0) | [![age](https://developer.mend.io/api/mc/badges/age/npm/electron/29.0.0?slim=true)](https://docs.renovatebot.com/merge-confidence/) | [![adoption](https://developer.mend.io/api/mc/badges/adoption/npm/electron/29.0.0?slim=true)](https://docs.renovatebot.com/merge-confidence/) | [![passing](https://developer.mend.io/api/mc/badges/compatibility/npm/electron/28.2.1/29.0.0?slim=true)](https://docs.renovatebot.com/merge-confidence/) | [![confidence](https://developer.mend.io/api/mc/badges/confidence/npm/electron/28.2.1/29.0.0?slim=true)](https://docs.renovatebot.com/merge-confidence/) |\n\n---\n\n### Release Notes\n\n<details>\n<summary>electron/electron (electron)</summary>\n\n### [`v29.0.0`](https://togithub.com/electron/electron/releases/tag/v29.0.0): electron v29.0.0\n\n[Compare Source](https://togithub.com/electron/electron/compare/v28.2.3...v29.0.0)\n\n### Release Notes for v29.0.0\n\n#### Stack Upgrades\n\n-   Chromium `122.0.6261.39`\n    -   [New in 122](https://developer.chrome.com/blog/new-in-chrome-122/)\n    -   [New in 121](https://developer.chrome.com/blog/new-in-chrome-121/)\n-   Node `20.9.0`\n    -   [Node 20.9.0 blog post](https://nodejs.org/en/blog/release/v20.9.0/)\n-   V8 `12.2`\n\n#### Breaking Changes\n\n-   Functions called over the `contextBridge` are now called with the expected receiver (`this`). [#&#8203;39978](https://togithub.com/electron/electron/pull/39978) <span style=\"font-size:small;\">(Also in [27](https://togithub.com/electron/electron/pull/40262), [28](https://togithub.com/electron/electron/pull/40263))</span>\n-   The `gpu-process-crashed` event on `app` has been deprecated. [#&#8203;40169](https://togithub.com/electron/electron/pull/40169) <span style=\"font-size:small;\">(Also in [28](https://togithub.com/electron/electron/pull/40195))</span>\n-   The deprecated `gpu-process-crashed` event on `app` has been removed. [#&#8203;40255](https://togithub.com/electron/electron/pull/40255)\n-   The deprecated `renderer-process-crashed` event on `app` and `crashed` event on `WebContents` and `<webview>` have been removed. [#&#8203;40115](https://togithub.com/electron/electron/pull/40115)\n\n#### Features\n\n##### Additions\n\n-   Added `WebContentsView` and `BaseWindow`, replacing the now-deprecated `BrowserView` APIs. [#&#8203;40759](https://togithub.com/electron/electron/pull/40759)\n-   Added `keyboardLock` to `ses.setPermissionRequestHandler(handler)`. [#&#8203;40369](https://togithub.com/electron/electron/pull/40369) <span style=\"font-size:small;\">(Also in [26](https://togithub.com/electron/electron/pull/40458), [27](https://togithub.com/electron/electron/pull/40459), [28](https://togithub.com/electron/electron/pull/40460))</span>\n-   Added an option in `protocol.registerSchemesAsPrivileged` to allow V8 code cache in custom schemes. [#&#8203;40544](https://togithub.com/electron/electron/pull/40544) <span style=\"font-size:small;\">(Also in [27](https://togithub.com/electron/electron/pull/40708), [28](https://togithub.com/electron/electron/pull/40709))</span>\n-   Added net module to utility process. [#&#8203;40890](https://togithub.com/electron/electron/pull/40890) <span style=\"font-size:small;\">(Also in [27](https://togithub.com/electron/electron/pull/40968), [28](https://togithub.com/electron/electron/pull/40967))</span>\n-   Added new [Electron Fuse](https://www.electronjs.org/docs/latest/tutorial/fuses) that opts the `file://` protocol into more secure and restrictive behaviour that matches Chromium. [#&#8203;40372](https://togithub.com/electron/electron/pull/40372)\n-   Added new `webUtils.getPathForFile` method to replace `File.path` augmentation. [#&#8203;38776](https://togithub.com/electron/electron/pull/38776)\n-   Added support for configuring `use_remote_checksums` via `.npmrc`. [#&#8203;40253](https://togithub.com/electron/electron/pull/40253)\n-   Migrated `app.{set|get}LoginItemSettings(settings)` to use Apple's new recommended underlying framework on macOS. [#&#8203;37244](https://togithub.com/electron/electron/pull/37244)\n-   This PR adds several properties to the `display` object including `detected`, `maximumCursorSize`, and `nativeOrigin`. [#&#8203;40497](https://togithub.com/electron/electron/pull/40497) <span style=\"font-size:small;\">(Also in [28](https://togithub.com/electron/electron/pull/40554))</span>\n\n##### Removed/Deprecated\n\n-   Removed extraneous dlls from Windows zip files. [#&#8203;41129](https://togithub.com/electron/electron/pull/41129) <span style=\"font-size:small;\">(Also in [28](https://togithub.com/electron/electron/pull/41128))</span>\n\n#### Fixes\n\n-   Added support for `ThumbnailCapturerMac` and `ScreenCaptureKitStreamPickerSonoma` chromium feature flags to bypass deprecated API warning on macOS 14.4. [#&#8203;41329](https://togithub.com/electron/electron/pull/41329)\n-   Fixed Electron 29.0.0-beta.3 regression that could pop up context menus in the wrong location. [#&#8203;41296](https://togithub.com/electron/electron/pull/41296)\n-   Fixed an issue where `import.meta.url` did not work in the renderer process with `contextIsolation` enabled. [#&#8203;41265](https://togithub.com/electron/electron/pull/41265)\n-   Fixed an issue where `original-fs` methods were not properly corrected for patched imports. [#&#8203;41238](https://togithub.com/electron/electron/pull/41238)\n-   Fixed an issue where draggable regions didn't work across platforms. [#&#8203;41112](https://togithub.com/electron/electron/pull/41112)\n-   Fixed crash in MessagePort::close. [#&#8203;41237](https://togithub.com/electron/electron/pull/41237)\n-   Fixed the `GrantFileProtocolExtraPrivileges` not correctly preventing `fetch()` calls to `file://` URLs. [#&#8203;40864](https://togithub.com/electron/electron/pull/40864)\n\n##### Also in earlier versions...\n\n-   Apply module search paths restriction on worker and child process. [#&#8203;41138](https://togithub.com/electron/electron/pull/41138) <span style=\"font-size:small;\">(Also in [27](https://togithub.com/electron/electron/pull/41139), [28](https://togithub.com/electron/electron/pull/41137))</span>\n-   Backported fix for AVX related crashes on certain linux machines. [#&#8203;40536](https://togithub.com/electron/electron/pull/40536) <span style=\"font-size:small;\">(Also in [26](https://togithub.com/electron/electron/pull/40540), [27](https://togithub.com/electron/electron/pull/40541), [28](https://togithub.com/electron/electron/pull/40542))</span>\n-   CSS style `-webkit-app-region: drag;` has no effect in full screen mode. [#&#8203;41332](https://togithub.com/electron/electron/pull/41332) <span style=\"font-size:small;\">(Also in [27](https://togithub.com/electron/electron/pull/41331), [28](https://togithub.com/electron/electron/pull/41330))</span>\n-   Fixed \"will-navigate\" not being emitted when pressing links in `chrome:` pages. [#&#8203;40390](https://togithub.com/electron/electron/pull/40390) <span style=\"font-size:small;\">(Also in [27](https://togithub.com/electron/electron/pull/40524), [28](https://togithub.com/electron/electron/pull/40525))</span>\n-   Fixed `session.fromPartition()` key lookup bug. [#&#8203;41084](https://togithub.com/electron/electron/pull/41084) <span style=\"font-size:small;\">(Also in [28](https://togithub.com/electron/electron/pull/41083))</span>\n-   Fixed a crash resultant from trying to listen to power-related events before the `ready` event was emitted on Linux. [#&#8203;40925](https://togithub.com/electron/electron/pull/40925) <span style=\"font-size:small;\">(Also in [26](https://togithub.com/electron/electron/pull/40922), [27](https://togithub.com/electron/electron/pull/40923), [28](https://togithub.com/electron/electron/pull/40924))</span>\n-   Fixed a crash that started occurring sporadically with some types of macOS window close. [#&#8203;41299](https://togithub.com/electron/electron/pull/41299) <span style=\"font-size:small;\">(Also in [28](https://togithub.com/electron/electron/pull/41298))</span>\n-   Fixed a partition alloc ref count check for higher MacOS versions. [#&#8203;40766](https://togithub.com/electron/electron/pull/40766) <span style=\"font-size:small;\">(Also in [28](https://togithub.com/electron/electron/pull/40765))</span>\n-   Fixed a potential `async_hooks` crash when listening for the `restore` event on Windows after minimizing a maximized BrowserWindow. [#&#8203;41146](https://togithub.com/electron/electron/pull/41146) <span style=\"font-size:small;\">(Also in [27](https://togithub.com/electron/electron/pull/41144), [28](https://togithub.com/electron/electron/pull/41145))</span>\n-   Fixed a potential crash when calling `dialog.showMessageBoxSync`. [#&#8203;41043](https://togithub.com/electron/electron/pull/41043) <span style=\"font-size:small;\">(Also in [27](https://togithub.com/electron/electron/pull/41041), [28](https://togithub.com/electron/electron/pull/41042))</span>\n-   Fixed a potential issue with `async_hook` corruption in some error contexts. [#&#8203;40574](https://togithub.com/electron/electron/pull/40574) <span style=\"font-size:small;\">(Also in [26](https://togithub.com/electron/electron/pull/40592), [27](https://togithub.com/electron/electron/pull/40593), [28](https://togithub.com/electron/electron/pull/40594))</span>\n-   Fixed a unexpectedly thrown error in some unsupported chrome extensions. [#&#8203;40500](https://togithub.com/electron/electron/pull/40500) <span style=\"font-size:small;\">(Also in [26](https://togithub.com/electron/electron/pull/40512), [27](https://togithub.com/electron/electron/pull/40513), [28](https://togithub.com/electron/electron/pull/40514))</span>\n-   Fixed an error changing file format in `dialog.showOpenDialog` on macOS. [#&#8203;40308](https://togithub.com/electron/electron/pull/40308) <span style=\"font-size:small;\">(Also in [27](https://togithub.com/electron/electron/pull/40347), [28](https://togithub.com/electron/electron/pull/40346))</span>\n-   Fixed an issue where Request objects did not correctly copy headers into fetches. [#&#8203;41019](https://togithub.com/electron/electron/pull/41019) <span style=\"font-size:small;\">(Also in [28](https://togithub.com/electron/electron/pull/41103))</span>\n-   Fixed an issue where WebViews could sometimes crash on unload. [#&#8203;40400](https://togithub.com/electron/electron/pull/40400) <span style=\"font-size:small;\">(Also in [26](https://togithub.com/electron/electron/pull/40443), [27](https://togithub.com/electron/electron/pull/40444), [28](https://togithub.com/electron/electron/pull/40445))</span>\n-   Fixed an issue where Windows Toast notifications weren't properly dismissed from the Action Center on `notification.close()` if they'd previously been dismissed. [#&#8203;40197](https://togithub.com/electron/electron/pull/40197) <span style=\"font-size:small;\">(Also in [26](https://togithub.com/electron/electron/pull/40242), [27](https://togithub.com/electron/electron/pull/40244), [28](https://togithub.com/electron/electron/pull/40243))</span>\n-   Fixed an issue where `MessagePorts` were not being correctly garbage collected when not referenced. [#&#8203;40189](https://togithub.com/electron/electron/pull/40189) <span style=\"font-size:small;\">(Also in [28](https://togithub.com/electron/electron/pull/40201))</span>\n-   Fixed an issue where `inAppPurchase.getProducts` and `inAppPurchase.purchasedProduct` did not resolve as expected. [#&#8203;40957](https://togithub.com/electron/electron/pull/40957) <span style=\"font-size:small;\">(Also in [27](https://togithub.com/electron/electron/pull/40955), [28](https://togithub.com/electron/electron/pull/40956))</span>\n-   Fixed an issue where `navigator.keyboard.lock()` did not work per [latest expected behavior](https://developer.chrome.com/blog/better-full-screen-mode). [#&#8203;40365](https://togithub.com/electron/electron/pull/40365) <span style=\"font-size:small;\">(Also in [26](https://togithub.com/electron/electron/pull/40387), [27](https://togithub.com/electron/electron/pull/40388), [28](https://togithub.com/electron/electron/pull/40389))</span>\n-   Fixed an issue where `select-usb-device` did not respect the `filter` option in `navigator.usb.requestDevice()`. [#&#8203;41197](https://togithub.com/electron/electron/pull/41197) <span style=\"font-size:small;\">(Also in [27](https://togithub.com/electron/electron/pull/41196), [28](https://togithub.com/electron/electron/pull/41198))</span>\n-   Fixed an issue where `webContents.printToPDF` could fail when certain combinations of `margins` and `pageSize` values are passed. [#&#8203;41266](https://togithub.com/electron/electron/pull/41266) <span style=\"font-size:small;\">(Also in [28](https://togithub.com/electron/electron/pull/41267))</span>\n-   Fixed an issue where crashes in `node::Environment` destruction potentially wouldn't be propagated to the ` \n    Service ` exit handler. [#&#8203;41301](https://togithub.com/electron/electron/pull/41301) <span style=\"font-size:small;\">(Also in [27](https://togithub.com/electron/electron/pull/41300), [28](https://togithub.com/electron/electron/pull/41302))</span>\n-   Fixed an issue where devtools could not be re-opened. [#&#8203;40666](https://togithub.com/electron/electron/pull/40666) <span style=\"font-size:small;\">(Also in [28](https://togithub.com/electron/electron/pull/40679))</span>\n-   Fixed an issue where font requests were incorrectly being sent to dev tools multiple times per resource. [#&#8203;40681](https://togithub.com/electron/electron/pull/40681) <span style=\"font-size:small;\">(Also in [27](https://togithub.com/electron/electron/pull/40715), [28](https://togithub.com/electron/electron/pull/40688))</span>\n-   Fixed an issue where fully occluded windows would return an empty image from `webContents.capturePage()` on Windows and Linux. [#&#8203;39730](https://togithub.com/electron/electron/pull/39730) <span style=\"font-size:small;\">(Also in [25](https://togithub.com/electron/electron/pull/40186), [26](https://togithub.com/electron/electron/pull/40187), [27](https://togithub.com/electron/electron/pull/40188), [28](https://togithub.com/electron/electron/pull/40185))</span>\n-   Fixed an issue where non-modal windows with vibrancy could have incorrectly rounded corners on Sonoma. [#&#8203;41037](https://togithub.com/electron/electron/pull/41037) <span style=\"font-size:small;\">(Also in [27](https://togithub.com/electron/electron/pull/41035), [28](https://togithub.com/electron/electron/pull/41036))</span>\n-   Fixed an issue where the `printBackground` option in `webContents.printToPDF` did not work as expected. [#&#8203;41180](https://togithub.com/electron/electron/pull/41180) <span style=\"font-size:small;\">(Also in [28](https://togithub.com/electron/electron/pull/41179))</span>\n-   Fixed an issue where zoom level settings did not persist per-session for webviews. [#&#8203;40650](https://togithub.com/electron/electron/pull/40650) <span style=\"font-size:small;\">(Also in [27](https://togithub.com/electron/electron/pull/41269), [28](https://togithub.com/electron/electron/pull/41268))</span>\n-   Fixed an issue with webContents interaction with fullscreen and WCO on macOS. [#&#8203;40179](https://togithub.com/electron/electron/pull/40179) <span style=\"font-size:small;\">(Also in [25](https://togithub.com/electron/electron/pull/40220), [26](https://togithub.com/electron/electron/pull/40218), [27](https://togithub.com/electron/electron/pull/40217), [28](https://togithub.com/electron/electron/pull/40219))</span>\n-   Fixed app incorrectly activating panel windows on macOS Sonoma. [#&#8203;40307](https://togithub.com/electron/electron/pull/40307) <span style=\"font-size:small;\">(Also in [28](https://togithub.com/electron/electron/pull/40465))</span>\n-   Fixed child window opening in non-active macOS apps. [#&#8203;40546](https://togithub.com/electron/electron/pull/40546) <span style=\"font-size:small;\">(Also in [26](https://togithub.com/electron/electron/pull/40657), [27](https://togithub.com/electron/electron/pull/40658), [28](https://togithub.com/electron/electron/pull/40659))</span>\n-   Fixed default protocol handler behavior on Windows. [#&#8203;40908](https://togithub.com/electron/electron/pull/40908) <span style=\"font-size:small;\">(Also in [28](https://togithub.com/electron/electron/pull/40909))</span>\n-   Fixed file paths passed to `shell.showItemInFolder` not being escaped in Linux. [#&#8203;40527](https://togithub.com/electron/electron/pull/40527) <span style=\"font-size:small;\">(Also in [26](https://togithub.com/electron/electron/pull/40560), [27](https://togithub.com/electron/electron/pull/40561), [28](https://togithub.com/electron/electron/pull/40562))</span>\n-   Fixed forked child process not able to send IPC message under some cases on macOS. [#&#8203;41102](https://togithub.com/electron/electron/pull/41102) <span style=\"font-size:small;\">(Also in [26](https://togithub.com/electron/electron/pull/41099), [27](https://togithub.com/electron/electron/pull/41100), [28](https://togithub.com/electron/electron/pull/41101))</span>\n-   Fixed incorrect title bar shown on frameless transparent windows. [#&#8203;40862](https://togithub.com/electron/electron/pull/40862) <span style=\"font-size:small;\">(Also in [27](https://togithub.com/electron/electron/pull/40868), [28](https://togithub.com/electron/electron/pull/40867))</span>\n-   Fixed loading nested ESM dependencies in `node_modules`\n    -   Correctly support the `throwIfNoEntry` option in `fs.statSync`/`fs.lstatSync` in asar files. [#&#8203;40221](https://togithub.com/electron/electron/pull/40221) <span style=\"font-size:small;\">(Also in [28](https://togithub.com/electron/electron/pull/40224))</span>\n-   Fixed macOS bug that causes window maximize button to be disabled in full-screen mode. [#&#8203;41029](https://togithub.com/electron/electron/pull/41029) <span style=\"font-size:small;\">(Also in [27](https://togithub.com/electron/electron/pull/41027), [28](https://togithub.com/electron/electron/pull/41028))</span>\n-   Fixed on-screen-keyboard not hiding for webviews under some cases. [#&#8203;41149](https://togithub.com/electron/electron/pull/41149) <span style=\"font-size:small;\">(Also in [27](https://togithub.com/electron/electron/pull/41151), [28](https://togithub.com/electron/electron/pull/41150))</span>\n-   Fixed problem with bounds of maximized window when  toggle BrowserWindow.setResizable function. [#&#8203;40503](https://togithub.com/electron/electron/pull/40503) <span style=\"font-size:small;\">(Also in [26](https://togithub.com/electron/electron/pull/40580), [27](https://togithub.com/electron/electron/pull/40581), [28](https://togithub.com/electron/electron/pull/40582))</span>\n-   Fixed resizing performance issue on macOS. [#&#8203;40577](https://togithub.com/electron/electron/pull/40577) <span style=\"font-size:small;\">(Also in [26](https://togithub.com/electron/electron/pull/40584), [27](https://togithub.com/electron/electron/pull/40585), [28](https://togithub.com/electron/electron/pull/40586))</span>\n-   Fixed some redundant permission dialogs while screen sharing on Wayland. [#&#8203;40098](https://togithub.com/electron/electron/pull/40098) <span style=\"font-size:small;\">(Also in [26](https://togithub.com/electron/electron/pull/40191), [27](https://togithub.com/electron/electron/pull/40193), [28](https://togithub.com/electron/electron/pull/40192))</span>\n-   Fixed the enabled/disabled behavior of the maximize/fullscreen button of macOS windows. [#&#8203;40897](https://togithub.com/electron/electron/pull/40897) <span style=\"font-size:small;\">(Also in [27](https://togithub.com/electron/electron/pull/40895), [28](https://togithub.com/electron/electron/pull/40896))</span>\n-   Prevent node mode to be used as script runner by other apps on macOS. [#&#8203;40579](https://togithub.com/electron/electron/pull/40579) <span style=\"font-size:small;\">(Also in [26](https://togithub.com/electron/electron/pull/40738), [27](https://togithub.com/electron/electron/pull/40737), [28](https://togithub.com/electron/electron/pull/40710))</span>\n-   Unset all Node envs in node process when parent is a foreign process. [#&#8203;40881](https://togithub.com/electron/electron/pull/40881) <span style=\"font-size:small;\">(Also in [26](https://togithub.com/electron/electron/pull/40882), [27](https://togithub.com/electron/electron/pull/40879), [28](https://togithub.com/electron/electron/pull/40880))</span>\n-   Use `activateIgnoringOtherApps` for focusing non-panels on macOS. [#&#8203;40570](https://togithub.com/electron/electron/pull/40570) <span style=\"font-size:small;\">(Also in [28](https://togithub.com/electron/electron/pull/40621))</span>\n\n#### Other Changes\n\n-   Re-enabled partition alloc on Mac. [#&#8203;33981](https://togithub.com/electron/electron/pull/33981) <span style=\"font-size:small;\">(Also in [28](https://togithub.com/electron/electron/pull/40230))</span>\n-   Reverted new WebContentsView and BaseWindow APIs. [#&#8203;41060](https://togithub.com/electron/electron/pull/41060)\n-   Security: backported fix for chromium:1517354. [#&#8203;40969](https://togithub.com/electron/electron/pull/40969)\n\n#### Notices\n\n##### End of Support for 26.x.y\n\nElectron 26.x.y has reached end-of-support as per the project's [support policy](https://www.electronjs.org/docs/latest/tutorial/electron-timelines#version-support-policy). Developers and applications are encouraged to upgrade to a newer version of Electron.\n\n### [`v28.2.3`](https://togithub.com/electron/electron/releases/tag/v28.2.3): electron v28.2.3\n\n[Compare Source](https://togithub.com/electron/electron/compare/v28.2.2...v28.2.3)\n\n### Release Notes for v28.2.3\n\n#### Fixes\n\n-   Fixed a crash that started occurring sporadically with some types of macOS window close. [#&#8203;41298](https://togithub.com/electron/electron/pull/41298) <span style=\"font-size:small;\">(Also in [29](https://togithub.com/electron/electron/pull/41299))</span>\n-   Fixed an issue where `webContents.printToPDF` could fail when certain combinations of `margins` and `pageSize` values are passed. [#&#8203;41267](https://togithub.com/electron/electron/pull/41267) <span style=\"font-size:small;\">(Also in [29](https://togithub.com/electron/electron/pull/41266))</span>\n-   Fixed an issue where crashes in `node::Environment` destruction potentially wouldn't be propagated to the `NodeService` exit handler. [#&#8203;41302](https://togithub.com/electron/electron/pull/41302) <span style=\"font-size:small;\">(Also in [27](https://togithub.com/electron/electron/pull/41300), [29](https://togithub.com/electron/electron/pull/41301))</span>\n-   Fixed an issue where zoom level settings did not persist per-session for webviews. [#&#8203;41268](https://togithub.com/electron/electron/pull/41268) <span style=\"font-size:small;\">(Also in [27](https://togithub.com/electron/electron/pull/41269))</span>\n\n#### Other Changes\n\n-   Updated Chromium to 120.0.6099.283. [#&#8203;41262](https://togithub.com/electron/electron/pull/41262)\n\n### [`v28.2.2`](https://togithub.com/electron/electron/releases/tag/v28.2.2): electron v28.2.2\n\n[Compare Source](https://togithub.com/electron/electron/compare/v28.2.1...v28.2.2)\n\n### Release Notes for v28.2.2\n\n#### Fixes\n\n-   Fixed an issue where `select-usb-device` did not respect the `filter` option in `navigator.usb.requestDevice()`. [#&#8203;41198](https://togithub.com/electron/electron/pull/41198) <span style=\"font-size:small;\">(Also in [27](https://togithub.com/electron/electron/pull/41196), [29](https://togithub.com/electron/electron/pull/41197))</span>\n\n#### Other Changes\n\n-   Security: backported fix for [`1511567`](https://togithub.com/electron/electron/commit/1511567).\n    -   Security: backported fix for [`1514777`](https://togithub.com/electron/electron/commit/1514777).\n    -   Security: backported fix for [`1511085`](https://togithub.com/electron/electron/commit/1511085).\n    -   Security: backported fix for [`1519980`](https://togithub.com/electron/electron/commit/1519980). [#&#8203;41178](https://togithub.com/electron/electron/pull/41178)\n-   Updated Chromium to 120.0.6099.276. [#&#8203;41195](https://togithub.com/electron/electron/pull/41195)\n\n</details>\n\n---\n\n### Configuration\n\n📅 **Schedule**: Branch creation - At any time (no schedule defined), Automerge - At any time (no schedule defined).\n\n🚦 **Automerge**: Disabled by config. Please merge this manually once you are satisfied.\n\n♻ **Rebasing**: Whenever PR becomes conflicted, or you tick the rebase/retry checkbox.\n\n🔕 **Ignore**: Close this PR and you won't be reminded about this update again.\n\n---\n\n - [ ] <!-- rebase-check -->If you want to rebase/retry this PR, check this box\n\n---\n\nThis PR has been generated by [Mend Renovate](https://www.mend.io/free-developer-tools/renovate/). View repository job log [here](https://developer.mend.io/github/napi-rs/napi-rs).\n<!--renovate-debug:eyJjcmVhdGVkSW5WZXIiOiIzNy4yMDAuMCIsInVwZGF0ZWRJblZlciI6IjM3LjIwMC4wIiwidGFyZ2V0QnJhbmNoIjoibWFpbiJ9-->",
+          "timestamp": "2024-02-20T15:57:17+08:00",
+          "tree_id": "f0c034af2f0b09accf30f47b47d7cb34cb6546ce",
+          "url": "https://github.com/napi-rs/napi-rs/commit/1d93461dcd536e15a203a7ff9738c0063b678f27"
+        },
+        "date": 1708416019239,
+        "tool": "benchmarkjs",
+        "benches": [
+          {
+            "name": "noop#napi-rs",
+            "value": 85723251,
+            "range": "±1.24%",
+            "unit": "ops/sec",
+            "extra": "97 samples"
+          },
+          {
+            "name": "noop#JavaScript",
+            "value": 821571702,
+            "range": "±0.12%",
+            "unit": "ops/sec",
+            "extra": "95 samples"
+          },
+          {
+            "name": "Plus number#napi-rs",
+            "value": 20349673,
+            "range": "±0.66%",
+            "unit": "ops/sec",
+            "extra": "98 samples"
+          },
+          {
+            "name": "Plus number#JavaScript",
+            "value": 821345482,
+            "range": "±0.09%",
+            "unit": "ops/sec",
+            "extra": "94 samples"
+          },
+          {
+            "name": "Create buffer#napi-rs",
+            "value": 650212,
+            "range": "±12.4%",
+            "unit": "ops/sec",
+            "extra": "67 samples"
+          },
+          {
+            "name": "Create buffer#JavaScript",
+            "value": 3471567,
+            "range": "±2.67%",
+            "unit": "ops/sec",
+            "extra": "73 samples"
+          },
+          {
+            "name": "createArray#createArrayJson",
+            "value": 54909,
+            "range": "±0.21%",
+            "unit": "ops/sec",
+            "extra": "97 samples"
+          },
+          {
+            "name": "createArray#create array for loop",
+            "value": 10165,
+            "range": "±0.61%",
+            "unit": "ops/sec",
+            "extra": "99 samples"
+          },
+          {
+            "name": "createArray#create array with serde trait",
+            "value": 10147,
+            "range": "±0.11%",
+            "unit": "ops/sec",
+            "extra": "99 samples"
+          },
+          {
+            "name": "getArrayFromJs#get array from json string",
+            "value": 23963,
+            "range": "±0.38%",
+            "unit": "ops/sec",
+            "extra": "96 samples"
+          },
+          {
+            "name": "getArrayFromJs#get array from serde",
+            "value": 13521,
+            "range": "±0.27%",
+            "unit": "ops/sec",
+            "extra": "97 samples"
+          },
+          {
+            "name": "getArrayFromJs#get array with for loop",
+            "value": 16272,
+            "range": "±0.36%",
+            "unit": "ops/sec",
+            "extra": "97 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from native#u32",
+            "value": 585737,
+            "range": "±8.33%",
+            "unit": "ops/sec",
+            "extra": "74 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from JavaScript#u32",
+            "value": 549363,
+            "range": "±2.26%",
+            "unit": "ops/sec",
+            "extra": "89 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from native#string",
+            "value": 566911,
+            "range": "±10.7%",
+            "unit": "ops/sec",
+            "extra": "88 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from JavaScript#string",
+            "value": 514301,
+            "range": "±1.9%",
+            "unit": "ops/sec",
+            "extra": "92 samples"
+          },
+          {
+            "name": "Async task#spawn task",
+            "value": 27014,
+            "range": "±0.84%",
+            "unit": "ops/sec",
+            "extra": "84 samples"
+          },
+          {
+            "name": "Async task#ThreadSafeFunction",
+            "value": 9211,
+            "range": "±1.14%",
+            "unit": "ops/sec",
+            "extra": "84 samples"
+          },
+          {
+            "name": "Async task#Tokio future to Promise",
+            "value": 33690,
+            "range": "±1.1%",
+            "unit": "ops/sec",
+            "extra": "79 samples"
+          },
+          {
+            "name": "Query#query * 100",
+            "value": 3973,
+            "range": "±0.35%",
+            "unit": "ops/sec",
+            "extra": "88 samples"
+          },
+          {
+            "name": "Query#query * 1",
+            "value": 28057,
+            "range": "±1.69%",
+            "unit": "ops/sec",
+            "extra": "82 samples"
           }
         ]
       }
