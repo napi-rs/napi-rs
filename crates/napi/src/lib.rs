@@ -34,14 +34,6 @@
 //! }
 //! ```
 //!
-//! ***Tokio channel in `napi-rs` buffer size is default `100`.***
-//!
-//! ***You can adjust it via `NAPI_RS_TOKIO_CHANNEL_BUFFER_SIZE` environment variable***
-//!
-//! ```
-//! NAPI_RS_TOKIO_CHANNEL_BUFFER_SIZE=1000 node ./app.js
-//! ```
-//!
 //! ### latin1
 //!
 //! Decode latin1 string from JavaScript using [encoding_rs](https://docs.rs/encoding_rs).
