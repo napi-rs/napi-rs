@@ -619,10 +619,19 @@ extern "C" fn custom_gc(
   if THREADS_CAN_ACCESS_ENV.borrow_mut(|m| m.get(&std::thread::current().id()) == Some(&false)) {
     return;
   }
-  let mut reference = 0;
+  let mut ref_count = 0;
   check_status_or_throw!(
     env,
-    unsafe { sys::napi_reference_unref(env, data.cast(), &mut reference) },
+    unsafe { sys::napi_reference_unref(env, data.cast(), &mut ref_count) },
+    "Failed to unref Buffer reference in Custom GC"
+  );
+  debug_assert!(
+    ref_count == 0,
+    "Buffer reference count in Custom GC is not 0"
+  );
+  check_status_or_throw!(
+    env,
+    unsafe { sys::napi_delete_reference(env, data.cast()) },
     "Failed to delete Buffer reference in Custom GC"
   );
 }
