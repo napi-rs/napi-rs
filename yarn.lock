@@ -2343,6 +2343,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@types/node@npm:^20.9.0":
+  version: 20.11.19
+  resolution: "@types/node@npm:20.11.19"
+  dependencies:
+    undici-types: "npm:~5.26.4"
+  checksum: 10c0/f451ef0a1d78f29c57bad7b77e49ebec945f2a6d0d7a89851d7e185ee9fe7ad94d651c0dfbcb7858c9fa791310c8b40a881e2260f56bd3c1b7e7ae92723373ae
+  languageName: node
+  linkType: hard
+
 "@types/normalize-package-data@npm:^2.4.0":
   version: 2.4.4
   resolution: "@types/normalize-package-data@npm:2.4.4"
@@ -5111,6 +5120,19 @@ __metadata:
   bin:
     electron: cli.js
   checksum: 10c0/e873fd8fe94599744f0f4fc218047e6c629ea7cd34c43e76c1c880cf562a9012453b2ada005132292816c37bfa5aafb78c57623fe4c55cc4550dfbd0c398b373
+  languageName: node
+  linkType: hard
+
+"electron@npm:^29.0.0":
+  version: 29.0.0
+  resolution: "electron@npm:29.0.0"
+  dependencies:
+    "@electron/get": "npm:^2.0.0"
+    "@types/node": "npm:^20.9.0"
+    extract-zip: "npm:^2.0.1"
+  bin:
+    electron: cli.js
+  checksum: 10c0/0af7ae45225ad117130e43cbd08db3e5f42aed2a74ee329b4a65df63728793d3d7322c2db7eaffbbfa198aa1d092012bd07414fbb305e00bdf3a2762ce7bd043
   languageName: node
   linkType: hard
 
@@ -8947,7 +8969,7 @@ __metadata:
     bun-types: "npm:^1.0.25"
     c8: "npm:^9.1.0"
     cross-env: "npm:^7.0.3"
-    electron: "npm:^28.2.0"
+    electron: "npm:^29.0.0"
     esbuild: "npm:^0.20.0"
     eslint: "npm:^8.56.0"
     eslint-config-prettier: "npm:^9.1.0"
