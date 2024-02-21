@@ -318,11 +318,11 @@ switch (platform) {
         }
         break
       default:
-        throw new Error(\`Unsupported architecture on Linux: \${arch}\`)
+        loadError = new Error(\`Unsupported architecture on Linux: \${arch}\`)
     }
     break
   default:
-    throw new Error(\`Unsupported OS: \${platform}, architecture: \${arch}\`)
+    loadError = new Error(\`Unsupported OS: \${platform}, architecture: \${arch}\`)
 }
 
 if (!nativeBinding || process.env.NAPI_RS_FORCE_WASI) {
