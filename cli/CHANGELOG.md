@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.41](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.40...@napi-rs/cli@3.0.0-alpha.41) (2024-02-22)
+
+### Bug Fixes
+
+- **cli:** allow more platform & arch fallback to wasm ([#1969](https://github.com/napi-rs/napi-rs/issues/1969)) ([da99081](https://github.com/napi-rs/napi-rs/commit/da99081ccf8dda6d0788dd4a466cf6b1eb7ba10b))
+- **cli:** fallback to wasm32 if platform is not support ([#1967](https://github.com/napi-rs/napi-rs/issues/1967)) ([0306e30](https://github.com/napi-rs/napi-rs/commit/0306e3045a0891f280cb7154fd9637ed2eb78f0d))
+
 # [3.0.0-alpha.40](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.39...@napi-rs/cli@3.0.0-alpha.40) (2024-02-19)
 
 ### Bug Fixes
