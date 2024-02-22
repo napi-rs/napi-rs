@@ -37,7 +37,7 @@ impl JsObject {
   where
     T: 'static,
     Hint: 'static,
-    F: FnOnce(FinalizeContext<T, Hint>),
+    F: FnOnce(FinalizeContext<T, Hint>) + 'static,
   {
     let mut maybe_ref = ptr::null_mut();
     let wrap_context = Box::leak(Box::new((native, finalize_cb, ptr::null_mut())));
