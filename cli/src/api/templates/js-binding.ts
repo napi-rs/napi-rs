@@ -93,7 +93,7 @@ switch (platform) {
         }
         break
       default:
-        throw new Error(\`Unsupported architecture on Android \${arch}\`)
+        loadError = new Error(\`Unsupported architecture on Android \${arch}\`)
     }
     break
   case 'win32':
@@ -141,7 +141,7 @@ switch (platform) {
         }
         break
       default:
-        throw new Error(\`Unsupported architecture on Windows: \${arch}\`)
+        loadError = new Error(\`Unsupported architecture on Windows: \${arch}\`)
     }
     break
   case 'darwin':
@@ -182,22 +182,37 @@ switch (platform) {
         }
         break
       default:
-        throw new Error(\`Unsupported architecture on macOS: \${arch}\`)
+        loadError = new Error(\`Unsupported architecture on macOS: \${arch}\`)
     }
     break
   case 'freebsd':
-    if (arch !== 'x64') {
-      throw new Error(\`Unsupported architecture on FreeBSD: \${arch}\`)
-    }
-    localFileExisted = existsSync(join(__dirname, '${localName}.freebsd-x64.node'))
-    try {
-      if (localFileExisted) {
-        nativeBinding = require('./${localName}.freebsd-x64.node')
-      } else {
-        nativeBinding = require('${pkgName}-freebsd-x64')
-      }
-    } catch (e) {
-      loadError = e
+    switch (arch) {
+      case 'x64':
+        localFileExisted = existsSync(join(__dirname, '${localName}.freebsd-x64.node'))
+        try {
+          if (localFileExisted) {
+            nativeBinding = require('./${localName}.freebsd-x64.node')
+          } else {
+            nativeBinding = require('${pkgName}-freebsd-x64')
+          }
+        } catch (e) {
+          loadError = e
+        }
+        break
+      case 'arm64':
+        localFileExisted = existsSync(join(__dirname, '${localName}.freebsd-arm64.node'))
+        try {
+          if (localFileExisted) {
+            nativeBinding = require('./${localName}.freebsd-arm64.node')
+          } else {
+            nativeBinding = require('${pkgName}-freebsd-arm64')
+          }
+        } catch (e) {
+          loadError = e
+        }
+        break
+      default:
+        loadError = new Error(\`Unsupported architecture on FreeBSD: \${arch}\`)
     }
     break
   case 'linux':
