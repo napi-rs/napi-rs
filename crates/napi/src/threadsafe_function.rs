@@ -494,9 +494,9 @@ impl<T: 'static> ThreadsafeFunction<T, ErrorStrategy::CalleeHandled> {
                 callback: Box::new(move |d: Result<JsUnknown>| {
                   sender
                     .send(d.and_then(|d| D::from_napi_value(d.0.env, d.0.value)))
-                    .map_err(|_| {
-                      crate::Error::from_reason("Failed to send return value to tokio sender")
-                    })
+                    // The only reason for send to return Err is if the receiver isn't listening
+                    // Not hiding the error would result in a napi_fatal_error call, it's safe to ignore it instead.
+                    .or(Ok(()))
                 }),
               }
             })))
@@ -591,9 +591,11 @@ impl<T: 'static> ThreadsafeFunction<T, ErrorStrategy::Fatal> {
             callback: Box::new(move |d: Result<JsUnknown>| {
               d.and_then(|d| {
                 D::from_napi_value(d.0.env, d.0.value).and_then(move |d| {
-                  sender.send(d).map_err(|_| {
-                    crate::Error::from_reason("Failed to send return value to tokio sender")
-                  })
+                  sender
+                    .send(d)
+                    // The only reason for send to return Err is if the receiver isn't listening
+                    // Not hiding the error would result in a napi_fatal_error call, it's safe to ignore it instead.
+                    .or(Ok(()))
                 })
               })
             }),
