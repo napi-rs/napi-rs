@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1708591580971,
+  "lastUpdate": 1708594634028,
   "repoUrl": "https://github.com/napi-rs/napi-rs",
   "entries": {
     "Benchmark": [
@@ -93024,6 +93024,177 @@ window.BENCHMARK_DATA = {
             "range": "±1.3%",
             "unit": "ops/sec",
             "extra": "80 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "lbarthonet@cloudflare.com",
+            "name": "Louis",
+            "username": "lbarthon"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5b5f616d81ff2f0e154ff8b1e1edee1dfc087eb4",
+          "message": "fix(napi): no hard fail on ThreadsafeFunction::call_async (#1970)\n\nFor many reasons, in an app we can end up in a scenario where the thread / task that initially called the ThreadsafeFunction gets interrupted. This means that the receiver would get collected, should a ThreadsafeFunction be awaited on the said thread. This will create an error when the ThreadsafeFunction's callback will be called, and call a napi_fatal_error.\r\n\r\nThis change makes it so that if the send errors, this error is hidden and thus prevents any hard failure. If a ThreadsafeFunction is called in such a case, its output won't be used, but we'll still run all the logic to ensure it ran properly.\r\n\r\nFixes https://github.com/napi-rs/napi-rs/issues/1665 - cc @Brooooooklyn",
+          "timestamp": "2024-02-22T17:34:10+08:00",
+          "tree_id": "84868606376790b2579a386f2aeb225d42e08704",
+          "url": "https://github.com/napi-rs/napi-rs/commit/5b5f616d81ff2f0e154ff8b1e1edee1dfc087eb4"
+        },
+        "date": 1708594631220,
+        "tool": "benchmarkjs",
+        "benches": [
+          {
+            "name": "noop#napi-rs",
+            "value": 85297494,
+            "range": "±0.36%",
+            "unit": "ops/sec",
+            "extra": "90 samples"
+          },
+          {
+            "name": "noop#JavaScript",
+            "value": 823592142,
+            "range": "±0.23%",
+            "unit": "ops/sec",
+            "extra": "90 samples"
+          },
+          {
+            "name": "Plus number#napi-rs",
+            "value": 19934013,
+            "range": "±0.3%",
+            "unit": "ops/sec",
+            "extra": "92 samples"
+          },
+          {
+            "name": "Plus number#JavaScript",
+            "value": 819430399,
+            "range": "±0.11%",
+            "unit": "ops/sec",
+            "extra": "94 samples"
+          },
+          {
+            "name": "Create buffer#napi-rs",
+            "value": 661507,
+            "range": "±12.87%",
+            "unit": "ops/sec",
+            "extra": "69 samples"
+          },
+          {
+            "name": "Create buffer#JavaScript",
+            "value": 3072275,
+            "range": "±3.22%",
+            "unit": "ops/sec",
+            "extra": "73 samples"
+          },
+          {
+            "name": "createArray#createArrayJson",
+            "value": 55713,
+            "range": "±0.48%",
+            "unit": "ops/sec",
+            "extra": "94 samples"
+          },
+          {
+            "name": "createArray#create array for loop",
+            "value": 9697,
+            "range": "±0.49%",
+            "unit": "ops/sec",
+            "extra": "91 samples"
+          },
+          {
+            "name": "createArray#create array with serde trait",
+            "value": 9817,
+            "range": "±0.62%",
+            "unit": "ops/sec",
+            "extra": "93 samples"
+          },
+          {
+            "name": "getArrayFromJs#get array from json string",
+            "value": 24576,
+            "range": "±0.66%",
+            "unit": "ops/sec",
+            "extra": "91 samples"
+          },
+          {
+            "name": "getArrayFromJs#get array from serde",
+            "value": 13680,
+            "range": "±0.5%",
+            "unit": "ops/sec",
+            "extra": "93 samples"
+          },
+          {
+            "name": "getArrayFromJs#get array with for loop",
+            "value": 16178,
+            "range": "±0.5%",
+            "unit": "ops/sec",
+            "extra": "89 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from native#u32",
+            "value": 584028,
+            "range": "±11.53%",
+            "unit": "ops/sec",
+            "extra": "75 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from JavaScript#u32",
+            "value": 522562,
+            "range": "±10.32%",
+            "unit": "ops/sec",
+            "extra": "87 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from native#string",
+            "value": 602548,
+            "range": "±1.59%",
+            "unit": "ops/sec",
+            "extra": "86 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from JavaScript#string",
+            "value": 523050,
+            "range": "±1.84%",
+            "unit": "ops/sec",
+            "extra": "87 samples"
+          },
+          {
+            "name": "Async task#spawn task",
+            "value": 27373,
+            "range": "±0.47%",
+            "unit": "ops/sec",
+            "extra": "84 samples"
+          },
+          {
+            "name": "Async task#ThreadSafeFunction",
+            "value": 9526,
+            "range": "±1.15%",
+            "unit": "ops/sec",
+            "extra": "84 samples"
+          },
+          {
+            "name": "Async task#Tokio future to Promise",
+            "value": 33854,
+            "range": "±0.6%",
+            "unit": "ops/sec",
+            "extra": "81 samples"
+          },
+          {
+            "name": "Query#query * 100",
+            "value": 3967,
+            "range": "±1.3%",
+            "unit": "ops/sec",
+            "extra": "86 samples"
+          },
+          {
+            "name": "Query#query * 1",
+            "value": 28497,
+            "range": "±1.42%",
+            "unit": "ops/sec",
+            "extra": "79 samples"
           }
         ]
       }
