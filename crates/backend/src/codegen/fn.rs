@@ -272,11 +272,6 @@ impl NapiFn {
                           });
                           skipped_arg_count += 1;
                           continue;
-                        } else {
-                          bail_span!(
-                            p,
-                            "The `T` of Reference<T> type must be the same as the class type"
-                          )
                         }
                       }
                     }

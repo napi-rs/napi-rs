@@ -2,8 +2,10 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::ops::{Deref, DerefMut};
+use std::ptr;
 use std::rc::{Rc, Weak};
 
+use crate::bindgen_prelude::FromNapiValue;
 use crate::{bindgen_runtime::ToNapiValue, check_status, Env, Error, Result, Status};
 
 type RefInformation = (
@@ -94,12 +96,27 @@ impl<T: 'static> Reference<T> {
 
 impl<T: 'static> ToNapiValue for Reference<T> {
   unsafe fn to_napi_value(env: crate::sys::napi_env, val: Self) -> Result<crate::sys::napi_value> {
-    let mut result = std::ptr::null_mut();
+    let mut result = ptr::null_mut();
     check_status!(
       unsafe { crate::sys::napi_get_reference_value(env, val.napi_ref, &mut result) },
       "Failed to get reference value"
     )?;
     Ok(result)
+  }
+}
+
+impl<T: 'static> FromNapiValue for Reference<T> {
+  unsafe fn from_napi_value(
+    env: crate::sys::napi_env,
+    napi_val: crate::sys::napi_value,
+  ) -> Result<Self> {
+    let mut value = ptr::null_mut();
+    check_status!(
+      unsafe { crate::sys::napi_unwrap(env, napi_val, &mut value) },
+      "Unwrap value [{}] from class Reference failed",
+      std::any::type_name::<T>(),
+    )?;
+    unsafe { Reference::from_value_ptr(value.cast(), env) }
   }
 }
 
@@ -188,7 +205,7 @@ impl<T: 'static> ToNapiValue for WeakReference<T> {
         ),
       ));
     };
-    let mut result = std::ptr::null_mut();
+    let mut result = ptr::null_mut();
     check_status!(
       unsafe { crate::sys::napi_get_reference_value(env, val.napi_ref, &mut result) },
       "Failed to get reference value"
@@ -276,7 +293,7 @@ impl<T: 'static, S: 'static> SharedReference<T, S> {
 
 impl<T: 'static, S: 'static> ToNapiValue for SharedReference<T, S> {
   unsafe fn to_napi_value(env: crate::sys::napi_env, val: Self) -> Result<crate::sys::napi_value> {
-    let mut result = std::ptr::null_mut();
+    let mut result = ptr::null_mut();
     check_status!(
       unsafe { crate::sys::napi_get_reference_value(env, val.owner.napi_ref, &mut result) },
       "Failed to get reference value"

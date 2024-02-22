@@ -164,6 +164,7 @@ export class JsClassForEither {
 }
 
 export class JsRemote {
+  constructor(repo: JsRepo)
   name(): string
 }
 

@@ -134,6 +134,7 @@ const {
   bufferPassThrough,
   arrayBufferPassThrough,
   JsRepo,
+  JsRemote,
   CssStyleSheet,
   CatchOnConstructor,
   CatchOnConstructor2,
@@ -409,6 +410,7 @@ test('custom finalize class', (t) => {
 test('should be able to create object reference and shared reference', (t) => {
   const repo = new JsRepo('.')
   t.is(repo.remote().name(), 'origin')
+  t.is(new JsRemote(repo).name(), 'origin')
 })
 
 test('should be able to into_reference', (t) => {

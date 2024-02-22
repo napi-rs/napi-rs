@@ -51,6 +51,13 @@ pub struct JsRemote {
 
 #[napi]
 impl JsRemote {
+  #[napi(constructor)]
+  pub fn new(repo: Reference<JsRepo>, env: Env) -> Result<Self> {
+    Ok(Self {
+      inner: repo.share_with(env, |repo| Ok(repo.inner.remote()))?,
+    })
+  }
+
   #[napi]
   pub fn name(&self) -> String {
     self.inner.name()

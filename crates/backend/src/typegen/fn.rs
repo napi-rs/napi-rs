@@ -141,7 +141,24 @@ impl NapiFn {
             if let syn::Type::Path(path) = path.ty.as_ref() {
               if let Some(PathSegment { ident, arguments }) = path.path.segments.last() {
                 if ident == "Reference" || ident == "WeakReference" {
-                  return None;
+                  if let Some(parent) = &self.parent {
+                    if let PathArguments::AngleBracketed(syn::AngleBracketedGenericArguments {
+                      args: angle_bracketed_args,
+                      ..
+                    }) = arguments
+                    {
+                      if let Some(syn::GenericArgument::Type(ty)) = angle_bracketed_args.first() {
+                        if let syn::Type::Path(syn::TypePath { path, .. }) = ty {
+                          if let Some(segment) = path.segments.first() {
+                            if segment.ident.to_string() == parent.to_string() {
+                              // If we have a Reference<A> in an impl A block, it shouldn't be an arg
+                              return None;
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
                 }
                 if ident == "This" || ident == "this" {
                   if self.kind != FnKind::Normal {
