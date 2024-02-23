@@ -133,6 +133,14 @@ export class CustomFinalize {
   constructor(width: number, height: number)
 }
 
+export class DefaultUseNullableClass {
+  requiredNumberField: number
+  requiredStringField: string
+  optionalNumberField?: number
+  optionalStringField?: string
+  constructor(requiredNumberField: number, requiredStringField: string, optionalNumberField?: number, optionalStringField?: string)
+}
+
 export class Dog {
   name: string
   constructor(name: string)
@@ -183,6 +191,14 @@ export class NinjaTurtle {
   returnThis(this: this): this
 }
 
+export class NotUseNullableClass {
+  requiredNumberField: number
+  requiredStringField: string
+  optionalNumberField?: number
+  optionalStringField?: string
+  constructor(requiredNumberField: number, requiredStringField: string, optionalNumberField?: number, optionalStringField?: string)
+}
+
 export class NotWritableClass {
   name: string
   constructor(name: string)
@@ -202,6 +218,14 @@ export class Selector {
   struct: string
   where?: string
   constructor(orderBy: Array<string>, select: Array<string>, struct: string, where?: string)
+}
+
+export class UseNullableClass {
+  requiredNumberField: number
+  requiredStringField: string
+  nullableNumberField: number | null
+  nullableStringField: string | null
+  constructor(requiredNumberField: number, requiredStringField: string, nullableNumberField: number | null, nullableStringField: string | null)
 }
 
 export class Width {
@@ -362,6 +386,13 @@ export function dateToNumber(input: Date): number
 /** This is a const */
 export const DEFAULT_COST: number
 
+export interface DefaultUseNullableStruct {
+  requiredNumberField: number
+  requiredStringField: string
+  optionalNumberField?: number
+  optionalStringField?: string
+}
+
 export function derefUint8Array(a: Uint8Array, b: Uint8ClampedArray): number
 
 export function either3(input: string | number | boolean): number
@@ -454,6 +485,13 @@ export function mapOption(val?: number | undefined | null): number | null
 export function mutateExternal(external: ExternalObject<number>, newVal: number): void
 
 export function mutateTypedArray(input: Float32Array): void
+
+export interface NotUseNullableStruct {
+  requiredNumberField: number
+  requiredStringField: string
+  optionalNumberField?: number
+  optionalStringField?: string
+}
 
 export interface Obj {
   v: string | number
@@ -608,6 +646,13 @@ export function u32ArrayToArray(input: any): Array<number>
 export function u64ArrayToArray(input: any): Array<bigint>
 
 export function u8ArrayToArray(input: any): Array<number>
+
+export interface UseNullableStruct {
+  requiredNumberField: number
+  requiredStringField: string
+  nullableNumberField: number | null
+  nullableStringField: string | null
+}
 
 export function validateArray(arr: Array<number>): number
 

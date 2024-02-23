@@ -493,15 +493,24 @@ impl NapiStruct {
           let alias_ident = format_ident!("{}_", ident);
           field_destructions.push(quote! { #ident: #alias_ident });
           if is_optional_field {
-            obj_field_setters.push(quote! {
-              if #alias_ident.is_some() {
-                obj.set(#field_js_name, #alias_ident)?;
-              }
+            obj_field_setters.push(match self.use_nullable {
+              false => quote! {
+                if #alias_ident.is_some() {
+                  obj.set(#field_js_name, #alias_ident)?;
+                }
+              },
+              true => quote! {
+                if let Some(#alias_ident) = #alias_ident {
+                  obj.set(#field_js_name, #alias_ident)?;
+                } else {
+                  obj.set(#field_js_name, napi::bindgen_prelude::Null)?;
+                }
+              },
             });
           } else {
             obj_field_setters.push(quote! { obj.set(#field_js_name, #alias_ident)?; });
           }
-          if is_optional_field {
+          if is_optional_field && !self.use_nullable {
             obj_field_getters.push(quote! { let #alias_ident: #ty = obj.get(#field_js_name)?; });
           } else {
             obj_field_getters.push(quote! {
@@ -515,15 +524,24 @@ impl NapiStruct {
         syn::Member::Unnamed(i) => {
           field_destructions.push(quote! { arg #i });
           if is_optional_field {
-            obj_field_setters.push(quote! {
-              if arg #1.is_some() {
-                obj.set(#field_js_name, arg #i)?;
-              }
+            obj_field_setters.push(match self.use_nullable {
+              false => quote! {
+                if arg #1.is_some() {
+                  obj.set(#field_js_name, arg #i)?;
+                }
+              },
+              true => quote! {
+                if let Some(arg #i) = arg #i {
+                  obj.set(#field_js_name, arg #i)?;
+                } else {
+                  obj.set(#field_js_name, napi::bindgen_prelude::Null)?;
+                }
+              },
             });
           } else {
             obj_field_setters.push(quote! { obj.set(#field_js_name, arg #1)?; });
           }
-          if is_optional_field {
+          if is_optional_field && !self.use_nullable {
             obj_field_getters.push(quote! { let arg #i: #ty = obj.get(#field_js_name)?; });
           } else {
             obj_field_getters.push(quote! {
