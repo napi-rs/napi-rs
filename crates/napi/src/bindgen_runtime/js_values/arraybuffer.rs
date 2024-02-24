@@ -573,3 +573,64 @@ impl<T: Into<Vec<u8>>> From<T> for Uint8Array {
     Uint8Array::new(data.into())
   }
 }
+
+impl<T: Into<Vec<u8>>> From<T> for Uint8ClampedArray {
+  fn from(data: T) -> Self {
+    Uint8ClampedArray::new(data.into())
+  }
+}
+
+impl<T: Into<Vec<u16>>> From<T> for Uint16Array {
+  fn from(data: T) -> Self {
+    Uint16Array::new(data.into())
+  }
+}
+
+impl<T: Into<Vec<u32>>> From<T> for Uint32Array {
+  fn from(data: T) -> Self {
+    Uint32Array::new(data.into())
+  }
+}
+
+impl<T: Into<Vec<i8>>> From<T> for Int8Array {
+  fn from(data: T) -> Self {
+    Int8Array::new(data.into())
+  }
+}
+
+impl<T: Into<Vec<i16>>> From<T> for Int16Array {
+  fn from(data: T) -> Self {
+    Int16Array::new(data.into())
+  }
+}
+
+impl<T: Into<Vec<i32>>> From<T> for Int32Array {
+  fn from(data: T) -> Self {
+    Int32Array::new(data.into())
+  }
+}
+
+impl<T: Into<Vec<f32>>> From<T> for Float32Array {
+  fn from(data: T) -> Self {
+    Float32Array::new(data.into())
+  }
+}
+
+impl<T: Into<Vec<f64>>> From<T> for Float64Array {
+  fn from(data: T) -> Self {
+    Float64Array::new(data.into())
+  }
+}
+
+#[cfg(feature = "napi6")]
+impl<T: Into<Vec<i64>>> From<T> for BigInt64Array {
+  fn from(data: T) -> Self {
+    BigInt64Array::new(data.into())
+  }
+}
+#[cfg(feature = "napi6")]
+impl<T: Into<Vec<u64>>> From<T> for BigUint64Array {
+  fn from(data: T) -> Self {
+    BigUint64Array::new(data.into())
+  }
+}
