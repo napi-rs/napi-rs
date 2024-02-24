@@ -18,7 +18,98 @@ thread_local! {
   pub (crate) static BUFFER_DATA: Mutex<HashSet<*mut u8>> = Default::default();
 }
 
+/// Zero copy buffer slice shared between Rust and Node.js.
+/// It can only be used in non-async context and the lifetime is bound to the fn closure.
+/// If you want to use Node.js Buffer in async context or want to extend the lifetime, use `Buffer` instead.
+pub struct BufferSlice<'scope> {
+  pub(crate) inner: &'scope mut [u8],
+  raw_value: sys::napi_value,
+}
+
+impl<'scope> FromNapiValue for BufferSlice<'scope> {
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
+    let mut buf = ptr::null_mut();
+    let mut len = 0usize;
+    check_status!(
+      unsafe { sys::napi_get_buffer_info(env, napi_val, &mut buf, &mut len) },
+      "Failed to get Buffer pointer and length"
+    )?;
+    // From the docs of `napi_get_buffer_info`:
+    // > [out] data: The underlying data buffer of the node::Buffer. If length is 0, this may be
+    // > NULL or any other pointer value.
+    //
+    // In order to guarantee that `slice::from_raw_parts` is sound, the pointer must be non-null, so
+    // let's make sure it always is, even in the case of `napi_get_buffer_info` returning a null
+    // ptr.
+    Ok(Self {
+      inner: if len == 0 {
+        &mut []
+      } else {
+        unsafe { slice::from_raw_parts_mut(buf.cast(), len) }
+      },
+      raw_value: napi_val,
+    })
+  }
+}
+
+impl ToNapiValue for BufferSlice<'_> {
+  #[allow(unused_variables)]
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    Ok(val.raw_value)
+  }
+}
+
+impl TypeName for BufferSlice<'_> {
+  fn type_name() -> &'static str {
+    "Buffer"
+  }
+
+  fn value_type() -> ValueType {
+    ValueType::Object
+  }
+}
+
+impl ValidateNapiValue for BufferSlice<'_> {
+  unsafe fn validate(env: sys::napi_env, napi_val: sys::napi_value) -> Result<sys::napi_value> {
+    let mut is_buffer = false;
+    check_status!(
+      unsafe { sys::napi_is_buffer(env, napi_val, &mut is_buffer) },
+      "Failed to validate napi buffer"
+    )?;
+    if !is_buffer {
+      return Err(Error::new(
+        Status::InvalidArg,
+        "Expected a Buffer value".to_owned(),
+      ));
+    }
+    Ok(ptr::null_mut())
+  }
+}
+
+impl AsRef<[u8]> for BufferSlice<'_> {
+  fn as_ref(&self) -> &[u8] {
+    self.inner
+  }
+}
+
+impl<'scope> Deref for BufferSlice<'scope> {
+  type Target = [u8];
+
+  fn deref(&self) -> &Self::Target {
+    self.inner
+  }
+}
+
+impl<'scope> DerefMut for BufferSlice<'scope> {
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    self.inner
+  }
+}
+
 /// Zero copy u8 vector shared between rust and napi.
+/// It's designed to be used in `async` context, so it contains overhead to ensure the underlying data is not dropped.
+/// For non-async context, use `BufferRef` instead.
+///
 /// Auto reference the raw JavaScript value, and release it when dropped.
 /// So it is safe to use it in `async fn`, the `&[u8]` under the hood will not be dropped until the `drop` called.
 /// Clone will create a new `Reference` to the same underlying `JavaScript Buffer`.

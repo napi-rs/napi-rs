@@ -245,6 +245,10 @@ export function acceptThreadsafeFunctionFatal(func: (arg: number) => any): void
 
 export function acceptThreadsafeFunctionTupleArgs(func: (err: Error | null, arg0: number, arg1: boolean, arg2: string) => any): void
 
+export function acceptUint8ClampedSlice(input: Uint8ClampedArray): bigint
+
+export function acceptUint8ClampedSliceAndBufferSlice(a: Buffer, b: Uint8ClampedArray): bigint
+
 export function add(a: number, b: number): number
 
 export const enum ALIAS {
@@ -662,6 +666,8 @@ export function validateBoolean(i: boolean): boolean
 
 export function validateBuffer(b: Buffer): number
 
+export function validateBufferSlice(input: Buffer): number
+
 export function validateDate(d: Date): number
 
 export function validateDateTime(d: Date): number
@@ -685,6 +691,10 @@ export function validateString(s: string): string
 export function validateSymbol(s: symbol): boolean
 
 export function validateTypedArray(input: Uint8Array): number
+
+export function validateTypedArraySlice(input: Uint8Array): number
+
+export function validateUint8ClampedSlice(input: Uint8ClampedArray): number
 
 export function validateUndefined(i: undefined): boolean
 

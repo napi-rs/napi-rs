@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 
 import { spy } from 'sinon'
 
-import type { AliasedStruct, Animal as AnimalClass } from '../index.js'
+import { type AliasedStruct, type Animal as AnimalClass } from '../index.js'
 
 import { test } from './test.framework.js'
 
@@ -105,6 +105,8 @@ const {
   i64ArrayToArray,
   f32ArrayToArray,
   f64ArrayToArray,
+  acceptUint8ClampedSlice,
+  acceptUint8ClampedSliceAndBufferSlice,
   convertU32Array,
   createExternalTypedArray,
   mutateTypedArray,
@@ -694,6 +696,15 @@ test('TypedArray', (t) => {
   const bird = new Bird('Carolyn')
 
   t.is(bird.acceptSliceMethod(new Uint8Array([1, 2, 3])), 3)
+
+  t.is(acceptUint8ClampedSlice(new Uint8ClampedArray([1, 2, 3])), 3n)
+  t.is(
+    acceptUint8ClampedSliceAndBufferSlice(
+      Buffer.from([1, 2, 3]),
+      new Uint8ClampedArray([1, 2, 3]),
+    ),
+    6n,
+  )
 })
 
 test('reset empty buffer', (t) => {

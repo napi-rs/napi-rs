@@ -19,6 +19,21 @@ fn validate_typed_array(input: Uint8Array) -> u32 {
 }
 
 #[napi(strict)]
+fn validate_typed_array_slice(input: &[u8]) -> u32 {
+  input.len() as u32
+}
+
+#[napi(strict)]
+fn validate_uint8_clamped_slice(input: Uint8ClampedSlice) -> u32 {
+  input.len() as u32
+}
+
+#[napi(strict)]
+fn validate_buffer_slice(input: BufferSlice) -> u32 {
+  input.len() as u32
+}
+
+#[napi(strict)]
 fn validate_bigint(input: BigInt) -> i128 {
   input.get_i128().0
 }
