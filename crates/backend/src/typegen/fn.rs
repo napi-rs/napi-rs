@@ -147,13 +147,15 @@ impl NapiFn {
                       ..
                     }) = arguments
                     {
-                      if let Some(syn::GenericArgument::Type(ty)) = angle_bracketed_args.first() {
-                        if let syn::Type::Path(syn::TypePath { path, .. }) = ty {
-                          if let Some(segment) = path.segments.first() {
-                            if segment.ident.to_string() == parent.to_string() {
-                              // If we have a Reference<A> in an impl A block, it shouldn't be an arg
-                              return None;
-                            }
+                      if let Some(syn::GenericArgument::Type(syn::Type::Path(syn::TypePath {
+                        path,
+                        ..
+                      }))) = angle_bracketed_args.first()
+                      {
+                        if let Some(segment) = path.segments.first() {
+                          if *parent == segment.ident {
+                            // If we have a Reference<A> in an impl A block, it shouldn't be an arg
+                            return None;
                           }
                         }
                       }
