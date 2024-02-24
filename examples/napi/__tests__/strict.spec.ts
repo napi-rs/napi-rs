@@ -3,6 +3,8 @@ import test from 'ava'
 const {
   validateArray,
   validateTypedArray,
+  validateTypedArraySlice,
+  validateBufferSlice,
   validateBigint,
   validateBuffer,
   validateBoolean,
@@ -37,6 +39,21 @@ test('should validate arraybuffer', (t) => {
   t.throws(() => validateTypedArray(1), {
     code: 'InvalidArg',
     message: 'Expected a TypedArray value',
+  })
+
+  t.is(validateTypedArraySlice(new Uint8Array([1, 2, 3])), 3)
+
+  // @ts-expect-error
+  t.throws(() => validateTypedArraySlice(1), {
+    code: 'InvalidArg',
+    message: 'Expected a TypedArray value',
+  })
+
+  t.is(validateBufferSlice(Buffer.from('hello')), 5)
+  // @ts-expect-error
+  t.throws(() => validateBufferSlice(2), {
+    code: 'InvalidArg',
+    message: 'Expected a Buffer value',
   })
 })
 
@@ -123,7 +140,7 @@ test('should validate Map', (t) => {
   })
 })
 
-test.only('should validate promise', async (t) => {
+test('should validate promise', async (t) => {
   t.is(
     await validatePromise(
       new Promise((resolve) => {

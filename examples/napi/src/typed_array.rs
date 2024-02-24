@@ -104,6 +104,16 @@ fn i64_array_to_array(input: &[i64]) -> Vec<i64> {
   input.to_vec()
 }
 
+#[napi]
+fn accept_uint8_clamped_slice(input: Uint8ClampedSlice) -> usize {
+  input.len()
+}
+
+#[napi]
+fn accept_uint8_clamped_slice_and_buffer_slice(a: BufferSlice, b: Uint8ClampedSlice) -> usize {
+  a.len() + b.len()
+}
+
 struct AsyncBuffer {
   buf: Buffer,
 }
