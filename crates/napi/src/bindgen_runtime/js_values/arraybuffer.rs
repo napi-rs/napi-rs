@@ -466,10 +466,19 @@ macro_rules! impl_from_slice {
         let mut data = ptr::null_mut();
         let mut array_buffer = ptr::null_mut();
         let mut byte_offset = 0;
-        let mut ref_ = ptr::null_mut();
         check_status!(
-          unsafe { sys::napi_create_reference(env, napi_val, 1, &mut ref_) },
-          "Failed to create reference from Buffer"
+          unsafe {
+            sys::napi_get_typedarray_info(
+              env,
+              napi_val,
+              &mut typed_array_type,
+              &mut length,
+              &mut data,
+              &mut array_buffer,
+              &mut byte_offset,
+            )
+          },
+          "Get TypedArray info failed"
         )?;
         check_status!(
           unsafe {
