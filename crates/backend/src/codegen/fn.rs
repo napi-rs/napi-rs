@@ -5,6 +5,7 @@ use syn::spanned::Spanned;
 use crate::{
   codegen::{get_intermediate_ident, js_mod_to_token_stream},
   BindgenResult, CallbackArg, Diagnostic, FnKind, FnSelf, NapiFn, NapiFnArgKind, TryToTokens,
+  TYPEDARRAY_SLICE_TYPES,
 };
 
 impl TryToTokens for NapiFn {
@@ -428,10 +429,7 @@ impl NapiFn {
         if let syn::Type::Slice(slice) = &**elem {
           if let syn::Type::Path(ele) = &*slice.elem {
             if let Some(syn::PathSegment { ident, .. }) = ele.path.segments.first() {
-              static TYPEDARRAY_SLICE_TYPES: &[&str] = &[
-                "u8", "i8", "u16", "i16", "u32", "i32", "f32", "f64", "u64", "i64",
-              ];
-              if TYPEDARRAY_SLICE_TYPES.contains(&&*ident.to_string()) {
+              if TYPEDARRAY_SLICE_TYPES.contains_key(&&*ident.to_string()) {
                 let q = quote! {
                   let #arg_name = {
                     #type_check

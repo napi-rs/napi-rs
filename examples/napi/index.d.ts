@@ -75,7 +75,7 @@ export class Bird {
   constructor(name: string)
   getCount(): number
   getNameAsync(): Promise<string>
-  acceptSliceMethod(slice: any): number
+  acceptSliceMethod(slice: Uint8Array): number
 }
 
 /** Smoking test for type generation */
@@ -237,7 +237,7 @@ export interface A {
   foo: number
 }
 
-export function acceptSlice(fixture: any): bigint
+export function acceptSlice(fixture: Uint8Array): bigint
 
 export function acceptThreadsafeFunction(func: (err: Error | null, arg: number) => any): void
 
@@ -413,15 +413,15 @@ export const enum Empty {
 
 export function enumToI32(e: CustomNumEnum): number
 
-export function f32ArrayToArray(input: any): Array<number>
+export function f32ArrayToArray(input: Float32Array): Array<number>
 
-export function f64ArrayToArray(input: any): Array<number>
+export function f64ArrayToArray(input: Float64Array): Array<number>
 
 export function fibonacci(n: number): number
 
 export function fnReceivedAliased(s: AliasedStruct, e: ALIAS): void
 
-export function getBtreeMapping(): BTreeMap
+export function getBtreeMapping(): Record<string, number>
 
 export function getBuffer(): Buffer
 
@@ -433,7 +433,7 @@ export function getExternal(external: ExternalObject<number>): number
 
 export function getGlobal(): typeof global
 
-export function getIndexMapping(): IndexMap
+export function getIndexMapping(): Record<string, number>
 
 export function getMapping(): Record<string, number>
 
@@ -458,15 +458,15 @@ export function getUndefined(): void
 
 export function getWords(): Array<string>
 
-export function i16ArrayToArray(input: any): Array<number>
+export function i16ArrayToArray(input: Int16Array): Array<number>
 
-export function i32ArrayToArray(input: any): Array<number>
+export function i32ArrayToArray(input: Int32Array): Array<number>
 
-export function i64ArrayToArray(input: any): Array<number>
+export function i64ArrayToArray(input: BigInt64Array): Array<number>
 
-export function i8ArrayToArray(input: any): Array<number>
+export function i8ArrayToArray(input: Int8Array): Array<number>
 
-export function indexmapPassthrough(fixture: IndexMap): IndexMap
+export function indexmapPassthrough(fixture: Record<string, number>): Record<string, number>
 
 /** default enum values are continuos i32s start from 0 */
 export const enum Kind {
@@ -594,9 +594,9 @@ export interface StrictObject {
   name: string
 }
 
-export function sumBtreeMapping(nums: BTreeMap): number
+export function sumBtreeMapping(nums: Record<string, number>): number
 
-export function sumIndexMapping(nums: IndexMap): number
+export function sumIndexMapping(nums: Record<string, number>): number
 
 export function sumMapping(nums: Record<string, number>): number
 
@@ -639,13 +639,13 @@ export interface TsTypeChanged {
   typeOverrideOptional?: object
 }
 
-export function u16ArrayToArray(input: any): Array<number>
+export function u16ArrayToArray(input: Uint16Array): Array<number>
 
-export function u32ArrayToArray(input: any): Array<number>
+export function u32ArrayToArray(input: Uint32Array): Array<number>
 
-export function u64ArrayToArray(input: any): Array<bigint>
+export function u64ArrayToArray(input: BigUint64Array): Array<bigint>
 
-export function u8ArrayToArray(input: any): Array<number>
+export function u8ArrayToArray(input: Uint8Array): Array<number>
 
 export interface UseNullableStruct {
   requiredNumberField: number
