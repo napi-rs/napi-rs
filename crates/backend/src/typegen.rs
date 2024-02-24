@@ -6,7 +6,7 @@ pub(crate) mod r#struct;
 use std::{cell::RefCell, collections::HashMap, env};
 
 use once_cell::sync::Lazy;
-use syn::Type;
+use syn::{PathSegment, Type, TypePath, TypeSlice};
 
 pub static NAPI_RS_CLI_VERSION: Lazy<semver::Version> = Lazy::new(|| {
   let version = env::var("CARGO_CFG_NAPI_RS_CLI_VERSION").unwrap_or_else(|_| "0.0.0".to_string());
@@ -147,11 +147,14 @@ static KNOWN_TYPES: Lazy<HashMap<&'static str, (&'static str, bool, bool)>> = La
     ("Value", ("any", false, false)),
     ("Map", ("Record<string, any>", false, false)),
     ("HashMap", ("Record<{}, {}>", false, false)),
+    ("BTreeMap", ("Record<{}, {}>", false, false)),
+    ("IndexMap", ("Record<{}, {}>", false, false)),
     ("ArrayBuffer", ("ArrayBuffer", false, false)),
     ("JsArrayBuffer", ("ArrayBuffer", false, false)),
     ("Int8Array", ("Int8Array", false, false)),
     ("Uint8Array", ("Uint8Array", false, false)),
     ("Uint8ClampedArray", ("Uint8ClampedArray", false, false)),
+    ("Uint8ClampedSlice", ("Uint8ClampedArray", false, false)),
     ("Int16Array", ("Int16Array", false, false)),
     ("Uint16Array", ("Uint16Array", false, false)),
     ("Int32Array", ("Int32Array", false, false)),
@@ -166,6 +169,7 @@ static KNOWN_TYPES: Lazy<HashMap<&'static str, (&'static str, bool, bool)>> = La
     ("Date", ("Date", false, false)),
     ("JsDate", ("Date", false, false)),
     ("JsBuffer", ("Buffer", false, false)),
+    ("BufferSlice", ("Buffer", false, false)),
     ("Buffer", ("Buffer", false, false)),
     ("Vec", ("Array<{}>", false, false)),
     ("Result", ("Error | {}", false, true)),
@@ -444,6 +448,16 @@ pub fn ty_to_ts_type(
       let (element_type, is_optional) =
         ty_to_ts_type(&p.elem, is_return_ty, is_struct_field, false);
       (element_type, is_optional)
+    }
+    Type::Slice(TypeSlice { elem, .. }) => {
+      if let Type::Path(TypePath { path, .. }) = &**elem {
+        if let Some(PathSegment { ident, .. }) = path.segments.last() {
+          if let Some(js_type) = crate::TYPEDARRAY_SLICE_TYPES.get(&ident.to_string().as_str()) {
+            return (js_type.to_string(), false);
+          }
+        }
+      }
+      ("any[]".to_owned(), false)
     }
     _ => ("any".to_owned(), false),
   }
