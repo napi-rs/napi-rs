@@ -88,6 +88,7 @@ pub struct NapiStruct {
   pub implement_iterator: bool,
   pub use_custom_finalize: bool,
   pub register_name: Ident,
+  pub use_nullable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

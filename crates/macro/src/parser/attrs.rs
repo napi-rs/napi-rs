@@ -55,15 +55,15 @@ macro_rules! attrgen {
       (getter, Getter(Span, Option<Ident>)),
       (setter, Setter(Span, Option<Ident>)),
       (readonly, Readonly(Span)),
-      (enumerable, Enumerable(Span, Option<bool>)),
-      (writable, Writable(Span, Option<bool>)),
-      (configurable, Configurable(Span, Option<bool>)),
+      (enumerable, Enumerable(Span, Option<bool>), true),
+      (writable, Writable(Span, Option<bool>), true),
+      (configurable, Configurable(Span, Option<bool>), true),
       (skip, Skip(Span)),
       (strict, Strict(Span)),
       (return_if_invalid, ReturnIfInvalid(Span)),
       (object, Object(Span)),
-      (object_from_js, ObjectFromJs(Span, Option<bool>)),
-      (object_to_js, ObjectToJs(Span, Option<bool>)),
+      (object_from_js, ObjectFromJs(Span, Option<bool>), true),
+      (object_to_js, ObjectToJs(Span, Option<bool>), true),
       (custom_finalize, CustomFinalize(Span)),
       (namespace, Namespace(Span, String, Span)),
       (iterator, Iterator(Span)),
@@ -72,6 +72,7 @@ macro_rules! attrgen {
       (ts_type, TsType(Span, String, Span)),
       (ts_generic_types, TsGenericTypes(Span, String, Span)),
       (string_enum, StringEnum(Span)),
+      (use_nullable, UseNullable(Span, Option<bool>), false),
 
       // impl later
       // (inspectable, Inspectable(Span)),
@@ -86,8 +87,8 @@ macro_rules! attrgen {
 }
 
 macro_rules! methods {
-  ($(($name:ident, $variant:ident($($contents:tt)*)),)*) => {
-    $(methods!(@method $name, $variant($($contents)*));)*
+  ($(($name:ident, $variant:ident($($contents:tt)*) $($extra_tokens:tt)*),)*) => {
+    $(methods!(@method $name, $variant($($contents)*) $($extra_tokens)*);)*
 
     #[cfg(feature = "strict")]
     #[allow(unused)]
@@ -131,7 +132,7 @@ macro_rules! methods {
     }
   };
 
-  (@method $name:ident, $variant:ident(Span, Option<bool>)) => {
+  (@method $name:ident, $variant:ident(Span, Option<bool>), $default_value:literal) => {
     pub fn $name(&self) -> bool {
       self.attrs
         .iter()
@@ -143,7 +144,7 @@ macro_rules! methods {
           _ => None,
         })
         .next()
-        .unwrap_or(true)
+        .unwrap_or($default_value)
     }
   };
 
@@ -265,11 +266,11 @@ impl Default for BindgenAttrs {
 }
 
 macro_rules! gen_bindgen_attr {
-  ($( ($method:ident, $($variants:tt)*) ,)*) => {
+  ($( ($method:ident, $variant:ident($($associated_data:tt)*) $($extra_tokens:tt)*) ,)*) => {
     /// The possible attributes in the `#[napi]`.
     #[derive(Debug)]
     pub enum BindgenAttr {
-      $($($variants)*,)*
+      $($variant($($associated_data)*)),*
     }
   }
 }
@@ -395,7 +396,7 @@ impl Parse for BindgenAttr {
           return Ok(BindgenAttr::$variant(attr_span, val, span))
         });
 
-        (@parser $variant:ident(Span, Option<bool>)) => ({
+        (@parser $variant:ident(Span, Option<bool>), $default_value:literal) => ({
           if let Ok(_) = input.parse::<Token![=]>() {
             let (val, _) = match input.parse::<syn::LitBool>() {
               Ok(str) => (str.value(), str.span()),
@@ -406,7 +407,7 @@ impl Parse for BindgenAttr {
             };
             return Ok::<BindgenAttr, syn::Error>(BindgenAttr::$variant(attr_span, Some(val)))
           } else {
-            return Ok(BindgenAttr::$variant(attr_span, Some(true)))
+            return Ok(BindgenAttr::$variant(attr_span, Some($default_value)))
           }
         });
 

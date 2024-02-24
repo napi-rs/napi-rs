@@ -128,8 +128,13 @@ impl NapiStruct {
         let (arg, is_optional) = ty_to_ts_type(&f.ty, false, true, false);
         let arg = f.ts_type.as_ref().map(|ty| ty.to_string()).unwrap_or(arg);
 
-        let sep = if is_optional { "?" } else { "" };
-        let arg = format!("{}{}: {}", &f.js_name, sep, arg);
+        let arg = match is_optional {
+          false => format!("{}: {}", &f.js_name, arg),
+          true => match self.use_nullable {
+            false => format!("{}?: {}", &f.js_name, arg),
+            true => format!("{}: {} | null", &f.js_name, arg),
+          },
+        };
         if self.kind == NapiStructKind::Constructor {
           ctor_args.push(arg.clone());
         }

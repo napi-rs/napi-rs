@@ -862,6 +862,7 @@ impl ConvertToAST for syn::ItemStruct {
     } else {
       NapiStructKind::None
     };
+    let use_nullable = opts.use_nullable();
 
     for (i, field) in self.fields.iter_mut().enumerate() {
       match field.vis {
@@ -943,6 +944,7 @@ impl ConvertToAST for syn::ItemStruct {
         implement_iterator,
         use_custom_finalize: opts.custom_finalize().is_some(),
         register_name: get_register_ident(format!("{struct_name}_struct").as_str()),
+        use_nullable,
       }),
     })
   }
