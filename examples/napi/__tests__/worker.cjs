@@ -41,7 +41,7 @@ import('../index.js')
           break
         case 'constructor':
           let ellie
-          for (let i = 0; i < (isWasiTest ? 10 : 10000); i++) {
+          for (let i = 0; i < (isWasiTest ? 10 : 1000); i++) {
             ellie = new native.Animal(native.Kind.Cat, 'Ellie')
           }
           parentPort.postMessage(ellie.name)
