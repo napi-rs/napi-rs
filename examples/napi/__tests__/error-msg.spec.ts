@@ -1,6 +1,6 @@
 import test from 'ava'
 
-const { receiveString } = (await import('../index.js')).default
+import { receiveString } from '../index.cjs'
 
 test('Function message', (t) => {
   // @ts-expect-error

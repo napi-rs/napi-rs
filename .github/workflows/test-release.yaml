@@ -30,7 +30,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
           cache: 'yarn'
 
       - name: Install
@@ -163,7 +163,7 @@ jobs:
         uses: actions/setup-node@v4
         if: matrix.settings.target == 'i686-pc-windows-msvc'
         with:
-          node-version: 18
+          node-version: 20
           architecture: 'x86'
 
       - name: Unit tests
@@ -209,7 +209,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
           cache: 'yarn'
 
       - name: Install
@@ -264,7 +264,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
           cache: 'yarn'
 
       - name: Install dependencies
@@ -295,7 +295,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.settings.target }}-example
-          path: examples/napi/index.node
+          path: examples/napi/*.node
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.settings.target }}-example-compat
@@ -336,12 +336,12 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
           cache: 'yarn'
       - uses: actions/download-artifact@v4
         with:
           name: ${{ matrix.settings.target }}-example
-          path: examples/napi/index.node
+          path: examples/napi/
       - uses: actions/download-artifact@v4
         with:
           name: ${{ matrix.settings.target }}-example-compat
@@ -385,7 +385,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
           cache: 'yarn'
 
       - name: Install
@@ -429,7 +429,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
           cache: 'yarn'
 
       - name: Install
@@ -528,7 +528,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
           cache: 'yarn'
       - name: Install
         uses: dtolnay/rust-toolchain@stable
@@ -563,7 +563,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
           cache: 'yarn'
       - name: Publish
         run: |

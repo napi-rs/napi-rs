@@ -40,7 +40,7 @@ pub fn call_function_with_arg(cb: Function<(u32, u32), u32>, arg0: u32, arg1: u3
   cb.call((arg0, arg1))
 }
 
-#[napi]
+#[napi(ts_return_type = "Promise<void>")]
 pub fn create_reference_on_function(env: Env, cb: Function<(), ()>) -> Result<JsObject> {
   let reference = cb.create_ref()?;
   env.execute_tokio_future(

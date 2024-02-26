@@ -1,6 +1,6 @@
 import test from 'ava'
 
-const { NotWritableClass } = (await import('../index.js')).default
+import { NotWritableClass } from '../index.cjs'
 
 test('Not Writable Class', (t) => {
   const obj = new NotWritableClass('1')

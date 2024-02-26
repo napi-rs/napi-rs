@@ -15,6 +15,7 @@ scripts
 triples/index.js
 rollup.config.js
 crates/cli/index.js
+examples/napi/index.d.*
 examples/napi/index.wasi.mjs
 examples/napi/index.wasi-browser.js
 examples/napi/wasi-worker.mjs

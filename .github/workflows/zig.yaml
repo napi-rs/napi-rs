@@ -76,7 +76,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: napi-${{ matrix.target }}
-          path: ./examples/napi/index.node
+          path: ./examples/napi/*.node
           if-no-files-found: error
 
   test:

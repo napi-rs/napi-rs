@@ -360,7 +360,7 @@ export function createObjectWithClassField(): ObjectFieldClassInstance
 
 export function createObjWithProperty(): { value: ArrayBuffer, get getter(): number }
 
-export function createReferenceOnFunction(cb: () => void): object
+export function createReferenceOnFunction(cb: () => void): Promise<void>
 
 export function createSymbol(): symbol
 

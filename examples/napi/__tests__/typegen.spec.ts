@@ -10,6 +10,6 @@ test('should generate correct type def file', (t) => {
   if (process.env.WASI_TEST) {
     t.pass()
   } else {
-    t.snapshot(readFileSync(join(__dirname, '..', 'index.d.ts'), 'utf8'))
+    t.snapshot(readFileSync(join(__dirname, '..', 'index.d.cts'), 'utf8'))
   }
 })

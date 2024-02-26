@@ -1,6 +1,6 @@
 import test from 'ava'
 
-const {
+import {
   validateArray,
   validateTypedArray,
   validateTypedArraySlice,
@@ -22,7 +22,7 @@ const {
   returnUndefinedIfInvalid,
   returnUndefinedIfInvalidPromise,
   validateOptional,
-} = (await import('../index.js')).default
+} from '../index.cjs'
 
 test('should validate array', (t) => {
   t.is(validateArray([1, 2, 3]), 3)
