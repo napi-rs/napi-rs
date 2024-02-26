@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1708846122061,
+  "lastUpdate": 1708933747780,
   "repoUrl": "https://github.com/napi-rs/napi-rs",
   "entries": {
     "Benchmark": [
@@ -94219,6 +94219,177 @@ window.BENCHMARK_DATA = {
             "name": "Query#query * 1",
             "value": 28697,
             "range": "±1.22%",
+            "unit": "ops/sec",
+            "extra": "81 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "everett.caleb@gmail.com",
+            "name": "Caleb Everett",
+            "username": "everett1992"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "95dd6ef485f75fe3a935e091800ffaabf6578005",
+          "message": "refactor(cli): refactor js-binding to support easier bundling. (#1957)\n\n* Refactor js-binding to support bundling single-package artifacts\r\n\r\nThe existsSync check breaks the bundlers I've tested (esbuild, webpack,\r\nncc), so you cannot bundle napi-rs packages that have all binarys in a\r\nsingle package.\r\n\r\nI've tested this change with both single package and multi package\r\nlibraries.\r\n\r\n* Update snapshots\r\n\r\n* Update CI\r\n\r\n* Fix electron test\r\n\r\n---------\r\n\r\nCo-authored-by: Caleb ツ Everett <calebev@amazon.com>\r\nCo-authored-by: LongYinan <lynweklm@gmail.com>",
+          "timestamp": "2024-02-26T15:46:07+08:00",
+          "tree_id": "3bc21ebe45fbdc54c524b5af136a95deac0cf5b6",
+          "url": "https://github.com/napi-rs/napi-rs/commit/95dd6ef485f75fe3a935e091800ffaabf6578005"
+        },
+        "date": 1708933745590,
+        "tool": "benchmarkjs",
+        "benches": [
+          {
+            "name": "noop#napi-rs",
+            "value": 82861821,
+            "range": "±0.97%",
+            "unit": "ops/sec",
+            "extra": "95 samples"
+          },
+          {
+            "name": "noop#JavaScript",
+            "value": 819526057,
+            "range": "±0.08%",
+            "unit": "ops/sec",
+            "extra": "97 samples"
+          },
+          {
+            "name": "Plus number#napi-rs",
+            "value": 19960598,
+            "range": "±0.25%",
+            "unit": "ops/sec",
+            "extra": "95 samples"
+          },
+          {
+            "name": "Plus number#JavaScript",
+            "value": 817889672,
+            "range": "±0.07%",
+            "unit": "ops/sec",
+            "extra": "94 samples"
+          },
+          {
+            "name": "Create buffer#napi-rs",
+            "value": 655781,
+            "range": "±12.74%",
+            "unit": "ops/sec",
+            "extra": "68 samples"
+          },
+          {
+            "name": "Create buffer#JavaScript",
+            "value": 3096494,
+            "range": "±2.87%",
+            "unit": "ops/sec",
+            "extra": "75 samples"
+          },
+          {
+            "name": "createArray#createArrayJson",
+            "value": 55640,
+            "range": "±0.35%",
+            "unit": "ops/sec",
+            "extra": "98 samples"
+          },
+          {
+            "name": "createArray#create array for loop",
+            "value": 9576,
+            "range": "±0.55%",
+            "unit": "ops/sec",
+            "extra": "97 samples"
+          },
+          {
+            "name": "createArray#create array with serde trait",
+            "value": 9459,
+            "range": "±0.59%",
+            "unit": "ops/sec",
+            "extra": "97 samples"
+          },
+          {
+            "name": "getArrayFromJs#get array from json string",
+            "value": 24221,
+            "range": "±0.73%",
+            "unit": "ops/sec",
+            "extra": "94 samples"
+          },
+          {
+            "name": "getArrayFromJs#get array from serde",
+            "value": 13637,
+            "range": "±0.31%",
+            "unit": "ops/sec",
+            "extra": "98 samples"
+          },
+          {
+            "name": "getArrayFromJs#get array with for loop",
+            "value": 16040,
+            "range": "±0.31%",
+            "unit": "ops/sec",
+            "extra": "97 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from native#u32",
+            "value": 555389,
+            "range": "±12.46%",
+            "unit": "ops/sec",
+            "extra": "78 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from JavaScript#u32",
+            "value": 545200,
+            "range": "±2.37%",
+            "unit": "ops/sec",
+            "extra": "90 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from native#string",
+            "value": 547799,
+            "range": "±12.67%",
+            "unit": "ops/sec",
+            "extra": "81 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from JavaScript#string",
+            "value": 512766,
+            "range": "±2.12%",
+            "unit": "ops/sec",
+            "extra": "89 samples"
+          },
+          {
+            "name": "Async task#spawn task",
+            "value": 26873,
+            "range": "±0.65%",
+            "unit": "ops/sec",
+            "extra": "89 samples"
+          },
+          {
+            "name": "Async task#ThreadSafeFunction",
+            "value": 9379,
+            "range": "±0.98%",
+            "unit": "ops/sec",
+            "extra": "84 samples"
+          },
+          {
+            "name": "Async task#Tokio future to Promise",
+            "value": 32836,
+            "range": "±0.57%",
+            "unit": "ops/sec",
+            "extra": "83 samples"
+          },
+          {
+            "name": "Query#query * 100",
+            "value": 3967,
+            "range": "±1.31%",
+            "unit": "ops/sec",
+            "extra": "89 samples"
+          },
+          {
+            "name": "Query#query * 1",
+            "value": 28034,
+            "range": "±1%",
             "unit": "ops/sec",
             "extra": "81 samples"
           }
