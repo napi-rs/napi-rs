@@ -4,7 +4,7 @@ import { Worker } from 'node:worker_threads'
 
 import test from 'ava'
 
-const { Animal, Kind, DEFAULT_COST } = (await import('../index.js')).default
+import { Animal, Kind, DEFAULT_COST } from '../index.cjs'
 
 const __dirname = join(fileURLToPath(import.meta.url), '..')
 

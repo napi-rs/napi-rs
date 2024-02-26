@@ -7,11 +7,15 @@
   "types": "./index.d.ts",
   "scripts": {
     "browser": "vite",
-    "build": "napi-raw build",
+    "build": "napi-raw build --platform --js index.cjs --dts index.d.cts",
     "test": "cross-env TS_NODE_PROJECT=./tsconfig.json node --es-module-specifier-resolution=node --loader ts-node/esm/transpile-only --experimental-wasi-unstable-preview1 ../../node_modules/ava/entrypoints/cli.mjs"
+  },
+  "napi": {
+    "binaryName": "example"
   },
   "devDependencies": {
     "@napi-rs/cli": "workspace:*",
+    "@napi-rs/triples": "workspace:*",
     "@napi-rs/wasm-runtime": "workspace:*",
     "@types/lodash": "^4.14.202",
     "@vitest/browser": "^1.2.2",
@@ -39,9 +43,6 @@
     "timeout": "10m"
   },
   "dependencies": {
-    "@emnapi/core": "1.0.0",
-    "@types/lodash": "^4.14.202",
-    "lodash": "^4.17.21",
-    "sinon": "^17.0.1"
+    "@emnapi/core": "1.0.0"
   }
 }

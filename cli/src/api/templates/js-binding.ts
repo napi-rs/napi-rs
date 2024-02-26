@@ -94,7 +94,7 @@ function requireNative() {
     } else if (process.arch === 'arm64') {
       ${requireTuple('win32-arm64-msvc')}
     } else {
-      loadErrors.push(new Error(\`Unsupported architecture on Windows: \${process.arch}\`)))
+      loadErrors.push(new Error(\`Unsupported architecture on Windows: \${process.arch}\`))
     }
   } else if (process.platform === 'darwin') {
     ${requireTuple('darwin-universal')}

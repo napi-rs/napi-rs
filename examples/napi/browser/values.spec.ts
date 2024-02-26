@@ -7,7 +7,7 @@ const {
   GetterSetterWithClosures,
   tsfnReturnPromise,
   tsfnReturnPromiseTimeout,
-}: typeof import('../index') = await import('../index.wasi-browser')
+}: typeof import('../index.cjs') = await import('../example.wasi-browser')
 
 describe('NAPI-RS wasi browser test', function () {
   it('DEFAULT_COST', function () {

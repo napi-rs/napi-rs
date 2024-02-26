@@ -524,6 +524,7 @@ __metadata:
   dependencies:
     "@emnapi/core": "npm:1.0.0"
     "@napi-rs/cli": "workspace:*"
+    "@napi-rs/triples": "workspace:*"
     "@napi-rs/wasm-runtime": "workspace:*"
     "@types/lodash": "npm:^4.14.202"
     "@vitest/browser": "npm:^1.2.2"
@@ -1092,7 +1093,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@napi-rs/triples@workspace:triples":
+"@napi-rs/triples@workspace:*, @napi-rs/triples@workspace:triples":
   version: 0.0.0-use.local
   resolution: "@napi-rs/triples@workspace:triples"
   dependencies:

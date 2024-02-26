@@ -4,13 +4,7 @@ import { fileURLToPath } from 'node:url'
 
 import { spy } from 'sinon'
 
-import { type AliasedStruct, type Animal as AnimalClass } from '../index.js'
-
-import { test } from './test.framework.js'
-
-const __dirname = join(fileURLToPath(import.meta.url), '..')
-
-const {
+import {
   DEFAULT_COST,
   add,
   fibonacci,
@@ -173,7 +167,12 @@ const {
   throwAsyncError,
   getModuleFileName,
   throwSyntaxError,
-} = (await import('../index.js')).default
+  type AliasedStruct,
+} from '../index.cjs'
+
+import { test } from './test.framework.js'
+
+const __dirname = join(fileURLToPath(import.meta.url), '..')
 
 const Napi4Test = Number(process.versions.napi) >= 4 ? test : test.skip
 
@@ -247,14 +246,14 @@ test('function call', async (t) => {
     52,
   )
   const ctx = new Animal(Kind.Dog, '旺财')
-  apply0(ctx, function (this: AnimalClass) {
+  apply0(ctx, function (this: Animal) {
     this.name = '可乐'
   })
   t.is(ctx.name, '可乐')
   const ctx2 = new Animal(Kind.Dog, '旺财')
   apply1(
     ctx2,
-    function (this: AnimalClass, name: string) {
+    function (this: Animal, name: string) {
       this.name = name
     },
     '可乐',
@@ -271,7 +270,7 @@ test('function call', async (t) => {
   const ctx3 = new Animal(Kind.Dog, '旺财')
   callFunctionWithArgAndCtx(
     ctx3,
-    function (this: AnimalClass, name: string) {
+    function (this: Animal, name: string) {
       this.name = name
     },
     '可乐',
@@ -1184,7 +1183,10 @@ Napi9Test('get module file name', (t) => {
     return
   }
   console.info(getModuleFileName())
-  t.true(getModuleFileName().includes('examples/napi/index.node'))
+  t.regex(
+    getModuleFileName(),
+    new RegExp(`example.${process.platform}-${process.arch}`),
+  )
 })
 
 test('throw syntax error', (t) => {
