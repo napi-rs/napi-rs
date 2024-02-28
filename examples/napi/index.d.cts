@@ -505,6 +505,8 @@ export interface ObjectFieldClassInstance {
   bird: Bird
 }
 
+export function objectGetNamedPropertyShouldPerformTypecheck(obj: { foo: number; bar: string; }): void
+
 export interface ObjectOnlyFromJs {
   count: number
   callback: (err: Error | null, arg: number) => any
