@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.43](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.42...@napi-rs/cli@3.0.0-alpha.43) (2024-02-28)
+
+### Bug Fixes
+
+- **cli:** cleanup js binding template ([#1984](https://github.com/napi-rs/napi-rs/issues/1984)) ([19a1336](https://github.com/napi-rs/napi-rs/commit/19a13361d407bb8c1daf68a4589ab0fe0d3cdcd4))
+
 # [3.0.0-alpha.42](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.41...@napi-rs/cli@3.0.0-alpha.42) (2024-02-28)
 
 **Note:** Version bump only for package @napi-rs/cli
