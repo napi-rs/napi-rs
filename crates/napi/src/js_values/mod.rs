@@ -347,7 +347,7 @@ macro_rules! impl_object_methods {
 
       pub fn get_named_property<T>(&self, name: &str) -> Result<T>
       where
-        T: FromNapiValue,
+        T: FromNapiValue + ValidateNapiValue,
       {
         let key = CString::new(name)?;
         let mut raw_value = ptr::null_mut();
@@ -356,6 +356,12 @@ macro_rules! impl_object_methods {
             sys::napi_get_named_property(self.0.env, self.0.value, key.as_ptr(), &mut raw_value)
           },
           "get_named_property error"
+        )?;
+        unsafe { <T as ValidateNapiValue>::validate(self.0.env, raw_value) }.map_err(
+          |mut err| {
+            err.reason = format!("Object property '{name}' type mismatch. {}", err.reason);
+            err
+          },
         )?;
         unsafe { <T as FromNapiValue>::from_napi_value(self.0.env, raw_value) }
       }

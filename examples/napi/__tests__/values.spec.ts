@@ -105,6 +105,7 @@ import {
   createExternalTypedArray,
   mutateTypedArray,
   receiveAllOptionalObject,
+  objectGetNamedPropertyShouldPerformTypecheck,
   fnReceivedAliased,
   ALIAS,
   appendBuffer,
@@ -487,6 +488,36 @@ Napi4Test('callback function return Promise and spawn', async (t) => {
 test('object', (t) => {
   t.deepEqual(listObjKeys({ name: 'John Doe', age: 20 }), ['name', 'age'])
   t.deepEqual(createObj(), { test: 1 })
+  t.throws(
+    () =>
+      objectGetNamedPropertyShouldPerformTypecheck({
+        // @ts-expect-error
+        foo: '2',
+        bar: '3',
+      }),
+    {
+      message: `Object property 'foo' type mismatch. Expect value to be Number, but received String`,
+      code: 'InvalidArg',
+    },
+  )
+  t.throws(
+    () =>
+      objectGetNamedPropertyShouldPerformTypecheck({
+        foo: 2,
+        // @ts-expect-error
+        bar: 3,
+      }),
+    {
+      message: `Object property 'bar' type mismatch. Expect value to be String, but received Number`,
+      code: 'InvalidArg',
+    },
+  )
+  t.notThrows(() =>
+    objectGetNamedPropertyShouldPerformTypecheck({
+      foo: 2,
+      bar: '3',
+    }),
+  )
 })
 
 test('get str from object', (t) => {

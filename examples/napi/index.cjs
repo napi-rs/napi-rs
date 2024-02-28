@@ -476,6 +476,7 @@ module.exports.listObjKeys = nativeBinding.listObjKeys
 module.exports.mapOption = nativeBinding.mapOption
 module.exports.mutateExternal = nativeBinding.mutateExternal
 module.exports.mutateTypedArray = nativeBinding.mutateTypedArray
+module.exports.objectGetNamedPropertyShouldPerformTypecheck = nativeBinding.objectGetNamedPropertyShouldPerformTypecheck
 module.exports.optionEnd = nativeBinding.optionEnd
 module.exports.optionOnly = nativeBinding.optionOnly
 module.exports.optionStart = nativeBinding.optionStart

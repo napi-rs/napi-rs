@@ -124,3 +124,10 @@ fn receive_object_only_from_js(
     );
   });
 }
+
+#[napi(ts_args_type = "obj: { foo: number; bar: string; }")]
+fn object_get_named_property_should_perform_typecheck(obj: Object) -> Result<()> {
+  obj.get_named_property::<u32>("foo")?;
+  obj.get_named_property::<String>("bar")?;
+  Ok(())
+}
