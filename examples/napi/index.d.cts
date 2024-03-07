@@ -632,6 +632,8 @@ export function tsfnAsyncCall(func: (...args: any[]) => any): Promise<void>
 
 export function tsfnCallWithCallback(func: (...args: any[]) => any): void
 
+export function tsfnCallWithCallbackRaw(func: (...args: any[]) => any): void
+
 export function tsfnReturnPromise(func: (err: Error | null, arg: number) => any): Promise<number>
 
 export function tsfnReturnPromiseTimeout(func: (err: Error | null, arg: number) => any): Promise<number>

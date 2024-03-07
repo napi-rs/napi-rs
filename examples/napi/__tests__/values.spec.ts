@@ -70,6 +70,7 @@ import {
   threadsafeFunctionThrowError,
   threadsafeFunctionClosureCapture,
   tsfnCallWithCallback,
+  tsfnCallWithCallbackRaw,
   tsfnAsyncCall,
   tsfnThrowFromJs,
   asyncPlus100,
@@ -1047,6 +1048,18 @@ Napi4Test('call ThreadsafeFunction with callback', async (t) => {
           return 'ReturnFromJavaScriptRawCallback'
         })
       }),
+  )
+})
+
+Napi4Test('call ThreadsafeFunction with callback raw', async (t) => {
+  t.notThrows(
+    () =>
+    new Promise<void>((resolve) => {
+      tsfnCallWithCallbackRaw(() => {
+        resolve()
+        throw new Error("should be an error")
+      })
+    }),
   )
 })
 

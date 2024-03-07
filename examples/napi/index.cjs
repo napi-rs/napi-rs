@@ -524,6 +524,7 @@ module.exports.throwSyntaxError = nativeBinding.throwSyntaxError
 module.exports.toJsObj = nativeBinding.toJsObj
 module.exports.tsfnAsyncCall = nativeBinding.tsfnAsyncCall
 module.exports.tsfnCallWithCallback = nativeBinding.tsfnCallWithCallback
+module.exports.tsfnCallWithCallbackRaw = nativeBinding.tsfnCallWithCallbackRaw
 module.exports.tsfnReturnPromise = nativeBinding.tsfnReturnPromise
 module.exports.tsfnReturnPromiseTimeout = nativeBinding.tsfnReturnPromiseTimeout
 module.exports.tsfnThrowFromJs = nativeBinding.tsfnThrowFromJs

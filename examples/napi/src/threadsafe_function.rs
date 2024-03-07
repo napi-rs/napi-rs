@@ -3,7 +3,7 @@ use std::{thread, time::Duration};
 use napi::{
   bindgen_prelude::*,
   threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode},
-  JsBoolean, JsString,
+  JsBoolean, JsString, JsUnknown,
 };
 
 #[napi]
@@ -98,6 +98,22 @@ pub fn tsfn_call_with_callback(func: JsFunction) -> napi::Result<()> {
     |value: String| {
       println!("{}", value);
       assert_eq!(value, "ReturnFromJavaScriptRawCallback".to_owned());
+      Ok(())
+    },
+  );
+  Ok(())
+}
+
+#[napi]
+pub fn tsfn_call_with_callback_raw(func: JsFunction) -> napi::Result<()> {
+  let tsfn: ThreadsafeFunction<()> =
+    func.create_threadsafe_function(0, move |_| Ok(Vec::<JsString>::new()))?;
+  tsfn.call_with_return_value_raw(
+    Ok(()),
+    ThreadsafeFunctionCallMode::NonBlocking,
+    |value: Result<JsUnknown>| {
+      let err = value.map(|_| "").unwrap_err();
+      assert_eq!(err.reason, "Error: should be an error");
       Ok(())
     },
   );
