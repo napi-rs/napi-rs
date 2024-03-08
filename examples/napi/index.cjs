@@ -437,6 +437,7 @@ module.exports.derefUint8Array = nativeBinding.derefUint8Array
 module.exports.either3 = nativeBinding.either3
 module.exports.either4 = nativeBinding.either4
 module.exports.eitherBoolOrFunction = nativeBinding.eitherBoolOrFunction
+module.exports.eitherBoolOrTuple = nativeBinding.eitherBoolOrTuple
 module.exports.eitherFromObjects = nativeBinding.eitherFromObjects
 module.exports.eitherFromOption = nativeBinding.eitherFromOption
 module.exports.eitherStringOrNumber = nativeBinding.eitherStringOrNumber
