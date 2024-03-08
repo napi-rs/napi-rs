@@ -19,6 +19,13 @@ pub enum Status {
   Ready,
 }
 
+#[napi(string_enum = "lowercase")]
+pub enum StringEnum {
+  VariantOne,
+  VariantTwo,
+  VariantThree,
+}
+
 /// You could break the step and for an new continuous value.
 #[napi]
 pub enum CustomNumEnum {
