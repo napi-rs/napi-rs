@@ -600,6 +600,12 @@ export interface StrictObject {
   name: string
 }
 
+export const enum StringEnum {
+  VariantOne = 'variantone',
+  VariantTwo = 'varianttwo',
+  VariantThree = 'variantthree'
+}
+
 export function sumBtreeMapping(nums: Record<string, number>): number
 
 export function sumIndexMapping(nums: Record<string, number>): number

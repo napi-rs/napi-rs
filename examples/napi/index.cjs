@@ -508,6 +508,7 @@ module.exports.roundtripStr = nativeBinding.roundtripStr
 module.exports.runScript = nativeBinding.runScript
 module.exports.setSymbolInObj = nativeBinding.setSymbolInObj
 module.exports.Status = nativeBinding.Status
+module.exports.StringEnum = nativeBinding.StringEnum
 module.exports.sumBtreeMapping = nativeBinding.sumBtreeMapping
 module.exports.sumIndexMapping = nativeBinding.sumIndexMapping
 module.exports.sumMapping = nativeBinding.sumMapping
