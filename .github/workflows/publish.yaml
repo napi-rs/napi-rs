@@ -1,0 +1,24 @@
+name: Publish
+on:
+  push:
+    tags:
+      - '*'
+  workflow_dispatch:
+jobs:
+  publish:
+    name: Publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v3
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - run: git config --global credential.helper store
+      - run: echo "https://token:${{ env.TOKEN }}@dl.cloudsmith.io" > ~/.git-credentials
+        env:
+          TOKEN: ${{ secrets.CLOUDSMITH_API_KEY }}
+      - run: cargo publish --registry CLOUDSMITH
+        env:
+          CARGO_REGISTRIES_CLOUDSMITH_TOKEN: ${{ secrets.CLOUDSMITH_API_KEY }}
