@@ -26,7 +26,7 @@ use crate::cleanup_env::{CleanupEnvHook, CleanupEnvHookData};
 #[cfg(feature = "serde-json")]
 use crate::js_values::{De, Ser};
 #[cfg(feature = "napi4")]
-use crate::threadsafe_function::{ThreadSafeCallContext, ThreadsafeFunction};
+use crate::threadsafe_function::{ThreadsafeCallContext, ThreadsafeFunction};
 #[cfg(feature = "napi3")]
 use crate::JsError;
 #[cfg(feature = "serde-json")]
@@ -1058,7 +1058,7 @@ impl Env {
   pub fn create_threadsafe_function<
     T: Send,
     V: ToNapiValue,
-    R: 'static + Send + FnMut(ThreadSafeCallContext<T>) -> Result<Vec<V>>,
+    R: 'static + Send + FnMut(ThreadsafeCallContext<T>) -> Result<Vec<V>>,
   >(
     &self,
     func: &JsFunction,

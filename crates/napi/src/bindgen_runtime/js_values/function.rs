@@ -11,6 +11,59 @@ pub trait JsValuesTupleIntoVec {
   fn into_vec(self, env: sys::napi_env) -> Result<Vec<sys::napi_value>>;
 }
 
+impl<T: ToNapiValue> JsValuesTupleIntoVec for T {
+  #[allow(clippy::not_unsafe_ptr_arg_deref)]
+  fn into_vec(self, env: sys::napi_env) -> Result<Vec<sys::napi_value>> {
+    Ok(vec![unsafe {
+      <T as ToNapiValue>::to_napi_value(env, self)?
+    }])
+  }
+}
+
+macro_rules! impl_js_value_tuple_to_vec {
+  ($($ident:ident),*) => {
+    impl<$($ident: ToNapiValue),*> JsValuesTupleIntoVec for ($($ident,)*) {
+      #[allow(clippy::not_unsafe_ptr_arg_deref)]
+      fn into_vec(self, env: sys::napi_env) -> Result<Vec<sys::napi_value>> {
+        #[allow(non_snake_case)]
+        let ($($ident,)*) = self;
+        Ok(vec![$(unsafe { <$ident as ToNapiValue>::to_napi_value(env, $ident)? }),*])
+      }
+    }
+  };
+}
+
+impl_js_value_tuple_to_vec!(A);
+impl_js_value_tuple_to_vec!(A, B);
+impl_js_value_tuple_to_vec!(A, B, C);
+impl_js_value_tuple_to_vec!(A, B, C, D);
+impl_js_value_tuple_to_vec!(A, B, C, D, E);
+impl_js_value_tuple_to_vec!(A, B, C, D, E, F);
+impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G);
+impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H);
+impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I);
+impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J);
+impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K);
+impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K, L);
+impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K, L, M);
+impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K, L, M, N);
+impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O);
+impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P);
+impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q);
+impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R);
+impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S);
+impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T);
+impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U);
+impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V);
+impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W);
+impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X);
+impl_js_value_tuple_to_vec!(
+  A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y
+);
+impl_js_value_tuple_to_vec!(
+  A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z
+);
+
 /// A JavaScript function.
 /// It can only live in the scope of a function call.
 /// If you want to use it outside the scope of a function call, you can turn it into a reference.

@@ -15,7 +15,7 @@ fn chrono_date_to_millis(input: chrono::DateTime<Utc>) -> i64 {
 
 #[napi]
 fn chrono_date_add_1_minute(input: chrono::DateTime<Utc>) -> chrono::DateTime<Utc> {
-  input + Duration::minutes(1)
+  Duration::try_minutes(1).map(|d| input + d).unwrap()
 }
 
 #[napi(object)]
@@ -26,7 +26,7 @@ pub struct Dates {
 
 #[napi]
 pub fn chrono_native_date_time(date: chrono::NaiveDateTime) -> i64 {
-  date.timestamp_millis()
+  date.and_utc().timestamp_millis()
 }
 
 #[napi]

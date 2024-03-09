@@ -338,7 +338,8 @@ pub fn ty_to_ts_type(
                 generic_ty,
                 index == 1 && is_generic_function_type(&rust_ty),
                 false,
-                is_generic_function_type(&rust_ty),
+                // index == 2 is for ThreadsafeFunction with ErrorStrategy
+                is_generic_function_type(&rust_ty) && index < 2,
               ))
               .map(|(mut ty, is_optional)| {
                 if is_ts_union_type && is_ts_function_type_notation(generic_ty) {
@@ -408,15 +409,22 @@ pub fn ty_to_ts_type(
         {
           ts_ty = Some((t, false));
         } else if rust_ty == TSFN_RUST_TY {
-          let fatal_tsfn = match args.get(1) {
+          let fatal_tsfn = match args.last() {
             Some((arg, _)) => arg == "Fatal",
             _ => false,
           };
-          let args = args.first().map(|(arg, _)| arg).unwrap();
+          let fn_args = args.first().map(|(arg, _)| arg).unwrap();
+          let return_ty = args
+            .get(1)
+            .map(|(ty, _)| ty.clone())
+            .unwrap_or("any".to_owned());
           ts_ty = if fatal_tsfn {
-            Some((format!("({}) => any", args), false))
+            Some((format!("({fn_args}) => {return_ty}"), false))
           } else {
-            Some((format!("(err: Error | null, {}) => any", args), false))
+            Some((
+              format!("(err: Error | null, {fn_args}) => {return_ty}"),
+              false,
+            ))
           };
         } else {
           // there should be runtime registered type in else
