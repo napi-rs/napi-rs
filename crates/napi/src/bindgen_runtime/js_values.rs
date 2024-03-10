@@ -126,7 +126,7 @@ pub trait FromNapiMutRef {
   ) -> Result<&'static mut Self>;
 }
 
-pub trait ValidateNapiValue: FromNapiValue + TypeName {
+pub trait ValidateNapiValue: TypeName {
   /// # Safety
   ///
   /// this function called to validate whether napi value passed to rust is valid type

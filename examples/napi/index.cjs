@@ -501,6 +501,7 @@ module.exports.returnEitherClass = nativeBinding.returnEitherClass
 module.exports.returnFromSharedCrate = nativeBinding.returnFromSharedCrate
 module.exports.returnJsFunction = nativeBinding.returnJsFunction
 module.exports.returnNull = nativeBinding.returnNull
+module.exports.returnObjectOnlyToJs = nativeBinding.returnObjectOnlyToJs
 module.exports.returnUndefined = nativeBinding.returnUndefined
 module.exports.returnUndefinedIfInvalid = nativeBinding.returnUndefinedIfInvalid
 module.exports.returnUndefinedIfInvalidPromise = nativeBinding.returnUndefinedIfInvalidPromise

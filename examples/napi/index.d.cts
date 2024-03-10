@@ -512,6 +512,11 @@ export interface ObjectOnlyFromJs {
   callback: (err: Error | null, arg: number) => any
 }
 
+export interface ObjectOnlyToJs {
+  name: number
+  dependencies: any
+}
+
 export function optionEnd(callback: (arg0: string, arg1?: string | undefined | null) => void): void
 
 export function optionOnly(callback: (arg0?: string | undefined | null) => void): void
@@ -573,6 +578,8 @@ export function returnFromSharedCrate(): Shared
 export function returnJsFunction(): (...args: any[]) => any
 
 export function returnNull(): null
+
+export function returnObjectOnlyToJs(): ObjectOnlyToJs
 
 export function returnUndefined(): void
 

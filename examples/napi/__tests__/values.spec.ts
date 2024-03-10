@@ -169,6 +169,7 @@ import {
   getModuleFileName,
   throwSyntaxError,
   type AliasedStruct,
+  returnObjectOnlyToJs,
 } from '../index.cjs'
 
 import { test } from './test.framework.js'
@@ -518,6 +519,13 @@ test('object', (t) => {
       bar: '3',
     }),
   )
+  t.deepEqual(returnObjectOnlyToJs(), {
+    name: 42,
+    dependencies: {
+      '@napi-rs/cli': '^3.0.0',
+      rollup: '^4.0.0',
+    },
+  })
 })
 
 test('get str from object', (t) => {

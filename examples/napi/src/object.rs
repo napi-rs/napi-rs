@@ -131,3 +131,17 @@ fn object_get_named_property_should_perform_typecheck(obj: Object) -> Result<()>
   obj.get_named_property::<String>("bar")?;
   Ok(())
 }
+
+#[napi(object, object_from_js = false)]
+struct ObjectOnlyToJs {
+  pub name: u32,
+  pub dependencies: serde_json::Value,
+}
+
+#[napi]
+fn return_object_only_to_js() -> ObjectOnlyToJs {
+  ObjectOnlyToJs {
+    name: 42,
+    dependencies: serde_json::json!({ "@napi-rs/cli": "^3.0.0", "rollup": "^4.0.0" }),
+  }
+}
