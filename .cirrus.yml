@@ -33,7 +33,7 @@ build_and_test: &BUILD_AND_TEST
 freebsd_task:
   name: FreeBSD
   freebsd_instance:
-    image: freebsd-13-2-release-amd64
+    image_family: freebsd-14-0
   env:
     RUSTUP_HOME: /usr/local/rustup
     CARGO_HOME: /usr/local/cargo
@@ -53,5 +53,5 @@ macos_arm64_task:
     PATH: $HOME/.cargo/bin:$PATH
     YARN_IGNORE_NODE: '1'
   setup_script:
-    - brew install node yarn
+    - brew install node
   <<: *BUILD_AND_TEST
