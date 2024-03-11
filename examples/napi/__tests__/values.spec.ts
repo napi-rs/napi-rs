@@ -2,6 +2,7 @@ import { exec } from 'node:child_process'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { Subject, take } from 'rxjs'
 import { spy } from 'sinon'
 
 import {
@@ -170,6 +171,7 @@ import {
   throwSyntaxError,
   type AliasedStruct,
   returnObjectOnlyToJs,
+  buildThreadsafeFunctionFromFunction,
 } from '../index.cjs'
 
 import { test } from './test.framework.js'
@@ -1161,6 +1163,20 @@ Napi4Test('object only from js', (t) => {
       },
     })
   })
+})
+
+Napi4Test('build ThreadsafeFunction from Function', (t) => {
+  const subject = new Subject<void>()
+  const fn = (a: number, b: number) => {
+    t.is(a, 1)
+    t.is(b, 2)
+    subject.next()
+    return a * b
+  }
+
+  buildThreadsafeFunctionFromFunction(fn)
+
+  return subject.pipe(take(3))
 })
 
 Napi4Test('promise in either', async (t) => {

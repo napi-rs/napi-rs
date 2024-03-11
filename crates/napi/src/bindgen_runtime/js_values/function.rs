@@ -2,6 +2,8 @@ use std::ptr;
 
 use super::{FromNapiValue, ToNapiValue, TypeName, ValidateNapiValue};
 
+#[cfg(feature = "napi4")]
+use crate::threadsafe_function::ThreadsafeFunction;
 pub use crate::JsFunction;
 use crate::{check_pending_exception, check_status, sys, Env, NapiRaw, Result, ValueType};
 
@@ -150,8 +152,7 @@ impl<'scope, Args: JsValuesTupleIntoVec, Return: FromNapiValue> Function<'scope,
     let raw_this = unsafe { Context::to_napi_value(self.env, this) }?;
     let args_ptr = args.into_vec(self.env)?;
     let mut raw_return = ptr::null_mut();
-    check_pending_exception!(
-      self.env,
+    check_status!(
       unsafe {
         sys::napi_call_function(
           self.env,
@@ -180,6 +181,63 @@ impl<'scope, Args: JsValuesTupleIntoVec, Return: FromNapiValue> Function<'scope,
       _args: std::marker::PhantomData,
       _return: std::marker::PhantomData,
     })
+  }
+
+  #[cfg(feature = "napi4")]
+  /// Create a threadsafe function from the JavaScript function.
+  pub fn build_threadsafe_function(&self) -> ThreadsafeFunctionBuilder<Args, Return> {
+    ThreadsafeFunctionBuilder {
+      env: self.env,
+      value: self.value,
+      _args: std::marker::PhantomData,
+      _return: std::marker::PhantomData,
+    }
+  }
+}
+
+pub struct ThreadsafeFunctionBuilder<
+  Args: JsValuesTupleIntoVec,
+  Return: FromNapiValue,
+  const Weak: bool = false,
+  const MaxQueueSize: usize = 0,
+> {
+  pub(crate) env: sys::napi_env,
+  pub(crate) value: sys::napi_value,
+  _args: std::marker::PhantomData<Args>,
+  _return: std::marker::PhantomData<Return>,
+}
+
+impl<
+    Args: JsValuesTupleIntoVec,
+    Return: FromNapiValue,
+    const Weak: bool,
+    const MaxQueueSize: usize,
+  > ThreadsafeFunctionBuilder<Args, Return, Weak, MaxQueueSize>
+{
+  pub fn weak<const NewWeak: bool>(
+    self,
+  ) -> ThreadsafeFunctionBuilder<Args, Return, NewWeak, MaxQueueSize> {
+    ThreadsafeFunctionBuilder {
+      env: self.env,
+      value: self.value,
+      _args: std::marker::PhantomData,
+      _return: std::marker::PhantomData,
+    }
+  }
+
+  pub fn max_queue_size<const NewMaxQueueSize: usize>(
+    self,
+  ) -> ThreadsafeFunctionBuilder<Args, Return, Weak, NewMaxQueueSize> {
+    ThreadsafeFunctionBuilder {
+      env: self.env,
+      value: self.value,
+      _args: std::marker::PhantomData,
+      _return: std::marker::PhantomData,
+    }
+  }
+
+  pub fn build(self) -> Result<ThreadsafeFunction<Args, Return, false, Weak, MaxQueueSize>> {
+    unsafe { ThreadsafeFunction::from_napi_value(self.env, self.value) }
   }
 }
 

@@ -5,8 +5,11 @@ use std::ffi::CString;
 use std::marker::PhantomData;
 use std::os::raw::c_void;
 use std::ptr::{self, null_mut};
-use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
-use std::sync::{Arc, RwLock, RwLockWriteGuard, Weak};
+use std::sync::{
+  self,
+  atomic::{AtomicBool, AtomicPtr, Ordering},
+  Arc, RwLock, RwLockWriteGuard,
+};
 
 use crate::bindgen_runtime::{
   FromNapiValue, JsValuesTupleIntoVec, ToNapiValue, TypeName, Unknown, ValidateNapiValue,
@@ -36,68 +39,6 @@ impl From<ThreadsafeFunctionCallMode> for sys::napi_threadsafe_function_call_mod
       ThreadsafeFunctionCallMode::Blocking => sys::ThreadsafeFunctionCallMode::blocking,
       ThreadsafeFunctionCallMode::NonBlocking => sys::ThreadsafeFunctionCallMode::nonblocking,
     }
-  }
-}
-
-type_level_enum! {
-  /// Type-level `enum` to express how to feed [`ThreadsafeFunction`] errors to
-  /// the inner [`JsFunction`].
-  ///
-  /// ### Context
-  ///
-  /// For callbacks that expect a `Result`-like kind of input, the convention is
-  /// to have the callback take an `error` parameter as its first parameter.
-  ///
-  /// This way receiving a `Result<Args…>` can be modelled as follows:
-  ///
-  ///   - In case of `Err(error)`, feed that `error` entity as the first parameter
-  ///     of the callback;
-  ///
-  ///   - Otherwise (in case of `Ok(_)`), feed `null` instead.
-  ///
-  /// In pseudo-code:
-  ///
-  /// ```rust,ignore
-  /// match result_args {
-  ///     Ok(args) => {
-  ///         let js_null = /* … */;
-  ///         callback.call(
-  ///             // this
-  ///             None,
-  ///             // args…
-  ///             &iter::once(js_null).chain(args).collect::<Vec<_>>(),
-  ///         )
-  ///     },
-  ///     Err(err) => callback.call(None, &[JsError::from(err)]),
-  /// }
-  /// ```
-  ///
-  /// **Note that the `Err` case can stem from a failed conversion from native
-  /// values to js values when calling the callback!**
-  ///
-  /// That's why:
-  ///
-  /// > **[This][`ErrorStrategy::CalleeHandled`] is the default error strategy**.
-  ///
-  /// In order to opt-out of it, [`ThreadsafeFunction`] has an optional second
-  /// generic parameter (of "kind" [`ErrorStrategy::T`]) that defines whether
-  /// this behavior ([`ErrorStrategy::CalleeHandled`]) or a non-`Result` one
-  /// ([`ErrorStrategy::Fatal`]) is desired.
-  pub enum ErrorStrategy {
-    /// Input errors (including conversion errors) are left for the callee to
-    /// handle:
-    ///
-    /// The callee receives an extra `error` parameter (the first one), which is
-    /// `null` if no error occurred, and the error payload otherwise.
-    CalleeHandled,
-
-    /// Input errors (including conversion errors) are deemed fatal:
-    ///
-    /// they can thus cause a `panic!` or abort the process.
-    ///
-    /// The callee thus is not expected to have to deal with [that extra `error`
-    /// parameter][CalleeHandled], which is thus not added.
-    Fatal,
   }
 }
 
@@ -221,23 +162,40 @@ struct ThreadsafeFunctionCallJsBackData<T, Return = Unknown> {
 pub struct ThreadsafeFunction<
   T: 'static,
   Return: FromNapiValue + 'static = Unknown,
-  ES: ErrorStrategy::T = ErrorStrategy::CalleeHandled,
+  const CalleeHandled: bool = true,
+  const Weak: bool = false,
+  const MaxQueueSize: usize = 0,
 > {
   handle: Arc<ThreadsafeFunctionHandle>,
-  _phantom: PhantomData<(T, Return, ES)>,
+  _phantom: PhantomData<(T, Return)>,
 }
 
-unsafe impl<T: 'static, Return: FromNapiValue, ES: ErrorStrategy::T> Send
-  for ThreadsafeFunction<T, Return, ES>
+unsafe impl<
+    T: 'static,
+    Return: FromNapiValue,
+    const CalleeHandled: bool,
+    const Weak: bool,
+    const MaxQueueSize: usize,
+  > Send for ThreadsafeFunction<T, Return, { CalleeHandled }, { Weak }, { MaxQueueSize }>
 {
 }
-unsafe impl<T: 'static, Return: FromNapiValue, ES: ErrorStrategy::T> Sync
-  for ThreadsafeFunction<T, Return, ES>
+unsafe impl<
+    T: 'static,
+    Return: FromNapiValue,
+    const CalleeHandled: bool,
+    const Weak: bool,
+    const MaxQueueSize: usize,
+  > Sync for ThreadsafeFunction<T, Return, { CalleeHandled }, { Weak }, { MaxQueueSize }>
 {
 }
 
-impl<T: 'static, Return: FromNapiValue, ES: ErrorStrategy::T> Clone
-  for ThreadsafeFunction<T, Return, ES>
+impl<
+    T: 'static,
+    Return: FromNapiValue,
+    const CalleeHandled: bool,
+    const Weak: bool,
+    const MaxQueueSize: usize,
+  > Clone for ThreadsafeFunction<T, Return, { CalleeHandled }, { Weak }, { MaxQueueSize }>
 {
   fn clone(&self) -> Self {
     self.handle.with_read_aborted(|aborted| {
@@ -253,15 +211,27 @@ impl<T: 'static, Return: FromNapiValue, ES: ErrorStrategy::T> Clone
   }
 }
 
-impl<T: JsValuesTupleIntoVec + 'static, Return: FromNapiValue, ES: ErrorStrategy::T> FromNapiValue
-  for ThreadsafeFunction<T, Return, ES>
+impl<
+    T: JsValuesTupleIntoVec + 'static,
+    Return: FromNapiValue,
+    const CalleeHandled: bool,
+    const Weak: bool,
+    const MaxQueueSize: usize,
+  > FromNapiValue for ThreadsafeFunction<T, Return, { CalleeHandled }, { Weak }, { MaxQueueSize }>
 {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
-    Self::create(env, napi_val, 0, |ctx| ctx.value.into_vec(ctx.env.0))
+    Self::create(env, napi_val, |ctx| ctx.value.into_vec(ctx.env.0))
   }
 }
 
-impl<T: 'static, Return: FromNapiValue, ES: ErrorStrategy::T> ThreadsafeFunction<T, Return, ES> {
+impl<
+    T: 'static,
+    Return: FromNapiValue,
+    const CalleeHandled: bool,
+    const Weak: bool,
+    const MaxQueueSize: usize,
+  > ThreadsafeFunction<T, Return, { CalleeHandled }, { Weak }, { MaxQueueSize }>
+{
   /// See [napi_create_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_create_threadsafe_function)
   /// for more information.
   pub(crate) fn create<
@@ -270,7 +240,6 @@ impl<T: 'static, Return: FromNapiValue, ES: ErrorStrategy::T> ThreadsafeFunction
   >(
     env: sys::napi_env,
     func: sys::napi_value,
-    max_queue_size: usize,
     callback: R,
   ) -> Result<Self> {
     let mut async_resource_name = ptr::null_mut();
@@ -294,16 +263,23 @@ impl<T: 'static, Return: FromNapiValue, ES: ErrorStrategy::T> ThreadsafeFunction
         func,
         ptr::null_mut(),
         async_resource_name,
-        max_queue_size,
+        MaxQueueSize,
         1,
         Arc::downgrade(&handle).into_raw().cast_mut().cast(), // pass handler to thread_finalize_cb
         Some(thread_finalize_cb::<T, V, R>),
         callback_ptr.cast(),
-        Some(call_js_cb::<T, Return, V, R, ES>),
+        Some(call_js_cb::<T, Return, V, R, CalleeHandled>),
         &mut raw_tsfn,
       )
     })?;
     handle.set_raw(raw_tsfn);
+
+    if Weak {
+      check_status!(
+        unsafe { sys::napi_unref_threadsafe_function(env, raw_tsfn) },
+        "Unref threadsafe function failed in Weak mode"
+      )?;
+    }
 
     Ok(ThreadsafeFunction {
       handle,
@@ -372,8 +348,8 @@ impl<T: 'static, Return: FromNapiValue, ES: ErrorStrategy::T> ThreadsafeFunction
   }
 }
 
-impl<T: 'static, Return: FromNapiValue + 'static>
-  ThreadsafeFunction<T, Return, ErrorStrategy::CalleeHandled>
+impl<T: 'static, Return: FromNapiValue + 'static, const Weak: bool, const MaxQueueSize: usize>
+  ThreadsafeFunction<T, Return, true, { Weak }, { MaxQueueSize }>
 {
   /// See [napi_call_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_call_threadsafe_function)
   /// for more information.
@@ -475,8 +451,8 @@ impl<T: 'static, Return: FromNapiValue + 'static>
   }
 }
 
-impl<T: 'static, Return: FromNapiValue + 'static>
-  ThreadsafeFunction<T, Return, ErrorStrategy::Fatal>
+impl<T: 'static, Return: FromNapiValue + 'static, const Weak: bool, const MaxQueueSize: usize>
+  ThreadsafeFunction<T, Return, false, { Weak }, { MaxQueueSize }>
 {
   /// See [napi_call_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_call_threadsafe_function)
   /// for more information.
@@ -492,7 +468,7 @@ impl<T: 'static, Return: FromNapiValue + 'static>
           Box::into_raw(Box::new(ThreadsafeFunctionCallJsBackData {
             data: value,
             call_variant: ThreadsafeFunctionCallVariant::Direct,
-            callback: Box::new(|_d: Result<JsUnknown>| Ok(())),
+            callback: Box::new(|_d: Result<Return>| Ok(())),
           }))
           .cast(),
           mode.into(),
@@ -502,7 +478,7 @@ impl<T: 'static, Return: FromNapiValue + 'static>
     })
   }
 
-  pub fn call_with_return_value<D: FromNapiValue, F: 'static + FnOnce(D) -> Result<()>>(
+  pub fn call_with_return_value<F: 'static + FnOnce(Return) -> Result<()>>(
     &self,
     value: T,
     mode: ThreadsafeFunctionCallMode,
@@ -519,9 +495,7 @@ impl<T: 'static, Return: FromNapiValue + 'static>
           Box::into_raw(Box::new(ThreadsafeFunctionCallJsBackData {
             data: value,
             call_variant: ThreadsafeFunctionCallVariant::WithCallback,
-            callback: Box::new(move |d: Result<JsUnknown>| {
-              d.and_then(|d| D::from_napi_value(d.0.env, d.0.value).and_then(cb))
-            }),
+            callback: Box::new(move |d: Result<Return>| d.and_then(cb)),
           }))
           .cast(),
           mode.into(),
@@ -575,8 +549,8 @@ unsafe extern "C" fn thread_finalize_cb<T: 'static, V: ToNapiValue, R>(
 ) where
   R: 'static + Send + FnMut(ThreadsafeCallContext<T>) -> Result<Vec<V>>,
 {
-  let handle_option =
-    unsafe { Weak::from_raw(finalize_data.cast::<ThreadsafeFunctionHandle>()).upgrade() };
+  let handle_option: Option<Arc<ThreadsafeFunctionHandle>> =
+    unsafe { sync::Weak::from_raw(finalize_data.cast()).upgrade() };
 
   if let Some(handle) = handle_option {
     handle.with_write_aborted(|mut aborted_guard| {
@@ -590,14 +564,19 @@ unsafe extern "C" fn thread_finalize_cb<T: 'static, V: ToNapiValue, R>(
   drop(unsafe { Box::<R>::from_raw(finalize_hint.cast()) });
 }
 
-unsafe extern "C" fn call_js_cb<T: 'static, Return: FromNapiValue, V: ToNapiValue, R, ES>(
+unsafe extern "C" fn call_js_cb<
+  T: 'static,
+  Return: FromNapiValue,
+  V: ToNapiValue,
+  R,
+  const CalleeHandled: bool,
+>(
   raw_env: sys::napi_env,
   js_callback: sys::napi_value,
   context: *mut c_void,
   data: *mut c_void,
 ) where
   R: 'static + Send + FnMut(ThreadsafeCallContext<T>) -> Result<Vec<V>>,
-  ES: ErrorStrategy::T,
 {
   // env and/or callback can be null when shutting down
   if raw_env.is_null() || js_callback.is_null() {
@@ -606,13 +585,10 @@ unsafe extern "C" fn call_js_cb<T: 'static, Return: FromNapiValue, V: ToNapiValu
 
   let ctx: &mut R = unsafe { Box::leak(Box::from_raw(context.cast())) };
   let val = unsafe {
-    match ES::VALUE {
-      ErrorStrategy::CalleeHandled::VALUE => {
-        *Box::<Result<ThreadsafeFunctionCallJsBackData<T, Return>>>::from_raw(data.cast())
-      }
-      ErrorStrategy::Fatal::VALUE => {
-        Ok(*Box::<ThreadsafeFunctionCallJsBackData<T, Return>>::from_raw(data.cast()))
-      }
+    if CalleeHandled {
+      *Box::<Result<ThreadsafeFunctionCallJsBackData<T, Return>>>::from_raw(data.cast())
+    } else {
+      Ok(*Box::<ThreadsafeFunctionCallJsBackData<T, Return>>::from_raw(data.cast()))
     }
   };
 
@@ -635,7 +611,7 @@ unsafe extern "C" fn call_js_cb<T: 'static, Return: FromNapiValue, V: ToNapiValu
       let values = values
         .into_iter()
         .map(|v| unsafe { ToNapiValue::to_napi_value(raw_env, v) });
-      let args: Result<Vec<sys::napi_value>> = if ES::VALUE == ErrorStrategy::CalleeHandled::VALUE {
+      let args: Result<Vec<sys::napi_value>> = if CalleeHandled {
         let mut js_null = ptr::null_mut();
         unsafe { sys::napi_get_null(raw_env, &mut js_null) };
         ::core::iter::once(Ok(js_null)).chain(values).collect()
@@ -654,21 +630,22 @@ unsafe extern "C" fn call_js_cb<T: 'static, Return: FromNapiValue, V: ToNapiValu
             &mut return_value,
           )
         },
-        Err(e) => match ES::VALUE {
-          ErrorStrategy::Fatal::VALUE => unsafe {
-            sys::napi_fatal_exception(raw_env, JsError::from(e).into_value(raw_env))
-          },
-          ErrorStrategy::CalleeHandled::VALUE => unsafe {
-            sys::napi_call_function(
-              raw_env,
-              recv,
-              js_callback,
-              1,
-              [JsError::from(e).into_value(raw_env)].as_mut_ptr(),
-              &mut return_value,
-            )
-          },
-        },
+        Err(e) => {
+          if CalleeHandled {
+            unsafe { sys::napi_fatal_exception(raw_env, JsError::from(e).into_value(raw_env)) }
+          } else {
+            unsafe {
+              sys::napi_call_function(
+                raw_env,
+                recv,
+                js_callback,
+                1,
+                [JsError::from(e).into_value(raw_env)].as_mut_ptr(),
+                &mut return_value,
+              )
+            }
+          }
+        }
       };
       if let ThreadsafeFunctionCallVariant::WithCallback = call_variant {
         // throw Error in JavaScript callback
@@ -705,7 +682,7 @@ unsafe extern "C" fn call_js_cb<T: 'static, Return: FromNapiValue, V: ToNapiValu
       }
       status
     }
-    Err(e) if ES::VALUE == ErrorStrategy::Fatal::VALUE => unsafe {
+    Err(e) if !CalleeHandled => unsafe {
       sys::napi_fatal_exception(raw_env, JsError::from(e).into_value(raw_env))
     },
     Err(e) => unsafe {
@@ -773,99 +750,6 @@ unsafe extern "C" fn call_js_cb<T: 'static, Return: FromNapiValue, V: ToNapiValu
     );
   }
 }
-
-/// Helper
-macro_rules! type_level_enum {(
-  $( #[doc = $doc:tt] )*
-  $pub:vis
-  enum $EnumName:ident {
-    $(
-      $( #[doc = $doc_variant:tt] )*
-      $Variant:ident
-    ),* $(,)?
-  }
-) => (type_level_enum! { // This requires the macro to be in scope when called.
-  with_docs! {
-    $( #[doc = $doc] )*
-    ///
-    /// ### Type-level `enum`
-    ///
-    /// Until `const_generics` can handle custom `enum`s, this pattern must be
-    /// implemented at the type level.
-    ///
-    /// We thus end up with:
-    ///
-    /// ```rust,ignore
-    /// #[type_level_enum]
-    #[doc = ::core::concat!(
-      " enum ", ::core::stringify!($EnumName), " {",
-    )]
-    $(
-      #[doc = ::core::concat!(
-        "     ", ::core::stringify!($Variant), ",",
-      )]
-    )*
-    #[doc = " }"]
-    /// ```
-    ///
-    #[doc = ::core::concat!(
-      "With [`", ::core::stringify!($EnumName), "::T`](#reexports) \
-      being the type-level \"enum type\":",
-    )]
-    ///
-    /// ```rust,ignore
-    #[doc = ::core::concat!(
-      "<Param: ", ::core::stringify!($EnumName), "::T>"
-    )]
-    /// ```
-  }
-  #[allow(warnings)]
-  $pub mod $EnumName {
-    #[doc(no_inline)]
-    pub use $EnumName as T;
-
-    super::type_level_enum! {
-      with_docs! {
-        #[doc = ::core::concat!(
-          "See [`", ::core::stringify!($EnumName), "`]\
-          [super::", ::core::stringify!($EnumName), "]"
-        )]
-      }
-      pub trait $EnumName : __sealed::$EnumName + ::core::marker::Sized + 'static {
-        const VALUE: __value::$EnumName;
-      }
-    }
-
-    mod __sealed { pub trait $EnumName {} }
-
-    mod __value {
-      #[derive(Debug, PartialEq, Eq)]
-      pub enum $EnumName { $( $Variant ),* }
-    }
-
-    $(
-      $( #[doc = $doc_variant] )*
-      pub enum $Variant {}
-      impl __sealed::$EnumName for $Variant {}
-      impl $EnumName for $Variant {
-        const VALUE: __value::$EnumName = __value::$EnumName::$Variant;
-      }
-      impl $Variant {
-        pub const VALUE: __value::$EnumName = __value::$EnumName::$Variant;
-      }
-    )*
-  }
-});(
-  with_docs! {
-    $( #[doc = $doc:expr] )*
-  }
-  $item:item
-) => (
-  $( #[doc = $doc] )*
-  $item
-)}
-
-use type_level_enum;
 
 pub struct UnknownReturnValue;
 

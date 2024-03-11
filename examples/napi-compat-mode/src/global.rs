@@ -1,10 +1,10 @@
 use std::convert::TryInto;
 
-use napi::{CallContext, JsFunction, JsNumber, JsObject, JsTimeout, JsUndefined, Result};
+use napi::{CallContext, JsNumber, JsObject, JsTimeout, JsUndefined, Result};
 
 #[js_function(2)]
 pub fn set_timeout(ctx: CallContext) -> Result<JsTimeout> {
-  let handler: JsFunction = ctx.get(0)?;
+  let handler = ctx.get(0)?;
   let timeout: JsNumber = ctx.get(1)?;
   ctx
     .env

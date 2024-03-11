@@ -10,6 +10,7 @@ use crate::{bindgen_runtime::TypeName, JsString};
 use crate::{check_pending_exception, ValueType};
 use crate::{sys, Env, Error, JsObject, JsUnknown, NapiRaw, NapiValue, Result, Status};
 
+#[deprecated(since = "2.17.0", note = "Please use `Function` instead")]
 pub struct JsFunction(pub(crate) Value);
 
 impl TypeName for JsFunction {
@@ -138,18 +139,24 @@ impl JsFunction {
   }
 
   #[cfg(feature = "napi4")]
-  pub fn create_threadsafe_function<T, V, Return, F, ES>(
+  pub fn create_threadsafe_function<
+    T,
+    V,
+    Return,
+    F,
+    const ES: bool,
+    const Weak: bool,
+    const MaxQueueSize: usize,
+  >(
     &self,
-    max_queue_size: usize,
     callback: F,
-  ) -> Result<ThreadsafeFunction<T, Return, ES>>
+  ) -> Result<ThreadsafeFunction<T, Return, ES, Weak, MaxQueueSize>>
   where
     T: 'static,
     Return: crate::bindgen_runtime::FromNapiValue,
     V: ToNapiValue,
     F: 'static + Send + FnMut(ThreadsafeCallContext<T>) -> Result<Vec<V>>,
-    ES: crate::threadsafe_function::ErrorStrategy::T,
   {
-    ThreadsafeFunction::create(self.0.env, self.0.value, max_queue_size, callback)
+    ThreadsafeFunction::create(self.0.env, self.0.value, callback)
   }
 }

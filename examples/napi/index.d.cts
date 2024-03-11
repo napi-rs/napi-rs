@@ -300,6 +300,8 @@ export function bigintGetU64AsString(bi: bigint): string
 
 export function bufferPassThrough(buf: Buffer): Promise<Buffer>
 
+export function buildThreadsafeFunctionFromFunction(callback: (arg0: number, arg1: number) => number): void
+
 export interface C {
   baz: number
 }

@@ -126,7 +126,7 @@ impl ChildReference {
 #[napi]
 pub fn leaking_func(env: Env, func: JsFunction) -> napi::Result<()> {
   let mut tsfn: ThreadsafeFunction<String> =
-    func.create_threadsafe_function(0, |mut ctx: ThreadsafeCallContext<String>| {
+    func.create_threadsafe_function(|mut ctx: ThreadsafeCallContext<String>| {
       ctx.env.adjust_external_memory(ctx.value.len() as i64)?;
       ctx
         .env

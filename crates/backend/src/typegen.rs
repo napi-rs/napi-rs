@@ -339,7 +339,7 @@ pub fn ty_to_ts_type(
                 index == 1 && is_generic_function_type(&rust_ty),
                 false,
                 // index == 2 is for ThreadsafeFunction with ErrorStrategy
-                is_generic_function_type(&rust_ty) && index < 2,
+                is_generic_function_type(&rust_ty),
               ))
               .map(|(mut ty, is_optional)| {
                 if is_ts_union_type && is_ts_function_type_notation(generic_ty) {
@@ -347,6 +347,11 @@ pub fn ty_to_ts_type(
                 }
                 (ty, is_optional)
               }),
+              // const Generic for `ThreadsafeFunction` generic
+              syn::GenericArgument::Const(syn::Expr::Lit(syn::ExprLit {
+                lit: syn::Lit::Bool(bo),
+                ..
+              })) => Some((bo.value.to_string(), false)),
               _ => None,
             })
             .collect::<Vec<_>>()
@@ -410,7 +415,7 @@ pub fn ty_to_ts_type(
           ts_ty = Some((t, false));
         } else if rust_ty == TSFN_RUST_TY {
           let fatal_tsfn = match args.last() {
-            Some((arg, _)) => arg == "Fatal",
+            Some((arg, _)) => arg == "false",
             _ => false,
           };
           let fn_args = args.first().map(|(arg, _)| arg).unwrap();

@@ -1055,6 +1055,10 @@ impl Env {
   }
 
   #[cfg(feature = "napi4")]
+  #[deprecated(
+    since = "2.17.0",
+    note = "Please use `Function::build_threadsafe_function` instead"
+  )]
   pub fn create_threadsafe_function<
     T: Send,
     V: ToNapiValue,
@@ -1062,10 +1066,10 @@ impl Env {
   >(
     &self,
     func: &JsFunction,
-    max_queue_size: usize,
+    _max_queue_size: usize,
     callback: R,
   ) -> Result<ThreadsafeFunction<T>> {
-    ThreadsafeFunction::create(self.0, func.0.value, max_queue_size, callback)
+    ThreadsafeFunction::create(self.0, func.0.value, callback)
   }
 
   #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
