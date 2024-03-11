@@ -1062,26 +1062,48 @@ impl ConvertToAST for syn::ItemEnum {
       .map_or_else(|| self.ident.to_string(), |(s, _)| s.to_string());
 
     let variants = match opts.string_enum() {
-      Some(_) => self
-        .variants
-        .iter()
-        .map(|v| {
-          if !matches!(v.fields, syn::Fields::Unit) {
-            bail_span!(v.fields, "Structured enum is not supported in #[napi]")
+      Some(case) => {
+        let case = case.map(|c| Ok::<Case, Diagnostic>(match c.0.as_str() {
+          "lowercase" => Case::Flat,
+          "UPPERCASE" => Case::UpperFlat,
+          "PascalCase" => Case::Pascal,
+          "camelCase" => Case::Camel,
+          "snake_case" => Case::Snake,
+          "SCREAMING_SNAKE_CASE" => Case::UpperSnake,
+          "kebab-case" => Case::Kebab,
+          "SCREAMING-KEBAB-CASE" => Case::UpperKebab,
+          _ => {
+            bail_span!(self, "Unknown string enum case. Possible values are \"lowercase\", \"UPPERCASE\", \"PascalCase\", \"camelCase\", \"snake_case\", \"SCREAMING_SNAKE_CASE\", \"kebab-case\", or \"SCREAMING-KEBAB-CASE\"")
           }
-          if matches!(&v.discriminant, Some((_, _))) {
-            bail_span!(
-              v.fields,
-              "Literal values are not supported with string enum in #[napi]"
-            )
-          }
-          Ok(NapiEnumVariant {
-            name: v.ident.clone(),
-            val: NapiEnumValue::String(v.ident.to_string()),
-            comments: extract_doc_comments(&v.attrs),
+        })).transpose()?;
+
+        self
+          .variants
+          .iter()
+          .map(|v| {
+            if !matches!(v.fields, syn::Fields::Unit) {
+              bail_span!(v.fields, "Structured enum is not supported in #[napi]")
+            }
+            if matches!(&v.discriminant, Some((_, _))) {
+              bail_span!(
+                v.fields,
+                "Literal values are not supported with string enum in #[napi]"
+              )
+            }
+
+            let mut val = v.ident.to_string();
+            if let Some(case) = case {
+              val = val.to_case(case)
+            };
+
+            Ok(NapiEnumVariant {
+              name: v.ident.clone(),
+              val: NapiEnumValue::String(val),
+              comments: extract_doc_comments(&v.attrs),
+            })
           })
-        })
-        .collect::<BindgenResult<Vec<NapiEnumVariant>>>()?,
+          .collect::<BindgenResult<Vec<NapiEnumVariant>>>()?
+      }
       None => {
         let mut last_variant_val: i32 = -1;
 

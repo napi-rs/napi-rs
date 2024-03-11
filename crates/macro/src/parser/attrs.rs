@@ -71,7 +71,7 @@ macro_rules! attrgen {
       (ts_return_type, TsReturnType(Span, String, Span)),
       (ts_type, TsType(Span, String, Span)),
       (ts_generic_types, TsGenericTypes(Span, String, Span)),
-      (string_enum, StringEnum(Span)),
+      (string_enum, StringEnum(Span, Option<(String, Span)>)),
       (use_nullable, UseNullable(Span, Option<bool>), false),
 
       // impl later
@@ -125,6 +125,21 @@ macro_rules! methods {
           BindgenAttr::$variant(_, s, span) => {
             a.0.set(true);
             Some((&s[..], *span))
+          }
+          _ => None,
+        })
+        .next()
+    }
+  };
+
+  (@method $name:ident, $variant:ident(Span, Option<(String, Span)>)) => {
+    pub fn $name(&self) -> Option<Option<&(String, Span)>> {
+      self.attrs
+        .iter()
+        .filter_map(|a| match &a.1 {
+          BindgenAttr::$variant(_, s) => {
+            a.0.set(true);
+            Some(s.as_ref())
           }
           _ => None,
         })
@@ -394,6 +409,21 @@ impl Parse for BindgenAttr {
             }
           };
           return Ok(BindgenAttr::$variant(attr_span, val, span))
+        });
+
+        (@parser $variant:ident(Span, Option<(String, Span)>)) => ({
+          if let Ok(_) = input.parse::<Token![=]>() {
+            let val = match input.parse::<syn::LitStr>() {
+              Ok(str) => Some((str.value(), str.span())),
+              Err(_) => {
+                let ident = input.parse::<AnyIdent>()?.0;
+                Some((ident.to_string(), ident.span()))
+              }
+            };
+            return Ok(BindgenAttr::$variant(attr_span, val))
+          } else {
+            return Ok(BindgenAttr::$variant(attr_span, None))
+          }
         });
 
         (@parser $variant:ident(Span, Option<bool>), $default_value:literal) => ({
