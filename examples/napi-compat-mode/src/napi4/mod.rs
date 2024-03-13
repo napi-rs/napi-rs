@@ -1,4 +1,4 @@
-use napi::{Env, JsObject, Property, Result};
+use napi::{bindgen_prelude::Unknown, Env, JsObject, Property, Result};
 
 mod deferred;
 mod tsfn;
@@ -26,7 +26,7 @@ pub fn register_js(exports: &mut JsObject, env: &Env) -> Result<()> {
   exports.create_named_method("testTsfnWithRef", test_tsfn_with_ref)?;
   exports.create_named_method("testDeferred", deferred::test_deferred)?;
 
-  let obj = env.define_class(
+  let obj = env.define_class::<Unknown>(
     "A",
     constructor,
     &[

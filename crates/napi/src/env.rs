@@ -744,12 +744,12 @@ impl Env {
   }
 
   /// Create JavaScript class
-  pub fn define_class(
+  pub fn define_class<Args: JsValuesTupleIntoVec>(
     &self,
     name: &str,
     constructor_cb: Callback,
     properties: &[Property],
-  ) -> Result<Function<Unknown, Unknown>> {
+  ) -> Result<Function<Args, Unknown>> {
     let mut raw_result = ptr::null_mut();
     let raw_properties = properties
       .iter()

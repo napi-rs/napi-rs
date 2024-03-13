@@ -2,7 +2,7 @@
 
 use std::ptr;
 
-use super::{FromNapiValue, ToNapiValue, TypeName, ValidateNapiValue};
+use super::{FromNapiValue, ToNapiValue, TypeName, Unknown, ValidateNapiValue};
 
 #[cfg(feature = "napi4")]
 use crate::threadsafe_function::ThreadsafeFunction;
@@ -72,7 +72,7 @@ impl_js_value_tuple_to_vec!(
 /// It can only live in the scope of a function call.
 /// If you want to use it outside the scope of a function call, you can turn it into a reference.
 /// By calling the `create_ref` method.
-pub struct Function<'scope, Args: JsValuesTupleIntoVec, Return: FromNapiValue> {
+pub struct Function<'scope, Args: JsValuesTupleIntoVec = Unknown, Return: FromNapiValue = Unknown> {
   pub(crate) env: sys::napi_env,
   pub(crate) value: sys::napi_value,
   pub(crate) _args: std::marker::PhantomData<Args>,
@@ -120,6 +120,7 @@ impl<'scope, Args: JsValuesTupleIntoVec, Return: FromNapiValue> ValidateNapiValu
 }
 
 impl<'scope, Args: JsValuesTupleIntoVec, Return: FromNapiValue> Function<'scope, Args, Return> {
+  /// Get the name of the JavaScript function.
   pub fn name(&self) -> Result<String> {
     let mut name = ptr::null_mut();
     check_status!(
@@ -194,6 +195,25 @@ impl<'scope, Args: JsValuesTupleIntoVec, Return: FromNapiValue> Function<'scope,
       _args: std::marker::PhantomData,
       _return: std::marker::PhantomData,
     })
+  }
+
+  /// Create a new instance of the JavaScript Class.
+  pub fn new_instance(&self, args: Args) -> Result<Unknown> {
+    let mut raw_instance = ptr::null_mut();
+    let mut args = args.into_vec(self.env)?;
+    check_status!(
+      unsafe {
+        sys::napi_new_instance(
+          self.env,
+          self.value,
+          args.len(),
+          args.as_mut_ptr().cast(),
+          &mut raw_instance,
+        )
+      },
+      "Create new instance failed"
+    )?;
+    unsafe { Unknown::from_napi_value(self.env, raw_instance) }
   }
 
   #[cfg(feature = "napi4")]
