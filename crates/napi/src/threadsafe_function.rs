@@ -144,7 +144,7 @@ struct ThreadsafeFunctionCallJsBackData<T, Return = Unknown> {
 /// use napi_derive::napi;
 ///
 /// #[napi]
-/// pub fn call_threadsafe_function(callback: ThreadsafeFunction<(u32, bool, String)>) {
+/// pub fn call_threadsafe_function(callback: ThreadsafeFunction<(u32, bool, String), ()>) {
 ///   let tsfn_cloned = tsfn.clone();
 ///
 ///   thread::spawn(move || {
@@ -179,6 +179,7 @@ unsafe impl<
   > Send for ThreadsafeFunction<T, Return, { CalleeHandled }, { Weak }, { MaxQueueSize }>
 {
 }
+
 unsafe impl<
     T: 'static,
     Return: FromNapiValue,
@@ -232,8 +233,8 @@ impl<
     const MaxQueueSize: usize,
   > ThreadsafeFunction<T, Return, { CalleeHandled }, { Weak }, { MaxQueueSize }>
 {
-  /// See [napi_create_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_create_threadsafe_function)
-  /// for more information.
+  // See [napi_create_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_create_threadsafe_function)
+  // for more information.
   pub(crate) fn create<
     V: ToNapiValue,
     R: 'static + Send + FnMut(ThreadsafeCallContext<T>) -> Result<Vec<V>>,
@@ -245,14 +246,33 @@ impl<
     let mut async_resource_name = ptr::null_mut();
     static THREAD_SAFE_FUNCTION_ASYNC_RESOURCE_NAME: &str = "napi_rs_threadsafe_function";
 
-    check_status!(unsafe {
-      sys::napi_create_string_utf8(
-        env,
-        THREAD_SAFE_FUNCTION_ASYNC_RESOURCE_NAME.as_ptr().cast(),
-        27,
-        &mut async_resource_name,
-      )
-    })?;
+    #[cfg(feature = "experimental")]
+    {
+      check_status!(unsafe {
+        let mut copied = false;
+        sys::node_api_create_external_string_latin1(
+          env,
+          THREAD_SAFE_FUNCTION_ASYNC_RESOURCE_NAME.as_ptr().cast(),
+          27,
+          None,
+          ptr::null_mut(),
+          &mut async_resource_name,
+          &mut copied,
+        )
+      })?;
+    }
+
+    #[cfg(not(feature = "experimental"))]
+    {
+      check_status!(unsafe {
+        sys::napi_create_string_utf8(
+          env,
+          THREAD_SAFE_FUNCTION_ASYNC_RESOURCE_NAME.as_ptr().cast(),
+          27,
+          &mut async_resource_name,
+        )
+      })?;
+    }
 
     let mut raw_tsfn = ptr::null_mut();
     let callback_ptr = Box::into_raw(Box::new(callback));
@@ -274,6 +294,7 @@ impl<
     })?;
     handle.set_raw(raw_tsfn);
 
+    // Weak ThreadsafeFunction will not prevent the event loop from exiting
     if Weak {
       check_status!(
         unsafe { sys::napi_unref_threadsafe_function(env, raw_tsfn) },
@@ -327,6 +348,10 @@ impl<
     self.handle.with_read_aborted(|aborted| aborted)
   }
 
+  #[deprecated(
+    since = "2.17.0",
+    note = "Drop all references to the ThreadsafeFunction will automatically release it"
+  )]
   pub fn abort(self) -> Result<()> {
     self.handle.with_write_aborted(|mut aborted_guard| {
       if !*aborted_guard {
@@ -366,7 +391,7 @@ impl<T: 'static, Return: FromNapiValue + 'static, const Weak: bool, const MaxQue
             ThreadsafeFunctionCallJsBackData {
               data,
               call_variant: ThreadsafeFunctionCallVariant::Direct,
-              callback: Box::new(|_d: Result<JsUnknown>| Ok(())),
+              callback: Box::new(|_d: Result<Return>| Ok(())),
             }
           })))
           .cast(),
@@ -377,7 +402,8 @@ impl<T: 'static, Return: FromNapiValue + 'static, const Weak: bool, const MaxQue
     })
   }
 
-  pub fn call_with_return_value<F: 'static + FnOnce(Return) -> Result<()>>(
+  /// Call the ThreadsafeFunction, and handle the return value with a callback
+  pub fn call_with_return_value<F: 'static + FnOnce(Result<Return>) -> Result<()>>(
     &self,
     value: Result<T>,
     mode: ThreadsafeFunctionCallMode,
@@ -395,7 +421,7 @@ impl<T: 'static, Return: FromNapiValue + 'static, const Weak: bool, const MaxQue
             ThreadsafeFunctionCallJsBackData {
               data,
               call_variant: ThreadsafeFunctionCallVariant::WithCallback,
-              callback: Box::new(move |d: Result<Return>| d.and_then(cb)),
+              callback: Box::new(move |d: Result<Return>| cb(d)),
             }
           })))
           .cast(),
@@ -407,6 +433,7 @@ impl<T: 'static, Return: FromNapiValue + 'static, const Weak: bool, const MaxQue
   }
 
   #[cfg(feature = "tokio_rt")]
+  /// Call the ThreadsafeFunction, and handle the return value with in `async` way
   pub async fn call_async(&self, value: Result<T>) -> Result<Return> {
     let (sender, receiver) = tokio::sync::oneshot::channel::<Result<Return>>();
 
@@ -478,6 +505,7 @@ impl<T: 'static, Return: FromNapiValue + 'static, const Weak: bool, const MaxQue
     })
   }
 
+  /// Call the ThreadsafeFunction, and handle the return value with a callback
   pub fn call_with_return_value<F: 'static + FnOnce(Return) -> Result<()>>(
     &self,
     value: T,
@@ -506,6 +534,7 @@ impl<T: 'static, Return: FromNapiValue + 'static, const Weak: bool, const MaxQue
   }
 
   #[cfg(feature = "tokio_rt")]
+  /// Call the ThreadsafeFunction, and handle the return value with in `async` way
   pub async fn call_async(&self, value: T) -> Result<Return> {
     let (sender, receiver) = tokio::sync::oneshot::channel::<Return>();
 
@@ -724,14 +753,14 @@ unsafe extern "C" fn call_js_cb<
       },
       sys::Status::napi_ok,
     );
-    let error_msg = "Call JavaScript callback failed in threadsafe function";
+    static ERROR_MSG: &str = "Call JavaScript callback failed in threadsafe function";
     let mut error_msg_value = ptr::null_mut();
     assert_eq!(
       unsafe {
         sys::napi_create_string_utf8(
           raw_env,
-          error_msg.as_ptr() as *const _,
-          error_msg.len(),
+          ERROR_MSG.as_ptr().cast(),
+          ERROR_MSG.len(),
           &mut error_msg_value,
         )
       },

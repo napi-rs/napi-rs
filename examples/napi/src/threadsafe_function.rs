@@ -94,7 +94,8 @@ pub fn tsfn_call_with_callback(func: JsFunction) -> napi::Result<()> {
   tsfn.call_with_return_value(
     Ok(()),
     ThreadsafeFunctionCallMode::NonBlocking,
-    |value: String| {
+    |value: Result<String>| {
+      let value = value.expect("Failed to retrieve value from JS");
       println!("{}", value);
       assert_eq!(value, "ReturnFromJavaScriptRawCallback".to_owned());
       Ok(())
