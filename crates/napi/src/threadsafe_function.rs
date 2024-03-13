@@ -522,7 +522,7 @@ impl<T: 'static, Return: FromNapiValue + 'static, const Weak: bool, const MaxQue
           Box::into_raw(Box::new(ThreadsafeFunctionCallJsBackData {
             data: value,
             call_variant: ThreadsafeFunctionCallVariant::WithCallback,
-            callback: Box::new(move |d, env| cb(d, env)),
+            callback: Box::new(cb),
           }))
           .cast(),
           mode.into(),

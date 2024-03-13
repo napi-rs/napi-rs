@@ -370,9 +370,9 @@ macro_rules! check_status_and_type {
         let error_msg = match value_type {
           ValueType::Function => {
             let function_name = unsafe {
-              crate::bindgen_prelude::Function::<
-                crate::bindgen_prelude::Unknown,
-                crate::bindgen_prelude::Unknown,
+              $crate::bindgen_prelude::Function::<
+                $crate::bindgen_prelude::Unknown,
+                $crate::bindgen_prelude::Unknown,
               >::from_napi_value($env, $val)?
               .name()?
             };

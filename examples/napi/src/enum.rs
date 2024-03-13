@@ -19,6 +19,7 @@ pub enum Status {
   Ready,
 }
 
+#[allow(clippy::enum_variant_names)]
 #[napi(string_enum = "lowercase")]
 pub enum StringEnum {
   VariantOne,
