@@ -212,6 +212,7 @@ static KNOWN_TYPES: Lazy<HashMap<&'static str, (&'static str, bool, bool)>> = La
     ("External", ("ExternalObject<{}>", false, false)),
     ("unknown", ("unknown", false, false)),
     ("Unknown", ("unknown", false, false)),
+    ("UnknownReturnValue", ("unknown", false, false)),
     ("JsUnknown", ("unknown", false, false)),
     ("This", ("this", false, false)),
     ("Rc", ("{}", false, false)),

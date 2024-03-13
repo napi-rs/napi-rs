@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use std::ptr;
 
 use super::{FromNapiValue, ToNapiValue, TypeName, ValidateNapiValue};
@@ -118,6 +120,17 @@ impl<'scope, Args: JsValuesTupleIntoVec, Return: FromNapiValue> ValidateNapiValu
 }
 
 impl<'scope, Args: JsValuesTupleIntoVec, Return: FromNapiValue> Function<'scope, Args, Return> {
+  pub fn name(&self) -> Result<String> {
+    let mut name = ptr::null_mut();
+    check_status!(
+      unsafe {
+        sys::napi_get_named_property(self.env, self.value, "name\0".as_ptr().cast(), &mut name)
+      },
+      "Get function name failed"
+    )?;
+    unsafe { String::from_napi_value(self.env, name) }
+  }
+
   /// Call the JavaScript function.
   /// `this` in the JavaScript function will be `undefined`.
   /// If you want to specify `this`, you can use the `apply` method.

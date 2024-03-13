@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use napi::{
   bindgen_prelude::{ClassInstance, Function, FunctionRef},
   threadsafe_function::ThreadsafeFunctionCallMode,

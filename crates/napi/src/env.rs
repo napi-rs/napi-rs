@@ -7,9 +7,9 @@ use std::mem;
 use std::os::raw::{c_char, c_void};
 use std::ptr;
 
-use crate::bindgen_runtime::FromNapiValue;
 #[cfg(feature = "napi4")]
 use crate::bindgen_runtime::ToNapiValue;
+use crate::bindgen_runtime::{FromNapiValue, Function, JsValuesTupleIntoVec, Unknown};
 use crate::{
   async_work::{self, AsyncWorkPromise},
   check_status,
@@ -570,7 +570,11 @@ impl Env {
   /// The newly created function is not automatically visible from script after this call.
   ///
   /// Instead, a property must be explicitly set on any object that is visible to JavaScript, in order for the function to be accessible from script.
-  pub fn create_function(&self, name: &str, callback: Callback) -> Result<JsFunction> {
+  pub fn create_function<Args: JsValuesTupleIntoVec, Return: FromNapiValue>(
+    &self,
+    name: &str,
+    callback: Callback,
+  ) -> Result<Function<Args, Return>> {
     let mut raw_result = ptr::null_mut();
     let len = name.len();
     let name = CString::new(name)?;
@@ -585,7 +589,7 @@ impl Env {
       )
     })?;
 
-    Ok(unsafe { JsFunction::from_raw_unchecked(self.0, raw_result) })
+    unsafe { Function::<Args, Return>::from_napi_value(self.0, raw_result) }
   }
 
   #[cfg(feature = "napi5")]
@@ -745,7 +749,7 @@ impl Env {
     name: &str,
     constructor_cb: Callback,
     properties: &[Property],
-  ) -> Result<JsFunction> {
+  ) -> Result<Function<Unknown, Unknown>> {
     let mut raw_result = ptr::null_mut();
     let raw_properties = properties
       .iter()
@@ -755,7 +759,7 @@ impl Env {
     check_status!(unsafe {
       sys::napi_define_class(
         self.0,
-        c_name.as_ptr() as *const c_char,
+        c_name.as_ptr().cast(),
         name.len(),
         Some(constructor_cb),
         ptr::null_mut(),
@@ -765,7 +769,7 @@ impl Env {
       )
     })?;
 
-    Ok(unsafe { JsFunction::from_raw_unchecked(self.0, raw_result) })
+    unsafe { Function::from_napi_value(self.0, raw_result) }
   }
 
   #[allow(clippy::needless_pass_by_ref_mut)]
@@ -1059,6 +1063,7 @@ impl Env {
     since = "2.17.0",
     note = "Please use `Function::build_threadsafe_function` instead"
   )]
+  #[allow(deprecated)]
   pub fn create_threadsafe_function<
     T: Send,
     V: ToNapiValue,
