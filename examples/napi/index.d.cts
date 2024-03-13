@@ -405,6 +405,8 @@ export function either4(input: string | number | boolean | Obj): number
 
 export function eitherBoolOrFunction(input: boolean | ((...args: any[]) => any)): void
 
+export function eitherBoolOrTuple(input: boolean | [boolean, string]): void
+
 export function eitherFromObjects(input: A | B | C): string
 
 export function eitherFromOption(): JsClassForEither | undefined

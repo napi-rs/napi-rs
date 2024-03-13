@@ -143,3 +143,6 @@ pub async fn promise_in_either(input: Either<u32, Promise<u32>>) -> Result<bool>
     }
   }
 }
+
+#[napi]
+pub fn either_bool_or_tuple(_input: Either<bool, (bool, String)>) {}

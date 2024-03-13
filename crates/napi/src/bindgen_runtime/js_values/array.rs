@@ -335,6 +335,20 @@ macro_rules! tuple_from_napi_value {
   }
 }
 
+macro_rules! impl_tuple_validate_napi_value {
+  ($($ident:ident),+) => {
+    impl<$($ident: FromNapiValue),*> ValidateNapiValue for ($($ident,)*) {}
+    impl<$($ident: FromNapiValue),*> TypeName for ($($ident,)*) {
+      fn type_name() -> &'static str {
+        concat!("Tuple", "(", $(stringify!($ident), ","),*, ")")
+      }
+      fn value_type() -> ValueType {
+        ValueType::Object
+      }
+    }
+  };
+}
+
 impl<T0, T1> FromNapiValue for (T0, T1)
 where
   T0: FromNapiValue,
@@ -599,3 +613,21 @@ where
 {
   tuple_from_napi_value!(16, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
 }
+
+impl_tuple_validate_napi_value!(T0, T1);
+impl_tuple_validate_napi_value!(T0, T1, T2);
+impl_tuple_validate_napi_value!(T0, T1, T2, T3);
+impl_tuple_validate_napi_value!(T0, T1, T2, T3, T4);
+impl_tuple_validate_napi_value!(T0, T1, T2, T3, T4, T5);
+impl_tuple_validate_napi_value!(T0, T1, T2, T3, T4, T5, T6);
+impl_tuple_validate_napi_value!(T0, T1, T2, T3, T4, T5, T6, T7);
+impl_tuple_validate_napi_value!(T0, T1, T2, T3, T4, T5, T6, T7, T8);
+impl_tuple_validate_napi_value!(T0, T1, T2, T3, T4, T5, T6, T7, T8, T9);
+impl_tuple_validate_napi_value!(T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10);
+impl_tuple_validate_napi_value!(T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11);
+impl_tuple_validate_napi_value!(T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12);
+impl_tuple_validate_napi_value!(T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13);
+impl_tuple_validate_napi_value!(T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14);
+impl_tuple_validate_napi_value!(
+  T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15
+);
