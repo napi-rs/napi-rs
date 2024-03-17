@@ -625,7 +625,7 @@ unsafe extern "C" fn call_js_cb<
 
   let ret = val.and_then(|v| {
     (callback)(ThreadsafeCallContext {
-      env: unsafe { Env::from_raw(raw_env) },
+      env: Env::from_raw(raw_env),
       value: v.data,
     })
     .map(|ret| (ret, v.call_variant, v.callback))
@@ -690,7 +690,7 @@ unsafe extern "C" fn call_js_cb<
         } else {
           unsafe { Return::from_napi_value(raw_env, return_value) }
         };
-        if let Err(err) = callback(callback_arg, unsafe { Env::from_raw(raw_env) }) {
+        if let Err(err) = callback(callback_arg, Env::from_raw(raw_env)) {
           unsafe { sys::napi_fatal_exception(raw_env, JsError::from(err).into_value(raw_env)) };
         }
       }

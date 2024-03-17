@@ -1,6 +1,6 @@
 #![allow(deprecated)]
 
-use std::ptr;
+use std::{ptr, usize};
 
 use super::{FromNapiValue, ToNapiValue, TypeName, Unknown, ValidateNapiValue};
 
@@ -24,7 +24,14 @@ impl<T: ToNapiValue> JsValuesTupleIntoVec for T {
   }
 }
 
-macro_rules! impl_js_value_tuple_to_vec {
+pub trait TupleFromSliceValues {
+  #[allow(clippy::missing_safety_doc)]
+  unsafe fn from_slice_values(env: sys::napi_env, values: &[sys::napi_value]) -> Result<Self>
+  where
+    Self: Sized;
+}
+
+macro_rules! impl_tuple_conversion {
   ($($ident:ident),*) => {
     impl<$($ident: ToNapiValue),*> JsValuesTupleIntoVec for ($($ident,)*) {
       #[allow(clippy::not_unsafe_ptr_arg_deref)]
@@ -34,37 +41,48 @@ macro_rules! impl_js_value_tuple_to_vec {
         Ok(vec![$(unsafe { <$ident as ToNapiValue>::to_napi_value(env, $ident)? }),*])
       }
     }
+
+    impl<$($ident: FromNapiValue),*> TupleFromSliceValues for ($($ident,)*) {
+      unsafe fn from_slice_values(env: sys::napi_env, values: &[sys::napi_value]) -> $crate::Result<Self> {
+        #[allow(non_snake_case)]
+        let [$($ident),*] = values.try_into().map_err(|_| crate::Error::new(
+          crate::Status::InvalidArg,
+          "Invalid number of arguments",
+        ))?;
+        Ok(($(
+          unsafe { $ident::from_napi_value(env, $ident)?}
+        ,)*))
+      }
+    }
   };
 }
 
-impl_js_value_tuple_to_vec!(A);
-impl_js_value_tuple_to_vec!(A, B);
-impl_js_value_tuple_to_vec!(A, B, C);
-impl_js_value_tuple_to_vec!(A, B, C, D);
-impl_js_value_tuple_to_vec!(A, B, C, D, E);
-impl_js_value_tuple_to_vec!(A, B, C, D, E, F);
-impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G);
-impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H);
-impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I);
-impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J);
-impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K);
-impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K, L);
-impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K, L, M);
-impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K, L, M, N);
-impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O);
-impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P);
-impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q);
-impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R);
-impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S);
-impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T);
-impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U);
-impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V);
-impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W);
-impl_js_value_tuple_to_vec!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X);
-impl_js_value_tuple_to_vec!(
-  A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y
-);
-impl_js_value_tuple_to_vec!(
+impl_tuple_conversion!(A);
+impl_tuple_conversion!(A, B);
+impl_tuple_conversion!(A, B, C);
+impl_tuple_conversion!(A, B, C, D);
+impl_tuple_conversion!(A, B, C, D, E);
+impl_tuple_conversion!(A, B, C, D, E, F);
+impl_tuple_conversion!(A, B, C, D, E, F, G);
+impl_tuple_conversion!(A, B, C, D, E, F, G, H);
+impl_tuple_conversion!(A, B, C, D, E, F, G, H, I);
+impl_tuple_conversion!(A, B, C, D, E, F, G, H, I, J);
+impl_tuple_conversion!(A, B, C, D, E, F, G, H, I, J, K);
+impl_tuple_conversion!(A, B, C, D, E, F, G, H, I, J, K, L);
+impl_tuple_conversion!(A, B, C, D, E, F, G, H, I, J, K, L, M);
+impl_tuple_conversion!(A, B, C, D, E, F, G, H, I, J, K, L, M, N);
+impl_tuple_conversion!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O);
+impl_tuple_conversion!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P);
+impl_tuple_conversion!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q);
+impl_tuple_conversion!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R);
+impl_tuple_conversion!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S);
+impl_tuple_conversion!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T);
+impl_tuple_conversion!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U);
+impl_tuple_conversion!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V);
+impl_tuple_conversion!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W);
+impl_tuple_conversion!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X);
+impl_tuple_conversion!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y);
+impl_tuple_conversion!(
   A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z
 );
 
@@ -72,7 +90,7 @@ impl_js_value_tuple_to_vec!(
 /// It can only live in the scope of a function call.
 /// If you want to use it outside the scope of a function call, you can turn it into a reference.
 /// By calling the `create_ref` method.
-pub struct Function<'scope, Args: JsValuesTupleIntoVec = Unknown, Return: FromNapiValue = Unknown> {
+pub struct Function<'scope, Args: JsValuesTupleIntoVec = Unknown, Return = Unknown> {
   pub(crate) env: sys::napi_env,
   pub(crate) value: sys::napi_value,
   pub(crate) _args: std::marker::PhantomData<Args>,
@@ -80,9 +98,7 @@ pub struct Function<'scope, Args: JsValuesTupleIntoVec = Unknown, Return: FromNa
   _scope: std::marker::PhantomData<&'scope ()>,
 }
 
-impl<'scope, Args: JsValuesTupleIntoVec, Return: FromNapiValue> TypeName
-  for Function<'scope, Args, Return>
-{
+impl<'scope, Args: JsValuesTupleIntoVec, Return> TypeName for Function<'scope, Args, Return> {
   fn type_name() -> &'static str {
     "Function"
   }
@@ -92,17 +108,13 @@ impl<'scope, Args: JsValuesTupleIntoVec, Return: FromNapiValue> TypeName
   }
 }
 
-impl<'scope, Args: JsValuesTupleIntoVec, Return: FromNapiValue> NapiRaw
-  for Function<'scope, Args, Return>
-{
+impl<'scope, Args: JsValuesTupleIntoVec, Return> NapiRaw for Function<'scope, Args, Return> {
   unsafe fn raw(&self) -> sys::napi_value {
     self.value
   }
 }
 
-impl<'scope, Args: JsValuesTupleIntoVec, Return: FromNapiValue> FromNapiValue
-  for Function<'scope, Args, Return>
-{
+impl<'scope, Args: JsValuesTupleIntoVec, Return> FromNapiValue for Function<'scope, Args, Return> {
   unsafe fn from_napi_value(env: sys::napi_env, value: sys::napi_value) -> Result<Self> {
     Ok(Function {
       env,
@@ -114,12 +126,12 @@ impl<'scope, Args: JsValuesTupleIntoVec, Return: FromNapiValue> FromNapiValue
   }
 }
 
-impl<'scope, Args: JsValuesTupleIntoVec, Return: FromNapiValue> ValidateNapiValue
+impl<'scope, Args: JsValuesTupleIntoVec, Return> ValidateNapiValue
   for Function<'scope, Args, Return>
 {
 }
 
-impl<'scope, Args: JsValuesTupleIntoVec, Return: FromNapiValue> Function<'scope, Args, Return> {
+impl<'scope, Args: JsValuesTupleIntoVec, Return> Function<'scope, Args, Return> {
   /// Get the name of the JavaScript function.
   pub fn name(&self) -> Result<String> {
     let mut name = ptr::null_mut();
@@ -132,6 +144,53 @@ impl<'scope, Args: JsValuesTupleIntoVec, Return: FromNapiValue> Function<'scope,
     unsafe { String::from_napi_value(self.env, name) }
   }
 
+  /// Create a reference to the JavaScript function.
+  pub fn create_ref(&self) -> Result<FunctionRef<Args, Return>> {
+    let mut reference = ptr::null_mut();
+    check_status!(
+      unsafe { sys::napi_create_reference(self.env, self.value, 1, &mut reference) },
+      "Create reference failed"
+    )?;
+    Ok(FunctionRef {
+      inner: reference,
+      env: self.env,
+      _args: std::marker::PhantomData,
+      _return: std::marker::PhantomData,
+    })
+  }
+
+  /// Create a new instance of the JavaScript Class.
+  pub fn new_instance(&self, args: Args) -> Result<Unknown> {
+    let mut raw_instance = ptr::null_mut();
+    let mut args = args.into_vec(self.env)?;
+    check_status!(
+      unsafe {
+        sys::napi_new_instance(
+          self.env,
+          self.value,
+          args.len(),
+          args.as_mut_ptr().cast(),
+          &mut raw_instance,
+        )
+      },
+      "Create new instance failed"
+    )?;
+    unsafe { Unknown::from_napi_value(self.env, raw_instance) }
+  }
+
+  #[cfg(feature = "napi4")]
+  /// Create a threadsafe function from the JavaScript function.
+  pub fn build_threadsafe_function(&self) -> ThreadsafeFunctionBuilder<Args, Return> {
+    ThreadsafeFunctionBuilder {
+      env: self.env,
+      value: self.value,
+      _args: std::marker::PhantomData,
+      _return: std::marker::PhantomData,
+    }
+  }
+}
+
+impl<'scope, Args: JsValuesTupleIntoVec, Return: FromNapiValue> Function<'scope, Args, Return> {
   /// Call the JavaScript function.
   /// `this` in the JavaScript function will be `undefined`.
   /// If you want to specify `this`, you can use the `apply` method.
@@ -181,56 +240,11 @@ impl<'scope, Args: JsValuesTupleIntoVec, Return: FromNapiValue> Function<'scope,
     )?;
     unsafe { Return::from_napi_value(self.env, raw_return) }
   }
-
-  /// Create a reference to the JavaScript function.
-  pub fn create_ref(&self) -> Result<FunctionRef<Args, Return>> {
-    let mut reference = ptr::null_mut();
-    check_status!(
-      unsafe { sys::napi_create_reference(self.env, self.value, 1, &mut reference) },
-      "Create reference failed"
-    )?;
-    Ok(FunctionRef {
-      inner: reference,
-      env: self.env,
-      _args: std::marker::PhantomData,
-      _return: std::marker::PhantomData,
-    })
-  }
-
-  /// Create a new instance of the JavaScript Class.
-  pub fn new_instance(&self, args: Args) -> Result<Unknown> {
-    let mut raw_instance = ptr::null_mut();
-    let mut args = args.into_vec(self.env)?;
-    check_status!(
-      unsafe {
-        sys::napi_new_instance(
-          self.env,
-          self.value,
-          args.len(),
-          args.as_mut_ptr().cast(),
-          &mut raw_instance,
-        )
-      },
-      "Create new instance failed"
-    )?;
-    unsafe { Unknown::from_napi_value(self.env, raw_instance) }
-  }
-
-  #[cfg(feature = "napi4")]
-  /// Create a threadsafe function from the JavaScript function.
-  pub fn build_threadsafe_function(&self) -> ThreadsafeFunctionBuilder<Args, Return> {
-    ThreadsafeFunctionBuilder {
-      env: self.env,
-      value: self.value,
-      _args: std::marker::PhantomData,
-      _return: std::marker::PhantomData,
-    }
-  }
 }
 
 pub struct ThreadsafeFunctionBuilder<
   Args: JsValuesTupleIntoVec,
-  Return: FromNapiValue,
+  Return,
   const Weak: bool = false,
   const MaxQueueSize: usize = 0,
 > {
@@ -276,16 +290,16 @@ impl<
 
 /// A reference to a JavaScript function.
 /// It can be used to outlive the scope of the function.
-pub struct FunctionRef<Args: JsValuesTupleIntoVec, Return: FromNapiValue> {
+pub struct FunctionRef<Args: JsValuesTupleIntoVec, Return> {
   pub(crate) inner: sys::napi_ref,
   pub(crate) env: sys::napi_env,
   _args: std::marker::PhantomData<Args>,
   _return: std::marker::PhantomData<Return>,
 }
 
-unsafe impl<Args: JsValuesTupleIntoVec, Return: FromNapiValue> Sync for FunctionRef<Args, Return> {}
+unsafe impl<Args: JsValuesTupleIntoVec, Return> Sync for FunctionRef<Args, Return> {}
 
-impl<Args: JsValuesTupleIntoVec, Return: FromNapiValue> FunctionRef<Args, Return> {
+impl<Args: JsValuesTupleIntoVec, Return> FunctionRef<Args, Return> {
   pub fn borrow_back<'scope>(&self, env: &'scope Env) -> Result<Function<'scope, Args, Return>> {
     let mut value = ptr::null_mut();
     check_status!(
@@ -302,14 +316,14 @@ impl<Args: JsValuesTupleIntoVec, Return: FromNapiValue> FunctionRef<Args, Return
   }
 }
 
-impl<Args: JsValuesTupleIntoVec, Return: FromNapiValue> Drop for FunctionRef<Args, Return> {
+impl<Args: JsValuesTupleIntoVec, Return> Drop for FunctionRef<Args, Return> {
   fn drop(&mut self) {
     let status = unsafe { sys::napi_delete_reference(self.env, self.inner) };
     debug_assert_eq!(status, sys::Status::napi_ok, "Drop FunctionRef failed");
   }
 }
 
-impl<Args: JsValuesTupleIntoVec, Return: FromNapiValue> TypeName for FunctionRef<Args, Return> {
+impl<Args: JsValuesTupleIntoVec, Return> TypeName for FunctionRef<Args, Return> {
   fn type_name() -> &'static str {
     "Function"
   }
@@ -319,9 +333,7 @@ impl<Args: JsValuesTupleIntoVec, Return: FromNapiValue> TypeName for FunctionRef
   }
 }
 
-impl<Args: JsValuesTupleIntoVec, Return: FromNapiValue> FromNapiValue
-  for FunctionRef<Args, Return>
-{
+impl<Args: JsValuesTupleIntoVec, Return> FromNapiValue for FunctionRef<Args, Return> {
   unsafe fn from_napi_value(env: sys::napi_env, value: sys::napi_value) -> Result<Self> {
     let mut reference = ptr::null_mut();
     check_status!(
@@ -342,6 +354,55 @@ impl<Args: JsValuesTupleIntoVec, Return: FromNapiValue> ValidateNapiValue
 {
 }
 
+pub struct FunctionCallContext<'scope> {
+  pub(crate) args: &'scope [sys::napi_value],
+  pub(crate) this: sys::napi_value,
+  pub(crate) env: &'scope mut Env,
+}
+
+impl FunctionCallContext<'_> {
+  /// Get the number of arguments from the JavaScript function call.
+  pub fn length(&self) -> usize {
+    self.args.len()
+  }
+
+  /// Get the first argument from the JavaScript function call.
+  pub fn first_arg<T: FromNapiValue>(&self) -> Result<T> {
+    if self.args.is_empty() {
+      return Err(crate::Error::new(
+        crate::Status::InvalidArg,
+        "There is no arguments",
+      ));
+    }
+    unsafe { T::from_napi_value(self.env.0, self.args[0]) }
+  }
+
+  /// Get the arguments from the JavaScript function call.
+  /// The arguments will be converted to a tuple.
+  /// If the number of arguments is not equal to the number of tuple elements, an error will be returned.
+  /// example:
+  /// ```rust
+  /// let (num, string) = ctx.args::<(u32, String)>()?;
+  /// ````
+  pub fn args<Args: TupleFromSliceValues>(&self) -> Result<Args> {
+    unsafe { Args::from_slice_values(self.env.0, self.args) }
+  }
+
+  /// Get the arguments Vec from the JavaScript function call.
+  pub fn arguments<T: FromNapiValue>(&self) -> Result<Vec<T>> {
+    self
+      .args
+      .iter()
+      .map(|arg| unsafe { <T as FromNapiValue>::from_napi_value(self.env.0, *arg) })
+      .collect::<Result<Vec<T>>>()
+  }
+
+  /// Get the `this` from the JavaScript function call.
+  pub fn this<This: FromNapiValue>(&self) -> Result<This> {
+    unsafe { This::from_napi_value(self.env.0, self.this) }
+  }
+}
+
 macro_rules! impl_call_apply {
   ($fn_call_name:ident, $fn_apply_name:ident, $($ident:ident),*) => {
     #[allow(non_snake_case, clippy::too_many_arguments)]
@@ -349,7 +410,7 @@ macro_rules! impl_call_apply {
       &self,
       $($ident: $ident),*
     ) -> Result<Return> {
-      let raw_this = unsafe { Env::from_raw(self.0.env) }
+      let raw_this = Env::from_raw(self.0.env)
         .get_undefined()
         .map(|u| unsafe { u.raw() })?;
 
@@ -428,7 +489,7 @@ impl JsFunction {
   }
 
   pub fn call0<Return: FromNapiValue>(&self) -> Result<Return> {
-    let raw_this = unsafe { Env::from_raw(self.0.env) }
+    let raw_this = Env::from_raw(self.0.env)
       .get_undefined()
       .map(|u| unsafe { u.raw() })?;
 

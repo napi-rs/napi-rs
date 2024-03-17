@@ -65,7 +65,7 @@ impl FromNapiValue for AbortSignal {
       raw_deferred: raw_promise.clone(),
       status: task_status.clone(),
     };
-    let js_env = unsafe { Env::from_raw(env) };
+    let js_env = Env::from_raw(env);
     check_status!(unsafe {
       sys::napi_wrap(
         env,

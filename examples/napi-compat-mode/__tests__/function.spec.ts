@@ -36,7 +36,7 @@ test('should be able to create function from closure', (t) => {
   for (let i = 0; i < 100; i++) {
     t.is(
       bindings.testCreateFunctionFromClosure()(
-        ...Array.from({ length: i }).map((_, i) => i),
+        ...Array.from({ length: i }, (_, i) => i),
       ),
       `arguments length: ${i}`,
     )

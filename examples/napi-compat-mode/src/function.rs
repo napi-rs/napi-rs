@@ -1,4 +1,6 @@
-use napi::{CallContext, JsError, JsFunction, JsNull, JsObject, JsUnknown, Result};
+use napi::{
+  bindgen_prelude::Function, CallContext, JsError, JsFunction, JsNull, JsObject, JsUnknown, Result,
+};
 
 #[js_function(1)]
 pub fn call_function(ctx: CallContext) -> Result<JsNull> {
@@ -44,15 +46,16 @@ pub fn call_function_error(ctx: CallContext) -> Result<JsUnknown> {
 }
 
 #[js_function(0)]
-pub fn test_create_function_from_closure(ctx: CallContext) -> Result<JsFunction> {
+pub fn test_create_function_from_closure(ctx: CallContext) -> Result<Function<u32, String>> {
   ctx
     .env
     .create_function_from_closure("functionFromClosure", move |ctx| {
-      if ctx.length != 0 {
-        let max: u32 = ctx.get(ctx.length - 1)?;
-        assert_eq!(max, ctx.length as u32 - 1);
+      if ctx.length() != 0 {
+        let args = ctx.arguments::<u32>()?;
+        let max = args.last().unwrap();
+        assert_eq!(*max, ctx.length() as u32 - 1);
       }
-      Ok(format!("arguments length: {}", ctx.length))
+      Ok(format!("arguments length: {}", ctx.length()))
     })
 }
 

@@ -46,7 +46,7 @@ impl JsFunction {
     let raw_this = this
       .map(|v| unsafe { v.raw() })
       .or_else(|| {
-        unsafe { Env::from_raw(self.0.env) }
+        Env::from_raw(self.0.env)
           .get_undefined()
           .ok()
           .map(|u| unsafe { u.raw() })
@@ -77,7 +77,7 @@ impl JsFunction {
     let raw_this = this
       .map(|v| unsafe { v.raw() })
       .or_else(|| {
-        unsafe { Env::from_raw(self.0.env) }
+        Env::from_raw(self.0.env)
           .get_undefined()
           .ok()
           .map(|u| unsafe { u.raw() })

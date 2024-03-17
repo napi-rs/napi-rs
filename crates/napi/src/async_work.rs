@@ -114,11 +114,9 @@ unsafe extern "C" fn complete<T: Task>(
   let value = match value_ptr {
     Ok(v) => {
       let output = unsafe { v.assume_init() };
-      work
-        .inner_task
-        .resolve(unsafe { Env::from_raw(env) }, output)
+      work.inner_task.resolve(Env::from_raw(env), output)
     }
-    Err(e) => work.inner_task.reject(unsafe { Env::from_raw(env) }, e),
+    Err(e) => work.inner_task.reject(Env::from_raw(env), e),
   };
   if status != sys::Status::napi_cancelled && work.status.load(Ordering::Relaxed) != 2 {
     match check_status!(status)
@@ -144,7 +142,7 @@ unsafe extern "C" fn complete<T: Task>(
       }
     };
   }
-  if let Err(e) = work.inner_task.finally(unsafe { Env::from_raw(env) }) {
+  if let Err(e) = work.inner_task.finally(Env::from_raw(env)) {
     debug_assert!(false, "Panic in Task finally fn: {:?}", e);
   }
   let delete_status = unsafe { sys::napi_delete_async_work(env, napi_async_work) };

@@ -13,13 +13,15 @@ pub trait Task: Send + Sized {
   /// Into this method if `compute` return `Ok`
   fn resolve(&mut self, env: Env, output: Self::Output) -> Result<Self::JsValue>;
 
+  #[allow(unused_variables)]
   /// Into this method if `compute` return `Err`
-  fn reject(&mut self, _env: Env, err: Error) -> Result<Self::JsValue> {
+  fn reject(&mut self, env: Env, err: Error) -> Result<Self::JsValue> {
     Err(err)
   }
 
-  // after resolve or reject
-  fn finally(&mut self, _env: Env) -> Result<()> {
+  #[allow(unused_variables)]
+  /// after resolve or reject
+  fn finally(&mut self, env: Env) -> Result<()> {
     Ok(())
   }
 }

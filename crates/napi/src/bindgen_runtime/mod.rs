@@ -35,7 +35,7 @@ pub unsafe extern "C" fn raw_finalize_unchecked<T: ObjectFinalize>(
   _finalize_hint: *mut c_void,
 ) {
   let data: Box<T> = unsafe { Box::from_raw(finalize_data.cast()) };
-  if let Err(err) = data.finalize(unsafe { Env::from_raw(env) }) {
+  if let Err(err) = data.finalize(Env::from_raw(env)) {
     let e: JsError = err.into();
     unsafe { e.throw_into(env) };
     return;
