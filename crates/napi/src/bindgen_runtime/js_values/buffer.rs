@@ -234,6 +234,12 @@ impl From<&[u8]> for Buffer {
   }
 }
 
+impl From<String> for Buffer {
+  fn from(inner: String) -> Self {
+    Buffer::from(inner.into_bytes())
+  }
+}
+
 impl AsRef<[u8]> for Buffer {
   fn as_ref(&self) -> &[u8] {
     // SAFETY: the pointer is guaranteed to be non-null, and guaranteed to be valid if `len` is not 0.
