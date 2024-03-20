@@ -754,7 +754,7 @@ __metadata:
     clipanion: "npm:^3.2.1"
     colorette: "npm:^2.0.20"
     debug: "npm:^4.3.4"
-    emnapi: "npm:1.0.0"
+    emnapi: "npm:1.1.0"
     env-paths: "npm:^3.0.0"
     esbuild: "npm:^0.20.0"
     inquirer: "npm:^9.2.13"
@@ -5189,9 +5189,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"emnapi@npm:1.0.0":
-  version: 1.0.0
-  resolution: "emnapi@npm:1.0.0"
+"emnapi@npm:1.1.0":
+  version: 1.1.0
+  resolution: "emnapi@npm:1.1.0"
   dependencies:
     node-gyp: "npm:latest"
   peerDependencies:
@@ -5199,7 +5199,7 @@ __metadata:
   peerDependenciesMeta:
     node-addon-api:
       optional: true
-  checksum: 10c0/cd927b47189e313858f68147368685054bd63ad28d371caab821a308d32d571ae7e390f322dfd35c513f33eb8550330a28a4bc65c5c1ed01ba47250a186f0ba1
+  checksum: 10c0/3a33ae26d9b95b7d7753ad1fb2871ce69a49c8fd5e1ed0c5c9bb405fba96624596fa9f54ae59ddacfd23861137d08474a4dcbf46173011eb1b81c07ddfdc3300
   languageName: node
   linkType: hard
 
