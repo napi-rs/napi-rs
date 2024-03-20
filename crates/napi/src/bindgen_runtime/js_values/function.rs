@@ -242,6 +242,7 @@ impl<'scope, Args: JsValuesTupleIntoVec, Return: FromNapiValue> Function<'scope,
   }
 }
 
+#[cfg(feature = "napi4")]
 pub struct ThreadsafeFunctionBuilder<
   Args: JsValuesTupleIntoVec,
   Return,
@@ -254,6 +255,7 @@ pub struct ThreadsafeFunctionBuilder<
   _return: std::marker::PhantomData<Return>,
 }
 
+#[cfg(feature = "napi4")]
 impl<
     Args: JsValuesTupleIntoVec,
     Return: FromNapiValue,

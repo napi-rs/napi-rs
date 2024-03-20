@@ -115,8 +115,8 @@ name = "awesome"
 crate-type = ["cdylib"]
 
 [dependencies]
-napi = "2"
-napi-derive = "2"
+napi = "3"
+napi-derive = "3"
 
 [build-dependencies]
 napi-build = "1"

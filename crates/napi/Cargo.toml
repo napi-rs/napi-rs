@@ -8,7 +8,7 @@ name = "napi"
 readme = "README.md"
 repository = "https://github.com/napi-rs/napi-rs"
 rust-version = "1.65"
-version = "2.16.0"
+version = "3.0.0-alpha.0"
 
 [lib]
 doctest = false
@@ -78,7 +78,6 @@ optional = true
 version = "0.4"
 
 [target.'cfg(target_family = "wasm")'.dependencies]
-napi-derive = { path = "../macro", version = "2.10.1", default-features = false }
 tokio = { version = "1", optional = true, features = ["rt", "sync"] }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]

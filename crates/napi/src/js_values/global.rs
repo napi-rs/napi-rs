@@ -1,8 +1,5 @@
 use super::*;
-use crate::{
-  bindgen_runtime::{FromNapiValue, Function},
-  threadsafe_function::UnknownReturnValue,
-};
+use crate::bindgen_runtime::{FromNapiValue, Function, Unknown};
 
 pub struct JsGlobal(pub(crate) Value);
 
@@ -28,12 +25,8 @@ impl JSON {
 }
 
 impl JsGlobal {
-  pub fn set_interval(
-    &self,
-    handler: Function<(), UnknownReturnValue>,
-    interval: f64,
-  ) -> Result<JsTimeout> {
-    let func: Function<(Function<(), UnknownReturnValue>, f64), JsTimeout> =
+  pub fn set_interval(&self, handler: Function<(), Unknown>, interval: f64) -> Result<JsTimeout> {
+    let func: Function<(Function<(), Unknown>, f64), JsTimeout> =
       self.get_named_property_unchecked("setInterval")?;
     func.call((handler, interval))
   }
@@ -44,12 +37,8 @@ impl JsGlobal {
     func.call(timer)
   }
 
-  pub fn set_timeout(
-    &self,
-    handler: Function<(), UnknownReturnValue>,
-    interval: f64,
-  ) -> Result<JsTimeout> {
-    let func: Function<(Function<(), UnknownReturnValue>, f64), JsTimeout> =
+  pub fn set_timeout(&self, handler: Function<(), Unknown>, interval: f64) -> Result<JsTimeout> {
+    let func: Function<(Function<(), Unknown>, f64), JsTimeout> =
       self.get_named_property_unchecked("setTimeout")?;
     func.call((handler, interval))
   }
