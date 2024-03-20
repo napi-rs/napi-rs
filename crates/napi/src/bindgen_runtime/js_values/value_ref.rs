@@ -29,6 +29,9 @@ pub struct Reference<T: 'static> {
   finalize_callbacks: Rc<Cell<*mut dyn FnOnce()>>,
 }
 
+unsafe impl<T: Send> Send for Reference<T> {}
+unsafe impl<T: Sync> Sync for Reference<T> {}
+
 impl<T> Drop for Reference<T> {
   fn drop(&mut self) {
     let rc_strong_count = Rc::strong_count(&self.finalize_callbacks);
