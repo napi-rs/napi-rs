@@ -241,7 +241,7 @@ export function acceptSlice(fixture: Uint8Array): bigint
 
 export function acceptThreadsafeFunction(func: (err: Error | null, arg: number) => any): void
 
-export function acceptThreadsafeFunctionFatal(func: (arg: number) => any): void
+export function acceptThreadsafeFunctionFatal(func: (arg: number) => void): void
 
 export function acceptThreadsafeFunctionTupleArgs(func: (err: Error | null, arg0: number, arg1: boolean, arg2: string) => any): void
 
@@ -300,6 +300,8 @@ export function bigintGetU64AsString(bi: bigint): string
 
 export function bufferPassThrough(buf: Buffer): Promise<Buffer>
 
+export function buildThreadsafeFunctionFromFunction(callback: (arg0: number, arg1: number) => number): void
+
 export interface C {
   baz: number
 }
@@ -320,9 +322,9 @@ export function callFunctionWithArg(cb: (arg0: number, arg1: number) => number, 
 
 export function callFunctionWithArgAndCtx(ctx: Animal, cb: (arg: string) => void, name: string): void
 
-export function callLongThreadsafeFunction(callback: (...args: any[]) => any): void
+export function callLongThreadsafeFunction(tsfn: (err: Error | null, arg: number) => unknown): void
 
-export function callThreadsafeFunction(callback: (...args: any[]) => any): void
+export function callThreadsafeFunction(tsfn: (err: Error | null, arg: number) => unknown): void
 
 export function captureErrorInCallback(cb1: () => void, cb2: (arg0: Error) => void): void
 
@@ -629,11 +631,11 @@ export function testSerdeRoundtrip(data: any): any
 
 export function threadsafeFunctionClosureCapture(func: (...args: any[]) => any): void
 
-export function threadsafeFunctionFatalMode(cb: (...args: any[]) => any): void
+export function threadsafeFunctionFatalMode(cb: (arg: boolean) => unknown): void
 
-export function threadsafeFunctionFatalModeError(cb: (...args: any[]) => any): void
+export function threadsafeFunctionFatalModeError(cb: (arg: boolean) => string): void
 
-export function threadsafeFunctionThrowError(cb: (...args: any[]) => any): void
+export function threadsafeFunctionThrowError(cb: (err: Error | null, arg: boolean) => unknown): void
 
 export function throwAsyncError(): Promise<void>
 
@@ -643,15 +645,15 @@ export function throwSyntaxError(error: string, code?: string | undefined | null
 
 export function toJsObj(): object
 
-export function tsfnAsyncCall(func: (...args: any[]) => any): Promise<void>
+export function tsfnAsyncCall(func: (arg0: number, arg1: number, arg2: number) => string): Promise<void>
 
-export function tsfnCallWithCallback(func: (...args: any[]) => any): void
+export function tsfnCallWithCallback(tsfn: (err: Error | null, ) => string): void
 
-export function tsfnReturnPromise(func: (err: Error | null, arg: number) => any): Promise<number>
+export function tsfnReturnPromise(func: (err: Error | null, arg: number) => Promise<number>): Promise<number>
 
-export function tsfnReturnPromiseTimeout(func: (err: Error | null, arg: number) => any): Promise<number>
+export function tsfnReturnPromiseTimeout(func: (err: Error | null, arg: number) => Promise<number>): Promise<number>
 
-export function tsfnThrowFromJs(tsfn: (err: Error | null, arg: number) => any): Promise<number>
+export function tsfnThrowFromJs(tsfn: (err: Error | null, arg: number) => Promise<number>): Promise<number>
 
 export function tsRename(a: { foo: number }): string[]
 

@@ -23,7 +23,7 @@ struct DeferredTrace(sys::napi_ref);
 #[cfg(feature = "deferred_trace")]
 impl DeferredTrace {
   fn new(raw_env: sys::napi_env) -> Result<Self> {
-    let env = unsafe { Env::from_raw(raw_env) };
+    let env = Env::from_raw(raw_env);
     let reason = env.create_string("none").unwrap();
 
     let mut js_error = ptr::null_mut();
@@ -42,7 +42,7 @@ impl DeferredTrace {
   }
 
   fn into_rejected(self, raw_env: sys::napi_env, err: Error) -> Result<sys::napi_value> {
-    let env = unsafe { Env::from_raw(raw_env) };
+    let env = Env::from_raw(raw_env);
     let mut raw = ptr::null_mut();
     check_status!(
       unsafe { sys::napi_get_reference_value(raw_env, self.0, &mut raw) },
@@ -210,7 +210,7 @@ extern "C" fn napi_resolve_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> 
   let deferred_data: Box<DeferredData<Data, Resolver>> = unsafe { Box::from_raw(data.cast()) };
   let result = deferred_data
     .resolver
-    .and_then(|resolver| resolver(unsafe { Env::from_raw(env) }))
+    .and_then(|resolver| resolver(Env::from_raw(env)))
     .and_then(|res| unsafe { ToNapiValue::to_napi_value(env, res) });
 
   if let Err(e) = result.and_then(|res| {

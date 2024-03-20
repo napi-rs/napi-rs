@@ -1,5 +1,8 @@
+#![allow(deprecated)]
+
 use napi::{
   bindgen_prelude::{ClassInstance, Function, FunctionRef},
+  threadsafe_function::ThreadsafeFunctionCallMode,
   Env, JsFunction, JsObject, Result,
 };
 
@@ -73,4 +76,31 @@ pub fn reference_as_callback(
   arg1: u32,
 ) -> Result<u32> {
   callback.borrow_back(&env)?.call((arg0, arg1))
+}
+
+#[napi]
+pub fn build_threadsafe_function_from_function(callback: Function<(u32, u32), u32>) -> Result<()> {
+  let tsfn = callback.build_threadsafe_function().build()?;
+  std::thread::spawn(move || {
+    tsfn.call((1, 2), ThreadsafeFunctionCallMode::NonBlocking);
+  });
+  let tsfn_max_queue_size_1 = callback
+    .build_threadsafe_function()
+    .max_queue_size::<1>()
+    .build()?;
+
+  std::thread::spawn(move || {
+    tsfn_max_queue_size_1.call((1, 2), ThreadsafeFunctionCallMode::NonBlocking);
+  });
+
+  let tsfn_weak = callback
+    .build_threadsafe_function()
+    .weak::<true>()
+    .build()?;
+
+  std::thread::spawn(move || {
+    tsfn_weak.call((1, 2), ThreadsafeFunctionCallMode::NonBlocking);
+  });
+
+  Ok(())
 }

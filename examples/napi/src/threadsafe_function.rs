@@ -2,14 +2,12 @@ use std::{thread, time::Duration};
 
 use napi::{
   bindgen_prelude::*,
-  threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode},
-  JsBoolean, JsString,
+  threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode, UnknownReturnValue},
+  JsString,
 };
 
 #[napi]
-pub fn call_threadsafe_function(callback: JsFunction) -> Result<()> {
-  let tsfn: ThreadsafeFunction<u32, ErrorStrategy::CalleeHandled> =
-    callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value + 1]))?;
+pub fn call_threadsafe_function(tsfn: ThreadsafeFunction<u32, UnknownReturnValue>) -> Result<()> {
   for n in 0..100 {
     let tsfn = tsfn.clone();
     thread::spawn(move || {
@@ -20,9 +18,9 @@ pub fn call_threadsafe_function(callback: JsFunction) -> Result<()> {
 }
 
 #[napi]
-pub fn call_long_threadsafe_function(callback: JsFunction) -> Result<()> {
-  let tsfn: ThreadsafeFunction<u32, ErrorStrategy::CalleeHandled> =
-    callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value + 1]))?;
+pub fn call_long_threadsafe_function(
+  tsfn: ThreadsafeFunction<u32, UnknownReturnValue>,
+) -> Result<()> {
   thread::spawn(move || {
     for n in 0..10 {
       thread::sleep(Duration::from_millis(100));
@@ -33,11 +31,11 @@ pub fn call_long_threadsafe_function(callback: JsFunction) -> Result<()> {
 }
 
 #[napi]
-pub fn threadsafe_function_throw_error(cb: JsFunction) -> Result<()> {
-  let tsfn: ThreadsafeFunction<bool, ErrorStrategy::CalleeHandled> =
-    cb.create_threadsafe_function(0, |ctx| ctx.env.get_boolean(ctx.value).map(|v| vec![v]))?;
+pub fn threadsafe_function_throw_error(
+  cb: ThreadsafeFunction<bool, UnknownReturnValue>,
+) -> Result<()> {
   thread::spawn(move || {
-    tsfn.call(
+    cb.call(
       Err(Error::new(
         Status::GenericFailure,
         "ThrowFromNative".to_owned(),
@@ -49,26 +47,23 @@ pub fn threadsafe_function_throw_error(cb: JsFunction) -> Result<()> {
 }
 
 #[napi]
-pub fn threadsafe_function_fatal_mode(cb: JsFunction) -> Result<()> {
-  let tsfn: ThreadsafeFunction<bool, ErrorStrategy::Fatal> =
-    cb.create_threadsafe_function(0, |ctx| ctx.env.get_boolean(ctx.value).map(|v| vec![v]))?;
+pub fn threadsafe_function_fatal_mode(
+  cb: ThreadsafeFunction<bool, UnknownReturnValue, false>,
+) -> Result<()> {
   thread::spawn(move || {
-    tsfn.call(true, ThreadsafeFunctionCallMode::Blocking);
+    cb.call(true, ThreadsafeFunctionCallMode::Blocking);
   });
   Ok(())
 }
 
 #[napi]
-pub fn threadsafe_function_fatal_mode_error(cb: JsFunction) -> Result<()> {
-  let tsfn: ThreadsafeFunction<bool, ErrorStrategy::Fatal> =
-    cb.create_threadsafe_function(0, |_ctx| {
-      Err::<Vec<JsBoolean>, Error>(Error::new(
-        Status::GenericFailure,
-        "Generic tsfn error".to_owned(),
-      ))
-    })?;
+pub fn threadsafe_function_fatal_mode_error(
+  cb: ThreadsafeFunction<bool, String, false>,
+) -> Result<()> {
   thread::spawn(move || {
-    tsfn.call(true, ThreadsafeFunctionCallMode::Blocking);
+    cb.call_with_return_value(true, ThreadsafeFunctionCallMode::Blocking, |ret, _| {
+      ret.map(|_| ())
+    });
   });
   Ok(())
 }
@@ -77,8 +72,8 @@ pub fn threadsafe_function_fatal_mode_error(cb: JsFunction) -> Result<()> {
 fn threadsafe_function_closure_capture(func: JsFunction) -> napi::Result<()> {
   let str = "test";
   let tsfn: ThreadsafeFunction<()> = func
-    .create_threadsafe_function(0, move |_| {
-      println!("{}", str); // str is NULL at this point
+    .create_threadsafe_function(move |_| {
+      println!("Captured in ThreadsafeFunction {}", str); // str is NULL at this point
       Ok(Vec::<JsString>::new())
     })
     .unwrap();
@@ -89,13 +84,12 @@ fn threadsafe_function_closure_capture(func: JsFunction) -> napi::Result<()> {
 }
 
 #[napi]
-pub fn tsfn_call_with_callback(func: JsFunction) -> napi::Result<()> {
-  let tsfn: ThreadsafeFunction<()> =
-    func.create_threadsafe_function(0, move |_| Ok(Vec::<JsString>::new()))?;
+pub fn tsfn_call_with_callback(tsfn: ThreadsafeFunction<(), String>) -> napi::Result<()> {
   tsfn.call_with_return_value(
     Ok(()),
     ThreadsafeFunctionCallMode::NonBlocking,
-    |value: String| {
+    |value: Result<String>, _| {
+      let value = value.expect("Failed to retrieve value from JS");
       println!("{}", value);
       assert_eq!(value, "ReturnFromJavaScriptRawCallback".to_owned());
       Ok(())
@@ -105,12 +99,11 @@ pub fn tsfn_call_with_callback(func: JsFunction) -> napi::Result<()> {
 }
 
 #[napi(ts_return_type = "Promise<void>")]
-pub fn tsfn_async_call(env: Env, func: JsFunction) -> napi::Result<Object> {
-  let tsfn: ThreadsafeFunction<()> =
-    func.create_threadsafe_function(0, move |_| Ok(vec![0u32, 1u32, 2u32]))?;
+pub fn tsfn_async_call(env: Env, func: Function<(u32, u32, u32), String>) -> napi::Result<Object> {
+  let tsfn = func.build_threadsafe_function().build()?;
 
   env.spawn_future(async move {
-    let msg: String = tsfn.call_async(Ok(())).await?;
+    let msg = tsfn.call_async((0, 1, 2)).await?;
     assert_eq!(msg, "ReturnFromJavaScriptRawCallback".to_owned());
     Ok(())
   })
@@ -124,7 +117,7 @@ pub fn accept_threadsafe_function(func: ThreadsafeFunction<u32>) {
 }
 
 #[napi]
-pub fn accept_threadsafe_function_fatal(func: ThreadsafeFunction<u32, ErrorStrategy::Fatal>) {
+pub fn accept_threadsafe_function_fatal(func: ThreadsafeFunction<u32, (), false>) {
   thread::spawn(move || {
     func.call(1, ThreadsafeFunctionCallMode::NonBlocking);
   });
@@ -141,15 +134,17 @@ pub fn accept_threadsafe_function_tuple_args(func: ThreadsafeFunction<(u32, bool
 }
 
 #[napi]
-pub async fn tsfn_return_promise(func: ThreadsafeFunction<u32>) -> Result<u32> {
-  let val = func.call_async::<Promise<u32>>(Ok(1)).await?.await?;
+pub async fn tsfn_return_promise(func: ThreadsafeFunction<u32, Promise<u32>>) -> Result<u32> {
+  let val = func.call_async(Ok(1)).await?.await?;
   Ok(val + 2)
 }
 
 #[napi]
-pub async fn tsfn_return_promise_timeout(func: ThreadsafeFunction<u32>) -> Result<u32> {
+pub async fn tsfn_return_promise_timeout(
+  func: ThreadsafeFunction<u32, Promise<u32>>,
+) -> Result<u32> {
   use tokio::time::{self, Duration};
-  let promise = func.call_async::<Promise<u32>>(Ok(1)).await?;
+  let promise = func.call_async(Ok(1)).await?;
   let sleep = time::sleep(Duration::from_nanos(1));
   tokio::select! {
     _ = sleep => {
@@ -162,6 +157,6 @@ pub async fn tsfn_return_promise_timeout(func: ThreadsafeFunction<u32>) -> Resul
 }
 
 #[napi]
-pub async fn tsfn_throw_from_js(tsfn: ThreadsafeFunction<u32>) -> napi::Result<u32> {
-  tsfn.call_async::<Promise<u32>>(Ok(42)).await?.await
+pub async fn tsfn_throw_from_js(tsfn: ThreadsafeFunction<u32, Promise<u32>>) -> napi::Result<u32> {
+  tsfn.call_async(Ok(42)).await?.await
 }

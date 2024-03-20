@@ -20,12 +20,23 @@ pub type Result<T, S = Status> = std::result::Result<T, Error<S>>;
 /// Represent `JsError`.
 /// Return this Error in `js_function`, **napi-rs** will throw it as `JsError` for you.
 /// If you want throw it as `TypeError` or `RangeError`, you can use `JsTypeError/JsRangeError::from(Error).throw_into(env)`
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Error<S: AsRef<str> = Status> {
   pub status: S,
   pub reason: String,
   // Convert raw `JsError` into Error
   pub(crate) maybe_raw: sys::napi_ref,
+}
+
+impl<S: AsRef<str>> std::fmt::Debug for Error<S> {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(
+      f,
+      "Error {{ status: {:?}, reason: {:?} }}",
+      self.status.as_ref(),
+      self.reason
+    )
+  }
 }
 
 impl<S: AsRef<str>> ToNapiValue for Error<S> {
@@ -358,7 +369,13 @@ macro_rules! check_status_and_type {
         let value_type = $crate::type_of!($env, $val)?;
         let error_msg = match value_type {
           ValueType::Function => {
-            let function_name = unsafe { JsFunction::from_raw_unchecked($env, $val).name()? };
+            let function_name = unsafe {
+              $crate::bindgen_prelude::Function::<
+                $crate::bindgen_prelude::Unknown,
+                $crate::bindgen_prelude::Unknown,
+              >::from_napi_value($env, $val)?
+              .name()?
+            };
             format!(
               $msg,
               format!(

@@ -1,13 +1,16 @@
 use std::convert::TryInto;
 
-use napi::{CallContext, JsFunction, JsNumber, JsObject, JsUndefined, Property, Result};
+use napi::{
+  bindgen_prelude::{Function, Unknown},
+  CallContext, JsNumber, JsObject, JsUndefined, Property, Result,
+};
 
 struct NativeClass {
   value: i32,
 }
 
 #[js_function(1)]
-fn create_test_class(ctx: CallContext) -> Result<JsFunction> {
+fn create_test_class(ctx: CallContext) -> Result<Function<Unknown, Unknown>> {
   let add_count_method = Property::new("addCount")?.with_method(add_count);
   let add_native_count = Property::new("addNativeCount")?.with_method(add_native_count);
   let renew_wrapped = Property::new("renewWrapped")?.with_method(renew_wrapped);
@@ -56,7 +59,7 @@ fn renew_wrapped(ctx: CallContext) -> Result<JsUndefined> {
 }
 
 #[js_function(1)]
-fn new_test_class(ctx: CallContext) -> Result<JsObject> {
+fn new_test_class(ctx: CallContext) -> Result<Unknown> {
   let add_count_method = Property::new("addCount")?.with_method(add_count);
   let add_native_count = Property::new("addNativeCount")?.with_method(add_native_count);
   let properties = vec![add_count_method, add_native_count];
@@ -65,7 +68,7 @@ fn new_test_class(ctx: CallContext) -> Result<JsObject> {
       .env
       .define_class("TestClass", test_class_constructor, properties.as_slice())?;
 
-  test_class.new_instance(&[ctx.env.create_int32(42)?])
+  test_class.new_instance(42)
 }
 
 pub fn register_js(exports: &mut JsObject) -> Result<()> {

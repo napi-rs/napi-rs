@@ -85,7 +85,7 @@ async function main() {
 
   assert(
     value ===
-      Array.from({ length: 100 }, (_, i) => i + 1).reduce((a, b) => a + b),
+      Array.from({ length: 100 }, (_, i) => i).reduce((a, b) => a + b),
   )
   console.info(createExternalTypedArray())
 }

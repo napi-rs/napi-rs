@@ -37,7 +37,7 @@ fn bench_threadsafe_function(ctx: CallContext) -> Result<JsUndefined> {
   let tsfn = ctx.env.create_threadsafe_function(
     &callback,
     0,
-    |mut ctx: ThreadSafeCallContext<(usize, Ref<JsBufferValue>)>| {
+    |mut ctx: ThreadsafeCallContext<(usize, Ref<JsBufferValue>)>| {
       ctx
         .env
         .create_uint32(ctx.value.0 as u32)

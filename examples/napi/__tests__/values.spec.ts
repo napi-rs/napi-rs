@@ -2,6 +2,7 @@ import { exec } from 'node:child_process'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { Subject, take } from 'rxjs'
 import { spy } from 'sinon'
 
 import {
@@ -170,6 +171,7 @@ import {
   throwSyntaxError,
   type AliasedStruct,
   returnObjectOnlyToJs,
+  buildThreadsafeFunctionFromFunction,
 } from '../index.cjs'
 
 import { test } from './test.framework.js'
@@ -968,7 +970,7 @@ BigIntTest('from i128 i64', (t) => {
   t.is(bigintFromI128(), BigInt('-100'))
 })
 
-Napi4Test('call thread safe function', (t) => {
+Napi4Test('call ThreadsafeFunction', (t) => {
   let i = 0
   let value = 0
   return new Promise((resolve) => {
@@ -980,14 +982,14 @@ Napi4Test('call thread safe function', (t) => {
         resolve()
         t.is(
           value,
-          Array.from({ length: 100 }, (_, i) => i + 1).reduce((a, b) => a + b),
+          Array.from({ length: 100 }, (_, i) => i).reduce((a, b) => a + b),
         )
       }
     })
   })
 })
 
-Napi4Test('throw error from thread safe function', async (t) => {
+Napi4Test('throw error from ThreadsafeFunction', async (t) => {
   const throwPromise = new Promise((_, reject) => {
     threadsafeFunctionThrowError(reject)
   })
@@ -995,7 +997,7 @@ Napi4Test('throw error from thread safe function', async (t) => {
   t.is(err?.message, 'ThrowFromNative')
 })
 
-Napi4Test('thread safe function closure capture data', (t) => {
+Napi4Test('ThreadsafeFunction closure capture data', (t) => {
   return new Promise((resolve) => {
     threadsafeFunctionClosureCapture(() => {
       resolve()
@@ -1024,7 +1026,7 @@ Napi4Test('throw error from thread safe function fatal mode', (t) => {
       t.is(code, 1)
       const stderrMsg = stderr.toString('utf8')
       console.info(stderrMsg)
-      t.true(stderrMsg.includes(`Error: Generic tsfn error`))
+      t.true(stderrMsg.includes(`Error: Failed to convert JavaScript value`))
       resolve()
     })
   })
@@ -1060,8 +1062,7 @@ Napi4Test('call ThreadsafeFunction with callback', async (t) => {
 
 Napi4Test('async call ThreadsafeFunction', async (t) => {
   await t.notThrowsAsync(() =>
-    tsfnAsyncCall((err, arg1, arg2, arg3) => {
-      t.is(err, null)
+    tsfnAsyncCall((arg1, arg2, arg3) => {
       t.is(arg1, 0)
       t.is(arg2, 1)
       t.is(arg3, 2)
@@ -1161,6 +1162,20 @@ Napi4Test('object only from js', (t) => {
       },
     })
   })
+})
+
+Napi4Test('build ThreadsafeFunction from Function', (t) => {
+  const subject = new Subject<void>()
+  const fn = (a: number, b: number) => {
+    t.is(a, 1)
+    t.is(b, 2)
+    subject.next()
+    return a * b
+  }
+
+  buildThreadsafeFunctionFromFunction(fn)
+
+  return subject.pipe(take(3))
 })
 
 Napi4Test('promise in either', async (t) => {

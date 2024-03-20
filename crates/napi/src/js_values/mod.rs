@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use std::convert::TryFrom;
 #[cfg(feature = "napi5")]
 use std::ffi::c_void;

@@ -2,7 +2,7 @@ use std::{env, format};
 
 use napi::{
   bindgen_prelude::*,
-  threadsafe_function::{ThreadSafeCallContext, ThreadsafeFunction, ThreadsafeFunctionCallMode},
+  threadsafe_function::{ThreadsafeCallContext, ThreadsafeFunction, ThreadsafeFunctionCallMode},
   JsUnknown,
 };
 
@@ -65,7 +65,7 @@ fn callback_return_promise<T: Fn() -> Result<JsUnknown>>(
   if ret.is_promise()? {
     let p = Promise::<String>::from_unknown(ret)?;
     let fn_out_tsfn: ThreadsafeFunction<String> = fn_out
-      .create_threadsafe_function(0, |ctx: ThreadSafeCallContext<String>| Ok(vec![ctx.value]))?;
+      .create_threadsafe_function(|ctx: ThreadsafeCallContext<String>| Ok(vec![ctx.value]))?;
     env
       .execute_tokio_future(
         async move {

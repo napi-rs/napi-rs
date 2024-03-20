@@ -32,7 +32,7 @@ impl ValidateNapiValue for DateTime<Utc> {
 impl ToNapiValue for NaiveDateTime {
   unsafe fn to_napi_value(env: sys::napi_env, val: NaiveDateTime) -> Result<sys::napi_value> {
     let mut ptr = std::ptr::null_mut();
-    let millis_since_epoch_utc = val.timestamp_millis() as f64;
+    let millis_since_epoch_utc = val.and_utc().timestamp_millis() as f64;
 
     check_status!(
       unsafe { sys::napi_create_date(env, millis_since_epoch_utc, &mut ptr) },
@@ -145,11 +145,14 @@ impl FromNapiValue for DateTime<Utc> {
 
     let milliseconds_since_epoch_utc = milliseconds_since_epoch_utc as i64;
     let timestamp_seconds = milliseconds_since_epoch_utc / 1_000;
-    let naive = NaiveDateTime::from_timestamp_opt(
+    let naive = DateTime::from_timestamp(
       timestamp_seconds,
       (milliseconds_since_epoch_utc % 1_000 * 1_000_000) as u32,
     )
     .ok_or_else(|| Error::new(Status::DateExpected, "Found invalid date".to_owned()))?;
-    Ok(DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc))
+    Ok(DateTime::<Utc>::from_naive_utc_and_offset(
+      naive.naive_utc(),
+      Utc,
+    ))
   }
 }

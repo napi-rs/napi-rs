@@ -7,9 +7,26 @@ use std::mem;
 use std::os::raw::{c_char, c_void};
 use std::ptr;
 
-use crate::bindgen_runtime::FromNapiValue;
+#[cfg(feature = "serde-json")]
+use serde::de::DeserializeOwned;
+#[cfg(feature = "serde-json")]
+use serde::Serialize;
+
+#[cfg(feature = "napi8")]
+use crate::async_cleanup_hook::AsyncCleanupHook;
+#[cfg(feature = "napi5")]
+use crate::bindgen_runtime::FunctionCallContext;
 #[cfg(feature = "napi4")]
 use crate::bindgen_runtime::ToNapiValue;
+use crate::bindgen_runtime::{FromNapiValue, Function, JsValuesTupleIntoVec, Unknown};
+#[cfg(feature = "napi3")]
+use crate::cleanup_env::{CleanupEnvHook, CleanupEnvHookData};
+#[cfg(feature = "serde-json")]
+use crate::js_values::{De, Ser};
+#[cfg(feature = "napi4")]
+use crate::threadsafe_function::{ThreadsafeCallContext, ThreadsafeFunction};
+#[cfg(feature = "napi3")]
+use crate::JsError;
 use crate::{
   async_work::{self, AsyncWorkPromise},
   check_status,
@@ -18,21 +35,6 @@ use crate::{
   task::Task,
   Error, ExtendedErrorInfo, NodeVersion, Result, Status, ValueType,
 };
-
-#[cfg(feature = "napi8")]
-use crate::async_cleanup_hook::AsyncCleanupHook;
-#[cfg(feature = "napi3")]
-use crate::cleanup_env::{CleanupEnvHook, CleanupEnvHookData};
-#[cfg(feature = "serde-json")]
-use crate::js_values::{De, Ser};
-#[cfg(feature = "napi4")]
-use crate::threadsafe_function::{ThreadSafeCallContext, ThreadsafeFunction};
-#[cfg(feature = "napi3")]
-use crate::JsError;
-#[cfg(feature = "serde-json")]
-use serde::de::DeserializeOwned;
-#[cfg(feature = "serde-json")]
-use serde::Serialize;
 
 pub type Callback = unsafe extern "C" fn(sys::napi_env, sys::napi_callback_info) -> sys::napi_value;
 
@@ -58,7 +60,7 @@ impl From<sys::napi_env> for Env {
 
 impl Env {
   #[allow(clippy::missing_safety_doc)]
-  pub unsafe fn from_raw(env: sys::napi_env) -> Self {
+  pub fn from_raw(env: sys::napi_env) -> Self {
     Env(env)
   }
 
@@ -189,12 +191,7 @@ impl Env {
   pub fn create_string_latin1(&self, chars: &[u8]) -> Result<JsString> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe {
-      sys::napi_create_string_latin1(
-        self.0,
-        chars.as_ptr() as *const _,
-        chars.len(),
-        &mut raw_value,
-      )
+      sys::napi_create_string_latin1(self.0, chars.as_ptr().cast(), chars.len(), &mut raw_value)
     })?;
     Ok(unsafe { JsString::from_raw_unchecked(self.0, raw_value) })
   }
@@ -570,14 +567,17 @@ impl Env {
   /// The newly created function is not automatically visible from script after this call.
   ///
   /// Instead, a property must be explicitly set on any object that is visible to JavaScript, in order for the function to be accessible from script.
-  pub fn create_function(&self, name: &str, callback: Callback) -> Result<JsFunction> {
+  pub fn create_function<Args: JsValuesTupleIntoVec, Return>(
+    &self,
+    name: &str,
+    callback: Callback,
+  ) -> Result<Function<Args, Return>> {
     let mut raw_result = ptr::null_mut();
     let len = name.len();
-    let name = CString::new(name)?;
     check_status!(unsafe {
       sys::napi_create_function(
         self.0,
-        name.as_ptr(),
+        name.as_ptr().cast(),
         len,
         Some(callback),
         ptr::null_mut(),
@@ -585,26 +585,29 @@ impl Env {
       )
     })?;
 
-    Ok(unsafe { JsFunction::from_raw_unchecked(self.0, raw_result) })
+    unsafe { Function::<Args, Return>::from_napi_value(self.0, raw_result) }
   }
 
   #[cfg(feature = "napi5")]
-  pub fn create_function_from_closure<R, F>(&self, name: &str, callback: F) -> Result<JsFunction>
+  pub fn create_function_from_closure<Args: JsValuesTupleIntoVec, Return, F>(
+    &self,
+    name: &str,
+    callback: F,
+  ) -> Result<Function<Args, Return>>
   where
-    F: 'static + Fn(crate::CallContext<'_>) -> Result<R>,
-    R: ToNapiValue,
+    Return: ToNapiValue,
+    F: 'static + Fn(FunctionCallContext) -> Result<Return>,
   {
     let closure_data_ptr = Box::into_raw(Box::new(callback));
 
     let mut raw_result = ptr::null_mut();
     let len = name.len();
-    let name = CString::new(name)?;
     check_status!(unsafe {
       sys::napi_create_function(
         self.0,
-        name.as_ptr(),
+        name.as_ptr().cast(),
         len,
-        Some(trampoline::<R, F>),
+        Some(trampoline::<Return, F>),
         closure_data_ptr.cast(), // We let it borrow the data here
         &mut raw_result,
       )
@@ -629,7 +632,7 @@ impl Env {
       )
     })?;
 
-    Ok(unsafe { JsFunction::from_raw_unchecked(self.0, raw_result) })
+    unsafe { Function::from_napi_value(self.0, raw_result) }
   }
 
   /// This API retrieves a napi_extended_error_info structure with information about the last error that occurred.
@@ -740,12 +743,12 @@ impl Env {
   }
 
   /// Create JavaScript class
-  pub fn define_class(
+  pub fn define_class<Args: JsValuesTupleIntoVec>(
     &self,
     name: &str,
     constructor_cb: Callback,
     properties: &[Property],
-  ) -> Result<JsFunction> {
+  ) -> Result<Function<Args, Unknown>> {
     let mut raw_result = ptr::null_mut();
     let raw_properties = properties
       .iter()
@@ -755,7 +758,7 @@ impl Env {
     check_status!(unsafe {
       sys::napi_define_class(
         self.0,
-        c_name.as_ptr() as *const c_char,
+        c_name.as_ptr().cast(),
         name.len(),
         Some(constructor_cb),
         ptr::null_mut(),
@@ -765,7 +768,7 @@ impl Env {
       )
     })?;
 
-    Ok(unsafe { JsFunction::from_raw_unchecked(self.0, raw_result) })
+    unsafe { Function::from_napi_value(self.0, raw_result) }
   }
 
   #[allow(clippy::needless_pass_by_ref_mut)]
@@ -1055,17 +1058,22 @@ impl Env {
   }
 
   #[cfg(feature = "napi4")]
+  #[deprecated(
+    since = "2.17.0",
+    note = "Please use `Function::build_threadsafe_function` instead"
+  )]
+  #[allow(deprecated)]
   pub fn create_threadsafe_function<
     T: Send,
     V: ToNapiValue,
-    R: 'static + Send + FnMut(ThreadSafeCallContext<T>) -> Result<Vec<V>>,
+    R: 'static + Send + FnMut(ThreadsafeCallContext<T>) -> Result<Vec<V>>,
   >(
     &self,
     func: &JsFunction,
-    max_queue_size: usize,
+    _max_queue_size: usize,
     callback: R,
   ) -> Result<ThreadsafeFunction<T>> {
-    ThreadsafeFunction::create(self.0, func.0.value, max_queue_size, callback)
+    ThreadsafeFunction::create(self.0, func.0.value, callback)
   }
 
   #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
@@ -1403,7 +1411,7 @@ unsafe extern "C" fn set_instance_finalize_callback<T, Hint, F>(
 {
   let (value, callback) = unsafe { *Box::from_raw(finalize_data as *mut (TaggedObject<T>, F)) };
   let hint = unsafe { *Box::from_raw(finalize_hint as *mut Hint) };
-  let env = unsafe { Env::from_raw(raw_env) };
+  let env = Env::from_raw(raw_env);
   callback(FinalizeContext {
     value: value.object.unwrap(),
     hint,
@@ -1425,7 +1433,7 @@ unsafe extern "C" fn raw_finalize_with_custom_callback<Hint, Finalize>(
   Finalize: FnOnce(Hint, Env),
 {
   let (hint, callback) = unsafe { *Box::from_raw(finalize_hint as *mut (Hint, Finalize)) };
-  callback(hint, unsafe { Env::from_raw(env) });
+  callback(hint, Env::from_raw(env));
 }
 
 #[cfg(feature = "napi8")]
@@ -1449,22 +1457,20 @@ unsafe extern "C" fn async_finalize<Arg, F>(
 
 #[cfg(feature = "napi5")]
 pub(crate) unsafe extern "C" fn trampoline<
-  R: ToNapiValue,
-  F: Fn(crate::CallContext) -> Result<R>,
+  Return: ToNapiValue,
+  F: Fn(FunctionCallContext) -> Result<Return>,
 >(
   raw_env: sys::napi_env,
   cb_info: sys::napi_callback_info,
 ) -> sys::napi_value {
-  use crate::CallContext;
+  // Fast path for 4 arguments or less.
+  let mut argc = 4;
+  let mut raw_args = Vec::with_capacity(4);
+  let mut raw_this = ptr::null_mut();
+  let mut closure_data_ptr = ptr::null_mut();
 
-  let (raw_this, raw_args, closure_data_ptr, argc) = {
-    // Fast path for 4 arguments or less.
-    let mut argc = 4;
-    let mut raw_args = Vec::with_capacity(4);
-    let mut raw_this = ptr::null_mut();
-    let mut closure_data_ptr = ptr::null_mut();
-
-    let status = unsafe {
+  check_status!(
+    unsafe {
       sys::napi_get_cb_info(
         raw_env,
         cb_info,
@@ -1473,45 +1479,45 @@ pub(crate) unsafe extern "C" fn trampoline<
         &mut raw_this,
         &mut closure_data_ptr,
       )
-    };
-    debug_assert!(
-      Status::from(status) == Status::Ok,
-      "napi_get_cb_info failed"
-    );
-
+    },
+    "napi_get_cb_info failed"
+  )
+  .and_then(|_| {
     // Arguments length greater than 4, resize the vector.
     if argc > 4 {
       raw_args = vec![ptr::null_mut(); argc];
-      let status = unsafe {
-        sys::napi_get_cb_info(
-          raw_env,
-          cb_info,
-          &mut argc,
-          raw_args.as_mut_ptr(),
-          &mut raw_this,
-          &mut closure_data_ptr,
-        )
-      };
-      debug_assert!(
-        Status::from(status) == Status::Ok,
+      check_status!(
+        unsafe {
+          sys::napi_get_cb_info(
+            raw_env,
+            cb_info,
+            &mut argc,
+            raw_args.as_mut_ptr(),
+            &mut raw_this,
+            &mut closure_data_ptr,
+          )
+        },
         "napi_get_cb_info failed"
-      );
+      )?;
     } else {
       unsafe { raw_args.set_len(argc) };
     }
-
-    (raw_this, raw_args, closure_data_ptr, argc)
-  };
-
-  let closure: &F = Box::leak(unsafe { Box::from_raw(closure_data_ptr.cast()) });
-  let mut env = unsafe { Env::from_raw(raw_env) };
-  let call_context = CallContext::new(&mut env, cb_info, raw_this, raw_args.as_slice(), argc);
-  closure(call_context)
-    .and_then(|ret: R| unsafe { <R as ToNapiValue>::to_napi_value(env.0, ret) })
-    .unwrap_or_else(|e| {
-      unsafe { JsError::from(e).throw_into(raw_env) };
-      ptr::null_mut()
+    Ok((raw_this, raw_args, closure_data_ptr, argc))
+  })
+  .and_then(|(raw_this, raw_args, closure_data_ptr, _argc)| {
+    let closure: &F = Box::leak(unsafe { Box::from_raw(closure_data_ptr.cast()) });
+    let mut env = Env::from_raw(raw_env);
+    closure(FunctionCallContext {
+      env: &mut env,
+      this: raw_this,
+      args: raw_args.as_slice(),
     })
+  })
+  .and_then(|ret| unsafe { <Return as ToNapiValue>::to_napi_value(raw_env, ret) })
+  .unwrap_or_else(|e| {
+    unsafe { JsError::from(e).throw_into(raw_env) };
+    ptr::null_mut()
+  })
 }
 
 #[cfg(feature = "napi5")]
@@ -1551,7 +1557,7 @@ pub(crate) unsafe extern "C" fn trampoline_setter<
   };
 
   let closure: &F = Box::leak(unsafe { Box::from_raw(closure_data_ptr.cast()) });
-  let env = unsafe { Env::from_raw(raw_env) };
+  let env = Env::from_raw(raw_env);
   raw_args
     .first()
     .ok_or_else(|| Error::new(Status::InvalidArg, "Missing argument in property setter"))
@@ -1602,7 +1608,7 @@ pub(crate) unsafe extern "C" fn trampoline_getter<
   };
 
   let closure: &F = Box::leak(unsafe { Box::from_raw(closure_data_ptr.cast()) });
-  let env = unsafe { Env::from_raw(raw_env) };
+  let env = Env::from_raw(raw_env);
   closure(env, unsafe {
     crate::bindgen_runtime::Object::from_raw_unchecked(raw_env, raw_this)
   })
