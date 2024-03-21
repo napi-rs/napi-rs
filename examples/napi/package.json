@@ -44,6 +44,6 @@
     "timeout": "10m"
   },
   "dependencies": {
-    "@emnapi/core": "1.0.0"
+    "@emnapi/core": "1.1.0"
   }
 }
