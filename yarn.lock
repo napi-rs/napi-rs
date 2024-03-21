@@ -126,21 +126,21 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@emnapi/core@npm:1.0.0, @emnapi/core@npm:^1.0.0":
-  version: 1.0.0
-  resolution: "@emnapi/core@npm:1.0.0"
+"@emnapi/core@npm:1.1.0, @emnapi/core@npm:^1.1.0":
+  version: 1.1.0
+  resolution: "@emnapi/core@npm:1.1.0"
   dependencies:
     tslib: "npm:^2.4.0"
-  checksum: 10c0/96f209857cca97ce65150452e460a4169cdc58cb65402b3edb42d1cfca1b31a0563061dbfb592736f47578f3835d6e377851d8c12aa39fff8a2fb85e216e9fb9
+  checksum: 10c0/4ce4d214c863ba63eb93532c018b5d8fcf3c39a0a78e29aca76046f06584c0696dabaeb8922a31d876ed20d6b9a34615bbbb0cc1585707ea70972d4e431d546d
   languageName: node
   linkType: hard
 
-"@emnapi/runtime@npm:^1.0.0":
-  version: 1.0.0
-  resolution: "@emnapi/runtime@npm:1.0.0"
+"@emnapi/runtime@npm:^1.1.0":
+  version: 1.1.0
+  resolution: "@emnapi/runtime@npm:1.1.0"
   dependencies:
     tslib: "npm:^2.4.0"
-  checksum: 10c0/56c5cdeec79bfd3bd0648f62b5b9728672cfbe00004ce674342c259f9f0038d7ae9699e1f604afcbdd744afb4e5099ed4891106b26afbeed36e5c835e6d75257
+  checksum: 10c0/2f8bbcc75e490d92dba65341ba1275e651ad552ecbf4371ef4f156d9a69a216918ece671057b7c7c057e8b410b28946fafcb03cfb9cf0baed5f78cf32468aa67
   languageName: node
   linkType: hard
 
@@ -522,7 +522,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@examples/napi@workspace:examples/napi"
   dependencies:
-    "@emnapi/core": "npm:1.0.0"
+    "@emnapi/core": "npm:1.1.0"
     "@napi-rs/cli": "workspace:*"
     "@napi-rs/triples": "workspace:*"
     "@napi-rs/wasm-runtime": "workspace:*"
@@ -741,8 +741,8 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@napi-rs/cli@workspace:cli"
   dependencies:
-    "@emnapi/core": "npm:^1.0.0"
-    "@emnapi/runtime": "npm:^1.0.0"
+    "@emnapi/core": "npm:^1.1.0"
+    "@emnapi/runtime": "npm:^1.1.0"
     "@napi-rs/cross-toolchain": "npm:^0.0.14"
     "@octokit/rest": "npm:^20.0.2"
     "@types/debug": "npm:^4.1.12"
@@ -767,14 +767,12 @@ __metadata:
     tslib: "npm:^2.6.2"
     typanion: "npm:^3.14.0"
     typescript: "npm:^5.3.3"
-    wasm-sjlj: "npm:^1.0.4"
+    wasm-sjlj: "npm:^1.0.5"
   peerDependencies:
-    "@emnapi/runtime": ^1.0.0
-    emnapi: ^1.0.0
+    "@emnapi/runtime": ^1.1.0
+    emnapi: ^1.1.0
   peerDependenciesMeta:
     "@emnapi/runtime":
-      optional: true
-    "@tybys/wasm-util":
       optional: true
     emnapi:
       optional: true
@@ -1108,8 +1106,8 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@napi-rs/wasm-runtime@workspace:wasm-runtime"
   dependencies:
-    "@emnapi/core": "npm:^1.0.0"
-    "@emnapi/runtime": "npm:^1.0.0"
+    "@emnapi/core": "npm:^1.1.0"
+    "@emnapi/runtime": "npm:^1.1.0"
     "@rollup/plugin-alias": "npm:^5.1.0"
     "@rollup/plugin-commonjs": "npm:^25.0.7"
     "@rollup/plugin-inject": "npm:^5.0.5"
@@ -12772,7 +12770,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"wasm-sjlj@npm:^1.0.4":
+"wasm-sjlj@npm:^1.0.5":
   version: 1.0.5
   resolution: "wasm-sjlj@npm:1.0.5"
   dependencies:
