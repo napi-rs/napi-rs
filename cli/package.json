@@ -79,11 +79,11 @@
     "semver": "^7.5.4",
     "toml": "^3.0.0",
     "typanion": "^3.14.0",
-    "wasm-sjlj": "^1.0.4"
+    "wasm-sjlj": "^1.0.5"
   },
   "devDependencies": {
-    "@emnapi/core": "^1.0.0",
-    "@emnapi/runtime": "^1.0.0",
+    "@emnapi/core": "^1.1.0",
+    "@emnapi/runtime": "^1.1.0",
     "@types/debug": "^4.1.12",
     "@types/inquirer": "^9.0.7",
     "@types/js-yaml": "^4.0.9",
@@ -98,14 +98,11 @@
     "typescript": "^5.3.3"
   },
   "peerDependencies": {
-    "@emnapi/runtime": "^1.0.0",
-    "emnapi": "^1.0.0"
+    "@emnapi/runtime": "^1.1.0",
+    "emnapi": "^1.1.0"
   },
   "peerDependenciesMeta": {
     "@emnapi/runtime": {
-      "optional": true
-    },
-    "@tybys/wasm-util": {
       "optional": true
     },
     "emnapi": {
