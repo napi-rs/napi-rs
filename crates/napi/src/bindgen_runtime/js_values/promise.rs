@@ -215,9 +215,9 @@ unsafe extern "C" fn then_callback<T: FromNapiValue>(
     return this;
   }
   let resolve_value_t = Box::new(unsafe { T::from_napi_value(env, resolved_value[0]) });
-  sender
-    .send(Box::into_raw(resolve_value_t))
-    .expect("Send Promise resolved value error");
+  // The only reason for send to return Err is if the receiver isn't listening
+  // Not hiding the error would result in a panic, it's safe to ignore it instead.
+  let _ = sender.send(Box::into_raw(resolve_value_t));
   this
 }
 
@@ -249,10 +249,10 @@ unsafe extern "C" fn catch_callback<T: FromNapiValue>(
   if aborted.load(Ordering::SeqCst) {
     return this;
   }
-  sender
-    .send(Box::into_raw(Box::new(Err(Error::from(unsafe {
-      JsUnknown::from_raw_unchecked(env, rejected_value)
-    })))))
-    .expect("Send Promise resolved value error");
+  // The only reason for send to return Err is if the receiver isn't listening
+  // Not hiding the error would result in a panic, it's safe to ignore it instead.
+  let _ = sender.send(Box::into_raw(Box::new(Err(Error::from(unsafe {
+    JsUnknown::from_raw_unchecked(env, rejected_value)
+  })))));
   this
 }
