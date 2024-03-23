@@ -1,6 +1,6 @@
 use std::ptr;
 
-use crate::{bindgen_prelude::*, check_status, sys, JsObject, Value, ValueType};
+use crate::{bindgen_prelude::*, check_status, JsObject, Value};
 
 pub struct Array {
   env: sys::napi_env,

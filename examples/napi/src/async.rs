@@ -1,7 +1,6 @@
 #[cfg(not(target_family = "wasm"))]
 use futures::prelude::*;
 use napi::bindgen_prelude::*;
-use napi::tokio;
 #[cfg(not(target_family = "wasm"))]
 use napi::tokio::fs;
 

@@ -1,6 +1,5 @@
 #![allow(clippy::single_component_path_imports)]
 
-use std::convert::Into;
 use std::marker::PhantomData;
 use std::os::raw::c_void;
 use std::ptr::{self, null_mut};

@@ -1,6 +1,6 @@
 use napi::{
   bindgen_prelude::*, threadsafe_function::ThreadsafeFunction, JsGlobal, JsNull, JsObject,
-  JsUndefined, Property,
+  JsUndefined,
 };
 
 #[napi]
