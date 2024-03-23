@@ -1,5 +1,4 @@
 use crate::{sys, Error, Status};
-use std::convert::TryFrom;
 use std::ffi::CStr;
 
 #[derive(Debug, Clone, Copy)]

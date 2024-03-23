@@ -1,4 +1,4 @@
-use napi::{bindgen_prelude::*, Env, JsObject, JsSymbol};
+use napi::{bindgen_prelude::*, JsObject, JsSymbol};
 
 #[napi]
 pub fn set_symbol_in_obj(env: Env, symbol: JsSymbol) -> Result<JsObject> {
