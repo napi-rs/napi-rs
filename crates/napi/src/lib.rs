@@ -1,5 +1,4 @@
 #![deny(clippy::all)]
-#![forbid(unsafe_op_in_unsafe_fn)]
 #![allow(non_upper_case_globals)]
 
 //! High level Node.js [N-API](https://nodejs.org/api/n-api.html) binding

@@ -1,4 +1,4 @@
-use napi::{bindgen_prelude::*, Env};
+use napi::bindgen_prelude::*;
 
 #[napi]
 pub fn run_script(env: Env, script: String) -> Result<Unknown> {

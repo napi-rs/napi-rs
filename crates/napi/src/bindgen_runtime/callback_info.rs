@@ -4,12 +4,12 @@ use std::ptr;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::{bindgen_prelude::*, check_status, sys, Result};
+use crate::{bindgen_prelude::*, check_status};
 
 thread_local! {
   #[doc(hidden)]
   /// Determined is `constructor` called from Class `factory`
-  pub static ___CALL_FROM_FACTORY: AtomicBool = AtomicBool::new(false);
+  pub static ___CALL_FROM_FACTORY: AtomicBool = const { AtomicBool::new(false) };
 }
 
 #[repr(transparent)]
