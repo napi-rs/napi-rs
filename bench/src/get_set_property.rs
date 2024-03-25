@@ -69,7 +69,7 @@ fn test_class_constructor(ctx: CallContext) -> Result<JsUndefined> {
     line_join: LineJoin::Miter,
   };
   let mut this = ctx.this_unchecked::<JsObject>();
-  ctx.env.wrap(&mut this, native)?;
+  ctx.env.wrap(&mut this, native, None)?;
   ctx.env.get_undefined()
 }
 

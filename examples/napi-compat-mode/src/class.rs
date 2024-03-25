@@ -27,7 +27,7 @@ fn test_class_constructor(ctx: CallContext) -> Result<JsUndefined> {
   let mut this: JsObject = ctx.this_unchecked();
   ctx
     .env
-    .wrap(&mut this, NativeClass { value: count + 100 })?;
+    .wrap(&mut this, NativeClass { value: count + 100 }, None)?;
   this.set_named_property("count", ctx.env.create_int32(count)?)?;
   ctx.env.get_undefined()
 }
@@ -54,7 +54,7 @@ fn add_native_count(ctx: CallContext) -> Result<JsNumber> {
 fn renew_wrapped(ctx: CallContext) -> Result<JsUndefined> {
   let mut this: JsObject = ctx.this_unchecked();
   ctx.env.drop_wrapped::<NativeClass>(&this)?;
-  ctx.env.wrap(&mut this, NativeClass { value: 42 })?;
+  ctx.env.wrap(&mut this, NativeClass { value: 42 }, None)?;
   ctx.env.get_undefined()
 }
 
