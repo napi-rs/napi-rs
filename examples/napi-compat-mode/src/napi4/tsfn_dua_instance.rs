@@ -26,7 +26,7 @@ pub fn constructor(ctx: CallContext) -> napi::Result<JsUndefined> {
   let mut this: JsObject = ctx.this_unchecked();
   let obj = A { cb };
 
-  ctx.env.wrap(&mut this, obj)?;
+  ctx.env.wrap(&mut this, obj, None)?;
   ctx.env.get_undefined()
 }
 

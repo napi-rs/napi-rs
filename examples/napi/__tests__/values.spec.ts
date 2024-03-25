@@ -893,10 +893,7 @@ test('external', (t) => {
   const ext2 = createExternalString('wtf')
   // @ts-expect-error
   const e = t.throws(() => getExternal(ext2))
-  t.is(
-    e?.message,
-    'T on `get_value_external` is not the type of wrapped object',
-  )
+  t.is(e?.message, '<u32> on `External` is not the type of wrapped object')
 })
 
 test('should be able to run script', async (t) => {

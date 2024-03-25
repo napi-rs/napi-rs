@@ -11,11 +11,11 @@ pub fn create_external_string(content: String) -> External<String> {
 }
 
 #[napi]
-pub fn get_external(external: External<u32>) -> u32 {
-  *external
+pub fn get_external(external: &External<u32>) -> u32 {
+  **external
 }
 
 #[napi]
-pub fn mutate_external(mut external: External<u32>, new_val: u32) {
-  *external = new_val;
+pub fn mutate_external(external: &mut External<u32>, new_val: u32) {
+  **external = new_val;
 }

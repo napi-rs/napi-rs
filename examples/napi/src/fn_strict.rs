@@ -54,8 +54,8 @@ fn validate_date_time(_d: DateTime<Utc>) -> i64 {
 }
 
 #[napi(strict)]
-fn validate_external(e: External<u32>) -> u32 {
-  *e
+fn validate_external(e: &External<u32>) -> u32 {
+  **e
 }
 
 #[napi(strict, ts_args_type = "cb: () => number")]

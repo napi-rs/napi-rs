@@ -772,14 +772,19 @@ impl Env {
   }
 
   #[allow(clippy::needless_pass_by_ref_mut)]
-  pub fn wrap<T: 'static>(&self, js_object: &mut JsObject, native_object: T) -> Result<()> {
+  pub fn wrap<T: 'static>(
+    &self,
+    js_object: &mut JsObject,
+    native_object: T,
+    size_hint: Option<usize>,
+  ) -> Result<()> {
     check_status!(unsafe {
       sys::napi_wrap(
         self.0,
         js_object.0.value,
         Box::into_raw(Box::new(TaggedObject::new(native_object))).cast(),
-        Some(raw_finalize::<T>),
-        ptr::null_mut(),
+        Some(raw_finalize::<TaggedObject<T>>),
+        Box::into_raw(Box::new(size_hint.unwrap_or(0) as i64)).cast(),
         ptr::null_mut(),
       )
     })
@@ -904,6 +909,7 @@ impl Env {
     Ok(unsafe { T::from_raw_unchecked(self.0, js_value) })
   }
 
+  #[deprecated(since = "3.0.0", note = "Please use `External::new` instead")]
   /// If `size_hint` provided, `Env::adjust_external_memory` will be called under the hood.
   ///
   /// If no `size_hint` provided, global garbage collections will be triggered less times than expected.
@@ -919,8 +925,8 @@ impl Env {
       sys::napi_create_external(
         self.0,
         Box::into_raw(Box::new(TaggedObject::new(native_object))).cast(),
-        Some(raw_finalize::<T>),
-        Box::into_raw(Box::new(size_hint)).cast(),
+        Some(raw_finalize::<TaggedObject<T>>),
+        Box::into_raw(Box::new(size_hint.unwrap_or(0))).cast(),
         &mut object_value,
       )
     })?;
@@ -935,6 +941,7 @@ impl Env {
     Ok(unsafe { JsExternal::from_raw_unchecked(self.0, object_value) })
   }
 
+  #[deprecated(since = "3.0.0", note = "Please use `&External` instead")]
   pub fn get_value_external<T: 'static>(&self, js_external: &JsExternal) -> Result<&mut T> {
     unsafe {
       let mut unknown_tagged_object = ptr::null_mut();
@@ -1382,21 +1389,19 @@ pub(crate) unsafe extern "C" fn raw_finalize<T>(
   finalize_data: *mut c_void,
   finalize_hint: *mut c_void,
 ) {
-  let tagged_object = finalize_data as *mut TaggedObject<T>;
+  let tagged_object = finalize_data as *mut T;
   drop(unsafe { Box::from_raw(tagged_object) });
   if !finalize_hint.is_null() {
-    let size_hint = unsafe { *Box::from_raw(finalize_hint as *mut Option<i64>) };
-    if let Some(changed) = size_hint {
-      if changed != 0 {
-        let mut adjusted = 0i64;
-        let status = unsafe { sys::napi_adjust_external_memory(env, -changed, &mut adjusted) };
-        debug_assert!(
-          status == sys::Status::napi_ok,
-          "Calling napi_adjust_external_memory failed"
-        );
-      }
-    };
-  }
+    let size_hint = unsafe { *Box::from_raw(finalize_hint as *mut i64) };
+    if size_hint != 0 {
+      let mut adjusted = 0i64;
+      let status = unsafe { sys::napi_adjust_external_memory(env, -size_hint, &mut adjusted) };
+      debug_assert!(
+        status == sys::Status::napi_ok,
+        "Calling napi_adjust_external_memory failed"
+      );
+    }
+  };
 }
 
 #[cfg(feature = "napi6")]
