@@ -11,6 +11,7 @@ crate-type = ["cdylib"]
 [features]
 latest = ["napi/napi9"]
 napi3 = ["napi/napi3"]
+dyn-symbols = ["napi/dyn-symbols"]
 
 [dependencies]
 futures = "0.3"
