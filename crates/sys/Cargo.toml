@@ -12,6 +12,7 @@ rust-version = "1.65"
 version = "2.3.0"
 
 [features]
+dyn-symbols = ["libloading"]
 experimental = []
 napi1 = []
 napi2 = ["napi1"]
@@ -26,5 +27,8 @@ napi9 = ["napi8"]
 [package.metadata.workspaces]
 independent = true
 
-[target.'cfg(windows)'.dependencies.libloading]
-version = "0.8"
+[dependencies]
+libloading = { version = "0.8", optional = true }
+
+[target.'cfg(windows)'.dependencies]
+libloading = "0.8"
