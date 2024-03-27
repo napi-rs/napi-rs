@@ -780,15 +780,13 @@ pub use napi8::*;
 #[cfg(feature = "napi9")]
 pub use napi9::*;
 
-#[cfg(windows)]
+#[cfg(any(windows, feature = "dyn-symbols"))]
 pub(super) unsafe fn load_all() -> Result<libloading::Library, libloading::Error> {
-  let host = match libloading::os::windows::Library::this() {
-    Ok(lib) => lib.into(),
-    Err(err) => {
-      eprintln!("Initialize libloading failed {}", err);
-      return Err(err);
-    }
-  };
+  #[cfg(windows)]
+  let host = libloading::os::windows::Library::this()?.into();
+
+  #[cfg(unix)]
+  let host = libloading::os::unix::Library::this().into();
 
   napi1::load(&host)?;
   #[cfg(feature = "napi2")]

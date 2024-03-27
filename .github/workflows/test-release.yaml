@@ -548,7 +548,7 @@ jobs:
       - name: Build
         run: |
           bun run build
-          bun run build:test
+          yarn workspace @examples/napi build --features dyn-symbols
       - name: Test
         continue-on-error: true
         run: bun run test:bun

@@ -10,6 +10,7 @@ crate-type = ["cdylib"]
 
 [features]
 snmalloc = ["snmalloc-rs"]
+dyn-symbols = ["napi/dyn-symbols"]
 
 [dependencies]
 chrono = "0.4"
