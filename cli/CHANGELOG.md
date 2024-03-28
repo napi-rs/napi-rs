@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.45](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.44...@napi-rs/cli@3.0.0-alpha.45) (2024-03-28)
+
+### Bug Fixes
+
+- **cli:** wasi Node.js worker template ([#2015](https://github.com/napi-rs/napi-rs/issues/2015)) ([77399ff](https://github.com/napi-rs/napi-rs/commit/77399ff13057c9f776c18cdcc671164084a96fa5))
+
 # [3.0.0-alpha.44](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.43...@napi-rs/cli@3.0.0-alpha.44) (2024-03-21)
 
 ### Bug Fixes
