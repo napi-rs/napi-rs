@@ -309,12 +309,12 @@ module.exports.platformArchTriples = {
         abi: 'gnu',
       },
     ],
-    powerpc64le: [
+    ppc64: [
       {
         triple: 'powerpc64le-unknown-linux-gnu',
-        platformArchABI: 'linux-powerpc64le-gnu',
+        platformArchABI: 'linux-ppc64-gnu',
         platform: 'linux',
-        arch: 'powerpc64le',
+        arch: 'ppc64',
         abi: 'gnu',
       },
     ],

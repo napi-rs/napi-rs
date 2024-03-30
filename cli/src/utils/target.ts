@@ -23,6 +23,7 @@ export const AVAILABLE_TARGETS = [
   'armv7-linux-androideabi',
   'universal-apple-darwin',
   'riscv64gc-unknown-linux-gnu',
+  'powerpc64le-unknown-linux-gnu',
   'wasm32-wasi-preview1-threads',
 ] as const
 
@@ -38,6 +39,7 @@ export const DEFAULT_TARGETS = [
 export const TARGET_LINKER: Record<string, string> = {
   'aarch64-unknown-linux-musl': 'aarch64-linux-musl-gcc',
   'riscv64gc-unknown-linux-gnu': 'riscv64-linux-gnu-gcc',
+  'powerpc64le-unknown-linux-gnu': 'powerpc64le-linux-gnu-gcc',
 }
 
 // https://nodejs.org/api/process.html#process_process_arch
@@ -63,6 +65,7 @@ const CpuToNodeArch: Record<string, NodeJSArch> = {
   i686: 'ia32',
   armv7: 'arm',
   riscv64gc: 'riscv64',
+  powerpc64le: 'ppc64',
 }
 
 export const NodeArchToCpu: Record<string, string> = {
@@ -71,6 +74,7 @@ export const NodeArchToCpu: Record<string, string> = {
   ia32: 'i686',
   arm: 'armv7',
   riscv64: 'riscv64gc',
+  ppc64: 'powerpc64le',
 }
 
 const SysToNodePlatform: Record<string, Platform> = {

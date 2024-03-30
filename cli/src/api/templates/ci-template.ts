@@ -80,6 +80,12 @@ jobs:
               sudo apt-get install gcc-riscv64-linux-gnu -y
             build: ${packageManager} build --platform --target riscv64gc-unknown-linux-gnu
           - host: ubuntu-latest
+            target: 'powerpc64le-unknown-linux-gnu'
+            setup: |
+              sudo apt-get update
+              sudo apt-get install gcc-powerpc64le-linux-gnu -y
+            build: ${packageManager} build --platform --target powerpc64le-unknown-linux-gnu
+          - host: ubuntu-latest
             target: 'wasm32-wasi-preview1-threads'
             build: ${packageManager} build --platform --target wasm32-wasi-preview1-threads
 
