@@ -1,6 +1,4 @@
 use std::result::Result as StdResult;
-#[cfg(feature = "napi6")]
-use std::slice;
 
 use serde::{ser, Serialize, Serializer};
 
@@ -124,12 +122,7 @@ impl<'env> Serializer for Ser<'env> {
 
   #[cfg(feature = "napi6")]
   fn serialize_u128(self, v: u128) -> Result<Self::Ok> {
-    let words_ref = &v as *const _;
-    let words = unsafe { slice::from_raw_parts(words_ref as *const u64, 2) };
-    self
-      .0
-      .create_bigint_from_words(false, words.to_vec())
-      .map(|v| v.raw)
+    self.0.create_bigint_from_u128(v).map(|v| v.raw)
   }
 
   #[cfg(all(
@@ -147,12 +140,7 @@ impl<'env> Serializer for Ser<'env> {
 
   #[cfg(feature = "napi6")]
   fn serialize_i128(self, v: i128) -> Result<Self::Ok> {
-    let words_ref = &(v as u128) as *const _;
-    let words = unsafe { slice::from_raw_parts(words_ref as *const u64, 2) };
-    self
-      .0
-      .create_bigint_from_words(v < 0, words.to_vec())
-      .map(|v| v.raw)
+    self.0.create_bigint_from_i128(v).map(|v| v.raw)
   }
 
   fn serialize_unit(self) -> Result<Self::Ok> {
