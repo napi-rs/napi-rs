@@ -376,7 +376,7 @@ jobs:
           ls -la ./cores
 
   build-and-test-linux-armv7:
-    name: stable - armv7-unknown-linux-gnu - node@18
+    name: stable - armv7-unknown-linux-gnueabihf - node@20
     runs-on: ubuntu-latest
 
     steps:
@@ -401,7 +401,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: stable-linux-armv7-gnu-node@18-cargo-cache
+          key: stable-linux-armv7-gnueabihf-node@20-cargo-cache
 
       - name: Install dependencies
         run: |

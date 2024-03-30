@@ -26,6 +26,7 @@ jobs:
             'x86_64-apple-darwin',
             'x86_64-unknown-linux-musl',
             'aarch64-unknown-linux-musl',
+            'armv7-unknown-linux-musleabihf',
           ]
 
     steps:
@@ -49,8 +50,6 @@ jobs:
             ~/.cargo/git
             target
           key: stable-zig-${{ matrix.target }}-cargo-cache
-      - name: Install aarch64 toolchain
-        run: rustup target add aarch64-unknown-linux-gnu
       - name: Install ziglang
         uses: goto-bus-stop/setup-zig@v2
         with:
@@ -94,6 +93,10 @@ jobs:
             target: x86_64-apple-darwin
           - host: ubuntu-latest
             target: aarch64-unknown-linux-musl
+            docker-platform: arm64
+          - host: ubuntu-latest
+            target: armv7-unknown-linux-musleabihf
+            docker-platform: arm/v7
 
     steps:
       - uses: actions/checkout@v4
@@ -105,7 +108,7 @@ jobs:
       - name: Install dependencies
         run: |
           yarn config set --json supportedArchitectures.libc '["current", "musl"]'
-          yarn config set --json supportedArchitectures.cpu '["current", "arm64"]'
+          yarn config set --json supportedArchitectures.cpu '["current", "arm64", "arm"]'
           yarn install --immutable --mode=skip-build
       - name: Download artifacts
         uses: actions/download-artifact@v4
@@ -130,13 +133,23 @@ jobs:
         if: matrix.settings.host == 'ubuntu-latest'
       - name: Test
         uses: addnab/docker-run-action@v3
-        if: matrix.settings.target == 'aarch64-unknown-linux-musl'
+        if: matrix.settings.host == 'ubuntu-latest' && matrix.settings.target != 'x86_64-unknown-linux-musl' && matrix.settings.target != 'armv7-unknown-linux-musleabihf'
         with:
           image: node:lts-alpine
-          options: --platform linux/arm64 -v ${{ github.workspace }}:/build -w /build
+          options: --platform linux/${{ matrix.settings.docker-platform }} -v ${{ github.workspace }}:/build -w /build
           run: |
             set -e
             yarn test
+      - name: Test
+        uses: addnab/docker-run-action@v3
+        if: matrix.settings.target == 'armv7-unknown-linux-musleabihf'
+        with:
+          # https://github.com/nodejs/docker-node/issues/1798
+          image: node:18-alpine
+          options: --platform linux/${{ matrix.settings.docker-platform }} -v ${{ github.workspace }}:/build -w /build
+          run: |
+            set -e
+            yarn test:without-lerna
       - name: Test
         uses: addnab/docker-run-action@v3
         if: matrix.settings.target == 'x86_64-unknown-linux-musl'

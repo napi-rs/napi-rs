@@ -79,6 +79,12 @@ export const CIConfig: Partial<
     yarn_cpu: 'arm',
     test_image: 'ghcr.io/napi-rs/napi-rs/nodejs:armhf-${{ matrix.node }}',
   },
+  'armv7-unknown-linux-musleabihf': {
+    host: 'ubuntu-latest',
+    test: false,
+    yarn_cpu: 'arm',
+    yarn_libc: 'musl',
+  },
   'aarch64-linux-android': {
     host: 'ubuntu-latest',
     build_setup: [

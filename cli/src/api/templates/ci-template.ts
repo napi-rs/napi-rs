@@ -59,6 +59,9 @@ jobs:
             target: 'armv7-unknown-linux-gnueabihf'
             build: ${packageManager} build --platform --target armv7-unknown-linux-gnueabihf --use-napi-cross
           - host: ubuntu-latest
+            target: 'armv7-unknown-linux-musleabihf'
+            build: ${packageManager} build --platform --target armv7-unknown-linux-musleabihf -x
+          - host: ubuntu-latest
             target: 'aarch64-linux-android'
             build: ${packageManager} build --platform --target aarch64-linux-android
           - host: ubuntu-latest
