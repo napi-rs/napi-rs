@@ -84,6 +84,16 @@ const triples = [
     } as const,
   },
   {
+    name: 'armv7-unknown-linux-musleabihf',
+    expected: {
+      abi: 'musleabihf',
+      arch: 'arm',
+      platform: 'linux',
+      platformArchABI: 'linux-arm-musleabihf',
+      raw: 'armv7-unknown-linux-musleabihf',
+    } as const,
+  },
+  {
     name: 'armv7-unknown-linux-gnueabihf',
     expected: {
       abi: 'gnueabihf',

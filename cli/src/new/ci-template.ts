@@ -64,6 +64,9 @@ jobs:
               sudo apt-get install gcc-arm-linux-gnueabihf -y
             build: yarn build --target armv7-unknown-linux-gnueabihf
           - host: ubuntu-latest
+            target: 'armv7-unknown-linux-musleabihf'
+            build: yarn build --target armv7-unknown-linux-musleabihf
+          - host: ubuntu-latest
             target: 'aarch64-linux-android'
             build: yarn build --target aarch64-linux-android
           - host: ubuntu-latest
@@ -118,7 +121,7 @@ jobs:
           key: \${{ matrix.settings.target }}-cargo-\${{ matrix.settings.host }}
 
       - uses: goto-bus-stop/setup-zig@v2
-        if: \${{ matrix.settings.target == 'armv7-unknown-linux-gnueabihf' }}
+        if: \${{ matrix.settings.target == 'armv7-unknown-linux-gnueabihf' || matrix.settings.target == 'armv7-unknown-linux-musleabihf' }}
         with:
           version: 0.11.0
 

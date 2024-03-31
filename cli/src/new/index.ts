@@ -38,6 +38,7 @@ const SupportedPlatforms: string[] = [
   'aarch64-unknown-linux-musl',
   'aarch64-pc-windows-msvc',
   'armv7-unknown-linux-gnueabihf',
+  'armv7-unknown-linux-musleabihf',
   'x86_64-apple-darwin',
   'x86_64-pc-windows-msvc',
   'x86_64-unknown-linux-gnu',
