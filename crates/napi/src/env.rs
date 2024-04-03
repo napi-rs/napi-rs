@@ -123,7 +123,7 @@ impl Env {
     check_status!(unsafe {
       sys::napi_create_bigint_words(self.0, sign_bit, 2, words, &mut raw_value)
     })?;
-    Ok(JsBigInt::from_raw_unchecked(self.0, raw_value, 1))
+    Ok(JsBigInt::from_raw_unchecked(self.0, raw_value, 2))
   }
 
   #[cfg(feature = "napi6")]
@@ -131,7 +131,7 @@ impl Env {
     let mut raw_value = ptr::null_mut();
     let words = &value as *const u128 as *const u64;
     check_status!(unsafe { sys::napi_create_bigint_words(self.0, 0, 2, words, &mut raw_value) })?;
-    Ok(JsBigInt::from_raw_unchecked(self.0, raw_value, 1))
+    Ok(JsBigInt::from_raw_unchecked(self.0, raw_value, 2))
   }
 
   /// [n_api_napi_create_bigint_words](https://nodejs.org/api/n-api.html#n_api_napi_create_bigint_words)
