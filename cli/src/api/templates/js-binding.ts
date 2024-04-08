@@ -125,7 +125,11 @@ function requireNative() {
         ${requireTuple('linux-arm64-gnu')}
       }
     } else if (process.arch === 'arm') {
-      ${requireTuple('linux-arm-gnueabihf')}
+      if (isMusl()) {
+        ${requireTuple('linux-arm-musleabihf')}
+      } else {
+        ${requireTuple('linux-arm-gnueabihf')}
+      }
     } else if (process.arch === 'riscv64') {
       if (isMusl()) {
         ${requireTuple('linux-riscv64-musl')}

@@ -19,6 +19,7 @@ export const AVAILABLE_TARGETS = [
   'x86_64-unknown-freebsd',
   'i686-pc-windows-msvc',
   'armv7-unknown-linux-gnueabihf',
+  'armv7-unknown-linux-musleabihf',
   'armv7-linux-androideabi',
   'universal-apple-darwin',
   'riscv64gc-unknown-linux-gnu',

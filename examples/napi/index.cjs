@@ -246,7 +246,20 @@ function requireNative() {
 
       }
     } else if (process.arch === 'arm') {
+      if (isMusl()) {
+        try {
+        return require('./example.linux-arm-musleabihf.node')
+      } catch (e) {
+        loadErrors.push(e)
+      }
       try {
+        return require('@examples/napi-linux-arm-musleabihf')
+      } catch (e) {
+        loadErrors.push(e)
+      }
+
+      } else {
+        try {
         return require('./example.linux-arm-gnueabihf.node')
       } catch (e) {
         loadErrors.push(e)
@@ -257,6 +270,7 @@ function requireNative() {
         loadErrors.push(e)
       }
 
+      }
     } else if (process.arch === 'riscv64') {
       if (isMusl()) {
         try {

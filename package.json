@@ -29,6 +29,7 @@
     "format:toml": "taplo format",
     "lint": "eslint -c .eslintrc.yml .",
     "test": "lerna run test --concurrency=1 --ignore @napi-rs/cli",
+    "test:without-lerna": "yarn workspaces foreach -A --exclude \"{cli,napi-rs}\" run test",
     "test:bun": "bun test examples/napi/__tests__/values.spec.ts",
     "test:cli": "yarn workspace @napi-rs/cli test",
     "test:electron": "electron examples/napi/electron.cjs",
