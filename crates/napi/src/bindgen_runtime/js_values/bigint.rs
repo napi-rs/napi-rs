@@ -107,8 +107,7 @@ impl BigInt {
     if len == 1 {
       (self.words[0] as i128, false)
     } else {
-      let i128_words: [i64; 2] = [self.words[0] as _, self.words[1] as _];
-      let mut val = unsafe { ptr::read(i128_words.as_ptr() as *const i128) };
+      let mut val = self.words[0] as i128 + ((self.words[1] as i128) << 64);
       if self.sign_bit {
         val = -val;
       }
@@ -125,8 +124,7 @@ impl BigInt {
     if len == 1 {
       (self.sign_bit, self.words[0] as u128, false)
     } else {
-      let u128_words: [u64; 2] = [self.words[0], self.words[1]];
-      let val = unsafe { ptr::read(u128_words.as_ptr() as *const u128) };
+      let val = self.words[0] as u128 + ((self.words[1] as u128) << 64);
       (self.sign_bit, val, len > 2)
     }
   }
@@ -156,7 +154,16 @@ impl ToNapiValue for i128 {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> crate::Result<sys::napi_value> {
     let mut raw_value = ptr::null_mut();
     let sign_bit = i32::from(val <= 0);
-    let words = &val as *const i128 as *const u64;
+    if cfg!(target_endian = "little") {
+      let words = &val as *const i128 as *const u64;
+      check_status!(unsafe {
+        sys::napi_create_bigint_words(env, sign_bit, 2, words, &mut raw_value)
+      })?;
+      return Ok(raw_value);
+    }
+
+    let arr: [u64; 2] = [val as _, (val >> 64) as _];
+    let words = &arr as *const u64;
     check_status!(unsafe {
       sys::napi_create_bigint_words(env, sign_bit, 2, words, &mut raw_value)
     })?;
@@ -167,7 +174,14 @@ impl ToNapiValue for i128 {
 impl ToNapiValue for u128 {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> crate::Result<sys::napi_value> {
     let mut raw_value = ptr::null_mut();
-    let words = &val as *const u128 as *const u64;
+    if cfg!(target_endian = "little") {
+      let words = &val as *const u128 as *const u64;
+      check_status!(unsafe { sys::napi_create_bigint_words(env, 0, 2, words, &mut raw_value) })?;
+      return Ok(raw_value);
+    }
+
+    let arr: [u64; 2] = [val as _, (val >> 64) as _];
+    let words = &arr as *const u64;
     check_status!(unsafe { sys::napi_create_bigint_words(env, 0, 2, words, &mut raw_value) })?;
     Ok(raw_value)
   }
@@ -226,20 +240,19 @@ impl From<u64> for BigInt {
 impl From<i128> for BigInt {
   fn from(val: i128) -> Self {
     let sign_bit = val < 0;
-    let words = (if sign_bit { -val } else { val }).to_ne_bytes();
+    let val = if sign_bit { -val } else { val };
     BigInt {
       sign_bit,
-      words: unsafe { std::slice::from_raw_parts(words.as_ptr() as *mut _, 2).to_vec() },
+      words: vec![val as _, (val >> 64) as _],
     }
   }
 }
 
 impl From<u128> for BigInt {
   fn from(val: u128) -> Self {
-    let words = val.to_ne_bytes();
     BigInt {
       sign_bit: false,
-      words: unsafe { std::slice::from_raw_parts(words.as_ptr() as *mut _, 2).to_vec() },
+      words: vec![val as _, (val >> 64) as _],
     }
   }
 }

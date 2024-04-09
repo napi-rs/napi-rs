@@ -249,6 +249,10 @@ jobs:
             setup: |
               sudo apt-get update
               sudo apt-get install -y gcc-powerpc64le-linux-gnu
+          - target: s390x-unknown-linux-gnu
+            setup: |
+              sudo apt-get update
+              sudo apt-get install -y gcc-s390x-linux-gnu
 
     steps:
       - uses: actions/checkout@v4
@@ -381,6 +385,12 @@ jobs:
             target: powerpc64le-unknown-linux-gnu
             args: '--platform linux/ppc64le'
             arch: 'ppc64'
+            libc: 'gnu'
+            without-lerna: true
+          - image: 'node:{:version}-slim'
+            target: s390x-unknown-linux-gnu
+            args: '--platform linux/s390x'
+            arch: 's390x'
             libc: 'gnu'
             without-lerna: true
           - image: 'node:{:version}-alpine'
