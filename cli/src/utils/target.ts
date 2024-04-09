@@ -24,6 +24,7 @@ export const AVAILABLE_TARGETS = [
   'universal-apple-darwin',
   'riscv64gc-unknown-linux-gnu',
   'powerpc64le-unknown-linux-gnu',
+  's390x-unknown-linux-gnu',
   'wasm32-wasi-preview1-threads',
 ] as const
 
@@ -40,6 +41,7 @@ export const TARGET_LINKER: Record<string, string> = {
   'aarch64-unknown-linux-musl': 'aarch64-linux-musl-gcc',
   'riscv64gc-unknown-linux-gnu': 'riscv64-linux-gnu-gcc',
   'powerpc64le-unknown-linux-gnu': 'powerpc64le-linux-gnu-gcc',
+  's390x-unknown-linux-gnu': 's390x-linux-gnu-gcc',
 }
 
 // https://nodejs.org/api/process.html#process_process_arch

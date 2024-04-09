@@ -246,17 +246,22 @@ impl JsBigInt {
   pub fn get_i128(&mut self) -> Result<(i128, bool)> {
     let (signed, words) = self.get_words()?;
 
-    let high_part = words.first().copied().unwrap_or(0).to_le_bytes();
-    let low_part = words.get(1).copied().unwrap_or(0).to_le_bytes();
+    let low_part = words.first().copied().unwrap_or(0).to_ne_bytes();
+    let high_part = words.get(1).copied().unwrap_or(0).to_ne_bytes();
 
     let mut val = [0_u8; std::mem::size_of::<i128>()];
-
-    let (high_val, low_val) = val.split_at_mut(low_part.len());
+    let high_val: &mut [u8];
+    let low_val: &mut [u8];
+    if cfg!(target_endian = "little") {
+      (low_val, high_val) = val.split_at_mut(low_part.len());
+    } else {
+      (high_val, low_val) = val.split_at_mut(low_part.len());
+    }
 
     high_val.copy_from_slice(&high_part);
     low_val.copy_from_slice(&low_part);
 
-    let mut val = i128::from_le_bytes(val);
+    let mut val = i128::from_ne_bytes(val);
 
     let mut loss = words.len() > 2;
     let mut overflow = false;
@@ -275,17 +280,23 @@ impl JsBigInt {
   pub fn get_u128(&mut self) -> Result<(bool, u128, bool)> {
     let (signed, words) = self.get_words()?;
 
-    let high_part = words.first().copied().unwrap_or(0).to_le_bytes();
-    let low_part = words.get(1).copied().unwrap_or(0).to_le_bytes();
+    let low_part = words.first().copied().unwrap_or(0).to_ne_bytes();
+    let high_part = words.get(1).copied().unwrap_or(0).to_ne_bytes();
 
-    let mut val = [0_u8; std::mem::size_of::<u128>()];
-
-    let (high_val, low_val) = val.split_at_mut(low_part.len());
+    let mut val = [0_u8; std::mem::size_of::<i128>()];
+    let high_val: &mut [u8];
+    let low_val: &mut [u8];
+    if cfg!(target_endian = "little") {
+      (low_val, high_val) = val.split_at_mut(low_part.len());
+    } else {
+      (high_val, low_val) = val.split_at_mut(low_part.len());
+    }
 
     high_val.copy_from_slice(&high_part);
     low_val.copy_from_slice(&low_part);
 
-    let val = u128::from_le_bytes(val);
+    let val = u128::from_ne_bytes(val);
+
     let len = words.len();
 
     Ok((signed, val, len > 2))

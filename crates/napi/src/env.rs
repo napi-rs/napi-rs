@@ -119,7 +119,16 @@ impl Env {
   pub fn create_bigint_from_i128(&self, value: i128) -> Result<JsBigInt> {
     let mut raw_value = ptr::null_mut();
     let sign_bit = i32::from(value <= 0);
-    let words = &value as *const i128 as *const u64;
+    if cfg!(target_endian = "little") {
+      let words = &value as *const i128 as *const u64;
+      check_status!(unsafe {
+        sys::napi_create_bigint_words(self.0, sign_bit, 2, words, &mut raw_value)
+      })?;
+      return Ok(JsBigInt::from_raw_unchecked(self.0, raw_value, 2));
+    }
+
+    let arr: [u64; 2] = [value as _, (value >> 64) as _];
+    let words = &arr as *const u64;
     check_status!(unsafe {
       sys::napi_create_bigint_words(self.0, sign_bit, 2, words, &mut raw_value)
     })?;
@@ -129,7 +138,14 @@ impl Env {
   #[cfg(feature = "napi6")]
   pub fn create_bigint_from_u128(&self, value: u128) -> Result<JsBigInt> {
     let mut raw_value = ptr::null_mut();
-    let words = &value as *const u128 as *const u64;
+    if cfg!(target_endian = "little") {
+      let words = &value as *const u128 as *const u64;
+      check_status!(unsafe { sys::napi_create_bigint_words(self.0, 0, 2, words, &mut raw_value) })?;
+      return Ok(JsBigInt::from_raw_unchecked(self.0, raw_value, 2));
+    }
+
+    let arr: [u64; 2] = [value as _, (value >> 64) as _];
+    let words = &arr as *const u64;
     check_status!(unsafe { sys::napi_create_bigint_words(self.0, 0, 2, words, &mut raw_value) })?;
     Ok(JsBigInt::from_raw_unchecked(self.0, raw_value, 2))
   }
