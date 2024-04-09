@@ -25,6 +25,7 @@ jobs:
             'x86_64-apple-darwin',
             'x86_64-unknown-linux-musl',
             'aarch64-unknown-linux-musl',
+            'armv7-unknown-linux-musleabihf',
           ]
 
     steps:
@@ -48,8 +49,6 @@ jobs:
             ~/.cargo/git
             target
           key: stable-zig-${{ matrix.target }}-cargo-cache
-      - name: Install aarch64 toolchain
-        run: rustup target add aarch64-unknown-linux-gnu
       - name: Install ziglang
         uses: goto-bus-stop/setup-zig@v2
         with:
@@ -61,8 +60,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v3
         with:
-          # Testing for compatibility with node v12.x
-          node-version: 12
+          node-version: 18
       - name: Cross build native tests
         run: |
           yarn workspace compat-mode-examples build --target ${{ matrix.target }} --zig
@@ -95,10 +93,11 @@ jobs:
             target: x86_64-apple-darwin
           - host: ubuntu-latest
             target: aarch64-unknown-linux-musl
-
+            docker-platform: arm64
+          - host: ubuntu-latest
+            target: armv7-unknown-linux-musleabihf
+            docker-platform: arm/v7
     steps:
-      - run: docker run --rm --privileged multiarch/qemu-user-static:register --reset
-        if: matrix.settings.host == 'ubuntu-latest'
       - uses: actions/checkout@v3
       - name: Setup node
         uses: actions/setup-node@v3
@@ -107,7 +106,10 @@ jobs:
           check-latest: true
           cache: 'yarn'
       - name: Install dependencies
-        run: yarn install --immutable --mode=skip-build
+        run: |
+          yarn config set --json supportedArchitectures.libc '["current", "musl"]'
+          yarn config set --json supportedArchitectures.cpu '["current", "arm64", "arm"]'
+          yarn install --immutable --mode=skip-build
       - name: Download artifacts
         uses: actions/download-artifact@v3
         with:
@@ -127,15 +129,17 @@ jobs:
         env:
           SKIP_UNWIND_TEST: 1
         if: matrix.settings.host == 'macos-latest'
+      - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+        if: matrix.settings.host == 'ubuntu-latest'
       - name: Test
-        uses: docker://multiarch/alpine:aarch64-latest-stable
-        if: matrix.settings.target == 'aarch64-unknown-linux-musl'
+        uses: addnab/docker-run-action@v3
+        if: matrix.settings.host == 'ubuntu-latest' && matrix.settings.target != 'x86_64-unknown-linux-musl'
         with:
-          args: >
-            sh -c "
-              apk add nodejs yarn && \
-              yarn test
-            "
+          image: node:18-alpine
+          options: --platform linux/${{ matrix.settings.docker-platform }} -v ${{ github.workspace }}:/napi-rs -w /napi-rs
+          run: |
+            set -e
+            yarn test
       - name: Test
         uses: addnab/docker-run-action@v3
         if: matrix.settings.target == 'x86_64-unknown-linux-musl'

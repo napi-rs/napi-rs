@@ -38,6 +38,7 @@ const ZIG_PLATFORM_TARGET_MAP: Record<string, string> = {
   'aarch64-unknown-linux-gnu': 'aarch64-linux-gnu',
   'aarch64-unknown-linux-musl': 'aarch64-linux-musl',
   'armv7-unknown-linux-gnueabihf': 'arm-linux-gnueabihf',
+  'armv7-unknown-linux-musleabihf': 'arm-linux-musleabihf',
 }
 
 const DEFAULT_GLIBC_TARGET = process.env.GLIBC_ABI_TARGET ?? '2.17'
