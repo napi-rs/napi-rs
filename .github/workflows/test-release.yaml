@@ -238,6 +238,61 @@ jobs:
         run: yarn build:test -- --target ${{ matrix.settings.target }} --release
         shell: bash
 
+  build_for_test_in_docker:
+    name: build - ${{ matrix.settings.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        settings:
+          - target: powerpc64le-unknown-linux-gnu
+            setup: |
+              sudo apt-get update
+              sudo apt-get install -y gcc-powerpc64le-linux-gnu
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'yarn'
+
+      - name: Install
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.settings.target }}
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: stable-ubuntu-latest-${{ matrix.settings.target }}-cargo-cache
+
+      - name: Setup toolchain
+        run: ${{ matrix.settings.setup }}
+
+      - name: Install dependencies
+        run: yarn install --immutable --mode=skip-build
+
+      - name: Cross build native tests
+        run: yarn build:test -- --target ${{ matrix.settings.target }} --release
+        shell: bash
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.settings.target }}-example
+          path: examples/napi/*.node
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.settings.target }}-example-compat
+          path: examples/napi-compat-mode/index.node
+
   build_in_docker:
     name: build - ${{ matrix.settings.target }}
     runs-on: ubuntu-latest
@@ -304,7 +359,9 @@ jobs:
   test_in_docker:
     name: Test - ${{ matrix.settings.target }} - ${{ matrix.node }}
     runs-on: ubuntu-latest
-    needs: build_in_docker
+    needs:
+      - build_in_docker
+      - build_for_test_in_docker
     strategy:
       fail-fast: false
       matrix:
@@ -320,6 +377,12 @@ jobs:
             args: '--platform linux/arm64'
             arch: 'arm64'
             libc: 'gnu'
+          - image: 'node:{:version}-slim'
+            target: powerpc64le-unknown-linux-gnu
+            args: '--platform linux/ppc64le'
+            arch: 'ppc64'
+            libc: 'gnu'
+            without-lerna: true
           - image: 'node:{:version}-alpine'
             target: x86_64-unknown-linux-musl
             args: ''
@@ -369,7 +432,7 @@ jobs:
             ulimit -c &&
             ulimit -c unlimited &&
             ulimit -c &&
-            yarn test
+            ${{ matrix.settings.without-lerna && 'yarn test:without-lerna' || 'yarn test' }}
       - name: List files
         run: |
           ls -la .

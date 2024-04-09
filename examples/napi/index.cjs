@@ -297,6 +297,18 @@ function requireNative() {
       }
 
       }
+    } else if (process.arch === 'ppc64') {
+      try {
+        return require('./example.linux-ppc64-gnu.node')
+      } catch (e) {
+        loadErrors.push(e)
+      }
+      try {
+        return require('@examples/napi-linux-ppc64-gnu')
+      } catch (e) {
+        loadErrors.push(e)
+      }
+
     } else if (process.arch === 's390x') {
       try {
         return require('./example.linux-s390x-gnu.node')
