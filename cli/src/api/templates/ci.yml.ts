@@ -7,7 +7,7 @@ import {
   parseTriple,
 } from '../../utils/index.js'
 
-import { YAML } from './ci-template.js'
+import { type WasiTargetName, YAML } from './ci-template.js'
 
 const BUILD_FREEBSD = 'build-freebsd'
 const TEST_MACOS_WINDOWS = 'test-macOS-windows-binding'
@@ -22,6 +22,7 @@ const UNIVERSAL_MACOS = 'universal-macOS'
 export const createGithubActionsCIYml = (
   targets: string[],
   packageManager: SupportedPackageManager,
+  wasiTargetName?: WasiTargetName,
 ) => {
   const allTargets = new Set(
     targets.flatMap((t) => {
@@ -36,7 +37,7 @@ export const createGithubActionsCIYml = (
     }),
   )
 
-  const fullTemplate = load(YAML(packageManager)) as any
+  const fullTemplate = load(YAML(packageManager, wasiTargetName)) as any
 
   const requiredSteps = []
   const enableWindowsX86 = allTargets.has('x86_64-pc-windows-msvc')
@@ -48,7 +49,10 @@ export const createGithubActionsCIYml = (
   const enableLinuxArm7 = allTargets.has('armv7-unknown-linux-gnueabihf')
   const enableFreeBSD = allTargets.has('x86_64-unknown-freebsd')
   const enableMacOSUni = allTargets.has('universal-apple-darwin')
-  const enableWasi = allTargets.has('wasm32-wasi-preview1-threads')
+  const enableWasi =
+    allTargets.has('wasm32-wasi-preview1-threads') ||
+    allTargets.has('wasm32-wasip1-threads') ||
+    allTargets.has('wasm32-wasip2')
   fullTemplate.jobs.build.strategy.matrix.settings =
     fullTemplate.jobs.build.strategy.matrix.settings.filter(
       ({ target }: { target: string }) => allTargets.has(target),

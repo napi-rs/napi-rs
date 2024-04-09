@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process'
 import path from 'node:path'
 
 import {
@@ -59,6 +60,20 @@ function processOptions(options: RawNewOptions) {
       debug('Enable default targets')
     } else {
       throw new Error('At least one target must be enabled')
+    }
+  }
+  if (
+    options.targets.some((target) => target === 'wasm32-wasi-preview1-threads')
+  ) {
+    const out = execSync(`rustup target list`, {
+      encoding: 'utf8',
+    })
+    if (out.includes('wasm32-wasip1-threads')) {
+      options.targets.map((target) =>
+        target === 'wasm32-wasi-preview1-threads'
+          ? 'wasm32-wasip1-threads'
+          : target,
+      )
     }
   }
 
