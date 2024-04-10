@@ -4,7 +4,7 @@ import { fileURLToPath } from 'url'
 
 import { groupBy, mapValues } from 'lodash-es'
 
-import { parseTriple } from '../cli/src/utils/target.js'
+import { parseTriple } from '@napi-rs/cli'
 
 const __dirname = resolve(fileURLToPath(import.meta.url), '..')
 
@@ -21,7 +21,7 @@ const SUPPORTED_PLATFORM = new Set([
 
 const tripleLists: { [key: string]: { platform?: string } } = RAW_LIST.trim()
   .split('\n')
-  .filter((line) => !line.startsWith('wasm') && line.trim().length)
+  .filter((line) => !line.startsWith('wasm') && line.trim().length > 0)
   .map(parseTriple)
   .reduce((acc: Record<string, { platform?: string }>, cur) => {
     acc[cur.triple] = cur

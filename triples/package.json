@@ -47,6 +47,7 @@
     "build": "node --loader ts-node/esm/transpile-only ./generate-triple-list.ts && ../node_modules/.bin/prettier --write ./index.cjs"
   },
   "devDependencies": {
+    "@napi-rs/cli": "workspace:*",
     "@types/node": "^20.11.13",
     "lodash-es": "^4.17.21",
     "ts-node": "^10.9.2",

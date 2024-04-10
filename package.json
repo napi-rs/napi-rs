@@ -27,7 +27,7 @@
     "format:prettier": "prettier . -w",
     "format:rs": "cargo fmt",
     "format:toml": "taplo format",
-    "lint": "eslint -c .eslintrc.yml .",
+    "lint": "oxlint --import-plugin --ignore-path=./.oxlintignore --deny-warnings -D correctness",
     "test": "lerna run test --concurrency=1 --ignore @napi-rs/cli",
     "test:without-lerna": "yarn workspaces foreach -A --exclude \"{cli,napi-rs}\" run test",
     "test:bun": "bun test examples/napi/__tests__/values.spec.ts",
@@ -52,7 +52,7 @@
   },
   "lint-staged": {
     "*.@(js|ts)": [
-      "eslint --fix"
+      "oxlint --import-plugin --ignore-path=./.oxlintignore --deny-warnings -D correctness --fix"
     ],
     "*.@(js||ts|json|md|yml|yaml)": [
       "prettier --write"
@@ -71,8 +71,6 @@
     "@types/lodash-es": "^4.17.12",
     "@types/node": "^20.11.13",
     "@types/sinon": "^17.0.3",
-    "@typescript-eslint/eslint-plugin": "^7.0.0",
-    "@typescript-eslint/parser": "^7.0.0",
     "ava": "^6.1.1",
     "bun-types": "^1.0.25",
     "c8": "^9.1.0",
@@ -86,6 +84,7 @@
     "lerna": "^8.0.2",
     "lint-staged": "^15.2.1",
     "npm-run-all2": "^6.1.1",
+    "oxlint": "^0.2.16",
     "prettier": "^3.2.4",
     "rollup": "^4.9.6",
     "shx": "^0.3.4",
@@ -93,7 +92,7 @@
     "source-map-support": "^0.5.21",
     "ts-node": "^10.9.2",
     "tslib": "^2.6.2",
-    "typescript": "^5.3.3"
+    "typescript": "^5.4.4"
   },
   "packageManager": "yarn@4.1.1",
   "resolutions": {
