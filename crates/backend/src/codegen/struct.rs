@@ -511,10 +511,18 @@ impl NapiStruct {
             obj_field_setters.push(quote! { obj.set(#field_js_name, #alias_ident)?; });
           }
           if is_optional_field && !self.use_nullable {
-            obj_field_getters.push(quote! { let #alias_ident: #ty = obj.get(#field_js_name)?; });
+            obj_field_getters.push(quote! {
+              let #alias_ident: #ty = obj.get(#field_js_name).map_err(|mut err| {
+                err.reason = format!("{} on {}.{}", err.reason, #name_str, #field_js_name);
+                err
+              })?;
+            });
           } else {
             obj_field_getters.push(quote! {
-              let #alias_ident: #ty = obj.get(#field_js_name)?.ok_or_else(|| napi::bindgen_prelude::Error::new(
+              let #alias_ident: #ty = obj.get(#field_js_name).map_err(|mut err| {
+                err.reason = format!("{} on {}.{}", err.reason, #name_str, #field_js_name);
+                err
+              })?.ok_or_else(|| napi::bindgen_prelude::Error::new(
                 napi::bindgen_prelude::Status::InvalidArg,
                 format!("Missing field `{}`", #field_js_name),
               ))?;
