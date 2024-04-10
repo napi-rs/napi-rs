@@ -439,9 +439,6 @@ jobs:
           image: ${{ steps.image-name.outputs.docker-image }}
           options: ${{ matrix.settings.args }} -v ${{ github.workspace }}/cores:/cores -v ${{ github.workspace }}:/build -w /build
           run: >-
-            ulimit -c &&
-            ulimit -c unlimited &&
-            ulimit -c &&
             ${{ matrix.settings.without-lerna && 'yarn test:without-lerna' || 'yarn test' }}
       - name: List files
         run: |

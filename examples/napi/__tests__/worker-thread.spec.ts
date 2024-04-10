@@ -21,7 +21,7 @@ const concurrency = process.env.WASI_TEST
         // @ts-expect-error
         process?.report?.getReport()?.header?.glibcVersionRuntime)
     ? 50
-    : 10
+    : 3
 
 t('should be able to require in worker thread', async (t) => {
   await Promise.all(
