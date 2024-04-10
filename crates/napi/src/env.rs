@@ -1376,6 +1376,7 @@ pub(crate) unsafe extern "C" fn raw_finalize<T>(
 ) {
   let tagged_object = finalize_data as *mut TaggedObject<T>;
   drop(unsafe { Box::from_raw(tagged_object) });
+  #[cfg(not(target_family = "wasm"))]
   if !finalize_hint.is_null() {
     let size_hint = unsafe { *Box::from_raw(finalize_hint as *mut Option<i64>) };
     if let Some(changed) = size_hint {
