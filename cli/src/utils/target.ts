@@ -109,7 +109,10 @@ export interface Target {
  *   - `abi` = The ABI, for example `gnu`, `android`, `eabi`, etc.
  */
 export function parseTriple(rawTriple: string): Target {
-  if (rawTriple === 'wasm32-wasi-preview1-threads') {
+  if (
+    rawTriple === 'wasm32-wasi-preview1-threads' ||
+    rawTriple.startsWith('wasm32-wasip')
+  ) {
     return {
       triple: rawTriple,
       platformArchABI: 'wasm32-wasi',

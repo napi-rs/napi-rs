@@ -1,6 +1,14 @@
 import type { SupportedPackageManager } from '../../utils/config.js'
 
-export const YAML = (packageManager: SupportedPackageManager) => `
+export type WasiTargetName =
+  | 'wasm32-wasi-preview1-threads'
+  | 'wasm32-wasip1-threads'
+  | 'wasm32-wasip2'
+
+export const YAML = (
+  packageManager: SupportedPackageManager,
+  wasiTargetName?: WasiTargetName,
+) => `
 name: CI
 
 env:
@@ -94,6 +102,8 @@ jobs:
           - host: ubuntu-latest
             target: 'wasm32-wasi-preview1-threads'
             build: ${packageManager} build --platform --target wasm32-wasi-preview1-threads
+            target: '${wasiTargetName}'
+            build: ${packageManager} build --platform --target ${wasiTargetName}
 
     name: stable - \${{ matrix.settings.target }} - node@20
     runs-on: \${{ matrix.settings.host }}
@@ -156,7 +166,7 @@ jobs:
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
-        if: matrix.settings.target != 'wasm32-wasi-preview1-threads'
+        if: matrix.settings.target != '${wasiTargetName}'
         with:
           name: bindings-\${{ matrix.settings.target }}
           path: "*.node"
@@ -164,7 +174,7 @@ jobs:
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
-        if: matrix.settings.target == 'wasm32-wasi-preview1-threads'
+        if: matrix.settings.target == '${wasiTargetName}'
         with:
           name: bindings-\${{ matrix.settings.target }}
           path: "*.wasm"
@@ -177,7 +187,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build
         id: build
-        uses: cross-platform-actions/action@v0.21.1
+        uses: cross-platform-actions/action@v0.23.0
         timeout-minutes: 30
         env:
           DEBUG: 'napi:*'
@@ -511,7 +521,7 @@ jobs:
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
-          name: bindings-wasm32-wasi-preview1-threads
+          name: bindings-${wasiTargetName}
           path: .
       - name: List packages
         run: ls -R .
