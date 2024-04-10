@@ -528,6 +528,18 @@ test('object', (t) => {
       rollup: '^4.0.0',
     },
   })
+  t.throws(
+    () =>
+      receiveAllOptionalObject({
+        // @ts-expect-error
+        name: 1,
+      }),
+    {
+      code: 'StringExpected',
+      message:
+        'Failed to convert JavaScript value `Number 1 ` into rust type `String` on AllOptionalObject.name',
+    },
+  )
 })
 
 test('get str from object', (t) => {
@@ -631,7 +643,7 @@ test('should throw if object type is not matched', (t) => {
   const err1 = t.throws(() => receiveStrictObject({ name: 1 }))
   t.is(
     err1?.message,
-    'Failed to convert JavaScript value `Number 1 ` into rust type `String`',
+    'Failed to convert JavaScript value `Number 1 ` into rust type `String` on StrictObject.name',
   )
   // @ts-expect-error
   const err2 = t.throws(() => receiveStrictObject({ bar: 1 }))
