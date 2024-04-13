@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.47](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.45...@napi-rs/cli@3.0.0-alpha.47) (2024-04-13)
+
+### Bug Fixes
+
+- **deps:** update dependency emnapi to v1.1.1 ([#2017](https://github.com/napi-rs/napi-rs/issues/2017)) ([e4ad476](https://github.com/napi-rs/napi-rs/commit/e4ad4767efaf093fdff3dc768856f6100a6e3f72))
+
+### Features
+
+- **cli:** add support for armv7-unknown-linux-muslebihf ([#2019](https://github.com/napi-rs/napi-rs/issues/2019)) ([7ae5623](https://github.com/napi-rs/napi-rs/commit/7ae562352a7811aa6440561c7b3a97c05671dc0d))
+- **cli:** support wasm32-wasipxx targets ([#2030](https://github.com/napi-rs/napi-rs/issues/2030)) ([4c7d06f](https://github.com/napi-rs/napi-rs/commit/4c7d06fc72be2ce1af1489884ed810116e09117b))
+- **target:** add support for powerpc64le-unknown-linux-gnu ([#2023](https://github.com/napi-rs/napi-rs/issues/2023)) ([0fa755d](https://github.com/napi-rs/napi-rs/commit/0fa755d30ac5d7abb16dfa59b58d61deaaa7984c))
+- **target:** add support for s390x-unknown-linux-gnu ([#2028](https://github.com/napi-rs/napi-rs/issues/2028)) ([2e0f983](https://github.com/napi-rs/napi-rs/commit/2e0f983ccfbed6f8879ee7d5dbb8446068ee82ab))
+
 # [3.0.0-alpha.46](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.45...@napi-rs/cli@3.0.0-alpha.46) (2024-04-10)
 
 ### Bug Fixes
