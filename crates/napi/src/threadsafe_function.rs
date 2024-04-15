@@ -658,7 +658,7 @@ unsafe extern "C" fn call_js_cb<
           )
         },
         Err(e) => {
-          if CalleeHandled {
+          if !CalleeHandled {
             unsafe { sys::napi_fatal_exception(raw_env, JsError::from(e).into_value(raw_env)) }
           } else {
             unsafe {
