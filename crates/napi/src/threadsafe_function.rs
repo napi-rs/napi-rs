@@ -714,6 +714,22 @@ unsafe extern "C" fn call_js_cb<T: 'static, V: ToNapiValue, R, ES>(
             )
           },
         },
+        Err(e) => {
+          if !CalleeHandled {
+            unsafe { sys::napi_fatal_exception(raw_env, JsError::from(e).into_value(raw_env)) }
+          } else {
+            unsafe {
+              sys::napi_call_function(
+                raw_env,
+                recv,
+                js_callback,
+                1,
+                [JsError::from(e).into_value(raw_env)].as_mut_ptr(),
+                &mut return_value,
+              )
+            }
+          }
+        }
       };
       if let ThreadsafeFunctionCallVariant::WithCallback = call_variant {
         // throw Error in JavaScript callback
