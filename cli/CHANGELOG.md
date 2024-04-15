@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.48](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.47...@napi-rs/cli@3.0.0-alpha.48) (2024-04-15)
+
+### Features
+
+- **cli:** allow control the wasm Memory options via napi config ([#2038](https://github.com/napi-rs/napi-rs/issues/2038)) ([cc937e1](https://github.com/napi-rs/napi-rs/commit/cc937e1dbabcbc05bcb026126f82fe842554891d))
+
 # [3.0.0-alpha.47](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.45...@napi-rs/cli@3.0.0-alpha.47) (2024-04-13)
 
 ### Bug Fixes
