@@ -1,6 +1,6 @@
 use std::{future::Future, marker::PhantomData, sync::RwLock};
 
-use once_cell::sync::Lazy;
+use once_cell::sync::{Lazy, OnceCell};
 use tokio::runtime::Runtime;
 
 use crate::{sys, JsDeferred, JsUnknown, NapiValue, Result};
@@ -21,7 +21,33 @@ fn create_runtime() -> Option<Runtime> {
   }
 }
 
-pub(crate) static RT: Lazy<RwLock<Option<Runtime>>> = Lazy::new(|| RwLock::new(create_runtime()));
+pub(crate) static RT: Lazy<RwLock<Option<Runtime>>> = Lazy::new(|| {
+  if let Some(user_defined_rt) = unsafe { USER_DEFINED_RT.take() } {
+    RwLock::new(user_defined_rt)
+  } else {
+    RwLock::new(create_runtime())
+  }
+});
+
+static mut USER_DEFINED_RT: OnceCell<Option<Runtime>> = OnceCell::new();
+
+/// Create a custom Tokio runtime used by the NAPI-RS.
+/// You can control the tokio runtime configuration by yourself.
+/// ### Example
+/// ```no_run
+/// use tokio::runtime::Builder;
+/// use napi::create_custom_tokio_runtime;
+///
+/// #[napi::module_init]
+/// fn init() {
+///    let rt = Builder::new_multi_thread().enable_all().thread_stack_size(32 * 1024 * 1024).build().unwrap();
+///    create_custom_tokio_runtime(rt);
+/// }
+pub fn create_custom_tokio_runtime(rt: Runtime) {
+  unsafe {
+    USER_DEFINED_RT.get_or_init(move || Some(rt));
+  }
+}
 
 #[cfg(not(any(target_os = "macos", target_family = "wasm")))]
 static RT_REFERENCE_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
