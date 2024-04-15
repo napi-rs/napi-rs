@@ -43,6 +43,21 @@ export interface UserNapiConfig {
   constEnum?: boolean
 
   /**
+   * wasm compilation options
+   */
+  wasm?: {
+    /**
+     * https://developer.mozilla.org/en-US/docs/WebAssembly/JavaScript_interface/Memory
+     * @default 4000 pages (256MiB)
+     */
+    initialMemory?: number
+    /**
+     * @default 65536 pages (4GiB)
+     */
+    maximumMemory?: number
+  }
+
+  /**
    * @deprecated binaryName instead
    */
   name?: string
@@ -101,7 +116,7 @@ export interface CommonPackageJsonFields {
 }
 
 export type NapiConfig = Required<
-  Pick<UserNapiConfig, 'binaryName' | 'packageName' | 'npmClient'>
+  Pick<UserNapiConfig, 'binaryName' | 'packageName' | 'npmClient' | 'wasm'>
 > & {
   targets: Target[]
   packageJson: CommonPackageJsonFields
@@ -158,6 +173,7 @@ export async function readNapiConfig(
       targets: [],
       packageJson: pkgJson,
       npmClient: 'npm',
+      wasm: {},
     },
     omit(userNapiConfig, 'targets'),
   )
