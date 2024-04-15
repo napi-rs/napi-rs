@@ -3,7 +3,7 @@ use std::{
   ops::{Deref, DerefMut},
 };
 
-use super::{FromNapiMutRef, FromNapiRef, ToNapiValue, TypeName, ValidateNapiValue};
+use super::{FromNapiMutRef, FromNapiRef, FromNapiValue, ToNapiValue, TypeName, ValidateNapiValue};
 use crate::{check_status, sys, Error, Status};
 
 #[repr(C)]
@@ -93,6 +93,18 @@ impl<T: 'static> FromNapiRef for External<T> {
     napi_val: sys::napi_value,
   ) -> crate::Result<&'static Self> {
     unsafe { Self::from_napi_mut_ref(env, napi_val) }.map(|v| v as &Self)
+  }
+}
+
+impl<T: 'static> FromNapiValue for &mut External<T> {
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
+    External::from_napi_mut_ref(env, napi_val)
+  }
+}
+
+impl<T: 'static> FromNapiValue for &External<T> {
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
+    External::from_napi_ref(env, napi_val)
   }
 }
 

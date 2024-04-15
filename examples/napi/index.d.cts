@@ -362,6 +362,8 @@ export function createObjectWithClassField(): ObjectFieldClassInstance
 
 export function createObjWithProperty(): { value: ArrayBuffer, get getter(): number }
 
+export function createOptionalExternal(size?: number | undefined | null): ExternalObject<number> | null
+
 export function createReferenceOnFunction(cb: () => void): Promise<void>
 
 export function createSymbol(): symbol
@@ -456,6 +458,8 @@ export function getNumArr(): number[]
 /** Gets some numbers */
 export function getNums(): Array<number>
 
+export function getOptionalExternal(external?: ExternalObject<number> | undefined | null): number | null
+
 export function getPackageJsonName(packageJson: PackageJson): string
 
 export function getStrFromObject(): void
@@ -491,6 +495,8 @@ export function listObjKeys(obj: object): Array<string>
 export function mapOption(val?: number | undefined | null): number | null
 
 export function mutateExternal(external: ExternalObject<number>, newVal: number): void
+
+export function mutateOptionalExternal(external: ExternalObject<number> | undefined | null, newVal: number): void
 
 export function mutateTypedArray(input: Float32Array): void
 
