@@ -861,6 +861,8 @@ class Builder {
           name,
           this.config.packageName,
           wasiRegisterFunctions,
+          this.config.wasm.initialMemory,
+          this.config.wasm.maximumMemory,
         ) +
           exportsCode +
           '\n',
@@ -868,7 +870,12 @@ class Builder {
       )
       await writeFileAsync(
         browserBindingPath,
-        createWasiBrowserBinding(name, wasiRegisterFunctions) +
+        createWasiBrowserBinding(
+          name,
+          wasiRegisterFunctions,
+          this.config.wasm.initialMemory,
+          this.config.wasm.maximumMemory,
+        ) +
           idents
             .map(
               (ident) =>

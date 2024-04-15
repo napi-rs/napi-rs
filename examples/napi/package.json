@@ -11,7 +11,10 @@
     "test": "cross-env TS_NODE_PROJECT=./tsconfig.json node --es-module-specifier-resolution=node --loader ts-node/esm/transpile-only --experimental-wasi-unstable-preview1 ../../node_modules/ava/entrypoints/cli.mjs"
   },
   "napi": {
-    "binaryName": "example"
+    "binaryName": "example",
+    "wasm": {
+      "initialMemory": 16384
+    }
   },
   "devDependencies": {
     "@napi-rs/cli": "workspace:*",

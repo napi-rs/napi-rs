@@ -1,6 +1,8 @@
 export const createWasiBrowserBinding = (
   wasiFilename: string,
   wasiRegisterFunctions: string[],
+  initialMemory = 4000,
+  maximumMemory = 65536,
 ) => `import {
   instantiateNapiModuleSync as __emnapiInstantiateNapiModuleSync,
   getDefaultContext as __emnapiGetDefaultContext,
@@ -24,10 +26,8 @@ const __wasi = new __WASI({
 const __emnapiContext = __emnapiGetDefaultContext()
 
 const __sharedMemory = new WebAssembly.Memory({
-  // 1Gb
-  initial: 16384,
-  // 4Gb
-  maximum: 65536,
+  initial: ${initialMemory},
+  maximum: ${maximumMemory},
   shared: true,
 })
 
@@ -71,6 +71,8 @@ export const createWasiBinding = (
   wasmFileName: string,
   packageName: string,
   wasiRegisterFunctions: string[],
+  initialMemory = 4000,
+  maximumMemory = 65536,
 ) => `/* eslint-disable */
 /* prettier-ignore */
 
@@ -97,10 +99,8 @@ const __wasi = new __nodeWASI({
 const __emnapiContext = __emnapiGetDefaultContext()
 
 const __sharedMemory = new WebAssembly.Memory({
-  // 1Gb
-  initial: 16384,
-  // 4Gb
-  maximum: 65536,
+  initial: ${initialMemory},
+  maximum: ${maximumMemory},
   shared: true,
 })
 
