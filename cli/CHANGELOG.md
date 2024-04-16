@@ -3,6 +3,16 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.49](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.48...@napi-rs/cli@3.0.0-alpha.49) (2024-04-16)
+
+### Bug Fixes
+
+- **cli:** wasi targets linker envs ([#2044](https://github.com/napi-rs/napi-rs/issues/2044)) ([a2d78fa](https://github.com/napi-rs/napi-rs/commit/a2d78fadf9cdafe42ef5cae2efbd48077fa31000))
+
+### Features
+
+- **cli:** allow to define dtsHeader in napi config ([#2045](https://github.com/napi-rs/napi-rs/issues/2045)) ([b3dd946](https://github.com/napi-rs/napi-rs/commit/b3dd94649af82f872648056ce447ee02d4cdddb4))
+
 # [3.0.0-alpha.48](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.47...@napi-rs/cli@3.0.0-alpha.48) (2024-04-15)
 
 ### Features
