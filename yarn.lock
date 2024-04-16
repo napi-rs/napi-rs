@@ -4764,6 +4764,19 @@ __metadata:
   languageName: node
   linkType: hard
 
+"electron@npm:^30.0.0":
+  version: 30.0.0
+  resolution: "electron@npm:30.0.0"
+  dependencies:
+    "@electron/get": "npm:^2.0.0"
+    "@types/node": "npm:^20.9.0"
+    extract-zip: "npm:^2.0.1"
+  bin:
+    electron: cli.js
+  checksum: 10c0/d4e8e6189a0fc052bec63f0a9d548d9446279ca7b8591c7f3f740f4d6c82577be797f7052581c00d7f4a75bc1ff428d61649b9db5eba79bcd22372e23511c0f5
+  languageName: node
+  linkType: hard
+
 "elliptic@npm:^6.5.3, elliptic@npm:^6.5.5":
   version: 6.5.5
   resolution: "elliptic@npm:6.5.5"
@@ -8030,7 +8043,7 @@ __metadata:
     bun-types: "npm:^1.0.25"
     c8: "npm:^9.1.0"
     cross-env: "npm:^7.0.3"
-    electron: "npm:^29.0.1"
+    electron: "npm:^30.0.0"
     esbuild: "npm:^0.20.0"
     husky: "npm:^9.0.7"
     lerna: "npm:^8.0.2"
