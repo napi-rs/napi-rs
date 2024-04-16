@@ -331,7 +331,7 @@ __metadata:
     "@vitest/ui": "npm:^1.2.2"
     ava: "npm:^6.1.1"
     cross-env: "npm:7.0.3"
-    electron: "npm:^29.0.1"
+    electron: "npm:^30.0.0"
     lodash: "npm:^4.17.21"
     rxjs: "npm:^7.8.1"
     sinon: "npm:^17.0.1"
@@ -4748,19 +4748,6 @@ __metadata:
   bin:
     ejs: bin/cli.js
   checksum: 10c0/f0e249c79128810f5f6d5cbf347fc906d86bb9384263db0b2a9004aea649f2bc2d112736de5716c509c80afb4721c47281bd5b57c757d3b63f1bf5ac5f885893
-  languageName: node
-  linkType: hard
-
-"electron@npm:^29.0.1":
-  version: 29.2.0
-  resolution: "electron@npm:29.2.0"
-  dependencies:
-    "@electron/get": "npm:^2.0.0"
-    "@types/node": "npm:^20.9.0"
-    extract-zip: "npm:^2.0.1"
-  bin:
-    electron: cli.js
-  checksum: 10c0/7418c1c45c06b30efccb2c1d2c05644bc3f441050a64a75cf9ca3d30f8e9aa7f4a044b17b215ab280b2613735493e12c47fc9a9ac1f0c47e8737a2e273a71143
   languageName: node
   linkType: hard
 
