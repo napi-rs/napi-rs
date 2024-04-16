@@ -798,7 +798,20 @@ class Builder {
       this.envs.TYPE_DEF_TMP_PATH,
       this.options.constEnum ?? true,
       !this.options.noDtsHeader
-        ? this.options.dtsHeader ?? DEFAULT_TYPE_DEF_HEADER
+        ? this.options.dtsHeader ??
+            (this.config.dtsHeaderFile
+              ? await readFileAsync(
+                  join(this.cwd, this.config.dtsHeaderFile),
+                  'utf-8',
+                ).catch(() => {
+                  debug.warn(
+                    `Failed to read dts header file ${this.config.dtsHeaderFile}`,
+                  )
+                  return null
+                })
+              : null) ??
+            this.config.dtsHeader ??
+            DEFAULT_TYPE_DEF_HEADER
         : '',
     )
 
@@ -876,8 +889,8 @@ class Builder {
           name,
           this.config.packageName,
           wasiRegisterFunctions,
-          this.config.wasm.initialMemory,
-          this.config.wasm.maximumMemory,
+          this.config.wasm?.initialMemory,
+          this.config.wasm?.maximumMemory,
         ) +
           exportsCode +
           '\n',
@@ -888,8 +901,8 @@ class Builder {
         createWasiBrowserBinding(
           name,
           wasiRegisterFunctions,
-          this.config.wasm.initialMemory,
-          this.config.wasm.maximumMemory,
+          this.config.wasm?.initialMemory,
+          this.config.wasm?.maximumMemory,
         ) +
           idents
             .map(

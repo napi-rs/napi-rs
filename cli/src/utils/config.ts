@@ -43,6 +43,17 @@ export interface UserNapiConfig {
   constEnum?: boolean
 
   /**
+   * dts header prepend to the generated dts file
+   */
+  dtsHeader?: string
+
+  /**
+   * dts header file path to be prepended to the generated dts file
+   * if both dtsHeader and dtsHeaderFile are provided, dtsHeaderFile will be used
+   */
+  dtsHeaderFile?: string
+
+  /**
    * wasm compilation options
    */
   wasm?: {
@@ -116,11 +127,12 @@ export interface CommonPackageJsonFields {
 }
 
 export type NapiConfig = Required<
-  Pick<UserNapiConfig, 'binaryName' | 'packageName' | 'npmClient' | 'wasm'>
-> & {
-  targets: Target[]
-  packageJson: CommonPackageJsonFields
-}
+  Pick<UserNapiConfig, 'binaryName' | 'packageName' | 'npmClient'>
+> &
+  Pick<UserNapiConfig, 'wasm' | 'dtsHeader' | 'dtsHeaderFile'> & {
+    targets: Target[]
+    packageJson: CommonPackageJsonFields
+  }
 
 export async function readNapiConfig(
   path: string,
@@ -173,7 +185,6 @@ export async function readNapiConfig(
       targets: [],
       packageJson: pkgJson,
       npmClient: 'npm',
-      wasm: {},
     },
     omit(userNapiConfig, 'targets'),
   )
