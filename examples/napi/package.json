@@ -14,7 +14,9 @@
     "binaryName": "example",
     "wasm": {
       "initialMemory": 16384
-    }
+    },
+    "dtsHeader": "type MaybePromise<T> = T | Promise<T>",
+    "dtsHeaderFile": "./dts-header.d.ts"
   },
   "devDependencies": {
     "@napi-rs/cli": "workspace:*",
