@@ -110,6 +110,7 @@ export interface Target {
  */
 export function parseTriple(rawTriple: string): Target {
   if (
+    rawTriple === 'wasm32-wasi' ||
     rawTriple === 'wasm32-wasi-preview1-threads' ||
     rawTriple.startsWith('wasm32-wasip')
   ) {

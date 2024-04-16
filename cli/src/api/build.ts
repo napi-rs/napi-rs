@@ -544,6 +544,21 @@ class Builder {
           'bin',
           'wasm-ld',
         )
+        this.envs.CARGO_TARGET_WASM32_WASIP1_LINKER = join(
+          WASI_SDK_PATH,
+          'bin',
+          'wasm-ld',
+        )
+        this.envs.CARGO_TARGET_WASM32_WASIP1_THREADS_LINKER = join(
+          WASI_SDK_PATH,
+          'bin',
+          'wasm-ld',
+        )
+        this.envs.CARGO_TARGET_WASM32_WASIP2_LINKER = join(
+          WASI_SDK_PATH,
+          'bin',
+          'wasm-ld',
+        )
         this.setEnvIfNotExists('CC', join(WASI_SDK_PATH, 'bin', 'clang'))
         this.setEnvIfNotExists('CXX', join(WASI_SDK_PATH, 'bin', 'clang++'))
         this.setEnvIfNotExists('AR', join(WASI_SDK_PATH, 'bin', 'ar'))
