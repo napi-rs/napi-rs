@@ -805,12 +805,7 @@ fn find_node_library() -> Result<libloading::Library, libloading::Error> {
 #[cfg(any(windows, feature = "dyn-symbols"))]
 pub(super) unsafe fn load_all() -> Result<libloading::Library, libloading::Error> {
   #[cfg(windows)]
-  let host_result = find_node_library();
-  let host : libloading::Library;
-  host = match host_result {
-    Ok(lib) => lib,
-    Err(err) => return Err(err),
-  };
+  let host = find_node_library()?;
 
   #[cfg(unix)]
   let host = libloading::os::unix::Library::this().into();
