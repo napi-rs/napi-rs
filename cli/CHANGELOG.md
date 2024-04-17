@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.50](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.49...@napi-rs/cli@3.0.0-alpha.50) (2024-04-17)
+
+### Features
+
+- **cli:** optimize wasm output binary ([#2049](https://github.com/napi-rs/napi-rs/issues/2049)) ([7e33eb7](https://github.com/napi-rs/napi-rs/commit/7e33eb729fdb6347c27ed1e1d99d4ac10ec3ee77))
+
 # [3.0.0-alpha.49](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.48...@napi-rs/cli@3.0.0-alpha.49) (2024-04-16)
 
 ### Bug Fixes
