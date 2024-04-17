@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.18.2](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.18.1...@napi-rs/cli@2.18.2) (2024-04-17)
+
+### Bug Fixes
+
+- **cli:** freebsd ci template ([0f42e21](https://github.com/napi-rs/napi-rs/commit/0f42e21fa8fde2353c63818df8e0fb5d3f4c2468))
+
 # [2.18.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.17.0...@napi-rs/cli@2.18.0) (2024-01-20)
 
 ### Features
