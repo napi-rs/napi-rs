@@ -167,13 +167,13 @@ jobs:
           if-no-files-found: error
 
   build-freebsd:
-    runs-on: macos-12
+    runs-on: macos-13
     name: Build FreeBSD
     steps:
       - uses: actions/checkout@v4
       - name: Build
         id: build
-        uses: cross-platform-actions/action@v0.22.0
+        uses: cross-platform-actions/action@v0.24.0
         env:
           DEBUG: 'napi:*'
           RUSTUP_IO_THREADS: 1
@@ -184,7 +184,7 @@ jobs:
           cpu_count: 3
           environment_variables: 'DEBUG RUSTUP_IO_THREADS'
           shell: bash
-          prepare: |
+          run: |
             sudo pkg install -y -f curl node libnghttp2 npm
             sudo npm install -g yarn --ignore-scripts
             curl https://sh.rustup.rs -sSf --output rustup.sh
