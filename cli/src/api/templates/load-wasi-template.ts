@@ -105,8 +105,11 @@ const __sharedMemory = new WebAssembly.Memory({
 })
 
 let __wasmFilePath = __nodePath.join(__dirname, '${wasmFileName}.wasm')
+const __wasmDebugFilePath = __nodePath.join(__dirname, '${wasmFileName}.debug.wasm')
 
-if (!__nodeFs.existsSync(__wasmFilePath)) {
+if (__nodeFs.existsSync(__wasmDebugFilePath)) {
+  __wasmFilePath = __wasmDebugFilePath
+} else if (!__nodeFs.existsSync(__wasmFilePath)) {
   try {
     __wasmFilePath = __nodePath.resolve('${packageName}-wasm32-wasi')
   } catch {

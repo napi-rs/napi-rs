@@ -729,6 +729,7 @@ class Builder {
     const src = join(this.targetDir, this.target.triple, profile, srcName)
     debug(`Copy artifact from: [${src}]`)
     const dest = join(this.outputDir, destName)
+    const isWasm = dest.endsWith('.wasm')
 
     try {
       if (await fileExists(dest)) {
@@ -737,9 +738,36 @@ class Builder {
       }
       debug('Copy artifact to:')
       debug('  %i', dest)
-      await copyFileAsync(src, dest)
+      if (isWasm) {
+        const { ModuleConfig } = await import('@napi-rs/wasm-tools')
+        debug('Generate debug wasm module')
+        const debugWasmModule = new ModuleConfig()
+          .generateDwarf(true)
+          .generateNameSection(true)
+          .generateProducersSection(true)
+          .preserveCodeTransform(true)
+          .strictValidate(false)
+          .parse(await readFileAsync(src))
+        const debugWasmBinary = debugWasmModule.emitWasm(true)
+        await writeFileAsync(
+          dest.replace('.wasm', '.debug.wasm'),
+          debugWasmBinary,
+        )
+        debug('Generate release wasm module')
+        const releaseWasmModule = new ModuleConfig()
+          .generateDwarf(false)
+          .generateNameSection(false)
+          .generateProducersSection(false)
+          .preserveCodeTransform(false)
+          .strictValidate(false)
+          .parse(debugWasmBinary)
+        const releaseWasmBinary = releaseWasmModule.emitWasm(false)
+        await writeFileAsync(dest, releaseWasmBinary)
+      } else {
+        await copyFileAsync(src, dest)
+      }
       this.outputs.push({
-        kind: dest.endsWith('.node') ? 'node' : 'exe',
+        kind: dest.endsWith('.node') ? 'node' : isWasm ? 'wasm' : 'exe',
         path: dest,
       })
       return dest
