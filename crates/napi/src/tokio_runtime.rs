@@ -3,7 +3,7 @@ use std::{future::Future, marker::PhantomData, sync::RwLock};
 use once_cell::sync::{Lazy, OnceCell};
 use tokio::runtime::Runtime;
 
-use crate::{sys, JsDeferred, JsUnknown, NapiValue, Result};
+use crate::{sys, Error, JsDeferred, JsUnknown, NapiValue, Result};
 
 fn create_runtime() -> Option<Runtime> {
   #[cfg(not(target_family = "wasm"))]
@@ -158,10 +158,11 @@ pub fn execute_tokio_future<
   resolver: Resolver,
 ) -> Result<sys::napi_value> {
   let (deferred, promise) = JsDeferred::new(env)?;
-
+  #[cfg(not(target_family = "wasm"))]
+  let deferred_for_panic = deferred.clone();
   let sendable_resolver = SendableResolver::new(resolver);
 
-  let inner = async {
+  let inner = async move {
     match fut.await {
       Ok(v) => deferred.resolve(move |env| {
         sendable_resolver
@@ -173,7 +174,23 @@ pub fn execute_tokio_future<
   };
 
   #[cfg(not(target_family = "wasm"))]
-  spawn(inner);
+  {
+    let jh = spawn(inner);
+    spawn(async move {
+      if let Err(err) = jh.await {
+        if let Ok(reason) = err.try_into_panic() {
+          if let Some(s) = reason.downcast_ref::<&str>() {
+            deferred_for_panic.reject(Error::new(crate::Status::GenericFailure, s));
+          } else {
+            deferred_for_panic.reject(Error::new(
+              crate::Status::GenericFailure,
+              "Panic in async function",
+            ));
+          }
+        }
+      }
+    });
+  }
 
   #[cfg(target_family = "wasm")]
   {

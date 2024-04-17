@@ -175,6 +175,7 @@ import {
   createOptionalExternal,
   getOptionalExternal,
   mutateOptionalExternal,
+  panicInAsync,
 } from '../index.cjs'
 
 import { test } from './test.framework.js'
@@ -810,6 +811,12 @@ test('async', async (t) => {
   t.is(name, '@examples/napi')
 
   await t.throwsAsync(() => readFileAsync('some_nonexist_path.file'))
+
+  if (!process.env.SKIP_UNWIND_TEST) {
+    await t.throwsAsync(() => panicInAsync(), {
+      message: 'panic in async function',
+    })
+  }
 })
 
 test('async move', async (t) => {

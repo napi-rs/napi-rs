@@ -551,6 +551,8 @@ export interface PackageJson {
 
 export function panic(): void
 
+export function panicInAsync(): Promise<void>
+
 export function plusOne(this: Width): number
 
 export function promiseInEither(input: number | Promise<number>): Promise<boolean>
