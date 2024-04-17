@@ -1,0 +1,5 @@
+error: Only fn in impl block can be marked as factory, constructor, getter or setter
+ --> tests/build_error_tests/fn_outside_impl_factory.rs:6:8
+  |
+6 | pub fn add() {
+  |        ^^^
