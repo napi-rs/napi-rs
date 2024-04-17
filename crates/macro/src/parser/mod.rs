@@ -559,7 +559,7 @@ fn napi_fn_from_decl(
     }
   };
 
-  Diagnostic::from_vec(errors).map(|_| {
+  Diagnostic::from_vec(errors).and_then(|_| {
     let js_name = if let Some(prop_name) = opts.getter() {
       opts.js_name().map_or_else(
         || {
@@ -611,7 +611,16 @@ fn napi_fn_from_decl(
       false
     };
 
-    NapiFn {
+    let kind = fn_kind(opts);
+
+    if !matches!(kind, FnKind::Normal) && parent.is_none() {
+      bail_span!(
+        sig.ident,
+        "Only fn in impl block can be marked as factory, constructor, getter or setter"
+      );
+    }
+
+    Ok(NapiFn {
       name: ident.clone(),
       js_name,
       args,
@@ -619,7 +628,7 @@ fn napi_fn_from_decl(
       is_ret_result,
       is_async: asyncness.is_some(),
       vis,
-      kind: fn_kind(opts),
+      kind,
       fn_self,
       parent: parent.cloned(),
       comments: extract_doc_comments(&attrs),
@@ -638,7 +647,7 @@ fn napi_fn_from_decl(
       catch_unwind: opts.catch_unwind().is_some(),
       unsafe_: sig.unsafety.is_some(),
       register_name: get_register_ident(ident.to_string().as_str()),
-    }
+    })
   })
 }
 
