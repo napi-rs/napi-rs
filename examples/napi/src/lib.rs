@@ -4,6 +4,7 @@
 #![allow(clippy::uninlined_format_args)]
 #![allow(clippy::new_without_default)]
 
+#[cfg(not(target_family = "wasm"))]
 use napi::bindgen_prelude::create_custom_tokio_runtime;
 
 #[macro_use]

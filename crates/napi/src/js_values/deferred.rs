@@ -18,6 +18,7 @@ use crate::{NapiRaw, NapiValue};
 /// See this issue for more details:
 /// https://github.com/nodejs/node-addon-api/issues/595
 #[repr(transparent)]
+#[derive(Clone)]
 struct DeferredTrace(sys::napi_ref);
 
 #[cfg(feature = "deferred_trace")]
@@ -94,11 +95,27 @@ struct DeferredData<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> {
 }
 
 pub struct JsDeferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> {
-  tsfn: sys::napi_threadsafe_function,
+  pub(crate) tsfn: sys::napi_threadsafe_function,
   #[cfg(feature = "deferred_trace")]
   trace: DeferredTrace,
   _data: PhantomData<Data>,
   _resolver: PhantomData<Resolver>,
+}
+
+// A trick to send the resolver into the `panic` handler
+// Do not use clone in the other place besides the `fn execute_tokio_future`
+impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> Clone
+  for JsDeferred<Data, Resolver>
+{
+  fn clone(&self) -> Self {
+    Self {
+      tsfn: self.tsfn,
+      #[cfg(feature = "deferred_trace")]
+      trace: self.trace.clone(),
+      _data: PhantomData,
+      _resolver: PhantomData,
+    }
+  }
 }
 
 unsafe impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> Send

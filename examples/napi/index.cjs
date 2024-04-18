@@ -483,6 +483,7 @@ module.exports.optionStartEnd = nativeBinding.optionStartEnd
 module.exports.overrideIndividualArgOnFunction = nativeBinding.overrideIndividualArgOnFunction
 module.exports.overrideIndividualArgOnFunctionWithCbArg = nativeBinding.overrideIndividualArgOnFunctionWithCbArg
 module.exports.panic = nativeBinding.panic
+module.exports.panicInAsync = nativeBinding.panicInAsync
 module.exports.plusOne = nativeBinding.plusOne
 module.exports.promiseInEither = nativeBinding.promiseInEither
 module.exports.readFile = nativeBinding.readFile
