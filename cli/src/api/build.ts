@@ -544,6 +544,21 @@ class Builder {
           'bin',
           'wasm-ld',
         )
+        this.envs.CARGO_TARGET_WASM32_WASIP1_LINKER = join(
+          WASI_SDK_PATH,
+          'bin',
+          'wasm-ld',
+        )
+        this.envs.CARGO_TARGET_WASM32_WASIP1_THREADS_LINKER = join(
+          WASI_SDK_PATH,
+          'bin',
+          'wasm-ld',
+        )
+        this.envs.CARGO_TARGET_WASM32_WASIP2_LINKER = join(
+          WASI_SDK_PATH,
+          'bin',
+          'wasm-ld',
+        )
         this.setEnvIfNotExists('CC', join(WASI_SDK_PATH, 'bin', 'clang'))
         this.setEnvIfNotExists('CXX', join(WASI_SDK_PATH, 'bin', 'clang++'))
         this.setEnvIfNotExists('AR', join(WASI_SDK_PATH, 'bin', 'ar'))
@@ -714,6 +729,7 @@ class Builder {
     const src = join(this.targetDir, this.target.triple, profile, srcName)
     debug(`Copy artifact from: [${src}]`)
     const dest = join(this.outputDir, destName)
+    const isWasm = dest.endsWith('.wasm')
 
     try {
       if (await fileExists(dest)) {
@@ -722,9 +738,36 @@ class Builder {
       }
       debug('Copy artifact to:')
       debug('  %i', dest)
-      await copyFileAsync(src, dest)
+      if (isWasm) {
+        const { ModuleConfig } = await import('@napi-rs/wasm-tools')
+        debug('Generate debug wasm module')
+        const debugWasmModule = new ModuleConfig()
+          .generateDwarf(true)
+          .generateNameSection(true)
+          .generateProducersSection(true)
+          .preserveCodeTransform(true)
+          .strictValidate(false)
+          .parse(await readFileAsync(src))
+        const debugWasmBinary = debugWasmModule.emitWasm(true)
+        await writeFileAsync(
+          dest.replace('.wasm', '.debug.wasm'),
+          debugWasmBinary,
+        )
+        debug('Generate release wasm module')
+        const releaseWasmModule = new ModuleConfig()
+          .generateDwarf(false)
+          .generateNameSection(false)
+          .generateProducersSection(false)
+          .preserveCodeTransform(false)
+          .strictValidate(false)
+          .parse(debugWasmBinary)
+        const releaseWasmBinary = releaseWasmModule.emitWasm(false)
+        await writeFileAsync(dest, releaseWasmBinary)
+      } else {
+        await copyFileAsync(src, dest)
+      }
       this.outputs.push({
-        kind: dest.endsWith('.node') ? 'node' : 'exe',
+        kind: dest.endsWith('.node') ? 'node' : isWasm ? 'wasm' : 'exe',
         path: dest,
       })
       return dest
@@ -783,7 +826,20 @@ class Builder {
       this.envs.TYPE_DEF_TMP_PATH,
       this.options.constEnum ?? true,
       !this.options.noDtsHeader
-        ? this.options.dtsHeader ?? DEFAULT_TYPE_DEF_HEADER
+        ? this.options.dtsHeader ??
+            (this.config.dtsHeaderFile
+              ? await readFileAsync(
+                  join(this.cwd, this.config.dtsHeaderFile),
+                  'utf-8',
+                ).catch(() => {
+                  debug.warn(
+                    `Failed to read dts header file ${this.config.dtsHeaderFile}`,
+                  )
+                  return null
+                })
+              : null) ??
+            this.config.dtsHeader ??
+            DEFAULT_TYPE_DEF_HEADER
         : '',
     )
 
@@ -861,6 +917,8 @@ class Builder {
           name,
           this.config.packageName,
           wasiRegisterFunctions,
+          this.config.wasm?.initialMemory,
+          this.config.wasm?.maximumMemory,
         ) +
           exportsCode +
           '\n',
@@ -868,7 +926,12 @@ class Builder {
       )
       await writeFileAsync(
         browserBindingPath,
-        createWasiBrowserBinding(name, wasiRegisterFunctions) +
+        createWasiBrowserBinding(
+          name,
+          wasiRegisterFunctions,
+          this.config.wasm?.initialMemory,
+          this.config.wasm?.maximumMemory,
+        ) +
           idents
             .map(
               (ident) =>

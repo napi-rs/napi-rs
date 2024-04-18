@@ -1,6 +1,6 @@
 {
   "name": "@napi-rs/cli",
-  "version": "3.0.0-alpha.46",
+  "version": "3.0.0-alpha.50",
   "description": "Cli tools for napi-rs",
   "author": "LongYinan <lynweklm@gmail.com>",
   "homepage": "https://github.com/napi-rs/napi-rs",
@@ -68,6 +68,7 @@
   },
   "dependencies": {
     "@napi-rs/cross-toolchain": "^0.0.14",
+    "@napi-rs/wasm-tools": "^0.0.1",
     "@octokit/rest": "^20.0.2",
     "clipanion": "^3.2.1",
     "colorette": "^2.0.20",

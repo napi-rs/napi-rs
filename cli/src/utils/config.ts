@@ -43,6 +43,32 @@ export interface UserNapiConfig {
   constEnum?: boolean
 
   /**
+   * dts header prepend to the generated dts file
+   */
+  dtsHeader?: string
+
+  /**
+   * dts header file path to be prepended to the generated dts file
+   * if both dtsHeader and dtsHeaderFile are provided, dtsHeaderFile will be used
+   */
+  dtsHeaderFile?: string
+
+  /**
+   * wasm compilation options
+   */
+  wasm?: {
+    /**
+     * https://developer.mozilla.org/en-US/docs/WebAssembly/JavaScript_interface/Memory
+     * @default 4000 pages (256MiB)
+     */
+    initialMemory?: number
+    /**
+     * @default 65536 pages (4GiB)
+     */
+    maximumMemory?: number
+  }
+
+  /**
    * @deprecated binaryName instead
    */
   name?: string
@@ -102,10 +128,11 @@ export interface CommonPackageJsonFields {
 
 export type NapiConfig = Required<
   Pick<UserNapiConfig, 'binaryName' | 'packageName' | 'npmClient'>
-> & {
-  targets: Target[]
-  packageJson: CommonPackageJsonFields
-}
+> &
+  Pick<UserNapiConfig, 'wasm' | 'dtsHeader' | 'dtsHeaderFile'> & {
+    targets: Target[]
+    packageJson: CommonPackageJsonFields
+  }
 
 export async function readNapiConfig(
   path: string,

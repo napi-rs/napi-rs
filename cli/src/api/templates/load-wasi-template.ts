@@ -1,6 +1,8 @@
 export const createWasiBrowserBinding = (
   wasiFilename: string,
   wasiRegisterFunctions: string[],
+  initialMemory = 4000,
+  maximumMemory = 65536,
 ) => `import {
   instantiateNapiModuleSync as __emnapiInstantiateNapiModuleSync,
   getDefaultContext as __emnapiGetDefaultContext,
@@ -24,8 +26,8 @@ const __wasi = new __WASI({
 const __emnapiContext = __emnapiGetDefaultContext()
 
 const __sharedMemory = new WebAssembly.Memory({
-  initial: 1024,
-  maximum: 10240,
+  initial: ${initialMemory},
+  maximum: ${maximumMemory},
   shared: true,
 })
 
@@ -69,6 +71,8 @@ export const createWasiBinding = (
   wasmFileName: string,
   packageName: string,
   wasiRegisterFunctions: string[],
+  initialMemory = 4000,
+  maximumMemory = 65536,
 ) => `/* eslint-disable */
 /* prettier-ignore */
 
@@ -95,14 +99,17 @@ const __wasi = new __nodeWASI({
 const __emnapiContext = __emnapiGetDefaultContext()
 
 const __sharedMemory = new WebAssembly.Memory({
-  initial: 1024,
-  maximum: 10240,
+  initial: ${initialMemory},
+  maximum: ${maximumMemory},
   shared: true,
 })
 
 let __wasmFilePath = __nodePath.join(__dirname, '${wasmFileName}.wasm')
+const __wasmDebugFilePath = __nodePath.join(__dirname, '${wasmFileName}.debug.wasm')
 
-if (!__nodeFs.existsSync(__wasmFilePath)) {
+if (__nodeFs.existsSync(__wasmDebugFilePath)) {
+  __wasmFilePath = __wasmDebugFilePath
+} else if (!__nodeFs.existsSync(__wasmFilePath)) {
   try {
     __wasmFilePath = __nodePath.resolve('${packageName}-wasm32-wasi')
   } catch {

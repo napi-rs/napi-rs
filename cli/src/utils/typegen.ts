@@ -64,7 +64,7 @@ export async function processTypeDef(
   const defs = await readIntermediateTypeFile(intermediateTypeFile)
   const groupedDefs = preprocessTypeDef(defs)
 
-  header = header ? header + '\n' : ''
+  header = header ?? ''
   let dts = ''
 
   sortBy(Array.from(groupedDefs), ([namespace]) => namespace).forEach(
