@@ -3,22 +3,17 @@ import {
   getDefaultContext as __emnapiGetDefaultContext,
   WASI as __WASI,
 } from '@napi-rs/wasm-runtime'
-import {
-  Volume as __Volume,
-  createFsFromVolume as __createFsFromVolume,
-} from '@napi-rs/wasm-runtime/fs'
-
+import { memfs } from '@napi-rs/wasm-runtime/fs'
 import __wasmUrl from './example.wasm32-wasi.wasm?url'
 
-const __fs = __createFsFromVolume(
-  __Volume.fromJSON({
-    '/': null,
-  }),
-)
+export const { fs: __fs, vol: __volume } = memfs()
 
 const __wasi = new __WASI({
   version: 'preview1',
   fs: __fs,
+  preopens: {
+    '/': '/',
+  },
 })
 
 const __emnapiContext = __emnapiGetDefaultContext()

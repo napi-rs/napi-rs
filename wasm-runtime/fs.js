@@ -1,5 +1,5 @@
-import * as memfs from 'memfs'
+import * as memfsExported from 'memfs'
 
-const { createFsFromVolume, Volume, fs } = memfs
+const { createFsFromVolume, Volume, fs, memfs } = memfsExported
 
-export { createFsFromVolume, Volume, fs }
+export { createFsFromVolume, Volume, fs, memfs }
