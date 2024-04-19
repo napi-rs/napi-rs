@@ -881,7 +881,18 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@napi-rs/wasm-runtime@npm:^0.1.2, @napi-rs/wasm-runtime@workspace:*, @napi-rs/wasm-runtime@workspace:wasm-runtime":
+"@napi-rs/wasm-runtime@npm:^0.1.2":
+  version: 0.1.2
+  resolution: "@napi-rs/wasm-runtime@npm:0.1.2"
+  dependencies:
+    "@emnapi/core": "npm:^1.1.0"
+    "@emnapi/runtime": "npm:^1.1.0"
+    "@tybys/wasm-util": "npm:^0.8.1"
+  checksum: 10c0/d753d0de1643168a337f8687aadbed056278d7c72e175b8af7d71c306769b284d6cbf5232c47e69816c7ff9592133892fd27ab3c19860aa903510721f85f7e53
+  languageName: node
+  linkType: hard
+
+"@napi-rs/wasm-runtime@workspace:*, @napi-rs/wasm-runtime@workspace:wasm-runtime":
   version: 0.0.0-use.local
   resolution: "@napi-rs/wasm-runtime@workspace:wasm-runtime"
   dependencies:
@@ -2196,7 +2207,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@tybys/wasm-util@npm:^0.8.2":
+"@tybys/wasm-util@npm:^0.8.1, @tybys/wasm-util@npm:^0.8.2":
   version: 0.8.2
   resolution: "@tybys/wasm-util@npm:0.8.2"
   dependencies:
