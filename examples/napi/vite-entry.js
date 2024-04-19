@@ -3,7 +3,7 @@ import {
   Kind,
   asyncMultiTwo,
   tsfnReturnPromise,
-} from './index.wasi-browser'
+} from './example.wasi-browser'
 
 console.info(new Animal(Kind.Cat, 'Tom'))
 asyncMultiTwo(200).then((res) => {
