@@ -811,11 +811,15 @@ test('async', async (t) => {
   t.is(name, '@examples/napi')
 
   await t.throwsAsync(() => readFileAsync('some_nonexist_path.file'))
+})
 
+test('panic in async fn', async (t) => {
   if (!process.env.SKIP_UNWIND_TEST) {
     await t.throwsAsync(() => panicInAsync(), {
       message: 'panic in async function',
     })
+  } else {
+    t.pass('no unwind runtime')
   }
 })
 

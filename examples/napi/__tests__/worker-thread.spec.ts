@@ -19,7 +19,8 @@ const concurrency = process.env.WASI_TEST
       (process.platform === 'linux' &&
         process.arch === 'x64' &&
         // @ts-expect-error
-        process?.report?.getReport()?.header?.glibcVersionRuntime)
+        process?.report?.getReport()?.header?.glibcVersionRuntime &&
+        !process.env.ASAN_OPTIONS)
     ? 50
     : 3
 
