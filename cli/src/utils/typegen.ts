@@ -46,8 +46,7 @@ function prettyPrint(
       if (constEnum) {
         s += `export const enum ${line.name} {\n${line.def}\n}`
       } else {
-        s += `export const ${line.name} : {\n${line.def.replaceAll('=', ':')}\n};`
-        s += `\n export type ${line.name} = (typeof ${line.name})[keyof typeof ${line.name}];`
+        s += `export type ${line.name} = ${line.def.replaceAll(/.*=/g, '').replaceAll(',', '|')};`
       }
       break
 
