@@ -41,7 +41,7 @@
   "dependencies": {
     "@emnapi/core": "^1.1.0",
     "@emnapi/runtime": "^1.1.0",
-    "@tybys/wasm-util": "^0.8.1"
+    "@tybys/wasm-util": "^0.8.2"
   },
   "scripts": {
     "build": "rollup -c rollup.config.js"
