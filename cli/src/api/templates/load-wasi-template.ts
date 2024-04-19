@@ -3,25 +3,33 @@ export const createWasiBrowserBinding = (
   wasiRegisterFunctions: string[],
   initialMemory = 4000,
   maximumMemory = 65536,
-) => `import {
-  instantiateNapiModuleSync as __emnapiInstantiateNapiModuleSync,
-  getDefaultContext as __emnapiGetDefaultContext,
-  WASI as __WASI,
-} from '@napi-rs/wasm-runtime'
-import { Volume as __Volume, createFsFromVolume as __createFsFromVolume } from '@napi-rs/wasm-runtime/fs'
-
-import __wasmUrl from './${wasiFilename}.wasm?url'
-
-const __fs = __createFsFromVolume(
-  __Volume.fromJSON({
-    '/': null,
-  }),
-)
+  fs = false,
+) => {
+  const fsImport = fs ? `import { memfs } from '@napi-rs/wasm-runtime/fs'` : ''
+  const wasiCreation = fs
+    ? `
+export const { fs: __fs, vol: __volume } = memfs()
 
 const __wasi = new __WASI({
   version: 'preview1',
   fs: __fs,
-})
+  preopens: {
+    '/': '/',
+  }
+})`
+    : `
+const __wasi = new __WASI({
+  version: 'preview1',
+})`
+
+  return `import {
+  instantiateNapiModuleSync as __emnapiInstantiateNapiModuleSync,
+  getDefaultContext as __emnapiGetDefaultContext,
+  WASI as __WASI,
+} from '@napi-rs/wasm-runtime'
+${fsImport}
+import __wasmUrl from './${wasiFilename}.wasm?url'
+${wasiCreation}
 
 const __emnapiContext = __emnapiGetDefaultContext()
 
@@ -66,6 +74,7 @@ ${wasiRegisterFunctions
   .join('\n')}
 }
 `
+}
 
 export const createWasiBinding = (
   wasmFileName: string,
@@ -88,11 +97,13 @@ const {
   getDefaultContext: __emnapiGetDefaultContext,
 } = require('@napi-rs/wasm-runtime')
 
+const __rootDir = __nodePath.parse(process.cwd()).root
+
 const __wasi = new __nodeWASI({
   version: 'preview1',
   env: process.env,
   preopens: {
-    '/': '/'
+    [__rootDir]: __rootDir,
   }
 })
 

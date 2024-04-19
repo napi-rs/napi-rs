@@ -66,6 +66,16 @@ export interface UserNapiConfig {
      * @default 65536 pages (4GiB)
      */
     maximumMemory?: number
+
+    /**
+     * Browser wasm binding configuration
+     */
+    browser: {
+      /**
+       * Whether to use fs module in browser
+       */
+      fs?: boolean
+    }
   }
 
   /**
