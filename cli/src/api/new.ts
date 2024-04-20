@@ -28,6 +28,7 @@ import {
   gitIgnore,
   npmIgnore,
 } from './templates/index.js'
+import { WasiTargetName } from './templates/ci-template.js'
 
 const debug = debugFactory('new')
 
@@ -211,6 +212,9 @@ function generateGithubWorkflow(options: NewOptions): Output | null {
     content: createGithubActionsCIYml(
       options.targets,
       options.packageManager as SupportedPackageManager,
+      (options.targets.find((t) =>
+        t.includes('wasm32-wasi'),
+      ) as WasiTargetName) ?? 'wasm32-wasi-preview1-threads',
     ),
   }
 }

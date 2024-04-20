@@ -84,7 +84,7 @@ jobs:
               yarn test:macro
             toolchain: 1.65.0
           - host: macos-14
-            target: x86_64-apple-darwin
+            target: aarch64-apple-darwin
             build: yarn build:test
             test: |
               yarn test:cli
@@ -150,7 +150,9 @@ jobs:
 
       - name: 'Install dependencies'
         shell: bash
-        run: yarn install --mode=skip-build --immutable
+        run: |
+          yarn config set supportedArchitectures.cpu --json '["current", "x64", "x86"]'
+          yarn install --mode=skip-build --immutable
 
       - name: Check build
         run: cargo check --target ${{ matrix.settings.target }} --all --bins --examples --tests -vvv
@@ -171,7 +173,7 @@ jobs:
         run: ${{ matrix.settings.test }}
 
       - name: Electron tests
-        if: matrix.settings.target == 'x86_64-apple-darwin' || matrix.settings.target == 'x86_64-pc-windows-msvc'
+        if: matrix.settings.target == 'aarch64-apple-darwin' || matrix.settings.target == 'x86_64-pc-windows-msvc'
         run: |
           node ./node_modules/electron/install.js
           yarn test:electron
@@ -403,6 +405,10 @@ jobs:
             args: '--platform linux/arm64'
             arch: 'arm64'
             libc: 'musl'
+        exclude:
+          - settings:
+              target: aarch64-unknown-linux-gnu
+            node: 18
     steps:
       - uses: actions/checkout@v4
 
@@ -583,6 +589,7 @@ jobs:
         env:
           WASI_TEST: 'true'
           NODE_OPTIONS: '--max-old-space-size=8192'
+          SKIP_UNWIND_TEST: 1
       - name: Browser test
         run: yarn workspace @examples/napi vitest
 

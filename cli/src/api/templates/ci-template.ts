@@ -7,7 +7,7 @@ export type WasiTargetName =
 
 export const YAML = (
   packageManager: SupportedPackageManager,
-  wasiTargetName?: WasiTargetName,
+  wasiTargetName: WasiTargetName,
 ) => `
 name: CI
 
@@ -100,8 +100,6 @@ jobs:
               sudo apt-get install gcc-s390x-linux-gnu -y
             build: ${packageManager} build --platform --target s390x-unknown-linux-gnu
           - host: ubuntu-latest
-            target: 'wasm32-wasi-preview1-threads'
-            build: ${packageManager} build --platform --target wasm32-wasi-preview1-threads
             target: '${wasiTargetName}'
             build: ${packageManager} build --platform --target ${wasiTargetName}
 

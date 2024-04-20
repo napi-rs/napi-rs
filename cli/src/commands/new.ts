@@ -39,13 +39,7 @@ export class NewCommand extends BaseNewCommand {
     if (this.interactive) {
       const targetPath: string = cmdOptions.path
         ? cmdOptions.path
-        : await inquirer
-            .prompt({
-              type: 'input',
-              name: 'path',
-              message: 'Target path to create the project, relative to cwd',
-            })
-            .then(({ path }) => path)
+        : await inquirerProjectPath()
       cmdOptions.path = targetPath
       return {
         ...cmdOptions,
@@ -141,4 +135,19 @@ export class NewCommand extends BaseNewCommand {
 
     return enableGithubActions
   }
+}
+
+async function inquirerProjectPath(): Promise<string> {
+  return inquirer
+    .prompt({
+      type: 'input',
+      name: 'path',
+      message: 'Target path to create the project, relative to cwd.',
+    })
+    .then(({ path }) => {
+      if (!path) {
+        return inquirerProjectPath()
+      }
+      return path
+    })
 }

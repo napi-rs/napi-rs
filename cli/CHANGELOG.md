@@ -3,6 +3,16 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.51](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.50...@napi-rs/cli@3.0.0-alpha.51) (2024-04-19)
+
+### Bug Fixes
+
+- **cli:** new project issue ([#2058](https://github.com/napi-rs/napi-rs/issues/2058)) ([10602fb](https://github.com/napi-rs/napi-rs/commit/10602fb76fb3c1b075fdb6524c141a4c85374c08))
+
+### Features
+
+- **cli:** improve the browser binding ([#2056](https://github.com/napi-rs/napi-rs/issues/2056)) ([4ccbb61](https://github.com/napi-rs/napi-rs/commit/4ccbb6117943d5aa06f985eced1555ecf4c6fb05))
+
 # [3.0.0-alpha.50](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.49...@napi-rs/cli@3.0.0-alpha.50) (2024-04-17)
 
 ### Features

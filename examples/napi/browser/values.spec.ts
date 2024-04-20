@@ -2,11 +2,16 @@ import { describe, it, expect } from 'vitest'
 
 // @ts-expect-error
 const {
+  // @ts-expect-error
+  __fs,
+  // @ts-expect-error
+  __volume,
   DEFAULT_COST,
   Bird,
   GetterSetterWithClosures,
   tsfnReturnPromise,
   tsfnReturnPromiseTimeout,
+  readFileAsync,
 }: typeof import('../index.cjs') = await import('../example.wasi-browser')
 
 describe('NAPI-RS wasi browser test', function () {
@@ -52,5 +57,11 @@ describe('NAPI-RS wasi browser test', function () {
     ).rejects.toMatchObject(new Error('Timeout'))
     // trigger Promise.then in Rust after `Promise` is dropped
     await new Promise((resolve) => setTimeout(resolve, 400))
+  })
+
+  it.skip('readFileAsync', async () => {
+    __volume.writeFileSync('/test.txt', 'hello world')
+    const value = await readFileAsync('/test.txt')
+    expect(value).toBe('hello world')
   })
 })

@@ -13,11 +13,13 @@ const {
   getDefaultContext: __emnapiGetDefaultContext,
 } = require('@napi-rs/wasm-runtime')
 
+const __rootDir = __nodePath.parse(process.cwd()).root
+
 const __wasi = new __nodeWASI({
   version: 'preview1',
   env: process.env,
   preopens: {
-    '/': '/'
+    [__rootDir]: __rootDir,
   }
 })
 

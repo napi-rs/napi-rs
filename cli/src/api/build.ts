@@ -931,6 +931,7 @@ class Builder {
           wasiRegisterFunctions,
           this.config.wasm?.initialMemory,
           this.config.wasm?.maximumMemory,
+          this.config.wasm?.browser?.fs,
         ) +
           idents
             .map(
