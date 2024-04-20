@@ -781,25 +781,31 @@ pub use napi8::*;
 pub use napi9::*;
 
 #[cfg(windows)]
-fn test_library( lib_result : Result<libloading::os::windows::Library, libloading::Error> ) -> Result<libloading::Library, libloading::Error> {
+fn test_library(
+  lib_result: Result<libloading::os::windows::Library, libloading::Error>,
+) -> Result<libloading::Library, libloading::Error> {
   unsafe {
     match lib_result {
       Ok(lib) => {
-        let symbol: Result<libloading::os::windows::Symbol<unsafe extern "C" fn ()>, libloading::Error> = lib.get(b"napi_create_int32\0");
+        let symbol: Result<
+          libloading::os::windows::Symbol<unsafe extern "C" fn()>,
+          libloading::Error,
+        > = lib.get(b"napi_create_int32\0");
         match symbol {
           Ok(_) => Ok(lib.into()),
-          Err(err) => Err(err)
+          Err(err) => Err(err),
         }
-      },
-      Err(err) => Err(err)
+      }
+      Err(err) => Err(err),
     }
   }
 }
 
 #[cfg(windows)]
 fn find_node_library() -> Result<libloading::Library, libloading::Error> {
-  return test_library(libloading::os::windows::Library::this())
-    .or(test_library(libloading::os::windows::Library::open_already_loaded("node")));
+  return test_library(libloading::os::windows::Library::this()).or(test_library(
+    libloading::os::windows::Library::open_already_loaded("node"),
+  ));
 }
 
 #[cfg(any(windows, feature = "dyn-symbols"))]
