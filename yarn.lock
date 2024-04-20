@@ -881,7 +881,18 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@napi-rs/wasm-runtime@npm:^0.1.2, @napi-rs/wasm-runtime@workspace:*, @napi-rs/wasm-runtime@workspace:wasm-runtime":
+"@napi-rs/wasm-runtime@npm:^0.1.2":
+  version: 0.1.2
+  resolution: "@napi-rs/wasm-runtime@npm:0.1.2"
+  dependencies:
+    "@emnapi/core": "npm:^1.1.0"
+    "@emnapi/runtime": "npm:^1.1.0"
+    "@tybys/wasm-util": "npm:^0.8.1"
+  checksum: 10c0/d753d0de1643168a337f8687aadbed056278d7c72e175b8af7d71c306769b284d6cbf5232c47e69816c7ff9592133892fd27ab3c19860aa903510721f85f7e53
+  languageName: node
+  linkType: hard
+
+"@napi-rs/wasm-runtime@workspace:*, @napi-rs/wasm-runtime@workspace:wasm-runtime":
   version: 0.0.0-use.local
   resolution: "@napi-rs/wasm-runtime@workspace:wasm-runtime"
   dependencies:
@@ -893,7 +904,7 @@ __metadata:
     "@rollup/plugin-json": "npm:^6.1.0"
     "@rollup/plugin-node-resolve": "npm:^15.2.3"
     "@rollup/plugin-replace": "npm:^5.0.5"
-    "@tybys/wasm-util": "npm:^0.8.1"
+    "@tybys/wasm-util": "npm:^0.8.2"
     buffer: "npm:^6.0.3"
     memfs: "npm:^4.6.0"
     node-inspect-extracted: "npm:^3.0.0"
@@ -2196,12 +2207,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@tybys/wasm-util@npm:^0.8.1":
-  version: 0.8.1
-  resolution: "@tybys/wasm-util@npm:0.8.1"
+"@tybys/wasm-util@npm:^0.8.1, @tybys/wasm-util@npm:^0.8.2":
+  version: 0.8.2
+  resolution: "@tybys/wasm-util@npm:0.8.2"
   dependencies:
     tslib: "npm:^2.4.0"
-  checksum: 10c0/4e0975ee0ed8202e4af0be45a379ac11fa98e8c17cb5a038bc1d29f6e1bd37eb84be991d725d214d0f257d4aaccd67e5ac6e68c3c81cdd3c7f3f678d05d52cb7
+  checksum: 10c0/3d2c1afa8623625311655b19c28ba6efa30070b86c9e7ad7d7e68295b2bc855f34a383ef39e4be3ee159db70ce28d28343df7885072e831416f16962229ce758
   languageName: node
   linkType: hard
 
