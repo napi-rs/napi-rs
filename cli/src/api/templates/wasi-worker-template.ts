@@ -60,14 +60,18 @@ globalThis.onmessage = function (e) {
 };
 `
 
-export const WASI_WORKER_BROWSER_TEMPLATE = `import { instantiateNapiModuleSync, MessageHandler, WASI } from '@napi-rs/wasm-runtime'
-import { Volume, createFsFromVolume } from '@napi-rs/wasm-runtime/fs'
+export const createWasiBrowserWorkerBinding = (fs: boolean) => {
+  const fsImport = fs
+    ? `import { Volume, createFsFromVolume } from '@napi-rs/wasm-runtime/fs'
 
 const fs = createFsFromVolume(
   Volume.fromJSON({
     '/': null,
   }),
-)
+)`
+    : '\nconst fs = null'
+  return `import { instantiateNapiModuleSync, MessageHandler, WASI } from '@napi-rs/wasm-runtime'
+${fsImport}
 
 const handler = new MessageHandler({
   onLoad({ wasmModule, wasmMemory }) {
@@ -101,3 +105,4 @@ globalThis.onmessage = function (e) {
   handler.handle(e)
 }
 `
+}

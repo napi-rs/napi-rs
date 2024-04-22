@@ -38,7 +38,7 @@ import {
   createWasiBrowserBinding,
 } from './templates/load-wasi-template.js'
 import {
-  WASI_WORKER_BROWSER_TEMPLATE,
+  createWasiBrowserWorkerBinding,
   WASI_WORKER_TEMPLATE,
 } from './templates/wasi-worker-template.js'
 
@@ -945,7 +945,7 @@ class Builder {
       await writeFileAsync(workerPath, WASI_WORKER_TEMPLATE, 'utf8')
       await writeFileAsync(
         browserWorkerPath,
-        WASI_WORKER_BROWSER_TEMPLATE,
+        createWasiBrowserWorkerBinding(this.config.wasm?.browser?.fs ?? false),
         'utf8',
       )
       await writeFileAsync(
