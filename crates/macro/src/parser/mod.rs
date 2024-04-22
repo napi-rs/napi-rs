@@ -1070,6 +1070,7 @@ impl ConvertToAST for syn::ItemEnum {
       .js_name()
       .map_or_else(|| self.ident.to_string(), |(s, _)| s.to_string());
 
+    let is_string_enum = opts.string_enum().is_some();
     let variants = match opts.string_enum() {
       Some(case) => {
         let case = case.map(|c| Ok::<Case, Diagnostic>(match c.0.as_str() {
@@ -1183,6 +1184,7 @@ impl ConvertToAST for syn::ItemEnum {
         comments: extract_doc_comments(&self.attrs),
         skip_typescript: opts.skip_typescript().is_some(),
         register_name: get_register_ident(self.ident.to_string().as_str()),
+        is_string_enum,
       }),
     })
   }
