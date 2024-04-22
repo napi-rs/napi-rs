@@ -4,6 +4,7 @@ import {
   WASI as __WASI,
   createOnMessage as __wasmCreateOnMessageForFsProxy,
 } from '@napi-rs/wasm-runtime'
+import { Buffer } from 'buffer'
 import { memfs } from '@napi-rs/wasm-runtime/fs'
 import __wasmUrl from './example.wasm32-wasi.wasm?url'
 
@@ -18,6 +19,7 @@ const __wasi = new __WASI({
 })
 
 const __emnapiContext = __emnapiGetDefaultContext()
+__emnapiContext.feature.Buffer = Buffer
 
 const __sharedMemory = new WebAssembly.Memory({
   initial: 16384,
