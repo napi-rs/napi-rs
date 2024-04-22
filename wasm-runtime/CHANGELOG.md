@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.2.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/wasm-runtime@0.2.0...@napi-rs/wasm-runtime@0.2.1) (2024-04-22)
+
+### Bug Fixes
+
+- **cli:** pass fs to browser worker binding ([#2062](https://github.com/napi-rs/napi-rs/issues/2062)) ([12aec3c](https://github.com/napi-rs/napi-rs/commit/12aec3c1354d3b2c722787de38325477c750e988))
+
 # [0.2.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/wasm-runtime@0.1.2...@napi-rs/wasm-runtime@0.2.0) (2024-04-19)
 
 ### Features

@@ -3,6 +3,16 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.52](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.51...@napi-rs/cli@3.0.0-alpha.52) (2024-04-22)
+
+### Bug Fixes
+
+- **cli:** pass fs to browser worker binding ([#2062](https://github.com/napi-rs/napi-rs/issues/2062)) ([12aec3c](https://github.com/napi-rs/napi-rs/commit/12aec3c1354d3b2c722787de38325477c750e988))
+
+### Features
+
+- **cli:** support generation of literal union from string enum ([#2054](https://github.com/napi-rs/napi-rs/issues/2054)) ([0adc36c](https://github.com/napi-rs/napi-rs/commit/0adc36ce1c0aaeff645e6d17d6c7d54c64a5b321))
+
 # [3.0.0-alpha.51](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.50...@napi-rs/cli@3.0.0-alpha.51) (2024-04-19)
 
 ### Bug Fixes
