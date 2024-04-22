@@ -1,5 +1,6 @@
 export const WASI_WORKER_TEMPLATE = `import fs from "node:fs";
 import { createRequire } from "node:module";
+import { parse } from "node:path";
 import { WASI } from "node:wasi";
 import { parentPort, Worker } from "node:worker_threads";
 
@@ -27,7 +28,9 @@ Object.assign(globalThis, {
   },
 });
 
-const emnapiContext = getDefaultContext()
+const emnapiContext = getDefaultContext();
+
+const __rootDir = parse(process.cwd()).root;
 
 const handler = new MessageHandler({
   onLoad({ wasmModule, wasmMemory }) {
@@ -35,7 +38,7 @@ const handler = new MessageHandler({
       version: 'preview1',
       env: process.env,
       preopens: {
-        '/': '/',
+        [__rootDir]: __rootDir,
       },
     });
 
@@ -62,21 +65,20 @@ globalThis.onmessage = function (e) {
 
 export const createWasiBrowserWorkerBinding = (fs: boolean) => {
   const fsImport = fs
-    ? `import { Volume, createFsFromVolume } from '@napi-rs/wasm-runtime/fs'
+    ? `import { memfsExported as __memfsExported } from '@napi-rs/wasm-runtime/fs'
 
-const fs = createFsFromVolume(
-  Volume.fromJSON({
-    '/': null,
-  }),
-)`
+const fs = createFsProxy(__memfsExported)`
     : '\nconst fs = null'
-  return `import { instantiateNapiModuleSync, MessageHandler, WASI } from '@napi-rs/wasm-runtime'
+  return `import { instantiateNapiModuleSync, MessageHandler, WASI, createFsProxy } from '@napi-rs/wasm-runtime'
 ${fsImport}
 
 const handler = new MessageHandler({
   onLoad({ wasmModule, wasmMemory }) {
     const wasi = new WASI({
       fs,
+      preopens: {
+        '/': '/',
+      },
       print: function () {
         // eslint-disable-next-line no-console
         console.log.apply(console, arguments)

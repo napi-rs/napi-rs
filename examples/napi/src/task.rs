@@ -70,3 +70,26 @@ impl Task for AsyncTaskOptionalReturn {
 fn async_task_optional_return() -> AsyncTask<AsyncTaskOptionalReturn> {
   AsyncTask::new(AsyncTaskOptionalReturn {})
 }
+
+pub struct AsyncTaskReadFile {
+  path: String,
+}
+
+#[napi]
+impl Task for AsyncTaskReadFile {
+  type Output = Vec<u8>;
+  type JsValue = Buffer;
+
+  fn compute(&mut self) -> Result<Self::Output> {
+    std::fs::read(&self.path).map_err(|e| Error::new(Status::GenericFailure, format!("{}", e)))
+  }
+
+  fn resolve(&mut self, _: Env, output: Self::Output) -> Result<Self::JsValue> {
+    Ok(output.into())
+  }
+}
+
+#[napi]
+pub fn async_task_read_file(path: String) -> AsyncTask<AsyncTaskReadFile> {
+  AsyncTask::new(AsyncTaskReadFile { path })
+}

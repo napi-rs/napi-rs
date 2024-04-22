@@ -2,10 +2,14 @@ const { MessageHandler, instantiateNapiModuleSync, instantiateNapiModule } = req
 const { getDefaultContext } = require('@emnapi/runtime')
 const { WASI } = require('@tybys/wasm-util')
 
+const { createFsProxy, createOnMessage } = require('./fs-proxy.cjs')
+
 module.exports = {
   MessageHandler,
   instantiateNapiModule,
   instantiateNapiModuleSync,
   getDefaultContext,
   WASI,
+  createFsProxy,
+  createOnMessage,
 }

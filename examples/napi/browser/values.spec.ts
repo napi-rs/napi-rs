@@ -4,8 +4,6 @@ import { describe, it, expect } from 'vitest'
 const {
   // @ts-expect-error
   __fs,
-  // @ts-expect-error
-  __volume,
   DEFAULT_COST,
   Bird,
   GetterSetterWithClosures,
@@ -59,8 +57,8 @@ describe('NAPI-RS wasi browser test', function () {
     await new Promise((resolve) => setTimeout(resolve, 400))
   })
 
-  it.skip('readFileAsync', async () => {
-    __volume.writeFileSync('/test.txt', 'hello world')
+  it('readFileAsync', async () => {
+    __fs.writeFileSync('/test.txt', 'hello world')
     const value = await readFileAsync('/test.txt')
     expect(value).toBe('hello world')
   })

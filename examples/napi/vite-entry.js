@@ -3,6 +3,8 @@ import {
   Kind,
   asyncMultiTwo,
   tsfnReturnPromise,
+  __fs,
+  asyncTaskReadFile,
 } from './example.wasi-browser'
 
 console.info(new Animal(Kind.Cat, 'Tom'))
@@ -17,3 +19,13 @@ const value = await tsfnReturnPromise((err, value) => {
 })
 
 console.info(value)
+
+__fs.writeFileSync('/test.txt', 'Hello, World!')
+
+asyncTaskReadFile('/test.txt')
+  .then((res) => {
+    console.log(`readFileAsync: ${res}`)
+  })
+  .catch((err) => {
+    console.error(err)
+  })
