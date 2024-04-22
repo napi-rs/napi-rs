@@ -53,7 +53,7 @@ const encodeValue = (memfs, value, type) => {
 
       const json = JSON.stringify(value, (_, value) => {
         if (typeof value === 'bigint') {
-          return Number(value)
+          return `BigInt(${String(value)})`
         }
         return value
       })
@@ -168,7 +168,15 @@ module.exports.createFsProxy = (memfs) => new Proxy({}, {
       if (type === 3) return new Float64Array(sab, 16, 1)[0]
       if (type === 4) return new TextDecoder().decode(content.slice())
       if (type === 6) {
-        const obj = JSON.parse(new TextDecoder().decode(content.slice()))
+        const obj = JSON.parse(new TextDecoder().decode(content.slice()), (_key, value) => {
+          if (typeof value === 'string') {
+            const matched = value.match(/^BigInt\((-?\d+)\)$/)
+            if (matched && matched[1]) {
+              return BigInt(matched[1])
+            }
+          }
+          return value
+        })
         if (obj.__constructor__) {
           const ctor = obj.__constructor__
           delete obj.__constructor__

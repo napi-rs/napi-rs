@@ -895,7 +895,7 @@ __metadata:
     "@rollup/plugin-json": "npm:^6.1.0"
     "@rollup/plugin-node-resolve": "npm:^15.2.3"
     "@rollup/plugin-replace": "npm:^5.0.5"
-    "@tybys/wasm-util": "npm:^0.8.2"
+    "@tybys/wasm-util": "npm:^0.8.3"
     buffer: "npm:^6.0.3"
     memfs: "npm:^4.8.2"
     node-inspect-extracted: "npm:^3.0.0"
@@ -2198,12 +2198,21 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@tybys/wasm-util@npm:^0.8.1, @tybys/wasm-util@npm:^0.8.2":
+"@tybys/wasm-util@npm:^0.8.1":
   version: 0.8.2
   resolution: "@tybys/wasm-util@npm:0.8.2"
   dependencies:
     tslib: "npm:^2.4.0"
   checksum: 10c0/3d2c1afa8623625311655b19c28ba6efa30070b86c9e7ad7d7e68295b2bc855f34a383ef39e4be3ee159db70ce28d28343df7885072e831416f16962229ce758
+  languageName: node
+  linkType: hard
+
+"@tybys/wasm-util@npm:^0.8.3":
+  version: 0.8.3
+  resolution: "@tybys/wasm-util@npm:0.8.3"
+  dependencies:
+    tslib: "npm:^2.4.0"
+  checksum: 10c0/62ec238710453713a207a2cbcfa74ae5bebc5cd4d718dc34370a7fd5263e8213fe7e24436ec6544105331006f6d0806115956bed030672268dad4a3c123e0f2d
   languageName: node
   linkType: hard
 
