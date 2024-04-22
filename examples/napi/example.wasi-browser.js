@@ -2,6 +2,7 @@ import {
   instantiateNapiModuleSync as __emnapiInstantiateNapiModuleSync,
   getDefaultContext as __emnapiGetDefaultContext,
   WASI as __WASI,
+  createOnMessage as __wasmCreateOnMessageForFsProxy,
 } from '@napi-rs/wasm-runtime'
 import { memfs } from '@napi-rs/wasm-runtime/fs'
 import __wasmUrl from './example.wasm32-wasi.wasm?url'
@@ -35,9 +36,13 @@ const {
   asyncWorkPoolSize: 4,
   wasi: __wasi,
   onCreateWorker() {
-    return new Worker(new URL('./wasi-worker-browser.mjs', import.meta.url), {
+    const worker = new Worker(new URL('./wasi-worker-browser.mjs', import.meta.url), {
       type: 'module',
     })
+    
+    worker.addEventListener('message', __wasmCreateOnMessageForFsProxy(__fs))
+
+    return worker
   },
   overwriteImports(importObject) {
     importObject.env = {
@@ -292,45 +297,47 @@ function __napi_rs_initialize_modules(__napiInstance) {
   __napiInstance.exports['__napi_register__async_task_void_return_296']?.()
   __napiInstance.exports['__napi_register__AsyncTaskOptionalReturn_impl_297']?.()
   __napiInstance.exports['__napi_register__async_task_optional_return_298']?.()
-  __napiInstance.exports['__napi_register__call_threadsafe_function_299']?.()
-  __napiInstance.exports['__napi_register__call_long_threadsafe_function_300']?.()
-  __napiInstance.exports['__napi_register__threadsafe_function_throw_error_301']?.()
-  __napiInstance.exports['__napi_register__threadsafe_function_fatal_mode_302']?.()
-  __napiInstance.exports['__napi_register__threadsafe_function_fatal_mode_error_303']?.()
-  __napiInstance.exports['__napi_register__threadsafe_function_closure_capture_304']?.()
-  __napiInstance.exports['__napi_register__tsfn_call_with_callback_305']?.()
-  __napiInstance.exports['__napi_register__tsfn_async_call_306']?.()
-  __napiInstance.exports['__napi_register__accept_threadsafe_function_307']?.()
-  __napiInstance.exports['__napi_register__accept_threadsafe_function_fatal_308']?.()
-  __napiInstance.exports['__napi_register__accept_threadsafe_function_tuple_args_309']?.()
-  __napiInstance.exports['__napi_register__tsfn_return_promise_310']?.()
-  __napiInstance.exports['__napi_register__tsfn_return_promise_timeout_311']?.()
-  __napiInstance.exports['__napi_register__tsfn_throw_from_js_312']?.()
-  __napiInstance.exports['__napi_register__get_buffer_313']?.()
-  __napiInstance.exports['__napi_register__append_buffer_314']?.()
-  __napiInstance.exports['__napi_register__get_empty_buffer_315']?.()
-  __napiInstance.exports['__napi_register__convert_u32_array_316']?.()
-  __napiInstance.exports['__napi_register__create_external_typed_array_317']?.()
-  __napiInstance.exports['__napi_register__mutate_typed_array_318']?.()
-  __napiInstance.exports['__napi_register__deref_uint8_array_319']?.()
-  __napiInstance.exports['__napi_register__buffer_pass_through_320']?.()
-  __napiInstance.exports['__napi_register__array_buffer_pass_through_321']?.()
-  __napiInstance.exports['__napi_register__accept_slice_322']?.()
-  __napiInstance.exports['__napi_register__u8_array_to_array_323']?.()
-  __napiInstance.exports['__napi_register__i8_array_to_array_324']?.()
-  __napiInstance.exports['__napi_register__u16_array_to_array_325']?.()
-  __napiInstance.exports['__napi_register__i16_array_to_array_326']?.()
-  __napiInstance.exports['__napi_register__u32_array_to_array_327']?.()
-  __napiInstance.exports['__napi_register__i32_array_to_array_328']?.()
-  __napiInstance.exports['__napi_register__f32_array_to_array_329']?.()
-  __napiInstance.exports['__napi_register__f64_array_to_array_330']?.()
-  __napiInstance.exports['__napi_register__u64_array_to_array_331']?.()
-  __napiInstance.exports['__napi_register__i64_array_to_array_332']?.()
-  __napiInstance.exports['__napi_register__accept_uint8_clamped_slice_333']?.()
-  __napiInstance.exports['__napi_register__accept_uint8_clamped_slice_and_buffer_slice_334']?.()
-  __napiInstance.exports['__napi_register__AsyncBuffer_impl_335']?.()
-  __napiInstance.exports['__napi_register__async_reduce_buffer_336']?.()
-  __napiInstance.exports['__napi_register__async_buffer_to_array_337']?.()
+  __napiInstance.exports['__napi_register__AsyncTaskReadFile_impl_299']?.()
+  __napiInstance.exports['__napi_register__async_task_read_file_300']?.()
+  __napiInstance.exports['__napi_register__call_threadsafe_function_301']?.()
+  __napiInstance.exports['__napi_register__call_long_threadsafe_function_302']?.()
+  __napiInstance.exports['__napi_register__threadsafe_function_throw_error_303']?.()
+  __napiInstance.exports['__napi_register__threadsafe_function_fatal_mode_304']?.()
+  __napiInstance.exports['__napi_register__threadsafe_function_fatal_mode_error_305']?.()
+  __napiInstance.exports['__napi_register__threadsafe_function_closure_capture_306']?.()
+  __napiInstance.exports['__napi_register__tsfn_call_with_callback_307']?.()
+  __napiInstance.exports['__napi_register__tsfn_async_call_308']?.()
+  __napiInstance.exports['__napi_register__accept_threadsafe_function_309']?.()
+  __napiInstance.exports['__napi_register__accept_threadsafe_function_fatal_310']?.()
+  __napiInstance.exports['__napi_register__accept_threadsafe_function_tuple_args_311']?.()
+  __napiInstance.exports['__napi_register__tsfn_return_promise_312']?.()
+  __napiInstance.exports['__napi_register__tsfn_return_promise_timeout_313']?.()
+  __napiInstance.exports['__napi_register__tsfn_throw_from_js_314']?.()
+  __napiInstance.exports['__napi_register__get_buffer_315']?.()
+  __napiInstance.exports['__napi_register__append_buffer_316']?.()
+  __napiInstance.exports['__napi_register__get_empty_buffer_317']?.()
+  __napiInstance.exports['__napi_register__convert_u32_array_318']?.()
+  __napiInstance.exports['__napi_register__create_external_typed_array_319']?.()
+  __napiInstance.exports['__napi_register__mutate_typed_array_320']?.()
+  __napiInstance.exports['__napi_register__deref_uint8_array_321']?.()
+  __napiInstance.exports['__napi_register__buffer_pass_through_322']?.()
+  __napiInstance.exports['__napi_register__array_buffer_pass_through_323']?.()
+  __napiInstance.exports['__napi_register__accept_slice_324']?.()
+  __napiInstance.exports['__napi_register__u8_array_to_array_325']?.()
+  __napiInstance.exports['__napi_register__i8_array_to_array_326']?.()
+  __napiInstance.exports['__napi_register__u16_array_to_array_327']?.()
+  __napiInstance.exports['__napi_register__i16_array_to_array_328']?.()
+  __napiInstance.exports['__napi_register__u32_array_to_array_329']?.()
+  __napiInstance.exports['__napi_register__i32_array_to_array_330']?.()
+  __napiInstance.exports['__napi_register__f32_array_to_array_331']?.()
+  __napiInstance.exports['__napi_register__f64_array_to_array_332']?.()
+  __napiInstance.exports['__napi_register__u64_array_to_array_333']?.()
+  __napiInstance.exports['__napi_register__i64_array_to_array_334']?.()
+  __napiInstance.exports['__napi_register__accept_uint8_clamped_slice_335']?.()
+  __napiInstance.exports['__napi_register__accept_uint8_clamped_slice_and_buffer_slice_336']?.()
+  __napiInstance.exports['__napi_register__AsyncBuffer_impl_337']?.()
+  __napiInstance.exports['__napi_register__async_reduce_buffer_338']?.()
+  __napiInstance.exports['__napi_register__async_buffer_to_array_339']?.()
 }
 export const Animal = __napiModule.exports.Animal
 export const AnimalWithDefaultConstructor = __napiModule.exports.AnimalWithDefaultConstructor
@@ -389,6 +396,7 @@ export const asyncMultiTwo = __napiModule.exports.asyncMultiTwo
 export const asyncPlus100 = __napiModule.exports.asyncPlus100
 export const asyncReduceBuffer = __napiModule.exports.asyncReduceBuffer
 export const asyncTaskOptionalReturn = __napiModule.exports.asyncTaskOptionalReturn
+export const asyncTaskReadFile = __napiModule.exports.asyncTaskReadFile
 export const asyncTaskVoidReturn = __napiModule.exports.asyncTaskVoidReturn
 export const bigintAdd = __napiModule.exports.bigintAdd
 export const bigintFromI128 = __napiModule.exports.bigintFromI128

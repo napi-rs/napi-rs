@@ -285,6 +285,8 @@ export function asyncReduceBuffer(buf: Buffer): Promise<number>
 
 export function asyncTaskOptionalReturn(): Promise<number | null>
 
+export function asyncTaskReadFile(path: string): Promise<Buffer>
+
 export function asyncTaskVoidReturn(): Promise<void>
 
 export interface B {

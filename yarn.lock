@@ -120,16 +120,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@emnapi/core@npm:1.1.0":
-  version: 1.1.0
-  resolution: "@emnapi/core@npm:1.1.0"
-  dependencies:
-    tslib: "npm:^2.4.0"
-  checksum: 10c0/4ce4d214c863ba63eb93532c018b5d8fcf3c39a0a78e29aca76046f06584c0696dabaeb8922a31d876ed20d6b9a34615bbbb0cc1585707ea70972d4e431d546d
-  languageName: node
-  linkType: hard
-
-"@emnapi/core@npm:^1.1.0":
+"@emnapi/core@npm:^1.1.0, @emnapi/core@npm:^1.1.1":
   version: 1.1.1
   resolution: "@emnapi/core@npm:1.1.1"
   dependencies:
@@ -322,7 +313,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@examples/napi@workspace:examples/napi"
   dependencies:
-    "@emnapi/core": "npm:1.1.0"
+    "@emnapi/core": "npm:^1.1.1"
     "@napi-rs/cli": "workspace:*"
     "@napi-rs/triples": "workspace:*"
     "@napi-rs/wasm-runtime": "workspace:*"
