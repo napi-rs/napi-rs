@@ -29,7 +29,7 @@
     "@rollup/plugin-node-resolve": "^15.2.3",
     "@rollup/plugin-replace": "^5.0.5",
     "buffer": "^6.0.3",
-    "memfs": "^4.6.0",
+    "memfs": "^4.8.2",
     "node-inspect-extracted": "^3.0.0",
     "path-browserify": "^1.0.1",
     "process": "^0.11.10",

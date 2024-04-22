@@ -906,7 +906,7 @@ __metadata:
     "@rollup/plugin-replace": "npm:^5.0.5"
     "@tybys/wasm-util": "npm:^0.8.2"
     buffer: "npm:^6.0.3"
-    memfs: "npm:^4.6.0"
+    memfs: "npm:^4.8.2"
     node-inspect-extracted: "npm:^3.0.0"
     path-browserify: "npm:^1.0.1"
     process: "npm:^0.11.10"
@@ -7689,12 +7689,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"memfs@npm:^4.6.0":
-  version: 4.8.1
-  resolution: "memfs@npm:4.8.1"
+"memfs@npm:^4.8.2":
+  version: 4.8.2
+  resolution: "memfs@npm:4.8.2"
   dependencies:
     tslib: "npm:^2.0.0"
-  checksum: 10c0/08d24ef25bf158b6e59b20ca4d414a161018c5c34a54b725bd6df0a9a196d67155ea8f990915d3869ef8ebb0acb5d1eeda78d4ff5a87e435cdbe3a353d8c97e5
+  checksum: 10c0/8880e7ebfb3aa26abe42b245dd87ba1d20de96713fdcc4d71dcc1dc4cddeba45e1f3f5da5571c2db179c657a09e38e0003f45eead3aa3e669a237559a0e70000
   languageName: node
   linkType: hard
 

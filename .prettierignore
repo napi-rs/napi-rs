@@ -6,4 +6,5 @@ examples/napi/index.d.ts
 .yarn
 yarn.lock
 examples/napi/wasi-worker.mjs
-examples/napi/index.wasi.mjs
+examples/napi/example.wasi.cjs
+examples/napi/example.wasi-browser.js
