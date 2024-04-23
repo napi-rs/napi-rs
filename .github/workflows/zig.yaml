@@ -23,7 +23,7 @@ jobs:
       matrix:
         target:
           [
-            'x86_64-apple-darwin',
+            'aarch64-apple-darwin',
             'x86_64-unknown-linux-musl',
             'aarch64-unknown-linux-musl',
             'armv7-unknown-linux-musleabihf',
@@ -89,8 +89,8 @@ jobs:
         settings:
           - host: ubuntu-latest
             target: x86_64-unknown-linux-musl
-          - host: macos-latest
-            target: x86_64-apple-darwin
+          - host: macos-14
+            target: aarch64-apple-darwin
           - host: ubuntu-latest
             target: aarch64-unknown-linux-musl
             docker-platform: arm64
