@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.54](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.53...@napi-rs/cli@3.0.0-alpha.54) (2024-04-23)
+
+### Bug Fixes
+
+- **cli:** non-fs polyfilled browser worker binding ([#2067](https://github.com/napi-rs/napi-rs/issues/2067)) ([3e44ae3](https://github.com/napi-rs/napi-rs/commit/3e44ae3c160f28f4c1087c80da712c7a86608693))
+
 # [3.0.0-alpha.52](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.51...@napi-rs/cli@3.0.0-alpha.52) (2024-04-22)
 
 ### Bug Fixes
