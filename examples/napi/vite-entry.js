@@ -1,3 +1,5 @@
+import { Buffer } from 'buffer'
+
 import {
   Animal,
   Kind,
@@ -6,6 +8,8 @@ import {
   __fs,
   asyncTaskReadFile,
 } from './example.wasi-browser'
+
+global.Buffer = Buffer
 
 console.info(new Animal(Kind.Cat, 'Tom'))
 asyncMultiTwo(200).then((res) => {
