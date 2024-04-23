@@ -1,17 +1,19 @@
+import { Buffer } from 'buffer'
+
 import { describe, it, expect } from 'vitest'
+
+global.Buffer = Buffer
 
 // @ts-expect-error
 const {
   // @ts-expect-error
   __fs,
-  // @ts-expect-error
-  __volume,
   DEFAULT_COST,
   Bird,
   GetterSetterWithClosures,
   tsfnReturnPromise,
   tsfnReturnPromiseTimeout,
-  readFileAsync,
+  asyncTaskReadFile,
 }: typeof import('../index.cjs') = await import('../example.wasi-browser')
 
 describe('NAPI-RS wasi browser test', function () {
@@ -59,9 +61,9 @@ describe('NAPI-RS wasi browser test', function () {
     await new Promise((resolve) => setTimeout(resolve, 400))
   })
 
-  it.skip('readFileAsync', async () => {
-    __volume.writeFileSync('/test.txt', 'hello world')
-    const value = await readFileAsync('/test.txt')
-    expect(value).toBe('hello world')
+  it('readFileAsync', async () => {
+    __fs.writeFileSync('/test.txt', 'hello world')
+    const value = await asyncTaskReadFile('/test.txt')
+    expect(value.toString('utf8')).toBe('hello world')
   })
 })

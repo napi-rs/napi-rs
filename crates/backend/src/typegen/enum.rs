@@ -10,7 +10,11 @@ impl ToTypeDef for NapiEnum {
     add_alias(self.name.to_string(), self.js_name.to_string());
 
     Some(TypeDef {
-      kind: "enum".to_owned(),
+      kind: if self.is_string_enum {
+        "string_enum".to_owned()
+      } else {
+        "enum".to_owned()
+      },
       name: self.js_name.to_owned(),
       original_name: Some(self.name.to_string()),
       def: self.gen_ts_variants(),

@@ -42,8 +42,12 @@ export async function universalizeBinaries(userOptions: UniversalizeOptions) {
     )
   }
 
-  const srcFiles = UniArchsByPlatform[process.platform]?.map(
-    (arch) => resolve(options.cwd, options.outputDir, `${config.binaryName}.${process.platform}-${arch}.node`),
+  const srcFiles = UniArchsByPlatform[process.platform]?.map((arch) =>
+    resolve(
+      options.cwd,
+      options.outputDir,
+      `${config.binaryName}.${process.platform}-${arch}.node`,
+    ),
   )
 
   if (!srcFiles || !universalizers[process.platform]) {
@@ -55,9 +59,7 @@ export async function universalizeBinaries(userOptions: UniversalizeOptions) {
   debug(`Looking up source binaries to combine: `)
   debug('  %O', srcFiles)
 
-  const srcFileLookup = await Promise.all(
-    srcFiles.map((f) => fileExists(f)),
-  )
+  const srcFileLookup = await Promise.all(srcFiles.map((f) => fileExists(f)))
 
   const notFoundFiles = srcFiles.filter((_, i) => !srcFileLookup[i])
 

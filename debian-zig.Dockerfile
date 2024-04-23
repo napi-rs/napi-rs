@@ -1,6 +1,6 @@
 FROM ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian
 
-ARG ZIG_VERSION=0.11.0
+ARG ZIG_VERSION=0.12.0
 
 RUN wget https://ziglang.org/download/${ZIG_VERSION}/zig-linux-x86_64-${ZIG_VERSION}.tar.xz && \
   tar -xvf zig-linux-x86_64-${ZIG_VERSION}.tar.xz && \

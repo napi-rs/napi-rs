@@ -432,13 +432,11 @@ jobs:
             args: '--platform linux/ppc64le'
             arch: 'ppc64'
             libc: 'gnu'
-            without-lerna: true
           - image: 'node:{:version}-slim'
             target: s390x-unknown-linux-gnu
             args: '--platform linux/s390x'
             arch: 's390x'
             libc: 'gnu'
-            without-lerna: true
           - image: 'node:{:version}-alpine'
             target: x86_64-unknown-linux-musl
             args: ''
@@ -488,8 +486,7 @@ jobs:
         with:
           image: ${{ steps.image-name.outputs.docker-image }}
           options: ${{ matrix.settings.args }} -v ${{ github.workspace }}/cores:/cores -v ${{ github.workspace }}:/build -w /build
-          run: >-
-            ${{ matrix.settings.without-lerna && 'yarn test:without-lerna' || 'yarn test' }}
+          run: yarn test
       - name: List files
         run: |
           ls -la .

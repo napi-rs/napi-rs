@@ -136,6 +136,7 @@ pub struct NapiEnum {
   pub comments: Vec<String>,
   pub skip_typescript: bool,
   pub register_name: Ident,
+  pub is_string_enum: bool,
 }
 
 #[derive(Debug, Clone)]

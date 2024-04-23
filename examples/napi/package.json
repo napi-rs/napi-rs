@@ -29,13 +29,14 @@
     "@vitest/browser": "^1.2.2",
     "@vitest/ui": "^1.2.2",
     "ava": "^6.1.1",
+    "buffer": "^6.0.3",
     "cross-env": "7.0.3",
     "electron": "^30.0.0",
     "lodash": "^4.17.21",
     "rxjs": "^7.8.1",
     "sinon": "^17.0.1",
     "vite": "^5.0.12",
-    "vite-plugin-node-polyfills": "^0.19.0",
+    "vite-plugin-node-polyfills": "^0.21.0",
     "vitest": "^1.2.2",
     "webdriverio": "^8.29.3"
   },
@@ -52,6 +53,6 @@
     "timeout": "10m"
   },
   "dependencies": {
-    "@emnapi/core": "1.1.0"
+    "@emnapi/core": "^1.1.1"
   }
 }
