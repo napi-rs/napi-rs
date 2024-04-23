@@ -149,7 +149,7 @@ jobs:
           options: --platform linux/${{ matrix.settings.docker-platform }} -v ${{ github.workspace }}:/build -w /build
           run: |
             set -e
-            yarn test:without-lerna
+            yarn test
       - name: Test
         uses: addnab/docker-run-action@v3
         if: matrix.settings.target == 'x86_64-unknown-linux-musl'
