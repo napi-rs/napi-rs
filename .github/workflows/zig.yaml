@@ -23,7 +23,7 @@ jobs:
       matrix:
         target:
           [
-            'x86_64-apple-darwin',
+            'aarch64-apple-darwin',
             'x86_64-unknown-linux-musl',
             'aarch64-unknown-linux-musl',
             'armv7-unknown-linux-musleabihf',
@@ -53,7 +53,7 @@ jobs:
       - name: Install ziglang
         uses: goto-bus-stop/setup-zig@v2
         with:
-          version: 0.11.0
+          version: 0.12.0
       - name: Install dependencies
         run: yarn install --immutable --mode=skip-build
       - name: install MacOS SDK
@@ -89,8 +89,8 @@ jobs:
         settings:
           - host: ubuntu-latest
             target: x86_64-unknown-linux-musl
-          - host: macos-latest
-            target: x86_64-apple-darwin
+          - host: macos-14
+            target: aarch64-apple-darwin
           - host: ubuntu-latest
             target: aarch64-unknown-linux-musl
             docker-platform: arm64
@@ -128,7 +128,7 @@ jobs:
         run: yarn test --verbose
         env:
           SKIP_UNWIND_TEST: 1
-        if: matrix.settings.host == 'macos-latest'
+        if: matrix.settings.host == 'macos-14'
       - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
         if: matrix.settings.host == 'ubuntu-latest'
       - name: Test
@@ -149,7 +149,7 @@ jobs:
           options: --platform linux/${{ matrix.settings.docker-platform }} -v ${{ github.workspace }}:/build -w /build
           run: |
             set -e
-            yarn test:without-lerna
+            yarn test
       - name: Test
         uses: addnab/docker-run-action@v3
         if: matrix.settings.target == 'x86_64-unknown-linux-musl'

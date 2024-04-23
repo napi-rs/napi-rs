@@ -136,7 +136,7 @@ jobs:
       - uses: goto-bus-stop/setup-zig@v2
         if: \${{ contains(matrix.settings.target, 'musl') }}
         with:
-          version: 0.11.0
+          version: 0.12.0
 
       - name: Setup toolchain
         run: \${{ matrix.settings.setup }}

@@ -418,6 +418,7 @@ module.exports.asyncMultiTwo = nativeBinding.asyncMultiTwo
 module.exports.asyncPlus100 = nativeBinding.asyncPlus100
 module.exports.asyncReduceBuffer = nativeBinding.asyncReduceBuffer
 module.exports.asyncTaskOptionalReturn = nativeBinding.asyncTaskOptionalReturn
+module.exports.asyncTaskReadFile = nativeBinding.asyncTaskReadFile
 module.exports.asyncTaskVoidReturn = nativeBinding.asyncTaskVoidReturn
 module.exports.bigintAdd = nativeBinding.bigintAdd
 module.exports.bigintFromI128 = nativeBinding.bigintFromI128

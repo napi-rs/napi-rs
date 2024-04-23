@@ -56,6 +56,7 @@ export default defineConfig([
         __webpack_public_path__: undefined,
         preventAssignment: false,
       }),
+      commonjs(),
       nodeResolve({
         preferBuiltins: false,
         mainFields: ['browser', 'module', 'main'],
