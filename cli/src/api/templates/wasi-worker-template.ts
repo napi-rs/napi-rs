@@ -65,16 +65,13 @@ globalThis.onmessage = function (e) {
 
 export const createWasiBrowserWorkerBinding = (fs: boolean) => {
   const fsImport = fs
-    ? `import { memfsExported as __memfsExported } from '@napi-rs/wasm-runtime/fs'
+    ? `import { instantiateNapiModuleSync, MessageHandler, WASI, createFsProxy } from '@napi-rs/wasm-runtime'
+import { memfsExported as __memfsExported } from '@napi-rs/wasm-runtime/fs'
 
 const fs = createFsProxy(__memfsExported)`
-    : '\nconst fs = null'
-  return `import { instantiateNapiModuleSync, MessageHandler, WASI, createFsProxy } from '@napi-rs/wasm-runtime'
-${fsImport}
-
-const handler = new MessageHandler({
-  onLoad({ wasmModule, wasmMemory }) {
-    const wasi = new WASI({
+    : `import { instantiateNapiModuleSync, MessageHandler, WASI } from '@napi-rs/wasm-runtime'`
+  const wasiCreation = fs
+    ? `const wasi = new WASI({
       fs,
       preopens: {
         '/': '/',
@@ -87,7 +84,22 @@ const handler = new MessageHandler({
         // eslint-disable-next-line no-console
         console.error.apply(console, arguments)
       },
-    })
+    })`
+    : `const wasi = new WASI({
+      print: function () {
+        // eslint-disable-next-line no-console
+        console.log.apply(console, arguments)
+      },
+      printErr: function() {
+        // eslint-disable-next-line no-console
+        console.error.apply(console, arguments)
+      },
+    })`
+  return `${fsImport}
+
+const handler = new MessageHandler({
+  onLoad({ wasmModule, wasmMemory }) {
+    ${wasiCreation}
     return instantiateNapiModuleSync(wasmModule, {
       childThread: true,
       wasi,
