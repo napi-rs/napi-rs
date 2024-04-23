@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.2.3](https://github.com/napi-rs/napi-rs/compare/@napi-rs/wasm-runtime@0.2.2...@napi-rs/wasm-runtime@0.2.3) (2024-04-23)
+
+### Bug Fixes
+
+- **wasm-runtime:** missing fs-proxy.cjs ([521bc12](https://github.com/napi-rs/napi-rs/commit/521bc12e43aa718a66fdab3c9b8045a118e073d5))
+
 ## [0.2.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/wasm-runtime@0.2.0...@napi-rs/wasm-runtime@0.2.1) (2024-04-22)
 
 ### Bug Fixes
