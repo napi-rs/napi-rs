@@ -465,3 +465,6 @@ pub struct WithGenerics<T: 'static> {
   kind: T
 }
 
+
+#[napi]
+pub struct WithGenericsTuples<T: 'static> (T);
