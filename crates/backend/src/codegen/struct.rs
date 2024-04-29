@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use proc_macro2::{Ident, Literal, Span, TokenStream};
 use quote::ToTokens;
+use syn::Generics;
 
 use crate::{
   codegen::{get_intermediate_ident, js_mod_to_token_stream},
@@ -25,9 +26,20 @@ const TYPED_ARRAY_TYPE: &[&str] = &[
 ];
 
 // Generate trait implementations for given Struct.
-fn gen_napi_value_map_impl(name: &Ident, to_napi_val_impl: TokenStream) -> TokenStream {
+fn gen_napi_value_map_impl(name: &Ident, generics: &Generics, to_napi_val_impl: TokenStream) -> TokenStream {
   let name_str = name.to_string();
+  let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+  let generics_name = if generics.params.empty_or_trailing() {
+    quote! {
+      #name
+    }
+  } else {
+    quote! {
+      #name #ty_generics
+    }
+  };
   let js_name_str = format!("{}\0", name_str);
+
   let validate = quote! {
     unsafe fn validate(env: napi::sys::napi_env, napi_val: napi::sys::napi_value) -> napi::Result<napi::sys::napi_value> {
       if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name_str) {
@@ -60,7 +72,7 @@ fn gen_napi_value_map_impl(name: &Ident, to_napi_val_impl: TokenStream) -> Token
     }
   };
   quote! {
-    impl napi::bindgen_prelude::TypeName for #name {
+    impl #impl_generics napi::bindgen_prelude::TypeName for #name #ty_generics #where_clause {
       fn type_name() -> &'static str {
         #name_str
       }
@@ -70,7 +82,7 @@ fn gen_napi_value_map_impl(name: &Ident, to_napi_val_impl: TokenStream) -> Token
       }
     }
 
-    impl napi::bindgen_prelude::TypeName for &#name {
+    impl #impl_generics napi::bindgen_prelude::TypeName for &#name #ty_generics #where_clause {
       fn type_name() -> &'static str {
         #name_str
       }
@@ -80,7 +92,7 @@ fn gen_napi_value_map_impl(name: &Ident, to_napi_val_impl: TokenStream) -> Token
       }
     }
 
-    impl napi::bindgen_prelude::TypeName for &mut #name {
+    impl #impl_generics napi::bindgen_prelude::TypeName for &mut #name #ty_generics #where_clause {
       fn type_name() -> &'static str {
         #name_str
       }
@@ -92,7 +104,7 @@ fn gen_napi_value_map_impl(name: &Ident, to_napi_val_impl: TokenStream) -> Token
 
     #to_napi_val_impl
 
-    impl napi::bindgen_prelude::FromNapiRef for #name {
+    impl #impl_generics napi::bindgen_prelude::FromNapiRef for #name #ty_generics #where_clause {
       unsafe fn from_napi_ref(
         env: napi::bindgen_prelude::sys::napi_env,
         napi_val: napi::bindgen_prelude::sys::napi_value
@@ -105,11 +117,11 @@ fn gen_napi_value_map_impl(name: &Ident, to_napi_val_impl: TokenStream) -> Token
           #name_str,
         )?;
 
-        Ok(&*(wrapped_val as *const #name))
+        Ok(&*(wrapped_val as *const #generics_name))
       }
     }
 
-    impl napi::bindgen_prelude::FromNapiMutRef for #name {
+    impl #impl_generics napi::bindgen_prelude::FromNapiMutRef for #name #ty_generics #where_clause {
       unsafe fn from_napi_mut_ref(
         env: napi::bindgen_prelude::sys::napi_env,
         napi_val: napi::bindgen_prelude::sys::napi_value
@@ -122,11 +134,11 @@ fn gen_napi_value_map_impl(name: &Ident, to_napi_val_impl: TokenStream) -> Token
           #name_str,
         )?;
 
-        Ok(&mut *(wrapped_val as *mut #name))
+        Ok(&mut *(wrapped_val as *mut #generics_name))
       }
     }
 
-    impl napi::bindgen_prelude::FromNapiValue for &#name {
+    impl #impl_generics napi::bindgen_prelude::FromNapiValue for &#name #ty_generics #where_clause {
       unsafe fn from_napi_value(
         env: napi::bindgen_prelude::sys::napi_env,
         napi_val: napi::bindgen_prelude::sys::napi_value
@@ -135,7 +147,7 @@ fn gen_napi_value_map_impl(name: &Ident, to_napi_val_impl: TokenStream) -> Token
       }
     }
 
-    impl napi::bindgen_prelude::FromNapiValue for &mut #name {
+    impl #impl_generics napi::bindgen_prelude::FromNapiValue for &mut #name #ty_generics #where_clause {
       unsafe fn from_napi_value(
         env: napi::bindgen_prelude::sys::napi_env,
         napi_val: napi::bindgen_prelude::sys::napi_value
@@ -144,11 +156,11 @@ fn gen_napi_value_map_impl(name: &Ident, to_napi_val_impl: TokenStream) -> Token
       }
     }
 
-    impl napi::bindgen_prelude::ValidateNapiValue for &#name {
+    impl #impl_generics napi::bindgen_prelude::ValidateNapiValue for &#name #ty_generics #where_clause {
       #validate
     }
 
-    impl napi::bindgen_prelude::ValidateNapiValue for &mut #name {
+    impl #impl_generics napi::bindgen_prelude::ValidateNapiValue for &mut #name #ty_generics #where_clause {
       #validate
     }
   }
@@ -254,10 +266,11 @@ impl NapiStruct {
     match self.kind {
       NapiStructKind::None => gen_napi_value_map_impl(
         &self.name,
+        &self.generics,
         self.gen_to_napi_value_ctor_impl_for_non_default_constructor_struct(),
       ),
       NapiStructKind::Constructor => {
-        gen_napi_value_map_impl(&self.name, self.gen_to_napi_value_ctor_impl())
+        gen_napi_value_map_impl(&self.name, &self.generics,self.gen_to_napi_value_ctor_impl())
       }
       NapiStructKind::Object => self.gen_to_napi_value_obj_impl(),
     }
@@ -265,24 +278,44 @@ impl NapiStruct {
 
   fn gen_to_napi_value_ctor_impl_for_non_default_constructor_struct(&self) -> TokenStream {
     let name = &self.name;
+    let (impl_generics, ty_generics, where_clause) = self.generics.split_for_impl();
+    let generics_name = if self.generics.params.empty_or_trailing() {
+      quote! {
+        #name
+      }
+    } else {
+      quote! {
+        #name #ty_generics
+      }
+    };
+
+    let turbofish_name = if self.generics.params.empty_or_trailing() {
+      quote! {
+        #name
+      }
+    } else {
+      quote! {
+        #name::#ty_generics
+      }
+    };
     let js_name_raw = &self.js_name;
     let js_name_str = format!("{}\0", js_name_raw);
-    let iterator_implementation = self.gen_iterator_property(name);
+    let iterator_implementation = self.gen_iterator_property(&generics_name);
     let finalize_trait = if self.use_custom_finalize {
       quote! {}
     } else {
-      quote! { impl napi::bindgen_prelude::ObjectFinalize for #name {} }
+      quote! { impl #impl_generics napi::bindgen_prelude::ObjectFinalize for #name #ty_generics #where_clause {} }
     };
     let instance_of_impl = self.gen_instance_of_impl(name, &js_name_str);
     quote! {
-      impl napi::bindgen_prelude::ToNapiValue for #name {
+      impl #impl_generics napi::bindgen_prelude::ToNapiValue for #name #ty_generics #where_clause {
         unsafe fn to_napi_value(
           env: napi::sys::napi_env,
-          val: #name
+          val: #generics_name,
         ) -> napi::Result<napi::bindgen_prelude::sys::napi_value> {
           if let Some(ctor_ref) = napi::__private::get_class_constructor(#js_name_str) {
             let wrapped_value = Box::into_raw(Box::new(val));
-            let instance_value = #name::new_instance(env, wrapped_value.cast(), ctor_ref)?;
+            let instance_value = #turbofish_name::new_instance(env, wrapped_value.cast(), ctor_ref)?;
             #iterator_implementation
             Ok(instance_value)
           } else {
@@ -295,17 +328,17 @@ impl NapiStruct {
 
       #finalize_trait
       #instance_of_impl
-      impl #name {
-        pub fn into_reference(val: #name, env: napi::Env) -> napi::Result<napi::bindgen_prelude::Reference<#name>> {
+      impl #impl_generics #name #ty_generics #where_clause {
+        pub fn into_reference(val: #generics_name, env: napi::Env) -> napi::Result<napi::bindgen_prelude::Reference<#generics_name>> {
           if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name_str) {
             unsafe {
               let wrapped_value = Box::into_raw(Box::new(val));
-              let instance_value = #name::new_instance(env.raw(), wrapped_value.cast(), ctor_ref)?;
+              let instance_value = #turbofish_name::new_instance(env.raw(), wrapped_value.cast(), ctor_ref)?;
               {
                 let env = env.raw();
                 #iterator_implementation
               }
-              napi::bindgen_prelude::Reference::<#name>::from_value_ptr(wrapped_value.cast(), env.raw())
+              napi::bindgen_prelude::Reference::<#turbofish_name>::from_value_ptr(wrapped_value.cast(), env.raw())
             }
           } else {
             Err(napi::bindgen_prelude::Error::new(
@@ -314,13 +347,13 @@ impl NapiStruct {
           }
         }
 
-        pub fn into_instance(self, env: napi::Env) -> napi::Result<napi::bindgen_prelude::ClassInstance<#name>> {
+        pub fn into_instance(self, env: napi::Env) -> napi::Result<napi::bindgen_prelude::ClassInstance<#generics_name>> {
           if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name_str) {
             unsafe {
               let wrapped_value = Box::leak(Box::new(self));
-              let instance_value = #name::new_instance(env.raw(), wrapped_value as *mut _ as *mut std::ffi::c_void, ctor_ref)?;
+              let instance_value = #turbofish_name::new_instance(env.raw(), wrapped_value as *mut _ as *mut std::ffi::c_void, ctor_ref)?;
 
-              Ok(napi::bindgen_prelude::ClassInstance::<#name>::new(instance_value, wrapped_value))
+              Ok(napi::bindgen_prelude::ClassInstance::<#turbofish_name>::new(instance_value, wrapped_value))
             }
           } else {
             Err(napi::bindgen_prelude::Error::new(
@@ -357,26 +390,26 @@ impl NapiStruct {
               env,
               result,
               wrapped_value,
-              Some(napi::bindgen_prelude::raw_finalize_unchecked::<#name>),
+              Some(napi::bindgen_prelude::raw_finalize_unchecked::<#generics_name>),
               std::ptr::null_mut(),
               &mut object_ref,
             ),
             "Failed to wrap native object of class `{}`",
             #js_name_raw
           )?;
-          napi::bindgen_prelude::Reference::<#name>::add_ref(env, wrapped_value, (wrapped_value, object_ref, finalize_callbacks_ptr));
+          napi::bindgen_prelude::Reference::<#turbofish_name>::add_ref(env, wrapped_value, (wrapped_value, object_ref, finalize_callbacks_ptr));
           Ok(result)
         }
       }
     }
   }
 
-  fn gen_iterator_property(&self, name: &Ident) -> TokenStream {
+  fn gen_iterator_property(&self, generics_name: &TokenStream) -> TokenStream {
     if !self.implement_iterator {
       return quote! {};
     }
     quote! {
-      napi::__private::create_iterator::<#name>(env, instance_value, wrapped_value);
+      napi::__private::create_iterator::<#generics_name>(env, instance_value, wrapped_value);
     }
   }
 
@@ -808,8 +841,9 @@ impl NapiStruct {
   }
 
   fn gen_instance_of_impl(&self, name: &Ident, js_name: &str) -> TokenStream {
+    let (impl_generics, ty_generics, where_clause) = self.generics.split_for_impl();
     quote! {
-      impl #name {
+      impl #impl_generics #name #ty_generics #where_clause {
         pub fn instance_of<V: napi::NapiRaw>(env: napi::Env, value: V) -> napi::Result<bool> {
           if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name) {
             let mut ctor = std::ptr::null_mut();

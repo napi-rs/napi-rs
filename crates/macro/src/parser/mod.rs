@@ -1023,6 +1023,7 @@ impl ConvertToAST for syn::ItemStruct {
         use_custom_finalize: opts.custom_finalize().is_some(),
         register_name: get_register_ident(format!("{struct_name}_struct").as_str()),
         use_nullable,
+        generics: self.generics.clone(),
       }),
     })
   }

@@ -459,3 +459,9 @@ impl CatchOnConstructor2 {
     panic!("CatchOnConstructor2 panic");
   }
 }
+
+#[napi]
+pub struct WithGenerics<T: 'static> {
+  kind: T
+}
+
