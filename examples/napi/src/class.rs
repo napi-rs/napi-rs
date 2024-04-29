@@ -461,9 +461,7 @@ impl CatchOnConstructor2 {
 }
 
 #[napi]
-pub struct WithGenerics<T: 'static> {
-  kind: T,
-}
+pub struct WithConstGeneric<const WEAK: bool> {}
 
 #[napi]
-pub struct WithGenericsTuples<T: 'static>(T);
+pub struct WithConstGenericTuple<const WEAK: bool = false>();
