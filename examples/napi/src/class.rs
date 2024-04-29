@@ -462,9 +462,8 @@ impl CatchOnConstructor2 {
 
 #[napi]
 pub struct WithGenerics<T: 'static> {
-  kind: T
+  kind: T,
 }
 
-
 #[napi]
-pub struct WithGenericsTuples<T: 'static> (T);
+pub struct WithGenericsTuples<T: 'static>(T);

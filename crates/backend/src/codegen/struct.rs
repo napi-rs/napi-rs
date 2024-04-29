@@ -26,7 +26,11 @@ const TYPED_ARRAY_TYPE: &[&str] = &[
 ];
 
 // Generate trait implementations for given Struct.
-fn gen_napi_value_map_impl(name: &Ident, generics: &Generics, to_napi_val_impl: TokenStream) -> TokenStream {
+fn gen_napi_value_map_impl(
+  name: &Ident,
+  generics: &Generics,
+  to_napi_val_impl: TokenStream,
+) -> TokenStream {
   let name_str = name.to_string();
   let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
   let generics_name = if generics.params.empty_or_trailing() {
@@ -269,9 +273,11 @@ impl NapiStruct {
         &self.generics,
         self.gen_to_napi_value_ctor_impl_for_non_default_constructor_struct(),
       ),
-      NapiStructKind::Constructor => {
-        gen_napi_value_map_impl(&self.name, &self.generics,self.gen_to_napi_value_ctor_impl())
-      }
+      NapiStructKind::Constructor => gen_napi_value_map_impl(
+        &self.name,
+        &self.generics,
+        self.gen_to_napi_value_ctor_impl(),
+      ),
       NapiStructKind::Object => self.gen_to_napi_value_obj_impl(),
     }
   }
