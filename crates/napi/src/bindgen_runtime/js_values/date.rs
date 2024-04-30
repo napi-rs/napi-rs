@@ -1,10 +1,10 @@
 use std::{ptr, str::FromStr};
 
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, Local, LocalResult, NaiveDateTime, TimeZone};
 
 use crate::{bindgen_prelude::*, check_status, sys, ValueType};
 
-impl TypeName for DateTime<Utc> {
+impl<Tz: TimeZone> TypeName for DateTime<Tz> {
   fn type_name() -> &'static str {
     "DateTime"
   }
@@ -14,7 +14,7 @@ impl TypeName for DateTime<Utc> {
   }
 }
 
-impl ValidateNapiValue for DateTime<Utc> {
+impl<Tz: TimeZone> ValidateNapiValue for DateTime<Tz> {
   unsafe fn validate(env: sys::napi_env, napi_val: sys::napi_value) -> Result<sys::napi_value> {
     let mut is_date = false;
     check_status!(unsafe { sys::napi_is_date(env, napi_val, &mut is_date) })?;
@@ -120,39 +120,38 @@ impl FromNapiValue for NaiveDateTime {
   }
 }
 
-impl ToNapiValue for DateTime<Utc> {
-  unsafe fn to_napi_value(env: sys::napi_env, val: DateTime<Utc>) -> Result<sys::napi_value> {
+impl<Tz: TimeZone> ToNapiValue for DateTime<Tz> {
+  unsafe fn to_napi_value(env: sys::napi_env, val: DateTime<Tz>) -> Result<sys::napi_value> {
     let mut ptr = std::ptr::null_mut();
     let millis_since_epoch_utc = val.timestamp_millis() as f64;
 
     check_status!(
       unsafe { sys::napi_create_date(env, millis_since_epoch_utc, &mut ptr) },
-      "Failed to convert rust type `DateTime<Utc>` into napi value",
+      "Failed to convert rust type `DateTime` into napi value",
     )?;
 
     Ok(ptr)
   }
 }
 
-impl FromNapiValue for DateTime<Utc> {
+impl<Tz: TimeZone> FromNapiValue for DateTime<Tz>
+where
+  DateTime<Tz>: From<DateTime<Local>>,
+{
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
     let mut milliseconds_since_epoch_utc = 0.0;
 
     check_status!(
       unsafe { sys::napi_get_date_value(env, napi_val, &mut milliseconds_since_epoch_utc) },
-      "Failed to convert napi value into rust type `DateTime<Utc>`",
+      "Failed to convert napi value into rust type `DateTime`",
     )?;
 
-    let milliseconds_since_epoch_utc = milliseconds_since_epoch_utc as i64;
-    let timestamp_seconds = milliseconds_since_epoch_utc / 1_000;
-    let naive = DateTime::from_timestamp(
-      timestamp_seconds,
-      (milliseconds_since_epoch_utc % 1_000 * 1_000_000) as u32,
-    )
-    .ok_or_else(|| Error::new(Status::DateExpected, "Found invalid date".to_owned()))?;
-    Ok(DateTime::<Utc>::from_naive_utc_and_offset(
-      naive.naive_utc(),
-      Utc,
-    ))
+    match Local.timestamp_millis_opt(milliseconds_since_epoch_utc as i64) {
+      LocalResult::Single(dt) => Ok(dt.into()),
+      _ => Err(Error::new(
+        Status::DateExpected,
+        "Found invalid date".to_owned(),
+      )),
+    }
   }
 }

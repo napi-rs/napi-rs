@@ -126,7 +126,11 @@ import {
   createObjWithProperty,
   receiveObjectOnlyFromJs,
   dateToNumber,
-  chronoDateToMillis,
+  chronoUtcDateToMillis,
+  chronoLocalDateToMillis,
+  chronoDateWithTimezoneToMillis,
+  chronoDateFixtureReturn1,
+  chronoDateFixtureReturn2,
   derefUint8Array,
   chronoDateAdd1Minute,
   bufferPassThrough,
@@ -1235,11 +1239,20 @@ Napi5Test('Date test', (t) => {
 
 Napi5Test('Date to chrono test', (t) => {
   const fixture = new Date('2022-02-09T19:31:55.396Z')
-  t.is(chronoDateToMillis(fixture), fixture.getTime())
+  t.is(chronoUtcDateToMillis(fixture), fixture.getTime())
+  t.is(chronoLocalDateToMillis(fixture), fixture.getTime())
+  t.is(chronoDateWithTimezoneToMillis(fixture), fixture.getTime())
   t.deepEqual(
     chronoDateAdd1Minute(fixture),
     new Date(fixture.getTime() + 60 * 1000),
   )
+})
+
+Napi5Test('Get date', (t) => {
+  const fixture1 = new Date('2024-02-07T18:28:18-0800')
+  t.deepEqual(chronoDateFixtureReturn1(), fixture1)
+  const fixture2 = new Date('2024-02-07T18:28:18+0530')
+  t.deepEqual(chronoDateFixtureReturn2(), fixture2)
 })
 
 Napi5Test('Class with getter setter closures', (t) => {
