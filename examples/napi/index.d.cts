@@ -333,11 +333,25 @@ export function captureErrorInCallback(cb1: () => void, cb2: (arg0: Error) => vo
 
 export function chronoDateAdd1Minute(input: Date): Date
 
-export function chronoDateToMillis(input: Date): number
+export function chronoDateFixtureReturn1(): Date
+
+export function chronoDateFixtureReturn2(): Date
+
+export function chronoDateWithTimezoneReturn(): Date | null
+
+export function chronoDateWithTimezoneToMillis(input: Date): number
+
+export function chronoLocalDateReturn(): Date | null
+
+export function chronoLocalDateToMillis(input: Date): number
 
 export function chronoNativeDateTime(date: Date): number
 
 export function chronoNativeDateTimeReturn(): Date | null
+
+export function chronoUtcDateReturn(): Date | null
+
+export function chronoUtcDateToMillis(input: Date): number
 
 export function concatLatin1(s: string): string
 
@@ -387,7 +401,7 @@ export const enum CustomNumEnum {
 
 export function customStatusCode(): void
 
-export interface Dates {
+export interface DatesWithTimeZone {
   start: Date
   end?: Date
 }
@@ -494,6 +508,11 @@ export const enum Kind {
 }
 
 export function listObjKeys(obj: object): Array<string>
+
+export interface LocalDates {
+  start: Date
+  end?: Date
+}
 
 export function mapOption(val?: number | undefined | null): number | null
 
@@ -686,6 +705,11 @@ export interface UseNullableStruct {
   requiredStringField: string
   nullableNumberField: number | null
   nullableStringField: string | null
+}
+
+export interface UtcDates {
+  start: Date
+  end?: Date
 }
 
 export function validateArray(arr: Array<number>): number
