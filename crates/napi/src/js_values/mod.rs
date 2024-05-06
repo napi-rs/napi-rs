@@ -368,7 +368,7 @@ macro_rules! impl_object_methods {
         unsafe { <T as FromNapiValue>::from_napi_value(self.0.env, raw_value) }
       }
 
-      pub fn get_named_property_unchecked<T: FromNapiValue>(&self, name: &str) -> Result<T>
+      pub fn get_named_property_unchecked<T>(&self, name: &str) -> Result<T>
       where
         T: FromNapiValue,
       {

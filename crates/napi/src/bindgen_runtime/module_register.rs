@@ -3,8 +3,6 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::ffi::CStr;
 use std::ptr;
-#[cfg(all(feature = "napi4", not(target_family = "wasm")))]
-use std::sync::atomic::AtomicPtr;
 #[cfg(all(
   not(any(target_os = "macos", target_family = "wasm")),
   feature = "napi4",
@@ -75,8 +73,8 @@ static FIRST_MODULE_REGISTERED: AtomicBool = AtomicBool::new(false);
 static REGISTERED_CLASSES: Lazy<RegisteredClassesMap> = Lazy::new(Default::default);
 static FN_REGISTER_MAP: Lazy<FnRegisterMap> = Lazy::new(Default::default);
 #[cfg(all(feature = "napi4", not(feature = "noop"), not(target_family = "wasm")))]
-pub(crate) static CUSTOM_GC_TSFN: AtomicPtr<sys::napi_threadsafe_function__> =
-  AtomicPtr::new(ptr::null_mut());
+pub(crate) static CUSTOM_GC_TSFN: std::sync::atomic::AtomicPtr<sys::napi_threadsafe_function__> =
+  std::sync::atomic::AtomicPtr::new(ptr::null_mut());
 #[cfg(all(feature = "napi4", not(feature = "noop"), not(target_family = "wasm")))]
 pub(crate) static CUSTOM_GC_TSFN_DESTROYED: AtomicBool = AtomicBool::new(false);
 #[cfg(all(feature = "napi4", not(feature = "noop"), not(target_family = "wasm")))]

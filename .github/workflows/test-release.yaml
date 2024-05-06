@@ -552,7 +552,7 @@ jobs:
         run: cargo check -p ${{ matrix.settings.package }} -F ${{ matrix.settings.features }}
 
   test-node-wasi:
-    runs-on: macos-14
+    runs-on: macos-latest
     name: Test node wasi target
     timeout-minutes: 10
     steps:
@@ -566,7 +566,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-          targets: wasm32-wasi-preview1-threads
+          targets: wasm32-wasip1-threads
       - name: Cache cargo
         uses: actions/cache@v4
         with:
@@ -574,13 +574,13 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: stable-wasm32-wasi-preview1-threads-node@20-cargo-cache
+          key: stable-wasm32-wasip1-threads-node@20-cargo-cache
       - name: Install dependencies
         run: yarn install --immutable --mode=skip-build
       - name: Build
         run: |
           yarn build
-          yarn workspace @examples/napi build --target wasm32-wasi-preview1-threads --release
+          yarn workspace @examples/napi build --target wasm32-wasip1-threads --release
       - name: Test
         run: yarn workspace @examples/napi test -s
         env:
