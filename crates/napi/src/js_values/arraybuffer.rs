@@ -219,12 +219,18 @@ impl JsArrayBufferValue {
 
 impl AsRef<[u8]> for JsArrayBufferValue {
   fn as_ref(&self) -> &[u8] {
+    if self.data.is_null() {
+      return &[];
+    }
     unsafe { slice::from_raw_parts(self.data as *const u8, self.len) }
   }
 }
 
 impl AsMut<[u8]> for JsArrayBufferValue {
   fn as_mut(&mut self) -> &mut [u8] {
+    if self.data.is_null() {
+      return &mut [];
+    }
     unsafe { slice::from_raw_parts_mut(self.data as *mut u8, self.len) }
   }
 }
