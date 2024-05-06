@@ -283,10 +283,27 @@ macro_rules! impl_object_methods {
         #[cfg(debug_assertions)]
         let reason = self.0.reason.clone();
         let status = self.0.status.as_ref().to_string();
+        // just sure current error is pending_exception
         if status == Status::PendingException.as_ref() {
           return;
         }
-        let js_error = unsafe { self.into_value(env) };
+        // make sure current env is not exception_pending status
+        let mut is_pending_exception = false;
+        assert_eq!(
+          unsafe { $crate::sys::napi_is_exception_pending(env, &mut is_pending_exception) },
+          $crate::sys::Status::napi_ok
+        );
+        let js_error = match is_pending_exception {
+          true => {
+            let mut error_result = std::ptr::null_mut();
+            assert_eq!(
+              unsafe { $crate::sys::napi_get_and_clear_last_exception(env, &mut error_result) },
+              $crate::sys::Status::napi_ok
+            );
+            error_result
+          }
+          false => unsafe { self.into_value(env) },
+        };
         #[cfg(debug_assertions)]
         let throw_status = unsafe { sys::napi_throw(env, js_error) };
         unsafe { sys::napi_throw(env, js_error) };
