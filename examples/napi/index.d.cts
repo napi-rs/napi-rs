@@ -659,7 +659,7 @@ export function testSerdeBigNumberPrecision(number: string): any
 
 export function testSerdeRoundtrip(data: any): any
 
-export function threadsafeFunctionClosureCapture(func: (...args: any[]) => any): void
+export function threadsafeFunctionClosureCapture(func: (arg: string) => void): void
 
 export function threadsafeFunctionFatalMode(cb: (arg: boolean) => unknown): void
 
