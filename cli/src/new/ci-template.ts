@@ -33,9 +33,9 @@ jobs:
         settings:
           - host: macos-latest
             target: 'x86_64-apple-darwin'
-            build: yarn build
+            build: yarn build --target x86_64-apple-darwin
           - host: windows-latest
-            build: yarn build
+            build: yarn build --target x86_64-pc-windows-msvc
             target: 'x86_64-pc-windows-msvc'
           - host: windows-latest
             build: |
@@ -49,7 +49,7 @@ jobs:
           - host: ubuntu-latest
             target: 'x86_64-unknown-linux-musl'
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
-            build: yarn build
+            build: yarn build --target x86_64-unknown-linux-musl
           - host: macos-latest
             target: 'aarch64-apple-darwin'
             build: yarn build --target aarch64-apple-darwin
@@ -237,6 +237,7 @@ jobs:
         with:
           node-version: \${{ matrix.node }}
           cache: 'yarn'
+          architecture: x64
 
       - name: 'Install dependencies'
         run: yarn install
