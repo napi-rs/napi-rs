@@ -556,6 +556,7 @@ module.exports.sumIndexMapping = nativeBinding.sumIndexMapping
 module.exports.sumMapping = nativeBinding.sumMapping
 module.exports.sumNums = nativeBinding.sumNums
 module.exports.testSerdeBigNumberPrecision = nativeBinding.testSerdeBigNumberPrecision
+module.exports.testSerdeBufferBytes = nativeBinding.testSerdeBufferBytes
 module.exports.testSerdeRoundtrip = nativeBinding.testSerdeRoundtrip
 module.exports.threadsafeFunctionClosureCapture = nativeBinding.threadsafeFunctionClosureCapture
 module.exports.threadsafeFunctionFatalMode = nativeBinding.threadsafeFunctionFatalMode

@@ -659,6 +659,8 @@ export function sumNums(nums: Array<number>): number
 
 export function testSerdeBigNumberPrecision(number: string): any
 
+export function testSerdeBufferBytes(obj: object): bigint
+
 export function testSerdeRoundtrip(data: any): any
 
 export function threadsafeFunctionClosureCapture(func: (arg: string) => void): void

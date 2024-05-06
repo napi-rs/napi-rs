@@ -124,6 +124,7 @@ import {
   returnJsFunction,
   testSerdeRoundtrip,
   testSerdeBigNumberPrecision,
+  testSerdeBufferBytes,
   createObjWithProperty,
   receiveObjectOnlyFromJs,
   dateToNumber,
@@ -724,6 +725,14 @@ test('serde-large-number-precision', (t) => {
     testSerdeBigNumberPrecision('109775245175819965').number.toString(),
     '109775245175819965',
   )
+})
+
+test('serde-buffer-bytes', (t) => {
+  t.is(testSerdeBufferBytes({ code: new Uint8Array([1, 2, 3]) }), 3n)
+  t.is(testSerdeBufferBytes({ code: new Uint8Array(0) }), 0n)
+
+  t.is(testSerdeBufferBytes({ code: Buffer.from([1, 2, 3]) }), 3n)
+  t.is(testSerdeBufferBytes({ code: Buffer.alloc(0) }), 0n)
 })
 
 test('buffer', (t) => {
