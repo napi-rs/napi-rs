@@ -750,7 +750,9 @@ async function processIntermediateTypeFile(
     return idents
   }
 
-  const allDefs = lines.map((line) => JSON.parse(line) as TypeDef)
+  // Deduplicate lines, to account for macros being possibly evaluated more than once:
+  const uniqueLines = [...new Set(lines)]
+  const allDefs = uniqueLines.map((line) => JSON.parse(line) as TypeDef)
 
   function convertDefs(defs: TypeDef[], nested = false): string {
     const classes = new Map<
