@@ -167,9 +167,9 @@ impl<'env> Serializer for Ser<'env> {
     self.0.create_string(v).map(|string| string.0)
   }
 
-  fn serialize_some<T: ?Sized>(self, value: &T) -> Result<Self::Ok>
+  fn serialize_some<T>(self, value: &T) -> Result<Self::Ok>
   where
-    T: Serialize,
+    T: ?Sized + Serialize,
   {
     value.serialize(self)
   }
@@ -226,14 +226,14 @@ impl<'env> Serializer for Ser<'env> {
     self.0.create_string(variant).map(|string| string.0)
   }
 
-  fn serialize_newtype_struct<T: ?Sized>(self, _name: &'static str, value: &T) -> Result<Self::Ok>
+  fn serialize_newtype_struct<T>(self, _name: &'static str, value: &T) -> Result<Self::Ok>
   where
-    T: Serialize,
+    T: ?Sized + Serialize,
   {
     value.serialize(self)
   }
 
-  fn serialize_newtype_variant<T: ?Sized>(
+  fn serialize_newtype_variant<T>(
     self,
     _name: &'static str,
     _variant_index: u32,
@@ -241,7 +241,7 @@ impl<'env> Serializer for Ser<'env> {
     value: &T,
   ) -> Result<Self::Ok>
   where
-    T: Serialize,
+    T: ?Sized + Serialize,
   {
     let mut obj = self.0.create_object()?;
     obj.set_named_property(variant, JsUnknown(value.serialize(self)?))?;
@@ -304,9 +304,9 @@ impl ser::SerializeSeq for SeqSerializer {
   type Ok = Value;
   type Error = Error;
 
-  fn serialize_element<T: ?Sized>(&mut self, value: &T) -> StdResult<(), Self::Error>
+  fn serialize_element<T>(&mut self, value: &T) -> StdResult<(), Self::Error>
   where
-    T: Serialize,
+    T: ?Sized + Serialize,
   {
     let env = unsafe { Env::from_raw(self.array.0.env) };
     self.array.set_element(
@@ -327,9 +327,9 @@ impl ser::SerializeTuple for SeqSerializer {
   type Ok = Value;
   type Error = Error;
 
-  fn serialize_element<T: ?Sized>(&mut self, value: &T) -> StdResult<(), Self::Error>
+  fn serialize_element<T>(&mut self, value: &T) -> StdResult<(), Self::Error>
   where
-    T: Serialize,
+    T: ?Sized + Serialize,
   {
     let env = unsafe { Env::from_raw(self.array.0.env) };
     self.array.set_element(
@@ -350,9 +350,9 @@ impl ser::SerializeTupleStruct for SeqSerializer {
   type Ok = Value;
   type Error = Error;
 
-  fn serialize_field<T: ?Sized>(&mut self, value: &T) -> StdResult<(), Self::Error>
+  fn serialize_field<T>(&mut self, value: &T) -> StdResult<(), Self::Error>
   where
-    T: Serialize,
+    T: ?Sized + Serialize,
   {
     let env = unsafe { Env::from_raw(self.array.0.env) };
     self.array.set_element(
@@ -373,9 +373,9 @@ impl ser::SerializeTupleVariant for SeqSerializer {
   type Ok = Value;
   type Error = Error;
 
-  fn serialize_field<T: ?Sized>(&mut self, value: &T) -> StdResult<(), Self::Error>
+  fn serialize_field<T>(&mut self, value: &T) -> StdResult<(), Self::Error>
   where
-    T: Serialize,
+    T: ?Sized + Serialize,
   {
     let env = unsafe { Env::from_raw(self.array.0.env) };
     self.array.set_element(
@@ -401,18 +401,18 @@ impl ser::SerializeMap for MapSerializer {
   type Ok = Value;
   type Error = Error;
 
-  fn serialize_key<T: ?Sized>(&mut self, key: &T) -> StdResult<(), Self::Error>
+  fn serialize_key<T>(&mut self, key: &T) -> StdResult<(), Self::Error>
   where
-    T: Serialize,
+    T: ?Sized + Serialize,
   {
     let env = unsafe { Env::from_raw(self.obj.0.env) };
     self.key = JsString(key.serialize(Ser::new(&env))?);
     Ok(())
   }
 
-  fn serialize_value<T: ?Sized>(&mut self, value: &T) -> StdResult<(), Self::Error>
+  fn serialize_value<T>(&mut self, value: &T) -> StdResult<(), Self::Error>
   where
-    T: Serialize,
+    T: ?Sized + Serialize,
   {
     let env = unsafe { Env::from_raw(self.obj.0.env) };
     self.obj.set_property(
@@ -426,14 +426,10 @@ impl ser::SerializeMap for MapSerializer {
     Ok(())
   }
 
-  fn serialize_entry<K: ?Sized, V: ?Sized>(
-    &mut self,
-    key: &K,
-    value: &V,
-  ) -> StdResult<(), Self::Error>
+  fn serialize_entry<K, V>(&mut self, key: &K, value: &V) -> StdResult<(), Self::Error>
   where
-    K: Serialize,
-    V: Serialize,
+    K: ?Sized + Serialize,
+    V: ?Sized + Serialize,
   {
     let env = unsafe { Env::from_raw(self.obj.0.env) };
     self.obj.set_property(
@@ -457,9 +453,9 @@ impl ser::SerializeStruct for StructSerializer {
   type Ok = Value;
   type Error = Error;
 
-  fn serialize_field<T: ?Sized>(&mut self, key: &'static str, value: &T) -> StdResult<(), Error>
+  fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> StdResult<(), Error>
   where
-    T: Serialize,
+    T: ?Sized + Serialize,
   {
     let env = unsafe { Env::from_raw(self.obj.0.env) };
     self
@@ -478,9 +474,9 @@ impl ser::SerializeStructVariant for StructSerializer {
   type Ok = Value;
   type Error = Error;
 
-  fn serialize_field<T: ?Sized>(&mut self, key: &'static str, value: &T) -> StdResult<(), Error>
+  fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> StdResult<(), Error>
   where
-    T: Serialize,
+    T: ?Sized + Serialize,
   {
     let env = unsafe { Env::from_raw(self.obj.0.env) };
     self
