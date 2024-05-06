@@ -2,7 +2,7 @@ use std::thread::spawn;
 
 use napi::{
   bindgen_prelude::*,
-  threadsafe_function::{ThreadsafeCallContext, ThreadsafeFunction, ThreadsafeFunctionCallMode},
+  threadsafe_function::{ThreadsafeCallContext, ThreadsafeFunctionCallMode},
 };
 
 #[macro_use]
@@ -124,19 +124,17 @@ impl ChildReference {
 }
 
 #[napi]
-pub fn leaking_func(env: Env, func: JsFunction) -> napi::Result<()> {
-  let mut tsfn: ThreadsafeFunction<String> =
-    func.create_threadsafe_function(|mut ctx: ThreadsafeCallContext<String>| {
+pub fn leaking_func(func: Function<String, String>) -> napi::Result<()> {
+  let tsfn = func
+    .build_threadsafe_function()
+    .weak::<true>()
+    .build_callback(|mut ctx: ThreadsafeCallContext<String>| {
       ctx.env.adjust_external_memory(ctx.value.len() as i64)?;
-      ctx
-        .env
-        .create_string_from_std(ctx.value)
-        .map(|js_string| vec![js_string])
+      Ok(ctx.value)
     })?;
 
-  tsfn.unref(&env)?;
   spawn(move || {
-    tsfn.call(Ok("foo".into()), ThreadsafeFunctionCallMode::Blocking);
+    tsfn.call("foo".into(), ThreadsafeFunctionCallMode::Blocking);
   });
 
   Ok(())

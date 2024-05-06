@@ -1087,16 +1087,16 @@ impl Env {
   )]
   #[allow(deprecated)]
   pub fn create_threadsafe_function<
-    T: Send,
-    V: ToNapiValue,
-    R: 'static + Send + FnMut(ThreadsafeCallContext<T>) -> Result<Vec<V>>,
+    T: 'static + Send,
+    V: 'static + JsValuesTupleIntoVec,
+    R: 'static + Send + FnMut(ThreadsafeCallContext<T>) -> Result<V>,
   >(
     &self,
     func: &JsFunction,
     _max_queue_size: usize,
     callback: R,
-  ) -> Result<ThreadsafeFunction<T>> {
-    ThreadsafeFunction::create(self.0, func.0.value, callback)
+  ) -> Result<ThreadsafeFunction<T, Unknown, V>> {
+    ThreadsafeFunction::<T, Unknown, V>::create(self.0, func.0.value, callback)
   }
 
   #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
