@@ -400,6 +400,7 @@ module.exports.Optional = nativeBinding.Optional
 module.exports.Selector = nativeBinding.Selector
 module.exports.UseNullableClass = nativeBinding.UseNullableClass
 module.exports.Width = nativeBinding.Width
+module.exports.acceptArraybuffer = nativeBinding.acceptArraybuffer
 module.exports.acceptSlice = nativeBinding.acceptSlice
 module.exports.acceptThreadsafeFunction = nativeBinding.acceptThreadsafeFunction
 module.exports.acceptThreadsafeFunctionFatal = nativeBinding.acceptThreadsafeFunctionFatal

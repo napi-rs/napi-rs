@@ -89,6 +89,7 @@ import {
   xxh3,
   xxh64Alias,
   tsRename,
+  acceptArraybuffer,
   acceptSlice,
   u8ArrayToArray,
   i8ArrayToArray,
@@ -765,6 +766,11 @@ test('TypedArray', (t) => {
     ),
     6n,
   )
+})
+
+test('emptybuffer', (t) => {
+  let buf = new ArrayBuffer(0)
+  t.is(acceptArraybuffer(buf), 0n)
 })
 
 test('reset empty buffer', (t) => {

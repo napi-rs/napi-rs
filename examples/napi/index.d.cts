@@ -238,6 +238,8 @@ export interface A {
   foo: number
 }
 
+export function acceptArraybuffer(fixture: ArrayBuffer): bigint
+
 export function acceptSlice(fixture: Uint8Array): bigint
 
 export function acceptThreadsafeFunction(func: (err: Error | null, arg: number) => any): void
