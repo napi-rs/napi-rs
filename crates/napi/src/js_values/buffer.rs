@@ -65,13 +65,18 @@ impl JsBufferValue {
     check_status!(unsafe {
       sys::napi_get_buffer_info(env, value, &mut data, &mut len as *mut usize as *mut _)
     })?;
+    let data = if data.is_null() {
+      vec![]
+    } else {
+      unsafe { Vec::from_raw_parts(data as *mut _, len, len) }
+    };
     Ok(Self {
       value: JsBuffer(Value {
         env,
         value,
         value_type: ValueType::Object,
       }),
-      data: mem::ManuallyDrop::new(unsafe { Vec::from_raw_parts(data as *mut _, len, len) }),
+      data: mem::ManuallyDrop::new(data),
     })
   }
 
