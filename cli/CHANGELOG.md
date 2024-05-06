@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.18.3](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.18.2...@napi-rs/cli@2.18.3) (2024-05-06)
+
+### Bug Fixes
+
+- **cli:** ci template ([3325340](https://github.com/napi-rs/napi-rs/commit/332534055d3649cf643edba095216fdccec8d965))
+- **cli:** remove duplicate typedefs in `index.d.ts` from macro re-evaluation ([#2088](https://github.com/napi-rs/napi-rs/issues/2088)) ([7638c12](https://github.com/napi-rs/napi-rs/commit/7638c12f26fed3a5eda7edfa3bf25b32e849cbab))
+
 ## [2.18.2](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.18.1...@napi-rs/cli@2.18.2) (2024-04-17)
 
 ### Bug Fixes
