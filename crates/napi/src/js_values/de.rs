@@ -46,7 +46,7 @@ impl<'x, 'de, 'env> serde::de::Deserializer<'x> for &'de mut De<'env> {
           visitor.visit_seq(&mut deserializer)
         } else if js_object.is_typedarray()? {
           visitor.visit_bytes(
-            &unsafe { JsTypedArray::from_raw(self.0.env, self.0.value)? }
+            unsafe { JsTypedArray::from_raw(self.0.env, self.0.value)? }
               .into_value()?
               .as_ref(),
           )
@@ -82,7 +82,7 @@ impl<'x, 'de, 'env> serde::de::Deserializer<'x> for &'de mut De<'env> {
     V: Visitor<'x>,
   {
     visitor.visit_bytes(
-      &unsafe { JsTypedArray::from_raw(self.0.env, self.0.value)? }
+      unsafe { JsTypedArray::from_raw(self.0.env, self.0.value)? }
         .into_value()?
         .as_ref(),
     )
@@ -93,7 +93,7 @@ impl<'x, 'de, 'env> serde::de::Deserializer<'x> for &'de mut De<'env> {
     V: Visitor<'x>,
   {
     visitor.visit_bytes(
-      &unsafe { JsTypedArray::from_raw(self.0.env, self.0.value)? }
+      unsafe { JsTypedArray::from_raw(self.0.env, self.0.value)? }
         .into_value()?
         .as_ref(),
     )
