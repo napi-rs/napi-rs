@@ -3,9 +3,10 @@ use std::convert::TryInto;
 use serde::de::Visitor;
 use serde::de::{DeserializeSeed, EnumAccess, MapAccess, SeqAccess, Unexpected, VariantAccess};
 
+use crate::bindgen_runtime::FromNapiValue;
 #[cfg(feature = "napi6")]
 use crate::JsBigInt;
-use crate::{type_of, JsTypedArray, NapiValue, Value, ValueType};
+use crate::{type_of, NapiValue, Value, ValueType};
 use crate::{Error, JsBoolean, JsNumber, JsObject, JsString, JsUnknown, Result, Status};
 
 pub(crate) struct De<'env>(pub(crate) &'env Value);
@@ -45,13 +46,7 @@ impl<'x, 'de, 'env> serde::de::Deserializer<'x> for &'de mut De<'env> {
             JsArrayAccess::new(&js_object, js_object.get_array_length_unchecked()?);
           visitor.visit_seq(&mut deserializer)
         } else if js_object.is_typedarray()? {
-          visitor.visit_bytes(
-            unsafe { JsTypedArray::from_raw(self.0.env, self.0.value)? }
-              .into_value()?
-              .arraybuffer
-              .into_value()?
-              .as_ref(),
-          )
+          visitor.visit_bytes(unsafe { FromNapiValue::from_napi_value(self.0.env, self.0.value)? })
         } else {
           let mut deserializer = JsObjectAccess::new(&js_object)?;
           visitor.visit_map(&mut deserializer)
@@ -83,26 +78,14 @@ impl<'x, 'de, 'env> serde::de::Deserializer<'x> for &'de mut De<'env> {
   where
     V: Visitor<'x>,
   {
-    visitor.visit_bytes(
-      unsafe { JsTypedArray::from_raw(self.0.env, self.0.value)? }
-        .into_value()?
-        .arraybuffer
-        .into_value()?
-        .as_ref(),
-    )
+    visitor.visit_bytes(unsafe { FromNapiValue::from_napi_value(self.0.env, self.0.value)? })
   }
 
   fn deserialize_byte_buf<V>(self, visitor: V) -> Result<V::Value>
   where
     V: Visitor<'x>,
   {
-    visitor.visit_bytes(
-      unsafe { JsTypedArray::from_raw(self.0.env, self.0.value)? }
-        .into_value()?
-        .arraybuffer
-        .into_value()?
-        .as_ref(),
-    )
+    visitor.visit_bytes(unsafe { FromNapiValue::from_napi_value(self.0.env, self.0.value)? })
   }
 
   fn deserialize_option<V>(self, visitor: V) -> Result<V::Value>
