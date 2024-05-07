@@ -48,6 +48,8 @@ impl<'x, 'de, 'env> serde::de::Deserializer<'x> for &'de mut De<'env> {
           visitor.visit_bytes(
             unsafe { JsTypedArray::from_raw(self.0.env, self.0.value)? }
               .into_value()?
+              .arraybuffer
+              .into_value()?
               .as_ref(),
           )
         } else {
@@ -84,6 +86,8 @@ impl<'x, 'de, 'env> serde::de::Deserializer<'x> for &'de mut De<'env> {
     visitor.visit_bytes(
       unsafe { JsTypedArray::from_raw(self.0.env, self.0.value)? }
         .into_value()?
+        .arraybuffer
+        .into_value()?
         .as_ref(),
     )
   }
@@ -94,6 +98,8 @@ impl<'x, 'de, 'env> serde::de::Deserializer<'x> for &'de mut De<'env> {
   {
     visitor.visit_bytes(
       unsafe { JsTypedArray::from_raw(self.0.env, self.0.value)? }
+        .into_value()?
+        .arraybuffer
         .into_value()?
         .as_ref(),
     )
