@@ -728,10 +728,8 @@ test('serde-large-number-precision', (t) => {
 })
 
 test('serde-buffer-bytes', (t) => {
-  if (!process.env.WASI_TEST) {
-    t.is(testSerdeBufferBytes({ code: new Uint8Array([1, 2, 3]) }), 3n)
-    t.is(testSerdeBufferBytes({ code: new Uint8Array(0) }), 0n)
-  }
+  t.is(testSerdeBufferBytes({ code: new Uint8Array([1, 2, 3]) }), 3n)
+  t.is(testSerdeBufferBytes({ code: new Uint8Array(0) }), 0n)
 
   t.is(testSerdeBufferBytes({ code: Buffer.from([1, 2, 3]) }), 3n)
   t.is(testSerdeBufferBytes({ code: Buffer.alloc(0) }), 0n)
