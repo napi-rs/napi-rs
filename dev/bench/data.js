@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1715068395715,
+  "lastUpdate": 1715069316101,
   "repoUrl": "https://github.com/napi-rs/napi-rs",
   "entries": {
     "Benchmark": [
@@ -106704,6 +106704,177 @@ window.BENCHMARK_DATA = {
             "range": "±1.47%",
             "unit": "ops/sec",
             "extra": "86 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "29139614+renovate[bot]@users.noreply.github.com",
+            "name": "renovate[bot]",
+            "username": "renovate[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b88350795cad210267d2f4219015a0c6d3f2635d",
+          "message": "chore(deps): update dependency esbuild to ^0.21.0 (#2095)\n\n[![Mend Renovate](https://app.renovatebot.com/images/banner.svg)](https://renovatebot.com)\n\nThis PR contains the following updates:\n\n| Package | Change | Age | Adoption | Passing | Confidence |\n|---|---|---|---|---|---|\n| [esbuild](https://togithub.com/evanw/esbuild) | [`^0.20.0` -> `^0.21.0`](https://renovatebot.com/diffs/npm/esbuild/0.20.2/0.21.0) | [![age](https://developer.mend.io/api/mc/badges/age/npm/esbuild/0.21.0?slim=true)](https://docs.renovatebot.com/merge-confidence/) | [![adoption](https://developer.mend.io/api/mc/badges/adoption/npm/esbuild/0.21.0?slim=true)](https://docs.renovatebot.com/merge-confidence/) | [![passing](https://developer.mend.io/api/mc/badges/compatibility/npm/esbuild/0.20.2/0.21.0?slim=true)](https://docs.renovatebot.com/merge-confidence/) | [![confidence](https://developer.mend.io/api/mc/badges/confidence/npm/esbuild/0.20.2/0.21.0?slim=true)](https://docs.renovatebot.com/merge-confidence/) |\n\n---\n\n### Release Notes\n\n<details>\n<summary>evanw/esbuild (esbuild)</summary>\n\n### [`v0.21.0`](https://togithub.com/evanw/esbuild/blob/HEAD/CHANGELOG.md#0210)\n\n[Compare Source](https://togithub.com/evanw/esbuild/compare/v0.20.2...v0.21.0)\n\nThis release doesn't contain any deliberately-breaking changes. However, it contains a very complex new feature and while all of esbuild's tests pass, I would not be surprised if an important edge case turns out to be broken. So I'm releasing this as a breaking change release to avoid causing any trouble. As usual, make sure to test your code when you upgrade.\n\n-   Implement the JavaScript decorators proposal ([#&#8203;104](https://togithub.com/evanw/esbuild/issues/104))\n\n    With this release, esbuild now contains an implementation of the upcoming [JavaScript decorators proposal](https://togithub.com/tc39/proposal-decorators). This is the same feature that shipped in [TypeScript 5.0](https://devblogs.microsoft.com/typescript/announcing-typescript-5-0/#decorators) and has been highly-requested on esbuild's issue tracker. You can read more about them in that blog post and in this other (now slightly outdated) extensive blog post here: https://2ality.com/2022/10/javascript-decorators.html. Here's a quick example:\n\n    ```js\n    const log = (fn, context) => function() {\n      console.log(`before ${context.name}`)\n      const it = fn.apply(this, arguments)\n      console.log(`after ${context.name}`)\n      return it\n    }\n\n    class Foo {\n      @&#8203;log static foo() {\n        console.log('in foo')\n      }\n    }\n\n    // Logs \"before foo\", \"in foo\", \"after foo\"\n    Foo.foo()\n    ```\n\n    Note that this feature is different than the existing \"TypeScript experimental decorators\" feature that esbuild already implements. It uses similar syntax but behaves very differently, and the two are not compatible (although it's sometimes possible to write decorators that work with both). TypeScript experimental decorators will still be supported by esbuild going forward as they have been around for a long time, are very widely used, and let you do certain things that are not possible with JavaScript decorators (such as decorating function parameters). By default esbuild will parse and transform JavaScript decorators, but you can tell esbuild to parse and transform TypeScript experimental decorators instead by setting `\"experimentalDecorators\": true` in your `tsconfig.json` file.\n\n    Probably at least half of the work for this feature went into creating a test suite that exercises many of the proposal's edge cases: https://github.com/evanw/decorator-tests. It has given me a reasonable level of confidence that esbuild's initial implementation is acceptable. However, I don't have access to a significant sample of real code that uses JavaScript decorators. If you're currently using JavaScript decorators in a real code base, please try out esbuild's implementation and let me know if anything seems off.\n\n    **⚠️ WARNING ⚠️**\n\n    This proposal has been in the works for a very long time (work began around 10 years ago in 2014) and it is finally getting close to becoming part of the JavaScript language. However, it's still a work in progress and isn't a part of JavaScript yet, so keep in mind that any code that uses JavaScript decorators may need to be updated as the feature continues to evolve. The decorators proposal is pretty close to its final form but it can and likely will undergo some small behavioral adjustments before it ends up becoming a part of the standard. If/when that happens, I will update esbuild's implementation to match the specification. I will not be supporting old versions of the specification.\n\n-   Optimize the generated code for private methods\n\n    Previously when lowering private methods for old browsers, esbuild would generate one `WeakSet` for each private method. This mirrors similar logic for generating one `WeakSet` for each private field. Using a separate `WeakMap` for private fields is necessary as their assignment can be observable:\n\n    ```js\n    let it\n    class Bar {\n      constructor() {\n        it = this\n      }\n    }\n    class Foo extends Bar {\n      #x = 1\n      #y = null.foo\n      static check() {\n        console.log(#x in it, #y in it)\n      }\n    }\n    try { new Foo } catch {}\n    Foo.check()\n    ```\n\n    This prints `true false` because this partially-initialized instance has `#x` but not `#y`. In other words, it's not true that all class instances will always have all of their private fields. However, the assignment of private methods to a class instance is not observable. In other words, it's true that all class instances will always have all of their private methods. This means esbuild can lower private methods into code where all methods share a single `WeakSet`, which is smaller, faster, and uses less memory. Other JavaScript processing tools such as the TypeScript compiler already make this optimization. Here's what this change looks like:\n\n    ```js\n    // Original code\n    class Foo {\n      #x() { return this.#x() }\n      #y() { return this.#y() }\n      #z() { return this.#z() }\n    }\n\n    // Old output (--supported:class-private-method=false)\n    var _x, x_fn, _y, y_fn, _z, z_fn;\n    class Foo {\n      constructor() {\n        __privateAdd(this, _x);\n        __privateAdd(this, _y);\n        __privateAdd(this, _z);\n      }\n    }\n    _x = new WeakSet();\n    x_fn = function() {\n      return __privateMethod(this, _x, x_fn).call(this);\n    };\n    _y = new WeakSet();\n    y_fn = function() {\n      return __privateMethod(this, _y, y_fn).call(this);\n    };\n    _z = new WeakSet();\n    z_fn = function() {\n      return __privateMethod(this, _z, z_fn).call(this);\n    };\n\n    // New output (--supported:class-private-method=false)\n    var _Foo_instances, x_fn, y_fn, z_fn;\n    class Foo {\n      constructor() {\n        __privateAdd(this, _Foo_instances);\n      }\n    }\n    _Foo_instances = new WeakSet();\n    x_fn = function() {\n      return __privateMethod(this, _Foo_instances, x_fn).call(this);\n    };\n    y_fn = function() {\n      return __privateMethod(this, _Foo_instances, y_fn).call(this);\n    };\n    z_fn = function() {\n      return __privateMethod(this, _Foo_instances, z_fn).call(this);\n    };\n    ```\n\n-   Fix an obscure bug with lowering class members with computed property keys\n\n    When class members that use newer syntax features are transformed for older target environments, they sometimes need to be relocated. However, care must be taken to not reorder any side effects caused by computed property keys. For example, the following code must evaluate `a()` then `b()` then `c()`:\n\n    ```js\n    class Foo {\n      [a()]() {}\n      [b()];\n      static { c() }\n    }\n    ```\n\n    Previously esbuild did this by shifting the computed property key *forward* to the next spot in the evaluation order. Classes evaluate all computed keys first and then all static class elements, so if the last computed key needs to be shifted, esbuild previously inserted a static block at start of the class body, ensuring it came before all other static class elements:\n\n    ```js\n    var _a;\n    class Foo {\n      constructor() {\n        __publicField(this, _a);\n      }\n      static {\n        _a = b();\n      }\n      [a()]() {\n      }\n      static {\n        c();\n      }\n    }\n    ```\n\n    However, this could cause esbuild to accidentally generate a syntax error if the computed property key contains code that isn't allowed in a static block, such as an `await` expression. With this release, esbuild fixes this problem by shifting the computed property key *backward* to the previous spot in the evaluation order instead, which may push it into the `extends` clause or even before the class itself:\n\n    ```js\n    // Original code\n    class Foo {\n      [a()]() {}\n      [await b()];\n      static { c() }\n    }\n\n    // Old output (with --supported:class-field=false)\n    var _a;\n    class Foo {\n      constructor() {\n        __publicField(this, _a);\n      }\n      static {\n        _a = await b();\n      }\n      [a()]() {\n      }\n      static {\n        c();\n      }\n    }\n\n    // New output (with --supported:class-field=false)\n    var _a, _b;\n    class Foo {\n      constructor() {\n        __publicField(this, _a);\n      }\n      [(_b = a(), _a = await b(), _b)]() {\n      }\n      static {\n        c();\n      }\n    }\n    ```\n\n-   Fix some `--keep-names` edge cases\n\n    The [`NamedEvaluation` syntax-directed operation](https://tc39.es/ecma262/#sec-runtime-semantics-namedevaluation) in the JavaScript specification gives certain anonymous expressions a `name` property depending on where they are in the syntax tree. For example, the following initializers convey a `name` value:\n\n    ```js\n    var foo = function() {}\n    var bar = class {}\n    console.log(foo.name, bar.name)\n    ```\n\n    When you enable esbuild's `--keep-names` setting, esbuild generates additional code to represent this `NamedEvaluation` operation so that the value of the `name` property persists even when the identifiers are renamed (e.g. due to minification).\n\n    However, I recently learned that esbuild's implementation of `NamedEvaluation` is missing a few cases. Specifically esbuild was missing property definitions, class initializers, logical-assignment operators. These cases should now all be handled:\n\n    ```js\n    var obj = { foo: function() {} }\n    class Foo0 { foo = function() {} }\n    class Foo1 { static foo = function() {} }\n    class Foo2 { accessor foo = function() {} }\n    class Foo3 { static accessor foo = function() {} }\n    foo ||= function() {}\n    foo &&= function() {}\n    foo ??= function() {}\n    ```\n\n</details>\n\n---\n\n### Configuration\n\n📅 **Schedule**: Branch creation - At any time (no schedule defined), Automerge - At any time (no schedule defined).\n\n🚦 **Automerge**: Enabled.\n\n♻ **Rebasing**: Whenever PR becomes conflicted, or you tick the rebase/retry checkbox.\n\n🔕 **Ignore**: Close this PR and you won't be reminded about this update again.\n\n---\n\n - [ ] <!-- rebase-check -->If you want to rebase/retry this PR, check this box\n\n---\n\nThis PR has been generated by [Mend Renovate](https://www.mend.io/free-developer-tools/renovate/). View repository job log [here](https://developer.mend.io/github/napi-rs/napi-rs).\n<!--renovate-debug:eyJjcmVhdGVkSW5WZXIiOiIzNy4zNDAuMTAiLCJ1cGRhdGVkSW5WZXIiOiIzNy4zNDAuMTAiLCJ0YXJnZXRCcmFuY2giOiJtYWluIiwibGFiZWxzIjpbXX0=-->",
+          "timestamp": "2024-05-07T16:05:13+08:00",
+          "tree_id": "3b08933d8e3aa4d867f67a4b0b0b2f08564b99fe",
+          "url": "https://github.com/napi-rs/napi-rs/commit/b88350795cad210267d2f4219015a0c6d3f2635d"
+        },
+        "date": 1715069313507,
+        "tool": "benchmarkjs",
+        "benches": [
+          {
+            "name": "noop#napi-rs",
+            "value": 84792691,
+            "range": "±1.01%",
+            "unit": "ops/sec",
+            "extra": "95 samples"
+          },
+          {
+            "name": "noop#JavaScript",
+            "value": 818681785,
+            "range": "±0.09%",
+            "unit": "ops/sec",
+            "extra": "94 samples"
+          },
+          {
+            "name": "Plus number#napi-rs",
+            "value": 22392407,
+            "range": "±1.88%",
+            "unit": "ops/sec",
+            "extra": "95 samples"
+          },
+          {
+            "name": "Plus number#JavaScript",
+            "value": 817621910,
+            "range": "±0.08%",
+            "unit": "ops/sec",
+            "extra": "95 samples"
+          },
+          {
+            "name": "Create buffer#napi-rs",
+            "value": 650666,
+            "range": "±13.08%",
+            "unit": "ops/sec",
+            "extra": "66 samples"
+          },
+          {
+            "name": "Create buffer#JavaScript",
+            "value": 2892637,
+            "range": "±3.04%",
+            "unit": "ops/sec",
+            "extra": "71 samples"
+          },
+          {
+            "name": "createArray#createArrayJson",
+            "value": 54476,
+            "range": "±0.42%",
+            "unit": "ops/sec",
+            "extra": "95 samples"
+          },
+          {
+            "name": "createArray#create array for loop",
+            "value": 10354,
+            "range": "±0.35%",
+            "unit": "ops/sec",
+            "extra": "98 samples"
+          },
+          {
+            "name": "createArray#create array with serde trait",
+            "value": 10350,
+            "range": "±0.46%",
+            "unit": "ops/sec",
+            "extra": "98 samples"
+          },
+          {
+            "name": "getArrayFromJs#get array from json string",
+            "value": 23661,
+            "range": "±0.57%",
+            "unit": "ops/sec",
+            "extra": "97 samples"
+          },
+          {
+            "name": "getArrayFromJs#get array from serde",
+            "value": 12762,
+            "range": "±0.54%",
+            "unit": "ops/sec",
+            "extra": "97 samples"
+          },
+          {
+            "name": "getArrayFromJs#get array with for loop",
+            "value": 16345,
+            "range": "±0.47%",
+            "unit": "ops/sec",
+            "extra": "97 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from native#u32",
+            "value": 585362,
+            "range": "±12.79%",
+            "unit": "ops/sec",
+            "extra": "76 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from JavaScript#u32",
+            "value": 547224,
+            "range": "±2.3%",
+            "unit": "ops/sec",
+            "extra": "87 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from native#string",
+            "value": 562373,
+            "range": "±11.45%",
+            "unit": "ops/sec",
+            "extra": "90 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from JavaScript#string",
+            "value": 513244,
+            "range": "±1.9%",
+            "unit": "ops/sec",
+            "extra": "90 samples"
+          },
+          {
+            "name": "Async task#spawn task",
+            "value": 26214,
+            "range": "±0.38%",
+            "unit": "ops/sec",
+            "extra": "83 samples"
+          },
+          {
+            "name": "Async task#ThreadSafeFunction",
+            "value": 8863,
+            "range": "±1.06%",
+            "unit": "ops/sec",
+            "extra": "83 samples"
+          },
+          {
+            "name": "Async task#Tokio future to Promise",
+            "value": 34047,
+            "range": "±1.43%",
+            "unit": "ops/sec",
+            "extra": "83 samples"
+          },
+          {
+            "name": "Query#query * 100",
+            "value": 3586,
+            "range": "±0.73%",
+            "unit": "ops/sec",
+            "extra": "88 samples"
+          },
+          {
+            "name": "Query#query * 1",
+            "value": 26185,
+            "range": "±1.48%",
+            "unit": "ops/sec",
+            "extra": "82 samples"
           }
         ]
       }
