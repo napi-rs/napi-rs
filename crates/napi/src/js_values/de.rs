@@ -5,7 +5,7 @@ use serde::de::{DeserializeSeed, EnumAccess, MapAccess, SeqAccess, Unexpected, V
 
 #[cfg(feature = "napi6")]
 use crate::JsBigInt;
-use crate::{type_of, NapiValue, Value, ValueType};
+use crate::{type_of, JsTypedArray, NapiValue, Value, ValueType};
 use crate::{
   Error, JsBoolean, JsBufferValue, JsNumber, JsObject, JsString, JsUnknown, Result, Status,
 };
@@ -46,8 +46,12 @@ impl<'x, 'de, 'env> serde::de::Deserializer<'x> for &'de mut De<'env> {
           let mut deserializer =
             JsArrayAccess::new(&js_object, js_object.get_array_length_unchecked()?);
           visitor.visit_seq(&mut deserializer)
-        } else if js_object.is_buffer()? {
-          visitor.visit_bytes(&JsBufferValue::from_raw(self.0.env, self.0.value)?)
+        } else if js_object.is_typedarray()? {
+          visitor.visit_bytes(
+            &unsafe { JsTypedArray::from_raw(self.0.env, self.0.value)? }
+              .into_value()?
+              .as_ref(),
+          )
         } else {
           let mut deserializer = JsObjectAccess::new(&js_object)?;
           visitor.visit_map(&mut deserializer)
