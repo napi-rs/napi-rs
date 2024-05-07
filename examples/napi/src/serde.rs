@@ -36,3 +36,15 @@ fn test_serde_big_number_precision(number: String) -> Value {
   let data = format!("{{\"number\":{}}}", number);
   serde_json::from_str(&data).unwrap()
 }
+
+#[derive(Serialize, Debug, Deserialize)]
+struct BytesObject {
+  #[serde(with = "serde_bytes")]
+  code: Vec<u8>,
+}
+
+#[napi]
+fn test_serde_buffer_bytes(obj: Object, env: Env) -> napi::Result<usize> {
+  let obj: BytesObject = env.from_js_value(obj)?;
+  Ok(obj.code.len())
+}

@@ -237,6 +237,8 @@ export interface A {
   foo: number
 }
 
+export function acceptArraybuffer(fixture: ArrayBuffer): bigint
+
 export function acceptSlice(fixture: Uint8Array): bigint
 
 export function acceptThreadsafeFunction(func: (err: Error | null, arg: number) => any): void
@@ -626,6 +628,8 @@ export function sumMapping(nums: Record<string, number>): number
 export function sumNums(nums: Array<number>): number
 
 export function testSerdeBigNumberPrecision(number: string): any
+
+export function testSerdeBufferBytes(obj: object): bigint
 
 export function testSerdeRoundtrip(data: any): any
 
