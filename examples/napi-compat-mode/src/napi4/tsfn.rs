@@ -136,7 +136,7 @@ pub fn test_tokio_readfile(ctx: CallContext) -> Result<JsUndefined> {
         ctx
           .env
           .create_buffer_with_data(ctx.value)
-          .map(|v| vec![v.into_raw()])
+          .map(|v| v.into_raw())
       })?;
   let rt = tokio::runtime::Runtime::new()
     .map_err(|e| Error::from_reason(format!("Create tokio runtime failed {}", e)))?;
@@ -161,7 +161,7 @@ pub fn test_tsfn_with_ref(ctx: CallContext) -> Result<JsUndefined> {
       ctx
         .env
         .get_reference_value_unchecked::<JsObject>(&ctx.value)
-        .and_then(|obj| ctx.value.unref(ctx.env).map(|_| vec![obj]))
+        .and_then(|obj| ctx.value.unref(ctx.env).map(|_| obj))
     },
   )?;
 

@@ -89,6 +89,7 @@ import {
   xxh3,
   xxh64Alias,
   tsRename,
+  acceptArraybuffer,
   acceptSlice,
   u8ArrayToArray,
   i8ArrayToArray,
@@ -123,6 +124,7 @@ import {
   returnJsFunction,
   testSerdeRoundtrip,
   testSerdeBigNumberPrecision,
+  testSerdeBufferBytes,
   createObjWithProperty,
   receiveObjectOnlyFromJs,
   dateToNumber,
@@ -725,6 +727,14 @@ test('serde-large-number-precision', (t) => {
   )
 })
 
+test('serde-buffer-bytes', (t) => {
+  t.is(testSerdeBufferBytes({ code: new Uint8Array([1, 2, 3]) }), 3n)
+  t.is(testSerdeBufferBytes({ code: new Uint8Array(0) }), 0n)
+
+  t.is(testSerdeBufferBytes({ code: Buffer.from([1, 2, 3]) }), 3n)
+  t.is(testSerdeBufferBytes({ code: Buffer.alloc(0) }), 0n)
+})
+
 test('buffer', (t) => {
   let buf = getBuffer()
   t.is(buf.toString('utf-8'), 'Hello world')
@@ -765,6 +775,11 @@ test('TypedArray', (t) => {
     ),
     6n,
   )
+})
+
+test('emptybuffer', (t) => {
+  let buf = new ArrayBuffer(0)
+  t.is(acceptArraybuffer(buf), 0n)
 })
 
 test('reset empty buffer', (t) => {

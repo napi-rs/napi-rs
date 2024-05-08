@@ -3,7 +3,6 @@ use std::{thread, time::Duration};
 use napi::{
   bindgen_prelude::*,
   threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode, UnknownReturnValue},
-  JsString,
 };
 
 #[napi]
@@ -48,7 +47,7 @@ pub fn threadsafe_function_throw_error(
 
 #[napi]
 pub fn threadsafe_function_fatal_mode(
-  cb: ThreadsafeFunction<bool, UnknownReturnValue, false>,
+  cb: ThreadsafeFunction<bool, UnknownReturnValue, bool, false>,
 ) -> Result<()> {
   thread::spawn(move || {
     cb.call(true, ThreadsafeFunctionCallMode::Blocking);
@@ -58,7 +57,7 @@ pub fn threadsafe_function_fatal_mode(
 
 #[napi]
 pub fn threadsafe_function_fatal_mode_error(
-  cb: ThreadsafeFunction<bool, String, false>,
+  cb: ThreadsafeFunction<bool, String, bool, false>,
 ) -> Result<()> {
   thread::spawn(move || {
     cb.call_with_return_value(true, ThreadsafeFunctionCallMode::Blocking, |ret, _| {
@@ -69,16 +68,16 @@ pub fn threadsafe_function_fatal_mode_error(
 }
 
 #[napi]
-fn threadsafe_function_closure_capture(func: JsFunction) -> napi::Result<()> {
+fn threadsafe_function_closure_capture(func: Function<String, ()>) -> napi::Result<()> {
   let str = "test";
-  let tsfn: ThreadsafeFunction<()> = func
-    .create_threadsafe_function(move |_| {
+  let tsfn = func
+    .build_threadsafe_function::<()>()
+    .build_callback(move |_| {
       println!("Captured in ThreadsafeFunction {}", str); // str is NULL at this point
-      Ok(Vec::<JsString>::new())
-    })
-    .unwrap();
+      Ok(String::new())
+    })?;
 
-  tsfn.call(Ok(()), ThreadsafeFunctionCallMode::NonBlocking);
+  tsfn.call((), ThreadsafeFunctionCallMode::NonBlocking);
 
   Ok(())
 }
@@ -117,7 +116,7 @@ pub fn accept_threadsafe_function(func: ThreadsafeFunction<u32>) {
 }
 
 #[napi]
-pub fn accept_threadsafe_function_fatal(func: ThreadsafeFunction<u32, (), false>) {
+pub fn accept_threadsafe_function_fatal(func: ThreadsafeFunction<u32, (), u32, false>) {
   thread::spawn(move || {
     func.call(1, ThreadsafeFunctionCallMode::NonBlocking);
   });

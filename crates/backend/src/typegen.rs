@@ -425,7 +425,11 @@ pub fn ty_to_ts_type(
             Some((arg, _)) => arg == "false",
             _ => false,
           };
-          let fn_args = args.first().map(|(arg, _)| arg).unwrap();
+          let fn_args = args
+            .get(2)
+            .or_else(|| args.first())
+            .map(|(arg, _)| arg)
+            .unwrap();
           let return_ty = args
             .get(1)
             .map(|(ty, _)| ty.clone())

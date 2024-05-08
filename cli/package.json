@@ -68,7 +68,7 @@
   },
   "dependencies": {
     "@napi-rs/cross-toolchain": "^0.0.16",
-    "@napi-rs/wasm-tools": "^0.0.1",
+    "@napi-rs/wasm-tools": "^0.0.2",
     "@octokit/rest": "^20.0.2",
     "clipanion": "^3.2.1",
     "colorette": "^2.0.20",
@@ -93,7 +93,7 @@
     "@types/semver": "^7.5.8",
     "ava": "^6.1.1",
     "env-paths": "^3.0.0",
-    "esbuild": "^0.20.0",
+    "esbuild": "^0.21.0",
     "prettier": "^3.2.4",
     "ts-node": "^10.9.2",
     "tslib": "^2.6.2",

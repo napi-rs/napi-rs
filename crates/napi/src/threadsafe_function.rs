@@ -10,7 +10,7 @@ use std::sync::{
 };
 
 use crate::bindgen_runtime::{
-  FromNapiValue, JsValuesTupleIntoVec, ToNapiValue, TypeName, Unknown, ValidateNapiValue,
+  FromNapiValue, JsValuesTupleIntoVec, TypeName, Unknown, ValidateNapiValue,
 };
 use crate::{check_status, sys, Env, Error, JsError, Result, Status};
 
@@ -159,42 +159,49 @@ struct ThreadsafeFunctionCallJsBackData<T, Return = Unknown> {
 /// ```
 pub struct ThreadsafeFunction<
   T: 'static,
-  Return: FromNapiValue + 'static = Unknown,
+  Return: 'static + FromNapiValue = Unknown,
+  CallJsBackArgs: 'static + JsValuesTupleIntoVec = T,
   const CalleeHandled: bool = true,
   const Weak: bool = false,
   const MaxQueueSize: usize = 0,
 > {
   handle: Arc<ThreadsafeFunctionHandle>,
-  _phantom: PhantomData<(T, Return)>,
+  _phantom: PhantomData<(T, CallJsBackArgs, Return)>,
 }
 
 unsafe impl<
     T: 'static,
     Return: FromNapiValue,
+    CallJsBackArgs: 'static + JsValuesTupleIntoVec,
     const CalleeHandled: bool,
     const Weak: bool,
     const MaxQueueSize: usize,
-  > Send for ThreadsafeFunction<T, Return, { CalleeHandled }, { Weak }, { MaxQueueSize }>
+  > Send
+  for ThreadsafeFunction<T, Return, CallJsBackArgs, { CalleeHandled }, { Weak }, { MaxQueueSize }>
 {
 }
 
 unsafe impl<
     T: 'static,
     Return: FromNapiValue,
+    CallJsBackArgs: 'static + JsValuesTupleIntoVec,
     const CalleeHandled: bool,
     const Weak: bool,
     const MaxQueueSize: usize,
-  > Sync for ThreadsafeFunction<T, Return, { CalleeHandled }, { Weak }, { MaxQueueSize }>
+  > Sync
+  for ThreadsafeFunction<T, Return, CallJsBackArgs, { CalleeHandled }, { Weak }, { MaxQueueSize }>
 {
 }
 
 impl<
     T: 'static,
     Return: FromNapiValue,
+    CallJsBackArgs: 'static + JsValuesTupleIntoVec,
     const CalleeHandled: bool,
     const Weak: bool,
     const MaxQueueSize: usize,
-  > Clone for ThreadsafeFunction<T, Return, { CalleeHandled }, { Weak }, { MaxQueueSize }>
+  > Clone
+  for ThreadsafeFunction<T, Return, CallJsBackArgs, { CalleeHandled }, { Weak }, { MaxQueueSize }>
 {
   fn clone(&self) -> Self {
     self.handle.with_read_aborted(|aborted| {
@@ -211,36 +218,39 @@ impl<
 }
 
 impl<
-    T: JsValuesTupleIntoVec + 'static,
+    T: 'static + JsValuesTupleIntoVec,
     Return: FromNapiValue,
     const CalleeHandled: bool,
     const Weak: bool,
     const MaxQueueSize: usize,
-  > FromNapiValue for ThreadsafeFunction<T, Return, { CalleeHandled }, { Weak }, { MaxQueueSize }>
+  > FromNapiValue
+  for ThreadsafeFunction<T, Return, T, { CalleeHandled }, { Weak }, { MaxQueueSize }>
 {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
-    Self::create(env, napi_val, |ctx| ctx.value.into_vec(ctx.env.0))
+    Self::create(env, napi_val, |ctx| Ok(ctx.value))
   }
 }
 
 impl<
     T: 'static,
     Return: FromNapiValue,
+    CallJsBackArgs: 'static + JsValuesTupleIntoVec,
     const CalleeHandled: bool,
     const Weak: bool,
     const MaxQueueSize: usize,
-  > ThreadsafeFunction<T, Return, { CalleeHandled }, { Weak }, { MaxQueueSize }>
+  > ThreadsafeFunction<T, Return, CallJsBackArgs, { CalleeHandled }, { Weak }, { MaxQueueSize }>
 {
   // See [napi_create_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_create_threadsafe_function)
   // for more information.
   pub(crate) fn create<
-    V: ToNapiValue,
-    R: 'static + Send + FnMut(ThreadsafeCallContext<T>) -> Result<Vec<V>>,
+    NewArgs: 'static + JsValuesTupleIntoVec,
+    R: 'static + Send + FnMut(ThreadsafeCallContext<T>) -> Result<NewArgs>,
   >(
     env: sys::napi_env,
     func: sys::napi_value,
     callback: R,
-  ) -> Result<Self> {
+  ) -> Result<ThreadsafeFunction<T, Return, NewArgs, { CalleeHandled }, { Weak }, { MaxQueueSize }>>
+  {
     let mut async_resource_name = ptr::null_mut();
     static THREAD_SAFE_FUNCTION_ASYNC_RESOURCE_NAME: &str = "napi_rs_threadsafe_function";
 
@@ -284,9 +294,9 @@ impl<
         MaxQueueSize,
         1,
         Arc::downgrade(&handle).into_raw().cast_mut().cast(), // pass handler to thread_finalize_cb
-        Some(thread_finalize_cb::<T, V, R>),
+        Some(thread_finalize_cb::<T, NewArgs, R>),
         callback_ptr.cast(),
-        Some(call_js_cb::<T, Return, V, R, CalleeHandled>),
+        Some(call_js_cb::<T, Return, NewArgs, R, CalleeHandled>),
         &mut raw_tsfn,
       )
     })?;
@@ -371,8 +381,13 @@ impl<
   }
 }
 
-impl<T: 'static, Return: FromNapiValue + 'static, const Weak: bool, const MaxQueueSize: usize>
-  ThreadsafeFunction<T, Return, true, { Weak }, { MaxQueueSize }>
+impl<
+    T: 'static,
+    Return: FromNapiValue,
+    CallJsBackArgs: 'static + JsValuesTupleIntoVec,
+    const Weak: bool,
+    const MaxQueueSize: usize,
+  > ThreadsafeFunction<T, Return, CallJsBackArgs, true, { Weak }, { MaxQueueSize }>
 {
   /// See [napi_call_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_call_threadsafe_function)
   /// for more information.
@@ -476,8 +491,13 @@ impl<T: 'static, Return: FromNapiValue + 'static, const Weak: bool, const MaxQue
   }
 }
 
-impl<T: 'static, Return: FromNapiValue + 'static, const Weak: bool, const MaxQueueSize: usize>
-  ThreadsafeFunction<T, Return, false, { Weak }, { MaxQueueSize }>
+impl<
+    T: 'static,
+    Return: FromNapiValue,
+    CallJsBackArgs: 'static + JsValuesTupleIntoVec,
+    const Weak: bool,
+    const MaxQueueSize: usize,
+  > ThreadsafeFunction<T, Return, CallJsBackArgs, false, { Weak }, { MaxQueueSize }>
 {
   /// See [napi_call_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_call_threadsafe_function)
   /// for more information.
@@ -569,12 +589,12 @@ impl<T: 'static, Return: FromNapiValue + 'static, const Weak: bool, const MaxQue
   }
 }
 
-unsafe extern "C" fn thread_finalize_cb<T: 'static, V: ToNapiValue, R>(
+unsafe extern "C" fn thread_finalize_cb<T: 'static, V: 'static + JsValuesTupleIntoVec, R>(
   #[allow(unused_variables)] env: sys::napi_env,
   finalize_data: *mut c_void,
   finalize_hint: *mut c_void,
 ) where
-  R: 'static + Send + FnMut(ThreadsafeCallContext<T>) -> Result<Vec<V>>,
+  R: 'static + Send + FnMut(ThreadsafeCallContext<T>) -> Result<V>,
 {
   let handle_option: Option<Arc<ThreadsafeFunctionHandle>> =
     unsafe { sync::Weak::from_raw(finalize_data.cast()).upgrade() };
@@ -594,7 +614,7 @@ unsafe extern "C" fn thread_finalize_cb<T: 'static, V: ToNapiValue, R>(
 unsafe extern "C" fn call_js_cb<
   T: 'static,
   Return: FromNapiValue,
-  V: ToNapiValue,
+  V: 'static + JsValuesTupleIntoVec,
   R,
   const CalleeHandled: bool,
 >(
@@ -603,7 +623,7 @@ unsafe extern "C" fn call_js_cb<
   context: *mut c_void,
   data: *mut c_void,
 ) where
-  R: 'static + Send + FnMut(ThreadsafeCallContext<T>) -> Result<Vec<V>>,
+  R: 'static + Send + FnMut(ThreadsafeCallContext<T>) -> Result<V>,
 {
   // env and/or callback can be null when shutting down
   if raw_env.is_null() || js_callback.is_null() {
@@ -627,7 +647,7 @@ unsafe extern "C" fn call_js_cb<
       env: Env::from_raw(raw_env),
       value: v.data,
     })
-    .map(|ret| (ret, v.call_variant, v.callback))
+    .and_then(|ret| Ok((ret.into_vec(raw_env)?, v.call_variant, v.callback)))
   });
 
   // Follow async callback conventions: https://nodejs.org/en/knowledge/errors/what-are-the-error-conventions/
@@ -635,45 +655,22 @@ unsafe extern "C" fn call_js_cb<
   // If the Result is an error, pass that as the first argument.
   let status = match ret {
     Ok((values, call_variant, callback)) => {
-      let values = values
-        .into_iter()
-        .map(|v| unsafe { ToNapiValue::to_napi_value(raw_env, v) });
-      let args: Result<Vec<sys::napi_value>> = if CalleeHandled {
+      let args: Vec<sys::napi_value> = if CalleeHandled {
         let mut js_null = ptr::null_mut();
         unsafe { sys::napi_get_null(raw_env, &mut js_null) };
-        ::core::iter::once(Ok(js_null)).chain(values).collect()
+        core::iter::once(js_null).chain(values).collect()
       } else {
-        values.collect()
+        values
       };
       let mut return_value = ptr::null_mut();
-      let mut status = match args {
-        Ok(args) => unsafe {
-          sys::napi_call_function(
-            raw_env,
-            recv,
-            js_callback,
-            args.len(),
-            args.as_ptr(),
-            &mut return_value,
-          )
-        },
-        Err(e) => {
-          if !CalleeHandled {
-            unsafe { sys::napi_fatal_exception(raw_env, JsError::from(e).into_value(raw_env)) }
-          } else {
-            unsafe {
-              sys::napi_call_function(
-                raw_env,
-                recv,
-                js_callback,
-                1,
-                [JsError::from(e).into_value(raw_env)].as_mut_ptr(),
-                &mut return_value,
-              )
-            }
-          }
-        }
-      };
+      let mut status = sys::napi_call_function(
+        raw_env,
+        recv,
+        js_callback,
+        args.len(),
+        args.as_ptr(),
+        &mut return_value,
+      );
       if let ThreadsafeFunctionCallVariant::WithCallback = call_variant {
         // throw Error in JavaScript callback
         let callback_arg = if status == sys::Status::napi_pending_exception {
