@@ -540,7 +540,6 @@ module.exports.referenceAsCallback = nativeBinding.referenceAsCallback
 module.exports.returnEither = nativeBinding.returnEither
 module.exports.returnEitherClass = nativeBinding.returnEitherClass
 module.exports.returnFromSharedCrate = nativeBinding.returnFromSharedCrate
-module.exports.returnJsFunction = nativeBinding.returnJsFunction
 module.exports.returnNull = nativeBinding.returnNull
 module.exports.returnObjectOnlyToJs = nativeBinding.returnObjectOnlyToJs
 module.exports.returnUndefined = nativeBinding.returnUndefined

@@ -46,11 +46,6 @@ fn read_file_content() -> Result<String> {
   Ok("hello world".to_string())
 }
 
-#[napi]
-fn return_js_function(env: Env) -> Result<JsFunction> {
-  get_js_function(&env, read_file_js_function)
-}
-
 #[napi(
   ts_generic_types = "T",
   ts_args_type = "functionInput: () => T | Promise<T>, callback: (err: Error | null, result: T) => void",

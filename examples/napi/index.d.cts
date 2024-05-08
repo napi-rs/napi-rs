@@ -611,8 +611,6 @@ export function returnEitherClass(input: number): number | JsClassForEither
 
 export function returnFromSharedCrate(): Shared
 
-export function returnJsFunction(): (...args: any[]) => any
-
 export function returnNull(): null
 
 export function returnObjectOnlyToJs(): ObjectOnlyToJs
