@@ -208,6 +208,7 @@ fn prepare_type_def_file() {
   }
 }
 
+#[cfg(feature = "type-def")]
 fn remove_existed_def_file(def_file: &str) -> std::io::Result<()> {
   use std::io::{BufRead, BufReader};
 
