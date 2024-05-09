@@ -16,7 +16,7 @@ use std::thread::ThreadId;
 
 use once_cell::sync::Lazy;
 
-use crate::{check_status, sys, Env, JsFunction, Property, Result, Value, ValueType};
+use crate::{check_status, sys, Property, Result};
 #[cfg(not(feature = "noop"))]
 use crate::{check_status_or_throw, JsError};
 
@@ -154,58 +154,6 @@ pub fn register_class(
     val.0 = js_name;
     val.1.extend(props);
   });
-}
-
-#[inline]
-/// Get `JsFunction` from defined Rust `fn`
-/// ```rust
-/// #[napi]
-/// fn some_fn() -> u32 {
-///     1
-/// }
-///
-/// #[napi]
-/// fn return_some_fn() -> Result<JsFunction> {
-///     get_js_function(some_fn_js_function)
-/// }
-/// ```
-///
-/// ```js
-/// returnSomeFn()(); // 1
-/// ```
-///
-pub fn get_js_function(env: &Env, raw_fn: ExportRegisterCallback) -> Result<JsFunction> {
-  FN_REGISTER_MAP.borrow_mut(|inner| {
-    inner
-      .get(&raw_fn)
-      .and_then(|(cb, name)| {
-        let mut function = ptr::null_mut();
-        let name_len = name.len() - 1;
-        let fn_name = unsafe { CStr::from_bytes_with_nul_unchecked(name.as_bytes()) };
-        check_status!(unsafe {
-          sys::napi_create_function(
-            env.0,
-            fn_name.as_ptr(),
-            name_len,
-            *cb,
-            ptr::null_mut(),
-            &mut function,
-          )
-        })
-        .ok()?;
-        Some(JsFunction(Value {
-          env: env.0,
-          value: function,
-          value_type: ValueType::Function,
-        }))
-      })
-      .ok_or_else(|| {
-        crate::Error::new(
-          crate::Status::InvalidArg,
-          "JavaScript function does not exist".to_owned(),
-        )
-      })
-  })
 }
 
 /// Get `C Callback` from defined Rust `fn`
