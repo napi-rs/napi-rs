@@ -21,15 +21,16 @@ use syn::{Attribute, Item};
 /// }
 ///
 /// ```
+#[cfg(feature = "type-def")]
 static BUILT_FLAG: AtomicBool = AtomicBool::new(false);
 
 pub fn expand(attr: TokenStream, input: TokenStream) -> BindgenResult<TokenStream> {
+  #[cfg(feature = "type-def")]
   if BUILT_FLAG
     .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
     .is_ok()
   {
     // logic on first macro expansion
-    #[cfg(feature = "type-def")]
     prepare_type_def_file();
 
     if let Ok(wasi_register_file) = env::var("WASI_REGISTER_TMP_PATH") {
@@ -84,8 +85,10 @@ pub fn expand(attr: TokenStream, input: TokenStream) -> BindgenResult<TokenStrea
           napi.try_to_tokens(&mut tokens)?;
 
           #[cfg(feature = "type-def")]
-          output_type_def(&napi);
-          output_wasi_register_def(&napi);
+          {
+            output_type_def(&napi);
+            output_wasi_register_def(&napi);
+          }
         } else {
           item.to_tokens(&mut tokens);
         };
@@ -109,8 +112,10 @@ pub fn expand(attr: TokenStream, input: TokenStream) -> BindgenResult<TokenStrea
     napi.try_to_tokens(&mut tokens)?;
 
     #[cfg(feature = "type-def")]
-    output_type_def(&napi);
-    output_wasi_register_def(&napi);
+    {
+      output_type_def(&napi);
+      output_wasi_register_def(&napi);
+    }
     Ok(tokens)
   }
 }
@@ -203,6 +208,7 @@ fn prepare_type_def_file() {
   }
 }
 
+#[cfg(feature = "type-def")]
 fn remove_existed_def_file(def_file: &str) -> std::io::Result<()> {
   use std::io::{BufRead, BufReader};
 
