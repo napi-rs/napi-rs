@@ -741,28 +741,36 @@ class Builder {
       if (isWasm) {
         const { ModuleConfig } = await import('@napi-rs/wasm-tools')
         debug('Generate debug wasm module')
-        const debugWasmModule = new ModuleConfig()
-          .generateDwarf(true)
-          .generateNameSection(true)
-          .generateProducersSection(true)
-          .preserveCodeTransform(true)
-          .strictValidate(false)
-          .parse(await readFileAsync(src))
-        const debugWasmBinary = debugWasmModule.emitWasm(true)
-        await writeFileAsync(
-          dest.replace('.wasm', '.debug.wasm'),
-          debugWasmBinary,
-        )
-        debug('Generate release wasm module')
-        const releaseWasmModule = new ModuleConfig()
-          .generateDwarf(false)
-          .generateNameSection(false)
-          .generateProducersSection(false)
-          .preserveCodeTransform(false)
-          .strictValidate(false)
-          .parse(debugWasmBinary)
-        const releaseWasmBinary = releaseWasmModule.emitWasm(false)
-        await writeFileAsync(dest, releaseWasmBinary)
+        try {
+          const debugWasmModule = new ModuleConfig()
+            .generateDwarf(true)
+            .generateNameSection(true)
+            .generateProducersSection(true)
+            .preserveCodeTransform(true)
+            .strictValidate(false)
+            .parse(await readFileAsync(src))
+          const debugWasmBinary = debugWasmModule.emitWasm(true)
+          await writeFileAsync(
+            dest.replace('.wasm', '.debug.wasm'),
+            debugWasmBinary,
+          )
+          debug('Generate release wasm module')
+          const releaseWasmModule = new ModuleConfig()
+            .generateDwarf(false)
+            .generateNameSection(false)
+            .generateProducersSection(false)
+            .preserveCodeTransform(false)
+            .strictValidate(false)
+            .onlyStableFeatures(false)
+            .parse(debugWasmBinary)
+          const releaseWasmBinary = releaseWasmModule.emitWasm(false)
+          await writeFileAsync(dest, releaseWasmBinary)
+        } catch (e) {
+          debug.warn(
+            `Failed to generate debug wasm module: ${(e as any).message ?? e}`,
+          )
+          await copyFileAsync(src, dest)
+        }
       } else {
         await copyFileAsync(src, dest)
       }
