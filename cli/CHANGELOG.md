@@ -3,6 +3,14 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.55](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.54...@napi-rs/cli@3.0.0-alpha.55) (2024-05-12)
+
+### Bug Fixes
+
+- **cli:** prevent the wasm optimization crash the build ([#2107](https://github.com/napi-rs/napi-rs/issues/2107)) ([c9c3c0e](https://github.com/napi-rs/napi-rs/commit/c9c3c0ed05afa6625969c6f4ffaa5955b053c956))
+- **deps:** update dependency @napi-rs/cross-toolchain to ^0.0.16 ([#2079](https://github.com/napi-rs/napi-rs/issues/2079)) ([d022f64](https://github.com/napi-rs/napi-rs/commit/d022f6483488697022b0126150afc3685d70417f))
+- **napi:** set explicit target flag for x86_64 CI template ([#2077](https://github.com/napi-rs/napi-rs/issues/2077)) ([ebc1e2c](https://github.com/napi-rs/napi-rs/commit/ebc1e2ca183de090bd02a1be1fd3cbb42f16cd86))
+
 # [3.0.0-alpha.54](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.53...@napi-rs/cli@3.0.0-alpha.54) (2024-04-23)
 
 ### Bug Fixes
