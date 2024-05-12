@@ -89,6 +89,7 @@ import {
   xxh3,
   xxh64Alias,
   tsRename,
+  acceptArraybuffer,
   acceptSlice,
   u8ArrayToArray,
   i8ArrayToArray,
@@ -120,13 +121,17 @@ import {
   JsClassForEither,
   receiveMutClassOrNumber,
   getStrFromObject,
-  returnJsFunction,
   testSerdeRoundtrip,
   testSerdeBigNumberPrecision,
+  testSerdeBufferBytes,
   createObjWithProperty,
   receiveObjectOnlyFromJs,
   dateToNumber,
-  chronoDateToMillis,
+  chronoUtcDateToMillis,
+  chronoLocalDateToMillis,
+  chronoDateWithTimezoneToMillis,
+  chronoDateFixtureReturn1,
+  chronoDateFixtureReturn2,
   derefUint8Array,
   chronoDateAdd1Minute,
   bufferPassThrough,
@@ -460,16 +465,6 @@ test('callback', (t) => {
   )
 })
 
-test('return function', (t) => {
-  return new Promise<void>((resolve) => {
-    returnJsFunction()((err: Error | undefined, content: string) => {
-      t.is(err, undefined)
-      t.is(content, 'hello world')
-      resolve()
-    })
-  })
-})
-
 Napi4Test('callback function return Promise', async (t) => {
   const cbSpy = spy()
   await callbackReturnPromise<string>(() => '1', spy)
@@ -721,6 +716,14 @@ test('serde-large-number-precision', (t) => {
   )
 })
 
+test('serde-buffer-bytes', (t) => {
+  t.is(testSerdeBufferBytes({ code: new Uint8Array([1, 2, 3]) }), 3n)
+  t.is(testSerdeBufferBytes({ code: new Uint8Array(0) }), 0n)
+
+  t.is(testSerdeBufferBytes({ code: Buffer.from([1, 2, 3]) }), 3n)
+  t.is(testSerdeBufferBytes({ code: Buffer.alloc(0) }), 0n)
+})
+
 test('buffer', (t) => {
   let buf = getBuffer()
   t.is(buf.toString('utf-8'), 'Hello world')
@@ -761,6 +764,11 @@ test('TypedArray', (t) => {
     ),
     6n,
   )
+})
+
+test('emptybuffer', (t) => {
+  let buf = new ArrayBuffer(0)
+  t.is(acceptArraybuffer(buf), 0n)
 })
 
 test('reset empty buffer', (t) => {
@@ -1235,11 +1243,20 @@ Napi5Test('Date test', (t) => {
 
 Napi5Test('Date to chrono test', (t) => {
   const fixture = new Date('2022-02-09T19:31:55.396Z')
-  t.is(chronoDateToMillis(fixture), fixture.getTime())
+  t.is(chronoUtcDateToMillis(fixture), fixture.getTime())
+  t.is(chronoLocalDateToMillis(fixture), fixture.getTime())
+  t.is(chronoDateWithTimezoneToMillis(fixture), fixture.getTime())
   t.deepEqual(
     chronoDateAdd1Minute(fixture),
     new Date(fixture.getTime() + 60 * 1000),
   )
+})
+
+Napi5Test('Get date', (t) => {
+  const fixture1 = new Date('2024-02-07T18:28:18-0800')
+  t.deepEqual(chronoDateFixtureReturn1(), fixture1)
+  const fixture2 = new Date('2024-02-07T18:28:18+0530')
+  t.deepEqual(chronoDateFixtureReturn2(), fixture2)
 })
 
 Napi5Test('Class with getter setter closures', (t) => {

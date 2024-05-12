@@ -238,6 +238,8 @@ export interface A {
   foo: number
 }
 
+export function acceptArraybuffer(fixture: ArrayBuffer): bigint
+
 export function acceptSlice(fixture: Uint8Array): bigint
 
 export function acceptThreadsafeFunction(func: (err: Error | null, arg: number) => any): void
@@ -333,11 +335,25 @@ export function captureErrorInCallback(cb1: () => void, cb2: (arg0: Error) => vo
 
 export function chronoDateAdd1Minute(input: Date): Date
 
-export function chronoDateToMillis(input: Date): number
+export function chronoDateFixtureReturn1(): Date
+
+export function chronoDateFixtureReturn2(): Date
+
+export function chronoDateWithTimezoneReturn(): Date | null
+
+export function chronoDateWithTimezoneToMillis(input: Date): number
+
+export function chronoLocalDateReturn(): Date | null
+
+export function chronoLocalDateToMillis(input: Date): number
 
 export function chronoNativeDateTime(date: Date): number
 
 export function chronoNativeDateTimeReturn(): Date | null
+
+export function chronoUtcDateReturn(): Date | null
+
+export function chronoUtcDateToMillis(input: Date): number
 
 export function concatLatin1(s: string): string
 
@@ -387,7 +403,7 @@ export const enum CustomNumEnum {
 
 export function customStatusCode(): void
 
-export interface Dates {
+export interface DatesWithTimeZone {
   start: Date
   end?: Date
 }
@@ -495,6 +511,11 @@ export const enum Kind {
 
 export function listObjKeys(obj: object): Array<string>
 
+export interface LocalDates {
+  start: Date
+  end?: Date
+}
+
 export function mapOption(val?: number | undefined | null): number | null
 
 export function mutateExternal(external: ExternalObject<number>, newVal: number): void
@@ -590,8 +611,6 @@ export function returnEitherClass(input: number): number | JsClassForEither
 
 export function returnFromSharedCrate(): Shared
 
-export function returnJsFunction(): (...args: any[]) => any
-
 export function returnNull(): null
 
 export function returnObjectOnlyToJs(): ObjectOnlyToJs
@@ -638,9 +657,11 @@ export function sumNums(nums: Array<number>): number
 
 export function testSerdeBigNumberPrecision(number: string): any
 
+export function testSerdeBufferBytes(obj: object): bigint
+
 export function testSerdeRoundtrip(data: any): any
 
-export function threadsafeFunctionClosureCapture(func: (...args: any[]) => any): void
+export function threadsafeFunctionClosureCapture(func: (arg: string) => void): void
 
 export function threadsafeFunctionFatalMode(cb: (arg: boolean) => unknown): void
 
@@ -686,6 +707,11 @@ export interface UseNullableStruct {
   requiredStringField: string
   nullableNumberField: number | null
   nullableStringField: string | null
+}
+
+export interface UtcDates {
+  start: Date
+  end?: Date
 }
 
 export function validateArray(arr: Array<number>): number

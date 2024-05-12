@@ -3,7 +3,7 @@ use std::ptr;
 use super::Value;
 #[cfg(feature = "napi4")]
 use crate::{
-  bindgen_runtime::ToNapiValue,
+  bindgen_runtime::JsValuesTupleIntoVec,
   threadsafe_function::{ThreadsafeCallContext, ThreadsafeFunction},
 };
 use crate::{bindgen_runtime::TypeName, JsString};
@@ -141,7 +141,7 @@ impl JsFunction {
   #[cfg(feature = "napi4")]
   pub fn create_threadsafe_function<
     T,
-    V,
+    NewArgs,
     Return,
     F,
     const ES: bool,
@@ -150,13 +150,17 @@ impl JsFunction {
   >(
     &self,
     callback: F,
-  ) -> Result<ThreadsafeFunction<T, Return, ES, Weak, MaxQueueSize>>
+  ) -> Result<ThreadsafeFunction<T, Return, NewArgs, ES, Weak, MaxQueueSize>>
   where
     T: 'static,
+    NewArgs: 'static + JsValuesTupleIntoVec,
     Return: crate::bindgen_runtime::FromNapiValue,
-    V: ToNapiValue,
-    F: 'static + Send + FnMut(ThreadsafeCallContext<T>) -> Result<Vec<V>>,
+    F: 'static + Send + FnMut(ThreadsafeCallContext<T>) -> Result<NewArgs>,
   {
-    ThreadsafeFunction::create(self.0.env, self.0.value, callback)
+    ThreadsafeFunction::<T, Return, NewArgs, ES, Weak, MaxQueueSize>::create(
+      self.0.env,
+      self.0.value,
+      callback,
+    )
   }
 }

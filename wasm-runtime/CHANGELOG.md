@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.2.4](https://github.com/napi-rs/napi-rs/compare/@napi-rs/wasm-runtime@0.2.3...@napi-rs/wasm-runtime@0.2.4) (2024-05-12)
+
+### Bug Fixes
+
+- **deps:** update dependency @tybys/wasm-util to ^0.9.0 ([#2096](https://github.com/napi-rs/napi-rs/issues/2096)) ([ec39912](https://github.com/napi-rs/napi-rs/commit/ec3991252710870c621edb4825bd4bf076ad45b0))
+
 ## [0.2.3](https://github.com/napi-rs/napi-rs/compare/@napi-rs/wasm-runtime@0.2.2...@napi-rs/wasm-runtime@0.2.3) (2024-04-23)
 
 ### Bug Fixes

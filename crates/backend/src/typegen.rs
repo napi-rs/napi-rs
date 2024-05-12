@@ -3,7 +3,12 @@ mod r#enum;
 mod r#fn;
 pub(crate) mod r#struct;
 
-use std::{cell::RefCell, collections::HashMap, env};
+use std::{
+  cell::RefCell,
+  collections::HashMap,
+  env,
+  fmt::{self, Display, Formatter},
+};
 
 use once_cell::sync::Lazy;
 use syn::{PathSegment, Type, TypePath, TypeSlice};
@@ -98,18 +103,18 @@ fn escape_json(src: &str) -> String {
   escaped
 }
 
-impl ToString for TypeDef {
-  fn to_string(&self) -> String {
+impl Display for TypeDef {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
     let pkg_name = std::env::var("CARGO_PKG_NAME").expect("CARGO_PKG_NAME is not set");
     let js_mod = if let Some(js_mod) = &self.js_mod {
       format!(", \"js_mod\": \"{}\"", js_mod)
     } else {
-      "".to_owned()
+      "".to_string()
     };
     let original_name = if let Some(original_name) = &self.original_name {
       format!(", \"original_name\": \"{}\"", original_name)
     } else {
-      "".to_owned()
+      "".to_string()
     };
     // TODO: remove this in v3
     // This is a workaround for lower version of @napi-rs/cli
@@ -119,7 +124,8 @@ impl ToString for TypeDef {
     } else {
       "".to_string()
     };
-    format!(
+    write!(
+      f,
       r#"{}{{"kind": "{}", "name": "{}", "js_doc": "{}", "def": "{}"{}{}}}"#,
       prefix,
       self.kind,
@@ -419,7 +425,11 @@ pub fn ty_to_ts_type(
             Some((arg, _)) => arg == "false",
             _ => false,
           };
-          let fn_args = args.first().map(|(arg, _)| arg).unwrap();
+          let fn_args = args
+            .get(2)
+            .or_else(|| args.first())
+            .map(|(arg, _)| arg)
+            .unwrap();
           let return_ty = args
             .get(1)
             .map(|(ty, _)| ty.clone())

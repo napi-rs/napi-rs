@@ -17,10 +17,7 @@ pub fn constructor(ctx: CallContext) -> napi::Result<JsUndefined> {
     ctx
       .env
       .create_threadsafe_function(&callback, 0, |ctx: ThreadSafeCallContext<String>| {
-        ctx
-          .env
-          .create_string_from_std(ctx.value)
-          .map(|js_string| vec![js_string])
+        Ok(ctx.value)
       })?;
 
   let mut this: JsObject = ctx.this_unchecked();

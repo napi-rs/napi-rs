@@ -55,6 +55,11 @@ fn accept_slice(fixture: &[u8]) -> usize {
 }
 
 #[napi]
+fn accept_arraybuffer(fixture: JsArrayBuffer) -> Result<usize> {
+  Ok(fixture.into_value()?.as_ref().len())
+}
+
+#[napi]
 fn u8_array_to_array(input: &[u8]) -> Vec<u8> {
   input.to_vec()
 }

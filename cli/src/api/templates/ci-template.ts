@@ -42,7 +42,7 @@ jobs:
         settings:
           - host: macos-latest
             target: 'x86_64-apple-darwin'
-            build: ${packageManager} build --platform
+            build: ${packageManager} build --platform --target x86_64-apple-darwin
           - host: windows-latest
             build: ${packageManager} build --platform
             target: 'x86_64-pc-windows-msvc'
