@@ -35,9 +35,9 @@ new NapiCli().build({
 | platform          | --platform            | boolean  | false    |         | Add platform triple to the generated nodejs binding file, eg: `[name].linux-x64-gnu.node`                                 |
 | jsPackageName     | --js-package-name     | string   | false    |         | Package name in generated js binding file. Only works with `--platform` flag                                              |
 | constEnum         | --const-enum          | boolean  | false    |         | Whether generate const enum for typescript bindings                                                                       |
-| jsBinding         | --js                  | string   | false    |         | Path and filename of generated JS binding file. Only works with `--platform` flag. Relative to `--output_dir`.            |
+| jsBinding         | --js                  | string   | false    |         | Path and filename of generated JS binding file. Only works with `--platform` flag. Relative to `--output-dir`.            |
 | noJsBinding       | --no-js               | boolean  | false    |         | Whether to disable the generation JS binding file. Only works with `--platform` flag.                                     |
-| dts               | --dts                 | string   | false    |         | Path and filename of generated type def file. Relative to `--output_dir`                                                  |
+| dts               | --dts                 | string   | false    |         | Path and filename of generated type def file. Relative to `--output-dir`                                                  |
 | dtsHeader         | --dts-header          | string   | false    |         | Custom file header for generated type def file. Only works when `typedef` feature enabled.                                |
 | noDtsHeader       | --no-dts-header       | boolean  | false    |         | Whether to disable the default file header for generated type def file. Only works when `typedef` feature enabled.        |
 | strip             | --strip,-s            | boolean  | false    |         | Whether strip the library to achieve the minimum file size                                                                |
