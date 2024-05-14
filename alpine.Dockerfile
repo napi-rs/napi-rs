@@ -13,7 +13,9 @@ RUN apk add --update --no-cache bash wget cmake musl-dev clang llvm build-base p
   git \
   gn \
   tar \
-  ninja
+  ninja && \
+  apk update && \
+  apk upgrade
 
 RUN rustup-init -y && \
   yarn global add pnpm lerna && \
