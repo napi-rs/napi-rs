@@ -57,7 +57,7 @@ export abstract class BaseBuildCommand extends Command {
 
   jsBinding?: string = Option.String('--js', {
     description:
-      'Path and filename of generated JS binding file. Only works with `--platform` flag. Relative to `--output_dir`.',
+      'Path and filename of generated JS binding file. Only works with `--platform` flag. Relative to `--output-dir`.',
   })
 
   noJsBinding?: boolean = Option.Boolean('--no-js', {
@@ -67,7 +67,7 @@ export abstract class BaseBuildCommand extends Command {
 
   dts?: string = Option.String('--dts', {
     description:
-      'Path and filename of generated type def file. Relative to `--output_dir`',
+      'Path and filename of generated type def file. Relative to `--output-dir`',
   })
 
   dtsHeader?: string = Option.String('--dts-header', {
@@ -215,7 +215,7 @@ export interface BuildOptions {
    */
   constEnum?: boolean
   /**
-   * Path and filename of generated JS binding file. Only works with `--platform` flag. Relative to `--output_dir`.
+   * Path and filename of generated JS binding file. Only works with `--platform` flag. Relative to `--output-dir`.
    */
   jsBinding?: string
   /**
@@ -223,7 +223,7 @@ export interface BuildOptions {
    */
   noJsBinding?: boolean
   /**
-   * Path and filename of generated type def file. Relative to `--output_dir`
+   * Path and filename of generated type def file. Relative to `--output-dir`
    */
   dts?: string
   /**

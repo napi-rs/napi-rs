@@ -182,7 +182,7 @@ const BUILD_OPTIONS: CommandSchema = {
       name: 'jsBinding',
       type: 'string',
       description:
-        'Path and filename of generated JS binding file. Only works with `--platform` flag. Relative to `--output_dir`.',
+        'Path and filename of generated JS binding file. Only works with `--platform` flag. Relative to `--output-dir`.',
       long: 'js',
     },
     {
@@ -196,7 +196,7 @@ const BUILD_OPTIONS: CommandSchema = {
       name: 'dts',
       type: 'string',
       description:
-        'Path and filename of generated type def file. Relative to `--output_dir`',
+        'Path and filename of generated type def file. Relative to `--output-dir`',
     },
     {
       name: 'dtsHeader',
