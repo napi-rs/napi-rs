@@ -3,34 +3,38 @@
 use napi::{
   bindgen_prelude::{ClassInstance, Function, FunctionRef},
   threadsafe_function::ThreadsafeFunctionCallMode,
-  Env, JsFunction, JsObject, Result,
+  Env, JsObject, Result,
 };
 
 use crate::class::Animal;
 
 #[napi]
-pub fn call0(callback: JsFunction) -> Result<u32> {
-  callback.call0()
+pub fn call0(callback: Function<(), u32>) -> Result<u32> {
+  callback.call(())
 }
 
 #[napi]
-pub fn call1(callback: JsFunction, arg: u32) -> Result<u32> {
-  callback.call1(arg)
+pub fn call1(callback: Function<u32, u32>, arg: u32) -> Result<u32> {
+  callback.call(arg)
 }
 
 #[napi]
-pub fn call2(callback: JsFunction, arg1: u32, arg2: u32) -> Result<u32> {
-  callback.call2(arg1, arg2)
+pub fn call2(callback: Function<(u32, u32), u32>, arg1: u32, arg2: u32) -> Result<u32> {
+  callback.call((arg1, arg2))
 }
 
 #[napi]
-pub fn apply0(ctx: ClassInstance<Animal>, callback: JsFunction) -> Result<()> {
-  callback.apply0(ctx)
+pub fn apply0(ctx: ClassInstance<Animal>, callback: Function<(), ()>) -> Result<()> {
+  callback.apply(ctx, ())
 }
 
 #[napi]
-pub fn apply1(ctx: ClassInstance<Animal>, callback: JsFunction, name: String) -> Result<()> {
-  callback.apply1(ctx, name)
+pub fn apply1(
+  ctx: ClassInstance<Animal>,
+  callback: Function<String, ()>,
+  name: String,
+) -> Result<()> {
+  callback.apply(ctx, name)
 }
 
 #[napi]

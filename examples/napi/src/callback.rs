@@ -1,10 +1,6 @@
 use std::{env, format};
 
-use napi::{
-  bindgen_prelude::*,
-  threadsafe_function::{ThreadsafeCallContext, ThreadsafeFunction, ThreadsafeFunctionCallMode},
-  JsUnknown,
-};
+use napi::{bindgen_prelude::*, threadsafe_function::ThreadsafeFunctionCallMode, JsUnknown};
 
 #[napi]
 fn get_cwd<T: Fn(String) -> Result<()>>(callback: T) {
@@ -54,17 +50,19 @@ fn read_file_content() -> Result<String> {
 fn callback_return_promise<T: Fn() -> Result<JsUnknown>>(
   env: Env,
   fn_in: T,
-  fn_out: JsFunction,
+  fn_out: Function<String, ()>,
 ) -> Result<JsUnknown> {
   let ret = fn_in()?;
   if ret.is_promise()? {
     let p = Promise::<String>::from_unknown(ret)?;
-    let fn_out_tsfn: ThreadsafeFunction<String> =
-      fn_out.create_threadsafe_function(|ctx: ThreadsafeCallContext<String>| Ok(ctx.value))?;
+    let fn_out_tsfn = fn_out
+      .build_threadsafe_function()
+      .max_queue_size::<1>()
+      .build()?;
     env
       .execute_tokio_future(
         async move {
-          let s = p.await;
+          let s = p.await?;
           fn_out_tsfn.call(s, ThreadsafeFunctionCallMode::NonBlocking);
           Ok::<(), Error>(())
         },

@@ -131,7 +131,7 @@ pub fn either_from_objects(input: Either3<A, B, C>) -> String {
 }
 
 #[napi]
-pub fn either_bool_or_function(_input: Either<bool, JsFunction>) {}
+pub fn either_bool_or_function(_input: Either<bool, Function>) {}
 
 #[napi]
 pub async fn promise_in_either(input: Either<u32, Promise<u32>>) -> Result<bool> {
