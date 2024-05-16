@@ -468,6 +468,7 @@ module.exports.createSymbol = nativeBinding.createSymbol
 module.exports.createSymbolFor = nativeBinding.createSymbolFor
 module.exports.CustomNumEnum = nativeBinding.CustomNumEnum
 module.exports.customStatusCode = nativeBinding.customStatusCode
+module.exports.CustomStringEnum = nativeBinding.CustomStringEnum
 module.exports.dateToNumber = nativeBinding.dateToNumber
 module.exports.DEFAULT_COST = nativeBinding.DEFAULT_COST
 module.exports.derefUint8Array = nativeBinding.derefUint8Array
