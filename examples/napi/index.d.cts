@@ -405,6 +405,12 @@ export const enum CustomNumEnum {
 
 export function customStatusCode(): void
 
+export const enum CustomStringEnum {
+  Foo = 'my-custom-value',
+  Bar = 'Bar',
+  Baz = 'Baz'
+}
+
 export interface DatesWithTimeZone {
   start: Date
   end?: Date
