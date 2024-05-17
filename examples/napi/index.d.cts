@@ -307,6 +307,8 @@ export function bufferPassThrough(buf: Buffer): Promise<Buffer>
 
 export function buildThreadsafeFunctionFromFunction(callback: (arg0: number, arg1: number) => number): void
 
+export function buildThreadsafeFunctionFromFunctionCalleeHandle(callback: () => void): void
+
 export interface C {
   baz: number
 }
