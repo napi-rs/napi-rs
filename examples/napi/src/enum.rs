@@ -51,3 +51,11 @@ pub enum SkippedEnums {
   Two,
   Tree,
 }
+
+#[napi(string_enum)]
+pub enum CustomStringEnum {
+  #[napi(value = "my-custom-value")]
+  Foo,
+  Bar,
+  Baz,
+}
