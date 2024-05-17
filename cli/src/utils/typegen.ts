@@ -30,6 +30,7 @@ function prettyPrint(
   line: TypeDefLine,
   constEnum: boolean,
   ident: number,
+  ambient = false,
 ): string {
   let s = line.js_doc ?? ''
   switch (line.kind) {
@@ -39,22 +40,26 @@ function prettyPrint(
 
     case TypeDefKind.Enum:
       const enumName = constEnum ? 'const enum' : 'enum'
-      s += `export ${enumName} ${line.name} {\n${line.def}\n}`
+      s += `${exportDeclare(ambient)} ${enumName} ${line.name} {\n${line.def}\n}`
       break
 
     case TypeDefKind.StringEnum:
       if (constEnum) {
-        s += `export const enum ${line.name} {\n${line.def}\n}`
+        s += `${exportDeclare(ambient)} const enum ${line.name} {\n${line.def}\n}`
       } else {
         s += `export type ${line.name} = ${line.def.replaceAll(/.*=/g, '').replaceAll(',', '|')};`
       }
       break
 
     case TypeDefKind.Struct:
-      s += `export class ${line.name} {\n${line.def}\n}`
+      s += `${exportDeclare(ambient)} class ${line.name} {\n${line.def}\n}`
       if (line.original_name && line.original_name !== line.name) {
         s += `\nexport type ${line.original_name} = ${line.name}`
       }
+      break
+
+    case TypeDefKind.Fn:
+      s += `${exportDeclare(ambient)} ${line.def}`
       break
 
     default:
@@ -62,6 +67,14 @@ function prettyPrint(
   }
 
   return correctStringIdent(s, ident)
+}
+
+function exportDeclare(ambient: boolean): string {
+  if (ambient) {
+    return 'export'
+  }
+
+  return 'export declare'
 }
 
 export async function processTypeDef(
@@ -99,9 +112,9 @@ export async function processTypeDef(
         }
       } else {
         exports.push(namespace)
-        dts += `export namespace ${namespace} {\n`
+        dts += `export declare namespace ${namespace} {\n`
         for (const def of defs) {
-          dts += prettyPrint(def, constEnum, 2) + '\n'
+          dts += prettyPrint(def, constEnum, 2, true) + '\n'
         }
         dts += '}\n\n'
       }
@@ -110,7 +123,7 @@ export async function processTypeDef(
 
   if (dts.indexOf('ExternalObject<') > -1) {
     header += `
-export class ExternalObject<T> {
+export declare class ExternalObject<T> {
   readonly '': {
     readonly '': unique symbol
     [K: symbol]: T
