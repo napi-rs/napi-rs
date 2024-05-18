@@ -3,7 +3,7 @@
 use napi::{
   bindgen_prelude::{ClassInstance, Function, FunctionRef},
   threadsafe_function::ThreadsafeFunctionCallMode,
-  Env, JsFunction, JsObject, Result,
+  Env, Error, JsFunction, JsObject, Result, Status,
 };
 
 use crate::class::Animal;
@@ -100,6 +100,25 @@ pub fn build_threadsafe_function_from_function(callback: Function<(u32, u32), u3
 
   std::thread::spawn(move || {
     tsfn_weak.call((1, 2), ThreadsafeFunctionCallMode::NonBlocking);
+  });
+
+  Ok(())
+}
+
+#[napi]
+pub fn build_threadsafe_function_from_function_callee_handle(
+  callback: Function<(), ()>,
+) -> Result<()> {
+  let tsfn = callback
+    .build_threadsafe_function()
+    .callee_handled::<true>()
+    .build()?;
+
+  std::thread::spawn(move || {
+    tsfn.call(
+      Err(Error::new(Status::GenericFailure, "run tsfn failed")),
+      ThreadsafeFunctionCallMode::NonBlocking,
+    );
   });
 
   Ok(())
