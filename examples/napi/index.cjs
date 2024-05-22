@@ -427,6 +427,7 @@ module.exports.bigintFromI64 = nativeBinding.bigintFromI64
 module.exports.bigintGetU64AsString = nativeBinding.bigintGetU64AsString
 module.exports.bufferPassThrough = nativeBinding.bufferPassThrough
 module.exports.buildThreadsafeFunctionFromFunction = nativeBinding.buildThreadsafeFunctionFromFunction
+module.exports.buildThreadsafeFunctionFromFunctionCalleeHandle = nativeBinding.buildThreadsafeFunctionFromFunctionCalleeHandle
 module.exports.call0 = nativeBinding.call0
 module.exports.call1 = nativeBinding.call1
 module.exports.call2 = nativeBinding.call2

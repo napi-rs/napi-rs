@@ -250,6 +250,7 @@ pub struct ThreadsafeFunctionBuilder<
   T: 'static,
   Args: 'static + JsValuesTupleIntoVec,
   Return,
+  const CalleeHandled: bool = false,
   const Weak: bool = false,
   const MaxQueueSize: usize = 0,
 > {
@@ -265,13 +266,25 @@ impl<
     T: 'static,
     Args: 'static + JsValuesTupleIntoVec,
     Return: FromNapiValue,
+    const CalleeHandled: bool,
     const Weak: bool,
     const MaxQueueSize: usize,
-  > ThreadsafeFunctionBuilder<'env, T, Args, Return, Weak, MaxQueueSize>
+  > ThreadsafeFunctionBuilder<'env, T, Args, Return, CalleeHandled, Weak, MaxQueueSize>
 {
   pub fn weak<const NewWeak: bool>(
     self,
-  ) -> ThreadsafeFunctionBuilder<'env, T, Args, Return, NewWeak, MaxQueueSize> {
+  ) -> ThreadsafeFunctionBuilder<'env, T, Args, Return, CalleeHandled, NewWeak, MaxQueueSize> {
+    ThreadsafeFunctionBuilder {
+      env: self.env,
+      value: self.value,
+      _args: std::marker::PhantomData,
+      _return: std::marker::PhantomData,
+    }
+  }
+
+  pub fn callee_handled<const NewCalleeHandled: bool>(
+    self,
+  ) -> ThreadsafeFunctionBuilder<'env, T, Args, Return, NewCalleeHandled, Weak, MaxQueueSize> {
     ThreadsafeFunctionBuilder {
       env: self.env,
       value: self.value,
@@ -282,7 +295,7 @@ impl<
 
   pub fn max_queue_size<const NewMaxQueueSize: usize>(
     self,
-  ) -> ThreadsafeFunctionBuilder<'env, T, Args, Return, Weak, NewMaxQueueSize> {
+  ) -> ThreadsafeFunctionBuilder<'env, T, Args, Return, CalleeHandled, Weak, NewMaxQueueSize> {
     ThreadsafeFunctionBuilder {
       env: self.env,
       value: self.value,
@@ -294,12 +307,12 @@ impl<
   pub fn build_callback<CallJsBackArgs, Callback>(
     &self,
     call_js_back: Callback,
-  ) -> Result<ThreadsafeFunction<T, Return, CallJsBackArgs, false, Weak, MaxQueueSize>>
+  ) -> Result<ThreadsafeFunction<T, Return, CallJsBackArgs, CalleeHandled, Weak, MaxQueueSize>>
   where
     CallJsBackArgs: 'static + JsValuesTupleIntoVec,
     Callback: 'static + Send + FnMut(ThreadsafeCallContext<T>) -> Result<CallJsBackArgs>,
   {
-    ThreadsafeFunction::<T, Return, Args, false, Weak, MaxQueueSize>::create(
+    ThreadsafeFunction::<T, Return, Args, CalleeHandled, Weak, MaxQueueSize>::create(
       self.env,
       self.value,
       call_js_back,
@@ -312,11 +325,14 @@ impl<
     'env,
     T: 'static + JsValuesTupleIntoVec,
     Return: FromNapiValue,
+    const CalleeHandled: bool,
     const Weak: bool,
     const MaxQueueSize: usize,
-  > ThreadsafeFunctionBuilder<'env, T, T, Return, Weak, MaxQueueSize>
+  > ThreadsafeFunctionBuilder<'env, T, T, Return, CalleeHandled, Weak, MaxQueueSize>
 {
-  pub fn build(&self) -> Result<ThreadsafeFunction<T, Return, T, false, Weak, MaxQueueSize>> {
+  pub fn build(
+    &self,
+  ) -> Result<ThreadsafeFunction<T, Return, T, CalleeHandled, Weak, MaxQueueSize>> {
     unsafe { ThreadsafeFunction::from_napi_value(self.env, self.value) }
   }
 }
