@@ -3,8 +3,7 @@
 use napi::{
   bindgen_prelude::{ClassInstance, Function, FunctionRef},
   threadsafe_function::ThreadsafeFunctionCallMode,
-  Env, JsObject, Result,
-  Env, Error, JsFunction, JsObject, Result, Status,
+  Env, Error, JsObject, Result, Status,
 };
 
 use crate::class::Animal;

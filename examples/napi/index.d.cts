@@ -271,9 +271,9 @@ export interface AllOptionalObject {
 
 export declare function appendBuffer(buf: Buffer): Buffer
 
-export declare function apply0(ctx: Animal, callback: (...args: any[]) => any): void
+export declare function apply0(ctx: Animal, callback: () => void): void
 
-export declare function apply1(ctx: Animal, callback: (...args: any[]) => any, name: string): void
+export declare function apply1(ctx: Animal, callback: (arg: string) => void, name: string): void
 
 export declare function arrayBufferPassThrough(buf: Uint8Array): Promise<Uint8Array>
 
@@ -313,11 +313,11 @@ export interface C {
   baz: number
 }
 
-export declare function call0(callback: (...args: any[]) => any): number
+export declare function call0(callback: () => number): number
 
-export declare function call1(callback: (...args: any[]) => any, arg: number): number
+export declare function call1(callback: (arg: number) => number, arg: number): number
 
-export declare function call2(callback: (...args: any[]) => any, arg1: number, arg2: number): number
+export declare function call2(callback: (arg0: number, arg1: number) => number, arg1: number, arg2: number): number
 
 export declare function callbackReturnPromise<T>(functionInput: () => T | Promise<T>, callback: (err: Error | null, result: T) => void): T | Promise<T>
 
@@ -434,7 +434,7 @@ export declare function either3(input: string | number | boolean): number
 
 export declare function either4(input: string | number | boolean | Obj): number
 
-export declare function eitherBoolOrFunction(input: boolean | ((...args: any[]) => any)): void
+export declare function eitherBoolOrFunction(input: boolean | (any)): void
 
 export declare function eitherBoolOrTuple(input: boolean | [boolean, string]): void
 

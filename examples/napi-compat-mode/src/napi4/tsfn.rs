@@ -1,9 +1,9 @@
-use std::{borrow::Borrow, path::Path};
+use std::path::Path;
 use std::thread;
 
 use napi::{
-  bindgen_prelude::{Buffer, Function,Reference},
-  threadsafe_function::{ ThreadsafeFunctionCallMode},
+  bindgen_prelude::{Buffer, Function},
+  threadsafe_function::{ThreadSafeCallContext, ThreadsafeFunctionCallMode},
   CallContext, Error, JsBoolean, JsNumber, JsObject, JsString, JsUndefined, Ref, Result, Status,
 };
 
@@ -71,10 +71,13 @@ pub fn test_call_aborted_threadsafe_function(ctx: CallContext) -> Result<JsUndef
 #[js_function(1)]
 pub fn test_tsfn_error(ctx: CallContext) -> Result<JsUndefined> {
   let func = ctx.get::<Function<Option<Error>>>(0)?;
-  let tsfn = func.build_threadsafe_function().build()?;
+  let tsfn = func
+    .build_threadsafe_function()
+    .callee_handled::<true>()
+    .build()?;
   thread::spawn(move || {
     tsfn.call(
-      Some(Error::new(Status::GenericFailure, "invalid".to_owned())),
+      Err(Error::new(Status::GenericFailure, "invalid".to_owned())),
       ThreadsafeFunctionCallMode::Blocking,
     );
   });
@@ -106,15 +109,22 @@ pub fn test_tokio_readfile(ctx: CallContext) -> Result<JsUndefined> {
   ctx.env.get_undefined()
 }
 
-#[js_function(2)]
+#[js_function(3)]
 pub fn test_tsfn_with_ref(ctx: CallContext) -> Result<JsUndefined> {
-  let callback = ctx.get::<Function<Reference<JsObject>>>(0)?;
-  let options = ctx.get::<Reference<JsObject>>(1)?;
-  let env = ctx.env;
-  let tsfn = callback.build_threadsafe_function().build()?;
+  let callback: Function<Ref<()>, napi::JsUnknown> = ctx.get::<Function<Ref<()>>>(0)?;
+  let options = ctx.get::<JsObject>(1)?;
+  let option_ref = ctx.env.create_reference(options)?;
+  let tsfn = callback.build_threadsafe_function().build_callback(
+    move |mut ctx: ThreadSafeCallContext<Ref<()>>| {
+      ctx
+        .env
+        .get_reference_value_unchecked::<JsObject>(&ctx.value)
+        .and_then(|obj| ctx.value.unref(ctx.env).map(|_| obj))
+    },
+  )?;
 
   thread::spawn(move || {
-    tsfn.call(options.borrow().clone(*env).unwrap(), ThreadsafeFunctionCallMode::Blocking);
+    tsfn.call(option_ref, ThreadsafeFunctionCallMode::Blocking);
   });
 
   ctx.env.get_undefined()
