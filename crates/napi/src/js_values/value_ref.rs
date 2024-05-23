@@ -2,7 +2,7 @@ use std::ops::Deref;
 use std::ptr;
 
 use super::{check_status, Value};
-use crate::{sys, Env, Result};
+use crate::{bindgen_runtime::ToNapiValue, sys, Env, Result};
 
 pub struct Ref<T> {
   pub(crate) raw_ref: sys::napi_ref,
@@ -58,5 +58,16 @@ impl<T> Drop for Ref<T> {
       self.count, 0,
       "Ref count is not equal to 0 while dropping Ref, potential memory leak"
     );
+  }
+}
+
+impl<T: 'static> ToNapiValue for Ref<T> {
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    let mut result = ptr::null_mut();
+    check_status!(
+      unsafe { sys::napi_get_reference_value(env, val.raw_ref, &mut result) },
+      "Failed to get reference value"
+    )?;
+    Ok(result)
   }
 }
