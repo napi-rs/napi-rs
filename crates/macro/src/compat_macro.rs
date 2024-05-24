@@ -77,13 +77,23 @@ pub fn get_execute_js_code(new_fn_name: Ident, function_kind: FunctionKind) -> T
   let return_token_stream = match function_kind {
     FunctionKind::Contextless => {
       quote! {
-        Ok(Some(v)) => unsafe { v.raw() },
+        Ok(Some(v)) => unsafe {
+          napi::bindgen_prelude::ToNapiValue::to_napi_value(raw_env, v).unwrap_or_else(|e| {
+            napi::JsError::from(e).throw_into(raw_env);
+            ptr::null_mut()
+          })
+        },
         Ok(None) => ptr::null_mut(),
       }
     }
     FunctionKind::JsFunction => {
       quote! {
-        Ok(v) => unsafe { v.raw() },
+        Ok(v) => unsafe {
+          napi::bindgen_prelude::ToNapiValue::to_napi_value(raw_env, v).unwrap_or_else(|e| {
+            napi::JsError::from(e).throw_into(raw_env);
+            ptr::null_mut()
+          })
+        },
       }
     }
   };
