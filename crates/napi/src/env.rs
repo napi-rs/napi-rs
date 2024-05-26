@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use std::any::{type_name, TypeId};
 use std::convert::TryInto;
 use std::ffi::CString;
