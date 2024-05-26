@@ -1,6 +1,6 @@
 use napi::{
-  CallContext, ContextlessResult, Env, JsBoolean, JsFunction, JsObject, JsString, JsUndefined,
-  JsUnknown, Result,
+  bindgen_prelude::Function, CallContext, ContextlessResult, Env, JsBoolean, JsObject, JsString,
+  JsUndefined, JsUnknown, Result,
 };
 
 #[js_function(2)]
@@ -48,8 +48,8 @@ pub fn throw_syntax_error(ctx: CallContext) -> Result<JsUndefined> {
   let syntax_error = ctx
     .env
     .get_global()?
-    .get_named_property::<JsFunction>("SyntaxError")?;
-  ctx.env.throw(syntax_error.new_instance(&[message])?)?;
+    .get_named_property::<Function<JsString>>("SyntaxError")?;
+  ctx.env.throw(syntax_error.new_instance(message)?)?;
   ctx.env.get_undefined()
 }
 
