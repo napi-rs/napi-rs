@@ -1,22 +1,20 @@
 use napi::{
-  CallContext, CleanupEnvHook, ContextlessResult, Env, JsExternal, JsObject, JsUndefined, Result,
+  bindgen_prelude::External, CallContext, CleanupEnvHook, ContextlessResult, Env, JsObject,
+  JsUndefined, Result,
 };
 
 #[contextless_function]
-fn add_cleanup_hook(mut env: Env) -> ContextlessResult<JsExternal> {
+fn add_cleanup_hook(mut env: Env) -> ContextlessResult<External<CleanupEnvHook<()>>> {
   let hook = env.add_env_cleanup_hook((), |_| {
     println!("cleanup hook executed");
   })?;
-  env.create_external(hook, None).map(Some)
+  Ok(Some(External::new(hook)))
 }
 
 #[js_function(1)]
 fn remove_cleanup_hook(ctx: CallContext) -> Result<JsUndefined> {
-  let hook_external = ctx.get::<JsExternal>(0)?;
-  let hook = *ctx
-    .env
-    .get_value_external::<CleanupEnvHook<()>>(&hook_external)?;
-  ctx.env.remove_env_cleanup_hook(hook)?;
+  let hook = ctx.get::<&External<CleanupEnvHook<()>>>(0)?;
+  ctx.env.remove_env_cleanup_hook(**hook)?;
   ctx.env.get_undefined()
 }
 

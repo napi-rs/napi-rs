@@ -59,13 +59,8 @@ fn validate_external(e: &External<u32>) -> u32 {
 }
 
 #[napi(strict, ts_args_type = "cb: () => number")]
-fn validate_function(cb: JsFunction) -> Result<u32> {
-  Ok(
-    cb.call::<JsUnknown>(None, &[])?
-      .coerce_to_number()?
-      .get_uint32()?
-      + 3,
-  )
+fn validate_function(cb: Function<(), JsUnknown>) -> Result<u32> {
+  Ok(cb.call(())?.coerce_to_number()?.get_uint32()? + 3)
 }
 
 #[napi(strict)]

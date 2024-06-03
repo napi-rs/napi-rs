@@ -1,25 +1,25 @@
 use napi::{
-  bindgen_prelude::Function, CallContext, JsError, JsFunction, JsNull, JsObject, JsUnknown, Result,
+  bindgen_prelude::Function, CallContext, JsError, JsNull, JsObject, JsString, JsUnknown, Result,
 };
 
 #[js_function(1)]
 pub fn call_function(ctx: CallContext) -> Result<JsNull> {
-  let js_func = ctx.get::<JsFunction>(0)?;
+  let js_func = ctx.get::<Function<(JsUnknown, JsUnknown)>>(0)?;
   let js_string_hello = ctx.env.create_string("hello".as_ref())?.into_unknown();
   let js_string_world = ctx.env.create_string("world".as_ref())?.into_unknown();
 
-  js_func.call(None, &[js_string_hello, js_string_world])?;
+  js_func.call((js_string_hello, js_string_world))?;
 
   ctx.env.get_null()
 }
 
 #[js_function(1)]
 pub fn call_function_with_ref_arguments(ctx: CallContext) -> Result<JsNull> {
-  let js_func = ctx.get::<JsFunction>(0)?;
+  let js_func = ctx.get::<Function<(JsString, JsString)>>(0)?;
   let js_string_hello = ctx.env.create_string("hello".as_ref())?;
   let js_string_world = ctx.env.create_string("world".as_ref())?;
 
-  js_func.call(None, &[&js_string_hello, &js_string_world])?;
+  js_func.call((js_string_hello, js_string_world))?;
 
   ctx.env.get_null()
 }
@@ -27,21 +27,21 @@ pub fn call_function_with_ref_arguments(ctx: CallContext) -> Result<JsNull> {
 #[js_function(1)]
 pub fn call_function_with_this(ctx: CallContext) -> Result<JsNull> {
   let js_this: JsObject = ctx.this_unchecked();
-  let js_func = ctx.get::<JsFunction>(0)?;
+  let js_func = ctx.get::<Function<()>>(0)?;
 
-  js_func.call_without_args(Some(&js_this))?;
+  js_func.apply(&js_this, ())?;
 
   ctx.env.get_null()
 }
 
 #[js_function(2)]
 pub fn call_function_error(ctx: CallContext) -> Result<JsUnknown> {
-  let js_func = ctx.get::<JsFunction>(0)?;
-  let error_func = ctx.get::<JsFunction>(1)?;
+  let js_func = ctx.get::<Function<()>>(0)?;
+  let error_func = ctx.get::<Function>(1)?;
 
-  match js_func.call_without_args(None) {
+  match js_func.call(()) {
     Ok(v) => Ok(v),
-    Err(e) => error_func.call(None, &[JsError::from(e).into_unknown(*ctx.env)]),
+    Err(e) => error_func.call(JsError::from(e).into_unknown(*ctx.env)),
   }
 }
 

@@ -235,7 +235,7 @@ impl NapiFn {
         crate::FnKind::Setter => "set",
       }
     } else {
-      "export function"
+      "function"
     }
   }
 
