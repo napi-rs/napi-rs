@@ -461,7 +461,7 @@ impl CatchOnConstructor2 {
 }
 
 #[napi]
-pub struct WithConstGeneric<const WEAK: bool> {}
+pub struct WithConstGenerics<const FOO: bool, const BAR: bool = false> {}
 
 #[napi]
-pub struct WithConstGenericTuple<const WEAK: bool = false>();
+pub struct WithConstGenericsTuple<const FOO: bool, const BAR: bool = false>();

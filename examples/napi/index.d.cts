@@ -234,11 +234,11 @@ export declare class Width {
   constructor(value: number)
 }
 
-export class WithGenerics {
+export declare class WithConstGenerics {
 
 }
 
-export class WithGenericsTuples {
+export declare class WithConstGenericsTuple {
 
 }
 
