@@ -5,10 +5,10 @@ use serde::{ser, Serialize, Serializer};
 use super::*;
 use crate::{Env, Error, Result};
 
-pub(crate) struct Ser<'env>(pub(crate) &'env Env);
+pub struct Ser<'env>(pub(crate) &'env Env);
 
 impl<'env> Ser<'env> {
-  fn new(env: &'env Env) -> Self {
+  pub fn new(env: &'env Env) -> Self {
     Self(env)
   }
 }
