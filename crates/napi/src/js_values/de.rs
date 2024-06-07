@@ -9,7 +9,12 @@ use crate::JsBigInt;
 use crate::{type_of, NapiValue, Value, ValueType};
 use crate::{Error, JsBoolean, JsNumber, JsObject, JsString, JsUnknown, Result, Status};
 
-pub(crate) struct De<'env>(pub(crate) &'env Value);
+pub struct De<'env>(pub(crate) &'env Value);
+impl<'env> De<'env> {
+  pub fn new(value: &'env JsObject) -> Self {
+    Self(&value.0)
+  }
+}
 
 #[doc(hidden)]
 impl<'x, 'de, 'env> serde::de::Deserializer<'x> for &'de mut De<'env> {
