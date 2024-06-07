@@ -18,6 +18,11 @@ use crate::Error;
 use crate::Result;
 
 pub struct JsObject(pub(crate) Value);
+impl From<Value> for JsObject {
+  fn from(value: Value) -> Self {
+    Self(value)
+  }
+}
 
 #[cfg(feature = "napi5")]
 pub struct FinalizeContext<T: 'static, Hint: 'static> {
