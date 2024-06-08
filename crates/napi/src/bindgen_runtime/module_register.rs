@@ -189,7 +189,10 @@ pub fn get_c_callback(raw_fn: ExportRegisterCallback) -> Result<crate::Callback>
   })
 }
 
-#[cfg(all(any(windows, feature = "dyn-symbols"), not(feature = "noop")))]
+#[cfg(all(
+  any(target_env = "msvc", feature = "dyn-symbols"),
+  not(feature = "noop")
+))]
 #[ctor::ctor]
 fn load_host() {
   unsafe {

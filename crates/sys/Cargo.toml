@@ -30,5 +30,5 @@ independent = true
 [dependencies]
 libloading = { version = "0.8", optional = true }
 
-[target.'cfg(windows)'.dependencies]
+[target.'cfg(target_env = "msvc")'.dependencies]
 libloading = "0.8"

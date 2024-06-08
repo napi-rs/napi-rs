@@ -99,3 +99,6 @@ version = "1"
 [dependencies.indexmap]
 optional = true
 version = "2"
+
+[build-dependencies]
+napi-build = {path = "../build"}
