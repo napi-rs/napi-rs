@@ -69,9 +69,13 @@ impl JsString {
       )
     })?;
 
+    // respect '\0' with js string, for example: `let hello = [a,'\0',b,'\0',c].join('')`
+    let mut result = mem::ManuallyDrop::new(result);
+    let buf_ptr = result.as_mut_ptr();
+    let bytes = unsafe { Vec::from_raw_parts(buf_ptr as *mut u8, written_char_count, len) };
     Ok(JsStringUtf8 {
       inner: self,
-      buf: result,
+      buf: bytes,
     })
   }
 
