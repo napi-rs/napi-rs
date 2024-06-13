@@ -159,3 +159,12 @@ pub async fn tsfn_return_promise_timeout(
 pub async fn tsfn_throw_from_js(tsfn: ThreadsafeFunction<u32, Promise<u32>>) -> napi::Result<u32> {
   tsfn.call_async(Ok(42)).await?.await
 }
+
+#[napi]
+pub fn spawn_thread_in_thread(tsfn: ThreadsafeFunction<u32, u32>) {
+  std::thread::spawn(move || {
+    std::thread::spawn(move || {
+      tsfn.call(Ok(42), ThreadsafeFunctionCallMode::NonBlocking);
+    });
+  });
+}
