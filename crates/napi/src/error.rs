@@ -113,7 +113,7 @@ impl From<JsUnknown> for Error {
 #[cfg(feature = "anyhow")]
 impl From<anyhow::Error> for Error {
   fn from(value: anyhow::Error) -> Self {
-    Error::new(Status::GenericFailure, format!("{}", value))
+    Error::new(Status::GenericFailure, format!("{:?}", value))
   }
 }
 
