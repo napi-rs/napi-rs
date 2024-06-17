@@ -125,39 +125,7 @@ unsafe impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> Send
 
 impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, Resolver> {
   pub(crate) fn new(env: sys::napi_env) -> Result<(Self, JsObject)> {
-    let mut raw_promise = ptr::null_mut();
-    let mut raw_deferred = ptr::null_mut();
-    check_status! {
-      unsafe { sys::napi_create_promise(env, &mut raw_deferred, &mut raw_promise) }
-    }?;
-
-    // Create a threadsafe function so we can call back into the JS thread when we are done.
-    let mut async_resource_name = ptr::null_mut();
-    let s = unsafe { CStr::from_bytes_with_nul_unchecked(b"napi_resolve_deferred\0") };
-    check_status!(
-      unsafe { sys::napi_create_string_utf8(env, s.as_ptr(), 22, &mut async_resource_name) },
-      "Create async resource name in JsDeferred failed"
-    )?;
-
-    let mut tsfn = ptr::null_mut();
-    check_status!(
-      unsafe {
-        sys::napi_create_threadsafe_function(
-          env,
-          ptr::null_mut(),
-          ptr::null_mut(),
-          async_resource_name,
-          0,
-          1,
-          ptr::null_mut(),
-          None,
-          raw_deferred.cast(),
-          Some(napi_resolve_deferred::<Data, Resolver>),
-          &mut tsfn,
-        )
-      },
-      "Create threadsafe function in JsDeferred failed"
-    )?;
+    let (tsfn, promise) = js_deferred_new_raw(env, Some(napi_resolve_deferred::<Data, Resolver>))?;
 
     let deferred = Self {
       tsfn,
@@ -166,12 +134,6 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
       _data: PhantomData,
       _resolver: PhantomData,
     };
-
-    let promise = JsObject(Value {
-      env,
-      value: raw_promise,
-      value_type: crate::ValueType::Object,
-    });
 
     Ok((deferred, promise))
   }
@@ -215,6 +177,53 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
       "Release threadsafe function in JsDeferred failed"
     );
   }
+}
+
+fn js_deferred_new_raw(
+  env: sys::napi_env,
+  resolve_deferred: sys::napi_threadsafe_function_call_js,
+) -> Result<(sys::napi_threadsafe_function, JsObject)> {
+  let mut raw_promise = ptr::null_mut();
+  let mut raw_deferred = ptr::null_mut();
+  check_status! {
+    unsafe { sys::napi_create_promise(env, &mut raw_deferred, &mut raw_promise) }
+  }?;
+
+  // Create a threadsafe function so we can call back into the JS thread when we are done.
+  let mut async_resource_name = ptr::null_mut();
+  let s = unsafe { CStr::from_bytes_with_nul_unchecked(b"napi_resolve_deferred\0") };
+  check_status!(
+    unsafe { sys::napi_create_string_utf8(env, s.as_ptr(), 22, &mut async_resource_name) },
+    "Create async resource name in JsDeferred failed"
+  )?;
+
+  let mut tsfn = ptr::null_mut();
+  check_status!(
+    unsafe {
+      sys::napi_create_threadsafe_function(
+        env,
+        ptr::null_mut(),
+        ptr::null_mut(),
+        async_resource_name,
+        0,
+        1,
+        ptr::null_mut(),
+        None,
+        raw_deferred.cast(),
+        resolve_deferred,
+        &mut tsfn,
+      )
+    },
+    "Create threadsafe function in JsDeferred failed"
+  )?;
+
+  let promise = JsObject(Value {
+    env,
+    value: raw_promise,
+    value_type: crate::ValueType::Object,
+  });
+
+  Ok((tsfn, promise))
 }
 
 extern "C" fn napi_resolve_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>>(
