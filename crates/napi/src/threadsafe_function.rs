@@ -706,6 +706,10 @@ unsafe extern "C" fn call_js_cb<
       )
     },
   };
+  handle_call_js_cb_status(status, raw_env)
+}
+
+fn handle_call_js_cb_status(status: sys::napi_status, raw_env: sys::napi_env) {
   if status == sys::Status::napi_ok {
     return;
   }
