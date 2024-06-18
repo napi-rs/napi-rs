@@ -29,7 +29,7 @@ pub fn call_function_with_this(ctx: CallContext) -> Result<JsNull> {
   let js_this: JsObject = ctx.this_unchecked();
   let js_func = ctx.get::<Function<()>>(0)?;
 
-  js_func.apply(&js_this, ())?;
+  js_func.apply(js_this, ())?;
 
   ctx.env.get_null()
 }
