@@ -1,6 +1,6 @@
 #![allow(deprecated)]
 
-use std::{ptr, usize};
+use std::ptr;
 
 use super::{FromNapiValue, ToNapiValue, TypeName, Unknown, ValidateNapiValue};
 
