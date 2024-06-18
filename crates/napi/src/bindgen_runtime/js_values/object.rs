@@ -22,15 +22,23 @@ impl Object {
   }
 
   pub fn get<K: AsRef<str>, V: FromNapiValue>(&self, field: K) -> Result<Option<V>> {
-    let c_field = CString::new(field.as_ref())?;
+    unsafe {
+      self
+        .get_inner(field.as_ref())?
+        .map(|v| V::from_napi_value(self.0.env, v))
+        .transpose()
+    }
+  }
+
+  fn get_inner(&self, field: &str) -> Result<Option<sys::napi_value>> {
+    let c_field = CString::new(field)?;
 
     unsafe {
       let mut ret = ptr::null_mut();
 
       check_status!(
         sys::napi_get_named_property(self.0.env, self.0.value, c_field.as_ptr(), &mut ret),
-        "Failed to get property with field `{}`",
-        field.as_ref(),
+        "Failed to get property with field `{field}`",
       )?;
 
       let ty = type_of!(self.0.env, ret)?;
@@ -38,23 +46,23 @@ impl Object {
       Ok(if ty == ValueType::Undefined {
         None
       } else {
-        Some(V::from_napi_value(self.0.env, ret)?)
+        Some(ret)
       })
     }
   }
 
   pub fn set<K: AsRef<str>, V: ToNapiValue>(&mut self, field: K, val: V) -> Result<()> {
-    let c_field = CString::new(field.as_ref())?;
+    unsafe { self.set_inner(field.as_ref(), V::to_napi_value(self.0.env, val)?) }
+  }
+
+  unsafe fn set_inner(&mut self, field: &str, napi_val: sys::napi_value) -> Result<()> {
+    let c_field = CString::new(field)?;
 
     unsafe {
-      let napi_val = V::to_napi_value(self.0.env, val)?;
-
       check_status!(
         sys::napi_set_named_property(self.0.env, self.0.value, c_field.as_ptr(), napi_val),
-        "Failed to set property with field `{}`",
-        c_field.to_string_lossy(),
+        "Failed to set property with field `{field}`",
       )?;
-
       Ok(())
     }
   }
