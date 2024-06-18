@@ -2,7 +2,7 @@ use napi::{CallContext, JsExternal, JsObject, JsString};
 
 #[derive(Clone)]
 pub struct QueryEngine {
-  pub datamodel: String,
+  pub _datamodel: String,
 }
 
 unsafe impl Sync for QueryEngine {}
@@ -40,7 +40,7 @@ fn new_engine(ctx: CallContext) -> napi::Result<napi::JsExternal> {
   let a = ctx.get::<JsString>(0)?.into_utf8()?;
   let model = a.into_owned()?;
   let model_len = model.len();
-  let qe = QueryEngine { datamodel: model };
+  let qe = QueryEngine { _datamodel: model };
   ctx.env.create_external(qe, Some(model_len as i64))
 }
 
