@@ -476,6 +476,37 @@ impl<T: 'static> ThreadsafeFunction<T, ErrorStrategy::CalleeHandled> {
     })
   }
 
+  pub fn call_with_return_value_and_env<D: FromNapiValue, F: 'static + FnOnce(D, Env) -> Result<()>>(
+    &self,
+    value: Result<T>,
+    mode: ThreadsafeFunctionCallMode,
+    cb: F,
+  ) -> Status {
+    self.handle.with_read_aborted(|aborted| {
+      if aborted {
+        return Status::Closing;
+      }
+
+      unsafe {
+        sys::napi_call_threadsafe_function(
+          self.handle.get_raw(),
+          Box::into_raw(Box::new(value.map(|data| {
+            ThreadsafeFunctionCallJsBackData {
+              data,
+              call_variant: ThreadsafeFunctionCallVariant::WithCallback,
+              callback: Box::new(move |d: JsUnknown| {
+                D::from_napi_value(d.0.env, d.0.value).and_then(|value| cb(value, Env::from_raw(d.0.env)))
+              }),
+            }
+          })))
+          .cast(),
+          mode.into(),
+        )
+      }
+      .into()
+    })
+  }
+
   #[cfg(feature = "tokio_rt")]
   pub async fn call_async<D: 'static + FromNapiValue>(&self, value: Result<T>) -> Result<D> {
     let (sender, receiver) = tokio::sync::oneshot::channel::<D>();
