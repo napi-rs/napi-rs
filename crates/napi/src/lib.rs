@@ -76,6 +76,8 @@
 
 #[cfg(feature = "napi8")]
 mod async_cleanup_hook;
+#[cfg(all(feature = "async_local", feature = "napi2"))]
+mod async_local;
 #[cfg(feature = "napi8")]
 pub use async_cleanup_hook::AsyncCleanupHook;
 mod async_work;
@@ -95,6 +97,9 @@ mod value_type;
 pub use cleanup_env::CleanupEnvHook;
 #[cfg(feature = "napi4")]
 pub mod threadsafe_function;
+
+pub mod js_rc;
+pub use js_rc::*;
 
 mod version;
 

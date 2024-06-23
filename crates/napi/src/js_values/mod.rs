@@ -6,7 +6,7 @@ use std::ptr;
 
 use crate::{
   bindgen_runtime::{FromNapiValue, ToNapiValue, TypeName, ValidateNapiValue},
-  check_status, sys, type_of, Callback, Error, Result, Status, ValueType,
+  check_status, sys, type_of, Callback, Error, JsRc, Result, Status, ValueType,
 };
 
 #[cfg(feature = "serde-json")]
@@ -613,6 +613,16 @@ macro_rules! impl_object_methods {
   };
 }
 
+macro_rules! impl_js_ref_methods {
+  ($js_value:ident) => {
+    impl $js_value {
+      pub fn into_ref(self) -> Result<JsRc<$js_value>> {
+        JsRc::<$js_value>::new(self.0)
+      }
+    }
+  };
+}
+
 pub trait NapiRaw {
   #[allow(clippy::missing_safety_doc)]
   unsafe fn raw(&self) -> sys::napi_value;
@@ -653,6 +663,18 @@ impl_object_methods!(JsTypedArray);
 impl_object_methods!(JsDataView);
 impl_object_methods!(JsGlobal);
 impl_object_methods!(JSON);
+
+impl_js_ref_methods!(JsUnknown);
+impl_js_ref_methods!(JsUndefined);
+impl_js_ref_methods!(JsNull);
+impl_js_ref_methods!(JsBoolean);
+impl_js_ref_methods!(JsTypedArray);
+impl_js_ref_methods!(JsNumber);
+impl_js_ref_methods!(JsString);
+impl_js_ref_methods!(JsObject);
+impl_js_ref_methods!(JsDate);
+impl_js_ref_methods!(JsFunction);
+impl_js_ref_methods!(JsSymbol);
 
 use ValueType::*;
 

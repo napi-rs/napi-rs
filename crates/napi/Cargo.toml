@@ -17,6 +17,7 @@ all-features = true
 independent = true
 
 [features]
+async_local = ["dep:futures", "dep:libuv"]
 async = ["tokio_rt"]
 compat-mode = []
 default = ["napi3", "compat-mode"]                                               # for most Node.js users
@@ -87,3 +88,14 @@ version = "1"
 [dependencies.serde_json]
 optional = true
 version = "1"
+
+[dependencies.futures]
+version = "0.3"
+optional = true
+
+# TEMP internalize libuv bindings
+[dependencies.libuv]
+package = "alsh_libuv"
+version = "2"
+features = ["sys"]
+optional = true

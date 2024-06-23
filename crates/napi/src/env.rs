@@ -1071,6 +1071,27 @@ impl Env {
     ThreadsafeFunction::create(self.0, func.0.value, max_queue_size, callback)
   }
 
+  #[cfg(all(feature = "async_local", feature = "napi2"))]
+  pub fn spawn_local<F, Fut>(&self, fut: F) -> ()
+  where
+    Fut: std::future::Future + 'static,
+    F: FnOnce(Env) -> Fut + 'static,
+  {
+    let env_raw = self.0.clone();
+
+    crate::async_local::spawn_async_local(self, async move {
+      let env_raw = env_raw;
+      let env = unsafe { Env::from_raw(env_raw) };
+
+      let mut handle_scope = ptr::null_mut();
+      check_status!(unsafe { sys::napi_open_handle_scope(env_raw, &mut handle_scope) }).unwrap();
+
+      fut(env).await;
+
+      check_status!(unsafe { sys::napi_close_handle_scope(env_raw, handle_scope) }).unwrap();
+    });
+  }
+
   #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
   pub fn execute_tokio_future<
     T: 'static + Send,
