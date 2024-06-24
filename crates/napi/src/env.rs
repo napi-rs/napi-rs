@@ -1072,7 +1072,7 @@ impl Env {
   }
 
   #[cfg(all(feature = "async_local", feature = "napi2"))]
-  pub fn spawn_local<F, Fut>(&self, fut: F) -> ()
+  pub fn spawn_local<F, Fut>(&self, fut: F) -> Result<()>
   where
     Fut: std::future::Future + 'static,
     F: FnOnce(Env) -> Fut + 'static,
@@ -1083,13 +1083,13 @@ impl Env {
       let env_raw = env_raw;
       let env = unsafe { Env::from_raw(env_raw) };
 
-      let mut handle_scope = ptr::null_mut();
-      check_status!(unsafe { sys::napi_open_handle_scope(env_raw, &mut handle_scope) }).unwrap();
+      // let mut handle_scope = ptr::null_mut();
+      // check_status!(unsafe { sys::napi_open_handle_scope(env_raw, &mut handle_scope) }).unwrap();
 
       fut(env).await;
 
-      check_status!(unsafe { sys::napi_close_handle_scope(env_raw, handle_scope) }).unwrap();
-    });
+      // check_status!(unsafe { sys::napi_close_handle_scope(env_raw, handle_scope) }).unwrap();
+    })
   }
 
   #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
