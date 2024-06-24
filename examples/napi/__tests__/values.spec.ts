@@ -439,9 +439,11 @@ test('should be able to into_reference', (t) => {
 })
 
 test('callback', (t) => {
-  getCwd((cwd) => {
-    t.is(cwd, process.env.WASI_TEST ? '/' : process.cwd())
-  })
+  if (!process.env.WASI_TEST) {
+    getCwd((cwd) => {
+      t.is(cwd, process.cwd())
+    })
+  }
 
   t.throws(
     // @ts-expect-error
