@@ -76,6 +76,8 @@
 
 #[cfg(feature = "napi8")]
 mod async_cleanup_hook;
+#[cfg(feature = "async_local")]
+mod async_local;
 #[cfg(feature = "napi8")]
 pub use async_cleanup_hook::AsyncCleanupHook;
 mod async_work;

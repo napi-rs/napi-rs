@@ -18,6 +18,7 @@ independent = true
 
 [features]
 async = ["tokio_rt"]
+async_local = ["dep:futures"]
 compat-mode = []
 default = ["napi3", "compat-mode"]                                               # for most Node.js users
 experimental = ["napi-sys/experimental"]
@@ -87,3 +88,7 @@ version = "1"
 [dependencies.serde_json]
 optional = true
 version = "1"
+
+[dependencies.futures]
+version = "0.3"
+optional = true

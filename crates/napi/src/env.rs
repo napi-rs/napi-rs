@@ -1071,6 +1071,26 @@ impl Env {
     ThreadsafeFunction::create(self.0, func.0.value, max_queue_size, callback)
   }
 
+  /// Execute a future on the local JavaScript thread. This does not block JavaScript execution.
+  ///
+  /// Note: Avoid doing heavy computation on the main thread. The intended use case for this is
+  /// waiting on channel receivers for data coming from other threads, waiting on timers and
+  /// handling async behaviors from JavaScript.
+  #[cfg(all(feature = "async_local"))]
+  pub fn spawn_local<F, Fut>(&self, fut: F) -> Result<()>
+  where
+    Fut: std::future::Future + 'static,
+    F: FnOnce(Env) -> Fut + 'static,
+  {
+    let env_raw = self.0.clone();
+
+    crate::async_local::spawn_async_local(self, async move {
+      let env_raw = env_raw;
+      let env = unsafe { Env::from_raw(env_raw) };
+      fut(env).await;
+    })
+  }
+
   #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
   pub fn execute_tokio_future<
     T: 'static + Send,
