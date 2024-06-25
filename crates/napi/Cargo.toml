@@ -15,6 +15,7 @@ doctest = false
 
 [package.metadata.docs.rs]
 all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [package.metadata.workspaces]
 independent = true
