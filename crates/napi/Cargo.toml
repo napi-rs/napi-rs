@@ -8,7 +8,7 @@ name = "napi"
 readme = "README.md"
 repository = "https://github.com/napi-rs/napi-rs"
 rust-version = "1.65"
-version = "3.0.0-alpha.2"
+version = "3.0.0-alpha.3"
 
 [lib]
 doctest = false
@@ -101,4 +101,4 @@ optional = true
 version = "2"
 
 [build-dependencies]
-napi-build = { path = "../build" }
+napi-build = { path = "../build", version = "2.1.3" }
