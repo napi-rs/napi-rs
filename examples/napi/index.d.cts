@@ -133,6 +133,11 @@ export class CustomFinalize {
   constructor(width: number, height: number)
 }
 
+export class CustomStruct {
+  static customStatusCodeForFactory(): CustomStruct
+  constructor()
+}
+
 export class DefaultUseNullableClass {
   requiredNumberField: number
   requiredStringField: string
