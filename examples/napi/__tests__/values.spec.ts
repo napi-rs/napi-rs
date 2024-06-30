@@ -181,6 +181,7 @@ import {
   getOptionalExternal,
   mutateOptionalExternal,
   panicInAsync,
+  CustomStruct,
 } from '../index.cjs'
 
 import { test } from './test.framework.js'
@@ -611,6 +612,12 @@ test('Async error with stack trace', async (t) => {
 
 test('custom status code in Error', (t) => {
   t.throws(() => customStatusCode(), {
+    code: 'Panic',
+  })
+  t.throws(() => CustomStruct.customStatusCodeForFactory(), {
+    code: 'Panic',
+  })
+  t.throws(() => new CustomStruct(), {
     code: 'Panic',
   })
 })

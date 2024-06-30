@@ -384,6 +384,7 @@ module.exports.CSSRuleList = nativeBinding.CSSRuleList
 module.exports.CssStyleSheet = nativeBinding.CssStyleSheet
 module.exports.CSSStyleSheet = nativeBinding.CSSStyleSheet
 module.exports.CustomFinalize = nativeBinding.CustomFinalize
+module.exports.CustomStruct = nativeBinding.CustomStruct
 module.exports.DefaultUseNullableClass = nativeBinding.DefaultUseNullableClass
 module.exports.Dog = nativeBinding.Dog
 module.exports.Fib = nativeBinding.Fib

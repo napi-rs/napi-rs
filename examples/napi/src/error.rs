@@ -38,3 +38,19 @@ pub fn custom_status_code() -> Result<(), CustomError> {
 pub async fn throw_async_error() -> Result<()> {
   Err(Error::new(Status::InvalidArg, "Async Error".to_owned()))
 }
+
+#[napi]
+pub struct CustomStruct();
+
+#[napi]
+impl CustomStruct {
+  #[napi(factory)]
+  pub fn custom_status_code_for_factory() -> Result<Self, CustomError> {
+    Err(Error::new(CustomError::Panic, "don't panic"))
+  }
+
+  #[napi(constructor)]
+  pub fn custom_status_code_for_constructor() -> Result<Self, CustomError> {
+    Err(Error::new(CustomError::Panic, "don't panic"))
+  }
+}
