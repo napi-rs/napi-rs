@@ -557,7 +557,17 @@ impl NapiFn {
           if self.parent_is_generator {
             quote! { cb.construct_generator::<false, #parent>(#js_name, #ret?) }
           } else {
-            quote! { cb.construct::<false, #parent>(#js_name, #ret?) }
+            quote! {
+              match #ret {
+                Ok(value) => {
+                  cb.construct::<false, #parent>(#js_name, value)
+                }
+                Err(err) => {
+                  napi::bindgen_prelude::JsError::from(err).throw_into(env);
+                  Ok(std::ptr::null_mut())
+                }
+              }
+            }
           }
         } else if self.parent_is_generator {
           quote! { cb.construct_generator::<false, #parent>(#js_name, #ret) }
@@ -571,7 +581,17 @@ impl NapiFn {
           } else if self.is_async {
             quote! { cb.factory(#js_name, #ret) }
           } else {
-            quote! { cb.factory(#js_name, #ret?) }
+            quote! {
+              match #ret {
+                Ok(value) => {
+                  cb.factory(#js_name, value)
+                }
+                Err(err) => {
+                  napi::bindgen_prelude::JsError::from(err).throw_into(env);
+                  Ok(std::ptr::null_mut())
+                }
+              }
+            }
           }
         } else if self.parent_is_generator {
           quote! { cb.generator_factory(#js_name, #ret) }
