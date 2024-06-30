@@ -550,6 +550,7 @@ module.exports.returnUndefinedIfInvalidPromise = nativeBinding.returnUndefinedIf
 module.exports.roundtripStr = nativeBinding.roundtripStr
 module.exports.runScript = nativeBinding.runScript
 module.exports.setSymbolInObj = nativeBinding.setSymbolInObj
+module.exports.spawnThreadInThread = nativeBinding.spawnThreadInThread
 module.exports.Status = nativeBinding.Status
 module.exports.StringEnum = nativeBinding.StringEnum
 module.exports.sumBtreeMapping = nativeBinding.sumBtreeMapping
