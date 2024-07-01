@@ -123,7 +123,7 @@ jobs:
       - uses: goto-bus-stop/setup-zig@v2
         if: \${{ matrix.settings.target == 'armv7-unknown-linux-gnueabihf' || matrix.settings.target == 'armv7-unknown-linux-musleabihf' }}
         with:
-          version: 0.11.0
+          version: 0.13.0
 
       - name: Setup toolchain
         run: \${{ matrix.settings.setup }}

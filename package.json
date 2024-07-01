@@ -108,7 +108,7 @@
     "tslib": "^2.6.2",
     "typescript": "^5.3.3"
   },
-  "packageManager": "yarn@4.1.1",
+  "packageManager": "yarn@4.3.1",
   "resolutions": {
     "mute-stream": "0.0.8"
   }
