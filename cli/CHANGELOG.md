@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.18.4](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.18.3...@napi-rs/cli@2.18.4) (2024-07-01)
+
+### Bug Fixes
+
+- **cli:** add missing declare keyword ([c33bc82](https://github.com/napi-rs/napi-rs/commit/c33bc824811bfede737eaa658fac1498076175bb))
+
 ## [2.18.3](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@2.18.2...@napi-rs/cli@2.18.3) (2024-05-06)
 
 ### Bug Fixes
