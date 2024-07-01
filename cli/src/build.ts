@@ -817,7 +817,9 @@ async function processIntermediateTypeFile(
         dts += indentLines(`export type ${original_name} = ${name}\n`, nest)
       }
 
-      dts += indentLines(`${js_doc}export class ${name} {`, nest)
+      const maybeDeclare = nested ? ' ' : ' declare '
+
+      dts += indentLines(`${js_doc}export${maybeDeclare}class ${name} {`, nest)
 
       if (def) {
         dts += '\n' + indentLines(def, nest + 2)
@@ -848,7 +850,9 @@ async function processIntermediateTypeFile(
     ),
   ).reduce((acc, [mod, defs]) => {
     idents.push(mod)
-    return acc + `export namespace ${mod} {\n${convertDefs(defs, true)}}\n`
+    return (
+      acc + `export declare namespace ${mod} {\n${convertDefs(defs, true)}}\n`
+    )
   }, '')
 
   const dtsHeader = noDtsHeader
@@ -862,7 +866,7 @@ async function processIntermediateTypeFile(
   const externalDef =
     topLevelDef.indexOf('ExternalObject<') > -1 ||
     namespaceDefs.indexOf('ExternalObject<') > -1
-      ? `export class ExternalObject<T> {
+      ? `export declare class ExternalObject<T> {
   readonly '': {
     readonly '': unique symbol
     [K: symbol]: T

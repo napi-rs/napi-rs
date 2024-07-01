@@ -215,8 +215,10 @@ impl NapiFn {
         crate::FnKind::Getter => "get",
         crate::FnKind::Setter => "set",
       }
-    } else {
+    } else if self.js_mod.is_some() {
       "export function"
+    } else {
+      "export declare function"
     }
   }
 
