@@ -239,6 +239,14 @@ export declare class Width {
   constructor(value: number)
 }
 
+export declare class WithConstGenerics {
+
+}
+
+export declare class WithConstGenericsTuple {
+
+}
+
 export interface A {
   foo: number
 }
