@@ -103,7 +103,12 @@ impl TryToTokens for NapiFn {
       let call = if self.is_ret_result {
         quote! { #receiver(#(#arg_names),*).await }
       } else {
-        quote! { Ok(#receiver(#(#arg_names),*).await) }
+        let ret_type = if let Some(t) = &self.ret {
+          quote! { #t }
+        } else {
+          quote! { () }
+        };
+        quote! { Ok(#receiver(#(#arg_names),*).await) as napi::bindgen_prelude::Result<#ret_type> }
       };
       quote! {
         napi::bindgen_prelude::execute_tokio_future(env, async move { #call }, move |env, #receiver_ret_name| {
