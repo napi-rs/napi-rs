@@ -150,7 +150,7 @@ impl<Data: 'static + Send, R: 'static + FnOnce(sys::napi_env, Data) -> Result<sy
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn execute_tokio_future<
   Data: 'static + Send,
-  Fut: 'static + Send + Future<Output = Result<Data>>,
+  Fut: 'static + Send + Future<Output = std::result::Result<Data, impl Into<Error>>>,
   Resolver: 'static + FnOnce(sys::napi_env, Data) -> Result<sys::napi_value>,
 >(
   env: sys::napi_env,
@@ -169,7 +169,7 @@ pub fn execute_tokio_future<
           .resolve(env.raw(), v)
           .map(|v| unsafe { JsUnknown::from_raw_unchecked(env.raw(), v) })
       }),
-      Err(e) => deferred.reject(e),
+      Err(e) => deferred.reject(e.into()),
     }
   };
 
