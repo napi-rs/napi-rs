@@ -3,6 +3,15 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.56](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.55...@napi-rs/cli@3.0.0-alpha.56) (2024-07-05)
+
+### Bug Fixes
+
+- **cli:** rename env CC to TARGET_CC avoid proc-macro build failed ([#2137](https://github.com/napi-rs/napi-rs/issues/2137)) ([0749ef1](https://github.com/napi-rs/napi-rs/commit/0749ef183247f6d491c03952cc2ea128a03c5dae))
+- **deps:** update dependency @octokit/rest to v21 ([#2149](https://github.com/napi-rs/napi-rs/issues/2149)) ([c59e075](https://github.com/napi-rs/napi-rs/commit/c59e075f589f0123a0101fcf67351d7a303c7f07))
+- **deps:** update dependency emnapi to v1.2.0 ([#2118](https://github.com/napi-rs/napi-rs/issues/2118)) ([4b3a84b](https://github.com/napi-rs/napi-rs/commit/4b3a84bcd0e98fc85f9d6b1f0ecfe9fef1c7b970))
+- **typegen:** add missing `declare` keyword ([#2117](https://github.com/napi-rs/napi-rs/issues/2117)) ([734d74b](https://github.com/napi-rs/napi-rs/commit/734d74bd028e3328ada43316dc68f208477d6997))
+
 # [3.0.0-alpha.55](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.54...@napi-rs/cli@3.0.0-alpha.55) (2024-05-12)
 
 ### Bug Fixes
