@@ -717,6 +717,8 @@ export declare function u64ArrayToArray(input: BigUint64Array): Array<bigint>
 
 export declare function u8ArrayToArray(input: Uint8Array): Array<number>
 
+export declare function uInit8ArrayFromString(): Promise<Uint8Array>
+
 export interface UseNullableStruct {
   requiredNumberField: number
   requiredStringField: string

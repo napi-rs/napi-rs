@@ -647,6 +647,26 @@ impl_typed_array!(BigUint64Array, u64, TypedArrayType::BigUint64);
 #[cfg(feature = "napi6")]
 impl_from_slice!(BigUint64Array, u64, TypedArrayType::BigUint64);
 
+impl Uint8Array {
+  /// Create a new JavaScript `Uint8Array` from a Rust `String` without copying the underlying data.
+  pub fn from_string(mut s: String) -> Self {
+    let len = s.len();
+    let ret = Self {
+      data: s.as_mut_ptr(),
+      length: len,
+      data_managed_type: DataManagedType::External,
+      finalizer_notify: Box::into_raw(Box::new(move |data, _| {
+        drop(unsafe { String::from_raw_parts(data, len, len) });
+      })),
+      byte_offset: 0,
+      raw: None,
+      drop_in_vm: Arc::new(AtomicBool::new(false)),
+    };
+    mem::forget(s);
+    ret
+  }
+}
+
 /// Zero copy Uint8ClampedArray slice shared between Rust and Node.js.
 /// It can only be used in non-async context and the lifetime is bound to the fn closure.
 /// If you want to use Node.js `Uint8ClampedArray` in async context or want to extend the lifetime, use `Uint8ClampedArray` instead.

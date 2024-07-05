@@ -579,6 +579,7 @@ module.exports.u16ArrayToArray = nativeBinding.u16ArrayToArray
 module.exports.u32ArrayToArray = nativeBinding.u32ArrayToArray
 module.exports.u64ArrayToArray = nativeBinding.u64ArrayToArray
 module.exports.u8ArrayToArray = nativeBinding.u8ArrayToArray
+module.exports.uInit8ArrayFromString = nativeBinding.uInit8ArrayFromString
 module.exports.validateArray = nativeBinding.validateArray
 module.exports.validateBigint = nativeBinding.validateBigint
 module.exports.validateBoolean = nativeBinding.validateBoolean
