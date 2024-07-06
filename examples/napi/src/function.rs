@@ -1,9 +1,9 @@
 #![allow(deprecated)]
 
 use napi::{
-  bindgen_prelude::{ClassInstance, Function, FunctionRef},
+  bindgen_prelude::{ClassInstance, Function, FunctionRef, PromiseRaw},
   threadsafe_function::ThreadsafeFunctionCallMode,
-  Env, Error, JsObject, Result, Status,
+  Env, Error, Result, Status,
 };
 
 use crate::class::Animal;
@@ -48,9 +48,9 @@ pub fn call_function_with_arg(cb: Function<(u32, u32), u32>, arg0: u32, arg1: u3
 }
 
 #[napi(ts_return_type = "Promise<void>")]
-pub fn create_reference_on_function(env: Env, cb: Function<(), ()>) -> Result<JsObject> {
+pub fn create_reference_on_function(env: Env, cb: Function<(), ()>) -> Result<PromiseRaw<()>> {
   let reference = cb.create_ref()?;
-  env.execute_tokio_future(
+  env.spawn_future_with_callback(
     async {
       tokio::time::sleep(std::time::Duration::from_millis(100)).await;
       Ok(())

@@ -149,10 +149,10 @@ impl<T: Task> ToNapiValue for AsyncTask<T> {
       abort_controller
         .raw_deferred
         .store(async_promise.deferred, Ordering::Relaxed);
-      Ok(async_promise.promise_object().0.value)
+      Ok(async_promise.promise_object().inner)
     } else {
       let async_promise = async_work::run(env, val.inner, None)?;
-      Ok(async_promise.promise_object().0.value)
+      Ok(async_promise.promise_object().inner)
     }
   }
 }

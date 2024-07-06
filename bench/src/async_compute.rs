@@ -1,3 +1,4 @@
+use bindgen_prelude::PromiseRaw;
 use napi::threadsafe_function::*;
 use napi::*;
 
@@ -22,7 +23,7 @@ impl Task for BufferLength {
 }
 
 #[js_function(1)]
-fn bench_async_task(ctx: CallContext) -> Result<JsObject> {
+fn bench_async_task(ctx: CallContext) -> Result<PromiseRaw<JsNumber>> {
   let n = ctx.get::<JsBuffer>(0)?;
   let task = BufferLength(n.into_ref()?);
   let async_promise = ctx.env.spawn(task)?;

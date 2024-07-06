@@ -213,6 +213,7 @@ static KNOWN_TYPES: Lazy<HashMap<&'static str, (&'static str, bool, bool)>> = La
     ("Either26", ("{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}", false, true)),
     ("external", ("object", false, false)),
     ("Promise", ("Promise<{}>", false, false)),
+    ("PromiseRaw", ("PromiseRaw<{}>", false, false)),
     ("AbortSignal", ("AbortSignal", false, false)),
     ("JsGlobal", ("typeof global", false, false)),
     ("External", ("ExternalObject<{}>", false, false)),

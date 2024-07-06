@@ -183,6 +183,8 @@ import {
   panicInAsync,
   CustomStruct,
   uInit8ArrayFromString,
+  callThenOnPromise,
+  callCatchOnPromise,
 } from '../index.cjs'
 
 import { test } from './test.framework.js'
@@ -489,6 +491,13 @@ Napi4Test('callback function return Promise and spawn', async (t) => {
     Promise.resolve(`${input} world`),
   )
   t.is(finalReturn, 'Hello world 😼')
+})
+
+test('promise', async (t) => {
+  const res = await callThenOnPromise(Promise.resolve(1))
+  t.is(res, '1')
+  const cat = await callCatchOnPromise(Promise.reject('cat'))
+  t.is(cat, 'cat')
 })
 
 test('object', (t) => {
