@@ -108,7 +108,7 @@ impl TryToTokens for NapiFn {
         } else {
           quote! { () }
         };
-        quote! { Ok(#receiver(#(#arg_names),*).await) as napi::bindgen_prelude::Result<#ret_type> }
+        quote! { Ok::<#ret_type, napi::Error>(#receiver(#(#arg_names),*).await) }
       };
       quote! {
         napi::bindgen_prelude::execute_tokio_future(env, async move { #call }, move |env, #receiver_ret_name| {
