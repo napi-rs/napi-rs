@@ -1,7 +1,8 @@
 use std::convert::TryInto;
 
 use napi::{
-  CallContext, Env, Error, JsBuffer, JsBufferValue, JsNumber, JsObject, Ref, Result, Task,
+  bindgen_prelude::PromiseRaw, CallContext, Env, Error, JsBuffer, JsBufferValue, JsNumber,
+  JsObject, Ref, Result, Task,
 };
 
 struct ComputeFib {
@@ -35,7 +36,7 @@ fn fibonacci_native(n: u32) -> u32 {
 }
 
 #[js_function(1)]
-fn test_spawn_thread(ctx: CallContext) -> Result<JsObject> {
+fn test_spawn_thread(ctx: CallContext) -> Result<PromiseRaw<JsNumber>> {
   let n = ctx.get::<JsNumber>(0)?;
   let task = ComputeFib::new(n.try_into()?);
   let async_promise = ctx.env.spawn(task)?;
@@ -67,7 +68,7 @@ impl Task for CountBufferLength {
     env.create_uint32(output as _)
   }
 
-  fn reject(&mut self, env: Env, err: Error) -> Result<Self::JsValue> {
+  fn reject(&mut self, _env: Env, err: Error) -> Result<Self::JsValue> {
     Err(err)
   }
 
@@ -78,7 +79,7 @@ impl Task for CountBufferLength {
 }
 
 #[js_function(1)]
-fn test_spawn_thread_with_ref(ctx: CallContext) -> Result<JsObject> {
+fn test_spawn_thread_with_ref(ctx: CallContext) -> Result<PromiseRaw<JsNumber>> {
   let n = ctx.get::<JsBuffer>(0)?.into_ref()?;
   let task = CountBufferLength::new(n);
   let async_work_promise = ctx.env.spawn(task)?;

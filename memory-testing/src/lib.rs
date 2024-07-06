@@ -42,7 +42,7 @@ pub struct Room {
 }
 
 #[napi]
-pub fn test_async(env: Env) -> napi::Result<napi::JsObject> {
+pub fn test_async(env: Env) -> napi::Result<napi::bindgen_prelude::PromiseRaw<String>> {
   let data = serde_json::json!({
       "findFirstBooking": {
           "id": "ckovh15xa104945sj64rdk8oas",
@@ -64,11 +64,11 @@ pub fn test_async(env: Env) -> napi::Result<napi::JsObject> {
           "room": { "id": "ckovh15xa104955sj6r2tqaw1c", "name": "38683b87f2664" }
       }
   });
-  env.execute_tokio_future(
+  env.spawn_future_with_callback(
     async move { Ok(serde_json::to_string(&data).unwrap()) },
     |env, res| {
       env.adjust_external_memory(res.len() as i64)?;
-      env.create_string_from_std(res)
+      Ok(())
     },
   )
 }
