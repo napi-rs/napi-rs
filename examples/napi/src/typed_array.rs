@@ -146,3 +146,8 @@ fn async_reduce_buffer(buf: Buffer) -> Result<AsyncTask<AsyncBuffer>> {
 fn async_buffer_to_array(buf: JsArrayBuffer) -> Result<Vec<u8>> {
   Ok(buf.into_value()?.as_ref().to_vec())
 }
+
+#[napi]
+async fn u_init8_array_from_string() -> Uint8Array {
+  Uint8Array::from_string("Hello world".to_owned())
+}

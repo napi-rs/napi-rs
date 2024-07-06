@@ -182,6 +182,7 @@ import {
   mutateOptionalExternal,
   panicInAsync,
   CustomStruct,
+  uInit8ArrayFromString,
 } from '../index.cjs'
 
 import { test } from './test.framework.js'
@@ -862,6 +863,13 @@ test('async reduce buffer', async (t) => {
   t.is(
     await asyncReduceBuffer(fixture),
     input.reduce((acc, cur) => acc + cur),
+  )
+})
+
+test('Uint8Array from String', async (t) => {
+  t.is(
+    Buffer.from(await uInit8ArrayFromString()).toString('utf8'),
+    'Hello world',
   )
 })
 
