@@ -4,6 +4,7 @@ use std::ptr;
 
 #[cfg(all(feature = "napi4", feature = "tokio_rt"))]
 use crate::bindgen_runtime::Promise;
+use crate::NapiRaw;
 use crate::{
   bindgen_prelude::{FromNapiValue, Result, ToNapiValue, TypeName, ValidateNapiValue},
   check_status, sys,
@@ -149,6 +150,12 @@ impl<T: FromNapiValue> ValidateNapiValue for PromiseRaw<T> {
   }
 }
 
+impl<T> NapiRaw for PromiseRaw<T> {
+  unsafe fn raw(&self) -> sys::napi_value {
+    self.inner
+  }
+}
+
 pub(crate) fn validate_promise(
   env: napi_sys::napi_env,
   napi_val: napi_sys::napi_value,
@@ -210,12 +217,6 @@ impl<T> FromNapiValue for PromiseRaw<T> {
       env,
       _phantom: PhantomData,
     })
-  }
-}
-
-impl<T> ToNapiValue for PromiseRaw<T> {
-  unsafe fn to_napi_value(_env: napi_sys::napi_env, val: Self) -> Result<napi_sys::napi_value> {
-    Ok(val.inner)
   }
 }
 
