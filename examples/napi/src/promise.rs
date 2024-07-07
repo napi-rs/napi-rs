@@ -13,5 +13,5 @@ pub fn call_then_on_promise(mut input: PromiseRaw<u32>) -> Result<PromiseRaw<Str
 
 #[napi]
 pub fn call_catch_on_promise(mut input: PromiseRaw<u32>) -> Result<PromiseRaw<String>> {
-  input.catch(|e: String| Ok(format!("{}", e)))
+  input.catch(|e: String| Ok(e))
 }
