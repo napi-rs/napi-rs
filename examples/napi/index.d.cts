@@ -328,9 +328,9 @@ export declare function callbackReturnPromise<T>(functionInput: () => T | Promis
 
 export declare function callbackReturnPromiseAndSpawn(jsFunc: (arg0: string) => Promise<string>): Promise<string>
 
-export declare function callCatchOnPromise(input: PromiseRaw<number>): PromiseRaw<string>
+export declare function callCatchOnPromise(input: Promise<number>): Promise<string>
 
-export declare function callFinallyOnPromise(input: PromiseRaw<number>, onFinally: () => void): PromiseRaw<number>
+export declare function callFinallyOnPromise(input: Promise<number>, onFinally: () => void): Promise<number>
 
 export declare function callFunction(cb: () => number): number
 
@@ -340,7 +340,7 @@ export declare function callFunctionWithArgAndCtx(ctx: Animal, cb: (arg: string)
 
 export declare function callLongThreadsafeFunction(tsfn: (err: Error | null, arg: number) => unknown): void
 
-export declare function callThenOnPromise(input: PromiseRaw<number>): PromiseRaw<string>
+export declare function callThenOnPromise(input: Promise<number>): Promise<string>
 
 export declare function callThreadsafeFunction(tsfn: (err: Error | null, arg: number) => unknown): void
 
