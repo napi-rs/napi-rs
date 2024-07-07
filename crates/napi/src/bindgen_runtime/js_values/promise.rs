@@ -9,7 +9,7 @@ use tokio::sync::oneshot::{channel, Receiver};
 
 use crate::{sys, Error, Result, Status};
 
-use super::{FromNapiValue, PromiseRaw, TypeName, Unknown, ValidateNapiValue};
+use super::{CallbackContext, FromNapiValue, PromiseRaw, TypeName, Unknown, ValidateNapiValue};
 
 /// The JavaScript Promise object representation
 ///
@@ -29,7 +29,7 @@ use super::{FromNapiValue, PromiseRaw, TypeName, Unknown, ValidateNapiValue};
 ///
 /// But this `Promise<T>` can not be pass back to `JavaScript`.
 /// If you want to use raw JavaScript `Promise` API, you can use the [`PromiseRaw`](./PromiseRaw) instead.
-pub struct Promise<T: FromNapiValue> {
+pub struct Promise<T: 'static + FromNapiValue> {
   value: Pin<Box<Receiver<Result<T>>>>,
 }
 
@@ -63,17 +63,17 @@ impl<T: FromNapiValue> FromNapiValue for Promise<T> {
     let tx_box = Arc::new(Cell::new(Some(tx)));
     let tx_in_catch = tx_box.clone();
     promise_object
-      .then(move |value| {
+      .then(move |ctx| {
         if let Some(sender) = tx_box.replace(None) {
           // no need to handle the send error here, the receiver has been dropped
-          let _ = sender.send(Ok(value));
+          let _ = sender.send(Ok(ctx.value));
         }
         Ok(())
       })?
-      .catch(move |err: Unknown| {
+      .catch(move |ctx: CallbackContext<Unknown>| {
         if let Some(sender) = tx_in_catch.replace(None) {
           // no need to handle the send error here, the receiver has been dropped
-          let _ = sender.send(Err(err.into()));
+          let _ = sender.send(Err(ctx.value.into()));
         }
         Ok(())
       })?;

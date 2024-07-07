@@ -330,6 +330,8 @@ export declare function callbackReturnPromiseAndSpawn(jsFunc: (arg0: string) => 
 
 export declare function callCatchOnPromise(input: PromiseRaw<number>): PromiseRaw<string>
 
+export declare function callFinallyOnPromise(input: PromiseRaw<number>, onFinally: () => void): PromiseRaw<number>
+
 export declare function callFunction(cb: () => number): number
 
 export declare function callFunctionWithArg(cb: (arg0: number, arg1: number) => number, arg0: number, arg1: number): number

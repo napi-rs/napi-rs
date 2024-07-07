@@ -8,10 +8,21 @@ pub async fn async_plus_100(p: Promise<u32>) -> Result<u32> {
 
 #[napi]
 pub fn call_then_on_promise(mut input: PromiseRaw<u32>) -> Result<PromiseRaw<String>> {
-  input.then(|v| Ok(format!("{}", v)))
+  input.then(|v| Ok(format!("{}", v.value)))
 }
 
 #[napi]
 pub fn call_catch_on_promise(mut input: PromiseRaw<u32>) -> Result<PromiseRaw<String>> {
-  input.catch(|e: String| Ok(e))
+  input.catch(|e: CallbackContext<String>| Ok(e.value))
+}
+
+#[napi]
+pub fn call_finally_on_promise(
+  mut input: PromiseRaw<u32>,
+  on_finally: FunctionRef<(), ()>,
+) -> Result<PromiseRaw<u32>> {
+  input.finally(move |env| {
+    on_finally.borrow_back(&env)?.call(())?;
+    Ok(())
+  })
 }

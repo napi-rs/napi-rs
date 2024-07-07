@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { Subject, take } from 'rxjs'
-import { spy } from 'sinon'
+import Sinon, { spy } from 'sinon'
 
 import {
   DEFAULT_COST,
@@ -185,6 +185,7 @@ import {
   uInit8ArrayFromString,
   callThenOnPromise,
   callCatchOnPromise,
+  callFinallyOnPromise,
 } from '../index.cjs'
 
 import { test } from './test.framework.js'
@@ -498,6 +499,9 @@ test('promise', async (t) => {
   t.is(res, '1')
   const cat = await callCatchOnPromise(Promise.reject('cat'))
   t.is(cat, 'cat')
+  const spy = Sinon.spy()
+  await callFinallyOnPromise(Promise.resolve(1), spy)
+  t.true(spy.calledOnce)
 })
 
 test('object', (t) => {

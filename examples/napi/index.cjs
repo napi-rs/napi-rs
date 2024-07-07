@@ -435,6 +435,7 @@ module.exports.call2 = nativeBinding.call2
 module.exports.callbackReturnPromise = nativeBinding.callbackReturnPromise
 module.exports.callbackReturnPromiseAndSpawn = nativeBinding.callbackReturnPromiseAndSpawn
 module.exports.callCatchOnPromise = nativeBinding.callCatchOnPromise
+module.exports.callFinallyOnPromise = nativeBinding.callFinallyOnPromise
 module.exports.callFunction = nativeBinding.callFunction
 module.exports.callFunctionWithArg = nativeBinding.callFunctionWithArg
 module.exports.callFunctionWithArgAndCtx = nativeBinding.callFunctionWithArgAndCtx
