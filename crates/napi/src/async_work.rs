@@ -1,4 +1,3 @@
-use std::ffi::CString;
 use std::marker::PhantomData;
 use std::mem;
 use std::os::raw::c_void;
@@ -47,8 +46,8 @@ pub fn run<T: Task>(
   task: T,
   abort_status: Option<Rc<AtomicU8>>,
 ) -> Result<AsyncWorkPromise<T::JsValue>> {
-  let mut raw_resource = ptr::null_mut();
-  check_status!(unsafe { sys::napi_create_object(env, &mut raw_resource) })?;
+  let mut undefined = ptr::null_mut();
+  check_status!(unsafe { sys::napi_get_undefined(env, &mut undefined) })?;
   let mut raw_promise = ptr::null_mut();
   let mut deferred = ptr::null_mut();
   check_status!(unsafe { sys::napi_create_promise(env, &mut deferred, &mut raw_promise) })?;
@@ -60,18 +59,11 @@ pub fn run<T: Task>(
     napi_async_work: ptr::null_mut(),
     status: task_status.clone(),
   }));
-  let mut async_work_name = ptr::null_mut();
-  let s = "napi_rs_async_work";
-  let len = s.len();
-  let s = CString::new(s)?;
-  check_status!(unsafe {
-    sys::napi_create_string_utf8(env, s.as_ptr(), len, &mut async_work_name)
-  })?;
   check_status!(unsafe {
     sys::napi_create_async_work(
       env,
-      raw_resource,
-      async_work_name,
+      raw_promise,
+      undefined,
       Some(execute::<T>),
       Some(complete::<T>),
       (result as *mut AsyncWork<T>).cast(),
