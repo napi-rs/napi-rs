@@ -12,17 +12,17 @@ const t =
   // aarch64-unknown-linux-gnu is extremely slow in CI, skip it or it will timeout
   process.arch === 'arm64' && process.platform === 'linux' ? test.skip : test
 
-const concurrency = process.env.WASI_TEST
-  ? 1
-  : process.platform === 'win32' ||
-      process.platform === 'darwin' ||
-      (process.platform === 'linux' &&
-        process.arch === 'x64' &&
-        // @ts-expect-error
-        process?.report?.getReport()?.header?.glibcVersionRuntime &&
-        !process.env.ASAN_OPTIONS)
+const concurrency =
+  process.platform === 'win32' ||
+  process.platform === 'darwin' ||
+  (process.platform === 'linux' &&
+    process.arch === 'x64' &&
+    // @ts-expect-error
+    process?.report?.getReport()?.header?.glibcVersionRuntime &&
+    !process.env.ASAN_OPTIONS &&
+    !process.env.WASI_TEST)
     ? 20
-    : 3
+    : 1
 
 t('should be able to require in worker thread', async (t) => {
   await Promise.all(

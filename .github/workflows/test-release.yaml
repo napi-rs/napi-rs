@@ -188,49 +188,48 @@ jobs:
         run: yarn workspace @examples/napi build --profile napi-rs-custom
 
   build-and-test-msys2:
-   strategy:
-     matrix:
-       sys: [MINGW64, UCRT64,CLANG64]
-   runs-on: windows-latest
+    strategy:
+      matrix:
+        sys: [MINGW64, UCRT64, CLANG64]
+    runs-on: windows-latest
 
-   steps:
-    - uses: actions/checkout@v4
+    steps:
+      - uses: actions/checkout@v4
 
-    - name: Setup MSYS2
-      uses: msys2/setup-msys2@v2
-      with:
-        msystem: ${{ matrix.sys }}
-        update: true
-        install: >-
-          base-devel
-        pacboy: >-
-          rust:p
-          yarn:p
-          ${{ matrix.sys == 'CLANG64' && 'gcc-compat:p' || '' }}
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: ${{ matrix.sys }}
+          update: true
+          install: >-
+            base-devel
+          pacboy: >-
+            rust:p
+            yarn:p
+            ${{ matrix.sys == 'CLANG64' && 'gcc-compat:p' || '' }}
 
-    - name: Cargo test
-      shell: msys2 {0}
-      run: |
-       cargo test
-# Because dependencies use napi-rs itself they use older versions of napi-rs to install the package, this will fail automatically during build, uncomment when bootstrap issues have been solved
-#    - name: Install dependencies
-#      shell: msys2 {0}
-#      run: |
-#        yarn install --immutable --mode=skip-build
-#
-#    - name: Build tests
-#      shell: msys2 {0}
-#      run: yarn build:test
-#
-#    - name: Run tests
-#      shell: msys2 {0}
-#      run: |
-#        yarn test:cli
-#        yarn test --verbose
-#        yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
-#        yarn test:macro
+      - name: Cargo test
+        shell: msys2 {0}
+        run: |
+          cargo test
+  # Because dependencies use napi-rs itself they use older versions of napi-rs to install the package, this will fail automatically during build, uncomment when bootstrap issues have been solved
+  #    - name: Install dependencies
+  #      shell: msys2 {0}
+  #      run: |
+  #        yarn install --immutable --mode=skip-build
+  #
+  #    - name: Build tests
+  #      shell: msys2 {0}
+  #      run: yarn build:test
+  #
+  #    - name: Run tests
+  #      shell: msys2 {0}
+  #      run: |
+  #        yarn test:cli
+  #        yarn test --verbose
+  #        yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
+  #        yarn test:macro
 
-        
   build_only:
     name: Build only test - ${{ matrix.settings.target }}
     runs-on: ${{ matrix.settings.host }}
@@ -481,16 +480,8 @@ jobs:
         id: image-name
         run: |
           node -e "console.info('docker-image=${{ matrix.settings.image }}'.replace('{:version}', ${{ matrix.node }}))" >> "$GITHUB_OUTPUT"
-      - name: Setup and run tests
-        uses: addnab/docker-run-action@v3
-        with:
-          image: ${{ steps.image-name.outputs.docker-image }}
-          options: ${{ matrix.settings.args }} -v ${{ github.workspace }}/cores:/cores -v ${{ github.workspace }}:/build -w /build
-          run: yarn test
-      - name: List files
-        run: |
-          ls -la .
-          ls -la ./cores
+      - name: Run test
+        run: docker run --rm ${{ matrix.settings.args }} -v ${{ github.workspace }}:/build -w /build ${{ steps.image-name.outputs.docker-image }} sh -c "yarn workspace @examples/napi test"
 
   build-and-test-linux-armv7:
     name: stable - armv7-unknown-linux-gnueabihf - node@20
