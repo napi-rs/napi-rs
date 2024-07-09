@@ -19,7 +19,10 @@
       }
     },
     "dtsHeader": "type MaybePromise<T> = T | Promise<T>",
-    "dtsHeaderFile": "./dts-header.d.ts"
+    "dtsHeaderFile": "./dts-header.d.ts",
+    "targets": [
+      "wasm32-wasip1-threads"
+    ]
   },
   "devDependencies": {
     "@napi-rs/cli": "workspace:*",
