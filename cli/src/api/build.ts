@@ -671,40 +671,41 @@ class Builder {
       })
     }
 
-    const dest = await this.copyArtifact()
+    const wasmBinaryName = await this.copyArtifact()
 
     // only for cdylib
     if (this.cdyLibName) {
       const idents = await this.generateTypeDef()
       const intermediateWasiRegisterFile = this.envs.WASI_REGISTER_TMP_PATH
-      const wasiRegisterFunctions =
-        this.target.arch === 'wasm32'
-          ? await (async function readIntermediateWasiRegisterFile() {
-              const fileContent = await readFileAsync(
-                intermediateWasiRegisterFile,
-                'utf8',
-              ).catch((err) => {
-                console.warn(
-                  `Read ${colors.yellowBright(
-                    intermediateWasiRegisterFile,
-                  )} failed, reason: ${err.message}`,
-                )
-                return ``
+      const wasiRegisterFunctions = this.config.targets.some(
+        (t) => t.platform === 'wasi',
+      )
+        ? await (async function readIntermediateWasiRegisterFile() {
+            const fileContent = await readFileAsync(
+              intermediateWasiRegisterFile,
+              'utf8',
+            ).catch((err) => {
+              console.warn(
+                `Read ${colors.yellowBright(
+                  intermediateWasiRegisterFile,
+                )} failed, reason: ${err.message}`,
+              )
+              return ``
+            })
+            return fileContent
+              .split('\n')
+              .map((l) => l.trim())
+              .filter((l) => l.length)
+              .map((line) => {
+                const [_, fn] = line.split(':')
+                return fn.trim()
               })
-              return fileContent
-                .split('\n')
-                .map((l) => l.trim())
-                .filter((l) => l.length)
-                .map((line) => {
-                  const [_, fn] = line.split(':')
-                  return fn.trim()
-                })
-            })()
-          : []
+          })()
+        : []
       const jsOutput = await this.writeJsBinding(idents)
       const wasmBindingsOutput = await this.writeWasiBinding(
         wasiRegisterFunctions,
-        dest ?? 'index.wasm',
+        wasmBinaryName ?? 'index.wasm',
         idents,
       )
       if (jsOutput) {
@@ -719,7 +720,7 @@ class Builder {
   }
 
   private async copyArtifact() {
-    const [srcName, destName] = this.getArtifactNames()
+    const [srcName, destName, wasmBinaryName] = this.getArtifactNames()
     if (!srcName || !destName) {
       return
     }
@@ -778,7 +779,7 @@ class Builder {
         kind: dest.endsWith('.node') ? 'node' : isWasm ? 'wasm' : 'exe',
         path: dest,
       })
-      return dest
+      return wasmBinaryName
     } catch (e) {
       throw new Error('Failed to copy artifact', {
         cause: e,
@@ -789,6 +790,7 @@ class Builder {
   private getArtifactNames() {
     if (this.cdyLibName) {
       const cdyLib = this.cdyLibName.replace(/-/g, '_')
+      const wasiTarget = this.config.targets.find((t) => t.platform === 'wasi')
 
       const srcName =
         this.target.platform === 'darwin'
@@ -812,7 +814,13 @@ class Builder {
         destName += '.node'
       }
 
-      return [srcName, destName]
+      return [
+        srcName,
+        destName,
+        wasiTarget
+          ? `${this.config.binaryName}.${wasiTarget.platformArchABI}.wasm`
+          : null,
+      ]
     } else if (this.binName) {
       const srcName =
         this.target.platform === 'win32' ? `${this.binName}.exe` : this.binName
