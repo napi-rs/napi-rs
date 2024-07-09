@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.57](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.56...@napi-rs/cli@3.0.0-alpha.57) (2024-07-09)
+
+### Bug Fixes
+
+- **cli:** update wasi js binding files on any builds ([#2179](https://github.com/napi-rs/napi-rs/issues/2179)) ([731dced](https://github.com/napi-rs/napi-rs/commit/731dced1bb432667381a7a386a03025fc9154e10))
+
 # [3.0.0-alpha.56](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.55...@napi-rs/cli@3.0.0-alpha.56) (2024-07-05)
 
 ### Bug Fixes
