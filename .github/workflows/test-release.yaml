@@ -615,7 +615,7 @@ jobs:
       - name: Build
         run: |
           yarn build
-          yarn workspace @examples/napi build --target wasm32-wasip1-threads --release
+          yarn workspace @examples/napi build --target wasm32-wasip1-threads --profile wasi
       - name: Test
         run: yarn workspace @examples/napi test -s
         env:
@@ -623,7 +623,9 @@ jobs:
           NODE_OPTIONS: '--max-old-space-size=8192'
           SKIP_UNWIND_TEST: 1
       - name: Browser test
-        run: yarn workspace @examples/napi vitest
+        run: |
+          yarn workspace @examples/napi playwright install chromium
+          yarn workspace @examples/napi vitest
 
   test-latest-bun:
     runs-on: ubuntu-latest
