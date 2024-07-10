@@ -27,6 +27,7 @@ export default defineConfig({
   test: {
     include: ['browser/**/*.{spec,test}.{js,jsx,ts,tsx}'],
     browser: {
+      provider: 'playwright',
       enabled: true,
       name: 'chrome',
     },
