@@ -29,7 +29,7 @@ export default defineConfig({
     browser: {
       provider: 'playwright',
       enabled: true,
-      name: 'chrome',
+      name: 'chromium',
     },
   },
 })
