@@ -107,8 +107,12 @@ export class NewCommand extends BaseNewCommand {
       type: 'checkbox',
       loop: false,
       message: 'Choose target(s) your crate will be compiled to',
-      default: this.enableDefaultTargets ? DEFAULT_TARGETS : [],
-      choices: AVAILABLE_TARGETS,
+      choices: AVAILABLE_TARGETS.map((target) => ({
+        name: target,
+        value: target,
+        // @ts-expect-error
+        checked: DEFAULT_TARGETS.includes(target),
+      })),
     })
 
     return targets
