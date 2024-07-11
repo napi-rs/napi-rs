@@ -587,7 +587,7 @@ jobs:
         run: cargo check -p ${{ matrix.settings.package }} -F ${{ matrix.settings.features }}
 
   test-node-wasi:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     name: Test node wasi target
     timeout-minutes: 10
     steps:
