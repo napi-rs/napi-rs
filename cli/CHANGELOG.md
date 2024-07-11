@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.58](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.57...@napi-rs/cli@3.0.0-alpha.58) (2024-07-11)
+
+### Bug Fixes
+
+- **cli:** wasm binding files destination ([#2182](https://github.com/napi-rs/napi-rs/issues/2182)) ([5976f04](https://github.com/napi-rs/napi-rs/commit/5976f04e542da214013ea61c13340ad0eb4861d1))
+- **deps:** update dependency inquirer to v10 ([#2173](https://github.com/napi-rs/napi-rs/issues/2173)) ([9800ea7](https://github.com/napi-rs/napi-rs/commit/9800ea7350dc5db4332c5383417700cc3509b644))
+
 # [3.0.0-alpha.57](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.56...@napi-rs/cli@3.0.0-alpha.57) (2024-07-09)
 
 ### Bug Fixes
