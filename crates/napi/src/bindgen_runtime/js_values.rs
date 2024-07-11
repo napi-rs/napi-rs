@@ -46,7 +46,7 @@ pub use external::*;
 pub use function::*;
 pub use nil::*;
 pub use object::*;
-#[cfg(feature = "napi4")]
+#[cfg(all(feature = "tokio_rt", feature = "napi4"))]
 pub use promise::*;
 pub use promise_raw::*;
 pub use string::*;
