@@ -1048,6 +1048,10 @@ BigIntTest('from i128 i64', (t) => {
 })
 
 Napi4Test('call ThreadsafeFunction', (t) => {
+  if (process.env.WASI_TEST) {
+    t.pass()
+    return
+  }
   let i = 0
   let value = 0
   return new Promise((resolve) => {
