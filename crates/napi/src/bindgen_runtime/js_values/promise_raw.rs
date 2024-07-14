@@ -1,4 +1,4 @@
-use std::ffi::{CStr, CString};
+use std::ffi::CStr;
 use std::marker::PhantomData;
 use std::ptr;
 
@@ -239,6 +239,7 @@ pub(crate) fn validate_promise(
       unsafe { crate::sys::napi_create_promise(env, &mut deferred, &mut promise) },
       "Failed to create promise"
     )?;
+    const INVALID_ARG: &[u8; 11] = b"InvalidArg\0";
     let mut err = ptr::null_mut();
     let mut code = ptr::null_mut();
     let mut message = ptr::null_mut();
@@ -246,7 +247,7 @@ pub(crate) fn validate_promise(
       unsafe {
         crate::sys::napi_create_string_utf8(
           env,
-          CStr::from_bytes_with_nul_unchecked(b"InvalidArg\0").as_ptr(),
+          CStr::from_bytes_with_nul_unchecked(INVALID_ARG).as_ptr(),
           10,
           &mut code,
         )
@@ -434,20 +435,25 @@ impl<T: ToNapiValue> ToNapiValue for CallbackContext<T> {
 
 #[inline(never)]
 fn throw_error(env: sys::napi_env, err: Error, default_msg: &str) -> sys::napi_value {
+  const GENERIC_FAILURE: &str = "GenericFailure\0";
   let code = if err.status.as_ref().is_empty() {
-    CString::new(Status::GenericFailure.as_ref())
+    GENERIC_FAILURE
   } else {
-    CString::new(err.status.as_ref())
-  }
-  .map(|s| s.as_ptr())
-  .unwrap_or(ptr::null_mut());
+    err.status.as_ref()
+  };
+  let mut code_string = ptr::null_mut();
   let msg = if err.reason.is_empty() {
-    CString::new(default_msg)
+    default_msg
   } else {
-    CString::new(err.reason)
-  }
-  .map(|s| s.as_ptr())
-  .unwrap_or(ptr::null_mut());
-  unsafe { sys::napi_throw_error(env, code, msg) };
+    err.reason.as_ref()
+  };
+  let mut msg_string = ptr::null_mut();
+  let mut err = ptr::null_mut();
+  unsafe {
+    sys::napi_create_string_latin1(env, code.as_ptr().cast(), code.len(), &mut code_string);
+    sys::napi_create_string_utf8(env, msg.as_ptr().cast(), msg.len(), &mut msg_string);
+    sys::napi_create_error(env, code_string, msg_string, &mut err);
+    sys::napi_throw(env, err);
+  };
   ptr::null_mut()
 }
