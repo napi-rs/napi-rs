@@ -23,7 +23,7 @@ const __wasi = new __WASI({
 })`
 
   const workerFsHandler = fs
-    ? `\n    worker.addEventListener('message', __wasmCreateOnMessageForFsProxy(__fs))\n`
+    ? `worker.addEventListener('message', __wasmCreateOnMessageForFsProxy(__fs))\n`
     : ''
 
   return `import {
