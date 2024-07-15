@@ -10,9 +10,9 @@ use attrs::BindgenAttrs;
 
 use convert_case::{Case, Casing};
 use napi_derive_backend::{
-  BindgenResult, CallbackArg, Diagnostic, FnKind, FnSelf, Napi, NapiConst, NapiEnum, NapiEnumValue,
-  NapiEnumVariant, NapiFn, NapiFnArg, NapiFnArgKind, NapiImpl, NapiItem, NapiStruct,
-  NapiStructField, NapiStructKind, rm_raw_prefix
+  rm_raw_prefix, BindgenResult, CallbackArg, Diagnostic, FnKind, FnSelf, Napi, NapiConst, NapiEnum,
+  NapiEnumValue, NapiEnumVariant, NapiFn, NapiFnArg, NapiFnArgKind, NapiImpl, NapiItem, NapiStruct,
+  NapiStructField, NapiStructKind,
 };
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::ToTokens;
