@@ -968,7 +968,7 @@ __metadata:
     clipanion: "npm:^3.2.1"
     colorette: "npm:^2.0.20"
     debug: "npm:^4.3.4"
-    emnapi: "npm:1.2.0"
+    emnapi: "npm:^1.2.0"
     env-paths: "npm:^3.0.0"
     esbuild: "npm:^0.23.0"
     inquirer: "npm:^10.0.0"
@@ -5475,7 +5475,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"emnapi@npm:1.2.0":
+"emnapi@npm:^1.2.0":
   version: 1.2.0
   resolution: "emnapi@npm:1.2.0"
   peerDependencies:
