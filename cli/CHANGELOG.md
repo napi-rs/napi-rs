@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.59](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.58...@napi-rs/cli@3.0.0-alpha.59) (2024-07-15)
+
+### Bug Fixes
+
+- **cli:** bundle lodash-es in cjs output ([#2189](https://github.com/napi-rs/napi-rs/issues/2189)) ([e860822](https://github.com/napi-rs/napi-rs/commit/e8608228b89f74793f4ea264fbbef00025449cad))
+- **cli:** worker files format ([#2186](https://github.com/napi-rs/napi-rs/issues/2186)) ([13c1838](https://github.com/napi-rs/napi-rs/commit/13c18388f5c57c1fa86a3a43ea9540af27d862c9))
+
 # [3.0.0-alpha.58](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.57...@napi-rs/cli@3.0.0-alpha.58) (2024-07-11)
 
 ### Bug Fixes
