@@ -73,7 +73,7 @@
     "clipanion": "^3.2.1",
     "colorette": "^2.0.20",
     "debug": "^4.3.4",
-    "emnapi": "1.2.0",
+    "emnapi": "^1.2.0",
     "inquirer": "^10.0.0",
     "js-yaml": "^4.1.0",
     "lodash-es": "^4.17.21",
