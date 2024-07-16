@@ -9,7 +9,7 @@ await esbuild.build({
   bundle: true,
   format: 'cjs',
   platform: 'node',
-  external: pull(Object.keys(packageJson.dependencies), 'lodash-es'),
+  external: pull(Object.keys(packageJson.dependencies), '@octokit/rest', 'lodash-es'),
   define: {
     'import.meta.url': '__filename',
   },
