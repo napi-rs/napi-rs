@@ -927,7 +927,7 @@ impl NapiImpl {
   }
 }
 
-fn rm_raw_prefix(s: &str) -> &str {
+pub fn rm_raw_prefix(s: &str) -> &str {
   if let Some(stripped) = s.strip_prefix("r#") {
     stripped
   } else {
