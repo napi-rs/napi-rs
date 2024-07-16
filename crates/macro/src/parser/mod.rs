@@ -10,8 +10,8 @@ use attrs::BindgenAttrs;
 
 use convert_case::{Case, Casing};
 use napi_derive_backend::{
-  BindgenResult, CallbackArg, Diagnostic, FnKind, FnSelf, Napi, NapiConst, NapiEnum, NapiEnumValue,
-  NapiEnumVariant, NapiFn, NapiFnArg, NapiFnArgKind, NapiImpl, NapiItem, NapiStruct,
+  rm_raw_prefix, BindgenResult, CallbackArg, Diagnostic, FnKind, FnSelf, Napi, NapiConst, NapiEnum,
+  NapiEnumValue, NapiEnumVariant, NapiFn, NapiFnArg, NapiFnArgKind, NapiImpl, NapiItem, NapiStruct,
   NapiStructField, NapiStructKind,
 };
 use proc_macro2::{Ident, Span, TokenStream};
@@ -32,7 +32,7 @@ static REGISTER_INDEX: AtomicUsize = AtomicUsize::new(0);
 fn get_register_ident(name: &str) -> Ident {
   let new_name = format!(
     "__napi_register__{}_{}",
-    name,
+    rm_raw_prefix(name),
     REGISTER_INDEX.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
   );
   Ident::new(&new_name, Span::call_site())

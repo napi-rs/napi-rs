@@ -7,6 +7,8 @@ mod r#enum;
 mod r#fn;
 mod r#struct;
 
+pub use r#struct::rm_raw_prefix;
+
 pub const PROPERTY_ATTRIBUTE_DEFAULT: i32 = 0;
 pub const PROPERTY_ATTRIBUTE_WRITABLE: i32 = 1 << 0;
 pub const PROPERTY_ATTRIBUTE_ENUMERABLE: i32 = 1 << 1;
