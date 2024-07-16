@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.60](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.59...@napi-rs/cli@3.0.0-alpha.60) (2024-07-16)
+
+### Bug Fixes
+
+- **cli:** bundle @octokit/rest into cjs entry ([#2190](https://github.com/napi-rs/napi-rs/issues/2190)) ([6078bb7](https://github.com/napi-rs/napi-rs/commit/6078bb7ccec935a685b78094a8faddc8a8590fe3))
+
 # [3.0.0-alpha.59](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.58...@napi-rs/cli@3.0.0-alpha.59) (2024-07-15)
 
 ### Bug Fixes
