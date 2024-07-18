@@ -3,6 +3,10 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.61](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.60...@napi-rs/cli@3.0.0-alpha.61) (2024-07-18)
+
+**Note:** Version bump only for package @napi-rs/cli
+
 # [3.0.0-alpha.60](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.59...@napi-rs/cli@3.0.0-alpha.60) (2024-07-16)
 
 ### Bug Fixes
