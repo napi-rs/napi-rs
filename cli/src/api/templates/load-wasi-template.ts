@@ -23,7 +23,7 @@ const __wasi = new __WASI({
 })`
 
   const workerFsHandler = fs
-    ? `worker.addEventListener('message', __wasmCreateOnMessageForFsProxy(__fs))\n`
+    ? `    worker.addEventListener('message', __wasmCreateOnMessageForFsProxy(__fs))\n`
     : ''
 
   return `import {
@@ -58,7 +58,7 @@ const {
     const worker = new Worker(new URL('./wasi-worker-browser.mjs', import.meta.url), {
       type: 'module',
     })
-    ${workerFsHandler}
+${workerFsHandler}
     return worker
   },
   overwriteImports(importObject) {

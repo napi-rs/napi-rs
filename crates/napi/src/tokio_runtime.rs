@@ -85,14 +85,22 @@ pub fn spawn<F>(fut: F) -> tokio::task::JoinHandle<F::Output>
 where
   F: 'static + Send + Future<Output = ()>,
 {
-  RT.read().unwrap().as_ref().unwrap().spawn(fut)
+  RT.read()
+    .unwrap()
+    .as_ref()
+    .expect("Tokio runtime is not created")
+    .spawn(fut)
 }
 
 /// Runs a future to completion
 /// This is blocking, meaning that it pauses other execution until the future is complete,
 /// only use it when it is absolutely necessary, in other places use async functions instead.
 pub fn block_on<F: Future>(fut: F) -> F::Output {
-  RT.read().unwrap().as_ref().unwrap().block_on(fut)
+  RT.read()
+    .unwrap()
+    .as_ref()
+    .expect("Tokio runtime is not created")
+    .block_on(fut)
 }
 
 /// spawn_blocking on the current Tokio runtime.
@@ -101,7 +109,11 @@ where
   F: FnOnce() -> R + Send + 'static,
   R: Send + 'static,
 {
-  RT.read().unwrap().as_ref().unwrap().spawn_blocking(func)
+  RT.read()
+    .unwrap()
+    .as_ref()
+    .expect("Tokio runtime is not created")
+    .spawn_blocking(func)
 }
 
 // This function's signature must be kept in sync with the one in lib.rs, otherwise napi
@@ -109,10 +121,15 @@ where
 
 /// If the feature `tokio_rt` has been enabled this will enter the runtime context and
 /// then call the provided closure. Otherwise it will just call the provided closure.
-#[inline]
 pub fn within_runtime_if_available<F: FnOnce() -> T, T>(f: F) -> T {
-  let _rt_guard = RT.read().unwrap().as_ref().unwrap().enter();
-  f()
+  let rt_lock = RT.read().unwrap();
+  let rt_guard = rt_lock
+    .as_ref()
+    .expect("Tokio runtime is not created")
+    .enter();
+  let ret = f();
+  drop(rt_guard);
+  ret
 }
 
 struct SendableResolver<
