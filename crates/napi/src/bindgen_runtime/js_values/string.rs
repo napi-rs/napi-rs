@@ -149,7 +149,14 @@ impl FromNapiValue for &str {
 
 impl ToNapiValue for &str {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
-    unsafe { String::to_napi_value(env, val.to_owned()) }
+    let mut ptr = ptr::null_mut();
+
+    check_status!(
+      unsafe { sys::napi_create_string_utf8(env, val.as_ptr() as *const _, val.len(), &mut ptr) },
+      "Failed to convert rust `&str` into napi `string`"
+    )?;
+
+    Ok(ptr)
   }
 }
 
