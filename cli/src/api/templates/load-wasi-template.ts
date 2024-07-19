@@ -97,7 +97,7 @@ export const createWasiBinding = (
 const __nodeFs = require('node:fs')
 const __nodePath = require('node:path')
 const { WASI: __nodeWASI } = require('node:wasi')
-const { Worker } = require('node:worker_threads')
+const { Worker, isMainThread } = require('node:worker_threads')
 
 const {
   instantiateNapiModuleSync: __emnapiInstantiateNapiModuleSync,
@@ -116,6 +116,10 @@ const __wasi = new __nodeWASI({
 })
 
 const __emnapiContext = __emnapiGetDefaultContext()
+
+if (!isMainThread) {
+  __emnapiContext.increaseWaitingRequestCounter()
+}
 
 const __sharedMemory = new WebAssembly.Memory({
   initial: ${initialMemory},

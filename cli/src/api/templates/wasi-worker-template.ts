@@ -51,7 +51,7 @@ const handler = new MessageHandler({
           ...importObject.env,
           ...importObject.napi,
           ...importObject.emnapi,
-          memory: wasmMemory
+          memory: wasmMemory,
         };
       },
     });
