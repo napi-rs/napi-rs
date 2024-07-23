@@ -144,7 +144,8 @@ fn output_type_def(napi: &Napi) {
         .and_then(|file| {
           let mut writer = BufWriter::<fs::File>::new(file);
           writer.write_all(type_def.to_string().as_bytes())?;
-          writer.write_all("\n".as_bytes())
+          writer.write_all("\n".as_bytes())?;
+          writer.flush()
         })
         .unwrap_or_else(|e| {
           println!("Failed to write type def file: {:?}", e);
