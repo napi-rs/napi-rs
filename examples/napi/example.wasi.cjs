@@ -6,7 +6,7 @@
 const __nodeFs = require('node:fs')
 const __nodePath = require('node:path')
 const { WASI: __nodeWASI } = require('node:wasi')
-const { Worker } = require('node:worker_threads')
+const { Worker, isMainThread } = require('node:worker_threads')
 
 const {
   instantiateNapiModuleSync: __emnapiInstantiateNapiModuleSync,
