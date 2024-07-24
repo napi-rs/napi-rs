@@ -845,7 +845,7 @@ test('async', async (t) => {
 })
 
 test('panic in async fn', async (t) => {
-  if (!process.env.SKIP_UNWIND_TEST) {
+  if (!process.env.SKIP_UNWIND_TEST && !process.env.WASI_TEST) {
     await t.throwsAsync(() => panicInAsync(), {
       message: 'panic in async function',
     })
