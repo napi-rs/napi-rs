@@ -232,6 +232,34 @@ impl<
 }
 
 impl<
+    T: 'static + JsValuesTupleIntoVec,
+    Return: FromNapiValue,
+    const CalleeHandled: bool,
+    const Weak: bool,
+    const MaxQueueSize: usize,
+  > TypeName for ThreadsafeFunction<T, Return, T, { CalleeHandled }, { Weak }, { MaxQueueSize }>
+{
+  fn type_name() -> &'static str {
+    "ThreadsafeFunction"
+  }
+
+  fn value_type() -> crate::ValueType {
+    crate::ValueType::Function
+  }
+}
+
+impl<
+    T: 'static + JsValuesTupleIntoVec,
+    Return: FromNapiValue,
+    const CalleeHandled: bool,
+    const Weak: bool,
+    const MaxQueueSize: usize,
+  > ValidateNapiValue
+  for ThreadsafeFunction<T, Return, T, { CalleeHandled }, { Weak }, { MaxQueueSize }>
+{
+}
+
+impl<
     T: 'static,
     Return: FromNapiValue,
     CallJsBackArgs: 'static + JsValuesTupleIntoVec,

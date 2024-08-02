@@ -171,3 +171,19 @@ pub fn spawn_thread_in_thread(tsfn: ThreadsafeFunction<u32, u32>) {
     });
   });
 }
+
+#[napi(object, object_to_js = false)]
+pub struct Pet {
+  pub name: String,
+  pub kind: u32,
+  pub either_tsfn: Either<String, ThreadsafeFunction<i32, i32>>,
+}
+
+#[napi]
+pub fn tsfn_in_either(pet: Pet) {
+  if let Either::B(tsfn) = pet.either_tsfn {
+    thread::spawn(move || {
+      tsfn.call(Ok(42), ThreadsafeFunctionCallMode::NonBlocking);
+    });
+  }
+}
