@@ -247,11 +247,11 @@ export declare function acceptArraybuffer(fixture: ArrayBuffer): bigint
 
 export declare function acceptSlice(fixture: Uint8Array): bigint
 
-export declare function acceptThreadsafeFunction(func: (err: Error | null, arg: number) => any): void
+export declare function acceptThreadsafeFunction(func: ((err: Error | null, arg: number) => any)): void
 
-export declare function acceptThreadsafeFunctionFatal(func: (arg: number) => void): void
+export declare function acceptThreadsafeFunctionFatal(func: ((arg: number) => void)): void
 
-export declare function acceptThreadsafeFunctionTupleArgs(func: (err: Error | null, arg0: number, arg1: boolean, arg2: string) => any): void
+export declare function acceptThreadsafeFunctionTupleArgs(func: ((err: Error | null, arg0: number, arg1: boolean, arg2: string) => any)): void
 
 export declare function acceptUint8ClampedSlice(input: Uint8ClampedArray): bigint
 
@@ -338,11 +338,11 @@ export declare function callFunctionWithArg(cb: (arg0: number, arg1: number) => 
 
 export declare function callFunctionWithArgAndCtx(ctx: Animal, cb: (arg: string) => void, name: string): void
 
-export declare function callLongThreadsafeFunction(tsfn: (err: Error | null, arg: number) => unknown): void
+export declare function callLongThreadsafeFunction(tsfn: ((err: Error | null, arg: number) => unknown)): void
 
 export declare function callThenOnPromise(input: Promise<number>): Promise<string>
 
-export declare function callThreadsafeFunction(tsfn: (err: Error | null, arg: number) => unknown): void
+export declare function callThreadsafeFunction(tsfn: ((err: Error | null, arg: number) => unknown)): void
 
 export declare function captureErrorInCallback(cb1: () => void, cb2: (arg0: Error) => void): void
 
@@ -562,7 +562,7 @@ export declare function objectGetNamedPropertyShouldPerformTypecheck(obj: { foo:
 
 export interface ObjectOnlyFromJs {
   count: number
-  callback: (err: Error | null, arg: number) => any
+  callback: ((err: Error | null, arg: number) => any)
 }
 
 export interface ObjectOnlyToJs {
@@ -594,6 +594,12 @@ export interface PackageJson {
 export declare function panic(): void
 
 export declare function panicInAsync(): Promise<void>
+
+export interface Pet {
+  name: string
+  kind: number
+  eitherTsfn: string | ((err: Error | null, arg: number) => number)
+}
 
 export declare function plusOne(this: Width): number
 
@@ -650,7 +656,7 @@ export interface Shared {
   value: number
 }
 
-export declare function spawnThreadInThread(tsfn: (err: Error | null, arg: number) => number): void
+export declare function spawnThreadInThread(tsfn: ((err: Error | null, arg: number) => number)): void
 
 export declare const enum Status {
   Pristine = 'Pristine',
@@ -684,11 +690,11 @@ export declare function testSerdeRoundtrip(data: any): any
 
 export declare function threadsafeFunctionClosureCapture(func: (arg: string) => void): void
 
-export declare function threadsafeFunctionFatalMode(cb: (arg: boolean) => unknown): void
+export declare function threadsafeFunctionFatalMode(cb: ((arg: boolean) => unknown)): void
 
-export declare function threadsafeFunctionFatalModeError(cb: (arg: boolean) => string): void
+export declare function threadsafeFunctionFatalModeError(cb: ((arg: boolean) => string)): void
 
-export declare function threadsafeFunctionThrowError(cb: (err: Error | null, arg: boolean) => unknown): void
+export declare function threadsafeFunctionThrowError(cb: ((err: Error | null, arg: boolean) => unknown)): void
 
 export declare function throwAsyncError(): Promise<void>
 
@@ -700,13 +706,15 @@ export declare function toJsObj(): object
 
 export declare function tsfnAsyncCall(func: (arg0: number, arg1: number, arg2: number) => string): Promise<void>
 
-export declare function tsfnCallWithCallback(tsfn: (err: Error | null, ) => string): void
+export declare function tsfnCallWithCallback(tsfn: ((err: Error | null, ) => string)): void
 
-export declare function tsfnReturnPromise(func: (err: Error | null, arg: number) => Promise<number>): Promise<number>
+export declare function tsfnInEither(pet: Pet): void
 
-export declare function tsfnReturnPromiseTimeout(func: (err: Error | null, arg: number) => Promise<number>): Promise<number>
+export declare function tsfnReturnPromise(func: ((err: Error | null, arg: number) => Promise<number>)): Promise<number>
 
-export declare function tsfnThrowFromJs(tsfn: (err: Error | null, arg: number) => Promise<number>): Promise<number>
+export declare function tsfnReturnPromiseTimeout(func: ((err: Error | null, arg: number) => Promise<number>)): Promise<number>
+
+export declare function tsfnThrowFromJs(tsfn: ((err: Error | null, arg: number) => Promise<number>)): Promise<number>
 
 export declare function tsRename(a: { foo: number }): string[]
 

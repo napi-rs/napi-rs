@@ -436,10 +436,10 @@ pub fn ty_to_ts_type(
             .map(|(ty, _)| ty.clone())
             .unwrap_or("any".to_owned());
           ts_ty = if fatal_tsfn {
-            Some((format!("({fn_args}) => {return_ty}"), false))
+            Some((format!("(({fn_args}) => {return_ty})"), false))
           } else {
             Some((
-              format!("(err: Error | null, {fn_args}) => {return_ty}"),
+              format!("((err: Error | null, {fn_args}) => {return_ty})"),
               false,
             ))
           };
