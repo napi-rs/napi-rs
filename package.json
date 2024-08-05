@@ -80,7 +80,7 @@
     "lerna": "^8.0.2",
     "lint-staged": "^15.2.1",
     "npm-run-all2": "^6.1.1",
-    "oxlint": "^0.6.0",
+    "oxlint": "^0.7.0",
     "prettier": "^3.2.4",
     "rollup": "^4.9.6",
     "shx": "^0.3.4",
