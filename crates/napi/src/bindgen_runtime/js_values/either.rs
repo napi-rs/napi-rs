@@ -150,6 +150,18 @@ macro_rules! either_n {
         }
       }
     }
+
+    #[cfg(feature = "serde-json")]
+    impl< $( $parameter: serde::Serialize ),+ > serde::Serialize for $either_name< $( $parameter ),+ > {
+      fn serialize<Ser>(&self, serializer: Ser) -> Result<Ser::Ok, Ser::Error>
+      where
+        Ser: serde::Serializer
+      {
+        match &self {
+          $( Self:: $parameter (v) => serializer.serialize_some(v) ),+
+        }
+      }
+    }
   };
 }
 
