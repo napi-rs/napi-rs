@@ -1,7 +1,7 @@
 use convert_case::{Case, Casing};
 use quote::ToTokens;
 use std::fmt::{Display, Formatter};
-use syn::{Pat, PathArguments, PathSegment};
+use syn::{Member, Pat, PathArguments, PathSegment};
 
 use super::{ty_to_ts_type, ToTypeDef, TypeDef};
 use crate::{js_doc_from_comments, CallbackArg, FnKind, NapiFn};
@@ -125,101 +125,145 @@ fn gen_callback_type(callback: &CallbackArg) -> String {
   )
 }
 
+fn gen_ts_func_arg(pat: &Pat) -> String {
+  match pat {
+    Pat::Struct(s) => format!(
+      "{{ {} }}",
+      s.fields
+        .iter()
+        .map(|field| {
+          let member_str = match &field.member {
+            Member::Named(ident) => ident.to_string(),
+            Member::Unnamed(index) => format!("field{}", index.index),
+          };
+          let nested_str = gen_ts_func_arg(&field.pat);
+          if member_str == nested_str {
+            member_str.to_case(Case::Camel)
+          } else {
+            format!("{}: {}", member_str.to_case(Case::Camel), nested_str)
+          }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+        .as_str()
+    ),
+    Pat::TupleStruct(ts) => format!(
+      "{{ {} }}",
+      ts.elems
+        .iter()
+        .enumerate()
+        .map(|(index, elem)| {
+          let member_str = format!("field{}", index);
+          let nested_str = gen_ts_func_arg(elem);
+          format!("{}: {}", member_str, nested_str)
+        })
+        .collect::<Vec<_>>()
+        .join(", "),
+    ),
+    Pat::Tuple(t) => format!(
+      "[{}]",
+      t.elems
+        .iter()
+        .map(gen_ts_func_arg)
+        .collect::<Vec<_>>()
+        .join(", ")
+    ),
+    _ => pat.to_token_stream().to_string().to_case(Case::Camel),
+  }
+}
+
 impl NapiFn {
   fn gen_ts_func_args(&self) -> String {
-    format!(
-      "{}",
-      self
-        .args
-        .iter()
-        .filter_map(|arg| match &arg.kind {
-          crate::NapiFnArgKind::PatType(path) => {
-            let ty_string = path.ty.to_token_stream().to_string();
-            if ty_string == "Env" {
-              return None;
-            }
-            if let syn::Type::Path(path) = path.ty.as_ref() {
-              if let Some(PathSegment { ident, arguments }) = path.path.segments.last() {
-                if ident == "Reference" || ident == "WeakReference" {
-                  if let Some(parent) = &self.parent {
-                    if let PathArguments::AngleBracketed(syn::AngleBracketedGenericArguments {
-                      args: angle_bracketed_args,
-                      ..
-                    }) = arguments
-                    {
-                      if let Some(syn::GenericArgument::Type(syn::Type::Path(syn::TypePath {
-                        path,
-                        ..
-                      }))) = angle_bracketed_args.first()
-                      {
-                        if let Some(segment) = path.segments.first() {
-                          if *parent == segment.ident {
-                            // If we have a Reference<A> in an impl A block, it shouldn't be an arg
-                            return None;
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-                if ident == "This" || ident == "this" {
-                  if self.kind != FnKind::Normal {
-                    return None;
-                  }
+    self
+      .args
+      .iter()
+      .filter_map(|arg| match &arg.kind {
+        crate::NapiFnArgKind::PatType(path) => {
+          let ty_string = path.ty.to_token_stream().to_string();
+          if ty_string == "Env" {
+            return None;
+          }
+          if let syn::Type::Path(path) = path.ty.as_ref() {
+            if let Some(PathSegment { ident, arguments }) = path.path.segments.last() {
+              if ident == "Reference" || ident == "WeakReference" {
+                if let Some(parent) = &self.parent {
                   if let PathArguments::AngleBracketed(syn::AngleBracketedGenericArguments {
                     args: angle_bracketed_args,
                     ..
                   }) = arguments
                   {
-                    if let Some(syn::GenericArgument::Type(ty)) = angle_bracketed_args.first() {
-                      let (ts_type, _) = ty_to_ts_type(ty, false, false, false);
-                      return Some(FnArg {
-                        arg: "this".to_owned(),
-                        ts_type,
-                        is_optional: false,
-                      });
+                    if let Some(syn::GenericArgument::Type(syn::Type::Path(syn::TypePath {
+                      path,
+                      ..
+                    }))) = angle_bracketed_args.first()
+                    {
+                      if let Some(segment) = path.segments.first() {
+                        if *parent == segment.ident {
+                          // If we have a Reference<A> in an impl A block, it shouldn't be an arg
+                          return None;
+                        }
+                      }
                     }
-                  } else {
+                  }
+                }
+              }
+              if ident == "This" || ident == "this" {
+                if self.kind != FnKind::Normal {
+                  return None;
+                }
+                if let PathArguments::AngleBracketed(syn::AngleBracketedGenericArguments {
+                  args: angle_bracketed_args,
+                  ..
+                }) = arguments
+                {
+                  if let Some(syn::GenericArgument::Type(ty)) = angle_bracketed_args.first() {
+                    let (ts_type, _) = ty_to_ts_type(ty, false, false, false);
                     return Some(FnArg {
                       arg: "this".to_owned(),
-                      ts_type: "this".to_owned(),
+                      ts_type,
                       is_optional: false,
                     });
                   }
-                  return None;
+                } else {
+                  return Some(FnArg {
+                    arg: "this".to_owned(),
+                    ts_type: "this".to_owned(),
+                    is_optional: false,
+                  });
                 }
+                return None;
               }
             }
-
-            let mut path = path.clone();
-            // remove mutability from PatIdent
-            if let Pat::Ident(i) = path.pat.as_mut() {
-              i.mutability = None;
-            }
-
-            let (ts_type, is_optional) = ty_to_ts_type(&path.ty, false, false, false);
-            let ts_type = arg.use_overridden_type_or(|| ts_type);
-            let arg = path.pat.to_token_stream().to_string().to_case(Case::Camel);
-
-            Some(FnArg {
-              arg,
-              ts_type,
-              is_optional,
-            })
           }
-          crate::NapiFnArgKind::Callback(cb) => {
-            let ts_type = arg.use_overridden_type_or(|| gen_callback_type(cb));
-            let arg = cb.pat.to_token_stream().to_string().to_case(Case::Camel);
 
-            Some(FnArg {
-              arg,
-              ts_type,
-              is_optional: false,
-            })
+          let mut path = path.clone();
+          // remove mutability from PatIdent
+          if let Pat::Ident(i) = path.pat.as_mut() {
+            i.mutability = None;
           }
-        })
-        .collect::<FnArgList>()
-    )
+
+          let (ts_type, is_optional) = ty_to_ts_type(&path.ty, false, false, false);
+          let ts_type = arg.use_overridden_type_or(|| ts_type);
+          let arg = gen_ts_func_arg(&path.pat);
+          Some(FnArg {
+            arg,
+            ts_type,
+            is_optional,
+          })
+        }
+        crate::NapiFnArgKind::Callback(cb) => {
+          let ts_type = arg.use_overridden_type_or(|| gen_callback_type(cb));
+          let arg = cb.pat.to_token_stream().to_string().to_case(Case::Camel);
+
+          Some(FnArg {
+            arg,
+            ts_type,
+            is_optional: false,
+          })
+        }
+      })
+      .collect::<FnArgList>()
+      .to_string()
   }
 
   fn gen_ts_func_prefix(&self) -> &'static str {
