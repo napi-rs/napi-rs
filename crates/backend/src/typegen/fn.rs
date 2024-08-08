@@ -1,7 +1,7 @@
 use convert_case::{Case, Casing};
 use quote::ToTokens;
 use std::fmt::{Display, Formatter};
-use syn::{Pat, PathArguments, PathSegment};
+use syn::{Member, Pat, PathArguments, PathSegment};
 
 use super::{ty_to_ts_type, ToTypeDef, TypeDef};
 use crate::{js_doc_from_comments, CallbackArg, FnKind, NapiFn};
@@ -125,6 +125,53 @@ fn gen_callback_type(callback: &CallbackArg) -> String {
   )
 }
 
+fn gen_ts_func_arg(pat: &Pat) -> String {
+  match pat {
+    Pat::Struct(s) => format!(
+      "{{ {} }}",
+      s.fields
+        .iter()
+        .map(|field| {
+          let member_str = match &field.member {
+            Member::Named(ident) => ident.to_string(),
+            Member::Unnamed(index) => format!("field{}", index.index),
+          };
+          let nested_str = gen_ts_func_arg(&field.pat);
+          if member_str == nested_str {
+            member_str.to_case(Case::Camel)
+          } else {
+            format!("{}: {}", member_str.to_case(Case::Camel), nested_str)
+          }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+        .as_str()
+    ),
+    Pat::TupleStruct(ts) => format!(
+      "{{ {} }}",
+      ts.elems
+        .iter()
+        .enumerate()
+        .map(|(index, elem)| {
+          let member_str = format!("field{}", index);
+          let nested_str = gen_ts_func_arg(elem);
+          format!("{}: {}", member_str, nested_str)
+        })
+        .collect::<Vec<_>>()
+        .join(", "),
+    ),
+    Pat::Tuple(t) => format!(
+      "[{}]",
+      t.elems
+        .iter()
+        .map(gen_ts_func_arg)
+        .collect::<Vec<_>>()
+        .join(", ")
+    ),
+    _ => pat.to_token_stream().to_string().to_case(Case::Camel),
+  }
+}
+
 impl NapiFn {
   fn gen_ts_func_args(&self) -> String {
     format!(
@@ -199,8 +246,7 @@ impl NapiFn {
 
             let (ts_type, is_optional) = ty_to_ts_type(&path.ty, false, false, false);
             let ts_type = arg.use_overridden_type_or(|| ts_type);
-            let arg = path.pat.to_token_stream().to_string().to_case(Case::Camel);
-
+            let arg = gen_ts_func_arg(&path.pat);
             Some(FnArg {
               arg,
               ts_type,
