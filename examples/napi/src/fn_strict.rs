@@ -108,6 +108,35 @@ fn validate_optional(input1: Option<String>, input2: Option<bool>) -> bool {
   input1.is_some() || input2.unwrap_or(false)
 }
 
+/// default enum values are continuos i32s start from 0
+#[napi]
+pub enum KindInValidate {
+  /// Barks
+  Dog,
+  /// Kills birds
+  Cat,
+  /// Tasty
+  Duck,
+}
+
+#[napi(strict)]
+pub fn validate_enum(input: KindInValidate) -> i32 {
+  input as i32
+}
+
+#[napi(string_enum)]
+#[derive(Debug)]
+pub enum StatusInValidate {
+  Poll,
+  Ready,
+  Done,
+}
+
+#[napi(strict)]
+pub fn validate_string_enum(input: StatusInValidate) -> String {
+  format!("{:?}", input)
+}
+
 #[napi(return_if_invalid)]
 fn return_undefined_if_invalid(input: bool) -> bool {
   !input

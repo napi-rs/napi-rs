@@ -511,6 +511,16 @@ export const enum Kind {
   Duck = 2
 }
 
+/** default enum values are continuos i32s start from 0 */
+export const enum KindInValidate {
+  /** Barks */
+  Dog = 0,
+  /** Kills birds */
+  Cat = 1,
+  /** Tasty */
+  Duck = 2
+}
+
 export declare function listObjKeys(obj: object): Array<string>
 
 export interface LocalDates {
@@ -639,6 +649,12 @@ export const enum Status {
   Ready = 'Ready'
 }
 
+export const enum StatusInValidate {
+  Poll = 'Poll',
+  Ready = 'Ready',
+  Done = 'Done'
+}
+
 export interface StrictObject {
   name: string
 }
@@ -730,6 +746,8 @@ export declare function validateDate(d: Date): number
 
 export declare function validateDateTime(d: Date): number
 
+export declare function validateEnum(input: KindInValidate): number
+
 export declare function validateExternal(e: ExternalObject<number>): number
 
 export declare function validateFunction(cb: () => number): number
@@ -745,6 +763,8 @@ export declare function validateOptional(input1?: string | undefined | null, inp
 export declare function validatePromise(p: Promise<number>): Promise<number>
 
 export declare function validateString(s: string): string
+
+export declare function validateStringEnum(input: StatusInValidate): string
 
 export declare function validateSymbol(s: symbol): boolean
 

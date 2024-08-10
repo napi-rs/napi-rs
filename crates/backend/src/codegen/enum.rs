@@ -33,6 +33,16 @@ impl NapiEnum {
       to_napi_branches.push(quote! { #name::#v_name => #val });
     });
 
+    let validate_type = if self
+      .variants
+      .iter()
+      .any(|v| matches!(v.val, crate::NapiEnumValue::String(_)))
+    {
+      quote! { napi::bindgen_prelude::ValueType::String }
+    } else {
+      quote! { napi::bindgen_prelude::ValueType::Number }
+    };
+
     quote! {
       impl napi::bindgen_prelude::TypeName for #name {
         fn type_name() -> &'static str {
@@ -49,7 +59,7 @@ impl NapiEnum {
           env: napi::bindgen_prelude::sys::napi_env,
           napi_val: napi::bindgen_prelude::sys::napi_value
         ) -> napi::bindgen_prelude::Result<napi::sys::napi_value> {
-          napi::bindgen_prelude::assert_type_of!(env, napi_val, napi::bindgen_prelude::ValueType::Number)?;
+          napi::bindgen_prelude::assert_type_of!(env, napi_val, #validate_type)?;
           Ok(std::ptr::null_mut())
         }
       }
