@@ -1,5 +1,5 @@
 use proc_macro2::{Ident, Literal};
-use syn::{Attribute, Expr, Type};
+use syn::{Attribute, Expr, Generics, Type};
 
 #[derive(Debug, Clone)]
 pub struct NapiFn {
@@ -89,6 +89,7 @@ pub struct NapiStruct {
   pub use_custom_finalize: bool,
   pub register_name: Ident,
   pub use_nullable: bool,
+  pub generics: Generics,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -459,3 +459,9 @@ impl CatchOnConstructor2 {
     panic!("CatchOnConstructor2 panic");
   }
 }
+
+#[napi]
+pub struct WithConstGenerics<const FOO: bool, const BAR: bool = false> {}
+
+#[napi]
+pub struct WithConstGenericsTuple<const FOO: bool, const BAR: bool = false>();

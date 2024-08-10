@@ -1007,6 +1007,19 @@ impl ConvertToAST for syn::ItemStruct {
       inner.insert(key, implement_iterator);
     });
 
+    // napi-rs only supports const generics.
+    let non_const_generics = self
+      .generics
+      .params
+      .iter()
+      .filter(|g| !matches!(g, syn::GenericParam::Const(_)))
+      .collect::<Vec<_>>();
+    if !non_const_generics.is_empty() {
+      for g in non_const_generics {
+        errors.push(err_span!(g, "napi-rs only supports const generics"));
+      }
+    }
+
     Diagnostic::from_vec(errors).map(|()| Napi {
       item: NapiItem::Struct(NapiStruct {
         js_name,
@@ -1023,6 +1036,7 @@ impl ConvertToAST for syn::ItemStruct {
         use_custom_finalize: opts.custom_finalize().is_some(),
         register_name: get_register_ident(format!("{struct_name}_struct").as_str()),
         use_nullable,
+        generics: self.generics.clone(),
       }),
     })
   }
