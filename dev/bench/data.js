@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1723086630560,
+  "lastUpdate": 1723272002705,
   "repoUrl": "https://github.com/napi-rs/napi-rs",
   "entries": {
     "Benchmark": [
@@ -121066,6 +121066,177 @@ window.BENCHMARK_DATA = {
             "name": "Query#query * 1",
             "value": 27150,
             "range": "±1.26%",
+            "unit": "ops/sec",
+            "extra": "84 samples"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "lynweklm@gmail.com",
+            "name": "LongYinan",
+            "username": "Brooooooklyn"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "82675fb06873bcd29f5f59225374de3251136fcd",
+          "message": "ci: fix Address Sanitizer check (#2212)",
+          "timestamp": "2024-08-10T14:37:02+08:00",
+          "tree_id": "eb529e74f736687efa4a9963ac491e2729389b38",
+          "url": "https://github.com/napi-rs/napi-rs/commit/82675fb06873bcd29f5f59225374de3251136fcd"
+        },
+        "date": 1723271999822,
+        "tool": "benchmarkjs",
+        "benches": [
+          {
+            "name": "noop#napi-rs",
+            "value": 86969104,
+            "range": "±0.17%",
+            "unit": "ops/sec",
+            "extra": "92 samples"
+          },
+          {
+            "name": "noop#JavaScript",
+            "value": 835166263,
+            "range": "±0.4%",
+            "unit": "ops/sec",
+            "extra": "92 samples"
+          },
+          {
+            "name": "Plus number#napi-rs",
+            "value": 23397740,
+            "range": "±0.73%",
+            "unit": "ops/sec",
+            "extra": "93 samples"
+          },
+          {
+            "name": "Plus number#JavaScript",
+            "value": 835191337,
+            "range": "±0.39%",
+            "unit": "ops/sec",
+            "extra": "95 samples"
+          },
+          {
+            "name": "Create buffer#napi-rs",
+            "value": 695053,
+            "range": "±11.98%",
+            "unit": "ops/sec",
+            "extra": "66 samples"
+          },
+          {
+            "name": "Create buffer#JavaScript",
+            "value": 3917328,
+            "range": "±1.73%",
+            "unit": "ops/sec",
+            "extra": "78 samples"
+          },
+          {
+            "name": "createArray#createArrayJson",
+            "value": 55783,
+            "range": "±0.69%",
+            "unit": "ops/sec",
+            "extra": "89 samples"
+          },
+          {
+            "name": "createArray#create array for loop",
+            "value": 10351,
+            "range": "±0.5%",
+            "unit": "ops/sec",
+            "extra": "94 samples"
+          },
+          {
+            "name": "createArray#create array with serde trait",
+            "value": 10175,
+            "range": "±0.59%",
+            "unit": "ops/sec",
+            "extra": "94 samples"
+          },
+          {
+            "name": "getArrayFromJs#get array from json string",
+            "value": 24818,
+            "range": "±0.51%",
+            "unit": "ops/sec",
+            "extra": "92 samples"
+          },
+          {
+            "name": "getArrayFromJs#get array from serde",
+            "value": 14161,
+            "range": "±0.58%",
+            "unit": "ops/sec",
+            "extra": "94 samples"
+          },
+          {
+            "name": "getArrayFromJs#get array with for loop",
+            "value": 16007,
+            "range": "±1.48%",
+            "unit": "ops/sec",
+            "extra": "94 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from native#u32",
+            "value": 559656,
+            "range": "±11.79%",
+            "unit": "ops/sec",
+            "extra": "76 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from JavaScript#u32",
+            "value": 538819,
+            "range": "±2.31%",
+            "unit": "ops/sec",
+            "extra": "89 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from native#string",
+            "value": 559137,
+            "range": "±11.56%",
+            "unit": "ops/sec",
+            "extra": "87 samples"
+          },
+          {
+            "name": "Get Set property#Get Set from JavaScript#string",
+            "value": 510319,
+            "range": "±2.08%",
+            "unit": "ops/sec",
+            "extra": "91 samples"
+          },
+          {
+            "name": "Async task#spawn task",
+            "value": 27082,
+            "range": "±0.31%",
+            "unit": "ops/sec",
+            "extra": "84 samples"
+          },
+          {
+            "name": "Async task#ThreadSafeFunction",
+            "value": 9910,
+            "range": "±0.77%",
+            "unit": "ops/sec",
+            "extra": "83 samples"
+          },
+          {
+            "name": "Async task#Tokio future to Promise",
+            "value": 34805,
+            "range": "±0.87%",
+            "unit": "ops/sec",
+            "extra": "85 samples"
+          },
+          {
+            "name": "Query#query * 100",
+            "value": 3588,
+            "range": "±1.42%",
+            "unit": "ops/sec",
+            "extra": "86 samples"
+          },
+          {
+            "name": "Query#query * 1",
+            "value": 27301,
+            "range": "±1.37%",
             "unit": "ops/sec",
             "extra": "84 samples"
           }
