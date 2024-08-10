@@ -18,7 +18,7 @@ use syn::{fold::Fold, parse_macro_input, ItemFn};
 
 /// ```ignore
 /// #[napi]
-/// fn test(ctx: CallContext, name: String) {
+/// fn test(name: String) {
 ///   "hello" + name
 /// }
 /// ```
