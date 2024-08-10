@@ -973,6 +973,7 @@ __metadata:
   dependencies:
     "@emnapi/core": "npm:^1.1.0"
     "@emnapi/runtime": "npm:^1.1.0"
+    "@inquirer/prompts": "npm:^5.3.8"
     "@napi-rs/cross-toolchain": "npm:^0.0.16"
     "@napi-rs/wasm-tools": "npm:^0.0.2"
     "@octokit/rest": "npm:^21.0.0"
@@ -989,7 +990,6 @@ __metadata:
     emnapi: "npm:^1.2.0"
     env-paths: "npm:^3.0.0"
     esbuild: "npm:^0.23.0"
-    inquirer: "npm:^10.0.0"
     js-yaml: "npm:^4.1.0"
     lodash-es: "npm:^4.17.21"
     prettier: "npm:^3.2.4"
@@ -7164,21 +7164,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"inquirer@npm:^10.0.0":
-  version: 10.1.8
-  resolution: "inquirer@npm:10.1.8"
-  dependencies:
-    "@inquirer/prompts": "npm:^5.3.8"
-    "@inquirer/type": "npm:^1.5.2"
-    "@types/mute-stream": "npm:^0.0.4"
-    ansi-escapes: "npm:^4.3.2"
-    mute-stream: "npm:^1.0.0"
-    run-async: "npm:^3.0.0"
-    rxjs: "npm:^7.8.1"
-  checksum: 10c0/a80b99dadc4af45c49197879de9f706b02d9c79204caea453072993eb72b0a7922ba07a3e468de9139341bc9d74112b20040b68b3590ef927308a2a71a63dba7
-  languageName: node
-  linkType: hard
-
 "inquirer@npm:^8.2.4":
   version: 8.2.6
   resolution: "inquirer@npm:8.2.6"
@@ -10811,13 +10796,6 @@ __metadata:
   version: 2.4.1
   resolution: "run-async@npm:2.4.1"
   checksum: 10c0/35a68c8f1d9664f6c7c2e153877ca1d6e4f886e5ca067c25cdd895a6891ff3a1466ee07c63d6a9be306e9619ff7d509494e6d9c129516a36b9fd82263d579ee1
-  languageName: node
-  linkType: hard
-
-"run-async@npm:^3.0.0":
-  version: 3.0.0
-  resolution: "run-async@npm:3.0.0"
-  checksum: 10c0/b18b562ae37c3020083dcaae29642e4cc360c824fbfb6b7d50d809a9d5227bb986152d09310255842c8dce40526e82ca768f02f00806c91ba92a8dfa6159cb85
   languageName: node
   linkType: hard
 
