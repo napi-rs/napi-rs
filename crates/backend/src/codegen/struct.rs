@@ -281,7 +281,10 @@ impl NapiStruct {
           val: #name
         ) -> napi::Result<napi::bindgen_prelude::sys::napi_value> {
           if let Some(ctor_ref) = napi::__private::get_class_constructor(#js_name_str) {
-            let wrapped_value = Box::into_raw(Box::new(val));
+            let mut wrapped_value = Box::into_raw(Box::new(val));
+            if wrapped_value as usize == 0x1 {
+              wrapped_value = Box::into_raw(Box::new(0u8)).cast();
+            }
             let instance_value = #name::new_instance(env, wrapped_value.cast(), ctor_ref)?;
             #iterator_implementation
             Ok(instance_value)
@@ -299,7 +302,10 @@ impl NapiStruct {
         pub fn into_reference(val: #name, env: napi::Env) -> napi::Result<napi::bindgen_prelude::Reference<#name>> {
           if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name_str) {
             unsafe {
-              let wrapped_value = Box::into_raw(Box::new(val));
+              let mut wrapped_value = Box::into_raw(Box::new(val));
+              if wrapped_value as usize == 0x1 {
+                wrapped_value = Box::into_raw(Box::new(0u8)).cast();
+              }
               let instance_value = #name::new_instance(env.raw(), wrapped_value.cast(), ctor_ref)?;
               {
                 let env = env.raw();
