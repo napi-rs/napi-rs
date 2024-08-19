@@ -42,7 +42,7 @@
     "vite": "^5.0.12",
     "vite-plugin-node-polyfills": "^0.22.0",
     "vitest": "^2.0.0",
-    "webdriverio": "^8.29.3"
+    "webdriverio": "^9.0.0"
   },
   "ava": {
     "extensions": {
