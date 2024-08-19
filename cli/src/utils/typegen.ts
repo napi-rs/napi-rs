@@ -12,6 +12,7 @@ enum TypeDefKind {
   Enum = 'enum',
   StringEnum = 'string_enum',
   Interface = 'interface',
+  Type = 'type',
   Fn = 'fn',
   Struct = 'struct',
   Impl = 'impl',
@@ -36,6 +37,10 @@ function prettyPrint(
   switch (line.kind) {
     case TypeDefKind.Interface:
       s += `export interface ${line.name} {\n${line.def}\n}`
+      break
+
+    case TypeDefKind.Type:
+      s += `export type ${line.name} = \n${line.def}`
       break
 
     case TypeDefKind.Enum:
