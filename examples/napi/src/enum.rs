@@ -60,3 +60,10 @@ pub enum CustomStringEnum {
   Bar,
   Baz,
 }
+
+#[napi]
+pub enum StructuredKind {
+  Hello,
+  Greeting { name: String },
+  Birthday { name: String, age: u8 },
+}

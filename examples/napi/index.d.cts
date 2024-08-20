@@ -690,6 +690,11 @@ export declare const enum StringEnum {
   VariantThree = 'variantthree'
 }
 
+export type StructuredKind =
+  | { type: 'Hello',  }
+  | { type: 'Greeting', name: string }
+  | { type: 'Birthday', name: string, age: number }
+
 export declare function sumBtreeMapping(nums: Record<string, number>): number
 
 export declare function sumIndexMapping(nums: Record<string, number>): number
