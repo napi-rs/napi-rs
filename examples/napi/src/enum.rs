@@ -67,3 +67,8 @@ pub enum StructuredKind {
   Greeting { name: String },
   Birthday { name: String, age: u8 },
 }
+
+#[napi]
+pub fn validate_structured_enum(kind: StructuredKind) -> StructuredKind {
+  kind
+}

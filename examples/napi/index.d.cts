@@ -800,6 +800,8 @@ export declare function validateString(s: string): string
 
 export declare function validateStringEnum(input: StatusInValidate): string
 
+export declare function validateStructuredEnum(kind: StructuredKind): StructuredKind
+
 export declare function validateSymbol(s: symbol): boolean
 
 export declare function validateTypedArray(input: Uint8Array): number

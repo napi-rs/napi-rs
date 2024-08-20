@@ -603,6 +603,7 @@ module.exports.validateOptional = nativeBinding.validateOptional
 module.exports.validatePromise = nativeBinding.validatePromise
 module.exports.validateString = nativeBinding.validateString
 module.exports.validateStringEnum = nativeBinding.validateStringEnum
+module.exports.validateStructuredEnum = nativeBinding.validateStructuredEnum
 module.exports.validateSymbol = nativeBinding.validateSymbol
 module.exports.validateTypedArray = nativeBinding.validateTypedArray
 module.exports.validateTypedArraySlice = nativeBinding.validateTypedArraySlice

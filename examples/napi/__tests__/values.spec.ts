@@ -186,6 +186,8 @@ import {
   callThenOnPromise,
   callCatchOnPromise,
   callFinallyOnPromise,
+  StructuredKind,
+  validateStructuredEnum,
 } from '../index.cjs'
 
 import { test } from './test.framework.js'
@@ -248,6 +250,26 @@ test('map', (t) => {
 test('enum', (t) => {
   t.deepEqual([Kind.Dog, Kind.Cat, Kind.Duck], [0, 1, 2])
   t.is(enumToI32(CustomNumEnum.Eight), 8)
+})
+
+test('structured enum', (t) => {
+  const hello: StructuredKind = {
+    type2: 'Hello',
+  }
+  const greeting: StructuredKind = {
+    type2: 'Greeting',
+    name: 'Napi-rs',
+  }
+  const birthday: StructuredKind = {
+    type2: 'Birthday',
+    name: 'Napi-rs',
+    age: 10,
+  }
+  t.deepEqual(hello, validateStructuredEnum(hello))
+  t.deepEqual(greeting, validateStructuredEnum(greeting))
+  t.deepEqual(birthday, validateStructuredEnum(birthday))
+  t.throws(() => validateStructuredEnum({ type2: 'unknown' } as any))
+  t.throws(() => validateStructuredEnum({ type2: 'Greeting' } as any))
 })
 
 test('function call', async (t) => {
