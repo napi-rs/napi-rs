@@ -113,6 +113,7 @@ pub struct NapiStructuredEnum {
   pub variants: Vec<NapiStructuredEnumVariant>,
   pub object_from_js: bool,
   pub object_to_js: bool,
+  pub discriminant: String,
 }
 
 #[derive(Debug, Clone)]

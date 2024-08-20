@@ -168,16 +168,19 @@ impl NapiStruct {
         .variants
         .iter()
         .map(|variant| {
-          let def = iter::once(format!("type: '{}'", variant.name))
-            .chain(
-              variant
-                .fields
-                .iter()
-                .filter(|f| f.getter)
-                .filter_map(|f| self.gen_field(f).map(|(field, _)| field)),
-            )
-            .collect::<Vec<_>>()
-            .join(", ");
+          let def = iter::once(format!(
+            "{}: '{}'",
+            structured_enum.discriminant, variant.name
+          ))
+          .chain(
+            variant
+              .fields
+              .iter()
+              .filter(|f| f.getter)
+              .filter_map(|f| self.gen_field(f).map(|(field, _)| field)),
+          )
+          .collect::<Vec<_>>()
+          .join(", ");
           format!("  | {{ {} }} ", def)
         })
         .collect::<Vec<_>>()

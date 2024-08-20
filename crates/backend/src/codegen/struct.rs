@@ -845,6 +845,7 @@ impl NapiStruct {
   ) -> TokenStream {
     let name = &self.name;
     let name_str = self.name.to_string();
+    let discriminant = structured_enum.discriminant.as_str();
 
     let mut variant_arm_setters = vec![];
     let mut variant_arm_getters = vec![];
@@ -853,7 +854,7 @@ impl NapiStruct {
       let variant_name = &variant.name;
       let variant_name_str = variant_name.to_string();
       let mut obj_field_setters = vec![quote! {
-        obj.set("type", #variant_name_str)?;
+        obj.set(#discriminant, #variant_name_str)?;
       }];
       let mut obj_field_getters = vec![];
       let mut field_destructions = vec![];
@@ -999,12 +1000,12 @@ impl NapiStruct {
           ) -> napi::bindgen_prelude::Result<Self> {
             let env_wrapper = napi::bindgen_prelude::Env::from(env);
             let mut obj = napi::bindgen_prelude::Object::from_napi_value(env, napi_val)?;
-            let type_: String = obj.get("type").map_err(|mut err| {
-              err.reason = format!("{} on {}.{}", err.reason, #name_str, "type");
+            let type_: String = obj.get(#discriminant).map_err(|mut err| {
+              err.reason = format!("{} on {}.{}", err.reason, #name_str, #discriminant);
               err
             })?.ok_or_else(|| napi::bindgen_prelude::Error::new(
               napi::bindgen_prelude::Status::InvalidArg,
-              format!("Missing field `{}`", "type"),
+              format!("Missing field `{}`", #discriminant),
             ))?;
             let val = match type_.as_str() {
               #(#variant_arm_getters)*

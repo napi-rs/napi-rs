@@ -1159,6 +1159,7 @@ impl ConvertToAST for syn::ItemEnum {
       .iter()
       .any(|v| !matches!(v.fields, syn::Fields::Unit))
     {
+      let discriminant = opts.discriminant().map_or("type", |(s, _)| s);
       let mut variants = vec![];
       for variant in self.variants.iter_mut() {
         let (fields, is_tuple) = convert_fields(&mut variant.fields, false)?;
@@ -1179,6 +1180,7 @@ impl ConvertToAST for syn::ItemEnum {
           register_name: get_register_ident(format!("{struct_name}_struct").as_str()),
           kind: NapiStructKind::StructuredEnum(NapiStructuredEnum {
             variants,
+            discriminant: discriminant.to_owned(),
             object_from_js: opts.object_from_js(),
             object_to_js: opts.object_to_js(),
           }),

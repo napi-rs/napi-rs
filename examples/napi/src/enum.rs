@@ -61,7 +61,7 @@ pub enum CustomStringEnum {
   Baz,
 }
 
-#[napi]
+#[napi(discriminant = "type2")]
 pub enum StructuredKind {
   Hello,
   Greeting { name: String },
