@@ -1160,9 +1160,20 @@ impl ConvertToAST for syn::ItemEnum {
       .any(|v| !matches!(v.fields, syn::Fields::Unit))
     {
       let discriminant = opts.discriminant().map_or("type", |(s, _)| s);
+      let mut errors = vec![];
       let mut variants = vec![];
       for variant in self.variants.iter_mut() {
         let (fields, is_tuple) = convert_fields(&mut variant.fields, false)?;
+        for field in fields.iter() {
+          if field.js_name == discriminant {
+            errors.push(err_span!(
+              field.name,
+              r#"field's js_name("{}") and discriminator("{}") conflicts"#,
+              field.js_name,
+              discriminant,
+            ));
+          }
+        }
         variants.push(NapiStructuredEnumVariant {
           name: variant.ident.clone(),
           fields,
@@ -1170,7 +1181,7 @@ impl ConvertToAST for syn::ItemEnum {
         });
       }
       let struct_name = self.ident.clone();
-      return Ok(Napi {
+      return Diagnostic::from_vec(errors).map(|()| Napi {
         item: NapiItem::Struct(NapiStruct {
           name: struct_name.clone(),
           js_name,
