@@ -691,7 +691,7 @@ export declare const enum StringEnum {
 }
 
 export type StructuredKind =
-  | { type: 'Hello',  }
+  | { type: 'Hello' }
   | { type: 'Greeting', name: string }
   | { type: 'Birthday', name: string, age: number }
 

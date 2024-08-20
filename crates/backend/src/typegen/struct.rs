@@ -1,5 +1,5 @@
-use std::cell::RefCell;
 use std::collections::HashMap;
+use std::{cell::RefCell, iter};
 
 use super::{add_alias, ToTypeDef, TypeDef};
 use crate::{
@@ -168,14 +168,17 @@ impl NapiStruct {
         .variants
         .iter()
         .map(|variant| {
-          let def = variant
-            .fields
-            .iter()
-            .filter(|f| f.getter)
-            .filter_map(|f| self.gen_field(f).map(|(field, _)| field))
+          let def = iter::once(format!("type: '{}'", variant.name))
+            .chain(
+              variant
+                .fields
+                .iter()
+                .filter(|f| f.getter)
+                .filter_map(|f| self.gen_field(f).map(|(field, _)| field)),
+            )
             .collect::<Vec<_>>()
             .join(", ");
-          format!("  | {{ type: '{}', {} }} ", variant.name, def)
+          format!("  | {{ {} }} ", def)
         })
         .collect::<Vec<_>>()
         .join("\\n"),
