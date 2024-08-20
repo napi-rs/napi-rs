@@ -1168,7 +1168,7 @@ impl ConvertToAST for syn::ItemEnum {
           if field.js_name == discriminant {
             errors.push(err_span!(
               field.name,
-              r#"field's js_name("{}") and discriminator("{}") conflicts"#,
+              r#"field's js_name("{}") and discriminator("{}") conflict"#,
               field.js_name,
               discriminant,
             ));
