@@ -34,7 +34,7 @@
     "ava": "^6.1.1",
     "buffer": "^6.0.3",
     "cross-env": "7.0.3",
-    "electron": "^31.0.0",
+    "electron": "^32.0.0",
     "lodash": "^4.17.21",
     "playwright": "^1.45.1",
     "rxjs": "^7.8.1",
