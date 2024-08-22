@@ -620,8 +620,8 @@ fn napi_fn_from_decl(
     syn::ReturnType::Default => (None, false),
     syn::ReturnType::Type(_, ty) => {
       let result_ty = extract_result_ty(&ty)?;
-      if result_ty.is_some() {
-        (result_ty, true)
+      if let Some(result_ty) = result_ty {
+        (Some(replace_self(result_ty, parent)), true)
       } else {
         (Some(replace_self(*ty, parent)), false)
       }
