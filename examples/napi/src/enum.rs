@@ -60,3 +60,15 @@ pub enum CustomStringEnum {
   Bar,
   Baz,
 }
+
+#[napi(discriminant = "type2")]
+pub enum StructuredKind {
+  Hello,
+  Greeting { name: String },
+  Birthday { name: String, age: u8 },
+}
+
+#[napi]
+pub fn validate_structured_enum(kind: StructuredKind) -> StructuredKind {
+  kind
+}

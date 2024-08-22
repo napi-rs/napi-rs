@@ -690,6 +690,11 @@ export declare const enum StringEnum {
   VariantThree = 'variantthree'
 }
 
+export type StructuredKind =
+  | { type2: 'Hello' }
+  | { type2: 'Greeting', name: string }
+  | { type2: 'Birthday', name: string, age: number }
+
 export declare function sumBtreeMapping(nums: Record<string, number>): number
 
 export declare function sumIndexMapping(nums: Record<string, number>): number
@@ -794,6 +799,8 @@ export declare function validatePromise(p: Promise<number>): Promise<number>
 export declare function validateString(s: string): string
 
 export declare function validateStringEnum(input: StatusInValidate): string
+
+export declare function validateStructuredEnum(kind: StructuredKind): StructuredKind
 
 export declare function validateSymbol(s: symbol): boolean
 

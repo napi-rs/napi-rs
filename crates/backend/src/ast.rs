@@ -77,25 +77,50 @@ pub enum FnSelf {
 pub struct NapiStruct {
   pub name: Ident,
   pub js_name: String,
-  pub vis: syn::Visibility,
-  pub fields: Vec<NapiStructField>,
-  pub is_tuple: bool,
-  pub kind: NapiStructKind,
-  pub object_from_js: bool,
-  pub object_to_js: bool,
-  pub js_mod: Option<String>,
   pub comments: Vec<String>,
-  pub implement_iterator: bool,
-  pub use_custom_finalize: bool,
-  pub register_name: Ident,
+  pub js_mod: Option<String>,
   pub use_nullable: bool,
+  pub register_name: Ident,
+  pub kind: NapiStructKind,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum NapiStructKind {
-  None,
-  Constructor,
-  Object,
+  Class(NapiClass),
+  Object(NapiObject),
+  StructuredEnum(NapiStructuredEnum),
+}
+
+#[derive(Debug, Clone)]
+pub struct NapiClass {
+  pub fields: Vec<NapiStructField>,
+  pub ctor: bool,
+  pub implement_iterator: bool,
+  pub is_tuple: bool,
+  pub use_custom_finalize: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct NapiObject {
+  pub fields: Vec<NapiStructField>,
+  pub object_from_js: bool,
+  pub object_to_js: bool,
+  pub is_tuple: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct NapiStructuredEnum {
+  pub variants: Vec<NapiStructuredEnumVariant>,
+  pub object_from_js: bool,
+  pub object_to_js: bool,
+  pub discriminant: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct NapiStructuredEnumVariant {
+  pub name: Ident,
+  pub fields: Vec<NapiStructField>,
+  pub is_tuple: bool,
 }
 
 #[derive(Debug, Clone)]

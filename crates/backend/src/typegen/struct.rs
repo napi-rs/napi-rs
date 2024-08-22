@@ -1,8 +1,10 @@
-use std::cell::RefCell;
 use std::collections::HashMap;
+use std::{cell::RefCell, iter};
 
 use super::{add_alias, ToTypeDef, TypeDef};
-use crate::{js_doc_from_comments, ty_to_ts_type, NapiImpl, NapiStruct, NapiStructKind};
+use crate::{
+  js_doc_from_comments, ty_to_ts_type, NapiImpl, NapiStruct, NapiStructField, NapiStructKind,
+};
 
 thread_local! {
   pub(crate) static TASK_STRUCTS: RefCell<HashMap<String, String>> = Default::default();
@@ -18,10 +20,10 @@ impl ToTypeDef for NapiStruct {
     add_alias(self.name.to_string(), self.js_name.to_string());
 
     Some(TypeDef {
-      kind: String::from(if self.kind == NapiStructKind::Object {
-        "interface"
-      } else {
-        "struct"
+      kind: String::from(match self.kind {
+        NapiStructKind::Class(_) => "struct",
+        NapiStructKind::Object(_) => "interface",
+        NapiStructKind::StructuredEnum(_) => "type",
       }),
       name: self.js_name.to_owned(),
       original_name: Some(self.name.to_string()),
@@ -104,51 +106,85 @@ impl ToTypeDef for NapiImpl {
 }
 
 impl NapiStruct {
+  fn gen_field(&self, f: &NapiStructField) -> Option<(String, String)> {
+    if f.skip_typescript {
+      return None;
+    }
+
+    let mut field_str = String::from("");
+
+    if !f.comments.is_empty() {
+      field_str.push_str(&js_doc_from_comments(&f.comments))
+    }
+
+    if !f.setter {
+      field_str.push_str("readonly ")
+    }
+
+    let (arg, is_optional) = ty_to_ts_type(&f.ty, false, true, false);
+    let arg = f.ts_type.as_ref().map(|ty| ty.to_string()).unwrap_or(arg);
+
+    let arg = match is_optional {
+      false => format!("{}: {}", &f.js_name, arg),
+      true => match self.use_nullable {
+        false => format!("{}?: {}", &f.js_name, arg),
+        true => format!("{}: {} | null", &f.js_name, arg),
+      },
+    };
+    field_str.push_str(&arg);
+    Some((field_str, arg))
+  }
+
   fn gen_ts_class(&self) -> String {
-    let mut ctor_args = vec![];
-    let def = self
-      .fields
-      .iter()
-      .filter(|f| f.getter)
-      .filter_map(|f| {
-        if f.skip_typescript {
-          return None;
+    match &self.kind {
+      NapiStructKind::Class(class) => {
+        let mut ctor_args = vec![];
+        let def = class
+          .fields
+          .iter()
+          .filter(|f| f.getter)
+          .filter_map(|f| {
+            self.gen_field(f).map(|(field, arg)| {
+              ctor_args.push(arg);
+              field
+            })
+          })
+          .collect::<Vec<_>>()
+          .join("\\n");
+        if class.ctor {
+          format!("{}\\nconstructor({})", def, ctor_args.join(", "))
+        } else {
+          def
         }
-
-        let mut field_str = String::from("");
-
-        if !f.comments.is_empty() {
-          field_str.push_str(&js_doc_from_comments(&f.comments))
-        }
-
-        if !f.setter {
-          field_str.push_str("readonly ")
-        }
-
-        let (arg, is_optional) = ty_to_ts_type(&f.ty, false, true, false);
-        let arg = f.ts_type.as_ref().map(|ty| ty.to_string()).unwrap_or(arg);
-
-        let arg = match is_optional {
-          false => format!("{}: {}", &f.js_name, arg),
-          true => match self.use_nullable {
-            false => format!("{}?: {}", &f.js_name, arg),
-            true => format!("{}: {} | null", &f.js_name, arg),
-          },
-        };
-        if self.kind == NapiStructKind::Constructor {
-          ctor_args.push(arg.clone());
-        }
-        field_str.push_str(&arg);
-
-        Some(field_str)
-      })
-      .collect::<Vec<_>>()
-      .join("\\n");
-
-    if self.kind == NapiStructKind::Constructor {
-      format!("{}\\nconstructor({})", def, ctor_args.join(", "))
-    } else {
-      def
+      }
+      NapiStructKind::Object(object) => object
+        .fields
+        .iter()
+        .filter(|f| f.getter)
+        .filter_map(|f| self.gen_field(f).map(|(field, _)| field))
+        .collect::<Vec<_>>()
+        .join("\\n"),
+      NapiStructKind::StructuredEnum(structured_enum) => structured_enum
+        .variants
+        .iter()
+        .map(|variant| {
+          let def = iter::once(format!(
+            "{}: '{}'",
+            structured_enum.discriminant, variant.name
+          ))
+          .chain(
+            variant
+              .fields
+              .iter()
+              .filter(|f| f.getter)
+              .filter_map(|f| self.gen_field(f).map(|(field, _)| field)),
+          )
+          .collect::<Vec<_>>()
+          .join(", ");
+          format!("  | {{ {} }} ", def)
+        })
+        .collect::<Vec<_>>()
+        .join("\\n"),
     }
   }
 }
