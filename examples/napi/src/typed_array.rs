@@ -60,6 +60,12 @@ fn accept_arraybuffer(fixture: JsArrayBuffer) -> Result<usize> {
 }
 
 #[napi]
+fn create_arraybuffer(env: Env) -> Result<JsArrayBuffer> {
+  let buf = env.create_arraybuffer_with_data(vec![1, 2, 3, 4])?;
+  Ok(buf.value)
+}
+
+#[napi]
 fn u8_array_to_array(input: &[u8]) -> Vec<u8> {
   input.to_vec()
 }

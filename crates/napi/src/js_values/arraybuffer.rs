@@ -35,7 +35,7 @@ impl ValidateNapiValue for JsArrayBuffer {
 }
 
 pub struct JsArrayBufferValue {
-  pub(crate) value: JsArrayBuffer,
+  pub value: JsArrayBuffer,
   len: usize,
   data: *mut c_void,
 }

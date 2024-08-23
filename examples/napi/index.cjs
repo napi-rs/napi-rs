@@ -427,6 +427,7 @@ module.exports.concatStr = nativeBinding.concatStr
 module.exports.concatUtf16 = nativeBinding.concatUtf16
 module.exports.contains = nativeBinding.contains
 module.exports.convertU32Array = nativeBinding.convertU32Array
+module.exports.createArraybuffer = nativeBinding.createArraybuffer
 module.exports.createBigInt = nativeBinding.createBigInt
 module.exports.createBigIntI64 = nativeBinding.createBigIntI64
 module.exports.createExternal = nativeBinding.createExternal
