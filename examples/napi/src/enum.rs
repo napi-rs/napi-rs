@@ -66,6 +66,7 @@ pub enum StructuredKind {
   Hello,
   Greeting { name: String },
   Birthday { name: String, age: u8 },
+  Tuple(u32, u32),
 }
 
 #[napi]

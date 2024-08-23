@@ -694,6 +694,7 @@ export type StructuredKind =
   | { type2: 'Hello' }
   | { type2: 'Greeting', name: string }
   | { type2: 'Birthday', name: string, age: number }
+  | { type2: 'Tuple', field0: number, field1: number }
 
 export declare function sumBtreeMapping(nums: Record<string, number>): number
 
@@ -742,6 +743,11 @@ export declare function tsRename(a: { foo: number }): string[]
 export interface TsTypeChanged {
   typeOverride: object
   typeOverrideOptional?: object
+}
+
+export interface TupleObject {
+  field0: number
+  field1: number
 }
 
 export declare function u16ArrayToArray(input: Uint16Array): Array<number>
