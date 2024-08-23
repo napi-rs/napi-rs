@@ -145,3 +145,6 @@ fn return_object_only_to_js() -> ObjectOnlyToJs {
     dependencies: serde_json::json!({ "@napi-rs/cli": "^3.0.0", "rollup": "^4.0.0" }),
   }
 }
+
+#[napi(object)]
+pub struct TupleObject(pub u32, pub u32);

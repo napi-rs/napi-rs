@@ -265,9 +265,15 @@ test('structured enum', (t) => {
     name: 'Napi-rs',
     age: 10,
   }
+  const tuple: StructuredKind = {
+    type2: 'Tuple',
+    field0: 1,
+    field1: 2,
+  }
   t.deepEqual(hello, validateStructuredEnum(hello))
   t.deepEqual(greeting, validateStructuredEnum(greeting))
   t.deepEqual(birthday, validateStructuredEnum(birthday))
+  t.deepEqual(tuple, validateStructuredEnum(tuple))
   t.throws(() => validateStructuredEnum({ type2: 'unknown' } as any))
   t.throws(() => validateStructuredEnum({ type2: 'Greeting' } as any))
 })
