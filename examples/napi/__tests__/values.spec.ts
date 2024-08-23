@@ -188,6 +188,7 @@ import {
   callFinallyOnPromise,
   StructuredKind,
   validateStructuredEnum,
+  createArraybuffer,
 } from '../index.cjs'
 
 import { test } from './test.framework.js'
@@ -905,6 +906,18 @@ test('async reduce buffer', async (t) => {
     await asyncReduceBuffer(fixture),
     input.reduce((acc, cur) => acc + cur),
   )
+})
+
+test('create arraybuffer with native', (t) => {
+  const ret = createArraybuffer()
+  t.true(ret instanceof ArrayBuffer)
+  const buf = new ArrayBuffer(4)
+  const view = new Uint8Array(buf)
+  view[0] = 1
+  view[1] = 2
+  view[2] = 3
+  view[3] = 4
+  t.deepEqual(ret, buf)
 })
 
 test('Uint8Array from String', async (t) => {

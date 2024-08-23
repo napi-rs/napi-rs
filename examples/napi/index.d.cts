@@ -378,6 +378,8 @@ export declare function contains(source: string, target: string): boolean
 
 export declare function convertU32Array(input: Uint32Array): Array<number>
 
+export declare function createArraybuffer(): ArrayBuffer
+
 export declare function createBigInt(): bigint
 
 export declare function createBigIntI64(): bigint

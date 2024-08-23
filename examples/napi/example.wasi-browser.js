@@ -349,22 +349,23 @@ function __napi_rs_initialize_modules(__napiInstance) {
   __napiInstance.exports['__napi_register__array_buffer_pass_through_351']?.()
   __napiInstance.exports['__napi_register__accept_slice_352']?.()
   __napiInstance.exports['__napi_register__accept_arraybuffer_353']?.()
-  __napiInstance.exports['__napi_register__u8_array_to_array_354']?.()
-  __napiInstance.exports['__napi_register__i8_array_to_array_355']?.()
-  __napiInstance.exports['__napi_register__u16_array_to_array_356']?.()
-  __napiInstance.exports['__napi_register__i16_array_to_array_357']?.()
-  __napiInstance.exports['__napi_register__u32_array_to_array_358']?.()
-  __napiInstance.exports['__napi_register__i32_array_to_array_359']?.()
-  __napiInstance.exports['__napi_register__f32_array_to_array_360']?.()
-  __napiInstance.exports['__napi_register__f64_array_to_array_361']?.()
-  __napiInstance.exports['__napi_register__u64_array_to_array_362']?.()
-  __napiInstance.exports['__napi_register__i64_array_to_array_363']?.()
-  __napiInstance.exports['__napi_register__accept_uint8_clamped_slice_364']?.()
-  __napiInstance.exports['__napi_register__accept_uint8_clamped_slice_and_buffer_slice_365']?.()
-  __napiInstance.exports['__napi_register__AsyncBuffer_impl_366']?.()
-  __napiInstance.exports['__napi_register__async_reduce_buffer_367']?.()
-  __napiInstance.exports['__napi_register__async_buffer_to_array_368']?.()
-  __napiInstance.exports['__napi_register__u_init8_array_from_string_369']?.()
+  __napiInstance.exports['__napi_register__create_arraybuffer_354']?.()
+  __napiInstance.exports['__napi_register__u8_array_to_array_355']?.()
+  __napiInstance.exports['__napi_register__i8_array_to_array_356']?.()
+  __napiInstance.exports['__napi_register__u16_array_to_array_357']?.()
+  __napiInstance.exports['__napi_register__i16_array_to_array_358']?.()
+  __napiInstance.exports['__napi_register__u32_array_to_array_359']?.()
+  __napiInstance.exports['__napi_register__i32_array_to_array_360']?.()
+  __napiInstance.exports['__napi_register__f32_array_to_array_361']?.()
+  __napiInstance.exports['__napi_register__f64_array_to_array_362']?.()
+  __napiInstance.exports['__napi_register__u64_array_to_array_363']?.()
+  __napiInstance.exports['__napi_register__i64_array_to_array_364']?.()
+  __napiInstance.exports['__napi_register__accept_uint8_clamped_slice_365']?.()
+  __napiInstance.exports['__napi_register__accept_uint8_clamped_slice_and_buffer_slice_366']?.()
+  __napiInstance.exports['__napi_register__AsyncBuffer_impl_367']?.()
+  __napiInstance.exports['__napi_register__async_reduce_buffer_368']?.()
+  __napiInstance.exports['__napi_register__async_buffer_to_array_369']?.()
+  __napiInstance.exports['__napi_register__u_init8_array_from_string_370']?.()
 }
 export const Animal = __napiModule.exports.Animal
 export const AnimalWithDefaultConstructor = __napiModule.exports.AnimalWithDefaultConstructor
@@ -464,6 +465,7 @@ export const concatStr = __napiModule.exports.concatStr
 export const concatUtf16 = __napiModule.exports.concatUtf16
 export const contains = __napiModule.exports.contains
 export const convertU32Array = __napiModule.exports.convertU32Array
+export const createArraybuffer = __napiModule.exports.createArraybuffer
 export const createBigInt = __napiModule.exports.createBigInt
 export const createBigIntI64 = __napiModule.exports.createBigIntI64
 export const createExternal = __napiModule.exports.createExternal
