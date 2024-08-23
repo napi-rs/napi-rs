@@ -414,9 +414,10 @@ impl NapiStruct {
           );
         }
         syn::Member::Unnamed(i) => {
-          field_destructions.push(quote! { arg #i });
+          let arg_name = format_ident!("arg{}", i);
+          field_destructions.push(quote! { #arg_name });
           field_conversions.push(
-            quote! { <#ty as napi::bindgen_prelude::ToNapiValue>::to_napi_value(env, arg #i)? },
+            quote! { <#ty as napi::bindgen_prelude::ToNapiValue>::to_napi_value(env, #arg_name)? },
           );
         }
       }
@@ -542,30 +543,31 @@ impl NapiStruct {
           }
         }
         syn::Member::Unnamed(i) => {
-          field_destructions.push(quote! { arg #i });
+          let arg_name = format_ident!("arg{}", i);
+          field_destructions.push(quote! { #arg_name });
           if is_optional_field {
             obj_field_setters.push(match self.use_nullable {
               false => quote! {
-                if arg #1.is_some() {
-                  obj.set(#field_js_name, arg #i)?;
+                if #arg_name.is_some() {
+                  obj.set(#field_js_name, #arg_name)?;
                 }
               },
               true => quote! {
-                if let Some(arg #i) = arg #i {
-                  obj.set(#field_js_name, arg #i)?;
+                if let Some(#arg_name) = #arg_name {
+                  obj.set(#field_js_name, #arg_name)?;
                 } else {
                   obj.set(#field_js_name, napi::bindgen_prelude::Null)?;
                 }
               },
             });
           } else {
-            obj_field_setters.push(quote! { obj.set(#field_js_name, arg #1)?; });
+            obj_field_setters.push(quote! { obj.set(#field_js_name, #arg_name)?; });
           }
           if is_optional_field && !self.use_nullable {
-            obj_field_getters.push(quote! { let arg #i: #ty = obj.get(#field_js_name)?; });
+            obj_field_getters.push(quote! { let #arg_name: #ty = obj.get(#field_js_name)?; });
           } else {
             obj_field_getters.push(quote! {
-              let arg #i: #ty = obj.get(#field_js_name)?.ok_or_else(|| napi::bindgen_prelude::Error::new(
+              let #arg_name: #ty = obj.get(#field_js_name)?.ok_or_else(|| napi::bindgen_prelude::Error::new(
                 napi::bindgen_prelude::Status::InvalidArg,
                 format!("Missing field `{}`", #field_js_name),
               ))?;
@@ -922,30 +924,31 @@ impl NapiStruct {
             }
           }
           syn::Member::Unnamed(i) => {
-            field_destructions.push(quote! { arg #i });
+            let arg_name = format_ident!("arg{}", i);
+            field_destructions.push(quote! { #arg_name });
             if is_optional_field {
               obj_field_setters.push(match self.use_nullable {
                 false => quote! {
-                  if arg #1.is_some() {
-                    obj.set(#field_js_name, arg #i)?;
+                  if #arg_name.is_some() {
+                    obj.set(#field_js_name, #arg_name)?;
                   }
                 },
                 true => quote! {
-                  if let Some(arg #i) = arg #i {
-                    obj.set(#field_js_name, arg #i)?;
+                  if let Some(#arg_name) = #arg_name {
+                    obj.set(#field_js_name, #arg_name)?;
                   } else {
                     obj.set(#field_js_name, napi::bindgen_prelude::Null)?;
                   }
                 },
               });
             } else {
-              obj_field_setters.push(quote! { obj.set(#field_js_name, arg #1)?; });
+              obj_field_setters.push(quote! { obj.set(#field_js_name, #arg_name)?; });
             }
             if is_optional_field && !self.use_nullable {
-              obj_field_getters.push(quote! { let arg #i: #ty = obj.get(#field_js_name)?; });
+              obj_field_getters.push(quote! { let #arg_name: #ty = obj.get(#field_js_name)?; });
             } else {
               obj_field_getters.push(quote! {
-              let arg #i: #ty = obj.get(#field_js_name)?.ok_or_else(|| napi::bindgen_prelude::Error::new(
+              let #arg_name: #ty = obj.get(#field_js_name)?.ok_or_else(|| napi::bindgen_prelude::Error::new(
                 napi::bindgen_prelude::Status::InvalidArg,
                 format!("Missing field `{}`", #field_js_name),
               ))?;
