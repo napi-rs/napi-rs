@@ -28,7 +28,7 @@ function detectCargoBinary(bin: string) {
     })
     debug('Cargo binary detected: %s', bin)
     return true
-  } catch (e) {
+  } catch {
     debug('Cargo binary not detected: %s', bin)
     return false
   }
