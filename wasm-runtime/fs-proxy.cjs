@@ -75,6 +75,7 @@ const encodeValue = (memfs, value, type) => {
  * @param {import('memfs').IFs} fs
  * @returns {(e: { data: { __fs__: { sab: Int32Array, type: keyof import('memfs').IFs, payload: any[] } } }) => void}
  */
+// oxlint-disable-next-line no-unused-vars -- fixed in an upcoming release
 module.exports.createOnMessage = (fs) => function onMessage(e) {
   if (e.data.__fs__) {
     /**
