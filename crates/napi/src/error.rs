@@ -247,7 +247,16 @@ macro_rules! impl_object_methods {
             delete_err_status == sys::Status::napi_ok,
             "Delete Error Reference failed"
           );
-          return err;
+          let mut is_error = false;
+          let is_error_status = unsafe { sys::napi_is_error(env, err, &mut is_error) };
+          debug_assert!(
+            is_error_status == sys::Status::napi_ok,
+            "Check Error failed"
+          );
+          // make sure ref_value is a valid error at first and avoid throw error failed.
+          if is_error {
+            return err;
+          }
         }
 
         let error_status = self.0.status.as_ref();
