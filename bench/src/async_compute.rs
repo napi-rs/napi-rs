@@ -1,54 +1,37 @@
-use bindgen_prelude::PromiseRaw;
 use napi::threadsafe_function::*;
-use napi::*;
+use napi::{bindgen_prelude::*, *};
 
-struct BufferLength(Ref<JsBufferValue>);
+struct BufferLength(Buffer);
 
 impl Task for BufferLength {
   type Output = usize;
-  type JsValue = JsNumber;
+  type JsValue = u32;
 
   fn compute(&mut self) -> Result<Self::Output> {
     Ok(self.0.len() + 1)
   }
 
-  fn resolve(&mut self, env: Env, output: Self::Output) -> Result<Self::JsValue> {
-    env.create_uint32(output as u32)
-  }
-
-  fn finally(&mut self, env: Env) -> Result<()> {
-    self.0.unref(env)?;
-    Ok(())
+  fn resolve(&mut self, _: Env, output: Self::Output) -> Result<Self::JsValue> {
+    Ok(output as u32)
   }
 }
 
 #[js_function(1)]
-fn bench_async_task(ctx: CallContext) -> Result<PromiseRaw<JsNumber>> {
-  let n = ctx.get::<JsBuffer>(0)?;
-  let task = BufferLength(n.into_ref()?);
+fn bench_async_task(ctx: CallContext) -> Result<PromiseRaw<u32>> {
+  let n = ctx.get::<Buffer>(0)?;
+  let task = BufferLength(n);
   let async_promise = ctx.env.spawn(task)?;
   Ok(async_promise.promise_object())
 }
 
 #[js_function(2)]
 fn bench_threadsafe_function(ctx: CallContext) -> Result<JsUndefined> {
-  let buffer_ref = ctx.get::<JsBuffer>(0)?.into_ref()?;
-  let callback = ctx.get::<JsFunction>(1)?;
-
-  let tsfn = ctx.env.create_threadsafe_function(
-    &callback,
-    0,
-    |mut ctx: ThreadsafeCallContext<(usize, Ref<JsBufferValue>)>| {
-      ctx
-        .env
-        .create_uint32(ctx.value.0 as u32)
-        .and_then(|v| ctx.value.1.unref(ctx.env).map(|_| vec![v]))
-    },
-  )?;
+  let buffer_ref = ctx.get::<Buffer>(0)?;
+  let callback = ctx.get::<ThreadsafeFunction<u32, (), u32>>(1)?;
 
   std::thread::spawn(move || {
-    tsfn.call(
-      Ok((buffer_ref.len() + 1, buffer_ref)),
+    callback.call(
+      Ok((buffer_ref.len() + 1) as u32),
       ThreadsafeFunctionCallMode::NonBlocking,
     );
   });
@@ -58,7 +41,7 @@ fn bench_threadsafe_function(ctx: CallContext) -> Result<JsUndefined> {
 
 #[js_function(1)]
 fn bench_tokio_future(ctx: CallContext) -> Result<JsObject> {
-  let buffer_ref = ctx.get::<JsBuffer>(0)?.into_ref()?;
+  let buffer_ref = ctx.get::<Buffer>(0)?;
   ctx
     .env
     .execute_tokio_future(async move { Ok(buffer_ref.len()) }, |env, v: usize| {

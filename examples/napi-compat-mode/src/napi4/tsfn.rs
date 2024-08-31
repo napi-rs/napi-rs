@@ -121,13 +121,13 @@ pub fn test_tokio_readfile(ctx: CallContext) -> Result<JsUndefined> {
 
 #[js_function(3)]
 pub fn test_tsfn_with_ref(ctx: CallContext) -> Result<JsUndefined> {
-  let callback: Function<Ref<()>, napi::JsUnknown> = ctx.get::<Function<Ref<()>>>(0)?;
+  let callback: Function<Ref<JsObject>, napi::JsUnknown> = ctx.get(0)?;
   let options = ctx.get::<JsObject>(1)?;
-  let option_ref = ctx.env.create_reference(options);
+  let option_ref = Ref::new(&ctx.env, &options);
   let tsfn = callback
-    .build_threadsafe_function()
+    .build_threadsafe_function::<Ref<JsObject>>()
     .callee_handled::<true>()
-    .build_callback(move |mut ctx| {
+    .build_callback(move |ctx| {
       ctx
         .env
         .get_reference_value_unchecked::<JsObject>(&ctx.value)

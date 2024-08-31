@@ -865,7 +865,7 @@ impl Env {
   }
 
   /// This API create a new reference with the initial 1 ref count to the Object passed in.
-  pub fn create_reference<T>(&self, value: T) -> Result<Ref<()>>
+  pub fn create_reference<T>(&self, value: &T) -> Result<Ref<T>>
   where
     T: NapiRaw,
   {
@@ -875,34 +875,11 @@ impl Env {
     check_status!(unsafe {
       sys::napi_create_reference(self.0, raw_value, initial_ref_count, &mut raw_ref)
     })?;
-    Ok(Ref {
-      raw_ref,
-      count: 1,
-      inner: (),
-    })
-  }
-
-  /// This API create a new reference with the specified reference count to the Object passed in.
-  pub fn create_reference_with_refcount<T>(&self, value: T, ref_count: u32) -> Result<Ref<()>>
-  where
-    T: NapiRaw,
-  {
-    let mut raw_ref = ptr::null_mut();
-    let raw_value = unsafe { value.raw() };
-    check_status!(unsafe {
-      sys::napi_create_reference(self.0, raw_value, ref_count, &mut raw_ref)
-    })?;
-    Ok(Ref {
-      raw_ref,
-      count: ref_count,
-      inner: (),
-    })
+    Ref::new(self, value)
   }
 
   /// Get reference value from `Ref` with type check
-  ///
-  /// Return error if the type of `reference` provided is mismatched with `T`
-  pub fn get_reference_value<T>(&self, reference: &Ref<()>) -> Result<T>
+  pub fn get_reference_value<T>(&self, reference: &Ref<T>) -> Result<T>
   where
     T: NapiValue,
   {
@@ -910,7 +887,7 @@ impl Env {
     check_status!(unsafe {
       sys::napi_get_reference_value(self.0, reference.raw_ref, &mut js_value)
     })?;
-    unsafe { T::from_raw(self.0, js_value) }
+    Ok(unsafe { T::from_raw_unchecked(self.0, js_value) })
   }
 
   /// Get reference value from `Ref` without type check
@@ -918,7 +895,7 @@ impl Env {
   /// Using this API if you are sure the type of `T` is matched with provided `Ref<()>`.
   ///
   /// If type mismatched, calling `T::method` would return `Err`.
-  pub fn get_reference_value_unchecked<T>(&self, reference: &Ref<()>) -> Result<T>
+  pub fn get_reference_value_unchecked<T>(&self, reference: &Ref<T>) -> Result<T>
   where
     T: NapiValue,
   {
@@ -1383,7 +1360,7 @@ impl Env {
   #[cfg(feature = "serde-json")]
   pub fn from_js_value<T, V>(&self, value: V) -> Result<T>
   where
-    T: DeserializeOwned + ?Sized,
+    T: DeserializeOwned,
     V: NapiRaw,
   {
     let value = Value {
