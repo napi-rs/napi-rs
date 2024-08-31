@@ -690,6 +690,10 @@ fn napi_fn_from_decl(
       );
     }
 
+    if matches!(kind, FnKind::Constructor) && asyncness.is_some() {
+      bail_span!(sig.ident, "Constructor don't support asynchronous function");
+    }
+
     Ok(NapiFn {
       name: ident.clone(),
       js_name,
