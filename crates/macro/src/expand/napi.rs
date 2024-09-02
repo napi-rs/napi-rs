@@ -125,7 +125,8 @@ fn output_wasi_register_def(napi: &Napi) {
         let mut writer = BufWriter::<fs::File>::new(file);
         let pkg_name: String = std::env::var("CARGO_PKG_NAME").expect("CARGO_PKG_NAME is not set");
         writer.write_all(format!("{pkg_name}: {}", napi.register_name()).as_bytes())?;
-        writer.write_all("\n".as_bytes())
+        writer.write_all("\n".as_bytes())?;
+        writer.flush()
       })
       .unwrap_or_else(|e| {
         println!("Failed to write wasi register file: {:?}", e);
