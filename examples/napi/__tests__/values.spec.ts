@@ -186,6 +186,9 @@ import {
   callThenOnPromise,
   callCatchOnPromise,
   callFinallyOnPromise,
+  StructuredKind,
+  validateStructuredEnum,
+  createArraybuffer,
 } from '../index.cjs'
 
 import { test } from './test.framework.js'
@@ -248,6 +251,32 @@ test('map', (t) => {
 test('enum', (t) => {
   t.deepEqual([Kind.Dog, Kind.Cat, Kind.Duck], [0, 1, 2])
   t.is(enumToI32(CustomNumEnum.Eight), 8)
+})
+
+test('structured enum', (t) => {
+  const hello: StructuredKind = {
+    type2: 'Hello',
+  }
+  const greeting: StructuredKind = {
+    type2: 'Greeting',
+    name: 'Napi-rs',
+  }
+  const birthday: StructuredKind = {
+    type2: 'Birthday',
+    name: 'Napi-rs',
+    age: 10,
+  }
+  const tuple: StructuredKind = {
+    type2: 'Tuple',
+    field0: 1,
+    field1: 2,
+  }
+  t.deepEqual(hello, validateStructuredEnum(hello))
+  t.deepEqual(greeting, validateStructuredEnum(greeting))
+  t.deepEqual(birthday, validateStructuredEnum(birthday))
+  t.deepEqual(tuple, validateStructuredEnum(tuple))
+  t.throws(() => validateStructuredEnum({ type2: 'unknown' } as any))
+  t.throws(() => validateStructuredEnum({ type2: 'Greeting' } as any))
 })
 
 test('function call', async (t) => {
@@ -845,7 +874,7 @@ test('async', async (t) => {
 })
 
 test('panic in async fn', async (t) => {
-  if (!process.env.SKIP_UNWIND_TEST) {
+  if (!process.env.SKIP_UNWIND_TEST && !process.env.WASI_TEST) {
     await t.throwsAsync(() => panicInAsync(), {
       message: 'panic in async function',
     })
@@ -877,6 +906,18 @@ test('async reduce buffer', async (t) => {
     await asyncReduceBuffer(fixture),
     input.reduce((acc, cur) => acc + cur),
   )
+})
+
+test('create arraybuffer with native', (t) => {
+  const ret = createArraybuffer()
+  t.true(ret instanceof ArrayBuffer)
+  const buf = new ArrayBuffer(4)
+  const view = new Uint8Array(buf)
+  view[0] = 1
+  view[1] = 2
+  view[2] = 3
+  view[3] = 4
+  t.deepEqual(ret, buf)
 })
 
 test('Uint8Array from String', async (t) => {
@@ -1048,6 +1089,10 @@ BigIntTest('from i128 i64', (t) => {
 })
 
 Napi4Test('call ThreadsafeFunction', (t) => {
+  if (process.env.WASI_TEST) {
+    t.pass()
+    return
+  }
   let i = 0
   let value = 0
   return new Promise((resolve) => {

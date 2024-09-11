@@ -3,6 +3,36 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.62](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.61...@napi-rs/cli@3.0.0-alpha.62) (2024-07-21)
+
+### Bug Fixes
+
+- **cli:** should not log errors if everything fine ([3284f88](https://github.com/napi-rs/napi-rs/commit/3284f881a625b902bb222136d8081c71ab15cc86))
+
+# [3.0.0-alpha.61](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.60...@napi-rs/cli@3.0.0-alpha.61) (2024-07-18)
+
+**Note:** Version bump only for package @napi-rs/cli
+
+# [3.0.0-alpha.60](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.59...@napi-rs/cli@3.0.0-alpha.60) (2024-07-16)
+
+### Bug Fixes
+
+- **cli:** bundle @octokit/rest into cjs entry ([#2190](https://github.com/napi-rs/napi-rs/issues/2190)) ([6078bb7](https://github.com/napi-rs/napi-rs/commit/6078bb7ccec935a685b78094a8faddc8a8590fe3))
+
+# [3.0.0-alpha.59](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.58...@napi-rs/cli@3.0.0-alpha.59) (2024-07-15)
+
+### Bug Fixes
+
+- **cli:** bundle lodash-es in cjs output ([#2189](https://github.com/napi-rs/napi-rs/issues/2189)) ([e860822](https://github.com/napi-rs/napi-rs/commit/e8608228b89f74793f4ea264fbbef00025449cad))
+- **cli:** worker files format ([#2186](https://github.com/napi-rs/napi-rs/issues/2186)) ([13c1838](https://github.com/napi-rs/napi-rs/commit/13c18388f5c57c1fa86a3a43ea9540af27d862c9))
+
+# [3.0.0-alpha.58](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.57...@napi-rs/cli@3.0.0-alpha.58) (2024-07-11)
+
+### Bug Fixes
+
+- **cli:** wasm binding files destination ([#2182](https://github.com/napi-rs/napi-rs/issues/2182)) ([5976f04](https://github.com/napi-rs/napi-rs/commit/5976f04e542da214013ea61c13340ad0eb4861d1))
+- **deps:** update dependency inquirer to v10 ([#2173](https://github.com/napi-rs/napi-rs/issues/2173)) ([9800ea7](https://github.com/napi-rs/napi-rs/commit/9800ea7350dc5db4332c5383417700cc3509b644))
+
 # [3.0.0-alpha.57](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.56...@napi-rs/cli@3.0.0-alpha.57) (2024-07-09)
 
 ### Bug Fixes

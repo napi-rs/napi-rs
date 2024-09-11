@@ -73,6 +73,7 @@ macro_rules! attrgen {
       (ts_generic_types, TsGenericTypes(Span, String, Span)),
       (string_enum, StringEnum(Span, Option<(String, Span)>)),
       (use_nullable, UseNullable(Span, Option<bool>), false),
+      (discriminant, Discriminant(Span, String, Span)),
 
       // impl later
       // (inspectable, Inspectable(Span)),

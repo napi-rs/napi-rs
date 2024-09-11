@@ -1,4 +1,5 @@
 import * as esbuild from 'esbuild'
+import { pull } from 'lodash-es'
 
 import packageJson from './package.json' assert { type: 'json' }
 
@@ -8,7 +9,7 @@ await esbuild.build({
   bundle: true,
   format: 'cjs',
   platform: 'node',
-  external: Object.keys(packageJson.dependencies),
+  external: pull(Object.keys(packageJson.dependencies), '@octokit/rest', 'lodash-es'),
   define: {
     'import.meta.url': '__filename',
   },

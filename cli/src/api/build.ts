@@ -779,7 +779,7 @@ class Builder {
         kind: dest.endsWith('.node') ? 'node' : isWasm ? 'wasm' : 'exe',
         path: dest,
       })
-      return wasmBinaryName
+      return wasmBinaryName ? join(this.outputDir, wasmBinaryName) : null
     } catch (e) {
       throw new Error('Failed to copy artifact', {
         cause: e,

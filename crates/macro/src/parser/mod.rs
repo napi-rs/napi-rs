@@ -10,9 +10,10 @@ use attrs::BindgenAttrs;
 
 use convert_case::{Case, Casing};
 use napi_derive_backend::{
-  BindgenResult, CallbackArg, Diagnostic, FnKind, FnSelf, Napi, NapiConst, NapiEnum, NapiEnumValue,
-  NapiEnumVariant, NapiFn, NapiFnArg, NapiFnArgKind, NapiImpl, NapiItem, NapiStruct,
-  NapiStructField, NapiStructKind,
+  rm_raw_prefix, BindgenResult, CallbackArg, Diagnostic, FnKind, FnSelf, Napi, NapiClass,
+  NapiConst, NapiEnum, NapiEnumValue, NapiEnumVariant, NapiFn, NapiFnArg, NapiFnArgKind, NapiImpl,
+  NapiItem, NapiObject, NapiStruct, NapiStructField, NapiStructKind, NapiStructuredEnum,
+  NapiStructuredEnumVariant,
 };
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::ToTokens;
@@ -32,7 +33,7 @@ static REGISTER_INDEX: AtomicUsize = AtomicUsize::new(0);
 fn get_register_ident(name: &str) -> Ident {
   let new_name = format!(
     "__napi_register__{}_{}",
-    name,
+    rm_raw_prefix(name),
     REGISTER_INDEX.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
   );
   Ident::new(&new_name, Span::call_site())
@@ -620,8 +621,8 @@ fn napi_fn_from_decl(
     syn::ReturnType::Default => (None, false),
     syn::ReturnType::Type(_, ty) => {
       let result_ty = extract_result_ty(&ty)?;
-      if result_ty.is_some() {
-        (result_ty, true)
+      if let Some(result_ty) = result_ty {
+        (Some(replace_self(result_ty, parent)), true)
       } else {
         (Some(replace_self(*ty, parent)), false)
       }
@@ -687,6 +688,10 @@ fn napi_fn_from_decl(
         sig.ident,
         "Only fn in impl block can be marked as factory, constructor, getter or setter"
       );
+    }
+
+    if matches!(kind, FnKind::Constructor) && asyncness.is_some() {
+      bail_span!(sig.ident, "Constructor don't support asynchronous function");
     }
 
     Ok(NapiFn {
@@ -921,79 +926,70 @@ impl ConvertToAST for syn::ItemFn {
   }
 }
 
+fn convert_fields(
+  fields: &mut syn::Fields,
+  check_vis: bool,
+) -> BindgenResult<(Vec<NapiStructField>, bool)> {
+  let mut napi_fields = vec![];
+  let mut is_tuple = false;
+  for (i, field) in fields.iter_mut().enumerate() {
+    if check_vis && !matches!(field.vis, syn::Visibility::Public(_)) {
+      continue;
+    }
+
+    let field_opts = BindgenAttrs::find(&mut field.attrs)?;
+
+    let (js_name, name) = match &field.ident {
+      Some(ident) => (
+        field_opts.js_name().map_or_else(
+          || ident.unraw().to_string().to_case(Case::Camel),
+          |(js_name, _)| js_name.to_owned(),
+        ),
+        syn::Member::Named(ident.clone()),
+      ),
+      None => {
+        is_tuple = true;
+        (format!("field{}", i), syn::Member::Unnamed(i.into()))
+      }
+    };
+
+    let ignored = field_opts.skip().is_some();
+    let readonly = field_opts.readonly().is_some();
+    let writable = field_opts.writable();
+    let enumerable = field_opts.enumerable();
+    let configurable = field_opts.configurable();
+    let skip_typescript = field_opts.skip_typescript().is_some();
+    let ts_type = field_opts.ts_type().map(|e| e.0.to_string());
+
+    napi_fields.push(NapiStructField {
+      name,
+      js_name,
+      ty: field.ty.clone(),
+      getter: !ignored,
+      setter: !(ignored || readonly),
+      writable,
+      enumerable,
+      configurable,
+      comments: extract_doc_comments(&field.attrs),
+      skip_typescript,
+      ts_type,
+    })
+  }
+  Ok((napi_fields, is_tuple))
+}
+
 impl ConvertToAST for syn::ItemStruct {
   fn convert_to_ast(&mut self, opts: &BindgenAttrs) -> BindgenResult<Napi> {
     let mut errors = vec![];
 
-    let vis = self.vis.clone();
     let struct_name = self.ident.clone();
     let js_name = opts.js_name().map_or_else(
       || self.ident.to_string().to_case(Case::Pascal),
       |(js_name, _)| js_name.to_owned(),
     );
-    let mut fields = vec![];
-    let mut is_tuple = false;
-    let struct_kind = if opts.constructor().is_some() {
-      NapiStructKind::Constructor
-    } else if opts.object().is_some() {
-      NapiStructKind::Object
-    } else {
-      NapiStructKind::None
-    };
+
     let use_nullable = opts.use_nullable();
-
-    for (i, field) in self.fields.iter_mut().enumerate() {
-      match field.vis {
-        syn::Visibility::Public(..) => {}
-        _ => {
-          if struct_kind != NapiStructKind::None {
-            errors.push(err_span!(
-              field,
-              "#[napi] requires all struct fields to be public to mark struct as constructor or object shape\nthis field is not public."
-            ));
-          }
-          continue;
-        }
-      }
-
-      let field_opts = BindgenAttrs::find(&mut field.attrs)?;
-
-      let (js_name, name) = match &field.ident {
-        Some(ident) => (
-          field_opts.js_name().map_or_else(
-            || ident.unraw().to_string().to_case(Case::Camel),
-            |(js_name, _)| js_name.to_owned(),
-          ),
-          syn::Member::Named(ident.clone()),
-        ),
-        None => {
-          is_tuple = true;
-          (format!("field{}", i), syn::Member::Unnamed(i.into()))
-        }
-      };
-
-      let ignored = field_opts.skip().is_some();
-      let readonly = field_opts.readonly().is_some();
-      let writable = field_opts.writable();
-      let enumerable = field_opts.enumerable();
-      let configurable = field_opts.configurable();
-      let skip_typescript = field_opts.skip_typescript().is_some();
-      let ts_type = field_opts.ts_type().map(|e| e.0.to_string());
-
-      fields.push(NapiStructField {
-        name,
-        js_name,
-        ty: field.ty.clone(),
-        getter: !ignored,
-        setter: !(ignored || readonly),
-        writable,
-        enumerable,
-        configurable,
-        comments: extract_doc_comments(&field.attrs),
-        skip_typescript,
-        ts_type,
-      })
-    }
+    let (fields, is_tuple) = convert_fields(&mut self.fields, true)?;
 
     record_struct(&struct_name, js_name.clone(), opts);
     let namespace = opts.namespace().map(|(m, _)| m.to_owned());
@@ -1007,22 +1003,46 @@ impl ConvertToAST for syn::ItemStruct {
       inner.insert(key, implement_iterator);
     });
 
+    let struct_kind = if opts.object().is_some() {
+      NapiStructKind::Object(NapiObject {
+        fields,
+        object_from_js: opts.object_from_js(),
+        object_to_js: opts.object_to_js(),
+        is_tuple,
+      })
+    } else {
+      NapiStructKind::Class(NapiClass {
+        fields,
+        ctor: opts.constructor().is_some(),
+        implement_iterator,
+        is_tuple,
+        use_custom_finalize: opts.custom_finalize().is_some(),
+      })
+    };
+
+    match &struct_kind {
+      NapiStructKind::Class(class) if !class.ctor => {}
+      _ => {
+        for field in self.fields.iter() {
+          if !matches!(field.vis, syn::Visibility::Public(_)) {
+            errors.push(err_span!(
+              field,
+              "#[napi] requires all struct fields to be public to mark struct as constructor or object shape\nthis field is not public."
+            ));
+          }
+        }
+      }
+    };
+
     Diagnostic::from_vec(errors).map(|()| Napi {
       item: NapiItem::Struct(NapiStruct {
         js_name,
         name: struct_name.clone(),
-        vis,
-        fields,
-        is_tuple,
         kind: struct_kind,
-        object_from_js: opts.object_from_js(),
-        object_to_js: opts.object_to_js(),
         js_mod: namespace,
-        comments: extract_doc_comments(&self.attrs),
-        implement_iterator,
-        use_custom_finalize: opts.custom_finalize().is_some(),
-        register_name: get_register_ident(format!("{struct_name}_struct").as_str()),
         use_nullable,
+        register_name: get_register_ident(format!("{struct_name}_struct").as_str()),
+        comments: extract_doc_comments(&self.attrs),
       }),
     })
   }
@@ -1133,13 +1153,58 @@ impl ConvertToAST for syn::ItemEnum {
       _ => bail_span!(self, "only public enum allowed"),
     }
 
-    self.attrs.push(parse_quote!(#[derive(Copy, Clone)]));
-
     let js_name = opts
       .js_name()
       .map_or_else(|| self.ident.to_string(), |(s, _)| s.to_string());
-
     let is_string_enum = opts.string_enum().is_some();
+
+    if self
+      .variants
+      .iter()
+      .any(|v| !matches!(v.fields, syn::Fields::Unit))
+    {
+      let discriminant = opts.discriminant().map_or("type", |(s, _)| s);
+      let mut errors = vec![];
+      let mut variants = vec![];
+      for variant in self.variants.iter_mut() {
+        let (fields, is_tuple) = convert_fields(&mut variant.fields, false)?;
+        for field in fields.iter() {
+          if field.js_name == discriminant {
+            errors.push(err_span!(
+              field.name,
+              r#"field's js_name("{}") and discriminator("{}") conflict"#,
+              field.js_name,
+              discriminant,
+            ));
+          }
+        }
+        variants.push(NapiStructuredEnumVariant {
+          name: variant.ident.clone(),
+          fields,
+          is_tuple,
+        });
+      }
+      let struct_name = self.ident.clone();
+      return Diagnostic::from_vec(errors).map(|()| Napi {
+        item: NapiItem::Struct(NapiStruct {
+          name: struct_name.clone(),
+          js_name,
+          comments: extract_doc_comments(&self.attrs),
+          js_mod: opts.namespace().map(|(m, _)| m.to_owned()),
+          use_nullable: opts.use_nullable(),
+          register_name: get_register_ident(format!("{struct_name}_struct").as_str()),
+          kind: NapiStructKind::StructuredEnum(NapiStructuredEnum {
+            variants,
+            discriminant: discriminant.to_owned(),
+            object_from_js: opts.object_from_js(),
+            object_to_js: opts.object_to_js(),
+          }),
+        }),
+      });
+    }
+
+    self.attrs.push(parse_quote!(#[derive(Copy, Clone)]));
+
     let variants = match opts.string_enum() {
       Some(case) => {
         let case = case.map(|c| Ok::<Case, Diagnostic>(match c.0.as_str() {
@@ -1161,7 +1226,10 @@ impl ConvertToAST for syn::ItemEnum {
           .iter_mut()
           .map(|v| {
             if !matches!(v.fields, syn::Fields::Unit) {
-              bail_span!(v.fields, "Structured enum is not supported in #[napi]")
+              bail_span!(
+                v.fields,
+                "Structured enum is not supported with string enum in #[napi]"
+              )
             }
             if matches!(&v.discriminant, Some((_, _))) {
               bail_span!(
@@ -1193,10 +1261,6 @@ impl ConvertToAST for syn::ItemEnum {
           .variants
           .iter()
           .map(|v| {
-            if !matches!(v.fields, syn::Fields::Unit) {
-              bail_span!(v.fields, "Structured enum is not supported in #[napi]")
-            }
-
             let val = match &v.discriminant {
               Some((_, expr)) => {
                 let mut symbol = 1;

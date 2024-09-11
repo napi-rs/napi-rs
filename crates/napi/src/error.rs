@@ -247,7 +247,16 @@ macro_rules! impl_object_methods {
             delete_err_status == sys::Status::napi_ok,
             "Delete Error Reference failed"
           );
-          return err;
+          let mut is_error = false;
+          let is_error_status = unsafe { sys::napi_is_error(env, err, &mut is_error) };
+          debug_assert!(
+            is_error_status == sys::Status::napi_ok,
+            "Check Error failed"
+          );
+          // make sure ref_value is a valid error at first and avoid throw error failed.
+          if is_error {
+            return err;
+          }
         }
 
         let error_status = self.0.status.as_ref();
@@ -291,14 +300,16 @@ macro_rules! impl_object_methods {
         let mut is_pending_exception = false;
         assert_eq!(
           unsafe { $crate::sys::napi_is_exception_pending(env, &mut is_pending_exception) },
-          $crate::sys::Status::napi_ok
+          $crate::sys::Status::napi_ok,
+          "Check exception status failed"
         );
         let js_error = match is_pending_exception {
           true => {
             let mut error_result = std::ptr::null_mut();
             assert_eq!(
               unsafe { $crate::sys::napi_get_and_clear_last_exception(env, &mut error_result) },
-              $crate::sys::Status::napi_ok
+              $crate::sys::Status::napi_ok,
+              "Get and clear last exception failed"
             );
             error_result
           }

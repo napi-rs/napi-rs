@@ -13,14 +13,14 @@ const t =
   process.arch === 'arm64' && process.platform === 'linux' ? test.skip : test
 
 const concurrency =
-  process.platform === 'win32' ||
-  process.platform === 'darwin' ||
-  (process.platform === 'linux' &&
-    process.arch === 'x64' &&
-    // @ts-expect-error
-    process?.report?.getReport()?.header?.glibcVersionRuntime &&
-    !process.env.ASAN_OPTIONS &&
-    !process.env.WASI_TEST)
+  (process.platform === 'win32' ||
+    process.platform === 'darwin' ||
+    (process.platform === 'linux' &&
+      process.arch === 'x64' &&
+      // @ts-expect-error
+      process?.report?.getReport()?.header?.glibcVersionRuntime)) &&
+  !process.env.WASI_TEST &&
+  !process.env.ASAN_OPTIONS
     ? 20
     : 1
 
@@ -28,7 +28,6 @@ t('should be able to require in worker thread', async (t) => {
   await Promise.all(
     Array.from({ length: concurrency }).map(() => {
       const w = new Worker(join(__dirname, 'worker.cjs'), {
-        execArgv: ['--experimental-wasi-unstable-preview1'],
         env: process.env,
       })
       return new Promise<void>((resolve, reject) => {
@@ -55,7 +54,6 @@ t('custom GC works on worker_threads', async (t) => {
       Promise.all([
         new Promise<Worker>((resolve, reject) => {
           const w = new Worker(join(__dirname, 'worker.cjs'), {
-            execArgv: ['--experimental-wasi-unstable-preview1'],
             env: process.env,
           })
           w.postMessage({
@@ -97,7 +95,6 @@ t('should be able to new Class in worker thread concurrently', async (t) => {
   await Promise.all(
     Array.from({ length: concurrency }).map(() => {
       const w = new Worker(join(__dirname, 'worker.cjs'), {
-        execArgv: ['--experimental-wasi-unstable-preview1'],
         env: process.env,
       })
       return new Promise<void>((resolve, reject) => {

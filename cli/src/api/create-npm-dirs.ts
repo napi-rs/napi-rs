@@ -136,7 +136,7 @@ export async function createNpmDirs(userOptions: CreateNpmDirsOptions) {
     const targetPackageJson = join(targetDir, 'package.json')
     await writeFileAsync(
       targetPackageJson,
-      JSON.stringify(scopedPackageJson, null, 2),
+      JSON.stringify(scopedPackageJson, null, 2) + '\n',
     )
     const targetReadme = join(targetDir, 'README.md')
     await writeFileAsync(targetReadme, readme(packageName, target))

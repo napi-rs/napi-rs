@@ -247,11 +247,11 @@ export declare function acceptArraybuffer(fixture: ArrayBuffer): bigint
 
 export declare function acceptSlice(fixture: Uint8Array): bigint
 
-export declare function acceptThreadsafeFunction(func: (err: Error | null, arg: number) => any): void
+export declare function acceptThreadsafeFunction(func: ((err: Error | null, arg: number) => any)): void
 
-export declare function acceptThreadsafeFunctionFatal(func: (arg: number) => void): void
+export declare function acceptThreadsafeFunctionFatal(func: ((arg: number) => void)): void
 
-export declare function acceptThreadsafeFunctionTupleArgs(func: (err: Error | null, arg0: number, arg1: boolean, arg2: string) => any): void
+export declare function acceptThreadsafeFunctionTupleArgs(func: ((err: Error | null, arg0: number, arg1: boolean, arg2: string) => any)): void
 
 export declare function acceptUint8ClampedSlice(input: Uint8ClampedArray): bigint
 
@@ -338,11 +338,11 @@ export declare function callFunctionWithArg(cb: (arg0: number, arg1: number) => 
 
 export declare function callFunctionWithArgAndCtx(ctx: Animal, cb: (arg: string) => void, name: string): void
 
-export declare function callLongThreadsafeFunction(tsfn: (err: Error | null, arg: number) => unknown): void
+export declare function callLongThreadsafeFunction(tsfn: ((err: Error | null, arg: number) => unknown)): void
 
 export declare function callThenOnPromise(input: Promise<number>): Promise<string>
 
-export declare function callThreadsafeFunction(tsfn: (err: Error | null, arg: number) => unknown): void
+export declare function callThreadsafeFunction(tsfn: ((err: Error | null, arg: number) => unknown)): void
 
 export declare function captureErrorInCallback(cb1: () => void, cb2: (arg0: Error) => void): void
 
@@ -377,6 +377,8 @@ export declare function concatUtf16(s: string): string
 export declare function contains(source: string, target: string): boolean
 
 export declare function convertU32Array(input: Uint32Array): Array<number>
+
+export declare function createArraybuffer(): ArrayBuffer
 
 export declare function createBigInt(): bigint
 
@@ -528,6 +530,16 @@ export declare const enum Kind {
   Duck = 2
 }
 
+/** default enum values are continuos i32s start from 0 */
+export declare const enum KindInValidate {
+  /** Barks */
+  Dog = 0,
+  /** Kills birds */
+  Cat = 1,
+  /** Tasty */
+  Duck = 2
+}
+
 export declare function listObjKeys(obj: object): Array<string>
 
 export interface LocalDates {
@@ -562,7 +574,7 @@ export declare function objectGetNamedPropertyShouldPerformTypecheck(obj: { foo:
 
 export interface ObjectOnlyFromJs {
   count: number
-  callback: (err: Error | null, arg: number) => any
+  callback: ((err: Error | null, arg: number) => any)
 }
 
 export interface ObjectOnlyToJs {
@@ -594,6 +606,12 @@ export interface PackageJson {
 export declare function panic(): void
 
 export declare function panicInAsync(): Promise<void>
+
+export interface Pet {
+  name: string
+  kind: number
+  eitherTsfn: string | ((err: Error | null, arg: number) => number)
+}
 
 export declare function plusOne(this: Width): number
 
@@ -650,12 +668,18 @@ export interface Shared {
   value: number
 }
 
-export declare function spawnThreadInThread(tsfn: (err: Error | null, arg: number) => number): void
+export declare function spawnThreadInThread(tsfn: ((err: Error | null, arg: number) => number)): void
 
 export declare const enum Status {
   Pristine = 'Pristine',
   Loading = 'Loading',
   Ready = 'Ready'
+}
+
+export declare const enum StatusInValidate {
+  Poll = 'Poll',
+  Ready = 'Ready',
+  Done = 'Done'
 }
 
 export interface StrictObject {
@@ -667,6 +691,12 @@ export declare const enum StringEnum {
   VariantTwo = 'varianttwo',
   VariantThree = 'variantthree'
 }
+
+export type StructuredKind =
+  | { type2: 'Hello' }
+  | { type2: 'Greeting', name: string }
+  | { type2: 'Birthday', name: string, age: number }
+  | { type2: 'Tuple', field0: number, field1: number }
 
 export declare function sumBtreeMapping(nums: Record<string, number>): number
 
@@ -684,11 +714,11 @@ export declare function testSerdeRoundtrip(data: any): any
 
 export declare function threadsafeFunctionClosureCapture(func: (arg: string) => void): void
 
-export declare function threadsafeFunctionFatalMode(cb: (arg: boolean) => unknown): void
+export declare function threadsafeFunctionFatalMode(cb: ((arg: boolean) => unknown)): void
 
-export declare function threadsafeFunctionFatalModeError(cb: (arg: boolean) => string): void
+export declare function threadsafeFunctionFatalModeError(cb: ((arg: boolean) => string)): void
 
-export declare function threadsafeFunctionThrowError(cb: (err: Error | null, arg: boolean) => unknown): void
+export declare function threadsafeFunctionThrowError(cb: ((err: Error | null, arg: boolean) => unknown)): void
 
 export declare function throwAsyncError(): Promise<void>
 
@@ -700,19 +730,26 @@ export declare function toJsObj(): object
 
 export declare function tsfnAsyncCall(func: (arg0: number, arg1: number, arg2: number) => string): Promise<void>
 
-export declare function tsfnCallWithCallback(tsfn: (err: Error | null, ) => string): void
+export declare function tsfnCallWithCallback(tsfn: ((err: Error | null, ) => string)): void
 
-export declare function tsfnReturnPromise(func: (err: Error | null, arg: number) => Promise<number>): Promise<number>
+export declare function tsfnInEither(pet: Pet): void
 
-export declare function tsfnReturnPromiseTimeout(func: (err: Error | null, arg: number) => Promise<number>): Promise<number>
+export declare function tsfnReturnPromise(func: ((err: Error | null, arg: number) => Promise<number>)): Promise<number>
 
-export declare function tsfnThrowFromJs(tsfn: (err: Error | null, arg: number) => Promise<number>): Promise<number>
+export declare function tsfnReturnPromiseTimeout(func: ((err: Error | null, arg: number) => Promise<number>)): Promise<number>
+
+export declare function tsfnThrowFromJs(tsfn: ((err: Error | null, arg: number) => Promise<number>)): Promise<number>
 
 export declare function tsRename(a: { foo: number }): string[]
 
 export interface TsTypeChanged {
   typeOverride: object
   typeOverrideOptional?: object
+}
+
+export interface TupleObject {
+  field0: number
+  field1: number
 }
 
 export declare function u16ArrayToArray(input: Uint16Array): Array<number>
@@ -751,6 +788,8 @@ export declare function validateDate(d: Date): number
 
 export declare function validateDateTime(d: Date): number
 
+export declare function validateEnum(input: KindInValidate): number
+
 export declare function validateExternal(e: ExternalObject<number>): number
 
 export declare function validateFunction(cb: () => number): number
@@ -766,6 +805,10 @@ export declare function validateOptional(input1?: string | undefined | null, inp
 export declare function validatePromise(p: Promise<number>): Promise<number>
 
 export declare function validateString(s: string): string
+
+export declare function validateStringEnum(input: StatusInValidate): string
+
+export declare function validateStructuredEnum(kind: StructuredKind): StructuredKind
 
 export declare function validateSymbol(s: symbol): boolean
 

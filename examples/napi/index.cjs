@@ -336,7 +336,7 @@ if (!nativeBinding || process.env.NAPI_RS_FORCE_WASI) {
     nativeBinding = require('./example.wasi.cjs')
   } catch (err) {
     if (process.env.NAPI_RS_FORCE_WASI) {
-      console.error(err)
+      loadErrors.push(err)
     }
   }
   if (!nativeBinding) {
@@ -344,7 +344,7 @@ if (!nativeBinding || process.env.NAPI_RS_FORCE_WASI) {
       nativeBinding = require('@examples/napi-wasm32-wasi')
     } catch (err) {
       if (process.env.NAPI_RS_FORCE_WASI) {
-        console.error(err)
+        loadErrors.push(err)
       }
     }
   }
@@ -459,6 +459,7 @@ module.exports.concatStr = nativeBinding.concatStr
 module.exports.concatUtf16 = nativeBinding.concatUtf16
 module.exports.contains = nativeBinding.contains
 module.exports.convertU32Array = nativeBinding.convertU32Array
+module.exports.createArraybuffer = nativeBinding.createArraybuffer
 module.exports.createBigInt = nativeBinding.createBigInt
 module.exports.createBigIntI64 = nativeBinding.createBigIntI64
 module.exports.createExternal = nativeBinding.createExternal
@@ -515,6 +516,7 @@ module.exports.i64ArrayToArray = nativeBinding.i64ArrayToArray
 module.exports.i8ArrayToArray = nativeBinding.i8ArrayToArray
 module.exports.indexmapPassthrough = nativeBinding.indexmapPassthrough
 module.exports.Kind = nativeBinding.Kind
+module.exports.KindInValidate = nativeBinding.KindInValidate
 module.exports.listObjKeys = nativeBinding.listObjKeys
 module.exports.mapOption = nativeBinding.mapOption
 module.exports.mutateExternal = nativeBinding.mutateExternal
@@ -556,6 +558,7 @@ module.exports.runScript = nativeBinding.runScript
 module.exports.setSymbolInObj = nativeBinding.setSymbolInObj
 module.exports.spawnThreadInThread = nativeBinding.spawnThreadInThread
 module.exports.Status = nativeBinding.Status
+module.exports.StatusInValidate = nativeBinding.StatusInValidate
 module.exports.StringEnum = nativeBinding.StringEnum
 module.exports.sumBtreeMapping = nativeBinding.sumBtreeMapping
 module.exports.sumIndexMapping = nativeBinding.sumIndexMapping
@@ -574,6 +577,7 @@ module.exports.throwSyntaxError = nativeBinding.throwSyntaxError
 module.exports.toJsObj = nativeBinding.toJsObj
 module.exports.tsfnAsyncCall = nativeBinding.tsfnAsyncCall
 module.exports.tsfnCallWithCallback = nativeBinding.tsfnCallWithCallback
+module.exports.tsfnInEither = nativeBinding.tsfnInEither
 module.exports.tsfnReturnPromise = nativeBinding.tsfnReturnPromise
 module.exports.tsfnReturnPromiseTimeout = nativeBinding.tsfnReturnPromiseTimeout
 module.exports.tsfnThrowFromJs = nativeBinding.tsfnThrowFromJs
@@ -590,6 +594,7 @@ module.exports.validateBuffer = nativeBinding.validateBuffer
 module.exports.validateBufferSlice = nativeBinding.validateBufferSlice
 module.exports.validateDate = nativeBinding.validateDate
 module.exports.validateDateTime = nativeBinding.validateDateTime
+module.exports.validateEnum = nativeBinding.validateEnum
 module.exports.validateExternal = nativeBinding.validateExternal
 module.exports.validateFunction = nativeBinding.validateFunction
 module.exports.validateHashMap = nativeBinding.validateHashMap
@@ -598,6 +603,8 @@ module.exports.validateNumber = nativeBinding.validateNumber
 module.exports.validateOptional = nativeBinding.validateOptional
 module.exports.validatePromise = nativeBinding.validatePromise
 module.exports.validateString = nativeBinding.validateString
+module.exports.validateStringEnum = nativeBinding.validateStringEnum
+module.exports.validateStructuredEnum = nativeBinding.validateStructuredEnum
 module.exports.validateSymbol = nativeBinding.validateSymbol
 module.exports.validateTypedArray = nativeBinding.validateTypedArray
 module.exports.validateTypedArraySlice = nativeBinding.validateTypedArraySlice

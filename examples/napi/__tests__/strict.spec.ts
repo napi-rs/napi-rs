@@ -19,6 +19,10 @@ import {
   validateSymbol,
   validateNull,
   validateUndefined,
+  validateEnum,
+  validateStringEnum,
+  KindInValidate,
+  StatusInValidate,
   returnUndefinedIfInvalid,
   returnUndefinedIfInvalidPromise,
   validateOptional,
@@ -193,6 +197,23 @@ test('should validate undefined', (t) => {
   t.throws(() => validateUndefined(1), {
     code: 'InvalidArg',
     message: 'Expect value to be Undefined, but received Number',
+  })
+})
+
+test('should validate enum', (t) => {
+  t.is(validateEnum(KindInValidate.Cat), KindInValidate.Cat)
+  // @ts-expect-error
+  t.throws(() => validateEnum('3'), {
+    code: 'InvalidArg',
+    message: 'Expect value to be Number, but received String',
+  })
+
+  t.is(validateStringEnum(StatusInValidate.Poll), 'Poll')
+
+  // @ts-expect-error
+  t.throws(() => validateStringEnum(1), {
+    code: 'InvalidArg',
+    message: 'Expect value to be String, but received Number',
   })
 })
 

@@ -1,6 +1,6 @@
 {
   "name": "@napi-rs/cli",
-  "version": "3.0.0-alpha.57",
+  "version": "3.0.0-alpha.62",
   "description": "Cli tools for napi-rs",
   "author": "LongYinan <lynweklm@gmail.com>",
   "homepage": "https://github.com/napi-rs/napi-rs",
@@ -67,14 +67,14 @@
     "url": "https://github.com/napi-rs/napi-rs/issues"
   },
   "dependencies": {
+    "@inquirer/prompts": "^5.3.8",
     "@napi-rs/cross-toolchain": "^0.0.16",
     "@napi-rs/wasm-tools": "^0.0.2",
     "@octokit/rest": "^21.0.0",
     "clipanion": "^3.2.1",
     "colorette": "^2.0.20",
     "debug": "^4.3.4",
-    "emnapi": "1.2.0",
-    "inquirer": "^9.2.13",
+    "emnapi": "^1.2.0",
     "js-yaml": "^4.1.0",
     "lodash-es": "^4.17.21",
     "semver": "^7.5.4",

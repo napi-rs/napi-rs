@@ -12,6 +12,7 @@ enum TypeDefKind {
   Enum = 'enum',
   StringEnum = 'string_enum',
   Interface = 'interface',
+  Type = 'type',
   Fn = 'fn',
   Struct = 'struct',
   Impl = 'impl',
@@ -36,6 +37,10 @@ function prettyPrint(
   switch (line.kind) {
     case TypeDefKind.Interface:
       s += `export interface ${line.name} {\n${line.def}\n}`
+      break
+
+    case TypeDefKind.Type:
+      s += `export type ${line.name} = \n${line.def}`
       break
 
     case TypeDefKind.Enum:
@@ -215,13 +220,20 @@ export function correctStringIdent(src: string, ident: number): string {
       const isInMultilineComment = line.startsWith('*')
       const isClosingBracket = line.endsWith('}')
       const isOpeningBracket = line.endsWith('{')
+      const isTypeDeclaration = line.endsWith('=')
+      const isTypeVariant = line.startsWith('|')
 
       let rightIndent = ident
-      if (isOpeningBracket && !isInMultilineComment) {
+      if ((isOpeningBracket || isTypeDeclaration) && !isInMultilineComment) {
         bracketDepth += 1
         rightIndent += (bracketDepth - 1) * 2
       } else {
-        if (isClosingBracket && bracketDepth > 0 && !isInMultilineComment) {
+        if (
+          isClosingBracket &&
+          bracketDepth > 0 &&
+          !isInMultilineComment &&
+          !isTypeVariant
+        ) {
           bracketDepth -= 1
         }
         rightIndent += bracketDepth * 2
