@@ -39,7 +39,7 @@ jobs:
       - name: Install
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
+          toolchain: 1.80.1
           targets: ${{ matrix.target }}
       - name: Cache cargo
         uses: actions/cache@v4
@@ -54,7 +54,13 @@ jobs:
       - name: Install ziglang
         uses: goto-bus-stop/setup-zig@v2
         with:
-          version: 0.11.0
+          version: 0.13.0
+      - name: Install cargo-zigbuild
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-zigbuild
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
       - name: Install dependencies
         run: yarn install --immutable --mode=skip-build
       - name: install MacOS SDK
@@ -91,7 +97,7 @@ jobs:
           - host: ubuntu-latest
             target: x86_64-unknown-linux-musl
           - host: macos-latest
-            target: x86_64-apple-darwin
+            target: aarch64-apple-darwin
           - host: ubuntu-latest
             target: aarch64-unknown-linux-musl
 

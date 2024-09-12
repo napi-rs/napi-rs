@@ -1326,7 +1326,7 @@ impl Env {
   #[cfg(feature = "serde-json")]
   pub fn from_js_value<T, V>(&self, value: V) -> Result<T>
   where
-    T: DeserializeOwned + ?Sized,
+    T: DeserializeOwned,
     V: NapiRaw,
   {
     let value = Value {

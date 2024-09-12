@@ -271,6 +271,13 @@ pub unsafe extern "C" fn napi_register_module_v1(
   env: sys::napi_env,
   exports: sys::napi_value,
 ) -> sys::napi_value {
+  #[cfg(all(
+    any(target_env = "msvc", feature = "dyn-symbols"),
+    not(feature = "noop")
+  ))]
+  unsafe {
+    sys::setup();
+  }
   if IS_FIRST_MODULE.load(Ordering::SeqCst) {
     IS_FIRST_MODULE.store(false, Ordering::SeqCst);
   } else {
