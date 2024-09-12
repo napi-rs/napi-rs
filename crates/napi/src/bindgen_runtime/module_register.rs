@@ -189,17 +189,6 @@ pub fn get_c_callback(raw_fn: ExportRegisterCallback) -> Result<crate::Callback>
   })
 }
 
-#[cfg(all(
-  any(target_env = "msvc", feature = "dyn-symbols"),
-  not(feature = "noop")
-))]
-#[ctor::ctor]
-fn load_host() {
-  unsafe {
-    sys::setup();
-  }
-}
-
 #[cfg(all(target_family = "wasm", not(feature = "noop")))]
 #[no_mangle]
 unsafe extern "C" fn napi_register_wasm_v1(
@@ -222,6 +211,13 @@ pub unsafe extern "C" fn napi_register_module_v1(
   env: sys::napi_env,
   exports: sys::napi_value,
 ) -> sys::napi_value {
+  #[cfg(all(
+    any(target_env = "msvc", feature = "dyn-symbols"),
+    not(feature = "noop")
+  ))]
+  unsafe {
+    sys::setup();
+  }
   if IS_FIRST_MODULE.load(Ordering::SeqCst) {
     IS_FIRST_MODULE.store(false, Ordering::SeqCst);
   } else {
