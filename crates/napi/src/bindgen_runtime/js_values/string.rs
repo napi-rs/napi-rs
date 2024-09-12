@@ -71,13 +71,7 @@ impl FromNapiValue for String {
     let mut ret = mem::ManuallyDrop::new(ret);
     let buf_ptr = ret.as_mut_ptr();
     let bytes = unsafe { Vec::from_raw_parts(buf_ptr as *mut u8, written_char_count, len) };
-    match String::from_utf8(bytes) {
-      Err(e) => Err(Error::new(
-        Status::InvalidArg,
-        format!("Failed to read utf8 string, {}", e),
-      )),
-      Ok(s) => Ok(s),
-    }
+    Ok(unsafe { String::from_utf8_unchecked(bytes) })
   }
 }
 
