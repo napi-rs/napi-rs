@@ -53,7 +53,13 @@ jobs:
       - name: Install ziglang
         uses: goto-bus-stop/setup-zig@v2
         with:
-          version: 0.12.0
+          version: 0.13.0
+      - name: Install cargo-zigbuild
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-zigbuild
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
       - name: Install dependencies
         run: yarn install --immutable --mode=skip-build
       - name: install MacOS SDK
@@ -89,7 +95,7 @@ jobs:
         settings:
           - host: ubuntu-latest
             target: x86_64-unknown-linux-musl
-          - host: macos-14
+          - host: macos-latest
             target: aarch64-apple-darwin
           - host: ubuntu-latest
             target: aarch64-unknown-linux-musl
@@ -128,7 +134,7 @@ jobs:
         run: yarn test --verbose
         env:
           SKIP_UNWIND_TEST: 1
-        if: matrix.settings.host == 'macos-14'
+        if: matrix.settings.host == 'macos-latest'
       - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
         if: matrix.settings.host == 'ubuntu-latest'
       - name: Test
