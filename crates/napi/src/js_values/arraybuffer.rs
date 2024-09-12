@@ -5,7 +5,7 @@ use std::slice;
 
 use crate::bindgen_runtime::{TypeName, ValidateNapiValue};
 use crate::{
-  check_status, sys, Error, JsUnknown, NapiValue, Ref, Result, Status, Value, ValueType,
+  check_status, sys, Env, Error, JsUnknown, NapiValue, Ref, Result, Status, Value, ValueType,
 };
 
 pub struct JsArrayBuffer(pub(crate) Value);
@@ -198,8 +198,8 @@ impl JsArrayBuffer {
     }))
   }
 
-  pub fn into_ref(self) -> Result<Ref<JsArrayBufferValue>> {
-    Ref::new(self.0, 1, self.into_value()?)
+  pub fn into_ref(self) -> Result<Ref<JsArrayBuffer>> {
+    Ref::new(&Env::from(self.0.env), &self)
   }
 }
 

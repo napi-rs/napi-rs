@@ -1,8 +1,8 @@
 use std::convert::TryInto;
 
 use napi::{
-  bindgen_prelude::PromiseRaw, CallContext, Env, Error, JsBuffer, JsBufferValue, JsNumber,
-  JsObject, Ref, Result, Task,
+  bindgen_prelude::{Buffer, PromiseRaw},
+  CallContext, Env, Error, JsNumber, JsObject, Result, Task,
 };
 
 struct ComputeFib {
@@ -44,11 +44,11 @@ fn test_spawn_thread(ctx: CallContext) -> Result<PromiseRaw<JsNumber>> {
 }
 
 struct CountBufferLength {
-  data: Ref<JsBufferValue>,
+  data: Buffer,
 }
 
 impl CountBufferLength {
-  pub fn new(data: Ref<JsBufferValue>) -> Self {
+  pub fn new(data: Buffer) -> Self {
     Self { data }
   }
 }
@@ -71,16 +71,11 @@ impl Task for CountBufferLength {
   fn reject(&mut self, _env: Env, err: Error) -> Result<Self::JsValue> {
     Err(err)
   }
-
-  fn finally(&mut self, env: Env) -> Result<()> {
-    self.data.unref(env)?;
-    Ok(())
-  }
 }
 
 #[js_function(1)]
 fn test_spawn_thread_with_ref(ctx: CallContext) -> Result<PromiseRaw<JsNumber>> {
-  let n = ctx.get::<JsBuffer>(0)?.into_ref()?;
+  let n = ctx.get::<Buffer>(0)?;
   let task = CountBufferLength::new(n);
   let async_work_promise = ctx.env.spawn(task)?;
   Ok(async_work_promise.promise_object())
