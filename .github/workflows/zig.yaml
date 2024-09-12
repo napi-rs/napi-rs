@@ -40,7 +40,7 @@ jobs:
       - name: Install
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
+          toolchain: 1.80.1
           targets: ${{ matrix.target }}
       - name: Cache cargo
         uses: actions/cache@v4
