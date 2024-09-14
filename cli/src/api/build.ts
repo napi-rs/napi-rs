@@ -840,9 +840,9 @@ class Builder {
 
     const { dts, exports } = await processTypeDef(
       this.envs.TYPE_DEF_TMP_PATH,
-      this.options.constEnum ?? true,
+      this.options.constEnum ?? this.config.constEnum ?? true,
       !this.options.noDtsHeader
-        ? this.options.dtsHeader ??
+        ? (this.options.dtsHeader ??
             (this.config.dtsHeaderFile
               ? await readFileAsync(
                   join(this.cwd, this.config.dtsHeaderFile),
@@ -855,7 +855,7 @@ class Builder {
                 })
               : null) ??
             this.config.dtsHeader ??
-            DEFAULT_TYPE_DEF_HEADER
+            DEFAULT_TYPE_DEF_HEADER)
         : '',
     )
 
