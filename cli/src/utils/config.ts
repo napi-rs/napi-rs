@@ -139,7 +139,7 @@ export interface CommonPackageJsonFields {
 export type NapiConfig = Required<
   Pick<UserNapiConfig, 'binaryName' | 'packageName' | 'npmClient'>
 > &
-  Pick<UserNapiConfig, 'wasm' | 'dtsHeader' | 'dtsHeaderFile'> & {
+  Pick<UserNapiConfig, 'wasm' | 'dtsHeader' | 'dtsHeaderFile' | 'constEnum'> & {
     targets: Target[]
     packageJson: CommonPackageJsonFields
   }
