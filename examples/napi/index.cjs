@@ -495,6 +495,7 @@ module.exports.getBtreeMapping = nativeBinding.getBtreeMapping
 module.exports.getBuffer = nativeBinding.getBuffer
 module.exports.getCwd = nativeBinding.getCwd
 module.exports.getEmptyBuffer = nativeBinding.getEmptyBuffer
+module.exports.getEmptyTypedArray = nativeBinding.getEmptyTypedArray
 module.exports.getExternal = nativeBinding.getExternal
 module.exports.getGlobal = nativeBinding.getGlobal
 module.exports.getIndexMapping = nativeBinding.getIndexMapping

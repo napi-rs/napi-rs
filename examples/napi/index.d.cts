@@ -479,6 +479,8 @@ export declare function getCwd(callback: (arg0: string) => void): void
 
 export declare function getEmptyBuffer(): Buffer
 
+export declare function getEmptyTypedArray(): Uint8Array
+
 export declare function getExternal(external: ExternalObject<number>): number
 
 export declare function getGlobal(): typeof global
