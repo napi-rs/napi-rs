@@ -254,24 +254,32 @@ macro_rules! impl_typed_array {
       type Target = [$rust_type];
 
       fn deref(&self) -> &Self::Target {
-        unsafe { std::slice::from_raw_parts(self.data, self.length) }
+        self.as_ref()
       }
     }
 
     impl DerefMut for $name {
       fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { std::slice::from_raw_parts_mut(self.data, self.length) }
+        self.as_mut()
       }
     }
 
     impl AsRef<[$rust_type]> for $name {
       fn as_ref(&self) -> &[$rust_type] {
+        if self.data.is_null() {
+          return &[];
+        }
+
         unsafe { std::slice::from_raw_parts(self.data, self.length) }
       }
     }
 
     impl AsMut<[$rust_type]> for $name {
       fn as_mut(&mut self) -> &mut [$rust_type] {
+        if self.data.is_null() {
+          return &mut [];
+        }
+
         unsafe { std::slice::from_raw_parts_mut(self.data, self.length) }
       }
     }
