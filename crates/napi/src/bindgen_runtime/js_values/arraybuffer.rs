@@ -120,7 +120,7 @@ macro_rules! impl_typed_array {
             );
             return;
           }
-          if !self.drop_in_vm.load(Ordering::Acquire) {
+          if !self.drop_in_vm.load(Ordering::Acquire) && !self.data.is_null() {
             match &self.data_managed_type {
               DataManagedType::Owned => {
                 let length = self.length;
