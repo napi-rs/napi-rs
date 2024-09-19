@@ -54,6 +54,7 @@ import {
   getPackageJsonName,
   getBuffer,
   getEmptyBuffer,
+  getEmptyTypedArray,
   asyncBufferToArray,
   readFileAsync,
   eitherStringOrNumber,
@@ -830,6 +831,12 @@ test('reset empty buffer', (t) => {
   const buffer = Buffer.from(shared)
   t.notThrows(() => {
     buffer.set(empty)
+  })
+})
+
+test('empty typed array', (t) => {
+  t.notThrows(() => {
+    derefUint8Array(getEmptyTypedArray(), new Uint8ClampedArray([]))
   })
 })
 
