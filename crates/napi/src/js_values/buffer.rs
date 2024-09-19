@@ -36,6 +36,7 @@ impl ValidateNapiValue for JsBuffer {
   }
 }
 
+#[deprecated(since = "3.0.0", note = "Please use Buffer or &[u8] instead")]
 pub struct JsBufferValue {
   pub(crate) value: JsBuffer,
   data: mem::ManuallyDrop<Vec<u8>>,
