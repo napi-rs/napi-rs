@@ -35,7 +35,7 @@ RUN apt-get update && \
   ninja-build && \
   apt-get autoremove -y && \
   curl https://sh.rustup.rs -sSf | sh -s -- -y && \
-  npm install -g npm yarn pnpm && \
+  corepack enable && \
   ln -sf /usr/bin/clang-18 /usr/bin/clang && \
   ln -sf /usr/bin/clang++-18 /usr/bin/clang++ && \
   ln -sf /usr/bin/lld-18 /usr/bin/lld && \
