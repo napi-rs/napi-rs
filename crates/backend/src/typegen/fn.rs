@@ -185,6 +185,15 @@ impl NapiFn {
             if ty_string == "Env" {
               return None;
             }
+            if let syn::Type::Reference(syn::TypeReference { elem, .. }) = &*path.ty {
+              if let syn::Type::Path(path) = elem.as_ref() {
+                if let Some(PathSegment { ident, .. }) = path.path.segments.last() {
+                  if ident == "Env" {
+                    return None;
+                  }
+                }
+              }
+            }
             if let syn::Type::Path(path) = path.ty.as_ref() {
               if let Some(PathSegment { ident, arguments }) = path.path.segments.last() {
                 if ident == "Reference" || ident == "WeakReference" {

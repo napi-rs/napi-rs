@@ -92,12 +92,10 @@ impl TryToTokens for NapiFn {
     };
     let native_call = if !self.is_async {
       quote! {
-        napi::bindgen_prelude::within_runtime_if_available(move || {
-          let #receiver_ret_name = {
-            #receiver(#(#arg_names),*)
-          };
-          #ret
-        })
+        let #receiver_ret_name = {
+          #receiver(#(#arg_names),*)
+        };
+        #ret
       }
     } else {
       let call = if self.is_ret_result {
@@ -127,6 +125,7 @@ impl TryToTokens for NapiFn {
 
     let function_call_inner = quote! {
       napi::bindgen_prelude::CallbackInfo::<#args_len>::new(env, cb, None, #use_after_async).and_then(|mut cb| {
+          let __wrapped_env = napi::bindgen_prelude::Env::from(env);
           #build_ref_container
           #(#arg_conversions)*
           #native_call
@@ -253,7 +252,7 @@ impl NapiFn {
       match &arg.kind {
         NapiFnArgKind::PatType(path) => {
           if &path.ty.to_token_stream().to_string() == "Env" {
-            args.push(quote! { napi::bindgen_prelude::Env::from(env) });
+            args.push(quote! { __wrapped_env });
             skipped_arg_count += 1;
           } else {
             let is_in_class = self.parent.is_some();
@@ -357,6 +356,11 @@ impl NapiFn {
             if arg_type.is_ref() {
               refs.push(make_ref(quote! { cb.get_arg(#i) }));
             }
+            if arg_type == NapiArgType::Env {
+              args.push(quote! { &__wrapped_env });
+              skipped_arg_count += 1;
+              continue;
+            }
             arg_conversions.push(arg_conversion);
             args.push(quote! { #ident });
           }
@@ -454,6 +458,13 @@ impl NapiFn {
             }
           }
         } else {
+          if let syn::Type::Path(ele) = &**elem {
+            if let Some(syn::PathSegment { ident, .. }) = ele.path.segments.last() {
+              if ident == "Env" {
+                return Ok((quote! {}, NapiArgType::Env));
+              }
+            }
+          }
           quote! {
             let #arg_name = {
               #type_check
@@ -702,6 +713,7 @@ enum NapiArgType {
   Ref,
   MutRef,
   Value,
+  Env,
 }
 
 impl NapiArgType {

@@ -11,7 +11,7 @@ use std::sync::Mutex;
 
 #[cfg(all(feature = "napi4", not(feature = "noop"), not(target_family = "wasm")))]
 use crate::bindgen_prelude::{CUSTOM_GC_TSFN, CUSTOM_GC_TSFN_DESTROYED, THREADS_CAN_ACCESS_ENV};
-use crate::{bindgen_prelude::*, check_status, sys, Result, ValueType};
+use crate::{bindgen_prelude::*, check_status, env::EMPTY_VEC, sys, Result, ValueType};
 
 #[cfg(all(debug_assertions, not(windows)))]
 thread_local! {
@@ -24,6 +24,150 @@ thread_local! {
 pub struct BufferSlice<'scope> {
   pub(crate) inner: &'scope mut [u8],
   raw_value: sys::napi_value,
+}
+
+impl<'scope> BufferSlice<'scope> {
+  /// Create a new `BufferSlice` from a `Vec<u8>`.
+  ///
+  /// While this is still a fully-supported data structure, in most cases using a `Uint8Array` will suffice.
+  pub fn from_data<D: Into<Vec<u8>>>(env: &Env, data: D) -> Result<Self> {
+    let mut buf = ptr::null_mut();
+    let mut data = data.into();
+    let inner_ptr = data.as_mut_ptr();
+    #[cfg(all(debug_assertions, not(windows)))]
+    {
+      let is_existed = BUFFER_DATA.with(|buffer_data| {
+        let buffer = buffer_data.lock().expect("Unlock buffer data failed");
+        buffer.contains(&inner_ptr)
+      });
+      if is_existed {
+        panic!("Share the same data between different buffers is not allowed, see: https://github.com/nodejs/node/issues/32463#issuecomment-631974747");
+      }
+    }
+    let len = data.len();
+    let mut status = unsafe {
+      sys::napi_create_external_buffer(
+        env.0,
+        len,
+        inner_ptr.cast(),
+        Some(drop_buffer_slice),
+        Box::into_raw(Box::new(len)).cast(),
+        &mut buf,
+      )
+    };
+    status = if status == sys::Status::napi_no_external_buffers_allowed {
+      unsafe {
+        sys::napi_create_buffer_copy(
+          env.0,
+          len,
+          data.as_mut_ptr().cast(),
+          ptr::null_mut(),
+          &mut buf,
+        )
+      }
+    } else {
+      status
+    };
+    mem::forget(data);
+    check_status!(status, "Failed to create buffer slice from data")?;
+    Ok(Self {
+      inner: unsafe { slice::from_raw_parts_mut(buf.cast(), len) },
+      raw_value: buf,
+    })
+  }
+
+  /// ## Safety
+  ///
+  /// Mostly the same with `from_data`
+  ///
+  /// Provided `finalize_callback` will be called when `BufferSlice` got dropped.
+  ///
+  /// You can pass in `noop_finalize` if you have nothing to do in finalize phase.
+  ///
+  /// ### Notes
+  ///
+  /// JavaScript may mutate the data passed in to this buffer when writing the buffer.
+  /// However, some JavaScript runtimes do not support external buffers (notably electron!)
+  /// in which case modifications may be lost.
+  ///
+  /// If you need to support these runtimes, you should create a buffer by other means and then
+  /// later copy the data back out.
+  pub unsafe fn from_external<T: 'scope, F: FnOnce(T, Env)>(
+    env: &Env,
+    data: *mut u8,
+    len: usize,
+    finalize_hint: T,
+    finalize_callback: F,
+  ) -> Result<Self> {
+    let mut buf = ptr::null_mut();
+    if data.is_null() || data as *const u8 == EMPTY_VEC.as_ptr() {
+      return Err(Error::new(
+        Status::InvalidArg,
+        "Borrowed data should not be null".to_owned(),
+      ));
+    }
+    #[cfg(all(debug_assertions, not(windows)))]
+    {
+      let is_existed = BUFFER_DATA.with(|buffer_data| {
+        let buffer = buffer_data.lock().expect("Unlock buffer data failed");
+        buffer.contains(&data)
+      });
+      if is_existed {
+        panic!("Share the same data between different buffers is not allowed, see: https://github.com/nodejs/node/issues/32463#issuecomment-631974747");
+      }
+    }
+    let hint_ptr = Box::into_raw(Box::new((finalize_hint, finalize_callback)));
+    let mut status = unsafe {
+      sys::napi_create_external_buffer(
+        env.0,
+        len,
+        data.cast(),
+        Some(crate::env::raw_finalize_with_custom_callback::<T, F>),
+        hint_ptr.cast(),
+        &mut buf,
+      )
+    };
+    status = if status == sys::Status::napi_no_external_buffers_allowed {
+      let (hint, finalize) = *Box::from_raw(hint_ptr);
+      let status =
+        unsafe { sys::napi_create_buffer_copy(env.0, len, data.cast(), ptr::null_mut(), &mut buf) };
+      finalize(hint, *env);
+      status
+    } else {
+      status
+    };
+    check_status!(status, "Failed to create buffer slice from data")?;
+    Ok(Self {
+      inner: unsafe { slice::from_raw_parts_mut(buf.cast(), len) },
+      raw_value: buf,
+    })
+  }
+
+  /// Copy data from a `&[u8]` and create a `BufferSlice` from it.
+  pub fn copy_from<D: AsRef<[u8]>>(env: &Env, data: D) -> Result<Self> {
+    let data = data.as_ref();
+    let len = data.len();
+    let data_ptr = data.as_ptr();
+    let mut buf = ptr::null_mut();
+    let mut result_ptr = ptr::null_mut();
+    check_status!(
+      unsafe {
+        sys::napi_create_buffer_copy(env.0, len, data_ptr.cast(), &mut result_ptr, &mut buf)
+      },
+      "Faild to create a buffer from copied data"
+    )?;
+    Ok(Self {
+      inner: unsafe { slice::from_raw_parts_mut(result_ptr.cast(), len) },
+      raw_value: buf,
+    })
+  }
+
+  /// Convert a `BufferSlice` to a `Buffer`
+  ///
+  /// This will perform a `napi_create_reference` internally.
+  pub fn into_buffer(self, env: &Env) -> Result<Buffer> {
+    unsafe { Buffer::from_napi_value(env.0, self.raw_value) }
+  }
 }
 
 impl<'scope> FromNapiValue for BufferSlice<'scope> {
@@ -171,8 +315,8 @@ impl Drop for Buffer {
   }
 }
 
-// SAFETY: This is undefined behavior, as the JS side may always modify the underlying buffer,
-// without synchronization. Also see the docs for the `AsMut` impl.
+/// SAFETY: This is undefined behavior, as the JS side may always modify the underlying buffer,
+/// without synchronization. Also see the docs for the `AsMut` impl.
 unsafe impl Send for Buffer {}
 
 impl Clone for Buffer {
@@ -351,9 +495,9 @@ impl ToNapiValue for Buffer {
           sys::napi_create_external_buffer(
             env,
             len,
-            value_ptr as *mut c_void,
+            value_ptr.cast(),
             Some(drop_buffer),
-            val_box_ptr as *mut c_void,
+            val_box_ptr.cast(),
             &mut ret,
           )
         };
