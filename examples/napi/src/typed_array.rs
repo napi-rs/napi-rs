@@ -18,6 +18,11 @@ fn get_empty_buffer() -> Buffer {
 }
 
 #[napi]
+fn get_empty_typed_array() -> Uint8Array {
+  vec![].into()
+}
+
+#[napi]
 fn convert_u32_array(input: Uint32Array) -> Vec<u32> {
   input.to_vec()
 }
