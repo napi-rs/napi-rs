@@ -190,6 +190,9 @@ import {
   StructuredKind,
   validateStructuredEnum,
   createArraybuffer,
+  getBufferSlice,
+  createExternalBufferSlice,
+  createBufferSliceFromCopiedData,
 } from '../index.cjs'
 
 import { test } from './test.framework.js'
@@ -782,6 +785,9 @@ test('buffer', (t) => {
   t.is(buf.toString('utf-8'), 'Hello world')
   buf = appendBuffer(buf)
   t.is(buf.toString('utf-8'), 'Hello world!')
+  t.is(getBufferSlice().toString('utf-8'), 'Hello world')
+  t.is(createExternalBufferSlice().toString('utf-8'), 'Hello world')
+  t.is(createBufferSliceFromCopiedData().toString('utf-8'), 'Hello world')
 
   const a = getEmptyBuffer()
   const b = getEmptyBuffer()

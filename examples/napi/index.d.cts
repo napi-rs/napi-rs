@@ -384,7 +384,11 @@ export declare function createBigInt(): bigint
 
 export declare function createBigIntI64(): bigint
 
+export declare function createBufferSliceFromCopiedData(): Buffer
+
 export declare function createExternal(size: number): ExternalObject<number>
+
+export declare function createExternalBufferSlice(): Buffer
 
 export declare function createExternalString(content: string): ExternalObject<string>
 
@@ -474,6 +478,8 @@ export declare function fnReceivedAliased(s: AliasedStruct, e: ALIAS): void
 export declare function getBtreeMapping(): Record<string, number>
 
 export declare function getBuffer(): Buffer
+
+export declare function getBufferSlice(): Buffer
 
 export declare function getCwd(callback: (arg0: string) => void): void
 

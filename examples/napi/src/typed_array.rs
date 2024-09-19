@@ -6,6 +6,11 @@ fn get_buffer() -> Buffer {
 }
 
 #[napi]
+fn get_buffer_slice(env: &Env) -> Result<BufferSlice> {
+  BufferSlice::from_data(env, String::from("Hello world").as_bytes().to_vec())
+}
+
+#[napi]
 fn append_buffer(buf: Buffer) -> Buffer {
   let mut buf = Vec::<u8>::from(buf);
   buf.push(b'!');
@@ -15,6 +20,25 @@ fn append_buffer(buf: Buffer) -> Buffer {
 #[napi]
 fn get_empty_buffer() -> Buffer {
   vec![].into()
+}
+
+#[napi]
+pub fn create_external_buffer_slice(env: &Env) -> Result<BufferSlice> {
+  let mut data = String::from("Hello world").as_bytes().to_vec();
+  let data_ptr = data.as_mut_ptr();
+  let len = data.len();
+  // Mock the ffi data that not managed by Rust
+  std::mem::forget(data);
+  unsafe {
+    BufferSlice::from_external(env, data_ptr, len, data_ptr, |ptr, _| {
+      std::mem::drop(Vec::from_raw_parts(ptr, len, len));
+    })
+  }
+}
+
+#[napi]
+pub fn create_buffer_slice_from_copied_data(env: &Env) -> Result<BufferSlice> {
+  BufferSlice::copy_from(env, String::from("Hello world").as_bytes())
 }
 
 #[napi]

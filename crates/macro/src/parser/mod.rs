@@ -1203,8 +1203,6 @@ impl ConvertToAST for syn::ItemEnum {
       });
     }
 
-    self.attrs.push(parse_quote!(#[derive(Copy, Clone)]));
-
     let variants = match opts.string_enum() {
       Some(case) => {
         let case = case.map(|c| Ok::<Case, Diagnostic>(match c.0.as_str() {

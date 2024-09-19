@@ -1,5 +1,6 @@
 /// default enum values are continuos i32s start from 0
 #[napi]
+#[derive(Debug, Clone, Copy)]
 pub enum Kind {
   /// Barks
   Dog,
