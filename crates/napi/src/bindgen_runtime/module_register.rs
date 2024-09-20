@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 #[cfg(not(feature = "noop"))]
 use std::collections::HashSet;
 use std::ffi::CStr;
@@ -13,6 +12,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::RwLock;
 use std::thread::ThreadId;
+use std::{any::TypeId, collections::HashMap};
 
 use once_cell::sync::Lazy;
 
@@ -52,10 +52,8 @@ impl<K, V> Default for PersistedPerInstanceHashMap<K, V> {
 type ModuleRegisterCallback =
   RwLock<Vec<(Option<&'static str>, (&'static str, ExportRegisterCallback))>>;
 
-type ModuleClassProperty = PersistedPerInstanceHashMap<
-  &'static str,
-  HashMap<Option<&'static str>, (&'static str, Vec<Property>)>,
->;
+type ModuleClassProperty =
+  PersistedPerInstanceHashMap<TypeId, HashMap<Option<&'static str>, (&'static str, Vec<Property>)>>;
 
 unsafe impl<K, V> Send for PersistedPerInstanceHashMap<K, V> {}
 unsafe impl<K, V> Sync for PersistedPerInstanceHashMap<K, V> {}
@@ -99,16 +97,6 @@ fn wait_first_thread_registered() {
 }
 
 #[doc(hidden)]
-pub fn get_class_constructor(js_name: &'static str) -> Option<sys::napi_ref> {
-  let current_id = std::thread::current().id();
-  REGISTERED_CLASSES.borrow_mut(|map| {
-    map
-      .get(&current_id)
-      .map(|m| m.borrow_mut(|map| map.get(js_name).copied()))
-  })?
-}
-
-#[doc(hidden)]
 #[cfg(all(feature = "compat-mode", not(feature = "noop")))]
 // compatibility for #[module_exports]
 pub fn register_module_exports(callback: ModuleExportsCallback) {
@@ -142,14 +130,24 @@ pub fn register_js_function(
 }
 
 #[doc(hidden)]
+pub fn get_class_constructor(js_name: &'static str) -> Option<sys::napi_ref> {
+  let current_id = std::thread::current().id();
+  REGISTERED_CLASSES.borrow_mut(|map| {
+    map
+      .get(&current_id)
+      .map(|m| m.borrow_mut(|map| map.get(js_name).copied()))
+  })?
+}
+
+#[doc(hidden)]
 pub fn register_class(
-  rust_name: &'static str,
+  rust_type_id: TypeId,
   js_mod: Option<&'static str>,
   js_name: &'static str,
   props: Vec<Property>,
 ) {
   MODULE_CLASS_PROPERTIES.borrow_mut(|inner| {
-    let val = inner.entry(rust_name).or_default();
+    let val = inner.entry(rust_type_id).or_default();
     let val = val.entry(js_mod).or_default();
     val.0 = js_name;
     val.1.extend(props);
@@ -305,7 +303,7 @@ pub unsafe extern "C" fn napi_register_module_v1(
   let mut registered_classes = HashMap::new();
 
   MODULE_CLASS_PROPERTIES.borrow_mut(|inner| {
-    inner.iter().for_each(|(rust_name, js_mods)| {
+    inner.iter().for_each(|(_, js_mods)| {
       for (js_mod, (js_name, props)) in js_mods {
         let mut exports_js_mod = ptr::null_mut();
         unsafe {
@@ -362,9 +360,8 @@ pub unsafe extern "C" fn napi_register_module_v1(
               raw_props.as_ptr(),
               &mut class_ptr,
             ),
-            "Failed to register class `{}` generate by struct `{}`",
+            "Failed to register class `{}`",
             &js_name,
-            &rust_name
           );
 
           let mut ctor_ref = ptr::null_mut();
@@ -384,9 +381,8 @@ pub unsafe extern "C" fn napi_register_module_v1(
               js_class_name.as_ptr(),
               class_ptr
             ),
-            "Failed to register class `{}` generate by struct `{}`",
+            "Failed to register class `{}`",
             &js_name,
-            &rust_name
           );
         }
       }
