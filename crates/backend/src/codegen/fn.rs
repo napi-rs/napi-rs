@@ -229,14 +229,14 @@ impl NapiFn {
         Some(FnSelf::Ref) => {
           refs.push(make_ref(quote! { cb.this }));
           arg_conversions.push(quote! {
-            let this_ptr = unsafe { cb.unwrap_raw::<#parent>()? };
+            let this_ptr = cb.unwrap_raw::<#parent>()?;
             let this: &#parent = Box::leak(Box::from_raw(this_ptr));
           });
         }
         Some(FnSelf::MutRef) => {
           refs.push(make_ref(quote! { cb.this }));
           arg_conversions.push(quote! {
-            let this_ptr = unsafe { cb.unwrap_raw::<#parent>()? };
+            let this_ptr = cb.unwrap_raw::<#parent>()?;
             let this: &mut #parent = Box::leak(Box::from_raw(this_ptr));
           });
         }
@@ -571,12 +571,12 @@ impl NapiFn {
           .expect("Parent must exist for constructor");
         if self.is_ret_result {
           if self.parent_is_generator {
-            quote! { cb.construct_generator::<false, #parent>(#js_name, #ret?) }
+            quote! { cb.construct_generator::<false, _>(#js_name, #ret?) }
           } else {
             quote! {
               match #ret {
                 Ok(value) => {
-                  cb.construct::<false, #parent>(#js_name, value)
+                  cb.construct::<false, _>(#js_name, value)
                 }
                 Err(err) => {
                   napi::bindgen_prelude::JsError::from(err).throw_into(env);
@@ -682,7 +682,7 @@ impl NapiFn {
 
         #[allow(clippy::all)]
         #[allow(non_snake_case)]
-        #[cfg(all(not(test), not(feature = "noop"), not(target_family = "wasm")))]
+        #[cfg(all(not(test), not(target_family = "wasm")))]
         #[napi::bindgen_prelude::ctor]
         fn #module_register_name() {
           napi::bindgen_prelude::register_module_export(#js_mod_ident, #js_name, #cb_name);
@@ -690,7 +690,7 @@ impl NapiFn {
 
         #[allow(clippy::all)]
         #[allow(non_snake_case)]
-        #[cfg(all(not(test), not(feature = "noop"), target_family = "wasm"))]
+        #[cfg(all(not(test), target_family = "wasm"))]
         #[no_mangle]
         extern "C" fn #module_register_name() {
           napi::bindgen_prelude::register_module_export(#js_mod_ident, #js_name, #cb_name);

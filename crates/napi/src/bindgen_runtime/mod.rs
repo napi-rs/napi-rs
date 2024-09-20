@@ -29,7 +29,7 @@ pub trait ObjectFinalize: Sized {
 ///
 /// called when node wrapper objects destroyed
 #[doc(hidden)]
-pub unsafe extern "C" fn raw_finalize_unchecked<T: ObjectFinalize>(
+pub(crate) unsafe extern "C" fn raw_finalize_unchecked<T: ObjectFinalize>(
   env: sys::napi_env,
   finalize_data: *mut c_void,
   _finalize_hint: *mut c_void,

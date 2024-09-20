@@ -1,9 +1,9 @@
-cfg_if::cfg_if! {
-  if #[cfg(feature = "noop")] {
-    mod noop;
-    pub use self::noop::*;
-  } else {
-    mod napi;
-    pub use self::napi::*;
-  }
-}
+#[cfg(feature = "noop")]
+mod noop;
+#[cfg(feature = "noop")]
+pub use self::noop::*;
+
+#[cfg(not(feature = "noop"))]
+mod napi;
+#[cfg(not(feature = "noop"))]
+pub use self::napi::*;
