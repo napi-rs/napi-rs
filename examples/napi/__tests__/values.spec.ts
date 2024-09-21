@@ -193,6 +193,7 @@ import {
   getBufferSlice,
   createExternalBufferSlice,
   createBufferSliceFromCopiedData,
+  Reader,
 } from '../index.cjs'
 
 import { test } from './test.framework.js'
@@ -796,6 +797,13 @@ test('buffer', (t) => {
 
   // @ts-expect-error
   t.true(Array.isArray(asyncBufferToArray(Buffer.from([1, 2, 3]).buffer)))
+})
+
+test('Return BufferSlice with lifetime', (t) => {
+  const reader = new Reader()
+  const reader2 = new Reader()
+  t.deepEqual(reader.read(), Buffer.from('Hello world'))
+  t.deepEqual(reader2.read(), Buffer.from('Hello world'))
 })
 
 test('TypedArray', (t) => {

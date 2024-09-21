@@ -531,6 +531,7 @@ fn extract_fn_closure_generics(
           }
         }
       }
+      syn::GenericParam::Lifetime(_) => {}
       _ => {
         errors.push(err_span!(param, "unsupported napi generic param for fn"));
       }

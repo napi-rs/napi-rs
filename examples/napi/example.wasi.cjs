@@ -394,6 +394,9 @@ function __napi_rs_initialize_modules(__napiInstance) {
   __napiInstance.exports['__napi_register__async_reduce_buffer_372']?.()
   __napiInstance.exports['__napi_register__async_buffer_to_array_373']?.()
   __napiInstance.exports['__napi_register__u_init8_array_from_string_374']?.()
+  __napiInstance.exports['__napi_register__AsyncReader_impl_375']?.()
+  __napiInstance.exports['__napi_register__Reader_struct_376']?.()
+  __napiInstance.exports['__napi_register__Reader_impl_378']?.()
 }
 module.exports.Animal = __napiModule.exports.Animal
 module.exports.AnimalWithDefaultConstructor = __napiModule.exports.AnimalWithDefaultConstructor
@@ -432,6 +435,7 @@ module.exports.NinjaTurtle = __napiModule.exports.NinjaTurtle
 module.exports.NotUseNullableClass = __napiModule.exports.NotUseNullableClass
 module.exports.NotWritableClass = __napiModule.exports.NotWritableClass
 module.exports.Optional = __napiModule.exports.Optional
+module.exports.Reader = __napiModule.exports.Reader
 module.exports.Selector = __napiModule.exports.Selector
 module.exports.UseNullableClass = __napiModule.exports.UseNullableClass
 module.exports.Width = __napiModule.exports.Width
