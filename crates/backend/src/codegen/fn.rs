@@ -413,13 +413,6 @@ impl NapiFn {
 
     match ty {
       syn::Type::Reference(syn::TypeReference {
-        lifetime: Some(lifetime),
-        ..
-      }) => Err(Diagnostic::span_error(
-        lifetime.span(),
-        "lifetime is not allowed in napi function arguments",
-      )),
-      syn::Type::Reference(syn::TypeReference {
         mutability: Some(_),
         elem,
         ..

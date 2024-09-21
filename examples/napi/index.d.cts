@@ -218,6 +218,12 @@ export declare class Optional {
   static optionOnly(optional?: string | undefined | null): string
 }
 
+export declare class Reader {
+
+  constructor()
+  read(): Buffer
+}
+
 export declare class Selector {
   orderBy: Array<string>
   select: Array<string>

@@ -186,3 +186,41 @@ fn async_buffer_to_array(buf: JsArrayBuffer) -> Result<Vec<u8>> {
 async fn u_init8_array_from_string() -> Uint8Array {
   Uint8Array::from_string("Hello world".to_owned())
 }
+
+struct AsyncReader {}
+
+struct OutputBuffer {}
+
+impl OutputBuffer {
+  fn into_buffer_slice(self, env: &Env) -> Result<BufferSlice> {
+    BufferSlice::from_data(env, String::from("Hello world"))
+  }
+}
+
+#[napi]
+impl Task for AsyncReader {
+  type Output = OutputBuffer;
+  type JsValue = Buffer;
+
+  fn compute(&mut self) -> Result<Self::Output> {
+    Ok(OutputBuffer {})
+  }
+
+  fn resolve(&mut self, env: Env, output: Self::Output) -> Result<Self::JsValue> {
+    output
+      .into_buffer_slice(&env)
+      .and_then(|slice| slice.into_buffer(&env))
+  }
+}
+
+#[napi(constructor)]
+pub struct Reader {}
+
+#[napi]
+impl Reader {
+  #[napi]
+  pub fn read<'env>(&'env self, env: &'env Env) -> Result<BufferSlice<'env>> {
+    let output = AsyncReader {}.compute()?;
+    output.into_buffer_slice(env)
+  }
+}
