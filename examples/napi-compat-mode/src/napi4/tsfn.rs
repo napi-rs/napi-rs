@@ -2,8 +2,9 @@ use std::path::Path;
 use std::thread;
 
 use napi::{
-  bindgen_prelude::Function, threadsafe_function::ThreadsafeFunctionCallMode, CallContext, Error,
-  JsBoolean, JsNumber, JsObject, JsString, JsUndefined, Ref, Result, Status,
+  bindgen_prelude::{BufferSlice, Function},
+  threadsafe_function::ThreadsafeFunctionCallMode,
+  CallContext, Error, JsBoolean, JsNumber, JsObject, JsString, JsUndefined, Ref, Result, Status,
 };
 
 #[js_function(1)]
@@ -102,12 +103,7 @@ pub fn test_tokio_readfile(ctx: CallContext) -> Result<JsUndefined> {
   let tsfn = js_func
     .build_threadsafe_function()
     .callee_handled::<true>()
-    .build_callback(move |ctx| {
-      ctx
-        .env
-        .create_buffer_with_data(ctx.value)
-        .map(|v| v.into_raw())
-    })?;
+    .build_callback(move |ctx| BufferSlice::from_data(&ctx.env, ctx.value))?;
   let rt = tokio::runtime::Runtime::new()
     .map_err(|e| Error::from_reason(format!("Create tokio runtime failed {}", e)))?;
 
