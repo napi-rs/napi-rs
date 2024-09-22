@@ -255,6 +255,7 @@ impl Env {
     Ok(unsafe { JsObject::from_raw_unchecked(self.0, raw_value) })
   }
 
+  #[deprecated(since = "3.0.0", note = "Use `Buffer` instead")]
   /// This API allocates a node::Buffer object. While this is still a fully-supported data structure, in most cases using a TypedArray will suffice.
   pub fn create_buffer(&self, length: usize) -> Result<JsBufferValue> {
     let mut raw_value = ptr::null_mut();
