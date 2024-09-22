@@ -93,7 +93,7 @@
     "@types/semver": "^7.5.8",
     "ava": "^6.1.1",
     "env-paths": "^3.0.0",
-    "esbuild": "^0.23.0",
+    "esbuild": "^0.24.0",
     "prettier": "^3.2.4",
     "ts-node": "^10.9.2",
     "tslib": "^2.6.2",
