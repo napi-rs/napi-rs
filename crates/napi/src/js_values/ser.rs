@@ -3,7 +3,7 @@ use std::result::Result as StdResult;
 use serde::{ser, Serialize, Serializer};
 
 use super::*;
-use crate::{Env, Error, Result};
+use crate::{bindgen_runtime::BufferSlice, Env, Error, Result};
 
 pub struct Ser<'env>(pub(crate) &'env Env);
 
@@ -30,10 +30,11 @@ impl<'env> Serializer for Ser<'env> {
   }
 
   fn serialize_bytes(self, v: &[u8]) -> Result<Self::Ok> {
-    self
-      .0
-      .create_buffer_with_data(v.to_owned())
-      .map(|js_value| js_value.value.0)
+    BufferSlice::from_data(self.0, v.to_owned()).map(|bs| Value {
+      env: self.0.raw(),
+      value: bs.raw_value,
+      value_type: ValueType::Object,
+    })
   }
 
   fn serialize_char(self, v: char) -> Result<Self::Ok> {

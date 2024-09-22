@@ -23,7 +23,7 @@ thread_local! {
 /// If you want to use Node.js Buffer in async context or want to extend the lifetime, use `Buffer` instead.
 pub struct BufferSlice<'scope> {
   pub(crate) inner: &'scope mut [u8],
-  raw_value: sys::napi_value,
+  pub(crate) raw_value: sys::napi_value,
 }
 
 impl<'scope> BufferSlice<'scope> {
