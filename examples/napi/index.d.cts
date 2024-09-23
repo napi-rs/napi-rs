@@ -836,6 +836,8 @@ export declare function validateUndefined(i: undefined): boolean
 
 export declare function withAbortController(a: number, b: number, signal: AbortSignal): Promise<number>
 
+export declare function withinAsyncRuntimeIfAvailable(): void
+
 export declare function withoutAbortController(a: number, b: number): Promise<number>
 
 export declare function xxh64Alias(input: Buffer): bigint

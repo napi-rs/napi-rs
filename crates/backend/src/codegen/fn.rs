@@ -91,11 +91,22 @@ impl TryToTokens for NapiFn {
       quote! {}
     };
     let native_call = if !self.is_async {
-      quote! {
-        let #receiver_ret_name = {
-          #receiver(#(#arg_names),*)
-        };
-        #ret
+      if self.within_async_runtime {
+        quote! {
+          napi::bindgen_prelude::within_runtime_if_available(move || {
+            let #receiver_ret_name = {
+              #receiver(#(#arg_names),*)
+            };
+            #ret
+          })
+        }
+      } else {
+        quote! {
+          let #receiver_ret_name = {
+            #receiver(#(#arg_names),*)
+          };
+          #ret
+        }
       }
     } else {
       let call = if self.is_ret_result {
