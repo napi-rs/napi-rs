@@ -616,6 +616,7 @@ module.exports.validateTypedArraySlice = nativeBinding.validateTypedArraySlice
 module.exports.validateUint8ClampedSlice = nativeBinding.validateUint8ClampedSlice
 module.exports.validateUndefined = nativeBinding.validateUndefined
 module.exports.withAbortController = nativeBinding.withAbortController
+module.exports.withinAsyncRuntimeIfAvailable = nativeBinding.withinAsyncRuntimeIfAvailable
 module.exports.withoutAbortController = nativeBinding.withoutAbortController
 module.exports.xxh64Alias = nativeBinding.xxh64Alias
 module.exports.xxh2 = nativeBinding.xxh2

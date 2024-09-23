@@ -30,7 +30,7 @@ pub fn create_external_buffer_slice(env: &Env) -> Result<BufferSlice> {
   // Mock the ffi data that not managed by Rust
   std::mem::forget(data);
   unsafe {
-    BufferSlice::from_external(env, data_ptr, len, data_ptr, |ptr, _| {
+    BufferSlice::from_external(env, data_ptr, len, data_ptr, move |ptr, _| {
       std::mem::drop(Vec::from_raw_parts(ptr, len, len));
     })
   }
