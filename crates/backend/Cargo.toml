@@ -6,7 +6,7 @@ license = "MIT"
 name = "napi-derive-backend"
 readme = "README.md"
 repository = "https://github.com/napi-rs/napi-rs"
-rust-version = "1.70"
+rust-version = "1.80"
 version = "2.0.0-alpha.11"
 
 [package.metadata.workspaces]
@@ -19,7 +19,6 @@ type-def = ["regex", "semver"]
 
 [dependencies]
 convert_case = "0.6"
-once_cell = "1"
 proc-macro2 = "1"
 quote = "1"
 syn = { version = "2", features = ["fold", "full", "extra-traits"] }

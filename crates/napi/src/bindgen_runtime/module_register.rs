@@ -1,6 +1,8 @@
 #[cfg(not(feature = "noop"))]
 use std::collections::HashSet;
+#[cfg(not(feature = "noop"))]
 use std::ffi::CStr;
+#[cfg(not(feature = "noop"))]
 use std::ptr;
 #[cfg(all(
   not(any(target_os = "macos", target_family = "wasm")),
@@ -10,15 +12,13 @@ use std::ptr;
 use std::sync::atomic::AtomicUsize;
 #[cfg(not(feature = "noop"))]
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::RwLock;
+use std::sync::{LazyLock, RwLock};
 use std::thread::ThreadId;
 use std::{any::TypeId, collections::HashMap};
 
-use once_cell::sync::Lazy;
-
-use crate::{check_status, sys, Property, Result};
 #[cfg(not(feature = "noop"))]
-use crate::{check_status_or_throw, JsError};
+use crate::{check_status, check_status_or_throw, JsError};
+use crate::{sys, Property, Result};
 
 pub type ExportRegisterCallback = unsafe fn(sys::napi_env) -> Result<sys::napi_value>;
 pub type ModuleExportsCallback =
@@ -62,14 +62,14 @@ type FnRegisterMap =
   PersistedPerInstanceHashMap<ExportRegisterCallback, (sys::napi_callback, &'static str)>;
 type RegisteredClassesMap = PersistedPerInstanceHashMap<ThreadId, RegisteredClasses>;
 
-static MODULE_REGISTER_CALLBACK: Lazy<ModuleRegisterCallback> = Lazy::new(Default::default);
-static MODULE_CLASS_PROPERTIES: Lazy<ModuleClassProperty> = Lazy::new(Default::default);
+static MODULE_REGISTER_CALLBACK: LazyLock<ModuleRegisterCallback> = LazyLock::new(Default::default);
+static MODULE_CLASS_PROPERTIES: LazyLock<ModuleClassProperty> = LazyLock::new(Default::default);
 #[cfg(not(feature = "noop"))]
 static IS_FIRST_MODULE: AtomicBool = AtomicBool::new(true);
 #[cfg(not(feature = "noop"))]
 static FIRST_MODULE_REGISTERED: AtomicBool = AtomicBool::new(false);
-static REGISTERED_CLASSES: Lazy<RegisteredClassesMap> = Lazy::new(Default::default);
-static FN_REGISTER_MAP: Lazy<FnRegisterMap> = Lazy::new(Default::default);
+static REGISTERED_CLASSES: LazyLock<RegisteredClassesMap> = LazyLock::new(Default::default);
+static FN_REGISTER_MAP: LazyLock<FnRegisterMap> = LazyLock::new(Default::default);
 #[cfg(all(feature = "napi4", not(feature = "noop"), not(target_family = "wasm")))]
 pub(crate) static CUSTOM_GC_TSFN: std::sync::atomic::AtomicPtr<sys::napi_threadsafe_function__> =
   std::sync::atomic::AtomicPtr::new(ptr::null_mut());
@@ -77,16 +77,16 @@ pub(crate) static CUSTOM_GC_TSFN: std::sync::atomic::AtomicPtr<sys::napi_threads
 pub(crate) static CUSTOM_GC_TSFN_DESTROYED: AtomicBool = AtomicBool::new(false);
 #[cfg(all(feature = "napi4", not(feature = "noop"), not(target_family = "wasm")))]
 // Store thread id of the thread that created the CustomGC ThreadsafeFunction.
-pub(crate) static THREADS_CAN_ACCESS_ENV: once_cell::sync::Lazy<
-  PersistedPerInstanceHashMap<ThreadId, bool>,
-> = once_cell::sync::Lazy::new(Default::default);
+pub(crate) static THREADS_CAN_ACCESS_ENV: LazyLock<PersistedPerInstanceHashMap<ThreadId, bool>> =
+  LazyLock::new(Default::default);
 
 type RegisteredClasses =
   PersistedPerInstanceHashMap</* export name */ String, /* constructor */ sys::napi_ref>;
 
 #[cfg(all(feature = "compat-mode", not(feature = "noop")))]
 // compatibility for #[module_exports]
-static MODULE_EXPORTS: Lazy<RwLock<Vec<ModuleExportsCallback>>> = Lazy::new(Default::default);
+static MODULE_EXPORTS: LazyLock<RwLock<Vec<ModuleExportsCallback>>> =
+  LazyLock::new(Default::default);
 
 #[cfg(not(feature = "noop"))]
 #[inline]

@@ -23,7 +23,7 @@ pub fn buffer_to_string(ctx: CallContext) -> Result<JsString> {
 #[js_function(1)]
 pub fn copy_buffer(ctx: CallContext) -> Result<BufferSlice> {
   let buffer = ctx.get::<BufferSlice>(0)?;
-  BufferSlice::copy_from(&ctx.env, buffer)
+  BufferSlice::copy_from(ctx.env, buffer)
 }
 
 #[contextless_function]

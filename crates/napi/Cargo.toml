@@ -7,7 +7,7 @@ license = "MIT"
 name = "napi"
 readme = "README.md"
 repository = "https://github.com/napi-rs/napi-rs"
-rust-version = "1.70"
+rust-version = "1.80"
 version = "3.0.0-alpha.11"
 
 [lib]
@@ -60,7 +60,6 @@ dyn-symbols = ["napi-sys/dyn-symbols"]
 [dependencies]
 bitflags = "2"
 ctor = "0.2"
-once_cell = "1.19"
 
 [dependencies.anyhow]
 optional = true

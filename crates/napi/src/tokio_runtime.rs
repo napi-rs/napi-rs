@@ -1,6 +1,9 @@
-use std::{future::Future, marker::PhantomData, sync::RwLock};
+use std::{
+  future::Future,
+  marker::PhantomData,
+  sync::{LazyLock, OnceLock, RwLock},
+};
 
-use once_cell::sync::{Lazy, OnceCell};
 use tokio::runtime::Runtime;
 
 use crate::{sys, Error, JsDeferred, JsUnknown, NapiValue, Result};
@@ -21,7 +24,7 @@ fn create_runtime() -> Option<Runtime> {
   }
 }
 
-pub(crate) static RT: Lazy<RwLock<Option<Runtime>>> = Lazy::new(|| {
+pub(crate) static RT: LazyLock<RwLock<Option<Runtime>>> = LazyLock::new(|| {
   if let Some(user_defined_rt) = unsafe { USER_DEFINED_RT.take() } {
     RwLock::new(user_defined_rt)
   } else {
@@ -29,7 +32,7 @@ pub(crate) static RT: Lazy<RwLock<Option<Runtime>>> = Lazy::new(|| {
   }
 });
 
-static mut USER_DEFINED_RT: OnceCell<Option<Runtime>> = OnceCell::new();
+static mut USER_DEFINED_RT: OnceLock<Option<Runtime>> = OnceLock::new();
 
 /// Create a custom Tokio runtime used by the NAPI-RS.
 /// You can control the tokio runtime configuration by yourself.
