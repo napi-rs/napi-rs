@@ -1,25 +1,25 @@
-mod r#const;
-mod r#enum;
-mod r#fn;
-pub(crate) mod r#struct;
-
 use std::{
   cell::RefCell,
   collections::HashMap,
   env,
   fmt::{self, Display, Formatter},
+  sync::LazyLock,
 };
 
-use once_cell::sync::Lazy;
+mod r#const;
+mod r#enum;
+mod r#fn;
+pub(crate) mod r#struct;
+
 use syn::{PathSegment, Type, TypePath, TypeSlice};
 
-pub static NAPI_RS_CLI_VERSION: Lazy<semver::Version> = Lazy::new(|| {
+pub static NAPI_RS_CLI_VERSION: LazyLock<semver::Version> = LazyLock::new(|| {
   let version = env::var("CARGO_CFG_NAPI_RS_CLI_VERSION").unwrap_or_else(|_| "0.0.0".to_string());
   semver::Version::parse(&version).unwrap_or_else(|_| semver::Version::new(0, 0, 0))
 });
 
-pub static NAPI_RS_CLI_VERSION_WITH_SHARED_CRATES_FIX: Lazy<semver::Version> =
-  Lazy::new(|| semver::Version::new(2, 15, 1));
+pub static NAPI_RS_CLI_VERSION_WITH_SHARED_CRATES_FIX: LazyLock<semver::Version> =
+  LazyLock::new(|| semver::Version::new(2, 15, 1));
 
 #[derive(Default, Debug)]
 pub struct TypeDef {
@@ -143,10 +143,11 @@ pub trait ToTypeDef {
 }
 
 /// Mapping from `rust_type` to (`ts_type`, `is_ts_function_type_notation`, `is_ts_union_type`)
-static KNOWN_TYPES: Lazy<HashMap<&'static str, (&'static str, bool, bool)>> = Lazy::new(|| {
-  let mut map = HashMap::default();
-  map.extend(crate::PRIMITIVE_TYPES.iter().cloned());
-  map.extend([
+static KNOWN_TYPES: LazyLock<HashMap<&'static str, (&'static str, bool, bool)>> = LazyLock::new(
+  || {
+    let mut map = HashMap::default();
+    map.extend(crate::PRIMITIVE_TYPES.iter().cloned());
+    map.extend([
     ("JsObject", ("object", false, false)),
     ("Object", ("object", false, false)),
     ("Array", ("unknown[]", false, false)),
@@ -227,8 +228,9 @@ static KNOWN_TYPES: Lazy<HashMap<&'static str, (&'static str, bool, bool)>> = La
     ("Mutex", ("{}", false, false)),
   ]);
 
-  map
-});
+    map
+  },
+);
 
 fn fill_ty(template: &str, args: Vec<String>) -> String {
   let matches = template.match_indices("{}").collect::<Vec<_>>();
