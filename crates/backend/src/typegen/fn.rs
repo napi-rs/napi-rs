@@ -3,7 +3,7 @@ use quote::ToTokens;
 use std::fmt::{Display, Formatter};
 use syn::{Member, Pat, PathArguments, PathSegment};
 
-use super::{ty_to_ts_type, ToTypeDef, TypeDef};
+use super::{r#struct::CLASS_STRUCTS, ty_to_ts_type, ToTypeDef, TypeDef};
 use crate::{js_doc_from_comments, CallbackArg, FnKind, NapiFn};
 
 pub(crate) struct FnArg {
@@ -301,7 +301,11 @@ impl NapiFn {
         .parent
         .clone()
         .map(|i| {
-          let parent = i.to_string().to_case(Case::Pascal);
+          let origin_name = i.to_string();
+          let parent = CLASS_STRUCTS
+            .with_borrow(|c| c.get(&origin_name).cloned())
+            .unwrap_or_else(|| origin_name.to_case(Case::Pascal));
+
           if self.is_async {
             format!(": Promise<{}>", parent)
           } else {
