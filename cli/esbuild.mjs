@@ -1,7 +1,7 @@
 import * as esbuild from 'esbuild'
 import { pull } from 'lodash-es'
 
-import packageJson from './package.json' assert { type: 'json' }
+import packageJson from './package.json' with { type: 'json' }
 
 await esbuild.build({
   entryPoints: ['./dist/index.js'],
