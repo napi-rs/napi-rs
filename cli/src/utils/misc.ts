@@ -6,27 +6,19 @@ import {
   unlink,
   stat,
   readdir,
-} from 'node:fs'
-import { createRequire } from 'node:module'
-import { promisify } from 'node:util'
+} from 'node:fs/promises'
 
 import { debug } from './log.js'
 
-const require = createRequire(import.meta.url)
-// NOTE:
-//   import pkgJson from '@napi-rs/cli/package.json' assert { type: 'json' }
-//   is experimental feature now, avoid using it.
-//   see: https://nodejs.org/api/esm.html#import-assertions
-// eslint-disable-next-line import/no-extraneous-dependencies
-const pkgJson = require('@napi-rs/cli/package.json')
+import pkgJson from '@napi-rs/cli/package.json' with { type: 'json' }
 
-export const readFileAsync = promisify(readFile)
-export const writeFileAsync = promisify(writeFile)
-export const unlinkAsync = promisify(unlink)
-export const copyFileAsync = promisify(copyFile)
-export const mkdirAsync = promisify(mkdir)
-export const statAsync = promisify(stat)
-export const readdirAsync = promisify(readdir)
+export const readFileAsync = readFile
+export const writeFileAsync = writeFile
+export const unlinkAsync = unlink
+export const copyFileAsync = copyFile
+export const mkdirAsync = mkdir
+export const statAsync = stat
+export const readdirAsync = readdir
 
 export async function fileExists(path: string) {
   const exists = await statAsync(path)
@@ -51,7 +43,7 @@ export async function updatePackageJson(
     debug(`File not exists ${path}`)
     return
   }
-  const old = require(path)
+  const old = await import(path, { with: { type: 'json' } })
   await writeFileAsync(path, JSON.stringify({ ...old, ...partial }, null, 2))
 }
 

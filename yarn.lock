@@ -990,7 +990,7 @@ __metadata:
     "@types/inquirer": "npm:^9.0.7"
     "@types/js-yaml": "npm:^4.0.9"
     "@types/lodash-es": "npm:^4.17.12"
-    "@types/node": "npm:^20.11.13"
+    "@types/node": "npm:^22.7.4"
     "@types/semver": "npm:^7.5.8"
     ava: "npm:^6.1.1"
     clipanion: "npm:^3.2.1"
@@ -1381,7 +1381,7 @@ __metadata:
   resolution: "@napi-rs/triples@workspace:triples"
   dependencies:
     "@napi-rs/cli": "workspace:*"
-    "@types/node": "npm:^20.11.13"
+    "@types/node": "npm:^22.7.4"
     lodash-es: "npm:^4.17.21"
     ts-node: "npm:^10.9.2"
     typescript: "npm:^5.3.3"
@@ -2898,12 +2898,21 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/node@npm:^20.1.0, @types/node@npm:^20.11.13, @types/node@npm:^20.11.30, @types/node@npm:^20.9.0":
+"@types/node@npm:^20.1.0, @types/node@npm:^20.11.30, @types/node@npm:^20.9.0":
   version: 20.16.2
   resolution: "@types/node@npm:20.16.2"
   dependencies:
     undici-types: "npm:~6.19.2"
   checksum: 10c0/74fac185dbd2c6b301cde75747c1cd6c9ca1ad7266147ea107a798837f40b8a05991177ebd7925fc7450d51334096259d186afad6e0d22864b7c97f8afef6ba7
+  languageName: node
+  linkType: hard
+
+"@types/node@npm:^22.7.4":
+  version: 22.7.4
+  resolution: "@types/node@npm:22.7.4"
+  dependencies:
+    undici-types: "npm:~6.19.2"
+  checksum: 10c0/c22bf54515c78ff3170142c1e718b90e2a0003419dc2d55f79c9c9362edd590a6ab1450deb09ff6e1b32d1b4698da407930b16285e8be3a009ea6cd2695cac01
   languageName: node
   linkType: hard
 
@@ -8825,7 +8834,7 @@ __metadata:
     "@taplo/cli": "npm:^0.7.0"
     "@types/debug": "npm:^4.1.12"
     "@types/lodash-es": "npm:^4.17.12"
-    "@types/node": "npm:^20.11.13"
+    "@types/node": "npm:^22.7.4"
     "@types/sinon": "npm:^17.0.3"
     ava: "npm:^6.1.1"
     bun-types: "npm:^1.0.25"
