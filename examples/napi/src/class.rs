@@ -346,12 +346,12 @@ impl Optional {
 }
 
 #[napi(object)]
-pub struct ObjectFieldClassInstance {
-  pub bird: ClassInstance<Bird>,
+pub struct ObjectFieldClassInstance<'env> {
+  pub bird: ClassInstance<'env, Bird>,
 }
 
 #[napi]
-pub fn create_object_with_class_field(env: Env) -> Result<ObjectFieldClassInstance> {
+pub fn create_object_with_class_field(env: &Env) -> Result<ObjectFieldClassInstance> {
   Ok(ObjectFieldClassInstance {
     bird: Bird {
       name: "Carolyn".to_owned(),
