@@ -1,5 +1,5 @@
 use std::any::type_name;
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 use std::ptr;
 
 use super::Object;
@@ -13,12 +13,12 @@ use crate::{
 
 pub type This<T = Object> = T;
 
-pub struct ClassInstance<T: 'static> {
+pub struct ClassInstance<'env, T> {
   pub value: sys::napi_value,
-  inner: &'static mut T,
+  inner: &'env mut T,
 }
 
-impl<T: 'static> ClassInstance<T> {
+impl<'env, T: 'env> ClassInstance<'env, T> {
   #[doc(hidden)]
   pub fn new(value: sys::napi_value, inner: &'static mut T) -> Self {
     Self { value, inner }
@@ -29,15 +29,15 @@ impl<T: 'static> ClassInstance<T> {
   }
 }
 
-impl<T: 'static> NapiRaw for ClassInstance<T> {
+impl<'env, T: 'env> NapiRaw for ClassInstance<'env, T> {
   unsafe fn raw(&self) -> sys::napi_value {
     self.value
   }
 }
 
-impl<T: 'static> TypeName for ClassInstance<T>
+impl<'env, T: 'env> TypeName for ClassInstance<'env, T>
 where
-  &'static T: TypeName,
+  &'env T: TypeName,
 {
   fn type_name() -> &'static str {
     type_name::<&T>()
@@ -48,19 +48,19 @@ where
   }
 }
 
-impl<T: 'static> ValidateNapiValue for ClassInstance<T>
+impl<'env, T: 'env> ValidateNapiValue for ClassInstance<'env, T>
 where
-  &'static T: ValidateNapiValue,
+  &'env T: ValidateNapiValue,
 {
   unsafe fn validate(
     env: sys::napi_env,
     napi_val: sys::napi_value,
   ) -> crate::Result<sys::napi_value> {
-    unsafe { <&T>::validate(env, napi_val) }
+    unsafe { <&'env T>::validate(env, napi_val) }
   }
 }
 
-impl<T: 'static> FromNapiValue for ClassInstance<T> {
+impl<'env, T: 'env> FromNapiValue for ClassInstance<'env, T> {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
     let mut value = ptr::null_mut();
     check_status!(
@@ -76,7 +76,7 @@ impl<T: 'static> FromNapiValue for ClassInstance<T> {
   }
 }
 
-impl<T: 'static> Deref for ClassInstance<T> {
+impl<'env, T: 'env> Deref for ClassInstance<'env, T> {
   type Target = T;
 
   fn deref(&self) -> &Self::Target {
@@ -84,26 +84,14 @@ impl<T: 'static> Deref for ClassInstance<T> {
   }
 }
 
-impl<T: 'static> DerefMut for ClassInstance<T> {
-  fn deref_mut(&mut self) -> &mut T {
-    self.inner
-  }
-}
-
-impl<T: 'static> AsRef<T> for ClassInstance<T> {
+impl<'env, T: 'env> AsRef<T> for ClassInstance<'env, T> {
   fn as_ref(&self) -> &T {
     self.inner
   }
 }
 
-impl<T: 'static> AsMut<T> for ClassInstance<T> {
-  fn as_mut(&mut self) -> &mut T {
-    self.inner
-  }
-}
-
 pub trait JavaScriptClassExt: Sized {
-  fn into_instance(self, env: Env) -> Result<ClassInstance<Self>>;
+  fn into_instance(self, env: &Env) -> Result<ClassInstance<Self>>;
   fn into_reference(self, env: Env) -> Result<Reference<Self>>;
   fn instance_of<V: NapiRaw>(env: Env, value: V) -> Result<bool>;
 }

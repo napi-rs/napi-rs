@@ -1,10 +1,9 @@
 #[macro_use]
 pub mod attrs;
 
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::str::Chars;
-use std::sync::atomic::AtomicUsize;
+use std::sync::{atomic::AtomicUsize, Mutex, OnceLock};
 
 use attrs::BindgenAttrs;
 
@@ -20,13 +19,14 @@ use quote::ToTokens;
 use syn::ext::IdentExt;
 use syn::parse::{Parse, ParseStream, Result as SynResult};
 use syn::spanned::Spanned;
-use syn::{Attribute, ExprLit, Meta, PatType, PathSegment, Signature, Type, Visibility};
+use syn::{
+  AngleBracketedGenericArguments, Attribute, ExprLit, GenericArgument, Meta, PatType, Path,
+  PathArguments, PathSegment, Signature, Type, Visibility,
+};
 
 use crate::parser::attrs::{check_recorded_struct_for_impl, record_struct};
 
-thread_local! {
-  static GENERATOR_STRUCT: RefCell<HashMap<String, bool>> = Default::default();
-}
+static GENERATOR_STRUCT: OnceLock<Mutex<HashMap<String, bool>>> = OnceLock::new();
 
 static REGISTER_INDEX: AtomicUsize = AtomicUsize::new(0);
 
@@ -670,14 +670,16 @@ fn napi_fn_from_decl(
 
     let namespace = opts.namespace().map(|(m, _)| m.to_owned());
     let parent_is_generator = if let Some(p) = parent {
-      GENERATOR_STRUCT.with(|inner| {
-        let inner = inner.borrow();
-        let key = namespace
-          .as_ref()
-          .map(|n| format!("{}::{}", n, p))
-          .unwrap_or_else(|| p.to_string());
-        *inner.get(&key).unwrap_or(&false)
-      })
+      let generator_struct = GENERATOR_STRUCT.get_or_init(|| Mutex::new(HashMap::new()));
+      let generator_struct = generator_struct
+        .lock()
+        .expect("Lock generator struct failed");
+
+      let key = namespace
+        .as_ref()
+        .map(|n| format!("{}::{}", n, p))
+        .unwrap_or_else(|| p.to_string());
+      *generator_struct.get(&key).unwrap_or(&false)
     } else {
       false
     };
@@ -963,10 +965,37 @@ fn convert_fields(
     let skip_typescript = field_opts.skip_typescript().is_some();
     let ts_type = field_opts.ts_type().map(|e| e.0.to_string());
 
+    let mut ty = field.ty.clone();
+
+    let has_lifetime = if let Type::Path(syn::TypePath {
+      path: Path { segments, .. },
+      ..
+    }) = &mut ty
+    {
+      if let Some(PathSegment {
+        arguments: PathArguments::AngleBracketed(AngleBracketedGenericArguments { args, .. }),
+        ..
+      }) = segments.last_mut()
+      {
+        args.iter_mut().any(|arg| {
+          if let GenericArgument::Lifetime(lifetime) = arg {
+            *lifetime = syn::Lifetime::new("'static", Span::call_site());
+            true
+          } else {
+            false
+          }
+        })
+      } else {
+        false
+      }
+    } else {
+      false
+    };
+
     napi_fields.push(NapiStructField {
       name,
       js_name,
-      ty: field.ty.clone(),
+      ty,
       getter: !ignored,
       setter: !(ignored || readonly),
       writable,
@@ -975,6 +1004,7 @@ fn convert_fields(
       comments: extract_doc_comments(&field.attrs),
       skip_typescript,
       ts_type,
+      has_lifetime,
     })
   }
   Ok((napi_fields, is_tuple))
@@ -996,14 +1026,16 @@ impl ConvertToAST for syn::ItemStruct {
     record_struct(&struct_name, js_name.clone(), opts);
     let namespace = opts.namespace().map(|(m, _)| m.to_owned());
     let implement_iterator = opts.iterator().is_some();
-    GENERATOR_STRUCT.with(|inner| {
-      let mut inner = inner.borrow_mut();
-      let key = namespace
-        .as_ref()
-        .map(|n| format!("{}::{}", n, struct_name))
-        .unwrap_or_else(|| struct_name.to_string());
-      inner.insert(key, implement_iterator);
-    });
+    let generator_struct = GENERATOR_STRUCT.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut generator_struct = generator_struct
+      .lock()
+      .expect("Lock generator struct failed");
+    let key = namespace
+      .as_ref()
+      .map(|n| format!("{}::{}", n, struct_name))
+      .unwrap_or_else(|| struct_name.to_string());
+    generator_struct.insert(key, implement_iterator);
+    drop(generator_struct);
 
     let struct_kind = if opts.object().is_some() {
       NapiStructKind::Object(NapiObject {
@@ -1036,6 +1068,22 @@ impl ConvertToAST for syn::ItemStruct {
       }
     };
 
+    if self.generics.lifetimes().size_hint().0 > 1 {
+      errors.push(err_span!(
+        self,
+        "struct with multiple generic parameters is not supported"
+      ));
+    }
+
+    let lifetime = if let Some(lifetime) = self.generics.lifetimes().next() {
+      if !lifetime.bounds.is_empty() {
+        bail_span!(lifetime.bounds, "unsupported self type in #[napi] impl")
+      }
+      Some(lifetime.lifetime.to_string())
+    } else {
+      None
+    };
+
     Diagnostic::from_vec(errors).map(|()| Napi {
       item: NapiItem::Struct(NapiStruct {
         js_name,
@@ -1045,6 +1093,7 @@ impl ConvertToAST for syn::ItemStruct {
         use_nullable,
         register_name: get_register_ident(format!("{struct_name}_struct").as_str()),
         comments: extract_doc_comments(&self.attrs),
+        has_lifetime: lifetime.is_some(),
       }),
     })
   }
@@ -1201,6 +1250,7 @@ impl ConvertToAST for syn::ItemEnum {
             object_from_js: opts.object_from_js(),
             object_to_js: opts.object_to_js(),
           }),
+          has_lifetime: false,
         }),
       });
     }

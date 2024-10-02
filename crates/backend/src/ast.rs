@@ -83,6 +83,7 @@ pub struct NapiStruct {
   pub use_nullable: bool,
   pub register_name: Ident,
   pub kind: NapiStructKind,
+  pub has_lifetime: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -137,6 +138,7 @@ pub struct NapiStructField {
   pub comments: Vec<String>,
   pub skip_typescript: bool,
   pub ts_type: Option<String>,
+  pub has_lifetime: bool,
 }
 
 #[derive(Debug, Clone)]
