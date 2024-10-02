@@ -181,6 +181,7 @@ jobs:
       - name: Electron tests
         if: matrix.settings.target == 'x86_64-unknown-linux-gnu'
         run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           node ./node_modules/electron/install.js
           xvfb-run --auto-servernum yarn test:electron
 
