@@ -402,7 +402,7 @@ impl Env {
   /// Registering externally allocated memory will trigger global garbage collections more often than it would otherwise.
   ///
   /// ***ATTENTION ⚠️***, do not use this with `create_buffer_with_data/create_arraybuffer_with_data`, since these two functions already called the `adjust_external_memory` internal.
-  pub fn adjust_external_memory(&mut self, size: i64) -> Result<i64> {
+  pub fn adjust_external_memory(&self, size: i64) -> Result<i64> {
     let mut changed = 0i64;
     check_status!(unsafe { sys::napi_adjust_external_memory(self.0, size, &mut changed) })?;
     Ok(changed)
@@ -410,7 +410,7 @@ impl Env {
 
   #[cfg(target_family = "wasm")]
   #[allow(unused_variables)]
-  pub fn adjust_external_memory(&mut self, size: i64) -> Result<i64> {
+  pub fn adjust_external_memory(&self, size: i64) -> Result<i64> {
     Ok(0)
   }
 
@@ -1025,7 +1025,7 @@ impl Env {
 
   #[cfg(feature = "napi3")]
   pub fn add_env_cleanup_hook<T, F>(
-    &mut self,
+    &self,
     cleanup_data: T,
     cleanup_fn: F,
   ) -> Result<CleanupEnvHook<T>>
@@ -1049,7 +1049,7 @@ impl Env {
   }
 
   #[cfg(feature = "napi3")]
-  pub fn remove_env_cleanup_hook<T>(&mut self, hook: CleanupEnvHook<T>) -> Result<()>
+  pub fn remove_env_cleanup_hook<T>(&self, hook: CleanupEnvHook<T>) -> Result<()>
   where
     T: 'static,
   {

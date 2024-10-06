@@ -442,12 +442,10 @@ impl NapiStruct {
 
     let finalize_trait = if class.use_custom_finalize {
       quote! {}
+    } else if self.has_lifetime {
+      quote! { impl <'_javascript_function_scope> napi::bindgen_prelude::ObjectFinalize for #name<'_javascript_function_scope> {} }
     } else {
-      if self.has_lifetime {
-        quote! { impl <'_javascript_function_scope> napi::bindgen_prelude::ObjectFinalize for #name<'_javascript_function_scope> {} }
-      } else {
-        quote! { impl napi::bindgen_prelude::ObjectFinalize for #name {} }
-      }
+      quote! { impl napi::bindgen_prelude::ObjectFinalize for #name {} }
     };
 
     let to_napi_value_impl = if self.has_lifetime {

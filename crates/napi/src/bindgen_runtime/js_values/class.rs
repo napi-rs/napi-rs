@@ -24,7 +24,7 @@ impl<'env, T: 'env> ClassInstance<'env, T> {
     Self { value, inner }
   }
 
-  pub fn as_object(&self, env: Env) -> Object {
+  pub fn as_object(&self, env: &Env) -> Object {
     unsafe { Object::from_raw_unchecked(env.raw(), self.value) }
   }
 }
