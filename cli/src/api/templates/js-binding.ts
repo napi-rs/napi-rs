@@ -24,7 +24,6 @@ export function createCjsBinding(
 const { readFileSync } = require('fs')
 const { createRequire } = require('node:module')
 require = createRequire(__filename)
-
 let nativeBinding = null
 const loadErrors = []
 
