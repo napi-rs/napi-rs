@@ -780,6 +780,7 @@ test('serde-buffer-bytes', (t) => {
 
   t.is(testSerdeBufferBytes({ code: Buffer.from([1, 2, 3]) }), 3n)
   t.is(testSerdeBufferBytes({ code: Buffer.alloc(0) }), 0n)
+  t.is(testSerdeBufferBytes({ code: new ArrayBuffer(10) }), 10n)
 })
 
 test('buffer', (t) => {
