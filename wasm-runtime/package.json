@@ -28,7 +28,7 @@
     "@rollup/plugin-inject": "^5.0.5",
     "@rollup/plugin-json": "^6.1.0",
     "@rollup/plugin-node-resolve": "^15.2.3",
-    "@rollup/plugin-replace": "^5.0.5",
+    "@rollup/plugin-replace": "^6.0.0",
     "buffer": "^6.0.3",
     "memfs": "^4.8.2",
     "node-inspect-extracted": "^3.0.0",
