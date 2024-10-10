@@ -260,6 +260,14 @@ macro_rules! impl_js_value_methods {
         Ok(is_buffer)
       }
 
+      pub fn is_arraybuffer(&self) -> Result<bool> {
+        let mut is_buffer = false;
+        check_status!(unsafe {
+          sys::napi_is_arraybuffer(self.0.env, self.0.value, &mut is_buffer)
+        })?;
+        Ok(is_buffer)
+      }
+
       pub fn instanceof<Constructor>(&self, constructor: Constructor) -> Result<bool>
       where
         Constructor: NapiRaw,
