@@ -32,7 +32,7 @@ import {
   writeFileAsync,
 } from '../utils/index.js'
 
-import { createCjsBinding } from './templates/index.js'
+import { createCjsBinding, createEsmBinding } from './templates/index.js'
 import {
   createWasiBinding,
   createWasiBrowserBinding,
@@ -887,7 +887,8 @@ class Builder {
 
     const name = this.options.jsBinding ?? 'index.js'
 
-    const cjs = createCjsBinding(
+    const createBinding = this.options.esm ? createEsmBinding : createCjsBinding
+    const binding = createBinding(
       this.config.binaryName,
       this.config.packageName,
       idents,
@@ -897,7 +898,7 @@ class Builder {
       const dest = join(this.outputDir, name)
       debug('Writing js binding to:')
       debug('  %i', dest)
-      await writeFileAsync(dest, cjs, 'utf-8')
+      await writeFileAsync(dest, binding, 'utf-8')
       return {
         kind: 'js',
         path: dest,
