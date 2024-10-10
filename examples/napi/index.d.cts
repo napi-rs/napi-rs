@@ -107,6 +107,11 @@ export declare class ClassWithFactory {
   setName(name: string): this
 }
 
+export declare class ClassWithLifetime {
+  constructor()
+  getName(): string
+}
+
 export declare class Context {
   maybeNeed?: boolean
   buffer: Uint8Array
@@ -194,7 +199,7 @@ export declare class NinjaTurtle {
   static newRaph(): NinjaTurtle
   getMaskColor(): string
   getName(): string
-  returnThis(this: this): this
+  returnThis(): this
 }
 
 export declare class NotUseNullableClass {

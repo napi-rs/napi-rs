@@ -1547,12 +1547,12 @@ pub(crate) unsafe extern "C" fn trampoline<
 #[cfg(feature = "napi5")]
 pub(crate) unsafe extern "C" fn trampoline_setter<
   V: FromNapiValue,
-  F: Fn(Env, crate::bindgen_runtime::Object, V) -> Result<()>,
+  F: Fn(Env, crate::bindgen_runtime::This, V) -> Result<()>,
 >(
   raw_env: sys::napi_env,
   cb_info: sys::napi_callback_info,
 ) -> sys::napi_value {
-  use crate::bindgen_runtime::Object;
+  use crate::bindgen_runtime::This;
 
   let (raw_args, raw_this, closure_data_ptr) = {
     let mut argc = 1;
@@ -1589,7 +1589,7 @@ pub(crate) unsafe extern "C" fn trampoline_setter<
     .and_then(|value| {
       closure(
         env,
-        unsafe { Object::from_raw_unchecked(raw_env, raw_this) },
+        unsafe { This::from_raw_unchecked(raw_env, raw_this) },
         value,
       )
     })
@@ -1634,7 +1634,7 @@ pub(crate) unsafe extern "C" fn trampoline_getter<
   let closure: &F = Box::leak(unsafe { Box::from_raw(closure_data_ptr.cast()) });
   let env = Env::from_raw(raw_env);
   closure(env, unsafe {
-    crate::bindgen_runtime::Object::from_raw_unchecked(raw_env, raw_this)
+    crate::bindgen_runtime::This::from_raw_unchecked(raw_env, raw_this)
   })
   .and_then(|ret: R| unsafe { <R as ToNapiValue>::to_napi_value(env.0, ret) })
   .unwrap_or_else(|e| {

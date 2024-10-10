@@ -11,6 +11,7 @@ use std::sync::Mutex;
 
 #[cfg(all(feature = "napi4", not(feature = "noop"), not(target_family = "wasm")))]
 use crate::bindgen_prelude::{CUSTOM_GC_TSFN, CUSTOM_GC_TSFN_DESTROYED, THREADS_CAN_ACCESS_ENV};
+use crate::NapiRaw;
 use crate::{bindgen_prelude::*, check_status, env::EMPTY_VEC, sys, Result, ValueType};
 
 #[cfg(all(debug_assertions, not(windows)))]
@@ -19,11 +20,15 @@ thread_local! {
 }
 
 /// Zero copy buffer slice shared between Rust and Node.js.
+///
 /// It can only be used in non-async context and the lifetime is bound to the fn closure.
+///
 /// If you want to use Node.js Buffer in async context or want to extend the lifetime, use `Buffer` instead.
 pub struct BufferSlice<'scope> {
   pub(crate) inner: &'scope mut [u8],
   pub(crate) raw_value: sys::napi_value,
+  #[allow(dead_code)]
+  pub(crate) env: sys::napi_env,
 }
 
 impl<'scope> BufferSlice<'scope> {
@@ -73,6 +78,7 @@ impl<'scope> BufferSlice<'scope> {
     Ok(Self {
       inner: unsafe { slice::from_raw_parts_mut(buf.cast(), len) },
       raw_value: buf,
+      env: env.0,
     })
   }
 
@@ -140,6 +146,7 @@ impl<'scope> BufferSlice<'scope> {
     Ok(Self {
       inner: unsafe { slice::from_raw_parts_mut(buf.cast(), len) },
       raw_value: buf,
+      env: env.0,
     })
   }
 
@@ -159,6 +166,7 @@ impl<'scope> BufferSlice<'scope> {
     Ok(Self {
       inner: unsafe { slice::from_raw_parts_mut(result_ptr.cast(), len) },
       raw_value: buf,
+      env: env.0,
     })
   }
 
@@ -167,6 +175,12 @@ impl<'scope> BufferSlice<'scope> {
   /// This will perform a `napi_create_reference` internally.
   pub fn into_buffer(self, env: &Env) -> Result<Buffer> {
     unsafe { Buffer::from_napi_value(env.0, self.raw_value) }
+  }
+}
+
+impl<'scope> NapiRaw for BufferSlice<'scope> {
+  unsafe fn raw(&self) -> napi_sys::napi_value {
+    self.raw_value
   }
 }
 
@@ -192,11 +206,12 @@ impl<'scope> FromNapiValue for BufferSlice<'scope> {
         unsafe { slice::from_raw_parts_mut(buf.cast(), len) }
       },
       raw_value: napi_val,
+      env,
     })
   }
 }
 
-impl ToNapiValue for BufferSlice<'_> {
+impl ToNapiValue for &BufferSlice<'_> {
   #[allow(unused_variables)]
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     Ok(val.raw_value)

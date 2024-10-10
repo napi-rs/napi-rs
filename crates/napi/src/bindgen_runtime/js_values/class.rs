@@ -1,5 +1,7 @@
 use std::any::type_name;
-use std::ops::Deref;
+use std::ffi::CString;
+use std::marker::PhantomData;
+use std::ops::{Deref, DerefMut};
 use std::ptr;
 
 use super::Object;
@@ -10,26 +12,150 @@ use crate::{
   },
   check_status, sys, Env, NapiRaw, NapiValue, ValueType,
 };
+use crate::{Property, PropertyAttributes};
 
-pub type This<T = Object> = T;
+pub struct This<'scope, T: FromNapiValue = Object> {
+  pub object: T,
+  _phantom: &'scope PhantomData<()>,
+}
 
-pub struct ClassInstance<'env, T> {
+impl<T: FromNapiValue> From<T> for This<'_, T> {
+  fn from(value: T) -> Self {
+    Self {
+      object: value,
+      _phantom: &PhantomData,
+    }
+  }
+}
+
+impl<T: NapiValue> Deref for This<'_, T> {
+  type Target = T;
+
+  fn deref(&self) -> &Self::Target {
+    &self.object
+  }
+}
+
+impl<T: NapiValue> DerefMut for This<'_, T> {
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    &mut self.object
+  }
+}
+
+impl<T: NapiValue> NapiRaw for This<'_, T> {
+  unsafe fn raw(&self) -> napi_sys::napi_value {
+    self.object.raw()
+  }
+}
+
+impl<T: NapiValue> NapiValue for This<'_, T> {
+  unsafe fn from_raw(env: napi_sys::napi_env, value: napi_sys::napi_value) -> Result<Self> {
+    Ok(Self {
+      object: T::from_raw(env, value)?,
+      _phantom: &PhantomData,
+    })
+  }
+
+  unsafe fn from_raw_unchecked(env: napi_sys::napi_env, value: napi_sys::napi_value) -> Self {
+    Self {
+      object: T::from_raw_unchecked(env, value),
+      _phantom: &PhantomData,
+    }
+  }
+}
+
+pub struct ClassInstance<'env, T: 'env> {
   pub value: sys::napi_value,
-  inner: &'env mut T,
+  env: sys::napi_env,
+  inner: *mut T,
+  _phantom: &'env PhantomData<()>,
 }
 
 impl<'env, T: 'env> ClassInstance<'env, T> {
   #[doc(hidden)]
-  pub fn new(value: sys::napi_value, inner: &'static mut T) -> Self {
-    Self { value, inner }
+  pub unsafe fn new(value: sys::napi_value, env: sys::napi_env, inner: *mut T) -> Self {
+    Self {
+      value,
+      env,
+      inner: unsafe { &mut *inner },
+      _phantom: &PhantomData,
+    }
   }
 
   pub fn as_object(&self, env: &Env) -> Object {
     unsafe { Object::from_raw_unchecked(env.raw(), self.value) }
   }
+
+  /// Assign this `ClassInstance` to another `This` object
+  ///
+  /// Extends the lifetime of `ClassInsatnce` to `This`.
+  pub fn assign_to_this<'a, 'this, U>(
+    &'a self,
+    name: &'a str,
+    this: &'a mut This<U>,
+  ) -> Result<ClassInstance<'this, T>>
+  where
+    'this: 'env,
+    U: FromNapiValue + NapiRaw,
+  {
+    let name = CString::new(name)?;
+    check_status!(
+      unsafe {
+        sys::napi_set_named_property(self.env, this.object.raw(), name.as_ptr(), self.value)
+      },
+      "Failed to assign ClassInstance<{}> to this",
+      std::any::type_name::<T>()
+    )?;
+    let val: ClassInstance<'this, T> = ClassInstance {
+      value: self.value,
+      env: self.env,
+      inner: self.inner,
+      _phantom: &PhantomData,
+    };
+    Ok(val)
+  }
+
+  /// Assign this `ClassInstance` to another `This` object with `PropertyAttributes`.
+  ///
+  /// Extends the lifetime of `ClassInsatnce` to `This`.
+  pub fn assign_to_this_with_attributes<'a, 'this, U>(
+    &'a self,
+    name: &'a str,
+    attributes: PropertyAttributes,
+    this: &'a mut This<U>,
+  ) -> Result<ClassInstance<'this, T>>
+  where
+    'this: 'env,
+    U: FromNapiValue + NapiRaw,
+  {
+    let property = Property::new(name)?
+      .with_value(&self)
+      .with_property_attributes(attributes);
+
+    check_status!(
+      unsafe {
+        sys::napi_define_properties(self.env, this.object.raw(), 1, [property.raw()].as_ptr())
+      },
+      "Failed to define properties on This in `assign_to_this_with_attributes`"
+    )?;
+
+    let val: ClassInstance<'this, T> = ClassInstance {
+      value: self.value,
+      env: self.env,
+      inner: self.inner,
+      _phantom: &PhantomData,
+    };
+    Ok(val)
+  }
 }
 
 impl<'env, T: 'env> NapiRaw for ClassInstance<'env, T> {
+  unsafe fn raw(&self) -> sys::napi_value {
+    self.value
+  }
+}
+
+impl<'env, T: 'env> NapiRaw for &ClassInstance<'env, T> {
   unsafe fn raw(&self) -> sys::napi_value {
     self.value
   }
@@ -72,6 +198,8 @@ impl<'env, T: 'env> FromNapiValue for ClassInstance<'env, T> {
     Ok(Self {
       value: napi_val,
       inner: Box::leak(value),
+      env,
+      _phantom: &PhantomData,
     })
   }
 }
@@ -80,13 +208,19 @@ impl<'env, T: 'env> Deref for ClassInstance<'env, T> {
   type Target = T;
 
   fn deref(&self) -> &Self::Target {
-    self.inner
+    unsafe { &*self.inner }
+  }
+}
+
+impl<'env, T: 'env> DerefMut for ClassInstance<'env, T> {
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    unsafe { &mut *self.inner }
   }
 }
 
 impl<'env, T: 'env> AsRef<T> for ClassInstance<'env, T> {
   fn as_ref(&self) -> &T {
-    self.inner
+    unsafe { &*self.inner }
   }
 }
 

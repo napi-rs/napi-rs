@@ -4,7 +4,7 @@ use napi::{
 };
 
 #[contextless_function]
-fn add_cleanup_hook(mut env: Env) -> ContextlessResult<External<CleanupEnvHook<()>>> {
+fn add_cleanup_hook(env: Env) -> ContextlessResult<External<CleanupEnvHook<()>>> {
   let hook = env.add_env_cleanup_hook((), |_| {
     println!("cleanup hook executed");
   })?;

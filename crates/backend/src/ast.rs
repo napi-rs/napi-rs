@@ -145,6 +145,7 @@ pub struct NapiStructField {
 pub struct NapiImpl {
   pub name: Ident,
   pub js_name: String,
+  pub has_lifetime: bool,
   pub items: Vec<NapiFn>,
   pub task_output_type: Option<Type>,
   pub iterator_yield_type: Option<Type>,
