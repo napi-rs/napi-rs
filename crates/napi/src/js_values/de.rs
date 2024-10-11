@@ -55,7 +55,7 @@ impl<'x, 'de, 'env> serde::de::Deserializer<'x> for &'de mut De<'env> {
         } else if js_object.is_typedarray()? {
           visitor.visit_bytes(unsafe { FromNapiValue::from_napi_value(self.0.env, self.0.value)? })
         } else if js_object.is_buffer()? {
-          visitor.visit_bytes(&*unsafe { BufferSlice::from_napi_value(self.0.env, self.0.value)? })
+          visitor.visit_bytes(&unsafe { BufferSlice::from_napi_value(self.0.env, self.0.value)? })
         } else if js_object.is_arraybuffer()? {
           visitor.visit_bytes(unsafe {
             let array_buf =
@@ -98,7 +98,7 @@ impl<'x, 'de, 'env> serde::de::Deserializer<'x> for &'de mut De<'env> {
         let js_object = unsafe { JsObject::from_raw_unchecked(self.0.env, self.0.value) };
         if js_object.is_buffer()? {
           return visitor
-            .visit_bytes(&*unsafe { BufferSlice::from_napi_value(self.0.env, self.0.value)? });
+            .visit_bytes(&unsafe { BufferSlice::from_napi_value(self.0.env, self.0.value)? });
         } else if js_object.is_arraybuffer()? {
           return visitor.visit_bytes(unsafe {
             let array_buf =
