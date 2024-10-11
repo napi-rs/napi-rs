@@ -3,7 +3,7 @@ use std::convert::TryInto;
 use serde::de::Visitor;
 use serde::de::{DeserializeSeed, EnumAccess, MapAccess, SeqAccess, Unexpected, VariantAccess};
 
-use crate::bindgen_runtime::{Buffer, FromNapiValue};
+use crate::bindgen_runtime::{BufferSlice, FromNapiValue};
 #[cfg(feature = "napi6")]
 use crate::JsBigInt;
 use crate::{type_of, NapiValue, Value, ValueType};
@@ -55,10 +55,7 @@ impl<'x, 'de, 'env> serde::de::Deserializer<'x> for &'de mut De<'env> {
         } else if js_object.is_typedarray()? {
           visitor.visit_bytes(unsafe { FromNapiValue::from_napi_value(self.0.env, self.0.value)? })
         } else if js_object.is_buffer()? {
-          visitor.visit_bytes(unsafe {
-            let buf = Buffer::from_napi_value(self.0.env, self.0.value)?;
-            core::slice::from_raw_parts(buf.inner.as_ptr(), buf.len)
-          })
+          visitor.visit_bytes(&*unsafe { BufferSlice::from_napi_value(self.0.env, self.0.value)? })
         } else if js_object.is_arraybuffer()? {
           visitor.visit_bytes(unsafe {
             let array_buf =
@@ -100,10 +97,8 @@ impl<'x, 'de, 'env> serde::de::Deserializer<'x> for &'de mut De<'env> {
       ValueType::Object => {
         let js_object = unsafe { JsObject::from_raw_unchecked(self.0.env, self.0.value) };
         if js_object.is_buffer()? {
-          return visitor.visit_bytes(unsafe {
-            let buf = Buffer::from_napi_value(self.0.env, self.0.value)?;
-            core::slice::from_raw_parts(buf.inner.as_ptr(), buf.len)
-          });
+          return visitor
+            .visit_bytes(&*unsafe { BufferSlice::from_napi_value(self.0.env, self.0.value)? });
         } else if js_object.is_arraybuffer()? {
           return visitor.visit_bytes(unsafe {
             let array_buf =
@@ -125,10 +120,9 @@ impl<'x, 'de, 'env> serde::de::Deserializer<'x> for &'de mut De<'env> {
       ValueType::Object => {
         let js_object = unsafe { JsObject::from_raw_unchecked(self.0.env, self.0.value) };
         if js_object.is_buffer()? {
-          return visitor.visit_byte_buf(unsafe {
-            let buf = Buffer::from_napi_value(self.0.env, self.0.value)?;
-            core::slice::from_raw_parts(buf.inner.as_ptr(), buf.len).to_vec()
-          });
+          return visitor.visit_byte_buf(
+            unsafe { BufferSlice::from_napi_value(self.0.env, self.0.value)? }.to_vec(),
+          );
         } else if js_object.is_arraybuffer()? {
           return visitor.visit_byte_buf(unsafe {
             let array_buf =
