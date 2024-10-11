@@ -218,20 +218,20 @@ fn find_enum_value_and_remove_attribute(v: &mut syn::Variant) -> BindgenResult<O
   }
 }
 
-fn get_ty(mut ty: &syn::Type) -> &syn::Type {
+fn get_ty(mut ty: &mut syn::Type) -> &mut syn::Type {
   while let syn::Type::Group(g) = ty {
-    ty = &g.elem;
+    ty = &mut g.elem;
   }
 
   ty
 }
 
-fn replace_self(ty: syn::Type, self_ty: Option<&Ident>) -> syn::Type {
+fn replace_self(mut ty: syn::Type, self_ty: Option<&Ident>) -> syn::Type {
   let self_ty = match self_ty {
     Some(i) => i,
     None => return ty,
   };
-  let path = match get_ty(&ty) {
+  let path = match get_ty(&mut ty) {
     syn::Type::Path(syn::TypePath { qself: None, path }) => path.clone(),
     other => return other.clone(),
   };
@@ -247,16 +247,24 @@ fn replace_self(ty: syn::Type, self_ty: Option<&Ident>) -> syn::Type {
 }
 
 /// Extracts the last ident from the path
-fn extract_path_ident(path: &syn::Path) -> BindgenResult<Ident> {
-  for segment in path.segments.iter() {
-    match segment.arguments {
+fn extract_path_ident(path: &mut syn::Path) -> BindgenResult<(Ident, bool)> {
+  let mut has_lifetime = false;
+  for segment in path.segments.iter_mut() {
+    match &segment.arguments {
       syn::PathArguments::None => {}
+      syn::PathArguments::AngleBracketed(generic) => {
+        if let Some(GenericArgument::Lifetime(_)) = generic.args.first() {
+          has_lifetime = true;
+        } else {
+          bail_span!(path, "Only 1 lifetime is supported for now");
+        }
+      }
       _ => bail_span!(path, "paths with type parameters are not supported yet"),
     }
   }
 
   match path.segments.last() {
-    Some(value) => Ok(value.ident.clone()),
+    Some(value) => Ok((value.ident.clone(), has_lifetime)),
     None => {
       bail_span!(path, "empty idents are not supported");
     }
@@ -1101,9 +1109,9 @@ impl ConvertToAST for syn::ItemStruct {
 
 impl ConvertToAST for syn::ItemImpl {
   fn convert_to_ast(&mut self, impl_opts: &BindgenAttrs) -> BindgenResult<Napi> {
-    let struct_name = match get_ty(&self.self_ty) {
+    let struct_name = match get_ty(&mut self.self_ty) {
       syn::Type::Path(syn::TypePath {
-        ref path,
+        ref mut path,
         qself: None,
       }) => path,
       _ => {
@@ -1111,7 +1119,7 @@ impl ConvertToAST for syn::ItemImpl {
       }
     };
 
-    let struct_name = extract_path_ident(struct_name)?;
+    let (struct_name, has_lifetime) = extract_path_ident(struct_name)?;
 
     let mut struct_js_name = struct_name.to_string().to_case(Case::UpperCamel);
     let mut items = vec![];
@@ -1189,6 +1197,7 @@ impl ConvertToAST for syn::ItemImpl {
         iterator_yield_type,
         iterator_next_type,
         iterator_return_type,
+        has_lifetime,
         js_mod: namespace,
         comments: extract_doc_comments(&self.attrs),
         register_name: get_register_ident(format!("{struct_name}_impl").as_str()),
