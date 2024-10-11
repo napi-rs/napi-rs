@@ -741,6 +741,8 @@ export declare function threadsafeFunctionFatalModeError(cb: ((arg: boolean) => 
 
 export declare function threadsafeFunctionThrowError(cb: ((err: Error | null, arg: boolean) => unknown)): void
 
+export declare function throwAsyncCustomStatusError(): Promise<void>
+
 export declare function throwAsyncError(): Promise<void>
 
 export declare function throwError(): void

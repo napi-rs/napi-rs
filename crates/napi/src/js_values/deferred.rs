@@ -75,7 +75,7 @@ impl DeferredTrace {
       obj.set_named_property("message", &err.reason)?;
       obj.set_named_property(
         "code",
-        env.create_string_from_std(format!("{}", err.status))?,
+        env.create_string_from_std(format!("{}", err.status.as_ref()))?,
       )?;
       Ok(raw)
     };
