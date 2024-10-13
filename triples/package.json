@@ -48,9 +48,9 @@
   },
   "devDependencies": {
     "@napi-rs/cli": "workspace:*",
-    "@types/node": "^20.11.13",
+    "@types/node": "^22.7.5",
     "lodash-es": "^4.17.21",
     "ts-node": "^10.9.2",
-    "typescript": "^5.3.3"
+    "typescript": "^5.6.3"
   }
 }

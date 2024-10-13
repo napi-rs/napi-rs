@@ -95,21 +95,21 @@ test('should validate boolean value', (t) => {
 })
 
 test('should validate date', (t) => {
-  if (Number(process.versions.napi) >= 5) {
+  if (Number(process.versions.napi) < 5) {
     return t.pass()
   }
   const fx = new Date('2016-12-24')
-  t.is(validateDate(new Date()), fx.valueOf())
+  t.is(validateDate(fx), fx.valueOf())
   t.is(validateDateTime(fx), 1)
   // @ts-expect-error
   t.throws(() => validateDate(1), {
     code: 'InvalidArg',
-    message: 'Expected a Date value',
+    message: 'Expected a Date object',
   })
   // @ts-expect-error
   t.throws(() => validateDateTime(2), {
     code: 'InvalidArg',
-    message: 'Expected a Date value',
+    message: 'Expected a Date object',
   })
 })
 
