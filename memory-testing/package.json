@@ -9,10 +9,10 @@
     "colorette": "^2.0.20",
     "dockerode": "^4.0.2",
     "pretty-bytes": "^6.1.1",
-    "table": "^6.8.1"
+    "table": "^6.8.2"
   },
   "devDependencies": {
     "@napi-rs/cli": "workspace:*",
-    "@types/dockerode": "^3.3.23"
+    "@types/dockerode": "^3.3.31"
   }
 }
