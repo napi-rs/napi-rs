@@ -484,7 +484,7 @@ jobs:
         run: |
           node -e "console.info('docker-image=${{ matrix.settings.image }}'.replace('{:version}', ${{ matrix.node }}))" >> "$GITHUB_OUTPUT"
       - name: Run test
-        run: docker run --rm ${{ matrix.settings.args }} -v ${{ github.workspace }}:/build -w /build ${{ steps.image-name.outputs.docker-image }} sh -c "yarn workspace @examples/napi test -s"
+        run: docker run --rm ${{ matrix.settings.args }} -v ${{ github.workspace }}:/build -w /build ${{ steps.image-name.outputs.docker-image }} sh -c "DISABLE_V8_COMPILE_CACHE=1 yarn workspace @examples/napi test -s"
 
   build-and-test-linux-armv7:
     name: stable - armv7-unknown-linux-gnueabihf - node@20
