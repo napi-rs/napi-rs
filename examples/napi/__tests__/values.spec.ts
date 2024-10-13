@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 import { exec } from 'node:child_process'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
