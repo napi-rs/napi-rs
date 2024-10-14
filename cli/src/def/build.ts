@@ -67,7 +67,7 @@ export abstract class BaseBuildCommand extends Command {
 
   esm?: boolean = Option.Boolean('--esm', {
     description:
-      'Whether to emit an ESM JS binding file. Only works with `--platform` flag.',
+      'Whether to emit an ESM JS binding file instead of CJS format. Only works with `--platform` flag.',
   })
 
   dts?: string = Option.String('--dts', {
