@@ -90,11 +90,11 @@ pub fn test_tsfn_with_ref(ctx: CallContext) -> Result<JsUndefined> {
   let tsfn = callback
     .build_threadsafe_function::<Ref<JsObject>>()
     .callee_handled::<true>()
-    .build_callback(move |ctx| {
+    .build_callback(move |mut ctx| {
       ctx
         .env
         .get_reference_value_unchecked::<JsObject>(&ctx.value)
-        .and_then(|obj| ctx.value.unref(ctx.env).map(|_| obj))
+        .and_then(|obj| ctx.value.unref(&ctx.env).map(|_| obj))
     })?;
 
   thread::spawn(move || {
