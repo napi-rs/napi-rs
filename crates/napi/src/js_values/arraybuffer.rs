@@ -303,6 +303,9 @@ macro_rules! impl_as_ref {
     impl AsRef<[$ref_type]> for JsTypedArrayValue {
       fn as_ref(&self) -> &[$ref_type] {
         self.is_valid_as_ref($expect_type);
+        if self.data.is_null() {
+          return &[];
+        }
         unsafe { slice::from_raw_parts(self.data as *const $ref_type, self.length) }
       }
     }
@@ -310,6 +313,9 @@ macro_rules! impl_as_ref {
     impl AsMut<[$ref_type]> for JsTypedArrayValue {
       fn as_mut(&mut self) -> &mut [$ref_type] {
         self.is_valid_as_ref($expect_type);
+        if self.data.is_null() {
+          return &mut [];
+        }
         unsafe { slice::from_raw_parts_mut(self.data as *mut $ref_type, self.length) }
       }
     }
