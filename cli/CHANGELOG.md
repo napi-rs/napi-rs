@@ -3,6 +3,18 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.63](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.62...@napi-rs/cli@3.0.0-alpha.63) (2024-10-02)
+
+### Bug Fixes
+
+- **ci:** bump FreeBSD version to 13.3 ([#2220](https://github.com/napi-rs/napi-rs/issues/2220)) ([b5a5b03](https://github.com/napi-rs/napi-rs/commit/b5a5b032f69c77d85eb52312b9439bff9a8b41d8))
+- **cli:** extra line break in the tail of dts file ([#2255](https://github.com/napi-rs/napi-rs/issues/2255)) ([20b9de3](https://github.com/napi-rs/napi-rs/commit/20b9de3ec7a6aaa1f807f9831247ee8b573c0e4e))
+- **deps:** update dependency @inquirer/prompts to v6 ([#2257](https://github.com/napi-rs/napi-rs/issues/2257)) ([e11ceac](https://github.com/napi-rs/napi-rs/commit/e11ceacd5984ac1150132613edbfef506557e88c))
+
+### Features
+
+- support structured enum with discriminated unions ([#2222](https://github.com/napi-rs/napi-rs/issues/2222)) ([c459f0a](https://github.com/napi-rs/napi-rs/commit/c459f0acf6e18ddd9edfe3bf2771ab76bff0c25f))
+
 # [3.0.0-alpha.62](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.61...@napi-rs/cli@3.0.0-alpha.62) (2024-07-21)
 
 ### Bug Fixes

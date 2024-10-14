@@ -95,7 +95,7 @@ pub struct MemoryHolder(Vec<u8>);
 #[napi]
 impl MemoryHolder {
   #[napi(constructor)]
-  pub fn new(mut env: Env, len: u32) -> Result<Self> {
+  pub fn new(env: Env, len: u32) -> Result<Self> {
     env.adjust_external_memory(len as i64)?;
     Ok(Self(vec![42; len as usize]))
   }
@@ -128,7 +128,7 @@ pub fn leaking_func(func: Function<String, String>) -> napi::Result<()> {
   let tsfn = func
     .build_threadsafe_function()
     .weak::<true>()
-    .build_callback(|mut ctx: ThreadsafeCallContext<String>| {
+    .build_callback(|ctx: ThreadsafeCallContext<String>| {
       ctx.env.adjust_external_memory(ctx.value.len() as i64)?;
       Ok(ctx.value)
     })?;

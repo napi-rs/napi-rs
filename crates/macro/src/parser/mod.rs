@@ -1,10 +1,9 @@
 #[macro_use]
 pub mod attrs;
 
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::str::Chars;
-use std::sync::atomic::AtomicUsize;
+use std::sync::{atomic::AtomicUsize, Mutex, OnceLock};
 
 use attrs::BindgenAttrs;
 
@@ -20,13 +19,14 @@ use quote::ToTokens;
 use syn::ext::IdentExt;
 use syn::parse::{Parse, ParseStream, Result as SynResult};
 use syn::spanned::Spanned;
-use syn::{Attribute, ExprLit, Meta, PatType, PathSegment, Signature, Type, Visibility};
+use syn::{
+  AngleBracketedGenericArguments, Attribute, ExprLit, GenericArgument, Meta, PatType, Path,
+  PathArguments, PathSegment, Signature, Type, Visibility,
+};
 
 use crate::parser::attrs::{check_recorded_struct_for_impl, record_struct};
 
-thread_local! {
-  static GENERATOR_STRUCT: RefCell<HashMap<String, bool>> = Default::default();
-}
+static GENERATOR_STRUCT: OnceLock<Mutex<HashMap<String, bool>>> = OnceLock::new();
 
 static REGISTER_INDEX: AtomicUsize = AtomicUsize::new(0);
 
@@ -218,20 +218,20 @@ fn find_enum_value_and_remove_attribute(v: &mut syn::Variant) -> BindgenResult<O
   }
 }
 
-fn get_ty(mut ty: &syn::Type) -> &syn::Type {
+fn get_ty(mut ty: &mut syn::Type) -> &mut syn::Type {
   while let syn::Type::Group(g) = ty {
-    ty = &g.elem;
+    ty = &mut g.elem;
   }
 
   ty
 }
 
-fn replace_self(ty: syn::Type, self_ty: Option<&Ident>) -> syn::Type {
+fn replace_self(mut ty: syn::Type, self_ty: Option<&Ident>) -> syn::Type {
   let self_ty = match self_ty {
     Some(i) => i,
     None => return ty,
   };
-  let path = match get_ty(&ty) {
+  let path = match get_ty(&mut ty) {
     syn::Type::Path(syn::TypePath { qself: None, path }) => path.clone(),
     other => return other.clone(),
   };
@@ -247,16 +247,24 @@ fn replace_self(ty: syn::Type, self_ty: Option<&Ident>) -> syn::Type {
 }
 
 /// Extracts the last ident from the path
-fn extract_path_ident(path: &syn::Path) -> BindgenResult<Ident> {
-  for segment in path.segments.iter() {
-    match segment.arguments {
+fn extract_path_ident(path: &mut syn::Path) -> BindgenResult<(Ident, bool)> {
+  let mut has_lifetime = false;
+  for segment in path.segments.iter_mut() {
+    match &segment.arguments {
       syn::PathArguments::None => {}
+      syn::PathArguments::AngleBracketed(generic) => {
+        if let Some(GenericArgument::Lifetime(_)) = generic.args.first() {
+          has_lifetime = true;
+        } else {
+          bail_span!(path, "Only 1 lifetime is supported for now");
+        }
+      }
       _ => bail_span!(path, "paths with type parameters are not supported yet"),
     }
   }
 
   match path.segments.last() {
-    Some(value) => Ok(value.ident.clone()),
+    Some(value) => Ok((value.ident.clone(), has_lifetime)),
     None => {
       bail_span!(path, "empty idents are not supported");
     }
@@ -670,14 +678,16 @@ fn napi_fn_from_decl(
 
     let namespace = opts.namespace().map(|(m, _)| m.to_owned());
     let parent_is_generator = if let Some(p) = parent {
-      GENERATOR_STRUCT.with(|inner| {
-        let inner = inner.borrow();
-        let key = namespace
-          .as_ref()
-          .map(|n| format!("{}::{}", n, p))
-          .unwrap_or_else(|| p.to_string());
-        *inner.get(&key).unwrap_or(&false)
-      })
+      let generator_struct = GENERATOR_STRUCT.get_or_init(|| Mutex::new(HashMap::new()));
+      let generator_struct = generator_struct
+        .lock()
+        .expect("Lock generator struct failed");
+
+      let key = namespace
+        .as_ref()
+        .map(|n| format!("{}::{}", n, p))
+        .unwrap_or_else(|| p.to_string());
+      *generator_struct.get(&key).unwrap_or(&false)
     } else {
       false
     };
@@ -963,10 +973,37 @@ fn convert_fields(
     let skip_typescript = field_opts.skip_typescript().is_some();
     let ts_type = field_opts.ts_type().map(|e| e.0.to_string());
 
+    let mut ty = field.ty.clone();
+
+    let has_lifetime = if let Type::Path(syn::TypePath {
+      path: Path { segments, .. },
+      ..
+    }) = &mut ty
+    {
+      if let Some(PathSegment {
+        arguments: PathArguments::AngleBracketed(AngleBracketedGenericArguments { args, .. }),
+        ..
+      }) = segments.last_mut()
+      {
+        args.iter_mut().any(|arg| {
+          if let GenericArgument::Lifetime(lifetime) = arg {
+            *lifetime = syn::Lifetime::new("'static", Span::call_site());
+            true
+          } else {
+            false
+          }
+        })
+      } else {
+        false
+      }
+    } else {
+      false
+    };
+
     napi_fields.push(NapiStructField {
       name,
       js_name,
-      ty: field.ty.clone(),
+      ty,
       getter: !ignored,
       setter: !(ignored || readonly),
       writable,
@@ -975,6 +1012,7 @@ fn convert_fields(
       comments: extract_doc_comments(&field.attrs),
       skip_typescript,
       ts_type,
+      has_lifetime,
     })
   }
   Ok((napi_fields, is_tuple))
@@ -996,14 +1034,16 @@ impl ConvertToAST for syn::ItemStruct {
     record_struct(&struct_name, js_name.clone(), opts);
     let namespace = opts.namespace().map(|(m, _)| m.to_owned());
     let implement_iterator = opts.iterator().is_some();
-    GENERATOR_STRUCT.with(|inner| {
-      let mut inner = inner.borrow_mut();
-      let key = namespace
-        .as_ref()
-        .map(|n| format!("{}::{}", n, struct_name))
-        .unwrap_or_else(|| struct_name.to_string());
-      inner.insert(key, implement_iterator);
-    });
+    let generator_struct = GENERATOR_STRUCT.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut generator_struct = generator_struct
+      .lock()
+      .expect("Lock generator struct failed");
+    let key = namespace
+      .as_ref()
+      .map(|n| format!("{}::{}", n, struct_name))
+      .unwrap_or_else(|| struct_name.to_string());
+    generator_struct.insert(key, implement_iterator);
+    drop(generator_struct);
 
     let struct_kind = if opts.object().is_some() {
       NapiStructKind::Object(NapiObject {
@@ -1036,6 +1076,22 @@ impl ConvertToAST for syn::ItemStruct {
       }
     };
 
+    if self.generics.lifetimes().size_hint().0 > 1 {
+      errors.push(err_span!(
+        self,
+        "struct with multiple generic parameters is not supported"
+      ));
+    }
+
+    let lifetime = if let Some(lifetime) = self.generics.lifetimes().next() {
+      if !lifetime.bounds.is_empty() {
+        bail_span!(lifetime.bounds, "unsupported self type in #[napi] impl")
+      }
+      Some(lifetime.lifetime.to_string())
+    } else {
+      None
+    };
+
     Diagnostic::from_vec(errors).map(|()| Napi {
       item: NapiItem::Struct(NapiStruct {
         js_name,
@@ -1045,6 +1101,7 @@ impl ConvertToAST for syn::ItemStruct {
         use_nullable,
         register_name: get_register_ident(format!("{struct_name}_struct").as_str()),
         comments: extract_doc_comments(&self.attrs),
+        has_lifetime: lifetime.is_some(),
       }),
     })
   }
@@ -1052,9 +1109,9 @@ impl ConvertToAST for syn::ItemStruct {
 
 impl ConvertToAST for syn::ItemImpl {
   fn convert_to_ast(&mut self, impl_opts: &BindgenAttrs) -> BindgenResult<Napi> {
-    let struct_name = match get_ty(&self.self_ty) {
+    let struct_name = match get_ty(&mut self.self_ty) {
       syn::Type::Path(syn::TypePath {
-        ref path,
+        ref mut path,
         qself: None,
       }) => path,
       _ => {
@@ -1062,7 +1119,7 @@ impl ConvertToAST for syn::ItemImpl {
       }
     };
 
-    let struct_name = extract_path_ident(struct_name)?;
+    let (struct_name, has_lifetime) = extract_path_ident(struct_name)?;
 
     let mut struct_js_name = struct_name.to_string().to_case(Case::UpperCamel);
     let mut items = vec![];
@@ -1140,6 +1197,7 @@ impl ConvertToAST for syn::ItemImpl {
         iterator_yield_type,
         iterator_next_type,
         iterator_return_type,
+        has_lifetime,
         js_mod: namespace,
         comments: extract_doc_comments(&self.attrs),
         register_name: get_register_ident(format!("{struct_name}_impl").as_str()),
@@ -1201,6 +1259,7 @@ impl ConvertToAST for syn::ItemEnum {
             object_from_js: opts.object_from_js(),
             object_to_js: opts.object_to_js(),
           }),
+          has_lifetime: false,
         }),
       });
     }

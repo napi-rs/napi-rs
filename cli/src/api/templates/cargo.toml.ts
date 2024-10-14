@@ -32,4 +32,5 @@ napi-build = "2"
 
 [profile.release]
 lto = true
+strip = "symbols"
 `

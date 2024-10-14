@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 import { exec } from 'node:child_process'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -183,6 +184,7 @@ import {
   mutateOptionalExternal,
   panicInAsync,
   CustomStruct,
+  ClassWithLifetime,
   uInit8ArrayFromString,
   callThenOnPromise,
   callCatchOnPromise,
@@ -380,6 +382,10 @@ test('class', (t) => {
   t.notThrows(() => {
     new CatchOnConstructor()
   })
+
+  const classWithLifetime = new ClassWithLifetime()
+  t.deepEqual(classWithLifetime.getName(), 'alie')
+  t.deepEqual(Object.keys(classWithLifetime), ['inner'])
 
   if (!process.env.TEST_ZIG_CROSS) {
     t.throws(
@@ -780,6 +786,7 @@ test('serde-buffer-bytes', (t) => {
 
   t.is(testSerdeBufferBytes({ code: Buffer.from([1, 2, 3]) }), 3n)
   t.is(testSerdeBufferBytes({ code: Buffer.alloc(0) }), 0n)
+  t.is(testSerdeBufferBytes({ code: new ArrayBuffer(10) }), 10n)
 })
 
 test('buffer', (t) => {

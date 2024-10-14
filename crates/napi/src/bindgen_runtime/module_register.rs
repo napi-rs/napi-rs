@@ -557,7 +557,9 @@ extern "C" fn custom_gc(
   data: *mut std::ffi::c_void,
 ) {
   // current thread was destroyed
-  if THREADS_CAN_ACCESS_ENV.borrow_mut(|m| m.get(&std::thread::current().id()) == Some(&false)) {
+  if THREADS_CAN_ACCESS_ENV.borrow_mut(|m| m.get(&std::thread::current().id()) == Some(&false))
+    || data.is_null()
+  {
     return;
   }
   let mut ref_count = 0;

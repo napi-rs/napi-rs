@@ -21,10 +21,10 @@ impl Object {
     }))
   }
 
-  pub fn get<K: AsRef<str>, V: FromNapiValue>(&self, field: K) -> Result<Option<V>> {
+  pub fn get<V: FromNapiValue>(&self, field: &str) -> Result<Option<V>> {
     unsafe {
       self
-        .get_inner(field.as_ref())?
+        .get_inner(field)?
         .map(|v| V::from_napi_value(self.0.env, v))
         .transpose()
     }

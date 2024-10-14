@@ -26,8 +26,17 @@ const TYPED_ARRAY_TYPE: &[&str] = &[
 ];
 
 // Generate trait implementations for given Struct.
-fn gen_napi_value_map_impl(name: &Ident, to_napi_val_impl: TokenStream) -> TokenStream {
+fn gen_napi_value_map_impl(
+  name: &Ident,
+  to_napi_val_impl: TokenStream,
+  has_lifetime: bool,
+) -> TokenStream {
   let name_str = name.to_string();
+  let name = if has_lifetime {
+    quote! { #name<'_> }
+  } else {
+    quote! { #name }
+  };
   let js_name_str = format!("{}\0", name_str);
   let validate = quote! {
     unsafe fn validate(env: napi::sys::napi_env, napi_val: napi::sys::napi_value) -> napi::Result<napi::sys::napi_value> {
@@ -148,7 +157,15 @@ fn gen_napi_value_map_impl(name: &Ident, to_napi_val_impl: TokenStream) -> Token
         env: napi::bindgen_prelude::sys::napi_env,
         napi_val: napi::bindgen_prelude::sys::napi_value
       ) -> napi::bindgen_prelude::Result<Self> {
-        napi::bindgen_prelude::FromNapiMutRef::from_napi_mut_ref(env, napi_val)
+        let mut wrapped_val: *mut std::ffi::c_void = std::ptr::null_mut();
+
+        napi::bindgen_prelude::check_status!(
+        napi::bindgen_prelude::sys::napi_unwrap(env, napi_val, &mut wrapped_val),
+          "Failed to recover `{}` type from napi value",
+          #name_str,
+        )?;
+
+        Ok(&mut *(wrapped_val as *mut #name))
       }
     }
 
@@ -264,10 +281,13 @@ impl NapiStruct {
       NapiStructKind::Class(class) if !class.ctor => gen_napi_value_map_impl(
         &self.name,
         self.gen_to_napi_value_ctor_impl_for_non_default_constructor_struct(class),
+        self.has_lifetime,
       ),
-      NapiStructKind::Class(class) => {
-        gen_napi_value_map_impl(&self.name, self.gen_to_napi_value_ctor_impl(class))
-      }
+      NapiStructKind::Class(class) => gen_napi_value_map_impl(
+        &self.name,
+        self.gen_to_napi_value_ctor_impl(class),
+        self.has_lifetime,
+      ),
       NapiStructKind::Object(obj) => self.gen_to_napi_value_obj_impl(obj),
       NapiStructKind::StructuredEnum(structured_enum) => {
         self.gen_to_napi_value_structured_enum_impl(structured_enum)
@@ -283,17 +303,32 @@ impl NapiStruct {
     let js_name_raw = &self.js_name;
     let js_name_str = format!("{}\0", js_name_raw);
     let iterator_implementation = self.gen_iterator_property(class, name);
+    let (object_finalize_impl, to_napi_value_impl, javascript_class_ext_impl) = if self.has_lifetime
+    {
+      let name = quote! { #name<'_javascript_function_scope> };
+      (
+        quote! { impl <'_javascript_function_scope> napi::bindgen_prelude::ObjectFinalize for #name {} },
+        quote! { impl <'_javascript_function_scope> napi::bindgen_prelude::ToNapiValue for #name },
+        quote! { impl <'_javascript_function_scope> napi::bindgen_prelude::JavaScriptClassExt for #name },
+      )
+    } else {
+      (
+        quote! { impl napi::bindgen_prelude::ObjectFinalize for #name {} },
+        quote! { impl napi::bindgen_prelude::ToNapiValue for #name },
+        quote! { impl napi::bindgen_prelude::JavaScriptClassExt for #name },
+      )
+    };
     let finalize_trait = if class.use_custom_finalize {
       quote! {}
     } else {
       quote! {
         #[automatically_derived]
-        impl napi::bindgen_prelude::ObjectFinalize for #name {}
+        #object_finalize_impl
       }
     };
     quote! {
       #[automatically_derived]
-      impl napi::bindgen_prelude::ToNapiValue for #name {
+      #to_napi_value_impl {
         unsafe fn to_napi_value(
           env: napi::sys::napi_env,
           val: #name
@@ -317,14 +352,14 @@ impl NapiStruct {
       #finalize_trait
 
       #[automatically_derived]
-      impl napi::bindgen_prelude::JavaScriptClassExt for #name {
-        fn into_instance(self, env: napi::Env) -> napi::Result<napi::bindgen_prelude::ClassInstance<#name>> {
+      #javascript_class_ext_impl {
+        fn into_instance<'scope>(self, env: &'scope napi::Env) -> napi::Result<napi::bindgen_prelude::ClassInstance<'scope, Self>>
+         {
           if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name_str) {
             unsafe {
-              let wrapped_value = Box::leak(Box::new(self));
+              let wrapped_value = Box::into_raw(Box::new(self));
               let instance_value = napi::bindgen_prelude::new_instance::<#name>(env.raw(), wrapped_value as *mut _ as *mut std::ffi::c_void, ctor_ref)?;
-
-              Ok(napi::bindgen_prelude::ClassInstance::<#name>::new(instance_value, wrapped_value))
+              Ok(napi::bindgen_prelude::ClassInstance::new(instance_value, env.raw(), wrapped_value))
             }
           } else {
             Err(napi::bindgen_prelude::Error::new(
@@ -333,7 +368,7 @@ impl NapiStruct {
           }
         }
 
-        fn into_reference(self, env: napi::Env) -> napi::Result<napi::bindgen_prelude::Reference<#name>> {
+        fn into_reference(self, env: napi::Env) -> napi::Result<napi::bindgen_prelude::Reference<Self>> {
           if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name_str) {
             unsafe {
               let mut wrapped_value = Box::into_raw(Box::new(self));
@@ -428,13 +463,21 @@ impl NapiStruct {
 
     let finalize_trait = if class.use_custom_finalize {
       quote! {}
+    } else if self.has_lifetime {
+      quote! { impl <'_javascript_function_scope> napi::bindgen_prelude::ObjectFinalize for #name<'_javascript_function_scope> {} }
     } else {
       quote! { impl napi::bindgen_prelude::ObjectFinalize for #name {} }
     };
 
+    let to_napi_value_impl = if self.has_lifetime {
+      quote! { impl <'_javascript_function_scope> napi::bindgen_prelude::ToNapiValue for #name<'_javascript_function_scope> }
+    } else {
+      quote! { impl napi::bindgen_prelude::ToNapiValue for #name }
+    };
+
     quote! {
       #[automatically_derived]
-      impl napi::bindgen_prelude::ToNapiValue for #name {
+      #to_napi_value_impl {
         unsafe fn to_napi_value(
           env: napi::bindgen_prelude::sys::napi_env,
           val: #name,
@@ -580,11 +623,33 @@ impl NapiStruct {
       }
     };
 
+    let name_with_lifetime = if self.has_lifetime {
+      quote! { #name<'_javascript_function_scope> }
+    } else {
+      quote! { #name }
+    };
+    let (from_napi_value_impl, to_napi_value_impl, validate_napi_value_impl, type_name_impl) =
+      if self.has_lifetime {
+        (
+          quote! { impl <'_javascript_function_scope> napi::bindgen_prelude::FromNapiValue for #name<'_javascript_function_scope> },
+          quote! { impl <'_javascript_function_scope> napi::bindgen_prelude::ToNapiValue for #name<'_javascript_function_scope> },
+          quote! { impl <'_javascript_function_scope> napi::bindgen_prelude::ValidateNapiValue for #name<'_javascript_function_scope> },
+          quote! { impl <'_javascript_function_scope> napi::bindgen_prelude::TypeName for #name<'_javascript_function_scope> },
+        )
+      } else {
+        (
+          quote! { impl napi::bindgen_prelude::FromNapiValue for #name },
+          quote! { impl napi::bindgen_prelude::ToNapiValue for #name },
+          quote! { impl napi::bindgen_prelude::ValidateNapiValue for #name },
+          quote! { impl napi::bindgen_prelude::TypeName for #name },
+        )
+      };
+
     let to_napi_value = if obj.object_to_js {
       quote! {
         #[automatically_derived]
-        impl napi::bindgen_prelude::ToNapiValue for #name {
-          unsafe fn to_napi_value(env: napi::bindgen_prelude::sys::napi_env, val: #name) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
+        #to_napi_value_impl {
+          unsafe fn to_napi_value(env: napi::bindgen_prelude::sys::napi_env, val: #name_with_lifetime) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
             let env_wrapper = napi::bindgen_prelude::Env::from(env);
             let mut obj = env_wrapper.create_object()?;
 
@@ -600,13 +665,18 @@ impl NapiStruct {
     };
 
     let from_napi_value = if obj.object_from_js {
+      let return_type = if self.has_lifetime {
+        quote! { #name<'_javascript_function_scope> }
+      } else {
+        quote! { #name }
+      };
       quote! {
         #[automatically_derived]
-        impl napi::bindgen_prelude::FromNapiValue for #name {
+        #from_napi_value_impl {
           unsafe fn from_napi_value(
             env: napi::bindgen_prelude::sys::napi_env,
             napi_val: napi::bindgen_prelude::sys::napi_value
-          ) -> napi::bindgen_prelude::Result<Self> {
+          ) -> napi::bindgen_prelude::Result<#return_type> {
             let env_wrapper = napi::bindgen_prelude::Env::from(env);
             let mut obj = napi::bindgen_prelude::Object::from_napi_value(env, napi_val)?;
 
@@ -619,7 +689,7 @@ impl NapiStruct {
         }
 
         #[automatically_derived]
-        impl napi::bindgen_prelude::ValidateNapiValue for #name {}
+        #validate_napi_value_impl {}
       }
     } else {
       quote! {}
@@ -627,7 +697,7 @@ impl NapiStruct {
 
     quote! {
       #[automatically_derived]
-      impl napi::bindgen_prelude::TypeName for #name {
+      #type_name_impl {
         fn type_name() -> &'static str {
           #name_str
         }

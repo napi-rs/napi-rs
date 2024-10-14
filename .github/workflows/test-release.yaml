@@ -4,6 +4,8 @@ env:
   DEBUG: 'napi:*'
   RUST_BACKTRACE: 1
   CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: aarch64-linux-gnu-gcc
+  # https://github.com/nodejs/node/issues/51555#issuecomment-2290742072
+  DISABLE_V8_COMPILE_CACHE: 1
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -181,6 +183,7 @@ jobs:
       - name: Electron tests
         if: matrix.settings.target == 'x86_64-unknown-linux-gnu'
         run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           node ./node_modules/electron/install.js
           xvfb-run --auto-servernum yarn test:electron
 
@@ -481,7 +484,7 @@ jobs:
         run: |
           node -e "console.info('docker-image=${{ matrix.settings.image }}'.replace('{:version}', ${{ matrix.node }}))" >> "$GITHUB_OUTPUT"
       - name: Run test
-        run: docker run --rm ${{ matrix.settings.args }} -v ${{ github.workspace }}:/build -w /build ${{ steps.image-name.outputs.docker-image }} sh -c "yarn workspace @examples/napi test -s"
+        run: docker run --rm ${{ matrix.settings.args }} -v ${{ github.workspace }}:/build -w /build ${{ steps.image-name.outputs.docker-image }} sh -c "DISABLE_V8_COMPILE_CACHE=1 yarn workspace @examples/napi test -s"
 
   build-and-test-linux-armv7:
     name: stable - armv7-unknown-linux-gnueabihf - node@20

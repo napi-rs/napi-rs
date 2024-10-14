@@ -133,6 +133,7 @@ struct ThreadsafeFunctionCallJsBackData<T, Return = Unknown> {
 ///
 /// ```rust
 /// use std::thread;
+/// use std::sync::Arc;
 ///
 /// use napi::{
 ///     threadsafe_function::{
@@ -142,7 +143,7 @@ struct ThreadsafeFunctionCallJsBackData<T, Return = Unknown> {
 /// use napi_derive::napi;
 ///
 /// #[napi]
-/// pub fn call_threadsafe_function(callback: ThreadsafeFunction<(u32, bool, String), ()>) {
+/// pub fn call_threadsafe_function(callback: Arc<ThreadsafeFunction<(u32, bool, String), ()>>) {
 ///   let tsfn_cloned = tsfn.clone();
 ///
 ///   thread::spawn(move || {
@@ -191,30 +192,6 @@ unsafe impl<
   > Sync
   for ThreadsafeFunction<T, Return, CallJsBackArgs, { CalleeHandled }, { Weak }, { MaxQueueSize }>
 {
-}
-
-impl<
-    T: 'static,
-    Return: FromNapiValue,
-    CallJsBackArgs: 'static + JsValuesTupleIntoVec,
-    const CalleeHandled: bool,
-    const Weak: bool,
-    const MaxQueueSize: usize,
-  > Clone
-  for ThreadsafeFunction<T, Return, CallJsBackArgs, { CalleeHandled }, { Weak }, { MaxQueueSize }>
-{
-  fn clone(&self) -> Self {
-    self.handle.with_read_aborted(|aborted| {
-      if aborted {
-        panic!("ThreadsafeFunction was aborted, can not clone it");
-      };
-
-      Self {
-        handle: self.handle.clone(),
-        _phantom: PhantomData,
-      }
-    })
-  }
 }
 
 impl<

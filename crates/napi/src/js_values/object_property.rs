@@ -7,11 +7,8 @@ use std::ptr;
 use bitflags::bitflags;
 
 #[cfg(feature = "napi5")]
-use crate::{
-  bindgen_runtime::{FromNapiValue, This, ToNapiValue},
-  Env,
-};
-use crate::{sys, Callback, NapiRaw, Result};
+use crate::bindgen_runtime::{FromNapiValue, This};
+use crate::{bindgen_runtime::ToNapiValue, sys, Callback, Env, NapiRaw, Result};
 
 #[cfg(feature = "napi5")]
 #[derive(Copy, Clone)]
@@ -148,6 +145,11 @@ impl Property {
   pub fn with_value<T: NapiRaw>(mut self, value: &T) -> Self {
     self.value = unsafe { T::raw(value) };
     self
+  }
+
+  pub fn with_napi_value<T: ToNapiValue>(mut self, env: &Env, value: T) -> Result<Self> {
+    self.value = unsafe { T::to_napi_value(env.0, value)? };
+    Ok(self)
   }
 
   pub(crate) fn raw(&self) -> sys::napi_property_descriptor {

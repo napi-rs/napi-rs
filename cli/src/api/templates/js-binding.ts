@@ -4,6 +4,9 @@ export function createCjsBinding(
   idents: string[],
 ): string {
   return `${bindingHeader}
+const { createRequire } = require('node:module')
+require = createRequire(__filename)
+
 ${createCommonBinding(localName, pkgName)}
 ${idents
   .map((ident) => `module.exports.${ident} = nativeBinding.${ident};`)
@@ -48,8 +51,7 @@ function createCommonBinding(localName: string, pkgName: string): string {
 `
   }
 
-  return `const { readFileSync } = require('fs')
-
+  return `const { readFileSync } = require('node:fs')
 let nativeBinding = null
 const loadErrors = []
 
