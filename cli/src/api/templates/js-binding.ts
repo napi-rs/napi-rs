@@ -9,7 +9,7 @@ require = createRequire(__filename)
 
 ${createCommonBinding(localName, pkgName)}
 ${idents
-  .map((ident) => `module.exports.${ident} = nativeBinding.${ident};`)
+  .map((ident) => `module.exports.${ident} = nativeBinding.${ident}`)
   .join('\n')}
 `
 }
@@ -20,13 +20,13 @@ export function createEsmBinding(
   idents: string[],
 ): string {
   return `${bindingHeader}
-import { createRequire } from 'node:module';
-const require = createRequire(import.meta.url);
-const __dirname = new URL('.', import.meta.url).pathname;
+import { createRequire } from 'node:module'
+const require = createRequire(import.meta.url)
+const __dirname = new URL('.', import.meta.url).pathname
 
 ${createCommonBinding(localName, pkgName)}
-const { ${idents.join(', ')} } = nativeBinding;
-${idents.map((ident) => `export { ${ident} };`).join('\n')}
+const { ${idents.join(', ')} } = nativeBinding
+${idents.map((ident) => `export { ${ident} }`).join('\n')}
 `
 }
 
