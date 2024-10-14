@@ -21,7 +21,7 @@ pub trait Task: Send + Sized {
 
   #[allow(unused_variables)]
   /// after resolve or reject
-  fn finally(&mut self, env: Env) -> Result<()> {
+  fn finally(self, env: Env) -> Result<()> {
     Ok(())
   }
 }
