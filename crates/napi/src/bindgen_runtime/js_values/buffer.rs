@@ -75,8 +75,13 @@ impl<'scope> BufferSlice<'scope> {
     };
     mem::forget(data);
     check_status!(status, "Failed to create buffer slice from data")?;
+
     Ok(Self {
-      inner: unsafe { slice::from_raw_parts_mut(buf.cast(), len) },
+      inner: if len == 0 {
+        &mut []
+      } else {
+        unsafe { slice::from_raw_parts_mut(buf.cast(), len) }
+      },
       raw_value: buf,
       env: env.0,
     })
@@ -143,8 +148,13 @@ impl<'scope> BufferSlice<'scope> {
       status
     };
     check_status!(status, "Failed to create buffer slice from data")?;
+
     Ok(Self {
-      inner: unsafe { slice::from_raw_parts_mut(buf.cast(), len) },
+      inner: if len == 0 {
+        &mut []
+      } else {
+        unsafe { slice::from_raw_parts_mut(buf.cast(), len) }
+      },
       raw_value: buf,
       env: env.0,
     })
@@ -164,7 +174,11 @@ impl<'scope> BufferSlice<'scope> {
       "Faild to create a buffer from copied data"
     )?;
     Ok(Self {
-      inner: unsafe { slice::from_raw_parts_mut(result_ptr.cast(), len) },
+      inner: if len == 0 {
+        &mut []
+      } else {
+        unsafe { slice::from_raw_parts_mut(buf.cast(), len) }
+      },
       raw_value: buf,
       env: env.0,
     })
