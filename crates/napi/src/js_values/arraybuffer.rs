@@ -101,6 +101,27 @@ pub enum TypedArrayType {
   Unknown = 1024,
 }
 
+impl AsRef<str> for TypedArrayType {
+  fn as_ref(&self) -> &str {
+    match self {
+      TypedArrayType::Int8 => "Int8",
+      TypedArrayType::Uint8 => "Uint8",
+      TypedArrayType::Uint8Clamped => "Uint8Clamped",
+      TypedArrayType::Int16 => "Int16",
+      TypedArrayType::Uint16 => "Uint16",
+      TypedArrayType::Int32 => "Int32",
+      TypedArrayType::Uint32 => "Uint32",
+      TypedArrayType::Float32 => "Float32",
+      TypedArrayType::Float64 => "Float64",
+      #[cfg(feature = "napi6")]
+      TypedArrayType::BigInt64 => "BigInt64",
+      #[cfg(feature = "napi6")]
+      TypedArrayType::BigUint64 => "BigUint64",
+      TypedArrayType::Unknown => "Unknown",
+    }
+  }
+}
+
 impl From<sys::napi_typedarray_type> for TypedArrayType {
   fn from(value: sys::napi_typedarray_type) -> Self {
     match value {

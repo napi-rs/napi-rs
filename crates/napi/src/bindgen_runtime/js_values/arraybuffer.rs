@@ -343,7 +343,11 @@ macro_rules! impl_typed_array {
         if typed_array_type != $typed_array_type as i32 {
           return Err(Error::new(
             Status::InvalidArg,
-            format!("Expected $name, got {}", typed_array_type),
+            format!(
+              "Expected {}, got {}Array",
+              stringify!($name),
+              TypedArrayType::from(typed_array_type).as_ref()
+            ),
           ));
         }
         Ok($name {
