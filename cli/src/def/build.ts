@@ -65,6 +65,11 @@ export abstract class BaseBuildCommand extends Command {
       'Whether to disable the generation JS binding file. Only works with `--platform` flag.',
   })
 
+  esm?: boolean = Option.Boolean('--esm', {
+    description:
+      'Whether to emit an ESM JS binding file instead of CJS format. Only works with `--platform` flag.',
+  })
+
   dts?: string = Option.String('--dts', {
     description:
       'Path and filename of generated type def file. Relative to `--output-dir`',
@@ -150,6 +155,7 @@ export abstract class BaseBuildCommand extends Command {
       constEnum: this.constEnum,
       jsBinding: this.jsBinding,
       noJsBinding: this.noJsBinding,
+      esm: this.esm,
       dts: this.dts,
       dtsHeader: this.dtsHeader,
       noDtsHeader: this.noDtsHeader,
@@ -222,6 +228,10 @@ export interface BuildOptions {
    * Whether to disable the generation JS binding file. Only works with `--platform` flag.
    */
   noJsBinding?: boolean
+  /**
+   * Whether to emit an ESM JS binding file. Only works with `--platform` flag.
+   */
+  esm?: boolean
   /**
    * Path and filename of generated type def file. Relative to `--output-dir`
    */
