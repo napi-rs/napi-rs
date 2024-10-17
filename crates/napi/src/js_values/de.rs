@@ -123,6 +123,11 @@ impl<'x, 'de, 'env> serde::de::Deserializer<'x> for &'de mut De<'env> {
           return visitor.visit_byte_buf(
             unsafe { BufferSlice::from_napi_value(self.0.env, self.0.value)? }.to_vec(),
           );
+        } else if js_object.is_typedarray()? {
+          return visitor.visit_byte_buf(unsafe {
+            let u8_slice: &[u8] = FromNapiValue::from_napi_value(self.0.env, self.0.value)?;
+            u8_slice.to_vec()
+          });
         } else if js_object.is_arraybuffer()? {
           return visitor.visit_byte_buf(unsafe {
             let array_buf =
