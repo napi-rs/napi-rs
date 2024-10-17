@@ -610,7 +610,7 @@ test('create object from Property', (t) => {
 })
 
 test('global', (t) => {
-  t.is(getGlobal(), global)
+  t.is(getGlobal(), typeof global === 'undefined' ? globalThis : global)
 })
 
 test('get undefined', (t) => {
