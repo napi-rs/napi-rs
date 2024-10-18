@@ -166,6 +166,7 @@ pub struct NapiEnum {
   pub skip_typescript: bool,
   pub register_name: Ident,
   pub is_string_enum: bool,
+  pub is_string_union_enum: bool,
 }
 
 #[derive(Debug, Clone)]
