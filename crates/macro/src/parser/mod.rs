@@ -1216,7 +1216,11 @@ impl ConvertToAST for syn::ItemEnum {
     let js_name = opts
       .js_name()
       .map_or_else(|| self.ident.to_string(), |(s, _)| s.to_string());
-    let is_string_enum = opts.string_enum().is_some();
+
+    // string union enum is also string enum
+    let is_string_union_enum = opts.string_union_enum().is_some();
+    let string_enum = opts.string_enum().or(is_string_union_enum.then_some(None));
+    let is_string_enum = string_enum.is_some();
 
     if self
       .variants
@@ -1264,7 +1268,7 @@ impl ConvertToAST for syn::ItemEnum {
       });
     }
 
-    let variants = match opts.string_enum() {
+    let variants = match string_enum {
       Some(case) => {
         let case = case.map(|c| Ok::<Case, Diagnostic>(match c.0.as_str() {
           "lowercase" => Case::Flat,
@@ -1380,6 +1384,7 @@ impl ConvertToAST for syn::ItemEnum {
         skip_typescript: opts.skip_typescript().is_some(),
         register_name: get_register_ident(self.ident.to_string().as_str()),
         is_string_enum,
+        is_string_union_enum,
       }),
     })
   }

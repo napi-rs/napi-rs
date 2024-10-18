@@ -74,3 +74,19 @@ pub enum StructuredKind {
 pub fn validate_structured_enum(kind: StructuredKind) -> StructuredKind {
   kind
 }
+
+#[napi(string_union_enum)]
+pub enum StringUnionEnum1 {
+  #[napi(value = "my-custom-value")]
+  Foo,
+  Bar,
+  Baz,
+}
+
+#[napi(string_union_enum, string_enum = "UPPERCASE")]
+pub enum StringUnionEnum2 {
+  #[napi(value = "my-custom-value")]
+  Foo,
+  Bar,
+  Baz,
+}

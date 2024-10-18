@@ -272,7 +272,7 @@ export declare function add(a: number, b: number): number
 
 export declare const enum ALIAS {
   A = 0,
-  B = 1
+  B = 1,
 }
 
 export interface AliasedStruct {
@@ -428,7 +428,7 @@ export declare const enum CustomNumEnum {
   Six = 6,
   Eight = 8,
   Nine = 9,
-  Ten = 10
+  Ten = 10,
 }
 
 export declare function customStatusCode(): void
@@ -436,7 +436,7 @@ export declare function customStatusCode(): void
 export declare const enum CustomStringEnum {
   Foo = 'my-custom-value',
   Bar = 'Bar',
-  Baz = 'Baz'
+  Baz = 'Baz',
 }
 
 export interface DatesWithTimeZone {
@@ -546,7 +546,7 @@ export declare const enum Kind {
   /** Kills birds */
   Cat = 1,
   /** Tasty */
-  Duck = 2
+  Duck = 2,
 }
 
 /** default enum values are continuos i32s start from 0 */
@@ -556,7 +556,7 @@ export declare const enum KindInValidate {
   /** Kills birds */
   Cat = 1,
   /** Tasty */
-  Duck = 2
+  Duck = 2,
 }
 
 export declare function listObjKeys(obj: object): Array<string>
@@ -692,13 +692,13 @@ export declare function spawnThreadInThread(tsfn: ((err: Error | null, arg: numb
 export declare const enum Status {
   Pristine = 'Pristine',
   Loading = 'Loading',
-  Ready = 'Ready'
+  Ready = 'Ready',
 }
 
 export declare const enum StatusInValidate {
   Poll = 'Poll',
   Ready = 'Ready',
-  Done = 'Done'
+  Done = 'Done',
 }
 
 export interface StrictObject {
@@ -708,8 +708,18 @@ export interface StrictObject {
 export declare const enum StringEnum {
   VariantOne = 'variantone',
   VariantTwo = 'varianttwo',
-  VariantThree = 'variantthree'
+  VariantThree = 'variantthree',
 }
+
+export type StringUnionEnum1 =
+  | 'my-custom-value'
+  | 'Bar'
+  | 'Baz'
+
+export type StringUnionEnum2 =
+  | 'my-custom-value'
+  | 'BAR'
+  | 'BAZ'
 
 export type StructuredKind =
   | { type2: 'Hello' }

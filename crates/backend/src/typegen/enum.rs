@@ -10,7 +10,9 @@ impl ToTypeDef for NapiEnum {
     add_alias(self.name.to_string(), self.js_name.to_string());
 
     Some(TypeDef {
-      kind: if self.is_string_enum {
+      kind: if self.is_string_union_enum {
+        "type".to_owned()
+      } else if self.is_string_enum {
         "string_enum".to_owned()
       } else {
         "enum".to_owned()
@@ -34,9 +36,13 @@ impl NapiEnum {
           NapiEnumValue::Number(num) => format!("{}", num),
           NapiEnumValue::String(string) => format!("'{}'", string),
         };
-        format!("{}{} = {}", js_doc_from_comments(&v.comments), v.name, val)
+        if self.is_string_union_enum {
+          format!("| {}", val)
+        } else {
+          format!("{}{} = {},", js_doc_from_comments(&v.comments), v.name, val)
+        }
       })
       .collect::<Vec<_>>()
-      .join(",\n ")
+      .join("\n")
   }
 }
