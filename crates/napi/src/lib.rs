@@ -12,7 +12,7 @@
 //! Because `Node.js` N-API has versions. So there are feature flags to choose what version of `N-API` you want to build for.
 //! For example, if you want build a library which can be used by `node@10.17.0`, you should choose the `napi5` or lower.
 //!
-//! The details of N-API versions and support matrix: [n_api_version_matrix](https://nodejs.org/api/n-api.html#n_api_n_api_version_matrix)
+//! The details of N-API versions and support matrix: [Node-API version matrix](https://nodejs.org/api/n-api.html#node-api-version-matrix)
 //!
 //! ### tokio_rt
 //! With `tokio_rt` feature, `napi-rs` provides a ***tokio runtime*** in an additional thread.
