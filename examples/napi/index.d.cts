@@ -478,6 +478,8 @@ export declare const enum Empty {
 
 export declare function enumToI32(e: CustomNumEnum): number
 
+export declare function errorMessageContainsNullByte(msg: string): void
+
 export declare function f32ArrayToArray(input: Float32Array): Array<number>
 
 export declare function f64ArrayToArray(input: Float64Array): Array<number>

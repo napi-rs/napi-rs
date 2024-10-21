@@ -261,18 +261,26 @@ macro_rules! impl_object_methods {
 
         let error_status = self.0.status.as_ref();
         let status_len = error_status.len();
-        let error_code_string = CString::new(error_status).unwrap();
         let reason_len = self.0.reason.len();
-        let reason = CString::new(self.0.reason.as_str()).unwrap();
         let mut error_code = ptr::null_mut();
         let mut reason_string = ptr::null_mut();
         let mut js_error = ptr::null_mut();
         let create_code_status = unsafe {
-          sys::napi_create_string_utf8(env, error_code_string.as_ptr(), status_len, &mut error_code)
+          sys::napi_create_string_utf8(
+            env,
+            error_status.as_ptr().cast(),
+            status_len,
+            &mut error_code,
+          )
         };
         debug_assert!(create_code_status == sys::Status::napi_ok);
         let create_reason_status = unsafe {
-          sys::napi_create_string_utf8(env, reason.as_ptr(), reason_len, &mut reason_string)
+          sys::napi_create_string_utf8(
+            env,
+            self.0.reason.as_ptr().cast(),
+            reason_len,
+            &mut reason_string,
+          )
         };
         debug_assert!(create_reason_status == sys::Status::napi_ok);
         let create_error_status = unsafe { $kind(env, error_code, reason_string, &mut js_error) };
