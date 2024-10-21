@@ -57,12 +57,7 @@ impl<T: FromNapiValue> ValidateNapiValue for Promise<T> {
       let mut message = ptr::null_mut();
       check_status!(
         unsafe {
-          crate::sys::napi_create_string_utf8(
-            env,
-            CStr::from_bytes_with_nul_unchecked(b"InvalidArg\0").as_ptr(),
-            10,
-            &mut code,
-          )
+          crate::sys::napi_create_string_utf8(env, "InvalidArg\0".as_ptr().cast(), 10, &mut code)
         },
         "Failed to create error message"
       )?;
@@ -70,7 +65,7 @@ impl<T: FromNapiValue> ValidateNapiValue for Promise<T> {
         unsafe {
           crate::sys::napi_create_string_utf8(
             env,
-            CStr::from_bytes_with_nul_unchecked(b"Expected Promise object\0").as_ptr(),
+            "Expected Promise object\0".as_ptr().cast(),
             23,
             &mut message,
           )

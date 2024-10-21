@@ -23,7 +23,7 @@ impl ToNapiValue for &String {
     let mut ptr = ptr::null_mut();
 
     check_status!(
-      unsafe { sys::napi_create_string_utf8(env, val.as_ptr() as *const _, val.len(), &mut ptr) },
+      unsafe { sys::napi_create_string_utf8(env, val.as_ptr().cast(), val.len(), &mut ptr) },
       "Failed to convert rust `String` into napi `string`"
     )?;
 
