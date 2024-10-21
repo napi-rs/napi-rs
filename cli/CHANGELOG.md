@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.64](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.63...@napi-rs/cli@3.0.0-alpha.64) (2024-10-21)
+
+### Features
+
+- **cli):** `createRequire` for SEA support ([#2297](https://github.com/napi-rs/napi-rs/issues/2297)) ([7ef54f4](https://github.com/napi-rs/napi-rs/commit/7ef54f413be519b1bfb3d4a788203b63c34613c7))
+- support ESM binding ([#2284](https://github.com/napi-rs/napi-rs/issues/2284)) ([960d07e](https://github.com/napi-rs/napi-rs/commit/960d07e5da6ad3c050aca7ba0fd0a2f2c057f72f))
+
 # [3.0.0-alpha.63](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.62...@napi-rs/cli@3.0.0-alpha.63) (2024-10-02)
 
 ### Bug Fixes
