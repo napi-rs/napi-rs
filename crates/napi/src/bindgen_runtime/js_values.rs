@@ -54,9 +54,6 @@ pub use symbol::*;
 pub use task::*;
 pub use value_ref::*;
 
-#[cfg(feature = "latin1")]
-pub use string::latin1_string::*;
-
 pub trait TypeName {
   fn type_name() -> &'static str;
 
