@@ -197,6 +197,7 @@ import {
   createBufferSliceFromCopiedData,
   Reader,
   withinAsyncRuntimeIfAvailable,
+  errorMessageContainsNullByte,
 } from '../index.cjs'
 
 import { test } from './test.framework.js'
@@ -654,6 +655,7 @@ test('Result', (t) => {
   if (!process.env.SKIP_UNWIND_TEST) {
     t.throws(() => panic(), void 0, `Don't panic`)
   }
+  t.throws(() => errorMessageContainsNullByte('\u001a\u0000'))
 })
 
 test('Async error with stack trace', async (t) => {

@@ -35,6 +35,11 @@ pub fn custom_status_code() -> Result<(), CustomError> {
 }
 
 #[napi]
+pub fn error_message_contains_null_byte(msg: Utf16String) -> Result<()> {
+  Err(Error::new(Status::InvalidArg, msg))
+}
+
+#[napi]
 pub async fn throw_async_error() -> Result<()> {
   Err(Error::new(Status::InvalidArg, "Async Error".to_owned()))
 }

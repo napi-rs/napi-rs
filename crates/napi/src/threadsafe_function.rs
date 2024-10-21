@@ -730,20 +730,19 @@ fn handle_call_js_cb_status(status: sys::napi_status, raw_env: sys::napi_env) {
     assert!(stat == sys::Status::napi_ok || stat == sys::Status::napi_pending_exception);
   } else {
     let error_code: Status = status.into();
-    let error_code_string = format!("{}", error_code);
     let mut error_code_value = ptr::null_mut();
     assert_eq!(
       unsafe {
         sys::napi_create_string_utf8(
           raw_env,
-          error_code_string.as_ptr().cast(),
-          error_code_string.len(),
+          error_code.as_ref().as_ptr().cast(),
+          error_code.as_ref().len(),
           &mut error_code_value,
         )
       },
       sys::Status::napi_ok,
     );
-    static ERROR_MSG: &str = "Call JavaScript callback failed in threadsafe function";
+    const ERROR_MSG: &str = "Call JavaScript callback failed in threadsafe function";
     let mut error_msg_value = ptr::null_mut();
     assert_eq!(
       unsafe {

@@ -452,8 +452,6 @@ pub(crate) unsafe extern "C" fn noop(
 
 #[cfg(all(feature = "napi4", not(target_family = "wasm"), not(feature = "noop")))]
 fn create_custom_gc(env: sys::napi_env) {
-  use std::os::raw::c_char;
-
   if !FIRST_MODULE_REGISTERED.load(Ordering::SeqCst) {
     let mut custom_gc_fn = ptr::null_mut();
     check_status_or_throw!(
@@ -474,12 +472,7 @@ fn create_custom_gc(env: sys::napi_env) {
     check_status_or_throw!(
       env,
       unsafe {
-        sys::napi_create_string_utf8(
-          env,
-          "CustomGC".as_ptr() as *const c_char,
-          8,
-          &mut async_resource_name,
-        )
+        sys::napi_create_string_utf8(env, "CustomGC".as_ptr().cast(), 8, &mut async_resource_name)
       },
       "Create async resource string in napi_register_module_v1"
     );
