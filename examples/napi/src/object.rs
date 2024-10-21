@@ -77,7 +77,7 @@ pub fn receive_strict_object(strict_object: StrictObject) {
 pub fn get_str_from_object(env: Env) {
   let mut obj = env.create_object().unwrap();
   obj.set("name", "value").unwrap();
-  assert_eq!(obj.get("name").unwrap(), Some("value"));
+  assert_eq!(obj.get("name").unwrap(), Some("value".to_string()));
 }
 
 #[napi(object)]

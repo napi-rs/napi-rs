@@ -466,6 +466,11 @@ impl NapiFn {
             if let Some(syn::PathSegment { ident, .. }) = ele.path.segments.last() {
               if ident == "Env" {
                 return Ok((quote! {}, NapiArgType::Env));
+              } else if ident == "str" {
+                bail_span!(
+                  elem,
+                  "JavaScript String is primitive and cannot be passed by reference"
+                );
               }
             }
           }

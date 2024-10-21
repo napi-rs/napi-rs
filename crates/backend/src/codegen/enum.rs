@@ -55,13 +55,27 @@ impl NapiEnum {
         }
       }
     } else {
+      let from_napi_value = if self.is_string_enum {
+        quote! {
+          let val: String = napi::bindgen_prelude::FromNapiValue::from_napi_value(env, napi_val)
+        }
+      } else {
+        quote! {
+          let val = napi::bindgen_prelude::FromNapiValue::from_napi_value(env, napi_val)
+        }
+      };
+      let match_val = if self.is_string_enum {
+        quote! { val.as_str() }
+      } else {
+        quote! { val }
+      };
       quote! {
         impl napi::bindgen_prelude::FromNapiValue for #name {
           unsafe fn from_napi_value(
             env: napi::bindgen_prelude::sys::napi_env,
             napi_val: napi::bindgen_prelude::sys::napi_value
           ) -> napi::bindgen_prelude::Result<Self> {
-            let val = napi::bindgen_prelude::FromNapiValue::from_napi_value(env, napi_val).map_err(|e| {
+            #from_napi_value.map_err(|e| {
               napi::bindgen_prelude::error!(
                 e.status,
                 "Failed to convert napi value into enum `{}`. {}",
@@ -70,7 +84,7 @@ impl NapiEnum {
               )
             })?;
 
-            match val {
+            match #match_val {
               #(#from_napi_branches,)*
               _ => {
                 Err(napi::bindgen_prelude::error!(
