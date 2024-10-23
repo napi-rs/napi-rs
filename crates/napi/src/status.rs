@@ -31,6 +31,7 @@ pub enum Status {
   WouldDeadlock,
   NoExternalBuffersAllowed,
   Unknown = 1024, // unknown status. for example, using napi3 module in napi7 Node.js, and generate an invalid napi3 status
+  Custom(&'static str), // allow asynchronous to throw custom status, for synchronous you can use CustomStatus directly
 }
 
 impl Display for Status {
@@ -66,6 +67,7 @@ impl AsRef<str> for Status {
       Status::DetachableArraybufferExpected => "DetachableArraybufferExpected",
       Status::WouldDeadlock => "WouldDeadlock",
       Status::NoExternalBuffersAllowed => "NoExternalBuffersAllowed",
+      Status::Custom(s) => s.to_owned(),
       _ => "Unknown",
     }
   }
@@ -129,6 +131,7 @@ impl From<Status> for i32 {
       Status::WouldDeadlock => sys::Status::napi_would_deadlock,
       Status::NoExternalBuffersAllowed => sys::Status::napi_no_external_buffers_allowed,
       Status::Unknown => sys::Status::napi_generic_failure,
+      Status::Custom(_) => sys::Status::napi_generic_failure,
     }
   }
 }

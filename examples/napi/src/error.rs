@@ -45,6 +45,14 @@ pub async fn throw_async_error() -> Result<()> {
 }
 
 #[napi]
+pub async fn throw_async_custom_status_error() -> Result<()> {
+  Err(Error::new(
+    Status::Custom(CustomError::Panic.as_ref()),
+    "don't panic",
+  ))
+}
+
+#[napi]
 pub struct CustomStruct();
 
 #[napi]
