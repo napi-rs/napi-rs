@@ -135,7 +135,7 @@ impl TryToTokens for NapiFn {
     };
 
     let function_call_inner = quote! {
-      napi::bindgen_prelude::CallbackInfo::<#args_len>::new(env, cb, None, #use_after_async).and_then(|mut cb| {
+      napi::bindgen_prelude::CallbackInfo::<#args_len>::new(env, cb, None, #use_after_async).and_then(|#[allow(unused_mut)] mut cb| {
           let __wrapped_env = napi::bindgen_prelude::Env::from(env);
           #build_ref_container
           #(#arg_conversions)*
