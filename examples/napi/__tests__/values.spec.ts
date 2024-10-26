@@ -35,6 +35,10 @@ import {
   getIndexMapping,
   sumIndexMapping,
   indexmapPassthrough,
+  passSetToJs,
+  passSetToRust,
+  btreeSetToJs,
+  btreeSetToRust,
   getCwd,
   Animal,
   Kind,
@@ -255,6 +259,15 @@ test('map', (t) => {
   t.deepEqual(getIndexMapping(), { a: 101, b: 102 })
   t.is(sumIndexMapping({ a: 101, b: 102 }), 203)
   t.deepEqual(indexmapPassthrough({ a: 101, b: 102 }), { a: 101, b: 102 })
+})
+
+test('set', (t) => {
+  t.notThrows(() => {
+    passSetToRust(new Set(['a', 'b', 'c']))
+    btreeSetToRust(new Set(['a', 'b', 'c']))
+  })
+  t.deepEqual(Array.from(passSetToJs()).sort(), ['a', 'b', 'c'])
+  t.deepEqual(Array.from(btreeSetToJs()).sort(), ['a', 'b', 'c'])
 })
 
 test('enum', (t) => {

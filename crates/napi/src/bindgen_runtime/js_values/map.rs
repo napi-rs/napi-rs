@@ -4,7 +4,7 @@ use std::hash::{BuildHasher, Hash};
 #[cfg(feature = "object_indexmap")]
 use indexmap::IndexMap;
 
-use crate::bindgen_prelude::{Env, Result, ToNapiValue, *};
+use crate::bindgen_prelude::*;
 
 impl<K, V, S> TypeName for HashMap<K, V, S> {
   fn type_name() -> &'static str {

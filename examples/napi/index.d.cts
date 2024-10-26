@@ -319,6 +319,10 @@ export declare function bigintFromI64(): bigint
 
 export declare function bigintGetU64AsString(bi: bigint): string
 
+export declare function btreeSetToJs(): Set<string>
+
+export declare function btreeSetToRust(set: Set<string>): void
+
 export declare function bufferPassThrough(buf: Buffer): Promise<Buffer>
 
 export declare function buildThreadsafeFunctionFromFunction(callback: (arg0: number, arg1: number) => number): void
@@ -627,6 +631,10 @@ export interface PackageJson {
 export declare function panic(): void
 
 export declare function panicInAsync(): Promise<void>
+
+export declare function passSetToJs(): Set<string>
+
+export declare function passSetToRust(set: Set<string>): void
 
 export interface Pet {
   name: string

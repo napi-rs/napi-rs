@@ -62,6 +62,7 @@ mod object;
 mod promise;
 mod reference;
 mod serde;
+mod set;
 mod shared;
 mod string;
 mod symbol;
