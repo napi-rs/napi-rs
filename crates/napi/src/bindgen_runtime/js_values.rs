@@ -27,6 +27,7 @@ mod promise;
 mod promise_raw;
 #[cfg(feature = "serde-json")]
 mod serde;
+mod set;
 mod string;
 mod symbol;
 mod task;

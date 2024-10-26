@@ -156,6 +156,8 @@ static KNOWN_TYPES: LazyLock<HashMap<&'static str, (&'static str, bool, bool)>> 
     ("HashMap", ("Record<{}, {}>", false, false)),
     ("BTreeMap", ("Record<{}, {}>", false, false)),
     ("IndexMap", ("Record<{}, {}>", false, false)),
+    ("HashSet", ("Set<{}>", false, false)),
+    ("BTreeSet", ("Set<{}>", false, false)),
     ("ArrayBuffer", ("ArrayBuffer", false, false)),
     ("JsArrayBuffer", ("ArrayBuffer", false, false)),
     ("Int8Array", ("Int8Array", false, false)),
