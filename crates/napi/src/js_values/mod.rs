@@ -342,7 +342,7 @@ macro_rules! impl_object_methods {
           sys::napi_create_function(
             self.0.env,
             name.as_ptr(),
-            len,
+            len as isize,
             Some(function),
             ptr::null_mut(),
             &mut js_function,
@@ -419,7 +419,12 @@ macro_rules! impl_object_methods {
         let mut result = false;
         let mut js_key = ptr::null_mut();
         check_status!(unsafe {
-          sys::napi_create_string_utf8(self.0.env, name.as_ptr().cast(), name.len(), &mut js_key)
+          sys::napi_create_string_utf8(
+            self.0.env,
+            name.as_ptr().cast(),
+            name.len() as isize,
+            &mut js_key,
+          )
         })?;
         check_status!(unsafe {
           sys::napi_delete_property(self.0.env, self.0.value, js_key, &mut result)
@@ -431,7 +436,12 @@ macro_rules! impl_object_methods {
         let mut result = false;
         let mut js_key = ptr::null_mut();
         check_status!(unsafe {
-          sys::napi_create_string_utf8(self.0.env, key.as_ptr().cast(), key.len(), &mut js_key)
+          sys::napi_create_string_utf8(
+            self.0.env,
+            key.as_ptr().cast(),
+            key.len() as isize,
+            &mut js_key,
+          )
         })?;
         check_status!(unsafe {
           sys::napi_has_own_property(self.0.env, self.0.value, js_key, &mut result)
@@ -454,7 +464,12 @@ macro_rules! impl_object_methods {
         let mut js_key = ptr::null_mut();
         let mut result = false;
         check_status!(unsafe {
-          sys::napi_create_string_utf8(self.0.env, name.as_ptr().cast(), name.len(), &mut js_key)
+          sys::napi_create_string_utf8(
+            self.0.env,
+            name.as_ptr().cast(),
+            name.len() as isize,
+            &mut js_key,
+          )
         })?;
         check_status!(unsafe {
           sys::napi_has_property(self.0.env, self.0.value, js_key, &mut result)

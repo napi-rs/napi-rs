@@ -55,7 +55,12 @@ impl ToNapiValue for Symbol {
     if let Some(desc) = val.for_desc {
       check_status!(
         unsafe {
-          sys::node_api_symbol_for(env, desc.as_ptr().cast(), desc.len(), &mut symbol_value)
+          sys::node_api_symbol_for(
+            env,
+            desc.as_ptr().cast(),
+            desc.len() as isize,
+            &mut symbol_value,
+          )
         },
         "Failed to call node_api_symbol_for"
       )?;
@@ -71,7 +76,7 @@ impl ToNapiValue for Symbol {
             check_status!(sys::napi_create_string_utf8(
               env,
               desc.as_ptr().cast(),
-              desc_len,
+              desc_len as isize,
               &mut desc_string
             ))?;
             desc_string

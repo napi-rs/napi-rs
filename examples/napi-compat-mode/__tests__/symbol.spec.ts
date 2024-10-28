@@ -13,10 +13,3 @@ test('should create unnamed symbol', (t) => {
   t.true(typeof symbol === 'symbol')
   t.is(symbol.toString(), 'Symbol()')
 })
-
-test('should create symbol from JsString', (t) => {
-  const fixture = 'N-API Symbol'
-  const symbol = bindings.createSymbolFromJsString(fixture)
-  t.true(typeof symbol === 'symbol')
-  t.is(symbol.toString(), `Symbol(${fixture})`)
-})

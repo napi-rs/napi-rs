@@ -353,7 +353,7 @@ pub unsafe extern "C" fn napi_register_module_v1(
             sys::napi_define_class(
               env,
               js_class_name.as_ptr(),
-              js_name.len() - 1,
+              js_name.len() as isize - 1,
               Some(ctor),
               ptr::null_mut(),
               raw_props.len(),
