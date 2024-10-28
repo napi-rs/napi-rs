@@ -687,7 +687,7 @@ impl NapiFn {
             napi::bindgen_prelude::sys::napi_create_function(
               env,
               #js_name.as_ptr().cast(),
-              #name_len,
+              #name_len as isize,
               Some(#intermediate_ident),
               std::ptr::null_mut(),
               &mut fn_ptr,

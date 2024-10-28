@@ -444,8 +444,18 @@ fn throw_error(env: sys::napi_env, err: Error, default_msg: &str) -> sys::napi_v
   let mut msg_string = ptr::null_mut();
   let mut err = ptr::null_mut();
   unsafe {
-    sys::napi_create_string_latin1(env, code.as_ptr().cast(), code.len(), &mut code_string);
-    sys::napi_create_string_utf8(env, msg.as_ptr().cast(), msg.len(), &mut msg_string);
+    sys::napi_create_string_latin1(
+      env,
+      code.as_ptr().cast(),
+      code.len() as isize,
+      &mut code_string,
+    );
+    sys::napi_create_string_utf8(
+      env,
+      msg.as_ptr().cast(),
+      msg.len() as isize,
+      &mut msg_string,
+    );
     sys::napi_create_error(env, code_string, msg_string, &mut err);
     sys::napi_throw(env, err);
   };

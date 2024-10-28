@@ -1,8 +1,9 @@
-use crate::{bindgen_prelude::*, check_status, check_status_and_type, sys};
-
+use std::ffi::c_char;
 use std::fmt::Display;
 use std::ops::Deref;
 use std::ptr;
+
+use crate::{bindgen_prelude::*, check_status, check_status_and_type, sys};
 
 impl TypeName for String {
   fn type_name() -> &'static str {
@@ -21,7 +22,9 @@ impl ToNapiValue for &String {
     let mut ptr = ptr::null_mut();
 
     check_status!(
-      unsafe { sys::napi_create_string_utf8(env, val.as_ptr().cast(), val.len(), &mut ptr) },
+      unsafe {
+        sys::napi_create_string_utf8(env, val.as_ptr().cast(), val.len() as isize, &mut ptr)
+      },
       "Failed to convert rust `String` into napi `string`"
     )?;
 
@@ -82,7 +85,9 @@ impl ToNapiValue for &str {
     let mut ptr = ptr::null_mut();
 
     check_status!(
-      unsafe { sys::napi_create_string_utf8(env, val.as_ptr().cast(), val.len(), &mut ptr) },
+      unsafe {
+        sys::napi_create_string_utf8(env, val.as_ptr().cast(), val.len() as isize, &mut ptr)
+      },
       "Failed to convert rust `&str` into napi `string`"
     )?;
 
@@ -163,7 +168,9 @@ impl ToNapiValue for Utf16String {
     let mut ptr = ptr::null_mut();
 
     check_status!(
-      unsafe { sys::napi_create_string_utf16(env, val.0.as_ptr().cast(), val.len(), &mut ptr) },
+      unsafe {
+        sys::napi_create_string_utf16(env, val.0.as_ptr().cast(), val.len() as isize, &mut ptr)
+      },
       "Failed to convert napi `string` into rust type `String`"
     )?;
 
@@ -248,8 +255,45 @@ impl ToNapiValue for Latin1String {
     let mut ptr = ptr::null_mut();
 
     check_status!(
-      unsafe { sys::napi_create_string_latin1(env, val.0.as_ptr().cast(), val.len(), &mut ptr) },
+      unsafe {
+        sys::napi_create_string_latin1(env, val.0.as_ptr().cast(), val.len() as isize, &mut ptr)
+      },
       "Failed to convert rust type `String` into napi `latin1 string`"
+    )?;
+
+    Ok(ptr)
+  }
+}
+
+pub const NAPI_AUTO_LENGTH: isize = -1;
+
+#[derive(Debug)]
+/// A wrapper around the raw c_char pointer to a C string.
+///
+/// This is useful when you want to return a C string to JavaScript directly via NAPI-RS function without converting it to Rust string or performing any memory allocation.
+///
+/// The `RawCString` doesn't implement `FromNapiValue`, so you can't convert a JavaScript String to it.
+pub struct RawCString {
+  length: isize,
+  inner: *const c_char,
+}
+
+impl RawCString {
+  /// Create a new `RawCString` from a raw pointer and length.
+  ///
+  /// If the inner string is null-terminated, you can pass `` as the length.
+  pub fn new(inner: *const c_char, length: isize) -> Self {
+    Self { inner, length }
+  }
+}
+
+impl ToNapiValue for RawCString {
+  unsafe fn to_napi_value(env: napi_sys::napi_env, val: Self) -> Result<napi_sys::napi_value> {
+    let mut ptr = ptr::null_mut();
+
+    check_status!(
+      napi_sys::napi_create_string_utf8(env, val.inner, val.length, &mut ptr),
+      "Failed to convert rust `&str` into napi `string`"
     )?;
 
     Ok(ptr)

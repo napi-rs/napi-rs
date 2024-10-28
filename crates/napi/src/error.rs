@@ -269,7 +269,7 @@ macro_rules! impl_object_methods {
           sys::napi_create_string_utf8(
             env,
             error_status.as_ptr().cast(),
-            status_len,
+            status_len as isize,
             &mut error_code,
           )
         };
@@ -278,7 +278,7 @@ macro_rules! impl_object_methods {
           sys::napi_create_string_utf8(
             env,
             self.0.reason.as_ptr().cast(),
-            reason_len,
+            reason_len as isize,
             &mut reason_string,
           )
         };

@@ -736,7 +736,7 @@ fn handle_call_js_cb_status(status: sys::napi_status, raw_env: sys::napi_env) {
         sys::napi_create_string_utf8(
           raw_env,
           error_code.as_ref().as_ptr().cast(),
-          error_code.as_ref().len(),
+          error_code.as_ref().len() as isize,
           &mut error_code_value,
         )
       },
@@ -749,7 +749,7 @@ fn handle_call_js_cb_status(status: sys::napi_status, raw_env: sys::napi_env) {
         sys::napi_create_string_utf8(
           raw_env,
           ERROR_MSG.as_ptr().cast(),
-          ERROR_MSG.len(),
+          ERROR_MSG.len() as isize,
           &mut error_msg_value,
         )
       },

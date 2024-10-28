@@ -29,19 +29,19 @@ mod napi1 {
       fn napi_create_string_latin1(
         env: napi_env,
         str_: *const c_char,
-        length: usize,
+        length: isize,
         result: *mut napi_value,
       ) -> napi_status;
       fn napi_create_string_utf8(
         env: napi_env,
         str_: *const c_char,
-        length: usize,
+        length: isize,
         result: *mut napi_value,
       ) -> napi_status;
       fn napi_create_string_utf16(
         env: napi_env,
         str_: *const u16,
-        length: usize,
+        length: isize,
         result: *mut napi_value,
       ) -> napi_status;
       fn napi_create_symbol(
@@ -52,7 +52,7 @@ mod napi1 {
       fn napi_create_function(
         env: napi_env,
         utf8name: *const c_char,
-        length: usize,
+        length: isize,
         cb: napi_callback,
         data: *mut c_void,
         result: *mut napi_value,
@@ -255,7 +255,7 @@ mod napi1 {
       fn napi_define_class(
         env: napi_env,
         utf8name: *const c_char,
-        length: usize,
+        length: isize,
         constructor: napi_callback,
         data: *mut c_void,
         property_count: usize,
@@ -416,9 +416,9 @@ mod napi1 {
       fn napi_module_register(mod_: *mut napi_module);
       fn napi_fatal_error(
         location: *const c_char,
-        location_len: usize,
+        location_len: isize,
         message: *const c_char,
-        message_len: usize,
+        message_len: isize,
       );
       fn napi_async_init(
         env: napi_env,
@@ -709,7 +709,7 @@ mod napi9 {
       fn node_api_symbol_for(
         env: napi_env,
         utf8name: *const c_char,
-        length: usize,
+        length: isize,
         result: *mut napi_value,
       ) -> napi_status;
       fn node_api_get_module_file_name(env: napi_env, result: *mut *const c_char) -> napi_status;
