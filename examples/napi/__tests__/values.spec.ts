@@ -202,6 +202,7 @@ import {
   Reader,
   withinAsyncRuntimeIfAvailable,
   errorMessageContainsNullByte,
+  returnCString,
 } from '../index.cjs'
 
 import { test } from './test.framework.js'
@@ -240,6 +241,7 @@ test('string', (t) => {
     roundtripStr('what up?!\u0000after the NULL'),
     'what up?!\u0000after the NULL',
   )
+  t.is(returnCString(), 'Hello from C string!')
 })
 
 test('array', (t) => {

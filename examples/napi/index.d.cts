@@ -671,6 +671,8 @@ export declare function receiveString(s: string): string
 
 export declare function referenceAsCallback(callback: (arg0: number, arg1: number) => number, arg0: number, arg1: number): number
 
+export declare function returnCString(): string
+
 export declare function returnEither(input: number): string | number
 
 export declare function returnEitherClass(input: number): number | JsClassForEither

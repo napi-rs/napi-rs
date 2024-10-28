@@ -97,6 +97,7 @@ pub(crate) static PRIMITIVE_TYPES: &[(&str, (&str, bool, bool))] = &[
   ("bool", ("boolean", false, false)),
   ("JsString", ("string", false, false)),
   ("String", ("string", false, false)),
+  ("RawCString", ("string", false, false)),
   ("str", ("string", false, false)),
   ("Latin1String", ("string", false, false)),
   ("Utf16String", ("string", false, false)),

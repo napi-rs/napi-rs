@@ -559,6 +559,7 @@ module.exports.receiveObjectWithClassField = nativeBinding.receiveObjectWithClas
 module.exports.receiveStrictObject = nativeBinding.receiveStrictObject
 module.exports.receiveString = nativeBinding.receiveString
 module.exports.referenceAsCallback = nativeBinding.referenceAsCallback
+module.exports.returnCString = nativeBinding.returnCString
 module.exports.returnEither = nativeBinding.returnEither
 module.exports.returnEitherClass = nativeBinding.returnEitherClass
 module.exports.returnFromSharedCrate = nativeBinding.returnFromSharedCrate
