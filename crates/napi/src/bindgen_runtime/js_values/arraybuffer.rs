@@ -1,4 +1,5 @@
 use std::ffi::c_void;
+use std::io::{self, Read};
 use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::ptr;
@@ -676,6 +677,13 @@ impl Uint8Array {
     };
     mem::forget(s);
     ret
+  }
+}
+
+impl Read for Uint8Array {
+  fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+    let mut inner: &[u8] = &*self;
+    Read::read(&mut inner, buf)
   }
 }
 
