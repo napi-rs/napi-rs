@@ -1,4 +1,4 @@
-FROM node:22-alpine
+FROM node:18-alpine
 
 ENV PATH="/aarch64-linux-musl-cross/bin:/usr/local/cargo/bin/rustup:/root/.cargo/bin:$PATH" \
   RUSTFLAGS="-C target-feature=-crt-static" \
