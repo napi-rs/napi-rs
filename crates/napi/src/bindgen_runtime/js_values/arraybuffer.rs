@@ -52,7 +52,10 @@ macro_rules! impl_typed_array {
       finalizer_notify: *mut dyn FnOnce(*mut $rust_type, usize),
     }
 
+    /// SAFETY: This is undefined behavior, as the JS side may always modify the underlying buffer,
+    /// without synchronization. Also see the docs for the `DerfMut` impl.
     unsafe impl Send for $name {}
+    unsafe impl Sync for $name {}
 
     impl Finalizer for $name {
       type RustType = $rust_type;
@@ -259,6 +262,9 @@ macro_rules! impl_typed_array {
       }
     }
 
+    /// SAFETY: This is literally undefined behavior. `Buffer::clone` allows you to create shared
+    /// access to the underlying data, but `as_mut` and `deref_mut` allow unsynchronized mutation of
+    /// that data (not to speak of the JS side having write access as well, at the same time).
     impl DerefMut for $name {
       fn deref_mut(&mut self) -> &mut Self::Target {
         self.as_mut()
