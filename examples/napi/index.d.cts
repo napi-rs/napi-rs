@@ -325,6 +325,8 @@ export declare function btreeSetToRust(set: Set<string>): void
 
 export declare function bufferPassThrough(buf: Buffer): Promise<Buffer>
 
+export declare function bufferWithAsyncBlock(buf: Buffer): Promise<number>
+
 export declare function buildThreadsafeFunctionFromFunction(callback: (arg0: number, arg1: number) => number): void
 
 export declare function buildThreadsafeFunctionFromFunctionCalleeHandle(callback: () => void): void

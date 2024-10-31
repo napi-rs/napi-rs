@@ -434,6 +434,7 @@ module.exports.bigintGetU64AsString = nativeBinding.bigintGetU64AsString
 module.exports.btreeSetToJs = nativeBinding.btreeSetToJs
 module.exports.btreeSetToRust = nativeBinding.btreeSetToRust
 module.exports.bufferPassThrough = nativeBinding.bufferPassThrough
+module.exports.bufferWithAsyncBlock = nativeBinding.bufferWithAsyncBlock
 module.exports.buildThreadsafeFunctionFromFunction = nativeBinding.buildThreadsafeFunctionFromFunction
 module.exports.buildThreadsafeFunctionFromFunctionCalleeHandle = nativeBinding.buildThreadsafeFunctionFromFunctionCalleeHandle
 module.exports.call0 = nativeBinding.call0

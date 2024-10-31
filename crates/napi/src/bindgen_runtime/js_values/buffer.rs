@@ -347,6 +347,7 @@ impl Drop for Buffer {
 /// SAFETY: This is undefined behavior, as the JS side may always modify the underlying buffer,
 /// without synchronization. Also see the docs for the `AsMut` impl.
 unsafe impl Send for Buffer {}
+unsafe impl Sync for Buffer {}
 
 impl Clone for Buffer {
   fn clone(&self) -> Self {

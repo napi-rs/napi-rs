@@ -359,29 +359,30 @@ function __napi_rs_initialize_modules(__napiInstance) {
   __napiInstance.exports['__napi_register__mutate_typed_array_363']?.()
   __napiInstance.exports['__napi_register__deref_uint8_array_364']?.()
   __napiInstance.exports['__napi_register__buffer_pass_through_365']?.()
-  __napiInstance.exports['__napi_register__array_buffer_pass_through_366']?.()
-  __napiInstance.exports['__napi_register__accept_slice_367']?.()
-  __napiInstance.exports['__napi_register__accept_arraybuffer_368']?.()
-  __napiInstance.exports['__napi_register__create_arraybuffer_369']?.()
-  __napiInstance.exports['__napi_register__u8_array_to_array_370']?.()
-  __napiInstance.exports['__napi_register__i8_array_to_array_371']?.()
-  __napiInstance.exports['__napi_register__u16_array_to_array_372']?.()
-  __napiInstance.exports['__napi_register__i16_array_to_array_373']?.()
-  __napiInstance.exports['__napi_register__u32_array_to_array_374']?.()
-  __napiInstance.exports['__napi_register__i32_array_to_array_375']?.()
-  __napiInstance.exports['__napi_register__f32_array_to_array_376']?.()
-  __napiInstance.exports['__napi_register__f64_array_to_array_377']?.()
-  __napiInstance.exports['__napi_register__u64_array_to_array_378']?.()
-  __napiInstance.exports['__napi_register__i64_array_to_array_379']?.()
-  __napiInstance.exports['__napi_register__accept_uint8_clamped_slice_380']?.()
-  __napiInstance.exports['__napi_register__accept_uint8_clamped_slice_and_buffer_slice_381']?.()
-  __napiInstance.exports['__napi_register__AsyncBuffer_impl_382']?.()
-  __napiInstance.exports['__napi_register__async_reduce_buffer_383']?.()
-  __napiInstance.exports['__napi_register__async_buffer_to_array_384']?.()
-  __napiInstance.exports['__napi_register__u_init8_array_from_string_385']?.()
-  __napiInstance.exports['__napi_register__AsyncReader_impl_386']?.()
-  __napiInstance.exports['__napi_register__Reader_struct_387']?.()
-  __napiInstance.exports['__napi_register__Reader_impl_389']?.()
+  __napiInstance.exports['__napi_register__buffer_with_async_block_366']?.()
+  __napiInstance.exports['__napi_register__array_buffer_pass_through_367']?.()
+  __napiInstance.exports['__napi_register__accept_slice_368']?.()
+  __napiInstance.exports['__napi_register__accept_arraybuffer_369']?.()
+  __napiInstance.exports['__napi_register__create_arraybuffer_370']?.()
+  __napiInstance.exports['__napi_register__u8_array_to_array_371']?.()
+  __napiInstance.exports['__napi_register__i8_array_to_array_372']?.()
+  __napiInstance.exports['__napi_register__u16_array_to_array_373']?.()
+  __napiInstance.exports['__napi_register__i16_array_to_array_374']?.()
+  __napiInstance.exports['__napi_register__u32_array_to_array_375']?.()
+  __napiInstance.exports['__napi_register__i32_array_to_array_376']?.()
+  __napiInstance.exports['__napi_register__f32_array_to_array_377']?.()
+  __napiInstance.exports['__napi_register__f64_array_to_array_378']?.()
+  __napiInstance.exports['__napi_register__u64_array_to_array_379']?.()
+  __napiInstance.exports['__napi_register__i64_array_to_array_380']?.()
+  __napiInstance.exports['__napi_register__accept_uint8_clamped_slice_381']?.()
+  __napiInstance.exports['__napi_register__accept_uint8_clamped_slice_and_buffer_slice_382']?.()
+  __napiInstance.exports['__napi_register__AsyncBuffer_impl_383']?.()
+  __napiInstance.exports['__napi_register__async_reduce_buffer_384']?.()
+  __napiInstance.exports['__napi_register__async_buffer_to_array_385']?.()
+  __napiInstance.exports['__napi_register__u_init8_array_from_string_386']?.()
+  __napiInstance.exports['__napi_register__AsyncReader_impl_387']?.()
+  __napiInstance.exports['__napi_register__Reader_struct_388']?.()
+  __napiInstance.exports['__napi_register__Reader_impl_390']?.()
 }
 export const Animal = __napiModule.exports.Animal
 export const AnimalWithDefaultConstructor = __napiModule.exports.AnimalWithDefaultConstructor
@@ -453,6 +454,7 @@ export const bigintGetU64AsString = __napiModule.exports.bigintGetU64AsString
 export const btreeSetToJs = __napiModule.exports.btreeSetToJs
 export const btreeSetToRust = __napiModule.exports.btreeSetToRust
 export const bufferPassThrough = __napiModule.exports.bufferPassThrough
+export const bufferWithAsyncBlock = __napiModule.exports.bufferWithAsyncBlock
 export const buildThreadsafeFunctionFromFunction = __napiModule.exports.buildThreadsafeFunctionFromFunction
 export const buildThreadsafeFunctionFromFunctionCalleeHandle = __napiModule.exports.buildThreadsafeFunctionFromFunctionCalleeHandle
 export const call0 = __napiModule.exports.call0
