@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use napi::{bindgen_prelude::*, JsArrayBuffer};
 
 #[napi]
@@ -71,6 +73,16 @@ fn deref_uint8_array(a: Uint8Array, b: Uint8ClampedArray) -> u32 {
 #[napi]
 async fn buffer_pass_through(buf: Buffer) -> Result<Buffer> {
   Ok(buf)
+}
+
+#[napi]
+fn buffer_with_async_block(env: Env, buf: Arc<Buffer>) -> Result<AsyncBlock<u32>> {
+  let buf_to_dispose = buf.clone();
+  AsyncBlockBuilder::with(async move { Ok(buf.len() as u32) })
+    .with_dispose(move |_| {
+      drop(buf_to_dispose);
+    })
+    .build(env)
 }
 
 #[napi]

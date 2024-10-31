@@ -6,7 +6,9 @@ use std::{
 
 use tokio::runtime::Runtime;
 
-use crate::{sys, Error, JsDeferred, JsUnknown, NapiValue, Result};
+use crate::{
+  bindgen_runtime::ToNapiValue, sys, Env, Error, JsDeferred, JsUnknown, NapiValue, Result,
+};
 
 fn create_runtime() -> Option<Runtime> {
   #[cfg(not(target_family = "wasm"))]
@@ -220,4 +222,56 @@ pub fn execute_tokio_future<
   }
 
   Ok(promise.0.value)
+}
+
+pub struct AsyncBlockBuilder<
+  V: ToNapiValue + Send + 'static,
+  F: Future<Output = Result<V>> + Send + 'static,
+  Dispose: FnOnce(Env) + 'static,
+> {
+  inner: F,
+  dispose: Option<Dispose>,
+}
+
+impl<
+    V: ToNapiValue + Send + 'static,
+    F: Future<Output = Result<V>> + Send + 'static,
+    Dispose: FnOnce(Env),
+  > AsyncBlockBuilder<V, F, Dispose>
+{
+  pub fn with(inner: F) -> Self {
+    Self {
+      inner,
+      dispose: None,
+    }
+  }
+
+  pub fn with_dispose(mut self, dispose: Dispose) -> Self {
+    self.dispose = Some(dispose);
+    self
+  }
+
+  pub fn build(self, env: Env) -> Result<AsyncBlock<V>> {
+    Ok(AsyncBlock {
+      inner: execute_tokio_future(env.0, self.inner, |env, v| unsafe {
+        if let Some(dispose) = self.dispose {
+          let env = Env::from_raw(env);
+          dispose(env);
+        }
+        V::to_napi_value(env, v)
+      })?,
+      _phantom: PhantomData,
+    })
+  }
+}
+
+pub struct AsyncBlock<T: ToNapiValue + Send + 'static> {
+  inner: sys::napi_value,
+  _phantom: PhantomData<T>,
+}
+
+impl<T: ToNapiValue + Send + 'static> ToNapiValue for AsyncBlock<T> {
+  unsafe fn to_napi_value(_: napi_sys::napi_env, val: Self) -> Result<napi_sys::napi_value> {
+    Ok(val.inner)
+  }
 }

@@ -410,6 +410,13 @@ pub fn ty_to_ts_type(
               Some((rust_ty, false))
             }
           });
+        } else if rust_ty == "AsyncBlock" {
+          if let Some(arg) = args.first() {
+            ts_ty = Some((format!("Promise<{}>", arg.0), false));
+          } else {
+            // Not NAPI-RS `AsyncBlock`
+            ts_ty = Some((rust_ty, false));
+          }
         } else if let Some(&(known_ty, _, _)) = KNOWN_TYPES.get(rust_ty.as_str()) {
           if rust_ty == "()" && is_return_ty {
             ts_ty = Some(("void".to_owned(), false));
