@@ -15,17 +15,13 @@ independent = true
 [features]
 noop = []
 strict = []
-type-def = ["regex", "semver"]
+type-def = ["semver"]
 
 [dependencies]
 convert_case = "0.6"
 proc-macro2 = "1"
 quote = "1"
 syn = { version = "2", features = ["fold", "full", "extra-traits"] }
-
-[dependencies.regex]
-optional = true
-version = "1"
 
 [dependencies.semver]
 optional = true
