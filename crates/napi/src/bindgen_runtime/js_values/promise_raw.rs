@@ -1,3 +1,4 @@
+use std::ffi::c_void;
 use std::marker::PhantomData;
 use std::ptr;
 
@@ -38,7 +39,8 @@ impl<T: FromNapiValue> PromiseRaw<T> {
       sys::napi_get_named_property(self.env, self.inner, THEN.as_ptr().cast(), &mut then_fn)
     })?;
     let mut then_callback = ptr::null_mut();
-    let rust_cb = Box::into_raw(Box::new(cb));
+    let excuted = Box::into_raw(Box::new(false));
+    let rust_cb = Box::into_raw(Box::new((cb, excuted)));
     check_status!(
       unsafe {
         sys::napi_create_function(
@@ -64,7 +66,23 @@ impl<T: FromNapiValue> PromiseRaw<T> {
           &mut new_promise,
         )
       },
-      "Call then callback on PromiseRaw failed"
+      "Call the PromiseRaw::then failed"
+    )?;
+
+    // use `napi_wrap` to trigger the finalizer after the Promise is GCed
+    // Note: we don't use `napi_add_finalizer` here because it requires `napi5`
+    check_status!(
+      unsafe {
+        sys::napi_wrap(
+          self.env,
+          new_promise,
+          excuted.cast(),
+          Some(promise_callback_finalizer::<T, U, Callback>),
+          rust_cb.cast(),
+          ptr::null_mut(),
+        )
+      },
+      "Wrap finalizer for PromiseRaw failed"
     )?;
 
     Ok(PromiseRaw::<U> {
@@ -87,28 +105,51 @@ impl<T: FromNapiValue> PromiseRaw<T> {
       sys::napi_get_named_property(self.env, self.inner, CATCH.as_ptr().cast(), &mut catch_fn)
     })?;
     let mut catch_callback = ptr::null_mut();
-    let rust_cb = Box::into_raw(Box::new(cb));
-    check_status!(unsafe {
-      sys::napi_create_function(
-        self.env,
-        CATCH.as_ptr().cast(),
-        5,
-        Some(raw_promise_catch_callback::<E, U, Callback>),
-        rust_cb.cast(),
-        &mut catch_callback,
-      )
-    })?;
+    let excuted = Box::into_raw(Box::new(false));
+    let rust_cb = Box::into_raw(Box::new((cb, excuted)));
+    check_status!(
+      unsafe {
+        sys::napi_create_function(
+          self.env,
+          CATCH.as_ptr().cast(),
+          5,
+          Some(raw_promise_catch_callback::<E, U, Callback>),
+          rust_cb.cast(),
+          &mut catch_callback,
+        )
+      },
+      "Create catch function for PromiseRaw failed"
+    )?;
     let mut new_promise = ptr::null_mut();
-    check_status!(unsafe {
-      sys::napi_call_function(
-        self.env,
-        self.inner,
-        catch_fn,
-        1,
-        [catch_callback].as_mut_ptr().cast(),
-        &mut new_promise,
-      )
-    })?;
+    check_status!(
+      unsafe {
+        sys::napi_call_function(
+          self.env,
+          self.inner,
+          catch_fn,
+          1,
+          [catch_callback].as_mut_ptr().cast(),
+          &mut new_promise,
+        )
+      },
+      "Call the PromiseRaw::catch failed"
+    )?;
+
+    // use `napi_wrap` to trigger the finalizer after the Promise is GCed
+    // Note: we don't use `napi_add_finalizer` here because it requires `napi5`
+    check_status!(
+      unsafe {
+        sys::napi_wrap(
+          self.env,
+          new_promise,
+          excuted.cast(),
+          Some(promise_callback_finalizer::<E, U, Callback>),
+          rust_cb.cast(),
+          ptr::null_mut(),
+        )
+      },
+      "Wrap finalizer for PromiseRaw failed"
+    )?;
 
     Ok(PromiseRaw::<U> {
       env: self.env,
@@ -285,7 +326,7 @@ where
     .unwrap_or_else(|err| throw_error(env, err, "Error in Promise.then"))
 }
 
-#[inline(always)]
+#[inline]
 fn handle_then_callback<T, U, Cb>(
   env: sys::napi_env,
   cbinfo: sys::napi_callback_info,
@@ -311,12 +352,14 @@ where
     "Get callback info from then callback failed"
   )?;
   let then_value: T = unsafe { FromNapiValue::from_napi_value(env, callback_values[0]) }?;
-  let cb: Box<Cb> = unsafe { Box::from_raw(rust_cb.cast()) };
+  let cb: Box<(Cb, *mut bool)> = unsafe { Box::from_raw(rust_cb.cast()) };
+  let executed = unsafe { Box::leak(Box::from_raw(cb.1)) };
+  *executed = true;
 
   unsafe {
     U::to_napi_value(
       env,
-      cb(CallbackContext {
+      cb.0(CallbackContext {
         env: Env(env),
         value: then_value,
       })?,
@@ -363,12 +406,15 @@ where
     "Get callback info from catch callback failed"
   )?;
   let catch_value: E = unsafe { FromNapiValue::from_napi_value(env, callback_values[0]) }?;
-  let cb: Box<Cb> = unsafe { Box::from_raw(rust_cb.cast()) };
+  let cb: Box<(Cb, *mut bool)> = unsafe { Box::from_raw(rust_cb.cast()) };
+
+  let excuted = unsafe { Box::leak(Box::from_raw(cb.1)) };
+  *excuted = true;
 
   unsafe {
     U::to_napi_value(
       env,
-      cb(CallbackContext {
+      cb.0(CallbackContext {
         env: Env(env),
         value: catch_value,
       })?,
@@ -460,4 +506,18 @@ fn throw_error(env: sys::napi_env, err: Error, default_msg: &str) -> sys::napi_v
     sys::napi_throw(env, err);
   };
   ptr::null_mut()
+}
+
+extern "C" fn promise_callback_finalizer<T, U, Cb>(
+  _env: sys::napi_env,
+  finalize_data: *mut c_void,
+  finalize_hint: *mut c_void,
+) where
+  T: FromNapiValue,
+  U: ToNapiValue,
+  Cb: FnOnce(CallbackContext<T>) -> Result<U>,
+{
+  if !unsafe { *Box::from_raw(finalize_data.cast()) } {
+    drop(unsafe { Box::from_raw(finalize_hint.cast::<Cb>()) });
+  }
 }
