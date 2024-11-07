@@ -28,9 +28,15 @@ impl<T: NapiRaw> Ref<T> {
   }
 
   pub fn unref(&mut self, env: &Env) -> Result<()> {
-    check_status!(unsafe { sys::napi_reference_unref(env.0, self.raw_ref, &mut 0) })?;
+    check_status!(
+      unsafe { sys::napi_reference_unref(env.0, self.raw_ref, &mut 0) },
+      "unref Ref failed"
+    )?;
 
-    check_status!(unsafe { sys::napi_delete_reference(env.0, self.raw_ref) })?;
+    check_status!(
+      unsafe { sys::napi_delete_reference(env.0, self.raw_ref) },
+      "delete Ref failed"
+    )?;
     self.taken = true;
     Ok(())
   }
