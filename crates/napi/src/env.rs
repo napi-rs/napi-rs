@@ -855,17 +855,12 @@ impl Env {
     }
   }
 
+  #[deprecated(since = "3.0.0", note = "Please use `Ref::new` instead")]
   /// This API create a new reference with the initial 1 ref count to the Object passed in.
   pub fn create_reference<T>(&self, value: &T) -> Result<Ref<T>>
   where
     T: NapiRaw,
   {
-    let mut raw_ref = ptr::null_mut();
-    let initial_ref_count = 1;
-    let raw_value = unsafe { value.raw() };
-    check_status!(unsafe {
-      sys::napi_create_reference(self.0, raw_value, initial_ref_count, &mut raw_ref)
-    })?;
     Ref::new(self, value)
   }
 
