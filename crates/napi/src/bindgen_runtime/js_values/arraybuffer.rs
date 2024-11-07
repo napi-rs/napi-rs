@@ -1,5 +1,4 @@
 use std::ffi::c_void;
-use std::io::{self, Read};
 use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::ptr;
@@ -33,8 +32,6 @@ trait Finalizer {
 
   fn data_managed_type(&self) -> &DataManagedType;
 
-  fn len(&self) -> &usize;
-
   fn ref_count(&self) -> usize;
 }
 
@@ -66,10 +63,6 @@ macro_rules! impl_typed_array {
 
       fn data_managed_type(&self) -> &DataManagedType {
         &self.data_managed_type
-      }
-
-      fn len(&self) -> &usize {
-        &self.length
       }
 
       fn ref_count(&self) -> usize {
@@ -604,14 +597,14 @@ macro_rules! impl_from_slice {
   };
 }
 
-unsafe extern "C" fn finalizer<Data, T: Finalizer<RustType = Data>>(
+unsafe extern "C" fn finalizer<Data, T: Finalizer<RustType = Data> + AsRef<[Data]>>(
   _env: sys::napi_env,
   finalize_data: *mut c_void,
   finalize_hint: *mut c_void,
 ) {
   let data = unsafe { *Box::from_raw(finalize_hint as *mut T) };
   let data_managed_type = *data.data_managed_type();
-  let length = *data.len();
+  let length = data.as_ref().len();
   match data_managed_type {
     DataManagedType::Vm => {
       // do nothing
@@ -683,13 +676,6 @@ impl Uint8Array {
     };
     mem::forget(s);
     ret
-  }
-}
-
-impl Read for Uint8Array {
-  fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-    let mut inner: &[u8] = &*self;
-    Read::read(&mut inner, buf)
   }
 }
 
