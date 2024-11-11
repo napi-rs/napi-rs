@@ -203,6 +203,7 @@ import {
   withinAsyncRuntimeIfAvailable,
   errorMessageContainsNullByte,
   returnCString,
+  receiveBufferSliceWithLifetime,
 } from '../index.cjs'
 
 import { test } from './test.framework.js'
@@ -613,6 +614,9 @@ test('object', (t) => {
         'Failed to convert JavaScript value `Number 1 ` into rust type `String` on AllOptionalObject.name',
     },
   )
+
+  t.is(receiveBufferSliceWithLifetime({ data: 'foo' }), 3)
+  t.is(receiveBufferSliceWithLifetime({ data: Buffer.from('barz') }), 4)
 })
 
 test('get str from object', (t) => {

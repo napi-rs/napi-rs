@@ -445,6 +445,10 @@ export declare const enum CustomStringEnum {
   Baz = 'Baz'
 }
 
+export interface Data {
+  data: string | Buffer
+}
+
 export interface DatesWithTimeZone {
   start: Date
   end?: Date
@@ -656,6 +660,8 @@ export declare function readFileAsync(path: string): Promise<Buffer>
 export declare function readPackageJson(): PackageJson
 
 export declare function receiveAllOptionalObject(obj?: AllOptionalObject | undefined | null): void
+
+export declare function receiveBufferSliceWithLifetime(data: Data): number
 
 export declare function receiveClassOrNumber(either: number | JsClassForEither): number
 
