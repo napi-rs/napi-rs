@@ -148,3 +148,16 @@ fn return_object_only_to_js() -> ObjectOnlyToJs {
 
 #[napi(object)]
 pub struct TupleObject(pub u32, pub u32);
+
+#[napi(object)]
+pub struct Data<'s> {
+  pub data: Either<String, BufferSlice<'s>>,
+}
+
+#[napi]
+pub fn receive_buffer_slice_with_lifetime(data: Data) -> u32 {
+  (match data.data {
+    Either::A(s) => s.len(),
+    Either::B(d) => d.len(),
+  }) as u32
+}

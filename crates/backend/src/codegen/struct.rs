@@ -523,7 +523,8 @@ impl NapiStruct {
 
     for field in obj.fields.iter() {
       let field_js_name = &field.js_name;
-      let ty = &field.ty;
+      let mut ty = field.ty.clone();
+      remove_lifetime_in_type(&mut ty);
       let is_optional_field = if let syn::Type::Path(syn::TypePath {
         path: syn::Path { segments, .. },
         ..
@@ -913,7 +914,8 @@ impl NapiStruct {
       let mut field_destructions = vec![];
       for field in variant.fields.iter() {
         let field_js_name = &field.js_name;
-        let ty = &field.ty;
+        let mut ty = field.ty.clone();
+        remove_lifetime_in_type(&mut ty);
         let is_optional_field = if let syn::Type::Path(syn::TypePath {
           path: syn::Path { segments, .. },
           ..
@@ -1200,5 +1202,23 @@ pub fn rm_raw_prefix(s: &str) -> &str {
     stripped
   } else {
     s
+  }
+}
+
+fn remove_lifetime_in_type(ty: &mut syn::Type) {
+  if let syn::Type::Path(syn::TypePath { path, .. }) = ty {
+    path.segments.iter_mut().for_each(|segment| {
+      if let syn::PathArguments::AngleBracketed(ref mut args) = segment.arguments {
+        args.args.iter_mut().for_each(|arg| match arg {
+          syn::GenericArgument::Type(ref mut ty) => {
+            remove_lifetime_in_type(ty);
+          }
+          syn::GenericArgument::Lifetime(lifetime) => {
+            lifetime.ident = Ident::new("_", lifetime.ident.span());
+          }
+          _ => {}
+        });
+      }
+    });
   }
 }
