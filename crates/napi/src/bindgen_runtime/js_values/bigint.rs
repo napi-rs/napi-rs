@@ -161,40 +161,37 @@ impl ToNapiValue for BigInt {
   }
 }
 
-impl ToNapiValue for i128 {
-  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> crate::Result<sys::napi_value> {
-    let mut raw_value = ptr::null_mut();
-    let sign_bit = i32::from(val <= 0);
-    if cfg!(target_endian = "little") {
-      let words = &val as *const i128 as *const u64;
-      check_status!(unsafe {
-        sys::napi_create_bigint_words(env, sign_bit, 2, words, &mut raw_value)
-      })?;
-      return Ok(raw_value);
-    }
-
-    let arr: [u64; 2] = [val as _, (val >> 64) as _];
-    let words = &arr as *const u64;
+pub(crate) unsafe fn u128_with_sign_to_napi_value(
+  env: sys::napi_env,
+  val: u128,
+  sign_bit: i32,
+) -> crate::Result<sys::napi_value> {
+  let mut raw_value = ptr::null_mut();
+  if cfg!(target_endian = "little") {
+    let words = &val as *const u128 as *const u64;
     check_status!(unsafe {
       sys::napi_create_bigint_words(env, sign_bit, 2, words, &mut raw_value)
     })?;
-    Ok(raw_value)
+    return Ok(raw_value);
+  }
+
+  let arr: [u64; 2] = [val as _, (val >> 64) as _];
+  let words = &arr as *const u64;
+  check_status!(unsafe { sys::napi_create_bigint_words(env, sign_bit, 2, words, &mut raw_value) })?;
+  Ok(raw_value)
+}
+
+impl ToNapiValue for i128 {
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> crate::Result<sys::napi_value> {
+    let sign_bit = i32::from(val <= 0);
+    let val = val.unsigned_abs();
+    u128_with_sign_to_napi_value(env, val, sign_bit)
   }
 }
 
 impl ToNapiValue for u128 {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> crate::Result<sys::napi_value> {
-    let mut raw_value = ptr::null_mut();
-    if cfg!(target_endian = "little") {
-      let words = &val as *const u128 as *const u64;
-      check_status!(unsafe { sys::napi_create_bigint_words(env, 0, 2, words, &mut raw_value) })?;
-      return Ok(raw_value);
-    }
-
-    let arr: [u64; 2] = [val as _, (val >> 64) as _];
-    let words = &arr as *const u64;
-    check_status!(unsafe { sys::napi_create_bigint_words(env, 0, 2, words, &mut raw_value) })?;
-    Ok(raw_value)
+    u128_with_sign_to_napi_value(env, val, 0)
   }
 }
 
