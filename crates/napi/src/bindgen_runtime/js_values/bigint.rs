@@ -90,28 +90,39 @@ impl BigInt {
   }
 
   /// (value, lossless)
-  /// get the first word of the BigInt as `i64`
+  /// get the first word of the BigInt as `i64` with the sign applied
   /// return true if the value is lossless
   /// or the value is truncated
   pub fn get_i64(&self) -> (i64, bool) {
-    let val: i64 = self.words[0] as i64;
-    (val, val as u64 == self.words[0] && self.words.len() == 1)
+    if self.sign_bit && self.words[0] == i64::MIN.unsigned_abs() {
+      return (i64::MIN, self.words.len() == 1);
+    }
+    (
+      self.words[0] as i64 * if self.sign_bit { -1 } else { 1 },
+      self.words.len() == 1 && self.words[0] as i64 >= 0,
+    )
   }
 
   /// (value, lossless)
-  /// get the first two words of the BigInt as `i128`
+  /// get the first two words of the BigInt as `i128` with the sign applied
   /// return true if the value is lossless
   /// or the value is truncated
   pub fn get_i128(&self) -> (i128, bool) {
     let len = self.words.len();
     if len == 1 {
-      (self.words[0] as i128, false)
+      (
+        self.words[0] as i128 * if self.sign_bit { -1 } else { 1 },
+        true,
+      )
     } else {
-      let mut val = self.words[0] as i128 + ((self.words[1] as i128) << 64);
-      if self.sign_bit {
-        val = -val;
+      let val = self.words[0] as u128 + ((self.words[1] as u128) << 64);
+      if self.sign_bit && val == i128::MIN.unsigned_abs() {
+        return (i128::MIN, len > 2);
       }
-      (val, len > 2)
+      (
+        val as i128 * if self.sign_bit { -1 } else { 1 },
+        len == 2 && self.words[1] as i64 >= 0,
+      )
     }
   }
 
@@ -122,10 +133,10 @@ impl BigInt {
   pub fn get_u128(&self) -> (bool, u128, bool) {
     let len = self.words.len();
     if len == 1 {
-      (self.sign_bit, self.words[0] as u128, false)
+      (self.sign_bit, self.words[0] as u128, true)
     } else {
       let val = self.words[0] as u128 + ((self.words[1] as u128) << 64);
-      (self.sign_bit, val, len > 2)
+      (self.sign_bit, val, len == 2)
     }
   }
 }
