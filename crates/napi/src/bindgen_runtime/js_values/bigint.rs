@@ -94,7 +94,7 @@ impl BigInt {
   /// return true if the value is lossless
   /// or the value is truncated
   pub fn get_i64(&self) -> (i64, bool) {
-    let val = self.words[0] as i64;
+    let val: i64 = self.words[0] as i64;
     (val, val as u64 == self.words[0] && self.words.len() == 1)
   }
 
@@ -223,7 +223,7 @@ impl From<i64> for BigInt {
   fn from(val: i64) -> Self {
     BigInt {
       sign_bit: val < 0,
-      words: vec![val as u64],
+      words: vec![val.unsigned_abs()],
     }
   }
 }
@@ -240,7 +240,7 @@ impl From<u64> for BigInt {
 impl From<i128> for BigInt {
   fn from(val: i128) -> Self {
     let sign_bit = val < 0;
-    let val = if sign_bit { -val } else { val };
+    let val = val.unsigned_abs();
     BigInt {
       sign_bit,
       words: vec![val as _, (val >> 64) as _],
