@@ -8,8 +8,24 @@ use instance::*;
 
 pub fn register_js(exports: &mut JsObject) -> Result<()> {
   exports.create_named_method("testCreateBigintFromI64", test_create_bigint_from_i64)?;
+  exports.create_named_method(
+    "testCreateBigintFromMinI64",
+    test_create_bigint_from_min_i64,
+  )?;
+  exports.create_named_method(
+    "testCreateBigintFromNegativeI64",
+    test_create_bigint_from_negative_i64,
+  )?;
   exports.create_named_method("testCreateBigintFromU64", test_create_bigint_from_u64)?;
   exports.create_named_method("testCreateBigintFromI128", test_create_bigint_from_i128)?;
+  exports.create_named_method(
+    "testCreateBigintFromMinI128",
+    test_create_bigint_from_min_i128,
+  )?;
+  exports.create_named_method(
+    "testCreateBigintFromNegativeI128",
+    test_create_bigint_from_negative_i128,
+  )?;
   exports.create_named_method("testCreateBigintFromU128", test_create_bigint_from_u128)?;
   exports.create_named_method("testCreateBigintFromWords", test_create_bigint_from_words)?;
   exports.create_named_method("testGetBigintI64", test_get_bigint_i64)?;
