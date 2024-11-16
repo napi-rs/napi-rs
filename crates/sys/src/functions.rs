@@ -739,8 +739,8 @@ mod experimental {
       fn node_api_create_external_string_latin1(
         env: napi_env,
         str_: *const c_char,
-        length: usize,
-        napi_finalize: napi_finalize,
+        length: isize,
+        napi_finalize: node_api_basic_finalize,
         finalize_hint: *mut c_void,
         result: *mut napi_value,
         copied: *mut bool,
@@ -749,11 +749,47 @@ mod experimental {
       fn node_api_create_external_string_utf16(
         env: napi_env,
         str_: *const u16,
-        length: usize,
-        napi_finalize: napi_finalize,
+        length: isize,
+        napi_finalize: node_api_basic_finalize,
         finalize_hint: *mut c_void,
         result: *mut napi_value,
         copied: *mut bool,
+      ) -> napi_status;
+
+      fn node_api_create_buffer_from_arraybuffer(
+        env: napi_env,
+        arraybuffer: napi_value,
+        byte_offset: usize,
+        byte_length: usize,
+        result: *mut napi_value,
+      ) -> napi_status;
+
+      fn node_api_create_property_key_utf16(
+        env: napi_env,
+        str_: *const u16,
+        length: isize,
+        result: *mut napi_value,
+      ) -> napi_status;
+
+      fn node_api_create_property_key_utf8(
+        env: napi_env,
+        str_: *const c_char,
+        length: isize,
+        result: *mut napi_value,
+      ) -> napi_status;
+
+      fn node_api_create_property_key_latin1(
+        env: napi_env,
+        str_: *const c_char,
+        length: isize,
+        result: *mut napi_value,
+      ) -> napi_status;
+
+      fn node_api_post_finalizer(
+        env: node_api_basic_env,
+        finalize_cb: napi_finalize,
+        finalize_data: *mut c_void,
+        finalize_hint: *mut c_void,
       ) -> napi_status;
     }
   );

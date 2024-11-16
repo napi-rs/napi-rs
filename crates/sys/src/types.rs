@@ -301,3 +301,22 @@ pub struct napi_module {
   pub nm_priv: *mut c_void,
   pub reserved: [*mut c_void; 4usize],
 }
+
+#[cfg(feature = "experimental")]
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct node_api_basic_env__ {
+  _unused: [u8; 0],
+}
+
+#[cfg(feature = "experimental")]
+pub type node_api_basic_env = *mut node_api_basic_env__;
+
+#[cfg(feature = "experimental")]
+pub type node_api_basic_finalize = Option<
+  unsafe extern "C" fn(
+    env: node_api_basic_env,
+    finalize_data: *mut c_void,
+    finalize_hint: *mut c_void,
+  ),
+>;

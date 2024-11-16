@@ -56,6 +56,8 @@ tokio_sync = ["tokio/sync"]
 tokio_test_util = ["tokio/test-util"]
 tokio_time = ["tokio/time"]
 dyn-symbols = ["napi-sys/dyn-symbols"]
+# Add a runtime Node version detection
+node_version_detect = []
 
 [dependencies]
 bitflags = "2"
