@@ -2,6 +2,8 @@
 use std::collections::HashSet;
 #[cfg(not(feature = "noop"))]
 use std::ffi::CStr;
+#[cfg(all(not(feature = "noop"), feature = "node_version_detect"))]
+use std::mem::MaybeUninit;
 #[cfg(not(feature = "noop"))]
 use std::ptr;
 #[cfg(all(
@@ -23,6 +25,13 @@ use crate::{sys, Property, Result};
 pub type ExportRegisterCallback = unsafe fn(sys::napi_env) -> Result<sys::napi_value>;
 pub type ModuleExportsCallback =
   unsafe fn(env: sys::napi_env, exports: sys::napi_value) -> Result<()>;
+
+#[cfg(feature = "node_version_detect")]
+pub static mut NODE_VERSION_MAJOR: u32 = 0;
+#[cfg(feature = "node_version_detect")]
+pub static mut NODE_VERSION_MINOR: u32 = 0;
+#[cfg(feature = "node_version_detect")]
+pub static mut NODE_VERSION_PATCH: u32 = 0;
 
 #[repr(transparent)]
 pub(crate) struct PersistedPerInstanceHashMap<K, V>(RwLock<HashMap<K, V>>);
@@ -215,6 +224,21 @@ pub unsafe extern "C" fn napi_register_module_v1(
   ))]
   unsafe {
     sys::setup();
+  }
+  #[cfg(feature = "node_version_detect")]
+  {
+    let mut node_version = MaybeUninit::uninit();
+    check_status_or_throw!(
+      env,
+      unsafe { sys::napi_get_node_version(env, node_version.as_mut_ptr()) },
+      "Failed to get node version"
+    );
+    let node_version = *node_version.assume_init();
+    unsafe {
+      NODE_VERSION_MAJOR = node_version.major;
+      NODE_VERSION_MINOR = node_version.minor;
+      NODE_VERSION_PATCH = node_version.patch;
+    };
   }
   if IS_FIRST_MODULE.load(Ordering::SeqCst) {
     IS_FIRST_MODULE.store(false, Ordering::SeqCst);

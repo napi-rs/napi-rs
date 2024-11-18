@@ -38,6 +38,7 @@ napi = { path = "../../crates/napi", default-features = false, features = [
   "tokio_fs",
   "tokio_macros",
   "deferred_trace",
+  "node_version_detect",
 ] }
 tokio = { version = "1", features = ["rt", "time"] }
 
