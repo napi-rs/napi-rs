@@ -204,6 +204,7 @@ import {
   errorMessageContainsNullByte,
   returnCString,
   receiveBufferSliceWithLifetime,
+  generateFunctionAndCallIt,
 } from '../index.cjs'
 
 import { test } from './test.framework.js'
@@ -617,6 +618,9 @@ test('object', (t) => {
 
   t.is(receiveBufferSliceWithLifetime({ data: 'foo' }), 3)
   t.is(receiveBufferSliceWithLifetime({ data: Buffer.from('barz') }), 4)
+
+  const data = generateFunctionAndCallIt()
+  t.is(data.handle(), 1)
 })
 
 test('get str from object', (t) => {
