@@ -71,25 +71,28 @@ impl ToTypeDef for NapiFn {
       return None;
     }
 
-    let def = format!(
-      r#"{prefix} {name}{generic}({args}){ret}"#,
-      prefix = self.gen_ts_func_prefix(),
-      name = &self.js_name,
-      generic = &self
-        .ts_generic_types
-        .as_ref()
-        .map(|g| format!("<{}>", g))
-        .unwrap_or_default(),
-      args = self
-        .ts_args_type
-        .clone()
-        .unwrap_or_else(|| self.gen_ts_func_args()),
-      ret = self
-        .ts_return_type
-        .clone()
-        .map(|t| format!(": {}", t))
-        .unwrap_or_else(|| self.gen_ts_func_ret()),
-    );
+    let prefix = self.gen_ts_func_prefix();
+    let def = match self.ts_type.as_ref() {
+      Some(ts_type) => format!("{prefix} {name}{ts_type}", name = self.js_name),
+      None => format!(
+        r#"{prefix} {name}{generic}({args}){ret}"#,
+        name = &self.js_name,
+        generic = &self
+          .ts_generic_types
+          .as_ref()
+          .map(|g| format!("<{}>", g))
+          .unwrap_or_default(),
+        args = self
+          .ts_args_type
+          .clone()
+          .unwrap_or_else(|| self.gen_ts_func_args()),
+        ret = self
+          .ts_return_type
+          .clone()
+          .map(|t| format!(": {}", t))
+          .unwrap_or_else(|| self.gen_ts_func_ret()),
+      ),
+    };
 
     Some(TypeDef {
       kind: "fn".to_owned(),
