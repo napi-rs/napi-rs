@@ -340,30 +340,49 @@ pub fn ty_to_ts_type(
       if let Some(syn::PathSegment { ident, arguments }) = path.segments.last() {
         let rust_ty = ident.to_string();
         let is_ts_union_type = is_ts_union_type(&rust_ty);
+        let mut is_function_with_lifetime = false;
         let args = if let syn::PathArguments::AngleBracketed(arguments) = arguments {
           arguments
             .args
             .iter()
             .enumerate()
             .filter_map(|(index, arg)| match arg {
-              syn::GenericArgument::Type(generic_ty) => Some(ty_to_ts_type(
-                generic_ty,
-                index == 1 && is_generic_function_type(&rust_ty),
-                false,
-                // index == 2 is for ThreadsafeFunction with ErrorStrategy
-                is_generic_function_type(&rust_ty),
-              ))
-              .map(|(mut ty, is_optional)| {
-                if is_ts_union_type && is_ts_function_type_notation(generic_ty) {
-                  ty = format!("({})", ty);
+              syn::GenericArgument::Type(generic_ty) => {
+                let mut is_return_type = false;
+                if index == 1 && is_generic_function_type(&rust_ty) {
+                  is_return_type = true;
                 }
-                (ty, is_optional)
-              }),
+                // if Type is Function, first argument is lifetime and second is params, third is return type
+                // so we need to judge is_function_with_lifetime and set is_return_type
+                // if not and just keep the origin's logic
+                if is_function_with_lifetime {
+                  is_return_type = index != 1;
+                }
+                Some(ty_to_ts_type(
+                  generic_ty,
+                  is_return_type,
+                  false,
+                  // index == 2 is for ThreadsafeFunction with ErrorStrategy
+                  is_generic_function_type(&rust_ty),
+                ))
+                .map(|(mut ty, is_optional)| {
+                  if is_ts_union_type && is_ts_function_type_notation(generic_ty) {
+                    ty = format!("({})", ty);
+                  }
+                  (ty, is_optional)
+                })
+              }
               // const Generic for `ThreadsafeFunction` generic
               syn::GenericArgument::Const(syn::Expr::Lit(syn::ExprLit {
                 lit: syn::Lit::Bool(bo),
                 ..
               })) => Some((bo.value.to_string(), false)),
+              syn::GenericArgument::Lifetime(_) => {
+                if index == 0 && is_generic_function_type(&rust_ty) {
+                  is_function_with_lifetime = true;
+                }
+                None
+              }
               _ => None,
             })
             .collect::<Vec<_>>()

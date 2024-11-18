@@ -498,6 +498,12 @@ export declare function fibonacci(n: number): number
 
 export declare function fnReceivedAliased(s: AliasedStruct, e: ALIAS): void
 
+export interface FunctionData {
+  handle: () => number
+}
+
+export declare function generateFunctionAndCallIt(): FunctionData
+
 export declare function getBtreeMapping(): Record<string, number>
 
 export declare function getBuffer(): Buffer

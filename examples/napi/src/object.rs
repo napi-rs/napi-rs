@@ -1,6 +1,6 @@
 use napi::{
   bindgen_prelude::*, threadsafe_function::ThreadsafeFunction, JsGlobal, JsNull, JsObject,
-  JsUndefined,
+  JsUndefined, Result,
 };
 
 #[napi]
@@ -160,4 +160,15 @@ pub fn receive_buffer_slice_with_lifetime(data: Data) -> u32 {
     Either::A(s) => s.len(),
     Either::B(d) => d.len(),
   }) as u32
+}
+
+#[napi(object)]
+pub struct FunctionData<'a> {
+  pub handle: Function<'a, (), i32>,
+}
+
+#[napi]
+pub fn generate_function_and_call_it(env: &Env) -> Result<FunctionData> {
+  let handle = env.create_function_from_closure("handle_function", |_ctx| Ok(1))?;
+  Ok(FunctionData { handle })
 }
