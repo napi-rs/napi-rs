@@ -406,7 +406,7 @@ impl<Args: JsValuesTupleIntoVec, Return: FromNapiValue> ValidateNapiValue
 pub struct FunctionCallContext<'scope> {
   pub(crate) args: &'scope [sys::napi_value],
   pub(crate) this: sys::napi_value,
-  pub(crate) env: &'scope mut Env,
+  pub env: &'scope mut Env,
 }
 
 impl FunctionCallContext<'_> {

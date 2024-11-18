@@ -59,6 +59,27 @@ pub fn test_create_function_from_closure(ctx: CallContext) -> Result<Function<u3
     })
 }
 
+#[js_function(0)]
+pub fn test_nest_create_function_from_closure(ctx: CallContext) -> Result<Function<(), ()>> {
+  ctx
+    .env
+    .create_function_from_closure("functionFromClosure", move |ctx| {
+      let obj = ctx.first_arg::<JsObject>()?;
+      let nest_func: Function<'_, (), ()> =
+        ctx
+          .env
+          .create_function_from_closure("nestFunctionFromClosure", move |_ctx| {
+            println!("nest function");
+            Ok(())
+          })?;
+
+      let on_handle = obj.get_named_property::<Function<(String, Function<(), ()>), ()>>("on")?;
+      let handle_name = String::from("on");
+      on_handle.call((handle_name, nest_func))?;
+      Ok(())
+    })
+}
+
 pub fn register_js(exports: &mut JsObject) -> Result<()> {
   exports.create_named_method("testCallFunction", call_function)?;
   exports.create_named_method(
@@ -70,6 +91,10 @@ pub fn register_js(exports: &mut JsObject) -> Result<()> {
   exports.create_named_method(
     "testCreateFunctionFromClosure",
     test_create_function_from_closure,
+  )?;
+  exports.create_named_method(
+    "testNestCreateFunctionFromClosure",
+    test_nest_create_function_from_closure,
   )?;
   Ok(())
 }
