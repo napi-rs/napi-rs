@@ -543,6 +543,7 @@ module.exports.optionStart = nativeBinding.optionStart
 module.exports.optionStartEnd = nativeBinding.optionStartEnd
 module.exports.overrideIndividualArgOnFunction = nativeBinding.overrideIndividualArgOnFunction
 module.exports.overrideIndividualArgOnFunctionWithCbArg = nativeBinding.overrideIndividualArgOnFunctionWithCbArg
+module.exports.overrideWholeFunctionType = nativeBinding.overrideWholeFunctionType
 module.exports.panic = nativeBinding.panic
 module.exports.panicInAsync = nativeBinding.panicInAsync
 module.exports.passSetToJs = nativeBinding.passSetToJs

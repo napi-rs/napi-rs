@@ -631,6 +631,8 @@ export declare function overrideIndividualArgOnFunction(notOverridden: string, f
 
 export declare function overrideIndividualArgOnFunctionWithCbArg(callback: (town: string, name?: string | undefined | null) => string, notOverridden: number): object
 
+export declare function overrideWholeFunctionType(operation: 'add' | 'subtract' | 'multiply', a: number, b: number): number
+
 /** This is an interface for package.json */
 export interface PackageJson {
   name: string
