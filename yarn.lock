@@ -2183,58 +2183,58 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@oxlint/darwin-arm64@npm:0.11.0":
-  version: 0.11.0
-  resolution: "@oxlint/darwin-arm64@npm:0.11.0"
+"@oxlint/darwin-arm64@npm:0.12.0":
+  version: 0.12.0
+  resolution: "@oxlint/darwin-arm64@npm:0.12.0"
   conditions: os=darwin & cpu=arm64
   languageName: node
   linkType: hard
 
-"@oxlint/darwin-x64@npm:0.11.0":
-  version: 0.11.0
-  resolution: "@oxlint/darwin-x64@npm:0.11.0"
+"@oxlint/darwin-x64@npm:0.12.0":
+  version: 0.12.0
+  resolution: "@oxlint/darwin-x64@npm:0.12.0"
   conditions: os=darwin & cpu=x64
   languageName: node
   linkType: hard
 
-"@oxlint/linux-arm64-gnu@npm:0.11.0":
-  version: 0.11.0
-  resolution: "@oxlint/linux-arm64-gnu@npm:0.11.0"
+"@oxlint/linux-arm64-gnu@npm:0.12.0":
+  version: 0.12.0
+  resolution: "@oxlint/linux-arm64-gnu@npm:0.12.0"
   conditions: os=linux & cpu=arm64 & libc=glibc
   languageName: node
   linkType: hard
 
-"@oxlint/linux-arm64-musl@npm:0.11.0":
-  version: 0.11.0
-  resolution: "@oxlint/linux-arm64-musl@npm:0.11.0"
+"@oxlint/linux-arm64-musl@npm:0.12.0":
+  version: 0.12.0
+  resolution: "@oxlint/linux-arm64-musl@npm:0.12.0"
   conditions: os=linux & cpu=arm64 & libc=musl
   languageName: node
   linkType: hard
 
-"@oxlint/linux-x64-gnu@npm:0.11.0":
-  version: 0.11.0
-  resolution: "@oxlint/linux-x64-gnu@npm:0.11.0"
+"@oxlint/linux-x64-gnu@npm:0.12.0":
+  version: 0.12.0
+  resolution: "@oxlint/linux-x64-gnu@npm:0.12.0"
   conditions: os=linux & cpu=x64 & libc=glibc
   languageName: node
   linkType: hard
 
-"@oxlint/linux-x64-musl@npm:0.11.0":
-  version: 0.11.0
-  resolution: "@oxlint/linux-x64-musl@npm:0.11.0"
+"@oxlint/linux-x64-musl@npm:0.12.0":
+  version: 0.12.0
+  resolution: "@oxlint/linux-x64-musl@npm:0.12.0"
   conditions: os=linux & cpu=x64 & libc=musl
   languageName: node
   linkType: hard
 
-"@oxlint/win32-arm64@npm:0.11.0":
-  version: 0.11.0
-  resolution: "@oxlint/win32-arm64@npm:0.11.0"
+"@oxlint/win32-arm64@npm:0.12.0":
+  version: 0.12.0
+  resolution: "@oxlint/win32-arm64@npm:0.12.0"
   conditions: os=win32 & cpu=arm64
   languageName: node
   linkType: hard
 
-"@oxlint/win32-x64@npm:0.11.0":
-  version: 0.11.0
-  resolution: "@oxlint/win32-x64@npm:0.11.0"
+"@oxlint/win32-x64@npm:0.12.0":
+  version: 0.12.0
+  resolution: "@oxlint/win32-x64@npm:0.12.0"
   conditions: os=win32 & cpu=x64
   languageName: node
   linkType: hard
@@ -8817,7 +8817,7 @@ __metadata:
     lerna: "npm:^8.1.8"
     lint-staged: "npm:^15.2.10"
     npm-run-all2: "npm:^7.0.0"
-    oxlint: "npm:^0.11.0"
+    oxlint: "npm:^0.12.0"
     prettier: "npm:^3.3.3"
     rollup: "npm:^4.24.0"
     shx: "npm:^0.3.4"
@@ -9453,18 +9453,18 @@ __metadata:
   languageName: node
   linkType: hard
 
-"oxlint@npm:^0.11.0":
-  version: 0.11.0
-  resolution: "oxlint@npm:0.11.0"
+"oxlint@npm:^0.12.0":
+  version: 0.12.0
+  resolution: "oxlint@npm:0.12.0"
   dependencies:
-    "@oxlint/darwin-arm64": "npm:0.11.0"
-    "@oxlint/darwin-x64": "npm:0.11.0"
-    "@oxlint/linux-arm64-gnu": "npm:0.11.0"
-    "@oxlint/linux-arm64-musl": "npm:0.11.0"
-    "@oxlint/linux-x64-gnu": "npm:0.11.0"
-    "@oxlint/linux-x64-musl": "npm:0.11.0"
-    "@oxlint/win32-arm64": "npm:0.11.0"
-    "@oxlint/win32-x64": "npm:0.11.0"
+    "@oxlint/darwin-arm64": "npm:0.12.0"
+    "@oxlint/darwin-x64": "npm:0.12.0"
+    "@oxlint/linux-arm64-gnu": "npm:0.12.0"
+    "@oxlint/linux-arm64-musl": "npm:0.12.0"
+    "@oxlint/linux-x64-gnu": "npm:0.12.0"
+    "@oxlint/linux-x64-musl": "npm:0.12.0"
+    "@oxlint/win32-arm64": "npm:0.12.0"
+    "@oxlint/win32-x64": "npm:0.12.0"
   dependenciesMeta:
     "@oxlint/darwin-arm64":
       optional: true
@@ -9485,7 +9485,7 @@ __metadata:
   bin:
     oxc_language_server: bin/oxc_language_server
     oxlint: bin/oxlint
-  checksum: 10c0/7002aef24409555df2377e4d6be18dae09f918eed0820aa0e6b2af3933f76b1789507bde6d68f6a7f4a01dad01bd3112582e4440bb0874791835f72f9d34fce8
+  checksum: 10c0/7eefe0790581067ea229e673ff92c0ca54b4ca43ebd27b704b5977e0b6218626c94777a2c91609f8ac983f5efd2f6af29face316736189d4381d12b33739cebc
   languageName: node
   linkType: hard
 
