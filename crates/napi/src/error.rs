@@ -65,8 +65,8 @@ unsafe impl<S> Sync for Error<S> where S: Sync + AsRef<str> {}
 impl<S: AsRef<str> + std::fmt::Debug> error::Error for Error<S> {}
 
 impl<S: AsRef<str>> From<std::convert::Infallible> for Error<S> {
-  fn from(_: std::convert::Infallible) -> Self {
-    unreachable!()
+  fn from(error: std::convert::Infallible) -> Self {
+    match error {}
   }
 }
 
