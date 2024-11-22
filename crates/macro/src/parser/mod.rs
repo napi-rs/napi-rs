@@ -722,6 +722,7 @@ fn napi_fn_from_decl(
       strict: opts.strict().is_some(),
       return_if_invalid: opts.return_if_invalid().is_some(),
       js_mod: opts.namespace().map(|(m, _)| m.to_owned()),
+      ts_type: opts.ts_type().map(|(m, _)| m.to_owned()),
       ts_generic_types: opts.ts_generic_types().map(|(m, _)| m.to_owned()),
       ts_args_type: opts.ts_args_type().map(|(m, _)| m.to_owned()),
       ts_return_type: opts.ts_return_type().map(|(m, _)| m.to_owned()),
@@ -755,10 +756,12 @@ impl ParseNapi for syn::Item {
 
 impl ParseNapi for syn::ItemFn {
   fn parse_napi(&mut self, tokens: &mut TokenStream, opts: &BindgenAttrs) -> BindgenResult<Napi> {
-    if opts.ts_type().is_some() {
+    if opts.ts_type().is_some()
+      && (opts.ts_args_type().is_some() || opts.ts_return_type().is_some())
+    {
       bail_span!(
         self,
-        "#[napi] can't be applied to a function with #[napi(ts_type)]"
+        "#[napi] with ts_type cannot be combined with ts_args_type, ts_return_type in function"
       );
     }
     if opts.return_if_invalid().is_some() && opts.strict().is_some() {

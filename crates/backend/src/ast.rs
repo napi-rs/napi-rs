@@ -19,6 +19,7 @@ pub struct NapiFn {
   pub return_if_invalid: bool,
   pub js_mod: Option<String>,
   pub ts_generic_types: Option<String>,
+  pub ts_type: Option<String>,
   pub ts_args_type: Option<String>,
   pub ts_return_type: Option<String>,
   pub skip_typescript: bool,

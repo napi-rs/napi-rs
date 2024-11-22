@@ -25,3 +25,13 @@ fn override_individual_arg_on_function_with_cb_arg<
 ) -> Result<Object> {
   callback(format!("World({})", not_overridden), None)
 }
+
+#[napi(ts_type = "(operation: 'add' | 'subtract' | 'multiply', a: number, b: number): number")]
+fn override_whole_function_type(operation: String, a: i32, b: i32) -> i32 {
+  match operation.as_str() {
+    "add" => a + b,
+    "subtract" => a - b,
+    "multiply" => a * b,
+    _ => panic!("Invalid operation"),
+  }
+}
