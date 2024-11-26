@@ -39,7 +39,7 @@
     "playwright": "^1.48.0",
     "rxjs": "^7.8.1",
     "sinon": "^19.0.2",
-    "vite": "^5.4.8",
+    "vite": "^6.0.0",
     "vite-plugin-node-polyfills": "^0.22.0",
     "vitest": "^2.1.2",
     "webdriverio": "^9.2.1"
