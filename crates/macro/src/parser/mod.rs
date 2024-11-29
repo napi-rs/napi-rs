@@ -3,11 +3,12 @@ pub mod attrs;
 
 use std::collections::HashMap;
 use std::str::Chars;
-use std::sync::{atomic::AtomicUsize, Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock};
 
 use attrs::BindgenAttrs;
 
 use convert_case::{Case, Casing};
+use dashmap::DashMap;
 use napi_derive_backend::{
   rm_raw_prefix, BindgenResult, CallbackArg, Diagnostic, FnKind, FnSelf, Napi, NapiClass,
   NapiConst, NapiEnum, NapiEnumValue, NapiEnumVariant, NapiFn, NapiFnArg, NapiFnArgKind, NapiImpl,
@@ -28,14 +29,23 @@ use crate::parser::attrs::{check_recorded_struct_for_impl, record_struct};
 
 static GENERATOR_STRUCT: OnceLock<Mutex<HashMap<String, bool>>> = OnceLock::new();
 
-static REGISTER_INDEX: AtomicUsize = AtomicUsize::new(0);
+static REGISTER_INDICES: OnceLock<DashMap<String, usize>> = OnceLock::new();
 
 fn get_register_ident(name: &str) -> Ident {
-  let new_name = format!(
-    "__napi_register__{}_{}",
-    rm_raw_prefix(name),
-    REGISTER_INDEX.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-  );
+  let register_indices = REGISTER_INDICES.get_or_init(DashMap::new);
+  let index = match register_indices.entry(name.to_string()) {
+    dashmap::mapref::entry::Entry::Occupied(mut occupied) => {
+      let value = occupied.get_mut();
+      let return_value = *value;
+      *value += 1;
+      return_value
+    }
+    dashmap::mapref::entry::Entry::Vacant(vacant) => {
+      vacant.insert(1);
+      0
+    }
+  };
+  let new_name = format!("__napi_register__{}_{}", rm_raw_prefix(name), index,);
   Ident::new(&new_name, Span::call_site())
 }
 
