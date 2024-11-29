@@ -205,6 +205,7 @@ import {
   returnCString,
   receiveBufferSliceWithLifetime,
   generateFunctionAndCallIt,
+  getMyVec,
 } from '../index.cjs'
 
 import { test } from './test.framework.js'
@@ -838,6 +839,11 @@ test('Return BufferSlice with lifetime', (t) => {
   const reader2 = new Reader()
   t.deepEqual(reader.read(), Buffer.from('Hello world'))
   t.deepEqual(reader2.read(), Buffer.from('Hello world'))
+})
+
+test('Transparent', (t) => {
+  const v = getMyVec()
+  t.deepEqual(v, [42, 'a string'])
 })
 
 test('TypedArray', (t) => {

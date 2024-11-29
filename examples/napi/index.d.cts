@@ -526,6 +526,8 @@ export declare function getMapping(): Record<string, number>
 
 export declare function getModuleFileName(): string
 
+export declare function getMyVec(): MyVec
+
 export declare function getNestedNumArr(): number[][][]
 
 export declare function getNull(): null
@@ -591,6 +593,9 @@ export declare function mutateExternal(external: ExternalObject<number>, newVal:
 export declare function mutateOptionalExternal(external: ExternalObject<number> | undefined | null, newVal: number): void
 
 export declare function mutateTypedArray(input: Float32Array): void
+
+export type MyVec =
+  Array<number | string>
 
 export interface NotUseNullableStruct {
   requiredNumberField: number

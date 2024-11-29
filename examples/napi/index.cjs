@@ -514,6 +514,7 @@ module.exports.getGlobal = nativeBinding.getGlobal
 module.exports.getIndexMapping = nativeBinding.getIndexMapping
 module.exports.getMapping = nativeBinding.getMapping
 module.exports.getModuleFileName = nativeBinding.getModuleFileName
+module.exports.getMyVec = nativeBinding.getMyVec
 module.exports.getNestedNumArr = nativeBinding.getNestedNumArr
 module.exports.getNull = nativeBinding.getNull
 module.exports.getNumArr = nativeBinding.getNumArr

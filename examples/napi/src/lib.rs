@@ -68,4 +68,5 @@ mod string;
 mod symbol;
 mod task;
 mod threadsafe_function;
+mod transparent;
 mod typed_array;

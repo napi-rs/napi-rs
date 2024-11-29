@@ -21,6 +21,7 @@ impl ToTypeDef for NapiStruct {
 
     Some(TypeDef {
       kind: String::from(match self.kind {
+        NapiStructKind::Transparent(_) => "type",
         NapiStructKind::Class(_) => "struct",
         NapiStructKind::Object(_) => "interface",
         NapiStructKind::StructuredEnum(_) => "type",
@@ -137,6 +138,9 @@ impl NapiStruct {
 
   fn gen_ts_class(&self) -> String {
     match &self.kind {
+      NapiStructKind::Transparent(transparent) => {
+        ty_to_ts_type(&transparent.ty, false, false, false).0
+      }
       NapiStructKind::Class(class) => {
         let mut ctor_args = vec![];
         let def = class
