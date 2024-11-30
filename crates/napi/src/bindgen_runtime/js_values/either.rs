@@ -194,13 +194,13 @@ either_n!(Either26, A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, 
 fn silence_rejected_promise(env: sys::napi_env, promise: sys::napi_value) -> crate::Result<()> {
   let mut catch_method = std::ptr::null_mut();
   check_status!(unsafe {
-    sys::napi_get_named_property(env, promise, "catch\0".as_ptr().cast(), &mut catch_method)
+    sys::napi_get_named_property(env, promise, c"catch".as_ptr().cast(), &mut catch_method)
   })?;
   let mut catch_noop_callback = std::ptr::null_mut();
   check_status!(unsafe {
     sys::napi_create_function(
       env,
-      "catch\0".as_ptr().cast(),
+      c"catch".as_ptr().cast(),
       5,
       Some(noop),
       std::ptr::null_mut(),

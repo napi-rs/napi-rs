@@ -50,7 +50,7 @@ impl FromNapiValue for NaiveDateTime {
       unsafe {
         napi_sys::napi_create_string_utf8(
           env,
-          "toISOString\0".as_ptr().cast(),
+          c"toISOString".as_ptr().cast(),
           11,
           &mut to_iso_string,
         )

@@ -13,7 +13,7 @@ impl<'env> Ser<'env> {
   }
 }
 
-impl<'env> Serializer for Ser<'env> {
+impl Serializer for Ser<'_> {
   type Ok = Value;
   type Error = Error;
 

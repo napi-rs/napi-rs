@@ -192,13 +192,13 @@ impl<'scope> BufferSlice<'scope> {
   }
 }
 
-impl<'scope> NapiRaw for BufferSlice<'scope> {
+impl NapiRaw for BufferSlice<'_> {
   unsafe fn raw(&self) -> napi_sys::napi_value {
     self.raw_value
   }
 }
 
-impl<'scope> FromNapiValue for BufferSlice<'scope> {
+impl FromNapiValue for BufferSlice<'_> {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
     let mut buf = ptr::null_mut();
     let mut len = 0usize;
@@ -265,7 +265,7 @@ impl AsRef<[u8]> for BufferSlice<'_> {
   }
 }
 
-impl<'scope> Deref for BufferSlice<'scope> {
+impl Deref for BufferSlice<'_> {
   type Target = [u8];
 
   fn deref(&self) -> &Self::Target {
@@ -273,7 +273,7 @@ impl<'scope> Deref for BufferSlice<'scope> {
   }
 }
 
-impl<'scope> DerefMut for BufferSlice<'scope> {
+impl DerefMut for BufferSlice<'_> {
   fn deref_mut(&mut self) -> &mut Self::Target {
     self.inner
   }

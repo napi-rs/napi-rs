@@ -293,7 +293,7 @@ pub(crate) fn validate_promise(
       unsafe {
         crate::sys::napi_create_string_utf8(
           env,
-          "Expected Promise object\0".as_ptr().cast(),
+          c"Expected Promise object".as_ptr().cast(),
           23,
           &mut message,
         )

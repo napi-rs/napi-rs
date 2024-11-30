@@ -98,7 +98,7 @@ pub struct Function<'scope, Args: JsValuesTupleIntoVec = Unknown, Return = Unkno
   _scope: std::marker::PhantomData<&'scope ()>,
 }
 
-impl<'scope, Args: JsValuesTupleIntoVec, Return> TypeName for Function<'scope, Args, Return> {
+impl<Args: JsValuesTupleIntoVec, Return> TypeName for Function<'_, Args, Return> {
   fn type_name() -> &'static str {
     "Function"
   }
@@ -108,13 +108,13 @@ impl<'scope, Args: JsValuesTupleIntoVec, Return> TypeName for Function<'scope, A
   }
 }
 
-impl<'scope, Args: JsValuesTupleIntoVec, Return> NapiRaw for Function<'scope, Args, Return> {
+impl<Args: JsValuesTupleIntoVec, Return> NapiRaw for Function<'_, Args, Return> {
   unsafe fn raw(&self) -> sys::napi_value {
     self.value
   }
 }
 
-impl<'scope, Args: JsValuesTupleIntoVec, Return> FromNapiValue for Function<'scope, Args, Return> {
+impl<Args: JsValuesTupleIntoVec, Return> FromNapiValue for Function<'_, Args, Return> {
   unsafe fn from_napi_value(env: sys::napi_env, value: sys::napi_value) -> Result<Self> {
     Ok(Function {
       env,
@@ -126,18 +126,15 @@ impl<'scope, Args: JsValuesTupleIntoVec, Return> FromNapiValue for Function<'sco
   }
 }
 
-impl<'scope, Args: JsValuesTupleIntoVec, Return> ValidateNapiValue
-  for Function<'scope, Args, Return>
-{
-}
+impl<Args: JsValuesTupleIntoVec, Return> ValidateNapiValue for Function<'_, Args, Return> {}
 
-impl<'scope, Args: JsValuesTupleIntoVec, Return> Function<'scope, Args, Return> {
+impl<Args: JsValuesTupleIntoVec, Return> Function<'_, Args, Return> {
   /// Get the name of the JavaScript function.
   pub fn name(&self) -> Result<String> {
     let mut name = ptr::null_mut();
     check_status!(
       unsafe {
-        sys::napi_get_named_property(self.env, self.value, "name\0".as_ptr().cast(), &mut name)
+        sys::napi_get_named_property(self.env, self.value, c"name".as_ptr().cast(), &mut name)
       },
       "Get function name failed"
     )?;
@@ -192,7 +189,7 @@ impl<'scope, Args: JsValuesTupleIntoVec, Return> Function<'scope, Args, Return> 
   }
 }
 
-impl<'scope, Args: JsValuesTupleIntoVec, Return: FromNapiValue> Function<'scope, Args, Return> {
+impl<Args: JsValuesTupleIntoVec, Return: FromNapiValue> Function<'_, Args, Return> {
   /// Call the JavaScript function.
   /// `this` in the JavaScript function will be `undefined`.
   /// If you want to specify `this`, you can use the `apply` method.
@@ -322,13 +319,12 @@ impl<
 
 #[cfg(feature = "napi4")]
 impl<
-    'env,
     T: 'static + JsValuesTupleIntoVec,
     Return: FromNapiValue,
     const CalleeHandled: bool,
     const Weak: bool,
     const MaxQueueSize: usize,
-  > ThreadsafeFunctionBuilder<'env, T, T, Return, CalleeHandled, Weak, MaxQueueSize>
+  > ThreadsafeFunctionBuilder<'_, T, T, Return, CalleeHandled, Weak, MaxQueueSize>
 {
   pub fn build(
     &self,

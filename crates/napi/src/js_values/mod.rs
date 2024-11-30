@@ -740,7 +740,7 @@ impl NapiRaw for JsUnknown {
   }
 }
 
-impl<'env> NapiRaw for &'env JsUnknown {
+impl NapiRaw for &JsUnknown {
   /// get raw js value ptr
   unsafe fn raw(&self) -> sys::napi_value {
     self.0.value

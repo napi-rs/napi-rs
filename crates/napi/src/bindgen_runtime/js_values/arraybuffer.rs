@@ -687,7 +687,7 @@ pub struct Uint8ClampedSlice<'scope> {
   raw_value: sys::napi_value,
 }
 
-impl<'scope> FromNapiValue for Uint8ClampedSlice<'scope> {
+impl FromNapiValue for Uint8ClampedSlice<'_> {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
     let mut typed_array_type = 0;
     let mut length = 0;
@@ -765,7 +765,7 @@ impl AsRef<[u8]> for Uint8ClampedSlice<'_> {
   }
 }
 
-impl<'scope> Deref for Uint8ClampedSlice<'scope> {
+impl Deref for Uint8ClampedSlice<'_> {
   type Target = [u8];
 
   fn deref(&self) -> &Self::Target {
@@ -773,7 +773,7 @@ impl<'scope> Deref for Uint8ClampedSlice<'scope> {
   }
 }
 
-impl<'scope> DerefMut for Uint8ClampedSlice<'scope> {
+impl DerefMut for Uint8ClampedSlice<'_> {
   fn deref_mut(&mut self) -> &mut Self::Target {
     self.inner
   }
