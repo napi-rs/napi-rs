@@ -13,7 +13,7 @@ impl<V, S> TypeName for HashSet<V, S> {
   }
 }
 
-impl<V: FromNapiValue> ValidateNapiValue for HashSet<V> {}
+impl<V: FromNapiValue, S> ValidateNapiValue for HashSet<V, S> {}
 
 impl<V, S> ToNapiValue for HashSet<V, S>
 where
