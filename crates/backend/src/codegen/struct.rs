@@ -8,7 +8,7 @@ use crate::{
   codegen::{get_intermediate_ident, js_mod_to_token_stream},
   BindgenResult, FnKind, NapiImpl, NapiStruct, NapiStructKind, TryToTokens,
 };
-use crate::{NapiClass, NapiObject, NapiStructuredEnum};
+use crate::{NapiClass, NapiObject, NapiStructuredEnum, NapiTransparent};
 
 static NAPI_IMPL_ID: AtomicU32 = AtomicU32::new(0);
 const TYPED_ARRAY_TYPE: &[&str] = &[
@@ -278,6 +278,7 @@ impl NapiStruct {
 
   fn gen_napi_value_map_impl(&self) -> TokenStream {
     match &self.kind {
+      NapiStructKind::Transparent(transparent) => self.gen_napi_value_transparent_impl(transparent),
       NapiStructKind::Class(class) if !class.ctor => gen_napi_value_map_impl(
         &self.name,
         self.gen_to_napi_value_ctor_impl_for_non_default_constructor_struct(class),
@@ -1093,6 +1094,75 @@ impl NapiStruct {
 
         fn value_type() -> napi::ValueType {
           napi::ValueType::Object
+        }
+      }
+
+      #to_napi_value
+
+      #from_napi_value
+    }
+  }
+
+  fn gen_napi_value_transparent_impl(&self, transparent: &NapiTransparent) -> TokenStream {
+    let name = &self.name;
+    let name = if self.has_lifetime {
+      quote! { #name<'_> }
+    } else {
+      quote! { #name }
+    };
+    let inner_type = transparent.ty.clone().into_token_stream();
+
+    let to_napi_value = if transparent.object_to_js {
+      quote! {
+        #[automatically_derived]
+        impl napi::bindgen_prelude::FromNapiValue for #name {
+          unsafe fn from_napi_value(
+            env: napi::bindgen_prelude::sys::napi_env,
+            napi_val: napi::bindgen_prelude::sys::napi_value
+          ) -> napi::bindgen_prelude::Result<Self> {
+            Ok(Self(<#inner_type>::from_napi_value(env, napi_val)?))
+          }
+        }
+      }
+    } else {
+      quote! {}
+    };
+
+    let from_napi_value = if transparent.object_from_js {
+      quote! {
+        #[automatically_derived]
+        impl napi::bindgen_prelude::ToNapiValue for #name {
+          unsafe fn to_napi_value(
+            env: napi::bindgen_prelude::sys::napi_env,
+            val: Self
+          ) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
+            <#inner_type>::to_napi_value(env, val.0)
+          }
+        }
+      }
+    } else {
+      quote! {}
+    };
+
+    quote! {
+      #[automatically_derived]
+      impl napi::bindgen_prelude::TypeName for #name {
+        fn type_name() -> &'static str {
+          <#inner_type>::type_name()
+        }
+
+        fn value_type() -> napi::ValueType {
+          <#inner_type>::value_type()
+        }
+      }
+
+      #[automatically_derived]
+      impl napi::bindgen_prelude::ValidateNapiValue for #name {
+        unsafe fn validate(
+          env: napi::bindgen_prelude::sys::napi_env,
+          napi_val: napi::bindgen_prelude::sys::napi_value
+        ) -> napi::bindgen_prelude::Result<napi::sys::napi_value> {
+          <#inner_type>::validate(env, napi_val)
         }
       }
 

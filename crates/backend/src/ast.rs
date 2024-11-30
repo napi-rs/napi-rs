@@ -89,9 +89,17 @@ pub struct NapiStruct {
 
 #[derive(Debug, Clone)]
 pub enum NapiStructKind {
+  Transparent(NapiTransparent),
   Class(NapiClass),
   Object(NapiObject),
   StructuredEnum(NapiStructuredEnum),
+}
+
+#[derive(Debug, Clone)]
+pub struct NapiTransparent {
+  pub ty: Type,
+  pub object_from_js: bool,
+  pub object_to_js: bool,
 }
 
 #[derive(Debug, Clone)]
