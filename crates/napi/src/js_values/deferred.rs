@@ -194,7 +194,7 @@ fn js_deferred_new_raw(
     unsafe {
       sys::napi_create_string_utf8(
         env,
-        "napi_resolve_deferred\0".as_ptr().cast(),
+        c"napi_resolve_deferred".as_ptr().cast(),
         22,
         &mut async_resource_name,
       )
@@ -265,12 +265,7 @@ extern "C" fn napi_resolve_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> 
           let mut err = ptr::null_mut();
           let mut err_msg = ptr::null_mut();
           unsafe {
-            sys::napi_create_string_utf8(
-              env,
-              "Rejection failed\0".as_ptr().cast(),
-              0,
-              &mut err_msg,
-            );
+            sys::napi_create_string_utf8(env, c"Rejection failed".as_ptr().cast(), 0, &mut err_msg);
             sys::napi_create_error(env, ptr::null_mut(), err_msg, &mut err);
             sys::napi_reject_deferred(env, deferred, err);
           }

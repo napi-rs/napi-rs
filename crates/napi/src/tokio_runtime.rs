@@ -1,7 +1,7 @@
 use std::{
   future::Future,
   marker::PhantomData,
-  sync::{LazyLock, OnceLock, RwLock},
+  sync::{LazyLock, Mutex, OnceLock, RwLock},
 };
 
 use tokio::runtime::Runtime;
@@ -27,14 +27,18 @@ fn create_runtime() -> Option<Runtime> {
 }
 
 pub(crate) static RT: LazyLock<RwLock<Option<Runtime>>> = LazyLock::new(|| {
-  if let Some(user_defined_rt) = unsafe { USER_DEFINED_RT.take() } {
-    RwLock::new(user_defined_rt)
+  if let Some(user_defined_rt) = USER_DEFINED_RT.get() {
+    if let Ok(mut rt) = user_defined_rt.lock() {
+      RwLock::new(rt.take())
+    } else {
+      RwLock::new(create_runtime())
+    }
   } else {
     RwLock::new(create_runtime())
   }
 });
 
-static mut USER_DEFINED_RT: OnceLock<Option<Runtime>> = OnceLock::new();
+static USER_DEFINED_RT: OnceLock<Mutex<Option<Runtime>>> = OnceLock::new();
 
 /// Create a custom Tokio runtime used by the NAPI-RS.
 /// You can control the tokio runtime configuration by yourself.
@@ -49,9 +53,7 @@ static mut USER_DEFINED_RT: OnceLock<Option<Runtime>> = OnceLock::new();
 ///    create_custom_tokio_runtime(rt);
 /// }
 pub fn create_custom_tokio_runtime(rt: Runtime) {
-  unsafe {
-    USER_DEFINED_RT.get_or_init(move || Some(rt));
-  }
+  USER_DEFINED_RT.get_or_init(move || Mutex::new(Some(rt)));
 }
 
 #[cfg(not(any(target_os = "macos", target_family = "wasm")))]

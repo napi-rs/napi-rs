@@ -50,7 +50,7 @@ pub fn create_iterator<T: Generator>(
   check_status_or_throw!(
     env,
     unsafe {
-      sys::napi_get_named_property(env, global, "Symbol\0".as_ptr().cast(), &mut symbol_object)
+      sys::napi_get_named_property(env, global, c"Symbol".as_ptr().cast(), &mut symbol_object)
     },
     "Get global object failed",
   );
@@ -61,7 +61,7 @@ pub fn create_iterator<T: Generator>(
       sys::napi_get_named_property(
         env,
         symbol_object,
-        "iterator\0".as_ptr().cast(),
+        c"iterator".as_ptr().cast(),
         &mut iterator_symbol,
       )
     },
@@ -73,7 +73,7 @@ pub fn create_iterator<T: Generator>(
     unsafe {
       sys::napi_create_function(
         env,
-        "Iterator\0".as_ptr().cast(),
+        c"Iterator".as_ptr().cast(),
         8,
         Some(symbol_generator::<T>),
         generator_ptr as *mut c_void,
@@ -124,7 +124,7 @@ pub unsafe extern "C" fn symbol_generator<T: Generator>(
     unsafe {
       sys::napi_create_function(
         env,
-        "next\0".as_ptr().cast(),
+        c"next".as_ptr().cast(),
         4,
         Some(generator_next::<T>),
         generator_ptr,
@@ -139,7 +139,7 @@ pub unsafe extern "C" fn symbol_generator<T: Generator>(
     unsafe {
       sys::napi_create_function(
         env,
-        "return\0".as_ptr().cast(),
+        c"return".as_ptr().cast(),
         6,
         Some(generator_return::<T>),
         generator_ptr,
@@ -154,7 +154,7 @@ pub unsafe extern "C" fn symbol_generator<T: Generator>(
     unsafe {
       sys::napi_create_function(
         env,
-        "throw\0".as_ptr().cast(),
+        c"throw".as_ptr().cast(),
         5,
         Some(generator_throw::<T>),
         generator_ptr,
@@ -170,7 +170,7 @@ pub unsafe extern "C" fn symbol_generator<T: Generator>(
       sys::napi_set_named_property(
         env,
         generator_object,
-        "next\0".as_ptr().cast(),
+        c"next".as_ptr().cast(),
         next_function,
       )
     },
@@ -183,7 +183,7 @@ pub unsafe extern "C" fn symbol_generator<T: Generator>(
       sys::napi_set_named_property(
         env,
         generator_object,
-        "return\0".as_ptr().cast(),
+        c"return".as_ptr().cast(),
         return_function,
       )
     },
@@ -196,7 +196,7 @@ pub unsafe extern "C" fn symbol_generator<T: Generator>(
       sys::napi_set_named_property(
         env,
         generator_object,
-        "throw\0".as_ptr().cast(),
+        c"throw".as_ptr().cast(),
         throw_function,
       )
     },
@@ -315,7 +315,7 @@ extern "C" fn generator_next<T: Generator>(
       sys::napi_set_named_property(
         env,
         result,
-        "done\0".as_ptr() as *const std::os::raw::c_char,
+        c"done".as_ptr() as *const std::os::raw::c_char,
         completed_value,
       )
     },
@@ -399,7 +399,7 @@ extern "C" fn generator_return<T: Generator>(
         sys::napi_set_named_property(
           env,
           result,
-          "value\0".as_ptr() as *const std::os::raw::c_char,
+          c"value".as_ptr() as *const std::os::raw::c_char,
           argv[0],
         )
       },
@@ -412,7 +412,7 @@ extern "C" fn generator_return<T: Generator>(
       sys::napi_set_named_property(
         env,
         result,
-        "done\0".as_ptr() as *const std::os::raw::c_char,
+        c"done".as_ptr() as *const std::os::raw::c_char,
         generator_state,
       )
     },
@@ -533,7 +533,7 @@ extern "C" fn generator_throw<T: Generator>(
   );
   check_status_or_throw!(
     env,
-    unsafe { sys::napi_set_named_property(env, result, "done\0".as_ptr().cast(), generator_state) },
+    unsafe { sys::napi_set_named_property(env, result, c"done".as_ptr().cast(), generator_state) },
     "Get generator state failed"
   );
 
@@ -549,7 +549,7 @@ fn set_generator_value<V: ToNapiValue>(env: sys::napi_env, result: sys::napi_val
           sys::napi_set_named_property(
             env,
             result,
-            "value\0".as_ptr() as *const std::os::raw::c_char,
+            c"value".as_ptr() as *const std::os::raw::c_char,
             val,
           )
         },

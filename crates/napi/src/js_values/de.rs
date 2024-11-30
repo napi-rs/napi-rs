@@ -19,7 +19,7 @@ impl<'env> De<'env> {
 }
 
 #[doc(hidden)]
-impl<'x, 'de, 'env> serde::de::Deserializer<'x> for &'de mut De<'env> {
+impl<'x> serde::de::Deserializer<'x> for &mut De<'_> {
   type Error = Error;
 
   fn deserialize_any<V>(self, visitor: V) -> Result<V::Value>
@@ -258,7 +258,7 @@ pub(crate) struct JsVariantAccess<'env> {
 }
 
 #[doc(hidden)]
-impl<'de, 'env> VariantAccess<'de> for JsVariantAccess<'env> {
+impl<'de> VariantAccess<'de> for JsVariantAccess<'_> {
   type Error = Error;
   fn unit_variant(self) -> Result<()> {
     match self.value {
@@ -350,7 +350,7 @@ impl<'env> JsArrayAccess<'env> {
 }
 
 #[doc(hidden)]
-impl<'de, 'env> SeqAccess<'de> for JsArrayAccess<'env> {
+impl<'de> SeqAccess<'de> for JsArrayAccess<'_> {
   type Error = Error;
 
   fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>>
@@ -391,7 +391,7 @@ impl<'env> JsObjectAccess<'env> {
 }
 
 #[doc(hidden)]
-impl<'de, 'env> MapAccess<'de> for JsObjectAccess<'env> {
+impl<'de> MapAccess<'de> for JsObjectAccess<'_> {
   type Error = Error;
 
   fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>>
