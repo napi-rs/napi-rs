@@ -1,5 +1,5 @@
 use crate::{bindgen_prelude::*, check_status, sys, type_of, JsObject, ValueType};
-use std::{ffi::CString, ptr};
+use std::ptr;
 
 pub type Object = JsObject;
 
@@ -31,13 +31,22 @@ impl Object {
   }
 
   fn get_inner(&self, field: &str) -> Result<Option<sys::napi_value>> {
-    let c_field = CString::new(field)?;
-
     unsafe {
+      let mut property_key = std::ptr::null_mut();
+      check_status!(
+        sys::napi_create_string_utf8(
+          self.0.env,
+          field.as_ptr().cast(),
+          field.len() as isize,
+          &mut property_key,
+        ),
+        "Feild to create property key with `{field}`"
+      )?;
+
       let mut ret = ptr::null_mut();
 
       check_status!(
-        sys::napi_get_named_property(self.0.env, self.0.value, c_field.as_ptr(), &mut ret),
+        sys::napi_get_property(self.0.env, self.0.value, property_key, &mut ret),
         "Failed to get property with field `{field}`",
       )?;
 
@@ -56,15 +65,24 @@ impl Object {
   }
 
   unsafe fn set_inner(&mut self, field: &str, napi_val: sys::napi_value) -> Result<()> {
-    let c_field = CString::new(field)?;
+    let mut property_key = std::ptr::null_mut();
+    check_status!(
+      unsafe {
+        sys::napi_create_string_utf8(
+          self.0.env,
+          field.as_ptr().cast(),
+          field.len() as isize,
+          &mut property_key,
+        )
+      },
+      "Feild to create property key with `{field}`"
+    )?;
 
-    unsafe {
-      check_status!(
-        sys::napi_set_named_property(self.0.env, self.0.value, c_field.as_ptr(), napi_val),
-        "Failed to set property with field `{field}`",
-      )?;
-      Ok(())
-    }
+    check_status!(
+      unsafe { sys::napi_set_property(self.0.env, self.0.value, property_key, napi_val) },
+      "Failed to set property with field `{field}`"
+    )?;
+    Ok(())
   }
 
   pub fn keys(obj: &Object) -> Result<Vec<String>> {

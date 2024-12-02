@@ -37,7 +37,7 @@ where
         if NODE_VERSION_MAJOR >= 20 && NODE_VERSION_MINOR >= 18 {
           fast_set_property(raw_env, obj.0.value, k, v)?;
         } else {
-          set_property(raw_env, obj.0.value, k, v)?;
+          obj.set(k.as_ref(), v)?;
         }
       }
       #[cfg(not(all(
@@ -45,7 +45,7 @@ where
         feature = "node_version_detect",
         any(all(target_os = "linux", feature = "dyn-symbols"), target_os = "macos")
       )))]
-      set_property(raw_env, obj.0.value, k, v)?;
+      obj.set(k.as_ref(), v)?;
     }
 
     unsafe { Object::to_napi_value(raw_env, obj) }
@@ -62,8 +62,8 @@ where
     let obj = unsafe { Object::from_napi_value(env, napi_val)? };
     let mut map = HashMap::default();
     for key in Object::keys(&obj)?.into_iter() {
-      if let Some(val) = get_property(env, obj.0.value, &key)? {
-        map.insert(K::from(key), V::from_napi_value(env, val)?);
+      if let Some(val) = obj.get(&key)? {
+        map.insert(K::from(key), val);
       }
     }
 
@@ -102,7 +102,7 @@ where
         if crate::bindgen_runtime::NODE_VERSION_MAJOR >= 20 && NODE_VERSION_MINOR >= 18 {
           fast_set_property(raw_env, obj.0.value, k, v)?;
         } else {
-          set_property(raw_env, obj.0.value, k, v)?;
+          obj.set(k.as_ref(), v)?;
         }
       }
       #[cfg(not(all(
@@ -110,7 +110,7 @@ where
         feature = "node_version_detect",
         any(all(target_os = "linux", feature = "dyn-symbols"), target_os = "macos")
       )))]
-      set_property(raw_env, obj.0.value, k, v)?;
+      obj.set(k.as_ref(), v)?;
     }
 
     unsafe { Object::to_napi_value(raw_env, obj) }
@@ -126,8 +126,8 @@ where
     let obj = unsafe { Object::from_napi_value(env, napi_val)? };
     let mut map = BTreeMap::default();
     for key in Object::keys(&obj)?.into_iter() {
-      if let Some(val) = get_property(env, obj.0.value, &key)? {
-        map.insert(K::from(key), V::from_napi_value(env, val)?);
+      if let Some(val) = obj.get(&key)? {
+        map.insert(K::from(key), val);
       }
     }
 
@@ -170,7 +170,7 @@ where
         if crate::bindgen_runtime::NODE_VERSION_MAJOR >= 20 && NODE_VERSION_MINOR >= 18 {
           fast_set_property(raw_env, obj.0.value, k, v)?;
         } else {
-          set_property(raw_env, obj.0.value, k, v)?;
+          obj.set(k.as_ref(), v)?;
         }
       }
       #[cfg(not(all(
@@ -178,7 +178,7 @@ where
         feature = "node_version_detect",
         any(all(target_os = "linux", feature = "dyn-symbols"), target_os = "macos")
       )))]
-      set_property(raw_env, obj.0.value, k, v)?;
+      obj.set(k.as_ref(), v)?;
     }
 
     unsafe { Object::to_napi_value(raw_env, obj) }
@@ -196,8 +196,8 @@ where
     let obj = unsafe { Object::from_napi_value(env, napi_val)? };
     let mut map = IndexMap::default();
     for key in Object::keys(&obj)?.into_iter() {
-      if let Some(val) = get_property(env, obj.0.value, &key)? {
-        map.insert(K::from(key), V::from_napi_value(env, val)?);
+      if let Some(val) = obj.get(&key)? {
+        map.insert(K::from(key), val);
       }
     }
 
@@ -233,63 +233,4 @@ fn fast_set_property<K: AsRef<str>, V: ToNapiValue>(
     "Failed to set property"
   )?;
   Ok(())
-}
-
-fn set_property<K: AsRef<str>, V: ToNapiValue>(
-  raw_env: sys::napi_env,
-  obj: sys::napi_value,
-  k: K,
-  v: V,
-) -> Result<()> {
-  let mut property_key = std::ptr::null_mut();
-  check_status!(
-    unsafe {
-      sys::napi_create_string_utf8(
-        raw_env,
-        k.as_ref().as_ptr().cast(),
-        k.as_ref().len() as isize,
-        &mut property_key,
-      )
-    },
-    "Create property key failed"
-  )?;
-  check_status!(
-    unsafe { sys::napi_set_property(raw_env, obj, property_key, V::to_napi_value(raw_env, v)?,) },
-    "Failed to set property"
-  )?;
-  Ok(())
-}
-
-fn get_property<K: AsRef<str>>(
-  raw_env: sys::napi_env,
-  obj: sys::napi_value,
-  k: K,
-) -> Result<Option<sys::napi_value>> {
-  let mut property_key = std::ptr::null_mut();
-  check_status!(
-    unsafe {
-      sys::napi_create_string_utf8(
-        raw_env,
-        k.as_ref().as_ptr().cast(),
-        k.as_ref().len() as isize,
-        &mut property_key,
-      )
-    },
-    "Create property key failed"
-  )?;
-
-  let mut ret = std::ptr::null_mut();
-
-  check_status!(
-    unsafe { sys::napi_get_property(raw_env, obj, property_key, &mut ret) },
-    "Failed to get property",
-  )?;
-
-  let ty = type_of!(raw_env, ret)?;
-
-  Ok(if ty == ValueType::Undefined {
-    None
-  } else {
-    Some(ret)
-  })
 }
