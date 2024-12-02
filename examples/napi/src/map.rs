@@ -7,6 +7,7 @@ fn get_mapping() -> HashMap<String, u32> {
   let mut map = HashMap::new();
   map.insert("a".to_string(), 101);
   map.insert("b".to_string(), 102);
+  map.insert("\0c".to_string(), 103);
   map
 }
 
@@ -20,6 +21,7 @@ fn get_btree_mapping() -> BTreeMap<String, u32> {
   let mut map = BTreeMap::new();
   map.insert("a".to_string(), 101);
   map.insert("b".to_string(), 102);
+  map.insert("\0c".to_string(), 103);
   map
 }
 
@@ -33,6 +35,7 @@ fn get_index_mapping() -> IndexMap<String, u32> {
   let mut map = IndexMap::new();
   map.insert("a".to_string(), 101);
   map.insert("b".to_string(), 102);
+  map.insert("\0c".to_string(), 103);
   map
 }
 
