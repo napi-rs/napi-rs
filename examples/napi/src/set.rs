@@ -1,3 +1,4 @@
+use rustc_hash::FxBuildHasher;
 use std::collections::{BTreeSet, HashSet};
 
 #[napi]
@@ -11,6 +12,15 @@ pub fn pass_set_to_rust(set: HashSet<String>) {
 #[napi]
 pub fn pass_set_to_js() -> HashSet<String> {
   let mut set = HashSet::new();
+  set.insert("a".to_string());
+  set.insert("b".to_string());
+  set.insert("c".to_string());
+  set
+}
+
+#[napi]
+pub fn pass_set_with_hasher_to_js() -> HashSet<String, FxBuildHasher> {
+  let mut set = HashSet::with_hasher(FxBuildHasher);
   set.insert("a".to_string());
   set.insert("b".to_string());
   set.insert("c".to_string());

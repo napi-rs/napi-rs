@@ -208,6 +208,9 @@ import {
   getMyVec,
   setNullByteProperty,
   getNullByteProperty,
+  getMappingWithHasher,
+  getIndexMappingWithHasher,
+  passSetWithHasherToJs,
 } from '../index.cjs'
 
 import { test } from './test.framework.js'
@@ -260,10 +263,12 @@ test('array', (t) => {
 
 test('map', (t) => {
   t.deepEqual(getMapping(), { a: 101, b: 102, '\0c': 103 })
+  t.deepEqual(getMappingWithHasher(), { a: 101, b: 102 })
   t.is(sumMapping({ a: 101, b: 102, '\0c': 103 }), 306)
   t.deepEqual(getBtreeMapping(), { a: 101, b: 102, '\0c': 103 })
   t.is(sumBtreeMapping({ a: 101, b: 102, '\0c': 103 }), 306)
   t.deepEqual(getIndexMapping(), { a: 101, b: 102, '\0c': 103 })
+  t.deepEqual(getIndexMappingWithHasher(), { a: 101, b: 102 })
   t.is(sumIndexMapping({ a: 101, b: 102, '\0c': 103 }), 306)
   t.deepEqual(indexmapPassthrough({ a: 101, b: 102, '\0c': 103 }), {
     a: 101,
@@ -278,6 +283,7 @@ test('set', (t) => {
     btreeSetToRust(new Set(['a', 'b', 'c']))
   })
   t.deepEqual(Array.from(passSetToJs()).sort(), ['a', 'b', 'c'])
+  t.deepEqual(Array.from(passSetWithHasherToJs()).sort(), ['a', 'b', 'c'])
   t.deepEqual(Array.from(btreeSetToJs()).sort(), ['a', 'b', 'c'])
 })
 

@@ -1115,12 +1115,12 @@ impl NapiStruct {
     let to_napi_value = if transparent.object_to_js {
       quote! {
         #[automatically_derived]
-        impl napi::bindgen_prelude::FromNapiValue for #name {
-          unsafe fn from_napi_value(
+        impl napi::bindgen_prelude::ToNapiValue for #name {
+          unsafe fn to_napi_value(
             env: napi::bindgen_prelude::sys::napi_env,
-            napi_val: napi::bindgen_prelude::sys::napi_value
-          ) -> napi::bindgen_prelude::Result<Self> {
-            Ok(Self(<#inner_type>::from_napi_value(env, napi_val)?))
+            val: Self
+          ) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
+            <#inner_type>::to_napi_value(env, val.0)
           }
         }
       }
@@ -1131,12 +1131,12 @@ impl NapiStruct {
     let from_napi_value = if transparent.object_from_js {
       quote! {
         #[automatically_derived]
-        impl napi::bindgen_prelude::ToNapiValue for #name {
-          unsafe fn to_napi_value(
+        impl napi::bindgen_prelude::FromNapiValue for #name {
+          unsafe fn from_napi_value(
             env: napi::bindgen_prelude::sys::napi_env,
-            val: Self
-          ) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
-            <#inner_type>::to_napi_value(env, val.0)
+            napi_val: napi::bindgen_prelude::sys::napi_value
+          ) -> napi::bindgen_prelude::Result<Self> {
+            Ok(Self(<#inner_type>::from_napi_value(env, napi_val)?))
           }
         }
       }

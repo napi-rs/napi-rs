@@ -522,7 +522,11 @@ export declare function getGlobal(): typeof global
 
 export declare function getIndexMapping(): Record<string, number>
 
+export declare function getIndexMappingWithHasher(): Record<string, number>
+
 export declare function getMapping(): Record<string, number>
+
+export declare function getMappingWithHasher(): Record<string, number>
 
 export declare function getModuleFileName(): string
 
@@ -656,6 +660,8 @@ export declare function panicInAsync(): Promise<void>
 export declare function passSetToJs(): Set<string>
 
 export declare function passSetToRust(set: Set<string>): void
+
+export declare function passSetWithHasherToJs(): Set<string>
 
 export interface Pet {
   name: string
