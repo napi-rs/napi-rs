@@ -234,6 +234,15 @@ static KNOWN_TYPES: LazyLock<HashMap<&'static str, (&'static str, bool, bool)>> 
   },
 );
 
+static KNOWN_TYPES_IGNORE_ARG: LazyLock<HashMap<&'static str, Vec<usize>>> = LazyLock::new(|| {
+  [
+    ("HashMap", vec![2]),  // HashMap<K, V, S> is same with HashMap<K, V>
+    ("HashSet", vec![1]),  // HashSet<T, S> is same with HashSet<T>
+    ("IndexMap", vec![2]), // IndexMap<K, V, S> is same with IndexMap<K, V>
+  ]
+  .into()
+});
+
 fn fill_ty(template: &str, args: Vec<String>) -> String {
   let matches = template.match_indices("{}").collect::<Vec<_>>();
   if args.len() != matches.len() {
@@ -440,10 +449,18 @@ pub fn ty_to_ts_type(
           if rust_ty == "()" && is_return_ty {
             ts_ty = Some(("void".to_owned(), false));
           } else if known_ty.contains("{}") {
-            ts_ty = Some((
-              fill_ty(known_ty, args.into_iter().map(|(arg, _)| arg).collect()),
-              false,
-            ));
+            let args = args.into_iter().map(|(arg, _)| arg);
+            let filtered_args =
+              if let Some(arg_indices) = KNOWN_TYPES_IGNORE_ARG.get(rust_ty.as_str()) {
+                args
+                  .enumerate()
+                  .filter(|(i, _)| !arg_indices.contains(i))
+                  .map(|(_, arg)| arg)
+                  .collect::<Vec<_>>()
+              } else {
+                args.collect::<Vec<_>>()
+              };
+            ts_ty = Some((fill_ty(known_ty, filtered_args), false));
           } else {
             ts_ty = Some((known_ty.to_owned(), false));
           }

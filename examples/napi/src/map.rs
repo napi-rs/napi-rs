@@ -1,3 +1,4 @@
+use rustc_hash::FxBuildHasher;
 use std::collections::{BTreeMap, HashMap};
 
 use indexmap::IndexMap;
@@ -16,6 +17,14 @@ fn sum_mapping(nums: HashMap<String, u32>) -> u32 {
 }
 
 #[napi]
+fn get_mapping_with_hasher() -> HashMap<String, u32, FxBuildHasher> {
+  let mut map = HashMap::with_hasher(FxBuildHasher);
+  map.insert("a".to_string(), 101);
+  map.insert("b".to_string(), 102);
+  map
+}
+
+#[napi]
 fn get_btree_mapping() -> BTreeMap<String, u32> {
   let mut map = BTreeMap::new();
   map.insert("a".to_string(), 101);
@@ -31,6 +40,14 @@ fn sum_btree_mapping(nums: BTreeMap<String, u32>) -> u32 {
 #[napi]
 fn get_index_mapping() -> IndexMap<String, u32> {
   let mut map = IndexMap::new();
+  map.insert("a".to_string(), 101);
+  map.insert("b".to_string(), 102);
+  map
+}
+
+#[napi]
+fn get_index_mapping_with_hasher() -> IndexMap<String, u32, FxBuildHasher> {
+  let mut map = IndexMap::with_hasher(FxBuildHasher);
   map.insert("a".to_string(), 101);
   map.insert("b".to_string(), 102);
   map
