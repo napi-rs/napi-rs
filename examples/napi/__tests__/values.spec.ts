@@ -206,6 +206,8 @@ import {
   receiveBufferSliceWithLifetime,
   generateFunctionAndCallIt,
   getMyVec,
+  setNullByteProperty,
+  getNullByteProperty,
 } from '../index.cjs'
 
 import { test } from './test.framework.js'
@@ -626,6 +628,11 @@ test('object', (t) => {
 
   const data = generateFunctionAndCallIt()
   t.is(data.handle(), 1)
+
+  const objNull: any = {}
+  setNullByteProperty(objNull)
+  t.is(objNull['\0virtual'], 'test')
+  t.is(getNullByteProperty(objNull), 'test')
 })
 
 test('get str from object', (t) => {

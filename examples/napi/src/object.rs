@@ -172,3 +172,13 @@ pub fn generate_function_and_call_it(env: &Env) -> Result<FunctionData> {
   let handle = env.create_function_from_closure("handle_function", |_ctx| Ok(1))?;
   Ok(FunctionData { handle })
 }
+
+#[napi]
+fn get_null_byte_property(obj: JsObject) -> Result<Option<String>> {
+  obj.get::<String>("\0virtual")
+}
+
+#[napi]
+fn set_null_byte_property(mut obj: JsObject) -> Result<()> {
+  obj.set("\0virtual", "test")
+}

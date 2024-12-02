@@ -532,6 +532,8 @@ export declare function getNestedNumArr(): number[][][]
 
 export declare function getNull(): null
 
+export declare function getNullByteProperty(obj: object): string | null
+
 export declare function getNumArr(): number[]
 
 /** Gets some numbers */
@@ -713,6 +715,8 @@ export declare function returnUndefinedIfInvalidPromise(input: Promise<boolean>)
 export declare function roundtripStr(s: string): string
 
 export declare function runScript(script: string): unknown
+
+export declare function setNullByteProperty(obj: object): void
 
 export declare function setSymbolInObj(symbol: symbol): object
 
