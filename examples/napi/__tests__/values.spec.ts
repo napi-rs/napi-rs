@@ -206,6 +206,8 @@ import {
   receiveBufferSliceWithLifetime,
   generateFunctionAndCallIt,
   getMyVec,
+  setNullByteProperty,
+  getNullByteProperty,
   getMappingWithHasher,
   getIndexMappingWithHasher,
   passSetWithHasherToJs,
@@ -260,15 +262,19 @@ test('array', (t) => {
 })
 
 test('map', (t) => {
-  t.deepEqual(getMapping(), { a: 101, b: 102 })
+  t.deepEqual(getMapping(), { a: 101, b: 102, '\0c': 103 })
   t.deepEqual(getMappingWithHasher(), { a: 101, b: 102 })
-  t.is(sumMapping({ a: 101, b: 102 }), 203)
-  t.deepEqual(getBtreeMapping(), { a: 101, b: 102 })
-  t.is(sumBtreeMapping({ a: 101, b: 102 }), 203)
-  t.deepEqual(getIndexMapping(), { a: 101, b: 102 })
+  t.is(sumMapping({ a: 101, b: 102, '\0c': 103 }), 306)
+  t.deepEqual(getBtreeMapping(), { a: 101, b: 102, '\0c': 103 })
+  t.is(sumBtreeMapping({ a: 101, b: 102, '\0c': 103 }), 306)
+  t.deepEqual(getIndexMapping(), { a: 101, b: 102, '\0c': 103 })
   t.deepEqual(getIndexMappingWithHasher(), { a: 101, b: 102 })
-  t.is(sumIndexMapping({ a: 101, b: 102 }), 203)
-  t.deepEqual(indexmapPassthrough({ a: 101, b: 102 }), { a: 101, b: 102 })
+  t.is(sumIndexMapping({ a: 101, b: 102, '\0c': 103 }), 306)
+  t.deepEqual(indexmapPassthrough({ a: 101, b: 102, '\0c': 103 }), {
+    a: 101,
+    b: 102,
+    '\0c': 103,
+  })
 })
 
 test('set', (t) => {
@@ -628,6 +634,11 @@ test('object', (t) => {
 
   const data = generateFunctionAndCallIt()
   t.is(data.handle(), 1)
+
+  const objNull: any = {}
+  setNullByteProperty(objNull)
+  t.is(objNull['\0virtual'], 'test')
+  t.is(getNullByteProperty(objNull), 'test')
 })
 
 test('get str from object', (t) => {
