@@ -26,7 +26,7 @@ pub struct Error<S: AsRef<str> = Status> {
   pub reason: String,
   // Convert raw `JsError` into Error
   pub(crate) maybe_raw: sys::napi_ref,
-  maybe_env: sys::napi_env,
+  pub(crate) maybe_env: sys::napi_env,
 }
 
 impl<S: AsRef<str>> std::fmt::Debug for Error<S> {
