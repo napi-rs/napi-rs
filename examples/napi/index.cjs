@@ -533,6 +533,7 @@ module.exports.i32ArrayToArray = nativeBinding.i32ArrayToArray
 module.exports.i64ArrayToArray = nativeBinding.i64ArrayToArray
 module.exports.i8ArrayToArray = nativeBinding.i8ArrayToArray
 module.exports.indexmapPassthrough = nativeBinding.indexmapPassthrough
+module.exports.jsErrorCallback = nativeBinding.jsErrorCallback
 module.exports.Kind = nativeBinding.Kind
 module.exports.KindInValidate = nativeBinding.KindInValidate
 module.exports.listObjKeys = nativeBinding.listObjKeys
