@@ -79,7 +79,7 @@ impl TryToTokens for NapiFn {
 
           #(#refs)*
 
-          #[cfg(debug_assert)]
+          #[cfg(debug_assertions)]
           {
               for a in &_args_array {
                 assert!(!a.is_null(), "failed to initialize napi ref");
@@ -666,7 +666,7 @@ impl NapiFn {
 
         #[allow(clippy::all)]
         #[allow(non_snake_case)]
-        #[cfg(all(not(test), not(feature = "noop"), not(target_family = "wasm")))]
+        #[cfg(all(not(test), not(target_family = "wasm")))]
         #[napi::bindgen_prelude::ctor]
         fn #module_register_name() {
           napi::bindgen_prelude::register_module_export(#js_mod_ident, #js_name, #cb_name);
@@ -674,7 +674,7 @@ impl NapiFn {
 
         #[allow(clippy::all)]
         #[allow(non_snake_case)]
-        #[cfg(all(not(test), not(feature = "noop"), target_family = "wasm"))]
+        #[cfg(all(not(test), target_family = "wasm"))]
         #[no_mangle]
         extern "C" fn #module_register_name() {
           napi::bindgen_prelude::register_module_export(#js_mod_ident, #js_name, #cb_name);
