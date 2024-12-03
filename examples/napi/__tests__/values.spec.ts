@@ -847,7 +847,6 @@ test('buffer', (t) => {
   t.is(a.toString(), '')
   t.is(b.toString(), '')
 
-  // @ts-expect-error
   t.true(Array.isArray(asyncBufferToArray(Buffer.from([1, 2, 3]).buffer)))
 })
 
