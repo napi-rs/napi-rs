@@ -53,6 +53,7 @@ import {
   mapOption,
   readFile,
   throwError,
+  jsErrorCallback,
   customStatusCode,
   panic,
   readPackageJson,
@@ -697,6 +698,10 @@ test('Result', (t) => {
     t.throws(() => panic(), void 0, `Don't panic`)
   }
   t.throws(() => errorMessageContainsNullByte('\u001a\u0000'))
+
+  const errors = jsErrorCallback(new Error('JS Error'))
+  t.deepEqual(errors[0]!.message, 'JS Error')
+  t.deepEqual(errors[1]!.message, 'JS Error')
 })
 
 test('Async error with stack trace', async (t) => {

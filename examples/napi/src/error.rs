@@ -59,3 +59,8 @@ impl CustomStruct {
     Err(Error::new(CustomError::Panic, "don't panic"))
   }
 }
+
+#[napi]
+pub fn js_error_callback(error: JsError) -> Vec<JsError, JsError> {
+  vec![error.clone(), error]
+}

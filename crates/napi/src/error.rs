@@ -26,6 +26,7 @@ pub struct Error<S: AsRef<str> = Status> {
   pub reason: String,
   // Convert raw `JsError` into Error
   pub(crate) maybe_raw: sys::napi_ref,
+  maybe_env: sys::napi_env,
 }
 
 impl<S: AsRef<str>> std::fmt::Debug for Error<S> {
@@ -39,6 +40,19 @@ impl<S: AsRef<str>> std::fmt::Debug for Error<S> {
   }
 }
 
+impl<S: AsRef<str>> Drop for Error<S> {
+  fn drop(&mut self) {
+    if !self.maybe_env.is_null() && !self.maybe_raw.is_null() {
+      let delete_reference_status =
+        unsafe { sys::napi_delete_reference(self.maybe_env, self.maybe_raw) };
+      debug_assert!(
+        delete_reference_status == sys::Status::napi_ok,
+        "Delete Error Reference failed"
+      );
+    }
+  }
+}
+
 impl<S: AsRef<str>> ToNapiValue for Error<S> {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     if val.maybe_raw.is_null() {
@@ -49,10 +63,6 @@ impl<S: AsRef<str>> ToNapiValue for Error<S> {
       check_status!(
         unsafe { sys::napi_get_reference_value(env, val.maybe_raw, &mut value) },
         "Get error reference in `to_napi_value` failed"
-      )?;
-      check_status!(
-        unsafe { sys::napi_delete_reference(env, val.maybe_raw) },
-        "Delete error reference in `to_napi_value` failed"
       )?;
       Ok(value)
     }
@@ -110,6 +120,7 @@ impl From<JsUnknown> for Error {
         status: Status::GenericFailure,
         reason: error_message,
         maybe_raw: result,
+        maybe_env: value.0.env,
       };
     }
 
@@ -117,6 +128,7 @@ impl From<JsUnknown> for Error {
       status: Status::GenericFailure,
       reason: "".to_string(),
       maybe_raw: result,
+      maybe_env: value.0.env,
     }
   }
 }
@@ -144,6 +156,7 @@ impl<S: AsRef<str>> Error<S> {
       status,
       reason: reason.to_string(),
       maybe_raw: ptr::null_mut(),
+      maybe_env: ptr::null_mut(),
     }
   }
 
@@ -152,6 +165,7 @@ impl<S: AsRef<str>> Error<S> {
       status,
       reason: "".to_owned(),
       maybe_raw: ptr::null_mut(),
+      maybe_env: ptr::null_mut(),
     }
   }
 }
@@ -162,6 +176,7 @@ impl Error {
       status: Status::GenericFailure,
       reason: reason.into(),
       maybe_raw: ptr::null_mut(),
+      maybe_env: ptr::null_mut(),
     }
   }
 }
@@ -172,6 +187,7 @@ impl From<std::ffi::NulError> for Error {
       status: Status::GenericFailure,
       reason: format!("{}", error),
       maybe_raw: ptr::null_mut(),
+      maybe_env: ptr::null_mut(),
     }
   }
 }
@@ -182,6 +198,7 @@ impl From<std::io::Error> for Error {
       status: Status::GenericFailure,
       reason: format!("{}", error),
       maybe_raw: ptr::null_mut(),
+      maybe_env: ptr::null_mut(),
     }
   }
 }
@@ -241,11 +258,6 @@ macro_rules! impl_object_methods {
           debug_assert!(
             get_err_status == sys::Status::napi_ok,
             "Get Error from Reference failed"
-          );
-          let delete_err_status = unsafe { sys::napi_delete_reference(env, self.0.maybe_raw) };
-          debug_assert!(
-            delete_err_status == sys::Status::napi_ok,
-            "Delete Error Reference failed"
           );
           let mut is_error = false;
           let is_error_status = unsafe { sys::napi_is_error(env, err, &mut is_error) };
