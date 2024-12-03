@@ -112,6 +112,7 @@ impl From<JsUnknown> for Error {
       );
     }
 
+    let maybe_env = value.0.env;
     let maybe_error_message = value
       .coerce_to_string()
       .and_then(|a| a.into_utf8().and_then(|a| a.into_owned()));
@@ -120,7 +121,7 @@ impl From<JsUnknown> for Error {
         status: Status::GenericFailure,
         reason: error_message,
         maybe_raw: result,
-        maybe_env: value.0.env,
+        maybe_env,
       };
     }
 
@@ -128,7 +129,7 @@ impl From<JsUnknown> for Error {
       status: Status::GenericFailure,
       reason: "".to_string(),
       maybe_raw: result,
-      maybe_env: value.0.env,
+      maybe_env,
     }
   }
 }
