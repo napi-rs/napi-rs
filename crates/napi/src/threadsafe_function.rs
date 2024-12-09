@@ -685,6 +685,8 @@ unsafe extern "C" fn call_js_cb<
           unsafe { sys::napi_create_reference(raw_env, exception, 1, &mut error_reference) };
           Err(Error {
             maybe_raw: error_reference,
+            maybe_env: raw_env,
+            raw: true,
             status: Status::from(status),
             reason: "".to_owned(),
           })
