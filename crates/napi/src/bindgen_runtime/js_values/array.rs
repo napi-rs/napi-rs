@@ -289,18 +289,11 @@ where
 }
 
 macro_rules! arr_get {
-  ($arr:expr, $n:expr) => {
+  ($arr:expr, $n:expr, $err:expr) => {
     if let Some(e) = $arr.get($n)? {
       e
     } else {
-      return Err(Error::new(
-        Status::InvalidArg,
-        format!(
-          "Found inconsistent data type in Array[{}] when converting to Rust T",
-          $n
-        )
-        .to_owned(),
-      ));
+      return $err($n);
     }
   };
 }
@@ -309,13 +302,21 @@ macro_rules! tuple_from_napi_value {
   ($total:expr, $($n:expr),+,) => {
     unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
       let arr = unsafe { Array::from_napi_value(env, napi_val)? };
+      let err = |v| Err(Error::new(
+        Status::InvalidArg,
+        format!(
+          "Found inconsistent data type in Array[{}] when converting to Rust T",
+          v
+        )
+        .to_owned(),
+      ));
       if arr.len() < $total {
         return Err(Error::new(
             Status::InvalidArg,
             format!("Array length < {}",$total).to_owned(),
         ));
       }
-      Ok(($(arr_get!(arr,$n)),+))
+      Ok(($(arr_get!(arr,$n,err)),+))
     }
   }
 }
