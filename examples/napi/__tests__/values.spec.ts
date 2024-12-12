@@ -28,6 +28,7 @@ import {
   getNums,
   getWords,
   sumNums,
+  getTuple,
   getMapping,
   sumMapping,
   getBtreeMapping,
@@ -256,6 +257,7 @@ test('string', (t) => {
 test('array', (t) => {
   t.deepEqual(getNums(), [1, 1, 2, 3, 5, 8])
   t.deepEqual(getWords(), ['foo', 'bar'])
+  t.deepEqual(getTuple([1, "test", 2]), 3)
 
   t.is(sumNums([1, 2, 3, 4, 5]), 15)
   t.deepEqual(getNumArr(), [1, 2])

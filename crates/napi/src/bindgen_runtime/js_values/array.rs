@@ -306,7 +306,7 @@ macro_rules! arr_get {
 }
 
 macro_rules! tuple_from_napi_value {
-  ($total:expr, $($n:expr),+) => {
+  ($total:expr, $($n:expr),+,) => {
     unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
       let arr = unsafe { Array::from_napi_value(env, napi_val)? };
       if arr.len() < $total {
@@ -334,285 +334,47 @@ macro_rules! impl_tuple_validate_napi_value {
   };
 }
 
-impl<T0, T1> FromNapiValue for (T0, T1)
-where
-  T0: FromNapiValue,
-  T1: FromNapiValue,
-{
-  tuple_from_napi_value!(2, 0, 1);
+macro_rules! impl_from_tuple {
+    (
+        $($typs:ident),*;
+        $($tidents:expr),+;
+        $length:expr
+    ) => {
+        impl<$($typs),*> FromNapiValue for ($($typs,)*)
+         where $($typs: FromNapiValue,)* {
+          tuple_from_napi_value!($length, $($tidents,)*);
+        }
+    };
 }
 
-impl<T0, T1, T2> FromNapiValue for (T0, T1, T2)
-where
-  T0: FromNapiValue,
-  T1: FromNapiValue,
-  T2: FromNapiValue,
-{
-  tuple_from_napi_value!(3, 0, 1, 2);
+macro_rules! impl_tuples {
+    (
+      ;;$length:expr,
+      $shift:expr
+    ) =>{};
+    (
+        $typ:ident$(, $($typs:ident),*)?;
+        $tident:expr$(, $($tidents:expr),*)?;
+        $length:expr,
+        $shift:expr
+    ) => {
+        impl_tuples!(
+            $($($typs),*)?;
+            $($($tidents),*)?;
+            $length - 1,
+            $shift + 1
+        );
+        impl_from_tuple!(
+            $typ$(, $($typs),*)?;
+            $tident - $shift$(, $($tidents - $shift),*)?;
+            $length
+        );
+        impl_tuple_validate_napi_value!($typ$(, $($typs),*)?);
+    };
 }
 
-impl<T0, T1, T2, T3> FromNapiValue for (T0, T1, T2, T3)
-where
-  T0: FromNapiValue,
-  T1: FromNapiValue,
-  T2: FromNapiValue,
-  T3: FromNapiValue,
-{
-  tuple_from_napi_value!(4, 0, 1, 2, 3);
-}
-
-impl<T0, T1, T2, T3, T4> FromNapiValue for (T0, T1, T2, T3, T4)
-where
-  T0: FromNapiValue,
-  T1: FromNapiValue,
-  T2: FromNapiValue,
-  T3: FromNapiValue,
-  T4: FromNapiValue,
-{
-  tuple_from_napi_value!(5, 0, 1, 2, 3, 4);
-}
-
-impl<T0, T1, T2, T3, T4, T5> FromNapiValue for (T0, T1, T2, T3, T4, T5)
-where
-  T0: FromNapiValue,
-  T1: FromNapiValue,
-  T2: FromNapiValue,
-  T3: FromNapiValue,
-  T4: FromNapiValue,
-  T5: FromNapiValue,
-{
-  tuple_from_napi_value!(6, 0, 1, 2, 3, 4, 5);
-}
-
-impl<T0, T1, T2, T3, T4, T5, T6> FromNapiValue for (T0, T1, T2, T3, T4, T5, T6)
-where
-  T0: FromNapiValue,
-  T1: FromNapiValue,
-  T2: FromNapiValue,
-  T3: FromNapiValue,
-  T4: FromNapiValue,
-  T5: FromNapiValue,
-  T6: FromNapiValue,
-{
-  tuple_from_napi_value!(7, 0, 1, 2, 3, 4, 5, 6);
-}
-
-impl<T0, T1, T2, T3, T4, T5, T6, T7> FromNapiValue for (T0, T1, T2, T3, T4, T5, T6, T7)
-where
-  T0: FromNapiValue,
-  T1: FromNapiValue,
-  T2: FromNapiValue,
-  T3: FromNapiValue,
-  T4: FromNapiValue,
-  T5: FromNapiValue,
-  T6: FromNapiValue,
-  T7: FromNapiValue,
-{
-  tuple_from_napi_value!(8, 0, 1, 2, 3, 4, 5, 6, 7);
-}
-
-impl<T0, T1, T2, T3, T4, T5, T6, T7, T8> FromNapiValue for (T0, T1, T2, T3, T4, T5, T6, T7, T8)
-where
-  T0: FromNapiValue,
-  T1: FromNapiValue,
-  T2: FromNapiValue,
-  T3: FromNapiValue,
-  T4: FromNapiValue,
-  T5: FromNapiValue,
-  T6: FromNapiValue,
-  T7: FromNapiValue,
-  T8: FromNapiValue,
-{
-  tuple_from_napi_value!(9, 0, 1, 2, 3, 4, 5, 6, 7, 8);
-}
-
-impl<T0, T1, T2, T3, T4, T5, T6, T7, T8, T9> FromNapiValue
-  for (T0, T1, T2, T3, T4, T5, T6, T7, T8, T9)
-where
-  T0: FromNapiValue,
-  T1: FromNapiValue,
-  T2: FromNapiValue,
-  T3: FromNapiValue,
-  T4: FromNapiValue,
-  T5: FromNapiValue,
-  T6: FromNapiValue,
-  T7: FromNapiValue,
-  T8: FromNapiValue,
-  T9: FromNapiValue,
-{
-  tuple_from_napi_value!(10, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9);
-}
-
-impl<T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10> FromNapiValue
-  for (T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10)
-where
-  T0: FromNapiValue,
-  T1: FromNapiValue,
-  T2: FromNapiValue,
-  T3: FromNapiValue,
-  T4: FromNapiValue,
-  T5: FromNapiValue,
-  T6: FromNapiValue,
-  T7: FromNapiValue,
-  T8: FromNapiValue,
-  T9: FromNapiValue,
-  T10: FromNapiValue,
-{
-  tuple_from_napi_value!(11, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
-}
-
-impl<T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11> FromNapiValue
-  for (T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11)
-where
-  T0: FromNapiValue,
-  T1: FromNapiValue,
-  T2: FromNapiValue,
-  T3: FromNapiValue,
-  T4: FromNapiValue,
-  T5: FromNapiValue,
-  T6: FromNapiValue,
-  T7: FromNapiValue,
-  T8: FromNapiValue,
-  T9: FromNapiValue,
-  T10: FromNapiValue,
-  T11: FromNapiValue,
-{
-  tuple_from_napi_value!(12, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11);
-}
-
-impl<T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12> FromNapiValue
-  for (T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12)
-where
-  T0: FromNapiValue,
-  T1: FromNapiValue,
-  T2: FromNapiValue,
-  T3: FromNapiValue,
-  T4: FromNapiValue,
-  T5: FromNapiValue,
-  T6: FromNapiValue,
-  T7: FromNapiValue,
-  T8: FromNapiValue,
-  T9: FromNapiValue,
-  T10: FromNapiValue,
-  T11: FromNapiValue,
-  T12: FromNapiValue,
-{
-  tuple_from_napi_value!(13, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12);
-}
-
-impl<T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13> FromNapiValue
-  for (T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13)
-where
-  T0: FromNapiValue,
-  T1: FromNapiValue,
-  T2: FromNapiValue,
-  T3: FromNapiValue,
-  T4: FromNapiValue,
-  T5: FromNapiValue,
-  T6: FromNapiValue,
-  T7: FromNapiValue,
-  T8: FromNapiValue,
-  T9: FromNapiValue,
-  T10: FromNapiValue,
-  T11: FromNapiValue,
-  T12: FromNapiValue,
-  T13: FromNapiValue,
-{
-  tuple_from_napi_value!(14, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13);
-}
-
-impl<T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14> FromNapiValue
-  for (
-    T0,
-    T1,
-    T2,
-    T3,
-    T4,
-    T5,
-    T6,
-    T7,
-    T8,
-    T9,
-    T10,
-    T11,
-    T12,
-    T13,
-    T14,
-  )
-where
-  T0: FromNapiValue,
-  T1: FromNapiValue,
-  T2: FromNapiValue,
-  T3: FromNapiValue,
-  T4: FromNapiValue,
-  T5: FromNapiValue,
-  T6: FromNapiValue,
-  T7: FromNapiValue,
-  T8: FromNapiValue,
-  T9: FromNapiValue,
-  T10: FromNapiValue,
-  T11: FromNapiValue,
-  T12: FromNapiValue,
-  T13: FromNapiValue,
-  T14: FromNapiValue,
-{
-  tuple_from_napi_value!(15, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14);
-}
-
-impl<T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15> FromNapiValue
-  for (
-    T0,
-    T1,
-    T2,
-    T3,
-    T4,
-    T5,
-    T6,
-    T7,
-    T8,
-    T9,
-    T10,
-    T11,
-    T12,
-    T13,
-    T14,
-    T15,
-  )
-where
-  T0: FromNapiValue,
-  T1: FromNapiValue,
-  T2: FromNapiValue,
-  T3: FromNapiValue,
-  T4: FromNapiValue,
-  T5: FromNapiValue,
-  T6: FromNapiValue,
-  T7: FromNapiValue,
-  T8: FromNapiValue,
-  T9: FromNapiValue,
-  T10: FromNapiValue,
-  T11: FromNapiValue,
-  T12: FromNapiValue,
-  T13: FromNapiValue,
-  T14: FromNapiValue,
-  T15: FromNapiValue,
-{
-  tuple_from_napi_value!(16, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
-}
-
-impl_tuple_validate_napi_value!(T0, T1);
-impl_tuple_validate_napi_value!(T0, T1, T2);
-impl_tuple_validate_napi_value!(T0, T1, T2, T3);
-impl_tuple_validate_napi_value!(T0, T1, T2, T3, T4);
-impl_tuple_validate_napi_value!(T0, T1, T2, T3, T4, T5);
-impl_tuple_validate_napi_value!(T0, T1, T2, T3, T4, T5, T6);
-impl_tuple_validate_napi_value!(T0, T1, T2, T3, T4, T5, T6, T7);
-impl_tuple_validate_napi_value!(T0, T1, T2, T3, T4, T5, T6, T7, T8);
-impl_tuple_validate_napi_value!(T0, T1, T2, T3, T4, T5, T6, T7, T8, T9);
-impl_tuple_validate_napi_value!(T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10);
-impl_tuple_validate_napi_value!(T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11);
-impl_tuple_validate_napi_value!(T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12);
-impl_tuple_validate_napi_value!(T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13);
-impl_tuple_validate_napi_value!(T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14);
-impl_tuple_validate_napi_value!(
-  T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15
+impl_tuples!(
+  T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15;
+  0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15;
+  16, 0
 );

@@ -551,6 +551,8 @@ export declare function getStrFromObject(): void
 
 export declare function getterFromObj(): number
 
+export declare function getTuple(val: [number, string, number]): number
+
 export declare function getUndefined(): void
 
 export declare function getWords(): Array<string>

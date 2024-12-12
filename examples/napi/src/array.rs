@@ -17,6 +17,11 @@ fn sum_nums(nums: Vec<u32>) -> u32 {
 }
 
 #[napi]
+fn get_tuple(val: (u32, String, u8)) -> u32 {
+  val.0 + Into::<u32>::into(val.2)
+}
+
+#[napi]
 fn to_js_obj(env: Env) -> napi::Result<JsObject> {
   let mut arr = env.create_array(0)?;
   arr.insert("a string")?;
