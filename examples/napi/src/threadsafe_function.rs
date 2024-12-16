@@ -102,12 +102,12 @@ pub fn tsfn_call_with_callback(tsfn: ThreadsafeFunction<(), String>) -> napi::Re
 #[napi(ts_return_type = "Promise<void>")]
 pub fn tsfn_async_call(
   env: Env,
-  func: Function<(u32, u32, u32), String>,
+  func: Function<FnArgs<(u32, u32, u32)>, String>,
 ) -> napi::Result<PromiseRaw<()>> {
   let tsfn = func.build_threadsafe_function().build()?;
 
   env.spawn_future(async move {
-    let msg = tsfn.call_async((0, 1, 2)).await?;
+    let msg = tsfn.call_async((0, 1, 2).into()).await?;
     assert_eq!(msg, "ReturnFromJavaScriptRawCallback".to_owned());
     Ok(())
   })
@@ -128,10 +128,12 @@ pub fn accept_threadsafe_function_fatal(func: ThreadsafeFunction<u32, (), u32, f
 }
 
 #[napi]
-pub fn accept_threadsafe_function_tuple_args(func: ThreadsafeFunction<(u32, bool, String)>) {
+pub fn accept_threadsafe_function_tuple_args(
+  func: ThreadsafeFunction<FnArgs<(u32, bool, String)>>,
+) {
   thread::spawn(move || {
     func.call(
-      Ok((1, false, "NAPI-RS".into())),
+      Ok((1, false, "NAPI-RS".into()).into()),
       ThreadsafeFunctionCallMode::NonBlocking,
     );
   });

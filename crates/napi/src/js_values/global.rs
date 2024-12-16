@@ -1,5 +1,5 @@
 use super::*;
-use crate::bindgen_runtime::{FromNapiValue, Function, Unknown};
+use crate::bindgen_runtime::{FnArgs, FromNapiValue, Function, Unknown};
 
 pub struct JsGlobal(pub(crate) Value);
 
@@ -24,11 +24,13 @@ impl JSON {
   }
 }
 
+type SupportType<'a> = Function<'a, FnArgs<(Function<'a, (), Unknown>, f64)>, JsTimeout>;
 impl JsGlobal {
   pub fn set_interval(&self, handler: Function<(), Unknown>, interval: f64) -> Result<JsTimeout> {
-    let func: Function<(Function<(), Unknown>, f64), JsTimeout> =
-      self.get_named_property_unchecked("setInterval")?;
-    func.call((handler, interval))
+    let func: SupportType = self.get_named_property_unchecked("setInterval")?;
+    func.call(FnArgs {
+      data: (handler, interval),
+    })
   }
 
   pub fn clear_interval(&self, timer: JsTimeout) -> Result<JsUndefined> {
@@ -38,9 +40,10 @@ impl JsGlobal {
   }
 
   pub fn set_timeout(&self, handler: Function<(), Unknown>, interval: f64) -> Result<JsTimeout> {
-    let func: Function<(Function<(), Unknown>, f64), JsTimeout> =
-      self.get_named_property_unchecked("setTimeout")?;
-    func.call((handler, interval))
+    let func: SupportType = self.get_named_property_unchecked("setTimeout")?;
+    func.call(FnArgs {
+      data: (handler, interval),
+    })
   }
 
   pub fn clear_timeout(&self, timer: JsTimeout) -> Result<JsUndefined> {
