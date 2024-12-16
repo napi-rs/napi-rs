@@ -31,13 +31,23 @@ pub trait TupleFromSliceValues {
     Self: Sized;
 }
 
+pub struct FnArgs<T> {
+  pub data: T,
+}
+
+impl<T> From<T> for FnArgs<T> {
+  fn from(value: T) -> Self {
+    FnArgs { data: value }
+  }
+}
+
 macro_rules! impl_tuple_conversion {
   ($($ident:ident),*) => {
-    impl<$($ident: ToNapiValue),*> JsValuesTupleIntoVec for ($($ident,)*) {
+    impl<$($ident: ToNapiValue),*> JsValuesTupleIntoVec for FnArgs<($($ident,)*)> {
       #[allow(clippy::not_unsafe_ptr_arg_deref)]
       fn into_vec(self, env: sys::napi_env) -> Result<Vec<sys::napi_value>> {
         #[allow(non_snake_case)]
-        let ($($ident,)*) = self;
+        let ($($ident,)*) = self.data;
         Ok(vec![$(unsafe { <$ident as ToNapiValue>::to_napi_value(env, $ident)? }),*])
       }
     }
