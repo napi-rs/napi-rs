@@ -270,10 +270,14 @@ fn is_ts_union_type(rust_ty: &str) -> bool {
 
 const TSFN_RUST_TY: &str = "ThreadsafeFunction";
 const FUNCTION_TY: &str = "Function";
+const FUNCTION_ARG_TY: &str = "FnArgs";
 const FUNCTION_REF_TY: &str = "FunctionRef";
 
 fn is_generic_function_type(rust_ty: &str) -> bool {
-  rust_ty == TSFN_RUST_TY || rust_ty == FUNCTION_TY || rust_ty == FUNCTION_REF_TY
+  rust_ty == TSFN_RUST_TY
+    || rust_ty == FUNCTION_TY
+    || rust_ty == FUNCTION_ARG_TY
+    || rust_ty == FUNCTION_REF_TY
 }
 
 fn is_ts_function_type_notation(ty: &Type) -> bool {
@@ -344,6 +348,7 @@ pub fn ty_to_ts_type(
       }
     }
     Type::Path(syn::TypePath { qself: None, path }) => {
+      let mut is_passthrough_type = false;
       let ts_ty = if let Some(syn::PathSegment { ident, arguments }) = path.segments.last() {
         let rust_ty = ident.to_string();
         let is_ts_union_type = is_ts_union_type(&rust_ty);
@@ -443,6 +448,9 @@ pub fn ty_to_ts_type(
             // Not NAPI-RS `AsyncBlock`
             Some((rust_ty, false))
           }
+        } else if rust_ty == "FnArgs" {
+          is_passthrough_type = true;
+          Some(args.first().unwrap().to_owned())
         } else if let Some(&(known_ty, _, _)) = KNOWN_TYPES.get(rust_ty.as_str()) {
           if rust_ty == "()" && is_return_ty {
             Some(("void".to_owned(), false))
@@ -504,7 +512,7 @@ pub fn ty_to_ts_type(
 
       let (ty, is_optional) = ts_ty.unwrap_or_else(|| ("any".to_owned(), false));
       (
-        (convert_tuple_to_variadic && !is_return_ty)
+        (convert_tuple_to_variadic && !is_return_ty && !is_passthrough_type)
           .then(|| format!("arg: {ty}"))
           .unwrap_or(ty),
         is_optional,
