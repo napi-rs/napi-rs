@@ -348,6 +348,29 @@ macro_rules! impl_from_tuple {
     };
 }
 
+macro_rules! impl_to_tuple {
+  (
+      $($typs:ident),*;
+      $($tidents:expr),+;
+      $length:expr
+  ) => {
+      impl<$($typs),*> ToNapiValue for ($($typs,)*)
+       where $($typs: ToNapiValue,)* {
+        unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+          let mut arr = Array::new(env, $length as u32)?;
+
+          #[allow(non_snake_case)]
+          let ($($typs,)*) = val;
+          let mut i = 0;
+
+          $(i+=1; unsafe {arr.set(i-1, <$typs as ToNapiValue>::to_napi_value(env, $typs)? )?}; )*
+
+          unsafe { Array::to_napi_value(env, arr) }
+        }
+      }
+  };
+}
+
 macro_rules! impl_tuples {
     (
       ;;$length:expr,
@@ -369,6 +392,11 @@ macro_rules! impl_tuples {
             $typ$(, $($typs),*)?;
             $tident - $shift$(, $($tidents - $shift),*)?;
             $length
+        );
+        impl_to_tuple!(
+          $typ$(, $($typs),*)?;
+          $tident - $shift$(, $($tidents - $shift),*)?;
+          $length
         );
         impl_tuple_validate_napi_value!($typ$(, $($typs),*)?);
     };
