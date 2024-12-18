@@ -25,4 +25,9 @@ pub fn setup() {
     println!("cargo:rustc-link-search={setjmp_link_dir}");
     println!("cargo:rustc-link-lib=static=setjmp-mt");
   }
+  if let Ok(wasi_sdk_path) = env::var("WASI_SDK_PATH") {
+    println!(
+      "cargo:rustc-link-search={wasi_sdk_path}/share/wasi-sysroot/lib/wasm32-wasip1-threads"
+    );
+  }
 }

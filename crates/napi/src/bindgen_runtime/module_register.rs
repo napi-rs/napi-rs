@@ -6,12 +6,6 @@ use std::ffi::CStr;
 use std::mem::MaybeUninit;
 #[cfg(not(feature = "noop"))]
 use std::ptr;
-#[cfg(all(
-  not(any(target_os = "macos", target_family = "wasm")),
-  feature = "napi4",
-  feature = "tokio_rt"
-))]
-use std::sync::atomic::AtomicUsize;
 #[cfg(not(feature = "noop"))]
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, RwLock};
@@ -411,13 +405,13 @@ pub unsafe extern "C" fn napi_register_module_v1(
         }
       }
     });
+  });
 
-    REGISTERED_CLASSES.borrow_mut(|map| {
-      map.insert(
-        std::thread::current().id(),
-        PersistedPerInstanceHashMap::from_hashmap(registered_classes),
-      )
-    });
+  REGISTERED_CLASSES.borrow_mut(|map| {
+    map.insert(
+      std::thread::current().id(),
+      PersistedPerInstanceHashMap::from_hashmap(registered_classes),
+    )
   });
 
   #[cfg(feature = "compat-mode")]
@@ -430,23 +424,25 @@ pub unsafe extern "C" fn napi_register_module_v1(
     })
   }
 
-  #[cfg(all(
-    not(any(target_os = "macos", target_family = "wasm")),
-    feature = "napi4",
-    feature = "tokio_rt"
-  ))]
+  #[cfg(all(feature = "napi4", feature = "tokio_rt"))]
   {
     crate::tokio_runtime::ensure_runtime();
 
-    static init_counter: AtomicUsize = AtomicUsize::new(0);
-    let cleanup_hook_payload =
-      init_counter.fetch_add(1, Ordering::Relaxed) as *mut std::ffi::c_void;
-
+    #[cfg(not(target_family = "wasm"))]
     unsafe {
       sys::napi_add_env_cleanup_hook(
         env,
         Some(crate::tokio_runtime::drop_runtime),
-        cleanup_hook_payload,
+        ptr::null_mut(),
+      )
+    };
+
+    #[cfg(target_family = "wasm")]
+    unsafe {
+      crate::napi_add_env_cleanup_hook(
+        env,
+        Some(crate::tokio_runtime::drop_runtime),
+        ptr::null_mut(),
       )
     };
   }

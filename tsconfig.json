@@ -24,6 +24,11 @@
     "outDir": "scripts",
     "lib": ["ES2022"]
   },
-  "include": ["."],
+  "include": [],
+  "references": [
+    { "path": "./examples/napi-compat-mode/tsconfig.json" },
+    { "path": "./examples/napi/tsconfig.json" },
+    { "path": "./cli/tsconfig.json" }
+  ],
   "exclude": ["node_modules", "bench", "cli/scripts", "scripts", "target"]
 }

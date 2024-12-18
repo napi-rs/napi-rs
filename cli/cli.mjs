@@ -5,7 +5,7 @@ import { resolve } from 'path'
 import { fileURLToPath } from 'url'
 
 execSync(
-  `node --loader ts-node/esm/transpile-only ${resolve(
+  `node --import @oxc-node/core/register ${resolve(
     fileURLToPath(import.meta.url),
     '../src/cli.ts',
   )} ${process.argv.slice(2).join(' ')}`,

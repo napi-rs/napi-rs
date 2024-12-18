@@ -1011,13 +1011,27 @@ impl Env {
       hook: Box::new(cleanup_fn),
     };
     let hook_ref = Box::leak(Box::new(hook));
-    check_status!(unsafe {
-      sys::napi_add_env_cleanup_hook(
-        self.0,
-        Some(cleanup_env::<T>),
-        hook_ref as *mut CleanupEnvHookData<T> as *mut _,
-      )
-    })?;
+    #[cfg(not(target_family = "wasm"))]
+    {
+      check_status!(unsafe {
+        sys::napi_add_env_cleanup_hook(
+          self.0,
+          Some(cleanup_env::<T>),
+          (hook_ref as *mut CleanupEnvHookData<T>).cast(),
+        )
+      })?;
+    }
+
+    #[cfg(target_family = "wasm")]
+    {
+      check_status!(unsafe {
+        crate::napi_add_env_cleanup_hook(
+          self.0,
+          Some(cleanup_env::<T>),
+          (hook_ref as *mut CleanupEnvHookData<T>).cast(),
+        )
+      })?;
+    }
     Ok(CleanupEnvHook(hook_ref))
   }
 
@@ -1146,8 +1160,7 @@ impl Env {
     check_status!(unsafe {
       sys::napi_set_instance_data(
         self.0,
-        Box::leak(Box::new((TaggedObject::new(native), finalize_cb))) as *mut (TaggedObject<T>, F)
-          as *mut c_void,
+        Box::into_raw(Box::new((TaggedObject::new(native), finalize_cb))).cast(),
         Some(
           set_instance_finalize_callback::<T, Hint, F>
             as unsafe extern "C" fn(
@@ -1156,7 +1169,7 @@ impl Env {
               finalize_hint: *mut c_void,
             ),
         ),
-        Box::leak(Box::new(hint)) as *mut Hint as *mut c_void,
+        Box::into_raw(Box::new(hint)).cast(),
       )
     })
   }
@@ -1377,6 +1390,7 @@ unsafe extern "C" fn drop_buffer(
   mem::drop(unsafe { Vec::from_raw_parts(finalize_data as *mut u8, length, cap) });
 }
 
+#[cfg_attr(target_family = "wasm", allow(unused_variables))]
 pub(crate) unsafe extern "C" fn raw_finalize<T>(
   env: sys::napi_env,
   finalize_data: *mut c_void,

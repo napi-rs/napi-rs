@@ -79,7 +79,7 @@ impl TryToTokens for NapiFn {
 
           #(#refs)*
 
-          #[cfg(debug_assert)]
+          #[cfg(debug_assertions)]
           {
               for a in &_args_array {
                 assert!(!a.is_null(), "failed to initialize napi ref");

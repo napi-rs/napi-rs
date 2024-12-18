@@ -11,18 +11,24 @@ use crate::{
 };
 
 fn create_runtime() -> Option<Runtime> {
-  #[cfg(not(target_family = "wasm"))]
-  {
-    let runtime = tokio::runtime::Runtime::new().expect("Create tokio runtime failed");
-    Some(runtime)
-  }
-
   #[cfg(target_family = "wasm")]
   {
-    tokio::runtime::Builder::new_current_thread()
-      .enable_all()
-      .build()
-      .ok()
+    Some(
+      tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("Create tokio runtime failed"),
+    )
+  }
+
+  #[cfg(not(target_family = "wasm"))]
+  {
+    Some(
+      tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("Create tokio runtime failed"),
+    )
   }
 }
 
@@ -56,14 +62,12 @@ pub fn create_custom_tokio_runtime(rt: Runtime) {
   USER_DEFINED_RT.get_or_init(move || Mutex::new(Some(rt)));
 }
 
-#[cfg(not(any(target_os = "macos", target_family = "wasm")))]
 static RT_REFERENCE_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 /// Ensure that the Tokio runtime is initialized.
 /// In windows the Tokio runtime will be dropped when Node env exits.
 /// But in Electron renderer process, the Node env will exits and recreate when the window reloads.
 /// So we need to ensure that the Tokio runtime is initialized when the Node env is created.
-#[cfg(not(any(target_os = "macos", target_family = "wasm")))]
 pub(crate) fn ensure_runtime() {
   use std::sync::atomic::Ordering;
 
@@ -75,12 +79,13 @@ pub(crate) fn ensure_runtime() {
   RT_REFERENCE_COUNT.fetch_add(1, Ordering::Relaxed);
 }
 
-#[cfg(not(any(target_os = "macos", target_family = "wasm")))]
 pub(crate) unsafe extern "C" fn drop_runtime(_arg: *mut std::ffi::c_void) {
   use std::sync::atomic::Ordering;
 
   if RT_REFERENCE_COUNT.fetch_sub(1, Ordering::AcqRel) == 1 {
-    RT.write().unwrap().take();
+    if let Some(rt) = RT.write().unwrap().take() {
+      rt.shutdown_background();
+    }
   }
 }
 
@@ -198,23 +203,23 @@ pub fn execute_tokio_future<
   };
 
   #[cfg(not(target_family = "wasm"))]
-  {
-    let jh = spawn(inner);
-    spawn(async move {
-      if let Err(err) = jh.await {
-        if let Ok(reason) = err.try_into_panic() {
-          if let Some(s) = reason.downcast_ref::<&str>() {
-            deferred_for_panic.reject(Error::new(crate::Status::GenericFailure, s));
-          } else {
-            deferred_for_panic.reject(Error::new(
-              crate::Status::GenericFailure,
-              "Panic in async function",
-            ));
-          }
+  let jh = spawn(inner);
+
+  #[cfg(not(target_family = "wasm"))]
+  spawn(async move {
+    if let Err(err) = jh.await {
+      if let Ok(reason) = err.try_into_panic() {
+        if let Some(s) = reason.downcast_ref::<&str>() {
+          deferred_for_panic.reject(Error::new(crate::Status::GenericFailure, s));
+        } else {
+          deferred_for_panic.reject(Error::new(
+            crate::Status::GenericFailure,
+            "Panic in async function",
+          ));
         }
       }
-    });
-  }
+    }
+  });
 
   #[cfg(target_family = "wasm")]
   {
