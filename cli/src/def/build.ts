@@ -65,11 +65,6 @@ export abstract class BaseBuildCommand extends Command {
       'Whether to disable the generation JS binding file. Only works with `--platform` flag.',
   })
 
-  esm?: boolean = Option.Boolean('--esm', {
-    description:
-      'Whether to emit an ESM JS binding file instead of CJS format. Only works with `--platform` flag.',
-  })
-
   dts?: string = Option.String('--dts', {
     description:
       'Path and filename of generated type def file. Relative to `--output-dir`',
@@ -83,6 +78,15 @@ export abstract class BaseBuildCommand extends Command {
   noDtsHeader?: boolean = Option.Boolean('--no-dts-header', {
     description:
       'Whether to disable the default file header for generated type def file. Only works when `typedef` feature enabled.',
+  })
+
+  dtsCache = Option.Boolean('--dts-cache', true, {
+    description: 'Whether to enable the dts cache, default to true',
+  })
+
+  esm?: boolean = Option.Boolean('--esm', {
+    description:
+      'Whether to emit an ESM JS binding file instead of CJS format. Only works with `--platform` flag.',
   })
 
   strip?: boolean = Option.Boolean('--strip,-s', {
@@ -155,10 +159,11 @@ export abstract class BaseBuildCommand extends Command {
       constEnum: this.constEnum,
       jsBinding: this.jsBinding,
       noJsBinding: this.noJsBinding,
-      esm: this.esm,
       dts: this.dts,
       dtsHeader: this.dtsHeader,
       noDtsHeader: this.noDtsHeader,
+      dtsCache: this.dtsCache,
+      esm: this.esm,
       strip: this.strip,
       release: this.release,
       verbose: this.verbose,
@@ -229,10 +234,6 @@ export interface BuildOptions {
    */
   noJsBinding?: boolean
   /**
-   * Whether to emit an ESM JS binding file. Only works with `--platform` flag.
-   */
-  esm?: boolean
-  /**
    * Path and filename of generated type def file. Relative to `--output-dir`
    */
   dts?: string
@@ -244,6 +245,16 @@ export interface BuildOptions {
    * Whether to disable the default file header for generated type def file. Only works when `typedef` feature enabled.
    */
   noDtsHeader?: boolean
+  /**
+   * Whether to enable the dts cache, default to true
+   *
+   * @default true
+   */
+  dtsCache?: boolean
+  /**
+   * Whether to emit an ESM JS binding file instead of CJS format. Only works with `--platform` flag.
+   */
+  esm?: boolean
   /**
    * Whether strip the library to achieve the minimum file size
    */
@@ -296,4 +307,11 @@ export interface BuildOptions {
    * Do not activate the `default` feature
    */
   noDefaultFeatures?: boolean
+}
+
+export function applyDefaultBuildOptions(options: BuildOptions) {
+  return {
+    dtsCache: true,
+    ...options,
+  }
 }
