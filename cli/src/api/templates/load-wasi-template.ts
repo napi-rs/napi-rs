@@ -15,7 +15,7 @@ const __wasi = new __WASI({
   fs: __fs,
   preopens: {
     '/': '/',
-  }
+  },
 })`
     : `
 const __wasi = new __WASI({
@@ -147,11 +147,11 @@ const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule
       return 4
     }
   })(),
+  reuseWorker: true,
   wasi: __wasi,
   onCreateWorker() {
     const worker = new Worker(__nodePath.join(__dirname, 'wasi-worker.mjs'), {
       env: process.env,
-      execArgv: ['--experimental-wasi-unstable-preview1'],
     })
     worker.onmessage = ({ data }) => {
       __wasmCreateOnMessageForFsProxy(__nodeFs)(data)

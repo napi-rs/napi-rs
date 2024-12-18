@@ -1,9 +1,9 @@
-import * as esbuild from 'esbuild'
+import { build} from 'esbuild'
 import { pull } from 'lodash-es'
 
 import packageJson from './package.json' assert { type: 'json' }
 
-await esbuild.build({
+await build({
   entryPoints: ['./dist/index.js'],
   outfile: './dist/index.cjs',
   bundle: true,

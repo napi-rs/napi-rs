@@ -174,11 +174,11 @@ pub fn generate_function_and_call_it(env: &Env) -> Result<FunctionData> {
 }
 
 #[napi]
-fn get_null_byte_property(obj: JsObject) -> Result<Option<String>> {
+pub fn get_null_byte_property(obj: JsObject) -> Result<Option<String>> {
   obj.get::<String>("\0virtual")
 }
 
 #[napi]
-fn set_null_byte_property(mut obj: JsObject) -> Result<()> {
+pub fn set_null_byte_property(mut obj: JsObject) -> Result<()> {
   obj.set("\0virtual", "test")
 }

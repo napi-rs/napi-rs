@@ -6,6 +6,7 @@ test('setProperty', (t) => {
   const obj = {}
   const key = 'jsPropertyKey'
   bindings.testSetProperty(obj, key)
+  // @ts-expect-error
   t.snapshot(obj[key])
 })
 
@@ -26,6 +27,7 @@ test('setNamedProperty', (t) => {
   const [key] = keys
   t.is(keys.length, 1)
   t.snapshot(key)
+  // @ts-expect-error
   t.is(obj[key], property)
 })
 

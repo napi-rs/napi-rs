@@ -6,16 +6,11 @@
     "outDir": "./dist",
     "rootDir": ".",
     "target": "ESNext",
-    "module": "ESNext",
+    "module": "CommonJS",
+    "skipLibCheck": true,
     "noEmit": true,
-    "types": ["bun-types"],
-    "importHelpers": false
+    "importHelpers": false,
+    "noEmitHelpers": false
   },
-  "exclude": [
-    "dist",
-    "electron.js",
-    "electron-renderer",
-    "index.js",
-    "index.wasi.mjs"
-  ]
+  "exclude": ["dist"]
 }

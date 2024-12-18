@@ -23,7 +23,7 @@
       "__tests__/**/*.spec.ts"
     ],
     "environmentVariables": {
-      "TS_NODE_PROJECT": "../tsconfig.json"
+      "TS_NODE_PROJECT": "./tsconfig.json"
     },
     "workerThreads": false,
     "cache": false,

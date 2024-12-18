@@ -8,7 +8,7 @@
   "scripts": {
     "browser": "vite",
     "build": "napi-raw build --platform --js index.cjs --dts index.d.cts",
-    "test": "cross-env TS_NODE_PROJECT=./tsconfig.json node --es-module-specifier-resolution=node --loader ts-node/esm/transpile-only --experimental-wasi-unstable-preview1 ../../node_modules/ava/entrypoints/cli.mjs"
+    "test": "cross-env TS_NODE_PROJECT=./tsconfig.json node --loader ts-node/esm/transpile-only ../../node_modules/ava/entrypoints/cli.mjs"
   },
   "napi": {
     "binaryName": "example",
@@ -28,6 +28,7 @@
     "@napi-rs/cli": "workspace:*",
     "@napi-rs/triples": "workspace:*",
     "@napi-rs/wasm-runtime": "workspace:*",
+    "@oxc-node/core": "^0.0.16",
     "@types/lodash": "^4.17.10",
     "@vitest/browser": "^2.1.2",
     "@vitest/ui": "^2.1.2",
