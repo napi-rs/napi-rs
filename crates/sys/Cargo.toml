@@ -9,7 +9,7 @@ name = "napi-sys"
 readme = "README.md"
 repository = "https://github.com/napi-rs/napi-rs"
 rust-version = "1.80"
-version = "3.0.0-alpha.0"
+version = "3.0.0-alpha.1"
 
 [features]
 dyn-symbols = ["libloading"]

@@ -8,7 +8,7 @@ name = "napi"
 readme = "README.md"
 repository = "https://github.com/napi-rs/napi-rs"
 rust-version = "1.80"
-version = "3.0.0-alpha.23"
+version = "3.0.0-alpha.24"
 
 [lib]
 doctest = false

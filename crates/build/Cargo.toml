@@ -9,7 +9,7 @@ name = "napi-build"
 readme = "README.md"
 repository = "https://github.com/napi-rs/napi-rs"
 rust-version = "1.80"
-version = "2.1.3"
+version = "2.1.4"
 
 [package.metadata.workspaces]
 independent = true
