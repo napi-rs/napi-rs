@@ -3,6 +3,10 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.2.6](https://github.com/napi-rs/napi-rs/compare/@napi-rs/wasm-runtime@0.2.5...@napi-rs/wasm-runtime@0.2.6) (2024-12-18)
+
+**Note:** Version bump only for package @napi-rs/wasm-runtime
+
 ## [0.2.5](https://github.com/napi-rs/napi-rs/compare/@napi-rs/wasm-runtime@0.2.4...@napi-rs/wasm-runtime@0.2.5) (2024-10-02)
 
 **Note:** Version bump only for package @napi-rs/wasm-runtime

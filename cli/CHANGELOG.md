@@ -3,6 +3,17 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.65](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.64...@napi-rs/cli@3.0.0-alpha.65) (2024-12-18)
+
+### Bug Fixes
+
+- **cli:** wrong condintion in setFeatures ([#2396](https://github.com/napi-rs/napi-rs/issues/2396)) ([40ce1ff](https://github.com/napi-rs/napi-rs/commit/40ce1ffb7e45d8ef186b8b876e444c61680d602e))
+- **napi:** resuse threads worker on Node.js ([#2399](https://github.com/napi-rs/napi-rs/issues/2399)) ([8fffa49](https://github.com/napi-rs/napi-rs/commit/8fffa492822f26ae2139f2a8b8031bfbbd72e1f1))
+
+### Features
+
+- **cli:** add --no-dts-cache option to build command ([#2400](https://github.com/napi-rs/napi-rs/issues/2400)) ([a72c49b](https://github.com/napi-rs/napi-rs/commit/a72c49b92e6b7a2c33a0f0c79d9ec071997daae6))
+
 # [3.0.0-alpha.64](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.63...@napi-rs/cli@3.0.0-alpha.64) (2024-10-21)
 
 ### Features
