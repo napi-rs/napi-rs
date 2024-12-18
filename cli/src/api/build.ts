@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, unlinkSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir, homedir } from 'node:os'
 import { parse, join, resolve } from 'node:path'
@@ -638,14 +638,21 @@ class Builder {
   }
 
   private getIntermediateTypeFile() {
-    return join(
+    const dtsPath = join(
       tmpdir(),
       `${this.crate.name}-${createHash('sha256')
         .update(this.crate.manifest_path)
         .update(CLI_VERSION)
         .digest('hex')
-        .substring(0, 8)}.napi_type_def.tmp`,
+        .substring(0, 8)}.napi_type_def`,
     )
+    if (!this.options.dtsCache) {
+      try {
+        unlinkSync(dtsPath)
+      } catch {}
+      return `${dtsPath}_${Date.now()}.tmp`
+    }
+    return `${dtsPath}.tmp`
   }
 
   private getIntermediateWasiRegisterFile() {

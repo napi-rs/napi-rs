@@ -211,6 +211,18 @@ const BUILD_OPTIONS: CommandSchema = {
         'Whether to disable the default file header for generated type def file. Only works when `typedef` feature enabled.',
     },
     {
+      name: 'dtsCache',
+      type: 'boolean',
+      description: 'Whether to enable the dts cache, default to true',
+      default: true,
+    },
+    {
+      name: 'esm',
+      type: 'boolean',
+      description:
+        'Whether to emit an ESM JS binding file instead of CJS format. Only works with `--platform` flag.',
+    },
+    {
       name: 'strip',
       type: 'boolean',
       description: 'Whether strip the library to achieve the minimum file size',
