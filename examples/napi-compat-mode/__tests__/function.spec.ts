@@ -42,3 +42,19 @@ test('should be able to create function from closure', (t) => {
     )
   }
 })
+
+test('should be able to create nest function from closure', (t) => {
+  let callbackExecuted = false
+
+  const mockObject = {
+    on: (event: string, callback: Function) => {
+      t.is(event, 'on', 'Event name should be "on"')
+      callback()
+      callbackExecuted = true
+    },
+  }
+
+  const handle = bindings.testNestCreateFunctionFromClosure()
+  handle(mockObject)
+  t.true(callbackExecuted, 'Nested callback should have been executed')
+})

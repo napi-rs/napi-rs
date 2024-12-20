@@ -32,8 +32,6 @@ trait Finalizer {
 
   fn data_managed_type(&self) -> &DataManagedType;
 
-  fn len(&self) -> &usize;
-
   fn ref_count(&self) -> usize;
 }
 
@@ -51,7 +49,10 @@ macro_rules! impl_typed_array {
       finalizer_notify: *mut dyn FnOnce(*mut $rust_type, usize),
     }
 
+    /// SAFETY: This is undefined behavior, as the JS side may always modify the underlying buffer,
+    /// without synchronization. Also see the docs for the `DerfMut` impl.
     unsafe impl Send for $name {}
+    unsafe impl Sync for $name {}
 
     impl Finalizer for $name {
       type RustType = $rust_type;
@@ -62,10 +63,6 @@ macro_rules! impl_typed_array {
 
       fn data_managed_type(&self) -> &DataManagedType {
         &self.data_managed_type
-      }
-
-      fn len(&self) -> &usize {
-        &self.length
       }
 
       fn ref_count(&self) -> usize {
@@ -120,7 +117,7 @@ macro_rules! impl_typed_array {
             );
             return;
           }
-          if !self.drop_in_vm.load(Ordering::Acquire) {
+          if !self.drop_in_vm.load(Ordering::Acquire) && !self.data.is_null() {
             match &self.data_managed_type {
               DataManagedType::Owned => {
                 let length = self.length;
@@ -254,24 +251,35 @@ macro_rules! impl_typed_array {
       type Target = [$rust_type];
 
       fn deref(&self) -> &Self::Target {
-        unsafe { std::slice::from_raw_parts(self.data, self.length) }
+        self.as_ref()
       }
     }
 
+    /// SAFETY: This is literally undefined behavior. `Buffer::clone` allows you to create shared
+    /// access to the underlying data, but `as_mut` and `deref_mut` allow unsynchronized mutation of
+    /// that data (not to speak of the JS side having write access as well, at the same time).
     impl DerefMut for $name {
       fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { std::slice::from_raw_parts_mut(self.data, self.length) }
+        self.as_mut()
       }
     }
 
     impl AsRef<[$rust_type]> for $name {
       fn as_ref(&self) -> &[$rust_type] {
+        if self.data.is_null() {
+          return &[];
+        }
+
         unsafe { std::slice::from_raw_parts(self.data, self.length) }
       }
     }
 
     impl AsMut<[$rust_type]> for $name {
       fn as_mut(&mut self) -> &mut [$rust_type] {
+        if self.data.is_null() {
+          return &mut [];
+        }
+
         unsafe { std::slice::from_raw_parts_mut(self.data, self.length) }
       }
     }
@@ -335,7 +343,11 @@ macro_rules! impl_typed_array {
         if typed_array_type != $typed_array_type as i32 {
           return Err(Error::new(
             Status::InvalidArg,
-            format!("Expected $name, got {}", typed_array_type),
+            format!(
+              "Expected {}, got {}Array",
+              stringify!($name),
+              TypedArrayType::from(typed_array_type).as_ref()
+            ),
           ));
         }
         Ok($name {
@@ -585,14 +597,14 @@ macro_rules! impl_from_slice {
   };
 }
 
-unsafe extern "C" fn finalizer<Data, T: Finalizer<RustType = Data>>(
+unsafe extern "C" fn finalizer<Data, T: Finalizer<RustType = Data> + AsRef<[Data]>>(
   _env: sys::napi_env,
   finalize_data: *mut c_void,
   finalize_hint: *mut c_void,
 ) {
   let data = unsafe { *Box::from_raw(finalize_hint as *mut T) };
   let data_managed_type = *data.data_managed_type();
-  let length = *data.len();
+  let length = data.as_ref().len();
   match data_managed_type {
     DataManagedType::Vm => {
       // do nothing
@@ -675,7 +687,7 @@ pub struct Uint8ClampedSlice<'scope> {
   raw_value: sys::napi_value,
 }
 
-impl<'scope> FromNapiValue for Uint8ClampedSlice<'scope> {
+impl FromNapiValue for Uint8ClampedSlice<'_> {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
     let mut typed_array_type = 0;
     let mut length = 0;
@@ -753,7 +765,7 @@ impl AsRef<[u8]> for Uint8ClampedSlice<'_> {
   }
 }
 
-impl<'scope> Deref for Uint8ClampedSlice<'scope> {
+impl Deref for Uint8ClampedSlice<'_> {
   type Target = [u8];
 
   fn deref(&self) -> &Self::Target {
@@ -761,7 +773,7 @@ impl<'scope> Deref for Uint8ClampedSlice<'scope> {
   }
 }
 
-impl<'scope> DerefMut for Uint8ClampedSlice<'scope> {
+impl DerefMut for Uint8ClampedSlice<'_> {
   fn deref_mut(&mut self) -> &mut Self::Target {
     self.inner
   }

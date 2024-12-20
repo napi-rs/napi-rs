@@ -1,6 +1,8 @@
 use napi::{
-  bindgen_prelude::{Buffer, ClassInstance, ObjectFinalize, This, Uint8Array, Unknown},
-  Env, Property, Result,
+  bindgen_prelude::{
+    Buffer, ClassInstance, JavaScriptClassExt, ObjectFinalize, This, Uint8Array, Unknown,
+  },
+  Env, Property, PropertyAttributes, Result,
 };
 
 use crate::r#enum::Kind;
@@ -260,7 +262,7 @@ impl NinjaTurtle {
   }
 
   #[napi]
-  pub fn return_this(&self, this: This) -> This {
+  pub fn return_this<'scope>(&'scope self, this: This<'scope>) -> This<'scope> {
     this
   }
 }
@@ -344,12 +346,12 @@ impl Optional {
 }
 
 #[napi(object)]
-pub struct ObjectFieldClassInstance {
-  pub bird: ClassInstance<Bird>,
+pub struct ObjectFieldClassInstance<'env> {
+  pub bird: ClassInstance<'env, Bird>,
 }
 
 #[napi]
-pub fn create_object_with_class_field(env: Env) -> Result<ObjectFieldClassInstance> {
+pub fn create_object_with_class_field(env: &Env) -> Result<ObjectFieldClassInstance> {
   Ok(ObjectFieldClassInstance {
     bird: Bird {
       name: "Carolyn".to_owned(),
@@ -389,7 +391,7 @@ pub struct CustomFinalize {
 #[napi]
 impl CustomFinalize {
   #[napi(constructor)]
-  pub fn new(mut env: Env, width: u32, height: u32) -> Result<Self> {
+  pub fn new(env: Env, width: u32, height: u32) -> Result<Self> {
     let inner = vec![0; (width * height * 4) as usize];
     let inner_size = inner.len();
     env.adjust_external_memory(inner_size as i64)?;
@@ -402,7 +404,7 @@ impl CustomFinalize {
 }
 
 impl ObjectFinalize for CustomFinalize {
-  fn finalize(self, mut env: Env) -> Result<()> {
+  fn finalize(self, env: Env) -> Result<()> {
     env.adjust_external_memory(-(self.inner.len() as i64))?;
     Ok(())
   }
@@ -415,7 +417,7 @@ pub struct Width {
 
 #[napi]
 pub fn plus_one(this: This<&Width>) -> i32 {
-  this.value + 1
+  this.object.value + 1
 }
 
 #[napi]
@@ -457,5 +459,32 @@ impl CatchOnConstructor2 {
   #[napi(constructor, catch_unwind)]
   pub fn new() -> Self {
     panic!("CatchOnConstructor2 panic");
+  }
+}
+
+#[napi]
+pub struct ClassWithLifetime<'a> {
+  inner: ClassInstance<'a, Animal>,
+  inner2: ClassInstance<'a, Animal>,
+}
+
+#[napi]
+impl<'scope> ClassWithLifetime<'scope> {
+  #[napi(constructor)]
+  pub fn new(env: &Env, mut this: This<'scope>) -> Result<Self> {
+    let instance = Animal {
+      kind: Kind::Cat,
+      name: "alie".to_owned(),
+    }
+    .into_instance(env)?;
+    let inner = instance.assign_to_this("inner", &mut this)?;
+    let inner2 =
+      instance.assign_to_this_with_attributes("inner2", PropertyAttributes::Default, &mut this)?;
+    Ok(Self { inner, inner2 })
+  }
+
+  #[napi]
+  pub fn get_name(&self) -> &str {
+    self.inner.get_name()
   }
 }

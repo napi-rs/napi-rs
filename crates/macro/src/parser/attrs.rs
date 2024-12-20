@@ -1,5 +1,9 @@
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
 use std::collections::HashMap;
+use std::sync::{
+  atomic::{AtomicUsize, Ordering},
+  Mutex, OnceLock,
+};
 
 use napi_derive_backend::{bail_span, BindgenResult, Diagnostic};
 use proc_macro2::{Delimiter, Ident, Span, TokenTree};
@@ -10,14 +14,12 @@ use syn::Attribute;
 
 use crate::parser::AnyIdent;
 
-thread_local! {
-  static ATTRS: AttributeParseState = Default::default();
-  static STRUCTS: StructParseState = Default::default();
-}
+static ATTRS: OnceLock<AttributeParseState> = OnceLock::new();
+static STRUCTS: OnceLock<StructParseState> = OnceLock::new();
 
 #[derive(Default)]
 struct StructParseState {
-  parsed: RefCell<HashMap<String, ParsedStruct>>,
+  parsed: Mutex<HashMap<String, ParsedStruct>>,
 }
 
 struct ParsedStruct {
@@ -27,9 +29,9 @@ struct ParsedStruct {
 
 #[derive(Default)]
 struct AttributeParseState {
-  parsed: Cell<usize>,
+  parsed: AtomicUsize,
   #[allow(unused)]
-  checks: Cell<usize>,
+  checks: AtomicUsize,
 }
 
 #[derive(Debug)]
@@ -49,6 +51,7 @@ macro_rules! attrgen {
   ($mac:ident) => {
     $mac! {
       (catch_unwind, CatchUnwind(Span)),
+      (async_runtime, AsyncRuntime(Span)),
       (js_name, JsName(Span, String, Span)),
       (constructor, Constructor(Span)),
       (factory, Factory(Span)),
@@ -73,6 +76,8 @@ macro_rules! attrgen {
       (ts_generic_types, TsGenericTypes(Span, String, Span)),
       (string_enum, StringEnum(Span, Option<(String, Span)>)),
       (use_nullable, UseNullable(Span, Option<bool>), false),
+      (discriminant, Discriminant(Span, String, Span)),
+      (transparent, Transparent(Span)),
 
       // impl later
       // (inspectable, Inspectable(Span)),
@@ -94,7 +99,8 @@ macro_rules! methods {
     #[allow(unused)]
     pub fn check_used(&self) -> Result<(), Diagnostic> {
       // Account for the fact this method was called
-      ATTRS.with(|state| state.checks.set(state.checks.get() + 1));
+      let attrs = ATTRS.get_or_init(|| AttributeParseState::default());
+      attrs.checks.fetch_add(1, Ordering::SeqCst);
 
       let mut errors = Vec::new();
       for (used, attr) in self.attrs.iter() {
@@ -110,14 +116,17 @@ macro_rules! methods {
     }
 
     #[cfg(not(feature = "strict"))]
+    #[allow(unused)]
     pub fn check_used(&self) -> Result<(), Diagnostic> {
         // Account for the fact this method was called
-        ATTRS.with(|state| state.checks.set(state.checks.get() + 1));
-        Ok(())
+      let attrs = ATTRS.get_or_init(AttributeParseState::default);
+      attrs.checks.fetch_add(1, Ordering::SeqCst);
+      Ok(())
     }
   };
 
   (@method $name:ident, $variant:ident(Span, String, Span)) => {
+    #[allow(unused)]
     pub fn $name(&self) -> Option<(&str, Span)> {
       self.attrs
         .iter()
@@ -133,6 +142,7 @@ macro_rules! methods {
   };
 
   (@method $name:ident, $variant:ident(Span, Option<(String, Span)>)) => {
+    #[allow(unused)]
     pub fn $name(&self) -> Option<Option<&(String, Span)>> {
       self.attrs
         .iter()
@@ -148,6 +158,7 @@ macro_rules! methods {
   };
 
   (@method $name:ident, $variant:ident(Span, Option<bool>), $default_value:literal) => {
+    #[allow(unused)]
     pub fn $name(&self) -> bool {
       self.attrs
         .iter()
@@ -164,6 +175,7 @@ macro_rules! methods {
   };
 
   (@method $name:ident, $variant:ident(Span, Vec<String>, Vec<Span>)) => {
+    #[allow(unused)]
     pub fn $name(&self) -> Option<(&[String], &[Span])> {
       self.attrs
         .iter()
@@ -271,7 +283,8 @@ impl Default for BindgenAttrs {
     // Add 1 to the list of parsed attribute sets. We'll use this counter to
     // sanity check that we call `check_used` an appropriate number of
     // times.
-    ATTRS.with(|state| state.parsed.set(state.parsed.get() + 1));
+    let attrs = ATTRS.get_or_init(AttributeParseState::default);
+    attrs.parsed.fetch_add(1, Ordering::SeqCst);
     BindgenAttrs {
       span: Span::call_site(),
       attrs: Vec::new(),
@@ -284,6 +297,7 @@ macro_rules! gen_bindgen_attr {
   ($( ($method:ident, $variant:ident($($associated_data:tt)*) $($extra_tokens:tt)*) ,)*) => {
     /// The possible attributes in the `#[napi]`.
     #[derive(Debug)]
+    #[allow(unused)]
     pub enum BindgenAttr {
       $($variant($($associated_data)*)),*
     }
@@ -293,47 +307,44 @@ macro_rules! gen_bindgen_attr {
 attrgen!(gen_bindgen_attr);
 
 pub fn record_struct(ident: &Ident, js_name: String, opts: &BindgenAttrs) {
-  STRUCTS.with(|state| {
-    let struct_name = ident.to_string();
+  let state = STRUCTS.get_or_init(StructParseState::default);
+  let mut map = state.parsed.lock().unwrap();
+  let struct_name = ident.to_string();
 
-    let mut map = state.parsed.borrow_mut();
-
-    map.insert(
-      struct_name,
-      ParsedStruct {
-        js_name,
-        ctor_defined: opts.constructor().is_some(),
-      },
-    );
-  });
+  map.insert(
+    struct_name,
+    ParsedStruct {
+      js_name,
+      ctor_defined: opts.constructor().is_some(),
+    },
+  );
 }
 
 pub fn check_recorded_struct_for_impl(ident: &Ident, opts: &BindgenAttrs) -> BindgenResult<String> {
-  STRUCTS.with(|state| {
-    let struct_name = ident.to_string();
-    let mut map = state.parsed.borrow_mut();
-    if let Some(parsed) = map.get_mut(&struct_name) {
-      if opts.constructor().is_some() && !cfg!(debug_assertions) {
-        if parsed.ctor_defined {
-          bail_span!(
-            ident,
-            "Constructor has already been defined for struct `{}`",
-            &struct_name
-          );
-        } else {
-          parsed.ctor_defined = true;
-        }
+  let state = STRUCTS.get_or_init(StructParseState::default);
+  let mut map = state.parsed.lock().unwrap();
+  let struct_name = ident.to_string();
+  if let Some(parsed) = map.get_mut(&struct_name) {
+    if opts.constructor().is_some() && !cfg!(debug_assertions) {
+      if parsed.ctor_defined {
+        bail_span!(
+          ident,
+          "Constructor has already been defined for struct `{}`",
+          &struct_name
+        );
+      } else {
+        parsed.ctor_defined = true;
       }
-
-      Ok(parsed.js_name.clone())
-    } else {
-      bail_span!(
-        ident,
-        "Did not find struct `{}` parsed before expand #[napi] for impl",
-        &struct_name,
-      )
     }
-  })
+
+    Ok(parsed.js_name.clone())
+  } else {
+    bail_span!(
+      ident,
+      "Did not find struct `{}` parsed before expand #[napi] for impl",
+      &struct_name,
+    )
+  }
 }
 
 impl Parse for BindgenAttrs {

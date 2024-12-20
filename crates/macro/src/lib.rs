@@ -18,7 +18,7 @@ use syn::{fold::Fold, parse_macro_input, ItemFn};
 
 /// ```ignore
 /// #[napi]
-/// fn test(ctx: CallContext, name: String) {
+/// fn test(name: String) {
 ///   "hello" + name
 /// }
 /// ```
@@ -152,7 +152,7 @@ pub fn module_exports(_attr: TokenStream, input: TokenStream) -> TokenStream {
 
   let register = quote! {
     #[cfg_attr(not(target_family = "wasm"), napi::bindgen_prelude::ctor)]
-    fn __napi__explicit_module_register() {
+    fn __napi_explicit_module_register() {
       unsafe fn register(raw_env: napi::sys::napi_env, raw_exports: napi::sys::napi_value) -> napi::Result<()> {
         use napi::{Env, JsObject, NapiValue};
 

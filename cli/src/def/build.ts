@@ -80,6 +80,15 @@ export abstract class BaseBuildCommand extends Command {
       'Whether to disable the default file header for generated type def file. Only works when `typedef` feature enabled.',
   })
 
+  dtsCache = Option.Boolean('--dts-cache', true, {
+    description: 'Whether to enable the dts cache, default to true',
+  })
+
+  esm?: boolean = Option.Boolean('--esm', {
+    description:
+      'Whether to emit an ESM JS binding file instead of CJS format. Only works with `--platform` flag.',
+  })
+
   strip?: boolean = Option.Boolean('--strip,-s', {
     description: 'Whether strip the library to achieve the minimum file size',
   })
@@ -153,6 +162,8 @@ export abstract class BaseBuildCommand extends Command {
       dts: this.dts,
       dtsHeader: this.dtsHeader,
       noDtsHeader: this.noDtsHeader,
+      dtsCache: this.dtsCache,
+      esm: this.esm,
       strip: this.strip,
       release: this.release,
       verbose: this.verbose,
@@ -235,6 +246,16 @@ export interface BuildOptions {
    */
   noDtsHeader?: boolean
   /**
+   * Whether to enable the dts cache, default to true
+   *
+   * @default true
+   */
+  dtsCache?: boolean
+  /**
+   * Whether to emit an ESM JS binding file instead of CJS format. Only works with `--platform` flag.
+   */
+  esm?: boolean
+  /**
    * Whether strip the library to achieve the minimum file size
    */
   strip?: boolean
@@ -286,4 +307,11 @@ export interface BuildOptions {
    * Do not activate the `default` feature
    */
   noDefaultFeatures?: boolean
+}
+
+export function applyDefaultBuildOptions(options: BuildOptions) {
+  return {
+    dtsCache: true,
+    ...options,
+  }
 }

@@ -16,6 +16,8 @@ use serde::Serialize;
 
 #[cfg(feature = "napi8")]
 use crate::async_cleanup_hook::AsyncCleanupHook;
+#[cfg(feature = "napi6")]
+use crate::bindgen_runtime::u128_with_sign_to_napi_value;
 #[cfg(feature = "napi5")]
 use crate::bindgen_runtime::FunctionCallContext;
 #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
@@ -121,37 +123,19 @@ impl Env {
 
   #[cfg(feature = "napi6")]
   pub fn create_bigint_from_i128(&self, value: i128) -> Result<JsBigInt> {
-    let mut raw_value = ptr::null_mut();
-    let sign_bit = i32::from(value <= 0);
-    if cfg!(target_endian = "little") {
-      let words = &value as *const i128 as *const u64;
-      check_status!(unsafe {
-        sys::napi_create_bigint_words(self.0, sign_bit, 2, words, &mut raw_value)
-      })?;
-      return Ok(JsBigInt::from_raw_unchecked(self.0, raw_value, 2));
+    unsafe {
+      let raw_value =
+        u128_with_sign_to_napi_value(self.0, value.unsigned_abs(), i32::from(value <= 0))?;
+      Ok(JsBigInt::from_raw_unchecked(self.0, raw_value, 2))
     }
-
-    let arr: [u64; 2] = [value as _, (value >> 64) as _];
-    let words = &arr as *const u64;
-    check_status!(unsafe {
-      sys::napi_create_bigint_words(self.0, sign_bit, 2, words, &mut raw_value)
-    })?;
-    Ok(JsBigInt::from_raw_unchecked(self.0, raw_value, 2))
   }
 
   #[cfg(feature = "napi6")]
   pub fn create_bigint_from_u128(&self, value: u128) -> Result<JsBigInt> {
-    let mut raw_value = ptr::null_mut();
-    if cfg!(target_endian = "little") {
-      let words = &value as *const u128 as *const u64;
-      check_status!(unsafe { sys::napi_create_bigint_words(self.0, 0, 2, words, &mut raw_value) })?;
-      return Ok(JsBigInt::from_raw_unchecked(self.0, raw_value, 2));
+    unsafe {
+      let raw_value = u128_with_sign_to_napi_value(self.0, value, 0)?;
+      Ok(JsBigInt::from_raw_unchecked(self.0, raw_value, 2))
     }
-
-    let arr: [u64; 2] = [value as _, (value >> 64) as _];
-    let words = &arr as *const u64;
-    check_status!(unsafe { sys::napi_create_bigint_words(self.0, 0, 2, words, &mut raw_value) })?;
-    Ok(JsBigInt::from_raw_unchecked(self.0, raw_value, 2))
   }
 
   /// [n_api_napi_create_bigint_words](https://nodejs.org/api/n-api.html#n_api_napi_create_bigint_words)
@@ -177,11 +161,11 @@ impl Env {
   }
 
   pub fn create_string(&self, s: &str) -> Result<JsString> {
-    unsafe { self.create_string_from_c_char(s.as_ptr().cast(), s.len()) }
+    unsafe { self.create_string_from_c_char(s.as_ptr().cast(), s.len() as isize) }
   }
 
   pub fn create_string_from_std(&self, s: String) -> Result<JsString> {
-    unsafe { self.create_string_from_c_char(s.as_ptr().cast(), s.len()) }
+    unsafe { self.create_string_from_c_char(s.as_ptr().cast(), s.len() as isize) }
   }
 
   /// This API is used for C ffi scenario.
@@ -193,7 +177,7 @@ impl Env {
   pub unsafe fn create_string_from_c_char(
     &self,
     data_ptr: *const c_char,
-    len: usize,
+    len: isize,
   ) -> Result<JsString> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe { sys::napi_create_string_utf8(self.0, data_ptr, len, &mut raw_value) })?;
@@ -203,7 +187,7 @@ impl Env {
   pub fn create_string_utf16(&self, chars: &[u16]) -> Result<JsString> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe {
-      sys::napi_create_string_utf16(self.0, chars.as_ptr(), chars.len(), &mut raw_value)
+      sys::napi_create_string_utf16(self.0, chars.as_ptr(), chars.len() as isize, &mut raw_value)
     })?;
     Ok(unsafe { JsString::from_raw_unchecked(self.0, raw_value) })
   }
@@ -211,15 +195,14 @@ impl Env {
   pub fn create_string_latin1(&self, chars: &[u8]) -> Result<JsString> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe {
-      sys::napi_create_string_latin1(self.0, chars.as_ptr().cast(), chars.len(), &mut raw_value)
+      sys::napi_create_string_latin1(
+        self.0,
+        chars.as_ptr().cast(),
+        chars.len() as isize,
+        &mut raw_value,
+      )
     })?;
     Ok(unsafe { JsString::from_raw_unchecked(self.0, raw_value) })
-  }
-
-  pub fn create_symbol_from_js_string(&self, description: JsString) -> Result<JsSymbol> {
-    let mut result = ptr::null_mut();
-    check_status!(unsafe { sys::napi_create_symbol(self.0, description.0.value, &mut result) })?;
-    Ok(unsafe { JsSymbol::from_raw_unchecked(self.0, result) })
   }
 
   pub fn create_symbol(&self, description: Option<&str>) -> Result<JsSymbol> {
@@ -255,6 +238,7 @@ impl Env {
     Ok(unsafe { JsObject::from_raw_unchecked(self.0, raw_value) })
   }
 
+  #[deprecated(since = "3.0.0", note = "Use `Buffer` instead")]
   /// This API allocates a node::Buffer object. While this is still a fully-supported data structure, in most cases using a TypedArray will suffice.
   pub fn create_buffer(&self, length: usize) -> Result<JsBufferValue> {
     let mut raw_value = ptr::null_mut();
@@ -273,6 +257,7 @@ impl Env {
     ))
   }
 
+  #[deprecated(since = "3.0.0", note = "Use `BufferSlice::from_data` instead")]
   /// This API allocates a node::Buffer object and initializes it with data backed by the passed in buffer.
   ///
   /// While this is still a fully-supported data structure, in most cases using a TypedArray will suffice.
@@ -324,6 +309,7 @@ impl Env {
     ))
   }
 
+  #[deprecated(since = "3.0.0", note = "Use `BufferSlice::from_external` instead")]
   /// # Safety
   /// Mostly the same with `create_buffer_with_data`
   ///
@@ -361,15 +347,8 @@ impl Env {
       let status = sys::napi_create_external_buffer(
         self.0,
         length,
-        data as *mut c_void,
-        Some(
-          raw_finalize_with_custom_callback::<Hint, Finalize>
-            as unsafe extern "C" fn(
-              env: sys::napi_env,
-              finalize_data: *mut c_void,
-              finalize_hint: *mut c_void,
-            ),
-        ),
+        data.cast(),
+        Some(raw_finalize_with_custom_callback::<Hint, Finalize>),
         hint_ptr.cast(),
         &mut raw_value,
       );
@@ -406,7 +385,7 @@ impl Env {
   /// Registering externally allocated memory will trigger global garbage collections more often than it would otherwise.
   ///
   /// ***ATTENTION ⚠️***, do not use this with `create_buffer_with_data/create_arraybuffer_with_data`, since these two functions already called the `adjust_external_memory` internal.
-  pub fn adjust_external_memory(&mut self, size: i64) -> Result<i64> {
+  pub fn adjust_external_memory(&self, size: i64) -> Result<i64> {
     let mut changed = 0i64;
     check_status!(unsafe { sys::napi_adjust_external_memory(self.0, size, &mut changed) })?;
     Ok(changed)
@@ -414,10 +393,11 @@ impl Env {
 
   #[cfg(target_family = "wasm")]
   #[allow(unused_variables)]
-  pub fn adjust_external_memory(&mut self, size: i64) -> Result<i64> {
+  pub fn adjust_external_memory(&self, size: i64) -> Result<i64> {
     Ok(0)
   }
 
+  #[deprecated(since = "3.0.0", note = "Use `BufferSlice::copy_from` instead")]
   /// This API allocates a node::Buffer object and initializes it with data copied from the passed-in buffer.
   ///
   /// While this is still a fully-supported data structure, in most cases using a TypedArray will suffice.
@@ -598,7 +578,7 @@ impl Env {
       sys::napi_create_function(
         self.0,
         name.as_ptr().cast(),
-        len,
+        len as isize,
         Some(callback),
         ptr::null_mut(),
         &mut raw_result,
@@ -626,7 +606,7 @@ impl Env {
       sys::napi_create_function(
         self.0,
         name.as_ptr().cast(),
-        len,
+        len as isize,
         Some(trampoline::<Return, F>),
         closure_data_ptr.cast(), // We let it borrow the data here
         &mut raw_result,
@@ -680,7 +660,7 @@ impl Env {
     check_status!(unsafe {
       sys::napi_throw_error(
         self.0,
-        code.map(|s| s.as_ptr()).unwrap_or(ptr::null_mut()),
+        code.as_ref().map(|s| s.as_ptr()).unwrap_or(ptr::null_mut()),
         msg.as_ptr(),
       )
     })
@@ -693,7 +673,7 @@ impl Env {
     check_status!(unsafe {
       sys::napi_throw_range_error(
         self.0,
-        code.map(|s| s.as_ptr()).unwrap_or(ptr::null_mut()),
+        code.as_ref().map(|s| s.as_ptr()).unwrap_or(ptr::null_mut()),
         msg.as_ptr(),
       )
     })
@@ -706,7 +686,7 @@ impl Env {
     check_status!(unsafe {
       sys::napi_throw_type_error(
         self.0,
-        code.map(|s| s.as_ptr()).unwrap_or(ptr::null_mut()),
+        code.as_ref().map(|s| s.as_ptr()).unwrap_or(ptr::null_mut()),
         msg.as_ptr(),
       )
     })
@@ -736,17 +716,13 @@ impl Env {
   pub fn fatal_error(self, location: &str, message: &str) {
     let location_len = location.len();
     let message_len = message.len();
-    let location =
-      CString::new(location).expect(format!("Convert [{}] to CString failed", location).as_str());
-    let message =
-      CString::new(message).expect(format!("Convert [{}] to CString failed", message).as_str());
 
     unsafe {
       sys::napi_fatal_error(
-        location.as_ptr(),
-        location_len,
-        message.as_ptr(),
-        message_len,
+        location.as_ptr().cast(),
+        location_len as isize,
+        message.as_ptr().cast(),
+        message_len as isize,
       )
     }
   }
@@ -774,12 +750,11 @@ impl Env {
       .iter()
       .map(|prop| prop.raw())
       .collect::<Vec<sys::napi_property_descriptor>>();
-    let c_name = CString::new(name)?;
     check_status!(unsafe {
       sys::napi_define_class(
         self.0,
-        c_name.as_ptr().cast(),
-        name.len(),
+        name.as_ptr().cast(),
+        name.len() as isize,
         Some(constructor_cb),
         ptr::null_mut(),
         raw_properties.len(),
@@ -864,45 +839,17 @@ impl Env {
     }
   }
 
+  #[deprecated(since = "3.0.0", note = "Please use `Ref::new` instead")]
   /// This API create a new reference with the initial 1 ref count to the Object passed in.
-  pub fn create_reference<T>(&self, value: T) -> Result<Ref<()>>
+  pub fn create_reference<T>(&self, value: &T) -> Result<Ref<T>>
   where
     T: NapiRaw,
   {
-    let mut raw_ref = ptr::null_mut();
-    let initial_ref_count = 1;
-    let raw_value = unsafe { value.raw() };
-    check_status!(unsafe {
-      sys::napi_create_reference(self.0, raw_value, initial_ref_count, &mut raw_ref)
-    })?;
-    Ok(Ref {
-      raw_ref,
-      count: 1,
-      inner: (),
-    })
-  }
-
-  /// This API create a new reference with the specified reference count to the Object passed in.
-  pub fn create_reference_with_refcount<T>(&self, value: T, ref_count: u32) -> Result<Ref<()>>
-  where
-    T: NapiRaw,
-  {
-    let mut raw_ref = ptr::null_mut();
-    let raw_value = unsafe { value.raw() };
-    check_status!(unsafe {
-      sys::napi_create_reference(self.0, raw_value, ref_count, &mut raw_ref)
-    })?;
-    Ok(Ref {
-      raw_ref,
-      count: ref_count,
-      inner: (),
-    })
+    Ref::new(self, value)
   }
 
   /// Get reference value from `Ref` with type check
-  ///
-  /// Return error if the type of `reference` provided is mismatched with `T`
-  pub fn get_reference_value<T>(&self, reference: &Ref<()>) -> Result<T>
+  pub fn get_reference_value<T>(&self, reference: &Ref<T>) -> Result<T>
   where
     T: NapiValue,
   {
@@ -910,7 +857,7 @@ impl Env {
     check_status!(unsafe {
       sys::napi_get_reference_value(self.0, reference.raw_ref, &mut js_value)
     })?;
-    unsafe { T::from_raw(self.0, js_value) }
+    Ok(unsafe { T::from_raw_unchecked(self.0, js_value) })
   }
 
   /// Get reference value from `Ref` without type check
@@ -918,7 +865,7 @@ impl Env {
   /// Using this API if you are sure the type of `T` is matched with provided `Ref<()>`.
   ///
   /// If type mismatched, calling `T::method` would return `Err`.
-  pub fn get_reference_value_unchecked<T>(&self, reference: &Ref<()>) -> Result<T>
+  pub fn get_reference_value_unchecked<T>(&self, reference: &Ref<T>) -> Result<T>
   where
     T: NapiValue,
   {
@@ -1051,7 +998,7 @@ impl Env {
 
   #[cfg(feature = "napi3")]
   pub fn add_env_cleanup_hook<T, F>(
-    &mut self,
+    &self,
     cleanup_data: T,
     cleanup_fn: F,
   ) -> Result<CleanupEnvHook<T>>
@@ -1064,18 +1011,32 @@ impl Env {
       hook: Box::new(cleanup_fn),
     };
     let hook_ref = Box::leak(Box::new(hook));
-    check_status!(unsafe {
-      sys::napi_add_env_cleanup_hook(
-        self.0,
-        Some(cleanup_env::<T>),
-        hook_ref as *mut CleanupEnvHookData<T> as *mut _,
-      )
-    })?;
+    #[cfg(not(target_family = "wasm"))]
+    {
+      check_status!(unsafe {
+        sys::napi_add_env_cleanup_hook(
+          self.0,
+          Some(cleanup_env::<T>),
+          (hook_ref as *mut CleanupEnvHookData<T>).cast(),
+        )
+      })?;
+    }
+
+    #[cfg(target_family = "wasm")]
+    {
+      check_status!(unsafe {
+        crate::napi_add_env_cleanup_hook(
+          self.0,
+          Some(cleanup_env::<T>),
+          (hook_ref as *mut CleanupEnvHookData<T>).cast(),
+        )
+      })?;
+    }
     Ok(CleanupEnvHook(hook_ref))
   }
 
   #[cfg(feature = "napi3")]
-  pub fn remove_env_cleanup_hook<T>(&mut self, hook: CleanupEnvHook<T>) -> Result<()>
+  pub fn remove_env_cleanup_hook<T>(&self, hook: CleanupEnvHook<T>) -> Result<()>
   where
     T: 'static,
   {
@@ -1185,7 +1146,6 @@ impl Env {
   }
 
   #[cfg(feature = "napi6")]
-
   /// This API associates data with the currently running Agent. data can later be retrieved using `Env::get_instance_data()`.
   ///
   /// Any existing data associated with the currently running Agent which was set by means of a previous call to `Env::set_instance_data()` will be overwritten.
@@ -1200,8 +1160,7 @@ impl Env {
     check_status!(unsafe {
       sys::napi_set_instance_data(
         self.0,
-        Box::leak(Box::new((TaggedObject::new(native), finalize_cb))) as *mut (TaggedObject<T>, F)
-          as *mut c_void,
+        Box::into_raw(Box::new((TaggedObject::new(native), finalize_cb))).cast(),
         Some(
           set_instance_finalize_callback::<T, Hint, F>
             as unsafe extern "C" fn(
@@ -1210,7 +1169,7 @@ impl Env {
               finalize_hint: *mut c_void,
             ),
         ),
-        Box::leak(Box::new(hint)) as *mut Hint as *mut c_void,
+        Box::into_raw(Box::new(hint)).cast(),
       )
     })
   }
@@ -1308,10 +1267,13 @@ impl Env {
   #[cfg(feature = "napi9")]
   pub fn symbol_for(&self, description: &str) -> Result<JsSymbol> {
     let mut result = ptr::null_mut();
-    let len = description.len();
-    let description = CString::new(description)?;
     check_status!(unsafe {
-      sys::node_api_symbol_for(self.0, description.as_ptr(), len, &mut result)
+      sys::node_api_symbol_for(
+        self.0,
+        description.as_ptr().cast(),
+        description.len() as isize,
+        &mut result,
+      )
     })?;
 
     Ok(unsafe { JsSymbol::from_raw_unchecked(self.0, result) })
@@ -1383,7 +1345,7 @@ impl Env {
   #[cfg(feature = "serde-json")]
   pub fn from_js_value<T, V>(&self, value: V) -> Result<T>
   where
-    T: DeserializeOwned + ?Sized,
+    T: DeserializeOwned,
     V: NapiRaw,
   {
     let value = Value {
@@ -1415,7 +1377,7 @@ impl Env {
   }
 }
 
-/// This function could be used for `create_buffer_with_borrowed_data` and want do noting when Buffer finalized.
+/// This function could be used for `BufferSlice::from_external` and want do noting when Buffer finalized.
 pub fn noop_finalize<Hint>(_hint: Hint, _env: Env) {}
 
 unsafe extern "C" fn drop_buffer(
@@ -1428,6 +1390,7 @@ unsafe extern "C" fn drop_buffer(
   mem::drop(unsafe { Vec::from_raw_parts(finalize_data as *mut u8, length, cap) });
 }
 
+#[cfg_attr(target_family = "wasm", allow(unused_variables))]
 pub(crate) unsafe extern "C" fn raw_finalize<T>(
   env: sys::napi_env,
   finalize_data: *mut c_void,
@@ -1475,7 +1438,7 @@ unsafe extern "C" fn cleanup_env<T: 'static>(hook_data: *mut c_void) {
   (cleanup_env_hook.hook)(cleanup_env_hook.data);
 }
 
-unsafe extern "C" fn raw_finalize_with_custom_callback<Hint, Finalize>(
+pub(crate) unsafe extern "C" fn raw_finalize_with_custom_callback<Hint, Finalize>(
   env: sys::napi_env,
   _finalize_data: *mut c_void,
   finalize_hint: *mut c_void,
@@ -1573,12 +1536,12 @@ pub(crate) unsafe extern "C" fn trampoline<
 #[cfg(feature = "napi5")]
 pub(crate) unsafe extern "C" fn trampoline_setter<
   V: FromNapiValue,
-  F: Fn(Env, crate::bindgen_runtime::Object, V) -> Result<()>,
+  F: Fn(Env, crate::bindgen_runtime::This, V) -> Result<()>,
 >(
   raw_env: sys::napi_env,
   cb_info: sys::napi_callback_info,
 ) -> sys::napi_value {
-  use crate::bindgen_runtime::Object;
+  use crate::bindgen_runtime::This;
 
   let (raw_args, raw_this, closure_data_ptr) = {
     let mut argc = 1;
@@ -1615,7 +1578,7 @@ pub(crate) unsafe extern "C" fn trampoline_setter<
     .and_then(|value| {
       closure(
         env,
-        unsafe { Object::from_raw_unchecked(raw_env, raw_this) },
+        unsafe { This::from_raw_unchecked(raw_env, raw_this) },
         value,
       )
     })
@@ -1660,7 +1623,7 @@ pub(crate) unsafe extern "C" fn trampoline_getter<
   let closure: &F = Box::leak(unsafe { Box::from_raw(closure_data_ptr.cast()) });
   let env = Env::from_raw(raw_env);
   closure(env, unsafe {
-    crate::bindgen_runtime::Object::from_raw_unchecked(raw_env, raw_this)
+    crate::bindgen_runtime::This::from_raw_unchecked(raw_env, raw_this)
   })
   .and_then(|ret: R| unsafe { <R as ToNapiValue>::to_napi_value(env.0, ret) })
   .unwrap_or_else(|e| {

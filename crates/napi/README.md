@@ -12,7 +12,6 @@ A framework for building compiled `Node.js` add-ons in `Rust` via Node-API. Webs
   <a href="https://docs.rs/crate/napi"><img src="https://docs.rs/napi/badge.svg"></img></a>
   <a href="https://crates.io/crates/napi"><img src="https://img.shields.io/crates/v/napi.svg"></img></a>
   <a href="https://www.npmjs.com/package/@napi-rs/cli"><img src="https://img.shields.io/npm/v/@napi-rs/cli.svg"></img></a>
-  <a href="https://stakes.social/0x2C9F5c3ebC01A45D34198229E60eE186eCDc5C5E"><img src="https://badge.devprotocol.xyz/0x2C9F5c3ebC01A45D34198229E60eE186eCDc5C5E/descriptive" alt="Stake to support us"></img></a>
 </p>
 
 ## Platform Support
@@ -24,7 +23,7 @@ A framework for building compiled `Node.js` add-ons in `Rust` via Node-API. Webs
 
 ## MSRV
 
-**Rust** `1.65.0`
+**Rust** `1.80.0`
 
 |                       | node12 | node14 | node16 | node18 | node20 |
 | --------------------- | ------ | ------ | ------ | ------ | ------ |

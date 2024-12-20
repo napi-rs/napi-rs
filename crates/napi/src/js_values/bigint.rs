@@ -129,7 +129,7 @@ impl NapiRaw for JsBigInt {
   }
 }
 
-impl<'env> NapiRaw for &'env JsBigInt {
+impl NapiRaw for &JsBigInt {
   unsafe fn raw(&self) -> sys::napi_value {
     self.raw.value
   }

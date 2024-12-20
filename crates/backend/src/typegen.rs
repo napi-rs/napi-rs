@@ -1,25 +1,25 @@
-mod r#const;
-mod r#enum;
-mod r#fn;
-pub(crate) mod r#struct;
-
 use std::{
   cell::RefCell,
   collections::HashMap,
   env,
   fmt::{self, Display, Formatter},
+  sync::LazyLock,
 };
 
-use once_cell::sync::Lazy;
+mod r#const;
+mod r#enum;
+mod r#fn;
+pub(crate) mod r#struct;
+
 use syn::{PathSegment, Type, TypePath, TypeSlice};
 
-pub static NAPI_RS_CLI_VERSION: Lazy<semver::Version> = Lazy::new(|| {
+pub static NAPI_RS_CLI_VERSION: LazyLock<semver::Version> = LazyLock::new(|| {
   let version = env::var("CARGO_CFG_NAPI_RS_CLI_VERSION").unwrap_or_else(|_| "0.0.0".to_string());
   semver::Version::parse(&version).unwrap_or_else(|_| semver::Version::new(0, 0, 0))
 });
 
-pub static NAPI_RS_CLI_VERSION_WITH_SHARED_CRATES_FIX: Lazy<semver::Version> =
-  Lazy::new(|| semver::Version::new(2, 15, 1));
+pub static NAPI_RS_CLI_VERSION_WITH_SHARED_CRATES_FIX: LazyLock<semver::Version> =
+  LazyLock::new(|| semver::Version::new(2, 15, 1));
 
 #[derive(Default, Debug)]
 pub struct TypeDef {
@@ -143,10 +143,11 @@ pub trait ToTypeDef {
 }
 
 /// Mapping from `rust_type` to (`ts_type`, `is_ts_function_type_notation`, `is_ts_union_type`)
-static KNOWN_TYPES: Lazy<HashMap<&'static str, (&'static str, bool, bool)>> = Lazy::new(|| {
-  let mut map = HashMap::default();
-  map.extend(crate::PRIMITIVE_TYPES.iter().cloned());
-  map.extend([
+static KNOWN_TYPES: LazyLock<HashMap<&'static str, (&'static str, bool, bool)>> = LazyLock::new(
+  || {
+    let mut map = HashMap::default();
+    map.extend(crate::PRIMITIVE_TYPES.iter().cloned());
+    map.extend([
     ("JsObject", ("object", false, false)),
     ("Object", ("object", false, false)),
     ("Array", ("unknown[]", false, false)),
@@ -155,6 +156,8 @@ static KNOWN_TYPES: Lazy<HashMap<&'static str, (&'static str, bool, bool)>> = La
     ("HashMap", ("Record<{}, {}>", false, false)),
     ("BTreeMap", ("Record<{}, {}>", false, false)),
     ("IndexMap", ("Record<{}, {}>", false, false)),
+    ("HashSet", ("Set<{}>", false, false)),
+    ("BTreeSet", ("Set<{}>", false, false)),
     ("ArrayBuffer", ("ArrayBuffer", false, false)),
     ("JsArrayBuffer", ("ArrayBuffer", false, false)),
     ("Int8Array", ("Int8Array", false, false)),
@@ -227,7 +230,17 @@ static KNOWN_TYPES: Lazy<HashMap<&'static str, (&'static str, bool, bool)>> = La
     ("Mutex", ("{}", false, false)),
   ]);
 
-  map
+    map
+  },
+);
+
+static KNOWN_TYPES_IGNORE_ARG: LazyLock<HashMap<&'static str, Vec<usize>>> = LazyLock::new(|| {
+  [
+    ("HashMap", vec![2]),  // HashMap<K, V, S> is same with HashMap<K, V>
+    ("HashSet", vec![1]),  // HashSet<T, S> is same with HashSet<T>
+    ("IndexMap", vec![2]), // IndexMap<K, V, S> is same with IndexMap<K, V>
+  ]
+  .into()
 });
 
 fn fill_ty(template: &str, args: Vec<String>) -> String {
@@ -336,30 +349,49 @@ pub fn ty_to_ts_type(
       if let Some(syn::PathSegment { ident, arguments }) = path.segments.last() {
         let rust_ty = ident.to_string();
         let is_ts_union_type = is_ts_union_type(&rust_ty);
+        let mut is_function_with_lifetime = false;
         let args = if let syn::PathArguments::AngleBracketed(arguments) = arguments {
           arguments
             .args
             .iter()
             .enumerate()
             .filter_map(|(index, arg)| match arg {
-              syn::GenericArgument::Type(generic_ty) => Some(ty_to_ts_type(
-                generic_ty,
-                index == 1 && is_generic_function_type(&rust_ty),
-                false,
-                // index == 2 is for ThreadsafeFunction with ErrorStrategy
-                is_generic_function_type(&rust_ty),
-              ))
-              .map(|(mut ty, is_optional)| {
-                if is_ts_union_type && is_ts_function_type_notation(generic_ty) {
-                  ty = format!("({})", ty);
+              syn::GenericArgument::Type(generic_ty) => {
+                let mut is_return_type = false;
+                if index == 1 && is_generic_function_type(&rust_ty) {
+                  is_return_type = true;
                 }
-                (ty, is_optional)
-              }),
+                // if Type is Function, first argument is lifetime and second is params, third is return type
+                // so we need to judge is_function_with_lifetime and set is_return_type
+                // if not and just keep the origin's logic
+                if is_function_with_lifetime {
+                  is_return_type = index != 1;
+                }
+                Some(ty_to_ts_type(
+                  generic_ty,
+                  is_return_type,
+                  false,
+                  // index == 2 is for ThreadsafeFunction with ErrorStrategy
+                  is_generic_function_type(&rust_ty),
+                ))
+                .map(|(mut ty, is_optional)| {
+                  if is_ts_union_type && is_ts_function_type_notation(generic_ty) {
+                    ty = format!("({})", ty);
+                  }
+                  (ty, is_optional)
+                })
+              }
               // const Generic for `ThreadsafeFunction` generic
               syn::GenericArgument::Const(syn::Expr::Lit(syn::ExprLit {
                 lit: syn::Lit::Bool(bo),
                 ..
               })) => Some((bo.value.to_string(), false)),
+              syn::GenericArgument::Lifetime(_) => {
+                if index == 0 && is_generic_function_type(&rust_ty) {
+                  is_function_with_lifetime = true;
+                }
+                None
+              }
               _ => None,
             })
             .collect::<Vec<_>>()
@@ -406,14 +438,29 @@ pub fn ty_to_ts_type(
               Some((rust_ty, false))
             }
           });
+        } else if rust_ty == "AsyncBlock" {
+          if let Some(arg) = args.first() {
+            ts_ty = Some((format!("Promise<{}>", arg.0), false));
+          } else {
+            // Not NAPI-RS `AsyncBlock`
+            ts_ty = Some((rust_ty, false));
+          }
         } else if let Some(&(known_ty, _, _)) = KNOWN_TYPES.get(rust_ty.as_str()) {
           if rust_ty == "()" && is_return_ty {
             ts_ty = Some(("void".to_owned(), false));
           } else if known_ty.contains("{}") {
-            ts_ty = Some((
-              fill_ty(known_ty, args.into_iter().map(|(arg, _)| arg).collect()),
-              false,
-            ));
+            let args = args.into_iter().map(|(arg, _)| arg);
+            let filtered_args =
+              if let Some(arg_indices) = KNOWN_TYPES_IGNORE_ARG.get(rust_ty.as_str()) {
+                args
+                  .enumerate()
+                  .filter(|(i, _)| !arg_indices.contains(i))
+                  .map(|(_, arg)| arg)
+                  .collect::<Vec<_>>()
+              } else {
+                args.collect::<Vec<_>>()
+              };
+            ts_ty = Some((fill_ty(known_ty, filtered_args), false));
           } else {
             ts_ty = Some((known_ty.to_owned(), false));
           }
@@ -436,10 +483,10 @@ pub fn ty_to_ts_type(
             .map(|(ty, _)| ty.clone())
             .unwrap_or("any".to_owned());
           ts_ty = if fatal_tsfn {
-            Some((format!("({fn_args}) => {return_ty}"), false))
+            Some((format!("(({fn_args}) => {return_ty})"), false))
           } else {
             Some((
-              format!("(err: Error | null, {fn_args}) => {return_ty}"),
+              format!("((err: Error | null, {fn_args}) => {return_ty})"),
               false,
             ))
           };

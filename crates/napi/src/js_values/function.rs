@@ -127,12 +127,7 @@ impl JsFunction {
   pub fn name(&self) -> Result<String> {
     let mut name = ptr::null_mut();
     check_pending_exception!(self.0.env, unsafe {
-      sys::napi_get_named_property(
-        self.0.env,
-        self.0.value,
-        "name\0".as_ptr().cast(),
-        &mut name,
-      )
+      sys::napi_get_named_property(self.0.env, self.0.value, c"name".as_ptr().cast(), &mut name)
     })?;
     let name_value = unsafe { JsString::from_raw_unchecked(self.0.env, name) };
     Ok(name_value.into_utf8()?.as_str()?.to_owned())

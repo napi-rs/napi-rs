@@ -1,13 +1,16 @@
+#[cfg(feature = "type-def")]
 use std::env;
+#[cfg(feature = "type-def")]
 use std::fs;
-use std::io::BufWriter;
-use std::io::Write;
+#[cfg(feature = "type-def")]
+use std::io::{BufWriter, Write};
+#[cfg(feature = "type-def")]
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::parser::{attrs::BindgenAttrs, ParseNapi};
+use napi_derive_backend::{BindgenResult, TryToTokens};
 #[cfg(feature = "type-def")]
-use napi_derive_backend::ToTypeDef;
-use napi_derive_backend::{BindgenResult, Napi, TryToTokens};
+use napi_derive_backend::{Napi, ToTypeDef};
 use proc_macro2::TokenStream;
 use quote::ToTokens;
 use syn::{Attribute, Item};
@@ -42,7 +45,6 @@ pub fn expand(attr: TokenStream, input: TokenStream) -> BindgenResult<TokenStrea
       }
     }
   }
-
   let mut item = syn::parse2::<Item>(input)?;
   let opts: BindgenAttrs = syn::parse2(attr)?;
   let mut tokens = proc_macro2::TokenStream::new();
@@ -120,6 +122,7 @@ pub fn expand(attr: TokenStream, input: TokenStream) -> BindgenResult<TokenStrea
   }
 }
 
+#[cfg(feature = "type-def")]
 fn output_wasi_register_def(napi: &Napi) {
   if let Ok(wasi_register_file) = env::var("WASI_REGISTER_TMP_PATH") {
     fs::OpenOptions::new()
@@ -130,7 +133,8 @@ fn output_wasi_register_def(napi: &Napi) {
         let mut writer = BufWriter::<fs::File>::new(file);
         let pkg_name: String = std::env::var("CARGO_PKG_NAME").expect("CARGO_PKG_NAME is not set");
         writer.write_all(format!("{pkg_name}: {}", napi.register_name()).as_bytes())?;
-        writer.write_all("\n".as_bytes())
+        writer.write_all("\n".as_bytes())?;
+        writer.flush()
       })
       .unwrap_or_else(|e| {
         println!("Failed to write wasi register file: {:?}", e);
@@ -149,7 +153,8 @@ fn output_type_def(napi: &Napi) {
         .and_then(|file| {
           let mut writer = BufWriter::<fs::File>::new(file);
           writer.write_all(type_def.to_string().as_bytes())?;
-          writer.write_all("\n".as_bytes())
+          writer.write_all("\n".as_bytes())?;
+          writer.flush()
         })
         .unwrap_or_else(|e| {
           println!("Failed to write type def file: {:?}", e);

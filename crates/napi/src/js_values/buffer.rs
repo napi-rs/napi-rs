@@ -4,10 +4,12 @@ use std::ptr;
 
 use super::{Value, ValueType};
 use crate::bindgen_runtime::ValidateNapiValue;
+use crate::Env;
 use crate::{
   bindgen_runtime::TypeName, check_status, sys, Error, JsUnknown, NapiValue, Ref, Result, Status,
 };
 
+#[deprecated(since = "3.0.0", note = "Please use Buffer or &[u8] instead")]
 pub struct JsBuffer(pub(crate) Value);
 
 impl TypeName for JsBuffer {
@@ -34,6 +36,7 @@ impl ValidateNapiValue for JsBuffer {
   }
 }
 
+#[deprecated(since = "3.0.0", note = "Please use Buffer or &[u8] instead")]
 pub struct JsBufferValue {
   pub(crate) value: JsBuffer,
   data: mem::ManuallyDrop<Vec<u8>>,
@@ -52,8 +55,8 @@ impl JsBuffer {
     })
   }
 
-  pub fn into_ref(self) -> Result<Ref<JsBufferValue>> {
-    Ref::new(self.0, 1, self.into_value()?)
+  pub fn into_ref(self) -> Result<Ref<JsBuffer>> {
+    Ref::new(&Env::from(self.0.env), &self)
   }
 }
 

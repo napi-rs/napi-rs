@@ -1,6 +1,6 @@
 use napi::{
   bindgen_prelude::*, threadsafe_function::ThreadsafeFunction, JsGlobal, JsNull, JsObject,
-  JsUndefined,
+  JsUndefined, Result,
 };
 
 #[napi]
@@ -77,7 +77,7 @@ pub fn receive_strict_object(strict_object: StrictObject) {
 pub fn get_str_from_object(env: Env) {
   let mut obj = env.create_object().unwrap();
   obj.set("name", "value").unwrap();
-  assert_eq!(obj.get("name").unwrap(), Some("value"));
+  assert_eq!(obj.get("name").unwrap(), Some("value".to_string()));
 }
 
 #[napi(object)]
@@ -144,4 +144,41 @@ fn return_object_only_to_js() -> ObjectOnlyToJs {
     name: 42,
     dependencies: serde_json::json!({ "@napi-rs/cli": "^3.0.0", "rollup": "^4.0.0" }),
   }
+}
+
+#[napi(object)]
+pub struct TupleObject(pub u32, pub u32);
+
+#[napi(object)]
+pub struct Data<'s> {
+  pub data: Either<String, BufferSlice<'s>>,
+}
+
+#[napi]
+pub fn receive_buffer_slice_with_lifetime(data: Data) -> u32 {
+  (match data.data {
+    Either::A(s) => s.len(),
+    Either::B(d) => d.len(),
+  }) as u32
+}
+
+#[napi(object)]
+pub struct FunctionData<'a> {
+  pub handle: Function<'a, (), i32>,
+}
+
+#[napi]
+pub fn generate_function_and_call_it(env: &Env) -> Result<FunctionData> {
+  let handle = env.create_function_from_closure("handle_function", |_ctx| Ok(1))?;
+  Ok(FunctionData { handle })
+}
+
+#[napi]
+pub fn get_null_byte_property(obj: JsObject) -> Result<Option<String>> {
+  obj.get::<String>("\0virtual")
+}
+
+#[napi]
+pub fn set_null_byte_property(mut obj: JsObject) -> Result<()> {
+  obj.set("\0virtual", "test")
 }

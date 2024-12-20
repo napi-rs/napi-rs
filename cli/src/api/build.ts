@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, unlinkSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir, homedir } from 'node:os'
 import { parse, join, resolve } from 'node:path'
@@ -32,7 +32,7 @@ import {
   writeFileAsync,
 } from '../utils/index.js'
 
-import { createCjsBinding } from './templates/index.js'
+import { createCjsBinding, createEsmBinding } from './templates/index.js'
 import {
   createWasiBinding,
   createWasiBrowserBinding,
@@ -588,7 +588,7 @@ class Builder {
 
   private setFeatures() {
     const args = []
-    if (this.options.allFeatures && this.options.allFeatures) {
+    if (this.options.allFeatures && this.options.noDefaultFeatures) {
       throw new Error(
         'Cannot specify --all-features and --no-default-features together',
       )
@@ -638,14 +638,21 @@ class Builder {
   }
 
   private getIntermediateTypeFile() {
-    return join(
+    const dtsPath = join(
       tmpdir(),
       `${this.crate.name}-${createHash('sha256')
         .update(this.crate.manifest_path)
         .update(CLI_VERSION)
         .digest('hex')
-        .substring(0, 8)}.napi_type_def.tmp`,
+        .substring(0, 8)}.napi_type_def`,
     )
+    if (!this.options.dtsCache) {
+      try {
+        unlinkSync(dtsPath)
+      } catch {}
+      return `${dtsPath}_${Date.now()}.tmp`
+    }
+    return `${dtsPath}.tmp`
   }
 
   private getIntermediateWasiRegisterFile() {
@@ -779,7 +786,7 @@ class Builder {
         kind: dest.endsWith('.node') ? 'node' : isWasm ? 'wasm' : 'exe',
         path: dest,
       })
-      return wasmBinaryName
+      return wasmBinaryName ? join(this.outputDir, wasmBinaryName) : null
     } catch (e) {
       throw new Error('Failed to copy artifact', {
         cause: e,
@@ -840,9 +847,9 @@ class Builder {
 
     const { dts, exports } = await processTypeDef(
       this.envs.TYPE_DEF_TMP_PATH,
-      this.options.constEnum ?? true,
+      this.options.constEnum ?? this.config.constEnum ?? true,
       !this.options.noDtsHeader
-        ? this.options.dtsHeader ??
+        ? (this.options.dtsHeader ??
             (this.config.dtsHeaderFile
               ? await readFileAsync(
                   join(this.cwd, this.config.dtsHeaderFile),
@@ -855,7 +862,7 @@ class Builder {
                 })
               : null) ??
             this.config.dtsHeader ??
-            DEFAULT_TYPE_DEF_HEADER
+            DEFAULT_TYPE_DEF_HEADER)
         : '',
     )
 
@@ -887,7 +894,8 @@ class Builder {
 
     const name = this.options.jsBinding ?? 'index.js'
 
-    const cjs = createCjsBinding(
+    const createBinding = this.options.esm ? createEsmBinding : createCjsBinding
+    const binding = createBinding(
       this.config.binaryName,
       this.config.packageName,
       idents,
@@ -897,7 +905,7 @@ class Builder {
       const dest = join(this.outputDir, name)
       debug('Writing js binding to:')
       debug('  %i', dest)
-      await writeFileAsync(dest, cjs, 'utf-8')
+      await writeFileAsync(dest, binding, 'utf-8')
       return {
         kind: 'js',
         path: dest,

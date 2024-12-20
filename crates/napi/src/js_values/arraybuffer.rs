@@ -5,7 +5,7 @@ use std::slice;
 
 use crate::bindgen_runtime::{TypeName, ValidateNapiValue};
 use crate::{
-  check_status, sys, Error, JsUnknown, NapiValue, Ref, Result, Status, Value, ValueType,
+  check_status, sys, Env, Error, JsUnknown, NapiValue, Ref, Result, Status, Value, ValueType,
 };
 
 pub struct JsArrayBuffer(pub(crate) Value);
@@ -35,9 +35,9 @@ impl ValidateNapiValue for JsArrayBuffer {
 }
 
 pub struct JsArrayBufferValue {
-  pub(crate) value: JsArrayBuffer,
-  len: usize,
-  data: *mut c_void,
+  pub value: JsArrayBuffer,
+  pub(crate) len: usize,
+  pub(crate) data: *mut c_void,
 }
 
 pub struct JsTypedArray(pub(crate) Value);
@@ -99,6 +99,27 @@ pub enum TypedArrayType {
 
   /// compatible with higher versions
   Unknown = 1024,
+}
+
+impl AsRef<str> for TypedArrayType {
+  fn as_ref(&self) -> &str {
+    match self {
+      TypedArrayType::Int8 => "Int8",
+      TypedArrayType::Uint8 => "Uint8",
+      TypedArrayType::Uint8Clamped => "Uint8Clamped",
+      TypedArrayType::Int16 => "Int16",
+      TypedArrayType::Uint16 => "Uint16",
+      TypedArrayType::Int32 => "Int32",
+      TypedArrayType::Uint32 => "Uint32",
+      TypedArrayType::Float32 => "Float32",
+      TypedArrayType::Float64 => "Float64",
+      #[cfg(feature = "napi6")]
+      TypedArrayType::BigInt64 => "BigInt64",
+      #[cfg(feature = "napi6")]
+      TypedArrayType::BigUint64 => "BigUint64",
+      TypedArrayType::Unknown => "Unknown",
+    }
+  }
 }
 
 impl From<sys::napi_typedarray_type> for TypedArrayType {
@@ -198,8 +219,8 @@ impl JsArrayBuffer {
     }))
   }
 
-  pub fn into_ref(self) -> Result<Ref<JsArrayBufferValue>> {
-    Ref::new(self.0, 1, self.into_value()?)
+  pub fn into_ref(self) -> Result<Ref<JsArrayBuffer>> {
+    Ref::new(&Env::from(self.0.env), &self)
   }
 }
 
@@ -303,6 +324,9 @@ macro_rules! impl_as_ref {
     impl AsRef<[$ref_type]> for JsTypedArrayValue {
       fn as_ref(&self) -> &[$ref_type] {
         self.is_valid_as_ref($expect_type);
+        if self.data.is_null() {
+          return &[];
+        }
         unsafe { slice::from_raw_parts(self.data as *const $ref_type, self.length) }
       }
     }
@@ -310,6 +334,9 @@ macro_rules! impl_as_ref {
     impl AsMut<[$ref_type]> for JsTypedArrayValue {
       fn as_mut(&mut self) -> &mut [$ref_type] {
         self.is_valid_as_ref($expect_type);
+        if self.data.is_null() {
+          return &mut [];
+        }
         unsafe { slice::from_raw_parts_mut(self.data as *mut $ref_type, self.length) }
       }
     }

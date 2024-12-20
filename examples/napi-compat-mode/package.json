@@ -8,8 +8,8 @@
   },
   "devDependencies": {
     "@napi-rs/cli": "workspace:*",
-    "ava": "^6.1.1",
-    "sinon": "^18.0.0"
+    "ava": "^6.1.3",
+    "sinon": "^19.0.2"
   },
   "ava": {
     "extensions": [
@@ -23,7 +23,7 @@
       "__tests__/**/*.spec.ts"
     ],
     "environmentVariables": {
-      "TS_NODE_PROJECT": "../tsconfig.json"
+      "TS_NODE_PROJECT": "./tsconfig.json"
     },
     "workerThreads": false,
     "cache": false,

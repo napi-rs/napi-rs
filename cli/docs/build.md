@@ -40,6 +40,8 @@ new NapiCli().build({
 | dts               | --dts                 | string   | false    |         | Path and filename of generated type def file. Relative to `--output-dir`                                                  |
 | dtsHeader         | --dts-header          | string   | false    |         | Custom file header for generated type def file. Only works when `typedef` feature enabled.                                |
 | noDtsHeader       | --no-dts-header       | boolean  | false    |         | Whether to disable the default file header for generated type def file. Only works when `typedef` feature enabled.        |
+| dtsCache          | --dts-cache           | boolean  | false    | true    | Whether to enable the dts cache, default to true                                                                          |
+| esm               | --esm                 | boolean  | false    |         | Whether to emit an ESM JS binding file instead of CJS format. Only works with `--platform` flag.                          |
 | strip             | --strip,-s            | boolean  | false    |         | Whether strip the library to achieve the minimum file size                                                                |
 | release           | --release,-r          | boolean  | false    |         | Build in release mode                                                                                                     |
 | verbose           | --verbose,-v          | boolean  | false    |         | Verbosely log build command trace                                                                                         |

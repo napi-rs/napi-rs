@@ -133,6 +133,7 @@ struct ThreadsafeFunctionCallJsBackData<T, Return = Unknown> {
 ///
 /// ```rust
 /// use std::thread;
+/// use std::sync::Arc;
 ///
 /// use napi::{
 ///     threadsafe_function::{
@@ -142,7 +143,7 @@ struct ThreadsafeFunctionCallJsBackData<T, Return = Unknown> {
 /// use napi_derive::napi;
 ///
 /// #[napi]
-/// pub fn call_threadsafe_function(callback: ThreadsafeFunction<(u32, bool, String), ()>) {
+/// pub fn call_threadsafe_function(callback: Arc<ThreadsafeFunction<(u32, bool, String), ()>>) {
 ///   let tsfn_cloned = tsfn.clone();
 ///
 ///   thread::spawn(move || {
@@ -194,30 +195,6 @@ unsafe impl<
 }
 
 impl<
-    T: 'static,
-    Return: FromNapiValue,
-    CallJsBackArgs: 'static + JsValuesTupleIntoVec,
-    const CalleeHandled: bool,
-    const Weak: bool,
-    const MaxQueueSize: usize,
-  > Clone
-  for ThreadsafeFunction<T, Return, CallJsBackArgs, { CalleeHandled }, { Weak }, { MaxQueueSize }>
-{
-  fn clone(&self) -> Self {
-    self.handle.with_read_aborted(|aborted| {
-      if aborted {
-        panic!("ThreadsafeFunction was aborted, can not clone it");
-      };
-
-      Self {
-        handle: self.handle.clone(),
-        _phantom: PhantomData,
-      }
-    })
-  }
-}
-
-impl<
     T: 'static + JsValuesTupleIntoVec,
     Return: FromNapiValue,
     const CalleeHandled: bool,
@@ -229,6 +206,34 @@ impl<
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
     Self::create(env, napi_val, |ctx| Ok(ctx.value))
   }
+}
+
+impl<
+    T: 'static + JsValuesTupleIntoVec,
+    Return: FromNapiValue,
+    const CalleeHandled: bool,
+    const Weak: bool,
+    const MaxQueueSize: usize,
+  > TypeName for ThreadsafeFunction<T, Return, T, { CalleeHandled }, { Weak }, { MaxQueueSize }>
+{
+  fn type_name() -> &'static str {
+    "ThreadsafeFunction"
+  }
+
+  fn value_type() -> crate::ValueType {
+    crate::ValueType::Function
+  }
+}
+
+impl<
+    T: 'static + JsValuesTupleIntoVec,
+    Return: FromNapiValue,
+    const CalleeHandled: bool,
+    const Weak: bool,
+    const MaxQueueSize: usize,
+  > ValidateNapiValue
+  for ThreadsafeFunction<T, Return, T, { CalleeHandled }, { Weak }, { MaxQueueSize }>
+{
 }
 
 impl<
@@ -680,6 +685,8 @@ unsafe extern "C" fn call_js_cb<
           unsafe { sys::napi_create_reference(raw_env, exception, 1, &mut error_reference) };
           Err(Error {
             maybe_raw: error_reference,
+            maybe_env: raw_env,
+            raw: true,
             status: Status::from(status),
             reason: "".to_owned(),
           })
@@ -725,27 +732,26 @@ fn handle_call_js_cb_status(status: sys::napi_status, raw_env: sys::napi_env) {
     assert!(stat == sys::Status::napi_ok || stat == sys::Status::napi_pending_exception);
   } else {
     let error_code: Status = status.into();
-    let error_code_string = format!("{}", error_code);
     let mut error_code_value = ptr::null_mut();
     assert_eq!(
       unsafe {
         sys::napi_create_string_utf8(
           raw_env,
-          error_code_string.as_ptr().cast(),
-          error_code_string.len(),
+          error_code.as_ref().as_ptr().cast(),
+          error_code.as_ref().len() as isize,
           &mut error_code_value,
         )
       },
       sys::Status::napi_ok,
     );
-    static ERROR_MSG: &str = "Call JavaScript callback failed in threadsafe function";
+    const ERROR_MSG: &str = "Call JavaScript callback failed in threadsafe function";
     let mut error_msg_value = ptr::null_mut();
     assert_eq!(
       unsafe {
         sys::napi_create_string_utf8(
           raw_env,
           ERROR_MSG.as_ptr().cast(),
-          ERROR_MSG.len(),
+          ERROR_MSG.len() as isize,
           &mut error_msg_value,
         )
       },

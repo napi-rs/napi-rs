@@ -27,6 +27,7 @@ mod promise;
 mod promise_raw;
 #[cfg(feature = "serde-json")]
 mod serde;
+mod set;
 mod string;
 mod symbol;
 mod task;
@@ -46,16 +47,13 @@ pub use external::*;
 pub use function::*;
 pub use nil::*;
 pub use object::*;
-#[cfg(feature = "napi4")]
+#[cfg(all(feature = "tokio_rt", feature = "napi4"))]
 pub use promise::*;
 pub use promise_raw::*;
 pub use string::*;
 pub use symbol::*;
 pub use task::*;
 pub use value_ref::*;
-
-#[cfg(feature = "latin1")]
-pub use string::latin1_string::*;
 
 pub trait TypeName {
   fn type_name() -> &'static str;

@@ -6,8 +6,8 @@ license = "MIT"
 name = "napi-derive-backend"
 readme = "README.md"
 repository = "https://github.com/napi-rs/napi-rs"
-rust-version = "1.65"
-version = "2.0.0-alpha.5"
+rust-version = "1.80"
+version = "2.0.0-alpha.22"
 
 [package.metadata.workspaces]
 independent = true
@@ -15,18 +15,13 @@ independent = true
 [features]
 noop = []
 strict = []
-type-def = ["regex", "semver"]
+type-def = ["semver"]
 
 [dependencies]
 convert_case = "0.6"
-once_cell = "1"
 proc-macro2 = "1"
 quote = "1"
 syn = { version = "2", features = ["fold", "full", "extra-traits"] }
-
-[dependencies.regex]
-optional = true
-version = "1"
 
 [dependencies.semver]
 optional = true

@@ -1,8 +1,15 @@
+use std::sync::Arc;
+
 use napi::{bindgen_prelude::*, JsArrayBuffer};
 
 #[napi]
 fn get_buffer() -> Buffer {
   String::from("Hello world").as_bytes().into()
+}
+
+#[napi]
+fn get_buffer_slice(env: &Env) -> Result<BufferSlice> {
+  BufferSlice::from_data(env, String::from("Hello world").as_bytes().to_vec())
 }
 
 #[napi]
@@ -14,6 +21,30 @@ fn append_buffer(buf: Buffer) -> Buffer {
 
 #[napi]
 fn get_empty_buffer() -> Buffer {
+  vec![].into()
+}
+
+#[napi]
+pub fn create_external_buffer_slice(env: &Env) -> Result<BufferSlice> {
+  let mut data = String::from("Hello world").as_bytes().to_vec();
+  let data_ptr = data.as_mut_ptr();
+  let len = data.len();
+  // Mock the ffi data that not managed by Rust
+  std::mem::forget(data);
+  unsafe {
+    BufferSlice::from_external(env, data_ptr, len, data_ptr, move |ptr, _| {
+      std::mem::drop(Vec::from_raw_parts(ptr, len, len));
+    })
+  }
+}
+
+#[napi]
+pub fn create_buffer_slice_from_copied_data(env: &Env) -> Result<BufferSlice> {
+  BufferSlice::copy_from(env, String::from("Hello world").as_bytes())
+}
+
+#[napi]
+fn get_empty_typed_array() -> Uint8Array {
   vec![].into()
 }
 
@@ -45,6 +76,16 @@ async fn buffer_pass_through(buf: Buffer) -> Result<Buffer> {
 }
 
 #[napi]
+fn buffer_with_async_block(env: Env, buf: Arc<Buffer>) -> Result<AsyncBlock<u32>> {
+  let buf_to_dispose = buf.clone();
+  AsyncBlockBuilder::with(async move { Ok(buf.len() as u32) })
+    .with_dispose(move |_| {
+      drop(buf_to_dispose);
+    })
+    .build(env)
+}
+
+#[napi]
 async fn array_buffer_pass_through(buf: Uint8Array) -> Result<Uint8Array> {
   Ok(buf)
 }
@@ -57,6 +98,12 @@ fn accept_slice(fixture: &[u8]) -> usize {
 #[napi]
 fn accept_arraybuffer(fixture: JsArrayBuffer) -> Result<usize> {
   Ok(fixture.into_value()?.as_ref().len())
+}
+
+#[napi]
+fn create_arraybuffer(env: Env) -> Result<JsArrayBuffer> {
+  let buf = env.create_arraybuffer_with_data(vec![1, 2, 3, 4])?;
+  Ok(buf.value)
 }
 
 #[napi]
@@ -150,4 +197,42 @@ fn async_buffer_to_array(buf: JsArrayBuffer) -> Result<Vec<u8>> {
 #[napi]
 async fn u_init8_array_from_string() -> Uint8Array {
   Uint8Array::from_string("Hello world".to_owned())
+}
+
+struct AsyncReader {}
+
+struct OutputBuffer {}
+
+impl OutputBuffer {
+  fn into_buffer_slice(self, env: &Env) -> Result<BufferSlice> {
+    BufferSlice::from_data(env, String::from("Hello world"))
+  }
+}
+
+#[napi]
+impl Task for AsyncReader {
+  type Output = OutputBuffer;
+  type JsValue = Buffer;
+
+  fn compute(&mut self) -> Result<Self::Output> {
+    Ok(OutputBuffer {})
+  }
+
+  fn resolve(&mut self, env: Env, output: Self::Output) -> Result<Self::JsValue> {
+    output
+      .into_buffer_slice(&env)
+      .and_then(|slice| slice.into_buffer(&env))
+  }
+}
+
+#[napi(constructor)]
+pub struct Reader {}
+
+#[napi]
+impl Reader {
+  #[napi]
+  pub fn read<'env>(&'env self, env: &'env Env) -> Result<BufferSlice<'env>> {
+    let output = AsyncReader {}.compute()?;
+    output.into_buffer_slice(env)
+  }
 }

@@ -20,12 +20,13 @@ pub type Result<T, S = Status> = std::result::Result<T, Error<S>>;
 /// Represent `JsError`.
 /// Return this Error in `js_function`, **napi-rs** will throw it as `JsError` for you.
 /// If you want throw it as `TypeError` or `RangeError`, you can use `JsTypeError/JsRangeError::from(Error).throw_into(env)`
-#[derive(Clone)]
 pub struct Error<S: AsRef<str> = Status> {
   pub status: S,
   pub reason: String,
   // Convert raw `JsError` into Error
   pub(crate) maybe_raw: sys::napi_ref,
+  pub(crate) maybe_env: sys::napi_env,
+  pub(crate) raw: bool,
 }
 
 impl<S: AsRef<str>> std::fmt::Debug for Error<S> {
@@ -36,6 +37,18 @@ impl<S: AsRef<str>> std::fmt::Debug for Error<S> {
       self.status.as_ref(),
       self.reason
     )
+  }
+}
+
+impl<S: Clone + AsRef<str>> Clone for Error<S> {
+  fn clone(&self) -> Self {
+    Self {
+      raw: false,
+      status: self.status.clone(),
+      reason: self.reason.to_string(),
+      maybe_raw: self.maybe_raw,
+      maybe_env: self.maybe_env,
+    }
   }
 }
 
@@ -50,10 +63,12 @@ impl<S: AsRef<str>> ToNapiValue for Error<S> {
         unsafe { sys::napi_get_reference_value(env, val.maybe_raw, &mut value) },
         "Get error reference in `to_napi_value` failed"
       )?;
-      check_status!(
-        unsafe { sys::napi_delete_reference(env, val.maybe_raw) },
-        "Delete error reference in `to_napi_value` failed"
-      )?;
+      if val.raw {
+        check_status!(
+          unsafe { sys::napi_delete_reference(env, val.maybe_raw) },
+          "Delete error reference in `to_napi_value` failed"
+        )?;
+      }
       Ok(value)
     }
   }
@@ -102,6 +117,7 @@ impl From<JsUnknown> for Error {
       );
     }
 
+    let maybe_env = value.0.env;
     let maybe_error_message = value
       .coerce_to_string()
       .and_then(|a| a.into_utf8().and_then(|a| a.into_owned()));
@@ -110,6 +126,8 @@ impl From<JsUnknown> for Error {
         status: Status::GenericFailure,
         reason: error_message,
         maybe_raw: result,
+        maybe_env,
+        raw: true,
       };
     }
 
@@ -117,6 +135,8 @@ impl From<JsUnknown> for Error {
       status: Status::GenericFailure,
       reason: "".to_string(),
       maybe_raw: result,
+      maybe_env,
+      raw: true,
     }
   }
 }
@@ -144,6 +164,8 @@ impl<S: AsRef<str>> Error<S> {
       status,
       reason: reason.to_string(),
       maybe_raw: ptr::null_mut(),
+      maybe_env: ptr::null_mut(),
+      raw: true,
     }
   }
 
@@ -152,6 +174,8 @@ impl<S: AsRef<str>> Error<S> {
       status,
       reason: "".to_owned(),
       maybe_raw: ptr::null_mut(),
+      maybe_env: ptr::null_mut(),
+      raw: true,
     }
   }
 }
@@ -162,6 +186,8 @@ impl Error {
       status: Status::GenericFailure,
       reason: reason.into(),
       maybe_raw: ptr::null_mut(),
+      maybe_env: ptr::null_mut(),
+      raw: true,
     }
   }
 }
@@ -172,6 +198,8 @@ impl From<std::ffi::NulError> for Error {
       status: Status::GenericFailure,
       reason: format!("{}", error),
       maybe_raw: ptr::null_mut(),
+      maybe_env: ptr::null_mut(),
+      raw: true,
     }
   }
 }
@@ -182,6 +210,8 @@ impl From<std::io::Error> for Error {
       status: Status::GenericFailure,
       reason: format!("{}", error),
       maybe_raw: ptr::null_mut(),
+      maybe_env: ptr::null_mut(),
+      raw: true,
     }
   }
 }
@@ -242,28 +272,47 @@ macro_rules! impl_object_methods {
             get_err_status == sys::Status::napi_ok,
             "Get Error from Reference failed"
           );
-          let delete_err_status = unsafe { sys::napi_delete_reference(env, self.0.maybe_raw) };
+          if self.0.raw {
+            let delete_err_status = unsafe { sys::napi_delete_reference(env, self.0.maybe_raw) };
+            debug_assert!(
+              delete_err_status == sys::Status::napi_ok,
+              "Delete Error Reference failed"
+            );
+          }
+          let mut is_error = false;
+          let is_error_status = unsafe { sys::napi_is_error(env, err, &mut is_error) };
           debug_assert!(
-            delete_err_status == sys::Status::napi_ok,
-            "Delete Error Reference failed"
+            is_error_status == sys::Status::napi_ok,
+            "Check Error failed"
           );
-          return err;
+          // make sure ref_value is a valid error at first and avoid throw error failed.
+          if is_error {
+            return err;
+          }
         }
 
         let error_status = self.0.status.as_ref();
         let status_len = error_status.len();
-        let error_code_string = CString::new(error_status).unwrap();
         let reason_len = self.0.reason.len();
-        let reason = CString::new(self.0.reason.as_str()).unwrap();
         let mut error_code = ptr::null_mut();
         let mut reason_string = ptr::null_mut();
         let mut js_error = ptr::null_mut();
         let create_code_status = unsafe {
-          sys::napi_create_string_utf8(env, error_code_string.as_ptr(), status_len, &mut error_code)
+          sys::napi_create_string_utf8(
+            env,
+            error_status.as_ptr().cast(),
+            status_len as isize,
+            &mut error_code,
+          )
         };
         debug_assert!(create_code_status == sys::Status::napi_ok);
         let create_reason_status = unsafe {
-          sys::napi_create_string_utf8(env, reason.as_ptr(), reason_len, &mut reason_string)
+          sys::napi_create_string_utf8(
+            env,
+            self.0.reason.as_ptr().cast(),
+            reason_len as isize,
+            &mut reason_string,
+          )
         };
         debug_assert!(create_reason_status == sys::Status::napi_ok);
         let create_error_status = unsafe { $kind(env, error_code, reason_string, &mut js_error) };
@@ -291,14 +340,16 @@ macro_rules! impl_object_methods {
         let mut is_pending_exception = false;
         assert_eq!(
           unsafe { $crate::sys::napi_is_exception_pending(env, &mut is_pending_exception) },
-          $crate::sys::Status::napi_ok
+          $crate::sys::Status::napi_ok,
+          "Check exception status failed"
         );
         let js_error = match is_pending_exception {
           true => {
             let mut error_result = std::ptr::null_mut();
             assert_eq!(
               unsafe { $crate::sys::napi_get_and_clear_last_exception(env, &mut error_result) },
-              $crate::sys::Status::napi_ok
+              $crate::sys::Status::napi_ok,
+              "Get and clear last exception failed"
             );
             error_result
           }

@@ -1,10 +1,9 @@
-use crate::{bindgen_prelude::*, check_status, check_status_and_type, sys, Error, Result, Status};
-
-use std::ffi::{c_void, CStr};
+use std::ffi::c_char;
 use std::fmt::Display;
-use std::mem;
 use std::ops::Deref;
 use std::ptr;
+
+use crate::{bindgen_prelude::*, check_status, check_status_and_type, sys};
 
 impl TypeName for String {
   fn type_name() -> &'static str {
@@ -23,7 +22,9 @@ impl ToNapiValue for &String {
     let mut ptr = ptr::null_mut();
 
     check_status!(
-      unsafe { sys::napi_create_string_utf8(env, val.as_ptr() as *const _, val.len(), &mut ptr) },
+      unsafe {
+        sys::napi_create_string_utf8(env, val.as_ptr().cast(), val.len() as isize, &mut ptr)
+      },
       "Failed to convert rust `String` into napi `string`"
     )?;
 
@@ -54,124 +55,65 @@ impl FromNapiValue for String {
 
     // end char len in C
     len += 1;
-    let mut ret = Vec::with_capacity(len);
-    let buf_ptr = ret.as_mut_ptr();
+    let mut ret: Vec<u8> = vec![0; len];
 
     let mut written_char_count = 0;
 
     check_status_and_type!(
       unsafe {
-        sys::napi_get_value_string_utf8(env, napi_val, buf_ptr, len, &mut written_char_count)
+        sys::napi_get_value_string_utf8(
+          env,
+          napi_val,
+          ret.as_mut_ptr().cast(),
+          len,
+          &mut written_char_count,
+        )
       },
       env,
       napi_val,
       "Failed to convert napi `{}` into rust type `String`"
     )?;
 
-    let mut ret = mem::ManuallyDrop::new(ret);
-    let buf_ptr = ret.as_mut_ptr();
-    let bytes = unsafe { Vec::from_raw_parts(buf_ptr as *mut u8, written_char_count, len) };
-    match String::from_utf8(bytes) {
-      Err(e) => Err(Error::new(
-        Status::InvalidArg,
-        format!("Failed to read utf8 string, {}", e),
-      )),
-      Ok(s) => Ok(s),
-    }
-  }
-}
+    ret.truncate(written_char_count);
 
-impl TypeName for &str {
-  fn type_name() -> &'static str {
-    "String"
-  }
-
-  fn value_type() -> ValueType {
-    ValueType::String
-  }
-}
-
-impl ValidateNapiValue for &str {}
-
-impl FromNapiValue for &str {
-  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
-    let mut len = 0;
-
-    check_status_and_type!(
-      unsafe { sys::napi_get_value_string_utf8(env, napi_val, ptr::null_mut(), 0, &mut len) },
-      env,
-      napi_val,
-      "Failed to convert napi `{}` into rust type `String`"
-    )?;
-
-    // end char len in C
-    len += 1;
-    let mut ret = Vec::with_capacity(len);
-    let buf_ptr = ret.as_mut_ptr();
-    let mut written_char_count = 0;
-
-    check_status_and_type!(
-      unsafe {
-        sys::napi_get_value_string_utf8(env, napi_val, buf_ptr, len, &mut written_char_count)
-      },
-      env,
-      napi_val,
-      "Failed to convert JavaScript value `{}` into rust type `String`"
-    )?;
-
-    // The `&str` should only be accepted from function arguments.
-    // We shouldn't implement `FromNapiValue` for it before.
-    // When it's used with `Object.get` scenario, the memory which `&str` point to will be invalid.
-    // For this scenario, we create a temporary empty `Object` here and assign the `Vec<u8>` under `&str` to it.
-    // So we can safely forget the `Vec<u8>` here which could fix the memory issue here.
-    // FIXME: This implementation should be removed in next major release.
-    let mut temporary_external_object = ptr::null_mut();
-    check_status!(unsafe {
-      sys::napi_create_external(
-        env,
-        buf_ptr as *mut c_void,
-        Some(release_string),
-        Box::into_raw(Box::new(len)) as *mut c_void,
-        &mut temporary_external_object,
-      )
-    })?;
-
-    std::mem::forget(ret);
-    match unsafe { CStr::from_ptr(buf_ptr) }.to_str() {
-      Err(e) => Err(Error::new(
-        Status::InvalidArg,
-        format!("Failed to read utf8 string, {}", e),
-      )),
-      Ok(s) => Ok(s),
-    }
+    Ok(unsafe { String::from_utf8_unchecked(ret) })
   }
 }
 
 impl ToNapiValue for &str {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
-    unsafe { String::to_napi_value(env, val.to_owned()) }
+    let mut ptr = ptr::null_mut();
+
+    check_status!(
+      unsafe {
+        sys::napi_create_string_utf8(env, val.as_ptr().cast(), val.len() as isize, &mut ptr)
+      },
+      "Failed to convert rust `&str` into napi `string`"
+    )?;
+
+    Ok(ptr)
   }
 }
 
 #[derive(Debug)]
-pub struct Utf16String(String);
+pub struct Utf16String(Vec<u16>);
 
 impl ValidateNapiValue for Utf16String {}
 
 impl From<String> for Utf16String {
   fn from(s: String) -> Self {
-    Utf16String(s)
+    Utf16String(s.encode_utf16().collect())
   }
 }
 
 impl Display for Utf16String {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(f, "{}", self.0)
+    write!(f, "{}", String::from_utf16_lossy(self))
   }
 }
 
 impl Deref for Utf16String {
-  type Target = str;
+  type Target = [u16];
 
   fn deref(&self) -> &Self::Target {
     self.0.as_ref()
@@ -215,15 +157,9 @@ impl FromNapiValue for Utf16String {
       "Failed to convert napi `utf16 string` into rust type `String`",
     )?;
 
-    let (_, ret) = ret.split_last().unwrap_or((&0, &[]));
+    ret.truncate(written_char_count);
 
-    match String::from_utf16(ret) {
-      Err(e) => Err(Error::new(
-        Status::InvalidArg,
-        format!("Failed to read utf16 string, {}", e),
-      )),
-      Ok(s) => Ok(Utf16String(s)),
-    }
+    Ok(Utf16String(ret))
   }
 }
 
@@ -231,11 +167,9 @@ impl ToNapiValue for Utf16String {
   unsafe fn to_napi_value(env: sys::napi_env, val: Utf16String) -> Result<sys::napi_value> {
     let mut ptr = ptr::null_mut();
 
-    let encoded = val.0.encode_utf16().collect::<Vec<_>>();
-
     check_status!(
       unsafe {
-        sys::napi_create_string_utf16(env, encoded.as_ptr() as *const _, encoded.len(), &mut ptr)
+        sys::napi_create_string_utf16(env, val.0.as_ptr().cast(), val.len() as isize, &mut ptr)
       },
       "Failed to convert napi `string` into rust type `String`"
     )?;
@@ -244,103 +178,124 @@ impl ToNapiValue for Utf16String {
   }
 }
 
-#[cfg(feature = "latin1")]
-pub mod latin1_string {
-  use super::*;
+#[derive(Debug)]
+pub struct Latin1String(Vec<u8>);
 
-  #[derive(Debug)]
-  pub struct Latin1String(String);
+impl ValidateNapiValue for Latin1String {}
 
-  impl ValidateNapiValue for Latin1String {}
-
-  impl From<String> for Latin1String {
-    fn from(s: String) -> Self {
-      Latin1String(s)
-    }
-  }
-
-  impl Display for Latin1String {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-      write!(f, "{}", self.0)
-    }
-  }
-
-  impl Deref for Latin1String {
-    type Target = str;
-
-    fn deref(&self) -> &Self::Target {
-      self.0.as_ref()
-    }
-  }
-
-  impl TypeName for Latin1String {
-    fn type_name() -> &'static str {
-      "String(latin1)"
-    }
-
-    fn value_type() -> ValueType {
-      ValueType::String
-    }
-  }
-
-  impl FromNapiValue for Latin1String {
-    unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
-      let mut len = 0;
-
-      check_status!(
-        unsafe { sys::napi_get_value_string_latin1(env, napi_val, ptr::null_mut(), 0, &mut len) },
-        "Failed to convert napi `latin1 string` into rust type `String`",
-      )?;
-
-      // end char len in C
-      len += 1;
-      let mut buf = Vec::with_capacity(len);
-      let buf_ptr = buf.as_mut_ptr();
-
-      let mut written_char_count = 0;
-
-      mem::forget(buf);
-
-      check_status!(
-        unsafe {
-          sys::napi_get_value_string_latin1(env, napi_val, buf_ptr, len, &mut written_char_count)
-        },
-        "Failed to convert napi `latin1 string` into rust type `String`"
-      )?;
-
-      let buf =
-        unsafe { Vec::from_raw_parts(buf_ptr as *mut _, written_char_count, written_char_count) };
-      let mut dst_slice = vec![0; buf.len() * 2];
-      let written =
-        encoding_rs::mem::convert_latin1_to_utf8(buf.as_slice(), dst_slice.as_mut_slice());
-      dst_slice.truncate(written);
-
-      Ok(Latin1String(unsafe {
-        String::from_utf8_unchecked(dst_slice)
-      }))
-    }
-  }
-
-  impl ToNapiValue for Latin1String {
-    unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
-      let mut ptr = ptr::null_mut();
-
-      let mut dst = vec![0; val.len()];
-      encoding_rs::mem::convert_utf8_to_latin1_lossy(val.0.as_bytes(), dst.as_mut_slice());
-
-      check_status!(
-        unsafe {
-          sys::napi_create_string_latin1(env, dst.as_ptr() as *const _, dst.len(), &mut ptr)
-        },
-        "Failed to convert rust type `String` into napi `latin1 string`"
-      )?;
-
-      Ok(ptr)
-    }
+impl From<String> for Latin1String {
+  fn from(s: String) -> Self {
+    Latin1String(s.into_bytes())
   }
 }
 
-unsafe extern "C" fn release_string(_env: sys::napi_env, data: *mut c_void, len: *mut c_void) {
-  let len = unsafe { *Box::from_raw(len as *mut usize) };
-  unsafe { Vec::from_raw_parts(data as *mut u8, len, len) };
+#[cfg(feature = "latin1")]
+impl Display for Latin1String {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    let mut dst_slice = vec![0; self.0.len() * 2];
+    let written =
+      encoding_rs::mem::convert_latin1_to_utf8(self.0.as_slice(), dst_slice.as_mut_slice());
+    dst_slice.truncate(written);
+    write!(f, "{}", unsafe { String::from_utf8_unchecked(dst_slice) })
+  }
+}
+
+impl Deref for Latin1String {
+  type Target = [u8];
+
+  fn deref(&self) -> &Self::Target {
+    self.0.as_slice()
+  }
+}
+
+impl TypeName for Latin1String {
+  fn type_name() -> &'static str {
+    "String(latin1)"
+  }
+
+  fn value_type() -> ValueType {
+    ValueType::String
+  }
+}
+
+impl FromNapiValue for Latin1String {
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
+    let mut len = 0;
+
+    check_status!(
+      unsafe { sys::napi_get_value_string_latin1(env, napi_val, ptr::null_mut(), 0, &mut len) },
+      "Failed to convert napi `latin1 string` into rust type `String`",
+    )?;
+
+    // end char len in C
+    len += 1;
+    let mut buf: Vec<u8> = vec![0; len];
+
+    let mut written_char_count = 0;
+
+    check_status!(
+      unsafe {
+        sys::napi_get_value_string_latin1(
+          env,
+          napi_val,
+          buf.as_mut_ptr().cast(),
+          len,
+          &mut written_char_count,
+        )
+      },
+      "Failed to convert napi `latin1 string` into rust type `String`"
+    )?;
+    buf.truncate(written_char_count);
+    Ok(Latin1String(buf))
+  }
+}
+
+impl ToNapiValue for Latin1String {
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    let mut ptr = ptr::null_mut();
+
+    check_status!(
+      unsafe {
+        sys::napi_create_string_latin1(env, val.0.as_ptr().cast(), val.len() as isize, &mut ptr)
+      },
+      "Failed to convert rust type `String` into napi `latin1 string`"
+    )?;
+
+    Ok(ptr)
+  }
+}
+
+pub const NAPI_AUTO_LENGTH: isize = -1;
+
+#[derive(Debug)]
+/// A wrapper around the raw c_char pointer to a C string.
+///
+/// This is useful when you want to return a C string to JavaScript directly via NAPI-RS function without converting it to Rust string or performing any memory allocation.
+///
+/// The `RawCString` doesn't implement `FromNapiValue`, so you can't convert a JavaScript String to it.
+pub struct RawCString {
+  length: isize,
+  inner: *const c_char,
+}
+
+impl RawCString {
+  /// Create a new `RawCString` from a raw pointer and length.
+  ///
+  /// If the inner string is null-terminated, you can pass `` as the length.
+  pub fn new(inner: *const c_char, length: isize) -> Self {
+    Self { inner, length }
+  }
+}
+
+impl ToNapiValue for RawCString {
+  unsafe fn to_napi_value(env: napi_sys::napi_env, val: Self) -> Result<napi_sys::napi_value> {
+    let mut ptr = ptr::null_mut();
+
+    check_status!(
+      napi_sys::napi_create_string_utf8(env, val.inner, val.length, &mut ptr),
+      "Failed to convert rust `&str` into napi `string`"
+    )?;
+
+    Ok(ptr)
+  }
 }

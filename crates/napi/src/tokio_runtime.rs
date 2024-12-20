@@ -1,35 +1,50 @@
-use std::{future::Future, marker::PhantomData, sync::RwLock};
+use std::{
+  future::Future,
+  marker::PhantomData,
+  sync::{LazyLock, Mutex, OnceLock, RwLock},
+};
 
-use once_cell::sync::{Lazy, OnceCell};
 use tokio::runtime::Runtime;
 
-use crate::{sys, Error, JsDeferred, JsUnknown, NapiValue, Result};
+use crate::{
+  bindgen_runtime::ToNapiValue, sys, Env, Error, JsDeferred, JsUnknown, NapiValue, Result,
+};
 
 fn create_runtime() -> Option<Runtime> {
-  #[cfg(not(target_family = "wasm"))]
-  {
-    let runtime = tokio::runtime::Runtime::new().expect("Create tokio runtime failed");
-    Some(runtime)
-  }
-
   #[cfg(target_family = "wasm")]
   {
-    tokio::runtime::Builder::new_current_thread()
-      .enable_all()
-      .build()
-      .ok()
+    Some(
+      tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("Create tokio runtime failed"),
+    )
+  }
+
+  #[cfg(not(target_family = "wasm"))]
+  {
+    Some(
+      tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("Create tokio runtime failed"),
+    )
   }
 }
 
-pub(crate) static RT: Lazy<RwLock<Option<Runtime>>> = Lazy::new(|| {
-  if let Some(user_defined_rt) = unsafe { USER_DEFINED_RT.take() } {
-    RwLock::new(user_defined_rt)
+pub(crate) static RT: LazyLock<RwLock<Option<Runtime>>> = LazyLock::new(|| {
+  if let Some(user_defined_rt) = USER_DEFINED_RT.get() {
+    if let Ok(mut rt) = user_defined_rt.lock() {
+      RwLock::new(rt.take())
+    } else {
+      RwLock::new(create_runtime())
+    }
   } else {
     RwLock::new(create_runtime())
   }
 });
 
-static mut USER_DEFINED_RT: OnceCell<Option<Runtime>> = OnceCell::new();
+static USER_DEFINED_RT: OnceLock<Mutex<Option<Runtime>>> = OnceLock::new();
 
 /// Create a custom Tokio runtime used by the NAPI-RS.
 /// You can control the tokio runtime configuration by yourself.
@@ -44,19 +59,15 @@ static mut USER_DEFINED_RT: OnceCell<Option<Runtime>> = OnceCell::new();
 ///    create_custom_tokio_runtime(rt);
 /// }
 pub fn create_custom_tokio_runtime(rt: Runtime) {
-  unsafe {
-    USER_DEFINED_RT.get_or_init(move || Some(rt));
-  }
+  USER_DEFINED_RT.get_or_init(move || Mutex::new(Some(rt)));
 }
 
-#[cfg(not(any(target_os = "macos", target_family = "wasm")))]
 static RT_REFERENCE_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 /// Ensure that the Tokio runtime is initialized.
 /// In windows the Tokio runtime will be dropped when Node env exits.
 /// But in Electron renderer process, the Node env will exits and recreate when the window reloads.
 /// So we need to ensure that the Tokio runtime is initialized when the Node env is created.
-#[cfg(not(any(target_os = "macos", target_family = "wasm")))]
 pub(crate) fn ensure_runtime() {
   use std::sync::atomic::Ordering;
 
@@ -68,12 +79,13 @@ pub(crate) fn ensure_runtime() {
   RT_REFERENCE_COUNT.fetch_add(1, Ordering::Relaxed);
 }
 
-#[cfg(not(any(target_os = "macos", target_family = "wasm")))]
 pub(crate) unsafe extern "C" fn drop_runtime(_arg: *mut std::ffi::c_void) {
   use std::sync::atomic::Ordering;
 
   if RT_REFERENCE_COUNT.fetch_sub(1, Ordering::AcqRel) == 1 {
-    RT.write().unwrap().take();
+    if let Some(rt) = RT.write().unwrap().take() {
+      rt.shutdown_background();
+    }
   }
 }
 
@@ -85,14 +97,22 @@ pub fn spawn<F>(fut: F) -> tokio::task::JoinHandle<F::Output>
 where
   F: 'static + Send + Future<Output = ()>,
 {
-  RT.read().unwrap().as_ref().unwrap().spawn(fut)
+  RT.read()
+    .unwrap()
+    .as_ref()
+    .expect("Tokio runtime is not created")
+    .spawn(fut)
 }
 
 /// Runs a future to completion
 /// This is blocking, meaning that it pauses other execution until the future is complete,
 /// only use it when it is absolutely necessary, in other places use async functions instead.
 pub fn block_on<F: Future>(fut: F) -> F::Output {
-  RT.read().unwrap().as_ref().unwrap().block_on(fut)
+  RT.read()
+    .unwrap()
+    .as_ref()
+    .expect("Tokio runtime is not created")
+    .block_on(fut)
 }
 
 /// spawn_blocking on the current Tokio runtime.
@@ -101,7 +121,11 @@ where
   F: FnOnce() -> R + Send + 'static,
   R: Send + 'static,
 {
-  RT.read().unwrap().as_ref().unwrap().spawn_blocking(func)
+  RT.read()
+    .unwrap()
+    .as_ref()
+    .expect("Tokio runtime is not created")
+    .spawn_blocking(func)
 }
 
 // This function's signature must be kept in sync with the one in lib.rs, otherwise napi
@@ -109,10 +133,15 @@ where
 
 /// If the feature `tokio_rt` has been enabled this will enter the runtime context and
 /// then call the provided closure. Otherwise it will just call the provided closure.
-#[inline]
 pub fn within_runtime_if_available<F: FnOnce() -> T, T>(f: F) -> T {
-  let _rt_guard = RT.read().unwrap().as_ref().unwrap().enter();
-  f()
+  let rt_lock = RT.read().unwrap();
+  let rt_guard = rt_lock
+    .as_ref()
+    .expect("Tokio runtime is not created")
+    .enter();
+  let ret = f();
+  drop(rt_guard);
+  ret
 }
 
 struct SendableResolver<
@@ -174,23 +203,23 @@ pub fn execute_tokio_future<
   };
 
   #[cfg(not(target_family = "wasm"))]
-  {
-    let jh = spawn(inner);
-    spawn(async move {
-      if let Err(err) = jh.await {
-        if let Ok(reason) = err.try_into_panic() {
-          if let Some(s) = reason.downcast_ref::<&str>() {
-            deferred_for_panic.reject(Error::new(crate::Status::GenericFailure, s));
-          } else {
-            deferred_for_panic.reject(Error::new(
-              crate::Status::GenericFailure,
-              "Panic in async function",
-            ));
-          }
+  let jh = spawn(inner);
+
+  #[cfg(not(target_family = "wasm"))]
+  spawn(async move {
+    if let Err(err) = jh.await {
+      if let Ok(reason) = err.try_into_panic() {
+        if let Some(s) = reason.downcast_ref::<&str>() {
+          deferred_for_panic.reject(Error::new(crate::Status::GenericFailure, s));
+        } else {
+          deferred_for_panic.reject(Error::new(
+            crate::Status::GenericFailure,
+            "Panic in async function",
+          ));
         }
       }
-    });
-  }
+    }
+  });
 
   #[cfg(target_family = "wasm")]
   {
@@ -200,4 +229,56 @@ pub fn execute_tokio_future<
   }
 
   Ok(promise.0.value)
+}
+
+pub struct AsyncBlockBuilder<
+  V: ToNapiValue + Send + 'static,
+  F: Future<Output = Result<V>> + Send + 'static,
+  Dispose: FnOnce(Env) + 'static,
+> {
+  inner: F,
+  dispose: Option<Dispose>,
+}
+
+impl<
+    V: ToNapiValue + Send + 'static,
+    F: Future<Output = Result<V>> + Send + 'static,
+    Dispose: FnOnce(Env),
+  > AsyncBlockBuilder<V, F, Dispose>
+{
+  pub fn with(inner: F) -> Self {
+    Self {
+      inner,
+      dispose: None,
+    }
+  }
+
+  pub fn with_dispose(mut self, dispose: Dispose) -> Self {
+    self.dispose = Some(dispose);
+    self
+  }
+
+  pub fn build(self, env: Env) -> Result<AsyncBlock<V>> {
+    Ok(AsyncBlock {
+      inner: execute_tokio_future(env.0, self.inner, |env, v| unsafe {
+        if let Some(dispose) = self.dispose {
+          let env = Env::from_raw(env);
+          dispose(env);
+        }
+        V::to_napi_value(env, v)
+      })?,
+      _phantom: PhantomData,
+    })
+  }
+}
+
+pub struct AsyncBlock<T: ToNapiValue + Send + 'static> {
+  inner: sys::napi_value,
+  _phantom: PhantomData<T>,
+}
+
+impl<T: ToNapiValue + Send + 'static> ToNapiValue for AsyncBlock<T> {
+  unsafe fn to_napi_value(_: napi_sys::napi_env, val: Self) -> Result<napi_sys::napi_value> {
+    Ok(val.inner)
+  }
 }

@@ -1,28 +1,31 @@
-use std::collections::HashMap;
 #[cfg(not(feature = "noop"))]
 use std::collections::HashSet;
+#[cfg(not(feature = "noop"))]
 use std::ffi::CStr;
+#[cfg(all(not(feature = "noop"), feature = "node_version_detect"))]
+use std::mem::MaybeUninit;
+#[cfg(not(feature = "noop"))]
 use std::ptr;
-#[cfg(all(
-  not(any(target_os = "macos", target_family = "wasm")),
-  feature = "napi4",
-  feature = "tokio_rt"
-))]
-use std::sync::atomic::AtomicUsize;
 #[cfg(not(feature = "noop"))]
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::RwLock;
+use std::sync::{LazyLock, RwLock};
 use std::thread::ThreadId;
+use std::{any::TypeId, collections::HashMap};
 
-use once_cell::sync::Lazy;
-
-use crate::{check_status, sys, Property, Result};
 #[cfg(not(feature = "noop"))]
-use crate::{check_status_or_throw, JsError};
+use crate::{check_status, check_status_or_throw, JsError};
+use crate::{sys, Property, Result};
 
 pub type ExportRegisterCallback = unsafe fn(sys::napi_env) -> Result<sys::napi_value>;
 pub type ModuleExportsCallback =
   unsafe fn(env: sys::napi_env, exports: sys::napi_value) -> Result<()>;
+
+#[cfg(feature = "node_version_detect")]
+pub static mut NODE_VERSION_MAJOR: u32 = 0;
+#[cfg(feature = "node_version_detect")]
+pub static mut NODE_VERSION_MINOR: u32 = 0;
+#[cfg(feature = "node_version_detect")]
+pub static mut NODE_VERSION_PATCH: u32 = 0;
 
 #[repr(transparent)]
 pub(crate) struct PersistedPerInstanceHashMap<K, V>(RwLock<HashMap<K, V>>);
@@ -52,10 +55,8 @@ impl<K, V> Default for PersistedPerInstanceHashMap<K, V> {
 type ModuleRegisterCallback =
   RwLock<Vec<(Option<&'static str>, (&'static str, ExportRegisterCallback))>>;
 
-type ModuleClassProperty = PersistedPerInstanceHashMap<
-  &'static str,
-  HashMap<Option<&'static str>, (&'static str, Vec<Property>)>,
->;
+type ModuleClassProperty =
+  PersistedPerInstanceHashMap<TypeId, HashMap<Option<&'static str>, (&'static str, Vec<Property>)>>;
 
 unsafe impl<K, V> Send for PersistedPerInstanceHashMap<K, V> {}
 unsafe impl<K, V> Sync for PersistedPerInstanceHashMap<K, V> {}
@@ -64,14 +65,14 @@ type FnRegisterMap =
   PersistedPerInstanceHashMap<ExportRegisterCallback, (sys::napi_callback, &'static str)>;
 type RegisteredClassesMap = PersistedPerInstanceHashMap<ThreadId, RegisteredClasses>;
 
-static MODULE_REGISTER_CALLBACK: Lazy<ModuleRegisterCallback> = Lazy::new(Default::default);
-static MODULE_CLASS_PROPERTIES: Lazy<ModuleClassProperty> = Lazy::new(Default::default);
+static MODULE_REGISTER_CALLBACK: LazyLock<ModuleRegisterCallback> = LazyLock::new(Default::default);
+static MODULE_CLASS_PROPERTIES: LazyLock<ModuleClassProperty> = LazyLock::new(Default::default);
 #[cfg(not(feature = "noop"))]
 static IS_FIRST_MODULE: AtomicBool = AtomicBool::new(true);
 #[cfg(not(feature = "noop"))]
 static FIRST_MODULE_REGISTERED: AtomicBool = AtomicBool::new(false);
-static REGISTERED_CLASSES: Lazy<RegisteredClassesMap> = Lazy::new(Default::default);
-static FN_REGISTER_MAP: Lazy<FnRegisterMap> = Lazy::new(Default::default);
+static REGISTERED_CLASSES: LazyLock<RegisteredClassesMap> = LazyLock::new(Default::default);
+static FN_REGISTER_MAP: LazyLock<FnRegisterMap> = LazyLock::new(Default::default);
 #[cfg(all(feature = "napi4", not(feature = "noop"), not(target_family = "wasm")))]
 pub(crate) static CUSTOM_GC_TSFN: std::sync::atomic::AtomicPtr<sys::napi_threadsafe_function__> =
   std::sync::atomic::AtomicPtr::new(ptr::null_mut());
@@ -79,16 +80,16 @@ pub(crate) static CUSTOM_GC_TSFN: std::sync::atomic::AtomicPtr<sys::napi_threads
 pub(crate) static CUSTOM_GC_TSFN_DESTROYED: AtomicBool = AtomicBool::new(false);
 #[cfg(all(feature = "napi4", not(feature = "noop"), not(target_family = "wasm")))]
 // Store thread id of the thread that created the CustomGC ThreadsafeFunction.
-pub(crate) static THREADS_CAN_ACCESS_ENV: once_cell::sync::Lazy<
-  PersistedPerInstanceHashMap<ThreadId, bool>,
-> = once_cell::sync::Lazy::new(Default::default);
+pub(crate) static THREADS_CAN_ACCESS_ENV: LazyLock<PersistedPerInstanceHashMap<ThreadId, bool>> =
+  LazyLock::new(Default::default);
 
 type RegisteredClasses =
   PersistedPerInstanceHashMap</* export name */ String, /* constructor */ sys::napi_ref>;
 
 #[cfg(all(feature = "compat-mode", not(feature = "noop")))]
 // compatibility for #[module_exports]
-static MODULE_EXPORTS: Lazy<RwLock<Vec<ModuleExportsCallback>>> = Lazy::new(Default::default);
+static MODULE_EXPORTS: LazyLock<RwLock<Vec<ModuleExportsCallback>>> =
+  LazyLock::new(Default::default);
 
 #[cfg(not(feature = "noop"))]
 #[inline]
@@ -96,16 +97,6 @@ fn wait_first_thread_registered() {
   while !FIRST_MODULE_REGISTERED.load(Ordering::SeqCst) {
     std::hint::spin_loop();
   }
-}
-
-#[doc(hidden)]
-pub fn get_class_constructor(js_name: &'static str) -> Option<sys::napi_ref> {
-  let current_id = std::thread::current().id();
-  REGISTERED_CLASSES.borrow_mut(|map| {
-    map
-      .get(&current_id)
-      .map(|m| m.borrow_mut(|map| map.get(js_name).copied()))
-  })?
 }
 
 #[doc(hidden)]
@@ -142,14 +133,24 @@ pub fn register_js_function(
 }
 
 #[doc(hidden)]
+pub fn get_class_constructor(js_name: &'static str) -> Option<sys::napi_ref> {
+  let current_id = std::thread::current().id();
+  REGISTERED_CLASSES.borrow_mut(|map| {
+    map
+      .get(&current_id)
+      .map(|m| m.borrow_mut(|map| map.get(js_name).copied()))
+  })?
+}
+
+#[doc(hidden)]
 pub fn register_class(
-  rust_name: &'static str,
+  rust_type_id: TypeId,
   js_mod: Option<&'static str>,
   js_name: &'static str,
   props: Vec<Property>,
 ) {
   MODULE_CLASS_PROPERTIES.borrow_mut(|inner| {
-    let val = inner.entry(rust_name).or_default();
+    let val = inner.entry(rust_type_id).or_default();
     let val = val.entry(js_mod).or_default();
     val.0 = js_name;
     val.1.extend(props);
@@ -189,17 +190,6 @@ pub fn get_c_callback(raw_fn: ExportRegisterCallback) -> Result<crate::Callback>
   })
 }
 
-#[cfg(all(
-  any(target_env = "msvc", feature = "dyn-symbols"),
-  not(feature = "noop")
-))]
-#[ctor::ctor]
-fn load_host() {
-  unsafe {
-    sys::setup();
-  }
-}
-
 #[cfg(all(target_family = "wasm", not(feature = "noop")))]
 #[no_mangle]
 unsafe extern "C" fn napi_register_wasm_v1(
@@ -222,6 +212,28 @@ pub unsafe extern "C" fn napi_register_module_v1(
   env: sys::napi_env,
   exports: sys::napi_value,
 ) -> sys::napi_value {
+  #[cfg(all(
+    any(target_env = "msvc", feature = "dyn-symbols"),
+    not(feature = "noop")
+  ))]
+  unsafe {
+    sys::setup();
+  }
+  #[cfg(feature = "node_version_detect")]
+  {
+    let mut node_version = MaybeUninit::uninit();
+    check_status_or_throw!(
+      env,
+      unsafe { sys::napi_get_node_version(env, node_version.as_mut_ptr()) },
+      "Failed to get node version"
+    );
+    let node_version = *node_version.assume_init();
+    unsafe {
+      NODE_VERSION_MAJOR = node_version.major;
+      NODE_VERSION_MINOR = node_version.minor;
+      NODE_VERSION_PATCH = node_version.patch;
+    };
+  }
   if IS_FIRST_MODULE.load(Ordering::SeqCst) {
     IS_FIRST_MODULE.store(false, Ordering::SeqCst);
   } else {
@@ -309,7 +321,7 @@ pub unsafe extern "C" fn napi_register_module_v1(
   let mut registered_classes = HashMap::new();
 
   MODULE_CLASS_PROPERTIES.borrow_mut(|inner| {
-    inner.iter().for_each(|(rust_name, js_mods)| {
+    inner.iter().for_each(|(_, js_mods)| {
       for (js_mod, (js_name, props)) in js_mods {
         let mut exports_js_mod = ptr::null_mut();
         unsafe {
@@ -359,16 +371,15 @@ pub unsafe extern "C" fn napi_register_module_v1(
             sys::napi_define_class(
               env,
               js_class_name.as_ptr(),
-              js_name.len() - 1,
+              js_name.len() as isize - 1,
               Some(ctor),
               ptr::null_mut(),
               raw_props.len(),
               raw_props.as_ptr(),
               &mut class_ptr,
             ),
-            "Failed to register class `{}` generate by struct `{}`",
+            "Failed to register class `{}`",
             &js_name,
-            &rust_name
           );
 
           let mut ctor_ref = ptr::null_mut();
@@ -388,20 +399,19 @@ pub unsafe extern "C" fn napi_register_module_v1(
               js_class_name.as_ptr(),
               class_ptr
             ),
-            "Failed to register class `{}` generate by struct `{}`",
+            "Failed to register class `{}`",
             &js_name,
-            &rust_name
           );
         }
       }
     });
+  });
 
-    REGISTERED_CLASSES.borrow_mut(|map| {
-      map.insert(
-        std::thread::current().id(),
-        PersistedPerInstanceHashMap::from_hashmap(registered_classes),
-      )
-    });
+  REGISTERED_CLASSES.borrow_mut(|map| {
+    map.insert(
+      std::thread::current().id(),
+      PersistedPerInstanceHashMap::from_hashmap(registered_classes),
+    )
   });
 
   #[cfg(feature = "compat-mode")]
@@ -414,23 +424,25 @@ pub unsafe extern "C" fn napi_register_module_v1(
     })
   }
 
-  #[cfg(all(
-    not(any(target_os = "macos", target_family = "wasm")),
-    feature = "napi4",
-    feature = "tokio_rt"
-  ))]
+  #[cfg(all(feature = "napi4", feature = "tokio_rt"))]
   {
     crate::tokio_runtime::ensure_runtime();
 
-    static init_counter: AtomicUsize = AtomicUsize::new(0);
-    let cleanup_hook_payload =
-      init_counter.fetch_add(1, Ordering::Relaxed) as *mut std::ffi::c_void;
-
+    #[cfg(not(target_family = "wasm"))]
     unsafe {
       sys::napi_add_env_cleanup_hook(
         env,
         Some(crate::tokio_runtime::drop_runtime),
-        cleanup_hook_payload,
+        ptr::null_mut(),
+      )
+    };
+
+    #[cfg(target_family = "wasm")]
+    unsafe {
+      crate::napi_add_env_cleanup_hook(
+        env,
+        Some(crate::tokio_runtime::drop_runtime),
+        ptr::null_mut(),
       )
     };
   }
@@ -450,8 +462,7 @@ pub(crate) unsafe extern "C" fn noop(
       sys::napi_throw_error(
         env,
         ptr::null_mut(),
-        CStr::from_bytes_with_nul_unchecked(b"Class contains no `constructor`, can not new it!\0")
-          .as_ptr(),
+        c"Class contains no `constructor`, can not new it!".as_ptr(),
       );
     }
   }
@@ -460,8 +471,6 @@ pub(crate) unsafe extern "C" fn noop(
 
 #[cfg(all(feature = "napi4", not(target_family = "wasm"), not(feature = "noop")))]
 fn create_custom_gc(env: sys::napi_env) {
-  use std::os::raw::c_char;
-
   if !FIRST_MODULE_REGISTERED.load(Ordering::SeqCst) {
     let mut custom_gc_fn = ptr::null_mut();
     check_status_or_throw!(
@@ -482,12 +491,7 @@ fn create_custom_gc(env: sys::napi_env) {
     check_status_or_throw!(
       env,
       unsafe {
-        sys::napi_create_string_utf8(
-          env,
-          "CustomGC".as_ptr() as *const c_char,
-          8,
-          &mut async_resource_name,
-        )
+        sys::napi_create_string_utf8(env, "CustomGC".as_ptr().cast(), 8, &mut async_resource_name)
       },
       "Create async resource string in napi_register_module_v1"
     );
@@ -565,7 +569,9 @@ extern "C" fn custom_gc(
   data: *mut std::ffi::c_void,
 ) {
   // current thread was destroyed
-  if THREADS_CAN_ACCESS_ENV.borrow_mut(|m| m.get(&std::thread::current().id()) == Some(&false)) {
+  if THREADS_CAN_ACCESS_ENV.borrow_mut(|m| m.get(&std::thread::current().id()) == Some(&false))
+    || data.is_null()
+  {
     return;
   }
   let mut ref_count = 0;

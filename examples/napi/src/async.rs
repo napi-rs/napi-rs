@@ -36,3 +36,10 @@ async fn async_multi_two(arg: u32) -> Result<u32> {
 async fn panic_in_async() {
   panic!("panic in async function");
 }
+
+#[napi(async_runtime)]
+pub fn within_async_runtime_if_available() {
+  tokio::spawn(async {
+    println!("within_runtime_if_available");
+  });
+}

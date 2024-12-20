@@ -2,50 +2,55 @@ use std::mem::ManuallyDrop;
 use std::str;
 
 use napi::{
-  noop_finalize, CallContext, ContextlessResult, Env, Error, JsBuffer, JsNumber, JsObject,
-  JsString, JsUndefined, Result, Status,
+  bindgen_prelude::BufferSlice, noop_finalize, CallContext, ContextlessResult, Env, Error,
+  JsNumber, JsObject, JsString, JsUndefined, Result, Status,
 };
 
 #[js_function(1)]
 pub fn get_buffer_length(ctx: CallContext) -> Result<JsNumber> {
-  let buffer = ctx.get::<JsBuffer>(0)?.into_value()?;
+  let buffer = ctx.get::<BufferSlice>(0)?;
   ctx.env.create_uint32(buffer.len() as u32)
 }
 
 #[js_function(1)]
 pub fn buffer_to_string(ctx: CallContext) -> Result<JsString> {
-  let buffer = ctx.get::<JsBuffer>(0)?.into_value()?;
+  let buffer = ctx.get::<BufferSlice>(0)?;
   ctx.env.create_string(
     str::from_utf8(&buffer).map_err(|e| Error::new(Status::StringExpected, format!("{}", e)))?,
   )
 }
 
 #[js_function(1)]
-pub fn copy_buffer(ctx: CallContext) -> Result<JsBuffer> {
-  let buffer = ctx.get::<JsBuffer>(0)?.into_value()?;
-  ctx.env.create_buffer_copy(buffer).map(|b| b.into_raw())
+pub fn copy_buffer(ctx: CallContext) -> Result<BufferSlice> {
+  let buffer = ctx.get::<BufferSlice>(0)?;
+  BufferSlice::copy_from(ctx.env, buffer)
 }
 
 #[contextless_function]
-pub fn create_borrowed_buffer_with_noop_finalize(env: Env) -> ContextlessResult<JsBuffer> {
+pub fn create_borrowed_buffer_with_noop_finalize(
+  env: Env,
+) -> ContextlessResult<BufferSlice<'static>> {
   let mut data = vec![1, 2, 3];
   let data_ptr = data.as_mut_ptr();
   let length = data.len();
   let manually_drop = ManuallyDrop::new(data);
 
-  unsafe { env.create_buffer_with_borrowed_data(data_ptr, length, manually_drop, noop_finalize) }
-    .map(|b| Some(b.into_raw()))
+  let ret =
+    unsafe { BufferSlice::from_external(&env, data_ptr, length, manually_drop, noop_finalize) }?;
+
+  Ok(Some(ret))
 }
 
 #[contextless_function]
-pub fn create_borrowed_buffer_with_finalize(env: Env) -> ContextlessResult<JsBuffer> {
+pub fn create_borrowed_buffer_with_finalize(env: Env) -> ContextlessResult<BufferSlice<'static>> {
   let mut data = vec![1, 2, 3];
   let data_ptr = data.as_mut_ptr();
   let length = data.len();
   let manually_drop = ManuallyDrop::new(data);
 
-  unsafe {
-    env.create_buffer_with_borrowed_data(
+  let ret = unsafe {
+    BufferSlice::from_external(
+      &env,
       data_ptr,
       length,
       manually_drop,
@@ -53,19 +58,23 @@ pub fn create_borrowed_buffer_with_finalize(env: Env) -> ContextlessResult<JsBuf
         ManuallyDrop::drop(&mut hint);
       },
     )
-  }
-  .map(|b| Some(b.into_raw()))
+  }?;
+
+  Ok(Some(ret))
 }
 
 #[contextless_function]
-pub fn create_empty_borrowed_buffer_with_finalize(env: Env) -> ContextlessResult<JsBuffer> {
+pub fn create_empty_borrowed_buffer_with_finalize(
+  env: Env,
+) -> ContextlessResult<BufferSlice<'static>> {
   let mut data = vec![];
   let data_ptr = data.as_mut_ptr();
   let length = data.len();
   let manually_drop = ManuallyDrop::new(data);
 
-  unsafe {
-    env.create_buffer_with_borrowed_data(
+  let ret = unsafe {
+    BufferSlice::from_external(
+      &env,
       data_ptr,
       length,
       manually_drop,
@@ -73,22 +82,23 @@ pub fn create_empty_borrowed_buffer_with_finalize(env: Env) -> ContextlessResult
         ManuallyDrop::drop(&mut hint);
       },
     )
-  }
-  .map(|b| Some(b.into_raw()))
+  }?;
+
+  Ok(Some(ret))
 }
 
 #[contextless_function]
-pub fn create_empty_buffer(env: Env) -> ContextlessResult<JsBuffer> {
+pub fn create_empty_buffer(env: Env) -> ContextlessResult<BufferSlice<'static>> {
   let data = vec![];
 
-  env
-    .create_buffer_with_data(data)
-    .map(|b| Some(b.into_raw()))
+  let ret = BufferSlice::from_data(&env, data)?;
+
+  Ok(Some(ret))
 }
 
 #[js_function(1)]
 fn mutate_buffer(ctx: CallContext) -> Result<JsUndefined> {
-  let buffer = &mut ctx.get::<JsBuffer>(0)?.into_value()?;
+  let buffer = &mut ctx.get::<BufferSlice>(0)?;
   buffer[1] = 42;
   ctx.env.get_undefined()
 }

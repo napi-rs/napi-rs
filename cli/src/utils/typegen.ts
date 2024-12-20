@@ -12,6 +12,7 @@ enum TypeDefKind {
   Enum = 'enum',
   StringEnum = 'string_enum',
   Interface = 'interface',
+  Type = 'type',
   Fn = 'fn',
   Struct = 'struct',
   Impl = 'impl',
@@ -36,6 +37,10 @@ function prettyPrint(
   switch (line.kind) {
     case TypeDefKind.Interface:
       s += `export interface ${line.name} {\n${line.def}\n}`
+      break
+
+    case TypeDefKind.Type:
+      s += `export type ${line.name} = \n${line.def}`
       break
 
     case TypeDefKind.Enum:
@@ -87,39 +92,43 @@ export async function processTypeDef(
   const groupedDefs = preprocessTypeDef(defs)
 
   header = header ?? ''
-  let dts = ''
 
-  sortBy(Array.from(groupedDefs), ([namespace]) => namespace).forEach(
-    ([namespace, defs]) => {
-      if (namespace === TOP_LEVEL_NAMESPACE) {
-        for (const def of defs) {
-          dts += prettyPrint(def, constEnum, 0) + '\n\n'
-          switch (def.kind) {
-            case TypeDefKind.Const:
-            case TypeDefKind.Enum:
-            case TypeDefKind.StringEnum:
-            case TypeDefKind.Fn:
-            case TypeDefKind.Struct: {
-              exports.push(def.name)
-              if (def.original_name && def.original_name !== def.name) {
-                exports.push(def.original_name)
+  const dts =
+    sortBy(Array.from(groupedDefs), ([namespace]) => namespace)
+      .map(([namespace, defs]) => {
+        if (namespace === TOP_LEVEL_NAMESPACE) {
+          return defs
+            .map((def) => {
+              switch (def.kind) {
+                case TypeDefKind.Const:
+                case TypeDefKind.Enum:
+                case TypeDefKind.StringEnum:
+                case TypeDefKind.Fn:
+                case TypeDefKind.Struct: {
+                  exports.push(def.name)
+                  if (def.original_name && def.original_name !== def.name) {
+                    exports.push(def.original_name)
+                  }
+                  break
+                }
+                default:
+                  break
               }
-              break
-            }
-            default:
-              break
+              return prettyPrint(def, constEnum, 0)
+            })
+            .join('\n\n')
+        } else {
+          exports.push(namespace)
+          let declaration = ''
+          declaration += `export declare namespace ${namespace} {\n`
+          for (const def of defs) {
+            declaration += prettyPrint(def, constEnum, 2, true) + '\n'
           }
+          declaration += '}'
+          return declaration
         }
-      } else {
-        exports.push(namespace)
-        dts += `export declare namespace ${namespace} {\n`
-        for (const def of defs) {
-          dts += prettyPrint(def, constEnum, 2, true) + '\n'
-        }
-        dts += '}\n\n'
-      }
-    },
-  )
+      })
+      .join('\n\n') + '\n'
 
   if (dts.indexOf('ExternalObject<') > -1) {
     header += `
@@ -215,13 +224,20 @@ export function correctStringIdent(src: string, ident: number): string {
       const isInMultilineComment = line.startsWith('*')
       const isClosingBracket = line.endsWith('}')
       const isOpeningBracket = line.endsWith('{')
+      const isTypeDeclaration = line.endsWith('=')
+      const isTypeVariant = line.startsWith('|')
 
       let rightIndent = ident
-      if (isOpeningBracket && !isInMultilineComment) {
+      if ((isOpeningBracket || isTypeDeclaration) && !isInMultilineComment) {
         bracketDepth += 1
         rightIndent += (bracketDepth - 1) * 2
       } else {
-        if (isClosingBracket && bracketDepth > 0 && !isInMultilineComment) {
+        if (
+          isClosingBracket &&
+          bracketDepth > 0 &&
+          !isInMultilineComment &&
+          !isTypeVariant
+        ) {
           bracketDepth -= 1
         }
         rightIndent += bracketDepth * 2

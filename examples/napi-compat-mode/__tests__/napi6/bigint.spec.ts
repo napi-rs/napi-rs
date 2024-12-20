@@ -7,10 +7,20 @@ const bindings = require('../../index.node')
 test('should create bigints', (t) => {
   if (napiVersion >= 6) {
     t.is(bindings.testCreateBigintFromI64(), BigInt('9223372036854775807'))
+    t.is(bindings.testCreateBigintFromMinI64(), BigInt('-9223372036854775808'))
+    t.is(bindings.testCreateBigintFromNegativeI64(), BigInt('-10'))
     t.is(bindings.testCreateBigintFromU64(), BigInt('18446744073709551615'))
     t.is(
       bindings.testCreateBigintFromI128(),
       BigInt('170141183460469231731687303715884105727'),
+    )
+    t.is(
+      bindings.testCreateBigintFromMinI128(),
+      BigInt('-170141183460469231731687303715884105728'),
+    )
+    t.is(
+      bindings.testCreateBigintFromNegativeI128(),
+      BigInt('-10'),
     )
     t.is(
       bindings.testCreateBigintFromU128(),

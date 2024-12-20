@@ -33,7 +33,7 @@ build_and_test: &BUILD_AND_TEST
 freebsd_task:
   name: FreeBSD
   freebsd_instance:
-    image_family: freebsd-14-0
+    image_family: freebsd-14-1
   env:
     RUSTUP_HOME: /usr/local/rustup
     CARGO_HOME: /usr/local/cargo
@@ -48,7 +48,7 @@ freebsd_task:
 macos_arm64_task:
   name: macOS arm64
   macos_instance:
-    image: ghcr.io/cirruslabs/macos-monterey-xcode
+    image: ghcr.io/cirruslabs/macos-runner:sonoma
   env:
     PATH: $HOME/.cargo/bin:$PATH
     YARN_IGNORE_NODE: '1'

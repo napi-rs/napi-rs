@@ -1,63 +1,68 @@
-use std::ops::Deref;
-use std::ptr;
+use std::{marker::PhantomData, ptr};
 
-use super::{check_status, Value};
-use crate::{bindgen_runtime::ToNapiValue, sys, Env, Result};
+use super::{check_status, NapiRaw};
+use crate::{
+  bindgen_runtime::{FromNapiMutRef, FromNapiValue, ToNapiValue},
+  sys, Env, Result,
+};
 
 pub struct Ref<T> {
   pub(crate) raw_ref: sys::napi_ref,
-  pub(crate) count: u32,
-  pub(crate) inner: T,
+  pub(crate) _phantom: PhantomData<T>,
+  taken: bool,
 }
 
 #[allow(clippy::non_send_fields_in_send_ty)]
 unsafe impl<T> Send for Ref<T> {}
 unsafe impl<T> Sync for Ref<T> {}
 
-impl<T> Ref<T> {
-  pub(crate) fn new(js_value: Value, ref_count: u32, inner: T) -> Result<Ref<T>> {
+impl<T: NapiRaw> Ref<T> {
+  pub fn new(env: &Env, value: &T) -> Result<Ref<T>> {
     let mut raw_ref = ptr::null_mut();
-    assert_ne!(ref_count, 0, "Initial `ref_count` must be > 0");
-    check_status!(unsafe {
-      sys::napi_create_reference(js_value.env, js_value.value, ref_count, &mut raw_ref)
-    })?;
+    check_status!(unsafe { sys::napi_create_reference(env.0, value.raw(), 1, &mut raw_ref) })?;
     Ok(Ref {
       raw_ref,
-      count: ref_count,
-      inner,
+      taken: false,
+      _phantom: PhantomData,
     })
   }
 
-  pub fn reference(&mut self, env: &Env) -> Result<u32> {
-    check_status!(unsafe { sys::napi_reference_ref(env.0, self.raw_ref, &mut self.count) })?;
-    Ok(self.count)
+  pub fn unref(&mut self, env: &Env) -> Result<()> {
+    check_status!(
+      unsafe { sys::napi_reference_unref(env.0, self.raw_ref, &mut 0) },
+      "unref Ref failed"
+    )?;
+
+    check_status!(
+      unsafe { sys::napi_delete_reference(env.0, self.raw_ref) },
+      "delete Ref failed"
+    )?;
+    self.taken = true;
+    Ok(())
   }
+}
 
-  pub fn unref(&mut self, env: Env) -> Result<u32> {
-    check_status!(unsafe { sys::napi_reference_unref(env.0, self.raw_ref, &mut self.count) })?;
-
-    if self.count == 0 {
-      check_status!(unsafe { sys::napi_delete_reference(env.0, self.raw_ref) })?;
+impl<T: FromNapiValue> Ref<T> {
+  /// Get the value from the reference
+  pub fn get_value(&self, env: &Env) -> Result<T> {
+    if self.taken {
+      return Err(crate::Error::new(
+        crate::Status::InvalidArg,
+        "Ref value has been deleted",
+      ));
     }
-    Ok(self.count)
+    let mut result = ptr::null_mut();
+    check_status!(unsafe { sys::napi_get_reference_value(env.0, self.raw_ref, &mut result) })?;
+    unsafe { T::from_napi_value(env.0, result) }
   }
 }
 
-impl<T> Deref for Ref<T> {
-  type Target = T;
-
-  fn deref(&self) -> &T {
-    &self.inner
-  }
-}
-
-#[cfg(debug_assertions)]
-impl<T> Drop for Ref<T> {
-  fn drop(&mut self) {
-    debug_assert_eq!(
-      self.count, 0,
-      "Ref count is not equal to 0 while dropping Ref, potential memory leak"
-    );
+impl<T: 'static + FromNapiMutRef> Ref<T> {
+  /// Get the value reference from the reference
+  pub fn get_value_mut(&self, env: &Env) -> Result<&mut T> {
+    let mut result = ptr::null_mut();
+    check_status!(unsafe { sys::napi_get_reference_value(env.0, self.raw_ref, &mut result) })?;
+    unsafe { T::from_napi_mut_ref(env.0, result) }
   }
 }
 

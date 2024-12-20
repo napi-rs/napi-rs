@@ -56,11 +56,11 @@ const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule
       return 4
     }
   })(),
+  reuseWorker: true,
   wasi: __wasi,
   onCreateWorker() {
     const worker = new Worker(__nodePath.join(__dirname, 'wasi-worker.mjs'), {
       env: process.env,
-      execArgv: ['--experimental-wasi-unstable-preview1'],
     })
     worker.onmessage = ({ data }) => {
       __wasmCreateOnMessageForFsProxy(__nodeFs)(data)
@@ -94,292 +94,332 @@ function __napi_rs_initialize_modules(__napiInstance) {
   __napiInstance.exports['__napi_register__read_file_async_8']?.()
   __napiInstance.exports['__napi_register__async_multi_two_9']?.()
   __napiInstance.exports['__napi_register__panic_in_async_10']?.()
-  __napiInstance.exports['__napi_register__bigint_add_11']?.()
-  __napiInstance.exports['__napi_register__create_big_int_12']?.()
-  __napiInstance.exports['__napi_register__create_big_int_i64_13']?.()
-  __napiInstance.exports['__napi_register__bigint_get_u64_as_string_14']?.()
-  __napiInstance.exports['__napi_register__bigint_from_i64_15']?.()
-  __napiInstance.exports['__napi_register__bigint_from_i128_16']?.()
-  __napiInstance.exports['__napi_register__get_cwd_17']?.()
-  __napiInstance.exports['__napi_register__option_end_18']?.()
-  __napiInstance.exports['__napi_register__option_start_19']?.()
-  __napiInstance.exports['__napi_register__option_start_end_20']?.()
-  __napiInstance.exports['__napi_register__option_only_21']?.()
-  __napiInstance.exports['__napi_register__read_file_22']?.()
-  __napiInstance.exports['__napi_register__callback_return_promise_23']?.()
-  __napiInstance.exports['__napi_register__callback_return_promise_and_spawn_24']?.()
-  __napiInstance.exports['__napi_register__capture_error_in_callback_25']?.()
-  __napiInstance.exports['__napi_register__Animal_struct_26']?.()
-  __napiInstance.exports['__napi_register__Animal_impl_38']?.()
-  __napiInstance.exports['__napi_register__Dog_struct_39']?.()
-  __napiInstance.exports['__napi_register__Bird_struct_40']?.()
-  __napiInstance.exports['__napi_register__Bird_impl_45']?.()
-  __napiInstance.exports['__napi_register__Blake2bHasher_struct_46']?.()
-  __napiInstance.exports['__napi_register__Blake2bHasher_impl_48']?.()
-  __napiInstance.exports['__napi_register__Blake2bHasher_impl_50']?.()
-  __napiInstance.exports['__napi_register__Blake2bKey_struct_51']?.()
-  __napiInstance.exports['__napi_register__Context_struct_52']?.()
-  __napiInstance.exports['__napi_register__Context_impl_57']?.()
-  __napiInstance.exports['__napi_register__AnimalWithDefaultConstructor_struct_58']?.()
-  __napiInstance.exports['__napi_register__NinjaTurtle_struct_59']?.()
-  __napiInstance.exports['__napi_register__NinjaTurtle_impl_66']?.()
-  __napiInstance.exports['__napi_register__JsAssets_struct_67']?.()
-  __napiInstance.exports['__napi_register__JsAssets_impl_70']?.()
-  __napiInstance.exports['__napi_register__JsAsset_struct_71']?.()
-  __napiInstance.exports['__napi_register__JsAsset_impl_74']?.()
-  __napiInstance.exports['__napi_register__Optional_struct_75']?.()
-  __napiInstance.exports['__napi_register__Optional_impl_80']?.()
-  __napiInstance.exports['__napi_register__ObjectFieldClassInstance_struct_81']?.()
-  __napiInstance.exports['__napi_register__create_object_with_class_field_82']?.()
-  __napiInstance.exports['__napi_register__receive_object_with_class_field_83']?.()
-  __napiInstance.exports['__napi_register__NotWritableClass_struct_84']?.()
-  __napiInstance.exports['__napi_register__NotWritableClass_impl_86']?.()
-  __napiInstance.exports['__napi_register__CustomFinalize_struct_87']?.()
-  __napiInstance.exports['__napi_register__CustomFinalize_impl_89']?.()
-  __napiInstance.exports['__napi_register__Width_struct_90']?.()
-  __napiInstance.exports['__napi_register__plus_one_91']?.()
-  __napiInstance.exports['__napi_register__GetterSetterWithClosures_struct_92']?.()
-  __napiInstance.exports['__napi_register__GetterSetterWithClosures_impl_94']?.()
-  __napiInstance.exports['__napi_register__CatchOnConstructor_struct_95']?.()
-  __napiInstance.exports['__napi_register__CatchOnConstructor_impl_97']?.()
-  __napiInstance.exports['__napi_register__CatchOnConstructor2_struct_98']?.()
-  __napiInstance.exports['__napi_register__CatchOnConstructor2_impl_100']?.()
-  __napiInstance.exports['__napi_register__ClassWithFactory_struct_101']?.()
-  __napiInstance.exports['__napi_register__ClassWithFactory_impl_106']?.()
-  __napiInstance.exports['__napi_register__Selector_struct_107']?.()
-  __napiInstance.exports['__napi_register__date_to_number_108']?.()
-  __napiInstance.exports['__napi_register__chrono_utc_date_to_millis_109']?.()
-  __napiInstance.exports['__napi_register__chrono_local_date_to_millis_110']?.()
-  __napiInstance.exports['__napi_register__chrono_date_with_timezone_to_millis_111']?.()
-  __napiInstance.exports['__napi_register__chrono_date_add_1_minute_112']?.()
-  __napiInstance.exports['__napi_register__UtcDates_struct_113']?.()
-  __napiInstance.exports['__napi_register__LocalDates_struct_114']?.()
-  __napiInstance.exports['__napi_register__DatesWithTimeZone_struct_115']?.()
-  __napiInstance.exports['__napi_register__chrono_native_date_time_116']?.()
-  __napiInstance.exports['__napi_register__chrono_native_date_time_return_117']?.()
-  __napiInstance.exports['__napi_register__chrono_utc_date_return_118']?.()
-  __napiInstance.exports['__napi_register__chrono_local_date_return_119']?.()
-  __napiInstance.exports['__napi_register__chrono_date_with_timezone_return_120']?.()
-  __napiInstance.exports['__napi_register__chrono_date_fixture_return1_121']?.()
-  __napiInstance.exports['__napi_register__chrono_date_fixture_return2_122']?.()
-  __napiInstance.exports['__napi_register__either_string_or_number_123']?.()
-  __napiInstance.exports['__napi_register__return_either_124']?.()
-  __napiInstance.exports['__napi_register__either3_125']?.()
-  __napiInstance.exports['__napi_register__Obj_struct_126']?.()
-  __napiInstance.exports['__napi_register__either4_127']?.()
-  __napiInstance.exports['__napi_register__JsClassForEither_struct_128']?.()
-  __napiInstance.exports['__napi_register__JsClassForEither_impl_130']?.()
-  __napiInstance.exports['__napi_register__AnotherClassForEither_struct_131']?.()
-  __napiInstance.exports['__napi_register__AnotherClassForEither_impl_133']?.()
-  __napiInstance.exports['__napi_register__receive_class_or_number_134']?.()
-  __napiInstance.exports['__napi_register__receive_mut_class_or_number_135']?.()
-  __napiInstance.exports['__napi_register__receive_different_class_136']?.()
-  __napiInstance.exports['__napi_register__return_either_class_137']?.()
-  __napiInstance.exports['__napi_register__either_from_option_138']?.()
-  __napiInstance.exports['__napi_register__A_struct_139']?.()
-  __napiInstance.exports['__napi_register__B_struct_140']?.()
-  __napiInstance.exports['__napi_register__C_struct_141']?.()
-  __napiInstance.exports['__napi_register__either_from_objects_142']?.()
-  __napiInstance.exports['__napi_register__either_bool_or_function_143']?.()
-  __napiInstance.exports['__napi_register__promise_in_either_144']?.()
-  __napiInstance.exports['__napi_register__either_bool_or_tuple_145']?.()
-  __napiInstance.exports['__napi_register__Kind_146']?.()
-  __napiInstance.exports['__napi_register__Empty_147']?.()
-  __napiInstance.exports['__napi_register__Status_148']?.()
-  __napiInstance.exports['__napi_register__StringEnum_149']?.()
-  __napiInstance.exports['__napi_register__CustomNumEnum_150']?.()
-  __napiInstance.exports['__napi_register__enum_to_i32_151']?.()
-  __napiInstance.exports['__napi_register__SkippedEnums_152']?.()
-  __napiInstance.exports['__napi_register__CustomStringEnum_153']?.()
-  __napiInstance.exports['__napi_register__run_script_154']?.()
-  __napiInstance.exports['__napi_register__get_module_file_name_155']?.()
-  __napiInstance.exports['__napi_register__throw_syntax_error_156']?.()
-  __napiInstance.exports['__napi_register__throw_error_157']?.()
-  __napiInstance.exports['__napi_register__panic_158']?.()
-  __napiInstance.exports['__napi_register__receive_string_159']?.()
-  __napiInstance.exports['__napi_register__custom_status_code_160']?.()
-  __napiInstance.exports['__napi_register__throw_async_error_161']?.()
-  __napiInstance.exports['__napi_register__CustomStruct_struct_162']?.()
-  __napiInstance.exports['__napi_register__CustomStruct_impl_165']?.()
-  __napiInstance.exports['__napi_register__create_external_166']?.()
-  __napiInstance.exports['__napi_register__create_external_string_167']?.()
-  __napiInstance.exports['__napi_register__get_external_168']?.()
-  __napiInstance.exports['__napi_register__mutate_external_169']?.()
-  __napiInstance.exports['__napi_register__create_optional_external_170']?.()
-  __napiInstance.exports['__napi_register__get_optional_external_171']?.()
-  __napiInstance.exports['__napi_register__mutate_optional_external_172']?.()
-  __napiInstance.exports['__napi_register__validate_array_173']?.()
-  __napiInstance.exports['__napi_register__validate_buffer_174']?.()
-  __napiInstance.exports['__napi_register__validate_typed_array_175']?.()
-  __napiInstance.exports['__napi_register__validate_typed_array_slice_176']?.()
-  __napiInstance.exports['__napi_register__validate_uint8_clamped_slice_177']?.()
-  __napiInstance.exports['__napi_register__validate_buffer_slice_178']?.()
-  __napiInstance.exports['__napi_register__validate_bigint_179']?.()
-  __napiInstance.exports['__napi_register__validate_boolean_180']?.()
-  __napiInstance.exports['__napi_register__validate_date_181']?.()
-  __napiInstance.exports['__napi_register__validate_date_time_182']?.()
-  __napiInstance.exports['__napi_register__validate_external_183']?.()
-  __napiInstance.exports['__napi_register__validate_function_184']?.()
-  __napiInstance.exports['__napi_register__validate_hash_map_185']?.()
-  __napiInstance.exports['__napi_register__validate_null_186']?.()
-  __napiInstance.exports['__napi_register__validate_undefined_187']?.()
-  __napiInstance.exports['__napi_register__validate_number_188']?.()
-  __napiInstance.exports['__napi_register__validate_promise_189']?.()
-  __napiInstance.exports['__napi_register__validate_string_190']?.()
-  __napiInstance.exports['__napi_register__validate_symbol_191']?.()
-  __napiInstance.exports['__napi_register__validate_optional_192']?.()
-  __napiInstance.exports['__napi_register__return_undefined_if_invalid_193']?.()
-  __napiInstance.exports['__napi_register__return_undefined_if_invalid_promise_194']?.()
-  __napiInstance.exports['__napi_register__ts_rename_195']?.()
-  __napiInstance.exports['__napi_register__override_individual_arg_on_function_196']?.()
-  __napiInstance.exports['__napi_register__override_individual_arg_on_function_with_cb_arg_197']?.()
-  __napiInstance.exports['__napi_register__call0_198']?.()
-  __napiInstance.exports['__napi_register__call1_199']?.()
-  __napiInstance.exports['__napi_register__call2_200']?.()
-  __napiInstance.exports['__napi_register__apply0_201']?.()
-  __napiInstance.exports['__napi_register__apply1_202']?.()
-  __napiInstance.exports['__napi_register__call_function_203']?.()
-  __napiInstance.exports['__napi_register__call_function_with_arg_204']?.()
-  __napiInstance.exports['__napi_register__create_reference_on_function_205']?.()
-  __napiInstance.exports['__napi_register__call_function_with_arg_and_ctx_206']?.()
-  __napiInstance.exports['__napi_register__reference_as_callback_207']?.()
-  __napiInstance.exports['__napi_register__build_threadsafe_function_from_function_208']?.()
-  __napiInstance.exports['__napi_register__build_threadsafe_function_from_function_callee_handle_209']?.()
-  __napiInstance.exports['__napi_register__Fib_struct_210']?.()
-  __napiInstance.exports['__napi_register__Fib_impl_211']?.()
-  __napiInstance.exports['__napi_register__Fib_impl_213']?.()
-  __napiInstance.exports['__napi_register__Fib2_struct_214']?.()
-  __napiInstance.exports['__napi_register__Fib2_impl_215']?.()
-  __napiInstance.exports['__napi_register__Fib2_impl_217']?.()
-  __napiInstance.exports['__napi_register__Fib3_struct_218']?.()
-  __napiInstance.exports['__napi_register__Fib3_impl_219']?.()
-  __napiInstance.exports['__napi_register__ALIGNMENT_220']?.()
-  __napiInstance.exports['__napi_register__xxh64_221']?.()
-  __napiInstance.exports['__napi_register__xxh128_222']?.()
-  __napiInstance.exports['__napi_register__Xxh3_struct_223']?.()
-  __napiInstance.exports['__napi_register__Xxh3_impl_227']?.()
-  __napiInstance.exports['__napi_register__xxh2_plus_228']?.()
-  __napiInstance.exports['__napi_register__xxh3_xxh64_alias_229']?.()
-  __napiInstance.exports['__napi_register__xxh64_alias_230']?.()
-  __napiInstance.exports['__napi_register__get_mapping_231']?.()
-  __napiInstance.exports['__napi_register__sum_mapping_232']?.()
-  __napiInstance.exports['__napi_register__get_btree_mapping_233']?.()
-  __napiInstance.exports['__napi_register__sum_btree_mapping_234']?.()
-  __napiInstance.exports['__napi_register__get_index_mapping_235']?.()
-  __napiInstance.exports['__napi_register__sum_index_mapping_236']?.()
-  __napiInstance.exports['__napi_register__indexmap_passthrough_237']?.()
-  __napiInstance.exports['__napi_register__map_option_238']?.()
-  __napiInstance.exports['__napi_register__return_null_239']?.()
-  __napiInstance.exports['__napi_register__return_undefined_240']?.()
-  __napiInstance.exports['__napi_register__UseNullableStruct_struct_241']?.()
-  __napiInstance.exports['__napi_register__NotUseNullableStruct_struct_242']?.()
-  __napiInstance.exports['__napi_register__DefaultUseNullableStruct_struct_243']?.()
-  __napiInstance.exports['__napi_register__UseNullableClass_struct_244']?.()
-  __napiInstance.exports['__napi_register__NotUseNullableClass_struct_245']?.()
-  __napiInstance.exports['__napi_register__DefaultUseNullableClass_struct_246']?.()
-  __napiInstance.exports['__napi_register__add_247']?.()
-  __napiInstance.exports['__napi_register__fibonacci_248']?.()
-  __napiInstance.exports['__napi_register__list_obj_keys_249']?.()
-  __napiInstance.exports['__napi_register__create_obj_250']?.()
-  __napiInstance.exports['__napi_register__get_global_251']?.()
-  __napiInstance.exports['__napi_register__get_undefined_252']?.()
-  __napiInstance.exports['__napi_register__get_null_253']?.()
-  __napiInstance.exports['__napi_register__AllOptionalObject_struct_254']?.()
-  __napiInstance.exports['__napi_register__receive_all_optional_object_255']?.()
-  __napiInstance.exports['__napi_register__AliasedEnum_256']?.()
-  __napiInstance.exports['__napi_register__StructContainsAliasedEnum_struct_257']?.()
-  __napiInstance.exports['__napi_register__fn_received_aliased_258']?.()
-  __napiInstance.exports['__napi_register__StrictObject_struct_259']?.()
-  __napiInstance.exports['__napi_register__receive_strict_object_260']?.()
-  __napiInstance.exports['__napi_register__get_str_from_object_261']?.()
-  __napiInstance.exports['__napi_register__TsTypeChanged_struct_262']?.()
-  __napiInstance.exports['__napi_register__create_obj_with_property_263']?.()
-  __napiInstance.exports['__napi_register__getter_from_obj_264']?.()
-  __napiInstance.exports['__napi_register__ObjectOnlyFromJs_struct_265']?.()
-  __napiInstance.exports['__napi_register__receive_object_only_from_js_266']?.()
-  __napiInstance.exports['__napi_register__object_get_named_property_should_perform_typecheck_267']?.()
-  __napiInstance.exports['__napi_register__ObjectOnlyToJs_struct_268']?.()
-  __napiInstance.exports['__napi_register__return_object_only_to_js_269']?.()
-  __napiInstance.exports['__napi_register__async_plus_100_270']?.()
-  __napiInstance.exports['__napi_register__call_then_on_promise_271']?.()
-  __napiInstance.exports['__napi_register__call_catch_on_promise_272']?.()
-  __napiInstance.exports['__napi_register__call_finally_on_promise_273']?.()
-  __napiInstance.exports['__napi_register__JsRepo_struct_274']?.()
-  __napiInstance.exports['__napi_register__JsRepo_impl_277']?.()
-  __napiInstance.exports['__napi_register__JsRemote_struct_278']?.()
-  __napiInstance.exports['__napi_register__JsRemote_impl_281']?.()
-  __napiInstance.exports['__napi_register__CSSRuleList_struct_282']?.()
-  __napiInstance.exports['__napi_register__CSSRuleList_impl_286']?.()
-  __napiInstance.exports['__napi_register__CSSStyleSheet_struct_287']?.()
-  __napiInstance.exports['__napi_register__AnotherCSSStyleSheet_struct_288']?.()
-  __napiInstance.exports['__napi_register__AnotherCSSStyleSheet_impl_290']?.()
-  __napiInstance.exports['__napi_register__CSSStyleSheet_impl_294']?.()
-  __napiInstance.exports['__napi_register__PackageJson_struct_295']?.()
-  __napiInstance.exports['__napi_register__read_package_json_296']?.()
-  __napiInstance.exports['__napi_register__get_package_json_name_297']?.()
-  __napiInstance.exports['__napi_register__test_serde_roundtrip_298']?.()
-  __napiInstance.exports['__napi_register__test_serde_big_number_precision_299']?.()
-  __napiInstance.exports['__napi_register__test_serde_buffer_bytes_300']?.()
-  __napiInstance.exports['__napi_register__return_from_shared_crate_301']?.()
-  __napiInstance.exports['__napi_register__contains_302']?.()
-  __napiInstance.exports['__napi_register__concat_str_303']?.()
-  __napiInstance.exports['__napi_register__concat_utf16_304']?.()
-  __napiInstance.exports['__napi_register__concat_latin1_305']?.()
-  __napiInstance.exports['__napi_register__roundtrip_str_306']?.()
-  __napiInstance.exports['__napi_register__set_symbol_in_obj_307']?.()
-  __napiInstance.exports['__napi_register__create_symbol_308']?.()
-  __napiInstance.exports['__napi_register__create_symbol_for_309']?.()
-  __napiInstance.exports['__napi_register__DelaySum_impl_310']?.()
-  __napiInstance.exports['__napi_register__without_abort_controller_311']?.()
-  __napiInstance.exports['__napi_register__with_abort_controller_312']?.()
-  __napiInstance.exports['__napi_register__AsyncTaskVoidReturn_impl_313']?.()
-  __napiInstance.exports['__napi_register__async_task_void_return_314']?.()
-  __napiInstance.exports['__napi_register__AsyncTaskOptionalReturn_impl_315']?.()
-  __napiInstance.exports['__napi_register__async_task_optional_return_316']?.()
-  __napiInstance.exports['__napi_register__AsyncTaskReadFile_impl_317']?.()
-  __napiInstance.exports['__napi_register__async_task_read_file_318']?.()
-  __napiInstance.exports['__napi_register__call_threadsafe_function_319']?.()
-  __napiInstance.exports['__napi_register__call_long_threadsafe_function_320']?.()
-  __napiInstance.exports['__napi_register__threadsafe_function_throw_error_321']?.()
-  __napiInstance.exports['__napi_register__threadsafe_function_fatal_mode_322']?.()
-  __napiInstance.exports['__napi_register__threadsafe_function_fatal_mode_error_323']?.()
-  __napiInstance.exports['__napi_register__threadsafe_function_closure_capture_324']?.()
-  __napiInstance.exports['__napi_register__tsfn_call_with_callback_325']?.()
-  __napiInstance.exports['__napi_register__tsfn_async_call_326']?.()
-  __napiInstance.exports['__napi_register__accept_threadsafe_function_327']?.()
-  __napiInstance.exports['__napi_register__accept_threadsafe_function_fatal_328']?.()
-  __napiInstance.exports['__napi_register__accept_threadsafe_function_tuple_args_329']?.()
-  __napiInstance.exports['__napi_register__tsfn_return_promise_330']?.()
-  __napiInstance.exports['__napi_register__tsfn_return_promise_timeout_331']?.()
-  __napiInstance.exports['__napi_register__tsfn_throw_from_js_332']?.()
-  __napiInstance.exports['__napi_register__spawn_thread_in_thread_333']?.()
-  __napiInstance.exports['__napi_register__get_buffer_334']?.()
-  __napiInstance.exports['__napi_register__append_buffer_335']?.()
-  __napiInstance.exports['__napi_register__get_empty_buffer_336']?.()
-  __napiInstance.exports['__napi_register__convert_u32_array_337']?.()
-  __napiInstance.exports['__napi_register__create_external_typed_array_338']?.()
-  __napiInstance.exports['__napi_register__mutate_typed_array_339']?.()
-  __napiInstance.exports['__napi_register__deref_uint8_array_340']?.()
-  __napiInstance.exports['__napi_register__buffer_pass_through_341']?.()
-  __napiInstance.exports['__napi_register__array_buffer_pass_through_342']?.()
-  __napiInstance.exports['__napi_register__accept_slice_343']?.()
-  __napiInstance.exports['__napi_register__accept_arraybuffer_344']?.()
-  __napiInstance.exports['__napi_register__u8_array_to_array_345']?.()
-  __napiInstance.exports['__napi_register__i8_array_to_array_346']?.()
-  __napiInstance.exports['__napi_register__u16_array_to_array_347']?.()
-  __napiInstance.exports['__napi_register__i16_array_to_array_348']?.()
-  __napiInstance.exports['__napi_register__u32_array_to_array_349']?.()
-  __napiInstance.exports['__napi_register__i32_array_to_array_350']?.()
-  __napiInstance.exports['__napi_register__f32_array_to_array_351']?.()
-  __napiInstance.exports['__napi_register__f64_array_to_array_352']?.()
-  __napiInstance.exports['__napi_register__u64_array_to_array_353']?.()
-  __napiInstance.exports['__napi_register__i64_array_to_array_354']?.()
-  __napiInstance.exports['__napi_register__accept_uint8_clamped_slice_355']?.()
-  __napiInstance.exports['__napi_register__accept_uint8_clamped_slice_and_buffer_slice_356']?.()
-  __napiInstance.exports['__napi_register__AsyncBuffer_impl_357']?.()
-  __napiInstance.exports['__napi_register__async_reduce_buffer_358']?.()
-  __napiInstance.exports['__napi_register__async_buffer_to_array_359']?.()
-  __napiInstance.exports['__napi_register__u_init8_array_from_string_360']?.()
+  __napiInstance.exports['__napi_register__within_async_runtime_if_available_11']?.()
+  __napiInstance.exports['__napi_register__bigint_add_12']?.()
+  __napiInstance.exports['__napi_register__create_big_int_13']?.()
+  __napiInstance.exports['__napi_register__create_big_int_i64_14']?.()
+  __napiInstance.exports['__napi_register__bigint_get_u64_as_string_15']?.()
+  __napiInstance.exports['__napi_register__bigint_from_i64_16']?.()
+  __napiInstance.exports['__napi_register__bigint_from_i128_17']?.()
+  __napiInstance.exports['__napi_register__get_cwd_18']?.()
+  __napiInstance.exports['__napi_register__option_end_19']?.()
+  __napiInstance.exports['__napi_register__option_start_20']?.()
+  __napiInstance.exports['__napi_register__option_start_end_21']?.()
+  __napiInstance.exports['__napi_register__option_only_22']?.()
+  __napiInstance.exports['__napi_register__read_file_23']?.()
+  __napiInstance.exports['__napi_register__callback_return_promise_24']?.()
+  __napiInstance.exports['__napi_register__callback_return_promise_and_spawn_25']?.()
+  __napiInstance.exports['__napi_register__capture_error_in_callback_26']?.()
+  __napiInstance.exports['__napi_register__Animal_struct_27']?.()
+  __napiInstance.exports['__napi_register__Animal_impl_39']?.()
+  __napiInstance.exports['__napi_register__Dog_struct_40']?.()
+  __napiInstance.exports['__napi_register__Bird_struct_41']?.()
+  __napiInstance.exports['__napi_register__Bird_impl_46']?.()
+  __napiInstance.exports['__napi_register__Blake2bHasher_struct_47']?.()
+  __napiInstance.exports['__napi_register__Blake2bHasher_impl_49']?.()
+  __napiInstance.exports['__napi_register__Blake2bHasher_impl_51']?.()
+  __napiInstance.exports['__napi_register__Blake2bKey_struct_52']?.()
+  __napiInstance.exports['__napi_register__Context_struct_53']?.()
+  __napiInstance.exports['__napi_register__Context_impl_58']?.()
+  __napiInstance.exports['__napi_register__AnimalWithDefaultConstructor_struct_59']?.()
+  __napiInstance.exports['__napi_register__NinjaTurtle_struct_60']?.()
+  __napiInstance.exports['__napi_register__NinjaTurtle_impl_67']?.()
+  __napiInstance.exports['__napi_register__JsAssets_struct_68']?.()
+  __napiInstance.exports['__napi_register__JsAssets_impl_71']?.()
+  __napiInstance.exports['__napi_register__JsAsset_struct_72']?.()
+  __napiInstance.exports['__napi_register__JsAsset_impl_75']?.()
+  __napiInstance.exports['__napi_register__Optional_struct_76']?.()
+  __napiInstance.exports['__napi_register__Optional_impl_81']?.()
+  __napiInstance.exports['__napi_register__ObjectFieldClassInstance_struct_82']?.()
+  __napiInstance.exports['__napi_register__create_object_with_class_field_83']?.()
+  __napiInstance.exports['__napi_register__receive_object_with_class_field_84']?.()
+  __napiInstance.exports['__napi_register__NotWritableClass_struct_85']?.()
+  __napiInstance.exports['__napi_register__NotWritableClass_impl_87']?.()
+  __napiInstance.exports['__napi_register__CustomFinalize_struct_88']?.()
+  __napiInstance.exports['__napi_register__CustomFinalize_impl_90']?.()
+  __napiInstance.exports['__napi_register__Width_struct_91']?.()
+  __napiInstance.exports['__napi_register__plus_one_92']?.()
+  __napiInstance.exports['__napi_register__GetterSetterWithClosures_struct_93']?.()
+  __napiInstance.exports['__napi_register__GetterSetterWithClosures_impl_95']?.()
+  __napiInstance.exports['__napi_register__CatchOnConstructor_struct_96']?.()
+  __napiInstance.exports['__napi_register__CatchOnConstructor_impl_98']?.()
+  __napiInstance.exports['__napi_register__CatchOnConstructor2_struct_99']?.()
+  __napiInstance.exports['__napi_register__CatchOnConstructor2_impl_101']?.()
+  __napiInstance.exports['__napi_register__ClassWithLifetime_struct_102']?.()
+  __napiInstance.exports['__napi_register__ClassWithLifetime_impl_105']?.()
+  __napiInstance.exports['__napi_register__ClassWithFactory_struct_106']?.()
+  __napiInstance.exports['__napi_register__ClassWithFactory_impl_111']?.()
+  __napiInstance.exports['__napi_register__Selector_struct_112']?.()
+  __napiInstance.exports['__napi_register__date_to_number_113']?.()
+  __napiInstance.exports['__napi_register__chrono_utc_date_to_millis_114']?.()
+  __napiInstance.exports['__napi_register__chrono_local_date_to_millis_115']?.()
+  __napiInstance.exports['__napi_register__chrono_date_with_timezone_to_millis_116']?.()
+  __napiInstance.exports['__napi_register__chrono_date_add_1_minute_117']?.()
+  __napiInstance.exports['__napi_register__UtcDates_struct_118']?.()
+  __napiInstance.exports['__napi_register__LocalDates_struct_119']?.()
+  __napiInstance.exports['__napi_register__DatesWithTimeZone_struct_120']?.()
+  __napiInstance.exports['__napi_register__chrono_native_date_time_121']?.()
+  __napiInstance.exports['__napi_register__chrono_native_date_time_return_122']?.()
+  __napiInstance.exports['__napi_register__chrono_utc_date_return_123']?.()
+  __napiInstance.exports['__napi_register__chrono_local_date_return_124']?.()
+  __napiInstance.exports['__napi_register__chrono_date_with_timezone_return_125']?.()
+  __napiInstance.exports['__napi_register__chrono_date_fixture_return1_126']?.()
+  __napiInstance.exports['__napi_register__chrono_date_fixture_return2_127']?.()
+  __napiInstance.exports['__napi_register__either_string_or_number_128']?.()
+  __napiInstance.exports['__napi_register__return_either_129']?.()
+  __napiInstance.exports['__napi_register__either3_130']?.()
+  __napiInstance.exports['__napi_register__Obj_struct_131']?.()
+  __napiInstance.exports['__napi_register__either4_132']?.()
+  __napiInstance.exports['__napi_register__JsClassForEither_struct_133']?.()
+  __napiInstance.exports['__napi_register__JsClassForEither_impl_135']?.()
+  __napiInstance.exports['__napi_register__AnotherClassForEither_struct_136']?.()
+  __napiInstance.exports['__napi_register__AnotherClassForEither_impl_138']?.()
+  __napiInstance.exports['__napi_register__receive_class_or_number_139']?.()
+  __napiInstance.exports['__napi_register__receive_mut_class_or_number_140']?.()
+  __napiInstance.exports['__napi_register__receive_different_class_141']?.()
+  __napiInstance.exports['__napi_register__return_either_class_142']?.()
+  __napiInstance.exports['__napi_register__either_from_option_143']?.()
+  __napiInstance.exports['__napi_register__A_struct_144']?.()
+  __napiInstance.exports['__napi_register__B_struct_145']?.()
+  __napiInstance.exports['__napi_register__C_struct_146']?.()
+  __napiInstance.exports['__napi_register__either_from_objects_147']?.()
+  __napiInstance.exports['__napi_register__either_bool_or_function_148']?.()
+  __napiInstance.exports['__napi_register__promise_in_either_149']?.()
+  __napiInstance.exports['__napi_register__either_bool_or_tuple_150']?.()
+  __napiInstance.exports['__napi_register__Kind_151']?.()
+  __napiInstance.exports['__napi_register__Empty_152']?.()
+  __napiInstance.exports['__napi_register__Status_153']?.()
+  __napiInstance.exports['__napi_register__StringEnum_154']?.()
+  __napiInstance.exports['__napi_register__CustomNumEnum_155']?.()
+  __napiInstance.exports['__napi_register__enum_to_i32_156']?.()
+  __napiInstance.exports['__napi_register__SkippedEnums_157']?.()
+  __napiInstance.exports['__napi_register__CustomStringEnum_158']?.()
+  __napiInstance.exports['__napi_register__StructuredKind_struct_159']?.()
+  __napiInstance.exports['__napi_register__validate_structured_enum_160']?.()
+  __napiInstance.exports['__napi_register__run_script_161']?.()
+  __napiInstance.exports['__napi_register__get_module_file_name_162']?.()
+  __napiInstance.exports['__napi_register__throw_syntax_error_163']?.()
+  __napiInstance.exports['__napi_register__throw_error_164']?.()
+  __napiInstance.exports['__napi_register__panic_165']?.()
+  __napiInstance.exports['__napi_register__receive_string_166']?.()
+  __napiInstance.exports['__napi_register__custom_status_code_167']?.()
+  __napiInstance.exports['__napi_register__error_message_contains_null_byte_168']?.()
+  __napiInstance.exports['__napi_register__throw_async_error_169']?.()
+  __napiInstance.exports['__napi_register__CustomStruct_struct_170']?.()
+  __napiInstance.exports['__napi_register__CustomStruct_impl_173']?.()
+  __napiInstance.exports['__napi_register__js_error_callback_174']?.()
+  __napiInstance.exports['__napi_register__create_external_175']?.()
+  __napiInstance.exports['__napi_register__create_external_string_176']?.()
+  __napiInstance.exports['__napi_register__get_external_177']?.()
+  __napiInstance.exports['__napi_register__mutate_external_178']?.()
+  __napiInstance.exports['__napi_register__create_optional_external_179']?.()
+  __napiInstance.exports['__napi_register__get_optional_external_180']?.()
+  __napiInstance.exports['__napi_register__mutate_optional_external_181']?.()
+  __napiInstance.exports['__napi_register__validate_array_182']?.()
+  __napiInstance.exports['__napi_register__validate_buffer_183']?.()
+  __napiInstance.exports['__napi_register__validate_typed_array_184']?.()
+  __napiInstance.exports['__napi_register__validate_typed_array_slice_185']?.()
+  __napiInstance.exports['__napi_register__validate_uint8_clamped_slice_186']?.()
+  __napiInstance.exports['__napi_register__validate_buffer_slice_187']?.()
+  __napiInstance.exports['__napi_register__validate_bigint_188']?.()
+  __napiInstance.exports['__napi_register__validate_boolean_189']?.()
+  __napiInstance.exports['__napi_register__validate_date_190']?.()
+  __napiInstance.exports['__napi_register__validate_date_time_191']?.()
+  __napiInstance.exports['__napi_register__validate_external_192']?.()
+  __napiInstance.exports['__napi_register__validate_function_193']?.()
+  __napiInstance.exports['__napi_register__validate_hash_map_194']?.()
+  __napiInstance.exports['__napi_register__validate_null_195']?.()
+  __napiInstance.exports['__napi_register__validate_undefined_196']?.()
+  __napiInstance.exports['__napi_register__validate_number_197']?.()
+  __napiInstance.exports['__napi_register__validate_promise_198']?.()
+  __napiInstance.exports['__napi_register__validate_string_199']?.()
+  __napiInstance.exports['__napi_register__validate_symbol_200']?.()
+  __napiInstance.exports['__napi_register__validate_optional_201']?.()
+  __napiInstance.exports['__napi_register__KindInValidate_202']?.()
+  __napiInstance.exports['__napi_register__validate_enum_203']?.()
+  __napiInstance.exports['__napi_register__StatusInValidate_204']?.()
+  __napiInstance.exports['__napi_register__validate_string_enum_205']?.()
+  __napiInstance.exports['__napi_register__return_undefined_if_invalid_206']?.()
+  __napiInstance.exports['__napi_register__return_undefined_if_invalid_promise_207']?.()
+  __napiInstance.exports['__napi_register__ts_rename_208']?.()
+  __napiInstance.exports['__napi_register__override_individual_arg_on_function_209']?.()
+  __napiInstance.exports['__napi_register__override_individual_arg_on_function_with_cb_arg_210']?.()
+  __napiInstance.exports['__napi_register__override_whole_function_type_211']?.()
+  __napiInstance.exports['__napi_register__call0_212']?.()
+  __napiInstance.exports['__napi_register__call1_213']?.()
+  __napiInstance.exports['__napi_register__call2_214']?.()
+  __napiInstance.exports['__napi_register__apply0_215']?.()
+  __napiInstance.exports['__napi_register__apply1_216']?.()
+  __napiInstance.exports['__napi_register__call_function_217']?.()
+  __napiInstance.exports['__napi_register__call_function_with_arg_218']?.()
+  __napiInstance.exports['__napi_register__create_reference_on_function_219']?.()
+  __napiInstance.exports['__napi_register__call_function_with_arg_and_ctx_220']?.()
+  __napiInstance.exports['__napi_register__reference_as_callback_221']?.()
+  __napiInstance.exports['__napi_register__build_threadsafe_function_from_function_222']?.()
+  __napiInstance.exports['__napi_register__build_threadsafe_function_from_function_callee_handle_223']?.()
+  __napiInstance.exports['__napi_register__Fib_struct_224']?.()
+  __napiInstance.exports['__napi_register__Fib_impl_225']?.()
+  __napiInstance.exports['__napi_register__Fib_impl_227']?.()
+  __napiInstance.exports['__napi_register__Fib2_struct_228']?.()
+  __napiInstance.exports['__napi_register__Fib2_impl_229']?.()
+  __napiInstance.exports['__napi_register__Fib2_impl_231']?.()
+  __napiInstance.exports['__napi_register__Fib3_struct_232']?.()
+  __napiInstance.exports['__napi_register__Fib3_impl_233']?.()
+  __napiInstance.exports['__napi_register__ALIGNMENT_234']?.()
+  __napiInstance.exports['__napi_register__xxh64_235']?.()
+  __napiInstance.exports['__napi_register__xxh128_236']?.()
+  __napiInstance.exports['__napi_register__Xxh3_struct_237']?.()
+  __napiInstance.exports['__napi_register__Xxh3_impl_241']?.()
+  __napiInstance.exports['__napi_register__xxh2_plus_242']?.()
+  __napiInstance.exports['__napi_register__xxh3_xxh64_alias_243']?.()
+  __napiInstance.exports['__napi_register__xxh64_alias_244']?.()
+  __napiInstance.exports['__napi_register__get_mapping_245']?.()
+  __napiInstance.exports['__napi_register__sum_mapping_246']?.()
+  __napiInstance.exports['__napi_register__get_mapping_with_hasher_247']?.()
+  __napiInstance.exports['__napi_register__get_btree_mapping_248']?.()
+  __napiInstance.exports['__napi_register__sum_btree_mapping_249']?.()
+  __napiInstance.exports['__napi_register__get_index_mapping_250']?.()
+  __napiInstance.exports['__napi_register__get_index_mapping_with_hasher_251']?.()
+  __napiInstance.exports['__napi_register__sum_index_mapping_252']?.()
+  __napiInstance.exports['__napi_register__indexmap_passthrough_253']?.()
+  __napiInstance.exports['__napi_register__map_option_254']?.()
+  __napiInstance.exports['__napi_register__return_null_255']?.()
+  __napiInstance.exports['__napi_register__return_undefined_256']?.()
+  __napiInstance.exports['__napi_register__UseNullableStruct_struct_257']?.()
+  __napiInstance.exports['__napi_register__NotUseNullableStruct_struct_258']?.()
+  __napiInstance.exports['__napi_register__DefaultUseNullableStruct_struct_259']?.()
+  __napiInstance.exports['__napi_register__UseNullableClass_struct_260']?.()
+  __napiInstance.exports['__napi_register__NotUseNullableClass_struct_261']?.()
+  __napiInstance.exports['__napi_register__DefaultUseNullableClass_struct_262']?.()
+  __napiInstance.exports['__napi_register__add_263']?.()
+  __napiInstance.exports['__napi_register__fibonacci_264']?.()
+  __napiInstance.exports['__napi_register__list_obj_keys_265']?.()
+  __napiInstance.exports['__napi_register__create_obj_266']?.()
+  __napiInstance.exports['__napi_register__get_global_267']?.()
+  __napiInstance.exports['__napi_register__get_undefined_268']?.()
+  __napiInstance.exports['__napi_register__get_null_269']?.()
+  __napiInstance.exports['__napi_register__AllOptionalObject_struct_270']?.()
+  __napiInstance.exports['__napi_register__receive_all_optional_object_271']?.()
+  __napiInstance.exports['__napi_register__AliasedEnum_272']?.()
+  __napiInstance.exports['__napi_register__StructContainsAliasedEnum_struct_273']?.()
+  __napiInstance.exports['__napi_register__fn_received_aliased_274']?.()
+  __napiInstance.exports['__napi_register__StrictObject_struct_275']?.()
+  __napiInstance.exports['__napi_register__receive_strict_object_276']?.()
+  __napiInstance.exports['__napi_register__get_str_from_object_277']?.()
+  __napiInstance.exports['__napi_register__TsTypeChanged_struct_278']?.()
+  __napiInstance.exports['__napi_register__create_obj_with_property_279']?.()
+  __napiInstance.exports['__napi_register__getter_from_obj_280']?.()
+  __napiInstance.exports['__napi_register__ObjectOnlyFromJs_struct_281']?.()
+  __napiInstance.exports['__napi_register__receive_object_only_from_js_282']?.()
+  __napiInstance.exports['__napi_register__object_get_named_property_should_perform_typecheck_283']?.()
+  __napiInstance.exports['__napi_register__ObjectOnlyToJs_struct_284']?.()
+  __napiInstance.exports['__napi_register__return_object_only_to_js_285']?.()
+  __napiInstance.exports['__napi_register__TupleObject_struct_286']?.()
+  __napiInstance.exports['__napi_register__Data_struct_287']?.()
+  __napiInstance.exports['__napi_register__receive_buffer_slice_with_lifetime_288']?.()
+  __napiInstance.exports['__napi_register__FunctionData_struct_289']?.()
+  __napiInstance.exports['__napi_register__generate_function_and_call_it_290']?.()
+  __napiInstance.exports['__napi_register__get_null_byte_property_291']?.()
+  __napiInstance.exports['__napi_register__set_null_byte_property_292']?.()
+  __napiInstance.exports['__napi_register__async_plus_100_293']?.()
+  __napiInstance.exports['__napi_register__call_then_on_promise_294']?.()
+  __napiInstance.exports['__napi_register__call_catch_on_promise_295']?.()
+  __napiInstance.exports['__napi_register__call_finally_on_promise_296']?.()
+  __napiInstance.exports['__napi_register__JsRepo_struct_297']?.()
+  __napiInstance.exports['__napi_register__JsRepo_impl_300']?.()
+  __napiInstance.exports['__napi_register__JsRemote_struct_301']?.()
+  __napiInstance.exports['__napi_register__JsRemote_impl_304']?.()
+  __napiInstance.exports['__napi_register__CSSRuleList_struct_305']?.()
+  __napiInstance.exports['__napi_register__CSSRuleList_impl_309']?.()
+  __napiInstance.exports['__napi_register__CSSStyleSheet_struct_310']?.()
+  __napiInstance.exports['__napi_register__AnotherCSSStyleSheet_struct_311']?.()
+  __napiInstance.exports['__napi_register__AnotherCSSStyleSheet_impl_313']?.()
+  __napiInstance.exports['__napi_register__CSSStyleSheet_impl_317']?.()
+  __napiInstance.exports['__napi_register__PackageJson_struct_318']?.()
+  __napiInstance.exports['__napi_register__read_package_json_319']?.()
+  __napiInstance.exports['__napi_register__get_package_json_name_320']?.()
+  __napiInstance.exports['__napi_register__test_serde_roundtrip_321']?.()
+  __napiInstance.exports['__napi_register__test_serde_big_number_precision_322']?.()
+  __napiInstance.exports['__napi_register__test_serde_buffer_bytes_323']?.()
+  __napiInstance.exports['__napi_register__pass_set_to_rust_324']?.()
+  __napiInstance.exports['__napi_register__pass_set_to_js_325']?.()
+  __napiInstance.exports['__napi_register__pass_set_with_hasher_to_js_326']?.()
+  __napiInstance.exports['__napi_register__btree_set_to_rust_327']?.()
+  __napiInstance.exports['__napi_register__btree_set_to_js_328']?.()
+  __napiInstance.exports['__napi_register__return_from_shared_crate_329']?.()
+  __napiInstance.exports['__napi_register__contains_330']?.()
+  __napiInstance.exports['__napi_register__concat_str_331']?.()
+  __napiInstance.exports['__napi_register__concat_utf16_332']?.()
+  __napiInstance.exports['__napi_register__concat_latin1_333']?.()
+  __napiInstance.exports['__napi_register__roundtrip_str_334']?.()
+  __napiInstance.exports['__napi_register__return_c_string_335']?.()
+  __napiInstance.exports['__napi_register__set_symbol_in_obj_336']?.()
+  __napiInstance.exports['__napi_register__create_symbol_337']?.()
+  __napiInstance.exports['__napi_register__create_symbol_for_338']?.()
+  __napiInstance.exports['__napi_register__DelaySum_impl_339']?.()
+  __napiInstance.exports['__napi_register__without_abort_controller_340']?.()
+  __napiInstance.exports['__napi_register__with_abort_controller_341']?.()
+  __napiInstance.exports['__napi_register__AsyncTaskVoidReturn_impl_342']?.()
+  __napiInstance.exports['__napi_register__async_task_void_return_343']?.()
+  __napiInstance.exports['__napi_register__AsyncTaskOptionalReturn_impl_344']?.()
+  __napiInstance.exports['__napi_register__async_task_optional_return_345']?.()
+  __napiInstance.exports['__napi_register__AsyncTaskReadFile_impl_346']?.()
+  __napiInstance.exports['__napi_register__async_task_read_file_347']?.()
+  __napiInstance.exports['__napi_register__call_threadsafe_function_348']?.()
+  __napiInstance.exports['__napi_register__call_long_threadsafe_function_349']?.()
+  __napiInstance.exports['__napi_register__threadsafe_function_throw_error_350']?.()
+  __napiInstance.exports['__napi_register__threadsafe_function_fatal_mode_351']?.()
+  __napiInstance.exports['__napi_register__threadsafe_function_fatal_mode_error_352']?.()
+  __napiInstance.exports['__napi_register__threadsafe_function_closure_capture_353']?.()
+  __napiInstance.exports['__napi_register__tsfn_call_with_callback_354']?.()
+  __napiInstance.exports['__napi_register__tsfn_async_call_355']?.()
+  __napiInstance.exports['__napi_register__accept_threadsafe_function_356']?.()
+  __napiInstance.exports['__napi_register__accept_threadsafe_function_fatal_357']?.()
+  __napiInstance.exports['__napi_register__accept_threadsafe_function_tuple_args_358']?.()
+  __napiInstance.exports['__napi_register__tsfn_return_promise_359']?.()
+  __napiInstance.exports['__napi_register__tsfn_return_promise_timeout_360']?.()
+  __napiInstance.exports['__napi_register__tsfn_throw_from_js_361']?.()
+  __napiInstance.exports['__napi_register__spawn_thread_in_thread_362']?.()
+  __napiInstance.exports['__napi_register__Pet_struct_363']?.()
+  __napiInstance.exports['__napi_register__tsfn_in_either_364']?.()
+  __napiInstance.exports['__napi_register__MyVec_struct_365']?.()
+  __napiInstance.exports['__napi_register__get_my_vec_366']?.()
+  __napiInstance.exports['__napi_register__get_buffer_367']?.()
+  __napiInstance.exports['__napi_register__get_buffer_slice_368']?.()
+  __napiInstance.exports['__napi_register__append_buffer_369']?.()
+  __napiInstance.exports['__napi_register__get_empty_buffer_370']?.()
+  __napiInstance.exports['__napi_register__create_external_buffer_slice_371']?.()
+  __napiInstance.exports['__napi_register__create_buffer_slice_from_copied_data_372']?.()
+  __napiInstance.exports['__napi_register__get_empty_typed_array_373']?.()
+  __napiInstance.exports['__napi_register__convert_u32_array_374']?.()
+  __napiInstance.exports['__napi_register__create_external_typed_array_375']?.()
+  __napiInstance.exports['__napi_register__mutate_typed_array_376']?.()
+  __napiInstance.exports['__napi_register__deref_uint8_array_377']?.()
+  __napiInstance.exports['__napi_register__buffer_pass_through_378']?.()
+  __napiInstance.exports['__napi_register__buffer_with_async_block_379']?.()
+  __napiInstance.exports['__napi_register__array_buffer_pass_through_380']?.()
+  __napiInstance.exports['__napi_register__accept_slice_381']?.()
+  __napiInstance.exports['__napi_register__accept_arraybuffer_382']?.()
+  __napiInstance.exports['__napi_register__create_arraybuffer_383']?.()
+  __napiInstance.exports['__napi_register__u8_array_to_array_384']?.()
+  __napiInstance.exports['__napi_register__i8_array_to_array_385']?.()
+  __napiInstance.exports['__napi_register__u16_array_to_array_386']?.()
+  __napiInstance.exports['__napi_register__i16_array_to_array_387']?.()
+  __napiInstance.exports['__napi_register__u32_array_to_array_388']?.()
+  __napiInstance.exports['__napi_register__i32_array_to_array_389']?.()
+  __napiInstance.exports['__napi_register__f32_array_to_array_390']?.()
+  __napiInstance.exports['__napi_register__f64_array_to_array_391']?.()
+  __napiInstance.exports['__napi_register__u64_array_to_array_392']?.()
+  __napiInstance.exports['__napi_register__i64_array_to_array_393']?.()
+  __napiInstance.exports['__napi_register__accept_uint8_clamped_slice_394']?.()
+  __napiInstance.exports['__napi_register__accept_uint8_clamped_slice_and_buffer_slice_395']?.()
+  __napiInstance.exports['__napi_register__AsyncBuffer_impl_396']?.()
+  __napiInstance.exports['__napi_register__async_reduce_buffer_397']?.()
+  __napiInstance.exports['__napi_register__async_buffer_to_array_398']?.()
+  __napiInstance.exports['__napi_register__u_init8_array_from_string_399']?.()
+  __napiInstance.exports['__napi_register__AsyncReader_impl_400']?.()
+  __napiInstance.exports['__napi_register__Reader_struct_401']?.()
+  __napiInstance.exports['__napi_register__Reader_impl_403']?.()
 }
 module.exports.Animal = __napiModule.exports.Animal
 module.exports.AnimalWithDefaultConstructor = __napiModule.exports.AnimalWithDefaultConstructor
@@ -398,6 +438,7 @@ module.exports.Blake2bKey = __napiModule.exports.Blake2bKey
 module.exports.CatchOnConstructor = __napiModule.exports.CatchOnConstructor
 module.exports.CatchOnConstructor2 = __napiModule.exports.CatchOnConstructor2
 module.exports.ClassWithFactory = __napiModule.exports.ClassWithFactory
+module.exports.ClassWithLifetime = __napiModule.exports.ClassWithLifetime
 module.exports.Context = __napiModule.exports.Context
 module.exports.CssRuleList = __napiModule.exports.CssRuleList
 module.exports.CSSRuleList = __napiModule.exports.CSSRuleList
@@ -418,6 +459,7 @@ module.exports.NinjaTurtle = __napiModule.exports.NinjaTurtle
 module.exports.NotUseNullableClass = __napiModule.exports.NotUseNullableClass
 module.exports.NotWritableClass = __napiModule.exports.NotWritableClass
 module.exports.Optional = __napiModule.exports.Optional
+module.exports.Reader = __napiModule.exports.Reader
 module.exports.Selector = __napiModule.exports.Selector
 module.exports.UseNullableClass = __napiModule.exports.UseNullableClass
 module.exports.Width = __napiModule.exports.Width
@@ -446,7 +488,10 @@ module.exports.bigintAdd = __napiModule.exports.bigintAdd
 module.exports.bigintFromI128 = __napiModule.exports.bigintFromI128
 module.exports.bigintFromI64 = __napiModule.exports.bigintFromI64
 module.exports.bigintGetU64AsString = __napiModule.exports.bigintGetU64AsString
+module.exports.btreeSetToJs = __napiModule.exports.btreeSetToJs
+module.exports.btreeSetToRust = __napiModule.exports.btreeSetToRust
 module.exports.bufferPassThrough = __napiModule.exports.bufferPassThrough
+module.exports.bufferWithAsyncBlock = __napiModule.exports.bufferWithAsyncBlock
 module.exports.buildThreadsafeFunctionFromFunction = __napiModule.exports.buildThreadsafeFunctionFromFunction
 module.exports.buildThreadsafeFunctionFromFunctionCalleeHandle = __napiModule.exports.buildThreadsafeFunctionFromFunctionCalleeHandle
 module.exports.call0 = __napiModule.exports.call0
@@ -479,9 +524,12 @@ module.exports.concatStr = __napiModule.exports.concatStr
 module.exports.concatUtf16 = __napiModule.exports.concatUtf16
 module.exports.contains = __napiModule.exports.contains
 module.exports.convertU32Array = __napiModule.exports.convertU32Array
+module.exports.createArraybuffer = __napiModule.exports.createArraybuffer
 module.exports.createBigInt = __napiModule.exports.createBigInt
 module.exports.createBigIntI64 = __napiModule.exports.createBigIntI64
+module.exports.createBufferSliceFromCopiedData = __napiModule.exports.createBufferSliceFromCopiedData
 module.exports.createExternal = __napiModule.exports.createExternal
+module.exports.createExternalBufferSlice = __napiModule.exports.createExternalBufferSlice
 module.exports.createExternalString = __napiModule.exports.createExternalString
 module.exports.createExternalTypedArray = __napiModule.exports.createExternalTypedArray
 module.exports.createObj = __napiModule.exports.createObj
@@ -506,21 +554,29 @@ module.exports.eitherFromOption = __napiModule.exports.eitherFromOption
 module.exports.eitherStringOrNumber = __napiModule.exports.eitherStringOrNumber
 module.exports.Empty = __napiModule.exports.Empty
 module.exports.enumToI32 = __napiModule.exports.enumToI32
+module.exports.errorMessageContainsNullByte = __napiModule.exports.errorMessageContainsNullByte
 module.exports.f32ArrayToArray = __napiModule.exports.f32ArrayToArray
 module.exports.f64ArrayToArray = __napiModule.exports.f64ArrayToArray
 module.exports.fibonacci = __napiModule.exports.fibonacci
 module.exports.fnReceivedAliased = __napiModule.exports.fnReceivedAliased
+module.exports.generateFunctionAndCallIt = __napiModule.exports.generateFunctionAndCallIt
 module.exports.getBtreeMapping = __napiModule.exports.getBtreeMapping
 module.exports.getBuffer = __napiModule.exports.getBuffer
+module.exports.getBufferSlice = __napiModule.exports.getBufferSlice
 module.exports.getCwd = __napiModule.exports.getCwd
 module.exports.getEmptyBuffer = __napiModule.exports.getEmptyBuffer
+module.exports.getEmptyTypedArray = __napiModule.exports.getEmptyTypedArray
 module.exports.getExternal = __napiModule.exports.getExternal
 module.exports.getGlobal = __napiModule.exports.getGlobal
 module.exports.getIndexMapping = __napiModule.exports.getIndexMapping
+module.exports.getIndexMappingWithHasher = __napiModule.exports.getIndexMappingWithHasher
 module.exports.getMapping = __napiModule.exports.getMapping
+module.exports.getMappingWithHasher = __napiModule.exports.getMappingWithHasher
 module.exports.getModuleFileName = __napiModule.exports.getModuleFileName
+module.exports.getMyVec = __napiModule.exports.getMyVec
 module.exports.getNestedNumArr = __napiModule.exports.getNestedNumArr
 module.exports.getNull = __napiModule.exports.getNull
+module.exports.getNullByteProperty = __napiModule.exports.getNullByteProperty
 module.exports.getNumArr = __napiModule.exports.getNumArr
 module.exports.getNums = __napiModule.exports.getNums
 module.exports.getOptionalExternal = __napiModule.exports.getOptionalExternal
@@ -534,7 +590,9 @@ module.exports.i32ArrayToArray = __napiModule.exports.i32ArrayToArray
 module.exports.i64ArrayToArray = __napiModule.exports.i64ArrayToArray
 module.exports.i8ArrayToArray = __napiModule.exports.i8ArrayToArray
 module.exports.indexmapPassthrough = __napiModule.exports.indexmapPassthrough
+module.exports.jsErrorCallback = __napiModule.exports.jsErrorCallback
 module.exports.Kind = __napiModule.exports.Kind
+module.exports.KindInValidate = __napiModule.exports.KindInValidate
 module.exports.listObjKeys = __napiModule.exports.listObjKeys
 module.exports.mapOption = __napiModule.exports.mapOption
 module.exports.mutateExternal = __napiModule.exports.mutateExternal
@@ -547,14 +605,19 @@ module.exports.optionStart = __napiModule.exports.optionStart
 module.exports.optionStartEnd = __napiModule.exports.optionStartEnd
 module.exports.overrideIndividualArgOnFunction = __napiModule.exports.overrideIndividualArgOnFunction
 module.exports.overrideIndividualArgOnFunctionWithCbArg = __napiModule.exports.overrideIndividualArgOnFunctionWithCbArg
+module.exports.overrideWholeFunctionType = __napiModule.exports.overrideWholeFunctionType
 module.exports.panic = __napiModule.exports.panic
 module.exports.panicInAsync = __napiModule.exports.panicInAsync
+module.exports.passSetToJs = __napiModule.exports.passSetToJs
+module.exports.passSetToRust = __napiModule.exports.passSetToRust
+module.exports.passSetWithHasherToJs = __napiModule.exports.passSetWithHasherToJs
 module.exports.plusOne = __napiModule.exports.plusOne
 module.exports.promiseInEither = __napiModule.exports.promiseInEither
 module.exports.readFile = __napiModule.exports.readFile
 module.exports.readFileAsync = __napiModule.exports.readFileAsync
 module.exports.readPackageJson = __napiModule.exports.readPackageJson
 module.exports.receiveAllOptionalObject = __napiModule.exports.receiveAllOptionalObject
+module.exports.receiveBufferSliceWithLifetime = __napiModule.exports.receiveBufferSliceWithLifetime
 module.exports.receiveClassOrNumber = __napiModule.exports.receiveClassOrNumber
 module.exports.receiveDifferentClass = __napiModule.exports.receiveDifferentClass
 module.exports.receiveMutClassOrNumber = __napiModule.exports.receiveMutClassOrNumber
@@ -563,6 +626,7 @@ module.exports.receiveObjectWithClassField = __napiModule.exports.receiveObjectW
 module.exports.receiveStrictObject = __napiModule.exports.receiveStrictObject
 module.exports.receiveString = __napiModule.exports.receiveString
 module.exports.referenceAsCallback = __napiModule.exports.referenceAsCallback
+module.exports.returnCString = __napiModule.exports.returnCString
 module.exports.returnEither = __napiModule.exports.returnEither
 module.exports.returnEitherClass = __napiModule.exports.returnEitherClass
 module.exports.returnFromSharedCrate = __napiModule.exports.returnFromSharedCrate
@@ -573,9 +637,11 @@ module.exports.returnUndefinedIfInvalid = __napiModule.exports.returnUndefinedIf
 module.exports.returnUndefinedIfInvalidPromise = __napiModule.exports.returnUndefinedIfInvalidPromise
 module.exports.roundtripStr = __napiModule.exports.roundtripStr
 module.exports.runScript = __napiModule.exports.runScript
+module.exports.setNullByteProperty = __napiModule.exports.setNullByteProperty
 module.exports.setSymbolInObj = __napiModule.exports.setSymbolInObj
 module.exports.spawnThreadInThread = __napiModule.exports.spawnThreadInThread
 module.exports.Status = __napiModule.exports.Status
+module.exports.StatusInValidate = __napiModule.exports.StatusInValidate
 module.exports.StringEnum = __napiModule.exports.StringEnum
 module.exports.sumBtreeMapping = __napiModule.exports.sumBtreeMapping
 module.exports.sumIndexMapping = __napiModule.exports.sumIndexMapping
@@ -594,6 +660,7 @@ module.exports.throwSyntaxError = __napiModule.exports.throwSyntaxError
 module.exports.toJsObj = __napiModule.exports.toJsObj
 module.exports.tsfnAsyncCall = __napiModule.exports.tsfnAsyncCall
 module.exports.tsfnCallWithCallback = __napiModule.exports.tsfnCallWithCallback
+module.exports.tsfnInEither = __napiModule.exports.tsfnInEither
 module.exports.tsfnReturnPromise = __napiModule.exports.tsfnReturnPromise
 module.exports.tsfnReturnPromiseTimeout = __napiModule.exports.tsfnReturnPromiseTimeout
 module.exports.tsfnThrowFromJs = __napiModule.exports.tsfnThrowFromJs
@@ -610,6 +677,7 @@ module.exports.validateBuffer = __napiModule.exports.validateBuffer
 module.exports.validateBufferSlice = __napiModule.exports.validateBufferSlice
 module.exports.validateDate = __napiModule.exports.validateDate
 module.exports.validateDateTime = __napiModule.exports.validateDateTime
+module.exports.validateEnum = __napiModule.exports.validateEnum
 module.exports.validateExternal = __napiModule.exports.validateExternal
 module.exports.validateFunction = __napiModule.exports.validateFunction
 module.exports.validateHashMap = __napiModule.exports.validateHashMap
@@ -618,12 +686,15 @@ module.exports.validateNumber = __napiModule.exports.validateNumber
 module.exports.validateOptional = __napiModule.exports.validateOptional
 module.exports.validatePromise = __napiModule.exports.validatePromise
 module.exports.validateString = __napiModule.exports.validateString
+module.exports.validateStringEnum = __napiModule.exports.validateStringEnum
+module.exports.validateStructuredEnum = __napiModule.exports.validateStructuredEnum
 module.exports.validateSymbol = __napiModule.exports.validateSymbol
 module.exports.validateTypedArray = __napiModule.exports.validateTypedArray
 module.exports.validateTypedArraySlice = __napiModule.exports.validateTypedArraySlice
 module.exports.validateUint8ClampedSlice = __napiModule.exports.validateUint8ClampedSlice
 module.exports.validateUndefined = __napiModule.exports.validateUndefined
 module.exports.withAbortController = __napiModule.exports.withAbortController
+module.exports.withinAsyncRuntimeIfAvailable = __napiModule.exports.withinAsyncRuntimeIfAvailable
 module.exports.withoutAbortController = __napiModule.exports.withoutAbortController
 module.exports.xxh64Alias = __napiModule.exports.xxh64Alias
 module.exports.xxh2 = __napiModule.exports.xxh2

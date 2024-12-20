@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.json",
+  "include": ["."],
+  "compilerOptions": {
+    "moduleResolution": "node",
+    "outDir": "./dist",
+    "rootDir": ".",
+    "target": "ESNext",
+    "module": "CommonJS",
+    "skipLibCheck": true,
+    "noEmit": true,
+    "importHelpers": false,
+    "noEmitHelpers": false
+  },
+  "exclude": ["dist"]
+}

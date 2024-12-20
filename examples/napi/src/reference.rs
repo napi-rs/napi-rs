@@ -16,7 +16,7 @@ pub struct Remote<'repo> {
   inner: &'repo Repository,
 }
 
-impl<'repo> Remote<'repo> {
+impl Remote<'_> {
   fn name(&self) -> String {
     "origin".to_owned()
   }

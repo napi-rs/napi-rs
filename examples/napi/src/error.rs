@@ -35,6 +35,11 @@ pub fn custom_status_code() -> Result<(), CustomError> {
 }
 
 #[napi]
+pub fn error_message_contains_null_byte(msg: Utf16String) -> Result<()> {
+  Err(Error::new(Status::InvalidArg, msg))
+}
+
+#[napi]
 pub async fn throw_async_error() -> Result<()> {
   Err(Error::new(Status::InvalidArg, "Async Error".to_owned()))
 }
@@ -53,4 +58,10 @@ impl CustomStruct {
   pub fn custom_status_code_for_constructor() -> Result<Self, CustomError> {
     Err(Error::new(CustomError::Panic, "don't panic"))
   }
+}
+
+#[napi]
+pub fn js_error_callback(value: Unknown) -> Vec<JsError> {
+  let error: Error = value.into();
+  vec![error.clone().into(), error.into()]
 }

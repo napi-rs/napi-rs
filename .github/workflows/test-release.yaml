@@ -4,6 +4,8 @@ env:
   DEBUG: 'napi:*'
   RUST_BACKTRACE: 1
   CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: aarch64-linux-gnu-gcc
+  # https://github.com/nodejs/node/issues/51555#issuecomment-2290742072
+  DISABLE_V8_COMPILE_CACHE: 1
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -82,8 +84,8 @@ jobs:
               yarn test --verbose
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
               yarn test:macro
-            toolchain: 1.65.0
-          - host: macos-14
+            toolchain: 1.70.0
+          - host: macos-latest
             target: aarch64-apple-darwin
             build: yarn build:test
             test: |
@@ -113,10 +115,10 @@ jobs:
             toolchain: stable
         exclude:
           - settings:
-              toolchain: 1.65.0
+              toolchain: 1.70.0
             node: 18
           - settings:
-              toolchain: 1.65.0
+              toolchain: 1.70.0
             node: 20
           - settings:
               target: i686-pc-windows-msvc
@@ -151,7 +153,7 @@ jobs:
       - name: 'Install dependencies'
         shell: bash
         run: |
-          yarn config set supportedArchitectures.cpu --json '["current", "x64", "x86"]'
+          yarn config set supportedArchitectures.cpu --json '["current", "x64", "ia32", "wasm32"]'
           yarn install --mode=skip-build --immutable
 
       - name: Check build
@@ -181,6 +183,7 @@ jobs:
       - name: Electron tests
         if: matrix.settings.target == 'x86_64-unknown-linux-gnu'
         run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           node ./node_modules/electron/install.js
           xvfb-run --auto-servernum yarn test:electron
 
@@ -481,7 +484,7 @@ jobs:
         run: |
           node -e "console.info('docker-image=${{ matrix.settings.image }}'.replace('{:version}', ${{ matrix.node }}))" >> "$GITHUB_OUTPUT"
       - name: Run test
-        run: docker run --rm ${{ matrix.settings.args }} -v ${{ github.workspace }}:/build -w /build ${{ steps.image-name.outputs.docker-image }} sh -c "yarn workspace @examples/napi test"
+        run: docker run --rm ${{ matrix.settings.args }} -v ${{ github.workspace }}:/build -w /build ${{ steps.image-name.outputs.docker-image }} sh -c "DISABLE_V8_COMPILE_CACHE=1 yarn workspace @examples/napi test -s"
 
   build-and-test-linux-armv7:
     name: stable - armv7-unknown-linux-gnueabihf - node@20
@@ -615,7 +618,7 @@ jobs:
       - name: Build
         run: |
           yarn build
-          yarn workspace @examples/napi build --target wasm32-wasip1-threads --release
+          yarn workspace @examples/napi build --target wasm32-wasip1-threads --profile wasi
       - name: Test
         run: yarn workspace @examples/napi test -s
         env:
@@ -623,7 +626,9 @@ jobs:
           NODE_OPTIONS: '--max-old-space-size=8192'
           SKIP_UNWIND_TEST: 1
       - name: Browser test
-        run: yarn workspace @examples/napi vitest
+        run: |
+          yarn workspace @examples/napi playwright install chromium
+          yarn workspace @examples/napi vitest
 
   test-latest-bun:
     runs-on: ubuntu-latest

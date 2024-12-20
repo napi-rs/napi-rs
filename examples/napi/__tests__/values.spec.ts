@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 import { exec } from 'node:child_process'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -34,6 +35,10 @@ import {
   getIndexMapping,
   sumIndexMapping,
   indexmapPassthrough,
+  passSetToJs,
+  passSetToRust,
+  btreeSetToJs,
+  btreeSetToRust,
   getCwd,
   Animal,
   Kind,
@@ -48,12 +53,14 @@ import {
   mapOption,
   readFile,
   throwError,
+  jsErrorCallback,
   customStatusCode,
   panic,
   readPackageJson,
   getPackageJsonName,
   getBuffer,
   getEmptyBuffer,
+  getEmptyTypedArray,
   asyncBufferToArray,
   readFileAsync,
   eitherStringOrNumber,
@@ -182,10 +189,29 @@ import {
   mutateOptionalExternal,
   panicInAsync,
   CustomStruct,
+  ClassWithLifetime,
   uInit8ArrayFromString,
   callThenOnPromise,
   callCatchOnPromise,
   callFinallyOnPromise,
+  StructuredKind,
+  validateStructuredEnum,
+  createArraybuffer,
+  getBufferSlice,
+  createExternalBufferSlice,
+  createBufferSliceFromCopiedData,
+  Reader,
+  withinAsyncRuntimeIfAvailable,
+  errorMessageContainsNullByte,
+  returnCString,
+  receiveBufferSliceWithLifetime,
+  generateFunctionAndCallIt,
+  getMyVec,
+  setNullByteProperty,
+  getNullByteProperty,
+  getMappingWithHasher,
+  getIndexMappingWithHasher,
+  passSetWithHasherToJs,
 } from '../index.cjs'
 
 import { test } from './test.framework.js'
@@ -224,6 +250,7 @@ test('string', (t) => {
     roundtripStr('what up?!\u0000after the NULL'),
     'what up?!\u0000after the NULL',
   )
+  t.is(returnCString(), 'Hello from C string!')
 })
 
 test('array', (t) => {
@@ -236,18 +263,60 @@ test('array', (t) => {
 })
 
 test('map', (t) => {
-  t.deepEqual(getMapping(), { a: 101, b: 102 })
-  t.is(sumMapping({ a: 101, b: 102 }), 203)
-  t.deepEqual(getBtreeMapping(), { a: 101, b: 102 })
-  t.is(sumBtreeMapping({ a: 101, b: 102 }), 203)
-  t.deepEqual(getIndexMapping(), { a: 101, b: 102 })
-  t.is(sumIndexMapping({ a: 101, b: 102 }), 203)
-  t.deepEqual(indexmapPassthrough({ a: 101, b: 102 }), { a: 101, b: 102 })
+  t.deepEqual(getMapping(), { a: 101, b: 102, '\0c': 103 })
+  t.deepEqual(getMappingWithHasher(), { a: 101, b: 102 })
+  t.is(sumMapping({ a: 101, b: 102, '\0c': 103 }), 306)
+  t.deepEqual(getBtreeMapping(), { a: 101, b: 102, '\0c': 103 })
+  t.is(sumBtreeMapping({ a: 101, b: 102, '\0c': 103 }), 306)
+  t.deepEqual(getIndexMapping(), { a: 101, b: 102, '\0c': 103 })
+  t.deepEqual(getIndexMappingWithHasher(), { a: 101, b: 102 })
+  t.is(sumIndexMapping({ a: 101, b: 102, '\0c': 103 }), 306)
+  t.deepEqual(indexmapPassthrough({ a: 101, b: 102, '\0c': 103 }), {
+    a: 101,
+    b: 102,
+    '\0c': 103,
+  })
+})
+
+test('set', (t) => {
+  t.notThrows(() => {
+    passSetToRust(new Set(['a', 'b', 'c']))
+    btreeSetToRust(new Set(['a', 'b', 'c']))
+  })
+  t.deepEqual(Array.from(passSetToJs()).sort(), ['a', 'b', 'c'])
+  t.deepEqual(Array.from(passSetWithHasherToJs()).sort(), ['a', 'b', 'c'])
+  t.deepEqual(Array.from(btreeSetToJs()).sort(), ['a', 'b', 'c'])
 })
 
 test('enum', (t) => {
   t.deepEqual([Kind.Dog, Kind.Cat, Kind.Duck], [0, 1, 2])
   t.is(enumToI32(CustomNumEnum.Eight), 8)
+})
+
+test('structured enum', (t) => {
+  const hello: StructuredKind = {
+    type2: 'Hello',
+  }
+  const greeting: StructuredKind = {
+    type2: 'Greeting',
+    name: 'Napi-rs',
+  }
+  const birthday: StructuredKind = {
+    type2: 'Birthday',
+    name: 'Napi-rs',
+    age: 10,
+  }
+  const tuple: StructuredKind = {
+    type2: 'Tuple',
+    field0: 1,
+    field1: 2,
+  }
+  t.deepEqual(hello, validateStructuredEnum(hello))
+  t.deepEqual(greeting, validateStructuredEnum(greeting))
+  t.deepEqual(birthday, validateStructuredEnum(birthday))
+  t.deepEqual(tuple, validateStructuredEnum(tuple))
+  t.throws(() => validateStructuredEnum({ type2: 'unknown' } as any))
+  t.throws(() => validateStructuredEnum({ type2: 'Greeting' } as any))
 })
 
 test('function call', async (t) => {
@@ -345,6 +414,10 @@ test('class', (t) => {
   t.notThrows(() => {
     new CatchOnConstructor()
   })
+
+  const classWithLifetime = new ClassWithLifetime()
+  t.deepEqual(classWithLifetime.getName(), 'alie')
+  t.deepEqual(Object.keys(classWithLifetime), ['inner'])
 
   if (!process.env.TEST_ZIG_CROSS) {
     t.throws(
@@ -556,6 +629,17 @@ test('object', (t) => {
         'Failed to convert JavaScript value `Number 1 ` into rust type `String` on AllOptionalObject.name',
     },
   )
+
+  t.is(receiveBufferSliceWithLifetime({ data: 'foo' }), 3)
+  t.is(receiveBufferSliceWithLifetime({ data: Buffer.from('barz') }), 4)
+
+  const data = generateFunctionAndCallIt()
+  t.is(data.handle(), 1)
+
+  const objNull: any = {}
+  setNullByteProperty(objNull)
+  t.is(objNull['\0virtual'], 'test')
+  t.is(getNullByteProperty(objNull), 'test')
 })
 
 test('get str from object', (t) => {
@@ -569,7 +653,7 @@ test('create object from Property', (t) => {
 })
 
 test('global', (t) => {
-  t.is(getGlobal(), global)
+  t.is(getGlobal(), typeof global === 'undefined' ? globalThis : global)
 })
 
 test('get undefined', (t) => {
@@ -613,6 +697,11 @@ test('Result', (t) => {
   if (!process.env.SKIP_UNWIND_TEST) {
     t.throws(() => panic(), void 0, `Don't panic`)
   }
+  t.throws(() => errorMessageContainsNullByte('\u001a\u0000'))
+
+  const errors = jsErrorCallback(new Error('JS Error'))
+  t.deepEqual(errors[0]!.message, 'JS Error')
+  t.deepEqual(errors[1]!.message, 'JS Error')
 })
 
 test('Async error with stack trace', async (t) => {
@@ -745,6 +834,8 @@ test('serde-buffer-bytes', (t) => {
 
   t.is(testSerdeBufferBytes({ code: Buffer.from([1, 2, 3]) }), 3n)
   t.is(testSerdeBufferBytes({ code: Buffer.alloc(0) }), 0n)
+  t.is(testSerdeBufferBytes({ code: new ArrayBuffer(10) }), 10n)
+  t.is(testSerdeBufferBytes({ code: new ArrayBuffer(0) }), 0n)
 })
 
 test('buffer', (t) => {
@@ -752,14 +843,28 @@ test('buffer', (t) => {
   t.is(buf.toString('utf-8'), 'Hello world')
   buf = appendBuffer(buf)
   t.is(buf.toString('utf-8'), 'Hello world!')
+  t.is(getBufferSlice().toString('utf-8'), 'Hello world')
+  t.is(createExternalBufferSlice().toString('utf-8'), 'Hello world')
+  t.is(createBufferSliceFromCopiedData().toString('utf-8'), 'Hello world')
 
   const a = getEmptyBuffer()
   const b = getEmptyBuffer()
   t.is(a.toString(), '')
   t.is(b.toString(), '')
 
-  // @ts-expect-error
   t.true(Array.isArray(asyncBufferToArray(Buffer.from([1, 2, 3]).buffer)))
+})
+
+test('Return BufferSlice with lifetime', (t) => {
+  const reader = new Reader()
+  const reader2 = new Reader()
+  t.deepEqual(reader.read(), Buffer.from('Hello world'))
+  t.deepEqual(reader2.read(), Buffer.from('Hello world'))
+})
+
+test('Transparent', (t) => {
+  const v = getMyVec()
+  t.deepEqual(v, [42, 'a string'])
 })
 
 test('TypedArray', (t) => {
@@ -804,6 +909,12 @@ test('reset empty buffer', (t) => {
   })
 })
 
+test('empty typed array', (t) => {
+  t.notThrows(() => {
+    derefUint8Array(getEmptyTypedArray(), new Uint8ClampedArray([]))
+  })
+})
+
 test('convert typedarray to vec', (t) => {
   const input = new Uint32Array([1, 2, 3, 4, 5])
   t.deepEqual(convertU32Array(input), Array.from(input))
@@ -844,8 +955,12 @@ test('async', async (t) => {
   await t.throwsAsync(() => readFileAsync('some_nonexist_path.file'))
 })
 
+test('within async runtime', (t) => {
+  t.notThrows(() => withinAsyncRuntimeIfAvailable())
+})
+
 test('panic in async fn', async (t) => {
-  if (!process.env.SKIP_UNWIND_TEST) {
+  if (!process.env.SKIP_UNWIND_TEST && !process.env.WASI_TEST) {
     await t.throwsAsync(() => panicInAsync(), {
       message: 'panic in async function',
     })
@@ -877,6 +992,18 @@ test('async reduce buffer', async (t) => {
     await asyncReduceBuffer(fixture),
     input.reduce((acc, cur) => acc + cur),
   )
+})
+
+test('create arraybuffer with native', (t) => {
+  const ret = createArraybuffer()
+  t.true(ret instanceof ArrayBuffer)
+  const buf = new ArrayBuffer(4)
+  const view = new Uint8Array(buf)
+  view[0] = 1
+  view[1] = 2
+  view[2] = 3
+  view[3] = 4
+  t.deepEqual(ret, buf)
 })
 
 test('Uint8Array from String', async (t) => {
@@ -1048,6 +1175,10 @@ BigIntTest('from i128 i64', (t) => {
 })
 
 Napi4Test('call ThreadsafeFunction', (t) => {
+  if (process.env.WASI_TEST) {
+    t.pass()
+    return
+  }
   let i = 0
   let value = 0
   return new Promise((resolve) => {

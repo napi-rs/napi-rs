@@ -1,5 +1,6 @@
 /// default enum values are continuos i32s start from 0
 #[napi]
+#[derive(Debug, Clone, Copy)]
 pub enum Kind {
   /// Barks
   Dog,
@@ -59,4 +60,17 @@ pub enum CustomStringEnum {
   Foo,
   Bar,
   Baz,
+}
+
+#[napi(discriminant = "type2")]
+pub enum StructuredKind {
+  Hello,
+  Greeting { name: String },
+  Birthday { name: String, age: u8 },
+  Tuple(u32, u32),
+}
+
+#[napi]
+pub fn validate_structured_enum(kind: StructuredKind) -> StructuredKind {
+  kind
 }

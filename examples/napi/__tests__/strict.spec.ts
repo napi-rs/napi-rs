@@ -1,3 +1,5 @@
+import { Buffer } from 'node:buffer'
+
 import test from 'ava'
 
 import {
@@ -19,6 +21,10 @@ import {
   validateSymbol,
   validateNull,
   validateUndefined,
+  validateEnum,
+  validateStringEnum,
+  KindInValidate,
+  StatusInValidate,
   returnUndefinedIfInvalid,
   returnUndefinedIfInvalidPromise,
   validateOptional,
@@ -91,21 +97,21 @@ test('should validate boolean value', (t) => {
 })
 
 test('should validate date', (t) => {
-  if (Number(process.versions.napi) >= 5) {
+  if (Number(process.versions.napi) < 5) {
     return t.pass()
   }
   const fx = new Date('2016-12-24')
-  t.is(validateDate(new Date()), fx.valueOf())
+  t.is(validateDate(fx), fx.valueOf())
   t.is(validateDateTime(fx), 1)
   // @ts-expect-error
   t.throws(() => validateDate(1), {
     code: 'InvalidArg',
-    message: 'Expected a Date value',
+    message: 'Expected a Date object',
   })
   // @ts-expect-error
   t.throws(() => validateDateTime(2), {
     code: 'InvalidArg',
-    message: 'Expected a Date value',
+    message: 'Expected a Date object',
   })
 })
 
@@ -193,6 +199,23 @@ test('should validate undefined', (t) => {
   t.throws(() => validateUndefined(1), {
     code: 'InvalidArg',
     message: 'Expect value to be Undefined, but received Number',
+  })
+})
+
+test('should validate enum', (t) => {
+  t.is(validateEnum(KindInValidate.Cat), KindInValidate.Cat)
+  // @ts-expect-error
+  t.throws(() => validateEnum('3'), {
+    code: 'InvalidArg',
+    message: 'Expect value to be Number, but received String',
+  })
+
+  t.is(validateStringEnum(StatusInValidate.Poll), 'Poll')
+
+  // @ts-expect-error
+  t.throws(() => validateStringEnum(1), {
+    code: 'InvalidArg',
+    message: 'Expect value to be String, but received Number',
   })
 })
 

@@ -3,6 +3,66 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.65](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.64...@napi-rs/cli@3.0.0-alpha.65) (2024-12-18)
+
+### Bug Fixes
+
+- **cli:** wrong condintion in setFeatures ([#2396](https://github.com/napi-rs/napi-rs/issues/2396)) ([40ce1ff](https://github.com/napi-rs/napi-rs/commit/40ce1ffb7e45d8ef186b8b876e444c61680d602e))
+- **napi:** resuse threads worker on Node.js ([#2399](https://github.com/napi-rs/napi-rs/issues/2399)) ([8fffa49](https://github.com/napi-rs/napi-rs/commit/8fffa492822f26ae2139f2a8b8031bfbbd72e1f1))
+
+### Features
+
+- **cli:** add --no-dts-cache option to build command ([#2400](https://github.com/napi-rs/napi-rs/issues/2400)) ([a72c49b](https://github.com/napi-rs/napi-rs/commit/a72c49b92e6b7a2c33a0f0c79d9ec071997daae6))
+
+# [3.0.0-alpha.64](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.63...@napi-rs/cli@3.0.0-alpha.64) (2024-10-21)
+
+### Features
+
+- **cli):** `createRequire` for SEA support ([#2297](https://github.com/napi-rs/napi-rs/issues/2297)) ([7ef54f4](https://github.com/napi-rs/napi-rs/commit/7ef54f413be519b1bfb3d4a788203b63c34613c7))
+- support ESM binding ([#2284](https://github.com/napi-rs/napi-rs/issues/2284)) ([960d07e](https://github.com/napi-rs/napi-rs/commit/960d07e5da6ad3c050aca7ba0fd0a2f2c057f72f))
+
+# [3.0.0-alpha.63](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.62...@napi-rs/cli@3.0.0-alpha.63) (2024-10-02)
+
+### Bug Fixes
+
+- **ci:** bump FreeBSD version to 13.3 ([#2220](https://github.com/napi-rs/napi-rs/issues/2220)) ([b5a5b03](https://github.com/napi-rs/napi-rs/commit/b5a5b032f69c77d85eb52312b9439bff9a8b41d8))
+- **cli:** extra line break in the tail of dts file ([#2255](https://github.com/napi-rs/napi-rs/issues/2255)) ([20b9de3](https://github.com/napi-rs/napi-rs/commit/20b9de3ec7a6aaa1f807f9831247ee8b573c0e4e))
+- **deps:** update dependency @inquirer/prompts to v6 ([#2257](https://github.com/napi-rs/napi-rs/issues/2257)) ([e11ceac](https://github.com/napi-rs/napi-rs/commit/e11ceacd5984ac1150132613edbfef506557e88c))
+
+### Features
+
+- support structured enum with discriminated unions ([#2222](https://github.com/napi-rs/napi-rs/issues/2222)) ([c459f0a](https://github.com/napi-rs/napi-rs/commit/c459f0acf6e18ddd9edfe3bf2771ab76bff0c25f))
+
+# [3.0.0-alpha.62](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.61...@napi-rs/cli@3.0.0-alpha.62) (2024-07-21)
+
+### Bug Fixes
+
+- **cli:** should not log errors if everything fine ([3284f88](https://github.com/napi-rs/napi-rs/commit/3284f881a625b902bb222136d8081c71ab15cc86))
+
+# [3.0.0-alpha.61](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.60...@napi-rs/cli@3.0.0-alpha.61) (2024-07-18)
+
+**Note:** Version bump only for package @napi-rs/cli
+
+# [3.0.0-alpha.60](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.59...@napi-rs/cli@3.0.0-alpha.60) (2024-07-16)
+
+### Bug Fixes
+
+- **cli:** bundle @octokit/rest into cjs entry ([#2190](https://github.com/napi-rs/napi-rs/issues/2190)) ([6078bb7](https://github.com/napi-rs/napi-rs/commit/6078bb7ccec935a685b78094a8faddc8a8590fe3))
+
+# [3.0.0-alpha.59](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.58...@napi-rs/cli@3.0.0-alpha.59) (2024-07-15)
+
+### Bug Fixes
+
+- **cli:** bundle lodash-es in cjs output ([#2189](https://github.com/napi-rs/napi-rs/issues/2189)) ([e860822](https://github.com/napi-rs/napi-rs/commit/e8608228b89f74793f4ea264fbbef00025449cad))
+- **cli:** worker files format ([#2186](https://github.com/napi-rs/napi-rs/issues/2186)) ([13c1838](https://github.com/napi-rs/napi-rs/commit/13c18388f5c57c1fa86a3a43ea9540af27d862c9))
+
+# [3.0.0-alpha.58](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.57...@napi-rs/cli@3.0.0-alpha.58) (2024-07-11)
+
+### Bug Fixes
+
+- **cli:** wasm binding files destination ([#2182](https://github.com/napi-rs/napi-rs/issues/2182)) ([5976f04](https://github.com/napi-rs/napi-rs/commit/5976f04e542da214013ea61c13340ad0eb4861d1))
+- **deps:** update dependency inquirer to v10 ([#2173](https://github.com/napi-rs/napi-rs/issues/2173)) ([9800ea7](https://github.com/napi-rs/napi-rs/commit/9800ea7350dc5db4332c5383417700cc3509b644))
+
 # [3.0.0-alpha.57](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.56...@napi-rs/cli@3.0.0-alpha.57) (2024-07-09)
 
 ### Bug Fixes

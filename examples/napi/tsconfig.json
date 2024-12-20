@@ -1,5 +1,5 @@
 {
-  "extends": "../tsconfig.json",
+  "extends": "../../tsconfig.json",
   "include": ["."],
   "compilerOptions": {
     "moduleResolution": "node",
@@ -7,7 +7,6 @@
     "rootDir": ".",
     "target": "ESNext",
     "module": "ESNext",
-    "skipLibCheck": false,
     "noEmit": true,
     "types": ["bun-types"],
     "importHelpers": false

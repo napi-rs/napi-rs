@@ -1,4 +1,4 @@
-use std::{thread, time::Duration};
+use std::{sync::Arc, thread, time::Duration};
 
 use napi::{
   bindgen_prelude::*,
@@ -6,7 +6,9 @@ use napi::{
 };
 
 #[napi]
-pub fn call_threadsafe_function(tsfn: ThreadsafeFunction<u32, UnknownReturnValue>) -> Result<()> {
+pub fn call_threadsafe_function(
+  tsfn: Arc<ThreadsafeFunction<u32, UnknownReturnValue>>,
+) -> Result<()> {
   for n in 0..100 {
     let tsfn = tsfn.clone();
     thread::spawn(move || {
@@ -170,4 +172,20 @@ pub fn spawn_thread_in_thread(tsfn: ThreadsafeFunction<u32, u32>) {
       tsfn.call(Ok(42), ThreadsafeFunctionCallMode::NonBlocking);
     });
   });
+}
+
+#[napi(object, object_to_js = false)]
+pub struct Pet {
+  pub name: String,
+  pub kind: u32,
+  pub either_tsfn: Either<String, ThreadsafeFunction<i32, i32>>,
+}
+
+#[napi]
+pub fn tsfn_in_either(pet: Pet) {
+  if let Either::B(tsfn) = pet.either_tsfn {
+    thread::spawn(move || {
+      tsfn.call(Ok(42), ThreadsafeFunctionCallMode::NonBlocking);
+    });
+  }
 }

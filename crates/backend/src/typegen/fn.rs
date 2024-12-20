@@ -1,9 +1,9 @@
 use convert_case::{Case, Casing};
 use quote::ToTokens;
 use std::fmt::{Display, Formatter};
-use syn::{Pat, PathArguments, PathSegment};
+use syn::{Member, Pat, PathArguments, PathSegment};
 
-use super::{ty_to_ts_type, ToTypeDef, TypeDef};
+use super::{r#struct::CLASS_STRUCTS, ty_to_ts_type, ToTypeDef, TypeDef};
 use crate::{js_doc_from_comments, CallbackArg, FnKind, NapiFn};
 
 pub(crate) struct FnArg {
@@ -71,25 +71,28 @@ impl ToTypeDef for NapiFn {
       return None;
     }
 
-    let def = format!(
-      r#"{prefix} {name}{generic}({args}){ret}"#,
-      prefix = self.gen_ts_func_prefix(),
-      name = &self.js_name,
-      generic = &self
-        .ts_generic_types
-        .as_ref()
-        .map(|g| format!("<{}>", g))
-        .unwrap_or_default(),
-      args = self
-        .ts_args_type
-        .clone()
-        .unwrap_or_else(|| self.gen_ts_func_args()),
-      ret = self
-        .ts_return_type
-        .clone()
-        .map(|t| format!(": {}", t))
-        .unwrap_or_else(|| self.gen_ts_func_ret()),
-    );
+    let prefix = self.gen_ts_func_prefix();
+    let def = match self.ts_type.as_ref() {
+      Some(ts_type) => format!("{prefix} {name}{ts_type}", name = self.js_name),
+      None => format!(
+        r#"{prefix} {name}{generic}({args}){ret}"#,
+        name = &self.js_name,
+        generic = &self
+          .ts_generic_types
+          .as_ref()
+          .map(|g| format!("<{}>", g))
+          .unwrap_or_default(),
+        args = self
+          .ts_args_type
+          .clone()
+          .unwrap_or_else(|| self.gen_ts_func_args()),
+        ret = self
+          .ts_return_type
+          .clone()
+          .map(|t| format!(": {}", t))
+          .unwrap_or_else(|| self.gen_ts_func_ret()),
+      ),
+    };
 
     Some(TypeDef {
       kind: "fn".to_owned(),
@@ -125,6 +128,53 @@ fn gen_callback_type(callback: &CallbackArg) -> String {
   )
 }
 
+fn gen_ts_func_arg(pat: &Pat) -> String {
+  match pat {
+    Pat::Struct(s) => format!(
+      "{{ {} }}",
+      s.fields
+        .iter()
+        .map(|field| {
+          let member_str = match &field.member {
+            Member::Named(ident) => ident.to_string(),
+            Member::Unnamed(index) => format!("field{}", index.index),
+          };
+          let nested_str = gen_ts_func_arg(&field.pat);
+          if member_str == nested_str {
+            member_str.to_case(Case::Camel)
+          } else {
+            format!("{}: {}", member_str.to_case(Case::Camel), nested_str)
+          }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+        .as_str()
+    ),
+    Pat::TupleStruct(ts) => format!(
+      "{{ {} }}",
+      ts.elems
+        .iter()
+        .enumerate()
+        .map(|(index, elem)| {
+          let member_str = format!("field{}", index);
+          let nested_str = gen_ts_func_arg(elem);
+          format!("{}: {}", member_str, nested_str)
+        })
+        .collect::<Vec<_>>()
+        .join(", "),
+    ),
+    Pat::Tuple(t) => format!(
+      "[{}]",
+      t.elems
+        .iter()
+        .map(gen_ts_func_arg)
+        .collect::<Vec<_>>()
+        .join(", ")
+    ),
+    _ => pat.to_token_stream().to_string().to_case(Case::Camel),
+  }
+}
+
 impl NapiFn {
   fn gen_ts_func_args(&self) -> String {
     format!(
@@ -137,6 +187,15 @@ impl NapiFn {
             let ty_string = path.ty.to_token_stream().to_string();
             if ty_string == "Env" {
               return None;
+            }
+            if let syn::Type::Reference(syn::TypeReference { elem, .. }) = &*path.ty {
+              if let syn::Type::Path(path) = elem.as_ref() {
+                if let Some(PathSegment { ident, .. }) = path.path.segments.last() {
+                  if ident == "Env" {
+                    return None;
+                  }
+                }
+              }
             }
             if let syn::Type::Path(path) = path.ty.as_ref() {
               if let Some(PathSegment { ident, arguments }) = path.path.segments.last() {
@@ -199,8 +258,7 @@ impl NapiFn {
 
             let (ts_type, is_optional) = ty_to_ts_type(&path.ty, false, false, false);
             let ts_type = arg.use_overridden_type_or(|| ts_type);
-            let arg = path.pat.to_token_stream().to_string().to_case(Case::Camel);
-
+            let arg = gen_ts_func_arg(&path.pat);
             Some(FnArg {
               arg,
               ts_type,
@@ -246,7 +304,11 @@ impl NapiFn {
         .parent
         .clone()
         .map(|i| {
-          let parent = i.to_string().to_case(Case::Pascal);
+          let origin_name = i.to_string();
+          let parent = CLASS_STRUCTS
+            .with_borrow(|c| c.get(&origin_name).cloned())
+            .unwrap_or_else(|| origin_name.to_case(Case::Pascal));
+
           if self.is_async {
             format!(": Promise<{}>", parent)
           } else {

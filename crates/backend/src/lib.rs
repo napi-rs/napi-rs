@@ -2,8 +2,8 @@
 extern crate quote;
 
 use std::collections::HashMap;
+use std::sync::LazyLock;
 
-use once_cell::sync::Lazy;
 use proc_macro2::TokenStream;
 
 #[macro_use]
@@ -97,6 +97,7 @@ pub(crate) static PRIMITIVE_TYPES: &[(&str, (&str, bool, bool))] = &[
   ("bool", ("boolean", false, false)),
   ("JsString", ("string", false, false)),
   ("String", ("string", false, false)),
+  ("RawCString", ("string", false, false)),
   ("str", ("string", false, false)),
   ("Latin1String", ("string", false, false)),
   ("Utf16String", ("string", false, false)),
@@ -109,7 +110,7 @@ pub(crate) static PRIMITIVE_TYPES: &[(&str, (&str, bool, bool))] = &[
   ("JsFunction", ("(...args: any[]) => any", true, false)),
 ];
 
-pub(crate) static TYPEDARRAY_SLICE_TYPES: Lazy<HashMap<&str, &str>> = Lazy::new(|| {
+pub(crate) static TYPEDARRAY_SLICE_TYPES: LazyLock<HashMap<&str, &str>> = LazyLock::new(|| {
   HashMap::from([
     ("u8", "Uint8Array"),
     ("i8", "Int8Array"),
