@@ -1,7 +1,7 @@
 use std::convert::TryFrom;
 use std::str;
 
-use crate::{Error, JsString, Result, Status};
+use crate::{Error, JsString, Result};
 
 pub struct JsStringUtf8 {
   pub(crate) inner: JsString,
@@ -10,13 +10,7 @@ pub struct JsStringUtf8 {
 
 impl JsStringUtf8 {
   pub fn as_str(&self) -> Result<&str> {
-    match str::from_utf8(&self.buf) {
-      Err(e) => Err(Error::new(
-        Status::InvalidArg,
-        format!("Failed to read utf8 string, {}", e),
-      )),
-      Ok(s) => Ok(s),
-    }
+    Ok(unsafe { str::from_utf8_unchecked(&self.buf) })
   }
 
   pub fn as_slice(&self) -> &[u8] {
@@ -32,11 +26,11 @@ impl JsStringUtf8 {
   }
 
   pub fn into_owned(self) -> Result<String> {
-    Ok(self.as_str()?.to_owned())
+    Ok(unsafe { String::from_utf8_unchecked(self.buf) })
   }
 
   pub fn take(self) -> Vec<u8> {
-    self.as_slice().to_vec()
+    self.buf
   }
 
   pub fn into_value(self) -> JsString {
