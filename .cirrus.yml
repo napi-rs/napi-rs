@@ -33,7 +33,7 @@ build_and_test: &BUILD_AND_TEST
 freebsd_task:
   name: FreeBSD
   freebsd_instance:
-    image_family: freebsd-14-1
+    image_family: freebsd-14-2
   env:
     RUSTUP_HOME: /usr/local/rustup
     CARGO_HOME: /usr/local/cargo
