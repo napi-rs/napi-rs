@@ -64,6 +64,7 @@ mod reference;
 mod serde;
 mod set;
 mod shared;
+mod stream;
 mod string;
 mod symbol;
 mod task;

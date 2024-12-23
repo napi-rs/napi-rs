@@ -258,6 +258,8 @@ export declare function acceptArraybuffer(fixture: ArrayBuffer): bigint
 
 export declare function acceptSlice(fixture: Uint8Array): bigint
 
+export declare function acceptStream(stream: ReadableStream<Uint8Array>): Promise<Buffer>
+
 export declare function acceptThreadsafeFunction(func: ((err: Error | null, arg: number) => any)): void
 
 export declare function acceptThreadsafeFunctionFatal(func: ((arg: number) => void)): void
@@ -420,6 +422,8 @@ export declare function createObjectWithClassField(): ObjectFieldClassInstance
 export declare function createObjWithProperty(): { value: ArrayBuffer, get getter(): number }
 
 export declare function createOptionalExternal(size?: number | undefined | null): ExternalObject<number> | null
+
+export declare function createReadableStream(): ReadableStream<Buffer>
 
 export declare function createReferenceOnFunction(cb: () => void): Promise<void>
 

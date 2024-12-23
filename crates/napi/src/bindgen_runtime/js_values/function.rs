@@ -260,6 +260,39 @@ impl<Args: JsValuesTupleIntoVec, Return: FromNapiValue> Function<'_, Args, Retur
     )?;
     unsafe { Return::from_napi_value(self.env, raw_return) }
   }
+
+  /// Call `Function.bind`
+  pub fn bind<T: ToNapiValue>(&self, this: T) -> Result<Function<'_, Args, Return>> {
+    let raw_this = unsafe { T::to_napi_value(self.env, this) }?;
+    let mut bind_function = ptr::null_mut();
+    check_status!(
+      unsafe {
+        sys::napi_get_named_property(self.env, self.value, c"bind".as_ptr(), &mut bind_function)
+      },
+      "Get bind function failed"
+    )?;
+    let mut bound_function = ptr::null_mut();
+    check_status!(
+      unsafe {
+        sys::napi_call_function(
+          self.env,
+          self.value,
+          bind_function,
+          1,
+          [raw_this].as_ptr(),
+          &mut bound_function,
+        )
+      },
+      "Bind function failed"
+    )?;
+    Ok(Function {
+      env: self.env,
+      value: bound_function,
+      _args: std::marker::PhantomData,
+      _return: std::marker::PhantomData,
+      _scope: std::marker::PhantomData,
+    })
+  }
 }
 
 #[cfg(feature = "napi4")]

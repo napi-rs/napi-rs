@@ -190,6 +190,7 @@ static KNOWN_TYPES: LazyLock<HashMap<&'static str, (&'static str, bool, bool)>> 
     ("ClassInstance", ("{}", false, false)),
     ("Function", ("({}) => {}", true, false)),
     ("FunctionRef", ("({}) => {}", true, false)),
+    ("ReadableStream", ("ReadableStream<{}>", false, false)),
     ("Either", ("{} | {}", false, true)),
     ("Either3", ("{} | {} | {}", false, true)),
     ("Either4", ("{} | {} | {} | {}", false, true)),

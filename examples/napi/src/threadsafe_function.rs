@@ -100,10 +100,10 @@ pub fn tsfn_call_with_callback(tsfn: ThreadsafeFunction<(), String>) -> napi::Re
 }
 
 #[napi(ts_return_type = "Promise<void>")]
-pub fn tsfn_async_call(
-  env: Env,
+pub fn tsfn_async_call<'env>(
+  env: &'env Env,
   func: Function<FnArgs<(u32, u32, u32)>, String>,
-) -> napi::Result<PromiseRaw<()>> {
+) -> napi::Result<PromiseRaw<'env, ()>> {
   let tsfn = func.build_threadsafe_function().build()?;
 
   env.spawn_future(async move {

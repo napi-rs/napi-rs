@@ -232,18 +232,30 @@ pub fn execute_tokio_future<
 }
 
 pub struct AsyncBlockBuilder<
-  V: ToNapiValue + Send + 'static,
+  V: Send + 'static,
   F: Future<Output = Result<V>> + Send + 'static,
-  Dispose: FnOnce(Env) + 'static,
+  Dispose: FnOnce(Env) -> Result<()> + 'static = fn(Env) -> Result<()>,
 > {
   inner: F,
   dispose: Option<Dispose>,
 }
 
+impl<V: ToNapiValue + Send + 'static, F: Future<Output = Result<V>> + Send + 'static>
+  AsyncBlockBuilder<V, F>
+{
+  /// Create a new `AsyncBlockBuilder` with the given future, without dispose
+  pub fn new(inner: F) -> Self {
+    Self {
+      inner,
+      dispose: None,
+    }
+  }
+}
+
 impl<
     V: ToNapiValue + Send + 'static,
     F: Future<Output = Result<V>> + Send + 'static,
-    Dispose: FnOnce(Env),
+    Dispose: FnOnce(Env) -> Result<()> + 'static,
   > AsyncBlockBuilder<V, F, Dispose>
 {
   pub fn with(inner: F) -> Self {
@@ -258,12 +270,12 @@ impl<
     self
   }
 
-  pub fn build(self, env: Env) -> Result<AsyncBlock<V>> {
+  pub fn build(self, env: &Env) -> Result<AsyncBlock<V>> {
     Ok(AsyncBlock {
       inner: execute_tokio_future(env.0, self.inner, |env, v| unsafe {
         if let Some(dispose) = self.dispose {
           let env = Env::from_raw(env);
-          dispose(env);
+          dispose(env)?;
         }
         V::to_napi_value(env, v)
       })?,
@@ -272,12 +284,29 @@ impl<
   }
 }
 
-pub struct AsyncBlock<T: ToNapiValue + Send + 'static> {
+impl<V: Send + 'static, F: Future<Output = Result<V>> + Send + 'static> AsyncBlockBuilder<V, F> {
+  /// Create a new `AsyncBlockBuilder` with the given future, without dispose
+  pub fn build_with_map<T: ToNapiValue, Map: FnOnce(Env, V) -> Result<T> + 'static>(
+    env: &Env,
+    inner: F,
+    map: Map,
+  ) -> Result<AsyncBlock<T>> {
+    Ok(AsyncBlock {
+      inner: execute_tokio_future(env.0, inner, |env, v| unsafe {
+        let v = map(Env::from_raw(env), v)?;
+        T::to_napi_value(env, v)
+      })?,
+      _phantom: PhantomData,
+    })
+  }
+}
+
+pub struct AsyncBlock<T: ToNapiValue + 'static> {
   inner: sys::napi_value,
   _phantom: PhantomData<T>,
 }
 
-impl<T: ToNapiValue + Send + 'static> ToNapiValue for AsyncBlock<T> {
+impl<T: ToNapiValue + 'static> ToNapiValue for AsyncBlock<T> {
   unsafe fn to_napi_value(_: napi_sys::napi_env, val: Self) -> Result<napi_sys::napi_value> {
     Ok(val.inner)
   }

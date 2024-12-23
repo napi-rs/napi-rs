@@ -52,7 +52,10 @@ pub fn call_function_with_arg(
 }
 
 #[napi(ts_return_type = "Promise<void>")]
-pub fn create_reference_on_function(env: Env, cb: Function<(), ()>) -> Result<PromiseRaw<()>> {
+pub fn create_reference_on_function<'env>(
+  env: &'env Env,
+  cb: Function<'env, (), ()>,
+) -> Result<PromiseRaw<'env, ()>> {
   let reference = cb.create_ref()?;
   env.spawn_future_with_callback(
     async {
@@ -60,7 +63,7 @@ pub fn create_reference_on_function(env: Env, cb: Function<(), ()>) -> Result<Pr
       Ok(())
     },
     move |env, _| {
-      let cb = reference.borrow_back(env)?;
+      let cb = reference.borrow_back(&env)?;
       cb.call(())?;
       Ok(())
     },

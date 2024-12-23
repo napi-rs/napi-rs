@@ -17,11 +17,11 @@ impl Task for BufferLength {
 }
 
 #[js_function(1)]
-fn bench_async_task(ctx: CallContext) -> Result<PromiseRaw<u32>> {
+fn bench_async_task(ctx: CallContext) -> Result<Unknown> {
   let n = ctx.get::<Buffer>(0)?;
   let task = BufferLength(n);
   let async_promise = ctx.env.spawn(task)?;
-  Ok(async_promise.promise_object())
+  Ok(async_promise.promise_object().into_unknown())
 }
 
 #[js_function(2)]

@@ -7,12 +7,12 @@ pub async fn async_plus_100(p: Promise<u32>) -> Result<u32> {
 }
 
 #[napi]
-pub fn call_then_on_promise(mut input: PromiseRaw<u32>) -> Result<PromiseRaw<String>> {
+pub fn call_then_on_promise(input: PromiseRaw<u32>) -> Result<PromiseRaw<String>> {
   input.then(|v| Ok(format!("{}", v.value)))
 }
 
 #[napi]
-pub fn call_catch_on_promise(mut input: PromiseRaw<u32>) -> Result<PromiseRaw<String>> {
+pub fn call_catch_on_promise(input: PromiseRaw<'_, u32>) -> Result<PromiseRaw<'_, String>> {
   input.catch(|e: CallbackContext<String>| Ok(e.value))
 }
 

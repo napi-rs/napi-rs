@@ -10,25 +10,31 @@ use crate::{
 };
 use crate::{Env, Error, NapiRaw, NapiValue, Status};
 
-pub struct PromiseRaw<T> {
+use super::Unknown;
+
+pub struct PromiseRaw<'env, T> {
   pub(crate) inner: sys::napi_value,
   env: sys::napi_env,
-  _phantom: PhantomData<T>,
+  _phantom: &'env PhantomData<T>,
 }
 
-impl<T> PromiseRaw<T> {
+impl<T> PromiseRaw<'_, T> {
   pub(crate) fn new(env: sys::napi_env, inner: sys::napi_value) -> Self {
     Self {
       inner,
       env,
-      _phantom: PhantomData,
+      _phantom: &PhantomData,
     }
+  }
+
+  pub fn into_unknown(self) -> Unknown {
+    unsafe { Unknown::from_raw_unchecked(self.env, self.inner) }
   }
 }
 
-impl<T: FromNapiValue> PromiseRaw<T> {
+impl<'env, T: FromNapiValue> PromiseRaw<'env, T> {
   /// Promise.then method
-  pub fn then<Callback, U>(&mut self, cb: Callback) -> Result<PromiseRaw<U>>
+  pub fn then<Callback, U>(&self, cb: Callback) -> Result<PromiseRaw<'env, U>>
   where
     U: ToNapiValue,
     Callback: 'static + FnOnce(CallbackContext<T>) -> Result<U>,
@@ -88,12 +94,12 @@ impl<T: FromNapiValue> PromiseRaw<T> {
     Ok(PromiseRaw::<U> {
       env: self.env,
       inner: new_promise,
-      _phantom: PhantomData,
+      _phantom: &PhantomData,
     })
   }
 
   /// Promise.catch method
-  pub fn catch<E, U, Callback>(&mut self, cb: Callback) -> Result<PromiseRaw<U>>
+  pub fn catch<E, U, Callback>(&self, cb: Callback) -> Result<PromiseRaw<'env, U>>
   where
     E: FromNapiValue,
     U: ToNapiValue,
@@ -154,12 +160,12 @@ impl<T: FromNapiValue> PromiseRaw<T> {
     Ok(PromiseRaw::<U> {
       env: self.env,
       inner: new_promise,
-      _phantom: PhantomData,
+      _phantom: &PhantomData,
     })
   }
 
   /// Promise.finally method
-  pub fn finally<U, Callback>(&mut self, cb: Callback) -> Result<PromiseRaw<T>>
+  pub fn finally<U, Callback>(&mut self, cb: Callback) -> Result<PromiseRaw<'env, T>>
   where
     U: ToNapiValue,
     Callback: 'static + FnOnce(Env) -> Result<U>,
@@ -203,7 +209,7 @@ impl<T: FromNapiValue> PromiseRaw<T> {
     Ok(Self {
       env: self.env,
       inner: new_promise,
-      _phantom: PhantomData,
+      _phantom: &PhantomData,
     })
   }
 
@@ -216,7 +222,7 @@ impl<T: FromNapiValue> PromiseRaw<T> {
   }
 }
 
-impl<T: FromNapiValue> TypeName for PromiseRaw<T> {
+impl<T: FromNapiValue> TypeName for PromiseRaw<'_, T> {
   fn type_name() -> &'static str {
     "Promise"
   }
@@ -226,7 +232,7 @@ impl<T: FromNapiValue> TypeName for PromiseRaw<T> {
   }
 }
 
-impl<T: FromNapiValue> ValidateNapiValue for PromiseRaw<T> {
+impl<T: FromNapiValue> ValidateNapiValue for PromiseRaw<'_, T> {
   unsafe fn validate(
     env: napi_sys::napi_env,
     napi_val: napi_sys::napi_value,
@@ -235,13 +241,13 @@ impl<T: FromNapiValue> ValidateNapiValue for PromiseRaw<T> {
   }
 }
 
-impl<T> NapiRaw for PromiseRaw<T> {
+impl<T> NapiRaw for PromiseRaw<'_, T> {
   unsafe fn raw(&self) -> sys::napi_value {
     self.inner
   }
 }
 
-impl<T> NapiValue for PromiseRaw<T> {
+impl<T> NapiValue for PromiseRaw<'_, T> {
   unsafe fn from_raw(env: napi_sys::napi_env, value: napi_sys::napi_value) -> Result<Self> {
     let mut is_promise = false;
     check_status!(unsafe { sys::napi_is_promise(env, value, &mut is_promise) })?;
@@ -249,7 +255,7 @@ impl<T> NapiValue for PromiseRaw<T> {
       .then_some(Self {
         env,
         inner: value,
-        _phantom: PhantomData,
+        _phantom: &PhantomData,
       })
       .ok_or_else(|| Error::new(Status::InvalidArg, "JavaScript value is not Promise"))
   }
@@ -258,7 +264,7 @@ impl<T> NapiValue for PromiseRaw<T> {
     Self {
       env,
       inner: value,
-      _phantom: PhantomData,
+      _phantom: &PhantomData,
     }
   }
 }
