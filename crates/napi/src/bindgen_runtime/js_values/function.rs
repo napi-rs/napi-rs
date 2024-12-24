@@ -15,15 +15,22 @@ pub trait JsValuesTupleIntoVec {
   fn into_vec(self, env: sys::napi_env) -> Result<Vec<sys::napi_value>>;
 }
 
-impl<T: ToNapiValue> JsValuesTupleIntoVec for T {
+impl<T> JsValuesTupleIntoVec for T
+where
+  T: ToNapiValue,
+{
   #[allow(clippy::not_unsafe_ptr_arg_deref)]
   fn into_vec(self, env: sys::napi_env) -> Result<Vec<sys::napi_value>> {
-    Ok(vec![unsafe {
-      <T as ToNapiValue>::to_napi_value(env, self)?
-    }])
+    // allow call function with `()` and function's arguments should be empty array
+    if std::mem::size_of::<T>() == 0 {
+      Ok(vec![])
+    } else {
+      Ok(vec![unsafe {
+        <T as ToNapiValue>::to_napi_value(env, self)?
+      }])
+    }
   }
 }
-
 pub trait TupleFromSliceValues {
   #[allow(clippy::missing_safety_doc)]
   unsafe fn from_slice_values(env: sys::napi_env, values: &[sys::napi_value]) -> Result<Self>
