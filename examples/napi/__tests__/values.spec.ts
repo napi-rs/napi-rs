@@ -323,7 +323,11 @@ test('structured enum', (t) => {
 
 test('function call', async (t) => {
   t.is(
-    call0(() => 42),
+    call0((...args) => {
+      console.error(args)
+      t.is(args.length, 0)
+      return 42
+    }),
     42,
   )
   t.is(
