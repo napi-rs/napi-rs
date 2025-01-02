@@ -396,6 +396,13 @@ function __napi_rs_initialize_modules(__napiInstance) {
   __napiInstance.exports['__napi_register__AsyncReader_impl_400']?.()
   __napiInstance.exports['__napi_register__Reader_struct_401']?.()
   __napiInstance.exports['__napi_register__Reader_impl_403']?.()
+  __napiInstance.exports['__napi_register__CustomU32_404']?.()
+  __napiInstance.exports['__napi_register__MyPromise_405']?.()
+  __napiInstance.exports['__napi_register__Nullable_406']?.()
+  __napiInstance.exports['__napi_register__VoidNullable_407']?.()
+  __napiInstance.exports['__napi_register__RuleHandler_408']?.()
+  __napiInstance.exports['__napi_register__Rule_struct_409']?.()
+  __napiInstance.exports['__napi_register__call_rule_handler_410']?.()
 }
 export const Animal = __napiModule.exports.Animal
 export const AnimalWithDefaultConstructor = __napiModule.exports.AnimalWithDefaultConstructor
@@ -481,6 +488,7 @@ export const callFunction = __napiModule.exports.callFunction
 export const callFunctionWithArg = __napiModule.exports.callFunctionWithArg
 export const callFunctionWithArgAndCtx = __napiModule.exports.callFunctionWithArgAndCtx
 export const callLongThreadsafeFunction = __napiModule.exports.callLongThreadsafeFunction
+export const callRuleHandler = __napiModule.exports.callRuleHandler
 export const callThenOnPromise = __napiModule.exports.callThenOnPromise
 export const callThreadsafeFunction = __napiModule.exports.callThreadsafeFunction
 export const captureErrorInCallback = __napiModule.exports.captureErrorInCallback
