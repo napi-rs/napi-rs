@@ -1,25 +1,26 @@
 use napi::{
-  bindgen_prelude::Function, CallContext, JsError, JsNull, JsObject, JsString, JsUnknown, Result,
+  bindgen_prelude::{FnArgs, Function},
+  CallContext, JsError, JsNull, JsObject, JsString, JsUnknown, Result,
 };
 
 #[js_function(1)]
 pub fn call_function(ctx: CallContext) -> Result<JsNull> {
-  let js_func = ctx.get::<Function<(JsUnknown, JsUnknown)>>(0)?;
+  let js_func = ctx.get::<Function<FnArgs<(JsUnknown, JsUnknown)>>>(0)?;
   let js_string_hello = ctx.env.create_string("hello".as_ref())?.into_unknown();
   let js_string_world = ctx.env.create_string("world".as_ref())?.into_unknown();
 
-  js_func.call((js_string_hello, js_string_world))?;
+  js_func.call((js_string_hello, js_string_world).into())?;
 
   ctx.env.get_null()
 }
 
 #[js_function(1)]
 pub fn call_function_with_ref_arguments(ctx: CallContext) -> Result<JsNull> {
-  let js_func = ctx.get::<Function<(JsString, JsString)>>(0)?;
+  let js_func = ctx.get::<Function<FnArgs<(JsString, JsString)>>>(0)?;
   let js_string_hello = ctx.env.create_string("hello".as_ref())?;
   let js_string_world = ctx.env.create_string("world".as_ref())?;
 
-  js_func.call((js_string_hello, js_string_world))?;
+  js_func.call((js_string_hello, js_string_world).into())?;
 
   ctx.env.get_null()
 }
@@ -73,9 +74,10 @@ pub fn test_nest_create_function_from_closure(ctx: CallContext) -> Result<Functi
             Ok(())
           })?;
 
-      let on_handle = obj.get_named_property::<Function<(String, Function<(), ()>), ()>>("on")?;
+      let on_handle =
+        obj.get_named_property::<Function<FnArgs<(String, Function<(), ()>)>, ()>>("on")?;
       let handle_name = String::from("on");
-      on_handle.call((handle_name, nest_func))?;
+      on_handle.call((handle_name, nest_func).into())?;
       Ok(())
     })
 }

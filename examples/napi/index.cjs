@@ -526,6 +526,7 @@ module.exports.getOptionalExternal = nativeBinding.getOptionalExternal
 module.exports.getPackageJsonName = nativeBinding.getPackageJsonName
 module.exports.getStrFromObject = nativeBinding.getStrFromObject
 module.exports.getterFromObj = nativeBinding.getterFromObj
+module.exports.getTuple = nativeBinding.getTuple
 module.exports.getUndefined = nativeBinding.getUndefined
 module.exports.getWords = nativeBinding.getWords
 module.exports.i16ArrayToArray = nativeBinding.i16ArrayToArray
