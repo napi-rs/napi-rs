@@ -196,6 +196,7 @@ impl<T: FromNapiValue> ReadableStream<'_, T> {
     }
     .build_threadsafe_function()
     .callee_handled::<true>()
+    .weak::<true>()
     .build()?;
     Ok(Reader {
       inner: read_function,
@@ -249,7 +250,10 @@ impl<T: ToNapiValue + Send + 'static> ReadableStream<'_, T> {
 }
 
 impl<'env> ReadableStream<'env, BufferSlice<'env>> {
-  pub fn create_with_stream_bytes<S: Stream<Item = Result<Vec<u8>>> + Unpin + Send + 'static>(
+  pub fn create_with_stream_bytes<
+    B: Into<Vec<u8>>,
+    S: Stream<Item = Result<B>> + Unpin + Send + 'static,
+  >(
     env: &Env,
     inner: S,
   ) -> Result<Self> {
@@ -263,7 +267,7 @@ impl<'env> ReadableStream<'env, BufferSlice<'env>> {
           env.raw(),
           c"pull".as_ptr().cast(),
           NAPI_AUTO_LENGTH,
-          Some(pull_callback_bytes::<S>),
+          Some(pull_callback_bytes::<B, S>),
           Box::into_raw(Box::new(inner)).cast(),
           &mut pull_fn,
         )
@@ -322,7 +326,7 @@ impl<T: FromNapiValue> FromNapiValue for IteratorValue<'_, T> {
 }
 
 pub struct Reader<T: FromNapiValue + 'static> {
-  inner: ThreadsafeFunction<(), PromiseRaw<'static, IteratorValue<'static, T>>>,
+  inner: ThreadsafeFunction<(), PromiseRaw<'static, IteratorValue<'static, T>>, (), true, true>,
   state: Arc<(RwLock<Result<Option<T>>>, AtomicBool)>,
 }
 
@@ -462,11 +466,14 @@ fn pull_callback_impl<
   Ok(promise.inner)
 }
 
-extern "C" fn pull_callback_bytes<S: Stream<Item = Result<Vec<u8>>> + Unpin + Send + 'static>(
+extern "C" fn pull_callback_bytes<
+  B: Into<Vec<u8>>,
+  S: Stream<Item = Result<B>> + Unpin + Send + 'static,
+>(
   env: sys::napi_env,
   info: sys::napi_callback_info,
 ) -> sys::napi_value {
-  match pull_callback_impl_bytes::<S>(env, info) {
+  match pull_callback_impl_bytes::<B, S>(env, info) {
     Ok(val) => val,
     Err(err) => unsafe {
       let js_error: JsError = err.into();
@@ -476,7 +483,10 @@ extern "C" fn pull_callback_bytes<S: Stream<Item = Result<Vec<u8>>> + Unpin + Se
   }
 }
 
-fn pull_callback_impl_bytes<S: Stream<Item = Result<Vec<u8>>> + Unpin + Send + 'static>(
+fn pull_callback_impl_bytes<
+  B: Into<Vec<u8>>,
+  S: Stream<Item = Result<B>> + Unpin + Send + 'static,
+>(
   env: sys::napi_env,
   info: sys::napi_callback_info,
 ) -> Result<sys::napi_value> {
@@ -511,7 +521,13 @@ fn pull_callback_impl_bytes<S: Stream<Item = Result<Vec<u8>>> + Unpin + Send + '
   let mut stream: Pin<&mut S> = Pin::new(Box::leak(unsafe { Box::from_raw(data.cast()) }));
   let env = Env::from_raw(env);
   let promise = env.spawn_future_with_callback(
-    async move { stream.next().await.transpose() },
+    async move {
+      stream
+        .next()
+        .await
+        .transpose()
+        .map(|v| v.map(|v| Into::<Vec<u8>>::into(v)))
+    },
     move |env, val| {
       if let Some(val) = val {
         let enqueue_fn = enqueue.borrow_back(&env)?;
@@ -520,6 +536,8 @@ fn pull_callback_impl_bytes<S: Stream<Item = Result<Vec<u8>>> + Unpin + Send + '
         let close_fn = close.borrow_back(&env)?;
         close_fn.call(())?;
       }
+      drop(enqueue);
+      drop(close);
       Ok(())
     },
   )?;
