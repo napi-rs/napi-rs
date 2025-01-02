@@ -508,7 +508,7 @@ pub fn ty_to_ts_type(
           });
 
           // Generic type handling
-          if args.len() > 0 {
+          if !args.is_empty() {
             let arg_str = args
               .iter()
               .map(|(arg, _)| arg.clone())
@@ -516,10 +516,7 @@ pub fn ty_to_ts_type(
               .join(", ");
             let mut ty = rust_ty;
             if let Some((alias, _)) = type_alias {
-              ty = alias
-                .split_once('<')
-                .and_then(|(t, _)| Some(t.to_string()))
-                .unwrap();
+              ty = alias.split_once('<').map(|(t, _)| t.to_string()).unwrap();
             }
 
             Some((format!("{}<{}>", ty, arg_str), false))

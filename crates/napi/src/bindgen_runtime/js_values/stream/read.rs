@@ -30,13 +30,13 @@ pub struct ReadableStream<'env, T> {
   _marker: PhantomData<&'env T>,
 }
 
-impl<'env, T> NapiRaw for ReadableStream<'env, T> {
+impl<T> NapiRaw for ReadableStream<'_, T> {
   unsafe fn raw(&self) -> sys::napi_value {
     self.value
   }
 }
 
-impl<'env, T> TypeName for ReadableStream<'env, T> {
+impl<T> TypeName for ReadableStream<'_, T> {
   fn type_name() -> &'static str {
     "ReadableStream"
   }
@@ -46,7 +46,7 @@ impl<'env, T> TypeName for ReadableStream<'env, T> {
   }
 }
 
-impl<'env, T> ValidateNapiValue for ReadableStream<'env, T> {
+impl<T> ValidateNapiValue for ReadableStream<'_, T> {
   unsafe fn validate(
     env: napi_sys::napi_env,
     napi_val: napi_sys::napi_value,
@@ -69,7 +69,7 @@ impl<'env, T> ValidateNapiValue for ReadableStream<'env, T> {
   }
 }
 
-impl<'env, T> FromNapiValue for ReadableStream<'env, T> {
+impl<T> FromNapiValue for ReadableStream<'_, T> {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
     Ok(Self {
       value: napi_val,
@@ -79,7 +79,7 @@ impl<'env, T> FromNapiValue for ReadableStream<'env, T> {
   }
 }
 
-impl<'env, T> ReadableStream<'env, T> {
+impl<T> ReadableStream<'_, T> {
   /// Returns a boolean indicating whether or not the readable stream is locked to a reader.
   pub fn locked(&self) -> Result<bool> {
     let mut locked = ptr::null_mut();
@@ -204,7 +204,7 @@ impl<T: FromNapiValue> ReadableStream<'_, T> {
   }
 }
 
-impl<'env, T: ToNapiValue + Send + 'static> ReadableStream<'env, T> {
+impl<T: ToNapiValue + Send + 'static> ReadableStream<'_, T> {
   pub fn new<S: Stream<Item = Result<T>> + Unpin + Send + 'static>(
     env: &Env,
     inner: S,
@@ -454,7 +454,7 @@ fn pull_callback_impl<
         output.set("done", true)?;
       }
       unsafe {
-        crate::__private::log_js_value("log", env.0, &[output.0.value]);
+        crate::__private::log_js_value("log", env.0, [output.0.value]);
       };
       Ok(output.0.value)
     },
