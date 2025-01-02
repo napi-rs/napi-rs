@@ -31,6 +31,7 @@ pub trait TupleFromSliceValues {
     Self: Sized;
 }
 
+#[repr(C)]
 pub struct FnArgs<T> {
   pub data: T,
 }

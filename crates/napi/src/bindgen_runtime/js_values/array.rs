@@ -336,70 +336,70 @@ macro_rules! impl_tuple_validate_napi_value {
 }
 
 macro_rules! impl_from_tuple {
-    (
-        $($typs:ident),*;
-        $($tidents:expr),+;
-        $length:expr
-    ) => {
-        impl<$($typs),*> FromNapiValue for ($($typs,)*)
-         where $($typs: FromNapiValue,)* {
-          tuple_from_napi_value!($length, $($tidents,)*);
-        }
-    };
+  (
+    $($typs:ident),*;
+    $($tidents:expr),+;
+    $length:expr
+  ) => {
+    impl<$($typs),*> FromNapiValue for ($($typs,)*)
+      where $($typs: FromNapiValue,)* {
+      tuple_from_napi_value!($length, $($tidents,)*);
+    }
+  };
 }
 
 macro_rules! impl_to_tuple {
   (
-      $($typs:ident),*;
-      $($tidents:expr),+;
-      $length:expr
+    $($typs:ident),*;
+    $($tidents:expr),+;
+    $length:expr
   ) => {
-      impl<$($typs),*> ToNapiValue for ($($typs,)*)
-       where $($typs: ToNapiValue,)* {
-        unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
-          let mut arr = Array::new(env, $length as u32)?;
+    impl<$($typs),*> ToNapiValue for ($($typs,)*)
+      where $($typs: ToNapiValue,)* {
+      unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+        let mut arr = Array::new(env, $length as u32)?;
 
-          #[allow(non_snake_case)]
-          let ($($typs,)*) = val;
-          let mut i = 0;
+        #[allow(non_snake_case)]
+        let ($($typs,)*) = val;
+        let mut i = 0;
 
-          $(i+=1; unsafe {arr.set(i-1, <$typs as ToNapiValue>::to_napi_value(env, $typs)? )?}; )*
+        $(i+=1; unsafe {arr.set(i-1, <$typs as ToNapiValue>::to_napi_value(env, $typs)? )?}; )*
 
-          unsafe { Array::to_napi_value(env, arr) }
-        }
+        unsafe { Array::to_napi_value(env, arr) }
       }
+    }
   };
 }
 
 macro_rules! impl_tuples {
-    (
-      ;;$length:expr,
-      $shift:expr
-    ) =>{};
-    (
-        $typ:ident$(, $($typs:ident),*)?;
-        $tident:expr$(, $($tidents:expr),*)?;
-        $length:expr,
-        $shift:expr
-    ) => {
-        impl_tuples!(
-            $($($typs),*)?;
-            $($($tidents),*)?;
-            $length - 1,
-            $shift + 1
-        );
-        impl_from_tuple!(
-            $typ$(, $($typs),*)?;
-            $tident - $shift$(, $($tidents - $shift),*)?;
-            $length
-        );
-        impl_to_tuple!(
-          $typ$(, $($typs),*)?;
-          $tident - $shift$(, $($tidents - $shift),*)?;
-          $length
-        );
-        impl_tuple_validate_napi_value!($typ$(, $($typs),*)?);
-    };
+  (
+    ;;$length:expr,
+    $shift:expr
+  ) => {};
+  (
+    $typ:ident$(, $($typs:ident),*)?;
+    $tident:expr$(, $($tidents:expr),*)?;
+    $length:expr,
+    $shift:expr
+  ) => {
+    impl_tuples!(
+      $($($typs),*)?;
+      $($($tidents),*)?;
+      $length - 1,
+      $shift + 1
+    );
+    impl_from_tuple!(
+      $typ$(, $($typs),*)?;
+      $tident - $shift$(, $($tidents - $shift),*)?;
+      $length
+    );
+    impl_to_tuple!(
+      $typ$(, $($typs),*)?;
+      $tident - $shift$(, $($tidents - $shift),*)?;
+      $length
+    );
+    impl_tuple_validate_napi_value!($typ$(, $($typs),*)?);
+  };
 }
 
 impl_tuples!(
