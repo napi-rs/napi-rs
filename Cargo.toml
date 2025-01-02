@@ -22,7 +22,7 @@ lto = true
 [profile.wasi]
 inherits = "release"
 opt-level = "z"
-debug = 'full'
+debug = true
 
 [profile.napi-rs-custom]
 inherits = "dev"

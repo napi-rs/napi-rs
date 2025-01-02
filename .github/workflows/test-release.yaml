@@ -32,7 +32,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'yarn'
 
       - name: Install
@@ -65,7 +65,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['18', '20']
+        node: ['18', '20', '22']
         settings:
           - host: ubuntu-latest
             target: x86_64-unknown-linux-gnu
@@ -84,7 +84,7 @@ jobs:
               yarn test --verbose
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
               yarn test:macro
-            toolchain: 1.70.0
+            toolchain: 1.80.0
           - host: macos-latest
             target: aarch64-apple-darwin
             build: yarn build:test
@@ -115,14 +115,17 @@ jobs:
             toolchain: stable
         exclude:
           - settings:
-              toolchain: 1.70.0
+              toolchain: 1.80.0
             node: 18
           - settings:
-              toolchain: 1.70.0
+              toolchain: 1.80.0
             node: 20
           - settings:
               target: i686-pc-windows-msvc
             node: 18
+          - settings:
+              target: i686-pc-windows-msvc
+            node: 20
     name: ${{ matrix.settings.host }} - node@${{ matrix.node }} - toolchain@ ${{ matrix.settings.toolchain }}
     runs-on: ${{ matrix.settings.host }}
 
@@ -587,7 +590,50 @@ jobs:
           toolchain: stable
 
       - name: Check build
-        run: cargo check -p ${{ matrix.settings.package }} -F ${{ matrix.settings.features }}
+        run: cargo check -p ${{ matrix.settings.package }} -F ${{ matrix.settings.features }}\
+
+  test-freebsd:
+    runs-on: ubuntu-latest
+    name: Test freebsd target
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test
+        id: build
+        uses: cross-platform-actions/action@v0.26.0
+        env:
+          DEBUG: 'napi:*'
+          RUSTUP_HOME: /home/runner/rustup
+          CARGO_HOME: /home/runner/cargo
+          RUSTUP_IO_THREADS: 1
+        with:
+          operating_system: freebsd
+          version: '14.2'
+          memory: 8G
+          cpu_count: 3
+          environment_variables: 'DEBUG RUSTUP_IO_THREADS'
+          shell: bash
+          run: |
+            env | sort
+            sudo pkg install -y -f curl node libnghttp2 npm
+            sudo npm install -g corepack
+            corepack enable
+            curl https://sh.rustup.rs -sSf --output rustup.sh
+            sh rustup.sh -y --default-toolchain stable
+            source "$HOME/.cargo/env"
+            echo "~~~~ rustc --version ~~~~"
+            rustc --version
+            echo "~~~~ node -v ~~~~"
+            node -v
+            echo "~~~~ yarn --version ~~~~"
+            yarn --version
+            pwd
+            ls -lah
+            whoami
+            env
+            freebsd-version
+            yarn install --immutable --mode=skip-build
+            yarn workspace @examples/napi build
+            yarn workspace @examples/napi test -s
 
   test-node-wasi:
     runs-on: macos-latest
@@ -689,3 +735,21 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  done:
+    runs-on: ubuntu-latest
+    needs:
+      - lint
+      - build_and_test
+      - build-and-test-msys2
+      - build_only
+      - test_in_docker
+      - build-and-test-linux-armv7
+      - build_binary_crate
+      - check-all-features
+      - test-freebsd
+      - test-node-wasi
+      - test-latest-bun
+    steps:
+      - run: exit 1
+        if: ${{ always() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
