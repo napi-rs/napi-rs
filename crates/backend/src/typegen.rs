@@ -10,6 +10,7 @@ mod r#const;
 mod r#enum;
 mod r#fn;
 pub(crate) mod r#struct;
+mod r#type;
 
 use syn::{PathSegment, Type, TypePath, TypeSlice};
 
@@ -498,7 +499,26 @@ pub fn ty_to_ts_type(
               .get(rust_ty.as_str())
               .map(|a| (a.to_owned(), false))
           });
-          ts_ty = type_alias.or(Some((rust_ty, false)));
+
+          // Generic type handling
+          if args.len() > 0 {
+            let arg_str = args
+              .iter()
+              .map(|(arg, _)| arg.clone())
+              .collect::<Vec<String>>()
+              .join(", ");
+            let mut ty = rust_ty;
+            if let Some((alias, _)) = type_alias {
+              ty = alias
+                .split_once('<')
+                .and_then(|(t, _)| Some(t.to_string()))
+                .unwrap();
+            }
+
+            ts_ty = Some((format!("{}<{}>", ty, arg_str), false));
+          } else {
+            ts_ty = type_alias.or(Some((rust_ty, false)));
+          }
         }
       }
 

@@ -12,7 +12,7 @@ use napi_derive_backend::{
   rm_raw_prefix, BindgenResult, CallbackArg, Diagnostic, FnKind, FnSelf, Napi, NapiClass,
   NapiConst, NapiEnum, NapiEnumValue, NapiEnumVariant, NapiFn, NapiFnArg, NapiFnArgKind, NapiImpl,
   NapiItem, NapiObject, NapiStruct, NapiStructField, NapiStructKind, NapiStructuredEnum,
-  NapiStructuredEnumVariant, NapiTransparent,
+  NapiStructuredEnumVariant, NapiTransparent, NapiType,
 };
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::ToTokens;
@@ -746,6 +746,7 @@ impl ParseNapi for syn::Item {
       syn::Item::Impl(i) => i.parse_napi(tokens, opts),
       syn::Item::Enum(e) => e.parse_napi(tokens, opts),
       syn::Item::Const(c) => c.parse_napi(tokens, opts),
+      syn::Item::Type(c) => c.parse_napi(tokens, opts),
       _ => bail_span!(
         self,
         "#[napi] can only be applied to a function, struct, enum, const, mod or impl."
@@ -884,6 +885,35 @@ impl ParseNapi for syn::ItemConst {
         self,
         "#[napi] can't be applied to a const with #[napi(ts_args_type)], #[napi(ts_return_type)] or #[napi(ts_type)] or #[napi(custom_finalize)]"
       );
+    }
+    if opts.return_if_invalid().is_some() {
+      bail_span!(
+        self,
+        "#[napi(return_if_invalid)] can only be applied to a function or method."
+      );
+    }
+    if opts.catch_unwind().is_some() {
+      bail_span!(
+        self,
+        "#[napi(catch_unwind)] can only be applied to a function or method."
+      );
+    }
+    let napi = self.convert_to_ast(opts);
+    self.to_tokens(tokens);
+    napi
+  }
+}
+
+impl ParseNapi for syn::ItemType {
+  fn parse_napi(&mut self, tokens: &mut TokenStream, opts: &BindgenAttrs) -> BindgenResult<Napi> {
+    if opts.ts_args_type().is_some()
+      || opts.ts_return_type().is_some()
+      || opts.custom_finalize().is_some()
+    {
+      bail_span!(
+          self,
+          "#[napi] can't be applied to a type with #[napi(ts_args_type)], #[napi(ts_return_type)] or #[napi(custom_finalize)]"
+        );
     }
     if opts.return_if_invalid().is_some() {
       bail_span!(
@@ -1425,6 +1455,42 @@ impl ConvertToAST for syn::ItemConst {
         }),
       }),
       _ => bail_span!(self, "only public const allowed"),
+    }
+  }
+}
+
+impl ConvertToAST for syn::ItemType {
+  fn convert_to_ast(&mut self, opts: &BindgenAttrs) -> BindgenResult<Napi> {
+    let js_name = match opts.js_name() {
+      Some((name, _)) => name.to_string(),
+      _ => {
+        if self.generics.params.len() > 0 {
+          let types = self
+            .generics
+            .type_params()
+            .map(|param| param.ident.to_string())
+            .collect::<Vec<String>>()
+            .join(", ");
+          format!("{}<{}>", self.ident.to_string(), types)
+        } else {
+          self.ident.to_string()
+        }
+      }
+    };
+
+    match self.vis {
+      Visibility::Public(_) => Ok(Napi {
+        item: NapiItem::Type(NapiType {
+          name: self.ident.clone(),
+          js_name,
+          value: *self.ty.clone(),
+          js_mod: opts.namespace().map(|(m, _)| m.to_owned()),
+          comments: extract_doc_comments(&self.attrs),
+          skip_typescript: opts.skip_typescript().is_some(),
+          register_name: get_register_ident(self.ident.to_string().as_str()),
+        }),
+      }),
+      _ => bail_span!(self, "only public type allowed"),
     }
   }
 }
