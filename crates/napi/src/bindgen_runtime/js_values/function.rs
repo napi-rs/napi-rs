@@ -18,15 +18,22 @@ pub trait JsValuesTupleIntoVec {
   fn into_vec(self, env: sys::napi_env) -> Result<Vec<sys::napi_value>>;
 }
 
-impl<T: ToNapiValue> JsValuesTupleIntoVec for T {
+impl<T> JsValuesTupleIntoVec for T
+where
+  T: ToNapiValue,
+{
   #[allow(clippy::not_unsafe_ptr_arg_deref)]
   fn into_vec(self, env: sys::napi_env) -> Result<Vec<sys::napi_value>> {
-    Ok(vec![unsafe {
-      <T as ToNapiValue>::to_napi_value(env, self)?
-    }])
+    // allow call function with `()` and function's arguments should be empty array
+    if std::mem::size_of::<T>() == 0 {
+      Ok(vec![])
+    } else {
+      Ok(vec![unsafe {
+        <T as ToNapiValue>::to_napi_value(env, self)?
+      }])
+    }
   }
 }
-
 pub trait TupleFromSliceValues {
   #[allow(clippy::missing_safety_doc)]
   unsafe fn from_slice_values(env: sys::napi_env, values: &[sys::napi_value]) -> Result<Self>
@@ -34,13 +41,24 @@ pub trait TupleFromSliceValues {
     Self: Sized;
 }
 
+#[repr(C)]
+pub struct FnArgs<T> {
+  pub data: T,
+}
+
+impl<T> From<T> for FnArgs<T> {
+  fn from(value: T) -> Self {
+    FnArgs { data: value }
+  }
+}
+
 macro_rules! impl_tuple_conversion {
   ($($ident:ident),*) => {
-    impl<$($ident: ToNapiValue),*> JsValuesTupleIntoVec for ($($ident,)*) {
+    impl<$($ident: ToNapiValue),*> JsValuesTupleIntoVec for FnArgs<($($ident,)*)> {
       #[allow(clippy::not_unsafe_ptr_arg_deref)]
       fn into_vec(self, env: sys::napi_env) -> Result<Vec<sys::napi_value>> {
         #[allow(non_snake_case)]
-        let ($($ident,)*) = self;
+        let ($($ident,)*) = self.data;
         Ok(vec![$(unsafe { <$ident as ToNapiValue>::to_napi_value(env, $ident)? }),*])
       }
     }
