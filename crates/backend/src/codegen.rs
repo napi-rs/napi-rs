@@ -6,6 +6,7 @@ mod r#const;
 mod r#enum;
 mod r#fn;
 mod r#struct;
+mod r#type;
 
 pub use r#struct::rm_raw_prefix;
 

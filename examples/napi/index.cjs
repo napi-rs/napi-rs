@@ -448,6 +448,7 @@ module.exports.callFunction = nativeBinding.callFunction
 module.exports.callFunctionWithArg = nativeBinding.callFunctionWithArg
 module.exports.callFunctionWithArgAndCtx = nativeBinding.callFunctionWithArgAndCtx
 module.exports.callLongThreadsafeFunction = nativeBinding.callLongThreadsafeFunction
+module.exports.callRuleHandler = nativeBinding.callRuleHandler
 module.exports.callThenOnPromise = nativeBinding.callThenOnPromise
 module.exports.callThreadsafeFunction = nativeBinding.callThreadsafeFunction
 module.exports.captureErrorInCallback = nativeBinding.captureErrorInCallback

@@ -357,6 +357,8 @@ export declare function callFunctionWithArgAndCtx(ctx: Animal, cb: (arg: string)
 
 export declare function callLongThreadsafeFunction(tsfn: ((err: Error | null, arg: number) => unknown)): void
 
+export declare function callRuleHandler(rule: Rule, arg: number): number
+
 export declare function callThenOnPromise(input: Promise<number>): Promise<string>
 
 export declare function callThreadsafeFunction(tsfn: ((err: Error | null, arg: number) => unknown)): void
@@ -444,6 +446,9 @@ export declare const enum CustomStringEnum {
   Bar = 'Bar',
   Baz = 'Baz'
 }
+
+export type CustomU32 =
+  number
 
 export interface Data {
   data: string | Buffer
@@ -604,6 +609,9 @@ export declare function mutateOptionalExternal(external: ExternalObject<number> 
 
 export declare function mutateTypedArray(input: Float32Array): void
 
+export type MyPromise =
+  string | Promise<string>
+
 export type MyVec =
   Array<number | string>
 
@@ -613,6 +621,9 @@ export interface NotUseNullableStruct {
   optionalNumberField?: number
   optionalStringField?: string
 }
+
+export type Nullable<T> =
+  T | undefined | null
 
 export interface Obj {
   v: string | number
@@ -723,6 +734,14 @@ export declare function returnUndefinedIfInvalid(input: boolean): boolean
 export declare function returnUndefinedIfInvalidPromise(input: Promise<boolean>): Promise<boolean>
 
 export declare function roundtripStr(s: string): string
+
+export interface Rule {
+  name: string
+  handler: RuleHandler<number, number>
+}
+
+export type RuleHandler<Args, Ret> =
+  (arg: Args) => Ret
 
 export declare function runScript(script: string): unknown
 
@@ -885,6 +904,9 @@ export declare function validateTypedArraySlice(input: Uint8Array): number
 export declare function validateUint8ClampedSlice(input: Uint8ClampedArray): number
 
 export declare function validateUndefined(i: undefined): boolean
+
+export type VoidNullable<T = void> =
+  Nullable<T>
 
 export declare function withAbortController(a: number, b: number, signal: AbortSignal): Promise<number>
 
