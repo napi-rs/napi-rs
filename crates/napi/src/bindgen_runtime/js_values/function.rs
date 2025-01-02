@@ -2,12 +2,15 @@
 
 use std::ptr;
 
-use super::{FromNapiValue, ToNapiValue, TypeName, Unknown, ValidateNapiValue};
+use super::{Either, FromNapiValue, ToNapiValue, TypeName, Unknown, ValidateNapiValue};
 
 #[cfg(feature = "napi4")]
 use crate::threadsafe_function::{ThreadsafeCallContext, ThreadsafeFunction};
 pub use crate::JsFunction;
-use crate::{check_pending_exception, check_status, sys, Env, NapiRaw, Result, ValueType};
+use crate::{
+  check_pending_exception, check_status, sys, Env, JsUndefined, NapiRaw, NapiValue, Result,
+  ValueType,
+};
 
 impl ValidateNapiValue for JsFunction {}
 
@@ -427,6 +430,34 @@ impl FunctionCallContext<'_> {
   /// Get the number of arguments from the JavaScript function call.
   pub fn length(&self) -> usize {
     self.args.len()
+  }
+
+  pub fn get<ArgType: FromNapiValue>(&self, index: usize) -> Result<ArgType> {
+    if index >= self.length() {
+      Err(crate::Error::new(
+        crate::Status::GenericFailure,
+        "Arguments index out of range".to_owned(),
+      ))
+    } else {
+      unsafe { ArgType::from_napi_value(self.env.0, self.args[index]) }
+    }
+  }
+
+  pub fn try_get<ArgType: NapiValue + TypeName + FromNapiValue>(
+    &self,
+    index: usize,
+  ) -> Result<Either<ArgType, JsUndefined>> {
+    let len = self.length();
+    if index >= len {
+      Err(crate::Error::new(
+        crate::Status::GenericFailure,
+        "Arguments index out of range".to_owned(),
+      ))
+    } else if index < len {
+      unsafe { ArgType::from_raw(self.env.0, self.args[index]) }.map(Either::A)
+    } else {
+      self.env.get_undefined().map(Either::B)
+    }
   }
 
   /// Get the first argument from the JavaScript function call.
