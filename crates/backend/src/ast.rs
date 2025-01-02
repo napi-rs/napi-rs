@@ -216,3 +216,14 @@ pub struct NapiMod {
   pub name: Ident,
   pub js_name: String,
 }
+
+#[derive(Debug, Clone)]
+pub struct NapiType {
+  pub name: Ident,
+  pub js_name: String,
+  pub value: Type,
+  pub register_name: Ident,
+  pub skip_typescript: bool,
+  pub js_mod: Option<String>,
+  pub comments: Vec<String>,
+}

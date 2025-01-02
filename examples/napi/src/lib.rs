@@ -69,4 +69,5 @@ mod symbol;
 mod task;
 mod threadsafe_function;
 mod transparent;
+mod r#type;
 mod typed_array;

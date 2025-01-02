@@ -213,6 +213,8 @@ import {
   getMappingWithHasher,
   getIndexMappingWithHasher,
   passSetWithHasherToJs,
+  Rule,
+  callRuleHandler,
 } from '../index.cjs'
 
 import { test } from './test.framework.js'
@@ -1473,4 +1475,14 @@ test('throw syntax error', (t) => {
     },
     message,
   )
+})
+
+test('type', (t) => {
+  const rule: Rule = {
+    name: 'rule',
+    handler: (a) => {
+      return a + 5
+    },
+  }
+  t.is(callRuleHandler(rule, 1), 6)
 })

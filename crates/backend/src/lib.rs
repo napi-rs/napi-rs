@@ -67,6 +67,7 @@ napi_ast_impl! {
  (Impl, NapiImpl),
  (Enum, NapiEnum),
  (Const, NapiConst),
+ (Type, NapiType),
 }
 
 pub(crate) static PRIMITIVE_TYPES: &[(&str, (&str, bool, bool))] = &[
