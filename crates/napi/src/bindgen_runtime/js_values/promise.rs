@@ -59,7 +59,7 @@ unsafe impl<T: FromNapiValue + Send> Send for Promise<T> {}
 impl<T: FromNapiValue> FromNapiValue for Promise<T> {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
     let (tx, rx) = channel();
-    let mut promise_object = unsafe { PromiseRaw::<T>::from_napi_value(env, napi_val)? };
+    let promise_object = unsafe { PromiseRaw::<T>::from_napi_value(env, napi_val)? };
     let tx_box = Arc::new(Cell::new(Some(tx)));
     let tx_in_catch = tx_box.clone();
     promise_object

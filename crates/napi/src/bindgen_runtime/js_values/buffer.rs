@@ -103,7 +103,7 @@ impl<'scope> BufferSlice<'scope> {
   ///
   /// If you need to support these runtimes, you should create a buffer by other means and then
   /// later copy the data back out.
-  pub unsafe fn from_external<T: 'scope, F: FnOnce(T, Env)>(
+  pub unsafe fn from_external<T: 'scope, F: FnOnce(Env, T)>(
     env: &Env,
     data: *mut u8,
     len: usize,
@@ -142,7 +142,7 @@ impl<'scope> BufferSlice<'scope> {
       let (hint, finalize) = *Box::from_raw(hint_ptr);
       let status =
         unsafe { sys::napi_create_buffer_copy(env.0, len, data.cast(), ptr::null_mut(), &mut buf) };
-      finalize(hint, *env);
+      finalize(*env, hint);
       status
     } else {
       status

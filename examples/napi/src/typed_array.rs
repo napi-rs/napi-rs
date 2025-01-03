@@ -32,7 +32,7 @@ pub fn create_external_buffer_slice(env: &Env) -> Result<BufferSlice> {
   // Mock the ffi data that not managed by Rust
   std::mem::forget(data);
   unsafe {
-    BufferSlice::from_external(env, data_ptr, len, data_ptr, move |ptr, _| {
+    BufferSlice::from_external(env, data_ptr, len, data_ptr, move |_, ptr| {
       std::mem::drop(Vec::from_raw_parts(ptr, len, len));
     })
   }
@@ -76,11 +76,12 @@ async fn buffer_pass_through(buf: Buffer) -> Result<Buffer> {
 }
 
 #[napi]
-fn buffer_with_async_block(env: Env, buf: Arc<Buffer>) -> Result<AsyncBlock<u32>> {
+fn buffer_with_async_block(env: &Env, buf: Arc<Buffer>) -> Result<AsyncBlock<u32>> {
   let buf_to_dispose = buf.clone();
   AsyncBlockBuilder::with(async move { Ok(buf.len() as u32) })
     .with_dispose(move |_| {
       drop(buf_to_dispose);
+      Ok(())
     })
     .build(env)
 }

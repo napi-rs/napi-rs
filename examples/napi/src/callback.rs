@@ -76,7 +76,7 @@ fn callback_return_promise<T: Fn() -> Result<JsUnknown>>(
 
 #[napi(ts_return_type = "Promise<string>")]
 pub fn callback_return_promise_and_spawn<F: Fn(String) -> Result<Promise<String>>>(
-  env: Env,
+  env: &Env,
   js_func: F,
 ) -> napi::Result<PromiseRaw<String>> {
   let promise = js_func("Hello".to_owned())?;

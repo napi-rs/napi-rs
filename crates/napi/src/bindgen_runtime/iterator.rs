@@ -1,5 +1,5 @@
+use std::ffi::c_void;
 use std::ptr;
-use std::{ffi::c_void, os::raw::c_char};
 
 use crate::Value;
 use crate::{bindgen_runtime::Unknown, check_status_or_throw, sys, Env};
@@ -34,8 +34,9 @@ pub trait Generator {
   }
 }
 
+#[doc(hidden)]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
-pub fn create_iterator<T: Generator>(
+pub unsafe fn create_iterator<T: Generator>(
   env: sys::napi_env,
   instance: sys::napi_value,
   generator_ptr: *mut T,
@@ -288,8 +289,8 @@ extern "C" fn generator_next<T: Generator>(
           unsafe {
             sys::napi_throw_error(
               env,
-              format!("{}", e.status).as_ptr() as *mut c_char,
-              e.reason.as_ptr() as *mut c_char,
+              format!("{}", e.status).as_ptr().cast(),
+              e.reason.as_ptr().cast(),
             )
           };
           None
@@ -311,14 +312,7 @@ extern "C" fn generator_next<T: Generator>(
   );
   check_status_or_throw!(
     env,
-    unsafe {
-      sys::napi_set_named_property(
-        env,
-        result,
-        c"done".as_ptr() as *const std::os::raw::c_char,
-        completed_value,
-      )
-    },
+    unsafe { sys::napi_set_named_property(env, result, c"done".as_ptr().cast(), completed_value,) },
     "Failed to set iterator result done",
   );
 
@@ -359,8 +353,8 @@ extern "C" fn generator_return<T: Generator>(
           unsafe {
             sys::napi_throw_error(
               env,
-              format!("{}", e.status).as_ptr() as *mut c_char,
-              e.reason.as_ptr() as *mut c_char,
+              format!("{}", e.status).as_ptr().cast(),
+              e.reason.as_ptr().cast(),
             )
           };
           return ptr::null_mut();
@@ -395,14 +389,7 @@ extern "C" fn generator_return<T: Generator>(
   if argc > 0 {
     check_status_or_throw!(
       env,
-      unsafe {
-        sys::napi_set_named_property(
-          env,
-          result,
-          c"value".as_ptr() as *const std::os::raw::c_char,
-          argv[0],
-        )
-      },
+      unsafe { sys::napi_set_named_property(env, result, c"value".as_ptr().cast(), argv[0],) },
       "Failed to set iterator result value",
     );
   }
@@ -545,14 +532,7 @@ fn set_generator_value<V: ToNapiValue>(env: sys::napi_env, result: sys::napi_val
     Ok(val) => {
       check_status_or_throw!(
         env,
-        unsafe {
-          sys::napi_set_named_property(
-            env,
-            result,
-            c"value".as_ptr() as *const std::os::raw::c_char,
-            val,
-          )
-        },
+        unsafe { sys::napi_set_named_property(env, result, c"value".as_ptr().cast(), val,) },
         "Failed to set iterator result value",
       );
     }
@@ -560,8 +540,8 @@ fn set_generator_value<V: ToNapiValue>(env: sys::napi_env, result: sys::napi_val
       unsafe {
         sys::napi_throw_error(
           env,
-          format!("{}", e.status).as_ptr() as *mut c_char,
-          e.reason.as_ptr() as *mut c_char,
+          format!("{}", e.status).as_ptr().cast(),
+          e.reason.as_ptr().cast(),
         )
       };
     }

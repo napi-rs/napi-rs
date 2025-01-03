@@ -333,7 +333,7 @@ impl Env {
     finalize_callback: Finalize,
   ) -> Result<JsBufferValue>
   where
-    Finalize: FnOnce(Hint, Env),
+    Finalize: FnOnce(Env, Hint),
   {
     let mut raw_value = ptr::null_mut();
     if data.is_null() || data as *const u8 == EMPTY_VEC.as_ptr() {
@@ -363,7 +363,7 @@ impl Env {
           &mut raw_value,
         );
         data = result_data.cast();
-        finalize(hint, *self);
+        finalize(*self, hint);
         check_status!(status)?;
       } else {
         check_status!(status)?;
@@ -510,7 +510,7 @@ impl Env {
     finalize_callback: Finalize,
   ) -> Result<JsArrayBufferValue>
   where
-    Finalize: FnOnce(Hint, Env),
+    Finalize: FnOnce(Env, Hint),
   {
     let mut raw_value = ptr::null_mut();
     let hint_ptr = Box::into_raw(Box::new((hint, finalize_callback)));
@@ -543,7 +543,7 @@ impl Env {
         let status =
           sys::napi_create_arraybuffer(self.0, length, &mut underlying_data, &mut raw_value);
         ptr::copy_nonoverlapping(data, underlying_data.cast(), length);
-        finalize(hint, *self);
+        finalize(*self, hint);
         check_status!(status)?;
       } else {
         check_status!(status)?;
@@ -1108,8 +1108,9 @@ impl Env {
   /// So you can access the `Env` and resolved value after the future completed
   pub fn spawn_future_with_callback<
     T: 'static + Send + ToNapiValue,
+    V: ToNapiValue,
     F: 'static + Send + Future<Output = Result<T>>,
-    R: 'static + FnOnce(&mut Env, &mut T) -> Result<()>,
+    R: 'static + FnOnce(Env, T) -> Result<V>,
   >(
     &self,
     fut: F,
@@ -1117,8 +1118,8 @@ impl Env {
   ) -> Result<PromiseRaw<T>> {
     use crate::tokio_runtime;
 
-    let promise = tokio_runtime::execute_tokio_future(self.0, fut, move |env, mut val| unsafe {
-      callback(&mut Env::from_raw(env), &mut val)?;
+    let promise = tokio_runtime::execute_tokio_future(self.0, fut, move |env, val| unsafe {
+      let val = callback(Env::from_raw(env), val)?;
       ToNapiValue::to_napi_value(env, val)
     })?;
 
@@ -1378,7 +1379,7 @@ impl Env {
 }
 
 /// This function could be used for `BufferSlice::from_external` and want do noting when Buffer finalized.
-pub fn noop_finalize<Hint>(_hint: Hint, _env: Env) {}
+pub fn noop_finalize<Hint>(_env: Env, _hint: Hint) {}
 
 unsafe extern "C" fn drop_buffer(
   _env: sys::napi_env,
@@ -1443,10 +1444,10 @@ pub(crate) unsafe extern "C" fn raw_finalize_with_custom_callback<Hint, Finalize
   _finalize_data: *mut c_void,
   finalize_hint: *mut c_void,
 ) where
-  Finalize: FnOnce(Hint, Env),
+  Finalize: FnOnce(Env, Hint),
 {
   let (hint, callback) = unsafe { *Box::from_raw(finalize_hint as *mut (Hint, Finalize)) };
-  callback(hint, Env::from_raw(env));
+  callback(Env::from_raw(env), hint);
 }
 
 #[cfg(feature = "napi8")]

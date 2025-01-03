@@ -218,3 +218,8 @@ pub extern crate tokio;
 
 #[cfg(feature = "error_anyhow")]
 pub extern crate anyhow;
+
+#[cfg(feature = "web_stream")]
+pub extern crate futures_core;
+#[cfg(feature = "web_stream")]
+pub extern crate tokio_stream;

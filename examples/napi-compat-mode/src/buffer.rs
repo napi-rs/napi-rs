@@ -54,7 +54,7 @@ pub fn create_borrowed_buffer_with_finalize(env: Env) -> ContextlessResult<Buffe
       data_ptr,
       length,
       manually_drop,
-      |mut hint: ManuallyDrop<Vec<u8>>, _| {
+      |_, mut hint: ManuallyDrop<Vec<u8>>| {
         ManuallyDrop::drop(&mut hint);
       },
     )
@@ -78,7 +78,7 @@ pub fn create_empty_borrowed_buffer_with_finalize(
       data_ptr,
       length,
       manually_drop,
-      |mut hint: ManuallyDrop<Vec<u8>>, _| {
+      |_, mut hint: ManuallyDrop<Vec<u8>>| {
         ManuallyDrop::drop(&mut hint);
       },
     )

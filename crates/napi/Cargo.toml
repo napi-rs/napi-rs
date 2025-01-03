@@ -40,6 +40,7 @@ napi6 = ["napi5", "napi-sys/napi6"]
 napi7 = ["napi6", "napi-sys/napi7"]
 napi8 = ["napi7", "napi-sys/napi8"]
 napi9 = ["napi8", "napi-sys/napi9"]
+web_stream = ["futures-core", "tokio-stream", "napi4", "tokio_rt"]
 noop = []
 serde-json = ["serde", "serde_json"]
 serde-json-ordered = ["serde-json", "serde_json/preserve_order"]
@@ -100,6 +101,14 @@ version = "1"
 [dependencies.indexmap]
 optional = true
 version = "2"
+
+[dependencies.futures-core]
+optional = true
+version = "0.3"
+
+[dependencies.tokio-stream]
+optional = true
+version = "0.1"
 
 [build-dependencies]
 napi-build = { path = "../build", version = "2.1.3" }

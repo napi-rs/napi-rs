@@ -11,6 +11,8 @@ pub use module_register::*;
 use super::sys;
 use crate::{JsError, Result, Status};
 
+#[cfg(feature = "tokio_rt")]
+pub mod async_iterator;
 mod callback_info;
 mod env;
 mod error;
