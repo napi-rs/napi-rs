@@ -2,6 +2,9 @@ import { Buffer } from 'node:buffer'
 import { exec } from 'node:child_process'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createReadStream } from 'node:fs'
+import { readFile as nodeReadFile } from 'node:fs/promises'
+import { Readable } from 'node:stream'
 
 import { Subject, take } from 'rxjs'
 import Sinon, { spy } from 'sinon'
@@ -215,6 +218,8 @@ import {
   passSetWithHasherToJs,
   Rule,
   callRuleHandler,
+  acceptStream,
+  createReadableStream,
 } from '../index.cjs'
 
 import { test } from './test.framework.js'
@@ -259,7 +264,7 @@ test('string', (t) => {
 test('array', (t) => {
   t.deepEqual(getNums(), [1, 1, 2, 3, 5, 8])
   t.deepEqual(getWords(), ['foo', 'bar'])
-  t.deepEqual(getTuple([1, "test", 2]), 3)
+  t.deepEqual(getTuple([1, 'test', 2]), 3)
 
   t.is(sumNums([1, 2, 3, 4, 5]), 15)
   t.deepEqual(getNumArr(), [1, 2])
@@ -860,6 +865,7 @@ test('buffer', (t) => {
   t.is(a.toString(), '')
   t.is(b.toString(), '')
 
+  // @ts-expect-error
   t.true(Array.isArray(asyncBufferToArray(Buffer.from([1, 2, 3]).buffer)))
 })
 
@@ -1489,4 +1495,25 @@ test('type', (t) => {
     },
   }
   t.is(callRuleHandler(rule, 1), 6)
+})
+
+test('acceptStream', async (t) => {
+  if (process.version.startsWith('v18') || process.env.WASI_TEST) {
+    // https://github.com/nodejs/node/issues/56432
+    t.pass('Skip when Node.js is 18 and WASI due to bug')
+    return
+  }
+  const selfPath = fileURLToPath(import.meta.url)
+  const nodeFileStream = createReadStream(selfPath)
+  const buffer = await acceptStream(Readable.toWeb(nodeFileStream))
+  t.is(buffer.toString('utf-8'), await nodeReadFile(selfPath, 'utf-8'))
+})
+
+test('create readable stream from channel', async (t) => {
+  const stream = await createReadableStream()
+  const chunks = []
+  for await (const chunk of stream) {
+    chunks.push(chunk)
+  }
+  t.is(Buffer.concat(chunks).toString('utf-8'), 'hello'.repeat(100))
 })
