@@ -1,7 +1,6 @@
 import { createReadStream } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { Readable } from 'node:stream'
-import {} from 'node:stream/promises'
 
 import test from 'ava'
 
