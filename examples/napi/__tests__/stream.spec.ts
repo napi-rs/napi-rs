@@ -9,6 +9,11 @@ import { acceptStream, createReadableStream } from '../index.cjs'
 import { fileURLToPath } from 'node:url'
 
 test('acceptStream', async (t) => {
+  if (process.version.startsWith('v18')) {
+    // https://github.com/nodejs/node/issues/56432
+    t.pass('Skip Node.js 18 due to bug')
+    return
+  }
   const selfPath = fileURLToPath(import.meta.url)
   const nodeFileStream = createReadStream(selfPath)
   const buffer = await acceptStream(Readable.toWeb(nodeFileStream))
