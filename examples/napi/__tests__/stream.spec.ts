@@ -8,9 +8,9 @@ import { acceptStream, createReadableStream } from '../index.cjs'
 import { fileURLToPath } from 'node:url'
 
 test('acceptStream', async (t) => {
-  if (process.version.startsWith('v18')) {
+  if (process.version.startsWith('v18') || process.env.WASI_TEST) {
     // https://github.com/nodejs/node/issues/56432
-    t.pass('Skip Node.js 18 due to bug')
+    t.pass('Skip when Node.js is 18 and WASI due to bug')
     return
   }
   const selfPath = fileURLToPath(import.meta.url)
