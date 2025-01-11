@@ -1,7 +1,0 @@
-[target.'cfg(target_family = "wasm")']
-rustflags = [
-  "--cfg",
-  "tokio_unstable",
-  "-C",
-  "target-feature=+atomics,+bulk-memory",
-]

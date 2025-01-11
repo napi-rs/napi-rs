@@ -211,7 +211,13 @@ impl<T: ToNapiValue + Send + 'static> ReadableStream<'_, T> {
     inner: S,
   ) -> Result<Self> {
     let global = env.get_global()?;
-    let constructor = global.get_named_property_unchecked::<Function>("ReadableStream")?;
+    let constructor = global.get_named_property_unchecked::<Unknown>("ReadableStream")?;
+    if constructor.get_type()? == ValueType::Undefined {
+      return Err(Error::new(
+        Status::GenericFailure,
+        "ReadableStream is not supported in this Node.js version",
+      ));
+    }
     let mut underlying_source = Object::new(env.raw())?;
     let mut pull_fn = ptr::null_mut();
     check_status!(
@@ -233,7 +239,7 @@ impl<T: ToNapiValue + Send + 'static> ReadableStream<'_, T> {
       unsafe {
         sys::napi_new_instance(
           env.0,
-          constructor.value,
+          constructor.0.value,
           1,
           [underlying_source.0.value].as_ptr(),
           &mut stream,

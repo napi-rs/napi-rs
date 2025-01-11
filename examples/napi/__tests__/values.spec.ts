@@ -1044,11 +1044,6 @@ test('receive class reference in either', (t) => {
 })
 
 test('receive different class', (t) => {
-  // TODO: fix the napi_unwrap error from the emnapi
-  if (process.env.WASI_TEST) {
-    t.pass()
-    return
-  }
   const a = new JsClassForEither()
   const b = new AnotherClassForEither()
   t.is(receiveDifferentClass(a), 42)
@@ -1497,7 +1492,7 @@ test('type', (t) => {
 })
 
 test('acceptStream', async (t) => {
-  if (process.version.startsWith('v18') || process.env.WASI_TEST) {
+  if (process.version.startsWith('v18')) {
     // https://github.com/nodejs/node/issues/56432
     t.pass('Skip when Node.js is 18 and WASI due to bug')
     return
