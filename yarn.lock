@@ -543,6 +543,7 @@ __metadata:
     vite: "npm:^6.0.0"
     vite-plugin-node-polyfills: "npm:^0.22.0"
     vitest: "npm:^2.1.2"
+    web-streams-polyfill: "npm:^4.1.0"
     webdriverio: "npm:^9.2.1"
   languageName: unknown
   linkType: soft
@@ -12832,6 +12833,13 @@ __metadata:
   version: 3.3.3
   resolution: "web-streams-polyfill@npm:3.3.3"
   checksum: 10c0/64e855c47f6c8330b5436147db1c75cb7e7474d924166800e8e2aab5eb6c76aac4981a84261dd2982b3e754490900b99791c80ae1407a9fa0dcff74f82ea3a7f
+  languageName: node
+  linkType: hard
+
+"web-streams-polyfill@npm:^4.1.0":
+  version: 4.1.0
+  resolution: "web-streams-polyfill@npm:4.1.0"
+  checksum: 10c0/1022a7d13f0994002c1fa65f53576d85ea76ec59f8ffb3413f052dfcc0ca656bbcbe2611a35180b14f9bca6f3fe83802028b641ec9d200362797c99fa3e68e4e
   languageName: node
   linkType: hard
 

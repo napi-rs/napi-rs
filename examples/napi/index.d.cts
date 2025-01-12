@@ -425,6 +425,8 @@ export declare function createOptionalExternal(size?: number | undefined | null)
 
 export declare function createReadableStream(): ReadableStream<Buffer>
 
+export declare function createReadableStreamFromClass(readableStreamClass: typeof ReadableStream): ReadableStream<Buffer>
+
 export declare function createReferenceOnFunction(cb: () => void): Promise<void>
 
 export declare function createSymbol(): symbol

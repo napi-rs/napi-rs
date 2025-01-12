@@ -220,6 +220,8 @@ import {
   callRuleHandler,
   acceptStream,
   createReadableStream,
+  createReadableStreamFromClass,
+  spawnThreadInThread,
 } from '../index.cjs'
 
 import { test } from './test.framework.js'
@@ -1505,7 +1507,9 @@ test('acceptStream', async (t) => {
 
 test('create readable stream from channel', async (t) => {
   if (process.env.WASI_TEST) {
-    t.pass('Skip when WASI due to bug')
+    t.pass(
+      'Skip when WASI because ReadableStream controller.enqueue does not accept SharedArrayBuffer',
+    )
     return
   }
   const stream = await createReadableStream()
@@ -1514,4 +1518,26 @@ test('create readable stream from channel', async (t) => {
     chunks.push(chunk)
   }
   t.is(Buffer.concat(chunks).toString('utf-8'), 'hello'.repeat(100))
+  const { ReadableStream } = await import('web-streams-polyfill')
+  const streamFromClass = await createReadableStreamFromClass(ReadableStream)
+  const chunksFromClass = []
+  for await (const chunk of streamFromClass) {
+    chunksFromClass.push(chunk)
+  }
+  t.is(Buffer.concat(chunksFromClass).toString('utf-8'), 'hello'.repeat(100))
+})
+
+test('spawnThreadInThread should be fine', async (t) => {
+  await new Promise((resolve, reject) => {
+    spawnThreadInThread((err, num) => {
+      if (err) {
+        reject(err)
+      } else {
+        t.is(num, 42)
+        resolve(void 0)
+      }
+      return 0
+    })
+  })
+  t.pass()
 })
