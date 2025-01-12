@@ -222,6 +222,7 @@ import {
   createReadableStream,
   createReadableStreamFromClass,
   spawnThreadInThread,
+  esmResolve,
 } from '../index.cjs'
 
 import { test } from './test.framework.js'
@@ -1548,4 +1549,10 @@ test('should generate correct type def file', async (t) => {
   } else {
     t.snapshot(await nodeReadFile(join(__dirname, '..', 'index.d.cts'), 'utf8'))
   }
+})
+
+test('should be able to recursively hidden lifetime', async (t) => {
+  await t.notThrowsAsync(async () => {
+    await esmResolve(() => Promise.resolve(undefined))
+  })
 })
