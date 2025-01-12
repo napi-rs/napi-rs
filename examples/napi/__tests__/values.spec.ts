@@ -1541,3 +1541,11 @@ test('spawnThreadInThread should be fine', async (t) => {
   })
   t.pass()
 })
+
+test('should generate correct type def file', async (t) => {
+  if (process.env.WASI_TEST) {
+    t.pass()
+  } else {
+    t.snapshot(await nodeReadFile(join(__dirname, '..', 'index.d.cts'), 'utf8'))
+  }
+})

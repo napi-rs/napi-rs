@@ -114,7 +114,7 @@ jobs:
       - name: Install dependencies
         run: |
           yarn config set --json supportedArchitectures.libc '["current", "musl"]'
-          yarn config set --json supportedArchitectures.cpu '["current", "arm64", "arm"]'
+          yarn config set --json supportedArchitectures.cpu '["current", "arm64", "arm", "wasm32"]'
           yarn install --immutable --mode=skip-build
       - name: Download artifacts
         uses: actions/download-artifact@v4
@@ -131,7 +131,9 @@ jobs:
           ls ./examples/napi
           ls ./examples/napi-compat-mode
       - name: Test
-        run: yarn test --verbose
+        run: |
+          yarn workspace @examples/napi test -s --verbose
+          yarn workspace @examples/compat-mode test -s --verbose
         env:
           SKIP_UNWIND_TEST: 1
         if: matrix.settings.host == 'macos-latest'
@@ -155,7 +157,8 @@ jobs:
           options: --platform linux/${{ matrix.settings.docker-platform }} -v ${{ github.workspace }}:/build -w /build
           run: |
             set -e
-            yarn test
+            yarn workspace @examples/napi test -s --verbose
+            yarn workspace @examples/compat-mode test -s --verbose
       - name: Test
         uses: addnab/docker-run-action@v3
         if: matrix.settings.target == 'x86_64-unknown-linux-musl'

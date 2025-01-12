@@ -27,7 +27,7 @@ const concurrency =
 t('should be able to require in worker thread', async (t) => {
   await Promise.all(
     Array.from({ length: concurrency }).map(() => {
-      const w = new Worker(join(__dirname, 'worker.cjs'), {
+      const w = new Worker(join(__dirname, 'worker.js'), {
         env: process.env,
       })
       return new Promise<void>((resolve, reject) => {
@@ -53,7 +53,7 @@ t('custom GC works on worker_threads', async (t) => {
     Array.from({ length: concurrency }).map(() =>
       Promise.all([
         new Promise<Worker>((resolve, reject) => {
-          const w = new Worker(join(__dirname, 'worker.cjs'), {
+          const w = new Worker(join(__dirname, 'worker.js'), {
             env: process.env,
           })
           w.postMessage({
@@ -70,7 +70,7 @@ t('custom GC works on worker_threads', async (t) => {
           return w.terminate()
         }),
         new Promise<Worker>((resolve, reject) => {
-          const w = new Worker(join(__dirname, 'worker.cjs'), {
+          const w = new Worker(join(__dirname, 'worker.js'), {
             execArgv: [],
           })
           w.postMessage({
@@ -94,7 +94,7 @@ t('custom GC works on worker_threads', async (t) => {
 t('should be able to new Class in worker thread concurrently', async (t) => {
   await Promise.all(
     Array.from({ length: concurrency }).map(() => {
-      const w = new Worker(join(__dirname, 'worker.cjs'), {
+      const w = new Worker(join(__dirname, 'worker.js'), {
         env: process.env,
       })
       return new Promise<void>((resolve, reject) => {
