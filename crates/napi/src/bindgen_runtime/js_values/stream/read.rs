@@ -253,9 +253,62 @@ impl<T: ToNapiValue + Send + 'static> ReadableStream<'_, T> {
       _marker: PhantomData,
     })
   }
+
+  /// Creates a new `ReadableStream` with the given `stream` and `ReadableStream` class.
+  ///
+  /// This is useful if the runtime only supports Node-API 4 but doesn't support the WebStream API.
+  ///
+  /// Node-API 4 was initially introduced in `v10.16.0` and WebStream was introduced in `v16.5.0`.
+  pub fn with_readable_stream_class<S: Stream<Item = Result<T>> + Unpin + Send + 'static>(
+    env: &Env,
+    readable_stream_class: &Unknown,
+    inner: S,
+  ) -> Result<Self> {
+    if readable_stream_class.get_type()? == ValueType::Undefined {
+      return Err(Error::new(
+        Status::GenericFailure,
+        "ReadableStream is not supported in this Node.js version",
+      ));
+    }
+    let mut underlying_source = Object::new(env.raw())?;
+    let mut pull_fn = ptr::null_mut();
+    check_status!(
+      unsafe {
+        sys::napi_create_function(
+          env.raw(),
+          c"pull".as_ptr().cast(),
+          NAPI_AUTO_LENGTH,
+          Some(pull_callback::<T, S>),
+          Box::into_raw(Box::new(inner)).cast(),
+          &mut pull_fn,
+        )
+      },
+      "Failed to create pull function"
+    )?;
+    underlying_source.set_named_property("pull", pull_fn)?;
+    let mut stream = ptr::null_mut();
+    check_status!(
+      unsafe {
+        sys::napi_new_instance(
+          env.0,
+          readable_stream_class.0.value,
+          1,
+          [underlying_source.0.value].as_ptr(),
+          &mut stream,
+        )
+      },
+      "Create ReadableStream instance failed"
+    )?;
+    Ok(Self {
+      value: stream,
+      env: env.0,
+      _marker: PhantomData,
+    })
+  }
 }
 
 impl<'env> ReadableStream<'env, BufferSlice<'env>> {
+  /// Creates a new `ReadableStream` with the given `stream` that emits bytes.
   pub fn create_with_stream_bytes<
     B: Into<Vec<u8>>,
     S: Stream<Item = Result<B>> + Unpin + Send + 'static,
@@ -288,6 +341,58 @@ impl<'env> ReadableStream<'env, BufferSlice<'env>> {
         sys::napi_new_instance(
           env.0,
           constructor.value,
+          1,
+          [underlying_source.0.value].as_ptr(),
+          &mut stream,
+        )
+      },
+      "Create ReadableStream instance failed"
+    )?;
+    Ok(Self {
+      value: stream,
+      env: env.0,
+      _marker: PhantomData,
+    })
+  }
+
+  /// create a new `ReadableStream` with the given `stream` that emits bytes and `ReadableStream` class.
+  pub fn with_stream_bytes_and_readable_stream_class<
+    B: Into<Vec<u8>>,
+    S: Stream<Item = Result<B>> + Unpin + Send + 'static,
+  >(
+    env: &Env,
+    readable_stream_class: &Unknown,
+    inner: S,
+  ) -> Result<Self> {
+    if readable_stream_class.get_type()? == ValueType::Undefined {
+      return Err(Error::new(
+        Status::GenericFailure,
+        "ReadableStream is not supported in this Node.js version",
+      ));
+    }
+    let mut underlying_source = Object::new(env.raw())?;
+    let mut pull_fn = ptr::null_mut();
+    check_status!(
+      unsafe {
+        sys::napi_create_function(
+          env.raw(),
+          c"pull".as_ptr().cast(),
+          NAPI_AUTO_LENGTH,
+          Some(pull_callback_bytes::<B, S>),
+          Box::into_raw(Box::new(inner)).cast(),
+          &mut pull_fn,
+        )
+      },
+      "Failed to create pull function"
+    )?;
+    underlying_source.set_named_property("pull", pull_fn)?;
+    underlying_source.set("type", "bytes")?;
+    let mut stream = ptr::null_mut();
+    check_status!(
+      unsafe {
+        sys::napi_new_instance(
+          env.0,
+          readable_stream_class.0.value,
           1,
           [underlying_source.0.value].as_ptr(),
           &mut stream,

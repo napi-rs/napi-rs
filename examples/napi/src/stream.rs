@@ -56,3 +56,29 @@ pub fn create_readable_stream(env: &Env) -> Result<ReadableStream<BufferSlice>> 
   });
   ReadableStream::create_with_stream_bytes(env, ReceiverStream::new(rx))
 }
+
+#[napi(ts_args_type = "readableStreamClass: typeof ReadableStream")]
+pub fn create_readable_stream_from_class(
+  env: &Env,
+  readable_stream_class: Unknown,
+) -> Result<ReadableStream<BufferSlice>> {
+  let (tx, rx) = tokio::sync::mpsc::channel(100);
+  std::thread::spawn(move || {
+    for _ in 0..100 {
+      match tx.try_send(Ok(b"hello".to_vec())) {
+        Err(TrySendError::Closed(_)) => {
+          panic!("closed");
+        }
+        Err(TrySendError::Full(_)) => {
+          panic!("queue is full");
+        }
+        Ok(_) => {}
+      }
+    }
+  });
+  ReadableStream::with_stream_bytes_and_readable_stream_class(
+    env,
+    &readable_stream_class,
+    ReceiverStream::new(rx),
+  )
+}
