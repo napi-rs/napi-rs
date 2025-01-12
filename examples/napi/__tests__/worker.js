@@ -1,6 +1,6 @@
-const { parentPort } = require('node:worker_threads')
+import { parentPort } from 'node:worker_threads'
 
-const native = require('../index.cjs')
+import native from '../index.cjs'
 
 const isWasiTest = !!process.env.WASI_TEST
 
@@ -8,8 +8,7 @@ parentPort.on('message', ({ type }) => {
   switch (type) {
     case 'require':
       parentPort.postMessage(
-        native.Animal.withKind(native.Kind.Cat).whoami() +
-          native.DEFAULT_COST,
+        native.Animal.withKind(native.Kind.Cat).whoami() + native.DEFAULT_COST,
       )
       break
     case 'async:buffer':
@@ -50,4 +49,3 @@ parentPort.on('message', ({ type }) => {
       throw new TypeError(`Unknown message type: ${type}`)
   }
 })
-

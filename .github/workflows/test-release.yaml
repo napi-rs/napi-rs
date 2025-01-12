@@ -631,12 +631,13 @@ jobs:
             whoami
             env
             freebsd-version
+            yarn config set supportedArchitectures.cpu --json '["current", "wasm32"]'
             yarn install --immutable --mode=skip-build
             yarn workspace @examples/napi build
             yarn workspace @examples/napi test -s
 
   test-node-wasi:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     name: Test node wasi target
     timeout-minutes: 10
     steps:
