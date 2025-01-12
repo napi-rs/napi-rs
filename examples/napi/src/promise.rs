@@ -26,3 +26,11 @@ pub fn call_finally_on_promise(
     Ok(())
   })
 }
+
+#[napi]
+pub fn esm_resolve<'env>(
+  _: &'env Env,
+  next: Function<'env, (), PromiseRaw<'env, ()>>,
+) -> Result<PromiseRaw<'env, ()>> {
+  next.call(())
+}
