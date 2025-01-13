@@ -528,7 +528,7 @@ __metadata:
     "@napi-rs/cli": "workspace:*"
     "@napi-rs/triples": "workspace:*"
     "@napi-rs/wasm-runtime": "workspace:*"
-    "@oxc-node/core": "npm:^0.0.16"
+    "@oxc-node/core": "npm:^0.0.17"
     "@types/lodash": "npm:^4.17.10"
     "@vitest/browser": "npm:^2.1.2"
     "@vitest/ui": "npm:^2.1.2"
@@ -1415,7 +1415,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@napi-rs/wasm-runtime@npm:^0.2.3, @napi-rs/wasm-runtime@npm:^0.2.4, @napi-rs/wasm-runtime@npm:^0.2.5, @napi-rs/wasm-runtime@workspace:*, @napi-rs/wasm-runtime@workspace:wasm-runtime":
+"@napi-rs/wasm-runtime@npm:^0.2.3, @napi-rs/wasm-runtime@npm:^0.2.4, @napi-rs/wasm-runtime@npm:^0.2.6, @napi-rs/wasm-runtime@workspace:*, @napi-rs/wasm-runtime@workspace:wasm-runtime":
   version: 0.0.0-use.local
   resolution: "@napi-rs/wasm-runtime@workspace:wasm-runtime"
   dependencies:
@@ -2222,140 +2222,140 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@oxc-node/core-android-arm-eabi@npm:0.0.16":
-  version: 0.0.16
-  resolution: "@oxc-node/core-android-arm-eabi@npm:0.0.16"
+"@oxc-node/core-android-arm-eabi@npm:0.0.17":
+  version: 0.0.17
+  resolution: "@oxc-node/core-android-arm-eabi@npm:0.0.17"
   conditions: os=android & cpu=arm
   languageName: node
   linkType: hard
 
-"@oxc-node/core-android-arm64@npm:0.0.16":
-  version: 0.0.16
-  resolution: "@oxc-node/core-android-arm64@npm:0.0.16"
+"@oxc-node/core-android-arm64@npm:0.0.17":
+  version: 0.0.17
+  resolution: "@oxc-node/core-android-arm64@npm:0.0.17"
   conditions: os=android & cpu=arm64
   languageName: node
   linkType: hard
 
-"@oxc-node/core-darwin-arm64@npm:0.0.16":
-  version: 0.0.16
-  resolution: "@oxc-node/core-darwin-arm64@npm:0.0.16"
+"@oxc-node/core-darwin-arm64@npm:0.0.17":
+  version: 0.0.17
+  resolution: "@oxc-node/core-darwin-arm64@npm:0.0.17"
   conditions: os=darwin & cpu=arm64
   languageName: node
   linkType: hard
 
-"@oxc-node/core-darwin-x64@npm:0.0.16":
-  version: 0.0.16
-  resolution: "@oxc-node/core-darwin-x64@npm:0.0.16"
+"@oxc-node/core-darwin-x64@npm:0.0.17":
+  version: 0.0.17
+  resolution: "@oxc-node/core-darwin-x64@npm:0.0.17"
   conditions: os=darwin & cpu=x64
   languageName: node
   linkType: hard
 
-"@oxc-node/core-freebsd-x64@npm:0.0.16":
-  version: 0.0.16
-  resolution: "@oxc-node/core-freebsd-x64@npm:0.0.16"
+"@oxc-node/core-freebsd-x64@npm:0.0.17":
+  version: 0.0.17
+  resolution: "@oxc-node/core-freebsd-x64@npm:0.0.17"
   conditions: os=freebsd & cpu=x64
   languageName: node
   linkType: hard
 
-"@oxc-node/core-linux-arm-gnueabihf@npm:0.0.16":
-  version: 0.0.16
-  resolution: "@oxc-node/core-linux-arm-gnueabihf@npm:0.0.16"
+"@oxc-node/core-linux-arm-gnueabihf@npm:0.0.17":
+  version: 0.0.17
+  resolution: "@oxc-node/core-linux-arm-gnueabihf@npm:0.0.17"
   conditions: os=linux & cpu=arm
   languageName: node
   linkType: hard
 
-"@oxc-node/core-linux-arm64-gnu@npm:0.0.16":
-  version: 0.0.16
-  resolution: "@oxc-node/core-linux-arm64-gnu@npm:0.0.16"
+"@oxc-node/core-linux-arm64-gnu@npm:0.0.17":
+  version: 0.0.17
+  resolution: "@oxc-node/core-linux-arm64-gnu@npm:0.0.17"
   conditions: os=linux & cpu=arm64 & libc=glibc
   languageName: node
   linkType: hard
 
-"@oxc-node/core-linux-arm64-musl@npm:0.0.16":
-  version: 0.0.16
-  resolution: "@oxc-node/core-linux-arm64-musl@npm:0.0.16"
+"@oxc-node/core-linux-arm64-musl@npm:0.0.17":
+  version: 0.0.17
+  resolution: "@oxc-node/core-linux-arm64-musl@npm:0.0.17"
   conditions: os=linux & cpu=arm64 & libc=musl
   languageName: node
   linkType: hard
 
-"@oxc-node/core-linux-ppc64-gnu@npm:0.0.16":
-  version: 0.0.16
-  resolution: "@oxc-node/core-linux-ppc64-gnu@npm:0.0.16"
+"@oxc-node/core-linux-ppc64-gnu@npm:0.0.17":
+  version: 0.0.17
+  resolution: "@oxc-node/core-linux-ppc64-gnu@npm:0.0.17"
   conditions: os=linux & cpu=ppc64 & libc=glibc
   languageName: node
   linkType: hard
 
-"@oxc-node/core-linux-s390x-gnu@npm:0.0.16":
-  version: 0.0.16
-  resolution: "@oxc-node/core-linux-s390x-gnu@npm:0.0.16"
+"@oxc-node/core-linux-s390x-gnu@npm:0.0.17":
+  version: 0.0.17
+  resolution: "@oxc-node/core-linux-s390x-gnu@npm:0.0.17"
   conditions: os=linux & cpu=s390x & libc=glibc
   languageName: node
   linkType: hard
 
-"@oxc-node/core-linux-x64-gnu@npm:0.0.16":
-  version: 0.0.16
-  resolution: "@oxc-node/core-linux-x64-gnu@npm:0.0.16"
+"@oxc-node/core-linux-x64-gnu@npm:0.0.17":
+  version: 0.0.17
+  resolution: "@oxc-node/core-linux-x64-gnu@npm:0.0.17"
   conditions: os=linux & cpu=x64 & libc=glibc
   languageName: node
   linkType: hard
 
-"@oxc-node/core-linux-x64-musl@npm:0.0.16":
-  version: 0.0.16
-  resolution: "@oxc-node/core-linux-x64-musl@npm:0.0.16"
+"@oxc-node/core-linux-x64-musl@npm:0.0.17":
+  version: 0.0.17
+  resolution: "@oxc-node/core-linux-x64-musl@npm:0.0.17"
   conditions: os=linux & cpu=x64 & libc=musl
   languageName: node
   linkType: hard
 
-"@oxc-node/core-wasm32-wasi@npm:0.0.16":
-  version: 0.0.16
-  resolution: "@oxc-node/core-wasm32-wasi@npm:0.0.16"
+"@oxc-node/core-wasm32-wasi@npm:0.0.17":
+  version: 0.0.17
+  resolution: "@oxc-node/core-wasm32-wasi@npm:0.0.17"
   dependencies:
-    "@napi-rs/wasm-runtime": "npm:^0.2.5"
+    "@napi-rs/wasm-runtime": "npm:^0.2.6"
   conditions: cpu=wasm32
   languageName: node
   linkType: hard
 
-"@oxc-node/core-win32-arm64-msvc@npm:0.0.16":
-  version: 0.0.16
-  resolution: "@oxc-node/core-win32-arm64-msvc@npm:0.0.16"
+"@oxc-node/core-win32-arm64-msvc@npm:0.0.17":
+  version: 0.0.17
+  resolution: "@oxc-node/core-win32-arm64-msvc@npm:0.0.17"
   conditions: os=win32 & cpu=arm64
   languageName: node
   linkType: hard
 
-"@oxc-node/core-win32-ia32-msvc@npm:0.0.16":
-  version: 0.0.16
-  resolution: "@oxc-node/core-win32-ia32-msvc@npm:0.0.16"
+"@oxc-node/core-win32-ia32-msvc@npm:0.0.17":
+  version: 0.0.17
+  resolution: "@oxc-node/core-win32-ia32-msvc@npm:0.0.17"
   conditions: os=win32 & cpu=ia32
   languageName: node
   linkType: hard
 
-"@oxc-node/core-win32-x64-msvc@npm:0.0.16":
-  version: 0.0.16
-  resolution: "@oxc-node/core-win32-x64-msvc@npm:0.0.16"
+"@oxc-node/core-win32-x64-msvc@npm:0.0.17":
+  version: 0.0.17
+  resolution: "@oxc-node/core-win32-x64-msvc@npm:0.0.17"
   conditions: os=win32 & cpu=x64
   languageName: node
   linkType: hard
 
-"@oxc-node/core@npm:^0.0.16":
-  version: 0.0.16
-  resolution: "@oxc-node/core@npm:0.0.16"
+"@oxc-node/core@npm:^0.0.17":
+  version: 0.0.17
+  resolution: "@oxc-node/core@npm:0.0.17"
   dependencies:
-    "@oxc-node/core-android-arm-eabi": "npm:0.0.16"
-    "@oxc-node/core-android-arm64": "npm:0.0.16"
-    "@oxc-node/core-darwin-arm64": "npm:0.0.16"
-    "@oxc-node/core-darwin-x64": "npm:0.0.16"
-    "@oxc-node/core-freebsd-x64": "npm:0.0.16"
-    "@oxc-node/core-linux-arm-gnueabihf": "npm:0.0.16"
-    "@oxc-node/core-linux-arm64-gnu": "npm:0.0.16"
-    "@oxc-node/core-linux-arm64-musl": "npm:0.0.16"
-    "@oxc-node/core-linux-ppc64-gnu": "npm:0.0.16"
-    "@oxc-node/core-linux-s390x-gnu": "npm:0.0.16"
-    "@oxc-node/core-linux-x64-gnu": "npm:0.0.16"
-    "@oxc-node/core-linux-x64-musl": "npm:0.0.16"
-    "@oxc-node/core-wasm32-wasi": "npm:0.0.16"
-    "@oxc-node/core-win32-arm64-msvc": "npm:0.0.16"
-    "@oxc-node/core-win32-ia32-msvc": "npm:0.0.16"
-    "@oxc-node/core-win32-x64-msvc": "npm:0.0.16"
+    "@oxc-node/core-android-arm-eabi": "npm:0.0.17"
+    "@oxc-node/core-android-arm64": "npm:0.0.17"
+    "@oxc-node/core-darwin-arm64": "npm:0.0.17"
+    "@oxc-node/core-darwin-x64": "npm:0.0.17"
+    "@oxc-node/core-freebsd-x64": "npm:0.0.17"
+    "@oxc-node/core-linux-arm-gnueabihf": "npm:0.0.17"
+    "@oxc-node/core-linux-arm64-gnu": "npm:0.0.17"
+    "@oxc-node/core-linux-arm64-musl": "npm:0.0.17"
+    "@oxc-node/core-linux-ppc64-gnu": "npm:0.0.17"
+    "@oxc-node/core-linux-s390x-gnu": "npm:0.0.17"
+    "@oxc-node/core-linux-x64-gnu": "npm:0.0.17"
+    "@oxc-node/core-linux-x64-musl": "npm:0.0.17"
+    "@oxc-node/core-wasm32-wasi": "npm:0.0.17"
+    "@oxc-node/core-win32-arm64-msvc": "npm:0.0.17"
+    "@oxc-node/core-win32-ia32-msvc": "npm:0.0.17"
+    "@oxc-node/core-win32-x64-msvc": "npm:0.0.17"
   dependenciesMeta:
     "@oxc-node/core-android-arm-eabi":
       optional: true
@@ -2389,7 +2389,7 @@ __metadata:
       optional: true
     "@oxc-node/core-win32-x64-msvc":
       optional: true
-  checksum: 10c0/b986b8f6a89c378b9fe06e3c3a50ee086b42709b5c3057bd3b56ff374407bd44fd1efd6b090f5de13dc3256ff47e77c1cb5717a4a655788b647fbdba7c6ad390
+  checksum: 10c0/e984834bb0c413f1af3badc0555dd59a4b09842ca4c665ec667233b63867023421c975eee7df05e4bb6a442583d53824cf5b9bc24d142a00a4a4e69272b096ba
   languageName: node
   linkType: hard
 
@@ -9070,7 +9070,7 @@ __metadata:
   resolution: "napi-rs@workspace:."
   dependencies:
     "@napi-rs/cli": "workspace:*"
-    "@oxc-node/core": "npm:^0.0.16"
+    "@oxc-node/core": "npm:^0.0.17"
     "@taplo/cli": "npm:^0.7.0"
     "@types/debug": "npm:^4.1.12"
     "@types/lodash-es": "npm:^4.17.12"
