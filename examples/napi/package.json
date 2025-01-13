@@ -28,7 +28,7 @@
     "@napi-rs/cli": "workspace:*",
     "@napi-rs/triples": "workspace:*",
     "@napi-rs/wasm-runtime": "workspace:*",
-    "@oxc-node/core": "^0.0.16",
+    "@oxc-node/core": "^0.0.17",
     "@types/lodash": "^4.17.10",
     "@vitest/browser": "^2.1.2",
     "@vitest/ui": "^2.1.2",
