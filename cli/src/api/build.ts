@@ -179,6 +179,10 @@ class Builder {
     try {
       const { version, download } = require('@napi-rs/cross-toolchain')
 
+      const alias: Record<string, string> = {
+        's390x-unknown-linux-gnu': 's390x-ibm-linux-gnu',
+      }
+
       const toolchainPath = join(
         homedir(),
         '.napi-rs',
@@ -194,16 +198,17 @@ class Builder {
         tarArchive.unpack(toolchainPath)
       }
       const upperCaseTarget = targetToEnvVar(this.target.triple)
+      const crossTargetName = alias[this.target.triple] ?? this.target.triple
       const linkerEnv = `CARGO_TARGET_${upperCaseTarget}_LINKER`
       this.envs[linkerEnv] = join(
         toolchainPath,
         'bin',
-        `${this.target.triple}-gcc`,
+        `${crossTargetName}-gcc`,
       )
       if (!process.env.TARGET_SYSROOT) {
         this.envs[`TARGET_SYSROOT`] = join(
           toolchainPath,
-          this.target.triple,
+          crossTargetName,
           'sysroot',
         )
       }
@@ -211,42 +216,38 @@ class Builder {
         this.envs[`TARGET_AR`] = join(
           toolchainPath,
           'bin',
-          `${this.target.triple}-ar`,
+          `${crossTargetName}-ar`,
         )
       }
       if (!process.env.TARGET_RANLIB) {
         this.envs[`TARGET_RANLIB`] = join(
           toolchainPath,
           'bin',
-          `${this.target.triple}-ranlib`,
+          `${crossTargetName}-ranlib`,
         )
       }
       if (!process.env.TARGET_READELF) {
         this.envs[`TARGET_READELF`] = join(
           toolchainPath,
           'bin',
-          `${this.target.triple}-readelf`,
+          `${crossTargetName}-readelf`,
         )
       }
       if (!process.env.TARGET_C_INCLUDE_PATH) {
         this.envs[`TARGET_C_INCLUDE_PATH`] = join(
           toolchainPath,
-          this.target.triple,
+          crossTargetName,
           'sysroot',
           'usr',
           'include/',
         )
       }
       if (!process.env.CC && !process.env.TARGET_CC) {
-        this.envs[`CC`] = join(
-          toolchainPath,
-          'bin',
-          `${this.target.triple}-gcc`,
-        )
+        this.envs[`CC`] = join(toolchainPath, 'bin', `${crossTargetName}-gcc`)
         this.envs[`TARGET_CC`] = join(
           toolchainPath,
           'bin',
-          `${this.target.triple}-gcc`,
+          `${crossTargetName}-gcc`,
         )
       }
       if (!process.env.CXX && !process.env.TARGET_CXX) {
@@ -491,7 +492,7 @@ class Builder {
     const linkerEnv = `CARGO_TARGET_${targetToEnvVar(
       this.target.triple,
     )}_LINKER`
-    if (linker && !process.env[linkerEnv]) {
+    if (linker && !process.env[linkerEnv] && !this.envs[linkerEnv]) {
       this.envs[linkerEnv] = linker
     }
 
