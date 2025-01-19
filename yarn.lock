@@ -808,7 +808,7 @@ __metadata:
     "@emnapi/core": "npm:^1.3.1"
     "@emnapi/runtime": "npm:^1.3.1"
     "@inquirer/prompts": "npm:^7.0.0"
-    "@napi-rs/cross-toolchain": "npm:^0.0.16"
+    "@napi-rs/cross-toolchain": "npm:^0.0.17"
     "@napi-rs/wasm-tools": "npm:^0.0.2"
     "@octokit/rest": "npm:^21.0.2"
     "@types/debug": "npm:^4.1.12"
@@ -848,20 +848,20 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@napi-rs/cross-toolchain@npm:^0.0.16":
-  version: 0.0.16
-  resolution: "@napi-rs/cross-toolchain@npm:0.0.16"
+"@napi-rs/cross-toolchain@npm:^0.0.17":
+  version: 0.0.17
+  resolution: "@napi-rs/cross-toolchain@npm:0.0.17"
   dependencies:
-    "@napi-rs/lzma": "npm:^1.3.1"
-    "@napi-rs/tar": "npm:^0.1.1"
-    debug: "npm:^4.3.4"
+    "@napi-rs/lzma": "npm:^1.4.1"
+    "@napi-rs/tar": "npm:^0.1.4"
+    debug: "npm:^4.4.0"
   peerDependencies:
-    "@napi-rs/cross-toolchain-arm64-target-aarch64": ^0.0.16
-    "@napi-rs/cross-toolchain-arm64-target-armv7": ^0.0.16
-    "@napi-rs/cross-toolchain-arm64-target-x86_64": ^0.0.16
-    "@napi-rs/cross-toolchain-x64-target-aarch64": ^0.0.16
-    "@napi-rs/cross-toolchain-x64-target-armv7": ^0.0.16
-    "@napi-rs/cross-toolchain-x64-target-x86_64": ^0.0.16
+    "@napi-rs/cross-toolchain-arm64-target-aarch64": ^0.0.17
+    "@napi-rs/cross-toolchain-arm64-target-armv7": ^0.0.17
+    "@napi-rs/cross-toolchain-arm64-target-x86_64": ^0.0.17
+    "@napi-rs/cross-toolchain-x64-target-aarch64": ^0.0.17
+    "@napi-rs/cross-toolchain-x64-target-armv7": ^0.0.17
+    "@napi-rs/cross-toolchain-x64-target-x86_64": ^0.0.17
   peerDependenciesMeta:
     "@napi-rs/cross-toolchain-arm64-target-aarch64":
       optional: true
@@ -875,7 +875,7 @@ __metadata:
       optional: true
     "@napi-rs/cross-toolchain-x64-target-x86_64":
       optional: true
-  checksum: 10c0/a0ea9d3a421352ccde68e2ea5849f7b099d1949a0af07c6d703932b3899c176e62fec12e996386c135b5f7fb23bcc2cb1112ec5b64444e7083529fea61ea651a
+  checksum: 10c0/21a6573069b30439b8b50d5bf8759dd59918bbcae29819c8af97c0b85d071cfc98415727ffeba97210a073ae051282d6a294bba0136702d9bf38a95e6e63d539
   languageName: node
   linkType: hard
 
@@ -1000,7 +1000,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@napi-rs/lzma@npm:^1.3.1":
+"@napi-rs/lzma@npm:^1.4.1":
   version: 1.4.1
   resolution: "@napi-rs/lzma@npm:1.4.1"
   dependencies:
@@ -1174,7 +1174,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@napi-rs/tar@npm:^0.1.1":
+"@napi-rs/tar@npm:^0.1.4":
   version: 0.1.4
   resolution: "@napi-rs/tar@npm:0.1.4"
   dependencies:
