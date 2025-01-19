@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.67](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.66...@napi-rs/cli@3.0.0-alpha.67) (2025-01-19)
+
+### Bug Fixes
+
+- **cli:** s390x cross toolchain path ([#2432](https://github.com/napi-rs/napi-rs/issues/2432)) ([978a000](https://github.com/napi-rs/napi-rs/commit/978a00069b5a1449d72ca74f91c6575fb58a27df))
+
 # [3.0.0-alpha.66](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.65...@napi-rs/cli@3.0.0-alpha.66) (2025-01-19)
 
 ### Features
