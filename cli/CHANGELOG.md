@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.66](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.65...@napi-rs/cli@3.0.0-alpha.66) (2025-01-19)
+
+### Features
+
+- **cli:** update cross-toolchain to support s390x ([0ad7e10](https://github.com/napi-rs/napi-rs/commit/0ad7e100226d56df4d7d6ca6a6b194934c651698))
+- **napi:** impl ReadableStream and AsyncGenerator ([#2418](https://github.com/napi-rs/napi-rs/issues/2418)) ([98cb767](https://github.com/napi-rs/napi-rs/commit/98cb7671d35bd62d346766399a1da98f0cccd7a6))
+
 # [3.0.0-alpha.65](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.64...@napi-rs/cli@3.0.0-alpha.65) (2024-12-18)
 
 ### Bug Fixes
