@@ -58,6 +58,11 @@ type BuildOptions = RawBuildOptions & {
 export async function buildProject(options: BuildOptions) {
   debug('napi build command receive options: %O', options)
 
+  options = {
+    dtsCache: true,
+    ...options,
+  }
+
   const cwd = options.cwd ?? process.cwd()
 
   const resolvePath = (...paths: string[]) => resolve(cwd, ...paths)
