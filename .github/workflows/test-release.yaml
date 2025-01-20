@@ -170,7 +170,7 @@ jobs:
         uses: actions/setup-node@v4
         if: matrix.settings.target == 'i686-pc-windows-msvc'
         with:
-          node-version: 20
+          node-version: 22
           architecture: 'x86'
 
       - name: Unit tests
@@ -297,13 +297,9 @@ jobs:
       matrix:
         settings:
           - target: powerpc64le-unknown-linux-gnu
-            setup: |
-              sudo apt-get update
-              sudo apt-get install -y gcc-powerpc64le-linux-gnu
           - target: s390x-unknown-linux-gnu
-            setup: |
-              sudo apt-get update
-              sudo apt-get install -y gcc-s390x-linux-gnu
+          - target: x86_64-unknown-linux-gnu
+          - target: aarch64-unknown-linux-gnu
 
     steps:
       - uses: actions/checkout@v4
@@ -311,7 +307,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'yarn'
 
       - name: Install
@@ -327,16 +323,14 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
+            ~/.napi-rs
           key: stable-ubuntu-latest-${{ matrix.settings.target }}-cargo-cache
-
-      - name: Setup toolchain
-        run: ${{ matrix.settings.setup }}
 
       - name: Install dependencies
         run: yarn install --immutable --mode=skip-build
 
       - name: Cross build native tests
-        run: yarn build:test -- --target ${{ matrix.settings.target }} --release
+        run: yarn build:test -- --target ${{ matrix.settings.target }} --release --use-napi-cross
         shell: bash
 
       - uses: actions/upload-artifact@v4
@@ -361,12 +355,6 @@ jobs:
             arch: 'x64'
           - image: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
             target: aarch64-unknown-linux-musl
-          - image: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-aarch64
-            target: aarch64-unknown-linux-gnu
-            arch: 'arm64'
-            libc: 'gnu'
-          - image: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian
-            target: x86_64-unknown-linux-gnu
 
     steps:
       - uses: actions/checkout@v4
@@ -374,7 +362,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'yarn'
 
       - name: Install dependencies
@@ -420,7 +408,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: [18, 20]
+        node: [18, 20, 22]
         settings:
           - image: 'node:{:version}-slim'
             target: x86_64-unknown-linux-gnu
@@ -462,7 +450,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'yarn'
       - uses: actions/download-artifact@v4
         with:
@@ -499,7 +487,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'yarn'
 
       - name: Install
@@ -515,7 +503,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: stable-linux-armv7-gnueabihf-node@20-cargo-cache
+          key: stable-linux-armv7-gnueabihf-node@22-cargo-cache
 
       - name: Install dependencies
         run: |
