@@ -68,7 +68,7 @@
   },
   "dependencies": {
     "@inquirer/prompts": "^7.0.0",
-    "@napi-rs/cross-toolchain": "^0.0.18",
+    "@napi-rs/cross-toolchain": "^0.0.19",
     "@napi-rs/wasm-tools": "^0.0.2",
     "@octokit/rest": "^21.0.2",
     "clipanion": "^3.2.1",

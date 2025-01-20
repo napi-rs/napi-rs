@@ -808,7 +808,7 @@ __metadata:
     "@emnapi/core": "npm:^1.3.1"
     "@emnapi/runtime": "npm:^1.3.1"
     "@inquirer/prompts": "npm:^7.0.0"
-    "@napi-rs/cross-toolchain": "npm:^0.0.18"
+    "@napi-rs/cross-toolchain": "npm:^0.0.19"
     "@napi-rs/wasm-tools": "npm:^0.0.2"
     "@octokit/rest": "npm:^21.0.2"
     "@types/debug": "npm:^4.1.12"
@@ -848,20 +848,20 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@napi-rs/cross-toolchain@npm:^0.0.18":
-  version: 0.0.18
-  resolution: "@napi-rs/cross-toolchain@npm:0.0.18"
+"@napi-rs/cross-toolchain@npm:^0.0.19":
+  version: 0.0.19
+  resolution: "@napi-rs/cross-toolchain@npm:0.0.19"
   dependencies:
     "@napi-rs/lzma": "npm:^1.4.1"
     "@napi-rs/tar": "npm:^0.1.4"
     debug: "npm:^4.4.0"
   peerDependencies:
-    "@napi-rs/cross-toolchain-arm64-target-aarch64": ^0.0.18
-    "@napi-rs/cross-toolchain-arm64-target-armv7": ^0.0.18
-    "@napi-rs/cross-toolchain-arm64-target-x86_64": ^0.0.18
-    "@napi-rs/cross-toolchain-x64-target-aarch64": ^0.0.18
-    "@napi-rs/cross-toolchain-x64-target-armv7": ^0.0.18
-    "@napi-rs/cross-toolchain-x64-target-x86_64": ^0.0.18
+    "@napi-rs/cross-toolchain-arm64-target-aarch64": ^0.0.19
+    "@napi-rs/cross-toolchain-arm64-target-armv7": ^0.0.19
+    "@napi-rs/cross-toolchain-arm64-target-x86_64": ^0.0.19
+    "@napi-rs/cross-toolchain-x64-target-aarch64": ^0.0.19
+    "@napi-rs/cross-toolchain-x64-target-armv7": ^0.0.19
+    "@napi-rs/cross-toolchain-x64-target-x86_64": ^0.0.19
   peerDependenciesMeta:
     "@napi-rs/cross-toolchain-arm64-target-aarch64":
       optional: true
@@ -875,7 +875,7 @@ __metadata:
       optional: true
     "@napi-rs/cross-toolchain-x64-target-x86_64":
       optional: true
-  checksum: 10c0/0c1cd4f1ee23d0e3a93a9dfe26dfe95679a7f1b42cc33e2741a68c35c0fb4793ae4b474507439c411df509d36315b168f482228f20bf027704baa4c6692c35e8
+  checksum: 10c0/6084567d9d86a818bf600d354aefa88aebad6bd0d76de3e41b50b652dc47cdb2056e7482a68870665ecc9e74dd67fcf9fbc9c02057cec9aa17510b4adbabb326
   languageName: node
   linkType: hard
 
