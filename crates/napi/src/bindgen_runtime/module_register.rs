@@ -446,7 +446,7 @@ pub unsafe extern "C" fn napi_register_module_v1(
       )
     };
   }
-  #[cfg(all(feature = "napi4"))]
+  #[cfg(feature = "napi4")]
   create_custom_gc(env);
   FIRST_MODULE_REGISTERED.store(true, Ordering::SeqCst);
   exports
