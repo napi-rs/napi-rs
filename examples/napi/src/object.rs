@@ -147,7 +147,7 @@ fn return_object_only_to_js() -> ObjectOnlyToJs {
 }
 
 #[napi(object)]
-pub struct TupleObject(pub u32, pub u32);
+pub struct TupleObject(#[napi(js_name = "customField")] pub u32, pub u32);
 
 #[napi(object)]
 pub struct Data<'s> {

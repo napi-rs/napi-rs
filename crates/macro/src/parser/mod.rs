@@ -992,7 +992,12 @@ fn convert_fields(
         ),
         syn::Member::Named(ident.clone()),
       ),
-      None => (format!("field{}", i), syn::Member::Unnamed(i.into())),
+      None => (
+        field_opts
+          .js_name()
+          .map_or_else(|| format!("field{}", i), |(js_name, _)| js_name.to_owned()),
+        syn::Member::Unnamed(i.into()),
+      ),
     };
 
     let ignored = field_opts.skip().is_some();
