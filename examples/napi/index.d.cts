@@ -841,7 +841,7 @@ export interface TsTypeChanged {
 }
 
 export interface TupleObject {
-  field0: number
+  customField: number
   field1: number
 }
 
