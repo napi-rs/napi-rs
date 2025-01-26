@@ -267,14 +267,14 @@ class Builder {
           (process.env.TARGET_CC === 'clang' || !process.env.TARGET_CC)) ||
         process.env.TARGET_CC === 'clang'
       ) {
-        this.envs.CFLAGS = `--sysroot=${this.envs.TARGET_SYSROOT}`
+        this.envs.CFLAGS = `--sysroot=${this.envs.TARGET_SYSROOT} --gcc-toolchain=${toolchainPath}`
       }
       if (
         (process.env.CXX === 'clang++' &&
           (process.env.TARGET_CXX === 'clang++' || !process.env.TARGET_CXX)) ||
         process.env.TARGET_CXX === 'clang++'
       ) {
-        this.envs.CXXFLAGS = `--sysroot=${this.envs.TARGET_SYSROOT}`
+        this.envs.CXXFLAGS = `--sysroot=${this.envs.TARGET_SYSROOT} --gcc-toolchain=${toolchainPath}`
       }
     } catch (e) {
       debug.warn('Pick cross toolchain failed', e as Error)
