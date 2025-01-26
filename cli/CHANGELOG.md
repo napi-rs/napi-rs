@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.69](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.68...@napi-rs/cli@3.0.0-alpha.69) (2025-01-26)
+
+### Bug Fixes
+
+- **cli:** add -gcc-toolchain flag to cross-compile ([#2445](https://github.com/napi-rs/napi-rs/issues/2445)) ([1ec9082](https://github.com/napi-rs/napi-rs/commit/1ec908216067dfe9b86d3534ccc88fa1bb76fe01))
+- **cli:** watch trigger ([#2446](https://github.com/napi-rs/napi-rs/issues/2446)) ([e2f70bf](https://github.com/napi-rs/napi-rs/commit/e2f70bf66d92a4f9750717c181c708772132fed0))
+
 # [3.0.0-alpha.68](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.67...@napi-rs/cli@3.0.0-alpha.68) (2025-01-20)
 
 **Note:** Version bump only for package @napi-rs/cli
