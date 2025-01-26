@@ -329,7 +329,7 @@ class Builder {
       buildProcess.stderr?.on('data', (data) => {
         const output = data.toString()
         console.error(output)
-        if (/Finished\s(dev|release)/.test(output)) {
+        if (/Finished\s(`dev`|`release`)/.test(output)) {
           this.postBuild().catch(() => {})
         }
       })
