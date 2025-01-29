@@ -276,6 +276,9 @@ class Builder {
       ) {
         this.envs.CXXFLAGS = `--sysroot=${this.envs.TARGET_SYSROOT} --gcc-toolchain=${toolchainPath}`
       }
+      this.envs.PATH = this.envs.PATH
+        ? `${toolchainPath}/bin:${this.envs.PATH}:${process.env.PATH}`
+        : `${toolchainPath}/bin:${process.env.PATH}`
     } catch (e) {
       debug.warn('Pick cross toolchain failed', e as Error)
       // ignore, do nothing
