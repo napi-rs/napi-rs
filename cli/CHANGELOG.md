@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.70](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.69...@napi-rs/cli@3.0.0-alpha.70) (2025-01-29)
+
+### Features
+
+- **cli:** add cross-toolchain path to PATH ([#2448](https://github.com/napi-rs/napi-rs/issues/2448)) ([3503f0c](https://github.com/napi-rs/napi-rs/commit/3503f0c8547210586d6390399481ee3982dab36f))
+
 # [3.0.0-alpha.69](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.68...@napi-rs/cli@3.0.0-alpha.69) (2025-01-26)
 
 ### Bug Fixes
