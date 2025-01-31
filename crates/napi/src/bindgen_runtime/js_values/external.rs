@@ -45,6 +45,10 @@ impl<T: 'static> External<T> {
     }
   }
 
+  /// Turn a raw pointer (from napi) pointing to an External into a reference to the inner object.
+  ///
+  /// # Safety
+  /// The `unknown_tagged_object` raw pointer must point to an `External<T>` struct.
   unsafe fn from_raw_impl(
     unknown_tagged_object: *mut std::ffi::c_void,
   ) -> Option<&'static mut Self> {
@@ -58,6 +62,9 @@ impl<T: 'static> External<T> {
   }
 
   /// Turn a raw pointer (from napi) pointing to an External into a mutable reference to the inner object.
+  ///
+  /// # Safety
+  /// The `unknown_tagged_object` raw pointer must point to an `External<T>` struct.
   pub unsafe fn inner_from_raw_mut(
     unknown_tagged_object: *mut std::ffi::c_void,
   ) -> Option<&'static mut T> {
@@ -65,6 +72,9 @@ impl<T: 'static> External<T> {
   }
 
   /// Turn a raw pointer (from napi) pointing to an External into a reference inner object.
+  ///
+  /// # Safety
+  /// The `unknown_tagged_object` raw pointer must point to an `External<T>` struct.
   pub unsafe fn inner_from_raw(unknown_tagged_object: *mut std::ffi::c_void) -> Option<&'static T> {
     Self::from_raw_impl(unknown_tagged_object).map(|external| &external.obj)
   }
