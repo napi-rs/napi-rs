@@ -42,6 +42,42 @@ impl<T: 'static> External<T> {
     }
   }
 
+  /// Turn a raw pointer (from napi) pointing to an External into a reference to the inner object.
+  ///
+  /// # Safety
+  /// The `unknown_tagged_object` raw pointer must point to an `External<T>` struct.
+  unsafe fn from_raw_impl(
+    unknown_tagged_object: *mut std::ffi::c_void,
+  ) -> Option<&'static mut TaggedObject<T>> {
+    let type_id = unknown_tagged_object as *const TypeId;
+    if unsafe { *type_id } == TypeId::of::<T>() {
+      let tagged_object = unknown_tagged_object as *mut External<T>;
+      Some(Box::leak(Box::from_raw(
+        Box::leak(unsafe { Box::from_raw(tagged_object) }).obj,
+      )))
+    } else {
+      None
+    }
+  }
+
+  /// Turn a raw pointer (from napi) pointing to an External into a mutable reference to the inner object.
+  ///
+  /// # Safety
+  /// The `unknown_tagged_object` raw pointer must point to an `External<T>` struct.
+  pub unsafe fn inner_from_raw_mut(
+    unknown_tagged_object: *mut std::ffi::c_void,
+  ) -> Option<&'static mut T> {
+    Self::from_raw_impl(unknown_tagged_object).and_then(|external| external.object.as_mut())
+  }
+
+  /// Turn a raw pointer (from napi) pointing to an External into a reference inner object.
+  ///
+  /// # Safety
+  /// The `unknown_tagged_object` raw pointer must point to an `External<T>` struct.
+  pub unsafe fn inner_from_raw(unknown_tagged_object: *mut std::ffi::c_void) -> Option<&'static T> {
+    Self::from_raw_impl(unknown_tagged_object).and_then(|external| external.object.as_ref())
+  }
+
   /// `size_hint` is a value to tell Node.js GC how much memory is used by this `External` object.
   ///
   /// If getting the exact `size_hint` is difficult, you can provide an approximate value, it's only effect to the GC.
