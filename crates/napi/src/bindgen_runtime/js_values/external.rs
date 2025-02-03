@@ -45,6 +45,40 @@ impl<T: 'static> External<T> {
     }
   }
 
+  /// Turn a raw pointer (from napi) pointing to an External into a reference to the inner object.
+  ///
+  /// # Safety
+  /// The `unknown_tagged_object` raw pointer must point to an `External<T>` struct.
+  unsafe fn from_raw_impl(
+    unknown_tagged_object: *mut std::ffi::c_void,
+  ) -> Option<&'static mut Self> {
+    let type_id = unknown_tagged_object as *const TypeId;
+    if unsafe { *type_id } == TypeId::of::<T>() {
+      let tagged_object = unknown_tagged_object as *mut External<T>;
+      Some(Box::leak(unsafe { Box::from_raw(tagged_object) }))
+    } else {
+      None
+    }
+  }
+
+  /// Turn a raw pointer (from napi) pointing to an External into a mutable reference to the inner object.
+  ///
+  /// # Safety
+  /// The `unknown_tagged_object` raw pointer must point to an `External<T>` struct.
+  pub unsafe fn inner_from_raw_mut(
+    unknown_tagged_object: *mut std::ffi::c_void,
+  ) -> Option<&'static mut T> {
+    Self::from_raw_impl(unknown_tagged_object).map(|external| &mut external.obj)
+  }
+
+  /// Turn a raw pointer (from napi) pointing to an External into a reference inner object.
+  ///
+  /// # Safety
+  /// The `unknown_tagged_object` raw pointer must point to an `External<T>` struct.
+  pub unsafe fn inner_from_raw(unknown_tagged_object: *mut std::ffi::c_void) -> Option<&'static T> {
+    Self::from_raw_impl(unknown_tagged_object).map(|external| &external.obj)
+  }
+
   /// `size_hint` is a value to tell Node.js GC how much memory is used by this `External` object.
   ///
   /// If getting the exact `size_hint` is difficult, you can provide an approximate value, it's only effect to the GC.
@@ -71,18 +105,15 @@ impl<T: 'static> FromNapiMutRef for External<T> {
       "Failed to get external value"
     )?;
 
-    let type_id = unknown_tagged_object as *const TypeId;
-    if unsafe { *type_id } == TypeId::of::<T>() {
-      let tagged_object = unknown_tagged_object as *mut External<T>;
-      Ok(Box::leak(unsafe { Box::from_raw(tagged_object) }))
-    } else {
-      Err(Error::new(
+    match Self::from_raw_impl(unknown_tagged_object) {
+      Some(external) => Ok(external),
+      None => Err(Error::new(
         Status::InvalidArg,
         format!(
           "<{}> on `External` is not the type of wrapped object",
           std::any::type_name::<T>()
         ),
-      ))
+      )),
     }
   }
 }
