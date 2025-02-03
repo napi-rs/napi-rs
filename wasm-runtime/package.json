@@ -1,6 +1,6 @@
 {
   "name": "@napi-rs/wasm-runtime",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "type": "module",
   "description": "Runtime and polyfill for wasm targets",
   "author": {
@@ -41,7 +41,7 @@
   "dependencies": {
     "@emnapi/core": "^1.1.0",
     "@emnapi/runtime": "^1.1.0",
-    "@tybys/wasm-util": "^0.8.1"
+    "@tybys/wasm-util": "^0.8.2"
   },
   "scripts": {
     "build": "rollup -c rollup.config.js"

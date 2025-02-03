@@ -22,7 +22,7 @@ const UNIVERSAL_MACOS = 'universal-macOS'
 export const createGithubActionsCIYml = (
   targets: string[],
   packageManager: SupportedPackageManager,
-  wasiTargetName?: WasiTargetName,
+  wasiTargetName: WasiTargetName,
 ) => {
   const allTargets = new Set(
     targets.flatMap((t) => {
@@ -129,7 +129,12 @@ export const createGithubActionsCIYml = (
 
   fullTemplate.jobs.publish.needs = requiredSteps
 
-  return dump(fullTemplate, {
-    lineWidth: 1000,
-  })
+  try {
+    return dump(fullTemplate, {
+      lineWidth: 1000,
+    })
+  } catch (err) {
+    console.info(fullTemplate)
+    throw err
+  }
 }

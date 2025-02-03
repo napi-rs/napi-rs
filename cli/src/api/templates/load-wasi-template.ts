@@ -1,31 +1,41 @@
 export const createWasiBrowserBinding = (
   wasiFilename: string,
   wasiRegisterFunctions: string[],
-) => `import {
-  instantiateNapiModuleSync as __emnapiInstantiateNapiModuleSync,
-  getDefaultContext as __emnapiGetDefaultContext,
-  WASI as __WASI,
-} from '@napi-rs/wasm-runtime'
-import { Volume as __Volume, createFsFromVolume as __createFsFromVolume } from '@napi-rs/wasm-runtime/fs'
-
-import __wasmUrl from './${wasiFilename}.wasm?url'
-
-const __fs = __createFsFromVolume(
-  __Volume.fromJSON({
-    '/': null,
-  }),
-)
+  initialMemory = 4000,
+  maximumMemory = 65536,
+  fs = false,
+) => {
+  const fsImport = fs ? `import { memfs } from '@napi-rs/wasm-runtime/fs'` : ''
+  const wasiCreation = fs
+    ? `
+export const { fs: __fs, vol: __volume } = memfs()
 
 const __wasi = new __WASI({
   version: 'preview1',
   fs: __fs,
-})
+  preopens: {
+    '/': '/',
+  }
+})`
+    : `
+const __wasi = new __WASI({
+  version: 'preview1',
+})`
+
+  return `import {
+  instantiateNapiModuleSync as __emnapiInstantiateNapiModuleSync,
+  getDefaultContext as __emnapiGetDefaultContext,
+  WASI as __WASI,
+} from '@napi-rs/wasm-runtime'
+${fsImport}
+import __wasmUrl from './${wasiFilename}.wasm?url'
+${wasiCreation}
 
 const __emnapiContext = __emnapiGetDefaultContext()
 
 const __sharedMemory = new WebAssembly.Memory({
-  initial: 1024,
-  maximum: 10240,
+  initial: ${initialMemory},
+  maximum: ${maximumMemory},
   shared: true,
 })
 
@@ -64,11 +74,14 @@ ${wasiRegisterFunctions
   .join('\n')}
 }
 `
+}
 
 export const createWasiBinding = (
   wasmFileName: string,
   packageName: string,
   wasiRegisterFunctions: string[],
+  initialMemory = 4000,
+  maximumMemory = 65536,
 ) => `/* eslint-disable */
 /* prettier-ignore */
 
@@ -84,25 +97,30 @@ const {
   getDefaultContext: __emnapiGetDefaultContext,
 } = require('@napi-rs/wasm-runtime')
 
+const __rootDir = __nodePath.parse(process.cwd()).root
+
 const __wasi = new __nodeWASI({
   version: 'preview1',
   env: process.env,
   preopens: {
-    '/': '/'
+    [__rootDir]: __rootDir,
   }
 })
 
 const __emnapiContext = __emnapiGetDefaultContext()
 
 const __sharedMemory = new WebAssembly.Memory({
-  initial: 1024,
-  maximum: 10240,
+  initial: ${initialMemory},
+  maximum: ${maximumMemory},
   shared: true,
 })
 
 let __wasmFilePath = __nodePath.join(__dirname, '${wasmFileName}.wasm')
+const __wasmDebugFilePath = __nodePath.join(__dirname, '${wasmFileName}.debug.wasm')
 
-if (!__nodeFs.existsSync(__wasmFilePath)) {
+if (__nodeFs.existsSync(__wasmDebugFilePath)) {
+  __wasmFilePath = __wasmDebugFilePath
+} else if (!__nodeFs.existsSync(__wasmFilePath)) {
   try {
     __wasmFilePath = __nodePath.resolve('${packageName}-wasm32-wasi')
   } catch {

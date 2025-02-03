@@ -792,6 +792,22 @@ fn test_library( lib_result : Result<libloading::os::windows::Library, libloadin
         }
       },
       Err(err) => Err(err)
+fn test_library(
+  lib_result: Result<libloading::os::windows::Library, libloading::Error>,
+) -> Result<libloading::Library, libloading::Error> {
+  unsafe {
+    match lib_result {
+      Ok(lib) => {
+        let symbol: Result<
+          libloading::os::windows::Symbol<unsafe extern "C" fn()>,
+          libloading::Error,
+        > = lib.get(b"napi_create_int32\0");
+        match symbol {
+          Ok(_) => Ok(lib.into()),
+          Err(err) => Err(err),
+        }
+      }
+      Err(err) => Err(err),
     }
   }
 }
@@ -800,6 +816,9 @@ fn test_library( lib_result : Result<libloading::os::windows::Library, libloadin
 fn find_node_library() -> Result<libloading::Library, libloading::Error> {
   return test_library(libloading::os::windows::Library::this())
     .or(test_library(libloading::os::windows::Library::open_already_loaded("node")));
+  return test_library(libloading::os::windows::Library::this()).or(test_library(
+    libloading::os::windows::Library::open_already_loaded("node"),
+  ));
 }
 
 #[cfg(any(windows, feature = "dyn-symbols"))]

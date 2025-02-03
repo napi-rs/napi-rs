@@ -31,3 +31,8 @@ async fn async_multi_two(arg: u32) -> Result<u32> {
     .await
     .unwrap()
 }
+
+#[napi]
+async fn panic_in_async() {
+  panic!("panic in async function");
+}

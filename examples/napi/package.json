@@ -11,7 +11,15 @@
     "test": "cross-env TS_NODE_PROJECT=./tsconfig.json node --es-module-specifier-resolution=node --loader ts-node/esm/transpile-only --experimental-wasi-unstable-preview1 ../../node_modules/ava/entrypoints/cli.mjs"
   },
   "napi": {
-    "binaryName": "example"
+    "binaryName": "example",
+    "wasm": {
+      "initialMemory": 16384,
+      "browser": {
+        "fs": true
+      }
+    },
+    "dtsHeader": "type MaybePromise<T> = T | Promise<T>",
+    "dtsHeaderFile": "./dts-header.d.ts"
   },
   "devDependencies": {
     "@napi-rs/cli": "workspace:*",
@@ -22,7 +30,7 @@
     "@vitest/ui": "^1.2.2",
     "ava": "^6.1.1",
     "cross-env": "7.0.3",
-    "electron": "^29.0.1",
+    "electron": "^30.0.0",
     "lodash": "^4.17.21",
     "rxjs": "^7.8.1",
     "sinon": "^17.0.1",

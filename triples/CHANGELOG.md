@@ -3,6 +3,32 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.0.0-alpha.13](https://github.com/napi-rs/napi-rs/compare/@napi-rs/triples@2.0.0-alpha.12...@napi-rs/triples@2.0.0-alpha.13) (2024-04-19)
+
+**Note:** Version bump only for package @napi-rs/triples
+
+# [2.0.0-alpha.12](https://github.com/napi-rs/napi-rs/compare/@napi-rs/triples@2.0.0-alpha.11...@napi-rs/triples@2.0.0-alpha.12) (2024-04-17)
+
+**Note:** Version bump only for package @napi-rs/triples
+
+# [2.0.0-alpha.11](https://github.com/napi-rs/napi-rs/compare/@napi-rs/triples@2.0.0-alpha.10...@napi-rs/triples@2.0.0-alpha.11) (2024-04-16)
+
+**Note:** Version bump only for package @napi-rs/triples
+
+# [2.0.0-alpha.10](https://github.com/napi-rs/napi-rs/compare/@napi-rs/triples@2.0.0-alpha.9...@napi-rs/triples@2.0.0-alpha.10) (2024-04-15)
+
+**Note:** Version bump only for package @napi-rs/triples
+
+# [2.0.0-alpha.9](https://github.com/napi-rs/napi-rs/compare/@napi-rs/triples@2.0.0-alpha.5...@napi-rs/triples@2.0.0-alpha.9) (2024-04-13)
+
+### Bug Fixes
+
+- **cli:** also load wasm file from packages ([#1876](https://github.com/napi-rs/napi-rs/issues/1876)) ([b0ba466](https://github.com/napi-rs/napi-rs/commit/b0ba466f9521b02eeb94b88aacad01558bfa12bc))
+
+### Features
+
+- **target:** add support for powerpc64le-unknown-linux-gnu ([#2023](https://github.com/napi-rs/napi-rs/issues/2023)) ([0fa755d](https://github.com/napi-rs/napi-rs/commit/0fa755d30ac5d7abb16dfa59b58d61deaaa7984c))
+
 # [2.0.0-alpha.8](https://github.com/napi-rs/napi-rs/compare/@napi-rs/triples@2.0.0-alpha.5...@napi-rs/triples@2.0.0-alpha.8) (2024-04-10)
 
 ### Bug Fixes

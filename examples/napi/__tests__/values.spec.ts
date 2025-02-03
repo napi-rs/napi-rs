@@ -172,6 +172,10 @@ import {
   type AliasedStruct,
   returnObjectOnlyToJs,
   buildThreadsafeFunctionFromFunction,
+  createOptionalExternal,
+  getOptionalExternal,
+  mutateOptionalExternal,
+  panicInAsync,
 } from '../index.cjs'
 
 import { test } from './test.framework.js'
@@ -809,6 +813,16 @@ test('async', async (t) => {
   await t.throwsAsync(() => readFileAsync('some_nonexist_path.file'))
 })
 
+test('panic in async fn', async (t) => {
+  if (!process.env.SKIP_UNWIND_TEST) {
+    await t.throwsAsync(() => panicInAsync(), {
+      message: 'panic in async function',
+    })
+  } else {
+    t.pass('no unwind runtime')
+  }
+})
+
 test('async move', async (t) => {
   t.is(await asyncMultiTwo(2), 4)
 })
@@ -905,6 +919,22 @@ test('external', (t) => {
   const ext2 = createExternalString('wtf')
   // @ts-expect-error
   const e = t.throws(() => getExternal(ext2))
+  t.is(e?.message, '<u32> on `External` is not the type of wrapped object')
+})
+
+test('optional external', (t) => {
+  const FX = 42
+  const extEmpty = createOptionalExternal()
+  t.is(getOptionalExternal(extEmpty), null)
+  const ext = createOptionalExternal(FX)
+  t.is(getOptionalExternal(ext), FX)
+  mutateOptionalExternal(ext, FX + 1)
+  t.is(getOptionalExternal(ext), FX + 1)
+  // @ts-expect-error
+  t.throws(() => getOptionalExternal({}))
+  const ext2 = createExternalString('wtf')
+  // @ts-expect-error
+  const e = t.throws(() => getOptionalExternal(ext2))
   t.is(e?.message, '<u32> on `External` is not the type of wrapped object')
 })
 

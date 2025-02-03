@@ -5,6 +5,9 @@
 #![allow(clippy::new_without_default)]
 #![allow(deprecated)]
 
+#[cfg(not(target_family = "wasm"))]
+use napi::bindgen_prelude::create_custom_tokio_runtime;
+
 #[macro_use]
 extern crate napi_derive;
 #[macro_use]
@@ -13,6 +16,19 @@ extern crate serde_derive;
 #[cfg(feature = "snmalloc")]
 #[global_allocator]
 static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
+
+#[cfg(not(target_family = "wasm"))]
+#[napi::module_init]
+fn init() {
+  let rt = tokio::runtime::Builder::new_multi_thread()
+    .enable_all()
+    .on_thread_start(|| {
+      println!("tokio thread started");
+    })
+    .build()
+    .unwrap();
+  create_custom_tokio_runtime(rt);
+}
 
 #[napi]
 /// This is a const
