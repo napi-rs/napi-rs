@@ -25,6 +25,18 @@ impl ToNapiValue for bool {
   }
 }
 
+impl ToNapiValue for &bool {
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    ToNapiValue::to_napi_value(env, *val)
+  }
+}
+
+impl ToNapiValue for &mut bool {
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    ToNapiValue::to_napi_value(env, *val)
+  }
+}
+
 impl FromNapiValue for bool {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
     let mut ret = false;

@@ -114,8 +114,7 @@ impl<const N: usize> CallbackInfo<N> {
           ptr::null_mut(),
           &mut object_ref
         ),
-        "Failed to initialize class `{}`",
-        js_name,
+        "Failed to initialize class `{js_name}`",
       )?;
     };
 

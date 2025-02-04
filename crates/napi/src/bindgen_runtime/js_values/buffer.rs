@@ -5,7 +5,6 @@ use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::ptr::{self, NonNull};
 use std::slice;
-use std::sync::Arc;
 #[cfg(all(debug_assertions, not(windows)))]
 use std::sync::Mutex;
 
@@ -291,55 +290,57 @@ pub struct Buffer {
   pub(crate) len: usize,
   pub(crate) capacity: usize,
   raw: Option<(sys::napi_ref, sys::napi_env)>,
-  pub(crate) ref_count: Arc<()>,
 }
 
 impl Drop for Buffer {
   fn drop(&mut self) {
-    if Arc::strong_count(&self.ref_count) == 1 {
-      if let Some((ref_, env)) = self.raw {
-        if ref_.is_null() {
+    if let Some((ref_, env)) = self.raw {
+      if ref_.is_null() {
+        return;
+      }
+      // Buffer is sent to the other thread which is not the JavaScript thread
+      // This only happens with `napi4` feature enabled
+      // We send back the Buffer reference value into the `CustomGC` ThreadsafeFunction callback
+      // and destroy the reference in the thread where registered the `napi_register_module_v1`
+      #[cfg(all(feature = "napi4", not(feature = "noop")))]
+      {
+        if CUSTOM_GC_TSFN_DESTROYED.load(std::sync::atomic::Ordering::SeqCst) {
           return;
         }
-        #[cfg(all(feature = "napi4", not(feature = "noop")))]
-        {
-          if CUSTOM_GC_TSFN_DESTROYED.load(std::sync::atomic::Ordering::SeqCst) {
-            return;
-          }
-          if !THREADS_CAN_ACCESS_ENV.borrow_mut(|m| m.get(&std::thread::current().id()).is_some()) {
-            let status = unsafe {
-              sys::napi_call_threadsafe_function(
-                CUSTOM_GC_TSFN.load(std::sync::atomic::Ordering::SeqCst),
-                ref_.cast(),
-                1,
-              )
-            };
-            assert!(
-              status == sys::Status::napi_ok || status == sys::Status::napi_closing,
-              "Call custom GC in Buffer::drop failed {}",
-              Status::from(status)
-            );
-            return;
-          }
+        // Check if the current thread is the JavaScript thread
+        if !THREADS_CAN_ACCESS_ENV.borrow_mut(|m| m.get(&std::thread::current().id()).is_some()) {
+          let status = unsafe {
+            sys::napi_call_threadsafe_function(
+              CUSTOM_GC_TSFN.load(std::sync::atomic::Ordering::SeqCst),
+              ref_.cast(),
+              1,
+            )
+          };
+          assert!(
+            status == sys::Status::napi_ok || status == sys::Status::napi_closing,
+            "Call custom GC in Buffer::drop failed {}",
+            Status::from(status)
+          );
+          return;
         }
-        let mut ref_count = 0;
-        check_status_or_throw!(
-          env,
-          unsafe { sys::napi_reference_unref(env, ref_, &mut ref_count) },
-          "Failed to unref Buffer reference in drop"
-        );
-        debug_assert!(
-          ref_count == 0,
-          "Buffer reference count in Buffer::drop is not zero"
-        );
-        check_status_or_throw!(
-          env,
-          unsafe { sys::napi_delete_reference(env, ref_) },
-          "Failed to delete Buffer reference in drop"
-        );
-      } else {
-        unsafe { Vec::from_raw_parts(self.inner.as_ptr(), self.len, self.capacity) };
       }
+      let mut ref_count = 0;
+      check_status_or_throw!(
+        env,
+        unsafe { sys::napi_reference_unref(env, ref_, &mut ref_count) },
+        "Failed to unref Buffer reference in drop"
+      );
+      debug_assert!(
+        ref_count == 0,
+        "Buffer reference count in Buffer::drop is not zero"
+      );
+      check_status_or_throw!(
+        env,
+        unsafe { sys::napi_delete_reference(env, ref_) },
+        "Failed to delete Buffer reference in drop"
+      );
+    } else {
+      unsafe { Vec::from_raw_parts(self.inner.as_ptr(), self.len, self.capacity) };
     }
   }
 }
@@ -348,18 +349,6 @@ impl Drop for Buffer {
 /// without synchronization. Also see the docs for the `AsMut` impl.
 unsafe impl Send for Buffer {}
 unsafe impl Sync for Buffer {}
-
-impl Clone for Buffer {
-  fn clone(&self) -> Self {
-    Self {
-      inner: self.inner,
-      len: self.len,
-      capacity: self.capacity,
-      raw: self.raw,
-      ref_count: self.ref_count.clone(),
-    }
-  }
-}
 
 impl Default for Buffer {
   fn default() -> Self {
@@ -391,7 +380,6 @@ impl From<Vec<u8>> for Buffer {
       len,
       capacity,
       raw: None,
-      ref_count: Arc::new(()),
     }
   }
 }
@@ -486,7 +474,6 @@ impl FromNapiValue for Buffer {
       len,
       capacity: len,
       raw: Some((ref_, env)),
-      ref_count: Arc::new(()),
     })
   }
 }
@@ -500,14 +487,12 @@ impl ToNapiValue for Buffer {
         unsafe { sys::napi_get_reference_value(env, ref_, &mut buf) },
         "Failed to get Buffer value from reference"
       )?;
-      // fast path for Buffer::drop
-      if Arc::strong_count(&val.ref_count) == 1 {
-        check_status!(
-          unsafe { sys::napi_delete_reference(env, ref_) },
-          "Failed to delete Buffer reference in Buffer::to_napi_value"
-        )?;
-        val.raw = Some((ptr::null_mut(), ptr::null_mut()));
-      }
+
+      check_status!(
+        unsafe { sys::napi_delete_reference(env, ref_) },
+        "Failed to delete Buffer reference in Buffer::to_napi_value"
+      )?;
+      val.raw = Some((ptr::null_mut(), ptr::null_mut()));
       return Ok(buf);
     }
     let len = val.len;
@@ -549,20 +534,6 @@ impl ToNapiValue for Buffer {
     )?;
 
     Ok(ret)
-  }
-}
-
-impl ToNapiValue for &Buffer {
-  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
-    let buf = val.clone();
-    unsafe { ToNapiValue::to_napi_value(env, buf) }
-  }
-}
-
-impl ToNapiValue for &mut Buffer {
-  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
-    let buf = val.clone();
-    unsafe { ToNapiValue::to_napi_value(env, buf) }
   }
 }
 

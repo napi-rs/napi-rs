@@ -88,7 +88,7 @@ impl<'env, T: 'env> ClassInstance<'env, T> {
 
   /// Assign this `ClassInstance` to another `This` object
   ///
-  /// Extends the lifetime of `ClassInsatnce` to `This`.
+  /// Extends the lifetime of `ClassInstance` to `This`.
   pub fn assign_to_this<'a, 'this, U>(
     &'a self,
     name: &'a str,
