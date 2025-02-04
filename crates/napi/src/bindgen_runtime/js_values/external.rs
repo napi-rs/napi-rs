@@ -42,40 +42,49 @@ impl<T: 'static> External<T> {
     }
   }
 
-  /// Turn a raw pointer (from napi) pointing to an External into a reference to the inner object.
+  /// Turn a raw pointer (from napi) pointing to the inner `*mut TaggedObject<T>` into a reference inner object.
   ///
   /// # Safety
-  /// The `unknown_tagged_object` raw pointer must point to an `External<T>` struct.
+  /// The `unknown_tagged_object` raw pointer must point to an `TaggedObject<T>` struct, which
+  /// is essentially the pointer which napi-rs returns to the NAPI api.
   unsafe fn from_raw_impl(
     unknown_tagged_object: *mut std::ffi::c_void,
-  ) -> Option<&'static mut TaggedObject<T>> {
+  ) -> Option<*mut TaggedObject<T>> {
     let type_id = unknown_tagged_object as *const TypeId;
     if unsafe { *type_id } == TypeId::of::<T>() {
-      let tagged_object = unknown_tagged_object as *mut External<T>;
-      Some(Box::leak(Box::from_raw(
-        Box::leak(unsafe { Box::from_raw(tagged_object) }).obj,
-      )))
+      let tagged_object = unknown_tagged_object as *mut TaggedObject<T>;
+      Some(tagged_object)
     } else {
       None
     }
   }
 
-  /// Turn a raw pointer (from napi) pointing to an External into a mutable reference to the inner object.
+  /// Turn a raw pointer (from napi) pointing to the inner `*mut TaggedObject<T>` into a reference inner object.
   ///
   /// # Safety
-  /// The `unknown_tagged_object` raw pointer must point to an `External<T>` struct.
+  /// The `unknown_tagged_object` raw pointer must point to an `TaggedObject<T>` struct, which
+  /// is essentially the pointer which napi-rs returns to the NAPI api.
+  ///
+  /// Additionally, you must ensure that there are no other live mutable references to the `T` for
+  /// the duration of the lifetime of the returned mutable reference.
   pub unsafe fn inner_from_raw_mut(
     unknown_tagged_object: *mut std::ffi::c_void,
   ) -> Option<&'static mut T> {
-    Self::from_raw_impl(unknown_tagged_object).and_then(|external| external.object.as_mut())
+    Self::from_raw_impl(unknown_tagged_object)
+      .and_then(|tagged_object| unsafe { (*tagged_object).object.as_mut() })
   }
 
-  /// Turn a raw pointer (from napi) pointing to an External into a reference inner object.
+  /// Turn a raw pointer (from napi) pointing to the inner `*mut TaggedObject<T>` into a reference inner object.
   ///
   /// # Safety
-  /// The `unknown_tagged_object` raw pointer must point to an `External<T>` struct.
+  /// The `unknown_tagged_object` raw pointer must point to an `TaggedObject<T>` struct, which
+  /// is essentially the pointer which napi-rs returns to the NAPI api.
+  ///
+  /// Additionally, you must ensure that there are no other live mutable references to the `T` for
+  /// the duration of the lifetime of the returned immutable reference.
   pub unsafe fn inner_from_raw(unknown_tagged_object: *mut std::ffi::c_void) -> Option<&'static T> {
-    Self::from_raw_impl(unknown_tagged_object).and_then(|external| external.object.as_ref())
+    Self::from_raw_impl(unknown_tagged_object)
+      .and_then(|tagged_object| unsafe { (*tagged_object).object.as_ref() })
   }
 
   /// `size_hint` is a value to tell Node.js GC how much memory is used by this `External` object.
