@@ -611,6 +611,12 @@ export interface LocalDates {
 
 export declare function mapOption(val?: number | undefined | null): number | null
 
+export declare function mergeTupleArray(t1: TupleToArray, t2: TupleToArray): TupleToArray
+
+export interface Meta {
+  merge: boolean
+}
+
 export declare function mutateExternal(external: ExternalObject<number>, newVal: number): void
 
 export declare function mutateOptionalExternal(external: ExternalObject<number> | undefined | null, newVal: number): void
@@ -844,6 +850,9 @@ export interface TupleObject {
   customField: number
   field1: number
 }
+
+export type TupleToArray =
+  [field0: string, field1: number, field2?: Meta]
 
 export declare function u16ArrayToArray(input: Uint16Array): Array<number>
 

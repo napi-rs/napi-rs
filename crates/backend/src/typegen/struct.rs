@@ -25,6 +25,7 @@ impl ToTypeDef for NapiStruct {
         NapiStructKind::Class(_) => "struct",
         NapiStructKind::Object(_) => "interface",
         NapiStructKind::StructuredEnum(_) => "type",
+        NapiStructKind::Array(_) => "type",
       }),
       name: self.js_name.to_owned(),
       original_name: Some(self.name.to_string()),
@@ -140,6 +141,15 @@ impl NapiStruct {
     match &self.kind {
       NapiStructKind::Transparent(transparent) => {
         ty_to_ts_type(&transparent.ty, false, false, false).0
+      }
+      NapiStructKind::Array(array) => {
+        let def = array
+          .fields
+          .iter()
+          .filter_map(|f| self.gen_field(f).map(|(field, _)| field))
+          .collect::<Vec<_>>()
+          .join(", ");
+        format!("[{}]", def)
       }
       NapiStructKind::Class(class) => {
         let mut ctor_args = vec![];

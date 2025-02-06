@@ -8,7 +8,7 @@ use crate::{
   codegen::{get_intermediate_ident, js_mod_to_token_stream},
   BindgenResult, FnKind, NapiImpl, NapiStruct, NapiStructKind, TryToTokens,
 };
-use crate::{NapiClass, NapiObject, NapiStructuredEnum, NapiTransparent};
+use crate::{NapiArray, NapiClass, NapiObject, NapiStructuredEnum, NapiTransparent};
 
 static NAPI_IMPL_ID: AtomicU32 = AtomicU32::new(0);
 const TYPED_ARRAY_TYPE: &[&str] = &[
@@ -278,6 +278,7 @@ impl NapiStruct {
 
   fn gen_napi_value_map_impl(&self) -> TokenStream {
     match &self.kind {
+      NapiStructKind::Array(array) => self.gen_napi_value_array_impl(array),
       NapiStructKind::Transparent(transparent) => self.gen_napi_value_transparent_impl(transparent),
       NapiStructKind::Class(class) if !class.ctor => gen_napi_value_map_impl(
         &self.name,
@@ -1163,6 +1164,166 @@ impl NapiStruct {
           napi_val: napi::bindgen_prelude::sys::napi_value
         ) -> napi::bindgen_prelude::Result<napi::sys::napi_value> {
           <#inner_type>::validate(env, napi_val)
+        }
+      }
+
+      #to_napi_value
+
+      #from_napi_value
+    }
+  }
+
+  fn gen_napi_value_array_impl(&self, array: &NapiArray) -> TokenStream {
+    let name = &self.name;
+    let name_str = self.name.to_string();
+
+    let mut obj_field_setters = vec![];
+    let mut obj_field_getters = vec![];
+    let mut field_destructions = vec![];
+
+    for field in array.fields.iter() {
+      let mut ty = field.ty.clone();
+      remove_lifetime_in_type(&mut ty);
+      let is_optional_field = if let syn::Type::Path(syn::TypePath {
+        path: syn::Path { segments, .. },
+        ..
+      }) = &ty
+      {
+        if let Some(last_path) = segments.last() {
+          last_path.ident == "Option"
+        } else {
+          false
+        }
+      } else {
+        false
+      };
+
+      if let syn::Member::Unnamed(i) = &field.name {
+        let arg_name = format_ident!("arg{}", i);
+        let field_index = i.index;
+        field_destructions.push(quote! { #arg_name });
+        if is_optional_field {
+          obj_field_setters.push(match self.use_nullable {
+            false => quote! {
+              if #arg_name.is_some() {
+                array.set(#field_index, #arg_name)?;
+              }
+            },
+            true => quote! {
+              if let Some(#arg_name) = #arg_name {
+                array.set(#field_index, #arg_name)?;
+              } else {
+                array.set(#field_index, napi::bindgen_prelude::Null)?;
+              }
+            },
+          });
+        } else {
+          obj_field_setters.push(quote! { array.set(#field_index, #arg_name)?; });
+        }
+        if is_optional_field && !self.use_nullable {
+          obj_field_getters.push(quote! { let #arg_name: #ty = array.get(#field_index)?; });
+        } else {
+          obj_field_getters.push(quote! {
+            let #arg_name: #ty = array.get(#field_index)?.ok_or_else(|| napi::bindgen_prelude::Error::new(
+              napi::bindgen_prelude::Status::InvalidArg,
+              format!("Failed to get element with index `{}`", #field_index),
+            ))?;
+          });
+        }
+      }
+    }
+
+    let destructed_fields = quote! {
+      Self (#(#field_destructions),*)
+    };
+
+    let name_with_lifetime = if self.has_lifetime {
+      quote! { #name<'_javascript_function_scope> }
+    } else {
+      quote! { #name }
+    };
+    let (from_napi_value_impl, to_napi_value_impl, validate_napi_value_impl, type_name_impl) =
+      if self.has_lifetime {
+        (
+          quote! { impl <'_javascript_function_scope> napi::bindgen_prelude::FromNapiValue for #name<'_javascript_function_scope> },
+          quote! { impl <'_javascript_function_scope> napi::bindgen_prelude::ToNapiValue for #name<'_javascript_function_scope> },
+          quote! { impl <'_javascript_function_scope> napi::bindgen_prelude::ValidateNapiValue for #name<'_javascript_function_scope> },
+          quote! { impl <'_javascript_function_scope> napi::bindgen_prelude::TypeName for #name<'_javascript_function_scope> },
+        )
+      } else {
+        (
+          quote! { impl napi::bindgen_prelude::FromNapiValue for #name },
+          quote! { impl napi::bindgen_prelude::ToNapiValue for #name },
+          quote! { impl napi::bindgen_prelude::ValidateNapiValue for #name },
+          quote! { impl napi::bindgen_prelude::TypeName for #name },
+        )
+      };
+
+    let array_len = array.fields.len() as u32;
+
+    let to_napi_value = if array.object_to_js {
+      quote! {
+        #[automatically_derived]
+        #to_napi_value_impl {
+          unsafe fn to_napi_value(env: napi::bindgen_prelude::sys::napi_env, val: #name_with_lifetime) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
+            #[allow(unused_variables)]
+            let env_wrapper = napi::bindgen_prelude::Env::from(env);
+            #[allow(unused_mut)]
+            let mut array = env_wrapper.create_array(#array_len)?;
+
+            let #destructed_fields = val;
+            #(#obj_field_setters)*
+
+            napi::bindgen_prelude::Array::to_napi_value(env, array)
+          }
+        }
+      }
+    } else {
+      quote! {}
+    };
+
+    let from_napi_value = if array.object_from_js {
+      let return_type = if self.has_lifetime {
+        quote! { #name<'_javascript_function_scope> }
+      } else {
+        quote! { #name }
+      };
+      quote! {
+        #[automatically_derived]
+        #from_napi_value_impl {
+          unsafe fn from_napi_value(
+            env: napi::bindgen_prelude::sys::napi_env,
+            napi_val: napi::bindgen_prelude::sys::napi_value
+          ) -> napi::bindgen_prelude::Result<#return_type> {
+            #[allow(unused_variables)]
+            let env_wrapper = napi::bindgen_prelude::Env::from(env);
+            #[allow(unused_mut)]
+            let mut array = napi::bindgen_prelude::Array::from_napi_value(env, napi_val)?;
+
+            #(#obj_field_getters)*
+
+            let val = #destructed_fields;
+
+            Ok(val)
+          }
+        }
+
+        #[automatically_derived]
+        #validate_napi_value_impl {}
+      }
+    } else {
+      quote! {}
+    };
+
+    quote! {
+      #[automatically_derived]
+      #type_name_impl {
+        fn type_name() -> &'static str {
+          #name_str
+        }
+
+        fn value_type() -> napi::ValueType {
+          napi::ValueType::Object
         }
       }
 
