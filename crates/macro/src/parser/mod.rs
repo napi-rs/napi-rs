@@ -9,9 +9,9 @@ use attrs::BindgenAttrs;
 
 use convert_case::{Case, Casing};
 use napi_derive_backend::{
-  rm_raw_prefix, BindgenResult, CallbackArg, Diagnostic, FnKind, FnSelf, Napi, NapiClass,
-  NapiConst, NapiEnum, NapiEnumValue, NapiEnumVariant, NapiFn, NapiFnArg, NapiFnArgKind, NapiImpl,
-  NapiItem, NapiObject, NapiStruct, NapiStructField, NapiStructKind, NapiStructuredEnum,
+  rm_raw_prefix, BindgenResult, CallbackArg, Diagnostic, FnKind, FnSelf, Napi, NapiArray,
+  NapiClass, NapiConst, NapiEnum, NapiEnumValue, NapiEnumVariant, NapiFn, NapiFnArg, NapiFnArgKind,
+  NapiImpl, NapiItem, NapiObject, NapiStruct, NapiStructField, NapiStructKind, NapiStructuredEnum,
   NapiStructuredEnumVariant, NapiTransparent, NapiType,
 };
 use proc_macro2::{Ident, Span, TokenStream};
@@ -1098,6 +1098,15 @@ impl ConvertToAST for syn::ItemStruct {
     let struct_kind = if let Some(transparent) = transparent {
       NapiStructKind::Transparent(NapiTransparent {
         ty: transparent,
+        object_from_js: opts.object_from_js(),
+        object_to_js: opts.object_to_js(),
+      })
+    } else if opts.array().is_some() {
+      if !is_tuple {
+        bail_span!(self, "#[napi(array)] can only be applied to a tuple struct",)
+      }
+      NapiStructKind::Array(NapiArray {
+        fields,
         object_from_js: opts.object_from_js(),
         object_to_js: opts.object_to_js(),
       })

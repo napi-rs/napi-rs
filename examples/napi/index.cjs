@@ -544,6 +544,7 @@ module.exports.Kind = nativeBinding.Kind
 module.exports.KindInValidate = nativeBinding.KindInValidate
 module.exports.listObjKeys = nativeBinding.listObjKeys
 module.exports.mapOption = nativeBinding.mapOption
+module.exports.mergeTupleArray = nativeBinding.mergeTupleArray
 module.exports.mutateExternal = nativeBinding.mutateExternal
 module.exports.mutateOptionalExternal = nativeBinding.mutateOptionalExternal
 module.exports.mutateTypedArray = nativeBinding.mutateTypedArray

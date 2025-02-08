@@ -223,6 +223,8 @@ import {
   createReadableStreamFromClass,
   spawnThreadInThread,
   esmResolve,
+  mergeTupleArray,
+  TupleToArray,
 } from '../index.cjs'
 
 import { test } from './test.framework.js'
@@ -1492,6 +1494,16 @@ test('type', (t) => {
     },
   }
   t.is(callRuleHandler(rule, 1), 6)
+})
+
+test('tuple to array', (t) => {
+  let t1: TupleToArray = ['a', 1]
+  let t2: TupleToArray = ['b', 2, { merge: true }]
+  let v = mergeTupleArray(t1, t1)
+  t.deepEqual(v, ['a', 1, undefined])
+
+  let mergev = mergeTupleArray(t1, t2)
+  t.deepEqual(mergev, ['ab', 3, { merge: true }])
 })
 
 test('acceptStream', async (t) => {
