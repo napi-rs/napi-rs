@@ -32,6 +32,12 @@ impl ToNapiValue for &String {
   }
 }
 
+impl ToNapiValue for &mut String {
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    ToNapiValue::to_napi_value(env, &*val)
+  }
+}
+
 impl ToNapiValue for String {
   #[inline]
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {

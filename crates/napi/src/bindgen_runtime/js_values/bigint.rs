@@ -189,9 +189,33 @@ impl ToNapiValue for i128 {
   }
 }
 
+impl ToNapiValue for &i128 {
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> crate::Result<sys::napi_value> {
+    ToNapiValue::to_napi_value(env, *val)
+  }
+}
+
+impl ToNapiValue for &mut i128 {
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> crate::Result<sys::napi_value> {
+    ToNapiValue::to_napi_value(env, *val)
+  }
+}
+
 impl ToNapiValue for u128 {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> crate::Result<sys::napi_value> {
     u128_with_sign_to_napi_value(env, val, 0)
+  }
+}
+
+impl ToNapiValue for &u128 {
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> crate::Result<sys::napi_value> {
+    ToNapiValue::to_napi_value(env, *val)
+  }
+}
+
+impl ToNapiValue for &mut u128 {
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> crate::Result<sys::napi_value> {
+    ToNapiValue::to_napi_value(env, *val)
   }
 }
 
@@ -203,11 +227,35 @@ impl ToNapiValue for i64n {
   }
 }
 
+impl ToNapiValue for &i64n {
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> crate::Result<sys::napi_value> {
+    ToNapiValue::to_napi_value(env, i64n(val.0))
+  }
+}
+
+impl ToNapiValue for &mut i64n {
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> crate::Result<sys::napi_value> {
+    ToNapiValue::to_napi_value(env, i64n(val.0))
+  }
+}
+
 impl ToNapiValue for u64 {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> crate::Result<sys::napi_value> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe { sys::napi_create_bigint_uint64(env, val, &mut raw_value) })?;
     Ok(raw_value)
+  }
+}
+
+impl ToNapiValue for &u64 {
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> crate::Result<sys::napi_value> {
+    ToNapiValue::to_napi_value(env, *val)
+  }
+}
+
+impl ToNapiValue for &mut u64 {
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> crate::Result<sys::napi_value> {
+    ToNapiValue::to_napi_value(env, *val)
   }
 }
 
@@ -224,6 +272,18 @@ impl ToNapiValue for isize {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe { sys::napi_create_bigint_int64(env, val as i64, &mut raw_value) })?;
     Ok(raw_value)
+  }
+}
+
+impl ToNapiValue for &usize {
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> crate::Result<sys::napi_value> {
+    ToNapiValue::to_napi_value(env, *val)
+  }
+}
+
+impl ToNapiValue for &mut usize {
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> crate::Result<sys::napi_value> {
+    ToNapiValue::to_napi_value(env, *val)
   }
 }
 

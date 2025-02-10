@@ -40,7 +40,7 @@ impl Object {
           field.len() as isize,
           &mut property_key,
         ),
-        "Feild to create property key with `{field}`"
+        "Failed to create property key with `{field}`"
       )?;
 
       let mut ret = ptr::null_mut();
@@ -75,7 +75,7 @@ impl Object {
           &mut property_key,
         )
       },
-      "Feild to create property key with `{field}`"
+      "Failed to create property key with `{field}`"
     )?;
 
     check_status!(

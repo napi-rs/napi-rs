@@ -319,6 +319,24 @@ where
   }
 }
 
+impl<T> ToNapiValue for &Rc<T>
+where
+  T: ToNapiValue + Clone,
+{
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    unsafe { T::to_napi_value(env, (**val).clone()) }
+  }
+}
+
+impl<T> ToNapiValue for &mut Rc<T>
+where
+  T: ToNapiValue + Clone,
+{
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    unsafe { T::to_napi_value(env, (**val).clone()) }
+  }
+}
+
 impl<T: TypeName> TypeName for Arc<T> {
   fn type_name() -> &'static str {
     T::type_name()
@@ -375,6 +393,24 @@ where
 {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     unsafe { T::to_napi_value(env, (*val).clone()) }
+  }
+}
+
+impl<T> ToNapiValue for &Arc<T>
+where
+  T: ToNapiValue + Clone,
+{
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    unsafe { T::to_napi_value(env, (**val).clone()) }
+  }
+}
+
+impl<T> ToNapiValue for &mut Arc<T>
+where
+  T: ToNapiValue + Clone,
+{
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    unsafe { T::to_napi_value(env, (**val).clone()) }
   }
 }
 
@@ -442,5 +478,31 @@ where
         )),
       }
     }
+  }
+}
+
+impl<T> ToNapiValue for &Mutex<T>
+where
+  T: ToNapiValue + Clone,
+{
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    unsafe {
+      match val.lock() {
+        Ok(inner) => T::to_napi_value(env, inner.clone()),
+        Err(_) => Err(Error::new(
+          Status::GenericFailure,
+          "Failed to acquire a lock",
+        )),
+      }
+    }
+  }
+}
+
+impl<T> ToNapiValue for &mut Mutex<T>
+where
+  T: ToNapiValue + Clone,
+{
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    ToNapiValue::to_napi_value(env, &*val)
   }
 }

@@ -31,6 +31,18 @@ macro_rules! impl_number_conversions {
         }
       }
 
+      impl ToNapiValue for &$t {
+        unsafe fn to_napi_value(env: $crate::sys::napi_env, val: &$t) -> Result<$crate::sys::napi_value> {
+          ToNapiValue::to_napi_value(env, *val)
+        }
+      }
+
+      impl ToNapiValue for &mut $t {
+        unsafe fn to_napi_value(env: $crate::sys::napi_env, val: &mut $t) -> Result<$crate::sys::napi_value> {
+          ToNapiValue::to_napi_value(env, *val)
+        }
+      }
+
       impl $crate::bindgen_prelude::FromNapiValue for $t {
         unsafe fn from_napi_value(env: $crate::sys::napi_env, napi_val: $crate::sys::napi_value) -> Result<Self> {
           let mut ret = 0 as $st;

@@ -110,10 +110,54 @@ impl NapiEnum {
             napi::bindgen_prelude::ToNapiValue::to_napi_value(env, ())
           }
         }
+
+        impl napi::bindgen_prelude::ToNapiValue for &#name {
+          unsafe fn to_napi_value(
+            env: napi::bindgen_prelude::sys::napi_env,
+            val: Self
+          ) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
+            napi::bindgen_prelude::ToNapiValue::to_napi_value(env, ())
+          }
+        }
+
+        impl napi::bindgen_prelude::ToNapiValue for &mut #name {
+          unsafe fn to_napi_value(
+            env: napi::bindgen_prelude::sys::napi_env,
+            val: Self
+          ) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
+            napi::bindgen_prelude::ToNapiValue::to_napi_value(env, ())
+          }
+        }
       }
     } else {
       quote! {
         impl napi::bindgen_prelude::ToNapiValue for #name {
+          unsafe fn to_napi_value(
+            env: napi::bindgen_prelude::sys::napi_env,
+            val: Self
+          ) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
+            let val = match val {
+              #(#to_napi_branches,)*
+            };
+
+            napi::bindgen_prelude::ToNapiValue::to_napi_value(env, val)
+          }
+        }
+
+        impl napi::bindgen_prelude::ToNapiValue for &#name {
+          unsafe fn to_napi_value(
+            env: napi::bindgen_prelude::sys::napi_env,
+            val: Self
+          ) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
+            let val = match val {
+              #(#to_napi_branches,)*
+            };
+
+            napi::bindgen_prelude::ToNapiValue::to_napi_value(env, val)
+          }
+        }
+
+        impl napi::bindgen_prelude::ToNapiValue for &mut #name {
           unsafe fn to_napi_value(
             env: napi::bindgen_prelude::sys::napi_env,
             val: Self

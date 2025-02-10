@@ -220,6 +220,12 @@ macro_rules! impl_for_primitive_type {
         unsafe { Array::to_napi_value(env, arr) }
       }
     }
+
+    impl ToNapiValue for &mut Vec<$primitive_type> {
+      unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+        ToNapiValue::to_napi_value(env, &*val)
+      }
+    }
   };
 }
 
@@ -242,6 +248,12 @@ impl ToNapiValue for &Vec<String> {
     }
 
     unsafe { Array::to_napi_value(env, arr) }
+  }
+}
+
+impl ToNapiValue for &mut Vec<String> {
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    ToNapiValue::to_napi_value(env, &*val)
   }
 }
 
