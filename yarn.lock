@@ -9301,7 +9301,6 @@ __metadata:
     c8: "npm:^10.1.2"
     cross-env: "npm:^7.0.3"
     electron: "npm:^34.0.0"
-    esbuild: "npm:^0.25.0"
     husky: "npm:^9.1.6"
     lerna: "npm:^8.1.8"
     lint-staged: "npm:^15.2.10"
