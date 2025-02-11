@@ -85,7 +85,6 @@ macro_rules! impl_typed_array {
             }
           }
           let mut ref_count = 0;
-          println!("ref {:p}", ref_);
           crate::check_status_or_throw!(
             env,
             unsafe { sys::napi_reference_unref(env, ref_, &mut ref_count) },
