@@ -43,6 +43,18 @@ impl ToNapiValue for Null {
   }
 }
 
+impl ToNapiValue for &Null {
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    ToNapiValue::to_napi_value(env, *val)
+  }
+}
+
+impl ToNapiValue for &mut Null {
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    ToNapiValue::to_napi_value(env, *val)
+  }
+}
+
 impl TypeName for Undefined {
   fn type_name() -> &'static str {
     "undefined"
@@ -77,5 +89,17 @@ impl ToNapiValue for Undefined {
     )?;
 
     Ok(ret)
+  }
+}
+
+impl ToNapiValue for &Undefined {
+  unsafe fn to_napi_value(env: sys::napi_env, _: Self) -> Result<sys::napi_value> {
+    ToNapiValue::to_napi_value(env, ())
+  }
+}
+
+impl ToNapiValue for &mut Undefined {
+  unsafe fn to_napi_value(env: sys::napi_env, _: Self) -> Result<sys::napi_value> {
+    ToNapiValue::to_napi_value(env, ())
   }
 }

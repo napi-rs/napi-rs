@@ -11,19 +11,8 @@ use crate::{
 use crate::{NapiArray, NapiClass, NapiObject, NapiStructuredEnum, NapiTransparent};
 
 static NAPI_IMPL_ID: AtomicU32 = AtomicU32::new(0);
-const TYPED_ARRAY_TYPE: &[&str] = &[
-  "Int8Array",
-  "Uint8Array",
-  "Uint8ClampedArray",
-  "Int16Array",
-  "Uint16Array",
-  "Int32Array",
-  "Uint32Array",
-  "Float32Array",
-  "Float64Array",
-  "BigInt64Array",
-  "BigUint64Array",
-];
+
+const STRUCT_FIELD_SPECIAL_CASE: &[&str] = &["Option", "Result"];
 
 // Generate trait implementations for given Struct.
 fn gen_napi_value_map_impl(
@@ -743,8 +732,8 @@ impl NapiStruct {
 
       if field.getter {
         let default_to_napi_value_convert = quote! {
-          let val = obj.#field_ident.to_owned();
-          unsafe { <#ty as napi::bindgen_prelude::ToNapiValue>::to_napi_value(env, val) }
+          let val = &mut obj.#field_ident;
+          unsafe { <&mut #ty as napi::bindgen_prelude::ToNapiValue>::to_napi_value(env, val) }
         };
         let to_napi_value_convert = if let syn::Type::Path(syn::TypePath {
           path: syn::Path { segments, .. },
@@ -752,10 +741,10 @@ impl NapiStruct {
         }) = ty
         {
           if let Some(syn::PathSegment { ident, .. }) = segments.last() {
-            if TYPED_ARRAY_TYPE.iter().any(|name| ident == name) || ident == "Buffer" {
+            if STRUCT_FIELD_SPECIAL_CASE.iter().any(|name| ident == name) {
               quote! {
-                let val = &mut obj.#field_ident;
-                unsafe { <&mut #ty as napi::bindgen_prelude::ToNapiValue>::to_napi_value(env, val) }
+                let val = obj.#field_ident.as_mut();
+                unsafe { napi::bindgen_prelude::ToNapiValue::to_napi_value(env, val) }
               }
             } else {
               default_to_napi_value_convert
@@ -774,7 +763,7 @@ impl NapiStruct {
               cb: napi::bindgen_prelude::sys::napi_callback_info
             ) -> napi::bindgen_prelude::sys::napi_value {
               napi::bindgen_prelude::CallbackInfo::<0>::new(env, cb, Some(0), false)
-                .and_then(|mut cb| unsafe { cb.unwrap_borrow_mut::<#struct_name>() })
+                .and_then(|mut cb| cb.unwrap_borrow_mut::<#struct_name>())
                 .and_then(|obj| {
                   #to_napi_value_convert
                 })
