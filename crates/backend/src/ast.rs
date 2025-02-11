@@ -93,6 +93,7 @@ pub enum NapiStructKind {
   Class(NapiClass),
   Object(NapiObject),
   StructuredEnum(NapiStructuredEnum),
+  Array(NapiArray),
 }
 
 #[derive(Debug, Clone)]
@@ -117,6 +118,13 @@ pub struct NapiObject {
   pub object_from_js: bool,
   pub object_to_js: bool,
   pub is_tuple: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct NapiArray {
+  pub fields: Vec<NapiStructField>,
+  pub object_from_js: bool,
+  pub object_to_js: bool,
 }
 
 #[derive(Debug, Clone)]

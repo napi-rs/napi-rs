@@ -78,6 +78,7 @@ macro_rules! attrgen {
       (use_nullable, UseNullable(Span, Option<bool>), false),
       (discriminant, Discriminant(Span, String, Span)),
       (transparent, Transparent(Span)),
+      (array, Array(Span)),
 
       // impl later
       // (inspectable, Inspectable(Span)),
