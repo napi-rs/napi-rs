@@ -3,11 +3,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::ffi::CStr;
 use std::ptr;
-#[cfg(all(
-  not(any(target_os = "macos", target_family = "wasm")),
-  feature = "napi4",
-  feature = "tokio_rt"
-))]
+#[cfg(all(not(target_family = "wasm"), feature = "napi4", feature = "tokio_rt"))]
 use std::sync::atomic::AtomicUsize;
 #[cfg(not(feature = "noop"))]
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -470,11 +466,7 @@ pub unsafe extern "C" fn napi_register_module_v1(
     })
   }
 
-  #[cfg(all(
-    not(any(target_os = "macos", target_family = "wasm")),
-    feature = "napi4",
-    feature = "tokio_rt"
-  ))]
+  #[cfg(all(not(target_family = "wasm"), feature = "napi4", feature = "tokio_rt"))]
   {
     crate::tokio_runtime::ensure_runtime();
 
