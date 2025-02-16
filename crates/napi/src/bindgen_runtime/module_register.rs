@@ -424,30 +424,42 @@ pub unsafe extern "C" fn napi_register_module_v1(
     })
   }
 
-  #[cfg(all(feature = "napi4", feature = "tokio_rt"))]
-  {
-    crate::tokio_runtime::ensure_runtime();
+  let current_thread_id = std::thread::current().id();
 
-    #[cfg(not(target_family = "wasm"))]
+  #[cfg(all(not(target_family = "wasm"), feature = "napi3"))]
+  check_status_or_throw!(
+    env,
     unsafe {
       sys::napi_add_env_cleanup_hook(
         env,
-        Some(crate::tokio_runtime::drop_runtime),
-        ptr::null_mut(),
+        Some(thread_cleanup),
+        Box::into_raw(Box::new(current_thread_id)).cast(),
       )
-    };
+    },
+    "Failed to add remove thread id cleanup hook"
+  );
 
-    #[cfg(target_family = "wasm")]
+  #[cfg(all(target_family = "wasm", feature = "napi3"))]
+  check_status_or_throw!(
+    env,
     unsafe {
       crate::napi_add_env_cleanup_hook(
         env,
-        Some(crate::tokio_runtime::drop_runtime),
-        ptr::null_mut(),
+        Some(thread_cleanup),
+        Box::into_raw(Box::new(current_thread_id)).cast(),
       )
-    };
-  }
+    },
+    "Failed to add remove thread id cleanup hook"
+  );
+
   #[cfg(feature = "napi4")]
-  create_custom_gc(env);
+  {
+    create_custom_gc(env, current_thread_id);
+    #[cfg(feature = "tokio_rt")]
+    {
+      crate::tokio_runtime::ensure_runtime();
+    }
+  }
   FIRST_MODULE_REGISTERED.store(true, Ordering::SeqCst);
   exports
 }
@@ -470,7 +482,7 @@ pub(crate) unsafe extern "C" fn noop(
 }
 
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
-fn create_custom_gc(env: sys::napi_env) {
+fn create_custom_gc(env: sys::napi_env, current_thread_id: ThreadId) {
   if !FIRST_MODULE_REGISTERED.load(Ordering::SeqCst) {
     let mut custom_gc_fn = ptr::null_mut();
     check_status_or_throw!(
@@ -523,39 +535,23 @@ fn create_custom_gc(env: sys::napi_env) {
     CUSTOM_GC_TSFN.store(custom_gc_tsfn, Ordering::Relaxed);
   }
 
-  let current_thread_id = std::thread::current().id();
   THREADS_CAN_ACCESS_ENV.borrow_mut(|m| m.insert(current_thread_id, true));
-  #[cfg(not(target_family = "wasm"))]
-  check_status_or_throw!(
-    env,
-    unsafe {
-      sys::napi_add_env_cleanup_hook(
-        env,
-        Some(remove_thread_id),
-        Box::into_raw(Box::new(current_thread_id)).cast(),
-      )
-    },
-    "Failed to add remove thread id cleanup hook"
-  );
-
-  #[cfg(target_family = "wasm")]
-  check_status_or_throw!(
-    env,
-    unsafe {
-      crate::napi_add_env_cleanup_hook(
-        env,
-        Some(remove_thread_id),
-        Box::into_raw(Box::new(current_thread_id)).cast(),
-      )
-    },
-    "Failed to add remove thread id cleanup hook"
-  );
 }
 
-#[cfg(all(feature = "napi4", not(feature = "noop")))]
-unsafe extern "C" fn remove_thread_id(id: *mut std::ffi::c_void) {
+#[cfg(all(feature = "napi3", not(feature = "noop")))]
+unsafe extern "C" fn thread_cleanup(id: *mut std::ffi::c_void) {
   let thread_id = unsafe { Box::from_raw(id.cast::<ThreadId>()) };
-  THREADS_CAN_ACCESS_ENV.borrow_mut(|m| m.insert(*thread_id, false));
+  REGISTERED_CLASSES.borrow_mut(|m| {
+    m.remove(&thread_id);
+  });
+  #[cfg(feature = "napi4")]
+  {
+    THREADS_CAN_ACCESS_ENV.borrow_mut(|m| m.remove(&thread_id));
+    #[cfg(feature = "tokio_rt")]
+    {
+      crate::tokio_runtime::drop_runtime();
+    }
+  }
 }
 
 #[cfg(all(feature = "napi4", not(feature = "noop")))]

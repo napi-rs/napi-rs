@@ -82,7 +82,7 @@ pub(crate) fn ensure_runtime() {
 }
 
 #[cfg(not(feature = "noop"))]
-pub(crate) unsafe extern "C" fn drop_runtime(_arg: *mut std::ffi::c_void) {
+pub(crate) fn drop_runtime() {
   use std::sync::atomic::Ordering;
 
   if RT_REFERENCE_COUNT.fetch_sub(1, Ordering::AcqRel) == 1 {

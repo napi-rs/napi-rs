@@ -9,6 +9,7 @@ version = "0.1.0"
 crate-type = ["cdylib"]
 
 [dependencies]
+ctor = "0.3"
 futures = "0.3"
 napi = { path = "../crates/napi", features = [
   "tokio_rt",

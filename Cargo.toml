@@ -16,6 +16,14 @@ members = [
 
 exclude = ["./testing"]
 
+[workspace.lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
+unimplemented = "warn"
+print_stdout = "warn"     # Must be opt-in
+print_stderr = "warn"     # Must be opt-in
+allow_attributes = "warn"
+
 [profile.release]
 lto = true
 

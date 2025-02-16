@@ -49,7 +49,7 @@ pub struct TupleToArray(pub String, pub u32, pub Option<Meta>);
 
 #[napi]
 fn merge_tuple_array(t1: TupleToArray, t2: TupleToArray) -> TupleToArray {
-  let merge = t2.2.as_ref().map_or(false, |m| m.merge);
+  let merge = t2.2.as_ref().is_some_and(|m| m.merge);
   if merge {
     let first = t1.0 + &t2.0;
     let second = t1.1 + t2.1;
