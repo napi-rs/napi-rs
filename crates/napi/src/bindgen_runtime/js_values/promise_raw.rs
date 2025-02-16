@@ -45,8 +45,8 @@ impl<'env, T: FromNapiValue> PromiseRaw<'env, T> {
       sys::napi_get_named_property(self.env, self.inner, THEN.as_ptr().cast(), &mut then_fn)
     })?;
     let mut then_callback = ptr::null_mut();
-    let excuted = Box::into_raw(Box::new(false));
-    let rust_cb = Box::into_raw(Box::new((cb, excuted)));
+    let executed = Box::into_raw(Box::new(false));
+    let rust_cb = Box::into_raw(Box::new((cb, executed)));
     check_status!(
       unsafe {
         sys::napi_create_function(
@@ -82,7 +82,7 @@ impl<'env, T: FromNapiValue> PromiseRaw<'env, T> {
         sys::napi_wrap(
           self.env,
           new_promise,
-          excuted.cast(),
+          executed.cast(),
           Some(promise_callback_finalizer::<T, U, Callback>),
           rust_cb.cast(),
           ptr::null_mut(),
@@ -111,8 +111,8 @@ impl<'env, T: FromNapiValue> PromiseRaw<'env, T> {
       sys::napi_get_named_property(self.env, self.inner, CATCH.as_ptr().cast(), &mut catch_fn)
     })?;
     let mut catch_callback = ptr::null_mut();
-    let excuted = Box::into_raw(Box::new(false));
-    let rust_cb = Box::into_raw(Box::new((cb, excuted)));
+    let executed = Box::into_raw(Box::new(false));
+    let rust_cb = Box::into_raw(Box::new((cb, executed)));
     check_status!(
       unsafe {
         sys::napi_create_function(
@@ -148,7 +148,7 @@ impl<'env, T: FromNapiValue> PromiseRaw<'env, T> {
         sys::napi_wrap(
           self.env,
           new_promise,
-          excuted.cast(),
+          executed.cast(),
           Some(promise_callback_finalizer::<E, U, Callback>),
           rust_cb.cast(),
           ptr::null_mut(),
@@ -414,8 +414,8 @@ where
   let catch_value: E = unsafe { FromNapiValue::from_napi_value(env, callback_values[0]) }?;
   let cb: Box<(Cb, *mut bool)> = unsafe { Box::from_raw(rust_cb.cast()) };
 
-  let excuted = unsafe { Box::leak(Box::from_raw(cb.1)) };
-  *excuted = true;
+  let executed = unsafe { Box::leak(Box::from_raw(cb.1)) };
+  *executed = true;
 
   unsafe {
     U::to_napi_value(
