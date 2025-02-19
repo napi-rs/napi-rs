@@ -151,7 +151,7 @@ pub fn module_exports(_attr: TokenStream, input: TokenStream) -> TokenStream {
   };
 
   let register = quote! {
-    #[cfg_attr(not(target_family = "wasm"), napi::bindgen_prelude::ctor)]
+    #[cfg_attr(not(target_family = "wasm"), napi::ctor::ctor(crate_path=napi::ctor))]
     fn __napi_explicit_module_register() {
       unsafe fn register(raw_env: napi::sys::napi_env, raw_exports: napi::sys::napi_value) -> napi::Result<()> {
         use napi::{Env, JsObject, NapiValue};
@@ -172,5 +172,15 @@ pub fn module_exports(_attr: TokenStream, input: TokenStream) -> TokenStream {
 
     #register
   })
+  .into()
+}
+
+#[proc_macro_attribute]
+pub fn module_init(_: TokenStream, input: TokenStream) -> TokenStream {
+  let input = parse_macro_input!(input as ItemFn);
+  quote! {
+    #[napi::ctor::ctor(crate_path=napi::ctor)]
+    #input
+  }
   .into()
 }

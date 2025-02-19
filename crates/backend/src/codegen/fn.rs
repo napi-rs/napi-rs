@@ -702,7 +702,7 @@ impl NapiFn {
         #[allow(clippy::all)]
         #[allow(non_snake_case)]
         #[cfg(all(not(test), not(target_family = "wasm")))]
-        #[napi::bindgen_prelude::ctor]
+        #[napi::ctor::ctor(crate_path=::napi::ctor)]
         fn #module_register_name() {
           napi::bindgen_prelude::register_module_export(#js_mod_ident, #js_name, #cb_name);
         }

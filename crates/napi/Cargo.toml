@@ -62,7 +62,7 @@ node_version_detect = []
 
 [dependencies]
 bitflags = "2"
-ctor = "0.3"
+ctor = "0.3.6"
 
 [dependencies.anyhow]
 optional = true
