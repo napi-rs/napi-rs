@@ -401,7 +401,9 @@ jobs:
 
   test_in_docker:
     name: Test - ${{ matrix.settings.target }} - ${{ matrix.node }}
-    runs-on: ubuntu-latest
+    # Node.js on qemu segfaults on s390x and arm64v8 when using 24.04
+    # See also https://github.com/actions/runner-images/issues/11471
+    runs-on: ubuntu-22.04
     needs:
       - build_in_docker
       - build_for_test_in_docker
@@ -469,6 +471,7 @@ jobs:
         uses: docker/setup-qemu-action@v3
         with:
           platforms: all
+          image: tonistiigi/binfmt:qemu-v8.1.5
       - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
       - name: Setup image name
         id: image-name
