@@ -254,7 +254,7 @@ impl NapiEnum {
       #[allow(non_snake_case)]
       #[allow(clippy::all)]
       #[cfg(all(not(test), not(target_family = "wasm")))]
-      #[napi::bindgen_prelude::ctor]
+      #[napi::ctor::ctor(crate_path=napi::ctor)]
       fn #register_name() {
         napi::bindgen_prelude::register_module_export(#js_mod_ident, #js_name_lit, #callback_name);
       }

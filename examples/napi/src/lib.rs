@@ -18,7 +18,7 @@ extern crate serde_derive;
 static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
 
 #[cfg(not(target_family = "wasm"))]
-#[napi::module_init]
+#[napi_derive::module_init]
 fn init() {
   let rt = tokio::runtime::Builder::new_multi_thread()
     .enable_all()
