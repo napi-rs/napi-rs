@@ -7,7 +7,7 @@ use std::mem::MaybeUninit;
 #[cfg(not(feature = "noop"))]
 use std::ptr;
 #[cfg(not(feature = "noop"))]
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{LazyLock, RwLock};
 use std::thread::ThreadId;
 use std::{any::TypeId, collections::HashMap};
@@ -52,6 +52,7 @@ impl<K, V> Default for PersistedPerInstanceHashMap<K, V> {
   }
 }
 
+#[cfg(not(feature = "noop"))]
 type ModuleRegisterCallback =
   RwLock<Vec<(Option<&'static str>, (&'static str, ExportRegisterCallback))>>;
 
@@ -65,10 +66,12 @@ type FnRegisterMap =
   PersistedPerInstanceHashMap<ExportRegisterCallback, (sys::napi_callback, &'static str)>;
 type RegisteredClassesMap = PersistedPerInstanceHashMap<ThreadId, RegisteredClasses>;
 
+#[cfg(not(feature = "noop"))]
 static MODULE_REGISTER_CALLBACK: LazyLock<ModuleRegisterCallback> = LazyLock::new(Default::default);
+#[cfg(not(feature = "noop"))]
 static MODULE_CLASS_PROPERTIES: LazyLock<ModuleClassProperty> = LazyLock::new(Default::default);
 #[cfg(not(feature = "noop"))]
-static IS_FIRST_MODULE: AtomicBool = AtomicBool::new(true);
+static MODULE_COUNT: AtomicUsize = AtomicUsize::new(0);
 #[cfg(not(feature = "noop"))]
 static FIRST_MODULE_REGISTERED: AtomicBool = AtomicBool::new(false);
 static REGISTERED_CLASSES: LazyLock<RegisteredClassesMap> = LazyLock::new(Default::default);
@@ -109,6 +112,7 @@ pub fn register_module_exports(callback: ModuleExportsCallback) {
     .push(callback);
 }
 
+#[cfg(not(feature = "noop"))]
 #[doc(hidden)]
 pub fn register_module_export(
   js_mod: Option<&'static str>,
@@ -142,6 +146,7 @@ pub fn get_class_constructor(js_name: &'static str) -> Option<sys::napi_ref> {
   })?
 }
 
+#[cfg(not(feature = "noop"))]
 #[doc(hidden)]
 pub fn register_class(
   rust_type_id: TypeId,
@@ -212,10 +217,7 @@ pub unsafe extern "C" fn napi_register_module_v1(
   env: sys::napi_env,
   exports: sys::napi_value,
 ) -> sys::napi_value {
-  #[cfg(all(
-    any(target_env = "msvc", feature = "dyn-symbols"),
-    not(feature = "noop")
-  ))]
+  #[cfg(any(target_env = "msvc", feature = "dyn-symbols"))]
   unsafe {
     sys::setup();
   }
@@ -234,11 +236,11 @@ pub unsafe extern "C" fn napi_register_module_v1(
       NODE_VERSION_PATCH = node_version.patch;
     };
   }
-  if IS_FIRST_MODULE.load(Ordering::SeqCst) {
-    IS_FIRST_MODULE.store(false, Ordering::SeqCst);
-  } else {
+
+  if MODULE_COUNT.fetch_add(1, Ordering::SeqCst) != 0 {
     wait_first_thread_registered();
   }
+
   let mut exports_objects: HashSet<String> = HashSet::default();
 
   {
@@ -424,29 +426,21 @@ pub unsafe extern "C" fn napi_register_module_v1(
     })
   }
 
+  #[cfg(feature = "napi4")]
   let current_thread_id = std::thread::current().id();
 
-  #[cfg(all(not(target_family = "wasm"), feature = "napi3"))]
+  // attach cleanup hook to the `module` object
+  // we don't use the `napi_add_env_cleanup_hook` because it's required napi3
   check_status_or_throw!(
     env,
     unsafe {
-      sys::napi_add_env_cleanup_hook(
+      sys::napi_wrap(
         env,
-        Some(thread_cleanup),
+        exports,
         Box::into_raw(Box::new(current_thread_id)).cast(),
-      )
-    },
-    "Failed to add remove thread id cleanup hook"
-  );
-
-  #[cfg(all(target_family = "wasm", feature = "napi3"))]
-  check_status_or_throw!(
-    env,
-    unsafe {
-      crate::napi_add_env_cleanup_hook(
-        env,
         Some(thread_cleanup),
-        Box::into_raw(Box::new(current_thread_id)).cast(),
+        ptr::null_mut(),
+        ptr::null_mut(),
       )
     },
     "Failed to add remove thread id cleanup hook"
@@ -538,19 +532,24 @@ fn create_custom_gc(env: sys::napi_env, current_thread_id: ThreadId) {
   THREADS_CAN_ACCESS_ENV.borrow_mut(|m| m.insert(current_thread_id, true));
 }
 
-#[cfg(all(feature = "napi3", not(feature = "noop")))]
-unsafe extern "C" fn thread_cleanup(id: *mut std::ffi::c_void) {
-  let thread_id = unsafe { Box::from_raw(id.cast::<ThreadId>()) };
-  REGISTERED_CLASSES.borrow_mut(|m| {
-    m.remove(&thread_id);
-  });
-  #[cfg(feature = "napi4")]
-  {
-    THREADS_CAN_ACCESS_ENV.borrow_mut(|m| m.remove(&thread_id));
-    #[cfg(feature = "tokio_rt")]
+#[cfg(not(feature = "noop"))]
+unsafe extern "C" fn thread_cleanup(
+  _: sys::napi_env,
+  #[allow(unused_variables)] id: *mut std::ffi::c_void,
+  _data: *mut std::ffi::c_void,
+) {
+  if MODULE_COUNT.fetch_sub(1, Ordering::Relaxed) == 1 {
+    #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
     {
       crate::tokio_runtime::drop_runtime();
     }
+    crate::bindgen_runtime::REFERENCE_MAP.borrow_mut(|m| m.clear());
+    return;
+  }
+  #[cfg(feature = "napi4")]
+  {
+    let thread_id = unsafe { Box::from_raw(id.cast::<ThreadId>()) };
+    THREADS_CAN_ACCESS_ENV.borrow_mut(|m| m.remove(&thread_id));
   }
 }
 
