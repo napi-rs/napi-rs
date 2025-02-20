@@ -16,7 +16,7 @@ on:
 jobs:
   test:
     name: Address sanitizer
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
 
     steps:
       - uses: actions/checkout@v4
@@ -24,7 +24,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'yarn'
 
       - name: Install
@@ -51,12 +51,13 @@ jobs:
         run: |
           yarn workspace @examples/napi build -- -Z build-std
           yarn workspace @examples/compat-mode build -- -Z build-std
-          LD_PRELOAD=/usr/lib/gcc/x86_64-linux-gnu/9/libasan.so yarn test
+          LD_PRELOAD=/usr/lib/gcc/x86_64-linux-gnu/13/libasan.so yarn test
         env:
           RUST_TARGET: x86_64-unknown-linux-gnu
           RUST_BACKTRACE: 1
           RUSTFLAGS: -Z sanitizer=address
           ASAN_OPTIONS: detect_leaks=0
+          NODE_OPTIONS: --max-old-space-size=6000
 
       - name: Clear the cargo caches
         run: |
