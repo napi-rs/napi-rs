@@ -428,6 +428,10 @@ pub unsafe extern "C" fn napi_register_module_v1(
 
   #[cfg(feature = "napi4")]
   let current_thread_id = std::thread::current().id();
+  #[cfg(feature = "napi4")]
+  let wrapped_object = Box::into_raw(Box::new(current_thread_id)).cast();
+  #[cfg(not(feature = "napi4"))]
+  let wrapped_object = Box::into_raw(Box::new(())).cast();
 
   // attach cleanup hook to the `module` object
   // we don't use the `napi_add_env_cleanup_hook` because it's required napi3
@@ -437,7 +441,7 @@ pub unsafe extern "C" fn napi_register_module_v1(
       sys::napi_wrap(
         env,
         exports,
-        Box::into_raw(Box::new(current_thread_id)).cast(),
+        wrapped_object,
         Some(thread_cleanup),
         ptr::null_mut(),
         ptr::null_mut(),
