@@ -3,6 +3,10 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.0.0-alpha.33](https://github.com/napi-rs/napi-rs/compare/@napi-rs/triples@2.0.0-alpha.32...@napi-rs/triples@2.0.0-alpha.33) (2025-02-21)
+
+**Note:** Version bump only for package @napi-rs/triples
+
 # [2.0.0-alpha.32](https://github.com/napi-rs/napi-rs/compare/@napi-rs/triples@2.0.0-alpha.31...@napi-rs/triples@2.0.0-alpha.32) (2025-01-29)
 
 **Note:** Version bump only for package @napi-rs/triples

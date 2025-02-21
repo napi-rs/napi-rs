@@ -3,6 +3,16 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.71](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.70...@napi-rs/cli@3.0.0-alpha.71) (2025-02-21)
+
+### Bug Fixes
+
+- **cli:** set the default value of dtsCache to true ([#2420](https://github.com/napi-rs/napi-rs/issues/2420)) ([514c168](https://github.com/napi-rs/napi-rs/commit/514c168d25bffa758748535784d115429b1fcf77))
+
+### Features
+
+- **cli:** allow specifing native library path via env variable ([#2471](https://github.com/napi-rs/napi-rs/issues/2471)) ([46e9b97](https://github.com/napi-rs/napi-rs/commit/46e9b97e12c9ba6d281824cf40b7553a19505b26))
+
 # [3.0.0-alpha.70](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.69...@napi-rs/cli@3.0.0-alpha.70) (2025-01-29)
 
 ### Features
