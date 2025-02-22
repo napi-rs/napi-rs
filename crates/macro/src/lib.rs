@@ -13,8 +13,9 @@ extern crate quote;
 use std::env;
 
 use proc_macro::TokenStream;
+use syn::ItemFn;
 #[cfg(feature = "compat-mode")]
-use syn::{fold::Fold, parse_macro_input, ItemFn};
+use syn::{fold::Fold, parse_macro_input};
 
 /// ```ignore
 /// #[napi]
