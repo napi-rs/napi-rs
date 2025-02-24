@@ -565,10 +565,14 @@ jobs:
       fail-fast: false
       matrix:
         settings:
-          - features: 'napi1,napi2,napi3,napi4,napi5,napi6,napi7,napi8,experimental,async,chrono_date,latin1,full'
+          - features: 'napi1,napi2,napi3,napi4,napi5,napi6,napi7,napi8,napi9,experimental,async,chrono_date,latin1,full'
             package: 'napi'
           - features: 'compat-mode,strict,type-def,noop,full,default'
             package: 'napi-derive'
+          - features: 'noop'
+            package: 'napi-examples'
+          - features: 'snmalloc'
+            package: 'napi-examples'
     name: stable - ubuntu-latest
     runs-on: ubuntu-latest
 
@@ -581,7 +585,7 @@ jobs:
           toolchain: stable
 
       - name: Check build
-        run: cargo check -p ${{ matrix.settings.package }} -F ${{ matrix.settings.features }}\
+        run: cargo check -p ${{ matrix.settings.package }} -F ${{ matrix.settings.features }}
 
   test-freebsd:
     runs-on: ubuntu-latest
