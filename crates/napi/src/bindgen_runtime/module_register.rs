@@ -204,6 +204,14 @@ unsafe extern "C" fn napi_register_wasm_v1(
   unsafe { napi_register_module_v1(env, exports) }
 }
 
+#[cfg(all(target_family = "wasm", not(feature = "noop")))]
+#[no_mangle]
+#[allow(unused_variables)]
+unsafe extern "C" fn pthread_key_delete(key: *mut std::ffi::c_void) -> std::ffi::c_int {
+  // See https://github.com/rust-lang/rust/issues/137510 for the context
+  0
+}
+
 #[cfg(not(feature = "noop"))]
 #[no_mangle]
 /// Register the n-api module exports.
@@ -548,6 +556,7 @@ unsafe extern "C" fn thread_cleanup(
       crate::tokio_runtime::drop_runtime();
     }
     crate::bindgen_runtime::REFERENCE_MAP.borrow_mut(|m| m.clear());
+    #[allow(clippy::needless_return)]
     return;
   }
   #[cfg(feature = "napi4")]

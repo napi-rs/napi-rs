@@ -65,7 +65,7 @@
 //! ```
 //!
 
-#[cfg(target_family = "wasm")]
+#[cfg(all(target_family = "wasm", not(feature = "noop"), feature = "napi3"))]
 #[link(wasm_import_module = "napi")]
 extern "C" {
   fn napi_add_env_cleanup_hook(
