@@ -12,6 +12,7 @@ crate-type = ["cdylib"]
 snmalloc = ["snmalloc-rs"]
 dyn-symbols = ["napi/dyn-symbols"]
 error_try_builds = []
+noop = ["napi/noop"]
 
 [dependencies]
 chrono = "0.4"

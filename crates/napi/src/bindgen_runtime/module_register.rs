@@ -56,6 +56,7 @@ impl<K, V> Default for PersistedPerInstanceHashMap<K, V> {
 type ModuleRegisterCallback =
   RwLock<Vec<(Option<&'static str>, (&'static str, ExportRegisterCallback))>>;
 
+#[cfg(not(feature = "noop"))]
 type ModuleClassProperty =
   PersistedPerInstanceHashMap<TypeId, HashMap<Option<&'static str>, (&'static str, Vec<Property>)>>;
 
@@ -112,6 +113,10 @@ pub fn register_module_exports(callback: ModuleExportsCallback) {
     .push(callback);
 }
 
+#[cfg(feature = "noop")]
+#[doc(hidden)]
+pub fn register_module_exports(_: ModuleExportsCallback) {}
+
 #[cfg(not(feature = "noop"))]
 #[doc(hidden)]
 pub fn register_module_export(
@@ -123,6 +128,15 @@ pub fn register_module_export(
     .write()
     .expect("Register module export failed")
     .push((js_mod, (name, cb)));
+}
+
+#[cfg(feature = "noop")]
+#[doc(hidden)]
+pub fn register_module_export(
+  _js_mod: Option<&'static str>,
+  _name: &'static str,
+  _cb: ExportRegisterCallback,
+) {
 }
 
 #[doc(hidden)]
@@ -160,6 +174,17 @@ pub fn register_class(
     val.0 = js_name;
     val.1.extend(props);
   });
+}
+
+#[cfg(feature = "noop")]
+#[doc(hidden)]
+#[allow(unused_variables)]
+pub fn register_class(
+  rust_type_id: TypeId,
+  js_mod: Option<&'static str>,
+  js_name: &'static str,
+  props: Vec<Property>,
+) {
 }
 
 /// Get `C Callback` from defined Rust `fn`
