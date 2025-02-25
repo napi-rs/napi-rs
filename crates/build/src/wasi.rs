@@ -1,4 +1,4 @@
-use std::env;
+use std::{env, path::Path};
 
 pub fn setup() {
   let link_dir = env::var("EMNAPI_LINK_DIR").expect("EMNAPI_LINK_DIR must be set");
@@ -21,6 +21,31 @@ pub fn setup() {
   // 6400000 bytes = 64MiB
   println!("cargo:rustc-link-arg=-zstack-size=6400000");
   println!("cargo:rustc-link-arg=--no-check-features");
+  let rustc_path = env::var("RUSTC").expect("RUSTC must be set by Cargo");
+  let target = env::var("TARGET").expect("TARGET must be set by Cargo");
+  let crt_reactor_path = Path::new(&rustc_path)
+    .parent()
+    .and_then(|p| p.parent())
+    .map_or_else(
+      || Path::new("").to_path_buf(),
+      |p| {
+        p.join("lib")
+          .join("rustlib")
+          .join(target)
+          .join("lib")
+          .join("self-contained")
+          .join("crt1-reactor.o")
+      },
+    );
+  if crt_reactor_path.exists() {
+    println!("cargo:rustc-link-arg={}", crt_reactor_path.display());
+    println!("cargo:rustc-link-arg=--export=_initialize");
+  } else {
+    println!(
+      "cargo:warning=crt1-reactor.o not found at {}, the multi-threaded runtime may not be initialized correctly",
+      crt_reactor_path.display()
+    );
+  }
   if let Ok(setjmp_link_dir) = env::var("SETJMP_LINK_DIR") {
     println!("cargo:rustc-link-search={setjmp_link_dir}");
     println!("cargo:rustc-link-lib=static=setjmp-mt");

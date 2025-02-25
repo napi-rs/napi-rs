@@ -1,6 +1,5 @@
 export const createWasiBrowserBinding = (
   wasiFilename: string,
-  wasiRegisterFunctions: string[],
   initialMemory = 4000,
   maximumMemory = 65536,
   fs = false,
@@ -71,22 +70,19 @@ ${workerFsHandler}
     return importObject
   },
   beforeInit({ instance }) {
-    __napi_rs_initialize_modules(instance)
+    for (const name of Object.keys(instance.exports)) {
+      if (name.startsWith('__napi_register__')) {
+        instance.exports[name]()
+      }
+    }
   },
 })
-
-function __napi_rs_initialize_modules(__napiInstance) {
-${wasiRegisterFunctions
-  .map((name) => `  __napiInstance.exports['${name}']?.()`)
-  .join('\n')}
-}
 `
 }
 
 export const createWasiBinding = (
   wasmFileName: string,
   packageName: string,
-  wasiRegisterFunctions: string[],
   initialMemory = 4000,
   maximumMemory = 65536,
 ) => `/* eslint-disable */
@@ -168,13 +164,12 @@ const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule
     return importObject
   },
   beforeInit({ instance }) {
-    __napi_rs_initialize_modules(instance)
-  }
+    for (const name of Object.keys(instance.exports)) {
+      if (name.startsWith('__napi_register__')) {
+        instance.exports[name]()
+      }
+    }
+  },
 })
 
-function __napi_rs_initialize_modules(__napiInstance) {
-${wasiRegisterFunctions
-  .map((name) => `  __napiInstance.exports['${name}']?.()`)
-  .join('\n')}
-}
 `
