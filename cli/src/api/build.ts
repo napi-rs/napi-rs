@@ -949,7 +949,6 @@ class Builder {
         createWasiBinding(
           name,
           this.config.packageName,
-          wasiRegisterFunctions,
           this.config.wasm?.initialMemory,
           this.config.wasm?.maximumMemory,
         ) +
@@ -961,7 +960,6 @@ class Builder {
         browserBindingPath,
         createWasiBrowserBinding(
           name,
-          wasiRegisterFunctions,
           this.config.wasm?.initialMemory,
           this.config.wasm?.maximumMemory,
           this.config.wasm?.browser?.fs,
