@@ -1,18 +1,63 @@
-use std::any::type_name;
-use std::ffi::CString;
+use std::any::{type_name, TypeId};
+use std::ffi::{c_void, CString};
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 use std::ptr;
+use std::rc::Rc;
 
-use super::Object;
+use super::{Object, REFERENCE_MAP};
 use crate::{
   bindgen_runtime::{
-    raw_finalize_unchecked, FromNapiValue, ObjectFinalize, Reference, Result, TypeName,
+    FromNapiValue, ObjectFinalize, Reference, Result, TypeName,
     ValidateNapiValue,
   },
   check_status, sys, Env, NapiRaw, NapiValue, ValueType,
 };
-use crate::{Property, PropertyAttributes};
+use crate::{Error, JsError, Property, PropertyAttributes, Status, TaggedObject};
+
+/// # Safety
+///
+/// called when node wrapper objects destroyed
+#[doc(hidden)]
+unsafe extern "C" fn raw_finalize_unchecked<T: ObjectFinalize>(
+  env: sys::napi_env,
+  finalize_data: *mut c_void,
+  _finalize_hint: *mut c_void,
+) {
+  let data: Box<TaggedObject<T>> = unsafe { Box::from_raw(finalize_data.cast()) };
+  if let Err(err) = data.object.unwrap().finalize(Env::from_raw(env)) {
+    let e: JsError = err.into();
+    unsafe { e.throw_into(env) };
+    return;
+  }
+  if let Some((_, ref_val, finalize_callbacks_ptr)) =
+    REFERENCE_MAP.borrow_mut(|reference_map| reference_map.remove(&finalize_data))
+  {
+    let finalize_callbacks_rc = unsafe { Rc::from_raw(finalize_callbacks_ptr) };
+
+    #[cfg(all(debug_assertions, not(target_family = "wasm")))]
+    {
+      let rc_strong_count = Rc::strong_count(&finalize_callbacks_rc);
+      // If `Rc` strong count is 2, it means the finalize of referenced `Object` is called before the `fn drop` of the `Reference`
+      // It always happened on exiting process
+      // In general, the `fn drop` would happen first
+      assert!(
+        rc_strong_count == 1 || rc_strong_count == 2,
+        "Rc strong count is: {}, it should be 1 or 2",
+        rc_strong_count
+      );
+    }
+    let finalize = unsafe { Box::from_raw(finalize_callbacks_rc.get()) };
+    finalize();
+    let delete_reference_status = unsafe { sys::napi_delete_reference(env, ref_val) };
+    debug_assert!(
+      delete_reference_status == sys::Status::napi_ok,
+      "Delete reference in finalize callback failed {}",
+      Status::from(delete_reference_status)
+    );
+  }
+}
+
 
 pub struct This<'scope, T: FromNapiValue = Object> {
   pub object: T,
@@ -186,18 +231,39 @@ where
   }
 }
 
-impl<'env, T: 'env> FromNapiValue for ClassInstance<'env, T> {
+impl<'env, T: 'static> FromNapiValue for ClassInstance<'env, T> {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
-    let mut value = ptr::null_mut();
-    check_status!(
-      unsafe { sys::napi_unwrap(env, napi_val, &mut value) },
-      "Unwrap value [{}] from class failed",
-      type_name::<T>(),
-    )?;
-    let value = unsafe { Box::from_raw(value as *mut T) };
+    let mut unknown_tagged_object = ptr::null_mut();
+    check_status!(sys::napi_unwrap(
+      env,
+      napi_val,
+      &mut unknown_tagged_object,
+    ))?;
+
+    let type_id = unknown_tagged_object as *const TypeId;
+    let wrapped_val = if *type_id == TypeId::of::<T>() {
+      let tagged_object = unknown_tagged_object as *mut TaggedObject<T>;
+      match (*tagged_object).object.as_mut() {
+        Some(object) => object,
+        None => {
+          return Err(Error::new(
+            Status::InvalidArg,
+            "Invalid argument, nothing attach to js_object".to_owned(),
+          ))
+        },
+      }
+    } else {
+      return Err(Error::new(
+        Status::InvalidArg,
+        format!(
+          "Invalid argument, {} on unwrap is not the type of wrapped object",
+          type_name::<T>()
+        ),
+      ))
+    };
     Ok(Self {
       value: napi_val,
-      inner: Box::leak(value),
+      inner: wrapped_val as *mut _,
       env,
       _phantom: &PhantomData,
     })
@@ -265,7 +331,7 @@ pub unsafe fn new_instance<T: 'static + ObjectFinalize>(
     sys::napi_wrap(
       env,
       result,
-      wrapped_value,
+      Box::into_raw(Box::new(TaggedObject::new(wrapped_value))).cast(),
       Some(raw_finalize_unchecked::<T>),
       std::ptr::null_mut(),
       &mut object_ref,
