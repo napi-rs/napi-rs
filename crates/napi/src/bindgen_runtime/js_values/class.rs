@@ -8,8 +8,7 @@ use std::rc::Rc;
 use super::{Object, REFERENCE_MAP};
 use crate::{
   bindgen_runtime::{
-    FromNapiValue, ObjectFinalize, Reference, Result, TypeName,
-    ValidateNapiValue,
+    FromNapiValue, ObjectFinalize, Reference, Result, TypeName, ValidateNapiValue,
   },
   check_status, sys, Env, NapiRaw, NapiValue, ValueType,
 };
@@ -57,7 +56,6 @@ unsafe extern "C" fn raw_finalize_unchecked<T: ObjectFinalize>(
     );
   }
 }
-
 
 pub struct This<'scope, T: FromNapiValue = Object> {
   pub object: T,
@@ -234,11 +232,7 @@ where
 impl<'env, T: 'static> FromNapiValue for ClassInstance<'env, T> {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
     let mut unknown_tagged_object = ptr::null_mut();
-    check_status!(sys::napi_unwrap(
-      env,
-      napi_val,
-      &mut unknown_tagged_object,
-    ))?;
+    check_status!(sys::napi_unwrap(env, napi_val, &mut unknown_tagged_object))?;
 
     let type_id = unknown_tagged_object as *const TypeId;
     let wrapped_val = if *type_id == TypeId::of::<T>() {
@@ -250,7 +244,7 @@ impl<'env, T: 'static> FromNapiValue for ClassInstance<'env, T> {
             Status::InvalidArg,
             "Invalid argument, nothing attach to js_object".to_owned(),
           ))
-        },
+        }
       }
     } else {
       return Err(Error::new(
@@ -259,7 +253,7 @@ impl<'env, T: 'static> FromNapiValue for ClassInstance<'env, T> {
           "Invalid argument, {} on unwrap is not the type of wrapped object",
           type_name::<T>()
         ),
-      ))
+      ));
     };
     Ok(Self {
       value: napi_val,

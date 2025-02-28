@@ -3,7 +3,7 @@ use std::any::TypeId;
 #[repr(C)]
 pub struct TaggedObject<T> {
   type_id: TypeId,
-  pub(crate) object: Option<T>,
+  pub object: Option<T>,
 }
 
 impl<T: 'static> TaggedObject<T> {
