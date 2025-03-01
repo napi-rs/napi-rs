@@ -509,6 +509,8 @@ export declare function f64ArrayToArray(input: Float64Array): Array<number>
 
 export declare function fibonacci(n: number): number
 
+export declare function fly(bird: Bird): void
+
 export declare function fnReceivedAliased(s: AliasedStruct, e: ALIAS): void
 
 export interface FunctionData {
