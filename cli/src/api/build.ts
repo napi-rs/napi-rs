@@ -268,18 +268,22 @@ class Builder {
         )
       }
       if (
-        (process.env.CC === 'clang' &&
-          (process.env.TARGET_CC === 'clang' || !process.env.TARGET_CC)) ||
-        process.env.TARGET_CC === 'clang'
+        (process.env.CC?.startsWith('clang') &&
+          (process.env.TARGET_CC?.startsWith('clang') ||
+            !process.env.TARGET_CC)) ||
+        process.env.TARGET_CC?.startsWith('clang')
       ) {
-        this.envs.CFLAGS = `--sysroot=${this.envs.TARGET_SYSROOT} --gcc-toolchain=${toolchainPath}`
+        const CFLAGS = process.env.CFLAGS ?? ''
+        this.envs.CFLAGS = `--sysroot=${this.envs.TARGET_SYSROOT} --gcc-toolchain=${toolchainPath} ${CFLAGS}`
       }
       if (
-        (process.env.CXX === 'clang++' &&
-          (process.env.TARGET_CXX === 'clang++' || !process.env.TARGET_CXX)) ||
-        process.env.TARGET_CXX === 'clang++'
+        (process.env.CXX?.startsWith('clang++') &&
+          (process.env.TARGET_CXX?.startsWith('clang++') ||
+            !process.env.TARGET_CXX)) ||
+        process.env.TARGET_CXX?.startsWith('clang++')
       ) {
-        this.envs.CXXFLAGS = `--sysroot=${this.envs.TARGET_SYSROOT} --gcc-toolchain=${toolchainPath}`
+        const CXXFLAGS = process.env.CXXFLAGS ?? ''
+        this.envs.CXXFLAGS = `--sysroot=${this.envs.TARGET_SYSROOT} --gcc-toolchain=${toolchainPath} ${CXXFLAGS} ${CXXFLAGS}`
       }
       this.envs.PATH = this.envs.PATH
         ? `${toolchainPath}/bin:${this.envs.PATH}:${process.env.PATH}`
