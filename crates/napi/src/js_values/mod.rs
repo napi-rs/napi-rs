@@ -59,7 +59,7 @@ pub use object_property::*;
 #[cfg(feature = "serde-json")]
 pub use ser::Ser;
 pub use string::*;
-pub(crate) use tagged_object::TaggedObject;
+pub use tagged_object::TaggedObject;
 pub use undefined::JsUndefined;
 pub(crate) use value::Value;
 pub use value_ref::*;

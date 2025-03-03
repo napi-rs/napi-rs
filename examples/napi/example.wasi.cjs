@@ -227,6 +227,7 @@ module.exports.esmResolve = __napiModule.exports.esmResolve
 module.exports.f32ArrayToArray = __napiModule.exports.f32ArrayToArray
 module.exports.f64ArrayToArray = __napiModule.exports.f64ArrayToArray
 module.exports.fibonacci = __napiModule.exports.fibonacci
+module.exports.fly = __napiModule.exports.fly
 module.exports.fnReceivedAliased = __napiModule.exports.fnReceivedAliased
 module.exports.generateFunctionAndCallIt = __napiModule.exports.generateFunctionAndCallIt
 module.exports.getBtreeMapping = __napiModule.exports.getBtreeMapping

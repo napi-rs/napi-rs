@@ -512,6 +512,7 @@ module.exports.esmResolve = nativeBinding.esmResolve
 module.exports.f32ArrayToArray = nativeBinding.f32ArrayToArray
 module.exports.f64ArrayToArray = nativeBinding.f64ArrayToArray
 module.exports.fibonacci = nativeBinding.fibonacci
+module.exports.fly = nativeBinding.fly
 module.exports.fnReceivedAliased = nativeBinding.fnReceivedAliased
 module.exports.generateFunctionAndCallIt = nativeBinding.generateFunctionAndCallIt
 module.exports.getBtreeMapping = nativeBinding.getBtreeMapping

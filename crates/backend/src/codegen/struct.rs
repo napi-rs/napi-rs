@@ -26,36 +26,10 @@ fn gen_napi_value_map_impl(
   } else {
     quote! { #name }
   };
-  let js_name_str = format!("{}\0", name_str);
   let validate = quote! {
     unsafe fn validate(env: napi::sys::napi_env, napi_val: napi::sys::napi_value) -> napi::Result<napi::sys::napi_value> {
-      if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name_str) {
-        let mut ctor = std::ptr::null_mut();
-        napi::check_status!(
-          napi::sys::napi_get_reference_value(env, ctor_ref, &mut ctor),
-          "Failed to get constructor reference of class `{}`",
-          #name_str
-        )?;
-        let mut is_instance_of = false;
-        napi::check_status!(
-          napi::sys::napi_instanceof(env, napi_val, ctor, &mut is_instance_of),
-          "Failed to get external value of class `{}`",
-          #name_str
-        )?;
-        if is_instance_of {
-          Ok(std::ptr::null_mut())
-        } else {
-          Err(napi::Error::new(
-            napi::Status::InvalidArg,
-            format!("Value is not instanceof class `{}`", #name_str)
-          ))
-        }
-      } else {
-        Err(napi::Error::new(
-          napi::Status::InvalidArg,
-          format!("Failed to get constructor of class `{}`", #name_str)
-        ))
-      }
+      let _ = <#name as napi::bindgen_prelude::FromNapiRef>::from_napi_ref(env, napi_val)?;
+      Ok(napi_val)
     }
   };
   quote! {
@@ -100,15 +74,37 @@ fn gen_napi_value_map_impl(
         env: napi::bindgen_prelude::sys::napi_env,
         napi_val: napi::bindgen_prelude::sys::napi_value
       ) -> napi::bindgen_prelude::Result<&'static Self> {
-        let mut wrapped_val: *mut std::ffi::c_void = std::ptr::null_mut();
+        let mut unknown_tagged_object: *mut std::ffi::c_void = std::ptr::null_mut();
 
         napi::bindgen_prelude::check_status!(
-          napi::bindgen_prelude::sys::napi_unwrap(env, napi_val, &mut wrapped_val),
+          napi::bindgen_prelude::sys::napi_unwrap(env, napi_val, &mut unknown_tagged_object),
           "Failed to recover `{}` type from napi value",
           #name_str,
         )?;
 
-        Ok(&*(wrapped_val as *const #name))
+        let type_id = unknown_tagged_object as *const std::any::TypeId;
+        if *type_id == std::any::TypeId::of::<#name>() {
+          let tagged_object = unknown_tagged_object as *mut napi::__private::TaggedObject<#name>;
+          let wrapped_value = match (*tagged_object).object.as_mut() {
+            Some(object) => object,
+            None => {
+              return Err(napi::bindgen_prelude::Error::new(
+                napi::bindgen_prelude::Status::InvalidArg,
+                "Invalid argument, nothing attach to js_object".to_owned(),
+              ));
+            },
+          };
+
+          Ok(&*(wrapped_value as *const #name))
+        } else {
+          Err(napi::bindgen_prelude::Error::new(
+            napi::bindgen_prelude::Status::InvalidArg,
+            format!(
+              "Invalid argument, {} on unwrap is not the type of wrapped object",
+              std::any::type_name::<#name>()
+            )
+          ))
+        }
       }
     }
 
@@ -118,15 +114,37 @@ fn gen_napi_value_map_impl(
         env: napi::bindgen_prelude::sys::napi_env,
         napi_val: napi::bindgen_prelude::sys::napi_value
       ) -> napi::bindgen_prelude::Result<&'static mut Self> {
-        let mut wrapped_val: *mut std::ffi::c_void = std::ptr::null_mut();
+        let mut unknown_tagged_object: *mut std::ffi::c_void = std::ptr::null_mut();
 
         napi::bindgen_prelude::check_status!(
-          napi::bindgen_prelude::sys::napi_unwrap(env, napi_val, &mut wrapped_val),
+          napi::bindgen_prelude::sys::napi_unwrap(env, napi_val, &mut unknown_tagged_object),
           "Failed to recover `{}` type from napi value",
           #name_str,
         )?;
 
-        Ok(&mut *(wrapped_val as *mut #name))
+        let type_id = unknown_tagged_object as *const std::any::TypeId;
+        if *type_id == std::any::TypeId::of::<#name>() {
+          let tagged_object = unknown_tagged_object as *mut napi::__private::TaggedObject<#name>;
+          let wrapped_value = match (*tagged_object).object.as_mut() {
+            Some(object) => object,
+            None => {
+              return Err(napi::bindgen_prelude::Error::new(
+                napi::bindgen_prelude::Status::InvalidArg,
+                "Invalid argument, nothing attach to js_object".to_owned(),
+              ));
+            },
+          };
+
+          Ok(&mut *(wrapped_value as *mut #name))
+        } else {
+          Err(napi::bindgen_prelude::Error::new(
+            napi::bindgen_prelude::Status::InvalidArg,
+            format!(
+              "Invalid argument, {} on unwrap is not the type of wrapped object",
+              std::any::type_name::<#name>()
+            ),
+          ))
+        }
       }
     }
 
@@ -146,15 +164,37 @@ fn gen_napi_value_map_impl(
         env: napi::bindgen_prelude::sys::napi_env,
         napi_val: napi::bindgen_prelude::sys::napi_value
       ) -> napi::bindgen_prelude::Result<Self> {
-        let mut wrapped_val: *mut std::ffi::c_void = std::ptr::null_mut();
+        let mut unknown_tagged_object: *mut std::ffi::c_void = std::ptr::null_mut();
 
         napi::bindgen_prelude::check_status!(
-        napi::bindgen_prelude::sys::napi_unwrap(env, napi_val, &mut wrapped_val),
+        napi::bindgen_prelude::sys::napi_unwrap(env, napi_val, &mut unknown_tagged_object),
           "Failed to recover `{}` type from napi value",
           #name_str,
         )?;
 
-        Ok(&mut *(wrapped_val as *mut #name))
+        let type_id = unknown_tagged_object as *const std::any::TypeId;
+        if *type_id == std::any::TypeId::of::<#name>() {
+          let tagged_object = unknown_tagged_object as *mut napi::__private::TaggedObject<#name>;
+          let wrapped_value = match (*tagged_object).object.as_mut() {
+            Some(object) => object,
+            None => {
+              return Err(napi::bindgen_prelude::Error::new(
+                napi::bindgen_prelude::Status::InvalidArg,
+                "Invalid argument, nothing attach to js_object".to_owned(),
+              ));
+            },
+          };
+
+          Ok(&mut *(wrapped_value as *mut #name))
+        } else {
+          Err(napi::bindgen_prelude::Error::new(
+            napi::bindgen_prelude::Status::InvalidArg,
+            format!(
+              "Invalid argument, {} on unwrap is not the type of wrapped object",
+              std::any::type_name::<#name>()
+            ),
+          ))
+        }
       }
     }
 

@@ -139,6 +139,9 @@ impl Bird {
   }
 }
 
+#[napi]
+pub fn fly(bird: &Bird) {}
+
 /// Smoking test for type generation
 #[napi]
 #[repr(transparent)]
