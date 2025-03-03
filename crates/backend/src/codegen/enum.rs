@@ -39,139 +39,8 @@ impl NapiEnum {
       quote! { napi::bindgen_prelude::ValueType::Number }
     };
 
-    let from_napi_value = if self.variants.is_empty() {
-      quote! {
-        impl napi::bindgen_prelude::FromNapiValue for #name {
-          unsafe fn from_napi_value(
-            env: napi::bindgen_prelude::sys::napi_env,
-            napi_val: napi::bindgen_prelude::sys::napi_value
-          ) -> napi::bindgen_prelude::Result<Self> {
-            Err(napi::bindgen_prelude::error!(
-              napi::bindgen_prelude::Status::InvalidArg,
-              "enum `{}` has no variants",
-              #name_str
-            ))
-          }
-        }
-      }
-    } else {
-      let from_napi_value = if self.is_string_enum {
-        quote! {
-          let val: String = napi::bindgen_prelude::FromNapiValue::from_napi_value(env, napi_val)
-        }
-      } else {
-        quote! {
-          let val = napi::bindgen_prelude::FromNapiValue::from_napi_value(env, napi_val)
-        }
-      };
-      let match_val = if self.is_string_enum {
-        quote! { val.as_str() }
-      } else {
-        quote! { val }
-      };
-      quote! {
-        impl napi::bindgen_prelude::FromNapiValue for #name {
-          unsafe fn from_napi_value(
-            env: napi::bindgen_prelude::sys::napi_env,
-            napi_val: napi::bindgen_prelude::sys::napi_value
-          ) -> napi::bindgen_prelude::Result<Self> {
-            #from_napi_value.map_err(|e| {
-              napi::bindgen_prelude::error!(
-                e.status,
-                "Failed to convert napi value into enum `{}`. {}",
-                #name_str,
-                e,
-              )
-            })?;
-
-            match #match_val {
-              #(#from_napi_branches,)*
-              _ => {
-                Err(napi::bindgen_prelude::error!(
-                  napi::bindgen_prelude::Status::InvalidArg,
-                  "value `{:?}` does not match any variant of enum `{}`",
-                  val,
-                  #name_str
-                ))
-              }
-            }
-          }
-        }
-      }
-    };
-
-    let to_napi_value = if self.variants.is_empty() {
-      quote! {
-        impl napi::bindgen_prelude::ToNapiValue for #name {
-          unsafe fn to_napi_value(
-            env: napi::bindgen_prelude::sys::napi_env,
-            val: Self
-          ) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
-            napi::bindgen_prelude::ToNapiValue::to_napi_value(env, ())
-          }
-        }
-
-        impl napi::bindgen_prelude::ToNapiValue for &#name {
-          unsafe fn to_napi_value(
-            env: napi::bindgen_prelude::sys::napi_env,
-            val: Self
-          ) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
-            napi::bindgen_prelude::ToNapiValue::to_napi_value(env, ())
-          }
-        }
-
-        impl napi::bindgen_prelude::ToNapiValue for &mut #name {
-          unsafe fn to_napi_value(
-            env: napi::bindgen_prelude::sys::napi_env,
-            val: Self
-          ) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
-            napi::bindgen_prelude::ToNapiValue::to_napi_value(env, ())
-          }
-        }
-      }
-    } else {
-      quote! {
-        impl napi::bindgen_prelude::ToNapiValue for #name {
-          unsafe fn to_napi_value(
-            env: napi::bindgen_prelude::sys::napi_env,
-            val: Self
-          ) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
-            let val = match val {
-              #(#to_napi_branches,)*
-            };
-
-            napi::bindgen_prelude::ToNapiValue::to_napi_value(env, val)
-          }
-        }
-
-        impl napi::bindgen_prelude::ToNapiValue for &#name {
-          unsafe fn to_napi_value(
-            env: napi::bindgen_prelude::sys::napi_env,
-            val: Self
-          ) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
-            let val = match val {
-              #(#to_napi_branches,)*
-            };
-
-            napi::bindgen_prelude::ToNapiValue::to_napi_value(env, val)
-          }
-        }
-
-        impl napi::bindgen_prelude::ToNapiValue for &mut #name {
-          unsafe fn to_napi_value(
-            env: napi::bindgen_prelude::sys::napi_env,
-            val: Self
-          ) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
-            let val = match val {
-              #(#to_napi_branches,)*
-            };
-
-            napi::bindgen_prelude::ToNapiValue::to_napi_value(env, val)
-          }
-        }
-      }
-    };
-
+    let from_napi_value = self.gen_from_napi_value(name, from_napi_branches);
+    let to_napi_value = self.gen_to_napi_value(name, to_napi_branches);
     quote! {
       impl napi::bindgen_prelude::TypeName for #name {
         fn type_name() -> &'static str {
@@ -196,6 +65,152 @@ impl NapiEnum {
       #from_napi_value
 
       #to_napi_value
+    }
+  }
+
+  fn gen_from_napi_value(&self, name: &Ident, from_napi_branches: Vec<TokenStream>) -> TokenStream {
+    if !self.object_from_js {
+      return quote! {};
+    }
+
+    let name_str = self.name.to_string();
+    if self.variants.is_empty() {
+      return quote! {
+        impl napi::bindgen_prelude::FromNapiValue for #name {
+          unsafe fn from_napi_value(
+            env: napi::bindgen_prelude::sys::napi_env,
+            napi_val: napi::bindgen_prelude::sys::napi_value
+          ) -> napi::bindgen_prelude::Result<Self> {
+            Err(napi::bindgen_prelude::error!(
+              napi::bindgen_prelude::Status::InvalidArg,
+              "enum `{}` has no variants",
+              #name_str
+            ))
+          }
+        }
+      };
+    }
+
+    let from_napi_value = if self.is_string_enum {
+      quote! {
+        let val: String = napi::bindgen_prelude::FromNapiValue::from_napi_value(env, napi_val)
+      }
+    } else {
+      quote! {
+        let val = napi::bindgen_prelude::FromNapiValue::from_napi_value(env, napi_val)
+      }
+    };
+    let match_val = if self.is_string_enum {
+      quote! { val.as_str() }
+    } else {
+      quote! { val }
+    };
+    quote! {
+      impl napi::bindgen_prelude::FromNapiValue for #name {
+        unsafe fn from_napi_value(
+          env: napi::bindgen_prelude::sys::napi_env,
+          napi_val: napi::bindgen_prelude::sys::napi_value
+        ) -> napi::bindgen_prelude::Result<Self> {
+          #from_napi_value.map_err(|e| {
+            napi::bindgen_prelude::error!(
+              e.status,
+              "Failed to convert napi value into enum `{}`. {}",
+              #name_str,
+              e,
+            )
+          })?;
+
+          match #match_val {
+            #(#from_napi_branches,)*
+            _ => {
+              Err(napi::bindgen_prelude::error!(
+                napi::bindgen_prelude::Status::InvalidArg,
+                "value `{:?}` does not match any variant of enum `{}`",
+                val,
+                #name_str
+              ))
+            }
+          }
+        }
+      }
+    }
+  }
+
+  fn gen_to_napi_value(&self, name: &Ident, to_napi_branches: Vec<TokenStream>) -> TokenStream {
+    if !self.object_to_js {
+      return quote! {};
+    }
+
+    if self.variants.is_empty() {
+      return quote! {
+        impl napi::bindgen_prelude::ToNapiValue for #name {
+          unsafe fn to_napi_value(
+            env: napi::bindgen_prelude::sys::napi_env,
+            val: Self
+          ) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
+            napi::bindgen_prelude::ToNapiValue::to_napi_value(env, ())
+          }
+        }
+
+        impl napi::bindgen_prelude::ToNapiValue for &#name {
+          unsafe fn to_napi_value(
+            env: napi::bindgen_prelude::sys::napi_env,
+            val: Self
+          ) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
+            napi::bindgen_prelude::ToNapiValue::to_napi_value(env, ())
+          }
+        }
+
+        impl napi::bindgen_prelude::ToNapiValue for &mut #name {
+          unsafe fn to_napi_value(
+            env: napi::bindgen_prelude::sys::napi_env,
+            val: Self
+          ) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
+            napi::bindgen_prelude::ToNapiValue::to_napi_value(env, ())
+          }
+        }
+      };
+    }
+
+    quote! {
+      impl napi::bindgen_prelude::ToNapiValue for #name {
+        unsafe fn to_napi_value(
+          env: napi::bindgen_prelude::sys::napi_env,
+          val: Self
+        ) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
+          let val = match val {
+            #(#to_napi_branches,)*
+          };
+
+          napi::bindgen_prelude::ToNapiValue::to_napi_value(env, val)
+        }
+      }
+
+      impl napi::bindgen_prelude::ToNapiValue for &#name {
+        unsafe fn to_napi_value(
+          env: napi::bindgen_prelude::sys::napi_env,
+          val: Self
+        ) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
+          let val = match val {
+            #(#to_napi_branches,)*
+          };
+
+          napi::bindgen_prelude::ToNapiValue::to_napi_value(env, val)
+        }
+      }
+
+      impl napi::bindgen_prelude::ToNapiValue for &mut #name {
+        unsafe fn to_napi_value(
+          env: napi::bindgen_prelude::sys::napi_env,
+          val: Self
+        ) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
+          let val = match val {
+            #(#to_napi_branches,)*
+          };
+
+          napi::bindgen_prelude::ToNapiValue::to_napi_value(env, val)
+        }
+      }
     }
   }
 

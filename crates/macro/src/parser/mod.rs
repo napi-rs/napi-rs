@@ -1446,6 +1446,8 @@ impl ConvertToAST for syn::ItemEnum {
         skip_typescript: opts.skip_typescript().is_some(),
         register_name: get_register_ident(self.ident.to_string().as_str()),
         is_string_enum,
+        object_from_js: opts.object_from_js(),
+        object_to_js: opts.object_to_js(),
       }),
     })
   }
