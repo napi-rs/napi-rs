@@ -65,3 +65,16 @@ pub fn js_error_callback(value: Unknown) -> Vec<JsError> {
   let error: Error = value.into();
   vec![error.clone().into(), error.into()]
 }
+
+#[napi]
+pub fn extends_javascript_error(env: Env, error_class: Function<String>) -> Result<()> {
+  let instance = error_class.new_instance("Error message in Rust".to_owned())?;
+  let mut error_object = instance.coerce_to_object()?;
+  error_object.set("name", "RustError")?;
+  error_object.set(
+    "nativeStackTrace",
+    std::backtrace::Backtrace::capture().to_string(),
+  )?;
+  env.throw(error_object)?;
+  Ok(())
+}
