@@ -126,14 +126,16 @@ impl<T: 'static> FromNapiValue for Reference<T> {
     let type_id = unknown_tagged_object as *const std::any::TypeId;
     if *type_id == std::any::TypeId::of::<T>() {
       let tagged_object = unknown_tagged_object as *mut TaggedObject<T>;
-      unsafe { Reference::from_value_ptr(&mut (*tagged_object).object as *mut T as *mut c_void, env) }
+      unsafe {
+        Reference::from_value_ptr(&mut (*tagged_object).object as *mut T as *mut c_void, env)
+      }
     } else {
       Err(Error::new(
         Status::InvalidArg,
         format!(
           "Invalid argument, {} on unwrap is not the type of wrapped object",
           std::any::type_name::<T>()
-        )
+        ),
       ))
     }
   }

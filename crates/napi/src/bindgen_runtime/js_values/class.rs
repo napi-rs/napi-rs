@@ -7,8 +7,8 @@ use std::ptr;
 use super::Object;
 use crate::{
   bindgen_runtime::{
-    raw_finalize_unchecked,
-    FromNapiValue, ObjectFinalize, Reference, Result, TypeName, ValidateNapiValue,
+    raw_finalize_unchecked, FromNapiValue, ObjectFinalize, Reference, Result, TypeName,
+    ValidateNapiValue,
   },
   check_status, sys, Env, NapiRaw, NapiValue, ValueType,
 };
@@ -186,7 +186,7 @@ where
   }
 }
 
-impl<'env, T: 'static> FromNapiValue for ClassInstance<'env, T> {
+impl<T: 'static> FromNapiValue for ClassInstance<'_, T> {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
     let mut unknown_tagged_object = ptr::null_mut();
     check_status!(sys::napi_unwrap(env, napi_val, &mut unknown_tagged_object))?;
