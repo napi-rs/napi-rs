@@ -374,7 +374,7 @@ __metadata:
     ava: "npm:^6.1.3"
     buffer: "npm:^6.0.3"
     cross-env: "npm:7.0.3"
-    electron: "npm:^34.0.0"
+    electron: "npm:^35.0.0"
     lodash: "npm:^4.17.21"
     playwright: "npm:^1.48.0"
     rxjs: "npm:^7.8.1"
@@ -3074,12 +3074,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/node@npm:*, @types/node@npm:>=13.7.0, @types/node@npm:^22.7.5":
-  version: 22.13.8
-  resolution: "@types/node@npm:22.13.8"
+"@types/node@npm:*, @types/node@npm:>=13.7.0, @types/node@npm:^22.7.5, @types/node@npm:^22.7.7":
+  version: 22.13.9
+  resolution: "@types/node@npm:22.13.9"
   dependencies:
     undici-types: "npm:~6.20.0"
-  checksum: 10c0/bfc92b734a9dce6ac5daee0a52feccdf5dcb3804d895e4bc5384e2f4644612b8801725cd03c8c3c0888fb5eeb16b875877ac44b77641e0196dc1a837b1c2a366
+  checksum: 10c0/eb6acd04169a076631dcaab712128d492cd17a1b3f10daae4a377f3d439c860c3cd3e32f4ef221671f56183b976ac7c4089f4193457314a88675ead4663438a4
   languageName: node
   linkType: hard
 
@@ -3092,7 +3092,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/node@npm:^20.1.0, @types/node@npm:^20.11.30, @types/node@npm:^20.9.0":
+"@types/node@npm:^20.1.0, @types/node@npm:^20.11.30":
   version: 20.17.22
   resolution: "@types/node@npm:20.17.22"
   dependencies:
@@ -5705,16 +5705,16 @@ __metadata:
   languageName: node
   linkType: hard
 
-"electron@npm:^34.0.0":
-  version: 34.3.0
-  resolution: "electron@npm:34.3.0"
+"electron@npm:^35.0.0":
+  version: 35.0.0
+  resolution: "electron@npm:35.0.0"
   dependencies:
     "@electron/get": "npm:^2.0.0"
-    "@types/node": "npm:^20.9.0"
+    "@types/node": "npm:^22.7.7"
     extract-zip: "npm:^2.0.1"
   bin:
     electron: cli.js
-  checksum: 10c0/b2343c28eb109bd878a61962d71105300cb3a1f8997cfb1fb81746ba213bc61b16a536eae5c0d8a654b4573f309c8157a136ade94bf6207842c022f505720fee
+  checksum: 10c0/2d02050ff2c7fc7bb6974c349d494f7dfe21f5a97faff2ea61a112832dd9d3e9c1fd18952e4bbcbbb14cc77e15b9e8e6cd63a46cb127a9af1614198fa7c5ee30
   languageName: node
   linkType: hard
 
@@ -9049,7 +9049,7 @@ __metadata:
     bun-types: "npm:^1.1.30"
     c8: "npm:^10.1.2"
     cross-env: "npm:^7.0.3"
-    electron: "npm:^34.0.0"
+    electron: "npm:^35.0.0"
     esbuild: "npm:^0.25.0"
     husky: "npm:^9.1.6"
     lerna: "npm:^8.1.8"
