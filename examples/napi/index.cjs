@@ -509,6 +509,7 @@ module.exports.Empty = nativeBinding.Empty
 module.exports.enumToI32 = nativeBinding.enumToI32
 module.exports.errorMessageContainsNullByte = nativeBinding.errorMessageContainsNullByte
 module.exports.esmResolve = nativeBinding.esmResolve
+module.exports.extendsJavascriptError = nativeBinding.extendsJavascriptError
 module.exports.f32ArrayToArray = nativeBinding.f32ArrayToArray
 module.exports.f64ArrayToArray = nativeBinding.f64ArrayToArray
 module.exports.fibonacci = nativeBinding.fibonacci
