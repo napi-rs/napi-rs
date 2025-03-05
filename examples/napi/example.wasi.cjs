@@ -102,7 +102,6 @@ module.exports.Blake2bKey = __napiModule.exports.Blake2bKey
 module.exports.CatchOnConstructor = __napiModule.exports.CatchOnConstructor
 module.exports.CatchOnConstructor2 = __napiModule.exports.CatchOnConstructor2
 module.exports.ClassWithFactory = __napiModule.exports.ClassWithFactory
-module.exports.ClassWithLifetime = __napiModule.exports.ClassWithLifetime
 module.exports.Context = __napiModule.exports.Context
 module.exports.CssRuleList = __napiModule.exports.CssRuleList
 module.exports.CSSRuleList = __napiModule.exports.CSSRuleList

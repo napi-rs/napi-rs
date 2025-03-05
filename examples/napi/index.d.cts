@@ -107,11 +107,6 @@ export declare class ClassWithFactory {
   setName(name: string): this
 }
 
-export declare class ClassWithLifetime {
-  constructor()
-  getName(): string
-}
-
 export declare class Context {
   maybeNeed?: boolean
   buffer: Uint8Array

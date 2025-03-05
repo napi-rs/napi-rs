@@ -1,61 +1,18 @@
 use std::any::{type_name, TypeId};
-use std::ffi::{c_void, CString};
+use std::ffi::CString;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 use std::ptr;
-use std::rc::Rc;
 
-use super::{Object, REFERENCE_MAP};
+use super::Object;
 use crate::{
   bindgen_runtime::{
+    raw_finalize_unchecked,
     FromNapiValue, ObjectFinalize, Reference, Result, TypeName, ValidateNapiValue,
   },
   check_status, sys, Env, NapiRaw, NapiValue, ValueType,
 };
-use crate::{Error, JsError, Property, PropertyAttributes, Status, TaggedObject};
-
-/// # Safety
-///
-/// called when node wrapper objects destroyed
-#[doc(hidden)]
-unsafe extern "C" fn raw_finalize_unchecked<T: ObjectFinalize>(
-  env: sys::napi_env,
-  finalize_data: *mut c_void,
-  _finalize_hint: *mut c_void,
-) {
-  let data: Box<TaggedObject<T>> = unsafe { Box::from_raw(finalize_data.cast()) };
-  if let Err(err) = data.object.unwrap().finalize(Env::from_raw(env)) {
-    let e: JsError = err.into();
-    unsafe { e.throw_into(env) };
-    return;
-  }
-  if let Some((_, ref_val, finalize_callbacks_ptr)) =
-    REFERENCE_MAP.borrow_mut(|reference_map| reference_map.remove(&finalize_data))
-  {
-    let finalize_callbacks_rc = unsafe { Rc::from_raw(finalize_callbacks_ptr) };
-
-    #[cfg(all(debug_assertions, not(target_family = "wasm")))]
-    {
-      let rc_strong_count = Rc::strong_count(&finalize_callbacks_rc);
-      // If `Rc` strong count is 2, it means the finalize of referenced `Object` is called before the `fn drop` of the `Reference`
-      // It always happened on exiting process
-      // In general, the `fn drop` would happen first
-      assert!(
-        rc_strong_count == 1 || rc_strong_count == 2,
-        "Rc strong count is: {}, it should be 1 or 2",
-        rc_strong_count
-      );
-    }
-    let finalize = unsafe { Box::from_raw(finalize_callbacks_rc.get()) };
-    finalize();
-    let delete_reference_status = unsafe { sys::napi_delete_reference(env, ref_val) };
-    debug_assert!(
-      delete_reference_status == sys::Status::napi_ok,
-      "Delete reference in finalize callback failed {}",
-      Status::from(delete_reference_status)
-    );
-  }
-}
+use crate::{Error, Property, PropertyAttributes, Status, TaggedObject};
 
 pub struct This<'scope, T: FromNapiValue = Object> {
   pub object: T,
@@ -237,15 +194,7 @@ impl<'env, T: 'static> FromNapiValue for ClassInstance<'env, T> {
     let type_id = unknown_tagged_object as *const TypeId;
     let wrapped_val = if *type_id == TypeId::of::<T>() {
       let tagged_object = unknown_tagged_object as *mut TaggedObject<T>;
-      match (*tagged_object).object.as_mut() {
-        Some(object) => object,
-        None => {
-          return Err(Error::new(
-            Status::InvalidArg,
-            "Invalid argument, nothing attach to js_object".to_owned(),
-          ))
-        }
-      }
+      &mut (*tagged_object).object
     } else {
       return Err(Error::new(
         Status::InvalidArg,
@@ -294,11 +243,11 @@ pub trait JavaScriptClassExt: Sized {
 ///
 /// create instance of class
 #[doc(hidden)]
-pub unsafe fn new_instance<T: 'static + ObjectFinalize>(
+pub unsafe fn new_instance<'a, T: ObjectFinalize + 'static>(
   env: sys::napi_env,
-  wrapped_value: *mut std::ffi::c_void,
+  wrapped_value: T,
   ctor_ref: sys::napi_ref,
-) -> Result<sys::napi_value> {
+) -> Result<ClassInstance<'a, T>> {
   let mut ctor = std::ptr::null_mut();
   check_status!(
     sys::napi_get_reference_value(env, ctor_ref, &mut ctor),
@@ -321,11 +270,14 @@ pub unsafe fn new_instance<T: 'static + ObjectFinalize>(
   let finalize_callbacks_ptr = std::rc::Rc::into_raw(std::rc::Rc::new(std::cell::Cell::new(
     Box::into_raw(initial_finalize),
   )));
+  let mut tagged_object = Box::new(TaggedObject::new(wrapped_value));
+  let wrapped_value_ptr = &mut tagged_object.object as *mut T;
+  let tagged_object_ptr = Box::into_raw(tagged_object).cast();
   check_status!(
     sys::napi_wrap(
       env,
       result,
-      Box::into_raw(Box::new(TaggedObject::new(wrapped_value))).cast(),
+      tagged_object_ptr,
       Some(raw_finalize_unchecked::<T>),
       std::ptr::null_mut(),
       &mut object_ref,
@@ -335,8 +287,8 @@ pub unsafe fn new_instance<T: 'static + ObjectFinalize>(
   )?;
   Reference::<T>::add_ref(
     env,
-    wrapped_value,
-    (wrapped_value, object_ref, finalize_callbacks_ptr),
+    wrapped_value_ptr.cast(),
+    (wrapped_value_ptr.cast(), object_ref, finalize_callbacks_ptr),
   );
-  Ok(result)
+  Ok(ClassInstance::new(result, env, wrapped_value_ptr))
 }

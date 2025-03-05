@@ -9,7 +9,7 @@ pub use js_values::*;
 pub use module_register::*;
 
 use super::sys;
-use crate::{JsError, Result, Status};
+use crate::{JsError, Result, Status, TaggedObject};
 
 #[cfg(feature = "tokio_rt")]
 pub mod async_iterator;
@@ -36,8 +36,8 @@ pub(crate) unsafe extern "C" fn raw_finalize_unchecked<T: ObjectFinalize>(
   finalize_data: *mut c_void,
   _finalize_hint: *mut c_void,
 ) {
-  let data: Box<T> = unsafe { Box::from_raw(finalize_data.cast()) };
-  if let Err(err) = data.finalize(Env::from_raw(env)) {
+  let data: Box<TaggedObject<T>> = unsafe { Box::from_raw(finalize_data.cast()) };
+  if let Err(err) = data.object.finalize(Env::from_raw(env)) {
     let e: JsError = err.into();
     unsafe { e.throw_into(env) };
     return;

@@ -387,7 +387,6 @@ module.exports.Blake2bKey = nativeBinding.Blake2bKey
 module.exports.CatchOnConstructor = nativeBinding.CatchOnConstructor
 module.exports.CatchOnConstructor2 = nativeBinding.CatchOnConstructor2
 module.exports.ClassWithFactory = nativeBinding.ClassWithFactory
-module.exports.ClassWithLifetime = nativeBinding.ClassWithLifetime
 module.exports.Context = nativeBinding.Context
 module.exports.CssRuleList = nativeBinding.CssRuleList
 module.exports.CSSRuleList = nativeBinding.CSSRuleList

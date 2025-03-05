@@ -2,7 +2,7 @@ use napi::{
   bindgen_prelude::{
     Buffer, ClassInstance, JavaScriptClassExt, ObjectFinalize, This, Uint8Array, Unknown,
   },
-  Env, Property, PropertyAttributes, Result,
+  Env, Property, Result,
 };
 
 use crate::r#enum::Kind;
@@ -140,7 +140,7 @@ impl Bird {
 }
 
 #[napi]
-pub fn fly(bird: &Bird) {}
+pub fn fly(_bird: &Bird) {}
 
 /// Smoking test for type generation
 #[napi]
@@ -462,32 +462,5 @@ impl CatchOnConstructor2 {
   #[napi(constructor, catch_unwind)]
   pub fn new() -> Self {
     panic!("CatchOnConstructor2 panic");
-  }
-}
-
-#[napi]
-pub struct ClassWithLifetime<'a> {
-  inner: ClassInstance<'a, Animal>,
-  inner2: ClassInstance<'a, Animal>,
-}
-
-#[napi]
-impl<'scope> ClassWithLifetime<'scope> {
-  #[napi(constructor)]
-  pub fn new(env: &Env, mut this: This<'scope>) -> Result<Self> {
-    let instance = Animal {
-      kind: Kind::Cat,
-      name: "alie".to_owned(),
-    }
-    .into_instance(env)?;
-    let inner = instance.assign_to_this("inner", &mut this)?;
-    let inner2 =
-      instance.assign_to_this_with_attributes("inner2", PropertyAttributes::Default, &mut this)?;
-    Ok(Self { inner, inner2 })
-  }
-
-  #[napi]
-  pub fn get_name(&self) -> &str {
-    self.inner.get_name()
   }
 }

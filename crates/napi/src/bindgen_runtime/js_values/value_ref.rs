@@ -5,6 +5,7 @@ use std::ptr;
 use std::rc::{Rc, Weak};
 use std::sync::LazyLock;
 
+use crate::TaggedObject;
 use crate::{
   bindgen_runtime::{FromNapiValue, PersistedPerInstanceHashMap, ToNapiValue},
   check_status, Env, Error, Result, Status,
@@ -115,13 +116,26 @@ impl<T: 'static> FromNapiValue for Reference<T> {
     env: crate::sys::napi_env,
     napi_val: crate::sys::napi_value,
   ) -> Result<Self> {
-    let mut value = ptr::null_mut();
+    let mut unknown_tagged_object = ptr::null_mut();
     check_status!(
-      unsafe { crate::sys::napi_unwrap(env, napi_val, &mut value) },
+      unsafe { crate::sys::napi_unwrap(env, napi_val, &mut unknown_tagged_object) },
       "Unwrap value [{}] from class Reference failed",
       std::any::type_name::<T>(),
     )?;
-    unsafe { Reference::from_value_ptr(value.cast(), env) }
+
+    let type_id = unknown_tagged_object as *const std::any::TypeId;
+    if *type_id == std::any::TypeId::of::<T>() {
+      let tagged_object = unknown_tagged_object as *mut TaggedObject<T>;
+      unsafe { Reference::from_value_ptr(&mut (*tagged_object).object as *mut T as *mut c_void, env) }
+    } else {
+      Err(Error::new(
+        Status::InvalidArg,
+        format!(
+          "Invalid argument, {} on unwrap is not the type of wrapped object",
+          std::any::type_name::<T>()
+        )
+      ))
+    }
   }
 }
 

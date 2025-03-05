@@ -193,7 +193,6 @@ import {
   mutateOptionalExternal,
   panicInAsync,
   CustomStruct,
-  ClassWithLifetime,
   uInit8ArrayFromString,
   callThenOnPromise,
   callCatchOnPromise,
@@ -432,10 +431,6 @@ test('class', (t) => {
   t.notThrows(() => {
     new CatchOnConstructor()
   })
-
-  const classWithLifetime = new ClassWithLifetime()
-  t.deepEqual(classWithLifetime.getName(), 'alie')
-  t.deepEqual(Object.keys(classWithLifetime), ['inner'])
 
   if (!process.env.TEST_ZIG_CROSS) {
     t.throws(
