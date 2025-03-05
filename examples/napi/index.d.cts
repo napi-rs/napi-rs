@@ -498,6 +498,8 @@ export declare function errorMessageContainsNullByte(msg: string): void
 
 export declare function esmResolve(next: () => Promise<undefined>): Promise<undefined>
 
+export declare function extendsJavascriptError(errorClass: any): void
+
 export declare function f32ArrayToArray(input: Float32Array): Array<number>
 
 export declare function f64ArrayToArray(input: Float64Array): Array<number>

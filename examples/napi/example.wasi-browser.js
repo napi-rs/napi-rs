@@ -198,6 +198,7 @@ export const Empty = __napiModule.exports.Empty
 export const enumToI32 = __napiModule.exports.enumToI32
 export const errorMessageContainsNullByte = __napiModule.exports.errorMessageContainsNullByte
 export const esmResolve = __napiModule.exports.esmResolve
+export const extendsJavascriptError = __napiModule.exports.extendsJavascriptError
 export const f32ArrayToArray = __napiModule.exports.f32ArrayToArray
 export const f64ArrayToArray = __napiModule.exports.f64ArrayToArray
 export const fibonacci = __napiModule.exports.fibonacci

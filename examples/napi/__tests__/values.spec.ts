@@ -224,6 +224,7 @@ import {
   esmResolve,
   mergeTupleArray,
   TupleToArray,
+  extendsJavascriptError,
 } from '../index.cjs'
 
 import { test } from './test.framework.js'
@@ -1562,4 +1563,17 @@ test('should be able to recursively hidden lifetime', async (t) => {
   await t.notThrowsAsync(async () => {
     await esmResolve(() => Promise.resolve(undefined))
   })
+})
+
+test('extends javascript error', (t) => {
+  class CustomError extends Error {}
+
+  try {
+    extendsJavascriptError(CustomError)
+  } catch (e: any) {
+    t.true(e instanceof CustomError)
+    t.is(e.message, 'Error message in Rust')
+    t.is(e.name, 'RustError')
+    t.true(typeof e.nativeStackTrace === 'string')
+  }
 })
