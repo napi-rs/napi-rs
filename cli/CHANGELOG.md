@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.73](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.72...@napi-rs/cli@3.0.0-alpha.73) (2025-03-03)
+
+### Bug Fixes
+
+- **cli:** combine existed CFLAGS and CXXFLAGS in napi cross ([#2493](https://github.com/napi-rs/napi-rs/issues/2493)) ([29e4508](https://github.com/napi-rs/napi-rs/commit/29e45086e83ea8c04a78fbe30361115874f5fe80))
+
 # [3.0.0-alpha.72](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.71...@napi-rs/cli@3.0.0-alpha.72) (2025-02-25)
 
 **Note:** Version bump only for package @napi-rs/cli

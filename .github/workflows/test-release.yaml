@@ -175,6 +175,8 @@ jobs:
 
       - name: Unit tests
         if: matrix.settings.test
+        env:
+          NODE_OPTIONS: '--max-old-space-size=6000'
         run: ${{ matrix.settings.test }}
 
       - name: Electron tests
@@ -478,6 +480,8 @@ jobs:
         run: |
           node -e "console.info('docker-image=${{ matrix.settings.image }}'.replace('{:version}', ${{ matrix.node }}))" >> "$GITHUB_OUTPUT"
       - name: Run test
+        # Node.js on qemu randomly segfaults on powerpc64le
+        continue-on-error: ${{ matrix.settings.target == 'powerpc64le-unknown-linux-gnu' }}
         run: docker run --rm ${{ matrix.settings.args }} -v ${{ github.workspace }}:/build -w /build ${{ steps.image-name.outputs.docker-image }} sh -c "NODE_OPTIONS=--max-old-space-size=6000 DISABLE_V8_COMPILE_CACHE=1 yarn workspace @examples/napi test -s"
 
   build-and-test-linux-armv7:
@@ -600,6 +604,7 @@ jobs:
           RUSTUP_HOME: /home/runner/rustup
           CARGO_HOME: /home/runner/cargo
           RUSTUP_IO_THREADS: 1
+          NODE_OPTIONS: '--max-old-space-size=6000'
         with:
           operating_system: freebsd
           version: '14.2'
