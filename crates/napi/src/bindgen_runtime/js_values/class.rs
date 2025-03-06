@@ -1,4 +1,4 @@
-use std::any::type_name;
+use std::any::{type_name, TypeId};
 use std::ffi::CString;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
@@ -12,7 +12,7 @@ use crate::{
   },
   check_status, sys, Env, NapiRaw, NapiValue, ValueType,
 };
-use crate::{Property, PropertyAttributes};
+use crate::{Error, Property, PropertyAttributes, Status, TaggedObject};
 
 pub struct This<'scope, T: FromNapiValue = Object> {
   pub object: T,
@@ -186,18 +186,27 @@ where
   }
 }
 
-impl<'env, T: 'env> FromNapiValue for ClassInstance<'env, T> {
+impl<T: 'static> FromNapiValue for ClassInstance<'_, T> {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
-    let mut value = ptr::null_mut();
-    check_status!(
-      unsafe { sys::napi_unwrap(env, napi_val, &mut value) },
-      "Unwrap value [{}] from class failed",
-      type_name::<T>(),
-    )?;
-    let value = unsafe { Box::from_raw(value as *mut T) };
+    let mut unknown_tagged_object = ptr::null_mut();
+    check_status!(sys::napi_unwrap(env, napi_val, &mut unknown_tagged_object))?;
+
+    let type_id = unknown_tagged_object as *const TypeId;
+    let wrapped_val = if *type_id == TypeId::of::<T>() {
+      let tagged_object = unknown_tagged_object as *mut TaggedObject<T>;
+      &mut (*tagged_object).object
+    } else {
+      return Err(Error::new(
+        Status::InvalidArg,
+        format!(
+          "Invalid argument, {} on unwrap is not the type of wrapped object",
+          type_name::<T>()
+        ),
+      ));
+    };
     Ok(Self {
       value: napi_val,
-      inner: Box::leak(value),
+      inner: wrapped_val as *mut _,
       env,
       _phantom: &PhantomData,
     })
@@ -234,11 +243,11 @@ pub trait JavaScriptClassExt: Sized {
 ///
 /// create instance of class
 #[doc(hidden)]
-pub unsafe fn new_instance<T: 'static + ObjectFinalize>(
+pub unsafe fn new_instance<'a, T: ObjectFinalize + 'static>(
   env: sys::napi_env,
-  wrapped_value: *mut std::ffi::c_void,
+  wrapped_value: T,
   ctor_ref: sys::napi_ref,
-) -> Result<sys::napi_value> {
+) -> Result<ClassInstance<'a, T>> {
   let mut ctor = std::ptr::null_mut();
   check_status!(
     sys::napi_get_reference_value(env, ctor_ref, &mut ctor),
@@ -261,11 +270,14 @@ pub unsafe fn new_instance<T: 'static + ObjectFinalize>(
   let finalize_callbacks_ptr = std::rc::Rc::into_raw(std::rc::Rc::new(std::cell::Cell::new(
     Box::into_raw(initial_finalize),
   )));
+  let mut tagged_object = Box::new(TaggedObject::new(wrapped_value));
+  let wrapped_value_ptr = &mut tagged_object.object as *mut T;
+  let tagged_object_ptr = Box::into_raw(tagged_object).cast();
   check_status!(
     sys::napi_wrap(
       env,
       result,
-      wrapped_value,
+      tagged_object_ptr,
       Some(raw_finalize_unchecked::<T>),
       std::ptr::null_mut(),
       &mut object_ref,
@@ -275,8 +287,8 @@ pub unsafe fn new_instance<T: 'static + ObjectFinalize>(
   )?;
   Reference::<T>::add_ref(
     env,
-    wrapped_value,
-    (wrapped_value, object_ref, finalize_callbacks_ptr),
+    wrapped_value_ptr.cast(),
+    (wrapped_value_ptr.cast(), object_ref, finalize_callbacks_ptr),
   );
-  Ok(result)
+  Ok(ClassInstance::new(result, env, wrapped_value_ptr))
 }

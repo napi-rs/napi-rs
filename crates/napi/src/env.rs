@@ -797,12 +797,7 @@ impl Env {
       let type_id = unknown_tagged_object as *const TypeId;
       if *type_id == TypeId::of::<T>() {
         let tagged_object = unknown_tagged_object as *mut TaggedObject<T>;
-        (*tagged_object).object.as_mut().ok_or_else(|| {
-          Error::new(
-            Status::InvalidArg,
-            "Invalid argument, nothing attach to js_object".to_owned(),
-          )
-        })
+        Ok(&mut (*tagged_object).object)
       } else {
         Err(Error::new(
           Status::InvalidArg,
@@ -921,12 +916,7 @@ impl Env {
       let type_id = unknown_tagged_object as *const TypeId;
       if *type_id == TypeId::of::<T>() {
         let tagged_object = unknown_tagged_object as *mut TaggedObject<T>;
-        (*tagged_object).object.as_mut().ok_or_else(|| {
-          Error::new(
-            Status::InvalidArg,
-            "nothing attach to js_external".to_owned(),
-          )
-        })
+        Ok(&mut (*tagged_object).object)
       } else {
         Err(Error::new(
           Status::InvalidArg,
@@ -1195,12 +1185,7 @@ impl Env {
       }
       if *type_id == TypeId::of::<T>() {
         let tagged_object = unknown_tagged_object as *mut TaggedObject<T>;
-        (*tagged_object).object.as_mut().map(Some).ok_or_else(|| {
-          Error::new(
-            Status::InvalidArg,
-            "Invalid argument, nothing attach to js_object".to_owned(),
-          )
-        })
+        Ok(Some(&mut (*tagged_object).object))
       } else {
         Err(Error::new(
           Status::InvalidArg,
@@ -1427,7 +1412,7 @@ unsafe extern "C" fn set_instance_finalize_callback<T, Hint, F>(
   let hint = unsafe { *Box::from_raw(finalize_hint as *mut Hint) };
   let env = Env::from_raw(raw_env);
   callback(FinalizeContext {
-    value: value.object.unwrap(),
+    value: value.object,
     hint,
     env,
   });

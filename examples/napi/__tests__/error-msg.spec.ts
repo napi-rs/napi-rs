@@ -1,6 +1,6 @@
 import test from 'ava'
 
-import { receiveString } from '../index.cjs'
+import { receiveString, Dog, fly } from '../index.cjs'
 
 test('Function message', (t) => {
   // @ts-expect-error
@@ -56,4 +56,16 @@ test('Function message', (t) => {
     message:
       'Failed to convert JavaScript value `BigInt 100 ` into rust type `String`',
   })
+
+  t.throws(
+    () => {
+      const d = new Dog('foo')
+      // @ts-ignore
+      fly(d)
+    },
+    {
+      message:
+        'Invalid argument, napi_examples::class::Bird on unwrap is not the type of wrapped object',
+    },
+  )
 })
