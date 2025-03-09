@@ -570,7 +570,7 @@ unsafe extern "C" fn thread_cleanup(
   if MODULE_COUNT.fetch_sub(1, Ordering::Relaxed) == 1 {
     #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
     {
-      crate::tokio_runtime::drop_runtime();
+      crate::tokio_runtime::shutdown_tokio_runtime();
     }
     crate::bindgen_runtime::REFERENCE_MAP.borrow_mut(|m| m.clear());
     #[allow(clippy::needless_return)]
