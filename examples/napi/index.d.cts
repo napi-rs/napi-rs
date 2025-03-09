@@ -769,6 +769,8 @@ export interface Shared {
   value: number
 }
 
+export declare function shutdownRuntime(): void
+
 export declare function spawnThreadInThread(tsfn: ((err: Error | null, arg: number) => number)): void
 
 export declare const enum Status {

@@ -37,6 +37,11 @@ pub const DEFAULT_COST: u32 = 12;
 #[napi(skip_typescript)]
 pub const TYPE_SKIPPED_CONST: u32 = 12;
 
+#[napi]
+pub fn shutdown_runtime() {
+  napi::bindgen_prelude::shutdown_tokio_runtime();
+}
+
 mod array;
 mod r#async;
 mod bigint;

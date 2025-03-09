@@ -226,6 +226,7 @@ import {
   mergeTupleArray,
   TupleToArray,
   extendsJavascriptError,
+  shutdownRuntime,
 } from '../index.cjs'
 
 import { test } from './test.framework.js'
@@ -233,6 +234,10 @@ import { test } from './test.framework.js'
 const __dirname = join(fileURLToPath(import.meta.url), '..')
 
 const Napi4Test = Number(process.versions.napi) >= 4 ? test : test.skip
+
+test.after(() => {
+  shutdownRuntime()
+})
 
 test('export const', (t) => {
   t.is(DEFAULT_COST, 12)
