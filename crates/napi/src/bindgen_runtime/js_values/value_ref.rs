@@ -263,6 +263,8 @@ pub struct SharedReference<T: 'static, S: 'static> {
   owner: Reference<T>,
 }
 
+unsafe impl<T, S: Sync> Sync for SharedReference<T, S> {}
+
 impl<T: 'static, S: 'static> SharedReference<T, S> {
   pub fn clone(&self, env: Env) -> Result<Self> {
     Ok(SharedReference {
