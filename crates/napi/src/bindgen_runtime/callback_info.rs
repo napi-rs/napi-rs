@@ -4,16 +4,13 @@ use std::ptr;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::{bindgen_prelude::*, check_status};
+use crate::{bindgen_prelude::*, check_status, TaggedObject};
 
 thread_local! {
   #[doc(hidden)]
   /// Determined is `constructor` called from Class `factory`
   pub static ___CALL_FROM_FACTORY: AtomicBool = const { AtomicBool::new(false) };
 }
-
-#[repr(transparent)]
-struct EmptyStructPlaceholder(u8);
 
 #[doc(hidden)]
 pub struct CallbackInfo<const N: usize> {
@@ -93,14 +90,10 @@ impl<const N: usize> CallbackInfo<N> {
     js_name: &str,
     obj: T,
   ) -> Result<(sys::napi_value, *mut T)> {
-    let obj = Box::new(obj);
+    let mut tagged_object = Box::new(TaggedObject::new(obj));
+    let wrapped_value_ptr = &mut tagged_object.object as *mut T;
     let this = self.this();
-    let mut value_ref = Box::into_raw(obj);
-    // for empty struct like `#[napi] struct A;`, the `value_ref` will be `0x1`
-    // and it will be overwritten by the others instance of the same class
-    if IsEmptyStructHint || value_ref as usize == 0x1 {
-      value_ref = Box::into_raw(Box::new(EmptyStructPlaceholder(0))).cast();
-    }
+    let tagged_object_ptr = Box::into_raw(tagged_object);
     let mut object_ref = ptr::null_mut();
     let initial_finalize: Box<dyn FnOnce()> = Box::new(|| {});
     let finalize_callbacks_ptr = Rc::into_raw(Rc::new(Cell::new(Box::into_raw(initial_finalize))));
@@ -109,7 +102,7 @@ impl<const N: usize> CallbackInfo<N> {
         sys::napi_wrap(
           self.env,
           this,
-          value_ref.cast(),
+          tagged_object_ptr.cast(),
           Some(raw_finalize_unchecked::<T>),
           ptr::null_mut(),
           &mut object_ref
@@ -120,10 +113,10 @@ impl<const N: usize> CallbackInfo<N> {
 
     Reference::<T>::add_ref(
       self.env,
-      value_ref.cast(),
-      (value_ref.cast(), object_ref, finalize_callbacks_ptr),
+      wrapped_value_ptr.cast(),
+      (wrapped_value_ptr.cast(), object_ref, finalize_callbacks_ptr),
     );
-    Ok((this, value_ref))
+    Ok((this, wrapped_value_ptr))
   }
 
   pub fn construct<const IsEmptyStructHint: bool, T: ObjectFinalize + 'static>(
@@ -196,23 +189,19 @@ impl<const N: usize> CallbackInfo<N> {
       return Ok((ptr::null_mut(), ptr::null_mut()));
     }
     check_status!(status, "Failed to create instance of class `{}`", js_name)?;
-    let obj = Box::new(obj);
+    let mut tagged_object = Box::new(TaggedObject::new(obj));
+    let wrapped_value_ptr = &mut tagged_object.object as *mut T;
     let initial_finalize: Box<dyn FnOnce()> = Box::new(|| {});
     let finalize_callbacks_ptr = Rc::into_raw(Rc::new(Cell::new(Box::into_raw(initial_finalize))));
     let mut object_ref = ptr::null_mut();
-    let mut value_ref = Box::into_raw(obj);
+    let tagged_object_ptr = Box::into_raw(tagged_object);
 
-    // for empty struct like `#[napi] struct A;`, the `value_ref` will be `0x1`
-    // and it will be overwritten by the others instance of the same class
-    if value_ref as usize == 0x1 {
-      value_ref = Box::into_raw(Box::new(EmptyStructPlaceholder(0))).cast();
-    }
     check_status!(
       unsafe {
         sys::napi_wrap(
           self.env,
           instance,
-          value_ref.cast(),
+          tagged_object_ptr.cast(),
           Some(raw_finalize_unchecked::<T>),
           ptr::null_mut(),
           &mut object_ref,
@@ -224,10 +213,10 @@ impl<const N: usize> CallbackInfo<N> {
 
     Reference::<T>::add_ref(
       self.env,
-      value_ref.cast(),
-      (value_ref.cast(), object_ref, finalize_callbacks_ptr),
+      wrapped_value_ptr.cast(),
+      (wrapped_value_ptr.cast(), object_ref, finalize_callbacks_ptr),
     );
-    Ok((instance, value_ref))
+    Ok((instance, wrapped_value_ptr))
   }
 
   pub fn unwrap_borrow_mut<T>(&mut self) -> Result<&'static mut T>
@@ -251,16 +240,17 @@ impl<const N: usize> CallbackInfo<N> {
   where
     T: TypeName,
   {
-    let mut wrapped_val: *mut c_void = std::ptr::null_mut();
+    let mut tagged_object_ptr: *mut c_void = std::ptr::null_mut();
 
     unsafe {
       check_status!(
-        sys::napi_unwrap(self.env, self.this, &mut wrapped_val),
+        sys::napi_unwrap(self.env, self.this, &mut tagged_object_ptr),
         "Failed to unwrap exclusive reference of `{}` type from napi value",
         T::type_name(),
       )?;
 
-      Ok(wrapped_val.cast())
+      let tagged_object = &mut *(tagged_object_ptr as *mut TaggedObject<T>);
+      Ok(&mut tagged_object.object as *mut T)
     }
   }
 }

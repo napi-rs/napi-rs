@@ -26,36 +26,10 @@ fn gen_napi_value_map_impl(
   } else {
     quote! { #name }
   };
-  let js_name_str = format!("{}\0", name_str);
   let validate = quote! {
     unsafe fn validate(env: napi::sys::napi_env, napi_val: napi::sys::napi_value) -> napi::Result<napi::sys::napi_value> {
-      if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name_str) {
-        let mut ctor = std::ptr::null_mut();
-        napi::check_status!(
-          napi::sys::napi_get_reference_value(env, ctor_ref, &mut ctor),
-          "Failed to get constructor reference of class `{}`",
-          #name_str
-        )?;
-        let mut is_instance_of = false;
-        napi::check_status!(
-          napi::sys::napi_instanceof(env, napi_val, ctor, &mut is_instance_of),
-          "Failed to get external value of class `{}`",
-          #name_str
-        )?;
-        if is_instance_of {
-          Ok(std::ptr::null_mut())
-        } else {
-          Err(napi::Error::new(
-            napi::Status::InvalidArg,
-            format!("Value is not instanceof class `{}`", #name_str)
-          ))
-        }
-      } else {
-        Err(napi::Error::new(
-          napi::Status::InvalidArg,
-          format!("Failed to get constructor of class `{}`", #name_str)
-        ))
-      }
+      let _ = <#name as napi::bindgen_prelude::FromNapiRef>::from_napi_ref(env, napi_val)?;
+      Ok(std::ptr::null_mut())
     }
   };
   quote! {
@@ -100,15 +74,27 @@ fn gen_napi_value_map_impl(
         env: napi::bindgen_prelude::sys::napi_env,
         napi_val: napi::bindgen_prelude::sys::napi_value
       ) -> napi::bindgen_prelude::Result<&'static Self> {
-        let mut wrapped_val: *mut std::ffi::c_void = std::ptr::null_mut();
+        let mut unknown_tagged_object: *mut std::ffi::c_void = std::ptr::null_mut();
 
         napi::bindgen_prelude::check_status!(
-          napi::bindgen_prelude::sys::napi_unwrap(env, napi_val, &mut wrapped_val),
+          napi::bindgen_prelude::sys::napi_unwrap(env, napi_val, &mut unknown_tagged_object),
           "Failed to recover `{}` type from napi value",
           #name_str,
         )?;
 
-        Ok(&*(wrapped_val as *const #name))
+        let type_id = unknown_tagged_object as *const std::any::TypeId;
+        if *type_id == std::any::TypeId::of::<#name>() {
+          let tagged_object = unknown_tagged_object as *mut napi::__private::TaggedObject<#name>;
+          Ok(&mut (*tagged_object).object)
+        } else {
+          Err(napi::bindgen_prelude::Error::new(
+            napi::bindgen_prelude::Status::InvalidArg,
+            format!(
+              "Invalid argument, {} on unwrap is not the type of wrapped object",
+              std::any::type_name::<#name>()
+            )
+          ))
+        }
       }
     }
 
@@ -118,15 +104,27 @@ fn gen_napi_value_map_impl(
         env: napi::bindgen_prelude::sys::napi_env,
         napi_val: napi::bindgen_prelude::sys::napi_value
       ) -> napi::bindgen_prelude::Result<&'static mut Self> {
-        let mut wrapped_val: *mut std::ffi::c_void = std::ptr::null_mut();
+        let mut unknown_tagged_object: *mut std::ffi::c_void = std::ptr::null_mut();
 
         napi::bindgen_prelude::check_status!(
-          napi::bindgen_prelude::sys::napi_unwrap(env, napi_val, &mut wrapped_val),
+          napi::bindgen_prelude::sys::napi_unwrap(env, napi_val, &mut unknown_tagged_object),
           "Failed to recover `{}` type from napi value",
           #name_str,
         )?;
 
-        Ok(&mut *(wrapped_val as *mut #name))
+        let type_id = unknown_tagged_object as *const std::any::TypeId;
+        if *type_id == std::any::TypeId::of::<#name>() {
+          let tagged_object = unknown_tagged_object as *mut napi::__private::TaggedObject<#name>;
+          Ok(&mut (*tagged_object).object)
+        } else {
+          Err(napi::bindgen_prelude::Error::new(
+            napi::bindgen_prelude::Status::InvalidArg,
+            format!(
+              "Invalid argument, {} on unwrap is not the type of wrapped object",
+              std::any::type_name::<#name>()
+            ),
+          ))
+        }
       }
     }
 
@@ -146,15 +144,27 @@ fn gen_napi_value_map_impl(
         env: napi::bindgen_prelude::sys::napi_env,
         napi_val: napi::bindgen_prelude::sys::napi_value
       ) -> napi::bindgen_prelude::Result<Self> {
-        let mut wrapped_val: *mut std::ffi::c_void = std::ptr::null_mut();
+        let mut unknown_tagged_object: *mut std::ffi::c_void = std::ptr::null_mut();
 
         napi::bindgen_prelude::check_status!(
-        napi::bindgen_prelude::sys::napi_unwrap(env, napi_val, &mut wrapped_val),
+        napi::bindgen_prelude::sys::napi_unwrap(env, napi_val, &mut unknown_tagged_object),
           "Failed to recover `{}` type from napi value",
           #name_str,
         )?;
 
-        Ok(&mut *(wrapped_val as *mut #name))
+        let type_id = unknown_tagged_object as *const std::any::TypeId;
+        if *type_id == std::any::TypeId::of::<#name>() {
+          let tagged_object = unknown_tagged_object as *mut napi::__private::TaggedObject<#name>;
+          Ok(&mut (*tagged_object).object)
+        } else {
+          Err(napi::bindgen_prelude::Error::new(
+            napi::bindgen_prelude::Status::InvalidArg,
+            format!(
+              "Invalid argument, {} on unwrap is not the type of wrapped object",
+              std::any::type_name::<#name>()
+            ),
+          ))
+        }
       }
     }
 
@@ -325,13 +335,9 @@ impl NapiStruct {
           val: #name
         ) -> napi::Result<napi::bindgen_prelude::sys::napi_value> {
           if let Some(ctor_ref) = napi::__private::get_class_constructor(#js_name_str) {
-            let mut wrapped_value = Box::into_raw(Box::new(val));
-            if wrapped_value as usize == 0x1 {
-              wrapped_value = Box::into_raw(Box::new(0u8)).cast();
-            }
-            let instance_value = napi::bindgen_prelude::new_instance::<#name>(env, wrapped_value.cast(), ctor_ref)?;
+            let mut instance = napi::bindgen_prelude::new_instance::<#name>(env, val, ctor_ref)?;
             #iterator_implementation
-            Ok(instance_value)
+            Ok(<napi::bindgen_prelude::ClassInstance::<'_, #name> as napi::NapiRaw>::raw(&instance))
           } else {
             Err(napi::bindgen_prelude::Error::new(
               napi::bindgen_prelude::Status::InvalidArg, format!("Failed to get constructor of class `{}` in `ToNapiValue`", #js_name_raw))
@@ -348,9 +354,7 @@ impl NapiStruct {
          {
           if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name_str) {
             unsafe {
-              let wrapped_value = Box::into_raw(Box::new(self));
-              let instance_value = napi::bindgen_prelude::new_instance::<#name>(env.raw(), wrapped_value as *mut _ as *mut std::ffi::c_void, ctor_ref)?;
-              Ok(napi::bindgen_prelude::ClassInstance::new(instance_value, env.raw(), wrapped_value))
+              napi::bindgen_prelude::new_instance::<#name>(env.raw(), self, ctor_ref)
             }
           } else {
             Err(napi::bindgen_prelude::Error::new(
@@ -362,16 +366,12 @@ impl NapiStruct {
         fn into_reference(self, env: napi::Env) -> napi::Result<napi::bindgen_prelude::Reference<Self>> {
           if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name_str) {
             unsafe {
-              let mut wrapped_value = Box::into_raw(Box::new(self));
-              if wrapped_value as usize == 0x1 {
-                wrapped_value = Box::into_raw(Box::new(0u8)).cast();
-              }
-              let instance_value = napi::bindgen_prelude::new_instance::<#name>(env.raw(), wrapped_value.cast(), ctor_ref)?;
+              let mut instance = napi::bindgen_prelude::new_instance::<#name>(env.raw(), self, ctor_ref)?;
               {
                 let env = env.raw();
                 #iterator_implementation
               }
-              napi::bindgen_prelude::Reference::<#name>::from_value_ptr(wrapped_value.cast(), env.raw())
+              <napi::bindgen_prelude::Reference::<#name> as napi::bindgen_prelude::FromNapiValue>::from_napi_value(env.raw(), <napi::bindgen_prelude::ClassInstance::<'_, #name> as napi::NapiRaw>::raw(&instance))
             }
           } else {
             Err(napi::bindgen_prelude::Error::new(
@@ -408,6 +408,8 @@ impl NapiStruct {
       return quote! {};
     }
     quote! {
+      let instance_value = <napi::bindgen_prelude::ClassInstance::<'_, #name> as napi::NapiRaw>::raw(&instance);
+      let wrapped_value = &mut *instance as *mut _;
       unsafe { napi::__private::create_iterator::<#name>(env, instance_value, wrapped_value); }
     }
   }

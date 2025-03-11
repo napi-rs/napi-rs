@@ -209,6 +209,8 @@ pub mod __private {
       )
     };
   }
+
+  pub use crate::TaggedObject;
 }
 
 pub extern crate ctor;

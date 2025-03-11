@@ -9,7 +9,7 @@ pub use js_values::*;
 pub use module_register::*;
 
 use super::sys;
-use crate::{JsError, Result, Status};
+use crate::{JsError, Result, Status, TaggedObject};
 
 #[cfg(feature = "tokio_rt")]
 pub mod async_iterator;
@@ -36,14 +36,15 @@ pub(crate) unsafe extern "C" fn raw_finalize_unchecked<T: ObjectFinalize>(
   finalize_data: *mut c_void,
   _finalize_hint: *mut c_void,
 ) {
-  let data: Box<T> = unsafe { Box::from_raw(finalize_data.cast()) };
-  if let Err(err) = data.finalize(Env::from_raw(env)) {
+  let mut tagged_object: Box<TaggedObject<T>> = unsafe { Box::from_raw(finalize_data.cast()) };
+  let wrapped_value_ptr = &mut tagged_object.object as *mut T as *mut c_void;
+  if let Err(err) = tagged_object.object.finalize(Env::from_raw(env)) {
     let e: JsError = err.into();
     unsafe { e.throw_into(env) };
     return;
   }
   if let Some((_, ref_val, finalize_callbacks_ptr)) =
-    REFERENCE_MAP.borrow_mut(|reference_map| reference_map.remove(&finalize_data))
+    REFERENCE_MAP.borrow_mut(|reference_map| reference_map.remove(&wrapped_value_ptr))
   {
     let finalize_callbacks_rc = unsafe { Rc::from_raw(finalize_callbacks_ptr) };
 
