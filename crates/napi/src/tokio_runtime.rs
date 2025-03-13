@@ -11,10 +11,23 @@ use crate::{
 };
 
 fn create_runtime() -> Runtime {
-  tokio::runtime::Builder::new_multi_thread()
-    .enable_all()
-    .build()
-    .expect("Create tokio runtime failed")
+  #[cfg(any(
+    all(target_family = "wasm", tokio_unstable),
+    not(target_family = "wasm")
+  ))]
+  {
+    tokio::runtime::Builder::new_multi_thread()
+      .enable_all()
+      .build()
+      .expect("Create tokio runtime failed")
+  }
+  #[cfg(all(target_family = "wasm", not(tokio_unstable)))]
+  {
+    tokio::runtime::Builder::new_current_thread()
+      .enable_all()
+      .build()
+      .expect("Create tokio runtime failed")
+  }
 }
 
 static RT: OnceLock<RwLock<Option<Runtime>>> = OnceLock::new();
@@ -165,6 +178,10 @@ pub fn execute_tokio_future<
   resolver: Resolver,
 ) -> Result<sys::napi_value> {
   let (deferred, promise) = JsDeferred::new(env)?;
+  #[cfg(any(
+    all(target_family = "wasm", tokio_unstable),
+    not(target_family = "wasm")
+  ))]
   let deferred_for_panic = deferred.clone();
   let sendable_resolver = SendableResolver::new(resolver);
 
@@ -179,8 +196,16 @@ pub fn execute_tokio_future<
     }
   };
 
+  #[cfg(any(
+    all(target_family = "wasm", tokio_unstable),
+    not(target_family = "wasm")
+  ))]
   let jh = spawn(inner);
 
+  #[cfg(any(
+    all(target_family = "wasm", tokio_unstable),
+    not(target_family = "wasm")
+  ))]
   spawn(async move {
     if let Err(err) = jh.await {
       if let Ok(reason) = err.try_into_panic() {
@@ -195,6 +220,13 @@ pub fn execute_tokio_future<
       }
     }
   });
+
+  #[cfg(all(target_family = "wasm", not(tokio_unstable)))]
+  {
+    std::thread::spawn(|| {
+      block_on(inner);
+    });
+  }
 
   Ok(promise.0.value)
 }

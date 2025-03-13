@@ -1,6 +1,10 @@
 import test from 'ava'
 
-import { receiveString } from '../index.cjs'
+import { receiveString, shutdownRuntime } from '../index.cjs'
+
+test.after(() => {
+  shutdownRuntime()
+})
 
 test('Function message', (t) => {
   // @ts-expect-error

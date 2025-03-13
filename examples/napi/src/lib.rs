@@ -20,10 +20,13 @@ static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
 #[cfg(not(target_family = "wasm"))]
 #[napi_derive::module_init]
 fn init() {
+  use std::thread::current;
+
   let rt = tokio::runtime::Builder::new_multi_thread()
     .enable_all()
     .on_thread_start(|| {
-      println!("tokio thread started");
+      let thread = std::thread::current();
+      println!("tokio thread started {:?}", thread.name());
     })
     .build()
     .unwrap();
@@ -39,7 +42,10 @@ pub const TYPE_SKIPPED_CONST: u32 = 12;
 
 #[napi]
 pub fn shutdown_runtime() {
-  napi::bindgen_prelude::shutdown_tokio_runtime();
+  #[cfg(all(target_family = "wasm", tokio_unstable))]
+  {
+    napi::bindgen_prelude::shutdown_tokio_runtime();
+  }
 }
 
 mod array;

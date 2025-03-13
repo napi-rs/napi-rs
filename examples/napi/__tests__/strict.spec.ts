@@ -28,7 +28,12 @@ import {
   returnUndefinedIfInvalid,
   returnUndefinedIfInvalidPromise,
   validateOptional,
+  shutdownRuntime,
 } from '../index.cjs'
+
+test.after(() => {
+  shutdownRuntime()
+})
 
 test('should validate array', (t) => {
   t.is(validateArray([1, 2, 3]), 3)

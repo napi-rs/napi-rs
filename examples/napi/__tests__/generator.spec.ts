@@ -1,6 +1,10 @@
 import test from 'ava'
 
-import { Fib, Fib2, Fib3 } from '../index.cjs'
+import { Fib, Fib2, Fib3, shutdownRuntime } from '../index.cjs'
+
+test.after(() => {
+  shutdownRuntime()
+})
 
 for (const [index, factory] of [
   () => new Fib(),
