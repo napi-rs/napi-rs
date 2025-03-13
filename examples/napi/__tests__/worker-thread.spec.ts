@@ -4,7 +4,7 @@ import { Worker } from 'node:worker_threads'
 
 import test from 'ava'
 
-import { Animal, Kind, DEFAULT_COST } from '../index.cjs'
+import { Animal, Kind, DEFAULT_COST, shutdownRuntime } from '../index.cjs'
 
 const __dirname = join(fileURLToPath(import.meta.url), '..')
 
@@ -23,6 +23,10 @@ const concurrency =
   !process.env.ASAN_OPTIONS
     ? 20
     : 1
+
+test.after(() => {
+  shutdownRuntime()
+})
 
 t('should be able to require in worker thread', async (t) => {
   await Promise.all(
