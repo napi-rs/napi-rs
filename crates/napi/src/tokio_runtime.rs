@@ -1,14 +1,12 @@
-use std::{
-  future::Future,
-  marker::PhantomData,
-  sync::{LazyLock, OnceLock, RwLock},
-};
+#[cfg(not(feature = "noop"))]
+use std::sync::{LazyLock, OnceLock, RwLock};
+use std::{future::Future, marker::PhantomData};
 
 use tokio::runtime::Runtime;
 
-use crate::{
-  bindgen_runtime::ToNapiValue, sys, Env, Error, JsDeferred, JsUnknown, NapiValue, Result,
-};
+use crate::{bindgen_runtime::ToNapiValue, sys, Env, Error, Result};
+#[cfg(not(feature = "noop"))]
+use crate::{JsDeferred, JsUnknown, NapiValue};
 
 #[cfg(not(feature = "noop"))]
 fn create_runtime() -> Runtime {
@@ -31,11 +29,14 @@ fn create_runtime() -> Runtime {
   }
 }
 
+#[cfg(not(feature = "noop"))]
 static RT: LazyLock<RwLock<Option<Runtime>>> =
   LazyLock::new(|| RwLock::new(Some(create_runtime())));
 
+#[cfg(not(feature = "noop"))]
 static USER_DEFINED_RT: OnceLock<RwLock<Option<Runtime>>> = OnceLock::new();
 
+#[cfg(not(feature = "noop"))]
 /// Create a custom Tokio runtime used by the NAPI-RS.
 /// You can control the tokio runtime configuration by yourself.
 /// ### Example
@@ -51,6 +52,9 @@ static USER_DEFINED_RT: OnceLock<RwLock<Option<Runtime>>> = OnceLock::new();
 pub fn create_custom_tokio_runtime(rt: Runtime) {
   USER_DEFINED_RT.get_or_init(move || RwLock::new(Some(rt)));
 }
+
+#[cfg(feature = "noop")]
+pub fn create_custom_tokio_runtime(_: Runtime) {}
 
 #[cfg(not(feature = "noop"))]
 /// Ensure that the Tokio runtime is initialized.
@@ -71,6 +75,7 @@ pub fn shutdown_tokio_runtime() {
   }
 }
 
+#[cfg(not(feature = "noop"))]
 /// Spawns a future onto the Tokio runtime.
 ///
 /// Depending on where you use it, you should await or abort the future in your drop function.
@@ -85,6 +90,7 @@ where
     .expect("Access tokio runtime failed in spawn")
 }
 
+#[cfg(not(feature = "noop"))]
 /// Runs a future to completion
 /// This is blocking, meaning that it pauses other execution until the future is complete,
 /// only use it when it is absolutely necessary, in other places use async functions instead.
@@ -95,6 +101,7 @@ pub fn block_on<F: Future>(fut: F) -> F::Output {
     .expect("Access tokio runtime failed in block_on")
 }
 
+#[cfg(not(feature = "noop"))]
 /// spawn_blocking on the current Tokio runtime.
 pub fn spawn_blocking<F, R>(func: F) -> tokio::task::JoinHandle<R>
 where
@@ -107,6 +114,7 @@ where
     .expect("Access tokio runtime failed in spawn_blocking")
 }
 
+#[cfg(not(feature = "noop"))]
 // This function's signature must be kept in sync with the one in lib.rs, otherwise napi
 // will fail to compile with the `tokio_rt` feature.
 #[cfg(not(feature = "noop"))]
@@ -131,6 +139,7 @@ pub fn within_runtime_if_available<F: FnOnce() -> T, T>(f: F) -> T {
   f()
 }
 
+#[cfg(not(feature = "noop"))]
 struct SendableResolver<
   Data: 'static + Send,
   R: 'static + FnOnce(sys::napi_env, Data) -> Result<sys::napi_value>,
@@ -139,6 +148,7 @@ struct SendableResolver<
   _data: PhantomData<Data>,
 }
 
+#[cfg(not(feature = "noop"))]
 // the `SendableResolver` will be only called in the `threadsafe_function_call_js` callback
 // which means it will be always called in the Node.js JavaScript thread
 // so the inner function is not required to be `Send`
@@ -148,6 +158,7 @@ unsafe impl<Data: 'static + Send, R: 'static + FnOnce(sys::napi_env, Data) -> Re
 {
 }
 
+#[cfg(not(feature = "noop"))]
 impl<Data: 'static + Send, R: 'static + FnOnce(sys::napi_env, Data) -> Result<sys::napi_value>>
   SendableResolver<Data, R>
 {
@@ -163,6 +174,21 @@ impl<Data: 'static + Send, R: 'static + FnOnce(sys::napi_env, Data) -> Result<sy
   }
 }
 
+#[cfg(feature = "noop")]
+#[allow(unused)]
+pub fn execute_tokio_future<
+  Data: 'static + Send,
+  Fut: 'static + Send + Future<Output = std::result::Result<Data, impl Into<Error>>>,
+  Resolver: 'static + FnOnce(sys::napi_env, Data) -> Result<sys::napi_value>,
+>(
+  env: sys::napi_env,
+  fut: Fut,
+  resolver: Resolver,
+) -> Result<sys::napi_value> {
+  Ok(std::ptr::null_mut())
+}
+
+#[cfg(not(feature = "noop"))]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn execute_tokio_future<
   Data: 'static + Send,
