@@ -1,7 +1,7 @@
 use std::{
   future::Future,
   marker::PhantomData,
-  sync::{OnceLock, RwLock},
+  sync::{LazyLock, OnceLock, RwLock},
 };
 
 use tokio::runtime::Runtime;
@@ -10,6 +10,7 @@ use crate::{
   bindgen_runtime::ToNapiValue, sys, Env, Error, JsDeferred, JsUnknown, NapiValue, Result,
 };
 
+#[cfg(not(feature = "noop"))]
 fn create_runtime() -> Runtime {
   #[cfg(any(
     all(target_family = "wasm", tokio_unstable),
@@ -30,7 +31,10 @@ fn create_runtime() -> Runtime {
   }
 }
 
-static RT: OnceLock<RwLock<Option<Runtime>>> = OnceLock::new();
+static RT: LazyLock<RwLock<Option<Runtime>>> =
+  LazyLock::new(|| RwLock::new(Some(create_runtime())));
+
+static USER_DEFINED_RT: OnceLock<RwLock<Option<Runtime>>> = OnceLock::new();
 
 /// Create a custom Tokio runtime used by the NAPI-RS.
 /// You can control the tokio runtime configuration by yourself.
@@ -39,13 +43,13 @@ static RT: OnceLock<RwLock<Option<Runtime>>> = OnceLock::new();
 /// use tokio::runtime::Builder;
 /// use napi::create_custom_tokio_runtime;
 ///
-/// #[napi::module_init]
+/// #[napi_derive::module_init]
 /// fn init() {
 ///    let rt = Builder::new_multi_thread().enable_all().thread_stack_size(32 * 1024 * 1024).build().unwrap();
 ///    create_custom_tokio_runtime(rt);
 /// }
 pub fn create_custom_tokio_runtime(rt: Runtime) {
-  RT.get_or_init(move || RwLock::new(Some(rt)));
+  USER_DEFINED_RT.get_or_init(move || RwLock::new(Some(rt)));
 }
 
 #[cfg(not(feature = "noop"))]
@@ -54,18 +58,15 @@ pub fn create_custom_tokio_runtime(rt: Runtime) {
 /// But in Electron renderer process, the Node env will exits and recreate when the window reloads.
 /// So we need to ensure that the Tokio runtime is initialized when the Node env is created.
 pub(crate) fn ensure_runtime() {
-  RT.get_or_init(|| {
-    let rt = create_runtime();
-    RwLock::new(Some(rt))
-  });
+  let mut rt = RT.write().unwrap();
+  if rt.is_none() {
+    *rt = Some(create_runtime());
+  }
 }
 
 #[cfg(not(feature = "noop"))]
 pub fn shutdown_tokio_runtime() {
-  if let Some(rt) = RT
-    .get()
-    .and_then(|rt| rt.write().ok().and_then(|mut rt| rt.take()))
-  {
+  if let Some(rt) = RT.write().ok().and_then(|mut rt| rt.take()) {
     rt.shutdown_background();
   }
 }
@@ -78,26 +79,20 @@ pub fn spawn<F>(fut: F) -> tokio::task::JoinHandle<F::Output>
 where
   F: 'static + Send + Future<Output = ()>,
 {
-  RT.get()
-    .and_then(|rt| {
-      rt.read()
-        .ok()
-        .and_then(|rt| rt.as_ref().map(|rt| rt.spawn(fut)))
-    })
-    .expect("Access tokio runtime failed")
+  RT.read()
+    .ok()
+    .and_then(|rt| rt.as_ref().map(|rt| rt.spawn(fut)))
+    .expect("Access tokio runtime failed in spawn")
 }
 
 /// Runs a future to completion
 /// This is blocking, meaning that it pauses other execution until the future is complete,
 /// only use it when it is absolutely necessary, in other places use async functions instead.
 pub fn block_on<F: Future>(fut: F) -> F::Output {
-  RT.get()
-    .and_then(|rt| {
-      rt.read()
-        .ok()
-        .and_then(|rt| rt.as_ref().map(|rt| rt.block_on(fut)))
-    })
-    .expect("Access tokio runtime failed")
+  RT.read()
+    .ok()
+    .and_then(|rt| rt.as_ref().map(|rt| rt.block_on(fut)))
+    .expect("Access tokio runtime failed in block_on")
 }
 
 /// spawn_blocking on the current Tokio runtime.
@@ -106,34 +101,34 @@ where
   F: FnOnce() -> R + Send + 'static,
   R: Send + 'static,
 {
-  RT.get()
-    .and_then(|rt| {
-      rt.read()
-        .ok()
-        .and_then(|rt| rt.as_ref().map(|rt| rt.spawn_blocking(func)))
-    })
-    .expect("Access tokio runtime failed")
+  RT.read()
+    .ok()
+    .and_then(|rt| rt.as_ref().map(|rt| rt.spawn_blocking(func)))
+    .expect("Access tokio runtime failed in spawn_blocking")
 }
 
 // This function's signature must be kept in sync with the one in lib.rs, otherwise napi
 // will fail to compile with the `tokio_rt` feature.
-
+#[cfg(not(feature = "noop"))]
 /// If the feature `tokio_rt` has been enabled this will enter the runtime context and
 /// then call the provided closure. Otherwise it will just call the provided closure.
 pub fn within_runtime_if_available<F: FnOnce() -> T, T>(f: F) -> T {
-  crate::tokio_runtime::ensure_runtime();
-  RT.get()
+  RT.read()
+    .ok()
     .and_then(|rt| {
-      rt.read().ok().and_then(|rt| {
-        rt.as_ref().map(|rt| {
-          let rt_guard = rt.enter();
-          let ret = f();
-          drop(rt_guard);
-          ret
-        })
+      rt.as_ref().map(|rt| {
+        let rt_guard = rt.enter();
+        let ret = f();
+        drop(rt_guard);
+        ret
       })
     })
-    .expect("Access tokio runtime failed")
+    .expect("Access tokio runtime failed in within_runtime_if_available")
+}
+
+#[cfg(feature = "noop")]
+pub fn within_runtime_if_available<F: FnOnce() -> T, T>(f: F) -> T {
+  f()
 }
 
 struct SendableResolver<
