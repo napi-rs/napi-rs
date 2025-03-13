@@ -121,6 +121,7 @@ where
 /// If the feature `tokio_rt` has been enabled this will enter the runtime context and
 /// then call the provided closure. Otherwise it will just call the provided closure.
 pub fn within_runtime_if_available<F: FnOnce() -> T, T>(f: F) -> T {
+  crate::tokio_runtime::ensure_runtime();
   RT.get()
     .and_then(|rt| {
       rt.read().ok().and_then(|rt| {
