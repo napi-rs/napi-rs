@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.75](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.74...@napi-rs/cli@3.0.0-alpha.75) (2025-03-14)
+
+### Bug Fixes
+
+- **cli:** CXX path for s390x ([#2509](https://github.com/napi-rs/napi-rs/issues/2509)) ([134c1a6](https://github.com/napi-rs/napi-rs/commit/134c1a6778a4ab54df45b39e045cfe203d668e4e))
+
 # [3.0.0-alpha.74](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.73...@napi-rs/cli@3.0.0-alpha.74) (2025-03-13)
 
 **Note:** Version bump only for package @napi-rs/cli
