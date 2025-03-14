@@ -256,15 +256,11 @@ class Builder {
         )
       }
       if (!process.env.CXX && !process.env.TARGET_CXX) {
-        this.envs[`CXX`] = join(
-          toolchainPath,
-          'bin',
-          `${this.target.triple}-g++`,
-        )
+        this.envs[`CXX`] = join(toolchainPath, 'bin', `${crossTargetName}-g++`)
         this.envs[`TARGET_CXX`] = join(
           toolchainPath,
           'bin',
-          `${this.target.triple}-g++`,
+          `${crossTargetName}-g++`,
         )
       }
       if (
