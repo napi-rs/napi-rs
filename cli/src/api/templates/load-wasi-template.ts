@@ -32,7 +32,7 @@ const __wasi = new __WASI({
   createOnMessage as __wasmCreateOnMessageForFsProxy,
 } from '@napi-rs/wasm-runtime'
 ${fsImport}
-import __wasmUrl from './${wasiFilename}.wasm?url'
+const __wasmUrl = new URL('./${wasiFilename}.wasm', import.meta.url)
 ${wasiCreation}
 
 const __emnapiContext = __emnapiGetDefaultContext()
