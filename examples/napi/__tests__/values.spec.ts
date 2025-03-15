@@ -1226,9 +1226,10 @@ Napi4Test('throw error from ThreadsafeFunction', async (t) => {
 
 Napi4Test('ThreadsafeFunction closure capture data', (t) => {
   return new Promise((resolve) => {
-    threadsafeFunctionClosureCapture(() => {
+    const defaultValue = new Animal(Kind.Dog, '旺财')
+    threadsafeFunctionClosureCapture(defaultValue, (value) => {
       resolve()
-      t.pass()
+      t.is(value, defaultValue)
     })
   })
 })

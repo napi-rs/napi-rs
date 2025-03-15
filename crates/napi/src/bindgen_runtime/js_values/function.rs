@@ -361,7 +361,7 @@ impl<
   ) -> Result<ThreadsafeFunction<T, Return, CallJsBackArgs, CalleeHandled, Weak, MaxQueueSize>>
   where
     CallJsBackArgs: 'static + JsValuesTupleIntoVec,
-    Callback: 'static + Send + FnMut(ThreadsafeCallContext<T>) -> Result<CallJsBackArgs>,
+    Callback: 'static + FnMut(ThreadsafeCallContext<T>) -> Result<CallJsBackArgs>,
   {
     ThreadsafeFunction::<T, Return, Args, CalleeHandled, Weak, MaxQueueSize>::create(
       self.env,

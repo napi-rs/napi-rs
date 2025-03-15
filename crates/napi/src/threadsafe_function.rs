@@ -249,7 +249,7 @@ impl<
   // for more information.
   pub(crate) fn create<
     NewArgs: 'static + JsValuesTupleIntoVec,
-    R: 'static + Send + FnMut(ThreadsafeCallContext<T>) -> Result<NewArgs>,
+    R: 'static + FnMut(ThreadsafeCallContext<T>) -> Result<NewArgs>,
   >(
     env: sys::napi_env,
     func: sys::napi_value,
@@ -599,7 +599,7 @@ unsafe extern "C" fn thread_finalize_cb<T: 'static, V: 'static + JsValuesTupleIn
   finalize_data: *mut c_void,
   finalize_hint: *mut c_void,
 ) where
-  R: 'static + Send + FnMut(ThreadsafeCallContext<T>) -> Result<V>,
+  R: 'static + FnMut(ThreadsafeCallContext<T>) -> Result<V>,
 {
   let handle_option: Option<Arc<ThreadsafeFunctionHandle>> =
     unsafe { sync::Weak::from_raw(finalize_data.cast()).upgrade() };
@@ -628,7 +628,7 @@ unsafe extern "C" fn call_js_cb<
   context: *mut c_void,
   data: *mut c_void,
 ) where
-  R: 'static + Send + FnMut(ThreadsafeCallContext<T>) -> Result<V>,
+  R: 'static + FnMut(ThreadsafeCallContext<T>) -> Result<V>,
 {
   // env and/or callback can be null when shutting down
   if raw_env.is_null() || js_callback.is_null() {
