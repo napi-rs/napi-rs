@@ -1,51 +1,42 @@
-use std::{
-  future::Future,
-  marker::PhantomData,
-  sync::{LazyLock, Mutex, OnceLock, RwLock},
-};
+#[cfg(not(feature = "noop"))]
+use std::sync::{LazyLock, OnceLock, RwLock};
+use std::{future::Future, marker::PhantomData};
 
 use tokio::runtime::Runtime;
 
-use crate::{
-  bindgen_runtime::ToNapiValue, sys, Env, Error, JsDeferred, JsUnknown, NapiValue, Result,
-};
+use crate::{bindgen_runtime::ToNapiValue, sys, Env, Error, Result};
+#[cfg(not(feature = "noop"))]
+use crate::{JsDeferred, JsUnknown, NapiValue};
 
-fn create_runtime() -> Option<Runtime> {
-  #[cfg(target_family = "wasm")]
+#[cfg(not(feature = "noop"))]
+fn create_runtime() -> Runtime {
+  #[cfg(any(
+    all(target_family = "wasm", tokio_unstable),
+    not(target_family = "wasm")
+  ))]
   {
-    Some(
-      tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("Create tokio runtime failed"),
-    )
+    tokio::runtime::Builder::new_multi_thread()
+      .enable_all()
+      .build()
+      .expect("Create tokio runtime failed")
   }
-
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(all(target_family = "wasm", not(tokio_unstable)))]
   {
-    Some(
-      tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .expect("Create tokio runtime failed"),
-    )
+    tokio::runtime::Builder::new_current_thread()
+      .enable_all()
+      .build()
+      .expect("Create tokio runtime failed")
   }
 }
 
-pub(crate) static RT: LazyLock<RwLock<Option<Runtime>>> = LazyLock::new(|| {
-  if let Some(user_defined_rt) = USER_DEFINED_RT.get() {
-    if let Ok(mut rt) = user_defined_rt.lock() {
-      RwLock::new(rt.take())
-    } else {
-      RwLock::new(create_runtime())
-    }
-  } else {
-    RwLock::new(create_runtime())
-  }
-});
+#[cfg(not(feature = "noop"))]
+static RT: LazyLock<RwLock<Option<Runtime>>> =
+  LazyLock::new(|| RwLock::new(Some(create_runtime())));
 
-static USER_DEFINED_RT: OnceLock<Mutex<Option<Runtime>>> = OnceLock::new();
+#[cfg(not(feature = "noop"))]
+static USER_DEFINED_RT: OnceLock<RwLock<Option<Runtime>>> = OnceLock::new();
 
+#[cfg(not(feature = "noop"))]
 /// Create a custom Tokio runtime used by the NAPI-RS.
 /// You can control the tokio runtime configuration by yourself.
 /// ### Example
@@ -53,34 +44,38 @@ static USER_DEFINED_RT: OnceLock<Mutex<Option<Runtime>>> = OnceLock::new();
 /// use tokio::runtime::Builder;
 /// use napi::create_custom_tokio_runtime;
 ///
-/// #[napi::module_init]
+/// #[napi_derive::module_init]
 /// fn init() {
 ///    let rt = Builder::new_multi_thread().enable_all().thread_stack_size(32 * 1024 * 1024).build().unwrap();
 ///    create_custom_tokio_runtime(rt);
 /// }
 pub fn create_custom_tokio_runtime(rt: Runtime) {
-  USER_DEFINED_RT.get_or_init(move || Mutex::new(Some(rt)));
+  USER_DEFINED_RT.get_or_init(move || RwLock::new(Some(rt)));
 }
+
+#[cfg(feature = "noop")]
+pub fn create_custom_tokio_runtime(_: Runtime) {}
 
 #[cfg(not(feature = "noop"))]
 /// Ensure that the Tokio runtime is initialized.
-/// In windows the Tokio runtime will be dropped when Node env exits.
+/// In Node.js the Tokio runtime will be dropped when Node env exits.
 /// But in Electron renderer process, the Node env will exits and recreate when the window reloads.
 /// So we need to ensure that the Tokio runtime is initialized when the Node env is created.
 pub(crate) fn ensure_runtime() {
   let mut rt = RT.write().unwrap();
   if rt.is_none() {
-    *rt = create_runtime();
+    *rt = Some(create_runtime());
   }
 }
 
 #[cfg(not(feature = "noop"))]
-pub(crate) fn drop_runtime() {
-  if let Some(rt) = RT.write().unwrap().take() {
+pub fn shutdown_tokio_runtime() {
+  if let Some(rt) = RT.write().ok().and_then(|mut rt| rt.take()) {
     rt.shutdown_background();
   }
 }
 
+#[cfg(not(feature = "noop"))]
 /// Spawns a future onto the Tokio runtime.
 ///
 /// Depending on where you use it, you should await or abort the future in your drop function.
@@ -90,23 +85,23 @@ where
   F: 'static + Send + Future<Output = ()>,
 {
   RT.read()
-    .unwrap()
-    .as_ref()
-    .expect("Tokio runtime is not created")
-    .spawn(fut)
+    .ok()
+    .and_then(|rt| rt.as_ref().map(|rt| rt.spawn(fut)))
+    .expect("Access tokio runtime failed in spawn")
 }
 
+#[cfg(not(feature = "noop"))]
 /// Runs a future to completion
 /// This is blocking, meaning that it pauses other execution until the future is complete,
 /// only use it when it is absolutely necessary, in other places use async functions instead.
 pub fn block_on<F: Future>(fut: F) -> F::Output {
   RT.read()
-    .unwrap()
-    .as_ref()
-    .expect("Tokio runtime is not created")
-    .block_on(fut)
+    .ok()
+    .and_then(|rt| rt.as_ref().map(|rt| rt.block_on(fut)))
+    .expect("Access tokio runtime failed in block_on")
 }
 
+#[cfg(not(feature = "noop"))]
 /// spawn_blocking on the current Tokio runtime.
 pub fn spawn_blocking<F, R>(func: F) -> tokio::task::JoinHandle<R>
 where
@@ -114,28 +109,37 @@ where
   R: Send + 'static,
 {
   RT.read()
-    .unwrap()
-    .as_ref()
-    .expect("Tokio runtime is not created")
-    .spawn_blocking(func)
+    .ok()
+    .and_then(|rt| rt.as_ref().map(|rt| rt.spawn_blocking(func)))
+    .expect("Access tokio runtime failed in spawn_blocking")
 }
 
+#[cfg(not(feature = "noop"))]
 // This function's signature must be kept in sync with the one in lib.rs, otherwise napi
 // will fail to compile with the `tokio_rt` feature.
-
+#[cfg(not(feature = "noop"))]
 /// If the feature `tokio_rt` has been enabled this will enter the runtime context and
 /// then call the provided closure. Otherwise it will just call the provided closure.
 pub fn within_runtime_if_available<F: FnOnce() -> T, T>(f: F) -> T {
-  let rt_lock = RT.read().unwrap();
-  let rt_guard = rt_lock
-    .as_ref()
-    .expect("Tokio runtime is not created")
-    .enter();
-  let ret = f();
-  drop(rt_guard);
-  ret
+  RT.read()
+    .ok()
+    .and_then(|rt| {
+      rt.as_ref().map(|rt| {
+        let rt_guard = rt.enter();
+        let ret = f();
+        drop(rt_guard);
+        ret
+      })
+    })
+    .expect("Access tokio runtime failed in within_runtime_if_available")
 }
 
+#[cfg(feature = "noop")]
+pub fn within_runtime_if_available<F: FnOnce() -> T, T>(f: F) -> T {
+  f()
+}
+
+#[cfg(not(feature = "noop"))]
 struct SendableResolver<
   Data: 'static + Send,
   R: 'static + FnOnce(sys::napi_env, Data) -> Result<sys::napi_value>,
@@ -144,6 +148,7 @@ struct SendableResolver<
   _data: PhantomData<Data>,
 }
 
+#[cfg(not(feature = "noop"))]
 // the `SendableResolver` will be only called in the `threadsafe_function_call_js` callback
 // which means it will be always called in the Node.js JavaScript thread
 // so the inner function is not required to be `Send`
@@ -153,6 +158,7 @@ unsafe impl<Data: 'static + Send, R: 'static + FnOnce(sys::napi_env, Data) -> Re
 {
 }
 
+#[cfg(not(feature = "noop"))]
 impl<Data: 'static + Send, R: 'static + FnOnce(sys::napi_env, Data) -> Result<sys::napi_value>>
   SendableResolver<Data, R>
 {
@@ -168,6 +174,21 @@ impl<Data: 'static + Send, R: 'static + FnOnce(sys::napi_env, Data) -> Result<sy
   }
 }
 
+#[cfg(feature = "noop")]
+#[allow(unused)]
+pub fn execute_tokio_future<
+  Data: 'static + Send,
+  Fut: 'static + Send + Future<Output = std::result::Result<Data, impl Into<Error>>>,
+  Resolver: 'static + FnOnce(sys::napi_env, Data) -> Result<sys::napi_value>,
+>(
+  env: sys::napi_env,
+  fut: Fut,
+  resolver: Resolver,
+) -> Result<sys::napi_value> {
+  Ok(std::ptr::null_mut())
+}
+
+#[cfg(not(feature = "noop"))]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn execute_tokio_future<
   Data: 'static + Send,
@@ -179,7 +200,10 @@ pub fn execute_tokio_future<
   resolver: Resolver,
 ) -> Result<sys::napi_value> {
   let (deferred, promise) = JsDeferred::new(env)?;
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(any(
+    all(target_family = "wasm", tokio_unstable),
+    not(target_family = "wasm")
+  ))]
   let deferred_for_panic = deferred.clone();
   let sendable_resolver = SendableResolver::new(resolver);
 
@@ -194,10 +218,16 @@ pub fn execute_tokio_future<
     }
   };
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(any(
+    all(target_family = "wasm", tokio_unstable),
+    not(target_family = "wasm")
+  ))]
   let jh = spawn(inner);
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(any(
+    all(target_family = "wasm", tokio_unstable),
+    not(target_family = "wasm")
+  ))]
   spawn(async move {
     if let Err(err) = jh.await {
       if let Ok(reason) = err.try_into_panic() {
@@ -213,7 +243,7 @@ pub fn execute_tokio_future<
     }
   });
 
-  #[cfg(target_family = "wasm")]
+  #[cfg(all(target_family = "wasm", not(tokio_unstable)))]
   {
     std::thread::spawn(|| {
       block_on(inner);

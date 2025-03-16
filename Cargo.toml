@@ -24,6 +24,9 @@ print_stdout = "warn"     # Must be opt-in
 print_stderr = "warn"     # Must be opt-in
 allow_attributes = "warn"
 
+[workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tokio_unstable)'] }
+
 [profile.release]
 lto = true
 

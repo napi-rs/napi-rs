@@ -31,7 +31,6 @@ pub struct Reference<T: 'static> {
   finalize_callbacks: Rc<Cell<*mut dyn FnOnce()>>,
 }
 
-unsafe impl<T: Send> Send for Reference<T> {}
 unsafe impl<T: Sync> Sync for Reference<T> {}
 
 impl<T> Drop for Reference<T> {
@@ -262,6 +261,8 @@ pub struct SharedReference<T: 'static, S: 'static> {
   raw: *mut S,
   owner: Reference<T>,
 }
+
+unsafe impl<T, S: Sync> Sync for SharedReference<T, S> {}
 
 impl<T: 'static, S: 'static> SharedReference<T, S> {
   pub fn clone(&self, env: Env) -> Result<Self> {

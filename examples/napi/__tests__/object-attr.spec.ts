@@ -1,6 +1,10 @@
 import test from 'ava'
 
-import { NotWritableClass } from '../index.cjs'
+import { NotWritableClass, shutdownRuntime } from '../index.cjs'
+
+test.after(() => {
+  shutdownRuntime()
+})
 
 test('Not Writable Class', (t) => {
   const obj = new NotWritableClass('1')
