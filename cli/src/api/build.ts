@@ -963,6 +963,7 @@ class Builder {
           this.config.wasm?.initialMemory,
           this.config.wasm?.maximumMemory,
           this.config.wasm?.browser?.fs,
+          this.config.wasm?.browser?.asyncInit,
         ) +
           idents
             .map(

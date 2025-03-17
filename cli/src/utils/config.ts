@@ -75,6 +75,10 @@ export interface UserNapiConfig {
        * Whether to use fs module in browser
        */
       fs?: boolean
+      /**
+       * Whether to initialize wasm asynchronously
+       */
+      asyncInit?: boolean
     }
   }
 
