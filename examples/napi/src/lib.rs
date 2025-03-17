@@ -44,7 +44,7 @@ pub const TYPE_SKIPPED_CONST: u32 = 12;
 pub fn shutdown_runtime() {
   #[cfg(all(target_family = "wasm", tokio_unstable))]
   {
-    napi::bindgen_prelude::shutdown_tokio_runtime();
+    napi::bindgen_prelude::shutdown_async_runtime();
   }
 }
 
