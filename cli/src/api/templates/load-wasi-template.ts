@@ -3,6 +3,7 @@ export const createWasiBrowserBinding = (
   initialMemory = 4000,
   maximumMemory = 65536,
   fs = false,
+  asyncInit = false,
 ) => {
   const fsImport = fs ? `import { memfs } from '@napi-rs/wasm-runtime/fs'` : ''
   const wasiCreation = fs
@@ -25,8 +26,15 @@ const __wasi = new __WASI({
     ? `    worker.addEventListener('message', __wasmCreateOnMessageForFsProxy(__fs))\n`
     : ''
 
+  const emnapiInstantiateImport = asyncInit
+    ? `instantiateNapiModule as __emnapiInstantiateNapiModule`
+    : `instantiateNapiModuleSync as __emnapiInstantiateNapiModuleSync`
+  const emnapiInstantiateCall = asyncInit
+    ? `await __emnapiInstantiateNapiModule`
+    : `__emnapiInstantiateNapiModuleSync`
+
   return `import {
-  instantiateNapiModuleSync as __emnapiInstantiateNapiModuleSync,
+  ${emnapiInstantiateImport},
   getDefaultContext as __emnapiGetDefaultContext,
   WASI as __WASI,
   createOnMessage as __wasmCreateOnMessageForFsProxy,
@@ -49,7 +57,7 @@ const {
   instance: __napiInstance,
   module: __wasiModule,
   napiModule: __napiModule,
-} = __emnapiInstantiateNapiModuleSync(__wasmFile, {
+} = ${emnapiInstantiateCall}(__wasmFile, {
   context: __emnapiContext,
   asyncWorkPoolSize: 4,
   wasi: __wasi,
