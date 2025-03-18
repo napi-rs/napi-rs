@@ -4,6 +4,7 @@ export const createWasiBrowserBinding = (
   maximumMemory = 65536,
   fs = false,
   asyncInit = false,
+  hasThreads: boolean,
 ) => {
   const fsImport = fs ? `import { memfs } from '@napi-rs/wasm-runtime/fs'` : ''
   const wasiCreation = fs
@@ -33,6 +34,15 @@ const __wasi = new __WASI({
     ? `await __emnapiInstantiateNapiModule`
     : `__emnapiInstantiateNapiModuleSync`
 
+  const onCreateWorkerHandler = hasThreads
+    ? `\
+    const worker = new Worker(new URL('./wasi-worker-browser.mjs', import.meta.url), {
+      type: 'module',
+    })
+${workerFsHandler}
+    return worker`
+    : 'throw new Error("onCreateWorker without threads")'
+
   return `import {
   ${emnapiInstantiateImport},
   getDefaultContext as __emnapiGetDefaultContext,
@@ -48,7 +58,7 @@ const __emnapiContext = __emnapiGetDefaultContext()
 const __sharedMemory = new WebAssembly.Memory({
   initial: ${initialMemory},
   maximum: ${maximumMemory},
-  shared: true,
+  shared: ${hasThreads},
 })
 
 const __wasmFile = await fetch(__wasmUrl).then((res) => res.arrayBuffer())
@@ -62,11 +72,7 @@ const {
   asyncWorkPoolSize: 4,
   wasi: __wasi,
   onCreateWorker() {
-    const worker = new Worker(new URL('./wasi-worker-browser.mjs', import.meta.url), {
-      type: 'module',
-    })
-${workerFsHandler}
-    return worker
+${onCreateWorkerHandler}
   },
   overwriteImports(importObject) {
     importObject.env = {

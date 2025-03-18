@@ -5,7 +5,12 @@ pub fn setup() {
   println!("cargo:rerun-if-env-changed=EMNAPI_LINK_DIR");
   println!("cargo:rerun-if-env-changed=WASI_REGISTER_TMP_PATH");
   println!("cargo:rustc-link-search={link_dir}");
-  println!("cargo:rustc-link-lib=static=emnapi-basic-mt");
+  let target = env::var("TARGET").expect("TARGET must be set by Cargo");
+  if target == "wasm32-wasip1-threads" {
+    println!("cargo:rustc-link-lib=static=emnapi-basic-mt");
+  } else {
+    println!("cargo:rustc-link-lib=static=emnapi-basic");
+  }
   println!("cargo:rustc-link-arg=--export-dynamic");
   println!("cargo:rustc-link-arg=--export=malloc");
   println!("cargo:rustc-link-arg=--export=free");
@@ -22,7 +27,6 @@ pub fn setup() {
   println!("cargo:rustc-link-arg=-zstack-size=6400000");
   println!("cargo:rustc-link-arg=--no-check-features");
   let rustc_path = env::var("RUSTC").expect("RUSTC must be set by Cargo");
-  let target = env::var("TARGET").expect("TARGET must be set by Cargo");
   let crt_reactor_path = Path::new(&rustc_path)
     .parent()
     .and_then(|p| p.parent())

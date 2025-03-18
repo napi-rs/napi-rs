@@ -944,6 +944,9 @@ class Builder {
           (ident) => `module.exports.${ident} = __napiModule.exports.${ident}`,
         )
         .join('\n')
+      const hasThreads = this.config.targets.some(
+        (t) => t.triple === 'wasm32-wasip1-threads',
+      )
       await writeFileAsync(
         bindingPath,
         createWasiBinding(
@@ -964,6 +967,7 @@ class Builder {
           this.config.wasm?.maximumMemory,
           this.config.wasm?.browser?.fs,
           this.config.wasm?.browser?.asyncInit,
+          hasThreads,
         ) +
           idents
             .map(
