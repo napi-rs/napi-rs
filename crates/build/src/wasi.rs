@@ -6,7 +6,6 @@ pub fn setup() {
   println!("cargo:rerun-if-env-changed=WASI_REGISTER_TMP_PATH");
   println!("cargo:rustc-link-search={link_dir}");
   println!("cargo:rustc-link-lib=static=emnapi-basic-mt");
-  println!("cargo:rustc-link-arg=--export-dynamic");
   println!("cargo:rustc-link-arg=--export=malloc");
   println!("cargo:rustc-link-arg=--export=free");
   println!("cargo:rustc-link-arg=--export=napi_register_wasm_v1");
