@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.76](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.75...@napi-rs/cli@3.0.0-alpha.76) (2025-03-22)
+
+### Features
+
+- **cli:** add `wasm.browser.asyncInit` for large wasm file ([#2514](https://github.com/napi-rs/napi-rs/issues/2514)) ([9873fb3](https://github.com/napi-rs/napi-rs/commit/9873fb39ae0dbb1d45de83ab82be82bd9d122936))
+
 # [3.0.0-alpha.75](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.74...@napi-rs/cli@3.0.0-alpha.75) (2025-03-14)
 
 ### Bug Fixes
