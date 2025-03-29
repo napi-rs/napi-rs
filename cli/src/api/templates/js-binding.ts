@@ -80,10 +80,10 @@ const isMuslFromFilesystem = () => {
 }
 
 const isMuslFromReport = () => {
-  let report = null;
+  let report = null
   if (typeof process.report?.getReport === 'function') {
-    process.report.excludeNetwork = true;
-    report = process.report.getReport();
+    process.report.excludeNetwork = true
+    report = process.report.getReport()
   }
   if (!report) {
     return null
