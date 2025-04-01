@@ -1539,6 +1539,7 @@ test('create readable stream from channel', async (t) => {
   }
   t.is(Buffer.concat(chunks).toString('utf-8'), 'hello'.repeat(100))
   const { ReadableStream } = await import('web-streams-polyfill')
+  // @ts-expect-error polyfill ReadableStream is not the same as the one in Node.js
   const streamFromClass = await createReadableStreamFromClass(ReadableStream)
   const chunksFromClass = []
   for await (const chunk of streamFromClass) {
