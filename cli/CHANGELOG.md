@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.77](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.76...@napi-rs/cli@3.0.0-alpha.77) (2025-04-01)
+
+### Bug Fixes
+
+- **cli:** trim is not a function ([#2541](https://github.com/napi-rs/napi-rs/issues/2541)) ([be86a44](https://github.com/napi-rs/napi-rs/commit/be86a44acae70bb22586148c2a3a52754504f3c2))
+
 # [3.0.0-alpha.76](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.75...@napi-rs/cli@3.0.0-alpha.76) (2025-03-22)
 
 ### Features
