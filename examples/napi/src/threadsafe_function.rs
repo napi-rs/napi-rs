@@ -84,7 +84,7 @@ fn threadsafe_function_closure_capture(
     .build_threadsafe_function::<()>()
     .build_callback(move |ctx| {
       println!("Captured in ThreadsafeFunction {}", str); // str is NULL at this point
-      Ok(default_value_reference.clone(ctx.env)?)
+      default_value_reference.clone(ctx.env)
     })?;
 
   tsfn.call((), ThreadsafeFunctionCallMode::NonBlocking);

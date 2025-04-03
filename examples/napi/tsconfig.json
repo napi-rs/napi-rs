@@ -7,7 +7,6 @@
     "rootDir": ".",
     "target": "ESNext",
     "module": "ESNext",
-    "noEmit": true,
     "types": ["bun-types"],
     "importHelpers": false
   },
