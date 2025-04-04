@@ -405,7 +405,7 @@ jobs:
     name: Test - ${{ matrix.settings.target }} - ${{ matrix.node }}
     # Node.js on qemu segfaults on s390x and arm64v8 when using 24.04
     # See also https://github.com/actions/runner-images/issues/11471
-    runs-on: ubuntu-22.04
+    runs-on: ${{ contains(matrix.settings.target, 'aarch64') && 'ubuntu-24.04-arm' || 'ubuntu-22.04' }}
     needs:
       - build_in_docker
       - build_for_test_in_docker
@@ -471,10 +471,12 @@ jobs:
           yarn install --immutable --mode=skip-build
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
+        if: ${{ !contains(matrix.settings.target, 'aarch64') }}
         with:
           platforms: all
           image: tonistiigi/binfmt:qemu-v8.1.5
       - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+        if: ${{ !contains(matrix.settings.target, 'aarch64') }}
       - name: Setup image name
         id: image-name
         run: |
@@ -632,9 +634,13 @@ jobs:
             env
             freebsd-version
             yarn config set supportedArchitectures.cpu --json '["current", "wasm32"]'
+            export NODE_OPTIONS="--max-old-space-size=8192"
             yarn install --immutable --mode=skip-build
             yarn workspace @examples/napi build
-            yarn workspace @examples/napi test -s
+            yarn tsc -p examples/napi/tsconfig.json
+            rm -rf examples/napi/__tests__
+            mv examples/napi/dist/__tests__ examples/napi/
+            yarn workspace @examples/napi test-js -s
 
   test-node-wasi:
     runs-on: ubuntu-latest

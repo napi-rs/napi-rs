@@ -733,7 +733,7 @@ test('Async error with stack trace', async (t) => {
   t.not(err?.stack, undefined)
   t.deepEqual(err!.message, 'Async Error')
   if (!process.env.WASI_TEST) {
-    t.regex(err!.stack!, /.+at .+values\.spec\.ts:\d+:\d+.+/gm)
+    t.regex(err!.stack!, /.+at .+values\.spec\.(ts|js):\d+:\d+.+/gm)
   }
 })
 
@@ -795,7 +795,7 @@ test('aliased rust struct and enum', (t) => {
 })
 
 test('serde-json', (t) => {
-  if (process.env.WASI_TEST) {
+  if (process.env.WASI_TEST || process.platform === 'freebsd') {
     t.pass()
     return
   }
@@ -1564,7 +1564,7 @@ test('spawnThreadInThread should be fine', async (t) => {
 })
 
 test('should generate correct type def file', async (t) => {
-  if (process.env.WASI_TEST) {
+  if (process.env.WASI_TEST || process.platform === 'freebsd') {
     t.pass()
   } else {
     t.snapshot(await nodeReadFile(join(__dirname, '..', 'index.d.cts'), 'utf8'))

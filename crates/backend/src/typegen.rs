@@ -530,9 +530,11 @@ pub fn ty_to_ts_type(
 
       let (ty, is_optional) = ts_ty.unwrap_or_else(|| ("any".to_owned(), false));
       (
-        (convert_tuple_to_variadic && !is_return_ty && !is_passthrough_type)
-          .then(|| format!("arg: {ty}"))
-          .unwrap_or(ty),
+        if convert_tuple_to_variadic && !is_return_ty && !is_passthrough_type {
+          format!("arg: {}", ty)
+        } else {
+          ty
+        },
         is_optional,
       )
     }
