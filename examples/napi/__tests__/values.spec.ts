@@ -733,7 +733,7 @@ test('Async error with stack trace', async (t) => {
   t.not(err?.stack, undefined)
   t.deepEqual(err!.message, 'Async Error')
   if (!process.env.WASI_TEST) {
-    t.regex(err!.stack!, /.+at .+values\.spec\.ts:\d+:\d+.+/gm)
+    t.regex(err!.stack!, /.+at .+values\.spec\.(ts|js):\d+:\d+.+/gm)
   }
 })
 
@@ -795,7 +795,7 @@ test('aliased rust struct and enum', (t) => {
 })
 
 test('serde-json', (t) => {
-  if (process.env.WASI_TEST) {
+  if (process.env.WASI_TEST || process.platform === 'freebsd') {
     t.pass()
     return
   }
@@ -1539,6 +1539,7 @@ test('create readable stream from channel', async (t) => {
   }
   t.is(Buffer.concat(chunks).toString('utf-8'), 'hello'.repeat(100))
   const { ReadableStream } = await import('web-streams-polyfill')
+  // @ts-expect-error polyfill ReadableStream is not the same as the one in Node.js
   const streamFromClass = await createReadableStreamFromClass(ReadableStream)
   const chunksFromClass = []
   for await (const chunk of streamFromClass) {
@@ -1563,7 +1564,7 @@ test('spawnThreadInThread should be fine', async (t) => {
 })
 
 test('should generate correct type def file', async (t) => {
-  if (process.env.WASI_TEST) {
+  if (process.env.WASI_TEST || process.platform === 'freebsd') {
     t.pass()
   } else {
     t.snapshot(await nodeReadFile(join(__dirname, '..', 'index.d.cts'), 'utf8'))

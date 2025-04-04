@@ -10,6 +10,7 @@
     "build": "napi-raw build --platform --js index.cjs --dts index.d.cts",
     "test": "cross-env TS_NODE_PROJECT=./tsconfig.json node --enable-source-maps --import @oxc-node/core/register ../../node_modules/ava/entrypoints/cli.mjs",
     "test:nwjs": "node nwjs.cjs"
+    "test-js": "ava"
   },
   "napi": {
     "binaryName": "example",
@@ -29,31 +30,32 @@
     "@napi-rs/cli": "workspace:*",
     "@napi-rs/triples": "workspace:*",
     "@napi-rs/wasm-runtime": "workspace:*",
-    "@oxc-node/core": "^0.0.21",
+    "@oxc-node/core": "^0.0.22",
     "@testing-library/dom": "^10.4.0",
     "@types/lodash": "^4.17.16",
-    "@vitest/browser": "^3.0.8",
-    "@vitest/ui": "^3.0.8",
+    "@vitest/browser": "^3.1.1",
+    "@vitest/ui": "^3.1.1",
     "ava": "^6.2.0",
     "buffer": "^6.0.3",
     "cross-env": "7.0.3",
-    "electron": "^35.0.2",
+    "electron": "^35.1.2",
     "lodash": "^4.17.21",
     "nw": "^0.85.0-sdk",
-    "playwright": "^1.51.0",
+    "playwright": "^1.51.1",
     "rxjs": "^7.8.2",
     "sinon": "^20.0.0",
-    "vite": "^6.2.2",
+    "vite": "^6.2.4",
     "vite-plugin-node-polyfills": "^0.23.0",
-    "vitest": "^3.0.8",
+    "vitest": "^3.1.1",
     "web-streams-polyfill": "^4.1.0",
-    "webdriverio": "^9.12.0"
+    "webdriverio": "^9.12.2"
   },
   "ava": {
     "extensions": {
       "ts": "module",
       "cts": "commonjs",
-      "cjs": true
+      "cjs": true,
+      "js": true
     },
     "files": [
       "__tests__/**/*.spec.{ts,cts,js,cjs,mjs}"
@@ -62,6 +64,6 @@
     "timeout": "10m"
   },
   "dependencies": {
-    "@emnapi/core": "^1.3.1"
+    "@emnapi/core": "^1.4.0"
   }
 }

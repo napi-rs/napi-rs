@@ -714,8 +714,9 @@ class Builder {
               .filter((l) => l.length)
               .map((line) => {
                 const [_, fn] = line.split(':')
-                return fn.trim()
+                return fn?.trim()
               })
+              .filter((fn) => !!fn)
           })()
         : []
       const jsOutput = await this.writeJsBinding(idents)
