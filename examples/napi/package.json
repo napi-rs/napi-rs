@@ -9,7 +9,7 @@
     "browser": "vite",
     "build": "napi-raw build --platform --js index.cjs --dts index.d.cts",
     "test": "cross-env TS_NODE_PROJECT=./tsconfig.json node --enable-source-maps --import @oxc-node/core/register ../../node_modules/ava/entrypoints/cli.mjs",
-    "test:nwjs": "node nwjs.cjs"
+    "test:nwjs": "node nwjs.cjs",
     "test-js": "ava"
   },
   "napi": {
