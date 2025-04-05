@@ -5,7 +5,7 @@ import {
   createOnMessage as __wasmCreateOnMessageForFsProxy,
 } from '@napi-rs/wasm-runtime'
 import { memfs } from '@napi-rs/wasm-runtime/fs'
-import __wasmUrl from './example.wasm32-wasi.wasm?url'
+const __wasmUrl = new URL('./example.wasm32-wasi.wasm', import.meta.url)
 
 export const { fs: __fs, vol: __volume } = memfs()
 
