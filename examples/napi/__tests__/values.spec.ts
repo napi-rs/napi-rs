@@ -808,6 +808,17 @@ test('serde-json', (t) => {
   t.is(getPackageJsonName(packageJson), '@examples/napi')
 })
 
+test('serde-json-ref', (t) => {
+  if (process.env.WASI_TEST || process.platform === 'freebsd') {
+    t.pass()
+    return
+  }
+  const reader = new PackageJsonReader()
+  const packageJson = reader.read()
+  t.is(packageJson.name, '@examples/napi')
+  t.is(packageJson.version, '0.0.0')
+})
+
 test('serde-roundtrip', (t) => {
   t.is(testSerdeRoundtrip(1), 1)
   t.is(testSerdeRoundtrip(1.2), 1.2)
@@ -861,13 +872,6 @@ test('serde-buffer-bytes', (t) => {
   t.is(testSerdeBufferBytes({ code: Buffer.alloc(0) }), 0n)
   t.is(testSerdeBufferBytes({ code: new ArrayBuffer(10) }), 10n)
   t.is(testSerdeBufferBytes({ code: new ArrayBuffer(0) }), 0n)
-})
-
-test('serde-ref', (t) => {
-  const reader = new PackageJsonReader()
-  const packageJson = reader.read()
-  t.is(packageJson.name, '@examples/napi')
-  t.is(packageJson.version, '0.0.0')
 })
 
 test('buffer', (t) => {

@@ -199,7 +199,7 @@ where
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     let mut arr = Array::new(env, val.len() as u32)?;
 
-    for (i, v) in val.into_iter().enumerate() {
+    for (i, v) in val.iter().enumerate() {
       arr.set(i as u32, v)?;
     }
 
@@ -229,7 +229,7 @@ where
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     let mut arr = Array::new(env, val.len() as u32)?;
 
-    for (i, v) in val.into_iter().enumerate() {
+    for (i, v) in val.iter().enumerate() {
       arr.set(i as u32, v)?;
     }
 
