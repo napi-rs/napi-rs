@@ -5,6 +5,8 @@ use napi::{
   threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode, UnknownReturnValue},
 };
 
+use crate::class::Animal;
+
 #[napi]
 pub fn call_threadsafe_function(
   tsfn: Arc<ThreadsafeFunction<u32, UnknownReturnValue>>,
@@ -70,13 +72,19 @@ pub fn threadsafe_function_fatal_mode_error(
 }
 
 #[napi]
-fn threadsafe_function_closure_capture(func: Function<String, ()>) -> napi::Result<()> {
+fn threadsafe_function_closure_capture(
+  env: Env,
+  default_value: ClassInstance<Animal>,
+  func: Function<Reference<Animal>, ()>,
+) -> napi::Result<()> {
   let str = "test";
+  let default_value_reference: Reference<Animal> =
+    unsafe { Reference::from_napi_value(env.raw(), default_value.value)? };
   let tsfn = func
     .build_threadsafe_function::<()>()
-    .build_callback(move |_| {
+    .build_callback(move |ctx| {
       println!("Captured in ThreadsafeFunction {}", str); // str is NULL at this point
-      Ok(String::new())
+      default_value_reference.clone(ctx.env)
     })?;
 
   tsfn.call((), ThreadsafeFunctionCallMode::NonBlocking);

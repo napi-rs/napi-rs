@@ -820,7 +820,7 @@ export declare function testSerdeBufferBytes(obj: object): bigint
 
 export declare function testSerdeRoundtrip(data: any): any
 
-export declare function threadsafeFunctionClosureCapture(func: (arg: string) => void): void
+export declare function threadsafeFunctionClosureCapture(defaultValue: Animal, func: (arg: Animal) => void): void
 
 export declare function threadsafeFunctionFatalMode(cb: ((arg: boolean) => unknown)): void
 

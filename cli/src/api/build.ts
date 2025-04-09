@@ -714,8 +714,9 @@ class Builder {
               .filter((l) => l.length)
               .map((line) => {
                 const [_, fn] = line.split(':')
-                return fn.trim()
+                return fn?.trim()
               })
+              .filter((fn) => !!fn)
           })()
         : []
       const jsOutput = await this.writeJsBinding(idents)
@@ -963,6 +964,7 @@ class Builder {
           this.config.wasm?.initialMemory,
           this.config.wasm?.maximumMemory,
           this.config.wasm?.browser?.fs,
+          this.config.wasm?.browser?.asyncInit,
         ) +
           idents
             .map(

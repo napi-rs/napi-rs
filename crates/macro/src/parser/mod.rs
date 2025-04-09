@@ -66,9 +66,9 @@ pub trait ParseNapi {
 /// - Bails if it finds the `#[napi...]` attribute but it has the wrong data.
 /// - Removes the attribute from the output token stream so this
 ///   `pub fn add(u: u32, #[napi(ts_arg_type = "MyType")] f: String)`
-///    turns into
+///   `  `turns into
 ///   `pub fn add(u: u32, f: String)`
-///    otherwise it won't compile
+///   `  `otherwise it won't compile
 fn find_ts_arg_type_and_remove_attribute(
   p: &mut PatType,
   ts_args_type: Option<&(&str, Span)>,

@@ -480,7 +480,7 @@ pub unsafe extern "C" fn napi_register_module_v1(
     create_custom_gc(env, current_thread_id);
     #[cfg(feature = "tokio_rt")]
     {
-      crate::tokio_runtime::ensure_runtime();
+      crate::tokio_runtime::start_async_runtime();
     }
   }
   FIRST_MODULE_REGISTERED.store(true, Ordering::SeqCst);
@@ -570,7 +570,7 @@ unsafe extern "C" fn thread_cleanup(
   if MODULE_COUNT.fetch_sub(1, Ordering::Relaxed) == 1 {
     #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
     {
-      crate::tokio_runtime::shutdown_tokio_runtime();
+      crate::tokio_runtime::shutdown_async_runtime();
     }
     crate::bindgen_runtime::REFERENCE_MAP.borrow_mut(|m| m.clear());
     #[allow(clippy::needless_return)]

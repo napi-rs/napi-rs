@@ -3,6 +3,16 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.0.0-alpha.39](https://github.com/napi-rs/napi-rs/compare/@napi-rs/triples@2.0.0-alpha.38...@napi-rs/triples@2.0.0-alpha.39) (2025-04-01)
+
+**Note:** Version bump only for package @napi-rs/triples
+
+# [2.0.0-alpha.38](https://github.com/napi-rs/napi-rs/compare/@napi-rs/triples@2.0.0-alpha.36...@napi-rs/triples@2.0.0-alpha.38) (2025-03-22)
+
+### Features
+
+- **napi:** tokio multi-thread mode on wasi ([#2501](https://github.com/napi-rs/napi-rs/issues/2501)) ([1fe6ad0](https://github.com/napi-rs/napi-rs/commit/1fe6ad0430545b6e37eba6ffd0e8337cbb467fbe))
+
 # [2.0.0-alpha.37](https://github.com/napi-rs/napi-rs/compare/@napi-rs/triples@2.0.0-alpha.36...@napi-rs/triples@2.0.0-alpha.37) (2025-03-14)
 
 ### Features
