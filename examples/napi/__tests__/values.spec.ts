@@ -61,6 +61,7 @@ import {
   customStatusCode,
   panic,
   readPackageJson,
+  PackageJsonReader,
   getPackageJsonName,
   getBuffer,
   getEmptyBuffer,
@@ -860,6 +861,13 @@ test('serde-buffer-bytes', (t) => {
   t.is(testSerdeBufferBytes({ code: Buffer.alloc(0) }), 0n)
   t.is(testSerdeBufferBytes({ code: new ArrayBuffer(10) }), 10n)
   t.is(testSerdeBufferBytes({ code: new ArrayBuffer(0) }), 0n)
+})
+
+test('serde-ref', (t) => {
+  const reader = new PackageJsonReader()
+  const packageJson = reader.read()
+  t.is(packageJson.name, '@examples/napi')
+  t.is(packageJson.version, '0.0.0')
 })
 
 test('buffer', (t) => {

@@ -408,6 +408,7 @@ module.exports.NinjaTurtle = nativeBinding.NinjaTurtle
 module.exports.NotUseNullableClass = nativeBinding.NotUseNullableClass
 module.exports.NotWritableClass = nativeBinding.NotWritableClass
 module.exports.Optional = nativeBinding.Optional
+module.exports.PackageJsonReader = nativeBinding.PackageJsonReader
 module.exports.Reader = nativeBinding.Reader
 module.exports.Selector = nativeBinding.Selector
 module.exports.UseNullableClass = nativeBinding.UseNullableClass
