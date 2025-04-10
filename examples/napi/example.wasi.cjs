@@ -123,6 +123,7 @@ module.exports.NinjaTurtle = __napiModule.exports.NinjaTurtle
 module.exports.NotUseNullableClass = __napiModule.exports.NotUseNullableClass
 module.exports.NotWritableClass = __napiModule.exports.NotWritableClass
 module.exports.Optional = __napiModule.exports.Optional
+module.exports.PackageJsonReader = __napiModule.exports.PackageJsonReader
 module.exports.Reader = __napiModule.exports.Reader
 module.exports.Selector = __napiModule.exports.Selector
 module.exports.UseNullableClass = __napiModule.exports.UseNullableClass

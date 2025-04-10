@@ -98,6 +98,7 @@ export const NinjaTurtle = __napiModule.exports.NinjaTurtle
 export const NotUseNullableClass = __napiModule.exports.NotUseNullableClass
 export const NotWritableClass = __napiModule.exports.NotWritableClass
 export const Optional = __napiModule.exports.Optional
+export const PackageJsonReader = __napiModule.exports.PackageJsonReader
 export const Reader = __napiModule.exports.Reader
 export const Selector = __napiModule.exports.Selector
 export const UseNullableClass = __napiModule.exports.UseNullableClass

@@ -192,6 +192,21 @@ where
   }
 }
 
+impl<T, const N: usize> ToNapiValue for &[T; N]
+where
+  for<'a> &'a T: ToNapiValue,
+{
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    let mut arr = Array::new(env, val.len() as u32)?;
+
+    for (i, v) in val.iter().enumerate() {
+      arr.set(i as u32, v)?;
+    }
+
+    unsafe { Array::to_napi_value(env, arr) }
+  }
+}
+
 impl<T> ToNapiValue for Vec<T>
 where
   T: ToNapiValue,
@@ -207,51 +222,25 @@ where
   }
 }
 
-macro_rules! impl_for_primitive_type {
-  ($primitive_type:ident) => {
-    impl ToNapiValue for &Vec<$primitive_type> {
-      unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
-        let mut arr = Array::new(env, val.len() as u32)?;
-
-        for (i, v) in val.iter().enumerate() {
-          arr.set(i as u32, *v)?;
-        }
-
-        unsafe { Array::to_napi_value(env, arr) }
-      }
-    }
-
-    impl ToNapiValue for &mut Vec<$primitive_type> {
-      unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
-        ToNapiValue::to_napi_value(env, &*val)
-      }
-    }
-  };
-}
-
-impl_for_primitive_type!(u8);
-impl_for_primitive_type!(i8);
-impl_for_primitive_type!(u16);
-impl_for_primitive_type!(i16);
-impl_for_primitive_type!(u32);
-impl_for_primitive_type!(i32);
-impl_for_primitive_type!(i64);
-impl_for_primitive_type!(f64);
-impl_for_primitive_type!(bool);
-
-impl ToNapiValue for &Vec<String> {
+impl<T> ToNapiValue for &Vec<T>
+where
+  for<'a> &'a T: ToNapiValue,
+{
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     let mut arr = Array::new(env, val.len() as u32)?;
 
     for (i, v) in val.iter().enumerate() {
-      arr.set(i as u32, v.as_str())?;
+      arr.set(i as u32, v)?;
     }
 
     unsafe { Array::to_napi_value(env, arr) }
   }
 }
 
-impl ToNapiValue for &mut Vec<String> {
+impl<T> ToNapiValue for &mut Vec<T>
+where
+  for<'a> &'a T: ToNapiValue,
+{
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     ToNapiValue::to_napi_value(env, &*val)
   }

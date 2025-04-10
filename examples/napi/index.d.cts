@@ -223,6 +223,11 @@ export declare class Optional {
   static optionOnly(optional?: string | undefined | null): string
 }
 
+export declare class PackageJsonReader {
+  constructor()
+  read(): any
+}
+
 export declare class Reader {
 
   constructor()
