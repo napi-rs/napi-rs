@@ -86,16 +86,8 @@ module.exports.createOnMessage = (fs) => function onMessage(e) {
      */
     const { sab, type, payload } = e.data.__fs__
     const fn = fs[type]
-    const args = payload ? payload.map((value) => {
-      if (value instanceof Uint8Array) {
-        // buffer polyfill bug
-        // @ts-expect-error
-        value._isBuffer = true
-      }
-      return value
-    }) : payload
     try {
-      const ret = fn.apply(fs, args)
+      const ret = fn.apply(fs, payload)
       const t = getType(ret)
       const v = encodeValue(fs, ret, t)
       Atomics.store(sab, 0, 0)
@@ -132,7 +124,6 @@ module.exports.createFsProxy = (memfs) => new Proxy({}, {
       const i32arr = new Int32Array(sab)
       Atomics.store(i32arr, 0, 21)
 
-      // @ts-expect-error
       postMessage({
         __fs__: {
           sab: i32arr,
@@ -158,7 +149,6 @@ module.exports.createFsProxy = (memfs) => new Proxy({}, {
         })
         for (const [k, v] of Object.entries(errobj)) {
           if (k === 'message' || k === 'stack') continue
-          // @ts-expect-error
           err[k] = v
         }
         throw err
@@ -181,7 +171,6 @@ module.exports.createFsProxy = (memfs) => new Proxy({}, {
         if (obj.__constructor__) {
           const ctor = obj.__constructor__
           delete obj.__constructor__
-          // @ts-expect-error
           Object.setPrototypeOf(obj, memfs[ctor].prototype)
         }
         return obj
