@@ -45,7 +45,8 @@
     "@tybys/wasm-util": "^0.9.0"
   },
   "scripts": {
-    "build": "rollup -c rollup.config.js"
+    "build": "rollup -c rollup.config.js",
+    "test-fs-proxy": "node ./fs-proxy.test.cjs"
   },
   "exports": {
     ".": {
