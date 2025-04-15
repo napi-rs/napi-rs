@@ -80,7 +80,7 @@ const encodeValue = (memfs, value, type) => {
 }
 
 /**
- * @param {import('memfs').IFs} memfs
+ * @param {typeof import('memfs')} memfs
  * @param {Uint8Array} payload
  * @param {number} type
  * @returns {any}
@@ -173,7 +173,7 @@ module.exports.createOnMessage = (fs) => function onMessage(e) {
 }
 
 /**
- * @param {import('memfs').IFs} memfs
+ * @param {typeof import('memfs')} memfs
  */
 module.exports.createFsProxy = (memfs) => new Proxy({}, {
   get (_target, p, _receiver) {

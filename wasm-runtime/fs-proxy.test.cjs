@@ -6,7 +6,7 @@ const { createFsProxy, createOnMessage } = require('./fs-proxy.cjs')
 const fs = isMainThread ? memfs.createFsFromVolume(memfs.Volume.fromJSON({
   '/test.txt': 'test',
   '/test.json': JSON.stringify({ a: 'b' })
-})) : createFsProxy(memfs.createFsFromVolume(memfs.Volume.fromJSON({})))
+})) : createFsProxy(memfs)
 
 if (isMainThread) {
   fs.__custom1__ = () => {
