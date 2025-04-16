@@ -769,7 +769,7 @@ class Builder {
             .parse(await readFileAsync(src))
           const debugWasmBinary = debugWasmModule.emitWasm(true)
           await writeFileAsync(
-            dest.replace('.wasm', '.debug.wasm'),
+            dest.replace(/\.wasm$/, '.debug.wasm'),
             debugWasmBinary,
           )
           debug('Generate release wasm module')
