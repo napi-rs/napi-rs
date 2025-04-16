@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.78](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.77...@napi-rs/cli@3.0.0-alpha.78) (2025-04-16)
+
+### Bug Fixes
+
+- **cli:** replace .wasm extension of wasm artifact ([#2556](https://github.com/napi-rs/napi-rs/issues/2556)) ([e12d091](https://github.com/napi-rs/napi-rs/commit/e12d0918478fa63ebc59840a805e397937dcaa84))
+
 # [3.0.0-alpha.77](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.76...@napi-rs/cli@3.0.0-alpha.77) (2025-04-01)
 
 ### Bug Fixes

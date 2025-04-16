@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.2.9](https://github.com/napi-rs/napi-rs/compare/@napi-rs/wasm-runtime@0.2.8...@napi-rs/wasm-runtime@0.2.9) (2025-04-16)
+
+### Bug Fixes
+
+- **wasm-runtime:** remove `_isBuffer` patch ([#2560](https://github.com/napi-rs/napi-rs/issues/2560)) ([2f88639](https://github.com/napi-rs/napi-rs/commit/2f88639191bea91dbf1f23b8a252a5111651be58)), closes [#2559](https://github.com/napi-rs/napi-rs/issues/2559)
+- **wasm-runtime:** wasm fs proxy serialization ([#2564](https://github.com/napi-rs/napi-rs/issues/2564)) ([d28d842](https://github.com/napi-rs/napi-rs/commit/d28d8420d348e47829ed622e807f5cb3e56a8a2a))
+
 ## [0.2.8](https://github.com/napi-rs/napi-rs/compare/@napi-rs/wasm-runtime@0.2.7...@napi-rs/wasm-runtime@0.2.8) (2025-04-01)
 
 **Note:** Version bump only for package @napi-rs/wasm-runtime
