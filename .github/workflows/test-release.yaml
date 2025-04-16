@@ -72,7 +72,7 @@ jobs:
             build: yarn build:test
             test: |
               yarn test:cli
-              yarn test --verbose
+              yarn test
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
               yarn test:macro
             toolchain: stable
@@ -81,7 +81,7 @@ jobs:
             build: yarn build:test
             test: |
               yarn test:cli
-              yarn test --verbose
+              yarn test
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
               yarn test:macro
             toolchain: 1.80.0
@@ -90,7 +90,7 @@ jobs:
             build: yarn build:test
             test: |
               yarn test:cli
-              yarn test --verbose
+              yarn test
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
               yarn test:macro
             toolchain: stable
@@ -99,7 +99,7 @@ jobs:
             build: yarn build:test
             test: |
               yarn test:cli
-              yarn test --verbose
+              yarn test
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
               yarn test:macro
             toolchain: stable
@@ -109,7 +109,7 @@ jobs:
               yarn workspace @examples/napi build --target i686-pc-windows-msvc --release
               yarn workspace @examples/compat-mode build --target i686-pc-windows-msvc --release
             test: |
-              yarn test --verbose
+              yarn test
               node ./node_modules/electron/install.js
               yarn test:electron
             toolchain: stable
@@ -234,7 +234,7 @@ jobs:
   #      shell: msys2 {0}
   #      run: |
   #        yarn test:cli
-  #        yarn test --verbose
+  #        yarn test
   #        yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
   #        yarn test:macro
 

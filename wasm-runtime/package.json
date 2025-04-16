@@ -46,7 +46,7 @@
   },
   "scripts": {
     "build": "rollup -c rollup.config.js",
-    "test-fs-proxy": "node ./fs-proxy.test.cjs"
+    "test": "node --test"
   },
   "exports": {
     ".": {
