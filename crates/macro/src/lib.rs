@@ -151,9 +151,30 @@ pub fn module_exports(_attr: TokenStream, input: TokenStream) -> TokenStream {
     panic!("Arguments length of #[module_exports] function must be 1 or 2");
   };
 
+  #[allow(unused)]
+  let register_name = {
+    use parser::get_register_ident;
+    get_register_ident("explicit_module_exports")
+  };
+
   let register = quote! {
     #[cfg_attr(not(target_family = "wasm"), napi::ctor::ctor(crate_path=napi::ctor))]
     fn __napi_explicit_module_register() {
+      unsafe fn register(raw_env: napi::sys::napi_env, raw_exports: napi::sys::napi_value) -> napi::Result<()> {
+        use napi::{Env, JsObject, NapiValue};
+
+        let env = Env::from_raw(raw_env);
+        let exports = JsObject::from_raw_unchecked(raw_env, raw_exports);
+
+        #call_expr
+      }
+
+      napi::bindgen_prelude::register_module_exports(register)
+    }
+
+    #[cfg(target_family = "wasm")]
+    #[no_mangle]
+    unsafe extern "C" fn #register_name() {
       unsafe fn register(raw_env: napi::sys::napi_env, raw_exports: napi::sys::napi_value) -> napi::Result<()> {
         use napi::{Env, JsObject, NapiValue};
 

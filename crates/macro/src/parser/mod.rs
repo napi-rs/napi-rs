@@ -30,7 +30,7 @@ static GENERATOR_STRUCT: OnceLock<Mutex<HashMap<String, bool>>> = OnceLock::new(
 
 static REGISTER_INDEX: AtomicUsize = AtomicUsize::new(0);
 
-fn get_register_ident(name: &str) -> Ident {
+pub(crate) fn get_register_ident(name: &str) -> Ident {
   let new_name = format!(
     "__napi_register__{}_{}",
     rm_raw_prefix(name),
