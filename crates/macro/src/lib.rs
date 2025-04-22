@@ -154,7 +154,7 @@ pub fn module_exports(_attr: TokenStream, input: TokenStream) -> TokenStream {
   #[allow(unused)]
   let register_name = {
     use parser::get_register_ident;
-    get_register_ident("explicit_module_exports")
+    get_register_ident("explicit_module_register")
   };
 
   let register = quote! {
