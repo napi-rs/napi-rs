@@ -224,15 +224,6 @@ impl NapiFn {
     let mut args = vec![];
     let mut refs = vec![];
     let mut mut_ref_spans = vec![];
-    let make_ref = |input| {
-      quote! {
-        _args_array[_arg_write_index] = _make_ref(
-          ::std::ptr::NonNull::new(#input)
-            .ok_or_else(|| napi::Error::new(napi::Status::InvalidArg, "referenced ptr is null".to_owned()))?
-        )?;
-        _arg_write_index += 1;
-      }
-    };
 
     // fetch this
     if let Some(parent) = &self.parent {
@@ -267,12 +258,15 @@ impl NapiFn {
             skipped_arg_count += 1;
           } else {
             let is_in_class = self.parent.is_some();
+            // get `f64` in `foo: f64`
             if let syn::Type::Path(path) = path.ty.as_ref() {
+              // get `Reference` in `napi::bindgen_prelude::Reference`
               if let Some(p) = path.path.segments.last() {
                 if p.ident == "Reference" {
                   if !is_in_class {
                     bail_span!(p, "`Reference` is only allowed in class methods");
                   }
+                  // get `FooStruct` in `Reference<FooStruct>`
                   if let syn::PathArguments::AngleBracketed(syn::AngleBracketedGenericArguments {
                     args: angle_bracketed_args,
                     ..
@@ -293,6 +287,7 @@ impl NapiFn {
                     }
                   }
                 } else if p.ident == "This" {
+                  // get `FooStruct` in `This<FooStruct>`
                   if let syn::PathArguments::AngleBracketed(syn::AngleBracketedGenericArguments {
                     args: angle_bracketed_args,
                     ..
@@ -492,13 +487,37 @@ impl NapiFn {
       }
       _ => {
         hidden_ty_lifetime(&mut ty)?;
+        let mut arg_type = NapiArgType::Value;
+        if let syn::Type::Path(path) = &ty {
+          // Detect cases where the type is `Vec<&S>`.
+          // For example, in `async fn foo(v: Vec<&S>) {}`, we need to handle `v` as a reference.
+          if let Some(syn::PathSegment { ident, arguments }) = path.path.segments.first() {
+            // Check if the type is a `Vec`.
+            if ident == "Vec" {
+              if let syn::PathArguments::AngleBracketed(syn::AngleBracketedGenericArguments {
+                args: angle_bracketed_args,
+                ..
+              }) = &arguments
+              {
+                // Check if the generic argument of `Vec` is a reference type (e.g., `&S`).
+                if let Some(syn::GenericArgument::Type(syn::Type::Reference(
+                  syn::TypeReference { .. },
+                ))) = angle_bracketed_args.first()
+                {
+                  // If the type is `Vec<&S>`, set the argument type to `Ref`.
+                  arg_type = NapiArgType::Ref;
+                }
+              }
+            }
+          }
+        }
         let q = quote! {
           let #arg_name = {
             #type_check
             <#ty as napi::bindgen_prelude::FromNapiValue>::from_napi_value(env, cb.get_arg(#index))?
           };
         };
-        Ok((q, NapiArgType::Value))
+        Ok((q, arg_type))
       }
     }
   }
@@ -742,6 +761,16 @@ fn hidden_ty_lifetime(ty: &mut syn::Type) -> BindgenResult<()> {
     }
   }
   Ok(())
+}
+
+fn make_ref(input: TokenStream) -> TokenStream {
+  quote! {
+    _args_array[_arg_write_index] = _make_ref(
+      ::std::ptr::NonNull::new(#input)
+        .ok_or_else(|| napi::Error::new(napi::Status::InvalidArg, "referenced ptr is null".to_owned()))?
+    )?;
+    _arg_write_index += 1;
+  }
 }
 
 struct ArgConversions {
