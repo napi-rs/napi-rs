@@ -489,20 +489,22 @@ impl NapiFn {
         hidden_ty_lifetime(&mut ty)?;
         let mut arg_type = NapiArgType::Value;
         if let syn::Type::Path(path) = &ty {
-          // find `Vec<&S>` cases
-          // in `async fn foo(v: Vec<&S>) {}` case, need to `make_ref` for `v` as well
+          // Detect cases where the type is `Vec<&S>`.
+          // For example, in `async fn foo(v: Vec<&S>) {}`, we need to handle `v` as a reference.
           if let Some(syn::PathSegment { ident, arguments }) = path.path.segments.first() {
+            // Check if the type is a `Vec`.
             if ident == "Vec" {
               if let syn::PathArguments::AngleBracketed(syn::AngleBracketedGenericArguments {
                 args: angle_bracketed_args,
                 ..
               }) = &arguments
               {
-                // Vec with reference type
+                // Check if the generic argument of `Vec` is a reference type (e.g., `&S`).
                 if let Some(syn::GenericArgument::Type(syn::Type::Reference(
                   syn::TypeReference { .. },
                 ))) = angle_bracketed_args.first()
                 {
+                  // If the type is `Vec<&S>`, set the argument type to `Ref`.
                   arg_type = NapiArgType::Ref;
                 }
               }
