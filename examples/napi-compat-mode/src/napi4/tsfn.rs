@@ -86,7 +86,7 @@ pub fn test_tokio_readfile(ctx: CallContext) -> Result<JsUndefined> {
 pub fn test_tsfn_with_ref(ctx: CallContext) -> Result<JsUndefined> {
   let callback: Function<Ref<JsObject>, napi::JsUnknown> = ctx.get(0)?;
   let options = ctx.get::<JsObject>(1)?;
-  let option_ref = Ref::new(&ctx.env, &options);
+  let option_ref = Ref::new(ctx.env, &options);
   let tsfn = callback
     .build_threadsafe_function::<Ref<JsObject>>()
     .callee_handled::<true>()
