@@ -34,10 +34,10 @@ const __wasi = new __WASI({
     : `__emnapiInstantiateNapiModuleSync`
 
   return `import {
-  ${emnapiInstantiateImport},
-  getDefaultContext as __emnapiGetDefaultContext,
-  WASI as __WASI,
   createOnMessage as __wasmCreateOnMessageForFsProxy,
+  getDefaultContext as __emnapiGetDefaultContext,
+  ${emnapiInstantiateImport},
+  WASI as __WASI,
 } from '@napi-rs/wasm-runtime'
 ${fsImport}
 import __wasmUrl from './${wasiFilename}.wasm?url'
@@ -104,9 +104,9 @@ const { WASI: __nodeWASI } = require('node:wasi')
 const { Worker } = require('node:worker_threads')
 
 const {
-  instantiateNapiModuleSync: __emnapiInstantiateNapiModuleSync,
-  getDefaultContext: __emnapiGetDefaultContext,
   createOnMessage: __wasmCreateOnMessageForFsProxy,
+  getDefaultContext: __emnapiGetDefaultContext,
+  instantiateNapiModuleSync: __emnapiInstantiateNapiModuleSync,
 } = require('@napi-rs/wasm-runtime')
 
 const __rootDir = __nodePath.parse(process.cwd()).root
@@ -179,5 +179,4 @@ const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule
     }
   },
 })
-
 `
