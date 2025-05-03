@@ -8,7 +8,7 @@
   "scripts": {
     "browser": "vite",
     "build": "napi-raw build --platform --js index.cjs --dts index.d.cts",
-    "test": "cross-env TS_NODE_PROJECT=./tsconfig.json node --enable-source-maps --import @oxc-node/core/register ../../node_modules/ava/entrypoints/cli.mjs",
+    "test": "cross-env TS_NODE_PROJECT=./tsconfig.json node --import @oxc-node/core/register ../../node_modules/ava/entrypoints/cli.mjs",
     "test-js": "ava"
   },
   "napi": {
@@ -29,7 +29,7 @@
     "@napi-rs/cli": "workspace:*",
     "@napi-rs/triples": "workspace:*",
     "@napi-rs/wasm-runtime": "workspace:*",
-    "@oxc-node/core": "^0.0.25",
+    "@oxc-node/core": "^0.0.26",
     "@testing-library/dom": "^10.4.0",
     "@types/lodash": "^4.17.16",
     "@vitest/browser": "^3.1.1",
