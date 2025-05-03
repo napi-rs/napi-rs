@@ -8468,7 +8468,7 @@ __metadata:
     "@types/dockerode": "npm:^3.3.37"
     colorette: "npm:^2.0.20"
     dockerode: "npm:^4.0.5"
-    pretty-bytes: "npm:^6.1.1"
+    pretty-bytes: "npm:^7.0.0"
     table: "npm:^6.9.0"
   languageName: unknown
   linkType: soft
@@ -10218,10 +10218,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"pretty-bytes@npm:^6.1.1":
-  version: 6.1.1
-  resolution: "pretty-bytes@npm:6.1.1"
-  checksum: 10c0/c7a660b933355f3b4587ad3f001c266a8dd6afd17db9f89ebc50812354bb142df4b9600396ba5999bdb1f9717300387dc311df91895c5f0f2a1780e22495b5f8
+"pretty-bytes@npm:^7.0.0":
+  version: 7.0.0
+  resolution: "pretty-bytes@npm:7.0.0"
+  checksum: 10c0/94b3e3fa62674b8fe953245d18155d44bd5771da26e07bdf59270c0b4c0c808dff1ff4a63beab49e9d9fd6b1a38fd0e0a32735cfb0a61c65fcd121e1a3fcd03c
   languageName: node
   linkType: hard
 
