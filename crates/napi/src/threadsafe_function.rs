@@ -1,5 +1,6 @@
 #![allow(clippy::single_component_path_imports)]
 
+use std::convert::identity;
 use std::marker::PhantomData;
 use std::os::raw::c_void;
 use std::ptr::{self, null_mut};
@@ -492,7 +493,7 @@ impl<
           "Receive value from threadsafe function sender failed",
         )
       })
-      .and_then(|ret| ret)
+      .and_then(identity)
   }
 }
 
@@ -771,6 +772,10 @@ fn handle_call_js_cb_status(status: sys::napi_status, raw_env: sys::napi_env) {
   }
 }
 
+/// This is a placeholder type that is used to indicate that the return value of a threadsafe function is unknown.
+/// Use this type when you don't care about the return value of a threadsafe function.
+///
+/// And you can't get the value of it as well because it's just a placeholder.
 pub struct UnknownReturnValue;
 
 impl TypeName for UnknownReturnValue {

@@ -163,6 +163,7 @@ module.exports.buildThreadsafeFunctionFromFunctionCalleeHandle = __napiModule.ex
 module.exports.call0 = __napiModule.exports.call0
 module.exports.call1 = __napiModule.exports.call1
 module.exports.call2 = __napiModule.exports.call2
+module.exports.callAsyncWithUnknownReturnValue = __napiModule.exports.callAsyncWithUnknownReturnValue
 module.exports.callbackReturnPromise = __napiModule.exports.callbackReturnPromise
 module.exports.callbackReturnPromiseAndSpawn = __napiModule.exports.callbackReturnPromiseAndSpawn
 module.exports.callCatchOnPromise = __napiModule.exports.callCatchOnPromise
