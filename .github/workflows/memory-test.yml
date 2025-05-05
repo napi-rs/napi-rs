@@ -26,7 +26,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 22
           cache: 'yarn'
 
       - name: Install stable
@@ -55,11 +55,7 @@ jobs:
         run: docker pull node:lts-slim
 
       - name: Build in docker
-        uses: addnab/docker-run-action@v3
-        with:
-          image: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian
-          options: '--user 0:0 -v ${{ github.workspace }}/.cargo-cache/git/db:/usr/local/cargo/git/db -v ${{ github.workspace }}/.cargo/registry/cache:/usr/local/cargo/registry/cache -v ${{ github.workspace }}/.cargo/registry/index:/usr/local/cargo/registry/index -v ${{ github.workspace }}:/build -w /build'
-          run: yarn build:memory
+        run: yarn build:memory --use-napi-cross
 
       - name: Memory leak tests
         run: yarn test:memory

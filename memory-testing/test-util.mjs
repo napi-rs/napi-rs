@@ -9,7 +9,7 @@ const sleep = promisify(setTimeout)
 
 const client = new Dockerode()
 
-export async function createSuite(testFile, maxMemoryUsage) {
+export async function createSuite(testFile, maxMemoryUsage = 128 * 1024 * 1024) {
   console.info(colors.cyanBright(`Create container to test ${testFile}`))
 
   const container = await client.createContainer({
