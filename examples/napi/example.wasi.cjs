@@ -9,9 +9,9 @@ const { WASI: __nodeWASI } = require('node:wasi')
 const { Worker } = require('node:worker_threads')
 
 const {
-  instantiateNapiModuleSync: __emnapiInstantiateNapiModuleSync,
-  getDefaultContext: __emnapiGetDefaultContext,
   createOnMessage: __wasmCreateOnMessageForFsProxy,
+  getDefaultContext: __emnapiGetDefaultContext,
+  instantiateNapiModuleSync: __emnapiInstantiateNapiModuleSync,
 } = require('@napi-rs/wasm-runtime')
 
 const __rootDir = __nodePath.parse(process.cwd()).root
@@ -84,7 +84,6 @@ const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule
     }
   },
 })
-
 module.exports.Animal = __napiModule.exports.Animal
 module.exports.AnimalWithDefaultConstructor = __napiModule.exports.AnimalWithDefaultConstructor
 module.exports.AnotherClassForEither = __napiModule.exports.AnotherClassForEither
@@ -101,6 +100,7 @@ module.exports.Blake2BKey = __napiModule.exports.Blake2BKey
 module.exports.Blake2bKey = __napiModule.exports.Blake2bKey
 module.exports.CatchOnConstructor = __napiModule.exports.CatchOnConstructor
 module.exports.CatchOnConstructor2 = __napiModule.exports.CatchOnConstructor2
+module.exports.ClassInArray = __napiModule.exports.ClassInArray
 module.exports.ClassWithFactory = __napiModule.exports.ClassWithFactory
 module.exports.ClassWithLifetime = __napiModule.exports.ClassWithLifetime
 module.exports.Context = __napiModule.exports.Context
@@ -234,6 +234,7 @@ module.exports.generateFunctionAndCallIt = __napiModule.exports.generateFunction
 module.exports.getBtreeMapping = __napiModule.exports.getBtreeMapping
 module.exports.getBuffer = __napiModule.exports.getBuffer
 module.exports.getBufferSlice = __napiModule.exports.getBufferSlice
+module.exports.getClassFromArray = __napiModule.exports.getClassFromArray
 module.exports.getCwd = __napiModule.exports.getCwd
 module.exports.getEmptyBuffer = __napiModule.exports.getEmptyBuffer
 module.exports.getEmptyTypedArray = __napiModule.exports.getEmptyTypedArray

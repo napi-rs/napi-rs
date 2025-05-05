@@ -99,6 +99,10 @@ export declare class CatchOnConstructor2 {
   constructor()
 }
 
+export declare class ClassInArray {
+  constructor(value: number)
+}
+
 export declare class ClassWithFactory {
   name: string
   static withName(name: string): ClassWithFactory
@@ -529,6 +533,8 @@ export declare function getBtreeMapping(): Record<string, number>
 export declare function getBuffer(): Buffer
 
 export declare function getBufferSlice(): Buffer
+
+export declare function getClassFromArray(arr: unknown[]): number | null
 
 export declare function getCwd(callback: (arg0: string) => void): void
 

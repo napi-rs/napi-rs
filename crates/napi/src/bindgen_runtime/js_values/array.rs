@@ -2,13 +2,14 @@ use std::ptr;
 
 use crate::{bindgen_prelude::*, check_status, JsObject, Value};
 
-pub struct Array {
+pub struct Array<'env> {
   env: sys::napi_env,
   inner: sys::napi_value,
   len: u32,
+  _marker: std::marker::PhantomData<&'env ()>,
 }
 
-impl Array {
+impl<'env> Array<'env> {
   pub(crate) fn new(env: sys::napi_env, len: u32) -> Result<Self> {
     let mut ptr = ptr::null_mut();
     unsafe {
@@ -22,6 +23,7 @@ impl Array {
       env,
       inner: ptr,
       len,
+      _marker: std::marker::PhantomData,
     })
   }
 
@@ -39,6 +41,23 @@ impl Array {
       )?;
 
       Ok(Some(T::from_napi_value(self.env, ret)?))
+    }
+  }
+
+  pub fn get_ref<T: 'static + FromNapiRef>(&self, index: u32) -> Result<Option<&'env T>> {
+    if index >= self.len() {
+      return Ok(None);
+    }
+
+    let mut ret = ptr::null_mut();
+    unsafe {
+      check_status!(
+        sys::napi_get_element(self.env, self.inner, index, &mut ret),
+        "Failed to get element with index `{}`",
+        index,
+      )?;
+
+      Ok(Some(T::from_napi_ref(self.env, ret)?))
     }
   }
 
@@ -81,7 +100,7 @@ impl Array {
   }
 }
 
-impl TypeName for Array {
+impl TypeName for Array<'_> {
   fn type_name() -> &'static str {
     "Array"
   }
@@ -91,13 +110,13 @@ impl TypeName for Array {
   }
 }
 
-impl ToNapiValue for Array {
+impl ToNapiValue for Array<'_> {
   unsafe fn to_napi_value(_env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     Ok(val.inner)
   }
 }
 
-impl FromNapiValue for Array {
+impl FromNapiValue for Array<'_> {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
     let mut is_arr = false;
     check_status!(
@@ -117,6 +136,7 @@ impl FromNapiValue for Array {
         inner: napi_val,
         env,
         len,
+        _marker: std::marker::PhantomData,
       })
     } else {
       Err(Error::new(
@@ -127,7 +147,7 @@ impl FromNapiValue for Array {
   }
 }
 
-impl Array {
+impl Array<'_> {
   /// Create `Array` from `Vec<T>`
   pub fn from_vec<T>(env: &Env, value: Vec<T>) -> Result<Self>
   where
@@ -165,7 +185,7 @@ impl Array {
   }
 }
 
-impl ValidateNapiValue for Array {}
+impl ValidateNapiValue for Array<'_> {}
 
 impl<T> TypeName for Vec<T> {
   fn type_name() -> &'static str {

@@ -1,8 +1,8 @@
 import {
-  instantiateNapiModuleSync as __emnapiInstantiateNapiModuleSync,
-  getDefaultContext as __emnapiGetDefaultContext,
-  WASI as __WASI,
   createOnMessage as __wasmCreateOnMessageForFsProxy,
+  getDefaultContext as __emnapiGetDefaultContext,
+  instantiateNapiModuleSync as __emnapiInstantiateNapiModuleSync,
+  WASI as __WASI,
 } from '@napi-rs/wasm-runtime'
 import { memfs } from '@napi-rs/wasm-runtime/fs'
 import __wasmUrl from './example.wasm32-wasi.wasm?url'
@@ -76,6 +76,7 @@ export const Blake2BKey = __napiModule.exports.Blake2BKey
 export const Blake2bKey = __napiModule.exports.Blake2bKey
 export const CatchOnConstructor = __napiModule.exports.CatchOnConstructor
 export const CatchOnConstructor2 = __napiModule.exports.CatchOnConstructor2
+export const ClassInArray = __napiModule.exports.ClassInArray
 export const ClassWithFactory = __napiModule.exports.ClassWithFactory
 export const ClassWithLifetime = __napiModule.exports.ClassWithLifetime
 export const Context = __napiModule.exports.Context
@@ -209,6 +210,7 @@ export const generateFunctionAndCallIt = __napiModule.exports.generateFunctionAn
 export const getBtreeMapping = __napiModule.exports.getBtreeMapping
 export const getBuffer = __napiModule.exports.getBuffer
 export const getBufferSlice = __napiModule.exports.getBufferSlice
+export const getClassFromArray = __napiModule.exports.getClassFromArray
 export const getCwd = __napiModule.exports.getCwd
 export const getEmptyBuffer = __napiModule.exports.getEmptyBuffer
 export const getEmptyTypedArray = __napiModule.exports.getEmptyTypedArray

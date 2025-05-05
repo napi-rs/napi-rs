@@ -226,6 +226,8 @@ import {
   esmResolve,
   mergeTupleArray,
   TupleToArray,
+  ClassInArray,
+  getClassFromArray,
   extendsJavascriptError,
   shutdownRuntime,
 } from '../index.cjs'
@@ -1523,6 +1525,11 @@ test('tuple to array', (t) => {
 
   let mergev = mergeTupleArray(t1, t2)
   t.deepEqual(mergev, ['ab', 3, { merge: true }])
+})
+
+test('get class from array', (t) => {
+  const classInArray = new ClassInArray(42)
+  t.is(getClassFromArray([classInArray]), 42)
 })
 
 test('acceptStream', async (t) => {
