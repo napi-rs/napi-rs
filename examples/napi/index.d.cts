@@ -352,6 +352,8 @@ export declare function call1(callback: (arg: number) => number, arg: number): n
 
 export declare function call2(callback: (arg0: number, arg1: number) => number, arg1: number, arg2: number): number
 
+export declare function callAsyncWithUnknownReturnValue(tsfn: ((err: Error | null, arg: number) => Ref<unknown>)): Promise<number>
+
 export declare function callbackReturnPromise<T>(functionInput: () => T | Promise<T>, callback: (err: Error | null, result: T) => void): T | Promise<T>
 
 export declare function callbackReturnPromiseAndSpawn(jsFunc: (arg0: string) => Promise<string>): Promise<string>

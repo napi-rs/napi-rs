@@ -278,20 +278,19 @@ fn generator_next_fn<T: AsyncGenerator>(
   };
 
   let env = Env::from_raw(env);
-  let promise: crate::bindgen_runtime::PromiseRaw<'_, Option<T::Yield>> = env
-    .spawn_future_with_callback(item, |env, value| {
-      if let Some(v) = value {
-        let mut obj = Object::new(env.0)?;
-        obj.set("value", v)?;
-        obj.set("done", false)?;
-        Ok(obj)
-      } else {
-        let mut obj = Object::new(env.0)?;
-        obj.set("value", ())?;
-        obj.set("done", true)?;
-        Ok(obj)
-      }
-    })?;
+  let promise = env.spawn_future_with_callback(item, |env, value| {
+    if let Some(v) = value {
+      let mut obj = Object::new(env.0)?;
+      obj.set("value", v)?;
+      obj.set("done", false)?;
+      Ok(obj)
+    } else {
+      let mut obj = Object::new(env.0)?;
+      obj.set("value", ())?;
+      obj.set("done", true)?;
+      Ok(obj)
+    }
+  })?;
   Ok(promise.inner)
 }
 

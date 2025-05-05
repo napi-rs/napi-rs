@@ -230,6 +230,7 @@ import {
   getClassFromArray,
   extendsJavascriptError,
   shutdownRuntime,
+  callAsyncWithUnknownReturnValue,
 } from '../index.cjs'
 
 import { test } from './test.framework.js'
@@ -1388,6 +1389,22 @@ Napi4Test('threadsafe function return Promise and await in Rust', async (t) => {
   )
   // trigger Promise.then in Rust after `Promise` is dropped
   await new Promise((resolve) => setTimeout(resolve, 400))
+})
+
+Napi4Test('call async with unknown return value', async (t) => {
+  await new Promise<number>((resolve, reject) => {
+    return callAsyncWithUnknownReturnValue((err, value) => {
+      if (err) {
+        reject(err)
+      } else {
+        resolve(value)
+        t.is(value, 42)
+        return {}
+      }
+    }).then((result) => {
+      t.is(result, 110)
+    })
+  })
 })
 
 Napi4Test('object only from js', (t) => {
