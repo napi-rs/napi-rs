@@ -94,7 +94,7 @@ pub fn build_threadsafe_function_from_function(
   callback: Function<FnArgs<(u32, u32)>, u32>,
 ) -> Result<()> {
   let tsfn = callback.build_threadsafe_function().build()?;
-  std::thread::spawn(move || {
+  let jh1 = std::thread::spawn(move || {
     tsfn.call((1, 2).into(), ThreadsafeFunctionCallMode::NonBlocking);
   });
   let tsfn_max_queue_size_1 = callback
@@ -102,7 +102,7 @@ pub fn build_threadsafe_function_from_function(
     .max_queue_size::<1>()
     .build()?;
 
-  std::thread::spawn(move || {
+  let jh2 = std::thread::spawn(move || {
     tsfn_max_queue_size_1.call((1, 2).into(), ThreadsafeFunctionCallMode::NonBlocking);
   });
 
@@ -111,9 +111,13 @@ pub fn build_threadsafe_function_from_function(
     .weak::<true>()
     .build()?;
 
-  std::thread::spawn(move || {
+  let jh3 = std::thread::spawn(move || {
     tsfn_weak.call((1, 2).into(), ThreadsafeFunctionCallMode::NonBlocking);
   });
+
+  jh1.join().unwrap();
+  jh2.join().unwrap();
+  jh3.join().unwrap();
 
   Ok(())
 }
