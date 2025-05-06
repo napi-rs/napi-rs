@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 
 export type CrateTargetKind =
