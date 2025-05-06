@@ -25,6 +25,8 @@ if (platforms.length === 1) {
   } else {
     binaryName = `example.${platforms.find(({ abi }) => abi === 'musl').platformArchABI}.node`
   }
+} else if (process.platform === 'win32') {
+  binaryName = `example.${platforms.find(({ abi }) => abi === 'msvc').platformArchABI}.node`
 } else {
   throw new Error('unsupported platform')
 }
@@ -42,7 +44,7 @@ test('unload module', (t) => {
 })
 
 test('load module multi times', (t) => {
-  if (process.env.WASI_TEST) {
+  if (process.env.WASI_TEST || process.platform === 'win32') {
     t.pass()
     return
   }
