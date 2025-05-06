@@ -6,7 +6,7 @@ use tokio::runtime::Runtime;
 
 use crate::{bindgen_runtime::ToNapiValue, sys, Env, Error, Result};
 #[cfg(not(feature = "noop"))]
-use crate::{JsDeferred, JsUnknown, NapiValue};
+use crate::{JsDeferred, JsUnknown};
 
 #[cfg(not(feature = "noop"))]
 fn create_runtime() -> Runtime {

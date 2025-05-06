@@ -3,7 +3,6 @@ name: Test & Release
 env:
   DEBUG: 'napi:*'
   RUST_BACKTRACE: 1
-  CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: aarch64-linux-gnu-gcc
   # https://github.com/nodejs/node/issues/51555#issuecomment-2290742072
   DISABLE_V8_COMPILE_CACHE: 1
 
@@ -117,7 +116,8 @@ jobs:
               yarn workspace @examples/napi build --target i686-pc-windows-msvc --release
               yarn workspace @examples/compat-mode build --target i686-pc-windows-msvc --release
             test: |
-              yarn test
+              $env:NODE_OPTIONS = "--max-old-space-size=3072"
+              yarn workspace @examples/napi test -s
               node ./node_modules/electron/install.js
               yarn test:electron
             toolchain: stable
@@ -131,7 +131,7 @@ jobs:
           - settings:
               target: aarch64-pc-windows-msvc
             node: 20
-    name: ${{ matrix.settings.host }} - node@${{ matrix.node }} - toolchain@ ${{ matrix.settings.toolchain }}
+    name: ${{ matrix.settings.target }} - node@${{ matrix.node }} - toolchain@ ${{ matrix.settings.toolchain }}
     runs-on: ${{ matrix.settings.host }}
 
     steps:
@@ -188,6 +188,8 @@ jobs:
       - name: Build tests
         if: matrix.settings.build
         run: ${{ matrix.settings.build }}
+        env:
+          CARGO_PROFILE_DEV_OPT_LEVEL: 1
 
       - name: Setup node
         uses: actions/setup-node@v4
@@ -198,9 +200,9 @@ jobs:
 
       - name: Unit tests
         if: matrix.settings.test
-        env:
-          NODE_OPTIONS: '--max-old-space-size=6000'
         run: ${{ matrix.settings.test }}
+        env:
+          NODE_OPTIONS: '--max-old-space-size=8192'
 
       - name: Electron tests
         if: matrix.settings.target == 'aarch64-apple-darwin' || matrix.settings.target == 'x86_64-pc-windows-msvc'
@@ -355,6 +357,8 @@ jobs:
       - name: Cross build native tests
         run: yarn build:test -- --target ${{ matrix.settings.target }} --release --use-napi-cross
         shell: bash
+        env:
+          CARGO_PROFILE_DEV_OPT_LEVEL: 1
 
       - uses: actions/upload-artifact@v4
         with:
@@ -433,7 +437,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: [18, 20, 22]
+        node: [20, 22]
         settings:
           - image: 'node:{:version}-slim'
             target: x86_64-unknown-linux-gnu
@@ -465,10 +469,6 @@ jobs:
             args: '--platform linux/arm64'
             arch: 'arm64'
             libc: 'musl'
-        exclude:
-          - settings:
-              target: aarch64-unknown-linux-gnu
-            node: 18
     steps:
       - uses: actions/checkout@v4
 
@@ -502,10 +502,17 @@ jobs:
         id: image-name
         run: |
           node -e "console.info('docker-image=${{ matrix.settings.image }}'.replace('{:version}', ${{ matrix.node }}))" >> "$GITHUB_OUTPUT"
-      - name: Run test
+      - name: Setup and run tests
+        uses: addnab/docker-run-action@v3
         # Node.js on qemu randomly segfaults on powerpc64le
         continue-on-error: ${{ matrix.settings.target == 'powerpc64le-unknown-linux-gnu' }}
-        run: docker run --rm ${{ matrix.settings.args }} -v ${{ github.workspace }}:/build -w /build ${{ steps.image-name.outputs.docker-image }} sh -c "NODE_OPTIONS=--max-old-space-size=6000 DISABLE_V8_COMPILE_CACHE=1 yarn workspace @examples/napi test -s"
+        with:
+          image: ${{ steps.image-name.outputs.docker-image }}
+          options: --oom-kill-disable ${{ matrix.settings.args }} -v ${{ github.workspace }}:/build -w /build
+          run: |
+            export NODE_OPTIONS=--max-old-space-size=8192
+            export DISABLE_V8_COMPILE_CACHE=1
+            yarn workspace @examples/napi test
 
   build-and-test-linux-armv7:
     name: stable - armv7-unknown-linux-gnueabihf - node@20
@@ -627,7 +634,6 @@ jobs:
           RUSTUP_HOME: /home/runner/rustup
           CARGO_HOME: /home/runner/cargo
           RUSTUP_IO_THREADS: 1
-          NODE_OPTIONS: '--max-old-space-size=6000'
         with:
           operating_system: freebsd
           version: '14.2'
@@ -656,6 +662,7 @@ jobs:
             freebsd-version
             yarn config set supportedArchitectures.cpu --json '["current", "wasm32"]'
             export NODE_OPTIONS="--max-old-space-size=8192"
+            export CARGO_PROFILE_DEV_OPT_LEVEL="1"
             yarn install --immutable --mode=skip-build
             yarn workspace @examples/napi build
             yarn tsc -p examples/napi/tsconfig.json
@@ -723,7 +730,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'yarn'
       - name: Install
         uses: dtolnay/rust-toolchain@stable
@@ -758,7 +765,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'yarn'
       - name: Publish
         run: |

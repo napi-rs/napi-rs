@@ -38,8 +38,8 @@ impl JsBigInt {
     }
   }
 
-  pub fn into_unknown(self) -> Result<JsUnknown> {
-    unsafe { JsUnknown::from_raw(self.raw.env, self.raw.value) }
+  pub fn into_unknown(self) -> JsUnknown {
+    unsafe { JsUnknown::from_raw_unchecked(self.raw.env, self.raw.value) }
   }
 
   pub fn coerce_to_number(self) -> Result<JsNumber> {

@@ -1,7 +1,7 @@
 use super::{FromNapiValue, ToNapiValue, TypeName, ValidateNapiValue};
 use crate::{
   bindgen_runtime::{Null, Undefined, Unknown},
-  check_status, sys, Env, Error, JsUndefined, NapiRaw, NapiValue, Status, ValueType,
+  check_status, sys, Env, Error, JsUndefined, NapiRaw, Status, ValueType,
 };
 
 impl<A: NapiRaw, B: NapiRaw> Either<A, B> {

@@ -1,7 +1,7 @@
 use std::collections::{BTreeSet, HashSet};
 use std::hash::{BuildHasher, Hash};
 
-use crate::bindgen_prelude::*;
+use crate::{bindgen_prelude::*, JsObjectValue};
 
 impl<V, S> TypeName for HashSet<V, S> {
   fn type_name() -> &'static str {

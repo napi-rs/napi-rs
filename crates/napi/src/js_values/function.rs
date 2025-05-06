@@ -68,7 +68,7 @@ impl JsFunction {
       )
     })?;
 
-    unsafe { JsUnknown::from_raw(self.0.env, return_value) }
+    Ok(unsafe { JsUnknown::from_raw_unchecked(self.0.env, return_value) })
   }
 
   /// [napi_call_function](https://nodejs.org/api/n-api.html#n_api_napi_call_function)
@@ -95,7 +95,7 @@ impl JsFunction {
       )
     })?;
 
-    unsafe { JsUnknown::from_raw(self.0.env, return_value) }
+    Ok(unsafe { JsUnknown::from_raw_unchecked(self.0.env, return_value) })
   }
 
   /// <https://nodejs.org/api/n-api.html#n_api_napi_new_instance>

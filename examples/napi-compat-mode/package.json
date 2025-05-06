@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "build": "napi-raw build --no-js --features latest",
-    "test": "ava"
+    "test": "ava reset-cache && ava"
   },
   "devDependencies": {
     "@napi-rs/cli": "workspace:*",
