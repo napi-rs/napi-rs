@@ -21,7 +21,7 @@ use crate::{
   bindgen_runtime::{BufferSlice, Null, Object, NAPI_AUTO_LENGTH},
   check_status, sys,
   threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode},
-  Env, Error, JsError, NapiRaw, Result, Status, ValueType,
+  Env, Error, JsError, JsObjectValue, NapiRaw, Result, Status, ValueType,
 };
 
 pub struct ReadableStream<'env, T> {

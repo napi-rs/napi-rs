@@ -4,7 +4,7 @@ use crate::{
   bindgen_prelude::{
     FromNapiValue, Function, PromiseRaw, ToNapiValue, TypeName, ValidateNapiValue,
   },
-  check_status, sys, Env, Error, NapiRaw, Result, Status, ValueType,
+  check_status, sys, Env, Error, JsObjectValue, NapiRaw, Result, Status, ValueType,
 };
 
 pub struct WriteableStream<'env> {

@@ -12,8 +12,7 @@ use serde::{de, ser};
 #[cfg(feature = "serde-json")]
 use serde_json::Error as SerdeJSONError;
 
-use crate::bindgen_runtime::ToNapiValue;
-use crate::{check_status, sys, Env, JsUnknown, NapiValue, Status};
+use crate::{bindgen_runtime::ToNapiValue, check_status, sys, Env, JsUnknown, Status};
 
 pub type Result<T, S = Status> = std::result::Result<T, Error<S>>;
 
@@ -433,7 +432,7 @@ macro_rules! check_status_and_type {
     match c {
       $crate::sys::Status::napi_ok => Ok(()),
       _ => {
-        use $crate::js_values::NapiValue;
+        use $crate::js_values::JsObjectValue;
         let value_type = $crate::type_of!($env, $val)?;
         let error_msg = match value_type {
           ValueType::Function => {
@@ -491,7 +490,6 @@ macro_rules! check_status_and_type {
 #[macro_export]
 macro_rules! check_pending_exception {
   ($env:expr, $code:expr) => {{
-    use $crate::NapiValue;
     let c = $code;
     match c {
       $crate::sys::Status::napi_ok => Ok(()),
@@ -510,7 +508,6 @@ macro_rules! check_pending_exception {
   }};
 
   ($env:expr, $code:expr, $($msg:tt)*) => {{
-    use $crate::NapiValue;
     let c = $code;
     match c {
       $crate::sys::Status::napi_ok => Ok(()),

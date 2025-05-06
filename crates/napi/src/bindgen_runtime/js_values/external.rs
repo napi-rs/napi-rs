@@ -6,7 +6,7 @@ use std::{
 use super::{
   FromNapiMutRef, FromNapiRef, FromNapiValue, ToNapiValue, TypeName, Unknown, ValidateNapiValue,
 };
-use crate::{check_status, sys, Env, Error, NapiValue, Result, Status};
+use crate::{check_status, sys, Env, Error, Result, Status};
 
 #[repr(C)]
 pub struct External<T: 'static> {

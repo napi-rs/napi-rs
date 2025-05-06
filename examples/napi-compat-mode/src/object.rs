@@ -97,7 +97,7 @@ fn test_get_property_names(ctx: CallContext) -> Result<JsObject> {
 }
 
 #[js_function(1)]
-fn test_get_prototype(ctx: CallContext) -> Result<JsUnknown> {
+fn test_get_prototype(ctx: CallContext) -> Result<JsObject> {
   let obj = ctx.get::<JsObject>(0)?;
   obj.get_prototype()
 }

@@ -5,9 +5,7 @@ use std::ptr;
 use super::{Value, ValueType};
 use crate::bindgen_runtime::ValidateNapiValue;
 use crate::Env;
-use crate::{
-  bindgen_runtime::TypeName, check_status, sys, Error, JsUnknown, NapiValue, Ref, Result, Status,
-};
+use crate::{bindgen_runtime::TypeName, check_status, sys, Error, JsUnknown, Ref, Result, Status};
 
 #[deprecated(since = "3.0.0", note = "Please use Buffer or &[u8] instead")]
 pub struct JsBuffer(pub(crate) Value);

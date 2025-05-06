@@ -145,11 +145,19 @@ impl Serializer for Ser<'_> {
   }
 
   fn serialize_unit(self) -> Result<Self::Ok> {
-    self.0.get_null().map(|null| null.0)
+    Ok(Value {
+      env: self.0.raw(),
+      value: unsafe { ToNapiValue::to_napi_value(self.0 .0, crate::bindgen_prelude::Null) }?,
+      value_type: ValueType::Null,
+    })
   }
 
   fn serialize_none(self) -> Result<Self::Ok> {
-    self.0.get_null().map(|null| null.0)
+    Ok(Value {
+      env: self.0.raw(),
+      value: unsafe { ToNapiValue::to_napi_value(self.0 .0, crate::bindgen_prelude::Null) }?,
+      value_type: ValueType::Null,
+    })
   }
 
   fn serialize_str(self, v: &str) -> Result<Self::Ok> {
@@ -203,7 +211,11 @@ impl Serializer for Ser<'_> {
   }
 
   fn serialize_unit_struct(self, _name: &'static str) -> Result<Self::Ok> {
-    self.0.get_null().map(|null| null.0)
+    Ok(Value {
+      env: self.0.raw(),
+      value: unsafe { ToNapiValue::to_napi_value(self.0 .0, crate::bindgen_prelude::Null) }?,
+      value_type: ValueType::Null,
+    })
   }
 
   fn serialize_unit_variant(
