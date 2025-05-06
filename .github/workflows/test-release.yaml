@@ -199,7 +199,7 @@ jobs:
       - name: Unit tests
         if: matrix.settings.test
         env:
-          NODE_OPTIONS: '--max-old-space-size=6000'
+          NODE_OPTIONS: '--max-old-space-size=8192'
         run: ${{ matrix.settings.test }}
 
       - name: Electron tests
@@ -433,7 +433,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: [18, 20, 22]
+        node: [20, 22]
         settings:
           - image: 'node:{:version}-slim'
             target: x86_64-unknown-linux-gnu
@@ -465,10 +465,6 @@ jobs:
             args: '--platform linux/arm64'
             arch: 'arm64'
             libc: 'musl'
-        exclude:
-          - settings:
-              target: aarch64-unknown-linux-gnu
-            node: 18
     steps:
       - uses: actions/checkout@v4
 
@@ -502,10 +498,17 @@ jobs:
         id: image-name
         run: |
           node -e "console.info('docker-image=${{ matrix.settings.image }}'.replace('{:version}', ${{ matrix.node }}))" >> "$GITHUB_OUTPUT"
-      - name: Run test
+      - name: Setup and run tests
+        uses: addnab/docker-run-action@v3
         # Node.js on qemu randomly segfaults on powerpc64le
         continue-on-error: ${{ matrix.settings.target == 'powerpc64le-unknown-linux-gnu' }}
-        run: docker run --rm ${{ matrix.settings.args }} -v ${{ github.workspace }}:/build -w /build ${{ steps.image-name.outputs.docker-image }} sh -c "NODE_OPTIONS=--max-old-space-size=6000 DISABLE_V8_COMPILE_CACHE=1 yarn workspace @examples/napi test -s"
+        with:
+          image: ${{ steps.image-name.outputs.docker-image }}
+          options: --oom-kill-disable ${{ matrix.settings.args }} -v ${{ github.workspace }}:/build -w /build
+          run: |
+            export NODE_OPTIONS=--max-old-space-size=8192
+            export DISABLE_V8_COMPILE_CACHE=1
+            yarn test
 
   build-and-test-linux-armv7:
     name: stable - armv7-unknown-linux-gnueabihf - node@20
@@ -723,7 +726,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'yarn'
       - name: Install
         uses: dtolnay/rust-toolchain@stable
@@ -758,7 +761,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'yarn'
       - name: Publish
         run: |
