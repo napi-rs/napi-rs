@@ -3,7 +3,7 @@ use std::str;
 
 use napi::{
   bindgen_prelude::BufferSlice, noop_finalize, CallContext, ContextlessResult, Env, Error,
-  JsNumber, JsObject, JsString, JsUndefined, Result, Status,
+  JsNumber, JsObject, JsString, Result, Status,
 };
 
 #[js_function(1)]
@@ -97,10 +97,10 @@ pub fn create_empty_buffer(env: Env) -> ContextlessResult<BufferSlice<'static>> 
 }
 
 #[js_function(1)]
-fn mutate_buffer(ctx: CallContext) -> Result<JsUndefined> {
+fn mutate_buffer(ctx: CallContext) -> Result<()> {
   let buffer = &mut ctx.get::<BufferSlice>(0)?;
   buffer[1] = 42;
-  ctx.env.get_undefined()
+  Ok(())
 }
 
 pub fn register_js(exports: &mut JsObject) -> Result<()> {

@@ -63,14 +63,14 @@ pub fn register_js(exports: &mut JsObject, env: &Env) -> Result<()> {
 }
 
 #[js_function]
-fn test_class_constructor(ctx: CallContext) -> Result<JsUndefined> {
+fn test_class_constructor(ctx: CallContext) -> Result<()> {
   let native = TestNative {
     miter_limit: 10,
     line_join: LineJoin::Miter,
   };
   let mut this = ctx.this_unchecked::<JsObject>();
   ctx.env.wrap(&mut this, native, None)?;
-  ctx.env.get_undefined()
+  Ok(())
 }
 
 #[js_function]
@@ -82,7 +82,7 @@ fn get_miter_native(ctx: CallContext) -> Result<JsNumber> {
 }
 
 #[js_function(1)]
-fn set_miter_native(ctx: CallContext) -> Result<JsUndefined> {
+fn set_miter_native(ctx: CallContext) -> Result<()> {
   let miter: u32 = ctx.get::<JsNumber>(0)?.get_uint32()?;
 
   let this = ctx.this_unchecked::<JsObject>();
@@ -90,7 +90,7 @@ fn set_miter_native(ctx: CallContext) -> Result<JsUndefined> {
 
   native.miter_limit = miter;
 
-  ctx.env.get_undefined()
+  Ok(())
 }
 
 #[js_function]
@@ -100,7 +100,7 @@ fn get_miter(ctx: CallContext) -> Result<Unknown> {
 }
 
 #[js_function(1)]
-fn set_miter(ctx: CallContext) -> Result<JsUndefined> {
+fn set_miter(ctx: CallContext) -> Result<()> {
   let miter_number = ctx.get::<JsNumber>(0)?;
   let miter = miter_number.get_uint32()?;
 
@@ -111,7 +111,7 @@ fn set_miter(ctx: CallContext) -> Result<JsUndefined> {
 
   this.set_named_property("_miterLimit", miter_number)?;
 
-  ctx.env.get_undefined()
+  Ok(())
 }
 
 #[js_function]
@@ -123,7 +123,7 @@ fn get_line_join_native(ctx: CallContext) -> Result<JsString> {
 }
 
 #[js_function(1)]
-fn set_line_join_native(ctx: CallContext) -> Result<JsUndefined> {
+fn set_line_join_native(ctx: CallContext) -> Result<()> {
   let line_join_string = ctx.get::<JsString>(0)?;
   let line_join = line_join_string.into_utf8()?;
 
@@ -132,7 +132,7 @@ fn set_line_join_native(ctx: CallContext) -> Result<JsUndefined> {
 
   native.line_join = LineJoin::from_str(line_join.as_str()?)?;
 
-  ctx.env.get_undefined()
+  Ok(())
 }
 
 #[js_function]
@@ -143,7 +143,7 @@ fn get_line_join(ctx: CallContext) -> Result<Unknown> {
 }
 
 #[js_function(1)]
-fn set_line_join(ctx: CallContext) -> Result<JsUndefined> {
+fn set_line_join(ctx: CallContext) -> Result<()> {
   let line_join_string = ctx.get::<JsString>(0)?;
   let line_join = line_join_string.into_utf8()?;
 
@@ -154,5 +154,5 @@ fn set_line_join(ctx: CallContext) -> Result<JsUndefined> {
 
   this.set_named_property("_lineJoin", line_join_string)?;
 
-  ctx.env.get_undefined()
+  Ok(())
 }

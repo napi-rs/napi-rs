@@ -5,9 +5,9 @@ struct NativeObject {
 }
 
 #[contextless_function]
-pub fn set_instance_data(env: Env) -> ContextlessResult<JsUndefined> {
+pub fn set_instance_data(env: Env) -> ContextlessResult<()> {
   env.set_instance_data(NativeObject { count: 1024 }, 0, |_ctx| {})?;
-  env.get_undefined().map(Some)
+  Ok(Some(()))
 }
 
 #[contextless_function]

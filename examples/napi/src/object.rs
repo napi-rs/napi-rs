@@ -1,6 +1,5 @@
 use napi::{
-  bindgen_prelude::*, threadsafe_function::ThreadsafeFunction, JsGlobal, JsObject, JsUndefined,
-  Result,
+  bindgen_prelude::*, threadsafe_function::ThreadsafeFunction, JsGlobal, JsObject, Result,
 };
 
 #[napi]
@@ -22,8 +21,8 @@ fn get_global(env: &Env) -> Result<JsGlobal> {
 }
 
 #[napi]
-fn get_undefined(env: Env) -> Result<JsUndefined> {
-  env.get_undefined()
+fn get_undefined() -> Result<()> {
+  Ok(())
 }
 
 #[napi]

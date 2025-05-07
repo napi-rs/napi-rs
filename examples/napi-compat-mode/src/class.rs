@@ -2,7 +2,7 @@ use std::convert::TryInto;
 
 use napi::{
   bindgen_prelude::{Function, Unknown},
-  CallContext, JsNumber, JsObject, JsUndefined, Property, Result,
+  CallContext, JsNumber, JsObject, Property, Result,
 };
 
 struct NativeClass {
@@ -22,23 +22,23 @@ fn create_test_class(ctx: CallContext) -> Result<Function<Unknown, Unknown>> {
 }
 
 #[js_function(1)]
-fn test_class_constructor(ctx: CallContext) -> Result<JsUndefined> {
+fn test_class_constructor(ctx: CallContext) -> Result<()> {
   let count: i32 = ctx.get::<JsNumber>(0)?.try_into()?;
   let mut this: JsObject = ctx.this_unchecked();
   ctx
     .env
     .wrap(&mut this, NativeClass { value: count + 100 }, None)?;
   this.set_named_property("count", ctx.env.create_int32(count)?)?;
-  ctx.env.get_undefined()
+  Ok(())
 }
 
 #[js_function(1)]
-fn add_count(ctx: CallContext) -> Result<JsUndefined> {
+fn add_count(ctx: CallContext) -> Result<()> {
   let add: i32 = ctx.get::<JsNumber>(0)?.try_into()?;
   let mut this: JsObject = ctx.this_unchecked();
   let count: i32 = this.get_named_property::<JsNumber>("count")?.try_into()?;
   this.set_named_property("count", ctx.env.create_int32(count + add)?)?;
-  ctx.env.get_undefined()
+  Ok(())
 }
 
 #[js_function(1)]
@@ -51,11 +51,11 @@ fn add_native_count(ctx: CallContext) -> Result<JsNumber> {
 }
 
 #[js_function]
-fn renew_wrapped(ctx: CallContext) -> Result<JsUndefined> {
+fn renew_wrapped(ctx: CallContext) -> Result<()> {
   let mut this: JsObject = ctx.this_unchecked();
   ctx.env.drop_wrapped::<NativeClass>(&this)?;
   ctx.env.wrap(&mut this, NativeClass { value: 42 }, None)?;
-  ctx.env.get_undefined()
+  Ok(())
 }
 
 pub fn register_js(exports: &mut JsObject) -> Result<()> {

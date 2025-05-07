@@ -19,7 +19,9 @@ mod ser;
 mod arraybuffer;
 #[cfg(feature = "napi6")]
 mod bigint;
+#[cfg(feature = "compat-mode")]
 mod boolean;
+#[cfg(feature = "compat-mode")]
 mod buffer;
 #[cfg(feature = "napi5")]
 mod date;
@@ -27,6 +29,7 @@ mod date;
 mod deferred;
 mod either;
 mod escapable_handle_scope;
+#[cfg(feature = "compat-mode")]
 mod function;
 mod global;
 mod number;
@@ -34,6 +37,7 @@ mod object;
 mod object_property;
 mod string;
 mod tagged_object;
+#[cfg(feature = "compat-mode")]
 mod undefined;
 mod value;
 mod value_ref;
@@ -41,7 +45,9 @@ mod value_ref;
 pub use arraybuffer::*;
 #[cfg(feature = "napi6")]
 pub use bigint::JsBigInt;
+#[cfg(feature = "compat-mode")]
 pub use boolean::JsBoolean;
+#[cfg(feature = "compat-mode")]
 pub use buffer::*;
 #[cfg(feature = "napi5")]
 pub use date::*;
@@ -51,6 +57,7 @@ pub use de::De;
 pub use deferred::*;
 pub use either::Either;
 pub use escapable_handle_scope::EscapableHandleScope;
+#[cfg(feature = "compat-mode")]
 pub use function::JsFunction;
 pub use global::*;
 pub use number::JsNumber;
@@ -60,12 +67,14 @@ pub use object_property::*;
 pub use ser::Ser;
 pub use string::*;
 pub(crate) use tagged_object::TaggedObject;
+#[cfg(feature = "compat-mode")]
 pub use undefined::JsUndefined;
 pub(crate) use value::Value;
 pub use value_ref::*;
 
 // Value types
 
+#[cfg(feature = "compat-mode")]
 #[deprecated(
   since = "3.0.0",
   note = "Please use `napi::bindgen_prelude::Null` instead"
@@ -73,6 +82,7 @@ pub use value_ref::*;
 #[derive(Clone, Copy)]
 pub struct JsNull(pub(crate) Value);
 
+#[cfg(feature = "compat-mode")]
 impl TypeName for JsNull {
   fn type_name() -> &'static str {
     "null"
@@ -83,6 +93,7 @@ impl TypeName for JsNull {
   }
 }
 
+#[cfg(feature = "compat-mode")]
 impl ValidateNapiValue for JsNull {}
 
 #[derive(Clone, Copy)]
@@ -122,12 +133,14 @@ impl FromNapiValue for JsSymbol<'_> {
 
 impl ValidateNapiValue for JsSymbol<'_> {}
 
+#[cfg(feature = "compat-mode")]
 #[deprecated(
   since = "3.0.0",
   note = "Please use `napi::bindgen_prelude::External` instead"
 )]
 pub struct JsExternal(pub(crate) Value);
 
+#[cfg(feature = "compat-mode")]
 impl TypeName for JsExternal {
   fn type_name() -> &'static str {
     "external"
@@ -138,6 +151,7 @@ impl TypeName for JsExternal {
   }
 }
 
+#[cfg(feature = "compat-mode")]
 impl ValidateNapiValue for JsExternal {}
 
 pub trait JsValue: Sized {
@@ -705,6 +719,7 @@ macro_rules! impl_js_value_methods {
         unsafe { Unknown::from_raw_unchecked(self.0.env, self.0.value) }
       }
 
+      #[cfg(feature = "compat-mode")]
       pub fn coerce_to_bool(self) -> Result<JsBoolean> {
         let mut new_raw_value = ptr::null_mut();
         check_status!(unsafe {
@@ -1206,9 +1221,13 @@ pub trait NapiValue: Sized + NapiRaw {
   unsafe fn from_raw_unchecked(env: sys::napi_env, value: sys::napi_value) -> Self;
 }
 
+#[cfg(feature = "compat-mode")]
 impl_js_value_methods!(JsUndefined);
+#[cfg(feature = "compat-mode")]
 impl_js_value_methods!(JsNull);
+#[cfg(feature = "compat-mode")]
 impl_js_value_methods!(JsBoolean);
+#[cfg(feature = "compat-mode")]
 impl_js_value_methods!(JsBuffer);
 impl_js_value_methods!(JsArrayBuffer);
 impl_js_value_methods!(JsTypedArray);
@@ -1217,10 +1236,13 @@ impl_js_value_methods!(JsString);
 impl_js_value_methods!(JsObject);
 #[cfg(feature = "napi5")]
 impl_js_value_methods!(JsDate);
+#[cfg(feature = "compat-mode")]
 impl_js_value_methods!(JsFunction);
+#[cfg(feature = "compat-mode")]
 impl_js_value_methods!(JsExternal);
 
 impl_object_methods!(JsObject);
+#[cfg(feature = "compat-mode")]
 impl_object_methods!(JsBuffer);
 impl_object_methods!(JsArrayBuffer);
 impl_object_methods!(JsTypedArray);
@@ -1228,9 +1250,13 @@ impl_object_methods!(JsDataView);
 
 use ValueType::*;
 
+#[cfg(feature = "compat-mode")]
 impl_napi_value_trait!(JsUndefined, Undefined);
+#[cfg(feature = "compat-mode")]
 impl_napi_value_trait!(JsNull, Null);
+#[cfg(feature = "compat-mode")]
 impl_napi_value_trait!(JsBoolean, Boolean);
+#[cfg(feature = "compat-mode")]
 impl_napi_value_trait!(JsBuffer, Object);
 impl_napi_value_trait!(JsArrayBuffer, Object);
 impl_napi_value_trait!(JsTypedArray, Object);
@@ -1239,7 +1265,9 @@ impl_napi_value_trait!(JsString, String);
 impl_napi_value_trait!(JsObject, Object);
 #[cfg(feature = "napi5")]
 impl_napi_value_trait!(JsDate, Object);
+#[cfg(feature = "compat-mode")]
 impl_napi_value_trait!(JsFunction, Function);
+#[cfg(feature = "compat-mode")]
 impl_napi_value_trait!(JsExternal, External);
 
 /// Represents a raw JavaScript value

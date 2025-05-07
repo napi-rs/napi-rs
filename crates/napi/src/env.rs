@@ -29,7 +29,7 @@ use crate::bindgen_runtime::{FromNapiValue, Function, JsValuesTupleIntoVec, Unkn
 use crate::cleanup_env::{CleanupEnvHook, CleanupEnvHookData};
 #[cfg(feature = "serde-json")]
 use crate::js_values::{De, Ser};
-#[cfg(feature = "napi4")]
+#[cfg(all(feature = "napi4", feature = "compat-mode"))]
 use crate::threadsafe_function::{ThreadsafeCallContext, ThreadsafeFunction};
 #[cfg(feature = "napi3")]
 use crate::JsError;
@@ -70,6 +70,8 @@ impl Env {
     Env(env)
   }
 
+  #[cfg(feature = "compat-mode")]
+  #[deprecated(since = "3.0.0", note = "Use `bool` instead")]
   pub fn get_boolean(&self, value: bool) -> Result<JsBoolean> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe { sys::napi_get_boolean(self.0, value, &mut raw_value) })?;
@@ -245,6 +247,7 @@ impl Env {
     Ok(unsafe { JsObject::from_raw_unchecked(self.0, raw_value) })
   }
 
+  #[cfg(feature = "compat-mode")]
   #[deprecated(since = "3.0.0", note = "Use `Buffer` instead")]
   /// This API allocates a node::Buffer object. While this is still a fully-supported data structure, in most cases using a TypedArray will suffice.
   pub fn create_buffer(&self, length: usize) -> Result<JsBufferValue> {
@@ -264,6 +267,7 @@ impl Env {
     ))
   }
 
+  #[cfg(feature = "compat-mode")]
   #[deprecated(since = "3.0.0", note = "Use `BufferSlice::from_data` instead")]
   /// This API allocates a node::Buffer object and initializes it with data backed by the passed in buffer.
   ///
@@ -316,6 +320,7 @@ impl Env {
     ))
   }
 
+  #[cfg(feature = "compat-mode")]
   #[deprecated(since = "3.0.0", note = "Use `BufferSlice::from_external` instead")]
   /// # Safety
   /// Mostly the same with `create_buffer_with_data`
@@ -404,6 +409,7 @@ impl Env {
     Ok(0)
   }
 
+  #[cfg(feature = "compat-mode")]
   #[deprecated(since = "3.0.0", note = "Use `BufferSlice::copy_from` instead")]
   /// This API allocates a node::Buffer object and initializes it with data copied from the passed-in buffer.
   ///
@@ -883,6 +889,7 @@ impl Env {
     Ok(unsafe { T::from_raw_unchecked(self.0, js_value) })
   }
 
+  #[cfg(feature = "compat-mode")]
   #[deprecated(since = "3.0.0", note = "Please use `External::new` instead")]
   /// If `size_hint` provided, `Env::adjust_external_memory` will be called under the hood.
   ///
@@ -915,6 +922,7 @@ impl Env {
     Ok(unsafe { JsExternal::from_raw_unchecked(self.0, object_value) })
   }
 
+  #[cfg(feature = "compat-mode")]
   #[deprecated(since = "3.0.0", note = "Please use `&External` instead")]
   pub fn get_value_external<T: 'static>(&self, js_external: &JsExternal) -> Result<&mut T> {
     unsafe {
@@ -1052,7 +1060,7 @@ impl Env {
     })
   }
 
-  #[cfg(feature = "napi4")]
+  #[cfg(all(feature = "napi4", feature = "compat-mode"))]
   #[deprecated(
     since = "2.17.0",
     note = "Please use `Function::build_threadsafe_function` instead"

@@ -5,7 +5,7 @@ use crate::bindgen_runtime::{BufferSlice, FromNapiValue};
 #[cfg(feature = "napi6")]
 use crate::JsBigInt;
 use crate::{type_of, NapiValue, Value, ValueType};
-use crate::{Error, JsBoolean, JsObject, JsString, Result, Status, Unknown};
+use crate::{Error, JsObject, JsString, Result, Status, Unknown};
 
 use super::JsArrayBuffer;
 
@@ -28,8 +28,8 @@ impl<'x> serde::de::Deserializer<'x> for &mut De<'_> {
     match js_value_type {
       ValueType::Null | ValueType::Undefined => visitor.visit_unit(),
       ValueType::Boolean => {
-        let js_boolean = unsafe { JsBoolean::from_raw_unchecked(self.0.env, self.0.value) };
-        visitor.visit_bool(js_boolean.get_value()?)
+        let val: bool = unsafe { FromNapiValue::from_napi_value(self.0.env, self.0.value)? };
+        visitor.visit_bool(val)
       }
       ValueType::Number => {
         let js_number: f64 = unsafe { FromNapiValue::from_napi_value(self.0.env, self.0.value)? };

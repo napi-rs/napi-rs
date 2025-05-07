@@ -23,8 +23,9 @@ independent = true
 [features]
 async = ["tokio_rt"]
 chrono_date = ["chrono", "napi5"]
+# Enable deprecated types and traits for compatibility
 compat-mode = []
-default = ["napi3", "compat-mode"]                                               # for most Node.js users
+default = ["napi4"]                                                              # for most Node.js users
 deferred_trace = ["napi4"]
 error_anyhow = ["anyhow"]
 experimental = ["napi-sys/experimental"]

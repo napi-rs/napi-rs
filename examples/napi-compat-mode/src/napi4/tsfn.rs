@@ -5,11 +5,11 @@ use std::thread;
 use napi::{
   bindgen_prelude::{BufferSlice, Function},
   threadsafe_function::ThreadsafeFunctionCallMode,
-  CallContext, Error, JsObject, JsString, JsUndefined, Ref, Result, Status,
+  CallContext, Error, JsObject, JsString, Ref, Result, Status,
 };
 
 #[js_function(1)]
-pub fn test_threadsafe_function(ctx: CallContext) -> Result<JsUndefined> {
+pub fn test_threadsafe_function(ctx: CallContext) -> Result<()> {
   let func = ctx.get::<Function<Vec<u32>>>(0)?;
 
   let tsfn = Arc::new(
@@ -33,11 +33,11 @@ pub fn test_threadsafe_function(ctx: CallContext) -> Result<JsUndefined> {
     tsfn_cloned.call(Ok(output), ThreadsafeFunctionCallMode::NonBlocking);
   });
 
-  ctx.env.get_undefined()
+  Ok(())
 }
 
 #[js_function(1)]
-pub fn test_tsfn_error(ctx: CallContext) -> Result<JsUndefined> {
+pub fn test_tsfn_error(ctx: CallContext) -> Result<()> {
   let func = ctx.get::<Function<Option<Error>>>(0)?;
   let tsfn = Arc::new(
     func
@@ -52,7 +52,7 @@ pub fn test_tsfn_error(ctx: CallContext) -> Result<JsUndefined> {
     );
   });
 
-  ctx.env.get_undefined()
+  Ok(())
 }
 
 async fn read_file_content(filepath: &Path) -> Result<Vec<u8>> {
@@ -62,7 +62,7 @@ async fn read_file_content(filepath: &Path) -> Result<Vec<u8>> {
 }
 
 #[js_function(2)]
-pub fn test_tokio_readfile(ctx: CallContext) -> Result<JsUndefined> {
+pub fn test_tokio_readfile(ctx: CallContext) -> Result<()> {
   let js_filepath = ctx.get::<JsString>(0)?;
   let js_func = ctx.get::<Function<Vec<u8>>>(1)?;
   let path_str = js_filepath.into_utf8()?.into_owned()?;
@@ -79,11 +79,11 @@ pub fn test_tokio_readfile(ctx: CallContext) -> Result<JsUndefined> {
     tsfn.call(ret, ThreadsafeFunctionCallMode::Blocking);
   });
 
-  ctx.env.get_undefined()
+  Ok(())
 }
 
 #[js_function(3)]
-pub fn test_tsfn_with_ref(ctx: CallContext) -> Result<JsUndefined> {
+pub fn test_tsfn_with_ref(ctx: CallContext) -> Result<()> {
   let callback: Function<Ref<JsObject>, napi::Unknown> = ctx.get(0)?;
   let options = ctx.get::<JsObject>(1)?;
   let option_ref = Ref::new(ctx.env, &options);
@@ -101,5 +101,5 @@ pub fn test_tsfn_with_ref(ctx: CallContext) -> Result<JsUndefined> {
     tsfn.call(option_ref, ThreadsafeFunctionCallMode::Blocking);
   });
 
-  ctx.env.get_undefined()
+  Ok(())
 }

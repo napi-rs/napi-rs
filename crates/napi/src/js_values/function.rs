@@ -6,12 +6,16 @@ use crate::{
   bindgen_runtime::JsValuesTupleIntoVec,
   threadsafe_function::{ThreadsafeCallContext, ThreadsafeFunction},
 };
-use crate::{bindgen_runtime::TypeName, JsString};
-use crate::{check_pending_exception, ValueType};
-use crate::{sys, Env, Error, JsObject, NapiRaw, NapiValue, Result, Status, Unknown};
+use crate::{
+  bindgen_runtime::{ToNapiValue, TypeName, ValidateNapiValue},
+  check_pending_exception, sys, Error, JsObject, JsString, NapiRaw, NapiValue, Result, Status,
+  Unknown, ValueType,
+};
 
 #[deprecated(since = "2.17.0", note = "Please use `Function` instead")]
 pub struct JsFunction(pub(crate) Value);
+
+impl ValidateNapiValue for JsFunction {}
 
 impl TypeName for JsFunction {
   fn type_name() -> &'static str {
@@ -45,12 +49,7 @@ impl JsFunction {
   {
     let raw_this = this
       .map(|v| unsafe { v.raw() })
-      .or_else(|| {
-        Env::from_raw(self.0.env)
-          .get_undefined()
-          .ok()
-          .map(|u| unsafe { u.raw() })
-      })
+      .or_else(|| unsafe { ToNapiValue::to_napi_value(self.0.env, ()) }.ok())
       .ok_or_else(|| Error::new(Status::GenericFailure, "Get raw this failed".to_owned()))?;
     let raw_args = args
       .iter()
@@ -76,12 +75,7 @@ impl JsFunction {
   pub fn call_without_args(&self, this: Option<&JsObject>) -> Result<Unknown> {
     let raw_this = this
       .map(|v| unsafe { v.raw() })
-      .or_else(|| {
-        Env::from_raw(self.0.env)
-          .get_undefined()
-          .ok()
-          .map(|u| unsafe { u.raw() })
-      })
+      .or_else(|| unsafe { ToNapiValue::to_napi_value(self.0.env, ()) }.ok())
       .ok_or_else(|| Error::new(Status::GenericFailure, "Get raw this failed".to_owned()))?;
     let mut return_value = ptr::null_mut();
     check_pending_exception!(self.0.env, unsafe {

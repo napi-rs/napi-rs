@@ -1,5 +1,6 @@
 #![allow(clippy::single_component_path_imports)]
 
+#[cfg(feature = "tokio_rt")]
 use std::convert::identity;
 use std::marker::PhantomData;
 use std::os::raw::c_void;

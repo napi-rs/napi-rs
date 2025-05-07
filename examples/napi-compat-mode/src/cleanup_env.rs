@@ -1,6 +1,5 @@
 use napi::{
-  bindgen_prelude::External, CallContext, CleanupEnvHook, ContextlessResult, Env, JsObject,
-  JsUndefined, Result,
+  bindgen_prelude::External, CallContext, CleanupEnvHook, ContextlessResult, Env, JsObject, Result,
 };
 
 #[contextless_function]
@@ -12,10 +11,10 @@ fn add_cleanup_hook(env: Env) -> ContextlessResult<External<CleanupEnvHook<()>>>
 }
 
 #[js_function(1)]
-fn remove_cleanup_hook(ctx: CallContext) -> Result<JsUndefined> {
+fn remove_cleanup_hook(ctx: CallContext) -> Result<()> {
   let hook = ctx.get::<&External<CleanupEnvHook<()>>>(0)?;
   ctx.env.remove_env_cleanup_hook(**hook)?;
-  ctx.env.get_undefined()
+  Ok(())
 }
 
 pub fn register_js(exports: &mut JsObject) -> Result<()> {

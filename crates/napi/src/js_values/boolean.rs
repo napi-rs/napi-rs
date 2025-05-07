@@ -5,6 +5,7 @@ use crate::bindgen_runtime::{TypeName, ValidateNapiValue};
 use crate::{check_status, ValueType};
 use crate::{sys, Error, Result};
 
+#[deprecated(since = "3.0.0", note = "use `bool` instead")]
 #[derive(Clone, Copy)]
 pub struct JsBoolean(pub(crate) Value);
 
