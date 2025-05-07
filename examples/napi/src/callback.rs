@@ -1,6 +1,6 @@
 use std::{env, format};
 
-use napi::{bindgen_prelude::*, threadsafe_function::ThreadsafeFunctionCallMode, JsUnknown};
+use napi::{bindgen_prelude::*, threadsafe_function::ThreadsafeFunctionCallMode, JsValue, Unknown};
 
 #[napi]
 fn get_cwd<T: Fn(String) -> Result<()>>(callback: T) {
@@ -47,12 +47,12 @@ fn read_file_content() -> Result<String> {
   ts_args_type = "functionInput: () => T | Promise<T>, callback: (err: Error | null, result: T) => void",
   ts_return_type = "T | Promise<T>"
 )]
-fn callback_return_promise<T: Fn() -> Result<JsUnknown>>(
-  env: Env,
-  fn_in: T,
+fn callback_return_promise<'env>(
+  env: &Env,
+  fn_in: Function<(), Unknown<'env>>,
   fn_out: Function<String, ()>,
-) -> Result<JsUnknown> {
-  let ret = fn_in()?;
+) -> Result<Unknown<'env>> {
+  let ret = fn_in.call(())?;
   if ret.is_promise()? {
     let p = Promise::<String>::from_unknown(ret)?;
     let fn_out_tsfn = fn_out

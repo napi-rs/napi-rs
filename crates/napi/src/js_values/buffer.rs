@@ -5,7 +5,7 @@ use std::ptr;
 use super::{Value, ValueType};
 use crate::bindgen_runtime::ValidateNapiValue;
 use crate::Env;
-use crate::{bindgen_runtime::TypeName, check_status, sys, Error, JsUnknown, Ref, Result, Status};
+use crate::{bindgen_runtime::TypeName, check_status, sys, Error, Ref, Result, Status, Unknown};
 
 #[deprecated(since = "3.0.0", note = "Please use Buffer or &[u8] instead")]
 pub struct JsBuffer(pub(crate) Value);
@@ -67,8 +67,8 @@ impl JsBufferValue {
     self.value
   }
 
-  pub fn into_unknown(self) -> JsUnknown {
-    unsafe { JsUnknown::from_raw_unchecked(self.value.0.env, self.value.0.value) }
+  pub fn into_unknown<'env>(self) -> Unknown<'env> {
+    unsafe { Unknown::from_raw_unchecked(self.value.0.env, self.value.0.value) }
   }
 }
 

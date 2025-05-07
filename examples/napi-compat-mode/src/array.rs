@@ -1,8 +1,7 @@
 use std::convert::TryInto;
 
 use napi::{
-  CallContext, ContextlessResult, Env, JsBoolean, JsNumber, JsObject, JsUndefined, JsUnknown,
-  Result,
+  CallContext, ContextlessResult, Env, JsBoolean, JsNumber, JsObject, JsUndefined, Result, Unknown,
 };
 
 #[contextless_function]
@@ -20,7 +19,7 @@ fn test_create_array_with_length(ctx: CallContext) -> Result<JsObject> {
 fn test_set_element(ctx: CallContext) -> Result<JsUndefined> {
   let mut arr = ctx.get::<JsObject>(0)?;
   let index = ctx.get::<JsNumber>(1)?;
-  let ele = ctx.get::<JsUnknown>(2)?;
+  let ele = ctx.get::<Unknown>(2)?;
   arr.set_element(index.try_into()?, ele)?;
 
   ctx.env.get_undefined()

@@ -58,21 +58,7 @@ fn renew_wrapped(ctx: CallContext) -> Result<JsUndefined> {
   ctx.env.get_undefined()
 }
 
-#[js_function(1)]
-fn new_test_class(ctx: CallContext) -> Result<Unknown> {
-  let add_count_method = Property::new("addCount")?.with_method(add_count);
-  let add_native_count = Property::new("addNativeCount")?.with_method(add_native_count);
-  let properties = vec![add_count_method, add_native_count];
-  let test_class =
-    ctx
-      .env
-      .define_class("TestClass", test_class_constructor, properties.as_slice())?;
-
-  test_class.new_instance(42)
-}
-
 pub fn register_js(exports: &mut JsObject) -> Result<()> {
   exports.create_named_method("createTestClass", create_test_class)?;
-  exports.create_named_method("newTestClass", new_test_class)?;
   Ok(())
 }

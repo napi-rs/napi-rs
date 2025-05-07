@@ -1,4 +1,4 @@
-use napi::{CallContext, JsObject, JsString, JsUndefined, JsUnknown, Result};
+use napi::{CallContext, JsObject, JsString, JsUndefined, Result, Unknown};
 use serde_json::from_str;
 
 pub fn register_js(exports: &mut JsObject) -> Result<()> {
@@ -26,9 +26,9 @@ fn get_array_from_js_array(ctx: CallContext) -> Result<JsUndefined> {
 fn get_array_with_for_loop(ctx: CallContext) -> Result<JsUndefined> {
   let input = ctx.get::<JsObject>(0)?;
   let array_length = input.get_array_length_unchecked()? as usize;
-  let mut result: Vec<JsUnknown> = Vec::with_capacity(array_length);
+  let mut result: Vec<Unknown> = Vec::with_capacity(array_length);
   for i in 0..array_length {
-    result.insert(i, input.get_element::<JsUnknown>(i as u32)?);
+    result.insert(i, input.get_element::<Unknown>(i as u32)?);
   }
   ctx.env.get_undefined()
 }

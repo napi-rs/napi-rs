@@ -6,16 +6,50 @@ use std::ptr;
 use crate::bindgen_runtime::Promise;
 use crate::{
   bindgen_prelude::{FromNapiValue, Result, ToNapiValue, TypeName, ValidateNapiValue},
-  check_status, sys,
+  check_status, sys, Env, Error, JsObjectValue, JsValue, Value, ValueType,
 };
-use crate::{Env, Error, NapiRaw, NapiValue, Status};
-
-use super::Unknown;
 
 pub struct PromiseRaw<'env, T> {
   pub(crate) inner: sys::napi_value,
   env: sys::napi_env,
   _phantom: &'env PhantomData<T>,
+}
+
+impl<T> JsValue for PromiseRaw<'_, T> {
+  fn value(&self) -> Value {
+    Value {
+      env: self.env,
+      value: self.inner,
+      value_type: ValueType::Object,
+    }
+  }
+}
+
+impl<T> JsObjectValue for PromiseRaw<'_, T> {}
+
+impl<T: FromNapiValue> TypeName for PromiseRaw<'_, T> {
+  fn type_name() -> &'static str {
+    "Promise"
+  }
+
+  fn value_type() -> crate::ValueType {
+    crate::ValueType::Object
+  }
+}
+
+impl<T: FromNapiValue> ValidateNapiValue for PromiseRaw<'_, T> {
+  unsafe fn validate(
+    env: napi_sys::napi_env,
+    napi_val: napi_sys::napi_value,
+  ) -> Result<napi_sys::napi_value> {
+    validate_promise(env, napi_val)
+  }
+}
+
+impl<T: FromNapiValue> FromNapiValue for PromiseRaw<'_, T> {
+  unsafe fn from_napi_value(env: napi_sys::napi_env, value: napi_sys::napi_value) -> Result<Self> {
+    Ok(PromiseRaw::new(env, value))
+  }
 }
 
 impl<T> PromiseRaw<'_, T> {
@@ -25,10 +59,6 @@ impl<T> PromiseRaw<'_, T> {
       env,
       _phantom: &PhantomData,
     }
-  }
-
-  pub fn into_unknown(self) -> Unknown {
-    unsafe { Unknown::from_raw_unchecked(self.env, self.inner) }
   }
 }
 
@@ -219,53 +249,6 @@ impl<'env, T: FromNapiValue> PromiseRaw<'env, T> {
   /// So you can await the Promise in Rust
   pub fn into_sendable_promise(self) -> Result<Promise<T>> {
     unsafe { Promise::from_napi_value(self.env, self.inner) }
-  }
-}
-
-impl<T: FromNapiValue> TypeName for PromiseRaw<'_, T> {
-  fn type_name() -> &'static str {
-    "Promise"
-  }
-
-  fn value_type() -> crate::ValueType {
-    crate::ValueType::Object
-  }
-}
-
-impl<T: FromNapiValue> ValidateNapiValue for PromiseRaw<'_, T> {
-  unsafe fn validate(
-    env: napi_sys::napi_env,
-    napi_val: napi_sys::napi_value,
-  ) -> Result<napi_sys::napi_value> {
-    validate_promise(env, napi_val)
-  }
-}
-
-impl<T> NapiRaw for PromiseRaw<'_, T> {
-  unsafe fn raw(&self) -> sys::napi_value {
-    self.inner
-  }
-}
-
-impl<T> NapiValue for PromiseRaw<'_, T> {
-  unsafe fn from_raw(env: napi_sys::napi_env, value: napi_sys::napi_value) -> Result<Self> {
-    let mut is_promise = false;
-    check_status!(unsafe { sys::napi_is_promise(env, value, &mut is_promise) })?;
-    is_promise
-      .then_some(Self {
-        env,
-        inner: value,
-        _phantom: &PhantomData,
-      })
-      .ok_or_else(|| Error::new(Status::InvalidArg, "JavaScript value is not Promise"))
-  }
-
-  unsafe fn from_raw_unchecked(env: napi_sys::napi_env, value: napi_sys::napi_value) -> Self {
-    Self {
-      env,
-      inner: value,
-      _phantom: &PhantomData,
-    }
   }
 }
 

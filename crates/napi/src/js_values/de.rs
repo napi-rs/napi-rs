@@ -5,7 +5,7 @@ use crate::bindgen_runtime::{BufferSlice, FromNapiValue};
 #[cfg(feature = "napi6")]
 use crate::JsBigInt;
 use crate::{type_of, NapiValue, Value, ValueType};
-use crate::{Error, JsBoolean, JsObject, JsString, JsUnknown, Result, Status};
+use crate::{Error, JsBoolean, JsObject, JsString, Result, Status, Unknown};
 
 use super::JsArrayBuffer;
 
@@ -188,7 +188,7 @@ impl<'x> serde::de::Deserializer<'x> for &mut De<'_> {
           ))
         } else {
           let key = properties.get_element::<JsString>(0)?;
-          let value: JsUnknown = js_object.get_property(key)?;
+          let value: Unknown = js_object.get_property(key)?;
           visitor.visit_enum(JsEnumAccess::new(
             key.into_utf8()?.into_owned()?,
             Some(&value.0),
@@ -357,7 +357,7 @@ impl<'de> SeqAccess<'de> for JsArrayAccess<'_> {
     if self.idx >= self.len {
       return Ok(None);
     }
-    let v = self.input.get_element::<JsUnknown>(self.idx)?;
+    let v = self.input.get_element::<Unknown>(self.idx)?;
     self.idx += 1;
 
     let mut de = De(&v.0);
@@ -399,7 +399,7 @@ impl<'de> MapAccess<'de> for JsObjectAccess<'_> {
       return Ok(None);
     }
 
-    let prop_name = self.properties.get_element::<JsUnknown>(self.idx)?;
+    let prop_name = self.properties.get_element::<Unknown>(self.idx)?;
 
     let mut de = De(&prop_name.0);
     seed.deserialize(&mut de).map(Some)
@@ -416,7 +416,7 @@ impl<'de> MapAccess<'de> for JsObjectAccess<'_> {
       ));
     }
     let prop_name = self.properties.get_element::<JsString>(self.idx)?;
-    let value: JsUnknown = self.value.get_property(prop_name)?;
+    let value: Unknown = self.value.get_property(prop_name)?;
 
     self.idx += 1;
     let mut de = De(&value.0);

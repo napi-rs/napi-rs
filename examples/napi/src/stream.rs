@@ -58,10 +58,10 @@ pub fn create_readable_stream(env: &Env) -> Result<ReadableStream<BufferSlice>> 
 }
 
 #[napi(ts_args_type = "readableStreamClass: typeof ReadableStream")]
-pub fn create_readable_stream_from_class(
+pub fn create_readable_stream_from_class<'env>(
   env: &Env,
-  readable_stream_class: Unknown,
-) -> Result<ReadableStream<BufferSlice>> {
+  readable_stream_class: Unknown<'env>,
+) -> Result<ReadableStream<'env, BufferSlice<'env>>> {
   let (tx, rx) = tokio::sync::mpsc::channel(100);
   std::thread::spawn(move || {
     for _ in 0..100 {

@@ -172,10 +172,10 @@ pub async fn tsfn_return_promise_timeout(
 }
 
 #[napi]
-pub fn call_async_with_unknown_return_value(
-  env: &Env,
+pub fn call_async_with_unknown_return_value<'env>(
+  env: &'env Env,
   tsfn: ThreadsafeFunction<u32, Ref<Unknown>>,
-) -> Result<PromiseRaw<u32>> {
+) -> Result<PromiseRaw<'env, u32>> {
   env.spawn_future_with_callback(
     async move {
       let return_value = tsfn.call_async(Ok(42)).await?;

@@ -8,14 +8,14 @@ use napi_derive::js_function;
 
 #[derive(Clone)]
 pub struct A {
-  pub cb: Arc<ThreadsafeFunction<String, napi::JsUnknown, String, false, true>>,
+  pub cb: Arc<ThreadsafeFunction<String, napi::Unknown<'static>, String, false, true>>,
 }
 
 #[js_function(1)]
 pub fn constructor(ctx: CallContext) -> napi::Result<JsUndefined> {
   let callback = ctx.get::<Function<String>>(0)?;
 
-  let cb: Arc<ThreadsafeFunction<String, napi::JsUnknown, String, false, true>> = Arc::new(
+  let cb: Arc<ThreadsafeFunction<String, napi::Unknown, String, false, true>> = Arc::new(
     callback
       .build_threadsafe_function()
       .weak::<true>()

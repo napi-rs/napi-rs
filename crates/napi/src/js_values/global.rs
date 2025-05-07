@@ -72,7 +72,7 @@ impl JSON<'_> {
   }
 }
 
-type SupportType<'a> = Function<'a, FnArgs<(Function<'a, (), Unknown>, f64)>, JsTimeout<'a>>;
+type SupportType<'a> = Function<'a, FnArgs<(Function<'a, (), Unknown<'a>>, f64)>, JsTimeout<'a>>;
 
 impl<'env> JsGlobal<'env> {
   pub fn set_interval(

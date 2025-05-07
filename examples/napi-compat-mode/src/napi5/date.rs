@@ -1,11 +1,11 @@
 use std::convert::TryInto;
 
-use napi::{CallContext, JsBoolean, JsDate, JsNumber, JsUnknown, Result};
+use napi::{CallContext, JsDate, JsNumber, JsValue, Result, Unknown};
 
 #[js_function(1)]
-pub fn test_object_is_date(ctx: CallContext) -> Result<JsBoolean> {
-  let obj = ctx.get::<JsUnknown>(0)?;
-  ctx.env.get_boolean(obj.is_date()?)
+pub fn test_object_is_date(ctx: CallContext) -> Result<bool> {
+  let obj = ctx.get::<Unknown>(0)?;
+  obj.is_date()
 }
 
 #[js_function(1)]

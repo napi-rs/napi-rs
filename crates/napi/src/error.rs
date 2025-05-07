@@ -12,7 +12,7 @@ use serde::{de, ser};
 #[cfg(feature = "serde-json")]
 use serde_json::Error as SerdeJSONError;
 
-use crate::{bindgen_runtime::ToNapiValue, check_status, sys, Env, JsUnknown, Status};
+use crate::{bindgen_runtime::ToNapiValue, check_status, sys, Env, JsValue, Status, Unknown};
 
 pub type Result<T, S = Status> = std::result::Result<T, Error<S>>;
 
@@ -105,8 +105,8 @@ impl From<SerdeJSONError> for Error {
   }
 }
 
-impl From<JsUnknown> for Error {
-  fn from(value: JsUnknown) -> Self {
+impl From<Unknown<'_>> for Error {
+  fn from(value: Unknown) -> Self {
     let mut result = std::ptr::null_mut();
     let status = unsafe { sys::napi_create_reference(value.0.env, value.0.value, 1, &mut result) };
     if status != sys::Status::napi_ok {
@@ -319,9 +319,9 @@ macro_rules! impl_object_methods {
         js_error
       }
 
-      pub fn into_unknown(self, env: Env) -> JsUnknown {
+      pub fn into_unknown<'env>(self, env: Env) -> Unknown<'env> {
         let value = unsafe { self.into_value(env.raw()) };
-        unsafe { JsUnknown::from_raw_unchecked(env.raw(), value) }
+        unsafe { Unknown::from_raw_unchecked(env.raw(), value) }
       }
 
       /// # Safety
@@ -432,7 +432,7 @@ macro_rules! check_status_and_type {
     match c {
       $crate::sys::Status::napi_ok => Ok(()),
       _ => {
-        use $crate::js_values::JsObjectValue;
+        use $crate::js_values::{JsObjectValue, JsValue};
         let value_type = $crate::type_of!($env, $val)?;
         let error_msg = match value_type {
           ValueType::Function => {
@@ -467,14 +467,14 @@ macro_rules! check_status_and_type {
           }
           ValueType::Boolean | ValueType::Number => {
             let value =
-              unsafe { $crate::JsUnknown::from_raw_unchecked($env, $val).coerce_to_string()? }
+              unsafe { $crate::Unknown::from_raw_unchecked($env, $val).coerce_to_string()? }
                 .into_utf8()?;
             format!($msg, format!("{} {} ", value_type, value.as_str()?))
           }
           #[cfg(feature = "napi6")]
           ValueType::BigInt => {
             let value =
-              unsafe { $crate::JsUnknown::from_raw_unchecked($env, $val).coerce_to_string()? }
+              unsafe { $crate::Unknown::from_raw_unchecked($env, $val).coerce_to_string()? }
                 .into_utf8()?;
             format!($msg, format!("{} {} ", value_type, value.as_str()?))
           }

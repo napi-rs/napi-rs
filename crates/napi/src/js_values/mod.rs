@@ -66,8 +66,6 @@ pub use value_ref::*;
 
 // Value types
 
-pub struct JsUnknown(pub(crate) Value);
-
 #[deprecated(
   since = "3.0.0",
   note = "Please use `napi::bindgen_prelude::Null` instead"
@@ -146,16 +144,19 @@ pub trait JsValue: Sized {
   fn value(&self) -> Value;
 
   /// Convert the value to an unknown
-  fn into_unknown(self) -> JsUnknown {
-    JsUnknown(Value {
-      env: self.value().env,
-      value: self.value().value,
-      value_type: ValueType::Unknown,
-    })
+  fn to_unknown(&self) -> Unknown {
+    Unknown(
+      Value {
+        env: self.value().env,
+        value: self.value().value,
+        value_type: ValueType::Unknown,
+      },
+      std::marker::PhantomData,
+    )
   }
 
   /// Coerce the value to a boolean
-  fn coerce_to_bool(self) -> Result<bool> {
+  fn coerce_to_bool(&self) -> Result<bool> {
     let mut new_raw_value = ptr::null_mut();
     let env = self.value().env;
     check_status!(unsafe {
@@ -688,9 +689,9 @@ macro_rules! impl_napi_value_trait {
       }
     }
 
-    impl TryFrom<JsUnknown> for $js_value {
+    impl TryFrom<Unknown<'_>> for $js_value {
       type Error = Error;
-      fn try_from(value: JsUnknown) -> Result<$js_value> {
+      fn try_from(value: Unknown) -> Result<$js_value> {
         unsafe { $js_value::from_raw(value.0.env, value.0.value) }
       }
     }
@@ -700,8 +701,8 @@ macro_rules! impl_napi_value_trait {
 macro_rules! impl_js_value_methods {
   ($js_value:ident) => {
     impl $js_value {
-      pub fn into_unknown(self) -> JsUnknown {
-        unsafe { JsUnknown::from_raw_unchecked(self.0.env, self.0.value) }
+      pub fn into_unknown<'env>(self) -> Unknown<'env> {
+        unsafe { Unknown::from_raw_unchecked(self.0.env, self.0.value) }
       }
 
       pub fn coerce_to_bool(self) -> Result<JsBoolean> {
@@ -1205,7 +1206,6 @@ pub trait NapiValue: Sized + NapiRaw {
   unsafe fn from_raw_unchecked(env: sys::napi_env, value: sys::napi_value) -> Self;
 }
 
-impl_js_value_methods!(JsUnknown);
 impl_js_value_methods!(JsUndefined);
 impl_js_value_methods!(JsNull);
 impl_js_value_methods!(JsBoolean);
@@ -1242,21 +1242,51 @@ impl_napi_value_trait!(JsDate, Object);
 impl_napi_value_trait!(JsFunction, Function);
 impl_napi_value_trait!(JsExternal, External);
 
-impl NapiRaw for JsUnknown {
-  /// get raw js value ptr
-  unsafe fn raw(&self) -> sys::napi_value {
-    self.0.value
+/// Represents a raw JavaScript value
+pub struct Unknown<'env>(
+  pub(crate) Value,
+  pub(crate) std::marker::PhantomData<&'env ()>,
+);
+
+impl JsValue for Unknown<'_> {
+  fn value(&self) -> Value {
+    self.0
   }
 }
 
-impl NapiRaw for &JsUnknown {
-  /// get raw js value ptr
-  unsafe fn raw(&self) -> sys::napi_value {
-    self.0.value
+impl TypeName for Unknown<'_> {
+  fn type_name() -> &'static str {
+    "unknown"
+  }
+
+  fn value_type() -> ValueType {
+    ValueType::Unknown
   }
 }
 
-impl JsUnknown {
+impl ValidateNapiValue for Unknown<'_> {
+  unsafe fn validate(
+    _env: napi_sys::napi_env,
+    _napi_val: napi_sys::napi_value,
+  ) -> Result<napi_sys::napi_value> {
+    Ok(ptr::null_mut())
+  }
+}
+
+impl FromNapiValue for Unknown<'_> {
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
+    Ok(Unknown(
+      Value {
+        env,
+        value: napi_val,
+        value_type: ValueType::Unknown,
+      },
+      std::marker::PhantomData,
+    ))
+  }
+}
+
+impl Unknown<'_> {
   pub fn get_type(&self) -> Result<ValueType> {
     type_of!(self.0.env, self.0.value)
   }
@@ -1277,21 +1307,14 @@ impl JsUnknown {
   ///
   /// JsUnknown doesn't have a type
   pub unsafe fn from_raw_unchecked(env: sys::napi_env, value: sys::napi_value) -> Self {
-    JsUnknown(Value {
-      env,
-      value,
-      value_type: Unknown,
-    })
-  }
-}
-
-impl FromNapiValue for JsUnknown {
-  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
-    Ok(JsUnknown(Value {
-      env,
-      value: napi_val,
-      value_type: Unknown,
-    }))
+    Unknown(
+      Value {
+        env,
+        value,
+        value_type: ValueType::Unknown,
+      },
+      std::marker::PhantomData,
+    )
   }
 }
 

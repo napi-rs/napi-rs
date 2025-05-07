@@ -1,12 +1,12 @@
-use napi::{CallContext, Error, JsBoolean, JsObject, JsString, JsUnknown, Result, Status};
+use napi::{CallContext, Error, JsBoolean, JsObject, JsString, JsValue, Result, Status, Unknown};
 
 #[js_function]
-fn test_throw(_ctx: CallContext) -> Result<JsUnknown> {
+fn test_throw(_ctx: CallContext) -> Result<Unknown> {
   Err(Error::from_status(Status::GenericFailure))
 }
 
 #[js_function(1)]
-fn test_throw_with_reason(ctx: CallContext) -> Result<JsUnknown> {
+fn test_throw_with_reason(ctx: CallContext) -> Result<Unknown> {
   let reason = ctx.get::<JsString>(0)?;
   Err(Error::new(
     Status::GenericFailure,
@@ -15,13 +15,13 @@ fn test_throw_with_reason(ctx: CallContext) -> Result<JsUnknown> {
 }
 
 #[js_function]
-pub fn test_throw_with_panic(_ctx: CallContext) -> Result<JsUnknown> {
+pub fn test_throw_with_panic(_ctx: CallContext) -> Result<Unknown> {
   panic!("don't panic.");
 }
 
 #[js_function(1)]
 pub fn is_error(ctx: CallContext) -> Result<JsBoolean> {
-  let js_value = ctx.get::<JsUnknown>(0)?;
+  let js_value = ctx.get::<Unknown>(0)?;
   ctx.env.get_boolean(js_value.is_error()?)
 }
 

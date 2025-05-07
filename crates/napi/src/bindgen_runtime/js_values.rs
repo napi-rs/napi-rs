@@ -4,7 +4,7 @@ use std::{
   sync::{Arc, Mutex},
 };
 
-use crate::{check_status, sys, Error, JsUnknown, NapiRaw, NapiValue, Result, Status, ValueType};
+use crate::{check_status, sys, Error, NapiRaw, NapiValue, Result, Status, ValueType};
 
 mod array;
 mod arraybuffer;
@@ -35,7 +35,7 @@ mod symbol;
 mod task;
 mod value_ref;
 
-pub use crate::js_values::JsUnknown as Unknown;
+pub use crate::js_values::Unknown;
 #[cfg(feature = "napi5")]
 pub use crate::JsDate as Date;
 pub use array::*;
@@ -72,18 +72,6 @@ pub trait ToNapiValue {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value>;
 }
 
-impl TypeName for JsUnknown {
-  fn type_name() -> &'static str {
-    "unknown"
-  }
-
-  fn value_type() -> ValueType {
-    ValueType::Unknown
-  }
-}
-
-impl ValidateNapiValue for JsUnknown {}
-
 impl ToNapiValue for sys::napi_value {
   unsafe fn to_napi_value(_env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     Ok(val)
@@ -108,7 +96,7 @@ pub trait FromNapiValue: Sized {
   /// this function called to convert napi values to native rust values
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self>;
 
-  fn from_unknown(value: JsUnknown) -> Result<Self> {
+  fn from_unknown(value: Unknown) -> Result<Self> {
     unsafe { Self::from_napi_value(value.0.env, value.0.value) }
   }
 }
@@ -139,9 +127,6 @@ pub trait ValidateNapiValue: TypeName {
   /// So we need to create `Promise.reject(T)` in this function.
   unsafe fn validate(env: sys::napi_env, napi_val: sys::napi_value) -> Result<sys::napi_value> {
     let value_type = Self::value_type();
-    if value_type == ValueType::Unknown {
-      return Ok(ptr::null_mut());
-    }
 
     let mut result = -1;
     check_status!(

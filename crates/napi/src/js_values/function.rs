@@ -8,7 +8,7 @@ use crate::{
 };
 use crate::{bindgen_runtime::TypeName, JsString};
 use crate::{check_pending_exception, ValueType};
-use crate::{sys, Env, Error, JsObject, JsUnknown, NapiRaw, NapiValue, Result, Status};
+use crate::{sys, Env, Error, JsObject, NapiRaw, NapiValue, Result, Status, Unknown};
 
 #[deprecated(since = "2.17.0", note = "Please use `Function` instead")]
 pub struct JsFunction(pub(crate) Value);
@@ -39,7 +39,7 @@ impl TypeName for JsFunction {
 /// ```
 impl JsFunction {
   /// [napi_call_function](https://nodejs.org/api/n-api.html#n_api_napi_call_function)
-  pub fn call<V>(&self, this: Option<&JsObject>, args: &[V]) -> Result<JsUnknown>
+  pub fn call<V>(&self, this: Option<&JsObject>, args: &[V]) -> Result<Unknown>
   where
     V: NapiRaw,
   {
@@ -68,12 +68,12 @@ impl JsFunction {
       )
     })?;
 
-    Ok(unsafe { JsUnknown::from_raw_unchecked(self.0.env, return_value) })
+    Ok(unsafe { Unknown::from_raw_unchecked(self.0.env, return_value) })
   }
 
   /// [napi_call_function](https://nodejs.org/api/n-api.html#n_api_napi_call_function)
   /// The same with `call`, but without arguments
-  pub fn call_without_args(&self, this: Option<&JsObject>) -> Result<JsUnknown> {
+  pub fn call_without_args(&self, this: Option<&JsObject>) -> Result<Unknown> {
     let raw_this = this
       .map(|v| unsafe { v.raw() })
       .or_else(|| {
@@ -95,7 +95,7 @@ impl JsFunction {
       )
     })?;
 
-    Ok(unsafe { JsUnknown::from_raw_unchecked(self.0.env, return_value) })
+    Ok(unsafe { Unknown::from_raw_unchecked(self.0.env, return_value) })
   }
 
   /// <https://nodejs.org/api/n-api.html#n_api_napi_new_instance>

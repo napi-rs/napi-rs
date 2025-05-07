@@ -1,4 +1,4 @@
-use napi::{ContextlessResult, Env, JsObject, JsString, JsUnknown, Result};
+use napi::{ContextlessResult, Env, JsObject, JsString, Result, Unknown};
 use serde_json::to_string;
 
 pub fn register_js(exports: &mut JsObject) -> Result<()> {
@@ -26,7 +26,7 @@ pub fn create_array(env: Env) -> ContextlessResult<JsObject> {
 }
 
 #[contextless_function]
-pub fn create_array_with_serde_trait(env: Env) -> ContextlessResult<JsUnknown> {
+pub fn create_array_with_serde_trait(env: Env) -> ContextlessResult<Unknown<'static>> {
   let a: Vec<u32> = vec![42; 1000];
   env.to_js_value(&a).map(Some)
 }

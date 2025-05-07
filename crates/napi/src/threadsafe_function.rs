@@ -121,7 +121,7 @@ enum ThreadsafeFunctionCallVariant {
   WithCallback,
 }
 
-struct ThreadsafeFunctionCallJsBackData<T, Return = Unknown> {
+struct ThreadsafeFunctionCallJsBackData<T, Return = Unknown<'static>> {
   data: T,
   call_variant: ThreadsafeFunctionCallVariant,
   callback: Box<dyn FnOnce(Result<Return>, Env) -> Result<()>>,
@@ -161,7 +161,7 @@ struct ThreadsafeFunctionCallJsBackData<T, Return = Unknown> {
 /// ```
 pub struct ThreadsafeFunction<
   T: 'static,
-  Return: 'static + FromNapiValue = Unknown,
+  Return: 'static + FromNapiValue = Unknown<'static>,
   CallJsBackArgs: 'static + JsValuesTupleIntoVec = T,
   const CalleeHandled: bool = true,
   const Weak: bool = false,

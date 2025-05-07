@@ -1333,12 +1333,14 @@ impl Env {
   /// ```
   #[cfg(feature = "serde-json")]
   #[allow(clippy::wrong_self_convention)]
-  pub fn to_js_value<T>(&self, node: &T) -> Result<JsUnknown>
+  pub fn to_js_value<'env, T>(&self, node: &T) -> Result<Unknown<'env>>
   where
     T: Serialize,
   {
     let s = Ser(self);
-    node.serialize(s).map(JsUnknown)
+    node
+      .serialize(s)
+      .map(|v| Unknown(v, std::marker::PhantomData))
   }
 
   /// ### Deserialize data from `JsValue`
