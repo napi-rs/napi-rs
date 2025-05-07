@@ -44,8 +44,8 @@ fn bench_tokio_future(ctx: CallContext) -> Result<JsObject> {
   let buffer_ref = ctx.get::<Buffer>(0)?;
   ctx
     .env
-    .execute_tokio_future(async move { Ok(buffer_ref.len()) }, |env, v: usize| {
-      env.create_uint32(v as u32 + 1)
+    .execute_tokio_future(async move { Ok(buffer_ref.len()) }, |_, v: usize| {
+      Ok(v as u32 + 1)
     })
 }
 

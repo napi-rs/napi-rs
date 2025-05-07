@@ -1,5 +1,3 @@
-use std::convert::TryInto;
-
 use serde::de::Visitor;
 use serde::de::{DeserializeSeed, EnumAccess, MapAccess, SeqAccess, Unexpected, VariantAccess};
 
@@ -7,7 +5,7 @@ use crate::bindgen_runtime::{BufferSlice, FromNapiValue};
 #[cfg(feature = "napi6")]
 use crate::JsBigInt;
 use crate::{type_of, NapiValue, Value, ValueType};
-use crate::{Error, JsBoolean, JsNumber, JsObject, JsString, JsUnknown, Result, Status};
+use crate::{Error, JsBoolean, JsObject, JsString, JsUnknown, Result, Status};
 
 use super::JsArrayBuffer;
 
@@ -34,8 +32,7 @@ impl<'x> serde::de::Deserializer<'x> for &mut De<'_> {
         visitor.visit_bool(js_boolean.get_value()?)
       }
       ValueType::Number => {
-        let js_number: f64 =
-          unsafe { JsNumber::from_raw_unchecked(self.0.env, self.0.value).try_into()? };
+        let js_number: f64 = unsafe { FromNapiValue::from_napi_value(self.0.env, self.0.value)? };
         if (js_number.trunc() - js_number).abs() < f64::EPSILON {
           visitor.visit_i64(js_number as i64)
         } else {

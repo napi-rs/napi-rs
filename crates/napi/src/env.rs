@@ -81,7 +81,7 @@ impl Env {
     check_status!(unsafe {
       sys::napi_create_int32(self.0, int, (&mut raw_value) as *mut sys::napi_value)
     })?;
-    Ok(unsafe { JsNumber::from_raw_unchecked(self.0, raw_value) })
+    unsafe { JsNumber::from_napi_value(self.0, raw_value) }
   }
 
   pub fn create_int64(&self, int: i64) -> Result<JsNumber> {
@@ -89,13 +89,13 @@ impl Env {
     check_status!(unsafe {
       sys::napi_create_int64(self.0, int, (&mut raw_value) as *mut sys::napi_value)
     })?;
-    Ok(unsafe { JsNumber::from_raw_unchecked(self.0, raw_value) })
+    unsafe { JsNumber::from_napi_value(self.0, raw_value) }
   }
 
   pub fn create_uint32(&self, number: u32) -> Result<JsNumber> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe { sys::napi_create_uint32(self.0, number, &mut raw_value) })?;
-    Ok(unsafe { JsNumber::from_raw_unchecked(self.0, raw_value) })
+    unsafe { JsNumber::from_napi_value(self.0, raw_value) }
   }
 
   pub fn create_double(&self, double: f64) -> Result<JsNumber> {
@@ -103,7 +103,7 @@ impl Env {
     check_status!(unsafe {
       sys::napi_create_double(self.0, double, (&mut raw_value) as *mut sys::napi_value)
     })?;
-    Ok(unsafe { JsNumber::from_raw_unchecked(self.0, raw_value) })
+    unsafe { JsNumber::from_napi_value(self.0, raw_value) }
   }
 
   /// [n_api_napi_create_bigint_int64](https://nodejs.org/api/n-api.html#n_api_napi_create_bigint_int64)
