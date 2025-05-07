@@ -217,7 +217,14 @@ impl Env {
         &mut result,
       )
     })?;
-    Ok(unsafe { JsSymbol::from_raw_unchecked(self.0, result) })
+    Ok(JsSymbol(
+      Value {
+        env: self.0,
+        value: result,
+        value_type: ValueType::Symbol,
+      },
+      std::marker::PhantomData,
+    ))
   }
 
   pub fn create_object(&self) -> Result<JsObject> {
@@ -1277,7 +1284,14 @@ impl Env {
       )
     })?;
 
-    Ok(unsafe { JsSymbol::from_raw_unchecked(self.0, result) })
+    Ok(JsSymbol(
+      Value {
+        env: self.0,
+        value: result,
+        value_type: ValueType::Symbol,
+      },
+      std::marker::PhantomData,
+    ))
   }
 
   #[cfg(feature = "napi9")]
