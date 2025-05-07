@@ -1,10 +1,10 @@
 use napi::*;
 
 #[js_function(1)]
-pub fn detach_arraybuffer(ctx: CallContext) -> Result<JsUndefined> {
+pub fn detach_arraybuffer(ctx: CallContext) -> Result<()> {
   let input = ctx.get::<JsArrayBuffer>(0)?;
   input.detach()?;
-  ctx.env.get_undefined()
+  Ok(())
 }
 
 #[js_function(1)]

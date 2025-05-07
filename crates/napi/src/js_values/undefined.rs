@@ -5,6 +5,7 @@ use crate::{
 
 use super::Value;
 
+#[deprecated(since = "3.0.0", note = "use `()` instead")]
 #[derive(Clone, Copy)]
 pub struct JsUndefined(pub(crate) Value);
 

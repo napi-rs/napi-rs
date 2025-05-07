@@ -66,7 +66,7 @@ fn callback_return_promise<'env>(
           fn_out_tsfn.call(s, ThreadsafeFunctionCallMode::NonBlocking);
           Ok::<(), Error>(())
         },
-        |env, _| env.get_undefined(),
+        |_env, undefined| Ok(undefined),
       )
       .map(|v| v.into_unknown())
   } else {

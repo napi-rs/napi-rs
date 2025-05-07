@@ -19,8 +19,8 @@ pub fn either_number_string(ctx: CallContext) -> Result<Either<JsNumber, JsStrin
 
 #[js_function(1)]
 pub fn dynamic_argument_length(ctx: CallContext) -> Result<JsNumber> {
-  let value: Option<JsNumber> = ctx.try_get::<JsNumber>(0)?.into();
-  if let Some(n) = value {
+  let value = ctx.try_get::<JsNumber>(0)?;
+  if let Either::A(n) = value {
     let n: u32 = n.try_into()?;
     ctx.env.create_uint32(n + 100)
   } else {

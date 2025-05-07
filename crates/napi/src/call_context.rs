@@ -2,7 +2,7 @@ use std::ptr;
 
 use crate::bindgen_runtime::{FromNapiValue, TypeName};
 use crate::check_status;
-use crate::{sys, Either, Env, Error, JsUndefined, NapiValue, Result, Status};
+use crate::{sys, Either, Env, Error, NapiValue, Result, Status};
 
 /// Function call context
 pub struct CallContext<'env> {
@@ -60,7 +60,7 @@ impl<'env> CallContext<'env> {
   pub fn try_get<ArgType: FromNapiValue + TypeName + FromNapiValue>(
     &self,
     index: usize,
-  ) -> Result<Either<ArgType, JsUndefined>> {
+  ) -> Result<Either<ArgType, ()>> {
     if index >= self.arg_len() {
       Err(Error::new(
         Status::GenericFailure,
@@ -69,7 +69,7 @@ impl<'env> CallContext<'env> {
     } else if index < self.length {
       unsafe { ArgType::from_napi_value(self.env.0, self.args[index]) }.map(Either::A)
     } else {
-      self.env.get_undefined().map(Either::B)
+      Ok(Either::B(()))
     }
   }
 

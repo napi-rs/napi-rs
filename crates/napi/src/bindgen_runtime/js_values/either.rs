@@ -1,29 +1,8 @@
 use super::{FromNapiValue, ToNapiValue, TypeName, ValidateNapiValue};
 use crate::{
   bindgen_runtime::{Null, Undefined, Unknown},
-  check_status, sys, Env, Error, JsUndefined, NapiRaw, Status, ValueType,
+  check_status, sys, Error, JsValue, Status, ValueType,
 };
-
-impl<A: NapiRaw, B: NapiRaw> Either<A, B> {
-  /// # Safety
-  /// Backward compatible with `Either` in **v1**
-  pub unsafe fn raw(&self) -> sys::napi_value {
-    match &self {
-      Self::A(a) => unsafe { a.raw() },
-      Self::B(b) => unsafe { b.raw() },
-    }
-  }
-}
-
-// Backwards compatibility with v1
-impl<T> From<Either<T, JsUndefined>> for Option<T> {
-  fn from(value: Either<T, JsUndefined>) -> Option<T> {
-    match value {
-      Either::A(v) => Some(v),
-      Either::B(_) => None,
-    }
-  }
-}
 
 impl<T> From<Option<T>> for Either<T, Undefined> {
   fn from(value: Option<T>) -> Self {
@@ -142,11 +121,11 @@ macro_rules! either_n {
     }
 
     impl< $( $parameter ),+ > $either_name < $( $parameter ),+ >
-      where $( $parameter: NapiRaw ),+
+      where $( $parameter: JsValue ),+
     {
-      pub fn as_unknown(&self, env: Env) -> Unknown {
+      pub fn as_unknown(&self) -> Unknown {
         match &self {
-          $( Self:: $parameter (v) => unsafe { Unknown::from_raw_unchecked(env.raw(), v.raw()) } ),+
+          $( Self:: $parameter (v) => v.to_unknown() ),+
         }
       }
     }

@@ -1,15 +1,15 @@
 use napi::*;
 
 #[js_function(1)]
-pub fn seal_object(ctx: CallContext) -> Result<JsUndefined> {
+pub fn seal_object(ctx: CallContext) -> Result<()> {
   let mut obj: JsObject = ctx.get(0)?;
   obj.seal()?;
-  ctx.env.get_undefined()
+  Ok(())
 }
 
 #[js_function(1)]
-pub fn freeze_object(ctx: CallContext) -> Result<JsUndefined> {
+pub fn freeze_object(ctx: CallContext) -> Result<()> {
   let mut obj: JsObject = ctx.get(0)?;
   obj.freeze()?;
-  ctx.env.get_undefined()
+  Ok(())
 }

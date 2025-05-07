@@ -26,7 +26,11 @@ impl Serializer for Ser<'_> {
   type SerializeStructVariant = StructSerializer;
 
   fn serialize_bool(self, v: bool) -> Result<Self::Ok> {
-    self.0.get_boolean(v).map(|js_value| js_value.0)
+    Ok(Value {
+      env: self.0 .0,
+      value: unsafe { ToNapiValue::to_napi_value(self.0 .0, v)? },
+      value_type: ValueType::Boolean,
+    })
   }
 
   fn serialize_bytes(self, v: &[u8]) -> Result<Self::Ok> {

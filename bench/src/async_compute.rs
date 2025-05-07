@@ -25,7 +25,7 @@ fn bench_async_task(ctx: CallContext) -> Result<PromiseRaw<u32>> {
 }
 
 #[js_function(2)]
-fn bench_threadsafe_function(ctx: CallContext) -> Result<JsUndefined> {
+fn bench_threadsafe_function(ctx: CallContext) -> Result<()> {
   let buffer_ref = ctx.get::<Buffer>(0)?;
   let callback = ctx.get::<ThreadsafeFunction<u32, (), u32>>(1)?;
 
@@ -36,7 +36,7 @@ fn bench_threadsafe_function(ctx: CallContext) -> Result<JsUndefined> {
     );
   });
 
-  ctx.env.get_undefined()
+  Ok(())
 }
 
 #[js_function(1)]
