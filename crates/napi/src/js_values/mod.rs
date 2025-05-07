@@ -88,9 +88,12 @@ impl TypeName for JsNull {
 impl ValidateNapiValue for JsNull {}
 
 #[derive(Clone, Copy)]
-pub struct JsSymbol(pub(crate) Value);
+pub struct JsSymbol<'env>(
+  pub(crate) Value,
+  pub(crate) std::marker::PhantomData<&'env ()>,
+);
 
-impl TypeName for JsSymbol {
+impl TypeName for JsSymbol<'_> {
   fn type_name() -> &'static str {
     "symbol"
   }
@@ -100,7 +103,26 @@ impl TypeName for JsSymbol {
   }
 }
 
-impl ValidateNapiValue for JsSymbol {}
+impl JsValue for JsSymbol<'_> {
+  fn value(&self) -> Value {
+    self.0
+  }
+}
+
+impl FromNapiValue for JsSymbol<'_> {
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
+    Ok(JsSymbol(
+      Value {
+        env,
+        value: napi_val,
+        value_type: ValueType::Symbol,
+      },
+      std::marker::PhantomData,
+    ))
+  }
+}
+
+impl ValidateNapiValue for JsSymbol<'_> {}
 
 #[deprecated(
   since = "3.0.0",
@@ -1197,7 +1219,6 @@ impl_js_value_methods!(JsObject);
 impl_js_value_methods!(JsDate);
 impl_js_value_methods!(JsFunction);
 impl_js_value_methods!(JsExternal);
-impl_js_value_methods!(JsSymbol);
 
 impl_object_methods!(JsObject);
 impl_object_methods!(JsBuffer);
@@ -1220,7 +1241,6 @@ impl_napi_value_trait!(JsObject, Object);
 impl_napi_value_trait!(JsDate, Object);
 impl_napi_value_trait!(JsFunction, Function);
 impl_napi_value_trait!(JsExternal, External);
-impl_napi_value_trait!(JsSymbol, Symbol);
 
 impl NapiRaw for JsUnknown {
   /// get raw js value ptr
