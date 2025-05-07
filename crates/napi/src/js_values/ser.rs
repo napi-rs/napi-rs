@@ -245,7 +245,10 @@ impl Serializer for Ser<'_> {
     T: ?Sized + Serialize,
   {
     let mut obj = self.0.create_object()?;
-    obj.set_named_property(variant, JsUnknown(value.serialize(self)?))?;
+    obj.set_named_property(
+      variant,
+      Unknown(value.serialize(self)?, std::marker::PhantomData),
+    )?;
     Ok(obj.0)
   }
 
@@ -312,7 +315,7 @@ impl ser::SerializeSeq for SeqSerializer {
     let env = Env::from_raw(self.array.0.env);
     self.array.set_element(
       self.current_index as _,
-      JsUnknown(value.serialize(Ser::new(&env))?),
+      Unknown(value.serialize(Ser::new(&env))?, std::marker::PhantomData),
     )?;
     self.current_index += 1;
     Ok(())
@@ -335,7 +338,7 @@ impl ser::SerializeTuple for SeqSerializer {
     let env = Env::from_raw(self.array.0.env);
     self.array.set_element(
       self.current_index as _,
-      JsUnknown(value.serialize(Ser::new(&env))?),
+      Unknown(value.serialize(Ser::new(&env))?, std::marker::PhantomData),
     )?;
     self.current_index += 1;
     Ok(())
@@ -358,7 +361,7 @@ impl ser::SerializeTupleStruct for SeqSerializer {
     let env = Env::from_raw(self.array.0.env);
     self.array.set_element(
       self.current_index as _,
-      JsUnknown(value.serialize(Ser::new(&env))?),
+      Unknown(value.serialize(Ser::new(&env))?, std::marker::PhantomData),
     )?;
     self.current_index += 1;
     Ok(())
@@ -381,7 +384,7 @@ impl ser::SerializeTupleVariant for SeqSerializer {
     let env = Env::from_raw(self.array.0.env);
     self.array.set_element(
       self.current_index as _,
-      JsUnknown(value.serialize(Ser::new(&env))?),
+      Unknown(value.serialize(Ser::new(&env))?, std::marker::PhantomData),
     )?;
     self.current_index += 1;
     Ok(())
@@ -422,7 +425,7 @@ impl ser::SerializeMap for MapSerializer {
         value: self.key.0.value,
         value_type: ValueType::String,
       }),
-      JsUnknown(value.serialize(Ser::new(&env))?),
+      Unknown(value.serialize(Ser::new(&env))?, std::marker::PhantomData),
     )?;
     Ok(())
   }
@@ -435,7 +438,7 @@ impl ser::SerializeMap for MapSerializer {
     let env = Env::from_raw(self.obj.0.env);
     self.obj.set_property(
       JsString(key.serialize(Ser::new(&env))?),
-      JsUnknown(value.serialize(Ser::new(&env))?),
+      Unknown(value.serialize(Ser::new(&env))?, std::marker::PhantomData),
     )?;
     Ok(())
   }
@@ -459,9 +462,10 @@ impl ser::SerializeStruct for StructSerializer {
     T: ?Sized + Serialize,
   {
     let env = Env::from_raw(self.obj.0.env);
-    self
-      .obj
-      .set_named_property(key, JsUnknown(value.serialize(Ser::new(&env))?))?;
+    self.obj.set_named_property(
+      key,
+      Unknown(value.serialize(Ser::new(&env))?, std::marker::PhantomData),
+    )?;
     Ok(())
   }
 
@@ -480,9 +484,10 @@ impl ser::SerializeStructVariant for StructSerializer {
     T: ?Sized + Serialize,
   {
     let env = Env::from_raw(self.obj.0.env);
-    self
-      .obj
-      .set_named_property(key, JsUnknown(value.serialize(Ser::new(&env))?))?;
+    self.obj.set_named_property(
+      key,
+      Unknown(value.serialize(Ser::new(&env))?, std::marker::PhantomData),
+    )?;
     Ok(())
   }
 

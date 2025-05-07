@@ -29,7 +29,11 @@ pub trait Generator {
   #[allow(unused_variables)]
   /// Implement catch to handle the `Generator.throw()`
   /// <https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Generator/throw>
-  fn catch(&mut self, env: Env, value: Unknown) -> Result<Option<Self::Yield>, Unknown> {
+  fn catch<'env>(
+    &'env mut self,
+    env: Env,
+    value: Unknown<'env>,
+  ) -> Result<Option<Self::Yield>, Unknown<'env>> {
     Err(value)
   }
 }
@@ -442,20 +446,26 @@ extern "C" fn generator_throw<T: Generator>(
     );
     g.catch(
       Env(env),
-      Unknown(Value {
-        env,
-        value: undefined,
-        value_type: crate::ValueType::Undefined,
-      }),
+      Unknown(
+        Value {
+          env,
+          value: undefined,
+          value_type: crate::ValueType::Unknown,
+        },
+        std::marker::PhantomData,
+      ),
     )
   } else {
     g.catch(
       Env(env),
-      Unknown(Value {
-        env,
-        value: argv[0],
-        value_type: crate::ValueType::Unknown,
-      }),
+      Unknown(
+        Value {
+          env,
+          value: argv[0],
+          value_type: crate::ValueType::Unknown,
+        },
+        std::marker::PhantomData,
+      ),
     )
   };
   let mut result = ptr::null_mut();

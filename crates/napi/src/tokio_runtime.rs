@@ -6,7 +6,7 @@ use tokio::runtime::Runtime;
 
 use crate::{bindgen_runtime::ToNapiValue, sys, Env, Error, Result};
 #[cfg(not(feature = "noop"))]
-use crate::{JsDeferred, JsUnknown};
+use crate::{JsDeferred, Unknown};
 
 #[cfg(not(feature = "noop"))]
 fn create_runtime() -> Runtime {
@@ -224,7 +224,7 @@ pub fn execute_tokio_future<
       Ok(v) => deferred.resolve(move |env| {
         sendable_resolver
           .resolve(env.raw(), v)
-          .map(|v| unsafe { JsUnknown::from_raw_unchecked(env.raw(), v) })
+          .map(|v| unsafe { Unknown::from_raw_unchecked(env.raw(), v) })
       }),
       Err(e) => deferred.reject(e.into()),
     }

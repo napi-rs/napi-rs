@@ -5,7 +5,7 @@ use std::slice;
 
 use crate::bindgen_runtime::{TypeName, ValidateNapiValue};
 use crate::{
-  check_status, sys, Env, Error, JsUnknown, NapiValue, Ref, Result, Status, Value, ValueType,
+  check_status, sys, Env, Error, NapiValue, Ref, Result, Status, Unknown, Value, ValueType,
 };
 
 pub struct JsArrayBuffer(pub(crate) Value);
@@ -233,8 +233,8 @@ impl JsArrayBufferValue {
     self.value
   }
 
-  pub fn into_unknown(self) -> JsUnknown {
-    unsafe { JsUnknown::from_raw_unchecked(self.value.0.env, self.value.0.value) }
+  pub fn into_unknown<'env>(self) -> Unknown<'env> {
+    unsafe { Unknown::from_raw_unchecked(self.value.0.env, self.value.0.value) }
   }
 }
 

@@ -111,7 +111,8 @@ impl_tuple_conversion!(
 /// It can only live in the scope of a function call.
 /// If you want to use it outside the scope of a function call, you can turn it into a reference.
 /// By calling the `create_ref` method.
-pub struct Function<'scope, Args: JsValuesTupleIntoVec = Unknown, Return = Unknown> {
+pub struct Function<'scope, Args: JsValuesTupleIntoVec = Unknown<'scope>, Return = Unknown<'scope>>
+{
   pub(crate) env: sys::napi_env,
   pub(crate) value: sys::napi_value,
   pub(crate) _args: std::marker::PhantomData<Args>,

@@ -39,7 +39,6 @@ mod object;
 mod serde;
 mod string;
 mod symbol;
-mod task;
 
 use napi_version::get_napi_version;
 
@@ -50,7 +49,6 @@ fn init(mut exports: JsObject, env: Env) -> Result<()> {
   error::register_js(&mut exports)?;
   string::register_js(&mut exports)?;
   serde::register_js(&mut exports)?;
-  task::register_js(&mut exports)?;
   external::register_js(&mut exports)?;
   arraybuffer::register_js(&mut exports)?;
   buffer::register_js(&mut exports)?;

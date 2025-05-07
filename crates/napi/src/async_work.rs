@@ -30,7 +30,7 @@ pub struct AsyncWorkPromise<T> {
 }
 
 impl<T> AsyncWorkPromise<T> {
-  pub fn promise_object(&self) -> PromiseRaw<T> {
+  pub fn promise_object<'env>(&self) -> PromiseRaw<'env, T> {
     PromiseRaw::new(self.env, self.raw_promise)
   }
 

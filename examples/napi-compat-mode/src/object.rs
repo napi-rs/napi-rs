@@ -1,7 +1,7 @@
 use std::convert::TryInto;
 
 use napi::{
-  CallContext, JsBoolean, JsNumber, JsObject, JsString, JsUndefined, JsUnknown, Property, Result,
+  CallContext, JsBoolean, JsNumber, JsObject, JsString, JsUndefined, Property, Result, Unknown,
 };
 
 #[js_function(2)]
@@ -15,13 +15,13 @@ fn test_set_property(ctx: CallContext) -> Result<JsUndefined> {
 #[js_function(2)]
 fn test_set_named_property(ctx: CallContext) -> Result<JsUndefined> {
   let mut obj = ctx.get::<JsObject>(0)?;
-  let property = ctx.get::<JsUnknown>(1)?;
+  let property = ctx.get::<Unknown>(1)?;
   obj.set_named_property("RustPropertyKey", property)?;
   ctx.env.get_undefined()
 }
 
 #[js_function(1)]
-fn test_get_named_property(ctx: CallContext) -> Result<JsUnknown> {
+fn test_get_named_property(ctx: CallContext) -> Result<Unknown> {
   let obj = ctx.get::<JsObject>(0)?;
   obj.get_named_property("p")
 }
@@ -47,7 +47,7 @@ fn test_has_own_property(ctx: CallContext) -> Result<JsBoolean> {
 #[js_function(2)]
 fn test_has_own_property_js(ctx: CallContext) -> Result<JsBoolean> {
   let obj = ctx.get::<JsObject>(0)?;
-  let key = ctx.get::<JsUnknown>(1)?;
+  let key = ctx.get::<Unknown>(1)?;
   ctx.env.get_boolean(obj.has_own_property_js(key)?)
 }
 
@@ -63,14 +63,14 @@ fn test_has_property(ctx: CallContext) -> Result<JsBoolean> {
 #[js_function(2)]
 fn test_has_property_js(ctx: CallContext) -> Result<JsBoolean> {
   let obj = ctx.get::<JsObject>(0)?;
-  let key = ctx.get::<JsUnknown>(1)?;
+  let key = ctx.get::<Unknown>(1)?;
   ctx.env.get_boolean(obj.has_property_js(key)?)
 }
 
 #[js_function(2)]
 fn test_delete_property(ctx: CallContext) -> Result<JsBoolean> {
   let mut obj = ctx.get::<JsObject>(0)?;
-  let key = ctx.get::<JsUnknown>(1)?;
+  let key = ctx.get::<Unknown>(1)?;
   ctx.env.get_boolean(obj.delete_property(key)?)
 }
 
@@ -84,9 +84,9 @@ fn test_delete_named_property(ctx: CallContext) -> Result<JsBoolean> {
 }
 
 #[js_function(2)]
-fn test_get_property(ctx: CallContext) -> Result<JsUnknown> {
+fn test_get_property(ctx: CallContext) -> Result<Unknown> {
   let obj = ctx.get::<JsObject>(0)?;
-  let key = ctx.get::<JsUnknown>(1)?;
+  let key = ctx.get::<Unknown>(1)?;
   obj.get_property(key)
 }
 
@@ -106,7 +106,7 @@ fn test_get_prototype(ctx: CallContext) -> Result<JsObject> {
 fn test_set_element(ctx: CallContext) -> Result<JsUndefined> {
   let mut obj = ctx.get::<JsObject>(0)?;
   let index = ctx.get::<JsNumber>(1)?;
-  let js_value = ctx.get::<JsUnknown>(2)?;
+  let js_value = ctx.get::<Unknown>(2)?;
   obj.set_element(index.try_into()?, js_value)?;
   ctx.env.get_undefined()
 }
@@ -119,7 +119,7 @@ fn test_has_element(ctx: CallContext) -> Result<JsBoolean> {
 }
 
 #[js_function(2)]
-fn test_get_element(ctx: CallContext) -> Result<JsUnknown> {
+fn test_get_element(ctx: CallContext) -> Result<Unknown> {
   let obj = ctx.get::<JsObject>(0)?;
   let index = ctx.get::<JsNumber>(1)?;
   obj.get_element(index.try_into()?)

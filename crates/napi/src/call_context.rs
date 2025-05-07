@@ -73,12 +73,12 @@ impl<'env> CallContext<'env> {
     }
   }
 
-  pub fn get_all(&self) -> Vec<crate::JsUnknown> {
+  pub fn get_all(&self) -> Vec<crate::Unknown> {
     /* (0 .. self.arg_len()).map(|i| self.get(i).unwrap()).collect() */
     self
       .args
       .iter()
-      .map(|&raw| unsafe { crate::JsUnknown::from_raw_unchecked(self.env.0, raw) })
+      .map(|&raw| unsafe { crate::Unknown::from_raw_unchecked(self.env.0, raw) })
       .collect()
   }
 

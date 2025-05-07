@@ -94,7 +94,7 @@ fn set_miter_native(ctx: CallContext) -> Result<JsUndefined> {
 }
 
 #[js_function]
-fn get_miter(ctx: CallContext) -> Result<JsUnknown> {
+fn get_miter(ctx: CallContext) -> Result<Unknown> {
   let this = ctx.this_unchecked::<JsObject>();
   this.get_named_property("_miterLimit")
 }
@@ -136,7 +136,7 @@ fn set_line_join_native(ctx: CallContext) -> Result<JsUndefined> {
 }
 
 #[js_function]
-fn get_line_join(ctx: CallContext) -> Result<JsUnknown> {
+fn get_line_join(ctx: CallContext) -> Result<Unknown> {
   let this = ctx.this_unchecked::<JsObject>();
 
   this.get_named_property("_lineJoin")

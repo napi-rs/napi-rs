@@ -396,20 +396,26 @@ extern "C" fn generator_throw<T: AsyncGenerator>(
     );
     g.catch(
       Env(env),
-      Unknown(Value {
-        env,
-        value: undefined,
-        value_type: crate::ValueType::Undefined,
-      }),
+      Unknown(
+        Value {
+          env,
+          value: undefined,
+          value_type: crate::ValueType::Undefined,
+        },
+        std::marker::PhantomData,
+      ),
     )
   } else {
     g.catch(
       Env(env),
-      Unknown(Value {
-        env,
-        value: argv[0],
-        value_type: crate::ValueType::Unknown,
-      }),
+      Unknown(
+        Value {
+          env,
+          value: argv[0],
+          value_type: crate::ValueType::Unknown,
+        },
+        std::marker::PhantomData,
+      ),
     )
   };
   match Env::from_raw(env).spawn_future_with_callback(caught, |env, value| {
