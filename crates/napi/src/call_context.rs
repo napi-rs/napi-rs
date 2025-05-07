@@ -57,7 +57,7 @@ impl<'env> CallContext<'env> {
     }
   }
 
-  pub fn try_get<ArgType: NapiValue + TypeName + FromNapiValue>(
+  pub fn try_get<ArgType: FromNapiValue + TypeName + FromNapiValue>(
     &self,
     index: usize,
   ) -> Result<Either<ArgType, JsUndefined>> {
@@ -67,7 +67,7 @@ impl<'env> CallContext<'env> {
         "Arguments index out of range".to_owned(),
       ))
     } else if index < self.length {
-      unsafe { ArgType::from_raw(self.env.0, self.args[index]) }.map(Either::A)
+      unsafe { ArgType::from_napi_value(self.env.0, self.args[index]) }.map(Either::A)
     } else {
       self.env.get_undefined().map(Either::B)
     }

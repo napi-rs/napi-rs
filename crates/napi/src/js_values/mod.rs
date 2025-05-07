@@ -125,7 +125,11 @@ pub trait JsValue: Sized {
 
   /// Convert the value to an unknown
   fn into_unknown(self) -> JsUnknown {
-    unsafe { JsUnknown::from_raw_unchecked(self.value().env, self.value().value) }
+    JsUnknown(Value {
+      env: self.value().env,
+      value: self.value().value,
+      value_type: ValueType::Unknown,
+    })
   }
 
   /// Coerce the value to a boolean
@@ -138,20 +142,23 @@ pub trait JsValue: Sized {
     unsafe { bool::from_napi_value(env, new_raw_value) }
   }
 
-  fn coerce_to_number(self) -> Result<JsNumber> {
+  fn coerce_to_number(&self) -> Result<JsNumber> {
     let mut new_raw_value = ptr::null_mut();
     let env = self.value().env;
     check_status!(unsafe {
       sys::napi_coerce_to_number(env, self.value().value, &mut new_raw_value)
     })?;
-    Ok(JsNumber(Value {
-      env,
-      value: new_raw_value,
-      value_type: ValueType::Number,
-    }))
+    Ok(JsNumber(
+      Value {
+        env,
+        value: new_raw_value,
+        value_type: ValueType::Number,
+      },
+      std::marker::PhantomData,
+    ))
   }
 
-  fn coerce_to_string(self) -> Result<JsString> {
+  fn coerce_to_string(&self) -> Result<JsString> {
     let mut new_raw_value = ptr::null_mut();
     let env = self.value().env;
     check_status!(unsafe {
@@ -687,16 +694,19 @@ macro_rules! impl_js_value_methods {
         }))
       }
 
-      pub fn coerce_to_number(self) -> Result<JsNumber> {
+      pub fn coerce_to_number<'env>(self) -> Result<JsNumber<'env>> {
         let mut new_raw_value = ptr::null_mut();
         check_status!(unsafe {
           sys::napi_coerce_to_number(self.0.env, self.0.value, &mut new_raw_value)
         })?;
-        Ok(JsNumber(Value {
-          env: self.0.env,
-          value: new_raw_value,
-          value_type: ValueType::Number,
-        }))
+        Ok(JsNumber(
+          Value {
+            env: self.0.env,
+            value: new_raw_value,
+            value_type: ValueType::Number,
+          },
+          std::marker::PhantomData,
+        ))
       }
 
       pub fn coerce_to_string(self) -> Result<JsString> {
@@ -1181,7 +1191,6 @@ impl_js_value_methods!(JsBuffer);
 impl_js_value_methods!(JsArrayBuffer);
 impl_js_value_methods!(JsTypedArray);
 impl_js_value_methods!(JsDataView);
-impl_js_value_methods!(JsNumber);
 impl_js_value_methods!(JsString);
 impl_js_value_methods!(JsObject);
 #[cfg(feature = "napi5")]
@@ -1205,7 +1214,6 @@ impl_napi_value_trait!(JsBuffer, Object);
 impl_napi_value_trait!(JsArrayBuffer, Object);
 impl_napi_value_trait!(JsTypedArray, Object);
 impl_napi_value_trait!(JsDataView, Object);
-impl_napi_value_trait!(JsNumber, Number);
 impl_napi_value_trait!(JsString, String);
 impl_napi_value_trait!(JsObject, Object);
 #[cfg(feature = "napi5")]
