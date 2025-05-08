@@ -16,7 +16,7 @@ use serde::Serialize;
 
 #[cfg(feature = "napi8")]
 use crate::async_cleanup_hook::AsyncCleanupHook;
-#[cfg(feature = "napi6")]
+#[cfg(all(feature = "napi6", feature = "compat-mode"))]
 use crate::bindgen_runtime::u128_with_sign_to_napi_value;
 #[cfg(feature = "napi5")]
 use crate::bindgen_runtime::FunctionCallContext;
@@ -78,6 +78,8 @@ impl Env {
     Ok(unsafe { JsBoolean::from_raw_unchecked(self.0, raw_value) })
   }
 
+  #[cfg(feature = "compat-mode")]
+  #[deprecated(since = "3.0.0", note = "Use `i32` instead")]
   pub fn create_int32(&self, int: i32) -> Result<JsNumber> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe {
@@ -86,6 +88,8 @@ impl Env {
     unsafe { JsNumber::from_napi_value(self.0, raw_value) }
   }
 
+  #[cfg(feature = "compat-mode")]
+  #[deprecated(since = "3.0.0", note = "Use `i64` instead")]
   pub fn create_int64(&self, int: i64) -> Result<JsNumber> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe {
@@ -94,12 +98,16 @@ impl Env {
     unsafe { JsNumber::from_napi_value(self.0, raw_value) }
   }
 
+  #[cfg(feature = "compat-mode")]
+  #[deprecated(since = "3.0.0", note = "Use `u32` instead")]
   pub fn create_uint32(&self, number: u32) -> Result<JsNumber> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe { sys::napi_create_uint32(self.0, number, &mut raw_value) })?;
     unsafe { JsNumber::from_napi_value(self.0, raw_value) }
   }
 
+  #[cfg(feature = "compat-mode")]
+  #[deprecated(since = "3.0.0", note = "Use `f64` instead")]
   pub fn create_double(&self, double: f64) -> Result<JsNumber> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe {
@@ -109,21 +117,24 @@ impl Env {
   }
 
   /// [n_api_napi_create_bigint_int64](https://nodejs.org/api/n-api.html#n_api_napi_create_bigint_int64)
-  #[cfg(feature = "napi6")]
+  #[cfg(all(feature = "napi6", feature = "compat-mode"))]
+  #[deprecated(since = "3.0.0", note = "Use `BigInt` instead")]
   pub fn create_bigint_from_i64(&self, value: i64) -> Result<JsBigInt> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe { sys::napi_create_bigint_int64(self.0, value, &mut raw_value) })?;
     Ok(JsBigInt::from_raw_unchecked(self.0, raw_value, 1))
   }
 
-  #[cfg(feature = "napi6")]
+  #[cfg(all(feature = "napi6", feature = "compat-mode"))]
+  #[deprecated(since = "3.0.0", note = "Use `BigInt` instead")]
   pub fn create_bigint_from_u64(&self, value: u64) -> Result<JsBigInt> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe { sys::napi_create_bigint_uint64(self.0, value, &mut raw_value) })?;
     Ok(JsBigInt::from_raw_unchecked(self.0, raw_value, 1))
   }
 
-  #[cfg(feature = "napi6")]
+  #[cfg(all(feature = "napi6", feature = "compat-mode"))]
+  #[deprecated(since = "3.0.0", note = "Use `BigInt` instead")]
   pub fn create_bigint_from_i128(&self, value: i128) -> Result<JsBigInt> {
     unsafe {
       let raw_value =
@@ -132,7 +143,8 @@ impl Env {
     }
   }
 
-  #[cfg(feature = "napi6")]
+  #[cfg(all(feature = "napi6", feature = "compat-mode"))]
+  #[deprecated(since = "3.0.0", note = "Use `BigInt` instead")]
   pub fn create_bigint_from_u128(&self, value: u128) -> Result<JsBigInt> {
     unsafe {
       let raw_value = u128_with_sign_to_napi_value(self.0, value, 0)?;
@@ -143,7 +155,8 @@ impl Env {
   /// [n_api_napi_create_bigint_words](https://nodejs.org/api/n-api.html#n_api_napi_create_bigint_words)
   ///
   /// The resulting BigInt will be negative when sign_bit is true.
-  #[cfg(feature = "napi6")]
+  #[cfg(all(feature = "napi6", feature = "compat-mode"))]
+  #[deprecated(since = "3.0.0", note = "Use `BigInt` instead")]
   pub fn create_bigint_from_words(&self, sign_bit: bool, words: Vec<u64>) -> Result<JsBigInt> {
     let mut raw_value = ptr::null_mut();
     let len = words.len();
