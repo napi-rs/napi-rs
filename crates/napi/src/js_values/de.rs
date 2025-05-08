@@ -5,8 +5,7 @@ use serde::de::{DeserializeSeed, EnumAccess, MapAccess, SeqAccess, Unexpected, V
 use crate::bindgen_runtime::BigInt;
 use crate::{
   bindgen_runtime::{BufferSlice, FromNapiValue},
-  type_of, Error, JsArrayBuffer, JsObject, JsString, NapiValue, Result, Status, Unknown, Value,
-  ValueType,
+  type_of, Error, JsArrayBuffer, JsObject, NapiValue, Result, Status, Unknown, Value, ValueType,
 };
 
 pub struct De<'env>(pub(crate) &'env Value);
@@ -39,10 +38,9 @@ impl<'x> serde::de::Deserializer<'x> for &mut De<'_> {
           visitor.visit_f64(js_number)
         }
       }
-      ValueType::String => {
-        let js_string = unsafe { JsString::from_raw_unchecked(self.0.env, self.0.value) };
-        visitor.visit_str(js_string.into_utf8()?.as_str()?)
-      }
+      ValueType::String => visitor.visit_str(
+        unsafe { <String as FromNapiValue>::from_napi_value(self.0.env, self.0.value) }?.as_str(),
+      ),
       ValueType::Object => {
         let js_object = unsafe { JsObject::from_raw_unchecked(self.0.env, self.0.value) };
         if js_object.is_array()? {
@@ -169,9 +167,7 @@ impl<'x> serde::de::Deserializer<'x> for &mut De<'_> {
     let js_value_type = type_of!(self.0.env, self.0.value)?;
     match js_value_type {
       ValueType::String => visitor.visit_enum(JsEnumAccess::new(
-        unsafe { JsString::from_raw_unchecked(self.0.env, self.0.value) }
-          .into_utf8()?
-          .into_owned()?,
+        unsafe { FromNapiValue::from_napi_value(self.0.env, self.0.value) }?,
         None,
       )),
       ValueType::Object => {
@@ -187,12 +183,9 @@ impl<'x> serde::de::Deserializer<'x> for &mut De<'_> {
             ),
           ))
         } else {
-          let key = properties.get_element::<JsString>(0)?;
-          let value: Unknown = js_object.get_property(key)?;
-          visitor.visit_enum(JsEnumAccess::new(
-            key.into_utf8()?.into_owned()?,
-            Some(&value.0),
-          ))
+          let key = properties.get_element::<String>(0)?;
+          let value: Unknown = js_object.get_named_property_unchecked(&key)?;
+          visitor.visit_enum(JsEnumAccess::new(key, Some(&value.0)))
         }
       }
       _ => Err(Error::new(
@@ -415,8 +408,8 @@ impl<'de> MapAccess<'de> for JsObjectAccess<'_> {
         format!("Index:{} out of range: {}", self.property_len, self.idx),
       ));
     }
-    let prop_name = self.properties.get_element::<JsString>(self.idx)?;
-    let value: Unknown = self.value.get_property(prop_name)?;
+    let prop_name = self.properties.get_element::<String>(self.idx)?;
+    let value: Unknown = self.value.get_named_property_unchecked(&prop_name)?;
 
     self.idx += 1;
     let mut de = De(&value.0);

@@ -1,4 +1,4 @@
-use napi::{ContextlessResult, Env, JsObject, JsString, Result, Unknown};
+use napi::{ContextlessResult, Env, JsObject, Result, Unknown};
 use serde_json::to_string;
 
 pub fn register_js(exports: &mut JsObject) -> Result<()> {
@@ -9,10 +9,10 @@ pub fn register_js(exports: &mut JsObject) -> Result<()> {
 }
 
 #[contextless_function]
-pub fn create_array_json(env: Env) -> ContextlessResult<JsString> {
+pub fn create_array_json(_: Env) -> ContextlessResult<String> {
   let a: Vec<u32> = vec![42; 1000];
   let arr_string = to_string(&a)?;
-  env.create_string(arr_string.as_str()).map(Some)
+  Ok(Some(arr_string))
 }
 
 #[contextless_function]

@@ -23,7 +23,7 @@ impl TypeName for JsNumber<'_> {
 
 impl ValidateNapiValue for JsNumber<'_> {}
 
-impl JsValue for JsNumber<'_> {
+impl<'env> JsValue<'env> for JsNumber<'env> {
   fn value(&self) -> Value {
     self.0
   }

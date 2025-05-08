@@ -5,12 +5,12 @@ use crate::JsString;
 #[cfg(feature = "latin1")]
 use crate::Result;
 
-pub struct JsStringLatin1 {
-  pub(crate) inner: JsString,
+pub struct JsStringLatin1<'env> {
+  pub(crate) inner: JsString<'env>,
   pub(crate) buf: ManuallyDrop<Vec<u8>>,
 }
 
-impl JsStringLatin1 {
+impl<'env> JsStringLatin1<'env> {
   pub fn as_slice(&self) -> &[u8] {
     &self.buf
   }
@@ -27,7 +27,7 @@ impl JsStringLatin1 {
     self.as_slice().to_vec()
   }
 
-  pub fn into_value(self) -> JsString {
+  pub fn into_value(self) -> JsString<'env> {
     self.inner
   }
 
@@ -39,7 +39,7 @@ impl JsStringLatin1 {
   }
 }
 
-impl From<JsStringLatin1> for Vec<u8> {
+impl From<JsStringLatin1<'_>> for Vec<u8> {
   fn from(value: JsStringLatin1) -> Self {
     value.take()
   }

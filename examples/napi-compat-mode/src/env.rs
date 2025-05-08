@@ -36,7 +36,7 @@ pub fn cast_unknown(ctx: CallContext) -> Result<JsObject> {
 }
 
 #[contextless_function]
-fn get_env_variable(env: Env) -> ContextlessResult<JsString> {
+fn get_env_variable(env: Env) -> ContextlessResult<JsString<'static>> {
   env
     .create_string_from_std(std::env::var("npm_package_name").unwrap())
     .map(Some)

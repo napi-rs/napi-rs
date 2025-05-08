@@ -179,7 +179,7 @@ impl Env {
     unsafe { self.create_string_from_c_char(s.as_ptr().cast(), s.len() as isize) }
   }
 
-  pub fn create_string_from_std(&self, s: String) -> Result<JsString> {
+  pub fn create_string_from_std<'env>(&self, s: String) -> Result<JsString<'env>> {
     unsafe { self.create_string_from_c_char(s.as_ptr().cast(), s.len() as isize) }
   }
 
@@ -189,14 +189,14 @@ impl Env {
   /// # Safety
   ///
   /// Create JsString from known valid utf-8 string
-  pub unsafe fn create_string_from_c_char(
+  pub unsafe fn create_string_from_c_char<'env>(
     &self,
     data_ptr: *const c_char,
     len: isize,
-  ) -> Result<JsString> {
+  ) -> Result<JsString<'env>> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe { sys::napi_create_string_utf8(self.0, data_ptr, len, &mut raw_value) })?;
-    Ok(unsafe { JsString::from_raw_unchecked(self.0, raw_value) })
+    unsafe { JsString::from_napi_value(self.0, raw_value) }
   }
 
   pub fn create_string_utf16(&self, chars: &[u16]) -> Result<JsString> {
@@ -204,7 +204,7 @@ impl Env {
     check_status!(unsafe {
       sys::napi_create_string_utf16(self.0, chars.as_ptr(), chars.len() as isize, &mut raw_value)
     })?;
-    Ok(unsafe { JsString::from_raw_unchecked(self.0, raw_value) })
+    unsafe { JsString::from_napi_value(self.0, raw_value) }
   }
 
   pub fn create_string_latin1(&self, chars: &[u8]) -> Result<JsString> {
@@ -217,7 +217,7 @@ impl Env {
         &mut raw_value,
       )
     })?;
-    Ok(unsafe { JsString::from_raw_unchecked(self.0, raw_value) })
+    unsafe { JsString::from_napi_value(self.0, raw_value) }
   }
 
   pub fn create_symbol(&self, description: Option<&str>) -> Result<JsSymbol> {
