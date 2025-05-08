@@ -17,7 +17,7 @@ mod de;
 mod ser;
 
 mod arraybuffer;
-#[cfg(feature = "napi6")]
+#[cfg(all(feature = "napi6", feature = "compat-mode"))]
 mod bigint;
 #[cfg(feature = "compat-mode")]
 mod boolean;
@@ -43,7 +43,7 @@ mod value;
 mod value_ref;
 
 pub use arraybuffer::*;
-#[cfg(feature = "napi6")]
+#[cfg(all(feature = "napi6", feature = "compat-mode"))]
 pub use bigint::JsBigInt;
 #[cfg(feature = "compat-mode")]
 pub use boolean::JsBoolean;

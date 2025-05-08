@@ -1,13 +1,13 @@
 use serde::de::Visitor;
 use serde::de::{DeserializeSeed, EnumAccess, MapAccess, SeqAccess, Unexpected, VariantAccess};
 
-use crate::bindgen_runtime::{BufferSlice, FromNapiValue};
 #[cfg(feature = "napi6")]
-use crate::JsBigInt;
-use crate::{type_of, NapiValue, Value, ValueType};
-use crate::{Error, JsObject, JsString, Result, Status, Unknown};
-
-use super::JsArrayBuffer;
+use crate::bindgen_runtime::BigInt;
+use crate::{
+  bindgen_runtime::{BufferSlice, FromNapiValue},
+  type_of, Error, JsArrayBuffer, JsObject, JsString, NapiValue, Result, Status, Unknown, Value,
+  ValueType,
+};
 
 pub struct De<'env>(pub(crate) &'env Value);
 impl<'env> De<'env> {
@@ -69,16 +69,16 @@ impl<'x> serde::de::Deserializer<'x> for &mut De<'_> {
       }
       #[cfg(feature = "napi6")]
       ValueType::BigInt => {
-        let mut js_bigint = unsafe { JsBigInt::from_raw(self.0.env, self.0.value)? };
+        let js_bigint = unsafe { BigInt::from_napi_value(self.0.env, self.0.value)? };
 
-        let (signed, words) = js_bigint.get_words()?;
+        let BigInt { sign_bit, words } = &js_bigint;
         let word_sized = words.len() < 2;
 
-        match (signed, word_sized) {
-          (true, true) => visitor.visit_i64(js_bigint.get_i64()?.0),
-          (true, false) => visitor.visit_i128(js_bigint.get_i128()?.0),
-          (false, true) => visitor.visit_u64(js_bigint.get_u64()?.0),
-          (false, false) => visitor.visit_u128(js_bigint.get_u128()?.1),
+        match (sign_bit, word_sized) {
+          (true, true) => visitor.visit_i64(js_bigint.get_i64().0),
+          (true, false) => visitor.visit_i128(js_bigint.get_i128().0),
+          (false, true) => visitor.visit_u64(js_bigint.get_u64().1),
+          (false, false) => visitor.visit_u128(js_bigint.get_u128().1),
         }
       }
       ValueType::External | ValueType::Function | ValueType::Symbol => Err(Error::new(

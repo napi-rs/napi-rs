@@ -3,7 +3,10 @@ use std::result::Result as StdResult;
 use serde::{ser, Serialize, Serializer};
 
 use super::*;
-use crate::{bindgen_runtime::BufferSlice, Env, Error, Result};
+use crate::{
+  bindgen_runtime::{BufferSlice, Null},
+  Env, Error, Result,
+};
 
 pub struct Ser<'env>(pub(crate) &'env Env);
 
@@ -48,39 +51,75 @@ impl Serializer for Ser<'_> {
   }
 
   fn serialize_f32(self, v: f32) -> Result<Self::Ok> {
-    self.0.create_double(v as _).map(|js_number| js_number.0)
+    Ok(Value {
+      env: self.0.raw(),
+      value: unsafe { ToNapiValue::to_napi_value(self.0 .0, v)? },
+      value_type: ValueType::Number,
+    })
   }
 
   fn serialize_f64(self, v: f64) -> Result<Self::Ok> {
-    self.0.create_double(v).map(|js_number| js_number.0)
+    Ok(Value {
+      env: self.0.raw(),
+      value: unsafe { ToNapiValue::to_napi_value(self.0 .0, v)? },
+      value_type: ValueType::Number,
+    })
   }
 
   fn serialize_i16(self, v: i16) -> Result<Self::Ok> {
-    self.0.create_int32(v as _).map(|js_number| js_number.0)
+    Ok(Value {
+      env: self.0.raw(),
+      value: unsafe { ToNapiValue::to_napi_value(self.0 .0, v as i32)? },
+      value_type: ValueType::Number,
+    })
   }
 
   fn serialize_i32(self, v: i32) -> Result<Self::Ok> {
-    self.0.create_int32(v).map(|js_number| js_number.0)
+    Ok(Value {
+      env: self.0.raw(),
+      value: unsafe { ToNapiValue::to_napi_value(self.0 .0, v)? },
+      value_type: ValueType::Number,
+    })
   }
 
   fn serialize_i64(self, v: i64) -> Result<Self::Ok> {
-    self.0.create_int64(v).map(|js_number| js_number.0)
+    Ok(Value {
+      env: self.0.raw(),
+      value: unsafe { ToNapiValue::to_napi_value(self.0 .0, v)? },
+      value_type: ValueType::Number,
+    })
   }
 
   fn serialize_i8(self, v: i8) -> Result<Self::Ok> {
-    self.0.create_int32(v as _).map(|js_number| js_number.0)
+    Ok(Value {
+      env: self.0.raw(),
+      value: unsafe { ToNapiValue::to_napi_value(self.0 .0, v as i32)? },
+      value_type: ValueType::Number,
+    })
   }
 
   fn serialize_u8(self, v: u8) -> Result<Self::Ok> {
-    self.0.create_uint32(v as _).map(|js_number| js_number.0)
+    Ok(Value {
+      env: self.0.raw(),
+      value: unsafe { ToNapiValue::to_napi_value(self.0 .0, v as u32)? },
+      value_type: ValueType::Number,
+    })
   }
 
   fn serialize_u16(self, v: u16) -> Result<Self::Ok> {
-    self.0.create_uint32(v as _).map(|js_number| js_number.0)
+    Ok(Value {
+      env: self.0.raw(),
+      value: unsafe { ToNapiValue::to_napi_value(self.0 .0, v as u32)? },
+      value_type: ValueType::Number,
+    })
   }
 
   fn serialize_u32(self, v: u32) -> Result<Self::Ok> {
-    self.0.create_uint32(v).map(|js_number| js_number.0)
+    Ok(Value {
+      env: self.0.raw(),
+      value: unsafe { ToNapiValue::to_napi_value(self.0 .0, v)? },
+      value_type: ValueType::Number,
+    })
   }
 
   #[cfg(all(
@@ -93,7 +132,14 @@ impl Serializer for Ser<'_> {
     not(feature = "napi6")
   ))]
   fn serialize_u64(self, v: u64) -> Result<Self::Ok> {
-    self.0.create_int64(v as _).map(|js_number| js_number.0)
+    if v <= u32::MAX.into() {
+      self.serialize_u32(v as u32)
+    } else {
+      Err(Error::new(
+        Status::InvalidArg,
+        "u64 is too large to serialize, enable napi6 feature and serialize it as BigInt instead",
+      ))
+    }
   }
 
   #[cfg(feature = "napi6")]
@@ -105,10 +151,11 @@ impl Serializer for Ser<'_> {
     if v <= u32::MAX.into() {
       self.serialize_u32(v as u32)
     } else {
-      self
-        .0
-        .create_bigint_from_u64(v)
-        .map(|js_number| js_number.raw)
+      Ok(Value {
+        env: self.0.raw(),
+        value: unsafe { ToNapiValue::to_napi_value(self.0 .0, v)? },
+        value_type: ValueType::Number,
+      })
     }
   }
 
@@ -122,12 +169,20 @@ impl Serializer for Ser<'_> {
     not(feature = "napi6")
   ))]
   fn serialize_u128(self, v: u128) -> Result<Self::Ok> {
-    self.0.create_string(v.to_string().as_str()).map(|v| v.0)
+    Ok(Value {
+      env: self.0.raw(),
+      value: unsafe { ToNapiValue::to_napi_value(self.0 .0, v.to_string())? },
+      value_type: ValueType::Number,
+    })
   }
 
   #[cfg(feature = "napi6")]
   fn serialize_u128(self, v: u128) -> Result<Self::Ok> {
-    self.0.create_bigint_from_u128(v).map(|v| v.raw)
+    Ok(Value {
+      env: self.0.raw(),
+      value: unsafe { ToNapiValue::to_napi_value(self.0 .0, v)? },
+      value_type: ValueType::Number,
+    })
   }
 
   #[cfg(all(
@@ -140,18 +195,26 @@ impl Serializer for Ser<'_> {
     not(feature = "napi6")
   ))]
   fn serialize_i128(self, v: i128) -> Result<Self::Ok> {
-    self.0.create_string(v.to_string().as_str()).map(|v| v.0)
+    Ok(Value {
+      env: self.0.raw(),
+      value: unsafe { ToNapiValue::to_napi_value(self.0 .0, v.to_string())? },
+      value_type: ValueType::Number,
+    })
   }
 
   #[cfg(feature = "napi6")]
   fn serialize_i128(self, v: i128) -> Result<Self::Ok> {
-    self.0.create_bigint_from_i128(v).map(|v| v.raw)
+    Ok(Value {
+      env: self.0.raw(),
+      value: unsafe { ToNapiValue::to_napi_value(self.0 .0, v)? },
+      value_type: ValueType::Number,
+    })
   }
 
   fn serialize_unit(self) -> Result<Self::Ok> {
     Ok(Value {
       env: self.0.raw(),
-      value: unsafe { ToNapiValue::to_napi_value(self.0 .0, crate::bindgen_prelude::Null) }?,
+      value: unsafe { ToNapiValue::to_napi_value(self.0 .0, Null) }?,
       value_type: ValueType::Null,
     })
   }
@@ -159,7 +222,7 @@ impl Serializer for Ser<'_> {
   fn serialize_none(self) -> Result<Self::Ok> {
     Ok(Value {
       env: self.0.raw(),
-      value: unsafe { ToNapiValue::to_napi_value(self.0 .0, crate::bindgen_prelude::Null) }?,
+      value: unsafe { ToNapiValue::to_napi_value(self.0 .0, Null) }?,
       value_type: ValueType::Null,
     })
   }
@@ -217,7 +280,7 @@ impl Serializer for Ser<'_> {
   fn serialize_unit_struct(self, _name: &'static str) -> Result<Self::Ok> {
     Ok(Value {
       env: self.0.raw(),
-      value: unsafe { ToNapiValue::to_napi_value(self.0 .0, crate::bindgen_prelude::Null) }?,
+      value: unsafe { ToNapiValue::to_napi_value(self.0 .0, Null) }?,
       value_type: ValueType::Null,
     })
   }
