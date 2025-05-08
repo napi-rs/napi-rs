@@ -203,6 +203,7 @@ jobs:
         run: ${{ matrix.settings.test }}
         env:
           NODE_OPTIONS: '--max-old-space-size=8192'
+          DISABLE_V8_COMPILE_CACHE: 1
 
       - name: Electron tests
         if: matrix.settings.target == 'aarch64-apple-darwin' || matrix.settings.target == 'x86_64-pc-windows-msvc'
