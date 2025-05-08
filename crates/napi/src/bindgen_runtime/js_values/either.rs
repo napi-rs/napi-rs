@@ -120,10 +120,10 @@ macro_rules! either_n {
       }
     }
 
-    impl< $( $parameter ),+ > $either_name < $( $parameter ),+ >
-      where $( $parameter: JsValue ),+
+    impl<'env, $( $parameter ),+ > $either_name < $( $parameter ),+ >
+      where $( $parameter: JsValue<'env> ),+
     {
-      pub fn as_unknown(&self) -> Unknown {
+      pub fn as_unknown(&self) -> Unknown<'env> {
         match &self {
           $( Self:: $parameter (v) => v.to_unknown() ),+
         }

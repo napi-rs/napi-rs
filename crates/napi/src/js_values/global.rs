@@ -6,26 +6,26 @@ pub struct JsGlobal<'env>(
   pub(crate) std::marker::PhantomData<&'env ()>,
 );
 
-impl JsValue for JsGlobal<'_> {
+impl<'env> JsValue<'env> for JsGlobal<'env> {
   fn value(&self) -> Value {
     self.0
   }
 }
 
-impl JsObjectValue for JsGlobal<'_> {}
+impl<'env> JsObjectValue<'env> for JsGlobal<'env> {}
 
 pub struct JsTimeout<'env>(
   pub(crate) Value,
   pub(crate) std::marker::PhantomData<&'env ()>,
 );
 
-impl JsValue for JsTimeout<'_> {
+impl<'env> JsValue<'env> for JsTimeout<'env> {
   fn value(&self) -> Value {
     self.0
   }
 }
 
-impl JsObjectValue for JsTimeout<'_> {}
+impl<'env> JsObjectValue<'env> for JsTimeout<'env> {}
 
 impl FromNapiValue for JsTimeout<'_> {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
@@ -44,13 +44,13 @@ pub struct JSON<'env>(
   pub(crate) std::marker::PhantomData<&'env ()>,
 );
 
-impl JsValue for JSON<'_> {
+impl<'env> JsValue<'env> for JSON<'env> {
   fn value(&self) -> Value {
     self.0
   }
 }
 
-impl JsObjectValue for JSON<'_> {}
+impl<'env> JsObjectValue<'env> for JSON<'env> {}
 
 impl FromNapiValue for JSON<'_> {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {

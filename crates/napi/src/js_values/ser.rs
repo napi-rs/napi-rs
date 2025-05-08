@@ -16,7 +16,7 @@ impl<'env> Ser<'env> {
   }
 }
 
-impl Serializer for Ser<'_> {
+impl<'env> Serializer for Ser<'env> {
   type Ok = Value;
   type Error = Error;
 
@@ -24,7 +24,7 @@ impl Serializer for Ser<'_> {
   type SerializeTuple = SeqSerializer;
   type SerializeTupleStruct = SeqSerializer;
   type SerializeTupleVariant = SeqSerializer;
-  type SerializeMap = MapSerializer;
+  type SerializeMap = MapSerializer<'env>;
   type SerializeStruct = StructSerializer;
   type SerializeStructVariant = StructSerializer;
 
@@ -462,13 +462,13 @@ impl ser::SerializeTupleVariant for SeqSerializer {
   }
 }
 
-pub struct MapSerializer {
-  key: JsString,
+pub struct MapSerializer<'env> {
+  key: JsString<'env>,
   obj: JsObject,
 }
 
 #[doc(hidden)]
-impl ser::SerializeMap for MapSerializer {
+impl ser::SerializeMap for MapSerializer<'_> {
   type Ok = Value;
   type Error = Error;
 
@@ -477,7 +477,7 @@ impl ser::SerializeMap for MapSerializer {
     T: ?Sized + Serialize,
   {
     let env = Env::from_raw(self.obj.0.env);
-    self.key = JsString(key.serialize(Ser::new(&env))?);
+    self.key = JsString(key.serialize(Ser::new(&env))?, std::marker::PhantomData);
     Ok(())
   }
 
@@ -487,11 +487,14 @@ impl ser::SerializeMap for MapSerializer {
   {
     let env = Env::from_raw(self.obj.0.env);
     self.obj.set_property(
-      JsString(Value {
-        env: self.key.0.env,
-        value: self.key.0.value,
-        value_type: ValueType::String,
-      }),
+      JsString(
+        Value {
+          env: self.key.0.env,
+          value: self.key.0.value,
+          value_type: ValueType::String,
+        },
+        std::marker::PhantomData,
+      ),
       Unknown(value.serialize(Ser::new(&env))?, std::marker::PhantomData),
     )?;
     Ok(())
@@ -504,7 +507,7 @@ impl ser::SerializeMap for MapSerializer {
   {
     let env = Env::from_raw(self.obj.0.env);
     self.obj.set_property(
-      JsString(key.serialize(Ser::new(&env))?),
+      JsString(key.serialize(Ser::new(&env))?, std::marker::PhantomData),
       Unknown(value.serialize(Ser::new(&env))?, std::marker::PhantomData),
     )?;
     Ok(())

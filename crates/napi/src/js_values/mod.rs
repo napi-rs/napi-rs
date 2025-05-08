@@ -112,7 +112,7 @@ impl TypeName for JsSymbol<'_> {
   }
 }
 
-impl JsValue for JsSymbol<'_> {
+impl<'env> JsValue<'env> for JsSymbol<'env> {
   fn value(&self) -> Value {
     self.0
   }
@@ -154,11 +154,11 @@ impl TypeName for JsExternal {
 #[cfg(feature = "compat-mode")]
 impl ValidateNapiValue for JsExternal {}
 
-pub trait JsValue: Sized {
+pub trait JsValue<'env>: Sized {
   fn value(&self) -> Value;
 
   /// Convert the value to an unknown
-  fn to_unknown(&self) -> Unknown {
+  fn to_unknown(&self) -> Unknown<'env> {
     Unknown(
       Value {
         env: self.value().env,
@@ -201,11 +201,14 @@ pub trait JsValue: Sized {
     check_status!(unsafe {
       sys::napi_coerce_to_string(env, self.value().value, &mut new_raw_value)
     })?;
-    Ok(JsString(Value {
-      env,
-      value: new_raw_value,
-      value_type: ValueType::String,
-    }))
+    Ok(JsString(
+      Value {
+        env,
+        value: new_raw_value,
+        value_type: ValueType::String,
+      },
+      std::marker::PhantomData,
+    ))
   }
 
   fn coerce_to_object(self) -> Result<JsObject> {
@@ -291,7 +294,7 @@ pub trait JsValue: Sized {
   }
 }
 
-pub trait JsObjectValue: JsValue {
+pub trait JsObjectValue<'env>: JsValue<'env> {
   fn set_property<K, V>(&mut self, key: K, value: V) -> Result<()>
   where
     K: NapiRaw,
@@ -657,7 +660,7 @@ pub trait JsObjectValue: JsValue {
   }
 }
 
-impl<T: JsValue> NapiRaw for T {
+impl<'env, T: JsValue<'env>> NapiRaw for T {
   unsafe fn raw(&self) -> sys::napi_value {
     self.value().value
   }
@@ -747,16 +750,19 @@ macro_rules! impl_js_value_methods {
         ))
       }
 
-      pub fn coerce_to_string(self) -> Result<JsString> {
+      pub fn coerce_to_string<'env>(self) -> Result<JsString<'env>> {
         let mut new_raw_value = ptr::null_mut();
         check_status!(unsafe {
           sys::napi_coerce_to_string(self.0.env, self.0.value, &mut new_raw_value)
         })?;
-        Ok(JsString(Value {
-          env: self.0.env,
-          value: new_raw_value,
-          value_type: ValueType::String,
-        }))
+        Ok(JsString(
+          Value {
+            env: self.0.env,
+            value: new_raw_value,
+            value_type: ValueType::String,
+          },
+          std::marker::PhantomData,
+        ))
       }
 
       pub fn coerce_to_object(self) -> Result<JsObject> {
@@ -1232,7 +1238,6 @@ impl_js_value_methods!(JsBuffer);
 impl_js_value_methods!(JsArrayBuffer);
 impl_js_value_methods!(JsTypedArray);
 impl_js_value_methods!(JsDataView);
-impl_js_value_methods!(JsString);
 impl_js_value_methods!(JsObject);
 #[cfg(feature = "napi5")]
 impl_js_value_methods!(JsDate);
@@ -1261,7 +1266,6 @@ impl_napi_value_trait!(JsBuffer, Object);
 impl_napi_value_trait!(JsArrayBuffer, Object);
 impl_napi_value_trait!(JsTypedArray, Object);
 impl_napi_value_trait!(JsDataView, Object);
-impl_napi_value_trait!(JsString, String);
 impl_napi_value_trait!(JsObject, Object);
 #[cfg(feature = "napi5")]
 impl_napi_value_trait!(JsDate, Object);
@@ -1276,7 +1280,7 @@ pub struct Unknown<'env>(
   pub(crate) std::marker::PhantomData<&'env ()>,
 );
 
-impl JsValue for Unknown<'_> {
+impl<'env> JsValue<'env> for Unknown<'env> {
   fn value(&self) -> Value {
     self.0
   }

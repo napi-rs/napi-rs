@@ -15,7 +15,7 @@ pub struct PromiseRaw<'env, T> {
   _phantom: &'env PhantomData<T>,
 }
 
-impl<T> JsValue for PromiseRaw<'_, T> {
+impl<'env, T> JsValue<'env> for PromiseRaw<'env, T> {
   fn value(&self) -> Value {
     Value {
       env: self.env,
@@ -25,7 +25,7 @@ impl<T> JsValue for PromiseRaw<'_, T> {
   }
 }
 
-impl<T> JsObjectValue for PromiseRaw<'_, T> {}
+impl<'env, T> JsObjectValue<'env> for PromiseRaw<'env, T> {}
 
 impl<T: FromNapiValue> TypeName for PromiseRaw<'_, T> {
   fn type_name() -> &'static str {

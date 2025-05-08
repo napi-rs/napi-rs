@@ -466,16 +466,14 @@ macro_rules! check_status_and_type {
             format!($msg, format!("Object {}", object))
           }
           ValueType::Boolean | ValueType::Number => {
-            let value =
-              unsafe { $crate::Unknown::from_raw_unchecked($env, $val).coerce_to_string()? }
-                .into_utf8()?;
+            let val = $crate::Unknown::from_raw_unchecked($env, $val);
+            let value = val.coerce_to_string()?.into_utf8()?;
             format!($msg, format!("{} {} ", value_type, value.as_str()?))
           }
           #[cfg(feature = "napi6")]
           ValueType::BigInt => {
-            let value =
-              unsafe { $crate::Unknown::from_raw_unchecked($env, $val).coerce_to_string()? }
-                .into_utf8()?;
+            let val = $crate::Unknown::from_raw_unchecked($env, $val);
+            let value = val.coerce_to_string()?.into_utf8()?;
             format!($msg, format!("{} {} ", value_type, value.as_str()?))
           }
           _ => format!($msg, value_type),

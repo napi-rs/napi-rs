@@ -1,13 +1,13 @@
 use napi::{
   bindgen_prelude::{FnArgs, Function, Null},
-  CallContext, JsError, JsObject, JsString, Result, Unknown,
+  CallContext, JsError, JsObject, JsString, JsValue, Result, Unknown,
 };
 
 #[js_function(1)]
 pub fn call_function(ctx: CallContext) -> Result<Null> {
   let js_func = ctx.get::<Function<FnArgs<(Unknown, Unknown)>>>(0)?;
-  let js_string_hello = ctx.env.create_string("hello".as_ref())?.into_unknown();
-  let js_string_world = ctx.env.create_string("world".as_ref())?.into_unknown();
+  let js_string_hello = ctx.env.create_string("hello".as_ref())?.to_unknown();
+  let js_string_world = ctx.env.create_string("world".as_ref())?.to_unknown();
 
   js_func.call((js_string_hello, js_string_world).into())?;
 
