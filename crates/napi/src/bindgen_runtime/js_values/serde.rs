@@ -1,12 +1,15 @@
+use std::marker::PhantomData;
+
 use serde_json::{Map, Number, Value};
 
 use crate::{
-  bindgen_runtime::Null, check_status, sys, type_of, Error, JsObject, Result, Status, ValueType,
+  bindgen_runtime::{Null, Object},
+  check_status, sys, type_of, Env, Error, Result, Status, ValueType,
 };
 
 #[cfg(feature = "napi6")]
 use super::BigInt;
-use super::{FromNapiValue, Object, ToNapiValue};
+use super::{FromNapiValue, ToNapiValue};
 
 impl ToNapiValue for &Value {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
@@ -88,7 +91,7 @@ impl FromNapiValue for Value {
 
 impl ToNapiValue for &Map<String, Value> {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
-    let mut obj = Object::new(env)?;
+    let mut obj = Object::new(&Env::from(env))?;
 
     for (k, v) in val.into_iter() {
       obj.set(k, v)?;
@@ -106,11 +109,14 @@ impl ToNapiValue for Map<String, Value> {
 
 impl FromNapiValue for Map<String, Value> {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
-    let obj = JsObject(crate::Value {
-      env,
-      value: napi_val,
-      value_type: ValueType::Object,
-    });
+    let obj = Object(
+      crate::Value {
+        env,
+        value: napi_val,
+        value_type: ValueType::Object,
+      },
+      PhantomData,
+    );
 
     let mut map = Map::new();
     for key in Object::keys(&obj)?.into_iter() {

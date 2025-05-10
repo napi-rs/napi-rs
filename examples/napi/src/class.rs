@@ -1,6 +1,7 @@
 use napi::{
   bindgen_prelude::{
-    Buffer, ClassInstance, JavaScriptClassExt, ObjectFinalize, This, Uint8Array, Unknown,
+    Buffer, ClassInstance, JavaScriptClassExt, JsObjectValue, JsValue, ObjectFinalize, This,
+    Uint8Array, Unknown,
   },
   Env, Property, PropertyAttributes, Result,
 };
@@ -96,7 +97,7 @@ impl Animal {
   pub fn override_individual_arg_on_method(
     &self,
     normal_ty: String,
-    #[napi(ts_arg_type = "{n: string}")] overridden_ty: napi::JsObject,
+    #[napi(ts_arg_type = "{n: string}")] overridden_ty: napi::bindgen_prelude::Object,
   ) -> Bird {
     let obj = overridden_ty.coerce_to_object().unwrap();
     let the_n: Option<String> = obj.get("n").unwrap();
@@ -230,7 +231,7 @@ pub struct NinjaTurtle {
 impl NinjaTurtle {
   #[napi]
   pub fn is_instance_of(env: Env, value: Unknown) -> Result<bool> {
-    Self::instance_of(env, value)
+    Self::instance_of(&env, value)
   }
 
   /// Create your ninja turtle! 🐢

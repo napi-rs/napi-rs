@@ -1,4 +1,4 @@
-use napi::{bindgen_prelude::*, JsValue};
+use napi::bindgen_prelude::*;
 
 #[napi]
 pub fn throw_error() -> Result<()> {

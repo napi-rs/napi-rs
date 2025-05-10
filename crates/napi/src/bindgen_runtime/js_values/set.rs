@@ -35,13 +35,13 @@ where
   S: Default + BuildHasher,
 {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
-    let obj = unsafe { Object::from_napi_value(env, napi_val)? };
+    let obj = Object::from_raw(env, napi_val);
     let mut set = HashSet::default();
     let iter_creator: Function<'_, (), Object> = obj.get_named_property("values")?;
-    let iter = iter_creator.apply(&obj, ())?;
+    let iter = iter_creator.apply(obj, ())?;
     let next: Function<'_, (), Object> = iter.get_named_property("next")?;
     while {
-      let o: Object = next.apply(&iter, ())?;
+      let o: Object = next.apply(iter, ())?;
       let done: bool = o.get_named_property("done")?;
       if !done {
         let v = o.get_named_property_unchecked::<V>("value")?;
@@ -87,10 +87,10 @@ where
     let obj = unsafe { Object::from_napi_value(env, napi_val)? };
     let mut set = BTreeSet::default();
     let iter_creator: Function<'_, (), Object> = obj.get_named_property("values")?;
-    let iter = iter_creator.apply(&obj, ())?;
+    let iter = iter_creator.apply(obj, ())?;
     let next: Function<'_, (), Object> = iter.get_named_property("next")?;
     while {
-      let o: Object = next.apply(&iter, ())?;
+      let o: Object = next.apply(iter, ())?;
       let done: bool = o.get_named_property("done")?;
       if !done {
         let v = o.get_named_property_unchecked::<V>("value")?;

@@ -8,7 +8,7 @@ use bitflags::bitflags;
 
 #[cfg(feature = "napi5")]
 use crate::bindgen_runtime::{FromNapiValue, This};
-use crate::{bindgen_runtime::ToNapiValue, sys, Callback, Env, NapiRaw, Result};
+use crate::{bindgen_runtime::ToNapiValue, sys, Callback, Env, JsValue, Result};
 
 #[cfg(feature = "napi5")]
 #[derive(Copy, Clone)]
@@ -142,8 +142,8 @@ impl Property {
     self
   }
 
-  pub fn with_value<T: NapiRaw>(mut self, value: &T) -> Self {
-    self.value = unsafe { T::raw(value) };
+  pub fn with_value<'env, T: JsValue<'env>>(mut self, value: &T) -> Self {
+    self.value = T::raw(value);
     self
   }
 

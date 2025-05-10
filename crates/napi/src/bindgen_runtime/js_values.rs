@@ -4,7 +4,7 @@ use std::{
   sync::{Arc, Mutex},
 };
 
-use crate::{check_status, sys, Error, NapiRaw, NapiValue, Result, Status, ValueType};
+use crate::{check_status, sys, Error, JsValue, Result, Status, ValueType};
 
 mod array;
 mod arraybuffer;
@@ -78,15 +78,9 @@ impl ToNapiValue for sys::napi_value {
   }
 }
 
-impl<T: NapiRaw> ToNapiValue for T {
+impl<'env, T: JsValue<'env>> ToNapiValue for T {
   unsafe fn to_napi_value(_env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
-    Ok(unsafe { NapiRaw::raw(&val) })
-  }
-}
-
-impl<T: NapiValue> FromNapiValue for T {
-  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
-    Ok(unsafe { T::from_raw_unchecked(env, napi_val) })
+    Ok(val.raw())
   }
 }
 
