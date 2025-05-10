@@ -2,11 +2,12 @@ use std::marker::PhantomData;
 use std::os::raw::c_void;
 use std::ptr;
 
-use crate::bindgen_runtime::ToNapiValue;
-use crate::{check_status, JsObject, Value};
-use crate::{sys, Env, Error, Result};
+use crate::{
+  bindgen_runtime::{Object, ToNapiValue},
+  check_status, sys, Env, Error, Result,
+};
 #[cfg(feature = "deferred_trace")]
-use crate::{NapiRaw, NapiValue};
+use crate::{JsObjectValue, JsValue};
 
 #[cfg(feature = "deferred_trace")]
 /// A javascript error which keeps a stack trace
@@ -49,18 +50,18 @@ impl DeferredTrace {
       "Failed to get referenced value in DeferredTrace"
     )?;
 
-    let mut obj = unsafe { JsObject::from_raw_unchecked(raw_env, raw) };
+    let mut obj = Object::from_raw(raw_env, raw);
     let err_value = if !err.maybe_raw.is_null() {
       let mut err_raw_value = std::ptr::null_mut();
       check_status!(
         unsafe { sys::napi_get_reference_value(raw_env, err.maybe_raw, &mut err_raw_value) },
         "Get error reference in `to_napi_value` failed"
       )?;
-      let err_obj = unsafe { JsObject::from_raw_unchecked(raw_env, err_raw_value) };
+      let err_obj = Object::from_raw(raw_env, err_raw_value);
 
       let err_value = if err_obj.has_named_property("message")? {
         // The error was already created inside the JS engine, just return it
-        Ok(unsafe { err_obj.raw() })
+        Ok(err_obj.raw())
       } else {
         obj.set_named_property("message", "")?;
         obj.set_named_property("code", "")?;
@@ -123,13 +124,13 @@ unsafe impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> Send
 }
 
 impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, Resolver> {
-  pub(crate) fn new(env: sys::napi_env) -> Result<(Self, JsObject)> {
+  pub(crate) fn new(env: &Env) -> Result<(Self, Object)> {
     let (tsfn, promise) = js_deferred_new_raw(env, Some(napi_resolve_deferred::<Data, Resolver>))?;
 
     let deferred = Self {
       tsfn,
       #[cfg(feature = "deferred_trace")]
-      trace: DeferredTrace::new(env)?,
+      trace: DeferredTrace::new(env.0)?,
       _data: PhantomData,
       _resolver: PhantomData,
     };
@@ -179,13 +180,13 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
 }
 
 fn js_deferred_new_raw(
-  env: sys::napi_env,
+  env: &Env,
   resolve_deferred: sys::napi_threadsafe_function_call_js,
-) -> Result<(sys::napi_threadsafe_function, JsObject)> {
+) -> Result<(sys::napi_threadsafe_function, Object)> {
   let mut raw_promise = ptr::null_mut();
   let mut raw_deferred = ptr::null_mut();
   check_status! {
-    unsafe { sys::napi_create_promise(env, &mut raw_deferred, &mut raw_promise) }
+    unsafe { sys::napi_create_promise(env.0, &mut raw_deferred, &mut raw_promise) }
   }?;
 
   // Create a threadsafe function so we can call back into the JS thread when we are done.
@@ -193,7 +194,7 @@ fn js_deferred_new_raw(
   check_status!(
     unsafe {
       sys::napi_create_string_utf8(
-        env,
+        env.0,
         c"napi_resolve_deferred".as_ptr().cast(),
         22,
         &mut async_resource_name,
@@ -206,7 +207,7 @@ fn js_deferred_new_raw(
   check_status!(
     unsafe {
       sys::napi_create_threadsafe_function(
-        env,
+        env.0,
         ptr::null_mut(),
         ptr::null_mut(),
         async_resource_name,
@@ -222,11 +223,7 @@ fn js_deferred_new_raw(
     "Create threadsafe function in JsDeferred failed"
   )?;
 
-  let promise = JsObject(Value {
-    env,
-    value: raw_promise,
-    value_type: crate::ValueType::Object,
-  });
+  let promise = Object::from_raw(env.0, raw_promise);
 
   Ok((tsfn, promise))
 }

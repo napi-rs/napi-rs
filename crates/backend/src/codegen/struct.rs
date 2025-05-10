@@ -380,7 +380,7 @@ impl NapiStruct {
           }
         }
 
-        fn instance_of<V: napi::NapiRaw>(env: napi::bindgen_prelude::Env, value: V) -> napi::bindgen_prelude::Result<bool> {
+        fn instance_of<'env, V: napi::JsValue<'env>>(env: &napi::bindgen_prelude::Env, value: V) -> napi::bindgen_prelude::Result<bool> {
           if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name_str) {
             let mut ctor = std::ptr::null_mut();
             napi::check_status!(
@@ -390,7 +390,7 @@ impl NapiStruct {
             )?;
             let mut is_instance_of = false;
             napi::check_status!(
-              unsafe { napi::sys::napi_instanceof(env.raw(), value.raw(), ctor, &mut is_instance_of) },
+              unsafe { napi::sys::napi_instanceof(env.raw(), value.value().value, ctor, &mut is_instance_of) },
               "Failed to run instanceof for class `{}`",
               #js_name_str
             )?;
@@ -645,7 +645,7 @@ impl NapiStruct {
             #[allow(unused_variables)]
             let env_wrapper = napi::bindgen_prelude::Env::from(env);
             #[allow(unused_mut)]
-            let mut obj = env_wrapper.create_object()?;
+            let mut obj = napi::bindgen_prelude::Object::new(&env_wrapper)?;
 
             let #destructed_fields = val;
             #(#obj_field_setters)*
@@ -1027,7 +1027,7 @@ impl NapiStruct {
             #[allow(unused_variables)]
             let env_wrapper = napi::bindgen_prelude::Env::from(env);
             #[allow(unused_mut)]
-            let mut obj = env_wrapper.create_object()?;
+            let mut obj = napi::bindgen_prelude::Object::new(&env_wrapper)?;
             match val {
               #(#variant_arm_setters)*
             };

@@ -5,13 +5,82 @@ use std::ptr;
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
 use std::sync::atomic::Ordering;
 
-use crate::bindgen_prelude::This;
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
 use crate::bindgen_prelude::{CUSTOM_GC_TSFN, CUSTOM_GC_TSFN_DESTROYED, THREADS_CAN_ACCESS_ENV};
-pub use crate::js_values::TypedArrayType;
-use crate::{check_status, sys, Env, Error, NapiRaw, Result, Status, ValueType};
+use crate::{
+  bindgen_prelude::{FromNapiValue, JsValue, This, ToNapiValue, TypeName, ValidateNapiValue},
+  check_status, sys, Env, Error, JsObjectValue, Result, Status, Value, ValueType,
+};
 
-use super::{FromNapiValue, ToNapiValue, TypeName, ValidateNapiValue};
+#[repr(i32)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum TypedArrayType {
+  Int8 = 0,
+  Uint8,
+  Uint8Clamped,
+  Int16,
+  Uint16,
+  Int32,
+  Uint32,
+  Float32,
+  Float64,
+  #[cfg(feature = "napi6")]
+  BigInt64,
+  #[cfg(feature = "napi6")]
+  BigUint64,
+
+  /// compatible with higher versions
+  Unknown = 1024,
+}
+
+impl AsRef<str> for TypedArrayType {
+  fn as_ref(&self) -> &str {
+    match self {
+      TypedArrayType::Int8 => "Int8",
+      TypedArrayType::Uint8 => "Uint8",
+      TypedArrayType::Uint8Clamped => "Uint8Clamped",
+      TypedArrayType::Int16 => "Int16",
+      TypedArrayType::Uint16 => "Uint16",
+      TypedArrayType::Int32 => "Int32",
+      TypedArrayType::Uint32 => "Uint32",
+      TypedArrayType::Float32 => "Float32",
+      TypedArrayType::Float64 => "Float64",
+      #[cfg(feature = "napi6")]
+      TypedArrayType::BigInt64 => "BigInt64",
+      #[cfg(feature = "napi6")]
+      TypedArrayType::BigUint64 => "BigUint64",
+      TypedArrayType::Unknown => "Unknown",
+    }
+  }
+}
+
+impl From<sys::napi_typedarray_type> for TypedArrayType {
+  fn from(value: sys::napi_typedarray_type) -> Self {
+    match value {
+      sys::TypedarrayType::int8_array => Self::Int8,
+      sys::TypedarrayType::uint8_array => Self::Uint8,
+      sys::TypedarrayType::uint8_clamped_array => Self::Uint8Clamped,
+      sys::TypedarrayType::int16_array => Self::Int16,
+      sys::TypedarrayType::uint16_array => Self::Uint16,
+      sys::TypedarrayType::int32_array => Self::Int32,
+      sys::TypedarrayType::uint32_array => Self::Uint32,
+      sys::TypedarrayType::float32_array => Self::Float32,
+      sys::TypedarrayType::float64_array => Self::Float64,
+      #[cfg(feature = "napi6")]
+      sys::TypedarrayType::bigint64_array => Self::BigInt64,
+      #[cfg(feature = "napi6")]
+      sys::TypedarrayType::biguint64_array => Self::BigUint64,
+      _ => Self::Unknown,
+    }
+  }
+}
+
+impl From<TypedArrayType> for sys::napi_typedarray_type {
+  fn from(value: TypedArrayType) -> sys::napi_typedarray_type {
+    value as i32
+  }
+}
 
 #[cfg(target_family = "wasm")]
 extern "C" {
@@ -22,6 +91,236 @@ extern "C" {
     byte_offset: usize,
     length: usize,
   ) -> crate::sys::napi_status;
+}
+
+#[derive(Clone, Copy)]
+/// Represents a JavaScript ArrayBuffer
+pub struct ArrayBuffer<'env> {
+  pub(crate) value: Value,
+  pub(crate) data: &'env [u8],
+}
+
+impl<'env> JsValue<'env> for ArrayBuffer<'env> {
+  fn value(&self) -> Value {
+    self.value
+  }
+}
+
+impl<'env> JsObjectValue<'env> for ArrayBuffer<'env> {}
+
+impl FromNapiValue for ArrayBuffer<'_> {
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
+    let value = Value {
+      env,
+      value: napi_val,
+      value_type: ValueType::Object,
+    };
+    let mut data = ptr::null_mut();
+    let mut byte_length = 0;
+    check_status!(unsafe {
+      sys::napi_get_arraybuffer_info(env, napi_val, &mut data, &mut byte_length)
+    })?;
+    Ok(ArrayBuffer {
+      value,
+      data: if data.is_null() {
+        &[]
+      } else {
+        unsafe { std::slice::from_raw_parts(data as *const u8, byte_length) }
+      },
+    })
+  }
+}
+
+impl Deref for ArrayBuffer<'_> {
+  type Target = [u8];
+
+  fn deref(&self) -> &Self::Target {
+    self.data
+  }
+}
+
+impl<'env> ArrayBuffer<'env> {
+  /// Create a new `ArrayBuffer` from a `Vec<u8>`.
+  pub fn from_data<D: Into<Vec<u8>>>(env: &Env, data: D) -> Result<Self> {
+    let mut buf = ptr::null_mut();
+    let mut data = data.into();
+    let mut inner_ptr = data.as_mut_ptr();
+    #[cfg(all(debug_assertions, not(windows)))]
+    {
+      let is_existed = super::BUFFER_DATA.with(|buffer_data| {
+        let buffer = buffer_data.lock().expect("Unlock buffer data failed");
+        buffer.contains(&inner_ptr)
+      });
+      if is_existed {
+        panic!("Share the same data between different buffers is not allowed, see: https://github.com/nodejs/node/issues/32463#issuecomment-631974747");
+      }
+    }
+    let len = data.len();
+    let mut status = unsafe {
+      sys::napi_create_external_arraybuffer(
+        env.0,
+        inner_ptr.cast(),
+        data.len(),
+        Some(finalize_slice::<u8>),
+        Box::into_raw(Box::new(len)).cast(),
+        &mut buf,
+      )
+    };
+    if status == napi_sys::Status::napi_no_external_buffers_allowed {
+      let mut inner_data = unsafe { Vec::from_raw_parts(inner_ptr, data.len(), data.len()) };
+      let mut underlying_data = ptr::null_mut();
+      status =
+        unsafe { sys::napi_create_arraybuffer(env.0, data.len(), &mut underlying_data, &mut buf) };
+      unsafe {
+        std::ptr::copy_nonoverlapping(inner_data.as_mut_ptr().cast(), underlying_data, data.len())
+      };
+      inner_ptr = underlying_data.cast();
+    } else {
+      mem::forget(data);
+    }
+    check_status!(status, "Failed to create buffer slice from data")?;
+    Ok(Self {
+      value: Value {
+        env: env.0,
+        value: buf,
+        value_type: ValueType::Object,
+      },
+      data: if len == 0 {
+        &[]
+      } else {
+        unsafe { std::slice::from_raw_parts(inner_ptr.cast(), len) }
+      },
+    })
+  }
+
+  /// ## Safety
+  ///
+  /// Mostly the same with `from_data`
+  ///
+  /// Provided `finalize_callback` will be called when `[u8]` got dropped.
+  ///
+  /// You can pass in `noop_finalize` if you have nothing to do in finalize phase.
+  ///
+  /// ### Notes
+  ///
+  /// JavaScript may mutate the data passed in to this buffer when writing the buffer.
+  /// However, some JavaScript runtimes do not support external buffers (notably electron!)
+  /// in which case modifications may be lost.
+  ///
+  /// If you need to support these runtimes, you should create a buffer by other means and then
+  /// later copy the data back out.
+  pub unsafe fn from_external<T: 'env, F: FnOnce(Env, T)>(
+    env: &Env,
+    data: *mut u8,
+    len: usize,
+    finalize_hint: T,
+    finalize_callback: F,
+  ) -> Result<Self> {
+    if data.is_null() || data as *const u8 == crate::EMPTY_VEC.as_ptr() {
+      return Err(Error::new(
+        Status::InvalidArg,
+        "Borrowed data should not be null".to_owned(),
+      ));
+    }
+    #[cfg(all(debug_assertions, not(windows)))]
+    {
+      let is_existed = super::BUFFER_DATA.with(|buffer_data| {
+        let buffer = buffer_data.lock().expect("Unlock buffer data failed");
+        buffer.contains(&data)
+      });
+      if is_existed {
+        panic!("Share the same data between different buffers is not allowed, see: https://github.com/nodejs/node/issues/32463#issuecomment-631974747");
+      }
+    }
+    let hint_ptr = Box::into_raw(Box::new((finalize_hint, finalize_callback)));
+    let mut arraybuffer_value = ptr::null_mut();
+    let mut status = unsafe {
+      sys::napi_create_external_arraybuffer(
+        env.0,
+        data.cast(),
+        len,
+        Some(crate::env::raw_finalize_with_custom_callback::<T, F>),
+        hint_ptr.cast(),
+        &mut arraybuffer_value,
+      )
+    };
+    status = if status == sys::Status::napi_no_external_buffers_allowed {
+      let (hint, finalize) = *Box::from_raw(hint_ptr);
+      let mut underlying_data = ptr::null_mut();
+      let status = unsafe {
+        sys::napi_create_arraybuffer(env.0, len, &mut underlying_data, &mut arraybuffer_value)
+      };
+      unsafe { std::ptr::copy_nonoverlapping(data.cast(), underlying_data, len) };
+      finalize(*env, hint);
+      status
+    } else {
+      status
+    };
+    check_status!(status, "Failed to create arraybuffer from data")?;
+
+    Ok(Self {
+      value: Value {
+        env: env.0,
+        value: arraybuffer_value,
+        value_type: ValueType::Object,
+      },
+      data: if len == 0 {
+        &[]
+      } else {
+        unsafe { std::slice::from_raw_parts(data.cast(), len) }
+      },
+    })
+  }
+
+  /// Copy data from a `&[u8]` and create a `ArrayBuffer` from it.
+  pub fn copy_from<D: AsRef<[u8]>>(env: &Env, data: D) -> Result<Self> {
+    let data = data.as_ref();
+    let len = data.len();
+    let mut arraybuffer_value = ptr::null_mut();
+    let mut underlying_data = ptr::null_mut();
+
+    check_status!(
+      unsafe {
+        sys::napi_create_arraybuffer(env.0, len, &mut underlying_data, &mut arraybuffer_value)
+      },
+      "Failed to create ArrayBuffer"
+    )?;
+
+    Ok(Self {
+      value: Value {
+        env: env.0,
+        value: arraybuffer_value,
+        value_type: ValueType::Object,
+      },
+      data: if len == 0 {
+        &[]
+      } else {
+        unsafe { std::slice::from_raw_parts(underlying_data.cast(), len) }
+      },
+    })
+  }
+
+  #[cfg(feature = "napi7")]
+  /// Generally, an ArrayBuffer is non-detachable if it has been detached before.
+  ///
+  /// The engine may impose additional conditions on whether an ArrayBuffer is detachable.
+  ///
+  /// For example, V8 requires that the ArrayBuffer be external, that is, created with napi_create_external_arraybuffer
+  pub fn detach(self) -> Result<()> {
+    check_status!(unsafe { sys::napi_detach_arraybuffer(self.value.env, self.value.value) })
+  }
+
+  #[cfg(feature = "napi7")]
+  /// The ArrayBuffer is considered `detached` if its internal data is null.
+  ///
+  /// This API represents the invocation of the `ArrayBuffer` `IsDetachedBuffer` operation as defined in [Section 24.1.1.2](https://tc39.es/ecma262/#sec-isdetachedbuffer) of the ECMAScript Language Specification.
+  pub fn is_detached(&self) -> Result<bool> {
+    let mut is_detached = false;
+    check_status!(unsafe {
+      sys::napi_is_detached_arraybuffer(self.value.env, self.value.value, &mut is_detached)
+    })?;
+    Ok(is_detached)
+  }
 }
 
 trait Finalizer {
@@ -201,6 +500,18 @@ macro_rules! impl_typed_array {
           byte_offset: 0,
         }
       }
+
+      /// # Safety
+      ///
+      /// This is literally undefined behavior, as the JS side may always modify the underlying buffer,
+      /// without synchronization. Also see the docs for the `DerefMut` impl.
+      pub unsafe fn as_mut(&mut self) -> &mut [$rust_type] {
+        if self.data.is_null() {
+          return &mut [];
+        }
+
+        unsafe { std::slice::from_raw_parts_mut(self.data, self.length) }
+      }
     }
 
     impl Deref for $name {
@@ -211,15 +522,6 @@ macro_rules! impl_typed_array {
       }
     }
 
-    /// SAFETY: This is literally undefined behavior. `Buffer::clone` allows you to create shared
-    /// access to the underlying data, but `as_mut` and `deref_mut` allow unsynchronized mutation of
-    /// that data (not to speak of the JS side having write access as well, at the same time).
-    impl DerefMut for $name {
-      fn deref_mut(&mut self) -> &mut Self::Target {
-        self.as_mut()
-      }
-    }
-
     impl AsRef<[$rust_type]> for $name {
       fn as_ref(&self) -> &[$rust_type] {
         if self.data.is_null() {
@@ -227,16 +529,6 @@ macro_rules! impl_typed_array {
         }
 
         unsafe { std::slice::from_raw_parts(self.data, self.length) }
-      }
-    }
-
-    impl AsMut<[$rust_type]> for $name {
-      fn as_mut(&mut self) -> &mut [$rust_type] {
-        if self.data.is_null() {
-          return &mut [];
-        }
-
-        unsafe { std::slice::from_raw_parts_mut(self.data, self.length) }
       }
     }
 
@@ -493,13 +785,13 @@ macro_rules! impl_typed_array {
 
 macro_rules! impl_from_slice {
   ($name:ident, $slice_type:ident, $rust_type:ident, $typed_array_type:expr) => {
-    pub struct $slice_type<'scope> {
-      pub(crate) inner: &'scope mut [$rust_type],
+    pub struct $slice_type<'env> {
+      pub(crate) inner: &'env mut [$rust_type],
       raw_value: sys::napi_value,
       env: sys::napi_env,
     }
 
-    impl <'scope> $slice_type<'scope> {
+    impl <'env> $slice_type<'env> {
       #[doc = " Create a new `"]
       #[doc = stringify!($slice_type)]
       #[doc = "` from a `Vec<"]
@@ -592,7 +884,7 @@ macro_rules! impl_from_slice {
       #[doc = ""]
       #[doc = "If you need to support these runtimes, you should create a buffer by other means and then"]
       #[doc = "later copy the data back out."]
-      pub unsafe fn from_external<T: 'scope, F: FnOnce(Env, T)>(
+      pub unsafe fn from_external<T: 'env, F: FnOnce(Env, T)>(
         env: &Env,
         data: *mut u8,
         len: usize,
@@ -721,9 +1013,21 @@ macro_rules! impl_from_slice {
         })
       }
 
+      /// Create from `ArrayBuffer`
+      pub fn from_arraybuffer(arraybuffer: &ArrayBuffer<'env>, byte_offset: usize, length: usize) -> Result<$slice_type<'env>> {
+        let env = arraybuffer.value.env;
+        let mut typed_array = ptr::null_mut();
+        check_status!(unsafe {
+          sys::napi_create_typedarray(env, $typed_array_type.into(), length, arraybuffer.value().value, byte_offset, &mut typed_array)
+        }, "Failed to create TypedArray from ArrayBuffer")?;
+
+        unsafe { FromNapiValue::from_napi_value(env, typed_array) }
+      }
+
+      /// extends the lifetime of the `TypedArray` to the lifetime of the `This`
       pub fn assign_to_this<'a, U>(&self, this: This<'a, U>, name: &str) -> Result<$slice_type<'a>>
       where
-        U: FromNapiValue + NapiRaw,
+        U: FromNapiValue + JsObjectValue<'a>,
       {
         let name = CString::new(name)?;
         check_status!(
@@ -751,11 +1055,17 @@ macro_rules! impl_from_slice {
       }
     }
 
-    impl NapiRaw for $slice_type<'_> {
-      unsafe fn raw(&self) -> napi_sys::napi_value {
-        self.raw_value
+    impl<'env> JsValue<'env> for $slice_type<'env> {
+      fn value(&self) -> Value {
+        Value {
+          env: self.env,
+          value: self.raw_value,
+          value_type: ValueType::Object,
+        }
       }
     }
+
+    impl<'env> JsObjectValue<'env> for $slice_type<'env> { }
 
     impl ToNapiValue for &$slice_type<'_> {
       unsafe fn to_napi_value(_: sys::napi_env, val: Self) -> Result<sys::napi_value> {

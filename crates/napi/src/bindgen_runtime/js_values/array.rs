@@ -1,11 +1,11 @@
-use std::ptr;
+use std::{marker::PhantomData, ptr};
 
-use crate::{bindgen_prelude::*, check_status, JsObject, Value};
+use crate::{bindgen_prelude::*, check_status, Value};
 
 pub struct Array<'env> {
-  env: sys::napi_env,
-  inner: sys::napi_value,
-  len: u32,
+  pub(crate) env: sys::napi_env,
+  pub(crate) inner: sys::napi_value,
+  pub(crate) len: u32,
   _marker: std::marker::PhantomData<&'env ()>,
 }
 
@@ -89,14 +89,17 @@ impl<'env> Array<'env> {
     self.len
   }
 
-  pub fn coerce_to_object(self) -> Result<JsObject> {
+  pub fn coerce_to_object(self) -> Result<Object<'env>> {
     let mut new_raw_value = ptr::null_mut();
     check_status!(unsafe { sys::napi_coerce_to_object(self.env, self.inner, &mut new_raw_value) })?;
-    Ok(JsObject(Value {
-      env: self.env,
-      value: new_raw_value,
-      value_type: ValueType::Object,
-    }))
+    Ok(Object(
+      Value {
+        env: self.env,
+        value: new_raw_value,
+        value_type: ValueType::Object,
+      },
+      PhantomData,
+    ))
   }
 }
 
@@ -110,11 +113,17 @@ impl TypeName for Array<'_> {
   }
 }
 
-impl ToNapiValue for Array<'_> {
-  unsafe fn to_napi_value(_env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
-    Ok(val.inner)
+impl<'env> JsValue<'env> for Array<'env> {
+  fn value(&self) -> Value {
+    Value {
+      env: self.env,
+      value: self.inner,
+      value_type: ValueType::Object,
+    }
   }
 }
+
+impl<'env> JsObjectValue<'env> for Array<'env> {}
 
 impl FromNapiValue for Array<'_> {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {

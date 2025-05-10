@@ -2,10 +2,10 @@ use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::ptr;
 
-use super::{Value, ValueType};
-use crate::bindgen_runtime::ValidateNapiValue;
-use crate::Env;
-use crate::{bindgen_runtime::TypeName, check_status, sys, Error, Ref, Result, Status, Unknown};
+use crate::{
+  bindgen_runtime::{TypeName, ValidateNapiValue},
+  check_status, sys, Env, Error, JsValue, Ref, Result, Status, Unknown, Value, ValueType,
+};
 
 #[deprecated(since = "3.0.0", note = "Please use Buffer or &[u8] instead")]
 pub struct JsBuffer(pub(crate) Value);
@@ -31,6 +31,12 @@ impl ValidateNapiValue for JsBuffer {
       ));
     }
     Ok(ptr::null_mut())
+  }
+}
+
+impl JsValue<'_> for JsBuffer {
+  fn value(&self) -> Value {
+    self.0
   }
 }
 

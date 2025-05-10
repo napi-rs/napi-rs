@@ -1,14 +1,16 @@
+use std::marker::PhantomData;
 use std::ptr;
 
-use super::check_status;
+use super::{check_status, JsObjectValue};
 use crate::{
-  bindgen_runtime::{TypeName, ValidateNapiValue},
-  sys, Error, Result, Status, Value, ValueType,
+  bindgen_runtime::{FromNapiValue, TypeName, ValidateNapiValue},
+  sys, Error, JsValue, Result, Status, Value, ValueType,
 };
 
-pub struct JsDate(pub(crate) Value);
+#[derive(Clone, Copy)]
+pub struct JsDate<'env>(pub(crate) Value, pub(crate) PhantomData<&'env ()>);
 
-impl TypeName for JsDate {
+impl TypeName for JsDate<'_> {
   fn type_name() -> &'static str {
     "Date"
   }
@@ -18,7 +20,7 @@ impl TypeName for JsDate {
   }
 }
 
-impl ValidateNapiValue for JsDate {
+impl ValidateNapiValue for JsDate<'_> {
   unsafe fn validate(env: sys::napi_env, napi_val: sys::napi_value) -> Result<sys::napi_value> {
     let mut is_date = false;
     check_status!(unsafe { sys::napi_is_date(env, napi_val, &mut is_date) })?;
@@ -33,7 +35,39 @@ impl ValidateNapiValue for JsDate {
   }
 }
 
-impl JsDate {
+impl FromNapiValue for JsDate<'_> {
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
+    Ok(Self(
+      Value {
+        env,
+        value: napi_val,
+        value_type: ValueType::Object,
+      },
+      PhantomData,
+    ))
+  }
+}
+
+impl<'env> JsValue<'env> for JsDate<'env> {
+  fn value(&self) -> Value {
+    self.0
+  }
+}
+
+impl<'env> JsObjectValue<'env> for JsDate<'env> {}
+
+impl JsDate<'_> {
+  pub(crate) fn from_raw(env: sys::napi_env, value: sys::napi_value) -> Self {
+    Self(
+      Value {
+        env,
+        value,
+        value_type: ValueType::Object,
+      },
+      PhantomData,
+    )
+  }
+
   pub fn value_of(&self) -> Result<f64> {
     let mut timestamp: f64 = 0.0;
     check_status!(unsafe { sys::napi_get_date_value(self.0.env, self.0.value, &mut timestamp) })?;
