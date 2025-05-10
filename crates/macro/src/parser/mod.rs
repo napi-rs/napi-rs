@@ -648,7 +648,7 @@ fn napi_fn_from_decl(
             ident
               .to_string()
               .trim_start_matches("get_")
-              .to_case(Case::Camel)
+              .to_string()
           }
         },
         |(js_name, _)| js_name.to_owned(),
@@ -662,7 +662,7 @@ fn napi_fn_from_decl(
             ident
               .to_string()
               .trim_start_matches("set_")
-              .to_case(Case::Camel)
+              .to_string()
           }
         },
         |(js_name, _)| js_name.to_owned(),
@@ -671,7 +671,7 @@ fn napi_fn_from_decl(
       "constructor".to_owned()
     } else {
       opts.js_name().map_or_else(
-        || ident.to_string().to_case(Case::Camel),
+        || ident.to_string(),
         |(js_name, _)| js_name.to_owned(),
       )
     };
@@ -987,7 +987,7 @@ fn convert_fields(
     let (js_name, name) = match &field.ident {
       Some(ident) => (
         field_opts.js_name().map_or_else(
-          || ident.unraw().to_string().to_case(Case::Camel),
+          || ident.unraw().to_string(),
           |(js_name, _)| js_name.to_owned(),
         ),
         syn::Member::Named(ident.clone()),
@@ -1059,7 +1059,7 @@ impl ConvertToAST for syn::ItemStruct {
 
     let struct_name = self.ident.clone();
     let js_name = opts.js_name().map_or_else(
-      || self.ident.to_string().to_case(Case::Pascal),
+      || self.ident.to_string(),
       |(js_name, _)| js_name.to_owned(),
     );
 
@@ -1187,7 +1187,7 @@ impl ConvertToAST for syn::ItemImpl {
 
     let (struct_name, has_lifetime) = extract_path_ident(struct_name)?;
 
-    let mut struct_js_name = struct_name.to_string().to_case(Case::UpperCamel);
+    let mut struct_js_name = struct_name.to_string();
     let mut items = vec![];
     let mut task_output_type = None;
     let mut iterator_yield_type = None;

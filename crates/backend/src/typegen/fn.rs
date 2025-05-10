@@ -141,9 +141,9 @@ fn gen_ts_func_arg(pat: &Pat) -> String {
           };
           let nested_str = gen_ts_func_arg(&field.pat);
           if member_str == nested_str {
-            member_str.to_case(Case::Camel)
+            member_str
           } else {
-            format!("{}: {}", member_str.to_case(Case::Camel), nested_str)
+            format!("{}: {}", member_str, nested_str)
           }
         })
         .collect::<Vec<_>>()
@@ -171,7 +171,7 @@ fn gen_ts_func_arg(pat: &Pat) -> String {
         .collect::<Vec<_>>()
         .join(", ")
     ),
-    _ => pat.to_token_stream().to_string().to_case(Case::Camel),
+    _ => pat.to_token_stream().to_string(),
   }
 }
 
@@ -267,7 +267,7 @@ impl NapiFn {
           }
           crate::NapiFnArgKind::Callback(cb) => {
             let ts_type = arg.use_overridden_type_or(|| gen_callback_type(cb));
-            let arg = cb.pat.to_token_stream().to_string().to_case(Case::Camel);
+            let arg = cb.pat.to_token_stream().to_string();
 
             Some(FnArg {
               arg,
@@ -307,7 +307,7 @@ impl NapiFn {
           let origin_name = i.to_string();
           let parent = CLASS_STRUCTS
             .with_borrow(|c| c.get(&origin_name).cloned())
-            .unwrap_or_else(|| origin_name.to_case(Case::Pascal));
+            .unwrap_or_else(|| origin_name);
 
           if self.is_async {
             format!(": Promise<{}>", parent)
