@@ -1,5 +1,5 @@
 use super::{check_status, sys};
-use crate::{bindgen_prelude::ToNapiValue, type_of, Error, Result};
+use crate::{bindgen_prelude::ToNapiValue, bindgen_prelude::FromNapiValue, type_of, Error, Result};
 
 macro_rules! impl_number_conversions {
   ( $( ($name:literal, $t:ty as $st:ty, $get:ident, $create:ident) ,)* ) => {
@@ -82,5 +82,18 @@ impl ToNapiValue for f32 {
     )?;
 
     Ok(ptr)
+  }
+}
+
+impl FromNapiValue for f32 {
+  unsafe fn from_napi_value(env: crate::sys::napi_env, val: crate::sys::napi_value) -> Result<f32> {
+    let ptr: *mut f64 = std::ptr::null_mut();
+
+    check_status!(
+      unsafe { sys::napi_get_value_double(env, val.into(), ptr) },
+      "Failed to convert rust type `f32` into napi value",
+    )?;
+
+    Ok(*ptr as f32)
   }
 }
