@@ -1,10 +1,11 @@
 use std::{marker::PhantomData, ptr};
 
-use super::{check_status, NapiRaw};
 use crate::{
   bindgen_runtime::{FromNapiMutRef, FromNapiValue, ToNapiValue},
-  sys, Env, Result,
+  check_status, sys, Env, Result,
 };
+
+use super::JsValue;
 
 pub struct Ref<T> {
   pub(crate) raw_ref: sys::napi_ref,
@@ -16,7 +17,7 @@ pub struct Ref<T> {
 unsafe impl<T> Send for Ref<T> {}
 unsafe impl<T> Sync for Ref<T> {}
 
-impl<T: NapiRaw> Ref<T> {
+impl<'env, T: JsValue<'env>> Ref<T> {
   pub fn new(env: &Env, value: &T) -> Result<Ref<T>> {
     let mut raw_ref = ptr::null_mut();
     check_status!(
@@ -70,7 +71,7 @@ impl<T: 'static + FromNapiMutRef> Ref<T> {
   }
 }
 
-impl<T: FromNapiValue + NapiRaw> FromNapiValue for Ref<T> {
+impl<'env, T: FromNapiValue + JsValue<'env>> FromNapiValue for Ref<T> {
   unsafe fn from_napi_value(env: sys::napi_env, value: sys::napi_value) -> Result<Self> {
     let val = T::from_napi_value(env, value)?;
     Ref::new(&Env::from_raw(env), &val)

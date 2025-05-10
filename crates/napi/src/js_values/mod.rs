@@ -7,7 +7,7 @@ use std::ffi::CString;
 use std::ptr;
 
 use crate::{
-  bindgen_runtime::{FromNapiValue, ToNapiValue, TypeName, ValidateNapiValue},
+  bindgen_runtime::{FromNapiValue, Object, ToNapiValue, TypeName, ValidateNapiValue},
   check_status, sys, type_of, Callback, Error, Result, Status, ValueType,
 };
 
@@ -29,6 +29,8 @@ mod date;
 mod deferred;
 mod either;
 mod escapable_handle_scope;
+#[cfg(feature = "compat-mode")]
+mod external;
 #[cfg(feature = "compat-mode")]
 mod function;
 mod global;
@@ -57,6 +59,8 @@ pub use de::De;
 pub use deferred::*;
 pub use either::Either;
 pub use escapable_handle_scope::EscapableHandleScope;
+#[cfg(feature = "compat-mode")]
+pub use external::JsExternal;
 #[cfg(feature = "compat-mode")]
 pub use function::JsFunction;
 pub use global::*;
@@ -133,29 +137,12 @@ impl FromNapiValue for JsSymbol<'_> {
 
 impl ValidateNapiValue for JsSymbol<'_> {}
 
-#[cfg(feature = "compat-mode")]
-#[deprecated(
-  since = "3.0.0",
-  note = "Please use `napi::bindgen_prelude::External` instead"
-)]
-pub struct JsExternal(pub(crate) Value);
-
-#[cfg(feature = "compat-mode")]
-impl TypeName for JsExternal {
-  fn type_name() -> &'static str {
-    "external"
-  }
-
-  fn value_type() -> ValueType {
-    ValueType::External
-  }
-}
-
-#[cfg(feature = "compat-mode")]
-impl ValidateNapiValue for JsExternal {}
-
 pub trait JsValue<'env>: Sized {
   fn value(&self) -> Value;
+
+  fn raw(&self) -> sys::napi_value {
+    self.value().value
+  }
 
   /// Convert the value to an unknown
   fn to_unknown(&self) -> Unknown<'env> {
@@ -211,17 +198,13 @@ pub trait JsValue<'env>: Sized {
     ))
   }
 
-  fn coerce_to_object(self) -> Result<JsObject> {
+  fn coerce_to_object(&self) -> Result<Object<'env>> {
     let mut new_raw_value = ptr::null_mut();
     let env = self.value().env;
     check_status!(unsafe {
       sys::napi_coerce_to_object(env, self.value().value, &mut new_raw_value)
     })?;
-    Ok(JsObject(Value {
-      env,
-      value: new_raw_value,
-      value_type: ValueType::Object,
-    }))
+    Ok(Object::from_raw(env, new_raw_value))
   }
 
   #[cfg(feature = "napi5")]
@@ -281,9 +264,9 @@ pub trait JsValue<'env>: Sized {
     Ok(is_buffer)
   }
 
-  fn instanceof<Constructor>(&self, constructor: Constructor) -> Result<bool>
+  fn instanceof<'c, Constructor>(&self, constructor: Constructor) -> Result<bool>
   where
-    Constructor: NapiRaw,
+    Constructor: JsValue<'c>,
   {
     let mut result = false;
     let env = self.value().env;
@@ -295,10 +278,10 @@ pub trait JsValue<'env>: Sized {
 }
 
 pub trait JsObjectValue<'env>: JsValue<'env> {
-  fn set_property<K, V>(&mut self, key: K, value: V) -> Result<()>
+  fn set_property<'k, 'v, K, V>(&mut self, key: K, value: V) -> Result<()>
   where
-    K: NapiRaw,
-    V: NapiRaw,
+    K: JsValue<'k>,
+    V: JsValue<'v>,
   {
     let env = self.value().env;
     check_status!(unsafe {
@@ -306,17 +289,17 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
     })
   }
 
-  fn get_property<K, T>(&self, key: K) -> Result<T>
+  fn get_property<'k, K, T>(&self, key: K) -> Result<T>
   where
-    K: NapiRaw,
-    T: NapiValue,
+    K: JsObjectValue<'k>,
+    T: FromNapiValue,
   {
     let mut raw_value = ptr::null_mut();
     let env = self.value().env;
     check_status!(unsafe {
       sys::napi_get_property(env, self.value().value, key.raw(), &mut raw_value)
     })?;
-    unsafe { T::from_raw(env, raw_value) }
+    unsafe { T::from_napi_value(env, raw_value) }
   }
 
   fn get_property_unchecked<K, T>(&self, key: K) -> Result<T>
@@ -489,13 +472,13 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
     Ok(result)
   }
 
-  fn get_property_names(&self) -> Result<JsObject> {
+  fn get_property_names(&self) -> Result<Object<'env>> {
     let mut raw_value = ptr::null_mut();
     let env = self.value().env;
     check_status!(unsafe {
       sys::napi_get_property_names(env, self.value().value, &mut raw_value)
     })?;
-    Ok(unsafe { JsObject::from_raw_unchecked(env, raw_value) })
+    Ok(Object::from_raw(env, raw_value))
   }
 
   /// <https://nodejs.org/api/n-api.html#n_api_napi_get_all_property_names>
@@ -506,7 +489,7 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
     mode: KeyCollectionMode,
     filter: KeyFilter,
     conversion: KeyConversion,
-  ) -> Result<JsObject> {
+  ) -> Result<Object<'env>> {
     let mut properties_value = ptr::null_mut();
     let env = self.value().env;
     check_status!(unsafe {
@@ -519,18 +502,15 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
         &mut properties_value,
       )
     })?;
-    Ok(unsafe { JsObject::from_raw_unchecked(env, properties_value) })
+    Ok(Object::from_raw(env, properties_value))
   }
 
   /// This returns the equivalent of `Object.getPrototypeOf` (which is not the same as the function's prototype property).
-  fn get_prototype<T>(&self) -> Result<T>
-  where
-    T: NapiValue,
-  {
+  fn get_prototype(&self) -> Result<Unknown<'env>> {
     let mut result = ptr::null_mut();
     let env = self.value().env;
     check_status!(unsafe { sys::napi_get_prototype(env, self.value().value, &mut result) })?;
-    unsafe { T::from_raw(env, result) }
+    Ok(unsafe { Unknown::from_raw_unchecked(env, result) })
   }
 
   fn get_prototype_unchecked<T>(&self) -> Result<T>
@@ -543,9 +523,9 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
     Ok(unsafe { T::from_raw_unchecked(env, result) })
   }
 
-  fn set_element<T>(&mut self, index: u32, value: T) -> Result<()>
+  fn set_element<'t, T>(&mut self, index: u32, value: T) -> Result<()>
   where
-    T: NapiRaw,
+    T: JsValue<'t>,
   {
     let env = self.value().env;
     check_status!(unsafe { sys::napi_set_element(env, self.value().value, index, value.raw()) })
@@ -569,26 +549,14 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
 
   fn get_element<T>(&self, index: u32) -> Result<T>
   where
-    T: NapiValue,
+    T: FromNapiValue,
   {
     let mut raw_value = ptr::null_mut();
     let env = self.value().env;
     check_status!(unsafe {
       sys::napi_get_element(env, self.value().value, index, &mut raw_value)
     })?;
-    unsafe { T::from_raw(env, raw_value) }
-  }
-
-  fn get_element_unchecked<T>(&self, index: u32) -> Result<T>
-  where
-    T: NapiValue,
-  {
-    let mut raw_value = ptr::null_mut();
-    let env = self.value().env;
-    check_status!(unsafe {
-      sys::napi_get_element(env, self.value().value, index, &mut raw_value)
-    })?;
-    Ok(unsafe { T::from_raw_unchecked(env, raw_value) })
+    unsafe { T::from_napi_value(env, raw_value) }
   }
 
   /// This method allows the efficient definition of multiple properties on a given object.
@@ -660,14 +628,8 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
   }
 }
 
-impl<'env, T: JsValue<'env>> NapiRaw for T {
-  unsafe fn raw(&self) -> sys::napi_value {
-    self.value().value
-  }
-}
-
 macro_rules! impl_napi_value_trait {
-  ($js_value:ident, $value_type:ident) => {
+  ($js_value:ident, $value_type:expr) => {
     impl NapiValue for $js_value {
       unsafe fn from_raw(env: sys::napi_env, value: sys::napi_value) -> Result<$js_value> {
         let value_type = type_of!(env, value)?;
@@ -847,22 +809,32 @@ macro_rules! impl_object_methods {
     impl $js_value {
       pub fn set_property<K, V>(&mut self, key: K, value: V) -> Result<()>
       where
-        K: NapiRaw,
-        V: NapiRaw,
+        K: ToNapiValue,
+        V: ToNapiValue,
       {
         check_status!(unsafe {
-          sys::napi_set_property(self.0.env, self.0.value, key.raw(), value.raw())
+          sys::napi_set_property(
+            self.0.env,
+            self.0.value,
+            ToNapiValue::to_napi_value(self.0.env, key)?,
+            ToNapiValue::to_napi_value(self.0.env, value)?,
+          )
         })
       }
 
       pub fn get_property<K, T>(&self, key: K) -> Result<T>
       where
-        K: NapiRaw,
+        K: ToNapiValue,
         T: FromNapiValue,
       {
         let mut raw_value = ptr::null_mut();
         check_status!(unsafe {
-          sys::napi_get_property(self.0.env, self.0.value, key.raw(), &mut raw_value)
+          sys::napi_get_property(
+            self.0.env,
+            self.0.value,
+            ToNapiValue::to_napi_value(self.0.env, key)?,
+            &mut raw_value,
+          )
         })?;
         unsafe { T::from_napi_value(self.0.env, raw_value) }
       }
@@ -966,11 +938,16 @@ macro_rules! impl_object_methods {
 
       pub fn delete_property<S>(&mut self, name: S) -> Result<bool>
       where
-        S: NapiRaw,
+        S: ToNapiValue,
       {
         let mut result = false;
         check_status!(unsafe {
-          sys::napi_delete_property(self.0.env, self.0.value, name.raw(), &mut result)
+          sys::napi_delete_property(
+            self.0.env,
+            self.0.value,
+            ToNapiValue::to_napi_value(self.0.env, name)?,
+            &mut result,
+          )
         })?;
         Ok(result)
       }
@@ -1011,11 +988,16 @@ macro_rules! impl_object_methods {
 
       pub fn has_own_property_js<K>(&self, key: K) -> Result<bool>
       where
-        K: NapiRaw,
+        K: ToNapiValue,
       {
         let mut result = false;
         check_status!(unsafe {
-          sys::napi_has_own_property(self.0.env, self.0.value, key.raw(), &mut result)
+          sys::napi_has_own_property(
+            self.0.env,
+            self.0.value,
+            ToNapiValue::to_napi_value(self.0.env, key)?,
+            &mut result,
+          )
         })?;
         Ok(result)
       }
@@ -1039,11 +1021,16 @@ macro_rules! impl_object_methods {
 
       pub fn has_property_js<K>(&self, name: K) -> Result<bool>
       where
-        K: NapiRaw,
+        K: ToNapiValue,
       {
         let mut result = false;
         check_status!(unsafe {
-          sys::napi_has_property(self.0.env, self.0.value, name.raw(), &mut result)
+          sys::napi_has_property(
+            self.0.env,
+            self.0.value,
+            ToNapiValue::to_napi_value(self.0.env, name)?,
+            &mut result,
+          )
         })?;
         Ok(result)
       }
@@ -1100,10 +1087,15 @@ macro_rules! impl_object_methods {
 
       pub fn set_element<T>(&mut self, index: u32, value: T) -> Result<()>
       where
-        T: NapiRaw,
+        T: ToNapiValue,
       {
         check_status!(unsafe {
-          sys::napi_set_element(self.0.env, self.0.value, index, value.raw())
+          sys::napi_set_element(
+            self.0.env,
+            self.0.value,
+            index,
+            ToNapiValue::to_napi_value(self.0.env, value)?,
+          )
         })
       }
 
@@ -1253,26 +1245,24 @@ impl_object_methods!(JsArrayBuffer);
 impl_object_methods!(JsTypedArray);
 impl_object_methods!(JsDataView);
 
-use ValueType::*;
-
 #[cfg(feature = "compat-mode")]
-impl_napi_value_trait!(JsUndefined, Undefined);
+impl_napi_value_trait!(JsUndefined, ValueType::Undefined);
 #[cfg(feature = "compat-mode")]
-impl_napi_value_trait!(JsNull, Null);
+impl_napi_value_trait!(JsNull, ValueType::Null);
 #[cfg(feature = "compat-mode")]
-impl_napi_value_trait!(JsBoolean, Boolean);
+impl_napi_value_trait!(JsBoolean, ValueType::Boolean);
 #[cfg(feature = "compat-mode")]
-impl_napi_value_trait!(JsBuffer, Object);
-impl_napi_value_trait!(JsArrayBuffer, Object);
-impl_napi_value_trait!(JsTypedArray, Object);
-impl_napi_value_trait!(JsDataView, Object);
-impl_napi_value_trait!(JsObject, Object);
+impl_napi_value_trait!(JsBuffer, ValueType::Object);
+impl_napi_value_trait!(JsArrayBuffer, ValueType::Object);
+impl_napi_value_trait!(JsTypedArray, ValueType::Object);
+impl_napi_value_trait!(JsDataView, ValueType::Object);
+impl_napi_value_trait!(JsObject, ValueType::Object);
 #[cfg(feature = "napi5")]
-impl_napi_value_trait!(JsDate, Object);
+impl_napi_value_trait!(JsDate, ValueType::Object);
 #[cfg(feature = "compat-mode")]
-impl_napi_value_trait!(JsFunction, Function);
+impl_napi_value_trait!(JsFunction, ValueType::Object);
 #[cfg(feature = "compat-mode")]
-impl_napi_value_trait!(JsExternal, External);
+impl_napi_value_trait!(JsExternal, ValueType::External);
 
 /// Represents a raw JavaScript value
 pub struct Unknown<'env>(

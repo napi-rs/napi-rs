@@ -10,8 +10,10 @@ use std::sync::Mutex;
 
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
 use crate::bindgen_prelude::{CUSTOM_GC_TSFN, CUSTOM_GC_TSFN_DESTROYED, THREADS_CAN_ACCESS_ENV};
-use crate::NapiRaw;
-use crate::{bindgen_prelude::*, check_status, env::EMPTY_VEC, sys, Result, ValueType};
+use crate::{
+  bindgen_prelude::*, check_status, env::EMPTY_VEC, sys, JsObjectValue, JsValue, Result, Value,
+  ValueType,
+};
 
 #[cfg(all(debug_assertions, not(windows)))]
 thread_local! {
@@ -23,14 +25,14 @@ thread_local! {
 /// It can only be used in non-async context and the lifetime is bound to the fn closure.
 ///
 /// If you want to use Node.js Buffer in async context or want to extend the lifetime, use `Buffer` instead.
-pub struct BufferSlice<'scope> {
-  pub(crate) inner: &'scope mut [u8],
+pub struct BufferSlice<'env> {
+  pub(crate) inner: &'env mut [u8],
   pub(crate) raw_value: sys::napi_value,
   #[allow(dead_code)]
   pub(crate) env: sys::napi_env,
 }
 
-impl<'scope> BufferSlice<'scope> {
+impl<'env> BufferSlice<'env> {
   /// Create a new `BufferSlice` from a `Vec<u8>`.
   ///
   /// While this is still a fully-supported data structure, in most cases using a `Uint8Array` will suffice.
@@ -102,7 +104,7 @@ impl<'scope> BufferSlice<'scope> {
   ///
   /// If you need to support these runtimes, you should create a buffer by other means and then
   /// later copy the data back out.
-  pub unsafe fn from_external<T: 'scope, F: FnOnce(Env, T)>(
+  pub unsafe fn from_external<T: 'env, F: FnOnce(Env, T)>(
     env: &Env,
     data: *mut u8,
     len: usize,
@@ -191,11 +193,17 @@ impl<'scope> BufferSlice<'scope> {
   }
 }
 
-impl NapiRaw for BufferSlice<'_> {
-  unsafe fn raw(&self) -> napi_sys::napi_value {
-    self.raw_value
+impl<'env> JsValue<'env> for BufferSlice<'env> {
+  fn value(&self) -> Value {
+    Value {
+      env: self.env,
+      value: self.raw_value,
+      value_type: ValueType::Object,
+    }
   }
 }
+
+impl<'env> JsObjectValue<'env> for BufferSlice<'env> {}
 
 impl FromNapiValue for BufferSlice<'_> {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {

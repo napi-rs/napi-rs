@@ -349,7 +349,7 @@ impl NapiFn {
                     }
                   }
                   refs.push(make_ref(quote! { cb.this }));
-                  args.push(quote! { <napi::bindgen_prelude::This as napi::NapiValue>::from_raw_unchecked(env, cb.this) });
+                  args.push(quote! { <napi::bindgen_prelude::This as napi::bindgen_prelude::FromNapiValue>::from_napi_value(env, cb.this)? });
                   skipped_arg_count += 1;
                   continue;
                 }

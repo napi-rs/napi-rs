@@ -2,10 +2,11 @@ use std::ptr;
 
 use super::check_status;
 use crate::{
-  bindgen_runtime::{TypeName, ValidateNapiValue},
-  sys, Error, Result, Status, Value, ValueType,
+  bindgen_runtime::{FromNapiValue, TypeName, ValidateNapiValue},
+  sys, Error, JsValue, Result, Status, Value, ValueType,
 };
 
+#[derive(Clone, Copy)]
 pub struct JsDate(pub(crate) Value);
 
 impl TypeName for JsDate {
@@ -30,6 +31,22 @@ impl ValidateNapiValue for JsDate {
     }
 
     Ok(ptr::null_mut())
+  }
+}
+
+impl FromNapiValue for JsDate {
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
+    Ok(Self(Value {
+      env,
+      value: napi_val,
+      value_type: ValueType::Object,
+    }))
+  }
+}
+
+impl JsValue<'_> for JsDate {
+  fn value(&self) -> Value {
+    self.0
   }
 }
 

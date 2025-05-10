@@ -3,9 +3,9 @@ use std::sync::Arc;
 use std::thread;
 
 use napi::{
-  bindgen_prelude::{BufferSlice, Function},
+  bindgen_prelude::{BufferSlice, Function, Object},
   threadsafe_function::ThreadsafeFunctionCallMode,
-  CallContext, Error, JsObject, JsString, Ref, Result, Status,
+  CallContext, Error, JsString, Ref, Result, Status,
 };
 
 #[js_function(1)]
@@ -84,16 +84,16 @@ pub fn test_tokio_readfile(ctx: CallContext) -> Result<()> {
 
 #[js_function(3)]
 pub fn test_tsfn_with_ref(ctx: CallContext) -> Result<()> {
-  let callback: Function<Ref<JsObject>, napi::Unknown> = ctx.get(0)?;
-  let options = ctx.get::<JsObject>(1)?;
+  let callback: Function<Ref<Object>, napi::Unknown> = ctx.get(0)?;
+  let options = ctx.get::<Object>(1)?;
   let option_ref = Ref::new(ctx.env, &options);
   let tsfn = callback
-    .build_threadsafe_function::<Ref<JsObject>>()
+    .build_threadsafe_function::<Ref<Object>>()
     .callee_handled::<true>()
     .build_callback(move |mut ctx| {
       ctx
         .env
-        .get_reference_value_unchecked::<JsObject>(&ctx.value)
+        .get_reference_value_unchecked::<Object>(&ctx.value)
         .and_then(|obj| ctx.value.unref(&ctx.env).map(|_| obj))
     })?;
 

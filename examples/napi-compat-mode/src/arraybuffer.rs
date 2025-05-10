@@ -14,7 +14,7 @@ pub fn get_arraybuffer_length(ctx: CallContext) -> Result<JsNumber> {
 #[js_function(1)]
 pub fn mutate_uint8_array(ctx: CallContext) -> Result<()> {
   let mut buffer = ctx.get::<Uint8Array>(0)?;
-  let buffer_mut_ref: &mut [u8] = buffer.as_mut();
+  let buffer_mut_ref: &mut [u8] = unsafe { buffer.as_mut() };
   buffer_mut_ref[0] = 42;
   Ok(())
 }

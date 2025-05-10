@@ -3,11 +3,17 @@ use std::os::raw::c_void;
 use std::ptr;
 use std::slice;
 
-use crate::bindgen_runtime::{TypeName, ValidateNapiValue};
+use crate::bindgen_runtime::{FromNapiValue, TypeName, ValidateNapiValue};
 use crate::{
   check_status, sys, Env, Error, NapiValue, Ref, Result, Status, Unknown, Value, ValueType,
 };
 
+use super::JsValue;
+
+#[deprecated(
+  since = "3.0.0",
+  note = "Use `napi::bindgen_prelude::ArrayBuffer` instead"
+)]
 pub struct JsArrayBuffer(pub(crate) Value);
 
 impl TypeName for JsArrayBuffer {
@@ -34,12 +40,36 @@ impl ValidateNapiValue for JsArrayBuffer {
   }
 }
 
+impl FromNapiValue for JsArrayBuffer {
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
+    Ok(Self(Value {
+      env,
+      value: napi_val,
+      value_type: ValueType::Object,
+    }))
+  }
+}
+
+impl JsValue<'_> for JsArrayBuffer {
+  fn value(&self) -> Value {
+    self.0
+  }
+}
+
+#[deprecated(
+  since = "3.0.0",
+  note = "Use `napi::bindgen_prelude::ArrayBuffer` instead"
+)]
 pub struct JsArrayBufferValue {
   pub value: JsArrayBuffer,
   pub(crate) len: usize,
   pub(crate) data: *mut c_void,
 }
 
+#[deprecated(
+  since = "3.0.0",
+  note = "Use `napi::bindgen_prelude::Uint8Array/Int8Array...` instead"
+)]
 pub struct JsTypedArray(pub(crate) Value);
 
 impl TypeName for JsTypedArray {
@@ -52,6 +82,26 @@ impl TypeName for JsTypedArray {
   }
 }
 
+impl FromNapiValue for JsTypedArray {
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
+    Ok(Self(Value {
+      env,
+      value: napi_val,
+      value_type: ValueType::Object,
+    }))
+  }
+}
+
+impl JsValue<'_> for JsTypedArray {
+  fn value(&self) -> Value {
+    self.0
+  }
+}
+
+#[deprecated(
+  since = "3.0.0",
+  note = "Use `napi::bindgen_prelude::Uint8Array/Int8Array...` instead"
+)]
 pub struct JsTypedArrayValue {
   pub arraybuffer: JsArrayBuffer,
   data: *mut c_void,

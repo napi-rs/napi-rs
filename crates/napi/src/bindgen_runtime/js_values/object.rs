@@ -1,24 +1,81 @@
-use crate::{bindgen_prelude::*, check_status, sys, type_of, JsObject, ValueType};
+use std::marker::PhantomData;
 use std::ptr;
 
-pub type Object = JsObject;
+use crate::{
+  bindgen_prelude::*, check_status, sys, type_of, JsObjectValue, JsValue, Value, ValueType,
+};
 
-impl Object {
-  #[allow(unused)]
-  pub(crate) fn new(env: sys::napi_env) -> Result<Self> {
+#[derive(Clone, Copy)]
+pub struct Object<'env>(pub(crate) Value, pub(crate) PhantomData<&'env ()>);
+
+impl<'env> JsValue<'env> for Object<'env> {
+  fn value(&self) -> Value {
+    self.0
+  }
+}
+
+impl<'env> JsObjectValue<'env> for Object<'env> {}
+
+impl TypeName for Object<'_> {
+  fn type_name() -> &'static str {
+    "Object"
+  }
+
+  fn value_type() -> ValueType {
+    ValueType::Object
+  }
+}
+
+impl ValidateNapiValue for Object<'_> {}
+
+impl FromNapiValue for Object<'_> {
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
+    Ok(Self(
+      Value {
+        env,
+        value: napi_val,
+        value_type: ValueType::Object,
+      },
+      PhantomData,
+    ))
+  }
+}
+
+impl ToNapiValue for &Object<'_> {
+  unsafe fn to_napi_value(_env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    Ok(val.0.value)
+  }
+}
+
+impl Object<'_> {
+  pub(crate) fn from_raw(env: sys::napi_env, value: sys::napi_value) -> Self {
+    Self(
+      Value {
+        env,
+        value,
+        value_type: ValueType::Object,
+      },
+      PhantomData,
+    )
+  }
+
+  pub fn new(env: &Env) -> Result<Self> {
     let mut ptr = ptr::null_mut();
     unsafe {
       check_status!(
-        sys::napi_create_object(env, &mut ptr),
+        sys::napi_create_object(env.0, &mut ptr),
         "Failed to create napi Object"
       )?;
     }
 
-    Ok(Self(crate::Value {
-      env,
-      value: ptr,
-      value_type: ValueType::Object,
-    }))
+    Ok(Self(
+      crate::Value {
+        env: env.0,
+        value: ptr,
+        value_type: ValueType::Object,
+      },
+      PhantomData,
+    ))
   }
 
   pub fn get<V: FromNapiValue>(&self, field: &str) -> Result<Option<V>> {
@@ -104,15 +161,3 @@ impl Object {
     Ok(ret)
   }
 }
-
-impl TypeName for Object {
-  fn type_name() -> &'static str {
-    "Object"
-  }
-
-  fn value_type() -> ValueType {
-    ValueType::Object
-  }
-}
-
-impl ValidateNapiValue for JsObject {}

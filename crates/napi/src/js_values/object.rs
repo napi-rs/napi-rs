@@ -7,17 +7,47 @@ use std::ptr;
 
 #[cfg(feature = "napi5")]
 use super::check_status;
-use super::Value;
-#[cfg(feature = "napi5")]
-use crate::sys;
 #[cfg(feature = "napi5")]
 use crate::Env;
 #[cfg(feature = "napi6")]
 use crate::Error;
-#[cfg(feature = "napi5")]
-use crate::Result;
+use crate::{
+  bindgen_prelude::{FromNapiValue, ToNapiValue, TypeName, ValidateNapiValue},
+  sys, Result, Value, ValueType,
+};
 
+#[deprecated(since = "3.0.0", note = "Use `napi::bindgen_prelude::Object` instead")]
+#[derive(Clone, Copy)]
 pub struct JsObject(pub(crate) Value);
+
+impl TypeName for JsObject {
+  fn type_name() -> &'static str {
+    "Object"
+  }
+
+  fn value_type() -> ValueType {
+    ValueType::Object
+  }
+}
+
+impl ValidateNapiValue for JsObject {}
+
+impl FromNapiValue for JsObject {
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
+    Ok(Self(Value {
+      env,
+      value: napi_val,
+      value_type: ValueType::Object,
+    }))
+  }
+}
+
+impl ToNapiValue for JsObject {
+  unsafe fn to_napi_value(_: sys::napi_env, value: Self) -> Result<sys::napi_value> {
+    Ok(value.0.value)
+  }
+}
+
 impl From<Value> for JsObject {
   fn from(value: Value) -> Self {
     Self(value)

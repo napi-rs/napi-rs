@@ -458,11 +458,7 @@ macro_rules! check_status_and_type {
           ValueType::Object => {
             let env_ = $crate::Env::from($env);
             let json: $crate::JSON = env_.get_global()?.get_named_property_unchecked("JSON")?;
-            let object = json.stringify($crate::JsObject($crate::Value {
-              value: $val,
-              env: $env,
-              value_type: ValueType::Object,
-            }))?;
+            let object = json.stringify($crate::bindgen_prelude::Object::from_raw($env, $val))?;
             format!($msg, format!("Object {}", object))
           }
           ValueType::Boolean | ValueType::Number => {
