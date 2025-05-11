@@ -1393,12 +1393,16 @@ impl Uint8Array {
   }
 }
 
+#[derive(Clone, Copy)]
 /// Zero copy Uint8ClampedArray slice shared between Rust and Node.js.
 /// It can only be used in non-async context and the lifetime is bound to the fn closure.
 /// If you want to use Node.js `Uint8ClampedArray` in async context or want to extend the lifetime, use `Uint8ClampedArray` instead.
 pub struct Uint8ClampedSlice<'scope> {
-  pub(crate) inner: &'scope mut [u8],
+  pub(crate) inner: NonNull<u8>,
+  pub(crate) length: usize,
   raw_value: sys::napi_value,
+  env: sys::napi_env,
+  _marker: PhantomData<&'scope ()>,
 }
 
 impl FromNapiValue for Uint8ClampedSlice<'_> {
@@ -1430,21 +1434,29 @@ impl FromNapiValue for Uint8ClampedSlice<'_> {
     }
     Ok(Self {
       inner: if length == 0 {
-        &mut []
+        NonNull::dangling()
       } else {
-        unsafe { core::slice::from_raw_parts_mut(data.cast(), length) }
+        unsafe { NonNull::new_unchecked(data.cast()) }
       },
+      length,
       raw_value: napi_val,
+      env,
+      _marker: PhantomData,
     })
   }
 }
 
-impl ToNapiValue for Uint8ClampedSlice<'_> {
-  #[allow(unused_variables)]
-  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
-    Ok(val.raw_value)
+impl<'env> JsValue<'env> for Uint8ClampedSlice<'env> {
+  fn value(&self) -> Value {
+    Value {
+      env: self.env,
+      value: self.raw_value,
+      value_type: ValueType::Object,
+    }
   }
 }
+
+impl<'env> JsObjectValue<'env> for Uint8ClampedSlice<'env> {}
 
 impl TypeName for Uint8ClampedSlice<'_> {
   fn type_name() -> &'static str {
@@ -1475,7 +1487,7 @@ impl ValidateNapiValue for Uint8ClampedSlice<'_> {
 
 impl AsRef<[u8]> for Uint8ClampedSlice<'_> {
   fn as_ref(&self) -> &[u8] {
-    self.inner
+    unsafe { core::slice::from_raw_parts(self.inner.as_ptr(), self.length) }
   }
 }
 
@@ -1483,13 +1495,272 @@ impl Deref for Uint8ClampedSlice<'_> {
   type Target = [u8];
 
   fn deref(&self) -> &Self::Target {
-    self.inner
+    unsafe { core::slice::from_raw_parts(self.inner.as_ptr(), self.length) }
   }
 }
 
 impl DerefMut for Uint8ClampedSlice<'_> {
   fn deref_mut(&mut self) -> &mut Self::Target {
-    self.inner
+    unsafe { core::slice::from_raw_parts_mut(self.inner.as_ptr(), self.length) }
+  }
+}
+
+impl<'env> Uint8ClampedSlice<'env> {
+  /// Create a new `Uint8ClampedSlice` from Vec<u8>
+  pub fn from_data<D: Into<Vec<u8>>>(env: &Env, data: D) -> Result<Self> {
+    let mut buf = ptr::null_mut();
+    let mut data = data.into();
+    let mut inner_ptr = data.as_mut_ptr();
+    #[cfg(all(debug_assertions, not(windows)))]
+    {
+      let is_existed = super::BUFFER_DATA.with(|buffer_data| {
+        let buffer = buffer_data.lock().expect("Unlock buffer data failed");
+        buffer.contains(&inner_ptr)
+      });
+      if is_existed {
+        panic!("Share the same data between different buffers is not allowed, see: https://github.com/nodejs/node/issues/32463#issuecomment-631974747");
+      }
+    }
+    let len = data.len();
+    let mut status = unsafe {
+      sys::napi_create_external_arraybuffer(
+        env.0,
+        inner_ptr.cast(),
+        data.len(),
+        Some(finalize_slice::<u8>),
+        Box::into_raw(Box::new(len)).cast(),
+        &mut buf,
+      )
+    };
+    if status == napi_sys::Status::napi_no_external_buffers_allowed {
+      let mut inner_data = unsafe { Vec::from_raw_parts(inner_ptr, data.len(), data.len()) };
+      let mut underlying_data = ptr::null_mut();
+      status =
+        unsafe { sys::napi_create_arraybuffer(env.0, data.len(), &mut underlying_data, &mut buf) };
+      unsafe {
+        std::ptr::copy_nonoverlapping(inner_data.as_mut_ptr().cast(), underlying_data, data.len())
+      };
+      inner_ptr = underlying_data.cast();
+    } else {
+      mem::forget(data);
+    }
+    check_status!(status, "Failed to create buffer slice from data")?;
+
+    let mut napi_val = ptr::null_mut();
+    check_status!(
+      unsafe {
+        sys::napi_create_typedarray(
+          env.0,
+          TypedArrayType::Uint8Clamped as i32,
+          len,
+          buf,
+          0,
+          &mut napi_val,
+        )
+      },
+      "Create TypedArray failed"
+    )?;
+
+    Ok(Self {
+      inner: if len == 0 {
+        NonNull::dangling()
+      } else {
+        unsafe { NonNull::new_unchecked(inner_ptr.cast()) }
+      },
+      length: len,
+      raw_value: napi_val,
+      env: env.0,
+      _marker: PhantomData,
+    })
+  }
+
+  /// ## Safety
+  ///
+  /// Mostly the same with `from_data`
+  ///
+  /// Provided `finalize_callback` will be called when `Uint8ClampedSlice` got dropped.
+  ///
+  /// You can pass in `noop_finalize` if you have nothing to do in finalize phase.
+  ///
+  /// ### Notes
+  ///
+  /// JavaScript may mutate the data passed in to this buffer when writing the buffer.
+  ///
+  /// However, some JavaScript runtimes do not support external buffers (notably electron!)
+  ///
+  /// in which case modifications may be lost.
+  ///
+  /// If you need to support these runtimes, you should create a buffer by other means and then
+  /// later copy the data back out.
+  pub unsafe fn from_external<T: 'env, F: FnOnce(Env, T)>(
+    env: &Env,
+    data: *mut u8,
+    len: usize,
+    finalize_hint: T,
+    finalize_callback: F,
+  ) -> Result<Self> {
+    if data.is_null() || data as *const u8 == crate::EMPTY_VEC.as_ptr() {
+      return Err(Error::new(
+        Status::InvalidArg,
+        "Borrowed data should not be null".to_owned(),
+      ));
+    }
+    #[cfg(all(debug_assertions, not(windows)))]
+    {
+      let is_existed = super::BUFFER_DATA.with(|buffer_data| {
+        let buffer = buffer_data.lock().expect("Unlock buffer data failed");
+        buffer.contains(&data)
+      });
+      if is_existed {
+        panic!("Share the same data between different buffers is not allowed, see: https://github.com/nodejs/node/issues/32463#issuecomment-631974747");
+      }
+    }
+    let hint_ptr = Box::into_raw(Box::new((finalize_hint, finalize_callback)));
+    let mut arraybuffer_value = ptr::null_mut();
+    let mut status = unsafe {
+      sys::napi_create_external_arraybuffer(
+        env.0,
+        data.cast(),
+        len,
+        Some(crate::env::raw_finalize_with_custom_callback::<T, F>),
+        hint_ptr.cast(),
+        &mut arraybuffer_value,
+      )
+    };
+    status = if status == sys::Status::napi_no_external_buffers_allowed {
+      let (hint, finalize) = *Box::from_raw(hint_ptr);
+      let mut underlying_data = ptr::null_mut();
+      let status = unsafe {
+        sys::napi_create_arraybuffer(env.0, len, &mut underlying_data, &mut arraybuffer_value)
+      };
+      unsafe { std::ptr::copy_nonoverlapping(data.cast(), underlying_data, len) };
+      finalize(*env, hint);
+      status
+    } else {
+      status
+    };
+    check_status!(status, "Failed to create arraybuffer from data")?;
+
+    let mut napi_val = ptr::null_mut();
+    check_status!(
+      unsafe {
+        sys::napi_create_typedarray(
+          env.0,
+          TypedArrayType::Uint8Clamped as i32,
+          len,
+          arraybuffer_value,
+          0,
+          &mut napi_val,
+        )
+      },
+      "Create TypedArray failed"
+    )?;
+
+    Ok(Self {
+      inner: if len == 0 {
+        NonNull::dangling()
+      } else {
+        unsafe { NonNull::new_unchecked(data.cast()) }
+      },
+      length: len,
+      raw_value: napi_val,
+      env: env.0,
+      _marker: PhantomData,
+    })
+  }
+
+  /// Copy data from a `&[u8]` and create a `Uint8ClampedSlice` from it.
+  pub fn copy_from<D: AsRef<[u8]>>(env: &Env, data: D) -> Result<Self> {
+    let data = data.as_ref();
+    let len = data.len();
+    let mut arraybuffer_value = ptr::null_mut();
+    let mut underlying_data = ptr::null_mut();
+
+    check_status!(
+      unsafe {
+        sys::napi_create_arraybuffer(env.0, len, &mut underlying_data, &mut arraybuffer_value)
+      },
+      "Failed to create ArrayBuffer"
+    )?;
+
+    let mut napi_val = ptr::null_mut();
+    check_status!(
+      unsafe {
+        sys::napi_create_typedarray(
+          env.0,
+          TypedArrayType::Uint8Clamped as i32,
+          len,
+          arraybuffer_value,
+          0,
+          &mut napi_val,
+        )
+      },
+      "Create TypedArray failed"
+    )?;
+
+    Ok(Self {
+      inner: if len == 0 {
+        NonNull::dangling()
+      } else {
+        unsafe { NonNull::new_unchecked(underlying_data.cast()) }
+      },
+      length: len,
+      raw_value: napi_val,
+      env: env.0,
+      _marker: PhantomData,
+    })
+  }
+
+  /// Create from `ArrayBuffer`
+  pub fn from_arraybuffer(
+    arraybuffer: &ArrayBuffer<'env>,
+    byte_offset: usize,
+    length: usize,
+  ) -> Result<Self> {
+    let env = arraybuffer.value.env;
+    let mut typed_array = ptr::null_mut();
+    check_status!(
+      unsafe {
+        sys::napi_create_typedarray(
+          env,
+          TypedArrayType::Uint8Clamped as i32,
+          length,
+          arraybuffer.value().value,
+          byte_offset,
+          &mut typed_array,
+        )
+      },
+      "Failed to create TypedArray from ArrayBuffer"
+    )?;
+
+    unsafe { FromNapiValue::from_napi_value(env, typed_array) }
+  }
+
+  /// extends the lifetime of the `TypedArray` to the lifetime of the `This`
+  pub fn assign_to_this<'a, U>(&self, this: This<'a, U>, name: &str) -> Result<Self>
+  where
+    U: FromNapiValue + JsObjectValue<'a>,
+  {
+    let name = CString::new(name)?;
+    check_status!(
+      unsafe {
+        sys::napi_set_named_property(self.env, this.object.raw(), name.as_ptr(), self.raw_value)
+      },
+      "Failed to assign {} to this",
+      Self::type_name()
+    )?;
+    Ok(Self {
+      env: self.env,
+      raw_value: self.raw_value,
+      inner: self.inner,
+      length: self.length,
+      _marker: PhantomData,
+    })
+  }
+
+  /// Convert a `Uint8ClampedSlice` to a `Uint8ClampedArray`.
+  pub fn into_typed_array(self, env: &Env) -> Result<Self> {
+    unsafe { Self::from_napi_value(env.0, self.raw_value) }
   }
 }
 
