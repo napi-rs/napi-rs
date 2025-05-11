@@ -1,7 +1,8 @@
 use std::ffi::{c_void, CString};
+use std::marker::PhantomData;
 use std::mem;
 use std::ops::{Deref, DerefMut};
-use std::ptr;
+use std::ptr::{self, NonNull};
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
 use std::sync::atomic::Ordering;
 
@@ -785,10 +786,13 @@ macro_rules! impl_typed_array {
 
 macro_rules! impl_from_slice {
   ($name:ident, $slice_type:ident, $rust_type:ident, $typed_array_type:expr) => {
+    #[derive(Clone, Copy)]
     pub struct $slice_type<'env> {
-      pub(crate) inner: &'env mut [$rust_type],
+      pub(crate) inner: NonNull<$rust_type>,
+      pub(crate) length: usize,
       raw_value: sys::napi_value,
       env: sys::napi_env,
+      _marker: PhantomData<&'env ()>,
     }
 
     impl <'env> $slice_type<'env> {
@@ -857,12 +861,14 @@ macro_rules! impl_from_slice {
 
         Ok(Self {
           inner: if len == 0 {
-            &mut []
+            NonNull::dangling()
           } else {
-            unsafe { core::slice::from_raw_parts_mut(inner_ptr.cast(), len) }
+            unsafe { NonNull::new_unchecked(inner_ptr.cast()) }
           },
+          length: len,
           raw_value: napi_val,
           env: env.0,
+          _marker: PhantomData,
         })
       }
 
@@ -955,12 +961,14 @@ macro_rules! impl_from_slice {
 
         Ok(Self {
           inner: if len == 0 {
-            &mut []
+            NonNull::dangling()
           } else {
-            unsafe { core::slice::from_raw_parts_mut(data.cast(), len) }
+            unsafe { NonNull::new_unchecked(data.cast()) }
           },
+          length: len,
           raw_value: napi_val,
           env: env.0,
+          _marker: PhantomData,
         })
       }
 
@@ -1004,12 +1012,14 @@ macro_rules! impl_from_slice {
 
         Ok(Self {
           inner: if len == 0 {
-            &mut []
+            NonNull::dangling()
           } else {
-            unsafe { core::slice::from_raw_parts_mut(underlying_data.cast(), len) }
+            unsafe { NonNull::new_unchecked(underlying_data.cast()) }
           },
+          length: len,
           raw_value: napi_val,
           env: env.0,
+          _marker: PhantomData,
         })
       }
 
@@ -1035,11 +1045,12 @@ macro_rules! impl_from_slice {
           "Failed to assign {} to this",
           $slice_type::type_name()
         )?;
-        let inner: &'a mut [$rust_type] = unsafe { core::slice::from_raw_parts_mut(self.inner.as_ptr().cast_mut(), self.inner.len()) };
         Ok($slice_type {
           env: self.env,
           raw_value: self.raw_value,
-          inner,
+          inner: self.inner,
+          length: self.length,
+          _marker: PhantomData,
         })
       }
 
@@ -1115,12 +1126,14 @@ macro_rules! impl_from_slice {
         // ptr.
         Ok(Self {
           inner: if length == 0 {
-            &mut []
+            ptr::NonNull::dangling()
           } else {
-            unsafe { core::slice::from_raw_parts_mut(data as *mut $rust_type, length) }
+            ptr::NonNull::new_unchecked(data.cast())
           },
+          length,
           raw_value: napi_val,
           env,
+          _marker: PhantomData,
         })
       }
     }
@@ -1154,7 +1167,7 @@ macro_rules! impl_from_slice {
 
     impl AsRef<[$rust_type]> for $slice_type<'_> {
       fn as_ref(&self) -> &[$rust_type] {
-        self.inner
+        unsafe { core::slice::from_raw_parts(self.inner.as_ptr(), self.length) }
       }
     }
 
@@ -1168,7 +1181,7 @@ macro_rules! impl_from_slice {
 
     impl DerefMut for $slice_type<'_> {
       fn deref_mut(&mut self) -> &mut Self::Target {
-        self.inner
+        unsafe { core::slice::from_raw_parts_mut(self.inner.as_ptr(), self.length) }
       }
     }
 

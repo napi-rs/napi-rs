@@ -9,6 +9,7 @@ use crate::{
   check_status, sys, Env, Error, JsObjectValue, JsValue, Value, ValueType,
 };
 
+#[derive(Clone, Copy)]
 pub struct PromiseRaw<'env, T> {
   pub(crate) inner: sys::napi_value,
   env: sys::napi_env,

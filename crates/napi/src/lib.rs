@@ -20,15 +20,15 @@
 //!
 //! ```
 //! use futures::prelude::*;
-//! use napi::{CallContext, Error, JsObject, JsString, Result, Status};
+//! use napi::bindgen_prelude::*;
 //! use tokio;
 //!
 //! #[napi]
-//! pub async fn tokio_readfile(js_filepath: String) -> Result<JsBuffer> {
-//!     ctx.env.execute_tokio_future(
+//! pub fn tokio_readfile(js_filepath: String) -> Result<Buffer> {
+//!     ctx.env.spawn_future_with_callback(
 //!         tokio::fs::read(js_filepath)
 //!           .map(|v| v.map_err(|e| Error::new(Status::Unknown, format!("failed to read file, {}", e)))),
-//!         |&mut env, data| env.create_buffer_with_data(data),
+//!         |_, data| data.into(),
 //!     )
 //! }
 //! ```
