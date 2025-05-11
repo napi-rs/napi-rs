@@ -1,3 +1,9 @@
 {
-  "extends": "../tsconfig.json"
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "allowJs": true,
+    "outDir": "./dist"
+  },
+  "include": ["./*.mjs"],
+  "exclude": ["./dist"]
 }
