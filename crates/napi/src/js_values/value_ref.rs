@@ -10,7 +10,7 @@ use super::JsValue;
 pub struct Ref<T> {
   pub(crate) raw_ref: sys::napi_ref,
   pub(crate) _phantom: PhantomData<T>,
-  taken: bool,
+  pub(crate) taken: bool,
 }
 
 #[allow(clippy::non_send_fields_in_send_ty)]
