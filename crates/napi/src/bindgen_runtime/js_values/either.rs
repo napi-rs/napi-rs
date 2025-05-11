@@ -99,7 +99,16 @@ macro_rules! either_n {
         $(
           if unsafe {
             ret = $parameter::validate(env, napi_val);
-            ret.is_ok()
+            if let Ok(maybe_rejected_promise) = ret.as_ref() {
+              if maybe_rejected_promise.is_null() {
+                true
+              } else {
+                silence_rejected_promise(env, *maybe_rejected_promise)?;
+                false
+              }
+            } else {
+              false
+            }
           } {
             ret
           } else

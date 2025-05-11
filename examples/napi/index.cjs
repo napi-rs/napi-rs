@@ -511,6 +511,7 @@ module.exports.eitherBoolOrFunction = nativeBinding.eitherBoolOrFunction
 module.exports.eitherBoolOrTuple = nativeBinding.eitherBoolOrTuple
 module.exports.eitherFromObjects = nativeBinding.eitherFromObjects
 module.exports.eitherFromOption = nativeBinding.eitherFromOption
+module.exports.eitherPromiseInEitherA = nativeBinding.eitherPromiseInEitherA
 module.exports.eitherStringOrNumber = nativeBinding.eitherStringOrNumber
 module.exports.Empty = nativeBinding.Empty
 module.exports.enumToI32 = nativeBinding.enumToI32
