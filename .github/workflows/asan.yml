@@ -55,7 +55,7 @@ jobs:
         env:
           RUST_TARGET: x86_64-unknown-linux-gnu
           RUST_BACKTRACE: 1
-          RUSTFLAGS: -Z sanitizer=address
+          RUSTFLAGS: -Z sanitizer=address -C link-args=-Wl,-z,nodelete
           ASAN_OPTIONS: detect_leaks=0
           NODE_OPTIONS: --max-old-space-size=8192
           DISABLE_V8_COMPILE_CACHE: 1
