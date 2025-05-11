@@ -899,16 +899,17 @@ impl Env {
     Ref::new(self, value)
   }
 
+  #[deprecated(since = "3.0.0", note = "Please use `Ref::get_value` instead")]
   /// Get reference value from `Ref` with type check
   pub fn get_reference_value<T>(&self, reference: &Ref<T>) -> Result<T>
   where
-    T: NapiValue,
+    T: FromNapiValue,
   {
     let mut js_value = ptr::null_mut();
     check_status!(unsafe {
       sys::napi_get_reference_value(self.0, reference.raw_ref, &mut js_value)
     })?;
-    Ok(unsafe { T::from_raw_unchecked(self.0, js_value) })
+    unsafe { T::from_napi_value(self.0, js_value) }
   }
 
   /// Get reference value from `Ref` without type check

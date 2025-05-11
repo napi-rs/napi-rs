@@ -259,17 +259,17 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
     unsafe { T::from_napi_value(env, raw_value) }
   }
 
-  fn get_property_unchecked<K, T>(&self, key: K) -> Result<T>
+  fn get_property_unchecked<'k, K, T>(&self, key: K) -> Result<T>
   where
-    K: NapiRaw,
-    T: NapiValue,
+    K: JsValue<'k>,
+    T: FromNapiValue,
   {
     let mut raw_value = ptr::null_mut();
     let env = self.value().env;
     check_status!(unsafe {
       sys::napi_get_property(env, self.value().value, key.raw(), &mut raw_value)
     })?;
-    Ok(unsafe { T::from_raw_unchecked(env, raw_value) })
+    unsafe { T::from_napi_value(env, raw_value) }
   }
 
   fn set_named_property<T>(&mut self, name: &str, value: T) -> Result<()>
@@ -279,12 +279,7 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
     let key = CString::new(name)?;
     let env = self.value().env;
     check_status!(unsafe {
-      sys::napi_set_named_property(
-        env,
-        self.value().value,
-        key.as_ptr(),
-        T::to_napi_value(env, value)?,
-      )
+      sys::napi_set_named_property(env, self.raw(), key.as_ptr(), T::to_napi_value(env, value)?)
     })
   }
 
@@ -356,9 +351,9 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
     Ok(result)
   }
 
-  fn delete_property<S>(&mut self, name: S) -> Result<bool>
+  fn delete_property<'s, S>(&mut self, name: S) -> Result<bool>
   where
-    S: NapiRaw,
+    S: JsValue<'s>,
   {
     let mut result = false;
     let env = self.value().env;
@@ -394,9 +389,9 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
     Ok(result)
   }
 
-  fn has_own_property_js<K>(&self, key: K) -> Result<bool>
+  fn has_own_property_js<'k, K>(&self, key: K) -> Result<bool>
   where
-    K: NapiRaw,
+    K: JsValue<'k>,
   {
     let mut result = false;
     let env = self.value().env;
@@ -417,9 +412,9 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
     Ok(result)
   }
 
-  fn has_property_js<K>(&self, name: K) -> Result<bool>
+  fn has_property_js<'k, K>(&self, name: K) -> Result<bool>
   where
-    K: NapiRaw,
+    K: JsValue<'k>,
   {
     let mut result = false;
     let env = self.value().env;
@@ -472,12 +467,12 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
 
   fn get_prototype_unchecked<T>(&self) -> Result<T>
   where
-    T: NapiValue,
+    T: FromNapiValue,
   {
     let mut result = ptr::null_mut();
     let env = self.value().env;
     check_status!(unsafe { sys::napi_get_prototype(env, self.value().value, &mut result) })?;
-    Ok(unsafe { T::from_raw_unchecked(env, result) })
+    unsafe { T::from_napi_value(env, result) }
   }
 
   fn set_element<'t, T>(&mut self, index: u32, value: T) -> Result<()>
@@ -1272,11 +1267,13 @@ macro_rules! impl_object_methods {
   };
 }
 
+#[cfg(feature = "compat-mode")]
 pub trait NapiRaw {
   #[allow(clippy::missing_safety_doc)]
   unsafe fn raw(&self) -> sys::napi_value;
 }
 
+#[cfg(feature = "compat-mode")]
 pub trait NapiValue: Sized + NapiRaw {
   #[allow(clippy::missing_safety_doc)]
   unsafe fn from_raw(env: sys::napi_env, value: sys::napi_value) -> Result<Self>;
