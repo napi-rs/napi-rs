@@ -61,6 +61,7 @@ impl<T: FromNapiValue> FromNapiValue for This<'_, T> {
   }
 }
 
+#[derive(Clone, Copy)]
 pub struct ClassInstance<'env, T: 'env> {
   pub value: sys::napi_value,
   env: sys::napi_env,
