@@ -1,4 +1,4 @@
-use napi::{CallContext, JsObject, JsString, Result, Unknown};
+use napi::{bindgen_prelude::Object, CallContext, JsObject, JsString, Result, Unknown};
 use serde_json::from_str;
 
 pub fn register_js(exports: &mut JsObject) -> Result<()> {
@@ -17,7 +17,7 @@ fn get_array_from_json(ctx: CallContext) -> Result<()> {
 
 #[js_function(1)]
 fn get_array_from_js_array(ctx: CallContext) -> Result<()> {
-  let input = ctx.get::<JsObject>(0)?;
+  let input = ctx.get::<Object>(0)?;
   let _: Vec<u32> = ctx.env.from_js_value(input)?;
   Ok(())
 }

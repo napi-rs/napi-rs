@@ -211,7 +211,8 @@ pub fn execute_tokio_future<
   fut: Fut,
   resolver: Resolver,
 ) -> Result<sys::napi_value> {
-  let (deferred, promise) = JsDeferred::new(env)?;
+  let env = Env::from_raw(env);
+  let (deferred, promise) = JsDeferred::new(&env)?;
   #[cfg(any(
     all(target_family = "wasm", tokio_unstable),
     not(target_family = "wasm")

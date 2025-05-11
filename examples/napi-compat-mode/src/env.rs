@@ -32,7 +32,7 @@ pub fn strict_equals(ctx: CallContext) -> Result<JsBoolean> {
 #[js_function(1)]
 pub fn cast_unknown(ctx: CallContext) -> Result<JsObject> {
   let arg: Unknown = ctx.get(0)?;
-  Ok(unsafe { arg.cast::<JsObject>() })
+  Ok(unsafe { arg.cast::<JsObject>()? })
 }
 
 #[contextless_function]

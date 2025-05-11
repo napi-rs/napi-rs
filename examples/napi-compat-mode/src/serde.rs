@@ -1,4 +1,4 @@
-use napi::{CallContext, JsObject, JsString, Result, Unknown};
+use napi::{bindgen_prelude::Object, CallContext, JsObject, JsString, Result, Unknown};
 
 use serde_json::{from_str, to_string};
 
@@ -171,7 +171,7 @@ make_expect!(
 
 #[js_function(1)]
 fn roundtrip_object(ctx: CallContext) -> Result<Unknown> {
-  let arg0 = ctx.get::<JsObject>(0)?;
+  let arg0 = ctx.get::<Object>(0)?;
 
   let de_serialized: AnObjectTwo = ctx.env.from_js_value(arg0)?;
   ctx.env.to_js_value(&de_serialized)
@@ -187,7 +187,7 @@ fn from_json_string(ctx: CallContext) -> Result<Unknown> {
 
 #[js_function(1)]
 fn json_to_string(ctx: CallContext) -> Result<JsString> {
-  let arg0 = ctx.get::<JsObject>(0)?;
+  let arg0 = ctx.get::<Object>(0)?;
 
   let de_serialized: AnObject = ctx.env.from_js_value(arg0)?;
   let json_string = to_string(&de_serialized)?;
