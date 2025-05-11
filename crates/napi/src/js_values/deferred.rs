@@ -25,7 +25,7 @@ struct DeferredTrace(sys::napi_ref);
 impl DeferredTrace {
   fn new(raw_env: sys::napi_env) -> Result<Self> {
     let env = Env::from_raw(raw_env);
-    let reason = env.create_string("none").unwrap();
+    let reason = env.create_string("none")?;
 
     let mut js_error = ptr::null_mut();
     check_status!(
@@ -185,9 +185,10 @@ fn js_deferred_new_raw(
 ) -> Result<(sys::napi_threadsafe_function, Object)> {
   let mut raw_promise = ptr::null_mut();
   let mut raw_deferred = ptr::null_mut();
-  check_status! {
-    unsafe { sys::napi_create_promise(env.0, &mut raw_deferred, &mut raw_promise) }
-  }?;
+  check_status!(
+    unsafe { sys::napi_create_promise(env.0, &mut raw_deferred, &mut raw_promise) },
+    "Create promise in JsDeferred failed"
+  )?;
 
   // Create a threadsafe function so we can call back into the JS thread when we are done.
   let mut async_resource_name = ptr::null_mut();
@@ -246,6 +247,18 @@ extern "C" fn napi_resolve_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> 
       unsafe { sys::napi_resolve_deferred(env, deferred, res) },
       "Resolve deferred value failed"
     )
+    .map(|_| {
+      #[cfg(feature = "deferred_trace")]
+      {
+        let _status = unsafe { sys::napi_delete_reference(env, deferred_data.trace.0) };
+        if _status != sys::Status::napi_ok && cfg!(debug_assertions) {
+          eprintln!(
+            "Failed to delete reference in deferred {}",
+            crate::Status::from(_status)
+          );
+        }
+      }
+    })
   }) {
     #[cfg(feature = "deferred_trace")]
     let error = deferred_data.trace.into_rejected(env, e);
@@ -258,7 +271,7 @@ extern "C" fn napi_resolve_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> 
       }
       Err(err) => {
         if cfg!(debug_assertions) {
-          println!("Failed to reject deferred: {:?}", err);
+          eprintln!("Failed to reject deferred: {:?}", err);
           let mut err = ptr::null_mut();
           let mut err_msg = ptr::null_mut();
           unsafe {
