@@ -2,7 +2,10 @@ use std::convert::TryFrom;
 use std::ptr;
 
 use super::*;
-use crate::{bindgen_runtime::TypeName, check_status, sys, Result};
+use crate::{
+  bindgen_runtime::{FromNapiValue, TypeName},
+  check_status, sys, Result,
+};
 
 #[deprecated(since = "3.0.0", note = "Use `napi::bindgen_prelude::BigInt` instead")]
 #[derive(Clone, Copy)]
@@ -22,6 +25,35 @@ impl TypeName for JsBigInt {
 }
 
 impl ValidateNapiValue for JsBigInt {}
+
+impl JsValue<'_> for JsBigInt {
+  fn value(&self) -> Value {
+    self.raw
+  }
+}
+
+impl FromNapiValue for JsBigInt {
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
+    let mut word_count = 0usize;
+    check_status!(unsafe {
+      sys::napi_get_value_bigint_words(
+        env,
+        napi_val,
+        ptr::null_mut(),
+        &mut word_count,
+        ptr::null_mut(),
+      )
+    })?;
+    Ok(JsBigInt {
+      raw: Value {
+        env,
+        value: napi_val,
+        value_type: ValueType::BigInt,
+      },
+      word_count,
+    })
+  }
+}
 
 impl JsBigInt {
   pub(crate) fn from_raw_unchecked(

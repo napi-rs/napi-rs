@@ -66,7 +66,7 @@ impl FromNapiValue for JSON<'_> {
 }
 
 impl JSON<'_> {
-  pub fn stringify<V: NapiRaw>(&self, value: V) -> Result<std::string::String> {
+  pub fn stringify<V: ToNapiValue>(&self, value: V) -> Result<std::string::String> {
     let func: Function<V, std::string::String> = self.get_named_property_unchecked("stringify")?;
     func.call(value)
   }

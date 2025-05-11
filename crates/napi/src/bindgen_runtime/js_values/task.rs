@@ -1,12 +1,17 @@
 use std::ffi::c_void;
+use std::marker::PhantomData;
 use std::ptr;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicPtr, AtomicU8, Ordering};
 
-use super::{FromNapiValue, ToNapiValue, TypeName, Unknown};
+use crate::Value;
 use crate::{
-  async_work, check_status, sys, Env, Error, JsError, JsObject, NapiValue, Status, Task,
+  async_work,
+  bindgen_prelude::{FromNapiValue, JsObjectValue, ToNapiValue, TypeName, Unknown},
+  check_status, sys, Env, Error, JsError, Status, Task, ValueType,
 };
+
+use super::Object;
 
 pub struct AsyncTask<T: Task> {
   inner: T,
@@ -55,7 +60,14 @@ pub struct AbortSignal {
 
 impl FromNapiValue for AbortSignal {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
-    let mut signal = unsafe { JsObject::from_raw_unchecked(env, napi_val) };
+    let mut signal = Object(
+      Value {
+        env,
+        value: napi_val,
+        value_type: ValueType::Object,
+      },
+      PhantomData,
+    );
     let async_work_inner: Rc<AtomicPtr<sys::napi_async_work__>> =
       Rc::new(AtomicPtr::new(ptr::null_mut()));
     let raw_promise: Rc<AtomicPtr<sys::napi_deferred__>> = Rc::new(AtomicPtr::new(ptr::null_mut()));

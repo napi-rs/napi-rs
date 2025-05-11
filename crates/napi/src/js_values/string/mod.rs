@@ -3,7 +3,7 @@ use std::mem;
 use std::ptr;
 
 use crate::{
-  bindgen_runtime::{FromNapiValue, TypeName, ValidateNapiValue},
+  bindgen_runtime::{FromNapiValue, ToNapiValue, TypeName, ValidateNapiValue},
   check_status, sys, Result, Value, ValueType,
 };
 
@@ -51,7 +51,24 @@ impl FromNapiValue for JsString<'_> {
   }
 }
 
+impl ToNapiValue for &JsString<'_> {
+  unsafe fn to_napi_value(_env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    Ok(val.raw())
+  }
+}
+
 impl<'env> JsString<'env> {
+  pub(crate) fn from_raw(env: sys::napi_env, value: sys::napi_value) -> Self {
+    JsString(
+      Value {
+        env,
+        value,
+        value_type: ValueType::String,
+      },
+      PhantomData,
+    )
+  }
+
   pub fn utf8_len(&self) -> Result<usize> {
     let mut length = 0;
     check_status!(unsafe {

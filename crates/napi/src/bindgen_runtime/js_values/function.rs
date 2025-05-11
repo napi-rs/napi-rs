@@ -8,7 +8,7 @@ use crate::threadsafe_function::{ThreadsafeCallContext, ThreadsafeFunction};
 #[allow(deprecated)]
 pub use crate::JsFunction;
 use crate::{
-  check_pending_exception, check_status, sys, Env, NapiRaw, NapiValue, Result, ValueType,
+  check_pending_exception, check_status, sys, Env, JsObjectValue, JsValue, Result, ValueType,
 };
 
 pub trait JsValuesTupleIntoVec {
@@ -127,10 +127,19 @@ impl<Args: JsValuesTupleIntoVec, Return> TypeName for Function<'_, Args, Return>
   }
 }
 
-impl<Args: JsValuesTupleIntoVec, Return> NapiRaw for Function<'_, Args, Return> {
-  unsafe fn raw(&self) -> sys::napi_value {
-    self.value
+impl<'env, Args: JsValuesTupleIntoVec, Return> JsValue<'env> for Function<'env, Args, Return> {
+  fn value(&self) -> crate::Value {
+    crate::Value {
+      value: self.value,
+      env: self.env,
+      value_type: ValueType::Function,
+    }
   }
+}
+
+impl<'env, Args: JsValuesTupleIntoVec, Return> JsObjectValue<'env>
+  for Function<'env, Args, Return>
+{
 }
 
 impl<Args: JsValuesTupleIntoVec, Return> FromNapiValue for Function<'_, Args, Return> {
@@ -474,7 +483,7 @@ impl FunctionCallContext<'_> {
     }
   }
 
-  pub fn try_get<ArgType: NapiValue + TypeName + FromNapiValue>(
+  pub fn try_get<ArgType: TypeName + FromNapiValue>(
     &self,
     index: usize,
   ) -> Result<Either<ArgType, ()>> {
@@ -485,7 +494,7 @@ impl FunctionCallContext<'_> {
         "Arguments index out of range".to_owned(),
       ))
     } else if index < len {
-      unsafe { ArgType::from_raw(self.env.0, self.args[index]) }.map(Either::A)
+      unsafe { ArgType::from_napi_value(self.env.0, self.args[index]) }.map(Either::A)
     } else {
       Ok(Either::B(()))
     }

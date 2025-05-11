@@ -1,11 +1,10 @@
-use std::result::Result as StdResult;
+use std::{marker::PhantomData, result::Result as StdResult};
 
 use serde::{ser, Serialize, Serializer};
 
-use super::*;
 use crate::{
-  bindgen_runtime::{BufferSlice, Null},
-  Env, Error, Result,
+  bindgen_runtime::{Array, BufferSlice, Null, Object, ToNapiValue},
+  Env, Error, JsObjectValue, JsString, JsValue, Result, Unknown, Value, ValueType,
 };
 
 pub struct Ser<'env>(pub(crate) &'env Env);
@@ -20,13 +19,13 @@ impl<'env> Serializer for Ser<'env> {
   type Ok = Value;
   type Error = Error;
 
-  type SerializeSeq = SeqSerializer;
-  type SerializeTuple = SeqSerializer;
-  type SerializeTupleStruct = SeqSerializer;
-  type SerializeTupleVariant = SeqSerializer;
+  type SerializeSeq = SeqSerializer<'env>;
+  type SerializeTuple = SeqSerializer<'env>;
+  type SerializeTupleStruct = SeqSerializer<'env>;
+  type SerializeTupleVariant = SeqSerializer<'env>;
   type SerializeMap = MapSerializer<'env>;
-  type SerializeStruct = StructSerializer;
-  type SerializeStructVariant = StructSerializer;
+  type SerializeStruct = StructSerializer<'env>;
+  type SerializeStructVariant = StructSerializer<'env>;
 
   fn serialize_bool(self, v: bool) -> Result<Self::Ok> {
     Ok(Value {
@@ -136,7 +135,7 @@ impl<'env> Serializer for Ser<'env> {
       self.serialize_u32(v as u32)
     } else {
       Err(Error::new(
-        Status::InvalidArg,
+        crate::Status::InvalidArg,
         "u64 is too large to serialize, enable napi6 feature and serialize it as BigInt instead",
       ))
     }
@@ -241,12 +240,12 @@ impl<'env> Serializer for Ser<'env> {
   fn serialize_map(self, _len: Option<usize>) -> Result<Self::SerializeMap> {
     let env = self.0;
     let key = env.create_string("")?;
-    let obj = env.create_object()?;
+    let obj = Object::new(env)?;
     Ok(MapSerializer { key, obj })
   }
 
   fn serialize_seq(self, len: Option<usize>) -> Result<Self::SerializeSeq> {
-    let array = self.0.create_array_with_length(len.unwrap_or(0))?;
+    let array = Array::new(self.0.raw(), len.unwrap_or(0) as u32)?;
     Ok(SeqSerializer {
       current_index: 0,
       array,
@@ -261,15 +260,18 @@ impl<'env> Serializer for Ser<'env> {
     len: usize,
   ) -> Result<Self::SerializeTupleVariant> {
     let env = self.0;
-    let array = env.create_array_with_length(len)?;
-    let mut object = env.create_object()?;
+    let array = Array::new(env.raw(), len as u32)?;
+    let mut object = Object::new(env)?;
     object.set_named_property(
       variant,
-      JsObject(Value {
-        value: array.0.value,
-        env: array.0.env,
-        value_type: ValueType::Object,
-      }),
+      Object(
+        Value {
+          value: array.inner,
+          env: array.env,
+          value_type: ValueType::Object,
+        },
+        PhantomData,
+      ),
     )?;
     Ok(SeqSerializer {
       current_index: 0,
@@ -311,7 +313,7 @@ impl<'env> Serializer for Ser<'env> {
   where
     T: ?Sized + Serialize,
   {
-    let mut obj = self.0.create_object()?;
+    let mut obj = Object::new(self.0)?;
     obj.set_named_property(
       variant,
       Unknown(value.serialize(self)?, std::marker::PhantomData),
@@ -321,7 +323,7 @@ impl<'env> Serializer for Ser<'env> {
 
   fn serialize_tuple(self, len: usize) -> Result<Self::SerializeTuple> {
     Ok(SeqSerializer {
-      array: self.0.create_array_with_length(len)?,
+      array: Array::new(self.0.raw(), len as u32)?,
       current_index: 0,
     })
   }
@@ -332,14 +334,14 @@ impl<'env> Serializer for Ser<'env> {
     len: usize,
   ) -> Result<Self::SerializeTupleStruct> {
     Ok(SeqSerializer {
-      array: self.0.create_array_with_length(len)?,
+      array: Array::new(self.0.raw(), len as u32)?,
       current_index: 0,
     })
   }
 
   fn serialize_struct(self, _name: &'static str, _len: usize) -> Result<Self::SerializeStruct> {
     Ok(StructSerializer {
-      obj: self.0.create_object()?,
+      obj: Object::new(self.0)?,
     })
   }
 
@@ -350,28 +352,31 @@ impl<'env> Serializer for Ser<'env> {
     variant: &'static str,
     _len: usize,
   ) -> Result<Self::SerializeStructVariant> {
-    let mut outer = self.0.create_object()?;
-    let inner = self.0.create_object()?;
+    let mut outer = Object::new(self.0)?;
+    let inner = Object::new(self.0)?;
     outer.set_named_property(
       variant,
-      JsObject(Value {
-        env: inner.0.env,
-        value: inner.0.value,
-        value_type: ValueType::Object,
-      }),
+      Object(
+        Value {
+          env: inner.0.env,
+          value: inner.0.value,
+          value_type: ValueType::Object,
+        },
+        PhantomData,
+      ),
     )?;
     Ok(StructSerializer {
-      obj: self.0.create_object()?,
+      obj: Object::new(self.0)?,
     })
   }
 }
 
-pub struct SeqSerializer {
-  array: JsObject,
+pub struct SeqSerializer<'env> {
+  array: Array<'env>,
   current_index: usize,
 }
 
-impl ser::SerializeSeq for SeqSerializer {
+impl ser::SerializeSeq for SeqSerializer<'_> {
   type Ok = Value;
   type Error = Error;
 
@@ -379,7 +384,7 @@ impl ser::SerializeSeq for SeqSerializer {
   where
     T: ?Sized + Serialize,
   {
-    let env = Env::from_raw(self.array.0.env);
+    let env = Env::from_raw(self.array.env);
     self.array.set_element(
       self.current_index as _,
       Unknown(value.serialize(Ser::new(&env))?, std::marker::PhantomData),
@@ -389,12 +394,12 @@ impl ser::SerializeSeq for SeqSerializer {
   }
 
   fn end(self) -> Result<Self::Ok> {
-    Ok(self.array.0)
+    Ok(self.array.value())
   }
 }
 
 #[doc(hidden)]
-impl ser::SerializeTuple for SeqSerializer {
+impl ser::SerializeTuple for SeqSerializer<'_> {
   type Ok = Value;
   type Error = Error;
 
@@ -402,7 +407,7 @@ impl ser::SerializeTuple for SeqSerializer {
   where
     T: ?Sized + Serialize,
   {
-    let env = Env::from_raw(self.array.0.env);
+    let env = Env::from_raw(self.array.env);
     self.array.set_element(
       self.current_index as _,
       Unknown(value.serialize(Ser::new(&env))?, std::marker::PhantomData),
@@ -412,12 +417,12 @@ impl ser::SerializeTuple for SeqSerializer {
   }
 
   fn end(self) -> StdResult<Self::Ok, Self::Error> {
-    Ok(self.array.0)
+    Ok(self.array.value())
   }
 }
 
 #[doc(hidden)]
-impl ser::SerializeTupleStruct for SeqSerializer {
+impl ser::SerializeTupleStruct for SeqSerializer<'_> {
   type Ok = Value;
   type Error = Error;
 
@@ -425,7 +430,7 @@ impl ser::SerializeTupleStruct for SeqSerializer {
   where
     T: ?Sized + Serialize,
   {
-    let env = Env::from_raw(self.array.0.env);
+    let env = Env::from_raw(self.array.env);
     self.array.set_element(
       self.current_index as _,
       Unknown(value.serialize(Ser::new(&env))?, std::marker::PhantomData),
@@ -435,12 +440,12 @@ impl ser::SerializeTupleStruct for SeqSerializer {
   }
 
   fn end(self) -> StdResult<Self::Ok, Self::Error> {
-    Ok(self.array.0)
+    Ok(self.array.value())
   }
 }
 
 #[doc(hidden)]
-impl ser::SerializeTupleVariant for SeqSerializer {
+impl ser::SerializeTupleVariant for SeqSerializer<'_> {
   type Ok = Value;
   type Error = Error;
 
@@ -448,7 +453,7 @@ impl ser::SerializeTupleVariant for SeqSerializer {
   where
     T: ?Sized + Serialize,
   {
-    let env = Env::from_raw(self.array.0.env);
+    let env = Env::from_raw(self.array.env);
     self.array.set_element(
       self.current_index as _,
       Unknown(value.serialize(Ser::new(&env))?, std::marker::PhantomData),
@@ -458,13 +463,13 @@ impl ser::SerializeTupleVariant for SeqSerializer {
   }
 
   fn end(self) -> Result<Self::Ok> {
-    Ok(self.array.0)
+    Ok(self.array.value())
   }
 }
 
 pub struct MapSerializer<'env> {
   key: JsString<'env>,
-  obj: JsObject,
+  obj: Object<'env>,
 }
 
 #[doc(hidden)]
@@ -487,14 +492,7 @@ impl ser::SerializeMap for MapSerializer<'_> {
   {
     let env = Env::from_raw(self.obj.0.env);
     self.obj.set_property(
-      JsString(
-        Value {
-          env: self.key.0.env,
-          value: self.key.0.value,
-          value_type: ValueType::String,
-        },
-        std::marker::PhantomData,
-      ),
+      JsString::from_raw(self.key.0.env, self.key.0.value),
       Unknown(value.serialize(Ser::new(&env))?, std::marker::PhantomData),
     )?;
     Ok(())
@@ -518,12 +516,12 @@ impl ser::SerializeMap for MapSerializer<'_> {
   }
 }
 
-pub struct StructSerializer {
-  obj: JsObject,
+pub struct StructSerializer<'env> {
+  obj: Object<'env>,
 }
 
 #[doc(hidden)]
-impl ser::SerializeStruct for StructSerializer {
+impl ser::SerializeStruct for StructSerializer<'_> {
   type Ok = Value;
   type Error = Error;
 
@@ -545,7 +543,7 @@ impl ser::SerializeStruct for StructSerializer {
 }
 
 #[doc(hidden)]
-impl ser::SerializeStructVariant for StructSerializer {
+impl ser::SerializeStructVariant for StructSerializer<'_> {
   type Ok = Value;
   type Error = Error;
 

@@ -1,9 +1,9 @@
 use std::thread;
 
-use napi::{CallContext, Error, JsObject, Result};
+use napi::{bindgen_prelude::Object, CallContext, Error, Result};
 
 #[js_function(1)]
-pub fn test_deferred(ctx: CallContext) -> Result<JsObject> {
+pub fn test_deferred(ctx: CallContext) -> Result<Object> {
   let reject: bool = ctx.get(0)?;
   let (deferred, promise) = ctx.env.create_deferred()?;
 
