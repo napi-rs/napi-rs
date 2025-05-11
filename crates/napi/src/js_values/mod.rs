@@ -5,6 +5,7 @@ use std::any::{type_name, TypeId};
 use std::convert::TryFrom;
 use std::ffi::c_void;
 use std::ffi::CString;
+use std::marker::PhantomData;
 use std::ptr;
 
 #[cfg(feature = "napi5")]
@@ -431,6 +432,18 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
       sys::napi_get_property_names(env, self.value().value, &mut raw_value)
     })?;
     Ok(Object::from_raw(env, raw_value))
+  }
+
+  /// Create a reference and return it as a `Ref<Object<'static>>`.
+  fn create_ref(&self) -> Result<Ref<Object<'static>>> {
+    let env = self.value().env;
+    let mut raw_ref = ptr::null_mut();
+    check_status!(unsafe { sys::napi_create_reference(env, self.value().value, 1, &mut raw_ref) })?;
+    Ok(Ref {
+      raw_ref,
+      taken: false,
+      _phantom: PhantomData,
+    })
   }
 
   /// <https://nodejs.org/api/n-api.html#n_api_napi_get_all_property_names>
