@@ -380,7 +380,7 @@ impl NapiStruct {
           }
         }
 
-        fn instance_of<'env, V: napi::JsValue<'env>>(env: &napi::bindgen_prelude::Env, value: V) -> napi::bindgen_prelude::Result<bool> {
+        fn instance_of<'env, V: napi::JsValue<'env>>(env: &napi::bindgen_prelude::Env, value: &V) -> napi::bindgen_prelude::Result<bool> {
           if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name_str) {
             let mut ctor = std::ptr::null_mut();
             napi::check_status!(

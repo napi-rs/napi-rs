@@ -5,6 +5,7 @@ use crate::{
   sys, type_of, JsValue, Result, Value, ValueType,
 };
 
+#[derive(Clone, Copy)]
 /// Represents a raw JavaScript value
 pub struct Unknown<'env>(
   pub(crate) Value,

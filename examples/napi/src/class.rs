@@ -231,7 +231,7 @@ pub struct NinjaTurtle {
 impl NinjaTurtle {
   #[napi]
   pub fn is_instance_of(env: Env, value: Unknown) -> Result<bool> {
-    Self::instance_of(&env, value)
+    Self::instance_of(&env, &value)
   }
 
   /// Create your ninja turtle! 🐢
