@@ -1,5 +1,5 @@
-import { createRequire } from 'module'
-import { setTimeout } from 'timers/promises'
+import { createRequire } from 'node:module'
+import { setTimeout } from 'node:timers/promises'
 
 import { displayMemoryUsageFromNode } from './util.mjs'
 
