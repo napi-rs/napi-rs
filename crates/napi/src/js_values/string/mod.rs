@@ -58,6 +58,7 @@ impl ToNapiValue for &JsString<'_> {
 }
 
 impl<'env> JsString<'env> {
+  #[cfg(feature = "serde-json")]
   pub(crate) fn from_raw(env: sys::napi_env, value: sys::napi_value) -> Self {
     JsString(
       Value {
