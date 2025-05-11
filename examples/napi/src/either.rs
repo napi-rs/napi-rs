@@ -146,3 +146,19 @@ pub async fn promise_in_either(input: Either<u32, Promise<u32>>) -> Result<bool>
 
 #[napi]
 pub fn either_bool_or_tuple(_input: Either<bool, (bool, String)>) {}
+
+#[napi]
+pub async fn either_promise_in_either_a(
+  input: Either<Either<Promise<u32>, u32>, String>,
+) -> Result<bool> {
+  match input {
+    Either::A(a) => match a {
+      Either::A(b) => {
+        let r = b.await?;
+        Ok(r > 10)
+      }
+      Either::B(b) => Ok(b > 10),
+    },
+    Either::B(a) => Ok(a.len() > 10),
+  }
+}

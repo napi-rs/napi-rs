@@ -72,6 +72,7 @@ import {
   returnEither,
   either3,
   either4,
+  eitherPromiseInEitherA,
   withoutAbortController,
   withAbortController,
   asyncMultiTwo,
@@ -1105,6 +1106,14 @@ test('either4', (t) => {
   t.is(either4(false), 0)
   t.is(either4({ v: 1 }), 1)
   t.is(either4({ v: 'world' }), 'world'.length)
+})
+
+test('either promise in either a', async (t) => {
+  t.is(await eitherPromiseInEitherA(1), false)
+  t.is(await eitherPromiseInEitherA(20), true)
+  t.is(await eitherPromiseInEitherA(Promise.resolve(1)), false)
+  t.is(await eitherPromiseInEitherA(Promise.resolve(20)), true)
+  t.is(await eitherPromiseInEitherA('abc'), false)
 })
 
 test('external', (t) => {

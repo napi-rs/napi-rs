@@ -197,6 +197,7 @@ export const eitherBoolOrFunction = __napiModule.exports.eitherBoolOrFunction
 export const eitherBoolOrTuple = __napiModule.exports.eitherBoolOrTuple
 export const eitherFromObjects = __napiModule.exports.eitherFromObjects
 export const eitherFromOption = __napiModule.exports.eitherFromOption
+export const eitherPromiseInEitherA = __napiModule.exports.eitherPromiseInEitherA
 export const eitherStringOrNumber = __napiModule.exports.eitherStringOrNumber
 export const Empty = __napiModule.exports.Empty
 export const enumToI32 = __napiModule.exports.enumToI32

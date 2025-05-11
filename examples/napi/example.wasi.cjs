@@ -221,6 +221,7 @@ module.exports.eitherBoolOrFunction = __napiModule.exports.eitherBoolOrFunction
 module.exports.eitherBoolOrTuple = __napiModule.exports.eitherBoolOrTuple
 module.exports.eitherFromObjects = __napiModule.exports.eitherFromObjects
 module.exports.eitherFromOption = __napiModule.exports.eitherFromOption
+module.exports.eitherPromiseInEitherA = __napiModule.exports.eitherPromiseInEitherA
 module.exports.eitherStringOrNumber = __napiModule.exports.eitherStringOrNumber
 module.exports.Empty = __napiModule.exports.Empty
 module.exports.enumToI32 = __napiModule.exports.enumToI32

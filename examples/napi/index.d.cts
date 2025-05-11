@@ -502,6 +502,8 @@ export declare function eitherFromObjects(input: A | B | C): string
 
 export declare function eitherFromOption(): JsClassForEither | undefined
 
+export declare function eitherPromiseInEitherA(input: Promise<number> | number | string): Promise<boolean>
+
 export declare function eitherStringOrNumber(input: string | number): number
 
 export declare const enum Empty {
