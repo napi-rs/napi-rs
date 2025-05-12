@@ -88,7 +88,7 @@ const encodeValue = (memfs, value, type) => {
 const decodeValue = (memfs, payload, type) => {
   if (type === 0) return undefined
   if (type === 1) return null
-  if (type === 2) return Boolean(payload[0])
+  if (type === 2) return Boolean(new Int32Array(payload.buffer, payload.byteOffset, 1)[0])
   if (type === 3) return new Float64Array(payload.buffer, payload.byteOffset, 1)[0]
   if (type === 4) return new TextDecoder().decode(payload.slice())
   if (type === 6) {
