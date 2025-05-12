@@ -249,13 +249,24 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
 
   fn get_property<'k, K, T>(&self, key: K) -> Result<T>
   where
-    K: JsObjectValue<'k>,
-    T: FromNapiValue,
+    K: JsValue<'k>,
+    T: FromNapiValue + ValidateNapiValue,
   {
     let mut raw_value = ptr::null_mut();
     let env = self.value().env;
     check_status!(unsafe {
       sys::napi_get_property(env, self.value().value, key.raw(), &mut raw_value)
+    })?;
+    unsafe { T::validate(env, raw_value) }.map_err(|mut err| {
+      err.reason = format!(
+        "Object property '{:?}' type mismatch. {}",
+        key
+          .coerce_to_string()
+          .and_then(|s| s.into_utf8())
+          .and_then(|s| s.into_owned()),
+        err.reason
+      );
+      err
     })?;
     unsafe { T::from_napi_value(env, raw_value) }
   }
