@@ -71,8 +71,7 @@ jobs:
             build: yarn build:test
             test: |
               yarn test:cli
-              ulimit -c unlimited
-              sudo yarn test
+              DEBUG="*" yarn test
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
               yarn test:macro
             toolchain: stable
@@ -205,16 +204,6 @@ jobs:
         env:
           NODE_OPTIONS: '--max-old-space-size=8192'
           DISABLE_V8_COMPILE_CACHE: 1
-
-      - name: chmod core files
-        if: ${{ failure() && matrix.settings.target == 'x86_64-unknown-linux-gnu' }}
-        run: sudo chmod -R +rwx /cores/*
-
-      - uses: actions/upload-artifact@v4
-        if: ${{ failure() }}
-        with:
-          name: crashes
-          path: /cores
 
       - name: Electron tests
         if: matrix.settings.target == 'aarch64-apple-darwin' || matrix.settings.target == 'x86_64-pc-windows-msvc'
