@@ -89,7 +89,6 @@ pub fn expand(attr: TokenStream, input: TokenStream) -> BindgenResult<TokenStrea
           #[cfg(feature = "type-def")]
           {
             output_type_def(&napi);
-            output_wasi_register_def(&napi);
           }
         } else {
           item.to_tokens(&mut tokens);
@@ -116,29 +115,8 @@ pub fn expand(attr: TokenStream, input: TokenStream) -> BindgenResult<TokenStrea
     #[cfg(feature = "type-def")]
     {
       output_type_def(&napi);
-      output_wasi_register_def(&napi);
     }
     Ok(tokens)
-  }
-}
-
-#[cfg(feature = "type-def")]
-fn output_wasi_register_def(napi: &Napi) {
-  if let Ok(wasi_register_file) = env::var("WASI_REGISTER_TMP_PATH") {
-    fs::OpenOptions::new()
-      .append(true)
-      .create(true)
-      .open(wasi_register_file)
-      .and_then(|file| {
-        let mut writer = BufWriter::<fs::File>::new(file);
-        let pkg_name: String = std::env::var("CARGO_PKG_NAME").expect("CARGO_PKG_NAME is not set");
-        writer.write_all(format!("{pkg_name}: {}", napi.register_name()).as_bytes())?;
-        writer.write_all("\n".as_bytes())?;
-        writer.flush()
-      })
-      .unwrap_or_else(|e| {
-        println!("Failed to write wasi register file: {:?}", e);
-      });
   }
 }
 
@@ -199,12 +177,7 @@ fn replace_napi_attr_in_mod(
 #[cfg(feature = "type-def")]
 fn prepare_type_def_file() {
   if let Ok(ref type_def_file) = env::var("TYPE_DEF_TMP_PATH") {
-    use napi_derive_backend::{NAPI_RS_CLI_VERSION, NAPI_RS_CLI_VERSION_WITH_SHARED_CRATES_FIX};
-    if let Err(_e) = if *NAPI_RS_CLI_VERSION >= *NAPI_RS_CLI_VERSION_WITH_SHARED_CRATES_FIX {
-      remove_existed_def_file(type_def_file)
-    } else {
-      fs::remove_file(type_def_file)
-    } {
+    if let Err(_e) = remove_existed_def_file(type_def_file) {
       #[cfg(debug_assertions)]
       {
         println!("Failed to manipulate type def file: {:?}", _e);

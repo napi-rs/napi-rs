@@ -463,8 +463,6 @@ class Builder {
   private setEnvs() {
     // type definition intermediate file
     this.envs.TYPE_DEF_TMP_PATH = this.getIntermediateTypeFile()
-    // WASI register intermediate file
-    this.envs.WASI_REGISTER_TMP_PATH = this.getIntermediateWasiRegisterFile()
     // TODO:
     //   remove after napi-derive@v3 release
     this.envs.CARGO_CFG_NAPI_RS_CLI_VERSION = CLI_VERSION
@@ -664,17 +662,6 @@ class Builder {
     return `${dtsPath}.tmp`
   }
 
-  private getIntermediateWasiRegisterFile() {
-    return join(
-      tmpdir(),
-      `${this.crate.name}-${createHash('sha256')
-        .update(this.crate.manifest_path)
-        .update(CLI_VERSION)
-        .digest('hex')
-        .substring(0, 8)}.napi_wasi_register.tmp`,
-    )
-  }
-
   private async postBuild() {
     try {
       debug(`Try to create output directory:`)
@@ -692,36 +679,8 @@ class Builder {
     // only for cdylib
     if (this.cdyLibName) {
       const idents = await this.generateTypeDef()
-      const intermediateWasiRegisterFile = this.envs.WASI_REGISTER_TMP_PATH
-      const wasiRegisterFunctions = this.config.targets.some(
-        (t) => t.platform === 'wasi',
-      )
-        ? await (async function readIntermediateWasiRegisterFile() {
-            const fileContent = await readFileAsync(
-              intermediateWasiRegisterFile,
-              'utf8',
-            ).catch((err) => {
-              console.warn(
-                `Read ${colors.yellowBright(
-                  intermediateWasiRegisterFile,
-                )} failed, reason: ${err.message}`,
-              )
-              return ``
-            })
-            return fileContent
-              .split('\n')
-              .map((l) => l.trim())
-              .filter((l) => l.length)
-              .map((line) => {
-                const [_, fn] = line.split(':')
-                return fn?.trim()
-              })
-              .filter((fn) => !!fn)
-          })()
-        : []
       const jsOutput = await this.writeJsBinding(idents)
       const wasmBindingsOutput = await this.writeWasiBinding(
-        wasiRegisterFunctions,
         wasmBinaryName ?? 'index.wasm',
         idents,
       )
@@ -926,11 +885,10 @@ class Builder {
   }
 
   private async writeWasiBinding(
-    wasiRegisterFunctions: string[],
     distFileName: string | undefined,
     idents: string[],
   ) {
-    if (distFileName && wasiRegisterFunctions.length) {
+    if (distFileName) {
       const { name, dir } = parse(distFileName)
       const bindingPath = join(dir, `${this.config.binaryName}.wasi.cjs`)
       const browserBindingPath = join(
