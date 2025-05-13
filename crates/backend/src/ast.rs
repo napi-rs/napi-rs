@@ -5,6 +5,7 @@ use syn::{Attribute, Expr, Type};
 pub struct NapiFn {
   pub name: Ident,
   pub js_name: String,
+  pub module_exports: bool,
   pub attrs: Vec<Attribute>,
   pub args: Vec<NapiFnArg>,
   pub ret: Option<syn::Type>,

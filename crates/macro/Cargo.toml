@@ -15,8 +15,8 @@ independent = true
 
 [features]
 compat-mode = []
-default = ["compat-mode", "full"]
-full = ["type-def", "strict"]
+default = ["type-def", "strict"]
+full = ["type-def", "strict", "compat-mode"]
 noop = ["napi-derive-backend/noop"]
 strict = ["napi-derive-backend/strict"]
 type-def = ["napi-derive-backend/type-def"]
