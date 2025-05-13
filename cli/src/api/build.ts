@@ -940,11 +940,14 @@ class Builder {
       const workerPath = join(dir, 'wasi-worker.mjs')
       const browserWorkerPath = join(dir, 'wasi-worker-browser.mjs')
       const browserEntryPath = join(dir, 'browser.js')
-      const exportsCode = idents
-        .map(
-          (ident) => `module.exports.${ident} = __napiModule.exports.${ident}`,
-        )
-        .join('\n')
+      const exportsCode =
+        `module.exports = __napiModule.exports\n` +
+        idents
+          .map(
+            (ident) =>
+              `module.exports.${ident} = __napiModule.exports.${ident}`,
+          )
+          .join('\n')
       await writeFileAsync(
         bindingPath,
         createWasiBinding(
@@ -966,6 +969,7 @@ class Builder {
           this.config.wasm?.browser?.fs,
           this.config.wasm?.browser?.asyncInit,
         ) +
+          `export default __napiModule.exports\n` +
           idents
             .map(
               (ident) =>

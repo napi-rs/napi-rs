@@ -2,3 +2,5 @@
 /* eslint-disable */
 
 type MaybePromise<T> = T | Promise<T>
+
+export declare const NAPI_RS_SYMBOL: symbol

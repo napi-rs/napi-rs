@@ -84,6 +84,7 @@ const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule
     }
   },
 })
+module.exports = __napiModule.exports
 module.exports.Animal = __napiModule.exports.Animal
 module.exports.AnimalWithDefaultConstructor = __napiModule.exports.AnimalWithDefaultConstructor
 module.exports.AnotherClassForEither = __napiModule.exports.AnotherClassForEither

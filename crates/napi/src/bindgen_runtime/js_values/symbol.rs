@@ -40,10 +40,10 @@ impl Symbol {
   }
 
   #[cfg(feature = "napi9")]
-  pub fn for_desc(desc: String) -> Self {
+  pub fn for_desc<S: AsRef<str>>(desc: S) -> Self {
     Self {
       desc: None,
-      for_desc: Some(desc.to_owned()),
+      for_desc: Some(desc.as_ref().to_owned()),
     }
   }
 }

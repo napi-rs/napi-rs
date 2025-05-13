@@ -8,7 +8,7 @@
 #[cfg(not(target_family = "wasm"))]
 use napi::bindgen_prelude::create_custom_tokio_runtime;
 use napi::{
-  bindgen_prelude::{Env, Object, Result},
+  bindgen_prelude::{Object, Result, Symbol},
   JsObjectValue,
 };
 
@@ -53,8 +53,8 @@ pub fn shutdown_runtime() {
 }
 
 #[napi(module_exports)]
-pub fn exports(env: Env, mut export: Object) -> Result<()> {
-  let symbol = env.create_symbol(Some("NAPI_RS_SYMBOL"))?;
+pub fn exports(mut export: Object) -> Result<()> {
+  let symbol = Symbol::for_desc("NAPI_RS_SYMBOL");
   export.set_named_property("NAPI_RS_SYMBOL", symbol)?;
   Ok(())
 }
