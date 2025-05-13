@@ -8,6 +8,7 @@ const { createRequire } = require('node:module')
 require = createRequire(__filename)
 
 ${createCommonBinding(localName, pkgName)}
+module.exports = nativeBinding
 ${idents
   .map((ident) => `module.exports.${ident} = nativeBinding.${ident}`)
   .join('\n')}
@@ -113,7 +114,7 @@ function requireNative() {
     try {
       nativeBinding = require(process.env.NAPI_RS_NATIVE_LIBRARY_PATH);
     } catch (err) {
-      loadErrors.push(err);
+      loadErrors.push(err)
     }
   } else if (process.platform === 'android') {
     if (process.arch === 'arm64') {

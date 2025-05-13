@@ -67,7 +67,7 @@ impl FromIterator<FnArg> for FnArgList {
 
 impl ToTypeDef for NapiFn {
   fn to_type_def(&self) -> Option<TypeDef> {
-    if self.skip_typescript {
+    if self.skip_typescript || self.module_exports {
       return None;
     }
 

@@ -3,7 +3,10 @@ pub mod attrs;
 
 use std::collections::HashMap;
 use std::str::Chars;
-use std::sync::{atomic::AtomicUsize, Mutex, OnceLock};
+use std::sync::{
+  atomic::{AtomicBool, AtomicUsize, Ordering},
+  Mutex, OnceLock,
+};
 
 use attrs::BindgenAttrs;
 
@@ -29,6 +32,8 @@ use crate::parser::attrs::{check_recorded_struct_for_impl, record_struct};
 static GENERATOR_STRUCT: OnceLock<Mutex<HashMap<String, bool>>> = OnceLock::new();
 
 static REGISTER_INDEX: AtomicUsize = AtomicUsize::new(0);
+
+static HAS_MODULE_EXPORTS: AtomicBool = AtomicBool::new(false);
 
 fn get_register_ident(name: &str) -> Ident {
   let new_name = format!(
@@ -669,6 +674,142 @@ fn napi_fn_from_decl(
       )
     } else if opts.constructor().is_some() {
       "constructor".to_owned()
+    } else if opts.module_exports().is_some() {
+      if HAS_MODULE_EXPORTS.load(Ordering::Relaxed) {
+        bail_span!(sig.ident, "module_exports can only be used once");
+      }
+      HAS_MODULE_EXPORTS.store(true, Ordering::Relaxed);
+
+      if opts.js_name().is_some() {
+        bail_span!(sig.ident, "module_exports fn can't have js_name");
+      }
+      if opts.getter().is_some() || opts.setter().is_some() {
+        bail_span!(sig.ident, "module_exports fn can't have getter or setter");
+      }
+      if opts.factory().is_some() || opts.constructor().is_some() {
+        bail_span!(
+          sig.ident,
+          "module_exports fn can't have factory or constructor"
+        );
+      }
+      if opts.strict().is_some() {
+        bail_span!(sig.ident, "module_exports fn can't have strict");
+      }
+      if opts.return_if_invalid().is_some() {
+        bail_span!(sig.ident, "module_exports fn can't have return_if_invalid");
+      }
+
+      if parent.is_some() {
+        bail_span!(sig.ident, "module_exports fn can't inside impl block");
+      }
+
+      if !generics.params.is_empty() {
+        bail_span!(sig.ident, "module_exports fn can't have generic parameters");
+      }
+
+      for arg in args.iter() {
+        match &arg.kind {
+          NapiFnArgKind::Callback(_) => {
+            bail_span!(sig.ident, "module_exports fn can't have callback arguments");
+          }
+          NapiFnArgKind::PatType(pat) => {
+            if arg.ts_arg_type.is_some() {
+              bail_span!(sig.ident, "module_exports fn can't have ts_arg_type");
+            }
+            if let syn::Type::Path(syn::TypePath {
+              path: syn::Path { segments, .. },
+              ..
+            }) = &*pat.ty
+            {
+              if let Some(segment) = segments.last() {
+                if segment.ident != "Env" && segment.ident != "Object" {
+                  bail_span!(
+                    sig.ident,
+                    "module_exports fn can only accept Env or Object as argument"
+                  );
+                }
+                continue;
+              }
+            }
+            if let syn::Type::Reference(syn::TypeReference { elem, .. }) = &*pat.ty {
+              if let syn::Type::Path(syn::TypePath {
+                path: syn::Path { segments, .. },
+                ..
+              }) = &**elem
+              {
+                if let Some(segment) = segments.last() {
+                  if segment.ident != "Env" && segment.ident != "Object" {
+                    bail_span!(
+                      sig.ident,
+                      "module_exports fn can only accept Env or Object as argument"
+                    );
+                  }
+                  continue;
+                }
+              }
+            }
+          }
+        }
+        bail_span!(
+          sig.ident,
+          "module_exports fn can only accept Env or Object as argument"
+        );
+      }
+
+      if let syn::ReturnType::Type(_, ty) = &sig.output {
+        if let syn::Type::Path(syn::TypePath {
+          path: syn::Path { segments, .. },
+          ..
+        }) = &**ty
+        {
+          if let Some(segment) = segments.last() {
+            if segment.ident != "Result" && segment.ident != "()" {
+              bail_span!(
+                sig.ident,
+                "module_exports fn can only return Result<()> or (), got {}",
+                segment.ident
+              );
+            }
+            if segment.ident == "Result" {
+              if let syn::PathArguments::AngleBracketed(syn::AngleBracketedGenericArguments {
+                args,
+                ..
+              }) = &segment.arguments
+              {
+                if args.len() != 1 {
+                  bail_span!(
+                    segment.ident,
+                    "module_exports fn can only return Result<()> or ()"
+                  );
+                }
+                if let syn::GenericArgument::Type(syn::Type::Tuple(syn::TypeTuple {
+                  elems, ..
+                })) = &args[0]
+                {
+                  if !elems.empty_or_trailing() {
+                    bail_span!(
+                      segment.ident,
+                      "module_exports fn can only return Result<()> or ()"
+                    );
+                  }
+                } else {
+                  bail_span!(
+                    segment.ident,
+                    "module_exports fn can only return Result<()> or ()"
+                  );
+                }
+              } else {
+                bail_span!(
+                  segment.ident,
+                  "module_exports fn can only return Result<()> or ()"
+                );
+              }
+            }
+          }
+        }
+      }
+
+      ident.to_string().to_case(Case::Camel)
     } else {
       opts.js_name().map_or_else(
         || ident.to_string().to_case(Case::Camel),
@@ -708,6 +849,7 @@ fn napi_fn_from_decl(
     Ok(NapiFn {
       name: ident.clone(),
       js_name,
+      module_exports: opts.module_exports().is_some(),
       args,
       ret,
       is_ret_result,

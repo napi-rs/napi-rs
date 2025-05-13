@@ -16,7 +16,11 @@ use std::{any::TypeId, collections::HashMap};
 use crate::{check_status, check_status_or_throw, JsError};
 use crate::{sys, Property, Result};
 
+// #[napi] fn
 pub type ExportRegisterCallback = unsafe fn(sys::napi_env) -> Result<sys::napi_value>;
+// #[napi(module_exports)] fn
+pub type ExportRegisterHookCallback =
+  unsafe fn(sys::napi_env, sys::napi_value) -> Result<sys::napi_value>;
 pub type ModuleExportsCallback =
   unsafe fn(env: sys::napi_env, exports: sys::napi_value) -> Result<()>;
 
@@ -57,6 +61,9 @@ type ModuleRegisterCallback =
   RwLock<Vec<(Option<&'static str>, (&'static str, ExportRegisterCallback))>>;
 
 #[cfg(not(feature = "noop"))]
+type ModuleRegisterHookCallback = PersistedPerInstanceHashMap<ThreadId, ExportRegisterHookCallback>;
+
+#[cfg(not(feature = "noop"))]
 type ModuleClassProperty =
   PersistedPerInstanceHashMap<TypeId, HashMap<Option<&'static str>, (&'static str, Vec<Property>)>>;
 
@@ -69,6 +76,9 @@ type RegisteredClassesMap = PersistedPerInstanceHashMap<ThreadId, RegisteredClas
 
 #[cfg(not(feature = "noop"))]
 static MODULE_REGISTER_CALLBACK: LazyLock<ModuleRegisterCallback> = LazyLock::new(Default::default);
+#[cfg(not(feature = "noop"))]
+static MODULE_REGISTER_HOOK_CALLBACK: LazyLock<ModuleRegisterHookCallback> =
+  LazyLock::new(Default::default);
 #[cfg(not(feature = "noop"))]
 static MODULE_CLASS_PROPERTIES: LazyLock<ModuleClassProperty> = LazyLock::new(Default::default);
 #[cfg(not(feature = "noop"))]
@@ -138,6 +148,19 @@ pub fn register_module_export(
   _cb: ExportRegisterCallback,
 ) {
 }
+
+#[cfg(not(feature = "noop"))]
+#[doc(hidden)]
+pub fn register_module_export_hook(cb: ExportRegisterHookCallback) {
+  let current_id = std::thread::current().id();
+  MODULE_REGISTER_HOOK_CALLBACK.borrow_mut(|inner| {
+    inner.insert(current_id, cb);
+  });
+}
+
+#[cfg(feature = "noop")]
+#[doc(hidden)]
+pub fn register_module_export_hook(_cb: ExportRegisterHookCallback) {}
 
 #[doc(hidden)]
 pub fn register_js_function(
@@ -242,6 +265,7 @@ pub unsafe extern "C" fn napi_register_module_v1(
   env: sys::napi_env,
   exports: sys::napi_value,
 ) -> sys::napi_value {
+  let current_thread_id = std::thread::current().id();
   #[cfg(any(target_env = "msvc", feature = "dyn-symbols"))]
   unsafe {
     sys::setup();
@@ -436,9 +460,17 @@ pub unsafe extern "C" fn napi_register_module_v1(
 
   REGISTERED_CLASSES.borrow_mut(|map| {
     map.insert(
-      std::thread::current().id(),
+      current_thread_id,
       PersistedPerInstanceHashMap::from_hashmap(registered_classes),
     )
+  });
+
+  MODULE_REGISTER_HOOK_CALLBACK.borrow_mut(|inner| {
+    if let Some(cb) = inner.get(&current_thread_id) {
+      if let Err(e) = cb(env, exports) {
+        JsError::from(e).throw_into(env);
+      }
+    }
   });
 
   #[cfg(feature = "compat-mode")]
