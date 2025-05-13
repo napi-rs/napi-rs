@@ -8,8 +8,8 @@
   "scripts": {
     "browser": "vite",
     "build": "napi-raw build --platform --js index.cjs --dts index.d.cts",
-    "test": "cross-env TS_NODE_PROJECT=./tsconfig.json node --import @oxc-node/core/register ../../node_modules/ava/entrypoints/cli.mjs",
-    "test-js": "ava"
+    "test": "ava reset-cache && cross-env TS_NODE_PROJECT=./tsconfig.json node --import @oxc-node/core/register ../../node_modules/ava/entrypoints/cli.mjs",
+    "test-js": "ava reset-cache && ava"
   },
   "napi": {
     "binaryName": "example",

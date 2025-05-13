@@ -61,9 +61,6 @@ type ModuleRegisterCallback =
   RwLock<Vec<(Option<&'static str>, (&'static str, ExportRegisterCallback))>>;
 
 #[cfg(not(feature = "noop"))]
-type ModuleRegisterHookCallback = PersistedPerInstanceHashMap<ThreadId, ExportRegisterHookCallback>;
-
-#[cfg(not(feature = "noop"))]
 type ModuleClassProperty =
   PersistedPerInstanceHashMap<TypeId, HashMap<Option<&'static str>, (&'static str, Vec<Property>)>>;
 
@@ -77,7 +74,7 @@ type RegisteredClassesMap = PersistedPerInstanceHashMap<ThreadId, RegisteredClas
 #[cfg(not(feature = "noop"))]
 static MODULE_REGISTER_CALLBACK: LazyLock<ModuleRegisterCallback> = LazyLock::new(Default::default);
 #[cfg(not(feature = "noop"))]
-static MODULE_REGISTER_HOOK_CALLBACK: LazyLock<ModuleRegisterHookCallback> =
+static MODULE_REGISTER_HOOK_CALLBACK: LazyLock<RwLock<Option<ExportRegisterHookCallback>>> =
   LazyLock::new(Default::default);
 #[cfg(not(feature = "noop"))]
 static MODULE_CLASS_PROPERTIES: LazyLock<ModuleClassProperty> = LazyLock::new(Default::default);
@@ -152,10 +149,10 @@ pub fn register_module_export(
 #[cfg(not(feature = "noop"))]
 #[doc(hidden)]
 pub fn register_module_export_hook(cb: ExportRegisterHookCallback) {
-  let current_id = std::thread::current().id();
-  MODULE_REGISTER_HOOK_CALLBACK.borrow_mut(|inner| {
-    inner.insert(current_id, cb);
-  });
+  let mut inner = MODULE_REGISTER_HOOK_CALLBACK
+    .write()
+    .expect("Write MODULE_REGISTER_HOOK_CALLBACK failed");
+  *inner = Some(cb);
 }
 
 #[cfg(feature = "noop")]
@@ -465,13 +462,14 @@ pub unsafe extern "C" fn napi_register_module_v1(
     )
   });
 
-  MODULE_REGISTER_HOOK_CALLBACK.borrow_mut(|inner| {
-    if let Some(cb) = inner.get(&current_thread_id) {
-      if let Err(e) = cb(env, exports) {
-        JsError::from(e).throw_into(env);
-      }
+  let module_register_hook_callback = MODULE_REGISTER_HOOK_CALLBACK
+    .read()
+    .expect("Read MODULE_REGISTER_HOOK_CALLBACK failed");
+  if let Some(cb) = module_register_hook_callback.as_ref() {
+    if let Err(e) = cb(env, exports) {
+      JsError::from(e).throw_into(env);
     }
-  });
+  }
 
   #[cfg(feature = "compat-mode")]
   {

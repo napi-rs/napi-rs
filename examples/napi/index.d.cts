@@ -3,6 +3,8 @@
 
 type MaybePromise<T> = T | Promise<T>
 
+export declare const NAPI_RS_SYMBOL: symbol
+
 export declare class ExternalObject<T> {
   readonly '': {
     readonly '': unique symbol

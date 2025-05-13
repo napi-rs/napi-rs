@@ -233,6 +233,8 @@ import {
   shutdownRuntime,
   callAsyncWithUnknownReturnValue,
 } from '../index.cjs'
+// import other stuff in `#[napi(module_exports)]`
+import nativeAddon from '../index.cjs'
 
 import { test } from './test.framework.js'
 
@@ -1633,4 +1635,8 @@ test('extends javascript error', (t) => {
     t.is(e.name, 'RustError')
     t.true(typeof e.nativeStackTrace === 'string')
   }
+})
+
+test('module exports', (t) => {
+  t.is(nativeAddon.NAPI_RS_SYMBOL, Symbol.for('NAPI_RS_SYMBOL'))
 })

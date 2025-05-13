@@ -60,6 +60,7 @@ const {
     }
   },
 })
+export default __napiModule.exports
 export const Animal = __napiModule.exports.Animal
 export const AnimalWithDefaultConstructor = __napiModule.exports.AnimalWithDefaultConstructor
 export const AnotherClassForEither = __napiModule.exports.AnotherClassForEither
