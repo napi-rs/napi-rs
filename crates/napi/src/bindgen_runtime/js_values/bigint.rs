@@ -10,8 +10,7 @@
 /// ```
 use std::ptr;
 
-use crate::{check_status, sys};
-
+use crate::{check_status, sys, JsNumber};
 use super::{FromNapiValue, ToNapiValue, TypeName, ValidateNapiValue};
 
 /// i64 is converted to `Number`
@@ -244,6 +243,12 @@ impl ToNapiValue for u64 {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe { sys::napi_create_bigint_uint64(env, val, &mut raw_value) })?;
     Ok(raw_value)
+  }
+}
+
+impl FromNapiValue for u64 {
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
+    Ok(BigInt::from_napi_value(env, napi_val)?.get_u64().1)
   }
 }
 
