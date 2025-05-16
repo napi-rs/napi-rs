@@ -26,6 +26,18 @@ export interface Crate {
   targets: CrateTarget[]
   features: Record<string, string[]>
   manifest_path: string
+  dependencies: Array<{
+    name: string
+    source: string
+    req: string
+    kind: string | null
+    rename: string | null
+    optional: boolean
+    uses_default_features: boolean
+    features: string[]
+    target: string | null
+    registry: string | null
+  }>
 }
 
 export interface CargoWorkspaceMetadata {
@@ -51,7 +63,7 @@ export function parseMetadata(manifestPath: string) {
       '1',
       '--no-deps',
     ],
-    { encoding: 'utf-8' }, 
+    { encoding: 'utf-8' },
   )
 
   if (error) {
@@ -59,12 +71,9 @@ export function parseMetadata(manifestPath: string) {
   }
   if (status !== 0) {
     const simpleMessage = `cargo metadata exited with code ${status}`
-    throw new Error(
-      `${simpleMessage} and error message:\n\n${stderr}`,
-      {
-        cause: new Error(simpleMessage),
-      },
-    )
+    throw new Error(`${simpleMessage} and error message:\n\n${stderr}`, {
+      cause: new Error(simpleMessage),
+    })
   }
 
   try {

@@ -1,4 +1,4 @@
-import { sortBy } from 'lodash-es'
+import { sortBy, unionWith, isEqual } from 'lodash-es'
 
 import { readFileAsync } from './misc.js'
 
@@ -149,18 +149,22 @@ export declare class ExternalObject<T> {
 
 async function readIntermediateTypeFile(file: string) {
   const content = await readFileAsync(file, 'utf8')
-  const defs = content
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => {
-      line = line.trim()
-      if (!line.startsWith('{')) {
-        // crateName:{ "def": "", ... }
-        const start = line.indexOf(':') + 1
-        line = line.slice(start)
-      }
-      return JSON.parse(line) as TypeDefLine
-    })
+  const defs = unionWith(
+    content
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => {
+        line = line.trim()
+        if (!line.startsWith('{')) {
+          // crateName:{ "def": "", ... }
+          const start = line.indexOf(':') + 1
+          line = line.slice(start)
+        }
+        return JSON.parse(line) as TypeDefLine
+      })
+      .filter((def) => !!def.kind),
+    (a, b) => isEqual(a, b),
+  )
 
   // move all `struct` def to the very top
   // and order the rest alphabetically.
