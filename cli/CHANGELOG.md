@@ -3,6 +3,18 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.79](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.78...@napi-rs/cli@3.0.0-alpha.79) (2025-05-16)
+
+### Bug Fixes
+
+- **cli:** path escaping issue in metadata parser ([#2605](https://github.com/napi-rs/napi-rs/issues/2605)) ([7010f60](https://github.com/napi-rs/napi-rs/commit/7010f6059bf36f12520bcda2ddb505c1d740c196))
+- **napi:** module_exports binding ([#2632](https://github.com/napi-rs/napi-rs/issues/2632)) ([ce99054](https://github.com/napi-rs/napi-rs/commit/ce990542b9639ca95b688c45d28d525c3a2d3c99))
+
+### Features
+
+- **napi-derive:** auto invalid type gen ([#2638](https://github.com/napi-rs/napi-rs/issues/2638)) ([21982a1](https://github.com/napi-rs/napi-rs/commit/21982a1508c8d0b534f902244f13d52b0b5ae573))
+- **napi:** support #[napi(module_exports)] ([#2631](https://github.com/napi-rs/napi-rs/issues/2631)) ([8cd752d](https://github.com/napi-rs/napi-rs/commit/8cd752db8679cb56a1ea2ed35190e9888cb9b6b8))
+
 # [3.0.0-alpha.78](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.77...@napi-rs/cli@3.0.0-alpha.78) (2025-04-16)
 
 ### Bug Fixes

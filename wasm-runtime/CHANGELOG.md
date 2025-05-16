@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.2.10](https://github.com/napi-rs/napi-rs/compare/@napi-rs/wasm-runtime@0.2.9...@napi-rs/wasm-runtime@0.2.10) (2025-05-16)
+
+### Bug Fixes
+
+- **wasm-runtime:** fs-proxy test failed on s390x platform ([#2629](https://github.com/napi-rs/napi-rs/issues/2629)) ([6200358](https://github.com/napi-rs/napi-rs/commit/620035804b71de091e8879a81b35d7e459a0e0dd))
+- **wasm-runtime:** upgrade emnapi ([#2568](https://github.com/napi-rs/napi-rs/issues/2568)) ([2eb2ab6](https://github.com/napi-rs/napi-rs/commit/2eb2ab619f9fb924453e21d2198fe67ea21b9680))
+
 ## [0.2.9](https://github.com/napi-rs/napi-rs/compare/@napi-rs/wasm-runtime@0.2.8...@napi-rs/wasm-runtime@0.2.9) (2025-04-16)
 
 ### Bug Fixes
