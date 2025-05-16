@@ -27,6 +27,32 @@ use syn::{Attribute, Item};
 #[cfg(feature = "type-def")]
 static BUILT_FLAG: AtomicBool = AtomicBool::new(false);
 
+#[cfg(feature = "type-def")]
+#[ctor::dtor]
+fn dtor() {
+  if let Ok(ref type_def_file) = env::var("TYPE_DEF_TMP_PATH") {
+    let package_name = std::env::var("CARGO_PKG_NAME").expect("CARGO_PKG_NAME is not set");
+    println!("type_def_file {type_def_file} {package_name}");
+    if let Ok(f) = fs::OpenOptions::new()
+      .read(true)
+      .append(true)
+      .write(true)
+      .open(type_def_file)
+    {
+      let mut writer = BufWriter::<fs::File>::new(f);
+      if let Err(err) = writer
+        .write_all(format!("{package_name}:{{\"done\": true}}\n").as_bytes())
+        .and_then(|_| writer.flush())
+      {
+        eprintln!(
+          "Failed to write type def file for `{package_name}`: {:?}",
+          err
+        );
+      }
+    }
+  }
+}
+
 pub fn expand(attr: TokenStream, input: TokenStream) -> BindgenResult<TokenStream> {
   #[cfg(feature = "type-def")]
   if BUILT_FLAG

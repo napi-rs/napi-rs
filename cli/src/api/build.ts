@@ -1,11 +1,18 @@
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, unlinkSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  unlinkSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir, homedir } from 'node:os'
 import { parse, join, resolve } from 'node:path'
 
 import * as colors from 'colorette'
+import { groupBy, split } from 'lodash-es'
 import { include as setjmpInclude, lib as setjmpLib } from 'wasm-sjlj'
 
 import { BuildOptions as RawBuildOptions } from '../def/build.js'
@@ -85,6 +92,13 @@ export async function buildProject(options: BuildOptions) {
     )
   }
 
+  const depsNapiPackages = pkg.dependencies
+    .map((p) => metadata.packages.find((c) => c.name === p.name))
+    .filter(
+      (c): c is Crate =>
+        c != null && c.dependencies.some((d) => d.name == 'napi-derive'),
+    )
+
   const crateDir = parse(pkg.manifest_path).dir
 
   const builder = new Builder(
@@ -107,6 +121,7 @@ export async function buildProject(options: BuildOptions) {
       ),
       options.configPath ? resolvePath(options.configPath) : undefined,
     ),
+    depsNapiPackages,
   )
 
   return builder.build()
@@ -126,6 +141,7 @@ class Builder {
     private readonly outputDir: string,
     private readonly targetDir: string,
     private readonly config: NapiConfig,
+    private readonly depsNapiPackages: Crate[],
   ) {}
 
   get cdyLibName() {
@@ -463,9 +479,74 @@ class Builder {
   private setEnvs() {
     // type definition intermediate file
     this.envs.TYPE_DEF_TMP_PATH = this.getIntermediateTypeFile()
-    // TODO:
-    //   remove after napi-derive@v3 release
-    this.envs.CARGO_CFG_NAPI_RS_CLI_VERSION = CLI_VERSION
+    // Validate the packages and dependencies
+    if (existsSync(this.envs.TYPE_DEF_TMP_PATH)) {
+      const { depsNapiPackages, crate } = this
+      let shouldInvalidateSelf = false
+      const content = readFileSync(this.envs.TYPE_DEF_TMP_PATH, 'utf-8')
+      const typedefRaw = content
+        .split('\n')
+        .filter((line) => line.trim().length)
+        .map((line) => {
+          const [pkgName, ...jsonContents] = split(line, ':')
+          return {
+            pkgName,
+            jsonContent: jsonContents.join(':'),
+          }
+        })
+      const groupedTypedefRaw = groupBy(typedefRaw, ({ pkgName }) => pkgName)
+      const invalidPackages = new Set<string>()
+      for (const [pkgName, value] of Object.entries(groupedTypedefRaw)) {
+        const packageInvalidKey = `NAPI_PACKAGE_${pkgName.toUpperCase().replaceAll('-', '_')}_INVALID`
+        let done = false
+        for (const { jsonContent } of value) {
+          try {
+            // package_name: { "done": true } was written by napi-build in project build.rs
+            // if it exists, the package was successfully built and typedef was written
+            const json = JSON.parse(jsonContent)
+            if (json.done === true) {
+              done = true
+              break
+            }
+          } catch {
+            done = false
+            break
+          }
+        }
+        if (!done) {
+          process.env[packageInvalidKey] = `${Date.now()}`
+          shouldInvalidateSelf = true
+          invalidPackages.add(pkgName)
+        }
+      }
+      const typedefPackages = new Set(Object.keys(groupedTypedefRaw))
+      for (const crate of depsNapiPackages) {
+        if (!typedefPackages.has(crate.name)) {
+          debug('Set invalid package typedef: %i', crate.name)
+          shouldInvalidateSelf = true
+          process.env[
+            `NAPI_PACKAGE_${crate.name.toUpperCase().replaceAll('-', '_')}_INVALID`
+          ] = `${Date.now()}`
+        }
+      }
+      if (shouldInvalidateSelf) {
+        debug('Set invalid package typedef: %i', crate.name)
+        process.env[
+          `NAPI_PACKAGE_${crate.name.toUpperCase().replaceAll('-', '_')}_INVALID`
+        ] = `${Date.now()}`
+      }
+      // clean invalid packages typedef
+      if (invalidPackages.size) {
+        debug('Clean invalid packages typedef: %O', invalidPackages)
+        writeFileSync(
+          this.envs.TYPE_DEF_TMP_PATH,
+          typedefRaw
+            .filter(({ pkgName }) => !invalidPackages.has(pkgName))
+            .map(({ pkgName, jsonContent }) => `${pkgName}:${jsonContent}`)
+            .join('\n'),
+        )
+      }
+    }
 
     // RUSTFLAGS
     let rustflags =

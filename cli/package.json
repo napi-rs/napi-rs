@@ -85,6 +85,7 @@
   "devDependencies": {
     "@emnapi/core": "^1.4.0",
     "@emnapi/runtime": "^1.4.0",
+    "@oxc-node/core": "^0.0.27",
     "@types/debug": "^4.1.12",
     "@types/inquirer": "^9.0.7",
     "@types/js-yaml": "^4.0.9",
@@ -95,7 +96,6 @@
     "env-paths": "^3.0.0",
     "esbuild": "^0.25.2",
     "prettier": "^3.5.3",
-    "ts-node": "^10.9.2",
     "tslib": "^2.8.1",
     "typescript": "^5.8.2"
   },
@@ -116,10 +116,10 @@
     "url": "https://github.com/sponsors/Brooooooklyn"
   },
   "scripts": {
-    "codegen": "node --loader ts-node/esm/transpile-only ./codegen/index.ts",
+    "codegen": "node --import @oxc-node/core/register ./codegen/index.ts",
     "build": "tsc && yarn build:cjs",
     "build:cjs": "node ./esbuild.mjs",
-    "test": "node --loader ts-node/esm/transpile-only ../node_modules/ava/entrypoints/cli.mjs"
+    "test": "node --import @oxc-node/core/register ../node_modules/ava/entrypoints/cli.mjs"
   },
   "ava": {
     "extensions": {

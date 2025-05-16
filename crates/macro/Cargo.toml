@@ -19,10 +19,11 @@ default = ["type-def", "strict"]
 full = ["type-def", "strict", "compat-mode"]
 noop = ["napi-derive-backend/noop"]
 strict = ["napi-derive-backend/strict"]
-type-def = ["napi-derive-backend/type-def"]
+type-def = ["napi-derive-backend/type-def", "ctor"]
 
 [dependencies]
 convert_case = "0.8"
+ctor = { version = "0.4", features = ["dtor"], optional = true }
 napi-derive-backend = { version = "2.0.0-alpha.28", path = "../backend" }
 proc-macro2 = "1"
 quote = "1"
