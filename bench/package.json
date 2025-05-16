@@ -2,11 +2,14 @@
   "name": "bench",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "scripts": {
+    "bench": "vitest bench ",
     "build": "napi-raw build --js false --release"
   },
   "devDependencies": {
     "@napi-rs/cli": "workspace:*",
-    "benny": "^3.7.1"
+    "tinybench": "^4.0.1",
+    "vitest": "^3.1.3"
   }
 }
