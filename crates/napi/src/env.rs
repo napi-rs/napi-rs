@@ -371,7 +371,7 @@ impl Env {
     Finalize: FnOnce(Env, Hint),
   {
     let mut raw_value = ptr::null_mut();
-    if data.is_null() || data as *const u8 == EMPTY_VEC.as_ptr() {
+    if data.is_null() || std::ptr::eq(data, EMPTY_VEC.as_ptr()) {
       return Err(Error::new(
         Status::InvalidArg,
         "Borrowed data should not be null".to_owned(),

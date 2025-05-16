@@ -13,7 +13,7 @@ pub fn accept_stream(
   let mut input = StreamReader::new(web_readable_stream.map(|chunk| {
     chunk
       .map(|chunk| bytes::Bytes::copy_from_slice(&chunk))
-      .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.reason))
+      .map_err(|e| std::io::Error::other(e.reason))
   }));
   AsyncBlockBuilder::build_with_map(
     env,

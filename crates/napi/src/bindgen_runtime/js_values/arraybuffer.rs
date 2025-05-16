@@ -217,7 +217,7 @@ impl<'env> ArrayBuffer<'env> {
     finalize_hint: T,
     finalize_callback: F,
   ) -> Result<Self> {
-    if data.is_null() || data as *const u8 == crate::EMPTY_VEC.as_ptr() {
+    if data.is_null() || std::ptr::eq(data, crate::EMPTY_VEC.as_ptr()) {
       return Err(Error::new(
         Status::InvalidArg,
         "Borrowed data should not be null".to_owned(),
@@ -1599,7 +1599,7 @@ impl<'env> Uint8ClampedSlice<'env> {
     finalize_hint: T,
     finalize_callback: F,
   ) -> Result<Self> {
-    if data.is_null() || data as *const u8 == crate::EMPTY_VEC.as_ptr() {
+    if data.is_null() || std::ptr::eq(data, crate::EMPTY_VEC.as_ptr()) {
       return Err(Error::new(
         Status::InvalidArg,
         "Borrowed data should not be null".to_owned(),
