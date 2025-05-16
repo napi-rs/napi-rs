@@ -7,7 +7,7 @@ fn list_obj_keys(obj: Object) -> Vec<String> {
 
 #[napi]
 fn create_obj(env: &Env) -> Object {
-  let mut obj = Object::new(&env).unwrap();
+  let mut obj = Object::new(env).unwrap();
   obj.set("test", 1).unwrap();
 
   obj
@@ -72,7 +72,7 @@ pub fn receive_strict_object(strict_object: StrictObject) {
 
 #[napi]
 pub fn get_str_from_object(env: &Env) {
-  let mut obj = Object::new(&env).unwrap();
+  let mut obj = Object::new(env).unwrap();
   obj.set("name", "value").unwrap();
   assert_eq!(obj.get("name").unwrap(), Some("value".to_string()));
 }
@@ -88,7 +88,7 @@ pub struct TsTypeChanged {
 
 #[napi(ts_return_type = "{ value: ArrayBuffer, get getter(): number }")]
 pub fn create_obj_with_property(env: &Env) -> Result<Object> {
-  let mut obj = Object::new(&env)?;
+  let mut obj = Object::new(env)?;
   let arraybuffer = ArrayBuffer::from_data(env, vec![0; 10])?;
   obj.define_properties(&[
     Property::new("value")?.with_value(&arraybuffer),
