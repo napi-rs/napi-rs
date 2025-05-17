@@ -290,10 +290,10 @@ impl TryFrom<&Attribute> for BindgenAttrs {
       let cfg_attr_list = attr.meta.require_list()?;
       // #[cfg_attr(condition, attr_to_apply)]
       // We parse the arguments of cfg_attr.
-      let args_iter = cfg_attr_list
+      let mut args_iter = cfg_attr_list
         .parse_args_with(syn::punctuated::Punctuated::<syn::Meta, Token![,]>::parse_terminated)?
         .into_iter();
-      if let Some(arg) = args_iter.last() {
+      if let Some(arg) = args_iter.next_back() {
         if arg.path().segments.last().map(|s| s.ident.to_string()) == Some("napi".to_string()) {
           ret.exists = true;
           ret.span = arg.span();
