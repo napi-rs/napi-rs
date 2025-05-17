@@ -2,14 +2,13 @@ use std::cell::Cell;
 use std::ffi::c_void;
 use std::ptr;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::{bindgen_prelude::*, check_status};
 
 thread_local! {
   #[doc(hidden)]
   /// Determined is `constructor` called from Class `factory`
-  pub static ___CALL_FROM_FACTORY: AtomicBool = const { AtomicBool::new(false) };
+  pub static ___CALL_FROM_FACTORY: Cell<bool> = const { Cell::new(false) };
 }
 
 #[repr(transparent)]
@@ -184,10 +183,10 @@ impl<const N: usize> CallbackInfo<N> {
         "Failed to delete reference for `this` in async class factory"
       )?;
     }
-    ___CALL_FROM_FACTORY.with(|s| s.store(true, Ordering::Relaxed));
+    ___CALL_FROM_FACTORY.with(|s| s.set(true));
     let status =
       unsafe { sys::napi_new_instance(self.env, this, 0, ptr::null_mut(), &mut instance) };
-    ___CALL_FROM_FACTORY.with(|s| s.store(false, Ordering::Relaxed));
+    ___CALL_FROM_FACTORY.with(|s| s.set(false));
     // Error thrown in `constructor`
     if status == sys::Status::napi_pending_exception {
       let mut exception = ptr::null_mut();
