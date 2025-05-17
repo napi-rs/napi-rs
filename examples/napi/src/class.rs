@@ -111,30 +111,30 @@ pub struct Dog {
   pub name: String,
 }
 
-#[napi]
+#[cfg_attr(not(feature = "cfg_attr_napi"), napi_derive::napi)]
 pub struct Bird {
   pub name: String,
 }
 
-#[napi]
+#[cfg_attr(not(feature = "cfg_attr_napi"), napi_derive::napi)]
 impl Bird {
-  #[napi(constructor)]
+  #[cfg_attr(not(feature = "cfg_attr_napi"), napi_derive::napi(constructor))]
   pub fn new(name: String) -> Self {
     Bird { name }
   }
 
-  #[napi]
+  #[cfg_attr(not(feature = "cfg_attr_napi"), napi_derive::napi)]
   pub fn get_count(&self) -> u32 {
     1234
   }
 
-  #[napi]
+  #[cfg_attr(not(feature = "cfg_attr_napi"), napi_derive::napi)]
   pub async fn get_name_async(&self) -> &str {
     tokio::time::sleep(std::time::Duration::new(1, 0)).await;
     self.name.as_str()
   }
 
-  #[napi]
+  #[cfg_attr(not(feature = "cfg_attr_napi"), napi_derive::napi)]
   pub fn accept_slice_method(&self, slice: &[u8]) -> u32 {
     slice.len() as u32
   }
