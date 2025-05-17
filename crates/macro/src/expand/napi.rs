@@ -32,7 +32,7 @@ static BUILT_FLAG: AtomicBool = AtomicBool::new(false);
 fn dtor() {
   if let Ok(ref type_def_file) = env::var("TYPE_DEF_TMP_PATH") {
     let package_name = std::env::var("CARGO_PKG_NAME").expect("CARGO_PKG_NAME is not set");
-    println!("type_def_file {type_def_file} {package_name}");
+
     if let Ok(f) = fs::OpenOptions::new()
       .read(true)
       .append(true)
