@@ -498,7 +498,6 @@ impl<T: FromNapiValue + 'static> futures_core::Stream for Reader<T> {
               reason: "".to_string(),
               maybe_raw: error_ref,
               maybe_env: cx.env.0,
-              raw: true,
             });
             Ok(())
           })?

@@ -36,7 +36,6 @@ fn dtor() {
     if let Ok(f) = fs::OpenOptions::new()
       .read(true)
       .append(true)
-      .write(true)
       .open(type_def_file)
     {
       let mut writer = BufWriter::<fs::File>::new(f);
