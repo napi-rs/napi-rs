@@ -564,7 +564,7 @@ fn pull_callback_impl<
   let env = Env::from_raw(env);
   let promise = env.spawn_future_with_callback(
     async move { stream.next().await.transpose() },
-    |env, val| {
+    move |env, val| {
       let mut output = Object::new(&env)?;
       if let Some(val) = val {
         output.set("value", val)?;
@@ -572,10 +572,8 @@ fn pull_callback_impl<
       } else {
         output.set("value", Null)?;
         output.set("done", true)?;
+        drop(unsafe { Box::from_raw(data.cast::<S>()) });
       }
-      unsafe {
-        crate::__private::log_js_value("log", env.0, [output.0.value]);
-      };
       Ok(output.0.value)
     },
   )?;
@@ -651,6 +649,7 @@ fn pull_callback_impl_bytes<
       } else {
         let close_fn = close.borrow_back(&env)?;
         close_fn.call(())?;
+        drop(unsafe { Box::from_raw(data.cast::<S>()) });
       }
       drop(enqueue);
       drop(close);
