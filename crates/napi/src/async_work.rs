@@ -47,10 +47,16 @@ pub fn run<T: Task>(
   abort_status: Option<Rc<AtomicU8>>,
 ) -> Result<AsyncWorkPromise<T::JsValue>> {
   let mut undefined = ptr::null_mut();
-  check_status!(unsafe { sys::napi_get_undefined(env, &mut undefined) })?;
+  check_status!(
+    unsafe { sys::napi_get_undefined(env, &mut undefined) },
+    "Get undefined failed in async_work::run"
+  )?;
   let mut raw_promise = ptr::null_mut();
   let mut deferred = ptr::null_mut();
-  check_status!(unsafe { sys::napi_create_promise(env, &mut deferred, &mut raw_promise) })?;
+  check_status!(
+    unsafe { sys::napi_create_promise(env, &mut deferred, &mut raw_promise) },
+    "Create promise failed in async_work::run"
+  )?;
   let task_status = abort_status.unwrap_or_else(|| Rc::new(AtomicU8::new(0)));
   let result = Box::leak(Box::new(AsyncWork {
     inner_task: task,
@@ -70,7 +76,10 @@ pub fn run<T: Task>(
       &mut result.napi_async_work,
     )
   })?;
-  check_status!(unsafe { sys::napi_queue_async_work(env, result.napi_async_work) })?;
+  check_status!(
+    unsafe { sys::napi_queue_async_work(env, result.napi_async_work) },
+    "Queue async work failed in async_work::run"
+  )?;
   Ok(AsyncWorkPromise {
     napi_async_work: result.napi_async_work,
     raw_promise,
@@ -100,6 +109,17 @@ unsafe extern "C" fn complete<T: Task>(
   status: sys::napi_status,
   data: *mut c_void,
 ) {
+  if let Err(e) = complete_impl::<T>(env, status, data) {
+    let js_err = JsError::from(e);
+    unsafe { js_err.throw_into(env) };
+  }
+}
+
+fn complete_impl<T: Task>(
+  env: sys::napi_env,
+  status: sys::napi_status,
+  data: *mut c_void,
+) -> Result<()> {
   let mut work = unsafe { Box::from_raw(data as *mut AsyncWork<T>) };
   let value_ptr = mem::replace(&mut work.value, Ok(mem::MaybeUninit::zeroed()));
   let deferred = mem::replace(&mut work.deferred, ptr::null_mut());
@@ -117,32 +137,24 @@ unsafe extern "C" fn complete<T: Task>(
       .and_then(|v| unsafe { ToNapiValue::to_napi_value(env, v) })
     {
       Ok(v) => {
-        let status = unsafe { sys::napi_resolve_deferred(env, deferred, v) };
-        debug_assert!(
-          status == sys::Status::napi_ok,
-          "Resolve promise failed, status: {:?}",
-          crate::Status::from(status)
-        );
+        check_status!(
+          unsafe { sys::napi_resolve_deferred(env, deferred, v) },
+          "Resolve promise failed"
+        )?;
       }
       Err(e) => {
-        let status =
-          unsafe { sys::napi_reject_deferred(env, deferred, JsError::from(e).into_value(env)) };
-        debug_assert!(
-          status == sys::Status::napi_ok,
-          "Reject promise failed, status: {:?}",
-          crate::Status::from(status)
-        );
+        check_status!(
+          unsafe { sys::napi_reject_deferred(env, deferred, JsError::from(e).into_value(env)) },
+          "Reject promise failed"
+        )?;
       }
     };
   }
-  if let Err(e) = work.inner_task.finally(Env::from_raw(env)) {
-    debug_assert!(false, "Panic in Task finally fn: {:?}", e);
-  }
-  let delete_status = unsafe { sys::napi_delete_async_work(env, napi_async_work) };
-  debug_assert!(
-    delete_status == sys::Status::napi_ok,
-    "Delete async work failed, status {:?}",
-    crate::Status::from(delete_status)
-  );
+  work.inner_task.finally(Env::from_raw(env))?;
+  check_status!(
+    unsafe { sys::napi_delete_async_work(env, napi_async_work) },
+    "Delete async work failed"
+  )?;
   work.status.store(1, Ordering::Relaxed);
+  Ok(())
 }
