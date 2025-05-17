@@ -114,7 +114,7 @@ pub struct Function<'scope, Args: JsValuesTupleIntoVec = Unknown<'scope>, Return
   pub(crate) value: sys::napi_value,
   pub(crate) _args: std::marker::PhantomData<Args>,
   pub(crate) _return: std::marker::PhantomData<Return>,
-  _scope: std::marker::PhantomData<&'scope ()>,
+  pub(crate) _scope: std::marker::PhantomData<&'scope ()>,
 }
 
 impl<Args: JsValuesTupleIntoVec, Return> TypeName for Function<'_, Args, Return> {

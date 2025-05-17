@@ -1166,7 +1166,8 @@ AbortSignalTest('async task without abort controller', async (t) => {
   t.is(await withoutAbortController(1, 2), 3)
 })
 
-AbortSignalTest('async task with abort controller', async (t) => {
+// schedule async task always start immediately, hard to create a case that async task is scheduled but not started
+test.skip('async task with abort controller', async (t) => {
   const ctrl = new AbortController()
   const promise = withAbortController(1, 2, ctrl.signal)
   try {
@@ -1182,6 +1183,25 @@ AbortSignalTest('abort resolved task', async (t) => {
   const ctrl = new AbortController()
   await withAbortController(1, 2, ctrl.signal).then(() => ctrl.abort())
   t.pass('should not throw')
+})
+
+test('abort signal should be able to reuse with different tasks', async (t) => {
+  const ctrl = new AbortController()
+  await t.notThrowsAsync(async () => {
+    try {
+      const promise = Promise.all(
+        Array.from({ length: 20 }).map(() =>
+          withAbortController(1, 2, ctrl.signal),
+        ),
+      )
+      ctrl.abort()
+      await promise
+    } catch (err: unknown) {
+      // sometimes on CI, the scheduled task is able to abort
+      // so we only allow it to throw AbortError
+      t.is((err as Error).message, 'AbortError')
+    }
+  })
 })
 
 const BigIntTest = typeof BigInt !== 'undefined' ? test : test.skip

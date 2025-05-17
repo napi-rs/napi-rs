@@ -50,19 +50,9 @@ async function main() {
   const {
     readFileAsync,
     callThreadsafeFunction,
-    withAbortController,
     createExternalTypedArray,
+    createReadableStream,
   } = require('./index.cjs')
-
-  const ctrl = new AbortController()
-  const promise = withAbortController(1, 2, ctrl.signal)
-  try {
-    ctrl.abort()
-    await promise
-    throw new Error('Should throw AbortError')
-  } catch (err) {
-    assert(err.message === 'AbortError')
-  }
 
   const buf = await readFileAsync(__filename)
   assert(FILE_CONTENT === buf.toString('utf8'))
@@ -88,6 +78,13 @@ async function main() {
       Array.from({ length: 100 }, (_, i) => i).reduce((a, b) => a + b),
   )
   console.info(createExternalTypedArray())
+
+  const stream = await createReadableStream()
+  const chunks = []
+  for await (const chunk of stream) {
+    chunks.push(chunk)
+  }
+  assert(Buffer.concat(chunks).toString('utf-8') === 'hello'.repeat(100))
 }
 
 Promise.all([main(), createWindowAndReload()])

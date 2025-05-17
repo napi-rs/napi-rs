@@ -990,12 +990,22 @@ impl Env {
     }
   }
 
+  /// Create a JavaScript error object from `Error`
   pub fn create_error(&self, e: Error) -> Result<Object> {
+    if !e.maybe_raw.is_null() {
+      let mut result = ptr::null_mut();
+      check_status!(
+        unsafe { sys::napi_get_reference_value(self.0, e.maybe_raw, &mut result) },
+        "Get reference value in create_error failed"
+      )?;
+      return Ok(Object::from_raw(self.0, result));
+    }
     let reason = &e.reason;
     let reason_string = self.create_string(reason.as_str())?;
+    let status = self.create_string(e.status.as_ref())?;
     let mut result = ptr::null_mut();
     check_status!(unsafe {
-      sys::napi_create_error(self.0, ptr::null_mut(), reason_string.0.value, &mut result)
+      sys::napi_create_error(self.0, status.0.value, reason_string.0.value, &mut result)
     })?;
     Ok(Object::from_raw(self.0, result))
   }
