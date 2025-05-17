@@ -52,7 +52,7 @@ impl ToNapiValue for &Object<'_> {
 }
 
 impl Object<'_> {
-  pub(crate) fn from_raw(env: sys::napi_env, value: sys::napi_value) -> Self {
+  pub fn from_raw(env: sys::napi_env, value: sys::napi_value) -> Self {
     Self(
       Value {
         env,
