@@ -5,8 +5,10 @@ use std::ptr;
 #[cfg(all(feature = "napi4", feature = "tokio_rt"))]
 use crate::bindgen_runtime::Promise;
 use crate::{
-  bindgen_prelude::{FromNapiValue, Result, ToNapiValue, TypeName, ValidateNapiValue},
-  check_status, sys, Env, Error, JsObjectValue, JsValue, Value, ValueType,
+  bindgen_prelude::{
+    FromNapiValue, JsObjectValue, Result, ToNapiValue, TypeName, ValidateNapiValue,
+  },
+  check_status, sys, Env, Error, JsValue, Value, ValueType,
 };
 
 #[derive(Clone, Copy)]

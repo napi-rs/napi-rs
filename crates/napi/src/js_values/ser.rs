@@ -3,8 +3,8 @@ use std::{marker::PhantomData, result::Result as StdResult};
 use serde::{ser, Serialize, Serializer};
 
 use crate::{
-  bindgen_runtime::{Array, BufferSlice, Null, Object, ToNapiValue},
-  Env, Error, JsObjectValue, JsString, JsValue, Result, Unknown, Value, ValueType,
+  bindgen_runtime::{Array, BufferSlice, JsObjectValue, Null, Object, ToNapiValue},
+  Env, Error, JsString, JsValue, Result, Unknown, Value, ValueType,
 };
 
 pub struct Ser<'env>(pub(crate) &'env Env);

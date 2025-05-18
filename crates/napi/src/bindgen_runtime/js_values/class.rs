@@ -6,10 +6,10 @@ use std::ptr;
 
 use crate::{
   bindgen_runtime::{
-    raw_finalize_unchecked, FromNapiValue, Object, ObjectFinalize, Reference, Result, TypeName,
-    ValidateNapiValue,
+    raw_finalize_unchecked, FromNapiValue, JsObjectValue, Object, ObjectFinalize, Reference,
+    Result, TypeName, ValidateNapiValue,
   },
-  check_status, sys, Env, JsObjectValue, JsValue, Property, PropertyAttributes, Value, ValueType,
+  check_status, sys, Env, JsValue, Property, PropertyAttributes, Value, ValueType,
 };
 
 pub struct This<'env, T = Object<'env>> {

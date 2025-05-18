@@ -4,8 +4,8 @@ use serde::de::{DeserializeSeed, EnumAccess, MapAccess, SeqAccess, Unexpected, V
 #[cfg(feature = "napi6")]
 use crate::bindgen_runtime::BigInt;
 use crate::{
-  bindgen_runtime::{ArrayBuffer, BufferSlice, FromNapiValue, Object, Unknown},
-  type_of, Error, JsObjectValue, JsValue, Result, Status, Value, ValueType,
+  bindgen_runtime::{ArrayBuffer, BufferSlice, FromNapiValue, JsObjectValue, Object, Unknown},
+  type_of, Error, JsValue, Result, Status, Value, ValueType,
 };
 
 pub struct De<'env>(pub(crate) &'env Value);

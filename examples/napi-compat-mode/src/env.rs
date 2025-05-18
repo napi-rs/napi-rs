@@ -1,6 +1,6 @@
 use napi::{
-  bindgen_prelude::Function, CallContext, ContextlessResult, Env, JsBoolean, JsObject,
-  JsObjectValue, JsString, JsValue, Result, Unknown,
+  bindgen_prelude::{Function, JsObjectValue},
+  CallContext, ContextlessResult, Env, JsBoolean, JsObject, JsString, JsValue, Result, Unknown,
 };
 
 #[js_function(2)]

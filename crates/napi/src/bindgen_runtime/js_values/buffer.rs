@@ -11,8 +11,7 @@ use std::sync::Mutex;
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
 use crate::bindgen_prelude::{CUSTOM_GC_TSFN, CUSTOM_GC_TSFN_DESTROYED, THREADS_CAN_ACCESS_ENV};
 use crate::{
-  bindgen_prelude::*, check_status, env::EMPTY_VEC, sys, JsObjectValue, JsValue, Result, Value,
-  ValueType,
+  bindgen_prelude::*, check_status, env::EMPTY_VEC, sys, JsValue, Result, Value, ValueType,
 };
 
 #[cfg(all(debug_assertions, not(windows)))]

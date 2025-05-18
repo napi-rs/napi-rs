@@ -39,6 +39,7 @@ use crate::threadsafe_function::{ThreadsafeCallContext, ThreadsafeFunction};
 use crate::JsError;
 use crate::{
   async_work::{self, AsyncWorkPromise},
+  bindgen_runtime::JsObjectValue,
   check_status,
   js_values::*,
   sys,
