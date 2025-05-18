@@ -1,42 +1,42 @@
 use napi::{
-  bindgen_prelude::{FnArgs, Function},
-  CallContext, JsError, JsNull, JsObject, JsString, JsUnknown, Result,
+  bindgen_prelude::{FnArgs, Function, Null},
+  CallContext, JsError, JsObject, JsString, JsValue, Result, Unknown,
 };
 
 #[js_function(1)]
-pub fn call_function(ctx: CallContext) -> Result<JsNull> {
-  let js_func = ctx.get::<Function<FnArgs<(JsUnknown, JsUnknown)>>>(0)?;
-  let js_string_hello = ctx.env.create_string("hello".as_ref())?.into_unknown();
-  let js_string_world = ctx.env.create_string("world".as_ref())?.into_unknown();
+pub fn call_function(ctx: CallContext) -> Result<Null> {
+  let js_func = ctx.get::<Function<FnArgs<(Unknown, Unknown)>>>(0)?;
+  let js_string_hello = ctx.env.create_string("hello".as_ref())?.to_unknown();
+  let js_string_world = ctx.env.create_string("world".as_ref())?.to_unknown();
 
   js_func.call((js_string_hello, js_string_world).into())?;
 
-  ctx.env.get_null()
+  Ok(Null)
 }
 
 #[js_function(1)]
-pub fn call_function_with_ref_arguments(ctx: CallContext) -> Result<JsNull> {
+pub fn call_function_with_ref_arguments(ctx: CallContext) -> Result<Null> {
   let js_func = ctx.get::<Function<FnArgs<(JsString, JsString)>>>(0)?;
   let js_string_hello = ctx.env.create_string("hello".as_ref())?;
   let js_string_world = ctx.env.create_string("world".as_ref())?;
 
   js_func.call((js_string_hello, js_string_world).into())?;
 
-  ctx.env.get_null()
+  Ok(Null)
 }
 
 #[js_function(1)]
-pub fn call_function_with_this(ctx: CallContext) -> Result<JsNull> {
+pub fn call_function_with_this(ctx: CallContext) -> Result<Null> {
   let js_this: JsObject = ctx.this_unchecked();
   let js_func = ctx.get::<Function<()>>(0)?;
 
   js_func.apply(js_this, ())?;
 
-  ctx.env.get_null()
+  Ok(Null)
 }
 
 #[js_function(2)]
-pub fn call_function_error(ctx: CallContext) -> Result<JsUnknown> {
+pub fn call_function_error(ctx: CallContext) -> Result<Unknown> {
   let js_func = ctx.get::<Function<()>>(0)?;
   let error_func = ctx.get::<Function>(1)?;
 

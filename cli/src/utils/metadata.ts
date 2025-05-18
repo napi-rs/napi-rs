@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 
 export type CrateTargetKind =
@@ -26,6 +26,18 @@ export interface Crate {
   targets: CrateTarget[]
   features: Record<string, string[]>
   manifest_path: string
+  dependencies: Array<{
+    name: string
+    source: string
+    req: string
+    kind: string | null
+    rename: string | null
+    optional: boolean
+    uses_default_features: boolean
+    features: string[]
+    target: string | null
+    registry: string | null
+  }>
 }
 
 export interface CargoWorkspaceMetadata {
@@ -41,19 +53,32 @@ export function parseMetadata(manifestPath: string) {
     throw new Error(`No crate found in manifest: ${manifestPath}`)
   }
 
-  const cmd = `cargo metadata --manifest-path ${manifestPath} --format-version 1 --no-deps`
+  const { stdout, stderr, status, error } = spawnSync(
+    'cargo',
+    [
+      'metadata',
+      '--manifest-path',
+      manifestPath,
+      '--format-version',
+      '1',
+      '--no-deps',
+    ],
+    { encoding: 'utf-8' },
+  )
+
+  if (error) {
+    throw new Error('cargo metadata failed to run', { cause: error })
+  }
+  if (status !== 0) {
+    const simpleMessage = `cargo metadata exited with code ${status}`
+    throw new Error(`${simpleMessage} and error message:\n\n${stderr}`, {
+      cause: new Error(simpleMessage),
+    })
+  }
 
   try {
-    const output = execSync(cmd, {
-      encoding: 'utf-8',
-    })
-    return JSON.parse(output) as CargoWorkspaceMetadata
+    return JSON.parse(stdout) as CargoWorkspaceMetadata
   } catch (e) {
-    throw new Error(
-      `Failed to parse cargo metadata output by command: ${cmd}`,
-      {
-        cause: e,
-      },
-    )
+    throw new Error('Failed to parse cargo metadata JSON', { cause: e })
   }
 }

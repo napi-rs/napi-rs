@@ -1,7 +1,4 @@
-use napi::{
-  bindgen_prelude::*, threadsafe_function::ThreadsafeFunction, JsGlobal, JsNull, JsObject,
-  JsUndefined, Result,
-};
+use napi::{bindgen_prelude::*, threadsafe_function::ThreadsafeFunction, JsGlobal, Result};
 
 #[napi]
 fn list_obj_keys(obj: Object) -> Vec<String> {
@@ -9,26 +6,26 @@ fn list_obj_keys(obj: Object) -> Vec<String> {
 }
 
 #[napi]
-fn create_obj(env: Env) -> Object {
-  let mut obj = env.create_object().unwrap();
+fn create_obj(env: &Env) -> Object {
+  let mut obj = Object::new(env).unwrap();
   obj.set("test", 1).unwrap();
 
   obj
 }
 
 #[napi]
-fn get_global(env: Env) -> Result<JsGlobal> {
+fn get_global(env: &Env) -> Result<JsGlobal> {
   env.get_global()
 }
 
 #[napi]
-fn get_undefined(env: Env) -> Result<JsUndefined> {
-  env.get_undefined()
+fn get_undefined() -> Result<()> {
+  Ok(())
 }
 
 #[napi]
-fn get_null(env: Env) -> Result<JsNull> {
-  env.get_null()
+fn get_null() -> Null {
+  Null
 }
 
 #[napi(object)]
@@ -74,8 +71,8 @@ pub fn receive_strict_object(strict_object: StrictObject) {
 }
 
 #[napi]
-pub fn get_str_from_object(env: Env) {
-  let mut obj = env.create_object().unwrap();
+pub fn get_str_from_object(env: &Env) {
+  let mut obj = Object::new(env).unwrap();
   obj.set("name", "value").unwrap();
   assert_eq!(obj.get("name").unwrap(), Some("value".to_string()));
 }
@@ -90,9 +87,9 @@ pub struct TsTypeChanged {
 }
 
 #[napi(ts_return_type = "{ value: ArrayBuffer, get getter(): number }")]
-pub fn create_obj_with_property(env: Env) -> Result<JsObject> {
-  let mut obj = env.create_object()?;
-  let arraybuffer = env.create_arraybuffer(10)?.into_raw();
+pub fn create_obj_with_property(env: &Env) -> Result<Object> {
+  let mut obj = Object::new(env)?;
+  let arraybuffer = ArrayBuffer::from_data(env, vec![0; 10])?;
   obj.define_properties(&[
     Property::new("value")?.with_value(&arraybuffer),
     Property::new("getter")?.with_getter(get_c_callback(getter_from_obj_js_function)?),
@@ -174,11 +171,11 @@ pub fn generate_function_and_call_it(env: &Env) -> Result<FunctionData> {
 }
 
 #[napi]
-pub fn get_null_byte_property(obj: JsObject) -> Result<Option<String>> {
+pub fn get_null_byte_property(obj: Object) -> Result<Option<String>> {
   obj.get::<String>("\0virtual")
 }
 
 #[napi]
-pub fn set_null_byte_property(mut obj: JsObject) -> Result<()> {
+pub fn set_null_byte_property(mut obj: Object) -> Result<()> {
   obj.set("\0virtual", "test")
 }

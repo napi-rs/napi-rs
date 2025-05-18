@@ -19,9 +19,6 @@ pub static NAPI_RS_CLI_VERSION: LazyLock<semver::Version> = LazyLock::new(|| {
   semver::Version::parse(&version).unwrap_or_else(|_| semver::Version::new(0, 0, 0))
 });
 
-pub static NAPI_RS_CLI_VERSION_WITH_SHARED_CRATES_FIX: LazyLock<semver::Version> =
-  LazyLock::new(|| semver::Version::new(2, 15, 1));
-
 #[derive(Default, Debug)]
 pub struct TypeDef {
   pub kind: String,
@@ -117,14 +114,8 @@ impl Display for TypeDef {
     } else {
       "".to_string()
     };
-    // TODO: remove this in v3
-    // This is a workaround for lower version of @napi-rs/cli
-    // See https://github.com/napi-rs/napi-rs/pull/1531
-    let prefix = if *NAPI_RS_CLI_VERSION >= *NAPI_RS_CLI_VERSION_WITH_SHARED_CRATES_FIX {
-      format!("{}:", pkg_name)
-    } else {
-      "".to_string()
-    };
+
+    let prefix = format!("{}:", pkg_name);
     write!(
       f,
       r#"{}{{"kind": "{}", "name": "{}", "js_doc": "{}", "def": "{}"{}{}}}"#,
@@ -530,9 +521,11 @@ pub fn ty_to_ts_type(
 
       let (ty, is_optional) = ts_ty.unwrap_or_else(|| ("any".to_owned(), false));
       (
-        (convert_tuple_to_variadic && !is_return_ty && !is_passthrough_type)
-          .then(|| format!("arg: {ty}"))
-          .unwrap_or(ty),
+        if convert_tuple_to_variadic && !is_return_ty && !is_passthrough_type {
+          format!("arg: {}", ty)
+        } else {
+          ty
+        },
         is_optional,
       )
     }

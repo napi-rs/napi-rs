@@ -2,7 +2,7 @@ use std::ptr;
 
 use crate::bindgen_runtime::{FromNapiValue, TypeName};
 use crate::check_status;
-use crate::{sys, Either, Env, Error, JsUndefined, NapiValue, Result, Status};
+use crate::{sys, Either, Env, Error, NapiValue, Result, Status};
 
 /// Function call context
 pub struct CallContext<'env> {
@@ -57,28 +57,28 @@ impl<'env> CallContext<'env> {
     }
   }
 
-  pub fn try_get<ArgType: NapiValue + TypeName + FromNapiValue>(
+  pub fn try_get<ArgType: FromNapiValue + TypeName + FromNapiValue>(
     &self,
     index: usize,
-  ) -> Result<Either<ArgType, JsUndefined>> {
+  ) -> Result<Either<ArgType, ()>> {
     if index >= self.arg_len() {
       Err(Error::new(
         Status::GenericFailure,
         "Arguments index out of range".to_owned(),
       ))
     } else if index < self.length {
-      unsafe { ArgType::from_raw(self.env.0, self.args[index]) }.map(Either::A)
+      unsafe { ArgType::from_napi_value(self.env.0, self.args[index]) }.map(Either::A)
     } else {
-      self.env.get_undefined().map(Either::B)
+      Ok(Either::B(()))
     }
   }
 
-  pub fn get_all(&self) -> Vec<crate::JsUnknown> {
+  pub fn get_all(&self) -> Vec<crate::Unknown> {
     /* (0 .. self.arg_len()).map(|i| self.get(i).unwrap()).collect() */
     self
       .args
       .iter()
-      .map(|&raw| unsafe { crate::JsUnknown::from_raw_unchecked(self.env.0, raw) })
+      .map(|&raw| unsafe { crate::Unknown::from_raw_unchecked(self.env.0, raw) })
       .collect()
   }
 

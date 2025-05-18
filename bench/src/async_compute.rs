@@ -17,15 +17,15 @@ impl Task for BufferLength {
 }
 
 #[js_function(1)]
-fn bench_async_task(ctx: CallContext) -> Result<Unknown> {
+fn bench_async_task(ctx: CallContext) -> Result<PromiseRaw<u32>> {
   let n = ctx.get::<Buffer>(0)?;
   let task = BufferLength(n);
   let async_promise = ctx.env.spawn(task)?;
-  Ok(async_promise.promise_object().into_unknown())
+  Ok(async_promise.promise_object())
 }
 
 #[js_function(2)]
-fn bench_threadsafe_function(ctx: CallContext) -> Result<JsUndefined> {
+fn bench_threadsafe_function(ctx: CallContext) -> Result<()> {
   let buffer_ref = ctx.get::<Buffer>(0)?;
   let callback = ctx.get::<ThreadsafeFunction<u32, (), u32>>(1)?;
 
@@ -36,7 +36,7 @@ fn bench_threadsafe_function(ctx: CallContext) -> Result<JsUndefined> {
     );
   });
 
-  ctx.env.get_undefined()
+  Ok(())
 }
 
 #[js_function(1)]
@@ -44,8 +44,8 @@ fn bench_tokio_future(ctx: CallContext) -> Result<JsObject> {
   let buffer_ref = ctx.get::<Buffer>(0)?;
   ctx
     .env
-    .execute_tokio_future(async move { Ok(buffer_ref.len()) }, |env, v: usize| {
-      env.create_uint32(v as u32 + 1)
+    .execute_tokio_future(async move { Ok(buffer_ref.len()) }, |_, v: usize| {
+      Ok(v as u32 + 1)
     })
 }
 

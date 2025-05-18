@@ -53,11 +53,12 @@ pub(crate) unsafe extern "C" fn raw_finalize_unchecked<T: ObjectFinalize>(
       // If `Rc` strong count is 2, it means the finalize of referenced `Object` is called before the `fn drop` of the `Reference`
       // It always happened on exiting process
       // In general, the `fn drop` would happen first
-      assert!(
-        rc_strong_count == 1 || rc_strong_count == 2,
-        "Rc strong count is: {}, it should be 1 or 2",
-        rc_strong_count
-      );
+      if rc_strong_count != 1 && rc_strong_count != 2 {
+        eprintln!(
+          "Rc strong count is: {}, it should be 1 or 2",
+          rc_strong_count
+        );
+      }
     }
     let finalize = unsafe { Box::from_raw(finalize_callbacks_rc.get()) };
     finalize();

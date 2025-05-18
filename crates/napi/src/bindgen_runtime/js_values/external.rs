@@ -3,8 +3,10 @@ use std::{
   ops::{Deref, DerefMut},
 };
 
-use super::{FromNapiMutRef, FromNapiRef, FromNapiValue, ToNapiValue, TypeName, ValidateNapiValue};
-use crate::{check_status, sys, Error, Status};
+use super::{
+  FromNapiMutRef, FromNapiRef, FromNapiValue, ToNapiValue, TypeName, Unknown, ValidateNapiValue,
+};
+use crate::{check_status, sys, Env, Error, Result, Status};
 
 #[repr(C)]
 pub struct External<T: 'static> {
@@ -91,6 +93,12 @@ impl<T: 'static> External<T> {
       size_hint,
       adjusted_size: 0,
     }
+  }
+
+  /// convert `External<T>` to `Unknown`
+  pub fn into_unknown(self, env: &Env) -> Result<Unknown> {
+    let napi_value = unsafe { ToNapiValue::to_napi_value(env.0, self)? };
+    Ok(unsafe { Unknown::from_raw_unchecked(env.0, napi_value) })
   }
 }
 

@@ -55,6 +55,14 @@ const encodeValue = (memfs, value, type) => {
         if (typeof value === 'bigint') {
           return `BigInt(${String(value)})`
         }
+        if (value instanceof Error) {
+          return {
+            ...value,
+            message: value.message,
+            stack: value.stack,
+            __error__: value.constructor.name,
+          }
+        }
         return value
       })
       const view = new TextEncoder().encode(json)
@@ -72,6 +80,62 @@ const encodeValue = (memfs, value, type) => {
 }
 
 /**
+ * @param {typeof import('memfs')} memfs
+ * @param {Uint8Array} payload
+ * @param {number} type
+ * @returns {any}
+ */
+const decodeValue = (memfs, payload, type) => {
+  if (type === 0) return undefined
+  if (type === 1) return null
+  if (type === 2) return Boolean(new Int32Array(payload.buffer, payload.byteOffset, 1)[0])
+  if (type === 3) return new Float64Array(payload.buffer, payload.byteOffset, 1)[0]
+  if (type === 4) return new TextDecoder().decode(payload.slice())
+  if (type === 6) {
+    const obj = JSON.parse(new TextDecoder().decode(payload.slice()), (_key, value) => {
+      if (typeof value === 'string') {
+        const matched = value.match(/^BigInt\((-?\d+)\)$/)
+        if (matched && matched[1]) {
+          return BigInt(matched[1])
+        }
+      }
+      return value
+    })
+    if (obj.__constructor__) {
+      const ctor = obj.__constructor__
+      delete obj.__constructor__
+      Object.setPrototypeOf(obj, memfs[ctor].prototype)
+    }
+    if (obj.__error__) {
+      const name = obj.__error__
+      const ErrorConstructor = globalThis[name] || Error
+      delete obj.__error__
+      const err = new ErrorConstructor(obj.message)
+      Object.defineProperty(err, 'stack', {
+        configurable: true,
+        enumerable: false,
+        writable: true,
+        value: err.stack
+      })
+      Object.defineProperty(err, Symbol.toStringTag, {
+        configurable: true,
+        enumerable: false,
+        writable: true,
+        value: name
+      })
+      for (const [k, v] of Object.entries(obj)) {
+        if (k === 'message' || k === 'stack') continue
+        err[k] = v
+      }
+      return err
+    }
+    return obj
+  }
+  if (type === 9) return new BigInt64Array(payload.buffer, payload.byteOffset, 1)[0]
+  throw new Error('unsupported data')
+}
+
+/**
  * @param {import('memfs').IFs} fs
  * @returns {(e: { data: { __fs__: { sab: Int32Array, type: keyof import('memfs').IFs, payload: any[] } } }) => void}
  */
@@ -86,33 +150,22 @@ module.exports.createOnMessage = (fs) => function onMessage(e) {
      */
     const { sab, type, payload } = e.data.__fs__
     const fn = fs[type]
-    const args = payload ? payload.map((value) => {
-      if (value instanceof Uint8Array) {
-        // buffer polyfill bug
-        // @ts-expect-error
-        value._isBuffer = true
-      }
-      return value
-    }) : payload
     try {
-      const ret = fn.apply(fs, args)
-      const t = getType(ret)
-      const v = encodeValue(fs, ret, t)
+      const ret = fn.apply(fs, payload)
       Atomics.store(sab, 0, 0)
+      const t = getType(ret)
       Atomics.store(sab, 1, t)
+      const v = encodeValue(fs, ret, t)
       Atomics.store(sab, 2, v.length)
       new Uint8Array(sab.buffer).set(v, 16)
 
     } catch (/** @type {any} */ err) {
       Atomics.store(sab, 0, 1)
-      Atomics.store(sab, 1, 6)
-      const payloadContent = new TextEncoder().encode(JSON.stringify({
-        ...err,
-        message: err.message,
-        stack: err.stack
-      }))
-      Atomics.store(sab, 2, payloadContent.length)
-      new Uint8Array(sab.buffer).set(payloadContent, 16)
+      const t = getType(err)
+      Atomics.store(sab, 1, t)
+      const v = encodeValue(fs, err, t)
+      Atomics.store(sab, 2, v.length)
+      new Uint8Array(sab.buffer).set(v, 16)
     } finally {
       Atomics.notify(sab, 0)
     }
@@ -120,7 +173,7 @@ module.exports.createOnMessage = (fs) => function onMessage(e) {
 }
 
 /**
- * @param {import('memfs').IFs} memfs
+ * @param {typeof import('memfs')} memfs
  */
 module.exports.createFsProxy = (memfs) => new Proxy({}, {
   get (_target, p, _receiver) {
@@ -128,11 +181,10 @@ module.exports.createFsProxy = (memfs) => new Proxy({}, {
      * @param {any[]} args
      */
     return function (...args) {
-      const sab = new SharedArrayBuffer(16 + 1024)
+      const sab = new SharedArrayBuffer(16 + 10240)
       const i32arr = new Int32Array(sab)
       Atomics.store(i32arr, 0, 21)
 
-      // @ts-expect-error
       postMessage({
         __fs__: {
           sab: i32arr,
@@ -147,47 +199,11 @@ module.exports.createFsProxy = (memfs) => new Proxy({}, {
       const type = Atomics.load(i32arr, 1)
       const size = Atomics.load(i32arr, 2)
       const content = new Uint8Array(sab, 16, size)
+      const value = decodeValue(memfs, content, type)
       if (status === 1) {
-        const errobj = JSON.parse(new TextDecoder().decode(content.slice()))
-        const err = new Error(errobj.message)
-        Object.defineProperty(err, 'stack', {
-          configurable: true,
-          enumerable: false,
-          writable: true,
-          value: errobj.stack
-        })
-        for (const [k, v] of Object.entries(errobj)) {
-          if (k === 'message' || k === 'stack') continue
-          // @ts-expect-error
-          err[k] = v
-        }
-        throw err
+        throw value
       }
-      if (type === 0) return undefined
-      if (type === 1) return null
-      if (type === 2) return Boolean(content[0])
-      if (type === 3) return new Float64Array(sab, 16, 1)[0]
-      if (type === 4) return new TextDecoder().decode(content.slice())
-      if (type === 6) {
-        const obj = JSON.parse(new TextDecoder().decode(content.slice()), (_key, value) => {
-          if (typeof value === 'string') {
-            const matched = value.match(/^BigInt\((-?\d+)\)$/)
-            if (matched && matched[1]) {
-              return BigInt(matched[1])
-            }
-          }
-          return value
-        })
-        if (obj.__constructor__) {
-          const ctor = obj.__constructor__
-          delete obj.__constructor__
-          // @ts-expect-error
-          Object.setPrototypeOf(obj, memfs[ctor].prototype)
-        }
-        return obj
-      }
-      if (type === 9) return new BigInt64Array(sab, 16, 1)[0]
-      throw new Error('unsupported data')
+      return value
     }
   }
 })

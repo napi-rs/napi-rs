@@ -1,16 +1,19 @@
 use std::convert::TryFrom;
 
-use super::Value;
-use crate::bindgen_runtime::{TypeName, ValidateNapiValue};
-use crate::{check_status, ValueType};
-use crate::{sys, Error, Result};
+use crate::{
+  bindgen_runtime::{FromNapiValue, TypeName, ValidateNapiValue},
+  check_status, sys, Error, JsValue, Result, Value, ValueType,
+};
 
 #[derive(Clone, Copy)]
-pub struct JsNumber(pub(crate) Value);
+pub struct JsNumber<'env>(
+  pub(crate) Value,
+  pub(crate) std::marker::PhantomData<&'env ()>,
+);
 
-impl TypeName for JsNumber {
+impl TypeName for JsNumber<'_> {
   fn type_name() -> &'static str {
-    "f64"
+    "number"
   }
 
   fn value_type() -> crate::ValueType {
@@ -18,9 +21,28 @@ impl TypeName for JsNumber {
   }
 }
 
-impl ValidateNapiValue for JsNumber {}
+impl ValidateNapiValue for JsNumber<'_> {}
 
-impl JsNumber {
+impl<'env> JsValue<'env> for JsNumber<'env> {
+  fn value(&self) -> Value {
+    self.0
+  }
+}
+
+impl FromNapiValue for JsNumber<'_> {
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
+    Ok(JsNumber(
+      Value {
+        env,
+        value: napi_val,
+        value_type: ValueType::Number,
+      },
+      std::marker::PhantomData,
+    ))
+  }
+}
+
+impl JsNumber<'_> {
   pub fn get_uint32(&self) -> Result<u32> {
     let mut result = 0;
     check_status!(unsafe { sys::napi_get_value_uint32(self.0.env, self.0.value, &mut result) })?;
@@ -46,7 +68,7 @@ impl JsNumber {
   }
 }
 
-impl TryFrom<JsNumber> for u32 {
+impl TryFrom<JsNumber<'_>> for u32 {
   type Error = Error;
 
   fn try_from(value: JsNumber) -> Result<u32> {
@@ -56,7 +78,7 @@ impl TryFrom<JsNumber> for u32 {
   }
 }
 
-impl TryFrom<JsNumber> for i32 {
+impl TryFrom<JsNumber<'_>> for i32 {
   type Error = Error;
 
   fn try_from(value: JsNumber) -> Result<i32> {
@@ -66,7 +88,7 @@ impl TryFrom<JsNumber> for i32 {
   }
 }
 
-impl TryFrom<JsNumber> for i64 {
+impl TryFrom<JsNumber<'_>> for i64 {
   type Error = Error;
 
   fn try_from(value: JsNumber) -> Result<i64> {
@@ -76,7 +98,7 @@ impl TryFrom<JsNumber> for i64 {
   }
 }
 
-impl TryFrom<JsNumber> for f64 {
+impl TryFrom<JsNumber<'_>> for f64 {
   type Error = Error;
 
   fn try_from(value: JsNumber) -> Result<f64> {

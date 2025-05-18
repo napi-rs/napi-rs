@@ -1,15 +1,12 @@
-import { setTimeout } from 'timers'
-import { promisify } from 'util'
+import { setTimeout } from 'node:timers/promises'
 
 import * as colors from 'colorette'
 import Dockerode from 'dockerode'
 import prettyBytes from 'pretty-bytes'
 
-const sleep = promisify(setTimeout)
-
 const client = new Dockerode()
 
-export async function createSuite(testFile, maxMemoryUsage) {
+export async function createSuite(testFile, maxMemoryUsage = 256 * 1024 * 1024) {
   console.info(colors.cyanBright(`Create container to test ${testFile}`))
 
   const container = await client.createContainer({
@@ -75,7 +72,7 @@ export async function createSuite(testFile, maxMemoryUsage) {
     colors.red(`Initial memory usage: ${prettyBytes(initialMemoryUsage ?? 0)}`),
   )
 
-  await sleep(60000)
+  await setTimeout(60000)
 
   try {
     await container.stop()

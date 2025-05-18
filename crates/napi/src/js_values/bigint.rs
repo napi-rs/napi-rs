@@ -2,8 +2,12 @@ use std::convert::TryFrom;
 use std::ptr;
 
 use super::*;
-use crate::{bindgen_runtime::TypeName, check_status, sys, Result};
+use crate::{
+  bindgen_runtime::{FromNapiValue, TypeName},
+  check_status, sys, Result,
+};
 
+#[deprecated(since = "3.0.0", note = "Use `napi::bindgen_prelude::BigInt` instead")]
 #[derive(Clone, Copy)]
 pub struct JsBigInt {
   pub(crate) raw: Value,
@@ -22,6 +26,35 @@ impl TypeName for JsBigInt {
 
 impl ValidateNapiValue for JsBigInt {}
 
+impl JsValue<'_> for JsBigInt {
+  fn value(&self) -> Value {
+    self.raw
+  }
+}
+
+impl FromNapiValue for JsBigInt {
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
+    let mut word_count = 0usize;
+    check_status!(unsafe {
+      sys::napi_get_value_bigint_words(
+        env,
+        napi_val,
+        ptr::null_mut(),
+        &mut word_count,
+        ptr::null_mut(),
+      )
+    })?;
+    Ok(JsBigInt {
+      raw: Value {
+        env,
+        value: napi_val,
+        value_type: ValueType::BigInt,
+      },
+      word_count,
+    })
+  }
+}
+
 impl JsBigInt {
   pub(crate) fn from_raw_unchecked(
     env: sys::napi_env,
@@ -36,90 +69,6 @@ impl JsBigInt {
       },
       word_count,
     }
-  }
-
-  pub fn into_unknown(self) -> Result<JsUnknown> {
-    unsafe { JsUnknown::from_raw(self.raw.env, self.raw.value) }
-  }
-
-  pub fn coerce_to_number(self) -> Result<JsNumber> {
-    let mut new_raw_value = ptr::null_mut();
-    check_status!(unsafe {
-      sys::napi_coerce_to_number(self.raw.env, self.raw.value, &mut new_raw_value)
-    })?;
-    Ok(JsNumber(Value {
-      env: self.raw.env,
-      value: new_raw_value,
-      value_type: ValueType::Number,
-    }))
-  }
-
-  pub fn coerce_to_string(self) -> Result<JsString> {
-    let mut new_raw_value = ptr::null_mut();
-    check_status!(unsafe {
-      sys::napi_coerce_to_string(self.raw.env, self.raw.value, &mut new_raw_value)
-    })?;
-    Ok(JsString(Value {
-      env: self.raw.env,
-      value: new_raw_value,
-      value_type: ValueType::String,
-    }))
-  }
-
-  pub fn coerce_to_object(self) -> Result<JsObject> {
-    let mut new_raw_value = ptr::null_mut();
-    check_status!(unsafe {
-      sys::napi_coerce_to_object(self.raw.env, self.raw.value, &mut new_raw_value)
-    })?;
-    Ok(JsObject(Value {
-      env: self.raw.env,
-      value: new_raw_value,
-      value_type: ValueType::Object,
-    }))
-  }
-
-  pub fn is_date(&self) -> Result<bool> {
-    let mut is_date = true;
-    check_status!(unsafe { sys::napi_is_date(self.raw.env, self.raw.value, &mut is_date) })?;
-    Ok(is_date)
-  }
-
-  pub fn is_error(&self) -> Result<bool> {
-    let mut result = false;
-    check_status!(unsafe { sys::napi_is_error(self.raw.env, self.raw.value, &mut result) })?;
-    Ok(result)
-  }
-
-  pub fn is_typedarray(&self) -> Result<bool> {
-    let mut result = false;
-    check_status!(unsafe { sys::napi_is_typedarray(self.raw.env, self.raw.value, &mut result) })?;
-    Ok(result)
-  }
-
-  pub fn is_dataview(&self) -> Result<bool> {
-    let mut result = false;
-    check_status!(unsafe { sys::napi_is_dataview(self.raw.env, self.raw.value, &mut result) })?;
-    Ok(result)
-  }
-
-  pub fn is_array(&self) -> Result<bool> {
-    let mut is_array = false;
-    check_status!(unsafe { sys::napi_is_array(self.raw.env, self.raw.value, &mut is_array) })?;
-    Ok(is_array)
-  }
-
-  pub fn is_buffer(&self) -> Result<bool> {
-    let mut is_buffer = false;
-    check_status!(unsafe { sys::napi_is_buffer(self.raw.env, self.raw.value, &mut is_buffer) })?;
-    Ok(is_buffer)
-  }
-
-  pub fn instanceof<Constructor: NapiRaw>(&self, constructor: Constructor) -> Result<bool> {
-    let mut result = false;
-    check_status!(unsafe {
-      sys::napi_instanceof(self.raw.env, self.raw.value, constructor.raw(), &mut result)
-    })?;
-    Ok(result)
   }
 }
 

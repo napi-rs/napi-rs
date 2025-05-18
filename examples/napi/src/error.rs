@@ -61,9 +61,9 @@ impl CustomStruct {
 }
 
 #[napi]
-pub fn js_error_callback(value: Unknown) -> Vec<JsError> {
+pub fn js_error_callback(value: Unknown) -> Result<Vec<JsError>> {
   let error: Error = value.into();
-  vec![error.clone().into(), error.into()]
+  Ok(vec![error.try_clone()?.into(), error.into()])
 }
 
 #[napi]

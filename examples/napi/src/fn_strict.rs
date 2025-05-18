@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
-use napi::{bindgen_prelude::*, JsSymbol, JsUnknown};
+use napi::{bindgen_prelude::*, JsSymbol, JsValue, Unknown};
 
 #[napi(strict)]
 fn validate_array(arr: Vec<u32>) -> u32 {
@@ -59,7 +59,7 @@ fn validate_external(e: &External<u32>) -> u32 {
 }
 
 #[napi(strict, ts_args_type = "cb: () => number")]
-fn validate_function(cb: Function<(), JsUnknown>) -> Result<u32> {
+fn validate_function(cb: Function<(), Unknown>) -> Result<u32> {
   Ok(cb.call(())?.coerce_to_number()?.get_uint32()? + 3)
 }
 

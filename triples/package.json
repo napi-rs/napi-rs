@@ -1,6 +1,6 @@
 {
   "name": "@napi-rs/triples",
-  "version": "2.0.0-alpha.37",
+  "version": "2.0.0-alpha.41",
   "description": "Rust target triples objects",
   "keywords": [
     "Rust",
@@ -48,9 +48,9 @@
   },
   "devDependencies": {
     "@napi-rs/cli": "workspace:*",
-    "@types/node": "^22.7.5",
+    "@types/node": "^22.13.16",
     "lodash-es": "^4.17.21",
     "ts-node": "^10.9.2",
-    "typescript": "^5.6.3"
+    "typescript": "^5.8.2"
   }
 }

@@ -3,6 +3,7 @@ use std::{sync::Arc, thread, time::Duration};
 use napi::{
   bindgen_prelude::*,
   threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode, UnknownReturnValue},
+  Ref,
 };
 
 use crate::class::Animal;
@@ -84,7 +85,7 @@ fn threadsafe_function_closure_capture(
     .build_threadsafe_function::<()>()
     .build_callback(move |ctx| {
       println!("Captured in ThreadsafeFunction {}", str); // str is NULL at this point
-      Ok(default_value_reference.clone(ctx.env)?)
+      default_value_reference.clone(ctx.env)
     })?;
 
   tsfn.call((), ThreadsafeFunctionCallMode::NonBlocking);
@@ -168,6 +169,27 @@ pub async fn tsfn_return_promise_timeout(
       Ok(value? + 2)
     }
   }
+}
+
+#[napi]
+pub fn call_async_with_unknown_return_value<'env>(
+  env: &'env Env,
+  tsfn: ThreadsafeFunction<u32, Ref<Unknown>>,
+) -> Result<PromiseRaw<'env, u32>> {
+  env.spawn_future_with_callback(
+    async move {
+      let return_value = tsfn.call_async(Ok(42)).await?;
+      Ok(return_value)
+    },
+    |env, mut value| {
+      let return_value = value.get_value(&env)?;
+      value.unref(&env)?;
+      match return_value.get_type()? {
+        ValueType::Object => Ok(110),
+        _ => Ok(100),
+      }
+    },
+  )
 }
 
 #[napi]

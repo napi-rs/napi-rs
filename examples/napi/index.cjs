@@ -35,7 +35,11 @@ const isMuslFromFilesystem = () => {
 }
 
 const isMuslFromReport = () => {
-  const report = typeof process.report.getReport === 'function' ? process.report.getReport() : null
+  let report = null
+  if (typeof process.report?.getReport === 'function') {
+    process.report.excludeNetwork = true
+    report = process.report.getReport()
+  }
   if (!report) {
     return null
   }
@@ -64,7 +68,7 @@ function requireNative() {
     try {
       nativeBinding = require(process.env.NAPI_RS_NATIVE_LIBRARY_PATH);
     } catch (err) {
-      loadErrors.push(err);
+      loadErrors.push(err)
     }
   } else if (process.platform === 'android') {
     if (process.arch === 'arm64') {
@@ -370,6 +374,7 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
+module.exports = nativeBinding
 module.exports.Animal = nativeBinding.Animal
 module.exports.AnimalWithDefaultConstructor = nativeBinding.AnimalWithDefaultConstructor
 module.exports.AnotherClassForEither = nativeBinding.AnotherClassForEither
@@ -386,6 +391,7 @@ module.exports.Blake2BKey = nativeBinding.Blake2BKey
 module.exports.Blake2bKey = nativeBinding.Blake2bKey
 module.exports.CatchOnConstructor = nativeBinding.CatchOnConstructor
 module.exports.CatchOnConstructor2 = nativeBinding.CatchOnConstructor2
+module.exports.ClassInArray = nativeBinding.ClassInArray
 module.exports.ClassWithFactory = nativeBinding.ClassWithFactory
 module.exports.ClassWithLifetime = nativeBinding.ClassWithLifetime
 module.exports.Context = nativeBinding.Context
@@ -408,6 +414,7 @@ module.exports.NinjaTurtle = nativeBinding.NinjaTurtle
 module.exports.NotUseNullableClass = nativeBinding.NotUseNullableClass
 module.exports.NotWritableClass = nativeBinding.NotWritableClass
 module.exports.Optional = nativeBinding.Optional
+module.exports.PackageJsonReader = nativeBinding.PackageJsonReader
 module.exports.Reader = nativeBinding.Reader
 module.exports.Selector = nativeBinding.Selector
 module.exports.UseNullableClass = nativeBinding.UseNullableClass
@@ -447,6 +454,7 @@ module.exports.buildThreadsafeFunctionFromFunctionCalleeHandle = nativeBinding.b
 module.exports.call0 = nativeBinding.call0
 module.exports.call1 = nativeBinding.call1
 module.exports.call2 = nativeBinding.call2
+module.exports.callAsyncWithUnknownReturnValue = nativeBinding.callAsyncWithUnknownReturnValue
 module.exports.callbackReturnPromise = nativeBinding.callbackReturnPromise
 module.exports.callbackReturnPromiseAndSpawn = nativeBinding.callbackReturnPromiseAndSpawn
 module.exports.callCatchOnPromise = nativeBinding.callCatchOnPromise
@@ -504,6 +512,7 @@ module.exports.eitherBoolOrFunction = nativeBinding.eitherBoolOrFunction
 module.exports.eitherBoolOrTuple = nativeBinding.eitherBoolOrTuple
 module.exports.eitherFromObjects = nativeBinding.eitherFromObjects
 module.exports.eitherFromOption = nativeBinding.eitherFromOption
+module.exports.eitherPromiseInEitherA = nativeBinding.eitherPromiseInEitherA
 module.exports.eitherStringOrNumber = nativeBinding.eitherStringOrNumber
 module.exports.Empty = nativeBinding.Empty
 module.exports.enumToI32 = nativeBinding.enumToI32
@@ -518,6 +527,7 @@ module.exports.generateFunctionAndCallIt = nativeBinding.generateFunctionAndCall
 module.exports.getBtreeMapping = nativeBinding.getBtreeMapping
 module.exports.getBuffer = nativeBinding.getBuffer
 module.exports.getBufferSlice = nativeBinding.getBufferSlice
+module.exports.getClassFromArray = nativeBinding.getClassFromArray
 module.exports.getCwd = nativeBinding.getCwd
 module.exports.getEmptyBuffer = nativeBinding.getEmptyBuffer
 module.exports.getEmptyTypedArray = nativeBinding.getEmptyTypedArray

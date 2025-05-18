@@ -3,6 +3,36 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.79](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.78...@napi-rs/cli@3.0.0-alpha.79) (2025-05-16)
+
+### Bug Fixes
+
+- **cli:** path escaping issue in metadata parser ([#2605](https://github.com/napi-rs/napi-rs/issues/2605)) ([7010f60](https://github.com/napi-rs/napi-rs/commit/7010f6059bf36f12520bcda2ddb505c1d740c196))
+- **napi:** module_exports binding ([#2632](https://github.com/napi-rs/napi-rs/issues/2632)) ([ce99054](https://github.com/napi-rs/napi-rs/commit/ce990542b9639ca95b688c45d28d525c3a2d3c99))
+
+### Features
+
+- **napi-derive:** auto invalid type gen ([#2638](https://github.com/napi-rs/napi-rs/issues/2638)) ([21982a1](https://github.com/napi-rs/napi-rs/commit/21982a1508c8d0b534f902244f13d52b0b5ae573))
+- **napi:** support #[napi(module_exports)] ([#2631](https://github.com/napi-rs/napi-rs/issues/2631)) ([8cd752d](https://github.com/napi-rs/napi-rs/commit/8cd752db8679cb56a1ea2ed35190e9888cb9b6b8))
+
+# [3.0.0-alpha.78](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.77...@napi-rs/cli@3.0.0-alpha.78) (2025-04-16)
+
+### Bug Fixes
+
+- **cli:** replace .wasm extension of wasm artifact ([#2556](https://github.com/napi-rs/napi-rs/issues/2556)) ([e12d091](https://github.com/napi-rs/napi-rs/commit/e12d0918478fa63ebc59840a805e397937dcaa84))
+
+# [3.0.0-alpha.77](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.76...@napi-rs/cli@3.0.0-alpha.77) (2025-04-01)
+
+### Bug Fixes
+
+- **cli:** trim is not a function ([#2541](https://github.com/napi-rs/napi-rs/issues/2541)) ([be86a44](https://github.com/napi-rs/napi-rs/commit/be86a44acae70bb22586148c2a3a52754504f3c2))
+
+# [3.0.0-alpha.76](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.75...@napi-rs/cli@3.0.0-alpha.76) (2025-03-22)
+
+### Features
+
+- **cli:** add `wasm.browser.asyncInit` for large wasm file ([#2514](https://github.com/napi-rs/napi-rs/issues/2514)) ([9873fb3](https://github.com/napi-rs/napi-rs/commit/9873fb39ae0dbb1d45de83ab82be82bd9d122936))
+
 # [3.0.0-alpha.75](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.74...@napi-rs/cli@3.0.0-alpha.75) (2025-03-14)
 
 ### Bug Fixes

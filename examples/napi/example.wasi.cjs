@@ -9,9 +9,9 @@ const { WASI: __nodeWASI } = require('node:wasi')
 const { Worker } = require('node:worker_threads')
 
 const {
-  instantiateNapiModuleSync: __emnapiInstantiateNapiModuleSync,
-  getDefaultContext: __emnapiGetDefaultContext,
   createOnMessage: __wasmCreateOnMessageForFsProxy,
+  getDefaultContext: __emnapiGetDefaultContext,
+  instantiateNapiModuleSync: __emnapiInstantiateNapiModuleSync,
 } = require('@napi-rs/wasm-runtime')
 
 const __rootDir = __nodePath.parse(process.cwd()).root
@@ -84,7 +84,7 @@ const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule
     }
   },
 })
-
+module.exports = __napiModule.exports
 module.exports.Animal = __napiModule.exports.Animal
 module.exports.AnimalWithDefaultConstructor = __napiModule.exports.AnimalWithDefaultConstructor
 module.exports.AnotherClassForEither = __napiModule.exports.AnotherClassForEither
@@ -101,6 +101,7 @@ module.exports.Blake2BKey = __napiModule.exports.Blake2BKey
 module.exports.Blake2bKey = __napiModule.exports.Blake2bKey
 module.exports.CatchOnConstructor = __napiModule.exports.CatchOnConstructor
 module.exports.CatchOnConstructor2 = __napiModule.exports.CatchOnConstructor2
+module.exports.ClassInArray = __napiModule.exports.ClassInArray
 module.exports.ClassWithFactory = __napiModule.exports.ClassWithFactory
 module.exports.ClassWithLifetime = __napiModule.exports.ClassWithLifetime
 module.exports.Context = __napiModule.exports.Context
@@ -123,6 +124,7 @@ module.exports.NinjaTurtle = __napiModule.exports.NinjaTurtle
 module.exports.NotUseNullableClass = __napiModule.exports.NotUseNullableClass
 module.exports.NotWritableClass = __napiModule.exports.NotWritableClass
 module.exports.Optional = __napiModule.exports.Optional
+module.exports.PackageJsonReader = __napiModule.exports.PackageJsonReader
 module.exports.Reader = __napiModule.exports.Reader
 module.exports.Selector = __napiModule.exports.Selector
 module.exports.UseNullableClass = __napiModule.exports.UseNullableClass
@@ -162,6 +164,7 @@ module.exports.buildThreadsafeFunctionFromFunctionCalleeHandle = __napiModule.ex
 module.exports.call0 = __napiModule.exports.call0
 module.exports.call1 = __napiModule.exports.call1
 module.exports.call2 = __napiModule.exports.call2
+module.exports.callAsyncWithUnknownReturnValue = __napiModule.exports.callAsyncWithUnknownReturnValue
 module.exports.callbackReturnPromise = __napiModule.exports.callbackReturnPromise
 module.exports.callbackReturnPromiseAndSpawn = __napiModule.exports.callbackReturnPromiseAndSpawn
 module.exports.callCatchOnPromise = __napiModule.exports.callCatchOnPromise
@@ -219,6 +222,7 @@ module.exports.eitherBoolOrFunction = __napiModule.exports.eitherBoolOrFunction
 module.exports.eitherBoolOrTuple = __napiModule.exports.eitherBoolOrTuple
 module.exports.eitherFromObjects = __napiModule.exports.eitherFromObjects
 module.exports.eitherFromOption = __napiModule.exports.eitherFromOption
+module.exports.eitherPromiseInEitherA = __napiModule.exports.eitherPromiseInEitherA
 module.exports.eitherStringOrNumber = __napiModule.exports.eitherStringOrNumber
 module.exports.Empty = __napiModule.exports.Empty
 module.exports.enumToI32 = __napiModule.exports.enumToI32
@@ -233,6 +237,7 @@ module.exports.generateFunctionAndCallIt = __napiModule.exports.generateFunction
 module.exports.getBtreeMapping = __napiModule.exports.getBtreeMapping
 module.exports.getBuffer = __napiModule.exports.getBuffer
 module.exports.getBufferSlice = __napiModule.exports.getBufferSlice
+module.exports.getClassFromArray = __napiModule.exports.getClassFromArray
 module.exports.getCwd = __napiModule.exports.getCwd
 module.exports.getEmptyBuffer = __napiModule.exports.getEmptyBuffer
 module.exports.getEmptyTypedArray = __napiModule.exports.getEmptyTypedArray

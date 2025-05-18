@@ -1,4 +1,4 @@
-use napi::{CallContext, JsObject, JsString, JsUndefined, JsUnknown, Result};
+use napi::{bindgen_prelude::Object, CallContext, JsObject, JsString, Result, Unknown};
 
 use serde_json::{from_str, to_string};
 
@@ -54,7 +54,7 @@ struct BytesObject<'a> {
 macro_rules! make_test {
   ($name:ident, $val:expr) => {
     #[js_function]
-    fn $name(ctx: CallContext) -> Result<JsUnknown> {
+    fn $name(ctx: CallContext) -> Result<Unknown> {
       let value = $val;
       ctx.env.to_js_value(&value)
     }
@@ -121,13 +121,13 @@ make_test!(make_bytes_struct, {
 macro_rules! make_expect {
   ($name:ident, $val:expr, $val_type:ty) => {
     #[js_function(1)]
-    fn $name(ctx: CallContext) -> Result<JsUndefined> {
+    fn $name(ctx: CallContext) -> Result<()> {
       let value = $val;
-      let arg0 = ctx.get::<JsUnknown>(0)?;
+      let arg0 = ctx.get::<Unknown>(0)?;
 
       let de_serialized: $val_type = ctx.env.from_js_value(arg0)?;
       assert_eq!(value, de_serialized);
-      ctx.env.get_undefined()
+      Ok(())
     }
   };
 }
@@ -170,15 +170,15 @@ make_expect!(
 );
 
 #[js_function(1)]
-fn roundtrip_object(ctx: CallContext) -> Result<JsUnknown> {
-  let arg0 = ctx.get::<JsObject>(0)?;
+fn roundtrip_object(ctx: CallContext) -> Result<Unknown> {
+  let arg0 = ctx.get::<Object>(0)?;
 
   let de_serialized: AnObjectTwo = ctx.env.from_js_value(arg0)?;
   ctx.env.to_js_value(&de_serialized)
 }
 
 #[js_function(1)]
-fn from_json_string(ctx: CallContext) -> Result<JsUnknown> {
+fn from_json_string(ctx: CallContext) -> Result<Unknown> {
   let arg0 = ctx.get::<JsString>(0)?.into_utf8()?;
 
   let de_serialized: AnObject = from_str(arg0.as_str()?)?;
@@ -187,7 +187,7 @@ fn from_json_string(ctx: CallContext) -> Result<JsUnknown> {
 
 #[js_function(1)]
 fn json_to_string(ctx: CallContext) -> Result<JsString> {
-  let arg0 = ctx.get::<JsObject>(0)?;
+  let arg0 = ctx.get::<Object>(0)?;
 
   let de_serialized: AnObject = ctx.env.from_js_value(arg0)?;
   let json_string = to_string(&de_serialized)?;

@@ -1,8 +1,8 @@
 import {
-  instantiateNapiModuleSync as __emnapiInstantiateNapiModuleSync,
-  getDefaultContext as __emnapiGetDefaultContext,
-  WASI as __WASI,
   createOnMessage as __wasmCreateOnMessageForFsProxy,
+  getDefaultContext as __emnapiGetDefaultContext,
+  instantiateNapiModuleSync as __emnapiInstantiateNapiModuleSync,
+  WASI as __WASI,
 } from '@napi-rs/wasm-runtime'
 import { memfs } from '@napi-rs/wasm-runtime/fs'
 import __wasmUrl from './example.wasm32-wasi.wasm?url'
@@ -60,6 +60,7 @@ const {
     }
   },
 })
+export default __napiModule.exports
 export const Animal = __napiModule.exports.Animal
 export const AnimalWithDefaultConstructor = __napiModule.exports.AnimalWithDefaultConstructor
 export const AnotherClassForEither = __napiModule.exports.AnotherClassForEither
@@ -76,6 +77,7 @@ export const Blake2BKey = __napiModule.exports.Blake2BKey
 export const Blake2bKey = __napiModule.exports.Blake2bKey
 export const CatchOnConstructor = __napiModule.exports.CatchOnConstructor
 export const CatchOnConstructor2 = __napiModule.exports.CatchOnConstructor2
+export const ClassInArray = __napiModule.exports.ClassInArray
 export const ClassWithFactory = __napiModule.exports.ClassWithFactory
 export const ClassWithLifetime = __napiModule.exports.ClassWithLifetime
 export const Context = __napiModule.exports.Context
@@ -98,6 +100,7 @@ export const NinjaTurtle = __napiModule.exports.NinjaTurtle
 export const NotUseNullableClass = __napiModule.exports.NotUseNullableClass
 export const NotWritableClass = __napiModule.exports.NotWritableClass
 export const Optional = __napiModule.exports.Optional
+export const PackageJsonReader = __napiModule.exports.PackageJsonReader
 export const Reader = __napiModule.exports.Reader
 export const Selector = __napiModule.exports.Selector
 export const UseNullableClass = __napiModule.exports.UseNullableClass
@@ -137,6 +140,7 @@ export const buildThreadsafeFunctionFromFunctionCalleeHandle = __napiModule.expo
 export const call0 = __napiModule.exports.call0
 export const call1 = __napiModule.exports.call1
 export const call2 = __napiModule.exports.call2
+export const callAsyncWithUnknownReturnValue = __napiModule.exports.callAsyncWithUnknownReturnValue
 export const callbackReturnPromise = __napiModule.exports.callbackReturnPromise
 export const callbackReturnPromiseAndSpawn = __napiModule.exports.callbackReturnPromiseAndSpawn
 export const callCatchOnPromise = __napiModule.exports.callCatchOnPromise
@@ -194,6 +198,7 @@ export const eitherBoolOrFunction = __napiModule.exports.eitherBoolOrFunction
 export const eitherBoolOrTuple = __napiModule.exports.eitherBoolOrTuple
 export const eitherFromObjects = __napiModule.exports.eitherFromObjects
 export const eitherFromOption = __napiModule.exports.eitherFromOption
+export const eitherPromiseInEitherA = __napiModule.exports.eitherPromiseInEitherA
 export const eitherStringOrNumber = __napiModule.exports.eitherStringOrNumber
 export const Empty = __napiModule.exports.Empty
 export const enumToI32 = __napiModule.exports.enumToI32
@@ -208,6 +213,7 @@ export const generateFunctionAndCallIt = __napiModule.exports.generateFunctionAn
 export const getBtreeMapping = __napiModule.exports.getBtreeMapping
 export const getBuffer = __napiModule.exports.getBuffer
 export const getBufferSlice = __napiModule.exports.getBufferSlice
+export const getClassFromArray = __napiModule.exports.getClassFromArray
 export const getCwd = __napiModule.exports.getCwd
 export const getEmptyBuffer = __napiModule.exports.getEmptyBuffer
 export const getEmptyTypedArray = __napiModule.exports.getEmptyTypedArray

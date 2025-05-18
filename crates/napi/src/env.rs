@@ -1,10 +1,12 @@
 #![allow(deprecated)]
 
+#[cfg(any(feature = "compat-mode", feature = "napi6"))]
 use std::any::{type_name, TypeId};
 use std::convert::TryInto;
 use std::ffi::CString;
 #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
 use std::future::Future;
+#[cfg(feature = "compat-mode")]
 use std::mem;
 use std::os::raw::{c_char, c_void};
 use std::ptr;
@@ -16,25 +18,28 @@ use serde::Serialize;
 
 #[cfg(feature = "napi8")]
 use crate::async_cleanup_hook::AsyncCleanupHook;
-#[cfg(feature = "napi6")]
+#[cfg(all(feature = "napi6", feature = "compat-mode"))]
 use crate::bindgen_runtime::u128_with_sign_to_napi_value;
+#[cfg(feature = "napi6")]
+use crate::bindgen_runtime::FinalizeContext;
 #[cfg(feature = "napi5")]
 use crate::bindgen_runtime::FunctionCallContext;
 #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
 use crate::bindgen_runtime::PromiseRaw;
 #[cfg(feature = "napi4")]
 use crate::bindgen_runtime::ToNapiValue;
-use crate::bindgen_runtime::{FromNapiValue, Function, JsValuesTupleIntoVec, Unknown};
+use crate::bindgen_runtime::{FromNapiValue, Function, JsValuesTupleIntoVec, Object, Unknown};
 #[cfg(feature = "napi3")]
 use crate::cleanup_env::{CleanupEnvHook, CleanupEnvHookData};
 #[cfg(feature = "serde-json")]
 use crate::js_values::{De, Ser};
-#[cfg(feature = "napi4")]
+#[cfg(all(feature = "napi4", feature = "compat-mode"))]
 use crate::threadsafe_function::{ThreadsafeCallContext, ThreadsafeFunction};
 #[cfg(feature = "napi3")]
 use crate::JsError;
 use crate::{
   async_work::{self, AsyncWorkPromise},
+  bindgen_runtime::JsObjectValue,
   check_status,
   js_values::*,
   sys,
@@ -70,58 +75,71 @@ impl Env {
     Env(env)
   }
 
+  #[cfg(feature = "compat-mode")]
+  #[deprecated(since = "3.0.0", note = "Use `bool` instead")]
   pub fn get_boolean(&self, value: bool) -> Result<JsBoolean> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe { sys::napi_get_boolean(self.0, value, &mut raw_value) })?;
     Ok(unsafe { JsBoolean::from_raw_unchecked(self.0, raw_value) })
   }
 
+  #[cfg(feature = "compat-mode")]
+  #[deprecated(since = "3.0.0", note = "Use `i32` instead")]
   pub fn create_int32(&self, int: i32) -> Result<JsNumber> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe {
       sys::napi_create_int32(self.0, int, (&mut raw_value) as *mut sys::napi_value)
     })?;
-    Ok(unsafe { JsNumber::from_raw_unchecked(self.0, raw_value) })
+    unsafe { JsNumber::from_napi_value(self.0, raw_value) }
   }
 
+  #[cfg(feature = "compat-mode")]
+  #[deprecated(since = "3.0.0", note = "Use `i64` instead")]
   pub fn create_int64(&self, int: i64) -> Result<JsNumber> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe {
       sys::napi_create_int64(self.0, int, (&mut raw_value) as *mut sys::napi_value)
     })?;
-    Ok(unsafe { JsNumber::from_raw_unchecked(self.0, raw_value) })
+    unsafe { JsNumber::from_napi_value(self.0, raw_value) }
   }
 
+  #[cfg(feature = "compat-mode")]
+  #[deprecated(since = "3.0.0", note = "Use `u32` instead")]
   pub fn create_uint32(&self, number: u32) -> Result<JsNumber> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe { sys::napi_create_uint32(self.0, number, &mut raw_value) })?;
-    Ok(unsafe { JsNumber::from_raw_unchecked(self.0, raw_value) })
+    unsafe { JsNumber::from_napi_value(self.0, raw_value) }
   }
 
+  #[cfg(feature = "compat-mode")]
+  #[deprecated(since = "3.0.0", note = "Use `f64` instead")]
   pub fn create_double(&self, double: f64) -> Result<JsNumber> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe {
       sys::napi_create_double(self.0, double, (&mut raw_value) as *mut sys::napi_value)
     })?;
-    Ok(unsafe { JsNumber::from_raw_unchecked(self.0, raw_value) })
+    unsafe { JsNumber::from_napi_value(self.0, raw_value) }
   }
 
   /// [n_api_napi_create_bigint_int64](https://nodejs.org/api/n-api.html#n_api_napi_create_bigint_int64)
-  #[cfg(feature = "napi6")]
+  #[cfg(all(feature = "napi6", feature = "compat-mode"))]
+  #[deprecated(since = "3.0.0", note = "Use `BigInt` instead")]
   pub fn create_bigint_from_i64(&self, value: i64) -> Result<JsBigInt> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe { sys::napi_create_bigint_int64(self.0, value, &mut raw_value) })?;
     Ok(JsBigInt::from_raw_unchecked(self.0, raw_value, 1))
   }
 
-  #[cfg(feature = "napi6")]
+  #[cfg(all(feature = "napi6", feature = "compat-mode"))]
+  #[deprecated(since = "3.0.0", note = "Use `BigInt` instead")]
   pub fn create_bigint_from_u64(&self, value: u64) -> Result<JsBigInt> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe { sys::napi_create_bigint_uint64(self.0, value, &mut raw_value) })?;
     Ok(JsBigInt::from_raw_unchecked(self.0, raw_value, 1))
   }
 
-  #[cfg(feature = "napi6")]
+  #[cfg(all(feature = "napi6", feature = "compat-mode"))]
+  #[deprecated(since = "3.0.0", note = "Use `BigInt` instead")]
   pub fn create_bigint_from_i128(&self, value: i128) -> Result<JsBigInt> {
     unsafe {
       let raw_value =
@@ -130,7 +148,8 @@ impl Env {
     }
   }
 
-  #[cfg(feature = "napi6")]
+  #[cfg(all(feature = "napi6", feature = "compat-mode"))]
+  #[deprecated(since = "3.0.0", note = "Use `BigInt` instead")]
   pub fn create_bigint_from_u128(&self, value: u128) -> Result<JsBigInt> {
     unsafe {
       let raw_value = u128_with_sign_to_napi_value(self.0, value, 0)?;
@@ -141,7 +160,8 @@ impl Env {
   /// [n_api_napi_create_bigint_words](https://nodejs.org/api/n-api.html#n_api_napi_create_bigint_words)
   ///
   /// The resulting BigInt will be negative when sign_bit is true.
-  #[cfg(feature = "napi6")]
+  #[cfg(all(feature = "napi6", feature = "compat-mode"))]
+  #[deprecated(since = "3.0.0", note = "Use `BigInt` instead")]
   pub fn create_bigint_from_words(&self, sign_bit: bool, words: Vec<u64>) -> Result<JsBigInt> {
     let mut raw_value = ptr::null_mut();
     let len = words.len();
@@ -164,7 +184,7 @@ impl Env {
     unsafe { self.create_string_from_c_char(s.as_ptr().cast(), s.len() as isize) }
   }
 
-  pub fn create_string_from_std(&self, s: String) -> Result<JsString> {
+  pub fn create_string_from_std<'env>(&self, s: String) -> Result<JsString<'env>> {
     unsafe { self.create_string_from_c_char(s.as_ptr().cast(), s.len() as isize) }
   }
 
@@ -174,14 +194,14 @@ impl Env {
   /// # Safety
   ///
   /// Create JsString from known valid utf-8 string
-  pub unsafe fn create_string_from_c_char(
+  pub unsafe fn create_string_from_c_char<'env>(
     &self,
     data_ptr: *const c_char,
     len: isize,
-  ) -> Result<JsString> {
+  ) -> Result<JsString<'env>> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe { sys::napi_create_string_utf8(self.0, data_ptr, len, &mut raw_value) })?;
-    Ok(unsafe { JsString::from_raw_unchecked(self.0, raw_value) })
+    unsafe { JsString::from_napi_value(self.0, raw_value) }
   }
 
   pub fn create_string_utf16(&self, chars: &[u16]) -> Result<JsString> {
@@ -189,7 +209,7 @@ impl Env {
     check_status!(unsafe {
       sys::napi_create_string_utf16(self.0, chars.as_ptr(), chars.len() as isize, &mut raw_value)
     })?;
-    Ok(unsafe { JsString::from_raw_unchecked(self.0, raw_value) })
+    unsafe { JsString::from_napi_value(self.0, raw_value) }
   }
 
   pub fn create_string_latin1(&self, chars: &[u8]) -> Result<JsString> {
@@ -202,7 +222,7 @@ impl Env {
         &mut raw_value,
       )
     })?;
-    Ok(unsafe { JsString::from_raw_unchecked(self.0, raw_value) })
+    unsafe { JsString::from_napi_value(self.0, raw_value) }
   }
 
   pub fn create_symbol(&self, description: Option<&str>) -> Result<JsSymbol> {
@@ -217,27 +237,41 @@ impl Env {
         &mut result,
       )
     })?;
-    Ok(unsafe { JsSymbol::from_raw_unchecked(self.0, result) })
+    Ok(JsSymbol(
+      Value {
+        env: self.0,
+        value: result,
+        value_type: ValueType::Symbol,
+      },
+      std::marker::PhantomData,
+    ))
   }
 
+  #[cfg(feature = "compat-mode")]
+  #[deprecated(since = "3.0.0", note = "Use `Object` instead")]
   pub fn create_object(&self) -> Result<JsObject> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe { sys::napi_create_object(self.0, &mut raw_value) })?;
     Ok(unsafe { JsObject::from_raw_unchecked(self.0, raw_value) })
   }
 
+  #[cfg(feature = "compat-mode")]
+  #[deprecated(since = "3.0.0", note = "Use `Array` instead")]
   pub fn create_empty_array(&self) -> Result<JsObject> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe { sys::napi_create_array(self.0, &mut raw_value) })?;
     Ok(unsafe { JsObject::from_raw_unchecked(self.0, raw_value) })
   }
 
+  #[cfg(feature = "compat-mode")]
+  #[deprecated(since = "3.0.0", note = "Use `Array` instead")]
   pub fn create_array_with_length(&self, length: usize) -> Result<JsObject> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe { sys::napi_create_array_with_length(self.0, length, &mut raw_value) })?;
     Ok(unsafe { JsObject::from_raw_unchecked(self.0, raw_value) })
   }
 
+  #[cfg(feature = "compat-mode")]
   #[deprecated(since = "3.0.0", note = "Use `Buffer` instead")]
   /// This API allocates a node::Buffer object. While this is still a fully-supported data structure, in most cases using a TypedArray will suffice.
   pub fn create_buffer(&self, length: usize) -> Result<JsBufferValue> {
@@ -257,6 +291,7 @@ impl Env {
     ))
   }
 
+  #[cfg(feature = "compat-mode")]
   #[deprecated(since = "3.0.0", note = "Use `BufferSlice::from_data` instead")]
   /// This API allocates a node::Buffer object and initializes it with data backed by the passed in buffer.
   ///
@@ -309,6 +344,7 @@ impl Env {
     ))
   }
 
+  #[cfg(feature = "compat-mode")]
   #[deprecated(since = "3.0.0", note = "Use `BufferSlice::from_external` instead")]
   /// # Safety
   /// Mostly the same with `create_buffer_with_data`
@@ -336,7 +372,7 @@ impl Env {
     Finalize: FnOnce(Env, Hint),
   {
     let mut raw_value = ptr::null_mut();
-    if data.is_null() || data as *const u8 == EMPTY_VEC.as_ptr() {
+    if data.is_null() || std::ptr::eq(data, EMPTY_VEC.as_ptr()) {
       return Err(Error::new(
         Status::InvalidArg,
         "Borrowed data should not be null".to_owned(),
@@ -397,6 +433,7 @@ impl Env {
     Ok(0)
   }
 
+  #[cfg(feature = "compat-mode")]
   #[deprecated(since = "3.0.0", note = "Use `BufferSlice::copy_from` instead")]
   /// This API allocates a node::Buffer object and initializes it with data copied from the passed-in buffer.
   ///
@@ -428,6 +465,8 @@ impl Env {
     ))
   }
 
+  #[cfg(feature = "compat-mode")]
+  #[deprecated(since = "3.0.0", note = "Use `ArrayBuffer::from_data` instead")]
   pub fn create_arraybuffer(&self, length: usize) -> Result<JsArrayBufferValue> {
     let mut raw_value = ptr::null_mut();
     let mut data_ptr = ptr::null_mut();
@@ -442,6 +481,8 @@ impl Env {
     ))
   }
 
+  #[cfg(feature = "compat-mode")]
+  #[deprecated(since = "3.0.0", note = "Use `ArrayBuffer::from_data` instead")]
   pub fn create_arraybuffer_with_data(&self, mut data: Vec<u8>) -> Result<JsArrayBufferValue> {
     let length = data.len();
     let mut raw_value = ptr::null_mut();
@@ -487,6 +528,8 @@ impl Env {
     ))
   }
 
+  #[cfg(feature = "compat-mode")]
+  #[deprecated(since = "3.0.0", note = "Use `ArrayBuffer::from_external` instead")]
   /// # Safety
   /// Mostly the same with `create_arraybuffer_with_data`
   ///
@@ -649,8 +692,8 @@ impl Env {
   }
 
   /// Throw any JavaScript value
-  pub fn throw<T: NapiRaw>(&self, value: T) -> Result<()> {
-    check_status!(unsafe { sys::napi_throw(self.0, value.raw()) })
+  pub fn throw<T: ToNapiValue>(&self, value: T) -> Result<()> {
+    check_status!(unsafe { sys::napi_throw(self.0, ToNapiValue::to_napi_value(self.0, value)?,) })
   }
 
   /// This API throws a JavaScript Error with the text provided.
@@ -766,6 +809,8 @@ impl Env {
     unsafe { Function::from_napi_value(self.0, raw_result) }
   }
 
+  #[cfg(feature = "compat-mode")]
+  #[deprecated(since = "3.0.0", note = "Please use `JsObjectValue::wrap` instead")]
   #[allow(clippy::needless_pass_by_ref_mut)]
   pub fn wrap<T: 'static>(
     &self,
@@ -785,6 +830,8 @@ impl Env {
     })
   }
 
+  #[cfg(feature = "compat-mode")]
+  #[deprecated(since = "3.0.0", note = "Please use `JsObjectValue::unwrap` instead")]
   pub fn unwrap<T: 'static>(&self, js_object: &JsObject) -> Result<&mut T> {
     unsafe {
       let mut unknown_tagged_object: *mut c_void = ptr::null_mut();
@@ -815,6 +862,11 @@ impl Env {
     }
   }
 
+  #[cfg(feature = "compat-mode")]
+  #[deprecated(
+    since = "3.0.0",
+    note = "Please use `JsObjectValue::drop_wrapped` instead"
+  )]
   pub fn drop_wrapped<T: 'static>(&self, js_object: &JsObject) -> Result<()> {
     unsafe {
       let mut unknown_tagged_object = ptr::null_mut();
@@ -841,23 +893,24 @@ impl Env {
 
   #[deprecated(since = "3.0.0", note = "Please use `Ref::new` instead")]
   /// This API create a new reference with the initial 1 ref count to the Object passed in.
-  pub fn create_reference<T>(&self, value: &T) -> Result<Ref<T>>
+  pub fn create_reference<'env, T>(&self, value: &T) -> Result<Ref<T>>
   where
-    T: NapiRaw,
+    T: JsValue<'env>,
   {
     Ref::new(self, value)
   }
 
+  #[deprecated(since = "3.0.0", note = "Please use `Ref::get_value` instead")]
   /// Get reference value from `Ref` with type check
   pub fn get_reference_value<T>(&self, reference: &Ref<T>) -> Result<T>
   where
-    T: NapiValue,
+    T: FromNapiValue,
   {
     let mut js_value = ptr::null_mut();
     check_status!(unsafe {
       sys::napi_get_reference_value(self.0, reference.raw_ref, &mut js_value)
     })?;
-    Ok(unsafe { T::from_raw_unchecked(self.0, js_value) })
+    unsafe { T::from_napi_value(self.0, js_value) }
   }
 
   /// Get reference value from `Ref` without type check
@@ -867,15 +920,16 @@ impl Env {
   /// If type mismatched, calling `T::method` would return `Err`.
   pub fn get_reference_value_unchecked<T>(&self, reference: &Ref<T>) -> Result<T>
   where
-    T: NapiValue,
+    T: FromNapiValue,
   {
     let mut js_value = ptr::null_mut();
     check_status!(unsafe {
       sys::napi_get_reference_value(self.0, reference.raw_ref, &mut js_value)
     })?;
-    Ok(unsafe { T::from_raw_unchecked(self.0, js_value) })
+    unsafe { T::from_napi_value(self.0, js_value) }
   }
 
+  #[cfg(feature = "compat-mode")]
   #[deprecated(since = "3.0.0", note = "Please use `External::new` instead")]
   /// If `size_hint` provided, `Env::adjust_external_memory` will be called under the hood.
   ///
@@ -908,6 +962,7 @@ impl Env {
     Ok(unsafe { JsExternal::from_raw_unchecked(self.0, object_value) })
   }
 
+  #[cfg(feature = "compat-mode")]
   #[deprecated(since = "3.0.0", note = "Please use `&External` instead")]
   pub fn get_value_external<T: 'static>(&self, js_external: &JsExternal) -> Result<&mut T> {
     unsafe {
@@ -936,14 +991,24 @@ impl Env {
     }
   }
 
-  pub fn create_error(&self, e: Error) -> Result<JsObject> {
+  /// Create a JavaScript error object from `Error`
+  pub fn create_error(&self, e: Error) -> Result<Object> {
+    if !e.maybe_raw.is_null() {
+      let mut result = ptr::null_mut();
+      check_status!(
+        unsafe { sys::napi_get_reference_value(self.0, e.maybe_raw, &mut result) },
+        "Get reference value in create_error failed"
+      )?;
+      return Ok(Object::from_raw(self.0, result));
+    }
     let reason = &e.reason;
     let reason_string = self.create_string(reason.as_str())?;
+    let status = self.create_string(e.status.as_ref())?;
     let mut result = ptr::null_mut();
     check_status!(unsafe {
-      sys::napi_create_error(self.0, ptr::null_mut(), reason_string.0.value, &mut result)
+      sys::napi_create_error(self.0, status.0.value, reason_string.0.value, &mut result)
     })?;
-    Ok(unsafe { JsObject::from_raw_unchecked(self.0, result) })
+    Ok(Object::from_raw(self.0, result))
   }
 
   /// Run [Task](./trait.Task.html) in libuv thread pool, return [AsyncWorkPromise](./struct.AsyncWorkPromise.html)
@@ -979,12 +1044,10 @@ impl Env {
   /// `process.versions.napi`
   pub fn get_napi_version(&self) -> Result<u32> {
     let global = self.get_global()?;
-    let process: JsObject = global.get_named_property("process")?;
-    let versions: JsObject = process.get_named_property("versions")?;
-    let napi_version: JsString = versions.get_named_property("napi")?;
+    let process: Object = global.get_named_property("process")?;
+    let versions: Object = process.get_named_property("versions")?;
+    let napi_version: String = versions.get_named_property("napi")?;
     napi_version
-      .into_utf8()?
-      .as_str()?
       .parse()
       .map_err(|e| Error::new(Status::InvalidArg, format!("{}", e)))
   }
@@ -1045,7 +1108,7 @@ impl Env {
     })
   }
 
-  #[cfg(feature = "napi4")]
+  #[cfg(all(feature = "napi4", feature = "compat-mode"))]
   #[deprecated(
     since = "2.17.0",
     note = "Please use `Function::build_threadsafe_function` instead"
@@ -1064,7 +1127,7 @@ impl Env {
     ThreadsafeFunction::<T, Unknown, V>::create(self.0, func.0.value, callback)
   }
 
-  #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
+  #[cfg(all(feature = "tokio_rt", feature = "napi4", feature = "compat-mode"))]
   #[deprecated(since = "3.0.0", note = "Please use `Env::spawn_future` instead")]
   pub fn execute_tokio_future<
     T: 'static + Send,
@@ -1107,7 +1170,7 @@ impl Env {
   /// Spawn a future with a callback
   /// So you can access the `Env` and resolved value after the future completed
   pub fn spawn_future_with_callback<
-    T: 'static + Send + ToNapiValue,
+    T: 'static + Send,
     V: ToNapiValue,
     F: 'static + Send + Future<Output = Result<T>>,
     R: 'static + FnOnce(Env, T) -> Result<V>,
@@ -1115,7 +1178,7 @@ impl Env {
     &self,
     fut: F,
     callback: R,
-  ) -> Result<PromiseRaw<T>> {
+  ) -> Result<PromiseRaw<V>> {
     use crate::tokio_runtime;
 
     let promise = tokio_runtime::execute_tokio_future(self.0, fut, move |env, val| unsafe {
@@ -1130,8 +1193,8 @@ impl Env {
   #[cfg(feature = "napi4")]
   pub fn create_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>>(
     &self,
-  ) -> Result<(JsDeferred<Data, Resolver>, JsObject)> {
-    JsDeferred::new(self.raw())
+  ) -> Result<(JsDeferred<Data, Resolver>, Object)> {
+    JsDeferred::new(self)
   }
 
   /// This API does not observe leap seconds; they are ignored, as ECMAScript aligns with POSIX time specification.
@@ -1143,7 +1206,7 @@ impl Env {
   pub fn create_date(&self, time: f64) -> Result<JsDate> {
     let mut js_value = ptr::null_mut();
     check_status!(unsafe { sys::napi_create_date(self.0, time, &mut js_value) })?;
-    Ok(unsafe { JsDate::from_raw_unchecked(self.0, js_value) })
+    Ok(JsDate::from_raw(self.0, js_value))
   }
 
   #[cfg(feature = "napi6")]
@@ -1277,7 +1340,14 @@ impl Env {
       )
     })?;
 
-    Ok(unsafe { JsSymbol::from_raw_unchecked(self.0, result) })
+    Ok(JsSymbol(
+      Value {
+        env: self.0,
+        value: result,
+        value_type: ValueType::Symbol,
+      },
+      std::marker::PhantomData,
+    ))
   }
 
   #[cfg(feature = "napi9")]
@@ -1319,12 +1389,14 @@ impl Env {
   /// ```
   #[cfg(feature = "serde-json")]
   #[allow(clippy::wrong_self_convention)]
-  pub fn to_js_value<T>(&self, node: &T) -> Result<JsUnknown>
+  pub fn to_js_value<'env, T>(&self, node: &T) -> Result<Unknown<'env>>
   where
     T: Serialize,
   {
     let s = Ser(self);
-    node.serialize(s).map(JsUnknown)
+    node
+      .serialize(s)
+      .map(|v| Unknown(v, std::marker::PhantomData))
   }
 
   /// ### Deserialize data from `JsValue`
@@ -1344,14 +1416,14 @@ impl Env {
   /// }
   ///
   #[cfg(feature = "serde-json")]
-  pub fn from_js_value<T, V>(&self, value: V) -> Result<T>
+  pub fn from_js_value<'v, T, V>(&self, value: V) -> Result<T>
   where
     T: DeserializeOwned,
-    V: NapiRaw,
+    V: JsValue<'v>,
   {
     let value = Value {
       env: self.0,
-      value: unsafe { value.raw() },
+      value: value.raw(),
       value_type: ValueType::Unknown,
     };
     let mut de = De(&value);
@@ -1359,7 +1431,11 @@ impl Env {
   }
 
   /// This API represents the invocation of the Strict Equality algorithm as defined in [Section 7.2.14](https://tc39.es/ecma262/#sec-strict-equality-comparison) of the ECMAScript Language Specification.
-  pub fn strict_equals<A: NapiRaw, B: NapiRaw>(&self, a: A, b: B) -> Result<bool> {
+  pub fn strict_equals<'env, A: JsValue<'env>, B: JsValue<'env>>(
+    &self,
+    a: A,
+    b: B,
+  ) -> Result<bool> {
     let mut result = false;
     check_status!(unsafe { sys::napi_strict_equals(self.0, a.raw(), b.raw(), &mut result) })?;
     Ok(result)
@@ -1381,6 +1457,7 @@ impl Env {
 /// This function could be used for `BufferSlice::from_external` and want do noting when Buffer finalized.
 pub fn noop_finalize<Hint>(_env: Env, _hint: Hint) {}
 
+#[cfg(feature = "compat-mode")]
 unsafe extern "C" fn drop_buffer(
   _env: sys::napi_env,
   finalize_data: *mut c_void,
@@ -1579,7 +1656,7 @@ pub(crate) unsafe extern "C" fn trampoline_setter<
     .and_then(|value| {
       closure(
         env,
-        unsafe { This::from_raw_unchecked(raw_env, raw_this) },
+        unsafe { This::from_napi_value(raw_env, raw_this)? },
         value,
       )
     })
@@ -1623,14 +1700,13 @@ pub(crate) unsafe extern "C" fn trampoline_getter<
 
   let closure: &F = Box::leak(unsafe { Box::from_raw(closure_data_ptr.cast()) });
   let env = Env::from_raw(raw_env);
-  closure(env, unsafe {
-    crate::bindgen_runtime::This::from_raw_unchecked(raw_env, raw_this)
-  })
-  .and_then(|ret: R| unsafe { <R as ToNapiValue>::to_napi_value(env.0, ret) })
-  .unwrap_or_else(|e| {
-    unsafe { JsError::from(e).throw_into(raw_env) };
-    ptr::null_mut()
-  })
+  unsafe { crate::bindgen_runtime::This::from_napi_value(raw_env, raw_this) }
+    .and_then(|this| closure(env, this))
+    .and_then(|ret: R| unsafe { <R as ToNapiValue>::to_napi_value(env.0, ret) })
+    .unwrap_or_else(|e| {
+      unsafe { JsError::from(e).throw_into(raw_env) };
+      ptr::null_mut()
+    })
 }
 
 #[cfg(feature = "napi5")]

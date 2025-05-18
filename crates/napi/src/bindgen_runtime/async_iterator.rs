@@ -278,20 +278,19 @@ fn generator_next_fn<T: AsyncGenerator>(
   };
 
   let env = Env::from_raw(env);
-  let promise: crate::bindgen_runtime::PromiseRaw<'_, Option<T::Yield>> = env
-    .spawn_future_with_callback(item, |env, value| {
-      if let Some(v) = value {
-        let mut obj = Object::new(env.0)?;
-        obj.set("value", v)?;
-        obj.set("done", false)?;
-        Ok(obj)
-      } else {
-        let mut obj = Object::new(env.0)?;
-        obj.set("value", ())?;
-        obj.set("done", true)?;
-        Ok(obj)
-      }
-    })?;
+  let promise = env.spawn_future_with_callback(item, |env, value| {
+    if let Some(v) = value {
+      let mut obj = Object::new(&env)?;
+      obj.set("value", v)?;
+      obj.set("done", false)?;
+      Ok(obj)
+    } else {
+      let mut obj = Object::new(&env)?;
+      obj.set("value", ())?;
+      obj.set("done", true)?;
+      Ok(obj)
+    }
+  })?;
   Ok(promise.inner)
 }
 
@@ -338,7 +337,7 @@ extern "C" fn generator_return<T: AsyncGenerator>(
       })
     }),
     |env, value| {
-      let mut obj = Object::new(env.0)?;
+      let mut obj = Object::new(&env)?;
       if let Some(v) = value {
         obj.set("value", v)?;
         obj.set("done", false)?;
@@ -397,24 +396,30 @@ extern "C" fn generator_throw<T: AsyncGenerator>(
     );
     g.catch(
       Env(env),
-      Unknown(Value {
-        env,
-        value: undefined,
-        value_type: crate::ValueType::Undefined,
-      }),
+      Unknown(
+        Value {
+          env,
+          value: undefined,
+          value_type: crate::ValueType::Undefined,
+        },
+        std::marker::PhantomData,
+      ),
     )
   } else {
     g.catch(
       Env(env),
-      Unknown(Value {
-        env,
-        value: argv[0],
-        value_type: crate::ValueType::Unknown,
-      }),
+      Unknown(
+        Value {
+          env,
+          value: argv[0],
+          value_type: crate::ValueType::Unknown,
+        },
+        std::marker::PhantomData,
+      ),
     )
   };
   match Env::from_raw(env).spawn_future_with_callback(caught, |env, value| {
-    let mut obj = Object::new(env.0)?;
+    let mut obj = Object::new(&env)?;
     obj.set("value", value)?;
     obj.set("done", false)?;
     Ok(obj)

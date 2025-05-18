@@ -48,3 +48,24 @@ fn test_serde_buffer_bytes(obj: Object, env: Env) -> napi::Result<usize> {
   let obj: BytesObject = env.from_js_value(obj)?;
   Ok(obj.code.len())
 }
+
+#[napi]
+struct PackageJsonReader {
+  i: Value,
+}
+
+#[napi]
+impl PackageJsonReader {
+  #[napi(constructor)]
+  pub fn new() -> Result<Self> {
+    let raw = fs::read_to_string("package.json")?;
+    Ok(Self {
+      i: serde_json::from_str(&raw)?,
+    })
+  }
+
+  #[napi]
+  pub fn read(&self) -> &Value {
+    &self.i
+  }
+}

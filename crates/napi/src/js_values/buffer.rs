@@ -2,11 +2,9 @@ use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::ptr;
 
-use super::{Value, ValueType};
-use crate::bindgen_runtime::ValidateNapiValue;
-use crate::Env;
 use crate::{
-  bindgen_runtime::TypeName, check_status, sys, Error, JsUnknown, NapiValue, Ref, Result, Status,
+  bindgen_runtime::{TypeName, ValidateNapiValue},
+  check_status, sys, Env, Error, JsValue, Ref, Result, Status, Unknown, Value, ValueType,
 };
 
 #[deprecated(since = "3.0.0", note = "Please use Buffer or &[u8] instead")]
@@ -33,6 +31,12 @@ impl ValidateNapiValue for JsBuffer {
       ));
     }
     Ok(ptr::null_mut())
+  }
+}
+
+impl JsValue<'_> for JsBuffer {
+  fn value(&self) -> Value {
+    self.0
   }
 }
 
@@ -69,8 +73,8 @@ impl JsBufferValue {
     self.value
   }
 
-  pub fn into_unknown(self) -> JsUnknown {
-    unsafe { JsUnknown::from_raw_unchecked(self.value.0.env, self.value.0.value) }
+  pub fn into_unknown<'env>(self) -> Unknown<'env> {
+    unsafe { Unknown::from_raw_unchecked(self.value.0.env, self.value.0.value) }
   }
 }
 

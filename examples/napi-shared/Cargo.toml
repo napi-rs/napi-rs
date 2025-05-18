@@ -5,6 +5,9 @@ name = "napi-shared"
 publish = false
 version = "0.1.0"
 
+[lib]
+crate-type = ["cdylib", "lib"]
+
 [dependencies]
 napi = { path = "../../crates/napi", default-features = false, features = [
   "napi8",

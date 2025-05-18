@@ -29,8 +29,3 @@ test('should be able to re-create wrapped native value', (t) => {
   testClass.renewWrapped()
   t.is(testClass.addNativeCount(0), 42)
 })
-
-test('should be able to new class instance in native side', (t) => {
-  const instance = bindings.newTestClass()
-  t.is(instance.count, 42)
-})

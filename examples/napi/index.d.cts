@@ -3,6 +3,8 @@
 
 type MaybePromise<T> = T | Promise<T>
 
+export declare const NAPI_RS_SYMBOL: symbol
+
 export declare class ExternalObject<T> {
   readonly '': {
     readonly '': unique symbol
@@ -97,6 +99,10 @@ export declare class CatchOnConstructor {
 
 export declare class CatchOnConstructor2 {
   constructor()
+}
+
+export declare class ClassInArray {
+  constructor(value: number)
 }
 
 export declare class ClassWithFactory {
@@ -223,6 +229,11 @@ export declare class Optional {
   static optionOnly(optional?: string | undefined | null): string
 }
 
+export declare class PackageJsonReader {
+  constructor()
+  read(): any
+}
+
 export declare class Reader {
 
   constructor()
@@ -342,6 +353,8 @@ export declare function call0(callback: () => number): number
 export declare function call1(callback: (arg: number) => number, arg: number): number
 
 export declare function call2(callback: (arg0: number, arg1: number) => number, arg1: number, arg2: number): number
+
+export declare function callAsyncWithUnknownReturnValue(tsfn: ((err: Error | null, arg: number) => Ref<unknown>)): Promise<number>
 
 export declare function callbackReturnPromise<T>(functionInput: () => T | Promise<T>, callback: (err: Error | null, result: T) => void): T | Promise<T>
 
@@ -491,6 +504,8 @@ export declare function eitherFromObjects(input: A | B | C): string
 
 export declare function eitherFromOption(): JsClassForEither | undefined
 
+export declare function eitherPromiseInEitherA(input: Promise<number> | number | string): Promise<boolean>
+
 export declare function eitherStringOrNumber(input: string | number): number
 
 export declare const enum Empty {
@@ -524,6 +539,8 @@ export declare function getBtreeMapping(): Record<string, number>
 export declare function getBuffer(): Buffer
 
 export declare function getBufferSlice(): Buffer
+
+export declare function getClassFromArray(arr: unknown[]): number | null
 
 export declare function getCwd(callback: (arg0: string) => void): void
 

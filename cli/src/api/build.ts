@@ -1,11 +1,18 @@
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, unlinkSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  unlinkSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir, homedir } from 'node:os'
 import { parse, join, resolve } from 'node:path'
 
 import * as colors from 'colorette'
+import { groupBy, split } from 'lodash-es'
 import { include as setjmpInclude, lib as setjmpLib } from 'wasm-sjlj'
 
 import { BuildOptions as RawBuildOptions } from '../def/build.js'
@@ -85,6 +92,13 @@ export async function buildProject(options: BuildOptions) {
     )
   }
 
+  const depsNapiPackages = pkg.dependencies
+    .map((p) => metadata.packages.find((c) => c.name === p.name))
+    .filter(
+      (c): c is Crate =>
+        c != null && c.dependencies.some((d) => d.name == 'napi-derive'),
+    )
+
   const crateDir = parse(pkg.manifest_path).dir
 
   const builder = new Builder(
@@ -107,6 +121,7 @@ export async function buildProject(options: BuildOptions) {
       ),
       options.configPath ? resolvePath(options.configPath) : undefined,
     ),
+    depsNapiPackages,
   )
 
   return builder.build()
@@ -126,6 +141,7 @@ class Builder {
     private readonly outputDir: string,
     private readonly targetDir: string,
     private readonly config: NapiConfig,
+    private readonly depsNapiPackages: Crate[],
   ) {}
 
   get cdyLibName() {
@@ -463,11 +479,74 @@ class Builder {
   private setEnvs() {
     // type definition intermediate file
     this.envs.TYPE_DEF_TMP_PATH = this.getIntermediateTypeFile()
-    // WASI register intermediate file
-    this.envs.WASI_REGISTER_TMP_PATH = this.getIntermediateWasiRegisterFile()
-    // TODO:
-    //   remove after napi-derive@v3 release
-    this.envs.CARGO_CFG_NAPI_RS_CLI_VERSION = CLI_VERSION
+    // Validate the packages and dependencies
+    if (existsSync(this.envs.TYPE_DEF_TMP_PATH)) {
+      const { depsNapiPackages, crate } = this
+      let shouldInvalidateSelf = false
+      const content = readFileSync(this.envs.TYPE_DEF_TMP_PATH, 'utf-8')
+      const typedefRaw = content
+        .split('\n')
+        .filter((line) => line.trim().length)
+        .map((line) => {
+          const [pkgName, ...jsonContents] = split(line, ':')
+          return {
+            pkgName,
+            jsonContent: jsonContents.join(':'),
+          }
+        })
+      const groupedTypedefRaw = groupBy(typedefRaw, ({ pkgName }) => pkgName)
+      const invalidPackages = new Set<string>()
+      for (const [pkgName, value] of Object.entries(groupedTypedefRaw)) {
+        const packageInvalidKey = `NAPI_PACKAGE_${pkgName.toUpperCase().replaceAll('-', '_')}_INVALID`
+        let done = false
+        for (const { jsonContent } of value) {
+          try {
+            // package_name: { "done": true } was written by napi-build in project build.rs
+            // if it exists, the package was successfully built and typedef was written
+            const json = JSON.parse(jsonContent)
+            if (json.done === true) {
+              done = true
+              break
+            }
+          } catch {
+            done = false
+            break
+          }
+        }
+        if (!done) {
+          process.env[packageInvalidKey] = `${Date.now()}`
+          shouldInvalidateSelf = true
+          invalidPackages.add(pkgName)
+        }
+      }
+      const typedefPackages = new Set(Object.keys(groupedTypedefRaw))
+      for (const crate of depsNapiPackages) {
+        if (!typedefPackages.has(crate.name)) {
+          debug('Set invalid package typedef: %i', crate.name)
+          shouldInvalidateSelf = true
+          process.env[
+            `NAPI_PACKAGE_${crate.name.toUpperCase().replaceAll('-', '_')}_INVALID`
+          ] = `${Date.now()}`
+        }
+      }
+      if (shouldInvalidateSelf) {
+        debug('Set invalid package typedef: %i', crate.name)
+        process.env[
+          `NAPI_PACKAGE_${crate.name.toUpperCase().replaceAll('-', '_')}_INVALID`
+        ] = `${Date.now()}`
+      }
+      // clean invalid packages typedef
+      if (invalidPackages.size) {
+        debug('Clean invalid packages typedef: %O', invalidPackages)
+        writeFileSync(
+          this.envs.TYPE_DEF_TMP_PATH,
+          typedefRaw
+            .filter(({ pkgName }) => !invalidPackages.has(pkgName))
+            .map(({ pkgName, jsonContent }) => `${pkgName}:${jsonContent}`)
+            .join('\n'),
+        )
+      }
+    }
 
     // RUSTFLAGS
     let rustflags =
@@ -664,17 +743,6 @@ class Builder {
     return `${dtsPath}.tmp`
   }
 
-  private getIntermediateWasiRegisterFile() {
-    return join(
-      tmpdir(),
-      `${this.crate.name}-${createHash('sha256')
-        .update(this.crate.manifest_path)
-        .update(CLI_VERSION)
-        .digest('hex')
-        .substring(0, 8)}.napi_wasi_register.tmp`,
-    )
-  }
-
   private async postBuild() {
     try {
       debug(`Try to create output directory:`)
@@ -692,35 +760,8 @@ class Builder {
     // only for cdylib
     if (this.cdyLibName) {
       const idents = await this.generateTypeDef()
-      const intermediateWasiRegisterFile = this.envs.WASI_REGISTER_TMP_PATH
-      const wasiRegisterFunctions = this.config.targets.some(
-        (t) => t.platform === 'wasi',
-      )
-        ? await (async function readIntermediateWasiRegisterFile() {
-            const fileContent = await readFileAsync(
-              intermediateWasiRegisterFile,
-              'utf8',
-            ).catch((err) => {
-              console.warn(
-                `Read ${colors.yellowBright(
-                  intermediateWasiRegisterFile,
-                )} failed, reason: ${err.message}`,
-              )
-              return ``
-            })
-            return fileContent
-              .split('\n')
-              .map((l) => l.trim())
-              .filter((l) => l.length)
-              .map((line) => {
-                const [_, fn] = line.split(':')
-                return fn.trim()
-              })
-          })()
-        : []
       const jsOutput = await this.writeJsBinding(idents)
       const wasmBindingsOutput = await this.writeWasiBinding(
-        wasiRegisterFunctions,
         wasmBinaryName ?? 'index.wasm',
         idents,
       )
@@ -768,7 +809,7 @@ class Builder {
             .parse(await readFileAsync(src))
           const debugWasmBinary = debugWasmModule.emitWasm(true)
           await writeFileAsync(
-            dest.replace('.wasm', '.debug.wasm'),
+            dest.replace(/\.wasm$/, '.debug.wasm'),
             debugWasmBinary,
           )
           debug('Generate release wasm module')
@@ -925,11 +966,10 @@ class Builder {
   }
 
   private async writeWasiBinding(
-    wasiRegisterFunctions: string[],
     distFileName: string | undefined,
     idents: string[],
   ) {
-    if (distFileName && wasiRegisterFunctions.length) {
+    if (distFileName) {
       const { name, dir } = parse(distFileName)
       const bindingPath = join(dir, `${this.config.binaryName}.wasi.cjs`)
       const browserBindingPath = join(
@@ -939,11 +979,14 @@ class Builder {
       const workerPath = join(dir, 'wasi-worker.mjs')
       const browserWorkerPath = join(dir, 'wasi-worker-browser.mjs')
       const browserEntryPath = join(dir, 'browser.js')
-      const exportsCode = idents
-        .map(
-          (ident) => `module.exports.${ident} = __napiModule.exports.${ident}`,
-        )
-        .join('\n')
+      const exportsCode =
+        `module.exports = __napiModule.exports\n` +
+        idents
+          .map(
+            (ident) =>
+              `module.exports.${ident} = __napiModule.exports.${ident}`,
+          )
+          .join('\n')
       await writeFileAsync(
         bindingPath,
         createWasiBinding(
@@ -963,7 +1006,9 @@ class Builder {
           this.config.wasm?.initialMemory,
           this.config.wasm?.maximumMemory,
           this.config.wasm?.browser?.fs,
+          this.config.wasm?.browser?.asyncInit,
         ) +
+          `export default __napiModule.exports\n` +
           idents
             .map(
               (ident) =>

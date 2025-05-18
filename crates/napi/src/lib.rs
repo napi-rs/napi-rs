@@ -20,15 +20,15 @@
 //!
 //! ```
 //! use futures::prelude::*;
-//! use napi::{CallContext, Error, JsObject, JsString, Result, Status};
+//! use napi::bindgen_prelude::*;
 //! use tokio;
 //!
 //! #[napi]
-//! pub async fn tokio_readfile(js_filepath: String) -> Result<JsBuffer> {
-//!     ctx.env.execute_tokio_future(
+//! pub fn tokio_readfile(js_filepath: String) -> Result<Buffer> {
+//!     ctx.env.spawn_future_with_callback(
 //!         tokio::fs::read(js_filepath)
 //!           .map(|v| v.map_err(|e| Error::new(Status::Unknown, format!("failed to read file, {}", e)))),
-//!         |&mut env, data| env.create_buffer_with_data(data),
+//!         |_, data| data.into(),
 //!     )
 //! }
 //! ```
@@ -81,6 +81,7 @@ mod async_cleanup_hook;
 pub use async_cleanup_hook::AsyncCleanupHook;
 mod async_work;
 mod bindgen_runtime;
+#[cfg(feature = "compat-mode")]
 mod call_context;
 #[cfg(feature = "napi3")]
 mod cleanup_env;
@@ -102,6 +103,7 @@ mod version;
 pub use napi_sys as sys;
 
 pub use async_work::AsyncWorkPromise;
+#[cfg(feature = "compat-mode")]
 pub use call_context::CallContext;
 
 pub use bindgen_runtime::iterator;
@@ -156,8 +158,8 @@ pub mod bindgen_prelude {
   pub use crate::tokio_runtime::*;
   pub use crate::{
     assert_type_of, bindgen_runtime::*, check_pending_exception, check_status,
-    check_status_or_throw, error, error::*, sys, type_of, JsError, Property, PropertyAttributes,
-    Result, Status, Task, ValueType,
+    check_status_or_throw, error, error::*, sys, type_of, JsError, JsValue, Property,
+    PropertyAttributes, Result, Status, Task, ValueType,
   };
 
   // This function's signature must be kept in sync with the one in tokio_runtime.rs, otherwise napi

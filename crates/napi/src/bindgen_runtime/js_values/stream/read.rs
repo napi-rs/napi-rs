@@ -15,13 +15,12 @@ use tokio_stream::StreamExt;
 
 use crate::{
   bindgen_prelude::{
-    CallbackContext, FromNapiValue, Function, PromiseRaw, ToNapiValue, TypeName, Unknown,
-    ValidateNapiValue,
+    BufferSlice, CallbackContext, FromNapiValue, Function, JsObjectValue, Null, Object, PromiseRaw,
+    ToNapiValue, TypeName, Unknown, ValidateNapiValue, NAPI_AUTO_LENGTH,
   },
-  bindgen_runtime::{BufferSlice, Null, Object, NAPI_AUTO_LENGTH},
   check_status, sys,
   threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode},
-  Env, Error, JsError, NapiRaw, Result, Status, ValueType,
+  Env, Error, JsError, JsValue, Result, Status, Value, ValueType,
 };
 
 pub struct ReadableStream<'env, T> {
@@ -30,11 +29,17 @@ pub struct ReadableStream<'env, T> {
   _marker: PhantomData<&'env T>,
 }
 
-impl<T> NapiRaw for ReadableStream<'_, T> {
-  unsafe fn raw(&self) -> sys::napi_value {
-    self.value
+impl<'env, T> JsValue<'env> for ReadableStream<'env, T> {
+  fn value(&self) -> Value {
+    Value {
+      env: self.env,
+      value: self.value,
+      value_type: ValueType::Object,
+    }
   }
 }
+
+impl<'env, T> JsObjectValue<'env> for ReadableStream<'env, T> {}
 
 impl<T> TypeName for ReadableStream<'_, T> {
   fn type_name() -> &'static str {
@@ -218,7 +223,7 @@ impl<T: ToNapiValue + Send + 'static> ReadableStream<'_, T> {
         "ReadableStream is not supported in this Node.js version",
       ));
     }
-    let mut underlying_source = Object::new(env.raw())?;
+    let mut underlying_source = Object::new(env)?;
     let mut pull_fn = ptr::null_mut();
     check_status!(
       unsafe {
@@ -270,7 +275,7 @@ impl<T: ToNapiValue + Send + 'static> ReadableStream<'_, T> {
         "ReadableStream is not supported in this Node.js version",
       ));
     }
-    let mut underlying_source = Object::new(env.raw())?;
+    let mut underlying_source = Object::new(env)?;
     let mut pull_fn = ptr::null_mut();
     check_status!(
       unsafe {
@@ -318,7 +323,7 @@ impl<'env> ReadableStream<'env, BufferSlice<'env>> {
   ) -> Result<Self> {
     let global = env.get_global()?;
     let constructor = global.get_named_property_unchecked::<Function>("ReadableStream")?;
-    let mut underlying_source = Object::new(env.raw())?;
+    let mut underlying_source = Object::new(env)?;
     let mut pull_fn = ptr::null_mut();
     check_status!(
       unsafe {
@@ -370,7 +375,7 @@ impl<'env> ReadableStream<'env, BufferSlice<'env>> {
         "ReadableStream is not supported in this Node.js version",
       ));
     }
-    let mut underlying_source = Object::new(env.raw())?;
+    let mut underlying_source = Object::new(env)?;
     let mut pull_fn = ptr::null_mut();
     check_status!(
       unsafe {
@@ -493,7 +498,6 @@ impl<T: FromNapiValue + 'static> futures_core::Stream for Reader<T> {
               reason: "".to_string(),
               maybe_raw: error_ref,
               maybe_env: cx.env.0,
-              raw: true,
             });
             Ok(())
           })?
@@ -559,18 +563,16 @@ fn pull_callback_impl<
   let env = Env::from_raw(env);
   let promise = env.spawn_future_with_callback(
     async move { stream.next().await.transpose() },
-    |env, val| {
-      let mut output = Object::new(env.raw())?;
+    move |env, val| {
+      let mut output = Object::new(&env)?;
       if let Some(val) = val {
         output.set("value", val)?;
         output.set("done", false)?;
       } else {
         output.set("value", Null)?;
         output.set("done", true)?;
+        drop(unsafe { Box::from_raw(data.cast::<S>()) });
       }
-      unsafe {
-        crate::__private::log_js_value("log", env.0, [output.0.value]);
-      };
       Ok(output.0.value)
     },
   )?;
@@ -622,11 +624,11 @@ fn pull_callback_impl_bytes<
   let controller = unsafe { Object::from_napi_value(env, controller)? };
   let enqueue = controller
     .get_named_property_unchecked::<Function<BufferSlice, ()>>("enqueue")?
-    .bind(&controller)?
+    .bind(controller)?
     .create_ref()?;
   let close = controller
     .get_named_property_unchecked::<Function<(), ()>>("close")?
-    .bind(&controller)?
+    .bind(controller)?
     .create_ref()?;
 
   let mut stream: Pin<&mut S> = Pin::new(Box::leak(unsafe { Box::from_raw(data.cast()) }));
@@ -646,6 +648,7 @@ fn pull_callback_impl_bytes<
       } else {
         let close_fn = close.borrow_back(&env)?;
         close_fn.call(())?;
+        drop(unsafe { Box::from_raw(data.cast::<S>()) });
       }
       drop(enqueue);
       drop(close);

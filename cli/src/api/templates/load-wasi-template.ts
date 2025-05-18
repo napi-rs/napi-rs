@@ -3,6 +3,7 @@ export const createWasiBrowserBinding = (
   initialMemory = 4000,
   maximumMemory = 65536,
   fs = false,
+  asyncInit = false,
 ) => {
   const fsImport = fs ? `import { memfs } from '@napi-rs/wasm-runtime/fs'` : ''
   const wasiCreation = fs
@@ -25,11 +26,18 @@ const __wasi = new __WASI({
     ? `    worker.addEventListener('message', __wasmCreateOnMessageForFsProxy(__fs))\n`
     : ''
 
+  const emnapiInstantiateImport = asyncInit
+    ? `instantiateNapiModule as __emnapiInstantiateNapiModule`
+    : `instantiateNapiModuleSync as __emnapiInstantiateNapiModuleSync`
+  const emnapiInstantiateCall = asyncInit
+    ? `await __emnapiInstantiateNapiModule`
+    : `__emnapiInstantiateNapiModuleSync`
+
   return `import {
-  instantiateNapiModuleSync as __emnapiInstantiateNapiModuleSync,
-  getDefaultContext as __emnapiGetDefaultContext,
-  WASI as __WASI,
   createOnMessage as __wasmCreateOnMessageForFsProxy,
+  getDefaultContext as __emnapiGetDefaultContext,
+  ${emnapiInstantiateImport},
+  WASI as __WASI,
 } from '@napi-rs/wasm-runtime'
 ${fsImport}
 import __wasmUrl from './${wasiFilename}.wasm?url'
@@ -49,7 +57,7 @@ const {
   instance: __napiInstance,
   module: __wasiModule,
   napiModule: __napiModule,
-} = __emnapiInstantiateNapiModuleSync(__wasmFile, {
+} = ${emnapiInstantiateCall}(__wasmFile, {
   context: __emnapiContext,
   asyncWorkPoolSize: 4,
   wasi: __wasi,
@@ -96,9 +104,9 @@ const { WASI: __nodeWASI } = require('node:wasi')
 const { Worker } = require('node:worker_threads')
 
 const {
-  instantiateNapiModuleSync: __emnapiInstantiateNapiModuleSync,
-  getDefaultContext: __emnapiGetDefaultContext,
   createOnMessage: __wasmCreateOnMessageForFsProxy,
+  getDefaultContext: __emnapiGetDefaultContext,
+  instantiateNapiModuleSync: __emnapiInstantiateNapiModuleSync,
 } = require('@napi-rs/wasm-runtime')
 
 const __rootDir = __nodePath.parse(process.cwd()).root
@@ -171,5 +179,4 @@ const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule
     }
   },
 })
-
 `

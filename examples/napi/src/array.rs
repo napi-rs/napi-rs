@@ -1,4 +1,7 @@
-use napi::{Env, JsObject};
+use napi::{
+  bindgen_prelude::{Array, Object},
+  Env,
+};
 
 #[napi]
 pub fn get_words() -> Vec<&'static str> {
@@ -22,7 +25,7 @@ fn get_tuple(val: (u32, String, u8)) -> u32 {
 }
 
 #[napi]
-fn to_js_obj(env: Env) -> napi::Result<JsObject> {
+fn to_js_obj(env: &Env) -> napi::Result<Object> {
   let mut arr = env.create_array(0)?;
   arr.insert("a string")?;
   arr.insert(42)?;
@@ -56,4 +59,22 @@ fn merge_tuple_array(t1: TupleToArray, t2: TupleToArray) -> TupleToArray {
     return TupleToArray(first, second, t2.2);
   }
   t1
+}
+
+#[napi]
+pub struct ClassInArray {
+  value: u32,
+}
+
+#[napi]
+impl ClassInArray {
+  #[napi(constructor)]
+  pub fn new(value: u32) -> Self {
+    Self { value }
+  }
+}
+
+#[napi]
+pub fn get_class_from_array(arr: Array<'_>) -> napi::Result<Option<u32>> {
+  arr.get_ref::<ClassInArray>(0).map(|c| c.map(|c| c.value))
 }

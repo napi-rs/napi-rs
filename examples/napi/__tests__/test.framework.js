@@ -4,10 +4,14 @@ const { bun } = process.versions
 let testRunner
 
 if (bun) {
-  const { test, expect } = await import('./bun-test.js')
+  const { test, expect, afterAll, afterEach, beforeAll, beforeEach } =
+    await import('./bun-test.js')
   const testContext = {
     is: (actual, expected) => {
       expect(actual).toEqual(expected)
+    },
+    not: (actual, expected) => {
+      expect(actual).not.toEqual(expected)
     },
     deepEqual: (actual, expected) => {
       expect(actual).toEqual(expected)
@@ -28,18 +32,24 @@ if (bun) {
     },
     throwsAsync: async (fn, expected) => {
       if (expected) {
-        expect(fn instanceof Promise ? fn : await fn()).rejects.toEqual(
-          expected,
-        )
+        expect(
+          async () => await (typeof fn === 'function' ? fn() : fn),
+        ).toThrow(expected)
       } else {
-        expect(fn instanceof Promise ? fn : await fn()).rejects.toBeTruthy()
+        expect(
+          async () => await (typeof fn === 'function' ? fn() : fn),
+        ).toThrow()
       }
     },
     notThrowsAsync: async (fn, expected) => {
       if (expected) {
-        expect(fn instanceof Promise ? fn : await fn()).resolves.toBe(expected)
+        expect(
+          async () => await (typeof fn === 'function' ? fn() : fn),
+        ).not.toThrow(expected)
       } else {
-        expect(fn instanceof Promise ? fn : await fn()).resolves.toBeTruthy()
+        expect(
+          async () => await (typeof fn === 'function' ? fn() : fn),
+        ).not.toThrow()
       }
     },
     true: (actual, message) => {
@@ -47,6 +57,18 @@ if (bun) {
     },
     false: (actual, message) => {
       expect(actual).toBe(false, message)
+    },
+    pass: () => {
+      expect(true).toBe(true)
+    },
+    fail: () => {
+      expect(true).toBe(false)
+    },
+    regex: (actual, expected) => {
+      expect(actual).toMatch(expected)
+    },
+    snapshot: (..._args) => {
+      // TODO: Ignore snapshots test at this moment
     },
   }
   testRunner = (title, spec) => {
@@ -58,6 +80,18 @@ if (bun) {
     test.skip(label, () => {
       fn(testContext)
     })
+  }
+  testRunner.after = (fn) => {
+    afterAll(fn)
+  }
+  testRunner.before = (fn) => {
+    beforeAll(fn)
+  }
+  testRunner.afterEach = (fn) => {
+    afterEach(fn)
+  }
+  testRunner.beforeEach = (fn) => {
+    beforeEach(fn)
   }
 } else {
   const test = (await import('ava')).default

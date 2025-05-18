@@ -61,6 +61,7 @@ import {
   customStatusCode,
   panic,
   readPackageJson,
+  PackageJsonReader,
   getPackageJsonName,
   getBuffer,
   getEmptyBuffer,
@@ -71,6 +72,7 @@ import {
   returnEither,
   either3,
   either4,
+  eitherPromiseInEitherA,
   withoutAbortController,
   withAbortController,
   asyncMultiTwo,
@@ -225,9 +227,14 @@ import {
   esmResolve,
   mergeTupleArray,
   TupleToArray,
+  ClassInArray,
+  getClassFromArray,
   extendsJavascriptError,
   shutdownRuntime,
+  callAsyncWithUnknownReturnValue,
 } from '../index.cjs'
+// import other stuff in `#[napi(module_exports)]`
+import nativeAddon from '../index.cjs'
 
 import { test } from './test.framework.js'
 
@@ -733,7 +740,7 @@ test('Async error with stack trace', async (t) => {
   t.not(err?.stack, undefined)
   t.deepEqual(err!.message, 'Async Error')
   if (!process.env.WASI_TEST) {
-    t.regex(err!.stack!, /.+at .+values\.spec\.ts:\d+:\d+.+/gm)
+    t.regex(err!.stack!, /.+at .+values\.spec\.(ts|js):\d+:\d+.+/gm)
   }
 })
 
@@ -795,7 +802,7 @@ test('aliased rust struct and enum', (t) => {
 })
 
 test('serde-json', (t) => {
-  if (process.env.WASI_TEST) {
+  if (process.env.WASI_TEST || process.platform === 'freebsd') {
     t.pass()
     return
   }
@@ -805,6 +812,17 @@ test('serde-json', (t) => {
   t.snapshot(Object.keys(packageJson.devDependencies!).sort())
 
   t.is(getPackageJsonName(packageJson), '@examples/napi')
+})
+
+test('serde-json-ref', (t) => {
+  if (process.env.WASI_TEST || process.platform === 'freebsd') {
+    t.pass()
+    return
+  }
+  const reader = new PackageJsonReader()
+  const packageJson = reader.read()
+  t.is(packageJson.name, '@examples/napi')
+  t.is(packageJson.version, '0.0.0')
 })
 
 test('serde-roundtrip', (t) => {
@@ -1092,6 +1110,14 @@ test('either4', (t) => {
   t.is(either4({ v: 'world' }), 'world'.length)
 })
 
+test('either promise in either a', async (t) => {
+  t.is(await eitherPromiseInEitherA(1), false)
+  t.is(await eitherPromiseInEitherA(20), true)
+  t.is(await eitherPromiseInEitherA(Promise.resolve(1)), false)
+  t.is(await eitherPromiseInEitherA(Promise.resolve(20)), true)
+  t.is(await eitherPromiseInEitherA('abc'), false)
+})
+
 test('external', (t) => {
   const FX = 42
   const ext = createExternal(FX)
@@ -1140,7 +1166,8 @@ AbortSignalTest('async task without abort controller', async (t) => {
   t.is(await withoutAbortController(1, 2), 3)
 })
 
-AbortSignalTest('async task with abort controller', async (t) => {
+// schedule async task always start immediately, hard to create a case that async task is scheduled but not started
+test.skip('async task with abort controller', async (t) => {
   const ctrl = new AbortController()
   const promise = withAbortController(1, 2, ctrl.signal)
   try {
@@ -1156,6 +1183,25 @@ AbortSignalTest('abort resolved task', async (t) => {
   const ctrl = new AbortController()
   await withAbortController(1, 2, ctrl.signal).then(() => ctrl.abort())
   t.pass('should not throw')
+})
+
+test('abort signal should be able to reuse with different tasks', async (t) => {
+  const ctrl = new AbortController()
+  await t.notThrowsAsync(async () => {
+    try {
+      const promise = Promise.all(
+        Array.from({ length: 20 }).map(() =>
+          withAbortController(1, 2, ctrl.signal),
+        ),
+      )
+      ctrl.abort()
+      await promise
+    } catch (err: unknown) {
+      // sometimes on CI, the scheduled task is able to abort
+      // so we only allow it to throw AbortError
+      t.is((err as Error).message, 'AbortError')
+    }
+  })
 })
 
 const BigIntTest = typeof BigInt !== 'undefined' ? test : test.skip
@@ -1376,6 +1422,22 @@ Napi4Test('threadsafe function return Promise and await in Rust', async (t) => {
   await new Promise((resolve) => setTimeout(resolve, 400))
 })
 
+Napi4Test('call async with unknown return value', async (t) => {
+  await new Promise<number>((resolve, reject) => {
+    return callAsyncWithUnknownReturnValue((err, value) => {
+      if (err) {
+        reject(err)
+      } else {
+        resolve(value)
+        t.is(value, 42)
+        return {}
+      }
+    }).then((result) => {
+      t.is(result, 110)
+    })
+  })
+})
+
 Napi4Test('object only from js', (t) => {
   return new Promise((resolve, reject) => {
     receiveObjectOnlyFromJs({
@@ -1513,6 +1575,11 @@ test('tuple to array', (t) => {
   t.deepEqual(mergev, ['ab', 3, { merge: true }])
 })
 
+test('get class from array', (t) => {
+  const classInArray = new ClassInArray(42)
+  t.is(getClassFromArray([classInArray]), 42)
+})
+
 test('acceptStream', async (t) => {
   if (process.version.startsWith('v18')) {
     // https://github.com/nodejs/node/issues/56432
@@ -1539,6 +1606,7 @@ test('create readable stream from channel', async (t) => {
   }
   t.is(Buffer.concat(chunks).toString('utf-8'), 'hello'.repeat(100))
   const { ReadableStream } = await import('web-streams-polyfill')
+  // @ts-expect-error polyfill ReadableStream is not the same as the one in Node.js
   const streamFromClass = await createReadableStreamFromClass(ReadableStream)
   const chunksFromClass = []
   for await (const chunk of streamFromClass) {
@@ -1563,7 +1631,7 @@ test('spawnThreadInThread should be fine', async (t) => {
 })
 
 test('should generate correct type def file', async (t) => {
-  if (process.env.WASI_TEST) {
+  if (process.env.WASI_TEST || process.platform === 'freebsd') {
     t.pass()
   } else {
     t.snapshot(await nodeReadFile(join(__dirname, '..', 'index.d.cts'), 'utf8'))
@@ -1587,4 +1655,8 @@ test('extends javascript error', (t) => {
     t.is(e.name, 'RustError')
     t.true(typeof e.nativeStackTrace === 'string')
   }
+})
+
+test('module exports', (t) => {
+  t.is(nativeAddon.NAPI_RS_SYMBOL, Symbol.for('NAPI_RS_SYMBOL'))
 })

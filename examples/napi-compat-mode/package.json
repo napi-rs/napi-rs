@@ -4,12 +4,12 @@
   "private": true,
   "scripts": {
     "build": "napi-raw build --no-js --features latest",
-    "test": "ava"
+    "test": "ava reset-cache && ava"
   },
   "devDependencies": {
     "@napi-rs/cli": "workspace:*",
-    "ava": "^6.1.3",
-    "sinon": "^19.0.2"
+    "ava": "^6.2.0",
+    "sinon": "^20.0.0"
   },
   "ava": {
     "extensions": [

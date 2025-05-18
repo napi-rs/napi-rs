@@ -5,24 +5,24 @@ struct NativeObject {
 }
 
 #[contextless_function]
-pub fn set_instance_data(env: Env) -> ContextlessResult<JsUndefined> {
+pub fn set_instance_data(env: Env) -> ContextlessResult<()> {
   env.set_instance_data(NativeObject { count: 1024 }, 0, |_ctx| {})?;
-  env.get_undefined().map(Some)
+  Ok(Some(()))
 }
 
 #[contextless_function]
-pub fn get_instance_data(env: Env) -> ContextlessResult<JsNumber> {
+pub fn get_instance_data(env: Env) -> ContextlessResult<i64> {
   if let Some(obj) = env.get_instance_data::<NativeObject>()? {
-    env.create_int64(obj.count).map(Some)
+    Ok(Some(obj.count))
   } else {
     Ok(None)
   }
 }
 
 #[contextless_function]
-pub fn get_wrong_type_instance_data(env: Env) -> ContextlessResult<JsNumber> {
+pub fn get_wrong_type_instance_data(env: Env) -> ContextlessResult<i64> {
   if let Some(count) = env.get_instance_data::<i32>()? {
-    env.create_int64(*count as i64).map(Some)
+    Ok(Some(*count as i64))
   } else {
     Ok(None)
   }

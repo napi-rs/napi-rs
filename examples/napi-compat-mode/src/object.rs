@@ -1,27 +1,25 @@
 use std::convert::TryInto;
 
-use napi::{
-  CallContext, JsBoolean, JsNumber, JsObject, JsString, JsUndefined, JsUnknown, Property, Result,
-};
+use napi::{CallContext, JsBoolean, JsNumber, JsObject, JsString, Property, Result, Unknown};
 
 #[js_function(2)]
-fn test_set_property(ctx: CallContext) -> Result<JsUndefined> {
+fn test_set_property(ctx: CallContext) -> Result<()> {
   let mut obj = ctx.get::<JsObject>(0)?;
   let key = ctx.get::<JsString>(1)?;
   obj.set_property(key, ctx.env.create_string("Rust object property")?)?;
-  ctx.env.get_undefined()
+  Ok(())
 }
 
 #[js_function(2)]
-fn test_set_named_property(ctx: CallContext) -> Result<JsUndefined> {
+fn test_set_named_property(ctx: CallContext) -> Result<()> {
   let mut obj = ctx.get::<JsObject>(0)?;
-  let property = ctx.get::<JsUnknown>(1)?;
+  let property = ctx.get::<Unknown>(1)?;
   obj.set_named_property("RustPropertyKey", property)?;
-  ctx.env.get_undefined()
+  Ok(())
 }
 
 #[js_function(1)]
-fn test_get_named_property(ctx: CallContext) -> Result<JsUnknown> {
+fn test_get_named_property(ctx: CallContext) -> Result<Unknown> {
   let obj = ctx.get::<JsObject>(0)?;
   obj.get_named_property("p")
 }
@@ -47,7 +45,7 @@ fn test_has_own_property(ctx: CallContext) -> Result<JsBoolean> {
 #[js_function(2)]
 fn test_has_own_property_js(ctx: CallContext) -> Result<JsBoolean> {
   let obj = ctx.get::<JsObject>(0)?;
-  let key = ctx.get::<JsUnknown>(1)?;
+  let key = ctx.get::<Unknown>(1)?;
   ctx.env.get_boolean(obj.has_own_property_js(key)?)
 }
 
@@ -63,14 +61,14 @@ fn test_has_property(ctx: CallContext) -> Result<JsBoolean> {
 #[js_function(2)]
 fn test_has_property_js(ctx: CallContext) -> Result<JsBoolean> {
   let obj = ctx.get::<JsObject>(0)?;
-  let key = ctx.get::<JsUnknown>(1)?;
+  let key = ctx.get::<Unknown>(1)?;
   ctx.env.get_boolean(obj.has_property_js(key)?)
 }
 
 #[js_function(2)]
 fn test_delete_property(ctx: CallContext) -> Result<JsBoolean> {
   let mut obj = ctx.get::<JsObject>(0)?;
-  let key = ctx.get::<JsUnknown>(1)?;
+  let key = ctx.get::<Unknown>(1)?;
   ctx.env.get_boolean(obj.delete_property(key)?)
 }
 
@@ -84,9 +82,9 @@ fn test_delete_named_property(ctx: CallContext) -> Result<JsBoolean> {
 }
 
 #[js_function(2)]
-fn test_get_property(ctx: CallContext) -> Result<JsUnknown> {
+fn test_get_property(ctx: CallContext) -> Result<Unknown> {
   let obj = ctx.get::<JsObject>(0)?;
-  let key = ctx.get::<JsUnknown>(1)?;
+  let key = ctx.get::<Unknown>(1)?;
   obj.get_property(key)
 }
 
@@ -97,18 +95,18 @@ fn test_get_property_names(ctx: CallContext) -> Result<JsObject> {
 }
 
 #[js_function(1)]
-fn test_get_prototype(ctx: CallContext) -> Result<JsUnknown> {
+fn test_get_prototype(ctx: CallContext) -> Result<JsObject> {
   let obj = ctx.get::<JsObject>(0)?;
   obj.get_prototype()
 }
 
 #[js_function(3)]
-fn test_set_element(ctx: CallContext) -> Result<JsUndefined> {
+fn test_set_element(ctx: CallContext) -> Result<()> {
   let mut obj = ctx.get::<JsObject>(0)?;
   let index = ctx.get::<JsNumber>(1)?;
-  let js_value = ctx.get::<JsUnknown>(2)?;
+  let js_value = ctx.get::<Unknown>(2)?;
   obj.set_element(index.try_into()?, js_value)?;
-  ctx.env.get_undefined()
+  Ok(())
 }
 
 #[js_function(2)]
@@ -119,7 +117,7 @@ fn test_has_element(ctx: CallContext) -> Result<JsBoolean> {
 }
 
 #[js_function(2)]
-fn test_get_element(ctx: CallContext) -> Result<JsUnknown> {
+fn test_get_element(ctx: CallContext) -> Result<Unknown> {
   let obj = ctx.get::<JsObject>(0)?;
   let index = ctx.get::<JsNumber>(1)?;
   obj.get_element(index.try_into()?)
@@ -133,23 +131,23 @@ fn test_delete_element(ctx: CallContext) -> Result<JsBoolean> {
 }
 
 #[js_function(1)]
-fn test_define_properties(ctx: CallContext) -> Result<JsUndefined> {
+fn test_define_properties(ctx: CallContext) -> Result<()> {
   let mut obj = ctx.get::<JsObject>(0)?;
   let add_method = Property::new("add")?.with_method(add);
   let readonly_property = Property::new("ro")?.with_getter(readonly_getter);
   let properties = vec![add_method, readonly_property];
   obj.define_properties(&properties)?;
   obj.set_named_property("count", ctx.env.create_int32(0)?)?;
-  ctx.env.get_undefined()
+  Ok(())
 }
 
 #[js_function(1)]
-fn add(ctx: CallContext) -> Result<JsUndefined> {
+fn add(ctx: CallContext) -> Result<()> {
   let mut this: JsObject = ctx.this_unchecked();
   let count: i32 = this.get_named_property::<JsNumber>("count")?.try_into()?;
   let value_to_add: i32 = ctx.get::<JsNumber>(0)?.try_into()?;
   this.set_named_property("count", ctx.env.create_int32(count + value_to_add)?)?;
-  ctx.env.get_undefined()
+  Ok(())
 }
 
 #[js_function]

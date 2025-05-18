@@ -1,18 +1,16 @@
-#![allow(deprecated)]
-
 use std::ptr;
 
 use super::{Either, FromNapiValue, ToNapiValue, TypeName, Unknown, ValidateNapiValue};
 
 #[cfg(feature = "napi4")]
 use crate::threadsafe_function::{ThreadsafeCallContext, ThreadsafeFunction};
+#[cfg(feature = "compat-mode")]
+#[allow(deprecated)]
 pub use crate::JsFunction;
 use crate::{
-  check_pending_exception, check_status, sys, Env, JsUndefined, NapiRaw, NapiValue, Result,
+  bindgen_runtime::JsObjectValue, check_pending_exception, check_status, sys, Env, JsValue, Result,
   ValueType,
 };
-
-impl ValidateNapiValue for JsFunction {}
 
 pub trait JsValuesTupleIntoVec {
   fn into_vec(self, env: sys::napi_env) -> Result<Vec<sys::napi_value>>;
@@ -111,12 +109,13 @@ impl_tuple_conversion!(
 /// It can only live in the scope of a function call.
 /// If you want to use it outside the scope of a function call, you can turn it into a reference.
 /// By calling the `create_ref` method.
-pub struct Function<'scope, Args: JsValuesTupleIntoVec = Unknown, Return = Unknown> {
+pub struct Function<'scope, Args: JsValuesTupleIntoVec = Unknown<'scope>, Return = Unknown<'scope>>
+{
   pub(crate) env: sys::napi_env,
   pub(crate) value: sys::napi_value,
   pub(crate) _args: std::marker::PhantomData<Args>,
   pub(crate) _return: std::marker::PhantomData<Return>,
-  _scope: std::marker::PhantomData<&'scope ()>,
+  pub(crate) _scope: std::marker::PhantomData<&'scope ()>,
 }
 
 impl<Args: JsValuesTupleIntoVec, Return> TypeName for Function<'_, Args, Return> {
@@ -129,10 +128,19 @@ impl<Args: JsValuesTupleIntoVec, Return> TypeName for Function<'_, Args, Return>
   }
 }
 
-impl<Args: JsValuesTupleIntoVec, Return> NapiRaw for Function<'_, Args, Return> {
-  unsafe fn raw(&self) -> sys::napi_value {
-    self.value
+impl<'env, Args: JsValuesTupleIntoVec, Return> JsValue<'env> for Function<'env, Args, Return> {
+  fn value(&self) -> crate::Value {
+    crate::Value {
+      value: self.value,
+      env: self.env,
+      value_type: ValueType::Function,
+    }
   }
+}
+
+impl<'env, Args: JsValuesTupleIntoVec, Return> JsObjectValue<'env>
+  for Function<'env, Args, Return>
+{
 }
 
 impl<Args: JsValuesTupleIntoVec, Return> FromNapiValue for Function<'_, Args, Return> {
@@ -476,10 +484,10 @@ impl FunctionCallContext<'_> {
     }
   }
 
-  pub fn try_get<ArgType: NapiValue + TypeName + FromNapiValue>(
+  pub fn try_get<ArgType: TypeName + FromNapiValue>(
     &self,
     index: usize,
-  ) -> Result<Either<ArgType, JsUndefined>> {
+  ) -> Result<Either<ArgType, ()>> {
     let len = self.length();
     if index >= len {
       Err(crate::Error::new(
@@ -487,9 +495,9 @@ impl FunctionCallContext<'_> {
         "Arguments index out of range".to_owned(),
       ))
     } else if index < len {
-      unsafe { ArgType::from_raw(self.env.0, self.args[index]) }.map(Either::A)
+      unsafe { ArgType::from_napi_value(self.env.0, self.args[index]) }.map(Either::A)
     } else {
-      self.env.get_undefined().map(Either::B)
+      Ok(Either::B(()))
     }
   }
 
@@ -530,16 +538,15 @@ impl FunctionCallContext<'_> {
   }
 }
 
+#[cfg(feature = "compat-mode")]
 macro_rules! impl_call_apply {
   ($fn_call_name:ident, $fn_apply_name:ident, $($ident:ident),*) => {
-    #[allow(non_snake_case, clippy::too_many_arguments)]
+    #[allow(non_snake_case, deprecated, clippy::too_many_arguments)]
     pub fn $fn_call_name<$($ident: ToNapiValue),*, Return: FromNapiValue>(
       &self,
       $($ident: $ident),*
     ) -> Result<Return> {
-      let raw_this = Env::from_raw(self.0.env)
-        .get_undefined()
-        .map(|u| unsafe { u.raw() })?;
+      let raw_this = unsafe { ToNapiValue::to_napi_value(self.0.env, ()) }?;
 
       let raw_args = vec![
         $(
@@ -562,7 +569,7 @@ macro_rules! impl_call_apply {
       unsafe { Return::from_napi_value(self.0.env, return_value) }
     }
 
-    #[allow(non_snake_case, clippy::too_many_arguments)]
+    #[allow(non_snake_case, deprecated, clippy::too_many_arguments)]
     pub fn $fn_apply_name<$($ident: ToNapiValue),*, Context: ToNapiValue, Return: FromNapiValue>(
       &self,
       this: Context,
@@ -593,6 +600,8 @@ macro_rules! impl_call_apply {
   };
 }
 
+#[cfg(feature = "compat-mode")]
+#[allow(deprecated)]
 impl JsFunction {
   pub fn apply0<Return: FromNapiValue, Context: ToNapiValue>(
     &self,
@@ -616,9 +625,7 @@ impl JsFunction {
   }
 
   pub fn call0<Return: FromNapiValue>(&self) -> Result<Return> {
-    let raw_this = Env::from_raw(self.0.env)
-      .get_undefined()
-      .map(|u| unsafe { u.raw() })?;
+    let raw_this = unsafe { ToNapiValue::to_napi_value(self.0.env, ()) }?;
 
     let mut return_value = ptr::null_mut();
     check_pending_exception!(self.0.env, unsafe {

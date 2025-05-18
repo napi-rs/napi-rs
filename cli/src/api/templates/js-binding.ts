@@ -8,6 +8,7 @@ const { createRequire } = require('node:module')
 require = createRequire(__filename)
 
 ${createCommonBinding(localName, pkgName)}
+module.exports = nativeBinding
 ${idents
   .map((ident) => `module.exports.${ident} = nativeBinding.${ident}`)
   .join('\n')}
@@ -80,7 +81,11 @@ const isMuslFromFilesystem = () => {
 }
 
 const isMuslFromReport = () => {
-  const report = typeof process.report.getReport === 'function' ? process.report.getReport() : null
+  let report = null
+  if (typeof process.report?.getReport === 'function') {
+    process.report.excludeNetwork = true
+    report = process.report.getReport()
+  }
   if (!report) {
     return null
   }
@@ -109,7 +114,7 @@ function requireNative() {
     try {
       nativeBinding = require(process.env.NAPI_RS_NATIVE_LIBRARY_PATH);
     } catch (err) {
-      loadErrors.push(err);
+      loadErrors.push(err)
     }
   } else if (process.platform === 'android') {
     if (process.arch === 'arm64') {

@@ -42,7 +42,7 @@ pub struct Room {
 }
 
 #[napi]
-pub fn test_async(env: &Env) -> napi::Result<napi::bindgen_prelude::PromiseRaw<String>> {
+pub fn test_async(env: &Env) -> napi::Result<napi::bindgen_prelude::PromiseRaw<()>> {
   let data = serde_json::json!({
       "findFirstBooking": {
           "id": "ckovh15xa104945sj64rdk8oas",

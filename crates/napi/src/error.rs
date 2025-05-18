@@ -12,8 +12,7 @@ use serde::{de, ser};
 #[cfg(feature = "serde-json")]
 use serde_json::Error as SerdeJSONError;
 
-use crate::bindgen_runtime::ToNapiValue;
-use crate::{check_status, sys, Env, JsUnknown, NapiValue, Status};
+use crate::{bindgen_runtime::ToNapiValue, check_status, sys, Env, JsValue, Status, Unknown};
 
 pub type Result<T, S = Status> = std::result::Result<T, Error<S>>;
 
@@ -26,7 +25,26 @@ pub struct Error<S: AsRef<str> = Status> {
   // Convert raw `JsError` into Error
   pub(crate) maybe_raw: sys::napi_ref,
   pub(crate) maybe_env: sys::napi_env,
-  pub(crate) raw: bool,
+}
+
+impl<S: AsRef<str>> Drop for Error<S> {
+  fn drop(&mut self) {
+    // @TODO: deal with Error created with reference and leave it to drop in `async fn`
+    if !self.maybe_raw.is_null() {
+      let mut ref_count = 0;
+      let status =
+        unsafe { sys::napi_reference_unref(self.maybe_env, self.maybe_raw, &mut ref_count) };
+      if status != sys::Status::napi_ok {
+        eprintln!("unref error reference failed: {}", Status::from(status));
+      }
+      if ref_count == 0 {
+        let status = unsafe { sys::napi_delete_reference(self.maybe_env, self.maybe_raw) };
+        if status != sys::Status::napi_ok {
+          eprintln!("delete error reference failed: {}", Status::from(status));
+        }
+      }
+    }
+  }
 }
 
 impl<S: AsRef<str>> std::fmt::Debug for Error<S> {
@@ -40,20 +58,8 @@ impl<S: AsRef<str>> std::fmt::Debug for Error<S> {
   }
 }
 
-impl<S: Clone + AsRef<str>> Clone for Error<S> {
-  fn clone(&self) -> Self {
-    Self {
-      raw: false,
-      status: self.status.clone(),
-      reason: self.reason.to_string(),
-      maybe_raw: self.maybe_raw,
-      maybe_env: self.maybe_env,
-    }
-  }
-}
-
 impl<S: AsRef<str>> ToNapiValue for Error<S> {
-  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+  unsafe fn to_napi_value(env: sys::napi_env, mut val: Self) -> Result<sys::napi_value> {
     if val.maybe_raw.is_null() {
       let err = unsafe { JsError::from(val).into_value(env) };
       Ok(err)
@@ -63,12 +69,20 @@ impl<S: AsRef<str>> ToNapiValue for Error<S> {
         unsafe { sys::napi_get_reference_value(env, val.maybe_raw, &mut value) },
         "Get error reference in `to_napi_value` failed"
       )?;
-      if val.raw {
+      let mut ref_count = 0;
+      check_status!(
+        unsafe { sys::napi_reference_unref(env, val.maybe_raw, &mut ref_count) },
+        "Unref error reference in `to_napi_value` failed"
+      )?;
+      if ref_count == 0 {
         check_status!(
           unsafe { sys::napi_delete_reference(env, val.maybe_raw) },
           "Delete error reference in `to_napi_value` failed"
         )?;
       }
+      // already unref, skip the logic in `Drop`
+      val.maybe_raw = ptr::null_mut();
+      val.maybe_env = ptr::null_mut();
       Ok(value)
     }
   }
@@ -106,8 +120,8 @@ impl From<SerdeJSONError> for Error {
   }
 }
 
-impl From<JsUnknown> for Error {
-  fn from(value: JsUnknown) -> Self {
+impl From<Unknown<'_>> for Error {
+  fn from(value: Unknown) -> Self {
     let mut result = std::ptr::null_mut();
     let status = unsafe { sys::napi_create_reference(value.0.env, value.0.value, 1, &mut result) };
     if status != sys::Status::napi_ok {
@@ -116,7 +130,6 @@ impl From<JsUnknown> for Error {
         "Create Error reference failed".to_owned(),
       );
     }
-
     let maybe_env = value.0.env;
     let maybe_error_message = value
       .coerce_to_string()
@@ -127,7 +140,6 @@ impl From<JsUnknown> for Error {
         reason: error_message,
         maybe_raw: result,
         maybe_env,
-        raw: true,
       };
     }
 
@@ -136,7 +148,6 @@ impl From<JsUnknown> for Error {
       reason: "".to_string(),
       maybe_raw: result,
       maybe_env,
-      raw: true,
     }
   }
 }
@@ -165,7 +176,6 @@ impl<S: AsRef<str>> Error<S> {
       reason: reason.to_string(),
       maybe_raw: ptr::null_mut(),
       maybe_env: ptr::null_mut(),
-      raw: true,
     }
   }
 
@@ -175,8 +185,24 @@ impl<S: AsRef<str>> Error<S> {
       reason: "".to_owned(),
       maybe_raw: ptr::null_mut(),
       maybe_env: ptr::null_mut(),
-      raw: true,
     }
+  }
+}
+
+impl<S: AsRef<str> + Clone> Error<S> {
+  pub fn try_clone(&self) -> Result<Self> {
+    if !self.maybe_raw.is_null() {
+      check_status!(
+        unsafe { sys::napi_reference_ref(self.maybe_env, self.maybe_raw, &mut 0) },
+        "Failed to increase error reference count"
+      )?;
+    }
+    Ok(Self {
+      status: self.status.clone(),
+      reason: self.reason.to_string(),
+      maybe_raw: self.maybe_raw,
+      maybe_env: self.maybe_env,
+    })
   }
 }
 
@@ -187,7 +213,6 @@ impl Error {
       reason: reason.into(),
       maybe_raw: ptr::null_mut(),
       maybe_env: ptr::null_mut(),
-      raw: true,
     }
   }
 }
@@ -199,7 +224,6 @@ impl From<std::ffi::NulError> for Error {
       reason: format!("{}", error),
       maybe_raw: ptr::null_mut(),
       maybe_env: ptr::null_mut(),
-      raw: true,
     }
   }
 }
@@ -211,7 +235,6 @@ impl From<std::io::Error> for Error {
       reason: format!("{}", error),
       maybe_raw: ptr::null_mut(),
       maybe_env: ptr::null_mut(),
-      raw: true,
     }
   }
 }
@@ -263,7 +286,7 @@ macro_rules! impl_object_methods {
       /// # Safety
       ///
       /// This function is safety if env is not null ptr.
-      pub unsafe fn into_value(self, env: sys::napi_env) -> sys::napi_value {
+      pub unsafe fn into_value(mut self, env: sys::napi_env) -> sys::napi_value {
         if !self.0.maybe_raw.is_null() {
           let mut err = ptr::null_mut();
           let get_err_status =
@@ -272,13 +295,23 @@ macro_rules! impl_object_methods {
             get_err_status == sys::Status::napi_ok,
             "Get Error from Reference failed"
           );
-          if self.0.raw {
+          let mut ref_count = 0;
+          let unref_status =
+            unsafe { sys::napi_reference_unref(env, self.0.maybe_raw, &mut ref_count) };
+          debug_assert!(
+            unref_status == sys::Status::napi_ok,
+            "Unref Error Reference failed"
+          );
+          if ref_count == 0 {
             let delete_err_status = unsafe { sys::napi_delete_reference(env, self.0.maybe_raw) };
             debug_assert!(
               delete_err_status == sys::Status::napi_ok,
               "Delete Error Reference failed"
             );
           }
+          // already unref, skip the logic in `Drop`
+          self.0.maybe_raw = ptr::null_mut();
+          self.0.maybe_env = ptr::null_mut();
           let mut is_error = false;
           let is_error_status = unsafe { sys::napi_is_error(env, err, &mut is_error) };
           debug_assert!(
@@ -320,9 +353,9 @@ macro_rules! impl_object_methods {
         js_error
       }
 
-      pub fn into_unknown(self, env: Env) -> JsUnknown {
+      pub fn into_unknown<'env>(self, env: Env) -> Unknown<'env> {
         let value = unsafe { self.into_value(env.raw()) };
-        unsafe { JsUnknown::from_raw_unchecked(env.raw(), value) }
+        unsafe { Unknown::from_raw_unchecked(env.raw(), value) }
       }
 
       /// # Safety
@@ -433,7 +466,7 @@ macro_rules! check_status_and_type {
     match c {
       $crate::sys::Status::napi_ok => Ok(()),
       _ => {
-        use $crate::js_values::NapiValue;
+        use $crate::js_values::JsValue;
         let value_type = $crate::type_of!($env, $val)?;
         let error_msg = match value_type {
           ValueType::Function => {
@@ -459,24 +492,18 @@ macro_rules! check_status_and_type {
           ValueType::Object => {
             let env_ = $crate::Env::from($env);
             let json: $crate::JSON = env_.get_global()?.get_named_property_unchecked("JSON")?;
-            let object = json.stringify($crate::JsObject($crate::Value {
-              value: $val,
-              env: $env,
-              value_type: ValueType::Object,
-            }))?;
+            let object = json.stringify($crate::bindgen_prelude::Object::from_raw($env, $val))?;
             format!($msg, format!("Object {}", object))
           }
           ValueType::Boolean | ValueType::Number => {
-            let value =
-              unsafe { $crate::JsUnknown::from_raw_unchecked($env, $val).coerce_to_string()? }
-                .into_utf8()?;
+            let val = $crate::Unknown::from_raw_unchecked($env, $val);
+            let value = val.coerce_to_string()?.into_utf8()?;
             format!($msg, format!("{} {} ", value_type, value.as_str()?))
           }
           #[cfg(feature = "napi6")]
           ValueType::BigInt => {
-            let value =
-              unsafe { $crate::JsUnknown::from_raw_unchecked($env, $val).coerce_to_string()? }
-                .into_utf8()?;
+            let val = $crate::Unknown::from_raw_unchecked($env, $val);
+            let value = val.coerce_to_string()?.into_utf8()?;
             format!($msg, format!("{} {} ", value_type, value.as_str()?))
           }
           _ => format!($msg, value_type),
@@ -491,7 +518,6 @@ macro_rules! check_status_and_type {
 #[macro_export]
 macro_rules! check_pending_exception {
   ($env:expr, $code:expr) => {{
-    use $crate::NapiValue;
     let c = $code;
     match c {
       $crate::sys::Status::napi_ok => Ok(()),
@@ -510,7 +536,6 @@ macro_rules! check_pending_exception {
   }};
 
   ($env:expr, $code:expr, $($msg:tt)*) => {{
-    use $crate::NapiValue;
     let c = $code;
     match c {
       $crate::sys::Status::napi_ok => Ok(()),

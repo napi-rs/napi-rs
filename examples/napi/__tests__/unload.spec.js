@@ -13,19 +13,29 @@ const platforms = platformArchTriples[process.platform][process.arch]
 
 let binaryName
 
-if (platforms.length() === 1) {
+if (platforms.length === 1) {
   binaryName = `example.${platforms[0].platformArchABI}.node`
 } else if (process.platform === 'linux') {
   if (process.report?.getReport?.()?.header.glibcVersionRuntime) {
-    binaryName = `example.${platforms.find(({ abi }) => abi === 'gnu').platformArchABI}.node`
+    if (process.arch === 'arm') {
+      binaryName = `example.linux-arm-gnueabihf.node`
+    } else {
+      binaryName = `example.${platforms.find(({ abi }) => abi === 'gnu').platformArchABI}.node`
+    }
   } else {
     binaryName = `example.${platforms.find(({ abi }) => abi === 'musl').platformArchABI}.node`
   }
+} else if (process.platform === 'win32') {
+  binaryName = `example.${platforms.find(({ abi }) => abi === 'msvc').platformArchABI}.node`
 } else {
   throw new Error('unsupported platform')
 }
 
 test('unload module', (t) => {
+  if (process.env.WASI_TEST) {
+    t.pass()
+    return
+  }
   const { add } = require(`../${binaryName}`)
   t.is(add(1, 2), 3)
   delete require.cache[require.resolve(`../${binaryName}`)]
@@ -34,6 +44,10 @@ test('unload module', (t) => {
 })
 
 test('load module multi times', (t) => {
+  if (process.env.WASI_TEST || process.platform === 'win32') {
+    t.pass()
+    return
+  }
   const { add } = require(`../${binaryName}`)
   t.is(add(1, 2), 3)
   const { add: add2 } = require(

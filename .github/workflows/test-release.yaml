@@ -3,7 +3,6 @@ name: Test & Release
 env:
   DEBUG: 'napi:*'
   RUST_BACKTRACE: 1
-  CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: aarch64-linux-gnu-gcc
   # https://github.com/nodejs/node/issues/51555#issuecomment-2290742072
   DISABLE_V8_COMPILE_CACHE: 1
 
@@ -65,14 +64,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['18', '20', '22']
+        node: ['20', '22']
         settings:
           - host: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             build: yarn build:test
             test: |
               yarn test:cli
-              yarn test --verbose
+              DEBUG="*" yarn test
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
               yarn test:macro
             toolchain: stable
@@ -81,7 +80,7 @@ jobs:
             build: yarn build:test
             test: |
               yarn test:cli
-              yarn test --verbose
+              yarn test
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
               yarn test:macro
             toolchain: 1.80.0
@@ -90,7 +89,7 @@ jobs:
             build: yarn build:test
             test: |
               yarn test:cli
-              yarn test --verbose
+              yarn test
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
               yarn test:macro
             toolchain: stable
@@ -99,8 +98,16 @@ jobs:
             build: yarn build:test
             test: |
               yarn test:cli
-              yarn test --verbose
+              yarn test
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
+              yarn test:macro
+            toolchain: stable
+          - host: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            build: yarn build:test
+            test: |
+              yarn test:cli
+              yarn test
               yarn test:macro
             toolchain: stable
           - host: windows-latest
@@ -109,24 +116,22 @@ jobs:
               yarn workspace @examples/napi build --target i686-pc-windows-msvc --release
               yarn workspace @examples/compat-mode build --target i686-pc-windows-msvc --release
             test: |
-              yarn test --verbose
+              $env:NODE_OPTIONS = "--max-old-space-size=3072"
+              yarn workspace @examples/napi test -s
               node ./node_modules/electron/install.js
               yarn test:electron
             toolchain: stable
         exclude:
           - settings:
               toolchain: 1.80.0
-            node: 18
-          - settings:
-              toolchain: 1.80.0
             node: 20
           - settings:
               target: i686-pc-windows-msvc
-            node: 18
-          - settings:
-              target: i686-pc-windows-msvc
             node: 20
-    name: ${{ matrix.settings.host }} - node@${{ matrix.node }} - toolchain@ ${{ matrix.settings.toolchain }}
+          - settings:
+              target: aarch64-pc-windows-msvc
+            node: 20
+    name: ${{ matrix.settings.target }} - node@${{ matrix.node }} - toolchain@ ${{ matrix.settings.toolchain }}
     runs-on: ${{ matrix.settings.host }}
 
     steps:
@@ -138,8 +143,26 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: 'yarn'
 
+      - name: Install rustup (Windows 11 ARM)
+        if: matrix.settings.host == 'windows-11-arm'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://static.rust-lang.org/rustup/dist/aarch64-pc-windows-msvc/rustup-init.exe" -OutFile rustup-init.exe
+          .\rustup-init.exe --default-toolchain none -y
+          "$env:USERPROFILE\.cargo\bin" | Out-File -Append -Encoding ascii $env:GITHUB_PATH
+          "CARGO_HOME=$env:USERPROFILE\.cargo" | Out-File -Append -Encoding ascii $env:GITHUB_ENV
+
+      - name: Install Rust (Windows 11 ARM)
+        if: matrix.settings.host == 'windows-11-arm'
+        shell: pwsh
+        run: |
+          rustup install stable
+          rustup target add ${{ matrix.settings.target }}
+          cargo --version
+
       - name: Install
         uses: dtolnay/rust-toolchain@stable
+        if: matrix.settings.host != 'windows-11-arm'
         with:
           toolchain: ${{ matrix.settings.toolchain }}
           targets: ${{ matrix.settings.target }}
@@ -165,6 +188,8 @@ jobs:
       - name: Build tests
         if: matrix.settings.build
         run: ${{ matrix.settings.build }}
+        env:
+          CARGO_PROFILE_DEV_OPT_LEVEL: 1
 
       - name: Setup node
         uses: actions/setup-node@v4
@@ -175,9 +200,10 @@ jobs:
 
       - name: Unit tests
         if: matrix.settings.test
-        env:
-          NODE_OPTIONS: '--max-old-space-size=6000'
         run: ${{ matrix.settings.test }}
+        env:
+          NODE_OPTIONS: '--max-old-space-size=8192'
+          DISABLE_V8_COMPILE_CACHE: 1
 
       - name: Electron tests
         if: matrix.settings.target == 'aarch64-apple-darwin' || matrix.settings.target == 'x86_64-pc-windows-msvc'
@@ -234,7 +260,7 @@ jobs:
   #      shell: msys2 {0}
   #      run: |
   #        yarn test:cli
-  #        yarn test --verbose
+  #        yarn test
   #        yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
   #        yarn test:macro
 
@@ -254,8 +280,6 @@ jobs:
             setup: |
               sudo apt-get update
               sudo apt-get install -y gcc-riscv64-linux-gnu
-          - host: windows-latest
-            target: aarch64-pc-windows-msvc
     steps:
       - uses: actions/checkout@v4
 
@@ -334,6 +358,8 @@ jobs:
       - name: Cross build native tests
         run: yarn build:test -- --target ${{ matrix.settings.target }} --release --use-napi-cross
         shell: bash
+        env:
+          CARGO_PROFILE_DEV_OPT_LEVEL: 1
 
       - uses: actions/upload-artifact@v4
         with:
@@ -405,14 +431,14 @@ jobs:
     name: Test - ${{ matrix.settings.target }} - ${{ matrix.node }}
     # Node.js on qemu segfaults on s390x and arm64v8 when using 24.04
     # See also https://github.com/actions/runner-images/issues/11471
-    runs-on: ubuntu-22.04
+    runs-on: ${{ contains(matrix.settings.target, 'aarch64') && 'ubuntu-24.04-arm' || 'ubuntu-22.04' }}
     needs:
       - build_in_docker
       - build_for_test_in_docker
     strategy:
       fail-fast: false
       matrix:
-        node: [18, 20, 22]
+        node: [20, 22]
         settings:
           - image: 'node:{:version}-slim'
             target: x86_64-unknown-linux-gnu
@@ -444,10 +470,6 @@ jobs:
             args: '--platform linux/arm64'
             arch: 'arm64'
             libc: 'musl'
-        exclude:
-          - settings:
-              target: aarch64-unknown-linux-gnu
-            node: 18
     steps:
       - uses: actions/checkout@v4
 
@@ -471,18 +493,27 @@ jobs:
           yarn install --immutable --mode=skip-build
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
+        if: ${{ !contains(matrix.settings.target, 'aarch64') }}
         with:
           platforms: all
           image: tonistiigi/binfmt:qemu-v8.1.5
       - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+        if: ${{ !contains(matrix.settings.target, 'aarch64') }}
       - name: Setup image name
         id: image-name
         run: |
           node -e "console.info('docker-image=${{ matrix.settings.image }}'.replace('{:version}', ${{ matrix.node }}))" >> "$GITHUB_OUTPUT"
-      - name: Run test
+      - name: Setup and run tests
+        uses: addnab/docker-run-action@v3
         # Node.js on qemu randomly segfaults on powerpc64le
         continue-on-error: ${{ matrix.settings.target == 'powerpc64le-unknown-linux-gnu' }}
-        run: docker run --rm ${{ matrix.settings.args }} -v ${{ github.workspace }}:/build -w /build ${{ steps.image-name.outputs.docker-image }} sh -c "NODE_OPTIONS=--max-old-space-size=6000 DISABLE_V8_COMPILE_CACHE=1 yarn workspace @examples/napi test -s"
+        with:
+          image: ${{ steps.image-name.outputs.docker-image }}
+          options: --oom-kill-disable ${{ matrix.settings.args }} -v ${{ github.workspace }}:/build -w /build
+          run: |
+            export NODE_OPTIONS=--max-old-space-size=8192
+            export DISABLE_V8_COMPILE_CACHE=1
+            yarn workspace @examples/napi test
 
   build-and-test-linux-armv7:
     name: stable - armv7-unknown-linux-gnueabihf - node@20
@@ -604,11 +635,10 @@ jobs:
           RUSTUP_HOME: /home/runner/rustup
           CARGO_HOME: /home/runner/cargo
           RUSTUP_IO_THREADS: 1
-          NODE_OPTIONS: '--max-old-space-size=6000'
         with:
           operating_system: freebsd
           version: '14.2'
-          memory: 8G
+          memory: 12G
           cpu_count: 3
           environment_variables: 'DEBUG RUSTUP_IO_THREADS'
           shell: bash
@@ -632,9 +662,14 @@ jobs:
             env
             freebsd-version
             yarn config set supportedArchitectures.cpu --json '["current", "wasm32"]'
+            export NODE_OPTIONS="--max-old-space-size=8192"
+            export CARGO_PROFILE_DEV_OPT_LEVEL="1"
             yarn install --immutable --mode=skip-build
             yarn workspace @examples/napi build
-            yarn workspace @examples/napi test -s
+            yarn tsc -p examples/napi/tsconfig.json
+            rm -rf examples/napi/__tests__
+            mv examples/napi/dist/__tests__ examples/napi/
+            yarn workspace @examples/napi test-js -s
 
   test-node-wasi:
     runs-on: ubuntu-latest
@@ -696,7 +731,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'yarn'
       - name: Install
         uses: dtolnay/rust-toolchain@stable
@@ -731,7 +766,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'yarn'
       - name: Publish
         run: |

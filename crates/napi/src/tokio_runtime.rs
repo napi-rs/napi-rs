@@ -6,10 +6,16 @@ use tokio::runtime::Runtime;
 
 use crate::{bindgen_runtime::ToNapiValue, sys, Env, Error, Result};
 #[cfg(not(feature = "noop"))]
-use crate::{JsDeferred, JsUnknown, NapiValue};
+use crate::{JsDeferred, Unknown};
 
 #[cfg(not(feature = "noop"))]
 fn create_runtime() -> Runtime {
+  if let Some(user_defined_rt) = USER_DEFINED_RT
+    .get()
+    .and_then(|rt| rt.write().ok().and_then(|mut rt| rt.take()))
+  {
+    return user_defined_rt;
+  }
   #[cfg(any(
     all(target_family = "wasm", tokio_unstable),
     not(target_family = "wasm")
@@ -57,19 +63,25 @@ pub fn create_custom_tokio_runtime(rt: Runtime) {
 pub fn create_custom_tokio_runtime(_: Runtime) {}
 
 #[cfg(not(feature = "noop"))]
-/// Ensure that the Tokio runtime is initialized.
-/// In Node.js the Tokio runtime will be dropped when Node env exits.
+/// Start the async runtime (Currently is tokio).
+///
+/// In Node.js native targets the async runtime will be dropped when Node env exits.
 /// But in Electron renderer process, the Node env will exits and recreate when the window reloads.
-/// So we need to ensure that the Tokio runtime is initialized when the Node env is created.
-pub(crate) fn ensure_runtime() {
-  let mut rt = RT.write().unwrap();
-  if rt.is_none() {
-    *rt = Some(create_runtime());
+/// So we need to ensure that the async runtime is initialized when the Node env is created.
+///
+/// In wasm targets, the async runtime will not been shutdown automatically due to the limitation of the wasm runtime.
+/// So, you need to call `shutdown_async_runtime` function to manually shutdown the async runtime.
+/// In some scenarios, you may want to start the async runtime again like in tests.
+pub fn start_async_runtime() {
+  if let Ok(mut rt) = RT.write() {
+    if rt.is_none() {
+      *rt = Some(create_runtime());
+    }
   }
 }
 
 #[cfg(not(feature = "noop"))]
-pub fn shutdown_tokio_runtime() {
+pub fn shutdown_async_runtime() {
   if let Some(rt) = RT.write().ok().and_then(|mut rt| rt.take()) {
     rt.shutdown_background();
   }
@@ -199,7 +211,8 @@ pub fn execute_tokio_future<
   fut: Fut,
   resolver: Resolver,
 ) -> Result<sys::napi_value> {
-  let (deferred, promise) = JsDeferred::new(env)?;
+  let env = Env::from_raw(env);
+  let (deferred, promise) = JsDeferred::new(&env)?;
   #[cfg(any(
     all(target_family = "wasm", tokio_unstable),
     not(target_family = "wasm")
@@ -212,7 +225,7 @@ pub fn execute_tokio_future<
       Ok(v) => deferred.resolve(move |env| {
         sendable_resolver
           .resolve(env.raw(), v)
-          .map(|v| unsafe { JsUnknown::from_raw_unchecked(env.raw(), v) })
+          .map(|v| unsafe { Unknown::from_raw_unchecked(env.raw(), v) })
       }),
       Err(e) => deferred.reject(e.into()),
     }

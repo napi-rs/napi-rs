@@ -2,9 +2,9 @@ use std::{marker::PhantomData, ptr};
 
 use crate::{
   bindgen_prelude::{
-    FromNapiValue, Function, PromiseRaw, ToNapiValue, TypeName, ValidateNapiValue,
+    FromNapiValue, Function, JsObjectValue, PromiseRaw, ToNapiValue, TypeName, ValidateNapiValue,
   },
-  check_status, sys, Env, Error, NapiRaw, Result, Status, ValueType,
+  check_status, sys, Env, Error, JsValue, Result, Status, Value, ValueType,
 };
 
 pub struct WriteableStream<'env> {
@@ -13,11 +13,17 @@ pub struct WriteableStream<'env> {
   pub(crate) _scope: &'env PhantomData<()>,
 }
 
-impl NapiRaw for WriteableStream<'_> {
-  unsafe fn raw(&self) -> sys::napi_value {
-    self.value
+impl<'env> JsValue<'env> for WriteableStream<'env> {
+  fn value(&self) -> Value {
+    Value {
+      env: self.env,
+      value: self.value,
+      value_type: ValueType::Object,
+    }
   }
 }
+
+impl<'env> JsObjectValue<'env> for WriteableStream<'env> {}
 
 impl TypeName for WriteableStream<'_> {
   fn type_name() -> &'static str {

@@ -16,7 +16,11 @@ use std::{any::TypeId, collections::HashMap};
 use crate::{check_status, check_status_or_throw, JsError};
 use crate::{sys, Property, Result};
 
+// #[napi] fn
 pub type ExportRegisterCallback = unsafe fn(sys::napi_env) -> Result<sys::napi_value>;
+// #[napi(module_exports)] fn
+pub type ExportRegisterHookCallback =
+  unsafe fn(sys::napi_env, sys::napi_value) -> Result<sys::napi_value>;
 pub type ModuleExportsCallback =
   unsafe fn(env: sys::napi_env, exports: sys::napi_value) -> Result<()>;
 
@@ -69,6 +73,9 @@ type RegisteredClassesMap = PersistedPerInstanceHashMap<ThreadId, RegisteredClas
 
 #[cfg(not(feature = "noop"))]
 static MODULE_REGISTER_CALLBACK: LazyLock<ModuleRegisterCallback> = LazyLock::new(Default::default);
+#[cfg(not(feature = "noop"))]
+static MODULE_REGISTER_HOOK_CALLBACK: LazyLock<RwLock<Option<ExportRegisterHookCallback>>> =
+  LazyLock::new(Default::default);
 #[cfg(not(feature = "noop"))]
 static MODULE_CLASS_PROPERTIES: LazyLock<ModuleClassProperty> = LazyLock::new(Default::default);
 #[cfg(not(feature = "noop"))]
@@ -138,6 +145,19 @@ pub fn register_module_export(
   _cb: ExportRegisterCallback,
 ) {
 }
+
+#[cfg(not(feature = "noop"))]
+#[doc(hidden)]
+pub fn register_module_export_hook(cb: ExportRegisterHookCallback) {
+  let mut inner = MODULE_REGISTER_HOOK_CALLBACK
+    .write()
+    .expect("Write MODULE_REGISTER_HOOK_CALLBACK failed");
+  *inner = Some(cb);
+}
+
+#[cfg(feature = "noop")]
+#[doc(hidden)]
+pub fn register_module_export_hook(_cb: ExportRegisterHookCallback) {}
 
 #[doc(hidden)]
 pub fn register_js_function(
@@ -242,6 +262,7 @@ pub unsafe extern "C" fn napi_register_module_v1(
   env: sys::napi_env,
   exports: sys::napi_value,
 ) -> sys::napi_value {
+  let current_thread_id = std::thread::current().id();
   #[cfg(any(target_env = "msvc", feature = "dyn-symbols"))]
   unsafe {
     sys::setup();
@@ -436,10 +457,19 @@ pub unsafe extern "C" fn napi_register_module_v1(
 
   REGISTERED_CLASSES.borrow_mut(|map| {
     map.insert(
-      std::thread::current().id(),
+      current_thread_id,
       PersistedPerInstanceHashMap::from_hashmap(registered_classes),
     )
   });
+
+  let module_register_hook_callback = MODULE_REGISTER_HOOK_CALLBACK
+    .read()
+    .expect("Read MODULE_REGISTER_HOOK_CALLBACK failed");
+  if let Some(cb) = module_register_hook_callback.as_ref() {
+    if let Err(e) = cb(env, exports) {
+      JsError::from(e).throw_into(env);
+    }
+  }
 
   #[cfg(feature = "compat-mode")]
   {
@@ -480,7 +510,7 @@ pub unsafe extern "C" fn napi_register_module_v1(
     create_custom_gc(env, current_thread_id);
     #[cfg(feature = "tokio_rt")]
     {
-      crate::tokio_runtime::ensure_runtime();
+      crate::tokio_runtime::start_async_runtime();
     }
   }
   FIRST_MODULE_REGISTERED.store(true, Ordering::SeqCst);
@@ -570,7 +600,7 @@ unsafe extern "C" fn thread_cleanup(
   if MODULE_COUNT.fetch_sub(1, Ordering::Relaxed) == 1 {
     #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
     {
-      crate::tokio_runtime::shutdown_tokio_runtime();
+      crate::tokio_runtime::shutdown_async_runtime();
     }
     crate::bindgen_runtime::REFERENCE_MAP.borrow_mut(|m| m.clear());
     #[allow(clippy::needless_return)]

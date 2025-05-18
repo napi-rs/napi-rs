@@ -1,6 +1,7 @@
 use napi::{
   bindgen_prelude::{
-    Buffer, ClassInstance, JavaScriptClassExt, ObjectFinalize, This, Uint8Array, Unknown,
+    Buffer, ClassInstance, JavaScriptClassExt, JsObjectValue, JsValue, ObjectFinalize, This,
+    Uint8Array, Unknown,
   },
   Env, Property, PropertyAttributes, Result,
 };
@@ -96,7 +97,7 @@ impl Animal {
   pub fn override_individual_arg_on_method(
     &self,
     normal_ty: String,
-    #[napi(ts_arg_type = "{n: string}")] overridden_ty: napi::JsObject,
+    #[napi(ts_arg_type = "{n: string}")] overridden_ty: napi::bindgen_prelude::Object,
   ) -> Bird {
     let obj = overridden_ty.coerce_to_object().unwrap();
     let the_n: Option<String> = obj.get("n").unwrap();
@@ -110,30 +111,30 @@ pub struct Dog {
   pub name: String,
 }
 
-#[napi]
+#[cfg_attr(not(feature = "cfg_attr_napi"), napi_derive::napi)]
 pub struct Bird {
   pub name: String,
 }
 
-#[napi]
+#[cfg_attr(not(feature = "cfg_attr_napi"), napi_derive::napi)]
 impl Bird {
-  #[napi(constructor)]
+  #[cfg_attr(not(feature = "cfg_attr_napi"), napi_derive::napi(constructor))]
   pub fn new(name: String) -> Self {
     Bird { name }
   }
 
-  #[napi]
+  #[cfg_attr(not(feature = "cfg_attr_napi"), napi_derive::napi)]
   pub fn get_count(&self) -> u32 {
     1234
   }
 
-  #[napi]
+  #[cfg_attr(not(feature = "cfg_attr_napi"), napi_derive::napi)]
   pub async fn get_name_async(&self) -> &str {
     tokio::time::sleep(std::time::Duration::new(1, 0)).await;
     self.name.as_str()
   }
 
-  #[napi]
+  #[cfg_attr(not(feature = "cfg_attr_napi"), napi_derive::napi)]
   pub fn accept_slice_method(&self, slice: &[u8]) -> u32 {
     slice.len() as u32
   }
@@ -230,7 +231,7 @@ pub struct NinjaTurtle {
 impl NinjaTurtle {
   #[napi]
   pub fn is_instance_of(env: Env, value: Unknown) -> Result<bool> {
-    Self::instance_of(env, value)
+    Self::instance_of(&env, &value)
   }
 
   /// Create your ninja turtle! 🐢
