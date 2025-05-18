@@ -8,7 +8,7 @@ use crate::Value;
 use crate::{
   async_work,
   bindgen_prelude::{FromNapiValue, JsObjectValue, ToNapiValue, TypeName, Unknown},
-  check_status, sys, Env, Error, JsError, Status, Task, ValueType,
+  check_status, sys, Env, Error, JsError, Task, ValueType,
 };
 
 use super::Object;
@@ -54,9 +54,14 @@ impl<T: Task> AsyncTask<T> {
 /// <https://developer.mozilla.org/zh-CN/docs/Web/API/AbortController>
 pub struct AbortSignal {
   raw_work: Rc<AtomicPtr<sys::napi_async_work__>>,
-  raw_deferred: Rc<AtomicPtr<sys::napi_deferred__>>,
   status: Rc<AtomicU8>,
 }
+
+unsafe impl Send for AbortSignal {}
+unsafe impl Sync for AbortSignal {}
+
+#[repr(transparent)]
+struct AbortSignalStack(Vec<AbortSignal>);
 
 impl FromNapiValue for AbortSignal {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
@@ -70,31 +75,47 @@ impl FromNapiValue for AbortSignal {
     );
     let async_work_inner: Rc<AtomicPtr<sys::napi_async_work__>> =
       Rc::new(AtomicPtr::new(ptr::null_mut()));
-    let raw_promise: Rc<AtomicPtr<sys::napi_deferred__>> = Rc::new(AtomicPtr::new(ptr::null_mut()));
     let task_status = Rc::new(AtomicU8::new(0));
-    let abort_controller = AbortSignal {
+    let abort_signal = AbortSignal {
       raw_work: async_work_inner.clone(),
-      raw_deferred: raw_promise.clone(),
       status: task_status.clone(),
     };
     let js_env = Env::from_raw(env);
-    check_status!(unsafe {
-      sys::napi_wrap(
-        env,
-        signal.0.value,
-        Box::into_raw(Box::new(abort_controller)).cast(),
-        Some(async_task_abort_controller_finalize),
-        ptr::null_mut(),
-        ptr::null_mut(),
-      )
-    })?;
+
+    let mut stack;
+    let mut maybe_stack = ptr::null_mut();
+    let unwrap_status = unsafe { sys::napi_unwrap(env, signal.0.value, &mut maybe_stack) };
+    if unwrap_status == sys::Status::napi_ok {
+      stack = unsafe { Box::from_raw(maybe_stack as *mut AbortSignalStack) };
+      stack.0.push(abort_signal);
+      check_status!(
+        unsafe { sys::napi_remove_wrap(env, signal.0.value, ptr::null_mut()) },
+        "Remove existed wrap of AbortSignal failed"
+      )?;
+    } else {
+      stack = Box::new(AbortSignalStack(vec![abort_signal]));
+    }
+    let mut signal_ref = ptr::null_mut();
+    check_status!(
+      unsafe {
+        sys::napi_wrap(
+          env,
+          signal.0.value,
+          Box::into_raw(stack).cast(),
+          Some(async_task_abort_controller_finalize),
+          ptr::null_mut(),
+          &mut signal_ref,
+        )
+      },
+      "Wrap AbortSignal failed"
+    )?;
     signal.set_named_property(
       "onabort",
-      js_env.create_function::<Unknown, Unknown>("onabort", on_abort)?,
+      js_env.create_function::<(), Unknown>("onabort", on_abort)?,
     )?;
+
     Ok(AbortSignal {
       raw_work: async_work_inner,
-      raw_deferred: raw_promise,
       status: task_status,
     })
   }
@@ -104,63 +125,70 @@ extern "C" fn on_abort(
   env: sys::napi_env,
   callback_info: sys::napi_callback_info,
 ) -> sys::napi_value {
+  match on_abort_impl(env, callback_info) {
+    Err(err) => {
+      let js_err = JsError::from(err);
+      unsafe { js_err.throw_into(env) };
+      ptr::null_mut()
+    }
+    Ok(undefined) => undefined,
+  }
+}
+
+fn on_abort_impl(
+  env: sys::napi_env,
+  callback_info: sys::napi_callback_info,
+) -> Result<sys::napi_value, Error> {
   let mut this = ptr::null_mut();
   unsafe {
-    let get_cb_info_status = sys::napi_get_cb_info(
-      env,
-      callback_info,
-      &mut 0,
-      ptr::null_mut(),
-      &mut this,
-      ptr::null_mut(),
-    );
-    debug_assert_eq!(
-      get_cb_info_status,
-      sys::Status::napi_ok,
-      "{}",
+    check_status!(
+      sys::napi_get_cb_info(
+        env,
+        callback_info,
+        &mut 0,
+        ptr::null_mut(),
+        &mut this,
+        ptr::null_mut(),
+      ),
       "Get callback info in AbortController abort callback failed"
-    );
+    )?;
     let mut async_task = ptr::null_mut();
-    let status = sys::napi_unwrap(env, this, &mut async_task);
-    debug_assert_eq!(
-      status,
-      sys::Status::napi_ok,
-      "{}",
+    check_status!(
+      sys::napi_unwrap(env, this, &mut async_task),
       "Unwrap async_task from AbortSignal failed"
-    );
-    let abort_controller = Box::leak(Box::from_raw(async_task as *mut AbortSignal));
-    // Task Completed, return now
-    if abort_controller.status.load(Ordering::Relaxed) == 1 {
-      return ptr::null_mut();
+    )?;
+    let abort_controller_stack = Box::leak(Box::from_raw(async_task as *mut AbortSignalStack));
+    for abort_controller in abort_controller_stack.0.iter() {
+      // Task Completed, return now
+      if abort_controller.status.load(Ordering::Relaxed) == 1 {
+        return Ok(ptr::null_mut());
+      }
+      let raw_async_work = abort_controller.raw_work.load(Ordering::Relaxed);
+      let status = sys::napi_cancel_async_work(env, raw_async_work);
+      // async work is already started, so we can't cancel it
+      if status != sys::Status::napi_ok {
+        abort_controller.status.store(0, Ordering::Relaxed);
+      } else {
+        // abort function must be called from JavaScript main thread, so Relaxed Ordering is ok.
+        abort_controller.status.store(2, Ordering::Relaxed);
+      }
     }
-    let raw_async_work = abort_controller.raw_work.load(Ordering::Relaxed);
-    let deferred = abort_controller.raw_deferred.load(Ordering::Relaxed);
-    sys::napi_cancel_async_work(env, raw_async_work);
-    // abort function must be called from JavaScript main thread, so Relaxed Ordering is ok.
-    abort_controller.status.store(2, Ordering::Relaxed);
-    let abort_error = Error::new(Status::Cancelled, "AbortError".to_owned());
-    let reject_status =
-      sys::napi_reject_deferred(env, deferred, JsError::from(abort_error).into_value(env));
-    debug_assert_eq!(
-      reject_status,
-      sys::Status::napi_ok,
-      "{}",
-      "Reject AbortError failed"
-    );
+    let mut undefined = ptr::null_mut();
+    check_status!(
+      sys::napi_get_undefined(env, &mut undefined),
+      "Get undefined in AbortSignal::on_abort callback failed"
+    )?;
+    Ok(undefined)
   }
-  ptr::null_mut()
 }
 
 impl<T: Task> ToNapiValue for AsyncTask<T> {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> crate::Result<sys::napi_value> {
-    if let Some(abort_controller) = val.abort_signal {
-      let async_promise = async_work::run(env, val.inner, Some(abort_controller.status.clone()))?;
-      abort_controller
+    if let Some(abort_signal) = val.abort_signal {
+      let async_promise = async_work::run(env, val.inner, Some(abort_signal.status.clone()))?;
+      abort_signal
         .raw_work
         .store(async_promise.napi_async_work, Ordering::Relaxed);
-      abort_controller
-        .raw_deferred
-        .store(async_promise.deferred, Ordering::Relaxed);
       Ok(async_promise.promise_object().inner)
     } else {
       let async_promise = async_work::run(env, val.inner, None)?;
@@ -174,5 +202,5 @@ unsafe extern "C" fn async_task_abort_controller_finalize(
   finalize_data: *mut c_void,
   _finalize_hint: *mut c_void,
 ) {
-  drop(unsafe { Box::from_raw(finalize_data as *mut AbortSignal) });
+  drop(unsafe { Box::from_raw(finalize_data as *mut AbortSignalStack) });
 }
