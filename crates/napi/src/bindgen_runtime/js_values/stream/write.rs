@@ -2,9 +2,9 @@ use std::{marker::PhantomData, ptr};
 
 use crate::{
   bindgen_prelude::{
-    FromNapiValue, Function, PromiseRaw, ToNapiValue, TypeName, ValidateNapiValue,
+    FromNapiValue, Function, JsObjectValue, PromiseRaw, ToNapiValue, TypeName, ValidateNapiValue,
   },
-  check_status, sys, Env, Error, JsObjectValue, JsValue, Result, Status, Value, ValueType,
+  check_status, sys, Env, Error, JsValue, Result, Status, Value, ValueType,
 };
 
 pub struct WriteableStream<'env> {

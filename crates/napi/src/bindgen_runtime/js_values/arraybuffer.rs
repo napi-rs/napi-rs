@@ -9,8 +9,10 @@ use std::sync::atomic::Ordering;
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
 use crate::bindgen_prelude::{CUSTOM_GC_TSFN, CUSTOM_GC_TSFN_DESTROYED, THREADS_CAN_ACCESS_ENV};
 use crate::{
-  bindgen_prelude::{FromNapiValue, JsValue, This, ToNapiValue, TypeName, ValidateNapiValue},
-  check_status, sys, Env, Error, JsObjectValue, Result, Status, Value, ValueType,
+  bindgen_prelude::{
+    FromNapiValue, JsObjectValue, JsValue, This, ToNapiValue, TypeName, ValidateNapiValue,
+  },
+  check_status, sys, Env, Error, Result, Status, Value, ValueType,
 };
 
 #[repr(i32)]

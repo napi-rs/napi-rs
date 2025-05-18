@@ -8,7 +8,8 @@ use crate::threadsafe_function::{ThreadsafeCallContext, ThreadsafeFunction};
 #[allow(deprecated)]
 pub use crate::JsFunction;
 use crate::{
-  check_pending_exception, check_status, sys, Env, JsObjectValue, JsValue, Result, ValueType,
+  bindgen_runtime::JsObjectValue, check_pending_exception, check_status, sys, Env, JsValue, Result,
+  ValueType,
 };
 
 pub trait JsValuesTupleIntoVec {

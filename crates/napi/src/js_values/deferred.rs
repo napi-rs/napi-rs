@@ -2,12 +2,12 @@ use std::marker::PhantomData;
 use std::os::raw::c_void;
 use std::ptr;
 
+#[cfg(feature = "deferred_trace")]
+use crate::{bindgen_runtime::JsObjectValue, JsValue};
 use crate::{
   bindgen_runtime::{Object, ToNapiValue},
   check_status, sys, Env, Error, Result,
 };
-#[cfg(feature = "deferred_trace")]
-use crate::{JsObjectValue, JsValue};
 
 #[cfg(feature = "deferred_trace")]
 /// A javascript error which keeps a stack trace

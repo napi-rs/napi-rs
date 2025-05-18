@@ -1,13 +1,491 @@
+use std::any::{type_name, TypeId};
 #[cfg(feature = "napi6")]
 use std::convert::TryFrom;
+use std::ffi::{c_void, CString};
 use std::marker::PhantomData;
 use std::ptr;
 
-#[cfg(feature = "napi5")]
-use crate::Env;
 use crate::{
-  bindgen_prelude::*, check_status, sys, type_of, JsObjectValue, JsValue, Value, ValueType,
+  bindgen_prelude::*, check_status, raw_finalize, sys, type_of, Callback, JsValue, Ref,
+  TaggedObject, Value, ValueType,
 };
+#[cfg(feature = "napi5")]
+use crate::{Env, PropertyClosures};
+
+pub trait JsObjectValue<'env>: JsValue<'env> {
+  fn set_property<'k, 'v, K, V>(&mut self, key: K, value: V) -> Result<()>
+  where
+    K: JsValue<'k>,
+    V: JsValue<'v>,
+  {
+    let env = self.value().env;
+    check_status!(unsafe {
+      sys::napi_set_property(env, self.value().value, key.raw(), value.raw())
+    })
+  }
+
+  fn get_property<'k, K, T>(&self, key: K) -> Result<T>
+  where
+    K: JsValue<'k>,
+    T: FromNapiValue + ValidateNapiValue,
+  {
+    let mut raw_value = ptr::null_mut();
+    let env = self.value().env;
+    check_status!(unsafe {
+      sys::napi_get_property(env, self.value().value, key.raw(), &mut raw_value)
+    })?;
+    unsafe { T::validate(env, raw_value) }.map_err(|mut err| {
+      err.reason = format!(
+        "Object property '{:?}' type mismatch. {}",
+        key
+          .coerce_to_string()
+          .and_then(|s| s.into_utf8())
+          .and_then(|s| s.into_owned()),
+        err.reason
+      );
+      err
+    })?;
+    unsafe { T::from_napi_value(env, raw_value) }
+  }
+
+  fn get_property_unchecked<'k, K, T>(&self, key: K) -> Result<T>
+  where
+    K: JsValue<'k>,
+    T: FromNapiValue,
+  {
+    let mut raw_value = ptr::null_mut();
+    let env = self.value().env;
+    check_status!(unsafe {
+      sys::napi_get_property(env, self.value().value, key.raw(), &mut raw_value)
+    })?;
+    unsafe { T::from_napi_value(env, raw_value) }
+  }
+
+  fn set_named_property<T>(&mut self, name: &str, value: T) -> Result<()>
+  where
+    T: ToNapiValue,
+  {
+    let key = CString::new(name)?;
+    let env = self.value().env;
+    check_status!(unsafe {
+      sys::napi_set_named_property(env, self.raw(), key.as_ptr(), T::to_napi_value(env, value)?)
+    })
+  }
+
+  fn create_named_method(&mut self, name: &str, function: Callback) -> Result<()> {
+    let mut js_function = ptr::null_mut();
+    let len = name.len();
+    let name = CString::new(name)?;
+    let env = self.value().env;
+    check_status!(unsafe {
+      sys::napi_create_function(
+        env,
+        name.as_ptr(),
+        len as isize,
+        Some(function),
+        ptr::null_mut(),
+        &mut js_function,
+      )
+    })?;
+    check_status!(
+      unsafe { sys::napi_set_named_property(env, self.value().value, name.as_ptr(), js_function) },
+      "create_named_method error"
+    )
+  }
+
+  fn get_named_property<T>(&self, name: &str) -> Result<T>
+  where
+    T: FromNapiValue + ValidateNapiValue,
+  {
+    let key = CString::new(name)?;
+    let mut raw_value = ptr::null_mut();
+    let env = self.value().env;
+    check_status!(
+      unsafe {
+        sys::napi_get_named_property(env, self.value().value, key.as_ptr(), &mut raw_value)
+      },
+      "get_named_property error"
+    )?;
+    unsafe { <T as ValidateNapiValue>::validate(env, raw_value) }.map_err(|mut err| {
+      err.reason = format!("Object property '{name}' type mismatch. {}", err.reason);
+      err
+    })?;
+    unsafe { <T as FromNapiValue>::from_napi_value(env, raw_value) }
+  }
+
+  fn get_named_property_unchecked<T>(&self, name: &str) -> Result<T>
+  where
+    T: FromNapiValue,
+  {
+    let key = CString::new(name)?;
+    let mut raw_value = ptr::null_mut();
+    let env = self.value().env;
+    check_status!(
+      unsafe {
+        sys::napi_get_named_property(env, self.value().value, key.as_ptr(), &mut raw_value)
+      },
+      "get_named_property_unchecked error"
+    )?;
+    unsafe { <T as FromNapiValue>::from_napi_value(env, raw_value) }
+  }
+
+  fn has_named_property<N: AsRef<str>>(&self, name: N) -> Result<bool> {
+    let mut result = false;
+    let key = CString::new(name.as_ref())?;
+    let env = self.value().env;
+    check_status!(
+      unsafe { sys::napi_has_named_property(env, self.value().value, key.as_ptr(), &mut result) },
+      "napi_has_named_property error"
+    )?;
+    Ok(result)
+  }
+
+  fn delete_property<'s, S>(&mut self, name: S) -> Result<bool>
+  where
+    S: JsValue<'s>,
+  {
+    let mut result = false;
+    let env = self.value().env;
+    check_status!(unsafe {
+      sys::napi_delete_property(env, self.value().value, name.raw(), &mut result)
+    })?;
+    Ok(result)
+  }
+
+  fn delete_named_property(&mut self, name: &str) -> Result<bool> {
+    let mut result = false;
+    let mut js_key = ptr::null_mut();
+    let env = self.value().env;
+    check_status!(unsafe {
+      sys::napi_create_string_utf8(env, name.as_ptr().cast(), name.len() as isize, &mut js_key)
+    })?;
+    check_status!(unsafe {
+      sys::napi_delete_property(env, self.value().value, js_key, &mut result)
+    })?;
+    Ok(result)
+  }
+
+  fn has_own_property(&self, key: &str) -> Result<bool> {
+    let mut result = false;
+    let mut js_key = ptr::null_mut();
+    let env = self.value().env;
+    check_status!(unsafe {
+      sys::napi_create_string_utf8(env, key.as_ptr().cast(), key.len() as isize, &mut js_key)
+    })?;
+    check_status!(unsafe {
+      sys::napi_has_own_property(env, self.value().value, js_key, &mut result)
+    })?;
+    Ok(result)
+  }
+
+  fn has_own_property_js<'k, K>(&self, key: K) -> Result<bool>
+  where
+    K: JsValue<'k>,
+  {
+    let mut result = false;
+    let env = self.value().env;
+    check_status!(unsafe {
+      sys::napi_has_own_property(env, self.value().value, key.raw(), &mut result)
+    })?;
+    Ok(result)
+  }
+
+  fn has_property(&self, name: &str) -> Result<bool> {
+    let mut js_key = ptr::null_mut();
+    let mut result = false;
+    let env = self.value().env;
+    check_status!(unsafe {
+      sys::napi_create_string_utf8(env, name.as_ptr().cast(), name.len() as isize, &mut js_key)
+    })?;
+    check_status!(unsafe { sys::napi_has_property(env, self.value().value, js_key, &mut result) })?;
+    Ok(result)
+  }
+
+  fn has_property_js<'k, K>(&self, name: K) -> Result<bool>
+  where
+    K: JsValue<'k>,
+  {
+    let mut result = false;
+    let env = self.value().env;
+    check_status!(unsafe {
+      sys::napi_has_property(env, self.value().value, name.raw(), &mut result)
+    })?;
+    Ok(result)
+  }
+
+  fn get_property_names(&self) -> Result<Object<'env>> {
+    let mut raw_value = ptr::null_mut();
+    let env = self.value().env;
+    check_status!(unsafe {
+      sys::napi_get_property_names(env, self.value().value, &mut raw_value)
+    })?;
+    Ok(Object::from_raw(env, raw_value))
+  }
+
+  /// Create a reference and return it as a `Ref<Object<'static>>`.
+  fn create_ref(&self) -> Result<Ref<Object<'static>>> {
+    let env = self.value().env;
+    let mut raw_ref = ptr::null_mut();
+    check_status!(unsafe { sys::napi_create_reference(env, self.value().value, 1, &mut raw_ref) })?;
+    Ok(Ref {
+      raw_ref,
+      taken: false,
+      _phantom: PhantomData,
+    })
+  }
+
+  /// <https://nodejs.org/api/n-api.html#n_api_napi_get_all_property_names>
+  /// return `Array` of property names
+  #[cfg(feature = "napi6")]
+  fn get_all_property_names(
+    &self,
+    mode: KeyCollectionMode,
+    filter: KeyFilter,
+    conversion: KeyConversion,
+  ) -> Result<Object<'env>> {
+    let mut properties_value = ptr::null_mut();
+    let env = self.value().env;
+    check_status!(unsafe {
+      sys::napi_get_all_property_names(
+        env,
+        self.value().value,
+        mode.into(),
+        filter.into(),
+        conversion.into(),
+        &mut properties_value,
+      )
+    })?;
+    Ok(Object::from_raw(env, properties_value))
+  }
+
+  /// This returns the equivalent of `Object.getPrototypeOf` (which is not the same as the function's prototype property).
+  fn get_prototype(&self) -> Result<Unknown<'env>> {
+    let mut result = ptr::null_mut();
+    let env = self.value().env;
+    check_status!(unsafe { sys::napi_get_prototype(env, self.value().value, &mut result) })?;
+    Ok(unsafe { Unknown::from_raw_unchecked(env, result) })
+  }
+
+  fn get_prototype_unchecked<T>(&self) -> Result<T>
+  where
+    T: FromNapiValue,
+  {
+    let mut result = ptr::null_mut();
+    let env = self.value().env;
+    check_status!(unsafe { sys::napi_get_prototype(env, self.value().value, &mut result) })?;
+    unsafe { T::from_napi_value(env, result) }
+  }
+
+  fn set_element<'t, T>(&mut self, index: u32, value: T) -> Result<()>
+  where
+    T: JsValue<'t>,
+  {
+    let env = self.value().env;
+    check_status!(unsafe { sys::napi_set_element(env, self.value().value, index, value.raw()) })
+  }
+
+  fn has_element(&self, index: u32) -> Result<bool> {
+    let mut result = false;
+    let env = self.value().env;
+    check_status!(unsafe { sys::napi_has_element(env, self.value().value, index, &mut result) })?;
+    Ok(result)
+  }
+
+  fn delete_element(&mut self, index: u32) -> Result<bool> {
+    let mut result = false;
+    let env = self.value().env;
+    check_status!(unsafe {
+      sys::napi_delete_element(env, self.value().value, index, &mut result)
+    })?;
+    Ok(result)
+  }
+
+  fn get_element<T>(&self, index: u32) -> Result<T>
+  where
+    T: FromNapiValue,
+  {
+    let mut raw_value = ptr::null_mut();
+    let env = self.value().env;
+    check_status!(unsafe {
+      sys::napi_get_element(env, self.value().value, index, &mut raw_value)
+    })?;
+    unsafe { T::from_napi_value(env, raw_value) }
+  }
+
+  /// This method allows the efficient definition of multiple properties on a given object.
+  fn define_properties(&mut self, properties: &[Property]) -> Result<()> {
+    let properties_iter = properties.iter().map(|property| property.raw());
+    let env = self.value().env;
+    #[cfg(feature = "napi5")]
+    {
+      let mut closures = properties_iter
+        .clone()
+        .map(|p| p.data)
+        .filter(|data| !data.is_null())
+        .collect::<Vec<*mut std::ffi::c_void>>();
+      let len = Box::into_raw(Box::new(closures.len()));
+      check_status!(unsafe {
+        sys::napi_add_finalizer(
+          env,
+          self.value().value,
+          closures.as_mut_ptr().cast(),
+          Some(finalize_closures),
+          len.cast(),
+          ptr::null_mut(),
+        )
+      })?;
+      std::mem::forget(closures);
+    }
+    check_status!(unsafe {
+      sys::napi_define_properties(
+        env,
+        self.value().value,
+        properties.len(),
+        properties_iter
+          .collect::<Vec<sys::napi_property_descriptor>>()
+          .as_ptr(),
+      )
+    })
+  }
+
+  /// Perform `is_array` check before get the length
+  /// if `Object` is not array, `ArrayExpected` error returned
+  fn get_array_length(&self) -> Result<u32> {
+    if !(self.is_array()?) {
+      return Err(Error::new(
+        Status::ArrayExpected,
+        "Object is not array".to_owned(),
+      ));
+    }
+    self.get_array_length_unchecked()
+  }
+
+  /// use this API if you can ensure this `Object` is `Array`
+  fn get_array_length_unchecked(&self) -> Result<u32> {
+    let mut length: u32 = 0;
+    let env = self.value().env;
+    check_status!(unsafe { sys::napi_get_array_length(env, self.value().value, &mut length) })?;
+    Ok(length)
+  }
+
+  fn wrap<T: 'static>(&mut self, native_object: T, size_hint: Option<usize>) -> Result<()> {
+    let env = self.value().env;
+    let value = self.raw();
+    check_status!(unsafe {
+      sys::napi_wrap(
+        env,
+        value,
+        Box::into_raw(Box::new(TaggedObject::new(native_object))).cast(),
+        Some(raw_finalize::<TaggedObject<T>>),
+        Box::into_raw(Box::new(size_hint.unwrap_or(0) as i64)).cast(),
+        ptr::null_mut(),
+      )
+    })
+  }
+
+  fn unwrap<T: 'static>(&self) -> Result<&mut T> {
+    let env = self.value().env;
+    let value = self.raw();
+    unsafe {
+      let mut unknown_tagged_object: *mut c_void = ptr::null_mut();
+      check_status!(sys::napi_unwrap(env, value, &mut unknown_tagged_object,))?;
+
+      let type_id = unknown_tagged_object as *const TypeId;
+      if *type_id == TypeId::of::<T>() {
+        let tagged_object = unknown_tagged_object as *mut TaggedObject<T>;
+        (*tagged_object).object.as_mut().ok_or_else(|| {
+          Error::new(
+            Status::InvalidArg,
+            "Invalid argument, nothing attach to js_object".to_owned(),
+          )
+        })
+      } else {
+        Err(Error::new(
+          Status::InvalidArg,
+          format!(
+            "Invalid argument, {} on unwrap is not the type of wrapped object",
+            type_name::<T>()
+          ),
+        ))
+      }
+    }
+  }
+
+  fn drop_wrapped<T: 'static>(&mut self) -> Result<()> {
+    let env = self.value().env;
+    let value = self.raw();
+    unsafe {
+      let mut unknown_tagged_object = ptr::null_mut();
+      check_status!(sys::napi_remove_wrap(
+        env,
+        value,
+        &mut unknown_tagged_object,
+      ))?;
+      let type_id = unknown_tagged_object as *const TypeId;
+      if *type_id == TypeId::of::<T>() {
+        drop(Box::from_raw(unknown_tagged_object as *mut TaggedObject<T>));
+        Ok(())
+      } else {
+        Err(Error::new(
+          Status::InvalidArg,
+          format!(
+            "Invalid argument, {} on unwrap is not the type of wrapped object",
+            type_name::<T>()
+          ),
+        ))
+      }
+    }
+  }
+
+  #[cfg(feature = "napi5")]
+  fn add_finalizer<T, Hint, F>(
+    &mut self,
+    native: T,
+    finalize_hint: Hint,
+    finalize_cb: F,
+  ) -> Result<()>
+  where
+    T: 'static,
+    Hint: 'static,
+    F: FnOnce(FinalizeContext<T, Hint>) + 'static,
+  {
+    let mut maybe_ref = ptr::null_mut();
+    let env = self.value().env;
+    let value = self.raw();
+    let wrap_context = Box::leak(Box::new((native, finalize_cb, ptr::null_mut())));
+    check_status!(unsafe {
+      sys::napi_add_finalizer(
+        env,
+        value,
+        wrap_context as *mut _ as *mut c_void,
+        Some(
+          finalize_callback::<T, Hint, F>
+            as unsafe extern "C" fn(
+              env: sys::napi_env,
+              finalize_data: *mut c_void,
+              finalize_hint: *mut c_void,
+            ),
+        ),
+        Box::leak(Box::new(finalize_hint)) as *mut _ as *mut c_void,
+        &mut maybe_ref, // Note: this does not point to the boxed one…
+      )
+    })?;
+    wrap_context.2 = maybe_ref;
+    Ok(())
+  }
+
+  #[cfg(feature = "napi8")]
+  fn freeze(&mut self) -> Result<()> {
+    let env = self.value().env;
+    check_status!(unsafe { sys::napi_object_freeze(env, self.value().value) })
+  }
+
+  #[cfg(feature = "napi8")]
+  fn seal(&mut self) -> Result<()> {
+    let env = self.value().env;
+    check_status!(unsafe { sys::napi_object_seal(env, self.value().value) })
+  }
+}
 
 #[derive(Clone, Copy)]
 pub struct Object<'env>(pub(crate) Value, pub(crate) PhantomData<&'env ()>);
@@ -278,5 +756,45 @@ impl From<KeyConversion> for sys::napi_key_conversion {
       KeyConversion::KeepNumbers => sys::KeyConversion::keep_numbers,
       KeyConversion::NumbersToStrings => sys::KeyConversion::numbers_to_strings,
     }
+  }
+}
+
+#[cfg(feature = "napi5")]
+unsafe extern "C" fn finalize_callback<T, Hint, F>(
+  raw_env: sys::napi_env,
+  finalize_data: *mut c_void,
+  finalize_hint: *mut c_void,
+) where
+  T: 'static,
+  Hint: 'static,
+  F: FnOnce(FinalizeContext<T, Hint>),
+{
+  use crate::Env;
+
+  let (value, callback, raw_ref) =
+    unsafe { *Box::from_raw(finalize_data as *mut (T, F, sys::napi_ref)) };
+  let hint = unsafe { *Box::from_raw(finalize_hint as *mut Hint) };
+  let env = Env::from_raw(raw_env);
+  callback(FinalizeContext { env, value, hint });
+  if !raw_ref.is_null() {
+    let status = unsafe { sys::napi_delete_reference(raw_env, raw_ref) };
+    debug_assert!(
+      status == sys::Status::napi_ok,
+      "Delete reference in finalize callback failed"
+    );
+  }
+}
+
+#[cfg(feature = "napi5")]
+pub(crate) unsafe extern "C" fn finalize_closures(
+  _env: sys::napi_env,
+  data: *mut c_void,
+  len: *mut c_void,
+) {
+  let length: usize = *unsafe { Box::from_raw(len.cast()) };
+  let closures: Vec<*mut PropertyClosures> =
+    unsafe { Vec::from_raw_parts(data.cast(), length, length) };
+  for closure in closures.into_iter() {
+    drop(unsafe { Box::from_raw(closure) });
   }
 }

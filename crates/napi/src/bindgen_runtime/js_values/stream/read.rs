@@ -15,12 +15,12 @@ use tokio_stream::StreamExt;
 
 use crate::{
   bindgen_prelude::{
-    BufferSlice, CallbackContext, FromNapiValue, Function, Null, Object, PromiseRaw, ToNapiValue,
-    TypeName, Unknown, ValidateNapiValue, NAPI_AUTO_LENGTH,
+    BufferSlice, CallbackContext, FromNapiValue, Function, JsObjectValue, Null, Object, PromiseRaw,
+    ToNapiValue, TypeName, Unknown, ValidateNapiValue, NAPI_AUTO_LENGTH,
   },
   check_status, sys,
   threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode},
-  Env, Error, JsError, JsObjectValue, JsValue, Result, Status, Value, ValueType,
+  Env, Error, JsError, JsValue, Result, Status, Value, ValueType,
 };
 
 pub struct ReadableStream<'env, T> {

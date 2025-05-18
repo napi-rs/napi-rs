@@ -466,7 +466,7 @@ macro_rules! check_status_and_type {
     match c {
       $crate::sys::Status::napi_ok => Ok(()),
       _ => {
-        use $crate::js_values::{JsObjectValue, JsValue};
+        use $crate::js_values::JsValue;
         let value_type = $crate::type_of!($env, $val)?;
         let error_msg = match value_type {
           ValueType::Function => {
