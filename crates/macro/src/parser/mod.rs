@@ -1,11 +1,11 @@
 #[macro_use]
 pub mod attrs;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::str::Chars;
 use std::sync::{
   atomic::{AtomicBool, AtomicUsize, Ordering},
-  Mutex, OnceLock,
+  LazyLock, Mutex, OnceLock,
 };
 
 use attrs::BindgenAttrs;
@@ -34,6 +34,27 @@ static GENERATOR_STRUCT: OnceLock<Mutex<HashMap<String, bool>>> = OnceLock::new(
 static REGISTER_INDEX: AtomicUsize = AtomicUsize::new(0);
 
 static HAS_MODULE_EXPORTS: AtomicBool = AtomicBool::new(false);
+
+static KNOWN_JS_VALUE_TYPES_WITH_LIFETIME: LazyLock<HashSet<&str>> = LazyLock::new(|| {
+  [
+    "Array",
+    "Function",
+    "JsDate",
+    "JsGlobal",
+    "JsNumber",
+    "JsString",
+    "JsSymbol",
+    "JsTimeout",
+    "JSON",
+    "Object",
+    "PromiseRaw",
+    "ReadableStream",
+    "This",
+    "Unknown",
+    "WriteableStream",
+  ]
+  .into()
+});
 
 fn get_register_ident(name: &str) -> Ident {
   let new_name = format!(
@@ -1199,7 +1220,7 @@ impl ConvertToAST for syn::ItemStruct {
   fn convert_to_ast(&mut self, opts: &BindgenAttrs) -> BindgenResult<Napi> {
     let mut errors = vec![];
 
-    let struct_name = self.ident.clone();
+    let struct_name: Ident = self.ident.clone();
     let js_name = opts.js_name().map_or_else(
       || self.ident.to_string().to_case(Case::Pascal),
       |(js_name, _)| js_name.to_owned(),
@@ -1260,6 +1281,30 @@ impl ConvertToAST for syn::ItemStruct {
         is_tuple,
       })
     } else {
+      // field lifetime check, JsValue types with lifetime can't be assigned to a field of napi class struct
+      for syn::Field { ty, .. } in self.fields.iter() {
+        if let syn::Type::Path(syn::TypePath { path, .. }) = ty {
+          if let Some(PathSegment {
+            ident,
+            arguments:
+              syn::PathArguments::AngleBracketed(syn::AngleBracketedGenericArguments { args, .. }),
+            ..
+          }) = path.segments.last()
+          {
+            if let Some(GenericArgument::Lifetime(syn::Lifetime { ident: _, .. })) = args.first() {
+              // has lifetime and type name matched with known js value types
+              if KNOWN_JS_VALUE_TYPES_WITH_LIFETIME.contains(ident.to_string().as_str()) {
+                // TODO: add link for more information
+                errors.push(err_span!(
+                  ty,
+                  "Can't assign {} to a field of napi class struct",
+                  ident
+                ));
+              }
+            }
+          }
+        }
+      }
       NapiStructKind::Class(NapiClass {
         fields,
         ctor: opts.constructor().is_some(),

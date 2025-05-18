@@ -1,0 +1,5 @@
+error: Can't assign Object to a field of napi class struct
+ --> tests/build_error_tests/assign_js_value_to_class.rs:7:14
+  |
+7 |   pub value: napi::bindgen_prelude::Object<'a>,
+  |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
