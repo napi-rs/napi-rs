@@ -786,6 +786,8 @@ export interface Shared {
   value: number
 }
 
+export declare function shorterScope(arr: unknown[]): Array<number>
+
 export declare function shutdownRuntime(): void
 
 export declare function spawnThreadInThread(tsfn: ((err: Error | null, arg: number) => number)): void

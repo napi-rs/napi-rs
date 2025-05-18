@@ -232,6 +232,7 @@ import {
   extendsJavascriptError,
   shutdownRuntime,
   callAsyncWithUnknownReturnValue,
+  shorterScope,
 } from '../index.cjs'
 // import other stuff in `#[napi(module_exports)]`
 import nativeAddon from '../index.cjs'
@@ -1659,4 +1660,9 @@ test('extends javascript error', (t) => {
 
 test('module exports', (t) => {
   t.is(nativeAddon.NAPI_RS_SYMBOL, Symbol.for('NAPI_RS_SYMBOL'))
+})
+
+test('shorter scope', (t) => {
+  const result = shorterScope(['hello', { foo: 'bar' }, 'world', true])
+  t.deepEqual(result, [5, 1, 5, 0])
 })

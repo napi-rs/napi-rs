@@ -80,6 +80,7 @@ mod number;
 mod object;
 mod promise;
 mod reference;
+mod scope;
 mod serde;
 mod set;
 mod shared;
