@@ -606,6 +606,7 @@ module.exports.roundtripStr = nativeBinding.roundtripStr
 module.exports.runScript = nativeBinding.runScript
 module.exports.setNullByteProperty = nativeBinding.setNullByteProperty
 module.exports.setSymbolInObj = nativeBinding.setSymbolInObj
+module.exports.shorterScope = nativeBinding.shorterScope
 module.exports.shutdownRuntime = nativeBinding.shutdownRuntime
 module.exports.spawnThreadInThread = nativeBinding.spawnThreadInThread
 module.exports.Status = nativeBinding.Status

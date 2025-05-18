@@ -25,6 +25,7 @@ mod object;
 #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
 mod promise;
 mod promise_raw;
+mod scope;
 #[cfg(feature = "serde-json")]
 mod serde;
 mod set;
@@ -52,6 +53,7 @@ pub use object::*;
 #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
 pub use promise::*;
 pub use promise_raw::*;
+pub use scope::*;
 #[cfg(feature = "web_stream")]
 pub use stream::*;
 pub use string::*;

@@ -316,6 +316,7 @@ module.exports.roundtripStr = __napiModule.exports.roundtripStr
 module.exports.runScript = __napiModule.exports.runScript
 module.exports.setNullByteProperty = __napiModule.exports.setNullByteProperty
 module.exports.setSymbolInObj = __napiModule.exports.setSymbolInObj
+module.exports.shorterScope = __napiModule.exports.shorterScope
 module.exports.shutdownRuntime = __napiModule.exports.shutdownRuntime
 module.exports.spawnThreadInThread = __napiModule.exports.spawnThreadInThread
 module.exports.Status = __napiModule.exports.Status

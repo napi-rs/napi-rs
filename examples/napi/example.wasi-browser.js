@@ -292,6 +292,7 @@ export const roundtripStr = __napiModule.exports.roundtripStr
 export const runScript = __napiModule.exports.runScript
 export const setNullByteProperty = __napiModule.exports.setNullByteProperty
 export const setSymbolInObj = __napiModule.exports.setSymbolInObj
+export const shorterScope = __napiModule.exports.shorterScope
 export const shutdownRuntime = __napiModule.exports.shutdownRuntime
 export const spawnThreadInThread = __napiModule.exports.spawnThreadInThread
 export const Status = __napiModule.exports.Status
