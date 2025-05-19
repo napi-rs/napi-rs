@@ -26,9 +26,9 @@ use crate::bindgen_runtime::FinalizeContext;
 use crate::bindgen_runtime::FunctionCallContext;
 #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
 use crate::bindgen_runtime::PromiseRaw;
-#[cfg(feature = "napi4")]
-use crate::bindgen_runtime::ToNapiValue;
-use crate::bindgen_runtime::{FromNapiValue, Function, JsValuesTupleIntoVec, Object, Unknown};
+use crate::bindgen_runtime::{
+  FromNapiValue, Function, JsValuesTupleIntoVec, Object, ToNapiValue, Unknown,
+};
 #[cfg(feature = "napi3")]
 use crate::cleanup_env::{CleanupEnvHook, CleanupEnvHookData};
 #[cfg(feature = "serde-json")]

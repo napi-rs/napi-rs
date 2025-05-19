@@ -2,6 +2,7 @@ use std::{marker::PhantomData, ptr};
 
 use crate::{bindgen_prelude::*, check_status, Value};
 
+#[derive(Clone, Copy)]
 pub struct Array<'env> {
   pub(crate) env: sys::napi_env,
   pub(crate) inner: sys::napi_value,

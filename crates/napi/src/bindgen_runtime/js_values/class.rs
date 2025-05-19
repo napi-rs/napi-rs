@@ -12,6 +12,7 @@ use crate::{
   check_status, sys, Env, JsValue, Property, PropertyAttributes, Value, ValueType,
 };
 
+#[derive(Clone, Copy)]
 pub struct This<'env, T = Object<'env>> {
   pub object: T,
   _phantom: &'env PhantomData<()>,
@@ -41,12 +42,6 @@ impl<T> DerefMut for This<'_, T> {
 }
 
 impl<'env, T: JsValue<'env>> JsValue<'env> for This<'_, T> {
-  fn value(&self) -> Value {
-    self.object.value()
-  }
-}
-
-impl<'env, T: JsValue<'env>> JsValue<'env> for &This<'_, T> {
   fn value(&self) -> Value {
     self.object.value()
   }
@@ -146,7 +141,7 @@ impl<'env, T: 'env> ClassInstance<'env, T> {
     U: FromNapiValue + JsValue<'this>,
   {
     let property = Property::new(name)?
-      .with_value(&self)
+      .with_value(self)
       .with_property_attributes(attributes);
 
     check_status!(
@@ -168,16 +163,6 @@ impl<'env, T: 'env> ClassInstance<'env, T> {
       _phantom: &PhantomData,
     };
     Ok(val)
-  }
-}
-
-impl<'env, T: 'env> JsValue<'env> for &ClassInstance<'env, T> {
-  fn value(&self) -> Value {
-    Value {
-      env: self.env,
-      value: self.value,
-      value_type: ValueType::Object,
-    }
   }
 }
 

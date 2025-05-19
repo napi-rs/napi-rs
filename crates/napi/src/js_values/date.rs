@@ -1,10 +1,9 @@
 use std::marker::PhantomData;
 use std::ptr;
 
-use super::{check_status, JsObjectValue};
 use crate::{
-  bindgen_runtime::{FromNapiValue, TypeName, ValidateNapiValue},
-  sys, Error, JsValue, Result, Status, Value, ValueType,
+  bindgen_runtime::{FromNapiValue, JsObjectValue, TypeName, ValidateNapiValue},
+  check_status, sys, Error, JsValue, Result, Status, Value, ValueType,
 };
 
 #[derive(Clone, Copy)]

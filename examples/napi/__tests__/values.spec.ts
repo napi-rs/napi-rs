@@ -233,6 +233,7 @@ import {
   shutdownRuntime,
   callAsyncWithUnknownReturnValue,
   shorterScope,
+  shorterEscapableScope,
 } from '../index.cjs'
 // import other stuff in `#[napi(module_exports)]`
 import nativeAddon from '../index.cjs'
@@ -1665,4 +1666,20 @@ test('module exports', (t) => {
 test('shorter scope', (t) => {
   const result = shorterScope(['hello', { foo: 'bar' }, 'world', true])
   t.deepEqual(result, [5, 1, 5, 0])
+})
+
+test('escapable handle scope', (t) => {
+  function makeIterFunction() {
+    let i = 0
+    return () => {
+      if (i >= 10_000) {
+        return null
+      }
+      i++
+      return Math.random().toString().repeat(100)
+    }
+  }
+  t.notThrows(() => {
+    shorterEscapableScope(makeIterFunction())
+  })
 })
