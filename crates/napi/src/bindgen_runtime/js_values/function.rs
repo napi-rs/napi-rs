@@ -105,6 +105,7 @@ impl_tuple_conversion!(
   A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z
 );
 
+#[derive(Clone, Copy)]
 /// A JavaScript function.
 /// It can only live in the scope of a function call.
 /// If you want to use it outside the scope of a function call, you can turn it into a reference.

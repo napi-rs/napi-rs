@@ -12,11 +12,11 @@ use crate::bindgen_runtime::finalize_closures;
 #[cfg(feature = "compat-mode")]
 use crate::{
   bindgen_runtime::{FromNapiValue, ValidateNapiValue},
-  type_of, Callback, Error, Status,
+  check_status, type_of, Callback, Error, Status,
 };
 use crate::{
   bindgen_runtime::{JsObjectValue, ToNapiValue},
-  check_status, sys, Result, ValueType,
+  sys, Result, ValueType,
 };
 
 #[cfg(feature = "compat-mode")]

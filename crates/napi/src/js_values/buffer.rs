@@ -3,7 +3,7 @@ use std::ops::{Deref, DerefMut};
 use std::ptr;
 
 use crate::{
-  bindgen_runtime::{TypeName, ValidateNapiValue},
+  bindgen_runtime::{FromNapiValue, TypeName, ValidateNapiValue},
   check_status, sys, Env, Error, JsValue, Ref, Result, Status, Unknown, Value, ValueType,
 };
 
@@ -31,6 +31,16 @@ impl ValidateNapiValue for JsBuffer {
       ));
     }
     Ok(ptr::null_mut())
+  }
+}
+
+impl FromNapiValue for JsBuffer {
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
+    Ok(JsBuffer(Value {
+      env,
+      value: napi_val,
+      value_type: ValueType::Object,
+    }))
   }
 }
 

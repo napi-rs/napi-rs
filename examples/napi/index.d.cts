@@ -786,6 +786,8 @@ export interface Shared {
   value: number
 }
 
+export declare function shorterEscapableScope(createString: () => string | null): string
+
 export declare function shorterScope(arr: unknown[]): Array<number>
 
 export declare function shutdownRuntime(): void
