@@ -762,7 +762,7 @@ class Builder {
       const idents = await this.generateTypeDef()
       const jsOutput = await this.writeJsBinding(idents)
       const wasmBindingsOutput = await this.writeWasiBinding(
-        wasmBinaryName ?? 'index.wasm',
+        wasmBinaryName,
         idents,
       )
       if (jsOutput) {
@@ -966,7 +966,7 @@ class Builder {
   }
 
   private async writeWasiBinding(
-    distFileName: string | undefined,
+    distFileName: string | undefined | null,
     idents: string[],
   ) {
     if (distFileName) {
