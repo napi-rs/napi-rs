@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.80](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.79...@napi-rs/cli@3.0.0-alpha.80) (2025-05-20)
+
+### Bug Fixes
+
+- **cli:** do not create wasi binding in non-wasi packages ([#2654](https://github.com/napi-rs/napi-rs/issues/2654)) ([446a654](https://github.com/napi-rs/napi-rs/commit/446a65489cd6fa3aef953bf65beb4403e33735fd))
+
 # [3.0.0-alpha.79](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.78...@napi-rs/cli@3.0.0-alpha.79) (2025-05-16)
 
 ### Bug Fixes
