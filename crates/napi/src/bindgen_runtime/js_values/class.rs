@@ -87,7 +87,7 @@ impl<'env, T: 'env> ClassInstance<'env, T> {
     }
   }
 
-  pub fn as_object(&self, env: &Env) -> Object {
+  pub fn as_object<'a>(&self, env: &'a Env) -> Object<'a> {
     Object(
       Value {
         env: env.raw(),
