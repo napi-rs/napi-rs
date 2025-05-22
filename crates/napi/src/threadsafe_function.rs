@@ -14,7 +14,9 @@ use std::sync::{
 use crate::bindgen_runtime::{
   FromNapiValue, JsValuesTupleIntoVec, TypeName, Unknown, ValidateNapiValue,
 };
-use crate::{check_status, sys, Env, Error, JsError, Result, Status};
+use crate::{
+  check_status, get_error_message_and_stack_trace, sys, Env, Error, JsError, Result, Status,
+};
 
 #[deprecated(since = "2.17.0", note = "Please use `ThreadsafeFunction` instead")]
 pub type ThreadSafeCallContext<T> = ThreadsafeCallContext<T>;
@@ -687,11 +689,14 @@ unsafe extern "C" fn call_js_cb<
           let raw_status = status;
           status =
             unsafe { sys::napi_create_reference(raw_env, exception, 1, &mut error_reference) };
-          Err(Error {
-            maybe_raw: error_reference,
-            maybe_env: raw_env,
-            status: Status::from(raw_status),
-            reason: String::new(),
+
+          get_error_message_and_stack_trace(raw_env, exception).and_then(|reason| {
+            Err(Error {
+              maybe_raw: error_reference,
+              maybe_env: raw_env,
+              status: Status::from(raw_status),
+              reason,
+            })
           })
         } else {
           unsafe { Return::from_napi_value(raw_env, return_value) }

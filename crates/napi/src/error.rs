@@ -280,6 +280,38 @@ pub struct JsRangeError<S: AsRef<str> = Status>(Error<S>);
 #[cfg(feature = "napi9")]
 pub struct JsSyntaxError<S: AsRef<str> = Status>(Error<S>);
 
+pub(crate) fn get_error_message_and_stack_trace(
+  env: sys::napi_env,
+  err: sys::napi_value,
+) -> Result<String> {
+  use crate::bindgen_runtime::FromNapiValue;
+
+  let mut error_string = ptr::null_mut();
+  check_status!(
+    unsafe { sys::napi_coerce_to_string(env, err, &mut error_string) },
+    "Get error message failed"
+  )?;
+  let mut result = unsafe { String::from_napi_value(env, error_string) }?;
+
+  let mut stack_trace = ptr::null_mut();
+  check_status!(
+    unsafe { sys::napi_get_named_property(env, err, c"stack".as_ptr().cast(), &mut stack_trace) },
+    "Get stack trace failed"
+  )?;
+  let mut stack_type = -1;
+  check_status!(
+    unsafe { sys::napi_typeof(env, stack_trace, &mut stack_type) },
+    "Get stack trace type failed"
+  )?;
+  if stack_type == sys::ValueType::napi_string {
+    let stack_trace = unsafe { String::from_napi_value(env, stack_trace) }?;
+    result.push('\n');
+    result.push_str(&stack_trace);
+  }
+
+  Ok(result)
+}
+
 macro_rules! impl_object_methods {
   ($js_value:ident, $kind:expr) => {
     impl<S: AsRef<str>> $js_value<S> {
