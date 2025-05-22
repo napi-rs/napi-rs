@@ -234,6 +234,7 @@ import {
   callAsyncWithUnknownReturnValue,
   shorterScope,
   shorterEscapableScope,
+  tsfnThrowFromJsCallbackContainsTsfn,
 } from '../index.cjs'
 // import other stuff in `#[napi(module_exports)]`
 import nativeAddon from '../index.cjs'
@@ -1356,6 +1357,32 @@ test('Throw from ThreadsafeFunction JavaScript callback', async (t) => {
       }),
     {
       message: errMsg,
+    },
+  )
+
+  await t.throwsAsync(
+    async () => {
+      await tsfnThrowFromJs(() => {
+        const a = {}
+        // @ts-expect-error
+        a.c.d = 2
+        return Promise.resolve(1)
+      })
+      await tsfnThrowFromJsCallbackContainsTsfn(() => {
+        const a = {}
+        // @ts-expect-error
+        a.b.c = 1
+        tsfnThrowFromJs(() => {
+          // @ts-expect-error
+          a.c.d = 2
+          return Promise.resolve(1)
+        })
+        return Promise.resolve(1)
+      })
+    },
+    {
+      instanceOf: TypeError,
+      message: "Cannot set properties of undefined (setting 'd')",
     },
   )
 })

@@ -198,6 +198,20 @@ pub async fn tsfn_throw_from_js(tsfn: ThreadsafeFunction<u32, Promise<u32>>) -> 
 }
 
 #[napi]
+pub async fn tsfn_throw_from_js_callback_contains_tsfn(
+  tsfn: ThreadsafeFunction<u32, Promise<u32>>,
+) {
+  std::thread::spawn(move || {
+    if let Err(e) = napi::bindgen_prelude::block_on(async move {
+      tsfn.call_async(Ok(42)).await?.await?;
+      Ok::<(), Error>(())
+    }) {
+      println!("Error in tsfn spawned thread: {}", e);
+    }
+  });
+}
+
+#[napi]
 pub fn spawn_thread_in_thread(tsfn: ThreadsafeFunction<u32, u32>) {
   std::thread::spawn(move || {
     std::thread::spawn(move || {
