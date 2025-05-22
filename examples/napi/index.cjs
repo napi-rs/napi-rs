@@ -634,6 +634,7 @@ module.exports.tsfnInEither = nativeBinding.tsfnInEither
 module.exports.tsfnReturnPromise = nativeBinding.tsfnReturnPromise
 module.exports.tsfnReturnPromiseTimeout = nativeBinding.tsfnReturnPromiseTimeout
 module.exports.tsfnThrowFromJs = nativeBinding.tsfnThrowFromJs
+module.exports.tsfnThrowFromJsCallbackContainsTsfn = nativeBinding.tsfnThrowFromJsCallbackContainsTsfn
 module.exports.tsRename = nativeBinding.tsRename
 module.exports.u16ArrayToArray = nativeBinding.u16ArrayToArray
 module.exports.u32ArrayToArray = nativeBinding.u32ArrayToArray

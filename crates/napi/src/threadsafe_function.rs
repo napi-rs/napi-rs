@@ -682,14 +682,16 @@ unsafe extern "C" fn call_js_cb<
         // throw Error in JavaScript callback
         let callback_arg = if status == sys::Status::napi_pending_exception {
           let mut exception = ptr::null_mut();
-          status = unsafe { sys::napi_get_and_clear_last_exception(raw_env, &mut exception) };
+          unsafe { sys::napi_get_and_clear_last_exception(raw_env, &mut exception) };
           let mut error_reference = ptr::null_mut();
-          unsafe { sys::napi_create_reference(raw_env, exception, 1, &mut error_reference) };
+          let raw_status = status;
+          status =
+            unsafe { sys::napi_create_reference(raw_env, exception, 1, &mut error_reference) };
           Err(Error {
             maybe_raw: error_reference,
             maybe_env: raw_env,
-            status: Status::from(status),
-            reason: "".to_owned(),
+            status: Status::from(raw_status),
+            reason: String::new(),
           })
         } else {
           unsafe { Return::from_napi_value(raw_env, return_value) }

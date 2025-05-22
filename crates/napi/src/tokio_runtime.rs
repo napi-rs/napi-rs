@@ -113,6 +113,14 @@ pub fn block_on<F: Future>(fut: F) -> F::Output {
     .expect("Access tokio runtime failed in block_on")
 }
 
+#[cfg(feature = "noop")]
+/// Runs a future to completion
+/// This is blocking, meaning that it pauses other execution until the future is complete,
+/// only use it when it is absolutely necessary, in other places use async functions instead.
+pub fn block_on<F: Future>(fut: F) -> F::Output {
+  unreachable!("noop feature is enabled, block_on is not available")
+}
+
 #[cfg(not(feature = "noop"))]
 /// spawn_blocking on the current Tokio runtime.
 pub fn spawn_blocking<F, R>(func: F) -> tokio::task::JoinHandle<R>
