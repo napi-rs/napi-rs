@@ -25,11 +25,18 @@ async = ["tokio_rt"]
 chrono_date = ["chrono", "napi5"]
 # Enable deprecated types and traits for compatibility
 compat-mode = []
-default = ["napi4"]                                                              # for most Node.js users
+default = ["napi4"] # for most Node.js users
 deferred_trace = ["napi4"]
 error_anyhow = ["anyhow"]
 experimental = ["napi-sys/experimental"]
-full = ["latin1", "napi9", "async", "serde-json", "experimental", "chrono_date"]
+full = [
+  "latin1",
+  "napi10",
+  "async",
+  "serde-json",
+  "experimental",
+  "chrono_date",
+]
 object_indexmap = ["indexmap"]
 latin1 = ["encoding_rs"]
 napi1 = []
@@ -41,6 +48,7 @@ napi6 = ["napi5", "napi-sys/napi6"]
 napi7 = ["napi6", "napi-sys/napi7"]
 napi8 = ["napi7", "napi-sys/napi8"]
 napi9 = ["napi8", "napi-sys/napi9"]
+napi10 = ["napi9", "napi-sys/napi10"]
 web_stream = ["futures-core", "tokio-stream", "napi4", "tokio_rt"]
 noop = []
 serde-json = ["serde", "serde_json"]

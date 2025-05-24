@@ -728,8 +728,8 @@ mod napi9 {
   );
 }
 
-#[cfg(feature = "experimental")]
-mod experimental {
+#[cfg(feature = "napi10")]
+mod napi10 {
   use std::os::raw::{c_char, c_void};
 
   use super::super::types::*;
@@ -784,7 +784,18 @@ mod experimental {
         length: isize,
         result: *mut napi_value,
       ) -> napi_status;
+    }
+  );
+}
 
+#[cfg(feature = "experimental")]
+mod experimental {
+  use std::os::raw::c_void;
+
+  use super::super::types::*;
+
+  generate!(
+    extern "C" {
       fn node_api_post_finalizer(
         env: node_api_basic_env,
         finalize_cb: napi_finalize,
@@ -799,6 +810,8 @@ mod experimental {
 pub use experimental::*;
 
 pub use napi1::*;
+#[cfg(feature = "napi10")]
+pub use napi10::*;
 #[cfg(feature = "napi2")]
 pub use napi2::*;
 #[cfg(feature = "napi3")]

@@ -31,7 +31,7 @@ rustc-hash = "2"
 tokio-stream = "0.1"
 tokio-util = { version = "0.7", features = ["io"] }
 napi = { path = "../../crates/napi", default-features = false, features = [
-  "napi9",
+  "napi10",
   "serde-json",
   "experimental",
   "latin1",
