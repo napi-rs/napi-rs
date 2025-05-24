@@ -534,6 +534,8 @@ export interface FunctionData {
 
 export declare function generateFunctionAndCallIt(): FunctionData
 
+export declare function getBigintJsonValue(value: bigint): void
+
 export declare function getBtreeMapping(): Record<string, number>
 
 export declare function getBuffer(): Buffer

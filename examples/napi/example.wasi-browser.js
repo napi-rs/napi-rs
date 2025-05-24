@@ -210,6 +210,7 @@ export const f64ArrayToArray = __napiModule.exports.f64ArrayToArray
 export const fibonacci = __napiModule.exports.fibonacci
 export const fnReceivedAliased = __napiModule.exports.fnReceivedAliased
 export const generateFunctionAndCallIt = __napiModule.exports.generateFunctionAndCallIt
+export const getBigintJsonValue = __napiModule.exports.getBigintJsonValue
 export const getBtreeMapping = __napiModule.exports.getBtreeMapping
 export const getBuffer = __napiModule.exports.getBuffer
 export const getBufferSlice = __napiModule.exports.getBufferSlice
