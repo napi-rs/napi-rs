@@ -4,6 +4,23 @@
 
 #[cfg(any(target_env = "msvc", feature = "dyn-symbols"))]
 macro_rules! generate {
+  (@stub_fn $name:ident($($param:ident: $ptype:ty,)*) -> napi_status) => {
+    unsafe extern "C" fn $name($(_: $ptype,)*) -> napi_status {
+      eprintln!("Node-API symbol {} has not been loaded", stringify!($name));
+      1
+    }
+  };
+  (@stub_fn $name:ident($($param:ident: $ptype:ty,)*) -> $rtype:ty) => {
+    unsafe extern "C" fn $name($(_: $ptype,)*) -> $rtype {
+      eprintln!("Node-API symbol {} has not been loaded", stringify!($name));
+      unsafe { std::mem::zeroed() }
+    }
+  };
+  (@stub_fn $name:ident($($param:ident: $ptype:ty,)*)) => {
+    unsafe extern "C" fn $name($(_: $ptype,)*) {
+      eprintln!("Node-API symbol {} has not been loaded", stringify!($name));
+    }
+  };
   (extern "C" {
     $(fn $name:ident($($param:ident: $ptype:ty$(,)?)*)$( -> $rtype:ty)?;)+
   }) => {
@@ -15,16 +32,9 @@ macro_rules! generate {
       )*
     }
 
-    #[inline(never)]
-    fn panic_load<T>() -> T {
-      panic!("Node-API symbol has not been loaded")
-    }
-
     static mut NAPI: Napi = {
       $(
-        unsafe extern "C" fn $name($(_: $ptype,)*)$( -> $rtype)* {
-          panic_load()
-        }
+        generate!(@stub_fn $name($($param: $ptype,)*) $( -> $rtype)?);
       )*
 
       Napi {

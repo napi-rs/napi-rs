@@ -756,14 +756,6 @@ mod napi10 {
         copied: *mut bool,
       ) -> napi_status;
 
-      fn node_api_create_buffer_from_arraybuffer(
-        env: napi_env,
-        arraybuffer: napi_value,
-        byte_offset: usize,
-        byte_length: usize,
-        result: *mut napi_value,
-      ) -> napi_status;
-
       fn node_api_create_property_key_utf16(
         env: napi_env,
         str_: *const u16,
@@ -796,6 +788,14 @@ mod experimental {
 
   generate!(
     extern "C" {
+      fn node_api_create_buffer_from_arraybuffer(
+        env: napi_env,
+        arraybuffer: napi_value,
+        byte_offset: usize,
+        byte_length: usize,
+        result: *mut napi_value,
+      ) -> napi_status;
+
       fn node_api_post_finalizer(
         env: node_api_basic_env,
         finalize_cb: napi_finalize,
@@ -895,6 +895,8 @@ pub(super) unsafe fn load_all() -> Result<libloading::Library, libloading::Error
   napi8::load(&host)?;
   #[cfg(feature = "napi9")]
   napi9::load(&host)?;
+  #[cfg(feature = "napi10")]
+  napi10::load(&host)?;
   #[cfg(feature = "experimental")]
   experimental::load(&host)?;
   Ok(host)
