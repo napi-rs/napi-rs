@@ -86,7 +86,6 @@ pub fn get_bigint_json_value(bigint_json_value: Value) {
     }
     Value::String(s) => {
       assert_eq!(s, "18446744073709551620");
-      return;
     }
     _ => {
       unreachable!("should not happen");
