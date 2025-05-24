@@ -524,6 +524,7 @@ module.exports.f64ArrayToArray = nativeBinding.f64ArrayToArray
 module.exports.fibonacci = nativeBinding.fibonacci
 module.exports.fnReceivedAliased = nativeBinding.fnReceivedAliased
 module.exports.generateFunctionAndCallIt = nativeBinding.generateFunctionAndCallIt
+module.exports.getBigintJsonValue = nativeBinding.getBigintJsonValue
 module.exports.getBtreeMapping = nativeBinding.getBtreeMapping
 module.exports.getBuffer = nativeBinding.getBuffer
 module.exports.getBufferSlice = nativeBinding.getBufferSlice

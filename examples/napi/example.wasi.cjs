@@ -234,6 +234,7 @@ module.exports.f64ArrayToArray = __napiModule.exports.f64ArrayToArray
 module.exports.fibonacci = __napiModule.exports.fibonacci
 module.exports.fnReceivedAliased = __napiModule.exports.fnReceivedAliased
 module.exports.generateFunctionAndCallIt = __napiModule.exports.generateFunctionAndCallIt
+module.exports.getBigintJsonValue = __napiModule.exports.getBigintJsonValue
 module.exports.getBtreeMapping = __napiModule.exports.getBtreeMapping
 module.exports.getBuffer = __napiModule.exports.getBuffer
 module.exports.getBufferSlice = __napiModule.exports.getBufferSlice

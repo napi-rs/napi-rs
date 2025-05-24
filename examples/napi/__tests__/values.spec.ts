@@ -137,6 +137,7 @@ import {
   testSerdeRoundtrip,
   testSerdeBigNumberPrecision,
   testSerdeBufferBytes,
+  getBigintJsonValue,
   createObjWithProperty,
   receiveObjectOnlyFromJs,
   dateToNumber,
@@ -881,6 +882,14 @@ test('serde-buffer-bytes', (t) => {
   t.is(testSerdeBufferBytes({ code: Buffer.alloc(0) }), 0n)
   t.is(testSerdeBufferBytes({ code: new ArrayBuffer(10) }), 10n)
   t.is(testSerdeBufferBytes({ code: new ArrayBuffer(0) }), 0n)
+})
+
+test('get bigint json value', (t) => {
+  t.notThrows(() => {
+    getBigintJsonValue(-1n)
+    getBigintJsonValue(1n)
+    getBigintJsonValue(18446744073709551620n)
+  })
 })
 
 test('buffer', (t) => {
