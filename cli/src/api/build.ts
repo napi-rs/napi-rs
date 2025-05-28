@@ -75,7 +75,7 @@ export async function buildProject(options: BuildOptions) {
   const resolvePath = (...paths: string[]) => resolve(cwd, ...paths)
 
   const manifestPath = resolvePath(options.manifestPath ?? 'Cargo.toml')
-  const metadata = parseMetadata(manifestPath)
+  const metadata = await parseMetadata(manifestPath)
 
   const pkg = metadata.packages.find((p) => {
     // package with given name
