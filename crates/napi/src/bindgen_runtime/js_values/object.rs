@@ -777,9 +777,9 @@ unsafe extern "C" fn finalize_callback<T, Hint, F>(
   let env = Env::from_raw(raw_env);
   callback(FinalizeContext { env, value, hint });
   if !raw_ref.is_null() {
-    let status = unsafe { sys::napi_delete_reference(raw_env, raw_ref) };
-    debug_assert!(
-      status == sys::Status::napi_ok,
+    check_status_or_throw!(
+      raw_env,
+      unsafe { sys::napi_delete_reference(raw_env, raw_ref) },
       "Delete reference in finalize callback failed"
     );
   }
