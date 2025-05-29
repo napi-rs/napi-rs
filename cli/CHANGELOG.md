@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.81](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.80...@napi-rs/cli@3.0.0-alpha.81) (2025-05-29)
+
+### Bug Fixes
+
+- **cli:** parse deps cargo metadata and find napi crates ([#2667](https://github.com/napi-rs/napi-rs/issues/2667)) ([28829d2](https://github.com/napi-rs/napi-rs/commit/28829d21021123a5914649ab122e0b13409e065a))
+- **deps:** update dependency @octokit/rest to v22 ([#2663](https://github.com/napi-rs/napi-rs/issues/2663)) ([bdc57ef](https://github.com/napi-rs/napi-rs/commit/bdc57ef391b2992ce9c5800d38f2bc7a60695949))
+
 # [3.0.0-alpha.80](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.79...@napi-rs/cli@3.0.0-alpha.80) (2025-05-20)
 
 ### Bug Fixes
