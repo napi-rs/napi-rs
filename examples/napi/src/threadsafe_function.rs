@@ -51,6 +51,28 @@ pub fn threadsafe_function_throw_error(
 }
 
 #[napi]
+pub fn threadsafe_function_throw_error_with_status(
+  cb: ThreadsafeFunction<bool, UnknownReturnValue>,
+) -> Result<()> {
+  struct ErrorStatus<'s>(&'s str);
+  impl AsRef<str> for ErrorStatus<'_> {
+    fn as_ref(&self) -> &str {
+      self.0
+    }
+  }
+  thread::spawn(move || {
+    cb.call_with_error_status(
+      Err(Error::new(
+        ErrorStatus("CustomErrorStatus"),
+        "ThrowFromNative".to_owned(),
+      )),
+      ThreadsafeFunctionCallMode::Blocking,
+    );
+  });
+  Ok(())
+}
+
+#[napi]
 pub fn threadsafe_function_fatal_mode(
   cb: ThreadsafeFunction<bool, UnknownReturnValue, bool, false>,
 ) -> Result<()> {
