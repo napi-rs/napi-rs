@@ -2,8 +2,7 @@ use std::cell::Cell;
 use std::ffi::c_void;
 use std::ops::{Deref, DerefMut};
 use std::ptr;
-use std::rc::{Rc, Weak};
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock, Weak};
 
 use crate::{
   bindgen_runtime::{FromNapiValue, PersistedPerInstanceHashMap, ToNapiValue},
@@ -28,14 +27,16 @@ pub struct Reference<T: 'static> {
   raw: *mut T,
   napi_ref: crate::sys::napi_ref,
   env: *mut c_void,
-  finalize_callbacks: Rc<Cell<*mut dyn FnOnce()>>,
+  // the finalize callbacks can only be written with the `Env` passed in
+  // So we can use `Cell` rather than `AtomicPtr` here
+  finalize_callbacks: Arc<Cell<*mut dyn FnOnce()>>,
 }
 
 unsafe impl<T: Sync> Sync for Reference<T> {}
 
 impl<T> Drop for Reference<T> {
   fn drop(&mut self) {
-    let rc_strong_count = Rc::strong_count(&self.finalize_callbacks);
+    let rc_strong_count = Arc::strong_count(&self.finalize_callbacks);
     let mut ref_count = 0;
     // If Rc strong count == 1, then the referenced object is dropped on GC
     // It would happen when the process is exiting
@@ -63,7 +64,7 @@ impl<T: 'static> Reference<T> {
   pub fn add_ref(env: crate::sys::napi_env, t: *mut c_void, value: RefInformation) {
     REFERENCE_MAP.borrow_mut(|map| {
       if let Some((_, previous_ref, previous_rc)) = map.insert(t, value) {
-        unsafe { Rc::from_raw(previous_rc) };
+        unsafe { Arc::from_raw(previous_rc) };
         unsafe { crate::sys::napi_delete_reference(env, previous_ref) };
       }
     });
@@ -79,10 +80,10 @@ impl<T: 'static> Reference<T> {
         unsafe { crate::sys::napi_reference_ref(env, napi_ref, &mut ref_count) },
         "Failed to ref napi reference"
       )?;
-      let finalize_callbacks_raw = unsafe { Rc::from_raw(finalize_callbacks_ptr) };
+      let finalize_callbacks_raw = unsafe { Arc::from_raw(finalize_callbacks_ptr) };
       let finalize_callbacks = finalize_callbacks_raw.clone();
       // Leak the raw finalize callbacks
-      let _ = Rc::into_raw(finalize_callbacks_raw);
+      let _ = Arc::into_raw(finalize_callbacks_raw);
       Ok(Self {
         raw: wrapped_value.cast(),
         napi_ref,
@@ -134,7 +135,7 @@ impl<T: 'static> Reference<T> {
     Ok(Self {
       raw: self.raw,
       napi_ref: self.napi_ref,
-      env: env.0 as *mut c_void,
+      env: env.0.cast(),
       finalize_callbacks: self.finalize_callbacks.clone(),
     })
   }
@@ -143,7 +144,7 @@ impl<T: 'static> Reference<T> {
     WeakReference {
       raw: self.raw,
       napi_ref: self.napi_ref,
-      finalize_callbacks: Rc::downgrade(&self.finalize_callbacks),
+      finalize_callbacks: Arc::downgrade(&self.finalize_callbacks),
     }
   }
 
