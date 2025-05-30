@@ -427,7 +427,9 @@ pub struct GetterSetterWithClosures {}
 #[napi]
 impl GetterSetterWithClosures {
   #[napi(constructor)]
-  pub fn new(mut this: This) -> Result<Self> {
+  pub fn new(env: &Env, mut this: This) -> Result<Self> {
+    let age_symbol = env.create_symbol(Some("age"))?;
+
     this.define_properties(&[
       Property::new()
         .with_utf8_name("name")?
@@ -439,7 +441,12 @@ impl GetterSetterWithClosures {
       Property::new()
         .with_utf8_name("age")?
         .with_getter_closure(|_env, _this| Ok(0.3)),
+      Property::new()
+        .with_name(env, age_symbol)?
+        .with_getter_closure(|_env, _this| Ok(0.3)),
     ])?;
+
+    this.set_property(env.create_string("ageSymbol")?, age_symbol)?;
     Ok(Self {})
   }
 }

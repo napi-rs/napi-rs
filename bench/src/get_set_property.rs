@@ -40,8 +40,6 @@ impl FromStr for LineJoin {
 }
 
 pub fn register_js(exports: &mut JsObject, env: &Env) -> Result<()> {
-  let line_join_symbol = env.create_symbol(Some("lineJoins"))?;
-
   let test_class = env.define_class::<bindgen_prelude::Unknown>(
     "TestClass",
     test_class_constructor,
@@ -62,14 +60,9 @@ pub fn register_js(exports: &mut JsObject, env: &Env) -> Result<()> {
         .with_utf8_name("lineJoin")?
         .with_getter(get_line_join)
         .with_setter(set_line_join),
-      Property::new()
-        .with_name(env, line_join_symbol)?
-        .with_getter(get_line_join)
-        .with_setter(set_line_join),
     ],
   )?;
   exports.set_named_property("TestClass", test_class)?;
-  exports.set_named_property("lineJoinSymbol", line_join_symbol)?;
   Ok(())
 }
 
