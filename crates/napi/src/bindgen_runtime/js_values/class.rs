@@ -140,7 +140,8 @@ impl<'env, T: 'env> ClassInstance<'env, T> {
     'this: 'env,
     U: FromNapiValue + JsValue<'this>,
   {
-    let property = Property::new(name)?
+    let property = Property::new()
+      .with_utf8_name(name)?
       .with_value(self)
       .with_property_attributes(attributes);
 

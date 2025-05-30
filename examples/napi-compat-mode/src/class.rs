@@ -11,9 +11,15 @@ struct NativeClass {
 
 #[js_function(1)]
 fn create_test_class(ctx: CallContext) -> Result<Function<Unknown, Unknown>> {
-  let add_count_method = Property::new("addCount")?.with_method(add_count);
-  let add_native_count = Property::new("addNativeCount")?.with_method(add_native_count);
-  let renew_wrapped = Property::new("renewWrapped")?.with_method(renew_wrapped);
+  let add_count_method = Property::new()
+    .with_utf8_name("addCount")?
+    .with_method(add_count);
+  let add_native_count = Property::new()
+    .with_utf8_name("addNativeCount")?
+    .with_method(add_native_count);
+  let renew_wrapped = Property::new()
+    .with_utf8_name("renewWrapped")?
+    .with_method(renew_wrapped);
   ctx.env.define_class(
     "TestClass",
     test_class_constructor,

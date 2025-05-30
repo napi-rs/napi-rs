@@ -82,21 +82,18 @@ impl From<PropertyAttributes> for sys::napi_property_attributes {
 }
 
 impl Property {
-  pub fn new(name: &str) -> Result<Self> {
-    Ok(Property {
-      utf8_name: CString::new(name)?,
-      ..Default::default()
-    })
+  pub fn new() -> Self {
+    Default::default()
   }
 
-  pub fn with_utf8_name(mut self, name: &str) -> Self {
-    self.utf8_name = CString::new(name).unwrap();
-    self
+  pub fn with_utf8_name(mut self, name: &str) -> Result<Self> {
+    self.utf8_name = CString::new(name)?;
+    Ok(self)
   }
 
-  pub fn with_name<T: ToNapiValue>(mut self, env: &Env, name: T) -> Self {
-    self.name = unsafe { T::to_napi_value(env.0, name).unwrap() };
-    self
+  pub fn with_name<T: ToNapiValue>(mut self, env: &Env, name: T) -> Result<Self> {
+    self.name = unsafe { T::to_napi_value(env.0, name)? };
+    Ok(self)
   }
 
   pub fn with_method(mut self, callback: Callback) -> Self {
