@@ -1,9 +1,12 @@
 use std::cell::Cell;
 use std::ffi::c_void;
+use std::hash::BuildHasherDefault;
 use std::ops::{Deref, DerefMut};
 use std::ptr;
 use std::rc::{Rc, Weak};
 use std::sync::LazyLock;
+
+use nohash_hasher::NoHashHasher;
 
 use crate::{
   bindgen_runtime::{FromNapiValue, PersistedPerInstanceHashMap, ToNapiValue},
@@ -17,7 +20,7 @@ type RefInformation = (
 );
 
 pub(crate) static REFERENCE_MAP: LazyLock<
-  PersistedPerInstanceHashMap<*mut c_void, RefInformation>,
+  PersistedPerInstanceHashMap<*mut c_void, RefInformation, BuildHasherDefault<NoHashHasher<usize>>>,
 > = LazyLock::new(Default::default);
 
 /// ### Experimental feature

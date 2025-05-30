@@ -64,6 +64,8 @@ node_version_detect = []
 [dependencies]
 bitflags = "2"
 ctor = "0.4.1"
+nohash-hasher = "0.2.0"
+rustc-hash = "2.1.1"
 
 [dependencies.anyhow]
 optional = true
