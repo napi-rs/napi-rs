@@ -3,9 +3,12 @@ use std::env;
 #[cfg(feature = "type-def")]
 use std::fs;
 #[cfg(feature = "type-def")]
-use std::io::{BufWriter, Write};
+use std::io::Write;
 #[cfg(feature = "type-def")]
 use std::sync::atomic::{AtomicBool, Ordering};
+
+#[cfg(feature = "type-def")]
+use fd_lock::RwLock as FdRwLock;
 
 use crate::parser::{attrs::BindgenAttrs, ParseNapi};
 use napi_derive_backend::{BindgenResult, TryToTokens};
@@ -33,18 +36,39 @@ fn dtor() {
   if let Ok(ref type_def_file) = env::var("TYPE_DEF_TMP_PATH") {
     let package_name = std::env::var("CARGO_PKG_NAME").expect("CARGO_PKG_NAME is not set");
 
-    if let Ok(f) = fs::OpenOptions::new()
+    let file_result = fs::OpenOptions::new()
       .read(true)
       .append(true)
-      .open(type_def_file)
-    {
-      let mut writer = BufWriter::<fs::File>::new(f);
-      if let Err(err) = writer
-        .write_all(format!("{package_name}:{{\"done\": true}}\n").as_bytes())
-        .and_then(|_| writer.flush())
-      {
+      .open(type_def_file);
+
+    match file_result {
+      Ok(f) => {
+        let mut locked_file = FdRwLock::new(f);
+        let write_result = locked_file.write();
+        match write_result {
+          Ok(mut write_guard) => {
+            let write_result = write_guard
+              .write_all(format!("{package_name}:{{\"done\": true}}\n").as_bytes())
+              .and_then(|_| write_guard.flush());
+
+            if let Err(err) = write_result {
+              eprintln!(
+                "Failed to write type def file for `{package_name}`: {:?}",
+                err
+              );
+            }
+          }
+          Err(err) => {
+            eprintln!(
+              "Failed to acquire write lock for type def file for `{package_name}`: {:?}",
+              err
+            );
+          }
+        }
+      }
+      Err(err) => {
         eprintln!(
-          "Failed to write type def file for `{package_name}`: {:?}",
+          "Failed to open type def file for `{package_name}`: {:?}",
           err
         );
       }
@@ -149,19 +173,37 @@ pub fn expand(attr: TokenStream, input: TokenStream) -> BindgenResult<TokenStrea
 fn output_type_def(napi: &Napi) {
   if let Ok(type_def_file) = env::var("TYPE_DEF_TMP_PATH") {
     if let Some(type_def) = napi.to_type_def() {
-      fs::OpenOptions::new()
-        .append(true)
+      // Use file locking to prevent race conditions when multiple crates write simultaneously
+      let file_result = std::fs::OpenOptions::new()
         .create(true)
-        .open(type_def_file)
-        .and_then(|file| {
-          let mut writer = BufWriter::<fs::File>::new(file);
-          writer.write_all(type_def.to_string().as_bytes())?;
-          writer.write_all("\n".as_bytes())?;
-          writer.flush()
-        })
-        .unwrap_or_else(|e| {
-          println!("Failed to write type def file: {:?}", e);
-        });
+        .append(true)
+        .open(&type_def_file);
+
+      match file_result {
+        Ok(file) => {
+          let mut locked_file = FdRwLock::new(file);
+          let write_result = locked_file.write();
+          match write_result {
+            Ok(mut write_guard) => {
+              let write_result = write_guard
+                .write_all(type_def.to_string().as_bytes())
+                .and_then(|_| write_guard.write_all("\n".as_bytes()))
+                .and_then(|_| write_guard.flush());
+
+              if let Err(e) = write_result {
+                println!("Failed to write type def file: {:?}", e);
+              }
+              // Lock is automatically released when write_guard is dropped
+            }
+            Err(e) => {
+              println!("Failed to acquire write lock for type def file: {:?}", e);
+            }
+          }
+        }
+        Err(e) => {
+          println!("Failed to open type def file: {:?}", e);
+        }
+      }
     }
   }
 }
@@ -213,28 +255,55 @@ fn prepare_type_def_file() {
 
 #[cfg(feature = "type-def")]
 fn remove_existed_def_file(def_file: &str) -> std::io::Result<()> {
-  use std::io::{BufRead, BufReader};
+  use std::io::{BufRead, BufReader, Seek, SeekFrom};
 
   let pkg_name = std::env::var("CARGO_PKG_NAME").expect("CARGO_PKG_NAME is not set");
-  if let Ok(content) = std::fs::File::open(def_file) {
-    let reader = BufReader::new(content);
-    let cleaned_content = reader
-      .lines()
-      .filter_map(|line| {
-        if let Ok(line) = line {
-          if let Some((package_name, _)) = line.split_once(':') {
-            if pkg_name == package_name {
-              return None;
-            }
+
+  // Open the file with read/write access for locking
+  let file = match std::fs::OpenOptions::new()
+    .read(true)
+    .write(true)
+    .create(true)
+    .open(def_file)
+  {
+    Ok(file) => file,
+    Err(e) => return Err(e),
+  };
+
+  // Acquire an exclusive lock to prevent race conditions
+  let mut locked_file = FdRwLock::new(file);
+  let mut write_guard = locked_file.write().map_err(|e| {
+    std::io::Error::new(
+      std::io::ErrorKind::Other,
+      format!("Failed to acquire write lock: {}", e),
+    )
+  })?;
+
+  // Read the current content
+  let mut content = String::new();
+  write_guard.seek(SeekFrom::Start(0))?;
+  {
+    let reader = BufReader::new(&*write_guard);
+    for line in reader.lines() {
+      if let Ok(line) = line {
+        if let Some((package_name, _)) = line.split_once(':') {
+          if pkg_name == package_name {
+            // Skip lines for the current package
+            continue;
           }
-          Some(line)
-        } else {
-          None
         }
-      })
-      .collect::<Vec<String>>()
-      .join("\n");
-    std::fs::write(def_file, format!("{cleaned_content}\n"))?;
+        content.push_str(&line);
+        content.push('\n');
+      }
+    }
   }
+
+  // Write back the filtered content
+  write_guard.seek(SeekFrom::Start(0))?;
+  write_guard.set_len(0)?; // Truncate the file
+  std::io::Write::write_all(&mut *write_guard, content.as_bytes())?;
+  write_guard.flush()?;
+
+  // Lock is automatically released when write_guard is dropped
   Ok(())
 }
