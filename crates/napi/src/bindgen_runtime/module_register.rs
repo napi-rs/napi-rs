@@ -2,6 +2,7 @@
 use std::collections::HashSet;
 #[cfg(not(feature = "noop"))]
 use std::ffi::CStr;
+use std::hash::BuildHasherDefault;
 #[cfg(all(not(feature = "noop"), feature = "node_version_detect"))]
 use std::mem::MaybeUninit;
 #[cfg(not(feature = "noop"))]
@@ -11,6 +12,9 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{LazyLock, RwLock};
 use std::thread::ThreadId;
 use std::{any::TypeId, collections::HashMap};
+
+use nohash_hasher::NoHashHasher;
+use rustc_hash::FxBuildHasher;
 
 #[cfg(not(feature = "noop"))]
 use crate::{check_status, check_status_or_throw, JsError};
@@ -32,27 +36,27 @@ pub static mut NODE_VERSION_MINOR: u32 = 0;
 pub static mut NODE_VERSION_PATCH: u32 = 0;
 
 #[repr(transparent)]
-pub(crate) struct PersistedPerInstanceHashMap<K, V>(RwLock<HashMap<K, V>>);
+pub(crate) struct PersistedPerInstanceHashMap<K, V, S>(RwLock<HashMap<K, V, S>>);
 
-impl<K, V> PersistedPerInstanceHashMap<K, V> {
+impl<K, V, S> PersistedPerInstanceHashMap<K, V, S> {
   #[cfg(not(feature = "noop"))]
-  pub(crate) fn from_hashmap(hashmap: HashMap<K, V>) -> Self {
+  pub(crate) fn from_hashmap(hashmap: HashMap<K, V, S>) -> Self {
     Self(RwLock::new(hashmap))
   }
 
   #[allow(clippy::mut_from_ref)]
   pub(crate) fn borrow_mut<F, R>(&self, f: F) -> R
   where
-    F: FnOnce(&mut HashMap<K, V>) -> R,
+    F: FnOnce(&mut HashMap<K, V, S>) -> R,
   {
     let mut write_lock = self.0.write().unwrap();
     f(&mut *write_lock)
   }
 }
 
-impl<K, V> Default for PersistedPerInstanceHashMap<K, V> {
+impl<K, V, S: Default> Default for PersistedPerInstanceHashMap<K, V, S> {
   fn default() -> Self {
-    Self(RwLock::new(HashMap::default()))
+    Self(RwLock::new(HashMap::<K, V, S>::default()))
   }
 }
 
@@ -61,15 +65,22 @@ type ModuleRegisterCallback =
   RwLock<Vec<(Option<&'static str>, (&'static str, ExportRegisterCallback))>>;
 
 #[cfg(not(feature = "noop"))]
-type ModuleClassProperty =
-  PersistedPerInstanceHashMap<TypeId, HashMap<Option<&'static str>, (&'static str, Vec<Property>)>>;
+type ModuleClassProperty = PersistedPerInstanceHashMap<
+  TypeId,
+  HashMap<Option<&'static str>, (&'static str, Vec<Property>), FxBuildHasher>,
+  FxBuildHasher,
+>;
 
-unsafe impl<K, V> Send for PersistedPerInstanceHashMap<K, V> {}
-unsafe impl<K, V> Sync for PersistedPerInstanceHashMap<K, V> {}
+unsafe impl<K, V, S> Send for PersistedPerInstanceHashMap<K, V, S> {}
+unsafe impl<K, V, S> Sync for PersistedPerInstanceHashMap<K, V, S> {}
 
-type FnRegisterMap =
-  PersistedPerInstanceHashMap<ExportRegisterCallback, (sys::napi_callback, &'static str)>;
-type RegisteredClassesMap = PersistedPerInstanceHashMap<ThreadId, RegisteredClasses>;
+type FnRegisterMap = PersistedPerInstanceHashMap<
+  ExportRegisterCallback,
+  (sys::napi_callback, &'static str),
+  FxBuildHasher,
+>;
+type RegisteredClassesMap =
+  PersistedPerInstanceHashMap<ThreadId, RegisteredClasses, BuildHasherDefault<NoHashHasher<u64>>>;
 
 #[cfg(not(feature = "noop"))]
 static MODULE_REGISTER_CALLBACK: LazyLock<ModuleRegisterCallback> = LazyLock::new(Default::default);
@@ -91,11 +102,15 @@ pub(crate) static CUSTOM_GC_TSFN: std::sync::atomic::AtomicPtr<sys::napi_threads
 pub(crate) static CUSTOM_GC_TSFN_DESTROYED: AtomicBool = AtomicBool::new(false);
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
 // Store thread id of the thread that created the CustomGC ThreadsafeFunction.
-pub(crate) static THREADS_CAN_ACCESS_ENV: LazyLock<PersistedPerInstanceHashMap<ThreadId, bool>> =
-  LazyLock::new(Default::default);
+pub(crate) static THREADS_CAN_ACCESS_ENV: LazyLock<
+  PersistedPerInstanceHashMap<ThreadId, bool, std::hash::BuildHasherDefault<NoHashHasher<u64>>>,
+> = LazyLock::new(Default::default);
 
-type RegisteredClasses =
-  PersistedPerInstanceHashMap</* export name */ String, /* constructor */ sys::napi_ref>;
+type RegisteredClasses = PersistedPerInstanceHashMap<
+  /* export name */ String,
+  /* constructor */ sys::napi_ref,
+  FxBuildHasher,
+>;
 
 #[cfg(all(feature = "compat-mode", not(feature = "noop")))]
 // compatibility for #[module_exports]
@@ -366,7 +381,7 @@ pub unsafe extern "C" fn napi_register_module_v1(
       });
   }
 
-  let mut registered_classes = HashMap::new();
+  let mut registered_classes = HashMap::default();
 
   MODULE_CLASS_PROPERTIES.borrow_mut(|inner| {
     inner.iter().for_each(|(_, js_mods)| {
