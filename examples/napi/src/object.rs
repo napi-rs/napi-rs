@@ -91,8 +91,12 @@ pub fn create_obj_with_property(env: &Env) -> Result<Object> {
   let mut obj = Object::new(env)?;
   let arraybuffer = ArrayBuffer::from_data(env, vec![0; 10])?;
   obj.define_properties(&[
-    Property::new("value")?.with_value(&arraybuffer),
-    Property::new("getter")?.with_getter(get_c_callback(getter_from_obj_js_function)?),
+    Property::new()
+      .with_utf8_name("value")?
+      .with_value(&arraybuffer),
+    Property::new()
+      .with_utf8_name("getter")?
+      .with_getter(get_c_callback(getter_from_obj_js_function)?),
   ])?;
   Ok(obj)
 }

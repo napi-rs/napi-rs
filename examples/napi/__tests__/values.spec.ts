@@ -1549,6 +1549,8 @@ Napi5Test('Class with getter setter closures', (t) => {
   t.is(instance.name, `I'm Allie`)
   // @ts-expect-error
   t.is(instance.age, 0.3)
+  // @ts-expect-error
+  t.is(instance[instance.ageSymbol], 0.3)
 })
 
 Napi5Test('Date to chrono::NativeDateTime test', (t) => {

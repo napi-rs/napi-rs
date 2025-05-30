@@ -29,7 +29,8 @@ impl Default for PropertyClosures {
 
 #[derive(Clone)]
 pub struct Property {
-  pub name: CString,
+  utf8_name: Option<CString>,
+  name: sys::napi_value,
   getter: sys::napi_callback,
   setter: sys::napi_callback,
   method: sys::napi_callback,
@@ -43,7 +44,8 @@ pub struct Property {
 impl Default for Property {
   fn default() -> Self {
     Property {
-      name: Default::default(),
+      utf8_name: Default::default(),
+      name: ptr::null_mut(),
       getter: Default::default(),
       setter: Default::default(),
       method: Default::default(),
@@ -80,16 +82,18 @@ impl From<PropertyAttributes> for sys::napi_property_attributes {
 }
 
 impl Property {
-  pub fn new(name: &str) -> Result<Self> {
-    Ok(Property {
-      name: CString::new(name)?,
-      ..Default::default()
-    })
+  pub fn new() -> Self {
+    Default::default()
   }
 
-  pub fn with_name(mut self, name: &str) -> Self {
-    self.name = CString::new(name).unwrap();
-    self
+  pub fn with_utf8_name(mut self, name: &str) -> Result<Self> {
+    self.utf8_name = Some(CString::new(name)?);
+    Ok(self)
+  }
+
+  pub fn with_name<T: ToNapiValue>(mut self, env: &Env, name: T) -> Result<Self> {
+    self.name = unsafe { T::to_napi_value(env.0, name)? };
+    Ok(self)
   }
 
   pub fn with_method(mut self, callback: Callback) -> Self {
@@ -156,8 +160,11 @@ impl Property {
     #[cfg(feature = "napi5")]
     let closures = Box::into_raw(Box::new(self.closures));
     sys::napi_property_descriptor {
-      utf8name: self.name.as_ptr(),
-      name: ptr::null_mut(),
+      utf8name: match self.utf8_name {
+        Some(ref name) => name.as_ptr(),
+        None => ptr::null(),
+      },
+      name: self.name,
       method: self.method,
       getter: self.getter,
       setter: self.setter,
