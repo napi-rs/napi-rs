@@ -132,6 +132,7 @@ impl JsFunction {
     T,
     NewArgs,
     Return,
+    ErrorStatus,
     F,
     const ES: bool,
     const Weak: bool,
@@ -139,14 +140,15 @@ impl JsFunction {
   >(
     &self,
     callback: F,
-  ) -> Result<ThreadsafeFunction<T, Return, NewArgs, ES, Weak, MaxQueueSize>>
+  ) -> Result<ThreadsafeFunction<T, Return, NewArgs, ErrorStatus, ES, Weak, MaxQueueSize>>
   where
     T: 'static,
     NewArgs: 'static + JsValuesTupleIntoVec,
     Return: crate::bindgen_runtime::FromNapiValue,
     F: 'static + Send + FnMut(ThreadsafeCallContext<T>) -> Result<NewArgs>,
+    ErrorStatus: AsRef<str> + From<Status>,
   {
-    ThreadsafeFunction::<T, Return, NewArgs, ES, Weak, MaxQueueSize>::create(
+    ThreadsafeFunction::<T, Return, NewArgs, ErrorStatus, ES, Weak, MaxQueueSize>::create(
       self.0.env,
       self.0.value,
       callback,

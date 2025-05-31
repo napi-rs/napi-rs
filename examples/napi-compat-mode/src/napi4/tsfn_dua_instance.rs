@@ -1,20 +1,20 @@
 use std::sync::Arc;
 
 use napi::{
-  bindgen_prelude::Function, threadsafe_function::ThreadsafeFunction, CallContext, JsObject,
+  bindgen_prelude::Function, threadsafe_function::ThreadsafeFunction, CallContext, JsObject, Status,
 };
 use napi_derive::js_function;
 
 #[derive(Clone)]
 pub struct A {
-  pub cb: Arc<ThreadsafeFunction<String, napi::Unknown<'static>, String, false, true>>,
+  pub cb: Arc<ThreadsafeFunction<String, napi::Unknown<'static>, String, Status, false, true>>,
 }
 
 #[js_function(1)]
 pub fn constructor(ctx: CallContext) -> napi::Result<()> {
   let callback = ctx.get::<Function<String>>(0)?;
 
-  let cb: Arc<ThreadsafeFunction<String, napi::Unknown, String, false, true>> = Arc::new(
+  let cb: Arc<ThreadsafeFunction<String, napi::Unknown, String, Status, false, true>> = Arc::new(
     callback
       .build_threadsafe_function()
       .weak::<true>()

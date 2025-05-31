@@ -82,6 +82,7 @@ import {
   bigintGetU64AsString,
   callThreadsafeFunction,
   threadsafeFunctionThrowError,
+  threadsafeFunctionThrowErrorWithStatus,
   threadsafeFunctionClosureCapture,
   tsfnCallWithCallback,
   tsfnAsyncCall,
@@ -1280,6 +1281,14 @@ Napi4Test('throw error from ThreadsafeFunction', async (t) => {
   })
   const err = await t.throwsAsync(throwPromise)
   t.is(err?.message, 'ThrowFromNative')
+})
+
+Napi4Test('throw error from ThreadsafeFunction with status', async (t) => {
+  const throwPromise = new Promise((_, reject) => {
+    threadsafeFunctionThrowErrorWithStatus(reject)
+  })
+  const err = await t.throwsAsync(throwPromise)
+  t.is((err as Error & { code?: string })?.code, 'CustomErrorStatus')
 })
 
 Napi4Test('ThreadsafeFunction closure capture data', (t) => {

@@ -335,6 +335,7 @@ module.exports.threadsafeFunctionClosureCapture = __napiModule.exports.threadsaf
 module.exports.threadsafeFunctionFatalMode = __napiModule.exports.threadsafeFunctionFatalMode
 module.exports.threadsafeFunctionFatalModeError = __napiModule.exports.threadsafeFunctionFatalModeError
 module.exports.threadsafeFunctionThrowError = __napiModule.exports.threadsafeFunctionThrowError
+module.exports.threadsafeFunctionThrowErrorWithStatus = __napiModule.exports.threadsafeFunctionThrowErrorWithStatus
 module.exports.throwAsyncError = __napiModule.exports.throwAsyncError
 module.exports.throwError = __napiModule.exports.throwError
 module.exports.throwSyntaxError = __napiModule.exports.throwSyntaxError

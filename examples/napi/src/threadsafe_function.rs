@@ -50,9 +50,38 @@ pub fn threadsafe_function_throw_error(
   Ok(())
 }
 
+pub struct ErrorStatus(String);
+impl AsRef<str> for ErrorStatus {
+  fn as_ref(&self) -> &str {
+    &self.0
+  }
+}
+
+impl From<Status> for ErrorStatus {
+  fn from(value: Status) -> Self {
+    ErrorStatus(value.to_string())
+  }
+}
+
+#[napi]
+pub fn threadsafe_function_throw_error_with_status(
+  cb: ThreadsafeFunction<bool, UnknownReturnValue, bool, ErrorStatus>,
+) -> Result<()> {
+  thread::spawn(move || {
+    cb.call(
+      Err(Error::new(
+        ErrorStatus("CustomErrorStatus".to_string()),
+        "ThrowFromNative".to_owned(),
+      )),
+      ThreadsafeFunctionCallMode::Blocking,
+    );
+  });
+  Ok(())
+}
+
 #[napi]
 pub fn threadsafe_function_fatal_mode(
-  cb: ThreadsafeFunction<bool, UnknownReturnValue, bool, false>,
+  cb: ThreadsafeFunction<bool, UnknownReturnValue, bool, Status, false>,
 ) -> Result<()> {
   thread::spawn(move || {
     cb.call(true, ThreadsafeFunctionCallMode::Blocking);
@@ -62,7 +91,7 @@ pub fn threadsafe_function_fatal_mode(
 
 #[napi]
 pub fn threadsafe_function_fatal_mode_error(
-  cb: ThreadsafeFunction<bool, String, bool, false>,
+  cb: ThreadsafeFunction<bool, String, bool, Status, false>,
 ) -> Result<()> {
   thread::spawn(move || {
     cb.call_with_return_value(true, ThreadsafeFunctionCallMode::Blocking, |ret, _| {
@@ -130,7 +159,7 @@ pub fn accept_threadsafe_function(func: ThreadsafeFunction<u32>) {
 }
 
 #[napi]
-pub fn accept_threadsafe_function_fatal(func: ThreadsafeFunction<u32, (), u32, false>) {
+pub fn accept_threadsafe_function_fatal(func: ThreadsafeFunction<u32, (), u32, Status, false>) {
   thread::spawn(move || {
     func.call(1, ThreadsafeFunctionCallMode::NonBlocking);
   });
