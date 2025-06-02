@@ -510,6 +510,7 @@ module.exports.either3 = nativeBinding.either3
 module.exports.either4 = nativeBinding.either4
 module.exports.eitherBoolOrFunction = nativeBinding.eitherBoolOrFunction
 module.exports.eitherBoolOrTuple = nativeBinding.eitherBoolOrTuple
+module.exports.eitherF64OrU32 = nativeBinding.eitherF64OrU32
 module.exports.eitherFromObjects = nativeBinding.eitherFromObjects
 module.exports.eitherFromOption = nativeBinding.eitherFromOption
 module.exports.eitherPromiseInEitherA = nativeBinding.eitherPromiseInEitherA
