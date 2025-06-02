@@ -1,8 +1,8 @@
+use std::cell::{Cell, LazyCell, RefCell};
 #[cfg(not(feature = "noop"))]
 use std::collections::HashSet;
 #[cfg(not(feature = "noop"))]
 use std::ffi::CStr;
-use std::hash::BuildHasherDefault;
 #[cfg(all(not(feature = "noop"), feature = "node_version_detect"))]
 use std::mem::MaybeUninit;
 #[cfg(not(feature = "noop"))]
@@ -10,10 +10,8 @@ use std::ptr;
 #[cfg(not(feature = "noop"))]
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{LazyLock, RwLock};
-use std::thread::ThreadId;
 use std::{any::TypeId, collections::HashMap};
 
-use nohash_hasher::NoHashHasher;
 use rustc_hash::FxBuildHasher;
 
 #[cfg(not(feature = "noop"))]
@@ -36,27 +34,21 @@ pub static mut NODE_VERSION_MINOR: u32 = 0;
 pub static mut NODE_VERSION_PATCH: u32 = 0;
 
 #[repr(transparent)]
-pub(crate) struct PersistedPerInstanceHashMap<K, V, S>(RwLock<HashMap<K, V, S>>);
+pub(crate) struct PersistedPerInstanceHashMap<K, V, S>(RefCell<HashMap<K, V, S>>);
 
 impl<K, V, S> PersistedPerInstanceHashMap<K, V, S> {
-  #[cfg(not(feature = "noop"))]
-  pub(crate) fn from_hashmap(hashmap: HashMap<K, V, S>) -> Self {
-    Self(RwLock::new(hashmap))
-  }
-
   #[allow(clippy::mut_from_ref)]
   pub(crate) fn borrow_mut<F, R>(&self, f: F) -> R
   where
     F: FnOnce(&mut HashMap<K, V, S>) -> R,
   {
-    let mut write_lock = self.0.write().unwrap();
-    f(&mut *write_lock)
+    f(&mut *self.0.borrow_mut())
   }
 }
 
 impl<K, V, S: Default> Default for PersistedPerInstanceHashMap<K, V, S> {
   fn default() -> Self {
-    Self(RwLock::new(HashMap::<K, V, S>::default()))
+    Self(RefCell::new(HashMap::<K, V, S>::default()))
   }
 }
 
@@ -79,8 +71,6 @@ type FnRegisterMap = PersistedPerInstanceHashMap<
   (sys::napi_callback, &'static str),
   FxBuildHasher,
 >;
-type RegisteredClassesMap =
-  PersistedPerInstanceHashMap<ThreadId, RegisteredClasses, BuildHasherDefault<NoHashHasher<u64>>>;
 
 #[cfg(not(feature = "noop"))]
 static MODULE_REGISTER_CALLBACK: LazyLock<ModuleRegisterCallback> = LazyLock::new(Default::default);
@@ -88,29 +78,32 @@ static MODULE_REGISTER_CALLBACK: LazyLock<ModuleRegisterCallback> = LazyLock::ne
 static MODULE_REGISTER_HOOK_CALLBACK: LazyLock<RwLock<Option<ExportRegisterHookCallback>>> =
   LazyLock::new(Default::default);
 #[cfg(not(feature = "noop"))]
-static MODULE_CLASS_PROPERTIES: LazyLock<ModuleClassProperty> = LazyLock::new(Default::default);
-#[cfg(not(feature = "noop"))]
 static MODULE_COUNT: AtomicUsize = AtomicUsize::new(0);
 #[cfg(not(feature = "noop"))]
 static FIRST_MODULE_REGISTERED: AtomicBool = AtomicBool::new(false);
-static REGISTERED_CLASSES: LazyLock<RegisteredClassesMap> = LazyLock::new(Default::default);
-static FN_REGISTER_MAP: LazyLock<FnRegisterMap> = LazyLock::new(Default::default);
+thread_local! {
+  #[cfg(not(feature = "noop"))]
+  static MODULE_CLASS_PROPERTIES: LazyCell<ModuleClassProperty> = LazyCell::new(Default::default);
+  static REGISTERED_CLASSES: LazyCell<RegisteredClasses> = LazyCell::new(Default::default);
+  static FN_REGISTER_MAP: LazyCell<FnRegisterMap> = LazyCell::new(Default::default);
+}
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
 pub(crate) static CUSTOM_GC_TSFN: std::sync::atomic::AtomicPtr<sys::napi_threadsafe_function__> =
   std::sync::atomic::AtomicPtr::new(ptr::null_mut());
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
 pub(crate) static CUSTOM_GC_TSFN_DESTROYED: AtomicBool = AtomicBool::new(false);
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
-// Store thread id of the thread that created the CustomGC ThreadsafeFunction.
-pub(crate) static THREADS_CAN_ACCESS_ENV: LazyLock<
-  PersistedPerInstanceHashMap<ThreadId, bool, std::hash::BuildHasherDefault<NoHashHasher<u64>>>,
-> = LazyLock::new(Default::default);
 
 type RegisteredClasses = PersistedPerInstanceHashMap<
   /* export name */ String,
   /* constructor */ sys::napi_ref,
   FxBuildHasher,
 >;
+
+thread_local! {
+  // Store thread id of the thread that created the CustomGC ThreadsafeFunction.
+  pub(crate) static THREADS_CAN_ACCESS_ENV: Cell<bool> = Cell::new(false);
+}
 
 #[cfg(all(feature = "compat-mode", not(feature = "noop")))]
 // compatibility for #[module_exports]
@@ -180,19 +173,16 @@ pub fn register_js_function(
   cb: ExportRegisterCallback,
   c_fn: sys::napi_callback,
 ) {
-  FN_REGISTER_MAP.borrow_mut(|inner| {
-    inner.insert(cb, (c_fn, name));
+  FN_REGISTER_MAP.with(|cell| {
+    cell.borrow_mut(|inner| {
+      inner.insert(cb, (c_fn, name));
+    })
   });
 }
 
 #[doc(hidden)]
 pub fn get_class_constructor(js_name: &'static str) -> Option<sys::napi_ref> {
-  let current_id = std::thread::current().id();
-  REGISTERED_CLASSES.borrow_mut(|map| {
-    map
-      .get(&current_id)
-      .map(|m| m.borrow_mut(|map| map.get(js_name).copied()))
-  })?
+  REGISTERED_CLASSES.with(|cell| cell.borrow_mut(|map| map.get(js_name).copied()))
 }
 
 #[cfg(not(feature = "noop"))]
@@ -203,11 +193,13 @@ pub fn register_class(
   js_name: &'static str,
   props: Vec<Property>,
 ) {
-  MODULE_CLASS_PROPERTIES.borrow_mut(|inner| {
-    let val = inner.entry(rust_type_id).or_default();
-    let val = val.entry(js_mod).or_default();
-    val.0 = js_name;
-    val.1.extend(props);
+  MODULE_CLASS_PROPERTIES.with(|cell| {
+    cell.borrow_mut(|inner| {
+      let val = inner.entry(rust_type_id).or_default();
+      let val = val.entry(js_mod).or_default();
+      val.0 = js_name;
+      val.1.extend(props);
+    })
   });
 }
 
@@ -242,16 +234,18 @@ pub fn register_class(
 /// ```
 ///
 pub fn get_c_callback(raw_fn: ExportRegisterCallback) -> Result<crate::Callback> {
-  FN_REGISTER_MAP.borrow_mut(|inner| {
-    inner
-      .get(&raw_fn)
-      .and_then(|(cb, _name)| *cb)
-      .ok_or_else(|| {
-        crate::Error::new(
-          crate::Status::InvalidArg,
-          "JavaScript function does not exist".to_owned(),
-        )
-      })
+  FN_REGISTER_MAP.with(|cell| {
+    cell.borrow_mut(|inner| {
+      inner
+        .get(&raw_fn)
+        .and_then(|(cb, _name)| *cb)
+        .ok_or_else(|| {
+          crate::Error::new(
+            crate::Status::InvalidArg,
+            "JavaScript function does not exist".to_owned(),
+          )
+        })
+    })
   })
 }
 
@@ -277,7 +271,6 @@ pub unsafe extern "C" fn napi_register_module_v1(
   env: sys::napi_env,
   exports: sys::napi_value,
 ) -> sys::napi_value {
-  let current_thread_id = std::thread::current().id();
   #[cfg(any(target_env = "msvc", feature = "dyn-symbols"))]
   unsafe {
     sys::setup();
@@ -383,98 +376,104 @@ pub unsafe extern "C" fn napi_register_module_v1(
 
   let mut registered_classes = HashMap::default();
 
-  MODULE_CLASS_PROPERTIES.borrow_mut(|inner| {
-    inner.iter().for_each(|(_, js_mods)| {
-      for (js_mod, (js_name, props)) in js_mods {
-        let mut exports_js_mod = ptr::null_mut();
-        unsafe {
-          if let Some(js_mod_str) = js_mod {
-            let mod_name_c_str = CStr::from_bytes_with_nul_unchecked(js_mod_str.as_bytes());
-            if exports_objects.contains(*js_mod_str) {
-              check_status_or_throw!(
-                env,
-                sys::napi_get_named_property(
+  MODULE_CLASS_PROPERTIES.with(|cell| {
+    cell.borrow_mut(|inner| {
+      inner.iter().for_each(|(_, js_mods)| {
+        for (js_mod, (js_name, props)) in js_mods {
+          let mut exports_js_mod = ptr::null_mut();
+          unsafe {
+            if let Some(js_mod_str) = js_mod {
+              let mod_name_c_str = CStr::from_bytes_with_nul_unchecked(js_mod_str.as_bytes());
+              if exports_objects.contains(*js_mod_str) {
+                check_status_or_throw!(
                   env,
-                  exports,
-                  mod_name_c_str.as_ptr(),
-                  &mut exports_js_mod,
-                ),
-                "Get mod {} from exports failed",
-                js_mod_str,
-              );
-            } else {
-              check_status_or_throw!(
-                env,
-                sys::napi_create_object(env, &mut exports_js_mod),
-                "Create export JavaScript Object [{}] failed",
-                js_mod_str
-              );
-              check_status_or_throw!(
-                env,
-                sys::napi_set_named_property(env, exports, mod_name_c_str.as_ptr(), exports_js_mod),
-                "Set exports Object [{}] into exports object failed",
-                js_mod_str
-              );
-              exports_objects.insert(js_mod_str.to_string());
-            }
-          }
-          let (ctor, props): (Vec<_>, Vec<_>) = props.iter().partition(|prop| prop.is_ctor);
-
-          let ctor = ctor
-            .first()
-            .map(|c| c.raw().method.unwrap())
-            .unwrap_or(noop);
-          let raw_props: Vec<_> = props.iter().map(|prop| prop.raw()).collect();
-
-          let js_class_name = CStr::from_bytes_with_nul_unchecked(js_name.as_bytes());
-          let mut class_ptr = ptr::null_mut();
-
-          check_status_or_throw!(
-            env,
-            sys::napi_define_class(
-              env,
-              js_class_name.as_ptr(),
-              js_name.len() as isize - 1,
-              Some(ctor),
-              ptr::null_mut(),
-              raw_props.len(),
-              raw_props.as_ptr(),
-              &mut class_ptr,
-            ),
-            "Failed to register class `{}`",
-            &js_name,
-          );
-
-          let mut ctor_ref = ptr::null_mut();
-          sys::napi_create_reference(env, class_ptr, 1, &mut ctor_ref);
-
-          registered_classes.insert(js_name.to_string(), ctor_ref);
-
-          check_status_or_throw!(
-            env,
-            sys::napi_set_named_property(
-              env,
-              if exports_js_mod.is_null() {
-                exports
+                  sys::napi_get_named_property(
+                    env,
+                    exports,
+                    mod_name_c_str.as_ptr(),
+                    &mut exports_js_mod,
+                  ),
+                  "Get mod {} from exports failed",
+                  js_mod_str,
+                );
               } else {
-                exports_js_mod
-              },
-              js_class_name.as_ptr(),
-              class_ptr
-            ),
-            "Failed to register class `{}`",
-            &js_name,
-          );
+                check_status_or_throw!(
+                  env,
+                  sys::napi_create_object(env, &mut exports_js_mod),
+                  "Create export JavaScript Object [{}] failed",
+                  js_mod_str
+                );
+                check_status_or_throw!(
+                  env,
+                  sys::napi_set_named_property(
+                    env,
+                    exports,
+                    mod_name_c_str.as_ptr(),
+                    exports_js_mod
+                  ),
+                  "Set exports Object [{}] into exports object failed",
+                  js_mod_str
+                );
+                exports_objects.insert(js_mod_str.to_string());
+              }
+            }
+            let (ctor, props): (Vec<_>, Vec<_>) = props.iter().partition(|prop| prop.is_ctor);
+
+            let ctor = ctor
+              .first()
+              .map(|c| c.raw().method.unwrap())
+              .unwrap_or(noop);
+            let raw_props: Vec<_> = props.iter().map(|prop| prop.raw()).collect();
+
+            let js_class_name = CStr::from_bytes_with_nul_unchecked(js_name.as_bytes());
+            let mut class_ptr = ptr::null_mut();
+
+            check_status_or_throw!(
+              env,
+              sys::napi_define_class(
+                env,
+                js_class_name.as_ptr(),
+                js_name.len() as isize - 1,
+                Some(ctor),
+                ptr::null_mut(),
+                raw_props.len(),
+                raw_props.as_ptr(),
+                &mut class_ptr,
+              ),
+              "Failed to register class `{}`",
+              &js_name,
+            );
+
+            let mut ctor_ref = ptr::null_mut();
+            sys::napi_create_reference(env, class_ptr, 1, &mut ctor_ref);
+
+            registered_classes.insert(js_name.to_string(), ctor_ref);
+
+            check_status_or_throw!(
+              env,
+              sys::napi_set_named_property(
+                env,
+                if exports_js_mod.is_null() {
+                  exports
+                } else {
+                  exports_js_mod
+                },
+                js_class_name.as_ptr(),
+                class_ptr
+              ),
+              "Failed to register class `{}`",
+              &js_name,
+            );
+          }
         }
-      }
-    });
+      });
+    })
   });
 
-  REGISTERED_CLASSES.borrow_mut(|map| {
-    map.insert(
-      current_thread_id,
-      PersistedPerInstanceHashMap::from_hashmap(registered_classes),
-    )
+  REGISTERED_CLASSES.with(|cell| {
+    cell.borrow_mut(|map| {
+      *map = registered_classes;
+    })
   });
 
   let module_register_hook_callback = MODULE_REGISTER_HOOK_CALLBACK
@@ -522,7 +521,7 @@ pub unsafe extern "C" fn napi_register_module_v1(
 
   #[cfg(feature = "napi4")]
   {
-    create_custom_gc(env, current_thread_id);
+    create_custom_gc(env);
     #[cfg(feature = "tokio_rt")]
     {
       crate::tokio_runtime::start_async_runtime();
@@ -550,7 +549,7 @@ pub(crate) unsafe extern "C" fn noop(
 }
 
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
-fn create_custom_gc(env: sys::napi_env, current_thread_id: ThreadId) {
+fn create_custom_gc(env: sys::napi_env) {
   if !FIRST_MODULE_REGISTERED.load(Ordering::SeqCst) {
     let mut custom_gc_fn = ptr::null_mut();
     check_status_or_throw!(
@@ -603,7 +602,7 @@ fn create_custom_gc(env: sys::napi_env, current_thread_id: ThreadId) {
     CUSTOM_GC_TSFN.store(custom_gc_tsfn, Ordering::Relaxed);
   }
 
-  THREADS_CAN_ACCESS_ENV.borrow_mut(|m| m.insert(current_thread_id, true));
+  THREADS_CAN_ACCESS_ENV.with(|cell| cell.set(true));
 }
 
 #[cfg(not(feature = "noop"))]
@@ -617,14 +616,9 @@ unsafe extern "C" fn thread_cleanup(
     {
       crate::tokio_runtime::shutdown_async_runtime();
     }
-    crate::bindgen_runtime::REFERENCE_MAP.borrow_mut(|m| m.clear());
+    crate::bindgen_runtime::REFERENCE_MAP.with(|cell| cell.borrow_mut(|m| m.clear()));
     #[allow(clippy::needless_return)]
     return;
-  }
-  #[cfg(feature = "napi4")]
-  {
-    let thread_id = unsafe { Box::from_raw(id.cast::<ThreadId>()) };
-    THREADS_CAN_ACCESS_ENV.borrow_mut(|m| m.remove(&thread_id));
   }
 }
 
@@ -653,9 +647,7 @@ extern "C" fn custom_gc(
   data: *mut std::ffi::c_void,
 ) {
   // current thread was destroyed
-  if THREADS_CAN_ACCESS_ENV.borrow_mut(|m| m.get(&std::thread::current().id()) == Some(&false))
-    || data.is_null()
-  {
+  if THREADS_CAN_ACCESS_ENV.with(|cell| cell.get() == false) || data.is_null() {
     return;
   }
   let mut ref_count = 0;
