@@ -196,6 +196,7 @@ export const either3 = __napiModule.exports.either3
 export const either4 = __napiModule.exports.either4
 export const eitherBoolOrFunction = __napiModule.exports.eitherBoolOrFunction
 export const eitherBoolOrTuple = __napiModule.exports.eitherBoolOrTuple
+export const eitherF64OrU32 = __napiModule.exports.eitherF64OrU32
 export const eitherFromObjects = __napiModule.exports.eitherFromObjects
 export const eitherFromOption = __napiModule.exports.eitherFromOption
 export const eitherPromiseInEitherA = __napiModule.exports.eitherPromiseInEitherA

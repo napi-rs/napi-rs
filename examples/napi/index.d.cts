@@ -500,6 +500,8 @@ export declare function eitherBoolOrFunction(input: boolean | (any)): void
 
 export declare function eitherBoolOrTuple(input: boolean | [boolean, string]): void
 
+export declare function eitherF64OrU32(input: number): number
+
 export declare function eitherFromObjects(input: A | B | C): string
 
 export declare function eitherFromOption(): JsClassForEither | undefined

@@ -220,6 +220,7 @@ module.exports.either3 = __napiModule.exports.either3
 module.exports.either4 = __napiModule.exports.either4
 module.exports.eitherBoolOrFunction = __napiModule.exports.eitherBoolOrFunction
 module.exports.eitherBoolOrTuple = __napiModule.exports.eitherBoolOrTuple
+module.exports.eitherF64OrU32 = __napiModule.exports.eitherF64OrU32
 module.exports.eitherFromObjects = __napiModule.exports.eitherFromObjects
 module.exports.eitherFromOption = __napiModule.exports.eitherFromOption
 module.exports.eitherPromiseInEitherA = __napiModule.exports.eitherPromiseInEitherA

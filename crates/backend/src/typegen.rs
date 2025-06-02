@@ -449,17 +449,33 @@ pub fn ty_to_ts_type(
             Some(("void".to_owned(), false))
           } else if known_ty.contains("{}") {
             let args = args.into_iter().map(|(arg, _)| arg);
-            let filtered_args =
-              if let Some(arg_indices) = KNOWN_TYPES_IGNORE_ARG.get(rust_ty.as_str()) {
-                args
-                  .enumerate()
-                  .filter(|(i, _)| !arg_indices.contains(i))
-                  .map(|(_, arg)| arg)
-                  .collect::<Vec<_>>()
+            if rust_ty.starts_with("Either") {
+              let union_args = args.fold(vec![], |mut acc, cur| {
+                if !acc.contains(&cur) {
+                  acc.push(cur);
+                }
+                acc
+              });
+              // EitherN has the same ts types, like Either<f64, u32> -> number
+              if union_args.len() == 1 {
+                Some((union_args[0].to_owned(), false))
               } else {
-                args.collect::<Vec<_>>()
-              };
-            Some((fill_ty(known_ty, filtered_args), false))
+                Some((fill_ty(known_ty, union_args), false))
+              }
+            } else {
+              let filtered_args =
+                if let Some(arg_indices) = KNOWN_TYPES_IGNORE_ARG.get(rust_ty.as_str()) {
+                  args
+                    .enumerate()
+                    .filter(|(i, _)| !arg_indices.contains(i))
+                    .map(|(_, arg)| arg)
+                    .collect::<Vec<_>>()
+                } else {
+                  args.collect::<Vec<_>>()
+                };
+
+              Some((fill_ty(known_ty, filtered_args), false))
+            }
           } else {
             Some((known_ty.to_owned(), false))
           }

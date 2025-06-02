@@ -1,4 +1,4 @@
-use napi::bindgen_prelude::*;
+use napi::{bindgen_prelude::*, JsNumber};
 
 #[napi]
 fn either_string_or_number(input: Either<String, u32>) -> u32 {
@@ -160,5 +160,16 @@ pub async fn either_promise_in_either_a(
       Either::B(b) => Ok(b > 10),
     },
     Either::B(a) => Ok(a.len() > 10),
+  }
+}
+
+#[napi]
+pub fn either_f64_or_u32(input: JsNumber) -> Result<Either<f64, u32>> {
+  let input_u32 = input.get_uint32()?;
+  let input_f64 = input.get_double()?;
+  if input_u32 as f64 == input_f64 {
+    Ok(Either::B(input_u32))
+  } else {
+    Ok(Either::A(input_f64))
   }
 }

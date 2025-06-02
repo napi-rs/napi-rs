@@ -73,6 +73,7 @@ import {
   either3,
   either4,
   eitherPromiseInEitherA,
+  eitherF64OrU32,
   withoutAbortController,
   withAbortController,
   asyncMultiTwo,
@@ -1071,6 +1072,8 @@ test('Uint8Array from String', async (t) => {
 test('either', (t) => {
   t.is(eitherStringOrNumber(2), 2)
   t.is(eitherStringOrNumber('hello'), 'hello'.length)
+  t.is(eitherF64OrU32(1), 1)
+  t.is(eitherF64OrU32(1.1), 1.1)
 })
 
 test('return either', (t) => {
