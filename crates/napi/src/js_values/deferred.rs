@@ -254,7 +254,7 @@ extern "C" fn napi_resolve_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> 
     "Release threadsafe function in JsDeferred failed"
   );
 
-  if let Err(e) = release_tsfn_result.and_then(|_| result).and_then(|res| {
+  if let Err(e) = release_tsfn_result.and(result).and_then(|res| {
     check_status!(
       unsafe { sys::napi_resolve_deferred(env, deferred, res) },
       "Resolve deferred value failed"
