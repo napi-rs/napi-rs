@@ -8,15 +8,11 @@ import { Animal, Kind, DEFAULT_COST, shutdownRuntime } from '../index.cjs'
 
 const __dirname = join(fileURLToPath(import.meta.url), '..')
 
-const t =
-  // aarch64-unknown-linux-gnu is extremely slow in CI, skip it or it will timeout
-  process.arch === 'arm64' && process.platform === 'linux' ? test.skip : test
-
 const concurrency =
   (process.platform === 'win32' ||
     process.platform === 'darwin' ||
     (process.platform === 'linux' &&
-      process.arch === 'x64' &&
+      (process.arch === 'x64' || process.arch === 'arm64') &&
       // @ts-expect-error
       process?.report?.getReport()?.header?.glibcVersionRuntime)) &&
   !process.env.WASI_TEST &&
@@ -28,7 +24,7 @@ test.after(() => {
   shutdownRuntime()
 })
 
-t('should be able to require in worker thread', async (t) => {
+test('should be able to require in worker thread', async (t) => {
   await Promise.all(
     Array.from({ length: concurrency }).map(() => {
       const w = new Worker(join(__dirname, 'worker.js'), {
@@ -52,7 +48,7 @@ t('should be able to require in worker thread', async (t) => {
   )
 })
 
-t('custom GC works on worker_threads', async (t) => {
+test('custom GC works on worker_threads', async (t) => {
   await Promise.all(
     Array.from({ length: concurrency }).map(() =>
       Promise.all([
@@ -95,7 +91,7 @@ t('custom GC works on worker_threads', async (t) => {
   )
 })
 
-t('should be able to new Class in worker thread concurrently', async (t) => {
+test('should be able to new Class in worker thread concurrently', async (t) => {
   await Promise.all(
     Array.from({ length: concurrency }).map(() => {
       const w = new Worker(join(__dirname, 'worker.js'), {
