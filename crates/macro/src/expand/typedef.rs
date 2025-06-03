@@ -1,7 +1,7 @@
 #[cfg(feature = "type-def")]
-pub mod typedef;
+mod type_def;
 #[cfg(feature = "type-def")]
-pub use self::typedef::*;
+pub use self::type_def::*;
 
 #[cfg(not(feature = "type-def"))]
 pub mod noop;
