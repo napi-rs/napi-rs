@@ -805,10 +805,9 @@ class Builder {
     let exports: string[] = []
 
     if (!this.options.noDtsHeader) {
-      const dtsHeader = this.options.dtsHeader ?? this.config.dtsHeaderFile
-      if (dtsHeader) {
-        header = dtsHeader
-      } else if (this.config.dtsHeaderFile) {
+      const dtsHeader = this.options.dtsHeader ?? this.config.dtsHeader
+      // `dtsHeaderFile` in config > `dtsHeader` in cli flag > `dtsHeader` in config
+      if (this.config.dtsHeaderFile) {
         try {
           header = await readFileAsync(
             join(this.cwd, this.config.dtsHeaderFile),
@@ -820,6 +819,8 @@ class Builder {
             e,
           )
         }
+      } else if (dtsHeader) {
+        header = dtsHeader
       } else {
         header = DEFAULT_TYPE_DEF_HEADER
       }
