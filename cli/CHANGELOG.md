@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.83](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.82...@napi-rs/cli@3.0.0-alpha.83) (2025-06-03)
+
+### Bug Fixes
+
+- **cli:** dtsHeader content ([da42542](https://github.com/napi-rs/napi-rs/commit/da42542f0af6f58e7302a5e5624faff574e3bb01))
+
 # [3.0.0-alpha.82](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.81...@napi-rs/cli@3.0.0-alpha.82) (2025-06-03)
 
 ### Bug Fixes
