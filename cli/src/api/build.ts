@@ -1,18 +1,11 @@
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import {
-  existsSync,
-  mkdirSync,
-  unlinkSync,
-  readFileSync,
-  writeFileSync,
-} from 'node:fs'
+import { existsSync, mkdirSync, rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { tmpdir, homedir } from 'node:os'
+import { homedir } from 'node:os'
 import { parse, join, resolve } from 'node:path'
 
 import * as colors from 'colorette'
-import { groupBy, split } from 'lodash-es'
 import { include as setjmpInclude, lib as setjmpLib } from 'wasm-sjlj'
 
 import { BuildOptions as RawBuildOptions } from '../def/build.js'
@@ -37,6 +30,8 @@ import {
   tryInstallCargoBinary,
   unlinkAsync,
   writeFileAsync,
+  dirExistsAsync,
+  readdirAsync,
 } from '../utils/index.js'
 
 import { createCjsBinding, createEsmBinding } from './templates/index.js'
@@ -53,22 +48,14 @@ const debug = debugFactory('build')
 const require = createRequire(import.meta.url)
 
 type OutputKind = 'js' | 'dts' | 'node' | 'exe' | 'wasm'
-type Output = {
-  kind: OutputKind
-  path: string
-}
+type Output = { kind: OutputKind; path: string }
 
-type BuildOptions = RawBuildOptions & {
-  cargoOptions?: string[]
-}
+type BuildOptions = RawBuildOptions & { cargoOptions?: string[] }
 
 export async function buildProject(options: BuildOptions) {
   debug('napi build command receive options: %O', options)
 
-  options = {
-    dtsCache: true,
-    ...options,
-  }
+  options = { dtsCache: true, ...options }
 
   const cwd = options.cwd ?? process.cwd()
 
@@ -92,13 +79,6 @@ export async function buildProject(options: BuildOptions) {
     )
   }
 
-  const depsNapiPackages = pkg.dependencies
-    .map((p) => metadata.packages.find((c) => c.name === p.name))
-    .filter(
-      (c): c is Crate =>
-        c != null && c.dependencies.some((d) => d.name == 'napi-derive'),
-    )
-
   const crateDir = parse(pkg.manifest_path).dir
 
   const builder = new Builder(
@@ -121,7 +101,6 @@ export async function buildProject(options: BuildOptions) {
       ),
       options.configPath ? resolvePath(options.configPath) : undefined,
     ),
-    depsNapiPackages,
   )
 
   return builder.build()
@@ -141,7 +120,6 @@ class Builder {
     private readonly outputDir: string,
     private readonly targetDir: string,
     private readonly config: NapiConfig,
-    private readonly depsNapiPackages: Crate[],
   ) {}
 
   get cdyLibName() {
@@ -323,10 +301,7 @@ class Builder {
       const command =
         process.env.CARGO ?? (this.options.useCross ? 'cross' : 'cargo')
       const buildProcess = spawn(command, this.args, {
-        env: {
-          ...process.env,
-          ...this.envs,
-        },
+        env: { ...process.env, ...this.envs },
         stdio: watch ? ['inherit', 'inherit', 'pipe'] : 'inherit',
         cwd: this.cwd,
         signal: controller.signal,
@@ -342,11 +317,7 @@ class Builder {
       })
 
       buildProcess.once('error', (e) => {
-        reject(
-          new Error(`Build failed with error: ${e.message}`, {
-            cause: e,
-          }),
-        )
+        reject(new Error(`Build failed with error: ${e.message}`, { cause: e }))
       })
 
       // watch mode only, they are piped through stderr
@@ -477,76 +448,8 @@ class Builder {
   }
 
   private setEnvs() {
-    // type definition intermediate file
-    this.envs.TYPE_DEF_TMP_PATH = this.getIntermediateTypeFile()
-    // Validate the packages and dependencies
-    if (existsSync(this.envs.TYPE_DEF_TMP_PATH)) {
-      const { depsNapiPackages, crate } = this
-      let shouldInvalidateSelf = false
-      const content = readFileSync(this.envs.TYPE_DEF_TMP_PATH, 'utf-8')
-      const typedefRaw = content
-        .split('\n')
-        .filter((line) => line.trim().length)
-        .map((line) => {
-          const [pkgName, ...jsonContents] = split(line, ':')
-          return {
-            pkgName,
-            jsonContent: jsonContents.join(':'),
-          }
-        })
-      const groupedTypedefRaw = groupBy(typedefRaw, ({ pkgName }) => pkgName)
-      const invalidPackages = new Set<string>()
-      for (const [pkgName, value] of Object.entries(groupedTypedefRaw)) {
-        const packageInvalidKey = `NAPI_PACKAGE_${pkgName.toUpperCase().replaceAll('-', '_')}_INVALID`
-        let done = false
-        for (const { jsonContent } of value) {
-          try {
-            // package_name: { "done": true } was written by napi-build in project build.rs
-            // if it exists, the package was successfully built and typedef was written
-            const json = JSON.parse(jsonContent)
-            if (json.done === true) {
-              done = true
-              break
-            }
-          } catch {
-            done = false
-            break
-          }
-        }
-        if (!done) {
-          process.env[packageInvalidKey] = `${Date.now()}`
-          shouldInvalidateSelf = true
-          invalidPackages.add(pkgName)
-        }
-      }
-      const typedefPackages = new Set(Object.keys(groupedTypedefRaw))
-      for (const crate of depsNapiPackages) {
-        if (!typedefPackages.has(crate.name)) {
-          debug('Set invalid package typedef: %i', crate.name)
-          shouldInvalidateSelf = true
-          process.env[
-            `NAPI_PACKAGE_${crate.name.toUpperCase().replaceAll('-', '_')}_INVALID`
-          ] = `${Date.now()}`
-        }
-      }
-      if (shouldInvalidateSelf) {
-        debug('Set invalid package typedef: %i', crate.name)
-        process.env[
-          `NAPI_PACKAGE_${crate.name.toUpperCase().replaceAll('-', '_')}_INVALID`
-        ] = `${Date.now()}`
-      }
-      // clean invalid packages typedef
-      if (invalidPackages.size) {
-        debug('Clean invalid packages typedef: %O', invalidPackages)
-        writeFileSync(
-          this.envs.TYPE_DEF_TMP_PATH,
-          typedefRaw
-            .filter(({ pkgName }) => !invalidPackages.has(pkgName))
-            .map(({ pkgName, jsonContent }) => `${pkgName}:${jsonContent}`)
-            .join('\n'),
-        )
-      }
-    }
+    // folder for intermediate type definition files
+    this.envs.TYPE_DEF_TMP_FOLDER = this.generateIntermediateTypeDefFolder()
 
     // RUSTFLAGS
     let rustflags =
@@ -725,22 +628,25 @@ class Builder {
     return this
   }
 
-  private getIntermediateTypeFile() {
-    const dtsPath = join(
-      tmpdir(),
+  private generateIntermediateTypeDefFolder() {
+    let folder = join(
+      this.targetDir,
+      'napi-rs',
       `${this.crate.name}-${createHash('sha256')
         .update(this.crate.manifest_path)
         .update(CLI_VERSION)
         .digest('hex')
-        .substring(0, 8)}.napi_type_def`,
+        .substring(0, 8)}`,
     )
+
     if (!this.options.dtsCache) {
-      try {
-        unlinkSync(dtsPath)
-      } catch {}
-      return `${dtsPath}_${Date.now()}.tmp`
+      rmSync(folder, { recursive: true, force: true })
+      folder += `_${Date.now()}`
     }
-    return `${dtsPath}.tmp`
+
+    mkdirAsync(folder, { recursive: true })
+
+    return folder
   }
 
   private async postBuild() {
@@ -838,9 +744,7 @@ class Builder {
       })
       return wasmBinaryName ? join(this.outputDir, wasmBinaryName) : null
     } catch (e) {
-      throw new Error('Failed to copy artifact', {
-        cause: e,
-      })
+      throw new Error('Failed to copy artifact', { cause: e })
     }
   }
 
@@ -889,41 +793,76 @@ class Builder {
   }
 
   private async generateTypeDef() {
-    if (!(await fileExists(this.envs.TYPE_DEF_TMP_PATH))) {
+    const typeDefDir = this.envs.TYPE_DEF_TMP_FOLDER
+    if (!(await dirExistsAsync(typeDefDir))) {
       return []
     }
 
     const dest = join(this.outputDir, this.options.dts ?? 'index.d.ts')
 
-    const { dts, exports } = await processTypeDef(
-      this.envs.TYPE_DEF_TMP_PATH,
-      this.options.constEnum ?? this.config.constEnum ?? true,
-      !this.options.noDtsHeader
-        ? (this.options.dtsHeader ??
-            (this.config.dtsHeaderFile
-              ? await readFileAsync(
-                  join(this.cwd, this.config.dtsHeaderFile),
-                  'utf-8',
-                ).catch(() => {
-                  debug.warn(
-                    `Failed to read dts header file ${this.config.dtsHeaderFile}`,
-                  )
-                  return null
-                })
-              : null) ??
-            this.config.dtsHeader ??
-            DEFAULT_TYPE_DEF_HEADER)
-        : '',
-    )
+    let header = ''
+    let dts = ''
+    let exports: string[] = []
+
+    if (!this.options.noDtsHeader) {
+      if (this.options.dtsHeader) {
+        header = this.options.dtsHeader
+      } else if (this.config.dtsHeaderFile) {
+        try {
+          header = await readFileAsync(
+            join(this.cwd, this.config.dtsHeaderFile),
+            'utf-8',
+          )
+        } catch (e) {
+          debug.warn(
+            `Failed to read dts header file ${this.config.dtsHeaderFile}`,
+            e,
+          )
+        }
+      } else {
+        header = DEFAULT_TYPE_DEF_HEADER
+      }
+    }
+
+    const files = await readdirAsync(typeDefDir, { withFileTypes: true })
+
+    if (!files.length) {
+      debug('No type def files found. Skip generating dts file.')
+      return []
+    }
+
+    for (const file of files) {
+      if (!file.isFile()) {
+        continue
+      }
+
+      const { dts: fileDts, exports: fileExports } = await processTypeDef(
+        join(typeDefDir, file.name),
+        this.options.constEnum ?? this.config.constEnum ?? true,
+      )
+
+      dts += fileDts
+      exports.push(...fileExports)
+    }
+
+    if (dts.indexOf('ExternalObject<') > -1) {
+      header += `
+export declare class ExternalObject<T> {
+  readonly '': {
+    readonly '': unique symbol
+    [K: symbol]: T
+  }
+}
+`
+    }
+
+    dts = header + dts
 
     try {
       debug('Writing type def to:')
       debug('  %i', dest)
       await writeFileAsync(dest, dts, 'utf-8')
-      this.outputs.push({
-        kind: 'dts',
-        path: dest,
-      })
+      this.outputs.push({ kind: 'dts', path: dest })
     } catch (e) {
       debug.error('Failed to write type def file')
       debug.error(e as Error)
@@ -956,10 +895,7 @@ class Builder {
       debug('Writing js binding to:')
       debug('  %i', dest)
       await writeFileAsync(dest, binding, 'utf-8')
-      return {
-        kind: 'js',
-        path: dest,
-      } satisfies Output
+      return { kind: 'js', path: dest } satisfies Output
     } catch (e) {
       throw new Error('Failed to write js binding file', { cause: e })
     }
@@ -1029,26 +965,11 @@ class Builder {
         `export * from '${this.config.packageName}-wasm32-wasi'\n`,
       )
       return [
-        {
-          kind: 'js',
-          path: bindingPath,
-        },
-        {
-          kind: 'js',
-          path: browserBindingPath,
-        },
-        {
-          kind: 'js',
-          path: workerPath,
-        },
-        {
-          kind: 'js',
-          path: browserWorkerPath,
-        },
-        {
-          kind: 'js',
-          path: browserEntryPath,
-        },
+        { kind: 'js', path: bindingPath },
+        { kind: 'js', path: browserBindingPath },
+        { kind: 'js', path: workerPath },
+        { kind: 'js', path: browserWorkerPath },
+        { kind: 'js', path: browserEntryPath },
       ] satisfies Output[]
     }
     return []

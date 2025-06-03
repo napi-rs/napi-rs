@@ -103,7 +103,6 @@ fn escape_json(src: &str) -> String {
 
 impl Display for TypeDef {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-    let pkg_name = std::env::var("CARGO_PKG_NAME").expect("CARGO_PKG_NAME is not set");
     let js_mod = if let Some(js_mod) = &self.js_mod {
       format!(", \"js_mod\": \"{}\"", js_mod)
     } else {
@@ -115,11 +114,9 @@ impl Display for TypeDef {
       "".to_string()
     };
 
-    let prefix = format!("{}:", pkg_name);
     write!(
       f,
-      r#"{}{{"kind": "{}", "name": "{}", "js_doc": "{}", "def": "{}"{}{}}}"#,
-      prefix,
+      r#"{{"kind": "{}", "name": "{}", "js_doc": "{}", "def": "{}"{}{}}}"#,
       self.kind,
       self.name,
       escape_json(&self.js_doc),
