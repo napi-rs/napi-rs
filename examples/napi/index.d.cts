@@ -786,10 +786,6 @@ export declare function setNullByteProperty(obj: object): void
 
 export declare function setSymbolInObj(symbol: symbol): object
 
-export interface Shared {
-  value: number
-}
-
 export declare function shorterEscapableScope(createString: () => string | null): string
 
 export declare function shorterScope(arr: unknown[]): Array<number>
@@ -983,4 +979,7 @@ export declare namespace xxh3 {
   /** xxh128 function */
   export function xxh128(input: Buffer): bigint
   export function xxh3_64(input: Buffer): bigint
+}
+export interface Shared {
+  value: number
 }

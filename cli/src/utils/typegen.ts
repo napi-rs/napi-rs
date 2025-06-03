@@ -1,4 +1,4 @@
-import { sortBy, unionWith, isEqual } from 'lodash-es'
+import { sortBy } from 'lodash-es'
 
 import { readFileAsync } from './misc.js'
 
@@ -85,13 +85,10 @@ function exportDeclare(ambient: boolean): string {
 export async function processTypeDef(
   intermediateTypeFile: string,
   constEnum: boolean,
-  header?: string,
 ) {
   const exports: string[] = []
   const defs = await readIntermediateTypeFile(intermediateTypeFile)
   const groupedDefs = preprocessTypeDef(defs)
-
-  header = header ?? ''
 
   const dts =
     sortBy(Array.from(groupedDefs), ([namespace]) => namespace)
@@ -130,41 +127,22 @@ export async function processTypeDef(
       })
       .join('\n\n') + '\n'
 
-  if (dts.indexOf('ExternalObject<') > -1) {
-    header += `
-export declare class ExternalObject<T> {
-  readonly '': {
-    readonly '': unique symbol
-    [K: symbol]: T
-  }
-}
-`
-  }
-
   return {
-    dts: header + dts,
+    dts,
     exports,
   }
 }
 
 async function readIntermediateTypeFile(file: string) {
   const content = await readFileAsync(file, 'utf8')
-  const defs = unionWith(
-    content
-      .split('\n')
-      .filter(Boolean)
-      .map((line) => {
-        line = line.trim()
-        if (!line.startsWith('{')) {
-          // crateName:{ "def": "", ... }
-          const start = line.indexOf(':') + 1
-          line = line.slice(start)
-        }
-        return JSON.parse(line) as TypeDefLine
-      })
-      .filter((def) => !!def.kind),
-    (a, b) => isEqual(a, b),
-  )
+
+  const defs = content
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => {
+      line = line.trim()
+      return JSON.parse(line) as TypeDefLine
+    })
 
   // move all `struct` def to the very top
   // and order the rest alphabetically.
