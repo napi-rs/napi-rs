@@ -805,8 +805,9 @@ class Builder {
     let exports: string[] = []
 
     if (!this.options.noDtsHeader) {
-      if (this.options.dtsHeader) {
-        header = this.options.dtsHeader
+      const dtsHeader = this.options.dtsHeader ?? this.config.dtsHeaderFile
+      if (dtsHeader) {
+        header = dtsHeader
       } else if (this.config.dtsHeaderFile) {
         try {
           header = await readFileAsync(
