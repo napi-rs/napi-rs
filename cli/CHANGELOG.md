@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.82](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.81...@napi-rs/cli@3.0.0-alpha.82) (2025-06-03)
+
+### Bug Fixes
+
+- type generation for shared libs ([#2684](https://github.com/napi-rs/napi-rs/issues/2684)) ([d874a46](https://github.com/napi-rs/napi-rs/commit/d874a4664748d3013c64d2f3f022c5cd6f8624a8))
+
 # [3.0.0-alpha.81](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.80...@napi-rs/cli@3.0.0-alpha.81) (2025-05-29)
 
 ### Bug Fixes
