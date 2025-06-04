@@ -126,7 +126,9 @@ class Builder {
       process.env.CARGO_BUILD_TARGET_DIR ??
       metadata.target_directory
     this.enableTypeDef = this.crate.dependencies.some(
-      (dep) => dep.name === 'napi-derive' && dep.features.includes('type-def'),
+      (dep) =>
+        dep.name === 'napi-derive' &&
+        (dep.uses_default_features || dep.features.includes('type-def')),
     )
 
     if (!this.enableTypeDef) {
