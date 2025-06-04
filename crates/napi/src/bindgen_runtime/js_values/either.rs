@@ -190,7 +190,7 @@ fn silence_rejected_promise(env: sys::napi_env, promise: sys::napi_value) -> cra
       env,
       c"catch".as_ptr().cast(),
       5,
-      Some(noop),
+      None,
       std::ptr::null_mut(),
       &mut catch_noop_callback,
     )
@@ -206,8 +206,4 @@ fn silence_rejected_promise(env: sys::napi_env, promise: sys::napi_value) -> cra
     )
   })?;
   Ok(())
-}
-
-unsafe extern "C" fn noop(_env: sys::napi_env, _info: sys::napi_callback_info) -> sys::napi_value {
-  std::ptr::null_mut()
 }
