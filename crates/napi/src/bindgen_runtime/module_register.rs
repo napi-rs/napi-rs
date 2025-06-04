@@ -63,9 +63,6 @@ type ModuleClassProperty = PersistedPerInstanceHashMap<
   FxBuildHasher,
 >;
 
-unsafe impl<K, V, S> Send for PersistedPerInstanceHashMap<K, V, S> {}
-unsafe impl<K, V, S> Sync for PersistedPerInstanceHashMap<K, V, S> {}
-
 type FnRegisterMap = PersistedPerInstanceHashMap<
   ExportRegisterCallback,
   (sys::napi_callback, &'static str),
@@ -92,7 +89,6 @@ pub(crate) static CUSTOM_GC_TSFN: std::sync::atomic::AtomicPtr<sys::napi_threads
   std::sync::atomic::AtomicPtr::new(ptr::null_mut());
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
 pub(crate) static CUSTOM_GC_TSFN_DESTROYED: AtomicBool = AtomicBool::new(false);
-#[cfg(all(feature = "napi4", not(feature = "noop")))]
 
 type RegisteredClasses = PersistedPerInstanceHashMap<
   /* export name */ String,
@@ -102,7 +98,7 @@ type RegisteredClasses = PersistedPerInstanceHashMap<
 
 thread_local! {
   // Store thread id of the thread that created the CustomGC ThreadsafeFunction.
-  pub(crate) static THREADS_CAN_ACCESS_ENV: Cell<bool> = Cell::new(false);
+  pub(crate) static THREADS_CAN_ACCESS_ENV: Cell<bool> = const { Cell::new(false) };
 }
 
 #[cfg(all(feature = "compat-mode", not(feature = "noop")))]
@@ -647,7 +643,7 @@ extern "C" fn custom_gc(
   data: *mut std::ffi::c_void,
 ) {
   // current thread was destroyed
-  if THREADS_CAN_ACCESS_ENV.with(|cell| cell.get() == false) || data.is_null() {
+  if THREADS_CAN_ACCESS_ENV.with(|cell| !cell.get()) || data.is_null() {
     return;
   }
   let mut ref_count = 0;
