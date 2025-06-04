@@ -32,6 +32,7 @@ import {
   writeFileAsync,
   dirExistsAsync,
   readdirAsync,
+  CargoWorkspaceMetadata,
 } from '../utils/index.js'
 
 import { createCjsBinding, createEsmBinding } from './templates/index.js'
@@ -51,20 +52,23 @@ type OutputKind = 'js' | 'dts' | 'node' | 'exe' | 'wasm'
 type Output = { kind: OutputKind; path: string }
 
 type BuildOptions = RawBuildOptions & { cargoOptions?: string[] }
+type ParsedBuildOptions = Omit<BuildOptions, 'cwd'> & { cwd: string }
 
-export async function buildProject(options: BuildOptions) {
-  debug('napi build command receive options: %O', options)
+export async function buildProject(rawOptions: BuildOptions) {
+  debug('napi build command receive options: %O', rawOptions)
 
-  options = { dtsCache: true, ...options }
+  const options: ParsedBuildOptions = {
+    dtsCache: true,
+    ...rawOptions,
+    cwd: rawOptions.cwd ?? process.cwd(),
+  }
 
-  const cwd = options.cwd ?? process.cwd()
-
-  const resolvePath = (...paths: string[]) => resolve(cwd, ...paths)
+  const resolvePath = (...paths: string[]) => resolve(options.cwd, ...paths)
 
   const manifestPath = resolvePath(options.manifestPath ?? 'Cargo.toml')
   const metadata = await parseMetadata(manifestPath)
 
-  const pkg = metadata.packages.find((p) => {
+  const crate = metadata.packages.find((p) => {
     // package with given name
     if (options.package) {
       return p.name === options.package
@@ -73,35 +77,19 @@ export async function buildProject(options: BuildOptions) {
     }
   })
 
-  if (!pkg) {
+  if (!crate) {
     throw new Error(
       'Unable to find crate to build. It seems you are trying to build a crate in a workspace, try using `--package` option to specify the package to build.',
     )
   }
-
-  const crateDir = parse(pkg.manifest_path).dir
-
-  const builder = new Builder(
-    options,
-    pkg,
-    cwd,
-    options.target
-      ? parseTriple(options.target)
-      : process.env.CARGO_BUILD_TARGET
-        ? parseTriple(process.env.CARGO_BUILD_TARGET)
-        : getSystemDefaultTarget(),
-    crateDir,
-    resolvePath(options.outputDir ?? crateDir),
-    options.targetDir ??
-      process.env.CARGO_BUILD_TARGET_DIR ??
-      metadata.target_directory,
-    await readNapiConfig(
-      resolvePath(
-        options.configPath ?? options.packageJsonPath ?? 'package.json',
-      ),
-      options.configPath ? resolvePath(options.configPath) : undefined,
+  const config = await readNapiConfig(
+    resolvePath(
+      options.configPath ?? options.packageJsonPath ?? 'package.json',
     ),
+    options.configPath ? resolvePath(options.configPath) : undefined,
   )
+
+  const builder = new Builder(metadata, crate, config, options)
 
   return builder.build()
 }
@@ -111,16 +99,32 @@ class Builder {
   private readonly envs: Record<string, string> = {}
   private readonly outputs: Output[] = []
 
+  private readonly target: Target
+  private readonly crateDir: string
+  private readonly outputDir: string
+  private readonly targetDir: string
+
   constructor(
-    private readonly options: BuildOptions,
+    private readonly metadata: CargoWorkspaceMetadata,
     private readonly crate: Crate,
-    private readonly cwd: string,
-    private readonly target: Target,
-    private readonly crateDir: string,
-    private readonly outputDir: string,
-    private readonly targetDir: string,
     private readonly config: NapiConfig,
-  ) {}
+    private readonly options: ParsedBuildOptions,
+  ) {
+    this.target = options.target
+      ? parseTriple(options.target)
+      : process.env.CARGO_BUILD_TARGET
+        ? parseTriple(process.env.CARGO_BUILD_TARGET)
+        : getSystemDefaultTarget()
+    this.crateDir = parse(crate.manifest_path).dir
+    this.outputDir = resolve(
+      this.options.cwd,
+      options.outputDir ?? this.crateDir,
+    )
+    this.targetDir =
+      options.targetDir ??
+      process.env.CARGO_BUILD_TARGET_DIR ??
+      metadata.target_directory
+  }
 
   get cdyLibName() {
     return this.crate.targets.find((t) => t.crate_types.includes('cdylib'))
@@ -303,7 +307,7 @@ class Builder {
       const buildProcess = spawn(command, this.args, {
         env: { ...process.env, ...this.envs },
         stdio: watch ? ['inherit', 'inherit', 'pipe'] : 'inherit',
-        cwd: this.cwd,
+        cwd: this.options.cwd,
         signal: controller.signal,
       })
 
@@ -449,7 +453,9 @@ class Builder {
 
   private setEnvs() {
     // folder for intermediate type definition files
-    this.envs.TYPE_DEF_TMP_FOLDER = this.generateIntermediateTypeDefFolder()
+    this.envs.NAPI_TYPE_DEF_TMP_FOLDER =
+      this.generateIntermediateTypeDefFolder()
+    this.setForceBuildEnvs(this.envs.NAPI_TYPE_DEF_TMP_FOLDER)
 
     // RUSTFLAGS
     let rustflags =
@@ -575,6 +581,20 @@ class Builder {
     })
 
     return this
+  }
+
+  private setForceBuildEnvs(typeDefTmpFolder: string) {
+    // dynamically check all napi-rs deps and set `NAPI_FORCE_BUILD_{uppercase(snake_case(name))} = timestamp`
+    this.metadata.packages.forEach((crate) => {
+      if (
+        crate.dependencies.some((d) => d.name === 'napi-derive') &&
+        !existsSync(join(typeDefTmpFolder, crate.name))
+      ) {
+        this.envs[
+          `NAPI_FORCE_BUILD_${crate.name.replace(/-/g, '_').toUpperCase()}`
+        ] = Date.now().toString()
+      }
+    })
   }
 
   private setFeatures() {
@@ -793,7 +813,7 @@ class Builder {
   }
 
   private async generateTypeDef() {
-    const typeDefDir = this.envs.TYPE_DEF_TMP_FOLDER
+    const typeDefDir = this.envs.NAPI_TYPE_DEF_TMP_FOLDER
     if (!(await dirExistsAsync(typeDefDir))) {
       return []
     }
@@ -810,7 +830,7 @@ class Builder {
       if (this.config.dtsHeaderFile) {
         try {
           header = await readFileAsync(
-            join(this.cwd, this.config.dtsHeaderFile),
+            join(this.options.cwd, this.config.dtsHeaderFile),
             'utf-8',
           )
         } catch (e) {

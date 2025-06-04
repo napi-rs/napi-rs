@@ -1,5 +1,4 @@
 use std::env;
-use std::env::VarError;
 use std::fs;
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
@@ -9,16 +8,17 @@ use napi_derive_backend::{Napi, ToTypeDef};
 
 static PKG_NAME: LazyLock<String> =
   LazyLock::new(|| env::var("CARGO_PKG_NAME").expect("Expected `CARGO_PKG_NAME` to be set"));
-static TYPE_DEF_FOLDER: LazyLock<Result<String, VarError>> =
-  LazyLock::new(|| env::var("TYPE_DEF_TMP_FOLDER"));
+static TYPE_DEF_FOLDER: LazyLock<Option<String>> =
+  LazyLock::new(|| env::var("NAPI_TYPE_DEF_TMP_FOLDER").ok());
 
 fn get_type_def_file() -> Option<PathBuf> {
-  if let Ok(folder) = TYPE_DEF_FOLDER.as_ref() {
+  if let Some(folder) = TYPE_DEF_FOLDER.as_ref() {
     let file = PathBuf::from(folder).join(&*PKG_NAME);
     Some(file)
   } else {
+    // the environment variable set by old `@napi-rs/cli`
     if env::var("TYPE_DEF_TMP_PATH").is_ok() {
-      panic!("Expected `TYPE_DEF_TMP_FOLDER` to be set. It may caused by an older version of '@napi-rs/cli' used. Please upgrade to the latest version.");
+      panic!("[napi-rs] missing environment variables. please upgrade `@napi-rs/cli` to the latest version.");
     }
     None
   }
