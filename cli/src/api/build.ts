@@ -103,6 +103,7 @@ class Builder {
   private readonly crateDir: string
   private readonly outputDir: string
   private readonly targetDir: string
+  private readonly enableTypeDef: boolean = false
 
   constructor(
     private readonly metadata: CargoWorkspaceMetadata,
@@ -124,6 +125,28 @@ class Builder {
       options.targetDir ??
       process.env.CARGO_BUILD_TARGET_DIR ??
       metadata.target_directory
+    this.enableTypeDef = this.crate.dependencies.some(
+      (dep) => dep.name === 'napi-derive' && dep.features.includes('type-def'),
+    )
+
+    if (!this.enableTypeDef) {
+      const requirementWarning =
+        '`napi-derive` crate is not used or `type-def` feature is not enabled for `napi-derive` crate'
+      debug.warn(
+        `${requirementWarning}. Will skip binding generation for \`.node\`, \`.wasi\` and \`.d.ts\` files.`,
+      )
+
+      if (
+        this.options.dts ||
+        this.options.dtsHeader ||
+        this.config.dtsHeader ||
+        this.config.dtsHeaderFile
+      ) {
+        debug.warn(
+          `${requirementWarning}. \`dts\` related options are enabled but will be ignored.`,
+        )
+      }
+    }
   }
 
   get cdyLibName() {
@@ -452,10 +475,12 @@ class Builder {
   }
 
   private setEnvs() {
-    // folder for intermediate type definition files
-    this.envs.NAPI_TYPE_DEF_TMP_FOLDER =
-      this.generateIntermediateTypeDefFolder()
-    this.setForceBuildEnvs(this.envs.NAPI_TYPE_DEF_TMP_FOLDER)
+    // TYPE DEF
+    if (this.enableTypeDef) {
+      this.envs.NAPI_TYPE_DEF_TMP_FOLDER =
+        this.generateIntermediateTypeDefFolder()
+      this.setForceBuildEnvs(this.envs.NAPI_TYPE_DEF_TMP_FOLDER)
+    }
 
     // RUSTFLAGS
     let rustflags =
@@ -814,7 +839,7 @@ class Builder {
 
   private async generateTypeDef() {
     const typeDefDir = this.envs.NAPI_TYPE_DEF_TMP_FOLDER
-    if (!(await dirExistsAsync(typeDefDir))) {
+    if (!this.enableTypeDef || !(await dirExistsAsync(typeDefDir))) {
       return []
     }
 
