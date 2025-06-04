@@ -1,7 +1,6 @@
 use std::{
   cell::RefCell,
   collections::HashMap,
-  env,
   fmt::{self, Display, Formatter},
   sync::LazyLock,
 };
@@ -13,11 +12,6 @@ pub(crate) mod r#struct;
 mod r#type;
 
 use syn::{PathSegment, Type, TypePath, TypeSlice};
-
-pub static NAPI_RS_CLI_VERSION: LazyLock<semver::Version> = LazyLock::new(|| {
-  let version = env::var("CARGO_CFG_NAPI_RS_CLI_VERSION").unwrap_or_else(|_| "0.0.0".to_string());
-  semver::Version::parse(&version).unwrap_or_else(|_| semver::Version::new(0, 0, 0))
-});
 
 #[derive(Default, Debug)]
 pub struct TypeDef {
