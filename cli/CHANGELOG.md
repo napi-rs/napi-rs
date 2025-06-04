@@ -3,6 +3,16 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.85](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.84...@napi-rs/cli@3.0.0-alpha.85) (2025-06-04)
+
+### Bug Fixes
+
+- revalidate shared libs if type def not found ([#2689](https://github.com/napi-rs/napi-rs/issues/2689)) ([5a17b88](https://github.com/napi-rs/napi-rs/commit/5a17b886368fcef18334174588ee2982d503d5c8))
+
+### Features
+
+- **cli:** detect type-def feature in cli ([#2690](https://github.com/napi-rs/napi-rs/issues/2690)) ([c9ff0ec](https://github.com/napi-rs/napi-rs/commit/c9ff0ec4646584d51631b12b5d7eb5e4712969ec))
+
 # [3.0.0-alpha.84](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.83...@napi-rs/cli@3.0.0-alpha.84) (2025-06-03)
 
 ### Bug Fixes
