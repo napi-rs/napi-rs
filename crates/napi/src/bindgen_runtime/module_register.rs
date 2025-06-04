@@ -56,12 +56,54 @@ impl<K, V, S: Default> Default for PersistedPerInstanceHashMap<K, V, S> {
 type ModuleRegisterCallback =
   RwLock<Vec<(Option<&'static str>, (&'static str, ExportRegisterCallback))>>;
 
+// Stores class metadata registered by napi macros.
+// Since class properties do not contain any napi_value, ModuleClassProperty is thread-safe.
+// This structure is shared between the main JS thread and worker threads.
 #[cfg(not(feature = "noop"))]
-type ModuleClassProperty = PersistedPerInstanceHashMap<
-  TypeId,
-  HashMap<Option<&'static str>, (&'static str, Vec<Property>), FxBuildHasher>,
-  FxBuildHasher,
->;
+#[derive(Default)]
+struct ModuleClassProperty(
+  RwLock<
+    HashMap<
+      TypeId,
+      HashMap<Option<&'static str>, (&'static str, Vec<Property>), FxBuildHasher>,
+      FxBuildHasher,
+    >,
+  >,
+);
+
+unsafe impl Send for ModuleClassProperty {}
+unsafe impl Sync for ModuleClassProperty {}
+
+impl ModuleClassProperty {
+  #[allow(clippy::mut_from_ref)]
+  pub(crate) fn borrow_mut<F, R>(&self, f: F) -> R
+  where
+    F: FnOnce(
+      &mut HashMap<
+        TypeId,
+        HashMap<Option<&'static str>, (&'static str, Vec<Property>), FxBuildHasher>,
+        FxBuildHasher,
+      >,
+    ) -> R,
+  {
+    let mut write_lock = self.0.write().unwrap();
+    f(&mut *write_lock)
+  }
+
+  pub(crate) fn borrow<F, R>(&self, f: F) -> R
+  where
+    F: FnOnce(
+      &HashMap<
+        TypeId,
+        HashMap<Option<&'static str>, (&'static str, Vec<Property>), FxBuildHasher>,
+        FxBuildHasher,
+      >,
+    ) -> R,
+  {
+    let write_lock = self.0.read().unwrap();
+    f(&*write_lock)
+  }
+}
 
 type FnRegisterMap = PersistedPerInstanceHashMap<
   ExportRegisterCallback,
@@ -75,12 +117,12 @@ static MODULE_REGISTER_CALLBACK: LazyLock<ModuleRegisterCallback> = LazyLock::ne
 static MODULE_REGISTER_HOOK_CALLBACK: LazyLock<RwLock<Option<ExportRegisterHookCallback>>> =
   LazyLock::new(Default::default);
 #[cfg(not(feature = "noop"))]
+static MODULE_CLASS_PROPERTIES: LazyLock<ModuleClassProperty> = LazyLock::new(Default::default);
+#[cfg(not(feature = "noop"))]
 static MODULE_COUNT: AtomicUsize = AtomicUsize::new(0);
 #[cfg(not(feature = "noop"))]
 static FIRST_MODULE_REGISTERED: AtomicBool = AtomicBool::new(false);
 thread_local! {
-  #[cfg(not(feature = "noop"))]
-  static MODULE_CLASS_PROPERTIES: LazyCell<ModuleClassProperty> = LazyCell::new(Default::default);
   static REGISTERED_CLASSES: LazyCell<RegisteredClasses> = LazyCell::new(Default::default);
   static FN_REGISTER_MAP: LazyCell<FnRegisterMap> = LazyCell::new(Default::default);
 }
@@ -89,17 +131,17 @@ pub(crate) static CUSTOM_GC_TSFN: std::sync::atomic::AtomicPtr<sys::napi_threads
   std::sync::atomic::AtomicPtr::new(ptr::null_mut());
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
 pub(crate) static CUSTOM_GC_TSFN_DESTROYED: AtomicBool = AtomicBool::new(false);
+thread_local! {
+  #[cfg(all(feature = "napi4", not(feature = "noop")))]
+  // Store thread id of the thread that created the CustomGC ThreadsafeFunction.
+  pub(crate) static THREADS_CAN_ACCESS_ENV: Cell<bool> = const { Cell::new(false) };
+}
 
 type RegisteredClasses = PersistedPerInstanceHashMap<
   /* export name */ String,
   /* constructor */ sys::napi_ref,
   FxBuildHasher,
 >;
-
-thread_local! {
-  // Store thread id of the thread that created the CustomGC ThreadsafeFunction.
-  pub(crate) static THREADS_CAN_ACCESS_ENV: Cell<bool> = const { Cell::new(false) };
-}
 
 #[cfg(all(feature = "compat-mode", not(feature = "noop")))]
 // compatibility for #[module_exports]
@@ -189,13 +231,11 @@ pub fn register_class(
   js_name: &'static str,
   props: Vec<Property>,
 ) {
-  MODULE_CLASS_PROPERTIES.with(|cell| {
-    cell.borrow_mut(|inner| {
-      let val = inner.entry(rust_type_id).or_default();
-      let val = val.entry(js_mod).or_default();
-      val.0 = js_name;
-      val.1.extend(props);
-    })
+  MODULE_CLASS_PROPERTIES.borrow_mut(|inner| {
+    let val = inner.entry(rust_type_id).or_default();
+    let val = val.entry(js_mod).or_default();
+    val.0 = js_name;
+    val.1.extend(props);
   });
 }
 
@@ -372,98 +412,91 @@ pub unsafe extern "C" fn napi_register_module_v1(
 
   let mut registered_classes = HashMap::default();
 
-  MODULE_CLASS_PROPERTIES.with(|cell| {
-    cell.borrow_mut(|inner| {
-      inner.iter().for_each(|(_, js_mods)| {
-        for (js_mod, (js_name, props)) in js_mods {
-          let mut exports_js_mod = ptr::null_mut();
-          unsafe {
-            if let Some(js_mod_str) = js_mod {
-              let mod_name_c_str = CStr::from_bytes_with_nul_unchecked(js_mod_str.as_bytes());
-              if exports_objects.contains(*js_mod_str) {
-                check_status_or_throw!(
+  MODULE_CLASS_PROPERTIES.borrow(|inner| {
+    inner.iter().for_each(|(_, js_mods)| {
+      for (js_mod, (js_name, props)) in js_mods {
+        let mut exports_js_mod = ptr::null_mut();
+        unsafe {
+          if let Some(js_mod_str) = js_mod {
+            let mod_name_c_str = CStr::from_bytes_with_nul_unchecked(js_mod_str.as_bytes());
+            if exports_objects.contains(*js_mod_str) {
+              check_status_or_throw!(
+                env,
+                sys::napi_get_named_property(
                   env,
-                  sys::napi_get_named_property(
-                    env,
-                    exports,
-                    mod_name_c_str.as_ptr(),
-                    &mut exports_js_mod,
-                  ),
-                  "Get mod {} from exports failed",
-                  js_mod_str,
-                );
-              } else {
-                check_status_or_throw!(
-                  env,
-                  sys::napi_create_object(env, &mut exports_js_mod),
-                  "Create export JavaScript Object [{}] failed",
-                  js_mod_str
-                );
-                check_status_or_throw!(
-                  env,
-                  sys::napi_set_named_property(
-                    env,
-                    exports,
-                    mod_name_c_str.as_ptr(),
-                    exports_js_mod
-                  ),
-                  "Set exports Object [{}] into exports object failed",
-                  js_mod_str
-                );
-                exports_objects.insert(js_mod_str.to_string());
-              }
+                  exports,
+                  mod_name_c_str.as_ptr(),
+                  &mut exports_js_mod,
+                ),
+                "Get mod {} from exports failed",
+                js_mod_str,
+              );
+            } else {
+              check_status_or_throw!(
+                env,
+                sys::napi_create_object(env, &mut exports_js_mod),
+                "Create export JavaScript Object [{}] failed",
+                js_mod_str
+              );
+              check_status_or_throw!(
+                env,
+                sys::napi_set_named_property(env, exports, mod_name_c_str.as_ptr(), exports_js_mod),
+                "Set exports Object [{}] into exports object failed",
+                js_mod_str
+              );
+              exports_objects.insert(js_mod_str.to_string());
             }
-            let (ctor, props): (Vec<_>, Vec<_>) = props.iter().partition(|prop| prop.is_ctor);
-
-            let ctor = ctor
-              .first()
-              .map(|c| c.raw().method.unwrap())
-              .unwrap_or(noop);
-            let raw_props: Vec<_> = props.iter().map(|prop| prop.raw()).collect();
-
-            let js_class_name = CStr::from_bytes_with_nul_unchecked(js_name.as_bytes());
-            let mut class_ptr = ptr::null_mut();
-
-            check_status_or_throw!(
-              env,
-              sys::napi_define_class(
-                env,
-                js_class_name.as_ptr(),
-                js_name.len() as isize - 1,
-                Some(ctor),
-                ptr::null_mut(),
-                raw_props.len(),
-                raw_props.as_ptr(),
-                &mut class_ptr,
-              ),
-              "Failed to register class `{}`",
-              &js_name,
-            );
-
-            let mut ctor_ref = ptr::null_mut();
-            sys::napi_create_reference(env, class_ptr, 1, &mut ctor_ref);
-
-            registered_classes.insert(js_name.to_string(), ctor_ref);
-
-            check_status_or_throw!(
-              env,
-              sys::napi_set_named_property(
-                env,
-                if exports_js_mod.is_null() {
-                  exports
-                } else {
-                  exports_js_mod
-                },
-                js_class_name.as_ptr(),
-                class_ptr
-              ),
-              "Failed to register class `{}`",
-              &js_name,
-            );
           }
+          let (ctor, props): (Vec<_>, Vec<_>) = props.iter().partition(|prop| prop.is_ctor);
+
+          let ctor = ctor
+            .first()
+            .map(|c| c.raw().method.unwrap())
+            .unwrap_or(noop);
+          let raw_props: Vec<_> = props.iter().map(|prop| prop.raw()).collect();
+
+          let js_class_name = CStr::from_bytes_with_nul_unchecked(js_name.as_bytes());
+          let mut class_ptr = ptr::null_mut();
+
+          check_status_or_throw!(
+            env,
+            sys::napi_define_class(
+              env,
+              js_class_name.as_ptr(),
+              js_name.len() as isize - 1,
+              Some(ctor),
+              ptr::null_mut(),
+              raw_props.len(),
+              raw_props.as_ptr(),
+              &mut class_ptr,
+            ),
+            "Failed to register class `{}`",
+            &js_name,
+          );
+
+          let mut ctor_ref = ptr::null_mut();
+          sys::napi_create_reference(env, class_ptr, 1, &mut ctor_ref);
+
+          registered_classes.insert(js_name.to_string(), ctor_ref);
+
+          check_status_or_throw!(
+            env,
+            sys::napi_set_named_property(
+              env,
+              if exports_js_mod.is_null() {
+                exports
+              } else {
+                exports_js_mod
+              },
+              js_class_name.as_ptr(),
+              class_ptr
+            ),
+            "Failed to register class `{}`",
+            &js_name,
+          );
         }
-      });
-    })
+      }
+    });
   });
 
   REGISTERED_CLASSES.with(|cell| {
