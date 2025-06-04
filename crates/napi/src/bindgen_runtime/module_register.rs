@@ -56,52 +56,41 @@ impl<K, V, S: Default> Default for PersistedPerInstanceHashMap<K, V, S> {
 type ModuleRegisterCallback =
   RwLock<Vec<(Option<&'static str>, (&'static str, ExportRegisterCallback))>>;
 
+#[cfg(not(feature = "noop"))]
+type ClassPropertyRegistry = HashMap<
+  TypeId,
+  HashMap<Option<&'static str>, (&'static str, Vec<Property>), FxBuildHasher>,
+  FxBuildHasher,
+>;
+
 // Stores class metadata registered by napi macros.
 // Since class properties do not contain any napi_value, ModuleClassProperty is thread-safe.
 // This structure is shared between the main JS thread and worker threads.
 #[cfg(not(feature = "noop"))]
 #[derive(Default)]
-struct ModuleClassProperty(
-  RwLock<
-    HashMap<
-      TypeId,
-      HashMap<Option<&'static str>, (&'static str, Vec<Property>), FxBuildHasher>,
-      FxBuildHasher,
-    >,
-  >,
-);
+struct ModuleClassProperty(RwLock<ClassPropertyRegistry>);
 
+#[cfg(not(feature = "noop"))]
 unsafe impl Send for ModuleClassProperty {}
+#[cfg(not(feature = "noop"))]
 unsafe impl Sync for ModuleClassProperty {}
 
+#[cfg(not(feature = "noop"))]
 impl ModuleClassProperty {
-  #[allow(clippy::mut_from_ref)]
   pub(crate) fn borrow_mut<F, R>(&self, f: F) -> R
   where
-    F: FnOnce(
-      &mut HashMap<
-        TypeId,
-        HashMap<Option<&'static str>, (&'static str, Vec<Property>), FxBuildHasher>,
-        FxBuildHasher,
-      >,
-    ) -> R,
+    F: FnOnce(&mut ClassPropertyRegistry) -> R,
   {
     let mut write_lock = self.0.write().unwrap();
-    f(&mut *write_lock)
+    f(&mut write_lock)
   }
 
   pub(crate) fn borrow<F, R>(&self, f: F) -> R
   where
-    F: FnOnce(
-      &HashMap<
-        TypeId,
-        HashMap<Option<&'static str>, (&'static str, Vec<Property>), FxBuildHasher>,
-        FxBuildHasher,
-      >,
-    ) -> R,
+    F: FnOnce(&ClassPropertyRegistry) -> R,
   {
     let write_lock = self.0.read().unwrap();
-    f(&*write_lock)
+    f(&write_lock)
   }
 }
 
