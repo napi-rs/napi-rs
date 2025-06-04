@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.86](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.85...@napi-rs/cli@3.0.0-alpha.86) (2025-06-04)
+
+### Bug Fixes
+
+- **cli:** uses_default_features should also treat as enabled typeDef ([#2691](https://github.com/napi-rs/napi-rs/issues/2691)) ([fdbc070](https://github.com/napi-rs/napi-rs/commit/fdbc070d6a30ff581b0ea10565bae4ddfe45ab44))
+
 # [3.0.0-alpha.85](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.84...@napi-rs/cli@3.0.0-alpha.85) (2025-06-04)
 
 ### Bug Fixes
