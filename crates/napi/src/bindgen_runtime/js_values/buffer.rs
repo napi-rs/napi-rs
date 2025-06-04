@@ -315,7 +315,7 @@ impl Drop for Buffer {
           return;
         }
         // Check if the current thread is the JavaScript thread
-        if !THREADS_CAN_ACCESS_ENV.borrow_mut(|m| m.get(&std::thread::current().id()).is_some()) {
+        if !THREADS_CAN_ACCESS_ENV.with(|cell| cell.get()) {
           let status = unsafe {
             sys::napi_call_threadsafe_function(
               CUSTOM_GC_TSFN.load(std::sync::atomic::Ordering::SeqCst),
