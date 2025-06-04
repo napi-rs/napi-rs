@@ -6,6 +6,13 @@ mod wasi;
 mod windows;
 
 pub fn setup() {
+  // compatible with the v2 versions, will remove in the future
+  {
+    println!("cargo:rerun-if-env-changed=DEBUG_GENERATED_CODE");
+    println!("cargo:rerun-if-env-changed=TYPE_DEF_TMP_PATH");
+    println!("cargo:rerun-if-env-changed=CARGO_CFG_NAPI_RS_CLI_VERSION");
+  }
+
   println!("cargo::rerun-if-env-changed=NAPI_DEBUG_GENERATED_CODE");
   println!("cargo::rerun-if-env-changed=NAPI_TYPE_DEF_TMP_FOLDER");
   println!(
