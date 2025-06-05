@@ -622,6 +622,7 @@ module.exports.sumNums = nativeBinding.sumNums
 module.exports.testSerdeBigNumberPrecision = nativeBinding.testSerdeBigNumberPrecision
 module.exports.testSerdeBufferBytes = nativeBinding.testSerdeBufferBytes
 module.exports.testSerdeRoundtrip = nativeBinding.testSerdeRoundtrip
+module.exports.threadsafeFunctionBuildThrowErrorWithStatus = nativeBinding.threadsafeFunctionBuildThrowErrorWithStatus
 module.exports.threadsafeFunctionClosureCapture = nativeBinding.threadsafeFunctionClosureCapture
 module.exports.threadsafeFunctionFatalMode = nativeBinding.threadsafeFunctionFatalMode
 module.exports.threadsafeFunctionFatalModeError = nativeBinding.threadsafeFunctionFatalModeError

@@ -332,6 +332,7 @@ module.exports.sumNums = __napiModule.exports.sumNums
 module.exports.testSerdeBigNumberPrecision = __napiModule.exports.testSerdeBigNumberPrecision
 module.exports.testSerdeBufferBytes = __napiModule.exports.testSerdeBufferBytes
 module.exports.testSerdeRoundtrip = __napiModule.exports.testSerdeRoundtrip
+module.exports.threadsafeFunctionBuildThrowErrorWithStatus = __napiModule.exports.threadsafeFunctionBuildThrowErrorWithStatus
 module.exports.threadsafeFunctionClosureCapture = __napiModule.exports.threadsafeFunctionClosureCapture
 module.exports.threadsafeFunctionFatalMode = __napiModule.exports.threadsafeFunctionFatalMode
 module.exports.threadsafeFunctionFatalModeError = __napiModule.exports.threadsafeFunctionFatalModeError

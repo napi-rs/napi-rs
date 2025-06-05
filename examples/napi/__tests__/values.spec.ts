@@ -84,6 +84,7 @@ import {
   callThreadsafeFunction,
   threadsafeFunctionThrowError,
   threadsafeFunctionThrowErrorWithStatus,
+  threadsafeFunctionBuildThrowErrorWithStatus,
   threadsafeFunctionClosureCapture,
   tsfnCallWithCallback,
   tsfnAsyncCall,
@@ -1293,6 +1294,17 @@ Napi4Test('throw error from ThreadsafeFunction with status', async (t) => {
   const err = await t.throwsAsync(throwPromise)
   t.is((err as Error & { code?: string })?.code, 'CustomErrorStatus')
 })
+
+Napi4Test(
+  'throw error from ThreadsafeFunction with builder and status',
+  async (t) => {
+    const throwPromise = new Promise((_, reject) => {
+      threadsafeFunctionBuildThrowErrorWithStatus(reject)
+    })
+    const err = await t.throwsAsync(throwPromise)
+    t.is((err as Error & { code?: string })?.code, 'CustomErrorStatus')
+  },
+)
 
 Napi4Test('ThreadsafeFunction closure capture data', (t) => {
   return new Promise((resolve) => {
