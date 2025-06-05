@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.87](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.86...@napi-rs/cli@3.0.0-alpha.87) (2025-06-05)
+
+### Bug Fixes
+
+- **cli:** remove `require` in utils ([#2693](https://github.com/napi-rs/napi-rs/issues/2693)) ([21e5580](https://github.com/napi-rs/napi-rs/commit/21e5580f2846a099bf529bb0eaab798d46622d22))
+
 # [3.0.0-alpha.86](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.85...@napi-rs/cli@3.0.0-alpha.86) (2025-06-04)
 
 ### Bug Fixes
