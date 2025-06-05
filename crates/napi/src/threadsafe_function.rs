@@ -179,7 +179,7 @@ unsafe impl<
     T: 'static,
     Return: FromNapiValue,
     CallJsBackArgs: 'static + JsValuesTupleIntoVec,
-    ErrorStatus: AsRef<str>,
+    ErrorStatus: AsRef<str> + From<Status>,
     const CalleeHandled: bool,
     const Weak: bool,
     const MaxQueueSize: usize,
@@ -193,8 +193,6 @@ unsafe impl<
     { Weak },
     { MaxQueueSize },
   >
-where
-  ErrorStatus: From<Status>,
 {
 }
 

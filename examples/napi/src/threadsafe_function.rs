@@ -82,7 +82,8 @@ pub fn threadsafe_function_throw_error_with_status(
 #[napi]
 pub fn threadsafe_function_build_throw_error_with_status(cb: Function<'static>) -> Result<()> {
   let tsfn = cb
-    .build_threadsafe_function_with_status::<_, ErrorStatus>()
+    .build_threadsafe_function()
+    .error_status::<ErrorStatus>()
     .callee_handled::<true>()
     .build()?;
   thread::spawn(move || {
