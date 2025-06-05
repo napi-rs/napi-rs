@@ -71,7 +71,7 @@ jobs:
             build: yarn build:test
             test: |
               yarn test:cli
-              DEBUG="*" yarn test
+              yarn test
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
               yarn test:macro
             toolchain: stable

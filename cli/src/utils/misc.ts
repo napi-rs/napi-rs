@@ -52,7 +52,7 @@ export async function updatePackageJson(
     debug(`File not exists ${path}`)
     return
   }
-  const old = require(path)
+  const old = JSON.parse(await readFileAsync(path, 'utf8'))
   await writeFileAsync(path, JSON.stringify({ ...old, ...partial }, null, 2))
 }
 
