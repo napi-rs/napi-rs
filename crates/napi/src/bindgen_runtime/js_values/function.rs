@@ -217,6 +217,22 @@ impl<Args: JsValuesTupleIntoVec, Return> Function<'_, Args, Return> {
       _return: std::marker::PhantomData,
     }
   }
+
+  #[cfg(feature = "napi4")]
+  /// Create a threadsafe function from the JavaScript function.
+  pub fn build_threadsafe_function_with_status<
+    T: 'static,
+    ErrorStatus: AsRef<str> + From<Status>,
+  >(
+    &self,
+  ) -> ThreadsafeFunctionBuilder<T, Args, Return, ErrorStatus> {
+    ThreadsafeFunctionBuilder {
+      env: self.env,
+      value: self.value,
+      _args: std::marker::PhantomData,
+      _return: std::marker::PhantomData,
+    }
+  }
 }
 
 impl<Args: JsValuesTupleIntoVec, Return: FromNapiValue> Function<'_, Args, Return> {

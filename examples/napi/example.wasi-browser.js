@@ -308,6 +308,7 @@ export const sumNums = __napiModule.exports.sumNums
 export const testSerdeBigNumberPrecision = __napiModule.exports.testSerdeBigNumberPrecision
 export const testSerdeBufferBytes = __napiModule.exports.testSerdeBufferBytes
 export const testSerdeRoundtrip = __napiModule.exports.testSerdeRoundtrip
+export const threadsafeFunctionBuildThrowErrorWithStatus = __napiModule.exports.threadsafeFunctionBuildThrowErrorWithStatus
 export const threadsafeFunctionClosureCapture = __napiModule.exports.threadsafeFunctionClosureCapture
 export const threadsafeFunctionFatalMode = __napiModule.exports.threadsafeFunctionFatalMode
 export const threadsafeFunctionFatalModeError = __napiModule.exports.threadsafeFunctionFatalModeError
