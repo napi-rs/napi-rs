@@ -185,7 +185,7 @@ impl TryToTokens for NapiFn {
       quote! {
         // constructor function is called from class `factory`
         // so we should skip the original `constructor` logic
-        if napi::__private::___CALL_FROM_FACTORY.with(|inner| inner.load(std::sync::atomic::Ordering::Relaxed)) {
+        if napi::__private::___CALL_FROM_FACTORY.with(|inner| inner.get()) {
             #return_from_factory
         }
         #function_call_inner
