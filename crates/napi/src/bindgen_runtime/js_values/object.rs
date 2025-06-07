@@ -794,7 +794,20 @@ pub(crate) unsafe extern "C" fn finalize_closures(
   let length: usize = *unsafe { Box::from_raw(len.cast()) };
   let closures: Vec<*mut PropertyClosures> =
     unsafe { Vec::from_raw_parts(data.cast(), length, length) };
-  for closure in closures.into_iter() {
-    drop(unsafe { Box::from_raw(closure) });
+  for closure_ptr in closures.into_iter() {
+    if !closure_ptr.is_null() {
+      let closures = unsafe { Box::from_raw(closure_ptr) };
+      // Free the actual closure functions using the stored drop functions
+      if !closures.getter_closure.is_null() {
+        if let Some(drop_fn) = closures.getter_drop_fn {
+          unsafe { drop_fn(closures.getter_closure) };
+        }
+      }
+      if !closures.setter_closure.is_null() {
+        if let Some(drop_fn) = closures.setter_drop_fn {
+          unsafe { drop_fn(closures.setter_closure) };
+        }
+      }
+    }
   }
 }

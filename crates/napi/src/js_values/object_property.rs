@@ -15,6 +15,8 @@ use crate::{bindgen_runtime::ToNapiValue, sys, Callback, Env, JsValue, Result};
 pub struct PropertyClosures {
   pub setter_closure: *mut c_void,
   pub getter_closure: *mut c_void,
+  pub setter_drop_fn: Option<unsafe fn(*mut c_void)>,
+  pub getter_drop_fn: Option<unsafe fn(*mut c_void)>,
 }
 
 #[cfg(feature = "napi5")]
@@ -23,6 +25,8 @@ impl Default for PropertyClosures {
     Self {
       setter_closure: ptr::null_mut(),
       getter_closure: ptr::null_mut(),
+      setter_drop_fn: None,
+      getter_drop_fn: None,
     }
   }
 }
@@ -115,6 +119,9 @@ impl Property {
     let boxed_callback = Box::new(callback);
     let closure_data_ptr: *mut F = Box::into_raw(boxed_callback);
     self.closures.getter_closure = closure_data_ptr.cast();
+    self.closures.getter_drop_fn = Some(|ptr: *mut c_void| unsafe {
+      drop(Box::from_raw(ptr as *mut F));
+    });
 
     let fun = crate::trampoline_getter::<R, F>;
     self.getter = Some(fun);
@@ -135,6 +142,9 @@ impl Property {
     let boxed_callback = Box::new(callback);
     let closure_data_ptr: *mut F = Box::into_raw(boxed_callback);
     self.closures.setter_closure = closure_data_ptr.cast();
+    self.closures.setter_drop_fn = Some(|ptr: *mut c_void| unsafe {
+      drop(Box::from_raw(ptr as *mut F));
+    });
 
     let fun = crate::trampoline_setter::<V, F>;
     self.setter = Some(fun);
@@ -158,7 +168,14 @@ impl Property {
 
   pub(crate) fn raw(&self) -> sys::napi_property_descriptor {
     #[cfg(feature = "napi5")]
-    let closures = Box::into_raw(Box::new(self.closures));
+    let data = if self.closures.getter_closure.is_null() && self.closures.setter_closure.is_null() {
+      // No closures to allocate, avoid memory leak
+      ptr::null_mut()
+    } else {
+      // Only allocate when we actually have closures
+      Box::into_raw(Box::new(self.closures)).cast()
+    };
+
     sys::napi_property_descriptor {
       utf8name: match self.utf8_name {
         Some(ref name) => name.as_ptr(),
@@ -173,7 +190,7 @@ impl Property {
       #[cfg(not(feature = "napi5"))]
       data: ptr::null_mut(),
       #[cfg(feature = "napi5")]
-      data: closures.cast(),
+      data,
     }
   }
 
