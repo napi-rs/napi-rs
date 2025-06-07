@@ -499,3 +499,26 @@ impl<'scope> ClassWithLifetime<'scope> {
     self.inner.get_name()
   }
 }
+
+#[napi(js_name = "MyJsNamedClass")]
+pub struct OriginalRustNameForJsNamedStruct {
+  value: String,
+}
+
+#[napi]
+impl OriginalRustNameForJsNamedStruct {
+  #[napi(constructor)]
+  pub fn new(value: String) -> Self {
+    OriginalRustNameForJsNamedStruct { value }
+  }
+
+  #[napi]
+  pub fn get_value(&self) -> String {
+    self.value.clone()
+  }
+
+  #[napi]
+  pub fn multiply_value(&self, times: u32) -> String {
+    self.value.repeat(times as usize)
+  }
+}

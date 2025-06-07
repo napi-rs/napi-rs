@@ -30,10 +30,9 @@ import {
   roundtripStr,
   getNums,
   getWords,
-  sumNums,
   getTuple,
   getMapping,
-  sumMapping,
+  sumNums,
   getBtreeMapping,
   sumBtreeMapping,
   getIndexMapping,
@@ -239,6 +238,8 @@ import {
   shorterScope,
   shorterEscapableScope,
   tsfnThrowFromJsCallbackContainsTsfn,
+  MyJsNamedClass,
+  OriginalRustNameForJsNamedStruct,
 } from '../index.cjs'
 // import other stuff in `#[napi(module_exports)]`
 import nativeAddon from '../index.cjs'
@@ -470,6 +471,15 @@ test('class', (t) => {
             })(),
     )
   }
+})
+
+test('class with js_name', (t) => {
+  const instance = new MyJsNamedClass('test_value')
+  t.is(instance.getValue(), 'test_value')
+  t.is(instance.multiplyValue(3), 'test_valuetest_valuetest_value')
+  const instanceForTypeCheck: OriginalRustNameForJsNamedStruct = new MyJsNamedClass('type_test');
+  t.is(instanceForTypeCheck.getValue(), 'type_test', 'Type alias OriginalRustNameForJsNamedStruct should be assignable from MyJsNamedClass');
+  t.is(instanceForTypeCheck.multiplyValue(2), 'type_testtype_test', 'Methods should be callable via type alias');
 })
 
 test('async self in class', async (t) => {
