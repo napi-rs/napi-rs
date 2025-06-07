@@ -188,6 +188,13 @@ export declare class JsClassForEither {
   constructor()
 }
 
+export declare class JSOnlyMethodsClass {
+  data: string
+  processData(): string
+  getLength(): number
+}
+export type RustOnlyMethodsClass = JSOnlyMethodsClass
+
 export declare class JsRemote {
   constructor(repo: JsRepo)
   name(): string
@@ -197,6 +204,13 @@ export declare class JsRepo {
   constructor(dir: string)
   remote(): JsRemote
 }
+
+export declare class MyJsNamedClass {
+  constructor(value: string)
+  getValue(): string
+  multiplyValue(times: number): string
+}
+export type OriginalRustNameForJsNamedStruct = MyJsNamedClass
 
 export declare class NinjaTurtle {
   name: string
