@@ -499,3 +499,45 @@ impl<'scope> ClassWithLifetime<'scope> {
     self.inner.get_name()
   }
 }
+
+#[napi(js_name = "MyJsNamedClass")]
+pub struct OriginalRustNameForJsNamedStruct {
+  value: String,
+}
+
+#[napi]
+impl OriginalRustNameForJsNamedStruct {
+  #[napi(constructor)]
+  pub fn new(value: String) -> Self {
+    OriginalRustNameForJsNamedStruct { value }
+  }
+
+  #[napi]
+  pub fn get_value(&self) -> String {
+    self.value.clone()
+  }
+
+  #[napi]
+  pub fn multiply_value(&self, times: u32) -> String {
+    self.value.repeat(times as usize)
+  }
+}
+
+// Test case for js_name struct with methods only (no constructor)
+#[napi(js_name = "JSOnlyMethodsClass")]
+pub struct RustOnlyMethodsClass {
+  pub data: String,
+}
+
+#[napi]
+impl RustOnlyMethodsClass {
+  #[napi]
+  pub fn process_data(&self) -> String {
+    format!("processed: {}", self.data)
+  }
+
+  #[napi]
+  pub fn get_length(&self) -> u32 {
+    self.data.len() as u32
+  }
+}

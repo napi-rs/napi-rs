@@ -166,3 +166,4 @@ bench.txt
 !.yarn/sdks
 !.yarn/versions
 .vscode/
+.claude/

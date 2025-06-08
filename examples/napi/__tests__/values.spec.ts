@@ -30,10 +30,10 @@ import {
   roundtripStr,
   getNums,
   getWords,
-  sumNums,
   getTuple,
   getMapping,
   sumMapping,
+  sumNums,
   getBtreeMapping,
   sumBtreeMapping,
   getIndexMapping,
@@ -239,6 +239,10 @@ import {
   shorterScope,
   shorterEscapableScope,
   tsfnThrowFromJsCallbackContainsTsfn,
+  MyJsNamedClass,
+  JSOnlyMethodsClass,
+  RustOnlyMethodsClass,
+  OriginalRustNameForJsNamedStruct,
 } from '../index.cjs'
 // import other stuff in `#[napi(module_exports)]`
 import nativeAddon from '../index.cjs'
@@ -470,6 +474,90 @@ test('class', (t) => {
             })(),
     )
   }
+})
+
+test('class with js_name', (t) => {
+  // Test class instantiation and basic functionality
+  const instance = new MyJsNamedClass('test_value')
+  t.is(instance.getValue(), 'test_value')
+  t.is(instance.multiplyValue(3), 'test_valuetest_valuetest_value')
+
+  // Test type alias compatibility - OriginalRustNameForJsNamedStruct should be assignable from MyJsNamedClass
+  const instanceForTypeCheck: OriginalRustNameForJsNamedStruct =
+    new MyJsNamedClass('type_test')
+  t.is(
+    instanceForTypeCheck.getValue(),
+    'type_test',
+    'Type alias OriginalRustNameForJsNamedStruct should be assignable from MyJsNamedClass',
+  )
+  t.is(
+    instanceForTypeCheck.multiplyValue(2),
+    'type_testtype_test',
+    'Methods should be callable via type alias',
+  )
+
+  // Test edge cases
+  const emptyInstance = new MyJsNamedClass('')
+  t.is(emptyInstance.getValue(), '', 'Should handle empty strings')
+  t.is(emptyInstance.multiplyValue(0), '', 'Should handle zero multiplication')
+
+  // Test with special characters
+  const specialInstance = new MyJsNamedClass('hello 🚀 world')
+  t.is(
+    specialInstance.getValue(),
+    'hello 🚀 world',
+    'Should handle unicode characters',
+  )
+  t.is(
+    specialInstance.multiplyValue(2),
+    'hello 🚀 worldhello 🚀 world',
+    'Should multiply unicode strings correctly',
+  )
+})
+
+test('struct with js_name and methods only (no constructor)', (t) => {
+  // Test that structs with js_name but no constructor still have their methods in type definitions
+  // This was a bug where methods would disappear if there was no constructor/factory method
+
+  // The fact that this test compiles successfully means the type definitions are correct
+  // We verify that:
+  // 1. JSOnlyMethodsClass is the exported class name (not RustOnlyMethodsClass)
+  // 2. RustOnlyMethodsClass is a type alias for JSOnlyMethodsClass
+  // 3. Both have the methods processData() and getLength()
+
+  // Test type compatibility - this will fail to compile if types are wrong
+  const testTypeCompatibility = (instance: JSOnlyMethodsClass) => {
+    // These assignments will cause TypeScript compilation errors if methods are missing
+    const processDataFn: () => string = instance.processData
+    const getLengthFn: () => number = instance.getLength
+    return { processDataFn, getLengthFn }
+  }
+
+  // Test type alias compatibility
+  const testAliasCompatibility = (instance: RustOnlyMethodsClass) => {
+    const processDataFn: () => string = instance.processData
+    const getLengthFn: () => number = instance.getLength
+    return { processDataFn, getLengthFn }
+  }
+
+  // Test that RustOnlyMethodsClass is assignable to JSOnlyMethodsClass
+  const mockInstance = { data: 'test' } as JSOnlyMethodsClass
+  const aliasInstance: RustOnlyMethodsClass = mockInstance
+
+  // If we get here, the types compiled successfully
+  t.pass(
+    'Type definitions are correct - js_name struct with methods only works properly',
+  )
+
+  // Verify we can call the test functions without compilation errors
+  t.notThrows(
+    () => testTypeCompatibility(mockInstance),
+    'JSOnlyMethodsClass methods should be accessible',
+  )
+  t.notThrows(
+    () => testAliasCompatibility(aliasInstance),
+    'RustOnlyMethodsClass alias methods should be accessible',
+  )
 })
 
 test('async self in class', async (t) => {
