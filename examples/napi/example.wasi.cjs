@@ -333,6 +333,7 @@ module.exports.sumBtreeMapping = __napiModule.exports.sumBtreeMapping
 module.exports.sumIndexMapping = __napiModule.exports.sumIndexMapping
 module.exports.sumMapping = __napiModule.exports.sumMapping
 module.exports.sumNums = __napiModule.exports.sumNums
+module.exports.testEscapedQuotesInComments = __napiModule.exports.testEscapedQuotesInComments
 module.exports.testSerdeBigNumberPrecision = __napiModule.exports.testSerdeBigNumberPrecision
 module.exports.testSerdeBufferBytes = __napiModule.exports.testSerdeBufferBytes
 module.exports.testSerdeRoundtrip = __napiModule.exports.testSerdeRoundtrip

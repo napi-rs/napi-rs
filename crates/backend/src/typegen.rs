@@ -56,16 +56,8 @@ fn escape_json(src: &str) -> String {
   use std::fmt::Write;
   let mut escaped = String::with_capacity(src.len());
   let mut utf16_buf = [0u16; 2];
-  let mut pending_backslash = false;
-  for c in src.chars() {
-    if pending_backslash {
-      match c {
-        'b' | 'f' | 'n' | 'r' | 't' | 'u' | '"' => escaped += "\\",
-        _ => escaped += "\\\\",
-      }
-      pending_backslash = false;
-    }
 
+  for c in src.chars() {
     match c {
       '\x08' => escaped += "\\b",
       '\x0c' => escaped += "\\f",
@@ -73,9 +65,7 @@ fn escape_json(src: &str) -> String {
       '\r' => escaped += "\\r",
       '\t' => escaped += "\\t",
       '"' => escaped += "\\\"",
-      '\\' => {
-        pending_backslash = true;
-      }
+      '\\' => escaped += "\\\\",
       ' ' => escaped += " ",
       c if c.is_ascii_graphic() => escaped.push(c),
       c => {
@@ -85,11 +75,6 @@ fn escape_json(src: &str) -> String {
         }
       }
     }
-  }
-
-  // cater for trailing backslash
-  if pending_backslash {
-    escaped += "\\\\"
   }
 
   escaped
@@ -558,5 +543,50 @@ pub fn ty_to_ts_type(
       ("any[]".to_owned(), false)
     }
     _ => ("any".to_owned(), false),
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::escape_json;
+
+  #[test]
+  fn test_escape_json_escaped_quotes() {
+    // Test the specific case reported in issue #2502
+    let input = r#"\\"g+sx\\""#;
+    let result = escape_json(input);
+
+    // Verify the result can be parsed as JSON
+    let json_string = format!(r#"{{"comment": "{}"}}"#, result);
+    let parsed: serde_json::Value =
+      serde_json::from_str(&json_string).expect("Should parse as valid JSON");
+
+    if let Some(comment) = parsed.get("comment").and_then(|v| v.as_str()) {
+      assert_eq!(comment, r#"\\"g+sx\\""#);
+    } else {
+      panic!("Failed to extract comment from parsed JSON");
+    }
+  }
+
+  #[test]
+  fn test_escape_json_basic_escapes() {
+    assert_eq!(escape_json(r#"test"quote"#), r#"test\"quote"#);
+    assert_eq!(escape_json("test\nline"), r#"test\nline"#);
+    assert_eq!(escape_json("test\tTab"), r#"test\tTab"#);
+    assert_eq!(escape_json("test\\backslash"), "test\\\\backslash");
+  }
+
+  #[test]
+  fn test_escape_json_multiple_escapes() {
+    assert_eq!(
+      escape_json(r#"test\\"multiple\\""#),
+      r#"test\\\\\"multiple\\\\\""#
+    );
+    assert_eq!(escape_json(r#"\\\\"#), r#"\\\\\\\\"#);
+  }
+
+  #[test]
+  fn test_escape_json_trailing_backslash() {
+    assert_eq!(escape_json(r#"test\"#), r#"test\\"#);
   }
 }

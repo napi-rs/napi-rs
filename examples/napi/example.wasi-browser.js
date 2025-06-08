@@ -309,6 +309,7 @@ export const sumBtreeMapping = __napiModule.exports.sumBtreeMapping
 export const sumIndexMapping = __napiModule.exports.sumIndexMapping
 export const sumMapping = __napiModule.exports.sumMapping
 export const sumNums = __napiModule.exports.sumNums
+export const testEscapedQuotesInComments = __napiModule.exports.testEscapedQuotesInComments
 export const testSerdeBigNumberPrecision = __napiModule.exports.testSerdeBigNumberPrecision
 export const testSerdeBufferBytes = __napiModule.exports.testSerdeBufferBytes
 export const testSerdeRoundtrip = __napiModule.exports.testSerdeRoundtrip

@@ -32,3 +32,12 @@ pub fn return_c_string() -> RawCString {
   let mock_c_string_ptr = mock_c_string.as_ptr().cast();
   RawCString::new(mock_c_string_ptr, NAPI_AUTO_LENGTH)
 }
+
+#[napi]
+/// Function to test escaped quotes in comments.
+/// This comment contains escaped quotes: \\"g+sx\\" and should not break JSON parsing.
+/// The pattern \\"value\\" is commonly used in regex and shell commands.
+/// Another example: sed 's/old/\\"new\\"/g' where quotes are escaped.
+pub fn test_escaped_quotes_in_comments(input: String) -> String {
+  format!("Processed: {}", input)
+}
