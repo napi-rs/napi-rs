@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.88](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.87...@napi-rs/cli@3.0.0-alpha.88) (2025-06-08)
+
+### Bug Fixes
+
+- **napi-derive:** panic while creating type definition when Rust comment contains escape syntax ([#2701](https://github.com/napi-rs/napi-rs/issues/2701)) ([54935e3](https://github.com/napi-rs/napi-rs/commit/54935e34fa2672600e72ed19a854f0b5946e3d40))
+
 # [3.0.0-alpha.87](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.86...@napi-rs/cli@3.0.0-alpha.87) (2025-06-05)
 
 ### Bug Fixes

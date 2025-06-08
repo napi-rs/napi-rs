@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.2.11](https://github.com/napi-rs/napi-rs/compare/@napi-rs/wasm-runtime@0.2.10...@napi-rs/wasm-runtime@0.2.11) (2025-06-08)
+
+### Bug Fixes
+
+- (wasm-runtime) fix race condition ([#2698](https://github.com/napi-rs/napi-rs/issues/2698)) ([193b0e0](https://github.com/napi-rs/napi-rs/commit/193b0e00439b123e7404f1326253138963deb7be))
+
 ## [0.2.10](https://github.com/napi-rs/napi-rs/compare/@napi-rs/wasm-runtime@0.2.9...@napi-rs/wasm-runtime@0.2.10) (2025-05-16)
 
 ### Bug Fixes
