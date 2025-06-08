@@ -844,6 +844,14 @@ export declare function sumMapping(nums: Record<string, number>): number
 
 export declare function sumNums(nums: Array<number>): number
 
+/**
+ * Function to test escaped quotes in comments.
+ * This comment contains escaped quotes: \\"g+sx\\" and should not break JSON parsing.
+ * The pattern \\"value\\" is commonly used in regex and shell commands.
+ * Another example: sed 's/old/\\"new\\"/g' where quotes are escaped.
+ */
+export declare function testEscapedQuotesInComments(input: string): string
+
 export declare function testSerdeBigNumberPrecision(number: string): any
 
 export declare function testSerdeBufferBytes(obj: object): bigint

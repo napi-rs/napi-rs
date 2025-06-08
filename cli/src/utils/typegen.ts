@@ -141,7 +141,17 @@ async function readIntermediateTypeFile(file: string) {
     .filter(Boolean)
     .map((line) => {
       line = line.trim()
-      return JSON.parse(line) as TypeDefLine
+      const parsed = JSON.parse(line) as TypeDefLine
+      // Convert escaped newlines back to actual newlines in js_doc fields
+      if (parsed.js_doc) {
+        parsed.js_doc = parsed.js_doc.replace(/\\n/g, '\n')
+      }
+      // Convert escaped newlines to actual newlines in def fields for struct/class/interface/type types
+      // where \n represents method/field separators that should be actual newlines
+      if (parsed.def) {
+        parsed.def = parsed.def.replace(/\\n/g, '\n')
+      }
+      return parsed
     })
 
   // move all `struct` def to the very top
@@ -184,6 +194,10 @@ function preprocessTypeDef(defs: TypeDefLine[]): Map<string, TypeDefLine[]> {
         }
 
         classDef.def += def.def
+        // Convert any remaining \n sequences in the merged def to actual newlines
+        if (classDef.def) {
+          classDef.def = classDef.def.replace(/\\n/g, '\n')
+        }
       }
     } else {
       group.push(def)
