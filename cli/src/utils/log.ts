@@ -25,7 +25,7 @@ export const debugFactory = (namespace: string) => {
     console.error(
       colors.white(colors.bgRed(' ERROR ')),
       ...args.map((arg) =>
-        arg instanceof Error ? arg.stack ?? arg.message : arg,
+        arg instanceof Error ? (arg.stack ?? arg.message) : arg,
       ),
     )
 

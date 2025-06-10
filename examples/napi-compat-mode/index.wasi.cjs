@@ -21,7 +21,7 @@ const __wasi = new __nodeWASI({
   env: process.env,
   preopens: {
     [__rootDir]: __rootDir,
-  }
+  },
 })
 
 const __emnapiContext = __emnapiGetDefaultContext()
@@ -41,14 +41,23 @@ if (__nodeFs.existsSync(__wasmDebugFilePath)) {
   try {
     __wasmFilePath = __nodePath.resolve('@examples/compat-mode-wasm32-wasi')
   } catch {
-    throw new Error('Cannot find index.wasm file, and @examples/compat-mode-wasm32-wasi package is not installed.')
+    throw new Error(
+      'Cannot find index.wasm file, and @examples/compat-mode-wasm32-wasi package is not installed.',
+    )
   }
 }
 
-const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule } = __emnapiInstantiateNapiModuleSync(__nodeFs.readFileSync(__wasmFilePath), {
+const {
+  instance: __napiInstance,
+  module: __wasiModule,
+  napiModule: __napiModule,
+} = __emnapiInstantiateNapiModuleSync(__nodeFs.readFileSync(__wasmFilePath), {
   context: __emnapiContext,
-  asyncWorkPoolSize: (function() {
-    const threadsSizeFromEnv = Number(process.env.NAPI_RS_ASYNC_WORK_POOL_SIZE ?? process.env.UV_THREADPOOL_SIZE)
+  asyncWorkPoolSize: (function () {
+    const threadsSizeFromEnv = Number(
+      process.env.NAPI_RS_ASYNC_WORK_POOL_SIZE ??
+        process.env.UV_THREADPOOL_SIZE,
+    )
     // NaN > 0 is false
     if (threadsSizeFromEnv > 0) {
       return threadsSizeFromEnv
@@ -85,4 +94,3 @@ const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule
   },
 })
 module.exports = __napiModule.exports
-
