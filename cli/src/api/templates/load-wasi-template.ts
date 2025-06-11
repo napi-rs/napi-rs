@@ -40,9 +40,9 @@ const __wasi = new __WASI({
   WASI as __WASI,
 } from '@napi-rs/wasm-runtime'
 ${fsImport}
-import __wasmUrl from './${wasiFilename}.wasm?url'
 ${wasiCreation}
 
+const __wasmUrl = new URL('./${wasiFilename}.wasm', import.meta.url).href
 const __emnapiContext = __emnapiGetDefaultContext()
 
 const __sharedMemory = new WebAssembly.Memory({
