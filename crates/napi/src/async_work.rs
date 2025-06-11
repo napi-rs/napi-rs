@@ -5,6 +5,7 @@ use std::ptr;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU8, Ordering};
 
+use crate::bindgen_runtime::JsObjectValue;
 use crate::{
   bindgen_runtime::{PromiseRaw, ToNapiValue},
   check_status, sys, Env, Error, JsError, Result, Status, Task,
@@ -127,11 +128,13 @@ fn complete_impl<T: Task>(
   let napi_async_work = mem::replace(&mut work.napi_async_work, ptr::null_mut());
   let deferred = mem::replace(&mut work.deferred, ptr::null_mut());
   if status == sys::Status::napi_cancelled {
-    let abort_error = Error::new(Status::Cancelled, "AbortError".to_owned());
+    const ABORT_ERROR_NAME: &str = "AbortError";
+    let wrapped_env = Env::from_raw(env);
+    let mut error =
+      wrapped_env.create_error(Error::new(Status::Cancelled, ABORT_ERROR_NAME.to_owned()))?;
+    error.set_named_property("name", ABORT_ERROR_NAME)?;
     check_status!(
-      unsafe {
-        sys::napi_reject_deferred(env, deferred, JsError::from(abort_error).into_value(env))
-      },
+      unsafe { sys::napi_reject_deferred(env, deferred, error.0.value) },
       "Reject AbortError failed"
     )?;
   } else {
