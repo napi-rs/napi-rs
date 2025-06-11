@@ -324,21 +324,23 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
           .map(|p| p.data)
           .filter(|data| !data.is_null())
           .collect::<Vec<*mut std::ffi::c_void>>();
-        let len = Box::into_raw(Box::new(closures.len()));
-        check_status!(
-          unsafe {
-            sys::napi_add_finalizer(
-              env,
-              self.value().value,
-              closures.as_mut_ptr().cast(),
-              Some(finalize_closures),
-              len.cast(),
-              ptr::null_mut(),
-            )
-          },
-          "Failed to add finalizer"
-        )?;
-        std::mem::forget(closures);
+        if !closures.is_empty() {
+          let len = Box::into_raw(Box::new(closures.len()));
+          check_status!(
+            unsafe {
+              sys::napi_add_finalizer(
+                env,
+                self.value().value,
+                closures.as_mut_ptr().cast(),
+                Some(finalize_closures),
+                len.cast(),
+                ptr::null_mut(),
+              )
+            },
+            "Failed to add finalizer"
+          )?;
+          std::mem::forget(closures);
+        }
       }
     }
     check_status!(unsafe {
