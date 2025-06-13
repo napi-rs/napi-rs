@@ -57,9 +57,6 @@ pub struct AbortSignal {
   status: Rc<AtomicU8>,
 }
 
-unsafe impl Send for AbortSignal {}
-unsafe impl Sync for AbortSignal {}
-
 #[repr(transparent)]
 struct AbortSignalStack(Vec<AbortSignal>);
 
@@ -84,14 +81,10 @@ impl FromNapiValue for AbortSignal {
 
     let mut stack;
     let mut maybe_stack = ptr::null_mut();
-    let unwrap_status = unsafe { sys::napi_unwrap(env, signal.0.value, &mut maybe_stack) };
+    let unwrap_status = unsafe { sys::napi_remove_wrap(env, signal.0.value, &mut maybe_stack) };
     if unwrap_status == sys::Status::napi_ok {
       stack = unsafe { Box::from_raw(maybe_stack as *mut AbortSignalStack) };
       stack.0.push(abort_signal);
-      check_status!(
-        unsafe { sys::napi_remove_wrap(env, signal.0.value, ptr::null_mut()) },
-        "Remove existed wrap of AbortSignal failed"
-      )?;
     } else {
       stack = Box::new(AbortSignalStack(vec![abort_signal]));
     }
