@@ -554,7 +554,7 @@ pub(crate) unsafe extern "C" fn noop(
   env: sys::napi_env,
   _info: sys::napi_callback_info,
 ) -> sys::napi_value {
-  if !crate::bindgen_runtime::___CALL_FROM_FACTORY.with(|s| s.load(Ordering::Relaxed)) {
+  if !crate::bindgen_runtime::___CALL_FROM_FACTORY.with(|s| s.get()) {
     unsafe {
       sys::napi_throw_error(
         env,
