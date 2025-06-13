@@ -281,7 +281,7 @@ __metadata:
   dependencies:
     "@napi-rs/cli": "workspace:*"
     ava: "npm:^6.2.0"
-    sinon: "npm:^20.0.0"
+    sinon: "npm:^21.0.0"
   languageName: unknown
   linkType: soft
 
@@ -305,7 +305,7 @@ __metadata:
     lodash: "npm:^4.17.21"
     playwright: "npm:^1.51.1"
     rxjs: "npm:^7.8.2"
-    sinon: "npm:^20.0.0"
+    sinon: "npm:^21.0.0"
     vite: "npm:^6.2.4"
     vite-plugin-node-polyfills: "npm:^0.23.0"
     vitest: "npm:^3.1.1"
@@ -8755,7 +8755,7 @@ __metadata:
     prettier: "npm:^3.5.3"
     rollup: "npm:^4.38.0"
     shx: "npm:^0.4.0"
-    sinon: "npm:^20.0.0"
+    sinon: "npm:^21.0.0"
     source-map-support: "npm:^0.5.21"
     tslib: "npm:^2.8.1"
     typescript: "npm:^5.8.2"
@@ -11009,16 +11009,16 @@ __metadata:
   languageName: node
   linkType: hard
 
-"sinon@npm:^20.0.0":
-  version: 20.0.0
-  resolution: "sinon@npm:20.0.0"
+"sinon@npm:^21.0.0":
+  version: 21.0.0
+  resolution: "sinon@npm:21.0.0"
   dependencies:
     "@sinonjs/commons": "npm:^3.0.1"
     "@sinonjs/fake-timers": "npm:^13.0.5"
     "@sinonjs/samsam": "npm:^8.0.1"
     diff: "npm:^7.0.0"
     supports-color: "npm:^7.2.0"
-  checksum: 10c0/98198e9608f9844a00d2dc733bc8d75cfd1826b2214ed07bbfcd05cdfa24eb0ac0866be116079febd9f20c715a41fe62db62f70961f941750b24281c97f04136
+  checksum: 10c0/4a60ef1e2685b716232a30dfea22bf62c0a8a8c9904a3cb053f30794cc2a3bbd470f0e615fe8d8f4424e9af48b3a9f8cb67f07eabeb9fb7b8ed50bd0f5f50dd9
   languageName: node
   linkType: hard
 
