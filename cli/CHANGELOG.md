@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.89](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.88...@napi-rs/cli@3.0.0-alpha.89) (2025-06-13)
+
+### Bug Fixes
+
+- **cli:** wasm url in binding files ([#2710](https://github.com/napi-rs/napi-rs/issues/2710)) ([e7af660](https://github.com/napi-rs/napi-rs/commit/e7af6608fc293eefe4eb2b8ff763348d52784ac7))
+
 # [3.0.0-alpha.88](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.87...@napi-rs/cli@3.0.0-alpha.88) (2025-06-08)
 
 ### Bug Fixes
