@@ -9,7 +9,7 @@
   "devDependencies": {
     "@napi-rs/cli": "workspace:*",
     "ava": "^6.2.0",
-    "sinon": "^20.0.0"
+    "sinon": "^21.0.0"
   },
   "ava": {
     "extensions": [
