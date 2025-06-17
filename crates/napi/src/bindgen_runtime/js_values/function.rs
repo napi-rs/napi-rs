@@ -9,7 +9,7 @@ use crate::threadsafe_function::{ThreadsafeCallContext, ThreadsafeFunction};
 pub use crate::JsFunction;
 use crate::{
   bindgen_runtime::JsObjectValue, check_pending_exception, check_status, sys, Env, JsValue, Result,
-  ValueType,
+  Status, ValueType,
 };
 
 pub trait JsValuesTupleIntoVec {
@@ -105,6 +105,7 @@ impl_tuple_conversion!(
   A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z
 );
 
+#[derive(Clone, Copy)]
 /// A JavaScript function.
 /// It can only live in the scope of a function call.
 /// If you want to use it outside the scope of a function call, you can turn it into a reference.
@@ -309,13 +310,14 @@ pub struct ThreadsafeFunctionBuilder<
   T: 'static,
   Args: 'static + JsValuesTupleIntoVec,
   Return,
+  ErrorStatus: AsRef<str> + From<Status> = Status,
   const CalleeHandled: bool = false,
   const Weak: bool = false,
   const MaxQueueSize: usize = 0,
 > {
   pub(crate) env: sys::napi_env,
   pub(crate) value: sys::napi_value,
-  _args: std::marker::PhantomData<(T, &'env Args)>,
+  _args: std::marker::PhantomData<(T, &'env Args, ErrorStatus)>,
   _return: std::marker::PhantomData<Return>,
 }
 
@@ -325,14 +327,45 @@ impl<
     T: 'static,
     Args: 'static + JsValuesTupleIntoVec,
     Return: FromNapiValue,
+    ErrorStatus: AsRef<str> + From<Status>,
     const CalleeHandled: bool,
     const Weak: bool,
     const MaxQueueSize: usize,
-  > ThreadsafeFunctionBuilder<'env, T, Args, Return, CalleeHandled, Weak, MaxQueueSize>
+  >
+  ThreadsafeFunctionBuilder<'env, T, Args, Return, ErrorStatus, CalleeHandled, Weak, MaxQueueSize>
 {
+  pub fn error_status<NewErrorStatus: AsRef<str> + From<Status>>(
+    self,
+  ) -> ThreadsafeFunctionBuilder<
+    'env,
+    T,
+    Args,
+    Return,
+    NewErrorStatus,
+    CalleeHandled,
+    Weak,
+    MaxQueueSize,
+  > {
+    ThreadsafeFunctionBuilder {
+      env: self.env,
+      value: self.value,
+      _args: std::marker::PhantomData,
+      _return: std::marker::PhantomData,
+    }
+  }
+
   pub fn weak<const NewWeak: bool>(
     self,
-  ) -> ThreadsafeFunctionBuilder<'env, T, Args, Return, CalleeHandled, NewWeak, MaxQueueSize> {
+  ) -> ThreadsafeFunctionBuilder<
+    'env,
+    T,
+    Args,
+    Return,
+    ErrorStatus,
+    CalleeHandled,
+    NewWeak,
+    MaxQueueSize,
+  > {
     ThreadsafeFunctionBuilder {
       env: self.env,
       value: self.value,
@@ -343,7 +376,16 @@ impl<
 
   pub fn callee_handled<const NewCalleeHandled: bool>(
     self,
-  ) -> ThreadsafeFunctionBuilder<'env, T, Args, Return, NewCalleeHandled, Weak, MaxQueueSize> {
+  ) -> ThreadsafeFunctionBuilder<
+    'env,
+    T,
+    Args,
+    Return,
+    ErrorStatus,
+    NewCalleeHandled,
+    Weak,
+    MaxQueueSize,
+  > {
     ThreadsafeFunctionBuilder {
       env: self.env,
       value: self.value,
@@ -354,7 +396,16 @@ impl<
 
   pub fn max_queue_size<const NewMaxQueueSize: usize>(
     self,
-  ) -> ThreadsafeFunctionBuilder<'env, T, Args, Return, CalleeHandled, Weak, NewMaxQueueSize> {
+  ) -> ThreadsafeFunctionBuilder<
+    'env,
+    T,
+    Args,
+    Return,
+    ErrorStatus,
+    CalleeHandled,
+    Weak,
+    NewMaxQueueSize,
+  > {
     ThreadsafeFunctionBuilder {
       env: self.env,
       value: self.value,
@@ -366,12 +417,16 @@ impl<
   pub fn build_callback<CallJsBackArgs, Callback>(
     &self,
     call_js_back: Callback,
-  ) -> Result<ThreadsafeFunction<T, Return, CallJsBackArgs, CalleeHandled, Weak, MaxQueueSize>>
+  ) -> Result<
+    ThreadsafeFunction<T, Return, CallJsBackArgs, ErrorStatus, CalleeHandled, Weak, MaxQueueSize>,
+  >
   where
     CallJsBackArgs: 'static + JsValuesTupleIntoVec,
     Callback: 'static + FnMut(ThreadsafeCallContext<T>) -> Result<CallJsBackArgs>,
+    ErrorStatus: AsRef<str>,
+    ErrorStatus: From<Status>,
   {
-    ThreadsafeFunction::<T, Return, Args, CalleeHandled, Weak, MaxQueueSize>::create(
+    ThreadsafeFunction::<T, Return, Args, ErrorStatus, CalleeHandled, Weak, MaxQueueSize>::create(
       self.env,
       self.value,
       call_js_back,
@@ -383,14 +438,15 @@ impl<
 impl<
     T: 'static + JsValuesTupleIntoVec,
     Return: FromNapiValue,
+    ErrorStatus: AsRef<str> + From<Status>,
     const CalleeHandled: bool,
     const Weak: bool,
     const MaxQueueSize: usize,
-  > ThreadsafeFunctionBuilder<'_, T, T, Return, CalleeHandled, Weak, MaxQueueSize>
+  > ThreadsafeFunctionBuilder<'_, T, T, Return, ErrorStatus, CalleeHandled, Weak, MaxQueueSize>
 {
   pub fn build(
     &self,
-  ) -> Result<ThreadsafeFunction<T, Return, T, CalleeHandled, Weak, MaxQueueSize>> {
+  ) -> Result<ThreadsafeFunction<T, Return, T, ErrorStatus, CalleeHandled, Weak, MaxQueueSize>> {
     unsafe { ThreadsafeFunction::from_napi_value(self.env, self.value) }
   }
 }

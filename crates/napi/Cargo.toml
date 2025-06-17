@@ -8,7 +8,7 @@ name = "napi"
 readme = "README.md"
 repository = "https://github.com/napi-rs/napi-rs"
 rust-version = "1.80"
-version = "3.0.0-beta.0"
+version = "3.0.0-beta.8"
 
 [lib]
 doctest = false
@@ -25,11 +25,18 @@ async = ["tokio_rt"]
 chrono_date = ["chrono", "napi5"]
 # Enable deprecated types and traits for compatibility
 compat-mode = []
-default = ["napi4"]                                                              # for most Node.js users
+default = ["napi4"] # for most Node.js users
 deferred_trace = ["napi4"]
 error_anyhow = ["anyhow"]
 experimental = ["napi-sys/experimental"]
-full = ["latin1", "napi9", "async", "serde-json", "experimental", "chrono_date"]
+full = [
+  "latin1",
+  "napi10",
+  "async",
+  "serde-json",
+  "experimental",
+  "chrono_date",
+]
 object_indexmap = ["indexmap"]
 latin1 = ["encoding_rs"]
 napi1 = []
@@ -41,6 +48,7 @@ napi6 = ["napi5", "napi-sys/napi6"]
 napi7 = ["napi6", "napi-sys/napi7"]
 napi8 = ["napi7", "napi-sys/napi8"]
 napi9 = ["napi8", "napi-sys/napi9"]
+napi10 = ["napi9", "napi-sys/napi10"]
 web_stream = ["futures-core", "tokio-stream", "napi4", "tokio_rt"]
 noop = []
 serde-json = ["serde", "serde_json"]
@@ -64,6 +72,8 @@ node_version_detect = []
 [dependencies]
 bitflags = "2"
 ctor = "0.4.1"
+nohash-hasher = "0.2.0"
+rustc-hash = "2.1.1"
 
 [dependencies.anyhow]
 optional = true
@@ -71,7 +81,7 @@ version = "1"
 
 [dependencies.napi-sys]
 path = "../sys"
-version = "3.0.0-alpha.0"
+version = "3.0.0-alpha.3"
 
 [dependencies.encoding_rs]
 optional = true
@@ -112,4 +122,4 @@ optional = true
 version = "0.1"
 
 [build-dependencies]
-napi-build = { path = "../build", version = "2.1.3" }
+napi-build = { path = "../build", version = "2.2.1" }

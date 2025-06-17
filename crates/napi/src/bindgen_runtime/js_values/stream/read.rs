@@ -442,7 +442,8 @@ impl<T: FromNapiValue> FromNapiValue for IteratorValue<'_, T> {
 }
 
 pub struct Reader<T: FromNapiValue + 'static> {
-  inner: ThreadsafeFunction<(), PromiseRaw<'static, IteratorValue<'static, T>>, (), true, true>,
+  inner:
+    ThreadsafeFunction<(), PromiseRaw<'static, IteratorValue<'static, T>>, (), Status, true, true>,
   state: Arc<(RwLock<Result<Option<T>>>, AtomicBool)>,
 }
 

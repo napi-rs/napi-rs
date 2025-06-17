@@ -1,6 +1,7 @@
 use std::fmt::{self, Display};
 use std::ptr;
 
+use crate::bindgen_runtime::EscapableHandleScope;
 use crate::{
   bindgen_runtime::{FromNapiValue, Object, Unknown},
   {check_status, sys, JsNumber, JsString, Result, ValueType},
@@ -19,7 +20,7 @@ impl Display for Value {
   }
 }
 
-pub trait JsValue<'env>: Sized {
+pub trait JsValue<'env>: Sized + FromNapiValue {
   fn value(&self) -> Value;
 
   fn raw(&self) -> sys::napi_value {
@@ -156,5 +157,21 @@ pub trait JsValue<'env>: Sized {
       sys::napi_instanceof(env, self.value().value, constructor.raw(), &mut result)
     })?;
     Ok(result)
+  }
+
+  fn escape<'scope, E: JsValue<'scope> + FromNapiValue>(
+    &self,
+    escapable_handle_scope: EscapableHandleScope<'scope>,
+  ) -> Result<E> {
+    let mut result = ptr::null_mut();
+    unsafe {
+      sys::napi_escape_handle(
+        escapable_handle_scope.env,
+        escapable_handle_scope.scope,
+        self.raw(),
+        &mut result,
+      )
+    };
+    unsafe { <E as FromNapiValue>::from_napi_value(self.value().env, result) }
   }
 }

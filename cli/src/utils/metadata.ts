@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 
 export type CrateTargetKind =
@@ -48,23 +48,36 @@ export interface CargoWorkspaceMetadata {
   workspace_root: string
 }
 
-export function parseMetadata(manifestPath: string) {
+export async function parseMetadata(manifestPath: string) {
   if (!fs.existsSync(manifestPath)) {
     throw new Error(`No crate found in manifest: ${manifestPath}`)
   }
 
-  const { stdout, stderr, status, error } = spawnSync(
+  const childProcess = spawn(
     'cargo',
-    [
-      'metadata',
-      '--manifest-path',
-      manifestPath,
-      '--format-version',
-      '1',
-      '--no-deps',
-    ],
-    { encoding: 'utf-8' },
+    ['metadata', '--manifest-path', manifestPath, '--format-version', '1'],
+    { stdio: 'pipe' },
   )
+
+  let stdout = ''
+  let stderr = ''
+  let status = 0
+  let error = null
+
+  childProcess.stdout.on('data', (data) => {
+    stdout += data
+  })
+
+  childProcess.stderr.on('data', (data) => {
+    stderr += data
+  })
+
+  await new Promise<void>((resolve) => {
+    childProcess.on('close', (code) => {
+      status = code ?? 0
+      resolve()
+    })
+  })
 
   if (error) {
     throw new Error('cargo metadata failed to run', { cause: error })

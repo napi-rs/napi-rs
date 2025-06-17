@@ -188,6 +188,13 @@ export declare class JsClassForEither {
   constructor()
 }
 
+export declare class JSOnlyMethodsClass {
+  data: string
+  processData(): string
+  getLength(): number
+}
+export type RustOnlyMethodsClass = JSOnlyMethodsClass
+
 export declare class JsRemote {
   constructor(repo: JsRepo)
   name(): string
@@ -197,6 +204,13 @@ export declare class JsRepo {
   constructor(dir: string)
   remote(): JsRemote
 }
+
+export declare class MyJsNamedClass {
+  constructor(value: string)
+  getValue(): string
+  multiplyValue(times: number): string
+}
+export type OriginalRustNameForJsNamedStruct = MyJsNamedClass
 
 export declare class NinjaTurtle {
   name: string
@@ -500,6 +514,8 @@ export declare function eitherBoolOrFunction(input: boolean | (any)): void
 
 export declare function eitherBoolOrTuple(input: boolean | [boolean, string]): void
 
+export declare function eitherF64OrU32(input: number): number
+
 export declare function eitherFromObjects(input: A | B | C): string
 
 export declare function eitherFromOption(): JsClassForEither | undefined
@@ -533,6 +549,8 @@ export interface FunctionData {
 }
 
 export declare function generateFunctionAndCallIt(): FunctionData
+
+export declare function getBigintJsonValue(value: bigint): void
 
 export declare function getBtreeMapping(): Record<string, number>
 
@@ -782,9 +800,9 @@ export declare function setNullByteProperty(obj: object): void
 
 export declare function setSymbolInObj(symbol: symbol): object
 
-export interface Shared {
-  value: number
-}
+export declare function shorterEscapableScope(createString: () => string | null): string
+
+export declare function shorterScope(arr: unknown[]): Array<number>
 
 export declare function shutdownRuntime(): void
 
@@ -826,11 +844,21 @@ export declare function sumMapping(nums: Record<string, number>): number
 
 export declare function sumNums(nums: Array<number>): number
 
+/**
+ * Function to test escaped quotes in comments.
+ * This comment contains escaped quotes: \\"g+sx\\" and should not break JSON parsing.
+ * The pattern \\"value\\" is commonly used in regex and shell commands.
+ * Another example: sed 's/old/\\"new\\"/g' where quotes are escaped.
+ */
+export declare function testEscapedQuotesInComments(input: string): string
+
 export declare function testSerdeBigNumberPrecision(number: string): any
 
 export declare function testSerdeBufferBytes(obj: object): bigint
 
 export declare function testSerdeRoundtrip(data: any): any
+
+export declare function threadsafeFunctionBuildThrowErrorWithStatus(cb: any): void
 
 export declare function threadsafeFunctionClosureCapture(defaultValue: Animal, func: (arg: Animal) => void): void
 
@@ -839,6 +867,8 @@ export declare function threadsafeFunctionFatalMode(cb: ((arg: boolean) => unkno
 export declare function threadsafeFunctionFatalModeError(cb: ((arg: boolean) => string)): void
 
 export declare function threadsafeFunctionThrowError(cb: ((err: Error | null, arg: boolean) => unknown)): void
+
+export declare function threadsafeFunctionThrowErrorWithStatus(cb: ((err: Error | null, arg: boolean) => unknown)): void
 
 export declare function throwAsyncError(): Promise<void>
 
@@ -859,6 +889,8 @@ export declare function tsfnReturnPromise(func: ((err: Error | null, arg: number
 export declare function tsfnReturnPromiseTimeout(func: ((err: Error | null, arg: number) => Promise<number>)): Promise<number>
 
 export declare function tsfnThrowFromJs(tsfn: ((err: Error | null, arg: number) => Promise<number>)): Promise<number>
+
+export declare function tsfnThrowFromJsCallbackContainsTsfn(tsfn: ((err: Error | null, arg: number) => Promise<number>)): Promise<void>
 
 export declare function tsRename(a: { foo: number }): string[]
 
@@ -971,4 +1003,7 @@ export declare namespace xxh3 {
   /** xxh128 function */
   export function xxh128(input: Buffer): bigint
   export function xxh3_64(input: Buffer): bigint
+}
+export interface Shared {
+  value: number
 }

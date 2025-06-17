@@ -15,6 +15,8 @@ use crate::{bindgen_runtime::ToNapiValue, sys, Callback, Env, JsValue, Result};
 pub struct PropertyClosures {
   pub setter_closure: *mut c_void,
   pub getter_closure: *mut c_void,
+  pub setter_drop_fn: Option<unsafe fn(*mut c_void)>,
+  pub getter_drop_fn: Option<unsafe fn(*mut c_void)>,
 }
 
 #[cfg(feature = "napi5")]
@@ -23,13 +25,16 @@ impl Default for PropertyClosures {
     Self {
       setter_closure: ptr::null_mut(),
       getter_closure: ptr::null_mut(),
+      setter_drop_fn: None,
+      getter_drop_fn: None,
     }
   }
 }
 
 #[derive(Clone)]
 pub struct Property {
-  pub name: CString,
+  utf8_name: Option<CString>,
+  name: sys::napi_value,
   getter: sys::napi_callback,
   setter: sys::napi_callback,
   method: sys::napi_callback,
@@ -43,7 +48,8 @@ pub struct Property {
 impl Default for Property {
   fn default() -> Self {
     Property {
-      name: Default::default(),
+      utf8_name: Default::default(),
+      name: ptr::null_mut(),
       getter: Default::default(),
       setter: Default::default(),
       method: Default::default(),
@@ -80,16 +86,18 @@ impl From<PropertyAttributes> for sys::napi_property_attributes {
 }
 
 impl Property {
-  pub fn new(name: &str) -> Result<Self> {
-    Ok(Property {
-      name: CString::new(name)?,
-      ..Default::default()
-    })
+  pub fn new() -> Self {
+    Default::default()
   }
 
-  pub fn with_name(mut self, name: &str) -> Self {
-    self.name = CString::new(name).unwrap();
-    self
+  pub fn with_utf8_name(mut self, name: &str) -> Result<Self> {
+    self.utf8_name = Some(CString::new(name)?);
+    Ok(self)
+  }
+
+  pub fn with_name<T: ToNapiValue>(mut self, env: &Env, name: T) -> Result<Self> {
+    self.name = unsafe { T::to_napi_value(env.0, name)? };
+    Ok(self)
   }
 
   pub fn with_method(mut self, callback: Callback) -> Self {
@@ -111,6 +119,9 @@ impl Property {
     let boxed_callback = Box::new(callback);
     let closure_data_ptr: *mut F = Box::into_raw(boxed_callback);
     self.closures.getter_closure = closure_data_ptr.cast();
+    self.closures.getter_drop_fn = Some(|ptr: *mut c_void| unsafe {
+      drop(Box::from_raw(ptr as *mut F));
+    });
 
     let fun = crate::trampoline_getter::<R, F>;
     self.getter = Some(fun);
@@ -131,6 +142,9 @@ impl Property {
     let boxed_callback = Box::new(callback);
     let closure_data_ptr: *mut F = Box::into_raw(boxed_callback);
     self.closures.setter_closure = closure_data_ptr.cast();
+    self.closures.setter_drop_fn = Some(|ptr: *mut c_void| unsafe {
+      drop(Box::from_raw(ptr as *mut F));
+    });
 
     let fun = crate::trampoline_setter::<V, F>;
     self.setter = Some(fun);
@@ -154,10 +168,20 @@ impl Property {
 
   pub(crate) fn raw(&self) -> sys::napi_property_descriptor {
     #[cfg(feature = "napi5")]
-    let closures = Box::into_raw(Box::new(self.closures));
+    let data = if self.closures.getter_closure.is_null() && self.closures.setter_closure.is_null() {
+      // No closures to allocate, avoid memory leak
+      ptr::null_mut()
+    } else {
+      // Only allocate when we actually have closures
+      Box::into_raw(Box::new(self.closures)).cast()
+    };
+
     sys::napi_property_descriptor {
-      utf8name: self.name.as_ptr(),
-      name: ptr::null_mut(),
+      utf8name: match self.utf8_name {
+        Some(ref name) => name.as_ptr(),
+        None => ptr::null(),
+      },
+      name: self.name,
       method: self.method,
       getter: self.getter,
       setter: self.setter,
@@ -166,7 +190,7 @@ impl Property {
       #[cfg(not(feature = "napi5"))]
       data: ptr::null_mut(),
       #[cfg(feature = "napi5")]
-      data: closures.cast(),
+      data,
     }
   }
 

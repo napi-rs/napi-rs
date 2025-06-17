@@ -69,3 +69,26 @@ impl PackageJsonReader {
     &self.i
   }
 }
+
+#[napi(catch_unwind, ts_args_type = "value: bigint")]
+pub fn get_bigint_json_value(bigint_json_value: Value) {
+  match bigint_json_value {
+    Value::Number(n) => {
+      if let Some(u) = n.as_u64() {
+        assert_eq!(u, 1);
+        return;
+      }
+      if let Some(i) = n.as_i64() {
+        assert_eq!(i, -1);
+        return;
+      }
+      unreachable!("should not happen");
+    }
+    Value::String(s) => {
+      assert_eq!(s, "18446744073709551620");
+    }
+    _ => {
+      unreachable!("should not happen");
+    }
+  }
+}

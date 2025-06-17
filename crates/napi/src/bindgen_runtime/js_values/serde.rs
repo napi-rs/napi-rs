@@ -1,4 +1,6 @@
 use std::marker::PhantomData;
+#[cfg(feature = "napi6")]
+use std::ptr;
 
 use serde_json::{Map, Number, Value};
 
@@ -51,7 +53,25 @@ impl FromNapiValue for Value {
         }
       }
       #[cfg(feature = "napi6")]
-      ValueType::BigInt => todo!(),
+      ValueType::BigInt => {
+        let n = unsafe { BigInt::from_napi_value(env, napi_val)? };
+        // negative
+        if n.sign_bit {
+          let (v, lossless) = n.get_i64();
+          if lossless {
+            Value::Number(v.into())
+          } else {
+            Value::String(to_string(env, napi_val)?)
+          }
+        } else {
+          let (_, v, lossless) = n.get_u64();
+          if lossless {
+            Value::Number(v.into())
+          } else {
+            Value::String(to_string(env, napi_val)?)
+          }
+        }
+      }
       ValueType::Null => Value::Null,
       ValueType::Function => {
         return Err(Error::new(
@@ -87,6 +107,17 @@ impl FromNapiValue for Value {
 
     Ok(val)
   }
+}
+
+#[cfg(feature = "napi6")]
+fn to_string(env: sys::napi_env, napi_val: sys::napi_value) -> Result<String> {
+  let mut string = ptr::null_mut();
+  check_status!(
+    unsafe { sys::napi_coerce_to_string(env, napi_val, &mut string) },
+    "Failed to coerce to string"
+  )?;
+  let s = unsafe { String::from_napi_value(env, string) }?;
+  Ok(s)
 }
 
 impl ToNapiValue for &Map<String, Value> {

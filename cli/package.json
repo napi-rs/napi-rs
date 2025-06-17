@@ -1,6 +1,6 @@
 {
   "name": "@napi-rs/cli",
-  "version": "3.0.0-alpha.79",
+  "version": "3.0.0-alpha.89",
   "description": "Cli tools for napi-rs",
   "author": "LongYinan <lynweklm@gmail.com>",
   "homepage": "https://github.com/napi-rs/napi-rs",
@@ -70,7 +70,7 @@
     "@inquirer/prompts": "^7.4.0",
     "@napi-rs/cross-toolchain": "^0.0.19",
     "@napi-rs/wasm-tools": "^0.0.3",
-    "@octokit/rest": "^21.1.1",
+    "@octokit/rest": "^22.0.0",
     "clipanion": "^4.0.0-rc.4",
     "colorette": "^2.0.20",
     "debug": "^4.4.0",
@@ -85,7 +85,7 @@
   "devDependencies": {
     "@emnapi/core": "^1.4.0",
     "@emnapi/runtime": "^1.4.0",
-    "@oxc-node/core": "^0.0.27",
+    "@oxc-node/core": "^0.0.28",
     "@types/debug": "^4.1.12",
     "@types/inquirer": "^9.0.7",
     "@types/js-yaml": "^4.0.9",

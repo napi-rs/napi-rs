@@ -5,7 +5,6 @@ import {
   WASI as __WASI,
 } from '@napi-rs/wasm-runtime'
 import { memfs } from '@napi-rs/wasm-runtime/fs'
-import __wasmUrl from './example.wasm32-wasi.wasm?url'
 
 export const { fs: __fs, vol: __volume } = memfs()
 
@@ -17,6 +16,7 @@ const __wasi = new __WASI({
   },
 })
 
+const __wasmUrl = new URL('./example.wasm32-wasi.wasm', import.meta.url).href
 const __emnapiContext = __emnapiGetDefaultContext()
 
 const __sharedMemory = new WebAssembly.Memory({
@@ -94,8 +94,12 @@ export const Fib2 = __napiModule.exports.Fib2
 export const Fib3 = __napiModule.exports.Fib3
 export const GetterSetterWithClosures = __napiModule.exports.GetterSetterWithClosures
 export const JsClassForEither = __napiModule.exports.JsClassForEither
+export const JSOnlyMethodsClass = __napiModule.exports.JSOnlyMethodsClass
+export const RustOnlyMethodsClass = __napiModule.exports.RustOnlyMethodsClass
 export const JsRemote = __napiModule.exports.JsRemote
 export const JsRepo = __napiModule.exports.JsRepo
+export const MyJsNamedClass = __napiModule.exports.MyJsNamedClass
+export const OriginalRustNameForJsNamedStruct = __napiModule.exports.OriginalRustNameForJsNamedStruct
 export const NinjaTurtle = __napiModule.exports.NinjaTurtle
 export const NotUseNullableClass = __napiModule.exports.NotUseNullableClass
 export const NotWritableClass = __napiModule.exports.NotWritableClass
@@ -196,6 +200,7 @@ export const either3 = __napiModule.exports.either3
 export const either4 = __napiModule.exports.either4
 export const eitherBoolOrFunction = __napiModule.exports.eitherBoolOrFunction
 export const eitherBoolOrTuple = __napiModule.exports.eitherBoolOrTuple
+export const eitherF64OrU32 = __napiModule.exports.eitherF64OrU32
 export const eitherFromObjects = __napiModule.exports.eitherFromObjects
 export const eitherFromOption = __napiModule.exports.eitherFromOption
 export const eitherPromiseInEitherA = __napiModule.exports.eitherPromiseInEitherA
@@ -210,6 +215,7 @@ export const f64ArrayToArray = __napiModule.exports.f64ArrayToArray
 export const fibonacci = __napiModule.exports.fibonacci
 export const fnReceivedAliased = __napiModule.exports.fnReceivedAliased
 export const generateFunctionAndCallIt = __napiModule.exports.generateFunctionAndCallIt
+export const getBigintJsonValue = __napiModule.exports.getBigintJsonValue
 export const getBtreeMapping = __napiModule.exports.getBtreeMapping
 export const getBuffer = __napiModule.exports.getBuffer
 export const getBufferSlice = __napiModule.exports.getBufferSlice
@@ -292,6 +298,8 @@ export const roundtripStr = __napiModule.exports.roundtripStr
 export const runScript = __napiModule.exports.runScript
 export const setNullByteProperty = __napiModule.exports.setNullByteProperty
 export const setSymbolInObj = __napiModule.exports.setSymbolInObj
+export const shorterEscapableScope = __napiModule.exports.shorterEscapableScope
+export const shorterScope = __napiModule.exports.shorterScope
 export const shutdownRuntime = __napiModule.exports.shutdownRuntime
 export const spawnThreadInThread = __napiModule.exports.spawnThreadInThread
 export const Status = __napiModule.exports.Status
@@ -301,13 +309,16 @@ export const sumBtreeMapping = __napiModule.exports.sumBtreeMapping
 export const sumIndexMapping = __napiModule.exports.sumIndexMapping
 export const sumMapping = __napiModule.exports.sumMapping
 export const sumNums = __napiModule.exports.sumNums
+export const testEscapedQuotesInComments = __napiModule.exports.testEscapedQuotesInComments
 export const testSerdeBigNumberPrecision = __napiModule.exports.testSerdeBigNumberPrecision
 export const testSerdeBufferBytes = __napiModule.exports.testSerdeBufferBytes
 export const testSerdeRoundtrip = __napiModule.exports.testSerdeRoundtrip
+export const threadsafeFunctionBuildThrowErrorWithStatus = __napiModule.exports.threadsafeFunctionBuildThrowErrorWithStatus
 export const threadsafeFunctionClosureCapture = __napiModule.exports.threadsafeFunctionClosureCapture
 export const threadsafeFunctionFatalMode = __napiModule.exports.threadsafeFunctionFatalMode
 export const threadsafeFunctionFatalModeError = __napiModule.exports.threadsafeFunctionFatalModeError
 export const threadsafeFunctionThrowError = __napiModule.exports.threadsafeFunctionThrowError
+export const threadsafeFunctionThrowErrorWithStatus = __napiModule.exports.threadsafeFunctionThrowErrorWithStatus
 export const throwAsyncError = __napiModule.exports.throwAsyncError
 export const throwError = __napiModule.exports.throwError
 export const throwSyntaxError = __napiModule.exports.throwSyntaxError
@@ -318,6 +329,7 @@ export const tsfnInEither = __napiModule.exports.tsfnInEither
 export const tsfnReturnPromise = __napiModule.exports.tsfnReturnPromise
 export const tsfnReturnPromiseTimeout = __napiModule.exports.tsfnReturnPromiseTimeout
 export const tsfnThrowFromJs = __napiModule.exports.tsfnThrowFromJs
+export const tsfnThrowFromJsCallbackContainsTsfn = __napiModule.exports.tsfnThrowFromJsCallbackContainsTsfn
 export const tsRename = __napiModule.exports.tsRename
 export const u16ArrayToArray = __napiModule.exports.u16ArrayToArray
 export const u32ArrayToArray = __napiModule.exports.u32ArrayToArray

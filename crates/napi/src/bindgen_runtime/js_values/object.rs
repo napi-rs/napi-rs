@@ -318,23 +318,30 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
     let env = self.value().env;
     #[cfg(feature = "napi5")]
     {
-      let mut closures = properties_iter
-        .clone()
-        .map(|p| p.data)
-        .filter(|data| !data.is_null())
-        .collect::<Vec<*mut std::ffi::c_void>>();
-      let len = Box::into_raw(Box::new(closures.len()));
-      check_status!(unsafe {
-        sys::napi_add_finalizer(
-          env,
-          self.value().value,
-          closures.as_mut_ptr().cast(),
-          Some(finalize_closures),
-          len.cast(),
-          ptr::null_mut(),
-        )
-      })?;
-      std::mem::forget(closures);
+      if !properties.is_empty() {
+        let mut closures = properties_iter
+          .clone()
+          .map(|p| p.data)
+          .filter(|data| !data.is_null())
+          .collect::<Vec<*mut std::ffi::c_void>>();
+        if !closures.is_empty() {
+          let len = Box::into_raw(Box::new(closures.len()));
+          check_status!(
+            unsafe {
+              sys::napi_add_finalizer(
+                env,
+                self.value().value,
+                closures.as_mut_ptr().cast(),
+                Some(finalize_closures),
+                len.cast(),
+                ptr::null_mut(),
+              )
+            },
+            "Failed to add finalizer"
+          )?;
+          std::mem::forget(closures);
+        }
+      }
     }
     check_status!(unsafe {
       sys::napi_define_properties(
@@ -777,9 +784,9 @@ unsafe extern "C" fn finalize_callback<T, Hint, F>(
   let env = Env::from_raw(raw_env);
   callback(FinalizeContext { env, value, hint });
   if !raw_ref.is_null() {
-    let status = unsafe { sys::napi_delete_reference(raw_env, raw_ref) };
-    debug_assert!(
-      status == sys::Status::napi_ok,
+    check_status_or_throw!(
+      raw_env,
+      unsafe { sys::napi_delete_reference(raw_env, raw_ref) },
       "Delete reference in finalize callback failed"
     );
   }
@@ -794,7 +801,20 @@ pub(crate) unsafe extern "C" fn finalize_closures(
   let length: usize = *unsafe { Box::from_raw(len.cast()) };
   let closures: Vec<*mut PropertyClosures> =
     unsafe { Vec::from_raw_parts(data.cast(), length, length) };
-  for closure in closures.into_iter() {
-    drop(unsafe { Box::from_raw(closure) });
+  for closure_ptr in closures.into_iter() {
+    if !closure_ptr.is_null() {
+      let closures = unsafe { Box::from_raw(closure_ptr) };
+      // Free the actual closure functions using the stored drop functions
+      if !closures.getter_closure.is_null() {
+        if let Some(drop_fn) = closures.getter_drop_fn {
+          unsafe { drop_fn(closures.getter_closure) };
+        }
+      }
+      if !closures.setter_closure.is_null() {
+        if let Some(drop_fn) = closures.setter_drop_fn {
+          unsafe { drop_fn(closures.setter_closure) };
+        }
+      }
+    }
   }
 }

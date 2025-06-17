@@ -102,6 +102,7 @@ struct DeferredData<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> {
   resolver: Result<Resolver>,
   #[cfg(feature = "deferred_trace")]
   trace: DeferredTrace,
+  tsfn: sys::napi_threadsafe_function,
 }
 
 pub struct JsDeferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> {
@@ -164,6 +165,7 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
       resolver: result,
       #[cfg(feature = "deferred_trace")]
       trace: self.trace,
+      tsfn: self.tsfn,
     };
 
     // Call back into the JS thread via a threadsafe function. This results in napi_resolve_deferred being called.
@@ -177,14 +179,6 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
     debug_assert!(
       status == sys::Status::napi_ok,
       "Call threadsafe function in JsDeferred failed"
-    );
-
-    let status = unsafe {
-      sys::napi_release_threadsafe_function(self.tsfn, sys::ThreadsafeFunctionReleaseMode::release)
-    };
-    debug_assert!(
-      status == sys::Status::napi_ok,
-      "Release threadsafe function in JsDeferred failed"
     );
   }
 }
@@ -247,12 +241,20 @@ extern "C" fn napi_resolve_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> 
 ) {
   let deferred = context.cast();
   let deferred_data: Box<DeferredData<Data, Resolver>> = unsafe { Box::from_raw(data.cast()) };
+  let tsfn = deferred_data.tsfn;
   let result = deferred_data
     .resolver
     .and_then(|resolver| resolver(Env::from_raw(env)))
     .and_then(|res| unsafe { ToNapiValue::to_napi_value(env, res) });
 
-  if let Err(e) = result.and_then(|res| {
+  let release_tsfn_result = check_status!(
+    unsafe {
+      sys::napi_release_threadsafe_function(tsfn, sys::ThreadsafeFunctionReleaseMode::release)
+    },
+    "Release threadsafe function in JsDeferred failed"
+  );
+
+  if let Err(e) = release_tsfn_result.and(result).and_then(|res| {
     check_status!(
       unsafe { sys::napi_resolve_deferred(env, deferred, res) },
       "Resolve deferred value failed"

@@ -18,10 +18,7 @@ test('should create bigints', (t) => {
       bindings.testCreateBigintFromMinI128(),
       BigInt('-170141183460469231731687303715884105728'),
     )
-    t.is(
-      bindings.testCreateBigintFromNegativeI128(),
-      BigInt('-10'),
-    )
+    t.is(bindings.testCreateBigintFromNegativeI128(), BigInt('-10'))
     t.is(
       bindings.testCreateBigintFromU128(),
       BigInt('340282366920938463463374607431768211455'),

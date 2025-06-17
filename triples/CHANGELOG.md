@@ -3,6 +3,46 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.0.0-alpha.51](https://github.com/napi-rs/napi-rs/compare/@napi-rs/triples@2.0.0-alpha.50...@napi-rs/triples@2.0.0-alpha.51) (2025-06-13)
+
+**Note:** Version bump only for package @napi-rs/triples
+
+# [2.0.0-alpha.50](https://github.com/napi-rs/napi-rs/compare/@napi-rs/triples@2.0.0-alpha.49...@napi-rs/triples@2.0.0-alpha.50) (2025-06-08)
+
+**Note:** Version bump only for package @napi-rs/triples
+
+# [2.0.0-alpha.49](https://github.com/napi-rs/napi-rs/compare/@napi-rs/triples@2.0.0-alpha.48...@napi-rs/triples@2.0.0-alpha.49) (2025-06-05)
+
+**Note:** Version bump only for package @napi-rs/triples
+
+# [2.0.0-alpha.48](https://github.com/napi-rs/napi-rs/compare/@napi-rs/triples@2.0.0-alpha.47...@napi-rs/triples@2.0.0-alpha.48) (2025-06-04)
+
+**Note:** Version bump only for package @napi-rs/triples
+
+# [2.0.0-alpha.47](https://github.com/napi-rs/napi-rs/compare/@napi-rs/triples@2.0.0-alpha.46...@napi-rs/triples@2.0.0-alpha.47) (2025-06-04)
+
+**Note:** Version bump only for package @napi-rs/triples
+
+# [2.0.0-alpha.46](https://github.com/napi-rs/napi-rs/compare/@napi-rs/triples@2.0.0-alpha.45...@napi-rs/triples@2.0.0-alpha.46) (2025-06-03)
+
+**Note:** Version bump only for package @napi-rs/triples
+
+# [2.0.0-alpha.45](https://github.com/napi-rs/napi-rs/compare/@napi-rs/triples@2.0.0-alpha.44...@napi-rs/triples@2.0.0-alpha.45) (2025-06-03)
+
+**Note:** Version bump only for package @napi-rs/triples
+
+# [2.0.0-alpha.44](https://github.com/napi-rs/napi-rs/compare/@napi-rs/triples@2.0.0-alpha.43...@napi-rs/triples@2.0.0-alpha.44) (2025-06-03)
+
+**Note:** Version bump only for package @napi-rs/triples
+
+# [2.0.0-alpha.43](https://github.com/napi-rs/napi-rs/compare/@napi-rs/triples@2.0.0-alpha.42...@napi-rs/triples@2.0.0-alpha.43) (2025-05-29)
+
+**Note:** Version bump only for package @napi-rs/triples
+
+# [2.0.0-alpha.42](https://github.com/napi-rs/napi-rs/compare/@napi-rs/triples@2.0.0-alpha.41...@napi-rs/triples@2.0.0-alpha.42) (2025-05-20)
+
+**Note:** Version bump only for package @napi-rs/triples
+
 # [2.0.0-alpha.41](https://github.com/napi-rs/napi-rs/compare/@napi-rs/triples@2.0.0-alpha.40...@napi-rs/triples@2.0.0-alpha.41) (2025-05-16)
 
 **Note:** Version bump only for package @napi-rs/triples

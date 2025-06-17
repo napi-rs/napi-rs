@@ -1,18 +1,9 @@
-#[cfg(feature = "type-def")]
-use std::env;
-#[cfg(feature = "type-def")]
-use std::fs;
-#[cfg(feature = "type-def")]
-use std::io::{BufWriter, Write};
-#[cfg(feature = "type-def")]
-use std::sync::atomic::{AtomicBool, Ordering};
-
+use super::typedef;
 use crate::parser::{attrs::BindgenAttrs, ParseNapi};
 use napi_derive_backend::{BindgenResult, TryToTokens};
-#[cfg(feature = "type-def")]
-use napi_derive_backend::{Napi, ToTypeDef};
 use proc_macro2::TokenStream;
 use quote::ToTokens;
+use std::sync::atomic::{AtomicBool, Ordering};
 use syn::{Attribute, Item};
 
 /// a flag indicate whether or never at least one `napi` macro has been expanded.
@@ -24,52 +15,17 @@ use syn::{Attribute, Item};
 /// }
 ///
 /// ```
-#[cfg(feature = "type-def")]
 static BUILT_FLAG: AtomicBool = AtomicBool::new(false);
 
-#[cfg(feature = "type-def")]
-#[ctor::dtor]
-fn dtor() {
-  if let Ok(ref type_def_file) = env::var("TYPE_DEF_TMP_PATH") {
-    let package_name = std::env::var("CARGO_PKG_NAME").expect("CARGO_PKG_NAME is not set");
-
-    if let Ok(f) = fs::OpenOptions::new()
-      .read(true)
-      .append(true)
-      .open(type_def_file)
-    {
-      let mut writer = BufWriter::<fs::File>::new(f);
-      if let Err(err) = writer
-        .write_all(format!("{package_name}:{{\"done\": true}}\n").as_bytes())
-        .and_then(|_| writer.flush())
-      {
-        eprintln!(
-          "Failed to write type def file for `{package_name}`: {:?}",
-          err
-        );
-      }
-    }
-  }
-}
-
 pub fn expand(attr: TokenStream, input: TokenStream) -> BindgenResult<TokenStream> {
-  #[cfg(feature = "type-def")]
-  if BUILT_FLAG
-    .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-    .is_ok()
+  // logic on first macro expansion
+  if let Ok(built) = BUILT_FLAG.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
   {
-    // logic on first macro expansion
-    prepare_type_def_file();
-
-    if let Ok(wasi_register_file) = env::var("WASI_REGISTER_TMP_PATH") {
-      if let Err(_e) = remove_existed_def_file(&wasi_register_file) {
-        #[cfg(debug_assertions)]
-        {
-          println!("Failed to manipulate wasi register file: {:?}", _e);
-        }
-      }
+    if !built {
+      typedef::prepare_type_def_file();
     }
   }
+
   let mut item = syn::parse2::<Item>(input)?;
   let opts: BindgenAttrs = syn::parse2(attr)?;
   let mut tokens = proc_macro2::TokenStream::new();
@@ -110,11 +66,7 @@ pub fn expand(attr: TokenStream, input: TokenStream) -> BindgenResult<TokenStrea
           let napi = item.parse_napi(&mut tokens, &item_opts)?;
           item_opts.check_used()?;
           napi.try_to_tokens(&mut tokens)?;
-
-          #[cfg(feature = "type-def")]
-          {
-            output_type_def(&napi);
-          }
+          typedef::output_type_def(&napi);
         } else {
           item.to_tokens(&mut tokens);
         };
@@ -136,33 +88,8 @@ pub fn expand(attr: TokenStream, input: TokenStream) -> BindgenResult<TokenStrea
     let napi = item.parse_napi(&mut tokens, &opts)?;
     opts.check_used()?;
     napi.try_to_tokens(&mut tokens)?;
-
-    #[cfg(feature = "type-def")]
-    {
-      output_type_def(&napi);
-    }
+    typedef::output_type_def(&napi);
     Ok(tokens)
-  }
-}
-
-#[cfg(feature = "type-def")]
-fn output_type_def(napi: &Napi) {
-  if let Ok(type_def_file) = env::var("TYPE_DEF_TMP_PATH") {
-    if let Some(type_def) = napi.to_type_def() {
-      fs::OpenOptions::new()
-        .append(true)
-        .create(true)
-        .open(type_def_file)
-        .and_then(|file| {
-          let mut writer = BufWriter::<fs::File>::new(file);
-          writer.write_all(type_def.to_string().as_bytes())?;
-          writer.write_all("\n".as_bytes())?;
-          writer.flush()
-        })
-        .unwrap_or_else(|e| {
-          println!("Failed to write type def file: {:?}", e);
-        });
-    }
   }
 }
 
@@ -197,44 +124,4 @@ fn replace_napi_attr_in_mod(
   } else {
     None
   }
-}
-
-#[cfg(feature = "type-def")]
-fn prepare_type_def_file() {
-  if let Ok(ref type_def_file) = env::var("TYPE_DEF_TMP_PATH") {
-    if let Err(_e) = remove_existed_def_file(type_def_file) {
-      #[cfg(debug_assertions)]
-      {
-        println!("Failed to manipulate type def file: {:?}", _e);
-      }
-    }
-  }
-}
-
-#[cfg(feature = "type-def")]
-fn remove_existed_def_file(def_file: &str) -> std::io::Result<()> {
-  use std::io::{BufRead, BufReader};
-
-  let pkg_name = std::env::var("CARGO_PKG_NAME").expect("CARGO_PKG_NAME is not set");
-  if let Ok(content) = std::fs::File::open(def_file) {
-    let reader = BufReader::new(content);
-    let cleaned_content = reader
-      .lines()
-      .filter_map(|line| {
-        if let Ok(line) = line {
-          if let Some((package_name, _)) = line.split_once(':') {
-            if pkg_name == package_name {
-              return None;
-            }
-          }
-          Some(line)
-        } else {
-          None
-        }
-      })
-      .collect::<Vec<String>>()
-      .join("\n");
-    std::fs::write(def_file, format!("{cleaned_content}\n"))?;
-  }
-  Ok(())
 }

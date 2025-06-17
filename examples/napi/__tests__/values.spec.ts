@@ -30,10 +30,10 @@ import {
   roundtripStr,
   getNums,
   getWords,
-  sumNums,
   getTuple,
   getMapping,
   sumMapping,
+  sumNums,
   getBtreeMapping,
   sumBtreeMapping,
   getIndexMapping,
@@ -73,6 +73,7 @@ import {
   either3,
   either4,
   eitherPromiseInEitherA,
+  eitherF64OrU32,
   withoutAbortController,
   withAbortController,
   asyncMultiTwo,
@@ -82,6 +83,8 @@ import {
   bigintGetU64AsString,
   callThreadsafeFunction,
   threadsafeFunctionThrowError,
+  threadsafeFunctionThrowErrorWithStatus,
+  threadsafeFunctionBuildThrowErrorWithStatus,
   threadsafeFunctionClosureCapture,
   tsfnCallWithCallback,
   tsfnAsyncCall,
@@ -137,6 +140,7 @@ import {
   testSerdeRoundtrip,
   testSerdeBigNumberPrecision,
   testSerdeBufferBytes,
+  getBigintJsonValue,
   createObjWithProperty,
   receiveObjectOnlyFromJs,
   dateToNumber,
@@ -232,6 +236,13 @@ import {
   extendsJavascriptError,
   shutdownRuntime,
   callAsyncWithUnknownReturnValue,
+  shorterScope,
+  shorterEscapableScope,
+  tsfnThrowFromJsCallbackContainsTsfn,
+  MyJsNamedClass,
+  JSOnlyMethodsClass,
+  RustOnlyMethodsClass,
+  OriginalRustNameForJsNamedStruct,
 } from '../index.cjs'
 // import other stuff in `#[napi(module_exports)]`
 import nativeAddon from '../index.cjs'
@@ -463,6 +474,90 @@ test('class', (t) => {
             })(),
     )
   }
+})
+
+test('class with js_name', (t) => {
+  // Test class instantiation and basic functionality
+  const instance = new MyJsNamedClass('test_value')
+  t.is(instance.getValue(), 'test_value')
+  t.is(instance.multiplyValue(3), 'test_valuetest_valuetest_value')
+
+  // Test type alias compatibility - OriginalRustNameForJsNamedStruct should be assignable from MyJsNamedClass
+  const instanceForTypeCheck: OriginalRustNameForJsNamedStruct =
+    new MyJsNamedClass('type_test')
+  t.is(
+    instanceForTypeCheck.getValue(),
+    'type_test',
+    'Type alias OriginalRustNameForJsNamedStruct should be assignable from MyJsNamedClass',
+  )
+  t.is(
+    instanceForTypeCheck.multiplyValue(2),
+    'type_testtype_test',
+    'Methods should be callable via type alias',
+  )
+
+  // Test edge cases
+  const emptyInstance = new MyJsNamedClass('')
+  t.is(emptyInstance.getValue(), '', 'Should handle empty strings')
+  t.is(emptyInstance.multiplyValue(0), '', 'Should handle zero multiplication')
+
+  // Test with special characters
+  const specialInstance = new MyJsNamedClass('hello 🚀 world')
+  t.is(
+    specialInstance.getValue(),
+    'hello 🚀 world',
+    'Should handle unicode characters',
+  )
+  t.is(
+    specialInstance.multiplyValue(2),
+    'hello 🚀 worldhello 🚀 world',
+    'Should multiply unicode strings correctly',
+  )
+})
+
+test('struct with js_name and methods only (no constructor)', (t) => {
+  // Test that structs with js_name but no constructor still have their methods in type definitions
+  // This was a bug where methods would disappear if there was no constructor/factory method
+
+  // The fact that this test compiles successfully means the type definitions are correct
+  // We verify that:
+  // 1. JSOnlyMethodsClass is the exported class name (not RustOnlyMethodsClass)
+  // 2. RustOnlyMethodsClass is a type alias for JSOnlyMethodsClass
+  // 3. Both have the methods processData() and getLength()
+
+  // Test type compatibility - this will fail to compile if types are wrong
+  const testTypeCompatibility = (instance: JSOnlyMethodsClass) => {
+    // These assignments will cause TypeScript compilation errors if methods are missing
+    const processDataFn: () => string = instance.processData
+    const getLengthFn: () => number = instance.getLength
+    return { processDataFn, getLengthFn }
+  }
+
+  // Test type alias compatibility
+  const testAliasCompatibility = (instance: RustOnlyMethodsClass) => {
+    const processDataFn: () => string = instance.processData
+    const getLengthFn: () => number = instance.getLength
+    return { processDataFn, getLengthFn }
+  }
+
+  // Test that RustOnlyMethodsClass is assignable to JSOnlyMethodsClass
+  const mockInstance = { data: 'test' } as JSOnlyMethodsClass
+  const aliasInstance: RustOnlyMethodsClass = mockInstance
+
+  // If we get here, the types compiled successfully
+  t.pass(
+    'Type definitions are correct - js_name struct with methods only works properly',
+  )
+
+  // Verify we can call the test functions without compilation errors
+  t.notThrows(
+    () => testTypeCompatibility(mockInstance),
+    'JSOnlyMethodsClass methods should be accessible',
+  )
+  t.notThrows(
+    () => testAliasCompatibility(aliasInstance),
+    'RustOnlyMethodsClass alias methods should be accessible',
+  )
 })
 
 test('async self in class', async (t) => {
@@ -880,6 +975,14 @@ test('serde-buffer-bytes', (t) => {
   t.is(testSerdeBufferBytes({ code: new ArrayBuffer(0) }), 0n)
 })
 
+test('get bigint json value', (t) => {
+  t.notThrows(() => {
+    getBigintJsonValue(-1n)
+    getBigintJsonValue(1n)
+    getBigintJsonValue(18446744073709551620n)
+  })
+})
+
 test('buffer', (t) => {
   let buf = getBuffer()
   t.is(buf.toString('utf-8'), 'Hello world')
@@ -1058,6 +1161,8 @@ test('Uint8Array from String', async (t) => {
 test('either', (t) => {
   t.is(eitherStringOrNumber(2), 2)
   t.is(eitherStringOrNumber('hello'), 'hello'.length)
+  t.is(eitherF64OrU32(1), 1)
+  t.is(eitherF64OrU32(1.1), 1.1)
 })
 
 test('return either', (t) => {
@@ -1270,6 +1375,25 @@ Napi4Test('throw error from ThreadsafeFunction', async (t) => {
   t.is(err?.message, 'ThrowFromNative')
 })
 
+Napi4Test('throw error from ThreadsafeFunction with status', async (t) => {
+  const throwPromise = new Promise((_, reject) => {
+    threadsafeFunctionThrowErrorWithStatus(reject)
+  })
+  const err = await t.throwsAsync(throwPromise)
+  t.is((err as Error & { code?: string })?.code, 'CustomErrorStatus')
+})
+
+Napi4Test(
+  'throw error from ThreadsafeFunction with builder and status',
+  async (t) => {
+    const throwPromise = new Promise((_, reject) => {
+      threadsafeFunctionBuildThrowErrorWithStatus(reject)
+    })
+    const err = await t.throwsAsync(throwPromise)
+    t.is((err as Error & { code?: string })?.code, 'CustomErrorStatus')
+  },
+)
+
 Napi4Test('ThreadsafeFunction closure capture data', (t) => {
   return new Promise((resolve) => {
     const defaultValue = new Animal(Kind.Dog, '旺财')
@@ -1354,6 +1478,32 @@ test('Throw from ThreadsafeFunction JavaScript callback', async (t) => {
       }),
     {
       message: errMsg,
+    },
+  )
+
+  await t.throwsAsync(
+    async () => {
+      await tsfnThrowFromJs(() => {
+        const a = {}
+        // @ts-expect-error
+        a.c.d = 2
+        return Promise.resolve(1)
+      })
+      await tsfnThrowFromJsCallbackContainsTsfn(() => {
+        const a = {}
+        // @ts-expect-error
+        a.b.c = 1
+        tsfnThrowFromJs(() => {
+          // @ts-expect-error
+          a.c.d = 2
+          return Promise.resolve(1)
+        })
+        return Promise.resolve(1)
+      })
+    },
+    {
+      instanceOf: TypeError,
+      message: "Cannot set properties of undefined (setting 'd')",
     },
   )
 })
@@ -1511,6 +1661,8 @@ Napi5Test('Class with getter setter closures', (t) => {
   t.is(instance.name, `I'm Allie`)
   // @ts-expect-error
   t.is(instance.age, 0.3)
+  // @ts-expect-error
+  t.is(instance[instance.ageSymbol], 0.3)
 })
 
 Napi5Test('Date to chrono::NativeDateTime test', (t) => {
@@ -1659,4 +1811,25 @@ test('extends javascript error', (t) => {
 
 test('module exports', (t) => {
   t.is(nativeAddon.NAPI_RS_SYMBOL, Symbol.for('NAPI_RS_SYMBOL'))
+})
+
+test('shorter scope', (t) => {
+  const result = shorterScope(['hello', { foo: 'bar' }, 'world', true])
+  t.deepEqual(result, [5, 1, 5, 0])
+})
+
+test('escapable handle scope', (t) => {
+  function makeIterFunction() {
+    let i = 0
+    return () => {
+      if (i >= 10_000) {
+        return null
+      }
+      i++
+      return Math.random().toString().repeat(100)
+    }
+  }
+  t.notThrows(() => {
+    shorterEscapableScope(makeIterFunction())
+  })
 })

@@ -815,7 +815,7 @@ impl NapiStruct {
     let mut props = vec![];
 
     if class.ctor {
-      props.push(quote! { napi::bindgen_prelude::Property::new("constructor").unwrap().with_ctor(constructor) });
+      props.push(quote! { napi::bindgen_prelude::Property::new().with_utf8_name("constructor").unwrap().with_ctor(constructor) });
     }
 
     for field in class.fields.iter() {
@@ -841,7 +841,7 @@ impl NapiStruct {
       }
 
       let mut prop = quote! {
-        napi::bindgen_prelude::Property::new(#js_name)
+        napi::bindgen_prelude::Property::new().with_utf8_name(#js_name)
           .unwrap()
           .with_property_attributes(napi::bindgen_prelude::PropertyAttributes::from_bits(#attribute).unwrap())
       };
@@ -1369,7 +1369,7 @@ impl NapiImpl {
 
       let prop = props.entry(&item.js_name).or_insert_with(|| {
         quote! {
-          napi::bindgen_prelude::Property::new(#js_name).unwrap().with_property_attributes(napi::bindgen_prelude::PropertyAttributes::from_bits(#attribute).unwrap())
+          napi::bindgen_prelude::Property::new().with_utf8_name(#js_name).unwrap().with_property_attributes(napi::bindgen_prelude::PropertyAttributes::from_bits(#attribute).unwrap())
         }
       });
 

@@ -3,6 +3,71 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.89](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.88...@napi-rs/cli@3.0.0-alpha.89) (2025-06-13)
+
+### Bug Fixes
+
+- **cli:** wasm url in binding files ([#2710](https://github.com/napi-rs/napi-rs/issues/2710)) ([e7af660](https://github.com/napi-rs/napi-rs/commit/e7af6608fc293eefe4eb2b8ff763348d52784ac7))
+
+# [3.0.0-alpha.88](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.87...@napi-rs/cli@3.0.0-alpha.88) (2025-06-08)
+
+### Bug Fixes
+
+- **napi-derive:** panic while creating type definition when Rust comment contains escape syntax ([#2701](https://github.com/napi-rs/napi-rs/issues/2701)) ([54935e3](https://github.com/napi-rs/napi-rs/commit/54935e34fa2672600e72ed19a854f0b5946e3d40))
+
+# [3.0.0-alpha.87](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.86...@napi-rs/cli@3.0.0-alpha.87) (2025-06-05)
+
+### Bug Fixes
+
+- **cli:** remove `require` in utils ([#2693](https://github.com/napi-rs/napi-rs/issues/2693)) ([21e5580](https://github.com/napi-rs/napi-rs/commit/21e5580f2846a099bf529bb0eaab798d46622d22))
+
+# [3.0.0-alpha.86](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.85...@napi-rs/cli@3.0.0-alpha.86) (2025-06-04)
+
+### Bug Fixes
+
+- **cli:** uses_default_features should also treat as enabled typeDef ([#2691](https://github.com/napi-rs/napi-rs/issues/2691)) ([fdbc070](https://github.com/napi-rs/napi-rs/commit/fdbc070d6a30ff581b0ea10565bae4ddfe45ab44))
+
+# [3.0.0-alpha.85](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.84...@napi-rs/cli@3.0.0-alpha.85) (2025-06-04)
+
+### Bug Fixes
+
+- revalidate shared libs if type def not found ([#2689](https://github.com/napi-rs/napi-rs/issues/2689)) ([5a17b88](https://github.com/napi-rs/napi-rs/commit/5a17b886368fcef18334174588ee2982d503d5c8))
+
+### Features
+
+- **cli:** detect type-def feature in cli ([#2690](https://github.com/napi-rs/napi-rs/issues/2690)) ([c9ff0ec](https://github.com/napi-rs/napi-rs/commit/c9ff0ec4646584d51631b12b5d7eb5e4712969ec))
+
+# [3.0.0-alpha.84](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.83...@napi-rs/cli@3.0.0-alpha.84) (2025-06-03)
+
+### Bug Fixes
+
+- **cli:** dtsHeader option merge orders ([a79f984](https://github.com/napi-rs/napi-rs/commit/a79f9846b64d1ecf511f1f31204c8fb2aa13d0d8))
+
+# [3.0.0-alpha.83](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.82...@napi-rs/cli@3.0.0-alpha.83) (2025-06-03)
+
+### Bug Fixes
+
+- **cli:** dtsHeader content ([da42542](https://github.com/napi-rs/napi-rs/commit/da42542f0af6f58e7302a5e5624faff574e3bb01))
+
+# [3.0.0-alpha.82](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.81...@napi-rs/cli@3.0.0-alpha.82) (2025-06-03)
+
+### Bug Fixes
+
+- type generation for shared libs ([#2684](https://github.com/napi-rs/napi-rs/issues/2684)) ([d874a46](https://github.com/napi-rs/napi-rs/commit/d874a4664748d3013c64d2f3f022c5cd6f8624a8))
+
+# [3.0.0-alpha.81](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.80...@napi-rs/cli@3.0.0-alpha.81) (2025-05-29)
+
+### Bug Fixes
+
+- **cli:** parse deps cargo metadata and find napi crates ([#2667](https://github.com/napi-rs/napi-rs/issues/2667)) ([28829d2](https://github.com/napi-rs/napi-rs/commit/28829d21021123a5914649ab122e0b13409e065a))
+- **deps:** update dependency @octokit/rest to v22 ([#2663](https://github.com/napi-rs/napi-rs/issues/2663)) ([bdc57ef](https://github.com/napi-rs/napi-rs/commit/bdc57ef391b2992ce9c5800d38f2bc7a60695949))
+
+# [3.0.0-alpha.80](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.79...@napi-rs/cli@3.0.0-alpha.80) (2025-05-20)
+
+### Bug Fixes
+
+- **cli:** do not create wasi binding in non-wasi packages ([#2654](https://github.com/napi-rs/napi-rs/issues/2654)) ([446a654](https://github.com/napi-rs/napi-rs/commit/446a65489cd6fa3aef953bf65beb4403e33735fd))
+
 # [3.0.0-alpha.79](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.78...@napi-rs/cli@3.0.0-alpha.79) (2025-05-16)
 
 ### Bug Fixes

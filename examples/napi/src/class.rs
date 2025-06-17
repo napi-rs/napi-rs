@@ -427,16 +427,26 @@ pub struct GetterSetterWithClosures {}
 #[napi]
 impl GetterSetterWithClosures {
   #[napi(constructor)]
-  pub fn new(mut this: This) -> Result<Self> {
+  pub fn new(env: &Env, mut this: This) -> Result<Self> {
+    let age_symbol = env.create_symbol(Some("age"))?;
+
     this.define_properties(&[
-      Property::new("name")?
+      Property::new()
+        .with_utf8_name("name")?
         .with_setter_closure(move |_env, mut this, value: String| {
           this.set_named_property("_name", format!("I'm {}", value))?;
           Ok(())
         })
         .with_getter_closure(|_env, this| this.get_named_property_unchecked::<Unknown>("_name")),
-      Property::new("age")?.with_getter_closure(|_env, _this| Ok(0.3)),
+      Property::new()
+        .with_utf8_name("age")?
+        .with_getter_closure(|_env, _this| Ok(0.3)),
+      Property::new()
+        .with_name(env, age_symbol)?
+        .with_getter_closure(|_env, _this| Ok(0.3)),
     ])?;
+
+    this.set_property(env.create_string("ageSymbol")?, age_symbol)?;
     Ok(Self {})
   }
 }
@@ -487,5 +497,47 @@ impl<'scope> ClassWithLifetime<'scope> {
   #[napi]
   pub fn get_name(&self) -> &str {
     self.inner.get_name()
+  }
+}
+
+#[napi(js_name = "MyJsNamedClass")]
+pub struct OriginalRustNameForJsNamedStruct {
+  value: String,
+}
+
+#[napi]
+impl OriginalRustNameForJsNamedStruct {
+  #[napi(constructor)]
+  pub fn new(value: String) -> Self {
+    OriginalRustNameForJsNamedStruct { value }
+  }
+
+  #[napi]
+  pub fn get_value(&self) -> String {
+    self.value.clone()
+  }
+
+  #[napi]
+  pub fn multiply_value(&self, times: u32) -> String {
+    self.value.repeat(times as usize)
+  }
+}
+
+// Test case for js_name struct with methods only (no constructor)
+#[napi(js_name = "JSOnlyMethodsClass")]
+pub struct RustOnlyMethodsClass {
+  pub data: String,
+}
+
+#[napi]
+impl RustOnlyMethodsClass {
+  #[napi]
+  pub fn process_data(&self) -> String {
+    format!("processed: {}", self.data)
+  }
+
+  #[napi]
+  pub fn get_length(&self) -> u32 {
+    self.data.len() as u32
   }
 }

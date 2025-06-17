@@ -728,8 +728,8 @@ mod napi9 {
   );
 }
 
-#[cfg(feature = "experimental")]
-mod experimental {
+#[cfg(feature = "napi10")]
+mod napi10 {
   use std::os::raw::{c_char, c_void};
 
   use super::super::types::*;
@@ -756,14 +756,6 @@ mod experimental {
         copied: *mut bool,
       ) -> napi_status;
 
-      fn node_api_create_buffer_from_arraybuffer(
-        env: napi_env,
-        arraybuffer: napi_value,
-        byte_offset: usize,
-        byte_length: usize,
-        result: *mut napi_value,
-      ) -> napi_status;
-
       fn node_api_create_property_key_utf16(
         env: napi_env,
         str_: *const u16,
@@ -784,6 +776,25 @@ mod experimental {
         length: isize,
         result: *mut napi_value,
       ) -> napi_status;
+    }
+  );
+}
+
+#[cfg(feature = "experimental")]
+mod experimental {
+  use std::os::raw::c_void;
+
+  use super::super::types::*;
+
+  generate!(
+    extern "C" {
+      fn node_api_create_buffer_from_arraybuffer(
+        env: napi_env,
+        arraybuffer: napi_value,
+        byte_offset: usize,
+        byte_length: usize,
+        result: *mut napi_value,
+      ) -> napi_status;
 
       fn node_api_post_finalizer(
         env: node_api_basic_env,
@@ -799,6 +810,8 @@ mod experimental {
 pub use experimental::*;
 
 pub use napi1::*;
+#[cfg(feature = "napi10")]
+pub use napi10::*;
 #[cfg(feature = "napi2")]
 pub use napi2::*;
 #[cfg(feature = "napi3")]
@@ -882,6 +895,8 @@ pub(super) unsafe fn load_all() -> Result<libloading::Library, libloading::Error
   napi8::load(&host)?;
   #[cfg(feature = "napi9")]
   napi9::load(&host)?;
+  #[cfg(feature = "napi10")]
+  napi10::load(&host)?;
   #[cfg(feature = "experimental")]
   experimental::load(&host)?;
   Ok(host)

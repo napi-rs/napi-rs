@@ -17,7 +17,7 @@ pub fn register_js(exports: &mut JsObject, env: &Env) -> Result<()> {
   let obj = env.define_class::<Unknown>(
     "A",
     constructor,
-    &[Property::new("call")?.with_method(call)],
+    &[Property::new().with_utf8_name("call")?.with_method(call)],
   )?;
 
   exports.set_named_property("A", obj)?;

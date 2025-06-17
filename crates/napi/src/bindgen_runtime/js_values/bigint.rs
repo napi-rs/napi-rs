@@ -169,15 +169,19 @@ pub(crate) unsafe fn u128_with_sign_to_napi_value(
   let mut raw_value = ptr::null_mut();
   if cfg!(target_endian = "little") {
     let words = &val as *const u128 as *const u64;
-    check_status!(unsafe {
-      sys::napi_create_bigint_words(env, sign_bit, 2, words, &mut raw_value)
-    })?;
+    check_status!(
+      unsafe { sys::napi_create_bigint_words(env, sign_bit, 2, words, &mut raw_value) },
+      "Failed to create BigInt from u128"
+    )?;
     return Ok(raw_value);
   }
 
   let arr: [u64; 2] = [val as _, (val >> 64) as _];
   let words = &arr as *const u64;
-  check_status!(unsafe { sys::napi_create_bigint_words(env, sign_bit, 2, words, &mut raw_value) })?;
+  check_status!(
+    unsafe { sys::napi_create_bigint_words(env, sign_bit, 2, words, &mut raw_value) },
+    "Failed to create BigInt from u128"
+  )?;
   Ok(raw_value)
 }
 
@@ -242,7 +246,10 @@ impl ToNapiValue for &mut i64n {
 impl ToNapiValue for u64 {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> crate::Result<sys::napi_value> {
     let mut raw_value = ptr::null_mut();
-    check_status!(unsafe { sys::napi_create_bigint_uint64(env, val, &mut raw_value) })?;
+    check_status!(
+      unsafe { sys::napi_create_bigint_uint64(env, val, &mut raw_value) },
+      "Failed to create BigInt from u64"
+    )?;
     Ok(raw_value)
   }
 }

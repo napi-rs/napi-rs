@@ -7,18 +7,10 @@ import {
   stat,
   readdir,
 } from 'node:fs'
-import { createRequire } from 'node:module'
 import { promisify } from 'node:util'
 
+import pkgJson from '../../package.json' with { type: 'json' }
 import { debug } from './log.js'
-
-const require = createRequire(import.meta.url)
-// NOTE:
-//   import pkgJson from '@napi-rs/cli/package.json' assert { type: 'json' }
-//   is experimental feature now, avoid using it.
-//   see: https://nodejs.org/api/esm.html#import-assertions
-// eslint-disable-next-line import/no-extraneous-dependencies
-const pkgJson = require('@napi-rs/cli/package.json')
 
 export const readFileAsync = promisify(readFile)
 export const writeFileAsync = promisify(writeFile)
@@ -33,6 +25,15 @@ export async function fileExists(path: string) {
     .then(() => true)
     .catch(() => false)
   return exists
+}
+
+export async function dirExistsAsync(path: string) {
+  try {
+    const stats = await statAsync(path)
+    return stats.isDirectory()
+  } catch {
+    return false
+  }
 }
 
 export function pick<O, K extends keyof O>(o: O, ...keys: K[]): Pick<O, K> {
@@ -51,7 +52,7 @@ export async function updatePackageJson(
     debug(`File not exists ${path}`)
     return
   }
-  const old = require(path)
+  const old = JSON.parse(await readFileAsync(path, 'utf8'))
   await writeFileAsync(path, JSON.stringify({ ...old, ...partial }, null, 2))
 }
 

@@ -365,11 +365,12 @@ if (!nativeBinding || process.env.NAPI_RS_FORCE_WASI) {
 
 if (!nativeBinding) {
   if (loadErrors.length > 0) {
-    // TODO Link to documentation with potential fixes
-    //  - The package owner could build/publish bindings for this arch
-    //  - The user may need to bundle the correct files
-    //  - The user may need to re-install node_modules to get new packages
-    throw new Error('Failed to load native binding', { cause: loadErrors })
+    throw new Error(
+      `Cannot find native binding. ` +
+        `npm has a bug related to optional dependencies (https://github.com/npm/cli/issues/4828). ` +
+        'Please try `npm i` again after removing both package-lock.json and node_modules directory.',
+      { cause: loadErrors }
+    )
   }
   throw new Error(`Failed to load native binding`)
 }
@@ -408,8 +409,12 @@ module.exports.Fib2 = nativeBinding.Fib2
 module.exports.Fib3 = nativeBinding.Fib3
 module.exports.GetterSetterWithClosures = nativeBinding.GetterSetterWithClosures
 module.exports.JsClassForEither = nativeBinding.JsClassForEither
+module.exports.JSOnlyMethodsClass = nativeBinding.JSOnlyMethodsClass
+module.exports.RustOnlyMethodsClass = nativeBinding.RustOnlyMethodsClass
 module.exports.JsRemote = nativeBinding.JsRemote
 module.exports.JsRepo = nativeBinding.JsRepo
+module.exports.MyJsNamedClass = nativeBinding.MyJsNamedClass
+module.exports.OriginalRustNameForJsNamedStruct = nativeBinding.OriginalRustNameForJsNamedStruct
 module.exports.NinjaTurtle = nativeBinding.NinjaTurtle
 module.exports.NotUseNullableClass = nativeBinding.NotUseNullableClass
 module.exports.NotWritableClass = nativeBinding.NotWritableClass
@@ -510,6 +515,7 @@ module.exports.either3 = nativeBinding.either3
 module.exports.either4 = nativeBinding.either4
 module.exports.eitherBoolOrFunction = nativeBinding.eitherBoolOrFunction
 module.exports.eitherBoolOrTuple = nativeBinding.eitherBoolOrTuple
+module.exports.eitherF64OrU32 = nativeBinding.eitherF64OrU32
 module.exports.eitherFromObjects = nativeBinding.eitherFromObjects
 module.exports.eitherFromOption = nativeBinding.eitherFromOption
 module.exports.eitherPromiseInEitherA = nativeBinding.eitherPromiseInEitherA
@@ -524,6 +530,7 @@ module.exports.f64ArrayToArray = nativeBinding.f64ArrayToArray
 module.exports.fibonacci = nativeBinding.fibonacci
 module.exports.fnReceivedAliased = nativeBinding.fnReceivedAliased
 module.exports.generateFunctionAndCallIt = nativeBinding.generateFunctionAndCallIt
+module.exports.getBigintJsonValue = nativeBinding.getBigintJsonValue
 module.exports.getBtreeMapping = nativeBinding.getBtreeMapping
 module.exports.getBuffer = nativeBinding.getBuffer
 module.exports.getBufferSlice = nativeBinding.getBufferSlice
@@ -606,6 +613,8 @@ module.exports.roundtripStr = nativeBinding.roundtripStr
 module.exports.runScript = nativeBinding.runScript
 module.exports.setNullByteProperty = nativeBinding.setNullByteProperty
 module.exports.setSymbolInObj = nativeBinding.setSymbolInObj
+module.exports.shorterEscapableScope = nativeBinding.shorterEscapableScope
+module.exports.shorterScope = nativeBinding.shorterScope
 module.exports.shutdownRuntime = nativeBinding.shutdownRuntime
 module.exports.spawnThreadInThread = nativeBinding.spawnThreadInThread
 module.exports.Status = nativeBinding.Status
@@ -615,13 +624,16 @@ module.exports.sumBtreeMapping = nativeBinding.sumBtreeMapping
 module.exports.sumIndexMapping = nativeBinding.sumIndexMapping
 module.exports.sumMapping = nativeBinding.sumMapping
 module.exports.sumNums = nativeBinding.sumNums
+module.exports.testEscapedQuotesInComments = nativeBinding.testEscapedQuotesInComments
 module.exports.testSerdeBigNumberPrecision = nativeBinding.testSerdeBigNumberPrecision
 module.exports.testSerdeBufferBytes = nativeBinding.testSerdeBufferBytes
 module.exports.testSerdeRoundtrip = nativeBinding.testSerdeRoundtrip
+module.exports.threadsafeFunctionBuildThrowErrorWithStatus = nativeBinding.threadsafeFunctionBuildThrowErrorWithStatus
 module.exports.threadsafeFunctionClosureCapture = nativeBinding.threadsafeFunctionClosureCapture
 module.exports.threadsafeFunctionFatalMode = nativeBinding.threadsafeFunctionFatalMode
 module.exports.threadsafeFunctionFatalModeError = nativeBinding.threadsafeFunctionFatalModeError
 module.exports.threadsafeFunctionThrowError = nativeBinding.threadsafeFunctionThrowError
+module.exports.threadsafeFunctionThrowErrorWithStatus = nativeBinding.threadsafeFunctionThrowErrorWithStatus
 module.exports.throwAsyncError = nativeBinding.throwAsyncError
 module.exports.throwError = nativeBinding.throwError
 module.exports.throwSyntaxError = nativeBinding.throwSyntaxError
@@ -632,6 +644,7 @@ module.exports.tsfnInEither = nativeBinding.tsfnInEither
 module.exports.tsfnReturnPromise = nativeBinding.tsfnReturnPromise
 module.exports.tsfnReturnPromiseTimeout = nativeBinding.tsfnReturnPromiseTimeout
 module.exports.tsfnThrowFromJs = nativeBinding.tsfnThrowFromJs
+module.exports.tsfnThrowFromJsCallbackContainsTsfn = nativeBinding.tsfnThrowFromJsCallbackContainsTsfn
 module.exports.tsRename = nativeBinding.tsRename
 module.exports.u16ArrayToArray = nativeBinding.u16ArrayToArray
 module.exports.u32ArrayToArray = nativeBinding.u32ArrayToArray

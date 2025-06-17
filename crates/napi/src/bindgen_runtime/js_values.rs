@@ -4,7 +4,7 @@ use std::{
   sync::{Arc, Mutex},
 };
 
-use crate::{check_status, sys, Error, JsValue, Result, Status, ValueType};
+use crate::{check_status, sys, Env, Error, JsValue, Result, Status, Value, ValueType};
 
 mod array;
 mod arraybuffer;
@@ -25,6 +25,7 @@ mod object;
 #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
 mod promise;
 mod promise_raw;
+mod scope;
 #[cfg(feature = "serde-json")]
 mod serde;
 mod set;
@@ -52,6 +53,7 @@ pub use object::*;
 #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
 pub use promise::*;
 pub use promise_raw::*;
+pub use scope::*;
 #[cfg(feature = "web_stream")]
 pub use stream::*;
 pub use string::*;
@@ -65,11 +67,23 @@ pub trait TypeName {
   fn value_type() -> ValueType;
 }
 
-pub trait ToNapiValue {
+pub trait ToNapiValue: Sized {
   /// # Safety
   ///
   /// this function called to convert rust values to napi values
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value>;
+
+  fn into_unknown(self, env: &Env) -> Result<Unknown> {
+    let napi_val = unsafe { Self::to_napi_value(env.0, self)? };
+    Ok(Unknown(
+      Value {
+        env: env.0,
+        value: napi_val,
+        value_type: ValueType::Unknown,
+      },
+      std::marker::PhantomData,
+    ))
+  }
 }
 
 impl ToNapiValue for sys::napi_value {
