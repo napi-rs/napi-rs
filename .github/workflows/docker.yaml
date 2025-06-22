@@ -103,6 +103,50 @@ jobs:
           push: true
           tags: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-aarch64
           context: .
+  
+  build-debian-ppc64le-image:
+    name: Build debian image
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ secrets.GH_CONTAINER_UNAME }}
+          password: ${{ secrets.GH_TOKEN }}
+
+      - name: Install latest libc++-dev for cross build
+        uses: addnab/docker-run-action@v3
+        with:
+          image: node:lts-slim
+          options: '--platform linux/ppc64le --user 0:0 -e GITHUB_TOKEN -v ${{ github.workspace }}/lib/llvm-18:/usr/lib/llvm-18'
+          run: >-
+            apt-get update &&
+            apt-get install -y wget gnupg2 &&
+            wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add - &&
+            echo "deb http://apt.llvm.org/focal/ llvm-toolchain-focal-18 main" >> /etc/apt/sources.list &&
+            echo "deb-src http://apt.llvm.org/focal/ llvm-toolchain-focal-18 main" >> /etc/apt/sources.list &&
+            apt-get update &&
+            apt-get install libc++-18-dev libc++abi-18-dev -y --fix-missing --no-install-recommends &&
+            rm /usr/lib/llvm-18/lib/libc++abi.so
+
+      - name: Build and push debian ppc64le cross
+        uses: docker/build-push-action@v6
+        with:
+          file: debian-ppc64le.Dockerfile
+          platforms: linux/ppc64le
+          push: true
+          tags: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-ppc64le
+          context: .
 
   build-zig-image:
     name: Build zig image
