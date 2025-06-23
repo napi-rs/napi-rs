@@ -52,6 +52,15 @@ test('create a new project with default options', async (t) => {
   t.is(pkgJson.napi.binaryName, 'default-project')
   t.is(pkgJson.license, 'MIT')
   t.truthy(pkgJson.engines.node)
+  t.falsy(existsSync(join(projectPath, 'default-project.wasi-browser.js')))
+  const gitAttributes = await readFile(
+    join(projectPath, '.gitattributes'),
+    'utf-8',
+  )
+  t.truthy(gitAttributes.includes('default-project.wasi-browser.js'))
+  t.truthy(gitAttributes.includes('default-project.wasi.cjs'))
+  t.truthy(gitAttributes.includes('wasi-worker-browser.mjs'))
+  t.truthy(gitAttributes.includes('wasi-worker.mjs'))
 })
 
 test('create a new project with custom name', async (t) => {
@@ -117,6 +126,7 @@ test('create a new project with custom path, name, and targets', async (t) => {
     'x86_64-unknown-linux-gnu',
     'x86_64-apple-darwin',
     'aarch64-apple-darwin',
+    'wasm32-wasip1-threads',
   ]
 
   await newProject({
@@ -147,6 +157,7 @@ test('create a new project with custom path, name, and targets', async (t) => {
   t.true(ciYaml.includes('x86_64-apple-darwin'))
   t.true(ciYaml.includes('aarch64-apple-darwin'))
   t.false(ciYaml.includes('x86_64-pc-windows-msvc'))
+  t.true(ciYaml.includes('wasm32-wasip1-threads'))
 })
 
 test('should fail when no path is provided', async (t) => {
