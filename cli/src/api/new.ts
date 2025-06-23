@@ -61,10 +61,10 @@ async function downloadTemplate(
     debug(`Template cache found at ${templatePath}, updating...`)
     try {
       // Fetch latest changes and reset to remote
-      execSync('git fetch origin', { cwd: templatePath, stdio: 'inherit' })
+      execSync('git fetch origin', { cwd: templatePath, stdio: 'ignore' })
       execSync('git reset --hard origin/main', {
         cwd: templatePath,
-        stdio: 'inherit',
+        stdio: 'ignore',
       })
       debug('Template updated successfully')
     } catch (error) {
@@ -82,7 +82,11 @@ async function downloadTemplate(
   }
 }
 
-async function copyDirectory(src: string, dest: string): Promise<void> {
+async function copyDirectory(
+  src: string,
+  dest: string,
+  includeWasiBindings: boolean,
+): Promise<void> {
   await mkdirAsync(dest, { recursive: true })
   const entries = await fs.readdir(src, { withFileTypes: true })
 
@@ -96,8 +100,18 @@ async function copyDirectory(src: string, dest: string): Promise<void> {
     }
 
     if (entry.isDirectory()) {
-      await copyDirectory(srcPath, destPath)
+      await copyDirectory(srcPath, destPath, includeWasiBindings)
     } else {
+      if (
+        !includeWasiBindings &&
+        (entry.name.endsWith('.wasi-browser.js') ||
+          entry.name.endsWith('.wasi.cjs') ||
+          entry.name.endsWith('wasi-worker.browser.mjs ') ||
+          entry.name.endsWith('wasi-worker.mjs') ||
+          entry.name.endsWith('browser.js'))
+      ) {
+        continue
+      }
       await fs.copyFile(srcPath, destPath)
     }
   }
@@ -268,7 +282,11 @@ export async function newProject(userOptions: RawNewOptions) {
 
       // Copy template files to target directory
       const templatePath = path.join(cacheDir, 'repo')
-      await copyDirectory(templatePath, options.path)
+      await copyDirectory(
+        templatePath,
+        options.path,
+        options.targets.includes('wasm32-wasip1-threads'),
+      )
 
       // Rename project using the rename API
       await renameProject({
