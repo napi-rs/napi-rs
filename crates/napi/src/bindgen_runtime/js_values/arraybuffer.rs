@@ -402,14 +402,15 @@ macro_rules! impl_typed_array {
           );
           return;
         }
-        if !self.data.is_null() {
-          let length = self.length;
-          unsafe { Vec::from_raw_parts(self.data, length, length) };
-          return;
-        }
+        // If the `finalizer_notify` is not null, it means the data is external, and we call the finalizer instead of the `Vec::from_raw_parts`
         if !self.finalizer_notify().is_null() {
           let finalizer = unsafe { Box::from_raw(self.finalizer_notify) };
           (finalizer)(self.data, self.length);
+          return;
+        }
+        if !self.data.is_null() {
+          let length = self.length;
+          unsafe { Vec::from_raw_parts(self.data, length, length) };
         }
       }
     }
