@@ -1,6 +1,7 @@
 import { resolve } from 'node:path'
 
 import { isNil, merge, omitBy, pick } from 'lodash-es'
+import { parse as parseToml, stringify as stringifyToml } from '@std/toml'
 
 import { applyDefaultRenameOptions, RenameOptions } from '../def/rename.js'
 import { readFileAsync, writeFileAsync } from '../utils/index.js'
@@ -44,12 +45,24 @@ export async function renameProject(userOptions: RenameOptions) {
     JSON.stringify(packageJsonData, null, 2),
   )
 
-  let tomlContent = await readFileAsync(cargoTomlPath, 'utf8')
-  tomlContent = tomlContent.replace(
-    /name\s?=\s?"([\w+])"/,
-    `name = "${options.binaryName}"`,
-  )
-  await writeFileAsync(cargoTomlPath, tomlContent)
+  const tomlContent = await readFileAsync(cargoTomlPath, 'utf8')
+  const cargoToml = parseToml(tomlContent) as any
+
+  // Update the package name
+  if (cargoToml.package && options.binaryName) {
+    // Sanitize the binary name for Rust package naming conventions
+    const sanitizedName = options.binaryName
+      .replace('@', '')
+      .replace('/', '_')
+      .replace(/-/g, '_')
+      .toLowerCase()
+    cargoToml.package.name = sanitizedName
+  }
+
+  // Stringify the updated TOML
+  const updatedTomlContent = stringifyToml(cargoToml)
+
+  await writeFileAsync(cargoTomlPath, updatedTomlContent)
 
   await createNpmDirs({
     cwd: options.cwd,

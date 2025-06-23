@@ -6,7 +6,7 @@ import { DEFAULT_TARGETS, parseTriple, Target } from './target.js'
 
 export type ValueOfConstArray<T> = T[Exclude<keyof T, keyof Array<any>>]
 
-export const SupportedPackageManagers = ['yarn'] as const
+export const SupportedPackageManagers = ['yarn', 'pnpm'] as const
 export const SupportedTestFrameworks = ['ava'] as const
 
 export type SupportedPackageManager = ValueOfConstArray<

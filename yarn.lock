@@ -689,6 +689,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@jsr/std__collections@npm:^1.1.1":
+  version: 1.1.1
+  resolution: "@jsr/std__collections@npm:1.1.1::__archiveUrl=https%3A%2F%2Fnpm.jsr.io%2F~%2F11%2F%40jsr%2Fstd__collections%2F1.1.1.tgz"
+  checksum: 10c0/dec0fd164b726a46a1a80126b347204b25cd7e2841d8933a4d16403f46507dd8dfc9469b89c6b020ce036b93bd97f58bf75bcea8d4706621cb66e081aa94bf61
+  languageName: node
+  linkType: hard
+
 "@lerna/create@npm:8.2.2":
   version: 8.2.2
   resolution: "@lerna/create@npm:8.2.2"
@@ -795,6 +802,7 @@ __metadata:
     "@napi-rs/wasm-tools": "npm:^0.0.3"
     "@octokit/rest": "npm:^22.0.0"
     "@oxc-node/core": "npm:^0.0.29"
+    "@std/toml": "npm:@jsr/std__toml@^1.0.8"
     "@types/debug": "npm:^4.1.12"
     "@types/inquirer": "npm:^9.0.7"
     "@types/js-yaml": "npm:^4.0.9"
@@ -812,7 +820,6 @@ __metadata:
     lodash-es: "npm:^4.17.21"
     prettier: "npm:^3.5.3"
     semver: "npm:^7.7.1"
-    toml: "npm:^3.0.0"
     tslib: "npm:^2.8.1"
     typanion: "npm:^3.14.0"
     typescript: "npm:^5.8.2"
@@ -2697,6 +2704,15 @@ __metadata:
     lodash.get: "npm:^4.4.2"
     type-detect: "npm:^4.1.0"
   checksum: 10c0/31d74c415040161f2963a202d7f866bedbb5a9b522a74b08a17086c15a75c3ef2893eecebb0c65a7b1603ef4ebdf83fa73cbe384b4cd679944918ed833200443
+  languageName: node
+  linkType: hard
+
+"@std/toml@npm:@jsr/std__toml@^1.0.8":
+  version: 1.0.8
+  resolution: "@jsr/std__toml@npm:1.0.8::__archiveUrl=https%3A%2F%2Fnpm.jsr.io%2F~%2F11%2F%40jsr%2Fstd__toml%2F1.0.8.tgz"
+  dependencies:
+    "@jsr/std__collections": "npm:^1.1.1"
+  checksum: 10c0/8488cce72fc70519168388c8040e789441104ee8619954be8584cf274826a88edae6f355f4e57c613016358dfc8949c96f196c39953963f3f306ee97331a9d05
   languageName: node
   linkType: hard
 
@@ -11741,13 +11757,6 @@ __metadata:
   dependencies:
     is-number: "npm:^7.0.0"
   checksum: 10c0/487988b0a19c654ff3e1961b87f471702e708fa8a8dd02a298ef16da7206692e8552a0250e8b3e8759270f62e9d8314616f6da274734d3b558b1fc7b7724e892
-  languageName: node
-  linkType: hard
-
-"toml@npm:^3.0.0":
-  version: 3.0.0
-  resolution: "toml@npm:3.0.0"
-  checksum: 10c0/8d7ed3e700ca602e5419fca343e1c595eb7aa177745141f0761a5b20874b58ee5c878cd045c408da9d130cb2b611c639912210ba96ce2f78e443569aa8060c18
   languageName: node
   linkType: hard
 
