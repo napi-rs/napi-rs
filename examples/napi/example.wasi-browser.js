@@ -365,3 +365,4 @@ export const withoutAbortController = __napiModule.exports.withoutAbortControlle
 export const xxh64Alias = __napiModule.exports.xxh64Alias
 export const xxh2 = __napiModule.exports.xxh2
 export const xxh3 = __napiModule.exports.xxh3
+export const ComplexClass = __napiModule.exports.ComplexClass

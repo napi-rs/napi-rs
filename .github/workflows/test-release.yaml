@@ -91,7 +91,7 @@ jobs:
               yarn test:cli
               yarn test
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
-              yarn test:macro
+              RUSTFLAGS="-C link-args=-Wl,-undefined,dynamic_lookup,-no_fixup_chains" yarn test:macro
             toolchain: stable
           - host: windows-latest
             target: x86_64-pc-windows-msvc
