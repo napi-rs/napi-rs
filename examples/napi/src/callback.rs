@@ -75,7 +75,7 @@ fn callback_return_promise<'env>(
 pub fn callback_return_promise_and_spawn<F: Fn(String) -> Result<Promise<String>>>(
   env: &Env,
   js_func: F,
-) -> napi::Result<PromiseRaw<String>> {
+) -> napi::Result<PromiseRaw<'_, String>> {
   let promise = js_func("Hello".to_owned())?;
   env.spawn_future(async move {
     let resolved = promise.await?;

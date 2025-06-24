@@ -35,8 +35,8 @@ pub enum Status {
 
 impl Display for Status {
   fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-    let status_string = format!("{:?}", self);
-    write!(f, "{}", status_string)
+    let status_string = format!("{self:?}");
+    write!(f, "{status_string}")
   }
 }
 

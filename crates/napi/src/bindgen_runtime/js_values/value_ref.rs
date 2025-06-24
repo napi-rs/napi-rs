@@ -100,7 +100,7 @@ impl<T: 'static> Reference<T> {
     } else {
       Err(Error::new(
         Status::InvalidArg,
-        format!("Class for Type {:?} not found", t),
+        format!("Class for Type {t:?} not found"),
       ))
     }
   }

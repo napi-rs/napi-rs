@@ -1,7 +1,7 @@
 use napi::bindgen_prelude::*;
 
 #[napi]
-pub fn run_script(env: &Env, script: String) -> Result<Unknown> {
+pub fn run_script(env: &Env, script: String) -> Result<Unknown<'_>> {
   env.run_script(script)
 }
 

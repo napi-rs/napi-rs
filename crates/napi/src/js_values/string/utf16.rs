@@ -11,7 +11,7 @@ pub struct JsStringUtf16<'env> {
 impl<'env> JsStringUtf16<'env> {
   pub fn as_str(&self) -> Result<String> {
     if let Some((_, prefix)) = self.as_slice().split_last() {
-      String::from_utf16(prefix).map_err(|e| Error::new(Status::InvalidArg, format!("{}", e)))
+      String::from_utf16(prefix).map_err(|e| Error::new(Status::InvalidArg, format!("{e}")))
     } else {
       Ok(String::new())
     }

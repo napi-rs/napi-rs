@@ -78,7 +78,7 @@ impl<'x> serde::de::Deserializer<'x> for &mut De<'_> {
       }
       ValueType::External | ValueType::Function | ValueType::Symbol => Err(Error::new(
         Status::InvalidArg,
-        format!("typeof {:?} value could not be deserialized", js_value_type),
+        format!("typeof {js_value_type:?} value could not be deserialized"),
       )),
       ValueType::Unknown => unreachable!(),
     }
@@ -168,10 +168,7 @@ impl<'x> serde::de::Deserializer<'x> for &mut De<'_> {
         if property_len != 1 {
           Err(Error::new(
             Status::InvalidArg,
-            format!(
-              "object key length: {}, can not deserialize to Enum",
-              property_len
-            ),
+            format!("object key length: {property_len}, can not deserialize to Enum"),
           ))
         } else {
           let key = properties.get_element::<String>(0)?;
@@ -181,10 +178,7 @@ impl<'x> serde::de::Deserializer<'x> for &mut De<'_> {
       }
       _ => Err(Error::new(
         Status::InvalidArg,
-        format!(
-          "{:?} type could not deserialize to Enum type",
-          js_value_type
-        ),
+        format!("{js_value_type:?} type could not deserialize to Enum type"),
       )),
     }
   }

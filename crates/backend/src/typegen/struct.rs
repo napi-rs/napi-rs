@@ -46,7 +46,7 @@ impl ToTypeDef for NapiImpl {
           if resolved_type == "undefined" {
             "void".to_owned()
           } else if is_optional {
-            format!("{} | null", resolved_type)
+            format!("{resolved_type} | null")
           } else {
             resolved_type
           },
@@ -149,7 +149,7 @@ impl NapiStruct {
           .filter_map(|f| self.gen_field(f).map(|(field, _)| field))
           .collect::<Vec<_>>()
           .join(", ");
-        format!("[{}]", def)
+        format!("[{def}]")
       }
       NapiStructKind::Class(class) => {
         let mut ctor_args = vec![];
@@ -195,7 +195,7 @@ impl NapiStruct {
           )
           .collect::<Vec<_>>()
           .join(", ");
-          format!("  | {{ {} }} ", def)
+          format!("  | {{ {def} }} ")
         })
         .collect::<Vec<_>>()
         .join("\\n"),

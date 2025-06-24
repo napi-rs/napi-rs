@@ -91,7 +91,7 @@ impl<T: FromNapiValue> future::Future for Promise<T> {
     match self.value.as_mut().poll(cx) {
       Poll::Pending => Poll::Pending,
       Poll::Ready(v) => Poll::Ready(
-        v.map_err(|e| Error::new(Status::GenericFailure, format!("{}", e)))
+        v.map_err(|e| Error::new(Status::GenericFailure, format!("{e}")))
           .and_then(identity),
       ),
     }

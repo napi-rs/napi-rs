@@ -651,7 +651,7 @@ impl<
 
     receiver
       .await
-      .map_err(|err| crate::Error::new(Status::GenericFailure, format!("{}", err)))
+      .map_err(|err| crate::Error::new(Status::GenericFailure, format!("{err}")))
   }
 }
 

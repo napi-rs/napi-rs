@@ -73,7 +73,7 @@ impl<'env> CallContext<'env> {
     }
   }
 
-  pub fn get_all(&self) -> Vec<crate::Unknown> {
+  pub fn get_all(&self) -> Vec<crate::Unknown<'_>> {
     /* (0 .. self.arg_len()).map(|i| self.get(i).unwrap()).collect() */
     self
       .args

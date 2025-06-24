@@ -847,7 +847,7 @@ fn napi_fn_from_decl(
 
       let key = namespace
         .as_ref()
-        .map(|n| format!("{}::{}", n, p))
+        .map(|n| format!("{n}::{p}"))
         .unwrap_or_else(|| p.to_string());
       *generator_struct.get(&key).unwrap_or(&false)
     } else {
@@ -1158,7 +1158,7 @@ fn convert_fields(
       None => (
         field_opts
           .js_name()
-          .map_or_else(|| format!("field{}", i), |(js_name, _)| js_name.to_owned()),
+          .map_or_else(|| format!("field{i}"), |(js_name, _)| js_name.to_owned()),
         syn::Member::Unnamed(i.into()),
       ),
     };
@@ -1238,7 +1238,7 @@ impl ConvertToAST for syn::ItemStruct {
       .expect("Lock generator struct failed");
     let key = namespace
       .as_ref()
-      .map(|n| format!("{}::{}", n, rust_struct_ident))
+      .map(|n| format!("{n}::{rust_struct_ident}"))
       .unwrap_or_else(|| rust_struct_ident.to_string());
     generator_struct.insert(key, implement_iterator);
     drop(generator_struct);

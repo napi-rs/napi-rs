@@ -46,7 +46,7 @@ pub fn js_doc_from_comments(comments: &[String]) -> String {
     "/**\n{} */\n",
     comments
       .iter()
-      .map(|c| format!(" *{}\n", c))
+      .map(|c| format!(" *{c}\n"))
       .collect::<Vec<String>>()
       .join("")
   )
@@ -71,7 +71,7 @@ fn escape_json(src: &str) -> String {
       c => {
         let encoded = c.encode_utf16(&mut utf16_buf);
         for utf16 in encoded {
-          write!(escaped, "\\u{:04X}", utf16).unwrap();
+          write!(escaped, "\\u{utf16:04X}").unwrap();
         }
       }
     }
@@ -83,12 +83,12 @@ fn escape_json(src: &str) -> String {
 impl Display for TypeDef {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
     let js_mod = if let Some(js_mod) = &self.js_mod {
-      format!(", \"js_mod\": \"{}\"", js_mod)
+      format!(", \"js_mod\": \"{js_mod}\"")
     } else {
       "".to_string()
     };
     let original_name = if let Some(original_name) = &self.original_name {
-      format!(", \"original_name\": \"{}\"", original_name)
+      format!(", \"original_name\": \"{original_name}\"")
     } else {
       "".to_string()
     };
@@ -294,13 +294,13 @@ pub fn ty_to_ts_type(
           .map(|(i, arg)| {
             let (ts_type, is_optional) = ty_to_ts_type(arg, false, false, false);
             r#fn::FnArg {
-              arg: format!("arg{}", i),
+              arg: format!("arg{i}"),
               ts_type,
               is_optional,
             }
           })
           .collect::<r#fn::FnArgList>();
-        (format!("{}", variadic), false)
+        (format!("{variadic}"), false)
       } else {
         (
           format!(
@@ -348,7 +348,7 @@ pub fn ty_to_ts_type(
                 ))
                 .map(|(mut ty, is_optional)| {
                   if is_ts_union_type && is_ts_function_type_notation(generic_ty) {
-                    ty = format!("({})", ty);
+                    ty = format!("({ty})");
                   }
                   (ty, is_optional)
                 })
@@ -379,9 +379,9 @@ pub fn ty_to_ts_type(
               if is_struct_field {
                 arg.to_string()
               } else if is_return_ty {
-                format!("{} | null", arg)
+                format!("{arg} | null")
               } else {
-                format!("{} | undefined | null", arg)
+                format!("{arg} | undefined | null")
               },
               true,
             )
@@ -390,7 +390,7 @@ pub fn ty_to_ts_type(
           r#struct::TASK_STRUCTS.with(|t| {
             let (output_type, _) = args.first().unwrap().to_owned();
             if let Some(o) = t.borrow().get(&output_type) {
-              Some((format!("Promise<{}>", o), false))
+              Some((format!("Promise<{o}>"), false))
             } else {
               Some(("Promise<unknown>".to_owned(), false))
             }
@@ -502,7 +502,7 @@ pub fn ty_to_ts_type(
               ty = alias.split_once('<').map(|(t, _)| t.to_string()).unwrap();
             }
 
-            Some((format!("{}<{}>", ty, arg_str), false))
+            Some((format!("{ty}<{arg_str}>"), false))
           } else {
             type_alias.or(Some((rust_ty, false)))
           }
@@ -514,7 +514,7 @@ pub fn ty_to_ts_type(
       let (ty, is_optional) = ts_ty.unwrap_or_else(|| ("any".to_owned(), false));
       (
         if convert_tuple_to_variadic && !is_return_ty && !is_passthrough_type {
-          format!("arg: {}", ty)
+          format!("arg: {ty}")
         } else {
           ty
         },
@@ -525,7 +525,7 @@ pub fn ty_to_ts_type(
     Type::Array(a) => {
       let (element_type, is_optional) =
         ty_to_ts_type(&a.elem, is_return_ty, is_struct_field, false);
-      (format!("{}[]", element_type), is_optional)
+      (format!("{element_type}[]"), is_optional)
     }
     Type::Paren(p) => {
       let (element_type, is_optional) =

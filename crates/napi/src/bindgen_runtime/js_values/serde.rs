@@ -181,7 +181,7 @@ impl ToNapiValue for &Number {
       if n > u32::MAX as u64 {
         #[cfg(feature = "napi6")]
         {
-          return unsafe { BigInt::to_napi_value(env, BigInt::from(n)) };
+          unsafe { BigInt::to_napi_value(env, BigInt::from(n)) }
         }
 
         #[cfg(not(feature = "napi6"))]

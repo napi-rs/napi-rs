@@ -39,7 +39,7 @@ pub fn accept_stream(
 }
 
 #[napi]
-pub fn create_readable_stream(env: &Env) -> Result<ReadableStream<BufferSlice>> {
+pub fn create_readable_stream(env: &Env) -> Result<ReadableStream<'_, BufferSlice<'_>>> {
   let (tx, rx) = tokio::sync::mpsc::channel(100);
   std::thread::spawn(move || {
     for _ in 0..100 {

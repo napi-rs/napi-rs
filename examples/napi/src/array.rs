@@ -25,7 +25,7 @@ fn get_tuple(val: (u32, String, u8)) -> u32 {
 }
 
 #[napi]
-fn to_js_obj(env: &Env) -> napi::Result<Object> {
+fn to_js_obj(env: &Env) -> napi::Result<Object<'_>> {
   let mut arr = env.create_array(0)?;
   arr.insert("a string")?;
   arr.insert(42)?;

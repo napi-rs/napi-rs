@@ -116,7 +116,7 @@ impl de::Error for Error {
 #[cfg(feature = "serde-json")]
 impl From<SerdeJSONError> for Error {
   fn from(value: SerdeJSONError) -> Self {
-    Error::new(Status::InvalidArg, format!("{}", value))
+    Error::new(Status::InvalidArg, format!("{value}"))
   }
 }
 
@@ -221,7 +221,7 @@ impl From<std::ffi::NulError> for Error {
   fn from(error: std::ffi::NulError) -> Self {
     Error {
       status: Status::GenericFailure,
-      reason: format!("{}", error),
+      reason: format!("{error}"),
       maybe_raw: ptr::null_mut(),
       maybe_env: ptr::null_mut(),
     }
@@ -232,7 +232,7 @@ impl From<std::io::Error> for Error {
   fn from(error: std::io::Error) -> Self {
     Error {
       status: Status::GenericFailure,
-      reason: format!("{}", error),
+      reason: format!("{error}"),
       maybe_raw: ptr::null_mut(),
       maybe_env: ptr::null_mut(),
     }
@@ -255,7 +255,7 @@ impl TryFrom<sys::napi_extended_error_info> for ExtendedErrorInfo {
       message: unsafe {
         CString::from_raw(value.error_message as *mut c_char)
           .into_string()
-          .map_err(|e| Error::new(Status::GenericFailure, format!("{}", e)))?
+          .map_err(|e| Error::new(Status::GenericFailure, format!("{e}")))?
       },
       engine_error_code: value.engine_error_code,
       engine_reserved: value.engine_reserved,
