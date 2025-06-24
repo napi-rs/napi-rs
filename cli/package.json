@@ -70,12 +70,14 @@
     "@inquirer/prompts": "^7.4.0",
     "@napi-rs/cross-toolchain": "^0.0.19",
     "@napi-rs/wasm-tools": "^0.0.3",
+    "@octokit/rest": "^22.0.0",
     "clipanion": "^4.0.0-rc.4",
     "colorette": "^2.0.20",
     "debug": "^4.4.0",
     "emnapi": "^1.4.0",
     "find-up": "^7.0.0",
     "js-yaml": "^4.1.0",
+    "lodash-es": "^4.17.21",
     "semver": "^7.7.1",
     "typanion": "^3.14.0",
     "wasm-sjlj": "^1.0.6"
@@ -83,7 +85,6 @@
   "devDependencies": {
     "@emnapi/core": "^1.4.0",
     "@emnapi/runtime": "^1.4.0",
-    "@octokit/rest": "^22.0.0",
     "@oxc-node/core": "^0.0.29",
     "@std/toml": "npm:@jsr/std__toml@^1.0.8",
     "@types/debug": "^4.1.12",
@@ -94,9 +95,8 @@
     "@types/semver": "^7.7.0",
     "ava": "^6.2.0",
     "env-paths": "^3.0.0",
-    "esbuild": "^0.25.2",
-    "lodash-es": "^4.17.21",
     "prettier": "^3.5.3",
+    "rolldown": "^1.0.0-beta.19",
     "tslib": "^2.8.1",
     "typescript": "^5.8.2"
   },
@@ -117,17 +117,19 @@
     "url": "https://github.com/sponsors/Brooooooklyn"
   },
   "scripts": {
+    "clean": "node --import @oxc-node/core/register ./clean.ts",
     "codegen": "node --import @oxc-node/core/register ./codegen/index.ts",
-    "build": "tsc && yarn build:cjs",
-    "build:cjs": "node ./esbuild.mjs",
+    "build": "tsc && yarn clean && rolldown -c rolldown.config.js",
     "test": "node --import @oxc-node/core/register ../node_modules/ava/entrypoints/cli.mjs"
   },
   "ava": {
     "extensions": {
       "ts": "module"
     },
+    "timeout": "1m",
     "files": [
-      "**/__tests__/**/*.spec.ts"
+      "**/__tests__/**/*.spec.ts",
+      "e2e/**/*.spec.ts"
     ]
   }
 }
