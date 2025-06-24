@@ -244,6 +244,11 @@ import {
   RustOnlyMethodsClass,
   OriginalRustNameForJsNamedStruct,
   ComplexClass,
+  createUint8ClampedArrayFromData,
+  arrayBufferFromData,
+  uint8ArrayFromData,
+  createUint8ClampedArrayFromExternal,
+  uint8ArrayFromExternal,
 } from '../index.cjs'
 // import other stuff in `#[napi(module_exports)]`
 import nativeAddon from '../index.cjs'
@@ -1068,6 +1073,23 @@ test('convert typedarray to vec', (t) => {
 
 test('create external TypedArray', (t) => {
   t.deepEqual(createExternalTypedArray(), new Uint32Array([1, 2, 3, 4, 5]))
+})
+
+test('typed array creation', (t) => {
+  t.deepEqual(
+    createUint8ClampedArrayFromData(),
+    new Uint8ClampedArray(Buffer.from('Hello world')),
+  )
+  t.deepEqual(
+    createUint8ClampedArrayFromExternal(),
+    new Uint8ClampedArray(Buffer.from('Hello world')),
+  )
+  t.deepEqual(Buffer.from(arrayBufferFromData()), Buffer.from('Hello world'))
+  t.deepEqual(uint8ArrayFromData(), new Uint8Array(Buffer.from('Hello world')))
+  t.deepEqual(
+    uint8ArrayFromExternal(),
+    new Uint8Array(Buffer.from('Hello world')),
+  )
 })
 
 test('mutate TypedArray', (t) => {

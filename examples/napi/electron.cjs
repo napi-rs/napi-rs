@@ -50,6 +50,13 @@ async function main() {
   const {
     readFileAsync,
     callThreadsafeFunction,
+    getBufferSlice,
+    createExternalBufferSlice,
+    createUint8ClampedArrayFromData,
+    createUint8ClampedArrayFromExternal,
+    uint8ArrayFromData,
+    uint8ArrayFromExternal,
+    arrayBufferFromData,
     createExternalTypedArray,
     createReadableStream,
   } = require('./index.cjs')
@@ -85,6 +92,14 @@ async function main() {
     chunks.push(chunk)
   }
   assert(Buffer.concat(chunks).toString('utf-8') === 'hello'.repeat(100))
+
+  assert(getBufferSlice().toString('utf8'), 'Hello world')
+  assert(createExternalBufferSlice().toString('utf8'), 'Hello world')
+  assert(Buffer.from(createUint8ClampedArrayFromData()).toString('utf8'), 'Hello world')
+  assert(Buffer.from(createUint8ClampedArrayFromExternal()).toString('utf8'), 'Hello world')
+  assert(Buffer.from(arrayBufferFromData()).toString('utf8'), 'Hello world')
+  assert(Buffer.from(uint8ArrayFromData()).toString('utf8'), 'Hello world')
+  assert(Buffer.from(uint8ArrayFromExternal()).toString('utf8'), 'Hello world')
 }
 
 Promise.all([main(), createWindowAndReload()])

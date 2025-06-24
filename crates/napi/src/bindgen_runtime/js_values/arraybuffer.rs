@@ -170,13 +170,12 @@ impl<'env> ArrayBuffer<'env> {
       )
     };
     if status == napi_sys::Status::napi_no_external_buffers_allowed {
-      let mut inner_data = unsafe { Vec::from_raw_parts(inner_ptr, data.len(), data.len()) };
       let mut underlying_data = ptr::null_mut();
       status =
         unsafe { sys::napi_create_arraybuffer(env.0, data.len(), &mut underlying_data, &mut buf) };
-      unsafe {
-        std::ptr::copy_nonoverlapping(inner_data.as_mut_ptr().cast(), underlying_data, data.len())
-      };
+      let underlying_slice: &mut [u8] =
+        unsafe { std::slice::from_raw_parts_mut(underlying_data.cast(), data.len()) };
+      underlying_slice.copy_from_slice(data.as_slice());
       inner_ptr = underlying_data.cast();
     } else {
       mem::forget(data);
@@ -829,7 +828,6 @@ macro_rules! impl_from_slice {
           )
         };
         if status == napi_sys::Status::napi_no_external_buffers_allowed {
-          let mut inner_data = unsafe { Vec::from_raw_parts(inner_ptr, data.len(), data.len()) };
           let mut underlying_data = ptr::null_mut();
           status = unsafe {
             sys::napi_create_arraybuffer(
@@ -839,7 +837,9 @@ macro_rules! impl_from_slice {
               &mut buf,
             )
           };
-          unsafe { std::ptr::copy_nonoverlapping(inner_data.as_mut_ptr().cast(), underlying_data, data.len()) };
+          let underlying_slice: &mut [u8] =
+            unsafe { std::slice::from_raw_parts_mut(underlying_data.cast(), data.len()) };
+          underlying_slice.copy_from_slice(data.as_slice());
           inner_ptr = underlying_data.cast();
         } else {
           mem::forget(data);
@@ -938,7 +938,9 @@ macro_rules! impl_from_slice {
               &mut arraybuffer_value,
             )
           };
-          unsafe { std::ptr::copy_nonoverlapping(data.cast(), underlying_data, len) };
+          let underlying_slice: &mut [u8] =
+            unsafe { std::slice::from_raw_parts_mut(underlying_data.cast(), len) };
+          underlying_slice.copy_from_slice(unsafe { std::slice::from_raw_parts(data, len) });
           finalize(*env, hint);
           status
         } else {
@@ -1511,7 +1513,7 @@ impl<'env> Uint8ClampedSlice<'env> {
   /// Create a new `Uint8ClampedSlice` from Vec<u8>
   pub fn from_data<D: Into<Vec<u8>>>(env: &Env, data: D) -> Result<Self> {
     let mut buf = ptr::null_mut();
-    let mut data = data.into();
+    let mut data: Vec<u8> = data.into();
     let mut inner_ptr = data.as_mut_ptr();
     #[cfg(all(debug_assertions, not(windows)))]
     {
@@ -1535,13 +1537,11 @@ impl<'env> Uint8ClampedSlice<'env> {
       )
     };
     if status == napi_sys::Status::napi_no_external_buffers_allowed {
-      let mut inner_data = unsafe { Vec::from_raw_parts(inner_ptr, data.len(), data.len()) };
       let mut underlying_data = ptr::null_mut();
-      status =
-        unsafe { sys::napi_create_arraybuffer(env.0, data.len(), &mut underlying_data, &mut buf) };
-      unsafe {
-        std::ptr::copy_nonoverlapping(inner_data.as_mut_ptr().cast(), underlying_data, data.len())
-      };
+      status = unsafe { sys::napi_create_arraybuffer(env.0, len, &mut underlying_data, &mut buf) };
+      let underlying_slice: &mut [u8] =
+        unsafe { std::slice::from_raw_parts_mut(underlying_data.cast(), len) };
+      underlying_slice.copy_from_slice(data.as_slice());
       inner_ptr = underlying_data.cast();
     } else {
       mem::forget(data);
@@ -1635,7 +1635,9 @@ impl<'env> Uint8ClampedSlice<'env> {
       let status = unsafe {
         sys::napi_create_arraybuffer(env.0, len, &mut underlying_data, &mut arraybuffer_value)
       };
-      unsafe { std::ptr::copy_nonoverlapping(data.cast(), underlying_data, len) };
+      let underlying_slice: &mut [u8] =
+        unsafe { std::slice::from_raw_parts_mut(underlying_data.cast(), len) };
+      underlying_slice.copy_from_slice(unsafe { std::slice::from_raw_parts(data, len) });
       finalize(*env, hint);
       status
     } else {
