@@ -1,12 +1,14 @@
-import { resolve, join } from 'node:path'
+import { existsSync } from 'node:fs'
 import { rename } from 'node:fs/promises'
+import { resolve, join } from 'node:path'
 
-import { isNil, merge, omitBy, pick } from 'lodash-es'
 import { parse as parseToml, stringify as stringifyToml } from '@std/toml'
+import { load as yamlParse, dump as yamlStringify } from 'js-yaml'
+import { isNil, merge, omitBy, pick } from 'lodash-es'
+import { findUp } from 'find-up'
 
 import { applyDefaultRenameOptions, RenameOptions } from '../def/rename.js'
 import { readConfig, readFileAsync, writeFileAsync } from '../utils/index.js'
-import { existsSync } from 'node:fs'
 
 export async function renameProject(userOptions: RenameOptions) {
   const options = applyDefaultRenameOptions(userOptions)
@@ -66,6 +68,35 @@ export async function renameProject(userOptions: RenameOptions) {
 
   await writeFileAsync(cargoTomlPath, updatedTomlContent)
   if (oldName !== options.binaryName) {
+    const githubActionsPath = await findUp('.github', {
+      cwd: options.cwd,
+      type: 'directory',
+    })
+    if (githubActionsPath) {
+      const githubActionsCIYmlPath = join(
+        githubActionsPath,
+        'workflows',
+        'CI.yml',
+      )
+      if (existsSync(githubActionsCIYmlPath)) {
+        const githubActionsContent = await readFileAsync(
+          githubActionsCIYmlPath,
+          'utf8',
+        )
+        const githubActionsData = yamlParse(githubActionsContent) as any
+        if (githubActionsData.env?.APP_NAME) {
+          githubActionsData.env.APP_NAME = options.binaryName
+          await writeFileAsync(
+            githubActionsCIYmlPath,
+            yamlStringify(githubActionsData, {
+              lineWidth: -1,
+              noRefs: true,
+              sortKeys: false,
+            }),
+          )
+        }
+      }
+    }
     const oldWasiBrowserBindingPath = join(
       options.cwd,
       `${oldName}.wasi-browser.js`,
