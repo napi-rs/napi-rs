@@ -536,6 +536,9 @@ export declare function esmResolve(next: () => Promise<undefined>): Promise<unde
 
 export declare function extendsJavascriptError(errorClass: any): void
 
+export type ExternalLinterLoadPluginCb =
+  ((arg: string) => PluginLoadResult)
+
 export declare function f32ArrayToArray(input: Float32Array): Array<number>
 
 export declare function f64ArrayToArray(input: Float64Array): Array<number>
@@ -733,6 +736,11 @@ export interface Pet {
   name: string
   kind: number
   eitherTsfn: string | ((err: Error | null, arg: number) => number)
+}
+
+export interface PluginLoadResult {
+  name: string
+  version: string
 }
 
 export declare function plusOne(this: Width): number
