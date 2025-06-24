@@ -1012,6 +1012,17 @@ export declare namespace xxh3 {
   export function xxh128(input: Buffer): bigint
   export function xxh3_64(input: Buffer): bigint
 }
+export declare class ComplexClass {
+  value: string
+  number: number
+  constructor(value: string | ComplexClass, number: number)
+  methodOne(): string
+  methodTwo(): number
+  methodThree(): string
+  methodFour(): boolean
+  methodFive(): string
+}
+
 export interface Shared {
   value: number
 }

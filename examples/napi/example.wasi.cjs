@@ -389,3 +389,4 @@ module.exports.withoutAbortController = __napiModule.exports.withoutAbortControl
 module.exports.xxh64Alias = __napiModule.exports.xxh64Alias
 module.exports.xxh2 = __napiModule.exports.xxh2
 module.exports.xxh3 = __napiModule.exports.xxh3
+module.exports.ComplexClass = __napiModule.exports.ComplexClass

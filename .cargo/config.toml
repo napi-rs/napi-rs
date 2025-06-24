@@ -3,4 +3,9 @@
 # https://github.com/rust-lang/rust/issues/134820
 # pthread_key_create() destructors and segfault after a DSO unloading
 [target.'cfg(any(all(target_env = "gnu", not(target_os = "windows")), target_os = "freebsd"))']
-rustflags = ["-C", "link-args=-Wl,-z,nodelete"]
+rustflags = [
+  "-C",
+  "link-args=-Wl,--warn-unresolved-symbols",
+  "-C",
+  "link-args=-Wl,-z,nodelete",
+]

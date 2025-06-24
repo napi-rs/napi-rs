@@ -243,6 +243,7 @@ import {
   JSOnlyMethodsClass,
   RustOnlyMethodsClass,
   OriginalRustNameForJsNamedStruct,
+  ComplexClass,
 } from '../index.cjs'
 // import other stuff in `#[napi(module_exports)]`
 import nativeAddon from '../index.cjs'
@@ -1839,5 +1840,47 @@ test('escapable handle scope', (t) => {
   }
   t.notThrows(() => {
     shorterEscapableScope(makeIterFunction())
+  })
+})
+
+test('complex class with multiple methods - issue #2722', (t) => {
+  // Test creating instance of re-exported class with constructor (Either<String, ClassInstance<ComplexClass>>)
+  t.notThrows(() => {
+    const complex = new ComplexClass('test_value', 42)
+
+    // Test that constructor worked
+    t.is(complex.value, 'test_value')
+    t.is(complex.number, 42)
+
+    // Test all methods work
+    t.is(complex.methodOne(), 'method_one: test_value')
+    t.is(complex.methodTwo(), 84)
+    t.is(complex.methodThree(), 'method_three: test_value - 42')
+    t.is(complex.methodFour(), true)
+    t.is(complex.methodFive(), 'TEST_VALUE')
+  })
+
+  // Test with Either::B variant (ClassInstance instead of string)
+  t.notThrows(() => {
+    const original = new ComplexClass('original', 100)
+    const complex2 = new ComplexClass(original, -10)
+    t.is(complex2.value, 'cloned:original') // Should clone the value
+    t.is(complex2.methodFour(), false)
+  })
+
+  // Test that we can create multiple instances (stress test with Either)
+  t.notThrows(() => {
+    const baseInstance = new ComplexClass('base', 999)
+    for (let i = 0; i < 10; i++) {
+      // Alternate between string and ClassInstance for Either parameter
+      const instance =
+        i % 2 === 0
+          ? new ComplexClass(`test${i}`, i)
+          : new ComplexClass(baseInstance, i)
+
+      const expectedValue = i % 2 === 0 ? `test${i}` : 'cloned:base'
+      t.is(instance.value, expectedValue)
+      t.is(instance.number, i)
+    }
   })
 })
