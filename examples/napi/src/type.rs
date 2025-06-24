@@ -41,3 +41,7 @@ pub struct PluginLoadResult {
 #[napi]
 pub type ExternalLinterLoadPluginCb =
   Arc<ThreadsafeFunction<String, PluginLoadResult, String, Status, false>>;
+
+#[napi]
+pub type ExternalLinterLoadPluginCb2 =
+  Arc<ThreadsafeFunction<(String), PluginLoadResult, (String), Status, false>>;

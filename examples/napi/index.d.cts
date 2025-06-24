@@ -545,6 +545,9 @@ export declare function extendsJavascriptError(errorClass: any): void
 export type ExternalLinterLoadPluginCb =
   ((arg: string) => PluginLoadResult)
 
+export type ExternalLinterLoadPluginCb2 =
+  ((string) => PluginLoadResult)
+
 export declare function f32ArrayToArray(input: Float32Array): Array<number>
 
 export declare function f64ArrayToArray(input: Float64Array): Array<number>
