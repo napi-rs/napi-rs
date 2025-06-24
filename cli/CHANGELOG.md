@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.91](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.90...@napi-rs/cli@3.0.0-alpha.91) (2025-06-24)
+
+### Bug Fixes
+
+- **cli:** build config ([#2735](https://github.com/napi-rs/napi-rs/issues/2735)) ([6c2b0b5](https://github.com/napi-rs/napi-rs/commit/6c2b0b54decf3dbf5125e4778d7c2540d13af89f))
+
 # [3.0.0-alpha.90](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.89...@napi-rs/cli@3.0.0-alpha.90) (2025-06-24)
 
 ### Bug Fixes
