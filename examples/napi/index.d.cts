@@ -546,7 +546,7 @@ export type ExternalLinterLoadPluginCb =
   ((arg: string) => PluginLoadResult)
 
 export type ExternalLinterLoadPluginCb2 =
-  ((string) => PluginLoadResult)
+  ((arg: string) => PluginLoadResult)
 
 export declare function f32ArrayToArray(input: Float32Array): Array<number>
 

@@ -43,5 +43,6 @@ pub type ExternalLinterLoadPluginCb =
   Arc<ThreadsafeFunction<String, PluginLoadResult, String, Status, false>>;
 
 #[napi]
+#[allow(unused_parens)]
 pub type ExternalLinterLoadPluginCb2 =
   Arc<ThreadsafeFunction<(String), PluginLoadResult, (String), Status, false>>;
