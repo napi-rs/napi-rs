@@ -1469,6 +1469,14 @@ Napi4Test('async call ThreadsafeFunction', async (t) => {
   )
 })
 
+// https://github.com/napi-rs/napi-rs/issues/2727
+test('provide undefined to tsfn', async (t) => {
+  // @ts-expect-error
+  t.throws(() => tsfnAsyncCall(), {
+    code: 'InvalidArg',
+  })
+})
+
 test('Throw from ThreadsafeFunction JavaScript callback', async (t) => {
   const errMsg = 'ThrowFromJavaScriptRawCallback'
   await t.throwsAsync(

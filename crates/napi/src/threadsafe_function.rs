@@ -102,17 +102,21 @@ impl Drop for ThreadsafeFunctionHandle {
   fn drop(&mut self) {
     self.with_read_aborted(|aborted| {
       if !aborted {
-        let release_status = unsafe {
-          sys::napi_release_threadsafe_function(
-            self.get_raw(),
-            sys::ThreadsafeFunctionReleaseMode::release,
-          )
-        };
-        assert!(
-          release_status == sys::Status::napi_ok,
-          "Threadsafe Function release failed {}",
-          Status::from(release_status)
-        );
+        let raw = self.get_raw();
+        // if ThreadsafeFunction::create failed, the raw will be null and we don't need to release it
+        if !raw.is_null() {
+          let release_status = unsafe {
+            sys::napi_release_threadsafe_function(
+              self.get_raw(),
+              sys::ThreadsafeFunctionReleaseMode::release,
+            )
+          };
+          assert!(
+            release_status == sys::Status::napi_ok,
+            "Threadsafe Function release failed {}",
+            Status::from(release_status)
+          );
+        }
       }
     })
   }
