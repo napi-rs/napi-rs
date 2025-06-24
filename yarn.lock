@@ -82,7 +82,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@emnapi/runtime@npm:^1.1.0, @emnapi/runtime@npm:^1.4.0, @emnapi/runtime@npm:^1.4.3":
+"@emnapi/runtime@npm:^1.1.0, @emnapi/runtime@npm:^1.4.3":
   version: 1.4.3
   resolution: "@emnapi/runtime@npm:1.4.3"
   dependencies:
@@ -795,8 +795,6 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@napi-rs/cli@workspace:cli"
   dependencies:
-    "@emnapi/core": "npm:^1.4.0"
-    "@emnapi/runtime": "npm:^1.4.0"
     "@inquirer/prompts": "npm:^7.4.0"
     "@napi-rs/cross-toolchain": "npm:^0.0.19"
     "@napi-rs/wasm-tools": "npm:^0.0.3"
@@ -814,14 +812,12 @@ __metadata:
     colorette: "npm:^2.0.20"
     debug: "npm:^4.4.0"
     emnapi: "npm:^1.4.0"
-    env-paths: "npm:^3.0.0"
     esbuild: "npm:^0.25.2"
     find-up: "npm:^7.0.0"
     js-yaml: "npm:^4.1.0"
     lodash-es: "npm:^4.17.21"
     prettier: "npm:^3.5.3"
     semver: "npm:^7.7.1"
-    tslib: "npm:^2.8.1"
     typanion: "npm:^3.14.0"
     typescript: "npm:^5.8.2"
     wasm-sjlj: "npm:^1.0.6"
@@ -5682,13 +5678,6 @@ __metadata:
   version: 2.2.1
   resolution: "env-paths@npm:2.2.1"
   checksum: 10c0/285325677bf00e30845e330eec32894f5105529db97496ee3f598478e50f008c5352a41a30e5e72ec9de8a542b5a570b85699cd63bd2bc646dbcb9f311d83bc4
-  languageName: node
-  linkType: hard
-
-"env-paths@npm:^3.0.0":
-  version: 3.0.0
-  resolution: "env-paths@npm:3.0.0"
-  checksum: 10c0/76dec878cee47f841103bacd7fae03283af16f0702dad65102ef0a556f310b98a377885e0f32943831eb08b5ab37842a323d02529f3dfd5d0a40ca71b01b435f
   languageName: node
   linkType: hard
 
