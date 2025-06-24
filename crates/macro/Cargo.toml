@@ -8,7 +8,7 @@ name = "napi-derive"
 readme = "README.md"
 repository = "https://github.com/napi-rs/napi-rs"
 rust-version = "1.80"
-version = "3.0.0-beta.8"
+version = "3.0.0-beta.9"
 
 [package.metadata.workspaces]
 independent = true
@@ -24,7 +24,7 @@ type-def = ["napi-derive-backend/type-def", "ctor"]
 [dependencies]
 convert_case = "0.8"
 ctor = { version = "0.4", optional = true }
-napi-derive-backend = { version = "2.0.0-beta.8", path = "../backend" }
+napi-derive-backend = { version = "2.0.0-beta.9", path = "../backend" }
 proc-macro2 = "1"
 quote = "1"
 syn = { version = "2", features = ["fold", "full", "extra-traits"] }
