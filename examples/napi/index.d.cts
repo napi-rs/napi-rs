@@ -318,6 +318,8 @@ export declare function apply0(ctx: Animal, callback: () => void): void
 
 export declare function apply1(ctx: Animal, callback: (arg: string) => void, name: string): void
 
+export declare function arrayBufferFromData(): ArrayBuffer
+
 export declare function arrayBufferPassThrough(buf: Uint8Array): Promise<Uint8Array>
 
 export declare function asyncBufferToArray(buf: ArrayBuffer): Array<number>
@@ -459,6 +461,10 @@ export declare function createReferenceOnFunction(cb: () => void): Promise<void>
 export declare function createSymbol(): symbol
 
 export declare function createSymbolFor(desc: string): symbol
+
+export declare function createUint8ClampedArrayFromData(): Uint8ClampedArray
+
+export declare function createUint8ClampedArrayFromExternal(): Uint8ClampedArray
 
 /** You could break the step and for an new continuous value. */
 export declare const enum CustomNumEnum {
@@ -924,6 +930,10 @@ export declare function u64ArrayToArray(input: BigUint64Array): Array<bigint>
 export declare function u8ArrayToArray(input: Uint8Array): Array<number>
 
 export declare function uInit8ArrayFromString(): Promise<Uint8Array>
+
+export declare function uint8ArrayFromData(): Uint8ArraySlice
+
+export declare function uint8ArrayFromExternal(): Uint8ArraySlice
 
 export interface UseNullableStruct {
   requiredNumberField: number

@@ -237,3 +237,44 @@ impl Reader {
     output.into_buffer_slice(env)
   }
 }
+
+#[napi]
+pub fn create_uint8_clamped_array_from_data(env: &Env) -> Result<Uint8ClampedSlice> {
+  Uint8ClampedSlice::from_data(env, b"Hello world")
+}
+
+#[napi]
+pub fn create_uint8_clamped_array_from_external(env: &Env) -> Result<Uint8ClampedSlice> {
+  let mut data = b"Hello world".to_vec();
+  let data_ptr = data.as_mut_ptr();
+  let len = data.len();
+  std::mem::forget(data);
+  unsafe {
+    Uint8ClampedSlice::from_external(env, data_ptr, len, data_ptr, move |_, ptr| {
+      std::mem::drop(Vec::from_raw_parts(ptr, len, len));
+    })
+  }
+}
+
+#[napi]
+pub fn array_buffer_from_data(env: &Env) -> Result<ArrayBuffer> {
+  ArrayBuffer::from_data(env, b"Hello world")
+}
+
+#[napi]
+pub fn uint8_array_from_data(env: &Env) -> Result<Uint8ArraySlice> {
+  Uint8ArraySlice::from_data(env, b"Hello world")
+}
+
+#[napi]
+pub fn uint8_array_from_external(env: &Env) -> Result<Uint8ArraySlice> {
+  let mut data = b"Hello world".to_vec();
+  let data_ptr = data.as_mut_ptr();
+  let len = data.len();
+  std::mem::forget(data);
+  unsafe {
+    Uint8ArraySlice::from_external(env, data_ptr, len, data_ptr, move |_, ptr| {
+      std::mem::drop(Vec::from_raw_parts(ptr, len, len));
+    })
+  }
+}
