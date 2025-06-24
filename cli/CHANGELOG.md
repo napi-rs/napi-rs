@@ -3,6 +3,17 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.90](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.89...@napi-rs/cli@3.0.0-alpha.90) (2025-06-24)
+
+### Bug Fixes
+
+- **cli:** handle CI.yaml targets omit ([#2730](https://github.com/napi-rs/napi-rs/issues/2730)) ([0d1a4c4](https://github.com/napi-rs/napi-rs/commit/0d1a4c4a94435093d5ad880af7dc26b8f27a415f))
+- **cli:** handle the wasi names in new command ([#2725](https://github.com/napi-rs/napi-rs/issues/2725)) ([1481031](https://github.com/napi-rs/napi-rs/commit/1481031f37654ab2fd0cda6557d28c2bee0d4b53))
+
+### Features
+
+- **cli:** new project from github project template ([#2723](https://github.com/napi-rs/napi-rs/issues/2723)) ([de95466](https://github.com/napi-rs/napi-rs/commit/de954666e0213298da848ed16ae33f5ef4b6c030))
+
 # [3.0.0-alpha.89](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.88...@napi-rs/cli@3.0.0-alpha.89) (2025-06-13)
 
 ### Bug Fixes
