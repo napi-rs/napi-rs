@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import ava, { TestFn } from 'ava'
+import { load as yamlLoad } from 'js-yaml'
 
 import { newProject } from '../new.js'
 
@@ -61,6 +62,18 @@ test('create a new project with default options', async (t) => {
   t.truthy(gitAttributes.includes('default-project.wasi.cjs'))
   t.truthy(gitAttributes.includes('wasi-worker-browser.mjs'))
   t.truthy(gitAttributes.includes('wasi-worker.mjs'))
+  const ciYaml = await readFile(
+    join(projectPath, '.github', 'workflows', 'CI.yml'),
+    'utf-8',
+  )
+  const yamlObject = yamlLoad(ciYaml) as any
+  t.is(yamlObject.env.APP_NAME, 'default-project')
+  t.falsy(yamlObject.jobs.publish.needs.includes('wasm32-wasip1-threads'))
+  t.falsy(
+    yamlObject.jobs['test-linux-binding'].strategy.matrix.target.includes(
+      'aarch64-unknown-linux-musl',
+    ),
+  )
 })
 
 test('create a new project with custom name', async (t) => {
@@ -127,6 +140,7 @@ test('create a new project with custom path, name, and targets', async (t) => {
     'x86_64-apple-darwin',
     'aarch64-apple-darwin',
     'wasm32-wasip1-threads',
+    'x86_64-unknown-freebsd',
   ]
 
   await newProject({
@@ -153,11 +167,91 @@ test('create a new project with custom path, name, and targets', async (t) => {
     join(projectPath, '.github', 'workflows', 'CI.yml'),
     'utf-8',
   )
-  t.true(ciYaml.includes('x86_64-unknown-linux-gnu'))
-  t.true(ciYaml.includes('x86_64-apple-darwin'))
-  t.true(ciYaml.includes('aarch64-apple-darwin'))
-  t.false(ciYaml.includes('x86_64-pc-windows-msvc'))
-  t.true(ciYaml.includes('wasm32-wasip1-threads'))
+  const yamlObject = yamlLoad(ciYaml) as any
+  t.true(
+    yamlObject.jobs.build.strategy.matrix.settings.some(
+      (setting: any) => setting.target === 'x86_64-unknown-linux-gnu',
+    ),
+  )
+  t.true(
+    yamlObject.jobs.build.strategy.matrix.settings.some(
+      (setting: any) => setting.target === 'x86_64-apple-darwin',
+    ),
+  )
+  t.true(
+    yamlObject.jobs.build.strategy.matrix.settings.some(
+      (setting: any) => setting.target === 'aarch64-apple-darwin',
+    ),
+  )
+  t.false(
+    yamlObject.jobs.build.strategy.matrix.settings.some(
+      (setting: any) => setting.target === 'x86_64-pc-windows-msvc',
+    ),
+  )
+  t.true(
+    yamlObject.jobs.build.strategy.matrix.settings.some(
+      (setting: any) => setting.target === 'wasm32-wasip1-threads',
+    ),
+  )
+  t.truthy(yamlObject.jobs['build-freebsd'])
+  t.truthy(yamlObject.jobs['test-wasi'])
+  t.falsy(
+    yamlObject.jobs['test-macOS-windows-binding'].strategy.matrix.settings.some(
+      (setting: any) => setting.target === 'x86_64-pc-windows-msvc',
+    ),
+  )
+  t.truthy(
+    yamlObject.jobs['test-macOS-windows-binding'].strategy.matrix.settings.some(
+      (setting: any) => setting.target === 'aarch64-apple-darwin',
+    ),
+  )
+})
+
+test('non Windows and macOS targets should remove test-macOS-windows-binding job', async (t) => {
+  const projectPath = join(t.context.tmpDir, 'no-windows-macos')
+  const targets = [
+    'x86_64-unknown-linux-gnu',
+    'aarch64-unknown-linux-gnu',
+    'wasm32-wasip1-threads',
+    'x86_64-unknown-freebsd',
+  ]
+
+  await newProject({
+    path: projectPath,
+    targets,
+    enableDefaultTargets: false,
+  })
+
+  t.true(existsSync(projectPath))
+
+  const ciYaml = await readFile(
+    join(projectPath, '.github', 'workflows', 'CI.yml'),
+    'utf-8',
+  )
+  const yamlObject = yamlLoad(ciYaml) as any
+  t.falsy(yamlObject.jobs['test-macOS-windows-binding'])
+  t.falsy(yamlObject.jobs.publish.needs.includes('test-macOS-windows-binding'))
+})
+
+test('should remove test-linux-binding job if no Linux targets are enabled', async (t) => {
+  const projectPath = join(t.context.tmpDir, 'no-linux')
+  const targets = ['x86_64-apple-darwin', 'aarch64-apple-darwin']
+
+  await newProject({
+    path: projectPath,
+    targets,
+    enableDefaultTargets: false,
+  })
+
+  t.true(existsSync(projectPath))
+
+  const ciYaml = await readFile(
+    join(projectPath, '.github', 'workflows', 'CI.yml'),
+    'utf-8',
+  )
+  const yamlObject = yamlLoad(ciYaml) as any
+  t.falsy(yamlObject.jobs['test-linux-binding'])
+  t.falsy(yamlObject.jobs.publish.needs.includes('test-linux-binding'))
 })
 
 test('should fail when no path is provided', async (t) => {

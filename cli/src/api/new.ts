@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process'
+import { exec, execSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
@@ -33,9 +33,21 @@ const TEMPLATE_REPOS = {
   pnpm: 'https://github.com/napi-rs/package-template-pnpm',
 } as const
 
-function checkGitCommand(): boolean {
+async function checkGitCommand(): Promise<boolean> {
   try {
-    execSync('git --version', { stdio: 'ignore' })
+    await new Promise((resolve) => {
+      const cp = exec('git --version')
+      cp.on('error', () => {
+        resolve(false)
+      })
+      cp.on('exit', (code) => {
+        if (code === 0) {
+          resolve(true)
+        } else {
+          resolve(false)
+        }
+      })
+    })
     return true
   } catch {
     return false
@@ -61,7 +73,21 @@ async function downloadTemplate(
     debug(`Template cache found at ${templatePath}, updating...`)
     try {
       // Fetch latest changes and reset to remote
-      execSync('git fetch origin', { cwd: templatePath, stdio: 'ignore' })
+      await new Promise<void>((resolve, reject) => {
+        const cp = exec('git fetch origin', { cwd: templatePath })
+        cp.on('error', reject)
+        cp.on('exit', (code) => {
+          if (code === 0) {
+            resolve()
+          } else {
+            reject(
+              new Error(
+                `Failed to fetch latest changes, git process exited with code ${code}`,
+              ),
+            )
+          }
+        })
+      })
       execSync('git reset --hard origin/main', {
         cwd: templatePath,
         stdio: 'ignore',
@@ -141,6 +167,31 @@ async function filterTargetsInGithubActions(
   const content = await fs.readFile(filePath, 'utf-8')
   const yaml = yamlLoad(content) as any
 
+  const macOSAndWindowsTargets = new Set([
+    'x86_64-pc-windows-msvc',
+    'aarch64-pc-windows-msvc',
+    'x86_64-apple-darwin',
+  ])
+
+  const linuxTargets = new Set([
+    'x86_64-unknown-linux-gnu',
+    'x86_64-unknown-linux-musl',
+    'aarch64-unknown-linux-gnu',
+    'aarch64-unknown-linux-musl',
+    'armv7-unknown-linux-gnueabihf',
+    'armv7-unknown-linux-musleabihf',
+    'riscv64gc-unknown-linux-gnu',
+    'powerpc64le-unknown-linux-gnu',
+    's390x-unknown-linux-gnu',
+    'aarch64-linux-android',
+    'armv7-linux-androideabi',
+  ])
+
+  // Check if any Linux targets are enabled
+  const hasLinuxTargets = enabledTargets.some((target) =>
+    linuxTargets.has(target),
+  )
+
   // Filter the matrix configurations in the build job
   if (yaml?.jobs?.build?.strategy?.matrix?.settings) {
     yaml.jobs.build.strategy.matrix.settings =
@@ -152,34 +203,56 @@ async function filterTargetsInGithubActions(
       })
   }
 
-  // Filter the matrix configurations in the test-macOS-windows-binding job
-  if (yaml?.jobs?.['test-macOS-windows-binding']?.strategy?.matrix?.settings) {
-    yaml.jobs['test-macOS-windows-binding'].strategy.matrix.settings =
-      yaml.jobs['test-macOS-windows-binding'].strategy.matrix.settings.filter(
-        (setting: any) => {
-          if (setting.target) {
-            return enabledTargets.includes(setting.target)
-          }
-          return true
-        },
-      )
+  const jobsToRemove: string[] = []
+
+  if (enabledTargets.every((target) => !macOSAndWindowsTargets.has(target))) {
+    jobsToRemove.push('test-macOS-windows-binding')
+  } else {
+    // Filter the matrix configurations in the test-macOS-windows-binding job
+    if (
+      yaml?.jobs?.['test-macOS-windows-binding']?.strategy?.matrix?.settings
+    ) {
+      yaml.jobs['test-macOS-windows-binding'].strategy.matrix.settings =
+        yaml.jobs['test-macOS-windows-binding'].strategy.matrix.settings.filter(
+          (setting: any) => {
+            if (setting.target) {
+              return enabledTargets.includes(setting.target)
+            }
+            return true
+          },
+        )
+    }
   }
 
-  // Filter the matrix configurations in the test-linux-x64-gnu-binding job
-  if (yaml?.jobs?.['test-linux-x64-gnu-binding']?.strategy?.matrix?.settings) {
-    yaml.jobs['test-linux-x64-gnu-binding'].strategy.matrix.settings =
-      yaml.jobs['test-linux-x64-gnu-binding'].strategy.matrix.settings.filter(
-        (setting: any) => {
-          if (setting.target) {
-            return enabledTargets.includes(setting.target)
-          }
-          return true
-        },
-      )
+  // If no Linux targets are enabled, remove Linux-specific jobs
+  if (!hasLinuxTargets) {
+    // Remove test-linux-binding job
+    if (yaml?.jobs?.['test-linux-binding']) {
+      jobsToRemove.push('test-linux-binding')
+    }
+  } else {
+    // Filter the matrix configurations in the test-linux-x64-gnu-binding job
+    if (yaml?.jobs?.['test-linux-binding']?.strategy?.matrix?.target) {
+      yaml.jobs['test-linux-binding'].strategy.matrix.target = yaml.jobs[
+        'test-linux-binding'
+      ].strategy.matrix.target.filter((target: string) => {
+        if (target) {
+          return enabledTargets.includes(target)
+        }
+        return true
+      })
+    }
+  }
+
+  if (!enabledTargets.includes('wasm32-wasip1-threads')) {
+    jobsToRemove.push('test-wasi')
+  }
+
+  if (!enabledTargets.includes('x86_64-unknown-freebsd')) {
+    jobsToRemove.push('build-freebsd')
   }
 
   // Filter other test jobs based on target
-  const jobsToRemove: string[] = []
   for (const [jobName, jobConfig] of Object.entries(yaml.jobs || {})) {
     if (
       jobName.startsWith('test-') &&
@@ -200,6 +273,12 @@ async function filterTargetsInGithubActions(
   // Remove jobs for disabled targets
   for (const jobName of jobsToRemove) {
     delete yaml.jobs[jobName]
+  }
+
+  if (Array.isArray(yaml.jobs?.publish?.needs)) {
+    yaml.jobs.publish.needs = yaml.jobs.publish.needs.filter(
+      (need: string) => !jobsToRemove.includes(need),
+    )
   }
 
   // Write back the filtered YAML
@@ -263,7 +342,7 @@ export async function newProject(userOptions: RawNewOptions) {
   debug(options.targets)
 
   // Check if git is available
-  if (!checkGitCommand()) {
+  if (!(await checkGitCommand())) {
     throw new Error(
       'Git is not installed or not available in PATH. Please install Git to continue.',
     )
