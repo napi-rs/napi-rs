@@ -234,6 +234,15 @@ export async function readNapiConfig(
     }
   }
 
+  // find duplicate targets
+  const uniqueTargets = new Set(targets)
+  if (uniqueTargets.size !== targets.length) {
+    const duplicateTarget = targets.find(
+      (target, index) => targets.indexOf(target) !== index,
+    )
+    throw new Error(`Duplicate targets are not allowed: ${duplicateTarget}`)
+  }
+
   napiConfig.targets = targets.map(parseTriple)
 
   return napiConfig
