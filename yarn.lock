@@ -301,7 +301,7 @@ __metadata:
     ava: "npm:^6.2.0"
     buffer: "npm:^6.0.3"
     cross-env: "npm:7.0.3"
-    electron: "npm:^36.3.1"
+    electron: "npm:^37.0.0"
     lodash: "npm:^4.17.21"
     playwright: "npm:^1.51.1"
     rxjs: "npm:^7.8.2"
@@ -5673,16 +5673,16 @@ __metadata:
   languageName: node
   linkType: hard
 
-"electron@npm:^36.3.1":
-  version: 36.3.2
-  resolution: "electron@npm:36.3.2"
+"electron@npm:^37.0.0":
+  version: 37.0.0
+  resolution: "electron@npm:37.0.0"
   dependencies:
     "@electron/get": "npm:^2.0.0"
     "@types/node": "npm:^22.7.7"
     extract-zip: "npm:^2.0.1"
   bin:
     electron: cli.js
-  checksum: 10c0/e3146340f1668915c1fc8857c9876e2efd63df28e4022374942f5e84a6268b39a129faf115cb84509d0ff988535b90eda9b4e0ed70657f25ad0ba3f70c0f8f76
+  checksum: 10c0/e2770e75fd572eb0d422998d34ede47dafb8f900ee1565b98cf666b1564d95d971dcd424c27363ab3ec1bb5bbc52e14e5a90677420f11a9d6981749278791f34
   languageName: node
   linkType: hard
 
@@ -8924,7 +8924,7 @@ __metadata:
     bun-types: "npm:^1.2.8"
     c8: "npm:^10.1.3"
     cross-env: "npm:^7.0.3"
-    electron: "npm:^36.3.1"
+    electron: "npm:^37.0.0"
     esbuild: "npm:^0.25.2"
     husky: "npm:^9.1.7"
     lerna: "npm:^8.2.1"
