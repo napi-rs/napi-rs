@@ -249,6 +249,8 @@ import {
   uint8ArrayFromData,
   createUint8ClampedArrayFromExternal,
   uint8ArrayFromExternal,
+  Thing,
+  ThingList,
 } from '../index.cjs'
 // import other stuff in `#[napi(module_exports)]`
 import nativeAddon from '../index.cjs'
@@ -1905,4 +1907,10 @@ test('complex class with multiple methods - issue #2722', (t) => {
       t.is(instance.number, i)
     }
   })
+})
+
+test('instanceof for objects returned from getters - issue #2746', (t) => {
+  const list = new ThingList()
+  const thing = list.thing
+  t.true(thing instanceof Thing, 'thing should be an instance of Thing')
 })
