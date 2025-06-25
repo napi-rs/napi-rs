@@ -1,5 +1,7 @@
 import { exec, type ExecOptions } from 'node:child_process'
 import { join } from 'node:path'
+// use posix path to prevent `\` on Windows
+import { join as posixJoin } from 'node:path/posix'
 import { tmpdir } from 'node:os'
 import { existsSync } from 'node:fs'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
@@ -14,6 +16,14 @@ const test = ava as TestFn<{
 }>
 
 const rootDir = join(fileURLToPath(import.meta.url), '..', '..', '..')
+const rootDirPosix = posixJoin(
+  fileURLToPath(import.meta.url, {
+    windows: false,
+  }),
+  '..',
+  '..',
+  '..',
+)
 
 test.before(async () => {
   await execAsync(`yarn workspace @napi-rs/cli build`, {
@@ -130,10 +140,10 @@ edition = "2021"
 [lib]
 crate-type = ["cdylib"]
 [dependencies]
-napi = { path = "${join(rootDir, 'crates', 'napi')}" }
-napi-derive = { path = "${join(rootDir, 'crates', 'macro')}" }
+napi = { path = "${posixJoin(rootDirPosix, 'crates', 'napi').substring(process.platform === 'win32' ? 1 : 0)}" }
+napi-derive = { path = "${posixJoin(rootDirPosix, 'crates', 'macro').substring(process.platform === 'win32' ? 1 : 0)}" }
 [build-dependencies]
-napi-build = { path = "${join(rootDir, 'crates', 'build')}" }
+napi-build = { path = "${posixJoin(rootDirPosix, 'crates', 'build').substring(process.platform === 'win32' ? 1 : 0)}" }
 ${cargoToml}
 `,
   )
@@ -169,7 +179,7 @@ async function writePackageJson(
         version: '1.0.0',
         private: true,
         devDependencies: {
-          '@napi-rs/cli': `file:${join(rootDir, 'cli', `napi-rs-cli-${packageJson.version}.tgz`)}`,
+          '@napi-rs/cli': `file://${posixJoin(rootDirPosix, 'cli', `napi-rs-cli-${packageJson.version}.tgz`)}`,
         },
         ...extraPackageJson,
       },
