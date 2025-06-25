@@ -541,3 +541,23 @@ impl RustOnlyMethodsClass {
     self.data.len() as u32
   }
 }
+
+// Test case for issue #2746: instanceof failure for objects returned from getters
+#[napi]
+pub struct Thing;
+
+#[napi]
+pub struct ThingList;
+
+#[napi]
+impl ThingList {
+  #[napi(constructor)]
+  pub fn new() -> Self {
+    Self
+  }
+
+  #[napi(getter)]
+  pub fn thing() -> Thing {
+    Thing
+  }
+}

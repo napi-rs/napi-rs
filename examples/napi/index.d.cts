@@ -262,6 +262,15 @@ export declare class Selector {
   constructor(orderBy: Array<string>, select: Array<string>, struct: string, where?: string)
 }
 
+export declare class Thing {
+
+}
+
+export declare class ThingList {
+  constructor()
+  get thing(): Thing
+}
+
 export declare class UseNullableClass {
   requiredNumberField: number
   requiredStringField: string
