@@ -467,7 +467,17 @@ pub fn ty_to_ts_type(
           let fn_args = args
             .get(2)
             .or_else(|| args.first())
-            .map(|(arg, _)| arg)
+            .map(|(arg, _)| {
+              // If the argument is just a type without parameter names (e.g., "string"),
+              // we need to add a parameter name for function signatures
+              if arg.contains(':') || arg.is_empty() {
+                // Already has parameter names or is empty
+                arg.clone()
+              } else {
+                // Single type without parameter name, add one
+                format!("arg: {}", arg)
+              }
+            })
             .unwrap();
           let return_ty = args
             .get(1)
