@@ -231,7 +231,7 @@ impl<'env, T: 'env> AsRef<T> for ClassInstance<'env, T> {
 }
 
 pub trait JavaScriptClassExt: Sized {
-  fn into_instance(self, env: &Env) -> Result<ClassInstance<Self>>;
+  fn into_instance(self, env: &Env) -> Result<ClassInstance<'_, Self>>;
   fn into_reference(self, env: Env) -> Result<Reference<Self>>;
   fn instance_of<'env, V: JsValue<'env>>(env: &Env, value: &V) -> Result<bool>;
 }

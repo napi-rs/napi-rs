@@ -96,7 +96,7 @@ impl<T: 'static> External<T> {
   }
 
   /// convert `External<T>` to `Unknown`
-  pub fn into_unknown(self, env: &Env) -> Result<Unknown> {
+  pub fn into_unknown(self, env: &Env) -> Result<Unknown<'_>> {
     let napi_value = unsafe { ToNapiValue::to_napi_value(env.0, self)? };
     Ok(unsafe { Unknown::from_raw_unchecked(env.0, napi_value) })
   }

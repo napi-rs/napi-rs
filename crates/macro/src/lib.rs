@@ -28,7 +28,7 @@ pub fn napi(attr: TokenStream, input: TokenStream) -> TokenStream {
   match expand::expand(attr.into(), input.into()) {
     Ok(tokens) => {
       if env::var("NAPI_DEBUG_GENERATED_CODE").is_ok() {
-        println!("{}", tokens);
+        println!("{tokens}");
       }
       tokens.into()
     }

@@ -1433,7 +1433,7 @@ impl FromNapiValue for Uint8ClampedSlice<'_> {
     if typed_array_type != TypedArrayType::Uint8Clamped as i32 {
       return Err(Error::new(
         Status::InvalidArg,
-        format!("Expected $name, got {}", typed_array_type),
+        format!("Expected $name, got {typed_array_type}"),
       ));
     }
     Ok(Self {

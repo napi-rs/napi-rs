@@ -31,8 +31,8 @@ impl NapiEnum {
       .iter()
       .map(|v| {
         let val = match &v.val {
-          NapiEnumValue::Number(num) => format!("{}", num),
-          NapiEnumValue::String(string) => format!("'{}'", string),
+          NapiEnumValue::Number(num) => format!("{num}"),
+          NapiEnumValue::String(string) => format!("'{string}'"),
         };
         format!("{}{} = {}", js_doc_from_comments(&v.comments), v.name, val)
       })

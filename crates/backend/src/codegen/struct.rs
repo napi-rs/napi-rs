@@ -26,7 +26,7 @@ fn gen_napi_value_map_impl(
   } else {
     quote! { #name }
   };
-  let js_name_str = format!("{}\0", name_str);
+  let js_name_str = format!("{name_str}\0");
   let validate = quote! {
     unsafe fn validate(env: napi::sys::napi_env, napi_val: napi::sys::napi_value) -> napi::Result<napi::sys::napi_value> {
       if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name_str) {
@@ -292,7 +292,7 @@ impl NapiStruct {
   ) -> TokenStream {
     let name = &self.name;
     let js_name_raw = &self.js_name;
-    let js_name_str = format!("{}\0", js_name_raw);
+    let js_name_str = format!("{js_name_raw}\0");
     let iterator_implementation = self.gen_iterator_property(class, name);
     let (object_finalize_impl, to_napi_value_impl, javascript_class_ext_impl) = if self.has_lifetime
     {

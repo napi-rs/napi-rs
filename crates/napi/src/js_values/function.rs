@@ -43,7 +43,7 @@ impl TypeName for JsFunction {
 /// ```
 impl JsFunction {
   /// [napi_call_function](https://nodejs.org/api/n-api.html#n_api_napi_call_function)
-  pub fn call<V>(&self, this: Option<&JsObject>, args: &[V]) -> Result<Unknown>
+  pub fn call<V>(&self, this: Option<&JsObject>, args: &[V]) -> Result<Unknown<'_>>
   where
     V: NapiRaw,
   {
@@ -72,7 +72,7 @@ impl JsFunction {
 
   /// [napi_call_function](https://nodejs.org/api/n-api.html#n_api_napi_call_function)
   /// The same with `call`, but without arguments
-  pub fn call_without_args(&self, this: Option<&JsObject>) -> Result<Unknown> {
+  pub fn call_without_args(&self, this: Option<&JsObject>) -> Result<Unknown<'_>> {
     let raw_this = this
       .map(|v| unsafe { v.raw() })
       .or_else(|| unsafe { ToNapiValue::to_napi_value(self.0.env, ()) }.ok())

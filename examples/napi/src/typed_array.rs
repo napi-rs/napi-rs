@@ -8,7 +8,7 @@ fn get_buffer() -> Buffer {
 }
 
 #[napi]
-fn get_buffer_slice(env: &Env) -> Result<BufferSlice> {
+fn get_buffer_slice(env: &Env) -> Result<BufferSlice<'_>> {
   BufferSlice::from_data(env, String::from("Hello world").as_bytes().to_vec())
 }
 
@@ -25,7 +25,7 @@ fn get_empty_buffer() -> Buffer {
 }
 
 #[napi]
-pub fn create_external_buffer_slice(env: &Env) -> Result<BufferSlice> {
+pub fn create_external_buffer_slice(env: &Env) -> Result<BufferSlice<'_>> {
   let mut data = String::from("Hello world").as_bytes().to_vec();
   let data_ptr = data.as_mut_ptr();
   let len = data.len();
@@ -39,7 +39,7 @@ pub fn create_external_buffer_slice(env: &Env) -> Result<BufferSlice> {
 }
 
 #[napi]
-pub fn create_buffer_slice_from_copied_data(env: &Env) -> Result<BufferSlice> {
+pub fn create_buffer_slice_from_copied_data(env: &Env) -> Result<BufferSlice<'_>> {
   BufferSlice::copy_from(env, String::from("Hello world").as_bytes())
 }
 
@@ -102,7 +102,7 @@ fn accept_arraybuffer(fixture: ArrayBuffer) -> Result<usize> {
 }
 
 #[napi]
-fn create_arraybuffer(env: &Env) -> Result<ArrayBuffer> {
+fn create_arraybuffer(env: &Env) -> Result<ArrayBuffer<'_>> {
   let buf = ArrayBuffer::from_data(env, vec![1, 2, 3, 4])?;
   Ok(buf)
 }
@@ -205,7 +205,7 @@ struct AsyncReader {}
 struct OutputBuffer {}
 
 impl OutputBuffer {
-  fn into_buffer_slice(self, env: &Env) -> Result<BufferSlice> {
+  fn into_buffer_slice(self, env: &Env) -> Result<BufferSlice<'_>> {
     BufferSlice::from_data(env, String::from("Hello world"))
   }
 }
@@ -239,12 +239,12 @@ impl Reader {
 }
 
 #[napi]
-pub fn create_uint8_clamped_array_from_data(env: &Env) -> Result<Uint8ClampedSlice> {
+pub fn create_uint8_clamped_array_from_data(env: &Env) -> Result<Uint8ClampedSlice<'_>> {
   Uint8ClampedSlice::from_data(env, b"Hello world")
 }
 
 #[napi]
-pub fn create_uint8_clamped_array_from_external(env: &Env) -> Result<Uint8ClampedSlice> {
+pub fn create_uint8_clamped_array_from_external(env: &Env) -> Result<Uint8ClampedSlice<'_>> {
   let mut data = b"Hello world".to_vec();
   let data_ptr = data.as_mut_ptr();
   let len = data.len();
@@ -257,17 +257,17 @@ pub fn create_uint8_clamped_array_from_external(env: &Env) -> Result<Uint8Clampe
 }
 
 #[napi]
-pub fn array_buffer_from_data(env: &Env) -> Result<ArrayBuffer> {
+pub fn array_buffer_from_data(env: &Env) -> Result<ArrayBuffer<'_>> {
   ArrayBuffer::from_data(env, b"Hello world")
 }
 
 #[napi]
-pub fn uint8_array_from_data(env: &Env) -> Result<Uint8ArraySlice> {
+pub fn uint8_array_from_data(env: &Env) -> Result<Uint8ArraySlice<'_>> {
   Uint8ArraySlice::from_data(env, b"Hello world")
 }
 
 #[napi]
-pub fn uint8_array_from_external(env: &Env) -> Result<Uint8ArraySlice> {
+pub fn uint8_array_from_external(env: &Env) -> Result<Uint8ArraySlice<'_>> {
   let mut data = b"Hello world".to_vec();
   let data_ptr = data.as_mut_ptr();
   let len = data.len();

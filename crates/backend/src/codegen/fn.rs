@@ -275,7 +275,7 @@ impl NapiFn {
     let mut skipped_arg_count = 0;
     for (i, arg) in self.args.iter().enumerate() {
       let i = i - skipped_arg_count;
-      let ident = Ident::new(&format!("arg{}", i), Span::call_site());
+      let ident = Ident::new(&format!("arg{i}"), Span::call_site());
 
       match &arg.kind {
         NapiFnArgKind::PatType(path) => {
@@ -564,7 +564,7 @@ impl NapiFn {
     let mut arg_conversions = vec![];
 
     for (i, ty) in cb.args.iter().enumerate() {
-      let cb_arg_ident = Ident::new(&format!("callback_arg_{}", i), Span::call_site());
+      let cb_arg_ident = Ident::new(&format!("callback_arg_{i}"), Span::call_site());
       inputs.push(quote! { #cb_arg_ident: #ty });
       let mut maybe_has_lifetime_ty = ty.clone();
       hidden_ty_lifetime(&mut maybe_has_lifetime_ty)?;
@@ -726,7 +726,7 @@ impl NapiFn {
       let module_register_name = &self.register_name;
       let intermediate_ident = get_intermediate_ident(&name_str);
       let js_mod_ident = js_mod_to_token_stream(self.js_mod.as_ref());
-      let cb_name = Ident::new(&format!("{}_js_function", name_str), Span::call_site());
+      let cb_name = Ident::new(&format!("{name_str}_js_function"), Span::call_site());
 
       if self.module_exports {
         return quote! {

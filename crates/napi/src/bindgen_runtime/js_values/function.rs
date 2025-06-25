@@ -187,7 +187,7 @@ impl<Args: JsValuesTupleIntoVec, Return> Function<'_, Args, Return> {
   }
 
   /// Create a new instance of the JavaScript Class.
-  pub fn new_instance(&self, args: Args) -> Result<Unknown> {
+  pub fn new_instance(&self, args: Args) -> Result<Unknown<'_>> {
     let mut raw_instance = ptr::null_mut();
     let mut args = args.into_vec(self.env)?;
     check_status!(
@@ -209,7 +209,7 @@ impl<Args: JsValuesTupleIntoVec, Return> Function<'_, Args, Return> {
   /// Create a threadsafe function from the JavaScript function.
   pub fn build_threadsafe_function<T: 'static>(
     &self,
-  ) -> ThreadsafeFunctionBuilder<T, Args, Return> {
+  ) -> ThreadsafeFunctionBuilder<'_, T, Args, Return> {
     ThreadsafeFunctionBuilder {
       env: self.env,
       value: self.value,

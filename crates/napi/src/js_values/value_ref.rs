@@ -64,6 +64,7 @@ impl<T: FromNapiValue> Ref<T> {
 
 impl<T: 'static + FromNapiMutRef> Ref<T> {
   /// Get the value reference from the reference
+  #[allow(clippy::mut_from_ref)]
   pub fn get_value_mut(&self, env: &Env) -> Result<&mut T> {
     let mut result = ptr::null_mut();
     check_status!(unsafe { sys::napi_get_reference_value(env.0, self.raw_ref, &mut result) })?;

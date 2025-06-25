@@ -21,8 +21,8 @@ pub enum ValueType {
 
 impl Display for ValueType {
   fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-    let status_string = format!("{:?}", self);
-    write!(f, "{}", status_string)
+    let status_string = format!("{self:?}");
+    write!(f, "{status_string}")
   }
 }
 

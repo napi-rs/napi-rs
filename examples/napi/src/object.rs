@@ -6,7 +6,7 @@ fn list_obj_keys(obj: Object) -> Vec<String> {
 }
 
 #[napi]
-fn create_obj(env: &Env) -> Object {
+fn create_obj(env: &Env) -> Object<'_> {
   let mut obj = Object::new(env).unwrap();
   obj.set("test", 1).unwrap();
 
@@ -14,7 +14,7 @@ fn create_obj(env: &Env) -> Object {
 }
 
 #[napi]
-fn get_global(env: &Env) -> Result<JsGlobal> {
+fn get_global(env: &Env) -> Result<JsGlobal<'_>> {
   env.get_global()
 }
 
@@ -87,7 +87,7 @@ pub struct TsTypeChanged {
 }
 
 #[napi(ts_return_type = "{ value: ArrayBuffer, get getter(): number }")]
-pub fn create_obj_with_property(env: &Env) -> Result<Object> {
+pub fn create_obj_with_property(env: &Env) -> Result<Object<'_>> {
   let mut obj = Object::new(env)?;
   let arraybuffer = ArrayBuffer::from_data(env, vec![0; 10])?;
   obj.define_properties(&[
@@ -169,7 +169,7 @@ pub struct FunctionData<'a> {
 }
 
 #[napi]
-pub fn generate_function_and_call_it(env: &Env) -> Result<FunctionData> {
+pub fn generate_function_and_call_it(env: &Env) -> Result<FunctionData<'_>> {
   let handle = env.create_function_from_closure("handle_function", |_ctx| Ok(1))?;
   Ok(FunctionData { handle })
 }

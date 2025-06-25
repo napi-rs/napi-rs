@@ -7,7 +7,7 @@ pub struct Repository {
 }
 
 impl Repository {
-  fn remote(&self) -> Remote {
+  fn remote(&self) -> Remote<'_> {
     Remote { inner: self }
   }
 }

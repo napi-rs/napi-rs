@@ -54,10 +54,7 @@ pub(crate) unsafe extern "C" fn raw_finalize_unchecked<T: ObjectFinalize>(
       // It always happened on exiting process
       // In general, the `fn drop` would happen first
       if rc_strong_count != 1 && rc_strong_count != 2 {
-        eprintln!(
-          "Rc strong count is: {}, it should be 1 or 2",
-          rc_strong_count
-        );
+        eprintln!("Rc strong count is: {rc_strong_count}, it should be 1 or 2");
       }
     }
     let finalize = unsafe { Box::from_raw(finalize_callbacks_rc.get()) };

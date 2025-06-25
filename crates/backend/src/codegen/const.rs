@@ -22,7 +22,7 @@ impl NapiConst {
     let register_name = &self.register_name;
     let type_name = &self.type_name;
     let cb_name = Ident::new(
-      &format!("__register__const__{}_callback__", register_name),
+      &format!("__register__const__{register_name}_callback__"),
       self.name.span(),
     );
     let js_mod_ident = js_mod_to_token_stream(self.js_mod.as_ref());

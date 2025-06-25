@@ -98,7 +98,7 @@ impl<T> ReadableStream<'_, T> {
   }
 
   /// The `cancel()` method of the `ReadableStream` interface returns a Promise that resolves when the stream is canceled.
-  pub fn cancel(&mut self, reason: Option<String>) -> Result<PromiseRaw<()>> {
+  pub fn cancel(&mut self, reason: Option<String>) -> Result<PromiseRaw<'_, ()>> {
     let mut cancel_fn = ptr::null_mut();
     check_status!(
       unsafe {
