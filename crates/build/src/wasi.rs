@@ -16,8 +16,8 @@ pub fn setup() {
   println!("cargo:rustc-link-arg=--import-undefined");
   println!("cargo:rustc-link-arg=--max-memory=4294967296");
   // lld only allocates 1MiB for the WebAssembly stack.
-  // 6400000 bytes = 64MiB
-  println!("cargo:rustc-link-arg=-zstack-size=6400000");
+  // 64000000 bytes = 64MiB
+  println!("cargo:rustc-link-arg=-zstack-size=64000000");
   println!("cargo:rustc-link-arg=--no-check-features");
   let rustc_path = env::var("RUSTC").expect("RUSTC must be set by Cargo");
   let target = env::var("TARGET").expect("TARGET must be set by Cargo");
