@@ -1,7 +1,7 @@
 use std::ffi::{c_void, CString};
 use std::marker::PhantomData;
 use std::mem;
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 use std::ptr::{self, NonNull};
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
 use std::sync::atomic::Ordering;
@@ -503,10 +503,11 @@ macro_rules! impl_typed_array {
         }
       }
 
+      #[allow(clippy::should_implement_trait)]
       /// # Safety
       ///
       /// This is literally undefined behavior, as the JS side may always modify the underlying buffer,
-      /// without synchronization. Also see the docs for the `DerefMut` impl.
+      /// without synchronization.
       pub unsafe fn as_mut(&mut self) -> &mut [$rust_type] {
         if self.data.is_null() {
           return &mut [];
@@ -1058,6 +1059,15 @@ macro_rules! impl_from_slice {
         })
       }
 
+      #[allow(clippy::should_implement_trait)]
+      /// # Safety
+      ///
+      /// This is literally undefined behavior, as the JS side may always modify the underlying buffer,
+      /// without synchronization.
+      pub unsafe fn as_mut(&mut self) -> &mut [$rust_type] {
+        unsafe { core::slice::from_raw_parts_mut(self.inner.as_ptr(), self.length) }
+      }
+
       #[doc = "Convert a `"]
       #[doc = stringify!($slice_type)]
       #[doc = "` to a `"]
@@ -1180,12 +1190,6 @@ macro_rules! impl_from_slice {
 
       fn deref(&self) -> &Self::Target {
         self.as_ref()
-      }
-    }
-
-    impl DerefMut for $slice_type<'_> {
-      fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { core::slice::from_raw_parts_mut(self.inner.as_ptr(), self.length) }
       }
     }
 
@@ -1503,12 +1507,6 @@ impl Deref for Uint8ClampedSlice<'_> {
   }
 }
 
-impl DerefMut for Uint8ClampedSlice<'_> {
-  fn deref_mut(&mut self) -> &mut Self::Target {
-    unsafe { core::slice::from_raw_parts_mut(self.inner.as_ptr(), self.length) }
-  }
-}
-
 impl<'env> Uint8ClampedSlice<'env> {
   /// Create a new `Uint8ClampedSlice` from Vec<u8>
   pub fn from_data<D: Into<Vec<u8>>>(env: &Env, data: D) -> Result<Self> {
@@ -1760,6 +1758,15 @@ impl<'env> Uint8ClampedSlice<'env> {
       length: self.length,
       _marker: PhantomData,
     })
+  }
+
+  #[allow(clippy::should_implement_trait)]
+  /// # Safety
+  ///
+  /// This is literally undefined behavior, as the JS side may always modify the underlying buffer,
+  /// without synchronization.
+  pub unsafe fn as_mut(&mut self) -> &mut [u8] {
+    core::slice::from_raw_parts_mut(self.inner.as_ptr(), self.length)
   }
 
   /// Convert a `Uint8ClampedSlice` to a `Uint8ClampedArray`.

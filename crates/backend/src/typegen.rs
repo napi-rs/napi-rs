@@ -475,7 +475,7 @@ pub fn ty_to_ts_type(
                 arg.clone()
               } else {
                 // Single type without parameter name, add one
-                format!("arg: {}", arg)
+                format!("arg: {arg}")
               }
             })
             .unwrap();
@@ -567,7 +567,7 @@ mod tests {
     let result = escape_json(input);
 
     // Verify the result can be parsed as JSON
-    let json_string = format!(r#"{{"comment": "{}"}}"#, result);
+    let json_string = format!(r#"{{"comment": "{result}"}}"#);
     let parsed: serde_json::Value =
       serde_json::from_str(&json_string).expect("Should parse as valid JSON");
 
