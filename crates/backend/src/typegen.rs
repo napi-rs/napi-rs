@@ -212,6 +212,50 @@ static KNOWN_TYPES_IGNORE_ARG: LazyLock<HashMap<&'static str, Vec<usize>>> = Laz
   .into()
 });
 
+/// Formats a JavaScript property name, adding quotes if it contains special characters
+/// or starts with a digit that would make it an invalid identifier.
+pub fn format_js_property_name(js_name: &str) -> String {
+  let needs_quotes: bool = js_name.chars().next().map_or(false, |c| c.is_ascii_digit())
+    || js_name.contains("-")
+    || js_name.contains(":")
+    || js_name.contains(" ")
+    || js_name.contains(".")
+    || js_name.contains("[")
+    || js_name.contains("]")
+    || js_name.contains("@")
+    || js_name.contains("#")
+    || js_name.contains("$")
+    || js_name.contains("%")
+    || js_name.contains("^")
+    || js_name.contains("&")
+    || js_name.contains("*")
+    || js_name.contains("(")
+    || js_name.contains(")")
+    || js_name.contains("+")
+    || js_name.contains("=")
+    || js_name.contains("{")
+    || js_name.contains("}")
+    || js_name.contains("|")
+    || js_name.contains("\\")
+    || js_name.contains(";")
+    || js_name.contains("'")
+    || js_name.contains("\"")
+    || js_name.contains("<")
+    || js_name.contains(">")
+    || js_name.contains(",")
+    || js_name.contains("?")
+    || js_name.contains("/")
+    || js_name.contains("~")
+    || js_name.contains("`")
+    || js_name.contains("!");
+
+  if needs_quotes {
+    format!("'{}'", js_name)
+  } else {
+    js_name.to_string()
+  }
+}
+
 fn fill_ty(template: &str, args: Vec<String>) -> String {
   let matches = template.match_indices("{}").collect::<Vec<_>>();
   if args.len() != matches.len() {

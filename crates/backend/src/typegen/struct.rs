@@ -3,7 +3,8 @@ use std::{cell::RefCell, iter};
 
 use super::{add_alias, ToTypeDef, TypeDef};
 use crate::{
-  js_doc_from_comments, ty_to_ts_type, NapiImpl, NapiStruct, NapiStructField, NapiStructKind,
+  format_js_property_name, js_doc_from_comments, ty_to_ts_type, NapiImpl, NapiStruct,
+  NapiStructField, NapiStructKind,
 };
 
 thread_local! {
@@ -125,12 +126,13 @@ impl NapiStruct {
 
     let (arg, is_optional) = ty_to_ts_type(&f.ty, false, true, false);
     let arg = f.ts_type.as_ref().map(|ty| ty.to_string()).unwrap_or(arg);
+    let js_name = format_js_property_name(&f.js_name);
 
     let arg = match is_optional {
-      false => format!("{}: {}", &f.js_name, arg),
+      false => format!("{}: {}", &js_name, arg),
       true => match self.use_nullable {
-        false => format!("{}?: {}", &f.js_name, arg),
-        true => format!("{}: {} | null", &f.js_name, arg),
+        false => format!("{}?: {}", &js_name, arg),
+        true => format!("{}: {} | null", &js_name, arg),
       },
     };
     field_str.push_str(&arg);

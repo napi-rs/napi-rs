@@ -281,6 +281,7 @@ export const readFile = __napiModule.exports.readFile
 export const readFileAsync = __napiModule.exports.readFileAsync
 export const readPackageJson = __napiModule.exports.readPackageJson
 export const receiveAllOptionalObject = __napiModule.exports.receiveAllOptionalObject
+export const receiveBindingVitePluginMeta = __napiModule.exports.receiveBindingVitePluginMeta
 export const receiveBufferSliceWithLifetime = __napiModule.exports.receiveBufferSliceWithLifetime
 export const receiveClassOrNumber = __napiModule.exports.receiveClassOrNumber
 export const receiveDifferentClass = __napiModule.exports.receiveDifferentClass

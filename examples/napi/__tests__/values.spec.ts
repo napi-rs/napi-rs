@@ -219,6 +219,7 @@ import {
   getMyVec,
   setNullByteProperty,
   getNullByteProperty,
+  receiveBindingVitePluginMeta,
   getMappingWithHasher,
   getIndexMappingWithHasher,
   passSetWithHasherToJs,
@@ -774,6 +775,13 @@ test('object', (t) => {
   setNullByteProperty(objNull)
   t.is(objNull['\0virtual'], 'test')
   t.is(getNullByteProperty(objNull), 'test')
+  t.notThrows(() =>
+    receiveBindingVitePluginMeta({
+      'vite:import-glob': {
+        isSubImportsPattern: true,
+      },
+    }),
+  )
 })
 
 test('get str from object', (t) => {

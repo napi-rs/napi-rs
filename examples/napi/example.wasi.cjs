@@ -305,6 +305,7 @@ module.exports.readFile = __napiModule.exports.readFile
 module.exports.readFileAsync = __napiModule.exports.readFileAsync
 module.exports.readPackageJson = __napiModule.exports.readPackageJson
 module.exports.receiveAllOptionalObject = __napiModule.exports.receiveAllOptionalObject
+module.exports.receiveBindingVitePluginMeta = __napiModule.exports.receiveBindingVitePluginMeta
 module.exports.receiveBufferSliceWithLifetime = __napiModule.exports.receiveBufferSliceWithLifetime
 module.exports.receiveClassOrNumber = __napiModule.exports.receiveClassOrNumber
 module.exports.receiveDifferentClass = __napiModule.exports.receiveDifferentClass

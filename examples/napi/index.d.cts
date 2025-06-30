@@ -357,6 +357,10 @@ export declare function bigintFromI64(): bigint
 
 export declare function bigintGetU64AsString(bi: bigint): string
 
+export interface BindingVitePluginMeta {
+  'vite:import-glob': ViteImportGlobMeta
+}
+
 export declare function btreeSetToJs(): Set<string>
 
 export declare function btreeSetToRust(set: Set<string>): void
@@ -774,6 +778,8 @@ export declare function readPackageJson(): PackageJson
 
 export declare function receiveAllOptionalObject(obj?: AllOptionalObject | undefined | null): void
 
+export declare function receiveBindingVitePluginMeta(meta: BindingVitePluginMeta): void
+
 export declare function receiveBufferSliceWithLifetime(data: Data): number
 
 export declare function receiveClassOrNumber(either: number | JsClassForEither): number
@@ -1004,6 +1010,10 @@ export declare function validateTypedArraySlice(input: Uint8Array): number
 export declare function validateUint8ClampedSlice(input: Uint8ClampedArray): number
 
 export declare function validateUndefined(i: undefined): boolean
+
+export interface ViteImportGlobMeta {
+  isSubImportsPattern?: boolean
+}
 
 export type VoidNullable<T = void> =
   Nullable<T>

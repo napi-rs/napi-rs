@@ -183,3 +183,19 @@ pub fn get_null_byte_property(obj: Object) -> Result<Option<String>> {
 pub fn set_null_byte_property(mut obj: Object) -> Result<()> {
   obj.set("\0virtual", "test")
 }
+
+#[napi(object, object_to_js = false)]
+pub struct ViteImportGlobMeta {
+  pub is_sub_imports_pattern: Option<bool>,
+}
+
+#[napi(object, object_to_js = false)]
+pub struct BindingVitePluginMeta {
+  #[napi(js_name = "vite:import-glob")]
+  pub vite_import_glob: ViteImportGlobMeta,
+}
+
+#[napi]
+pub fn receive_binding_vite_plugin_meta(meta: BindingVitePluginMeta) {
+  assert_eq!(meta.vite_import_glob.is_sub_imports_pattern, Some(true));
+}
