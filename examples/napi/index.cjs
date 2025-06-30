@@ -596,6 +596,7 @@ module.exports.readFile = nativeBinding.readFile
 module.exports.readFileAsync = nativeBinding.readFileAsync
 module.exports.readPackageJson = nativeBinding.readPackageJson
 module.exports.receiveAllOptionalObject = nativeBinding.receiveAllOptionalObject
+module.exports.receiveBindingVitePluginMeta = nativeBinding.receiveBindingVitePluginMeta
 module.exports.receiveBufferSliceWithLifetime = nativeBinding.receiveBufferSliceWithLifetime
 module.exports.receiveClassOrNumber = nativeBinding.receiveClassOrNumber
 module.exports.receiveDifferentClass = nativeBinding.receiveDifferentClass
