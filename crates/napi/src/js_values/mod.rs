@@ -34,7 +34,6 @@ mod de;
 #[cfg(feature = "napi4")]
 mod deferred;
 mod either;
-#[cfg(feature = "compat-mode")]
 mod external;
 #[cfg(feature = "compat-mode")]
 mod function;
@@ -54,6 +53,7 @@ mod tagged_object;
 mod undefined;
 mod unknown;
 mod value;
+#[cfg(feature = "compat-mode")]
 mod value_ref;
 
 #[cfg(feature = "napi6")]
@@ -73,7 +73,6 @@ pub use de::De;
 #[cfg(feature = "napi4")]
 pub use deferred::*;
 pub use either::Either;
-#[cfg(feature = "compat-mode")]
 pub use external::JsExternal;
 #[cfg(feature = "compat-mode")]
 pub use function::JsFunction;
@@ -91,9 +90,10 @@ pub use symbol::*;
 pub(crate) use tagged_object::TaggedObject;
 #[cfg(feature = "compat-mode")]
 pub use undefined::JsUndefined;
-pub use unknown::Unknown;
+pub use unknown::{Unknown, UnknownRef};
 pub use value::JsValue;
 pub(crate) use value::Value;
+#[cfg(feature = "compat-mode")]
 pub use value_ref::*;
 
 #[cfg(feature = "compat-mode")]
@@ -710,8 +710,6 @@ impl_js_value_methods!(JsDataView);
 impl_js_value_methods!(JsObject);
 #[cfg(feature = "compat-mode")]
 impl_js_value_methods!(JsFunction);
-#[cfg(feature = "compat-mode")]
-impl_js_value_methods!(JsExternal);
 
 #[cfg(feature = "compat-mode")]
 impl_object_methods!(JsObject);
@@ -742,5 +740,3 @@ impl_napi_value_trait!(JsDataView, ValueType::Object);
 impl_napi_value_trait!(JsObject, ValueType::Object);
 #[cfg(feature = "compat-mode")]
 impl_napi_value_trait!(JsFunction, ValueType::Object);
-#[cfg(feature = "compat-mode")]
-impl_napi_value_trait!(JsExternal, ValueType::External);

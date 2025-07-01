@@ -199,3 +199,10 @@ pub struct BindingVitePluginMeta {
 pub fn receive_binding_vite_plugin_meta(meta: BindingVitePluginMeta) {
   assert_eq!(meta.vite_import_glob.is_sub_imports_pattern, Some(true));
 }
+
+#[napi]
+pub fn create_object_ref(env: &Env) -> Result<ObjectRef> {
+  let mut obj = Object::new(env)?;
+  obj.set("test", 1)?;
+  obj.create_ref()
+}

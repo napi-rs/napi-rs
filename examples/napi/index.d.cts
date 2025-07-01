@@ -383,7 +383,7 @@ export declare function call1(callback: (arg: number) => number, arg: number): n
 
 export declare function call2(callback: (arg0: number, arg1: number) => number, arg1: number, arg2: number): number
 
-export declare function callAsyncWithUnknownReturnValue(tsfn: ((err: Error | null, arg: number) => Ref<unknown>)): Promise<number>
+export declare function callAsyncWithUnknownReturnValue(tsfn: ((err: Error | null, arg: number) => unknown)): Promise<number>
 
 export declare function callbackReturnPromise<T>(functionInput: () => T | Promise<T>, callback: (err: Error | null, result: T) => void): T | Promise<T>
 
@@ -453,11 +453,15 @@ export declare function createExternal(size: number): ExternalObject<number>
 
 export declare function createExternalBufferSlice(): Buffer
 
+export declare function createExternalRef(size: number): ExternalObject<number>
+
 export declare function createExternalString(content: string): ExternalObject<string>
 
 export declare function createExternalTypedArray(): Uint32Array
 
 export declare function createObj(): object
+
+export declare function createObjectRef(): object
 
 export declare function createObjectWithClassField(): ObjectFieldClassInstance
 
@@ -474,6 +478,8 @@ export declare function createReferenceOnFunction(cb: () => void): Promise<void>
 export declare function createSymbol(): symbol
 
 export declare function createSymbolFor(desc: string): symbol
+
+export declare function createSymbolRef(desc: string): symbol
 
 export declare function createUint8ClampedArrayFromData(): Uint8ClampedArray
 

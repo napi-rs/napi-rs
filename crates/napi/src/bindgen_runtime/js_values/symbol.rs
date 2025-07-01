@@ -1,8 +1,9 @@
 use std::ptr;
 
-use crate::{check_status, sys};
-
-use super::{FromNapiValue, ToNapiValue, TypeName, ValidateNapiValue};
+use crate::{
+  bindgen_runtime::{Env, FromNapiValue, Result, ToNapiValue, TypeName, ValidateNapiValue},
+  check_status, sys, JsSymbol,
+};
 
 pub struct Symbol {
   desc: Option<String>,
@@ -45,6 +46,12 @@ impl Symbol {
       desc: None,
       for_desc: Some(desc.as_ref().to_owned()),
     }
+  }
+
+  /// Convert `Symbol` to `JsSymbol`
+  pub fn into_js_symbol(self, env: &Env) -> Result<JsSymbol> {
+    let napi_value = unsafe { ToNapiValue::to_napi_value(env.0, self)? };
+    unsafe { JsSymbol::from_napi_value(env.0, napi_value) }
   }
 }
 

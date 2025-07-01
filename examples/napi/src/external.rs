@@ -36,3 +36,9 @@ pub fn mutate_optional_external(external: Option<&mut External<u32>>, new_val: u
     **external = new_val;
   }
 }
+
+#[napi]
+pub fn create_external_ref(env: &Env, size: u32) -> Result<ExternalRef<u32>> {
+  let external = External::new(size).into_js_external(env)?;
+  external.create_ref()
+}

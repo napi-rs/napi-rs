@@ -1,8 +1,8 @@
 use std::ptr;
 
 use crate::{
-  bindgen_runtime::{FromNapiValue, TypeName, ValidateNapiValue},
-  sys, type_of, JsValue, Result, Value, ValueType,
+  bindgen_runtime::{Env, FromNapiValue, ToNapiValue, TypeName, ValidateNapiValue},
+  check_status, sys, type_of, JsValue, Result, Value, ValueType,
 };
 
 #[derive(Clone, Copy)]
@@ -69,7 +69,7 @@ impl Unknown<'_> {
 
   /// # Safety
   ///
-  /// JsUnknown doesn't have a type
+  /// Unknown doesn't have a type
   pub unsafe fn from_raw_unchecked(env: sys::napi_env, value: sys::napi_value) -> Self {
     Unknown(
       Value {
@@ -79,5 +79,97 @@ impl Unknown<'_> {
       },
       std::marker::PhantomData,
     )
+  }
+
+  /// Create a reference to the unknown value
+  pub fn create_ref(&self) -> Result<UnknownRef> {
+    let mut ref_ = ptr::null_mut();
+    check_status!(
+      unsafe { sys::napi_create_reference(self.0.env, self.0.value, 1, &mut ref_) },
+      "Failed to create reference"
+    )?;
+    Ok(UnknownRef { inner: ref_ })
+  }
+}
+
+/// A reference to a unknown JavaScript value.
+///
+/// You must call the `unref` method to release the reference, or the object under the hood will be leaked forever.
+///
+/// Set the `LEAK_CHECK` to `false` to disable the leak check during the `Drop`
+pub struct UnknownRef<const LEAK_CHECK: bool = true> {
+  pub(crate) inner: sys::napi_ref,
+}
+
+unsafe impl<const LEAK_CHECK: bool> Send for UnknownRef<LEAK_CHECK> {}
+
+impl<const LEAK_CHECK: bool> Drop for UnknownRef<LEAK_CHECK> {
+  fn drop(&mut self) {
+    if LEAK_CHECK && !self.inner.is_null() {
+      eprintln!("ObjectRef is not unref, it considered as a memory leak");
+    }
+  }
+}
+
+impl<const LEAK_CHECK: bool> UnknownRef<LEAK_CHECK> {
+  /// Get the object from the reference
+  pub fn get_value(&self, env: &Env) -> Result<Unknown> {
+    let mut result = ptr::null_mut();
+    check_status!(
+      unsafe { sys::napi_get_reference_value(env.0, self.inner, &mut result) },
+      "Failed to get reference value"
+    )?;
+    Ok(unsafe { Unknown::from_raw_unchecked(env.0, result) })
+  }
+
+  /// Unref the reference
+  pub fn unref(mut self, env: &Env) -> Result<()> {
+    check_status!(
+      unsafe { sys::napi_reference_unref(env.0, self.inner, &mut 0) },
+      "unref Ref failed"
+    )?;
+    check_status!(
+      unsafe { sys::napi_delete_reference(env.0, self.inner) },
+      "delete Ref failed"
+    )?;
+    self.inner = ptr::null_mut();
+    Ok(())
+  }
+}
+
+impl<const LEAK_CHECK: bool> FromNapiValue for UnknownRef<LEAK_CHECK> {
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
+    let mut ref_ = ptr::null_mut();
+    check_status!(
+      unsafe { sys::napi_create_reference(env, napi_val, 1, &mut ref_) },
+      "Failed to create reference"
+    )?;
+    Ok(Self { inner: ref_ })
+  }
+}
+
+impl<const LEAK_CHECK: bool> ToNapiValue for &UnknownRef<LEAK_CHECK> {
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    let mut result = ptr::null_mut();
+    check_status!(
+      unsafe { sys::napi_get_reference_value(env, val.inner, &mut result) },
+      "Failed to get reference value"
+    )?;
+    Ok(result)
+  }
+}
+
+impl<const LEAK_CHECK: bool> ToNapiValue for UnknownRef<LEAK_CHECK> {
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    let mut result = ptr::null_mut();
+    check_status!(
+      unsafe { sys::napi_get_reference_value(env, val.inner, &mut result) },
+      "Failed to get reference value"
+    )?;
+    check_status!(
+      unsafe { sys::napi_delete_reference(env, val.inner) },
+      "Failed to delete reference"
+    )?;
+    Ok(result)
   }
 }

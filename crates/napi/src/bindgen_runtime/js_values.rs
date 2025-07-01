@@ -126,6 +126,18 @@ pub trait FromNapiMutRef {
   ) -> Result<&'static mut Self>;
 }
 
+impl<T: FromNapiRef + 'static> FromNapiValue for &T {
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
+    unsafe { T::from_napi_ref(env, napi_val) }
+  }
+}
+
+impl<T: FromNapiMutRef + 'static> FromNapiValue for &mut T {
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
+    unsafe { T::from_napi_mut_ref(env, napi_val) }
+  }
+}
+
 pub trait ValidateNapiValue: TypeName {
   /// # Safety
   ///
