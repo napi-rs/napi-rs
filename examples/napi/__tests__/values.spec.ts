@@ -96,11 +96,13 @@ import {
   setSymbolInObj,
   createSymbol,
   createSymbolFor,
+  createSymbolRef,
   threadsafeFunctionFatalMode,
   createExternal,
   getExternal,
   mutateExternal,
   createExternalString,
+  createExternalRef,
   xxh2,
   xxh3,
   xxh64Alias,
@@ -220,6 +222,7 @@ import {
   setNullByteProperty,
   getNullByteProperty,
   receiveBindingVitePluginMeta,
+  createObjectRef,
   getMappingWithHasher,
   getIndexMappingWithHasher,
   passSetWithHasherToJs,
@@ -782,6 +785,9 @@ test('object', (t) => {
       },
     }),
   )
+  const objRef = createObjectRef()
+  // @ts-expect-error
+  t.is(objRef.test, 1)
 })
 
 test('get str from object', (t) => {
@@ -827,6 +833,8 @@ test('pass symbol in', (t) => {
 
 test('create symbol', (t) => {
   t.is(createSymbol().toString(), 'Symbol(a symbol)')
+  const symRef = createSymbolRef('test')
+  t.is(symRef.toString(), 'Symbol(test)')
 })
 
 test('Option', (t) => {
@@ -1268,6 +1276,9 @@ test('external', (t) => {
   // @ts-expect-error
   const e = t.throws(() => getExternal(ext2))
   t.is(e?.message, '<u32> on `External` is not the type of wrapped object')
+
+  const extRef = createExternalRef(FX)
+  t.is(getExternal(extRef), FX)
 })
 
 test('optional external', (t) => {

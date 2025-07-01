@@ -180,10 +180,13 @@ impl Env {
     Ok(JsBigInt::from_raw_unchecked(self.0, raw_value, len))
   }
 
-  pub fn create_string(&self, s: &str) -> Result<JsString<'_>> {
+  /// This API creates a new JavaScript string from a Rust type that can be converted to a `&str`
+  pub fn create_string<S: AsRef<str>>(&self, s: S) -> Result<JsString<'_>> {
+    let s = s.as_ref();
     unsafe { self.create_string_from_c_char(s.as_ptr().cast(), s.len() as isize) }
   }
 
+  /// This API creates a new JavaScript string from a Rust `String`
   pub fn create_string_from_std<'env>(&self, s: String) -> Result<JsString<'env>> {
     unsafe { self.create_string_from_c_char(s.as_ptr().cast(), s.len() as isize) }
   }
@@ -204,16 +207,20 @@ impl Env {
     unsafe { JsString::from_napi_value(self.0, raw_value) }
   }
 
-  pub fn create_string_utf16(&self, chars: &[u16]) -> Result<JsString<'_>> {
+  /// This API creates a new JavaScript string from a Rust type that can be converted to a `&[u16]`
+  pub fn create_string_utf16<C: AsRef<[u16]>>(&self, chars: C) -> Result<JsString<'_>> {
     let mut raw_value = ptr::null_mut();
+    let chars = chars.as_ref();
     check_status!(unsafe {
       sys::napi_create_string_utf16(self.0, chars.as_ptr(), chars.len() as isize, &mut raw_value)
     })?;
     unsafe { JsString::from_napi_value(self.0, raw_value) }
   }
 
-  pub fn create_string_latin1(&self, chars: &[u8]) -> Result<JsString<'_>> {
+  /// This API creates a new JavaScript string from a Rust type that can be converted to a `&[u8]`
+  pub fn create_string_latin1<C: AsRef<[u8]>>(&self, chars: C) -> Result<JsString<'_>> {
     let mut raw_value = ptr::null_mut();
+    let chars = chars.as_ref();
     check_status!(unsafe {
       sys::napi_create_string_latin1(
         self.0,
@@ -225,6 +232,7 @@ impl Env {
     unsafe { JsString::from_napi_value(self.0, raw_value) }
   }
 
+  /// This API creates a new JavaScript symbol from a optional description
   pub fn create_symbol(&self, description: Option<&str>) -> Result<JsSymbol<'_>> {
     let mut result = ptr::null_mut();
     check_status!(unsafe {
@@ -248,7 +256,7 @@ impl Env {
   }
 
   #[cfg(feature = "compat-mode")]
-  #[deprecated(since = "3.0.0", note = "Use `Object` instead")]
+  #[deprecated(since = "3.0.0", note = "Use `Object::new` instead")]
   pub fn create_object(&self) -> Result<JsObject> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe { sys::napi_create_object(self.0, &mut raw_value) })?;
@@ -892,6 +900,7 @@ impl Env {
     }
   }
 
+  #[cfg(feature = "compat-mode")]
   #[deprecated(since = "3.0.0", note = "Please use `Ref::new` instead")]
   /// This API create a new reference with the initial 1 ref count to the Object passed in.
   pub fn create_reference<'env, T>(&self, value: &T) -> Result<Ref<T>>
@@ -901,6 +910,7 @@ impl Env {
     Ref::new(self, value)
   }
 
+  #[cfg(feature = "compat-mode")]
   #[deprecated(since = "3.0.0", note = "Please use `Ref::get_value` instead")]
   /// Get reference value from `Ref` with type check
   pub fn get_reference_value<T>(&self, reference: &Ref<T>) -> Result<T>
@@ -914,6 +924,8 @@ impl Env {
     unsafe { T::from_napi_value(self.0, js_value) }
   }
 
+  #[cfg(feature = "compat-mode")]
+  #[deprecated(since = "3.0.0", note = "Please use `ObjectRef::get_value` instead")]
   /// Get reference value from `Ref` without type check
   ///
   /// Using this API if you are sure the type of `T` is matched with provided `Ref<()>`.
@@ -960,7 +972,7 @@ impl Env {
         })?;
       }
     };
-    Ok(unsafe { JsExternal::from_raw_unchecked(self.0, object_value) })
+    unsafe { JsExternal::from_napi_value(self.0, object_value) }
   }
 
   #[cfg(feature = "compat-mode")]

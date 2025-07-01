@@ -24,10 +24,12 @@ thread_local! {
   > = LazyCell::new(Default::default);
 }
 
-/// ### Experimental feature
+/// Create a [`napi_ref`](https://nodejs.org/api/n-api.html#napi_ref) from `Class` instance.
 ///
-/// Create a `reference` from `Class` instance.
-/// Unref the `Reference` when the `Reference` is dropped.
+/// Unref the [`napi_ref`](https://nodejs.org/api/n-api.html#napi_ref) when the `Reference` is dropped.
+///
+/// The `Reference` is `Sync` when the `T` is `Sync`.
+/// It's not `Send` because of the `drop` of the `Reference` must be called in the same thread as the `Reference` is created.
 pub struct Reference<T: 'static> {
   raw: *mut T,
   napi_ref: crate::sys::napi_ref,

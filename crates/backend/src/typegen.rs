@@ -118,6 +118,7 @@ static KNOWN_TYPES: LazyLock<HashMap<&'static str, (&'static str, bool, bool)>> 
     map.extend([
     ("JsObject", ("object", false, false)),
     ("Object", ("object", false, false)),
+    ("ObjectRef", ("object", false, false)),
     ("Array", ("unknown[]", false, false)),
     ("Value", ("any", false, false)),
     ("Map", ("Record<string, any>", false, false)),
@@ -183,14 +184,17 @@ static KNOWN_TYPES: LazyLock<HashMap<&'static str, (&'static str, bool, bool)>> 
     ("Either24", ("{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}", false, true)),
     ("Either25", ("{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}", false, true)),
     ("Either26", ("{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}", false, true)),
-    ("external", ("object", false, false)),
     ("Promise", ("Promise<{}>", false, false)),
     ("PromiseRaw", ("Promise<{}>", false, false)),
     ("AbortSignal", ("AbortSignal", false, false)),
     ("JsGlobal", ("typeof global", false, false)),
+    ("JsExternal", ("object", false, false)),
+    ("external", ("object", false, false)),
     ("External", ("ExternalObject<{}>", false, false)),
+    ("ExternalRef", ("ExternalObject<{}>", false, false)),
     ("unknown", ("unknown", false, false)),
     ("Unknown", ("unknown", false, false)),
+    ("UnknownRef", ("unknown", false, false)),
     ("UnknownReturnValue", ("unknown", false, false)),
     ("JsUnknown", ("unknown", false, false)),
     ("This", ("this", false, false)),
@@ -215,7 +219,7 @@ static KNOWN_TYPES_IGNORE_ARG: LazyLock<HashMap<&'static str, Vec<usize>>> = Laz
 /// Formats a JavaScript property name, adding quotes if it contains special characters
 /// or starts with a digit that would make it an invalid identifier.
 pub fn format_js_property_name(js_name: &str) -> String {
-  let needs_quotes: bool = js_name.chars().next().map_or(false, |c| c.is_ascii_digit())
+  let needs_quotes: bool = js_name.chars().next().is_some_and(|c| c.is_ascii_digit())
     || js_name.contains("-")
     || js_name.contains(":")
     || js_name.contains(" ")
@@ -250,7 +254,7 @@ pub fn format_js_property_name(js_name: &str) -> String {
     || js_name.contains("!");
 
   if needs_quotes {
-    format!("'{}'", js_name)
+    format!("'{js_name}'")
   } else {
     js_name.to_string()
   }
