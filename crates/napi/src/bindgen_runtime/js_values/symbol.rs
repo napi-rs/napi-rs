@@ -24,9 +24,9 @@ impl TypeName for Symbol {
 impl ValidateNapiValue for Symbol {}
 
 impl Symbol {
-  pub fn new(desc: String) -> Self {
+  pub fn new<S: ToString>(desc: S) -> Self {
     Self {
-      desc: Some(desc),
+      desc: Some(desc.to_string()),
       #[cfg(feature = "napi9")]
       for_desc: None,
     }
