@@ -119,7 +119,7 @@ impl<const LEAK_CHECK: bool> ToNapiValue for &SymbolRef<LEAK_CHECK> {
 }
 
 impl<const LEAK_CHECK: bool> ToNapiValue for SymbolRef<LEAK_CHECK> {
-  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+  unsafe fn to_napi_value(env: sys::napi_env, mut val: Self) -> Result<sys::napi_value> {
     let mut result = ptr::null_mut();
     check_status!(
       unsafe { sys::napi_get_reference_value(env, val.inner, &mut result) },
@@ -129,6 +129,8 @@ impl<const LEAK_CHECK: bool> ToNapiValue for SymbolRef<LEAK_CHECK> {
       unsafe { sys::napi_delete_reference(env, val.inner) },
       "delete Ref failed"
     )?;
+    val.inner = ptr::null_mut();
+    drop(val);
     Ok(result)
   }
 }
