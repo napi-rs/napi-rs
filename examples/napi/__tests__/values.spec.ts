@@ -196,6 +196,7 @@ import {
   type AliasedStruct,
   returnObjectOnlyToJs,
   buildThreadsafeFunctionFromFunction,
+  buildThreadsafeFunctionFromFunctionCalleeHandle,
   createOptionalExternal,
   getOptionalExternal,
   mutateOptionalExternal,
@@ -255,6 +256,7 @@ import {
   uint8ArrayFromExternal,
   Thing,
   ThingList,
+  createFunction,
 } from '../index.cjs'
 // import other stuff in `#[napi(module_exports)]`
 import nativeAddon from '../index.cjs'
@@ -424,6 +426,8 @@ test('function call', async (t) => {
     referenceAsCallback((a, b) => a + b, 42, 10),
     52,
   )
+  const fn = createFunction()
+  t.is(fn(42), 242)
 })
 
 test('class', (t) => {
@@ -1666,6 +1670,10 @@ Napi4Test('build ThreadsafeFunction from Function', (t) => {
   }
 
   buildThreadsafeFunctionFromFunction(fn)
+
+  t.notThrows(() => {
+    buildThreadsafeFunctionFromFunctionCalleeHandle(() => {})
+  })
 
   return subject.pipe(take(3))
 })

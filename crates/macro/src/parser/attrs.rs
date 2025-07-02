@@ -80,6 +80,7 @@ macro_rules! attrgen {
       (discriminant, Discriminant(Span, String, Span)),
       (transparent, Transparent(Span)),
       (array, Array(Span)),
+      (no_export, NoExport(Span)),
 
       // impl later
       // (inspectable, Inspectable(Span)),

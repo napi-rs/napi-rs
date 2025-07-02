@@ -94,12 +94,6 @@ impl ModuleClassProperty {
   }
 }
 
-type FnRegisterMap = PersistedPerInstanceHashMap<
-  ExportRegisterCallback,
-  (sys::napi_callback, &'static str),
-  FxBuildHasher,
->;
-
 #[cfg(not(feature = "noop"))]
 static MODULE_REGISTER_CALLBACK: LazyLock<ModuleRegisterCallback> = LazyLock::new(Default::default);
 #[cfg(not(feature = "noop"))]
@@ -113,7 +107,6 @@ static MODULE_COUNT: AtomicUsize = AtomicUsize::new(0);
 static FIRST_MODULE_REGISTERED: AtomicBool = AtomicBool::new(false);
 thread_local! {
   static REGISTERED_CLASSES: LazyCell<RegisteredClasses> = LazyCell::new(Default::default);
-  static FN_REGISTER_MAP: LazyCell<FnRegisterMap> = LazyCell::new(Default::default);
 }
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
 pub(crate) static CUSTOM_GC_TSFN: std::sync::atomic::AtomicPtr<sys::napi_threadsafe_function__> =
@@ -195,19 +188,6 @@ pub fn register_module_export_hook(cb: ExportRegisterHookCallback) {
 pub fn register_module_export_hook(_cb: ExportRegisterHookCallback) {}
 
 #[doc(hidden)]
-pub fn register_js_function(
-  name: &'static str,
-  cb: ExportRegisterCallback,
-  c_fn: sys::napi_callback,
-) {
-  FN_REGISTER_MAP.with(|cell| {
-    cell.borrow_mut(|inner| {
-      inner.insert(cb, (c_fn, name));
-    })
-  });
-}
-
-#[doc(hidden)]
 pub fn get_class_constructor(js_name: &'static str) -> Option<sys::napi_ref> {
   REGISTERED_CLASSES.with(|cell| cell.borrow_mut(|map| map.get(js_name).copied()))
 }
@@ -237,41 +217,6 @@ pub fn register_class(
   js_name: &'static str,
   props: Vec<Property>,
 ) {
-}
-
-/// Get `C Callback` from defined Rust `fn`
-/// ```rust
-/// #[napi]
-/// fn some_fn() -> u32 {
-///     1
-/// }
-///
-/// #[napi]
-/// fn create_obj(env: Env) -> Result<JsObject> {
-///     let mut obj = env.create_object()?;
-///     obj.define_property(&[Property::new("getter")?.with_getter(get_c_callback(some_fn_js_function)?)])?;
-///     Ok(obj)
-/// }
-/// ```
-///
-/// ```js
-/// console.log(createObj().getter) // 1
-/// ```
-///
-pub fn get_c_callback(raw_fn: ExportRegisterCallback) -> Result<crate::Callback> {
-  FN_REGISTER_MAP.with(|cell| {
-    cell.borrow_mut(|inner| {
-      inner
-        .get(&raw_fn)
-        .and_then(|(cb, _name)| *cb)
-        .ok_or_else(|| {
-          crate::Error::new(
-            crate::Status::InvalidArg,
-            "JavaScript function does not exist".to_owned(),
-          )
-        })
-    })
-  })
 }
 
 #[cfg(all(target_family = "wasm", not(feature = "noop")))]
