@@ -253,15 +253,13 @@ pub unsafe fn new_instance<T: 'static + ObjectFinalize>(
   )?;
 
   let mut result = std::ptr::null_mut();
-  crate::__private::___CALL_FROM_FACTORY
-    .with(|inner| inner.store(true, std::sync::atomic::Ordering::Relaxed));
+  crate::__private::___CALL_FROM_FACTORY.with(|inner| inner.set(true));
   check_status!(
     sys::napi_new_instance(env, ctor, 0, std::ptr::null_mut(), &mut result),
     "Failed to construct class `{}`",
     type_name::<T>(),
   )?;
-  crate::__private::___CALL_FROM_FACTORY
-    .with(|inner| inner.store(false, std::sync::atomic::Ordering::Relaxed));
+  crate::__private::___CALL_FROM_FACTORY.with(|inner| inner.set(false));
   let mut object_ref = std::ptr::null_mut();
   let initial_finalize: Box<dyn FnOnce()> = Box::new(|| {});
   let finalize_callbacks_ptr = std::rc::Rc::into_raw(std::rc::Rc::new(std::cell::Cell::new(
