@@ -487,7 +487,7 @@ pub fn ty_to_ts_type(
                 Some((fill_ty(known_ty, union_args), false))
               }
             } else {
-              let filtered_args =
+              let mut filtered_args =
                 if let Some(arg_indices) = KNOWN_TYPES_IGNORE_ARG.get(rust_ty.as_str()) {
                   args
                     .enumerate()
@@ -497,6 +497,9 @@ pub fn ty_to_ts_type(
                 } else {
                   args.collect::<Vec<_>>()
                 };
+              if rust_ty.starts_with("Function") && filtered_args.is_empty() {
+                filtered_args = vec!["arg?: unknown".to_owned(), "unknown".to_owned()];
+              }
 
               Some((fill_ty(known_ty, filtered_args), false))
             }

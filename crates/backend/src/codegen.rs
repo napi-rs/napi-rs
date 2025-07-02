@@ -27,7 +27,7 @@ pub trait TryToTokens {
 }
 
 fn get_intermediate_ident(name: &str) -> Ident {
-  let new_name = format!("_napi_internal_register_{name}");
+  let new_name = format!("{name}_c_callback");
   Ident::new(&new_name, Span::call_site())
 }
 

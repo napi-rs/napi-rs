@@ -96,7 +96,7 @@ pub fn create_obj_with_property(env: &Env) -> Result<Object<'_>> {
       .with_value(&arraybuffer),
     Property::new()
       .with_utf8_name("getter")?
-      .with_getter(get_c_callback(getter_from_obj_js_function)?),
+      .with_getter(getter_from_obj_c_callback),
   ])?;
   Ok(obj)
 }

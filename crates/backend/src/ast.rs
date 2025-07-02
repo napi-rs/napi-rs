@@ -32,6 +32,7 @@ pub struct NapiFn {
   pub catch_unwind: bool,
   pub unsafe_: bool,
   pub register_name: Ident,
+  pub no_export: bool,
 }
 
 #[derive(Debug, Clone)]

@@ -500,6 +500,7 @@ module.exports.createExternalBufferSlice = nativeBinding.createExternalBufferSli
 module.exports.createExternalRef = nativeBinding.createExternalRef
 module.exports.createExternalString = nativeBinding.createExternalString
 module.exports.createExternalTypedArray = nativeBinding.createExternalTypedArray
+module.exports.createFunction = nativeBinding.createFunction
 module.exports.createObj = nativeBinding.createObj
 module.exports.createObjectRef = nativeBinding.createObjectRef
 module.exports.createObjectWithClassField = nativeBinding.createObjectWithClassField

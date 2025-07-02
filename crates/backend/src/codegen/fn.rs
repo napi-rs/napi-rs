@@ -726,10 +726,14 @@ impl NapiFn {
       let module_register_name = &self.register_name;
       let intermediate_ident = get_intermediate_ident(&name_str);
       let js_mod_ident = js_mod_to_token_stream(self.js_mod.as_ref());
-      let cb_name = Ident::new(&format!("{name_str}_js_function"), Span::call_site());
+      let cb_name = Ident::new(
+        &format!("_napi_rs_internal_register_{name_str}"),
+        Span::call_site(),
+      );
 
       if self.module_exports {
         return quote! {
+          #[doc(hidden)]
           #[allow(non_snake_case)]
           #[allow(clippy::all)]
           unsafe fn #cb_name(env: napi::bindgen_prelude::sys::napi_env, exports: napi::bindgen_prelude::sys::napi_value) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
@@ -737,6 +741,7 @@ impl NapiFn {
             Ok(exports)
           }
 
+          #[doc(hidden)]
           #[allow(clippy::all)]
           #[allow(non_snake_case)]
           #[cfg(all(not(test), not(target_family = "wasm")))]
@@ -755,7 +760,32 @@ impl NapiFn {
         };
       }
 
+      let register_module_export_tokens = if self.no_export {
+        quote! {}
+      } else {
+        quote! {
+          #[doc(hidden)]
+          #[allow(clippy::all)]
+          #[allow(non_snake_case)]
+          #[cfg(all(not(test), not(target_family = "wasm")))]
+          #[napi::ctor::ctor(crate_path=::napi::ctor)]
+          fn #module_register_name() {
+            napi::bindgen_prelude::register_module_export(#js_mod_ident, #js_name, #cb_name);
+          }
+
+          #[doc(hidden)]
+          #[allow(clippy::all)]
+          #[allow(non_snake_case)]
+          #[cfg(all(not(test), target_family = "wasm"))]
+          #[no_mangle]
+          extern "C" fn #module_register_name() {
+            napi::bindgen_prelude::register_module_export(#js_mod_ident, #js_name, #cb_name);
+          }
+        }
+      };
+
       quote! {
+        #[doc(hidden)]
         #[allow(non_snake_case)]
         #[allow(clippy::all)]
         unsafe fn #cb_name(env: napi::bindgen_prelude::sys::napi_env) -> napi::bindgen_prelude::Result<napi::bindgen_prelude::sys::napi_value> {
@@ -773,25 +803,10 @@ impl NapiFn {
             "Failed to register function `{}`",
             #name_str,
           )?;
-          napi::bindgen_prelude::register_js_function(#js_name, #cb_name, Some(#intermediate_ident));
           Ok(fn_ptr)
         }
 
-        #[allow(clippy::all)]
-        #[allow(non_snake_case)]
-        #[cfg(all(not(test), not(target_family = "wasm")))]
-        #[napi::ctor::ctor(crate_path=::napi::ctor)]
-        fn #module_register_name() {
-          napi::bindgen_prelude::register_module_export(#js_mod_ident, #js_name, #cb_name);
-        }
-
-        #[allow(clippy::all)]
-        #[allow(non_snake_case)]
-        #[cfg(all(not(test), target_family = "wasm"))]
-        #[no_mangle]
-        extern "C" fn #module_register_name() {
-          napi::bindgen_prelude::register_module_export(#js_mod_ident, #js_name, #cb_name);
-        }
+        #register_module_export_tokens
       }
     }
   }

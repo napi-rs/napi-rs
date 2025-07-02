@@ -209,6 +209,7 @@ module.exports.createExternalBufferSlice = __napiModule.exports.createExternalBu
 module.exports.createExternalRef = __napiModule.exports.createExternalRef
 module.exports.createExternalString = __napiModule.exports.createExternalString
 module.exports.createExternalTypedArray = __napiModule.exports.createExternalTypedArray
+module.exports.createFunction = __napiModule.exports.createFunction
 module.exports.createObj = __napiModule.exports.createObj
 module.exports.createObjectRef = __napiModule.exports.createObjectRef
 module.exports.createObjectWithClassField = __napiModule.exports.createObjectWithClassField

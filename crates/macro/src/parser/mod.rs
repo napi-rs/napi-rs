@@ -728,6 +728,13 @@ fn napi_fn_from_decl(
         bail_span!(sig.ident, "module_exports fn can't have generic parameters");
       }
 
+      if opts.no_export().is_some() {
+        bail_span!(
+          sig.ident,
+          "#[napi(no_export)] can not be used with module_exports attribute"
+        );
+      }
+
       for arg in args.iter() {
         match &arg.kind {
           NapiFnArgKind::Callback(_) => {
@@ -897,6 +904,7 @@ fn napi_fn_from_decl(
       catch_unwind: opts.catch_unwind().is_some(),
       unsafe_: sig.unsafety.is_some(),
       register_name: get_register_ident(ident.to_string().as_str()),
+      no_export: opts.no_export().is_some(),
     })
   })
 }
@@ -964,6 +972,12 @@ impl ParseNapi for syn::ItemStruct {
         "#[napi(catch_unwind)] can only be applied to a function or method."
       );
     }
+    if opts.no_export().is_some() {
+      bail_span!(
+        self,
+        "#[napi(no_export)] can only be applied to a function."
+      );
+    }
     if opts.object().is_some() && opts.custom_finalize().is_some() {
       bail_span!(self, "Custom finalize is not supported for #[napi(object)]");
     }
@@ -999,6 +1013,12 @@ impl ParseNapi for syn::ItemImpl {
         "#[napi(catch_unwind)] can only be applied to a function or method."
       );
     }
+    if opts.no_export().is_some() {
+      bail_span!(
+        self,
+        "#[napi(no_export)] can only be applied to a function."
+      );
+    }
     // #[napi] macro will be remove from impl items after converted to ast
     let napi = self.convert_to_ast(opts);
     self.to_tokens(tokens);
@@ -1031,6 +1051,12 @@ impl ParseNapi for syn::ItemEnum {
         "#[napi(catch_unwind)] can only be applied to a function or method."
       );
     }
+    if opts.no_export().is_some() {
+      bail_span!(
+        self,
+        "#[napi(no_export)] can only be applied to a function."
+      );
+    }
     let napi = self.convert_to_ast(opts);
     self.to_tokens(tokens);
 
@@ -1061,6 +1087,12 @@ impl ParseNapi for syn::ItemConst {
         "#[napi(catch_unwind)] can only be applied to a function or method."
       );
     }
+    if opts.no_export().is_some() {
+      bail_span!(
+        self,
+        "#[napi(no_export)] can only be applied to a function."
+      );
+    }
     let napi = self.convert_to_ast(opts);
     self.to_tokens(tokens);
     napi
@@ -1088,6 +1120,12 @@ impl ParseNapi for syn::ItemType {
       bail_span!(
         self,
         "#[napi(catch_unwind)] can only be applied to a function or method."
+      );
+    }
+    if opts.no_export().is_some() {
+      bail_span!(
+        self,
+        "#[napi(no_export)] can only be applied to a function."
       );
     }
     let napi = self.convert_to_ast(opts);

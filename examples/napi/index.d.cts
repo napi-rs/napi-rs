@@ -459,6 +459,8 @@ export declare function createExternalString(content: string): ExternalObject<st
 
 export declare function createExternalTypedArray(): Uint32Array
 
+export declare function createFunction(): (arg: number) => number
+
 export declare function createObj(): object
 
 export declare function createObjectRef(): object
@@ -535,7 +537,7 @@ export declare function either3(input: string | number | boolean): number
 
 export declare function either4(input: string | number | boolean | Obj): number
 
-export declare function eitherBoolOrFunction(input: boolean | (any)): void
+export declare function eitherBoolOrFunction(input: boolean | ((arg?: unknown) => unknown)): void
 
 export declare function eitherBoolOrTuple(input: boolean | [boolean, string]): void
 
@@ -896,7 +898,7 @@ export declare function testSerdeBufferBytes(obj: object): bigint
 
 export declare function testSerdeRoundtrip(data: any): any
 
-export declare function threadsafeFunctionBuildThrowErrorWithStatus(cb: any): void
+export declare function threadsafeFunctionBuildThrowErrorWithStatus(cb: (arg?: unknown) => unknown): void
 
 export declare function threadsafeFunctionClosureCapture(defaultValue: Animal, func: (arg: Animal) => void): void
 

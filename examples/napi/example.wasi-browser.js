@@ -185,6 +185,7 @@ export const createExternalBufferSlice = __napiModule.exports.createExternalBuff
 export const createExternalRef = __napiModule.exports.createExternalRef
 export const createExternalString = __napiModule.exports.createExternalString
 export const createExternalTypedArray = __napiModule.exports.createExternalTypedArray
+export const createFunction = __napiModule.exports.createFunction
 export const createObj = __napiModule.exports.createObj
 export const createObjectRef = __napiModule.exports.createObjectRef
 export const createObjectWithClassField = __napiModule.exports.createObjectWithClassField
