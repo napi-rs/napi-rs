@@ -325,6 +325,96 @@ impl<'env> ArrayBuffer<'env> {
   }
 }
 
+#[derive(Clone, Copy)]
+/// Represents a JavaScript ArrayBuffer
+pub struct TypedArray<'env> {
+  pub(crate) value: Value,
+  pub typed_array_type: TypedArrayType,
+  pub arraybuffer: ArrayBuffer<'env>,
+  pub byte_offset: usize,
+}
+
+impl TypeName for TypedArray<'_> {
+  fn type_name() -> &'static str {
+    "TypedArray"
+  }
+
+  fn value_type() -> ValueType {
+    ValueType::Object
+  }
+}
+
+impl ValidateNapiValue for TypedArray<'_> {
+  unsafe fn validate(env: sys::napi_env, napi_val: sys::napi_value) -> Result<sys::napi_value> {
+    let mut is_typedarray = false;
+    check_status!(
+      unsafe { sys::napi_is_typedarray(env, napi_val, &mut is_typedarray) },
+      "Failed to validate TypedArray"
+    )?;
+    if !is_typedarray {
+      return Err(Error::new(
+        Status::InvalidArg,
+        "Value is not a TypedArray".to_owned(),
+      ));
+    }
+    Ok(ptr::null_mut())
+  }
+}
+
+impl<'env> JsValue<'env> for TypedArray<'env> {
+  fn value(&self) -> Value {
+    self.value
+  }
+}
+
+impl<'env> JsObjectValue<'env> for TypedArray<'env> {}
+
+impl FromNapiValue for TypedArray<'_> {
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
+    let value = Value {
+      env,
+      value: napi_val,
+      value_type: ValueType::Object,
+    };
+    let mut typed_array_type = 0;
+    let mut data = ptr::null_mut();
+    let mut length = 0;
+    let mut arraybuffer = ptr::null_mut();
+    let mut byte_offset = 0;
+    check_status!(
+      unsafe {
+        sys::napi_get_typedarray_info(
+          env,
+          napi_val,
+          &mut typed_array_type,
+          &mut length,
+          &mut data,
+          &mut arraybuffer,
+          &mut byte_offset,
+        )
+      },
+      "Failed to get typedarray info"
+    )?;
+    Ok(Self {
+      value: Value {
+        env,
+        value: napi_val,
+        value_type: ValueType::Object,
+      },
+      typed_array_type: typed_array_type.into(),
+      byte_offset,
+      arraybuffer: ArrayBuffer {
+        value,
+        data: if data.is_null() {
+          &[]
+        } else {
+          unsafe { std::slice::from_raw_parts(data as *const u8, length) }
+        },
+      },
+    })
+  }
+}
+
 trait Finalizer {
   type RustType;
 
@@ -575,7 +665,7 @@ macro_rules! impl_typed_array {
         let mut ref_ = ptr::null_mut();
         check_status!(
           unsafe { sys::napi_create_reference(env, napi_val, 1, &mut ref_) },
-          "Failed to create reference from Buffer"
+          "Failed to create reference from TypedArray"
         )?;
         check_status!(
           unsafe {

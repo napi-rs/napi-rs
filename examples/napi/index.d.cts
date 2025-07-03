@@ -11,6 +11,8 @@ export declare class ExternalObject<T> {
     [K: symbol]: T
   }
 }
+
+export type TypedArray = Int8Array | Uint8Array | Uint8ClampedArray | Int16Array | Uint16Array | Int32Array | Uint32Array | Float32Array | Float64Array | BigInt64Array | BigUint64Array
 /**
  * `constructor` option for `struct` requires all fields to be public,
  * otherwise tag impl fn as constructor
@@ -307,6 +309,8 @@ export declare function acceptThreadsafeFunctionTupleArgs(func: ((err: Error | n
 export declare function acceptUint8ClampedSlice(input: Uint8ClampedArray): bigint
 
 export declare function acceptUint8ClampedSliceAndBufferSlice(a: Buffer, b: Uint8ClampedArray): bigint
+
+export declare function acceptUntypedTypedArray(input: TypedArray): bigint
 
 export declare function add(a: number, b: number): number
 

@@ -261,6 +261,7 @@ import {
   spawnFutureLifetime,
   promiseRawReturnClassInstance,
   ClassReturnInPromise,
+  acceptUntypedTypedArray,
 } from '../index.cjs'
 // import other stuff in `#[napi(module_exports)]`
 import nativeAddon from '../index.cjs'
@@ -1139,6 +1140,10 @@ test('deref uint8 array', (t) => {
     derefUint8Array(new Uint8Array([1, 2]), new Uint8ClampedArray([3, 4])),
     4,
   )
+})
+
+test('accept untyped typed array', (t) => {
+  t.is(acceptUntypedTypedArray(new Uint8Array([1, 2, 3])), 3n)
 })
 
 test('async', async (t) => {

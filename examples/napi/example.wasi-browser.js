@@ -120,6 +120,7 @@ export const acceptThreadsafeFunctionFatal = __napiModule.exports.acceptThreadsa
 export const acceptThreadsafeFunctionTupleArgs = __napiModule.exports.acceptThreadsafeFunctionTupleArgs
 export const acceptUint8ClampedSlice = __napiModule.exports.acceptUint8ClampedSlice
 export const acceptUint8ClampedSliceAndBufferSlice = __napiModule.exports.acceptUint8ClampedSliceAndBufferSlice
+export const acceptUntypedTypedArray = __napiModule.exports.acceptUntypedTypedArray
 export const add = __napiModule.exports.add
 export const ALIAS = __napiModule.exports.ALIAS
 export const AliasedEnum = __napiModule.exports.AliasedEnum
