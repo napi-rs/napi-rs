@@ -258,6 +258,9 @@ import {
   Thing,
   ThingList,
   createFunction,
+  spawnFutureLifetime,
+  promiseRawReturnClassInstance,
+  ClassReturnInPromise,
 } from '../index.cjs'
 // import other stuff in `#[napi(module_exports)]`
 import nativeAddon from '../index.cjs'
@@ -1861,6 +1864,13 @@ test('should be able to recursively hidden lifetime', async (t) => {
   await t.notThrowsAsync(async () => {
     await esmResolve(() => Promise.resolve(undefined))
   })
+})
+
+test('should be able to correct lifetime of spawn_future_lifetime', async (t) => {
+  const result = await spawnFutureLifetime(1)
+  t.is(result, '1')
+  const result2 = await promiseRawReturnClassInstance()
+  t.true(result2 instanceof ClassReturnInPromise)
 })
 
 test('extends javascript error', (t) => {
