@@ -206,3 +206,20 @@ pub fn create_object_ref(env: &Env) -> Result<ObjectRef> {
   obj.set("test", 1)?;
   obj.create_ref()
 }
+
+#[napi]
+pub fn object_with_c_apis(env: &Env) -> Result<Object<'_>> {
+  let mut obj = Object::new(env)?;
+  obj.set_c_named_property(c"test", 1)?;
+  assert_eq!(obj.get_c_named_property::<u32>(c"test")?, 1);
+  assert!(obj.has_c_named_property(c"test")?);
+  assert!(obj.delete_c_named_property(c"test")?);
+  assert!(!obj.has_c_own_property(c"test")?);
+  obj.create_c_named_method(c"test", test_method_c_callback)?;
+  Ok(obj)
+}
+
+#[napi(no_export)]
+fn test_method() -> u32 {
+  42
+}

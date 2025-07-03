@@ -291,6 +291,7 @@ module.exports.mutateExternal = __napiModule.exports.mutateExternal
 module.exports.mutateOptionalExternal = __napiModule.exports.mutateOptionalExternal
 module.exports.mutateTypedArray = __napiModule.exports.mutateTypedArray
 module.exports.objectGetNamedPropertyShouldPerformTypecheck = __napiModule.exports.objectGetNamedPropertyShouldPerformTypecheck
+module.exports.objectWithCApis = __napiModule.exports.objectWithCApis
 module.exports.optionEnd = __napiModule.exports.optionEnd
 module.exports.optionOnly = __napiModule.exports.optionOnly
 module.exports.optionStart = __napiModule.exports.optionStart

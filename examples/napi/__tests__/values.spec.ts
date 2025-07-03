@@ -224,6 +224,7 @@ import {
   getNullByteProperty,
   receiveBindingVitePluginMeta,
   createObjectRef,
+  objectWithCApis,
   getMappingWithHasher,
   getIndexMappingWithHasher,
   passSetWithHasherToJs,
@@ -792,6 +793,12 @@ test('object', (t) => {
   const objRef = createObjectRef()
   // @ts-expect-error
   t.is(objRef.test, 1)
+
+  t.notThrows(() => {
+    const obj = objectWithCApis()
+    // @ts-expect-error
+    t.is(obj.test(), 42)
+  })
 })
 
 test('get str from object', (t) => {
