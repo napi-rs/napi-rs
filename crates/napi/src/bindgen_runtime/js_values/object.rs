@@ -1,7 +1,7 @@
 use std::any::{type_name, TypeId};
 #[cfg(feature = "napi6")]
 use std::convert::TryFrom;
-use std::ffi::{c_void, CString};
+use std::ffi::{c_void, CStr, CString};
 use std::marker::PhantomData;
 use std::ptr;
 
@@ -77,6 +77,23 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
     })
   }
 
+  /// Set the property value to the `Object`, the property name is a `CStr`
+  /// This is useful when the property name comes from a `C` library
+  fn set_c_named_property<T>(&mut self, name: &CStr, value: T) -> Result<()>
+  where
+    T: ToNapiValue,
+  {
+    let env = self.value().env;
+    check_status!(unsafe {
+      sys::napi_set_named_property(
+        env,
+        self.raw(),
+        name.as_ptr(),
+        T::to_napi_value(env, value)?,
+      )
+    })
+  }
+
   /// Create a named method on the `Object`
   fn create_named_method<K>(&mut self, name: K, function: Callback) -> Result<()>
   where
@@ -85,6 +102,28 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
     let mut js_function = ptr::null_mut();
     let len = name.as_ref().len();
     let name = CString::new(name.as_ref())?;
+    let env = self.value().env;
+    check_status!(unsafe {
+      sys::napi_create_function(
+        env,
+        name.as_ptr(),
+        len as isize,
+        Some(function),
+        ptr::null_mut(),
+        &mut js_function,
+      )
+    })?;
+    check_status!(
+      unsafe { sys::napi_set_named_property(env, self.value().value, name.as_ptr(), js_function) },
+      "create_named_method error"
+    )
+  }
+
+  /// Create a named method on the `Object`, the name is a `CStr`
+  /// This is useful when the method name comes from a `C` library
+  fn create_c_named_method(&mut self, name: &CStr, function: Callback) -> Result<()> {
+    let mut js_function = ptr::null_mut();
+    let len = name.count_bytes();
     let env = self.value().env;
     check_status!(unsafe {
       sys::napi_create_function(
@@ -125,6 +164,34 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
     unsafe { <T as FromNapiValue>::from_napi_value(env, raw_value) }
   }
 
+  /// Get the property value from the `Object`
+  ///
+  /// Return the `InvalidArg` error if the property is not `T`
+  ///
+  /// This is useful when the property name comes from a `C` library
+  fn get_c_named_property<T>(&self, name: &CStr) -> Result<T>
+  where
+    T: FromNapiValue + ValidateNapiValue,
+  {
+    let mut raw_value = ptr::null_mut();
+    let env = self.value().env;
+    check_status!(
+      unsafe {
+        sys::napi_get_named_property(env, self.value().value, name.as_ptr(), &mut raw_value)
+      },
+      "get_named_property error"
+    )?;
+    unsafe { <T as ValidateNapiValue>::validate(env, raw_value) }.map_err(|mut err| {
+      err.reason = format!(
+        "Object property '{}' type mismatch. {}",
+        name.to_string_lossy(),
+        err.reason
+      );
+      err
+    })?;
+    unsafe { <T as FromNapiValue>::from_napi_value(env, raw_value) }
+  }
+
   /// Get the property value from the `Object` without validation
   fn get_named_property_unchecked<T>(&self, name: &str) -> Result<T>
   where
@@ -142,6 +209,24 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
     unsafe { <T as FromNapiValue>::from_napi_value(env, raw_value) }
   }
 
+  /// Get the property value from the `Object` without validation
+  ///
+  /// This is useful when the property name comes from a `C` library
+  fn get_c_named_property_unchecked<T>(&self, name: &CStr) -> Result<T>
+  where
+    T: FromNapiValue,
+  {
+    let mut raw_value = ptr::null_mut();
+    let env = self.value().env;
+    check_status!(
+      unsafe {
+        sys::napi_get_named_property(env, self.value().value, name.as_ptr(), &mut raw_value)
+      },
+      "get_c_named_property_unchecked error"
+    )?;
+    unsafe { <T as FromNapiValue>::from_napi_value(env, raw_value) }
+  }
+
   /// Check if the `Object` has the named property
   fn has_named_property<N: AsRef<str>>(&self, name: N) -> Result<bool> {
     let mut result = false;
@@ -149,7 +234,20 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
     let env = self.value().env;
     check_status!(
       unsafe { sys::napi_has_named_property(env, self.value().value, key.as_ptr(), &mut result) },
-      "napi_has_named_property error"
+      "has_named_property error"
+    )?;
+    Ok(result)
+  }
+
+  /// Check if the `Object` has the named property
+  ///
+  /// This is useful when the property name comes from a `C` library
+  fn has_c_named_property(&self, name: &CStr) -> Result<bool> {
+    let mut result = false;
+    let env = self.value().env;
+    check_status!(
+      unsafe { sys::napi_has_named_property(env, self.value().value, name.as_ptr(), &mut result) },
+      "has_c_named_property error"
     )?;
     Ok(result)
   }
@@ -182,6 +280,22 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
     Ok(result)
   }
 
+  /// Delete the property from the `Object`
+  ///
+  /// This is useful when the property name comes from a `C` library
+  fn delete_c_named_property(&mut self, name: &CStr) -> Result<bool> {
+    let mut result = false;
+    let mut js_key = ptr::null_mut();
+    let env = self.value().env;
+    check_status!(unsafe {
+      sys::napi_create_string_utf8(env, name.as_ptr(), name.count_bytes() as isize, &mut js_key)
+    })?;
+    check_status!(unsafe {
+      sys::napi_delete_property(env, self.value().value, js_key, &mut result)
+    })?;
+    Ok(result)
+  }
+
   /// Check if the `Object` has the own property
   fn has_own_property(&self, key: &str) -> Result<bool> {
     let mut result = false;
@@ -189,6 +303,22 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
     let env = self.value().env;
     check_status!(unsafe {
       sys::napi_create_string_utf8(env, key.as_ptr().cast(), key.len() as isize, &mut js_key)
+    })?;
+    check_status!(unsafe {
+      sys::napi_has_own_property(env, self.value().value, js_key, &mut result)
+    })?;
+    Ok(result)
+  }
+
+  /// Check if the `Object` has the own property
+  ///
+  /// This is useful when the property name comes from a `C` library
+  fn has_c_own_property(&self, key: &CStr) -> Result<bool> {
+    let mut result = false;
+    let mut js_key = ptr::null_mut();
+    let env = self.value().env;
+    check_status!(unsafe {
+      sys::napi_create_string_utf8(env, key.as_ptr(), key.count_bytes() as isize, &mut js_key)
     })?;
     check_status!(unsafe {
       sys::napi_has_own_property(env, self.value().value, js_key, &mut result)

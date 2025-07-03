@@ -729,6 +729,8 @@ export interface ObjectOnlyToJs {
   dependencies: any
 }
 
+export declare function objectWithCApis(): object
+
 export declare function optionEnd(callback: (arg0: string, arg1?: string | undefined | null) => void): void
 
 export declare function optionOnly(callback: (arg0?: string | undefined | null) => void): void
