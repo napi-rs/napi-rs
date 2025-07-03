@@ -15,9 +15,11 @@ import {
   Target,
 } from '../utils/index.js'
 
-import type { PackageMeta } from './templates/package.json.js'
-
 const debug = debugFactory('create-npm-dirs')
+
+export interface PackageMeta {
+  'dist-tags': { [index: string]: string }
+}
 
 export async function createNpmDirs(userOptions: CreateNpmDirsOptions) {
   const options = applyDefaultCreateNpmDirsOptions(userOptions)

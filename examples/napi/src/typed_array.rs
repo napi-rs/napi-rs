@@ -278,3 +278,8 @@ pub fn uint8_array_from_external(env: &Env) -> Result<Uint8ArraySlice<'_>> {
     })
   }
 }
+
+#[napi]
+pub fn accept_untyped_typed_array(input: TypedArray) -> usize {
+  input.arraybuffer.len()
+}

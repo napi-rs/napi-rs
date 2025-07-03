@@ -144,6 +144,7 @@ module.exports.acceptThreadsafeFunctionFatal = __napiModule.exports.acceptThread
 module.exports.acceptThreadsafeFunctionTupleArgs = __napiModule.exports.acceptThreadsafeFunctionTupleArgs
 module.exports.acceptUint8ClampedSlice = __napiModule.exports.acceptUint8ClampedSlice
 module.exports.acceptUint8ClampedSliceAndBufferSlice = __napiModule.exports.acceptUint8ClampedSliceAndBufferSlice
+module.exports.acceptUntypedTypedArray = __napiModule.exports.acceptUntypedTypedArray
 module.exports.add = __napiModule.exports.add
 module.exports.ALIAS = __napiModule.exports.ALIAS
 module.exports.AliasedEnum = __napiModule.exports.AliasedEnum

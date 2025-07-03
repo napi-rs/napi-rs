@@ -435,6 +435,7 @@ module.exports.acceptThreadsafeFunctionFatal = nativeBinding.acceptThreadsafeFun
 module.exports.acceptThreadsafeFunctionTupleArgs = nativeBinding.acceptThreadsafeFunctionTupleArgs
 module.exports.acceptUint8ClampedSlice = nativeBinding.acceptUint8ClampedSlice
 module.exports.acceptUint8ClampedSliceAndBufferSlice = nativeBinding.acceptUint8ClampedSliceAndBufferSlice
+module.exports.acceptUntypedTypedArray = nativeBinding.acceptUntypedTypedArray
 module.exports.add = nativeBinding.add
 module.exports.ALIAS = nativeBinding.ALIAS
 module.exports.AliasedEnum = nativeBinding.AliasedEnum

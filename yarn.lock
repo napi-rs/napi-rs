@@ -819,7 +819,7 @@ __metadata:
     js-yaml: "npm:^4.1.0"
     lodash-es: "npm:^4.17.21"
     prettier: "npm:^3.5.3"
-    rolldown: "npm:^1.0.0-beta.19"
+    rolldown: "npm:^1.0.0-beta.23"
     semver: "npm:^7.7.1"
     tslib: "npm:^2.8.1"
     typanion: "npm:^3.14.0"
@@ -10823,7 +10823,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"rolldown@npm:^1.0.0-beta.19":
+"rolldown@npm:^1.0.0-beta.23":
   version: 1.0.0-beta.9-commit.d91dfb5
   resolution: "rolldown@npm:1.0.0-beta.9-commit.d91dfb5"
   dependencies:
