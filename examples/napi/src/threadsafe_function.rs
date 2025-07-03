@@ -230,12 +230,12 @@ pub fn call_async_with_unknown_return_value<'env>(
       Ok(return_value)
     },
     |env, value| {
-      let return_value = value.get_value(&env)?;
+      let return_value = value.get_value(env)?;
       let return_value = match return_value.get_type()? {
         ValueType::Object => Ok(110),
         _ => Ok(100),
       };
-      value.unref(&env)?;
+      value.unref(env)?;
       return_value
     },
   )

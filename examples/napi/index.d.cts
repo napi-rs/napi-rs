@@ -105,6 +105,10 @@ export declare class ClassInArray {
   constructor(value: number)
 }
 
+export declare class ClassReturnInPromise {
+
+}
+
 export declare class ClassWithFactory {
   name: string
   static withName(name: string): ClassWithFactory
@@ -779,6 +783,8 @@ export declare function plusOne(this: Width): number
 
 export declare function promiseInEither(input: number | Promise<number>): Promise<boolean>
 
+export declare function promiseRawReturnClassInstance(): Promise<ClassReturnInPromise>
+
 /** napi = { version = 2, features = ["serde-json"] } */
 export declare function readFile(callback: (arg0: Error | undefined, arg1?: string | undefined | null) => void): void
 
@@ -847,6 +853,8 @@ export declare function shorterEscapableScope(createString: () => string | null)
 export declare function shorterScope(arr: unknown[]): Array<number>
 
 export declare function shutdownRuntime(): void
+
+export declare function spawnFutureLifetime(input: number): Promise<string>
 
 export declare function spawnThreadInThread(tsfn: ((err: Error | null, arg: number) => number)): void
 

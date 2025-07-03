@@ -568,7 +568,7 @@ fn pull_callback_impl<
   let promise = env.spawn_future_with_callback(
     async move { stream.next().await.transpose() },
     move |env, val| {
-      let mut output = Object::new(&env)?;
+      let mut output = Object::new(env)?;
       if let Some(val) = val {
         output.set("value", val)?;
         output.set("done", false)?;
@@ -647,10 +647,10 @@ fn pull_callback_impl_bytes<
     },
     move |env, val| {
       if let Some(val) = val {
-        let enqueue_fn = enqueue.borrow_back(&env)?;
-        enqueue_fn.call(BufferSlice::from_data(&env, val)?)?;
+        let enqueue_fn = enqueue.borrow_back(env)?;
+        enqueue_fn.call(BufferSlice::from_data(env, val)?)?;
       } else {
-        let close_fn = close.borrow_back(&env)?;
+        let close_fn = close.borrow_back(env)?;
         close_fn.call(())?;
         drop(unsafe { Box::from_raw(data.cast::<S>()) });
       }

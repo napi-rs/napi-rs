@@ -61,7 +61,7 @@ pub fn create_reference_on_function<'env>(
       Ok(())
     },
     move |env, _| {
-      let cb = reference.borrow_back(&env)?;
+      let cb = reference.borrow_back(env)?;
       cb.call(())?;
       Ok(())
     },

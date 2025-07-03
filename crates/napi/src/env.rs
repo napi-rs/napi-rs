@@ -1184,20 +1184,23 @@ impl Env {
   /// Spawn a future with a callback
   /// So you can access the `Env` and resolved value after the future completed
   pub fn spawn_future_with_callback<
+    'env,
     T: 'static + Send,
     V: ToNapiValue,
     F: 'static + Send + Future<Output = Result<T>>,
-    R: 'static + FnOnce(Env, T) -> Result<V>,
+    R: 'static + FnOnce(&'env Env, T) -> Result<V>,
   >(
-    &self,
+    &'env self,
     fut: F,
     callback: R,
-  ) -> Result<PromiseRaw<'_, V>> {
+  ) -> Result<PromiseRaw<'env, V>> {
     use crate::tokio_runtime;
 
     let promise = tokio_runtime::execute_tokio_future(self.0, fut, move |env, val| unsafe {
-      let val = callback(Env::from_raw(env), val)?;
-      ToNapiValue::to_napi_value(env, val)
+      let env = Env::from_raw(env);
+      let static_env = core::mem::transmute::<&Env, &'env Env>(&env);
+      let val = callback(static_env, val)?;
+      ToNapiValue::to_napi_value(env.0, val)
     })?;
 
     Ok(PromiseRaw::new(self.0, promise))
