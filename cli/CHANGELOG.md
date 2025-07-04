@@ -3,6 +3,18 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.92](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.91...@napi-rs/cli@3.0.0-alpha.92) (2025-07-04)
+
+### Bug Fixes
+
+- **cli:** set TARGET_CC rather than CC ([#2764](https://github.com/napi-rs/napi-rs/issues/2764)) ([3985bc6](https://github.com/napi-rs/napi-rs/commit/3985bc68cfa937b86e812081858c1878c5f5492c))
+- **cli:** throw error if targets are duplicated ([#2743](https://github.com/napi-rs/napi-rs/issues/2743)) ([27d0d92](https://github.com/napi-rs/napi-rs/commit/27d0d923c6c0e10d4a3d1c3e9dae1638d54a09ac))
+
+### Features
+
+- **napi:** support untyped TypedArray slice ([#2762](https://github.com/napi-rs/napi-rs/issues/2762)) ([0119f09](https://github.com/napi-rs/napi-rs/commit/0119f0923711da25cd5ad8a9be2616c2de57ba61))
+- **wasm-runtime:** never refer handles of workers ([#2763](https://github.com/napi-rs/napi-rs/issues/2763)) ([5078d54](https://github.com/napi-rs/napi-rs/commit/5078d548be9e0fa3105257448524cd1c69c53f6f))
+
 # [3.0.0-alpha.91](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.90...@napi-rs/cli@3.0.0-alpha.91) (2025-06-24)
 
 ### Bug Fixes
