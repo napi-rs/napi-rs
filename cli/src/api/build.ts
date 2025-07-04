@@ -270,16 +270,14 @@ class Builder {
           'include/',
         )
       }
-      if (!process.env.CC && !process.env.TARGET_CC) {
-        this.envs[`CC`] = join(toolchainPath, 'bin', `${crossTargetName}-gcc`)
+      if (!process.env.TARGET_CC) {
         this.envs[`TARGET_CC`] = join(
           toolchainPath,
           'bin',
           `${crossTargetName}-gcc`,
         )
       }
-      if (!process.env.CXX && !process.env.TARGET_CXX) {
-        this.envs[`CXX`] = join(toolchainPath, 'bin', `${crossTargetName}-g++`)
+      if (!process.env.TARGET_CXX) {
         this.envs[`TARGET_CXX`] = join(
           toolchainPath,
           'bin',
@@ -287,22 +285,18 @@ class Builder {
         )
       }
       if (
-        (process.env.CC?.startsWith('clang') &&
-          (process.env.TARGET_CC?.startsWith('clang') ||
-            !process.env.TARGET_CC)) ||
-        process.env.TARGET_CC?.startsWith('clang')
+        process.env.TARGET_CC?.startsWith('clang') ||
+        (process.env.CC?.startsWith('clang') && !process.env.TARGET_CC)
       ) {
-        const CFLAGS = process.env.CFLAGS ?? ''
-        this.envs.CFLAGS = `--sysroot=${this.envs.TARGET_SYSROOT} --gcc-toolchain=${toolchainPath} ${CFLAGS}`
+        const TARGET_CFLAGS = process.env.TARGET_CFLAGS ?? ''
+        this.envs.TARGET_CFLAGS = `--sysroot=${this.envs.TARGET_SYSROOT} --gcc-toolchain=${toolchainPath} ${TARGET_CFLAGS}`
       }
       if (
-        (process.env.CXX?.startsWith('clang++') &&
-          (process.env.TARGET_CXX?.startsWith('clang++') ||
-            !process.env.TARGET_CXX)) ||
+        (process.env.CXX?.startsWith('clang++') && !process.env.TARGET_CXX) ||
         process.env.TARGET_CXX?.startsWith('clang++')
       ) {
-        const CXXFLAGS = process.env.CXXFLAGS ?? ''
-        this.envs.CXXFLAGS = `--sysroot=${this.envs.TARGET_SYSROOT} --gcc-toolchain=${toolchainPath} ${CXXFLAGS} ${CXXFLAGS}`
+        const TARGET_CXXFLAGS = process.env.TARGET_CXXFLAGS ?? ''
+        this.envs.TARGET_CXXFLAGS = `--sysroot=${this.envs.TARGET_SYSROOT} --gcc-toolchain=${toolchainPath} ${TARGET_CXXFLAGS}`
       }
       this.envs.PATH = this.envs.PATH
         ? `${toolchainPath}/bin:${this.envs.PATH}:${process.env.PATH}`
