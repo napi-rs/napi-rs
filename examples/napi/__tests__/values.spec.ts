@@ -262,6 +262,7 @@ import {
   promiseRawReturnClassInstance,
   ClassReturnInPromise,
   acceptUntypedTypedArray,
+  defineClass,
 } from '../index.cjs'
 // import other stuff in `#[napi(module_exports)]`
 import nativeAddon from '../index.cjs'
@@ -579,6 +580,12 @@ test('struct with js_name and methods only (no constructor)', (t) => {
     () => testAliasCompatibility(aliasInstance),
     'RustOnlyMethodsClass alias methods should be accessible',
   )
+})
+
+test('define class', (t) => {
+  const DynamicRustClass = defineClass()
+  const instance = new DynamicRustClass(42)
+  t.is(instance.rustMethod(), 42)
 })
 
 test('async self in class', async (t) => {

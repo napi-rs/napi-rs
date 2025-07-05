@@ -539,6 +539,13 @@ export interface DefaultUseNullableStruct {
   optionalStringField?: string
 }
 
+export declare function defineClass(): typeof DynamicRustClass
+
+class DynamicRustClass {
+  constructor(value: number)
+  rustMethod(): number
+}
+
 export declare function derefUint8Array(a: Uint8Array, b: Uint8ClampedArray): number
 
 export declare function either3(input: string | number | boolean): number

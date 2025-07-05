@@ -521,6 +521,7 @@ module.exports.customStatusCode = nativeBinding.customStatusCode
 module.exports.CustomStringEnum = nativeBinding.CustomStringEnum
 module.exports.dateToNumber = nativeBinding.dateToNumber
 module.exports.DEFAULT_COST = nativeBinding.DEFAULT_COST
+module.exports.defineClass = nativeBinding.defineClass
 module.exports.derefUint8Array = nativeBinding.derefUint8Array
 module.exports.either3 = nativeBinding.either3
 module.exports.either4 = nativeBinding.either4
