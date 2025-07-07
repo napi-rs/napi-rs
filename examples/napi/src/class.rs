@@ -1,7 +1,7 @@
 use napi::{
   bindgen_prelude::{
-    Buffer, ClassInstance, JavaScriptClassExt, JsObjectValue, JsValue, ObjectFinalize, This,
-    Uint8Array, Unknown,
+    Buffer, ClassInstance, Function, JavaScriptClassExt, JsObjectValue, JsValue, ObjectFinalize,
+    This, Uint8Array, Unknown,
   },
   Env, Property, PropertyAttributes, Result,
 };
@@ -560,4 +560,31 @@ impl ThingList {
   pub fn thing() -> Thing {
     Thing
   }
+}
+
+#[napi(
+  ts_return_type = r#"typeof DynamicRustClass\n\nclass DynamicRustClass {
+  constructor(value: number)
+  rustMethod(): number
+}"#
+)]
+pub fn define_class(env: &Env) -> Result<Function> {
+  env.define_class(
+    "DynamicRustClass",
+    rust_class_constructor_c_callback,
+    &[Property::new()
+      .with_utf8_name("rustMethod")?
+      .with_method(rust_class_method_c_callback)],
+  )
+}
+
+#[napi(no_export)]
+fn rust_class_constructor(value: i32, mut this: This) -> Result<()> {
+  this.set_named_property("dynamicValue", value)?;
+  Ok(())
+}
+
+#[napi(no_export)]
+fn rust_class_method(this: This) -> Result<i32> {
+  this.get_named_property_unchecked::<i32>("dynamicValue")
 }
