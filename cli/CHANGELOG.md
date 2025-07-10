@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.93](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.92...@napi-rs/cli@3.0.0-alpha.93) (2025-07-10)
+
+### Bug Fixes
+
+- **cli:** check `kHandle` instead ([#2768](https://github.com/napi-rs/napi-rs/issues/2768)) ([93b9aa2](https://github.com/napi-rs/napi-rs/commit/93b9aa267c84f667c13601e6bdfae3788889ce66))
+
 # [3.0.0-alpha.92](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.91...@napi-rs/cli@3.0.0-alpha.92) (2025-07-04)
 
 ### Bug Fixes
