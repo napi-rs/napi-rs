@@ -152,18 +152,15 @@ pub fn module_exports(_attr: TokenStream, input: TokenStream) -> TokenStream {
   };
 
   let register = quote! {
-    #[cfg_attr(not(target_family = "wasm"), napi::ctor::ctor(crate_path=napi::ctor))]
-    fn __napi_explicit_module_register() {
-      unsafe fn register(raw_env: napi::sys::napi_env, raw_exports: napi::sys::napi_value) -> napi::Result<()> {
-        use napi::{Env, JsObject, NapiValue};
+    #[cfg_attr(not(target_family = "wasm"), napi::linkme::distributed_slice(napi::bindgen_prelude::MODULE_EXPORTS_LINKME))]
+    #[cfg_attr(not(target_family = "wasm"), linkme(crate = napi::linkme))]
+    unsafe fn register(raw_env: napi::sys::napi_env, raw_exports: napi::sys::napi_value) -> napi::Result<()> {
+      use napi::{Env, JsObject, NapiValue};
 
-        let env = Env::from_raw(raw_env);
-        let exports = JsObject::from_raw_unchecked(raw_env, raw_exports);
+      let env = Env::from_raw(raw_env);
+      let exports = JsObject::from_raw_unchecked(raw_env, raw_exports);
 
-        #call_expr
-      }
-
-      napi::bindgen_prelude::register_module_exports(register)
+      #call_expr
     }
   };
 

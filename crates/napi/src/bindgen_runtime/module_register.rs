@@ -138,6 +138,10 @@ fn wait_first_thread_registered() {
   }
 }
 
+#[cfg(all(feature = "compat-mode", not(feature = "noop")))]
+#[linkme::distributed_slice]
+pub static MODULE_EXPORTS_LINKME: [ModuleExportsCallback];
+
 #[doc(hidden)]
 #[cfg(all(feature = "compat-mode", not(feature = "noop")))]
 // compatibility for #[module_exports]
@@ -455,7 +459,13 @@ pub unsafe extern "C" fn napi_register_module_v1(
       if let Err(e) = callback(env, exports) {
         JsError::from(e).throw_into(env);
       }
-    })
+    });
+
+    MODULE_EXPORTS_LINKME.iter().for_each(|callback| unsafe {
+      if let Err(e) = callback(env, exports) {
+        JsError::from(e).throw_into(env);
+      }
+    });
   }
 
   #[cfg(feature = "napi4")]
