@@ -24,6 +24,8 @@ const isMusl = () => {
   return musl
 }
 
+const isOpenHarmony = process.platform === 'openharmony'
+
 const isFileMusl = (f) => f.includes('libc.musl-') || f.includes('ld-musl-')
 
 const isMuslFromFilesystem = () => {
@@ -140,15 +142,15 @@ function requireNative() {
     }
   } else if (process.platform === 'darwin') {
     try {
-        return require('./example.darwin-universal.node')
-      } catch (e) {
-        loadErrors.push(e)
-      }
-      try {
-        return require('@examples/napi-darwin-universal')
-      } catch (e) {
-        loadErrors.push(e)
-      }
+      return require('./example.darwin-universal.node')
+    } catch (e) {
+      loadErrors.push(e)
+    }
+    try {
+      return require('@examples/napi-darwin-universal')
+    } catch (e) {
+      loadErrors.push(e)
+    }
 
     if (process.arch === 'x64') {
       try {
@@ -219,6 +221,18 @@ function requireNative() {
         loadErrors.push(e)
       }
 
+      } else if (isOpenHarmony) {
+        try {
+        return require('./example.linux-x64-ohos.node')
+      } catch (e) {
+        loadErrors.push(e)
+      }
+      try {
+        return require('@examples/napi-linux-x64-ohos')
+      } catch (e) {
+        loadErrors.push(e)
+      }
+
       } else {
         try {
         return require('./example.linux-x64-gnu.node')
@@ -245,6 +259,18 @@ function requireNative() {
         loadErrors.push(e)
       }
 
+      } else if (isOpenHarmony) {
+        try {
+        return require('./example.linux-arm64-ohos.node')
+      } catch (e) {
+        loadErrors.push(e)
+      }
+      try {
+        return require('@examples/napi-linux-arm64-ohos')
+      } catch (e) {
+        loadErrors.push(e)
+      }
+
       } else {
         try {
         return require('./example.linux-arm64-gnu.node')
@@ -267,6 +293,18 @@ function requireNative() {
       }
       try {
         return require('@examples/napi-linux-arm-musleabihf')
+      } catch (e) {
+        loadErrors.push(e)
+      }
+
+      } else if (isOpenHarmony) {
+        try {
+        return require('./example.linux-arm-ohos.node')
+      } catch (e) {
+        loadErrors.push(e)
+      }
+      try {
+        return require('@examples/napi-linux-arm-ohos')
       } catch (e) {
         loadErrors.push(e)
       }

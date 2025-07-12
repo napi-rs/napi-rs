@@ -38,17 +38,19 @@ const bindingHeader = `// prettier-ignore
 `
 
 function createCommonBinding(localName: string, pkgName: string): string {
-  function requireTuple(tuple: string) {
+  function requireTuple(tuple: string, identSize = 8) {
+    const identLow = ' '.repeat(identSize - 2)
+    const ident = ' '.repeat(identSize)
     return `try {
-        return require('./${localName}.${tuple}.node')
-      } catch (e) {
-        loadErrors.push(e)
-      }
-      try {
-        return require('${pkgName}-${tuple}')
-      } catch (e) {
-        loadErrors.push(e)
-      }
+${ident}return require('./${localName}.${tuple}.node')
+${identLow}} catch (e) {
+${ident}loadErrors.push(e)
+${identLow}}
+${identLow}try {
+${ident}return require('${pkgName}-${tuple}')
+${identLow}} catch (e) {
+${ident}loadErrors.push(e)
+${identLow}}
 `
   }
 
@@ -69,6 +71,8 @@ const isMusl = () => {
   }
   return musl
 }
+
+const isOpenHarmony = process.platform === 'openharmony'
 
 const isFileMusl = (f) => f.includes('libc.musl-') || f.includes('ld-musl-')
 
@@ -135,7 +139,7 @@ function requireNative() {
       loadErrors.push(new Error(\`Unsupported architecture on Windows: \${process.arch}\`))
     }
   } else if (process.platform === 'darwin') {
-    ${requireTuple('darwin-universal')}
+    ${requireTuple('darwin-universal', 6)}
     if (process.arch === 'x64') {
       ${requireTuple('darwin-x64')}
     } else if (process.arch === 'arm64') {
@@ -154,27 +158,33 @@ function requireNative() {
   } else if (process.platform === 'linux') {
     if (process.arch === 'x64') {
       if (isMusl()) {
-        ${requireTuple('linux-x64-musl')}
+        ${requireTuple('linux-x64-musl', 8)}
+      } else if (isOpenHarmony) {
+        ${requireTuple('linux-x64-ohos', 8)}
       } else {
-        ${requireTuple('linux-x64-gnu')}
+        ${requireTuple('linux-x64-gnu', 8)}
       }
     } else if (process.arch === 'arm64') {
       if (isMusl()) {
-        ${requireTuple('linux-arm64-musl')}
+        ${requireTuple('linux-arm64-musl', 8)}
+      } else if (isOpenHarmony) {
+        ${requireTuple('linux-arm64-ohos', 8)}
       } else {
-        ${requireTuple('linux-arm64-gnu')}
+        ${requireTuple('linux-arm64-gnu', 8)}
       }
     } else if (process.arch === 'arm') {
       if (isMusl()) {
-        ${requireTuple('linux-arm-musleabihf')}
+        ${requireTuple('linux-arm-musleabihf', 8)}
+      } else if (isOpenHarmony) {
+        ${requireTuple('linux-arm-ohos', 8)}
       } else {
-        ${requireTuple('linux-arm-gnueabihf')}
+        ${requireTuple('linux-arm-gnueabihf', 8)}
       }
     } else if (process.arch === 'riscv64') {
       if (isMusl()) {
-        ${requireTuple('linux-riscv64-musl')}
+        ${requireTuple('linux-riscv64-musl', 8)}
       } else {
-        ${requireTuple('linux-riscv64-gnu')}
+        ${requireTuple('linux-riscv64-gnu', 8)}
       }
     } else if (process.arch === 'ppc64') {
       ${requireTuple('linux-ppc64-gnu')}

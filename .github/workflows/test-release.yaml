@@ -275,6 +275,8 @@ jobs:
             target: aarch64-linux-android
           - host: ubuntu-latest
             target: armv7-linux-androideabi
+          - host: ubuntu-24.04
+            target: aarch64-unknown-linux-ohos
           - host: ubuntu-latest
             target: riscv64gc-unknown-linux-gnu
             setup: |
@@ -288,6 +290,10 @@ jobs:
         with:
           node-version: 22
           cache: 'yarn'
+
+      - name: Setup OpenHarmony SDK
+        if: ${{ contains(matrix.settings.target, 'ohos') }}
+        uses: openharmony-rs/setup-ohos-sdk@v0.2
 
       - name: Install
         uses: dtolnay/rust-toolchain@stable

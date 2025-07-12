@@ -1,6 +1,6 @@
 import { execSync } from 'node:child_process'
 
-export type Platform = NodeJS.Platform | 'wasm' | 'wasi'
+export type Platform = NodeJS.Platform | 'wasm' | 'wasi' | 'ohos'
 
 export const UNIVERSAL_TARGETS = {
   'universal-apple-darwin': ['aarch64-apple-darwin', 'x86_64-apple-darwin'],
