@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.95](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.94...@napi-rs/cli@3.0.0-alpha.95) (2025-07-12)
+
+### Bug Fixes
+
+- **cli:** omit exports fields in publishConfig ([#2772](https://github.com/napi-rs/napi-rs/issues/2772)) ([3bb592d](https://github.com/napi-rs/napi-rs/commit/3bb592d47f799500ff735eea5b9b79b8556396ab))
+
 # [3.0.0-alpha.94](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.93...@napi-rs/cli@3.0.0-alpha.94) (2025-07-12)
 
 ### Features
