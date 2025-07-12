@@ -158,33 +158,33 @@ function requireNative() {
   } else if (process.platform === 'linux') {
     if (process.arch === 'x64') {
       if (isMusl()) {
-        ${requireTuple('linux-x64-musl', 8)}
+        ${requireTuple('linux-x64-musl', 10)}
       } else if (isOpenHarmony) {
-        ${requireTuple('linux-x64-ohos', 8)}
+        ${requireTuple('linux-x64-ohos', 10)}
       } else {
-        ${requireTuple('linux-x64-gnu', 8)}
+        ${requireTuple('linux-x64-gnu', 10)}
       }
     } else if (process.arch === 'arm64') {
       if (isMusl()) {
-        ${requireTuple('linux-arm64-musl', 8)}
+        ${requireTuple('linux-arm64-musl', 10)}
       } else if (isOpenHarmony) {
-        ${requireTuple('linux-arm64-ohos', 8)}
+        ${requireTuple('linux-arm64-ohos', 10)}
       } else {
-        ${requireTuple('linux-arm64-gnu', 8)}
+        ${requireTuple('linux-arm64-gnu', 10)}
       }
     } else if (process.arch === 'arm') {
       if (isMusl()) {
-        ${requireTuple('linux-arm-musleabihf', 8)}
+        ${requireTuple('linux-arm-musleabihf', 10)}
       } else if (isOpenHarmony) {
-        ${requireTuple('linux-arm-ohos', 8)}
+        ${requireTuple('linux-arm-ohos', 10)}
       } else {
-        ${requireTuple('linux-arm-gnueabihf', 8)}
+        ${requireTuple('linux-arm-gnueabihf', 10)}
       }
     } else if (process.arch === 'riscv64') {
       if (isMusl()) {
-        ${requireTuple('linux-riscv64-musl', 8)}
+        ${requireTuple('linux-riscv64-musl', 10)}
       } else {
-        ${requireTuple('linux-riscv64-gnu', 8)}
+        ${requireTuple('linux-riscv64-gnu', 10)}
       }
     } else if (process.arch === 'ppc64') {
       ${requireTuple('linux-ppc64-gnu')}

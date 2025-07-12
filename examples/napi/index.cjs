@@ -211,141 +211,141 @@ function requireNative() {
     if (process.arch === 'x64') {
       if (isMusl()) {
         try {
-        return require('./example.linux-x64-musl.node')
-      } catch (e) {
-        loadErrors.push(e)
-      }
-      try {
-        return require('@examples/napi-linux-x64-musl')
-      } catch (e) {
-        loadErrors.push(e)
-      }
+          return require('./example.linux-x64-musl.node')
+        } catch (e) {
+          loadErrors.push(e)
+        }
+        try {
+          return require('@examples/napi-linux-x64-musl')
+        } catch (e) {
+          loadErrors.push(e)
+        }
 
       } else if (isOpenHarmony) {
         try {
-        return require('./example.linux-x64-ohos.node')
-      } catch (e) {
-        loadErrors.push(e)
-      }
-      try {
-        return require('@examples/napi-linux-x64-ohos')
-      } catch (e) {
-        loadErrors.push(e)
-      }
+          return require('./example.linux-x64-ohos.node')
+        } catch (e) {
+          loadErrors.push(e)
+        }
+        try {
+          return require('@examples/napi-linux-x64-ohos')
+        } catch (e) {
+          loadErrors.push(e)
+        }
 
       } else {
         try {
-        return require('./example.linux-x64-gnu.node')
-      } catch (e) {
-        loadErrors.push(e)
-      }
-      try {
-        return require('@examples/napi-linux-x64-gnu')
-      } catch (e) {
-        loadErrors.push(e)
-      }
+          return require('./example.linux-x64-gnu.node')
+        } catch (e) {
+          loadErrors.push(e)
+        }
+        try {
+          return require('@examples/napi-linux-x64-gnu')
+        } catch (e) {
+          loadErrors.push(e)
+        }
 
       }
     } else if (process.arch === 'arm64') {
       if (isMusl()) {
         try {
-        return require('./example.linux-arm64-musl.node')
-      } catch (e) {
-        loadErrors.push(e)
-      }
-      try {
-        return require('@examples/napi-linux-arm64-musl')
-      } catch (e) {
-        loadErrors.push(e)
-      }
+          return require('./example.linux-arm64-musl.node')
+        } catch (e) {
+          loadErrors.push(e)
+        }
+        try {
+          return require('@examples/napi-linux-arm64-musl')
+        } catch (e) {
+          loadErrors.push(e)
+        }
 
       } else if (isOpenHarmony) {
         try {
-        return require('./example.linux-arm64-ohos.node')
-      } catch (e) {
-        loadErrors.push(e)
-      }
-      try {
-        return require('@examples/napi-linux-arm64-ohos')
-      } catch (e) {
-        loadErrors.push(e)
-      }
+          return require('./example.linux-arm64-ohos.node')
+        } catch (e) {
+          loadErrors.push(e)
+        }
+        try {
+          return require('@examples/napi-linux-arm64-ohos')
+        } catch (e) {
+          loadErrors.push(e)
+        }
 
       } else {
         try {
-        return require('./example.linux-arm64-gnu.node')
-      } catch (e) {
-        loadErrors.push(e)
-      }
-      try {
-        return require('@examples/napi-linux-arm64-gnu')
-      } catch (e) {
-        loadErrors.push(e)
-      }
+          return require('./example.linux-arm64-gnu.node')
+        } catch (e) {
+          loadErrors.push(e)
+        }
+        try {
+          return require('@examples/napi-linux-arm64-gnu')
+        } catch (e) {
+          loadErrors.push(e)
+        }
 
       }
     } else if (process.arch === 'arm') {
       if (isMusl()) {
         try {
-        return require('./example.linux-arm-musleabihf.node')
-      } catch (e) {
-        loadErrors.push(e)
-      }
-      try {
-        return require('@examples/napi-linux-arm-musleabihf')
-      } catch (e) {
-        loadErrors.push(e)
-      }
+          return require('./example.linux-arm-musleabihf.node')
+        } catch (e) {
+          loadErrors.push(e)
+        }
+        try {
+          return require('@examples/napi-linux-arm-musleabihf')
+        } catch (e) {
+          loadErrors.push(e)
+        }
 
       } else if (isOpenHarmony) {
         try {
-        return require('./example.linux-arm-ohos.node')
-      } catch (e) {
-        loadErrors.push(e)
-      }
-      try {
-        return require('@examples/napi-linux-arm-ohos')
-      } catch (e) {
-        loadErrors.push(e)
-      }
+          return require('./example.linux-arm-ohos.node')
+        } catch (e) {
+          loadErrors.push(e)
+        }
+        try {
+          return require('@examples/napi-linux-arm-ohos')
+        } catch (e) {
+          loadErrors.push(e)
+        }
 
       } else {
         try {
-        return require('./example.linux-arm-gnueabihf.node')
-      } catch (e) {
-        loadErrors.push(e)
-      }
-      try {
-        return require('@examples/napi-linux-arm-gnueabihf')
-      } catch (e) {
-        loadErrors.push(e)
-      }
+          return require('./example.linux-arm-gnueabihf.node')
+        } catch (e) {
+          loadErrors.push(e)
+        }
+        try {
+          return require('@examples/napi-linux-arm-gnueabihf')
+        } catch (e) {
+          loadErrors.push(e)
+        }
 
       }
     } else if (process.arch === 'riscv64') {
       if (isMusl()) {
         try {
-        return require('./example.linux-riscv64-musl.node')
-      } catch (e) {
-        loadErrors.push(e)
-      }
-      try {
-        return require('@examples/napi-linux-riscv64-musl')
-      } catch (e) {
-        loadErrors.push(e)
-      }
+          return require('./example.linux-riscv64-musl.node')
+        } catch (e) {
+          loadErrors.push(e)
+        }
+        try {
+          return require('@examples/napi-linux-riscv64-musl')
+        } catch (e) {
+          loadErrors.push(e)
+        }
 
       } else {
         try {
-        return require('./example.linux-riscv64-gnu.node')
-      } catch (e) {
-        loadErrors.push(e)
-      }
-      try {
-        return require('@examples/napi-linux-riscv64-gnu')
-      } catch (e) {
-        loadErrors.push(e)
-      }
+          return require('./example.linux-riscv64-gnu.node')
+        } catch (e) {
+          loadErrors.push(e)
+        }
+        try {
+          return require('@examples/napi-linux-riscv64-gnu')
+        } catch (e) {
+          loadErrors.push(e)
+        }
 
       }
     } else if (process.arch === 'ppc64') {
