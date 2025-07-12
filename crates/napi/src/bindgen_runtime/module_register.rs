@@ -1,4 +1,6 @@
-use std::cell::{Cell, LazyCell, RefCell};
+#[cfg(not(feature = "noop"))]
+use std::cell::Cell;
+use std::cell::{LazyCell, RefCell};
 #[cfg(not(feature = "noop"))]
 use std::collections::HashSet;
 #[cfg(not(feature = "noop"))]
@@ -8,8 +10,10 @@ use std::mem::MaybeUninit;
 #[cfg(not(feature = "noop"))]
 use std::ptr;
 #[cfg(not(feature = "noop"))]
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{LazyLock, RwLock};
+use std::sync::{
+  atomic::{AtomicBool, AtomicUsize, Ordering},
+  LazyLock, RwLock,
+};
 use std::{any::TypeId, collections::HashMap};
 
 use rustc_hash::FxBuildHasher;
