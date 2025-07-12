@@ -153,7 +153,7 @@ macro_rules! assert_type_of {
 
 pub mod bindgen_prelude {
   #[cfg(all(feature = "compat-mode", not(feature = "noop")))]
-  pub use crate::bindgen_runtime::register_module_exports;
+  pub use crate::bindgen_runtime::{ register_module_exports, MODULE_EXPORTS_LINKME };
   #[cfg(feature = "tokio_rt")]
   pub use crate::tokio_runtime::*;
   pub use crate::{
@@ -214,6 +214,7 @@ pub mod __private {
 }
 
 pub extern crate ctor;
+pub extern crate linkme;
 
 #[cfg(feature = "tokio_rt")]
 pub extern crate tokio;
