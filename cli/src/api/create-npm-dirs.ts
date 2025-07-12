@@ -13,6 +13,7 @@ import {
   pick,
   writeFileAsync as rawWriteFileAsync,
   Target,
+  type CommonPackageJsonFields,
 } from '../utils/index.js'
 
 const debug = debugFactory('create-npm-dirs')
@@ -65,7 +66,7 @@ export async function createNpmDirs(userOptions: CreateNpmDirsOptions) {
       target.arch === 'wasm32'
         ? `${binaryName}.${target.platformArchABI}.wasm`
         : `${binaryName}.${target.platformArchABI}.node`
-    const scopedPackageJson = {
+    const scopedPackageJson: CommonPackageJsonFields = {
       name: `${packageName}-${target.platformArchABI}`,
       version: packageJson.version,
       cpu: target.arch !== 'universal' ? [target.arch] : undefined,
@@ -80,22 +81,25 @@ export async function createNpmDirs(userOptions: CreateNpmDirsOptions) {
         'homepage',
         'license',
         'engines',
-        'publishConfig',
         'repository',
         'bugs',
       ),
     }
+    if (packageJson.publishConfig) {
+      scopedPackageJson.publishConfig = pick(
+        packageJson.publishConfig,
+        'registry',
+        'access',
+      )
+    }
     if (target.arch !== 'wasm32') {
-      // @ts-expect-error
       scopedPackageJson.os = [target.platform]
     } else {
       const entry = `${binaryName}.wasi.cjs`
       scopedPackageJson.main = entry
-      // @ts-expect-error
       scopedPackageJson.browser = `${binaryName}.wasi-browser.js`
-      scopedPackageJson.files.push(
+      scopedPackageJson.files?.push(
         entry,
-        // @ts-expect-error
         scopedPackageJson.browser,
         `wasi-worker.mjs`,
         `wasi-worker-browser.mjs`,
@@ -121,17 +125,14 @@ export async function createNpmDirs(userOptions: CreateNpmDirsOptions) {
       const wasmRuntime = await fetch(
         `https://registry.npmjs.org/@napi-rs/wasm-runtime`,
       ).then((res) => res.json() as Promise<PackageMeta>)
-      // @ts-expect-error
       scopedPackageJson.dependencies = {
         '@napi-rs/wasm-runtime': `^${wasmRuntime['dist-tags'].latest}`,
       }
     }
 
     if (target.abi === 'gnu') {
-      // @ts-expect-error
       scopedPackageJson.libc = ['glibc']
     } else if (target.abi === 'musl') {
-      // @ts-expect-error
       scopedPackageJson.libc = ['musl']
     }
 

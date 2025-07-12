@@ -115,6 +115,10 @@ export interface CommonPackageJsonFields {
   author?: string
   authors?: string[]
   license?: string
+  cpu?: string[]
+  os?: string[]
+  libc?: string[]
+  files?: string[]
   repository?: any
   homepage?: any
   engines?: Record<string, string>
