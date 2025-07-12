@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.94](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.93...@napi-rs/cli@3.0.0-alpha.94) (2025-07-12)
+
+### Features
+
+- **cli:** allow skip optionalDependencies publish ([#2771](https://github.com/napi-rs/napi-rs/issues/2771)) ([948e076](https://github.com/napi-rs/napi-rs/commit/948e0762e9a64297f48e3466a1faeeb30b3d64af))
+
 # [3.0.0-alpha.93](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.92...@napi-rs/cli@3.0.0-alpha.93) (2025-07-10)
 
 ### Bug Fixes
