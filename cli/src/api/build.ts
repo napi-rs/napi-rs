@@ -521,7 +521,7 @@ class Builder {
       this.setWasiEnv()
     }
 
-    if (this.target.abi === 'ohos') {
+    if (this.target.platform === 'openharmony') {
       this.setOpenHarmonyEnv()
     }
 
