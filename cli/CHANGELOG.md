@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.98](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.97...@napi-rs/cli@3.0.0-alpha.98) (2025-07-12)
+
+### Bug Fixes
+
+- **cli:** ohos js binding logic ([#2775](https://github.com/napi-rs/napi-rs/issues/2775)) ([16b5a37](https://github.com/napi-rs/napi-rs/commit/16b5a37951775dde9b529ea684c0e25c2acbe5d8))
+
 # [3.0.0-alpha.97](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.96...@napi-rs/cli@3.0.0-alpha.97) (2025-07-12)
 
 ### Bug Fixes
