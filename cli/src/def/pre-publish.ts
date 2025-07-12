@@ -43,6 +43,10 @@ export abstract class BasePrePublishCommand extends Command {
     description: 'Existing GitHub release id',
   })
 
+  skipOptionalPublish = Option.Boolean('--skip-optional-publish', false, {
+    description: 'Whether skip optionalDependencies packages publish',
+  })
+
   dryRun = Option.Boolean('--dry-run', false, {
     description: 'Dry run without touching file system',
   })
@@ -57,6 +61,7 @@ export abstract class BasePrePublishCommand extends Command {
       ghRelease: this.ghRelease,
       ghReleaseName: this.ghReleaseName,
       ghReleaseId: this.ghReleaseId,
+      skipOptionalPublish: this.skipOptionalPublish,
       dryRun: this.dryRun,
     }
   }
@@ -109,6 +114,12 @@ export interface PrePublishOptions {
    */
   ghReleaseId?: string
   /**
+   * Whether skip optionalDependencies packages publish
+   *
+   * @default false
+   */
+  skipOptionalPublish?: boolean
+  /**
    * Dry run without touching file system
    *
    * @default false
@@ -123,6 +134,7 @@ export function applyDefaultPrePublishOptions(options: PrePublishOptions) {
     npmDir: 'npm',
     tagStyle: 'lerna',
     ghRelease: true,
+    skipOptionalPublish: false,
     dryRun: false,
     ...options,
   }
