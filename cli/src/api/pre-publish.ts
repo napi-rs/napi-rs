@@ -164,10 +164,12 @@ export async function prePublish(userOptions: PrePublishOptions) {
         continue
       }
 
-      execSync(`${npmClient} publish`, {
-        cwd: pkgDir,
-        env: process.env,
-      })
+      if (!options.skipOptionalPublish) {
+        execSync(`${npmClient} publish`, {
+          cwd: pkgDir,
+          env: process.env,
+        })
+      }
 
       if (options.ghRelease && repo && owner) {
         debug.info(`Creating GitHub release ${pkgInfo.tag}`)
