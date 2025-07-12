@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.99](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.98...@napi-rs/cli@3.0.0-alpha.99) (2025-07-12)
+
+### Bug Fixes
+
+- **cli:** ohos binding ([2700b04](https://github.com/napi-rs/napi-rs/commit/2700b047821f5caf65ba007a3684da3585425358))
+
 # [3.0.0-alpha.98](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.97...@napi-rs/cli@3.0.0-alpha.98) (2025-07-12)
 
 ### Bug Fixes
