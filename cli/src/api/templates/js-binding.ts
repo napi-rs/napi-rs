@@ -50,8 +50,7 @@ ${identLow}try {
 ${ident}return require('${pkgName}-${tuple}')
 ${identLow}} catch (e) {
 ${ident}loadErrors.push(e)
-${identLow}}
-`
+${identLow}}`
   }
 
   return `const { readFileSync } = require('node:fs')
@@ -71,8 +70,6 @@ const isMusl = () => {
   }
   return musl
 }
-
-const isOpenHarmony = process.platform === 'openharmony'
 
 const isFileMusl = (f) => f.includes('libc.musl-') || f.includes('ld-musl-')
 
@@ -159,24 +156,18 @@ function requireNative() {
     if (process.arch === 'x64') {
       if (isMusl()) {
         ${requireTuple('linux-x64-musl', 10)}
-      } else if (isOpenHarmony) {
-        ${requireTuple('linux-x64-ohos', 10)}
       } else {
         ${requireTuple('linux-x64-gnu', 10)}
       }
     } else if (process.arch === 'arm64') {
       if (isMusl()) {
         ${requireTuple('linux-arm64-musl', 10)}
-      } else if (isOpenHarmony) {
-        ${requireTuple('linux-arm64-ohos', 10)}
       } else {
         ${requireTuple('linux-arm64-gnu', 10)}
       }
     } else if (process.arch === 'arm') {
       if (isMusl()) {
         ${requireTuple('linux-arm-musleabihf', 10)}
-      } else if (isOpenHarmony) {
-        ${requireTuple('linux-arm-ohos', 10)}
       } else {
         ${requireTuple('linux-arm-gnueabihf', 10)}
       }
@@ -192,6 +183,16 @@ function requireNative() {
       ${requireTuple('linux-s390x-gnu')}
     } else {
       loadErrors.push(new Error(\`Unsupported architecture on Linux: \${process.arch}\`))
+    }
+  } else if (process.platform === 'openharmony') {
+    if (process.arch === 'arm64') {
+      ${requireTuple('linux-x64-ohos')}
+    } else if (process.arch === 'x64') {
+      ${requireTuple('linux-arm64-ohos')}
+    } else if (process.arch === 'arm') {
+      ${requireTuple('linux-arm-ohos')}
+    } else {
+      loadErrors.push(new Error(\`Unsupported architecture on OpenHarmony: \${process.arch}\`))
     }
   } else {
     loadErrors.push(new Error(\`Unsupported OS: \${process.platform}, architecture: \${process.arch}\`))

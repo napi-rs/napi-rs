@@ -24,8 +24,6 @@ const isMusl = () => {
   return musl
 }
 
-const isOpenHarmony = process.platform === 'openharmony'
-
 const isFileMusl = (f) => f.includes('libc.musl-') || f.includes('ld-musl-')
 
 const isMuslFromFilesystem = () => {
@@ -84,7 +82,6 @@ function requireNative() {
       } catch (e) {
         loadErrors.push(e)
       }
-
     } else if (process.arch === 'arm') {
       try {
         return require('./example.android-arm-eabi.node')
@@ -96,7 +93,6 @@ function requireNative() {
       } catch (e) {
         loadErrors.push(e)
       }
-
     } else {
       loadErrors.push(new Error(`Unsupported architecture on Android ${process.arch}`))
     }
@@ -112,7 +108,6 @@ function requireNative() {
       } catch (e) {
         loadErrors.push(e)
       }
-
     } else if (process.arch === 'ia32') {
       try {
         return require('./example.win32-ia32-msvc.node')
@@ -124,7 +119,6 @@ function requireNative() {
       } catch (e) {
         loadErrors.push(e)
       }
-
     } else if (process.arch === 'arm64') {
       try {
         return require('./example.win32-arm64-msvc.node')
@@ -136,7 +130,6 @@ function requireNative() {
       } catch (e) {
         loadErrors.push(e)
       }
-
     } else {
       loadErrors.push(new Error(`Unsupported architecture on Windows: ${process.arch}`))
     }
@@ -151,7 +144,6 @@ function requireNative() {
     } catch (e) {
       loadErrors.push(e)
     }
-
     if (process.arch === 'x64') {
       try {
         return require('./example.darwin-x64.node')
@@ -163,7 +155,6 @@ function requireNative() {
       } catch (e) {
         loadErrors.push(e)
       }
-
     } else if (process.arch === 'arm64') {
       try {
         return require('./example.darwin-arm64.node')
@@ -175,7 +166,6 @@ function requireNative() {
       } catch (e) {
         loadErrors.push(e)
       }
-
     } else {
       loadErrors.push(new Error(`Unsupported architecture on macOS: ${process.arch}`))
     }
@@ -191,7 +181,6 @@ function requireNative() {
       } catch (e) {
         loadErrors.push(e)
       }
-
     } else if (process.arch === 'arm64') {
       try {
         return require('./example.freebsd-arm64.node')
@@ -203,7 +192,6 @@ function requireNative() {
       } catch (e) {
         loadErrors.push(e)
       }
-
     } else {
       loadErrors.push(new Error(`Unsupported architecture on FreeBSD: ${process.arch}`))
     }
@@ -220,19 +208,6 @@ function requireNative() {
         } catch (e) {
           loadErrors.push(e)
         }
-
-      } else if (isOpenHarmony) {
-        try {
-          return require('./example.linux-x64-ohos.node')
-        } catch (e) {
-          loadErrors.push(e)
-        }
-        try {
-          return require('@examples/napi-linux-x64-ohos')
-        } catch (e) {
-          loadErrors.push(e)
-        }
-
       } else {
         try {
           return require('./example.linux-x64-gnu.node')
@@ -244,7 +219,6 @@ function requireNative() {
         } catch (e) {
           loadErrors.push(e)
         }
-
       }
     } else if (process.arch === 'arm64') {
       if (isMusl()) {
@@ -258,19 +232,6 @@ function requireNative() {
         } catch (e) {
           loadErrors.push(e)
         }
-
-      } else if (isOpenHarmony) {
-        try {
-          return require('./example.linux-arm64-ohos.node')
-        } catch (e) {
-          loadErrors.push(e)
-        }
-        try {
-          return require('@examples/napi-linux-arm64-ohos')
-        } catch (e) {
-          loadErrors.push(e)
-        }
-
       } else {
         try {
           return require('./example.linux-arm64-gnu.node')
@@ -282,7 +243,6 @@ function requireNative() {
         } catch (e) {
           loadErrors.push(e)
         }
-
       }
     } else if (process.arch === 'arm') {
       if (isMusl()) {
@@ -296,19 +256,6 @@ function requireNative() {
         } catch (e) {
           loadErrors.push(e)
         }
-
-      } else if (isOpenHarmony) {
-        try {
-          return require('./example.linux-arm-ohos.node')
-        } catch (e) {
-          loadErrors.push(e)
-        }
-        try {
-          return require('@examples/napi-linux-arm-ohos')
-        } catch (e) {
-          loadErrors.push(e)
-        }
-
       } else {
         try {
           return require('./example.linux-arm-gnueabihf.node')
@@ -320,7 +267,6 @@ function requireNative() {
         } catch (e) {
           loadErrors.push(e)
         }
-
       }
     } else if (process.arch === 'riscv64') {
       if (isMusl()) {
@@ -334,7 +280,6 @@ function requireNative() {
         } catch (e) {
           loadErrors.push(e)
         }
-
       } else {
         try {
           return require('./example.linux-riscv64-gnu.node')
@@ -346,7 +291,6 @@ function requireNative() {
         } catch (e) {
           loadErrors.push(e)
         }
-
       }
     } else if (process.arch === 'ppc64') {
       try {
@@ -359,7 +303,6 @@ function requireNative() {
       } catch (e) {
         loadErrors.push(e)
       }
-
     } else if (process.arch === 's390x') {
       try {
         return require('./example.linux-s390x-gnu.node')
@@ -371,9 +314,45 @@ function requireNative() {
       } catch (e) {
         loadErrors.push(e)
       }
-
     } else {
       loadErrors.push(new Error(`Unsupported architecture on Linux: ${process.arch}`))
+    }
+  } else if (process.platform === 'openharmony') {
+    if (process.arch === 'arm64') {
+      try {
+        return require('./example.linux-x64-ohos.node')
+      } catch (e) {
+        loadErrors.push(e)
+      }
+      try {
+        return require('@examples/napi-linux-x64-ohos')
+      } catch (e) {
+        loadErrors.push(e)
+      }
+    } else if (process.arch === 'x64') {
+      try {
+        return require('./example.linux-arm64-ohos.node')
+      } catch (e) {
+        loadErrors.push(e)
+      }
+      try {
+        return require('@examples/napi-linux-arm64-ohos')
+      } catch (e) {
+        loadErrors.push(e)
+      }
+    } else if (process.arch === 'arm') {
+      try {
+        return require('./example.linux-arm-ohos.node')
+      } catch (e) {
+        loadErrors.push(e)
+      }
+      try {
+        return require('@examples/napi-linux-arm-ohos')
+      } catch (e) {
+        loadErrors.push(e)
+      }
+    } else {
+      loadErrors.push(new Error(`Unsupported architecture on OpenHarmony: ${process.arch}`))
     }
   } else {
     loadErrors.push(new Error(`Unsupported OS: ${process.platform}, architecture: ${process.arch}`))
