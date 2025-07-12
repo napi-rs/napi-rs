@@ -320,23 +320,23 @@ function requireNative() {
   } else if (process.platform === 'openharmony') {
     if (process.arch === 'arm64') {
       try {
-        return require('./example.linux-x64-ohos.node')
-      } catch (e) {
-        loadErrors.push(e)
-      }
-      try {
-        return require('@examples/napi-linux-x64-ohos')
-      } catch (e) {
-        loadErrors.push(e)
-      }
-    } else if (process.arch === 'x64') {
-      try {
         return require('./example.linux-arm64-ohos.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
         return require('@examples/napi-linux-arm64-ohos')
+      } catch (e) {
+        loadErrors.push(e)
+      }
+    } else if (process.arch === 'x64') {
+      try {
+        return require('./example.linux-x64-ohos.node')
+      } catch (e) {
+        loadErrors.push(e)
+      }
+      try {
+        return require('@examples/napi-linux-x64-ohos')
       } catch (e) {
         loadErrors.push(e)
       }

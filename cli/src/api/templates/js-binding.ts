@@ -186,9 +186,9 @@ function requireNative() {
     }
   } else if (process.platform === 'openharmony') {
     if (process.arch === 'arm64') {
-      ${requireTuple('linux-x64-ohos')}
-    } else if (process.arch === 'x64') {
       ${requireTuple('linux-arm64-ohos')}
+    } else if (process.arch === 'x64') {
+      ${requireTuple('linux-x64-ohos')}
     } else if (process.arch === 'arm') {
       ${requireTuple('linux-arm-ohos')}
     } else {
