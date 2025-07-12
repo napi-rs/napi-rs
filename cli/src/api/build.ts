@@ -514,86 +514,15 @@ class Builder {
     }
 
     if (this.target.platform === 'android') {
-      const { ANDROID_NDK_LATEST_HOME } = process.env
-      if (!ANDROID_NDK_LATEST_HOME) {
-        debug.warn(
-          `${colors.red(
-            'ANDROID_NDK_LATEST_HOME',
-          )} environment variable is missing`,
-        )
-      }
-
-      const targetArch = this.target.arch === 'arm' ? 'armv7a' : 'aarch64'
-      const targetPlatform =
-        this.target.arch === 'arm' ? 'androideabi24' : 'android24'
-      const hostPlatform =
-        process.platform === 'darwin'
-          ? 'darwin'
-          : process.platform === 'win32'
-            ? 'windows'
-            : 'linux'
-      Object.assign(this.envs, {
-        CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/${hostPlatform}-x86_64/bin/${targetArch}-linux-android24-clang`,
-        CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/${hostPlatform}-x86_64/bin/${targetArch}-linux-androideabi24-clang`,
-        TARGET_CC: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/${hostPlatform}-x86_64/bin/${targetArch}-linux-${targetPlatform}-clang`,
-        TARGET_CXX: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/${hostPlatform}-x86_64/bin/${targetArch}-linux-${targetPlatform}-clang++`,
-        TARGET_AR: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/${hostPlatform}-x86_64/bin/llvm-ar`,
-        TARGET_RANLIB: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/${hostPlatform}-x86_64/bin/llvm-ranlib`,
-        ANDROID_NDK: ANDROID_NDK_LATEST_HOME,
-        PATH: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/${hostPlatform}-x86_64/bin:${process.env.PATH}`,
-      })
+      this.setAndroidEnv()
     }
-    // END LINKER
 
     if (this.target.platform === 'wasi') {
-      const emnapi = join(
-        require.resolve('emnapi'),
-        '..',
-        'lib',
-        'wasm32-wasi-threads',
-      )
-      this.envs.EMNAPI_LINK_DIR = emnapi
-      this.envs.SETJMP_LINK_DIR = setjmpLib
-      const { WASI_SDK_PATH } = process.env
+      this.setWasiEnv()
+    }
 
-      if (WASI_SDK_PATH && existsSync(WASI_SDK_PATH)) {
-        this.envs.CARGO_TARGET_WASM32_WASI_PREVIEW1_THREADS_LINKER = join(
-          WASI_SDK_PATH,
-          'bin',
-          'wasm-ld',
-        )
-        this.envs.CARGO_TARGET_WASM32_WASIP1_LINKER = join(
-          WASI_SDK_PATH,
-          'bin',
-          'wasm-ld',
-        )
-        this.envs.CARGO_TARGET_WASM32_WASIP1_THREADS_LINKER = join(
-          WASI_SDK_PATH,
-          'bin',
-          'wasm-ld',
-        )
-        this.envs.CARGO_TARGET_WASM32_WASIP2_LINKER = join(
-          WASI_SDK_PATH,
-          'bin',
-          'wasm-ld',
-        )
-        this.setEnvIfNotExists('CC', join(WASI_SDK_PATH, 'bin', 'clang'))
-        this.setEnvIfNotExists('CXX', join(WASI_SDK_PATH, 'bin', 'clang++'))
-        this.setEnvIfNotExists('AR', join(WASI_SDK_PATH, 'bin', 'ar'))
-        this.setEnvIfNotExists('RANLIB', join(WASI_SDK_PATH, 'bin', 'ranlib'))
-        this.setEnvIfNotExists(
-          'CFLAGS',
-          `--target=wasm32-wasi-threads --sysroot=${WASI_SDK_PATH}/share/wasi-sysroot -pthread -mllvm -wasm-enable-sjlj -I${setjmpInclude}`,
-        )
-        this.setEnvIfNotExists(
-          'CXXFLAGS',
-          `--target=wasm32-wasi-threads --sysroot=${WASI_SDK_PATH}/share/wasi-sysroot -pthread -mllvm -wasm-enable-sjlj -I${setjmpInclude}`,
-        )
-        this.setEnvIfNotExists(
-          `LDFLAGS`,
-          `-fuse-ld=${WASI_SDK_PATH}/bin/wasm-ld --target=wasm32-wasi-threads`,
-        )
-      }
+    if (this.target.abi === 'ohos') {
+      this.setOpenHarmonyEnv()
     }
 
     debug('Set envs: ')
@@ -616,6 +545,141 @@ class Builder {
         ] = Date.now().toString()
       }
     })
+  }
+
+  private setAndroidEnv() {
+    const { ANDROID_NDK_LATEST_HOME } = process.env
+    if (!ANDROID_NDK_LATEST_HOME) {
+      debug.warn(
+        `${colors.red(
+          'ANDROID_NDK_LATEST_HOME',
+        )} environment variable is missing`,
+      )
+    }
+
+    // skip cross compile setup if host is android
+    if (process.platform === 'android') {
+      return
+    }
+
+    const targetArch = this.target.arch === 'arm' ? 'armv7a' : 'aarch64'
+    const targetPlatform =
+      this.target.arch === 'arm' ? 'androideabi24' : 'android24'
+    const hostPlatform =
+      process.platform === 'darwin'
+        ? 'darwin'
+        : process.platform === 'win32'
+          ? 'windows'
+          : 'linux'
+    Object.assign(this.envs, {
+      CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/${hostPlatform}-x86_64/bin/${targetArch}-linux-android24-clang`,
+      CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/${hostPlatform}-x86_64/bin/${targetArch}-linux-androideabi24-clang`,
+      TARGET_CC: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/${hostPlatform}-x86_64/bin/${targetArch}-linux-${targetPlatform}-clang`,
+      TARGET_CXX: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/${hostPlatform}-x86_64/bin/${targetArch}-linux-${targetPlatform}-clang++`,
+      TARGET_AR: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/${hostPlatform}-x86_64/bin/llvm-ar`,
+      TARGET_RANLIB: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/${hostPlatform}-x86_64/bin/llvm-ranlib`,
+      ANDROID_NDK: ANDROID_NDK_LATEST_HOME,
+      PATH: `${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/${hostPlatform}-x86_64/bin${process.platform === 'win32' ? ';' : ':'}${process.env.PATH}`,
+    })
+  }
+
+  private setWasiEnv() {
+    const emnapi = join(
+      require.resolve('emnapi'),
+      '..',
+      'lib',
+      'wasm32-wasi-threads',
+    )
+    this.envs.EMNAPI_LINK_DIR = emnapi
+    this.envs.SETJMP_LINK_DIR = setjmpLib
+    const { WASI_SDK_PATH } = process.env
+
+    if (WASI_SDK_PATH && existsSync(WASI_SDK_PATH)) {
+      this.envs.CARGO_TARGET_WASM32_WASI_PREVIEW1_THREADS_LINKER = join(
+        WASI_SDK_PATH,
+        'bin',
+        'wasm-ld',
+      )
+      this.envs.CARGO_TARGET_WASM32_WASIP1_LINKER = join(
+        WASI_SDK_PATH,
+        'bin',
+        'wasm-ld',
+      )
+      this.envs.CARGO_TARGET_WASM32_WASIP1_THREADS_LINKER = join(
+        WASI_SDK_PATH,
+        'bin',
+        'wasm-ld',
+      )
+      this.envs.CARGO_TARGET_WASM32_WASIP2_LINKER = join(
+        WASI_SDK_PATH,
+        'bin',
+        'wasm-ld',
+      )
+      this.setEnvIfNotExists('TARGET_CC', join(WASI_SDK_PATH, 'bin', 'clang'))
+      this.setEnvIfNotExists(
+        'TARGET_CXX',
+        join(WASI_SDK_PATH, 'bin', 'clang++'),
+      )
+      this.setEnvIfNotExists('TARGET_AR', join(WASI_SDK_PATH, 'bin', 'ar'))
+      this.setEnvIfNotExists(
+        'TARGET_RANLIB',
+        join(WASI_SDK_PATH, 'bin', 'ranlib'),
+      )
+      this.setEnvIfNotExists(
+        'TARGET_CFLAGS',
+        `--target=wasm32-wasi-threads --sysroot=${WASI_SDK_PATH}/share/wasi-sysroot -pthread -mllvm -wasm-enable-sjlj -I${setjmpInclude}`,
+      )
+      this.setEnvIfNotExists(
+        'TARGET_CXXFLAGS',
+        `--target=wasm32-wasi-threads --sysroot=${WASI_SDK_PATH}/share/wasi-sysroot -pthread -mllvm -wasm-enable-sjlj -I${setjmpInclude}`,
+      )
+      this.setEnvIfNotExists(
+        `TARGET_LDFLAGS`,
+        `-fuse-ld=${WASI_SDK_PATH}/bin/wasm-ld --target=wasm32-wasi-threads`,
+      )
+    }
+  }
+
+  private setOpenHarmonyEnv() {
+    const { OHOS_SDK_PATH, OHOS_SDK_NATIVE } = process.env
+    const ndkPath = OHOS_SDK_PATH
+      ? `${OHOS_SDK_NATIVE}/native`
+      : OHOS_SDK_NATIVE
+    // @ts-expect-error
+    if (!ndkPath && process.platform !== 'openharmony') {
+      debug.warn(
+        `${colors.red('OHOS_SDK_PATH')} or ${colors.red('OHOS_SDK_NATIVE')} environment variable is missing`,
+      )
+      return
+    }
+    const linkerName = `CARGO_TARGET_${this.target.triple.toUpperCase().replace(/-/g, '_')}_LINKER`
+    const ranPath = `${ndkPath}/llvm/bin/llvm-ranlib`
+    const arPath = `${ndkPath}/llvm/bin/llvm-ar`
+    const ccPath = `${ndkPath}/llvm/bin/${this.target.triple}-clang`
+    const cxxPath = `${ndkPath}/llvm/bin/${this.target.triple}-clang++`
+    const asPath = `${ndkPath}/llvm/bin/llvm-as`
+    const ldPath = `${ndkPath}/llvm/bin/ld.lld`
+    const stripPath = `${ndkPath}/llvm/bin/llvm-strip`
+    const objDumpPath = `${ndkPath}/llvm/bin/llvm-objdump`
+    const objCopyPath = `${ndkPath}/llvm/bin/llvm-objcopy`
+    const nmPath = `${ndkPath}/llvm/bin/llvm-nm`
+    const binPath = `${ndkPath}/llvm/bin`
+    const libPath = `${ndkPath}/llvm/lib`
+
+    this.setEnvIfNotExists('LIBCLANG_PATH', libPath)
+    this.setEnvIfNotExists('DEP_ATOMIC', 'clang_rt.builtins')
+    this.setEnvIfNotExists(linkerName, ccPath)
+    this.setEnvIfNotExists('TARGET_CC', ccPath)
+    this.setEnvIfNotExists('TARGET_CXX', cxxPath)
+    this.setEnvIfNotExists('TARGET_AR', arPath)
+    this.setEnvIfNotExists('TARGET_RANLIB', ranPath)
+    this.setEnvIfNotExists('TARGET_AS', asPath)
+    this.setEnvIfNotExists('TARGET_LD', ldPath)
+    this.setEnvIfNotExists('TARGET_STRIP', stripPath)
+    this.setEnvIfNotExists('TARGET_OBJDUMP', objDumpPath)
+    this.setEnvIfNotExists('TARGET_OBJCOPY', objCopyPath)
+    this.setEnvIfNotExists('TARGET_NM', nmPath)
+    this.envs.PATH = `${binPath}${process.platform === 'win32' ? ';' : ':'}${process.env.PATH}`
   }
 
   private setFeatures() {
