@@ -20,6 +20,7 @@ napi = { path = "../../crates/napi", features = [
   "serde-json",
   "latin1",
   "compat-mode",
+  "napi5",
 ] }
 napi-derive = { path = "../../crates/macro", features = ["compat-mode"] }
 serde = "1"

@@ -142,6 +142,14 @@ fn wait_first_thread_registered() {
 #[linkme::distributed_slice]
 pub static MODULE_EXPORTS_LINKME: [ModuleExportsCallback];
 
+#[cfg(all(feature = "compat-mode", not(feature = "noop")))]
+#[linkme::distributed_slice(MODULE_EXPORTS_LINKME)]
+unsafe fn noop_linkme(_env: sys::napi_env, _exports: sys::napi_value) -> Result<()> {
+  // nothing
+
+  Ok(())
+}
+
 #[doc(hidden)]
 #[cfg(all(feature = "compat-mode", not(feature = "noop")))]
 // compatibility for #[module_exports]
