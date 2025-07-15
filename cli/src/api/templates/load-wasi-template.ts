@@ -4,8 +4,10 @@ export const createWasiBrowserBinding = (
   maximumMemory = 65536,
   fs = false,
   asyncInit = false,
+  buffer = false,
 ) => {
   const fsImport = fs ? `import { memfs } from '@napi-rs/wasm-runtime/fs'` : ''
+  const bufferImport = buffer ? `import { Buffer } from 'buffer'` : ''
   const wasiCreation = fs
     ? `
 export const { fs: __fs, vol: __volume } = memfs()
@@ -26,6 +28,9 @@ const __wasi = new __WASI({
     ? `    worker.addEventListener('message', __wasmCreateOnMessageForFsProxy(__fs))\n`
     : ''
 
+  const emnapiInjectBuffer = buffer
+    ? '__emnapiContext.feature.Buffer = Buffer'
+    : ''
   const emnapiInstantiateImport = asyncInit
     ? `instantiateNapiModule as __emnapiInstantiateNapiModule`
     : `instantiateNapiModuleSync as __emnapiInstantiateNapiModuleSync`
@@ -40,10 +45,12 @@ const __wasi = new __WASI({
   WASI as __WASI,
 } from '@napi-rs/wasm-runtime'
 ${fsImport}
+${bufferImport}
 ${wasiCreation}
 
 const __wasmUrl = new URL('./${wasiFilename}.wasm', import.meta.url).href
 const __emnapiContext = __emnapiGetDefaultContext()
+${emnapiInjectBuffer}
 
 const __sharedMemory = new WebAssembly.Memory({
   initial: ${initialMemory},
