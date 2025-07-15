@@ -1056,6 +1056,7 @@ export type TypedArray = Int8Array | Uint8Array | Uint8ClampedArray | Int16Array
           this.config.wasm?.maximumMemory,
           this.config.wasm?.browser?.fs,
           this.config.wasm?.browser?.asyncInit,
+          this.config.wasm?.browser?.buffer,
         ) +
           `export default __napiModule.exports\n` +
           idents

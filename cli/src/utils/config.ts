@@ -79,6 +79,10 @@ export interface UserNapiConfig {
        * Whether to initialize wasm asynchronously
        */
       asyncInit?: boolean
+      /**
+       * Whether to inject `buffer` to emnapi context
+       */
+      buffer?: boolean
     }
   }
 
