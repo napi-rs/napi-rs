@@ -7,7 +7,11 @@ export const createWasiBrowserBinding = (
   buffer = false,
 ) => {
   const fsImport = fs ? `import { memfs } from '@napi-rs/wasm-runtime/fs'` : ''
-  const bufferImport = buffer ? `import { Buffer } from 'buffer'` : ''
+  const bufferImport = buffer
+    ? fs
+      ? ``
+      : `import { Buffer } from 'buffer'`
+    : ''
   const wasiCreation = fs
     ? `
 export const { fs: __fs, vol: __volume } = memfs()

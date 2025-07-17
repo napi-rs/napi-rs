@@ -16,7 +16,8 @@
     "wasm": {
       "initialMemory": 16384,
       "browser": {
-        "fs": true
+        "fs": true,
+        "buffer": true
       }
     },
     "dtsHeader": "type MaybePromise<T> = T | Promise<T>",
