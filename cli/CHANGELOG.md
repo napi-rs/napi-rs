@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.100](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.99...@napi-rs/cli@3.0.0-alpha.100) (2025-07-17)
+
+### Features
+
+- **cli:** add buffer to wasi browser template ([#2777](https://github.com/napi-rs/napi-rs/issues/2777)) ([23a3fec](https://github.com/napi-rs/napi-rs/commit/23a3fec5dc682326ccb7ace0fa84284c85100121))
+
 # [3.0.0-alpha.99](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.98...@napi-rs/cli@3.0.0-alpha.99) (2025-07-12)
 
 ### Bug Fixes
