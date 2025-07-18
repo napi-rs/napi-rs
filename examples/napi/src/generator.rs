@@ -84,7 +84,7 @@ impl Fib2 {
 #[napi(iterator, constructor)]
 pub struct Fib3 {
   pub current: u32,
-  pub next: u32,
+  pub next_num: u32,
 }
 
 #[napi]
@@ -97,13 +97,13 @@ impl Generator for Fib3 {
     match value {
       Some(n) => {
         self.current = n as u32;
-        self.next = n as u32 + 1;
+        self.next_num = n as u32 + 1;
       }
       None => {
-        let next = self.next;
+        let next = self.next_num;
         let current = self.current;
         self.current = next;
-        self.next = current + next;
+        self.next_num = current + next;
       }
     };
     Some(self.current)
