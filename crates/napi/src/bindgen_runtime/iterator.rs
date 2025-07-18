@@ -48,49 +48,183 @@ pub unsafe fn create_iterator<T: Generator>(
   let mut global = ptr::null_mut();
   check_status_or_throw!(
     env,
-    unsafe { sys::napi_get_global(env, &mut global) },
+    sys::napi_get_global(env, &mut global),
     "Get global object failed",
   );
+
   let mut symbol_object = ptr::null_mut();
   check_status_or_throw!(
     env,
-    unsafe {
-      sys::napi_get_named_property(env, global, c"Symbol".as_ptr().cast(), &mut symbol_object)
-    },
+    sys::napi_get_named_property(env, global, c"Symbol".as_ptr().cast(), &mut symbol_object),
     "Get global object failed",
   );
+
+  let mut next_function = ptr::null_mut();
+  check_status_or_throw!(
+    env,
+    sys::napi_create_function(
+      env,
+      c"next".as_ptr().cast(),
+      4,
+      Some(generator_next::<T>),
+      generator_ptr as *mut c_void,
+      &mut next_function,
+    ),
+    "Create next function failed"
+  );
+
+  let mut return_function = ptr::null_mut();
+  check_status_or_throw!(
+    env,
+    sys::napi_create_function(
+      env,
+      c"return".as_ptr().cast(),
+      6,
+      Some(generator_return::<T>),
+      generator_ptr as *mut c_void,
+      &mut return_function,
+    ),
+    "Create return function failed"
+  );
+
+  let mut throw_function = ptr::null_mut();
+  check_status_or_throw!(
+    env,
+    sys::napi_create_function(
+      env,
+      c"throw".as_ptr().cast(),
+      5,
+      Some(generator_throw::<T>),
+      generator_ptr as *mut c_void,
+      &mut throw_function,
+    ),
+    "Create throw function failed"
+  );
+
+  check_status_or_throw!(
+    env,
+    sys::napi_set_named_property(env, instance, c"next".as_ptr().cast(), next_function,),
+    "Set next function on Generator object failed"
+  );
+
+  check_status_or_throw!(
+    env,
+    sys::napi_set_named_property(env, instance, c"return".as_ptr().cast(), return_function),
+    "Set return function on Generator object failed"
+  );
+
+  check_status_or_throw!(
+    env,
+    sys::napi_set_named_property(env, instance, c"throw".as_ptr().cast(), throw_function),
+    "Set throw function on Generator object failed"
+  );
+
+  let mut generator_state = ptr::null_mut();
+  check_status_or_throw!(
+    env,
+    sys::napi_get_boolean(env, false, &mut generator_state),
+    "Create generator state failed"
+  );
+
+  let properties = [sys::napi_property_descriptor {
+    utf8name: GENERATOR_STATE_KEY.as_ptr().cast(),
+    name: ptr::null_mut(),
+    method: None,
+    getter: None,
+    setter: None,
+    value: generator_state,
+    attributes: sys::PropertyAttributes::writable,
+    data: ptr::null_mut(),
+  }];
+
+  check_status_or_throw!(
+    env,
+    sys::napi_define_properties(env, instance, 1, properties.as_ptr()),
+    "Define properties on Generator object failed"
+  );
+
   let mut iterator_symbol = ptr::null_mut();
   check_status_or_throw!(
     env,
-    unsafe {
-      sys::napi_get_named_property(
-        env,
-        symbol_object,
-        c"iterator".as_ptr().cast(),
-        &mut iterator_symbol,
-      )
-    },
+    sys::napi_get_named_property(
+      env,
+      symbol_object,
+      c"iterator".as_ptr().cast(),
+      &mut iterator_symbol,
+    ),
     "Get Symbol.iterator failed",
   );
+
   let mut generator_function = ptr::null_mut();
   check_status_or_throw!(
     env,
-    unsafe {
-      sys::napi_create_function(
-        env,
-        c"Iterator".as_ptr().cast(),
-        8,
-        Some(symbol_generator::<T>),
-        generator_ptr as *mut c_void,
-        &mut generator_function,
-      )
-    },
+    sys::napi_create_function(
+      env,
+      c"Iterator".as_ptr().cast(),
+      8,
+      Some(symbol_generator::<T>),
+      generator_ptr as *mut c_void,
+      &mut generator_function,
+    ),
     "Create iterator function failed",
   );
+
   check_status_or_throw!(
     env,
-    unsafe { sys::napi_set_property(env, instance, iterator_symbol, generator_function) },
+    sys::napi_set_property(env, instance, iterator_symbol, generator_function),
     "Failed to set Symbol.iterator on class instance",
+  );
+
+  let mut iterator_ctor = ptr::null_mut();
+  check_status_or_throw!(
+    env,
+    sys::napi_get_named_property(env, global, c"Iterator".as_ptr().cast(), &mut iterator_ctor,),
+    "Global.Iterator not found – are iterator-helpers enabled?",
+  );
+
+  let mut iterator_proto = ptr::null_mut();
+  check_status_or_throw!(
+    env,
+    sys::napi_get_named_property(
+      env,
+      iterator_ctor,
+      c"prototype".as_ptr().cast(),
+      &mut iterator_proto,
+    ),
+    "Failed to get Iterator.prototype",
+  );
+
+  let mut object_ctor = ptr::null_mut();
+  check_status_or_throw!(
+    env,
+    sys::napi_get_named_property(env, global, c"Object".as_ptr().cast(), &mut object_ctor),
+    "Failed to get Object constructor"
+  );
+
+  let mut set_prototype_function = ptr::null_mut();
+  check_status_or_throw!(
+    env,
+    sys::napi_get_named_property(
+      env,
+      object_ctor,
+      c"setPrototypeOf".as_ptr().cast(),
+      &mut set_prototype_function,
+    ),
+    "Failed to get Object.setPrototypeOf"
+  );
+
+  let mut argv = [instance, iterator_proto];
+  check_status_or_throw!(
+    env,
+    sys::napi_call_function(
+      env,
+      object_ctor,
+      set_prototype_function,
+      2,
+      argv.as_mut_ptr(),
+      ptr::null_mut(),
+    ),
+    "Failed to set prototype on object"
   );
 }
 
@@ -117,122 +251,8 @@ pub unsafe extern "C" fn symbol_generator<T: Generator>(
     },
     "Get callback info from generator function failed"
   );
-  let mut generator_object = ptr::null_mut();
-  check_status_or_throw!(
-    env,
-    unsafe { sys::napi_create_object(env, &mut generator_object) },
-    "Create Generator object failed"
-  );
-  let mut next_function = ptr::null_mut();
-  check_status_or_throw!(
-    env,
-    unsafe {
-      sys::napi_create_function(
-        env,
-        c"next".as_ptr().cast(),
-        4,
-        Some(generator_next::<T>),
-        generator_ptr,
-        &mut next_function,
-      )
-    },
-    "Create next function failed"
-  );
-  let mut return_function = ptr::null_mut();
-  check_status_or_throw!(
-    env,
-    unsafe {
-      sys::napi_create_function(
-        env,
-        c"return".as_ptr().cast(),
-        6,
-        Some(generator_return::<T>),
-        generator_ptr,
-        &mut return_function,
-      )
-    },
-    "Create next function failed"
-  );
-  let mut throw_function = ptr::null_mut();
-  check_status_or_throw!(
-    env,
-    unsafe {
-      sys::napi_create_function(
-        env,
-        c"throw".as_ptr().cast(),
-        5,
-        Some(generator_throw::<T>),
-        generator_ptr,
-        &mut throw_function,
-      )
-    },
-    "Create next function failed"
-  );
 
-  check_status_or_throw!(
-    env,
-    unsafe {
-      sys::napi_set_named_property(
-        env,
-        generator_object,
-        c"next".as_ptr().cast(),
-        next_function,
-      )
-    },
-    "Set next function on Generator object failed"
-  );
-
-  check_status_or_throw!(
-    env,
-    unsafe {
-      sys::napi_set_named_property(
-        env,
-        generator_object,
-        c"return".as_ptr().cast(),
-        return_function,
-      )
-    },
-    "Set return function on Generator object failed"
-  );
-
-  check_status_or_throw!(
-    env,
-    unsafe {
-      sys::napi_set_named_property(
-        env,
-        generator_object,
-        c"throw".as_ptr().cast(),
-        throw_function,
-      )
-    },
-    "Set throw function on Generator object failed"
-  );
-
-  let mut generator_state = ptr::null_mut();
-  check_status_or_throw!(
-    env,
-    unsafe { sys::napi_get_boolean(env, false, &mut generator_state) },
-    "Create generator state failed"
-  );
-
-  let properties = [sys::napi_property_descriptor {
-    utf8name: GENERATOR_STATE_KEY.as_ptr().cast(),
-    name: ptr::null_mut(),
-    method: None,
-    getter: None,
-    setter: None,
-    value: generator_state,
-    attributes: sys::PropertyAttributes::writable,
-    data: ptr::null_mut(),
-  }];
-
-  check_status_or_throw!(
-    env,
-    unsafe { sys::napi_define_properties(env, generator_object, 1, properties.as_ptr()) },
-    "Define properties on Generator object failed"
-  );
-
-  generator_object
+  this
 }
 
 extern "C" fn generator_next<T: Generator>(
