@@ -200,9 +200,6 @@ export declare class Fib2 {
 }
 
 /**
- * This is some documentation for Fib3,
- * and it's on multiple lines.
- *
  * This type extends JavaScript's `Iterator`, and so has the iterator helper
  * methods. It may extend the upcoming TypeScript `Iterator` class in the future.
  *

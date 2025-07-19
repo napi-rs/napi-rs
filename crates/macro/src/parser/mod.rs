@@ -1270,6 +1270,22 @@ impl ConvertToAST for syn::ItemStruct {
     record_struct(&rust_struct_ident, final_js_name_for_struct.clone(), opts);
     let namespace = opts.namespace().map(|(m, _)| m.to_owned());
     let implement_iterator = opts.iterator().is_some();
+
+    if implement_iterator
+      && self
+        .fields
+        .iter()
+        .filter(|f| matches!(f.vis, Visibility::Public(_)))
+        .filter_map(|f| f.ident.clone())
+        .map(|ident| ident.to_string())
+        .any(|field_name| field_name == "next" || field_name == "throw")
+    {
+      bail_span!(
+        self,
+        "Generator structs cannot have public fields named `next`, or `throw`."
+      );
+    }
+
     let generator_struct = GENERATOR_STRUCT.get_or_init(|| Mutex::new(HashMap::new()));
     let mut generator_struct = generator_struct
       .lock()
