@@ -87,6 +87,7 @@ pub struct NapiStruct {
   pub register_name: Ident,
   pub kind: NapiStructKind,
   pub has_lifetime: bool,
+  pub is_generator: bool,
 }
 
 #[derive(Debug, Clone)]
