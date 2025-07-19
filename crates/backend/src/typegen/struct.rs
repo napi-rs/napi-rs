@@ -20,6 +20,20 @@ impl ToTypeDef for NapiStruct {
     });
     add_alias(self.name.to_string(), self.js_name.to_string());
 
+    let mut js_doc = js_doc_from_comments(&self.comments);
+    if self.is_generator {
+      let generator_doc = r#"
+/**
+ *  This type extends JavaScript's `Iterator`, and so has the iterator helper
+ *  methods. It may extend the upcoming TypeScript `Iterator` class in the future.
+ *
+ *  @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Iterator#iterator_helper_methods
+ *  @see https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-6.html#iterator-helper-methods
+ */
+"#;
+      js_doc = merge_js_doc_blocks(&format!("{js_doc}{generator_doc}"));
+    }
+
     Some(TypeDef {
       kind: String::from(match self.kind {
         NapiStructKind::Transparent(_) => "type",
@@ -32,9 +46,45 @@ impl ToTypeDef for NapiStruct {
       original_name: Some(self.name.to_string()),
       def: self.gen_ts_class(),
       js_mod: self.js_mod.to_owned(),
-      js_doc: js_doc_from_comments(&self.comments),
+      js_doc,
     })
   }
+}
+
+fn merge_js_doc_blocks(src: &str) -> String {
+  let mut merged = String::new();
+  let mut in_block = false;
+  let mut first_line_emitted = false;
+
+  for line in src.lines() {
+    let trimmed = line.trim_start();
+
+    if trimmed.starts_with("/**") {
+      in_block = true;
+      if !first_line_emitted {
+        push_line(&mut merged, trimmed);
+        first_line_emitted = true;
+      } else {
+        let comment_line = "* ".to_owned()
+          + trimmed
+            .strip_prefix("/**")
+            .map(|str| str.trim_start())
+            .unwrap();
+        push_line(&mut merged, &comment_line);
+      }
+    } else if trimmed.starts_with("*/") && in_block {
+      in_block = false;
+    } else if in_block {
+      let body = trimmed.strip_prefix('*').unwrap_or(trimmed).trim_start();
+      push_line(&mut merged, &("* ".to_owned() + body));
+    }
+  }
+  merged + " */\n"
+}
+
+fn push_line(str: &mut String, line: &str) {
+  let line = format!("{line}\n");
+  str.push_str(&line);
 }
 
 impl ToTypeDef for NapiImpl {
