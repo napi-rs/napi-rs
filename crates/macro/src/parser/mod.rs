@@ -1393,6 +1393,7 @@ impl ConvertToAST for syn::ItemStruct {
         register_name: get_register_ident(format!("{rust_struct_ident}_struct").as_str()),
         comments: extract_doc_comments(&self.attrs),
         has_lifetime: lifetime.is_some(),
+        is_generator: implement_iterator,
       }),
     })
   }
@@ -1556,6 +1557,7 @@ impl ConvertToAST for syn::ItemEnum {
             object_to_js: opts.object_to_js(),
           }),
           has_lifetime: false,
+          is_generator: false,
         }),
       });
     }
