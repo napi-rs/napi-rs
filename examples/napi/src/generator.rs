@@ -82,8 +82,6 @@ impl Fib2 {
 }
 
 #[napi(iterator, constructor)]
-/// This is some documentation for Fib3,
-/// and it's on multiple lines.
 pub struct Fib3 {
   pub current: u32,
   pub next_num: u32,
