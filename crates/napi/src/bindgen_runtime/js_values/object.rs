@@ -6,7 +6,8 @@ use std::marker::PhantomData;
 use std::ptr;
 
 use crate::{
-  bindgen_prelude::*, check_status, raw_finalize, sys, type_of, Callback, TaggedObject, Value,
+  bindgen_prelude::*, check_status, raw_finalize, sys, type_of, Callback, NapiRaw, NapiValue,
+  TaggedObject, Value,
 };
 #[cfg(feature = "napi5")]
 use crate::{Env, PropertyClosures};
@@ -656,7 +657,6 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
     check_status!(unsafe { sys::napi_object_seal(env, self.value().value) })
   }
 }
-
 #[derive(Clone, Copy)]
 pub struct Object<'env>(pub(crate) Value, pub(crate) PhantomData<&'env ()>);
 
@@ -696,6 +696,44 @@ impl FromNapiValue for Object<'_> {
 impl ToNapiValue for &Object<'_> {
   unsafe fn to_napi_value(_env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     Ok(val.0.value)
+  }
+}
+
+impl NapiRaw for Object<'_> {
+  unsafe fn raw(&self) -> sys::napi_value {
+    self.0.value
+  }
+}
+
+impl NapiValue for Object<'_> {
+  unsafe fn from_raw(env: sys::napi_env, value: sys::napi_value) -> Result<Self> {
+    let value_type = type_of!(env, value)?;
+    if value_type != ValueType::Object {
+      return Err(Error::new(
+        Status::InvalidArg,
+        format!("expect {:?}, got: {:?}", ValueType::Object, value_type),
+      ));
+    }
+
+    Ok(Self(
+      Value {
+        env,
+        value,
+        value_type: ValueType::Object,
+      },
+      PhantomData,
+    ))
+  }
+
+  unsafe fn from_raw_unchecked(env: sys::napi_env, value: sys::napi_value) -> Self {
+    Self(
+      Value {
+        env,
+        value,
+        value_type: ValueType::Object,
+      },
+      PhantomData,
+    )
   }
 }
 

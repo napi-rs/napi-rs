@@ -90,12 +90,7 @@ pub fn test_tsfn_with_ref(ctx: CallContext) -> Result<()> {
   let tsfn = callback
     .build_threadsafe_function::<Ref<Object>>()
     .callee_handled::<true>()
-    .build_callback(move |mut ctx| {
-      ctx
-        .env
-        .get_reference_value_unchecked::<Object>(&ctx.value)
-        .and_then(|obj| ctx.value.unref(&ctx.env).map(|_| obj))
-    })?;
+    .build_callback(move |ctx| Ref::get_value(&ctx.value, &ctx.env))?;
 
   thread::spawn(move || {
     tsfn.call(option_ref, ThreadsafeFunctionCallMode::Blocking);

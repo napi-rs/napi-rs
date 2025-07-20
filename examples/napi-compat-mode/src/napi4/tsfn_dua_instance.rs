@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
 use napi::{
-  bindgen_prelude::Function, threadsafe_function::ThreadsafeFunction, CallContext, JsObject, Status,
+  bindgen_prelude::{Function, JsObjectValue, Object},
+  threadsafe_function::ThreadsafeFunction,
+  CallContext, Status,
 };
 use napi_derive::js_function;
 
@@ -21,17 +23,17 @@ pub fn constructor(ctx: CallContext) -> napi::Result<()> {
       .build()?,
   );
 
-  let mut this: JsObject = ctx.this_unchecked();
+  let mut this = ctx.this_unchecked::<Object<'_>>();
   let obj = A { cb };
 
-  ctx.env.wrap(&mut this, obj, None)?;
+  this.wrap(obj, None)?;
   Ok(())
 }
 
 #[js_function]
 pub fn call(ctx: CallContext) -> napi::Result<()> {
-  let this = ctx.this_unchecked();
-  let obj = ctx.env.unwrap::<A>(&this)?;
+  let this = ctx.this_unchecked::<Object<'_>>();
+  let obj = this.unwrap::<A>()?;
   obj.cb.call(
     "ThreadsafeFunction NonBlocking Call".to_owned(),
     napi::threadsafe_function::ThreadsafeFunctionCallMode::NonBlocking,

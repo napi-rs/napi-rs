@@ -677,13 +677,11 @@ macro_rules! impl_object_methods {
   };
 }
 
-#[cfg(feature = "compat-mode")]
 pub trait NapiRaw {
   #[allow(clippy::missing_safety_doc)]
   unsafe fn raw(&self) -> sys::napi_value;
 }
 
-#[cfg(feature = "compat-mode")]
 pub trait NapiValue: Sized + NapiRaw {
   #[allow(clippy::missing_safety_doc)]
   unsafe fn from_raw(env: sys::napi_env, value: sys::napi_value) -> Result<Self>;
