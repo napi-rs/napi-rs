@@ -347,6 +347,8 @@ export declare function asyncPlus100(p: Promise<number>): Promise<number>
 
 export declare function asyncReduceBuffer(buf: Buffer): Promise<number>
 
+export declare function asyncResolveArray(inner: number): Promise<unknown[]>
+
 export declare function asyncTaskOptionalReturn(): Promise<number | null>
 
 export declare function asyncTaskReadFile(path: string): Promise<Buffer>
