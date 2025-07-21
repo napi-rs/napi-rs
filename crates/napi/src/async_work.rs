@@ -2,6 +2,7 @@ use std::cell::Cell;
 use std::marker::PhantomData;
 use std::mem;
 use std::os::raw::c_void;
+use std::panic::UnwindSafe;
 use std::ptr;
 use std::rc::Rc;
 
@@ -30,6 +31,9 @@ pub struct AsyncWorkPromise<T> {
   pub(crate) status: Rc<Cell<u8>>,
   _phantom: PhantomData<T>,
 }
+
+impl<T> UnwindSafe for AsyncWorkPromise<T> {}
+impl<T> std::panic::RefUnwindSafe for AsyncWorkPromise<T> {}
 
 impl<T> AsyncWorkPromise<T> {
   pub fn promise_object<'env>(&self) -> PromiseRaw<'env, T> {
