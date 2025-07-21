@@ -1,6 +1,6 @@
 {
   "name": "@napi-rs/wasm-runtime",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "description": "Runtime and polyfill for wasm targets",
   "author": {
