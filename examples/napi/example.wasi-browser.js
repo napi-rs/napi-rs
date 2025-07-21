@@ -4,7 +4,7 @@ import {
   instantiateNapiModuleSync as __emnapiInstantiateNapiModuleSync,
   WASI as __WASI,
 } from '@napi-rs/wasm-runtime'
-import { memfs } from '@napi-rs/wasm-runtime/fs'
+import { memfs, Buffer } from '@napi-rs/wasm-runtime/fs'
 
 
 export const { fs: __fs, vol: __volume } = memfs()
@@ -135,6 +135,7 @@ export const asyncBufferToArray = __napiModule.exports.asyncBufferToArray
 export const asyncMultiTwo = __napiModule.exports.asyncMultiTwo
 export const asyncPlus100 = __napiModule.exports.asyncPlus100
 export const asyncReduceBuffer = __napiModule.exports.asyncReduceBuffer
+export const asyncResolveArray = __napiModule.exports.asyncResolveArray
 export const asyncTaskOptionalReturn = __napiModule.exports.asyncTaskOptionalReturn
 export const asyncTaskReadFile = __napiModule.exports.asyncTaskReadFile
 export const asyncTaskVoidReturn = __napiModule.exports.asyncTaskVoidReturn

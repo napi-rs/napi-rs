@@ -1,24 +1,23 @@
+use std::cell::Cell;
 use std::ffi::c_void;
 use std::marker::PhantomData;
 use std::ptr;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicPtr, AtomicU8, Ordering};
 
-use crate::Value;
 use crate::{
   async_work,
   bindgen_prelude::{FromNapiValue, JsObjectValue, ToNapiValue, TypeName, Unknown},
-  check_status, sys, Env, Error, JsError, Task, ValueType,
+  check_status, sys, Env, Error, JsError, ScopedTask, Value, ValueType,
 };
 
 use super::Object;
 
-pub struct AsyncTask<T: Task> {
+pub struct AsyncTask<T: for<'task> ScopedTask<'task>> {
   inner: T,
   abort_signal: Option<AbortSignal>,
 }
 
-impl<T: Task> TypeName for T {
+impl<T: for<'task> ScopedTask<'task>> TypeName for T {
   fn type_name() -> &'static str {
     "AsyncTask"
   }
@@ -28,7 +27,7 @@ impl<T: Task> TypeName for T {
   }
 }
 
-impl<T: Task> AsyncTask<T> {
+impl<T: for<'task> ScopedTask<'task>> AsyncTask<T> {
   pub fn new(task: T) -> Self {
     Self {
       inner: task,
@@ -53,8 +52,8 @@ impl<T: Task> AsyncTask<T> {
 
 /// <https://developer.mozilla.org/zh-CN/docs/Web/API/AbortController>
 pub struct AbortSignal {
-  raw_work: Rc<AtomicPtr<sys::napi_async_work__>>,
-  status: Rc<AtomicU8>,
+  raw_work: Rc<Cell<sys::napi_async_work>>,
+  status: Rc<Cell<u8>>,
 }
 
 #[repr(transparent)]
@@ -70,9 +69,8 @@ impl FromNapiValue for AbortSignal {
       },
       PhantomData,
     );
-    let async_work_inner: Rc<AtomicPtr<sys::napi_async_work__>> =
-      Rc::new(AtomicPtr::new(ptr::null_mut()));
-    let task_status = Rc::new(AtomicU8::new(0));
+    let async_work_inner: Rc<Cell<sys::napi_async_work>> = Rc::new(Cell::new(ptr::null_mut()));
+    let task_status = Rc::new(Cell::new(0));
     let abort_signal = AbortSignal {
       raw_work: async_work_inner.clone(),
       status: task_status.clone(),
@@ -153,17 +151,17 @@ fn on_abort_impl(
     let abort_controller_stack = Box::leak(Box::from_raw(async_task as *mut AbortSignalStack));
     for abort_controller in abort_controller_stack.0.iter() {
       // Task Completed, return now
-      if abort_controller.status.load(Ordering::Relaxed) == 1 {
+      if abort_controller.status.get() == 1 {
         return Ok(ptr::null_mut());
       }
-      let raw_async_work = abort_controller.raw_work.load(Ordering::Relaxed);
+      let raw_async_work = abort_controller.raw_work.get();
       let status = sys::napi_cancel_async_work(env, raw_async_work);
       // async work is already started, so we can't cancel it
       if status != sys::Status::napi_ok {
-        abort_controller.status.store(0, Ordering::Relaxed);
+        abort_controller.status.set(0);
       } else {
         // abort function must be called from JavaScript main thread, so Relaxed Ordering is ok.
-        abort_controller.status.store(2, Ordering::Relaxed);
+        abort_controller.status.set(2);
       }
     }
     let mut undefined = ptr::null_mut();
@@ -175,13 +173,11 @@ fn on_abort_impl(
   }
 }
 
-impl<T: Task> ToNapiValue for AsyncTask<T> {
+impl<T: for<'task> ScopedTask<'task>> ToNapiValue for AsyncTask<T> {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> crate::Result<sys::napi_value> {
     if let Some(abort_signal) = val.abort_signal {
       let async_promise = async_work::run(env, val.inner, Some(abort_signal.status.clone()))?;
-      abort_signal
-        .raw_work
-        .store(async_promise.napi_async_work, Ordering::Relaxed);
+      abort_signal.raw_work.set(async_promise.napi_async_work);
       Ok(async_promise.promise_object().inner)
     } else {
       let async_promise = async_work::run(env, val.inner, None)?;

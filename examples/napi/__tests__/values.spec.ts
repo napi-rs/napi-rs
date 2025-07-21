@@ -76,6 +76,9 @@ import {
   eitherF64OrU32,
   withoutAbortController,
   withAbortController,
+  asyncTaskReadFile,
+  asyncTaskOptionalReturn,
+  asyncResolveArray,
   asyncMultiTwo,
   bigintAdd,
   createBigInt,
@@ -1352,6 +1355,16 @@ test.skip('async task with abort controller', async (t) => {
   } catch (err: unknown) {
     t.is((err as Error).message, 'AbortError')
   }
+})
+
+test('async task with different resolved values', async (t) => {
+  const r1 = await asyncTaskOptionalReturn()
+  t.falsy(r1)
+  if (!process.env.WASI_TEST) {
+    await asyncTaskReadFile(import.meta.filename)
+  }
+  const r2 = await asyncResolveArray(2)
+  t.deepEqual(r2, [0, 1])
 })
 
 AbortSignalTest('abort resolved task', async (t) => {
