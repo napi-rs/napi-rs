@@ -1,8 +1,8 @@
-use std::cell::Cell;
 use std::ffi::c_void;
 use std::marker::PhantomData;
 use std::ptr;
 use std::rc::Rc;
+use std::{cell::Cell, panic::UnwindSafe};
 
 use crate::{
   async_work,
@@ -55,6 +55,9 @@ pub struct AbortSignal {
   raw_work: Rc<Cell<sys::napi_async_work>>,
   status: Rc<Cell<u8>>,
 }
+
+impl UnwindSafe for AbortSignal {}
+impl std::panic::RefUnwindSafe for AbortSignal {}
 
 #[repr(transparent)]
 struct AbortSignalStack(Vec<AbortSignal>);
