@@ -481,7 +481,7 @@ impl<
   }
 
   /// Call the ThreadsafeFunction, and handle the return value with a callback
-  pub fn call_with_return_value<F: 'static + Fn(Result<Return>, Env) -> Result<()>>(
+  pub fn call_with_return_value<F: 'static + FnOnce(Result<Return>, Env) -> Result<()>>(
     &self,
     value: Result<T, ErrorStatus>,
     mode: ThreadsafeFunctionCallMode,
@@ -590,7 +590,7 @@ impl<
   }
 
   /// Call the ThreadsafeFunction, and handle the return value with a callback
-  pub fn call_with_return_value<F: 'static + Fn(Result<Return>, Env) -> Result<()>>(
+  pub fn call_with_return_value<F: 'static + FnOnce(Result<Return>, Env) -> Result<()>>(
     &self,
     value: T,
     mode: ThreadsafeFunctionCallMode,
