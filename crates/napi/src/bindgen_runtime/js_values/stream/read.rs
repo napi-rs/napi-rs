@@ -463,17 +463,14 @@ impl<T: FromNapiValue + 'static> futures_core::Stream for Reader<T> {
         None => return Poll::Ready(None),
       }
     }
+    let waker = cx.waker().clone();
     let state = self.state.clone();
     let state_in_catch = state.clone();
-    let waker = cx.waker().clone();
     self.inner.call_with_return_value(
       Ok(()),
       ThreadsafeFunctionCallMode::NonBlocking,
       move |iterator, _| {
         let iterator = iterator?;
-        let state = state.clone();
-        let state_in_catch = state_in_catch.clone();
-        let waker = waker.clone();
         iterator
           .then(move |cx| {
             if cx.value.done {
