@@ -13,8 +13,7 @@ snmalloc = ["snmalloc-rs"]
 dyn-symbols = ["napi/dyn-symbols"]
 error_try_builds = []
 noop = ["napi/noop"]
-cfg_attr_napi = [
-] # for testing cfg_attr(not(feature = "noop"), napi_derive::napi) attribute
+cfg_attr_napi = [] # for testing cfg_attr(not(feature = "noop"), napi_derive::napi) attribute
 
 [dependencies]
 chrono = "0.4"
