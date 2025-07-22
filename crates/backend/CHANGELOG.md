@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.2](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v2.0.1...napi-derive-backend-v2.0.2) - 2025-07-22
+
+### Fixed
+
+- *(napi-derive)* lifetime codegen issue ([#2794](https://github.com/napi-rs/napi-rs/pull/2794))
+
 ## [2.0.1](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v2.0.0...napi-derive-backend-v2.0.1) - 2025-07-21
 
 ### Other
