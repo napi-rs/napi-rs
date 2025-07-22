@@ -129,6 +129,7 @@ module.exports.ClassReturnInPromise = __napiModule.exports.ClassReturnInPromise
 module.exports.ClassWithFactory = __napiModule.exports.ClassWithFactory
 module.exports.ClassWithLifetime = __napiModule.exports.ClassWithLifetime
 module.exports.Context = __napiModule.exports.Context
+module.exports.CreateStringClass = __napiModule.exports.CreateStringClass
 module.exports.CssRuleList = __napiModule.exports.CssRuleList
 module.exports.CSSRuleList = __napiModule.exports.CSSRuleList
 module.exports.CssStyleSheet = __napiModule.exports.CssStyleSheet

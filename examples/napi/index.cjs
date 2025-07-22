@@ -414,6 +414,7 @@ module.exports.ClassReturnInPromise = nativeBinding.ClassReturnInPromise
 module.exports.ClassWithFactory = nativeBinding.ClassWithFactory
 module.exports.ClassWithLifetime = nativeBinding.ClassWithLifetime
 module.exports.Context = nativeBinding.Context
+module.exports.CreateStringClass = nativeBinding.CreateStringClass
 module.exports.CssRuleList = nativeBinding.CssRuleList
 module.exports.CSSRuleList = nativeBinding.CSSRuleList
 module.exports.CssStyleSheet = nativeBinding.CssStyleSheet
