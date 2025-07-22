@@ -34,7 +34,7 @@ fn remove_existed_def_file() {
       if let Err(_e) = fs::remove_file(&file) {
         #[cfg(debug_assertions)]
         {
-          println!("Failed to manipulate type def file {:?}: {:?}", file, _e);
+          println!("Failed to manipulate type def file {file:?}: {_e:?}");
         }
       }
     }
@@ -55,7 +55,7 @@ pub fn output_type_def(napi: &Napi) {
           writer.flush()
         })
         .unwrap_or_else(|e| {
-          println!("Failed to write type def file: {:?}", e);
+          println!("Failed to write type def file: {e:?}");
         });
     }
   }

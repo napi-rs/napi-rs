@@ -73,7 +73,7 @@ pub trait ToNapiValue: Sized {
   /// this function called to convert rust values to napi values
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value>;
 
-  fn into_unknown(self, env: &Env) -> Result<Unknown> {
+  fn into_unknown(self, env: &Env) -> Result<Unknown<'_>> {
     let napi_val = unsafe { Self::to_napi_value(env.0, self)? };
     Ok(Unknown(
       Value {
@@ -126,6 +126,18 @@ pub trait FromNapiMutRef {
   ) -> Result<&'static mut Self>;
 }
 
+impl<T: FromNapiRef + 'static> FromNapiValue for &T {
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
+    unsafe { T::from_napi_ref(env, napi_val) }
+  }
+}
+
+impl<T: FromNapiMutRef + 'static> FromNapiValue for &mut T {
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
+    unsafe { T::from_napi_mut_ref(env, napi_val) }
+  }
+}
+
 pub trait ValidateNapiValue: TypeName {
   /// # Safety
   ///
@@ -148,10 +160,7 @@ pub trait ValidateNapiValue: TypeName {
     } else {
       Err(Error::new(
         Status::InvalidArg,
-        format!(
-          "Expect value to be {}, but received {}",
-          value_type, received_type
-        ),
+        format!("Expect value to be {value_type}, but received {received_type}"),
       ))
     }
   }

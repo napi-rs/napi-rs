@@ -3,6 +3,18 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [0.2.12](https://github.com/napi-rs/napi-rs/compare/@napi-rs/wasm-runtime@0.2.11...@napi-rs/wasm-runtime@0.2.12) (2025-07-10)
+
+### Bug Fixes
+
+- **deps:** update dependency @tybys/wasm-util to ^0.10.0 ([#2769](https://github.com/napi-rs/napi-rs/issues/2769)) ([1f6cb6c](https://github.com/napi-rs/napi-rs/commit/1f6cb6c453aca6bc1a9d1d9169ce41a2f01da7db))
+
+## [0.2.11](https://github.com/napi-rs/napi-rs/compare/@napi-rs/wasm-runtime@0.2.10...@napi-rs/wasm-runtime@0.2.11) (2025-06-08)
+
+### Bug Fixes
+
+- (wasm-runtime) fix race condition ([#2698](https://github.com/napi-rs/napi-rs/issues/2698)) ([193b0e0](https://github.com/napi-rs/napi-rs/commit/193b0e00439b123e7404f1326253138963deb7be))
+
 ## [0.2.10](https://github.com/napi-rs/napi-rs/compare/@napi-rs/wasm-runtime@0.2.9...@napi-rs/wasm-runtime@0.2.10) (2025-05-16)
 
 ### Bug Fixes

@@ -8,6 +8,7 @@
 #[cfg(not(target_family = "wasm"))]
 use napi::bindgen_prelude::create_custom_tokio_runtime;
 use napi::bindgen_prelude::{JsObjectValue, Object, Result, Symbol};
+pub use napi_shared::*;
 
 #[macro_use]
 extern crate napi_derive;

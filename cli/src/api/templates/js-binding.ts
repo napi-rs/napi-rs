@@ -38,18 +38,19 @@ const bindingHeader = `// prettier-ignore
 `
 
 function createCommonBinding(localName: string, pkgName: string): string {
-  function requireTuple(tuple: string) {
+  function requireTuple(tuple: string, identSize = 8) {
+    const identLow = ' '.repeat(identSize - 2)
+    const ident = ' '.repeat(identSize)
     return `try {
-        return require('./${localName}.${tuple}.node')
-      } catch (e) {
-        loadErrors.push(e)
-      }
-      try {
-        return require('${pkgName}-${tuple}')
-      } catch (e) {
-        loadErrors.push(e)
-      }
-`
+${ident}return require('./${localName}.${tuple}.node')
+${identLow}} catch (e) {
+${ident}loadErrors.push(e)
+${identLow}}
+${identLow}try {
+${ident}return require('${pkgName}-${tuple}')
+${identLow}} catch (e) {
+${ident}loadErrors.push(e)
+${identLow}}`
   }
 
   return `const { readFileSync } = require('node:fs')
@@ -135,7 +136,7 @@ function requireNative() {
       loadErrors.push(new Error(\`Unsupported architecture on Windows: \${process.arch}\`))
     }
   } else if (process.platform === 'darwin') {
-    ${requireTuple('darwin-universal')}
+    ${requireTuple('darwin-universal', 6)}
     if (process.arch === 'x64') {
       ${requireTuple('darwin-x64')}
     } else if (process.arch === 'arm64') {
@@ -154,27 +155,27 @@ function requireNative() {
   } else if (process.platform === 'linux') {
     if (process.arch === 'x64') {
       if (isMusl()) {
-        ${requireTuple('linux-x64-musl')}
+        ${requireTuple('linux-x64-musl', 10)}
       } else {
-        ${requireTuple('linux-x64-gnu')}
+        ${requireTuple('linux-x64-gnu', 10)}
       }
     } else if (process.arch === 'arm64') {
       if (isMusl()) {
-        ${requireTuple('linux-arm64-musl')}
+        ${requireTuple('linux-arm64-musl', 10)}
       } else {
-        ${requireTuple('linux-arm64-gnu')}
+        ${requireTuple('linux-arm64-gnu', 10)}
       }
     } else if (process.arch === 'arm') {
       if (isMusl()) {
-        ${requireTuple('linux-arm-musleabihf')}
+        ${requireTuple('linux-arm-musleabihf', 10)}
       } else {
-        ${requireTuple('linux-arm-gnueabihf')}
+        ${requireTuple('linux-arm-gnueabihf', 10)}
       }
     } else if (process.arch === 'riscv64') {
       if (isMusl()) {
-        ${requireTuple('linux-riscv64-musl')}
+        ${requireTuple('linux-riscv64-musl', 10)}
       } else {
-        ${requireTuple('linux-riscv64-gnu')}
+        ${requireTuple('linux-riscv64-gnu', 10)}
       }
     } else if (process.arch === 'ppc64') {
       ${requireTuple('linux-ppc64-gnu')}
@@ -182,6 +183,16 @@ function requireNative() {
       ${requireTuple('linux-s390x-gnu')}
     } else {
       loadErrors.push(new Error(\`Unsupported architecture on Linux: \${process.arch}\`))
+    }
+  } else if (process.platform === 'openharmony') {
+    if (process.arch === 'arm64') {
+      ${requireTuple('linux-arm64-ohos')}
+    } else if (process.arch === 'x64') {
+      ${requireTuple('linux-x64-ohos')}
+    } else if (process.arch === 'arm') {
+      ${requireTuple('linux-arm-ohos')}
+    } else {
+      loadErrors.push(new Error(\`Unsupported architecture on OpenHarmony: \${process.arch}\`))
     }
   } else {
     loadErrors.push(new Error(\`Unsupported OS: \${process.platform}, architecture: \${process.arch}\`))
@@ -211,11 +222,12 @@ if (!nativeBinding || process.env.NAPI_RS_FORCE_WASI) {
 
 if (!nativeBinding) {
   if (loadErrors.length > 0) {
-    // TODO Link to documentation with potential fixes
-    //  - The package owner could build/publish bindings for this arch
-    //  - The user may need to bundle the correct files
-    //  - The user may need to re-install node_modules to get new packages
-    throw new Error('Failed to load native binding', { cause: loadErrors })
+    throw new Error(
+      \`Cannot find native binding. \` +
+        \`npm has a bug related to optional dependencies (https://github.com/npm/cli/issues/4828). \` +
+        'Please try \`npm i\` again after removing both package-lock.json and node_modules directory.',
+      { cause: loadErrors }
+    )
   }
   throw new Error(\`Failed to load native binding\`)
 }

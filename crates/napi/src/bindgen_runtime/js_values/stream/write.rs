@@ -69,7 +69,7 @@ impl FromNapiValue for WriteableStream<'_> {
 }
 
 impl WriteableStream<'_> {
-  pub fn ready(&self) -> Result<PromiseRaw<()>> {
+  pub fn ready(&self) -> Result<PromiseRaw<'_, ()>> {
     let mut promise = ptr::null_mut();
     check_status!(
       unsafe {
@@ -83,7 +83,7 @@ impl WriteableStream<'_> {
   /// The `abort()` method of the `WritableStream` interface aborts the stream,
   /// signaling that the producer can no longer successfully write to the stream and it is to be immediately moved to an error state,
   /// with any queued writes discarded.
-  pub fn abort(&mut self, reason: String) -> Result<PromiseRaw<()>> {
+  pub fn abort(&mut self, reason: String) -> Result<PromiseRaw<'_, ()>> {
     let mut abort_fn = ptr::null_mut();
     check_status!(
       unsafe {
@@ -117,7 +117,7 @@ impl WriteableStream<'_> {
   /// The `close()` method of the `WritableStream` interface closes the associated stream.
   ///
   /// All chunks written before this method is called are sent before the returned promise is fulfilled.
-  pub fn close(&mut self) -> Result<PromiseRaw<()>> {
+  pub fn close(&mut self) -> Result<PromiseRaw<'_, ()>> {
     let mut close_fn = ptr::null_mut();
     check_status!(
       unsafe {

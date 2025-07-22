@@ -1,9 +1,11 @@
-use std::cell::Cell;
-use std::convert::identity;
-use std::future;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::task::{Context, Poll};
+use std::{
+  cell::Cell,
+  convert::identity,
+  future,
+  pin::Pin,
+  rc::Rc,
+  task::{Context, Poll},
+};
 
 use tokio::sync::oneshot::{channel, Receiver};
 
@@ -60,7 +62,7 @@ impl<T: FromNapiValue> FromNapiValue for Promise<T> {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
     let (tx, rx) = channel();
     let promise_object = unsafe { PromiseRaw::<T>::from_napi_value(env, napi_val)? };
-    let tx_box = Arc::new(Cell::new(Some(tx)));
+    let tx_box = Rc::new(Cell::new(Some(tx)));
     let tx_in_catch = tx_box.clone();
     promise_object
       .then(move |ctx| {
@@ -91,7 +93,7 @@ impl<T: FromNapiValue> future::Future for Promise<T> {
     match self.value.as_mut().poll(cx) {
       Poll::Pending => Poll::Pending,
       Poll::Ready(v) => Poll::Ready(
-        v.map_err(|e| Error::new(Status::GenericFailure, format!("{}", e)))
+        v.map_err(|e| Error::new(Status::GenericFailure, format!("{e}")))
           .and_then(identity),
       ),
     }

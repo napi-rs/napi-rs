@@ -135,7 +135,7 @@ unsafe impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> Send
 }
 
 impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, Resolver> {
-  pub(crate) fn new(env: &Env) -> Result<(Self, Object)> {
+  pub(crate) fn new(env: &Env) -> Result<(Self, Object<'_>)> {
     let (tsfn, promise) = js_deferred_new_raw(env, Some(napi_resolve_deferred::<Data, Resolver>))?;
 
     let deferred = Self {
@@ -186,7 +186,7 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
 fn js_deferred_new_raw(
   env: &Env,
   resolve_deferred: sys::napi_threadsafe_function_call_js,
-) -> Result<(sys::napi_threadsafe_function, Object)> {
+) -> Result<(sys::napi_threadsafe_function, Object<'_>)> {
   let mut raw_promise = ptr::null_mut();
   let mut raw_deferred = ptr::null_mut();
   check_status!(
@@ -283,7 +283,7 @@ extern "C" fn napi_resolve_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> 
       }
       Err(err) => {
         if cfg!(debug_assertions) {
-          eprintln!("Failed to reject deferred: {:?}", err);
+          eprintln!("Failed to reject deferred: {err:?}");
           let mut err = ptr::null_mut();
           let mut err_msg = ptr::null_mut();
           unsafe {

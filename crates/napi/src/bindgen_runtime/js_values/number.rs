@@ -1,5 +1,4 @@
-use super::{check_status, sys};
-use crate::{bindgen_prelude::ToNapiValue, type_of, Error, Result};
+use crate::{bindgen_prelude::ToNapiValue, check_status, sys, type_of, Error, Result};
 
 macro_rules! impl_number_conversions {
   ( $( ($name:literal, $t:ty as $st:ty, $get:ident, $create:ident) ,)* ) => {

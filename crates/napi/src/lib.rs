@@ -7,7 +7,7 @@
 //!
 //! ## Feature flags
 //!
-//! ### napi1 ~ napi9
+//! ### napi1 ~ napi10
 //!
 //! Because `Node.js` N-API has versions. So there are feature flags to choose what version of `N-API` you want to build for.
 //! For example, if you want build a library which can be used by `node@10.17.0`, you should choose the `napi5` or lower.
@@ -111,7 +111,7 @@ pub use env::*;
 pub use error::*;
 pub use js_values::*;
 pub use status::Status;
-pub use task::Task;
+pub use task::{ScopedTask, Task};
 pub use value_type::*;
 pub use version::NodeVersion;
 #[cfg(feature = "serde-json")]

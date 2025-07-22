@@ -5,11 +5,11 @@ use super::Array;
 pub use crate::Env;
 
 impl Env {
-  pub fn create_array(&self, len: u32) -> Result<Array> {
+  pub fn create_array(&self, len: u32) -> Result<Array<'_>> {
     Array::new(self.0, len)
   }
 
-  pub fn get_global(&self) -> Result<JsGlobal> {
+  pub fn get_global(&self) -> Result<JsGlobal<'_>> {
     let mut global = std::ptr::null_mut();
     crate::check_status!(
       unsafe { sys::napi_get_global(self.0, &mut global) },

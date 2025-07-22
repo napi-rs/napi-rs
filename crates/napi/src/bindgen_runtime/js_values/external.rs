@@ -1,12 +1,17 @@
 use std::{
   any::TypeId,
+  ffi::c_void,
   ops::{Deref, DerefMut},
+  ptr,
 };
 
-use super::{
-  FromNapiMutRef, FromNapiRef, FromNapiValue, ToNapiValue, TypeName, Unknown, ValidateNapiValue,
+use crate::{
+  bindgen_runtime::{
+    sys, Env, FromNapiMutRef, FromNapiRef, FromNapiValue, Result, Status, ToNapiValue, TypeName,
+    Unknown, ValidateNapiValue,
+  },
+  check_status, check_status_or_throw, Error, JsExternal,
 };
-use crate::{check_status, sys, Env, Error, Result, Status};
 
 #[repr(C)]
 pub struct External<T: 'static> {
@@ -16,10 +21,17 @@ pub struct External<T: 'static> {
   pub adjusted_size: i64,
 }
 
-unsafe impl<T: 'static + Send> Send for External<T> {}
-unsafe impl<T: 'static + Sync> Sync for External<T> {}
-
 impl<T: 'static> TypeName for &External<T> {
+  fn type_name() -> &'static str {
+    "External"
+  }
+
+  fn value_type() -> crate::ValueType {
+    crate::ValueType::External
+  }
+}
+
+impl<T: 'static> TypeName for &mut External<T> {
   fn type_name() -> &'static str {
     "External"
   }
@@ -37,6 +49,8 @@ impl<T: 'static> From<T> for External<T> {
 
 impl<T: 'static> ValidateNapiValue for &External<T> {}
 
+impl<T: 'static> ValidateNapiValue for &mut External<T> {}
+
 impl<T: 'static> External<T> {
   pub fn new(value: T) -> Self {
     Self {
@@ -51,8 +65,8 @@ impl<T: 'static> External<T> {
   ///
   /// # Safety
   /// The `unknown_tagged_object` raw pointer must point to an `External<T>` struct.
-  unsafe fn from_raw_impl(
-    unknown_tagged_object: *mut std::ffi::c_void,
+  pub(crate) unsafe fn from_raw_impl(
+    unknown_tagged_object: *mut c_void,
   ) -> Option<&'static mut Self> {
     let type_id = unknown_tagged_object as *const TypeId;
     if unsafe { *type_id } == TypeId::of::<T>() {
@@ -67,9 +81,7 @@ impl<T: 'static> External<T> {
   ///
   /// # Safety
   /// The `unknown_tagged_object` raw pointer must point to an `External<T>` struct.
-  pub unsafe fn inner_from_raw_mut(
-    unknown_tagged_object: *mut std::ffi::c_void,
-  ) -> Option<&'static mut T> {
+  pub unsafe fn inner_from_raw_mut(unknown_tagged_object: *mut c_void) -> Option<&'static mut T> {
     Self::from_raw_impl(unknown_tagged_object).map(|external| &mut external.obj)
   }
 
@@ -77,7 +89,7 @@ impl<T: 'static> External<T> {
   ///
   /// # Safety
   /// The `unknown_tagged_object` raw pointer must point to an `External<T>` struct.
-  pub unsafe fn inner_from_raw(unknown_tagged_object: *mut std::ffi::c_void) -> Option<&'static T> {
+  pub unsafe fn inner_from_raw(unknown_tagged_object: *mut c_void) -> Option<&'static T> {
     Self::from_raw_impl(unknown_tagged_object).map(|external| &external.obj)
   }
 
@@ -96,89 +108,26 @@ impl<T: 'static> External<T> {
   }
 
   /// convert `External<T>` to `Unknown`
-  pub fn into_unknown(self, env: &Env) -> Result<Unknown> {
+  pub fn into_unknown(self, env: &Env) -> Result<Unknown<'_>> {
     let napi_value = unsafe { ToNapiValue::to_napi_value(env.0, self)? };
     Ok(unsafe { Unknown::from_raw_unchecked(env.0, napi_value) })
   }
-}
 
-impl<T: 'static> FromNapiMutRef for External<T> {
-  unsafe fn from_napi_mut_ref(
+  /// Convert `External<T>` to `JsExternal`
+  pub fn into_js_external(self, env: &Env) -> Result<JsExternal<'_>> {
+    let napi_value = unsafe { ToNapiValue::to_napi_value(env.0, self)? };
+    unsafe { JsExternal::from_napi_value(env.0, napi_value) }
+  }
+
+  #[allow(clippy::wrong_self_convention)]
+  unsafe fn to_napi_value_impl(
+    self,
     env: sys::napi_env,
-    napi_val: sys::napi_value,
-  ) -> crate::Result<&'static mut Self> {
-    let mut unknown_tagged_object = std::ptr::null_mut();
-    check_status!(
-      unsafe { sys::napi_get_value_external(env, napi_val, &mut unknown_tagged_object) },
-      "Failed to get external value"
-    )?;
-
-    match Self::from_raw_impl(unknown_tagged_object) {
-      Some(external) => Ok(external),
-      None => Err(Error::new(
-        Status::InvalidArg,
-        format!(
-          "<{}> on `External` is not the type of wrapped object",
-          std::any::type_name::<T>()
-        ),
-      )),
-    }
-  }
-}
-
-impl<T: 'static> FromNapiRef for External<T> {
-  unsafe fn from_napi_ref(
-    env: sys::napi_env,
-    napi_val: sys::napi_value,
-  ) -> crate::Result<&'static Self> {
-    unsafe { Self::from_napi_mut_ref(env, napi_val) }.map(|v| v as &Self)
-  }
-}
-
-impl<T: 'static> FromNapiValue for &mut External<T> {
-  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
-    External::from_napi_mut_ref(env, napi_val)
-  }
-}
-
-impl<T: 'static> FromNapiValue for &External<T> {
-  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
-    External::from_napi_ref(env, napi_val)
-  }
-}
-
-impl<T: 'static> AsRef<T> for External<T> {
-  fn as_ref(&self) -> &T {
-    &self.obj
-  }
-}
-
-impl<T: 'static> AsMut<T> for External<T> {
-  fn as_mut(&mut self) -> &mut T {
-    &mut self.obj
-  }
-}
-
-impl<T: 'static> Deref for External<T> {
-  type Target = T;
-
-  fn deref(&self) -> &Self::Target {
-    self.as_ref()
-  }
-}
-
-impl<T: 'static> DerefMut for External<T> {
-  fn deref_mut(&mut self) -> &mut Self::Target {
-    self.as_mut()
-  }
-}
-
-impl<T: 'static> ToNapiValue for External<T> {
-  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> crate::Result<sys::napi_value> {
-    let mut napi_value = std::ptr::null_mut();
-    let size_hint = val.size_hint as i64;
+  ) -> Result<(sys::napi_value, *mut External<T>)> {
+    let mut napi_value = ptr::null_mut();
+    let size_hint = self.size_hint as i64;
     let size_hint_ptr = Box::into_raw(Box::new(size_hint));
-    let obj_ptr = Box::into_raw(Box::new(val));
+    let obj_ptr = Box::into_raw(Box::new(self));
     check_status!(
       unsafe {
         sys::napi_create_external(
@@ -213,6 +162,202 @@ impl<T: 'static> ToNapiValue for External<T> {
         unsafe { adjusted_external_memory_size.assume_init() };
     }
 
+    Ok((napi_value, obj_ptr))
+  }
+}
+
+impl<T: 'static> FromNapiMutRef for External<T> {
+  unsafe fn from_napi_mut_ref(
+    env: sys::napi_env,
+    napi_val: sys::napi_value,
+  ) -> crate::Result<&'static mut Self> {
+    let mut unknown_tagged_object = ptr::null_mut();
+    check_status!(
+      unsafe { sys::napi_get_value_external(env, napi_val, &mut unknown_tagged_object) },
+      "Failed to get external value"
+    )?;
+
+    match Self::from_raw_impl(unknown_tagged_object) {
+      Some(external) => Ok(external),
+      None => Err(Error::new(
+        Status::InvalidArg,
+        format!(
+          "<{}> on `External` is not the type of wrapped object",
+          std::any::type_name::<T>()
+        ),
+      )),
+    }
+  }
+}
+
+impl<T: 'static> FromNapiRef for External<T> {
+  unsafe fn from_napi_ref(
+    env: sys::napi_env,
+    napi_val: sys::napi_value,
+  ) -> crate::Result<&'static Self> {
+    unsafe { Self::from_napi_mut_ref(env, napi_val) }.map(|v| v as &Self)
+  }
+}
+
+impl<T: 'static> AsRef<T> for External<T> {
+  fn as_ref(&self) -> &T {
+    &self.obj
+  }
+}
+
+impl<T: 'static> AsMut<T> for External<T> {
+  fn as_mut(&mut self) -> &mut T {
+    &mut self.obj
+  }
+}
+
+impl<T: 'static> Deref for External<T> {
+  type Target = T;
+
+  fn deref(&self) -> &Self::Target {
+    self.as_ref()
+  }
+}
+
+impl<T: 'static> DerefMut for External<T> {
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    self.as_mut()
+  }
+}
+
+impl<T: 'static> ToNapiValue for External<T> {
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> crate::Result<sys::napi_value> {
+    let (napi_value, _) = unsafe { val.to_napi_value_impl(env)? };
     Ok(napi_value)
+  }
+}
+
+/// `ExternalRef` is a reference to an `External` object
+pub struct ExternalRef<T: 'static> {
+  pub(crate) obj: &'static mut External<T>,
+  pub(crate) raw: sys::napi_ref,
+  pub(crate) env: sys::napi_env,
+}
+
+unsafe impl<T: Sync + 'static> Sync for ExternalRef<T> {}
+
+impl<T: 'static> TypeName for ExternalRef<T> {
+  fn type_name() -> &'static str {
+    "External"
+  }
+
+  fn value_type() -> crate::ValueType {
+    crate::ValueType::External
+  }
+}
+
+impl<T: 'static> ValidateNapiValue for ExternalRef<T> {}
+
+impl<T: 'static> Drop for ExternalRef<T> {
+  fn drop(&mut self) {
+    check_status_or_throw!(
+      self.env,
+      unsafe { sys::napi_delete_reference(self.env, self.raw) },
+      "Failed to delete reference on external value"
+    );
+  }
+}
+
+impl<T: 'static> ExternalRef<T> {
+  pub fn new(env: &Env, value: T) -> Result<Self> {
+    let external = External::new(value);
+    let mut ref_ptr = ptr::null_mut();
+    let (napi_val, external) = unsafe { external.to_napi_value_impl(env.0)? };
+    check_status!(
+      unsafe { sys::napi_create_reference(env.0, napi_val, 1, &mut ref_ptr) },
+      "Failed to create reference on external value"
+    )?;
+    Ok(ExternalRef {
+      obj: Box::leak(unsafe { Box::from_raw(external) }),
+      raw: ref_ptr,
+      env: env.0,
+    })
+  }
+
+  /// Get the raw JsExternal value from the reference
+  pub fn get_value(&self) -> Result<JsExternal<'_>> {
+    let mut napi_val = ptr::null_mut();
+    check_status!(
+      unsafe { sys::napi_get_reference_value(self.env, self.raw, &mut napi_val) },
+      "Failed to get reference value on external value"
+    )?;
+    unsafe { JsExternal::from_napi_value(self.env, napi_val) }
+  }
+}
+
+impl<T: 'static> FromNapiValue for ExternalRef<T> {
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
+    let mut unknown_tagged_object = ptr::null_mut();
+    check_status!(
+      unsafe { sys::napi_get_value_external(env, napi_val, &mut unknown_tagged_object) },
+      "Failed to get external value"
+    )?;
+
+    let type_id = unknown_tagged_object as *const TypeId;
+    let external = if unsafe { *type_id } == TypeId::of::<T>() {
+      let tagged_object = unknown_tagged_object as *mut External<T>;
+      Box::leak(unsafe { Box::from_raw(tagged_object) })
+    } else {
+      return Err(Error::new(
+        Status::InvalidArg,
+        format!(
+          "<{}> on `External` is not the type of wrapped object",
+          std::any::type_name::<T>()
+        ),
+      ));
+    };
+
+    let mut ref_ptr = ptr::null_mut();
+    check_status!(
+      unsafe { sys::napi_create_reference(env, napi_val, 1, &mut ref_ptr) },
+      "Failed to create reference on external value"
+    )?;
+
+    Ok(ExternalRef {
+      obj: external,
+      raw: ref_ptr,
+      env,
+    })
+  }
+}
+
+impl<T: 'static> ToNapiValue for ExternalRef<T> {
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> crate::Result<sys::napi_value> {
+    let mut value = ptr::null_mut();
+    check_status!(
+      unsafe { sys::napi_get_reference_value(env, val.raw, &mut value) },
+      "Failed to get reference value on external value"
+    )?;
+    Ok(value)
+  }
+}
+
+impl<T: 'static> ToNapiValue for &ExternalRef<T> {
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> crate::Result<sys::napi_value> {
+    let mut value = ptr::null_mut();
+    check_status!(
+      unsafe { sys::napi_get_reference_value(env, val.raw, &mut value) },
+      "Failed to get reference value on external value"
+    )?;
+    Ok(value)
+  }
+}
+
+impl<T: 'static> Deref for ExternalRef<T> {
+  type Target = T;
+
+  fn deref(&self) -> &Self::Target {
+    self.obj
+  }
+}
+
+impl<T: 'static> DerefMut for ExternalRef<T> {
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    self.obj
   }
 }

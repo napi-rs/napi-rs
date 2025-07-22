@@ -3,6 +3,95 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.0.0-alpha.100](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.99...@napi-rs/cli@3.0.0-alpha.100) (2025-07-17)
+
+### Features
+
+- **cli:** add buffer to wasi browser template ([#2777](https://github.com/napi-rs/napi-rs/issues/2777)) ([23a3fec](https://github.com/napi-rs/napi-rs/commit/23a3fec5dc682326ccb7ace0fa84284c85100121))
+
+# [3.0.0-alpha.99](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.98...@napi-rs/cli@3.0.0-alpha.99) (2025-07-12)
+
+### Bug Fixes
+
+- **cli:** ohos binding ([2700b04](https://github.com/napi-rs/napi-rs/commit/2700b047821f5caf65ba007a3684da3585425358))
+
+# [3.0.0-alpha.98](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.97...@napi-rs/cli@3.0.0-alpha.98) (2025-07-12)
+
+### Bug Fixes
+
+- **cli:** ohos js binding logic ([#2775](https://github.com/napi-rs/napi-rs/issues/2775)) ([16b5a37](https://github.com/napi-rs/napi-rs/commit/16b5a37951775dde9b529ea684c0e25c2acbe5d8))
+
+# [3.0.0-alpha.97](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.96...@napi-rs/cli@3.0.0-alpha.97) (2025-07-12)
+
+### Bug Fixes
+
+- **cli:** binding format ([#2774](https://github.com/napi-rs/napi-rs/issues/2774)) ([0a8a499](https://github.com/napi-rs/napi-rs/commit/0a8a499fa64d3f36642e9f7e00520cf101b1541f))
+
+# [3.0.0-alpha.96](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.95...@napi-rs/cli@3.0.0-alpha.96) (2025-07-12)
+
+### Features
+
+- **cli:** support ohos ([#2773](https://github.com/napi-rs/napi-rs/issues/2773)) ([69d2806](https://github.com/napi-rs/napi-rs/commit/69d28061ff81b45c78161d212320c19891d36f90))
+
+# [3.0.0-alpha.95](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.94...@napi-rs/cli@3.0.0-alpha.95) (2025-07-12)
+
+### Bug Fixes
+
+- **cli:** omit exports fields in publishConfig ([#2772](https://github.com/napi-rs/napi-rs/issues/2772)) ([3bb592d](https://github.com/napi-rs/napi-rs/commit/3bb592d47f799500ff735eea5b9b79b8556396ab))
+
+# [3.0.0-alpha.94](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.93...@napi-rs/cli@3.0.0-alpha.94) (2025-07-12)
+
+### Features
+
+- **cli:** allow skip optionalDependencies publish ([#2771](https://github.com/napi-rs/napi-rs/issues/2771)) ([948e076](https://github.com/napi-rs/napi-rs/commit/948e0762e9a64297f48e3466a1faeeb30b3d64af))
+
+# [3.0.0-alpha.93](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.92...@napi-rs/cli@3.0.0-alpha.93) (2025-07-10)
+
+### Bug Fixes
+
+- **cli:** check `kHandle` instead ([#2768](https://github.com/napi-rs/napi-rs/issues/2768)) ([93b9aa2](https://github.com/napi-rs/napi-rs/commit/93b9aa267c84f667c13601e6bdfae3788889ce66))
+
+# [3.0.0-alpha.92](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.91...@napi-rs/cli@3.0.0-alpha.92) (2025-07-04)
+
+### Bug Fixes
+
+- **cli:** set TARGET_CC rather than CC ([#2764](https://github.com/napi-rs/napi-rs/issues/2764)) ([3985bc6](https://github.com/napi-rs/napi-rs/commit/3985bc68cfa937b86e812081858c1878c5f5492c))
+- **cli:** throw error if targets are duplicated ([#2743](https://github.com/napi-rs/napi-rs/issues/2743)) ([27d0d92](https://github.com/napi-rs/napi-rs/commit/27d0d923c6c0e10d4a3d1c3e9dae1638d54a09ac))
+
+### Features
+
+- **napi:** support untyped TypedArray slice ([#2762](https://github.com/napi-rs/napi-rs/issues/2762)) ([0119f09](https://github.com/napi-rs/napi-rs/commit/0119f0923711da25cd5ad8a9be2616c2de57ba61))
+- **wasm-runtime:** never refer handles of workers ([#2763](https://github.com/napi-rs/napi-rs/issues/2763)) ([5078d54](https://github.com/napi-rs/napi-rs/commit/5078d548be9e0fa3105257448524cd1c69c53f6f))
+
+# [3.0.0-alpha.91](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.90...@napi-rs/cli@3.0.0-alpha.91) (2025-06-24)
+
+### Bug Fixes
+
+- **cli:** build config ([#2735](https://github.com/napi-rs/napi-rs/issues/2735)) ([6c2b0b5](https://github.com/napi-rs/napi-rs/commit/6c2b0b54decf3dbf5125e4778d7c2540d13af89f))
+
+# [3.0.0-alpha.90](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.89...@napi-rs/cli@3.0.0-alpha.90) (2025-06-24)
+
+### Bug Fixes
+
+- **cli:** handle CI.yaml targets omit ([#2730](https://github.com/napi-rs/napi-rs/issues/2730)) ([0d1a4c4](https://github.com/napi-rs/napi-rs/commit/0d1a4c4a94435093d5ad880af7dc26b8f27a415f))
+- **cli:** handle the wasi names in new command ([#2725](https://github.com/napi-rs/napi-rs/issues/2725)) ([1481031](https://github.com/napi-rs/napi-rs/commit/1481031f37654ab2fd0cda6557d28c2bee0d4b53))
+
+### Features
+
+- **cli:** new project from github project template ([#2723](https://github.com/napi-rs/napi-rs/issues/2723)) ([de95466](https://github.com/napi-rs/napi-rs/commit/de954666e0213298da848ed16ae33f5ef4b6c030))
+
+# [3.0.0-alpha.89](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.88...@napi-rs/cli@3.0.0-alpha.89) (2025-06-13)
+
+### Bug Fixes
+
+- **cli:** wasm url in binding files ([#2710](https://github.com/napi-rs/napi-rs/issues/2710)) ([e7af660](https://github.com/napi-rs/napi-rs/commit/e7af6608fc293eefe4eb2b8ff763348d52784ac7))
+
+# [3.0.0-alpha.88](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.87...@napi-rs/cli@3.0.0-alpha.88) (2025-06-08)
+
+### Bug Fixes
+
+- **napi-derive:** panic while creating type definition when Rust comment contains escape syntax ([#2701](https://github.com/napi-rs/napi-rs/issues/2701)) ([54935e3](https://github.com/napi-rs/napi-rs/commit/54935e34fa2672600e72ed19a854f0b5946e3d40))
+
 # [3.0.0-alpha.87](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.0-alpha.86...@napi-rs/cli@3.0.0-alpha.87) (2025-06-05)
 
 ### Bug Fixes

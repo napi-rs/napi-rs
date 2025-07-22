@@ -98,7 +98,7 @@ impl<T> ReadableStream<'_, T> {
   }
 
   /// The `cancel()` method of the `ReadableStream` interface returns a Promise that resolves when the stream is canceled.
-  pub fn cancel(&mut self, reason: Option<String>) -> Result<PromiseRaw<()>> {
+  pub fn cancel(&mut self, reason: Option<String>) -> Result<PromiseRaw<'_, ()>> {
     let mut cancel_fn = ptr::null_mut();
     check_status!(
       unsafe {
@@ -565,7 +565,7 @@ fn pull_callback_impl<
   let promise = env.spawn_future_with_callback(
     async move { stream.next().await.transpose() },
     move |env, val| {
-      let mut output = Object::new(&env)?;
+      let mut output = Object::new(env)?;
       if let Some(val) = val {
         output.set("value", val)?;
         output.set("done", false)?;
@@ -644,10 +644,10 @@ fn pull_callback_impl_bytes<
     },
     move |env, val| {
       if let Some(val) = val {
-        let enqueue_fn = enqueue.borrow_back(&env)?;
-        enqueue_fn.call(BufferSlice::from_data(&env, val)?)?;
+        let enqueue_fn = enqueue.borrow_back(env)?;
+        enqueue_fn.call(BufferSlice::from_data(env, val)?)?;
       } else {
-        let close_fn = close.borrow_back(&env)?;
+        let close_fn = close.borrow_back(env)?;
         close_fn.call(())?;
         drop(unsafe { Box::from_raw(data.cast::<S>()) });
       }

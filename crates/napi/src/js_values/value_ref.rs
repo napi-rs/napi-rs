@@ -2,10 +2,8 @@ use std::{marker::PhantomData, ptr};
 
 use crate::{
   bindgen_runtime::{FromNapiMutRef, FromNapiValue, ToNapiValue},
-  check_status, sys, Env, Result,
+  check_status, sys, Env, JsValue, Result,
 };
-
-use super::JsValue;
 
 pub struct Ref<T> {
   pub(crate) raw_ref: sys::napi_ref,
@@ -57,16 +55,23 @@ impl<T: FromNapiValue> Ref<T> {
       ));
     }
     let mut result = ptr::null_mut();
-    check_status!(unsafe { sys::napi_get_reference_value(env.0, self.raw_ref, &mut result) })?;
+    check_status!(
+      unsafe { sys::napi_get_reference_value(env.0, self.raw_ref, &mut result) },
+      "Failed to get reference value"
+    )?;
     unsafe { T::from_napi_value(env.0, result) }
   }
 }
 
 impl<T: 'static + FromNapiMutRef> Ref<T> {
   /// Get the value reference from the reference
+  #[allow(clippy::mut_from_ref)]
   pub fn get_value_mut(&self, env: &Env) -> Result<&mut T> {
     let mut result = ptr::null_mut();
-    check_status!(unsafe { sys::napi_get_reference_value(env.0, self.raw_ref, &mut result) })?;
+    check_status!(
+      unsafe { sys::napi_get_reference_value(env.0, self.raw_ref, &mut result) },
+      "Failed to get reference value"
+    )?;
     unsafe { T::from_napi_mut_ref(env.0, result) }
   }
 }

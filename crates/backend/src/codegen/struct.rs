@@ -26,7 +26,7 @@ fn gen_napi_value_map_impl(
   } else {
     quote! { #name }
   };
-  let js_name_str = format!("{}\0", name_str);
+  let js_name_str = format!("{name_str}\0");
   let validate = quote! {
     unsafe fn validate(env: napi::sys::napi_env, napi_val: napi::sys::napi_value) -> napi::Result<napi::sys::napi_value> {
       if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name_str) {
@@ -122,34 +122,6 @@ fn gen_napi_value_map_impl(
 
         napi::bindgen_prelude::check_status!(
           napi::bindgen_prelude::sys::napi_unwrap(env, napi_val, &mut wrapped_val),
-          "Failed to recover `{}` type from napi value",
-          #name_str,
-        )?;
-
-        Ok(&mut *(wrapped_val as *mut #name))
-      }
-    }
-
-    #[automatically_derived]
-    impl napi::bindgen_prelude::FromNapiValue for &#name {
-      unsafe fn from_napi_value(
-        env: napi::bindgen_prelude::sys::napi_env,
-        napi_val: napi::bindgen_prelude::sys::napi_value
-      ) -> napi::bindgen_prelude::Result<Self> {
-        napi::bindgen_prelude::FromNapiRef::from_napi_ref(env, napi_val)
-      }
-    }
-
-    #[automatically_derived]
-    impl napi::bindgen_prelude::FromNapiValue for &mut #name {
-      unsafe fn from_napi_value(
-        env: napi::bindgen_prelude::sys::napi_env,
-        napi_val: napi::bindgen_prelude::sys::napi_value
-      ) -> napi::bindgen_prelude::Result<Self> {
-        let mut wrapped_val: *mut std::ffi::c_void = std::ptr::null_mut();
-
-        napi::bindgen_prelude::check_status!(
-        napi::bindgen_prelude::sys::napi_unwrap(env, napi_val, &mut wrapped_val),
           "Failed to recover `{}` type from napi value",
           #name_str,
         )?;
@@ -292,7 +264,7 @@ impl NapiStruct {
   ) -> TokenStream {
     let name = &self.name;
     let js_name_raw = &self.js_name;
-    let js_name_str = format!("{}\0", js_name_raw);
+    let js_name_str = format!("{js_name_raw}\0");
     let iterator_implementation = self.gen_iterator_property(class, name);
     let (object_finalize_impl, to_napi_value_impl, javascript_class_ext_impl) = if self.has_lifetime
     {

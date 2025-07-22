@@ -67,7 +67,7 @@ impl FromIterator<FnArg> for FnArgList {
 
 impl ToTypeDef for NapiFn {
   fn to_type_def(&self) -> Option<TypeDef> {
-    if self.skip_typescript || self.module_exports {
+    if self.skip_typescript || self.module_exports || self.no_export {
       return None;
     }
 
@@ -80,7 +80,7 @@ impl ToTypeDef for NapiFn {
         generic = &self
           .ts_generic_types
           .as_ref()
-          .map(|g| format!("<{}>", g))
+          .map(|g| format!("<{g}>"))
           .unwrap_or_default(),
         args = self
           .ts_args_type
@@ -89,7 +89,7 @@ impl ToTypeDef for NapiFn {
         ret = self
           .ts_return_type
           .clone()
-          .map(|t| format!(": {}", t))
+          .map(|t| format!(": {t}"))
           .unwrap_or_else(|| self.gen_ts_func_ret()),
       ),
     };
@@ -115,7 +115,7 @@ fn gen_callback_type(callback: &CallbackArg) -> String {
       .map(|(i, arg)| {
         let (ts_type, is_optional) = ty_to_ts_type(arg, false, false, false);
         FnArg {
-          arg: format!("arg{}", i),
+          arg: format!("arg{i}"),
           ts_type,
           is_optional,
         }
@@ -156,9 +156,9 @@ fn gen_ts_func_arg(pat: &Pat) -> String {
         .iter()
         .enumerate()
         .map(|(index, elem)| {
-          let member_str = format!("field{}", index);
+          let member_str = format!("field{index}");
           let nested_str = gen_ts_func_arg(elem);
-          format!("{}: {}", member_str, nested_str)
+          format!("{member_str}: {nested_str}")
         })
         .collect::<Vec<_>>()
         .join(", "),
@@ -310,9 +310,9 @@ impl NapiFn {
             .unwrap_or_else(|| origin_name.to_case(Case::Pascal));
 
           if self.is_async {
-            format!(": Promise<{}>", parent)
+            format!(": Promise<{parent}>")
           } else {
-            format!(": {}", parent)
+            format!(": {parent}")
           }
         })
         .unwrap_or_else(|| "".to_owned()),
@@ -331,9 +331,9 @@ impl NapiFn {
         };
 
         if self.is_async {
-          format!(": Promise<{}>", ret)
+          format!(": Promise<{ret}>")
         } else {
-          format!(": {}", ret)
+          format!(": {ret}")
         }
       }
     }

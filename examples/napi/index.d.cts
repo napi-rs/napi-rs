@@ -11,6 +11,8 @@ export declare class ExternalObject<T> {
     [K: symbol]: T
   }
 }
+
+export type TypedArray = Int8Array | Uint8Array | Uint8ClampedArray | Int16Array | Uint16Array | Int32Array | Uint32Array | Float32Array | Float64Array | BigInt64Array | BigUint64Array
 /**
  * `constructor` option for `struct` requires all fields to be public,
  * otherwise tag impl fn as constructor
@@ -105,6 +107,10 @@ export declare class ClassInArray {
   constructor(value: number)
 }
 
+export declare class ClassReturnInPromise {
+
+}
+
 export declare class ClassWithFactory {
   name: string
   static withName(name: string): ClassWithFactory
@@ -188,6 +194,13 @@ export declare class JsClassForEither {
   constructor()
 }
 
+export declare class JSOnlyMethodsClass {
+  data: string
+  processData(): string
+  getLength(): number
+}
+export type RustOnlyMethodsClass = JSOnlyMethodsClass
+
 export declare class JsRemote {
   constructor(repo: JsRepo)
   name(): string
@@ -197,6 +210,13 @@ export declare class JsRepo {
   constructor(dir: string)
   remote(): JsRemote
 }
+
+export declare class MyJsNamedClass {
+  constructor(value: string)
+  getValue(): string
+  multiplyValue(times: number): string
+}
+export type OriginalRustNameForJsNamedStruct = MyJsNamedClass
 
 export declare class NinjaTurtle {
   name: string
@@ -248,6 +268,15 @@ export declare class Selector {
   constructor(orderBy: Array<string>, select: Array<string>, struct: string, where?: string)
 }
 
+export declare class Thing {
+
+}
+
+export declare class ThingList {
+  constructor()
+  get thing(): Thing
+}
+
 export declare class UseNullableClass {
   requiredNumberField: number
   requiredStringField: string
@@ -281,6 +310,8 @@ export declare function acceptUint8ClampedSlice(input: Uint8ClampedArray): bigin
 
 export declare function acceptUint8ClampedSliceAndBufferSlice(a: Buffer, b: Uint8ClampedArray): bigint
 
+export declare function acceptUntypedTypedArray(input: TypedArray): bigint
+
 export declare function add(a: number, b: number): number
 
 export declare const enum ALIAS {
@@ -304,6 +335,8 @@ export declare function apply0(ctx: Animal, callback: () => void): void
 
 export declare function apply1(ctx: Animal, callback: (arg: string) => void, name: string): void
 
+export declare function arrayBufferFromData(): ArrayBuffer
+
 export declare function arrayBufferPassThrough(buf: Uint8Array): Promise<Uint8Array>
 
 export declare function asyncBufferToArray(buf: ArrayBuffer): Array<number>
@@ -313,6 +346,8 @@ export declare function asyncMultiTwo(arg: number): Promise<number>
 export declare function asyncPlus100(p: Promise<number>): Promise<number>
 
 export declare function asyncReduceBuffer(buf: Buffer): Promise<number>
+
+export declare function asyncResolveArray(inner: number): Promise<unknown[]>
 
 export declare function asyncTaskOptionalReturn(): Promise<number | null>
 
@@ -331,6 +366,10 @@ export declare function bigintFromI128(): bigint
 export declare function bigintFromI64(): bigint
 
 export declare function bigintGetU64AsString(bi: bigint): string
+
+export interface BindingVitePluginMeta {
+  'vite:import-glob': ViteImportGlobMeta
+}
 
 export declare function btreeSetToJs(): Set<string>
 
@@ -354,7 +393,7 @@ export declare function call1(callback: (arg: number) => number, arg: number): n
 
 export declare function call2(callback: (arg0: number, arg1: number) => number, arg1: number, arg2: number): number
 
-export declare function callAsyncWithUnknownReturnValue(tsfn: ((err: Error | null, arg: number) => Ref<unknown>)): Promise<number>
+export declare function callAsyncWithUnknownReturnValue(tsfn: ((err: Error | null, arg: number) => unknown)): Promise<number>
 
 export declare function callbackReturnPromise<T>(functionInput: () => T | Promise<T>, callback: (err: Error | null, result: T) => void): T | Promise<T>
 
@@ -424,11 +463,17 @@ export declare function createExternal(size: number): ExternalObject<number>
 
 export declare function createExternalBufferSlice(): Buffer
 
+export declare function createExternalRef(size: number): ExternalObject<number>
+
 export declare function createExternalString(content: string): ExternalObject<string>
 
 export declare function createExternalTypedArray(): Uint32Array
 
+export declare function createFunction(): (arg: number) => number
+
 export declare function createObj(): object
+
+export declare function createObjectRef(): object
 
 export declare function createObjectWithClassField(): ObjectFieldClassInstance
 
@@ -445,6 +490,12 @@ export declare function createReferenceOnFunction(cb: () => void): Promise<void>
 export declare function createSymbol(): symbol
 
 export declare function createSymbolFor(desc: string): symbol
+
+export declare function createSymbolRef(desc: string): symbol
+
+export declare function createUint8ClampedArrayFromData(): Uint8ClampedArray
+
+export declare function createUint8ClampedArrayFromExternal(): Uint8ClampedArray
 
 /** You could break the step and for an new continuous value. */
 export declare const enum CustomNumEnum {
@@ -490,13 +541,20 @@ export interface DefaultUseNullableStruct {
   optionalStringField?: string
 }
 
+export declare function defineClass(): typeof DynamicRustClass
+
+class DynamicRustClass {
+  constructor(value: number)
+  rustMethod(): number
+}
+
 export declare function derefUint8Array(a: Uint8Array, b: Uint8ClampedArray): number
 
 export declare function either3(input: string | number | boolean): number
 
 export declare function either4(input: string | number | boolean | Obj): number
 
-export declare function eitherBoolOrFunction(input: boolean | (any)): void
+export declare function eitherBoolOrFunction(input: boolean | ((arg?: unknown) => unknown)): void
 
 export declare function eitherBoolOrTuple(input: boolean | [boolean, string]): void
 
@@ -521,6 +579,12 @@ export declare function errorMessageContainsNullByte(msg: string): void
 export declare function esmResolve(next: () => Promise<undefined>): Promise<undefined>
 
 export declare function extendsJavascriptError(errorClass: any): void
+
+export type ExternalLinterLoadPluginCb =
+  ((arg: string) => PluginLoadResult)
+
+export type ExternalLinterLoadPluginCb2 =
+  ((arg: string) => PluginLoadResult)
 
 export declare function f32ArrayToArray(input: Float32Array): Array<number>
 
@@ -682,6 +746,8 @@ export interface ObjectOnlyToJs {
   dependencies: any
 }
 
+export declare function objectWithCApis(): object
+
 export declare function optionEnd(callback: (arg0: string, arg1?: string | undefined | null) => void): void
 
 export declare function optionOnly(callback: (arg0?: string | undefined | null) => void): void
@@ -721,9 +787,16 @@ export interface Pet {
   eitherTsfn: string | ((err: Error | null, arg: number) => number)
 }
 
+export interface PluginLoadResult {
+  name: string
+  version: string
+}
+
 export declare function plusOne(this: Width): number
 
 export declare function promiseInEither(input: number | Promise<number>): Promise<boolean>
+
+export declare function promiseRawReturnClassInstance(): Promise<ClassReturnInPromise>
 
 /** napi = { version = 2, features = ["serde-json"] } */
 export declare function readFile(callback: (arg0: Error | undefined, arg1?: string | undefined | null) => void): void
@@ -733,6 +806,8 @@ export declare function readFileAsync(path: string): Promise<Buffer>
 export declare function readPackageJson(): PackageJson
 
 export declare function receiveAllOptionalObject(obj?: AllOptionalObject | undefined | null): void
+
+export declare function receiveBindingVitePluginMeta(meta: BindingVitePluginMeta): void
 
 export declare function receiveBufferSliceWithLifetime(data: Data): number
 
@@ -792,6 +867,8 @@ export declare function shorterScope(arr: unknown[]): Array<number>
 
 export declare function shutdownRuntime(): void
 
+export declare function spawnFutureLifetime(input: number): Promise<string>
+
 export declare function spawnThreadInThread(tsfn: ((err: Error | null, arg: number) => number)): void
 
 export declare const enum Status {
@@ -830,13 +907,21 @@ export declare function sumMapping(nums: Record<string, number>): number
 
 export declare function sumNums(nums: Array<number>): number
 
+/**
+ * Function to test escaped quotes in comments.
+ * This comment contains escaped quotes: \\"g+sx\\" and should not break JSON parsing.
+ * The pattern \\"value\\" is commonly used in regex and shell commands.
+ * Another example: sed 's/old/\\"new\\"/g' where quotes are escaped.
+ */
+export declare function testEscapedQuotesInComments(input: string): string
+
 export declare function testSerdeBigNumberPrecision(number: string): any
 
 export declare function testSerdeBufferBytes(obj: object): bigint
 
 export declare function testSerdeRoundtrip(data: any): any
 
-export declare function threadsafeFunctionBuildThrowErrorWithStatus(cb: any): void
+export declare function threadsafeFunctionBuildThrowErrorWithStatus(cb: (arg?: unknown) => unknown): void
 
 export declare function threadsafeFunctionClosureCapture(defaultValue: Animal, func: (arg: Animal) => void): void
 
@@ -894,6 +979,10 @@ export declare function u64ArrayToArray(input: BigUint64Array): Array<bigint>
 export declare function u8ArrayToArray(input: Uint8Array): Array<number>
 
 export declare function uInit8ArrayFromString(): Promise<Uint8Array>
+
+export declare function uint8ArrayFromData(): Uint8ArraySlice
+
+export declare function uint8ArrayFromExternal(): Uint8ArraySlice
 
 export interface UseNullableStruct {
   requiredNumberField: number
@@ -953,6 +1042,10 @@ export declare function validateUint8ClampedSlice(input: Uint8ClampedArray): num
 
 export declare function validateUndefined(i: undefined): boolean
 
+export interface ViteImportGlobMeta {
+  isSubImportsPattern?: boolean
+}
+
 export type VoidNullable<T = void> =
   Nullable<T>
 
@@ -982,6 +1075,17 @@ export declare namespace xxh3 {
   export function xxh128(input: Buffer): bigint
   export function xxh3_64(input: Buffer): bigint
 }
+export declare class ComplexClass {
+  value: string
+  number: number
+  constructor(value: string | ComplexClass, number: number)
+  methodOne(): string
+  methodTwo(): number
+  methodThree(): string
+  methodFour(): boolean
+  methodFive(): string
+}
+
 export interface Shared {
   value: number
 }

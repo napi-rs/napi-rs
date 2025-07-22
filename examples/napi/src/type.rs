@@ -1,7 +1,9 @@
 use napi::{
   bindgen_prelude::{Either, Function, Promise},
-  Result,
+  threadsafe_function::ThreadsafeFunction,
+  Result, Status,
 };
+use std::sync::Arc;
 
 #[napi]
 pub type CustomU32 = u32;
@@ -28,3 +30,19 @@ pub struct Rule<'a> {
 pub fn call_rule_handler(rule: Rule, arg: u32) -> Result<u32> {
   rule.handler.call(arg)
 }
+
+#[napi(object)]
+pub struct PluginLoadResult {
+  pub name: String,
+  pub version: String,
+}
+
+// Test fixture for ThreadsafeFunction with single argument (issue #2726)
+#[napi]
+pub type ExternalLinterLoadPluginCb =
+  Arc<ThreadsafeFunction<String, PluginLoadResult, String, Status, false>>;
+
+#[napi]
+#[allow(unused_parens)]
+pub type ExternalLinterLoadPluginCb2 =
+  Arc<ThreadsafeFunction<(String), PluginLoadResult, (String), Status, false>>;

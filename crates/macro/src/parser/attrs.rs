@@ -80,6 +80,7 @@ macro_rules! attrgen {
       (discriminant, Discriminant(Span, String, Span)),
       (transparent, Transparent(Span)),
       (array, Array(Span)),
+      (no_export, NoExport(Span)),
 
       // impl later
       // (inspectable, Inspectable(Span)),
@@ -411,7 +412,7 @@ impl Parse for BindgenAttr {
     let attr = attr.0;
     let attr_span = attr.span();
     let attr_string = attr.to_string();
-    let raw_attr_string = format!("r#{}", attr_string);
+    let raw_attr_string = format!("r#{attr_string}");
 
     macro_rules! parsers {
       ($(($name:ident, $($contents:tt)*),)*) => {

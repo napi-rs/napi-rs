@@ -4,8 +4,8 @@ import {
   instantiateNapiModuleSync as __emnapiInstantiateNapiModuleSync,
   WASI as __WASI,
 } from '@napi-rs/wasm-runtime'
-import { memfs } from '@napi-rs/wasm-runtime/fs'
-import __wasmUrl from './example.wasm32-wasi.wasm?url'
+import { memfs, Buffer } from '@napi-rs/wasm-runtime/fs'
+
 
 export const { fs: __fs, vol: __volume } = memfs()
 
@@ -17,7 +17,9 @@ const __wasi = new __WASI({
   },
 })
 
+const __wasmUrl = new URL('./example.wasm32-wasi.wasm', import.meta.url).href
 const __emnapiContext = __emnapiGetDefaultContext()
+__emnapiContext.feature.Buffer = Buffer
 
 const __sharedMemory = new WebAssembly.Memory({
   initial: 16384,
@@ -78,6 +80,7 @@ export const Blake2bKey = __napiModule.exports.Blake2bKey
 export const CatchOnConstructor = __napiModule.exports.CatchOnConstructor
 export const CatchOnConstructor2 = __napiModule.exports.CatchOnConstructor2
 export const ClassInArray = __napiModule.exports.ClassInArray
+export const ClassReturnInPromise = __napiModule.exports.ClassReturnInPromise
 export const ClassWithFactory = __napiModule.exports.ClassWithFactory
 export const ClassWithLifetime = __napiModule.exports.ClassWithLifetime
 export const Context = __napiModule.exports.Context
@@ -94,8 +97,12 @@ export const Fib2 = __napiModule.exports.Fib2
 export const Fib3 = __napiModule.exports.Fib3
 export const GetterSetterWithClosures = __napiModule.exports.GetterSetterWithClosures
 export const JsClassForEither = __napiModule.exports.JsClassForEither
+export const JSOnlyMethodsClass = __napiModule.exports.JSOnlyMethodsClass
+export const RustOnlyMethodsClass = __napiModule.exports.RustOnlyMethodsClass
 export const JsRemote = __napiModule.exports.JsRemote
 export const JsRepo = __napiModule.exports.JsRepo
+export const MyJsNamedClass = __napiModule.exports.MyJsNamedClass
+export const OriginalRustNameForJsNamedStruct = __napiModule.exports.OriginalRustNameForJsNamedStruct
 export const NinjaTurtle = __napiModule.exports.NinjaTurtle
 export const NotUseNullableClass = __napiModule.exports.NotUseNullableClass
 export const NotWritableClass = __napiModule.exports.NotWritableClass
@@ -103,6 +110,8 @@ export const Optional = __napiModule.exports.Optional
 export const PackageJsonReader = __napiModule.exports.PackageJsonReader
 export const Reader = __napiModule.exports.Reader
 export const Selector = __napiModule.exports.Selector
+export const Thing = __napiModule.exports.Thing
+export const ThingList = __napiModule.exports.ThingList
 export const UseNullableClass = __napiModule.exports.UseNullableClass
 export const Width = __napiModule.exports.Width
 export const acceptArraybuffer = __napiModule.exports.acceptArraybuffer
@@ -113,17 +122,20 @@ export const acceptThreadsafeFunctionFatal = __napiModule.exports.acceptThreadsa
 export const acceptThreadsafeFunctionTupleArgs = __napiModule.exports.acceptThreadsafeFunctionTupleArgs
 export const acceptUint8ClampedSlice = __napiModule.exports.acceptUint8ClampedSlice
 export const acceptUint8ClampedSliceAndBufferSlice = __napiModule.exports.acceptUint8ClampedSliceAndBufferSlice
+export const acceptUntypedTypedArray = __napiModule.exports.acceptUntypedTypedArray
 export const add = __napiModule.exports.add
 export const ALIAS = __napiModule.exports.ALIAS
 export const AliasedEnum = __napiModule.exports.AliasedEnum
 export const appendBuffer = __napiModule.exports.appendBuffer
 export const apply0 = __napiModule.exports.apply0
 export const apply1 = __napiModule.exports.apply1
+export const arrayBufferFromData = __napiModule.exports.arrayBufferFromData
 export const arrayBufferPassThrough = __napiModule.exports.arrayBufferPassThrough
 export const asyncBufferToArray = __napiModule.exports.asyncBufferToArray
 export const asyncMultiTwo = __napiModule.exports.asyncMultiTwo
 export const asyncPlus100 = __napiModule.exports.asyncPlus100
 export const asyncReduceBuffer = __napiModule.exports.asyncReduceBuffer
+export const asyncResolveArray = __napiModule.exports.asyncResolveArray
 export const asyncTaskOptionalReturn = __napiModule.exports.asyncTaskOptionalReturn
 export const asyncTaskReadFile = __napiModule.exports.asyncTaskReadFile
 export const asyncTaskVoidReturn = __napiModule.exports.asyncTaskVoidReturn
@@ -175,9 +187,12 @@ export const createBigIntI64 = __napiModule.exports.createBigIntI64
 export const createBufferSliceFromCopiedData = __napiModule.exports.createBufferSliceFromCopiedData
 export const createExternal = __napiModule.exports.createExternal
 export const createExternalBufferSlice = __napiModule.exports.createExternalBufferSlice
+export const createExternalRef = __napiModule.exports.createExternalRef
 export const createExternalString = __napiModule.exports.createExternalString
 export const createExternalTypedArray = __napiModule.exports.createExternalTypedArray
+export const createFunction = __napiModule.exports.createFunction
 export const createObj = __napiModule.exports.createObj
+export const createObjectRef = __napiModule.exports.createObjectRef
 export const createObjectWithClassField = __napiModule.exports.createObjectWithClassField
 export const createObjWithProperty = __napiModule.exports.createObjWithProperty
 export const createOptionalExternal = __napiModule.exports.createOptionalExternal
@@ -186,11 +201,15 @@ export const createReadableStreamFromClass = __napiModule.exports.createReadable
 export const createReferenceOnFunction = __napiModule.exports.createReferenceOnFunction
 export const createSymbol = __napiModule.exports.createSymbol
 export const createSymbolFor = __napiModule.exports.createSymbolFor
+export const createSymbolRef = __napiModule.exports.createSymbolRef
+export const createUint8ClampedArrayFromData = __napiModule.exports.createUint8ClampedArrayFromData
+export const createUint8ClampedArrayFromExternal = __napiModule.exports.createUint8ClampedArrayFromExternal
 export const CustomNumEnum = __napiModule.exports.CustomNumEnum
 export const customStatusCode = __napiModule.exports.customStatusCode
 export const CustomStringEnum = __napiModule.exports.CustomStringEnum
 export const dateToNumber = __napiModule.exports.dateToNumber
 export const DEFAULT_COST = __napiModule.exports.DEFAULT_COST
+export const defineClass = __napiModule.exports.defineClass
 export const derefUint8Array = __napiModule.exports.derefUint8Array
 export const either3 = __napiModule.exports.either3
 export const either4 = __napiModule.exports.either4
@@ -254,6 +273,7 @@ export const mutateExternal = __napiModule.exports.mutateExternal
 export const mutateOptionalExternal = __napiModule.exports.mutateOptionalExternal
 export const mutateTypedArray = __napiModule.exports.mutateTypedArray
 export const objectGetNamedPropertyShouldPerformTypecheck = __napiModule.exports.objectGetNamedPropertyShouldPerformTypecheck
+export const objectWithCApis = __napiModule.exports.objectWithCApis
 export const optionEnd = __napiModule.exports.optionEnd
 export const optionOnly = __napiModule.exports.optionOnly
 export const optionStart = __napiModule.exports.optionStart
@@ -268,10 +288,12 @@ export const passSetToRust = __napiModule.exports.passSetToRust
 export const passSetWithHasherToJs = __napiModule.exports.passSetWithHasherToJs
 export const plusOne = __napiModule.exports.plusOne
 export const promiseInEither = __napiModule.exports.promiseInEither
+export const promiseRawReturnClassInstance = __napiModule.exports.promiseRawReturnClassInstance
 export const readFile = __napiModule.exports.readFile
 export const readFileAsync = __napiModule.exports.readFileAsync
 export const readPackageJson = __napiModule.exports.readPackageJson
 export const receiveAllOptionalObject = __napiModule.exports.receiveAllOptionalObject
+export const receiveBindingVitePluginMeta = __napiModule.exports.receiveBindingVitePluginMeta
 export const receiveBufferSliceWithLifetime = __napiModule.exports.receiveBufferSliceWithLifetime
 export const receiveClassOrNumber = __napiModule.exports.receiveClassOrNumber
 export const receiveDifferentClass = __napiModule.exports.receiveDifferentClass
@@ -297,6 +319,7 @@ export const setSymbolInObj = __napiModule.exports.setSymbolInObj
 export const shorterEscapableScope = __napiModule.exports.shorterEscapableScope
 export const shorterScope = __napiModule.exports.shorterScope
 export const shutdownRuntime = __napiModule.exports.shutdownRuntime
+export const spawnFutureLifetime = __napiModule.exports.spawnFutureLifetime
 export const spawnThreadInThread = __napiModule.exports.spawnThreadInThread
 export const Status = __napiModule.exports.Status
 export const StatusInValidate = __napiModule.exports.StatusInValidate
@@ -305,6 +328,7 @@ export const sumBtreeMapping = __napiModule.exports.sumBtreeMapping
 export const sumIndexMapping = __napiModule.exports.sumIndexMapping
 export const sumMapping = __napiModule.exports.sumMapping
 export const sumNums = __napiModule.exports.sumNums
+export const testEscapedQuotesInComments = __napiModule.exports.testEscapedQuotesInComments
 export const testSerdeBigNumberPrecision = __napiModule.exports.testSerdeBigNumberPrecision
 export const testSerdeBufferBytes = __napiModule.exports.testSerdeBufferBytes
 export const testSerdeRoundtrip = __napiModule.exports.testSerdeRoundtrip
@@ -331,6 +355,8 @@ export const u32ArrayToArray = __napiModule.exports.u32ArrayToArray
 export const u64ArrayToArray = __napiModule.exports.u64ArrayToArray
 export const u8ArrayToArray = __napiModule.exports.u8ArrayToArray
 export const uInit8ArrayFromString = __napiModule.exports.uInit8ArrayFromString
+export const uint8ArrayFromData = __napiModule.exports.uint8ArrayFromData
+export const uint8ArrayFromExternal = __napiModule.exports.uint8ArrayFromExternal
 export const validateArray = __napiModule.exports.validateArray
 export const validateBigint = __napiModule.exports.validateBigint
 export const validateBoolean = __napiModule.exports.validateBoolean
@@ -360,3 +386,4 @@ export const withoutAbortController = __napiModule.exports.withoutAbortControlle
 export const xxh64Alias = __napiModule.exports.xxh64Alias
 export const xxh2 = __napiModule.exports.xxh2
 export const xxh3 = __napiModule.exports.xxh3
+export const ComplexClass = __napiModule.exports.ComplexClass

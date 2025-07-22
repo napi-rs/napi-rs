@@ -4,8 +4,14 @@ export const createWasiBrowserBinding = (
   maximumMemory = 65536,
   fs = false,
   asyncInit = false,
+  buffer = false,
 ) => {
-  const fsImport = fs ? `import { memfs } from '@napi-rs/wasm-runtime/fs'` : ''
+  const fsImport = fs
+    ? buffer
+      ? `import { memfs, Buffer } from '@napi-rs/wasm-runtime/fs'`
+      : `import { memfs } from '@napi-rs/wasm-runtime/fs'`
+    : ''
+  const bufferImport = buffer && !fs ? `import { Buffer } from 'buffer'` : ''
   const wasiCreation = fs
     ? `
 export const { fs: __fs, vol: __volume } = memfs()
@@ -26,6 +32,9 @@ const __wasi = new __WASI({
     ? `    worker.addEventListener('message', __wasmCreateOnMessageForFsProxy(__fs))\n`
     : ''
 
+  const emnapiInjectBuffer = buffer
+    ? '__emnapiContext.feature.Buffer = Buffer'
+    : ''
   const emnapiInstantiateImport = asyncInit
     ? `instantiateNapiModule as __emnapiInstantiateNapiModule`
     : `instantiateNapiModuleSync as __emnapiInstantiateNapiModuleSync`
@@ -40,10 +49,12 @@ const __wasi = new __WASI({
   WASI as __WASI,
 } from '@napi-rs/wasm-runtime'
 ${fsImport}
-import __wasmUrl from './${wasiFilename}.wasm?url'
+${bufferImport}
 ${wasiCreation}
 
+const __wasmUrl = new URL('./${wasiFilename}.wasm', import.meta.url).href
 const __emnapiContext = __emnapiGetDefaultContext()
+${emnapiInjectBuffer}
 
 const __sharedMemory = new WebAssembly.Memory({
   initial: ${initialMemory},
@@ -159,6 +170,29 @@ const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule
     })
     worker.onmessage = ({ data }) => {
       __wasmCreateOnMessageForFsProxy(__nodeFs)(data)
+    }
+
+    // The main thread of Node.js waits for all the active handles before exiting.
+    // But Rust threads are never waited without \`thread::join\`.
+    // So here we hack the code of Node.js to prevent the workers from being referenced (active).
+    // According to https://github.com/nodejs/node/blob/19e0d472728c79d418b74bddff588bea70a403d0/lib/internal/worker.js#L415,
+    // a worker is consist of two handles: kPublicPort and kHandle.
+    {
+      const kPublicPort = Object.getOwnPropertySymbols(worker).find(s =>
+        s.toString().includes("kPublicPort")
+      );
+      if (kPublicPort) {
+        worker[kPublicPort].ref = () => {};
+      }
+
+      const kHandle = Object.getOwnPropertySymbols(worker).find(s =>
+        s.toString().includes("kHandle")
+      );
+      if (kHandle) {
+        worker[kHandle].ref = () => {};
+      }
+
+      worker.unref();
     }
     return worker
   },

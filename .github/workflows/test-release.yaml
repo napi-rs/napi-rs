@@ -91,7 +91,7 @@ jobs:
               yarn test:cli
               yarn test
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
-              yarn test:macro
+              RUSTFLAGS="-C link-args=-Wl,-undefined,dynamic_lookup,-no_fixup_chains" yarn test:macro
             toolchain: stable
           - host: windows-latest
             target: x86_64-pc-windows-msvc
@@ -275,6 +275,8 @@ jobs:
             target: aarch64-linux-android
           - host: ubuntu-latest
             target: armv7-linux-androideabi
+          - host: ubuntu-24.04
+            target: aarch64-unknown-linux-ohos
           - host: ubuntu-latest
             target: riscv64gc-unknown-linux-gnu
             setup: |
@@ -288,6 +290,10 @@ jobs:
         with:
           node-version: 22
           cache: 'yarn'
+
+      - name: Setup OpenHarmony SDK
+        if: ${{ contains(matrix.settings.target, 'ohos') }}
+        uses: openharmony-rs/setup-ohos-sdk@v0.2
 
       - name: Install
         uses: dtolnay/rust-toolchain@stable

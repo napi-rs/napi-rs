@@ -1,5 +1,3 @@
-#![allow(deprecated)]
-
 use napi::{
   bindgen_prelude::{ClassInstance, FnArgs, Function, FunctionRef, PromiseRaw},
   threadsafe_function::ThreadsafeFunctionCallMode,
@@ -63,7 +61,7 @@ pub fn create_reference_on_function<'env>(
       Ok(())
     },
     move |env, _| {
-      let cb = reference.borrow_back(&env)?;
+      let cb = reference.borrow_back(env)?;
       cb.call(())?;
       Ok(())
     },
@@ -139,4 +137,14 @@ pub fn build_threadsafe_function_from_function_callee_handle(
   });
 
   Ok(())
+}
+
+#[napi]
+pub fn create_function(env: &Env) -> Result<Function<u32, u32>> {
+  env.create_function("customFunction", no_export_function_c_callback)
+}
+
+#[napi(no_export)]
+pub fn no_export_function(input: u32) -> u32 {
+  input + 200
 }

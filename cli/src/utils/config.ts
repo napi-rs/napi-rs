@@ -6,7 +6,7 @@ import { DEFAULT_TARGETS, parseTriple, Target } from './target.js'
 
 export type ValueOfConstArray<T> = T[Exclude<keyof T, keyof Array<any>>]
 
-export const SupportedPackageManagers = ['yarn'] as const
+export const SupportedPackageManagers = ['yarn', 'pnpm'] as const
 export const SupportedTestFrameworks = ['ava'] as const
 
 export type SupportedPackageManager = ValueOfConstArray<
@@ -79,6 +79,10 @@ export interface UserNapiConfig {
        * Whether to initialize wasm asynchronously
        */
       asyncInit?: boolean
+      /**
+       * Whether to inject `buffer` to emnapi context
+       */
+      buffer?: boolean
     }
   }
 
@@ -115,6 +119,10 @@ export interface CommonPackageJsonFields {
   author?: string
   authors?: string[]
   license?: string
+  cpu?: string[]
+  os?: string[]
+  libc?: string[]
+  files?: string[]
   repository?: any
   homepage?: any
   engines?: Record<string, string>
@@ -232,6 +240,15 @@ export async function readNapiConfig(
         console.warn(warning)
       }
     }
+  }
+
+  // find duplicate targets
+  const uniqueTargets = new Set(targets)
+  if (uniqueTargets.size !== targets.length) {
+    const duplicateTarget = targets.find(
+      (target, index) => targets.indexOf(target) !== index,
+    )
+    throw new Error(`Duplicate targets are not allowed: ${duplicateTarget}`)
   }
 
   napiConfig.targets = targets.map(parseTriple)

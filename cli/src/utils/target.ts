@@ -1,6 +1,6 @@
 import { execSync } from 'node:child_process'
 
-export type Platform = NodeJS.Platform | 'wasm' | 'wasi'
+export type Platform = NodeJS.Platform | 'wasm' | 'wasi' | 'openharmony'
 
 export const UNIVERSAL_TARGETS = {
   'universal-apple-darwin': ['aarch64-apple-darwin', 'x86_64-apple-darwin'],
@@ -11,11 +11,13 @@ export const AVAILABLE_TARGETS = [
   'aarch64-linux-android',
   'aarch64-unknown-linux-gnu',
   'aarch64-unknown-linux-musl',
+  'aarch64-unknown-linux-ohos',
   'aarch64-pc-windows-msvc',
   'x86_64-apple-darwin',
   'x86_64-pc-windows-msvc',
   'x86_64-unknown-linux-gnu',
   'x86_64-unknown-linux-musl',
+  'x86_64-unknown-linux-ohos',
   'x86_64-unknown-freebsd',
   'i686-pc-windows-msvc',
   'armv7-unknown-linux-gnueabihf',
@@ -26,6 +28,7 @@ export const AVAILABLE_TARGETS = [
   'powerpc64le-unknown-linux-gnu',
   's390x-unknown-linux-gnu',
   'wasm32-wasi-preview1-threads',
+  'wasm32-wasip1-threads',
 ] as const
 
 export type TargetTriple = (typeof AVAILABLE_TARGETS)[number]
@@ -84,6 +87,7 @@ const SysToNodePlatform: Record<string, Platform> = {
   freebsd: 'freebsd',
   darwin: 'darwin',
   windows: 'win32',
+  ohos: 'openharmony',
 }
 
 export const UniArchsByPlatform: Partial<Record<Platform, NodeJSArch[]>> = {
@@ -143,6 +147,16 @@ export function parseTriple(rawTriple: string): Target {
 
   const platform = SysToNodePlatform[sys] ?? (sys as Platform)
   const arch = CpuToNodeArch[cpu] ?? (cpu as NodeJSArch)
+
+  if (rawTriple.includes('ohos')) {
+    return {
+      triple: rawTriple,
+      platformArchABI: `linux-${arch}-ohos`,
+      platform: 'openharmony',
+      arch,
+      abi: null,
+    }
+  }
   return {
     triple: rawTriple,
     platformArchABI: abi ? `${platform}-${arch}-${abi}` : `${platform}-${arch}`,

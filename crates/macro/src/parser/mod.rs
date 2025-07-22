@@ -728,6 +728,13 @@ fn napi_fn_from_decl(
         bail_span!(sig.ident, "module_exports fn can't have generic parameters");
       }
 
+      if opts.no_export().is_some() {
+        bail_span!(
+          sig.ident,
+          "#[napi(no_export)] can not be used with module_exports attribute"
+        );
+      }
+
       for arg in args.iter() {
         match &arg.kind {
           NapiFnArgKind::Callback(_) => {
@@ -847,7 +854,7 @@ fn napi_fn_from_decl(
 
       let key = namespace
         .as_ref()
-        .map(|n| format!("{}::{}", n, p))
+        .map(|n| format!("{n}::{p}"))
         .unwrap_or_else(|| p.to_string());
       *generator_struct.get(&key).unwrap_or(&false)
     } else {
@@ -897,6 +904,7 @@ fn napi_fn_from_decl(
       catch_unwind: opts.catch_unwind().is_some(),
       unsafe_: sig.unsafety.is_some(),
       register_name: get_register_ident(ident.to_string().as_str()),
+      no_export: opts.no_export().is_some(),
     })
   })
 }
@@ -964,6 +972,12 @@ impl ParseNapi for syn::ItemStruct {
         "#[napi(catch_unwind)] can only be applied to a function or method."
       );
     }
+    if opts.no_export().is_some() {
+      bail_span!(
+        self,
+        "#[napi(no_export)] can only be applied to a function."
+      );
+    }
     if opts.object().is_some() && opts.custom_finalize().is_some() {
       bail_span!(self, "Custom finalize is not supported for #[napi(object)]");
     }
@@ -999,6 +1013,12 @@ impl ParseNapi for syn::ItemImpl {
         "#[napi(catch_unwind)] can only be applied to a function or method."
       );
     }
+    if opts.no_export().is_some() {
+      bail_span!(
+        self,
+        "#[napi(no_export)] can only be applied to a function."
+      );
+    }
     // #[napi] macro will be remove from impl items after converted to ast
     let napi = self.convert_to_ast(opts);
     self.to_tokens(tokens);
@@ -1031,6 +1051,12 @@ impl ParseNapi for syn::ItemEnum {
         "#[napi(catch_unwind)] can only be applied to a function or method."
       );
     }
+    if opts.no_export().is_some() {
+      bail_span!(
+        self,
+        "#[napi(no_export)] can only be applied to a function."
+      );
+    }
     let napi = self.convert_to_ast(opts);
     self.to_tokens(tokens);
 
@@ -1061,6 +1087,12 @@ impl ParseNapi for syn::ItemConst {
         "#[napi(catch_unwind)] can only be applied to a function or method."
       );
     }
+    if opts.no_export().is_some() {
+      bail_span!(
+        self,
+        "#[napi(no_export)] can only be applied to a function."
+      );
+    }
     let napi = self.convert_to_ast(opts);
     self.to_tokens(tokens);
     napi
@@ -1088,6 +1120,12 @@ impl ParseNapi for syn::ItemType {
       bail_span!(
         self,
         "#[napi(catch_unwind)] can only be applied to a function or method."
+      );
+    }
+    if opts.no_export().is_some() {
+      bail_span!(
+        self,
+        "#[napi(no_export)] can only be applied to a function."
       );
     }
     let napi = self.convert_to_ast(opts);
@@ -1158,7 +1196,7 @@ fn convert_fields(
       None => (
         field_opts
           .js_name()
-          .map_or_else(|| format!("field{}", i), |(js_name, _)| js_name.to_owned()),
+          .map_or_else(|| format!("field{i}"), |(js_name, _)| js_name.to_owned()),
         syn::Member::Unnamed(i.into()),
       ),
     };
@@ -1220,16 +1258,16 @@ impl ConvertToAST for syn::ItemStruct {
   fn convert_to_ast(&mut self, opts: &BindgenAttrs) -> BindgenResult<Napi> {
     let mut errors = vec![];
 
-    let struct_name: Ident = self.ident.clone();
-    let js_name = opts.js_name().map_or_else(
+    let rust_struct_ident: Ident = self.ident.clone();
+    let final_js_name_for_struct = opts.js_name().map_or_else(
       || self.ident.to_string().to_case(Case::Pascal),
-      |(js_name, _)| js_name.to_owned(),
+      |(attr_js_name, _span)| attr_js_name.to_owned(),
     );
 
     let use_nullable = opts.use_nullable();
     let (fields, is_tuple) = convert_fields(&mut self.fields, true)?;
 
-    record_struct(&struct_name, js_name.clone(), opts);
+    record_struct(&rust_struct_ident, final_js_name_for_struct.clone(), opts);
     let namespace = opts.namespace().map(|(m, _)| m.to_owned());
     let implement_iterator = opts.iterator().is_some();
     let generator_struct = GENERATOR_STRUCT.get_or_init(|| Mutex::new(HashMap::new()));
@@ -1238,8 +1276,8 @@ impl ConvertToAST for syn::ItemStruct {
       .expect("Lock generator struct failed");
     let key = namespace
       .as_ref()
-      .map(|n| format!("{}::{}", n, struct_name))
-      .unwrap_or_else(|| struct_name.to_string());
+      .map(|n| format!("{n}::{rust_struct_ident}"))
+      .unwrap_or_else(|| rust_struct_ident.to_string());
     generator_struct.insert(key, implement_iterator);
     drop(generator_struct);
 
@@ -1347,12 +1385,12 @@ impl ConvertToAST for syn::ItemStruct {
 
     Diagnostic::from_vec(errors).map(|()| Napi {
       item: NapiItem::Struct(NapiStruct {
-        js_name,
-        name: struct_name.clone(),
+        js_name: final_js_name_for_struct,
+        name: rust_struct_ident.clone(),
         kind: struct_kind,
         js_mod: namespace,
         use_nullable,
-        register_name: get_register_ident(format!("{struct_name}_struct").as_str()),
+        register_name: get_register_ident(format!("{rust_struct_ident}_struct").as_str()),
         comments: extract_doc_comments(&self.attrs),
         has_lifetime: lifetime.is_some(),
       }),
@@ -1374,7 +1412,12 @@ impl ConvertToAST for syn::ItemImpl {
 
     let (struct_name, has_lifetime) = extract_path_ident(struct_name)?;
 
-    let mut struct_js_name = struct_name.to_string().to_case(Case::UpperCamel);
+    // Check if this struct was recorded with a custom js_name, fallback to default if not found
+    let mut struct_js_name =
+      match check_recorded_struct_for_impl(&struct_name, &BindgenAttrs::default()) {
+        Ok(recorded_js_name) => recorded_js_name,
+        Err(_) => struct_name.to_string().to_case(Case::UpperCamel),
+      };
     let mut items = vec![];
     let mut task_output_type = None;
     let mut iterator_yield_type = None;
@@ -1386,7 +1429,7 @@ impl ConvertToAST for syn::ItemImpl {
         syn::ImplItem::Type(m) => {
           if let Some((_, t, _)) = &self.trait_ {
             if let Some(PathSegment { ident, .. }) = t.segments.last() {
-              if ident == "Task" && m.ident == "JsValue" {
+              if (ident == "Task" || ident == "ScopedTask") && m.ident == "JsValue" {
                 task_output_type = Some(m.ty.clone());
               } else if ident == "Generator" {
                 if let Type::Path(_) = &m.ty {
@@ -1497,15 +1540,15 @@ impl ConvertToAST for syn::ItemEnum {
           is_tuple,
         });
       }
-      let struct_name = self.ident.clone();
+      let rust_struct_ident = self.ident.clone();
       return Diagnostic::from_vec(errors).map(|()| Napi {
         item: NapiItem::Struct(NapiStruct {
-          name: struct_name.clone(),
+          name: rust_struct_ident.clone(),
           js_name,
           comments: extract_doc_comments(&self.attrs),
           js_mod: opts.namespace().map(|(m, _)| m.to_owned()),
           use_nullable: opts.use_nullable(),
-          register_name: get_register_ident(format!("{struct_name}_struct").as_str()),
+          register_name: get_register_ident(format!("{rust_struct_ident}_struct").as_str()),
           kind: NapiStructKind::StructuredEnum(NapiStructuredEnum {
             variants,
             discriminant: discriminant.to_owned(),

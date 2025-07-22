@@ -1,4 +1,5 @@
 use std::marker::PhantomData;
+#[cfg(feature = "napi6")]
 use std::ptr;
 
 use serde_json::{Map, Number, Value};
@@ -108,9 +109,13 @@ impl FromNapiValue for Value {
   }
 }
 
+#[cfg(feature = "napi6")]
 fn to_string(env: sys::napi_env, napi_val: sys::napi_value) -> Result<String> {
   let mut string = ptr::null_mut();
-  check_status!(unsafe { sys::napi_coerce_to_string(env, napi_val, &mut string) })?;
+  check_status!(
+    unsafe { sys::napi_coerce_to_string(env, napi_val, &mut string) },
+    "Failed to coerce to string"
+  )?;
   let s = unsafe { String::from_napi_value(env, string) }?;
   Ok(s)
 }
@@ -176,7 +181,7 @@ impl ToNapiValue for &Number {
       if n > u32::MAX as u64 {
         #[cfg(feature = "napi6")]
         {
-          return unsafe { BigInt::to_napi_value(env, BigInt::from(n)) };
+          unsafe { BigInt::to_napi_value(env, BigInt::from(n)) }
         }
 
         #[cfg(not(feature = "napi6"))]

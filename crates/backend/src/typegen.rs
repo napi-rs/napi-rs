@@ -46,7 +46,7 @@ pub fn js_doc_from_comments(comments: &[String]) -> String {
     "/**\n{} */\n",
     comments
       .iter()
-      .map(|c| format!(" *{}\n", c))
+      .map(|c| format!(" *{c}\n"))
       .collect::<Vec<String>>()
       .join("")
   )
@@ -56,16 +56,8 @@ fn escape_json(src: &str) -> String {
   use std::fmt::Write;
   let mut escaped = String::with_capacity(src.len());
   let mut utf16_buf = [0u16; 2];
-  let mut pending_backslash = false;
-  for c in src.chars() {
-    if pending_backslash {
-      match c {
-        'b' | 'f' | 'n' | 'r' | 't' | 'u' | '"' => escaped += "\\",
-        _ => escaped += "\\\\",
-      }
-      pending_backslash = false;
-    }
 
+  for c in src.chars() {
     match c {
       '\x08' => escaped += "\\b",
       '\x0c' => escaped += "\\f",
@@ -73,23 +65,16 @@ fn escape_json(src: &str) -> String {
       '\r' => escaped += "\\r",
       '\t' => escaped += "\\t",
       '"' => escaped += "\\\"",
-      '\\' => {
-        pending_backslash = true;
-      }
+      '\\' => escaped += "\\\\",
       ' ' => escaped += " ",
       c if c.is_ascii_graphic() => escaped.push(c),
       c => {
         let encoded = c.encode_utf16(&mut utf16_buf);
         for utf16 in encoded {
-          write!(escaped, "\\u{:04X}", utf16).unwrap();
+          write!(escaped, "\\u{utf16:04X}").unwrap();
         }
       }
     }
-  }
-
-  // cater for trailing backslash
-  if pending_backslash {
-    escaped += "\\\\"
   }
 
   escaped
@@ -98,12 +83,12 @@ fn escape_json(src: &str) -> String {
 impl Display for TypeDef {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
     let js_mod = if let Some(js_mod) = &self.js_mod {
-      format!(", \"js_mod\": \"{}\"", js_mod)
+      format!(", \"js_mod\": \"{js_mod}\"")
     } else {
       "".to_string()
     };
     let original_name = if let Some(original_name) = &self.original_name {
-      format!(", \"original_name\": \"{}\"", original_name)
+      format!(", \"original_name\": \"{original_name}\"")
     } else {
       "".to_string()
     };
@@ -133,6 +118,7 @@ static KNOWN_TYPES: LazyLock<HashMap<&'static str, (&'static str, bool, bool)>> 
     map.extend([
     ("JsObject", ("object", false, false)),
     ("Object", ("object", false, false)),
+    ("ObjectRef", ("object", false, false)),
     ("Array", ("unknown[]", false, false)),
     ("Value", ("any", false, false)),
     ("Map", ("Record<string, any>", false, false)),
@@ -198,14 +184,17 @@ static KNOWN_TYPES: LazyLock<HashMap<&'static str, (&'static str, bool, bool)>> 
     ("Either24", ("{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}", false, true)),
     ("Either25", ("{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}", false, true)),
     ("Either26", ("{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}", false, true)),
-    ("external", ("object", false, false)),
     ("Promise", ("Promise<{}>", false, false)),
     ("PromiseRaw", ("Promise<{}>", false, false)),
     ("AbortSignal", ("AbortSignal", false, false)),
     ("JsGlobal", ("typeof global", false, false)),
+    ("JsExternal", ("object", false, false)),
+    ("external", ("object", false, false)),
     ("External", ("ExternalObject<{}>", false, false)),
+    ("ExternalRef", ("ExternalObject<{}>", false, false)),
     ("unknown", ("unknown", false, false)),
     ("Unknown", ("unknown", false, false)),
+    ("UnknownRef", ("unknown", false, false)),
     ("UnknownReturnValue", ("unknown", false, false)),
     ("JsUnknown", ("unknown", false, false)),
     ("This", ("this", false, false)),
@@ -226,6 +215,50 @@ static KNOWN_TYPES_IGNORE_ARG: LazyLock<HashMap<&'static str, Vec<usize>>> = Laz
   ]
   .into()
 });
+
+/// Formats a JavaScript property name, adding quotes if it contains special characters
+/// or starts with a digit that would make it an invalid identifier.
+pub fn format_js_property_name(js_name: &str) -> String {
+  let needs_quotes: bool = js_name.chars().next().is_some_and(|c| c.is_ascii_digit())
+    || js_name.contains("-")
+    || js_name.contains(":")
+    || js_name.contains(" ")
+    || js_name.contains(".")
+    || js_name.contains("[")
+    || js_name.contains("]")
+    || js_name.contains("@")
+    || js_name.contains("#")
+    || js_name.contains("$")
+    || js_name.contains("%")
+    || js_name.contains("^")
+    || js_name.contains("&")
+    || js_name.contains("*")
+    || js_name.contains("(")
+    || js_name.contains(")")
+    || js_name.contains("+")
+    || js_name.contains("=")
+    || js_name.contains("{")
+    || js_name.contains("}")
+    || js_name.contains("|")
+    || js_name.contains("\\")
+    || js_name.contains(";")
+    || js_name.contains("'")
+    || js_name.contains("\"")
+    || js_name.contains("<")
+    || js_name.contains(">")
+    || js_name.contains(",")
+    || js_name.contains("?")
+    || js_name.contains("/")
+    || js_name.contains("~")
+    || js_name.contains("`")
+    || js_name.contains("!");
+
+  if needs_quotes {
+    format!("'{js_name}'")
+  } else {
+    js_name.to_string()
+  }
+}
 
 fn fill_ty(template: &str, args: Vec<String>) -> String {
   let matches = template.match_indices("{}").collect::<Vec<_>>();
@@ -309,13 +342,13 @@ pub fn ty_to_ts_type(
           .map(|(i, arg)| {
             let (ts_type, is_optional) = ty_to_ts_type(arg, false, false, false);
             r#fn::FnArg {
-              arg: format!("arg{}", i),
+              arg: format!("arg{i}"),
               ts_type,
               is_optional,
             }
           })
           .collect::<r#fn::FnArgList>();
-        (format!("{}", variadic), false)
+        (format!("{variadic}"), false)
       } else {
         (
           format!(
@@ -363,7 +396,7 @@ pub fn ty_to_ts_type(
                 ))
                 .map(|(mut ty, is_optional)| {
                   if is_ts_union_type && is_ts_function_type_notation(generic_ty) {
-                    ty = format!("({})", ty);
+                    ty = format!("({ty})");
                   }
                   (ty, is_optional)
                 })
@@ -394,9 +427,9 @@ pub fn ty_to_ts_type(
               if is_struct_field {
                 arg.to_string()
               } else if is_return_ty {
-                format!("{} | null", arg)
+                format!("{arg} | null")
               } else {
-                format!("{} | undefined | null", arg)
+                format!("{arg} | undefined | null")
               },
               true,
             )
@@ -405,7 +438,7 @@ pub fn ty_to_ts_type(
           r#struct::TASK_STRUCTS.with(|t| {
             let (output_type, _) = args.first().unwrap().to_owned();
             if let Some(o) = t.borrow().get(&output_type) {
-              Some((format!("Promise<{}>", o), false))
+              Some((format!("Promise<{o}>"), false))
             } else {
               Some(("Promise<unknown>".to_owned(), false))
             }
@@ -454,7 +487,7 @@ pub fn ty_to_ts_type(
                 Some((fill_ty(known_ty, union_args), false))
               }
             } else {
-              let filtered_args =
+              let mut filtered_args =
                 if let Some(arg_indices) = KNOWN_TYPES_IGNORE_ARG.get(rust_ty.as_str()) {
                   args
                     .enumerate()
@@ -464,6 +497,9 @@ pub fn ty_to_ts_type(
                 } else {
                   args.collect::<Vec<_>>()
                 };
+              if rust_ty.starts_with("Function") && filtered_args.is_empty() {
+                filtered_args = vec!["arg?: unknown".to_owned(), "unknown".to_owned()];
+              }
 
               Some((fill_ty(known_ty, filtered_args), false))
             }
@@ -482,7 +518,17 @@ pub fn ty_to_ts_type(
           let fn_args = args
             .get(2)
             .or_else(|| args.first())
-            .map(|(arg, _)| arg)
+            .map(|(arg, _)| {
+              // If the argument is just a type without parameter names (e.g., "string"),
+              // we need to add a parameter name for function signatures
+              if arg.contains(':') || arg.is_empty() {
+                // Already has parameter names or is empty
+                arg.clone()
+              } else {
+                // Single type without parameter name, add one
+                format!("arg: {arg}")
+              }
+            })
             .unwrap();
           let return_ty = args
             .get(1)
@@ -517,7 +563,7 @@ pub fn ty_to_ts_type(
               ty = alias.split_once('<').map(|(t, _)| t.to_string()).unwrap();
             }
 
-            Some((format!("{}<{}>", ty, arg_str), false))
+            Some((format!("{ty}<{arg_str}>"), false))
           } else {
             type_alias.or(Some((rust_ty, false)))
           }
@@ -529,7 +575,7 @@ pub fn ty_to_ts_type(
       let (ty, is_optional) = ts_ty.unwrap_or_else(|| ("any".to_owned(), false));
       (
         if convert_tuple_to_variadic && !is_return_ty && !is_passthrough_type {
-          format!("arg: {}", ty)
+          format!("arg: {ty}")
         } else {
           ty
         },
@@ -540,7 +586,7 @@ pub fn ty_to_ts_type(
     Type::Array(a) => {
       let (element_type, is_optional) =
         ty_to_ts_type(&a.elem, is_return_ty, is_struct_field, false);
-      (format!("{}[]", element_type), is_optional)
+      (format!("{element_type}[]"), is_optional)
     }
     Type::Paren(p) => {
       let (element_type, is_optional) =
@@ -558,5 +604,50 @@ pub fn ty_to_ts_type(
       ("any[]".to_owned(), false)
     }
     _ => ("any".to_owned(), false),
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::escape_json;
+
+  #[test]
+  fn test_escape_json_escaped_quotes() {
+    // Test the specific case reported in issue #2502
+    let input = r#"\\"g+sx\\""#;
+    let result = escape_json(input);
+
+    // Verify the result can be parsed as JSON
+    let json_string = format!(r#"{{"comment": "{result}"}}"#);
+    let parsed: serde_json::Value =
+      serde_json::from_str(&json_string).expect("Should parse as valid JSON");
+
+    if let Some(comment) = parsed.get("comment").and_then(|v| v.as_str()) {
+      assert_eq!(comment, r#"\\"g+sx\\""#);
+    } else {
+      panic!("Failed to extract comment from parsed JSON");
+    }
+  }
+
+  #[test]
+  fn test_escape_json_basic_escapes() {
+    assert_eq!(escape_json(r#"test"quote"#), r#"test\"quote"#);
+    assert_eq!(escape_json("test\nline"), r#"test\nline"#);
+    assert_eq!(escape_json("test\tTab"), r#"test\tTab"#);
+    assert_eq!(escape_json("test\\backslash"), "test\\\\backslash");
+  }
+
+  #[test]
+  fn test_escape_json_multiple_escapes() {
+    assert_eq!(
+      escape_json(r#"test\\"multiple\\""#),
+      r#"test\\\\\"multiple\\\\\""#
+    );
+    assert_eq!(escape_json(r#"\\\\"#), r#"\\\\\\\\"#);
+  }
+
+  #[test]
+  fn test_escape_json_trailing_backslash() {
+    assert_eq!(escape_json(r#"test\"#), r#"test\\"#);
   }
 }

@@ -16,7 +16,8 @@
     "wasm": {
       "initialMemory": 16384,
       "browser": {
-        "fs": true
+        "fs": true,
+        "buffer": true
       }
     },
     "dtsHeader": "type MaybePromise<T> = T | Promise<T>",
@@ -29,7 +30,7 @@
     "@napi-rs/cli": "workspace:*",
     "@napi-rs/triples": "workspace:*",
     "@napi-rs/wasm-runtime": "workspace:*",
-    "@oxc-node/core": "^0.0.27",
+    "@oxc-node/core": "^0.0.29",
     "@testing-library/dom": "^10.4.0",
     "@types/lodash": "^4.17.16",
     "@vitest/browser": "^3.1.1",
@@ -37,13 +38,13 @@
     "ava": "^6.2.0",
     "buffer": "^6.0.3",
     "cross-env": "7.0.3",
-    "electron": "^36.3.1",
+    "electron": "^37.0.0",
     "lodash": "^4.17.21",
     "playwright": "^1.51.1",
     "rxjs": "^7.8.2",
-    "sinon": "^20.0.0",
-    "vite": "^6.2.4",
-    "vite-plugin-node-polyfills": "^0.23.0",
+    "sinon": "^21.0.0",
+    "vite": "^7.0.0",
+    "vite-plugin-node-polyfills": "^0.24.0",
     "vitest": "^3.1.1",
     "web-streams-polyfill": "^4.1.0",
     "webdriverio": "^9.12.2"

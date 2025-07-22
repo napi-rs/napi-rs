@@ -117,7 +117,7 @@ pub fn block_on<F: Future>(fut: F) -> F::Output {
 /// Runs a future to completion
 /// This is blocking, meaning that it pauses other execution until the future is complete,
 /// only use it when it is absolutely necessary, in other places use async functions instead.
-pub fn block_on<F: Future>(fut: F) -> F::Output {
+pub fn block_on<F: Future>(_: F) -> F::Output {
   unreachable!("noop feature is enabled, block_on is not available")
 }
 

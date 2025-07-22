@@ -1,5 +1,10 @@
-import { execSync } from 'node:child_process'
+import { exec, execSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import { homedir } from 'node:os'
 import path from 'node:path'
+import { promises as fs } from 'node:fs'
+
+import { load as yamlLoad, dump as yamlDump } from 'js-yaml'
 
 import {
   applyDefaultNewOptions,
@@ -7,37 +12,283 @@ import {
 } from '../def/new.js'
 import {
   AVAILABLE_TARGETS,
-  CLI_VERSION,
   debugFactory,
   DEFAULT_TARGETS,
   mkdirAsync,
   readdirAsync,
   statAsync,
-  type SupportedTestFramework,
-  writeFileAsync,
   SupportedPackageManager,
 } from '../utils/index.js'
 import { napiEngineRequirement } from '../utils/version.js'
+import { renameProject } from './rename.js'
 
-import {
-  createBuildRs,
-  createCargoToml,
-  createGithubActionsCIYml,
-  createLibRs,
-  createPackageJson,
-  gitIgnore,
-  npmIgnore,
-} from './templates/index.js'
-import { WasiTargetName } from './templates/ci-template.js'
+// Template imports removed as we're now using external templates
 
 const debug = debugFactory('new')
 
-interface Output {
-  target: string
-  content: string
+type NewOptions = Required<RawNewOptions>
+
+const TEMPLATE_REPOS = {
+  yarn: 'https://github.com/napi-rs/package-template',
+  pnpm: 'https://github.com/napi-rs/package-template-pnpm',
+} as const
+
+async function checkGitCommand(): Promise<boolean> {
+  try {
+    await new Promise((resolve) => {
+      const cp = exec('git --version')
+      cp.on('error', () => {
+        resolve(false)
+      })
+      cp.on('exit', (code) => {
+        if (code === 0) {
+          resolve(true)
+        } else {
+          resolve(false)
+        }
+      })
+    })
+    return true
+  } catch {
+    return false
+  }
 }
 
-type NewOptions = Required<RawNewOptions>
+async function ensureCacheDir(
+  packageManager: SupportedPackageManager,
+): Promise<string> {
+  const cacheDir = path.join(homedir(), '.napi-rs', 'template', packageManager)
+  await mkdirAsync(cacheDir, { recursive: true })
+  return cacheDir
+}
+
+async function downloadTemplate(
+  packageManager: SupportedPackageManager,
+  cacheDir: string,
+): Promise<void> {
+  const repoUrl = TEMPLATE_REPOS[packageManager]
+  const templatePath = path.join(cacheDir, 'repo')
+
+  if (existsSync(templatePath)) {
+    debug(`Template cache found at ${templatePath}, updating...`)
+    try {
+      // Fetch latest changes and reset to remote
+      await new Promise<void>((resolve, reject) => {
+        const cp = exec('git fetch origin', { cwd: templatePath })
+        cp.on('error', reject)
+        cp.on('exit', (code) => {
+          if (code === 0) {
+            resolve()
+          } else {
+            reject(
+              new Error(
+                `Failed to fetch latest changes, git process exited with code ${code}`,
+              ),
+            )
+          }
+        })
+      })
+      execSync('git reset --hard origin/main', {
+        cwd: templatePath,
+        stdio: 'ignore',
+      })
+      debug('Template updated successfully')
+    } catch (error) {
+      debug(`Failed to update template: ${error}`)
+      throw new Error(`Failed to update template from ${repoUrl}: ${error}`)
+    }
+  } else {
+    debug(`Cloning template from ${repoUrl}...`)
+    try {
+      execSync(`git clone ${repoUrl} repo`, { cwd: cacheDir, stdio: 'inherit' })
+      debug('Template cloned successfully')
+    } catch (error) {
+      throw new Error(`Failed to clone template from ${repoUrl}: ${error}`)
+    }
+  }
+}
+
+async function copyDirectory(
+  src: string,
+  dest: string,
+  includeWasiBindings: boolean,
+): Promise<void> {
+  await mkdirAsync(dest, { recursive: true })
+  const entries = await fs.readdir(src, { withFileTypes: true })
+
+  for (const entry of entries) {
+    const srcPath = path.join(src, entry.name)
+    const destPath = path.join(dest, entry.name)
+
+    // Skip .git directory
+    if (entry.name === '.git') {
+      continue
+    }
+
+    if (entry.isDirectory()) {
+      await copyDirectory(srcPath, destPath, includeWasiBindings)
+    } else {
+      if (
+        !includeWasiBindings &&
+        (entry.name.endsWith('.wasi-browser.js') ||
+          entry.name.endsWith('.wasi.cjs') ||
+          entry.name.endsWith('wasi-worker.browser.mjs ') ||
+          entry.name.endsWith('wasi-worker.mjs') ||
+          entry.name.endsWith('browser.js'))
+      ) {
+        continue
+      }
+      await fs.copyFile(srcPath, destPath)
+    }
+  }
+}
+
+async function filterTargetsInPackageJson(
+  filePath: string,
+  enabledTargets: string[],
+): Promise<void> {
+  const content = await fs.readFile(filePath, 'utf-8')
+  const packageJson = JSON.parse(content)
+
+  // Filter napi.targets
+  if (packageJson.napi?.targets) {
+    packageJson.napi.targets = packageJson.napi.targets.filter(
+      (target: string) => enabledTargets.includes(target),
+    )
+  }
+
+  await fs.writeFile(filePath, JSON.stringify(packageJson, null, 2) + '\n')
+}
+
+async function filterTargetsInGithubActions(
+  filePath: string,
+  enabledTargets: string[],
+): Promise<void> {
+  const content = await fs.readFile(filePath, 'utf-8')
+  const yaml = yamlLoad(content) as any
+
+  const macOSAndWindowsTargets = new Set([
+    'x86_64-pc-windows-msvc',
+    'aarch64-pc-windows-msvc',
+    'x86_64-apple-darwin',
+  ])
+
+  const linuxTargets = new Set([
+    'x86_64-unknown-linux-gnu',
+    'x86_64-unknown-linux-musl',
+    'aarch64-unknown-linux-gnu',
+    'aarch64-unknown-linux-musl',
+    'armv7-unknown-linux-gnueabihf',
+    'armv7-unknown-linux-musleabihf',
+    'riscv64gc-unknown-linux-gnu',
+    'powerpc64le-unknown-linux-gnu',
+    's390x-unknown-linux-gnu',
+    'aarch64-linux-android',
+    'armv7-linux-androideabi',
+  ])
+
+  // Check if any Linux targets are enabled
+  const hasLinuxTargets = enabledTargets.some((target) =>
+    linuxTargets.has(target),
+  )
+
+  // Filter the matrix configurations in the build job
+  if (yaml?.jobs?.build?.strategy?.matrix?.settings) {
+    yaml.jobs.build.strategy.matrix.settings =
+      yaml.jobs.build.strategy.matrix.settings.filter((setting: any) => {
+        if (setting.target) {
+          return enabledTargets.includes(setting.target)
+        }
+        return true
+      })
+  }
+
+  const jobsToRemove: string[] = []
+
+  if (enabledTargets.every((target) => !macOSAndWindowsTargets.has(target))) {
+    jobsToRemove.push('test-macOS-windows-binding')
+  } else {
+    // Filter the matrix configurations in the test-macOS-windows-binding job
+    if (
+      yaml?.jobs?.['test-macOS-windows-binding']?.strategy?.matrix?.settings
+    ) {
+      yaml.jobs['test-macOS-windows-binding'].strategy.matrix.settings =
+        yaml.jobs['test-macOS-windows-binding'].strategy.matrix.settings.filter(
+          (setting: any) => {
+            if (setting.target) {
+              return enabledTargets.includes(setting.target)
+            }
+            return true
+          },
+        )
+    }
+  }
+
+  // If no Linux targets are enabled, remove Linux-specific jobs
+  if (!hasLinuxTargets) {
+    // Remove test-linux-binding job
+    if (yaml?.jobs?.['test-linux-binding']) {
+      jobsToRemove.push('test-linux-binding')
+    }
+  } else {
+    // Filter the matrix configurations in the test-linux-x64-gnu-binding job
+    if (yaml?.jobs?.['test-linux-binding']?.strategy?.matrix?.target) {
+      yaml.jobs['test-linux-binding'].strategy.matrix.target = yaml.jobs[
+        'test-linux-binding'
+      ].strategy.matrix.target.filter((target: string) => {
+        if (target) {
+          return enabledTargets.includes(target)
+        }
+        return true
+      })
+    }
+  }
+
+  if (!enabledTargets.includes('wasm32-wasip1-threads')) {
+    jobsToRemove.push('test-wasi')
+  }
+
+  if (!enabledTargets.includes('x86_64-unknown-freebsd')) {
+    jobsToRemove.push('build-freebsd')
+  }
+
+  // Filter other test jobs based on target
+  for (const [jobName, jobConfig] of Object.entries(yaml.jobs || {})) {
+    if (
+      jobName.startsWith('test-') &&
+      jobName !== 'test-macOS-windows-binding' &&
+      jobName !== 'test-linux-x64-gnu-binding'
+    ) {
+      // Extract target from job name or config
+      const job = jobConfig as any
+      if (job.strategy?.matrix?.settings?.[0]?.target) {
+        const target = job.strategy.matrix.settings[0].target
+        if (!enabledTargets.includes(target)) {
+          jobsToRemove.push(jobName)
+        }
+      }
+    }
+  }
+
+  // Remove jobs for disabled targets
+  for (const jobName of jobsToRemove) {
+    delete yaml.jobs[jobName]
+  }
+
+  if (Array.isArray(yaml.jobs?.publish?.needs)) {
+    yaml.jobs.publish.needs = yaml.jobs.publish.needs.filter(
+      (need: string) => !jobsToRemove.includes(need),
+    )
+  }
+
+  // Write back the filtered YAML
+  const updatedYaml = yamlDump(yaml, {
+    lineWidth: -1,
+    noRefs: true,
+    sortKeys: false,
+  })
+  await fs.writeFile(filePath, updatedYaml)
+}
 
 function processOptions(options: RawNewOptions) {
   debug('Processing options...')
@@ -70,7 +321,7 @@ function processOptions(options: RawNewOptions) {
       encoding: 'utf8',
     })
     if (out.includes('wasm32-wasip1-threads')) {
-      options.targets.map((target) =>
+      options.targets = options.targets.map((target) =>
         target === 'wasm32-wasi-preview1-threads'
           ? 'wasm32-wasip1-threads'
           : target,
@@ -90,11 +341,92 @@ export async function newProject(userOptions: RawNewOptions) {
   debug('Targets to be enabled:')
   debug(options.targets)
 
-  const outputs = await generateFiles(options)
+  // Check if git is available
+  if (!(await checkGitCommand())) {
+    throw new Error(
+      'Git is not installed or not available in PATH. Please install Git to continue.',
+    )
+  }
 
+  const packageManager = options.packageManager as SupportedPackageManager
+
+  // Ensure target directory exists and is empty
   await ensurePath(options.path, options.dryRun)
 
-  await dumpOutputs(outputs, options.dryRun)
+  if (!options.dryRun) {
+    try {
+      // Download or update template
+      const cacheDir = await ensureCacheDir(packageManager)
+      await downloadTemplate(packageManager, cacheDir)
+
+      // Copy template files to target directory
+      const templatePath = path.join(cacheDir, 'repo')
+      await copyDirectory(
+        templatePath,
+        options.path,
+        options.targets.includes('wasm32-wasip1-threads'),
+      )
+
+      // Rename project using the rename API
+      await renameProject({
+        cwd: options.path,
+        name: options.name,
+        binaryName: getBinaryName(options.name),
+      })
+
+      // Filter targets in package.json
+      const packageJsonPath = path.join(options.path, 'package.json')
+      if (existsSync(packageJsonPath)) {
+        await filterTargetsInPackageJson(packageJsonPath, options.targets)
+      }
+
+      // Filter targets in GitHub Actions CI
+      const ciPath = path.join(options.path, '.github', 'workflows', 'CI.yml')
+      if (existsSync(ciPath) && options.enableGithubActions) {
+        await filterTargetsInGithubActions(ciPath, options.targets)
+      } else if (
+        !options.enableGithubActions &&
+        existsSync(path.join(options.path, '.github'))
+      ) {
+        // Remove .github directory if GitHub Actions is not enabled
+        await fs.rm(path.join(options.path, '.github'), {
+          recursive: true,
+          force: true,
+        })
+      }
+
+      // Update package.json with additional configurations
+      const pkgJsonContent = await fs.readFile(packageJsonPath, 'utf-8')
+      const pkgJson = JSON.parse(pkgJsonContent)
+
+      // Update engine requirement
+      if (!pkgJson.engines) {
+        pkgJson.engines = {}
+      }
+      pkgJson.engines.node = napiEngineRequirement(options.minNodeApiVersion)
+
+      // Update license if different from template
+      if (options.license && pkgJson.license !== options.license) {
+        pkgJson.license = options.license
+      }
+
+      // Update test framework if needed
+      if (options.testFramework !== 'ava') {
+        // This would require more complex logic to update test scripts and dependencies
+        debug(
+          `Test framework ${options.testFramework} requested but not yet implemented`,
+        )
+      }
+
+      await fs.writeFile(
+        packageJsonPath,
+        JSON.stringify(pkgJson, null, 2) + '\n',
+      )
+    } catch (error) {
+      throw new Error(`Failed to create project: ${error}`)
+    }
+  }
+
   debug(`Project created at: ${options.path}`)
 }
 
@@ -127,129 +459,6 @@ async function ensurePath(path: string, dryRun = false) {
       throw new Error(`Failed to create target directory: ${path}`, {
         cause: e,
       })
-    }
-  }
-}
-
-async function generateFiles(options: NewOptions): Promise<Output[]> {
-  const packageJson = await generatePackageJson(options)
-  return [
-    generateCargoToml,
-    generateLibRs,
-    generateBuildRs,
-    generateGithubWorkflow,
-    generateIgnoreFiles,
-  ]
-    .flatMap((generator) => {
-      const output = generator(options)
-
-      if (!output) {
-        return []
-      }
-
-      if (Array.isArray(output)) {
-        return output.map((o) => ({
-          ...o,
-          target: path.join(options.path, o.target),
-        }))
-      } else {
-        return [{ ...output, target: path.join(options.path, output.target) }]
-      }
-    })
-    .concat([
-      { ...packageJson, target: path.join(options.path, packageJson.target) },
-    ])
-}
-
-function generateCargoToml(options: NewOptions): Output {
-  return {
-    target: './Cargo.toml',
-    content: createCargoToml({
-      name: options.name,
-      license: options.license,
-      features: [`napi${options.minNodeApiVersion}`],
-      deriveFeatures: options.enableTypeDef ? ['type-def'] : [],
-    }),
-  }
-}
-
-function generateLibRs(_options: NewOptions): Output {
-  return {
-    target: './src/lib.rs',
-    content: createLibRs(),
-  }
-}
-
-function generateBuildRs(_options: NewOptions): Output {
-  return {
-    target: './build.rs',
-    content: createBuildRs(),
-  }
-}
-
-async function generatePackageJson(options: NewOptions): Promise<Output> {
-  return {
-    target: './package.json',
-    content: await createPackageJson({
-      name: options.name,
-      binaryName: getBinaryName(options.name),
-      targets: options.targets,
-      license: options.license,
-      engineRequirement: napiEngineRequirement(options.minNodeApiVersion),
-      cliVersion: CLI_VERSION,
-      testFramework: options.testFramework as SupportedTestFramework,
-    }),
-  }
-}
-
-function generateGithubWorkflow(options: NewOptions): Output | null {
-  if (!options.enableGithubActions) {
-    return null
-  }
-
-  return {
-    target: './.github/workflows/ci.yml',
-    content: createGithubActionsCIYml(
-      options.targets,
-      options.packageManager as SupportedPackageManager,
-      (options.targets.find((t) =>
-        t.includes('wasm32-wasi'),
-      ) as WasiTargetName) ?? 'wasm32-wasi-preview1-threads',
-    ),
-  }
-}
-
-function generateIgnoreFiles(_options: NewOptions): Output[] {
-  return [
-    {
-      target: './.gitignore',
-      content: gitIgnore,
-    },
-    {
-      target: './.npmignore',
-      content: npmIgnore,
-    },
-  ]
-}
-
-async function dumpOutputs(outputs: Output[], dryRun?: boolean) {
-  for (const output of outputs) {
-    if (!output) {
-      continue
-    }
-
-    debug(`Writing project file: ${output.target}`)
-    // only output content to logger instead of writing to file system
-    if (dryRun) {
-      debug(output.content)
-      continue
-    }
-
-    try {
-      await mkdirAsync(path.dirname(output.target), { recursive: true })
-      await writeFileAsync(output.target, output.content, 'utf-8')
-    } catch (e) {
-      throw new Error(`Failed to write file: ${output.target}`, { cause: e })
     }
   }
 }

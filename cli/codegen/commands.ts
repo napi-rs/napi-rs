@@ -580,6 +580,12 @@ const PRE_PUBLISH_OPTIONS: CommandSchema = {
       description: 'Existing GitHub release id',
     },
     {
+      name: 'skipOptionalPublish',
+      type: 'boolean',
+      description: 'Whether skip optionalDependencies packages publish',
+      default: false,
+    },
+    {
       name: 'dryRun',
       type: 'boolean',
       description: 'Dry run without touching file system',

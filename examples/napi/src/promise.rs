@@ -1,4 +1,4 @@
-use napi::bindgen_prelude::*;
+use napi::{bindgen_prelude::*, JsString};
 
 #[napi]
 pub async fn async_plus_100(p: Promise<u32>) -> Result<u32> {
@@ -33,4 +33,21 @@ pub fn esm_resolve<'env>(
   next: Function<'env, (), PromiseRaw<'env, ()>>,
 ) -> Result<PromiseRaw<'env, ()>> {
   next.call(())
+}
+
+#[napi]
+pub fn spawn_future_lifetime(env: &Env, input: u32) -> Result<PromiseRaw<JsString>> {
+  env.spawn_future_with_callback(async move { Ok(input) }, |env, val| {
+    env.create_string(format!("{}", val))
+  })
+}
+
+#[napi]
+pub struct ClassReturnInPromise {}
+
+#[napi]
+pub fn promise_raw_return_class_instance(env: &Env) -> Result<PromiseRaw<ClassReturnInPromise>> {
+  env.spawn_future_with_callback(async move { Ok(ClassReturnInPromise {}) }, |_env, _val| {
+    Ok(ClassReturnInPromise {})
+  })
 }

@@ -1,7 +1,7 @@
 use std::ffi::{c_void, CString};
 use std::marker::PhantomData;
 use std::mem;
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 use std::ptr::{self, NonNull};
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
 use std::sync::atomic::Ordering;
@@ -170,13 +170,12 @@ impl<'env> ArrayBuffer<'env> {
       )
     };
     if status == napi_sys::Status::napi_no_external_buffers_allowed {
-      let mut inner_data = unsafe { Vec::from_raw_parts(inner_ptr, data.len(), data.len()) };
       let mut underlying_data = ptr::null_mut();
       status =
         unsafe { sys::napi_create_arraybuffer(env.0, data.len(), &mut underlying_data, &mut buf) };
-      unsafe {
-        std::ptr::copy_nonoverlapping(inner_data.as_mut_ptr().cast(), underlying_data, data.len())
-      };
+      let underlying_slice: &mut [u8] =
+        unsafe { std::slice::from_raw_parts_mut(underlying_data.cast(), data.len()) };
+      underlying_slice.copy_from_slice(data.as_slice());
       inner_ptr = underlying_data.cast();
     } else {
       mem::forget(data);
@@ -326,6 +325,96 @@ impl<'env> ArrayBuffer<'env> {
   }
 }
 
+#[derive(Clone, Copy)]
+/// Represents a JavaScript ArrayBuffer
+pub struct TypedArray<'env> {
+  pub(crate) value: Value,
+  pub typed_array_type: TypedArrayType,
+  pub arraybuffer: ArrayBuffer<'env>,
+  pub byte_offset: usize,
+}
+
+impl TypeName for TypedArray<'_> {
+  fn type_name() -> &'static str {
+    "TypedArray"
+  }
+
+  fn value_type() -> ValueType {
+    ValueType::Object
+  }
+}
+
+impl ValidateNapiValue for TypedArray<'_> {
+  unsafe fn validate(env: sys::napi_env, napi_val: sys::napi_value) -> Result<sys::napi_value> {
+    let mut is_typedarray = false;
+    check_status!(
+      unsafe { sys::napi_is_typedarray(env, napi_val, &mut is_typedarray) },
+      "Failed to validate TypedArray"
+    )?;
+    if !is_typedarray {
+      return Err(Error::new(
+        Status::InvalidArg,
+        "Value is not a TypedArray".to_owned(),
+      ));
+    }
+    Ok(ptr::null_mut())
+  }
+}
+
+impl<'env> JsValue<'env> for TypedArray<'env> {
+  fn value(&self) -> Value {
+    self.value
+  }
+}
+
+impl<'env> JsObjectValue<'env> for TypedArray<'env> {}
+
+impl FromNapiValue for TypedArray<'_> {
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
+    let value = Value {
+      env,
+      value: napi_val,
+      value_type: ValueType::Object,
+    };
+    let mut typed_array_type = 0;
+    let mut data = ptr::null_mut();
+    let mut length = 0;
+    let mut arraybuffer = ptr::null_mut();
+    let mut byte_offset = 0;
+    check_status!(
+      unsafe {
+        sys::napi_get_typedarray_info(
+          env,
+          napi_val,
+          &mut typed_array_type,
+          &mut length,
+          &mut data,
+          &mut arraybuffer,
+          &mut byte_offset,
+        )
+      },
+      "Failed to get typedarray info"
+    )?;
+    Ok(Self {
+      value: Value {
+        env,
+        value: napi_val,
+        value_type: ValueType::Object,
+      },
+      typed_array_type: typed_array_type.into(),
+      byte_offset,
+      arraybuffer: ArrayBuffer {
+        value,
+        data: if data.is_null() {
+          &[]
+        } else {
+          unsafe { std::slice::from_raw_parts(data as *const u8, length) }
+        },
+      },
+    })
+  }
+}
+
 trait Finalizer {
   type RustType;
 
@@ -402,14 +491,15 @@ macro_rules! impl_typed_array {
           );
           return;
         }
-        if !self.data.is_null() {
-          let length = self.length;
-          unsafe { Vec::from_raw_parts(self.data, length, length) };
-          return;
-        }
+        // If the `finalizer_notify` is not null, it means the data is external, and we call the finalizer instead of the `Vec::from_raw_parts`
         if !self.finalizer_notify().is_null() {
           let finalizer = unsafe { Box::from_raw(self.finalizer_notify) };
           (finalizer)(self.data, self.length);
+          return;
+        }
+        if !self.data.is_null() {
+          let length = self.length;
+          unsafe { Vec::from_raw_parts(self.data, length, length) };
         }
       }
     }
@@ -503,10 +593,11 @@ macro_rules! impl_typed_array {
         }
       }
 
+      #[allow(clippy::should_implement_trait)]
       /// # Safety
       ///
       /// This is literally undefined behavior, as the JS side may always modify the underlying buffer,
-      /// without synchronization. Also see the docs for the `DerefMut` impl.
+      /// without synchronization.
       pub unsafe fn as_mut(&mut self) -> &mut [$rust_type] {
         if self.data.is_null() {
           return &mut [];
@@ -574,7 +665,7 @@ macro_rules! impl_typed_array {
         let mut ref_ = ptr::null_mut();
         check_status!(
           unsafe { sys::napi_create_reference(env, napi_val, 1, &mut ref_) },
-          "Failed to create reference from Buffer"
+          "Failed to create reference from TypedArray"
         )?;
         check_status!(
           unsafe {
@@ -828,7 +919,6 @@ macro_rules! impl_from_slice {
           )
         };
         if status == napi_sys::Status::napi_no_external_buffers_allowed {
-          let mut inner_data = unsafe { Vec::from_raw_parts(inner_ptr, data.len(), data.len()) };
           let mut underlying_data = ptr::null_mut();
           status = unsafe {
             sys::napi_create_arraybuffer(
@@ -838,7 +928,9 @@ macro_rules! impl_from_slice {
               &mut buf,
             )
           };
-          unsafe { std::ptr::copy_nonoverlapping(inner_data.as_mut_ptr().cast(), underlying_data, data.len()) };
+          let underlying_slice: &mut [u8] =
+            unsafe { std::slice::from_raw_parts_mut(underlying_data.cast(), data.len()) };
+          underlying_slice.copy_from_slice(data.as_slice());
           inner_ptr = underlying_data.cast();
         } else {
           mem::forget(data);
@@ -937,7 +1029,9 @@ macro_rules! impl_from_slice {
               &mut arraybuffer_value,
             )
           };
-          unsafe { std::ptr::copy_nonoverlapping(data.cast(), underlying_data, len) };
+          let underlying_slice: &mut [u8] =
+            unsafe { std::slice::from_raw_parts_mut(underlying_data.cast(), len) };
+          underlying_slice.copy_from_slice(unsafe { std::slice::from_raw_parts(data, len) });
           finalize(*env, hint);
           status
         } else {
@@ -1053,6 +1147,15 @@ macro_rules! impl_from_slice {
           length: self.length,
           _marker: PhantomData,
         })
+      }
+
+      #[allow(clippy::should_implement_trait)]
+      /// # Safety
+      ///
+      /// This is literally undefined behavior, as the JS side may always modify the underlying buffer,
+      /// without synchronization.
+      pub unsafe fn as_mut(&mut self) -> &mut [$rust_type] {
+        unsafe { core::slice::from_raw_parts_mut(self.inner.as_ptr(), self.length) }
       }
 
       #[doc = "Convert a `"]
@@ -1177,12 +1280,6 @@ macro_rules! impl_from_slice {
 
       fn deref(&self) -> &Self::Target {
         self.as_ref()
-      }
-    }
-
-    impl DerefMut for $slice_type<'_> {
-      fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { core::slice::from_raw_parts_mut(self.inner.as_ptr(), self.length) }
       }
     }
 
@@ -1430,7 +1527,7 @@ impl FromNapiValue for Uint8ClampedSlice<'_> {
     if typed_array_type != TypedArrayType::Uint8Clamped as i32 {
       return Err(Error::new(
         Status::InvalidArg,
-        format!("Expected $name, got {}", typed_array_type),
+        format!("Expected $name, got {typed_array_type}"),
       ));
     }
     Ok(Self {
@@ -1500,17 +1597,11 @@ impl Deref for Uint8ClampedSlice<'_> {
   }
 }
 
-impl DerefMut for Uint8ClampedSlice<'_> {
-  fn deref_mut(&mut self) -> &mut Self::Target {
-    unsafe { core::slice::from_raw_parts_mut(self.inner.as_ptr(), self.length) }
-  }
-}
-
 impl<'env> Uint8ClampedSlice<'env> {
   /// Create a new `Uint8ClampedSlice` from Vec<u8>
   pub fn from_data<D: Into<Vec<u8>>>(env: &Env, data: D) -> Result<Self> {
     let mut buf = ptr::null_mut();
-    let mut data = data.into();
+    let mut data: Vec<u8> = data.into();
     let mut inner_ptr = data.as_mut_ptr();
     #[cfg(all(debug_assertions, not(windows)))]
     {
@@ -1534,13 +1625,11 @@ impl<'env> Uint8ClampedSlice<'env> {
       )
     };
     if status == napi_sys::Status::napi_no_external_buffers_allowed {
-      let mut inner_data = unsafe { Vec::from_raw_parts(inner_ptr, data.len(), data.len()) };
       let mut underlying_data = ptr::null_mut();
-      status =
-        unsafe { sys::napi_create_arraybuffer(env.0, data.len(), &mut underlying_data, &mut buf) };
-      unsafe {
-        std::ptr::copy_nonoverlapping(inner_data.as_mut_ptr().cast(), underlying_data, data.len())
-      };
+      status = unsafe { sys::napi_create_arraybuffer(env.0, len, &mut underlying_data, &mut buf) };
+      let underlying_slice: &mut [u8] =
+        unsafe { std::slice::from_raw_parts_mut(underlying_data.cast(), len) };
+      underlying_slice.copy_from_slice(data.as_slice());
       inner_ptr = underlying_data.cast();
     } else {
       mem::forget(data);
@@ -1634,7 +1723,9 @@ impl<'env> Uint8ClampedSlice<'env> {
       let status = unsafe {
         sys::napi_create_arraybuffer(env.0, len, &mut underlying_data, &mut arraybuffer_value)
       };
-      unsafe { std::ptr::copy_nonoverlapping(data.cast(), underlying_data, len) };
+      let underlying_slice: &mut [u8] =
+        unsafe { std::slice::from_raw_parts_mut(underlying_data.cast(), len) };
+      underlying_slice.copy_from_slice(unsafe { std::slice::from_raw_parts(data, len) });
       finalize(*env, hint);
       status
     } else {
@@ -1757,6 +1848,15 @@ impl<'env> Uint8ClampedSlice<'env> {
       length: self.length,
       _marker: PhantomData,
     })
+  }
+
+  #[allow(clippy::should_implement_trait)]
+  /// # Safety
+  ///
+  /// This is literally undefined behavior, as the JS side may always modify the underlying buffer,
+  /// without synchronization.
+  pub unsafe fn as_mut(&mut self) -> &mut [u8] {
+    core::slice::from_raw_parts_mut(self.inner.as_ptr(), self.length)
   }
 
   /// Convert a `Uint8ClampedSlice` to a `Uint8ClampedArray`.

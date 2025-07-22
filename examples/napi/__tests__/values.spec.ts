@@ -30,10 +30,10 @@ import {
   roundtripStr,
   getNums,
   getWords,
-  sumNums,
   getTuple,
   getMapping,
   sumMapping,
+  sumNums,
   getBtreeMapping,
   sumBtreeMapping,
   getIndexMapping,
@@ -76,6 +76,9 @@ import {
   eitherF64OrU32,
   withoutAbortController,
   withAbortController,
+  asyncTaskReadFile,
+  asyncTaskOptionalReturn,
+  asyncResolveArray,
   asyncMultiTwo,
   bigintAdd,
   createBigInt,
@@ -96,11 +99,13 @@ import {
   setSymbolInObj,
   createSymbol,
   createSymbolFor,
+  createSymbolRef,
   threadsafeFunctionFatalMode,
   createExternal,
   getExternal,
   mutateExternal,
   createExternalString,
+  createExternalRef,
   xxh2,
   xxh3,
   xxh64Alias,
@@ -194,6 +199,7 @@ import {
   type AliasedStruct,
   returnObjectOnlyToJs,
   buildThreadsafeFunctionFromFunction,
+  buildThreadsafeFunctionFromFunctionCalleeHandle,
   createOptionalExternal,
   getOptionalExternal,
   mutateOptionalExternal,
@@ -219,6 +225,9 @@ import {
   getMyVec,
   setNullByteProperty,
   getNullByteProperty,
+  receiveBindingVitePluginMeta,
+  createObjectRef,
+  objectWithCApis,
   getMappingWithHasher,
   getIndexMappingWithHasher,
   passSetWithHasherToJs,
@@ -239,6 +248,24 @@ import {
   shorterScope,
   shorterEscapableScope,
   tsfnThrowFromJsCallbackContainsTsfn,
+  MyJsNamedClass,
+  JSOnlyMethodsClass,
+  RustOnlyMethodsClass,
+  OriginalRustNameForJsNamedStruct,
+  ComplexClass,
+  createUint8ClampedArrayFromData,
+  arrayBufferFromData,
+  uint8ArrayFromData,
+  createUint8ClampedArrayFromExternal,
+  uint8ArrayFromExternal,
+  Thing,
+  ThingList,
+  createFunction,
+  spawnFutureLifetime,
+  promiseRawReturnClassInstance,
+  ClassReturnInPromise,
+  acceptUntypedTypedArray,
+  defineClass,
 } from '../index.cjs'
 // import other stuff in `#[napi(module_exports)]`
 import nativeAddon from '../index.cjs'
@@ -408,6 +435,8 @@ test('function call', async (t) => {
     referenceAsCallback((a, b) => a + b, 42, 10),
     52,
   )
+  const fn = createFunction()
+  t.is(fn(42), 242)
 })
 
 test('class', (t) => {
@@ -470,6 +499,96 @@ test('class', (t) => {
             })(),
     )
   }
+})
+
+test('class with js_name', (t) => {
+  // Test class instantiation and basic functionality
+  const instance = new MyJsNamedClass('test_value')
+  t.is(instance.getValue(), 'test_value')
+  t.is(instance.multiplyValue(3), 'test_valuetest_valuetest_value')
+
+  // Test type alias compatibility - OriginalRustNameForJsNamedStruct should be assignable from MyJsNamedClass
+  const instanceForTypeCheck: OriginalRustNameForJsNamedStruct =
+    new MyJsNamedClass('type_test')
+  t.is(
+    instanceForTypeCheck.getValue(),
+    'type_test',
+    'Type alias OriginalRustNameForJsNamedStruct should be assignable from MyJsNamedClass',
+  )
+  t.is(
+    instanceForTypeCheck.multiplyValue(2),
+    'type_testtype_test',
+    'Methods should be callable via type alias',
+  )
+
+  // Test edge cases
+  const emptyInstance = new MyJsNamedClass('')
+  t.is(emptyInstance.getValue(), '', 'Should handle empty strings')
+  t.is(emptyInstance.multiplyValue(0), '', 'Should handle zero multiplication')
+
+  // Test with special characters
+  const specialInstance = new MyJsNamedClass('hello 🚀 world')
+  t.is(
+    specialInstance.getValue(),
+    'hello 🚀 world',
+    'Should handle unicode characters',
+  )
+  t.is(
+    specialInstance.multiplyValue(2),
+    'hello 🚀 worldhello 🚀 world',
+    'Should multiply unicode strings correctly',
+  )
+})
+
+test('struct with js_name and methods only (no constructor)', (t) => {
+  // Test that structs with js_name but no constructor still have their methods in type definitions
+  // This was a bug where methods would disappear if there was no constructor/factory method
+
+  // The fact that this test compiles successfully means the type definitions are correct
+  // We verify that:
+  // 1. JSOnlyMethodsClass is the exported class name (not RustOnlyMethodsClass)
+  // 2. RustOnlyMethodsClass is a type alias for JSOnlyMethodsClass
+  // 3. Both have the methods processData() and getLength()
+
+  // Test type compatibility - this will fail to compile if types are wrong
+  const testTypeCompatibility = (instance: JSOnlyMethodsClass) => {
+    // These assignments will cause TypeScript compilation errors if methods are missing
+    const processDataFn: () => string = instance.processData
+    const getLengthFn: () => number = instance.getLength
+    return { processDataFn, getLengthFn }
+  }
+
+  // Test type alias compatibility
+  const testAliasCompatibility = (instance: RustOnlyMethodsClass) => {
+    const processDataFn: () => string = instance.processData
+    const getLengthFn: () => number = instance.getLength
+    return { processDataFn, getLengthFn }
+  }
+
+  // Test that RustOnlyMethodsClass is assignable to JSOnlyMethodsClass
+  const mockInstance = { data: 'test' } as JSOnlyMethodsClass
+  const aliasInstance: RustOnlyMethodsClass = mockInstance
+
+  // If we get here, the types compiled successfully
+  t.pass(
+    'Type definitions are correct - js_name struct with methods only works properly',
+  )
+
+  // Verify we can call the test functions without compilation errors
+  t.notThrows(
+    () => testTypeCompatibility(mockInstance),
+    'JSOnlyMethodsClass methods should be accessible',
+  )
+  t.notThrows(
+    () => testAliasCompatibility(aliasInstance),
+    'RustOnlyMethodsClass alias methods should be accessible',
+  )
+})
+
+test('define class', (t) => {
+  const DynamicRustClass = defineClass()
+  const instance = new DynamicRustClass(42)
+  t.is(instance.rustMethod(), 42)
 })
 
 test('async self in class', async (t) => {
@@ -678,6 +797,22 @@ test('object', (t) => {
   setNullByteProperty(objNull)
   t.is(objNull['\0virtual'], 'test')
   t.is(getNullByteProperty(objNull), 'test')
+  t.notThrows(() =>
+    receiveBindingVitePluginMeta({
+      'vite:import-glob': {
+        isSubImportsPattern: true,
+      },
+    }),
+  )
+  const objRef = createObjectRef()
+  // @ts-expect-error
+  t.is(objRef.test, 1)
+
+  t.notThrows(() => {
+    const obj = objectWithCApis()
+    // @ts-expect-error
+    t.is(obj.test(), 42)
+  })
 })
 
 test('get str from object', (t) => {
@@ -723,6 +858,8 @@ test('pass symbol in', (t) => {
 
 test('create symbol', (t) => {
   t.is(createSymbol().toString(), 'Symbol(a symbol)')
+  const symRef = createSymbolRef('test')
+  t.is(symRef.toString(), 'Symbol(test)')
 })
 
 test('Option', (t) => {
@@ -981,6 +1118,23 @@ test('create external TypedArray', (t) => {
   t.deepEqual(createExternalTypedArray(), new Uint32Array([1, 2, 3, 4, 5]))
 })
 
+test('typed array creation', (t) => {
+  t.deepEqual(
+    createUint8ClampedArrayFromData(),
+    new Uint8ClampedArray(Buffer.from('Hello world')),
+  )
+  t.deepEqual(
+    createUint8ClampedArrayFromExternal(),
+    new Uint8ClampedArray(Buffer.from('Hello world')),
+  )
+  t.deepEqual(Buffer.from(arrayBufferFromData()), Buffer.from('Hello world'))
+  t.deepEqual(uint8ArrayFromData(), new Uint8Array(Buffer.from('Hello world')))
+  t.deepEqual(
+    uint8ArrayFromExternal(),
+    new Uint8Array(Buffer.from('Hello world')),
+  )
+})
+
 test('mutate TypedArray', (t) => {
   if (process.env.WASI_TEST) {
     t.pass()
@@ -996,6 +1150,10 @@ test('deref uint8 array', (t) => {
     derefUint8Array(new Uint8Array([1, 2]), new Uint8ClampedArray([3, 4])),
     4,
   )
+})
+
+test('accept untyped typed array', (t) => {
+  t.is(acceptUntypedTypedArray(new Uint8Array([1, 2, 3])), 3n)
 })
 
 test('async', async (t) => {
@@ -1147,6 +1305,9 @@ test('external', (t) => {
   // @ts-expect-error
   const e = t.throws(() => getExternal(ext2))
   t.is(e?.message, '<u32> on `External` is not the type of wrapped object')
+
+  const extRef = createExternalRef(FX)
+  t.is(getExternal(extRef), FX)
 })
 
 test('optional external', (t) => {
@@ -1194,6 +1355,16 @@ test.skip('async task with abort controller', async (t) => {
   } catch (err: unknown) {
     t.is((err as Error).message, 'AbortError')
   }
+})
+
+test('async task with different resolved values', async (t) => {
+  const r1 = await asyncTaskOptionalReturn()
+  t.falsy(r1)
+  if (!process.env.WASI_TEST) {
+    await asyncTaskReadFile(import.meta.filename)
+  }
+  const r2 = await asyncResolveArray(2)
+  t.deepEqual(r2, [0, 1])
 })
 
 AbortSignalTest('abort resolved task', async (t) => {
@@ -1381,6 +1552,14 @@ Napi4Test('async call ThreadsafeFunction', async (t) => {
   )
 })
 
+// https://github.com/napi-rs/napi-rs/issues/2727
+test('provide undefined to tsfn', async (t) => {
+  // @ts-expect-error
+  t.throws(() => tsfnAsyncCall(), {
+    code: 'InvalidArg',
+  })
+})
+
 test('Throw from ThreadsafeFunction JavaScript callback', async (t) => {
   const errMsg = 'ThrowFromJavaScriptRawCallback'
   await t.throwsAsync(
@@ -1526,6 +1705,10 @@ Napi4Test('build ThreadsafeFunction from Function', (t) => {
   }
 
   buildThreadsafeFunctionFromFunction(fn)
+
+  t.notThrows(() => {
+    buildThreadsafeFunctionFromFunctionCalleeHandle(() => {})
+  })
 
   return subject.pipe(take(3))
 })
@@ -1708,6 +1891,13 @@ test('should be able to recursively hidden lifetime', async (t) => {
   })
 })
 
+test('should be able to correct lifetime of spawn_future_lifetime', async (t) => {
+  const result = await spawnFutureLifetime(1)
+  t.is(result, '1')
+  const result2 = await promiseRawReturnClassInstance()
+  t.true(result2 instanceof ClassReturnInPromise)
+})
+
 test('extends javascript error', (t) => {
   class CustomError extends Error {}
 
@@ -1744,4 +1934,52 @@ test('escapable handle scope', (t) => {
   t.notThrows(() => {
     shorterEscapableScope(makeIterFunction())
   })
+})
+
+test('complex class with multiple methods - issue #2722', (t) => {
+  // Test creating instance of re-exported class with constructor (Either<String, ClassInstance<ComplexClass>>)
+  t.notThrows(() => {
+    const complex = new ComplexClass('test_value', 42)
+
+    // Test that constructor worked
+    t.is(complex.value, 'test_value')
+    t.is(complex.number, 42)
+
+    // Test all methods work
+    t.is(complex.methodOne(), 'method_one: test_value')
+    t.is(complex.methodTwo(), 84)
+    t.is(complex.methodThree(), 'method_three: test_value - 42')
+    t.is(complex.methodFour(), true)
+    t.is(complex.methodFive(), 'TEST_VALUE')
+  })
+
+  // Test with Either::B variant (ClassInstance instead of string)
+  t.notThrows(() => {
+    const original = new ComplexClass('original', 100)
+    const complex2 = new ComplexClass(original, -10)
+    t.is(complex2.value, 'cloned:original') // Should clone the value
+    t.is(complex2.methodFour(), false)
+  })
+
+  // Test that we can create multiple instances (stress test with Either)
+  t.notThrows(() => {
+    const baseInstance = new ComplexClass('base', 999)
+    for (let i = 0; i < 10; i++) {
+      // Alternate between string and ClassInstance for Either parameter
+      const instance =
+        i % 2 === 0
+          ? new ComplexClass(`test${i}`, i)
+          : new ComplexClass(baseInstance, i)
+
+      const expectedValue = i % 2 === 0 ? `test${i}` : 'cloned:base'
+      t.is(instance.value, expectedValue)
+      t.is(instance.number, i)
+    }
+  })
+})
+
+test('instanceof for objects returned from getters - issue #2746', (t) => {
+  const list = new ThingList()
+  const thing = list.thing
+  t.true(thing instanceof Thing, 'thing should be an instance of Thing')
 })

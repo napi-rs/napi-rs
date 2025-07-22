@@ -49,7 +49,7 @@ pub trait JsValue<'env>: Sized + FromNapiValue {
     unsafe { bool::from_napi_value(env, new_raw_value) }
   }
 
-  fn coerce_to_number(&self) -> Result<JsNumber> {
+  fn coerce_to_number(&self) -> Result<JsNumber<'_>> {
     let mut new_raw_value = ptr::null_mut();
     let env = self.value().env;
     check_status!(unsafe {
@@ -65,7 +65,7 @@ pub trait JsValue<'env>: Sized + FromNapiValue {
     ))
   }
 
-  fn coerce_to_string(&self) -> Result<JsString> {
+  fn coerce_to_string(&self) -> Result<JsString<'_>> {
     let mut new_raw_value = ptr::null_mut();
     let env = self.value().env;
     check_status!(unsafe {

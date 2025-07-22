@@ -242,7 +242,7 @@ impl NapiEnum {
     }
 
     let callback_name = Ident::new(
-      &format!("__register__enum__{}_callback__", name_str),
+      &format!("__register__enum__{name_str}_callback__"),
       Span::call_site(),
     );
 
