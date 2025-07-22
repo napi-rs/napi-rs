@@ -282,7 +282,7 @@ where
 {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
     let arr = unsafe { Array::from_napi_value(env, napi_val)? };
-    let mut vec = vec![];
+    let mut vec = Vec::with_capacity(arr.len() as usize);
 
     for i in 0..arr.len() {
       if let Some(val) = arr.get::<T>(i)? {
