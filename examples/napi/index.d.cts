@@ -133,6 +133,12 @@ export declare class Context {
   method(): string
 }
 
+export declare class CreateStringClass {
+  static new(): CreateStringClass
+  createString(): string | null
+  createStringResult(): string
+}
+
 export declare class CssRuleList {
   getRules(): Array<string>
   get parentStyleSheet(): CSSStyleSheet

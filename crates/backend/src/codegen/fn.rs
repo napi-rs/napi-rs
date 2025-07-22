@@ -824,10 +824,12 @@ fn hidden_ty_lifetime(ty: &mut syn::Type) -> BindgenResult<()> {
       ..
     }) = segments.last_mut()
     {
+      let mut has_lifetime = false;
       if let Some(syn::GenericArgument::Lifetime(lt)) = args.first_mut() {
         *lt = syn::Lifetime::new("'_", Span::call_site());
+        has_lifetime = true;
       }
-      for arg in args.iter_mut().skip(1) {
+      for arg in args.iter_mut().skip(if has_lifetime { 1 } else { 0 }) {
         if let syn::GenericArgument::Type(ty) = arg {
           hidden_ty_lifetime(ty)?;
         }

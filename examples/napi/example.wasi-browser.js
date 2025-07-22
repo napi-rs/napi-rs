@@ -84,6 +84,7 @@ export const ClassReturnInPromise = __napiModule.exports.ClassReturnInPromise
 export const ClassWithFactory = __napiModule.exports.ClassWithFactory
 export const ClassWithLifetime = __napiModule.exports.ClassWithLifetime
 export const Context = __napiModule.exports.Context
+export const CreateStringClass = __napiModule.exports.CreateStringClass
 export const CssRuleList = __napiModule.exports.CssRuleList
 export const CSSRuleList = __napiModule.exports.CSSRuleList
 export const CssStyleSheet = __napiModule.exports.CssStyleSheet
