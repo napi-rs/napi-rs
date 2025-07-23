@@ -61,7 +61,7 @@ where
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
     let obj = unsafe { Object::from_napi_value(env, napi_val)? };
     let keys = Object::keys(&obj)?;
-    let mut map = HashMap::with_capacity(keys.len());
+    let mut map: HashMap<K, V, S> = HashMap::with_capacity_and_hasher(keys.len(), S::default());
     for key in keys.into_iter() {
       if let Some(val) = obj.get(&key)? {
         map.insert(K::from(key), val);
