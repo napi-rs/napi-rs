@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [3.0.3](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.2...@napi-rs/cli@3.0.3) (2025-07-23)
+
+### Bug Fixes
+
+- **cli:** rename options ([#2804](https://github.com/napi-rs/napi-rs/issues/2804)) ([cf6d8b0](https://github.com/napi-rs/napi-rs/commit/cf6d8b0334e36d237ee076d40bc9e7d4ba716c5d))
+
 ## [3.0.2](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.1...@napi-rs/cli@3.0.2) (2025-07-23)
 
 **Note:** Version bump only for package @napi-rs/cli
