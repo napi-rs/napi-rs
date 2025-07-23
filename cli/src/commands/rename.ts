@@ -20,6 +20,6 @@ export class RenameCommand extends BaseRenameCommand {
       })
       options.binaryName = binaryName
     }
-    await renameProject(this.getOptions())
+    await renameProject(options)
   }
 }
