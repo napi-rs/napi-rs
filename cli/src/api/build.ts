@@ -625,11 +625,11 @@ class Builder {
       )
       this.setEnvIfNotExists(
         'TARGET_CFLAGS',
-        `--target=wasm32-wasi-threads --sysroot=${WASI_SDK_PATH}/share/wasi-sysroot -pthread -mllvm -wasm-enable-sjlj -lsetjmp`,
+        `--target=wasm32-wasi-threads --sysroot=${WASI_SDK_PATH}/share/wasi-sysroot -pthread -mllvm -wasm-enable-sjlj`,
       )
       this.setEnvIfNotExists(
         'TARGET_CXXFLAGS',
-        `--target=wasm32-wasi-threads --sysroot=${WASI_SDK_PATH}/share/wasi-sysroot -pthread -mllvm -wasm-enable-sjlj -lsetjmp`,
+        `--target=wasm32-wasi-threads --sysroot=${WASI_SDK_PATH}/share/wasi-sysroot -pthread -mllvm -wasm-enable-sjlj`,
       )
       this.setEnvIfNotExists(
         `TARGET_LDFLAGS`,

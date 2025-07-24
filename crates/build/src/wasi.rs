@@ -44,13 +44,18 @@ pub fn setup() {
       crt_reactor_path.display()
     );
   }
-  if let Ok(setjmp_link_dir) = env::var("SETJMP_LINK_DIR") {
-    println!("cargo:rustc-link-search={setjmp_link_dir}");
-    println!("cargo:rustc-link-lib=static=setjmp-mt");
-  }
   if let Ok(wasi_sdk_path) = env::var("WASI_SDK_PATH") {
     println!(
       "cargo:rustc-link-search={wasi_sdk_path}/share/wasi-sysroot/lib/wasm32-wasip1-threads"
     );
+    let setjmp_static_lib = Path::new(&wasi_sdk_path)
+      .join("share")
+      .join("wasi-sysroot")
+      .join("lib")
+      .join("wasm32-wasip1-threads")
+      .join("libsetjmp.a");
+    if setjmp_static_lib.exists() {
+      println!("cargo:rustc-link-lib=static=setjmp");
+    }
   }
 }
