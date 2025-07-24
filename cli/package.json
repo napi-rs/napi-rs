@@ -79,8 +79,7 @@
     "js-yaml": "^4.1.0",
     "lodash-es": "^4.17.21",
     "semver": "^7.7.1",
-    "typanion": "^3.14.0",
-    "wasm-sjlj": "^1.0.6"
+    "typanion": "^3.14.0"
   },
   "devDependencies": {
     "@emnapi/core": "^1.4.0",
