@@ -128,7 +128,7 @@ impl Display for JSDoc {
     writeln!(f, "/**")?;
     for (i, block) in self.blocks.iter().enumerate() {
       for line in block {
-        writeln!(f, " * {}", line)?;
+        writeln!(f, " * {line}")?;
       }
       if i + 1 != self.blocks.len() {
         writeln!(f, " *")?;
