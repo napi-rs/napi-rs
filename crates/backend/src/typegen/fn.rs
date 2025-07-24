@@ -4,7 +4,7 @@ use std::fmt::{Display, Formatter};
 use syn::{Member, Pat, PathArguments, PathSegment};
 
 use super::{r#struct::CLASS_STRUCTS, ty_to_ts_type, ToTypeDef, TypeDef};
-use crate::{js_doc_from_comments, CallbackArg, FnKind, NapiFn};
+use crate::{typegen::JSDoc, CallbackArg, FnKind, NapiFn};
 
 pub(crate) struct FnArg {
   pub(crate) arg: String,
@@ -100,7 +100,7 @@ impl ToTypeDef for NapiFn {
       original_name: None,
       def,
       js_mod: self.js_mod.to_owned(),
-      js_doc: js_doc_from_comments(&self.comments),
+      js_doc: JSDoc::new(&self.comments),
     })
   }
 }
@@ -329,7 +329,6 @@ impl NapiFn {
         } else {
           "void".to_owned()
         };
-
         if self.is_async {
           format!(": Promise<{ret}>")
         } else {
