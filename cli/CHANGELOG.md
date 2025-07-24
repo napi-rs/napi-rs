@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [3.0.4](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.3...@napi-rs/cli@3.0.4) (2025-07-24)
+
+### Bug Fixes
+
+- **cli:** migrate to latest wasm sjlj ([#2806](https://github.com/napi-rs/napi-rs/issues/2806)) ([02bd12a](https://github.com/napi-rs/napi-rs/commit/02bd12a7249452cd19cb1d62f1e342db83fa4b3f))
+
 ## [3.0.3](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.2...@napi-rs/cli@3.0.3) (2025-07-23)
 
 ### Bug Fixes
