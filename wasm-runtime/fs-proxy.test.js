@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 
 import * as memfs from 'memfs'
 
-import { createFsProxy, createOnMessage } from './fs-proxy.cjs'
+import { createFsProxy, createOnMessage } from './fs-proxy.js'
 
 const __filename = fileURLToPath(import.meta.url)
 

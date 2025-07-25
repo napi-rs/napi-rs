@@ -19,6 +19,7 @@
   },
   "files": [
     "runtime.cjs",
+    "runtime.js",
     "fs-proxy.cjs",
     "dist/*.js"
   ],
@@ -50,7 +51,7 @@
   },
   "exports": {
     ".": {
-      "import": "./dist/runtime.js",
+      "import": "./runtime.js",
       "require": "./runtime.cjs"
     },
     "./fs": {
