@@ -71,6 +71,11 @@ for (const [index, factory] of [
   })
 
   test(`should be an Iterator and have the Iterator Helper methods #${index}`, (t) => {
+    const version = process.versions.node
+    if (+version.substring(0, version.indexOf('.')) < 22) {
+      t.pass('Iterator does not exist in node < 22')
+      return
+    }
     const iterator = factory()
 
     // @ts-ignore

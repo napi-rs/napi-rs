@@ -1,6 +1,8 @@
 use std::ffi::c_void;
 use std::ptr;
 
+use napi_sys::napi_node_version;
+
 use crate::Value;
 use crate::{bindgen_runtime::Unknown, check_status_or_throw, sys, Env};
 
@@ -160,7 +162,7 @@ pub unsafe fn create_iterator<T: Generator>(
     env,
     sys::napi_create_function(
       env,
-      c"Iterator".as_ptr().cast(),
+      c"NapiIterator".as_ptr().cast(),
       8,
       Some(symbol_generator::<T>),
       generator_ptr as *mut c_void,
@@ -175,11 +177,28 @@ pub unsafe fn create_iterator<T: Generator>(
     "Failed to set Symbol.iterator on class instance",
   );
 
+  let mut node_version_ptr: *const napi_node_version = ptr::null_mut();
+  check_status_or_throw!(
+    env,
+    sys::napi_get_node_version(env, &mut node_version_ptr as *mut *const napi_node_version),
+    "Get node version failed"
+  );
+
+  if (*node_version_ptr).major >= 22 {
+    set_iterator_prototype(env, instance, global);
+  }
+}
+
+unsafe fn set_iterator_prototype(
+  env: *mut napi_sys::napi_env__,
+  instance: *mut napi_sys::napi_value__,
+  global: *mut napi_sys::napi_value__,
+) {
   let mut iterator_ctor = ptr::null_mut();
   check_status_or_throw!(
     env,
     sys::napi_get_named_property(env, global, c"Iterator".as_ptr().cast(), &mut iterator_ctor,),
-    "Global.Iterator not found – are iterator-helpers enabled?",
+    "Failed to get Global.Iterator",
   );
 
   let mut iterator_proto = ptr::null_mut();
