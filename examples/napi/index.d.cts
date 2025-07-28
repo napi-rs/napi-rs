@@ -959,6 +959,8 @@ export declare function tsfnReturnPromiseTimeout(func: ((err: Error | null, arg:
 
 export declare function tsfnThrowFromJs(tsfn: ((err: Error | null, arg: number) => Promise<number>)): Promise<number>
 
+export declare function tsfnThrowFromJs2(tsfn: ((arg0: string) => void)): Promise<void>
+
 export declare function tsfnThrowFromJsCallbackContainsTsfn(tsfn: ((err: Error | null, arg: number) => Promise<number>)): Promise<void>
 
 export declare function tsRename(a: { foo: number }): string[]

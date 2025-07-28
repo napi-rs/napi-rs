@@ -247,6 +247,13 @@ pub async fn tsfn_throw_from_js(tsfn: ThreadsafeFunction<u32, Promise<u32>>) -> 
 }
 
 #[napi]
+pub async fn tsfn_throw_from_js2(
+  tsfn: ThreadsafeFunction<FnArgs<(String,)>, (), FnArgs<(String,)>, Status, false>,
+) -> napi::Result<()> {
+  tsfn.call_async(("foo".to_string(),).into()).await
+}
+
+#[napi]
 pub async fn tsfn_throw_from_js_callback_contains_tsfn(
   tsfn: ThreadsafeFunction<u32, Promise<u32>>,
 ) {

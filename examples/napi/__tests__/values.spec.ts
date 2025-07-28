@@ -92,6 +92,7 @@ import {
   tsfnCallWithCallback,
   tsfnAsyncCall,
   tsfnThrowFromJs,
+  tsfnThrowFromJs2,
   asyncPlus100,
   getGlobal,
   getUndefined,
@@ -1569,6 +1570,16 @@ test('Throw from ThreadsafeFunction JavaScript callback', async (t) => {
       }),
     {
       message: errMsg,
+    },
+  )
+
+  await t.throwsAsync(
+    () =>
+      tsfnThrowFromJs2((errMsg) => {
+        throw new Error(errMsg)
+      }),
+    {
+      message: 'foo',
     },
   )
 

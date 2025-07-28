@@ -349,6 +349,7 @@ export const tsfnInEither = __napiModule.exports.tsfnInEither
 export const tsfnReturnPromise = __napiModule.exports.tsfnReturnPromise
 export const tsfnReturnPromiseTimeout = __napiModule.exports.tsfnReturnPromiseTimeout
 export const tsfnThrowFromJs = __napiModule.exports.tsfnThrowFromJs
+export const tsfnThrowFromJs2 = __napiModule.exports.tsfnThrowFromJs2
 export const tsfnThrowFromJsCallbackContainsTsfn = __napiModule.exports.tsfnThrowFromJsCallbackContainsTsfn
 export const tsRename = __napiModule.exports.tsRename
 export const u16ArrayToArray = __napiModule.exports.u16ArrayToArray
