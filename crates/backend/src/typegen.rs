@@ -511,9 +511,9 @@ pub fn ty_to_ts_type(
         {
           Some((t, false))
         } else if rust_ty == TSFN_RUST_TY {
-          let fatal_tsfn = match args.last() {
-            Some((arg, _)) => arg == "false",
-            _ => false,
+          let handled_tsfn = match args.get(4) {
+            Some((arg, _)) => arg == "true",
+            _ => true,
           };
           let fn_args = args
             .get(2)
@@ -534,13 +534,13 @@ pub fn ty_to_ts_type(
             .get(1)
             .map(|(ty, _)| ty.clone())
             .unwrap_or("any".to_owned());
-          if fatal_tsfn {
-            Some((format!("(({fn_args}) => {return_ty})"), false))
-          } else {
+          if handled_tsfn {
             Some((
               format!("((err: Error | null, {fn_args}) => {return_ty})"),
               false,
             ))
+          } else {
+            Some((format!("(({fn_args}) => {return_ty})"), false))
           }
         } else {
           // there should be runtime registered type in else

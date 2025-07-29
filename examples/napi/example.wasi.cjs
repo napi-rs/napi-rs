@@ -395,6 +395,7 @@ module.exports.tsfnReturnPromise = __napiModule.exports.tsfnReturnPromise
 module.exports.tsfnReturnPromiseTimeout = __napiModule.exports.tsfnReturnPromiseTimeout
 module.exports.tsfnThrowFromJs = __napiModule.exports.tsfnThrowFromJs
 module.exports.tsfnThrowFromJsCallbackContainsTsfn = __napiModule.exports.tsfnThrowFromJsCallbackContainsTsfn
+module.exports.tsfnWeak = __napiModule.exports.tsfnWeak
 module.exports.tsRename = __napiModule.exports.tsRename
 module.exports.u16ArrayToArray = __napiModule.exports.u16ArrayToArray
 module.exports.u32ArrayToArray = __napiModule.exports.u32ArrayToArray
