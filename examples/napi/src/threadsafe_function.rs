@@ -284,3 +284,10 @@ pub fn tsfn_in_either(pet: Pet) {
     });
   }
 }
+
+#[napi]
+pub async fn tsfn_weak(
+  tsfn: ThreadsafeFunction<(), (), (), Status, false, true>,
+) -> napi::Result<()> {
+  tsfn.call_async(()).await
+}
