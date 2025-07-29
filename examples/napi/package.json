@@ -37,7 +37,7 @@
     "@vitest/ui": "^3.1.1",
     "ava": "^6.2.0",
     "buffer": "^6.0.3",
-    "cross-env": "7.0.3",
+    "cross-env": "10.0.0",
     "electron": "^37.0.0",
     "lodash": "^4.17.21",
     "playwright": "^1.51.1",
