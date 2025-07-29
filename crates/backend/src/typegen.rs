@@ -20,7 +20,7 @@ pub struct TypeDef {
   pub original_name: Option<String>,
   pub def: String,
   pub js_mod: Option<String>,
-  pub js_doc: String,
+  pub js_doc: JSDoc,
 }
 
 thread_local! {
@@ -31,25 +31,6 @@ fn add_alias(name: String, alias: String) {
   ALIAS.with(|aliases| {
     aliases.borrow_mut().insert(name, alias);
   });
-}
-
-pub fn js_doc_from_comments(comments: &[String]) -> String {
-  if comments.is_empty() {
-    return "".to_owned();
-  }
-
-  if comments.len() == 1 {
-    return format!("/**{} */\n", comments[0]);
-  }
-
-  format!(
-    "/**\n{} */\n",
-    comments
-      .iter()
-      .map(|c| format!(" *{c}\n"))
-      .collect::<Vec<String>>()
-      .join("")
-  )
 }
 
 fn escape_json(src: &str) -> String {
@@ -80,6 +61,83 @@ fn escape_json(src: &str) -> String {
   escaped
 }
 
+#[derive(Default, Debug)]
+pub struct JSDoc {
+  blocks: Vec<Vec<String>>,
+}
+
+impl JSDoc {
+  pub fn new<I, S>(initial_lines: I) -> JSDoc
+  where
+    I: IntoIterator<Item = S>,
+    S: Into<String>,
+  {
+    let block = Self::cleanup_lines(initial_lines);
+    if block.is_empty() {
+      return Self { blocks: vec![] };
+    }
+
+    Self {
+      blocks: vec![block],
+    }
+  }
+
+  pub fn add_block<I, S>(&mut self, lines: I)
+  where
+    I: IntoIterator<Item = S>,
+    S: Into<String>,
+  {
+    let v: Vec<String> = Self::cleanup_lines(lines);
+
+    if !v.is_empty() {
+      self.blocks.push(v);
+    }
+  }
+
+  fn cleanup_lines<I, S>(lines: I) -> Vec<String>
+  where
+    I: IntoIterator<Item = S>,
+    S: Into<String>,
+  {
+    let raw: Vec<String> = lines.into_iter().map(Into::into).collect();
+
+    if let (Some(first_non_blank), Some(last_non_blank)) = (
+      raw.iter().position(|l| !l.trim().is_empty()),
+      raw.iter().rposition(|l| !l.trim().is_empty()),
+    ) {
+      raw[first_non_blank..=last_non_blank]
+        .iter()
+        .map(|l| l.trim().to_owned())
+        .collect()
+    } else {
+      Vec::new()
+    }
+  }
+}
+
+impl Display for JSDoc {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    if self.blocks.is_empty() {
+      return Ok(());
+    }
+
+    if self.blocks.len() == 1 && self.blocks[0].len() == 1 {
+      return writeln!(f, "/** {} */", self.blocks[0][0]);
+    }
+
+    writeln!(f, "/**")?;
+    for (i, block) in self.blocks.iter().enumerate() {
+      for line in block {
+        writeln!(f, " * {line}")?;
+      }
+      if i + 1 != self.blocks.len() {
+        writeln!(f, " *")?;
+      }
+    }
+    writeln!(f, " */")
+  }
+}
+
 impl Display for TypeDef {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
     let js_mod = if let Some(js_mod) = &self.js_mod {
@@ -98,7 +156,7 @@ impl Display for TypeDef {
       r#"{{"kind": "{}", "name": "{}", "js_doc": "{}", "def": "{}"{}{}}}"#,
       self.kind,
       self.name,
-      escape_json(&self.js_doc),
+      escape_json(&self.js_doc.to_string()),
       escape_json(&self.def),
       original_name,
       js_mod,
