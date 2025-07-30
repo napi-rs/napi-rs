@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.3](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v2.0.2...napi-derive-backend-v2.0.3) - 2025-07-30
+
+### Fixed
+
+- *(napi-derive)* generate types for threadsafe_function with WEAK=true correctly ([#2813](https://github.com/napi-rs/napi-rs/pull/2813))
+
 ## [2.0.2](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v2.0.1...napi-derive-backend-v2.0.2) - 2025-07-22
 
 ### Fixed
