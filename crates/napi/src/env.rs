@@ -42,9 +42,7 @@ use crate::{
   bindgen_runtime::JsObjectValue,
   check_status,
   js_values::*,
-  sys,
-  task::Task,
-  Error, ExtendedErrorInfo, NodeVersion, Result, Status, ValueType,
+  sys, Error, ExtendedErrorInfo, NodeVersion, Result, ScopedTask, Status, ValueType,
 };
 
 pub type Callback = unsafe extern "C" fn(sys::napi_env, sys::napi_callback_info) -> sys::napi_value;
@@ -1026,7 +1024,10 @@ impl Env {
   }
 
   /// Run [Task](./trait.Task.html) in libuv thread pool, return [AsyncWorkPromise](./struct.AsyncWorkPromise.html)
-  pub fn spawn<T: 'static + Task>(&self, task: T) -> Result<AsyncWorkPromise<T::JsValue>> {
+  pub fn spawn<'env, T: 'env + ScopedTask<'env>>(
+    &self,
+    task: T,
+  ) -> Result<AsyncWorkPromise<T::JsValue>> {
     async_work::run(self.0, task, None)
   }
 
