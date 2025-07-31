@@ -484,6 +484,7 @@ module.exports.call0 = nativeBinding.call0
 module.exports.call1 = nativeBinding.call1
 module.exports.call2 = nativeBinding.call2
 module.exports.callAsyncWithUnknownReturnValue = nativeBinding.callAsyncWithUnknownReturnValue
+module.exports.callbackInSpawn = nativeBinding.callbackInSpawn
 module.exports.callbackReturnPromise = nativeBinding.callbackReturnPromise
 module.exports.callbackReturnPromiseAndSpawn = nativeBinding.callbackReturnPromiseAndSpawn
 module.exports.callCatchOnPromise = nativeBinding.callCatchOnPromise

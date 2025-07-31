@@ -314,6 +314,7 @@ __metadata:
     "@vitest/ui": "npm:^3.1.1"
     ava: "npm:^6.2.0"
     buffer: "npm:^6.0.3"
+    core-js: "npm:^3.44.0"
     cross-env: "npm:10.0.0"
     electron: "npm:^37.0.0"
     lodash: "npm:^4.17.21"
@@ -5089,6 +5090,13 @@ __metadata:
   version: 2.0.1
   resolution: "convert-to-spaces@npm:2.0.1"
   checksum: 10c0/d90aa0e3b6a27f9d5265a8d32def3c5c855b3e823a9db1f26d772f8146d6b91020a2fdfd905ce8048a73fad3aaf836fef8188c67602c374405e2ae8396c4ac46
+  languageName: node
+  linkType: hard
+
+"core-js@npm:^3.44.0":
+  version: 3.44.0
+  resolution: "core-js@npm:3.44.0"
+  checksum: 10c0/759bf3dc5f75068e9425dddf895fd5531c38794a11ea1c2b65e5ef7c527fe3652d59e8c287e574a211af9bab3c057c5c3fa6f6a773f4e142af895106efad38a4
   languageName: node
   linkType: hard
 
