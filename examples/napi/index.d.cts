@@ -401,6 +401,8 @@ export declare function call2(callback: (arg0: number, arg1: number) => number, 
 
 export declare function callAsyncWithUnknownReturnValue(tsfn: ((err: Error | null, arg: number) => unknown)): Promise<number>
 
+export declare function callbackInSpawn(callback: (arg: object) => unknown): void
+
 export declare function callbackReturnPromise<T>(functionInput: () => T | Promise<T>, callback: (err: Error | null, result: T) => void): T | Promise<T>
 
 export declare function callbackReturnPromiseAndSpawn(jsFunc: (arg0: string) => Promise<string>): Promise<string>

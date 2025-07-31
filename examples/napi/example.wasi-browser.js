@@ -154,6 +154,7 @@ export const call0 = __napiModule.exports.call0
 export const call1 = __napiModule.exports.call1
 export const call2 = __napiModule.exports.call2
 export const callAsyncWithUnknownReturnValue = __napiModule.exports.callAsyncWithUnknownReturnValue
+export const callbackInSpawn = __napiModule.exports.callbackInSpawn
 export const callbackReturnPromise = __napiModule.exports.callbackReturnPromise
 export const callbackReturnPromiseAndSpawn = __napiModule.exports.callbackReturnPromiseAndSpawn
 export const callCatchOnPromise = __napiModule.exports.callCatchOnPromise

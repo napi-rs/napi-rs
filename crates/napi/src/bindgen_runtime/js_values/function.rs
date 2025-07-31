@@ -460,6 +460,7 @@ pub struct FunctionRef<Args: JsValuesTupleIntoVec, Return> {
   _return: std::marker::PhantomData<Return>,
 }
 
+unsafe impl<Args: JsValuesTupleIntoVec, Return> Send for FunctionRef<Args, Return> {}
 unsafe impl<Args: JsValuesTupleIntoVec, Return> Sync for FunctionRef<Args, Return> {}
 
 impl<Args: JsValuesTupleIntoVec, Return> FunctionRef<Args, Return> {

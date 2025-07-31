@@ -5,9 +5,10 @@ import { fileURLToPath } from 'node:url'
 import { createReadStream } from 'node:fs'
 import { readFile as nodeReadFile } from 'node:fs/promises'
 import { Readable } from 'node:stream'
-
 import { Subject, take } from 'rxjs'
 import Sinon, { spy } from 'sinon'
+
+import 'core-js/features/promise/with-resolvers.js'
 
 import {
   DEFAULT_COST,
@@ -266,6 +267,7 @@ import {
   ClassReturnInPromise,
   acceptUntypedTypedArray,
   defineClass,
+  callbackInSpawn,
 } from '../index.cjs'
 // import other stuff in `#[napi(module_exports)]`
 import nativeAddon from '../index.cjs'
@@ -1982,4 +1984,13 @@ test('instanceof for objects returned from getters - issue #2746', (t) => {
   const list = new ThingList()
   const thing = list.thing
   t.true(thing instanceof Thing, 'thing should be an instance of Thing')
+})
+
+test('callback in spawn async task', async (t) => {
+  const { resolve, promise } = Promise.withResolvers()
+  callbackInSpawn((obj) => {
+    resolve(obj)
+  })
+  const obj = await promise
+  t.deepEqual(obj, { foo: 'bar' })
 })
