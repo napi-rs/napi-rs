@@ -17,6 +17,10 @@ impl napi::Task for DelaySum {
   fn resolve(&mut self, _env: napi::Env, output: Self::Output) -> Result<Self::JsValue> {
     Ok(output)
   }
+
+  fn finally(self, _env: Env) -> Result<()> {
+    Ok(())
+  }
 }
 
 #[napi]
@@ -121,4 +125,36 @@ pub fn async_resolve_array(inner: u32) -> AsyncTask<AsyncResolveArray> {
   AsyncTask::new(AsyncResolveArray {
     inner: inner as usize,
   })
+}
+
+pub struct AsyncTaskFinally {
+  inner: ObjectRef,
+}
+
+#[napi]
+impl Task for AsyncTaskFinally {
+  type Output = ();
+  type JsValue = ();
+
+  fn compute(&mut self) -> Result<Self::Output> {
+    Ok(())
+  }
+
+  fn resolve(&mut self, env: Env, _output: Self::Output) -> Result<Self::JsValue> {
+    let mut obj = self.inner.get_value(&env)?;
+    obj.set("resolve", true)?;
+    Ok(())
+  }
+
+  fn finally(self, env: Env) -> Result<()> {
+    let mut obj = self.inner.get_value(&env)?;
+    obj.set("finally", true)?;
+    self.inner.unref(&env)?;
+    Ok(())
+  }
+}
+
+#[napi]
+pub fn async_task_finally(inner: ObjectRef) -> AsyncTask<AsyncTaskFinally> {
+  AsyncTask::new(AsyncTaskFinally { inner })
 }

@@ -31,15 +31,19 @@ impl<'a, T: Task> ScopedTask<'a> for T {
   type JsValue = T::JsValue;
 
   fn compute(&mut self) -> Result<Self::Output> {
-    Task::compute(self)
+    T::compute(self)
   }
 
   fn resolve(&mut self, env: &'a Env, output: Self::Output) -> Result<Self::JsValue> {
-    Task::resolve(self, Env::from_raw(env.raw()), output)
+    T::resolve(self, Env::from_raw(env.raw()), output)
   }
 
   fn reject(&mut self, env: &'a Env, err: Error) -> Result<Self::JsValue> {
-    Task::reject(self, Env::from_raw(env.raw()), err)
+    T::reject(self, Env::from_raw(env.raw()), err)
+  }
+
+  fn finally(self, env: Env) -> Result<()> {
+    T::finally(self, env)
   }
 }
 

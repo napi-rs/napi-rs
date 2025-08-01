@@ -137,6 +137,7 @@ export const asyncMultiTwo = __napiModule.exports.asyncMultiTwo
 export const asyncPlus100 = __napiModule.exports.asyncPlus100
 export const asyncReduceBuffer = __napiModule.exports.asyncReduceBuffer
 export const asyncResolveArray = __napiModule.exports.asyncResolveArray
+export const asyncTaskFinally = __napiModule.exports.asyncTaskFinally
 export const asyncTaskOptionalReturn = __napiModule.exports.asyncTaskOptionalReturn
 export const asyncTaskReadFile = __napiModule.exports.asyncTaskReadFile
 export const asyncTaskVoidReturn = __napiModule.exports.asyncTaskVoidReturn
