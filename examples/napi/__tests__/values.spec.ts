@@ -79,6 +79,7 @@ import {
   withAbortController,
   asyncTaskReadFile,
   asyncTaskOptionalReturn,
+  asyncTaskFinally,
   asyncResolveArray,
   asyncMultiTwo,
   bigintAdd,
@@ -1342,7 +1343,7 @@ test('should be able to return object from shared crate', (t) => {
 const AbortSignalTest =
   typeof AbortController !== 'undefined' ? test : test.skip
 
-AbortSignalTest('async task without abort controller', async (t) => {
+test('async task without abort controller', async (t) => {
   t.is(await withoutAbortController(1, 2), 3)
 })
 
@@ -1392,6 +1393,16 @@ test('abort signal should be able to reuse with different tasks', async (t) => {
       t.is((err as Error).message, 'AbortError')
     }
   })
+})
+
+test('async task finally must be called', async (t) => {
+  const obj = {
+    finally: false,
+    resolve: false,
+  }
+  await asyncTaskFinally(obj)
+  t.is(obj.finally, true)
+  t.is(obj.resolve, true)
 })
 
 const BigIntTest = typeof BigInt !== 'undefined' ? test : test.skip
