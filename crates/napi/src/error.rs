@@ -12,6 +12,7 @@ use serde::{de, ser};
 #[cfg(feature = "serde-json")]
 use serde_json::Error as SerdeJSONError;
 
+use crate::bindgen_runtime::JsObjectValue;
 use crate::{bindgen_runtime::ToNapiValue, check_status, sys, Env, JsValue, Status, Unknown};
 
 pub type Result<T, S = Status> = std::result::Result<T, Error<S>>;
@@ -22,6 +23,7 @@ pub type Result<T, S = Status> = std::result::Result<T, Error<S>>;
 pub struct Error<S: AsRef<str> = Status> {
   pub status: S,
   pub reason: String,
+  pub cause: Option<Box<Error>>,
   // Convert raw `JsError` into Error
   pub(crate) maybe_raw: sys::napi_ref,
   pub(crate) maybe_env: sys::napi_env,
@@ -44,6 +46,12 @@ impl<S: AsRef<str>> Drop for Error<S> {
         }
       }
     }
+  }
+}
+
+impl<S: AsRef<str>> Error<S> {
+  pub fn set_cause(&mut self, cause: Error) {
+    self.cause = Some(Box::new(cause));
   }
 }
 
@@ -134,10 +142,17 @@ impl From<Unknown<'_>> for Error {
     let maybe_error_message = value
       .coerce_to_string()
       .and_then(|a| a.into_utf8().and_then(|a| a.into_owned()));
+    let maybe_cause: Option<Box<Error>> = value
+      .coerce_to_object()
+      .and_then(|obj| obj.get_named_property::<Unknown>("cause"))
+      .map(|cause| Box::new(cause.into()))
+      .ok();
+
     if let Ok(error_message) = maybe_error_message {
       return Self {
         status: Status::GenericFailure,
         reason: error_message,
+        cause: maybe_cause,
         maybe_raw: result,
         maybe_env,
       };
@@ -146,6 +161,7 @@ impl From<Unknown<'_>> for Error {
     Self {
       status: Status::GenericFailure,
       reason: "".to_string(),
+      cause: maybe_cause,
       maybe_raw: result,
       maybe_env,
     }
@@ -174,6 +190,7 @@ impl<S: AsRef<str>> Error<S> {
     Error {
       status,
       reason: reason.to_string(),
+      cause: None,
       maybe_raw: ptr::null_mut(),
       maybe_env: ptr::null_mut(),
     }
@@ -183,6 +200,7 @@ impl<S: AsRef<str>> Error<S> {
     Error {
       status,
       reason: "".to_owned(),
+      cause: None,
       maybe_raw: ptr::null_mut(),
       maybe_env: ptr::null_mut(),
     }
@@ -200,6 +218,7 @@ impl<S: AsRef<str> + Clone> Error<S> {
     Ok(Self {
       status: self.status.clone(),
       reason: self.reason.to_string(),
+      cause: None,
       maybe_raw: self.maybe_raw,
       maybe_env: self.maybe_env,
     })
@@ -211,6 +230,7 @@ impl Error {
     Error {
       status: Status::GenericFailure,
       reason: reason.into(),
+      cause: None,
       maybe_raw: ptr::null_mut(),
       maybe_env: ptr::null_mut(),
     }
@@ -222,6 +242,7 @@ impl From<std::ffi::NulError> for Error {
     Error {
       status: Status::GenericFailure,
       reason: format!("{error}"),
+      cause: None,
       maybe_raw: ptr::null_mut(),
       maybe_env: ptr::null_mut(),
     }
@@ -233,6 +254,7 @@ impl From<std::io::Error> for Error {
     Error {
       status: Status::GenericFailure,
       reason: format!("{error}"),
+      cause: None,
       maybe_raw: ptr::null_mut(),
       maybe_env: ptr::null_mut(),
     }
@@ -382,6 +404,16 @@ macro_rules! impl_object_methods {
         debug_assert!(create_reason_status == sys::Status::napi_ok);
         let create_error_status = unsafe { $kind(env, error_code, reason_string, &mut js_error) };
         debug_assert!(create_error_status == sys::Status::napi_ok);
+        if let Some(cause_error) = self.0.cause.take() {
+          let cause = ToNapiValue::to_napi_value(env, *cause_error)
+            .expect("Convert cause Error to napi_value should never error");
+          let set_cause_status =
+            unsafe { sys::napi_set_named_property(env, js_error, c"cause".as_ptr().cast(), cause) };
+          debug_assert!(
+            set_cause_status == sys::Status::napi_ok,
+            "Set cause property failed"
+          );
+        }
         js_error
       }
 

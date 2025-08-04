@@ -673,6 +673,7 @@ module.exports.threadsafeFunctionThrowError = nativeBinding.threadsafeFunctionTh
 module.exports.threadsafeFunctionThrowErrorWithStatus = nativeBinding.threadsafeFunctionThrowErrorWithStatus
 module.exports.throwAsyncError = nativeBinding.throwAsyncError
 module.exports.throwError = nativeBinding.throwError
+module.exports.throwErrorWithCause = nativeBinding.throwErrorWithCause
 module.exports.throwSyntaxError = nativeBinding.throwSyntaxError
 module.exports.toJsObj = nativeBinding.toJsObj
 module.exports.tsfnAsyncCall = nativeBinding.tsfnAsyncCall
