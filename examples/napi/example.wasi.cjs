@@ -141,6 +141,7 @@ module.exports.Dog = __napiModule.exports.Dog
 module.exports.Fib = __napiModule.exports.Fib
 module.exports.Fib2 = __napiModule.exports.Fib2
 module.exports.Fib3 = __napiModule.exports.Fib3
+module.exports.Fib4 = __napiModule.exports.Fib4
 module.exports.GetterSetterWithClosures = __napiModule.exports.GetterSetterWithClosures
 module.exports.JsClassForEither = __napiModule.exports.JsClassForEither
 module.exports.JSOnlyMethodsClass = __napiModule.exports.JSOnlyMethodsClass

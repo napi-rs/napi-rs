@@ -136,8 +136,9 @@ impl<const N: usize> CallbackInfo<N> {
   }
 
   pub fn construct_generator<
+    'a,
     const IsEmptyStructHint: bool,
-    T: Generator + ObjectFinalize + 'static,
+    T: Generator<'a> + ObjectFinalize + 'static,
   >(
     &self,
     js_name: &str,
@@ -156,7 +157,7 @@ impl<const N: usize> CallbackInfo<N> {
     self._factory(js_name, obj).map(|(value, _)| value)
   }
 
-  pub fn generator_factory<T: ObjectFinalize + Generator + 'static>(
+  pub fn generator_factory<'a, T: ObjectFinalize + Generator<'a> + 'static>(
     &self,
     js_name: &str,
     obj: T,

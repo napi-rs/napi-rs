@@ -541,6 +541,7 @@ module.exports.Dog = nativeBinding.Dog
 module.exports.Fib = nativeBinding.Fib
 module.exports.Fib2 = nativeBinding.Fib2
 module.exports.Fib3 = nativeBinding.Fib3
+module.exports.Fib4 = nativeBinding.Fib4
 module.exports.GetterSetterWithClosures = nativeBinding.GetterSetterWithClosures
 module.exports.JsClassForEither = nativeBinding.JsClassForEither
 module.exports.JSOnlyMethodsClass = nativeBinding.JSOnlyMethodsClass
