@@ -58,6 +58,7 @@ import {
   mapOption,
   readFile,
   throwError,
+  throwErrorWithCause,
   jsErrorCallback,
   customStatusCode,
   panic,
@@ -872,6 +873,9 @@ test('Option', (t) => {
 
 test('Result', (t) => {
   t.throws(() => throwError(), void 0, 'Manual Error')
+  const errorWithCause = t.throws(() => throwErrorWithCause())
+  t.is(errorWithCause?.message, 'Manual Error')
+  t.is((errorWithCause?.cause as Error)?.message, 'Inner Error')
   if (!process.env.SKIP_UNWIND_TEST) {
     t.throws(() => panic(), void 0, `Don't panic`)
   }

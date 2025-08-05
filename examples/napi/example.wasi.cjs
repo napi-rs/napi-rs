@@ -388,6 +388,7 @@ module.exports.threadsafeFunctionThrowError = __napiModule.exports.threadsafeFun
 module.exports.threadsafeFunctionThrowErrorWithStatus = __napiModule.exports.threadsafeFunctionThrowErrorWithStatus
 module.exports.throwAsyncError = __napiModule.exports.throwAsyncError
 module.exports.throwError = __napiModule.exports.throwError
+module.exports.throwErrorWithCause = __napiModule.exports.throwErrorWithCause
 module.exports.throwSyntaxError = __napiModule.exports.throwSyntaxError
 module.exports.toJsObj = __napiModule.exports.toJsObj
 module.exports.tsfnAsyncCall = __napiModule.exports.tsfnAsyncCall

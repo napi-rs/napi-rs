@@ -947,6 +947,8 @@ export declare function throwAsyncError(): Promise<void>
 
 export declare function throwError(): void
 
+export declare function throwErrorWithCause(): void
+
 export declare function throwSyntaxError(error: string, code?: string | undefined | null): void
 
 export declare function toJsObj(): object

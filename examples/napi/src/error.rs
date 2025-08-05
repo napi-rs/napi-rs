@@ -5,6 +5,13 @@ pub fn throw_error() -> Result<()> {
   Err(Error::new(Status::InvalidArg, "Manual Error".to_owned()))
 }
 
+#[napi]
+pub fn throw_error_with_cause() -> Result<()> {
+  let mut err = Error::new(Status::GenericFailure, "Manual Error".to_owned());
+  err.set_cause(Error::new(Status::InvalidArg, "Inner Error".to_owned()));
+  Err(err)
+}
+
 #[napi(catch_unwind)]
 pub fn panic() {
   panic!("Don't panic");

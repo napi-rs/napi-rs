@@ -497,6 +497,7 @@ impl<T: FromNapiValue + 'static> futures_core::Stream for Reader<T> {
             *chunk = Err(Error {
               status: Status::GenericFailure,
               reason: "".to_string(),
+              cause: None,
               maybe_raw: error_ref,
               maybe_env: cx.env.0,
             });

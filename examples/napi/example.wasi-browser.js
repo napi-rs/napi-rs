@@ -343,6 +343,7 @@ export const threadsafeFunctionThrowError = __napiModule.exports.threadsafeFunct
 export const threadsafeFunctionThrowErrorWithStatus = __napiModule.exports.threadsafeFunctionThrowErrorWithStatus
 export const throwAsyncError = __napiModule.exports.throwAsyncError
 export const throwError = __napiModule.exports.throwError
+export const throwErrorWithCause = __napiModule.exports.throwErrorWithCause
 export const throwSyntaxError = __napiModule.exports.throwSyntaxError
 export const toJsObj = __napiModule.exports.toJsObj
 export const tsfnAsyncCall = __napiModule.exports.tsfnAsyncCall
