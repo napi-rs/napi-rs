@@ -881,9 +881,28 @@ test('Result', (t) => {
   }
   t.throws(() => errorMessageContainsNullByte('\u001a\u0000'))
 
-  const errors = jsErrorCallback(new Error('JS Error'))
+  const errors = jsErrorCallback(
+    new Error('JS Error', { cause: new Error('cause') }),
+  )
   t.deepEqual(errors[0]!.message, 'JS Error')
+  t.deepEqual((errors[0]!.cause as Error).message, 'cause')
   t.deepEqual(errors[1]!.message, 'JS Error')
+  t.deepEqual((errors[1]!.cause as Error).message, 'cause')
+
+  const [nestedError] = jsErrorCallback(
+    new Error('error1', {
+      cause: new Error('error2', {
+        cause: new Error('error3', {
+          cause: new Error('error4'),
+        }),
+      }),
+    }),
+  )
+  let error = nestedError
+  for (let i = 0; i < 4; i++) {
+    t.deepEqual(error!.message, `error${i + 1}`)
+    error = error!.cause as Error
+  }
 })
 
 test('Async error with stack trace', async (t) => {
