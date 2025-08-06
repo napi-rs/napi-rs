@@ -65,7 +65,7 @@ const encodeValue = (memfs, value, type) => {
         }
 
         for (const value of Object.values(obj)) {
-          storeConstructor(value, memfs)
+          storeConstructor(value, memfs, processed)
         }
       }
 
@@ -145,7 +145,7 @@ const decodeValue = (memfs, payload, type) => {
       }
 
       for (const value of Object.values(obj)) {
-        loadConstructor(value, memfs)
+        loadConstructor(value, memfs, processed)
       }
     }
 
