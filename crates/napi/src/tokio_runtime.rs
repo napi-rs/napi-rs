@@ -10,12 +10,19 @@ use crate::{JsDeferred, Unknown};
 
 #[cfg(not(feature = "noop"))]
 fn create_runtime() -> Runtime {
-  if let Some(user_defined_rt) = USER_DEFINED_RT
-    .get()
-    .and_then(|rt| rt.write().ok().and_then(|mut rt| rt.take()))
-  {
-    return user_defined_rt;
+  // Check if we're supposed to use a user-defined runtime
+  if IS_USER_DEFINED_RT.get().copied().unwrap_or(false) {
+    // Try to take the user-defined runtime if it's still available
+    if let Some(user_defined_rt) = USER_DEFINED_RT
+      .get()
+      .and_then(|rt| rt.write().ok().and_then(|mut rt| rt.take()))
+    {
+      return user_defined_rt;
+    }
+    // If the user-defined runtime was already taken, fall back to creating a default runtime
+    // This handles the case where the runtime was shutdown and needs to be restarted
   }
+
   #[cfg(any(
     all(target_family = "wasm", tokio_unstable),
     not(target_family = "wasm")
@@ -43,6 +50,9 @@ static RT: LazyLock<RwLock<Option<Runtime>>> =
 static USER_DEFINED_RT: OnceLock<RwLock<Option<Runtime>>> = OnceLock::new();
 
 #[cfg(not(feature = "noop"))]
+static IS_USER_DEFINED_RT: OnceLock<bool> = OnceLock::new();
+
+#[cfg(not(feature = "noop"))]
 /// Create a custom Tokio runtime used by the NAPI-RS.
 /// You can control the tokio runtime configuration by yourself.
 /// ### Example
@@ -57,6 +67,7 @@ static USER_DEFINED_RT: OnceLock<RwLock<Option<Runtime>>> = OnceLock::new();
 /// }
 pub fn create_custom_tokio_runtime(rt: Runtime) {
   USER_DEFINED_RT.get_or_init(move || RwLock::new(Some(rt)));
+  IS_USER_DEFINED_RT.get_or_init(|| true);
 }
 
 #[cfg(feature = "noop")]
