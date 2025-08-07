@@ -931,6 +931,8 @@ export declare function testSerdeBufferBytes(obj: object): bigint
 
 export declare function testSerdeRoundtrip(data: any): any
 
+export declare function testWorkers(amount: number, completeCallback: ((err: Error | null, ) => void)): void
+
 export declare function threadsafeFunctionBuildThrowErrorWithStatus(cb: (arg?: unknown) => unknown): void
 
 export declare function threadsafeFunctionClosureCapture(defaultValue: Animal, func: (arg: Animal) => void): void

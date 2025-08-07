@@ -780,6 +780,7 @@ module.exports.testEscapedQuotesInComments = nativeBinding.testEscapedQuotesInCo
 module.exports.testSerdeBigNumberPrecision = nativeBinding.testSerdeBigNumberPrecision
 module.exports.testSerdeBufferBytes = nativeBinding.testSerdeBufferBytes
 module.exports.testSerdeRoundtrip = nativeBinding.testSerdeRoundtrip
+module.exports.testWorkers = nativeBinding.testWorkers
 module.exports.threadsafeFunctionBuildThrowErrorWithStatus = nativeBinding.threadsafeFunctionBuildThrowErrorWithStatus
 module.exports.threadsafeFunctionClosureCapture = nativeBinding.threadsafeFunctionClosureCapture
 module.exports.threadsafeFunctionFatalMode = nativeBinding.threadsafeFunctionFatalMode
