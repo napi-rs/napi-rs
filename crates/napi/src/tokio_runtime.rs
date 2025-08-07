@@ -11,7 +11,7 @@ use crate::{JsDeferred, Unknown};
 #[cfg(not(feature = "noop"))]
 fn create_runtime() -> Runtime {
   // Check if we're supposed to use a user-defined runtime
-  if IS_USER_DEFINED_RT.get().copied().unwrap_or(false) {
+  if matches!(IS_USER_DEFINED_RT.get(), Some(true)) {
     // Try to take the user-defined runtime if it's still available
     if let Some(user_defined_rt) = USER_DEFINED_RT
       .get()
@@ -22,7 +22,7 @@ fn create_runtime() -> Runtime {
     // If the user-defined runtime was already taken, fall back to creating a default runtime
     // This handles the case where the runtime was shutdown and needs to be restarted
   }
-  
+
   #[cfg(any(
     all(target_family = "wasm", tokio_unstable),
     not(target_family = "wasm")
