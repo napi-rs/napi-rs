@@ -3,7 +3,7 @@ use std::ffi::c_void;
 use std::ptr;
 use std::rc::Rc;
 
-use crate::{bindgen_prelude::*, check_status};
+use crate::{bindgen_prelude::*, check_status, iterator::ScopedGenerator};
 
 thread_local! {
   #[doc(hidden)]
@@ -138,7 +138,7 @@ impl<const N: usize> CallbackInfo<N> {
   pub fn construct_generator<
     'a,
     const IsEmptyStructHint: bool,
-    T: Generator<'a> + ObjectFinalize + 'static,
+    T: ScopedGenerator<'a> + ObjectFinalize + 'static,
   >(
     &self,
     js_name: &str,
@@ -157,7 +157,7 @@ impl<const N: usize> CallbackInfo<N> {
     self._factory(js_name, obj).map(|(value, _)| value)
   }
 
-  pub fn generator_factory<'a, T: ObjectFinalize + Generator<'a> + 'static>(
+  pub fn generator_factory<'a, T: ObjectFinalize + ScopedGenerator<'a> + 'static>(
     &self,
     js_name: &str,
     obj: T,

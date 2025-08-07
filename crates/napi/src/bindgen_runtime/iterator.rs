@@ -10,7 +10,57 @@ const GENERATOR_STATE_KEY: &str = "[[GeneratorState]]\0";
 
 /// Implement a Iterator for the JavaScript Class.
 /// This feature is an experimental feature and is not yet stable.
-pub trait Generator<'env> {
+pub trait Generator {
+  type Yield: ToNapiValue + 'static;
+  type Next: FromNapiValue;
+  type Return: FromNapiValue;
+
+  /// Handle the `Generator.next()`
+  /// <https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Generator/next>
+  fn next(&mut self, value: Option<Self::Next>) -> Option<Self::Yield>;
+
+  #[allow(unused_variables)]
+  /// Implement complete to handle the `Generator.return()`
+  /// <https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Generator/return>
+  fn complete(&mut self, value: Option<Self::Return>) -> Option<Self::Yield> {
+    None
+  }
+
+  #[allow(unused_variables)]
+  /// Implement catch to handle the `Generator.throw()`
+  /// <https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Generator/throw>
+  fn catch<'env>(
+    &'env mut self,
+    env: Env,
+    value: Unknown<'env>,
+  ) -> Result<Option<Self::Yield>, Unknown<'env>> {
+    Err(value)
+  }
+}
+
+impl<'env, T: Generator> ScopedGenerator<'env> for T {
+  type Yield = T::Yield;
+  type Next = T::Next;
+  type Return = T::Return;
+
+  fn next(&mut self, _: &'env Env, value: Option<Self::Next>) -> Option<Self::Yield> {
+    T::next(self, value)
+  }
+
+  fn complete(&mut self, value: Option<Self::Return>) -> Option<Self::Yield> {
+    T::complete(self, value)
+  }
+
+  fn catch(
+    &'env mut self,
+    env: &'env Env,
+    value: Unknown<'env>,
+  ) -> Result<Option<Self::Yield>, Unknown<'env>> {
+    T::catch(self, Env::from_raw(env.0), value)
+  }
+}
+
+pub trait ScopedGenerator<'env> {
   type Yield: ToNapiValue + 'env;
   type Next: FromNapiValue;
   type Return: FromNapiValue;
@@ -31,7 +81,7 @@ pub trait Generator<'env> {
   /// <https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Generator/throw>
   fn catch(
     &'env mut self,
-    env: Env,
+    env: &'env Env,
     value: Unknown<'env>,
   ) -> Result<Option<Self::Yield>, Unknown<'env>> {
     Err(value)
@@ -40,7 +90,7 @@ pub trait Generator<'env> {
 
 #[doc(hidden)]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
-pub unsafe fn create_iterator<'a, T: Generator<'a> + 'a>(
+pub unsafe fn create_iterator<'a, T: ScopedGenerator<'a> + 'a>(
   env: sys::napi_env,
   instance: sys::napi_value,
   generator_ptr: *mut T,
@@ -238,7 +288,7 @@ pub unsafe fn create_iterator<'a, T: Generator<'a> + 'a>(
 }
 
 #[doc(hidden)]
-pub unsafe extern "C" fn symbol_generator<'a, T: Generator<'a> + 'a>(
+pub unsafe extern "C" fn symbol_generator<'a, T: ScopedGenerator<'a> + 'a>(
   env: sys::napi_env,
   info: sys::napi_callback_info,
 ) -> sys::napi_value {
@@ -264,7 +314,7 @@ pub unsafe extern "C" fn symbol_generator<'a, T: Generator<'a> + 'a>(
   this
 }
 
-extern "C" fn generator_next<'a, T: Generator<'a> + 'a>(
+extern "C" fn generator_next<'a, T: ScopedGenerator<'a> + 'a>(
   env: sys::napi_env,
   info: sys::napi_callback_info,
 ) -> sys::napi_value {
@@ -360,7 +410,7 @@ extern "C" fn generator_next<'a, T: Generator<'a> + 'a>(
   result
 }
 
-extern "C" fn generator_return<'a, T: Generator<'a> + 'a>(
+extern "C" fn generator_return<'a, T: ScopedGenerator<'a> + 'a>(
   env: sys::napi_env,
   info: sys::napi_callback_info,
 ) -> sys::napi_value {
@@ -450,7 +500,7 @@ extern "C" fn generator_return<'a, T: Generator<'a> + 'a>(
   result
 }
 
-extern "C" fn generator_throw<'a, T: Generator<'a> + 'a>(
+extern "C" fn generator_throw<'a, T: ScopedGenerator<'a> + 'a>(
   env: sys::napi_env,
   info: sys::napi_callback_info,
 ) -> sys::napi_value {
@@ -482,7 +532,8 @@ extern "C" fn generator_throw<'a, T: Generator<'a> + 'a>(
       "Get undefined failed"
     );
     g.catch(
-      Env(env),
+      // SAFETY: `Env` is long lived
+      unsafe { std::mem::transmute::<&Env, &'a Env>(&Env::from_raw(env)) },
       Unknown(
         Value {
           env,
@@ -494,7 +545,8 @@ extern "C" fn generator_throw<'a, T: Generator<'a> + 'a>(
     )
   } else {
     g.catch(
-      Env(env),
+      // SAFETY: `Env` is long lived
+      unsafe { std::mem::transmute::<&Env, &'a Env>(&Env::from_raw(env)) },
       Unknown(
         Value {
           env,
