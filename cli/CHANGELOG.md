@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.1.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.4...@napi-rs/cli@3.1.0) (2025-08-07)
+
+### Features
+
+- **cli:** validate the native binding versions ([#2837](https://github.com/napi-rs/napi-rs/issues/2837)) ([310581a](https://github.com/napi-rs/napi-rs/commit/310581a5f836ee738a56c1bff5d37068cdb601ca))
+- make generator an iterator ([#2784](https://github.com/napi-rs/napi-rs/issues/2784)) ([88fca29](https://github.com/napi-rs/napi-rs/commit/88fca29e3b8822de097358625c652e52d1a9e48c))
+
 ## [3.0.4](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.3...@napi-rs/cli@3.0.4) (2025-07-24)
 
 ### Bug Fixes

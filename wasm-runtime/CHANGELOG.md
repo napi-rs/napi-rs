@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [1.0.2](https://github.com/napi-rs/napi-rs/compare/@napi-rs/wasm-runtime@1.0.1...@napi-rs/wasm-runtime@1.0.2) (2025-08-07)
+
+### Bug Fixes
+
+- **wasm-runtime:** add constructors for nested values in objects ([#2827](https://github.com/napi-rs/napi-rs/issues/2827)) ([946f892](https://github.com/napi-rs/napi-rs/commit/946f8929fc37cb0fac586f459e83f761159ab3b9))
+- **wasm-runtime:** avoid wasm-util from tree shaking by rollup ([#2810](https://github.com/napi-rs/napi-rs/issues/2810)) ([1e30088](https://github.com/napi-rs/napi-rs/commit/1e30088198611f63a91c5328b3a1ad9aad46c90d))
+
 ## [0.2.12](https://github.com/napi-rs/napi-rs/compare/@napi-rs/wasm-runtime@0.2.11...@napi-rs/wasm-runtime@0.2.12) (2025-07-10)
 
 ### Bug Fixes
