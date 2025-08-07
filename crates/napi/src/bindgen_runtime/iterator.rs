@@ -59,6 +59,18 @@ pub unsafe fn create_iterator<T: Generator>(
     "Get global object failed",
   );
 
+  let mut iterator_symbol = ptr::null_mut();
+  check_status_or_throw!(
+    env,
+    sys::napi_get_named_property(
+      env,
+      symbol_object,
+      c"iterator".as_ptr().cast(),
+      &mut iterator_symbol,
+    ),
+    "Get Symbol.iterator failed",
+  );
+
   let mut next_function = ptr::null_mut();
   check_status_or_throw!(
     env,
@@ -143,18 +155,6 @@ pub unsafe fn create_iterator<T: Generator>(
     "Define properties on Generator object failed"
   );
 
-  let mut iterator_symbol = ptr::null_mut();
-  check_status_or_throw!(
-    env,
-    sys::napi_get_named_property(
-      env,
-      symbol_object,
-      c"iterator".as_ptr().cast(),
-      &mut iterator_symbol,
-    ),
-    "Get Symbol.iterator failed",
-  );
-
   let mut generator_function = ptr::null_mut();
   check_status_or_throw!(
     env,
@@ -179,53 +179,62 @@ pub unsafe fn create_iterator<T: Generator>(
   check_status_or_throw!(
     env,
     sys::napi_get_named_property(env, global, c"Iterator".as_ptr().cast(), &mut iterator_ctor,),
-    "Global.Iterator not found – are iterator-helpers enabled?",
+    "Get Global.Iterator failed",
   );
 
-  let mut iterator_proto = ptr::null_mut();
+  let mut iterator_ctor_type = 0;
   check_status_or_throw!(
     env,
-    sys::napi_get_named_property(
+    sys::napi_typeof(env, iterator_ctor, &mut iterator_ctor_type),
+    "Get Global.Iterator type failed",
+  );
+
+  if iterator_ctor_type == sys::ValueType::napi_function {
+    let mut iterator_proto = ptr::null_mut();
+    check_status_or_throw!(
       env,
-      iterator_ctor,
-      c"prototype".as_ptr().cast(),
-      &mut iterator_proto,
-    ),
-    "Failed to get Iterator.prototype",
-  );
+      sys::napi_get_named_property(
+        env,
+        iterator_ctor,
+        c"prototype".as_ptr().cast(),
+        &mut iterator_proto,
+      ),
+      "Failed to get Iterator.prototype",
+    );
 
-  let mut object_ctor = ptr::null_mut();
-  check_status_or_throw!(
-    env,
-    sys::napi_get_named_property(env, global, c"Object".as_ptr().cast(), &mut object_ctor),
-    "Failed to get Object constructor"
-  );
-
-  let mut set_prototype_function = ptr::null_mut();
-  check_status_or_throw!(
-    env,
-    sys::napi_get_named_property(
+    let mut object_ctor = ptr::null_mut();
+    check_status_or_throw!(
       env,
-      object_ctor,
-      c"setPrototypeOf".as_ptr().cast(),
-      &mut set_prototype_function,
-    ),
-    "Failed to get Object.setPrototypeOf"
-  );
+      sys::napi_get_named_property(env, global, c"Object".as_ptr().cast(), &mut object_ctor),
+      "Failed to get Object constructor"
+    );
 
-  let mut argv = [instance, iterator_proto];
-  check_status_or_throw!(
-    env,
-    sys::napi_call_function(
+    let mut set_prototype_function = ptr::null_mut();
+    check_status_or_throw!(
       env,
-      object_ctor,
-      set_prototype_function,
-      2,
-      argv.as_mut_ptr(),
-      ptr::null_mut(),
-    ),
-    "Failed to set prototype on object"
-  );
+      sys::napi_get_named_property(
+        env,
+        object_ctor,
+        c"setPrototypeOf".as_ptr().cast(),
+        &mut set_prototype_function,
+      ),
+      "Failed to get Object.setPrototypeOf"
+    );
+
+    let mut argv = [instance, iterator_proto];
+    check_status_or_throw!(
+      env,
+      sys::napi_call_function(
+        env,
+        object_ctor,
+        set_prototype_function,
+        2,
+        argv.as_mut_ptr(),
+        ptr::null_mut(),
+      ),
+      "Failed to set prototype on object"
+    );
+  }
 }
 
 #[doc(hidden)]

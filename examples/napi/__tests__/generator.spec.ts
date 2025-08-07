@@ -12,7 +12,10 @@ for (const [index, factory] of [
   () => new Fib3(0, 1),
 ].entries()) {
   test(`should be able to stop a generator #${index}`, (t) => {
-    const iterator = factory()
+    let iterator = factory()
+    if (typeof Iterator === 'undefined') {
+      iterator = iterator[Symbol.iterator]()
+    }
     t.deepEqual(iterator.next(), {
       done: false,
       value: 1,
@@ -54,6 +57,10 @@ for (const [index, factory] of [
   })
 
   test(`should be an Iterator and have the Iterator Helper methods #${index}`, (t) => {
+    if (typeof Iterator === 'undefined') {
+      t.pass('Iterator is not existing, skipping test')
+      return
+    }
     const iterator = factory()
 
     t.true(Object.getPrototypeOf(iterator) === Iterator.prototype)
