@@ -39,6 +39,4 @@ pub fn test_workers(amount: u32, complete_callback: ThreadsafeFunction<(), ()>) 
     }
     complete_callback.call(Ok(()), ThreadsafeFunctionCallMode::NonBlocking);
   });
-
-  println!("All workers completed.");
 }

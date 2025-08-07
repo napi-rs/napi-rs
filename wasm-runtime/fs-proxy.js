@@ -186,7 +186,7 @@ const decodeValue = (memfs, payload, type) => {
  * @returns {(e: { data: { __fs__: { sab: Int32Array, type: keyof import('memfs').IFs, payload: any[] } } }) => void}
  */
 // oxlint-disable-next-line no-unused-vars -- fixed in an upcoming release
-module.exports.createOnMessage = (fs) =>
+export const createOnMessage = (fs) =>
   function onMessage(e) {
     if (e.data.__fs__) {
       /**
@@ -221,7 +221,7 @@ module.exports.createOnMessage = (fs) =>
 /**
  * @param {typeof import('memfs')} memfs
  */
-module.exports.createFsProxy = (memfs) =>
+export const createFsProxy = (memfs) =>
   new Proxy(
     {},
     {

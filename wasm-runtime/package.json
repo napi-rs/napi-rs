@@ -20,7 +20,7 @@
   "files": [
     "runtime.cjs",
     "runtime.js",
-    "fs-proxy.cjs",
+    "fs-proxy.js",
     "dist/*.js"
   ],
   "devDependencies": {
