@@ -1278,11 +1278,11 @@ impl ConvertToAST for syn::ItemStruct {
         .filter(|f| matches!(f.vis, Visibility::Public(_)))
         .filter_map(|f| f.ident.clone())
         .map(|ident| ident.to_string())
-        .any(|field_name| field_name == "next" || field_name == "throw")
+        .any(|field_name| field_name == "next" || field_name == "throw" || field_name == "return")
     {
       bail_span!(
         self,
-        "Generator structs cannot have public fields named `next`, or `throw`."
+        "Generator structs cannot have public fields named `next`, `throw`, or `return`."
       );
     }
 
