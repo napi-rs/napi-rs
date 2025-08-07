@@ -790,7 +790,7 @@ jobs:
           yarn install --mode=skip-build
           npm install -g npm
           yarn build
-          yarn lerna publish from-package --pre-dist-tag canary --yes
+          yarn lerna publish from-package --pre-dist-tag canary --yes --registry https://registry.npmjs.org/
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

@@ -1,6 +1,7 @@
 {
   "name": "napi-rs",
   "version": "0.0.0",
+  "private": true,
   "description": "A minimal library for building compiled Node add-ons in Rust.",
   "workspaces": [
     "bench",
@@ -35,7 +36,6 @@
     "test:macro": "cargo test -p napi-examples",
     "test:memory": "node memory-testing/index.mjs",
     "postinstall": "husky install",
-    "prepublish": "yarn build",
     "prepare": "husky"
   },
   "bugs": {
