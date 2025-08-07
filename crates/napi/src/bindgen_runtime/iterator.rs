@@ -11,7 +11,7 @@ const GENERATOR_STATE_KEY: &str = "[[GeneratorState]]\0";
 /// Implement a Iterator for the JavaScript Class.
 /// This feature is an experimental feature and is not yet stable.
 pub trait Generator {
-  type Yield: ToNapiValue + 'static;
+  type Yield: ToNapiValue;
   type Next: FromNapiValue;
   type Return: FromNapiValue;
 
@@ -38,7 +38,7 @@ pub trait Generator {
   }
 }
 
-impl<'env, T: Generator> ScopedGenerator<'env> for T {
+impl<'env, T: Generator + 'env> ScopedGenerator<'env> for T {
   type Yield = T::Yield;
   type Next = T::Next;
   type Return = T::Return;

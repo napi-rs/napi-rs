@@ -77,10 +77,9 @@ for (const [index, factory] of [
 test('generator should be able to return object', (t) => {
   const fib = new Fib4(0, 1)
 
-  // @ts-expect-error
   const gen = fib[Symbol.iterator]
   t.is(typeof gen, 'function')
-  const iterator = gen()
+  const iterator = gen.call(fib)
   t.deepEqual(iterator.next(), {
     done: false,
     value: { number: 1 },

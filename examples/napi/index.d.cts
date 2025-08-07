@@ -217,7 +217,7 @@ export declare class Fib3 extends Iterator<number, void, number> {
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Iterator#iterator_helper_methods
  * @see https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-6.html#iterator-helper-methods
  */
-export declare class Fib4 {
+export declare class Fib4 extends Iterator<unknown, void, number> {
   current: number
   nextItem: number
   constructor(current: number, nextItem: number)

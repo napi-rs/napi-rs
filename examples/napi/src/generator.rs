@@ -110,12 +110,13 @@ impl Generator for Fib3 {
   }
 }
 
-#[napi(constructor, iterator)]
+#[napi(iterator, constructor)]
 pub struct Fib4 {
   pub current: u32,
   pub next_item: u32,
 }
 
+#[napi]
 impl<'a> ScopedGenerator<'a> for Fib4 {
   type Yield = Unknown<'a>;
   type Next = i32;
