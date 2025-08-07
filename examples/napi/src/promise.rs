@@ -36,7 +36,10 @@ pub fn esm_resolve<'env>(
 }
 
 #[napi]
-pub fn spawn_future_lifetime(env: &Env, input: u32) -> Result<PromiseRaw<JsString>> {
+pub fn spawn_future_lifetime<'env>(
+  env: &'env Env,
+  input: u32,
+) -> Result<PromiseRaw<'env, JsString<'env>>> {
   env.spawn_future_with_callback(async move { Ok(input) }, |env, val| {
     env.create_string(format!("{}", val))
   })
@@ -46,7 +49,9 @@ pub fn spawn_future_lifetime(env: &Env, input: u32) -> Result<PromiseRaw<JsStrin
 pub struct ClassReturnInPromise {}
 
 #[napi]
-pub fn promise_raw_return_class_instance(env: &Env) -> Result<PromiseRaw<ClassReturnInPromise>> {
+pub fn promise_raw_return_class_instance<'env>(
+  env: &'env Env,
+) -> Result<PromiseRaw<'env, ClassReturnInPromise>> {
   env.spawn_future_with_callback(async move { Ok(ClassReturnInPromise {}) }, |_env, _val| {
     Ok(ClassReturnInPromise {})
   })

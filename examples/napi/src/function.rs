@@ -140,7 +140,7 @@ pub fn build_threadsafe_function_from_function_callee_handle(
 }
 
 #[napi]
-pub fn create_function(env: &Env) -> Result<Function<u32, u32>> {
+pub fn create_function<'env>(env: &'env Env) -> Result<Function<'env, u32, u32>> {
   env.create_function("customFunction", no_export_function_c_callback)
 }
 

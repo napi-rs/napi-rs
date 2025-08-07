@@ -49,7 +49,7 @@ impl Symbol {
   }
 
   /// Convert `Symbol` to `JsSymbol`
-  pub fn into_js_symbol(self, env: &Env) -> Result<JsSymbol> {
+  pub fn into_js_symbol<'env>(self, env: &'env Env) -> Result<JsSymbol<'env>> {
     let napi_value = unsafe { ToNapiValue::to_napi_value(env.0, self)? };
     unsafe { JsSymbol::from_napi_value(env.0, napi_value) }
   }

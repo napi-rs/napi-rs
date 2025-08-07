@@ -113,7 +113,7 @@ impl<const LEAK_CHECK: bool> Drop for UnknownRef<LEAK_CHECK> {
 
 impl<const LEAK_CHECK: bool> UnknownRef<LEAK_CHECK> {
   /// Get the object from the reference
-  pub fn get_value(&self, env: &Env) -> Result<Unknown> {
+  pub fn get_value<'env>(&self, env: &'env Env) -> Result<Unknown<'env>> {
     let mut result = ptr::null_mut();
     check_status!(
       unsafe { sys::napi_get_reference_value(env.0, self.inner, &mut result) },

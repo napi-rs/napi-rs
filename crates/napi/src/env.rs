@@ -947,11 +947,11 @@ impl Env {
   /// If no `size_hint` provided, global garbage collections will be triggered less times than expected.
   ///
   /// If getting the exact `native_object` size is difficult, you can provide an approximate value, it's only effect to the GC.
-  pub fn create_external<T: 'static>(
-    &self,
+  pub fn create_external<'env, T: 'static>(
+    &'env self,
     native_object: T,
     size_hint: Option<i64>,
-  ) -> Result<JsExternal> {
+  ) -> Result<JsExternal<'env>> {
     let mut object_value = ptr::null_mut();
     check_status!(unsafe {
       sys::napi_create_external(
