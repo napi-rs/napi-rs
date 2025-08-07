@@ -10,10 +10,6 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-permissions:
-  contents: write
-  id-token: write
-
 on:
   push:
     branches:
@@ -776,6 +772,9 @@ jobs:
 
   release-npm:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
     needs:
       - lint
       - build_binary_crate
@@ -789,13 +788,11 @@ jobs:
       - name: Publish
         run: |
           yarn install --mode=skip-build
+          npm install -g npm
           yarn build
-          npm config set provenance true
-          echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" >> ~/.npmrc
           yarn lerna publish from-package --pre-dist-tag canary --yes
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   done:
     runs-on: ubuntu-latest
