@@ -14,6 +14,7 @@ const {
   tsfnReturnPromise,
   tsfnReturnPromiseTimeout,
   asyncTaskReadFile,
+  testWorkers,
 }: typeof import('../index.cjs') = await import('../example.wasi-browser')
 
 describe('NAPI-RS wasi browser test', function () {
@@ -44,8 +45,7 @@ describe('NAPI-RS wasi browser test', function () {
       return Promise.resolve(value + 2)
     })
     expect(value).toBe(5)
-    // eslint-disable-next-line @typescript-eslint/no-floating-promises
-    expect(
+    await expect(
       tsfnReturnPromiseTimeout((err, value) => {
         if (err) {
           throw err
@@ -65,5 +65,19 @@ describe('NAPI-RS wasi browser test', function () {
     __fs.writeFileSync('/test.txt', 'hello world')
     const value = await asyncTaskReadFile('/test.txt')
     expect(value.toString('utf8')).toBe('hello world')
+  })
+
+  it('testWorkers should not throw', async () => {
+    const { resolve, reject, promise } = Promise.withResolvers()
+    expect(() =>
+      testWorkers(10, (err) => {
+        if (err) {
+          reject(err)
+        } else {
+          resolve()
+        }
+      }),
+    ).not.toThrow()
+    await expect(promise).resolves.toBeUndefined()
   })
 })

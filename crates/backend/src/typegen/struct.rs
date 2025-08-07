@@ -1,10 +1,11 @@
 use std::collections::HashMap;
+use std::vec::Vec;
 use std::{cell::RefCell, iter};
 
 use super::{add_alias, ToTypeDef, TypeDef};
+use crate::typegen::JSDoc;
 use crate::{
-  format_js_property_name, js_doc_from_comments, ty_to_ts_type, NapiImpl, NapiStruct,
-  NapiStructField, NapiStructKind,
+  format_js_property_name, ty_to_ts_type, NapiImpl, NapiStruct, NapiStructField, NapiStructKind,
 };
 
 thread_local! {
@@ -20,6 +21,17 @@ impl ToTypeDef for NapiStruct {
     });
     add_alias(self.name.to_string(), self.js_name.to_string());
 
+    let mut js_doc = JSDoc::new(&self.comments);
+    if self.is_generator {
+      let generator_doc =[
+"This type extends JavaScript's `Iterator`, and so has the iterator helper",
+"methods. It may extend the upcoming TypeScript `Iterator` class in the future.",
+"",
+"@see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Iterator#iterator_helper_methods",
+"@see https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-6.html#iterator-helper-methods", ];
+      js_doc.add_block(generator_doc)
+    }
+
     Some(TypeDef {
       kind: String::from(match self.kind {
         NapiStructKind::Transparent(_) => "type",
@@ -32,7 +44,7 @@ impl ToTypeDef for NapiStruct {
       original_name: Some(self.name.to_string()),
       def: self.gen_ts_class(),
       js_mod: self.js_mod.to_owned(),
-      js_doc: js_doc_from_comments(&self.comments),
+      js_doc,
     })
   }
 }
@@ -67,17 +79,17 @@ impl ToTypeDef for NapiImpl {
         "void".to_owned()
       };
       Some(TypeDef {
-        kind: "impl".to_owned(),
+        kind: "extends".to_owned(),
         name: self.js_name.to_owned(),
         original_name: None,
         def: format!(
-          "[Symbol.iterator](): Iterator<{}, {}, {}>",
+          "Iterator<{}, {}, {}>",
           ty_to_ts_type(output_type, false, true, false).0,
           return_type,
           next_type,
         ),
         js_mod: self.js_mod.to_owned(),
-        js_doc: "".to_string(),
+        js_doc: JSDoc::new::<Vec<String>, String>(Vec::default()),
       })
     } else {
       Some(TypeDef {
@@ -93,7 +105,7 @@ impl ToTypeDef for NapiImpl {
             } else {
               Some(format!(
                 "{}{}",
-                js_doc_from_comments(&f.comments),
+                JSDoc::new(&f.comments),
                 f.to_type_def()
                   .map_or(String::default(), |type_def| type_def.def)
               ))
@@ -102,7 +114,7 @@ impl ToTypeDef for NapiImpl {
           .collect::<Vec<_>>()
           .join("\\n"),
         js_mod: self.js_mod.to_owned(),
-        js_doc: "".to_string(),
+        js_doc: JSDoc::new::<Vec<String>, String>(Vec::default()),
       })
     }
   }
@@ -117,7 +129,7 @@ impl NapiStruct {
     let mut field_str = String::from("");
 
     if !f.comments.is_empty() {
-      field_str.push_str(&js_doc_from_comments(&f.comments))
+      field_str.push_str(&format!("{}", JSDoc::new(&f.comments)))
     }
 
     if !f.setter {
