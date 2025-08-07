@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.0](https://github.com/napi-rs/napi-rs/compare/napi-derive-v3.1.2...napi-derive-v3.2.0) - 2025-08-07
+
+### Added
+
+- *(napi)* add ScopeGenerator trait ([#2831](https://github.com/napi-rs/napi-rs/pull/2831))
+- make generator an iterator ([#2784](https://github.com/napi-rs/napi-rs/pull/2784))
+
 ## [3.1.2](https://github.com/napi-rs/napi-rs/compare/napi-derive-v3.1.1...napi-derive-v3.1.2) - 2025-07-30
 
 ### Other

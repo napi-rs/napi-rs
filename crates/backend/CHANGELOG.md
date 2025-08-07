@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v2.0.3...napi-derive-backend-v2.1.0) - 2025-08-07
+
+### Added
+
+- make generator an iterator ([#2784](https://github.com/napi-rs/napi-rs/pull/2784))
+
 ## [2.0.3](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v2.0.2...napi-derive-backend-v2.0.3) - 2025-07-30
 
 ### Fixed
