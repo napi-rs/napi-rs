@@ -50,6 +50,29 @@ pub fn shutdown_runtime() {
   }
 }
 
+#[napi]
+#[cfg(not(target_family = "wasm"))]
+pub fn test_runtime_reuse() -> Result<bool> {
+  use napi::bindgen_prelude::{shutdown_async_runtime, start_async_runtime};
+  
+  // Shutdown the current runtime
+  shutdown_async_runtime();
+  
+  // Create a new custom runtime
+  let rt = tokio::runtime::Builder::new_multi_thread()
+    .enable_all()
+    .build()
+    .map_err(|e| napi::Error::from_reason(format!("Failed to create runtime: {}", e)))?;
+  
+  create_custom_tokio_runtime(rt);
+  
+  // Start the runtime again
+  start_async_runtime();
+  
+  // If we reach here, the runtime was successfully reused
+  Ok(true)
+}
+
 #[napi(module_exports)]
 pub fn exports(mut export: Object) -> Result<()> {
   let symbol = Symbol::for_desc("NAPI_RS_SYMBOL");

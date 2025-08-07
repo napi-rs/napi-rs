@@ -1,5 +1,5 @@
 #[cfg(not(feature = "noop"))]
-use std::sync::{LazyLock, OnceLock, RwLock};
+use std::sync::{LazyLock, RwLock};
 use std::{future::Future, marker::PhantomData};
 
 use tokio::runtime::Runtime;
@@ -10,11 +10,10 @@ use crate::{JsDeferred, Unknown};
 
 #[cfg(not(feature = "noop"))]
 fn create_runtime() -> Runtime {
-  if let Some(user_defined_rt) = USER_DEFINED_RT
-    .get()
-    .and_then(|rt| rt.write().ok().and_then(|mut rt| rt.take()))
-  {
-    return user_defined_rt;
+  if let Ok(mut user_rt) = USER_DEFINED_RT.write() {
+    if let Some(rt) = user_rt.take() {
+      return rt;
+    }
   }
   #[cfg(any(
     all(target_family = "wasm", tokio_unstable),
@@ -40,7 +39,7 @@ static RT: LazyLock<RwLock<Option<Runtime>>> =
   LazyLock::new(|| RwLock::new(Some(create_runtime())));
 
 #[cfg(not(feature = "noop"))]
-static USER_DEFINED_RT: OnceLock<RwLock<Option<Runtime>>> = OnceLock::new();
+static USER_DEFINED_RT: LazyLock<RwLock<Option<Runtime>>> = LazyLock::new(|| RwLock::new(None));
 
 #[cfg(not(feature = "noop"))]
 /// Create a custom Tokio runtime used by the NAPI-RS.
@@ -56,7 +55,9 @@ static USER_DEFINED_RT: OnceLock<RwLock<Option<Runtime>>> = OnceLock::new();
 ///    create_custom_tokio_runtime(rt);
 /// }
 pub fn create_custom_tokio_runtime(rt: Runtime) {
-  USER_DEFINED_RT.get_or_init(move || RwLock::new(Some(rt)));
+  if let Ok(mut user_rt) = USER_DEFINED_RT.write() {
+    *user_rt = Some(rt);
+  }
 }
 
 #[cfg(feature = "noop")]
