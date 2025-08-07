@@ -568,7 +568,7 @@ impl ThingList {
   rustMethod(): number
 }"#
 )]
-pub fn define_class(env: &Env) -> Result<Function> {
+pub fn define_class<'env>(env: &'env Env) -> Result<Function<'env>> {
   env.define_class(
     "DynamicRustClass",
     rust_class_constructor_c_callback,

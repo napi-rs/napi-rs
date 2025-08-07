@@ -76,7 +76,7 @@ impl<const LEAK_CHECK: bool> Drop for SymbolRef<LEAK_CHECK> {
 
 impl<const LEAK_CHECK: bool> SymbolRef<LEAK_CHECK> {
   /// Get the object from the reference
-  pub fn get_value(&self, env: &Env) -> Result<JsSymbol> {
+  pub fn get_value<'env>(&self, env: &'env Env) -> Result<JsSymbol<'env>> {
     let mut result = ptr::null_mut();
     check_status!(
       unsafe { sys::napi_get_reference_value(env.0, self.inner, &mut result) },

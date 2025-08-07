@@ -96,6 +96,7 @@ export const Dog = __napiModule.exports.Dog
 export const Fib = __napiModule.exports.Fib
 export const Fib2 = __napiModule.exports.Fib2
 export const Fib3 = __napiModule.exports.Fib3
+export const Fib4 = __napiModule.exports.Fib4
 export const GetterSetterWithClosures = __napiModule.exports.GetterSetterWithClosures
 export const JsClassForEither = __napiModule.exports.JsClassForEither
 export const JSOnlyMethodsClass = __napiModule.exports.JSOnlyMethodsClass

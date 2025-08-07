@@ -1448,7 +1448,7 @@ impl ConvertToAST for syn::ItemImpl {
             if let Some(PathSegment { ident, .. }) = t.segments.last() {
               if (ident == "Task" || ident == "ScopedTask") && m.ident == "JsValue" {
                 task_output_type = Some(m.ty.clone());
-              } else if ident == "Generator" {
+              } else if ident == "Generator" || ident == "ScopedGenerator" {
                 if let Type::Path(_) = &m.ty {
                   if m.ident == "Yield" {
                     iterator_yield_type = Some(m.ty.clone());

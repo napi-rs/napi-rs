@@ -1,6 +1,6 @@
 import test from 'ava'
 
-import { Fib, Fib2, Fib3, shutdownRuntime } from '../index.cjs'
+import { Fib, Fib2, Fib3, Fib4, shutdownRuntime } from '../index.cjs'
 
 test.after(() => {
   shutdownRuntime()
@@ -73,3 +73,15 @@ for (const [index, factory] of [
     t.deepEqual(arr, [8, 34, 144, 610, 2584])
   })
 }
+
+test('generator should be able to return object', (t) => {
+  const fib = new Fib4(0, 1)
+
+  const gen = fib[Symbol.iterator]
+  t.is(typeof gen, 'function')
+  const iterator = gen.call(fib)
+  t.deepEqual(iterator.next(), {
+    done: false,
+    value: { number: 1 },
+  })
+})
