@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.0](https://github.com/napi-rs/napi-rs/compare/napi-v3.1.6...napi-v3.2.0) - 2025-08-07
+
+### Added
+
+- *(napi)* add ScopeGenerator trait ([#2831](https://github.com/napi-rs/napi-rs/pull/2831))
+- make generator an iterator ([#2784](https://github.com/napi-rs/napi-rs/pull/2784))
+- *(napi)* add `Error.cause` support to `napi::Error` ([#2829](https://github.com/napi-rs/napi-rs/pull/2829))
+
+### Fixed
+
+- *(napi)* user_defined_rt can only be used once ([#2841](https://github.com/napi-rs/napi-rs/pull/2841))
+
 ## [3.1.6](https://github.com/napi-rs/napi-rs/compare/napi-v3.1.5...napi-v3.1.6) - 2025-08-01
 
 ### Fixed
