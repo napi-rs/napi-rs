@@ -7,6 +7,7 @@ import {
   tsfnReturnPromise,
   __fs,
   asyncTaskReadFile,
+  testWorkers,
 } from './example.wasi-browser'
 
 global.Buffer = Buffer
@@ -33,3 +34,11 @@ asyncTaskReadFile('/test.txt')
   .catch((err) => {
     console.error(err)
   })
+
+testWorkers(4, (err) => {
+  if (err) {
+    console.error(err)
+  } else {
+    console.log('All workers completed')
+  }
+})

@@ -46,26 +46,10 @@ export default defineConfig([
     },
   },
   {
-    input: './runtime.js',
-    treeshake: true,
-    plugins: [
-      replace({
-        process: 'null',
-        'process.env.NODE_ENV': '"production"',
-        'process.env.NODE_DEBUG_NATIVE': false,
-        __webpack_public_path__: undefined,
-        preventAssignment: false,
-      }),
-      commonjs(),
-      nodeResolve({
-        preferBuiltins: false,
-        mainFields: ['browser', 'module', 'main'],
-      }),
-    ],
+    input: './fs-proxy.js',
     output: {
-      format: 'esm',
-      sourcemap: 'inline',
-      dir: './dist',
+      format: 'commonjs',
+      file: './dist/fs-proxy.cjs',
     },
   },
 ])

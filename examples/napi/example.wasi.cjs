@@ -380,6 +380,7 @@ module.exports.testEscapedQuotesInComments = __napiModule.exports.testEscapedQuo
 module.exports.testSerdeBigNumberPrecision = __napiModule.exports.testSerdeBigNumberPrecision
 module.exports.testSerdeBufferBytes = __napiModule.exports.testSerdeBufferBytes
 module.exports.testSerdeRoundtrip = __napiModule.exports.testSerdeRoundtrip
+module.exports.testWorkers = __napiModule.exports.testWorkers
 module.exports.threadsafeFunctionBuildThrowErrorWithStatus = __napiModule.exports.threadsafeFunctionBuildThrowErrorWithStatus
 module.exports.threadsafeFunctionClosureCapture = __napiModule.exports.threadsafeFunctionClosureCapture
 module.exports.threadsafeFunctionFatalMode = __napiModule.exports.threadsafeFunctionFatalMode
