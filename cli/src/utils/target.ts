@@ -6,6 +6,8 @@ export const UNIVERSAL_TARGETS = {
   'universal-apple-darwin': ['aarch64-apple-darwin', 'x86_64-apple-darwin'],
 } as const
 
+const SUB_SYSTEMS = new Set(['android', 'ohos'])
+
 export const AVAILABLE_TARGETS = [
   'aarch64-apple-darwin',
   'aarch64-linux-android',
@@ -139,24 +141,19 @@ export function parseTriple(rawTriple: string): Target {
     ;[cpu, sys] = triples
   } else {
     // aarch64-unknown-linux-musl
-    // ^ cpu           ^ sys ^ abi
+    // ^ cpu   ^vendor ^ sys ^ abi
     // aarch64-apple-darwin
     // ^ cpu         ^ sys  (abi is None)
     ;[cpu, , sys, abi = null] = triples
   }
 
+  if (abi && SUB_SYSTEMS.has(abi)) {
+    sys = abi
+    abi = null
+  }
   const platform = SysToNodePlatform[sys] ?? (sys as Platform)
   const arch = CpuToNodeArch[cpu] ?? (cpu as NodeJSArch)
 
-  if (rawTriple.includes('ohos')) {
-    return {
-      triple: rawTriple,
-      platformArchABI: `linux-${arch}-ohos`,
-      platform: 'openharmony',
-      arch,
-      abi: null,
-    }
-  }
   return {
     triple: rawTriple,
     platformArchABI: abi ? `${platform}-${arch}-${abi}` : `${platform}-${arch}`,

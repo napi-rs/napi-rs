@@ -205,11 +205,11 @@ function requireNative() {
     }
   } else if (process.platform === 'openharmony') {
     if (process.arch === 'arm64') {
-      ${requireTuple('linux-arm64-ohos')}
+      ${requireTuple('openharmony-arm64')}
     } else if (process.arch === 'x64') {
-      ${requireTuple('linux-x64-ohos')}
+      ${requireTuple('openharmony-x64')}
     } else if (process.arch === 'arm') {
-      ${requireTuple('linux-arm-ohos')}
+      ${requireTuple('openharmony-arm')}
     } else {
       loadErrors.push(new Error(\`Unsupported architecture on OpenHarmony: \${process.arch}\`))
     }
