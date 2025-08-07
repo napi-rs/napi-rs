@@ -15,6 +15,7 @@ enum TypeDefKind {
   Type = 'type',
   Fn = 'fn',
   Struct = 'struct',
+  Extends = 'extends',
   Impl = 'impl',
 }
 
@@ -23,6 +24,7 @@ interface TypeDefLine {
   name: string
   original_name?: string
   def: string
+  extends?: string
   js_doc?: string
   js_mod?: string
 }
@@ -57,7 +59,8 @@ function prettyPrint(
       break
 
     case TypeDefKind.Struct:
-      s += `${exportDeclare(ambient)} class ${line.name} {\n${line.def}\n}`
+      const extendsDef = line.extends ? ` extends ${line.extends}` : ''
+      s += `${exportDeclare(ambient)} class ${line.name}${extendsDef} {\n${line.def}\n}`
       if (line.original_name && line.original_name !== line.name) {
         s += `\nexport type ${line.original_name} = ${line.name}`
       }
@@ -185,6 +188,11 @@ function preprocessTypeDef(defs: TypeDefLine[]): Map<string, TypeDefLine[]> {
     if (def.kind === TypeDefKind.Struct) {
       group.push(def)
       classDefs.set(def.name, def)
+    } else if (def.kind === TypeDefKind.Extends) {
+      const classDef = classDefs.get(def.name)
+      if (classDef) {
+        classDef.extends = def.def
+      }
     } else if (def.kind === TypeDefKind.Impl) {
       // merge `impl` into class definition
       const classDef = classDefs.get(def.name)

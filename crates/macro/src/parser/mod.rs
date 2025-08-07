@@ -1270,6 +1270,22 @@ impl ConvertToAST for syn::ItemStruct {
     record_struct(&rust_struct_ident, final_js_name_for_struct.clone(), opts);
     let namespace = opts.namespace().map(|(m, _)| m.to_owned());
     let implement_iterator = opts.iterator().is_some();
+
+    if implement_iterator
+      && self
+        .fields
+        .iter()
+        .filter(|f| matches!(f.vis, Visibility::Public(_)))
+        .filter_map(|f| f.ident.clone())
+        .map(|ident| ident.to_string())
+        .any(|field_name| field_name == "next" || field_name == "throw" || field_name == "return")
+    {
+      bail_span!(
+        self,
+        "Generator structs cannot have public fields named `next`, `throw`, or `return`."
+      );
+    }
+
     let generator_struct = GENERATOR_STRUCT.get_or_init(|| Mutex::new(HashMap::new()));
     let mut generator_struct = generator_struct
       .lock()
@@ -1393,6 +1409,7 @@ impl ConvertToAST for syn::ItemStruct {
         register_name: get_register_ident(format!("{rust_struct_ident}_struct").as_str()),
         comments: extract_doc_comments(&self.attrs),
         has_lifetime: lifetime.is_some(),
+        is_generator: implement_iterator,
       }),
     })
   }
@@ -1556,6 +1573,7 @@ impl ConvertToAST for syn::ItemEnum {
             object_to_js: opts.object_to_js(),
           }),
           has_lifetime: false,
+          is_generator: false,
         }),
       });
     }

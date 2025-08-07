@@ -12,10 +12,10 @@ for (const [index, factory] of [
   () => new Fib3(0, 1),
 ].entries()) {
   test(`should be able to stop a generator #${index}`, (t) => {
-    const fib = factory()
-    const gen = fib[Symbol.iterator]
-    t.is(typeof gen, 'function')
-    const iterator = gen()
+    let iterator = factory()
+    if (typeof Iterator === 'undefined') {
+      iterator = iterator[Symbol.iterator]()
+    }
     t.deepEqual(iterator.next(), {
       done: false,
       value: 1,
@@ -37,10 +37,7 @@ for (const [index, factory] of [
   })
 
   test(`should be able to throw to generator #${index}`, (t) => {
-    const fib = factory()
-    const gen = fib[Symbol.iterator]
-    t.is(typeof gen, 'function')
-    const iterator = gen()
+    const iterator = factory()
     t.deepEqual(iterator.next(), {
       done: false,
       value: 1,
@@ -57,5 +54,22 @@ for (const [index, factory] of [
     t.deepEqual(iterator.next(), {
       done: true,
     })
+  })
+
+  test(`should be an Iterator and have the Iterator Helper methods #${index}`, (t) => {
+    if (typeof Iterator === 'undefined') {
+      t.pass('Iterator is not existing, skipping test')
+      return
+    }
+    const iterator = factory()
+
+    t.true(Object.getPrototypeOf(iterator) === Iterator.prototype)
+    let arr = [
+      ...iterator
+        .drop(3)
+        .filter((x: number) => x % 2 == 0)
+        .take(5),
+    ]
+    t.deepEqual(arr, [8, 34, 144, 610, 2584])
   })
 }
