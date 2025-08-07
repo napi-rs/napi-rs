@@ -420,13 +420,13 @@ function requireNative() {
   } else if (process.platform === 'openharmony') {
     if (process.arch === 'arm64') {
       try {
-        return require('./example.linux-arm64-ohos.node')
+        return require('./example.openharmony-arm64.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('@examples/napi-linux-arm64-ohos')
-        const bindingPackageVersion = require('@examples/napi-linux-arm64-ohos/package.json').version
+        const binding = require('@examples/napi-openharmony-arm64')
+        const bindingPackageVersion = require('@examples/napi-openharmony-arm64/package.json').version
         if (bindingPackageVersion !== '0.0.0') {
           throw new Error(`Native binding package version mismatch, expected 0.0.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
@@ -436,13 +436,13 @@ function requireNative() {
       }
     } else if (process.arch === 'x64') {
       try {
-        return require('./example.linux-x64-ohos.node')
+        return require('./example.openharmony-x64.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('@examples/napi-linux-x64-ohos')
-        const bindingPackageVersion = require('@examples/napi-linux-x64-ohos/package.json').version
+        const binding = require('@examples/napi-openharmony-x64')
+        const bindingPackageVersion = require('@examples/napi-openharmony-x64/package.json').version
         if (bindingPackageVersion !== '0.0.0') {
           throw new Error(`Native binding package version mismatch, expected 0.0.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
@@ -452,13 +452,13 @@ function requireNative() {
       }
     } else if (process.arch === 'arm') {
       try {
-        return require('./example.linux-arm-ohos.node')
+        return require('./example.openharmony-arm.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('@examples/napi-linux-arm-ohos')
-        const bindingPackageVersion = require('@examples/napi-linux-arm-ohos/package.json').version
+        const binding = require('@examples/napi-openharmony-arm')
+        const bindingPackageVersion = require('@examples/napi-openharmony-arm/package.json').version
         if (bindingPackageVersion !== '0.0.0') {
           throw new Error(`Native binding package version mismatch, expected 0.0.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
