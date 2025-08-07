@@ -11,7 +11,7 @@ use crate::{JsDeferred, Unknown};
 #[cfg(not(feature = "noop"))]
 fn create_runtime() -> Runtime {
   // Check if we're supposed to use a user-defined runtime
-  if IS_USER_DEFINED_RT.get().unwrap_or(false) {
+  if IS_USER_DEFINED_RT.get().copied().unwrap_or(false) {
     // Try to take the user-defined runtime if it's still available
     if let Some(user_defined_rt) = USER_DEFINED_RT
       .get()
