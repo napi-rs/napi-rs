@@ -79,11 +79,11 @@ impl ToTypeDef for NapiImpl {
         "void".to_owned()
       };
       Some(TypeDef {
-        kind: "impl".to_owned(),
+        kind: "extends".to_owned(),
         name: self.js_name.to_owned(),
         original_name: None,
         def: format!(
-          "[Symbol.iterator](): Iterator<{}, {}, {}>",
+          "Iterator<{}, {}, {}>",
           ty_to_ts_type(output_type, false, true, false).0,
           return_type,
           next_type,

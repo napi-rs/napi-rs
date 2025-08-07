@@ -22,7 +22,7 @@
     "resolveJsonModule": true,
     "importsNotUsedAsValues": "remove",
     "outDir": "scripts",
-    "lib": ["ES2022"]
+    "lib": ["ESNext"]
   },
   "include": [],
   "references": [
