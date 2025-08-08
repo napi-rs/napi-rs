@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.1](https://github.com/napi-rs/napi-rs/compare/napi-v3.2.0...napi-v3.2.1) - 2025-08-08
+
+### Fixed
+
+- *(napi)* ensure tokio runtime is initialized for dlopen ([#2850](https://github.com/napi-rs/napi-rs/pull/2850))
+- *(napi)* handle the return_if_invalid for Array param ([#2846](https://github.com/napi-rs/napi-rs/pull/2846))
+
 ## [3.2.0](https://github.com/napi-rs/napi-rs/compare/napi-v3.1.6...napi-v3.2.0) - 2025-08-07
 
 ### Added
