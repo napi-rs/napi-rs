@@ -462,33 +462,6 @@ pub unsafe extern "C" fn napi_register_module_v1(
     })
   }
 
-  #[cfg(feature = "napi3")]
-  {
-    check_status_or_throw!(
-      env,
-      unsafe { sys::napi_add_env_cleanup_hook(env, Some(thread_cleanup), ptr::null_mut()) },
-      "Failed to add thread_cleanup hook"
-    )
-  }
-
-  #[cfg(not(feature = "napi3"))]
-  // attach cleanup hook to the `module` object
-  // we don't use the `napi_add_env_cleanup_hook` because it's required napi3
-  check_status_or_throw!(
-    env,
-    unsafe {
-      sys::napi_wrap(
-        env,
-        exports,
-        wrapped_object,
-        Some(thread_cleanup),
-        ptr::null_mut(),
-        ptr::null_mut(),
-      )
-    },
-    "Failed to add remove thread id cleanup hook"
-  );
-
   #[cfg(feature = "napi4")]
   {
     create_custom_gc(env);
@@ -575,25 +548,8 @@ fn create_custom_gc(env: sys::napi_env) {
   THREADS_CAN_ACCESS_ENV.with(|cell| cell.set(true));
 }
 
-#[cfg(all(not(feature = "noop"), feature = "napi3"))]
-unsafe extern "C" fn thread_cleanup(_: *mut std::ffi::c_void) {
-  if MODULE_COUNT.fetch_sub(1, Ordering::Relaxed) == 1 {
-    #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
-    {
-      crate::tokio_runtime::shutdown_async_runtime();
-    }
-    crate::bindgen_runtime::REFERENCE_MAP.with(|cell| cell.borrow_mut(|m| m.clear()));
-    #[allow(clippy::needless_return)]
-    return;
-  }
-}
-
-#[cfg(all(not(feature = "noop"), not(feature = "napi3")))]
-unsafe extern "C" fn thread_cleanup(
-  _: sys::napi_env,
-  _: *mut std::ffi::c_void,
-  _data: *mut std::ffi::c_void,
-) {
+#[ctor::dtor]
+fn thread_cleanup() {
   if MODULE_COUNT.fetch_sub(1, Ordering::Relaxed) == 1 {
     #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
     {
