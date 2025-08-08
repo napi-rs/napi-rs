@@ -470,6 +470,23 @@ pub unsafe extern "C" fn napi_register_module_v1(
       crate::tokio_runtime::start_async_runtime();
     }
   }
+
+  #[cfg(all(not(feature = "noop"), target_family = "wasm"))]
+  check_status_or_throw!(
+    env,
+    unsafe {
+      sys::napi_wrap(
+        env,
+        exports,
+        std::ptr::null_mut(),
+        Some(thread_cleanup),
+        std::ptr::null_mut(),
+        std::ptr::null_mut(),
+      )
+    },
+    "Failed to add remove thread id cleanup hook"
+  );
+
   FIRST_MODULE_REGISTERED.store(true, Ordering::SeqCst);
   exports
 }
@@ -548,9 +565,26 @@ fn create_custom_gc(env: sys::napi_env) {
   THREADS_CAN_ACCESS_ENV.with(|cell| cell.set(true));
 }
 
-#[cfg(not(feature = "noop"))]
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
 #[ctor::dtor]
 fn thread_cleanup() {
+  if MODULE_COUNT.fetch_sub(1, Ordering::Relaxed) == 1 {
+    #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
+    {
+      crate::tokio_runtime::shutdown_async_runtime();
+    }
+    crate::bindgen_runtime::REFERENCE_MAP.with(|cell| cell.borrow_mut(|m| m.clear()));
+    #[allow(clippy::needless_return)]
+    return;
+  }
+}
+
+#[cfg(all(not(feature = "noop"), target_family = "wasm"))]
+unsafe extern "C" fn thread_cleanup(
+  _env: sys::napi_env,
+  _id: *mut std::ffi::c_void,
+  _data: *mut std::ffi::c_void,
+) {
   if MODULE_COUNT.fetch_sub(1, Ordering::Relaxed) == 1 {
     #[cfg(all(feature = "tokio_rt", feature = "napi4"))]
     {
