@@ -568,7 +568,7 @@ fn pull_callback_impl<
 
   let controller = unsafe { Object::from_napi_value(env, controller)? };
   let enqueue = controller
-    .get_named_property_unchecked::<Function<T, ()>>("enqueue")? // T вместо BufferSlice
+    .get_named_property_unchecked::<Function<T, ()>>("enqueue")?
     .bind(controller)?
     .create_ref()?;
   let close = controller
@@ -584,7 +584,7 @@ fn pull_callback_impl<
       let mut output = Object::new(env)?;
       if let Some(val) = val {
         let enqueue_fn = enqueue.borrow_back(env)?;
-        enqueue_fn.call(val)?; // Прямой вызов enqueue с значением T
+        enqueue_fn.call(val)?;
       } else {
         let close_fn = close.borrow_back(env)?;
         close_fn.call(())?;
