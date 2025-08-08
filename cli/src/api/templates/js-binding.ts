@@ -52,7 +52,7 @@ function createCommonBinding(
 ${identLow}try {
 ${ident}const binding = require('${pkgName}-${tuple}')
 ${ident}const bindingPackageVersion = require('${pkgName}-${tuple}/package.json').version
-${ident}if (bindingPackageVersion !== '${packageVersion}' && (process.env.NAPI_RS_ENFORCE_VERSION_CHECK === '0' || !process.env.NAPI_RS_ENFORCE_VERSION_CHECK)) {
+${ident}if (bindingPackageVersion !== '${packageVersion}' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
 ${ident}  throw new Error(\`Native binding package version mismatch, expected ${packageVersion} but got \${bindingPackageVersion}. You can reinstall dependencies to fix this issue.\`)
 ${ident}}
 ${ident}return binding
