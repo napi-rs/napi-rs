@@ -548,6 +548,7 @@ fn create_custom_gc(env: sys::napi_env) {
   THREADS_CAN_ACCESS_ENV.with(|cell| cell.set(true));
 }
 
+#[cfg(not(feature = "noop"))]
 #[ctor::dtor]
 fn thread_cleanup() {
   if MODULE_COUNT.fetch_sub(1, Ordering::Relaxed) == 1 {
