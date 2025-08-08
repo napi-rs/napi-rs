@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [3.1.2](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.1.1...@napi-rs/cli@3.1.2) (2025-08-08)
+
+### Bug Fixes
+
+- **cli:** wrong condition for the native binding version check ([#2853](https://github.com/napi-rs/napi-rs/issues/2853)) ([b47efee](https://github.com/napi-rs/napi-rs/commit/b47efee028609ac8844fb31dfa0deb62cdfeaa67))
+
 ## [3.1.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.1.0...@napi-rs/cli@3.1.1) (2025-08-08)
 
 ### Bug Fixes
