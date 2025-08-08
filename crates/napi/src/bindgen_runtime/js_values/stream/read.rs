@@ -15,7 +15,7 @@ use tokio_stream::StreamExt;
 
 use crate::{
   bindgen_prelude::{
-    BufferSlice, CallbackContext, FromNapiValue, Function, JsObjectValue, Null, Object, PromiseRaw,
+    BufferSlice, CallbackContext, FromNapiValue, Function, JsObjectValue, Object, PromiseRaw,
     ToNapiValue, TypeName, Unknown, ValidateNapiValue, NAPI_AUTO_LENGTH,
   },
   check_status, sys,
@@ -581,7 +581,6 @@ fn pull_callback_impl<
   let promise = env.spawn_future_with_callback(
     async move { stream.next().await.transpose() },
     move |env, val| {
-      let mut output = Object::new(env)?;
       if let Some(val) = val {
         let enqueue_fn = enqueue.borrow_back(env)?;
         enqueue_fn.call(val)?;
