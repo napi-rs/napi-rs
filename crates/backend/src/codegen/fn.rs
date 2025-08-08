@@ -546,7 +546,7 @@ impl NapiFn {
           }
         }
         // Array::validate only validates by the `Array.isArray`
-        // For the elements of the Array, we need to return rather than throw if it's invalid when `return_if_invalid` is true
+        // For the elements of the Array, we need to return rather than throw if they are invalid when `return_if_invalid` is true
         let from_napi_value = if is_array && self.return_if_invalid {
           quote! {
             match <#ty as napi::bindgen_prelude::FromNapiValue>::from_napi_value(env, #arg_conversion) {
