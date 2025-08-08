@@ -107,6 +107,9 @@ pub fn spawn<F>(fut: F) -> tokio::task::JoinHandle<F::Output>
 where
   F: 'static + Send + Future<Output = ()>,
 {
+  // Ensure runtime is started before trying to access it
+  // This is important for dlopen scenarios where the runtime might not be initialized yet
+  start_async_runtime();
   RT.read()
     .ok()
     .and_then(|rt| rt.as_ref().map(|rt| rt.spawn(fut)))
@@ -118,6 +121,9 @@ where
 /// This is blocking, meaning that it pauses other execution until the future is complete,
 /// only use it when it is absolutely necessary, in other places use async functions instead.
 pub fn block_on<F: Future>(fut: F) -> F::Output {
+  // Ensure runtime is started before trying to access it
+  // This is important for dlopen scenarios where the runtime might not be initialized yet
+  start_async_runtime();
   RT.read()
     .ok()
     .and_then(|rt| rt.as_ref().map(|rt| rt.block_on(fut)))
@@ -139,6 +145,9 @@ where
   F: FnOnce() -> R + Send + 'static,
   R: Send + 'static,
 {
+  // Ensure runtime is started before trying to access it
+  // This is important for dlopen scenarios where the runtime might not be initialized yet
+  start_async_runtime();
   RT.read()
     .ok()
     .and_then(|rt| rt.as_ref().map(|rt| rt.spawn_blocking(func)))
@@ -152,6 +161,9 @@ where
 /// If the feature `tokio_rt` has been enabled this will enter the runtime context and
 /// then call the provided closure. Otherwise it will just call the provided closure.
 pub fn within_runtime_if_available<F: FnOnce() -> T, T>(f: F) -> T {
+  // Ensure runtime is started before trying to access it
+  // This is important for dlopen scenarios where the runtime might not be initialized yet
+  start_async_runtime();
   RT.read()
     .ok()
     .and_then(|rt| {
