@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.2](https://github.com/napi-rs/napi-rs/compare/napi-v3.2.1...napi-v3.2.2) - 2025-08-08
+
+### Fixed
+
+- *(napi)* no need to cleanup thread_local stuff ([#2851](https://github.com/napi-rs/napi-rs/pull/2851))
+
 ## [3.2.1](https://github.com/napi-rs/napi-rs/compare/napi-v3.2.0...napi-v3.2.1) - 2025-08-08
 
 ### Fixed
