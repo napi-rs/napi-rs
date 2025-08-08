@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [3.1.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.1.0...@napi-rs/cli@3.1.1) (2025-08-08)
+
+### Bug Fixes
+
+- **cli:** don't enforce version check ([#2849](https://github.com/napi-rs/napi-rs/issues/2849)) ([eef8221](https://github.com/napi-rs/napi-rs/commit/eef822142151486e0835c47419c16afc6ff880c1))
+
 # [3.1.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.0.4...@napi-rs/cli@3.1.0) (2025-08-07)
 
 ### Features
