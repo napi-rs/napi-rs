@@ -725,6 +725,7 @@ module.exports.createObjWithProperty = nativeBinding.createObjWithProperty
 module.exports.createOptionalExternal = nativeBinding.createOptionalExternal
 module.exports.createReadableStream = nativeBinding.createReadableStream
 module.exports.createReadableStreamFromClass = nativeBinding.createReadableStreamFromClass
+module.exports.createReadableStreamWithObject = nativeBinding.createReadableStreamWithObject
 module.exports.createReferenceOnFunction = nativeBinding.createReferenceOnFunction
 module.exports.createRejectedPromise = nativeBinding.createRejectedPromise
 module.exports.createResolvedPromise = nativeBinding.createResolvedPromise

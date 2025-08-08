@@ -85,7 +85,7 @@ impl<T> FromNapiValue for ReadableStream<'_, T> {
 }
 
 impl<T> ReadableStream<'_, T> {
-  /// Returns a boolean indicating whether or not the readable stream is locked to a reader.
+  /// Returns a boolean indicating regardless the readable stream is locked to a reader.
   pub fn locked(&self) -> Result<bool> {
     let mut locked = ptr::null_mut();
     check_status!(
@@ -339,7 +339,7 @@ impl<'env> ReadableStream<'env, BufferSlice<'env>> {
       "Failed to create pull function"
     )?;
     underlying_source.set_named_property("pull", pull_fn)?;
-    underlying_source.set("type", "bytes")?;
+    // underlying_source.set("type", "bytes")?;
     let mut stream = ptr::null_mut();
     check_status!(
       unsafe {
@@ -548,19 +548,34 @@ fn pull_callback_impl<
   info: sys::napi_callback_info,
 ) -> Result<sys::napi_value> {
   let mut data = ptr::null_mut();
+  let mut argc = 1;
+  let mut args = [ptr::null_mut(); 1];
   check_status!(
     unsafe {
       sys::napi_get_cb_info(
         env,
         info,
-        ptr::null_mut(),
-        ptr::null_mut(),
+        &mut argc,
+        args.as_mut_ptr(),
         ptr::null_mut(),
         &mut data,
       )
     },
     "Get ReadableStream.pull callback info failed"
   )?;
+
+  let [controller] = args;
+
+  let controller = unsafe { Object::from_napi_value(env, controller)? };
+  let enqueue = controller
+    .get_named_property_unchecked::<Function<T, ()>>("enqueue")? // T вместо BufferSlice
+    .bind(controller)?
+    .create_ref()?;
+  let close = controller
+    .get_named_property_unchecked::<Function<(), ()>>("close")?
+    .bind(controller)?
+    .create_ref()?;
+
   let mut stream: Pin<&mut S> = Pin::new(Box::leak(unsafe { Box::from_raw(data.cast()) }));
   let env = Env::from_raw(env);
   let promise = env.spawn_future_with_callback(
@@ -568,14 +583,16 @@ fn pull_callback_impl<
     move |env, val| {
       let mut output = Object::new(env)?;
       if let Some(val) = val {
-        output.set("value", val)?;
-        output.set("done", false)?;
+        let enqueue_fn = enqueue.borrow_back(env)?;
+        enqueue_fn.call(val)?; // Прямой вызов enqueue с значением T
       } else {
-        output.set("value", Null)?;
-        output.set("done", true)?;
+        let close_fn = close.borrow_back(env)?;
+        close_fn.call(())?;
         drop(unsafe { Box::from_raw(data.cast::<S>()) });
       }
-      Ok(output.0.value)
+      drop(enqueue);
+      drop(close);
+      Ok(())
     },
   )?;
   Ok(promise.inner)
