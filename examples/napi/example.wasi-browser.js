@@ -133,6 +133,7 @@ export const apply0 = __napiModule.exports.apply0
 export const apply1 = __napiModule.exports.apply1
 export const arrayBufferFromData = __napiModule.exports.arrayBufferFromData
 export const arrayBufferPassThrough = __napiModule.exports.arrayBufferPassThrough
+export const arrayParams = __napiModule.exports.arrayParams
 export const asyncBufferToArray = __napiModule.exports.asyncBufferToArray
 export const asyncMultiTwo = __napiModule.exports.asyncMultiTwo
 export const asyncPlus100 = __napiModule.exports.asyncPlus100

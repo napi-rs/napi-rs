@@ -376,6 +376,8 @@ export declare function arrayBufferFromData(): ArrayBuffer
 
 export declare function arrayBufferPassThrough(buf: Uint8Array): Promise<Uint8Array>
 
+export declare function arrayParams(arr: Array<number>): number
+
 export declare function asyncBufferToArray(buf: ArrayBuffer): Array<number>
 
 export declare function asyncMultiTwo(arg: number): Promise<number>
