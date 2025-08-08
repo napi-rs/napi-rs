@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter, Result};
 use crate::sys;
 
 #[repr(i32)]
-#[derive(Eq, PartialEq, Debug, Clone, Copy)]
+#[derive(Eq, PartialEq, Debug, Clone, Copy, PartialOrd, Ord)]
 pub enum Status {
   Ok = 0,
   InvalidArg,

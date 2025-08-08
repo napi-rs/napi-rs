@@ -578,6 +578,7 @@ module.exports.apply0 = nativeBinding.apply0
 module.exports.apply1 = nativeBinding.apply1
 module.exports.arrayBufferFromData = nativeBinding.arrayBufferFromData
 module.exports.arrayBufferPassThrough = nativeBinding.arrayBufferPassThrough
+module.exports.arrayParams = nativeBinding.arrayParams
 module.exports.asyncBufferToArray = nativeBinding.asyncBufferToArray
 module.exports.asyncMultiTwo = nativeBinding.asyncMultiTwo
 module.exports.asyncPlus100 = nativeBinding.asyncPlus100

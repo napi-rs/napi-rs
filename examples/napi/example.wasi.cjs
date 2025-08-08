@@ -178,6 +178,7 @@ module.exports.apply0 = __napiModule.exports.apply0
 module.exports.apply1 = __napiModule.exports.apply1
 module.exports.arrayBufferFromData = __napiModule.exports.arrayBufferFromData
 module.exports.arrayBufferPassThrough = __napiModule.exports.arrayBufferPassThrough
+module.exports.arrayParams = __napiModule.exports.arrayParams
 module.exports.asyncBufferToArray = __napiModule.exports.asyncBufferToArray
 module.exports.asyncMultiTwo = __napiModule.exports.asyncMultiTwo
 module.exports.asyncPlus100 = __napiModule.exports.asyncPlus100

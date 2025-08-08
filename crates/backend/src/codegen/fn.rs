@@ -520,12 +520,14 @@ impl NapiFn {
       _ => {
         hidden_ty_lifetime(&mut ty)?;
         let mut arg_type = NapiArgType::Value;
+        let mut is_array = false;
         if let syn::Type::Path(path) = &ty {
           // Detect cases where the type is `Vec<&S>`.
           // For example, in `async fn foo(v: Vec<&S>) {}`, we need to handle `v` as a reference.
           if let Some(syn::PathSegment { ident, arguments }) = path.path.segments.first() {
             // Check if the type is a `Vec`.
             if ident == "Vec" {
+              is_array = true;
               if let syn::PathArguments::AngleBracketed(syn::AngleBracketedGenericArguments {
                 args: angle_bracketed_args,
                 ..
@@ -543,10 +545,31 @@ impl NapiFn {
             }
           }
         }
+        // Array::validate only validates by the `Array.isArray`
+        // For the elements of the Array, we need to return rather than throw if they are invalid when `return_if_invalid` is true
+        let from_napi_value = if is_array && self.return_if_invalid {
+          quote! {
+            match <#ty as napi::bindgen_prelude::FromNapiValue>::from_napi_value(env, #arg_conversion) {
+              Ok(value) => value,
+              Err(err) => {
+                // InvalidArg, ObjectExpected, StringExpected ...
+                if err.status < napi::bindgen_prelude::Status::GenericFailure {
+                  return Ok(std::ptr::null_mut());
+                } else {
+                  return Err(err);
+                }
+              }
+            }
+          }
+        } else {
+          quote! {
+            <#ty as napi::bindgen_prelude::FromNapiValue>::from_napi_value(env, #arg_conversion)?
+          }
+        };
         let q = quote! {
           let #arg_name = {
             #type_check
-            <#ty as napi::bindgen_prelude::FromNapiValue>::from_napi_value(env, #arg_conversion)?
+            #from_napi_value
           };
         };
         Ok((q, arg_type))

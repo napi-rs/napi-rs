@@ -70,6 +70,7 @@ mod r#enum;
 mod env;
 mod error;
 mod external;
+mod fn_return_if_invalid;
 mod fn_strict;
 mod fn_ts_override;
 mod function;
