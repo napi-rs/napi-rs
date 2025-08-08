@@ -21,8 +21,8 @@
     "runtime.cjs",
     "runtime.js",
     "fs-proxy.js",
-    "dist/*.js",
-    "dist/*.cjs"
+    "dist/*.cjs",
+    "dist/*.js"
   ],
   "devDependencies": {
     "@rollup/plugin-alias": "^5.1.1",
