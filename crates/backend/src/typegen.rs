@@ -105,9 +105,25 @@ impl JSDoc {
       raw.iter().position(|l| !l.trim().is_empty()),
       raw.iter().rposition(|l| !l.trim().is_empty()),
     ) {
+      // Find the minimum indentation level (excluding empty lines)
+      let min_indent = raw[first_non_blank..=last_non_blank]
+        .iter()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| l.len() - l.trim_start().len())
+        .min()
+        .unwrap_or(0);
+
       raw[first_non_blank..=last_non_blank]
         .iter()
-        .map(|l| l.trim().to_owned())
+        .map(|l| {
+          if l.trim().is_empty() {
+            String::new()
+          } else if l.len() >= min_indent {
+            l[min_indent..].to_owned()
+          } else {
+            l.to_owned()
+          }
+        })
         .collect()
     } else {
       Vec::new()
