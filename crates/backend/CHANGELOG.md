@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.2](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v2.1.1...napi-derive-backend-v2.1.2) - 2025-08-09
+
+### Fixed
+
+- *(napi-derive)* comments idents regression ([#2857](https://github.com/napi-rs/napi-rs/pull/2857))
+
 ## [2.1.1](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v2.1.0...napi-derive-backend-v2.1.1) - 2025-08-08
 
 ### Fixed
