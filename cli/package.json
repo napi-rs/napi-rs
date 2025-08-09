@@ -15,21 +15,13 @@
   },
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "import": {
-        "types": "./dist/index.d.ts",
-        "default": "./dist/index.js"
-      },
-      "require": {
-        "types": "./dist/index.d.ts",
-        "default": "./dist/index.cjs"
-      }
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
     },
-    "./package.json": {
-      "import": "./package.json",
-      "require": "./package.json"
-    }
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
@@ -95,7 +87,7 @@
     "ava": "^6.2.0",
     "env-paths": "^3.0.0",
     "prettier": "^3.5.3",
-    "rolldown": "latest",
+    "tsdown": "^0.13.5",
     "tslib": "^2.8.1",
     "typescript": "^5.8.2"
   },
@@ -116,9 +108,8 @@
     "url": "https://github.com/sponsors/Brooooooklyn"
   },
   "scripts": {
-    "clean": "node --import @oxc-node/core/register ./clean.ts",
     "codegen": "node --import @oxc-node/core/register ./codegen/index.ts",
-    "build": "tsc && yarn clean && rolldown -c rolldown.config.js",
+    "build": "tsdown",
     "test": "node --import @oxc-node/core/register ../node_modules/ava/entrypoints/cli.mjs"
   },
   "ava": {
