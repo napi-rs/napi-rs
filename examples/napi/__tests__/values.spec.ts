@@ -238,6 +238,7 @@ import {
   callRuleHandler,
   acceptStream,
   createReadableStream,
+  createReadableStreamWithObject,
   createReadableStreamFromClass,
   spawnThreadInThread,
   esmResolve,
@@ -1897,6 +1898,29 @@ test('create readable stream from channel', async (t) => {
     chunksFromClass.push(chunk)
   }
   t.is(Buffer.concat(chunksFromClass).toString('utf-8'), 'hello'.repeat(100))
+})
+
+test('create readable stream from channel with object', async (t) => {
+  if (process.env.WASI_TEST) {
+    t.pass(
+      'Skip when WASI because ReadableStream controller.enqueue does not accept SharedArrayBuffer',
+    )
+    return
+  }
+  const stream = await createReadableStreamWithObject()
+  const chunks = []
+  for await (const chunk of stream) {
+    chunks.push(chunk)
+  }
+
+  t.is(chunks.length, 100)
+
+  chunks.forEach((chunk, index) => {
+    t.truthy(chunk?.something, `Element ${index} doesnt have chunk.something`)
+    t.is(chunk.something.hello, '', `Element ${index} hello is an empty string`)
+    t.is(chunk.name, '', `Element ${index} name is not an empty string`)
+    t.is(chunk.size, index, `Element ${index} size has to be ${index}`)
+  })
 })
 
 test('spawnThreadInThread should be fine', async (t) => {

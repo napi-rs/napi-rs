@@ -248,6 +248,7 @@ module.exports.createObjWithProperty = __napiModule.exports.createObjWithPropert
 module.exports.createOptionalExternal = __napiModule.exports.createOptionalExternal
 module.exports.createReadableStream = __napiModule.exports.createReadableStream
 module.exports.createReadableStreamFromClass = __napiModule.exports.createReadableStreamFromClass
+module.exports.createReadableStreamWithObject = __napiModule.exports.createReadableStreamWithObject
 module.exports.createReferenceOnFunction = __napiModule.exports.createReferenceOnFunction
 module.exports.createSymbol = __napiModule.exports.createSymbol
 module.exports.createSymbolFor = __napiModule.exports.createSymbolFor
