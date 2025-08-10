@@ -1,5 +1,5 @@
 import { underline, yellow } from 'colorette'
-import { merge, omit } from 'lodash-es'
+import { merge, omit } from 'es-toolkit'
 
 import { fileExists, readFileAsync } from './misc.js'
 import { DEFAULT_TARGETS, parseTriple, Target } from './target.js'
@@ -208,7 +208,7 @@ export async function readNapiConfig(
       packageJson: pkgJson,
       npmClient: 'npm',
     },
-    omit(userNapiConfig, 'targets'),
+    omit(userNapiConfig, ['targets']),
   )
 
   let targets: string[] = userNapiConfig.targets ?? []

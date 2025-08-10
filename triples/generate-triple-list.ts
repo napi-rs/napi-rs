@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from 'fs'
 import { join, resolve } from 'path'
 import { fileURLToPath } from 'url'
 
-import { groupBy, mapValues } from 'lodash-es'
+import { groupBy, mapValues } from 'es-toolkit'
 
 import { parseTriple } from '@napi-rs/cli'
 
@@ -19,11 +19,11 @@ const SUPPORTED_PLATFORM = new Set([
   'freebsd',
 ])
 
-const tripleLists: { [key: string]: { platform?: string } } = RAW_LIST.trim()
+const tripleLists = RAW_LIST.trim()
   .split('\n')
   .filter((line) => !line.startsWith('wasm') && line.trim().length > 0)
   .map(parseTriple)
-  .reduce((acc: Record<string, { platform?: string }>, cur) => {
+  .reduce((acc: Record<string, { platform: string; arch: string }>, cur) => {
     acc[cur.triple] = cur
     return acc
   }, {})
@@ -31,11 +31,11 @@ const tripleLists: { [key: string]: { platform?: string } } = RAW_LIST.trim()
 const platformArchTriples = mapValues(
   groupBy(
     Object.values(tripleLists).filter((k) =>
-      SUPPORTED_PLATFORM.has(k.platform!),
+      SUPPORTED_PLATFORM.has(k.platform),
     ),
-    'platform',
+    (x) => x.platform,
   ),
-  (v) => groupBy(v, 'arch'),
+  (v) => groupBy(v, (v) => v.arch),
 )
 
 const mjsContent = `

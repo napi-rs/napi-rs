@@ -68,7 +68,6 @@
     "@oxc-node/core": "^0.0.32",
     "@taplo/cli": "^0.7.0",
     "@types/debug": "^4.1.12",
-    "@types/lodash-es": "^4.17.12",
     "@types/node": "^22.13.16",
     "@types/sinon": "^17.0.4",
     "ava": "^6.2.0",

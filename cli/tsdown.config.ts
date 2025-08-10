@@ -9,7 +9,7 @@ export default defineConfig([
     sourcemap: 'inline',
     inputOptions(options, format) {
       if (format === 'cjs') {
-        options.external = ['@octokit/rest', 'lodash-es']
+        options.external = ['@octokit/rest']
       }
       return options
     },
