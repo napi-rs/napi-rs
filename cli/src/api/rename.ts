@@ -24,8 +24,8 @@ export async function renameProject(userOptions: RenameOptions) {
   merge(
     merge(
       packageJsonData,
-      // @ts-expect-error missing fields: author and license
       omitBy(
+        // @ts-expect-error missing fields: author and license
         pick(options, ['name', 'description', 'author', 'license']),
         isNil,
       ),
