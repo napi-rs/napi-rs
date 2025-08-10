@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [3.1.3](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.1.2...@napi-rs/cli@3.1.3) (2025-08-10)
+
+### Bug Fixes
+
+- **cli:** generate next method on Iterator ([#2864](https://github.com/napi-rs/napi-rs/issues/2864)) ([364e816](https://github.com/napi-rs/napi-rs/commit/364e81648b8360e582defb8ca42ff4cb66351731))
+
 ## [3.1.2](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.1.1...@napi-rs/cli@3.1.2) (2025-08-08)
 
 ### Bug Fixes
