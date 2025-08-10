@@ -885,7 +885,7 @@ __metadata:
     lodash-es: "npm:^4.17.21"
     prettier: "npm:^3.5.3"
     semver: "npm:^7.7.1"
-    tsdown: "npm:^0.13.5"
+    tsdown: "npm:^0.14.0"
     tslib: "npm:^2.8.1"
     typanion: "npm:^3.14.0"
     typescript: "npm:^5.8.2"
@@ -12411,9 +12411,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"tsdown@npm:^0.13.5":
-  version: 0.13.5
-  resolution: "tsdown@npm:0.13.5"
+"tsdown@npm:^0.14.0":
+  version: 0.14.0
+  resolution: "tsdown@npm:0.14.0"
   dependencies:
     ansis: "npm:^4.1.0"
     cac: "npm:^6.7.14"
@@ -12448,7 +12448,7 @@ __metadata:
       optional: true
   bin:
     tsdown: dist/run.mjs
-  checksum: 10c0/972659d03bd961c1bb757a4ac78a8dbe0f10eb40ea480ecbedbfc11ef18937bc66f82d4930a8b56e98d1900cda6b5ddcf97172b9ddad0a4e6d619b4b54f692ea
+  checksum: 10c0/84a9b15f23ca11d5fb284fd17d6c0935a4da2f88e3005076d58e202f79ff4cbc372a4e9cc1b1df80f78baf5e98fe0ffc4d8085086c62996652539a70ca3adaf9
   languageName: node
   linkType: hard
 
