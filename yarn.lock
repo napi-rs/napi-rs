@@ -871,7 +871,6 @@ __metadata:
     "@types/debug": "npm:^4.1.12"
     "@types/inquirer": "npm:^9.0.7"
     "@types/js-yaml": "npm:^4.0.9"
-    "@types/lodash-es": "npm:^4.17.12"
     "@types/node": "npm:^22.13.16"
     "@types/semver": "npm:^7.7.0"
     ava: "npm:^6.2.0"
@@ -880,9 +879,9 @@ __metadata:
     debug: "npm:^4.4.0"
     emnapi: "npm:^1.4.0"
     env-paths: "npm:^3.0.0"
+    es-toolkit: "npm:^1.39.8"
     find-up: "npm:^7.0.0"
     js-yaml: "npm:^4.1.0"
-    lodash-es: "npm:^4.17.21"
     prettier: "npm:^3.5.3"
     semver: "npm:^7.7.1"
     tsdown: "npm:^0.14.0"
@@ -1292,7 +1291,7 @@ __metadata:
   dependencies:
     "@napi-rs/cli": "workspace:*"
     "@types/node": "npm:^22.13.16"
-    lodash-es: "npm:^4.17.21"
+    es-toolkit: "npm:^1.39.8"
     ts-node: "npm:^10.9.2"
     typescript: "npm:^5.8.2"
   languageName: unknown
@@ -3145,16 +3144,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/lodash-es@npm:^4.17.12":
-  version: 4.17.12
-  resolution: "@types/lodash-es@npm:4.17.12"
-  dependencies:
-    "@types/lodash": "npm:*"
-  checksum: 10c0/5d12d2cede07f07ab067541371ed1b838a33edb3c35cb81b73284e93c6fd0c4bbeaefee984e69294bffb53f62d7272c5d679fdba8e595ff71e11d00f2601dde0
-  languageName: node
-  linkType: hard
-
-"@types/lodash@npm:*, @types/lodash@npm:^4.17.16":
+"@types/lodash@npm:^4.17.16":
   version: 4.17.20
   resolution: "@types/lodash@npm:4.17.20"
   checksum: 10c0/98cdd0faae22cbb8079a01a3bb65aa8f8c41143367486c1cbf5adc83f16c9272a2a5d2c1f541f61d0d73da543c16ee1d21cf2ef86cb93cd0cc0ac3bced6dd88f
@@ -6067,6 +6057,18 @@ __metadata:
   languageName: node
   linkType: hard
 
+"es-toolkit@npm:^1.39.8":
+  version: 1.39.8
+  resolution: "es-toolkit@npm:1.39.8"
+  dependenciesMeta:
+    "@trivago/prettier-plugin-sort-imports@4.3.0":
+      unplugged: true
+    prettier-plugin-sort-re-exports@0.0.1:
+      unplugged: true
+  checksum: 10c0/a13f50433959ae784d9eef467c7a3883f28bd40c651d6f62a11c93a0b7460b070a72a8c9c8d4423039d5d441a777cf2b9850113d9b3d04d1f65a79dccec04f31
+  languageName: node
+  linkType: hard
+
 "es6-error@npm:^4.1.1":
   version: 4.1.1
   resolution: "es6-error@npm:4.1.1"
@@ -8394,13 +8396,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"lodash-es@npm:^4.17.21":
-  version: 4.17.21
-  resolution: "lodash-es@npm:4.17.21"
-  checksum: 10c0/fb407355f7e6cd523a9383e76e6b455321f0f153a6c9625e21a8827d10c54c2a2341bd2ae8d034358b60e07325e1330c14c224ff582d04612a46a4f0479ff2f2
-  languageName: node
-  linkType: hard
-
 "lodash.camelcase@npm:^4.3.0":
   version: 4.3.0
   resolution: "lodash.camelcase@npm:4.3.0"
@@ -9134,7 +9129,6 @@ __metadata:
     "@oxc-node/core": "npm:^0.0.32"
     "@taplo/cli": "npm:^0.7.0"
     "@types/debug": "npm:^4.1.12"
-    "@types/lodash-es": "npm:^4.17.12"
     "@types/node": "npm:^22.13.16"
     "@types/sinon": "npm:^17.0.4"
     ava: "npm:^6.2.0"

@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { kebabCase, startCase } from 'lodash-es'
+import { kebabCase, startCase } from 'es-toolkit'
 
 import { commandDefines, CommandSchema, OptionSchema } from './commands.js'
 

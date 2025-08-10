@@ -49,7 +49,7 @@
   "devDependencies": {
     "@napi-rs/cli": "workspace:*",
     "@types/node": "^22.13.16",
-    "lodash-es": "^4.17.21",
+    "es-toolkit": "^1.39.8",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.2"
   }

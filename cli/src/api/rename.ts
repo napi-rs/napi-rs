@@ -4,7 +4,7 @@ import { resolve, join } from 'node:path'
 
 import { parse as parseToml, stringify as stringifyToml } from '@std/toml'
 import { load as yamlParse, dump as yamlStringify } from 'js-yaml'
-import { isNil, merge, omitBy, pick } from 'lodash-es'
+import { isNil, merge, omitBy, pick } from 'es-toolkit'
 import { findUp } from 'find-up'
 
 import { applyDefaultRenameOptions, RenameOptions } from '../def/rename.js'
@@ -22,8 +22,14 @@ export async function renameProject(userOptions: RenameOptions) {
   const packageJsonData = JSON.parse(packageJsonContent)
 
   merge(
-    packageJsonData,
-    omitBy(pick(options, ['name', 'description', 'author', 'license']), isNil),
+    merge(
+      packageJsonData,
+      omitBy(
+        // @ts-expect-error missing fields: author and license
+        pick(options, ['name', 'description', 'author', 'license']),
+        isNil,
+      ),
+    ),
     {
       napi: omitBy(
         {

@@ -1,4 +1,4 @@
-import { sortBy } from 'lodash-es'
+import { sortBy } from 'es-toolkit'
 
 import { readFileAsync } from './misc.js'
 
@@ -94,7 +94,7 @@ export async function processTypeDef(
   const groupedDefs = preprocessTypeDef(defs)
 
   const dts =
-    sortBy(Array.from(groupedDefs), ([namespace]) => namespace)
+    sortBy(Array.from(groupedDefs), [([namespace]) => namespace])
       .map(([namespace, defs]) => {
         if (namespace === TOP_LEVEL_NAMESPACE) {
           return defs
