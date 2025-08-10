@@ -184,6 +184,7 @@ export declare class Dog {
  */
 export declare class Fib extends Iterator<number, void, number> {
   constructor()
+  next(value?: number): IteratorResult<number, void>
 }
 
 /**
@@ -195,6 +196,7 @@ export declare class Fib extends Iterator<number, void, number> {
  */
 export declare class Fib2 extends Iterator<number, void, number> {
   static create(seed: number): Fib2
+  next(value?: number): IteratorResult<number, void>
 }
 
 /**
@@ -208,6 +210,7 @@ export declare class Fib3 extends Iterator<number, void, number> {
   current: number
   nextNum: number
   constructor(current: number, nextNum: number)
+  next(value?: number): IteratorResult<number, void>
 }
 
 /**
@@ -221,6 +224,7 @@ export declare class Fib4 extends Iterator<unknown, void, number> {
   current: number
   nextItem: number
   constructor(current: number, nextItem: number)
+  next(value?: number): IteratorResult<unknown, void>
 }
 
 export declare class GetterSetterWithClosures {

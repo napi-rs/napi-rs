@@ -60,6 +60,18 @@ function prettyPrint(
 
     case TypeDefKind.Struct:
       const extendsDef = line.extends ? ` extends ${line.extends}` : ''
+      if (line.extends) {
+        // Extract generic params from extends type like Iterator<T, TResult, TNext>
+        const genericMatch = line.extends.match(/Iterator<(.+)>$/)
+        if (genericMatch) {
+          const [T, TResult, TNext] = genericMatch[1]
+            .split(',')
+            .map((p) => p.trim())
+          line.def =
+            line.def +
+            `\nnext(value?: ${TNext}): IteratorResult<${T}, ${TResult}>`
+        }
+      }
       s += `${exportDeclare(ambient)} class ${line.name}${extendsDef} {\n${line.def}\n}`
       if (line.original_name && line.original_name !== line.name) {
         s += `\nexport type ${line.original_name} = ${line.name}`
