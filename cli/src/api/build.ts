@@ -227,62 +227,43 @@ class Builder {
       const upperCaseTarget = targetToEnvVar(this.target.triple)
       const crossTargetName = alias[this.target.triple] ?? this.target.triple
       const linkerEnv = `CARGO_TARGET_${upperCaseTarget}_LINKER`
-      this.envs[linkerEnv] = join(
-        toolchainPath,
-        'bin',
-        `${crossTargetName}-gcc`,
+      this.setEnvIfNotExists(
+        linkerEnv,
+        join(toolchainPath, 'bin', `${crossTargetName}-gcc`),
       )
-      if (!process.env.TARGET_SYSROOT) {
-        this.envs[`TARGET_SYSROOT`] = join(
-          toolchainPath,
-          crossTargetName,
-          'sysroot',
-        )
-      }
-      if (!process.env.TARGET_AR) {
-        this.envs[`TARGET_AR`] = join(
-          toolchainPath,
-          'bin',
-          `${crossTargetName}-ar`,
-        )
-      }
-      if (!process.env.TARGET_RANLIB) {
-        this.envs[`TARGET_RANLIB`] = join(
-          toolchainPath,
-          'bin',
-          `${crossTargetName}-ranlib`,
-        )
-      }
-      if (!process.env.TARGET_READELF) {
-        this.envs[`TARGET_READELF`] = join(
-          toolchainPath,
-          'bin',
-          `${crossTargetName}-readelf`,
-        )
-      }
-      if (!process.env.TARGET_C_INCLUDE_PATH) {
-        this.envs[`TARGET_C_INCLUDE_PATH`] = join(
-          toolchainPath,
-          crossTargetName,
-          'sysroot',
-          'usr',
-          'include/',
-        )
-      }
-      if (!process.env.TARGET_CC) {
-        this.envs[`TARGET_CC`] = join(
-          toolchainPath,
-          'bin',
-          `${crossTargetName}-gcc`,
-        )
-      }
-      if (!process.env.TARGET_CXX) {
-        this.envs[`TARGET_CXX`] = join(
-          toolchainPath,
-          'bin',
-          `${crossTargetName}-g++`,
-        )
-      }
+      this.setEnvIfNotExists(
+        'TARGET_SYSROOT',
+        join(toolchainPath, crossTargetName, 'sysroot'),
+      )
+      this.setEnvIfNotExists(
+        'TARGET_AR',
+        join(toolchainPath, 'bin', `${crossTargetName}-ar`),
+      )
+      this.setEnvIfNotExists(
+        'TARGET_RANLIB',
+        join(toolchainPath, 'bin', `${crossTargetName}-ranlib`),
+      )
+      this.setEnvIfNotExists(
+        'TARGET_READELF',
+        join(toolchainPath, 'bin', `${crossTargetName}-readelf`),
+      )
+      this.setEnvIfNotExists(
+        'TARGET_C_INCLUDE_PATH',
+        join(toolchainPath, crossTargetName, 'sysroot', 'usr', 'include/'),
+      )
+      this.setEnvIfNotExists(
+        'TARGET_CC',
+        join(toolchainPath, 'bin', `${crossTargetName}-gcc`),
+      )
+      this.setEnvIfNotExists(
+        'TARGET_CXX',
+        join(toolchainPath, 'bin', `${crossTargetName}-g++`),
+      )
+      this.setEnvIfNotExists(
+        'BINDGEN_EXTRA_CLANG_ARGS',
+        `--sysroot=${this.envs.TARGET_SYSROOT}}`,
+      )
+
       if (
         process.env.TARGET_CC?.startsWith('clang') ||
         (process.env.CC?.startsWith('clang') && !process.env.TARGET_CC)
