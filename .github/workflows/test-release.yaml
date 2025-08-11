@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup node
         uses: actions/setup-node@v4
@@ -131,7 +131,7 @@ jobs:
     runs-on: ${{ matrix.settings.host }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup node
         uses: actions/setup-node@v4
@@ -224,7 +224,7 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup MSYS2
         uses: msys2/setup-msys2@v2
@@ -279,7 +279,7 @@ jobs:
               sudo apt-get update
               sudo apt-get install -y gcc-riscv64-linux-gnu
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup node
         uses: actions/setup-node@v4
@@ -330,7 +330,7 @@ jobs:
           - target: aarch64-unknown-linux-gnu
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup node
         uses: actions/setup-node@v4
@@ -387,7 +387,7 @@ jobs:
             target: aarch64-unknown-linux-musl
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup node
         uses: actions/setup-node@v4
@@ -473,7 +473,7 @@ jobs:
             arch: 'arm64'
             libc: 'musl'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup node
         uses: actions/setup-node@v4
@@ -522,7 +522,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup node
         uses: actions/setup-node@v4
@@ -566,7 +566,7 @@ jobs:
     runs-on: ubuntu-latest
     name: Test cli build binary
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup node
         uses: actions/setup-node@v4
@@ -626,7 +626,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install
         uses: dtolnay/rust-toolchain@stable
@@ -640,7 +640,7 @@ jobs:
     runs-on: ubuntu-latest
     name: Test freebsd target
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Test
         id: build
         uses: cross-platform-actions/action@v0.29.0
@@ -696,7 +696,7 @@ jobs:
           - RUSTFLAGS: '--cfg tokio_unstable'
           - RUSTFLAGS: ''
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Setup node
         uses: actions/setup-node@v4
         with:
@@ -738,7 +738,7 @@ jobs:
     name: Test latest bun
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
@@ -780,7 +780,7 @@ jobs:
       - build_binary_crate
     if: "startsWith(github.event.head_commit.message, 'chore(release): publish')"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-node@v4
         with:
           node-version: 22
