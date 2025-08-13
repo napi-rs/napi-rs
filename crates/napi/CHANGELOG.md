@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.3](https://github.com/napi-rs/napi-rs/compare/napi-v3.2.2...napi-v3.2.3) - 2025-08-13
+
+### Fixed
+
+- *(napi)* link issue on cargo test --features noop ([#2872](https://github.com/napi-rs/napi-rs/pull/2872))
+- *(deps)* update rust crate ctor to v0.5.0 ([#2865](https://github.com/napi-rs/napi-rs/pull/2865))
+
 ## [3.2.2](https://github.com/napi-rs/napi-rs/compare/napi-v3.2.1...napi-v3.2.2) - 2025-08-08
 
 ### Fixed
