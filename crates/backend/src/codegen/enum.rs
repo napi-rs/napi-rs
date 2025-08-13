@@ -215,6 +215,10 @@ impl NapiEnum {
   }
 
   fn gen_module_register(&self) -> TokenStream {
+    if cfg!(test) {
+      return quote! {};
+    }
+
     let name_str = self.name.to_string();
     let js_name_lit = Literal::string(&format!("{}\0", &self.js_name));
     let register_name = &self.register_name;

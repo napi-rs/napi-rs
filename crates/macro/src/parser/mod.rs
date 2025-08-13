@@ -133,7 +133,7 @@ fn find_ts_arg_type_and_remove_attribute(
                       return Err(syn::Error::new(
                         meta.path().span(),
                         "Expects an assignment (ts_arg_type = \"MyType\")",
-                      ))
+                      ));
                     }
                     Meta::NameValue(name_value) => match name_value.value {
                       syn::Expr::Lit(syn::ExprLit {
@@ -148,7 +148,7 @@ fn find_ts_arg_type_and_remove_attribute(
                         return Err(syn::Error::new(
                           name_value.value.span(),
                           "Expects a string literal",
-                        ))
+                        ));
                       }
                     },
                   }
@@ -202,7 +202,7 @@ fn find_enum_value_and_remove_attribute(v: &mut syn::Variant) -> BindgenResult<O
                       return Err(syn::Error::new(
                         meta.path().span(),
                         "Expects an assignment (value = \"enum-variant-value\")",
-                      ))
+                      ));
                     }
                     Meta::NameValue(name_value) => match name_value.value {
                       syn::Expr::Lit(syn::ExprLit {
@@ -217,7 +217,7 @@ fn find_enum_value_and_remove_attribute(v: &mut syn::Variant) -> BindgenResult<O
                         return Err(syn::Error::new(
                           name_value.value.span(),
                           "Expects a string literal",
-                        ))
+                        ));
                       }
                     },
                   }
@@ -1106,9 +1106,9 @@ impl ParseNapi for syn::ItemType {
       || opts.custom_finalize().is_some()
     {
       bail_span!(
-          self,
-          "#[napi] can't be applied to a type with #[napi(ts_args_type)], #[napi(ts_return_type)] or #[napi(custom_finalize)]"
-        );
+        self,
+        "#[napi] can't be applied to a type with #[napi(ts_args_type)], #[napi(ts_return_type)] or #[napi(custom_finalize)]"
+      );
     }
     if opts.return_if_invalid().is_some() {
       bail_span!(

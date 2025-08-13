@@ -12,6 +12,7 @@ members = [
   "./examples/binary",
   "./bench",
   "./memory-testing",
+  "./examples/napi-cargo-test",
 ]
 
 exclude = ["./testing"]

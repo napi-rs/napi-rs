@@ -1,10 +1,12 @@
 #[cfg(feature = "compat-mode")]
 mod compat_macro;
 mod expand;
+#[cfg(not(feature = "noop"))]
 mod parser;
 
 #[macro_use]
 extern crate syn;
+#[cfg(not(feature = "noop"))]
 #[macro_use]
 extern crate napi_derive_backend;
 #[macro_use]
