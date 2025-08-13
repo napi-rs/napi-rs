@@ -29,6 +29,7 @@ pub struct Error<S: AsRef<str> = Status> {
   pub(crate) maybe_env: sys::napi_env,
 }
 
+#[cfg(not(feature = "noop"))]
 impl<S: AsRef<str>> Drop for Error<S> {
   fn drop(&mut self) {
     // @TODO: deal with Error created with reference and leave it to drop in `async fn`

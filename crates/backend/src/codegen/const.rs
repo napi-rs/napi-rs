@@ -17,6 +17,10 @@ impl TryToTokens for NapiConst {
 
 impl NapiConst {
   fn gen_module_register(&self) -> TokenStream {
+    if cfg!(test) {
+      return quote! {};
+    }
+
     let name_ident = &self.name;
     let js_name_lit = Literal::string(&format!("{}\0", self.name));
     let register_name = &self.register_name;

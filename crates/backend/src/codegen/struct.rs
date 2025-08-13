@@ -1305,6 +1305,10 @@ impl TryToTokens for NapiImpl {
 
 impl NapiImpl {
   fn gen_helper_mod(&self) -> BindgenResult<TokenStream> {
+    if cfg!(test) {
+      return Ok(quote! {});
+    }
+
     let name = &self.name;
     let name_str = self.name.to_string();
     let js_name = format!("{}\0", self.js_name);

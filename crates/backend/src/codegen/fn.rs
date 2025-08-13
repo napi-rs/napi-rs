@@ -740,7 +740,7 @@ impl NapiFn {
   }
 
   fn gen_fn_register(&self) -> TokenStream {
-    if self.parent.is_some() {
+    if self.parent.is_some() || cfg!(test) {
       quote! {}
     } else {
       let name_str = self.name.to_string();

@@ -1,0 +1,14 @@
+[package]
+name = "napi-cargo-test"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+noop = ["napi/noop", "napi-derive/noop"]
+
+[dependencies]
+napi = { path = "../../crates/napi", features = ["napi10"] }
+napi-derive = { path = "../../crates/macro", features = ["type-def"] }
+
+[lints]
+workspace = true

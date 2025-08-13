@@ -1,6 +1,6 @@
-#[cfg(feature = "type-def")]
+#[cfg(all(feature = "type-def", not(feature = "noop")))]
 mod type_def;
-#[cfg(feature = "type-def")]
+#[cfg(all(feature = "type-def", not(feature = "noop")))]
 pub use self::type_def::*;
 
 #[cfg(not(feature = "type-def"))]
