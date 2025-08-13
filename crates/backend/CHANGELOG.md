@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.3](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v2.1.2...napi-derive-backend-v2.1.3) - 2025-08-13
+
+### Fixed
+
+- *(napi)* link issue on cargo test --features noop ([#2872](https://github.com/napi-rs/napi-rs/pull/2872))
+
 ## [2.1.2](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v2.1.1...napi-derive-backend-v2.1.2) - 2025-08-09
 
 ### Fixed
