@@ -2,6 +2,7 @@
 name = "napi-cargo-test"
 version = "0.1.0"
 edition = "2021"
+publish = false
 
 [features]
 noop = ["napi/noop", "napi-derive/noop"]
