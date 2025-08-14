@@ -165,10 +165,26 @@ export async function prePublish(userOptions: PrePublishOptions) {
       }
 
       if (!options.skipOptionalPublish) {
-        execSync(`${npmClient} publish`, {
-          cwd: pkgDir,
-          env: process.env,
-        })
+        try {
+          const output = execSync(`${npmClient} publish`, {
+            cwd: pkgDir,
+            env: process.env,
+            stdio: 'pipe',
+          })
+          process.stdout.write(output)
+        } catch (e) {
+          if (
+            e instanceof Error &&
+            e.message.includes(
+              'You cannot publish over the previously published versions',
+            )
+          ) {
+            console.info(e.message)
+            debug.warn(`${pkgDir} has been published, skipping`)
+          } else {
+            throw e
+          }
+        }
       }
 
       if (options.ghRelease && repo && owner) {
