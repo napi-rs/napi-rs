@@ -271,6 +271,8 @@ import {
   defineClass,
   callbackInSpawn,
   arrayParams,
+  indexSetToRust,
+  indexSetToJs,
 } from '../index.cjs'
 // import other stuff in `#[napi(module_exports)]`
 import nativeAddon from '../index.cjs'
@@ -348,10 +350,12 @@ test('set', (t) => {
   t.notThrows(() => {
     passSetToRust(new Set(['a', 'b', 'c']))
     btreeSetToRust(new Set(['a', 'b', 'c']))
+    indexSetToRust(new Set(['a', 'b', 'c']))
   })
   t.deepEqual(Array.from(passSetToJs()).sort(), ['a', 'b', 'c'])
   t.deepEqual(Array.from(passSetWithHasherToJs()).sort(), ['a', 'b', 'c'])
   t.deepEqual(Array.from(btreeSetToJs()).sort(), ['a', 'b', 'c'])
+  t.deepEqual(Array.from(indexSetToJs()), ['a', 'b', 'c', 'd'])
 })
 
 test('enum', (t) => {

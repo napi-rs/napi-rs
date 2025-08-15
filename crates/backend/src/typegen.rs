@@ -201,6 +201,7 @@ static KNOWN_TYPES: LazyLock<HashMap<&'static str, (&'static str, bool, bool)>> 
     ("IndexMap", ("Record<{}, {}>", false, false)),
     ("HashSet", ("Set<{}>", false, false)),
     ("BTreeSet", ("Set<{}>", false, false)),
+    ("IndexSet", ("Set<{}>", false, false)),
     ("ArrayBuffer", ("ArrayBuffer", false, false)),
     ("JsArrayBuffer", ("ArrayBuffer", false, false)),
     ("Int8Array", ("Int8Array", false, false)),
@@ -286,6 +287,7 @@ static KNOWN_TYPES_IGNORE_ARG: LazyLock<HashMap<&'static str, Vec<usize>>> = Laz
     ("HashMap", vec![2]),  // HashMap<K, V, S> is same with HashMap<K, V>
     ("HashSet", vec![1]),  // HashSet<T, S> is same with HashSet<T>
     ("IndexMap", vec![2]), // IndexMap<K, V, S> is same with IndexMap<K, V>
+    ("IndexSet", vec![1]), // IndexSet<T, S> is same with HashSet<T>
   ]
   .into()
 });

@@ -765,6 +765,10 @@ export declare function i8ArrayToArray(input: Int8Array): Array<number>
 
 export declare function indexmapPassthrough(fixture: Record<string, number>): Record<string, number>
 
+export declare function indexSetToJs(): Set<string>
+
+export declare function indexSetToRust(set: Set<string>): void
+
 export declare function jsErrorCallback(value: unknown): Array<Error>
 
 /** default enum values are continuos i32s start from 0 */
