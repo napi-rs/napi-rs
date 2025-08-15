@@ -1,6 +1,7 @@
 import test from 'ava'
 
-const bindings = require('../index.node')
+// @ts-expect-error
+import bindings from '../index.node'
 
 test('should be able to create array', (t) => {
   const arr: number[] = bindings.testCreateArray()

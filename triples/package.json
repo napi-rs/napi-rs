@@ -45,13 +45,12 @@
     "url": "https://github.com/napi-rs/napi-rs/issues"
   },
   "scripts": {
-    "build": "node --loader ts-node/esm/transpile-only ./generate-triple-list.ts && ../node_modules/.bin/prettier --write ./index.cjs"
+    "build": "node --import @oxc-node/core/register ./generate-triple-list.ts && ../node_modules/.bin/prettier --write ./index.cjs"
   },
   "devDependencies": {
     "@napi-rs/cli": "workspace:*",
+    "@oxc-node/core": "^0.0.32",
     "@types/node": "^22.13.16",
-    "es-toolkit": "^1.39.8",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.8.2"
+    "es-toolkit": "^1.39.8"
   }
 }

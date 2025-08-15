@@ -1,11 +1,15 @@
-import { execSync } from 'child_process'
-import { join } from 'path'
+import { execSync } from 'node:child_process'
+import { join, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import test from 'ava'
 
 import { napiVersion } from '../napi-version'
 
-const bindings = require('../../index.node')
+// @ts-expect-error
+import bindings from '../../index.node'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
 
 test('should get js function called from a thread', async (t) => {
   let called = 0
@@ -42,7 +46,9 @@ test('should be able to throw error in tsfn', (t) => {
   }
 
   t.throws(() => {
-    execSync(`node ${join(__dirname, 'tsfn-throw.js')}`)
+    execSync(
+      `node --import @oxc-node/core/register ${join(__dirname, 'tsfn-throw.js')}`,
+    )
   })
 })
 
@@ -52,6 +58,8 @@ test('tsfn dua instance', (t) => {
     return
   }
   t.notThrows(() => {
-    execSync(`node ${join(__dirname, 'tsfn-dua-instance.js')}`)
+    execSync(
+      `node --import @oxc-node/core/register ${join(__dirname, 'tsfn-dua-instance.js')}`,
+    )
   })
 })

@@ -2,7 +2,8 @@ import test from 'ava'
 
 import { napiVersion } from '../napi-version'
 
-const bindings = require('../../index.node')
+// @ts-expect-error
+import bindings from '../../index.node'
 
 test('deserialize string', (t) => {
   t.notThrows(() => bindings.expect_hello_world('hello world'))

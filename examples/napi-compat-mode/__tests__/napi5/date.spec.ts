@@ -2,7 +2,8 @@ import test from 'ava'
 
 import { napiVersion } from '../napi-version'
 
-const bindings = require('../../index.node')
+// @ts-expect-error
+import bindings from '../../index.node'
 
 test('should return false if value is not date', (t) => {
   if (napiVersion >= 5) {

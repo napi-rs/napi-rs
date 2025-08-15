@@ -1,11 +1,15 @@
-import { readFileSync } from 'fs'
-import { join } from 'path'
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import test from 'ava'
 
 import { napiVersion } from '../napi-version'
 
-const bindings = require('../../index.node')
+// @ts-expect-error
+import bindings from '../../index.node'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
 
 const filepath = join(__dirname, './example.txt')
 

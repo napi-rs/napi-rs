@@ -2,7 +2,8 @@ import test from 'ava'
 
 import { napiVersion } from '../napi-version'
 
-const bindings = require('../../index.node')
+// @ts-expect-error
+import bindings from '../../index.node'
 
 test('should call callback with the first arguments as an Error', async (t) => {
   if (napiVersion < 4) {

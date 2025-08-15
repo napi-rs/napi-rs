@@ -1,7 +1,8 @@
 import test from 'ava'
 import Sinon from 'sinon'
 
-const bindings = require('../index.node')
+// @ts-expect-error
+import bindings from '../index.node'
 
 function wait(delay: number) {
   return new Promise((resolve) => setTimeout(resolve, delay))
