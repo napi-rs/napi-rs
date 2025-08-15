@@ -181,6 +181,7 @@ export const chronoNativeDateTime = __napiModule.exports.chronoNativeDateTime
 export const chronoNativeDateTimeReturn = __napiModule.exports.chronoNativeDateTimeReturn
 export const chronoUtcDateReturn = __napiModule.exports.chronoUtcDateReturn
 export const chronoUtcDateToMillis = __napiModule.exports.chronoUtcDateToMillis
+export const compressSync = __napiModule.exports.compressSync
 export const concatLatin1 = __napiModule.exports.concatLatin1
 export const concatStr = __napiModule.exports.concatStr
 export const concatUtf16 = __napiModule.exports.concatUtf16
