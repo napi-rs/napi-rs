@@ -34,6 +34,7 @@
   },
   "files": [
     "index.js",
+    "index.cjs",
     "index.d.ts"
   ],
   "repository": {
