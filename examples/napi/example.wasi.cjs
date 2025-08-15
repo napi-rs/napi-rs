@@ -226,6 +226,7 @@ module.exports.chronoNativeDateTime = __napiModule.exports.chronoNativeDateTime
 module.exports.chronoNativeDateTimeReturn = __napiModule.exports.chronoNativeDateTimeReturn
 module.exports.chronoUtcDateReturn = __napiModule.exports.chronoUtcDateReturn
 module.exports.chronoUtcDateToMillis = __napiModule.exports.chronoUtcDateToMillis
+module.exports.compressSync = __napiModule.exports.compressSync
 module.exports.concatLatin1 = __napiModule.exports.concatLatin1
 module.exports.concatStr = __napiModule.exports.concatStr
 module.exports.concatUtf16 = __napiModule.exports.concatUtf16

@@ -626,6 +626,7 @@ module.exports.chronoNativeDateTime = nativeBinding.chronoNativeDateTime
 module.exports.chronoNativeDateTimeReturn = nativeBinding.chronoNativeDateTimeReturn
 module.exports.chronoUtcDateReturn = nativeBinding.chronoUtcDateReturn
 module.exports.chronoUtcDateToMillis = nativeBinding.chronoUtcDateToMillis
+module.exports.compressSync = nativeBinding.compressSync
 module.exports.concatLatin1 = nativeBinding.concatLatin1
 module.exports.concatStr = nativeBinding.concatStr
 module.exports.concatUtf16 = nativeBinding.concatUtf16

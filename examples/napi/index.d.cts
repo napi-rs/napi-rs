@@ -537,6 +537,8 @@ export interface CompilerAssumptions {
   setPublicClassFields?: boolean
 }
 
+export declare function compressSync(_: string | Uint8Array): Buffer
+
 export declare function concatLatin1(s: string): string
 
 export declare function concatStr(s: string): string
