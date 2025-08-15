@@ -28,6 +28,20 @@ module.exports.platformArchTriples = {
         arch: 'arm64',
         abi: null,
       },
+      {
+        triple: 'aarch64-apple-ios-macabi',
+        platformArchABI: 'ios-arm64-macabi',
+        platform: 'ios',
+        arch: 'arm64',
+        abi: 'macabi',
+      },
+      {
+        triple: 'aarch64-apple-ios-sim',
+        platformArchABI: 'ios-arm64-sim',
+        platform: 'ios',
+        arch: 'arm64',
+        abi: 'sim',
+      },
     ],
     x64: [
       {
@@ -36,6 +50,13 @@ module.exports.platformArchTriples = {
         platform: 'ios',
         arch: 'x64',
         abi: null,
+      },
+      {
+        triple: 'x86_64-apple-ios-macabi',
+        platformArchABI: 'ios-x64-macabi',
+        platform: 'ios',
+        arch: 'x64',
+        abi: 'macabi',
       },
     ],
   },
@@ -50,6 +71,13 @@ module.exports.platformArchTriples = {
       },
     ],
     arm: [
+      {
+        triple: 'arm-linux-androideabi',
+        platformArchABI: 'android-arm-eabi',
+        platform: 'android',
+        arch: 'arm',
+        abi: 'eabi',
+      },
       {
         triple: 'armv7-linux-androideabi',
         platformArchABI: 'android-arm-eabi',
@@ -67,6 +95,15 @@ module.exports.platformArchTriples = {
         abi: null,
       },
     ],
+    thumbv7neon: [
+      {
+        triple: 'thumbv7neon-linux-androideabi',
+        platformArchABI: 'android-thumbv7neon-eabi',
+        platform: 'android',
+        arch: 'thumbv7neon',
+        abi: 'eabi',
+      },
+    ],
     x64: [
       {
         triple: 'x86_64-linux-android',
@@ -80,10 +117,26 @@ module.exports.platformArchTriples = {
   win32: {
     arm64: [
       {
+        triple: 'aarch64-pc-windows-gnullvm',
+        platformArchABI: 'win32-arm64-gnullvm',
+        platform: 'win32',
+        arch: 'arm64',
+        abi: 'gnullvm',
+      },
+      {
         triple: 'aarch64-pc-windows-msvc',
         platformArchABI: 'win32-arm64-msvc',
         platform: 'win32',
         arch: 'arm64',
+        abi: 'msvc',
+      },
+    ],
+    arm64ec: [
+      {
+        triple: 'arm64ec-pc-windows-msvc',
+        platformArchABI: 'win32-arm64ec-msvc',
+        platform: 'win32',
+        arch: 'arm64ec',
         abi: 'msvc',
       },
     ],
@@ -94,6 +147,13 @@ module.exports.platformArchTriples = {
         platform: 'win32',
         arch: 'ia32',
         abi: 'gnu',
+      },
+      {
+        triple: 'i686-pc-windows-gnullvm',
+        platformArchABI: 'win32-ia32-gnullvm',
+        platform: 'win32',
+        arch: 'ia32',
+        abi: 'gnullvm',
       },
       {
         triple: 'i686-pc-windows-msvc',
@@ -110,6 +170,13 @@ module.exports.platformArchTriples = {
         platform: 'win32',
         arch: 'x64',
         abi: 'gnu',
+      },
+      {
+        triple: 'x86_64-pc-windows-gnullvm',
+        platformArchABI: 'win32-x64-gnullvm',
+        platform: 'win32',
+        arch: 'x64',
+        abi: 'gnullvm',
       },
       {
         triple: 'x86_64-pc-windows-msvc',
@@ -211,6 +278,22 @@ module.exports.platformArchTriples = {
         abi: 'musl',
       },
     ],
+    i586: [
+      {
+        triple: 'i586-unknown-linux-gnu',
+        platformArchABI: 'linux-i586-gnu',
+        platform: 'linux',
+        arch: 'i586',
+        abi: 'gnu',
+      },
+      {
+        triple: 'i586-unknown-linux-musl',
+        platformArchABI: 'linux-i586-musl',
+        platform: 'linux',
+        arch: 'i586',
+        abi: 'musl',
+      },
+    ],
     ia32: [
       {
         triple: 'i686-unknown-linux-gnu',
@@ -227,67 +310,19 @@ module.exports.platformArchTriples = {
         abi: 'musl',
       },
     ],
-    mips: [
+    loongarch64: [
       {
-        triple: 'mips-unknown-linux-gnu',
-        platformArchABI: 'linux-mips-gnu',
+        triple: 'loongarch64-unknown-linux-gnu',
+        platformArchABI: 'linux-loongarch64-gnu',
         platform: 'linux',
-        arch: 'mips',
+        arch: 'loongarch64',
         abi: 'gnu',
       },
       {
-        triple: 'mips-unknown-linux-musl',
-        platformArchABI: 'linux-mips-musl',
+        triple: 'loongarch64-unknown-linux-musl',
+        platformArchABI: 'linux-loongarch64-musl',
         platform: 'linux',
-        arch: 'mips',
-        abi: 'musl',
-      },
-    ],
-    mips64: [
-      {
-        triple: 'mips64-unknown-linux-gnuabi64',
-        platformArchABI: 'linux-mips64-gnuabi64',
-        platform: 'linux',
-        arch: 'mips64',
-        abi: 'gnuabi64',
-      },
-      {
-        triple: 'mips64-unknown-linux-muslabi64',
-        platformArchABI: 'linux-mips64-muslabi64',
-        platform: 'linux',
-        arch: 'mips64',
-        abi: 'muslabi64',
-      },
-    ],
-    mips64el: [
-      {
-        triple: 'mips64el-unknown-linux-gnuabi64',
-        platformArchABI: 'linux-mips64el-gnuabi64',
-        platform: 'linux',
-        arch: 'mips64el',
-        abi: 'gnuabi64',
-      },
-      {
-        triple: 'mips64el-unknown-linux-muslabi64',
-        platformArchABI: 'linux-mips64el-muslabi64',
-        platform: 'linux',
-        arch: 'mips64el',
-        abi: 'muslabi64',
-      },
-    ],
-    mipsel: [
-      {
-        triple: 'mipsel-unknown-linux-gnu',
-        platformArchABI: 'linux-mipsel-gnu',
-        platform: 'linux',
-        arch: 'mipsel',
-        abi: 'gnu',
-      },
-      {
-        triple: 'mipsel-unknown-linux-musl',
-        platformArchABI: 'linux-mipsel-musl',
-        platform: 'linux',
-        arch: 'mipsel',
+        arch: 'loongarch64',
         abi: 'musl',
       },
     ],
@@ -317,6 +352,13 @@ module.exports.platformArchTriples = {
         arch: 'ppc64',
         abi: 'gnu',
       },
+      {
+        triple: 'powerpc64le-unknown-linux-musl',
+        platformArchABI: 'linux-ppc64-musl',
+        platform: 'linux',
+        arch: 'ppc64',
+        abi: 'musl',
+      },
     ],
     riscv64: [
       {
@@ -325,6 +367,13 @@ module.exports.platformArchTriples = {
         platform: 'linux',
         arch: 'riscv64',
         abi: 'gnu',
+      },
+      {
+        triple: 'riscv64gc-unknown-linux-musl',
+        platformArchABI: 'linux-riscv64-musl',
+        platform: 'linux',
+        arch: 'riscv64',
+        abi: 'musl',
       },
     ],
     s390x: [
@@ -343,6 +392,15 @@ module.exports.platformArchTriples = {
         platform: 'linux',
         arch: 'sparc64',
         abi: 'gnu',
+      },
+    ],
+    thumbv7neon: [
+      {
+        triple: 'thumbv7neon-unknown-linux-gnueabihf',
+        platformArchABI: 'linux-thumbv7neon-gnueabihf',
+        platform: 'linux',
+        arch: 'thumbv7neon',
+        abi: 'gnueabihf',
       },
     ],
     x64: [
@@ -366,6 +424,35 @@ module.exports.platformArchTriples = {
         platform: 'linux',
         arch: 'x64',
         abi: 'musl',
+      },
+    ],
+  },
+  openharmony: {
+    arm64: [
+      {
+        triple: 'aarch64-unknown-linux-ohos',
+        platformArchABI: 'openharmony-arm64',
+        platform: 'openharmony',
+        arch: 'arm64',
+        abi: null,
+      },
+    ],
+    arm: [
+      {
+        triple: 'armv7-unknown-linux-ohos',
+        platformArchABI: 'openharmony-arm',
+        platform: 'openharmony',
+        arch: 'arm',
+        abi: null,
+      },
+    ],
+    x64: [
+      {
+        triple: 'x86_64-unknown-linux-ohos',
+        platformArchABI: 'openharmony-x64',
+        platform: 'openharmony',
+        arch: 'x64',
+        abi: null,
       },
     ],
   },
