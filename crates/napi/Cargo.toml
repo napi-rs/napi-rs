@@ -56,6 +56,7 @@ tokio_sync = ["tokio/sync"]
 tokio_test_util = ["tokio/test-util"]
 tokio_time = ["tokio/time"]
 dyn-symbols = ["napi-sys/dyn-symbols"]
+libnode = ["napi-sys/libnode"]
 
 [dependencies]
 bitflags = "2"

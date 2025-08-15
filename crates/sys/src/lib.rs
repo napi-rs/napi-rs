@@ -2,7 +2,7 @@
 
 #![allow(ambiguous_glob_reexports)]
 
-#[cfg(any(windows, feature = "dyn-symbols"))]
+#[cfg(all(any(windows, feature = "dyn-symbols"), not(feature = "libnode")))]
 macro_rules! generate {
   (extern "C" {
     $(fn $name:ident($($param:ident: $ptype:ty$(,)?)*)$( -> $rtype:ty)?;)+
@@ -68,7 +68,7 @@ macro_rules! generate {
   };
 }
 
-#[cfg(not(any(windows, feature = "dyn-symbols")))]
+#[cfg(any(any(not(windows), not(feature = "dyn-symbols")), not(feature = "libnode")))]
 macro_rules! generate {
   (extern "C" {
     $(fn $name:ident($($param:ident: $ptype:ty$(,)?)*)$( -> $rtype:ty)?;)+
@@ -78,6 +78,23 @@ macro_rules! generate {
         pub fn $name($($param: $ptype,)*)$( -> $rtype)*;
       ) *
     }
+  };
+}
+
+#[cfg(feature = "libnode")]
+macro_rules! generate {
+  (extern "C" {
+    $(fn $name:ident($($param:ident: $ptype:ty$(,)?)*)$( -> $rtype:ty)?;)+
+  }) => {
+      $(
+        pub unsafe fn $name($($param: $ptype,)*)$( -> $rtype)* {
+          static CACHE: std::sync::OnceLock<libloading::Symbol<fn($($param: $ptype,)*)$( -> $rtype)*>> = std::sync::OnceLock::new();
+          unsafe {
+            let func = CACHE.get_or_init(|| crate::functions::get_sym::<fn($($param: $ptype,)*)$( -> $rtype)*>(stringify!($name)));
+            func($($param,)*)
+          }
+        }
+      ) *
   };
 }
 
@@ -98,4 +115,13 @@ pub unsafe fn setup() -> libloading::Library {
     Err(err) => panic!("{}", err),
     Ok(l) => l,
   }
+}
+
+/// Loads N-API symbols from libnode dynamic library.
+/// Must be called at least once before using any functions in bindings or
+/// they will panic.
+/// Safety: `env` must be a valid `napi_env` for the current thread
+#[cfg(feature = "libnode")]
+pub unsafe fn setup(path: &std::path::Path) {
+  load(path);
 }

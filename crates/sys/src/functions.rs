@@ -780,7 +780,7 @@ pub use napi8::*;
 #[cfg(feature = "napi9")]
 pub use napi9::*;
 
-#[cfg(any(windows, feature = "dyn-symbols"))]
+#[cfg(all(windows, feature = "dyn-symbols", not(feature = "libnode")))]
 pub(super) unsafe fn load_all() -> Result<libloading::Library, libloading::Error> {
   #[cfg(windows)]
   let host = libloading::os::windows::Library::this()?.into();
@@ -808,4 +808,24 @@ pub(super) unsafe fn load_all() -> Result<libloading::Library, libloading::Error
   #[cfg(feature = "experimental")]
   experimental::load(&host)?;
   Ok(host)
+}
+
+#[cfg(feature = "libnode")]
+static LIBNODE: std::sync::OnceLock<libloading::Library> = std::sync::OnceLock::new();
+
+#[cfg(feature = "libnode")]
+pub fn load(path: &std::path::Path) -> &'static libloading::Library {
+  LIBNODE.get_or_init(|| match unsafe { libloading::Library::new(path) } {
+    Ok(lib) => lib,
+    Err(_) => panic!("LibnodeFailedToLoad"),
+  })
+}
+
+#[cfg(feature = "libnode")]
+pub unsafe fn get_sym<T>(symbol: &str) -> libloading::Symbol<T> {
+  let lib = LIBNODE.get().expect("libnode must be loaded before using functions");
+  match unsafe { lib.get(symbol.as_ref()) } {
+    Ok(sym) => sym,
+    Err(_) => panic!("SymbolNotFound"),
+  }
 }

@@ -237,7 +237,7 @@ pub fn get_c_callback(raw_fn: ExportRegisterCallback) -> Result<crate::Callback>
   })
 }
 
-#[cfg(all(any(windows, feature = "dyn-symbols"), not(feature = "noop")))]
+#[cfg(all(any(windows, feature = "dyn-symbols"), not(feature = "noop"), not(feature = "libnode")))]
 #[ctor::ctor]
 fn load_host() {
   unsafe {
@@ -269,11 +269,13 @@ pub unsafe extern "C" fn napi_register_module_v1(
 ) -> sys::napi_value {
   #[cfg(all(
     any(target_env = "msvc", feature = "dyn-symbols"),
-    not(feature = "noop")
+    not(feature = "noop"),
+    not(feature = "libnode")
   ))]
   unsafe {
     sys::setup();
   }
+
   if IS_FIRST_MODULE.load(Ordering::SeqCst) {
     IS_FIRST_MODULE.store(false, Ordering::SeqCst);
   } else {
