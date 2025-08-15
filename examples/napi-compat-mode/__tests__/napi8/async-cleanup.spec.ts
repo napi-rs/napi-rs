@@ -15,14 +15,14 @@ const test = napiVersion >= 8 ? ava : ava.skip
 
 test('should be able to add async cleanup hook', (t) => {
   const output = execSync(
-    `node ${join(__dirname, 'sub-process.js')}`,
+    `node --import @oxc-node/core/register ${join(__dirname, 'sub-process.js')}`,
   ).toString()
   t.is(output.trim(), 'Exit from sub process')
 })
 
 test('should be able to add removable async cleanup hook', (t) => {
   const output = execSync(
-    `node ${join(__dirname, 'sub-process-removable.js')}`,
+    `node --import @oxc-node/core/register ${join(__dirname, 'sub-process-removable.js')}`,
   ).toString()
   t.is(output.trim(), 'Exit from sub process')
 })

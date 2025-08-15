@@ -46,7 +46,9 @@ test('should be able to throw error in tsfn', (t) => {
   }
 
   t.throws(() => {
-    execSync(`node ${join(__dirname, 'tsfn-throw.js')}`)
+    execSync(
+      `node --import @oxc-node/core/register ${join(__dirname, 'tsfn-throw.js')}`,
+    )
   })
 })
 
@@ -56,6 +58,8 @@ test('tsfn dua instance', (t) => {
     return
   }
   t.notThrows(() => {
-    execSync(`node ${join(__dirname, 'tsfn-dua-instance.js')}`)
+    execSync(
+      `node --import @oxc-node/core/register ${join(__dirname, 'tsfn-dua-instance.js')}`,
+    )
   })
 })
