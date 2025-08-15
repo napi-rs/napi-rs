@@ -311,19 +311,19 @@ export const platformArchTriples = {
         "abi": "musl"
       }
     ],
-    "loongarch64": [
+    "loong64": [
       {
         "triple": "loongarch64-unknown-linux-gnu",
-        "platformArchABI": "linux-loongarch64-gnu",
+        "platformArchABI": "linux-loong64-gnu",
         "platform": "linux",
-        "arch": "loongarch64",
+        "arch": "loong64",
         "abi": "gnu"
       },
       {
         "triple": "loongarch64-unknown-linux-musl",
-        "platformArchABI": "linux-loongarch64-musl",
+        "platformArchABI": "linux-loong64-musl",
         "platform": "linux",
-        "arch": "loongarch64",
+        "arch": "loong64",
         "abi": "musl"
       }
     ],
