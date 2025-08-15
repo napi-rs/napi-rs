@@ -1,11 +1,15 @@
-import fs from 'fs'
-import path from 'path'
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import test from 'ava'
 
 import { napiVersion } from '../napi-version'
 
-const bindings = require('../../index.node')
+// @ts-expect-error
+import bindings from '../../index.node'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 const filepath = path.resolve(__dirname, './example.txt')
 

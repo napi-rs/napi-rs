@@ -2,7 +2,8 @@ import ava from 'ava'
 
 import { napiVersion } from '../napi-version'
 
-const bindings = require('../../index.node')
+// @ts-expect-error
+import bindings from '../../index.node'
 
 const test = napiVersion >= 7 ? ava : ava.skip
 

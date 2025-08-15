@@ -2,7 +2,8 @@ import test from 'ava'
 
 import { napiVersion } from '../napi-version'
 
-const bindings = require('../../index.node')
+// @ts-expect-error
+import bindings from '../../index.node'
 
 test('should set and get instance data', (t) => {
   if (napiVersion >= 6) {
