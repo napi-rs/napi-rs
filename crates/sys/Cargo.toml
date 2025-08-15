@@ -24,6 +24,7 @@ napi7 = ["napi6"]
 napi8 = ["napi7"]
 napi9 = ["napi8"]
 napi10 = ["napi9"]
+libnode = ["libloading"]
 
 [package.metadata.workspaces]
 independent = true
