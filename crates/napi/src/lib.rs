@@ -208,3 +208,10 @@ pub extern crate tokio;
 
 #[cfg(feature = "error_anyhow")]
 pub extern crate anyhow;
+
+#[cfg(feature = "libnode")]
+pub fn setup(path: &std::path::Path) {
+  unsafe {
+    sys::setup(path);
+  }
+}
