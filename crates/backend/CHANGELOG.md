@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.4](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v2.1.3...napi-derive-backend-v2.1.4) - 2025-08-16
+
+### Fixed
+
+- *(napi-derive)* codegen issue for &'env [u8] param ([#2881](https://github.com/napi-rs/napi-rs/pull/2881))
+
+### Other
+
+- *(napi)* extends the Set types interoperability ([#2875](https://github.com/napi-rs/napi-rs/pull/2875))
+
 ## [2.1.3](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v2.1.2...napi-derive-backend-v2.1.3) - 2025-08-13
 
 ### Fixed
