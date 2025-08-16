@@ -17,8 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- *(napi)* link issue on cargo test --features noop ([#2872](https://github.com/napi-rs/napi-rs/pull/2872))
-- *(deps)* update rust crate ctor to v0.5.0 ([#2865](https://github.com/napi-rs/napi-rs/pull/2865))
+- _(napi)_ link issue on cargo test --features noop ([#2872](https://github.com/napi-rs/napi-rs/pull/2872))
+- _(deps)_ update rust crate ctor to v0.5.0 ([#2865](https://github.com/napi-rs/napi-rs/pull/2865))
 
 ## [3.2.2](https://github.com/napi-rs/napi-rs/compare/napi-derive-v3.2.1...napi-derive-v3.2.2) - 2025-08-09
 
@@ -36,7 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- *(napi)* add ScopeGenerator trait ([#2831](https://github.com/napi-rs/napi-rs/pull/2831))
+- _(napi)_ add ScopeGenerator trait ([#2831](https://github.com/napi-rs/napi-rs/pull/2831))
 - make generator an iterator ([#2784](https://github.com/napi-rs/napi-rs/pull/2784))
 
 ## [3.1.2](https://github.com/napi-rs/napi-rs/compare/napi-derive-v3.1.1...napi-derive-v3.1.2) - 2025-07-30
@@ -55,7 +55,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- *(napi)* provide ScopedTask to resolve JsValue with lifetime ([#2786](https://github.com/napi-rs/napi-rs/pull/2786))
+- _(napi)_ provide ScopedTask to resolve JsValue with lifetime ([#2786](https://github.com/napi-rs/napi-rs/pull/2786))
 
 ### Other
 
