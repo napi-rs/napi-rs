@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.4](https://github.com/napi-rs/napi-rs/compare/napi-v3.2.3...napi-v3.2.4) - 2025-08-16
+
+### Other
+
+- *(napi)* extends the Set types interoperability ([#2875](https://github.com/napi-rs/napi-rs/pull/2875))
+
 ## [3.2.3](https://github.com/napi-rs/napi-rs/compare/napi-v3.2.2...napi-v3.2.3) - 2025-08-13
 
 ### Fixed
