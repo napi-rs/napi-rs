@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.0.9](https://github.com/napi-rs/napi-rs/compare/@napi-rs/triples@2.0.8...@napi-rs/triples@2.0.9) (2025-08-16)
+
+### Bug Fixes
+
+- **triples:** include index.cjs in package files for proper CJS support ([#2878](https://github.com/napi-rs/napi-rs/issues/2878)) ([b106ef2](https://github.com/napi-rs/napi-rs/commit/b106ef21ae9c52ad49c7065f175b4c866d51b523))
+
 ## [2.0.8](https://github.com/napi-rs/napi-rs/compare/@napi-rs/triples@2.0.7...@napi-rs/triples@2.0.8) (2025-08-13)
 
 **Note:** Version bump only for package @napi-rs/triples
