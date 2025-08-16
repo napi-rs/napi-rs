@@ -225,3 +225,10 @@ pub extern crate anyhow;
 pub extern crate futures_core;
 #[cfg(feature = "web_stream")]
 pub extern crate tokio_stream;
+
+#[cfg(feature = "libnode")]
+pub fn setup(path: &std::path::Path) {
+  unsafe {
+    sys::setup(path);
+  }
+}

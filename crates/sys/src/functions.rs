@@ -829,7 +829,27 @@ pub use napi8::*;
 #[cfg(feature = "napi9")]
 pub use napi9::*;
 
-#[cfg(all(windows, not(target_env = "msvc"), feature = "dyn-symbols"))]
+#[cfg(feature = "libnode")]
+static LIBNODE: std::sync::OnceLock<libloading::Library> = std::sync::OnceLock::new();
+
+#[cfg(feature = "libnode")]
+pub fn load(path: &std::path::Path) -> &'static libloading::Library {
+  LIBNODE.get_or_init(|| match unsafe { libloading::Library::new(path) } {
+    Ok(lib) => lib,
+    Err(_) => panic!("LibnodeFailedToLoad"),
+  })
+}
+
+#[cfg(feature = "libnode")]
+pub unsafe fn get_sym<T>(symbol: &str) -> libloading::Symbol<T> {
+  let lib = LIBNODE.get().expect("libnode must be loaded before using functions");
+  match unsafe { lib.get(symbol.as_ref()) } {
+    Ok(sym) => sym,
+    Err(_) => panic!("SymbolNotFound"),
+  }
+}
+
+#[cfg(all(windows, not(target_env = "msvc"), not(feature = "libnode"), feature = "dyn-symbols"))]
 fn test_library(
   lib_result: Result<libloading::os::windows::Library, libloading::Error>,
 ) -> Result<libloading::Library, libloading::Error> {
@@ -850,7 +870,7 @@ fn test_library(
   }
 }
 
-#[cfg(all(windows, not(target_env = "msvc"), feature = "dyn-symbols"))]
+#[cfg(all(windows, not(target_env = "msvc"), not(feature = "libnode"), feature = "dyn-symbols"))]
 fn find_node_library() -> Result<libloading::Library, libloading::Error> {
   return unsafe {
     test_library(libloading::os::windows::Library::this())
@@ -867,7 +887,7 @@ fn find_node_library() -> Result<libloading::Library, libloading::Error> {
   };
 }
 
-#[cfg(any(target_env = "msvc", feature = "dyn-symbols"))]
+#[cfg(all(any(target_env = "msvc", feature = "dyn-symbols"), not(feature = "libnode")))]
 pub(super) unsafe fn load_all() -> Result<libloading::Library, libloading::Error> {
   #[cfg(all(windows, target_env = "msvc"))]
   let host = libloading::os::windows::Library::this()?.into();

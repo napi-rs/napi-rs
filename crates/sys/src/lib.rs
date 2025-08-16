@@ -2,7 +2,10 @@
 
 #![allow(ambiguous_glob_reexports)]
 
-#[cfg(any(target_env = "msvc", feature = "dyn-symbols"))]
+#[cfg(all(
+  any(target_env = "msvc", feature = "dyn-symbols"),
+  not(feature = "libnode")
+))]
 macro_rules! generate {
   (@stub_fn $name:ident($($param:ident: $ptype:ty,)*) -> napi_status) => {
     unsafe extern "C" fn $name($(_: $ptype,)*) -> napi_status {
@@ -78,7 +81,10 @@ macro_rules! generate {
   };
 }
 
-#[cfg(not(any(target_env = "msvc", feature = "dyn-symbols")))]
+#[cfg(all(
+  any(not(target_env = "msvc"), not(feature = "dyn-symbols")),
+  not(feature = "libnode")
+))]
 macro_rules! generate {
   (extern "C" {
     $(fn $name:ident($($param:ident: $ptype:ty$(,)?)*)$( -> $rtype:ty)?;)+
@@ -91,17 +97,43 @@ macro_rules! generate {
   };
 }
 
+#[cfg(feature = "libnode")]
+macro_rules! generate {
+  (extern "C" {
+    $(fn $name:ident($($param:ident: $ptype:ty$(,)?)*)$( -> $rtype:ty)?;)+
+  }) => {
+      $(
+        pub unsafe fn $name($($param: $ptype,)*)$( -> $rtype)* {
+          static CACHE: std::sync::OnceLock<libloading::Symbol<fn($($param: $ptype,)*)$( -> $rtype)*>> = std::sync::OnceLock::new();
+          unsafe {
+            let func = CACHE.get_or_init(|| crate::functions::get_sym::<fn($($param: $ptype,)*)$( -> $rtype)*>(stringify!($name)));
+            func($($param,)*)
+          }
+        }
+      ) *
+  };
+}
+
 mod functions;
 mod types;
 
 pub use functions::*;
 pub use types::*;
 
+/// Loads N-API symbols from libnode dynamic library.
+/// Must be called at least once before using any functions in bindings or
+/// they will panic.
+/// Safety: `env` must be a valid `napi_env` for the current thread
+#[cfg(feature = "libnode")]
+pub fn setup(path: &std::path::Path) {
+  functions::load(path);
+}
+
 /// Loads N-API symbols from host process.
 /// Must be called at least once before using any functions in bindings or
 /// they will panic.
 /// Safety: `env` must be a valid `napi_env` for the current thread
-#[cfg(any(target_env = "msvc", feature = "dyn-symbols"))]
+#[cfg(all(any(target_env = "msvc", feature = "dyn-symbols"), not(feature = "libnode")))]
 #[allow(clippy::missing_safety_doc)]
 pub unsafe fn setup() -> libloading::Library {
   match load_all() {
