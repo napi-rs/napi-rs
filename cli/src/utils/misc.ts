@@ -1,30 +1,30 @@
 import {
   readFile,
   writeFile,
+  unlink,
   copyFile,
   mkdir,
-  unlink,
   stat,
   readdir,
-} from 'node:fs'
-import { promisify } from 'node:util'
+  access,
+} from 'node:fs/promises'
 
 import pkgJson from '../../package.json' with { type: 'json' }
 import { debug } from './log.js'
 
-export const readFileAsync = promisify(readFile)
-export const writeFileAsync = promisify(writeFile)
-export const unlinkAsync = promisify(unlink)
-export const copyFileAsync = promisify(copyFile)
-export const mkdirAsync = promisify(mkdir)
-export const statAsync = promisify(stat)
-export const readdirAsync = promisify(readdir)
+export const readFileAsync = readFile
+export const writeFileAsync = writeFile
+export const unlinkAsync = unlink
+export const copyFileAsync = copyFile
+export const mkdirAsync = mkdir
+export const statAsync = stat
+export const readdirAsync = readdir
 
-export async function fileExists(path: string) {
-  const exists = await statAsync(path)
-    .then(() => true)
-    .catch(() => false)
-  return exists
+export function fileExists(path: string): Promise<boolean> {
+  return access(path).then(
+    () => true,
+    () => false,
+  )
 }
 
 export async function dirExistsAsync(path: string) {
