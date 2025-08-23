@@ -16,7 +16,7 @@ use super::{CallbackContext, FromNapiValue, PromiseRaw, TypeName, Unknown, Valid
 /// The JavaScript Promise object representation
 ///
 /// This `Promise<T>` can be awaited in the Rust
-/// THis `Promise<T>` can also be passed from `#[napi]` fn
+/// This `Promise<T>` can also be passed from `#[napi]` fn
 ///
 /// example:
 ///

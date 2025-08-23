@@ -76,6 +76,7 @@ export class NewCommand extends BaseNewCommand {
     return select({
       message: 'Minimum node-api version (with node version requirement)',
       loop: false,
+      pageSize: 10,
       choices: Array.from({ length: 8 }, (_, i) => ({
         name: `napi${i + 1} (${napiEngineRequirement(i + 1)})`,
         value: i + 1,
