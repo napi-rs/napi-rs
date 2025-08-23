@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.5](https://github.com/napi-rs/napi-rs/compare/napi-v3.2.4...napi-v3.2.5) - 2025-08-23
+
+### Other
+
+- *(cli)* show NAPI options on new command ([#2892](https://github.com/napi-rs/napi-rs/pull/2892))
+
 ## [3.2.4](https://github.com/napi-rs/napi-rs/compare/napi-v3.2.3...napi-v3.2.4) - 2025-08-16
 
 ### Other
