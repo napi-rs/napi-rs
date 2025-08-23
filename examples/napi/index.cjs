@@ -348,6 +348,40 @@ function requireNative() {
           loadErrors.push(e)
         }
       }
+    } else if (process.arch === 'loong64') {
+      if (isMusl()) {
+        try {
+          return require('./example.linux-loong64-musl.node')
+        } catch (e) {
+          loadErrors.push(e)
+        }
+        try {
+          const binding = require('@examples/napi-linux-loong64-musl')
+          const bindingPackageVersion = require('@examples/napi-linux-loong64-musl/package.json').version
+          if (bindingPackageVersion !== '0.0.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+            throw new Error(`Native binding package version mismatch, expected 0.0.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+          }
+          return binding
+        } catch (e) {
+          loadErrors.push(e)
+        }
+      } else {
+        try {
+          return require('./example.linux-loong64-gnu.node')
+        } catch (e) {
+          loadErrors.push(e)
+        }
+        try {
+          const binding = require('@examples/napi-linux-loong64-gnu')
+          const bindingPackageVersion = require('@examples/napi-linux-loong64-gnu/package.json').version
+          if (bindingPackageVersion !== '0.0.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+            throw new Error(`Native binding package version mismatch, expected 0.0.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+          }
+          return binding
+        } catch (e) {
+          loadErrors.push(e)
+        }
+      }
     } else if (process.arch === 'riscv64') {
       if (isMusl()) {
         try {
