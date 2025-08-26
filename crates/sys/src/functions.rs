@@ -872,7 +872,7 @@ fn find_node_library() -> Result<libloading::Library, libloading::Error> {
 #[cfg(any(target_env = "msvc", feature = "dyn-symbols"))]
 pub(super) unsafe fn load_all() -> Result<libloading::Library, libloading::Error> {
   #[cfg(all(windows, target_env = "msvc"))]
-  let host = find_node_library()?.into(); // Use find_node_library for MSVC builds (nw.js compatibility)
+  let host = libloading::os::windows::Library::this()?.into();
 
   #[cfg(all(windows, not(target_env = "msvc")))]
   let host = find_node_library()?.into();
