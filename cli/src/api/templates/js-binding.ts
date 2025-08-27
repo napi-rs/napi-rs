@@ -237,6 +237,15 @@ if (!nativeBinding || process.env.NAPI_RS_FORCE_WASI) {
       }
     }
   }
+  if (!nativeBinding) {
+    try {
+    nativeBinding = require('./${localName}.wasi-browser.js')
+    } catch (err) {
+      if (process.env.NAPI_RS_FORCE_WASI) {
+        loadErrors.push(err)
+      }
+    }
+  }
 }
 
 if (!nativeBinding) {
