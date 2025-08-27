@@ -39,6 +39,7 @@ A framework for building compiled `Node.js` add-ons in `Rust` via Node-API. Webs
 | Linux arm muslebihf   | ✓      | ✓      | ✓      | ✓      | ✓      | ✓      |
 | Linux powerpc64le gnu | ✓      | ✓      | ✓      | ✓      | ✓      | ✓      |
 | Linux s390x gnu       | ✓      | ✓      | ✓      | ✓      | ✓      | ✓      |
+| Linux loong64 gnu     | N/A    | N/A    | N/A    | ✓      | ✓      | ✓      |
 | Linux riscv64 gnu     | N/A    | N/A    | ✓      | ✓      | ✓      | ✓      |
 | Linux aarch64 android | ✓      | ✓      | ✓      | ✓      | ✓      | ✓      |
 | Linux armv7 android   | ✓      | ✓      | ✓      | ✓      | ✓      | ✓      |

@@ -190,6 +190,12 @@ function requireNative() {
       } else {
         ${requireTuple('linux-arm-gnueabihf', 10)}
       }
+    } else if (process.arch === 'loong64') {
+      if (isMusl()) {
+        ${requireTuple('linux-loong64-musl', 10)}
+      } else {
+        ${requireTuple('linux-loong64-gnu', 10)}
+      }
     } else if (process.arch === 'riscv64') {
       if (isMusl()) {
         ${requireTuple('linux-riscv64-musl', 10)}
