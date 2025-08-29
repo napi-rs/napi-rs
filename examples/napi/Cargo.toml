@@ -13,9 +13,11 @@ snmalloc = ["snmalloc-rs"]
 dyn-symbols = ["napi/dyn-symbols"]
 error_try_builds = []
 noop = ["napi/noop"]
-cfg_attr_napi = [] # for testing cfg_attr(not(feature = "noop"), napi_derive::napi) attribute
+cfg_attr_napi = [
+] # for testing cfg_attr(not(feature = "noop"), napi_derive::napi) attribute
 
 [dependencies]
+anyhow = "1"
 chrono = "0.4"
 futures = "0.3"
 bytes = "1"
@@ -44,6 +46,7 @@ napi = { path = "../../crates/napi", default-features = false, features = [
   "deferred_trace",
   "node_version_detect",
   "web_stream",
+  "error_anyhow",
 ] }
 
 [target.'cfg(target_family = "wasm")'.dependencies]

@@ -28,6 +28,10 @@ import {
   concatLatin1,
   concatStr,
   concatUtf16,
+  createZeroCopyUtf16String,
+  createZeroCopyLatin1String,
+  createExternalUtf16String,
+  createExternalLatin1String,
   roundtripStr,
   getNums,
   getWords,
@@ -258,6 +262,7 @@ import {
   ComplexClass,
   createUint8ClampedArrayFromData,
   arrayBufferFromData,
+  arrayBufferFromExternal,
   uint8ArrayFromData,
   createUint8ClampedArrayFromExternal,
   uint8ArrayFromExternal,
@@ -318,6 +323,10 @@ test('string', (t) => {
     'what up?!\u0000after the NULL',
   )
   t.is(returnCString(), 'Hello from C string!')
+  t.is(createZeroCopyUtf16String(), 'abc')
+  t.is(createZeroCopyLatin1String(), 'Hello')
+  t.is(createExternalUtf16String(), 'External UTF16')
+  t.is(createExternalLatin1String(), 'External Latin1')
 })
 
 test('array', (t) => {
@@ -1159,6 +1168,10 @@ test('typed array creation', (t) => {
     new Uint8ClampedArray(Buffer.from('Hello world')),
   )
   t.deepEqual(Buffer.from(arrayBufferFromData()), Buffer.from('Hello world'))
+  t.deepEqual(
+    Buffer.from(arrayBufferFromExternal()),
+    Buffer.from('Hello world from external'),
+  )
   t.deepEqual(uint8ArrayFromData(), new Uint8Array(Buffer.from('Hello world')))
   t.deepEqual(
     uint8ArrayFromExternal(),
