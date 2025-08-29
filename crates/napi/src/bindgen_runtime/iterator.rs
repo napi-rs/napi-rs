@@ -1,4 +1,4 @@
-use std::ffi::c_void;
+use std::ffi::{c_void, CStr};
 use std::ptr;
 
 use crate::Value;
@@ -6,7 +6,7 @@ use crate::{bindgen_runtime::Unknown, check_status_or_throw, sys, Env};
 
 use super::{FromNapiValue, ToNapiValue};
 
-const GENERATOR_STATE_KEY: &str = "[[GeneratorState]]\0";
+const GENERATOR_STATE_KEY: &CStr = c"[[GeneratorState]]";
 
 /// Implement a Iterator for the JavaScript Class.
 /// This feature is an experimental feature and is not yet stable.

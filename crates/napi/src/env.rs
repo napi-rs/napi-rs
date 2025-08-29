@@ -81,8 +81,7 @@ impl Env {
     Ok(unsafe { JsBoolean::from_raw_unchecked(self.0, raw_value) })
   }
 
-  #[cfg(feature = "compat-mode")]
-  #[deprecated(since = "3.0.0", note = "Use `i32` instead")]
+  /// Create a new JavaScript number from a Rust `i32`
   pub fn create_int32(&self, int: i32) -> Result<JsNumber<'_>> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe {
@@ -91,8 +90,7 @@ impl Env {
     unsafe { JsNumber::from_napi_value(self.0, raw_value) }
   }
 
-  #[cfg(feature = "compat-mode")]
-  #[deprecated(since = "3.0.0", note = "Use `i64` instead")]
+  /// Create a new JavaScript number from a Rust `i64`
   pub fn create_int64(&self, int: i64) -> Result<JsNumber<'_>> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe {
@@ -101,16 +99,14 @@ impl Env {
     unsafe { JsNumber::from_napi_value(self.0, raw_value) }
   }
 
-  #[cfg(feature = "compat-mode")]
-  #[deprecated(since = "3.0.0", note = "Use `u32` instead")]
+  /// Create a new JavaScript number from a Rust `u32`
   pub fn create_uint32(&self, number: u32) -> Result<JsNumber<'_>> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe { sys::napi_create_uint32(self.0, number, &mut raw_value) })?;
     unsafe { JsNumber::from_napi_value(self.0, raw_value) }
   }
 
-  #[cfg(feature = "compat-mode")]
-  #[deprecated(since = "3.0.0", note = "Use `f64` instead")]
+  /// Create a new JavaScript number from a Rust `f64`
   pub fn create_double(&self, double: f64) -> Result<JsNumber<'_>> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe {
