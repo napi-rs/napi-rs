@@ -82,9 +82,7 @@ export async function buildProject(rawOptions: BuildOptions) {
     )
   }
   const config = await readNapiConfig(
-    resolvePath(
-      options.configPath ?? options.packageJsonPath ?? 'package.json',
-    ),
+    resolvePath(options.packageJsonPath ?? 'package.json'),
     options.configPath ? resolvePath(options.configPath) : undefined,
   )
 
