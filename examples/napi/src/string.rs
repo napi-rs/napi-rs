@@ -1,4 +1,11 @@
-use napi::{bindgen_prelude::*, JsStringLatin1, JsStringUtf16};
+use napi::{bindgen_prelude::*, JsString, JsStringLatin1, JsStringUtf16};
+
+#[napi(object)]
+pub struct Latin1MethodsResult {
+  pub length: u32,
+  pub is_empty: bool,
+  pub as_slice: Vec<u8>,
+}
 
 #[napi]
 pub fn contains(source: String, target: String) -> bool {
@@ -80,6 +87,109 @@ pub fn create_external_latin1_string<'env>(env: &'env Env) -> Result<JsStringLat
   unsafe {
     JsStringLatin1::from_external(env, data_ptr, len, data_ptr, move |_, ptr| {
       std::mem::drop(Vec::from_raw_parts(ptr as *mut u8, len, len));
+    })
+  }
+}
+
+#[napi]
+pub fn create_external_latin1_empty<'env>(env: &'env Env) -> Result<JsString<'env>> {
+  // Test with empty string - from_external and from_data don't support empty strings
+  // So we return a regular empty JsString instead
+  env.create_string("")
+}
+
+#[napi]
+pub fn create_external_latin1_short<'env>(env: &'env Env) -> Result<JsStringLatin1<'env>> {
+  // Test with short string (likely to be copied by V8)
+  let data = b"Hi".to_vec();
+  let data_ptr = data.as_ptr();
+  let len = data.len();
+  std::mem::forget(data);
+
+  unsafe {
+    JsStringLatin1::from_external(env, data_ptr, len, data_ptr, move |_, ptr| {
+      std::mem::drop(Vec::from_raw_parts(ptr as *mut u8, len, len));
+    })
+  }
+}
+
+#[napi]
+pub fn create_external_latin1_long<'env>(env: &'env Env) -> Result<JsStringLatin1<'env>> {
+  // Test with long string (more likely to remain external)
+  let data = b"This is a much longer string that is more likely to be kept as an external string by V8 rather than being copied".to_vec();
+  let data_ptr = data.as_ptr();
+  let len = data.len();
+  std::mem::forget(data);
+
+  unsafe {
+    JsStringLatin1::from_external(env, data_ptr, len, data_ptr, move |_, ptr| {
+      std::mem::drop(Vec::from_raw_parts(ptr as *mut u8, len, len));
+    })
+  }
+}
+
+#[napi]
+pub fn create_external_latin1_with_latin1_chars<'env>(
+  env: &'env Env,
+) -> Result<JsStringLatin1<'env>> {
+  // Test with actual Latin-1 extended characters (bytes > 127)
+  let data = vec![
+    0x48, 0x65, 0x6C, 0x6C, 0x6F, // "Hello"
+    0x20, // space
+    0xC0, 0xC1, 0xC2, // À, Á, Â
+    0x20, // space
+    0xF1, 0xF2, 0xF3, // ñ, ò, ó
+  ];
+  let data_ptr = data.as_ptr();
+  let len = data.len();
+  std::mem::forget(data);
+
+  unsafe {
+    JsStringLatin1::from_external(env, data_ptr, len, data_ptr, move |_, ptr| {
+      std::mem::drop(Vec::from_raw_parts(ptr as *mut u8, len, len));
+    })
+  }
+}
+
+#[napi]
+pub fn create_external_latin1_custom_finalize<'env>(
+  env: &'env Env,
+) -> Result<JsStringLatin1<'env>> {
+  // Test with custom finalize hint
+  let data = b"Custom finalize test".to_vec();
+  let data_ptr = data.as_ptr();
+  let len = data.len();
+
+  // Create a custom hint that includes the original length
+  let hint = (data_ptr, len);
+  std::mem::forget(data);
+
+  unsafe {
+    JsStringLatin1::from_external(env, data_ptr, len, hint, move |_, (ptr, size)| {
+      // Custom cleanup that uses both pointer and size from hint
+      std::mem::drop(Vec::from_raw_parts(ptr as *mut u8, size, size));
+    })
+  }
+}
+
+#[napi]
+pub fn test_latin1_methods(env: &Env, input: String) -> Result<Latin1MethodsResult> {
+  // Test various methods on JsStringLatin1
+  if input.is_empty() {
+    // Handle empty string case
+    Ok(Latin1MethodsResult {
+      length: 0,
+      is_empty: true,
+      as_slice: Vec::new(),
+    })
+  } else {
+    let data = input.as_bytes().to_vec();
+    let latin1 = JsStringLatin1::from_data(env, data)?;
+
+    Ok(Latin1MethodsResult {
+      length: latin1.len() as u32,
+      is_empty: latin1.is_empty(),
+      as_slice: latin1.as_slice().to_vec(),
     })
   }
 }

@@ -9,11 +9,40 @@ use crate::Env;
 pub struct JsStringLatin1<'env> {
   pub(crate) inner: JsString<'env>,
   pub(crate) buf: &'env [u8],
+  pub(crate) _inner_buf: Vec<u8>,
 }
 
 impl<'env> JsStringLatin1<'env> {
   #[cfg(feature = "napi10")]
   /// Try to create a new JavaScript latin1 string from a Rust `Vec<u8>` without copying the data
+  /// ## Behavior
+  ///
+  /// The `copied` parameter in the underlying `node_api_create_external_string_latin1` call
+  /// indicates whether the string data was copied into V8's heap rather than being used
+  /// as an external reference.
+  ///
+  /// ### When `copied` is `true`:
+  /// - String data is copied to V8's heap
+  /// - Finalizer is called immediately if provided
+  /// - Original buffer can be freed after the call
+  /// - Performance benefit of external strings is not achieved
+  ///
+  /// ### When `copied` is `false`:
+  /// - V8 creates an external string that references the original buffer without copying
+  /// - Original buffer must remain valid for the lifetime of the JS string
+  /// - Finalizer called when string is garbage collected
+  /// - Memory usage and copying overhead is reduced
+  ///
+  /// ## Common scenarios where `copied` is `true`:
+  /// - String is too short (typically < 10-15 characters)
+  /// - V8 heap is under memory pressure
+  /// - V8 is running with pointer compression or sandbox features
+  /// - Invalid Latin-1 encoding that requires sanitization
+  /// - Platform doesn't support external strings
+  /// - Memory alignment issues with the provided buffer
+  ///
+  /// The `copied` parameter serves as feedback to understand whether the external string
+  /// optimization was successful or if V8 fell back to traditional string creation.
   pub fn from_data(env: &'env Env, data: Vec<u8>) -> Result<JsStringLatin1<'env>> {
     use std::{mem, ptr};
 
@@ -47,18 +76,19 @@ impl<'env> JsStringLatin1<'env> {
       "Failed to create external string latin1"
     )?;
 
-    if copied {
+    let inner_buf = if copied {
       // If the data was copied, the finalizer won't be called
       // We need to clean up the finalize_hint and let the Vec be dropped
       unsafe {
         let _ = Box::from_raw(finalize_hint);
-      }
-      // The original Vec will be dropped normally
+      };
+      data
     } else {
       // Only forget the data if it wasn't copied
       // The finalizer will handle cleanup
       mem::forget(data);
-    }
+      vec![]
+    };
 
     Ok(Self {
       inner: JsString(
@@ -69,29 +99,49 @@ impl<'env> JsStringLatin1<'env> {
         },
         std::marker::PhantomData,
       ),
-      buf: if copied {
-        // If copied, we can't reference the original data
-        // Create an empty slice as the data is now owned by V8
-        &[]
-      } else {
-        unsafe { std::slice::from_raw_parts(data_ptr, len) }
-      },
+      buf: unsafe { std::slice::from_raw_parts(data_ptr, len) },
+      _inner_buf: inner_buf,
     })
   }
 
   #[cfg(feature = "napi10")]
+  /// Creates an external Latin-1 string from raw data with a custom finalize callback.
+  ///
   /// ## Safety
   ///
-  /// The caller must ensure that the data pointer is valid for the lifetime of the string
-  /// and that the finalize callback properly cleans up the data.
+  /// The caller must ensure that:
+  /// - The data pointer is valid for the lifetime of the string
+  /// - The finalize callback properly cleans up the data
   ///
-  /// Provided `finalize_callback` will be called when the string is garbage collected.
+  /// ## Behavior
   ///
-  /// ### Notes
+  /// The `copied` parameter in the underlying `node_api_create_external_string_latin1` call
+  /// indicates whether the string data was copied into V8's heap rather than being used
+  /// as an external reference.
   ///
-  /// JavaScript may not support external strings in some environments (like Electron)
-  /// in which case the data will be copied.
-  pub unsafe fn from_external<T: 'env, F: FnOnce(Env, T)>(
+  /// ### When `copied` is `true`:
+  /// - String data is copied to V8's heap
+  /// - Finalizer is called immediately if provided
+  /// - Original buffer can be freed after the call
+  /// - Performance benefit of external strings is not achieved
+  ///
+  /// ### When `copied` is `false`:
+  /// - V8 creates an external string that references the original buffer without copying
+  /// - Original buffer must remain valid for the lifetime of the JS string
+  /// - Finalizer called when string is garbage collected
+  /// - Memory usage and copying overhead is reduced
+  ///
+  /// ## Common scenarios where `copied` is `true`:
+  /// - String is too short (typically < 10-15 characters)
+  /// - V8 heap is under memory pressure
+  /// - V8 is running with pointer compression or sandbox features
+  /// - Invalid Latin-1 encoding that requires sanitization
+  /// - Platform doesn't support external strings
+  /// - Memory alignment issues with the provided buffer
+  ///
+  /// The `copied` parameter serves as feedback to understand whether the external string
+  /// optimization was successful or if V8 fell back to traditional string creation.
+  pub unsafe fn from_external<T: 'env, F: FnOnce(Env, T) + 'env>(
     env: &'env Env,
     data: *const u8,
     len: usize,
@@ -113,25 +163,27 @@ impl<'env> JsStringLatin1<'env> {
     let mut raw_value = ptr::null_mut();
     let mut copied = false;
 
-    let status = unsafe {
-      sys::node_api_create_external_string_latin1(
-        env.0,
-        data.cast(),
-        len as isize,
-        Some(finalize_with_custom_callback::<T, F>),
-        hint_ptr.cast(),
-        &mut raw_value,
-        &mut copied,
-      )
-    };
+    check_status!(
+      unsafe {
+        sys::node_api_create_external_string_latin1(
+          env.0,
+          data.cast(),
+          len as isize,
+          Some(finalize_with_custom_callback::<T, F>),
+          hint_ptr.cast(),
+          &mut raw_value,
+          &mut copied,
+        )
+      },
+      "Failed to create external string latin1"
+    )?;
 
     if copied {
-      // If the data was copied, we need to call the finalizer immediately
-      let (hint, finalize) = *Box::from_raw(hint_ptr);
-      finalize(*env, hint);
+      unsafe {
+        let (hint, finalize) = *Box::from_raw(hint_ptr);
+        finalize(*env, hint);
+      }
     }
-
-    check_status!(status, "Failed to create external string latin1")?;
 
     Ok(Self {
       inner: JsString(
@@ -143,8 +195,10 @@ impl<'env> JsStringLatin1<'env> {
         std::marker::PhantomData,
       ),
       buf: unsafe { std::slice::from_raw_parts(data, len) },
+      _inner_buf: vec![],
     })
   }
+
   pub fn as_slice(&self) -> &[u8] {
     self.buf
   }
@@ -191,8 +245,8 @@ extern "C" fn drop_latin1_string(
   finalize_data: *mut c_void,
   finalize_hint: *mut c_void,
 ) {
-  let size: usize = unsafe { *Box::from_raw(finalize_data.cast()) };
-  let data: Vec<u8> = unsafe { Vec::from_raw_parts(finalize_hint.cast(), size, size) };
+  let size: usize = unsafe { *Box::from_raw(finalize_hint.cast()) };
+  let data: Vec<u8> = unsafe { Vec::from_raw_parts(finalize_data.cast(), size, size) };
   drop(data);
 }
 

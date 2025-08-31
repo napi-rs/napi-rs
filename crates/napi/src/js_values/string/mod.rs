@@ -161,6 +161,7 @@ impl<'env> JsString<'env> {
     Ok(JsStringLatin1 {
       inner: self,
       buf: unsafe { std::slice::from_raw_parts(buf_ptr.cast(), written_char_count) },
+      _inner_buf: vec![],
     })
   }
 }

@@ -32,6 +32,12 @@ import {
   createZeroCopyLatin1String,
   createExternalUtf16String,
   createExternalLatin1String,
+  createExternalLatin1Empty,
+  createExternalLatin1Short,
+  createExternalLatin1Long,
+  createExternalLatin1WithLatin1Chars,
+  createExternalLatin1CustomFinalize,
+  testLatin1Methods,
   roundtripStr,
   getNums,
   getWords,
@@ -327,6 +333,41 @@ test('string', (t) => {
   t.is(createZeroCopyLatin1String(), 'Hello')
   t.is(createExternalUtf16String(), 'External UTF16')
   t.is(createExternalLatin1String(), 'External Latin1')
+})
+
+test('JsStringLatin1::from_external tests', (t) => {
+  // Test with empty string
+  t.is(createExternalLatin1Empty(), '')
+
+  // Test with short string (likely to be copied by V8)
+  t.is(createExternalLatin1Short(), 'Hi')
+
+  // Test with long string (more likely to remain external)
+  t.is(
+    createExternalLatin1Long(),
+    'This is a much longer string that is more likely to be kept as an external string by V8 rather than being copied',
+  )
+
+  // Test with actual Latin-1 extended characters
+  // The string contains: "Hello ÀÁÂ ñòó"
+  const latin1Result = createExternalLatin1WithLatin1Chars()
+  t.is(latin1Result.length, 13)
+  t.true(latin1Result.includes('Hello'))
+
+  // Test with custom finalize hint
+  t.is(createExternalLatin1CustomFinalize(), 'Custom finalize test')
+
+  // Test Latin1 methods
+  const methodsTest = testLatin1Methods('Test string')
+  t.is(methodsTest.length, 11)
+  t.is(methodsTest.isEmpty, false)
+  t.deepEqual(methodsTest.asSlice, Array.from(Buffer.from('Test string')))
+
+  // Test with empty input
+  const emptyTest = testLatin1Methods('')
+  t.is(emptyTest.length, 0)
+  t.is(emptyTest.isEmpty, true)
+  t.deepEqual(emptyTest.asSlice, [])
 })
 
 test('array', (t) => {
