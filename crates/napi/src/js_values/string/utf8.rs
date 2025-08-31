@@ -10,7 +10,7 @@ pub struct JsStringUtf8<'env> {
 
 impl<'env> JsStringUtf8<'env> {
   pub fn as_str(&self) -> Result<&str> {
-    Ok(unsafe { str::from_utf8_unchecked(&self.buf) })
+    Ok(unsafe { str::from_utf8_unchecked(self.buf) })
   }
 
   pub fn as_slice(&self) -> &[u8] {

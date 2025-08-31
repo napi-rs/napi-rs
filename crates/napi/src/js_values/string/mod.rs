@@ -134,11 +134,10 @@ impl<'env> JsString<'env> {
       )
     })?;
 
-    mem::forget(result);
-
     Ok(JsStringUtf16 {
       inner: self,
-      buf: unsafe { std::slice::from_raw_parts(buf_ptr.cast(), written_char_count) },
+      buf: unsafe { std::slice::from_raw_parts(buf_ptr.cast(), len) },
+      _inner_buf: result,
     })
   }
 

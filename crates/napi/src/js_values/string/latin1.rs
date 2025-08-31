@@ -1,3 +1,4 @@
+#[cfg(feature = "napi10")]
 use std::ffi::c_void;
 
 use crate::{bindgen_prelude::ToNapiValue, sys, JsString, Result};
@@ -145,7 +146,7 @@ impl<'env> JsStringLatin1<'env> {
     })
   }
   pub fn as_slice(&self) -> &[u8] {
-    &self.buf
+    self.buf
   }
 
   pub fn len(&self) -> usize {
