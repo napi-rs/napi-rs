@@ -174,22 +174,12 @@ pub fn create_external_latin1_custom_finalize<'env>(
 
 #[napi]
 pub fn test_latin1_methods(env: &Env, input: String) -> Result<Latin1MethodsResult> {
-  // Test various methods on JsStringLatin1
-  if input.is_empty() {
-    // Handle empty string case
-    Ok(Latin1MethodsResult {
-      length: 0,
-      is_empty: true,
-      as_slice: Vec::new(),
-    })
-  } else {
-    let data = input.as_bytes().to_vec();
-    let latin1 = JsStringLatin1::from_data(env, data)?;
+  let data = input.as_bytes().to_vec();
+  let latin1 = JsStringLatin1::from_data(env, data)?;
 
-    Ok(Latin1MethodsResult {
-      length: latin1.len() as u32,
-      is_empty: latin1.is_empty(),
-      as_slice: latin1.as_slice().to_vec(),
-    })
-  }
+  Ok(Latin1MethodsResult {
+    length: latin1.len() as u32,
+    is_empty: latin1.is_empty(),
+    as_slice: latin1.as_slice().to_vec(),
+  })
 }

@@ -1,5 +1,5 @@
 use std::convert::TryFrom;
-#[cfg(feature = "napi10")]
+#[cfg(all(feature = "napi10", not(target_family = "wasm")))]
 use std::ffi::c_void;
 use std::ops::Deref;
 
@@ -46,7 +46,9 @@ impl<'env> JsStringUtf16<'env> {
   /// The `copied` parameter serves as feedback to understand whether the external string
   /// optimization was successful or if V8 fell back to traditional string creation.
   pub fn from_data(env: &'env Env, data: Vec<u16>) -> Result<JsStringUtf16<'env>> {
-    use std::{mem, ptr};
+    #[cfg(not(target_family = "wasm"))]
+    use std::mem;
+    use std::ptr;
 
     use crate::{check_status, Value, ValueType};
 
@@ -57,53 +59,84 @@ impl<'env> JsStringUtf16<'env> {
       ));
     }
 
-    let mut raw_value = ptr::null_mut();
-    let mut copied = false;
-    let data_ptr = data.as_ptr();
-    let len = data.len();
-    let finalize_hint = Box::into_raw(Box::new(len));
+    #[cfg(target_family = "wasm")]
+    {
+      // In WASM environments, use standard napi_create_string_utf16
+      let mut raw_value = ptr::null_mut();
+      let data_ptr = data.as_ptr();
+      let data_len = data.len();
 
-    check_status!(
-      unsafe {
-        sys::node_api_create_external_string_utf16(
-          env.0,
-          data_ptr,
-          len as isize,
-          Some(drop_utf16_string),
-          finalize_hint.cast(),
-          &mut raw_value,
-          &mut copied,
-        )
-      },
-      "Failed to create external string utf16"
-    )?;
-
-    let inner_buf = if copied {
-      // If the data was copied, the finalizer won't be called
-      // We need to clean up the finalize_hint and let the Vec be dropped
-      unsafe {
-        let _ = Box::from_raw(finalize_hint);
-      };
-      data
-    } else {
-      // Only forget the data if it wasn't copied
-      // The finalizer will handle cleanup
-      mem::forget(data);
-      vec![]
-    };
-
-    Ok(Self {
-      inner: JsString(
-        Value {
-          env: env.0,
-          value: raw_value,
-          value_type: ValueType::String,
+      check_status!(
+        unsafe {
+          sys::napi_create_string_utf16(env.0, data_ptr, data_len as isize, &mut raw_value)
         },
-        std::marker::PhantomData,
-      ),
-      buf: unsafe { std::slice::from_raw_parts(data_ptr.cast(), len) },
-      _inner_buf: inner_buf,
-    })
+        "Failed to create utf16 string"
+      )?;
+
+      Ok(Self {
+        inner: JsString(
+          Value {
+            env: env.0,
+            value: raw_value,
+            value_type: ValueType::String,
+          },
+          std::marker::PhantomData,
+        ),
+        buf: unsafe { std::slice::from_raw_parts(data_ptr.cast(), data_len) },
+        _inner_buf: data,
+      })
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    {
+      let mut raw_value = ptr::null_mut();
+      let mut copied = false;
+      let data_ptr = data.as_ptr();
+      let len = data.len();
+      let finalize_hint = Box::into_raw(Box::new(len));
+
+      check_status!(
+        unsafe {
+          sys::node_api_create_external_string_utf16(
+            env.0,
+            data_ptr,
+            len as isize,
+            Some(drop_utf16_string),
+            finalize_hint.cast(),
+            &mut raw_value,
+            &mut copied,
+          )
+        },
+        "Failed to create external string utf16"
+      )?;
+
+      let inner_buf = if copied {
+        // If the data was copied, the finalizer won't be called
+        // We need to clean up the finalize_hint and let the Vec be dropped
+        unsafe {
+          let _ = Box::from_raw(finalize_hint);
+        };
+        data
+      } else {
+        // Only forget the data if it wasn't copied
+        // The finalizer will handle cleanup
+        mem::forget(data);
+        vec![]
+      };
+
+      Ok(Self {
+        inner: JsString(
+          Value {
+            env: env.0,
+            value: raw_value,
+            value_type: ValueType::String,
+          },
+          std::marker::PhantomData,
+        ),
+        buf: unsafe { std::slice::from_raw_parts(data_ptr.cast(), len) },
+        _inner_buf: inner_buf,
+      })
+    }
   }
 
   #[cfg(feature = "napi10")]
@@ -161,44 +194,86 @@ impl<'env> JsStringUtf16<'env> {
       ));
     }
 
-    let hint_ptr = Box::into_raw(Box::new((finalize_hint, finalize_callback)));
-    let mut raw_value = ptr::null_mut();
-    let mut copied = false;
+    #[cfg(target_family = "wasm")]
+    {
+      // In WASM environments, use standard napi_create_string_utf16
+      // and immediately call the finalize callback since we're not using external strings
+      let mut raw_value = ptr::null_mut();
 
-    check_status!(
-      unsafe {
-        sys::node_api_create_external_string_utf16(
-          env.0,
-          data,
-          len as isize,
-          Some(finalize_with_custom_callback::<T, F>),
-          hint_ptr.cast(),
-          &mut raw_value,
-          &mut copied,
-        )
-      },
-      "Failed to create external string utf16"
-    )?;
+      // Create a copy of the data before using it
+      let buffer = if len == 0 {
+        vec![]
+      } else {
+        let slice = unsafe { std::slice::from_raw_parts(data, len) };
+        slice.to_vec()
+      };
 
-    if copied {
-      unsafe {
-        let (hint, finalize) = *Box::from_raw(hint_ptr);
-        finalize(*env, hint);
-      }
+      let buf_ptr = buffer.as_ptr();
+      let buf_len = buffer.len();
+
+      check_status!(
+        unsafe { sys::napi_create_string_utf16(env.0, buf_ptr, buf_len as isize, &mut raw_value,) },
+        "Failed to create utf16 string"
+      )?;
+
+      // Call the finalize callback immediately in WASM
+      finalize_callback(*env, finalize_hint);
+
+      Ok(Self {
+        inner: JsString(
+          Value {
+            env: env.0,
+            value: raw_value,
+            value_type: ValueType::String,
+          },
+          std::marker::PhantomData,
+        ),
+        buf: unsafe { std::slice::from_raw_parts(buf_ptr, buf_len) },
+        _inner_buf: buffer,
+      })
     }
 
-    Ok(Self {
-      inner: JsString(
-        Value {
-          env: env.0,
-          value: raw_value,
-          value_type: ValueType::String,
+    #[cfg(not(target_family = "wasm"))]
+    {
+      let hint_ptr = Box::into_raw(Box::new((finalize_hint, finalize_callback)));
+      let mut raw_value = ptr::null_mut();
+      let mut copied = false;
+
+      check_status!(
+        unsafe {
+          sys::node_api_create_external_string_utf16(
+            env.0,
+            data,
+            len as isize,
+            Some(finalize_with_custom_callback::<T, F>),
+            hint_ptr.cast(),
+            &mut raw_value,
+            &mut copied,
+          )
         },
-        std::marker::PhantomData,
-      ),
-      buf: unsafe { std::slice::from_raw_parts(data, len) },
-      _inner_buf: vec![],
-    })
+        "Failed to create external string utf16"
+      )?;
+
+      if copied {
+        unsafe {
+          let (hint, finalize) = *Box::from_raw(hint_ptr);
+          finalize(*env, hint);
+        }
+      }
+
+      Ok(Self {
+        inner: JsString(
+          Value {
+            env: env.0,
+            value: raw_value,
+            value_type: ValueType::String,
+          },
+          std::marker::PhantomData,
+        ),
+        buf: unsafe { std::slice::from_raw_parts(data, len) },
+        _inner_buf: vec![],
+      })
+    }
   }
 
   pub fn as_str(&self) -> Result<String> {
@@ -260,7 +335,7 @@ impl ToNapiValue for JsStringUtf16<'_> {
   }
 }
 
-#[cfg(feature = "napi10")]
+#[cfg(all(feature = "napi10", not(target_family = "wasm")))]
 extern "C" fn drop_utf16_string(
   _: sys::node_api_basic_env,
   finalize_data: *mut c_void,
@@ -271,7 +346,7 @@ extern "C" fn drop_utf16_string(
   drop(data);
 }
 
-#[cfg(feature = "napi10")]
+#[cfg(all(feature = "napi10", not(target_family = "wasm")))]
 extern "C" fn finalize_with_custom_callback<T, F: FnOnce(Env, T)>(
   env: sys::node_api_basic_env,
   _finalize_data: *mut c_void,

@@ -364,10 +364,10 @@ test('JsStringLatin1::from_external tests', (t) => {
   t.deepEqual(methodsTest.asSlice, Array.from(Buffer.from('Test string')))
 
   // Test with empty input
-  const emptyTest = testLatin1Methods('')
-  t.is(emptyTest.length, 0)
-  t.is(emptyTest.isEmpty, true)
-  t.deepEqual(emptyTest.asSlice, [])
+  t.throws(() => testLatin1Methods(''), {
+    message: 'Cannot create external string from empty data',
+    code: 'InvalidArg',
+  })
 })
 
 test('array', (t) => {
