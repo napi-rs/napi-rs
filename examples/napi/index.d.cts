@@ -378,6 +378,8 @@ export declare function apply1(ctx: Animal, callback: (arg: string) => void, nam
 
 export declare function arrayBufferFromData(): ArrayBuffer
 
+export declare function arrayBufferFromExternal(): ArrayBuffer
+
 export declare function arrayBufferPassThrough(buf: Uint8Array): Promise<Uint8Array>
 
 export declare function arrayParams(arr: Array<number>): number
@@ -561,11 +563,25 @@ export declare function createExternal(size: number): ExternalObject<number>
 
 export declare function createExternalBufferSlice(): Buffer
 
+export declare function createExternalLatin1CustomFinalize(): string
+
+export declare function createExternalLatin1Empty(): string
+
+export declare function createExternalLatin1Long(): string
+
+export declare function createExternalLatin1Short(): string
+
+export declare function createExternalLatin1String(): string
+
+export declare function createExternalLatin1WithLatin1Chars(): string
+
 export declare function createExternalRef(size: number): ExternalObject<number>
 
 export declare function createExternalString(content: string): ExternalObject<string>
 
 export declare function createExternalTypedArray(): Uint32Array
+
+export declare function createExternalUtf16String(): string
 
 export declare function createFunction(): (arg: number) => number
 
@@ -594,6 +610,10 @@ export declare function createSymbolRef(desc: string): symbol
 export declare function createUint8ClampedArrayFromData(): Uint8ClampedArray
 
 export declare function createUint8ClampedArrayFromExternal(): Uint8ClampedArray
+
+export declare function createZeroCopyLatin1String(): string
+
+export declare function createZeroCopyUtf16String(): string
 
 /** You could break the step and for an new continuous value. */
 export declare const enum CustomNumEnum {
@@ -789,6 +809,12 @@ export declare const enum KindInValidate {
   Cat = 1,
   /** Tasty */
   Duck = 2
+}
+
+export interface Latin1MethodsResult {
+  length: number
+  isEmpty: boolean
+  asSlice: Array<number>
 }
 
 export declare function listObjKeys(obj: object): Array<string>
@@ -1016,6 +1042,8 @@ export declare function sumNums(nums: Array<number>): number
  * Another example: sed 's/old/\\"new\\"/g' where quotes are escaped.
  */
 export declare function testEscapedQuotesInComments(input: string): string
+
+export declare function testLatin1Methods(input: string): Latin1MethodsResult
 
 export declare function testSerdeBigNumberPrecision(number: string): any
 

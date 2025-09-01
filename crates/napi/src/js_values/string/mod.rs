@@ -112,7 +112,7 @@ impl<'env> JsString<'env> {
     // respect '\0' with js string, for example: `let hello = [a,'\0',b,'\0',c].join('')`
     let mut result = mem::ManuallyDrop::new(result);
     let buf_ptr = result.as_mut_ptr();
-    let bytes = unsafe { Vec::from_raw_parts(buf_ptr as *mut u8, written_char_count, len) };
+    let bytes = unsafe { std::slice::from_raw_parts(buf_ptr.cast(), written_char_count) };
     Ok(JsStringUtf8 {
       inner: self,
       buf: bytes,
@@ -136,7 +136,8 @@ impl<'env> JsString<'env> {
 
     Ok(JsStringUtf16 {
       inner: self,
-      buf: result,
+      buf: unsafe { std::slice::from_raw_parts(buf_ptr.cast(), len) },
+      _inner_buf: result,
     })
   }
 
@@ -159,9 +160,8 @@ impl<'env> JsString<'env> {
 
     Ok(JsStringLatin1 {
       inner: self,
-      buf: mem::ManuallyDrop::new(unsafe {
-        Vec::from_raw_parts(buf_ptr as *mut _, written_char_count, written_char_count)
-      }),
+      buf: unsafe { std::slice::from_raw_parts(buf_ptr.cast(), written_char_count) },
+      _inner_buf: vec![],
     })
   }
 }

@@ -262,6 +262,19 @@ pub fn array_buffer_from_data(env: &Env) -> Result<ArrayBuffer<'_>> {
 }
 
 #[napi]
+pub fn array_buffer_from_external(env: &Env) -> Result<ArrayBuffer<'_>> {
+  let mut data = b"Hello world from external".to_vec();
+  let data_ptr = data.as_mut_ptr();
+  let len = data.len();
+  std::mem::forget(data);
+  unsafe {
+    ArrayBuffer::from_external(env, data_ptr, len, data_ptr, move |_, ptr| {
+      std::mem::drop(Vec::from_raw_parts(ptr, len, len));
+    })
+  }
+}
+
+#[napi]
 pub fn uint8_array_from_data(env: &Env) -> Result<Uint8ArraySlice<'_>> {
   Uint8ArraySlice::from_data(env, b"Hello world")
 }
