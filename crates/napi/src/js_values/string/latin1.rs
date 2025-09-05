@@ -276,6 +276,51 @@ impl<'env> JsStringLatin1<'env> {
     }
   }
 
+  #[cfg(feature = "napi10")]
+  pub fn from_static(env: &'env Env, string: &'static str) -> Result<JsStringLatin1<'env>> {
+    use std::ptr;
+
+    use crate::{check_status, Error, Status, Value, ValueType};
+
+    if string.is_empty() {
+      return Err(Error::new(
+        Status::InvalidArg,
+        "Data pointer should not be null".to_owned(),
+      ));
+    }
+
+    let mut raw_value = ptr::null_mut();
+    let mut copied = false;
+
+    check_status!(
+      unsafe {
+        sys::node_api_create_external_string_latin1(
+          env.0,
+          string.as_ptr().cast(),
+          string.len() as isize,
+          None,
+          ptr::null_mut(),
+          &mut raw_value,
+          &mut copied,
+        )
+      },
+      "Failed to create external string latin1"
+    )?;
+
+    Ok(Self {
+      inner: JsString(
+        Value {
+          env: env.0,
+          value: raw_value,
+          value_type: ValueType::String,
+        },
+        std::marker::PhantomData,
+      ),
+      buf: string.as_bytes(),
+      _inner_buf: vec![],
+    })
+  }
+
   pub fn as_slice(&self) -> &[u8] {
     self.buf
   }
