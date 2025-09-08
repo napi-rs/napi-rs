@@ -45,7 +45,7 @@ export const DEFAULT_TARGETS = [
 
 export const TARGET_LINKER: Record<string, string> = {
   'aarch64-unknown-linux-musl': 'aarch64-linux-musl-gcc',
-  // TODO: Switch to loongarch64-linux-gnu-gcc when avaliable
+  // TODO: Switch to loongarch64-linux-gnu-gcc when available
   'loongarch64-unknown-linux-gnu': 'loongarch64-linux-gnu-gcc-13',
   'riscv64gc-unknown-linux-gnu': 'riscv64-linux-gnu-gcc',
   'powerpc64le-unknown-linux-gnu': 'powerpc64le-linux-gnu-gcc',
