@@ -1,4 +1,4 @@
-#[cfg(all(feature = "napi10", not(target_family = "wasm")))]
+#[cfg(feature = "napi10")]
 use std::ffi::c_void;
 
 use crate::{bindgen_prelude::ToNapiValue, sys, JsString, Result};
@@ -44,7 +44,6 @@ impl<'env> JsStringLatin1<'env> {
   /// The `copied` parameter serves as feedback to understand whether the external string
   /// optimization was successful or if V8 fell back to traditional string creation.
   pub fn from_data(env: &'env Env, data: Vec<u8>) -> Result<JsStringLatin1<'env>> {
-    #[cfg(not(target_family = "wasm"))]
     use std::mem;
     use std::ptr;
 
@@ -57,84 +56,53 @@ impl<'env> JsStringLatin1<'env> {
       ));
     }
 
-    #[cfg(target_family = "wasm")]
-    {
-      // In WASM environments, use standard napi_create_string_latin1
-      let mut raw_value = ptr::null_mut();
-      let data_ptr = data.as_ptr();
-      let data_len = data.len();
+    let mut raw_value = ptr::null_mut();
+    let mut copied = false;
+    let data_ptr = data.as_ptr();
+    let len = data.len();
+    let finalize_hint = Box::into_raw(Box::new(len));
 
-      check_status!(
-        unsafe {
-          sys::napi_create_string_latin1(env.0, data_ptr.cast(), data_len as isize, &mut raw_value)
-        },
-        "Failed to create latin1 string"
-      )?;
+    check_status!(
+      unsafe {
+        sys::node_api_create_external_string_latin1(
+          env.0,
+          data_ptr.cast(),
+          len as isize,
+          Some(drop_latin1_string),
+          finalize_hint.cast(),
+          &mut raw_value,
+          &mut copied,
+        )
+      },
+      "Failed to create external string latin1"
+    )?;
 
-      Ok(Self {
-        inner: JsString(
-          Value {
-            env: env.0,
-            value: raw_value,
-            value_type: ValueType::String,
-          },
-          std::marker::PhantomData,
-        ),
-        buf: unsafe { std::slice::from_raw_parts(data_ptr, data_len) },
-        _inner_buf: data,
-      })
-    }
-
-    #[cfg(not(target_family = "wasm"))]
-    {
-      let mut raw_value = ptr::null_mut();
-      let mut copied = false;
-      let data_ptr = data.as_ptr();
-      let len = data.len();
-      let finalize_hint = Box::into_raw(Box::new(len));
-
-      check_status!(
-        unsafe {
-          sys::node_api_create_external_string_latin1(
-            env.0,
-            data_ptr.cast(),
-            len as isize,
-            Some(drop_latin1_string),
-            finalize_hint.cast(),
-            &mut raw_value,
-            &mut copied,
-          )
-        },
-        "Failed to create external string latin1"
-      )?;
-
-      let inner_buf = if copied {
-        // If the data was copied, the finalizer won't be called
-        // We need to clean up the finalize_hint and let the Vec be dropped
-        unsafe {
-          let _ = Box::from_raw(finalize_hint);
-        };
-        data
-      } else {
-        // Only forget the data if it wasn't copied
-        // The finalizer will handle cleanup
-        mem::forget(data);
-        vec![]
+    let inner_buf = if copied {
+      // If the data was copied, the finalizer won't be called
+      // We need to clean up the finalize_hint and let the Vec be dropped
+      unsafe {
+        let _ = Box::from_raw(finalize_hint);
       };
+      data
+    } else {
+      // Only forget the data if it wasn't copied
+      // The finalizer will handle cleanup
+      mem::forget(data);
+      vec![]
+    };
 
-      Ok(Self {
-        inner: JsString(
-          Value {
-            env: env.0,
-            value: raw_value,
-            value_type: ValueType::String,
-          },
-          std::marker::PhantomData,
-        ),
-        buf: unsafe { std::slice::from_raw_parts(data_ptr, len) },
-        _inner_buf: inner_buf,
-      })
-    }
+    Ok(Self {
+      inner: JsString(
+        Value {
+          env: env.0,
+          value: raw_value,
+          value_type: ValueType::String,
+        },
+        std::marker::PhantomData,
+      ),
+      buf: unsafe { std::slice::from_raw_parts(data_ptr, len) },
+      _inner_buf: inner_buf,
+    })
   }
 
   #[cfg(feature = "napi10")]
@@ -192,88 +160,44 @@ impl<'env> JsStringLatin1<'env> {
       ));
     }
 
-    #[cfg(target_family = "wasm")]
-    {
-      // In WASM environments, use standard napi_create_string_latin1
-      // and immediately call the finalize callback since we're not using external strings
-      let mut raw_value = ptr::null_mut();
+    let hint_ptr = Box::into_raw(Box::new((finalize_hint, finalize_callback)));
+    let mut raw_value = ptr::null_mut();
+    let mut copied = false;
 
-      // Create a copy of the data before using it
-      let buffer = if len == 0 {
-        vec![]
-      } else {
-        let slice = unsafe { std::slice::from_raw_parts(data, len) };
-        slice.to_vec()
-      };
+    check_status!(
+      unsafe {
+        sys::node_api_create_external_string_latin1(
+          env.0,
+          data.cast(),
+          len as isize,
+          Some(finalize_with_custom_callback::<T, F>),
+          hint_ptr.cast(),
+          &mut raw_value,
+          &mut copied,
+        )
+      },
+      "Failed to create external string latin1"
+    )?;
 
-      let buf_ptr = buffer.as_ptr();
-      let buf_len = buffer.len();
-
-      check_status!(
-        unsafe {
-          sys::napi_create_string_latin1(env.0, buf_ptr.cast(), buf_len as isize, &mut raw_value)
-        },
-        "Failed to create latin1 string"
-      )?;
-
-      // Call the finalize callback immediately in WASM
-      finalize_callback(*env, finalize_hint);
-
-      Ok(Self {
-        inner: JsString(
-          Value {
-            env: env.0,
-            value: raw_value,
-            value_type: ValueType::String,
-          },
-          std::marker::PhantomData,
-        ),
-        buf: unsafe { std::slice::from_raw_parts(buf_ptr, buf_len) },
-        _inner_buf: buffer,
-      })
-    }
-
-    #[cfg(not(target_family = "wasm"))]
-    {
-      let hint_ptr = Box::into_raw(Box::new((finalize_hint, finalize_callback)));
-      let mut raw_value = ptr::null_mut();
-      let mut copied = false;
-
-      check_status!(
-        unsafe {
-          sys::node_api_create_external_string_latin1(
-            env.0,
-            data.cast(),
-            len as isize,
-            Some(finalize_with_custom_callback::<T, F>),
-            hint_ptr.cast(),
-            &mut raw_value,
-            &mut copied,
-          )
-        },
-        "Failed to create external string latin1"
-      )?;
-
-      if copied {
-        unsafe {
-          let (hint, finalize) = *Box::from_raw(hint_ptr);
-          finalize(*env, hint);
-        }
+    if copied {
+      unsafe {
+        let (hint, finalize) = *Box::from_raw(hint_ptr);
+        finalize(*env, hint);
       }
-
-      Ok(Self {
-        inner: JsString(
-          Value {
-            env: env.0,
-            value: raw_value,
-            value_type: ValueType::String,
-          },
-          std::marker::PhantomData,
-        ),
-        buf: unsafe { std::slice::from_raw_parts(data, len) },
-        _inner_buf: vec![],
-      })
     }
+
+    Ok(Self {
+      inner: JsString(
+        Value {
+          env: env.0,
+          value: raw_value,
+          value_type: ValueType::String,
+        },
+        std::marker::PhantomData,
+      ),
+      buf: unsafe { std::slice::from_raw_parts(data, len) },
+      _inner_buf: vec![],
+    })
   }
 
   #[cfg(feature = "napi10")]
@@ -361,7 +285,7 @@ impl ToNapiValue for JsStringLatin1<'_> {
   }
 }
 
-#[cfg(all(feature = "napi10", not(target_family = "wasm")))]
+#[cfg(feature = "napi10")]
 extern "C" fn drop_latin1_string(
   _: sys::node_api_basic_env,
   finalize_data: *mut c_void,
@@ -372,7 +296,7 @@ extern "C" fn drop_latin1_string(
   drop(data);
 }
 
-#[cfg(all(feature = "napi10", not(target_family = "wasm")))]
+#[cfg(feature = "napi10")]
 extern "C" fn finalize_with_custom_callback<T, F: FnOnce(Env, T)>(
   env: sys::node_api_basic_env,
   _finalize_data: *mut c_void,

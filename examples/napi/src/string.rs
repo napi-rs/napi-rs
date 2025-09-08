@@ -185,7 +185,11 @@ pub fn test_latin1_methods(env: &Env, input: String) -> Result<Latin1MethodsResu
   Ok(Latin1MethodsResult {
     length: latin1.len() as u32,
     is_empty: latin1.is_empty(),
-    as_slice: latin1.as_slice().to_vec(),
+    as_slice: if cfg!(target_family = "wasm") {
+      latin1.as_slice().iter().cloned().collect()
+    } else {
+      latin1.as_slice().to_vec()
+    },
   })
 }
 
