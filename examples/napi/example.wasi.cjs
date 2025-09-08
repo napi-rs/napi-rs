@@ -328,6 +328,7 @@ module.exports.i8ArrayToArray = __napiModule.exports.i8ArrayToArray
 module.exports.indexmapPassthrough = __napiModule.exports.indexmapPassthrough
 module.exports.indexSetToJs = __napiModule.exports.indexSetToJs
 module.exports.indexSetToRust = __napiModule.exports.indexSetToRust
+module.exports.intoUtf8 = __napiModule.exports.intoUtf8
 module.exports.jsErrorCallback = __napiModule.exports.jsErrorCallback
 module.exports.Kind = __napiModule.exports.Kind
 module.exports.KindInValidate = __napiModule.exports.KindInValidate
