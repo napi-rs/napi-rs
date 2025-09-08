@@ -283,6 +283,7 @@ export const i8ArrayToArray = __napiModule.exports.i8ArrayToArray
 export const indexmapPassthrough = __napiModule.exports.indexmapPassthrough
 export const indexSetToJs = __napiModule.exports.indexSetToJs
 export const indexSetToRust = __napiModule.exports.indexSetToRust
+export const intoUtf8 = __napiModule.exports.intoUtf8
 export const jsErrorCallback = __napiModule.exports.jsErrorCallback
 export const Kind = __napiModule.exports.Kind
 export const KindInValidate = __napiModule.exports.KindInValidate

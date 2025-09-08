@@ -286,6 +286,7 @@ import {
   arrayParams,
   indexSetToRust,
   indexSetToJs,
+  intoUtf8,
 } from '../index.cjs'
 // import other stuff in `#[napi(module_exports)]`
 import nativeAddon from '../index.cjs'
@@ -337,6 +338,7 @@ test('string', (t) => {
   t.is(createExternalLatin1String(), 'External Latin1')
   t.is(createStaticLatin1String(), 'Static Latin1 string')
   t.is(createStaticUtf16String(), 'Static UTF16')
+  t.is(intoUtf8('Hello'), 'Hello')
 })
 
 test('JsStringLatin1::from_external tests', (t) => {
