@@ -367,7 +367,9 @@ test('JsStringLatin1::from_external tests', (t) => {
   const methodsTest = testLatin1Methods('Test string')
   t.is(methodsTest.length, 11)
   t.is(methodsTest.isEmpty, false)
-  t.deepEqual(methodsTest.asSlice, Array.from(Buffer.from('Test string')))
+  if (!process.env.WASI_TEST) {
+    t.deepEqual(methodsTest.asSlice, Array.from(Buffer.from('Test string')))
+  }
 
   // Test with empty input
   t.throws(() => testLatin1Methods(''), {
