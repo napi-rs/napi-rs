@@ -283,7 +283,7 @@ jobs:
               sudo apt-get install -y gcc-riscv64-linux-gnu
           - host: ubuntu-latest
             target: loongarch64-unknown-linux-gnu
-            # TODO: Switch to gcc-loongarch64-linux when avaliable
+            # TODO: Switch to gcc-loongarch64-linux when available
             setup: |
               sudo apt-get update
               sudo apt-get install -y gcc-13-loongarch64-linux-gnu
