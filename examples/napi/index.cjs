@@ -66,7 +66,7 @@ const isMuslFromChildProcess = () => {
 function requireNative() {
   if (process.env.NAPI_RS_NATIVE_LIBRARY_PATH) {
     try {
-      nativeBinding = require(process.env.NAPI_RS_NATIVE_LIBRARY_PATH);
+      return require(process.env.NAPI_RS_NATIVE_LIBRARY_PATH);
     } catch (err) {
       loadErrors.push(err)
     }
@@ -611,6 +611,7 @@ module.exports.appendBuffer = nativeBinding.appendBuffer
 module.exports.apply0 = nativeBinding.apply0
 module.exports.apply1 = nativeBinding.apply1
 module.exports.arrayBufferFromData = nativeBinding.arrayBufferFromData
+module.exports.arrayBufferFromExternal = nativeBinding.arrayBufferFromExternal
 module.exports.arrayBufferPassThrough = nativeBinding.arrayBufferPassThrough
 module.exports.arrayParams = nativeBinding.arrayParams
 module.exports.asyncBufferToArray = nativeBinding.asyncBufferToArray
@@ -672,9 +673,16 @@ module.exports.createBigIntI64 = nativeBinding.createBigIntI64
 module.exports.createBufferSliceFromCopiedData = nativeBinding.createBufferSliceFromCopiedData
 module.exports.createExternal = nativeBinding.createExternal
 module.exports.createExternalBufferSlice = nativeBinding.createExternalBufferSlice
+module.exports.createExternalLatin1CustomFinalize = nativeBinding.createExternalLatin1CustomFinalize
+module.exports.createExternalLatin1Empty = nativeBinding.createExternalLatin1Empty
+module.exports.createExternalLatin1Long = nativeBinding.createExternalLatin1Long
+module.exports.createExternalLatin1Short = nativeBinding.createExternalLatin1Short
+module.exports.createExternalLatin1String = nativeBinding.createExternalLatin1String
+module.exports.createExternalLatin1WithLatin1Chars = nativeBinding.createExternalLatin1WithLatin1Chars
 module.exports.createExternalRef = nativeBinding.createExternalRef
 module.exports.createExternalString = nativeBinding.createExternalString
 module.exports.createExternalTypedArray = nativeBinding.createExternalTypedArray
+module.exports.createExternalUtf16String = nativeBinding.createExternalUtf16String
 module.exports.createFunction = nativeBinding.createFunction
 module.exports.createObj = nativeBinding.createObj
 module.exports.createObjectRef = nativeBinding.createObjectRef
@@ -684,11 +692,15 @@ module.exports.createOptionalExternal = nativeBinding.createOptionalExternal
 module.exports.createReadableStream = nativeBinding.createReadableStream
 module.exports.createReadableStreamFromClass = nativeBinding.createReadableStreamFromClass
 module.exports.createReferenceOnFunction = nativeBinding.createReferenceOnFunction
+module.exports.createStaticLatin1String = nativeBinding.createStaticLatin1String
+module.exports.createStaticUtf16String = nativeBinding.createStaticUtf16String
 module.exports.createSymbol = nativeBinding.createSymbol
 module.exports.createSymbolFor = nativeBinding.createSymbolFor
 module.exports.createSymbolRef = nativeBinding.createSymbolRef
 module.exports.createUint8ClampedArrayFromData = nativeBinding.createUint8ClampedArrayFromData
 module.exports.createUint8ClampedArrayFromExternal = nativeBinding.createUint8ClampedArrayFromExternal
+module.exports.createZeroCopyLatin1String = nativeBinding.createZeroCopyLatin1String
+module.exports.createZeroCopyUtf16String = nativeBinding.createZeroCopyUtf16String
 module.exports.CustomNumEnum = nativeBinding.CustomNumEnum
 module.exports.customStatusCode = nativeBinding.customStatusCode
 module.exports.CustomStringEnum = nativeBinding.CustomStringEnum
@@ -750,6 +762,7 @@ module.exports.i8ArrayToArray = nativeBinding.i8ArrayToArray
 module.exports.indexmapPassthrough = nativeBinding.indexmapPassthrough
 module.exports.indexSetToJs = nativeBinding.indexSetToJs
 module.exports.indexSetToRust = nativeBinding.indexSetToRust
+module.exports.intoUtf8 = nativeBinding.intoUtf8
 module.exports.jsErrorCallback = nativeBinding.jsErrorCallback
 module.exports.Kind = nativeBinding.Kind
 module.exports.KindInValidate = nativeBinding.KindInValidate
@@ -816,6 +829,7 @@ module.exports.sumIndexMapping = nativeBinding.sumIndexMapping
 module.exports.sumMapping = nativeBinding.sumMapping
 module.exports.sumNums = nativeBinding.sumNums
 module.exports.testEscapedQuotesInComments = nativeBinding.testEscapedQuotesInComments
+module.exports.testLatin1Methods = nativeBinding.testLatin1Methods
 module.exports.testSerdeBigNumberPrecision = nativeBinding.testSerdeBigNumberPrecision
 module.exports.testSerdeBufferBytes = nativeBinding.testSerdeBufferBytes
 module.exports.testSerdeRoundtrip = nativeBinding.testSerdeRoundtrip

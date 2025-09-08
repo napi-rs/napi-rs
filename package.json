@@ -74,7 +74,7 @@
     "bun-types": "^1.2.8",
     "c8": "^10.1.3",
     "cross-env": "^10.0.0",
-    "electron": "^37.0.0",
+    "electron": "^38.0.0",
     "esbuild": "^0.25.2",
     "husky": "^9.1.7",
     "lerna": "^8.2.1",
@@ -89,7 +89,7 @@
     "tslib": "^2.8.1",
     "typescript": "^5.8.2"
   },
-  "packageManager": "yarn@4.9.2",
+  "packageManager": "yarn@4.9.4",
   "resolutions": {
     "node-inspect-extracted": "patch:node-inspect-extracted@npm%3A3.0.0#~/.yarn/patches/node-inspect-extracted-npm-3.0.0-f661b6c334.patch",
     "buffer@npm:^6.0.3": "patch:buffer@npm%3A6.0.3#~/.yarn/patches/buffer-npm-6.0.3-cd90dfedfe.patch"

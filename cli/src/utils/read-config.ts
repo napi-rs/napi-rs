@@ -11,9 +11,7 @@ interface MinimalNapiOptions {
 export async function readConfig(options: MinimalNapiOptions) {
   const resolvePath = (...paths: string[]) => resolve(options.cwd, ...paths)
   const config = await readNapiConfig(
-    resolvePath(
-      options.configPath ?? options.packageJsonPath ?? 'package.json',
-    ),
+    resolvePath(options.packageJsonPath ?? 'package.json'),
     options.configPath ? resolvePath(options.configPath) : undefined,
   )
   return config
