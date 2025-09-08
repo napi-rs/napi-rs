@@ -657,6 +657,7 @@ module.exports.createObjWithProperty = nativeBinding.createObjWithProperty
 module.exports.createOptionalExternal = nativeBinding.createOptionalExternal
 module.exports.createReadableStream = nativeBinding.createReadableStream
 module.exports.createReadableStreamFromClass = nativeBinding.createReadableStreamFromClass
+module.exports.createReadableStreamWithObject = nativeBinding.createReadableStreamWithObject
 module.exports.createReferenceOnFunction = nativeBinding.createReferenceOnFunction
 module.exports.createStaticLatin1String = nativeBinding.createStaticLatin1String
 module.exports.createStaticUtf16String = nativeBinding.createStaticUtf16String
