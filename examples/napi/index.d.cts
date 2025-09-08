@@ -793,6 +793,8 @@ export declare function indexSetToJs(): Set<string>
 
 export declare function indexSetToRust(set: Set<string>): void
 
+export declare function intoUtf8(s: string): string
+
 export declare function jsErrorCallback(value: unknown): Array<Error>
 
 /** default enum values are continuos i32s start from 0 */
