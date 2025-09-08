@@ -601,6 +601,10 @@ export declare function createReadableStreamFromClass(readableStreamClass: typeo
 
 export declare function createReferenceOnFunction(cb: () => void): Promise<void>
 
+export declare function createStaticLatin1String(): string
+
+export declare function createStaticUtf16String(): string
+
 export declare function createSymbol(): symbol
 
 export declare function createSymbolFor(desc: string): symbol
@@ -788,6 +792,8 @@ export declare function indexmapPassthrough(fixture: Record<string, number>): Re
 export declare function indexSetToJs(): Set<string>
 
 export declare function indexSetToRust(set: Set<string>): void
+
+export declare function intoUtf8(s: string): string
 
 export declare function jsErrorCallback(value: unknown): Array<Error>
 

@@ -1,4 +1,4 @@
-import { join, parse } from 'node:path'
+import { join, resolve, parse } from 'node:path'
 
 import * as colors from 'colorette'
 
@@ -20,9 +20,12 @@ const debug = debugFactory('artifacts')
 export async function collectArtifacts(userOptions: ArtifactsOptions) {
   const options = applyDefaultArtifactsOptions(userOptions)
 
-  const packageJsonPath = join(options.cwd, options.packageJsonPath)
-  const { targets, binaryName, packageName } =
-    await readNapiConfig(packageJsonPath)
+  const resolvePath = (...paths: string[]) => resolve(options.cwd, ...paths)
+  const packageJsonPath = resolvePath(options.packageJsonPath)
+  const { targets, binaryName, packageName } = await readNapiConfig(
+    packageJsonPath,
+    options.configPath ? resolvePath(options.configPath) : undefined,
+  )
 
   const distDirs = targets.map((platform) =>
     join(options.cwd, options.npmDir, platform.platformArchABI),

@@ -1,4 +1,4 @@
-use napi::{bindgen_prelude::*, JsString, JsStringLatin1, JsStringUtf16};
+use napi::{bindgen_prelude::*, JsString, JsStringLatin1, JsStringUtf16, JsStringUtf8};
 
 #[napi(object)]
 pub struct Latin1MethodsResult {
@@ -38,6 +38,11 @@ pub fn return_c_string() -> RawCString {
   let mock_c_string = b"Hello from C string!\0";
   let mock_c_string_ptr = mock_c_string.as_ptr().cast();
   RawCString::new(mock_c_string_ptr, NAPI_AUTO_LENGTH)
+}
+
+#[napi]
+pub fn into_utf8(s: JsString) -> Result<JsStringUtf8> {
+  s.into_utf8()
 }
 
 #[napi]
@@ -182,4 +187,19 @@ pub fn test_latin1_methods(env: &Env, input: String) -> Result<Latin1MethodsResu
     is_empty: latin1.is_empty(),
     as_slice: latin1.as_slice().to_vec(),
   })
+}
+
+#[napi]
+pub fn create_static_latin1_string<'env>(env: &'env Env) -> Result<JsStringLatin1<'env>> {
+  // Test from_static with a static Latin-1 string
+  JsStringLatin1::from_static(env, "Static Latin1 string")
+}
+
+#[napi]
+pub fn create_static_utf16_string<'env>(env: &'env Env) -> Result<JsStringUtf16<'env>> {
+  // Test from_static with a static UTF-16 buffer
+  static UTF16_DATA: &[u16] = &[
+    0x0053, 0x0074, 0x0061, 0x0074, 0x0069, 0x0063, 0x0020, 0x0055, 0x0054, 0x0046, 0x0031, 0x0036,
+  ]; // "Static UTF16"
+  JsStringUtf16::from_static(env, UTF16_DATA)
 }

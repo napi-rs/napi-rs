@@ -276,6 +276,51 @@ impl<'env> JsStringUtf16<'env> {
     }
   }
 
+  #[cfg(feature = "napi10")]
+  pub fn from_static(env: &'env Env, data: &'static [u16]) -> Result<JsStringUtf16<'env>> {
+    use std::ptr;
+
+    use crate::{check_status, Value, ValueType};
+
+    if data.is_empty() {
+      return Err(Error::new(
+        Status::InvalidArg,
+        "Data should not be empty".to_owned(),
+      ));
+    }
+
+    let mut raw_value = ptr::null_mut();
+    let mut copied = false;
+
+    check_status!(
+      unsafe {
+        sys::node_api_create_external_string_utf16(
+          env.0,
+          data.as_ptr(),
+          data.len() as isize,
+          None,
+          ptr::null_mut(),
+          &mut raw_value,
+          &mut copied,
+        )
+      },
+      "Failed to create external string utf16"
+    )?;
+
+    Ok(Self {
+      inner: JsString(
+        Value {
+          env: env.0,
+          value: raw_value,
+          value_type: ValueType::String,
+        },
+        std::marker::PhantomData,
+      ),
+      buf: data,
+      _inner_buf: vec![],
+    })
+  }
+
   pub fn as_str(&self) -> Result<String> {
     if let Some((_, prefix)) = self.as_slice().split_last() {
       String::from_utf16(prefix).map_err(|e| Error::new(Status::InvalidArg, format!("{e}")))
