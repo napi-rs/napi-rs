@@ -66,7 +66,7 @@ const isMuslFromChildProcess = () => {
 function requireNative() {
   if (process.env.NAPI_RS_NATIVE_LIBRARY_PATH) {
     try {
-      nativeBinding = require(process.env.NAPI_RS_NATIVE_LIBRARY_PATH);
+      return require(process.env.NAPI_RS_NATIVE_LIBRARY_PATH);
     } catch (err) {
       loadErrors.push(err)
     }
@@ -728,6 +728,7 @@ module.exports.i8ArrayToArray = nativeBinding.i8ArrayToArray
 module.exports.indexmapPassthrough = nativeBinding.indexmapPassthrough
 module.exports.indexSetToJs = nativeBinding.indexSetToJs
 module.exports.indexSetToRust = nativeBinding.indexSetToRust
+module.exports.intoUtf8 = nativeBinding.intoUtf8
 module.exports.jsErrorCallback = nativeBinding.jsErrorCallback
 module.exports.Kind = nativeBinding.Kind
 module.exports.KindInValidate = nativeBinding.KindInValidate

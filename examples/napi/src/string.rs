@@ -1,4 +1,4 @@
-use napi::{bindgen_prelude::*, JsString, JsStringLatin1, JsStringUtf16};
+use napi::{bindgen_prelude::*, JsString, JsStringLatin1, JsStringUtf16, JsStringUtf8};
 
 #[napi(object)]
 pub struct Latin1MethodsResult {
@@ -38,6 +38,11 @@ pub fn return_c_string() -> RawCString {
   let mock_c_string = b"Hello from C string!\0";
   let mock_c_string_ptr = mock_c_string.as_ptr().cast();
   RawCString::new(mock_c_string_ptr, NAPI_AUTO_LENGTH)
+}
+
+#[napi]
+pub fn into_utf8(s: JsString) -> Result<JsStringUtf8> {
+  s.into_utf8()
 }
 
 #[napi]
@@ -180,7 +185,11 @@ pub fn test_latin1_methods(env: &Env, input: String) -> Result<Latin1MethodsResu
   Ok(Latin1MethodsResult {
     length: latin1.len() as u32,
     is_empty: latin1.is_empty(),
-    as_slice: latin1.as_slice().to_vec(),
+    as_slice: if cfg!(target_family = "wasm") {
+      latin1.as_slice().iter().cloned().collect()
+    } else {
+      latin1.as_slice().to_vec()
+    },
   })
 }
 

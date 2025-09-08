@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.0](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v2.1.4...napi-derive-backend-v2.2.0) - 2025-09-08
+
+### Added
+
+- *(napi)* support external JsStringLatin1 and JsStringUtf16 ([#2898](https://github.com/napi-rs/napi-rs/pull/2898))
+
 ## [2.1.4](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v2.1.3...napi-derive-backend-v2.1.4) - 2025-08-16
 
 ### Fixed

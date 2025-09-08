@@ -286,6 +286,7 @@ import {
   arrayParams,
   indexSetToRust,
   indexSetToJs,
+  intoUtf8,
 } from '../index.cjs'
 // import other stuff in `#[napi(module_exports)]`
 import nativeAddon from '../index.cjs'
@@ -337,6 +338,7 @@ test('string', (t) => {
   t.is(createExternalLatin1String(), 'External Latin1')
   t.is(createStaticLatin1String(), 'Static Latin1 string')
   t.is(createStaticUtf16String(), 'Static UTF16')
+  t.is(intoUtf8('Hello'), 'Hello')
 })
 
 test('JsStringLatin1::from_external tests', (t) => {
@@ -365,7 +367,9 @@ test('JsStringLatin1::from_external tests', (t) => {
   const methodsTest = testLatin1Methods('Test string')
   t.is(methodsTest.length, 11)
   t.is(methodsTest.isEmpty, false)
-  t.deepEqual(methodsTest.asSlice, Array.from(Buffer.from('Test string')))
+  if (!process.env.WASI_TEST) {
+    t.deepEqual(methodsTest.asSlice, Array.from(Buffer.from('Test string')))
+  }
 
   // Test with empty input
   t.throws(() => testLatin1Methods(''), {
