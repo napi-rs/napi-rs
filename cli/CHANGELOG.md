@@ -3,6 +3,17 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.2.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.1.5...@napi-rs/cli@3.2.0) (2025-09-11)
+
+### Bug Fixes
+
+- **cli:** fix misuse of configPath as readNapiConfig first argument ([#2900](https://github.com/napi-rs/napi-rs/issues/2900)) ([c034e1e](https://github.com/napi-rs/napi-rs/commit/c034e1e4f01c2947dfc53fa9d5066e2e1fa113b7))
+- **cli:** NAPI_RS_NATIVE_LIBRARY_PATH usage ([#2907](https://github.com/napi-rs/napi-rs/issues/2907)) ([841ddf4](https://github.com/napi-rs/napi-rs/commit/841ddf4231ad46d482624971a794af091b9d8612))
+
+### Features
+
+- **cli:** add support for loongarch64-unknown-linux-gnu ([#2887](https://github.com/napi-rs/napi-rs/issues/2887)) ([807f579](https://github.com/napi-rs/napi-rs/commit/807f5797960e80de6cc291d90f5fc34575e011fe))
+
 ## [3.1.5](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.1.4...@napi-rs/cli@3.1.5) (2025-08-16)
 
 **Note:** Version bump only for package @napi-rs/cli

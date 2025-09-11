@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.1.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/triples@2.0.9...@napi-rs/triples@2.1.0) (2025-09-11)
+
+### Features
+
+- **cli:** add support for loongarch64-unknown-linux-gnu ([#2887](https://github.com/napi-rs/napi-rs/issues/2887)) ([807f579](https://github.com/napi-rs/napi-rs/commit/807f5797960e80de6cc291d90f5fc34575e011fe))
+
 ## [2.0.9](https://github.com/napi-rs/napi-rs/compare/@napi-rs/triples@2.0.8...@napi-rs/triples@2.0.9) (2025-08-16)
 
 ### Bug Fixes

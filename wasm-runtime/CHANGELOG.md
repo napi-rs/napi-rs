@@ -3,6 +3,10 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [1.0.4](https://github.com/napi-rs/napi-rs/compare/@napi-rs/wasm-runtime@1.0.3...@napi-rs/wasm-runtime@1.0.4) (2025-09-11)
+
+**Note:** Version bump only for package @napi-rs/wasm-runtime
+
 ## [1.0.3](https://github.com/napi-rs/napi-rs/compare/@napi-rs/wasm-runtime@1.0.2...@napi-rs/wasm-runtime@1.0.3) (2025-08-08)
 
 ### Bug Fixes
