@@ -511,21 +511,31 @@ function requireNative() {
 nativeBinding = requireNative()
 
 if (!nativeBinding || process.env.NAPI_RS_FORCE_WASI) {
+  let wasiBinding = null
+  let wasiBindingError = null
   try {
-    nativeBinding = require('./example.wasi.cjs')
+    wasiBinding = require('./example.wasi.cjs')
+    nativeBinding = wasiBinding
   } catch (err) {
     if (process.env.NAPI_RS_FORCE_WASI) {
-      loadErrors.push(err)
+      wasiBindingError = err
     }
   }
   if (!nativeBinding) {
     try {
-      nativeBinding = require('@examples/napi-wasm32-wasi')
+      wasiBinding = require('@examples/napi-wasm32-wasi')
+      nativeBinding = wasiBinding
     } catch (err) {
       if (process.env.NAPI_RS_FORCE_WASI) {
+        wasiBindingError.cause = err
         loadErrors.push(err)
       }
     }
+  }
+  if (process.env.NAPI_RS_FORCE_WASI === 'error' && !wasiBinding) {
+    const error = new Error('WASI binding not found and NAPI_RS_FORCE_WASI is set to error')
+    error.cause = wasiBindingError
+    throw error
   }
 }
 
@@ -535,7 +545,12 @@ if (!nativeBinding) {
       `Cannot find native binding. ` +
         `npm has a bug related to optional dependencies (https://github.com/npm/cli/issues/4828). ` +
         'Please try `npm i` again after removing both package-lock.json and node_modules directory.',
-      { cause: loadErrors }
+      {
+        cause: loadErrors.reduce((err, cur) => {
+          cur.cause = err
+          return cur
+        }),
+      },
     )
   }
   throw new Error(`Failed to load native binding`)
