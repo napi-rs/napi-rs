@@ -68,7 +68,7 @@ describe('NAPI-RS wasi browser test', function () {
   })
 
   it('testWorkers should not throw', async () => {
-    const { resolve, reject, promise } = Promise.withResolvers()
+    const { resolve, reject, promise } = Promise.withResolvers<void>()
     expect(() =>
       testWorkers(10, (err) => {
         if (err) {

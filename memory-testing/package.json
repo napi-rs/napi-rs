@@ -7,12 +7,12 @@
   },
   "dependencies": {
     "colorette": "^2.0.20",
-    "dockerode": "^4.0.5",
-    "pretty-bytes": "^7.0.0",
+    "dockerode": "^4.0.8",
+    "pretty-bytes": "^7.0.1",
     "table": "^6.9.0"
   },
   "devDependencies": {
     "@napi-rs/cli": "workspace:*",
-    "@types/dockerode": "^3.3.37"
+    "@types/dockerode": "^3.3.43"
   }
 }
