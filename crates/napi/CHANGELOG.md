@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.0](https://github.com/napi-rs/napi-rs/compare/napi-v3.3.0...napi-v3.4.0) - 2025-09-13
+
+### Added
+
+- *(cli)* add support for loongarch64-unknown-linux-gnu ([#2887](https://github.com/napi-rs/napi-rs/pull/2887))
+
+### Fixed
+
+- *(napi)* node_api_create_external_string_utf16 on wasm ([#2912](https://github.com/napi-rs/napi-rs/pull/2912))
+
 ## [3.3.0](https://github.com/napi-rs/napi-rs/compare/napi-v3.2.4...napi-v3.3.0) - 2025-09-08
 
 ### Added
