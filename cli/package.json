@@ -69,7 +69,7 @@
     "debug": "^4.4.1",
     "emnapi": "^1.5.0",
     "es-toolkit": "^1.39.10",
-    "find-up": "^7.0.0",
+    "find-up": "^8.0.0",
     "js-yaml": "^4.1.0",
     "semver": "^7.7.2",
     "typanion": "^3.14.0"
