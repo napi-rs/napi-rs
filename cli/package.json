@@ -25,7 +25,8 @@
   },
   "files": [
     "dist",
-    "src"
+    "src",
+    "!__tests__"
   ],
   "keywords": [
     "cli",
