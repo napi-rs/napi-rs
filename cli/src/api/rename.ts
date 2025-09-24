@@ -5,7 +5,7 @@ import { resolve, join } from 'node:path'
 import { parse as parseToml, stringify as stringifyToml } from '@std/toml'
 import { load as yamlParse, dump as yamlStringify } from 'js-yaml'
 import { isNil, merge, omitBy, pick } from 'es-toolkit'
-import { findUp } from 'find-up'
+import * as find from 'empathic/find'
 
 import { applyDefaultRenameOptions, RenameOptions } from '../def/rename.js'
 import { readConfig, readFileAsync, writeFileAsync } from '../utils/index.js'
@@ -74,9 +74,8 @@ export async function renameProject(userOptions: RenameOptions) {
 
   await writeFileAsync(cargoTomlPath, updatedTomlContent)
   if (oldName !== options.binaryName) {
-    const githubActionsPath = await findUp('.github', {
+    const githubActionsPath = find.dir('.github', {
       cwd: options.cwd,
-      type: 'directory',
     })
     if (githubActionsPath) {
       const githubActionsCIYmlPath = join(
