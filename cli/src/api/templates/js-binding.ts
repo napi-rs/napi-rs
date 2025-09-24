@@ -146,7 +146,11 @@ function requireNative() {
     }
   } else if (process.platform === 'win32') {
     if (process.arch === 'x64') {
-      ${requireTuple('win32-x64-msvc')}
+      if (process.report?.getReport?.()?.header?.osName?.startsWith?.('MINGW')) {
+        ${requireTuple('win32-x64-gnu')}
+      } else {
+        ${requireTuple('win32-x64-msvc')}
+      }
     } else if (process.arch === 'ia32') {
       ${requireTuple('win32-ia32-msvc')}
     } else if (process.arch === 'arm64') {

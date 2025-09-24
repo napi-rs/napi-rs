@@ -169,6 +169,7 @@ async function filterTargetsInGithubActions(
 
   const macOSAndWindowsTargets = new Set([
     'x86_64-pc-windows-msvc',
+    'x86_64-pc-windows-gnu',
     'aarch64-pc-windows-msvc',
     'x86_64-apple-darwin',
   ])
