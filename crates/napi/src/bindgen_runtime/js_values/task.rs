@@ -51,11 +51,13 @@ impl<T: for<'task> ScopedTask<'task>> AsyncTask<T> {
   }
 }
 
+type AbortCallback = Rc<RefCell<Vec<Box<dyn Fn()>>>>;
+
 /// <https://developer.mozilla.org/zh-CN/docs/Web/API/AbortController>
 pub struct AbortSignal {
   raw_work: Rc<Cell<sys::napi_async_work>>,
   status: Rc<Cell<u8>>,
-  abort: Rc<RefCell<Vec<Box<dyn Fn()>>>>,
+  abort: AbortCallback,
 }
 
 impl AbortSignal {
