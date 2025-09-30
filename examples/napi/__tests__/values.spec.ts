@@ -1463,11 +1463,11 @@ test('async task with different resolved values', async (t) => {
 
 AbortSignalTest('with abort signal handle', async (t) => {
   const ctrl = new AbortController()
-  const promise = withAbortSignalHandle(1, 2, ctrl.signal)
+  const promise = withAbortSignalHandle(ctrl.signal)
   try {
     ctrl.abort()
-    await promise
-    t.pass('should console abort')
+    const ret = await promise
+    t.is(ret, 999)
   } catch (err: unknown) {
     // sometimes on CI, the scheduled task is able to abort
     // so we only allow it to throw AbortError
