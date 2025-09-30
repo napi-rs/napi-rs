@@ -55,11 +55,11 @@ impl<T: for<'task> ScopedTask<'task>> AsyncTask<T> {
 pub struct AbortSignal {
   raw_work: Rc<Cell<sys::napi_async_work>>,
   status: Rc<Cell<u8>>,
-  abort: Rc<RefCell<Vec<Box<dyn Fn() -> ()>>>>,
+  abort: Rc<RefCell<Vec<Box<dyn Fn()>>>>,
 }
 
 impl AbortSignal {
-  pub fn on_abort<F: Fn() -> () + 'static>(&self, cb: F) {
+  pub fn on_abort<F: Fn() + 'static>(&self, cb: F) {
     self.abort.borrow_mut().push(Box::new(cb));
   }
 }
