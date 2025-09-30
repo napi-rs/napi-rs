@@ -33,6 +33,12 @@ pub fn with_abort_controller(a: u32, b: u32, signal: AbortSignal) -> AsyncTask<D
   AsyncTask::with_signal(DelaySum(a, b), signal)
 }
 
+#[napi]
+fn with_abort_signal_handle(a: u32, b: u32, signal: AbortSignal) -> AsyncTask<DelaySum> {
+  signal.on_abort(move || println!("abort"));
+  AsyncTask::with_signal(DelaySum(a, b), signal)
+}
+
 struct AsyncTaskVoidReturn {}
 
 #[napi]

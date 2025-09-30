@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::ffi::c_void;
 use std::marker::PhantomData;
 use std::ptr;
@@ -54,6 +55,13 @@ impl<T: for<'task> ScopedTask<'task>> AsyncTask<T> {
 pub struct AbortSignal {
   raw_work: Rc<Cell<sys::napi_async_work>>,
   status: Rc<Cell<u8>>,
+  abort: Rc<RefCell<Vec<Box<dyn Fn() -> ()>>>>,
+}
+
+impl AbortSignal {
+  pub fn on_abort<F: Fn() -> () + 'static>(&self, cb: F) {
+    self.abort.borrow_mut().push(Box::new(cb));
+  }
 }
 
 impl UnwindSafe for AbortSignal {}
@@ -74,9 +82,11 @@ impl FromNapiValue for AbortSignal {
     );
     let async_work_inner: Rc<Cell<sys::napi_async_work>> = Rc::new(Cell::new(ptr::null_mut()));
     let task_status = Rc::new(Cell::new(0));
+    let abort_cbs = Rc::new(RefCell::new(vec![]));
     let abort_signal = AbortSignal {
       raw_work: async_work_inner.clone(),
       status: task_status.clone(),
+      abort: abort_cbs.clone(),
     };
     let js_env = Env::from_raw(env);
 
@@ -111,6 +121,7 @@ impl FromNapiValue for AbortSignal {
     Ok(AbortSignal {
       raw_work: async_work_inner,
       status: task_status,
+      abort: abort_cbs,
     })
   }
 }
@@ -153,6 +164,11 @@ fn on_abort_impl(
     )?;
     let abort_controller_stack = Box::leak(Box::from_raw(async_task as *mut AbortSignalStack));
     for abort_controller in abort_controller_stack.0.iter() {
+      // call abort callback
+      for cb in abort_controller.abort.borrow_mut().iter() {
+        cb();
+      }
+
       // Task Completed, return now
       if abort_controller.status.get() == 1 {
         return Ok(ptr::null_mut());

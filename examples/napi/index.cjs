@@ -108,7 +108,24 @@ function requireNative() {
     }
   } else if (process.platform === 'win32') {
     if (process.arch === 'x64') {
+      if (process.report?.getReport?.()?.header?.osName?.startsWith?.('MINGW')) {
+        try {
+        return require('./example.win32-x64-gnu.node')
+      } catch (e) {
+        loadErrors.push(e)
+      }
       try {
+        const binding = require('@examples/napi-win32-x64-gnu')
+        const bindingPackageVersion = require('@examples/napi-win32-x64-gnu/package.json').version
+        if (bindingPackageVersion !== '0.0.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+          throw new Error(`Native binding package version mismatch, expected 0.0.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+        }
+        return binding
+      } catch (e) {
+        loadErrors.push(e)
+      }
+      } else {
+        try {
         return require('./example.win32-x64-msvc.node')
       } catch (e) {
         loadErrors.push(e)
@@ -122,6 +139,7 @@ function requireNative() {
         return binding
       } catch (e) {
         loadErrors.push(e)
+      }
       }
     } else if (process.arch === 'ia32') {
       try {
@@ -900,6 +918,7 @@ module.exports.validateTypedArraySlice = nativeBinding.validateTypedArraySlice
 module.exports.validateUint8ClampedSlice = nativeBinding.validateUint8ClampedSlice
 module.exports.validateUndefined = nativeBinding.validateUndefined
 module.exports.withAbortController = nativeBinding.withAbortController
+module.exports.withAbortSignalHandle = nativeBinding.withAbortSignalHandle
 module.exports.withinAsyncRuntimeIfAvailable = nativeBinding.withinAsyncRuntimeIfAvailable
 module.exports.withoutAbortController = nativeBinding.withoutAbortController
 module.exports.xxh64Alias = nativeBinding.xxh64Alias

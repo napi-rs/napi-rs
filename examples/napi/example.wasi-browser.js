@@ -406,6 +406,7 @@ export const validateTypedArraySlice = __napiModule.exports.validateTypedArraySl
 export const validateUint8ClampedSlice = __napiModule.exports.validateUint8ClampedSlice
 export const validateUndefined = __napiModule.exports.validateUndefined
 export const withAbortController = __napiModule.exports.withAbortController
+export const withAbortSignalHandle = __napiModule.exports.withAbortSignalHandle
 export const withinAsyncRuntimeIfAvailable = __napiModule.exports.withinAsyncRuntimeIfAvailable
 export const withoutAbortController = __napiModule.exports.withoutAbortController
 export const xxh64Alias = __napiModule.exports.xxh64Alias
