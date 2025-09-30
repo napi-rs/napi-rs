@@ -7,31 +7,31 @@ import { parse, join, resolve } from 'node:path'
 
 import * as colors from 'colorette'
 
-import { BuildOptions as RawBuildOptions } from '../def/build.js'
+import type { BuildOptions as RawBuildOptions } from '../def/build.js'
 import {
   CLI_VERSION,
   copyFileAsync,
-  Crate,
+  type Crate,
   debugFactory,
   DEFAULT_TYPE_DEF_HEADER,
   fileExists,
   getSystemDefaultTarget,
   getTargetLinker,
   mkdirAsync,
-  NapiConfig,
+  type NapiConfig,
   parseMetadata,
   parseTriple,
   processTypeDef,
   readFileAsync,
   readNapiConfig,
-  Target,
+  type Target,
   targetToEnvVar,
   tryInstallCargoBinary,
   unlinkAsync,
   writeFileAsync,
   dirExistsAsync,
   readdirAsync,
-  CargoWorkspaceMetadata,
+  type CargoWorkspaceMetadata,
 } from '../utils/index.js'
 
 import { createCjsBinding, createEsmBinding } from './templates/index.js'
