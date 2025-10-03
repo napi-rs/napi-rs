@@ -1,3 +1,4 @@
 .yarn
 dist
 target
+bench/**/*.ts
