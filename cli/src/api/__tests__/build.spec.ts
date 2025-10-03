@@ -59,12 +59,15 @@ test('build pipeline generates bindings and artifacts', async (t) => {
   const version = '0.1.0'
   const target = getSystemDefaultTarget()
 
-  const napiPath = join(repoRoot, 'crates', 'napi').replace(win32Sep, posixSep)
-  const napiDerivePath = join(repoRoot, 'crates', 'macro').replace(
+  const napiPath = join(repoRoot, 'crates', 'napi').replaceAll(
     win32Sep,
     posixSep,
   )
-  const napiBuildPath = join(repoRoot, 'crates', 'build').replace(
+  const napiDerivePath = join(repoRoot, 'crates', 'macro').replaceAll(
+    win32Sep,
+    posixSep,
+  )
+  const napiBuildPath = join(repoRoot, 'crates', 'build').replaceAll(
     win32Sep,
     posixSep,
   )
