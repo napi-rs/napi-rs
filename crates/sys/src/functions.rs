@@ -869,39 +869,11 @@ fn find_node_library() -> Result<libloading::Library, libloading::Error> {
 
 #[cfg(any(target_env = "msvc", feature = "dyn-symbols"))]
 pub(super) unsafe fn load_all() -> Result<libloading::Library, libloading::Error> {
-  #[cfg(all(windows, target_env = "msvc"))]
-  let host = {
-    // Try embedded Node.js symbols first (works for NW.js)
-    libloading::os::windows::Library::this()
-      .and_then(|lib| {
-        // Test if this library has Node-API symbols
-        lib
-          .get::<libloading::os::windows::Symbol<unsafe extern "C" fn()>>(b"napi_create_int32\0")
-          .map(|_| lib.into())
-      })
-      .or_else(|_| {
-        // Fallback to external libraries for regular Node.js
-        #[cfg(feature = "dyn-symbols")]
-        {
-          find_node_library()
-        }
-        #[cfg(not(feature = "dyn-symbols"))]
-        {
-          libloading::os::windows::Library::open_already_loaded("libnode")
-            .or_else(|_| libloading::os::windows::Library::open_already_loaded("node"))
-            .or_else(|_| libloading::os::windows::Library::new("node"))
-            .or_else(|_| libloading::os::windows::Library::new("libnode"))
-            .map(|lib| lib.into())
-        }
-      })?
-  };
+  #[cfg(all(windows, feature = "dyn-symbols"))]
+  let host = find_node_library()?;
 
-  #[cfg(all(windows, not(target_env = "msvc")))]
-  let host = {
-    libloading::os::windows::Library::this()
-      .map(|lib| lib.into())
-      .or_else(|_| find_node_library().map(|lib| lib.into()))?
-  };
+  #[cfg(all(windows, not(feature = "dyn-symbols")))]
+  let host = libloading::os::windows::Library::this()?.into();
 
   #[cfg(unix)]
   let host = libloading::os::unix::Library::this().into();
