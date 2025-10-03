@@ -3,7 +3,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import ava, { TestFn } from 'ava'
+import ava, { type TestFn } from 'ava'
 
 import { createNpmDirs } from '../create-npm-dirs.js'
 
