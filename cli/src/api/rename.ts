@@ -7,7 +7,7 @@ import { load as yamlParse, dump as yamlStringify } from 'js-yaml'
 import { isNil, merge, omitBy, pick } from 'es-toolkit'
 import * as find from 'empathic/find'
 
-import { applyDefaultRenameOptions, RenameOptions } from '../def/rename.js'
+import { applyDefaultRenameOptions, type RenameOptions } from '../def/rename.js'
 import { readConfig, readFileAsync, writeFileAsync } from '../utils/index.js'
 
 export async function renameProject(userOptions: RenameOptions) {

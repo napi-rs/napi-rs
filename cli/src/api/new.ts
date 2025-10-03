@@ -8,7 +8,7 @@ import { load as yamlLoad, dump as yamlDump } from 'js-yaml'
 
 import {
   applyDefaultNewOptions,
-  NewOptions as RawNewOptions,
+  type NewOptions as RawNewOptions,
 } from '../def/new.js'
 import {
   AVAILABLE_TARGETS,
@@ -17,7 +17,7 @@ import {
   mkdirAsync,
   readdirAsync,
   statAsync,
-  SupportedPackageManager,
+  type SupportedPackageManager,
 } from '../utils/index.js'
 import { napiEngineRequirement } from '../utils/version.js'
 import { renameProject } from './rename.js'
@@ -469,4 +469,4 @@ function getBinaryName(name: string): string {
   return name.split('/').pop()!
 }
 
-export { NewOptions }
+export type { NewOptions }

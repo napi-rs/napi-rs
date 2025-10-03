@@ -4,7 +4,7 @@ import * as colors from 'colorette'
 
 import {
   applyDefaultArtifactsOptions,
-  ArtifactsOptions,
+  type ArtifactsOptions,
 } from '../def/artifacts.js'
 import {
   readNapiConfig,
