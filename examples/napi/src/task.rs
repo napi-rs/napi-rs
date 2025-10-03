@@ -12,7 +12,9 @@ impl napi::Task for SimpleTask {
   type JsValue = i32;
 
   fn compute(&mut self) -> Result<Self::Output> {
-    Ok(self.receiver.recv().unwrap())
+    self.receiver.recv().map_err(|e| {
+      Error::new(Status::GenericFailure, format!("Channel receive error: {}", e))
+    })
   }
 
   fn resolve(&mut self, _env: napi::Env, output: Self::Output) -> Result<Self::JsValue> {
