@@ -451,6 +451,7 @@ module.exports.validateTypedArraySlice = __napiModule.exports.validateTypedArray
 module.exports.validateUint8ClampedSlice = __napiModule.exports.validateUint8ClampedSlice
 module.exports.validateUndefined = __napiModule.exports.validateUndefined
 module.exports.withAbortController = __napiModule.exports.withAbortController
+module.exports.withAbortSignalHandle = __napiModule.exports.withAbortSignalHandle
 module.exports.withinAsyncRuntimeIfAvailable = __napiModule.exports.withinAsyncRuntimeIfAvailable
 module.exports.withoutAbortController = __napiModule.exports.withoutAbortController
 module.exports.xxh64Alias = __napiModule.exports.xxh64Alias

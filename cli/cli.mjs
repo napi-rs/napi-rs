@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
-import { execSync } from 'child_process'
-import { resolve } from 'path'
-import { fileURLToPath } from 'url'
+import { execSync } from 'node:child_process'
+import { resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 execSync(
   `node --import @oxc-node/core/register ${resolve(

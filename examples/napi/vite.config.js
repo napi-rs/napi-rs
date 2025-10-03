@@ -10,7 +10,7 @@ export default defineConfig({
   },
   plugins: [
     nodePolyfills({
-      include: ['util'],
+      include: ['events'],
     }),
     {
       name: 'configure-response-headers',
@@ -27,9 +27,13 @@ export default defineConfig({
   test: {
     include: ['browser/**/*.{spec,test}.{js,jsx,ts,tsx}'],
     browser: {
-      provider: 'playwright',
       enabled: true,
-      name: 'chromium',
+      provider: 'playwright',
+      instances: [
+        {
+          browser: 'chromium',
+        },
+      ],
     },
   },
 })

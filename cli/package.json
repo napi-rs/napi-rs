@@ -1,6 +1,6 @@
 {
   "name": "@napi-rs/cli",
-  "version": "3.2.0",
+  "version": "3.3.0",
   "description": "Cli tools for napi-rs",
   "author": "LongYinan <lynweklm@gmail.com>",
   "homepage": "https://github.com/napi-rs/napi-rs",
@@ -68,14 +68,12 @@
     "colorette": "^2.0.20",
     "debug": "^4.4.1",
     "emnapi": "^1.5.0",
-    "empathic": "^2.0.0",
     "es-toolkit": "^1.39.10",
     "js-yaml": "^4.1.0",
     "semver": "^7.7.2",
     "typanion": "^3.14.0"
   },
   "devDependencies": {
-    "@emnapi/core": "^1.5.0",
     "@emnapi/runtime": "^1.5.0",
     "@oxc-node/core": "^0.0.32",
     "@std/toml": "npm:@jsr/std__toml@^1.0.10",
@@ -85,6 +83,7 @@
     "@types/node": "^24.3.1",
     "@types/semver": "^7.7.1",
     "ava": "^6.4.1",
+    "empathic": "^2.0.0",
     "env-paths": "^3.0.0",
     "prettier": "^3.6.2",
     "tsdown": "^0.15.0",
@@ -92,8 +91,7 @@
     "typescript": "^5.9.2"
   },
   "peerDependencies": {
-    "@emnapi/runtime": "^1.1.0",
-    "emnapi": "^1.1.0"
+    "@emnapi/runtime": "^1.5.0"
   },
   "peerDependenciesMeta": {
     "@emnapi/runtime": {

@@ -1195,6 +1195,8 @@ export type VoidNullable<T = void> =
 
 export declare function withAbortController(a: number, b: number, signal: AbortSignal): Promise<number>
 
+export declare function withAbortSignalHandle(signal: AbortSignal): Promise<number>
+
 export declare function withinAsyncRuntimeIfAvailable(): void
 
 export declare function withoutAbortController(a: number, b: number): Promise<number>
