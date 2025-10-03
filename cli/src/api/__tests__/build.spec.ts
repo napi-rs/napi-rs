@@ -10,8 +10,8 @@ import {
   writeFile,
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, resolve } from 'node:path'
-import { join, sep as posixSep } from 'node:path/posix'
+import { join, dirname, resolve } from 'node:path'
+import { join as posixJoin, sep as posixSep } from 'node:path/posix'
 import { sep as win32Sep } from 'node:path/win32'
 import { fileURLToPath } from 'node:url'
 
@@ -32,13 +32,13 @@ const test = ava as TestFn<{
 test.beforeEach(async (t) => {
   const timestamp = Date.now()
   const random = Math.random().toString(36).substring(7)
-  const tmpDir = join(
+  const tmpDir = posixJoin(
     tmpdir(),
     'napi-rs-test',
     `build-spec-${timestamp}-${random}`,
   )
-  const projectDir = join(tmpDir, 'project')
-  const typeDefDir = join(projectDir, 'target', 'type-def')
+  const projectDir = posixJoin(tmpDir, 'project')
+  const typeDefDir = posixJoin(projectDir, 'target', 'type-def')
 
   await mkdir(typeDefDir, { recursive: true })
 
@@ -59,15 +59,15 @@ test('build pipeline generates bindings and artifacts', async (t) => {
   const version = '0.1.0'
   const target = getSystemDefaultTarget()
 
-  const napiPath = join(repoRoot, 'crates', 'napi').replaceAll(
+  const napiPath = posixJoin(repoRoot, 'crates', 'napi').replaceAll(
     win32Sep,
     posixSep,
   )
-  const napiDerivePath = join(repoRoot, 'crates', 'macro').replaceAll(
+  const napiDerivePath = posixJoin(repoRoot, 'crates', 'macro').replaceAll(
     win32Sep,
     posixSep,
   )
-  const napiBuildPath = join(repoRoot, 'crates', 'build').replaceAll(
+  const napiBuildPath = posixJoin(repoRoot, 'crates', 'build').replaceAll(
     win32Sep,
     posixSep,
   )
