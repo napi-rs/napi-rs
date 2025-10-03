@@ -712,6 +712,7 @@ jobs:
         with:
           node-version: 22
           cache: 'yarn'
+          cache-dependency-path: 'yarn.lock'
       - name: Install
         uses: dtolnay/rust-toolchain@stable
         with:
