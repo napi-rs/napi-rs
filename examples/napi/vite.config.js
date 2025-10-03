@@ -10,7 +10,7 @@ export default defineConfig({
   },
   plugins: [
     nodePolyfills({
-      include: ['util', 'buffer'],
+      include: ['events'],
     }),
     {
       name: 'configure-response-headers',
