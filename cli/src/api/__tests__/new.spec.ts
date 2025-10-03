@@ -3,7 +3,7 @@ import { readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import ava, { TestFn } from 'ava'
+import ava, { type TestFn } from 'ava'
 import { load as yamlLoad } from 'js-yaml'
 
 import { newProject } from '../new.js'
