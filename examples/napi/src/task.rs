@@ -13,7 +13,10 @@ impl napi::Task for SimpleTask {
 
   fn compute(&mut self) -> Result<Self::Output> {
     self.receiver.recv().map_err(|e| {
-      Error::new(Status::GenericFailure, format!("Channel receive error: {}", e))
+      Error::new(
+        Status::GenericFailure,
+        format!("Channel receive error: {}", e),
+      )
     })
   }
 
