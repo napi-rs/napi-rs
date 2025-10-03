@@ -167,7 +167,7 @@ fn on_abort_impl(
     let abort_controller_stack = Box::leak(Box::from_raw(async_task as *mut AbortSignalStack));
     for abort_controller in abort_controller_stack.0.iter() {
       // call abort callback
-      for cb in abort_controller.abort.borrow_mut().iter() {
+      for cb in abort_controller.abort.borrow().iter() {
         cb();
       }
 
