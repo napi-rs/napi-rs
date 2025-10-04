@@ -50,18 +50,23 @@ impl<'env> BufferSlice<'env> {
       }
     }
     let len = data.len();
+    let cap = data.capacity();
+    let finalize_hint = Box::into_raw(Box::new((len, cap)));
     let mut status = unsafe {
       sys::napi_create_external_buffer(
         env.0,
         len,
         inner_ptr.cast(),
         Some(drop_buffer_slice),
-        Box::into_raw(Box::new(len)).cast(),
+        finalize_hint.cast(),
         &mut buf,
       )
     };
-    status = if status == sys::Status::napi_no_external_buffers_allowed {
+    if status == sys::Status::napi_no_external_buffers_allowed {
       unsafe {
+        let _ = Box::from_raw(finalize_hint);
+      }
+      status = unsafe {
         sys::napi_create_buffer_copy(
           env.0,
           len,
@@ -69,11 +74,10 @@ impl<'env> BufferSlice<'env> {
           ptr::null_mut(),
           &mut buf,
         )
-      }
+      };
     } else {
-      status
-    };
-    mem::forget(data);
+      mem::forget(data);
+    }
     check_status!(status, "Failed to create buffer slice from data")?;
 
     Ok(Self {

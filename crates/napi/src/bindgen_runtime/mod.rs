@@ -98,7 +98,7 @@ pub unsafe extern "C" fn drop_buffer_slice(
   finalize_data: *mut c_void,
   finalize_hint: *mut c_void,
 ) {
-  let len = *unsafe { Box::from_raw(finalize_hint.cast()) };
+  let (len, cap): (usize, usize) = *unsafe { Box::from_raw(finalize_hint.cast()) };
   #[cfg(all(debug_assertions, not(windows)))]
   {
     js_values::BUFFER_DATA.with(|buffer_data| {
@@ -106,7 +106,10 @@ pub unsafe extern "C" fn drop_buffer_slice(
       buffer.remove(&(finalize_data as *mut u8));
     });
   }
+  if finalize_data.is_null() {
+    return;
+  }
   unsafe {
-    drop(Vec::from_raw_parts(finalize_data, len, len));
+    drop(Vec::from_raw_parts(finalize_data, len, cap));
   }
 }

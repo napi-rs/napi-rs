@@ -618,18 +618,20 @@ macro_rules! impl_object_methods {
             .map(|p| p.data)
             .filter(|data| !data.is_null())
             .collect::<Vec<*mut std::ffi::c_void>>();
-          let len = Box::into_raw(Box::new(closures.len()));
-          check_status!(unsafe {
-            sys::napi_add_finalizer(
-              self.0.env,
-              self.0.value,
-              closures.as_mut_ptr().cast(),
-              Some(finalize_closures),
-              len.cast(),
-              ptr::null_mut(),
-            )
-          })?;
-          std::mem::forget(closures);
+          if !closures.is_empty() {
+            let finalize_hint = Box::into_raw(Box::new((closures.len(), closures.capacity())));
+            check_status!(unsafe {
+              sys::napi_add_finalizer(
+                self.0.env,
+                self.0.value,
+                closures.as_mut_ptr().cast(),
+                Some(finalize_closures),
+                finalize_hint.cast(),
+                ptr::null_mut(),
+              )
+            })?;
+            std::mem::forget(closures);
+          }
         }
         check_status!(unsafe {
           sys::napi_define_properties(
