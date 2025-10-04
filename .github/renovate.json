@@ -16,7 +16,12 @@
     {
       "matchPackageNames": ["emnapi", "^@emnapi"],
       "rangeStrategy": "replace",
-      "groupName": "napi-rs"
+      "groupName": "emnapi"
+    },
+    {
+      "groupName": "rust toolchain",
+      "matchManagers": ["custom.regex"],
+      "matchDepNames": ["rustc"]
     }
   ],
   "postUpdateOptions": ["yarnDedupeHighest"],
