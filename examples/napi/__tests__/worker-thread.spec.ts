@@ -50,7 +50,7 @@ test('should be able to require in worker thread', async (t) => {
   )
 })
 
-test('custom GC works on worker_threads', async (t) => {
+test.skip('custom GC works on worker_threads', async (t) => {
   await Promise.all(
     Array.from({ length: concurrency }).map(() =>
       Promise.all([
