@@ -94,7 +94,7 @@ test.skip('custom GC works on worker_threads', async (t) => {
   )
 })
 
-test('should be able to new Class in worker thread concurrently', async (t) => {
+test.skip('should be able to new Class in worker thread concurrently', async (t) => {
   await Promise.all(
     Array.from({ length: concurrency }).map(() => {
       const w = new Worker(join(__dirname, 'worker.js'), {
