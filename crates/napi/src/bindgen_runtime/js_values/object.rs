@@ -474,7 +474,7 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
           .filter(|data| !data.is_null())
           .collect::<Vec<*mut std::ffi::c_void>>();
         if !closures.is_empty() {
-          let len = Box::into_raw(Box::new(closures.len()));
+          let finalize_hint = Box::into_raw(Box::new((closures.len(), closures.capacity())));
           check_status!(
             unsafe {
               sys::napi_add_finalizer(
@@ -482,7 +482,7 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
                 self.value().value,
                 closures.as_mut_ptr().cast(),
                 Some(finalize_closures),
-                len.cast(),
+                finalize_hint.cast(),
                 ptr::null_mut(),
               )
             },
@@ -1058,9 +1058,9 @@ pub(crate) unsafe extern "C" fn finalize_closures(
   data: *mut c_void,
   len: *mut c_void,
 ) {
-  let length: usize = *unsafe { Box::from_raw(len.cast()) };
+  let (length, capacity): (usize, usize) = *unsafe { Box::from_raw(len.cast()) };
   let closures: Vec<*mut PropertyClosures> =
-    unsafe { Vec::from_raw_parts(data.cast(), length, length) };
+    unsafe { Vec::from_raw_parts(data.cast(), length, capacity) };
   for closure_ptr in closures.into_iter() {
     if !closure_ptr.is_null() {
       let closures = unsafe { Box::from_raw(closure_ptr) };

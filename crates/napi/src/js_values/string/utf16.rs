@@ -62,7 +62,8 @@ impl<'env> JsStringUtf16<'env> {
     let mut copied = false;
     let data_ptr = data.as_ptr();
     let len = data.len();
-    let finalize_hint = Box::into_raw(Box::new(len));
+    let cap = data.capacity();
+    let finalize_hint = Box::into_raw(Box::new((len, cap)));
 
     check_status!(
       unsafe {
@@ -312,8 +313,11 @@ extern "C" fn drop_utf16_string(
   finalize_data: *mut c_void,
   finalize_hint: *mut c_void,
 ) {
-  let size: usize = unsafe { *Box::from_raw(finalize_hint.cast()) };
-  let data: Vec<u16> = unsafe { Vec::from_raw_parts(finalize_data.cast(), size, size) };
+  let (size, capacity): (usize, usize) = unsafe { *Box::from_raw(finalize_hint.cast()) };
+  if size == 0 || finalize_data.is_null() {
+    return;
+  }
+  let data: Vec<u16> = unsafe { Vec::from_raw_parts(finalize_data.cast(), size, capacity) };
   drop(data);
 }
 

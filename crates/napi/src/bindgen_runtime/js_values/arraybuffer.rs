@@ -159,17 +159,22 @@ impl<'env> ArrayBuffer<'env> {
       }
     }
     let len = data.len();
+    let cap = data.capacity();
+    let finalize_hint = Box::into_raw(Box::new((len, cap)));
     let mut status = unsafe {
       sys::napi_create_external_arraybuffer(
         env.0,
         inner_ptr.cast(),
         data.len(),
         Some(finalize_slice::<u8>),
-        Box::into_raw(Box::new(len)).cast(),
+        finalize_hint.cast(),
         &mut buf,
       )
     };
     if status == napi_sys::Status::napi_no_external_buffers_allowed {
+      unsafe {
+        let _ = Box::from_raw(finalize_hint);
+      }
       let mut underlying_data = ptr::null_mut();
       status =
         unsafe { sys::napi_create_arraybuffer(env.0, data.len(), &mut underlying_data, &mut buf) };
@@ -426,6 +431,7 @@ macro_rules! impl_typed_array {
     pub struct $name {
       data: *mut $rust_type,
       length: usize,
+      capacity: usize,
       #[allow(unused)]
       byte_offset: usize,
       raw: Option<(crate::sys::napi_ref, crate::sys::napi_env)>,
@@ -498,8 +504,7 @@ macro_rules! impl_typed_array {
           return;
         }
         if !self.data.is_null() {
-          let length = self.length;
-          unsafe { Vec::from_raw_parts(self.data, length, length) };
+          unsafe { Vec::from_raw_parts(self.data, self.length, self.capacity) };
         }
       }
     }
@@ -553,6 +558,7 @@ macro_rules! impl_typed_array {
         let ret = $name {
           data: data.as_mut_ptr(),
           length: data.len(),
+          capacity: data.capacity(),
           byte_offset: 0,
           raw: None,
           finalizer_notify: ptr::null_mut::<fn(*mut $rust_type, usize)>(),
@@ -569,6 +575,7 @@ macro_rules! impl_typed_array {
         let ret = $name {
           data: data_copied.as_mut_ptr(),
           length: data.as_ref().len(),
+          capacity: data_copied.capacity(),
           finalizer_notify: ptr::null_mut::<fn(*mut $rust_type, usize)>(),
           raw: None,
           byte_offset: 0,
@@ -587,6 +594,7 @@ macro_rules! impl_typed_array {
         $name {
           data,
           length,
+          capacity: length,
           finalizer_notify: Box::into_raw(Box::new(notify)),
           raw: None,
           byte_offset: 0,
@@ -694,6 +702,7 @@ macro_rules! impl_typed_array {
         Ok($name {
           data: data.cast(),
           length,
+          capacity: length,
           byte_offset,
           raw: Some((ref_, env)),
           finalizer_notify: ptr::null_mut::<fn(*mut $rust_type, usize)>(),
@@ -808,6 +817,7 @@ macro_rules! impl_typed_array {
             let val_copy = $name {
               data: val.data,
               length: val.length,
+              capacity: val.capacity,
               byte_offset: val.byte_offset,
               raw: None,
               finalizer_notify: val.finalizer_notify,
@@ -868,6 +878,7 @@ macro_rules! impl_typed_array {
           val.finalizer_notify = ptr::null_mut::<fn(*mut $rust_type, usize)>();
           val.data = ptr::null_mut();
           val.length = 0;
+          val.capacity = 0;
           copied_val.raw = Some((ref_, ptr::null_mut()));
         }
         Ok(napi_val)
@@ -908,17 +919,22 @@ macro_rules! impl_from_slice {
           }
         }
         let len = data.len();
+        let cap = data.capacity();
+        let finalize_hint = Box::into_raw(Box::new((len, cap)));
         let mut status = unsafe {
           sys::napi_create_external_arraybuffer(
             env.0,
             inner_ptr.cast(),
             data.len(),
             Some(finalize_slice::<$rust_type>),
-            Box::into_raw(Box::new(len)).cast(),
+            finalize_hint.cast(),
             &mut buf,
           )
         };
         if status == napi_sys::Status::napi_no_external_buffers_allowed {
+          unsafe {
+            let _ = Box::from_raw(finalize_hint);
+          }
           let mut underlying_data = ptr::null_mut();
           status = unsafe {
             sys::napi_create_arraybuffer(
@@ -1423,8 +1439,12 @@ unsafe extern "C" fn finalize_slice<Data>(
   finalize_data: *mut c_void,
   finalize_hint: *mut c_void,
 ) {
-  let length = unsafe { *Box::from_raw(finalize_hint as *mut usize) };
-  unsafe { Vec::from_raw_parts(finalize_data as *mut Data, length, length) };
+  let (length, capacity): (usize, usize) =
+    *unsafe { Box::from_raw(finalize_hint as *mut (usize, usize)) };
+  if finalize_data.is_null() {
+    return;
+  }
+  unsafe { Vec::from_raw_parts(finalize_data as *mut Data, length, capacity) };
 }
 
 impl_typed_array!(Int8Array, i8, TypedArrayType::Int8);
@@ -1477,11 +1497,13 @@ impl Uint8Array {
   /// Create a new JavaScript `Uint8Array` from a Rust `String` without copying the underlying data.
   pub fn from_string(mut s: String) -> Self {
     let len = s.len();
+    let cap = s.capacity();
     let ret = Self {
       data: s.as_mut_ptr(),
       length: len,
+      capacity: cap,
       finalizer_notify: Box::into_raw(Box::new(move |data, _| {
-        drop(unsafe { String::from_raw_parts(data, len, len) });
+        drop(unsafe { String::from_raw_parts(data, len, cap) });
       })),
       byte_offset: 0,
       raw: None,
@@ -1614,17 +1636,22 @@ impl<'env> Uint8ClampedSlice<'env> {
       }
     }
     let len = data.len();
+    let cap = data.capacity();
+    let finalize_hint = Box::into_raw(Box::new((len, cap)));
     let mut status = unsafe {
       sys::napi_create_external_arraybuffer(
         env.0,
         inner_ptr.cast(),
         data.len(),
         Some(finalize_slice::<u8>),
-        Box::into_raw(Box::new(len)).cast(),
+        finalize_hint.cast(),
         &mut buf,
       )
     };
     if status == napi_sys::Status::napi_no_external_buffers_allowed {
+      unsafe {
+        let _ = Box::from_raw(finalize_hint);
+      }
       let mut underlying_data = ptr::null_mut();
       status = unsafe { sys::napi_create_arraybuffer(env.0, len, &mut underlying_data, &mut buf) };
       let underlying_slice: &mut [u8] =

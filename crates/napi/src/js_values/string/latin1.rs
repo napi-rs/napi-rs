@@ -44,8 +44,7 @@ impl<'env> JsStringLatin1<'env> {
   /// The `copied` parameter serves as feedback to understand whether the external string
   /// optimization was successful or if V8 fell back to traditional string creation.
   pub fn from_data(env: &'env Env, data: Vec<u8>) -> Result<JsStringLatin1<'env>> {
-    use std::mem;
-    use std::ptr;
+    use std::{mem, ptr};
 
     use crate::{check_status, Error, Status, Value, ValueType};
 
@@ -60,7 +59,8 @@ impl<'env> JsStringLatin1<'env> {
     let mut copied = false;
     let data_ptr = data.as_ptr();
     let len = data.len();
-    let finalize_hint = Box::into_raw(Box::new(len));
+    let cap = data.capacity();
+    let finalize_hint = Box::into_raw(Box::new((len, cap)));
 
     check_status!(
       unsafe {
@@ -291,8 +291,11 @@ extern "C" fn drop_latin1_string(
   finalize_data: *mut c_void,
   finalize_hint: *mut c_void,
 ) {
-  let size: usize = unsafe { *Box::from_raw(finalize_hint.cast()) };
-  let data: Vec<u8> = unsafe { Vec::from_raw_parts(finalize_data.cast(), size, size) };
+  let (size, capacity): (usize, usize) = unsafe { *Box::from_raw(finalize_hint.cast()) };
+  if size == 0 || finalize_data.is_null() {
+    return;
+  }
+  let data: Vec<u8> = unsafe { Vec::from_raw_parts(finalize_data.cast(), size, capacity) };
   drop(data);
 }
 

@@ -1,10 +1,10 @@
 use std::convert::{From, TryFrom};
 use std::error;
-use std::ffi::CString;
+use std::ffi::CStr;
 use std::fmt;
 #[cfg(feature = "serde-json")]
 use std::fmt::Display;
-use std::os::raw::{c_char, c_void};
+use std::os::raw::c_void;
 use std::ptr;
 
 #[cfg(feature = "serde-json")]
@@ -276,9 +276,10 @@ impl TryFrom<sys::napi_extended_error_info> for ExtendedErrorInfo {
   fn try_from(value: sys::napi_extended_error_info) -> Result<Self> {
     Ok(Self {
       message: unsafe {
-        CString::from_raw(value.error_message as *mut c_char)
-          .into_string()
+        CStr::from_ptr(value.error_message.cast())
+          .to_str()
           .map_err(|e| Error::new(Status::GenericFailure, format!("{e}")))?
+          .to_owned()
       },
       engine_error_code: value.engine_error_code,
       engine_reserved: value.engine_reserved,
