@@ -133,3 +133,12 @@ jobs:
         run: |
           cargo install cargo-cache --no-default-features --features ci-autoclean
           cargo-cache
+
+  asan-done:
+    name: Address sanitizer
+    runs-on: ubuntu-latest
+    needs:
+      - test
+    steps:
+      - run: exit 1
+        if: ${{ always() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
