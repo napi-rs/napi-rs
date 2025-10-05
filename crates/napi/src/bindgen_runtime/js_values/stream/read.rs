@@ -85,7 +85,7 @@ impl<T> FromNapiValue for ReadableStream<'_, T> {
 }
 
 impl<T> ReadableStream<'_, T> {
-  /// Returns a boolean indicating regardless the readable stream is locked to a reader.
+  /// Returns a boolean indicating whether the readable stream is locked to a reader.
   pub fn locked(&self) -> Result<bool> {
     let mut locked = ptr::null_mut();
     check_status!(
