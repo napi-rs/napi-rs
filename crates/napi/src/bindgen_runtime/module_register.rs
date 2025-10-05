@@ -572,7 +572,6 @@ fn create_custom_gc(env: sys::napi_env) {
 #[cfg(all(
   not(feature = "noop"),
   all(feature = "tokio_rt", feature = "napi4"),
-  not(target_os = "windows"),
   not(target_family = "wasm")
 ))]
 #[ctor::dtor]
