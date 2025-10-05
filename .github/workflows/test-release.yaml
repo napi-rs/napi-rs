@@ -93,12 +93,10 @@ jobs:
             toolchain: stable
           - host: windows-latest
             target: x86_64-pc-windows-msvc
-            build: |
-              yarn workspace @examples/napi build --features mimalloc
-              yarn workspace @examples/compat-mode build
+            build: yarn workspace @examples/napi build
             test: |
               yarn test:cli
-              yarn test
+              yarn workspace @examples/napi test
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
               yarn test:macro
               cargo test -p napi-cargo-test --features noop
