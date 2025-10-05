@@ -91,11 +91,9 @@ jobs:
               RUSTFLAGS="-C link-args=-Wl,-undefined,dynamic_lookup,-no_fixup_chains"
               cargo test -p napi-cargo-test --features noop
             toolchain: stable
-          - host: windows-latest
+          - host: windows-2022
             target: x86_64-pc-windows-msvc
-            build: |
-              yarn workspace @examples/napi build --release
-              yarn workspace @examples/compat-mode build --release
+            build: yarn build:test
             test: |
               yarn test:cli
               yarn test
