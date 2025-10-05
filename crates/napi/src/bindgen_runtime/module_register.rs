@@ -267,20 +267,6 @@ pub unsafe extern "C" fn napi_register_module_v1(
 
   if MODULE_COUNT.fetch_add(1, Ordering::SeqCst) != 0 {
     wait_first_thread_registered();
-  } else {
-    #[cfg(all(
-      feature = "tokio_rt",
-      feature = "napi4",
-      target_os = "windows",
-      not(feature = "noop")
-    ))]
-    {
-      check_status_or_throw!(
-        env,
-        unsafe { sys::napi_add_env_cleanup_hook(env, Some(thread_cleanup), ptr::null_mut()) },
-        "Failed to add env cleanup hook"
-      );
-    }
   }
 
   let mut exports_objects: HashSet<String> = HashSet::default();
@@ -586,7 +572,6 @@ fn create_custom_gc(env: sys::napi_env) {
 #[cfg(all(
   not(feature = "noop"),
   all(feature = "tokio_rt", feature = "napi4"),
-  not(target_os = "windows"),
   not(target_family = "wasm")
 ))]
 #[ctor::dtor]
@@ -594,15 +579,6 @@ fn thread_cleanup() {
   if MODULE_COUNT.fetch_sub(1, Ordering::Relaxed) == 1 {
     crate::tokio_runtime::shutdown_async_runtime();
   }
-}
-
-#[cfg(all(
-  all(feature = "tokio_rt", feature = "napi4"),
-  target_os = "windows",
-  not(feature = "noop")
-))]
-extern "C" fn thread_cleanup(_: *mut std::ffi::c_void) {
-  crate::tokio_runtime::shutdown_async_runtime();
 }
 
 #[cfg(all(
