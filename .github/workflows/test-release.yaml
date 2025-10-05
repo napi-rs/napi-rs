@@ -93,14 +93,16 @@ jobs:
             toolchain: stable
           - host: windows-latest
             target: x86_64-pc-windows-msvc
-            build: yarn build:test
+            build: |
+              yarn workspace @examples/napi build --release
+              yarn workspace @examples/compat-mode build --release
             test: |
               yarn test:cli
               yarn test
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
               yarn test:macro
               cargo test -p napi-cargo-test --features noop
-            toolchain: nightly
+            toolchain: stable
           - host: windows-11-arm
             target: aarch64-pc-windows-msvc
             build: yarn build:test
