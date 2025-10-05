@@ -22,7 +22,9 @@ const concurrency =
     : 1
 
 test.after(() => {
-  shutdownRuntime()
+  if (process.platform !== 'win32') {
+    shutdownRuntime()
+  }
 })
 
 test('should be able to require in worker thread', async (t) => {
