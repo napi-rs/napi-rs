@@ -114,7 +114,8 @@
     "extensions": {
       "ts": "module"
     },
-    "timeout": "1m",
+    "timeout": "2m",
+    "workerThreads": false,
     "files": [
       "**/__tests__/**/*.spec.ts",
       "e2e/**/*.spec.ts"

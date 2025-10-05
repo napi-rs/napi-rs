@@ -53,7 +53,9 @@ impl JsValue<'_> for JsBuffer {
 #[deprecated(since = "3.0.0", note = "Please use Buffer or &[u8] instead")]
 pub struct JsBufferValue {
   pub(crate) value: JsBuffer,
-  data: mem::ManuallyDrop<Vec<u8>>,
+  len: usize,
+  data_ptr: *mut u8,
+  owned: Option<mem::ManuallyDrop<Vec<u8>>>,
 }
 
 impl JsBuffer {
@@ -64,8 +66,10 @@ impl JsBuffer {
       sys::napi_get_buffer_info(self.0.env, self.0.value, &mut data, &mut len)
     })?;
     Ok(JsBufferValue {
-      data: mem::ManuallyDrop::new(unsafe { Vec::from_raw_parts(data as *mut _, len, len) }),
       value: self,
+      len,
+      data_ptr: data as *mut u8,
+      owned: None,
     })
   }
 
@@ -76,7 +80,18 @@ impl JsBuffer {
 
 impl JsBufferValue {
   pub fn new(value: JsBuffer, data: mem::ManuallyDrop<Vec<u8>>) -> Self {
-    JsBufferValue { value, data }
+    let len = data.len();
+    let data_ptr = if len == 0 {
+      std::ptr::null_mut()
+    } else {
+      data.as_ptr() as *mut u8
+    };
+    JsBufferValue {
+      value,
+      len,
+      data_ptr,
+      owned: Some(data),
+    }
   }
 
   pub fn into_raw(self) -> JsBuffer {
@@ -90,13 +105,25 @@ impl JsBufferValue {
 
 impl AsRef<[u8]> for JsBufferValue {
   fn as_ref(&self) -> &[u8] {
-    self.data.as_slice()
+    if let Some(ref data) = self.owned {
+      data.as_slice()
+    } else if self.len == 0 {
+      &[]
+    } else {
+      unsafe { std::slice::from_raw_parts(self.data_ptr as *const u8, self.len) }
+    }
   }
 }
 
 impl AsMut<[u8]> for JsBufferValue {
   fn as_mut(&mut self) -> &mut [u8] {
-    self.data.as_mut_slice()
+    if let Some(ref mut data) = self.owned {
+      data.as_mut_slice()
+    } else if self.len == 0 {
+      &mut []
+    } else {
+      unsafe { std::slice::from_raw_parts_mut(self.data_ptr, self.len) }
+    }
   }
 }
 
@@ -104,12 +131,12 @@ impl Deref for JsBufferValue {
   type Target = [u8];
 
   fn deref(&self) -> &Self::Target {
-    self.data.as_slice()
+    self.as_ref()
   }
 }
 
 impl DerefMut for JsBufferValue {
   fn deref_mut(&mut self) -> &mut Self::Target {
-    self.data.as_mut_slice()
+    self.as_mut()
   }
 }
