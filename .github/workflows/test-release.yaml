@@ -100,7 +100,7 @@ jobs:
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
               yarn test:macro
               cargo test -p napi-cargo-test --features noop
-            toolchain: stable
+            toolchain: 1.89.0
           - host: windows-11-arm
             target: aarch64-pc-windows-msvc
             build: yarn build:test
