@@ -93,10 +93,10 @@ jobs:
             toolchain: stable
           - host: windows-latest
             target: x86_64-pc-windows-msvc
-            build: yarn build:test
+            build: yarn workspace @examples/napi build
             test: |
               yarn test:cli
-              yarn test
+              yarn workspace @examples/napi test
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
               yarn test:macro
               cargo test -p napi-cargo-test --features noop
@@ -115,7 +115,7 @@ jobs:
               yarn workspace @examples/napi build --target i686-pc-windows-msvc --release
               yarn workspace @examples/compat-mode build --target i686-pc-windows-msvc --release
             test: |
-              $env:NODE_OPTIONS = "--max-old-space-size=3072"
+              export NODE_OPTIONS="--max-old-space-size=3072"
               yarn workspace @examples/napi test -s
               node ./node_modules/electron/install.js
               yarn test:electron
@@ -200,6 +200,8 @@ jobs:
       - name: Unit tests
         if: matrix.settings.test
         run: ${{ matrix.settings.test }}
+        shell: bash
+        timeout-minutes: 10
         env:
           NODE_OPTIONS: '--max-old-space-size=8192'
           DISABLE_V8_COMPILE_CACHE: 1

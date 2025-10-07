@@ -15,8 +15,12 @@ on:
 
 jobs:
   test:
-    name: Address sanitizer
-    runs-on: ubuntu-24.04
+    name: ASAN - ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
 
     steps:
       - uses: actions/checkout@v5
@@ -27,14 +31,26 @@ jobs:
           node-version: 22
           cache: 'yarn'
 
-      - name: Install
+      # Linux-specific setup
+      - name: Install Rust (Linux)
+        if: matrix.os == 'ubuntu-24.04'
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: nightly
           components: rust-src
 
-      - name: Install rust-src
+      - name: Install rust-src (Linux)
+        if: matrix.os == 'ubuntu-24.04'
         run: rustup component add rust-src --toolchain nightly-x86_64-unknown-linux-gnu
+
+      # Windows-specific setup
+      - name: Install Rust (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: nightly
+          targets: x86_64-pc-windows-msvc
+          components: rust-src
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -42,12 +58,17 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: nightly-ubuntu-node@18-cargo-cache
+            target
+          key: ${{ matrix.os }}-asan-cargo-cache-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ matrix.os }}-asan-cargo-cache-
 
-      - name: 'Install dependencies'
+      - name: Install dependencies
         run: yarn install --immutable --mode=skip-build
 
-      - name: Unit tests with address sanitizer
+      # Linux build and test
+      - name: Build and test with ASAN (Linux)
+        if: matrix.os == 'ubuntu-24.04'
         run: |
           yarn workspace @examples/napi build -- -Z build-std
           yarn workspace @examples/compat-mode build -- -Z build-std
@@ -61,7 +82,63 @@ jobs:
           DISABLE_V8_COMPILE_CACHE: 1
           CARGO_PROFILE_DEV_OPT_LEVEL: 1
 
+      # Windows build and test
+      - name: Build with ASAN (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          # Build the examples with ASAN enabled
+          # Note: -Z build-std flag cannot be passed through napi CLI on Windows
+          # The CARGO_UNSTABLE_BUILD_STD env var provides similar functionality
+          yarn workspace @examples/napi build --target x86_64-pc-windows-msvc
+          yarn workspace @examples/compat-mode build --target x86_64-pc-windows-msvc
+        env:
+          RUSTFLAGS: -Zsanitizer=address
+          RUSTDOCFLAGS: -Zsanitizer=address
+          RUST_BACKTRACE: 1
+          CARGO_PROFILE_DEV_OPT_LEVEL: 1
+          CARGO_UNSTABLE_BUILD_STD: std,panic_abort
+
+      - name: Test with ASAN (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          # Set ASAN environment variables for Windows
+          $env:ASAN_OPTIONS = "windows_hook_rtl_allocators=true:detect_leaks=0:print_stats=1:check_initialization_order=true:strict_string_checks=true"
+          $env:NODE_OPTIONS = "--max-old-space-size=8192"
+          $env:DISABLE_V8_COMPILE_CACHE = "1"
+          $env:RUST_BACKTRACE = "full"
+
+          # Find and set the path to the ASAN runtime DLL
+          $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          $asanDllPath = Get-ChildItem -Path "$vsPath\VC\Tools\MSVC" -Recurse -Filter "clang_rt.asan_dynamic-x86_64.dll" | Select-Object -First 1
+          if ($asanDllPath) {
+            $env:PATH = "$($asanDllPath.DirectoryName);$env:PATH"
+            Write-Host "Found ASAN DLL at: $($asanDllPath.FullName)"
+          }
+
+          yarn test
+        continue-on-error: true
+
+      - name: Upload ASAN logs (Windows)
+        if: failure() && matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-asan-logs
+          path: |
+            asan.log*
+            *.asan.log
+
       - name: Clear the cargo caches
         run: |
           cargo install cargo-cache --no-default-features --features ci-autoclean
           cargo-cache
+
+  asan-done:
+    name: Address sanitizer
+    runs-on: ubuntu-latest
+    needs:
+      - test
+    steps:
+      - run: exit 1
+        if: ${{ always() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}

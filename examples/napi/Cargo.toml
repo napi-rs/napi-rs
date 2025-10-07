@@ -10,6 +10,7 @@ crate-type = ["cdylib"]
 
 [features]
 snmalloc = ["snmalloc-rs"]
+mimalloc = ["mimalloc-safe"]
 dyn-symbols = ["napi/dyn-symbols"]
 error_try_builds = []
 noop = ["napi/noop"]
@@ -59,6 +60,11 @@ tokio = { version = "1", features = ["rt", "time", "fs"] }
 version = "0.3"
 features = ["build_cc", "local_dynamic_tls"]
 optional = true
+
+[dependencies.mimalloc-safe]
+version = "0.1"
+optional = true
+features = ["skip_collect_on_exit"]
 
 [build-dependencies]
 napi-build = { path = "../../crates/build" }
