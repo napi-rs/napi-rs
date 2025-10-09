@@ -95,6 +95,7 @@ jobs:
             target: x86_64-pc-windows-msvc
             build: yarn workspace @examples/napi build
             test: |
+              export NODE_OPTIONS="--report-uncaught-exception=none"
               yarn test:cli
               yarn workspace @examples/napi test
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
@@ -105,6 +106,7 @@ jobs:
             target: aarch64-pc-windows-msvc
             build: yarn build:test
             test: |
+              export NODE_OPTIONS="--report-uncaught-exception=none"
               yarn test:cli
               yarn test
               yarn test:macro
@@ -115,7 +117,7 @@ jobs:
               yarn workspace @examples/napi build --target i686-pc-windows-msvc --release
               yarn workspace @examples/compat-mode build --target i686-pc-windows-msvc --release
             test: |
-              export NODE_OPTIONS="--max-old-space-size=3072"
+              export NODE_OPTIONS="--max-old-space-size=3072 --report-uncaught-exception=none"
               yarn workspace @examples/napi test -s
               node ./node_modules/electron/install.js
               yarn test:electron
