@@ -60,11 +60,7 @@
     "files": [
       "__tests__/**/*.spec.{ts,cts,js,cjs,mjs}"
     ],
-    "workerThreads": false,
     "cache": false,
     "timeout": "10m"
-  },
-  "dependencies": {
-    "@emnapi/core": "^1.5.0"
   }
 }
