@@ -582,12 +582,13 @@ fn handle_generic_type(rust_ty: &str, args: &[(String, bool)]) -> Option<(String
       .map(|(arg, _)| arg.clone())
       .collect::<Vec<String>>()
       .join(", ");
-    let mut ty = rust_ty.to_string();
+    let mut ty = rust_ty;
     if let Some((alias, _)) = type_alias {
-      ty = alias.split_once('<').map(|(t, _)| t.to_string()).unwrap();
+      // If alias contains '<', take the base type as &str, then convert to String for formatting
+      ty = alias.split_once('<').map(|(t, _)| t).unwrap();
+      return Some((format!("{}<{}>", ty, arg_str), false));
     }
-
-    Some((format!("{ty}<{arg_str}>"), false))
+    Some((format!("{}<{}>", ty, arg_str), false))
   } else {
     type_alias.or(Some((rust_ty.to_string(), false)))
   }
