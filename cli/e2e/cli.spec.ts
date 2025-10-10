@@ -6,14 +6,17 @@ import { tmpdir } from 'node:os'
 import { existsSync } from 'node:fs'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 
-import ava, { type TestFn } from 'ava'
+import { test, before, beforeEach, afterEach } from 'node:test'
+import assert from 'node:assert'
 
 import packageJson from '../package.json' with { type: 'json' }
 import { fileURLToPath } from 'node:url'
 
-const test = ava as TestFn<{
+interface TestContext {
   context: string
-}>
+}
+
+let context: TestContext
 
 const rootDir = join(fileURLToPath(import.meta.url), '..', '..', '..')
 const rootDirPosix = posixJoin(
@@ -25,7 +28,7 @@ const rootDirPosix = posixJoin(
   '..',
 )
 
-test.before(async () => {
+before(async () => {
   await execAsync(`yarn workspace @napi-rs/cli build`, {
     cwd: rootDir,
   })
@@ -34,22 +37,23 @@ test.before(async () => {
   })
 })
 
-test.beforeEach(async (t) => {
+beforeEach(async () => {
   const random = Math.random().toString(36).slice(2)
-  t.context.context = join(tmpdir(), 'napi-rs-cli-e2e', random)
-  await mkdir(t.context.context, { recursive: true })
-  await writePackageJson(t.context.context, {})
+  const contextDir = join(tmpdir(), 'napi-rs-cli-e2e', random)
+  context = { context: contextDir }
+  await mkdir(context.context, { recursive: true })
+  await writePackageJson(context.context, {})
   await execAsync(`npm install`, {
-    cwd: t.context.context,
+    cwd: context.context,
   })
 })
 
-test.afterEach(async (t) => {
-  await rm(t.context.context, { recursive: true, force: true })
+afterEach(async () => {
+  await rm(context.context, { recursive: true, force: true })
 })
 
-test('should print help', async (t) => {
-  const bin = join(t.context.context, 'node_modules', '.bin')
+test('should print help', async () => {
+  const bin = join(context.context, 'node_modules', '.bin')
   await execAsync(`${bin}/napi --help`)
   await execAsync(`${bin}/napi build --help`)
   await execAsync(`${bin}/napi version --help`)
@@ -58,11 +62,11 @@ test('should print help', async (t) => {
   await execAsync(`${bin}/napi new --help`)
   await execAsync(`${bin}/napi rename --help`)
   await execAsync(`${bin}/napi version --help`)
-  t.pass()
+  assert.ok(true)
 })
 
-test('should be able to build a project', async (t) => {
-  const { context } = t.context
+test('should be able to build a project', async () => {
+  const { context } = context
   await writeCargoToml(context)
   await writePackageJson(context, {})
   const bin = join(context, 'node_modules', '.bin')
@@ -73,11 +77,11 @@ test('should be able to build a project', async (t) => {
       DEBUG: 'napi:*',
     },
   })
-  t.truthy(existsSync(join(context, 'index.node')))
+  assert.ok(existsSync(join(context, 'index.node')))
 })
 
-test('should throw error when duplicate targets are provided', async (t) => {
-  const { context } = t.context
+test('should throw error when duplicate targets are provided', async () => {
+  const { context } = context
   await writeCargoToml(context)
   await writePackageJson(context, {
     napi: {
@@ -105,7 +109,7 @@ test('should throw error when duplicate targets are provided', async (t) => {
       resolve()
     })
   })
-  t.truthy(
+  assert.ok(
     errMsg
       .trim()
       .startsWith(

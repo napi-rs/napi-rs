@@ -102,8 +102,8 @@ const NEW_OPTIONS: CommandSchema = {
       name: 'testFramework',
       type: 'string',
       description:
-        'The JavaScript test framework to use, only support `ava` for now',
-      default: "'ava'",
+        'The JavaScript test framework to use, only support `node:test` for now',
+      default: "'node:test'",
     },
     {
       name: 'dryRun',
