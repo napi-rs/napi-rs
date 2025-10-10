@@ -27,9 +27,7 @@ test.after(() => {
 test('should be able to require in worker thread', async (t) => {
   await Promise.all(
     Array.from({ length: concurrency }).map(() => {
-      const w = new Worker(join(__dirname, 'worker.js'), {
-        env: process.env,
-      })
+      const w = new Worker(join(__dirname, 'worker.js'))
       return new Promise<void>((resolve, reject) => {
         w.postMessage({ type: 'require' })
         w.on('message', (msg) => {
@@ -53,9 +51,7 @@ test('custom GC works on worker_threads', async (t) => {
     Array.from({ length: concurrency }).map(() =>
       Promise.all([
         new Promise<Worker>((resolve, reject) => {
-          const w = new Worker(join(__dirname, 'worker.js'), {
-            env: process.env,
-          })
+          const w = new Worker(join(__dirname, 'worker.js'))
           w.postMessage({
             type: 'async:buffer',
           })
@@ -92,9 +88,7 @@ test('custom GC works on worker_threads', async (t) => {
 test('should be able to new Class in worker thread concurrently', async (t) => {
   await Promise.all(
     Array.from({ length: concurrency }).map(() => {
-      const w = new Worker(join(__dirname, 'worker.js'), {
-        env: process.env,
-      })
+      const w = new Worker(join(__dirname, 'worker.js'))
       return new Promise<void>((resolve, reject) => {
         w.postMessage({ type: 'constructor' })
         w.on('message', (msg) => {
