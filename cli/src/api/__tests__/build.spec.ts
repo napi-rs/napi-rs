@@ -14,8 +14,8 @@ import { join, dirname, resolve } from 'node:path'
 import { join as posixJoin, sep as posixSep } from 'node:path/posix'
 import { sep as win32Sep } from 'node:path/win32'
 import { fileURLToPath } from 'node:url'
-
-import ava, { type TestFn } from 'ava'
+import { test } from 'node:test'
+import assert from 'node:assert'
 
 import { generateTypeDef, writeJsBinding } from '../build.js'
 import { getSystemDefaultTarget } from '../../utils/index.js'
@@ -23,13 +23,7 @@ import { getSystemDefaultTarget } from '../../utils/index.js'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(__dirname, '../../../..')
 
-const test = ava as TestFn<{
-  tmpDir: string
-  projectDir: string
-  typeDefDir: string
-}>
-
-test.beforeEach(async (t) => {
+test('build pipeline generates bindings and artifacts', async () => {
   const timestamp = Date.now()
   const random = Math.random().toString(36).substring(7)
   const tmpDir = posixJoin(
@@ -42,17 +36,16 @@ test.beforeEach(async (t) => {
 
   await mkdir(typeDefDir, { recursive: true })
 
-  t.context = { tmpDir, projectDir, typeDefDir }
-})
-
-test.afterEach.always(async (t) => {
-  if (existsSync(t.context.tmpDir)) {
-    await rm(t.context.tmpDir, { recursive: true, force: true })
+  try {
+    await runTest(projectDir, typeDefDir)
+  } finally {
+    if (existsSync(tmpDir)) {
+      await rm(tmpDir, { recursive: true, force: true })
+    }
   }
 })
 
-test('build pipeline generates bindings and artifacts', async (t) => {
-  const { projectDir, typeDefDir } = t.context
+async function runTest(projectDir: string, typeDefDir: string) {
   const crateName = 'build_integration'
   const binaryName = 'build-integration'
   const packageName = 'build-integration'
@@ -136,7 +129,7 @@ napi-build = { path = "${napiBuildPath}" }
   })
 
   const files = await readdir(typeDefDir)
-  t.true(files.length > 0, 'type definition files should be generated')
+  assert.ok(files.length > 0, 'type definition files should be generated')
 
   const exports = await generateTypeDef({
     typeDefDir,
@@ -144,7 +137,7 @@ napi-build = { path = "${napiBuildPath}" }
     cwd: projectDir,
   })
 
-  t.true(exports.includes('sum'), 'generateTypeDef should expose napi exports')
+  assert.ok(exports.includes('sum'), 'generateTypeDef should expose napi exports')
 
   const jsBinding = await writeJsBinding({
     platform: true,
@@ -155,8 +148,8 @@ napi-build = { path = "${napiBuildPath}" }
     outputDir: projectDir,
   })
 
-  t.truthy(jsBinding)
-  t.is(jsBinding?.path, join(projectDir, 'index.js'))
+  assert.ok(jsBinding)
+  assert.strictEqual(jsBinding?.path, join(projectDir, 'index.js'))
 
   const libName = crateName.replace(/-/g, '_')
   const srcName =
@@ -167,26 +160,26 @@ napi-build = { path = "${napiBuildPath}" }
         : `lib${libName}.so`
   const profile = 'debug'
   const srcPath = join(projectDir, 'target', target.triple, profile, srcName)
-  t.true(existsSync(srcPath), 'compiled artifact should exist')
+  assert.ok(existsSync(srcPath), 'compiled artifact should exist')
 
   const destName = `${binaryName}.${target.platformArchABI}.${srcName.endsWith('.wasm') ? 'wasm' : 'node'}`
   const destPath = join(projectDir, destName)
   await copyFile(srcPath, destPath)
-  t.true(existsSync(destPath), 'artifact should be copied to output directory')
+  assert.ok(existsSync(destPath), 'artifact should be copied to output directory')
 
   const nodeStat = await stat(destPath)
-  t.true(nodeStat.size > 0)
+  assert.ok(nodeStat.size > 0)
 
   const dtsPath = join(projectDir, 'index.d.ts')
-  t.true(existsSync(dtsPath))
+  assert.ok(existsSync(dtsPath))
   const dtsContent = await readFile(dtsPath, 'utf-8')
-  t.regex(
+  assert.match(
     dtsContent,
     /export declare function sum\(a: number, b: number\): number/,
   )
 
   const jsPath = join(projectDir, 'index.js')
-  t.true(existsSync(jsPath))
+  assert.ok(existsSync(jsPath))
   const jsContent = await readFile(jsPath, 'utf-8')
-  t.regex(jsContent, /module\.exports\.sum = nativeBinding\.sum/)
-})
+  assert.match(jsContent, /module\.exports\.sum = nativeBinding\.sum/)
+}

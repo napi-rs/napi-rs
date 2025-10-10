@@ -3,19 +3,15 @@ import { readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { test, beforeEach, afterEach } from 'node:test'
+import { test, before, after, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert'
 import { load as yamlLoad } from 'js-yaml'
 
 import { newProject } from '../new.js'
 
-interface TestContext {
-  tmpDir: string
-}
 
-let context: TestContext
 
-beforeEach(async () => {
+beforeEach(async (t) => {
   // Create a unique temp directory for tests
   const timestamp = Date.now()
   const random = Math.random().toString(36).substring(7)
@@ -24,18 +20,18 @@ beforeEach(async () => {
     'napi-rs-test',
     `new-project-${timestamp}-${random}`,
   )
-  context = { tmpDir }
+  t.context = { tmpDir }
 })
 
-afterEach(async () => {
+afterEach(async (t) => {
   // Clean up any created directories
-  if (existsSync(context.tmpDir)) {
-    await rm(context.tmpDir, { recursive: true, force: true })
+  if (existsSync(t.context.tmpDir)) {
+    await rm(t.context.tmpDir, { recursive: true, force: true })
   }
 })
 
 test('create a new project with default options', async () => {
-  const projectPath = join(context.tmpDir, 'default-project')
+  const projectPath = join(t.context.tmpDir, 'default-project')
 
   await newProject({
     path: projectPath,
@@ -80,7 +76,7 @@ test('create a new project with default options', async () => {
 })
 
 test('create a new project with custom name', async () => {
-  const projectPath = join(context.tmpDir, 'custom-name-dir')
+  const projectPath = join(t.context.tmpDir, 'custom-name-dir')
 
   await newProject({
     path: projectPath,
@@ -102,7 +98,7 @@ test('create a new project with custom name', async () => {
 })
 
 test('create a new project with custom path', async () => {
-  const customPath = join(context.tmpDir, 'nested', 'folders', 'my-project')
+  const customPath = join(t.context.tmpDir, 'nested', 'folders', 'my-project')
 
   await newProject({
     path: customPath,
@@ -119,7 +115,7 @@ test('create a new project with custom path', async () => {
 })
 
 test('create a new project with custom path and name', async () => {
-  const projectPath = join(context.tmpDir, 'custom-dir')
+  const projectPath = join(t.context.tmpDir, 'custom-dir')
 
   await newProject({
     path: projectPath,
@@ -137,7 +133,7 @@ test('create a new project with custom path and name', async () => {
 })
 
 test('create a new project with custom path, name, and targets', async (t) => {
-  const projectPath = join(context.tmpDir, 'full-custom')
+  const projectPath = join(t.context.tmpDir, 'full-custom')
   const customTargets = [
     'x86_64-unknown-linux-gnu',
     'x86_64-apple-darwin',
@@ -211,7 +207,7 @@ test('create a new project with custom path, name, and targets', async (t) => {
 })
 
 test('non Windows and macOS targets should remove test-macOS-windows-binding job', async () => {
-  const projectPath = join(context.tmpDir, 'no-windows-macos')
+  const projectPath = join(t.context.tmpDir, 'no-windows-macos')
   const targets = [
     'x86_64-unknown-linux-gnu',
     'aarch64-unknown-linux-gnu',
@@ -237,7 +233,7 @@ test('non Windows and macOS targets should remove test-macOS-windows-binding job
 })
 
 test('should remove test-linux-binding job if no Linux targets are enabled', async () => {
-  const projectPath = join(context.tmpDir, 'no-linux')
+  const projectPath = join(t.context.tmpDir, 'no-linux')
   const targets = ['x86_64-apple-darwin', 'aarch64-apple-darwin']
 
   await newProject({
@@ -269,7 +265,7 @@ test('should fail when no path is provided', async () => {
 })
 
 test('should fail when path already exists and is not empty', async () => {
-  const projectPath = join(context.tmpDir, 'existing-project')
+  const projectPath = join(t.context.tmpDir, 'existing-project')
 
   // Create directory with a file
   await rm(projectPath, { recursive: true, force: true }).catch(() => {})
@@ -289,12 +285,12 @@ test('should fail when path already exists and is not empty', async () => {
 })
 
 test('should fail when path is a file', async () => {
-  const filePath = join(context.tmpDir, 'file.txt')
+  const filePath = join(t.context.tmpDir, 'file.txt')
 
   // Create a file
   const { writeFileSync } = await import('node:fs')
   const { mkdirSync } = await import('node:fs')
-  mkdirSync(context.tmpDir, { recursive: true })
+  mkdirSync(t.context.tmpDir, { recursive: true })
   writeFileSync(filePath, 'content')
 
   await assert.rejects(
@@ -309,7 +305,7 @@ test('should fail when path is a file', async () => {
 })
 
 test('dry run should not create any files', async () => {
-  const projectPath = join(context.tmpDir, 'dry-run-project')
+  const projectPath = join(t.context.tmpDir, 'dry-run-project')
 
   await newProject({
     path: projectPath,
@@ -322,7 +318,7 @@ test('dry run should not create any files', async () => {
 })
 
 test('create project without GitHub Actions', async () => {
-  const projectPath = join(context.tmpDir, 'no-github-actions')
+  const projectPath = join(t.context.tmpDir, 'no-github-actions')
 
   await newProject({
     path: projectPath,
@@ -336,7 +332,7 @@ test('create project without GitHub Actions', async () => {
 })
 
 test('create a new project with pnpm package manager', async () => {
-  const projectPath = join(context.tmpDir, 'pnpm-project')
+  const projectPath = join(t.context.tmpDir, 'pnpm-project')
 
   await newProject({
     path: projectPath,
@@ -365,7 +361,7 @@ test('create a new project with pnpm package manager', async () => {
 })
 
 test('create a new project with pnpm and custom name', async () => {
-  const projectPath = join(context.tmpDir, 'pnpm-custom-name')
+  const projectPath = join(t.context.tmpDir, 'pnpm-custom-name')
 
   await newProject({
     path: projectPath,
@@ -388,7 +384,7 @@ test('create a new project with pnpm and custom name', async () => {
 })
 
 test('create a new project with pnpm and custom path/name combination', async () => {
-  const projectPath = join(context.tmpDir, 'deep', 'nested', 'pnpm-dir')
+  const projectPath = join(t.context.tmpDir, 'deep', 'nested', 'pnpm-dir')
 
   await newProject({
     path: projectPath,
@@ -416,7 +412,7 @@ test('create a new project with pnpm and custom path/name combination', async ()
 })
 
 test('should fail when no targets are enabled', async () => {
-  const projectPath = join(context.tmpDir, 'no-targets')
+  const projectPath = join(t.context.tmpDir, 'no-targets')
 
   await assert.rejects(
     async () => {

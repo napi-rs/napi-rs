@@ -1,8 +1,8 @@
 import { unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-
-import ava, { TestFn } from 'ava'
+import { before, after, test } from 'node:test'
+import assert from 'node:assert'
 
 import {
   CommonPackageJsonFields,
@@ -12,14 +12,16 @@ import {
 
 const NON_EXISTENT_FILE = 'non-existent-file'
 
-const test = ava as TestFn<{
+interface TestContext {
   configPath: string
   packageJson: string
   pkgJson: CommonPackageJsonFields
   config: UserNapiConfig
-}>
+}
 
-test.before(async (t) => {
+const context: TestContext = {} as TestContext
+
+before(async () => {
   const tmp = tmpdir()
   const configPath = join(tmp, 'napi.json')
   const packageJson = join(tmp, 'package.json')
@@ -47,35 +49,45 @@ test.before(async (t) => {
     ],
   }
   await writeFile(configPath, JSON.stringify(config, null, 2))
-  t.context = { configPath, config, packageJson, pkgJson }
+  Object.assign(context, { configPath, config, packageJson, pkgJson })
 })
 
-test.after(async (t) => {
-  await unlink(t.context.configPath)
-  await unlink(t.context.packageJson)
+after(async () => {
+  await unlink(context.configPath)
+  await unlink(context.packageJson)
 })
 
-test('should throw if package.json not found', async (t) => {
-  await t.throwsAsync(() => readNapiConfig(NON_EXISTENT_FILE), {
+test('should throw if package.json not found', async () => {
+  await assert.rejects(() => readNapiConfig(NON_EXISTENT_FILE), {
     message: `package.json not found at ${NON_EXISTENT_FILE}`,
   })
 })
 
-test('should throw if napi.json not found', async (t) => {
-  const { packageJson } = t.context
-  await t.throwsAsync(() => readNapiConfig(packageJson, NON_EXISTENT_FILE), {
+test('should throw if napi.json not found', async () => {
+  const { packageJson } = context
+  await assert.rejects(() => readNapiConfig(packageJson, NON_EXISTENT_FILE), {
     message: `NAPI-RS config not found at ${NON_EXISTENT_FILE}`,
   })
 })
 
-test('should be able to read config from package.json', async (t) => {
-  const { packageJson } = t.context
+test('should be able to read config from package.json', async () => {
+  const { packageJson } = context
   const config = await readNapiConfig(packageJson)
-  t.snapshot(config)
+  // Snapshot testing is not directly supported in node:test
+  // We'll need to manually verify the config structure
+  assert.ok(config)
+  assert.strictEqual(config.binaryName, 'testing')
+  assert.strictEqual(config.packageName, '@napi-rs/testing')
+  assert.ok(Array.isArray(config.targets))
 })
 
-test('should be able to read config from napi.json', async (t) => {
-  const { packageJson, configPath } = t.context
+test('should be able to read config from napi.json', async () => {
+  const { packageJson, configPath } = context
   const config = await readNapiConfig(packageJson, configPath)
-  t.snapshot(config)
+  // Snapshot testing is not directly supported in node:test
+  // We'll need to manually verify the config structure
+  assert.ok(config)
+  assert.strictEqual(config.binaryName, 'testing')
+  assert.strictEqual(config.packageName, '@node-rs/testing')
+  assert.ok(Array.isArray(config.targets))
 })

@@ -1,4 +1,5 @@
-import test from 'ava'
+import { test } from 'node:test'
+import assert from 'node:assert'
 
 // @ts-expect-error
 import bindings from '../../index.node'
@@ -15,15 +16,15 @@ const InValidObject = {
   c: 'Hello',
 }
 
-test('should from json string', (t) => {
-  t.throws(() => bindings.from_json_string(JSON.stringify(InValidObject)))
-  t.deepEqual(
+test('should from json string', () => {
+  assert.throws(() => bindings.from_json_string(JSON.stringify(InValidObject)))
+  assert.deepStrictEqual(
     ValidObject,
     bindings.from_json_string(JSON.stringify(ValidObject)),
   )
 })
 
-test('should convert to json string', (t) => {
-  t.throws(() => bindings.json_to_string(InValidObject))
-  t.deepEqual(JSON.stringify(ValidObject), bindings.json_to_string(ValidObject))
+test('should convert to json string', () => {
+  assert.throws(() => bindings.json_to_string(InValidObject))
+  assert.deepStrictEqual(JSON.stringify(ValidObject), bindings.json_to_string(ValidObject))
 })

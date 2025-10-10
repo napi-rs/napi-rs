@@ -1,4 +1,5 @@
-import test from 'ava'
+import { test } from 'node:test'
+import assert from 'node:assert'
 import Sinon from 'sinon'
 
 // @ts-expect-error
@@ -10,19 +11,19 @@ function wait(delay: number) {
 
 const delay = 100
 
-test('should setTimeout', async (t) => {
+test('should setTimeout', async () => {
   const handler = Sinon.spy()
   bindings.setTimeout(handler, delay)
-  t.is(handler.callCount, 0)
+  assert.strictEqual(handler.callCount, 0)
   await wait(delay + 10)
-  t.is(handler.callCount, 1)
+  assert.strictEqual(handler.callCount, 1)
 })
 
-test('should clearTimeout', async (t) => {
+test('should clearTimeout', async () => {
   const handler = Sinon.spy()
   const timer = setTimeout(() => handler(), delay)
-  t.is(handler.callCount, 0)
+  assert.strictEqual(handler.callCount, 0)
   bindings.clearTimeout(timer)
   await wait(delay + 10)
-  t.is(handler.callCount, 0)
+  assert.strictEqual(handler.callCount, 0)
 })

@@ -1,41 +1,42 @@
-import test from 'ava'
+import { test } from 'node:test'
+import assert from 'node:assert'
 
 // @ts-expect-error
 import bindings from '../index.node'
 
-test('should call the function', (t) => {
+test('should call the function', () => {
   bindings.testCallFunction((arg1: string, arg2: string) => {
-    t.is(`${arg1} ${arg2}`, 'hello world')
+    assert.strictEqual(`${arg1} ${arg2}`, 'hello world')
   })
 })
 
-test('should call function with ref args', (t) => {
+test('should call function with ref args', () => {
   bindings.testCallFunctionWithRefArguments((arg1: string, arg2: string) => {
-    t.is(`${arg1} ${arg2}`, 'hello world')
+    assert.strictEqual(`${arg1} ${arg2}`, 'hello world')
   })
 })
 
-test('should set "this" properly', (t) => {
+test('should set "this" properly', () => {
   const obj = {}
   bindings.testCallFunctionWithThis.call(obj, function (this: typeof obj) {
-    t.is(this, obj)
+    assert.strictEqual(this, obj)
   })
 })
 
-test('should handle errors', (t) => {
+test('should handle errors', () => {
   bindings.testCallFunctionError(
     () => {
       throw new Error('Testing')
     },
     (err: Error) => {
-      t.is(err.message, 'Testing')
+      assert.strictEqual(err.message, 'Testing')
     },
   )
 })
 
-test('should be able to create function from closure', (t) => {
+test('should be able to create function from closure', () => {
   for (let i = 0; i < 100; i++) {
-    t.is(
+    assert.strictEqual(
       bindings.testCreateFunctionFromClosure()(
         ...Array.from({ length: i }, (_, i) => i),
       ),
@@ -44,12 +45,12 @@ test('should be able to create function from closure', (t) => {
   }
 })
 
-test('should be able to create nest function from closure', (t) => {
+test('should be able to create nest function from closure', () => {
   let callbackExecuted = false
 
   const mockObject = {
     on: (event: string, callback: Function) => {
-      t.is(event, 'on', 'Event name should be "on"')
+      assert.strictEqual(event, 'on', 'Event name should be "on"')
       callback()
       callbackExecuted = true
     },
@@ -57,5 +58,5 @@ test('should be able to create nest function from closure', (t) => {
 
   const handle = bindings.testNestCreateFunctionFromClosure()
   handle(mockObject)
-  t.true(callbackExecuted, 'Nested callback should have been executed')
+  assert.ok(callbackExecuted, 'Nested callback should have been executed')
 })

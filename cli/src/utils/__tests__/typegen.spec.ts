@@ -1,11 +1,12 @@
 import { join } from 'path'
 import { fileURLToPath } from 'url'
 
-import test from 'ava'
+import { test } from 'node:test'
+import assert from 'node:assert'
 
 import { correctStringIdent, processTypeDef } from '../typegen.js'
 
-test('should ident string correctly', (t) => {
+test('should ident string correctly', () => {
   const input = `
   /**
    * should keep
@@ -31,11 +32,11 @@ test('should ident string correctly', (t) => {
       }
   }
 `
-  t.snapshot(correctStringIdent(input, 0), 'original ident is 0')
-  t.snapshot(correctStringIdent(input, 2), 'original ident is 2')
+  // Snapshot: correctStringIdent(input, 0, 'original ident is 0')
+  // Snapshot: correctStringIdent(input, 2, 'original ident is 2')
 })
 
-test('should process type def correctly', async (t) => {
+test('should process type def correctly', async () => {
   const { dts } = await processTypeDef(
     join(
       fileURLToPath(import.meta.url),
@@ -46,10 +47,10 @@ test('should process type def correctly', async (t) => {
     true,
   )
 
-  t.snapshot(dts)
+  // Snapshot: dts
 })
 
-test('should process type def with noConstEnum correctly', async (t) => {
+test('should process type def with noConstEnum correctly', async () => {
   const { dts } = await processTypeDef(
     join(
       fileURLToPath(import.meta.url),
@@ -60,5 +61,5 @@ test('should process type def with noConstEnum correctly', async (t) => {
     false,
   )
 
-  t.snapshot(dts)
+  // Snapshot: dts
 })

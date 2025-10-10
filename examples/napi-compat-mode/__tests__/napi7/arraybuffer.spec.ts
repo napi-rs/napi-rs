@@ -1,32 +1,33 @@
-import ava from 'ava'
+import { test } from 'node:test'
+import assert from 'node:assert'
 
 import { napiVersion } from '../napi-version'
 
 // @ts-expect-error
 import bindings from '../../index.node'
 
-const test = napiVersion >= 7 ? ava : ava.skip
+const testFn = napiVersion >= 7 ? test : test.skip
 
-test('should be able to detach ArrayBuffer', (t) => {
+test('should be able to detach ArrayBuffer', () => {
   const buf = Buffer.from('hello world')
   const ab = buf.buffer.slice(0, buf.length)
   try {
     bindings.testDetachArrayBuffer(ab)
-    t.is(ab.byteLength, 0)
+    assert.strictEqual(ab.byteLength, 0)
   } catch (e) {
-    t.is((e as any).code, 'DetachableArraybufferExpected')
+    assert.strictEqual((e as any).code, 'DetachableArraybufferExpected')
   }
 })
 
-test('is detached arraybuffer should work fine', (t) => {
+test('is detached arraybuffer should work fine', () => {
   const buf = Buffer.from('hello world')
   const ab = buf.buffer.slice(0, buf.length)
   try {
     bindings.testDetachArrayBuffer(ab)
     const nonDetachedArrayBuffer = new ArrayBuffer(10)
-    t.true(bindings.testIsDetachedArrayBuffer(ab))
-    t.false(bindings.testIsDetachedArrayBuffer(nonDetachedArrayBuffer))
+    assert.ok(bindings.testIsDetachedArrayBuffer(ab))
+    assert.strictEqual(bindings.testIsDetachedArrayBuffer(nonDetachedArrayBuffer, false))
   } catch (e) {
-    t.is((e as any).code, 'DetachableArraybufferExpected')
+    assert.strictEqual((e as any).code, 'DetachableArraybufferExpected')
   }
 })

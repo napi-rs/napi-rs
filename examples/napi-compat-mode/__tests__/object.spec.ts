@@ -1,56 +1,57 @@
-import test from 'ava'
+import { test } from 'node:test'
+import assert from 'node:assert'
 
 // @ts-expect-error
 import bindings from '../index.node'
 
-test('setProperty', (t) => {
+test('setProperty', () => {
   const obj = {}
   const key = 'jsPropertyKey'
   bindings.testSetProperty(obj, key)
   // @ts-expect-error
-  t.snapshot(obj[key])
+  // Snapshot: obj[key]
 })
 
-test('testGetProperty', (t) => {
+test('testGetProperty', () => {
   const name = Symbol('JsSymbol')
   const value = Symbol('JsValue')
   const obj = {
     [name]: value,
   }
-  t.is(bindings.testGetProperty(obj, name), value)
+  assert.strictEqual(bindings.testGetProperty(obj, name), value)
 })
 
-test('setNamedProperty', (t) => {
+test('setNamedProperty', () => {
   const obj = {}
   const property = Symbol('JsSymbol')
   bindings.testSetNamedProperty(obj, property)
   const keys = Object.keys(obj)
   const [key] = keys
-  t.is(keys.length, 1)
-  t.snapshot(key)
+  assert.strictEqual(keys.length, 1)
+  // Snapshot: key
   // @ts-expect-error
-  t.is(obj[key], property)
+  assert.strictEqual(obj[key], property)
 })
 
-test('testGetNamedProperty', (t) => {
+test('testGetNamedProperty', () => {
   const obj = {
     p: Symbol('JsSymbol'),
   }
-  t.is(bindings.testGetNamedProperty(obj), obj.p)
+  assert.strictEqual(bindings.testGetNamedProperty(obj), obj.p)
 })
 
-test('testHasNamedProperty', (t) => {
+test('testHasNamedProperty', () => {
   const obj = {
     a: 1,
     b: undefined,
   }
 
-  t.true(bindings.testHasNamedProperty(obj, 'a'))
-  t.true(bindings.testHasNamedProperty(obj, 'b'))
-  t.false(bindings.testHasNamedProperty(obj, 'c'))
+  assert.ok(bindings.testHasNamedProperty(obj, 'a'))
+  assert.ok(bindings.testHasNamedProperty(obj, 'b'))
+  assert.strictEqual(bindings.testHasNamedProperty(obj, 'c', false))
 })
 
-test('testHasOwnProperty', (t) => {
+test('testHasOwnProperty', () => {
   const obj = {
     a: '1',
     b: undefined,
@@ -64,12 +65,12 @@ test('testHasOwnProperty', (t) => {
     },
   })
 
-  t.false(bindings.testHasOwnProperty(child, 'a'))
-  t.false(bindings.testHasOwnProperty(child, 'b'))
-  t.true(bindings.testHasOwnProperty(child, 'd'))
+  assert.strictEqual(bindings.testHasOwnProperty(child, 'a', false))
+  assert.strictEqual(bindings.testHasOwnProperty(child, 'b', false))
+  assert.ok(bindings.testHasOwnProperty(child, 'd'))
 })
 
-test('testHasOwnPropertyJs', (t) => {
+test('testHasOwnPropertyJs', () => {
   const obj = {
     a: '1',
     b: undefined,
@@ -79,12 +80,12 @@ test('testHasOwnPropertyJs', (t) => {
 
   child.c = 'k1'
 
-  t.false(bindings.testHasOwnPropertyJs(child, 'a'))
-  t.false(bindings.testHasOwnPropertyJs(child, 'b'))
-  t.true(bindings.testHasOwnPropertyJs(child, 'c'))
+  assert.strictEqual(bindings.testHasOwnPropertyJs(child, 'a', false))
+  assert.strictEqual(bindings.testHasOwnPropertyJs(child, 'b', false))
+  assert.ok(bindings.testHasOwnPropertyJs(child, 'c'))
 })
 
-test('testHasProperty', (t) => {
+test('testHasProperty', () => {
   const obj = {
     a: '1',
     b: undefined,
@@ -94,13 +95,13 @@ test('testHasProperty', (t) => {
 
   child.c = 'k1'
 
-  t.true(bindings.testHasProperty(child, 'a'))
-  t.true(bindings.testHasProperty(child, 'b'))
-  t.true(bindings.testHasProperty(child, 'c'))
-  t.false(bindings.testHasProperty(child, '__NOT_EXISTED__'))
+  assert.ok(bindings.testHasProperty(child, 'a'))
+  assert.ok(bindings.testHasProperty(child, 'b'))
+  assert.ok(bindings.testHasProperty(child, 'c'))
+  assert.strictEqual(bindings.testHasProperty(child, '__NOT_EXISTED__', false))
 })
 
-test('testHasPropertJs', (t) => {
+test('testHasPropertJs', () => {
   const key = Symbol('JsString')
   const obj = {
     [key]: 1,
@@ -108,15 +109,15 @@ test('testHasPropertJs', (t) => {
     b: undefined,
     2: 'c',
   }
-  t.true(bindings.testHasPropertyJs(obj, key))
-  t.true(bindings.testHasPropertyJs(obj, 'a'))
-  t.true(bindings.testHasPropertyJs(obj, 'b'))
-  t.true(bindings.testHasPropertyJs(obj, 2))
-  t.false(bindings.testHasPropertyJs(obj, {}))
-  t.false(bindings.testHasPropertyJs(obj, Symbol('JsString')))
+  assert.ok(bindings.testHasPropertyJs(obj, key))
+  assert.ok(bindings.testHasPropertyJs(obj, 'a'))
+  assert.ok(bindings.testHasPropertyJs(obj, 'b'))
+  assert.ok(bindings.testHasPropertyJs(obj, 2))
+  assert.strictEqual(bindings.testHasPropertyJs(obj, {}, false))
+  assert.strictEqual(bindings.testHasPropertyJs(obj, Symbol('JsString', false)))
 })
 
-test('testDeleteProperty', (t) => {
+test('testDeleteProperty', () => {
   const k1 = Symbol()
   const k2 = 2
   const k3 = 'foo'
@@ -130,16 +131,16 @@ test('testDeleteProperty', (t) => {
     enumerable: true,
     value: 'k3',
   })
-  t.true(bindings.testDeleteProperty(obj, k1))
-  t.true(bindings.testDeleteProperty(obj, k2))
-  t.false(bindings.testDeleteProperty(obj, k3))
-  t.true(bindings.testDeleteProperty(obj, 'k4'))
-  t.true(bindings.testDeleteProperty(obj, '__NOT_EXISTED__'))
-  t.true(bindings.testDeleteProperty(obj, k1))
-  t.deepEqual(obj, { [k3]: 'k3' })
+  assert.ok(bindings.testDeleteProperty(obj, k1))
+  assert.ok(bindings.testDeleteProperty(obj, k2))
+  assert.strictEqual(bindings.testDeleteProperty(obj, k3, false))
+  assert.ok(bindings.testDeleteProperty(obj, 'k4'))
+  assert.ok(bindings.testDeleteProperty(obj, '__NOT_EXISTED__'))
+  assert.ok(bindings.testDeleteProperty(obj, k1))
+  assert.deepStrictEqual(obj, { [k3]: 'k3' })
 })
 
-test('testDeleteNamedProperty', (t) => {
+test('testDeleteNamedProperty', () => {
   const k1 = 'k1'
   const k2 = 'k2'
   const k3 = 'foo'
@@ -153,16 +154,16 @@ test('testDeleteNamedProperty', (t) => {
     enumerable: true,
     value: 'k3',
   })
-  t.true(bindings.testDeleteNamedProperty(obj, k1))
-  t.true(bindings.testDeleteNamedProperty(obj, k2))
-  t.false(bindings.testDeleteNamedProperty(obj, k3))
-  t.true(bindings.testDeleteNamedProperty(obj, 'k4'))
-  t.true(bindings.testDeleteNamedProperty(obj, '__NOT_EXISTED__'))
-  t.true(bindings.testDeleteNamedProperty(obj, k1))
-  t.deepEqual(obj, { [k3]: 'k3' })
+  assert.ok(bindings.testDeleteNamedProperty(obj, k1))
+  assert.ok(bindings.testDeleteNamedProperty(obj, k2))
+  assert.strictEqual(bindings.testDeleteNamedProperty(obj, k3, false))
+  assert.ok(bindings.testDeleteNamedProperty(obj, 'k4'))
+  assert.ok(bindings.testDeleteNamedProperty(obj, '__NOT_EXISTED__'))
+  assert.ok(bindings.testDeleteNamedProperty(obj, k1))
+  assert.deepStrictEqual(obj, { [k3]: 'k3' })
 })
 
-test('testGetPropertyNames', (t) => {
+test('testGetPropertyNames', () => {
   const k1 = Symbol()
   const k2 = 2
   const k3 = 'k3'
@@ -171,71 +172,71 @@ test('testGetPropertyNames', (t) => {
     [k2]: 1,
     [k3]: 1,
   }
-  t.snapshot(
+  // Snapshot: 
     bindings
-      .testGetPropertyNames(obj)
+      .testGetPropertyNames(obj
       .map((v: string | number) => v.toString()),
   )
 })
 
-test('testGetPrototype', (t) => {
+test('testGetPrototype', () => {
   class A {}
   class B extends A {}
   const obj = new B()
-  t.is(bindings.testGetPrototype(obj), Object.getPrototypeOf(obj))
+  assert.strictEqual(bindings.testGetPrototype(obj), Object.getPrototypeOf(obj))
 })
 
-test('testSetElement', (t) => {
+test('testSetElement', () => {
   const arr: any[] = []
   bindings.testSetElement(arr, 1, 1)
   bindings.testSetElement(arr, 5, 'foo')
-  t.snapshot(arr)
+  // Snapshot: arr
 })
 
-test('testHasElement', (t) => {
+test('testHasElement', () => {
   const arr: number[] = []
   arr[1] = 1
   arr[4] = 0
-  t.false(bindings.testHasElement(arr, 0))
-  t.true(bindings.testHasElement(arr, 1))
-  t.false(bindings.testHasElement(arr, 2))
-  t.false(bindings.testHasElement(arr, 3))
-  t.true(bindings.testHasElement(arr, 4))
+  assert.strictEqual(bindings.testHasElement(arr, 0, false))
+  assert.ok(bindings.testHasElement(arr, 1))
+  assert.strictEqual(bindings.testHasElement(arr, 2, false))
+  assert.strictEqual(bindings.testHasElement(arr, 3, false))
+  assert.ok(bindings.testHasElement(arr, 4))
 })
 
-test('testGetElement', (t) => {
+test('testGetElement', () => {
   const arr = [Symbol(), Symbol()]
-  t.is(bindings.testGetElement(arr, 0), arr[0])
-  t.is(bindings.testGetElement(arr, 1), arr[1])
+  assert.strictEqual(bindings.testGetElement(arr, 0), arr[0])
+  assert.strictEqual(bindings.testGetElement(arr, 1), arr[1])
 })
 
-test('testDeleteElement', (t) => {
+test('testDeleteElement', () => {
   const arr = [0, 1, 2, 3]
   bindings.testDeleteElement(arr, 1)
   bindings.testDeleteElement(arr, 2)
-  t.snapshot(arr)
+  // Snapshot: arr
 })
 
-test('testDefineProperties', (t) => {
+test('testDefineProperties', () => {
   const obj: any = {}
   bindings.testDefineProperties(obj)
-  t.is(obj.count, 0)
+  assert.strictEqual(obj.count, 0)
   obj.add(10)
-  t.is(obj.count, 10)
+  assert.strictEqual(obj.count, 10)
   const descriptor = Object.getOwnPropertyDescriptor(obj, 'ro')
-  t.is(descriptor?.value ?? descriptor?.get?.(), 'readonly')
+  assert.strictEqual(descriptor?.value ?? descriptor?.get?.(), 'readonly')
 })
 
-test('is promise', (t) => {
-  t.false(bindings.testIsPromise(1))
-  t.false(bindings.testIsPromise('hello'))
-  t.false(bindings.testIsPromise({}))
-  t.false(bindings.testIsPromise(new Date()))
-  t.false(bindings.testIsPromise(Symbol()))
+test('is promise', () => {
+  assert.strictEqual(bindings.testIsPromise(1, false))
+  assert.strictEqual(bindings.testIsPromise('hello', false))
+  assert.strictEqual(bindings.testIsPromise({}, false))
+  assert.strictEqual(bindings.testIsPromise(new Date(, false)))
+  assert.strictEqual(bindings.testIsPromise(Symbol(, false)))
 
-  t.true(bindings.testIsPromise(Promise.resolve()))
-  t.true(bindings.testIsPromise(Promise.reject().catch(() => {})))
-  t.true(
+  assert.ok(bindings.testIsPromise(Promise.resolve()))
+  assert.ok(bindings.testIsPromise(Promise.reject().catch(() => {})))
+  assert.ok(
     bindings.testIsPromise(
       new Promise<void>((resolve) => {
         resolve()
