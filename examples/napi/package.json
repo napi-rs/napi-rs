@@ -8,8 +8,8 @@
   "scripts": {
     "browser": "vite",
     "build": "napi-raw build --platform --js index.cjs --dts index.d.cts",
-    "test": "cross-env TS_NODE_PROJECT=./tsconfig.json node --import @oxc-node/core/register --test __tests__/**/*.spec.ts __tests__/**/*.spec.js",
-    "test-js": "node --test __tests__/**/*.spec.js"
+    "test": "cross-env TS_NODE_PROJECT=./tsconfig.json node --import @oxc-node/core/register --test '__tests__/**/*.spec.ts' '__tests__/**/*.spec.js'",
+    "test-js": "node --test '__tests__/**/*.spec.js'"
   },
   "napi": {
     "binaryName": "example",
