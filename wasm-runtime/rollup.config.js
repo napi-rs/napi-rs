@@ -17,6 +17,7 @@ export default defineConfig([
       commonjs(),
       alias({
         entries: [
+          { find: 'node:events', replacement: 'events' },
           { find: 'node:path', replacement: 'path-browserify' },
           { find: 'node:stream', replacement: 'readable-stream' },
           { find: 'assert', replacement: join(dirname, 'assert.cjs') },

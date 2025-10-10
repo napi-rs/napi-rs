@@ -1412,6 +1412,7 @@ __metadata:
     "@rollup/plugin-replace": "npm:^6.0.2"
     "@tybys/wasm-util": "npm:^0.10.1"
     buffer: "npm:^6.0.3"
+    events: "npm:^3.3.0"
     memfs: "npm:^4.39.0"
     node-inspect-extracted: "npm:^3.2.1"
     path-browserify: "npm:^1.0.1"

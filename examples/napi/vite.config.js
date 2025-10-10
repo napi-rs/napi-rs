@@ -1,5 +1,4 @@
 import { defineConfig } from 'vite'
-import { nodePolyfills } from 'vite-plugin-node-polyfills'
 
 export default defineConfig({
   server: {
@@ -9,9 +8,6 @@ export default defineConfig({
     },
   },
   plugins: [
-    nodePolyfills({
-      include: ['events'],
-    }),
     {
       name: 'configure-response-headers',
       enforce: 'pre',
