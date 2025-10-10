@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [1.0.7](https://github.com/napi-rs/napi-rs/compare/@napi-rs/wasm-runtime@1.0.6...@napi-rs/wasm-runtime@1.0.7) (2025-10-10)
+
+### Bug Fixes
+
+- **wasm-runtime:** node:events polyfill on browser ([#2954](https://github.com/napi-rs/napi-rs/issues/2954)) ([69b8f09](https://github.com/napi-rs/napi-rs/commit/69b8f096fd8aae18d4970a0b053f052ed880181a))
+
 ## [1.0.6](https://github.com/napi-rs/napi-rs/compare/@napi-rs/wasm-runtime@1.0.5...@napi-rs/wasm-runtime@1.0.6) (2025-10-03)
 
 **Note:** Version bump only for package @napi-rs/wasm-runtime
