@@ -82,7 +82,7 @@ pub fn format_js_property_name(js_name: &str) -> String {
   // (but cannot start with a digit, which we check separately)
   let has_invalid_chars = js_name
     .chars()
-    .any(|c| !c.is_alphanumeric() && c != '_' && c != '$');
+    .any(|c| !c.is_ascii_alphanumeric() && c != '_' && c != '$');
 
   let needs_quotes = starts_with_digit || has_invalid_chars;
 
