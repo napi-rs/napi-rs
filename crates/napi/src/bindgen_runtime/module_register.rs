@@ -9,6 +9,8 @@ use std::ffi::CStr;
 use std::mem::MaybeUninit;
 #[cfg(not(feature = "noop"))]
 use std::ptr;
+#[cfg(all(not(feature = "noop"), target_os = "windows"))]
+use std::sync::Mutex;
 #[cfg(not(feature = "noop"))]
 use std::sync::{
   atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -122,6 +124,9 @@ thread_local! {
   // Store thread id of the thread that created the CustomGC ThreadsafeFunction.
   pub(crate) static THREADS_CAN_ACCESS_ENV: Cell<bool> = const { Cell::new(false) };
 }
+
+#[cfg(all(feature = "napi4", not(feature = "noop"), target_os = "windows"))]
+static CUSTOM_GC_ENV_ALIVE: LazyLock<Mutex<bool>> = LazyLock::new(|| Mutex::new(false));
 
 type RegisteredClasses = PersistedPerInstanceHashMap<
   /* export name */ String,
@@ -567,6 +572,13 @@ fn create_custom_gc(env: sys::napi_env) {
   }
 
   THREADS_CAN_ACCESS_ENV.with(|cell| cell.set(true));
+  #[cfg(target_os = "windows")]
+  {
+    let mut env_alive = CUSTOM_GC_ENV_ALIVE
+      .lock()
+      .expect("Lock CUSTOM_GC_ENV_ALIVE in create_custom_gc");
+    *env_alive = true;
+  }
 }
 
 #[cfg(all(
@@ -610,6 +622,13 @@ unsafe extern "C" fn custom_gc_finalize(
   finalize_hint: *mut std::ffi::c_void,
 ) {
   CUSTOM_GC_TSFN_DESTROYED.store(true, Ordering::SeqCst);
+  #[cfg(target_os = "windows")]
+  {
+    let mut env_alive = CUSTOM_GC_ENV_ALIVE
+      .lock()
+      .expect("Lock CUSTOM_GC_ENV_ALIVE in custom_gc_finalize");
+    *env_alive = false;
+  }
 }
 
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
@@ -621,9 +640,21 @@ extern "C" fn custom_gc(
   data: *mut std::ffi::c_void,
 ) {
   // current thread was destroyed
-  if THREADS_CAN_ACCESS_ENV.with(|cell| !cell.get()) || data.is_null() {
+  let env_accessible = THREADS_CAN_ACCESS_ENV.with(|cell| cell.get());
+  #[cfg(target_os = "windows")]
+  let env_guard = CUSTOM_GC_ENV_ALIVE
+    .lock()
+    .expect("Lock CUSTOM_GC_ENV_ALIVE in custom_gc");
+  #[cfg(target_os = "windows")]
+  let env_alive = *env_guard;
+  #[cfg(not(target_os = "windows"))]
+  let env_alive = true;
+  if !env_accessible || !env_alive || data.is_null() {
     return;
   }
+  #[cfg(target_os = "windows")]
+  let _env_guard = env_guard;
+
   let mut ref_count = 0;
   check_status_or_throw!(
     env,
