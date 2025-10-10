@@ -10,7 +10,7 @@ import {
   testWorkers,
 } from './example.wasi-browser'
 
-global.Buffer = Buffer
+globalThis.Buffer = Buffer
 
 console.info(new Animal(Kind.Cat, 'Tom'))
 asyncMultiTwo(200).then((res) => {

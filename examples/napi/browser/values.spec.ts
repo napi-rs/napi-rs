@@ -2,7 +2,7 @@ import { Buffer } from 'buffer'
 
 import { describe, it, expect } from 'vitest'
 
-global.Buffer = Buffer
+globalThis.Buffer = Buffer
 
 // @ts-expect-error
 const {
