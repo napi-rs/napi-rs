@@ -934,6 +934,37 @@ export declare function promiseInEither(input: number | Promise<number>): Promis
 
 export declare function promiseRawReturnClassInstance(): Promise<ClassReturnInPromise>
 
+export interface PropertyNameDigitTest {
+  /** Property names starting with digits should be quoted */
+  '0invalid': string
+  '123': string
+}
+
+export interface PropertyNameSpecialCharsTest {
+  /** Special characters should be quoted */
+  'kebab-case': string
+  'with space': string
+  'dot.notation': string
+  'xml:lang': string
+  /** Dollar sign should be quoted for backward compatibility */
+  '$var': string
+}
+
+export interface PropertyNameUnicodeTest {
+  /** Unicode characters should NOT be quoted */
+  café: string
+  日本語: string
+  Ελληνικά: string
+}
+
+export interface PropertyNameValidTest {
+  /** Valid identifiers should NOT be quoted */
+  camelCase: string
+  pascalCase: string
+  private: string
+  with123Numbers: string
+}
+
 /** napi = { version = 2, features = ["serde-json"] } */
 export declare function readFile(callback: (arg0: Error | undefined, arg1?: string | undefined | null) => void): void
 
