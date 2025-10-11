@@ -73,16 +73,54 @@ fn escape_json(src: &str) -> String {
 
 /// Formats a JavaScript property name, adding quotes if it contains special characters
 /// or starts with a digit that would make it an invalid identifier.
+///
+/// This function checks for characters that are known to be invalid in JavaScript
+/// identifiers, rather than trying to enumerate all valid ones (which would need
+/// complex Unicode identifier rules). This approach allows Unicode letters and
+/// maintains backward compatibility.
 pub fn format_js_property_name(js_name: &str) -> String {
   // Check if first character is a digit
   let starts_with_digit = js_name.chars().next().is_some_and(|c| c.is_ascii_digit());
 
-  // Check if contains any character that's not a valid JS identifier character
-  // Valid JS identifiers can only contain: letters, digits, underscore, and dollar sign
-  // (but cannot start with a digit, which we check separately)
-  let has_invalid_chars = js_name
-    .chars()
-    .any(|c| !c.is_ascii_alphanumeric() && c != '_' && c != '$');
+  // Check for specific characters that are known to be invalid in JS identifiers
+  // We explicitly check for invalid characters rather than trying to enumerate all
+  // valid ones, which allows Unicode letters while catching common problematic chars.
+  let has_invalid_chars = js_name.chars().any(|c| {
+    matches!(
+      c,
+      '-' | ':'
+        | ' '
+        | '.'
+        | '['
+        | ']'
+        | '@'
+        | '#'
+        | '$'  // Maintaining backward compatibility: $ was quoted in original implementation
+        | '%'
+        | '^'
+        | '&'
+        | '*'
+        | '('
+        | ')'
+        | '+'
+        | '='
+        | '{'
+        | '}'
+        | '|'
+        | '\\'
+        | ';'
+        | '\''
+        | '"'
+        | '<'
+        | '>'
+        | ','
+        | '?'
+        | '/'
+        | '~'
+        | '`'
+        | '!'
+    )
+  });
 
   let needs_quotes = starts_with_digit || has_invalid_chars;
 
@@ -785,7 +823,7 @@ pub fn ty_to_ts_type(
 
 #[cfg(test)]
 mod tests {
-  use super::escape_json;
+  use super::{escape_json, format_js_property_name};
 
   #[test]
   fn test_escape_json_escaped_quotes() {
@@ -825,5 +863,97 @@ mod tests {
   #[test]
   fn test_escape_json_trailing_backslash() {
     assert_eq!(escape_json(r#"test\"#), r#"test\\"#);
+  }
+
+  // Tests for format_js_property_name
+  #[test]
+  fn test_format_js_property_name_valid_identifiers() {
+    // Simple ASCII identifiers should not be quoted
+    assert_eq!(format_js_property_name("foo"), "foo");
+    assert_eq!(format_js_property_name("myProperty"), "myProperty");
+    assert_eq!(format_js_property_name("_private"), "_private");
+    assert_eq!(format_js_property_name("__proto__"), "__proto__");
+    assert_eq!(format_js_property_name("camelCase"), "camelCase");
+    assert_eq!(format_js_property_name("PascalCase"), "PascalCase");
+    assert_eq!(format_js_property_name("with123numbers"), "with123numbers");
+  }
+
+  #[test]
+  fn test_format_js_property_name_unicode_identifiers() {
+    // Unicode letters should be allowed (not quoted)
+    assert_eq!(format_js_property_name("café"), "café");
+    assert_eq!(format_js_property_name("日本語"), "日本語");
+    assert_eq!(format_js_property_name("Ελληνικά"), "Ελληνικά");
+    assert_eq!(format_js_property_name("мир"), "мир");
+    assert_eq!(format_js_property_name("世界"), "世界");
+  }
+
+  #[test]
+  fn test_format_js_property_name_starts_with_digit() {
+    // Identifiers starting with digits should be quoted
+    assert_eq!(format_js_property_name("0invalid"), "'0invalid'");
+    assert_eq!(format_js_property_name("123"), "'123'");
+    assert_eq!(format_js_property_name("9Lives"), "'9Lives'");
+  }
+
+  #[test]
+  fn test_format_js_property_name_special_chars() {
+    // Properties with special characters should be quoted
+    assert_eq!(format_js_property_name("kebab-case"), "'kebab-case'");
+    assert_eq!(format_js_property_name("with space"), "'with space'");
+    assert_eq!(format_js_property_name("dot.notation"), "'dot.notation'");
+    assert_eq!(format_js_property_name("array[0]"), "'array[0]'");
+    assert_eq!(format_js_property_name("@decorator"), "'@decorator'");
+    assert_eq!(format_js_property_name("#private"), "'#private'");
+    assert_eq!(format_js_property_name("percent%"), "'percent%'");
+    assert_eq!(format_js_property_name("caret^"), "'caret^'");
+    assert_eq!(format_js_property_name("ampersand&"), "'ampersand&'");
+    assert_eq!(format_js_property_name("star*"), "'star*'");
+    assert_eq!(format_js_property_name("paren("), "'paren('");
+    assert_eq!(format_js_property_name("paren)"), "'paren)'");
+    assert_eq!(format_js_property_name("plus+"), "'plus+'");
+    assert_eq!(format_js_property_name("equals="), "'equals='");
+    assert_eq!(format_js_property_name("brace{"), "'brace{'");
+    assert_eq!(format_js_property_name("brace}"), "'brace}'");
+    assert_eq!(format_js_property_name("pipe|"), "'pipe|'");
+    assert_eq!(format_js_property_name("backslash\\"), "'backslash\\'");
+    assert_eq!(format_js_property_name("semicolon;"), "'semicolon;'");
+    assert_eq!(format_js_property_name("quote'"), "'quote''");
+    assert_eq!(format_js_property_name("doublequote\""), "'doublequote\"'");
+    assert_eq!(format_js_property_name("less<"), "'less<'");
+    assert_eq!(format_js_property_name("greater>"), "'greater>'");
+    assert_eq!(format_js_property_name("comma,"), "'comma,'");
+    assert_eq!(format_js_property_name("question?"), "'question?'");
+    assert_eq!(format_js_property_name("slash/"), "'slash/'");
+    assert_eq!(format_js_property_name("tilde~"), "'tilde~'");
+    assert_eq!(format_js_property_name("backtick`"), "'backtick`'");
+    assert_eq!(format_js_property_name("exclamation!"), "'exclamation!'");
+  }
+
+  #[test]
+  fn test_format_js_property_name_dollar_sign() {
+    // Dollar sign should be quoted for backward compatibility
+    assert_eq!(format_js_property_name("$var"), "'$var'");
+    assert_eq!(format_js_property_name("jQuery$"), "'jQuery$'");
+    assert_eq!(format_js_property_name("$"), "'$'");
+  }
+
+  #[test]
+  fn test_format_js_property_name_colon_namespace() {
+    // Colons (common in XML/namespaced properties) should be quoted
+    assert_eq!(format_js_property_name("xml:lang"), "'xml:lang'");
+    assert_eq!(format_js_property_name("xlink:href"), "'xlink:href'");
+  }
+
+  #[test]
+  fn test_format_js_property_name_mixed() {
+    // Mixed cases
+    assert_eq!(format_js_property_name("valid_name_123"), "valid_name_123");
+    assert_eq!(
+      format_js_property_name("invalid-name-123"),
+      "'invalid-name-123'"
+    );
+    assert_eq!(format_js_property_name("café_bar"), "café_bar");
+    assert_eq!(format_js_property_name("café-bar"), "'café-bar'");
   }
 }

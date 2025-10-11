@@ -71,6 +71,7 @@ jobs:
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
               yarn test:macro
               cargo test -p napi-cargo-test --features noop
+              cargo test -p napi-derive-backend --features type-def
             toolchain: stable
           - host: ubuntu-latest
             target: x86_64-unknown-linux-gnu
@@ -90,6 +91,7 @@ jobs:
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
               RUSTFLAGS="-C link-args=-Wl,-undefined,dynamic_lookup,-no_fixup_chains"
               cargo test -p napi-cargo-test --features noop
+              cargo test -p napi-derive-backend --features type-def
             toolchain: stable
           - host: windows-latest
             target: x86_64-pc-windows-msvc
@@ -100,6 +102,7 @@ jobs:
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
               yarn test:macro
               cargo test -p napi-cargo-test --features noop
+              cargo test -p napi-derive-backend --features type-def
             toolchain: stable
           - host: windows-11-arm
             target: aarch64-pc-windows-msvc
