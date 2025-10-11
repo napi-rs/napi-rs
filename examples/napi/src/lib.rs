@@ -3,6 +3,7 @@
 #![allow(clippy::disallowed_names)]
 #![allow(clippy::uninlined_format_args)]
 #![allow(clippy::new_without_default)]
+#![allow(non_snake_case)]
 #![allow(deprecated)]
 
 #[cfg(not(target_family = "wasm"))]
