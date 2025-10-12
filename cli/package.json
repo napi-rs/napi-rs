@@ -107,6 +107,6 @@
   "scripts": {
     "codegen": "node --import @oxc-node/core/register ./codegen/index.ts",
     "build": "tsdown",
-    "test": "node --import @oxc-node/core/register --test 'src/**/__tests__/**/*.spec.ts' 'e2e/**/*.spec.ts'"
+    "test": "find src e2e -name '*.spec.ts' | xargs node --import @oxc-node/core/register --test"
   }
 }
