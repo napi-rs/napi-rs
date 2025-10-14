@@ -1,3 +1,4 @@
+use convert_case::Case;
 use proc_macro2::{Ident, Literal};
 use syn::{Attribute, Expr, Type};
 
@@ -136,6 +137,7 @@ pub struct NapiStructuredEnum {
   pub object_from_js: bool,
   pub object_to_js: bool,
   pub discriminant: String,
+  pub discriminant_case: Option<Case<'static>>,
 }
 
 #[derive(Debug, Clone)]

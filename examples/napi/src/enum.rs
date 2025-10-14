@@ -70,6 +70,14 @@ pub enum StructuredKind {
   Tuple(u32, u32),
 }
 
+#[napi(discriminant_case = "lowercase")]
+pub enum StructuredKindLowercase {
+  Hello,
+  Greeting { name: String },
+  Birthday { name: String, age: u8 },
+  Tuple(u32, u32),
+}
+
 #[napi]
 pub fn validate_structured_enum(kind: StructuredKind) -> StructuredKind {
   kind
