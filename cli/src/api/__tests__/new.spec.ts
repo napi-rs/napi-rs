@@ -188,8 +188,9 @@ test('create a new project with custom path, name, and targets', async (t) => {
   )
   assert.strictEqual(
     yamlObject.jobs.build.strategy.matrix.settings.some(
-      (setting: any, false) => setting.target === 'x86_64-pc-windows-msvc',
+      (setting: any) => setting.target === 'x86_64-pc-windows-msvc',
     ),
+    false,
   )
   assert.ok(
     yamlObject.jobs.build.strategy.matrix.settings.some(
@@ -318,7 +319,7 @@ test('dry run should not create any files', async () => {
     dryRun: true,
   })
 
-  assert.strictEqual(existsSync(projectPath, false))
+  assert.strictEqual(existsSync(projectPath), false)
 })
 
 test('create project without GitHub Actions', async () => {
@@ -332,7 +333,7 @@ test('create project without GitHub Actions', async () => {
 
   assert.ok(existsSync(projectPath))
   assert.ok(existsSync(join(projectPath, 'package.json')))
-  assert.strictEqual(existsSync(join(projectPath, '.github', false)))
+  assert.strictEqual(existsSync(join(projectPath, '.github')), false)
 })
 
 test('create a new project with pnpm package manager', async () => {
