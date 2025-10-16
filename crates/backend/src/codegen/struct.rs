@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 
+use convert_case::Casing;
 use proc_macro2::{Ident, Literal, Span, TokenStream};
 use quote::ToTokens;
 
@@ -862,7 +863,11 @@ impl NapiStruct {
   ) -> TokenStream {
     let name = &self.name;
     let name_str = self.name.to_string();
-    let discriminant = structured_enum.discriminant.as_str();
+    let mut discriminant = structured_enum.discriminant.clone();
+    if let Some(case) = structured_enum.discriminant_case {
+      discriminant = discriminant.to_case(case);
+    }
+    let discriminant = discriminant.as_str();
 
     let mut variant_arm_setters = vec![];
     let mut variant_arm_getters = vec![];

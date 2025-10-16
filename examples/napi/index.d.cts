@@ -1066,6 +1066,12 @@ export type StructuredKind =
   | { type2: 'Birthday', name: string, age: number }
   | { type2: 'Tuple', field0: number, field1: number }
 
+export type StructuredKindLowercase =
+  | { type: 'hello' }
+  | { type: 'greeting', name: string }
+  | { type: 'birthday', name: string, age: number }
+  | { type: 'tuple', field0: number, field1: number }
+
 export declare function sumBtreeMapping(nums: Record<string, number>): number
 
 export declare function sumIndexMapping(nums: Record<string, number>): number

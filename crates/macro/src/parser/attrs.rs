@@ -78,6 +78,7 @@ macro_rules! attrgen {
       (string_enum, StringEnum(Span, Option<(String, Span)>)),
       (use_nullable, UseNullable(Span, Option<bool>), false),
       (discriminant, Discriminant(Span, String, Span)),
+      (discriminant_case, DiscriminantCase(Span, String, Span)),
       (transparent, Transparent(Span)),
       (array, Array(Span)),
       (no_export, NoExport(Span)),
