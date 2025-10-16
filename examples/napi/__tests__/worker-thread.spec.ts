@@ -3,7 +3,8 @@ import { fileURLToPath } from 'node:url'
 import { Worker } from 'node:worker_threads'
 import { setTimeout } from 'node:timers/promises'
 
-import test from 'ava'
+import { test, before, after, beforeEach, afterEach } from 'node:test'
+import assert from 'node:assert'
 
 import { Animal, Kind, DEFAULT_COST, shutdownRuntime } from '../index.cjs'
 
@@ -21,7 +22,7 @@ const concurrency =
     ? 20
     : 1
 
-test.after(() => {
+after(() => {
   if (process.platform !== 'win32') {
     shutdownRuntime()
   }
@@ -38,7 +39,7 @@ condTest('should be able to require in worker thread', async (t) => {
       return new Promise<void>((resolve, reject) => {
         w.postMessage({ type: 'require' })
         w.on('message', (msg) => {
-          t.is(msg, Animal.withKind(Kind.Cat).whoami() + DEFAULT_COST)
+          assert.strictEqual(msg, Animal.withKind(Kind.Cat).whoami() + DEFAULT_COST)
           resolve()
         })
         w.on('error', (err) => {
@@ -48,7 +49,7 @@ condTest('should be able to require in worker thread', async (t) => {
         .then(() => setTimeout(100))
         .then(() => w.terminate())
         .then(() => {
-          t.pass()
+          assert.ok(true)
         })
     }),
   )
@@ -66,7 +67,7 @@ condTest('custom GC works on worker_threads', async (t) => {
             type: 'async:buffer',
           })
           w.on('message', (msg) => {
-            t.is(msg, 'done')
+            assert.strictEqual(msg, 'done')
             resolve(w)
           })
           w.on('error', (err) => {
@@ -83,7 +84,7 @@ condTest('custom GC works on worker_threads', async (t) => {
             type: 'async:arraybuffer',
           })
           w.on('message', (msg) => {
-            t.is(msg, 'done')
+            assert.strictEqual(msg, 'done')
             resolve(w)
           })
           w.on('error', (err) => {
@@ -109,7 +110,7 @@ condTest(
         return new Promise<void>((resolve, reject) => {
           w.postMessage({ type: 'constructor' })
           w.on('message', (msg) => {
-            t.is(msg, 'Ellie')
+            assert.strictEqual(msg, 'Ellie')
             resolve()
           })
           w.on('error', (err) => {
@@ -119,7 +120,7 @@ condTest(
           .then(() => setTimeout(100))
           .then(() => w.terminate())
           .then(() => {
-            t.pass()
+            assert.ok(true)
           })
       }),
     )

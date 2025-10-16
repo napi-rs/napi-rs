@@ -1,16 +1,17 @@
-import test from 'ava'
+import { test } from 'node:test'
+import assert from 'node:assert'
 
 // @ts-expect-error
 import bindings from '../index.node'
 
-test('should create named symbol', (t) => {
+test('should create named symbol', () => {
   const symbol = bindings.createNamedSymbol()
-  t.true(typeof symbol === 'symbol')
-  t.is(symbol.toString(), 'Symbol(native)')
+  assert.ok(typeof symbol === 'symbol')
+  assert.strictEqual(symbol.toString(), 'Symbol(native)')
 })
 
-test('should create unnamed symbol', (t) => {
+test('should create unnamed symbol', () => {
   const symbol = bindings.createUnnamedSymbol()
-  t.true(typeof symbol === 'symbol')
-  t.is(symbol.toString(), 'Symbol()')
+  assert.ok(typeof symbol === 'symbol')
+  assert.strictEqual(symbol.toString(), 'Symbol()')
 })

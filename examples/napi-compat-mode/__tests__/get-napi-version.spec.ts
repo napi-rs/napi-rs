@@ -1,10 +1,11 @@
-import test from 'ava'
+import { test } from 'node:test'
+import assert from 'node:assert'
 
 // @ts-expect-error
 import bindings from '../index.node'
 
-test('should get napi version', (t) => {
+test('should get napi version', () => {
   const napiVersion = bindings.getNapiVersion()
-  t.true(typeof napiVersion === 'number')
-  t.is(`${napiVersion}`, process.versions.napi!)
+  assert.ok(typeof napiVersion === 'number')
+  assert.strictEqual(`${napiVersion}`, process.versions.napi!)
 })

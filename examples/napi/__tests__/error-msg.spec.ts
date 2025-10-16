@@ -1,28 +1,29 @@
-import test from 'ava'
+import { test, before, after, beforeEach, afterEach } from 'node:test'
+import assert from 'node:assert'
 
 import { receiveString, shutdownRuntime } from '../index.cjs'
 
-test.after(() => {
+after(() => {
   shutdownRuntime()
 })
 
-test('Function message', (t) => {
+test('Function message', () => {
   // @ts-expect-error
-  t.throws(() => receiveString(function a() {}), {
+  assert.throws(() => receiveString(function a() {}), {
     message:
       'Failed to convert JavaScript value `function a(..) ` into rust type `String`',
   })
   // @ts-expect-error
-  t.throws(() => receiveString(() => {}), {
+  assert.throws(() => receiveString(() => {}), {
     message:
       'Failed to convert JavaScript value `function anonymous(..) ` into rust type `String`',
   })
   // @ts-expect-error
-  t.throws(() => receiveString(1), {
+  assert.throws(() => receiveString(1), {
     message:
       'Failed to convert JavaScript value `Number 1 ` into rust type `String`',
   })
-  t.throws(
+  assert.throws(
     () =>
       // @ts-expect-error
       receiveString({
@@ -38,25 +39,25 @@ test('Function message', (t) => {
     },
   )
   // @ts-expect-error
-  t.throws(() => receiveString(Symbol('1')), {
+  assert.throws(() => receiveString(Symbol('1')), {
     message:
       'Failed to convert JavaScript value `Symbol` into rust type `String`',
   })
 
   // @ts-expect-error
-  t.throws(() => receiveString(), {
+  assert.throws(() => receiveString(), {
     message:
       'Failed to convert JavaScript value `Undefined` into rust type `String`',
   })
 
   // @ts-expect-error
-  t.throws(() => receiveString(null), {
+  assert.throws(() => receiveString(null), {
     message:
       'Failed to convert JavaScript value `Null` into rust type `String`',
   })
 
   // @ts-expect-error
-  t.throws(() => receiveString(100n), {
+  assert.throws(() => receiveString(100n), {
     message:
       'Failed to convert JavaScript value `BigInt 100 ` into rust type `String`',
   })

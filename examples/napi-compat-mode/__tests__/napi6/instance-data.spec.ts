@@ -1,25 +1,26 @@
-import test from 'ava'
+import { test } from 'node:test'
+import assert from 'node:assert'
 
 import { napiVersion } from '../napi-version'
 
 // @ts-expect-error
 import bindings from '../../index.node'
 
-test('should set and get instance data', (t) => {
+test('should set and get instance data', () => {
   if (napiVersion >= 6) {
-    t.is(bindings.getInstanceData(), undefined)
+    assert.strictEqual(bindings.getInstanceData(), undefined)
     bindings.setInstanceData()
-    t.is(bindings.getInstanceData(), 1024)
+    assert.strictEqual(bindings.getInstanceData(), 1024)
   } else {
-    t.is(bindings.getInstanceData, undefined)
-    t.is(bindings.setInstanceData, undefined)
+    assert.strictEqual(bindings.getInstanceData, undefined)
+    assert.strictEqual(bindings.setInstanceData, undefined)
   }
 })
 
-test('should throw if get instance data type mismatched', (t) => {
+test('should throw if get instance data type mismatched', () => {
   if (napiVersion >= 6) {
-    t.throws(bindings.getWrongTypeInstanceData)
+    assert.throws(bindings.getWrongTypeInstanceData)
   } else {
-    t.is(bindings.getWrongTypeInstanceData, undefined)
+    assert.strictEqual(bindings.getWrongTypeInstanceData, undefined)
   }
 })

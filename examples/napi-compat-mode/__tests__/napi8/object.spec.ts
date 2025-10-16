@@ -1,26 +1,27 @@
-import ava from 'ava'
+import { test } from 'node:test'
+import assert from 'node:assert'
 
 import { napiVersion } from '../napi-version'
 
 // @ts-expect-error
 import bindings from '../../index.node'
 
-const test = napiVersion >= 8 ? ava : ava.skip
+const testFn = napiVersion >= 8 ? test : test.skip
 
-test('should be able to freeze object', (t) => {
+test('should be able to freeze object', () => {
   const obj: any = {}
   bindings.testFreezeObject(obj)
-  t.true(Object.isFrozen(obj))
-  t.throws(() => {
+  assert.ok(Object.isFrozen(obj))
+  assert.throws(() => {
     obj.a = 1
   })
 })
 
-test('should be able to seal object', (t) => {
+test('should be able to seal object', () => {
   const obj: any = {}
   bindings.testSealObject(obj)
-  t.true(Object.isSealed(obj))
-  t.throws(() => {
+  assert.ok(Object.isSealed(obj))
+  assert.throws(() => {
     obj.a = 1
   })
 })

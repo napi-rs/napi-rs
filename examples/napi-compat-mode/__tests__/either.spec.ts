@@ -1,15 +1,16 @@
-import test from 'ava'
+import { test } from 'node:test'
+import assert from 'node:assert'
 
 // @ts-expect-error
 import bindings from '../index.node'
 
-test('either should work', (t) => {
+test('either should work', () => {
   const fixture = 'napi'
-  t.is(bindings.eitherNumberString(1), 101)
-  t.is(bindings.eitherNumberString(fixture), `Either::B(${fixture})`)
+  assert.strictEqual(bindings.eitherNumberString(1), 101)
+  assert.strictEqual(bindings.eitherNumberString(fixture), `Either::B(${fixture})`)
 })
 
-test('dynamic argument length should work', (t) => {
-  t.is(bindings.dynamicArgumentLength(1), 101)
-  t.is(bindings.dynamicArgumentLength(), 42)
+test('dynamic argument length should work', () => {
+  assert.strictEqual(bindings.dynamicArgumentLength(1), 101)
+  assert.strictEqual(bindings.dynamicArgumentLength(), 42)
 })

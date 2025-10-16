@@ -4,7 +4,8 @@ import { createRequire } from 'node:module'
 import * as path from 'node:path'
 
 import { platformArchTriples } from '@napi-rs/triples'
-import test from 'ava'
+import { test } from 'node:test'
+import assert from 'node:assert'
 
 const require = createRequire(import.meta.url)
 const __dirname = path.dirname(new URL(import.meta.url).pathname)
@@ -31,27 +32,27 @@ if (platforms.length === 1) {
   throw new Error('unsupported platform')
 }
 
-test('unload module', (t) => {
+test('unload module', () => {
   if (process.env.WASI_TEST) {
-    t.pass()
+    assert.ok(true)
     return
   }
   const { add } = require(`../${binaryName}`)
-  t.is(add(1, 2), 3)
+  assert.strictEqual(add(1, 2), 3)
   delete require.cache[require.resolve(`../${binaryName}`)]
   const { add: add2 } = require(`../${binaryName}`)
-  t.is(add2(1, 2), 3)
+  assert.strictEqual(add2(1, 2), 3)
 })
 
-test('load module multi times', (t) => {
+test('load module multi times', () => {
   if (process.env.WASI_TEST || process.platform === 'win32') {
-    t.pass()
+    assert.ok(true)
     return
   }
   const { add } = require(`../${binaryName}`)
-  t.is(add(1, 2), 3)
+  assert.strictEqual(add(1, 2), 3)
   const { add: add2 } = require(
     path.toNamespacedPath(path.join(__dirname, `../${binaryName}`)),
   )
-  t.is(add2(1, 2), 3)
+  assert.strictEqual(add2(1, 2), 3)
 })

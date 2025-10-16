@@ -1,21 +1,22 @@
-import test from 'ava'
+import { test } from 'node:test'
+import assert from 'node:assert'
 
 import { napiVersion } from '../napi-version'
 
 // @ts-expect-error
 import bindings from '../../index.node'
 
-test('deserialize string', (t) => {
-  t.notThrows(() => bindings.expect_hello_world('hello world'))
+test('deserialize string', () => {
+  assert.doesNotThrow(() => bindings.expect_hello_world('hello world'))
 })
 
-test('deserialize object', (t) => {
+test('deserialize object', () => {
   if (napiVersion < 6) {
-    t.throws(() => {
+    assert.throws(() => {
       bindings.expect_obj({})
     })
   } else {
-    t.notThrows(() =>
+    assert.doesNotThrow(() =>
       bindings.expect_obj({
         a: 1,
         b: [1, 2],

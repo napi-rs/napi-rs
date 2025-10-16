@@ -413,7 +413,7 @@ export async function newProject(userOptions: RawNewOptions) {
       }
 
       // Update test framework if needed
-      if (options.testFramework !== 'ava') {
+      if (options.testFramework !== 'node:test') {
         // This would require more complex logic to update test scripts and dependencies
         debug(
           `Test framework ${options.testFramework} requested but not yet implemented`,

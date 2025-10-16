@@ -3,17 +3,12 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import ava, { type TestFn } from 'ava'
+import { test } from 'node:test'
+import assert from 'node:assert'
 
 import { createNpmDirs } from '../create-npm-dirs.js'
 
-const test = ava as TestFn<{
-  tmpDir: string
-  packageJsonPath: string
-}>
-
-test.beforeEach(async (t) => {
-  // Create a unique temp directory for tests
+async function setupTestContext() {
   const timestamp = Date.now()
   const random = Math.random().toString(36).substring(7)
   const tmpDir = join(
@@ -22,22 +17,19 @@ test.beforeEach(async (t) => {
     `create-npm-dirs-${timestamp}-${random}`,
   )
   const packageJsonPath = join(tmpDir, 'package.json')
-
-  // Create the directory
   await mkdir(tmpDir, { recursive: true })
+  return { tmpDir, packageJsonPath }
+}
 
-  t.context = { tmpDir, packageJsonPath }
-})
-
-test.afterEach.always(async (t) => {
-  // Clean up any created directories
-  if (existsSync(t.context.tmpDir)) {
-    await rm(t.context.tmpDir, { recursive: true, force: true })
+async function cleanupTestContext(tmpDir: string) {
+  if (existsSync(tmpDir)) {
+    await rm(tmpDir, { recursive: true, force: true })
   }
-})
+}
 
-test('should omit exports fields from publishConfig in scoped packages', async (t) => {
-  const { tmpDir, packageJsonPath } = t.context
+test('should omit exports fields from publishConfig in scoped packages', async () => {
+  const { tmpDir, packageJsonPath } = await setupTestContext()
+  try {
 
   // Create a package.json with publishConfig that includes exports field
   const packageJson = {
@@ -67,26 +59,30 @@ test('should omit exports fields from publishConfig in scoped packages', async (
 
   // Check that the scoped package directory was created
   const scopedDir = join(tmpDir, 'npm', 'linux-x64-gnu')
-  t.true(existsSync(scopedDir))
+  assert.ok(existsSync(scopedDir))
 
   // Read the generated package.json for the scoped package
   const scopedPackageJsonPath = join(scopedDir, 'package.json')
-  t.true(existsSync(scopedPackageJsonPath))
+  assert.ok(existsSync(scopedPackageJsonPath))
 
   const scopedPackageJson = JSON.parse(
     await readFile(scopedPackageJsonPath, 'utf-8'),
   )
 
   // Verify that publishConfig only contains registry and access, not exports
-  t.truthy(scopedPackageJson.publishConfig)
-  t.is(scopedPackageJson.publishConfig.registry, 'https://custom-registry.com')
-  t.is(scopedPackageJson.publishConfig.access, 'public')
-  t.is(scopedPackageJson.publishConfig.exports, undefined)
-  t.is(scopedPackageJson.publishConfig.tag, undefined)
+  assert.ok(scopedPackageJson.publishConfig)
+  assert.strictEqual(scopedPackageJson.publishConfig.registry, 'https://custom-registry.com')
+  assert.strictEqual(scopedPackageJson.publishConfig.access, 'public')
+  assert.strictEqual(scopedPackageJson.publishConfig.exports, undefined)
+  assert.strictEqual(scopedPackageJson.publishConfig.tag, undefined)
+  } finally {
+    await cleanupTestContext(tmpDir)
+  }
 })
 
-test('should handle package without publishConfig', async (t) => {
-  const { tmpDir, packageJsonPath } = t.context
+test('should handle package without publishConfig', async () => {
+  const { tmpDir, packageJsonPath } = await setupTestContext()
+  try {
 
   // Create a package.json without publishConfig
   const packageJson = {
@@ -107,7 +103,7 @@ test('should handle package without publishConfig', async (t) => {
 
   // Check that the scoped package directory was created
   const scopedDir = join(tmpDir, 'npm', 'linux-x64-gnu')
-  t.true(existsSync(scopedDir))
+  assert.ok(existsSync(scopedDir))
 
   // Read the generated package.json for the scoped package
   const scopedPackageJsonPath = join(scopedDir, 'package.json')
@@ -116,11 +112,15 @@ test('should handle package without publishConfig', async (t) => {
   )
 
   // Verify that publishConfig is not present when not in source
-  t.is(scopedPackageJson.publishConfig, undefined)
+  assert.strictEqual(scopedPackageJson.publishConfig, undefined)
+  } finally {
+    await cleanupTestContext(tmpDir)
+  }
 })
 
-test('should preserve only registry and access in publishConfig', async (t) => {
-  const { tmpDir, packageJsonPath } = t.context
+test('should preserve only registry and access in publishConfig', async () => {
+  const { tmpDir, packageJsonPath } = await setupTestContext()
+  try {
 
   // Create a package.json with minimal publishConfig
   const packageJson = {
@@ -145,7 +145,7 @@ test('should preserve only registry and access in publishConfig', async (t) => {
 
   // Check that the scoped package directory was created
   const scopedDir = join(tmpDir, 'npm', 'darwin-arm64')
-  t.true(existsSync(scopedDir))
+  assert.ok(existsSync(scopedDir))
 
   // Read the generated package.json for the scoped package
   const scopedPackageJsonPath = join(scopedDir, 'package.json')
@@ -154,14 +154,18 @@ test('should preserve only registry and access in publishConfig', async (t) => {
   )
 
   // Verify that publishConfig contains exactly registry and access
-  t.truthy(scopedPackageJson.publishConfig)
-  t.is(scopedPackageJson.publishConfig.registry, 'https://npm.company.com')
-  t.is(scopedPackageJson.publishConfig.access, 'restricted')
-  t.is(Object.keys(scopedPackageJson.publishConfig).length, 2)
+  assert.ok(scopedPackageJson.publishConfig)
+  assert.strictEqual(scopedPackageJson.publishConfig.registry, 'https://npm.company.com')
+  assert.strictEqual(scopedPackageJson.publishConfig.access, 'restricted')
+  assert.strictEqual(Object.keys(scopedPackageJson.publishConfig).length, 2)
+  } finally {
+    await cleanupTestContext(tmpDir)
+  }
 })
 
-test('should handle WASM targets correctly with publishConfig', async (t) => {
-  const { tmpDir, packageJsonPath } = t.context
+test('should handle WASM targets correctly with publishConfig', async () => {
+  const { tmpDir, packageJsonPath } = await setupTestContext()
+  try {
 
   // Create a package.json for WASM target
   const packageJson = {
@@ -188,7 +192,7 @@ test('should handle WASM targets correctly with publishConfig', async (t) => {
 
   // Check that the scoped package directory was created
   const scopedDir = join(tmpDir, 'npm', 'wasm32-wasi')
-  t.true(existsSync(scopedDir))
+  assert.ok(existsSync(scopedDir))
 
   // Read the generated package.json for the scoped package
   const scopedPackageJsonPath = join(scopedDir, 'package.json')
@@ -197,14 +201,17 @@ test('should handle WASM targets correctly with publishConfig', async (t) => {
   )
 
   // Verify that publishConfig is correctly filtered for WASM too
-  t.truthy(scopedPackageJson.publishConfig)
-  t.is(scopedPackageJson.publishConfig.registry, 'https://wasm-registry.com')
-  t.is(scopedPackageJson.publishConfig.access, 'public')
-  t.is(scopedPackageJson.publishConfig.exports, undefined)
-  t.is(scopedPackageJson.publishConfig.browser, undefined)
+  assert.ok(scopedPackageJson.publishConfig)
+  assert.strictEqual(scopedPackageJson.publishConfig.registry, 'https://wasm-registry.com')
+  assert.strictEqual(scopedPackageJson.publishConfig.access, 'public')
+  assert.strictEqual(scopedPackageJson.publishConfig.exports, undefined)
+  assert.strictEqual(scopedPackageJson.publishConfig.browser, undefined)
 
   // Verify WASM-specific fields are set correctly
-  t.truthy(scopedPackageJson.main)
-  t.truthy(scopedPackageJson.browser)
-  t.truthy(scopedPackageJson.dependencies)
+  assert.ok(scopedPackageJson.main)
+  assert.ok(scopedPackageJson.browser)
+  assert.ok(scopedPackageJson.dependencies)
+  } finally {
+    await cleanupTestContext(tmpDir)
+  }
 })

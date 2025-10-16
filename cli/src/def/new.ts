@@ -51,9 +51,9 @@ export abstract class BaseNewCommand extends Command {
     description: 'Whether generate preconfigured GitHub Actions workflow',
   })
 
-  testFramework = Option.String('--test-framework', 'ava', {
+  testFramework = Option.String('--test-framework', 'node:test', {
     description:
-      'The JavaScript test framework to use, only support `ava` for now',
+      'The JavaScript test framework to use, only support `node:test` for now',
   })
 
   dryRun = Option.Boolean('--dry-run', false, {
