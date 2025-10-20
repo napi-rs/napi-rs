@@ -619,9 +619,7 @@ class Builder {
 
   private setOpenHarmonyEnv() {
     const { OHOS_SDK_PATH, OHOS_SDK_NATIVE } = process.env
-    const ndkPath = OHOS_SDK_PATH
-      ? `${OHOS_SDK_NATIVE}/native`
-      : OHOS_SDK_NATIVE
+    const ndkPath = OHOS_SDK_PATH ? `${OHOS_SDK_PATH}/native` : OHOS_SDK_NATIVE
     // @ts-expect-error
     if (!ndkPath && process.platform !== 'openharmony') {
       debug.warn(
