@@ -81,7 +81,7 @@ jobs:
               yarn test
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
               yarn test:macro
-            toolchain: 1.80.0
+            toolchain: 1.82.0
           - host: macos-latest
             target: aarch64-apple-darwin
             build: yarn build:test
@@ -125,7 +125,7 @@ jobs:
             toolchain: stable
         exclude:
           - settings:
-              toolchain: 1.80.0
+              toolchain: 1.82.0
             node: 20
           - settings:
               target: i686-pc-windows-msvc
