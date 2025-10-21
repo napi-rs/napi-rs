@@ -1544,11 +1544,11 @@ impl ConvertToAST for syn::ItemEnum {
           "PascalCase" => Case::Pascal,
           "camelCase" => Case::Camel,
           "snake_case" => Case::Snake,
-          "SCREAMING_SNAKE_CASE" => Case::UpperSnake,
+          "UPPER_SNAKE" => Case::UpperSnake,
           "kebab-case" => Case::Kebab,
-          "SCREAMING-KEBAB-CASE" => Case::UpperKebab,
+          "UPPER-KEBAB-CASE" => Case::UpperKebab,
           _ => {
-            bail_span!(self, "Unknown discriminant case. Possible values are \"lowercase\", \"UPPERCASE\", \"PascalCase\", \"camelCase\", \"snake_case\", \"SCREAMING_SNAKE_CASE\", \"kebab-case\", or \"SCREAMING-KEBAB-CASE\"")
+            bail_span!(self, "Unknown discriminant case. Possible values are \"lowercase\", \"UPPERCASE\", \"PascalCase\", \"camelCase\", \"snake_case\", \"UPPER_SNAKE\", \"kebab-case\", or \"UPPER-KEBAB-CASE\"")
           }
         })
       ).transpose()?;
@@ -1603,11 +1603,11 @@ impl ConvertToAST for syn::ItemEnum {
           "PascalCase" => Case::Pascal,
           "camelCase" => Case::Camel,
           "snake_case" => Case::Snake,
-          "SCREAMING_SNAKE_CASE" => Case::UpperSnake,
+          "UPPER_SNAKE" => Case::UpperSnake,
           "kebab-case" => Case::Kebab,
-          "SCREAMING-KEBAB-CASE" => Case::UpperKebab,
+          "UPPER-KEBAB-CASE" => Case::UpperKebab,
           _ => {
-            bail_span!(self, "Unknown string enum case. Possible values are \"lowercase\", \"UPPERCASE\", \"PascalCase\", \"camelCase\", \"snake_case\", \"SCREAMING_SNAKE_CASE\", \"kebab-case\", or \"SCREAMING-KEBAB-CASE\"")
+            bail_span!(self, "Unknown string enum case. Possible values are \"lowercase\", \"UPPERCASE\", \"PascalCase\", \"camelCase\", \"snake_case\", \"UPPER_SNAKE\", \"kebab-case\", or \"UPPER-KEBAB-CASE\"")
           }
         })).transpose()?;
 
