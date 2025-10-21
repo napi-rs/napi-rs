@@ -2,11 +2,9 @@ use std::collections::HashMap;
 use std::vec::Vec;
 use std::{cell::RefCell, iter};
 
-use super::{add_alias, ToTypeDef, TypeDef};
+use super::{add_alias, format_js_property_name, ty_to_ts_type, ToTypeDef, TypeDef};
 use crate::typegen::JSDoc;
-use crate::{
-  format_js_property_name, ty_to_ts_type, NapiImpl, NapiStruct, NapiStructField, NapiStructKind,
-};
+use crate::{NapiImpl, NapiStruct, NapiStructField, NapiStructKind};
 
 thread_local! {
   pub(crate) static TASK_STRUCTS: RefCell<HashMap<String, String>> = Default::default();

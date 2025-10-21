@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [3.3.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.3.0...@napi-rs/cli@3.3.1) (2025-10-10)
+
+### Bug Fixes
+
+- **napi:** cleanup memory issues ([#2949](https://github.com/napi-rs/napi-rs/issues/2949)) ([8f40ebd](https://github.com/napi-rs/napi-rs/commit/8f40ebd206ff27d8ec7aa04c58dd2d2bb28d8288))
+
 # [3.3.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.2.0...@napi-rs/cli@3.3.0) (2025-10-03)
 
 ### Bug Fixes
