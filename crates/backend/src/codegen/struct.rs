@@ -863,18 +863,17 @@ impl NapiStruct {
   ) -> TokenStream {
     let name = &self.name;
     let name_str = self.name.to_string();
-    let mut discriminant = structured_enum.discriminant.clone();
-    if let Some(case) = structured_enum.discriminant_case {
-      discriminant = discriminant.to_case(case);
-    }
-    let discriminant = discriminant.as_str();
+    let discriminant = structured_enum.discriminant.as_str();
 
     let mut variant_arm_setters = vec![];
     let mut variant_arm_getters = vec![];
 
     for variant in structured_enum.variants.iter() {
       let variant_name = &variant.name;
-      let variant_name_str = variant_name.to_string();
+      let mut variant_name_str = variant_name.to_string();
+      if let Some(case) = structured_enum.discriminant_case {
+        variant_name_str = variant_name_str.to_case(case);
+      }
       let mut obj_field_setters = vec![quote! {
         obj.set(#discriminant, #variant_name_str)?;
       }];

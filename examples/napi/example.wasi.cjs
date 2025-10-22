@@ -445,6 +445,7 @@ module.exports.validatePromise = __napiModule.exports.validatePromise
 module.exports.validateString = __napiModule.exports.validateString
 module.exports.validateStringEnum = __napiModule.exports.validateStringEnum
 module.exports.validateStructuredEnum = __napiModule.exports.validateStructuredEnum
+module.exports.validateStructuredEnumLowercase = __napiModule.exports.validateStructuredEnumLowercase
 module.exports.validateSymbol = __napiModule.exports.validateSymbol
 module.exports.validateTypedArray = __napiModule.exports.validateTypedArray
 module.exports.validateTypedArraySlice = __napiModule.exports.validateTypedArraySlice

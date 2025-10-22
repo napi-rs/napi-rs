@@ -912,6 +912,7 @@ module.exports.validatePromise = nativeBinding.validatePromise
 module.exports.validateString = nativeBinding.validateString
 module.exports.validateStringEnum = nativeBinding.validateStringEnum
 module.exports.validateStructuredEnum = nativeBinding.validateStructuredEnum
+module.exports.validateStructuredEnumLowercase = nativeBinding.validateStructuredEnumLowercase
 module.exports.validateSymbol = nativeBinding.validateSymbol
 module.exports.validateTypedArray = nativeBinding.validateTypedArray
 module.exports.validateTypedArraySlice = nativeBinding.validateTypedArraySlice

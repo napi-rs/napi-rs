@@ -82,3 +82,10 @@ pub enum StructuredKindLowercase {
 pub fn validate_structured_enum(kind: StructuredKind) -> StructuredKind {
   kind
 }
+
+#[napi]
+pub fn validate_structured_enum_lowercase(
+  kind: StructuredKindLowercase,
+) -> StructuredKindLowercase {
+  kind
+}
