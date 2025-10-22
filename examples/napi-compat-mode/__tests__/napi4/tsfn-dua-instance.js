@@ -1,4 +1,5 @@
-const bindings = require('../../index.node')
+// @ts-expect-error
+import bindings from '../../index.node'
 
 async function main() {
   await Promise.resolve()

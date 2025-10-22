@@ -1,6 +1,6 @@
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::ToTokens;
-use syn::{spanned::Spanned, Type, TypePath};
+use syn::{spanned::Spanned, Type, TypePath, TypeReference};
 
 use crate::{
   codegen::{get_intermediate_ident, js_mod_to_token_stream},
@@ -836,28 +836,35 @@ impl NapiFn {
 }
 
 fn hidden_ty_lifetime(ty: &mut syn::Type) -> BindgenResult<()> {
-  if let Type::Path(TypePath {
-    path: syn::Path { segments, .. },
-    ..
-  }) = ty
-  {
-    if let Some(syn::PathSegment {
-      arguments:
-        syn::PathArguments::AngleBracketed(syn::AngleBracketedGenericArguments { args, .. }),
+  match ty {
+    Type::Path(TypePath {
+      path: syn::Path { segments, .. },
       ..
-    }) = segments.last_mut()
-    {
-      let mut has_lifetime = false;
-      if let Some(syn::GenericArgument::Lifetime(lt)) = args.first_mut() {
-        *lt = syn::Lifetime::new("'_", Span::call_site());
-        has_lifetime = true;
-      }
-      for arg in args.iter_mut().skip(if has_lifetime { 1 } else { 0 }) {
-        if let syn::GenericArgument::Type(ty) = arg {
-          hidden_ty_lifetime(ty)?;
+    }) => {
+      if let Some(syn::PathSegment {
+        arguments:
+          syn::PathArguments::AngleBracketed(syn::AngleBracketedGenericArguments { args, .. }),
+        ..
+      }) = segments.last_mut()
+      {
+        let mut has_lifetime = false;
+        if let Some(syn::GenericArgument::Lifetime(lt)) = args.first_mut() {
+          *lt = syn::Lifetime::new("'_", Span::call_site());
+          has_lifetime = true;
+        }
+        for arg in args.iter_mut().skip(if has_lifetime { 1 } else { 0 }) {
+          if let syn::GenericArgument::Type(ty) = arg {
+            hidden_ty_lifetime(ty)?;
+          }
         }
       }
     }
+    Type::Reference(TypeReference {
+      lifetime: Some(lt), ..
+    }) => {
+      *lt = syn::Lifetime::new("'_", Span::call_site());
+    }
+    _ => {}
   }
   Ok(())
 }

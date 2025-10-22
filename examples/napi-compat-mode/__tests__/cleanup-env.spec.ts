@@ -1,6 +1,7 @@
 import test from 'ava'
 
-const bindings = require('../index.node')
+// @ts-expect-error
+import bindings from '../index.node'
 
 test('should be able to add cleanup hook', (t) => {
   t.notThrows(() => {

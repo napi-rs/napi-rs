@@ -171,6 +171,7 @@ fn gen_ts_func_arg(pat: &Pat) -> String {
         .collect::<Vec<_>>()
         .join(", ")
     ),
+    Pat::Wild(_) => "_".to_string(),
     _ => pat.to_token_stream().to_string().to_case(Case::Camel),
   }
 }

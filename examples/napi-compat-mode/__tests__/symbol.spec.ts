@@ -1,6 +1,7 @@
 import test from 'ava'
 
-const bindings = require('../index.node')
+// @ts-expect-error
+import bindings from '../index.node'
 
 test('should create named symbol', (t) => {
   const symbol = bindings.createNamedSymbol()

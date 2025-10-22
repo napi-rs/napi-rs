@@ -97,7 +97,7 @@ impl<'env> JsString<'env> {
   pub fn into_utf8(self) -> Result<JsStringUtf8<'env>> {
     let mut written_char_count = 0;
     let len = self.utf8_len()? + 1;
-    let mut result = Vec::with_capacity(len);
+    let mut result = vec![0; len];
     let buf_ptr = result.as_mut_ptr();
     check_status!(unsafe {
       sys::napi_get_value_string_utf8(
@@ -109,13 +109,11 @@ impl<'env> JsString<'env> {
       )
     })?;
 
-    // respect '\0' with js string, for example: `let hello = [a,'\0',b,'\0',c].join('')`
-    let mut result = mem::ManuallyDrop::new(result);
-    let buf_ptr = result.as_mut_ptr();
-    let bytes = unsafe { Vec::from_raw_parts(buf_ptr as *mut u8, written_char_count, len) };
+    mem::forget(result);
+
     Ok(JsStringUtf8 {
       inner: self,
-      buf: bytes,
+      buf: unsafe { Vec::from_raw_parts(buf_ptr.cast(), written_char_count, len) },
     })
   }
 
@@ -136,14 +134,15 @@ impl<'env> JsString<'env> {
 
     Ok(JsStringUtf16 {
       inner: self,
-      buf: result,
+      buf: unsafe { std::slice::from_raw_parts(buf_ptr.cast(), len) },
+      _inner_buf: result,
     })
   }
 
   pub fn into_latin1(self) -> Result<JsStringLatin1<'env>> {
     let mut written_char_count = 0usize;
     let len = self.latin1_len()? + 1;
-    let mut result = Vec::with_capacity(len);
+    let mut result = vec![0; len];
     let buf_ptr = result.as_mut_ptr();
     check_status!(unsafe {
       sys::napi_get_value_string_latin1(
@@ -159,9 +158,8 @@ impl<'env> JsString<'env> {
 
     Ok(JsStringLatin1 {
       inner: self,
-      buf: mem::ManuallyDrop::new(unsafe {
-        Vec::from_raw_parts(buf_ptr as *mut _, written_char_count, written_char_count)
-      }),
+      buf: unsafe { std::slice::from_raw_parts(buf_ptr.cast(), written_char_count) },
+      _inner_buf: unsafe { Vec::from_raw_parts(buf_ptr.cast(), written_char_count, len) },
     })
   }
 }

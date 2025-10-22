@@ -1,6 +1,33 @@
-use std::thread::sleep;
+use std::{sync::mpsc, thread::sleep};
 
 use napi::{bindgen_prelude::*, ScopedTask};
+
+pub struct SimpleTask {
+  receiver: mpsc::Receiver<i32>,
+}
+
+#[napi]
+impl napi::Task for SimpleTask {
+  type Output = i32;
+  type JsValue = i32;
+
+  fn compute(&mut self) -> Result<Self::Output> {
+    self.receiver.recv().map_err(|e| {
+      Error::new(
+        Status::GenericFailure,
+        format!("Channel receive error: {}", e),
+      )
+    })
+  }
+
+  fn resolve(&mut self, _env: napi::Env, output: Self::Output) -> Result<Self::JsValue> {
+    Ok(output)
+  }
+
+  fn finally(self, _env: napi::Env) -> Result<()> {
+    Ok(())
+  }
+}
 
 pub struct DelaySum(u32, u32);
 
@@ -31,6 +58,13 @@ pub fn without_abort_controller(a: u32, b: u32) -> AsyncTask<DelaySum> {
 #[napi]
 pub fn with_abort_controller(a: u32, b: u32, signal: AbortSignal) -> AsyncTask<DelaySum> {
   AsyncTask::with_signal(DelaySum(a, b), signal)
+}
+
+#[napi]
+fn with_abort_signal_handle(signal: AbortSignal) -> AsyncTask<SimpleTask> {
+  let (sender, receiver) = mpsc::channel::<i32>();
+  signal.on_abort(move || sender.send(999).unwrap());
+  AsyncTask::with_signal(SimpleTask { receiver }, signal)
 }
 
 struct AsyncTaskVoidReturn {}

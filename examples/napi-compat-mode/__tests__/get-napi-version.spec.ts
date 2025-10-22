@@ -1,6 +1,7 @@
 import test from 'ava'
 
-const bindings = require('../index.node')
+// @ts-expect-error
+import bindings from '../index.node'
 
 test('should get napi version', (t) => {
   const napiVersion = bindings.getNapiVersion()

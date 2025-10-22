@@ -62,3 +62,11 @@ impl<'env> ScopedTask<'env> for AsyncTaskInSpawn {
     Ok(obj)
   }
 }
+
+#[napi]
+pub fn compress_sync<'env>(
+  env: &'env Env,
+  _: Either<String, &'env [u8]>,
+) -> Result<BufferSlice<'env>> {
+  BufferSlice::from_data(env, vec![])
+}

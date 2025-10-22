@@ -9,7 +9,7 @@ import {
   AVAILABLE_TARGETS,
   debugFactory,
   DEFAULT_TARGETS,
-  TargetTriple,
+  type TargetTriple,
 } from '../utils/index.js'
 import { napiEngineRequirement } from '../utils/version.js'
 
@@ -76,6 +76,7 @@ export class NewCommand extends BaseNewCommand {
     return select({
       message: 'Minimum node-api version (with node version requirement)',
       loop: false,
+      pageSize: 10,
       choices: Array.from({ length: 8 }, (_, i) => ({
         name: `napi${i + 1} (${napiEngineRequirement(i + 1)})`,
         value: i + 1,

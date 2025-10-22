@@ -81,8 +81,7 @@ impl Env {
     Ok(unsafe { JsBoolean::from_raw_unchecked(self.0, raw_value) })
   }
 
-  #[cfg(feature = "compat-mode")]
-  #[deprecated(since = "3.0.0", note = "Use `i32` instead")]
+  /// Create a new JavaScript number from a Rust `i32`
   pub fn create_int32(&self, int: i32) -> Result<JsNumber<'_>> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe {
@@ -91,8 +90,7 @@ impl Env {
     unsafe { JsNumber::from_napi_value(self.0, raw_value) }
   }
 
-  #[cfg(feature = "compat-mode")]
-  #[deprecated(since = "3.0.0", note = "Use `i64` instead")]
+  /// Create a new JavaScript number from a Rust `i64`
   pub fn create_int64(&self, int: i64) -> Result<JsNumber<'_>> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe {
@@ -101,16 +99,14 @@ impl Env {
     unsafe { JsNumber::from_napi_value(self.0, raw_value) }
   }
 
-  #[cfg(feature = "compat-mode")]
-  #[deprecated(since = "3.0.0", note = "Use `u32` instead")]
+  /// Create a new JavaScript number from a Rust `u32`
   pub fn create_uint32(&self, number: u32) -> Result<JsNumber<'_>> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe { sys::napi_create_uint32(self.0, number, &mut raw_value) })?;
     unsafe { JsNumber::from_napi_value(self.0, raw_value) }
   }
 
-  #[cfg(feature = "compat-mode")]
-  #[deprecated(since = "3.0.0", note = "Use `f64` instead")]
+  /// Create a new JavaScript number from a Rust `f64`
   pub fn create_double(&self, double: f64) -> Result<JsNumber<'_>> {
     let mut raw_value = ptr::null_mut();
     check_status!(unsafe {
@@ -293,7 +289,11 @@ impl Env {
         value: raw_value,
         value_type: ValueType::Object,
       }),
-      mem::ManuallyDrop::new(unsafe { Vec::from_raw_parts(data_ptr as *mut _, length, length) }),
+      mem::ManuallyDrop::new(if length == 0 {
+        Vec::new()
+      } else {
+        unsafe { Vec::from_raw_parts(data_ptr as *mut _, length, length) }
+      }),
     ))
   }
 
@@ -306,7 +306,6 @@ impl Env {
     let length = data.len();
     let mut raw_value = ptr::null_mut();
     let data_ptr = data.as_mut_ptr();
-    let hint_ptr = Box::into_raw(Box::new((length, data.capacity())));
     check_status!(unsafe {
       if length == 0 {
         // Rust uses 0x1 as the data pointer for empty buffers,
@@ -314,6 +313,7 @@ impl Env {
         // the same data pointer if it's 0x0.
         sys::napi_create_buffer(self.0, length, ptr::null_mut(), &mut raw_value)
       } else {
+        let hint_ptr = Box::into_raw(Box::new((length, data.capacity())));
         let status = sys::napi_create_external_buffer(
           self.0,
           length,
@@ -467,7 +467,11 @@ impl Env {
         value: raw_value,
         value_type: ValueType::Object,
       }),
-      mem::ManuallyDrop::new(unsafe { Vec::from_raw_parts(copy_data as *mut u8, length, length) }),
+      mem::ManuallyDrop::new(if length == 0 {
+        Vec::new()
+      } else {
+        unsafe { Vec::from_raw_parts(copy_data as *mut u8, length, length) }
+      }),
     ))
   }
 
@@ -1483,6 +1487,9 @@ unsafe extern "C" fn drop_buffer(
 ) {
   let length_ptr = hint as *mut (usize, usize);
   let (length, cap) = unsafe { *Box::from_raw(length_ptr) };
+  if length == 0 || finalize_data.is_null() {
+    return;
+  }
   mem::drop(unsafe { Vec::from_raw_parts(finalize_data as *mut u8, length, cap) });
 }
 

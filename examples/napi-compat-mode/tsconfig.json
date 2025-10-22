@@ -2,11 +2,11 @@
   "extends": "../../tsconfig.json",
   "include": ["."],
   "compilerOptions": {
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "outDir": "./dist",
     "rootDir": ".",
     "target": "ESNext",
-    "module": "CommonJS",
+    "module": "ESNext",
     "skipLibCheck": true,
     "noEmit": true,
     "importHelpers": false,

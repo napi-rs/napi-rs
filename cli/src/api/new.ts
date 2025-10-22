@@ -8,7 +8,7 @@ import { load as yamlLoad, dump as yamlDump } from 'js-yaml'
 
 import {
   applyDefaultNewOptions,
-  NewOptions as RawNewOptions,
+  type NewOptions as RawNewOptions,
 } from '../def/new.js'
 import {
   AVAILABLE_TARGETS,
@@ -17,7 +17,7 @@ import {
   mkdirAsync,
   readdirAsync,
   statAsync,
-  SupportedPackageManager,
+  type SupportedPackageManager,
 } from '../utils/index.js'
 import { napiEngineRequirement } from '../utils/version.js'
 import { renameProject } from './rename.js'
@@ -169,6 +169,7 @@ async function filterTargetsInGithubActions(
 
   const macOSAndWindowsTargets = new Set([
     'x86_64-pc-windows-msvc',
+    'x86_64-pc-windows-gnu',
     'aarch64-pc-windows-msvc',
     'x86_64-apple-darwin',
   ])
@@ -180,6 +181,7 @@ async function filterTargetsInGithubActions(
     'aarch64-unknown-linux-musl',
     'armv7-unknown-linux-gnueabihf',
     'armv7-unknown-linux-musleabihf',
+    'loongarch64-unknown-linux-gnu',
     'riscv64gc-unknown-linux-gnu',
     'powerpc64le-unknown-linux-gnu',
     's390x-unknown-linux-gnu',
@@ -467,4 +469,4 @@ function getBinaryName(name: string): string {
   return name.split('/').pop()!
 }
 
-export { NewOptions }
+export type { NewOptions }

@@ -1,6 +1,6 @@
 {
   "name": "@napi-rs/wasm-runtime",
-  "version": "1.0.3",
+  "version": "1.0.7",
   "type": "module",
   "description": "Runtime and polyfill for wasm targets",
   "author": {
@@ -26,25 +26,26 @@
   ],
   "devDependencies": {
     "@rollup/plugin-alias": "^5.1.1",
-    "@rollup/plugin-commonjs": "^28.0.3",
+    "@rollup/plugin-commonjs": "^28.0.6",
     "@rollup/plugin-inject": "^5.0.5",
     "@rollup/plugin-json": "^6.1.0",
     "@rollup/plugin-node-resolve": "^16.0.1",
     "@rollup/plugin-replace": "^6.0.2",
     "buffer": "^6.0.3",
-    "memfs": "^4.17.0",
-    "node-inspect-extracted": "^3.0.2",
+    "events": "^3.3.0",
+    "memfs": "^4.39.0",
+    "node-inspect-extracted": "^3.2.1",
     "path-browserify": "^1.0.1",
     "process": "^0.11.10",
     "readable-stream": "^4.7.0",
-    "rollup": "^4.38.0",
+    "rollup": "^4.50.1",
     "rollup-plugin-polyfill-node": "^0.13.0",
     "tslib": "^2.8.1"
   },
   "dependencies": {
-    "@emnapi/core": "^1.4.5",
-    "@emnapi/runtime": "^1.4.5",
-    "@tybys/wasm-util": "^0.10.0"
+    "@emnapi/core": "^1.5.0",
+    "@emnapi/runtime": "^1.5.0",
+    "@tybys/wasm-util": "^0.10.1"
   },
   "scripts": {
     "build": "rollup -c rollup.config.js",

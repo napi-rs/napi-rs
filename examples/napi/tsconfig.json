@@ -7,7 +7,8 @@
     "rootDir": ".",
     "target": "ESNext",
     "module": "ESNext",
-    "types": ["bun-types"],
+    "types": ["node"],
+    "lib": ["DOM.Iterable", "ESNext"],
     "importHelpers": false
   },
   "exclude": [

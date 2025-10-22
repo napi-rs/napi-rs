@@ -3,6 +3,39 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [3.3.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.3.0...@napi-rs/cli@3.3.1) (2025-10-10)
+
+### Bug Fixes
+
+- **napi:** cleanup memory issues ([#2949](https://github.com/napi-rs/napi-rs/issues/2949)) ([8f40ebd](https://github.com/napi-rs/napi-rs/commit/8f40ebd206ff27d8ec7aa04c58dd2d2bb28d8288))
+
+# [3.3.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.2.0...@napi-rs/cli@3.3.0) (2025-10-03)
+
+### Bug Fixes
+
+- **cli:** avoid **tests** publish to npm ([#2927](https://github.com/napi-rs/napi-rs/issues/2927)) ([b26e8d5](https://github.com/napi-rs/napi-rs/commit/b26e8d569b2adf36698293bee874a79d4a8c6956))
+- **cli:** bundle empathic ([#2946](https://github.com/napi-rs/napi-rs/issues/2946)) ([70b66ee](https://github.com/napi-rs/napi-rs/commit/70b66ee1b0c93961fe294d2fa9ad43fdb6671172))
+- **deps:** update dependency find-up to v8 ([#2928](https://github.com/napi-rs/napi-rs/issues/2928)) ([196f5db](https://github.com/napi-rs/napi-rs/commit/196f5db7c3668398c39317a705cbaf23df1d8d8e))
+
+### Features
+
+- **cli:** export more build apis ([#2945](https://github.com/napi-rs/napi-rs/issues/2945)) ([ac118df](https://github.com/napi-rs/napi-rs/commit/ac118df1d41d43f82920b3936e0c8ab39bb19d4c))
+
+# [3.2.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.1.5...@napi-rs/cli@3.2.0) (2025-09-11)
+
+### Bug Fixes
+
+- **cli:** fix misuse of configPath as readNapiConfig first argument ([#2900](https://github.com/napi-rs/napi-rs/issues/2900)) ([c034e1e](https://github.com/napi-rs/napi-rs/commit/c034e1e4f01c2947dfc53fa9d5066e2e1fa113b7))
+- **cli:** NAPI_RS_NATIVE_LIBRARY_PATH usage ([#2907](https://github.com/napi-rs/napi-rs/issues/2907)) ([841ddf4](https://github.com/napi-rs/napi-rs/commit/841ddf4231ad46d482624971a794af091b9d8612))
+
+### Features
+
+- **cli:** add support for loongarch64-unknown-linux-gnu ([#2887](https://github.com/napi-rs/napi-rs/issues/2887)) ([807f579](https://github.com/napi-rs/napi-rs/commit/807f5797960e80de6cc291d90f5fc34575e011fe))
+
+## [3.1.5](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.1.4...@napi-rs/cli@3.1.5) (2025-08-16)
+
+**Note:** Version bump only for package @napi-rs/cli
+
 ## [3.1.4](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.1.3...@napi-rs/cli@3.1.4) (2025-08-13)
 
 **Note:** Version bump only for package @napi-rs/cli

@@ -17,6 +17,7 @@ export const AVAILABLE_TARGETS = [
   'aarch64-pc-windows-msvc',
   'x86_64-apple-darwin',
   'x86_64-pc-windows-msvc',
+  'x86_64-pc-windows-gnu',
   'x86_64-unknown-linux-gnu',
   'x86_64-unknown-linux-musl',
   'x86_64-unknown-linux-ohos',
@@ -26,6 +27,7 @@ export const AVAILABLE_TARGETS = [
   'armv7-unknown-linux-musleabihf',
   'armv7-linux-androideabi',
   'universal-apple-darwin',
+  'loongarch64-unknown-linux-gnu',
   'riscv64gc-unknown-linux-gnu',
   'powerpc64le-unknown-linux-gnu',
   's390x-unknown-linux-gnu',
@@ -44,6 +46,8 @@ export const DEFAULT_TARGETS = [
 
 export const TARGET_LINKER: Record<string, string> = {
   'aarch64-unknown-linux-musl': 'aarch64-linux-musl-gcc',
+  // TODO: Switch to loongarch64-linux-gnu-gcc when available
+  'loongarch64-unknown-linux-gnu': 'loongarch64-linux-gnu-gcc-13',
   'riscv64gc-unknown-linux-gnu': 'riscv64-linux-gnu-gcc',
   'powerpc64le-unknown-linux-gnu': 'powerpc64le-linux-gnu-gcc',
   's390x-unknown-linux-gnu': 's390x-linux-gnu-gcc',
@@ -54,6 +58,7 @@ type NodeJSArch =
   | 'arm'
   | 'arm64'
   | 'ia32'
+  | 'loong64'
   | 'mips'
   | 'mipsel'
   | 'ppc'
@@ -71,6 +76,7 @@ const CpuToNodeArch: Record<string, NodeJSArch> = {
   aarch64: 'arm64',
   i686: 'ia32',
   armv7: 'arm',
+  loongarch64: 'loong64',
   riscv64gc: 'riscv64',
   powerpc64le: 'ppc64',
 }
@@ -80,6 +86,7 @@ export const NodeArchToCpu: Record<string, string> = {
   arm64: 'aarch64',
   ia32: 'i686',
   arm: 'armv7',
+  loong64: 'loongarch64',
   riscv64: 'riscv64gc',
   ppc64: 'powerpc64le',
 }

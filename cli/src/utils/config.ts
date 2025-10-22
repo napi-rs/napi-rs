@@ -2,7 +2,7 @@ import { underline, yellow } from 'colorette'
 import { merge, omit } from 'es-toolkit'
 
 import { fileExists, readFileAsync } from './misc.js'
-import { DEFAULT_TARGETS, parseTriple, Target } from './target.js'
+import { DEFAULT_TARGETS, parseTriple, type Target } from './target.js'
 
 export type ValueOfConstArray<T> = T[Exclude<keyof T, keyof Array<any>>]
 

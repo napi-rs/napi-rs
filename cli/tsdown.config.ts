@@ -3,9 +3,8 @@ import { defineConfig } from 'tsdown'
 export default defineConfig([
   {
     entry: './src/index.ts',
-    // remove in the future, release esm output only
     format: ['esm', 'cjs'],
-    target: 'es2020',
+    target: 'node16',
     sourcemap: 'inline',
     inputOptions(options, format) {
       if (format === 'cjs') {
@@ -17,7 +16,7 @@ export default defineConfig([
   {
     entry: './src/cli.ts',
     sourcemap: 'inline',
-    target: 'es2020',
+    target: 'node16',
     dts: false,
   },
 ])

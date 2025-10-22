@@ -12,6 +12,7 @@ pub fn setup() {
   println!("cargo:rustc-link-arg=--export-table");
   println!("cargo:rustc-link-arg=--export=emnapi_async_worker_create");
   println!("cargo:rustc-link-arg=--export=emnapi_async_worker_init");
+  println!("cargo:rustc-link-arg=--export=emnapi_thread_crashed");
   println!("cargo:rustc-link-arg=--import-memory");
   println!("cargo:rustc-link-arg=--import-undefined");
   println!("cargo:rustc-link-arg=--max-memory=4294967296");

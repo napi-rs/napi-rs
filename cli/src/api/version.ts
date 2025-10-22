@@ -1,6 +1,9 @@
 import { join, resolve } from 'node:path'
 
-import { applyDefaultVersionOptions, VersionOptions } from '../def/version.js'
+import {
+  applyDefaultVersionOptions,
+  type VersionOptions,
+} from '../def/version.js'
 import {
   readNapiConfig,
   debugFactory,

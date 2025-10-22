@@ -1,6 +1,6 @@
-import { readFileSync, writeFileSync } from 'fs'
-import { join, resolve } from 'path'
-import { fileURLToPath } from 'url'
+import { readFileSync, writeFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { groupBy, mapValues } from 'es-toolkit'
 
@@ -14,6 +14,7 @@ const SUPPORTED_PLATFORM = new Set([
   'darwin',
   'ios',
   'android',
+  'openharmony',
   'win32',
   'linux',
   'freebsd',

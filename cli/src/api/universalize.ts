@@ -3,7 +3,7 @@ import { join, resolve } from 'node:path'
 
 import {
   applyDefaultUniversalizeOptions,
-  UniversalizeOptions,
+  type UniversalizeOptions,
 } from '../def/universalize.js'
 import { readNapiConfig } from '../utils/config.js'
 import { debugFactory } from '../utils/log.js'

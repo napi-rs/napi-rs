@@ -28,6 +28,18 @@ import {
   concatLatin1,
   concatStr,
   concatUtf16,
+  createZeroCopyUtf16String,
+  createZeroCopyLatin1String,
+  createExternalUtf16String,
+  createExternalLatin1String,
+  createExternalLatin1Empty,
+  createExternalLatin1Short,
+  createExternalLatin1Long,
+  createExternalLatin1WithLatin1Chars,
+  createExternalLatin1CustomFinalize,
+  createStaticLatin1String,
+  createStaticUtf16String,
+  testLatin1Methods,
   roundtripStr,
   getNums,
   getWords,
@@ -259,6 +271,7 @@ import {
   ComplexClass,
   createUint8ClampedArrayFromData,
   arrayBufferFromData,
+  arrayBufferFromExternal,
   uint8ArrayFromData,
   createUint8ClampedArrayFromExternal,
   uint8ArrayFromExternal,
@@ -272,6 +285,10 @@ import {
   defineClass,
   callbackInSpawn,
   arrayParams,
+  indexSetToRust,
+  indexSetToJs,
+  intoUtf8,
+  withAbortSignalHandle,
 } from '../index.cjs'
 // import other stuff in `#[napi(module_exports)]`
 import nativeAddon from '../index.cjs'
@@ -317,6 +334,50 @@ test('string', (t) => {
     'what up?!\u0000after the NULL',
   )
   t.is(returnCString(), 'Hello from C string!')
+  t.is(createZeroCopyUtf16String(), 'abc')
+  t.is(createZeroCopyLatin1String(), 'Hello')
+  t.is(createExternalUtf16String(), 'External UTF16')
+  t.is(createExternalLatin1String(), 'External Latin1')
+  t.is(createStaticLatin1String(), 'Static Latin1 string')
+  t.is(createStaticUtf16String(), 'Static UTF16')
+  t.is(intoUtf8('Hello'), 'Hello')
+})
+
+test('JsStringLatin1::from_external tests', (t) => {
+  // Test with empty string
+  t.is(createExternalLatin1Empty(), '')
+
+  // Test with short string (likely to be copied by V8)
+  t.is(createExternalLatin1Short(), 'Hi')
+
+  // Test with long string (more likely to remain external)
+  t.is(
+    createExternalLatin1Long(),
+    'This is a much longer string that is more likely to be kept as an external string by V8 rather than being copied',
+  )
+
+  // Test with actual Latin-1 extended characters
+  // The string contains: "Hello ÀÁÂ ñòó"
+  const latin1Result = createExternalLatin1WithLatin1Chars()
+  t.is(latin1Result.length, 13)
+  t.true(latin1Result.includes('Hello'))
+
+  // Test with custom finalize hint
+  t.is(createExternalLatin1CustomFinalize(), 'Custom finalize test')
+
+  // Test Latin1 methods
+  const methodsTest = testLatin1Methods('Test string')
+  t.is(methodsTest.length, 11)
+  t.is(methodsTest.isEmpty, false)
+  if (!process.env.WASI_TEST) {
+    t.deepEqual(methodsTest.asSlice, Array.from(Buffer.from('Test string')))
+  }
+
+  // Test with empty input
+  t.throws(() => testLatin1Methods(''), {
+    message: 'Cannot create external string from empty data',
+    code: 'InvalidArg',
+  })
 })
 
 test('array', (t) => {
@@ -349,10 +410,12 @@ test('set', (t) => {
   t.notThrows(() => {
     passSetToRust(new Set(['a', 'b', 'c']))
     btreeSetToRust(new Set(['a', 'b', 'c']))
+    indexSetToRust(new Set(['a', 'b', 'c']))
   })
   t.deepEqual(Array.from(passSetToJs()).sort(), ['a', 'b', 'c'])
   t.deepEqual(Array.from(passSetWithHasherToJs()).sort(), ['a', 'b', 'c'])
   t.deepEqual(Array.from(btreeSetToJs()).sort(), ['a', 'b', 'c'])
+  t.deepEqual(Array.from(indexSetToJs()), ['a', 'b', 'c', 'd'])
 })
 
 test('enum', (t) => {
@@ -1156,6 +1219,10 @@ test('typed array creation', (t) => {
     new Uint8ClampedArray(Buffer.from('Hello world')),
   )
   t.deepEqual(Buffer.from(arrayBufferFromData()), Buffer.from('Hello world'))
+  t.deepEqual(
+    Buffer.from(arrayBufferFromExternal()),
+    Buffer.from('Hello world from external'),
+  )
   t.deepEqual(uint8ArrayFromData(), new Uint8Array(Buffer.from('Hello world')))
   t.deepEqual(
     uint8ArrayFromExternal(),
@@ -1393,6 +1460,20 @@ test('async task with different resolved values', async (t) => {
   }
   const r2 = await asyncResolveArray(2)
   t.deepEqual(r2, [0, 1])
+})
+
+AbortSignalTest('with abort signal handle', async (t) => {
+  const ctrl = new AbortController()
+  const promise = withAbortSignalHandle(ctrl.signal)
+  try {
+    ctrl.abort()
+    const ret = await promise
+    t.is(ret, 999)
+  } catch (err: unknown) {
+    // sometimes on CI, the scheduled task is able to abort
+    // so we only allow it to throw AbortError
+    t.is((err as Error).message, 'AbortError')
+  }
 })
 
 AbortSignalTest('abort resolved task', async (t) => {
@@ -1891,7 +1972,7 @@ test('create readable stream from channel', async (t) => {
   }
   t.is(Buffer.concat(chunks).toString('utf-8'), 'hello'.repeat(100))
   const { ReadableStream } = await import('web-streams-polyfill')
-  // @ts-expect-error polyfill ReadableStream is not the same as the one in Node.js
+  // @ts-expect-error ReadableStream polyfill types conflict
   const streamFromClass = await createReadableStreamFromClass(ReadableStream)
   const chunksFromClass = []
   for await (const chunk of streamFromClass) {

@@ -14,8 +14,10 @@ members = [
   "./memory-testing",
   "./examples/napi-cargo-test",
 ]
-
 exclude = ["./testing"]
+
+[workspace.package]
+rust-version = "1.82"
 
 [workspace.lints.clippy]
 dbg_macro = "warn"
