@@ -13,6 +13,8 @@ use serde::{de, ser};
 use serde_json::Error as SerdeJSONError;
 
 use crate::bindgen_runtime::JsObjectValue;
+#[cfg(target_family = "wasm")]
+use crate::ValueType;
 use crate::{bindgen_runtime::ToNapiValue, check_status, sys, Env, JsValue, Status, Unknown};
 
 pub type Result<T, S = Status> = std::result::Result<T, Error<S>>;
@@ -129,6 +131,7 @@ impl From<SerdeJSONError> for Error {
   }
 }
 
+#[cfg(not(target_family = "wasm"))]
 impl From<Unknown<'_>> for Error {
   fn from(value: Unknown) -> Self {
     let mut result = std::ptr::null_mut();
@@ -165,6 +168,68 @@ impl From<Unknown<'_>> for Error {
       cause: maybe_cause,
       maybe_raw: result,
       maybe_env,
+    }
+  }
+}
+
+#[cfg(target_family = "wasm")]
+impl From<Unknown<'_>> for Error {
+  fn from(value: Unknown) -> Self {
+    let value_type = value.get_type();
+
+    let maybe_error_message;
+
+    if let Ok(vt) = value_type {
+      if vt == ValueType::Object {
+        maybe_error_message = value
+          .coerce_to_object()
+          .and_then(|obj| obj.get_named_property::<Unknown>("message"))
+          .and_then(|message| {
+            message
+              .coerce_to_string()
+              .and_then(|message| message.into_utf8().and_then(|message| message.into_owned()))
+          });
+      } else {
+        maybe_error_message = value
+          .coerce_to_string()
+          .and_then(|a| a.into_utf8().and_then(|a| a.into_owned()));
+      }
+    } else {
+      maybe_error_message = value
+        .coerce_to_string()
+        .and_then(|a| a.into_utf8().and_then(|a| a.into_owned()));
+    };
+
+    let maybe_cause: Option<Box<Error>> = if let Ok(vt) = value_type {
+      if vt == ValueType::Object {
+        value
+          .coerce_to_object()
+          .and_then(|obj| obj.get_named_property::<Unknown>("cause"))
+          .map(|cause| Box::new(cause.into()))
+          .ok()
+      } else {
+        None
+      }
+    } else {
+      None
+    };
+
+    if let Ok(error_message) = maybe_error_message {
+      return Self {
+        status: Status::GenericFailure,
+        reason: error_message,
+        cause: maybe_cause,
+        maybe_raw: ptr::null_mut(),
+        maybe_env: ptr::null_mut(),
+      };
+    }
+
+    Self {
+      status: Status::GenericFailure,
+      reason: "".to_string(),
+      cause: maybe_cause,
+      maybe_raw: ptr::null_mut(),
+      maybe_env: ptr::null_mut(),
     }
   }
 }

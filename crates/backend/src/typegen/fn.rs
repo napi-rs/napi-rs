@@ -30,7 +30,7 @@ impl Display for FnArgList {
       let is_optional = arg.is_optional
         && self
           .last_required
-          .map_or(true, |last_required| i > last_required);
+          .is_none_or(|last_required| i > last_required);
       if is_optional {
         write!(f, "{}?: {}", arg.arg, arg.ts_type)?;
       } else {
