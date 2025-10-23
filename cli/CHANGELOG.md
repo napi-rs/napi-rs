@@ -3,6 +3,24 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [3.3.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.3.0...@napi-rs/cli@3.3.1) (2025-10-10)
+
+### Bug Fixes
+
+- **napi:** cleanup memory issues ([#2949](https://github.com/napi-rs/napi-rs/issues/2949)) ([8f40ebd](https://github.com/napi-rs/napi-rs/commit/8f40ebd206ff27d8ec7aa04c58dd2d2bb28d8288))
+
+# [3.3.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.2.0...@napi-rs/cli@3.3.0) (2025-10-03)
+
+### Bug Fixes
+
+- **cli:** avoid **tests** publish to npm ([#2927](https://github.com/napi-rs/napi-rs/issues/2927)) ([b26e8d5](https://github.com/napi-rs/napi-rs/commit/b26e8d569b2adf36698293bee874a79d4a8c6956))
+- **cli:** bundle empathic ([#2946](https://github.com/napi-rs/napi-rs/issues/2946)) ([70b66ee](https://github.com/napi-rs/napi-rs/commit/70b66ee1b0c93961fe294d2fa9ad43fdb6671172))
+- **deps:** update dependency find-up to v8 ([#2928](https://github.com/napi-rs/napi-rs/issues/2928)) ([196f5db](https://github.com/napi-rs/napi-rs/commit/196f5db7c3668398c39317a705cbaf23df1d8d8e))
+
+### Features
+
+- **cli:** export more build apis ([#2945](https://github.com/napi-rs/napi-rs/issues/2945)) ([ac118df](https://github.com/napi-rs/napi-rs/commit/ac118df1d41d43f82920b3936e0c8ab39bb19d4c))
+
 # [3.2.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.1.5...@napi-rs/cli@3.2.0) (2025-09-11)
 
 ### Bug Fixes

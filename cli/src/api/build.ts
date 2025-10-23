@@ -7,31 +7,31 @@ import { parse, join, resolve } from 'node:path'
 
 import * as colors from 'colorette'
 
-import { BuildOptions as RawBuildOptions } from '../def/build.js'
+import type { BuildOptions as RawBuildOptions } from '../def/build.js'
 import {
   CLI_VERSION,
   copyFileAsync,
-  Crate,
+  type Crate,
   debugFactory,
   DEFAULT_TYPE_DEF_HEADER,
   fileExists,
   getSystemDefaultTarget,
   getTargetLinker,
   mkdirAsync,
-  NapiConfig,
+  type NapiConfig,
   parseMetadata,
   parseTriple,
   processTypeDef,
   readFileAsync,
   readNapiConfig,
-  Target,
+  type Target,
   targetToEnvVar,
   tryInstallCargoBinary,
   unlinkAsync,
   writeFileAsync,
   dirExistsAsync,
   readdirAsync,
-  CargoWorkspaceMetadata,
+  type CargoWorkspaceMetadata,
 } from '../utils/index.js'
 
 import { createCjsBinding, createEsmBinding } from './templates/index.js'
@@ -619,9 +619,7 @@ class Builder {
 
   private setOpenHarmonyEnv() {
     const { OHOS_SDK_PATH, OHOS_SDK_NATIVE } = process.env
-    const ndkPath = OHOS_SDK_PATH
-      ? `${OHOS_SDK_NATIVE}/native`
-      : OHOS_SDK_NATIVE
+    const ndkPath = OHOS_SDK_PATH ? `${OHOS_SDK_PATH}/native` : OHOS_SDK_NATIVE
     // @ts-expect-error
     if (!ndkPath && process.platform !== 'openharmony') {
       debug.warn(
@@ -876,121 +874,51 @@ class Builder {
 
   private async generateTypeDef() {
     const typeDefDir = this.envs.NAPI_TYPE_DEF_TMP_FOLDER
-    if (!this.enableTypeDef || !(await dirExistsAsync(typeDefDir))) {
+    if (!this.enableTypeDef) {
       return []
     }
+
+    const { exports, dts } = await generateTypeDef({
+      typeDefDir,
+      noDtsHeader: this.options.noDtsHeader,
+      dtsHeader: this.options.dtsHeader,
+      configDtsHeader: this.config.dtsHeader,
+      configDtsHeaderFile: this.config.dtsHeaderFile,
+      constEnum: this.options.constEnum ?? this.config.constEnum,
+      cwd: this.options.cwd,
+    })
 
     const dest = join(this.outputDir, this.options.dts ?? 'index.d.ts')
-
-    let header = ''
-    let dts = ''
-    let exports: string[] = []
-
-    if (!this.options.noDtsHeader) {
-      const dtsHeader = this.options.dtsHeader ?? this.config.dtsHeader
-      // `dtsHeaderFile` in config > `dtsHeader` in cli flag > `dtsHeader` in config
-      if (this.config.dtsHeaderFile) {
-        try {
-          header = await readFileAsync(
-            join(this.options.cwd, this.config.dtsHeaderFile),
-            'utf-8',
-          )
-        } catch (e) {
-          debug.warn(
-            `Failed to read dts header file ${this.config.dtsHeaderFile}`,
-            e,
-          )
-        }
-      } else if (dtsHeader) {
-        header = dtsHeader
-      } else {
-        header = DEFAULT_TYPE_DEF_HEADER
-      }
-    }
-
-    const files = await readdirAsync(typeDefDir, { withFileTypes: true })
-
-    if (!files.length) {
-      debug('No type def files found. Skip generating dts file.')
-      return []
-    }
-
-    for (const file of files) {
-      if (!file.isFile()) {
-        continue
-      }
-
-      const { dts: fileDts, exports: fileExports } = await processTypeDef(
-        join(typeDefDir, file.name),
-        this.options.constEnum ?? this.config.constEnum ?? true,
-      )
-
-      dts += fileDts
-      exports.push(...fileExports)
-    }
-
-    if (dts.indexOf('ExternalObject<') > -1) {
-      header += `
-export declare class ExternalObject<T> {
-  readonly '': {
-    readonly '': unique symbol
-    [K: symbol]: T
-  }
-}
-`
-    }
-
-    if (dts.indexOf('TypedArray') > -1) {
-      header += `
-export type TypedArray = Int8Array | Uint8Array | Uint8ClampedArray | Int16Array | Uint16Array | Int32Array | Uint32Array | Float32Array | Float64Array | BigInt64Array | BigUint64Array
-`
-    }
-
-    dts = header + dts
 
     try {
       debug('Writing type def to:')
       debug('  %i', dest)
       await writeFileAsync(dest, dts, 'utf-8')
-      this.outputs.push({ kind: 'dts', path: dest })
     } catch (e) {
       debug.error('Failed to write type def file')
       debug.error(e as Error)
+    }
+
+    if (exports.length > 0) {
+      const dest = join(this.outputDir, this.options.dts ?? 'index.d.ts')
+      this.outputs.push({ kind: 'dts', path: dest })
     }
 
     return exports
   }
 
   private async writeJsBinding(idents: string[]) {
-    if (
-      !this.options.platform ||
-      // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
-      this.options.noJsBinding ||
-      idents.length === 0
-    ) {
-      return
-    }
-
-    const name = this.options.jsBinding ?? 'index.js'
-
-    const createBinding = this.options.esm ? createEsmBinding : createCjsBinding
-    const binding = createBinding(
-      this.config.binaryName,
-      this.config.packageName,
+    return writeJsBinding({
+      platform: this.options.platform,
+      noJsBinding: this.options.noJsBinding,
       idents,
-      // in npm preversion hook
-      process.env.npm_new_version ?? this.config.packageJson.version,
-    )
-
-    try {
-      const dest = join(this.outputDir, name)
-      debug('Writing js binding to:')
-      debug('  %i', dest)
-      await writeFileAsync(dest, binding, 'utf-8')
-      return { kind: 'js', path: dest } satisfies Output
-    } catch (e) {
-      throw new Error('Failed to write js binding file', { cause: e })
-    }
+      jsBinding: this.options.jsBinding,
+      esm: this.options.esm,
+      binaryName: this.config.binaryName,
+      packageName: this.config.packageName,
+      version: process.env.npm_new_version ?? this.config.packageJson.version,
+      outputDir: this.outputDir,
+    })
   }
 
   private async writeWasiBinding(
@@ -1072,5 +1000,141 @@ export type TypedArray = Int8Array | Uint8Array | Uint8ClampedArray | Int16Array
     if (!process.env[env]) {
       this.envs[env] = value
     }
+  }
+}
+
+export interface WriteJsBindingOptions {
+  platform?: boolean
+  noJsBinding?: boolean
+  idents: string[]
+  jsBinding?: string
+  esm?: boolean
+  binaryName: string
+  packageName: string
+  version: string
+  outputDir: string
+}
+
+export async function writeJsBinding(
+  options: WriteJsBindingOptions,
+): Promise<Output | undefined> {
+  if (
+    !options.platform ||
+    // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
+    options.noJsBinding ||
+    options.idents.length === 0
+  ) {
+    return
+  }
+
+  const name = options.jsBinding ?? 'index.js'
+
+  const createBinding = options.esm ? createEsmBinding : createCjsBinding
+  const binding = createBinding(
+    options.binaryName,
+    options.packageName,
+    options.idents,
+    // in npm preversion hook
+    options.version,
+  )
+
+  try {
+    const dest = join(options.outputDir, name)
+    debug('Writing js binding to:')
+    debug('  %i', dest)
+    await writeFileAsync(dest, binding, 'utf-8')
+    return { kind: 'js', path: dest } satisfies Output
+  } catch (e) {
+    throw new Error('Failed to write js binding file', { cause: e })
+  }
+}
+
+export interface GenerateTypeDefOptions {
+  typeDefDir: string
+  noDtsHeader?: boolean
+  dtsHeader?: string
+  dtsHeaderFile?: string
+  configDtsHeader?: string
+  configDtsHeaderFile?: string
+  constEnum?: boolean
+  cwd: string
+}
+
+export async function generateTypeDef(
+  options: GenerateTypeDefOptions,
+): Promise<{ exports: string[]; dts: string }> {
+  if (!(await dirExistsAsync(options.typeDefDir))) {
+    return { exports: [], dts: '' }
+  }
+
+  let header = ''
+  let dts = ''
+  let exports: string[] = []
+
+  if (!options.noDtsHeader) {
+    const dtsHeader = options.dtsHeader ?? options.configDtsHeader
+    // `dtsHeaderFile` in config > `dtsHeader` in cli flag > `dtsHeader` in config
+    if (options.configDtsHeaderFile) {
+      try {
+        header = await readFileAsync(
+          join(options.cwd, options.configDtsHeaderFile),
+          'utf-8',
+        )
+      } catch (e) {
+        debug.warn(
+          `Failed to read dts header file ${options.configDtsHeaderFile}`,
+          e,
+        )
+      }
+    } else if (dtsHeader) {
+      header = dtsHeader
+    } else {
+      header = DEFAULT_TYPE_DEF_HEADER
+    }
+  }
+
+  const files = await readdirAsync(options.typeDefDir, { withFileTypes: true })
+
+  if (!files.length) {
+    debug('No type def files found. Skip generating dts file.')
+    return { exports: [], dts: '' }
+  }
+
+  for (const file of files) {
+    if (!file.isFile()) {
+      continue
+    }
+
+    const { dts: fileDts, exports: fileExports } = await processTypeDef(
+      join(options.typeDefDir, file.name),
+      options.constEnum ?? true,
+    )
+
+    dts += fileDts
+    exports.push(...fileExports)
+  }
+
+  if (dts.indexOf('ExternalObject<') > -1) {
+    header += `
+export declare class ExternalObject<T> {
+  readonly '': {
+    readonly '': unique symbol
+    [K: symbol]: T
+  }
+}
+`
+  }
+
+  if (dts.indexOf('TypedArray') > -1) {
+    header += `
+export type TypedArray = Int8Array | Uint8Array | Uint8ClampedArray | Int16Array | Uint16Array | Int32Array | Uint32Array | Float32Array | Float64Array | BigInt64Array | BigUint64Array
+`
+  }
+
+  dts = header + dts
+
+  return {
+    exports,
+    dts,
   }
 }

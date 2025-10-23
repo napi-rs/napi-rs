@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Setup node
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: 'yarn'
@@ -71,6 +71,7 @@ jobs:
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
               yarn test:macro
               cargo test -p napi-cargo-test --features noop
+              cargo test -p napi-derive-backend --features type-def
             toolchain: stable
           - host: ubuntu-latest
             target: x86_64-unknown-linux-gnu
@@ -80,7 +81,7 @@ jobs:
               yarn test
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
               yarn test:macro
-            toolchain: 1.80.0
+            toolchain: 1.82.0
           - host: macos-latest
             target: aarch64-apple-darwin
             build: yarn build:test
@@ -90,16 +91,18 @@ jobs:
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
               RUSTFLAGS="-C link-args=-Wl,-undefined,dynamic_lookup,-no_fixup_chains"
               cargo test -p napi-cargo-test --features noop
+              cargo test -p napi-derive-backend --features type-def
             toolchain: stable
           - host: windows-latest
             target: x86_64-pc-windows-msvc
-            build: yarn build:test
+            build: yarn workspace @examples/napi build
             test: |
               yarn test:cli
-              yarn test
+              yarn workspace @examples/napi test
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
               yarn test:macro
               cargo test -p napi-cargo-test --features noop
+              cargo test -p napi-derive-backend --features type-def
             toolchain: stable
           - host: windows-11-arm
             target: aarch64-pc-windows-msvc
@@ -115,14 +118,14 @@ jobs:
               yarn workspace @examples/napi build --target i686-pc-windows-msvc --release
               yarn workspace @examples/compat-mode build --target i686-pc-windows-msvc --release
             test: |
-              $env:NODE_OPTIONS = "--max-old-space-size=3072"
+              export NODE_OPTIONS="--max-old-space-size=3072"
               yarn workspace @examples/napi test -s
               node ./node_modules/electron/install.js
               yarn test:electron
             toolchain: stable
         exclude:
           - settings:
-              toolchain: 1.80.0
+              toolchain: 1.82.0
             node: 20
           - settings:
               target: i686-pc-windows-msvc
@@ -137,7 +140,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Setup node
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node }}
           cache: 'yarn'
@@ -191,7 +194,7 @@ jobs:
           CARGO_PROFILE_DEV_OPT_LEVEL: 1
 
       - name: Setup node
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         if: matrix.settings.target == 'i686-pc-windows-msvc'
         with:
           node-version: 22
@@ -200,6 +203,8 @@ jobs:
       - name: Unit tests
         if: matrix.settings.test
         run: ${{ matrix.settings.test }}
+        shell: bash
+        timeout-minutes: 10
         env:
           NODE_OPTIONS: '--max-old-space-size=8192'
           DISABLE_V8_COMPILE_CACHE: 1
@@ -292,7 +297,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Setup node
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: 'yarn'
@@ -343,7 +348,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Setup node
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: 'yarn'
@@ -400,7 +405,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Setup node
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: 'yarn'
@@ -486,7 +491,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Setup node
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: 'yarn'
@@ -535,7 +540,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Setup node
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: 'yarn'
@@ -579,7 +584,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Setup node
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: 'yarn'
@@ -708,10 +713,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Setup node
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: 'yarn'
+          cache-dependency-path: 'yarn.lock'
       - name: Install
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -745,7 +751,7 @@ jobs:
         with:
           bun-version: latest
       - name: Setup node
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: 'yarn'
@@ -783,7 +789,7 @@ jobs:
     if: "startsWith(github.event.head_commit.message, 'chore(release): publish')"
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: 'yarn'

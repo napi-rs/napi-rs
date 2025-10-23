@@ -7,7 +7,7 @@ license = "MIT"
 name = "napi-derive"
 readme = "README.md"
 repository = "https://github.com/napi-rs/napi-rs"
-rust-version = "1.80"
+rust-version.workspace = true
 version = "3.2.5"
 
 [package.metadata.workspaces]
@@ -23,7 +23,7 @@ type-def = ["napi-derive-backend/type-def", "ctor"]
 
 [dependencies]
 convert_case = "0.8"
-ctor = { version = "0.5", optional = true }
+ctor = { version = "0.6", optional = true }
 napi-derive-backend = { version = "2.2.0", path = "../backend" }
 proc-macro2 = "1"
 quote = "1"

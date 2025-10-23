@@ -9,7 +9,7 @@ import {
   AVAILABLE_TARGETS,
   debugFactory,
   DEFAULT_TARGETS,
-  TargetTriple,
+  type TargetTriple,
 } from '../utils/index.js'
 import { napiEngineRequirement } from '../utils/version.js'
 

@@ -6,7 +6,7 @@ import { Octokit } from '@octokit/rest'
 
 import {
   applyDefaultPrePublishOptions,
-  PrePublishOptions,
+  type PrePublishOptions,
 } from '../def/pre-publish.js'
 import {
   readFileAsync,

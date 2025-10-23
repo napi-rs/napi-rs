@@ -1,6 +1,7 @@
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Worker } from 'node:worker_threads'
+import { setTimeout } from 'node:timers/promises'
 
 import test from 'ava'
 
@@ -21,7 +22,9 @@ const concurrency =
     : 1
 
 test.after(() => {
-  shutdownRuntime()
+  if (process.platform !== 'win32') {
+    shutdownRuntime()
+  }
 })
 
 test('should be able to require in worker thread', async (t) => {
@@ -40,6 +43,7 @@ test('should be able to require in worker thread', async (t) => {
           reject(err)
         })
       })
+        .then(() => setTimeout(100))
         .then(() => w.terminate())
         .then(() => {
           t.pass()
@@ -83,7 +87,8 @@ test('custom GC works on worker_threads', async (t) => {
           w.on('error', (err) => {
             reject(err)
           })
-        }).then((w) => {
+        }).then(async (w) => {
+          await setTimeout(100)
           return w.terminate()
         }),
       ]),
@@ -107,6 +112,7 @@ test('should be able to new Class in worker thread concurrently', async (t) => {
           reject(err)
         })
       })
+        .then(() => setTimeout(100))
         .then(() => w.terminate())
         .then(() => {
           t.pass()

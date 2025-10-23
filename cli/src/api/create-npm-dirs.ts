@@ -4,7 +4,7 @@ import { parse } from 'semver'
 
 import {
   applyDefaultCreateNpmDirsOptions,
-  CreateNpmDirsOptions,
+  type CreateNpmDirsOptions,
 } from '../def/create-npm-dirs.js'
 import {
   debugFactory,
@@ -12,7 +12,7 @@ import {
   mkdirAsync as rawMkdirAsync,
   pick,
   writeFileAsync as rawWriteFileAsync,
-  Target,
+  type Target,
   type CommonPackageJsonFields,
 } from '../utils/index.js'
 

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 
+use convert_case::Casing;
 use proc_macro2::{Ident, Literal, Span, TokenStream};
 use quote::ToTokens;
 
@@ -869,7 +870,10 @@ impl NapiStruct {
 
     for variant in structured_enum.variants.iter() {
       let variant_name = &variant.name;
-      let variant_name_str = variant_name.to_string();
+      let mut variant_name_str = variant_name.to_string();
+      if let Some(case) = structured_enum.discriminant_case {
+        variant_name_str = variant_name_str.to_case(case);
+      }
       let mut obj_field_setters = vec![quote! {
         obj.set(#discriminant, #variant_name_str)?;
       }];

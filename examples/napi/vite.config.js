@@ -1,5 +1,5 @@
-import { defineConfig } from 'vite'
-import { nodePolyfills } from 'vite-plugin-node-polyfills'
+import { defineConfig } from 'vitest/config'
+import { playwright } from '@vitest/browser-playwright'
 
 export default defineConfig({
   server: {
@@ -9,9 +9,6 @@ export default defineConfig({
     },
   },
   plugins: [
-    nodePolyfills({
-      include: ['util'],
-    }),
     {
       name: 'configure-response-headers',
       enforce: 'pre',
@@ -27,9 +24,13 @@ export default defineConfig({
   test: {
     include: ['browser/**/*.{spec,test}.{js,jsx,ts,tsx}'],
     browser: {
-      provider: 'playwright',
       enabled: true,
-      name: 'chromium',
+      provider: playwright(),
+      instances: [
+        {
+          browser: 'chromium',
+        },
+      ],
     },
   },
 })

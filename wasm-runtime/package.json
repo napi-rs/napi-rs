@@ -1,6 +1,6 @@
 {
   "name": "@napi-rs/wasm-runtime",
-  "version": "1.0.5",
+  "version": "1.0.7",
   "type": "module",
   "description": "Runtime and polyfill for wasm targets",
   "author": {
@@ -32,6 +32,7 @@
     "@rollup/plugin-node-resolve": "^16.0.1",
     "@rollup/plugin-replace": "^6.0.2",
     "buffer": "^6.0.3",
+    "events": "^3.3.0",
     "memfs": "^4.39.0",
     "node-inspect-extracted": "^3.2.1",
     "path-browserify": "^1.0.1",

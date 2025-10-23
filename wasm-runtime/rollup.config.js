@@ -17,10 +17,12 @@ export default defineConfig([
       commonjs(),
       alias({
         entries: [
-          { find: 'path', replacement: 'path-browserify' },
-          { find: 'stream', replacement: 'readable-stream' },
+          { find: 'node:events', replacement: 'events' },
+          { find: 'node:path', replacement: 'path-browserify' },
+          { find: 'node:stream', replacement: 'readable-stream' },
           { find: 'assert', replacement: join(dirname, 'assert.cjs') },
           { find: 'util', replacement: join(dirname, 'util') },
+          { find: 'node:buffer', replacement: 'buffer' },
         ],
       }),
       inject({

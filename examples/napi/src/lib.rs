@@ -3,12 +3,13 @@
 #![allow(clippy::disallowed_names)]
 #![allow(clippy::uninlined_format_args)]
 #![allow(clippy::new_without_default)]
+#![allow(non_snake_case)]
 #![allow(deprecated)]
 
 #[cfg(not(target_family = "wasm"))]
 use napi::bindgen_prelude::create_custom_tokio_runtime;
 use napi::bindgen_prelude::{JsObjectValue, Object, Result, Symbol};
-// pub use napi_shared::*;
+pub use napi_shared::*;
 
 #[macro_use]
 extern crate napi_derive;
@@ -18,6 +19,10 @@ extern crate serde_derive;
 #[cfg(feature = "snmalloc")]
 #[global_allocator]
 static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
+
+#[cfg(feature = "mimalloc")]
+#[global_allocator]
+static ALLOC: mimalloc_safe::MiMalloc = mimalloc_safe::MiMalloc;
 
 #[cfg(not(target_family = "wasm"))]
 #[napi_derive::module_init]
