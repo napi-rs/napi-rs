@@ -343,6 +343,7 @@ __metadata:
     "@testing-library/dom": "npm:^10.4.1"
     "@types/lodash": "npm:^4.17.20"
     "@vitest/browser": "npm:^4.0.0"
+    "@vitest/browser-playwright": "npm:^4.0.0"
     "@vitest/ui": "npm:^4.0.0"
     ava: "npm:^6.4.1"
     buffer: "npm:^6.0.3"
@@ -3488,7 +3489,24 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@vitest/browser@npm:^4.0.0":
+"@vitest/browser-playwright@npm:^4.0.0":
+  version: 4.0.1
+  resolution: "@vitest/browser-playwright@npm:4.0.1"
+  dependencies:
+    "@vitest/browser": "npm:4.0.1"
+    "@vitest/mocker": "npm:4.0.1"
+    tinyrainbow: "npm:^3.0.3"
+  peerDependencies:
+    playwright: "*"
+    vitest: 4.0.1
+  peerDependenciesMeta:
+    playwright:
+      optional: false
+  checksum: 10c0/10949c4c431ed0edabe6cefd6ef0ba3e2656f6bf16997a4f772b48101282e7939111555c81c72ea9884e4d6766eb4066e612d778db728ee942c498126a457a52
+  languageName: node
+  linkType: hard
+
+"@vitest/browser@npm:4.0.1, @vitest/browser@npm:^4.0.0":
   version: 4.0.1
   resolution: "@vitest/browser@npm:4.0.1"
   dependencies:
