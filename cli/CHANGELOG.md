@@ -3,6 +3,17 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.4.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.3.1...@napi-rs/cli@3.4.0) (2025-10-23)
+
+### Bug Fixes
+
+- **cli:** correct OpenHarmony SDK path detection logic ([#2963](https://github.com/napi-rs/napi-rs/issues/2963)) ([b453673](https://github.com/napi-rs/napi-rs/commit/b4536731acfae389e634887a0923dd6f2a6bfaa0))
+- **napi:** do not invoke process.report on Windows ([#2972](https://github.com/napi-rs/napi-rs/issues/2972)) ([01485ff](https://github.com/napi-rs/napi-rs/commit/01485ff4231395b0f39d7bbd9b8053992f9d3923))
+
+### Features
+
+- **cli:** resolve command from args ([#2973](https://github.com/napi-rs/napi-rs/issues/2973)) ([13cb9dc](https://github.com/napi-rs/napi-rs/commit/13cb9dc1e06678c72aa18efb8041f2d18301d288))
+
 ## [3.3.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.3.0...@napi-rs/cli@3.3.1) (2025-10-10)
 
 ### Bug Fixes
