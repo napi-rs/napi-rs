@@ -146,7 +146,7 @@ function requireNative() {
     }
   } else if (process.platform === 'win32') {
     if (process.arch === 'x64') {
-      if (process.report?.getReport?.()?.header?.osName?.startsWith?.('MINGW')) {
+      if (process.config?.variables?.shlib_suffix === 'dll.a' || process.config?.variables?.node_target_type === 'shared_library') {
         ${requireTuple('win32-x64-gnu')}
       } else {
         ${requireTuple('win32-x64-msvc')}
