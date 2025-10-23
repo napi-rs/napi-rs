@@ -1,4 +1,5 @@
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vitest/config'
+import { playwright } from '@vitest/browser-playwright'
 
 export default defineConfig({
   server: {
@@ -24,7 +25,7 @@ export default defineConfig({
     include: ['browser/**/*.{spec,test}.{js,jsx,ts,tsx}'],
     browser: {
       enabled: true,
-      provider: 'playwright',
+      provider: playwright(),
       instances: [
         {
           browser: 'chromium',
