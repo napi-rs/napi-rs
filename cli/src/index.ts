@@ -57,6 +57,40 @@ export class NapiCli {
   version = version
 }
 
+export function createBuildCommand(args: string[]): BuildCommand {
+  return cli.process(['build', ...args]) as BuildCommand
+}
+
+export function createArtifactsCommand(args: string[]): ArtifactsCommand {
+  return cli.process(['artifacts', ...args]) as ArtifactsCommand
+}
+
+export function createCreateNpmDirsCommand(
+  args: string[],
+): CreateNpmDirsCommand {
+  return cli.process(['create-npm-dirs', ...args]) as CreateNpmDirsCommand
+}
+
+export function createPrePublishCommand(args: string[]): PrePublishCommand {
+  return cli.process(['pre-publish', ...args]) as PrePublishCommand
+}
+
+export function createRenameCommand(args: string[]): RenameCommand {
+  return cli.process(['rename', ...args]) as RenameCommand
+}
+
+export function createUniversalizeCommand(args: string[]): UniversalizeCommand {
+  return cli.process(['universalize', ...args]) as UniversalizeCommand
+}
+
+export function createVersionCommand(args: string[]): VersionCommand {
+  return cli.process(['version', ...args]) as VersionCommand
+}
+
+export function createNewCommand(args: string[]): NewCommand {
+  return cli.process(['new', ...args]) as NewCommand
+}
+
 export { parseTriple } from './utils/target.js'
 export {
   type GenerateTypeDefOptions,
@@ -64,3 +98,4 @@ export {
   writeJsBinding,
   generateTypeDef,
 } from './api/build.js'
+export { readNapiConfig } from './utils/config.js'
