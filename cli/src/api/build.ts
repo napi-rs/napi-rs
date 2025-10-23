@@ -878,10 +878,8 @@ class Builder {
       return []
     }
 
-    const exports = await generateTypeDef({
+    const { exports, dts } = await generateTypeDef({
       typeDefDir,
-      outputDir: this.outputDir,
-      dts: this.options.dts,
       noDtsHeader: this.options.noDtsHeader,
       dtsHeader: this.options.dtsHeader,
       configDtsHeader: this.config.dtsHeader,
@@ -889,6 +887,17 @@ class Builder {
       constEnum: this.options.constEnum ?? this.config.constEnum,
       cwd: this.options.cwd,
     })
+
+    const dest = join(this.outputDir, this.options.dts ?? 'index.d.ts')
+
+    try {
+      debug('Writing type def to:')
+      debug('  %i', dest)
+      await writeFileAsync(dest, dts, 'utf-8')
+    } catch (e) {
+      debug.error('Failed to write type def file')
+      debug.error(e as Error)
+    }
 
     if (exports.length > 0) {
       const dest = join(this.outputDir, this.options.dts ?? 'index.d.ts')
@@ -1042,8 +1051,6 @@ export async function writeJsBinding(
 
 export interface GenerateTypeDefOptions {
   typeDefDir: string
-  outputDir: string
-  dts?: string
   noDtsHeader?: boolean
   dtsHeader?: string
   dtsHeaderFile?: string
@@ -1055,12 +1062,10 @@ export interface GenerateTypeDefOptions {
 
 export async function generateTypeDef(
   options: GenerateTypeDefOptions,
-): Promise<string[]> {
+): Promise<{ exports: string[]; dts: string }> {
   if (!(await dirExistsAsync(options.typeDefDir))) {
-    return []
+    return { exports: [], dts: '' }
   }
-
-  const dest = join(options.outputDir, options.dts ?? 'index.d.ts')
 
   let header = ''
   let dts = ''
@@ -1092,7 +1097,7 @@ export async function generateTypeDef(
 
   if (!files.length) {
     debug('No type def files found. Skip generating dts file.')
-    return []
+    return { exports: [], dts: '' }
   }
 
   for (const file of files) {
@@ -1128,14 +1133,8 @@ export type TypedArray = Int8Array | Uint8Array | Uint8ClampedArray | Int16Array
 
   dts = header + dts
 
-  try {
-    debug('Writing type def to:')
-    debug('  %i', dest)
-    await writeFileAsync(dest, dts, 'utf-8')
-  } catch (e) {
-    debug.error('Failed to write type def file')
-    debug.error(e as Error)
+  return {
+    exports,
+    dts,
   }
-
-  return exports
 }

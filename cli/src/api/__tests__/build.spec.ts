@@ -138,9 +138,8 @@ napi-build = { path = "${napiBuildPath}" }
   const files = await readdir(typeDefDir)
   t.true(files.length > 0, 'type definition files should be generated')
 
-  const exports = await generateTypeDef({
+  const { exports, dts } = await generateTypeDef({
     typeDefDir,
-    outputDir: projectDir,
     cwd: projectDir,
   })
 
@@ -177,13 +176,7 @@ napi-build = { path = "${napiBuildPath}" }
   const nodeStat = await stat(destPath)
   t.true(nodeStat.size > 0)
 
-  const dtsPath = join(projectDir, 'index.d.ts')
-  t.true(existsSync(dtsPath))
-  const dtsContent = await readFile(dtsPath, 'utf-8')
-  t.regex(
-    dtsContent,
-    /export declare function sum\(a: number, b: number\): number/,
-  )
+  t.regex(dts, /export declare function sum\(a: number, b: number\): number/)
 
   const jsPath = join(projectDir, 'index.js')
   t.true(existsSync(jsPath))
