@@ -27,9 +27,7 @@ test.after(() => {
   }
 })
 
-const condTest = process.platform !== 'win32' ? test : test.skip
-
-condTest('should be able to require in worker thread', async (t) => {
+test('should be able to require in worker thread', async (t) => {
   await Promise.all(
     Array.from({ length: concurrency }).map(() => {
       const w = new Worker(join(__dirname, 'worker.js'), {
@@ -54,7 +52,7 @@ condTest('should be able to require in worker thread', async (t) => {
   )
 })
 
-condTest('custom GC works on worker_threads', async (t) => {
+test('custom GC works on worker_threads', async (t) => {
   await Promise.all(
     Array.from({ length: concurrency }).map(() =>
       Promise.all([
@@ -98,30 +96,27 @@ condTest('custom GC works on worker_threads', async (t) => {
   )
 })
 
-condTest(
-  'should be able to new Class in worker thread concurrently',
-  async (t) => {
-    await Promise.all(
-      Array.from({ length: concurrency }).map(() => {
-        const w = new Worker(join(__dirname, 'worker.js'), {
-          env: process.env,
+test('should be able to new Class in worker thread concurrently', async (t) => {
+  await Promise.all(
+    Array.from({ length: concurrency }).map(() => {
+      const w = new Worker(join(__dirname, 'worker.js'), {
+        env: process.env,
+      })
+      return new Promise<void>((resolve, reject) => {
+        w.postMessage({ type: 'constructor' })
+        w.on('message', (msg) => {
+          t.is(msg, 'Ellie')
+          resolve()
         })
-        return new Promise<void>((resolve, reject) => {
-          w.postMessage({ type: 'constructor' })
-          w.on('message', (msg) => {
-            t.is(msg, 'Ellie')
-            resolve()
-          })
-          w.on('error', (err) => {
-            reject(err)
-          })
+        w.on('error', (err) => {
+          reject(err)
         })
-          .then(() => setTimeout(100))
-          .then(() => w.terminate())
-          .then(() => {
-            t.pass()
-          })
-      }),
-    )
-  },
-)
+      })
+        .then(() => setTimeout(100))
+        .then(() => w.terminate())
+        .then(() => {
+          t.pass()
+        })
+    }),
+  )
+})
