@@ -227,6 +227,8 @@ import {
   callFinallyOnPromise,
   StructuredKind,
   validateStructuredEnum,
+  StructuredKindLowercase,
+  validateStructuredEnumLowercase,
   createArraybuffer,
   getBufferSlice,
   createExternalBufferSlice,
@@ -446,6 +448,30 @@ test('structured enum', (t) => {
   t.deepEqual(tuple, validateStructuredEnum(tuple))
   t.throws(() => validateStructuredEnum({ type2: 'unknown' } as any))
   t.throws(() => validateStructuredEnum({ type2: 'Greeting' } as any))
+
+  const hello2: StructuredKindLowercase = {
+    type: 'hello',
+  }
+  const greeting2: StructuredKindLowercase = {
+    type: 'greeting',
+    name: 'Napi-rs',
+  }
+  const birthday2: StructuredKindLowercase = {
+    type: 'birthday',
+    name: 'Napi-rs',
+    age: 10,
+  }
+  const tuple2: StructuredKindLowercase = {
+    type: 'tuple',
+    field0: 1,
+    field1: 2,
+  }
+  t.deepEqual(hello2, validateStructuredEnumLowercase(hello2))
+  t.deepEqual(greeting2, validateStructuredEnumLowercase(greeting2))
+  t.deepEqual(birthday2, validateStructuredEnumLowercase(birthday2))
+  t.deepEqual(tuple2, validateStructuredEnumLowercase(tuple2))
+  t.throws(() => validateStructuredEnumLowercase({ type: 'unknown' } as any))
+  t.throws(() => validateStructuredEnumLowercase({ type: 'greeting' } as any))
 })
 
 test('function call', async (t) => {

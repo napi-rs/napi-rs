@@ -1537,6 +1537,22 @@ impl ConvertToAST for syn::ItemEnum {
       .any(|v| !matches!(v.fields, syn::Fields::Unit))
     {
       let discriminant = opts.discriminant().map_or("type", |(s, _)| s);
+      let discriminant_case = opts.discriminant_case().map(|c|
+        Ok::<Case, Diagnostic>(match c.0 {
+          "lowercase" => Case::Flat,
+          "UPPERCASE" => Case::UpperFlat,
+          "PascalCase" => Case::Pascal,
+          "camelCase" => Case::Camel,
+          "snake_case" => Case::Snake,
+          "UPPER_SNAKE" => Case::UpperSnake,
+          "kebab-case" => Case::Kebab,
+          "UPPER-KEBAB-CASE" => Case::UpperKebab,
+          _ => {
+            bail_span!(self, "Unknown discriminant case. Possible values are \"lowercase\", \"UPPERCASE\", \"PascalCase\", \"camelCase\", \"snake_case\", \"UPPER_SNAKE\", \"kebab-case\", or \"UPPER-KEBAB-CASE\"")
+          }
+        })
+      ).transpose()?;
+
       let mut errors = vec![];
       let mut variants = vec![];
       for variant in self.variants.iter_mut() {
@@ -1569,6 +1585,7 @@ impl ConvertToAST for syn::ItemEnum {
           kind: NapiStructKind::StructuredEnum(NapiStructuredEnum {
             variants,
             discriminant: discriminant.to_owned(),
+            discriminant_case: discriminant_case,
             object_from_js: opts.object_from_js(),
             object_to_js: opts.object_to_js(),
           }),
@@ -1586,11 +1603,11 @@ impl ConvertToAST for syn::ItemEnum {
           "PascalCase" => Case::Pascal,
           "camelCase" => Case::Camel,
           "snake_case" => Case::Snake,
-          "SCREAMING_SNAKE_CASE" => Case::UpperSnake,
+          "UPPER_SNAKE" => Case::UpperSnake,
           "kebab-case" => Case::Kebab,
-          "SCREAMING-KEBAB-CASE" => Case::UpperKebab,
+          "UPPER-KEBAB-CASE" => Case::UpperKebab,
           _ => {
-            bail_span!(self, "Unknown string enum case. Possible values are \"lowercase\", \"UPPERCASE\", \"PascalCase\", \"camelCase\", \"snake_case\", \"SCREAMING_SNAKE_CASE\", \"kebab-case\", or \"SCREAMING-KEBAB-CASE\"")
+            bail_span!(self, "Unknown string enum case. Possible values are \"lowercase\", \"UPPERCASE\", \"PascalCase\", \"camelCase\", \"snake_case\", \"UPPER_SNAKE\", \"kebab-case\", or \"UPPER-KEBAB-CASE\"")
           }
         })).transpose()?;
 

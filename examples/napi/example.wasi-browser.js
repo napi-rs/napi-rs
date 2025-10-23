@@ -400,6 +400,7 @@ export const validatePromise = __napiModule.exports.validatePromise
 export const validateString = __napiModule.exports.validateString
 export const validateStringEnum = __napiModule.exports.validateStringEnum
 export const validateStructuredEnum = __napiModule.exports.validateStructuredEnum
+export const validateStructuredEnumLowercase = __napiModule.exports.validateStructuredEnumLowercase
 export const validateSymbol = __napiModule.exports.validateSymbol
 export const validateTypedArray = __napiModule.exports.validateTypedArray
 export const validateTypedArraySlice = __napiModule.exports.validateTypedArraySlice
