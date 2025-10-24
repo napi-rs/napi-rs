@@ -122,7 +122,7 @@ jobs:
 
       - name: Upload ASAN logs (Windows)
         if: failure() && matrix.os == 'windows-latest'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: windows-asan-logs
           path: |
