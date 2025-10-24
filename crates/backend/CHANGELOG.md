@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v2.2.0...napi-derive-backend-v3.0.0) - 2025-10-24
+
+### Added
+
+- *(napi-derive)* add `discriminant_case` to allow changing case of discriminant ([#2960](https://github.com/napi-rs/napi-rs/pull/2960))
+
+### Fixed
+
+- *(napi)* stop ref error object in wasm targets ([#2975](https://github.com/napi-rs/napi-rs/pull/2975))
+
+### Other
+
+- *(napi)* bump rust-version ([#2966](https://github.com/napi-rs/napi-rs/pull/2966))
+- *(napi-derive)* make typegen easier to read ([#2956](https://github.com/napi-rs/napi-rs/pull/2956))
+
 ## [2.2.0](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v2.1.4...napi-derive-backend-v2.2.0) - 2025-09-08
 
 ### Added

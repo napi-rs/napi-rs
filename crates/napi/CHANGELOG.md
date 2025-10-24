@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.0](https://github.com/napi-rs/napi-rs/compare/napi-v3.3.0...napi-v3.4.0) - 2025-10-24
+
+### Added
+
+- *(napi)* add on_abort for AbortSignal ([#2942](https://github.com/napi-rs/napi-rs/pull/2942))
+- *(cli)* add support for loongarch64-unknown-linux-gnu ([#2887](https://github.com/napi-rs/napi-rs/pull/2887))
+
+### Fixed
+
+- *(napi)* stop ref error object in wasm targets ([#2975](https://github.com/napi-rs/napi-rs/pull/2975))
+- *(deps)* update rust crate ctor to v0.6.0 ([#2951](https://github.com/napi-rs/napi-rs/pull/2951))
+- *(napi)* cleanup memory issues ([#2949](https://github.com/napi-rs/napi-rs/pull/2949))
+- *(napi)* node_api_create_external_string_utf16 on wasm ([#2912](https://github.com/napi-rs/napi-rs/pull/2912))
+
+### Other
+
+- *(napi)* bump rust-version ([#2966](https://github.com/napi-rs/napi-rs/pull/2966))
+
 ## [3.3.0](https://github.com/napi-rs/napi-rs/compare/napi-v3.2.4...napi-v3.3.0) - 2025-09-08
 
 ### Added
