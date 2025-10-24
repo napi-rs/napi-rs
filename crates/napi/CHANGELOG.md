@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.1](https://github.com/napi-rs/napi-rs/compare/napi-v3.4.0...napi-v3.4.1) - 2025-10-24
+
+### Other
+
+- add sponsors
+
 ## [3.4.0](https://github.com/napi-rs/napi-rs/compare/napi-v3.3.0...napi-v3.4.0) - 2025-10-24
 
 ### Added
