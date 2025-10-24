@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.3.0](https://github.com/napi-rs/napi-rs/compare/napi-derive-v3.2.5...napi-derive-v3.3.0) - 2025-10-24
+
+### Added
+
+- *(napi-derive)* add `discriminant_case` to allow changing case of discriminant ([#2960](https://github.com/napi-rs/napi-rs/pull/2960))
+
+### Fixed
+
+- *(deps)* update rust crate ctor to v0.6.0 ([#2951](https://github.com/napi-rs/napi-rs/pull/2951))
+
+### Other
+
+- *(napi)* bump rust-version ([#2966](https://github.com/napi-rs/napi-rs/pull/2966))
+
 ## [3.2.5](https://github.com/napi-rs/napi-rs/compare/napi-derive-v3.2.4...napi-derive-v3.2.5) - 2025-09-08
 
 ### Other
