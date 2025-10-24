@@ -5,9 +5,6 @@ export function createCjsBinding(
   packageVersion?: string,
 ): string {
   return `${bindingHeader}
-const { createRequire } = require('node:module')
-require = createRequire(__filename)
-
 ${createCommonBinding(localName, pkgName, packageVersion)}
 module.exports = nativeBinding
 ${idents
