@@ -733,6 +733,7 @@ unsafe extern "C" fn call_js_cb<
         values
       };
       let mut return_value = ptr::null_mut();
+      #[allow(unused_mut)]
       let mut status = sys::napi_call_function(
         raw_env,
         recv,
