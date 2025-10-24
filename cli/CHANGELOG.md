@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [3.4.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.4.0...@napi-rs/cli@3.4.1) (2025-10-24)
+
+### Bug Fixes
+
+- **cli:** remove createRequire in cjs binding ([#2976](https://github.com/napi-rs/napi-rs/issues/2976)) ([c388c12](https://github.com/napi-rs/napi-rs/commit/c388c120cfefbe40b16176615840203e3e1c6e75))
+
 # [3.4.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.3.1...@napi-rs/cli@3.4.0) (2025-10-23)
 
 ### Bug Fixes
