@@ -829,7 +829,7 @@ pub use napi8::*;
 #[cfg(feature = "napi9")]
 pub use napi9::*;
 
-#[cfg(all(windows, not(target_env = "msvc"), feature = "dyn-symbols"))]
+#[cfg(all(windows, feature = "dyn-symbols"))]
 fn test_library(
   lib_result: Result<libloading::os::windows::Library, libloading::Error>,
 ) -> Result<libloading::Library, libloading::Error> {
@@ -850,7 +850,7 @@ fn test_library(
   }
 }
 
-#[cfg(all(windows, not(target_env = "msvc"), feature = "dyn-symbols"))]
+#[cfg(all(windows, feature = "dyn-symbols"))]
 fn find_node_library() -> Result<libloading::Library, libloading::Error> {
   return unsafe {
     test_library(libloading::os::windows::Library::this())
@@ -869,11 +869,11 @@ fn find_node_library() -> Result<libloading::Library, libloading::Error> {
 
 #[cfg(any(target_env = "msvc", feature = "dyn-symbols"))]
 pub(super) unsafe fn load_all() -> Result<libloading::Library, libloading::Error> {
-  #[cfg(all(windows, target_env = "msvc"))]
-  let host = libloading::os::windows::Library::this()?.into();
+  #[cfg(all(windows, feature = "dyn-symbols"))]
+  let host = find_node_library()?;
 
-  #[cfg(all(windows, not(target_env = "msvc")))]
-  let host = find_node_library()?.into();
+  #[cfg(all(windows, not(feature = "dyn-symbols")))]
+  let host = libloading::os::windows::Library::this()?.into();
 
   #[cfg(unix)]
   let host = libloading::os::unix::Library::this().into();
