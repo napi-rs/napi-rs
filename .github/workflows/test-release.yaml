@@ -378,11 +378,11 @@ jobs:
         env:
           CARGO_PROFILE_DEV_OPT_LEVEL: 1
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.settings.target }}-example
           path: examples/napi/*.node
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.settings.target }}-example-compat
           path: examples/napi-compat-mode/index.node
@@ -435,11 +435,11 @@ jobs:
             chmod 777 -R .cargo-cache
             chmod 777 -R target
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.settings.target }}-example
           path: examples/napi/*.node
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.settings.target }}-example-compat
           path: examples/napi-compat-mode/index.node
@@ -495,11 +495,11 @@ jobs:
         with:
           node-version: 22
           cache: 'yarn'
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v6
         with:
           name: ${{ matrix.settings.target }}-example
           path: examples/napi/
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v6
         with:
           name: ${{ matrix.settings.target }}-example-compat
           path: examples/napi-compat-mode/index.node
