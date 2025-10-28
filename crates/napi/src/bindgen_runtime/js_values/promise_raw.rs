@@ -56,7 +56,7 @@ impl<T> FromNapiValue for PromiseRaw<'_, T> {
 }
 
 impl<T> PromiseRaw<'_, T> {
-  pub(crate) fn new(env: sys::napi_env, inner: sys::napi_value) -> Self {
+  pub fn new(env: sys::napi_env, inner: sys::napi_value) -> Self {
     Self {
       inner,
       env,
