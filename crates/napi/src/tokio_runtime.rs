@@ -171,7 +171,7 @@ pub fn within_runtime_if_available<F: FnOnce() -> T, T>(f: F) -> T {
 }
 
 #[cfg(not(feature = "noop"))]
-struct SendableResolver<
+pub struct SendableResolver<
   Data: 'static + Send,
   R: 'static + FnOnce(sys::napi_env, Data) -> Result<sys::napi_value>,
 > {
@@ -193,14 +193,14 @@ unsafe impl<Data: 'static + Send, R: 'static + FnOnce(sys::napi_env, Data) -> Re
 impl<Data: 'static + Send, R: 'static + FnOnce(sys::napi_env, Data) -> Result<sys::napi_value>>
   SendableResolver<Data, R>
 {
-  fn new(inner: R) -> Self {
+  pub fn new(inner: R) -> Self {
     Self {
       inner,
       _data: PhantomData,
     }
   }
 
-  fn resolve(self, env: sys::napi_env, data: Data) -> Result<sys::napi_value> {
+  pub fn resolve(self, env: sys::napi_env, data: Data) -> Result<sys::napi_value> {
     (self.inner)(env, data)
   }
 }
