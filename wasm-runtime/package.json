@@ -25,7 +25,7 @@
     "dist/*.js"
   ],
   "devDependencies": {
-    "@rollup/plugin-alias": "^5.1.1",
+    "@rollup/plugin-alias": "^6.0.0",
     "@rollup/plugin-commonjs": "^28.0.6",
     "@rollup/plugin-inject": "^5.0.5",
     "@rollup/plugin-json": "^6.1.0",
