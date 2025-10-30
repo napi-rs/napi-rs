@@ -573,7 +573,7 @@ jobs:
       - name: Setup and run tests
         uses: addnab/docker-run-action@v3
         with:
-          image: node:lts-slim
+          image: node:22-slim
           options: --platform linux/arm/v7 -v ${{ github.workspace }}:/build -w /build
           run: yarn test
 
