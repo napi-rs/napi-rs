@@ -95,8 +95,12 @@ mod tokio_runtime;
 mod value_type;
 #[cfg(feature = "napi3")]
 pub use cleanup_env::CleanupEnvHook;
+#[cfg(not(feature = "noop"))]
+mod sendable_resolver;
 #[cfg(feature = "napi4")]
 pub mod threadsafe_function;
+#[cfg(not(feature = "noop"))]
+pub use sendable_resolver::SendableResolver;
 
 mod version;
 
