@@ -259,8 +259,6 @@ impl NapiEnum {
       });
     }
 
-    let property_count = self.variants.len();
-
     let callback_name = Ident::new(
       &format!("__register__enum__{name_str}_callback__"),
       Span::call_site(),
@@ -268,46 +266,12 @@ impl NapiEnum {
 
     let js_mod_ident = js_mod_to_token_stream(self.js_mod.as_ref());
 
-    let object_creation = if property_count == 0 {
-      // If there are no variants, just create an empty object
-      quote! {
-        let mut obj_ptr = ptr::null_mut();
-        napi::bindgen_prelude::check_status!(
-          napi::bindgen_prelude::sys::napi_create_object(env, &mut obj_ptr),
-          "Failed to create napi object"
-        )?;
-      }
-    } else {
-      quote! {
-        let mut obj_ptr = ptr::null_mut();
+    let object_creation = quote! {
+      let properties = [
+        #(#property_descriptors),*
+      ];
 
-        #[cfg(feature = "napi10")]
-        {
-          let properties = [
-            #(#property_descriptors),*
-          ];
-
-          napi::bindgen_prelude::check_status!(
-            napi::bindgen_prelude::sys::node_api_create_object_with_properties(
-              env,
-              &mut obj_ptr,
-              #property_count,
-              properties.as_ptr(),
-            ),
-            "Failed to create napi object with properties"
-          )?;
-        }
-
-        #[cfg(not(feature = "napi10"))]
-        {
-          napi::bindgen_prelude::check_status!(
-            napi::bindgen_prelude::sys::napi_create_object(env, &mut obj_ptr),
-            "Failed to create napi object"
-          )?;
-
-          #(#define_properties)*
-        }
-      }
+      let obj_ptr = napi::bindgen_prelude::create_object_with_properties(env, &properties)?;
     };
 
     quote! {
