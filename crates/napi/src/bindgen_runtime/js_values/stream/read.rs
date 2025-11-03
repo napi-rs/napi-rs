@@ -10,8 +10,7 @@ use std::{
   task::{Context, Poll},
 };
 
-use futures_core::Stream;
-use tokio_stream::StreamExt;
+use futures::{Stream, StreamExt};
 
 use crate::{
   bindgen_prelude::{
@@ -447,7 +446,7 @@ pub struct Reader<T: FromNapiValue + 'static> {
   state: Arc<(RwLock<Result<Option<T>>>, AtomicBool)>,
 }
 
-impl<T: FromNapiValue + 'static> futures_core::Stream for Reader<T> {
+impl<T: FromNapiValue + 'static> futures::Stream for Reader<T> {
   type Item = Result<T>;
 
   fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {

@@ -130,7 +130,14 @@ impl Bird {
 
   #[cfg_attr(not(feature = "cfg_attr_napi"), napi_derive::napi)]
   pub async fn get_name_async(&self) -> &str {
-    tokio::time::sleep(std::time::Duration::new(1, 0)).await;
+    #[cfg(feature = "tokio_rt")]
+    {
+      napi::tokio::time::sleep(std::time::Duration::new(1, 0)).await;
+    }
+    #[cfg(feature = "compio_rt")]
+    {
+      napi::compio::time::sleep(std::time::Duration::new(1, 0)).await;
+    }
     self.name.as_str()
   }
 

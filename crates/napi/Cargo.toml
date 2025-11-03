@@ -22,6 +22,7 @@ independent = true
 
 [features]
 async = ["tokio_rt"]
+compio = ["napi4", "futures", "dep:compio", "dep:async-channel"]
 chrono_date = ["chrono", "napi5"]
 # Enable deprecated types and traits for compatibility
 compat-mode = []
@@ -49,10 +50,11 @@ napi7 = ["napi6", "napi-sys/napi7"]
 napi8 = ["napi7", "napi-sys/napi8"]
 napi9 = ["napi8", "napi-sys/napi9"]
 napi10 = ["napi9", "napi-sys/napi10"]
-web_stream = ["futures-core", "tokio-stream", "napi4", "tokio_rt"]
+web_stream = ["futures", "napi4"]
 noop = []
 serde-json = ["serde", "serde_json"]
 serde-json-ordered = ["serde-json", "serde_json/preserve_order"]
+compio_time = ["compio/time"]
 tokio_fs = ["tokio/fs"]
 tokio_full = ["tokio/full"]
 tokio_io_std = ["tokio/io-std"]
@@ -60,7 +62,7 @@ tokio_io_util = ["tokio/io-util"]
 tokio_macros = ["tokio/macros"]
 tokio_net = ["tokio/net"]
 tokio_process = ["tokio/process"]
-tokio_rt = ["tokio", "napi4"]
+tokio_rt = ["tokio", "napi4", "futures"]
 tokio_signal = ["tokio/signal"]
 tokio_sync = ["tokio/sync"]
 tokio_test_util = ["tokio/test-util"]
@@ -113,13 +115,19 @@ version = "1"
 optional = true
 version = "2"
 
-[dependencies.futures-core]
+[dependencies.futures]
 optional = true
 version = "0.3"
 
-[dependencies.tokio-stream]
+[dependencies.compio]
 optional = true
-version = "0.1"
+version = "0.16"
+default-features = false
+features = ["runtime", "polling", "dispatcher"]
+
+[dependencies.async-channel]
+optional = true
+version = "2"
 
 [build-dependencies]
 napi-build = { path = "../build", version = "2.2.4" }

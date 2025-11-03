@@ -63,7 +63,9 @@
 //!     env.to_js_value(&value)
 //! }
 //! ```
-//!
+
+#[cfg(all(feature = "tokio_rt", feature = "compio",))]
+compile_error!("The features `tokio_rt` and `compio` cannot be enabled at the same time.");
 
 #[cfg(all(target_family = "wasm", not(feature = "noop"), feature = "napi3"))]
 #[link(wasm_import_module = "napi")]
@@ -79,6 +81,8 @@ extern "C" {
 mod async_cleanup_hook;
 #[cfg(feature = "napi8")]
 pub use async_cleanup_hook::AsyncCleanupHook;
+#[cfg(all(any(feature = "tokio_rt", feature = "compio"), feature = "napi4"))]
+mod async_runtime;
 mod async_work;
 mod bindgen_runtime;
 #[cfg(feature = "compat-mode")]
@@ -90,8 +94,6 @@ mod error;
 mod js_values;
 mod status;
 mod task;
-#[cfg(all(feature = "tokio_rt", feature = "napi4"))]
-mod tokio_runtime;
 mod value_type;
 #[cfg(feature = "napi3")]
 pub use cleanup_env::CleanupEnvHook;
@@ -152,10 +154,14 @@ macro_rules! assert_type_of {
 }
 
 pub mod bindgen_prelude {
+  #[cfg(feature = "compio")]
+  pub use crate::async_runtime::execute_compio_future as execute_future;
+  #[cfg(feature = "tokio_rt")]
+  pub use crate::async_runtime::execute_tokio_future as execute_future;
+  #[cfg(any(feature = "tokio_rt", feature = "compio"))]
+  pub use crate::async_runtime::*;
   #[cfg(all(feature = "compat-mode", not(feature = "noop")))]
   pub use crate::bindgen_runtime::register_module_exports;
-  #[cfg(feature = "tokio_rt")]
-  pub use crate::tokio_runtime::*;
   pub use crate::{
     assert_type_of, bindgen_runtime::*, check_pending_exception, check_status,
     check_status_or_throw, error, error::*, sys, type_of, JsError, JsValue, Property,
@@ -218,10 +224,11 @@ pub extern crate ctor;
 #[cfg(feature = "tokio_rt")]
 pub extern crate tokio;
 
+#[cfg(feature = "compio")]
+pub extern crate compio;
+
 #[cfg(feature = "error_anyhow")]
 pub extern crate anyhow;
 
 #[cfg(feature = "web_stream")]
-pub extern crate futures_core;
-#[cfg(feature = "web_stream")]
-pub extern crate tokio_stream;
+pub extern crate futures;

@@ -206,15 +206,36 @@ pub async fn tsfn_return_promise(func: ThreadsafeFunction<u32, Promise<u32>>) ->
 pub async fn tsfn_return_promise_timeout(
   func: ThreadsafeFunction<u32, Promise<u32>>,
 ) -> Result<u32> {
-  use tokio::time::{self, Duration};
   let promise = func.call_async(Ok(1)).await?;
-  let sleep = time::sleep(Duration::from_nanos(1));
-  tokio::select! {
-    _ = sleep => {
-      Err(Error::new(Status::GenericFailure, "Timeout".to_owned()))
+  #[cfg(feature = "tokio_rt")]
+  {
+    use napi::tokio::time::{self, Duration};
+    let sleep = time::sleep(Duration::from_nanos(1));
+    napi::tokio::select! {
+      _ = sleep => {
+        Err(Error::new(Status::GenericFailure, "Timeout".to_owned()))
+      }
+      value = promise => {
+        Ok(value? + 2)
+      }
     }
-    value = promise => {
-      Ok(value? + 2)
+  }
+  #[cfg(feature = "compio_rt")]
+  {
+    use std::time::Duration;
+
+    use futures::FutureExt;
+    use napi::compio::time;
+
+    futures::select! {
+      _ = async {
+        time::sleep(Duration::from_nanos(1)).await;
+      }.fuse() => {
+        Err(Error::new(Status::GenericFailure, "Timeout".to_owned()))
+      }
+      value = promise.fuse() => {
+        Ok(value? + 2)
+      }
     }
   }
 }

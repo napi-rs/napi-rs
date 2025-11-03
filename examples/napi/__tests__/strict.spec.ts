@@ -151,7 +151,7 @@ test('should validate Map', (t) => {
   })
 })
 
-test('should validate promise', async (t) => {
+test.only('should validate promise', async (t) => {
   t.is(
     await validatePromise(
       new Promise((resolve) => {

@@ -1,6 +1,6 @@
 #![allow(clippy::single_component_path_imports)]
 
-#[cfg(feature = "tokio_rt")]
+#[cfg(any(feature = "tokio_rt", feature = "compio"))]
 use std::convert::identity;
 use std::marker::PhantomData;
 use std::os::raw::c_void;
@@ -11,10 +11,9 @@ use std::sync::{
   Arc, RwLock, RwLockWriteGuard,
 };
 
-use crate::bindgen_runtime::{
-  FromNapiValue, JsValuesTupleIntoVec, TypeName, Unknown, ValidateNapiValue,
-};
 use crate::{
+  async_runtime::create_oneshot_channel,
+  bindgen_runtime::{FromNapiValue, JsValuesTupleIntoVec, TypeName, Unknown, ValidateNapiValue},
   check_status, get_error_message_and_stack_trace, sys, Env, Error, JsError, Result, Status,
 };
 
@@ -510,10 +509,10 @@ impl<
     })
   }
 
-  #[cfg(feature = "tokio_rt")]
+  #[cfg(any(feature = "tokio_rt", feature = "compio"))]
   /// Call the ThreadsafeFunction, and handle the return value with in `async` way
   pub async fn call_async(&self, value: Result<T, ErrorStatus>) -> Result<Return> {
-    let (sender, receiver) = tokio::sync::oneshot::channel::<Result<Return>>();
+    let (sender, receiver) = create_oneshot_channel::<Result<Return>>();
 
     self.handle.with_read_aborted(|aborted| {
       if aborted {
@@ -529,11 +528,19 @@ impl<
                 data,
                 call_variant: ThreadsafeFunctionCallVariant::WithCallback,
                 callback: Box::new(move |d: Result<Return>, _| {
-                  sender
-                    .send(d)
-                    // The only reason for send to return Err is if the receiver isn't listening
-                    // Not hiding the error would result in a napi_fatal_error call, it's safe to ignore it instead.
-                    .or(Ok(()))
+                  #[cfg(feature = "tokio_rt")]
+                  {
+                    sender
+                      .send(d)
+                      // The only reason for send to return Err is if the receiver isn't listening
+                      // Not hiding the error would result in a napi_fatal_error call, it's safe to ignore it instead.
+                      .or(Ok(()))
+                  }
+                  #[cfg(feature = "compio")]
+                  {
+                    // In compio, sending on a closed channel returns an error, so we ignore it here
+                    sender.try_send(d).or(Ok(()))
+                  }
                 }),
               }
             })))
@@ -544,6 +551,9 @@ impl<
         "Threadsafe function call_async failed"
       )
     })?;
+    #[cfg(feature = "compio")]
+    let receiver = receiver.recv();
+
     receiver
       .await
       .map_err(|_| {
@@ -617,10 +627,10 @@ impl<
     })
   }
 
-  #[cfg(feature = "tokio_rt")]
+  #[cfg(any(feature = "tokio_rt", feature = "compio"))]
   /// Call the ThreadsafeFunction, and handle the return value with in `async` way
   pub async fn call_async(&self, value: T) -> Result<Return> {
-    let (sender, receiver) = tokio::sync::oneshot::channel::<Return>();
+    let (sender, receiver) = create_oneshot_channel::<Return>();
 
     self.handle.with_read_aborted(|aborted| {
       if aborted {
@@ -635,11 +645,22 @@ impl<
             call_variant: ThreadsafeFunctionCallVariant::WithCallback,
             callback: Box::new(move |d, _| {
               d.and_then(|d| {
-                sender
-                  .send(d)
-                  // The only reason for send to return Err is if the receiver isn't listening
-                  // Not hiding the error would result in a napi_fatal_error call, it's safe to ignore it instead.
-                  .or(Ok(()))
+                #[cfg(feature = "tokio_rt")]
+                {
+                  sender
+                    .send(d)
+                    // The only reason for send to return Err is if the receiver isn't listening
+                    // Not hiding the error would result in a napi_fatal_error call, it's safe to ignore it instead.
+                    .or(Ok(()))
+                }
+                #[cfg(feature = "compio")]
+                {
+                  sender
+                    .try_send(d)
+                    // The only reason for send to return Err is if the receiver isn't listening
+                    // Not hiding the error would result in a napi_fatal_error call, it's safe to ignore it instead.
+                    .or(Ok(()))
+                }
               })
             }),
           }))
@@ -648,6 +669,9 @@ impl<
         )
       })
     })?;
+
+    #[cfg(feature = "compio")]
+    let receiver = receiver.recv();
 
     receiver
       .await

@@ -2,13 +2,14 @@
 use std::sync::{LazyLock, OnceLock, RwLock};
 use std::{future::Future, marker::PhantomData};
 
+#[cfg(feature = "tokio_rt")]
 use tokio::runtime::Runtime;
 
 use crate::{bindgen_runtime::ToNapiValue, sys, Env, Error, Result};
 #[cfg(not(feature = "noop"))]
 use crate::{JsDeferred, Unknown};
 
-#[cfg(not(feature = "noop"))]
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 fn create_runtime() -> Runtime {
   // Check if we're supposed to use a user-defined runtime
   if IS_USER_DEFINED_RT.get().copied().unwrap_or(false) {
@@ -42,17 +43,66 @@ fn create_runtime() -> Runtime {
   }
 }
 
-#[cfg(not(feature = "noop"))]
+#[cfg(all(not(feature = "noop"), feature = "compio"))]
+fn create_runtime() -> CompioRuntime {
+  // Check if we're supposed to use a user-defined runtime
+  if IS_USER_DEFINED_RT.get().copied().unwrap_or(false) {
+    // Try to take the user-defined runtime if it's still available
+    if let Some(user_defined_rt) = USER_DEFINED_RT
+      .get()
+      .and_then(|rt| rt.write().ok().and_then(|mut rt| rt.take()))
+    {
+      return user_defined_rt;
+    }
+    // If the user-defined runtime was already taken, fall back to creating a default runtime
+    // This handles the case where the runtime was shutdown and needs to be restarted
+  }
+
+  #[cfg(target_family = "wasm")]
+  compile_error!("The `compio` feature is not supported in wasm targets.");
+
+  CompioRuntime(compio::runtime::Runtime::new().expect("Create compio runtime failed"))
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 static RT: LazyLock<RwLock<Option<Runtime>>> =
   LazyLock::new(|| RwLock::new(Some(create_runtime())));
 
-#[cfg(not(feature = "noop"))]
+#[cfg(all(not(feature = "noop"), feature = "compio"))]
+static RT: LazyLock<RwLock<Option<CompioRuntime>>> = LazyLock::new(|| {
+  RwLock::new(Some(CompioRuntime(
+    compio::runtime::Runtime::new().expect("Create compio runtime failed"),
+  )))
+});
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 static USER_DEFINED_RT: OnceLock<RwLock<Option<Runtime>>> = OnceLock::new();
+
+#[cfg(all(not(feature = "noop"), feature = "compio"))]
+static USER_DEFINED_RT: OnceLock<RwLock<Option<CompioRuntime>>> = OnceLock::new();
 
 #[cfg(not(feature = "noop"))]
 static IS_USER_DEFINED_RT: OnceLock<bool> = OnceLock::new();
 
-#[cfg(not(feature = "noop"))]
+#[cfg(all(not(feature = "noop"), feature = "compio"))]
+#[repr(transparent)]
+struct CompioRuntime(compio::runtime::Runtime);
+
+#[cfg(all(not(feature = "noop"), feature = "compio"))]
+unsafe impl Send for CompioRuntime {}
+#[cfg(all(not(feature = "noop"), feature = "compio"))]
+unsafe impl Sync for CompioRuntime {}
+
+#[cfg(all(not(feature = "noop"), feature = "compio"))]
+impl std::ops::Deref for CompioRuntime {
+  type Target = compio::runtime::Runtime;
+
+  fn deref(&self) -> &Self::Target {
+    &self.0
+  }
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 /// Create a custom Tokio runtime used by the NAPI-RS.
 /// You can control the tokio runtime configuration by yourself.
 /// ### Example
@@ -70,11 +120,33 @@ pub fn create_custom_tokio_runtime(rt: Runtime) {
   IS_USER_DEFINED_RT.get_or_init(|| true);
 }
 
-#[cfg(feature = "noop")]
+#[cfg(all(not(feature = "noop"), feature = "compio"))]
+/// Create a custom Compio runtime used by the NAPI-RS.
+/// You can control the compio runtime configuration by yourself.
+/// ### Example
+/// ```no_run
+/// use std::collections::HashSet;
+/// use compio::runtime::RuntimeBuilder ;
+/// use napi::create_custom_compio_runtime;
+///
+/// #[napi_derive::module_init]
+/// fn init() {
+///    let rt = RuntimeBuilder::thread_affinity(HashSet::from_iter([0, 1, 2, 3])).event_interval(61).build().unwrap();
+///    create_custom_compio_runtime(rt);
+/// }
+pub fn create_custom_compio_runtime(rt: compio::runtime::Runtime) {
+  USER_DEFINED_RT.get_or_init(move || RwLock::new(Some(CompioRuntime(rt))));
+  IS_USER_DEFINED_RT.get_or_init(|| true);
+}
+
+#[cfg(all(feature = "noop", feature = "tokio_rt"))]
 pub fn create_custom_tokio_runtime(_: Runtime) {}
 
-#[cfg(not(feature = "noop"))]
-/// Start the async runtime (Currently is tokio).
+#[cfg(all(feature = "noop", feature = "compio"))]
+pub fn create_custom_tokio_runtime(_: compio::runtime::Runtime) {}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+/// Start the tokio runtime
 ///
 /// In Node.js native targets the async runtime will be dropped when Node env exits.
 /// But in Electron renderer process, the Node env will exits and recreate when the window reloads.
@@ -91,14 +163,39 @@ pub fn start_async_runtime() {
   }
 }
 
-#[cfg(not(feature = "noop"))]
+#[cfg(all(not(feature = "noop"), feature = "compio"))]
+/// Start the compio runtime
+///
+/// In Node.js native targets the async runtime will be dropped when Node env exits.
+/// But in Electron renderer process, the Node env will exits and recreate when the window reloads.
+/// So we need to ensure that the async runtime is initialized when the Node env is created.
+///
+/// In wasm targets, the async runtime will not been shutdown automatically due to the limitation of the wasm runtime.
+/// So, you need to call `shutdown_async_runtime` function to manually shutdown the async runtime.
+/// In some scenarios, you may want to start the async runtime again like in tests.
+pub fn start_async_runtime() {
+  if let Ok(mut rt) = RT.write() {
+    if rt.is_none() {
+      *rt = Some(create_runtime());
+    }
+  }
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 pub fn shutdown_async_runtime() {
   if let Some(rt) = RT.write().ok().and_then(|mut rt| rt.take()) {
     rt.shutdown_background();
   }
 }
 
-#[cfg(not(feature = "noop"))]
+#[cfg(all(not(feature = "noop"), feature = "compio"))]
+pub fn shutdown_async_runtime() {
+  if let Some(rt) = RT.write().ok().and_then(|mut rt| rt.take()) {
+    drop(rt);
+  }
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 /// Spawns a future onto the Tokio runtime.
 ///
 /// Depending on where you use it, you should await or abort the future in your drop function.
@@ -113,7 +210,30 @@ where
     .expect("Access tokio runtime failed in spawn")
 }
 
-#[cfg(not(feature = "noop"))]
+#[cfg(all(not(feature = "noop"), feature = "compio"))]
+/// Spawns a future onto the [compio](https://docs.rs/compio/latest/compio/) runtime.
+pub fn spawn<F>(fut: F) -> compio::runtime::Task<()>
+where
+  F: 'static + Future<Output = ()>,
+{
+  RT.read()
+    .ok()
+    .and_then(|rt| rt.as_ref().map(|rt| unsafe { rt.spawn_unchecked(fut) }))
+    .expect("Access compio runtime failed in spawn")
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+/// Runs a future to completion
+/// This is blocking, meaning that it pauses other execution until the future is complete,
+/// only use it when it is absolutely necessary, in other places use async functions instead.
+pub fn block_on<F: Future>(fut: F) -> F::Output {
+  RT.read()
+    .ok()
+    .and_then(|rt| rt.as_ref().map(|rt| rt.block_on(fut)))
+    .expect("Access tokio runtime failed in block_on")
+}
+
+#[cfg(all(not(feature = "noop"), feature = "compio"))]
 /// Runs a future to completion
 /// This is blocking, meaning that it pauses other execution until the future is complete,
 /// only use it when it is absolutely necessary, in other places use async functions instead.
@@ -132,7 +252,7 @@ pub fn block_on<F: Future>(_: F) -> F::Output {
   unreachable!("noop feature is enabled, block_on is not available")
 }
 
-#[cfg(not(feature = "noop"))]
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 /// spawn_blocking on the current Tokio runtime.
 pub fn spawn_blocking<F, R>(func: F) -> tokio::task::JoinHandle<R>
 where
@@ -145,10 +265,22 @@ where
     .expect("Access tokio runtime failed in spawn_blocking")
 }
 
-#[cfg(not(feature = "noop"))]
+#[cfg(all(not(feature = "noop"), feature = "compio"))]
+/// spawn_blocking on the current compio runtime.
+pub fn spawn_blocking<F, R>(func: F) -> compio::runtime::JoinHandle<R>
+where
+  F: FnOnce() -> R + Send + 'static,
+  R: Send + 'static,
+{
+  RT.read()
+    .ok()
+    .and_then(|rt| rt.as_ref().map(|rt| rt.spawn_blocking(func)))
+    .expect("Access tokio runtime failed in spawn_blocking")
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 // This function's signature must be kept in sync with the one in lib.rs, otherwise napi
 // will fail to compile with the `tokio_rt` feature.
-#[cfg(not(feature = "noop"))]
 /// If the feature `tokio_rt` has been enabled this will enter the runtime context and
 /// then call the provided closure. Otherwise it will just call the provided closure.
 pub fn within_runtime_if_available<F: FnOnce() -> T, T>(f: F) -> T {
@@ -219,7 +351,7 @@ pub fn execute_tokio_future<
   Ok(std::ptr::null_mut())
 }
 
-#[cfg(not(feature = "noop"))]
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn execute_tokio_future<
   Data: 'static + Send,
@@ -262,6 +394,7 @@ pub fn execute_tokio_future<
   ))]
   spawn(async move {
     if let Err(err) = jh.await {
+      #[cfg(feature = "tokio_rt")]
       if let Ok(reason) = err.try_into_panic() {
         if let Some(s) = reason.downcast_ref::<&str>() {
           deferred_for_panic.reject(Error::new(crate::Status::GenericFailure, s));
@@ -285,6 +418,60 @@ pub fn execute_tokio_future<
   Ok(promise.0.value)
 }
 
+#[cfg(all(not(feature = "noop"), feature = "compio"))]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub fn execute_compio_future<
+  Data: 'static + Send,
+  Fut: 'static + Future<Output = std::result::Result<Data, impl Into<Error>>>,
+  Resolver: 'static + FnOnce(sys::napi_env, Data) -> Result<sys::napi_value>,
+>(
+  env: sys::napi_env,
+  fut: Fut,
+  resolver: Resolver,
+) -> Result<sys::napi_value> {
+  let env = Env::from_raw(env);
+  let (deferred, promise) = JsDeferred::new(&env)?;
+  let deferred_for_panic = deferred.clone();
+  let sendable_resolver = SendableResolver::new(resolver);
+
+  let inner = async move {
+    match fut.await {
+      Ok(v) => deferred.resolve(move |env| {
+        sendable_resolver
+          .resolve(env.raw(), v)
+          .map(|v| unsafe { Unknown::from_raw_unchecked(env.raw(), v) })
+      }),
+      Err(e) => deferred.reject(e.into()),
+    }
+  };
+
+  let jh = spawn(inner);
+
+  jh.detach();
+
+  Ok(promise.0.value)
+}
+
+#[cfg(feature = "tokio_rt")]
+pub fn create_oneshot_channel<T>() -> (
+  futures::channel::oneshot::Sender<T>,
+  futures::channel::oneshot::Receiver<T>,
+) {
+  futures::channel::oneshot::channel()
+}
+
+#[cfg(feature = "tokio_rt")]
+pub type Receiver<T> = futures::channel::oneshot::Receiver<T>;
+
+#[cfg(feature = "compio")]
+pub fn create_oneshot_channel<T>() -> (async_channel::Sender<T>, async_channel::Receiver<T>) {
+  async_channel::bounded(1)
+}
+
+#[cfg(feature = "compio")]
+pub type Receiver<T> = async_channel::Receiver<T>;
+
+#[cfg(feature = "tokio_rt")]
 pub struct AsyncBlockBuilder<
   V: Send + 'static,
   F: Future<Output = Result<V>> + Send + 'static,
@@ -294,6 +481,17 @@ pub struct AsyncBlockBuilder<
   dispose: Option<Dispose>,
 }
 
+#[cfg(feature = "compio")]
+pub struct AsyncBlockBuilder<
+  V: Send + 'static,
+  F: Future<Output = Result<V>> + 'static,
+  Dispose: FnOnce(Env) -> Result<()> + 'static = fn(Env) -> Result<()>,
+> {
+  inner: F,
+  dispose: Option<Dispose>,
+}
+
+#[cfg(feature = "tokio_rt")]
 impl<V: ToNapiValue + Send + 'static, F: Future<Output = Result<V>> + Send + 'static>
   AsyncBlockBuilder<V, F>
 {
@@ -306,6 +504,20 @@ impl<V: ToNapiValue + Send + 'static, F: Future<Output = Result<V>> + Send + 'st
   }
 }
 
+#[cfg(feature = "compio")]
+impl<V: ToNapiValue + Send + 'static, F: Future<Output = Result<V>> + 'static>
+  AsyncBlockBuilder<V, F>
+{
+  /// Create a new `AsyncBlockBuilder` with the given future, without dispose
+  pub fn new(inner: F) -> Self {
+    Self {
+      inner,
+      dispose: None,
+    }
+  }
+}
+
+#[cfg(feature = "tokio_rt")]
 impl<
     V: ToNapiValue + Send + 'static,
     F: Future<Output = Result<V>> + Send + 'static,
@@ -338,6 +550,40 @@ impl<
   }
 }
 
+#[cfg(feature = "compio")]
+impl<
+    V: ToNapiValue + Send + 'static,
+    F: Future<Output = Result<V>> + 'static,
+    Dispose: FnOnce(Env) -> Result<()> + 'static,
+  > AsyncBlockBuilder<V, F, Dispose>
+{
+  pub fn with(inner: F) -> Self {
+    Self {
+      inner,
+      dispose: None,
+    }
+  }
+
+  pub fn with_dispose(mut self, dispose: Dispose) -> Self {
+    self.dispose = Some(dispose);
+    self
+  }
+
+  pub fn build(self, env: &Env) -> Result<AsyncBlock<V>> {
+    Ok(AsyncBlock {
+      inner: execute_compio_future(env.0, self.inner, |env, v| unsafe {
+        if let Some(dispose) = self.dispose {
+          let env = Env::from_raw(env);
+          dispose(env)?;
+        }
+        V::to_napi_value(env, v)
+      })?,
+      _phantom: PhantomData,
+    })
+  }
+}
+
+#[cfg(feature = "tokio_rt")]
 impl<V: Send + 'static, F: Future<Output = Result<V>> + Send + 'static> AsyncBlockBuilder<V, F> {
   /// Create a new `AsyncBlockBuilder` with the given future, without dispose
   pub fn build_with_map<T: ToNapiValue, Map: FnOnce(Env, V) -> Result<T> + 'static>(
@@ -347,6 +593,24 @@ impl<V: Send + 'static, F: Future<Output = Result<V>> + Send + 'static> AsyncBlo
   ) -> Result<AsyncBlock<T>> {
     Ok(AsyncBlock {
       inner: execute_tokio_future(env.0, inner, |env, v| unsafe {
+        let v = map(Env::from_raw(env), v)?;
+        T::to_napi_value(env, v)
+      })?,
+      _phantom: PhantomData,
+    })
+  }
+}
+
+#[cfg(feature = "compio")]
+impl<V: Send + 'static, F: Future<Output = Result<V>> + 'static> AsyncBlockBuilder<V, F> {
+  /// Create a new `AsyncBlockBuilder` with the given future, without dispose
+  pub fn build_with_map<T: ToNapiValue, Map: FnOnce(Env, V) -> Result<T> + 'static>(
+    env: &Env,
+    inner: F,
+    map: Map,
+  ) -> Result<AsyncBlock<T>> {
+    Ok(AsyncBlock {
+      inner: execute_compio_future(env.0, inner, |env, v| unsafe {
         let v = map(Env::from_raw(env), v)?;
         T::to_napi_value(env, v)
       })?,
