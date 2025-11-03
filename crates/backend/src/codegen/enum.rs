@@ -224,6 +224,7 @@ impl NapiEnum {
     let register_name = &self.register_name;
 
     let mut define_properties = vec![];
+    let mut property_descriptors = vec![];
 
     for variant in self.variants.iter() {
       let name_lit = Literal::string(&format!("{}\0", variant.name));
@@ -242,8 +243,23 @@ impl NapiEnum {
             #js_name_lit
           )?;
         };
-      })
+      });
+
+      property_descriptors.push(quote! {
+        napi::bindgen_prelude::sys::napi_property_descriptor {
+          utf8name: std::ffi::CStr::from_bytes_with_nul_unchecked(#name_lit.as_bytes()).as_ptr(),
+          name: std::ptr::null_mut(),
+          method: None,
+          getter: None,
+          setter: None,
+          value: napi::bindgen_prelude::ToNapiValue::to_napi_value(env, #val_lit)?,
+          attributes: napi::bindgen_prelude::sys::PropertyAttributes::default,
+          data: std::ptr::null_mut(),
+        }
+      });
     }
+
+    let property_count = self.variants.len();
 
     let callback_name = Ident::new(
       &format!("__register__enum__{name_str}_callback__"),
@@ -252,6 +268,48 @@ impl NapiEnum {
 
     let js_mod_ident = js_mod_to_token_stream(self.js_mod.as_ref());
 
+    let object_creation = if property_count == 0 {
+      // If there are no variants, just create an empty object
+      quote! {
+        let mut obj_ptr = ptr::null_mut();
+        napi::bindgen_prelude::check_status!(
+          napi::bindgen_prelude::sys::napi_create_object(env, &mut obj_ptr),
+          "Failed to create napi object"
+        )?;
+      }
+    } else {
+      quote! {
+        let mut obj_ptr = ptr::null_mut();
+
+        #[cfg(feature = "napi10")]
+        {
+          let properties = [
+            #(#property_descriptors),*
+          ];
+
+          napi::bindgen_prelude::check_status!(
+            napi::bindgen_prelude::sys::node_api_create_object_with_properties(
+              env,
+              &mut obj_ptr,
+              #property_count,
+              properties.as_ptr(),
+            ),
+            "Failed to create napi object with properties"
+          )?;
+        }
+
+        #[cfg(not(feature = "napi10"))]
+        {
+          napi::bindgen_prelude::check_status!(
+            napi::bindgen_prelude::sys::napi_create_object(env, &mut obj_ptr),
+            "Failed to create napi object"
+          )?;
+
+          #(#define_properties)*
+        }
+      }
+    };
+
     quote! {
       #[allow(non_snake_case)]
       #[allow(clippy::all)]
@@ -259,14 +317,7 @@ impl NapiEnum {
         use std::ffi::CString;
         use std::ptr;
 
-        let mut obj_ptr = ptr::null_mut();
-
-        napi::bindgen_prelude::check_status!(
-          napi::bindgen_prelude::sys::napi_create_object(env, &mut obj_ptr),
-          "Failed to create napi object"
-        )?;
-
-        #(#define_properties)*
+        #object_creation
 
         Ok(obj_ptr)
       }
