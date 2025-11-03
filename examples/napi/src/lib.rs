@@ -6,7 +6,7 @@
 #![allow(non_snake_case)]
 #![allow(deprecated)]
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(not(target_family = "wasm"), feature = "tokio_rt"))]
 use napi::bindgen_prelude::create_custom_tokio_runtime;
 use napi::bindgen_prelude::{JsObjectValue, Object, Result, Symbol};
 pub use napi_shared::*;
@@ -29,15 +29,18 @@ static ALLOC: mimalloc_safe::MiMalloc = mimalloc_safe::MiMalloc;
 fn init() {
   use std::thread::current;
 
-  let rt = tokio::runtime::Builder::new_multi_thread()
-    .enable_all()
-    .on_thread_start(|| {
-      let thread = std::thread::current();
-      println!("tokio thread started {:?}", thread.name());
-    })
-    .build()
-    .unwrap();
-  create_custom_tokio_runtime(rt);
+  #[cfg(feature = "tokio_rt")]
+  {
+    let rt = napi::tokio::runtime::Builder::new_multi_thread()
+      .enable_all()
+      .on_thread_start(|| {
+        let thread = std::thread::current();
+        println!("tokio thread started {:?}", thread.name());
+      })
+      .build()
+      .unwrap();
+    create_custom_tokio_runtime(rt);
+  }
 }
 
 #[napi]

@@ -465,9 +465,9 @@ pub unsafe extern "C" fn napi_register_module_v1(
   #[cfg(feature = "napi4")]
   {
     create_custom_gc(env);
-    #[cfg(feature = "tokio_rt")]
+    #[cfg(any(feature = "tokio_rt", feature = "compio"))]
     {
-      crate::tokio_runtime::start_async_runtime();
+      crate::async_runtime::start_async_runtime();
     }
   }
 
@@ -571,13 +571,13 @@ fn create_custom_gc(env: sys::napi_env) {
 
 #[cfg(all(
   not(feature = "noop"),
-  all(feature = "tokio_rt", feature = "napi4"),
+  all(any(feature = "tokio_rt", feature = "compio"), feature = "napi4"),
   not(target_family = "wasm")
 ))]
 #[ctor::dtor]
 fn thread_cleanup() {
   if MODULE_COUNT.fetch_sub(1, Ordering::Relaxed) == 1 {
-    crate::tokio_runtime::shutdown_async_runtime();
+    crate::async_runtime::shutdown_async_runtime();
   }
 }
 
@@ -592,7 +592,7 @@ unsafe extern "C" fn thread_cleanup(
   _data: *mut std::ffi::c_void,
 ) {
   if MODULE_COUNT.fetch_sub(1, Ordering::Relaxed) == 1 {
-    crate::tokio_runtime::shutdown_async_runtime();
+    crate::async_runtime::shutdown_async_runtime();
   }
 }
 

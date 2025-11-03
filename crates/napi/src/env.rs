@@ -4,7 +4,7 @@
 use std::any::{type_name, TypeId};
 use std::convert::TryInto;
 use std::ffi::CString;
-#[cfg(all(feature = "tokio_rt", feature = "napi4"))]
+#[cfg(all(any(feature = "tokio_rt", feature = "compio"), feature = "napi4"))]
 use std::future::Future;
 #[cfg(feature = "compat-mode")]
 use std::mem;
@@ -24,7 +24,7 @@ use crate::bindgen_runtime::u128_with_sign_to_napi_value;
 use crate::bindgen_runtime::FinalizeContext;
 #[cfg(feature = "napi5")]
 use crate::bindgen_runtime::FunctionCallContext;
-#[cfg(all(feature = "tokio_rt", feature = "napi4"))]
+#[cfg(all(any(feature = "tokio_rt", feature = "compio"), feature = "napi4"))]
 use crate::bindgen_runtime::PromiseRaw;
 use crate::bindgen_runtime::{
   FromNapiValue, Function, JsValuesTupleIntoVec, Object, ToNapiValue, Unknown,
@@ -1158,11 +1158,12 @@ impl Env {
     fut: F,
     resolver: R,
   ) -> Result<JsObject> {
-    use crate::tokio_runtime;
+    use crate::async_runtime;
 
-    let promise = tokio_runtime::execute_tokio_future(self.0, fut, |env, val| unsafe {
-      resolver(&mut Env::from_raw(env), val).and_then(|v| ToNapiValue::to_napi_value(env, v))
-    })?;
+    let promise: *mut napi_sys::napi_value__ =
+      async_runtime::execute_tokio_future(self.0, fut, |env, val| unsafe {
+        resolver(&mut Env::from_raw(env), val).and_then(|v| ToNapiValue::to_napi_value(env, v))
+      })?;
 
     Ok(unsafe { JsObject::from_raw_unchecked(self.0, promise) })
   }
@@ -1176,9 +1177,24 @@ impl Env {
     &self,
     fut: F,
   ) -> Result<PromiseRaw<'_, T>> {
-    use crate::tokio_runtime;
+    use crate::async_runtime;
 
-    let promise = tokio_runtime::execute_tokio_future(self.0, fut, |env, val| unsafe {
+    let promise = async_runtime::execute_tokio_future(self.0, fut, |env, val| unsafe {
+      ToNapiValue::to_napi_value(env, val)
+    })?;
+
+    Ok(PromiseRaw::new(self.0, promise))
+  }
+
+  #[cfg(all(feature = "compio", feature = "napi4"))]
+  /// Spawn a future, return a JavaScript Promise which takes the result of the future
+  pub fn spawn_future<T: 'static + Send + ToNapiValue, F: 'static + Future<Output = Result<T>>>(
+    &self,
+    fut: F,
+  ) -> Result<PromiseRaw<'_, T>> {
+    use crate::async_runtime;
+
+    let promise = async_runtime::execute_compio_future(self.0, fut, |env, val| unsafe {
       ToNapiValue::to_napi_value(env, val)
     })?;
 
@@ -1199,9 +1215,35 @@ impl Env {
     fut: F,
     callback: R,
   ) -> Result<PromiseRaw<'env, V>> {
-    use crate::tokio_runtime;
+    use crate::async_runtime;
 
-    let promise = tokio_runtime::execute_tokio_future(self.0, fut, move |env, val| unsafe {
+    let promise = async_runtime::execute_tokio_future(self.0, fut, move |env, val| unsafe {
+      let env = Env::from_raw(env);
+      let static_env = core::mem::transmute::<&Env, &'env Env>(&env);
+      let val = callback(static_env, val)?;
+      ToNapiValue::to_napi_value(env.0, val)
+    })?;
+
+    Ok(PromiseRaw::new(self.0, promise))
+  }
+
+  #[cfg(all(feature = "compio", feature = "napi4"))]
+  /// Spawn a future with a callback
+  /// So you can access the `Env` and resolved value after the future completed
+  pub fn spawn_future_with_callback<
+    'env,
+    T: 'static + Send,
+    V: ToNapiValue,
+    F: 'static + Future<Output = Result<T>>,
+    R: 'static + FnOnce(&'env Env, T) -> Result<V>,
+  >(
+    &'env self,
+    fut: F,
+    callback: R,
+  ) -> Result<PromiseRaw<'env, V>> {
+    use crate::async_runtime;
+
+    let promise = async_runtime::execute_compio_future(self.0, fut, move |env, val| unsafe {
       let env = Env::from_raw(env);
       let static_env = core::mem::transmute::<&Env, &'env Env>(&env);
       let val = callback(static_env, val)?;

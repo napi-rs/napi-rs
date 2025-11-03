@@ -57,7 +57,14 @@ pub fn create_reference_on_function<'env>(
   let reference = cb.create_ref()?;
   env.spawn_future_with_callback(
     async {
-      tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+      #[cfg(feature = "tokio_rt")]
+      {
+        napi::tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+      }
+      #[cfg(feature = "compio_rt")]
+      {
+        napi::compio::time::sleep(std::time::Duration::from_millis(100)).await;
+      }
       Ok(())
     },
     move |env, _| {

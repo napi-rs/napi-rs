@@ -7,11 +7,13 @@ use std::{
   task::{Context, Poll},
 };
 
-use tokio::sync::oneshot::{channel, Receiver};
-
-use crate::{sys, Error, Result, Status};
-
-use super::{CallbackContext, FromNapiValue, PromiseRaw, TypeName, Unknown, ValidateNapiValue};
+use crate::{
+  async_runtime::{create_oneshot_channel, Receiver},
+  bindgen_runtime::{
+    CallbackContext, FromNapiValue, PromiseRaw, TypeName, Unknown, ValidateNapiValue,
+  },
+  sys, Error, Result, Status,
+};
 
 /// The JavaScript Promise object representation
 ///
@@ -60,22 +62,38 @@ unsafe impl<T: FromNapiValue + Send> Send for Promise<T> {}
 
 impl<T: FromNapiValue> FromNapiValue for Promise<T> {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
-    let (tx, rx) = channel();
+    let (tx, rx) = create_oneshot_channel();
     let promise_object = unsafe { PromiseRaw::<T>::from_napi_value(env, napi_val)? };
     let tx_box = Rc::new(Cell::new(Some(tx)));
     let tx_in_catch = tx_box.clone();
     promise_object
       .then(move |ctx| {
         if let Some(sender) = tx_box.replace(None) {
-          // no need to handle the send error here, the receiver has been dropped
-          let _ = sender.send(Ok(ctx.value));
+          #[cfg(feature = "tokio_rt")]
+          {
+            // no need to handle the send error here, the receiver has been dropped
+            let _ = sender.send(Ok(ctx.value));
+          }
+          #[cfg(feature = "compio")]
+          {
+            // no need to handle the send error here, the receiver has been dropped
+            let _ = sender.force_send(Ok(ctx.value));
+          }
         }
         Ok(())
       })?
       .catch(move |ctx: CallbackContext<Unknown>| {
         if let Some(sender) = tx_in_catch.replace(None) {
-          // no need to handle the send error here, the receiver has been dropped
-          let _ = sender.send(Err(ctx.value.into()));
+          #[cfg(feature = "tokio_rt")]
+          {
+            // no need to handle the send error here, the receiver has been dropped
+            let _ = sender.send(Err(ctx.value.into()));
+          }
+          #[cfg(feature = "compio")]
+          {
+            // no need to handle the send error here, the receiver has been dropped
+            let _ = sender.force_send(Err(ctx.value.into()));
+          }
         }
         Ok(())
       })?;
@@ -89,8 +107,24 @@ impl<T: FromNapiValue> FromNapiValue for Promise<T> {
 impl<T: FromNapiValue> future::Future for Promise<T> {
   type Output = Result<T>;
 
+  #[cfg(feature = "tokio_rt")]
   fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
     match self.value.as_mut().poll(cx) {
+      Poll::Pending => Poll::Pending,
+      Poll::Ready(v) => Poll::Ready(
+        v.map_err(|e| Error::new(Status::GenericFailure, format!("{e}")))
+          .and_then(identity),
+      ),
+    }
+  }
+
+  #[cfg(feature = "compio")]
+  fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+    use std::pin::pin;
+
+    let receiver = self.value.as_mut();
+    let recv = receiver.recv();
+    match pin!(recv).poll(cx) {
       Poll::Pending => Poll::Pending,
       Poll::Ready(v) => Poll::Ready(
         v.map_err(|e| Error::new(Status::GenericFailure, format!("{e}")))

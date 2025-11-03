@@ -12,7 +12,6 @@ crate-type = ["cdylib", "lib"]
 napi = { path = "../../crates/napi", default-features = false, features = [
   "napi8",
   "serde-json",
-  "async",
   "experimental",
   "latin1",
   "chrono_date",
