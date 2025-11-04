@@ -44,7 +44,7 @@ impl From<ThreadsafeFunctionCallMode> for sys::napi_threadsafe_function_call_mod
   }
 }
 
-struct ThreadsafeFunctionHandle {
+pub struct ThreadsafeFunctionHandle {
   raw: AtomicPtr<sys::napi_threadsafe_function__>,
   aborted: RwLock<bool>,
   referred: AtomicBool,
@@ -52,7 +52,7 @@ struct ThreadsafeFunctionHandle {
 
 impl ThreadsafeFunctionHandle {
   /// create a Arc to hold the `ThreadsafeFunctionHandle`
-  fn new(raw: sys::napi_threadsafe_function) -> Arc<Self> {
+  pub fn new(raw: sys::napi_threadsafe_function) -> Arc<Self> {
     Arc::new(Self {
       raw: AtomicPtr::new(raw),
       aborted: RwLock::new(false),
@@ -61,7 +61,7 @@ impl ThreadsafeFunctionHandle {
   }
 
   /// Lock `aborted` with read access, call `f` with the value of `aborted`, then unlock it
-  fn with_read_aborted<RT, F>(&self, f: F) -> RT
+  pub fn with_read_aborted<RT, F>(&self, f: F) -> RT
   where
     F: FnOnce(bool) -> RT,
   {
@@ -73,7 +73,7 @@ impl ThreadsafeFunctionHandle {
   }
 
   /// Lock `aborted` with write access, call `f` with the `RwLockWriteGuard`, then unlock it
-  fn with_write_aborted<RT, F>(&self, f: F) -> RT
+  pub fn with_write_aborted<RT, F>(&self, f: F) -> RT
   where
     F: FnOnce(RwLockWriteGuard<bool>) -> RT,
   {
@@ -85,15 +85,15 @@ impl ThreadsafeFunctionHandle {
   }
 
   #[allow(clippy::arc_with_non_send_sync)]
-  fn null() -> Arc<Self> {
+  pub fn null() -> Arc<Self> {
     Self::new(null_mut())
   }
 
-  fn get_raw(&self) -> sys::napi_threadsafe_function {
+  pub fn get_raw(&self) -> sys::napi_threadsafe_function {
     self.raw.load(Ordering::SeqCst)
   }
 
-  fn set_raw(&self, raw: sys::napi_threadsafe_function) {
+  pub fn set_raw(&self, raw: sys::napi_threadsafe_function) {
     self.raw.store(raw, Ordering::SeqCst)
   }
 }
@@ -123,15 +123,15 @@ impl Drop for ThreadsafeFunctionHandle {
 }
 
 #[repr(u8)]
-enum ThreadsafeFunctionCallVariant {
+pub enum ThreadsafeFunctionCallVariant {
   Direct,
   WithCallback,
 }
 
-struct ThreadsafeFunctionCallJsBackData<T, Return = Unknown<'static>> {
-  data: T,
-  call_variant: ThreadsafeFunctionCallVariant,
-  callback: Box<dyn FnOnce(Result<Return>, Env) -> Result<()>>,
+pub struct ThreadsafeFunctionCallJsBackData<T, Return = Unknown<'static>> {
+  pub data: T,
+  pub call_variant: ThreadsafeFunctionCallVariant,
+  pub callback: Box<dyn FnOnce(Result<Return>, Env) -> Result<()>>,
 }
 
 /// Communicate with the addon's main thread by invoking a JavaScript function from other threads.
@@ -175,7 +175,7 @@ pub struct ThreadsafeFunction<
   const Weak: bool = false,
   const MaxQueueSize: usize = 0,
 > {
-  handle: Arc<ThreadsafeFunctionHandle>,
+  pub handle: Arc<ThreadsafeFunctionHandle>,
   _phantom: PhantomData<(T, CallJsBackArgs, Return, ErrorStatus)>,
 }
 
