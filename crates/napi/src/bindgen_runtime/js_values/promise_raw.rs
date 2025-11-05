@@ -509,7 +509,10 @@ extern "C" fn promise_callback_finalizer<T, U, Cb>(
   U: ToNapiValue,
   Cb: FnOnce(CallbackContext<T>) -> Result<U>,
 {
-  if !unsafe { *Box::from_raw(finalize_data.cast()) } {
-    drop(unsafe { Box::from_raw(finalize_hint.cast::<Cb>()) });
+  // Always clean up the executed flag allocation
+  let executed = unsafe { Box::from_raw(finalize_data.cast::<bool>()) };
+  if !*executed {
+    // Callback was never executed, clean up the rust_cb which contains (Cb, *mut bool)
+    drop(unsafe { Box::from_raw(finalize_hint.cast::<(Cb, *mut bool)>()) });
   }
 }
