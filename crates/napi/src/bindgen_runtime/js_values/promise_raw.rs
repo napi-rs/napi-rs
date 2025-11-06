@@ -79,7 +79,7 @@ impl<'env, T: FromNapiValue> PromiseRaw<'env, T> {
     })?;
     let mut then_callback = ptr::null_mut();
     let executed = Box::into_raw(Box::new(false));
-    let rust_cb = Box::into_raw(Box::new((cb, executed)));
+    let rust_cb = Box::into_raw(Box::new(cb));
     check_status!(
       unsafe {
         sys::napi_create_function(
@@ -512,7 +512,6 @@ extern "C" fn promise_callback_finalizer<T, U, Cb>(
   // Always clean up the executed flag allocation
   let executed = unsafe { Box::from_raw(finalize_data.cast::<bool>()) };
   if !*executed {
-    // Callback was never executed, clean up the rust_cb which contains (Cb, *mut bool)
-    drop(unsafe { Box::from_raw(finalize_hint.cast::<(Cb, *mut bool)>()) });
+    drop(unsafe { Box::from_raw(finalize_hint.cast::<Cb>()) });
   }
 }
