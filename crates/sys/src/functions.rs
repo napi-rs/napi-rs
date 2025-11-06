@@ -867,6 +867,7 @@ fn find_node_library() -> Result<libloading::Library, libloading::Error> {
   };
 }
 
+#[cfg(not(target_family = "wasm"))]
 pub(super) unsafe fn load_all() -> Result<libloading::Library, libloading::Error> {
   #[cfg(all(windows, target_env = "msvc"))]
   let host = libloading::os::windows::Library::this()?.into();

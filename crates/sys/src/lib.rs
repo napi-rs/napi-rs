@@ -2,6 +2,7 @@
 
 #![allow(ambiguous_glob_reexports)]
 
+#[cfg(not(target_family = "wasm"))]
 macro_rules! generate {
   (@stub_fn $name:ident($($param:ident: $ptype:ty,)*) -> napi_status) => {
     unsafe extern "C" fn $name($(_: $ptype,)*) -> napi_status {
@@ -77,12 +78,26 @@ macro_rules! generate {
   };
 }
 
+#[cfg(target_family = "wasm")]
+macro_rules! generate {
+  (extern "C" {
+    $(fn $name:ident($($param:ident: $ptype:ty$(,)?)*)$( -> $rtype:ty)?;)+
+  }) => {
+    extern "C" {
+      $(
+        pub fn $name($($param: $ptype,)*)$( -> $rtype)*;
+      ) *
+    }
+  };
+}
+
 mod functions;
 mod types;
 
 pub use functions::*;
 pub use types::*;
 
+#[cfg(not(target_family = "wasm"))]
 /// Loads N-API symbols from host process.
 /// Must be called at least once before using any functions in bindings or
 /// they will panic
