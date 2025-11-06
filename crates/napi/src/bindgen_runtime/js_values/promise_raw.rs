@@ -115,7 +115,7 @@ impl<'env, T: FromNapiValue> PromiseRaw<'env, T> {
         sys::napi_wrap(
           self.env,
           new_promise,
-          ptr::null_mut(),
+          executed.cast(),
           Some(promise_callback_finalizer::<T, U, Callback>),
           rust_cb.cast(),
           ptr::null_mut(),
