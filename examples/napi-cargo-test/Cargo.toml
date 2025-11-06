@@ -11,5 +11,8 @@ noop = ["napi/noop", "napi-derive/noop"]
 napi = { path = "../../crates/napi", features = ["napi10"] }
 napi-derive = { path = "../../crates/macro", features = ["type-def"] }
 
+[build-dependencies]
+napi-build = { path = "../../crates/build" }
+
 [lints]
 workspace = true
