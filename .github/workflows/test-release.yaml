@@ -403,13 +403,19 @@ jobs:
           node-version: 22
           cache: 'yarn'
 
+      - name: Install
+        uses: dtolnay/rust-toolchain@stable
+        if: matrix.settings.host != 'windows-11-arm'
+        with:
+          targets: ${{ matrix.settings.target }}
+
       - name: Install dependencies
         run: yarn install --immutable --mode=skip-build
 
       - name: Install ziglang
         uses: mlugg/setup-zig@v2
         with:
-          version: 0.15.1
+          version: 0.15.2
 
       - name: Install cargo-zigbuild
         uses: taiki-e/install-action@v2
