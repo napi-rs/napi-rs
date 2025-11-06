@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.0](https://github.com/napi-rs/napi-rs/compare/napi-v3.4.0...napi-v3.5.0) - 2025-11-06
+
+### Added
+
+- *(sys)* use libloading to load napi symbols at runtime on all platform ([#2996](https://github.com/napi-rs/napi-rs/pull/2996))
+
+### Fixed
+
+- *(napi)* memory leak in PromiseRaw cleanup callback ([#2995](https://github.com/napi-rs/napi-rs/pull/2995))
+
+### Other
+
+- *(napi)* mark tsfn data as pub and split SendableResolver to indent file ([#2992](https://github.com/napi-rs/napi-rs/pull/2992))
+- *(napi)* mark SendableResolver and PromiseRaw as pub ([#2981](https://github.com/napi-rs/napi-rs/pull/2981))
+- add sponsors
+
 ## [3.4.0](https://github.com/napi-rs/napi-rs/compare/napi-v3.3.0...napi-v3.4.0) - 2025-10-24
 
 ### Added
