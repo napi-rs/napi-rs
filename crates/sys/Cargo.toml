@@ -12,7 +12,7 @@ rust-version.workspace = true
 version = "3.0.1"
 
 [features]
-dyn-symbols = ["libloading"]
+dyn-symbols = []   # Deprecated feature
 experimental = []
 napi1 = []
 napi2 = ["napi1"]
@@ -29,7 +29,4 @@ napi10 = ["napi9"]
 independent = true
 
 [dependencies]
-libloading = { version = "0.8", optional = true }
-
-[target.'cfg(target_env = "msvc")'.dependencies]
-libloading = "0.8"
+libloading = { version = "0.9" }

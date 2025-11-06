@@ -70,8 +70,7 @@ jobs:
               yarn test
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
               yarn test:macro
-              cargo test -p napi-cargo-test --features noop
-              cargo test -p napi-derive-backend --features type-def
+              cargo test
             toolchain: stable
           - host: ubuntu-latest
             target: x86_64-unknown-linux-gnu
@@ -81,7 +80,7 @@ jobs:
               yarn test
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
               yarn test:macro
-            toolchain: 1.82.0
+            toolchain: 1.88.0
           - host: macos-latest
             target: aarch64-apple-darwin
             build: yarn build:test
@@ -90,8 +89,7 @@ jobs:
               yarn test
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
               RUSTFLAGS="-C link-args=-Wl,-undefined,dynamic_lookup,-no_fixup_chains"
-              cargo test -p napi-cargo-test --features noop
-              cargo test -p napi-derive-backend --features type-def
+              cargo test
             toolchain: stable
           - host: windows-latest
             target: x86_64-pc-windows-msvc
@@ -101,8 +99,7 @@ jobs:
               yarn workspace @examples/napi test
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
               yarn test:macro
-              cargo test -p napi-cargo-test --features noop
-              cargo test -p napi-derive-backend --features type-def
+              cargo test
             toolchain: stable
           - host: windows-11-arm
             target: aarch64-pc-windows-msvc
@@ -125,7 +122,7 @@ jobs:
             toolchain: stable
         exclude:
           - settings:
-              toolchain: 1.82.0
+              toolchain: 1.88.0
             node: 20
           - settings:
               target: i686-pc-windows-msvc
@@ -387,19 +384,15 @@ jobs:
           name: ${{ matrix.settings.target }}-example-compat
           path: examples/napi-compat-mode/index.node
 
-  build_in_docker:
+  build_musl:
     name: build - ${{ matrix.settings.target }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         settings:
-          - image: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
-            target: x86_64-unknown-linux-musl
-            libc: 'musl'
-            arch: 'x64'
-          - image: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
-            target: aarch64-unknown-linux-musl
+          - target: x86_64-unknown-linux-musl
+          - target: aarch64-unknown-linux-musl
 
     steps:
       - uses: actions/checkout@v5
@@ -410,11 +403,26 @@ jobs:
           node-version: 22
           cache: 'yarn'
 
+      - name: Install
+        uses: dtolnay/rust-toolchain@stable
+        if: matrix.settings.host != 'windows-11-arm'
+        with:
+          targets: ${{ matrix.settings.target }}
+
       - name: Install dependencies
-        run: |
-          yarn config set supportedArchitectures.cpu --json '["x64", "arm64"]'
-          yarn config set supportedArchitectures.libc --json '["musl", "glibc"]'
-          yarn install --immutable --mode=skip-build
+        run: yarn install --immutable --mode=skip-build
+
+      - name: Install ziglang
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      - name: Install cargo-zigbuild
+        uses: taiki-e/install-action@v2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          tool: cargo-zigbuild
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -425,24 +433,19 @@ jobs:
             target
           key: stable-${{ matrix.settings.target }}-cargo-cache
 
-      - name: Cross build native tests
-        uses: addnab/docker-run-action@v3
-        with:
-          image: ${{ matrix.settings.image }}
-          options: -v ${{ github.workspace }}/.cargo-cache/registry:/usr/local/cargo/registry -v ${{ github.workspace }}/.cargo-cache/git:/usr/local/cargo/git -v ${{ github.workspace }}:/napi-rs -w /napi-rs
-          run: |
-            yarn build:test -- --target ${{ matrix.settings.target }}
-            chmod 777 -R .cargo-cache
-            chmod 777 -R target
+      - name: Cross build musl
+        run: yarn build:test -- --target ${{ matrix.settings.target }} -x
 
       - uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.settings.target }}-example
           path: examples/napi/*.node
+          if-no-files-found: error
       - uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.settings.target }}-example-compat
           path: examples/napi-compat-mode/index.node
+          if-no-files-found: error
 
   test_in_docker:
     name: Test - ${{ matrix.settings.target }} - ${{ matrix.node }}
@@ -450,7 +453,7 @@ jobs:
     # See also https://github.com/actions/runner-images/issues/11471
     runs-on: ${{ contains(matrix.settings.target, 'aarch64') && 'ubuntu-24.04-arm' || 'ubuntu-22.04' }}
     needs:
-      - build_in_docker
+      - build_musl
       - build_for_test_in_docker
     strategy:
       fail-fast: false

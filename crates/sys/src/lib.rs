@@ -2,7 +2,7 @@
 
 #![allow(ambiguous_glob_reexports)]
 
-#[cfg(any(target_env = "msvc", feature = "dyn-symbols"))]
+#[cfg(not(target_family = "wasm"))]
 macro_rules! generate {
   (@stub_fn $name:ident($($param:ident: $ptype:ty,)*) -> napi_status) => {
     unsafe extern "C" fn $name($(_: $ptype,)*) -> napi_status {
@@ -78,7 +78,7 @@ macro_rules! generate {
   };
 }
 
-#[cfg(not(any(target_env = "msvc", feature = "dyn-symbols")))]
+#[cfg(target_family = "wasm")]
 macro_rules! generate {
   (extern "C" {
     $(fn $name:ident($($param:ident: $ptype:ty$(,)?)*)$( -> $rtype:ty)?;)+
@@ -97,12 +97,10 @@ mod types;
 pub use functions::*;
 pub use types::*;
 
+#[cfg(not(target_family = "wasm"))]
 /// Loads N-API symbols from host process.
 /// Must be called at least once before using any functions in bindings or
-/// they will panic.
-/// Safety: `env` must be a valid `napi_env` for the current thread
-#[cfg(any(target_env = "msvc", feature = "dyn-symbols"))]
-#[allow(clippy::missing_safety_doc)]
+/// they will panic
 pub unsafe fn setup() -> libloading::Library {
   match load_all() {
     Err(err) => panic!("{}", err),
