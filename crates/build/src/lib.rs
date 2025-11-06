@@ -1,7 +1,6 @@
 use std::env;
 
 mod android;
-mod macos;
 mod wasi;
 mod windows;
 
@@ -25,11 +24,10 @@ pub fn setup() {
 
   let target_env = env::var("CARGO_CFG_TARGET_ENV").expect("CARGO_CFG_TARGET_ENV is not set");
   let target_os = env::var("CARGO_CFG_TARGET_OS").expect("CARGO_CFG_TARGET_OS is not set");
+  #[cfg(feature = "dummy-napi")]
+  let target_arch = env::var("CARGO_CFG_TARGET_ARCH").expect("CARGO_CFG_TARGET_ARCH is not set");
 
   match target_os.as_str() {
-    "macos" => {
-      macos::setup();
-    }
     "android" => if android::setup().is_ok() {},
     "wasi" => {
       wasi::setup();
@@ -37,6 +35,22 @@ pub fn setup() {
     "windows" => {
       if let Ok("gnu") = env::var("CARGO_CFG_TARGET_ENV").as_deref() {
         windows::setup_gnu();
+      }
+    }
+    #[cfg(feature = "dummy-napi")]
+    "linux" => {
+      if target_arch == "x86_64" {
+        let rustc_v = rustc_version::version().expect("Failed to get rustc version");
+        // Workaround for the `rust-lld`
+        // https://blog.rust-lang.org/2025/09/01/rust-lld-on-1.90.0-stable/
+        // Background:
+        // https://github.com/rust-lang/rust/issues/147707
+        if rustc_v.major > 1 || (rustc_v.major == 1 && rustc_v.minor >= 90) {
+          println!("cargo:rustc-link-arg=-Wl,--unresolved-symbols=ignore-all");
+          // ignore all undefined symbols during the linking stage is not enough
+          // the rust-lld compiled binary will still try to resolve them at the runtime startup
+          // we need to provide a dummy implementation in tests
+        }
       }
     }
     _ => {}
