@@ -29,7 +29,7 @@ napi10 = ["napi9"]
 independent = true
 
 [dependencies]
-libloading = { version = "0.8", optional = true }
+libloading = { version = "0.9", optional = true }
 
 [target.'cfg(target_env = "msvc")'.dependencies]
-libloading = "0.8"
+libloading = "0.9"
