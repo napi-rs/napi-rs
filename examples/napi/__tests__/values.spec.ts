@@ -290,6 +290,7 @@ import {
   indexSetToJs,
   intoUtf8,
   withAbortSignalHandle,
+  createI32ArrayFromExternal,
 } from '../index.cjs'
 // import other stuff in `#[napi(module_exports)]`
 import nativeAddon from '../index.cjs'
@@ -1236,6 +1237,10 @@ test('convert typedarray to vec', (t) => {
 
 test('create external TypedArray', (t) => {
   t.deepEqual(createExternalTypedArray(), new Uint32Array([1, 2, 3, 4, 5]))
+  t.deepEqual(
+    createI32ArrayFromExternal(),
+    new Int32Array([-1, -2, 30000, -40, 5]),
+  )
 })
 
 test('typed array creation', (t) => {

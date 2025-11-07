@@ -714,6 +714,7 @@ module.exports.createExternalString = nativeBinding.createExternalString
 module.exports.createExternalTypedArray = nativeBinding.createExternalTypedArray
 module.exports.createExternalUtf16String = nativeBinding.createExternalUtf16String
 module.exports.createFunction = nativeBinding.createFunction
+module.exports.createI32ArrayFromExternal = nativeBinding.createI32ArrayFromExternal
 module.exports.createObj = nativeBinding.createObj
 module.exports.createObjectRef = nativeBinding.createObjectRef
 module.exports.createObjectWithClassField = nativeBinding.createObjectWithClassField

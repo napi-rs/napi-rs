@@ -904,7 +904,7 @@ macro_rules! impl_from_slice {
       #[doc = "` from a `Vec<"]
       #[doc = stringify!($rust_type)]
       #[doc = ">`."]
-      pub fn from_data<D: Into<Vec<u8>>>(env: &Env, data: D) -> Result<Self> {
+      pub fn from_data<D: Into<Vec<$rust_type>>>(env: &Env, data: D) -> Result<Self> {
         let mut buf = ptr::null_mut();
         let mut data = data.into();
         let mut inner_ptr = data.as_mut_ptr();
@@ -912,20 +912,21 @@ macro_rules! impl_from_slice {
         {
           let is_existed = super::BUFFER_DATA.with(|buffer_data| {
             let buffer = buffer_data.lock().expect("Unlock buffer data failed");
-            buffer.contains(&inner_ptr)
+            buffer.contains(&inner_ptr.cast())
           });
           if is_existed {
             panic!("Share the same data between different buffers is not allowed, see: https://github.com/nodejs/node/issues/32463#issuecomment-631974747");
           }
         }
         let len = data.len();
+        let array_buffer_len = len * mem::size_of::<$rust_type>();
         let cap = data.capacity();
         let finalize_hint = Box::into_raw(Box::new((len, cap)));
         let mut status = unsafe {
           sys::napi_create_external_arraybuffer(
             env.0,
             inner_ptr.cast(),
-            data.len(),
+            array_buffer_len,
             Some(finalize_slice::<$rust_type>),
             finalize_hint.cast(),
             &mut buf,
@@ -939,14 +940,14 @@ macro_rules! impl_from_slice {
           status = unsafe {
             sys::napi_create_arraybuffer(
               env.0,
-              data.len(),
+              array_buffer_len,
               &mut underlying_data,
               &mut buf,
             )
           };
           let underlying_slice: &mut [u8] =
             unsafe { std::slice::from_raw_parts_mut(underlying_data.cast(), data.len()) };
-          underlying_slice.copy_from_slice(data.as_slice());
+          underlying_slice.copy_from_slice(unsafe { core::slice::from_raw_parts(inner_ptr.cast(), array_buffer_len) });
           inner_ptr = underlying_data.cast();
         } else {
           mem::forget(data);
@@ -1001,8 +1002,8 @@ macro_rules! impl_from_slice {
       #[doc = "later copy the data back out."]
       pub unsafe fn from_external<T: 'env, F: FnOnce(Env, T)>(
         env: &Env,
-        data: *mut u8,
-        len: usize,
+        data: *mut $rust_type,
+        data_len: usize,
         finalize_hint: T,
         finalize_callback: F,
       ) -> Result<Self> {
@@ -1016,7 +1017,7 @@ macro_rules! impl_from_slice {
         {
           let is_existed = super::BUFFER_DATA.with(|buffer_data| {
             let buffer = buffer_data.lock().expect("Unlock buffer data failed");
-            buffer.contains(&data)
+            buffer.contains(&data.cast())
           });
           if is_existed {
             panic!("Share the same data between different buffers is not allowed, see: https://github.com/nodejs/node/issues/32463#issuecomment-631974747");
@@ -1024,11 +1025,12 @@ macro_rules! impl_from_slice {
         }
         let hint_ptr = Box::into_raw(Box::new((finalize_hint, finalize_callback)));
         let mut arraybuffer_value = ptr::null_mut();
+        let array_buffer_len = data_len * mem::size_of::<$rust_type>();
         let mut status = unsafe {
           sys::napi_create_external_arraybuffer(
             env.0,
             data.cast(),
-            len,
+            array_buffer_len,
             Some(crate::env::raw_finalize_with_custom_callback::<T, F>),
             hint_ptr.cast(),
             &mut arraybuffer_value,
@@ -1040,14 +1042,14 @@ macro_rules! impl_from_slice {
           let status = unsafe {
             sys::napi_create_arraybuffer(
               env.0,
-              len,
+              array_buffer_len,
               &mut underlying_data,
               &mut arraybuffer_value,
             )
           };
           let underlying_slice: &mut [u8] =
-            unsafe { std::slice::from_raw_parts_mut(underlying_data.cast(), len) };
-          underlying_slice.copy_from_slice(unsafe { std::slice::from_raw_parts(data, len) });
+            unsafe { std::slice::from_raw_parts_mut(underlying_data.cast(), array_buffer_len) };
+          underlying_slice.copy_from_slice(unsafe { std::slice::from_raw_parts(data.cast(), array_buffer_len) });
           finalize(*env, hint);
           status
         } else {
@@ -1061,7 +1063,7 @@ macro_rules! impl_from_slice {
             sys::napi_create_typedarray(
               env.0,
               $typed_array_type as i32,
-              len,
+              data_len,
               arraybuffer_value,
               0,
               &mut napi_val,
@@ -1071,12 +1073,12 @@ macro_rules! impl_from_slice {
         )?;
 
         Ok(Self {
-          inner: if len == 0 {
+          inner: if data_len == 0 {
             NonNull::dangling()
           } else {
             unsafe { NonNull::new_unchecked(data.cast()) }
           },
-          length: len,
+          length: data_len,
           raw_value: napi_val,
           env: env.0,
           _marker: PhantomData,
