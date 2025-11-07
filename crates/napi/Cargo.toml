@@ -121,5 +121,8 @@ version = "0.3"
 optional = true
 version = "0.1"
 
+[dependencies.futures]
+version = "0.3"
+
 [build-dependencies]
 napi-build = { path = "../build", version = "2.3.0" }

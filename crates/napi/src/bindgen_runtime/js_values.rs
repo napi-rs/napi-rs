@@ -22,7 +22,6 @@ mod map;
 mod nil;
 mod number;
 mod object;
-#[cfg(all(feature = "tokio_rt", feature = "napi4"))]
 mod promise;
 mod promise_raw;
 mod scope;
@@ -50,7 +49,6 @@ pub use external::*;
 pub use function::*;
 pub use nil::*;
 pub use object::*;
-#[cfg(all(feature = "tokio_rt", feature = "napi4"))]
 pub use promise::*;
 pub use promise_raw::*;
 pub use scope::*;

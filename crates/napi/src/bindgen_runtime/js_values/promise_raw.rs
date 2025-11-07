@@ -2,7 +2,6 @@ use std::ffi::c_void;
 use std::marker::PhantomData;
 use std::ptr;
 
-#[cfg(all(feature = "napi4", feature = "tokio_rt"))]
 use crate::bindgen_runtime::Promise;
 use crate::{
   bindgen_prelude::{
@@ -246,7 +245,6 @@ impl<'env, T: FromNapiValue> PromiseRaw<'env, T> {
     })
   }
 
-  #[cfg(all(feature = "napi4", feature = "tokio_rt"))]
   /// Convert `PromiseRaw<T>` to `Promise<T>`
   ///
   /// So you can await the Promise in Rust

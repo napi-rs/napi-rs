@@ -7,7 +7,7 @@ use std::{
   task::{Context, Poll},
 };
 
-use tokio::sync::oneshot::{channel, Receiver};
+use futures::channel::oneshot::{channel, Receiver};
 
 use crate::{sys, Error, Result, Status};
 
