@@ -250,6 +250,7 @@ module.exports.createExternalString = __napiModule.exports.createExternalString
 module.exports.createExternalTypedArray = __napiModule.exports.createExternalTypedArray
 module.exports.createExternalUtf16String = __napiModule.exports.createExternalUtf16String
 module.exports.createFunction = __napiModule.exports.createFunction
+module.exports.createI32ArrayFromExternal = __napiModule.exports.createI32ArrayFromExternal
 module.exports.createObj = __napiModule.exports.createObj
 module.exports.createObjectRef = __napiModule.exports.createObjectRef
 module.exports.createObjectWithClassField = __napiModule.exports.createObjectWithClassField

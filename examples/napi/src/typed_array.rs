@@ -293,6 +293,16 @@ pub fn uint8_array_from_external(env: &Env) -> Result<Uint8ArraySlice<'_>> {
 }
 
 #[napi]
+pub fn create_i32_array_from_external(env: &Env) -> Result<Int32ArraySlice<'_>> {
+  let mut data = vec![-1, -2, 30000, -40, 5];
+  unsafe {
+    Int32ArraySlice::from_external(env, data.as_mut_ptr(), data.len(), data, |_, d| {
+      drop(d);
+    })
+  }
+}
+
+#[napi]
 pub fn accept_untyped_typed_array(input: TypedArray) -> usize {
   input.arraybuffer.len()
 }

@@ -587,6 +587,8 @@ export declare function createExternalUtf16String(): string
 
 export declare function createFunction(): (arg: number) => number
 
+export declare function createI32ArrayFromExternal(): Int32ArraySlice
+
 export declare function createObj(): object
 
 export declare function createObjectRef(): object

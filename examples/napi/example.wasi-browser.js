@@ -205,6 +205,7 @@ export const createExternalString = __napiModule.exports.createExternalString
 export const createExternalTypedArray = __napiModule.exports.createExternalTypedArray
 export const createExternalUtf16String = __napiModule.exports.createExternalUtf16String
 export const createFunction = __napiModule.exports.createFunction
+export const createI32ArrayFromExternal = __napiModule.exports.createI32ArrayFromExternal
 export const createObj = __napiModule.exports.createObj
 export const createObjectRef = __napiModule.exports.createObjectRef
 export const createObjectWithClassField = __napiModule.exports.createObjectWithClassField
