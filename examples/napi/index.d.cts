@@ -587,7 +587,7 @@ export declare function createExternalUtf16String(): string
 
 export declare function createFunction(): (arg: number) => number
 
-export declare function createI32ArrayFromExternal(): Int32ArraySlice
+export declare function createI32ArrayFromExternal(): Int32Array
 
 export declare function createObj(): object
 
@@ -1163,9 +1163,9 @@ export declare function u8ArrayToArray(input: Uint8Array): Array<number>
 
 export declare function uInit8ArrayFromString(): Promise<Uint8Array>
 
-export declare function uint8ArrayFromData(): Uint8ArraySlice
+export declare function uint8ArrayFromData(): Uint8Array
 
-export declare function uint8ArrayFromExternal(): Uint8ArraySlice
+export declare function uint8ArrayFromExternal(): Uint8Array
 
 export interface UseNullableStruct {
   requiredNumberField: number
