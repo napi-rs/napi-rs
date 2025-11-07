@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.1](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v3.0.0...napi-derive-backend-v3.0.1) - 2025-11-07
+
+### Fixed
+
+- *(napi-derive)* TypedArray typegen ([#3005](https://github.com/napi-rs/napi-rs/pull/3005))
+
 ## [3.0.0](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v2.2.0...napi-derive-backend-v3.0.0) - 2025-10-24
 
 ### Added
