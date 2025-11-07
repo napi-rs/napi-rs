@@ -1585,7 +1585,7 @@ impl ConvertToAST for syn::ItemEnum {
           kind: NapiStructKind::StructuredEnum(NapiStructuredEnum {
             variants,
             discriminant: discriminant.to_owned(),
-            discriminant_case: discriminant_case,
+            discriminant_case,
             object_from_js: opts.object_from_js(),
             object_to_js: opts.object_to_js(),
           }),

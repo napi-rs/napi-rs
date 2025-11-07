@@ -101,6 +101,10 @@ pub use types::*;
 /// Loads N-API symbols from host process.
 /// Must be called at least once before using any functions in bindings or
 /// they will panic
+///
+/// # Safety
+///
+/// The returned Library must be kept alive as long as any N-API
 pub unsafe fn setup() -> libloading::Library {
   match load_all() {
     Err(err) => panic!("{}", err),

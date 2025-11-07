@@ -1,7 +1,5 @@
 #![allow(clippy::single_component_path_imports)]
 
-#[cfg(feature = "tokio_rt")]
-use std::convert::identity;
 use std::marker::PhantomData;
 use std::os::raw::c_void;
 use std::ptr::{self, null_mut};
@@ -11,10 +9,10 @@ use std::sync::{
   Arc, RwLock, RwLockWriteGuard,
 };
 
-use crate::bindgen_runtime::{
-  FromNapiValue, JsValuesTupleIntoVec, TypeName, Unknown, ValidateNapiValue,
-};
+use futures::channel::oneshot::channel;
+
 use crate::{
+  bindgen_runtime::{FromNapiValue, JsValuesTupleIntoVec, TypeName, Unknown, ValidateNapiValue},
   check_status, get_error_message_and_stack_trace, sys, Env, Error, JsError, Result, Status,
 };
 
@@ -510,10 +508,9 @@ impl<
     })
   }
 
-  #[cfg(feature = "tokio_rt")]
   /// Call the ThreadsafeFunction, and handle the return value with in `async` way
   pub async fn call_async(&self, value: Result<T, ErrorStatus>) -> Result<Return> {
-    let (sender, receiver) = tokio::sync::oneshot::channel::<Result<Return>>();
+    let (sender, receiver) = channel::<Result<Return>>();
 
     self.handle.with_read_aborted(|aborted| {
       if aborted {
@@ -544,15 +541,12 @@ impl<
         "Threadsafe function call_async failed"
       )
     })?;
-    receiver
-      .await
-      .map_err(|_| {
-        crate::Error::new(
-          Status::GenericFailure,
-          "Receive value from threadsafe function sender failed",
-        )
-      })
-      .and_then(identity)
+    receiver.await.map_err(|_| {
+      crate::Error::new(
+        Status::GenericFailure,
+        "Receive value from threadsafe function sender failed",
+      )
+    })?
   }
 }
 
@@ -617,10 +611,9 @@ impl<
     })
   }
 
-  #[cfg(feature = "tokio_rt")]
   /// Call the ThreadsafeFunction, and handle the return value with in `async` way
   pub async fn call_async(&self, value: T) -> Result<Return> {
-    let (sender, receiver) = tokio::sync::oneshot::channel::<Return>();
+    let (sender, receiver) = channel::<Return>();
 
     self.handle.with_read_aborted(|aborted| {
       if aborted {
