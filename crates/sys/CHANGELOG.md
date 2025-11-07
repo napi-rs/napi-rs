@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.1.1](https://github.com/napi-rs/napi-rs/compare/napi-sys-v3.1.0...napi-sys-v3.1.1) - 2025-11-07
+
+### Other
+
+- *(napi)* Promise and ThreadsafeFunction::call_async don't require tokio ([#2998](https://github.com/napi-rs/napi-rs/pull/2998))
+
 ## [3.1.0](https://github.com/napi-rs/napi-rs/compare/napi-sys-v3.0.1...napi-sys-v3.1.0) - 2025-11-06
 
 ### Added

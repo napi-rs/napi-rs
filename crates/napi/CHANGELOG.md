@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.1](https://github.com/napi-rs/napi-rs/compare/napi-v3.5.0...napi-v3.5.1) - 2025-11-07
+
+### Fixed
+
+- *(napi)* TypedArraySlice creation ([#3004](https://github.com/napi-rs/napi-rs/pull/3004))
+
+### Other
+
+- *(napi)* Promise and ThreadsafeFunction::call_async don't require tokio ([#2998](https://github.com/napi-rs/napi-rs/pull/2998))
+
 ## [3.5.0](https://github.com/napi-rs/napi-rs/compare/napi-v3.4.0...napi-v3.5.0) - 2025-11-06
 
 ### Added
