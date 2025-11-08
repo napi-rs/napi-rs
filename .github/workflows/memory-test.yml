@@ -52,7 +52,7 @@ jobs:
         run: yarn install --immutable
 
       - name: 'Pull docker image'
-        run: docker pull node:lts-slim
+        run: docker pull node:22-slim
 
       - name: Build in docker
         run: yarn build:memory --use-napi-cross

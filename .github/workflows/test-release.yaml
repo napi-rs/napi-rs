@@ -669,7 +669,7 @@ jobs:
           RUSTUP_IO_THREADS: 1
         with:
           operating_system: freebsd
-          version: '14.2'
+          version: '14.3'
           memory: 12G
           cpu_count: 3
           environment_variables: 'DEBUG RUSTUP_IO_THREADS'
@@ -678,7 +678,7 @@ jobs:
             env | sort
             sudo pkg install -y -f curl node libnghttp2 npm
             sudo npm install -g corepack
-            corepack enable
+            sudo corepack enable
             curl https://sh.rustup.rs -sSf --output rustup.sh
             sh rustup.sh -y --default-toolchain stable
             source "$HOME/.cargo/env"

@@ -10,7 +10,7 @@ export async function createSuite(testFile, maxMemoryUsage = 256 * 1024 * 1024) 
   console.info(colors.cyanBright(`Create container to test ${testFile}`))
 
   const container = await client.createContainer({
-    Image: 'node:lts-slim',
+    Image: 'node:22-slim',
     Cmd: ['/bin/bash', '-c', `node --expose-gc memory-testing/${testFile}.mjs`],
     AttachStdout: true,
     AttachStderr: true,
@@ -53,7 +53,7 @@ export async function createSuite(testFile, maxMemoryUsage = 256 * 1024 * 1024) 
       }
       if (shouldAssertMemoryUsage && memory_stats?.usage) {
         const memoryGrowth = memory_stats.usage - initialMemoryUsage
-        if (memoryGrowth > (maxMemoryUsage ?? initialMemoryUsage)) {
+        if (memoryGrowth > maxMemoryUsage) {
           console.info(
             colors.redBright(
               `Potential memory leak, memory growth: ${prettyBytes(
@@ -79,5 +79,6 @@ export async function createSuite(testFile, maxMemoryUsage = 256 * 1024 * 1024) 
     await container.remove()
   } catch (e) {
     console.error(e)
+    process.exit(1)
   }
 }
