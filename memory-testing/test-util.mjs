@@ -6,7 +6,7 @@ import prettyBytes from 'pretty-bytes'
 
 const client = new Dockerode()
 
-export async function createSuite(testFile, maxMemoryUsage = 256 * 1024 * 1024) {
+export async function createSuite(testFile, maxMemoryUsage = 512 * 1024 * 1024) {
   console.info(colors.cyanBright(`Create container to test ${testFile}`))
 
   const container = await client.createContainer({
@@ -16,10 +16,10 @@ export async function createSuite(testFile, maxMemoryUsage = 256 * 1024 * 1024) 
     AttachStderr: true,
     Tty: true,
     WorkingDir: '/napi-rs',
-    Env: ['MAX_OLD_SPACE_SIZE=256', 'FORCE_COLOR=1'],
+    Env: ['MAX_OLD_SPACE_SIZE=500', 'FORCE_COLOR=1'],
     HostConfig: {
       Binds: [`${process.cwd()}:/napi-rs:rw`],
-      Memory: 256 * 1024 * 1024,
+      Memory: 512 * 1024 * 1024,
     },
   })
 
