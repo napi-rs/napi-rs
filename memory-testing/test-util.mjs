@@ -53,7 +53,7 @@ export async function createSuite(testFile, maxMemoryUsage = 256 * 1024 * 1024) 
       }
       if (shouldAssertMemoryUsage && memory_stats?.usage) {
         const memoryGrowth = memory_stats.usage - initialMemoryUsage
-        if (memoryGrowth > (maxMemoryUsage ?? initialMemoryUsage)) {
+        if (memoryGrowth > maxMemoryUsage) {
           console.info(
             colors.redBright(
               `Potential memory leak, memory growth: ${prettyBytes(
@@ -72,12 +72,13 @@ export async function createSuite(testFile, maxMemoryUsage = 256 * 1024 * 1024) 
     colors.red(`Initial memory usage: ${prettyBytes(initialMemoryUsage ?? 0)}`),
   )
 
-  await setTimeout(60000)
+  await setTimeout(30000)
 
   try {
     await container.stop()
     await container.remove()
   } catch (e) {
     console.error(e)
+    process.exit(1)
   }
 }
