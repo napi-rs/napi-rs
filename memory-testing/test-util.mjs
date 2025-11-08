@@ -6,20 +6,20 @@ import prettyBytes from 'pretty-bytes'
 
 const client = new Dockerode()
 
-export async function createSuite(testFile, maxMemoryUsage = 512 * 1024 * 1024) {
+export async function createSuite(testFile, maxMemoryUsage = 256 * 1024 * 1024) {
   console.info(colors.cyanBright(`Create container to test ${testFile}`))
 
   const container = await client.createContainer({
-    Image: 'node:lts-slim',
+    Image: 'node:22-slim',
     Cmd: ['/bin/bash', '-c', `node --expose-gc memory-testing/${testFile}.mjs`],
     AttachStdout: true,
     AttachStderr: true,
     Tty: true,
     WorkingDir: '/napi-rs',
-    Env: ['MAX_OLD_SPACE_SIZE=500', 'FORCE_COLOR=1'],
+    Env: ['MAX_OLD_SPACE_SIZE=256', 'FORCE_COLOR=1'],
     HostConfig: {
       Binds: [`${process.cwd()}:/napi-rs:rw`],
-      Memory: 512 * 1024 * 1024,
+      Memory: 256 * 1024 * 1024,
     },
   })
 
@@ -72,7 +72,7 @@ export async function createSuite(testFile, maxMemoryUsage = 512 * 1024 * 1024) 
     colors.red(`Initial memory usage: ${prettyBytes(initialMemoryUsage ?? 0)}`),
   )
 
-  await setTimeout(30000)
+  await setTimeout(60000)
 
   try {
     await container.stop()
