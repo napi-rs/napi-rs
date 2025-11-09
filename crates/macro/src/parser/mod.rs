@@ -3,16 +3,13 @@ pub mod attrs;
 
 use std::collections::{HashMap, HashSet};
 use std::str::Chars;
-use std::sync::{
-  atomic::{AtomicBool, AtomicUsize, Ordering},
-  LazyLock, Mutex, OnceLock,
-};
+use std::sync::{atomic::AtomicUsize, LazyLock, Mutex, OnceLock};
 
 use attrs::BindgenAttrs;
 
-use convert_case::{Case, Casing};
+use convert_case::Case;
 use napi_derive_backend::{
-  rm_raw_prefix, BindgenResult, CallbackArg, Diagnostic, FnKind, FnSelf, Napi, NapiArray,
+  rm_raw_prefix, to_case, BindgenResult, CallbackArg, Diagnostic, FnKind, FnSelf, Napi, NapiArray,
   NapiClass, NapiConst, NapiEnum, NapiEnumValue, NapiEnumVariant, NapiFn, NapiFnArg, NapiFnArgKind,
   NapiImpl, NapiItem, NapiObject, NapiStruct, NapiStructField, NapiStructKind, NapiStructuredEnum,
   NapiStructuredEnumVariant, NapiTransparent, NapiType,
@@ -32,8 +29,6 @@ use crate::parser::attrs::{check_recorded_struct_for_impl, record_struct};
 static GENERATOR_STRUCT: OnceLock<Mutex<HashMap<String, bool>>> = OnceLock::new();
 
 static REGISTER_INDEX: AtomicUsize = AtomicUsize::new(0);
-
-static HAS_MODULE_EXPORTS: AtomicBool = AtomicBool::new(false);
 
 static KNOWN_JS_VALUE_TYPES_WITH_LIFETIME: LazyLock<HashSet<&str>> = LazyLock::new(|| {
   [
@@ -671,10 +666,7 @@ fn napi_fn_from_decl(
           if let Some(ident) = prop_name {
             ident.to_string()
           } else {
-            ident
-              .to_string()
-              .trim_start_matches("get_")
-              .to_case(Case::Camel)
+            to_case(ident.to_string().trim_start_matches("get_"), Case::Camel)
           }
         },
         |(js_name, _)| js_name.to_owned(),
@@ -685,10 +677,7 @@ fn napi_fn_from_decl(
           if let Some(ident) = prop_name {
             ident.to_string()
           } else {
-            ident
-              .to_string()
-              .trim_start_matches("set_")
-              .to_case(Case::Camel)
+            to_case(ident.to_string().trim_start_matches("set_"), Case::Camel)
           }
         },
         |(js_name, _)| js_name.to_owned(),
@@ -696,11 +685,6 @@ fn napi_fn_from_decl(
     } else if opts.constructor().is_some() {
       "constructor".to_owned()
     } else if opts.module_exports().is_some() {
-      if HAS_MODULE_EXPORTS.load(Ordering::Relaxed) {
-        bail_span!(sig.ident, "module_exports can only be used once");
-      }
-      HAS_MODULE_EXPORTS.store(true, Ordering::Relaxed);
-
       if opts.js_name().is_some() {
         bail_span!(sig.ident, "module_exports fn can't have js_name");
       }
@@ -837,10 +821,10 @@ fn napi_fn_from_decl(
         }
       }
 
-      ident.to_string().to_case(Case::Camel)
+      to_case(ident.to_string(), Case::Camel)
     } else {
       opts.js_name().map_or_else(
-        || ident.to_string().to_case(Case::Camel),
+        || to_case(ident.to_string(), Case::Camel),
         |(js_name, _)| js_name.to_owned(),
       )
     };
@@ -1188,7 +1172,7 @@ fn convert_fields(
     let (js_name, name) = match &field.ident {
       Some(ident) => (
         field_opts.js_name().map_or_else(
-          || ident.unraw().to_string().to_case(Case::Camel),
+          || to_case(ident.unraw().to_string(), Case::Camel),
           |(js_name, _)| js_name.to_owned(),
         ),
         syn::Member::Named(ident.clone()),
@@ -1260,7 +1244,7 @@ impl ConvertToAST for syn::ItemStruct {
 
     let rust_struct_ident: Ident = self.ident.clone();
     let final_js_name_for_struct = opts.js_name().map_or_else(
-      || self.ident.to_string().to_case(Case::Pascal),
+      || to_case(self.ident.to_string(), Case::Pascal),
       |(attr_js_name, _span)| attr_js_name.to_owned(),
     );
 
@@ -1433,7 +1417,7 @@ impl ConvertToAST for syn::ItemImpl {
     let mut struct_js_name =
       match check_recorded_struct_for_impl(&struct_name, &BindgenAttrs::default()) {
         Ok(recorded_js_name) => recorded_js_name,
-        Err(_) => struct_name.to_string().to_case(Case::UpperCamel),
+        Err(_) => to_case(struct_name.to_string(), Case::UpperCamel),
       };
     let mut items = vec![];
     let mut task_output_type = None;
@@ -1631,7 +1615,7 @@ impl ConvertToAST for syn::ItemEnum {
             let val = find_enum_value_and_remove_attribute(v)?.unwrap_or_else(|| {
               let mut val = v.ident.to_string();
               if let Some(case) = case {
-                val = val.to_case(case)
+                val = to_case(val, case)
               }
               val
             });

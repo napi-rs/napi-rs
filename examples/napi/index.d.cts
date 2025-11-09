@@ -73,7 +73,7 @@ export type JsAsset = Asset
 
 export declare class Assets {
   constructor()
-  get(id: number): JsAsset | null
+  get(_id: number): JsAsset | null
 }
 export type JsAssets = Assets
 
@@ -680,9 +680,9 @@ export declare function either3(input: string | number | boolean): number
 
 export declare function either4(input: string | number | boolean | Obj): number
 
-export declare function eitherBoolOrFunction(input: boolean | ((arg?: unknown) => unknown)): void
+export declare function eitherBoolOrFunction(_input: boolean | ((arg?: unknown) => unknown)): void
 
-export declare function eitherBoolOrTuple(input: boolean | [boolean, string]): void
+export declare function eitherBoolOrTuple(_input: boolean | [boolean, string]): void
 
 export declare function eitherF64OrU32(input: number): number
 
@@ -963,7 +963,7 @@ export interface PropertyNameValidTest {
   /** Valid identifiers should NOT be quoted */
   camelCase: string
   pascalCase: string
-  private: string
+  _private: string
   with123Numbers: string
 }
 
@@ -1191,7 +1191,7 @@ export declare function validateBufferSlice(input: Buffer): number
 
 export declare function validateDate(d: Date): number
 
-export declare function validateDateTime(d: Date): number
+export declare function validateDateTime(_d: Date): number
 
 export declare function validateEnum(input: KindInValidate): number
 
@@ -1201,7 +1201,7 @@ export declare function validateFunction(cb: () => number): number
 
 export declare function validateHashMap(input: Record<string, number>): number
 
-export declare function validateNull(i: null): boolean
+export declare function validateNull(_i: null): boolean
 
 export declare function validateNumber(i: number): number
 
@@ -1217,7 +1217,7 @@ export declare function validateStructuredEnum(kind: StructuredKind): Structured
 
 export declare function validateStructuredEnumLowercase(kind: StructuredKindLowercase): StructuredKindLowercase
 
-export declare function validateSymbol(s: symbol): boolean
+export declare function validateSymbol(_s: symbol): boolean
 
 export declare function validateTypedArray(input: Uint8Array): number
 
@@ -1225,7 +1225,7 @@ export declare function validateTypedArraySlice(input: Uint8Array): number
 
 export declare function validateUint8ClampedSlice(input: Uint8ClampedArray): number
 
-export declare function validateUndefined(i: undefined): boolean
+export declare function validateUndefined(_i: undefined): boolean
 
 export interface ViteImportGlobMeta {
   isSubImportsPattern?: boolean
