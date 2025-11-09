@@ -75,7 +75,7 @@
   },
   "devDependencies": {
     "@emnapi/runtime": "^1.5.0",
-    "@oxc-node/core": "^0.0.32",
+    "@oxc-node/core": "^0.0.33",
     "@std/toml": "npm:@jsr/std__toml@^1.0.10",
     "@types/debug": "^4.1.12",
     "@types/inquirer": "^9.0.9",
