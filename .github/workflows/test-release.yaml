@@ -507,9 +507,15 @@ jobs:
           name: ${{ matrix.settings.target }}-example-compat
           path: examples/napi-compat-mode/index.node
       - name: Install dependencies
+        if: ${{ matrix.settings.arch != 's390x' }}
         run: |
           yarn config set --json supportedArchitectures.cpu '["current", "${{ matrix.settings.arch }}"]'
           yarn config set --json supportedArchitectures.libc '["current", "${{ matrix.settings.libc }}"]'
+          yarn install --immutable --mode=skip-build
+      - name: Install dependencies
+        if: ${{ matrix.settings.arch == 's390x' }}
+        run: |
+          yarn config set --json supportedArchitectures.cpu '["current", "wasm32"]'
           yarn install --immutable --mode=skip-build
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
