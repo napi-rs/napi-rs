@@ -603,6 +603,8 @@ export declare function createReadableStream(): ReadableStream<Buffer>
 
 export declare function createReadableStreamFromClass(readableStreamClass: typeof ReadableStream): ReadableStream<Buffer>
 
+export declare function createReadableStreamWithObject(): ReadableStream<StreamItem>
+
 export declare function createReferenceOnFunction(cb: () => void): Promise<void>
 
 export declare function createStaticLatin1String(): string
@@ -719,6 +721,10 @@ export declare function f64ArrayToArray(input: Float64Array): Array<number>
 export declare function fibonacci(n: number): number
 
 export declare function fnReceivedAliased(s: AliasedStruct, e: ALIAS): void
+
+export interface Foo {
+  hello: string
+}
 
 export interface FunctionData {
   handle: () => number
@@ -1050,6 +1056,12 @@ export declare const enum StatusInValidate {
   Poll = 'Poll',
   Ready = 'Ready',
   Done = 'Done'
+}
+
+export interface StreamItem {
+  something: Foo
+  name: string
+  size: number
 }
 
 export interface StrictObject {
