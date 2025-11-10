@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.2](https://github.com/napi-rs/napi-rs/compare/napi-v3.5.1...napi-v3.5.2) - 2025-11-10
+
+### Other
+
+- updated the following local packages: napi-build
+
 ## [3.5.1](https://github.com/napi-rs/napi-rs/compare/napi-v3.5.0...napi-v3.5.1) - 2025-11-07
 
 ### Fixed
