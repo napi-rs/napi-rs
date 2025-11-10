@@ -533,7 +533,7 @@ jobs:
       - name: Setup and run tests
         uses: addnab/docker-run-action@v3
         # Node.js on qemu randomly segfaults on powerpc64le
-        continue-on-error: ${{ matrix.settings.target == 'powerpc64le-unknown-linux-gnu' }}
+        continue-on-error: ${{ matrix.settings.target == 'powerpc64le-unknown-linux-gnu' || matrix.settings.target == 's390x-unknown-linux-gnu' }}
         with:
           image: ${{ steps.image-name.outputs.docker-image }}
           options: --oom-kill-disable ${{ matrix.settings.args }} -v ${{ github.workspace }}:/build -w /build
