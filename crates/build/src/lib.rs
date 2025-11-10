@@ -30,6 +30,12 @@ pub fn setup() {
     "wasi" => {
       wasi::setup();
     }
+    "macos" => {
+      // Keep the dynamic lookup behavior on macOS to avoid breaking changes.
+      println!("cargo:rustc-cdylib-link-arg=-Wl");
+      println!("cargo:rustc-cdylib-link-arg=-undefined");
+      println!("cargo:rustc-cdylib-link-arg=dynamic_lookup");
+    }
     "windows" => {
       if let Ok("gnu") = env::var("CARGO_CFG_TARGET_ENV").as_deref() {
         windows::setup_gnu();
