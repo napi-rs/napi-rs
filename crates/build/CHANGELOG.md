@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.1](https://github.com/napi-rs/napi-rs/compare/napi-build-v2.3.0...napi-build-v2.3.1) - 2025-11-10
+
+### Fixed
+
+- *(build)* add back undefined symbols lookup behavior ([#3015](https://github.com/napi-rs/napi-rs/pull/3015))
+
 ## [2.3.0](https://github.com/napi-rs/napi-rs/compare/napi-build-v2.2.4...napi-build-v2.3.0) - 2025-11-06
 
 ### Added
