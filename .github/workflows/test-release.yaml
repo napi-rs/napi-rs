@@ -515,7 +515,7 @@ jobs:
       - name: Install dependencies
         if: ${{ matrix.settings.arch == 's390x' }}
         run: |
-          yarn config set --json supportedArchitectures.cpu '["current", "wasm32"]'
+          yarn config set --json supportedArchitectures.cpu '["wasm32"]'
           yarn install --immutable --mode=skip-build
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
