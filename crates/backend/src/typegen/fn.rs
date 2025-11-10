@@ -1,10 +1,11 @@
-use convert_case::{Case, Casing};
-use quote::ToTokens;
 use std::fmt::{Display, Formatter};
+
+use convert_case::Case;
+use quote::ToTokens;
 use syn::{Member, Pat, PathArguments, PathSegment};
 
 use super::{r#struct::CLASS_STRUCTS, ty_to_ts_type, ToTypeDef, TypeDef};
-use crate::{typegen::JSDoc, CallbackArg, FnKind, NapiFn};
+use crate::{typegen::JSDoc, util::to_case, CallbackArg, FnKind, NapiFn};
 
 pub(crate) struct FnArg {
   pub(crate) arg: String,
@@ -141,9 +142,9 @@ fn gen_ts_func_arg(pat: &Pat) -> String {
           };
           let nested_str = gen_ts_func_arg(&field.pat);
           if member_str == nested_str {
-            member_str.to_case(Case::Camel)
+            to_case(member_str, Case::Camel)
           } else {
-            format!("{}: {}", member_str.to_case(Case::Camel), nested_str)
+            format!("{}: {}", to_case(member_str, Case::Camel), nested_str)
           }
         })
         .collect::<Vec<_>>()
@@ -172,7 +173,7 @@ fn gen_ts_func_arg(pat: &Pat) -> String {
         .join(", ")
     ),
     Pat::Wild(_) => "_".to_string(),
-    _ => pat.to_token_stream().to_string().to_case(Case::Camel),
+    _ => to_case(pat.to_token_stream().to_string(), Case::Camel),
   }
 }
 
@@ -268,7 +269,7 @@ impl NapiFn {
           }
           crate::NapiFnArgKind::Callback(cb) => {
             let ts_type = arg.use_overridden_type_or(|| gen_callback_type(cb));
-            let arg = cb.pat.to_token_stream().to_string().to_case(Case::Camel);
+            let arg = to_case(cb.pat.to_token_stream().to_string(), Case::Camel);
 
             Some(FnArg {
               arg,
@@ -308,7 +309,7 @@ impl NapiFn {
           let origin_name = i.to_string();
           let parent = CLASS_STRUCTS
             .with_borrow(|c| c.get(&origin_name).cloned())
-            .unwrap_or_else(|| origin_name.to_case(Case::Pascal));
+            .unwrap_or_else(|| to_case(origin_name, Case::Pascal));
 
           if self.is_async {
             format!(": Promise<{parent}>")

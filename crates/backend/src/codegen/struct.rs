@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use convert_case::Casing;
 use proc_macro2::{Ident, Literal, Span, TokenStream};
 use quote::ToTokens;
+
+use crate::util::to_case;
 
 use crate::{
   codegen::{get_intermediate_ident, js_mod_to_token_stream},
@@ -872,7 +873,7 @@ impl NapiStruct {
       let variant_name = &variant.name;
       let mut variant_name_str = variant_name.to_string();
       if let Some(case) = structured_enum.discriminant_case {
-        variant_name_str = variant_name_str.to_case(case);
+        variant_name_str = to_case(variant_name_str, case);
       }
       let mut obj_field_setters = vec![quote! {
         obj.set(#discriminant, #variant_name_str)?;

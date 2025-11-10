@@ -2,11 +2,8 @@ use std::collections::HashMap;
 use std::vec::Vec;
 use std::{cell::RefCell, iter};
 
-use convert_case::Casing;
-
 use super::{add_alias, format_js_property_name, ty_to_ts_type, ToTypeDef, TypeDef};
-use crate::typegen::JSDoc;
-use crate::{NapiImpl, NapiStruct, NapiStructField, NapiStructKind};
+use crate::{typegen::JSDoc, util::to_case, NapiImpl, NapiStruct, NapiStructField, NapiStructKind};
 
 thread_local! {
   pub(crate) static TASK_STRUCTS: RefCell<HashMap<String, String>> = Default::default();
@@ -200,7 +197,7 @@ impl NapiStruct {
             "{}: '{}'",
             structured_enum.discriminant,
             if let Some(case) = structured_enum.discriminant_case {
-              variant.name.to_string().to_case(case)
+              to_case(variant.name.to_string(), case)
             } else {
               variant.name.to_string()
             }

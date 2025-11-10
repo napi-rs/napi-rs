@@ -2,11 +2,11 @@ import { unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import ava, { TestFn } from 'ava'
+import ava, { type TestFn } from 'ava'
 
 import {
-  CommonPackageJsonFields,
-  UserNapiConfig,
+  type CommonPackageJsonFields,
+  type UserNapiConfig,
   readNapiConfig,
 } from '../config.js'
 
