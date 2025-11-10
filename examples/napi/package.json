@@ -33,23 +33,23 @@
     "@oxc-node/core": "^0.0.34",
     "@testing-library/dom": "^10.4.1",
     "@types/lodash": "^4.17.20",
-    "@vitest/browser": "^4.0.0",
-    "@vitest/browser-playwright": "^4.0.0",
-    "@vitest/ui": "^4.0.0",
+    "@vitest/browser": "^4.0.8",
+    "@vitest/browser-playwright": "^4.0.8",
+    "@vitest/ui": "^4.0.8",
     "ava": "^6.4.1",
     "buffer": "^6.0.3",
-    "core-js": "^3.45.1",
+    "core-js": "^3.46.0",
     "cross-env": "10.1.0",
-    "electron": "^39.0.0",
+    "electron": "^39.1.1",
     "lodash": "^4.17.21",
-    "playwright": "^1.55.0",
+    "playwright": "^1.56.1",
     "rxjs": "^7.8.2",
     "sinon": "^21.0.0",
-    "vite": "^7.1.5",
+    "vite": "^7.2.2",
     "vite-plugin-node-polyfills": "^0.24.0",
-    "vitest": "^4.0.0",
+    "vitest": "^4.0.8",
     "web-streams-polyfill": "^4.2.0",
-    "webdriverio": "^9.19.2"
+    "webdriverio": "^9.20.0"
   },
   "ava": {
     "extensions": {
@@ -66,6 +66,6 @@
     "timeout": "10m"
   },
   "dependencies": {
-    "@emnapi/core": "^1.5.0"
+    "@emnapi/core": "^1.7.0"
   }
 }

@@ -60,38 +60,38 @@
     "url": "https://github.com/napi-rs/napi-rs/issues"
   },
   "dependencies": {
-    "@inquirer/prompts": "^7.8.4",
+    "@inquirer/prompts": "^7.10.0",
     "@napi-rs/cross-toolchain": "^1.0.3",
     "@napi-rs/wasm-tools": "^1.0.1",
-    "@octokit/rest": "^22.0.0",
+    "@octokit/rest": "^22.0.1",
     "clipanion": "^4.0.0-rc.4",
     "colorette": "^2.0.20",
-    "debug": "^4.4.1",
-    "emnapi": "^1.5.0",
-    "es-toolkit": "^1.39.10",
+    "debug": "^4.4.3",
+    "emnapi": "^1.7.0",
+    "es-toolkit": "^1.41.0",
     "js-yaml": "^4.1.0",
-    "semver": "^7.7.2",
+    "semver": "^7.7.3",
     "typanion": "^3.14.0"
   },
   "devDependencies": {
-    "@emnapi/runtime": "^1.5.0",
+    "@emnapi/runtime": "^1.7.0",
     "@oxc-node/core": "^0.0.34",
-    "@std/toml": "npm:@jsr/std__toml@^1.0.10",
+    "@std/toml": "npm:@jsr/std__toml@^1.0.11",
     "@types/debug": "^4.1.12",
     "@types/inquirer": "^9.0.9",
     "@types/js-yaml": "^4.0.9",
-    "@types/node": "^24.3.1",
+    "@types/node": "^24.10.0",
     "@types/semver": "^7.7.1",
     "ava": "^6.4.1",
     "empathic": "^2.0.0",
     "env-paths": "^3.0.0",
     "prettier": "^3.6.2",
-    "tsdown": "^0.16.0",
+    "tsdown": "^0.16.1",
     "tslib": "^2.8.1",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.3"
   },
   "peerDependencies": {
-    "@emnapi/runtime": "^1.5.0"
+    "@emnapi/runtime": "^1.7.0"
   },
   "peerDependenciesMeta": {
     "@emnapi/runtime": {
