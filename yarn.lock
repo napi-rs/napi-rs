@@ -1132,7 +1132,6 @@ __metadata:
     "@octokit/rest": "npm:^22.0.1"
     "@oxc-node/core": "npm:^0.0.34"
     "@std/toml": "npm:@jsr/std__toml@^1.0.11"
-    "@types/debug": "npm:^4.1.12"
     "@types/inquirer": "npm:^9.0.9"
     "@types/js-yaml": "npm:^4.0.9"
     "@types/node": "npm:^24.10.0"
@@ -1140,12 +1139,12 @@ __metadata:
     ava: "npm:^6.4.1"
     clipanion: "npm:^4.0.0-rc.4"
     colorette: "npm:^2.0.20"
-    debug: "npm:^4.4.3"
     emnapi: "npm:^1.7.0"
     empathic: "npm:^2.0.0"
     env-paths: "npm:^3.0.0"
     es-toolkit: "npm:^1.41.0"
     js-yaml: "npm:^4.1.0"
+    obug: "npm:^0.1.1"
     prettier: "npm:^3.6.2"
     semver: "npm:^7.7.3"
     tsdown: "npm:^0.16.1"
@@ -10075,6 +10074,18 @@ __metadata:
     has-symbols: "npm:^1.1.0"
     object-keys: "npm:^1.1.1"
   checksum: 10c0/3b2732bd860567ea2579d1567525168de925a8d852638612846bd8082b3a1602b7b89b67b09913cbb5b9bd6e95923b2ae73580baa9d99cb4e990564e8cbf5ddc
+  languageName: node
+  linkType: hard
+
+"obug@npm:^0.1.1":
+  version: 0.1.1
+  resolution: "obug@npm:0.1.1"
+  peerDependencies:
+    ms: ^2.0.0
+  peerDependenciesMeta:
+    ms:
+      optional: true
+  checksum: 10c0/5a3ad8f1ad530ee4917108a16085152fd2eee76dc7b36096e896acc5a045ee871268f3c6800ce52601b8fcbc067ccdcf79e7d8209589c720f9b6bd65adea1484
   languageName: node
   linkType: hard
 

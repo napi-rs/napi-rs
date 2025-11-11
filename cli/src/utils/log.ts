@@ -1,12 +1,12 @@
 import * as colors from 'colorette'
-import rawDebug from 'debug'
+import rawDebug from 'obug'
 
 // debug('%i', 'This is an info')
 rawDebug.formatters.i = (v) => {
   return colors.green(v)
 }
 
-declare module 'debug' {
+declare module 'obug' {
   interface Debugger {
     info: typeof console.error
     warn: typeof console.error
