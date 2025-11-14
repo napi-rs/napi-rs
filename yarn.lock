@@ -3629,12 +3629,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/sinon@npm:^17.0.4":
-  version: 17.0.4
-  resolution: "@types/sinon@npm:17.0.4"
+"@types/sinon@npm:^20.0.0":
+  version: 20.0.0
+  resolution: "@types/sinon@npm:20.0.0"
   dependencies:
     "@types/sinonjs__fake-timers": "npm:*"
-  checksum: 10c0/7c67ae1050d98a86d8dd771f0a764e97adb9d54812bf3b001195f8cfaa1e2bdfc725d5b970b91e7b0bb6b7c1ca209f47993f2c6f84f1f868313c37441313ca5b
+  checksum: 10c0/0a3d9761be5bf2f7bf79fb91da2f4462726ec27ed8bc14adb50a9ce68efbcdb71436447ae923e5df297c3023c7c39447b63c98be49b4954e0ed3fd01e8917de2
   languageName: node
   linkType: hard
 
@@ -9525,7 +9525,7 @@ __metadata:
     "@taplo/cli": "npm:^0.7.0"
     "@types/debug": "npm:^4.1.12"
     "@types/node": "npm:^24.10.0"
-    "@types/sinon": "npm:^17.0.4"
+    "@types/sinon": "npm:^20.0.0"
     ava: "npm:^6.4.1"
     bun-types: "npm:^1.3.2"
     c8: "npm:^10.1.3"
