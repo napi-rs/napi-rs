@@ -1144,7 +1144,7 @@ __metadata:
     env-paths: "npm:^3.0.0"
     es-toolkit: "npm:^1.41.0"
     js-yaml: "npm:^4.1.0"
-    obug: "npm:^0.1.1"
+    obug: "npm:^2.0.0"
     prettier: "npm:^3.6.2"
     semver: "npm:^7.7.3"
     tsdown: "npm:^0.16.1"
@@ -10077,15 +10077,15 @@ __metadata:
   languageName: node
   linkType: hard
 
-"obug@npm:^0.1.1":
-  version: 0.1.1
-  resolution: "obug@npm:0.1.1"
+"obug@npm:^2.0.0":
+  version: 2.0.0
+  resolution: "obug@npm:2.0.0"
   peerDependencies:
     ms: ^2.0.0
   peerDependenciesMeta:
     ms:
       optional: true
-  checksum: 10c0/5a3ad8f1ad530ee4917108a16085152fd2eee76dc7b36096e896acc5a045ee871268f3c6800ce52601b8fcbc067ccdcf79e7d8209589c720f9b6bd65adea1484
+  checksum: 10c0/6508c9e1bdeebfd940e13bd974833c3ed176fb07828b1e7aea5e51fcae3498ce8b4f1f7a7871fd4953a3e5ba445c9cd2824ccdf2488af7ee0f68dbecca29bf75
   languageName: node
   linkType: hard
 

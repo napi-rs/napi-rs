@@ -1,10 +1,5 @@
 import * as colors from 'colorette'
-import rawDebug from 'obug'
-
-// debug('%i', 'This is an info')
-rawDebug.formatters.i = (v) => {
-  return colors.green(v)
-}
+import { createDebug } from 'obug'
 
 declare module 'obug' {
   interface Debugger {
@@ -15,7 +10,14 @@ declare module 'obug' {
 }
 
 export const debugFactory = (namespace: string) => {
-  const debug = rawDebug(`napi:${namespace}`)
+  const debug = createDebug(`napi:${namespace}`, {
+    formatters: {
+      // debug('%i', 'This is an info')
+      i(v) {
+        return colors.green(v)
+      },
+    },
+  })
 
   debug.info = (...args: any[]) =>
     console.error(colors.black(colors.bgGreen(' INFO ')), ...args)
