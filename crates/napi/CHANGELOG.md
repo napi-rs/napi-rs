@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.3](https://github.com/napi-rs/napi-rs/compare/napi-v3.5.2...napi-v3.5.3) - 2025-11-21
+
+### Other
+
+- update MSRV in README.md ([#3023](https://github.com/napi-rs/napi-rs/pull/3023))
+
 ## [3.5.2](https://github.com/napi-rs/napi-rs/compare/napi-v3.5.1...napi-v3.5.2) - 2025-11-10
 
 ### Other
