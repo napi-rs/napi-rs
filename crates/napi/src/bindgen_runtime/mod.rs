@@ -9,7 +9,7 @@ pub use js_values::*;
 pub use module_register::*;
 
 use super::sys;
-use crate::{JsError, Result, Status};
+use crate::{check_status, JsError, Result, Status};
 
 #[cfg(feature = "tokio_rt")]
 pub mod async_iterator;
@@ -112,4 +112,63 @@ pub unsafe extern "C" fn drop_buffer_slice(
   unsafe {
     drop(Vec::from_raw_parts(finalize_data, len, cap));
   }
+}
+
+/// Create an object with properties
+///
+/// Uses `node_api_create_object_with_properties` when available (Node.js 22+),
+/// otherwise falls back to `napi_create_object` + `napi_set_named_property`
+///
+/// The optimized path using `node_api_create_object_with_properties` is only enabled when:
+/// - `napi10` feature is enabled (provides the FFI binding)
+/// - `node_version_detect` feature is enabled (allows runtime version check)
+/// - `dyn-symbols` feature is enabled (allows safe runtime symbol loading)
+///
+/// Without `dyn-symbols`, the optimized API would require symbols that don't exist in
+/// Node.js < 22, causing module load failures. With `dyn-symbols`, missing symbols are
+/// handled gracefully at runtime.
+#[doc(hidden)]
+#[inline]
+pub unsafe fn create_object_with_properties(
+  env: sys::napi_env,
+  properties: &[sys::napi_property_descriptor],
+) -> Result<sys::napi_value> {
+  let mut obj_ptr = std::ptr::null_mut();
+
+  // Use the optimized API only when dyn-symbols is enabled for safe runtime loading
+  #[cfg(all(
+    feature = "napi10",
+    feature = "node_version_detect",
+    feature = "dyn-symbols"
+  ))]
+  {
+    use crate::bindgen_prelude::NODE_VERSION_MAJOR;
+    if !properties.is_empty() && NODE_VERSION_MAJOR >= 22 {
+      check_status!(
+        sys::node_api_create_object_with_properties(
+          env,
+          &mut obj_ptr,
+          properties.len(),
+          properties.as_ptr(),
+        ),
+        "Failed to create object with properties",
+      )?;
+      return Ok(obj_ptr);
+    }
+  }
+
+  // Fallback path: create object then set properties one by one
+  check_status!(
+    sys::napi_create_object(env, &mut obj_ptr),
+    "Failed to create object",
+  )?;
+
+  for prop in properties {
+    check_status!(
+      sys::napi_set_named_property(env, obj_ptr, prop.utf8name, prop.value,),
+      "Failed to set property",
+    )?;
+  }
+
+  Ok(obj_ptr)
 }

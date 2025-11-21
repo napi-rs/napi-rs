@@ -776,6 +776,13 @@ mod napi10 {
         length: isize,
         result: *mut napi_value,
       ) -> napi_status;
+
+      fn node_api_create_object_with_properties(
+        env: napi_env,
+        result: *mut napi_value,
+        property_count: usize,
+        properties: *const napi_property_descriptor,
+      ) -> napi_status;
     }
   );
 }
