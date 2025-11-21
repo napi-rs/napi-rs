@@ -213,6 +213,7 @@ export const createObjWithProperty = __napiModule.exports.createObjWithProperty
 export const createOptionalExternal = __napiModule.exports.createOptionalExternal
 export const createReadableStream = __napiModule.exports.createReadableStream
 export const createReadableStreamFromClass = __napiModule.exports.createReadableStreamFromClass
+export const createReadableStreamWithObject = __napiModule.exports.createReadableStreamWithObject
 export const createReferenceOnFunction = __napiModule.exports.createReferenceOnFunction
 export const createStaticLatin1String = __napiModule.exports.createStaticLatin1String
 export const createStaticUtf16String = __napiModule.exports.createStaticUtf16String

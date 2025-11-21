@@ -11,4 +11,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- *(napi)* link issue on cargo test --features noop ([#2872](https://github.com/napi-rs/napi-rs/pull/2872))
+- _(napi)_ link issue on cargo test --features noop ([#2872](https://github.com/napi-rs/napi-rs/pull/2872))
