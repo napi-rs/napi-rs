@@ -85,3 +85,16 @@ pub fn extends_javascript_error(env: Env, error_class: Function<String>) -> Resu
   env.throw(error_object)?;
   Ok(())
 }
+
+pub struct FailToNapiValue;
+
+impl ToNapiValue for FailToNapiValue {
+  unsafe fn to_napi_value(_: napi::sys::napi_env, _: Self) -> napi::Result<napi::sys::napi_value> {
+    Err(napi::Error::from_reason("Fail in to_napi_value"))
+  }
+}
+
+#[napi]
+pub async fn async_fail_in_to_napi_value() -> FailToNapiValue {
+  FailToNapiValue
+}

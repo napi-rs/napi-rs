@@ -136,6 +136,7 @@ export const arrayBufferFromExternal = __napiModule.exports.arrayBufferFromExter
 export const arrayBufferPassThrough = __napiModule.exports.arrayBufferPassThrough
 export const arrayParams = __napiModule.exports.arrayParams
 export const asyncBufferToArray = __napiModule.exports.asyncBufferToArray
+export const asyncFailInToNapiValue = __napiModule.exports.asyncFailInToNapiValue
 export const asyncMultiTwo = __napiModule.exports.asyncMultiTwo
 export const asyncPlus100 = __napiModule.exports.asyncPlus100
 export const asyncReduceBuffer = __napiModule.exports.asyncReduceBuffer

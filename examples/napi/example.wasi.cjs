@@ -181,6 +181,7 @@ module.exports.arrayBufferFromExternal = __napiModule.exports.arrayBufferFromExt
 module.exports.arrayBufferPassThrough = __napiModule.exports.arrayBufferPassThrough
 module.exports.arrayParams = __napiModule.exports.arrayParams
 module.exports.asyncBufferToArray = __napiModule.exports.asyncBufferToArray
+module.exports.asyncFailInToNapiValue = __napiModule.exports.asyncFailInToNapiValue
 module.exports.asyncMultiTwo = __napiModule.exports.asyncMultiTwo
 module.exports.asyncPlus100 = __napiModule.exports.asyncPlus100
 module.exports.asyncReduceBuffer = __napiModule.exports.asyncReduceBuffer

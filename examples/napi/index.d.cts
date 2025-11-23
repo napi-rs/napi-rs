@@ -388,6 +388,8 @@ export declare function arrayParams(arr: Array<number>): number
 
 export declare function asyncBufferToArray(buf: ArrayBuffer): Array<number>
 
+export declare function asyncFailInToNapiValue(): Promise<FailToNapiValue>
+
 export declare function asyncMultiTwo(arg: number): Promise<number>
 
 export declare function asyncPlus100(p: Promise<number>): Promise<number>
