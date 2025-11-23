@@ -388,7 +388,14 @@ export declare function arrayParams(arr: Array<number>): number
 
 export declare function asyncBufferToArray(buf: ArrayBuffer): Array<number>
 
-export declare function asyncFailInToNapiValue(): Promise<FailToNapiValue>
+/**
+ * Test function that returns a type which fails during to_napi_value conversion.
+ * This tests that errors from ToNapiValue::to_napi_value properly reject the promise
+ * instead of throwing synchronously.
+ *
+ * The promise will always be rejected with "Fail in to_napi_value" error.
+ */
+export declare function asyncFailInToNapiValue(): Promise<never>
 
 export declare function asyncMultiTwo(arg: number): Promise<number>
 

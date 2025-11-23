@@ -86,6 +86,9 @@ pub fn extends_javascript_error(env: Env, error_class: Function<String>) -> Resu
   Ok(())
 }
 
+/// A struct that intentionally fails during conversion to JS value.
+/// Used to test error handling in async functions when ToNapiValue::to_napi_value returns an error.
+/// Note: This struct is not exported to JS and cannot be used directly from JavaScript.
 pub struct FailToNapiValue;
 
 impl ToNapiValue for FailToNapiValue {
@@ -94,7 +97,12 @@ impl ToNapiValue for FailToNapiValue {
   }
 }
 
-#[napi]
+/// Test function that returns a type which fails during to_napi_value conversion.
+/// This tests that errors from ToNapiValue::to_napi_value properly reject the promise
+/// instead of throwing synchronously.
+///
+/// The promise will always be rejected with "Fail in to_napi_value" error.
+#[napi(ts_return_type = "Promise<never>")]
 pub async fn async_fail_in_to_napi_value() -> FailToNapiValue {
   FailToNapiValue
 }
