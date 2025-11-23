@@ -209,6 +209,7 @@ import {
   chronoNativeDateTime,
   chronoNativeDateTimeReturn,
   throwAsyncError,
+  asyncFailInToNapiValue,
   getModuleFileName,
   throwSyntaxError,
   type AliasedStruct,
@@ -1006,6 +1007,39 @@ test('Async error with stack trace', async (t) => {
   t.deepEqual(err!.message, 'Async Error')
   if (!process.env.WASI_TEST) {
     t.regex(err!.stack!, /.+at .+values\.spec\.(ts|js):\d+:\d+.+/gm)
+  }
+})
+
+test('Async error from to_napi_value properly rejects promise', async (t) => {
+  // Test that errors from ToNapiValue::to_napi_value in async functions
+  // properly reject the promise instead of throwing synchronously
+
+  // Test with .catch()
+  const err1 = await t.throwsAsync(() => asyncFailInToNapiValue())
+  t.deepEqual(err1!.message, 'Fail in to_napi_value')
+  t.deepEqual(err1!.code, 'GenericFailure')
+
+  // Test with .then(success, error) - using proper Promise API
+  const promise2 = asyncFailInToNapiValue()
+  await new Promise<void>((resolve) => {
+    promise2.then(
+      () => {
+        t.fail('Promise should have been rejected')
+        resolve()
+      },
+      (error) => {
+        t.deepEqual(error.message, 'Fail in to_napi_value')
+        resolve()
+      },
+    )
+  })
+
+  // Test with async/await + try-catch
+  try {
+    await asyncFailInToNapiValue()
+    t.fail('Should have thrown an error')
+  } catch (error: any) {
+    t.deepEqual(error.message, 'Fail in to_napi_value')
   }
 })
 
