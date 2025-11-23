@@ -187,7 +187,7 @@ impl<Args: JsValuesTupleIntoVec, Return> Function<'_, Args, Return> {
   }
 
   /// Create a new instance of the JavaScript Class.
-  pub fn new_instance(&self, args: Args) -> Result<Unknown<'_>> {
+  pub fn new_instance<'a>(&self, args: Args) -> Result<Unknown<'a>> {
     let mut raw_instance = ptr::null_mut();
     let mut args = args.into_vec(self.env)?;
     check_status!(
