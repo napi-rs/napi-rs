@@ -18,7 +18,7 @@ strict = []
 type-def = ["semver"]
 
 [dependencies]
-convert_case = "0.9"
+convert_case = "0.10"
 proc-macro2 = "1"
 quote = "1"
 syn = { version = "2", features = ["fold", "full", "extra-traits"] }
