@@ -29,7 +29,6 @@ serde_bytes = "0.11"
 serde_derive = "1"
 serde_json = "1"
 indexmap = "2"
-reqwest = { version = "0.12", features = ["stream"] }
 rustc-hash = "2"
 tokio-stream = "0.1"
 tokio-util = { version = "0.7", features = ["io"] }
@@ -56,6 +55,13 @@ tokio = { version = "1", features = ["rt", "time"] }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 tokio = { version = "1", features = ["rt", "time", "fs"] }
+reqwest = { version = "0.12", default-features = false, features = [
+  "rustls-tls",
+  "stream",
+  "charset",
+  "http2",
+  "system-proxy",
+] }
 
 [dependencies.snmalloc-rs]
 version = "0.3"

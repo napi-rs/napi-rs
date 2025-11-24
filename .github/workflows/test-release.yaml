@@ -328,6 +328,8 @@ jobs:
       - name: Cross build native tests
         run: yarn build:test -- --target ${{ matrix.settings.target }} --release
         shell: bash
+        env:
+          TARGET_CC: clang
 
   build_for_test_in_docker:
     name: build - ${{ matrix.settings.target }}
@@ -374,6 +376,7 @@ jobs:
         shell: bash
         env:
           CARGO_PROFILE_DEV_OPT_LEVEL: 1
+          TARGET_CC: clang
 
       - uses: actions/upload-artifact@v5
         with:
@@ -577,6 +580,8 @@ jobs:
 
       - name: Cross build native tests
         run: yarn build:test -- --target armv7-unknown-linux-gnueabihf --use-napi-cross
+        env:
+          TARGET_CC: clang
 
       - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
 
