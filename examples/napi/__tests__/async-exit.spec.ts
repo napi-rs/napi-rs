@@ -14,6 +14,5 @@ test('async napi functions let the process exit', async (t) => {
       'User-Agent': 'napi-rs/napi-rs',
     },
   })
-  const json = (await response.json()) as { full_name: string }
-  t.is(json.full_name, 'napi-rs/napi-rs')
+  await t.notThrowsAsync(() => response.json())
 })

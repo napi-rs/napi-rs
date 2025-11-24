@@ -94,6 +94,8 @@ jobs:
   test:
     name: Test Zig Cross Compiled ${{ matrix.settings.target }}
     runs-on: ${{ matrix.settings.host }}
+    permissions:
+      contents: read
     needs:
       - build
     strategy:
