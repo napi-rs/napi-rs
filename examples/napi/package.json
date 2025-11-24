@@ -61,7 +61,6 @@
     "files": [
       "__tests__/**/*.spec.{ts,cts,js,cjs,mjs}"
     ],
-    "workerThreads": false,
     "cache": false,
     "timeout": "10m"
   },
