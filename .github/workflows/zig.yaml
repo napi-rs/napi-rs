@@ -4,6 +4,8 @@ env:
   DEBUG: 'napi:*'
   TEST_ZIG_CROSS: '1'
 
+permissions: {}
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -141,6 +143,7 @@ jobs:
           yarn workspace @examples/compat-mode test -s --verbose
         env:
           SKIP_UNWIND_TEST: 1
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         if: matrix.settings.host == 'macos-latest'
       - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
         if: matrix.settings.host == 'ubuntu-latest'
@@ -153,6 +156,8 @@ jobs:
           run: |
             set -e
             yarn test
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Test
         uses: addnab/docker-run-action@v3
         if: matrix.settings.target == 'armv7-unknown-linux-musleabihf'
@@ -169,6 +174,8 @@ jobs:
             rm -rf examples/napi/__tests__
             mv examples/napi/dist/__tests__ examples/napi/
             yarn workspace @examples/napi test -s --verbose
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Test
         uses: addnab/docker-run-action@v3
         if: matrix.settings.target == 'x86_64-unknown-linux-musl'
@@ -176,6 +183,8 @@ jobs:
           image: node:lts-alpine
           options: -v ${{ github.workspace }}:/napi-rs -w /napi-rs
           run: yarn test
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   zig-done:
     runs-on: ubuntu-latest

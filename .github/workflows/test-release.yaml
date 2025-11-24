@@ -544,7 +544,7 @@ jobs:
         continue-on-error: ${{ matrix.settings.target == 'powerpc64le-unknown-linux-gnu' || matrix.settings.target == 's390x-unknown-linux-gnu' }}
         with:
           image: ${{ steps.image-name.outputs.docker-image }}
-          options: -e GITHUB_TOKEN=$GITHUB_TOKEN ${{ matrix.settings.args }} -v ${{ github.workspace }}:/build -w /build
+          options: ${{ matrix.settings.args }} -v ${{ github.workspace }}:/build -w /build
           run: |
             export NODE_OPTIONS=--max-old-space-size=8192
             export DISABLE_V8_COMPILE_CACHE=1
@@ -596,7 +596,7 @@ jobs:
         uses: addnab/docker-run-action@v3
         with:
           image: node:22-slim
-          options: -e GITHUB_TOKEN=$GITHUB_TOKEN --platform linux/arm/v7 -v ${{ github.workspace }}:/build -w /build
+          options: --platform linux/arm/v7 -v ${{ github.workspace }}:/build -w /build
           run: yarn test
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
