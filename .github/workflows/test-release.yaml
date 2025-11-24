@@ -460,6 +460,8 @@ jobs:
     # Node.js on qemu segfaults on s390x and arm64v8 when using 24.04
     # See also https://github.com/actions/runner-images/issues/11471
     runs-on: ${{ contains(matrix.settings.target, 'aarch64') && 'ubuntu-24.04-arm' || 'ubuntu-22.04' }}
+    permissions:
+      contents: read
     needs:
       - build_musl
       - build_for_test_in_docker
@@ -678,6 +680,8 @@ jobs:
   test-freebsd:
     runs-on: ubuntu-latest
     name: Test freebsd target
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v6
       - name: Test
@@ -770,6 +774,8 @@ jobs:
     runs-on: ubuntu-latest
     name: Test latest bun
     timeout-minutes: 10
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v6
       - uses: oven-sh/setup-bun@v2
