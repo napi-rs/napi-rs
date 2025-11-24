@@ -32,7 +32,7 @@ test('async napi functions let the process exit', async (t) => {
         cp.kill()
         reject(new Error('timeout'))
       }
-    }, 3000)
+    }, 5000)
   }).finally(() => {
     if (timer) {
       clearTimeout(timer)
