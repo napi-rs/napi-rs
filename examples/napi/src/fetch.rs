@@ -1,13 +1,42 @@
+use std::collections::HashMap;
+
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
+use reqwest::{header::HeaderMap, Method};
 use tokio_stream::StreamExt;
 
+#[napi(object)]
+pub struct RequestInit {
+  pub method: Option<String>,
+  pub headers: Option<HashMap<String, String>>,
+}
+
 #[napi(ts_return_type = "Promise<import('undici-types').Response>")]
-pub fn fetch(env: &Env, url: String) -> Result<AsyncBlock<Unknown<'static>>> {
+pub fn fetch(
+  env: &Env,
+  url: String,
+  request_init: Option<RequestInit>,
+) -> Result<AsyncBlock<Unknown<'static>>> {
   AsyncBlockBuilder::build_with_map(
     env,
     async move {
-      let response = reqwest::get(url)
+      let headers: HeaderMap =
+        if let Some(headers) = request_init.as_ref().and_then(|init| init.headers.as_ref()) {
+          headers
+            .try_into()
+            .map_err(|err| Error::new(Status::InvalidArg, format!("Invalid header: {err}")))?
+        } else {
+          HeaderMap::new()
+        };
+      let client = reqwest::Client::new();
+      let request = client
+        .request(Method::GET, url)
+        .headers(headers)
+        .build()
+        .map_err(|e| Error::new(Status::InvalidArg, format!("Invalid request: {e}")))?;
+
+      let response = client
+        .execute(request)
         .await
         .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
       Ok(response)
@@ -23,7 +52,7 @@ pub fn fetch(env: &Env, url: String) -> Result<AsyncBlock<Unknown<'static>>> {
             return None;
           }
 
-          Some(Ok(bytes.to_vec()))
+          Some(Ok(bytes))
         }
         Err(e) => Some(Err(napi::Error::new(
           napi::Status::Unknown,
