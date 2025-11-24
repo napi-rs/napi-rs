@@ -109,6 +109,8 @@ static MODULE_CLASS_PROPERTIES: LazyLock<ModuleClassProperty> = LazyLock::new(De
 static MODULE_COUNT: AtomicUsize = AtomicUsize::new(0);
 #[cfg(not(feature = "noop"))]
 static FIRST_MODULE_REGISTERED: AtomicBool = AtomicBool::new(false);
+#[cfg(all(feature = "tokio_rt", not(feature = "noop")))]
+static ENV_CLEANUP_HOOK_ADDED: RwLock<bool> = RwLock::new(false);
 thread_local! {
   static REGISTERED_CLASSES: LazyCell<RegisteredClasses> = LazyCell::new(Default::default);
 }
@@ -468,6 +470,16 @@ pub unsafe extern "C" fn napi_register_module_v1(
     #[cfg(feature = "tokio_rt")]
     {
       crate::tokio_runtime::start_async_runtime();
+      let mut env_cleanup_hook_added = ENV_CLEANUP_HOOK_ADDED.write().unwrap();
+      if !*env_cleanup_hook_added {
+        check_status_or_throw!(
+          env,
+          unsafe { sys::napi_add_env_cleanup_hook(env, Some(thread_cleanup), ptr::null_mut()) },
+          "Failed to add env cleanup hook"
+        );
+        *env_cleanup_hook_added = true;
+        drop(env_cleanup_hook_added);
+      }
     }
   }
 
@@ -521,7 +533,7 @@ fn create_custom_gc(env: sys::napi_env) {
       unsafe {
         sys::napi_create_function(
           env,
-          "custom_gc".as_ptr().cast(),
+          c"custom_gc".as_ptr(),
           9,
           Some(empty),
           ptr::null_mut(),
@@ -534,7 +546,7 @@ fn create_custom_gc(env: sys::napi_env) {
     check_status_or_throw!(
       env,
       unsafe {
-        sys::napi_create_string_utf8(env, "CustomGC".as_ptr().cast(), 8, &mut async_resource_name)
+        sys::napi_create_string_utf8(env, c"CustomGC".as_ptr(), 8, &mut async_resource_name)
       },
       "Create async resource string in napi_register_module_v1"
     );
@@ -574,8 +586,7 @@ fn create_custom_gc(env: sys::napi_env) {
   all(feature = "tokio_rt", feature = "napi4"),
   not(target_family = "wasm")
 ))]
-#[ctor::dtor]
-fn thread_cleanup() {
+unsafe extern "C" fn thread_cleanup(_data: *mut std::ffi::c_void) {
   if MODULE_COUNT.fetch_sub(1, Ordering::Relaxed) == 1 {
     crate::tokio_runtime::shutdown_async_runtime();
   }
