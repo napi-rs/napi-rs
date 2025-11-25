@@ -75,6 +75,8 @@ mod r#enum;
 mod env;
 mod error;
 mod external;
+#[cfg(not(target_family = "wasm"))]
+mod fetch;
 mod fn_return_if_invalid;
 mod fn_strict;
 mod fn_ts_override;

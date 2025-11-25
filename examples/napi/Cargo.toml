@@ -55,6 +55,14 @@ tokio = { version = "1", features = ["rt", "time"] }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 tokio = { version = "1", features = ["rt", "time", "fs"] }
+reqwest = { version = "0.12", default-features = false, features = [
+  "rustls-tls",
+  "stream",
+  "charset",
+  "http2",
+  "system-proxy",
+  "json",
+] }
 
 [dependencies.snmalloc-rs]
 version = "0.3"

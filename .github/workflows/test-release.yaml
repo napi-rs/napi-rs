@@ -6,6 +6,8 @@ env:
   # https://github.com/nodejs/node/issues/51555#issuecomment-2290742072
   DISABLE_V8_COMPILE_CACHE: 1
 
+permissions: {}
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -57,6 +59,8 @@ jobs:
         run: cargo clippy
 
   build_and_test:
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -205,6 +209,7 @@ jobs:
         env:
           NODE_OPTIONS: '--max-old-space-size=8192'
           DISABLE_V8_COMPILE_CACHE: 1
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Electron tests
         if: matrix.settings.target == 'aarch64-apple-darwin' || matrix.settings.target == 'x86_64-pc-windows-msvc'
@@ -328,6 +333,8 @@ jobs:
       - name: Cross build native tests
         run: yarn build:test -- --target ${{ matrix.settings.target }} --release
         shell: bash
+        env:
+          TARGET_CC: clang
 
   build_for_test_in_docker:
     name: build - ${{ matrix.settings.target }}
@@ -374,6 +381,7 @@ jobs:
         shell: bash
         env:
           CARGO_PROFILE_DEV_OPT_LEVEL: 1
+          TARGET_CC: clang
 
       - uses: actions/upload-artifact@v5
         with:
@@ -452,6 +460,8 @@ jobs:
     # Node.js on qemu segfaults on s390x and arm64v8 when using 24.04
     # See also https://github.com/actions/runner-images/issues/11471
     runs-on: ${{ contains(matrix.settings.target, 'aarch64') && 'ubuntu-24.04-arm' || 'ubuntu-22.04' }}
+    permissions:
+      contents: read
     needs:
       - build_musl
       - build_for_test_in_docker
@@ -536,11 +546,13 @@ jobs:
         continue-on-error: ${{ matrix.settings.target == 'powerpc64le-unknown-linux-gnu' || matrix.settings.target == 's390x-unknown-linux-gnu' }}
         with:
           image: ${{ steps.image-name.outputs.docker-image }}
-          options: --oom-kill-disable ${{ matrix.settings.args }} -v ${{ github.workspace }}:/build -w /build
+          options: ${{ matrix.settings.args }} -v ${{ github.workspace }}:/build -w /build
           run: |
             export NODE_OPTIONS=--max-old-space-size=8192
             export DISABLE_V8_COMPILE_CACHE=1
             yarn workspace @examples/napi test
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-and-test-linux-armv7:
     name: stable - armv7-unknown-linux-gnueabihf - node@20
@@ -577,6 +589,8 @@ jobs:
 
       - name: Cross build native tests
         run: yarn build:test -- --target armv7-unknown-linux-gnueabihf --use-napi-cross
+        env:
+          TARGET_CC: clang
 
       - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
 
@@ -586,6 +600,8 @@ jobs:
           image: node:22-slim
           options: --platform linux/arm/v7 -v ${{ github.workspace }}:/build -w /build
           run: yarn test
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build_binary_crate:
     runs-on: ubuntu-latest
@@ -664,6 +680,8 @@ jobs:
   test-freebsd:
     runs-on: ubuntu-latest
     name: Test freebsd target
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v6
       - name: Test
@@ -674,12 +692,13 @@ jobs:
           RUSTUP_HOME: /home/runner/rustup
           CARGO_HOME: /home/runner/cargo
           RUSTUP_IO_THREADS: 1
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           operating_system: freebsd
           version: '14.3'
           memory: 12G
           cpu_count: 3
-          environment_variables: 'DEBUG RUSTUP_IO_THREADS'
+          environment_variables: 'DEBUG RUSTUP_IO_THREADS GITHUB_TOKEN'
           shell: bash
           run: |
             env | sort
@@ -755,6 +774,8 @@ jobs:
     runs-on: ubuntu-latest
     name: Test latest bun
     timeout-minutes: 10
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v6
       - uses: oven-sh/setup-bun@v2
@@ -787,6 +808,8 @@ jobs:
       - name: Test
         continue-on-error: true
         run: bun run test:bun
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   release-npm:
     runs-on: ubuntu-latest

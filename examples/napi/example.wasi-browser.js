@@ -246,6 +246,7 @@ export const esmResolve = __napiModule.exports.esmResolve
 export const extendsJavascriptError = __napiModule.exports.extendsJavascriptError
 export const f32ArrayToArray = __napiModule.exports.f32ArrayToArray
 export const f64ArrayToArray = __napiModule.exports.f64ArrayToArray
+export const fetch = __napiModule.exports.fetch
 export const fibonacci = __napiModule.exports.fibonacci
 export const fnReceivedAliased = __napiModule.exports.fnReceivedAliased
 export const generateFunctionAndCallIt = __napiModule.exports.generateFunctionAndCallIt

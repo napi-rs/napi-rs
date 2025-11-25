@@ -7,6 +7,8 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions: {}
+
 on:
   push:
     branches:
@@ -17,6 +19,8 @@ jobs:
   test:
     name: ASAN - ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -81,6 +85,7 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=8192
           DISABLE_V8_COMPILE_CACHE: 1
           CARGO_PROFILE_DEV_OPT_LEVEL: 1
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Windows build and test
       - name: Build with ASAN (Windows)
@@ -102,6 +107,8 @@ jobs:
       - name: Test with ASAN (Windows)
         if: matrix.os == 'windows-latest'
         shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Set ASAN environment variables for Windows
           $env:ASAN_OPTIONS = "windows_hook_rtl_allocators=true:detect_leaks=0:print_stats=1:check_initialization_order=true:strict_string_checks=true"

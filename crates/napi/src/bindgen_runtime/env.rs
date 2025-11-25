@@ -9,7 +9,7 @@ impl Env {
     Array::new(self.0, len)
   }
 
-  pub fn get_global(&self) -> Result<JsGlobal<'_>> {
+  pub fn get_global(&self) -> Result<JsGlobal<'static>> {
     let mut global = std::ptr::null_mut();
     crate::check_status!(
       unsafe { sys::napi_get_global(self.0, &mut global) },
