@@ -470,24 +470,23 @@ pub unsafe extern "C" fn napi_register_module_v1(
     #[cfg(feature = "tokio_rt")]
     {
       crate::tokio_runtime::start_async_runtime();
-      let mut env_cleanup_hook_added = ENV_CLEANUP_HOOK_ADDED.write().unwrap();
-      if !*env_cleanup_hook_added {
-        check_status_or_throw!(
-          env,
-          unsafe { sys::napi_add_env_cleanup_hook(env, Some(thread_cleanup), ptr::null_mut()) },
-          "Failed to add env cleanup hook"
-        );
-        *env_cleanup_hook_added = true;
-        drop(env_cleanup_hook_added);
+      #[cfg(not(target_family = "wasm"))]
+      {
+        let mut env_cleanup_hook_added = ENV_CLEANUP_HOOK_ADDED.write().unwrap();
+        if !*env_cleanup_hook_added {
+          check_status_or_throw!(
+            env,
+            unsafe { sys::napi_add_env_cleanup_hook(env, Some(thread_cleanup), ptr::null_mut()) },
+            "Failed to add env cleanup hook"
+          );
+          *env_cleanup_hook_added = true;
+          drop(env_cleanup_hook_added);
+        }
       }
     }
   }
 
-  #[cfg(all(
-    not(feature = "noop"),
-    all(feature = "tokio_rt", feature = "napi4"),
-    target_family = "wasm"
-  ))]
+  #[cfg(all(feature = "tokio_rt", feature = "napi4", target_family = "wasm"))]
   check_status_or_throw!(
     env,
     unsafe {
