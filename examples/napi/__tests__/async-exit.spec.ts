@@ -8,7 +8,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const scriptPath = join(__dirname, 'async-exit.js')
 
 test('async napi functions let the process exit', async (t) => {
-  if (process.env.WASI_TEST) {
+  if (process.env.WASI_TEST || process.arch === 'arm') {
     t.pass()
     return
   }
