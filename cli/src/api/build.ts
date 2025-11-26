@@ -915,7 +915,7 @@ class Builder {
       jsBinding: this.options.jsBinding,
       esm: this.options.esm,
       binaryName: this.config.binaryName,
-      packageName: this.config.packageName,
+      packageName: this.options.jsPackageName ?? this.config.packageName,
       version: process.env.npm_new_version ?? this.config.packageJson.version,
       outputDir: this.outputDir,
     })
