@@ -33,8 +33,9 @@ where
         feature = "node_version_detect",
         any(all(target_os = "linux", feature = "dyn-symbols"), target_os = "macos")
       ))]
+      let node_version = NODE_VERSION.get().unwrap();
       {
-        if NODE_VERSION_MAJOR >= 20 && NODE_VERSION_MINOR >= 18 {
+        if node_version.major >= 20 && node_version.minor >= 18 {
           fast_set_property(raw_env, obj.0.value, k, v)?;
         } else {
           obj.set(k.as_ref(), v)?;
@@ -93,6 +94,8 @@ where
     let env = Env::from(raw_env);
     #[cfg_attr(feature = "experimental", allow(unused_mut))]
     let mut obj = Object::new(&env)?;
+    #[cfg_attr(feature = "experimental", allow(unused_mut))]
+    let node_version = NODE_VERSION.get().unwrap();
     for (k, v) in val.into_iter() {
       #[cfg(all(
         feature = "experimental",
@@ -100,7 +103,7 @@ where
         any(all(target_os = "linux", feature = "dyn-symbols"), target_os = "macos")
       ))]
       {
-        if crate::bindgen_runtime::NODE_VERSION_MAJOR >= 20 && NODE_VERSION_MINOR >= 18 {
+        if node_version.major >= 20 && node_version.minor >= 18 {
           fast_set_property(raw_env, obj.0.value, k, v)?;
         } else {
           obj.set(k.as_ref(), v)?;
@@ -161,6 +164,8 @@ where
     let env = Env::from(raw_env);
     #[cfg_attr(feature = "experimental", allow(unused_mut))]
     let mut obj = Object::new(&env)?;
+    #[cfg_attr(feature = "experimental", allow(unused_mut))]
+    let node_version = NODE_VERSION.get().unwrap();
     for (k, v) in val.into_iter() {
       #[cfg(all(
         feature = "experimental",
@@ -168,7 +173,7 @@ where
         any(all(target_os = "linux", feature = "dyn-symbols"), target_os = "macos")
       ))]
       {
-        if crate::bindgen_runtime::NODE_VERSION_MAJOR >= 20 && NODE_VERSION_MINOR >= 18 {
+        if node_version.major >= 20 && node_version.minor >= 18 {
           fast_set_property(raw_env, obj.0.value, k, v)?;
         } else {
           obj.set(k.as_ref(), v)?;

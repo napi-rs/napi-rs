@@ -54,10 +54,8 @@ macro_rules! generate {
             let symbol: Result<libloading::Symbol<unsafe extern "C" fn ($(_: $ptype,)*)$( -> $rtype)*>, libloading::Error> = host.get(stringify!($name).as_bytes());
             match symbol {
               Ok(f) => *f,
-              Err(e) => {
-                #[cfg(debug_assertions)] {
-                  eprintln!("Load Node-API [{}] from host runtime failed: {}", stringify!($name), e);
-                }
+              Err(_) => {
+                // ignore error, use the stub function
                 NAPI.$name
               }
             }
