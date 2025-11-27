@@ -34,7 +34,7 @@ pub type ExportRegisterHookCallback =
 pub type ModuleExportsCallback =
   unsafe fn(env: sys::napi_env, exports: sys::napi_value) -> Result<()>;
 
-#[cfg(feature = "node_version_detect")]
+#[cfg(all(not(feature = "noop"), feature = "node_version_detect"))]
 pub static NODE_VERSION: OnceLock<NodeVersion> = OnceLock::new();
 
 #[repr(transparent)]

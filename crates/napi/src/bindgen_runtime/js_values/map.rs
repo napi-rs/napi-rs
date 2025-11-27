@@ -25,17 +25,17 @@ where
 {
   unsafe fn to_napi_value(raw_env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     let env = Env::from(raw_env);
-    #[cfg_attr(feature = "experimental", allow(unused_mut))]
+    #[cfg_attr(feature = "napi10", allow(unused_mut))]
     let mut obj = Object::new(&env)?;
     #[cfg(all(
-      feature = "experimental",
+      feature = "napi10",
       feature = "node_version_detect",
       feature = "dyn-symbols"
     ))]
     let node_version = NODE_VERSION.get().unwrap();
     for (k, v) in val.into_iter() {
       #[cfg(all(
-        feature = "experimental",
+        feature = "napi10",
         feature = "node_version_detect",
         feature = "dyn-symbols"
       ))]
@@ -47,7 +47,7 @@ where
         }
       }
       #[cfg(not(all(
-        feature = "experimental",
+        feature = "napi10",
         feature = "node_version_detect",
         feature = "dyn-symbols"
       )))]
@@ -97,17 +97,17 @@ where
 {
   unsafe fn to_napi_value(raw_env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     let env = Env::from(raw_env);
-    #[cfg_attr(feature = "experimental", allow(unused_mut))]
+    #[cfg_attr(feature = "napi10", allow(unused_mut))]
     let mut obj = Object::new(&env)?;
     #[cfg(all(
-      feature = "experimental",
+      feature = "napi10",
       feature = "node_version_detect",
       feature = "dyn-symbols"
     ))]
     let node_version = NODE_VERSION.get().unwrap();
     for (k, v) in val.into_iter() {
       #[cfg(all(
-        feature = "experimental",
+        feature = "napi10",
         feature = "node_version_detect",
         feature = "dyn-symbols"
       ))]
@@ -119,7 +119,7 @@ where
         }
       }
       #[cfg(not(all(
-        feature = "experimental",
+        feature = "napi10",
         feature = "node_version_detect",
         feature = "dyn-symbols"
       )))]
@@ -171,17 +171,17 @@ where
 {
   unsafe fn to_napi_value(raw_env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     let env = Env::from(raw_env);
-    #[cfg_attr(feature = "experimental", allow(unused_mut))]
+    #[cfg_attr(feature = "napi10", allow(unused_mut))]
     let mut obj = Object::new(&env)?;
     #[cfg(all(
-      feature = "experimental",
+      feature = "napi10",
       feature = "node_version_detect",
       feature = "dyn-symbols"
     ))]
     let node_version = NODE_VERSION.get().unwrap();
     for (k, v) in val.into_iter() {
       #[cfg(all(
-        feature = "experimental",
+        feature = "napi10",
         feature = "node_version_detect",
         feature = "dyn-symbols"
       ))]
@@ -225,7 +225,7 @@ where
 }
 
 #[cfg(all(
-  feature = "experimental",
+  feature = "napi10",
   feature = "node_version_detect",
   feature = "dyn-symbols"
 ))]

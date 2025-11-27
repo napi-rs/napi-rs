@@ -493,7 +493,7 @@ impl NapiStruct {
 
     for (idx, field) in obj.fields.iter().enumerate() {
       let field_js_name = &field.js_name;
-      let field_js_name_null_terminated = format!("{}\0", field.js_name);
+      let field_js_name_lit = Literal::string(&format!("{}\0", field.js_name));
       let mut ty = field.ty.clone();
       remove_lifetime_in_type(&mut ty);
       let is_optional_field = if let syn::Type::Path(syn::TypePath {
@@ -541,13 +541,15 @@ impl NapiStruct {
 
             property_descriptors.push(quote! {
               napi::bindgen_prelude::sys::napi_property_descriptor {
-                utf8name: std::ffi::CStr::from_bytes_with_nul_unchecked(#field_js_name_null_terminated.as_bytes()).as_ptr(),
+                utf8name: std::ffi::CStr::from_bytes_with_nul_unchecked(#field_js_name_lit.as_bytes()).as_ptr(),
                 name: std::ptr::null_mut(),
                 method: None,
                 getter: None,
                 setter: None,
                 value: #value_var,
-                attributes: napi::bindgen_prelude::sys::PropertyAttributes::default,
+                attributes: napi::bindgen_prelude::sys::PropertyAttributes::writable
+                  | napi::bindgen_prelude::sys::PropertyAttributes::enumerable
+                  | napi::bindgen_prelude::sys::PropertyAttributes::configurable,
                 data: std::ptr::null_mut(),
               }
             });
@@ -607,13 +609,15 @@ impl NapiStruct {
 
             property_descriptors.push(quote! {
               napi::bindgen_prelude::sys::napi_property_descriptor {
-                utf8name: std::ffi::CStr::from_bytes_with_nul_unchecked(#field_js_name_null_terminated.as_bytes()).as_ptr(),
+                utf8name: std::ffi::CStr::from_bytes_with_nul_unchecked(#field_js_name_lit.as_bytes()).as_ptr(),
                 name: std::ptr::null_mut(),
                 method: None,
                 getter: None,
                 setter: None,
                 value: #value_var,
-                attributes: napi::bindgen_prelude::sys::PropertyAttributes::default,
+                attributes: napi::bindgen_prelude::sys::PropertyAttributes::writable
+                  | napi::bindgen_prelude::sys::PropertyAttributes::enumerable
+                  | napi::bindgen_prelude::sys::PropertyAttributes::configurable,
                 data: std::ptr::null_mut(),
               }
             });
@@ -988,14 +992,16 @@ impl NapiStruct {
           getter: None,
           setter: None,
           value: #discriminant_value_var,
-          attributes: napi::bindgen_prelude::sys::PropertyAttributes::default,
+          attributes: napi::bindgen_prelude::sys::PropertyAttributes::writable
+                  | napi::bindgen_prelude::sys::PropertyAttributes::enumerable
+                  | napi::bindgen_prelude::sys::PropertyAttributes::configurable,
           data: std::ptr::null_mut(),
         }
       });
 
       for (idx, field) in variant.fields.iter().enumerate() {
         let field_js_name = &field.js_name;
-        let field_js_name_null_terminated = format!("{}\0", field.js_name);
+        let field_js_name_lit = Literal::string(&format!("{}\0", field.js_name));
         let mut ty = field.ty.clone();
         remove_lifetime_in_type(&mut ty);
         let is_optional_field = if let syn::Type::Path(syn::TypePath {
@@ -1042,13 +1048,15 @@ impl NapiStruct {
 
               property_descriptors.push(quote! {
                 napi::bindgen_prelude::sys::napi_property_descriptor {
-                  utf8name: std::ffi::CStr::from_bytes_with_nul_unchecked(#field_js_name_null_terminated.as_bytes()).as_ptr(),
+                  utf8name: std::ffi::CStr::from_bytes_with_nul_unchecked(#field_js_name_lit.as_bytes()).as_ptr(),
                   name: std::ptr::null_mut(),
                   method: None,
                   getter: None,
                   setter: None,
                   value: #value_var,
-                  attributes: napi::bindgen_prelude::sys::PropertyAttributes::default,
+                  attributes: napi::bindgen_prelude::sys::PropertyAttributes::writable
+                  | napi::bindgen_prelude::sys::PropertyAttributes::enumerable
+                  | napi::bindgen_prelude::sys::PropertyAttributes::configurable,
                   data: std::ptr::null_mut(),
                 }
               });
@@ -1107,13 +1115,15 @@ impl NapiStruct {
 
               property_descriptors.push(quote! {
                 napi::bindgen_prelude::sys::napi_property_descriptor {
-                  utf8name: std::ffi::CStr::from_bytes_with_nul_unchecked(#field_js_name_null_terminated.as_bytes()).as_ptr(),
+                  utf8name: std::ffi::CStr::from_bytes_with_nul_unchecked(#field_js_name_lit.as_bytes()).as_ptr(),
                   name: std::ptr::null_mut(),
                   method: None,
                   getter: None,
                   setter: None,
                   value: #value_var,
-                  attributes: napi::bindgen_prelude::sys::PropertyAttributes::default,
+                  attributes: napi::bindgen_prelude::sys::PropertyAttributes::writable
+                  | napi::bindgen_prelude::sys::PropertyAttributes::enumerable
+                  | napi::bindgen_prelude::sys::PropertyAttributes::configurable,
                   data: std::ptr::null_mut(),
                 }
               });
