@@ -25,25 +25,31 @@ where
 {
   unsafe fn to_napi_value(raw_env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     let env = Env::from(raw_env);
-    #[cfg_attr(feature = "experimental", allow(unused_mut))]
+    #[cfg_attr(feature = "napi10", allow(unused_mut))]
     let mut obj = Object::new(&env)?;
+    #[cfg(all(
+      feature = "napi10",
+      feature = "node_version_detect",
+      feature = "dyn-symbols"
+    ))]
+    let node_version = NODE_VERSION.get().unwrap();
     for (k, v) in val.into_iter() {
       #[cfg(all(
-        feature = "experimental",
+        feature = "napi10",
         feature = "node_version_detect",
-        any(all(target_os = "linux", feature = "dyn-symbols"), target_os = "macos")
+        feature = "dyn-symbols"
       ))]
       {
-        if NODE_VERSION_MAJOR >= 20 && NODE_VERSION_MINOR >= 18 {
+        if node_version.major >= 20 && node_version.minor >= 18 {
           fast_set_property(raw_env, obj.0.value, k, v)?;
         } else {
           obj.set(k.as_ref(), v)?;
         }
       }
       #[cfg(not(all(
-        feature = "experimental",
+        feature = "napi10",
         feature = "node_version_detect",
-        any(all(target_os = "linux", feature = "dyn-symbols"), target_os = "macos")
+        feature = "dyn-symbols"
       )))]
       obj.set(k.as_ref(), v)?;
     }
@@ -91,25 +97,31 @@ where
 {
   unsafe fn to_napi_value(raw_env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     let env = Env::from(raw_env);
-    #[cfg_attr(feature = "experimental", allow(unused_mut))]
+    #[cfg_attr(feature = "napi10", allow(unused_mut))]
     let mut obj = Object::new(&env)?;
+    #[cfg(all(
+      feature = "napi10",
+      feature = "node_version_detect",
+      feature = "dyn-symbols"
+    ))]
+    let node_version = NODE_VERSION.get().unwrap();
     for (k, v) in val.into_iter() {
       #[cfg(all(
-        feature = "experimental",
+        feature = "napi10",
         feature = "node_version_detect",
-        any(all(target_os = "linux", feature = "dyn-symbols"), target_os = "macos")
+        feature = "dyn-symbols"
       ))]
       {
-        if crate::bindgen_runtime::NODE_VERSION_MAJOR >= 20 && NODE_VERSION_MINOR >= 18 {
+        if node_version.major >= 20 && node_version.minor >= 18 {
           fast_set_property(raw_env, obj.0.value, k, v)?;
         } else {
           obj.set(k.as_ref(), v)?;
         }
       }
       #[cfg(not(all(
-        feature = "experimental",
+        feature = "napi10",
         feature = "node_version_detect",
-        any(all(target_os = "linux", feature = "dyn-symbols"), target_os = "macos")
+        feature = "dyn-symbols"
       )))]
       obj.set(k.as_ref(), v)?;
     }
@@ -159,16 +171,22 @@ where
 {
   unsafe fn to_napi_value(raw_env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     let env = Env::from(raw_env);
-    #[cfg_attr(feature = "experimental", allow(unused_mut))]
+    #[cfg_attr(feature = "napi10", allow(unused_mut))]
     let mut obj = Object::new(&env)?;
+    #[cfg(all(
+      feature = "napi10",
+      feature = "node_version_detect",
+      feature = "dyn-symbols"
+    ))]
+    let node_version = NODE_VERSION.get().unwrap();
     for (k, v) in val.into_iter() {
       #[cfg(all(
-        feature = "experimental",
+        feature = "napi10",
         feature = "node_version_detect",
-        any(all(target_os = "linux", feature = "dyn-symbols"), target_os = "macos")
+        feature = "dyn-symbols"
       ))]
       {
-        if crate::bindgen_runtime::NODE_VERSION_MAJOR >= 20 && NODE_VERSION_MINOR >= 18 {
+        if node_version.major >= 20 && node_version.minor >= 18 {
           fast_set_property(raw_env, obj.0.value, k, v)?;
         } else {
           obj.set(k.as_ref(), v)?;
@@ -177,7 +195,7 @@ where
       #[cfg(not(all(
         feature = "experimental",
         feature = "node_version_detect",
-        any(all(target_os = "linux", feature = "dyn-symbols"), target_os = "macos")
+        feature = "dyn-symbols"
       )))]
       obj.set(k.as_ref(), v)?;
     }
@@ -207,9 +225,9 @@ where
 }
 
 #[cfg(all(
-  feature = "experimental",
+  feature = "napi10",
   feature = "node_version_detect",
-  any(all(target_os = "linux", feature = "dyn-symbols"), target_os = "macos")
+  feature = "dyn-symbols"
 ))]
 fn fast_set_property<K: AsRef<str>, V: ToNapiValue>(
   raw_env: sys::napi_env,

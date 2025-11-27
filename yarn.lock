@@ -104,22 +104,22 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@emnapi/core@npm:^1.1.0, @emnapi/core@npm:^1.7.0":
-  version: 1.7.0
-  resolution: "@emnapi/core@npm:1.7.0"
+"@emnapi/core@npm:^1.1.0, @emnapi/core@npm:^1.7.0, @emnapi/core@npm:^1.7.1":
+  version: 1.7.1
+  resolution: "@emnapi/core@npm:1.7.1"
   dependencies:
     "@emnapi/wasi-threads": "npm:1.1.0"
     tslib: "npm:^2.4.0"
-  checksum: 10c0/ea57802079fda31f87506bba63f1299f0fa60546c1a1a424d2d5926f98f1ffc4a94ae3c885155f4a60114c19d314addb45d94dc0e427ac1594cbfca7cd910a31
+  checksum: 10c0/f3740be23440b439333e3ae3832163f60c96c4e35337f3220ceba88f36ee89a57a871d27c94eb7a9ff98a09911ed9a2089e477ab549f4d30029f8b907f84a351
   languageName: node
   linkType: hard
 
-"@emnapi/runtime@npm:^1.1.0, @emnapi/runtime@npm:^1.7.0":
-  version: 1.7.0
-  resolution: "@emnapi/runtime@npm:1.7.0"
+"@emnapi/runtime@npm:^1.1.0, @emnapi/runtime@npm:^1.7.1":
+  version: 1.7.1
+  resolution: "@emnapi/runtime@npm:1.7.1"
   dependencies:
     tslib: "npm:^2.4.0"
-  checksum: 10c0/b99334582effe146e9fb5cd9e7f866c6c7047a8576f642456d56984b574b40b2ba14e4aede26217fcefa1372ddd1e098a19912f17033a9ae469928b0dc65a682
+  checksum: 10c0/26b851cd3e93877d8732a985a2ebf5152325bbacc6204ef5336a47359dedcc23faeb08cdfcb8bb389b5401b3e894b882bc1a1e55b4b7c1ed1e67c991a760ddd5
   languageName: node
   linkType: hard
 
@@ -1366,7 +1366,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@napi-rs/cli@workspace:cli"
   dependencies:
-    "@emnapi/runtime": "npm:^1.7.0"
+    "@emnapi/runtime": "npm:^1.7.1"
     "@inquirer/prompts": "npm:^8.0.0"
     "@napi-rs/cross-toolchain": "npm:^1.0.3"
     "@napi-rs/wasm-tools": "npm:^1.0.1"
@@ -1380,7 +1380,7 @@ __metadata:
     ava: "npm:^6.4.1"
     clipanion: "npm:^4.0.0-rc.4"
     colorette: "npm:^2.0.20"
-    emnapi: "npm:^1.7.0"
+    emnapi: "npm:^1.7.1"
     empathic: "npm:^2.0.0"
     env-paths: "npm:^3.0.0"
     es-toolkit: "npm:^1.41.0"
@@ -1393,11 +1393,9 @@ __metadata:
     typanion: "npm:^3.14.0"
     typescript: "npm:^5.9.3"
   peerDependencies:
-    "@emnapi/runtime": ^1.7.0
+    "@emnapi/runtime": ^1.7.1
   peerDependenciesMeta:
     "@emnapi/runtime":
-      optional: true
-    emnapi:
       optional: true
   bin:
     napi: ./dist/cli.js
@@ -1826,8 +1824,8 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@napi-rs/wasm-runtime@workspace:wasm-runtime"
   dependencies:
-    "@emnapi/core": "npm:^1.7.0"
-    "@emnapi/runtime": "npm:^1.7.0"
+    "@emnapi/core": "npm:^1.7.1"
+    "@emnapi/runtime": "npm:^1.7.1"
     "@rollup/plugin-alias": "npm:^6.0.0"
     "@rollup/plugin-commonjs": "npm:^29.0.0"
     "@rollup/plugin-inject": "npm:^5.0.5"
@@ -6480,15 +6478,15 @@ __metadata:
   languageName: node
   linkType: hard
 
-"emnapi@npm:^1.7.0":
-  version: 1.7.0
-  resolution: "emnapi@npm:1.7.0"
+"emnapi@npm:^1.7.1":
+  version: 1.7.1
+  resolution: "emnapi@npm:1.7.1"
   peerDependencies:
     node-addon-api: ">= 6.1.0"
   peerDependenciesMeta:
     node-addon-api:
       optional: true
-  checksum: 10c0/a09c849f46022bc42f971a7cd21f4bd9a98546d5cf655e8377ecdbfd909c9e4601e45d23e7d56174a5eb1cfc7db80e9565299d89bbe353e123b4a4e6463396af
+  checksum: 10c0/e3b223cb75bed94a8d11a3fa4c1b621bf32556e3c31239c589593fc275df80630af1a113fb2598436c2b08d7d8fd0099d9d24a3fc08cabddca5b0aa044a14cf2
   languageName: node
   linkType: hard
 

@@ -9,6 +9,8 @@ use std::ffi::CStr;
 use std::mem::MaybeUninit;
 #[cfg(not(feature = "noop"))]
 use std::ptr;
+#[cfg(all(not(feature = "noop"), feature = "node_version_detect"))]
+use std::sync::OnceLock;
 #[cfg(not(feature = "noop"))]
 use std::sync::{
   atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -18,6 +20,8 @@ use std::{any::TypeId, collections::HashMap};
 
 use rustc_hash::FxBuildHasher;
 
+#[cfg(all(not(feature = "noop"), feature = "node_version_detect"))]
+use crate::NodeVersion;
 #[cfg(not(feature = "noop"))]
 use crate::{check_status, check_status_or_throw, JsError};
 use crate::{sys, Property, Result};
@@ -30,12 +34,8 @@ pub type ExportRegisterHookCallback =
 pub type ModuleExportsCallback =
   unsafe fn(env: sys::napi_env, exports: sys::napi_value) -> Result<()>;
 
-#[cfg(feature = "node_version_detect")]
-pub static mut NODE_VERSION_MAJOR: u32 = 0;
-#[cfg(feature = "node_version_detect")]
-pub static mut NODE_VERSION_MINOR: u32 = 0;
-#[cfg(feature = "node_version_detect")]
-pub static mut NODE_VERSION_PATCH: u32 = 0;
+#[cfg(all(not(feature = "noop"), feature = "node_version_detect"))]
+pub static NODE_VERSION: OnceLock<NodeVersion> = OnceLock::new();
 
 #[repr(transparent)]
 pub(crate) struct PersistedPerInstanceHashMap<K, V, S>(RefCell<HashMap<K, V, S>>);
@@ -109,7 +109,11 @@ static MODULE_CLASS_PROPERTIES: LazyLock<ModuleClassProperty> = LazyLock::new(De
 static MODULE_COUNT: AtomicUsize = AtomicUsize::new(0);
 #[cfg(not(feature = "noop"))]
 static FIRST_MODULE_REGISTERED: AtomicBool = AtomicBool::new(false);
-#[cfg(all(feature = "tokio_rt", not(feature = "noop")))]
+#[cfg(all(
+  feature = "tokio_rt",
+  not(target_family = "wasm"),
+  not(feature = "noop")
+))]
 static ENV_CLEANUP_HOOK_ADDED: RwLock<bool> = RwLock::new(false);
 thread_local! {
   static REGISTERED_CLASSES: LazyCell<RegisteredClasses> = LazyCell::new(Default::default);
@@ -253,18 +257,21 @@ pub unsafe extern "C" fn napi_register_module_v1(
   }
   #[cfg(feature = "node_version_detect")]
   {
-    let mut node_version = MaybeUninit::uninit();
-    check_status_or_throw!(
-      env,
-      unsafe { sys::napi_get_node_version(env, node_version.as_mut_ptr()) },
-      "Failed to get node version"
-    );
-    let node_version = *node_version.assume_init();
-    unsafe {
-      NODE_VERSION_MAJOR = node_version.major;
-      NODE_VERSION_MINOR = node_version.minor;
-      NODE_VERSION_PATCH = node_version.patch;
-    };
+    NODE_VERSION.get_or_init(|| {
+      let mut node_version = MaybeUninit::uninit();
+      check_status_or_throw!(
+        env,
+        unsafe { sys::napi_get_node_version(env, node_version.as_mut_ptr()) },
+        "Failed to get node version"
+      );
+      let node_version = *node_version.assume_init();
+      NodeVersion {
+        major: node_version.major,
+        minor: node_version.minor,
+        patch: node_version.patch,
+        release: unsafe { CStr::from_ptr(node_version.release).to_str().unwrap() },
+      }
+    });
   }
 
   if MODULE_COUNT.fetch_add(1, Ordering::SeqCst) != 0 {

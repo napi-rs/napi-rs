@@ -223,26 +223,35 @@ impl NapiEnum {
     let js_name_lit = Literal::string(&format!("{}\0", &self.js_name));
     let register_name = &self.register_name;
 
-    let mut define_properties = vec![];
+    let mut value_conversions = vec![];
+    let mut property_descriptors = vec![];
+    let mut value_names = vec![];
 
-    for variant in self.variants.iter() {
+    for (idx, variant) in self.variants.iter().enumerate() {
       let name_lit = Literal::string(&format!("{}\0", variant.name));
       let val_lit: Literal = (&variant.val).into();
+      let value_var = Ident::new(&format!("__enum_value_{}", idx), Span::call_site());
 
-      define_properties.push(quote! {
-        {
-          let name = std::ffi::CStr::from_bytes_with_nul_unchecked(#name_lit.as_bytes());
-          napi::bindgen_prelude::check_status!(
-            napi::bindgen_prelude::sys::napi_set_named_property(
-              env,
-              obj_ptr, name.as_ptr(),
-              napi::bindgen_prelude::ToNapiValue::to_napi_value(env, #val_lit)?
-            ),
-            "Failed to defined enum `{}`",
-            #js_name_lit
-          )?;
-        };
-      })
+      value_names.push(value_var.clone());
+
+      // Convert the value first
+      value_conversions.push(quote! {
+        let #value_var = napi::bindgen_prelude::ToNapiValue::to_napi_value(env, #val_lit)?;
+      });
+
+      // Create property descriptor using the pre-computed value
+      property_descriptors.push(quote! {
+        napi::bindgen_prelude::sys::napi_property_descriptor {
+          utf8name: std::ffi::CStr::from_bytes_with_nul_unchecked(#name_lit.as_bytes()).as_ptr(),
+          name: std::ptr::null_mut(),
+          method: None,
+          getter: None,
+          setter: None,
+          value: #value_var,
+          attributes: napi::bindgen_prelude::sys::PropertyAttributes::default,
+          data: std::ptr::null_mut(),
+        }
+      });
     }
 
     let callback_name = Ident::new(
@@ -252,6 +261,17 @@ impl NapiEnum {
 
     let js_mod_ident = js_mod_to_token_stream(self.js_mod.as_ref());
 
+    let object_creation = quote! {
+      // Convert all values first, so error handling works correctly
+      #(#value_conversions)*
+
+      let properties = [
+        #(#property_descriptors),*
+      ];
+
+      let obj_ptr = napi::bindgen_prelude::create_object_with_properties(env, &properties)?;
+    };
+
     quote! {
       #[allow(non_snake_case)]
       #[allow(clippy::all)]
@@ -259,14 +279,7 @@ impl NapiEnum {
         use std::ffi::CString;
         use std::ptr;
 
-        let mut obj_ptr = ptr::null_mut();
-
-        napi::bindgen_prelude::check_status!(
-          napi::bindgen_prelude::sys::napi_create_object(env, &mut obj_ptr),
-          "Failed to create napi object"
-        )?;
-
-        #(#define_properties)*
+        #object_creation
 
         Ok(obj_ptr)
       }
