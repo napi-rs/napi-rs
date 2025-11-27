@@ -109,7 +109,11 @@ static MODULE_CLASS_PROPERTIES: LazyLock<ModuleClassProperty> = LazyLock::new(De
 static MODULE_COUNT: AtomicUsize = AtomicUsize::new(0);
 #[cfg(not(feature = "noop"))]
 static FIRST_MODULE_REGISTERED: AtomicBool = AtomicBool::new(false);
-#[cfg(all(feature = "tokio_rt", not(feature = "noop")))]
+#[cfg(all(
+  feature = "tokio_rt",
+  not(target_family = "wasm"),
+  not(feature = "noop")
+))]
 static ENV_CLEANUP_HOOK_ADDED: RwLock<bool> = RwLock::new(false);
 thread_local! {
   static REGISTERED_CLASSES: LazyCell<RegisteredClasses> = LazyCell::new(Default::default);

@@ -43,8 +43,8 @@
     "tslib": "^2.8.1"
   },
   "dependencies": {
-    "@emnapi/core": "^1.7.0",
-    "@emnapi/runtime": "^1.7.0",
+    "@emnapi/core": "^1.7.1",
+    "@emnapi/runtime": "^1.7.1",
     "@tybys/wasm-util": "^0.10.1"
   },
   "scripts": {

@@ -130,47 +130,44 @@ pub unsafe fn create_object_with_properties(
 
   let mut obj_ptr = std::ptr::null_mut();
 
-  #[cfg(all(feature = "experimental", feature = "node_version_detect",))]
+  #[cfg(all(
+    feature = "experimental",
+    feature = "node_version_detect",
+    not(target_family = "wasm")
+  ))]
   {
     let node_version = NODE_VERSION.get().unwrap();
-    // Try the optimized path - if it fails (e.g., symbol not available), fall through to the standard path
     if !properties.is_empty()
       && ((node_version.major == 25 && node_version.minor >= 2) || node_version.major > 25)
     {
-      let result: Result<sys::napi_value> = (|| {
-        // Convert property names from C strings to napi_value
-        let mut names: Vec<sys::napi_value> = Vec::with_capacity(properties.len());
-        let mut values: Vec<sys::napi_value> = Vec::with_capacity(properties.len());
+      // Convert property names from C strings to napi_value
+      let mut names: Vec<sys::napi_value> = Vec::with_capacity(properties.len());
+      let mut values: Vec<sys::napi_value> = Vec::with_capacity(properties.len());
 
-        for prop in properties {
-          let mut name_value = std::ptr::null_mut();
-          // utf8name is a null-terminated C string, use -1 to auto-detect length
-          check_status!(
-            sys::napi_create_string_utf8(env, prop.utf8name, -1, &mut name_value),
-            "Failed to create property name string",
-          )?;
-          names.push(name_value);
-          values.push(prop.value);
-        }
-
-        let mut result_obj = std::ptr::null_mut();
+      for prop in properties {
+        let mut name_value = std::ptr::null_mut();
+        // utf8name is a null-terminated C string, use -1 to auto-detect length
         check_status!(
-          sys::napi_create_object_with_properties(
-            env,
-            std::ptr::null_mut(), // prototype_or_null
-            names.as_ptr(),
-            values.as_ptr(),
-            properties.len(),
-            &mut result_obj,
-          ),
-          "Failed to create object with properties",
+          sys::napi_create_string_utf8(env, prop.utf8name, -1, &mut name_value),
+          "Failed to create property name string",
         )?;
-        Ok(result_obj)
-      })();
-
-      if let Ok(obj) = result {
-        return Ok(obj);
+        names.push(name_value);
+        values.push(prop.value);
       }
+
+      let mut result_obj = std::ptr::null_mut();
+      check_status!(
+        sys::napi_create_object_with_properties(
+          env,
+          std::ptr::null_mut(), // prototype_or_null
+          names.as_ptr(),
+          values.as_ptr(),
+          properties.len(),
+          &mut result_obj,
+        ),
+        "Failed to create object with properties",
+      )?;
+      return Ok(result_obj);
     }
   }
 

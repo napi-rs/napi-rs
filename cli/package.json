@@ -66,7 +66,7 @@
     "@octokit/rest": "^22.0.1",
     "clipanion": "^4.0.0-rc.4",
     "colorette": "^2.0.20",
-    "emnapi": "^1.7.0",
+    "emnapi": "^1.7.1",
     "es-toolkit": "^1.41.0",
     "js-yaml": "^4.1.0",
     "obug": "^2.0.0",
@@ -74,7 +74,7 @@
     "typanion": "^3.14.0"
   },
   "devDependencies": {
-    "@emnapi/runtime": "^1.7.0",
+    "@emnapi/runtime": "^1.7.1",
     "@oxc-node/core": "^0.0.34",
     "@std/toml": "npm:@jsr/std__toml@^1.0.11",
     "@types/inquirer": "^9.0.9",
@@ -90,13 +90,10 @@
     "typescript": "^5.9.3"
   },
   "peerDependencies": {
-    "@emnapi/runtime": "^1.7.0"
+    "@emnapi/runtime": "^1.7.1"
   },
   "peerDependenciesMeta": {
     "@emnapi/runtime": {
-      "optional": true
-    },
-    "emnapi": {
       "optional": true
     }
   },
