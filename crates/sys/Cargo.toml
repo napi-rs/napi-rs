@@ -12,7 +12,8 @@ rust-version.workspace = true
 version = "3.1.1"
 
 [features]
-dyn-symbols = []   # Deprecated feature
+default = ["dyn-symbols"]
+dyn-symbols = ["dep:libloading"]
 experimental = []
 napi1 = []
 napi2 = ["napi1"]
@@ -29,4 +30,4 @@ napi10 = ["napi9"]
 independent = true
 
 [dependencies]
-libloading = { version = "0.9" }
+libloading = { version = "0.9", optional = true }
