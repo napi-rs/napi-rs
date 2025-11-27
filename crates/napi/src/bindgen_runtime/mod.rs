@@ -9,7 +9,7 @@ pub use js_values::*;
 pub use module_register::*;
 
 use super::sys;
-use crate::{check_status, JsError, Result, Status};
+use crate::{JsError, Result, Status};
 
 #[cfg(feature = "tokio_rt")]
 pub mod async_iterator;
@@ -120,14 +120,17 @@ pub unsafe extern "C" fn drop_buffer_slice(
 /// which creates the object with all properties in a single optimized call.
 /// Otherwise falls back to `napi_create_object` + `napi_define_properties`.
 #[doc(hidden)]
+#[cfg(not(feature = "noop"))]
 #[inline]
 pub unsafe fn create_object_with_properties(
   env: sys::napi_env,
   properties: &[sys::napi_property_descriptor],
 ) -> Result<sys::napi_value> {
+  use crate::check_status;
+
   let mut obj_ptr = std::ptr::null_mut();
 
-  #[cfg(all(feature = "experimental", feature = "node_version_detect"))]
+  #[cfg(all(feature = "experimental", feature = "node_version_detect",))]
   {
     let node_version = NODE_VERSION.get().unwrap();
     // Try the optimized path - if it fails (e.g., symbol not available), fall through to the standard path
@@ -185,4 +188,13 @@ pub unsafe fn create_object_with_properties(
   }
 
   Ok(obj_ptr)
+}
+
+#[doc(hidden)]
+#[cfg(feature = "noop")]
+pub unsafe fn create_object_with_properties(
+  _env: sys::napi_env,
+  _properties: &[sys::napi_property_descriptor],
+) -> Result<sys::napi_value> {
+  Ok(std::ptr::null_mut())
 }
