@@ -244,7 +244,11 @@ if (!nativeBinding || process.env.NAPI_RS_FORCE_WASI) {
       nativeBinding = wasiBinding
     } catch (err) {
       if (process.env.NAPI_RS_FORCE_WASI) {
-        wasiBindingError.cause = err
+        if (!wasiBindingError) {
+          wasiBindingError = err
+        } else {
+          wasiBindingError.cause = err
+        }
         loadErrors.push(err)
       }
     }
