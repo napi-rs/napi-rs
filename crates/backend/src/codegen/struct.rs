@@ -16,6 +16,19 @@ static NAPI_IMPL_ID: AtomicU32 = AtomicU32::new(0);
 
 const STRUCT_FIELD_SPECIAL_CASE: &[&str] = &["Option", "Result"];
 
+#[cfg(feature = "tracing")]
+fn gen_tracing_debug(class_name: &str, method_name: &str) -> TokenStream {
+  let full_name = format!("{}::{}", class_name, method_name);
+  quote! {
+    napi::bindgen_prelude::tracing::debug!(target: "napi", "{}", #full_name);
+  }
+}
+
+#[cfg(not(feature = "tracing"))]
+fn gen_tracing_debug(_class_name: &str, _method_name: &str) -> TokenStream {
+  quote! {}
+}
+
 // Generate trait implementations for given Struct.
 fn gen_napi_value_map_impl(
   name: &Ident,
@@ -224,11 +237,14 @@ impl NapiStruct {
       quote! { unsafe { cb.construct::<#is_empty_struct_hint, #name>(#js_name_str, #construct) } }
     };
 
+    let tracing_debug = gen_tracing_debug(js_name_str, "constructor");
+
     quote! {
       extern "C" fn constructor(
         env: napi::bindgen_prelude::sys::napi_env,
         cb: napi::bindgen_prelude::sys::napi_callback_info
       ) -> napi::bindgen_prelude::sys::napi_value {
+        #tracing_debug
         napi::bindgen_prelude::CallbackInfo::<#fields_len>::new(env, cb, None, false)
           .and_then(|cb| #constructor)
           .unwrap_or_else(|e| {
@@ -780,6 +796,7 @@ impl NapiStruct {
   fn gen_default_getters_setters(&self, class: &NapiClass) -> Vec<(String, TokenStream)> {
     let mut getters_setters = vec![];
     let struct_name = &self.name;
+    let js_name_str = &self.js_name;
 
     for field in class.fields.iter() {
       let field_ident = &field.name;
@@ -823,6 +840,7 @@ impl NapiStruct {
         } else {
           default_to_napi_value_convert
         };
+        let tracing_debug = gen_tracing_debug(js_name_str, &field.js_name);
         getters_setters.push((
           field.js_name.clone(),
           quote! {
@@ -830,6 +848,7 @@ impl NapiStruct {
               env: napi::bindgen_prelude::sys::napi_env,
               cb: napi::bindgen_prelude::sys::napi_callback_info
             ) -> napi::bindgen_prelude::sys::napi_value {
+              #tracing_debug
               napi::bindgen_prelude::CallbackInfo::<0>::new(env, cb, Some(0), false)
                 .and_then(|mut cb| cb.unwrap_borrow_mut::<#struct_name>())
                 .and_then(|obj| {
@@ -845,6 +864,8 @@ impl NapiStruct {
       }
 
       if field.setter {
+        let setter_tracing_debug =
+          gen_tracing_debug(js_name_str, &format!("set_{}", field.js_name));
         getters_setters.push((
           field.js_name.clone(),
           quote! {
@@ -852,6 +873,7 @@ impl NapiStruct {
               env: napi::bindgen_prelude::sys::napi_env,
               cb: napi::bindgen_prelude::sys::napi_callback_info
             ) -> napi::bindgen_prelude::sys::napi_value {
+              #setter_tracing_debug
               napi::bindgen_prelude::CallbackInfo::<1>::new(env, cb, Some(1), false)
                 .and_then(|mut cb_info| unsafe {
                   cb_info.unwrap_borrow_mut::<#struct_name>()

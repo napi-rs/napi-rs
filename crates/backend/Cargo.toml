@@ -15,6 +15,7 @@ independent = true
 [features]
 noop = []
 strict = []
+tracing = []
 type-def = ["semver"]
 
 [dependencies]
