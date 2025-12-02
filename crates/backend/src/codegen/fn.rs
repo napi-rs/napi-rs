@@ -9,8 +9,8 @@ use crate::{
 };
 
 #[cfg(feature = "tracing")]
-fn gen_tracing_debug(js_name: &str, parent: Option<&Ident>) -> TokenStream {
-  let full_name = if let Some(parent) = parent {
+fn gen_tracing_debug(js_name: &str, parent_js_name: Option<&String>) -> TokenStream {
+  let full_name = if let Some(parent) = parent_js_name {
     format!("{}::{}", parent, js_name)
   } else {
     js_name.to_string()
@@ -21,7 +21,7 @@ fn gen_tracing_debug(js_name: &str, parent: Option<&Ident>) -> TokenStream {
 }
 
 #[cfg(not(feature = "tracing"))]
-fn gen_tracing_debug(_js_name: &str, _parent: Option<&Ident>) -> TokenStream {
+fn gen_tracing_debug(_js_name: &str, _parent_js_name: Option<&String>) -> TokenStream {
   quote! {}
 }
 
@@ -44,7 +44,7 @@ impl TryToTokens for NapiFn {
     let receiver_ret_name = Ident::new("_ret", Span::call_site());
     let ret = self.gen_fn_return(&receiver_ret_name)?;
     let register = self.gen_fn_register();
-    let tracing_debug = gen_tracing_debug(&self.js_name, self.parent.as_ref());
+    let tracing_debug = gen_tracing_debug(&self.js_name, self.parent_js_name.as_ref());
 
     if self.module_exports {
       (quote! {
