@@ -83,6 +83,7 @@ version = "1"
 [dependencies.napi-sys]
 path = "../sys"
 version = "3.1.1"
+default-features = false
 
 [dependencies.encoding_rs]
 optional = true
