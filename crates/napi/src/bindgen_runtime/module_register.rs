@@ -37,6 +37,13 @@ pub type ModuleExportsCallback =
 #[cfg(all(not(feature = "noop"), feature = "node_version_detect"))]
 pub static NODE_VERSION: OnceLock<NodeVersion> = OnceLock::new();
 
+#[cfg(feature = "node_version_detect")]
+pub static mut NODE_VERSION_MAJOR: u32 = 0;
+#[cfg(feature = "node_version_detect")]
+pub static mut NODE_VERSION_MINOR: u32 = 0;
+#[cfg(feature = "node_version_detect")]
+pub static mut NODE_VERSION_PATCH: u32 = 0;
+
 #[repr(transparent)]
 pub(crate) struct PersistedPerInstanceHashMap<K, V, S>(RefCell<HashMap<K, V, S>>);
 
@@ -268,6 +275,11 @@ pub unsafe extern "C" fn napi_register_module_v1(
         "Failed to get node version"
       );
       let node_version = *node_version.assume_init();
+      unsafe {
+        NODE_VERSION_MAJOR = node_version.major;
+        NODE_VERSION_MINOR = node_version.minor;
+        NODE_VERSION_PATCH = node_version.patch;
+      }
       NodeVersion {
         major: node_version.major,
         minor: node_version.minor,
