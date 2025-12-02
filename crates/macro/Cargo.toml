@@ -19,6 +19,7 @@ default = ["type-def", "strict"]
 full = ["type-def", "strict", "compat-mode"]
 noop = ["napi-derive-backend/noop"]
 strict = ["napi-derive-backend/strict"]
+tracing = ["napi-derive-backend/tracing"]
 type-def = ["napi-derive-backend/type-def", "ctor"]
 
 [dependencies]

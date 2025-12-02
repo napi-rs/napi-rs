@@ -165,6 +165,8 @@ pub mod bindgen_prelude {
     check_status_or_throw, error, error::*, sys, type_of, JsError, JsValue, Property,
     PropertyAttributes, Result, Status, Task, ValueType,
   };
+  #[cfg(feature = "tracing")]
+  pub use ::tracing;
 
   // This function's signature must be kept in sync with the one in tokio_runtime.rs, otherwise napi
   // will fail to compile without the `tokio_rt` feature.
