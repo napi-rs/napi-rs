@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.0](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v3.0.2...napi-derive-backend-v4.0.0) - 2025-12-02
+
+### Added
+
+- *(napi-derive)* add tracing feature for debug logging NAPI function calls ([#3041](https://github.com/napi-rs/napi-rs/pull/3041))
+- *(napi)* add node_api_create_object_with_properties support for enum creation ([#2990](https://github.com/napi-rs/napi-rs/pull/2990))
+
+### Fixed
+
+- *(napi-derive)* add paren for function types ([#3044](https://github.com/napi-rs/napi-rs/pull/3044))
+- *(deps)* update rust crate convert_case to 0.10 ([#3031](https://github.com/napi-rs/napi-rs/pull/3031))
+
 ## [3.0.2](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v3.0.1...napi-derive-backend-v3.0.2) - 2025-11-10
 
 ### Fixed

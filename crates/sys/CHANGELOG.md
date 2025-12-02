@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.0](https://github.com/napi-rs/napi-rs/compare/napi-sys-v3.1.1...napi-sys-v3.2.0) - 2025-12-02
+
+### Added
+
+- *(napi)* add node_api_create_object_with_properties support for enum creation ([#2990](https://github.com/napi-rs/napi-rs/pull/2990))
+
+### Other
+
+- *(sys)* add back non dyn-symbols behavior ([#3045](https://github.com/napi-rs/napi-rs/pull/3045))
+
 ## [3.1.1](https://github.com/napi-rs/napi-rs/compare/napi-sys-v3.1.0...napi-sys-v3.1.1) - 2025-11-07
 
 ### Other
