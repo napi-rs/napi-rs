@@ -251,7 +251,10 @@ pub unsafe extern "C" fn napi_register_module_v1(
   env: sys::napi_env,
   exports: sys::napi_value,
 ) -> sys::napi_value {
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(any(
+    target_env = "msvc",
+    all(not(target_family = "wasm"), feature = "dyn-symbols")
+  ))]
   unsafe {
     sys::setup();
   }
