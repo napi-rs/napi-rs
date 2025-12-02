@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [1.1.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/wasm-runtime@1.0.7...@napi-rs/wasm-runtime@1.1.0) (2025-12-02)
+
+### Features
+
+- **napi:** add node_api_create_object_with_properties support for enum creation ([#2990](https://github.com/napi-rs/napi-rs/issues/2990)) ([e4f5360](https://github.com/napi-rs/napi-rs/commit/e4f5360dcd7cfc5241c3bae3b46b9ae844ebf147))
+
 ## [1.0.7](https://github.com/napi-rs/napi-rs/compare/@napi-rs/wasm-runtime@1.0.6...@napi-rs/wasm-runtime@1.0.7) (2025-10-10)
 
 ### Bug Fixes
