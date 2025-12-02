@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.1](https://github.com/napi-rs/napi-rs/compare/napi-sys-v3.2.0...napi-sys-v3.2.1) - 2025-12-02
+
+### Fixed
+
+- *(sys)* always require libloading because of msvc ([#3047](https://github.com/napi-rs/napi-rs/pull/3047))
+
 ## [3.2.0](https://github.com/napi-rs/napi-rs/compare/napi-sys-v3.1.1...napi-sys-v3.2.0) - 2025-12-02
 
 ### Added
