@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.0](https://github.com/napi-rs/napi-rs/compare/napi-v3.5.2...napi-v3.6.0) - 2025-12-02
+
+### Added
+
+- *(napi-derive)* add tracing feature for debug logging NAPI function calls ([#3041](https://github.com/napi-rs/napi-rs/pull/3041))
+- *(napi)* add node_api_create_object_with_properties support for enum creation ([#2990](https://github.com/napi-rs/napi-rs/pull/2990))
+
+### Fixed
+
+- *(napi)* bigInt comparison ([#3039](https://github.com/napi-rs/napi-rs/pull/3039))
+- *(napi)* shutdown runtime at env cleanup on windows ([#3026](https://github.com/napi-rs/napi-rs/pull/3026))
+
+### Other
+
+- *(napi)* add back pub NODE_VERSION_* ([#3046](https://github.com/napi-rs/napi-rs/pull/3046))
+- *(sys)* add back non dyn-symbols behavior ([#3045](https://github.com/napi-rs/napi-rs/pull/3045))
+- *(napi)* add Eq and PartialEq trait to BigInt ([#3033](https://github.com/napi-rs/napi-rs/pull/3033))
+- update MSRV in README.md ([#3023](https://github.com/napi-rs/napi-rs/pull/3023))
+
 ## [3.5.2](https://github.com/napi-rs/napi-rs/compare/napi-v3.5.1...napi-v3.5.2) - 2025-11-10
 
 ### Other
