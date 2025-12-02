@@ -479,10 +479,17 @@ fn handle_option_type(
   is_return_ty: bool,
 ) -> Option<(String, bool)> {
   args.first().map(|(arg, _)| {
+    if is_struct_field {
+      return (arg.to_string(), true);
+    };
+    let is_arg_callback = arg.contains("=>");
+    let arg = if is_arg_callback {
+      format!("({arg})")
+    } else {
+      arg.clone()
+    };
     (
-      if is_struct_field {
-        arg.to_string()
-      } else if is_return_ty {
+      if is_return_ty {
         format!("{arg} | null")
       } else {
         format!("{arg} | undefined | null")
