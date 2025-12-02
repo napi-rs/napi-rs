@@ -806,6 +806,7 @@ module.exports.mutateOptionalExternal = nativeBinding.mutateOptionalExternal
 module.exports.mutateTypedArray = nativeBinding.mutateTypedArray
 module.exports.objectGetNamedPropertyShouldPerformTypecheck = nativeBinding.objectGetNamedPropertyShouldPerformTypecheck
 module.exports.objectWithCApis = nativeBinding.objectWithCApis
+module.exports.optionalCallbackTypes = nativeBinding.optionalCallbackTypes
 module.exports.optionEnd = nativeBinding.optionEnd
 module.exports.optionOnly = nativeBinding.optionOnly
 module.exports.optionStart = nativeBinding.optionStart

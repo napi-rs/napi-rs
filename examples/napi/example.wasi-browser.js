@@ -297,6 +297,7 @@ export const mutateOptionalExternal = __napiModule.exports.mutateOptionalExterna
 export const mutateTypedArray = __napiModule.exports.mutateTypedArray
 export const objectGetNamedPropertyShouldPerformTypecheck = __napiModule.exports.objectGetNamedPropertyShouldPerformTypecheck
 export const objectWithCApis = __napiModule.exports.objectWithCApis
+export const optionalCallbackTypes = __napiModule.exports.optionalCallbackTypes
 export const optionEnd = __napiModule.exports.optionEnd
 export const optionOnly = __napiModule.exports.optionOnly
 export const optionStart = __napiModule.exports.optionStart

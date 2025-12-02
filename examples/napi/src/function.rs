@@ -1,6 +1,6 @@
 use napi::{
   bindgen_prelude::{ClassInstance, FnArgs, Function, FunctionRef, PromiseRaw},
-  threadsafe_function::ThreadsafeFunctionCallMode,
+  threadsafe_function::{ThreadsafeFunctionCallMode, UnknownReturnValue},
   Env, Error, Result, Status,
 };
 
@@ -147,4 +147,14 @@ pub fn create_function<'env>(env: &'env Env) -> Result<Function<'env, u32, u32>>
 #[napi(no_export)]
 pub fn no_export_function(input: u32) -> u32 {
   input + 200
+}
+
+#[napi]
+pub fn optional_callback_types(
+  callback: Option<Function<String, UnknownReturnValue>>,
+) -> Result<()> {
+  if let Some(callback) = callback {
+    callback.call("Hello".to_owned())?;
+  }
+  Ok(())
 }

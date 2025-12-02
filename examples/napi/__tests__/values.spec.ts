@@ -291,6 +291,7 @@ import {
   intoUtf8,
   withAbortSignalHandle,
   createI32ArrayFromExternal,
+  optionalCallbackTypes,
 } from '../index.cjs'
 // import other stuff in `#[napi(module_exports)]`
 import nativeAddon from '../index.cjs'
@@ -532,6 +533,9 @@ test('function call', async (t) => {
   )
   const fn = createFunction()
   t.is(fn(42), 242)
+  // Verify the generated types
+  t.notThrows(() => optionalCallbackTypes())
+  t.notThrows(() => optionalCallbackTypes((arg) => arg))
 })
 
 test('class', (t) => {
