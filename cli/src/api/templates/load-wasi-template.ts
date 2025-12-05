@@ -144,7 +144,7 @@ const __wasmDebugFilePath = __nodePath.join(__dirname, '${wasmFileName}.debug.wa
 if (__nodeFs.existsSync(__wasmDebugFilePath)) {
   __wasmFilePath = __wasmDebugFilePath
 } else if (!__nodeFs.existsSync(__wasmFilePath)) {
-  __wasmFilePath = __nodePath.resolve('node_modules/${packageName}-wasm32-wasi/${wasmFileName}.debug.wasm')
+  __wasmFilePath = __nodePath.resolve('node_modules/${packageName}-wasm32-wasi/${wasmFileName}.wasm')
 }
 
 const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule } = __emnapiInstantiateNapiModuleSync(__nodeFs.readFileSync(__wasmFilePath), {
