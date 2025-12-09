@@ -328,6 +328,14 @@ impl<'env> ArrayBuffer<'env> {
     })?;
     Ok(is_detached)
   }
+
+  /// # Safety
+  ///
+  /// This is literally undefined behavior, as the JS side may always modify the underlying buffer,
+  /// without synchronization.
+  pub unsafe fn as_mut(&mut self) -> &mut [u8] {
+    std::slice::from_raw_parts_mut(self.data.as_ptr() as *mut u8, self.data.len())
+  }
 }
 
 #[derive(Clone, Copy)]

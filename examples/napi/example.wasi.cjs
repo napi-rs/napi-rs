@@ -339,6 +339,7 @@ module.exports.KindInValidate = __napiModule.exports.KindInValidate
 module.exports.listObjKeys = __napiModule.exports.listObjKeys
 module.exports.mapOption = __napiModule.exports.mapOption
 module.exports.mergeTupleArray = __napiModule.exports.mergeTupleArray
+module.exports.mutateArraybuffer = __napiModule.exports.mutateArraybuffer
 module.exports.mutateExternal = __napiModule.exports.mutateExternal
 module.exports.mutateOptionalExternal = __napiModule.exports.mutateOptionalExternal
 module.exports.mutateTypedArray = __napiModule.exports.mutateTypedArray

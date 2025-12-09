@@ -294,6 +294,7 @@ export const KindInValidate = __napiModule.exports.KindInValidate
 export const listObjKeys = __napiModule.exports.listObjKeys
 export const mapOption = __napiModule.exports.mapOption
 export const mergeTupleArray = __napiModule.exports.mergeTupleArray
+export const mutateArraybuffer = __napiModule.exports.mutateArraybuffer
 export const mutateExternal = __napiModule.exports.mutateExternal
 export const mutateOptionalExternal = __napiModule.exports.mutateOptionalExternal
 export const mutateTypedArray = __napiModule.exports.mutateTypedArray
