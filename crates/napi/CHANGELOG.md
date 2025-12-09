@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.7.0](https://github.com/napi-rs/napi-rs/compare/napi-v3.6.1...napi-v3.7.0) - 2025-12-09
+
+### Added
+
+- *(napi)* provide unsafe as_mut on ArrayBuffer ([#3055](https://github.com/napi-rs/napi-rs/pull/3055))
+- *(napi)* support Promise.resolve/reject ([#3053](https://github.com/napi-rs/napi-rs/pull/3053))
+
 ## [3.6.1](https://github.com/napi-rs/napi-rs/compare/napi-v3.6.0...napi-v3.6.1) - 2025-12-02
 
 ### Other
