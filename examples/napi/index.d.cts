@@ -848,6 +848,8 @@ export interface Meta {
   merge: boolean
 }
 
+export declare function mutateArraybuffer(buf: ArrayBuffer): void
+
 export declare function mutateExternal(external: ExternalObject<number>, newVal: number): void
 
 export declare function mutateOptionalExternal(external: ExternalObject<number> | undefined | null, newVal: number): void

@@ -142,6 +142,7 @@ import {
   convertU32Array,
   createExternalTypedArray,
   mutateTypedArray,
+  mutateArraybuffer,
   receiveAllOptionalObject,
   objectGetNamedPropertyShouldPerformTypecheck,
   fnReceivedAliased,
@@ -1289,6 +1290,22 @@ test('mutate TypedArray', (t) => {
   const input = new Float32Array([1, 2, 3, 4, 5])
   mutateTypedArray(input)
   t.deepEqual(input, new Float32Array([2.0, 4.0, 6.0, 8.0, 10.0]))
+})
+
+test('mutate ArrayBuffer', (t) => {
+  if (process.env.WASI_TEST) {
+    t.pass()
+    return
+  }
+  const input = new ArrayBuffer(5)
+  const view = new Uint8Array(input)
+  view[0] = 1
+  view[1] = 2
+  view[2] = 3
+  view[3] = 4
+  view[4] = 5
+  mutateArraybuffer(input)
+  t.deepEqual(view, new Uint8Array([2, 4, 6, 8, 10]))
 })
 
 test('deref uint8 array', (t) => {
