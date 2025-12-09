@@ -144,7 +144,11 @@ const __wasmDebugFilePath = __nodePath.join(__dirname, '${wasmFileName}.debug.wa
 if (__nodeFs.existsSync(__wasmDebugFilePath)) {
   __wasmFilePath = __wasmDebugFilePath
 } else if (!__nodeFs.existsSync(__wasmFilePath)) {
-  __wasmFilePath = __nodePath.resolve('node_modules/${packageName}-wasm32-wasi/${wasmFileName}.wasm')
+  try {
+    __wasmFilePath = __nodePath.resolve(require.resolve('${packageName}-wasm32-wasi'), '${packageName}-wasm32-wasi/${wasmFileName}.wasm');
+  } catch {
+    throw new Error('Cannot find ${wasmFileName}.wasm file, and ${packageName}-wasm32-wasi package is not installed.')
+  }
 }
 
 const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule } = __emnapiInstantiateNapiModuleSync(__nodeFs.readFileSync(__wasmFilePath), {
