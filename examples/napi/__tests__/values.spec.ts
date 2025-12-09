@@ -225,6 +225,8 @@ import {
   callThenOnPromise,
   callCatchOnPromise,
   callFinallyOnPromise,
+  createResolvedPromise,
+  createRejectedPromise,
   StructuredKind,
   validateStructuredEnum,
   StructuredKindLowercase,
@@ -831,6 +833,17 @@ test('promise', async (t) => {
   const spy = Sinon.spy()
   await callFinallyOnPromise(Promise.resolve(1), spy)
   t.true(spy.calledOnce)
+})
+
+test('PromiseRaw::resolve', async (t) => {
+  const result = await createResolvedPromise(42)
+  t.is(result, 42)
+})
+
+test('PromiseRaw::reject', async (t) => {
+  await t.throwsAsync(() => createRejectedPromise('test error message'), {
+    message: 'test error message',
+  })
 })
 
 test('object', (t) => {
