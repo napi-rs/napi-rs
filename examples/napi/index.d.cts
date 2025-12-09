@@ -605,6 +605,10 @@ export declare function createReadableStreamFromClass(readableStreamClass: typeo
 
 export declare function createReferenceOnFunction(cb: () => void): Promise<void>
 
+export declare function createRejectedPromise(message: string): Promise<number>
+
+export declare function createResolvedPromise(value: number): Promise<number>
+
 export declare function createStaticLatin1String(): string
 
 export declare function createStaticUtf16String(): string

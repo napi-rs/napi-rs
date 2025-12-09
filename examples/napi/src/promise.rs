@@ -1,4 +1,4 @@
-use napi::{bindgen_prelude::*, JsString};
+use napi::{bindgen_prelude::*, Error, JsString};
 
 #[napi]
 pub async fn async_plus_100(p: Promise<u32>) -> Result<u32> {
@@ -55,4 +55,17 @@ pub fn promise_raw_return_class_instance<'env>(
   env.spawn_future_with_callback(async move { Ok(ClassReturnInPromise {}) }, |_env, _val| {
     Ok(ClassReturnInPromise {})
   })
+}
+
+#[napi]
+pub fn create_resolved_promise<'env>(env: &'env Env, value: u32) -> Result<PromiseRaw<'env, u32>> {
+  PromiseRaw::resolve(env, value)
+}
+
+#[napi]
+pub fn create_rejected_promise<'env>(
+  env: &'env Env,
+  message: String,
+) -> Result<PromiseRaw<'env, u32>> {
+  PromiseRaw::reject(env, Error::from_reason(message))
 }
