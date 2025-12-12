@@ -21,7 +21,7 @@ use syn::parse::{Parse, ParseStream, Result as SynResult};
 use syn::spanned::Spanned;
 use syn::{
   AngleBracketedGenericArguments, Attribute, ExprLit, GenericArgument, Meta, PatType, Path,
-  PathArguments, PathSegment, Signature, Type, Visibility,
+  PathArguments, PathSegment, Signature, Token, Type, Visibility,
 };
 
 use crate::parser::attrs::{check_recorded_struct_for_impl, record_struct};
@@ -620,7 +620,7 @@ fn napi_fn_from_decl(
           }
         } else {
           let ty = replace_self(p.ty.as_ref().clone(), parent);
-          p.ty = Box::new(ty);
+          *p.ty = ty;
           Some(NapiFnArg {
             kind: NapiFnArgKind::PatType(Box::new(p.clone())),
             ts_arg_type,
