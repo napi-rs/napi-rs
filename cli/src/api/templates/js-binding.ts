@@ -143,22 +143,24 @@ function requireNative() {
     }
   } else if (process.platform === 'win32') {
     if (process.arch === 'x64') {
-      if (process.config?.variables?.shlib_suffix === 'dll.a' || process.config?.variables?.node_target_type === 'shared_library' || process.config?.variables?.shlib_suffix === 'so') {
-        if (process.env.MSYSTEM === 'CLANG64') {
-          ${requireTuple('win32-x64-gnullvm')}
-        } else {
-          ${requireTuple('win32-x64-gnu')}
-        }
+      if (process.config?.variables?.shlib_suffix === 'so') {
+        ${requireTuple('win32-x64-msvc', 10)}
+        ${requireTuple('win32-x64-gnu', 10)}
+      } else if (process.config?.variables?.shlib_suffix === 'dll.a' || process.config?.variables?.node_target_type === 'shared_library') {
+        ${requireTuple('win32-x64-gnu', 10)}
       } else {
-        ${requireTuple('win32-x64-msvc')}
+        ${requireTuple('win32-x64-msvc', 10)}
       }
     } else if (process.arch === 'ia32') {
       ${requireTuple('win32-ia32-msvc')}
     } else if (process.arch === 'arm64') {
-      if (process.config?.variables?.shlib_suffix === 'dll.a' || process.config?.variables?.node_target_type === 'shared_library' || process.config?.variables?.shlib_suffix === 'so') {
-        ${requireTuple('win32-arm64-gnullvm')}
+      if (process.config?.variables?.shlib_suffix === 'so') {
+        ${requireTuple('win32-arm64-msvc', 10)}
+        ${requireTuple('win32-arm64-gnullvm', 10)}
+      } else if (process.config?.variables?.shlib_suffix === 'dll.a' || process.config?.variables?.node_target_type === 'shared_library') {
+        ${requireTuple('win32-arm64-gnullvm', 10)}
       } else {
-        ${requireTuple('win32-arm64-msvc')}
+        ${requireTuple('win32-arm64-msvc', 10)}
       }
     } else {
       loadErrors.push(new Error(\`Unsupported architecture on Windows: \${process.arch}\`))
