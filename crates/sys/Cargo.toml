@@ -9,11 +9,11 @@ name = "napi-sys"
 readme = "README.md"
 repository = "https://github.com/napi-rs/napi-rs"
 rust-version.workspace = true
-version = "3.1.1"
+version = "3.2.1"
 
 [features]
 default = ["dyn-symbols"]
-dyn-symbols = ["dep:libloading"]
+dyn-symbols = []
 experimental = []
 napi1 = []
 napi2 = ["napi1"]
@@ -30,4 +30,4 @@ napi10 = ["napi9"]
 independent = true
 
 [dependencies]
-libloading = { version = "0.9", optional = true }
+libloading = { version = "0.9" }

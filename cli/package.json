@@ -1,6 +1,6 @@
 {
   "name": "@napi-rs/cli",
-  "version": "3.4.1",
+  "version": "3.5.0",
   "description": "Cli tools for napi-rs",
   "author": "LongYinan <lynweklm@gmail.com>",
   "homepage": "https://github.com/napi-rs/napi-rs",
@@ -75,7 +75,7 @@
   },
   "devDependencies": {
     "@emnapi/runtime": "^1.7.1",
-    "@oxc-node/core": "^0.0.34",
+    "@oxc-node/core": "^0.0.35",
     "@std/toml": "npm:@jsr/std__toml@^1.0.11",
     "@types/inquirer": "^9.0.9",
     "@types/js-yaml": "^4.0.9",
@@ -85,7 +85,7 @@
     "empathic": "^2.0.0",
     "env-paths": "^3.0.0",
     "prettier": "^3.6.2",
-    "tsdown": "^0.16.1",
+    "tsdown": "^0.17.0",
     "tslib": "^2.8.1",
     "typescript": "^5.9.3"
   },

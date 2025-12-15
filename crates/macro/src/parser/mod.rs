@@ -21,7 +21,7 @@ use syn::parse::{Parse, ParseStream, Result as SynResult};
 use syn::spanned::Spanned;
 use syn::{
   AngleBracketedGenericArguments, Attribute, ExprLit, GenericArgument, Meta, PatType, Path,
-  PathArguments, PathSegment, Signature, Type, Visibility,
+  PathArguments, PathSegment, Signature, Token, Type, Visibility,
 };
 
 use crate::parser::attrs::{check_recorded_struct_for_impl, record_struct};
@@ -576,6 +576,7 @@ fn napi_fn_from_decl(
   attrs: Vec<Attribute>,
   vis: Visibility,
   parent: Option<&Ident>,
+  parent_js_name: Option<String>,
 ) -> BindgenResult<NapiFn> {
   let mut errors = vec![];
 
@@ -619,7 +620,7 @@ fn napi_fn_from_decl(
           }
         } else {
           let ty = replace_self(p.ty.as_ref().clone(), parent);
-          p.ty = Box::new(ty);
+          *p.ty = ty;
           Some(NapiFnArg {
             kind: NapiFnArgKind::PatType(Box::new(p.clone())),
             ts_arg_type,
@@ -871,6 +872,7 @@ fn napi_fn_from_decl(
       kind,
       fn_self,
       parent: parent.cloned(),
+      parent_js_name,
       comments: extract_doc_comments(&attrs),
       attrs,
       strict: opts.strict().is_some(),
@@ -1147,6 +1149,7 @@ impl ConvertToAST for syn::ItemFn {
       opts,
       self.attrs.clone(),
       self.vis.clone(),
+      None,
       None,
     )?;
 
@@ -1477,6 +1480,7 @@ impl ConvertToAST for syn::ItemImpl {
           method.attrs.clone(),
           vis,
           Some(&struct_name),
+          Some(struct_js_name.clone()),
         )?;
 
         items.push(func);

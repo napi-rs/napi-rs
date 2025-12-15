@@ -142,6 +142,7 @@ import {
   convertU32Array,
   createExternalTypedArray,
   mutateTypedArray,
+  mutateArraybuffer,
   receiveAllOptionalObject,
   objectGetNamedPropertyShouldPerformTypecheck,
   fnReceivedAliased,
@@ -225,6 +226,8 @@ import {
   callThenOnPromise,
   callCatchOnPromise,
   callFinallyOnPromise,
+  createResolvedPromise,
+  createRejectedPromise,
   StructuredKind,
   validateStructuredEnum,
   StructuredKindLowercase,
@@ -291,6 +294,7 @@ import {
   intoUtf8,
   withAbortSignalHandle,
   createI32ArrayFromExternal,
+  optionalCallbackTypes,
 } from '../index.cjs'
 // import other stuff in `#[napi(module_exports)]`
 import nativeAddon from '../index.cjs'
@@ -532,6 +536,9 @@ test('function call', async (t) => {
   )
   const fn = createFunction()
   t.is(fn(42), 242)
+  // Verify the generated types
+  t.notThrows(() => optionalCallbackTypes())
+  t.notThrows(() => optionalCallbackTypes((arg) => arg))
 })
 
 test('class', (t) => {
@@ -827,6 +834,17 @@ test('promise', async (t) => {
   const spy = Sinon.spy()
   await callFinallyOnPromise(Promise.resolve(1), spy)
   t.true(spy.calledOnce)
+})
+
+test('PromiseRaw::resolve', async (t) => {
+  const result = await createResolvedPromise(42)
+  t.is(result, 42)
+})
+
+test('PromiseRaw::reject', async (t) => {
+  await t.throwsAsync(() => createRejectedPromise('test error message'), {
+    message: 'test error message',
+  })
 })
 
 test('object', (t) => {
@@ -1272,6 +1290,22 @@ test('mutate TypedArray', (t) => {
   const input = new Float32Array([1, 2, 3, 4, 5])
   mutateTypedArray(input)
   t.deepEqual(input, new Float32Array([2.0, 4.0, 6.0, 8.0, 10.0]))
+})
+
+test('mutate ArrayBuffer', (t) => {
+  if (process.env.WASI_TEST) {
+    t.pass()
+    return
+  }
+  const input = new ArrayBuffer(5)
+  const view = new Uint8Array(input)
+  view[0] = 1
+  view[1] = 2
+  view[2] = 3
+  view[3] = 4
+  view[4] = 5
+  mutateArraybuffer(input)
+  t.deepEqual(view, new Uint8Array([2, 4, 6, 8, 10]))
 })
 
 test('deref uint8 array', (t) => {

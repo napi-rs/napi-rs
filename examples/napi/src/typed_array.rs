@@ -306,3 +306,10 @@ pub fn create_i32_array_from_external(env: &Env) -> Result<Int32ArraySlice<'_>> 
 pub fn accept_untyped_typed_array(input: TypedArray) -> usize {
   input.arraybuffer.len()
 }
+
+#[napi]
+pub fn mutate_arraybuffer(mut buf: ArrayBuffer) {
+  for item in unsafe { buf.as_mut() } {
+    *item *= 2;
+  }
+}

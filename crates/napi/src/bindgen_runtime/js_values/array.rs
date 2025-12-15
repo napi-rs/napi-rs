@@ -347,7 +347,7 @@ macro_rules! tuple_from_napi_value {
             format!("Array length < {}",$total).to_owned(),
         ));
       }
-      Ok(($(arr_get!(arr,$n,err)),+))
+      Ok(($(arr_get!(arr,$n,err),)+))
     }
   }
 }

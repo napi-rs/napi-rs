@@ -4,8 +4,6 @@ mod expand;
 #[cfg(not(feature = "noop"))]
 mod parser;
 
-#[macro_use]
-extern crate syn;
 #[cfg(not(feature = "noop"))]
 #[macro_use]
 extern crate napi_derive_backend;
@@ -15,9 +13,9 @@ extern crate quote;
 use std::env;
 
 use proc_macro::TokenStream;
-use syn::ItemFn;
 #[cfg(feature = "compat-mode")]
-use syn::{fold::Fold, parse_macro_input};
+use syn::fold::Fold;
+use syn::{parse_macro_input, ItemFn};
 
 /// ```ignore
 /// #[napi]

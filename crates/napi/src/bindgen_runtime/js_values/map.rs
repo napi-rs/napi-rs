@@ -23,6 +23,7 @@ where
   K: AsRef<str>,
   V: ToNapiValue,
 {
+  #[cfg(not(feature = "noop"))]
   unsafe fn to_napi_value(raw_env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     let env = Env::from(raw_env);
     #[cfg_attr(feature = "napi10", allow(unused_mut))]
@@ -30,14 +31,16 @@ where
     #[cfg(all(
       feature = "napi10",
       feature = "node_version_detect",
-      feature = "dyn-symbols"
+      feature = "dyn-symbols",
+      not(feature = "noop"),
     ))]
     let node_version = NODE_VERSION.get().unwrap();
     for (k, v) in val.into_iter() {
       #[cfg(all(
         feature = "napi10",
         feature = "node_version_detect",
-        feature = "dyn-symbols"
+        feature = "dyn-symbols",
+        not(feature = "noop"),
       ))]
       {
         if node_version.major >= 20 && node_version.minor >= 18 {
@@ -55,6 +58,11 @@ where
     }
 
     unsafe { Object::to_napi_value(raw_env, obj) }
+  }
+
+  #[cfg(feature = "noop")]
+  unsafe fn to_napi_value(_env: sys::napi_env, _val: Self) -> Result<sys::napi_value> {
+    unimplemented!("HashMap is not supported in noop mode");
   }
 }
 
@@ -95,6 +103,7 @@ where
   K: AsRef<str>,
   V: ToNapiValue,
 {
+  #[cfg(not(feature = "noop"))]
   unsafe fn to_napi_value(raw_env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     let env = Env::from(raw_env);
     #[cfg_attr(feature = "napi10", allow(unused_mut))]
@@ -102,14 +111,16 @@ where
     #[cfg(all(
       feature = "napi10",
       feature = "node_version_detect",
-      feature = "dyn-symbols"
+      feature = "dyn-symbols",
+      not(feature = "noop"),
     ))]
     let node_version = NODE_VERSION.get().unwrap();
     for (k, v) in val.into_iter() {
       #[cfg(all(
         feature = "napi10",
         feature = "node_version_detect",
-        feature = "dyn-symbols"
+        feature = "dyn-symbols",
+        not(feature = "noop"),
       ))]
       {
         if node_version.major >= 20 && node_version.minor >= 18 {
@@ -127,6 +138,11 @@ where
     }
 
     unsafe { Object::to_napi_value(raw_env, obj) }
+  }
+
+  #[cfg(feature = "noop")]
+  unsafe fn to_napi_value(_env: sys::napi_env, _val: Self) -> Result<sys::napi_value> {
+    unimplemented!("BTreeMap is not supported in noop mode");
   }
 }
 
@@ -169,6 +185,7 @@ where
   V: ToNapiValue,
   S: Default + BuildHasher,
 {
+  #[cfg(not(feature = "noop"))]
   unsafe fn to_napi_value(raw_env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     let env = Env::from(raw_env);
     #[cfg_attr(feature = "napi10", allow(unused_mut))]
@@ -176,14 +193,16 @@ where
     #[cfg(all(
       feature = "napi10",
       feature = "node_version_detect",
-      feature = "dyn-symbols"
+      feature = "dyn-symbols",
+      not(feature = "noop"),
     ))]
     let node_version = NODE_VERSION.get().unwrap();
     for (k, v) in val.into_iter() {
       #[cfg(all(
         feature = "napi10",
         feature = "node_version_detect",
-        feature = "dyn-symbols"
+        feature = "dyn-symbols",
+        not(feature = "noop"),
       ))]
       {
         if node_version.major >= 20 && node_version.minor >= 18 {
@@ -201,6 +220,11 @@ where
     }
 
     unsafe { Object::to_napi_value(raw_env, obj) }
+  }
+
+  #[cfg(feature = "noop")]
+  unsafe fn to_napi_value(_env: sys::napi_env, _val: Self) -> Result<sys::napi_value> {
+    unimplemented!("BTreeMap is not supported in noop mode");
   }
 }
 
@@ -227,7 +251,8 @@ where
 #[cfg(all(
   feature = "napi10",
   feature = "node_version_detect",
-  feature = "dyn-symbols"
+  feature = "dyn-symbols",
+  not(feature = "noop"),
 ))]
 fn fast_set_property<K: AsRef<str>, V: ToNapiValue>(
   raw_env: sys::napi_env,

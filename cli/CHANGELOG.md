@@ -3,6 +3,21 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.5.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.4.1...@napi-rs/cli@3.5.0) (2025-12-02)
+
+### Bug Fixes
+
+- **cli:** use jsPackageName from cli options ([#3035](https://github.com/napi-rs/napi-rs/issues/3035)) ([94a6d37](https://github.com/napi-rs/napi-rs/commit/94a6d37436fbae2caca67f773e8706354b3f16d9))
+- **deps:** update dependency @inquirer/prompts to v8 ([#3020](https://github.com/napi-rs/napi-rs/issues/3020)) ([3d23d7d](https://github.com/napi-rs/napi-rs/commit/3d23d7d53f896d449d59d61cc495c5f79532cb7c))
+
+### Features
+
+- **napi:** add node_api_create_object_with_properties support for enum creation ([#2990](https://github.com/napi-rs/napi-rs/issues/2990)) ([e4f5360](https://github.com/napi-rs/napi-rs/commit/e4f5360dcd7cfc5241c3bae3b46b9ae844ebf147))
+
+### Performance Improvements
+
+- **cli:** replace debug with obug ([#3019](https://github.com/napi-rs/napi-rs/issues/3019)) ([f70331b](https://github.com/napi-rs/napi-rs/commit/f70331b08eb6d73d5315f0567bc76154e20521fb))
+
 ## [3.4.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.4.0...@napi-rs/cli@3.4.1) (2025-10-24)
 
 ### Bug Fixes

@@ -8,7 +8,7 @@
 ///     a.get_u128().1 + b.get_u128().1 // We have opportunity to check if the `u128` has lost precision
 /// }
 /// ```
-use std::ptr;
+use std::{cmp::max, ptr};
 
 use crate::{check_status, sys};
 
@@ -21,11 +21,22 @@ pub struct i64n(pub i64);
 
 /// <https://nodejs.org/api/n-api.html#napi_create_bigint_words>
 /// The resulting BigInt is calculated as: (–1)^sign_bit (words\[0\] × (2^64)^0 + words\[1\] × (2^64)^1 + …)
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Eq)]
 pub struct BigInt {
   /// true for negative numbers
   pub sign_bit: bool,
   pub words: Vec<u64>,
+}
+
+impl PartialEq for BigInt {
+  fn eq(&self, other: &Self) -> bool {
+    for i in 0..max(self.words.len(), other.words.len()) {
+      if self.words.get(i).unwrap_or(&0) != other.words.get(i).unwrap_or(&0) {
+        return false;
+      }
+    }
+    self.sign_bit == other.sign_bit
+  }
 }
 
 impl TypeName for BigInt {
@@ -330,4 +341,20 @@ impl From<u128> for BigInt {
       words: vec![val as _, (val >> 64) as _],
     }
   }
+}
+
+#[test]
+fn test_bigint_comparison() {
+  assert_eq!(BigInt::from(1_i64), BigInt::from(1_i64));
+  assert_eq!(BigInt::from(1_i64), BigInt::from(1_i128));
+  assert_eq!(BigInt::from(1_i64), BigInt::from(1_u128));
+  assert_eq!(BigInt::from(1_i64), BigInt::from(1_u64));
+
+  assert_eq!(BigInt::from(-1_i64), BigInt::from(-1_i128));
+
+  assert_ne!(BigInt::from(1_i64), BigInt::from(-1_i128));
+  assert_ne!(BigInt::from(1_i64), BigInt::from(2_i64));
+
+  assert_eq!(BigInt::from(i128::MAX), BigInt::from(i128::MAX));
+  assert_ne!(BigInt::from(i64::MAX), BigInt::from(i128::MAX));
 }

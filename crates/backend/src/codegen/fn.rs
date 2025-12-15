@@ -8,6 +8,23 @@ use crate::{
   TYPEDARRAY_SLICE_TYPES,
 };
 
+#[cfg(feature = "tracing")]
+fn gen_tracing_debug(js_name: &str, parent_js_name: Option<&String>) -> TokenStream {
+  let full_name = if let Some(parent) = parent_js_name {
+    format!("{}::{}", parent, js_name)
+  } else {
+    js_name.to_string()
+  };
+  quote! {
+    napi::bindgen_prelude::tracing::debug!(target: "napi", "{}", #full_name);
+  }
+}
+
+#[cfg(not(feature = "tracing"))]
+fn gen_tracing_debug(_js_name: &str, _parent_js_name: Option<&String>) -> TokenStream {
+  quote! {}
+}
+
 impl TryToTokens for NapiFn {
   fn try_to_tokens(&self, tokens: &mut TokenStream) -> BindgenResult<()> {
     let name_str = self.name.to_string();
@@ -27,6 +44,7 @@ impl TryToTokens for NapiFn {
     let receiver_ret_name = Ident::new("_ret", Span::call_site());
     let ret = self.gen_fn_return(&receiver_ret_name)?;
     let register = self.gen_fn_register();
+    let tracing_debug = gen_tracing_debug(&self.js_name, self.parent_js_name.as_ref());
 
     if self.module_exports {
       (quote! {
@@ -38,6 +56,7 @@ impl TryToTokens for NapiFn {
           env: napi::bindgen_prelude::sys::napi_env,
           _napi_module_exports_: napi::bindgen_prelude::sys::napi_value,
         ) -> napi::Result<napi::bindgen_prelude::sys::napi_value> {
+          #tracing_debug
           let __wrapped_env = napi::bindgen_prelude::Env::from(env);
           #(#arg_conversions)*
           let #receiver_ret_name = {
@@ -228,6 +247,7 @@ impl TryToTokens for NapiFn {
         env: napi::bindgen_prelude::sys::napi_env,
         cb: napi::bindgen_prelude::sys::napi_callback_info
       ) -> napi::bindgen_prelude::sys::napi_value {
+        #tracing_debug
         unsafe {
           #function_call.unwrap_or_else(|e| {
             napi::bindgen_prelude::JsError::from(e).throw_into(env);

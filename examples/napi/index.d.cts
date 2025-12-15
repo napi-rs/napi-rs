@@ -605,6 +605,10 @@ export declare function createReadableStreamFromClass(readableStreamClass: typeo
 
 export declare function createReferenceOnFunction(cb: () => void): Promise<void>
 
+export declare function createRejectedPromise(message: string): Promise<number>
+
+export declare function createResolvedPromise(value: number): Promise<number>
+
 export declare function createStaticLatin1String(): string
 
 export declare function createStaticUtf16String(): string
@@ -844,6 +848,8 @@ export interface Meta {
   merge: boolean
 }
 
+export declare function mutateArraybuffer(buf: ArrayBuffer): void
+
 export declare function mutateExternal(external: ExternalObject<number>, newVal: number): void
 
 export declare function mutateOptionalExternal(external: ExternalObject<number> | undefined | null, newVal: number): void
@@ -887,6 +893,8 @@ export interface ObjectOnlyToJs {
 }
 
 export declare function objectWithCApis(): object
+
+export declare function optionalCallbackTypes(callback?: ((arg: string) => unknown) | undefined | null): void
 
 export declare function optionEnd(callback: (arg0: string, arg1?: string | undefined | null) => void): void
 

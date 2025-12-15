@@ -45,6 +45,7 @@ macro_rules! either_n {
       where $( $parameter: TypeName + FromNapiValue + ValidateNapiValue ),+
     {
       unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
+        #[allow(unused_assignments)]
         let mut ret = Err(Error::new(Status::InvalidArg, "Invalid value".to_owned()));
         $(
           if unsafe {

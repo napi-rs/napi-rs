@@ -10,7 +10,7 @@ use proc_macro2::{Delimiter, Ident, Span, TokenTree};
 use quote::ToTokens;
 use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
-use syn::Attribute;
+use syn::{parse_quote, Attribute, Token};
 
 use crate::parser::AnyIdent;
 

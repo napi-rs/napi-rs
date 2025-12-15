@@ -17,6 +17,7 @@ pub struct NapiFn {
   pub kind: FnKind,
   pub vis: syn::Visibility,
   pub parent: Option<Ident>,
+  pub parent_js_name: Option<String>,
   pub strict: bool,
   pub return_if_invalid: bool,
   pub js_mod: Option<String>,
