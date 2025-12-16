@@ -1388,7 +1388,7 @@ __metadata:
     obug: "npm:^2.0.0"
     prettier: "npm:^3.6.2"
     semver: "npm:^7.7.3"
-    tsdown: "npm:^0.17.0"
+    tsdown: "npm:^0.18.0"
     tslib: "npm:^2.8.1"
     typanion: "npm:^3.14.0"
     typescript: "npm:^5.9.3"
@@ -2834,13 +2834,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@oxc-project/runtime@npm:^0.101.0":
-  version: 0.101.0
-  resolution: "@oxc-project/runtime@npm:0.101.0"
-  checksum: 10c0/86fd7bb37e94986e7a09bde07a16fa63cebeaada6bcb8963bc07087d54c107d1a128e1c4a5d27b9b593354c092b8976d7653b6700fbb0da0a2b925fb3de4b34c
-  languageName: node
-  linkType: hard
-
 "@oxc-project/types@npm:=0.101.0":
   version: 0.101.0
   resolution: "@oxc-project/types@npm:0.101.0"
@@ -3017,12 +3010,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@quansync/fs@npm:^0.1.5":
-  version: 0.1.5
-  resolution: "@quansync/fs@npm:0.1.5"
+"@quansync/fs@npm:^1.0.0":
+  version: 1.0.0
+  resolution: "@quansync/fs@npm:1.0.0"
   dependencies:
-    quansync: "npm:^0.2.11"
-  checksum: 10c0/c7f8f654499240be450b23c308a484de87bebcd0a0c8291c1afda8908a4aafafe7bc1b50e43bed0ac82ec53712505be2fa71db60e992d9353fd8ac6e664bc157
+    quansync: "npm:^1.0.0"
+  checksum: 10c0/41a7e145d4fc349eaeac20ee7ffe0c876a7c26b2268d5704b462b3e7379091221336e315b2b346d5b07a531502a41cad15c9f374800cc60b6339d074ef99aa16
   languageName: node
   linkType: hard
 
@@ -6092,6 +6085,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"defu@npm:^6.1.4":
+  version: 6.1.4
+  resolution: "defu@npm:6.1.4"
+  checksum: 10c0/2d6cc366262dc0cb8096e429368e44052fdf43ed48e53ad84cc7c9407f890301aa5fcb80d0995abaaf842b3949f154d060be4160f7a46cb2bc2f7726c81526f5
+  languageName: node
+  linkType: hard
+
 "degenerator@npm:^5.0.0":
   version: 5.0.1
   resolution: "degenerator@npm:5.0.1"
@@ -8021,10 +8021,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"import-without-cache@npm:^0.2.2":
-  version: 0.2.2
-  resolution: "import-without-cache@npm:0.2.2"
-  checksum: 10c0/5c3c1ac477f0832aac6762cc64437c985384aae941f077c844dd5586c2dea88a0616592f48f42aa929f1987d2a7662f0927a053e967935c233adfb08cb3a0ad8
+"import-without-cache@npm:^0.2.3":
+  version: 0.2.3
+  resolution: "import-without-cache@npm:0.2.3"
+  checksum: 10c0/29de6707a626647f4fa037a4a730b5105f544cc7da7158ba9735863e6e514d6d48642abd2c0c53e8889cba803343399fc4d5a7a6ba89c30a329ae5b297911663
   languageName: node
   linkType: hard
 
@@ -11200,10 +11200,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"quansync@npm:^0.2.11":
-  version: 0.2.11
-  resolution: "quansync@npm:0.2.11"
-  checksum: 10c0/cb9a1f8ebce074069f2f6a78578873ffedd9de9f6aa212039b44c0870955c04a71c3b1311b5d97f8ac2f2ec476de202d0a5c01160cb12bc0a11b7ef36d22ef56
+"quansync@npm:^1.0.0":
+  version: 1.0.0
+  resolution: "quansync@npm:1.0.0"
+  checksum: 10c0/076542634399a0cc46078baab6b31acee7a88c5a435234345f645aedaa42bc6a63836e655fb39b1b21a83c98ec86a4b73ec5e2b2d6f3fdc22711eeeff9463253
   languageName: node
   linkType: hard
 
@@ -11611,9 +11611,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"rolldown-plugin-dts@npm:^0.18.2":
-  version: 0.18.2
-  resolution: "rolldown-plugin-dts@npm:0.18.2"
+"rolldown-plugin-dts@npm:^0.18.3":
+  version: 0.18.3
+  resolution: "rolldown-plugin-dts@npm:0.18.3"
   dependencies:
     "@babel/generator": "npm:^7.28.5"
     "@babel/parser": "npm:^7.28.5"
@@ -11639,7 +11639,7 @@ __metadata:
       optional: true
     vue-tsc:
       optional: true
-  checksum: 10c0/196688f2d468339f50b639c3a3b5e76267b7c7b23a321776b1bc287562a7e983df548eb0cdb00bd71a545da8c54247a1662fba91ff1b65f4c99ed0e124c47487
+  checksum: 10c0/1e8a86b3532dfd8ba7b76d3c3dbe3e2ac1b1b44ad76ccfda713fdcf3da65b8dd38abca6b04ba76f0419db3dc1cbc67a075a5f0ac7850930461be6caa2f0543de
   languageName: node
   linkType: hard
 
@@ -12900,27 +12900,28 @@ __metadata:
   languageName: node
   linkType: hard
 
-"tsdown@npm:^0.17.0":
-  version: 0.17.0
-  resolution: "tsdown@npm:0.17.0"
+"tsdown@npm:^0.18.0":
+  version: 0.18.0
+  resolution: "tsdown@npm:0.18.0"
   dependencies:
     ansis: "npm:^4.2.0"
     cac: "npm:^6.7.14"
+    defu: "npm:^6.1.4"
     empathic: "npm:^2.0.0"
     hookable: "npm:^5.5.3"
-    import-without-cache: "npm:^0.2.2"
+    import-without-cache: "npm:^0.2.3"
     obug: "npm:^2.1.1"
     rolldown: "npm:1.0.0-beta.53"
-    rolldown-plugin-dts: "npm:^0.18.2"
+    rolldown-plugin-dts: "npm:^0.18.3"
     semver: "npm:^7.7.3"
     tinyexec: "npm:^1.0.2"
     tinyglobby: "npm:^0.2.15"
     tree-kill: "npm:^1.2.2"
-    unconfig-core: "npm:^7.4.1"
-    unrun: "npm:^0.2.16"
+    unconfig-core: "npm:^7.4.2"
+    unrun: "npm:^0.2.19"
   peerDependencies:
     "@arethetypeswrong/core": ^0.18.1
-    "@vitejs/devtools": ^0.0.0-alpha.18
+    "@vitejs/devtools": ^0.0.0-alpha.19
     publint: ^0.3.0
     typescript: ^5.0.0
     unplugin-lightningcss: ^0.4.0
@@ -12940,7 +12941,7 @@ __metadata:
       optional: true
   bin:
     tsdown: dist/run.mjs
-  checksum: 10c0/202591b8104cd368a2a58e6b0d9de970ce37d2d1c446c32333bb3cd2c4c666cc88ab682683190c666213b5770dcd82aea1797ac388d3c419f58424b495bbf3e7
+  checksum: 10c0/c055733b92610c120369ab100a164a00b1d20d194a70c06e4e4a925e66677ad226e0bdf5126857061ebb835b99e5a57e83bf0b3247012892337641dc1ae3723e
   languageName: node
   linkType: hard
 
@@ -13093,13 +13094,13 @@ __metadata:
   languageName: node
   linkType: hard
 
-"unconfig-core@npm:^7.4.1":
-  version: 7.4.1
-  resolution: "unconfig-core@npm:7.4.1"
+"unconfig-core@npm:^7.4.2":
+  version: 7.4.2
+  resolution: "unconfig-core@npm:7.4.2"
   dependencies:
-    "@quansync/fs": "npm:^0.1.5"
-    quansync: "npm:^0.2.11"
-  checksum: 10c0/075b51349836234cf4b1e571d4e78a59f1de27db99bda9952dbe691f1c8aaae68b2ec22243584921403b30406b9bfed1bdd9ca8fcd194bdcefdb19e87e980b38
+    "@quansync/fs": "npm:^1.0.0"
+    quansync: "npm:^1.0.0"
+  checksum: 10c0/12aa85c78114a505fb49adc5fd6c2ce58b1661c517caea7f8943b9f56912634bfd085443a84d7675a0b245598e6220daaff0a69e3dd712819e0d05195fcfb75b
   languageName: node
   linkType: hard
 
@@ -13209,11 +13210,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"unrun@npm:^0.2.16":
-  version: 0.2.16
-  resolution: "unrun@npm:0.2.16"
+"unrun@npm:^0.2.19":
+  version: 0.2.19
+  resolution: "unrun@npm:0.2.19"
   dependencies:
-    "@oxc-project/runtime": "npm:^0.101.0"
     rolldown: "npm:1.0.0-beta.53"
   peerDependencies:
     synckit: ^0.11.11
@@ -13222,7 +13222,7 @@ __metadata:
       optional: true
   bin:
     unrun: dist/cli.mjs
-  checksum: 10c0/8676d5110534d48fe4c8f03b579e53e1b881b4ed273b9ea0d02253487a8a8916b158d81ee7be2fb12b76db89b9a6fc1dcf5ca876c85aad6af4ce477e90728e43
+  checksum: 10c0/3dfc95fbadafcb92787994a12cc854701b4259f7b86c56965c0cd518d864cf29c67df8a80e3399c8dd19fcdd15a2323a0ad2ff616b0676180255206bd6e9cd03
   languageName: node
   linkType: hard
 
