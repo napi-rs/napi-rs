@@ -31,6 +31,12 @@ export declare class Animal {
   set name(name: string)
   get type(): Kind
   set type(kind: Kind)
+  get optionalValue(): number | null
+  /**
+   * This is to test that setter with optional parameter generates valid TypeScript.
+   * TypeScript does not allow optional parameters in setters (TS1051).
+   */
+  set optionalValue(value: number | undefined | null)
   /**
    * This is a
    * multi-line comment
