@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.1](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v4.0.0...napi-derive-backend-v4.0.1) - 2025-12-19
+
+### Fixed
+
+- *(napi-derive)* class setter param can't be optional ([#3066](https://github.com/napi-rs/napi-rs/pull/3066))
+
 ## [4.0.0](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v3.0.2...napi-derive-backend-v4.0.0) - 2025-12-02
 
 ### Added
