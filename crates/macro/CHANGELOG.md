@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.1](https://github.com/napi-rs/napi-rs/compare/napi-derive-v3.4.0...napi-derive-v3.4.1) - 2025-12-19
+
+### Other
+
+- clippy fix for Rust 1.92.0 ([#3058](https://github.com/napi-rs/napi-rs/pull/3058))
+
 ## [3.4.0](https://github.com/napi-rs/napi-rs/compare/napi-derive-v3.3.3...napi-derive-v3.4.0) - 2025-12-02
 
 ### Added

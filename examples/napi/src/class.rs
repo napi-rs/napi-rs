@@ -18,6 +18,8 @@ pub struct Animal {
   pub kind: Kind,
 
   name: String,
+
+  optional_value: Option<i32>,
 }
 
 #[napi]
@@ -25,7 +27,11 @@ impl Animal {
   /// This is the constructor
   #[napi(constructor)]
   pub fn new(kind: Kind, name: String) -> Self {
-    Animal { kind, name }
+    Animal {
+      kind,
+      name,
+      optional_value: None,
+    }
   }
 
   /// This is a factory method
@@ -34,6 +40,7 @@ impl Animal {
     Animal {
       kind,
       name: "Default".to_owned(),
+      optional_value: None,
     }
   }
 
@@ -55,6 +62,18 @@ impl Animal {
   #[napi(setter, js_name = "type")]
   pub fn set_kind(&mut self, kind: Kind) {
     self.kind = kind;
+  }
+
+  #[napi(getter)]
+  pub fn get_optional_value(&self) -> Option<i32> {
+    self.optional_value
+  }
+
+  /// This is to test that setter with optional parameter generates valid TypeScript.
+  /// TypeScript does not allow optional parameters in setters (TS1051).
+  #[napi(setter)]
+  pub fn set_optional_value(&mut self, value: Option<i32>) {
+    self.optional_value = value;
   }
 
   /// This is a
@@ -486,6 +505,7 @@ impl<'scope> ClassWithLifetime<'scope> {
     let instance = Animal {
       kind: Kind::Cat,
       name: "alie".to_owned(),
+      optional_value: None,
     }
     .into_instance(env)?;
     let inner = instance.assign_to_this("inner", &mut this)?;

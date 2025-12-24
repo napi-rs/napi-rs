@@ -198,6 +198,8 @@ export async function readNapiConfig(
         `Both napi field in ${pkgJsonPath} and [NAPI-RS config](${configPathUnderline}) file are found, the NAPI-RS config file will be used.`,
       ),
     )
+  }
+  if (separatedConfig) {
     Object.assign(userNapiConfig, separatedConfig)
   }
   const napiConfig: NapiConfig = merge(

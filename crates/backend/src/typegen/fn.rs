@@ -17,6 +17,14 @@ pub(crate) struct FnArgList {
   this: Option<FnArg>,
   args: Vec<FnArg>,
   last_required: Option<usize>,
+  is_setter: bool,
+}
+
+impl FnArgList {
+  fn with_setter_context(mut self, is_setter: bool) -> Self {
+    self.is_setter = is_setter;
+    self
+  }
 }
 
 impl Display for FnArgList {
@@ -28,7 +36,9 @@ impl Display for FnArgList {
       if i != 0 || self.this.is_some() {
         write!(f, ", ")?;
       }
-      let is_optional = arg.is_optional
+      // For setters, never mark parameter as optional (TS1051: A 'set' accessor cannot have an optional parameter)
+      let is_optional = !self.is_setter
+        && arg.is_optional
         && self
           .last_required
           .is_none_or(|last_required| i > last_required);
@@ -62,6 +72,7 @@ impl FromIterator<FnArg> for FnArgList {
       this,
       args,
       last_required,
+      is_setter: false,
     }
   }
 }
@@ -279,6 +290,7 @@ impl NapiFn {
           }
         })
         .collect::<FnArgList>()
+        .with_setter_context(matches!(self.kind, FnKind::Setter))
     )
   }
 
