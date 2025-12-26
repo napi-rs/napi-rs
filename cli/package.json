@@ -3,7 +3,7 @@
   "version": "3.5.0",
   "description": "Cli tools for napi-rs",
   "author": "LongYinan <lynweklm@gmail.com>",
-  "homepage": "https://github.com/napi-rs/napi-rs",
+  "homepage": "https://napi.rs/",
   "license": "MIT",
   "type": "module",
   "engines": {
