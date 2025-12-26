@@ -51,6 +51,10 @@
     "build": "rollup -c rollup.config.js",
     "test": "node --test"
   },
+  "funding": {
+    "type": "github",
+    "url": "https://github.com/sponsors/Brooooooklyn"
+  },
   "exports": {
     ".": {
       "import": "./runtime.js",
