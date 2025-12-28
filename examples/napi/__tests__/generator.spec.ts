@@ -140,10 +140,26 @@ test('async generator should support return()', async (t) => {
   t.deepEqual(await iter.return?.(), { value: undefined, done: true })
 })
 
+test('async generator should support throw()', async (t) => {
+  if (typeof AsyncFib === 'undefined') {
+    t.pass(
+      'AsyncFib is not available (tokio_rt feature not enabled), skipping test',
+    )
+    return
+  }
+  const fib = new AsyncFib()
+  const iter = fib[Symbol.asyncIterator]()
+  t.deepEqual(await iter.next(), { value: 1, done: false })
+  // throw() should reject with the error passed to it
+  await t.throwsAsync(() => iter.throw!(new Error('test error')))
+})
+
 // Truly async generator tests - these use actual async delays
 test('DelayedCounter should yield values with real async delays', async (t) => {
   if (typeof DelayedCounter === 'undefined') {
-    t.pass('DelayedCounter is not available, skipping test')
+    t.pass(
+      'DelayedCounter is not available (tokio_rt feature not enabled), skipping test',
+    )
     return
   }
 
@@ -165,7 +181,9 @@ test('DelayedCounter should yield values with real async delays', async (t) => {
 
 test('DelayedCounter should complete and return done:true', async (t) => {
   if (typeof DelayedCounter === 'undefined') {
-    t.pass('DelayedCounter is not available, skipping test')
+    t.pass(
+      'DelayedCounter is not available (tokio_rt feature not enabled), skipping test',
+    )
     return
   }
 
@@ -176,11 +194,15 @@ test('DelayedCounter should complete and return done:true', async (t) => {
   t.deepEqual(await iter.next(), { value: 1, done: false })
   // After max is reached, should return done: true
   t.deepEqual(await iter.next(), { value: undefined, done: true })
+  // Verify idempotency: subsequent calls should continue returning done: true
+  t.deepEqual(await iter.next(), { value: undefined, done: true })
 })
 
 test('AsyncDataSource should yield string items with async delays', async (t) => {
   if (typeof AsyncDataSource === 'undefined') {
-    t.pass('AsyncDataSource is not available, skipping test')
+    t.pass(
+      'AsyncDataSource is not available (tokio_rt feature not enabled), skipping test',
+    )
     return
   }
 
@@ -202,7 +224,9 @@ test('AsyncDataSource should yield string items with async delays', async (t) =>
 
 test('AsyncDataSource factory pattern should work', async (t) => {
   if (typeof AsyncDataSource === 'undefined') {
-    t.pass('AsyncDataSource is not available, skipping test')
+    t.pass(
+      'AsyncDataSource is not available (tokio_rt feature not enabled), skipping test',
+    )
     return
   }
 
@@ -216,7 +240,9 @@ test('AsyncDataSource factory pattern should work', async (t) => {
 
 test('async generators should run concurrently', async (t) => {
   if (typeof DelayedCounter === 'undefined') {
-    t.pass('DelayedCounter is not available, skipping test')
+    t.pass(
+      'DelayedCounter is not available (tokio_rt feature not enabled), skipping test',
+    )
     return
   }
 

@@ -409,7 +409,11 @@ impl NapiStruct {
     if !class.implement_async_iterator {
       return quote! {};
     }
-    // Note: create_async_iterator is NOT unsafe, unlike create_iterator
+    // Note: `create_async_iterator` is NOT unsafe, unlike `create_iterator`.
+    // `create_iterator` is unsafe because `ScopedGenerator<'a>` has a lifetime parameter,
+    // requiring the caller to uphold lifetime invariants. `create_async_iterator` uses
+    // `AsyncGenerator` whose Future must be `Send + 'static`, so all data is owned and
+    // no lifetime invariants need to be upheld by the caller.
     quote! {
       napi::__private::create_async_iterator::<#name>(env, instance_value, wrapped_value);
     }

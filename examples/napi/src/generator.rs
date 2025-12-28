@@ -145,7 +145,9 @@ impl<'a> ScopedGenerator<'a> for Fib4 {
   }
 }
 
-// Async iterator example - basic (wraps sync in async)
+// Async iterator example - demonstrates the async generator pattern.
+// This example computes Fibonacci synchronously but returns via an async block,
+// showing the basic structure needed for AsyncGenerator implementations.
 #[napi(async_iterator)]
 pub struct AsyncFib {
   current: u32,
@@ -162,7 +164,11 @@ impl AsyncGenerator for AsyncFib {
     &mut self,
     value: Option<Self::Next>,
   ) -> impl Future<Output = Result<Option<Self::Yield>>> + Send + 'static {
-    // Must capture state before async block due to 'static requirement
+    // The returned Future must be 'static, so we cannot borrow `self` in the async block.
+    // Instead, we compute the result synchronously here, update `self`, and capture
+    // only the computed value in the async block. This is safe because:
+    // 1. All mutations to `self` complete before creating the Future
+    // 2. The async block only captures `result` (an owned value), not `self`
     let result = match value {
       Some(n) => {
         self.current = n as u32;
@@ -177,7 +183,6 @@ impl AsyncGenerator for AsyncFib {
         self.current
       }
     };
-    // Return captured value in async block
     async move { Ok(Some(result)) }
   }
 }

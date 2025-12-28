@@ -1264,7 +1264,9 @@ impl ConvertToAST for syn::ItemStruct {
     if implement_iterator && implement_async_iterator {
       bail_span!(
         self,
-        "Cannot use both #[napi(iterator)] and #[napi(async_iterator)] on the same struct"
+        "Cannot use both #[napi(iterator)] and #[napi(async_iterator)] on the same struct. \
+         Use #[napi(iterator)] for synchronous iteration (impl Generator) or \
+         #[napi(async_iterator)] for async iteration (impl AsyncGenerator)"
       );
     }
 
