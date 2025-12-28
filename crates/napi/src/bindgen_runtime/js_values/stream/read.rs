@@ -793,7 +793,7 @@ fn pull_callback_impl<
     },
     move |env, val| {
       // Use inner closure to ensure FunctionRef cleanup on all paths (including errors)
-      let result = (|| {
+      let result = {
         if let Some(val) = val {
           let enqueue_fn = controller.enqueue.borrow_back(env)?;
           enqueue_fn.call(val)?;
@@ -814,7 +814,7 @@ fn pull_callback_impl<
           }
         }
         Ok::<(), Error>(())
-      })();
+      };
       // Always clean up FunctionRefs regardless of success/failure
       drop(controller.enqueue);
       drop(controller.close);
@@ -883,7 +883,7 @@ fn pull_callback_impl_bytes<
     },
     move |env, val| {
       // Use inner closure to ensure FunctionRef cleanup on all paths (including errors)
-      let result = (|| {
+      let result = {
         if let Some(val) = val {
           let enqueue_fn = controller.enqueue.borrow_back(env)?;
           enqueue_fn.call(BufferSlice::from_data(env, val)?)?;
@@ -900,7 +900,7 @@ fn pull_callback_impl_bytes<
           }
         }
         Ok::<(), Error>(())
-      })();
+      };
       // Always clean up FunctionRefs regardless of success/failure
       drop(controller.enqueue);
       drop(controller.close);
