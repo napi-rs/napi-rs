@@ -57,6 +57,48 @@ pub fn create_readable_stream(env: &Env) -> Result<ReadableStream<'_, BufferSlic
   ReadableStream::create_with_stream_bytes(env, ReceiverStream::new(rx))
 }
 
+/// Nested metadata for demonstrating object streaming with complex types
+#[napi(object)]
+#[derive(Default)]
+pub struct NestedMetadata {
+  pub hello: String,
+}
+
+/// Example struct demonstrating object streaming with nested types
+#[napi(object)]
+#[derive(Default)]
+pub struct StreamItem {
+  pub something: NestedMetadata,
+  pub name: String,
+  pub size: i32,
+}
+
+/// Creates a ReadableStream that emits StreamItem objects.
+/// This demonstrates streaming custom Rust structs to JavaScript.
+#[napi]
+pub fn create_readable_stream_with_object(env: &Env) -> Result<ReadableStream<'_, StreamItem>> {
+  let (tx, rx) = tokio::sync::mpsc::channel(100);
+  std::thread::spawn(move || {
+    for i in 0..100 {
+      let item = StreamItem {
+        something: Default::default(),
+        name: Default::default(),
+        size: i,
+      };
+      match tx.try_send(Ok(item)) {
+        Err(TrySendError::Closed(_)) => {
+          panic!("closed");
+        }
+        Err(TrySendError::Full(_)) => {
+          panic!("queue is full");
+        }
+        Ok(_) => {}
+      }
+    }
+  });
+  ReadableStream::new(env, ReceiverStream::new(rx))
+}
+
 #[napi(ts_args_type = "readableStreamClass: typeof ReadableStream")]
 pub fn create_readable_stream_from_class<'env>(
   env: &Env,

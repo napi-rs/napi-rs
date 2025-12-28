@@ -255,6 +255,7 @@ import {
   callRuleHandler,
   acceptStream,
   createReadableStream,
+  createReadableStreamWithObject,
   createReadableStreamFromClass,
   spawnThreadInThread,
   esmResolve,
@@ -2048,6 +2049,58 @@ test('create readable stream from channel', async (t) => {
     chunksFromClass.push(chunk)
   }
   t.is(Buffer.concat(chunksFromClass).toString('utf-8'), 'hello'.repeat(100))
+})
+
+test('create readable stream from channel with object', async (t) => {
+  if (process.env.WASI_TEST) {
+    t.pass(
+      'Skip when WASI because ReadableStream controller.enqueue does not accept SharedArrayBuffer',
+    )
+    return
+  }
+  const stream = await createReadableStreamWithObject()
+  const chunks = []
+  for await (const chunk of stream) {
+    chunks.push(chunk)
+  }
+
+  t.is(chunks.length, 100)
+
+  chunks.forEach((chunk, index) => {
+    t.truthy(chunk?.something, `Element ${index} doesn't have chunk.something`)
+    t.is(chunk.something.hello, '', `Element ${index} hello is an empty string`)
+    t.is(chunk.name, '', `Element ${index} name is not an empty string`)
+    t.is(chunk.size, index, `Element ${index} size has to be ${index}`)
+  })
+})
+
+test('readable stream cancellation should cleanup resources', async (t) => {
+  if (process.env.WASI_TEST) {
+    t.pass(
+      'Skip when WASI because ReadableStream controller.enqueue does not accept SharedArrayBuffer',
+    )
+    return
+  }
+  const stream = await createReadableStreamWithObject()
+  const reader = stream.getReader()
+
+  // Read a couple items
+  const first = await reader.read()
+  t.false(first.done)
+  t.is(first.value?.size, 0)
+
+  const second = await reader.read()
+  t.false(second.done)
+  t.is(second.value?.size, 1)
+
+  // Cancel early - this should trigger the cancel callback and cleanup resources
+  await t.notThrowsAsync(async () => {
+    await reader.cancel('user cancelled')
+  })
+
+  // Subsequent reads should return done
+  const afterCancel = await reader.read()
+  t.true(afterCancel.done)
 })
 
 test('spawnThreadInThread should be fine', async (t) => {

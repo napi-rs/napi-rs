@@ -644,6 +644,12 @@ export declare function createReadableStream(): ReadableStream<Buffer>
 
 export declare function createReadableStreamFromClass(readableStreamClass: typeof ReadableStream): ReadableStream<Buffer>
 
+/**
+ * Creates a ReadableStream that emits StreamItem objects.
+ * This demonstrates streaming custom Rust structs to JavaScript.
+ */
+export declare function createReadableStreamWithObject(): ReadableStream<StreamItem>
+
 export declare function createReferenceOnFunction(cb: () => void): Promise<void>
 
 export declare function createRejectedPromise(message: string): Promise<number>
@@ -903,6 +909,11 @@ export type MyPromise =
 export type MyVec =
   Array<number | string>
 
+/** Nested metadata for demonstrating object streaming with complex types */
+export interface NestedMetadata {
+  hello: string
+}
+
 export interface NotUseNullableStruct {
   requiredNumberField: number
   requiredStringField: string
@@ -1106,6 +1117,13 @@ export declare const enum StatusInValidate {
   Poll = 'Poll',
   Ready = 'Ready',
   Done = 'Done'
+}
+
+/** Example struct demonstrating object streaming with nested types */
+export interface StreamItem {
+  something: NestedMetadata
+  name: string
+  size: number
 }
 
 export interface StrictObject {
