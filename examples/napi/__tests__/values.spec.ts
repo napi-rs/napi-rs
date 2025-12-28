@@ -2067,7 +2067,7 @@ test('create readable stream from channel with object', async (t) => {
   t.is(chunks.length, 100)
 
   chunks.forEach((chunk, index) => {
-    t.truthy(chunk?.something, `Element ${index} doesnt have chunk.something`)
+    t.truthy(chunk?.something, `Element ${index} doesn't have chunk.something`)
     t.is(chunk.something.hello, '', `Element ${index} hello is an empty string`)
     t.is(chunk.name, '', `Element ${index} name is not an empty string`)
     t.is(chunk.size, index, `Element ${index} size has to be ${index}`)
