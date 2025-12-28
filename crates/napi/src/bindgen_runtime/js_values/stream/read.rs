@@ -628,10 +628,13 @@ impl<T: FromNapiValue + 'static> futures_core::Stream for Reader<T> {
 
 /// Shared state for ReadableStream that coordinates between pull and cancel callbacks.
 /// Uses Arc to share ownership between callbacks, Mutex to protect the stream,
-/// and AtomicBool for lock-free cancellation checks.
+/// and AtomicBool flags for lock-free cancellation and cleanup coordination.
 struct StreamState<S> {
   stream: Mutex<Option<Pin<Box<S>>>>,
   cancelled: AtomicBool,
+  /// Tracks whether cleanup has been performed to prevent double-free.
+  /// Only one of cancel or pull (on stream end) should perform final Arc cleanup.
+  cleanup_done: AtomicBool,
 }
 
 impl<S> StreamState<S> {
@@ -639,7 +642,17 @@ impl<S> StreamState<S> {
     Arc::new(Self {
       stream: Mutex::new(Some(Box::pin(stream))),
       cancelled: AtomicBool::new(false),
+      cleanup_done: AtomicBool::new(false),
     })
+  }
+
+  /// Attempts to claim cleanup responsibility. Returns true if this caller
+  /// should perform the final Arc cleanup (consume the raw pointer).
+  fn try_claim_cleanup(&self) -> bool {
+    self
+      .cleanup_done
+      .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+      .is_ok()
   }
 }
 
@@ -701,13 +714,28 @@ extern "C" fn cancel_callback<S>(
     );
   }
   if !data.is_null() {
-    // Get the Arc<StreamState> and mark as cancelled
-    let state = unsafe { Arc::from_raw(data.cast::<StreamState<S>>()) };
+    // Borrow the Arc<StreamState> temporarily (increment ref count first)
+    let state = unsafe {
+      Arc::increment_strong_count(data.cast::<StreamState<S>>());
+      Arc::from_raw(data.cast::<StreamState<S>>())
+    };
+
+    // Mark as cancelled so pull callback knows to stop
     state.cancelled.store(true, Ordering::SeqCst);
-    // Take and drop the stream to free resources (use blocking_lock in sync context)
-    let _ = state.stream.blocking_lock().take();
-    // Don't drop the Arc here - it will be cleaned up when the stream ends or is GC'd
-    std::mem::forget(state);
+
+    // Try to take the stream - use try_lock to avoid blocking the event loop.
+    // If we can't get the lock (pull is in progress), that's fine - pull will
+    // see the cancelled flag and handle cleanup.
+    if let Ok(mut guard) = state.stream.try_lock() {
+      let _ = guard.take();
+    }
+
+    // Try to claim cleanup responsibility for the original Arc
+    if state.try_claim_cleanup() {
+      // We're responsible for cleaning up - consume the original Arc
+      drop(unsafe { Arc::from_raw(data.cast::<StreamState<S>>()) });
+    }
+    // The borrowed Arc (state) drops here, decrementing ref count
   }
   ptr::null_mut()
 }
@@ -762,18 +790,29 @@ fn pull_callback_impl<
       }
     },
     move |env, val| {
-      if let Some(val) = val {
-        let enqueue_fn = controller.enqueue.borrow_back(env)?;
-        enqueue_fn.call(val)?;
-      } else {
-        let close_fn = controller.close.borrow_back(env)?;
-        close_fn.call(())?;
-        // Stream ended - take and drop the stream
-        let _ = state.stream.blocking_lock().take();
-      }
+      // Use inner closure to ensure FunctionRef cleanup on all paths (including errors)
+      let result = (|| {
+        if let Some(val) = val {
+          let enqueue_fn = controller.enqueue.borrow_back(env)?;
+          enqueue_fn.call(val)?;
+        } else {
+          let close_fn = controller.close.borrow_back(env)?;
+          close_fn.call(())?;
+          // Stream ended - try to take the stream (use try_lock to avoid blocking)
+          if let Ok(mut guard) = state.stream.try_lock() {
+            let _ = guard.take();
+          }
+          // Try to claim cleanup responsibility for the original Arc
+          if state.try_claim_cleanup() {
+            drop(unsafe { Arc::from_raw(data.cast::<StreamState<S>>()) });
+          }
+        }
+        Ok::<(), Error>(())
+      })();
+      // Always clean up FunctionRefs regardless of success/failure
       drop(controller.enqueue);
       drop(controller.close);
-      Ok(())
+      result
     },
   )?;
   Ok(promise.inner)
@@ -833,18 +872,29 @@ fn pull_callback_impl_bytes<
       }
     },
     move |env, val| {
-      if let Some(val) = val {
-        let enqueue_fn = controller.enqueue.borrow_back(env)?;
-        enqueue_fn.call(BufferSlice::from_data(env, val)?)?;
-      } else {
-        let close_fn = controller.close.borrow_back(env)?;
-        close_fn.call(())?;
-        // Stream ended - take and drop the stream
-        let _ = state.stream.blocking_lock().take();
-      }
+      // Use inner closure to ensure FunctionRef cleanup on all paths (including errors)
+      let result = (|| {
+        if let Some(val) = val {
+          let enqueue_fn = controller.enqueue.borrow_back(env)?;
+          enqueue_fn.call(BufferSlice::from_data(env, val)?)?;
+        } else {
+          let close_fn = controller.close.borrow_back(env)?;
+          close_fn.call(())?;
+          // Stream ended - try to take the stream (use try_lock to avoid blocking)
+          if let Ok(mut guard) = state.stream.try_lock() {
+            let _ = guard.take();
+          }
+          // Try to claim cleanup responsibility for the original Arc
+          if state.try_claim_cleanup() {
+            drop(unsafe { Arc::from_raw(data.cast::<StreamState<S>>()) });
+          }
+        }
+        Ok::<(), Error>(())
+      })();
+      // Always clean up FunctionRefs regardless of success/failure
       drop(controller.enqueue);
       drop(controller.close);
-      Ok(())
+      result
     },
   )?;
   Ok(promise.inner)
