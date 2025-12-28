@@ -831,7 +831,11 @@ fn pull_callback_impl<
     move |env, val| {
       // Use inner closure to ensure FunctionRef cleanup on all paths (including errors)
       let result = {
-        if let Some(val) = val {
+        // Re-check cancelled flag after async work completes to prevent
+        // enqueueing if cancel was called while waiting for the next item
+        if state.cancelled.load(Ordering::SeqCst) {
+          // Stream was cancelled while waiting - skip enqueue and close
+        } else if let Some(val) = val {
           let enqueue_fn = controller.enqueue.borrow_back(env)?;
           enqueue_fn.call(val)?;
         } else {
@@ -912,7 +916,11 @@ fn pull_callback_impl_bytes<
     move |env, val| {
       // Use inner closure to ensure FunctionRef cleanup on all paths (including errors)
       let result = {
-        if let Some(val) = val {
+        // Re-check cancelled flag after async work completes to prevent
+        // enqueueing if cancel was called while waiting for the next item
+        if state.cancelled.load(Ordering::SeqCst) {
+          // Stream was cancelled while waiting - skip enqueue and close
+        } else if let Some(val) = val {
           let enqueue_fn = controller.enqueue.borrow_back(env)?;
           enqueue_fn.call(BufferSlice::from_data(env, val)?)?;
         } else {
