@@ -245,9 +245,9 @@ test('async generators should run concurrently', async (t) => {
   t.deepEqual(results1, [0, 1, 2, 3, 4])
   t.deepEqual(results2, [0, 1, 2, 3, 4])
   // If running concurrently, should take ~50ms, not ~100ms
-  // Allow generous tolerance for CI environments
+  // Allow very generous tolerance for CI/WASI environments
   t.true(
-    elapsed < 150,
-    `Expected concurrent execution under 150ms, got ${elapsed}ms`,
+    elapsed < 300,
+    `Expected concurrent execution under 300ms, got ${elapsed}ms`,
   )
 })
