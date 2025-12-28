@@ -28,6 +28,15 @@ impl ToTypeDef for NapiStruct {
 "@see https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-6.html#iterator-helper-methods", ];
       js_doc.add_block(generator_doc)
     }
+    if self.is_async_generator {
+      let generator_doc = [
+        "This type implements JavaScript's async iterable protocol.",
+        "It can be used with `for await...of` loops.",
+        "",
+        "@see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_async_iterator_and_async_iterable_protocols",
+      ];
+      js_doc.add_block(generator_doc)
+    }
 
     Some(TypeDef {
       kind: String::from(match self.kind {
@@ -84,6 +93,37 @@ impl ToTypeDef for NapiImpl {
           ty_to_ts_type(output_type, false, true, false).0,
           return_type,
           next_type,
+        ),
+        js_mod: self.js_mod.to_owned(),
+        js_doc: JSDoc::new::<Vec<String>, String>(Vec::default()),
+      })
+    } else if let Some(output_type) = &self.async_iterator_yield_type {
+      let yield_type = ty_to_ts_type(output_type, false, true, false).0;
+      let next_type = if let Some(ref ty) = self.async_iterator_next_type {
+        let ty_str = ty_to_ts_type(ty, false, false, false).0;
+        // Make TNext accept undefined so `for await...of` works (it calls next() with no args)
+        if ty_str == "void" || ty_str == "undefined" {
+          "undefined".to_owned()
+        } else {
+          format!("{} | undefined", ty_str)
+        }
+      } else {
+        "undefined".to_owned()
+      };
+      let return_type = if let Some(ref ty) = self.async_iterator_return_type {
+        ty_to_ts_type(ty, false, false, false).0
+      } else {
+        "void".to_owned()
+      };
+      // Use "impl" kind to add the [Symbol.asyncIterator]() method to the class
+      // instead of "extends AsyncGenerator" which is not valid TypeScript
+      Some(TypeDef {
+        kind: "impl".to_owned(),
+        name: self.js_name.to_owned(),
+        original_name: None,
+        def: format!(
+          "[Symbol.asyncIterator](): AsyncGenerator<{}, {}, {}>",
+          yield_type, return_type, next_type,
         ),
         js_mod: self.js_mod.to_owned(),
         js_doc: JSDoc::new::<Vec<String>, String>(Vec::default()),

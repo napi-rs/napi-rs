@@ -71,6 +71,7 @@ macro_rules! attrgen {
       (custom_finalize, CustomFinalize(Span)),
       (namespace, Namespace(Span, String, Span)),
       (iterator, Iterator(Span)),
+      (async_iterator, AsyncIterator(Span)),
       (ts_args_type, TsArgsType(Span, String, Span)),
       (ts_return_type, TsReturnType(Span, String, Span)),
       (ts_type, TsType(Span, String, Span)),

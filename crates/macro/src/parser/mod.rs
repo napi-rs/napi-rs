@@ -26,7 +26,8 @@ use syn::{
 
 use crate::parser::attrs::{check_recorded_struct_for_impl, record_struct};
 
-static GENERATOR_STRUCT: OnceLock<Mutex<HashMap<String, bool>>> = OnceLock::new();
+/// Stores (is_sync_generator, is_async_generator) for each struct
+static GENERATOR_STRUCT: OnceLock<Mutex<HashMap<String, (bool, bool)>>> = OnceLock::new();
 
 static REGISTER_INDEX: AtomicUsize = AtomicUsize::new(0);
 
@@ -831,7 +832,7 @@ fn napi_fn_from_decl(
     };
 
     let namespace = opts.namespace().map(|(m, _)| m.to_owned());
-    let parent_is_generator = if let Some(p) = parent {
+    let (parent_is_generator, parent_is_async_generator) = if let Some(p) = parent {
       let generator_struct = GENERATOR_STRUCT.get_or_init(|| Mutex::new(HashMap::new()));
       let generator_struct = generator_struct
         .lock()
@@ -841,9 +842,9 @@ fn napi_fn_from_decl(
         .as_ref()
         .map(|n| format!("{n}::{p}"))
         .unwrap_or_else(|| p.to_string());
-      *generator_struct.get(&key).unwrap_or(&false)
+      *generator_struct.get(&key).unwrap_or(&(false, false))
     } else {
-      false
+      (false, false)
     };
 
     let kind = fn_kind(opts);
@@ -884,6 +885,7 @@ fn napi_fn_from_decl(
       ts_return_type: opts.ts_return_type().map(|(m, _)| m.to_owned()),
       skip_typescript: opts.skip_typescript().is_some(),
       parent_is_generator,
+      parent_is_async_generator,
       writable: opts.writable(),
       enumerable: opts.enumerable(),
       configurable: opts.configurable(),
@@ -1257,8 +1259,16 @@ impl ConvertToAST for syn::ItemStruct {
     record_struct(&rust_struct_ident, final_js_name_for_struct.clone(), opts);
     let namespace = opts.namespace().map(|(m, _)| m.to_owned());
     let implement_iterator = opts.iterator().is_some();
+    let implement_async_iterator = opts.async_iterator().is_some();
 
-    if implement_iterator
+    if implement_iterator && implement_async_iterator {
+      bail_span!(
+        self,
+        "Cannot use both #[napi(iterator)] and #[napi(async_iterator)] on the same struct"
+      );
+    }
+
+    if (implement_iterator || implement_async_iterator)
       && self
         .fields
         .iter()
@@ -1281,7 +1291,7 @@ impl ConvertToAST for syn::ItemStruct {
       .as_ref()
       .map(|n| format!("{n}::{rust_struct_ident}"))
       .unwrap_or_else(|| rust_struct_ident.to_string());
-    generator_struct.insert(key, implement_iterator);
+    generator_struct.insert(key, (implement_iterator, implement_async_iterator));
     drop(generator_struct);
 
     let transparent = opts
@@ -1350,6 +1360,7 @@ impl ConvertToAST for syn::ItemStruct {
         fields,
         ctor: opts.constructor().is_some(),
         implement_iterator,
+        implement_async_iterator,
         is_tuple,
         use_custom_finalize: opts.custom_finalize().is_some(),
       })
@@ -1397,6 +1408,7 @@ impl ConvertToAST for syn::ItemStruct {
         comments: extract_doc_comments(&self.attrs),
         has_lifetime: lifetime.is_some(),
         is_generator: implement_iterator,
+        is_async_generator: implement_async_iterator,
       }),
     })
   }
@@ -1427,6 +1439,9 @@ impl ConvertToAST for syn::ItemImpl {
     let mut iterator_yield_type = None;
     let mut iterator_next_type = None;
     let mut iterator_return_type = None;
+    let mut async_iterator_yield_type = None;
+    let mut async_iterator_next_type = None;
+    let mut async_iterator_return_type = None;
     for item in self.items.iter_mut() {
       if let Some(method) = match item {
         syn::ImplItem::Fn(m) => Some(m),
@@ -1443,6 +1458,16 @@ impl ConvertToAST for syn::ItemImpl {
                     iterator_next_type = Some(m.ty.clone());
                   } else if m.ident == "Return" {
                     iterator_return_type = Some(m.ty.clone());
+                  }
+                }
+              } else if ident == "AsyncGenerator" {
+                if let Type::Path(_) = &m.ty {
+                  if m.ident == "Yield" {
+                    async_iterator_yield_type = Some(m.ty.clone());
+                  } else if m.ident == "Next" {
+                    async_iterator_next_type = Some(m.ty.clone());
+                  } else if m.ident == "Return" {
+                    async_iterator_return_type = Some(m.ty.clone());
                   }
                 }
               }
@@ -1498,6 +1523,9 @@ impl ConvertToAST for syn::ItemImpl {
         iterator_yield_type,
         iterator_next_type,
         iterator_return_type,
+        async_iterator_yield_type,
+        async_iterator_next_type,
+        async_iterator_return_type,
         has_lifetime,
         js_mod: namespace,
         comments: extract_doc_comments(&self.attrs),
@@ -1579,6 +1607,7 @@ impl ConvertToAST for syn::ItemEnum {
           }),
           has_lifetime: false,
           is_generator: false,
+          is_async_generator: false,
         }),
       });
     }

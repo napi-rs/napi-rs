@@ -185,6 +185,9 @@ pub mod __private {
     get_class_constructor, iterator::create_iterator, register_class, ___CALL_FROM_FACTORY,
   };
 
+  #[cfg(feature = "tokio_rt")]
+  pub use crate::bindgen_runtime::async_iterator::create_async_iterator;
+
   use crate::sys;
 
   pub unsafe fn log_js_value<V: AsRef<[sys::napi_value]>>(

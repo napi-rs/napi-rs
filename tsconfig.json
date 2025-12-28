@@ -15,7 +15,7 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "preserveSymlinks": true,
-    "target": "ES2022",
+    "target": "ES2024",
     "sourceMap": true,
     "esModuleInterop": true,
     "stripInternal": true,

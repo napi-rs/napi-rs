@@ -683,6 +683,8 @@ impl NapiFn {
         if self.is_ret_result {
           if self.parent_is_generator {
             Ok(quote! { cb.construct_generator::<false, _>(#js_name, #ret?) })
+          } else if self.parent_is_async_generator {
+            Ok(quote! { cb.construct_async_generator::<false, _>(#js_name, #ret?) })
           } else {
             Ok(quote! {
               match #ret {
@@ -698,6 +700,8 @@ impl NapiFn {
           }
         } else if self.parent_is_generator {
           Ok(quote! { cb.construct_generator::<false, #parent>(#js_name, #ret) })
+        } else if self.parent_is_async_generator {
+          Ok(quote! { cb.construct_async_generator::<false, #parent>(#js_name, #ret) })
         } else {
           Ok(quote! { cb.construct::<false, #parent>(#js_name, #ret) })
         }
@@ -705,6 +709,8 @@ impl NapiFn {
         if self.is_ret_result {
           if self.parent_is_generator {
             Ok(quote! { cb.generator_factory(#js_name, #ret?) })
+          } else if self.parent_is_async_generator {
+            Ok(quote! { cb.async_generator_factory(#js_name, #ret?) })
           } else if self.is_async {
             Ok(quote! { cb.factory(#js_name, #ret) })
           } else {
@@ -722,6 +728,8 @@ impl NapiFn {
           }
         } else if self.parent_is_generator {
           Ok(quote! { cb.generator_factory(#js_name, #ret) })
+        } else if self.parent_is_async_generator {
+          Ok(quote! { cb.async_generator_factory(#js_name, #ret) })
         } else {
           Ok(quote! { cb.factory(#js_name, #ret) })
         }
