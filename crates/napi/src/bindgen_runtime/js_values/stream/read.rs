@@ -267,6 +267,9 @@ impl<T: ToNapiValue + Send + 'static> ReadableStream<'_, T> {
     )?;
     underlying_source.set_named_property("cancel", cancel_fn)?;
 
+    // Register invoke to free the Arc when underlying_source is GC'd
+    register_invoke::<S>(env.raw(), underlying_source.0.value, state_ptr)?;
+
     let mut stream = ptr::null_mut();
     check_status!(
       unsafe {
@@ -344,6 +347,9 @@ impl<T: ToNapiValue + Send + 'static> ReadableStream<'_, T> {
     )?;
     underlying_source.set_named_property("cancel", cancel_fn)?;
 
+    // Register invoke to free the Arc when underlying_source is GC'd
+    register_invoke::<S>(env.raw(), underlying_source.0.value, state_ptr)?;
+
     let mut stream = ptr::null_mut();
     check_status!(
       unsafe {
@@ -416,6 +422,9 @@ impl<'env> ReadableStream<'env, BufferSlice<'env>> {
       "Failed to create cancel function"
     )?;
     underlying_source.set_named_property("cancel", cancel_fn)?;
+
+    // Register invoke to free the Arc when underlying_source is GC'd
+    register_invoke::<S>(env.raw(), underlying_source.0.value, state_ptr)?;
 
     underlying_source.set("type", "bytes")?;
     let mut stream = ptr::null_mut();
@@ -493,6 +502,9 @@ impl<'env> ReadableStream<'env, BufferSlice<'env>> {
       "Failed to create cancel function"
     )?;
     underlying_source.set_named_property("cancel", cancel_fn)?;
+
+    // Register invoke to free the Arc when underlying_source is GC'd
+    register_invoke::<S>(env.raw(), underlying_source.0.value, state_ptr)?;
 
     underlying_source.set("type", "bytes")?;
     let mut stream = ptr::null_mut();
@@ -628,13 +640,16 @@ impl<T: FromNapiValue + 'static> futures_core::Stream for Reader<T> {
 
 /// Shared state for ReadableStream that coordinates between pull and cancel callbacks.
 /// Uses Arc to share ownership between callbacks, Mutex to protect the stream,
-/// and AtomicBool flags for lock-free cancellation and cleanup coordination.
+/// and AtomicBool for lock-free cancellation checks.
+///
+/// Memory management: The Arc is freed by a invoke when the underlying_source
+/// object is garbage collected. Callbacks only "borrow" the Arc using the
+/// increment+from_raw pattern, never freeing it directly. This prevents
+/// use-after-free if cancel_callback is invoked after pull_callback has
+/// already closed the stream.
 struct StreamState<S> {
   stream: Mutex<Option<Pin<Box<S>>>>,
   cancelled: AtomicBool,
-  /// Tracks whether cleanup has been performed to prevent double-free.
-  /// Only one of cancel or pull (on stream end) should perform final Arc cleanup.
-  cleanup_done: AtomicBool,
 }
 
 impl<S> StreamState<S> {
@@ -642,18 +657,44 @@ impl<S> StreamState<S> {
     Arc::new(Self {
       stream: Mutex::new(Some(Box::pin(stream))),
       cancelled: AtomicBool::new(false),
-      cleanup_done: AtomicBool::new(false),
     })
   }
+}
 
-  /// Attempts to claim cleanup responsibility. Returns true if this caller
-  /// should perform the final Arc cleanup (consume the raw pointer).
-  fn try_claim_cleanup(&self) -> bool {
-    self
-      .cleanup_done
-      .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-      .is_ok()
+/// invoke callback that frees the Arc<StreamState> when the underlying_source
+/// object is garbage collected. This is the only place where the Arc is freed,
+/// ensuring that callbacks can safely borrow without risk of use-after-free.
+extern "C" fn invoke<S>(
+  _env: sys::napi_env,
+  finalize_data: *mut c_void,
+  _finalize_hint: *mut c_void,
+) {
+  if !finalize_data.is_null() {
+    // Consume the Arc, dropping it and freeing memory
+    drop(unsafe { Arc::from_raw(finalize_data.cast::<StreamState<S>>()) });
   }
+}
+
+/// Registers a invoke on the underlying_source object that will free the Arc<StreamState>
+/// when the object is garbage collected.
+fn register_invoke<S>(
+  env: sys::napi_env,
+  underlying_source: sys::napi_value,
+  state_ptr: *mut c_void,
+) -> Result<()> {
+  check_status!(
+    unsafe {
+      sys::napi_add_finalizer(
+        env,
+        underlying_source,
+        state_ptr,
+        Some(invoke::<S>),
+        ptr::null_mut(),
+        ptr::null_mut(),
+      )
+    },
+    "Failed to add invoke to underlying source"
+  )
 }
 
 /// Helper struct to extract and bind controller methods from callback info.
@@ -714,8 +755,13 @@ extern "C" fn cancel_callback<S>(
     );
   }
   if !data.is_null() {
-    // Take ownership of the Arc from the raw pointer
-    let state = unsafe { Arc::from_raw(data.cast::<StreamState<S>>()) };
+    // Borrow the Arc using increment+from_raw pattern.
+    // The invoke registered on underlying_source will free the Arc when GC'd.
+    // This prevents use-after-free if cancel is called after stream has closed.
+    let state = unsafe {
+      Arc::increment_strong_count(data.cast::<StreamState<S>>());
+      Arc::from_raw(data.cast::<StreamState<S>>())
+    };
 
     // Mark as cancelled so pull callback knows to stop
     state.cancelled.store(true, Ordering::SeqCst);
@@ -725,15 +771,8 @@ extern "C" fn cancel_callback<S>(
     // see the cancelled flag and handle cleanup.
     if let Ok(mut guard) = state.stream.try_lock() {
       let _ = guard.take();
-    }
-
-    // Try to claim cleanup responsibility
-    if !state.try_claim_cleanup() {
-      // We're not responsible for cleanup, put the Arc back as a raw pointer
-      // for the pull callback to clean up later
-      let _ = Arc::into_raw(state);
-    }
-    // If try_claim_cleanup succeeded, state drops here and cleans up
+    };
+    // Borrowed Arc drops here, decrementing ref count (but not freeing - invoke handles that)
   }
   ptr::null_mut()
 }
@@ -765,10 +804,8 @@ fn pull_callback_impl<
   let (controller, data) = PullController::<T>::from_callback_info(env, info)?;
 
   // Borrow the Arc<StreamState> using the increment+from_raw pattern.
-  // Unlike cancel_callback which takes ownership, pull needs to "borrow" because
-  // multiple pull calls can happen before stream ends. The increment adds a ref
-  // for this pull's use, and from_raw creates an Arc that will decrement when dropped.
-  // The original ref (from initial into_raw) remains valid for future pulls.
+  // The invoke registered on underlying_source will free the Arc when GC'd.
+  // This prevents use-after-free if cancel is called after stream has closed.
   let state = unsafe {
     Arc::increment_strong_count(data.cast::<StreamState<S>>());
     Arc::from_raw(data.cast::<StreamState<S>>())
@@ -800,17 +837,10 @@ fn pull_callback_impl<
         } else {
           let close_fn = controller.close.borrow_back(env)?;
           close_fn.call(())?;
-          // Stream ended - try to take the stream (use try_lock to avoid blocking)
+          // Stream ended - take the inner stream to free resources early
+          // (the Arc itself is freed by the invoke when underlying_source is GC'd)
           if let Ok(mut guard) = state.stream.try_lock() {
             let _ = guard.take();
-          }
-          // Try to claim cleanup responsibility for the original Arc.
-          // The increment+from_raw pattern above created a "borrowed" Arc (state).
-          // To fully clean up, we also need to consume the original Arc that was
-          // created by into_raw during stream setup. This second from_raw consumes
-          // that original ref, while state's drop consumes the incremented ref.
-          if state.try_claim_cleanup() {
-            drop(unsafe { Arc::from_raw(data.cast::<StreamState<S>>()) });
           }
         }
         Ok::<(), Error>(())
@@ -851,10 +881,8 @@ fn pull_callback_impl_bytes<
   let (controller, data) = PullController::<BufferSlice>::from_callback_info(env, info)?;
 
   // Borrow the Arc<StreamState> using the increment+from_raw pattern.
-  // Unlike cancel_callback which takes ownership, pull needs to "borrow" because
-  // multiple pull calls can happen before stream ends. The increment adds a ref
-  // for this pull's use, and from_raw creates an Arc that will decrement when dropped.
-  // The original ref (from initial into_raw) remains valid for future pulls.
+  // The invoke registered on underlying_source will free the Arc when GC'd.
+  // This prevents use-after-free if cancel is called after stream has closed.
   let state = unsafe {
     Arc::increment_strong_count(data.cast::<StreamState<S>>());
     Arc::from_raw(data.cast::<StreamState<S>>())
@@ -890,13 +918,10 @@ fn pull_callback_impl_bytes<
         } else {
           let close_fn = controller.close.borrow_back(env)?;
           close_fn.call(())?;
-          // Stream ended - try to take the stream (use try_lock to avoid blocking)
+          // Stream ended - take the inner stream to free resources early
+          // (the Arc itself is freed by the invoke when underlying_source is GC'd)
           if let Ok(mut guard) = state.stream.try_lock() {
             let _ = guard.take();
-          }
-          // Try to claim cleanup responsibility for the original Arc
-          if state.try_claim_cleanup() {
-            drop(unsafe { Arc::from_raw(data.cast::<StreamState<S>>()) });
           }
         }
         Ok::<(), Error>(())
