@@ -338,15 +338,15 @@ extern "C" fn generator_return<T: AsyncGenerator>(
     }),
     |env, value| {
       let mut obj = Object::new(env)?;
+      // Per async iterator protocol, return() must ALWAYS set done: true
+      // The value (if any) is the final value, but iteration is complete
       if let Some(v) = value {
         obj.set("value", v)?;
-        obj.set("done", false)?;
-        Ok(obj)
       } else {
         obj.set("value", ())?;
-        obj.set("done", true)?;
-        Ok(obj)
       }
+      obj.set("done", true)?;
+      Ok(obj)
     },
   ) {
     Ok(promise) => promise.inner,
