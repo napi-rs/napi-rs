@@ -773,11 +773,6 @@ export declare function fibonacci(n: number): number
 
 export declare function fnReceivedAliased(s: AliasedStruct, e: ALIAS): void
 
-/** Test struct for streaming nested objects */
-export interface Foo {
-  hello: string
-}
-
 export interface FunctionData {
   handle: () => number
 }
@@ -913,6 +908,11 @@ export type MyPromise =
 
 export type MyVec =
   Array<number | string>
+
+/** Nested metadata for demonstrating object streaming with complex types */
+export interface NestedMetadata {
+  hello: string
+}
 
 export interface NotUseNullableStruct {
   requiredNumberField: number
@@ -1121,7 +1121,7 @@ export declare const enum StatusInValidate {
 
 /** Example struct demonstrating object streaming with nested types */
 export interface StreamItem {
-  something: Foo
+  something: NestedMetadata
   name: string
   size: number
 }

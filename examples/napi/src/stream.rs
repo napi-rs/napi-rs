@@ -57,29 +57,20 @@ pub fn create_readable_stream(env: &Env) -> Result<ReadableStream<'_, BufferSlic
   ReadableStream::create_with_stream_bytes(env, ReceiverStream::new(rx))
 }
 
-/// Test struct for streaming nested objects
+/// Nested metadata for demonstrating object streaming with complex types
 #[napi(object)]
 #[derive(Default)]
-pub struct Foo {
+pub struct NestedMetadata {
   pub hello: String,
 }
 
 /// Example struct demonstrating object streaming with nested types
 #[napi(object)]
+#[derive(Default)]
 pub struct StreamItem {
-  pub something: Foo,
+  pub something: NestedMetadata,
   pub name: String,
   pub size: i32,
-}
-
-impl Default for StreamItem {
-  fn default() -> Self {
-    Self {
-      something: Default::default(),
-      name: Default::default(),
-      size: Default::default(),
-    }
-  }
 }
 
 /// Creates a ReadableStream that emits StreamItem objects.
