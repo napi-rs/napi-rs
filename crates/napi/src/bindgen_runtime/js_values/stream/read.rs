@@ -339,7 +339,7 @@ impl<'env> ReadableStream<'env, BufferSlice<'env>> {
       "Failed to create pull function"
     )?;
     underlying_source.set_named_property("pull", pull_fn)?;
-    // underlying_source.set("type", "bytes")?;
+    underlying_source.set("type", "bytes")?;
     let mut stream = ptr::null_mut();
     check_status!(
       unsafe {

@@ -644,6 +644,10 @@ export declare function createReadableStream(): ReadableStream<Buffer>
 
 export declare function createReadableStreamFromClass(readableStreamClass: typeof ReadableStream): ReadableStream<Buffer>
 
+/**
+ * Creates a ReadableStream that emits StreamItem objects.
+ * This demonstrates streaming custom Rust structs to JavaScript.
+ */
 export declare function createReadableStreamWithObject(): ReadableStream<StreamItem>
 
 export declare function createReferenceOnFunction(cb: () => void): Promise<void>
@@ -769,6 +773,7 @@ export declare function fibonacci(n: number): number
 
 export declare function fnReceivedAliased(s: AliasedStruct, e: ALIAS): void
 
+/** Test struct for streaming nested objects */
 export interface Foo {
   hello: string
 }
@@ -1114,6 +1119,7 @@ export declare const enum StatusInValidate {
   Done = 'Done'
 }
 
+/** Example struct demonstrating object streaming with nested types */
 export interface StreamItem {
   something: Foo
   name: string
