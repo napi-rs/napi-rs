@@ -714,11 +714,8 @@ extern "C" fn cancel_callback<S>(
     );
   }
   if !data.is_null() {
-    // Borrow the Arc<StreamState> temporarily (increment ref count first)
-    let state = unsafe {
-      Arc::increment_strong_count(data.cast::<StreamState<S>>());
-      Arc::from_raw(data.cast::<StreamState<S>>())
-    };
+    // Take ownership of the Arc from the raw pointer
+    let state = unsafe { Arc::from_raw(data.cast::<StreamState<S>>()) };
 
     // Mark as cancelled so pull callback knows to stop
     state.cancelled.store(true, Ordering::SeqCst);
@@ -730,12 +727,13 @@ extern "C" fn cancel_callback<S>(
       let _ = guard.take();
     }
 
-    // Try to claim cleanup responsibility for the original Arc
-    if state.try_claim_cleanup() {
-      // We're responsible for cleaning up - consume the original Arc
-      drop(unsafe { Arc::from_raw(data.cast::<StreamState<S>>()) });
+    // Try to claim cleanup responsibility
+    if !state.try_claim_cleanup() {
+      // We're not responsible for cleanup, put the Arc back as a raw pointer
+      // for the pull callback to clean up later
+      let _ = Arc::into_raw(state);
     }
-    // The borrowed Arc (state) drops here, decrementing ref count
+    // If try_claim_cleanup succeeded, state drops here and cleans up
   }
   ptr::null_mut()
 }
@@ -766,7 +764,11 @@ fn pull_callback_impl<
 ) -> Result<sys::napi_value> {
   let (controller, data) = PullController::<T>::from_callback_info(env, info)?;
 
-  // Get the Arc<StreamState> - increment ref count so we don't drop the original
+  // Borrow the Arc<StreamState> using the increment+from_raw pattern.
+  // Unlike cancel_callback which takes ownership, pull needs to "borrow" because
+  // multiple pull calls can happen before stream ends. The increment adds a ref
+  // for this pull's use, and from_raw creates an Arc that will decrement when dropped.
+  // The original ref (from initial into_raw) remains valid for future pulls.
   let state = unsafe {
     Arc::increment_strong_count(data.cast::<StreamState<S>>());
     Arc::from_raw(data.cast::<StreamState<S>>())
@@ -802,7 +804,11 @@ fn pull_callback_impl<
           if let Ok(mut guard) = state.stream.try_lock() {
             let _ = guard.take();
           }
-          // Try to claim cleanup responsibility for the original Arc
+          // Try to claim cleanup responsibility for the original Arc.
+          // The increment+from_raw pattern above created a "borrowed" Arc (state).
+          // To fully clean up, we also need to consume the original Arc that was
+          // created by into_raw during stream setup. This second from_raw consumes
+          // that original ref, while state's drop consumes the incremented ref.
           if state.try_claim_cleanup() {
             drop(unsafe { Arc::from_raw(data.cast::<StreamState<S>>()) });
           }
@@ -844,7 +850,11 @@ fn pull_callback_impl_bytes<
 ) -> Result<sys::napi_value> {
   let (controller, data) = PullController::<BufferSlice>::from_callback_info(env, info)?;
 
-  // Get the Arc<StreamState> - increment ref count so we don't drop the original
+  // Borrow the Arc<StreamState> using the increment+from_raw pattern.
+  // Unlike cancel_callback which takes ownership, pull needs to "borrow" because
+  // multiple pull calls can happen before stream ends. The increment adds a ref
+  // for this pull's use, and from_raw creates an Arc that will decrement when dropped.
+  // The original ref (from initial into_raw) remains valid for future pulls.
   let state = unsafe {
     Arc::increment_strong_count(data.cast::<StreamState<S>>());
     Arc::from_raw(data.cast::<StreamState<S>>())
