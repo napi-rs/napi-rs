@@ -28,6 +28,7 @@ pub struct NapiFn {
   pub skip_typescript: bool,
   pub comments: Vec<String>,
   pub parent_is_generator: bool,
+  pub parent_is_async_generator: bool,
   pub writable: bool,
   pub enumerable: bool,
   pub configurable: bool,
@@ -90,6 +91,7 @@ pub struct NapiStruct {
   pub kind: NapiStructKind,
   pub has_lifetime: bool,
   pub is_generator: bool,
+  pub is_async_generator: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -113,6 +115,7 @@ pub struct NapiClass {
   pub fields: Vec<NapiStructField>,
   pub ctor: bool,
   pub implement_iterator: bool,
+  pub implement_async_iterator: bool,
   pub is_tuple: bool,
   pub use_custom_finalize: bool,
 }
@@ -174,6 +177,9 @@ pub struct NapiImpl {
   pub iterator_yield_type: Option<Type>,
   pub iterator_next_type: Option<Type>,
   pub iterator_return_type: Option<Type>,
+  pub async_iterator_yield_type: Option<Type>,
+  pub async_iterator_next_type: Option<Type>,
+  pub async_iterator_return_type: Option<Type>,
   pub js_mod: Option<String>,
   pub comments: Vec<String>,
   pub register_name: Ident,

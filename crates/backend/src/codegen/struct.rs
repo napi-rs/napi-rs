@@ -284,6 +284,7 @@ impl NapiStruct {
     let js_name_raw = &self.js_name;
     let js_name_str = format!("{js_name_raw}\0");
     let iterator_implementation = self.gen_iterator_property(class, name);
+    let async_iterator_implementation = self.gen_async_iterator_property(class, name);
     let (object_finalize_impl, to_napi_value_impl, javascript_class_ext_impl) = if self.has_lifetime
     {
       let name = quote! { #name<'_javascript_function_scope> };
@@ -321,6 +322,7 @@ impl NapiStruct {
             }
             let instance_value = napi::bindgen_prelude::new_instance::<#name>(env, wrapped_value.cast(), ctor_ref)?;
             #iterator_implementation
+            #async_iterator_implementation
             Ok(instance_value)
           } else {
             Err(napi::bindgen_prelude::Error::new(
@@ -360,6 +362,7 @@ impl NapiStruct {
               {
                 let env = env.raw();
                 #iterator_implementation
+                #async_iterator_implementation
               }
               napi::bindgen_prelude::Reference::<#name>::from_value_ptr(wrapped_value.cast(), env.raw())
             }
@@ -399,6 +402,20 @@ impl NapiStruct {
     }
     quote! {
       unsafe { napi::__private::create_iterator::<#name>(env, instance_value, wrapped_value); }
+    }
+  }
+
+  fn gen_async_iterator_property(&self, class: &NapiClass, name: &Ident) -> TokenStream {
+    if !class.implement_async_iterator {
+      return quote! {};
+    }
+    // Note: `create_async_iterator` is NOT unsafe, unlike `create_iterator`.
+    // `create_iterator` is unsafe because `ScopedGenerator<'a>` has a lifetime parameter,
+    // requiring the caller to uphold lifetime invariants. `create_async_iterator` uses
+    // `AsyncGenerator` whose Future must be `Send + 'static`, so all data is owned and
+    // no lifetime invariants need to be upheld by the caller.
+    quote! {
+      napi::__private::create_async_iterator::<#name>(env, instance_value, wrapped_value);
     }
   }
 

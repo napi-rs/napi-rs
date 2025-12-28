@@ -167,6 +167,33 @@ impl<const N: usize> CallbackInfo<N> {
     Ok(instance)
   }
 
+  #[cfg(feature = "tokio_rt")]
+  pub fn construct_async_generator<
+    const IsEmptyStructHint: bool,
+    T: crate::bindgen_runtime::AsyncGenerator + ObjectFinalize + 'static,
+  >(
+    &self,
+    js_name: &str,
+    obj: T,
+  ) -> Result<sys::napi_value> {
+    let (instance, generator_ptr) = self._construct::<IsEmptyStructHint, T>(js_name, obj)?;
+    crate::__private::create_async_iterator(self.env, instance, generator_ptr);
+    Ok(instance)
+  }
+
+  #[cfg(feature = "tokio_rt")]
+  pub fn async_generator_factory<
+    T: ObjectFinalize + crate::bindgen_runtime::AsyncGenerator + 'static,
+  >(
+    &self,
+    js_name: &str,
+    obj: T,
+  ) -> Result<sys::napi_value> {
+    let (instance, generator_ptr) = self._factory(js_name, obj)?;
+    crate::__private::create_async_iterator(self.env, instance, generator_ptr);
+    Ok(instance)
+  }
+
   fn _factory<T: ObjectFinalize + 'static>(
     &self,
     js_name: &str,
