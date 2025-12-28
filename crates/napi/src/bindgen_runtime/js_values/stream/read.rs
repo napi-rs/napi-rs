@@ -1,4 +1,5 @@
 use std::{
+  ffi::c_void,
   marker::PhantomData,
   mem,
   pin::Pin,
@@ -9,6 +10,8 @@ use std::{
   },
   task::{Context, Poll},
 };
+
+use tokio::sync::Mutex;
 
 use futures_core::Stream;
 use tokio_stream::StreamExt;
@@ -223,7 +226,14 @@ impl<T: ToNapiValue + Send + 'static> ReadableStream<'_, T> {
         "ReadableStream is not supported in this Node.js version",
       ));
     }
+
+    // Create shared state for the stream
+    let state = StreamState::new(inner);
+    let state_ptr = Arc::into_raw(state) as *mut c_void;
+
     let mut underlying_source = Object::new(env)?;
+
+    // Create pull callback
     let mut pull_fn = ptr::null_mut();
     check_status!(
       unsafe {
@@ -232,13 +242,31 @@ impl<T: ToNapiValue + Send + 'static> ReadableStream<'_, T> {
           c"pull".as_ptr().cast(),
           NAPI_AUTO_LENGTH,
           Some(pull_callback::<T, S>),
-          Box::into_raw(Box::new(inner)).cast(),
+          state_ptr,
           &mut pull_fn,
         )
       },
       "Failed to create pull function"
     )?;
     underlying_source.set_named_property("pull", pull_fn)?;
+
+    // Create cancel callback for cleanup
+    let mut cancel_fn = ptr::null_mut();
+    check_status!(
+      unsafe {
+        sys::napi_create_function(
+          env.raw(),
+          c"cancel".as_ptr().cast(),
+          NAPI_AUTO_LENGTH,
+          Some(cancel_callback::<S>),
+          state_ptr,
+          &mut cancel_fn,
+        )
+      },
+      "Failed to create cancel function"
+    )?;
+    underlying_source.set_named_property("cancel", cancel_fn)?;
+
     let mut stream = ptr::null_mut();
     check_status!(
       unsafe {
@@ -275,7 +303,14 @@ impl<T: ToNapiValue + Send + 'static> ReadableStream<'_, T> {
         "ReadableStream is not supported in this Node.js version",
       ));
     }
+
+    // Create shared state for the stream
+    let state = StreamState::new(inner);
+    let state_ptr = Arc::into_raw(state) as *mut c_void;
+
     let mut underlying_source = Object::new(env)?;
+
+    // Create pull callback
     let mut pull_fn = ptr::null_mut();
     check_status!(
       unsafe {
@@ -284,13 +319,31 @@ impl<T: ToNapiValue + Send + 'static> ReadableStream<'_, T> {
           c"pull".as_ptr().cast(),
           NAPI_AUTO_LENGTH,
           Some(pull_callback::<T, S>),
-          Box::into_raw(Box::new(inner)).cast(),
+          state_ptr,
           &mut pull_fn,
         )
       },
       "Failed to create pull function"
     )?;
     underlying_source.set_named_property("pull", pull_fn)?;
+
+    // Create cancel callback for cleanup
+    let mut cancel_fn = ptr::null_mut();
+    check_status!(
+      unsafe {
+        sys::napi_create_function(
+          env.raw(),
+          c"cancel".as_ptr().cast(),
+          NAPI_AUTO_LENGTH,
+          Some(cancel_callback::<S>),
+          state_ptr,
+          &mut cancel_fn,
+        )
+      },
+      "Failed to create cancel function"
+    )?;
+    underlying_source.set_named_property("cancel", cancel_fn)?;
+
     let mut stream = ptr::null_mut();
     check_status!(
       unsafe {
@@ -323,7 +376,14 @@ impl<'env> ReadableStream<'env, BufferSlice<'env>> {
   ) -> Result<Self> {
     let global = env.get_global()?;
     let constructor = global.get_named_property_unchecked::<Function>("ReadableStream")?;
+
+    // Create shared state for the stream
+    let state = StreamState::new(inner);
+    let state_ptr = Arc::into_raw(state) as *mut c_void;
+
     let mut underlying_source = Object::new(env)?;
+
+    // Create pull callback
     let mut pull_fn = ptr::null_mut();
     check_status!(
       unsafe {
@@ -332,13 +392,31 @@ impl<'env> ReadableStream<'env, BufferSlice<'env>> {
           c"pull".as_ptr().cast(),
           NAPI_AUTO_LENGTH,
           Some(pull_callback_bytes::<B, S>),
-          Box::into_raw(Box::new(inner)).cast(),
+          state_ptr,
           &mut pull_fn,
         )
       },
       "Failed to create pull function"
     )?;
     underlying_source.set_named_property("pull", pull_fn)?;
+
+    // Create cancel callback for cleanup
+    let mut cancel_fn = ptr::null_mut();
+    check_status!(
+      unsafe {
+        sys::napi_create_function(
+          env.raw(),
+          c"cancel".as_ptr().cast(),
+          NAPI_AUTO_LENGTH,
+          Some(cancel_callback::<S>),
+          state_ptr,
+          &mut cancel_fn,
+        )
+      },
+      "Failed to create cancel function"
+    )?;
+    underlying_source.set_named_property("cancel", cancel_fn)?;
+
     underlying_source.set("type", "bytes")?;
     let mut stream = ptr::null_mut();
     check_status!(
@@ -375,7 +453,14 @@ impl<'env> ReadableStream<'env, BufferSlice<'env>> {
         "ReadableStream is not supported in this Node.js version",
       ));
     }
+
+    // Create shared state for the stream
+    let state = StreamState::new(inner);
+    let state_ptr = Arc::into_raw(state) as *mut c_void;
+
     let mut underlying_source = Object::new(env)?;
+
+    // Create pull callback
     let mut pull_fn = ptr::null_mut();
     check_status!(
       unsafe {
@@ -384,13 +469,31 @@ impl<'env> ReadableStream<'env, BufferSlice<'env>> {
           c"pull".as_ptr().cast(),
           NAPI_AUTO_LENGTH,
           Some(pull_callback_bytes::<B, S>),
-          Box::into_raw(Box::new(inner)).cast(),
+          state_ptr,
           &mut pull_fn,
         )
       },
       "Failed to create pull function"
     )?;
     underlying_source.set_named_property("pull", pull_fn)?;
+
+    // Create cancel callback for cleanup
+    let mut cancel_fn = ptr::null_mut();
+    check_status!(
+      unsafe {
+        sys::napi_create_function(
+          env.raw(),
+          c"cancel".as_ptr().cast(),
+          NAPI_AUTO_LENGTH,
+          Some(cancel_callback::<S>),
+          state_ptr,
+          &mut cancel_fn,
+        )
+      },
+      "Failed to create cancel function"
+    )?;
+    underlying_source.set_named_property("cancel", cancel_fn)?;
+
     underlying_source.set("type", "bytes")?;
     let mut stream = ptr::null_mut();
     check_status!(
@@ -523,6 +626,92 @@ impl<T: FromNapiValue + 'static> futures_core::Stream for Reader<T> {
   }
 }
 
+/// Shared state for ReadableStream that coordinates between pull and cancel callbacks.
+/// Uses Arc to share ownership between callbacks, Mutex to protect the stream,
+/// and AtomicBool for lock-free cancellation checks.
+struct StreamState<S> {
+  stream: Mutex<Option<Pin<Box<S>>>>,
+  cancelled: AtomicBool,
+}
+
+impl<S> StreamState<S> {
+  fn new(stream: S) -> Arc<Self> {
+    Arc::new(Self {
+      stream: Mutex::new(Some(Box::pin(stream))),
+      cancelled: AtomicBool::new(false),
+    })
+  }
+}
+
+/// Helper struct to extract and bind controller methods from callback info.
+struct PullController<T: ToNapiValue> {
+  enqueue: crate::bindgen_prelude::FunctionRef<T, ()>,
+  close: crate::bindgen_prelude::FunctionRef<(), ()>,
+}
+
+impl<T: ToNapiValue> PullController<T> {
+  fn from_callback_info(
+    env: sys::napi_env,
+    info: sys::napi_callback_info,
+  ) -> Result<(Self, *mut c_void)> {
+    let mut data = ptr::null_mut();
+    let mut argc = 1;
+    let mut args = [ptr::null_mut(); 1];
+    check_status!(
+      unsafe {
+        sys::napi_get_cb_info(
+          env,
+          info,
+          &mut argc,
+          args.as_mut_ptr(),
+          ptr::null_mut(),
+          &mut data,
+        )
+      },
+      "Get ReadableStream.pull callback info failed"
+    )?;
+
+    let controller = unsafe { Object::from_napi_value(env, args[0])? };
+    let enqueue = controller
+      .get_named_property_unchecked::<Function<T, ()>>("enqueue")?
+      .bind(controller)?
+      .create_ref()?;
+    let close = controller
+      .get_named_property_unchecked::<Function<(), ()>>("close")?
+      .bind(controller)?
+      .create_ref()?;
+
+    Ok((Self { enqueue, close }, data))
+  }
+}
+
+extern "C" fn cancel_callback<S>(
+  env: sys::napi_env,
+  info: sys::napi_callback_info,
+) -> sys::napi_value {
+  let mut data = ptr::null_mut();
+  unsafe {
+    sys::napi_get_cb_info(
+      env,
+      info,
+      ptr::null_mut(),
+      ptr::null_mut(),
+      ptr::null_mut(),
+      &mut data,
+    );
+  }
+  if !data.is_null() {
+    // Get the Arc<StreamState> and mark as cancelled
+    let state = unsafe { Arc::from_raw(data.cast::<StreamState<S>>()) };
+    state.cancelled.store(true, Ordering::SeqCst);
+    // Take and drop the stream to free resources (use blocking_lock in sync context)
+    let _ = state.stream.blocking_lock().take();
+    // Don't drop the Arc here - it will be cleaned up when the stream ends or is GC'd
+    std::mem::forget(state);
+  }
+  ptr::null_mut()
+}
+
 extern "C" fn pull_callback<
   T: ToNapiValue + Send + 'static,
   S: Stream<Item = Result<T>> + Unpin + Send + 'static,
@@ -547,50 +736,43 @@ fn pull_callback_impl<
   env: sys::napi_env,
   info: sys::napi_callback_info,
 ) -> Result<sys::napi_value> {
-  let mut data = ptr::null_mut();
-  let mut argc = 1;
-  let mut args = [ptr::null_mut(); 1];
-  check_status!(
-    unsafe {
-      sys::napi_get_cb_info(
-        env,
-        info,
-        &mut argc,
-        args.as_mut_ptr(),
-        ptr::null_mut(),
-        &mut data,
-      )
+  let (controller, data) = PullController::<T>::from_callback_info(env, info)?;
+
+  // Get the Arc<StreamState> - increment ref count so we don't drop the original
+  let state = unsafe {
+    Arc::increment_strong_count(data.cast::<StreamState<S>>());
+    Arc::from_raw(data.cast::<StreamState<S>>())
+  };
+
+  // Check if stream was cancelled
+  if state.cancelled.load(Ordering::SeqCst) {
+    return Ok(ptr::null_mut());
+  }
+
+  let env_wrapper = Env::from_raw(env);
+  let state_for_async = state.clone();
+
+  let promise = env_wrapper.spawn_future_with_callback(
+    async move {
+      let mut guard = state_for_async.stream.lock().await;
+      if let Some(ref mut stream) = *guard {
+        stream.next().await.transpose()
+      } else {
+        Ok(None)
+      }
     },
-    "Get ReadableStream.pull callback info failed"
-  )?;
-
-  let [controller] = args;
-
-  let controller = unsafe { Object::from_napi_value(env, controller)? };
-  let enqueue = controller
-    .get_named_property_unchecked::<Function<T, ()>>("enqueue")?
-    .bind(controller)?
-    .create_ref()?;
-  let close = controller
-    .get_named_property_unchecked::<Function<(), ()>>("close")?
-    .bind(controller)?
-    .create_ref()?;
-
-  let mut stream: Pin<&mut S> = Pin::new(Box::leak(unsafe { Box::from_raw(data.cast()) }));
-  let env = Env::from_raw(env);
-  let promise = env.spawn_future_with_callback(
-    async move { stream.next().await.transpose() },
     move |env, val| {
       if let Some(val) = val {
-        let enqueue_fn = enqueue.borrow_back(env)?;
+        let enqueue_fn = controller.enqueue.borrow_back(env)?;
         enqueue_fn.call(val)?;
       } else {
-        let close_fn = close.borrow_back(env)?;
+        let close_fn = controller.close.borrow_back(env)?;
         close_fn.call(())?;
-        drop(unsafe { Box::from_raw(data.cast::<S>()) });
+        // Stream ended - take and drop the stream
+        let _ = state.stream.blocking_lock().take();
       }
-      drop(enqueue);
-      drop(close);
+      drop(controller.enqueue);
+      drop(controller.close);
       Ok(())
     },
   )?;
@@ -621,55 +803,47 @@ fn pull_callback_impl_bytes<
   env: sys::napi_env,
   info: sys::napi_callback_info,
 ) -> Result<sys::napi_value> {
-  let mut data = ptr::null_mut();
-  let mut argc = 1;
-  let mut args = [ptr::null_mut(); 1];
-  check_status!(
-    unsafe {
-      sys::napi_get_cb_info(
-        env,
-        info,
-        &mut argc,
-        args.as_mut_ptr(),
-        ptr::null_mut(),
-        &mut data,
-      )
-    },
-    "Get ReadableStream.pull callback info failed"
-  )?;
-  let [controller] = args;
+  let (controller, data) = PullController::<BufferSlice>::from_callback_info(env, info)?;
 
-  let controller = unsafe { Object::from_napi_value(env, controller)? };
-  let enqueue = controller
-    .get_named_property_unchecked::<Function<BufferSlice, ()>>("enqueue")?
-    .bind(controller)?
-    .create_ref()?;
-  let close = controller
-    .get_named_property_unchecked::<Function<(), ()>>("close")?
-    .bind(controller)?
-    .create_ref()?;
+  // Get the Arc<StreamState> - increment ref count so we don't drop the original
+  let state = unsafe {
+    Arc::increment_strong_count(data.cast::<StreamState<S>>());
+    Arc::from_raw(data.cast::<StreamState<S>>())
+  };
 
-  let mut stream: Pin<&mut S> = Pin::new(Box::leak(unsafe { Box::from_raw(data.cast()) }));
-  let env = Env::from_raw(env);
-  let promise = env.spawn_future_with_callback(
+  // Check if stream was cancelled
+  if state.cancelled.load(Ordering::SeqCst) {
+    return Ok(ptr::null_mut());
+  }
+
+  let env_wrapper = Env::from_raw(env);
+  let state_for_async = state.clone();
+
+  let promise = env_wrapper.spawn_future_with_callback(
     async move {
-      stream
-        .next()
-        .await
-        .transpose()
-        .map(|v| v.map(|v| Into::<Vec<u8>>::into(v)))
+      let mut guard = state_for_async.stream.lock().await;
+      if let Some(ref mut stream) = *guard {
+        stream
+          .next()
+          .await
+          .transpose()
+          .map(|v| v.map(|v| Into::<Vec<u8>>::into(v)))
+      } else {
+        Ok(None)
+      }
     },
     move |env, val| {
       if let Some(val) = val {
-        let enqueue_fn = enqueue.borrow_back(env)?;
+        let enqueue_fn = controller.enqueue.borrow_back(env)?;
         enqueue_fn.call(BufferSlice::from_data(env, val)?)?;
       } else {
-        let close_fn = close.borrow_back(env)?;
+        let close_fn = controller.close.borrow_back(env)?;
         close_fn.call(())?;
-        drop(unsafe { Box::from_raw(data.cast::<S>()) });
+        // Stream ended - take and drop the stream
+        let _ = state.stream.blocking_lock().take();
       }
-      drop(enqueue);
-      drop(close);
+      drop(controller.enqueue);
+      drop(controller.close);
       Ok(())
     },
   )?;

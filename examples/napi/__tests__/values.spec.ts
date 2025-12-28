@@ -2074,6 +2074,35 @@ test('create readable stream from channel with object', async (t) => {
   })
 })
 
+test('readable stream cancellation should cleanup resources', async (t) => {
+  if (process.env.WASI_TEST) {
+    t.pass(
+      'Skip when WASI because ReadableStream controller.enqueue does not accept SharedArrayBuffer',
+    )
+    return
+  }
+  const stream = await createReadableStreamWithObject()
+  const reader = stream.getReader()
+
+  // Read a couple items
+  const first = await reader.read()
+  t.false(first.done)
+  t.is(first.value?.size, 0)
+
+  const second = await reader.read()
+  t.false(second.done)
+  t.is(second.value?.size, 1)
+
+  // Cancel early - this should trigger the cancel callback and cleanup resources
+  await t.notThrowsAsync(async () => {
+    await reader.cancel('user cancelled')
+  })
+
+  // Subsequent reads should return done
+  const afterCancel = await reader.read()
+  t.true(afterCancel.done)
+})
+
 test('spawnThreadInThread should be fine', async (t) => {
   await new Promise((resolve, reject) => {
     spawnThreadInThread((err, num) => {
