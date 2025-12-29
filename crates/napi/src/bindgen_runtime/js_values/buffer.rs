@@ -14,7 +14,7 @@ use crate::{
   bindgen_prelude::*, check_status, env::EMPTY_VEC, sys, JsValue, Result, Value, ValueType,
 };
 
-#[cfg(all(debug_assertions, not(windows)))]
+#[cfg(all(debug_assertions, not(windows), not(target_family = "wasm")))]
 thread_local! {
   pub (crate) static BUFFER_DATA: Mutex<HashSet<*mut u8>> = Default::default();
 }

@@ -497,34 +497,40 @@ impl Env {
     let length = data.len();
     let mut raw_value = ptr::null_mut();
     let data_ptr = data.as_mut_ptr();
-    check_status!(unsafe {
-      if length == 0 {
-        // Rust uses 0x1 as the data pointer for empty buffers,
-        // but NAPI/V8 only allows multiple buffers to have
-        // the same data pointer if it's 0x0.
-        sys::napi_create_arraybuffer(self.0, length, ptr::null_mut(), &mut raw_value)
-      } else {
-        let hint_ptr = Box::into_raw(Box::new((length, data.capacity())));
-        let status = sys::napi_create_external_arraybuffer(
+    if length == 0 {
+      // Rust uses 0x1 as the data pointer for empty buffers,
+      // but NAPI/V8 only allows multiple buffers to have
+      // the same data pointer if it's 0x0.
+      check_status!(
+        unsafe { sys::napi_create_arraybuffer(self.0, length, ptr::null_mut(), &mut raw_value) },
+        "Failed to create arraybuffer"
+      )?;
+    } else {
+      let hint_ptr = Box::into_raw(Box::new((length, data.capacity())));
+      let mut status = unsafe {
+        sys::napi_create_external_arraybuffer(
           self.0,
           data_ptr.cast(),
           length,
           Some(drop_buffer),
           hint_ptr.cast(),
           &mut raw_value,
-        );
-        if status == sys::Status::napi_no_external_buffers_allowed {
-          drop(Box::from_raw(hint_ptr));
-          let mut underlying_data = ptr::null_mut();
-          let status =
-            sys::napi_create_arraybuffer(self.0, length, &mut underlying_data, &mut raw_value);
-          ptr::copy_nonoverlapping(data_ptr, underlying_data.cast(), length);
-          status
-        } else {
-          status
+        )
+      };
+      if status == sys::Status::napi_no_external_buffers_allowed {
+        unsafe { drop(Box::from_raw(hint_ptr)) };
+        let mut underlying_data = ptr::null_mut();
+        status = unsafe {
+          sys::napi_create_arraybuffer(self.0, length, &mut underlying_data, &mut raw_value)
+        };
+        check_status!(status, "Failed to create arraybuffer")?;
+        if length > 0 {
+          unsafe { ptr::copy_nonoverlapping(data_ptr, underlying_data.cast(), length) };
         }
+      } else {
+        check_status!(status, "Failed to create arraybuffer")?;
       }
-    })?;
+    }
 
     mem::forget(data);
     Ok(JsArrayBufferValue::new(
@@ -595,9 +601,13 @@ impl Env {
         let mut underlying_data = ptr::null_mut();
         let status =
           sys::napi_create_arraybuffer(self.0, length, &mut underlying_data, &mut raw_value);
-        ptr::copy_nonoverlapping(data, underlying_data.cast(), length);
+        // Copy data before calling finalize, since finalize may free the source data
+        if status == sys::Status::napi_ok && length > 0 {
+          ptr::copy_nonoverlapping(data, underlying_data.cast(), length);
+        }
+        // Always call finalize to clean up caller's resources, even on error
         finalize(*self, hint);
-        check_status!(status)?;
+        check_status!(status, "Failed to create arraybuffer")?;
       } else {
         check_status!(status)?;
       }
