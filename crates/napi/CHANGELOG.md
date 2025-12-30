@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.8.1](https://github.com/napi-rs/napi-rs/compare/napi-v3.8.0...napi-v3.8.1) - 2025-12-30
+
+### Fixed
+
+- *(napi)* wasi debug compile error ([#3081](https://github.com/napi-rs/napi-rs/pull/3081))
+
 ## [3.8.0](https://github.com/napi-rs/napi-rs/compare/napi-v3.7.1...napi-v3.8.0) - 2025-12-30
 
 ### Added
