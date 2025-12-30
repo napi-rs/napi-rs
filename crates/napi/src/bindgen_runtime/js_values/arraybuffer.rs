@@ -178,14 +178,17 @@ impl<'env> ArrayBuffer<'env> {
       let mut underlying_data = ptr::null_mut();
       status =
         unsafe { sys::napi_create_arraybuffer(env.0, data.len(), &mut underlying_data, &mut buf) };
-      let underlying_slice: &mut [u8] =
-        unsafe { std::slice::from_raw_parts_mut(underlying_data.cast(), data.len()) };
-      underlying_slice.copy_from_slice(data.as_slice());
+      check_status!(status, "Failed to create arraybuffer")?;
+      if len > 0 {
+        let underlying_slice: &mut [u8] =
+          unsafe { std::slice::from_raw_parts_mut(underlying_data.cast(), len) };
+        underlying_slice.copy_from_slice(data.as_slice());
+      }
       inner_ptr = underlying_data.cast();
     } else {
+      check_status!(status, "Failed to create arraybuffer")?;
       mem::forget(data);
     }
-    check_status!(status, "Failed to create buffer slice from data")?;
     Ok(Self {
       value: Value {
         env: env.0,
@@ -251,19 +254,22 @@ impl<'env> ArrayBuffer<'env> {
         &mut arraybuffer_value,
       )
     };
-    status = if status == sys::Status::napi_no_external_buffers_allowed {
+    if status == sys::Status::napi_no_external_buffers_allowed {
       let (hint, finalize) = *Box::from_raw(hint_ptr);
       let mut underlying_data = ptr::null_mut();
-      let status = unsafe {
+      status = unsafe {
         sys::napi_create_arraybuffer(env.0, len, &mut underlying_data, &mut arraybuffer_value)
       };
-      unsafe { std::ptr::copy_nonoverlapping(data.cast(), underlying_data, len) };
+      // Copy data before calling finalize, since finalize may free the source data
+      if status == sys::Status::napi_ok && len > 0 {
+        unsafe { std::ptr::copy_nonoverlapping(data.cast(), underlying_data, len) };
+      }
+      // Always call finalize to clean up caller's resources, even on error
       finalize(*env, hint);
-      status
+      check_status!(status, "Failed to create arraybuffer from data")?;
     } else {
-      status
-    };
-    check_status!(status, "Failed to create arraybuffer from data")?;
+      check_status!(status, "Failed to create arraybuffer from data")?;
+    }
 
     Ok(Self {
       value: Value {
