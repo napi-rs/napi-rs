@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [3.5.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.5.0...@napi-rs/cli@3.5.1) (2025-12-30)
+
+### Bug Fixes
+
+- **cli:** load separatedConfig in config regardless of packageJson.napi ([#3065](https://github.com/napi-rs/napi-rs/issues/3065)) ([7ad0718](https://github.com/napi-rs/napi-rs/commit/7ad07187b48006242cf10683fe997174a677bab2))
+- **cli:** properly load WASM package in JS binding template ([#3038](https://github.com/napi-rs/napi-rs/issues/3038)) ([60452d0](https://github.com/napi-rs/napi-rs/commit/60452d01a4e6f414f50842a20df27804c2aa771d))
+
 # [3.5.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.4.1...@napi-rs/cli@3.5.0) (2025-12-02)
 
 ### Bug Fixes
