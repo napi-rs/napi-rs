@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.8.0](https://github.com/napi-rs/napi-rs/compare/napi-v3.7.1...napi-v3.8.0) - 2025-12-30
+
+### Added
+
+- *(napi)* support any object types in Stream([#2854](https://github.com/napi-rs/napi-rs/pull/2854))
+- *(napi-derive)* add #[napi(async_iterator)] macro attribute ([#3072](https://github.com/napi-rs/napi-rs/pull/3072))
+
+### Fixed
+
+- *(napi)* validate status before copying data in env arraybuffer fallback ([#3077](https://github.com/napi-rs/napi-rs/pull/3077))
+- *(napi)* validate status before copying in remaining TypedArray fallback paths ([#3076](https://github.com/napi-rs/napi-rs/pull/3076))
+- *(napi)* validate status before copying in TypedArray owned ToNapiValue fallback ([#3080](https://github.com/napi-rs/napi-rs/pull/3080))
+- *(napi)* validate status before copying in ArrayBuffer ToNapiValue fallback ([#3079](https://github.com/napi-rs/napi-rs/pull/3079))
+- *(napi)* skip debug buffer tracking on wasm targets ([#3078](https://github.com/napi-rs/napi-rs/pull/3078))
+
 ## [3.7.1](https://github.com/napi-rs/napi-rs/compare/napi-v3.7.0...napi-v3.7.1) - 2025-12-19
 
 ### Other
