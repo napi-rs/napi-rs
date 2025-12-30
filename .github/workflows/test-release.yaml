@@ -753,6 +753,11 @@ jobs:
           targets: wasm32-wasip1-threads
       - name: Install dependencies
         run: yarn install --immutable --mode=skip-build
+      - name: Check
+        if: ${{ matrix.settings.RUSTFLAGS == '--cfg tokio_unstable' }}
+        run: cargo check -p napi --all-features --target wasm32-wasip1-threads
+        env:
+          RUSTFLAGS: ${{ matrix.settings.RUSTFLAGS }}
       - name: Build
         run: |
           yarn build

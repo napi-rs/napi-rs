@@ -1,11 +1,11 @@
-#[cfg(all(debug_assertions, not(windows)))]
+#[cfg(all(debug_assertions, not(windows), not(target_family = "wasm")))]
 use std::collections::HashSet;
 use std::ffi::c_void;
 use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::ptr::{self, NonNull};
 use std::slice;
-#[cfg(all(debug_assertions, not(windows)))]
+#[cfg(all(debug_assertions, not(windows), not(target_family = "wasm")))]
 use std::sync::Mutex;
 
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
@@ -39,7 +39,7 @@ impl<'env> BufferSlice<'env> {
     let mut buf = ptr::null_mut();
     let mut data = data.into();
     let inner_ptr = data.as_mut_ptr();
-    #[cfg(all(debug_assertions, not(windows)))]
+    #[cfg(all(debug_assertions, not(windows), not(target_family = "wasm")))]
     {
       let is_existed = BUFFER_DATA.with(|buffer_data| {
         let buffer = buffer_data.lock().expect("Unlock buffer data failed");
@@ -121,7 +121,7 @@ impl<'env> BufferSlice<'env> {
         "Borrowed data should not be null".to_owned(),
       ));
     }
-    #[cfg(all(debug_assertions, not(windows)))]
+    #[cfg(all(debug_assertions, not(windows), not(target_family = "wasm")))]
     {
       let is_existed = BUFFER_DATA.with(|buffer_data| {
         let buffer = buffer_data.lock().expect("Unlock buffer data failed");
@@ -370,7 +370,7 @@ impl Default for Buffer {
 impl From<Vec<u8>> for Buffer {
   fn from(mut data: Vec<u8>) -> Self {
     let inner_ptr = data.as_mut_ptr();
-    #[cfg(all(debug_assertions, not(windows)))]
+    #[cfg(all(debug_assertions, not(windows), not(target_family = "wasm")))]
     {
       let is_existed = BUFFER_DATA.with(|buffer_data| {
         let buffer = buffer_data.lock().expect("Unlock buffer data failed");

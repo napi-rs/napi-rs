@@ -1114,7 +1114,7 @@ impl Env {
       })?;
     }
 
-    #[cfg(target_family = "wasm")]
+    #[cfg(all(target_family = "wasm", not(feature = "noop")))]
     {
       check_status!(unsafe {
         crate::napi_add_env_cleanup_hook(

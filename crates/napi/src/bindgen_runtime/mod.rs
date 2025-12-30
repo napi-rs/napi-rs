@@ -79,7 +79,7 @@ pub unsafe extern "C" fn drop_buffer(
   #[allow(unused)] finalize_data: *mut c_void,
   finalize_hint: *mut c_void,
 ) {
-  #[cfg(all(debug_assertions, not(windows)))]
+  #[cfg(all(debug_assertions, not(windows), not(target_family = "wasm")))]
   {
     js_values::BUFFER_DATA.with(|buffer_data| {
       let mut buffer = buffer_data.lock().expect("Unlock Buffer data failed");
@@ -101,7 +101,7 @@ pub unsafe extern "C" fn drop_buffer_slice(
   finalize_hint: *mut c_void,
 ) {
   let (len, cap): (usize, usize) = *unsafe { Box::from_raw(finalize_hint.cast()) };
-  #[cfg(all(debug_assertions, not(windows)))]
+  #[cfg(all(debug_assertions, not(windows), not(target_family = "wasm")))]
   {
     js_values::BUFFER_DATA.with(|buffer_data| {
       let mut buffer = buffer_data.lock().expect("Unlock Buffer data failed");
