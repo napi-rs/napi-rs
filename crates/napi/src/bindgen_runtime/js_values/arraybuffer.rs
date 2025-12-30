@@ -148,7 +148,7 @@ impl<'env> ArrayBuffer<'env> {
     let mut buf = ptr::null_mut();
     let mut data = data.into();
     let mut inner_ptr = data.as_mut_ptr();
-    #[cfg(all(debug_assertions, not(windows)))]
+    #[cfg(all(debug_assertions, not(windows), not(target_family = "wasm")))]
     {
       let is_existed = super::BUFFER_DATA.with(|buffer_data| {
         let buffer = buffer_data.lock().expect("Unlock buffer data failed");
@@ -229,7 +229,7 @@ impl<'env> ArrayBuffer<'env> {
         "Borrowed data should not be null".to_owned(),
       ));
     }
-    #[cfg(all(debug_assertions, not(windows)))]
+    #[cfg(all(debug_assertions, not(windows), not(target_family = "wasm")))]
     {
       let is_existed = super::BUFFER_DATA.with(|buffer_data| {
         let buffer = buffer_data.lock().expect("Unlock buffer data failed");
@@ -916,7 +916,7 @@ macro_rules! impl_from_slice {
         let mut buf = ptr::null_mut();
         let mut data = data.into();
         let mut inner_ptr = data.as_mut_ptr();
-        #[cfg(all(debug_assertions, not(windows)))]
+        #[cfg(all(debug_assertions, not(windows), not(target_family = "wasm")))]
         {
           let is_existed = super::BUFFER_DATA.with(|buffer_data| {
             let buffer = buffer_data.lock().expect("Unlock buffer data failed");
@@ -1021,7 +1021,7 @@ macro_rules! impl_from_slice {
             "Borrowed data should not be null".to_owned(),
           ));
         }
-        #[cfg(all(debug_assertions, not(windows)))]
+        #[cfg(all(debug_assertions, not(windows), not(target_family = "wasm")))]
         {
           let is_existed = super::BUFFER_DATA.with(|buffer_data| {
             let buffer = buffer_data.lock().expect("Unlock buffer data failed");
@@ -1635,7 +1635,7 @@ impl<'env> Uint8ClampedSlice<'env> {
     let mut buf = ptr::null_mut();
     let mut data: Vec<u8> = data.into();
     let mut inner_ptr = data.as_mut_ptr();
-    #[cfg(all(debug_assertions, not(windows)))]
+    #[cfg(all(debug_assertions, not(windows), not(target_family = "wasm")))]
     {
       let is_existed = super::BUFFER_DATA.with(|buffer_data| {
         let buffer = buffer_data.lock().expect("Unlock buffer data failed");
@@ -1732,7 +1732,7 @@ impl<'env> Uint8ClampedSlice<'env> {
         "Borrowed data should not be null".to_owned(),
       ));
     }
-    #[cfg(all(debug_assertions, not(windows)))]
+    #[cfg(all(debug_assertions, not(windows), not(target_family = "wasm")))]
     {
       let is_existed = super::BUFFER_DATA.with(|buffer_data| {
         let buffer = buffer_data.lock().expect("Unlock buffer data failed");
