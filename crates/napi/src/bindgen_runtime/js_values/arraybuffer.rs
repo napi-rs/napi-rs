@@ -744,45 +744,47 @@ macro_rules! impl_typed_array {
         let val_length = val.length;
         let length = val_length * ratio;
         let val_data = val.data;
-        check_status!(
-          if length == 0 {
-            // Rust uses 0x1 as the data pointer for empty buffers,
-            // but NAPI/V8 only allows multiple buffers to have
-            // the same data pointer if it's 0x0.
+        if length == 0 {
+          // Rust uses 0x1 as the data pointer for empty buffers,
+          // but NAPI/V8 only allows multiple buffers to have
+          // the same data pointer if it's 0x0.
+          check_status!(
             unsafe {
               sys::napi_create_arraybuffer(env, length, ptr::null_mut(), &mut arraybuffer_value)
-            }
-          } else {
-            let hint_ptr = Box::into_raw(Box::new(val));
-            let status = unsafe {
-              sys::napi_create_external_arraybuffer(
+            },
+            "Create external arraybuffer failed"
+          )?;
+        } else {
+          let hint_ptr = Box::into_raw(Box::new(val));
+          let mut status = unsafe {
+            sys::napi_create_external_arraybuffer(
+              env,
+              val_data.cast(),
+              length,
+              Some(finalizer::<$rust_type, $name>),
+              hint_ptr.cast(),
+              &mut arraybuffer_value,
+            )
+          };
+          if status == napi_sys::Status::napi_no_external_buffers_allowed {
+            let hint = unsafe { Box::from_raw(hint_ptr) };
+            let mut underlying_data = ptr::null_mut();
+            status = unsafe {
+              sys::napi_create_arraybuffer(
                 env,
-                val_data.cast(),
                 length,
-                Some(finalizer::<$rust_type, $name>),
-                hint_ptr.cast(),
+                &mut underlying_data,
                 &mut arraybuffer_value,
               )
             };
-            if status == napi_sys::Status::napi_no_external_buffers_allowed {
-              let hint = unsafe { Box::from_raw(hint_ptr) };
-              let mut underlying_data = ptr::null_mut();
-              let status = unsafe {
-                sys::napi_create_arraybuffer(
-                  env,
-                  length,
-                  &mut underlying_data,
-                  &mut arraybuffer_value,
-                )
-              };
+            check_status!(status, "Create external arraybuffer failed")?;
+            if length > 0 {
               unsafe { std::ptr::copy_nonoverlapping(hint.data.cast(), underlying_data, length) };
-              status
-            } else {
-              status
             }
-          },
-          "Create external arraybuffer failed"
-        )?;
+          } else {
+            check_status!(status, "Create external arraybuffer failed")?;
+          }
+        }
         let mut napi_val = ptr::null_mut();
         check_status!(
           unsafe {
