@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.0](https://github.com/napi-rs/napi-rs/compare/napi-derive-v3.4.1...napi-derive-v3.5.0) - 2025-12-30
+
+### Added
+
+- *(napi-derive)* add #[napi(async_iterator)] macro attribute ([#3072](https://github.com/napi-rs/napi-rs/pull/3072))
+
 ## [3.4.1](https://github.com/napi-rs/napi-rs/compare/napi-derive-v3.4.0...napi-derive-v3.4.1) - 2025-12-19
 
 ### Other
