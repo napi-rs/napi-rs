@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.1](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v5.0.0...napi-derive-backend-v5.0.1) - 2026-01-08
+
+### Fixed
+
+- *(napi)* memory leak in async fn ([#3089](https://github.com/napi-rs/napi-rs/pull/3089))
+
 ## [5.0.0](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v4.0.1...napi-derive-backend-v5.0.0) - 2025-12-30
 
 ### Added
