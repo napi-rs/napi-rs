@@ -188,6 +188,7 @@ module.exports.asyncMultiTwo = __napiModule.exports.asyncMultiTwo
 module.exports.asyncPlus100 = __napiModule.exports.asyncPlus100
 module.exports.asyncReduceBuffer = __napiModule.exports.asyncReduceBuffer
 module.exports.asyncResolveArray = __napiModule.exports.asyncResolveArray
+module.exports.asyncTaskArraybuffer = __napiModule.exports.asyncTaskArraybuffer
 module.exports.asyncTaskFinally = __napiModule.exports.asyncTaskFinally
 module.exports.asyncTaskOptionalReturn = __napiModule.exports.asyncTaskOptionalReturn
 module.exports.asyncTaskReadFile = __napiModule.exports.asyncTaskReadFile

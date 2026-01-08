@@ -656,6 +656,7 @@ module.exports.asyncMultiTwo = nativeBinding.asyncMultiTwo
 module.exports.asyncPlus100 = nativeBinding.asyncPlus100
 module.exports.asyncReduceBuffer = nativeBinding.asyncReduceBuffer
 module.exports.asyncResolveArray = nativeBinding.asyncResolveArray
+module.exports.asyncTaskArraybuffer = nativeBinding.asyncTaskArraybuffer
 module.exports.asyncTaskFinally = nativeBinding.asyncTaskFinally
 module.exports.asyncTaskOptionalReturn = nativeBinding.asyncTaskOptionalReturn
 module.exports.asyncTaskReadFile = nativeBinding.asyncTaskReadFile

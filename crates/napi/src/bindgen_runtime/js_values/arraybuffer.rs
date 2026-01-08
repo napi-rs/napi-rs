@@ -111,6 +111,16 @@ impl<'env> JsValue<'env> for ArrayBuffer<'env> {
 
 impl<'env> JsObjectValue<'env> for ArrayBuffer<'env> {}
 
+impl TypeName for ArrayBuffer<'_> {
+  fn type_name() -> &'static str {
+    "ArrayBuffer"
+  }
+
+  fn value_type() -> ValueType {
+    ValueType::Object
+  }
+}
+
 impl FromNapiValue for ArrayBuffer<'_> {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
     let value = Value {
