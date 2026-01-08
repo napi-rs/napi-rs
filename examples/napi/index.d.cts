@@ -437,6 +437,8 @@ export declare function asyncReduceBuffer(buf: Buffer): Promise<number>
 
 export declare function asyncResolveArray(inner: number): Promise<unknown[]>
 
+export declare function asyncTaskArraybuffer(data: Array<number>): Promise<ArrayBuffer>
+
 export declare function asyncTaskFinally(inner: object): Promise<void>
 
 export declare function asyncTaskOptionalReturn(): Promise<number | null>

@@ -192,3 +192,28 @@ impl Task for AsyncTaskFinally {
 pub fn async_task_finally(inner: ObjectRef) -> AsyncTask<AsyncTaskFinally> {
   AsyncTask::new(AsyncTaskFinally { inner })
 }
+
+pub struct AsyncTaskArrayBuffer {
+  data: Vec<u8>,
+}
+
+#[napi]
+impl<'task> ScopedTask<'task> for AsyncTaskArrayBuffer {
+  type Output = Vec<u8>;
+  type JsValue = ArrayBuffer<'task>;
+
+  fn compute(&mut self) -> Result<Self::Output> {
+    // Simulate some async computation
+    sleep(std::time::Duration::from_millis(10));
+    Ok(self.data.clone())
+  }
+
+  fn resolve(&mut self, env: &'task Env, output: Self::Output) -> Result<Self::JsValue> {
+    ArrayBuffer::from_data(env, output)
+  }
+}
+
+#[napi]
+pub fn async_task_arraybuffer(data: Vec<u8>) -> AsyncTask<AsyncTaskArrayBuffer> {
+  AsyncTask::new(AsyncTaskArrayBuffer { data })
+}

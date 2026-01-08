@@ -94,6 +94,7 @@ import {
   asyncTaskOptionalReturn,
   asyncTaskFinally,
   asyncResolveArray,
+  asyncTaskArraybuffer,
   asyncMultiTwo,
   bigintAdd,
   createBigInt,
@@ -1529,6 +1530,31 @@ test('async task with different resolved values', async (t) => {
   }
   const r2 = await asyncResolveArray(2)
   t.deepEqual(r2, [0, 1])
+})
+
+test('async task with ArrayBuffer', async (t) => {
+  const inputData = new Uint8Array([1, 2, 3, 4, 5])
+  const result = await asyncTaskArraybuffer(Array.from(inputData))
+
+  t.true(result instanceof ArrayBuffer)
+  t.is(result.byteLength, 5)
+
+  const view = new Uint8Array(result)
+  t.deepEqual(Array.from(view), [1, 2, 3, 4, 5])
+
+  // Test with empty array
+  const emptyResult = await asyncTaskArraybuffer([])
+  t.true(emptyResult instanceof ArrayBuffer)
+  t.is(emptyResult.byteLength, 0)
+
+  // Test with larger data
+  const largeData = new Uint8Array(1000).fill(42)
+  const largeResult = await asyncTaskArraybuffer(Array.from(largeData))
+  t.true(largeResult instanceof ArrayBuffer)
+  t.is(largeResult.byteLength, 1000)
+  const largeView = new Uint8Array(largeResult)
+  t.is(largeView[0], 42)
+  t.is(largeView[999], 42)
 })
 
 AbortSignalTest('with abort signal handle', async (t) => {
