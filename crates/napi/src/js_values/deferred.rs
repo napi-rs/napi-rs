@@ -1,6 +1,9 @@
-use std::marker::PhantomData;
 use std::os::raw::c_void;
 use std::ptr;
+use std::{
+  marker::PhantomData,
+  sync::{Arc, RwLock},
+};
 
 #[cfg(feature = "deferred_trace")]
 use crate::{bindgen_runtime::JsObjectValue, JsValue};
@@ -98,17 +101,21 @@ impl DeferredTrace {
   }
 }
 
+type FinalizeCallback = Arc<RwLock<Option<Box<dyn FnOnce(sys::napi_env)>>>>;
+
 struct DeferredData<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> {
   resolver: Result<Resolver>,
   #[cfg(feature = "deferred_trace")]
   trace: DeferredTrace,
   tsfn: sys::napi_threadsafe_function,
+  finalize_callback: FinalizeCallback,
 }
 
 pub struct JsDeferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> {
   pub(crate) tsfn: sys::napi_threadsafe_function,
   #[cfg(feature = "deferred_trace")]
   trace: DeferredTrace,
+  finalize_callback: FinalizeCallback,
   _data: PhantomData<Data>,
   _resolver: PhantomData<Resolver>,
 }
@@ -123,6 +130,7 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> Clone
       tsfn: self.tsfn,
       #[cfg(feature = "deferred_trace")]
       trace: self.trace.clone(),
+      finalize_callback: self.finalize_callback.clone(),
       _data: PhantomData,
       _resolver: PhantomData,
     }
@@ -142,6 +150,7 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
       tsfn,
       #[cfg(feature = "deferred_trace")]
       trace: DeferredTrace::new(env.0)?,
+      finalize_callback: Default::default(),
       _data: PhantomData,
       _resolver: PhantomData,
     };
@@ -160,12 +169,21 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
     self.call_tsfn(Err(error))
   }
 
+  #[allow(clippy::arc_with_non_send_sync)]
+  pub fn set_finalize_callback(
+    &mut self,
+    finalize_callback: Option<Box<dyn FnOnce(sys::napi_env)>>,
+  ) {
+    self.finalize_callback = Arc::new(RwLock::new(finalize_callback));
+  }
+
   fn call_tsfn(self, result: Result<Resolver>) {
     let data = DeferredData {
       resolver: result,
       #[cfg(feature = "deferred_trace")]
       trace: self.trace,
       tsfn: self.tsfn,
+      finalize_callback: self.finalize_callback.clone(),
     };
 
     // Call back into the JS thread via a threadsafe function. This results in napi_resolve_deferred being called.
@@ -241,7 +259,10 @@ extern "C" fn napi_resolve_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> 
 ) {
   let deferred = context.cast();
   let deferred_data: Box<DeferredData<Data, Resolver>> = unsafe { Box::from_raw(data.cast()) };
-  let tsfn = deferred_data.tsfn;
+  let tsfn: *mut napi_sys::napi_threadsafe_function__ = deferred_data.tsfn;
+  let finalize_callback = RwLock::write(&deferred_data.finalize_callback)
+    .expect("RwLock Poison")
+    .take();
   let result = deferred_data
     .resolver
     .and_then(|resolver| resolver(Env::from_raw(env)))
@@ -280,8 +301,14 @@ extern "C" fn napi_resolve_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> 
     match error {
       Ok(error) => {
         unsafe { sys::napi_reject_deferred(env, deferred, error) };
+        if let Some(finalize_callback) = finalize_callback {
+          finalize_callback(env);
+        }
       }
       Err(err) => {
+        if let Some(finalize_callback) = finalize_callback {
+          finalize_callback(env);
+        }
         if cfg!(debug_assertions) {
           eprintln!("Failed to reject deferred: {err:?}");
           let mut err = ptr::null_mut();
@@ -294,5 +321,7 @@ extern "C" fn napi_resolve_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> 
         }
       }
     }
+  } else if let Some(finalize_callback) = finalize_callback {
+    finalize_callback(env);
   }
 }

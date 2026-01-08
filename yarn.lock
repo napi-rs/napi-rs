@@ -521,6 +521,7 @@ __metadata:
     "@napi-rs/cli": "workspace:*"
     "@napi-rs/triples": "workspace:*"
     "@napi-rs/wasm-runtime": "workspace:*"
+    "@oxc-node/cli": "npm:^0.0.35"
     "@oxc-node/core": "npm:^0.0.35"
     "@testing-library/dom": "npm:^10.4.1"
     "@types/lodash": "npm:^4.17.20"
@@ -2652,6 +2653,17 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@oxc-node/cli@npm:^0.0.35":
+  version: 0.0.35
+  resolution: "@oxc-node/cli@npm:0.0.35"
+  dependencies:
+    "@oxc-node/core": "npm:0.0.35"
+  bin:
+    oxnode: dist/index.js
+  checksum: 10c0/3d2732a3ca888ac80344b1e99a99d6fbd0832bbc42d5f2c7f458bedb63127bd3864a580f1f2d027cab47e14386f0731392ba3075db1fc2a54f505c4a8aa8c9f6
+  languageName: node
+  linkType: hard
+
 "@oxc-node/core-android-arm-eabi@npm:0.0.35":
   version: 0.0.35
   resolution: "@oxc-node/core-android-arm-eabi@npm:0.0.35"
@@ -2773,7 +2785,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@oxc-node/core@npm:^0.0.35":
+"@oxc-node/core@npm:0.0.35, @oxc-node/core@npm:^0.0.35":
   version: 0.0.35
   resolution: "@oxc-node/core@npm:0.0.35"
   dependencies:

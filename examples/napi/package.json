@@ -9,6 +9,7 @@
     "browser": "vite",
     "build": "napi-raw build --platform --js index.cjs --dts index.d.cts",
     "test": "ava reset-cache && cross-env TS_NODE_PROJECT=./tsconfig.json node --import @oxc-node/core/register ../../node_modules/ava/entrypoints/cli.mjs",
+    "test:leak": "oxnode --expose-gc ./memory-test.ts",
     "test-js": "ava reset-cache && ava"
   },
   "napi": {
@@ -30,6 +31,7 @@
     "@napi-rs/cli": "workspace:*",
     "@napi-rs/triples": "workspace:*",
     "@napi-rs/wasm-runtime": "workspace:*",
+    "@oxc-node/cli": "^0.0.35",
     "@oxc-node/core": "^0.0.35",
     "@testing-library/dom": "^10.4.1",
     "@types/lodash": "^4.17.20",

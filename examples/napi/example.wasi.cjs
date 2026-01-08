@@ -119,6 +119,7 @@ module.exports.Assets = __napiModule.exports.Assets
 module.exports.JsAssets = __napiModule.exports.JsAssets
 module.exports.AsyncDataSource = __napiModule.exports.AsyncDataSource
 module.exports.AsyncFib = __napiModule.exports.AsyncFib
+module.exports.AsyncThrowClass = __napiModule.exports.AsyncThrowClass
 module.exports.Bird = __napiModule.exports.Bird
 module.exports.Blake2BHasher = __napiModule.exports.Blake2BHasher
 module.exports.Blake2bHasher = __napiModule.exports.Blake2bHasher

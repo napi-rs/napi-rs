@@ -106,6 +106,12 @@ export declare class AsyncFib {
   constructor()
 }
 
+export declare class AsyncThrowClass {
+
+  constructor()
+  asyncThrowError(): Promise<void>
+}
+
 export declare class Bird {
   name: string
   constructor(name: string)

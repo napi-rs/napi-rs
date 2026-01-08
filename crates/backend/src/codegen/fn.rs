@@ -165,10 +165,11 @@ impl TryToTokens for NapiFn {
         quote! { Ok::<#ret_type, napi::Error>(#receiver(#(#arg_names),*).await) }
       };
       quote! {
-        napi::bindgen_prelude::execute_tokio_future(env, async move { #call }, move |env, #receiver_ret_name| {
-          _args_ref.drop(env);
+        napi::bindgen_prelude::execute_tokio_future_with_finalize_callback(env, async move { #call }, move |env, #receiver_ret_name| {
           #ret
-        })
+        }, Some(Box::new(move |env| {
+          _args_ref.drop(env);
+        })))
       }
     };
 

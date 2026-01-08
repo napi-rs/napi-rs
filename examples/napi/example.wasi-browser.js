@@ -74,6 +74,7 @@ export const Assets = __napiModule.exports.Assets
 export const JsAssets = __napiModule.exports.JsAssets
 export const AsyncDataSource = __napiModule.exports.AsyncDataSource
 export const AsyncFib = __napiModule.exports.AsyncFib
+export const AsyncThrowClass = __napiModule.exports.AsyncThrowClass
 export const Bird = __napiModule.exports.Bird
 export const Blake2BHasher = __napiModule.exports.Blake2BHasher
 export const Blake2bHasher = __napiModule.exports.Blake2bHasher
