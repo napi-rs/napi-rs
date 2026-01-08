@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.8.2](https://github.com/napi-rs/napi-rs/compare/napi-v3.8.1...napi-v3.8.2) - 2026-01-08
+
+### Fixed
+
+- *(napi)* memory leak in async fn ([#3089](https://github.com/napi-rs/napi-rs/pull/3089))
+- *(napi)* implement TypeName for ArrayBuffer ([#3087](https://github.com/napi-rs/napi-rs/pull/3087))
+
 ## [3.8.1](https://github.com/napi-rs/napi-rs/compare/napi-v3.8.0...napi-v3.8.1) - 2025-12-30
 
 ### Fixed
