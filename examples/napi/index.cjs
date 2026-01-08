@@ -587,6 +587,7 @@ module.exports.Assets = nativeBinding.Assets
 module.exports.JsAssets = nativeBinding.JsAssets
 module.exports.AsyncDataSource = nativeBinding.AsyncDataSource
 module.exports.AsyncFib = nativeBinding.AsyncFib
+module.exports.AsyncThrowClass = nativeBinding.AsyncThrowClass
 module.exports.Bird = nativeBinding.Bird
 module.exports.Blake2BHasher = nativeBinding.Blake2BHasher
 module.exports.Blake2bHasher = nativeBinding.Blake2bHasher

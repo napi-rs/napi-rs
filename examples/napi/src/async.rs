@@ -43,3 +43,14 @@ pub fn within_async_runtime_if_available() {
     println!("within_runtime_if_available");
   });
 }
+
+#[napi(constructor)]
+pub struct AsyncThrowClass {}
+
+#[napi]
+impl AsyncThrowClass {
+  #[napi]
+  pub async fn async_throw_error(&self) -> Result<()> {
+    Err(Error::new(Status::GenericFailure, "Throw async error"))
+  }
+}

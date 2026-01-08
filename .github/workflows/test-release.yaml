@@ -72,6 +72,7 @@ jobs:
             test: |
               yarn test:cli
               yarn test
+              yarn workspace @examples/napi test:leak
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
               yarn test:macro
               cargo test
@@ -91,6 +92,7 @@ jobs:
             test: |
               yarn test:cli
               yarn test
+              yarn workspace @examples/napi test:leak
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
               RUSTFLAGS="-C link-args=-Wl,-undefined,dynamic_lookup,-no_fixup_chains"
               cargo test
@@ -101,6 +103,7 @@ jobs:
             test: |
               yarn test:cli
               yarn workspace @examples/napi test
+              yarn workspace @examples/napi test:leak
               yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
               yarn test:macro
               cargo test

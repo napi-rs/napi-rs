@@ -250,6 +250,90 @@ pub fn execute_tokio_future<
   Ok(promise.0.value)
 }
 
+#[doc(hidden)]
+#[cfg(not(feature = "noop"))]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub fn execute_tokio_future_with_finalize_callback<
+  Data: 'static + Send,
+  Fut: 'static + Send + Future<Output = std::result::Result<Data, impl Into<Error>>>,
+  Resolver: 'static + FnOnce(sys::napi_env, Data) -> Result<sys::napi_value>,
+>(
+  env: sys::napi_env,
+  fut: Fut,
+  resolver: Resolver,
+  finalize_callback: Option<Box<dyn FnOnce(sys::napi_env)>>,
+) -> Result<sys::napi_value> {
+  let env = Env::from_raw(env);
+  let (mut deferred, promise) = JsDeferred::new(&env)?;
+  deferred.set_finalize_callback(finalize_callback);
+  #[cfg(any(
+    all(target_family = "wasm", tokio_unstable),
+    not(target_family = "wasm")
+  ))]
+  let deferred_for_panic = deferred.clone();
+  let sendable_resolver = SendableResolver::new(resolver);
+
+  let inner = async move {
+    match fut.await {
+      Ok(v) => deferred.resolve(move |env| {
+        sendable_resolver
+          .resolve(env.raw(), v)
+          .map(|v| unsafe { Unknown::from_raw_unchecked(env.raw(), v) })
+      }),
+      Err(e) => deferred.reject(e.into()),
+    }
+  };
+
+  #[cfg(any(
+    all(target_family = "wasm", tokio_unstable),
+    not(target_family = "wasm")
+  ))]
+  let jh = spawn(inner);
+
+  #[cfg(any(
+    all(target_family = "wasm", tokio_unstable),
+    not(target_family = "wasm")
+  ))]
+  spawn(async move {
+    if let Err(err) = jh.await {
+      if let Ok(reason) = err.try_into_panic() {
+        if let Some(s) = reason.downcast_ref::<&str>() {
+          deferred_for_panic.reject(Error::new(crate::Status::GenericFailure, s));
+        } else {
+          deferred_for_panic.reject(Error::new(
+            crate::Status::GenericFailure,
+            "Panic in async function",
+          ));
+        }
+      }
+    }
+  });
+
+  #[cfg(all(target_family = "wasm", not(tokio_unstable)))]
+  {
+    std::thread::spawn(|| {
+      block_on(inner);
+    });
+  }
+
+  Ok(promise.0.value)
+}
+
+#[cfg(feature = "noop")]
+#[doc(hidden)]
+pub fn execute_tokio_future_with_finalize_callback<
+  Data: 'static + Send,
+  Fut: 'static + Send + Future<Output = std::result::Result<Data, impl Into<Error>>>,
+  Resolver: 'static + FnOnce(sys::napi_env, Data) -> Result<sys::napi_value>,
+>(
+  _env: sys::napi_env,
+  _fut: Fut,
+  _resolver: Resolver,
+  _finalize_callback: Option<Box<dyn FnOnce(sys::napi_env)>>,
+) -> Result<sys::napi_value> {
+  Ok(std::ptr::null_mut())
+}
+
 pub struct AsyncBlockBuilder<
   V: Send + 'static,
   F: Future<Output = Result<V>> + Send + 'static,
