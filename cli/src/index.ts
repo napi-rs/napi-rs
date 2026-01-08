@@ -10,6 +10,7 @@ import { universalizeBinaries } from './api/universalize.js'
 import { version } from './api/version.js'
 import { ArtifactsCommand } from './commands/artifacts.js'
 import { BuildCommand } from './commands/build.js'
+import { CliVersionCommand } from './commands/cli-version.js'
 import { CreateNpmDirsCommand } from './commands/create-npm-dirs.js'
 import { HelpCommand } from './commands/help.js'
 import { NewCommand } from './commands/new.js'
@@ -33,6 +34,7 @@ cli.register(RenameCommand)
 cli.register(PrePublishCommand)
 cli.register(VersionCommand)
 cli.register(HelpCommand)
+cli.register(CliVersionCommand)
 
 /**
  *
