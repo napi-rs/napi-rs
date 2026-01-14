@@ -13,6 +13,6 @@
   },
   "devDependencies": {
     "@napi-rs/cli": "workspace:*",
-    "@types/dockerode": "^3.3.45"
+    "@types/dockerode": "^4.0.0"
   }
 }

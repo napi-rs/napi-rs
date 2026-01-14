@@ -3650,14 +3650,14 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/dockerode@npm:^3.3.45":
-  version: 3.3.47
-  resolution: "@types/dockerode@npm:3.3.47"
+"@types/dockerode@npm:^4.0.0":
+  version: 4.0.0
+  resolution: "@types/dockerode@npm:4.0.0"
   dependencies:
     "@types/docker-modem": "npm:*"
     "@types/node": "npm:*"
     "@types/ssh2": "npm:*"
-  checksum: 10c0/165746fdeceab022608ec28a6021c7d6835d6b164847f5d3cda63e721da4e6e3f1bcf72bb6f9c266117991f9d8038332a0d69d2a8d73ef02a4874bc0853d214c
+  checksum: 10c0/8b6ff574f6bd20b6e6c07f91ebc4012626ad224684ff95b8354744f3bc9ceb924bcec4b199bf2a39bbfa909047f4374aa3f7ac3faa297ae30ffa89927b3441b4
   languageName: node
   linkType: hard
 
@@ -9260,7 +9260,7 @@ __metadata:
   resolution: "memory-testing@workspace:memory-testing"
   dependencies:
     "@napi-rs/cli": "workspace:*"
-    "@types/dockerode": "npm:^3.3.45"
+    "@types/dockerode": "npm:^4.0.0"
     colorette: "npm:^2.0.20"
     dockerode: "npm:^4.0.9"
     pretty-bytes: "npm:^7.1.0"
