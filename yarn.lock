@@ -1391,7 +1391,7 @@ __metadata:
     colorette: "npm:^2.0.20"
     emnapi: "npm:^1.7.1"
     empathic: "npm:^2.0.0"
-    env-paths: "npm:^3.0.0"
+    env-paths: "npm:^4.0.0"
     es-toolkit: "npm:^1.41.0"
     js-yaml: "npm:^4.1.0"
     obug: "npm:^2.0.0"
@@ -6505,10 +6505,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"env-paths@npm:^3.0.0":
-  version: 3.0.0
-  resolution: "env-paths@npm:3.0.0"
-  checksum: 10c0/76dec878cee47f841103bacd7fae03283af16f0702dad65102ef0a556f310b98a377885e0f32943831eb08b5ab37842a323d02529f3dfd5d0a40ca71b01b435f
+"env-paths@npm:^4.0.0":
+  version: 4.0.0
+  resolution: "env-paths@npm:4.0.0"
+  dependencies:
+    is-safe-filename: "npm:^0.1.0"
+  checksum: 10c0/13ee7fa4047786ca28f1fbf2239606f8a53304bdf71bfc426e95f806e429060181205316f2c45b4ac560e81c854ded5a45fd9dc3105414c01d504b3469a1294b
   languageName: node
   linkType: hard
 
@@ -8341,6 +8343,13 @@ __metadata:
     has-tostringtag: "npm:^1.0.2"
     hasown: "npm:^2.0.2"
   checksum: 10c0/1d3715d2b7889932349241680032e85d0b492cfcb045acb75ffc2c3085e8d561184f1f7e84b6f8321935b4aea39bc9c6ba74ed595b57ce4881a51dfdbc214e04
+  languageName: node
+  linkType: hard
+
+"is-safe-filename@npm:^0.1.0":
+  version: 0.1.0
+  resolution: "is-safe-filename@npm:0.1.0"
+  checksum: 10c0/0fc62a0d5896082bfcc925df542984d6d4480e038b721dee7b1aaafdc43cb58b1e77328d018ac709225e9c4b2ea9be5f95bd39a9c44f922cb790d47cc2fd5439
   languageName: node
   linkType: hard
 
