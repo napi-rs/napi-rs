@@ -686,6 +686,45 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v6
+      - name: Install ziglang
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+      - uses: jaxxstorm/action-install-gh-release@v1
+        with:
+          repo: rust-cross/cargo-zigbuild
+      - name: Setup node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: 'yarn'
+
+      - name: Install
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: x86_64-unknown-freebsd
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: stable-cargo-cache-build-freebsd
+
+      - name: 'Install dependencies'
+        run: |
+          yarn config set supportedArchitectures.cpu --json '["current", "x64", "arm64", "wasm32"]'
+          yarn config set supportedArchitectures.os --json '["current", "freebsd"]'
+          yarn install --mode=skip-build --immutable
+      - name: Build
+        run: |
+          yarn workspace @examples/napi build --target x86_64-unknown-freebsd -x
+          yarn tsc -p examples/napi/tsconfig.json
+          rm -rf examples/napi/__tests__
+          mv examples/napi/dist/__tests__ examples/napi/
       - name: Test
         id: build
         uses: cross-platform-actions/action@v0.32.0
@@ -697,7 +736,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           operating_system: freebsd
-          version: '14.3'
+          version: '15.0'
           memory: 12G
           cpu_count: 3
           environment_variables: 'DEBUG RUSTUP_IO_THREADS GITHUB_TOKEN'
@@ -707,11 +746,6 @@ jobs:
             sudo pkg install -y -f curl node libnghttp2 npm
             sudo npm install -g corepack
             sudo corepack enable
-            curl https://sh.rustup.rs -sSf --output rustup.sh
-            sh rustup.sh -y --default-toolchain stable
-            source "$HOME/.cargo/env"
-            echo "~~~~ rustc --version ~~~~"
-            rustc --version
             echo "~~~~ node -v ~~~~"
             node -v
             echo "~~~~ yarn --version ~~~~"
@@ -721,14 +755,7 @@ jobs:
             whoami
             env
             freebsd-version
-            yarn config set supportedArchitectures.cpu --json '["current", "wasm32"]'
             export NODE_OPTIONS="--max-old-space-size=8192"
-            export CARGO_PROFILE_DEV_OPT_LEVEL="1"
-            yarn install --immutable --mode=skip-build
-            yarn workspace @examples/napi build
-            yarn tsc -p examples/napi/tsconfig.json
-            rm -rf examples/napi/__tests__
-            mv examples/napi/dist/__tests__ examples/napi/
             yarn workspace @examples/napi test-js -s
 
   test-node-wasi:
