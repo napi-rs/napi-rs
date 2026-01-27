@@ -50,6 +50,7 @@ export declare class Animal {
    * that should be escaped correctly:
    * \[]{}/\:""{
    * }
+   * Accept header "*\/json" should not break the comment block
    */
   returnOtherClass(): Dog
   returnOtherClassWithCustomConstructor(): Bird
