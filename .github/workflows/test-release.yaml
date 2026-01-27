@@ -762,12 +762,6 @@ jobs:
     runs-on: ubuntu-latest
     name: Test node wasi target
     timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        settings:
-          - RUSTFLAGS: '--cfg tokio_unstable'
-          - RUSTFLAGS: ''
     steps:
       - uses: actions/checkout@v6
       - name: Setup node
@@ -784,15 +778,15 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable --mode=skip-build
       - name: Check
-        if: ${{ matrix.settings.RUSTFLAGS == '--cfg tokio_unstable' }}
         run: cargo check -p napi --all-features --target wasm32-wasip1-threads
         env:
-          RUSTFLAGS: ${{ matrix.settings.RUSTFLAGS }}
+          RUSTFLAGS: '--cfg tokio_unstable'
       - name: Build
         run: |
           yarn build
-          export RUSTFLAGS="${{ matrix.settings.RUSTFLAGS }}"
           yarn workspace @examples/napi build --target wasm32-wasip1-threads --profile wasi
+        env:
+          RUSTFLAGS: '--cfg tokio_unstable'
       - name: Test
         run: yarn workspace @examples/napi test -s
         env:
