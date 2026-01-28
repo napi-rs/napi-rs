@@ -101,6 +101,7 @@ impl Animal {
   /// that should be escaped correctly:
   /// \[]{}/\:""{
   /// }
+  /// Accept header "*/json" should not break the comment block
   pub fn return_other_class(&self) -> Dog {
     Dog {
       name: "Doge".to_owned(),

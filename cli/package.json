@@ -83,9 +83,9 @@
     "@types/semver": "^7.7.1",
     "ava": "^6.4.1",
     "empathic": "^2.0.0",
-    "env-paths": "^3.0.0",
+    "env-paths": "^4.0.0",
     "prettier": "^3.6.2",
-    "tsdown": "^0.19.0",
+    "tsdown": "^0.20.0",
     "tslib": "^2.8.1",
     "typescript": "^5.9.3"
   },
