@@ -23,7 +23,7 @@ tracing = ["napi-derive-backend/tracing"]
 type-def = ["napi-derive-backend/type-def", "ctor"]
 
 [dependencies]
-convert_case = "0.10"
+convert_case = "0.11"
 ctor = { version = "0.6", optional = true }
 napi-derive-backend = { version = "5.0.1", path = "../backend" }
 proc-macro2 = "1"
