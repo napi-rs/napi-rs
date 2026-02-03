@@ -146,8 +146,10 @@ function requireNative() {
       if (process.config?.variables?.shlib_suffix === 'so') {
         ${requireTuple('win32-x64-msvc', 10)}
         ${requireTuple('win32-x64-gnu', 10)}
+        ${requireTuple('win32-x64-gnullvm', 10)}
       } else if (process.config?.variables?.shlib_suffix === 'dll.a' || process.config?.variables?.node_target_type === 'shared_library') {
         ${requireTuple('win32-x64-gnu', 10)}
+        ${requireTuple('win32-x64-gnullvm', 10)}
       } else {
         ${requireTuple('win32-x64-msvc', 10)}
       }
