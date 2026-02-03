@@ -26,7 +26,26 @@ if (platforms.length === 1) {
     binaryName = `example.${platforms.find(({ abi }) => abi === 'musl').platformArchABI}.node`
   }
 } else if (process.platform === 'win32') {
-  binaryName = `example.${platforms.find(({ abi }) => abi === 'msvc').platformArchABI}.node`
+  const msystem = process.env.MSYSTEM;
+
+  if (!msystem) {
+    binaryName = `example.${platforms.find(({ abi }) => abi === 'msvc').platformArchABI}.node`
+  } else {
+    switch (msystem) {
+      // expected fall-through
+      case "CLANG64":
+      case "CLANGARM64":
+        binaryName = `example.${platforms.find(({ abi }) => abi === 'gnullvm').platformArchABI}.node`
+        break;
+      // expected fall-through
+      case "UCRT64":
+      case "MINGW64":
+        binaryName = `example.${platforms.find(({ abi }) => abi === 'gnu').platformArchABI}.node`
+        break;
+      default:
+        throw new Error('unsupported platform')
+    }
+  }
 } else {
   throw new Error('unsupported platform')
 }
