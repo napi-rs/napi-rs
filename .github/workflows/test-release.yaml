@@ -232,46 +232,229 @@ jobs:
 
   build-and-test-msys2:
     strategy:
+      fail-fast: false
       matrix:
-        sys: [MINGW64, UCRT64, CLANG64]
-    runs-on: windows-latest
+        settings:
+          - sys: UCRT64
+            target: x86_64-pc-windows-gnu
+          - sys: MINGW64
+            target: x86_64-pc-windows-gnu
+          - sys: CLANG64
+            target: x86_64-pc-windows-gnullvm
+          - sys: CLANGARM64
+            target: aarch64-pc-windows-gnullvm
+    name: ${{ matrix.settings.target }} - msys2/${{ matrix.settings.sys }}
+    runs-on: ${{ matrix.settings.sys == 'CLANGARM64' && 'windows-11-arm' || 'windows-latest' }}
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          path: napi-rs
+
+      # NOTE: The patch should be applied to the upstream
+      # repo of oxc-node, and once the oxc-node gnu/gnullvm
+      # bindings are publish, this part should be removed.
+      - uses: actions/checkout@v6
+        with:
+          repository: oxc-project/oxc-node
+          ref: v0.0.35
+          path: oxc-node
+      - name: Patch oxc-node
+        working-directory: oxc-node
+        shell: bash
+        run: |
+          git apply <<'PATCH'
+          diff --git a/.cargo/config.toml b/.cargo/config.toml
+          index dda5ea5..3e8417f 100644
+          --- a/.cargo/config.toml
+          +++ b/.cargo/config.toml
+          @@ -1,4 +1,4 @@
+          -[target.'cfg(target_env = "gnu")']
+          +[target.'cfg(all(target_env = "gnu", target_os = "linux"))']
+           rustflags = ["-C", "link-args=-Wl,-z,nodelete"]
+
+           [target.x86_64-pc-windows-msvc]
+          @@ -10,7 +10,7 @@ rustflags = ["-C", "target-feature=+crt-static"]
+           [target.aarch64-pc-windows-msvc]
+           rustflags = ["-C", "target-feature=+crt-static"]
+
+          -[target.'cfg(target_os = "windows")']
+          +[target.'cfg(all(target_os = "windows", target_env = "msvc"))']
+           rustflags = [
+             # Disables linking against the default Universal C Runtime (libucrt.lib). This prevents conflicts if another CRT library is linked manually.
+             "-C",
+          @@ -21,6 +21,9 @@ rustflags = [
+             "link-args=/DEFAULTLIB:ucrt.lib",
+           ]
+
+          +[target.x86_64-pc-windows-gnu]
+          +rustflags = [ "-C", "link-arg=-ladvapi32" ]
+          +
+           # LLD linker is currently broken for us, opt out.
+           # https://blog.rust-lang.org/2025/09/18/Rust-1.90.0/#what-s-in-1-90-0-stable
+           [target.x86_64-unknown-linux-gnu]
+          PATCH
+
+      - uses: actions/checkout@v6
+        with:
+          repository: rolldown/rolldown
+          ref: v1.0.0-rc.1
+          path: rolldown
+      - name: Patch rolldown
+        working-directory: rolldown
+        shell: bash
+        run: |
+          mkdir -p dummy/rolldown-binding-builder
+          cp packages/rolldown/build-binding.ts dummy/rolldown-binding-builder/build-binding.mjs
+          cat > dummy/rolldown-binding-builder/package.json <<'JSON'
+          {
+            "name": "rolldown-binding-builder",
+            "private": true,
+            "type": "module",
+            "scripts": {
+              "build": "node ./build-binding.mjs"
+            },
+            "napi": {
+              "binaryName": "rolldown-binding",
+              "packageName": "@rolldown/binding",
+              "targets": [
+                "x86_64-apple-darwin",
+                "x86_64-pc-windows-msvc",
+                "x86_64-unknown-linux-gnu",
+                "x86_64-unknown-linux-musl",
+                "x86_64-unknown-freebsd",
+                "i686-pc-windows-msvc",
+                "armv7-unknown-linux-gnueabihf",
+                "aarch64-unknown-linux-gnu",
+                "aarch64-apple-darwin",
+                "aarch64-unknown-linux-musl",
+                "aarch64-unknown-linux-ohos",
+                "aarch64-pc-windows-msvc",
+                "aarch64-linux-android",
+                "wasm32-wasip1-threads"
+              ],
+              "wasm": {
+                "initialMemory": 16384,
+                "browser": {
+                  "fs": true,
+                  "asyncInit": true
+                }
+              },
+              "dtsHeader": "type MaybePromise<T> = T | Promise<T>\ntype Nullable<T> = T | null | undefined\ntype VoidNullable<T = void> = T | null | undefined | void\nexport type BindingStringOrRegex = string | RegExp\ntype BindingResult<T> = { errors: BindingError[], isBindingErrors: boolean } | T\n\n"
+            },
+            "dependencies": {
+              "@napi-rs/cli": "3.5.1",
+              "glob": "11.0.3"
+            }
+          }
+          JSON
+          git apply <<'PATCH'
+          diff --git a/.cargo/config.toml b/.cargo/config.toml
+          index 7b46f90..72f7e0d 100644
+          --- a/.cargo/config.toml
+          +++ b/.cargo/config.toml
+          @@ -13,8 +13,8 @@ rustflags = ["-C", "target-feature=+crt-static"]
+           [target.aarch64-pc-windows-msvc]
+           rustflags = ["-C", "target-feature=+crt-static"]
+
+          -[target.'cfg(target_os = "windows")']
+          -rustflags = [
+          +[target.'cfg(all(target_os = "windows", target_env = "msvc"))']
+          +rustfgags = [
+             # Disables linking against the default Universal C Runtime (libucrt.lib). This prevents conflicts if another CRT library is linked manually.
+             "-C",
+             "link-args=/NODEFAULTLIB:libucrt.lib",
+          PATCH
 
       - name: Setup MSYS2
         uses: msys2/setup-msys2@v2
         with:
-          msystem: ${{ matrix.sys }}
+          msystem: ${{ matrix.settings.sys }}
           update: true
           install: >-
-            base-devel
+            git
           pacboy: >-
+            toolchain:p
+            cmake:p
             rust:p
             yarn:p
-            ${{ matrix.sys == 'CLANG64' && 'gcc-compat:p' || '' }}
+            ${{ (matrix.settings.sys == 'CLANG64' || matrix.settings.sys == 'CLANGARM64') && 'gcc-compat:p' || '' }}
 
-      - name: Cargo test
+      - name: Build oxc-node
+        shell: msys2 {0}
+        working-directory: oxc-node
+        run: |
+          cargo build --release --target ${{ matrix.settings.target }}
+
+      - name: Build rolldown
+        shell: msys2 {0}
+        working-directory: rolldown
+        run: |
+          cd dummy/rolldown-binding-builder
+          npm install
+          npm run build
+
+      - name: Install dependencies (napi-rs)
+        shell: msys2 {0}
+        working-directory: napi-rs
+        run: |
+          corepack enable
+          yarn install --immutable --mode=skip-build
+
+      # HACK: replace the msvc version
+      - name: Use local build oxc-node and rolldown
         shell: msys2 {0}
         run: |
+          # NOTE: oxc-node
+          if [ "$MSYSTEM" = "CLANGARM64" ]; then
+            # NOTE: this should be win32-arm64-gnullvm but the binding of oxc-node hasn't been updated, it depends on this PR
+            NODE_ARTIFACT=node_modules/@oxc-node/core/oxc-node.win32-arm64-msvc.node
+          elif [ "MSYSTEM" = "CLANG64" ]; then
+            # NOTE: this should be win32-x64-gnullvm
+            NODE_ARTIFACT=node_modules/@oxc-node/core/oxc-node.win32-x64-gnu.node
+          else
+            NODE_ARTIFACT=node_modules/@oxc-node/core/oxc-node.win32-x64-gnu.node
+          fi
+          cp oxc-node/target/${{matrix.settings.target}}/release/oxc_node.dll napi-rs/$NODE_ARTIFACT
+
+          # NOTE: rolldown
+          NODE_ARTIFACT=node_modules/rolldown/dist/shared/rolldown-binding.win32-x64-gnu.node
+          if [ "$MSYSTEM" = "CLANGARM64" ]; then
+            NODE_ARTIFACT=node_modules/rolldown/dist/shared/rolldown-binding.win32-arm64-msvc.node
+          fi
+          cp rolldown/dummy/rolldown-binding-builder/src/rolldown-binding.*.node napi-rs/$NODE_ARTIFACT
+
+      - name: Build tests
+        shell: msys2 {0}
+        working-directory: napi-rs
+        run: |
+          yarn workspace @examples/napi build
+
+      - name: Run tests
+        shell: msys2 {0}
+        working-directory: napi-rs
+        run: |
+          yarn test:cli
+          # NOTE: skip `yarn workspace @examples/compat-mode test`, binary
+          # can be built but cannot be loaded
+          yarn workspace @examples/napi test
+          yarn workspace @napi-rs/wasm-runtime test
+          yarn workspace @examples/napi test:leak
+          yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
+          yarn test:macro
           cargo test
-  # Because dependencies use napi-rs itself they use older versions of napi-rs to install the package, this will fail automatically during build, uncomment when bootstrap issues have been solved
-  #    - name: Install dependencies
-  #      shell: msys2 {0}
-  #      run: |
-  #        yarn install --immutable --mode=skip-build
-  #
-  #    - name: Build tests
-  #      shell: msys2 {0}
-  #      run: yarn build:test
-  #
-  #    - name: Run tests
-  #      shell: msys2 {0}
-  #      run: |
-  #        yarn test:cli
-  #        yarn test
-  #        yarn tsc -p examples/napi/tsconfig.json --noEmit --skipLibCheck
-  #        yarn test:macro
+
+      - name: Electron tests
+        shell: msys2 {0}
+        working-directory: napi-rs
+        run: |
+          node ./node_modules/electron/install.js
+          yarn test:electron
+
+      - name: Test build with profile
+        shell: msys2 {0}
+        working-directory: napi-rs
+        run: yarn workspace @examples/napi build --profile napi-rs-custom
 
   build_only:
     name: Build only test - ${{ matrix.settings.target }}
