@@ -360,7 +360,7 @@ jobs:
           -[target.'cfg(target_os = "windows")']
           -rustflags = [
           +[target.'cfg(all(target_os = "windows", target_env = "msvc"))']
-          +rustfgags = [
+          +rustflags = [
              # Disables linking against the default Universal C Runtime (libucrt.lib). This prevents conflicts if another CRT library is linked manually.
              "-C",
              "link-args=/NODEFAULTLIB:libucrt.lib",
