@@ -409,7 +409,7 @@ jobs:
           if [ "$MSYSTEM" = "CLANGARM64" ]; then
             # NOTE: this should be win32-arm64-gnullvm but the binding of oxc-node hasn't been updated, it depends on this PR
             NODE_ARTIFACT=node_modules/@oxc-node/core/oxc-node.win32-arm64-msvc.node
-          elif [ "MSYSTEM" = "CLANG64" ]; then
+          elif [ "$MSYSTEM" = "CLANG64" ]; then
             # NOTE: this should be win32-x64-gnullvm
             NODE_ARTIFACT=node_modules/@oxc-node/core/oxc-node.win32-x64-gnu.node
           else
