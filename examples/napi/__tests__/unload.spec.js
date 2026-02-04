@@ -26,11 +26,8 @@ if (platforms.length === 1) {
     binaryName = `example.${platforms.find(({ abi }) => abi === 'musl').platformArchABI}.node`
   }
 } else if (process.platform === 'win32') {
-  const msystem = process.env.MSYSTEM;
-
-  if (!msystem) {
-    binaryName = `example.${platforms.find(({ abi }) => abi === 'msvc').platformArchABI}.node`
-  } else {
+  if (process.config?.variables?.shlib_suffix === 'dll.a' || process.config?.variables?.node_target_type === 'shared_library') {
+    const msystem = process.env.MSYSTEM;
     switch (msystem) {
       // expected fall-through
       case "CLANG64":
@@ -45,6 +42,8 @@ if (platforms.length === 1) {
       default:
         throw new Error('unsupported platform')
     }
+  } else {
+    binaryName = `example.${platforms.find(({ abi }) => abi === 'msvc').platformArchABI}.node`
   }
 } else {
   throw new Error('unsupported platform')
