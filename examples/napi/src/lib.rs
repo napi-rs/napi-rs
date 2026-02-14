@@ -64,6 +64,7 @@ pub fn exports(mut export: Object) -> Result<()> {
 
 mod array;
 mod r#async;
+mod async_generator_repro;
 mod bigint;
 mod callback;
 mod class;

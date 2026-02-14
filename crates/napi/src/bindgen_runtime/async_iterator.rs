@@ -1,3 +1,4 @@
+use std::ffi::CStr;
 use std::future::Future;
 use std::ptr;
 
@@ -5,6 +6,11 @@ use crate::{
   bindgen_runtime::{FromNapiValue, Object, ToNapiValue, Unknown},
   check_status, check_status_or_throw, sys, Env, JsError, Value,
 };
+
+/// Hidden property name for storing the instance reference in async generators.
+/// This prevents premature garbage collection of the instance while the async generator is in use.
+/// See: https://github.com/napi-rs/napi-rs/issues/3119
+const INSTANCE_REF_KEY: &CStr = c"[[InstanceRef]]";
 
 /// Implement a Iterator for the JavaScript Class.
 /// This feature is an experimental feature and is not yet stable.
@@ -217,6 +223,64 @@ pub unsafe extern "C" fn symbol_async_generator<T: AsyncGenerator>(
     env,
     unsafe { sys::napi_get_boolean(env, false, &mut generator_state) },
     "Create generator state failed"
+  );
+
+  // The generator object needs to keep the instance alive while iteration is in progress.
+  // Without this reference, the instance can be garbage collected while the generator
+  // is still being used, leading to use-after-free when accessing generator_ptr.
+  let mut instance_ref = ptr::null_mut();
+  check_status_or_throw!(
+    env,
+    unsafe { sys::napi_create_reference(env, this, 1, &mut instance_ref) },
+    "Failed to create reference to instance in async generator"
+  );
+
+  // Store the reference as an external value so it can be cleaned up later
+  let mut ref_holder = ptr::null_mut();
+  unsafe extern "C" fn cleanup_instance_ref(
+    _env: sys::napi_env,
+    data: *mut std::ffi::c_void,
+    _hint: *mut std::ffi::c_void,
+  ) {
+    let instance_ref = data as sys::napi_ref;
+    if !instance_ref.is_null() {
+      // Delete the reference when the generator is garbage collected
+      unsafe { sys::napi_delete_reference(_env, instance_ref) };
+    }
+  }
+
+  check_status_or_throw!(
+    env,
+    unsafe {
+      sys::napi_create_external(
+        env,
+        instance_ref.cast(),
+        Some(cleanup_instance_ref),
+        ptr::null_mut(),
+        &mut ref_holder,
+      )
+    },
+    "Failed to create external for instance reference"
+  );
+
+  // Store as a hidden property on the generator object
+  // Use napi_define_properties with default attributes (non-enumerable, non-writable, non-configurable)
+  // to make this property truly hidden from user code
+  let properties = [sys::napi_property_descriptor {
+    utf8name: INSTANCE_REF_KEY.as_ptr().cast(),
+    name: ptr::null_mut(),
+    method: None,
+    getter: None,
+    setter: None,
+    value: ref_holder,
+    attributes: sys::PropertyAttributes::default,
+    data: ptr::null_mut(),
+  }];
+
+  check_status_or_throw!(
+    env,
+    unsafe { sys::napi_define_properties(env, generator_object, 1, properties.as_ptr()) },
+    "Failed to define instance reference property on generator object"
   );
 
   generator_object
