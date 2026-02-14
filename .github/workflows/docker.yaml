@@ -81,19 +81,19 @@ jobs:
           password: ${{ secrets.GH_TOKEN }}
 
       - name: Install latest libc++-dev for cross build
-        uses: addnab/docker-run-action@v3
-        with:
-          image: node:lts-slim
-          options: '--platform linux/arm64 --user 0:0 -e GITHUB_TOKEN -v ${{ github.workspace }}/lib/llvm-18:/usr/lib/llvm-18'
-          run: >-
-            apt-get update &&
-            apt-get install -y wget gnupg2 &&
-            wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add - &&
-            echo "deb http://apt.llvm.org/focal/ llvm-toolchain-focal-18 main" >> /etc/apt/sources.list &&
-            echo "deb-src http://apt.llvm.org/focal/ llvm-toolchain-focal-18 main" >> /etc/apt/sources.list &&
-            apt-get update &&
-            apt-get install libc++-18-dev libc++abi-18-dev -y --fix-missing --no-install-recommends &&
-            rm /usr/lib/llvm-18/lib/libc++abi.so
+        run: >-
+          docker run --rm
+          --platform linux/arm64 --user 0:0 -e GITHUB_TOKEN
+          -v ${{ github.workspace }}/lib/llvm-18:/usr/lib/llvm-18
+          node:lts-slim
+          sh -c 'apt-get update &&
+          apt-get install -y wget gnupg2 &&
+          wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add - &&
+          echo "deb http://apt.llvm.org/focal/ llvm-toolchain-focal-18 main" >> /etc/apt/sources.list &&
+          echo "deb-src http://apt.llvm.org/focal/ llvm-toolchain-focal-18 main" >> /etc/apt/sources.list &&
+          apt-get update &&
+          apt-get install libc++-18-dev libc++abi-18-dev -y --fix-missing --no-install-recommends &&
+          rm /usr/lib/llvm-18/lib/libc++abi.so'
 
       - name: Build and push debian aarch64 cross
         uses: docker/build-push-action@v6
