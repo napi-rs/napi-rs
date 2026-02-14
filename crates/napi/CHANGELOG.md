@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.8.3](https://github.com/napi-rs/napi-rs/compare/napi-v3.8.2...napi-v3.8.3) - 2026-02-14
+
+### Fixed
+
+- *(napi)* prevent async iterator use-after-free during GC ([#3120](https://github.com/napi-rs/napi-rs/pull/3120))
+
+### Other
+
+- replace `BufferRef` mention with `BufferSlice` ([#3112](https://github.com/napi-rs/napi-rs/pull/3112))
+
 ## [3.8.2](https://github.com/napi-rs/napi-rs/compare/napi-v3.8.1...napi-v3.8.2) - 2026-01-08
 
 ### Fixed
