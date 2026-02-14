@@ -543,14 +543,14 @@ jobs:
         run: |
           node -e "console.info('docker-image=${{ matrix.settings.image }}'.replace('{:version}', ${{ matrix.node }}))" >> "$GITHUB_OUTPUT"
       - name: Setup and run tests
-        uses: tj-actions/docker-run@v2
         # Node.js on qemu randomly segfaults on powerpc64le
         continue-on-error: ${{ matrix.settings.target == 'powerpc64le-unknown-linux-gnu' || matrix.settings.target == 's390x-unknown-linux-gnu' }}
-        with:
-          image: ${{ steps.image-name.outputs.docker-image }}
-          name: test-${{ matrix.settings.target }}-node${{ matrix.node }}
-          options: ${{ matrix.settings.args }} -v ${{ github.workspace }}:/build -w /build --entrypoint sh
-          args: -c "export NODE_OPTIONS=--max-old-space-size=8192 && export DISABLE_V8_COMPILE_CACHE=1 && yarn workspace @examples/napi test"
+        run: >-
+          docker run --rm
+          ${{ matrix.settings.args }}
+          -v ${{ github.workspace }}:/build -w /build
+          ${{ steps.image-name.outputs.docker-image }}
+          sh -c "export NODE_OPTIONS=--max-old-space-size=8192 && export DISABLE_V8_COMPILE_CACHE=1 && yarn workspace @examples/napi test"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -595,12 +595,12 @@ jobs:
       - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
 
       - name: Setup and run tests
-        uses: tj-actions/docker-run@v2
-        with:
-          image: node:22-slim
-          name: test-armv7-gnueabihf
-          options: --platform linux/arm/v7 -v ${{ github.workspace }}:/build -w /build --entrypoint sh
-          args: -c "yarn test"
+        run: >-
+          docker run --rm
+          --platform linux/arm/v7
+          -v ${{ github.workspace }}:/build -w /build
+          node:22-slim
+          sh -c "yarn test"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
