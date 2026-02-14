@@ -7,20 +7,18 @@
   "license": "MIT",
   "type": "module",
   "engines": {
-    "node": ">= 16"
+    "node": ">= 20.19"
   },
   "bin": {
-    "napi": "./dist/cli.js",
+    "napi": "./dist/cli.mjs",
     "napi-raw": "./cli.mjs"
   },
-  "main": "./dist/index.cjs",
-  "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./dist/index.mjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
   "exports": {
-    ".": {
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
-    },
+    ".": "./dist/index.mjs",
+    "./cli": "./dist/cli.mjs",
     "./package.json": "./package.json"
   },
   "files": [
