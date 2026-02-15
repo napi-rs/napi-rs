@@ -7,6 +7,7 @@ export default defineConfig([
     format: ['esm', 'cjs'],
     target: 'node16',
     sourcemap: 'inline',
+    inlineOnly: false,
     inputOptions(options, format) {
       if (format === 'cjs') {
         options.external = ['@octokit/rest']
@@ -20,5 +21,6 @@ export default defineConfig([
     target: 'node16',
     dts: false,
     fixedExtension: false,
+    inlineOnly: false,
   },
 ])
