@@ -29,6 +29,14 @@ export abstract class BaseTypegenCommand extends Command {
       'The working directory of where napi command will be executed in, all other paths options are relative to this path',
   })
 
+  configPath?: string = Option.String('--config-path,-c', {
+    description: 'Path to `napi` config json file',
+  })
+
+  packageJsonPath?: string = Option.String('--package-json-path', {
+    description: 'Path to `package.json`',
+  })
+
   crateDir?: string = Option.String('--crate-dir', {
     description:
       'Root directory of the Rust crate to scan. Defaults to the current working directory.',
@@ -53,7 +61,7 @@ export abstract class BaseTypegenCommand extends Command {
       'Whether to disable the default file header for generated type def file.',
   })
 
-  constEnum = Option.Boolean('--const-enum', true, {
+  constEnum?: boolean = Option.Boolean('--const-enum', {
     description: 'Whether generate const enum for typescript bindings',
   })
 
@@ -70,6 +78,8 @@ export abstract class BaseTypegenCommand extends Command {
   getOptions() {
     return {
       cwd: this.cwd,
+      configPath: this.configPath,
+      packageJsonPath: this.packageJsonPath,
       crateDir: this.crateDir,
       outputDir: this.outputDir,
       dts: this.dts,
@@ -90,6 +100,14 @@ export interface TypegenOptions {
    * The working directory of where napi command will be executed in, all other paths options are relative to this path
    */
   cwd?: string
+  /**
+   * Path to `napi` config json file
+   */
+  configPath?: string
+  /**
+   * Path to `package.json`
+   */
+  packageJsonPath?: string
   /**
    * Root directory of the Rust crate to scan. Defaults to the current working directory.
    */
@@ -114,8 +132,6 @@ export interface TypegenOptions {
   noDtsHeader?: boolean
   /**
    * Whether generate const enum for typescript bindings
-   *
-   * @default true
    */
   constEnum?: boolean
   /**
@@ -133,7 +149,6 @@ export interface TypegenOptions {
 export function applyDefaultTypegenOptions(options: TypegenOptions) {
   return {
     dts: 'index.d.ts',
-    constEnum: true,
     strict: false,
     ...options,
   }

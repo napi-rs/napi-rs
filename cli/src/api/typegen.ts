@@ -8,11 +8,14 @@ import {
   applyDefaultTypegenOptions,
   type TypegenOptions,
 } from '../def/typegen.js'
-import { debugFactory } from '../utils/index.js'
 import {
+  type NapiConfig,
+  readNapiConfig,
+  debugFactory,
+  readFileAsync,
   processTypeDefContent,
   DEFAULT_TYPE_DEF_HEADER,
-} from '../utils/typegen.js'
+} from '../utils/index.js'
 
 const debug = debugFactory('typegen')
 
@@ -83,6 +86,18 @@ export async function typegenProject(
   const crateDir = options.crateDir ? resolve(cwd, options.crateDir) : cwd
   const outputDir = options.outputDir ? resolve(cwd, options.outputDir) : crateDir
 
+  // Attempt to load project config (package.json#napi or separate config file)
+  const packageJsonPath = resolve(cwd, options.packageJsonPath ?? 'package.json')
+  let config: NapiConfig | null = null
+  try {
+    config = await readNapiConfig(
+      packageJsonPath,
+      options.configPath ? resolve(cwd, options.configPath) : undefined,
+    )
+  } catch {
+    debug('No project config found, using defaults')
+  }
+
   let jsonlOutput: string
 
   if (options.napiTypegen) {
@@ -102,15 +117,29 @@ export async function typegenProject(
   }
 
   // Process the JSONL content directly (no temp file needed)
-  const { dts: typeDefs } = processTypeDefContent(
-    jsonlOutput,
-    options.constEnum ?? true,
-  )
+  const constEnum = options.constEnum ?? config?.constEnum ?? true
+  const { dts: typeDefs } = processTypeDefContent(jsonlOutput, constEnum)
 
   // Assemble header + special types + type defs (matching build.ts logic)
   let header = ''
   if (!options.noDtsHeader) {
-    header = options.dtsHeader ?? DEFAULT_TYPE_DEF_HEADER
+    if (config?.dtsHeaderFile) {
+      try {
+        header = await readFileAsync(
+          join(cwd, config.dtsHeaderFile),
+          'utf-8',
+        )
+      } catch (e) {
+        debug.warn(
+          `Failed to read dts header file ${config.dtsHeaderFile}`,
+          e,
+        )
+      }
+    } else if (options.dtsHeader ?? config?.dtsHeader) {
+      header = (options.dtsHeader ?? config?.dtsHeader)!
+    } else {
+      header = DEFAULT_TYPE_DEF_HEADER
+    }
   }
 
   if (typeDefs.indexOf('ExternalObject<') > -1) {
