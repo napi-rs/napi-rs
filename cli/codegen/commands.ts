@@ -630,6 +630,17 @@ const TYPEGEN_OPTIONS: CommandSchema = {
         'The working directory of where napi command will be executed in, all other paths options are relative to this path',
     },
     {
+      name: 'configPath',
+      type: 'string',
+      description: 'Path to `napi` config json file',
+      short: ['c'],
+    },
+    {
+      name: 'packageJsonPath',
+      type: 'string',
+      description: 'Path to `package.json`',
+    },
+    {
       name: 'crateDir',
       type: 'string',
       description:
@@ -665,7 +676,6 @@ const TYPEGEN_OPTIONS: CommandSchema = {
       name: 'constEnum',
       type: 'boolean',
       description: 'Whether generate const enum for typescript bindings',
-      default: true,
     },
     {
       name: 'napiTypegen',

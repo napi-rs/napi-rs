@@ -25,12 +25,14 @@ new NapiCli().typegen({
 | Options     | CLI Options     | type    | required | default      | description                                                                                                                        |
 | ----------- | --------------- | ------- | -------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
 |             | --help,-h       |         |          |              | get help                                                                                                                           |
-| cwd         | --cwd           | string  | false    |              | The working directory of where napi command will be executed in, all other paths options are relative to this path                 |
-| crateDir    | --crate-dir     | string  | false    |              | Root directory of the Rust crate to scan. Defaults to the current working directory.                                               |
+| cwd             | --cwd               | string  | false    |              | The working directory of where napi command will be executed in, all other paths options are relative to this path                 |
+| configPath      | --config-path,-c    | string  | false    |              | Path to `napi` config json file                                                                                                   |
+| packageJsonPath | --package-json-path | string  | false    |              | Path to `package.json`                                                                                                            |
+| crateDir        | --crate-dir         | string  | false    |              | Root directory of the Rust crate to scan. Defaults to the current working directory.                                               |
 | outputDir   | --output-dir,-o | string  | false    |              | Path to where the generated .d.ts file will be written. Default to the crate folder.                                               |
 | dts         | --dts           | string  | false    | 'index.d.ts' | Filename of the generated type definition file. Relative to `--output-dir`.                                                        |
 | dtsHeader   | --dts-header    | string  | false    |              | Custom file header for generated type def file.                                                                                    |
 | noDtsHeader | --no-dts-header | boolean | false    |              | Whether to disable the default file header for generated type def file.                                                            |
-| constEnum   | --const-enum    | boolean | false    | true         | Whether generate const enum for typescript bindings                                                                                |
+| constEnum   | --const-enum    | boolean | false    |              | Whether generate const enum for typescript bindings                                                                                |
 | napiTypegen | --napi-typegen  | string  | false    |              | Path to napi-typegen binary (overrides native addon). If unset, uses @napi-rs/typegen addon or falls back to napi-typegen in PATH. |
 | strict      | --strict        | boolean | false    | false        | Fail on the first item that cannot be converted instead of skipping it.                                                            |
