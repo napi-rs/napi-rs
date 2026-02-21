@@ -14,6 +14,7 @@ independent = true
 
 [features]
 noop = []
+parser = []
 strict = []
 tracing = []
 type-def = ["semver"]

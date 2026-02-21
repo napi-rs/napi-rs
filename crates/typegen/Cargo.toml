@@ -1,0 +1,25 @@
+[package]
+name = "napi-typegen"
+version = "0.1.0"
+edition = "2021"
+description = "Standalone TypeScript type generator for napi-rs"
+license = "MIT"
+repository = "https://github.com/napi-rs/napi-rs"
+rust-version.workspace = true
+
+[lib]
+name = "napi_typegen"
+path = "src/lib.rs"
+
+[[bin]]
+name = "napi-typegen"
+path = "src/main.rs"
+
+[dependencies]
+napi-derive-backend = { path = "../backend", features = ["type-def", "parser"] }
+syn = { version = "2", features = ["full", "extra-traits"] }
+proc-macro2 = "1"
+quote = "1"
+ignore = "0.4"
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"

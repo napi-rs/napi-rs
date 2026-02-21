@@ -5,6 +5,8 @@ target/
 Cargo.lock
 node_modules
 *.node
+index.cjs
+index.d.cts
 build/LICENSE
 napi/LICENSE
 napi-derive/LICENSE

@@ -20,6 +20,8 @@ export interface CommandSchema {
   name: string
   alias?: string[]
   description: string
+  details?: string
+  examples?: Array<[string, string]>
   args: ArgSchema[]
   options: OptionSchema[]
 }
@@ -594,6 +596,93 @@ const PRE_PUBLISH_OPTIONS: CommandSchema = {
   ],
 }
 
+const TYPEGEN_OPTIONS: CommandSchema = {
+  name: 'typegen',
+  description:
+    'Generate TypeScript type definitions from #[napi]-annotated Rust source files',
+  details: [
+    'This command statically analyzes Rust source files and produces TypeScript definitions. Unlike `napi build`, it does not invoke `cargo build` — it parses `.rs` files directly, making it significantly faster for type-only regeneration.',
+  ].join('\n'),
+  examples: [
+    [
+      'Generate types for the current directory',
+      'napi typegen',
+    ],
+    [
+      'Generate types for a specific crate into a dist folder',
+      'napi typegen --crate-dir ./my-crate --output-dir ./dist',
+    ],
+    [
+      'Generate types with a custom filename',
+      'napi typegen --dts index.d.cts',
+    ],
+    [
+      'Strict mode — fail on first conversion error',
+      'napi typegen --strict',
+    ],
+  ],
+  args: [],
+  options: [
+    {
+      name: 'cwd',
+      type: 'string',
+      description:
+        'The working directory of where napi command will be executed in, all other paths options are relative to this path',
+    },
+    {
+      name: 'crateDir',
+      type: 'string',
+      description:
+        'Root directory of the Rust crate to scan. Defaults to the current working directory.',
+    },
+    {
+      name: 'outputDir',
+      type: 'string',
+      description:
+        'Path to where the generated .d.ts file will be written. Default to the crate folder.',
+      short: ['o'],
+    },
+    {
+      name: 'dts',
+      type: 'string',
+      description:
+        'Filename of the generated type definition file. Relative to `--output-dir`.',
+      default: "'index.d.ts'",
+    },
+    {
+      name: 'dtsHeader',
+      type: 'string',
+      description:
+        'Custom file header for generated type def file.',
+    },
+    {
+      name: 'noDtsHeader',
+      type: 'boolean',
+      description:
+        'Whether to disable the default file header for generated type def file.',
+    },
+    {
+      name: 'constEnum',
+      type: 'boolean',
+      description: 'Whether generate const enum for typescript bindings',
+      default: true,
+    },
+    {
+      name: 'napiTypegen',
+      type: 'string',
+      description:
+        'Path to napi-typegen binary (overrides native addon). If unset, uses @napi-rs/typegen addon or falls back to napi-typegen in PATH.',
+    },
+    {
+      name: 'strict',
+      type: 'boolean',
+      description:
+        'Fail on the first item that cannot be converted instead of skipping it.',
+      default: false,
+    },
+  ],
+}
+
 export const commandDefines: CommandDefineSchema = [
   NEW_OPTIONS,
   BUILD_OPTIONS,
@@ -603,4 +692,5 @@ export const commandDefines: CommandDefineSchema = [
   UNIVERSALIZE_OPTIONS,
   VERSION_OPTIONS,
   PRE_PUBLISH_OPTIONS,
+  TYPEGEN_OPTIONS,
 ]

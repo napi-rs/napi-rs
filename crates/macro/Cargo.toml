@@ -25,7 +25,7 @@ type-def = ["napi-derive-backend/type-def", "ctor"]
 [dependencies]
 convert_case = "0.11"
 ctor = { version = "0.8", optional = true }
-napi-derive-backend = { version = "5.0.2", path = "../backend" }
+napi-derive-backend = { version = "5.0.2", path = "../backend", features = ["parser"] }
 proc-macro2 = "1"
 quote = "1"
 syn = { version = "2", features = ["fold", "full", "extra-traits"] }
