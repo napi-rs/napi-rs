@@ -57,7 +57,8 @@ function runBinary(
   if (result.error) {
     throw new Error(
       `napi-typegen failed. Is it installed?\n` +
-        `Install with: cargo install napi-typegen\n` +
+        `Install with: npm install -D @napi-rs/typegen\n` +
+        `Or with Cargo: cargo install napi-typegen\n` +
         `Or specify path: napi typegen --napi-typegen /path/to/napi-typegen\n\n` +
         `error: ${result.error.message}`,
     )
