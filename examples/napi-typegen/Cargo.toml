@@ -1,0 +1,15 @@
+[package]
+name = "napi-typegen-example"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = { path = "../../crates/napi", default-features = false, features = ["napi4"] }
+napi-derive = { path = "../../crates/macro", features = ["type-def"] }
+
+[build-dependencies]
+napi-build = { path = "../../crates/build" }

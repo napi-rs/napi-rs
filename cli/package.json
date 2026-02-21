@@ -73,6 +73,9 @@
     "semver": "^7.7.3",
     "typanion": "^3.14.0"
   },
+  "optionalDependencies": {
+    "@napi-rs/typegen": "workspace:*"
+  },
   "devDependencies": {
     "@emnapi/runtime": "^1.7.1",
     "@oxc-node/core": "^0.0.35",

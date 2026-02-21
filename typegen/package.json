@@ -1,0 +1,36 @@
+{
+  "name": "@napi-rs/typegen",
+  "version": "0.1.0",
+  "main": "index.cjs",
+  "types": "index.d.cts",
+  "files": [
+    "index.cjs",
+    "index.d.cts",
+    "npm"
+  ],
+  "napi": {
+    "binaryName": "typegen",
+    "targets": [
+      "x86_64-apple-darwin",
+      "aarch64-apple-darwin",
+      "x86_64-unknown-linux-gnu",
+      "x86_64-unknown-linux-musl",
+      "aarch64-unknown-linux-gnu",
+      "aarch64-unknown-linux-musl",
+      "x86_64-pc-windows-msvc",
+      "aarch64-pc-windows-msvc",
+      "armv7-unknown-linux-gnueabihf",
+      "x86_64-unknown-freebsd",
+      "aarch64-unknown-freebsd"
+    ]
+  },
+  "scripts": {
+    "build": "napi-raw build --platform --js index.cjs --dts index.d.cts",
+    "create-npm-dirs": "napi-raw create-npm-dirs",
+    "prepack": "napi-raw pre-publish",
+    "prepublishOnly": "napi-raw pre-publish"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "workspace:*"
+  }
+}

@@ -97,12 +97,28 @@ function exportDeclare(ambient: boolean): string {
   return 'export declare'
 }
 
+export function processTypeDefContent(
+  content: string,
+  constEnum: boolean,
+) {
+  const defs = parseIntermediateTypeContent(content)
+  return formatTypeDefs(defs, constEnum)
+}
+
 export async function processTypeDef(
   intermediateTypeFile: string,
   constEnum: boolean,
 ) {
+  const content = await readFileAsync(intermediateTypeFile, 'utf8')
+  const defs = parseIntermediateTypeContent(content)
+  return formatTypeDefs(defs, constEnum)
+}
+
+function formatTypeDefs(
+  defs: TypeDefLine[],
+  constEnum: boolean,
+) {
   const exports: string[] = []
-  const defs = await readIntermediateTypeFile(intermediateTypeFile)
   const groupedDefs = preprocessTypeDef(defs)
 
   const dts =
@@ -148,9 +164,7 @@ export async function processTypeDef(
   }
 }
 
-async function readIntermediateTypeFile(file: string) {
-  const content = await readFileAsync(file, 'utf8')
-
+function parseIntermediateTypeContent(content: string) {
   const defs = content
     .split('\n')
     .filter(Boolean)
@@ -206,7 +220,10 @@ function preprocessTypeDef(defs: TypeDefLine[]): Map<string, TypeDefLine[]> {
         classDef.extends = def.def
       }
     } else if (def.kind === TypeDefKind.Impl) {
-      // merge `impl` into class definition
+      // merge `impl` into class definition.
+      // No re-unescaping of \\n is needed here: parseIntermediateTypeContent already
+      // converted all escape sequences in def fields via JSON.parse + replace, so both
+      // classDef.def and def.def contain actual newlines at this point.
       const classDef = classDefs.get(def.name)
       if (classDef) {
         if (classDef.def) {
@@ -214,10 +231,6 @@ function preprocessTypeDef(defs: TypeDefLine[]): Map<string, TypeDefLine[]> {
         }
 
         classDef.def += def.def
-        // Convert any remaining \n sequences in the merged def to actual newlines
-        if (classDef.def) {
-          classDef.def = classDef.def.replace(/\\n/g, '\n')
-        }
       }
     } else {
       group.push(def)
