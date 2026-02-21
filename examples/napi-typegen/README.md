@@ -8,7 +8,7 @@ Minimal crate demonstrating `napi typegen` — generating TypeScript definitions
 yarn workspace @examples/napi-typegen typegen
 ```
 
-This parses `src/lib.rs` and writes `index.d.ts` in the current directory.
+This walks all `.rs` files under `src/` and writes `index.d.ts` in the current directory.
 
 ## What it covers
 

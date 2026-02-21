@@ -1,6 +1,15 @@
 {
   "name": "@napi-rs/typegen",
   "version": "0.1.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/napi-rs/napi-rs.git"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
   "main": "index.cjs",
   "types": "index.d.cts",
   "files": [
@@ -27,8 +36,7 @@
   "scripts": {
     "build": "napi-raw build --platform --js index.cjs --dts index.d.cts",
     "create-npm-dirs": "napi-raw create-npm-dirs",
-    "prepack": "napi-raw pre-publish",
-    "prepublishOnly": "napi-raw pre-publish"
+    "prepack": "napi-raw pre-publish"
   },
   "devDependencies": {
     "@napi-rs/cli": "workspace:*"

@@ -181,4 +181,10 @@ fn strict_mode_examples_napi() {
     "napi-typegen --strict produced warnings (should have failed instead):\n{}",
     stderr
   );
+
+  let stdout = String::from_utf8_lossy(&output.stdout);
+  assert!(
+    !stdout.trim().is_empty(),
+    "napi-typegen --strict produced no output — expected type definitions"
+  );
 }

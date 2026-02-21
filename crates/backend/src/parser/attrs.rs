@@ -108,7 +108,7 @@ macro_rules! methods {
     #[allow(unused)]
     pub fn check_used(&self) -> Result<(), Diagnostic> {
       // Account for the fact this method was called
-      let attrs = ATTRS.get_or_init(|| AttributeParseState::default());
+      let attrs = ATTRS.get_or_init(AttributeParseState::default);
       attrs.checks.fetch_add(1, Ordering::SeqCst);
 
       let mut errors = Vec::new();

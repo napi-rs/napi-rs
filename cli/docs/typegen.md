@@ -12,7 +12,7 @@ napi typegen [--options]
 ```
 
 ```typescript
-// Programatically
+// Programmatically
 import { NapiCli } from '@napi-rs/cli'
 
 new NapiCli().typegen({
