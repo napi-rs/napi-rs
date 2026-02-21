@@ -11,7 +11,7 @@ use ignore::WalkBuilder;
 /// **Note:** All matching file contents are collected into memory. This is fine for typical
 /// napi crates but could consume significant memory if pointed at a very large codebase
 /// (e.g. a monorepo root instead of a specific crate directory).
-pub fn walk_rs_files(root: &Path) -> Result<Vec<(String, String)>> {
+pub fn walk_rs_files(root: &Path, strict: bool) -> Result<Vec<(String, String)>> {
   let mut results = Vec::new();
 
   let walker = WalkBuilder::new(root)
@@ -38,6 +38,9 @@ pub fn walk_rs_files(root: &Path) -> Result<Vec<(String, String)>> {
     let content = match std::fs::read_to_string(path) {
       Ok(c) => c,
       Err(e) => {
+        if strict {
+          return Err(anyhow::anyhow!("Failed to read {}: {}", path.display(), e));
+        }
         eprintln!("Warning: Failed to read {}: {}", path.display(), e);
         continue;
       }

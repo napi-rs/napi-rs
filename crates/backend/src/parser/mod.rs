@@ -457,13 +457,9 @@ fn unescape_unicode(chars: &mut Chars) -> Option<(char, char)> {
     let c = chars.next()?;
     let num = match c {
       '0'..='9' => c as u32 - '0' as u32,
-      'a'..='f' => c as u32 - 'a' as u32,
-      'A'..='F' => c as u32 - 'A' as u32,
+      'a'..='f' => c as u32 - 'a' as u32 + 10,
+      'A'..='F' => c as u32 - 'A' as u32 + 10,
       _ => {
-        if i == 0 {
-          return None;
-        }
-
         if i == 0 {
           return None;
         }
@@ -1696,14 +1692,14 @@ impl ConvertToAST for syn::ItemEnum {
                     Err(_) => {
                       bail_span!(
                         int_lit,
-                        "enums with #[wasm_bindgen] can only support \
+                        "enums with #[napi] can only support \
                       numbers that can be represented as i32",
                       );
                     }
                   },
                   _ => bail_span!(
                     expr,
-                    "enums with #[wasm_bindgen] may only have \
+                    "enums with #[napi] may only have \
                   number literal values",
                   ),
                 }

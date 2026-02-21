@@ -7,6 +7,7 @@ use napi_derive_backend::ToTypeDef;
 use crate::visitor::{convert_items, extract_napi_items, CategorizedItems};
 use crate::walker::walk_rs_files;
 
+#[derive(Debug)]
 pub struct TypegenResult {
   pub type_defs: Vec<String>,
   pub parse_errors: u32,
@@ -28,7 +29,7 @@ pub fn generate_type_defs(crate_dir: &std::path::Path, strict: bool) -> Result<T
   };
 
   // Phase 1: Walk and collect all .rs files containing "napi"
-  let files = walk_rs_files(scan_dir).context("Failed to walk source files")?;
+  let files = walk_rs_files(scan_dir, strict).context("Failed to walk source files")?;
 
   // Phase 2: Parse files and extract #[napi] items
   let mut all_items: Option<CategorizedItems> = None;

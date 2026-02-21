@@ -100,7 +100,7 @@ function exportDeclare(ambient: boolean): string {
 export function processTypeDefContent(
   content: string,
   constEnum: boolean,
-) {
+): { dts: string; exports: string[] } {
   const defs = parseIntermediateTypeContent(content)
   return formatTypeDefs(defs, constEnum)
 }
@@ -110,8 +110,7 @@ export async function processTypeDef(
   constEnum: boolean,
 ) {
   const content = await readFileAsync(intermediateTypeFile, 'utf8')
-  const defs = parseIntermediateTypeContent(content)
-  return formatTypeDefs(defs, constEnum)
+  return processTypeDefContent(content, constEnum)
 }
 
 function formatTypeDefs(

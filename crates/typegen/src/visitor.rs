@@ -156,7 +156,12 @@ fn is_napi_attr(attr: &syn::Attribute) -> bool {
   else {
     return false;
   };
-  args.iter().any(|m| path_ends_with_napi(m.path()))
+  // Only check the last argument (the attribute to apply), not the condition.
+  // cfg_attr syntax: #[cfg_attr(condition, attr)] — matches backend's BindgenAttrs::try_from.
+  args
+    .iter()
+    .next_back()
+    .is_some_and(|m| path_ends_with_napi(m.path()))
 }
 
 /// Try to extract a `#[napi]`-annotated item. If the item has a `#[napi]` attribute,

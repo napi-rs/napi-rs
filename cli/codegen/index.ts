@@ -246,7 +246,7 @@ napi ${kebabCase(command.name)}${command.args.reduce(
 \`\`\`
 
 \`\`\`typescript
-// Programatically
+// Programmatically
 import { NapiCli } from '@napi-rs/cli'
 
 new NapiCli().${command.name}({

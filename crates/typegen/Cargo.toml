@@ -16,7 +16,7 @@ name = "napi-typegen"
 path = "src/main.rs"
 
 [dependencies]
-napi-derive-backend = { path = "../backend", features = ["type-def", "parser"] }
+napi-derive-backend = { version = "5.0.2", path = "../backend", features = ["type-def", "parser"] }
 syn = { version = "2", features = ["full", "extra-traits"] }
 proc-macro2 = "1"
 quote = "1"

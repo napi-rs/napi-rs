@@ -81,15 +81,15 @@ export async function typegenProject(
   const options = applyDefaultTypegenOptions(userOptions)
   const cwd = options.cwd ? resolve(options.cwd) : process.cwd()
   const crateDir = options.crateDir ? resolve(cwd, options.crateDir) : cwd
-  const outputDir = options.outputDir ? resolve(cwd, options.outputDir) : cwd
+  const outputDir = options.outputDir ? resolve(cwd, options.outputDir) : crateDir
 
   let jsonlOutput: string
 
   if (options.napiTypegen) {
-    // Explicit binary path — backward compat
+    // Explicit binary path — highest priority override
     jsonlOutput = runBinary(options.napiTypegen, crateDir, options.strict, cwd)
   } else if (nativeTypegen) {
-    // Native addon — preferred
+    // Native addon — preferred when no explicit path is given
     debug('Using native @napi-rs/typegen addon')
     const result = nativeTypegen.generate({
       crateDir,
