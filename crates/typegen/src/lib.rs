@@ -36,32 +36,18 @@ pub fn generate_type_defs(crate_dir: &std::path::Path, strict: bool) -> Result<T
   // Phase 1a: Resolve and process path dependencies that use napi-derive.
   // Their #[napi] items (especially structs) must be registered before the
   // main crate so that cross-crate type references resolve correctly.
-  match resolve_napi_dependency_dirs(&crate_dir) {
-    Ok(dep_dirs) => {
-      for dep_dir in &dep_dirs {
-        let dep_src = dep_dir.join("src");
-        let dep_scan = if dep_src.is_dir() {
-          &dep_src
-        } else {
-          dep_dir.as_path()
-        };
-        match walk_rs_files(dep_scan, false) {
-          Ok(dep_files) => {
-            parse_errors += collect_napi_items(&dep_files, &mut all_items, strict)?;
-          }
-          Err(e) => {
-            eprintln!(
-              "Warning: Failed to walk dependency {}: {}",
-              dep_dir.display(),
-              e
-            );
-          }
-        }
-      }
-    }
-    Err(e) => {
-      eprintln!("Warning: Failed to resolve workspace dependencies: {}", e);
-    }
+  let dep_dirs =
+    resolve_napi_dependency_dirs(&crate_dir).context("Failed to resolve workspace dependencies")?;
+  for dep_dir in &dep_dirs {
+    let dep_src = dep_dir.join("src");
+    let dep_scan = if dep_src.is_dir() {
+      &dep_src
+    } else {
+      dep_dir.as_path()
+    };
+    let dep_files = walk_rs_files(dep_scan, false)
+      .with_context(|| format!("Failed to walk dependency {}", dep_dir.display()))?;
+    parse_errors += collect_napi_items(&dep_files, &mut all_items, strict)?;
   }
 
   // Phase 1b: Walk and collect all .rs files containing "napi" from the main crate
