@@ -5,7 +5,7 @@ pub mod walker;
 use anyhow::{Context, Result};
 use napi_derive_backend::ToTypeDef;
 
-use crate::resolve::resolve_napi_dependency_dirs;
+use crate::resolve::{resolve_napi_dependency_dirs, MetadataSource};
 use crate::visitor::{convert_items, extract_napi_items, CategorizedItems};
 use crate::walker::walk_rs_files;
 
@@ -17,7 +17,11 @@ pub struct TypegenResult {
 
 /// Core pipeline: walk → parse → extract → convert → serialize.
 /// Returns sorted JSONL lines identical to binary stdout.
-pub fn generate_type_defs(crate_dir: &std::path::Path, strict: bool) -> Result<TypegenResult> {
+pub fn generate_type_defs(
+  crate_dir: &std::path::Path,
+  cargo_metadata_path: Option<&std::path::Path>,
+  strict: bool,
+) -> Result<TypegenResult> {
   let crate_dir = crate_dir
     .canonicalize()
     .with_context(|| format!("Failed to resolve crate directory: {}", crate_dir.display()))?;
@@ -36,8 +40,12 @@ pub fn generate_type_defs(crate_dir: &std::path::Path, strict: bool) -> Result<T
   // Phase 1a: Resolve and process path dependencies that use napi-derive.
   // Their #[napi] items (especially structs) must be registered before the
   // main crate so that cross-crate type references resolve correctly.
-  let dep_dirs =
-    resolve_napi_dependency_dirs(&crate_dir).context("Failed to resolve workspace dependencies")?;
+  let metadata_source = match cargo_metadata_path {
+    Some(path) => MetadataSource::File(path.to_path_buf()),
+    None => MetadataSource::Command,
+  };
+  let dep_dirs = resolve_napi_dependency_dirs(&crate_dir, &metadata_source)
+    .context("Failed to resolve workspace dependencies")?;
   for dep_dir in &dep_dirs {
     let dep_src = dep_dir.join("src");
     let dep_scan = if dep_src.is_dir() {
