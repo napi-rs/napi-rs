@@ -331,6 +331,7 @@
 {"kind": "impl", "name": "ClassInArray", "js_doc": "", "def": " constructor(value: number)"}
 {"kind": "impl", "name": "ClassWithFactory", "js_doc": "", "def": "static withName(name: string): ClassWithFactory\\nstatic with4Name(name: string): Promise<ClassWithFactory>\\nstatic with4NameResult(name: string): Promise<ClassWithFactory>\\n setName(name: string): this"}
 {"kind": "impl", "name": "ClassWithLifetime", "js_doc": "", "def": " constructor()\\n getName(): string"}
+{"kind": "impl", "name": "ComplexClass", "js_doc": "", "def": " constructor(value: string | ComplexClass, number: number)\\n methodOne(): string\\n methodTwo(): number\\n methodThree(): string\\n methodFour(): boolean\\n methodFive(): string"}
 {"kind": "impl", "name": "Context", "js_doc": "", "def": " constructor()\\nstatic withData(data: string): Context\\nstatic withBuffer(buf: Uint8Array): Context\\n method(): string"}
 {"kind": "impl", "name": "CounterRepro", "js_doc": "", "def": " constructor(max: number)"}
 {"kind": "impl", "name": "CounterRepro", "js_doc": "", "def": "[Symbol.asyncIterator](): AsyncGenerator<number, void, undefined>"}
@@ -387,6 +388,7 @@
 {"kind": "interface", "name": "PropertyNameValidTest", "js_doc": "", "def": "/** Valid identifiers should NOT be quoted */\ncamelCase: string\\npascalCase: string\\nprivate: string\\nwith123Numbers: string", "original_name": "PropertyNameValidTest"}
 {"kind": "interface", "name": "RequestInit", "js_doc": "", "def": "method?: string\\nheaders?: Record<string, string>", "original_name": "RequestInit"}
 {"kind": "interface", "name": "Rule", "js_doc": "", "def": "name: string\\nhandler: RuleHandler<number, number>", "original_name": "Rule"}
+{"kind": "interface", "name": "Shared", "js_doc": "", "def": "value: number", "original_name": "Shared"}
 {"kind": "interface", "name": "StreamItem", "js_doc": "/** Example struct demonstrating object streaming with nested types */\n", "def": "something: NestedMetadata\\nname: string\\nsize: number", "original_name": "StreamItem"}
 {"kind": "interface", "name": "StrictObject", "js_doc": "", "def": "name: string", "original_name": "StrictObject"}
 {"kind": "interface", "name": "TsTypeChanged", "js_doc": "", "def": "typeOverride: object\\ntypeOverrideOptional?: object", "original_name": "TsTypeChanged"}
@@ -416,6 +418,7 @@
 {"kind": "struct", "name": "ClassReturnInPromise", "js_doc": "", "def": "", "original_name": "ClassReturnInPromise"}
 {"kind": "struct", "name": "ClassWithFactory", "js_doc": "", "def": "name: string", "original_name": "ClassWithFactory"}
 {"kind": "struct", "name": "ClassWithLifetime", "js_doc": "", "def": "", "original_name": "ClassWithLifetime"}
+{"kind": "struct", "name": "ComplexClass", "js_doc": "", "def": "value: string\\nnumber: number", "original_name": "ComplexClass"}
 {"kind": "struct", "name": "Context", "js_doc": "", "def": "maybeNeed?: boolean\\nbuffer: Uint8Array", "original_name": "Context"}
 {"kind": "struct", "name": "CounterRepro", "js_doc": "/**\n * This type implements JavaScript's async iterable protocol.\n * It can be used with `for await...of` loops.\n * \n * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_async_iterator_and_async_iterable_protocols\n */\n", "def": "", "original_name": "CounterRepro"}
 {"kind": "struct", "name": "CreateStringClass", "js_doc": "", "def": "", "original_name": "CreateStringClass"}

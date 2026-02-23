@@ -1,9 +1,11 @@
+pub mod resolve;
 pub mod visitor;
 pub mod walker;
 
 use anyhow::{Context, Result};
 use napi_derive_backend::ToTypeDef;
 
+use crate::resolve::resolve_napi_dependency_dirs;
 use crate::visitor::{convert_items, extract_napi_items, CategorizedItems};
 use crate::walker::walk_rs_files;
 
@@ -28,38 +30,45 @@ pub fn generate_type_defs(crate_dir: &std::path::Path, strict: bool) -> Result<T
     &crate_dir
   };
 
-  // Phase 1: Walk and collect all .rs files containing "napi"
-  let files = walk_rs_files(scan_dir, strict).context("Failed to walk source files")?;
-
-  // Phase 2: Parse files and extract #[napi] items
   let mut all_items: Option<CategorizedItems> = None;
   let mut parse_errors = 0u32;
 
-  for (path, content) in &files {
-    match syn::parse_file(content) {
-      Ok(file) => match extract_napi_items(&file) {
-        Ok(categorized) => {
-          all_items
-            .get_or_insert_with(Default::default)
-            .merge(categorized);
-        }
-        Err(e) => {
-          parse_errors += 1;
-          if strict {
-            return Err(e.context(format!("Failed to extract napi items from {}", path)));
+  // Phase 1a: Resolve and process path dependencies that use napi-derive.
+  // Their #[napi] items (especially structs) must be registered before the
+  // main crate so that cross-crate type references resolve correctly.
+  match resolve_napi_dependency_dirs(&crate_dir) {
+    Ok(dep_dirs) => {
+      for dep_dir in &dep_dirs {
+        let dep_src = dep_dir.join("src");
+        let dep_scan = if dep_src.is_dir() {
+          &dep_src
+        } else {
+          dep_dir.as_path()
+        };
+        match walk_rs_files(dep_scan, false) {
+          Ok(dep_files) => {
+            parse_errors += collect_napi_items(&dep_files, &mut all_items, strict)?;
           }
-          eprintln!("Warning: Failed to extract napi items from {}: {}", path, e);
+          Err(e) => {
+            eprintln!(
+              "Warning: Failed to walk dependency {}: {}",
+              dep_dir.display(),
+              e
+            );
+          }
         }
-      },
-      Err(e) => {
-        parse_errors += 1;
-        if strict {
-          return Err(anyhow::anyhow!("Failed to parse {}: {}", path, e));
-        }
-        eprintln!("Warning: Failed to parse {}: {}", path, e);
       }
     }
+    Err(e) => {
+      eprintln!("Warning: Failed to resolve workspace dependencies: {}", e);
+    }
   }
+
+  // Phase 1b: Walk and collect all .rs files containing "napi" from the main crate
+  let files = walk_rs_files(scan_dir, strict).context("Failed to walk source files")?;
+
+  // Phase 2: Parse main crate files and extract #[napi] items
+  parse_errors += collect_napi_items(&files, &mut all_items, strict)?;
 
   // Phase 3: Convert items to Napi IR (two-pass: structs first, then rest)
   let napi_items = match all_items {
@@ -90,4 +99,42 @@ pub fn generate_type_defs(crate_dir: &std::path::Path, strict: bool) -> Result<T
     type_defs,
     parse_errors,
   })
+}
+
+/// Parse a set of files and merge their #[napi] items into the accumulator.
+/// Returns the number of files that had parse errors.
+fn collect_napi_items(
+  files: &[(String, String)],
+  all_items: &mut Option<CategorizedItems>,
+  strict: bool,
+) -> Result<u32> {
+  let mut parse_errors = 0u32;
+
+  for (path, content) in files {
+    match syn::parse_file(content) {
+      Ok(file) => match extract_napi_items(&file) {
+        Ok(categorized) => {
+          all_items
+            .get_or_insert_with(Default::default)
+            .merge(categorized);
+        }
+        Err(e) => {
+          parse_errors += 1;
+          if strict {
+            return Err(e.context(format!("Failed to extract napi items from {}", path)));
+          }
+          eprintln!("Warning: Failed to extract napi items from {}: {}", path, e);
+        }
+      },
+      Err(e) => {
+        parse_errors += 1;
+        if strict {
+          return Err(anyhow::anyhow!("Failed to parse {}: {}", path, e));
+        }
+        eprintln!("Warning: Failed to parse {}: {}", path, e);
+      }
+    }
+  }
+
+  Ok(parse_errors)
 }
