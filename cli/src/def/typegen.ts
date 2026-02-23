@@ -70,6 +70,11 @@ export abstract class BaseTypegenCommand extends Command {
       'Path to napi-typegen binary (overrides native addon). If unset, uses @napi-rs/typegen addon or falls back to napi-typegen in PATH.',
   })
 
+  cargoMetadata?: string = Option.String('--cargo-metadata', {
+    description:
+      'Path to a pre-computed `cargo metadata --format-version 1` JSON file. When provided, napi-typegen reads this file instead of running `cargo metadata` as a subprocess. Useful in sandboxed builds (e.g. Nix) where cargo is not available at typegen time.',
+  })
+
   strict = Option.Boolean('--strict', false, {
     description:
       'Fail on the first item that cannot be converted instead of skipping it.',
@@ -87,6 +92,7 @@ export abstract class BaseTypegenCommand extends Command {
       noDtsHeader: this.noDtsHeader,
       constEnum: this.constEnum,
       napiTypegen: this.napiTypegen,
+      cargoMetadata: this.cargoMetadata,
       strict: this.strict,
     }
   }
@@ -138,6 +144,13 @@ export interface TypegenOptions {
    * Path to napi-typegen binary (overrides native addon). If unset, uses @napi-rs/typegen addon or falls back to napi-typegen in PATH.
    */
   napiTypegen?: string
+  /**
+   * Path to a pre-computed `cargo metadata --format-version 1` JSON file.
+   * When provided, napi-typegen reads this file instead of running `cargo metadata`
+   * as a subprocess. Useful in sandboxed builds (e.g. Nix) where cargo is not
+   * available at typegen time.
+   */
+  cargoMetadata?: string
   /**
    * Fail on the first item that cannot be converted instead of skipping it.
    *

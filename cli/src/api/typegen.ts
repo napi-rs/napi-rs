@@ -39,11 +39,15 @@ function runBinary(
   binary: string,
   crateDir: string,
   strict: boolean,
+  cargoMetadata: string | undefined,
   cwd: string,
 ): string {
   const args = ['--crate-dir', crateDir]
   if (strict) {
     args.push('--strict')
+  }
+  if (cargoMetadata) {
+    args.push('--cargo-metadata', cargoMetadata)
   }
 
   debug('Running: %s %s', binary, args.join(' '))
@@ -101,9 +105,19 @@ export async function typegenProject(
 
   let jsonlOutput: string
 
+  const cargoMetadataPath = options.cargoMetadata
+    ? resolve(cwd, options.cargoMetadata)
+    : undefined
+
   if (options.napiTypegen) {
     // Explicit binary path — highest priority override
-    jsonlOutput = runBinary(options.napiTypegen, crateDir, options.strict, cwd)
+    jsonlOutput = runBinary(
+      options.napiTypegen,
+      crateDir,
+      options.strict,
+      cargoMetadataPath,
+      cwd,
+    )
   } else if (nativeTypegen) {
     // Native addon — preferred when no explicit path is given
     debug('Using native @napi-rs/typegen addon')
@@ -114,7 +128,13 @@ export async function typegenProject(
     jsonlOutput = result.typeDefs.join('\n')
   } else {
     // Fallback to binary in PATH
-    jsonlOutput = runBinary('napi-typegen', crateDir, options.strict, cwd)
+    jsonlOutput = runBinary(
+      'napi-typegen',
+      crateDir,
+      options.strict,
+      cargoMetadataPath,
+      cwd,
+    )
   }
 
   // Process the JSONL content directly (no temp file needed)

@@ -18,6 +18,13 @@ struct Args {
   #[arg(long)]
   output_file: Option<PathBuf>,
 
+  /// Path to a pre-computed `cargo metadata --format-version 1` JSON file.
+  /// When provided, napi-typegen reads this file instead of running `cargo metadata`
+  /// as a subprocess. Useful in sandboxed builds (e.g. Nix) where cargo is not
+  /// available at typegen time.
+  #[arg(long)]
+  cargo_metadata: Option<PathBuf>,
+
   /// Fail on any error (parse failures, extraction errors, or IR conversion errors)
   /// instead of warning and skipping.
   #[arg(long)]
@@ -27,7 +34,8 @@ struct Args {
 fn main() -> Result<()> {
   let args = Args::parse();
 
-  let result = napi_typegen::generate_type_defs(&args.crate_dir, args.strict)?;
+  let result =
+    napi_typegen::generate_type_defs(&args.crate_dir, args.cargo_metadata.as_deref(), args.strict)?;
 
   if let Some(output_file) = &args.output_file {
     // Write to file

@@ -4,6 +4,15 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use cargo_metadata::{DependencyKind, Metadata, MetadataCommand, Package, PackageId};
 
+/// How to obtain `cargo metadata` output.
+pub enum MetadataSource {
+  /// Run `cargo metadata` as a subprocess.
+  Command,
+  /// Read from a pre-computed JSON file (e.g. generated during a Nix build
+  /// that has cargo + vendored deps available).
+  File(PathBuf),
+}
+
 /// Resolve all transitive dependencies that use `napi-derive`, returning their
 /// crate directories in dependency-first (topological) order.
 ///
@@ -12,18 +21,30 @@ use cargo_metadata::{DependencyKind, Metadata, MetadataCommand, Package, Package
 ///
 /// The root package (matching `crate_dir`) is excluded from the result; the
 /// caller already processes it directly.
-pub fn resolve_napi_dependency_dirs(crate_dir: &Path) -> Result<Vec<PathBuf>> {
-  let manifest_path = crate_dir.join("Cargo.toml");
-
-  let metadata = MetadataCommand::new()
-    .manifest_path(&manifest_path)
-    .exec()
-    .with_context(|| {
-      format!(
-        "Failed to run `cargo metadata` for {}",
-        manifest_path.display()
-      )
-    })?;
+pub fn resolve_napi_dependency_dirs(
+  crate_dir: &Path,
+  source: &MetadataSource,
+) -> Result<Vec<PathBuf>> {
+  let metadata = match source {
+    MetadataSource::Command => {
+      let manifest_path = crate_dir.join("Cargo.toml");
+      MetadataCommand::new()
+        .manifest_path(&manifest_path)
+        .exec()
+        .with_context(|| {
+          format!(
+            "Failed to run `cargo metadata` for {}",
+            manifest_path.display()
+          )
+        })?
+    }
+    MetadataSource::File(path) => {
+      let json = std::fs::read_to_string(path)
+        .with_context(|| format!("Failed to read cargo metadata from {}", path.display()))?;
+      serde_json::from_str(&json)
+        .with_context(|| format!("Failed to parse cargo metadata from {}", path.display()))?
+    }
+  };
 
   let root_id = find_root_package(&metadata, crate_dir)?;
 
