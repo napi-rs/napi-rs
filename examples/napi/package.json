@@ -38,7 +38,7 @@
     "@vitest/browser": "^4.0.8",
     "@vitest/browser-playwright": "^4.0.8",
     "@vitest/ui": "^4.0.8",
-    "ava": "^6.4.1",
+    "ava": "^7.0.0",
     "buffer": "^6.0.3",
     "core-js": "^3.46.0",
     "cross-env": "10.1.0",
