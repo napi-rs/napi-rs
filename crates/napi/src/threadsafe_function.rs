@@ -378,13 +378,9 @@ impl<
     })
   }
 
-  #[deprecated(
-    since = "2.17.0",
-    note = "Please use `ThreadsafeFunction::clone` instead of manually increasing the reference count"
-  )]
+  /// Note that "ref" is not used to increase the reference count. Instead, it’s used to keep the uv loop active. As a result, calling "refer" multiple times is idempotent.
   /// See [napi_ref_threadsafe_function](https://nodejs.org/api/n-api.html#n_api_napi_ref_threadsafe_function)
   /// for more information.
-  ///
   /// "ref" is a keyword so that we use "refer" here.
   pub fn refer(&mut self, env: &Env) -> Result<()> {
     self.handle.with_read_aborted(|aborted| {
