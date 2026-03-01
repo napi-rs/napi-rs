@@ -10,6 +10,8 @@ use proc_macro2::TokenStream;
 pub mod error;
 pub mod ast;
 pub mod codegen;
+#[cfg(feature = "parser")]
+pub mod parser;
 #[cfg(feature = "type-def")]
 pub mod typegen;
 mod util;

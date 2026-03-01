@@ -95,12 +95,28 @@ function generateCommandDef(command: CommandSchema) {
     paths = `[${command.alias.map((alias) => `['${alias}']`).join(', ')}]`
   }
 
+  const usageFields: string[] = [
+    `    description: '${command.description}',`,
+  ]
+  if (command.details) {
+    usageFields.push(
+      `    details: ${JSON.stringify(command.details)},`,
+    )
+  }
+  if (command.examples?.length) {
+    usageFields.push(`    examples: [`)
+    for (const [desc, cmd] of command.examples) {
+      usageFields.push(`      [${JSON.stringify(desc)}, ${JSON.stringify(cmd)}],`)
+    }
+    usageFields.push(`    ],`)
+  }
+
   cmdLines.push(`
 export abstract class Base${PascalCase(command.name)}Command extends Command {
   static paths = ${paths}
 
   static usage = Command.Usage({
-    description: '${command.description}',
+${usageFields.join('\n')}
   })\n`)
 
   command.args.forEach((arg) => {
@@ -230,7 +246,7 @@ napi ${kebabCase(command.name)}${command.args.reduce(
 \`\`\`
 
 \`\`\`typescript
-// Programatically
+// Programmatically
 import { NapiCli } from '@napi-rs/cli'
 
 new NapiCli().${command.name}({

@@ -339,6 +339,15 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@examples/napi-typegen@workspace:examples/napi-typegen":
+  version: 0.0.0-use.local
+  resolution: "@examples/napi-typegen@workspace:examples/napi-typegen"
+  dependencies:
+    "@napi-rs/cli": "workspace:*"
+    "@oxc-node/core": "npm:^0.0.35"
+  languageName: unknown
+  linkType: soft
+
 "@examples/napi@workspace:examples/napi":
   version: 0.0.0-use.local
   resolution: "@examples/napi@workspace:examples/napi"
@@ -1374,6 +1383,7 @@ __metadata:
     "@emnapi/runtime": "npm:^1.7.1"
     "@inquirer/prompts": "npm:^8.0.0"
     "@napi-rs/cross-toolchain": "npm:^1.0.3"
+    "@napi-rs/typegen": "workspace:*"
     "@napi-rs/wasm-tools": "npm:^1.0.1"
     "@octokit/rest": "npm:^22.0.1"
     "@oxc-node/core": "npm:^0.0.35"
@@ -1399,6 +1409,9 @@ __metadata:
     typescript: "npm:^5.9.3"
   peerDependencies:
     "@emnapi/runtime": ^1.7.1
+  dependenciesMeta:
+    "@napi-rs/typegen":
+      optional: true
   peerDependenciesMeta:
     "@emnapi/runtime":
       optional: true
@@ -1811,6 +1824,14 @@ __metadata:
     "@oxc-node/core": "npm:^0.0.35"
     "@types/node": "npm:^24.10.0"
     es-toolkit: "npm:^1.41.0"
+  languageName: unknown
+  linkType: soft
+
+"@napi-rs/typegen@workspace:*, @napi-rs/typegen@workspace:typegen":
+  version: 0.0.0-use.local
+  resolution: "@napi-rs/typegen@workspace:typegen"
+  dependencies:
+    "@napi-rs/cli": "workspace:*"
   languageName: unknown
   linkType: soft
 
