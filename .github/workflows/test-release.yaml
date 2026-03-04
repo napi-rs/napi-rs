@@ -531,7 +531,7 @@ jobs:
           yarn install --immutable --mode=skip-build
           yarn workspace @napi-rs/wasm-runtime build
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
         if: ${{ !contains(matrix.settings.target, 'aarch64') }}
         with:
           platforms: all
