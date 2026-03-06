@@ -25,7 +25,7 @@ jobs:
           password: ${{ secrets.GH_TOKEN }}
 
       - name: Build and push alpine
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           file: alpine.Dockerfile
           platforms: linux/amd64,linux/arm64
@@ -53,7 +53,7 @@ jobs:
           password: ${{ secrets.GH_TOKEN }}
 
       - name: Build and push debian
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           file: debian.Dockerfile
           platforms: linux/amd64,linux/arm64
@@ -96,7 +96,7 @@ jobs:
           rm /usr/lib/llvm-18/lib/libc++abi.so'
 
       - name: Build and push debian aarch64 cross
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           file: debian-aarch64.Dockerfile
           platforms: linux/amd64,linux/arm64
@@ -128,7 +128,7 @@ jobs:
           password: ${{ secrets.GH_TOKEN }}
 
       - name: Build and push debian with zig
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           file: debian-zig.Dockerfile
           platforms: linux/amd64,linux/arm64
@@ -136,7 +136,7 @@ jobs:
           tags: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-zig
 
       - name: Build and push alpine with zig
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           file: alpine-zig.Dockerfile
           platforms: linux/amd64,linux/arm64
