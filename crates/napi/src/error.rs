@@ -13,7 +13,6 @@ use serde::{de, ser};
 use serde_json::Error as SerdeJSONError;
 
 use crate::bindgen_runtime::JsObjectValue;
-#[cfg(target_family = "wasm")]
 use crate::ValueType;
 use crate::{bindgen_runtime::ToNapiValue, check_status, sys, Env, JsValue, Status, Unknown};
 
@@ -146,11 +145,7 @@ impl From<Unknown<'_>> for Error {
     let maybe_error_message = value
       .coerce_to_string()
       .and_then(|a| a.into_utf8().and_then(|a| a.into_owned()));
-    let maybe_cause: Option<Box<Error>> = value
-      .coerce_to_object()
-      .and_then(|obj| obj.get_named_property::<Unknown>("cause"))
-      .map(|cause| Box::new(cause.into()))
-      .ok();
+    let maybe_cause = extract_error_cause(value);
 
     if let Ok(error_message) = maybe_error_message {
       return Self {
@@ -200,19 +195,7 @@ impl From<Unknown<'_>> for Error {
         .and_then(|a| a.into_utf8().and_then(|a| a.into_owned()));
     };
 
-    let maybe_cause: Option<Box<Error>> = if let Ok(vt) = value_type {
-      if vt == ValueType::Object {
-        value
-          .coerce_to_object()
-          .and_then(|obj| obj.get_named_property::<Unknown>("cause"))
-          .map(|cause| Box::new(cause.into()))
-          .ok()
-      } else {
-        None
-      }
-    } else {
-      None
-    };
+    let maybe_cause = extract_error_cause(value);
 
     if let Ok(error_message) = maybe_error_message {
       return Self {
@@ -683,4 +666,52 @@ macro_rules! check_pending_exception {
       _ => Err($crate::Error::new($crate::Status::from(c), format!($($msg)*))),
     }
   }};
+}
+
+fn extract_error_cause(value: Unknown<'_>) -> Option<Box<Error>> {
+  let cause = if matches!(value.get_type(), Ok(ValueType::Object)) {
+    value
+      .coerce_to_object()
+      .and_then(|obj| obj.get_named_property::<Unknown>("cause"))
+      .ok()
+  } else {
+    None
+  }?;
+
+  if should_extract_error_cause(cause.get_type().ok()) {
+    Some(Box::new(cause.into()))
+  } else {
+    None
+  }
+}
+
+fn should_extract_error_cause(cause_type: Option<ValueType>) -> bool {
+  matches!(
+    cause_type,
+    Some(value_type) if !matches!(value_type, ValueType::Undefined | ValueType::Null)
+  )
+}
+
+#[cfg(test)]
+mod tests {
+  use super::should_extract_error_cause;
+  use crate::ValueType;
+
+  #[test]
+  fn skips_nullish_error_causes() {
+    assert!(!should_extract_error_cause(Some(ValueType::Undefined)));
+    assert!(!should_extract_error_cause(Some(ValueType::Null)));
+  }
+
+  #[test]
+  fn extracts_non_nullish_error_causes() {
+    assert!(should_extract_error_cause(Some(ValueType::Object)));
+    assert!(should_extract_error_cause(Some(ValueType::String)));
+    assert!(should_extract_error_cause(Some(ValueType::Number)));
+  }
+
+  #[test]
+  fn skips_unknown_cause_types() {
+    assert!(!should_extract_error_cause(None));
+  }
 }
