@@ -1,6 +1,6 @@
 use std::convert::{From, TryFrom};
 use std::error;
-use std::ffi::{CStr, CString};
+use std::ffi::CStr;
 use std::fmt;
 #[cfg(feature = "serde-json")]
 use std::fmt::Display;
@@ -680,7 +680,7 @@ fn extract_error_cause(value: Unknown<'_>) -> Result<Option<Box<Error>>> {
   }
 
   let env = value.0.env;
-  let key = CString::new("cause")?;
+  let key = c"cause";
   let mut raw_cause = ptr::null_mut();
   check_pending_exception!(
     env,
