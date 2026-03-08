@@ -675,7 +675,7 @@ macro_rules! check_pending_exception {
 }
 
 fn extract_error_cause(value: Unknown<'_>) -> Result<Option<Box<Error>>> {
-  if !matches!(value.get_type(), Ok(ValueType::Object)) {
+  if value.get_type()? != ValueType::Object {
     return Ok(None);
   }
 
