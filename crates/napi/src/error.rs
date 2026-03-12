@@ -12,6 +12,8 @@ use serde::{de, ser};
 #[cfg(feature = "serde-json")]
 use serde_json::Error as SerdeJSONError;
 
+#[cfg(target_family = "wasm")]
+use crate::bindgen_runtime::JsObjectValue;
 use crate::ValueType;
 use crate::{bindgen_runtime::ToNapiValue, check_status, sys, Env, JsValue, Status, Unknown};
 
