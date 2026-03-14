@@ -297,6 +297,7 @@ import {
   withAbortSignalHandle,
   createI32ArrayFromExternal,
   optionalCallbackTypes,
+  throwAsyncCustomStatusError,
 } from '../index.cjs'
 // import other stuff in `#[napi(module_exports)]`
 import nativeAddon from '../index.cjs'
@@ -1029,7 +1030,7 @@ test('Async error with stack trace', async (t) => {
   }
 })
 
-test('custom status code in Error', (t) => {
+test('custom status code in Error', async (t) => {
   t.throws(() => customStatusCode(), {
     code: 'Panic',
   })
@@ -1037,6 +1038,9 @@ test('custom status code in Error', (t) => {
     code: 'Panic',
   })
   t.throws(() => new CustomStruct(), {
+    code: 'Panic',
+  })
+  await t.throwsAsync(() => throwAsyncCustomStatusError(), {
     code: 'Panic',
   })
 })
