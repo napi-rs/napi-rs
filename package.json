@@ -9,7 +9,9 @@
     "wasm-runtime",
     "triples",
     "memory-testing",
+    "typegen",
     "examples/napi",
+    "examples/napi-typegen",
     "examples/napi-compat-mode",
     "examples/binary"
   ],
