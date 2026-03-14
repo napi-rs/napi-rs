@@ -12,8 +12,8 @@ use serde::{de, ser};
 #[cfg(feature = "serde-json")]
 use serde_json::Error as SerdeJSONError;
 
-use crate::bindgen_runtime::JsObjectValue;
 #[cfg(target_family = "wasm")]
+use crate::bindgen_runtime::JsObjectValue;
 use crate::ValueType;
 use crate::{bindgen_runtime::ToNapiValue, check_status, sys, Env, JsValue, Status, Unknown};
 
@@ -134,6 +134,11 @@ impl From<SerdeJSONError> for Error {
 #[cfg(not(target_family = "wasm"))]
 impl From<Unknown<'_>> for Error {
   fn from(value: Unknown) -> Self {
+    let maybe_cause = match extract_error_cause(value) {
+      Ok(cause) => cause,
+      Err(err) => return err,
+    };
+
     let mut result = std::ptr::null_mut();
     let status = unsafe { sys::napi_create_reference(value.0.env, value.0.value, 1, &mut result) };
     if status != sys::Status::napi_ok {
@@ -146,11 +151,6 @@ impl From<Unknown<'_>> for Error {
     let maybe_error_message = value
       .coerce_to_string()
       .and_then(|a| a.into_utf8().and_then(|a| a.into_owned()));
-    let maybe_cause: Option<Box<Error>> = value
-      .coerce_to_object()
-      .and_then(|obj| obj.get_named_property::<Unknown>("cause"))
-      .map(|cause| Box::new(cause.into()))
-      .ok();
 
     if let Ok(error_message) = maybe_error_message {
       return Self {
@@ -200,18 +200,9 @@ impl From<Unknown<'_>> for Error {
         .and_then(|a| a.into_utf8().and_then(|a| a.into_owned()));
     };
 
-    let maybe_cause: Option<Box<Error>> = if let Ok(vt) = value_type {
-      if vt == ValueType::Object {
-        value
-          .coerce_to_object()
-          .and_then(|obj| obj.get_named_property::<Unknown>("cause"))
-          .map(|cause| Box::new(cause.into()))
-          .ok()
-      } else {
-        None
-      }
-    } else {
-      None
+    let maybe_cause = match extract_error_cause(value) {
+      Ok(cause) => cause,
+      Err(err) => return err,
     };
 
     if let Ok(error_message) = maybe_error_message {
@@ -683,4 +674,78 @@ macro_rules! check_pending_exception {
       _ => Err($crate::Error::new($crate::Status::from(c), format!($($msg)*))),
     }
   }};
+}
+
+fn extract_error_cause(value: Unknown<'_>) -> Result<Option<Box<Error>>> {
+  if value.get_type()? != ValueType::Object {
+    return Ok(None);
+  }
+
+  let env = value.0.env;
+  let key = c"cause";
+  let mut raw_cause = ptr::null_mut();
+  check_pending_exception!(
+    env,
+    unsafe { sys::napi_get_named_property(env, value.0.value, key.as_ptr(), &mut raw_cause) },
+    "get_named_property error"
+  )?;
+
+  let cause = unsafe { Unknown::from_raw_unchecked(env, raw_cause) };
+  if should_extract_error_cause(cause.get_type())? {
+    Ok(Some(Box::new(cause.into())))
+  } else {
+    Ok(None)
+  }
+}
+
+fn should_extract_error_cause(cause_type: Result<ValueType>) -> Result<bool> {
+  match cause_type {
+    Ok(ValueType::Undefined | ValueType::Null) => Ok(false),
+    Ok(_) => Ok(true),
+    Err(err) => Err(err),
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::should_extract_error_cause;
+  use crate::{Status, ValueType};
+
+  #[test]
+  fn skips_nullish_error_causes() {
+    assert!(matches!(
+      should_extract_error_cause(Ok(ValueType::Undefined)),
+      Ok(false)
+    ));
+    assert!(matches!(
+      should_extract_error_cause(Ok(ValueType::Null)),
+      Ok(false)
+    ));
+  }
+
+  #[test]
+  fn extracts_non_nullish_error_causes() {
+    assert!(matches!(
+      should_extract_error_cause(Ok(ValueType::Object)),
+      Ok(true)
+    ));
+    assert!(matches!(
+      should_extract_error_cause(Ok(ValueType::String)),
+      Ok(true)
+    ));
+    assert!(matches!(
+      should_extract_error_cause(Ok(ValueType::Number)),
+      Ok(true)
+    ));
+  }
+
+  #[test]
+  fn propagates_cause_lookup_errors() {
+    let result = should_extract_error_cause(Err(super::Error::new(
+      Status::PendingException,
+      "pending exception",
+    )));
+
+    assert!(matches!(result, Err(err) if err.status == Status::PendingException));
+  }
 }
