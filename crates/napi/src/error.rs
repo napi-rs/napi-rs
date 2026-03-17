@@ -134,11 +134,6 @@ impl From<SerdeJSONError> for Error {
 #[cfg(not(target_family = "wasm"))]
 impl From<Unknown<'_>> for Error {
   fn from(value: Unknown) -> Self {
-    let maybe_cause = match extract_error_cause(value) {
-      Ok(cause) => cause,
-      Err(err) => return err,
-    };
-
     let mut result = std::ptr::null_mut();
     let status = unsafe { sys::napi_create_reference(value.0.env, value.0.value, 1, &mut result) };
     if status != sys::Status::napi_ok {
@@ -151,6 +146,7 @@ impl From<Unknown<'_>> for Error {
     let maybe_error_message = value
       .coerce_to_string()
       .and_then(|a| a.into_utf8().and_then(|a| a.into_owned()));
+    let maybe_cause = extract_error_cause(value).unwrap_or(None);
 
     if let Ok(error_message) = maybe_error_message {
       return Self {
@@ -200,10 +196,7 @@ impl From<Unknown<'_>> for Error {
         .and_then(|a| a.into_utf8().and_then(|a| a.into_owned()));
     };
 
-    let maybe_cause = match extract_error_cause(value) {
-      Ok(cause) => cause,
-      Err(err) => return err,
-    };
+    let maybe_cause = extract_error_cause(value).unwrap_or(None);
 
     if let Ok(error_message) = maybe_error_message {
       return Self {
@@ -691,61 +684,8 @@ fn extract_error_cause(value: Unknown<'_>) -> Result<Option<Box<Error>>> {
   )?;
 
   let cause = unsafe { Unknown::from_raw_unchecked(env, raw_cause) };
-  if should_extract_error_cause(cause.get_type())? {
-    Ok(Some(Box::new(cause.into())))
-  } else {
-    Ok(None)
-  }
-}
-
-fn should_extract_error_cause(cause_type: Result<ValueType>) -> Result<bool> {
-  match cause_type {
-    Ok(ValueType::Undefined | ValueType::Null) => Ok(false),
-    Ok(_) => Ok(true),
-    Err(err) => Err(err),
-  }
-}
-
-#[cfg(test)]
-mod tests {
-  use super::should_extract_error_cause;
-  use crate::{Status, ValueType};
-
-  #[test]
-  fn skips_nullish_error_causes() {
-    assert!(matches!(
-      should_extract_error_cause(Ok(ValueType::Undefined)),
-      Ok(false)
-    ));
-    assert!(matches!(
-      should_extract_error_cause(Ok(ValueType::Null)),
-      Ok(false)
-    ));
-  }
-
-  #[test]
-  fn extracts_non_nullish_error_causes() {
-    assert!(matches!(
-      should_extract_error_cause(Ok(ValueType::Object)),
-      Ok(true)
-    ));
-    assert!(matches!(
-      should_extract_error_cause(Ok(ValueType::String)),
-      Ok(true)
-    ));
-    assert!(matches!(
-      should_extract_error_cause(Ok(ValueType::Number)),
-      Ok(true)
-    ));
-  }
-
-  #[test]
-  fn propagates_cause_lookup_errors() {
-    let result = should_extract_error_cause(Err(super::Error::new(
-      Status::PendingException,
-      "pending exception",
-    )));
-
-    assert!(matches!(result, Err(err) if err.status == Status::PendingException));
+  match cause.get_type()? {
+    ValueType::Undefined | ValueType::Null => Ok(None),
+    _ => Ok(Some(Box::new(cause.into()))),
   }
 }
