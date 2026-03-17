@@ -19,7 +19,7 @@ pub struct Person {
 }
 
 #[napi]
-pub fn describe_person(person: &Person) -> String {
+pub fn describe_person(person: Person) -> String {
   format!("{} is {} years old", person.name, person.age)
 }
 
