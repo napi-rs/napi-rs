@@ -1018,6 +1018,29 @@ test('Result', (t) => {
       error = error!.cause as Error
     }
   }
+
+  // nullish causes should not be reconstructed as nested errors
+  const undefinedCauseError = new Error('undefined cause')
+  undefinedCauseError.cause = undefined
+  const [errWithUndefinedCause] = jsErrorCallback(undefinedCauseError)
+  t.deepEqual(errWithUndefinedCause!.message, 'undefined cause')
+  t.is(errWithUndefinedCause!.cause, undefined)
+
+  const nullCauseError = new Error('null cause')
+  nullCauseError.cause = null
+  const [errWithNullCause] = jsErrorCallback(nullCauseError)
+  t.deepEqual(errWithNullCause!.message, 'null cause')
+  // errWithNullCause is the original JS error (via napi_ref), so .cause stays null
+  t.is(errWithNullCause!.cause, null)
+
+  // non-nullish cause should still be preserved
+  const [errWithRealCause] = jsErrorCallback(
+    new Error('outer', { cause: new Error('inner') }),
+  )
+  t.deepEqual(errWithRealCause!.message, 'outer')
+  if (!process.env.WASI_TEST) {
+    t.deepEqual((errWithRealCause!.cause as Error).message, 'inner')
+  }
 })
 
 test('Async error with stack trace', async (t) => {
