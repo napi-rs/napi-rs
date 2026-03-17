@@ -5,7 +5,7 @@ use std::sync::{
   Mutex, OnceLock,
 };
 
-use crate::{bail_span, BindgenResult, Diagnostic};
+use crate::{BindgenResult, Diagnostic};
 use proc_macro2::{Delimiter, Ident, Span, TokenTree};
 use quote::ToTokens;
 use syn::parse::{Parse, ParseStream};

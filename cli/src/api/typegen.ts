@@ -22,6 +22,7 @@ const debug = debugFactory('typegen')
 interface NativeTypegen {
   generate: (opts: {
     crateDir: string
+    cargoMetadata?: string
     strict?: boolean
   }) => { typeDefs: string[]; parseErrors: number }
 }
@@ -89,10 +90,15 @@ export async function typegenProject(
   const options = applyDefaultTypegenOptions(userOptions)
   const cwd = options.cwd ? resolve(options.cwd) : process.cwd()
   const crateDir = options.crateDir ? resolve(cwd, options.crateDir) : cwd
-  const outputDir = options.outputDir ? resolve(cwd, options.outputDir) : crateDir
+  const outputDir = options.outputDir
+    ? resolve(cwd, options.outputDir)
+    : crateDir
 
   // Attempt to load project config (package.json#napi or separate config file)
-  const packageJsonPath = resolve(cwd, options.packageJsonPath ?? 'package.json')
+  const packageJsonPath = resolve(
+    cwd,
+    options.packageJsonPath ?? 'package.json',
+  )
   let config: NapiConfig | null = null
   try {
     config = await readNapiConfig(
@@ -123,6 +129,7 @@ export async function typegenProject(
     debug('Using native @napi-rs/typegen addon')
     const result = nativeTypegen.generate({
       crateDir,
+      cargoMetadata: cargoMetadataPath,
       strict: options.strict,
     })
     jsonlOutput = result.typeDefs.join('\n')
@@ -146,15 +153,9 @@ export async function typegenProject(
   if (!options.noDtsHeader) {
     if (config?.dtsHeaderFile) {
       try {
-        header = await readFileAsync(
-          join(cwd, config.dtsHeaderFile),
-          'utf-8',
-        )
+        header = await readFileAsync(join(cwd, config.dtsHeaderFile), 'utf-8')
       } catch (e) {
-        debug.warn(
-          `Failed to read dts header file ${config.dtsHeaderFile}`,
-          e,
-        )
+        debug.warn(`Failed to read dts header file ${config.dtsHeaderFile}`, e)
       }
     } else if (options.dtsHeader ?? config?.dtsHeader) {
       header = (options.dtsHeader ?? config?.dtsHeader)!

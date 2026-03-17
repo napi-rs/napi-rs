@@ -300,8 +300,25 @@ pub fn convert_items(categorized: CategorizedItems, strict: bool) -> Result<Vec<
   Ok(results)
 }
 
+/// Extract a human-readable name from a syn::Item for error messages.
+fn item_display_name(item: &Item) -> String {
+  match item {
+    Item::Fn(f) => format!("fn `{}`", f.sig.ident),
+    Item::Struct(s) => format!("struct `{}`", s.ident),
+    Item::Enum(e) => format!("enum `{}`", e.ident),
+    Item::Impl(i) => {
+      let ty = &i.self_ty;
+      format!("impl `{}`", quote::quote!(#ty))
+    }
+    Item::Const(c) => format!("const `{}`", c.ident),
+    Item::Type(t) => format!("type `{}`", t.ident),
+    _ => "unknown item".to_string(),
+  }
+}
+
 /// Convert a single annotated item to Napi IR.
 fn convert_single_item(annotated: AnnotatedItem) -> Result<Napi> {
+  let item_name = item_display_name(&annotated.item);
   let AnnotatedItem { mut item, opts } = annotated;
 
   let napi = match &mut item {
@@ -311,8 +328,8 @@ fn convert_single_item(annotated: AnnotatedItem) -> Result<Napi> {
     Item::Enum(e) => e.convert_to_ast(&opts),
     Item::Const(c) => c.convert_to_ast(&opts),
     Item::Type(t) => t.convert_to_ast(&opts),
-    _ => return Err(anyhow!("Unsupported item type for #[napi]")),
+    _ => return Err(anyhow!("Unsupported item type for #[napi]: {}", item_name)),
   };
 
-  napi.map_err(|e| anyhow!("Failed to convert item: {}", e))
+  napi.map_err(|e| anyhow!("Failed to convert {}: {}", item_name, e))
 }

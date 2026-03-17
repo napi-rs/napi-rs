@@ -604,22 +604,13 @@ const TYPEGEN_OPTIONS: CommandSchema = {
     'This command statically analyzes Rust source files and produces TypeScript definitions. Unlike `napi build`, it does not invoke `cargo build` — it parses `.rs` files directly, making it significantly faster for type-only regeneration.',
   ].join('\n'),
   examples: [
-    [
-      'Generate types for the current directory',
-      'napi typegen',
-    ],
+    ['Generate types for the current directory', 'napi typegen'],
     [
       'Generate types for a specific crate into a dist folder',
       'napi typegen --crate-dir ./my-crate --output-dir ./dist',
     ],
-    [
-      'Generate types with a custom filename',
-      'napi typegen --dts index.d.cts',
-    ],
-    [
-      'Strict mode — fail on first conversion error',
-      'napi typegen --strict',
-    ],
+    ['Generate types with a custom filename', 'napi typegen --dts index.d.cts'],
+    ['Strict mode — fail on first conversion error', 'napi typegen --strict'],
   ],
   args: [],
   options: [
@@ -663,8 +654,7 @@ const TYPEGEN_OPTIONS: CommandSchema = {
     {
       name: 'dtsHeader',
       type: 'string',
-      description:
-        'Custom file header for generated type def file.',
+      description: 'Custom file header for generated type def file.',
     },
     {
       name: 'noDtsHeader',
@@ -682,6 +672,12 @@ const TYPEGEN_OPTIONS: CommandSchema = {
       type: 'string',
       description:
         'Path to napi-typegen binary (overrides native addon). If unset, uses @napi-rs/typegen addon or falls back to napi-typegen in PATH.',
+    },
+    {
+      name: 'cargoMetadata',
+      type: 'string',
+      description:
+        'Path to a pre-computed `cargo metadata --format-version 1` JSON file. When provided, napi-typegen reads this file instead of running `cargo metadata` as a subprocess. Useful in sandboxed builds (e.g. Nix) where cargo is not available at typegen time.',
     },
     {
       name: 'strict',

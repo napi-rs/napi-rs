@@ -67,7 +67,6 @@ fn main() -> Result<()> {
       "Warning: {} file(s) had parse errors and were skipped",
       result.parse_errors
     );
-    std::process::exit(2);
   }
 
   Ok(())

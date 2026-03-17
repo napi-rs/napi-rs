@@ -451,6 +451,12 @@ fn try_unescape(s: &str) -> Option<String> {
   None
 }
 
+/// Decode a Unicode escape sequence from the character iterator.
+///
+/// **Bug fix (extracted from crates/macro):** The original implementation was
+/// missing `+ 10` for hex digits a-f / A-F, causing incorrect Unicode code
+/// point decoding. It also had a duplicate early-return check for `i == 0`.
+/// Both issues are fixed in this version.
 fn unescape_unicode(chars: &mut Chars) -> Option<(char, char)> {
   let mut value = 0;
   for i in 0..7 {
