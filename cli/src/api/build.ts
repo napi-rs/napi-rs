@@ -981,7 +981,7 @@ class Builder {
         browserWorkerPath,
         createWasiBrowserWorkerBinding(
           this.config.wasm?.browser?.fs ?? false,
-          this.config.wasm?.browser.errorEvent ?? false,
+          this.config.wasm?.browser?.errorEvent ?? false,
         ),
         'utf8',
       )
