@@ -964,6 +964,7 @@ class Builder {
           this.config.wasm?.browser?.fs,
           this.config.wasm?.browser?.asyncInit,
           this.config.wasm?.browser?.buffer,
+          this.config.wasm?.browser?.errorEvent,
         ) +
           `export default __napiModule.exports\n` +
           idents
@@ -978,7 +979,10 @@ class Builder {
       await writeFileAsync(workerPath, WASI_WORKER_TEMPLATE, 'utf8')
       await writeFileAsync(
         browserWorkerPath,
-        createWasiBrowserWorkerBinding(this.config.wasm?.browser?.fs ?? false),
+        createWasiBrowserWorkerBinding(
+          this.config.wasm?.browser?.fs ?? false,
+          this.config.wasm?.browser?.errorEvent ?? false,
+        ),
         'utf8',
       )
       await writeFileAsync(
