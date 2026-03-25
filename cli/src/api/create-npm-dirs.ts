@@ -1,6 +1,9 @@
+import { createRequire } from 'node:module'
 import { join, resolve } from 'node:path'
 
 import { parse } from 'semver'
+
+const require = createRequire(import.meta.url)
 
 import {
   applyDefaultCreateNpmDirsOptions,
