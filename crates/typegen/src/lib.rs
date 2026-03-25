@@ -8,7 +8,9 @@ use napi_derive_backend::parser::reset_parser_state;
 use napi_derive_backend::ToTypeDef;
 
 use crate::module_graph::walk_module_graph;
-use crate::resolve::{resolve_napi_dependency_dirs, MetadataSource};
+use crate::resolve::{
+  load_metadata, resolve_lib_entry_point, resolve_napi_dependency_dirs, MetadataSource,
+};
 use crate::visitor::{convert_items, extract_napi_items, CategorizedItems};
 
 use std::collections::HashMap;
@@ -37,23 +39,23 @@ pub fn generate_type_defs(
 
   // Determine the source directory
   let src_dir = crate_dir.join("src");
-  let scan_dir = if src_dir.is_dir() {
-    &src_dir
-  } else {
-    &crate_dir
-  };
 
   let mut all_items: Option<CategorizedItems> = None;
   let mut parse_errors = 0u32;
 
-  // Phase 1a: Resolve and process path dependencies that use napi-derive.
-  // Their #[napi] items (especially structs) must be registered before the
-  // main crate so that cross-crate type references resolve correctly.
+  // Load cargo metadata once — used for both dependency resolution and entry
+  // point discovery (handles custom `[lib] path = "..."` in Cargo.toml).
   let metadata_source = match cargo_metadata_path {
     Some(path) => MetadataSource::File(path.to_path_buf()),
     None => MetadataSource::Command,
   };
-  let dep_dirs = resolve_napi_dependency_dirs(&crate_dir, &metadata_source)
+  let metadata =
+    load_metadata(&crate_dir, &metadata_source).context("Failed to load cargo metadata")?;
+
+  // Phase 1a: Resolve and process path dependencies that use napi-derive.
+  // Their #[napi] items (especially structs) must be registered before the
+  // main crate so that cross-crate type references resolve correctly.
+  let dep_dirs = resolve_napi_dependency_dirs(&metadata, &crate_dir)
     .context("Failed to resolve workspace dependencies")?;
   for dep_dir in &dep_dirs {
     let dep_src = dep_dir.join("src");
@@ -62,7 +64,7 @@ pub fn generate_type_defs(
     } else {
       dep_dir.as_path()
     };
-    let dep_result = walk_module_graph(dep_scan, false)
+    let dep_result = walk_module_graph(None, dep_scan, false)
       .with_context(|| format!("Failed to walk dependency {}", dep_dir.display()))?;
     parse_errors += collect_napi_items(
       &dep_result.files,
@@ -72,8 +74,17 @@ pub fn generate_type_defs(
     )?;
   }
 
-  // Phase 1b: Walk module graph from the main crate entry point
-  let main_result = walk_module_graph(scan_dir, strict).context("Failed to walk source files")?;
+  // Phase 1b: Walk module graph from the main crate entry point.
+  // Use cargo metadata to resolve the entry point — this handles custom
+  // `[lib] path = "..."` in Cargo.toml instead of hardcoding src/lib.rs.
+  let entry_point = resolve_lib_entry_point(&metadata, &crate_dir);
+  let fallback_dir = if src_dir.is_dir() {
+    &src_dir
+  } else {
+    &crate_dir
+  };
+  let main_result = walk_module_graph(entry_point.as_deref(), fallback_dir, strict)
+    .context("Failed to walk source files")?;
 
   // Phase 2: Parse main crate files and extract #[napi] items
   parse_errors += collect_napi_items(

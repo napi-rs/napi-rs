@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use cargo_metadata::{DependencyKind, Metadata, MetadataCommand, Package, PackageId};
+use cargo_metadata::{DependencyKind, Metadata, MetadataCommand, Package, PackageId, TargetKind};
 
 /// How to obtain `cargo metadata` output.
 pub enum MetadataSource {
@@ -13,19 +13,9 @@ pub enum MetadataSource {
   File(PathBuf),
 }
 
-/// Resolve all transitive dependencies that use `napi-derive`, returning their
-/// crate directories in dependency-first (topological) order.
-///
-/// Uses `cargo metadata` for full dependency resolution — this handles path,
-/// git, and registry dependencies uniformly.
-///
-/// The root package (matching `crate_dir`) is excluded from the result; the
-/// caller already processes it directly.
-pub fn resolve_napi_dependency_dirs(
-  crate_dir: &Path,
-  source: &MetadataSource,
-) -> Result<Vec<PathBuf>> {
-  let metadata = match source {
+/// Load cargo metadata for a crate.
+pub fn load_metadata(crate_dir: &Path, source: &MetadataSource) -> Result<Metadata> {
+  match source {
     MetadataSource::Command => {
       let manifest_path = crate_dir.join("Cargo.toml");
       MetadataCommand::new()
@@ -36,17 +26,52 @@ pub fn resolve_napi_dependency_dirs(
             "Failed to run `cargo metadata` for {}",
             manifest_path.display()
           )
-        })?
+        })
     }
     MetadataSource::File(path) => {
       let json = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read cargo metadata from {}", path.display()))?;
       serde_json::from_str(&json)
-        .with_context(|| format!("Failed to parse cargo metadata from {}", path.display()))?
+        .with_context(|| format!("Failed to parse cargo metadata from {}", path.display()))
     }
-  };
+  }
+}
 
-  let root_id = find_root_package(&metadata, crate_dir)?;
+/// Find the library crate entry point from cargo metadata.
+/// Returns the `src_path` of the first library-like target (lib, cdylib, dylib, rlib, staticlib).
+pub fn resolve_lib_entry_point(metadata: &Metadata, crate_dir: &Path) -> Option<PathBuf> {
+  let root_id = find_root_package(metadata, crate_dir).ok()?;
+  let root_pkg = metadata.packages.iter().find(|p| p.id == root_id)?;
+
+  // Look for a library target
+  for target in &root_pkg.targets {
+    let is_lib = target.kind.iter().any(|k| {
+      matches!(
+        k,
+        TargetKind::Lib
+          | TargetKind::CDyLib
+          | TargetKind::DyLib
+          | TargetKind::RLib
+          | TargetKind::StaticLib
+      )
+    });
+    if is_lib {
+      return Some(target.src_path.as_std_path().to_path_buf());
+    }
+  }
+  None
+}
+
+/// Resolve all transitive dependencies that use `napi-derive`, returning their
+/// crate directories in dependency-first (topological) order.
+///
+/// Uses `cargo metadata` for full dependency resolution — this handles path,
+/// git, and registry dependencies uniformly.
+///
+/// The root package (matching `crate_dir`) is excluded from the result; the
+/// caller already processes it directly.
+pub fn resolve_napi_dependency_dirs(metadata: &Metadata, crate_dir: &Path) -> Result<Vec<PathBuf>> {
+  let root_id = find_root_package(metadata, crate_dir)?;
 
   let resolve = metadata
     .resolve

@@ -15,13 +15,22 @@ pub struct ModuleGraphResult {
   pub namespace_map: HashMap<String, String>,
 }
 
-/// Walk the module graph starting from the crate entry point (lib.rs or main.rs).
+/// Walk the module graph starting from the crate entry point.
 /// Only returns files reachable through `mod` declarations, with namespace info.
 ///
-/// Falls back to filesystem walking (via `walk_rs_files`) if no entry point is found.
-pub fn walk_module_graph(scan_dir: &Path, strict: bool) -> Result<ModuleGraphResult> {
-  let entry = find_entry_point(scan_dir);
-  match entry {
+/// If `entry_point` is provided (e.g. from cargo metadata), it is used directly.
+/// Otherwise, falls back to discovering `lib.rs` / `main.rs` in `fallback_dir`.
+/// If no entry point is found at all, falls back to filesystem walking (via `walk_rs_files`).
+pub fn walk_module_graph(
+  entry_point: Option<&Path>,
+  fallback_dir: &Path,
+  strict: bool,
+) -> Result<ModuleGraphResult> {
+  let resolved_entry = entry_point
+    .map(|p| p.to_path_buf())
+    .or_else(|| find_entry_point(fallback_dir));
+
+  match resolved_entry {
     Some(entry_path) => {
       let mut ctx = WalkContext::new(strict);
       walk_module_file(&entry_path, None, &mut ctx)?;
@@ -32,7 +41,7 @@ pub fn walk_module_graph(scan_dir: &Path, strict: bool) -> Result<ModuleGraphRes
     }
     None => {
       // No entry point found — fall back to filesystem walk
-      let files = crate::walker::walk_rs_files(scan_dir, strict)?;
+      let files = crate::walker::walk_rs_files(fallback_dir, strict)?;
       Ok(ModuleGraphResult {
         files,
         namespace_map: HashMap::new(),
@@ -126,6 +135,23 @@ fn walk_module_file(
   Ok(())
 }
 
+/// Check if a module is gated by `#[cfg(test)]`.
+/// These modules contain test code that should never appear in type definitions.
+fn is_cfg_test(attrs: &[syn::Attribute]) -> bool {
+  attrs.iter().any(|attr| {
+    if !attr.path().is_ident("cfg") {
+      return false;
+    }
+    // Parse the cfg argument — matches #[cfg(test)] exactly.
+    // parse_args::<Ident>() only succeeds when the args are a single bare
+    // identifier, so compound expressions like `not(test)` or `all(test, ...)`
+    // will not match.
+    attr
+      .parse_args::<syn::Ident>()
+      .map_or(false, |ident| ident == "test")
+  })
+}
+
 /// Walk items in a module looking for `mod` declarations to recurse into.
 fn walk_items_for_mods(
   items: &[Item],
@@ -136,6 +162,15 @@ fn walk_items_for_mods(
 ) -> Result<()> {
   for item in items {
     if let Item::Mod(m) = item {
+      // Skip #[cfg(test)] modules — test code should never produce type definitions.
+      // Other #[cfg(...)] predicates cannot be reliably evaluated by static analysis
+      // (we don't know active features, target platform, etc.) and are intentionally
+      // left as-is. This matches the existing behavior documented in visitor.rs for
+      // item-level cfg_attr.
+      if is_cfg_test(&m.attrs) {
+        continue;
+      }
+
       let is_napi = m.attrs.iter().any(|a| is_napi_attr(a));
 
       // Determine namespace for children
