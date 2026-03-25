@@ -50,63 +50,12 @@ pub fn extract_napi_items(file: &syn::File, namespace: Option<&str>) -> Result<C
 /// Compute the directory where child modules of a file are resolved.
 /// - `lib.rs`, `main.rs`, `mod.rs` → parent directory
 /// - `foo.rs` → sibling directory `foo/`
-fn parent_module_dir(file_path: &Path) -> PathBuf {
+pub fn parent_module_dir(file_path: &Path) -> PathBuf {
   let parent = file_path.parent().unwrap_or(file_path);
   let stem = file_path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
   match stem {
     "lib" | "main" | "mod" => parent.to_path_buf(),
     _ => parent.join(stem),
-  }
-}
-
-/// Scan a parsed file for `#[napi] mod` declarations (inline or file-backed)
-/// and return the filesystem directories that should inherit the namespace.
-///
-/// Returns `(namespace_dir, js_name)` pairs. Any `.rs` file under `namespace_dir`
-/// (or exactly matching `namespace_dir.with_extension("rs")`) should get the namespace.
-pub fn scan_namespace_dirs(file: &syn::File, file_path: &Path) -> Vec<(PathBuf, String)> {
-  let mod_dir = parent_module_dir(file_path);
-  let mut results = Vec::new();
-  scan_mods_recursive(&file.items, &mod_dir, &[], &mut results);
-  results
-}
-
-fn scan_mods_recursive(
-  items: &[Item],
-  base_dir: &Path,
-  inline_path: &[String],
-  results: &mut Vec<(PathBuf, String)>,
-) {
-  for item in items {
-    if let Item::Mod(m) = item {
-      let is_napi = m.attrs.iter().any(|a| is_napi_attr(a));
-
-      if is_napi {
-        // Compute JS name from #[napi] attribute
-        let js_name = match m.attrs.iter().find(|a| is_napi_attr(a)) {
-          Some(attr) => BindgenAttrs::try_from(attr)
-            .ok()
-            .and_then(|opts| opts.js_name().map(|(name, _)| name.to_owned()))
-            .unwrap_or_else(|| m.ident.to_string()),
-          None => m.ident.to_string(),
-        };
-
-        // Build namespace dir: base_dir / inline_path... / mod_name
-        let mut ns_dir = base_dir.to_path_buf();
-        for seg in inline_path {
-          ns_dir = ns_dir.join(seg);
-        }
-        ns_dir = ns_dir.join(m.ident.to_string());
-        results.push((ns_dir, js_name));
-        // Don't recurse further — nested #[napi] mod is disallowed
-      } else if let Some((_, child_items)) = &m.content {
-        // Non-napi inline mod — recurse with updated inline_path
-        let mut new_path = inline_path.to_vec();
-        new_path.push(m.ident.to_string());
-        scan_mods_recursive(child_items, base_dir, &new_path, results);
-      }
-      // File-backed non-napi mod (content = None, no #[napi]) → skip
-    }
   }
 }
 
@@ -208,7 +157,7 @@ fn path_ends_with_napi(path: &syn::Path) -> bool {
 /// - Does not detect deeply nested cfg_attr, e.g.
 ///   `#[cfg_attr(feature = "x", cfg_attr(feature = "y", napi))]`.
 ///   This matches the proc-macro's own behavior.
-fn is_napi_attr(attr: &syn::Attribute) -> bool {
+pub fn is_napi_attr(attr: &syn::Attribute) -> bool {
   if path_ends_with_napi(attr.path()) {
     return true;
   }
