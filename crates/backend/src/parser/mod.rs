@@ -26,10 +26,23 @@ use syn::{
 
 use self::attrs::{check_recorded_struct_for_impl, record_struct};
 
+/// Clear all process-global parser state so the parser can be reused
+/// for an independent invocation within the same process.
+///
+/// This resets the struct/attribute maps in `attrs` as well as the
+/// generator-struct map and register index in this module.
+pub fn reset_parser_state() {
+  attrs::reset_attrs_state();
+  if let Some(map) = GENERATOR_STRUCT.get() {
+    map.lock().unwrap().clear();
+  }
+  REGISTER_INDEX.store(0, std::sync::atomic::Ordering::SeqCst);
+}
+
 /// Stores (is_sync_generator, is_async_generator) for each struct.
 ///
 /// Like `STRUCTS` and `ATTRS` in `attrs`, this static accumulates state across all parsing calls
-/// within a process. See the note on those statics for implications.
+/// within a process. Call `reset_parser_state()` before each independent invocation to clear it.
 static GENERATOR_STRUCT: OnceLock<Mutex<HashMap<String, (bool, bool)>>> = OnceLock::new();
 
 static REGISTER_INDEX: AtomicUsize = AtomicUsize::new(0);

@@ -15,9 +15,9 @@ use syn::{parse_quote, Attribute, Token};
 use super::AnyIdent;
 
 // Note: These statics use OnceLock and accumulate state across all parsing calls within
-// a process. This is fine for proc-macro usage (one compilation unit) and the napi-typegen
-// binary (single run), but means the parser cannot be used for multiple independent
-// invocations within the same process (e.g. in tests) without stale state.
+// a process. This is fine for proc-macro usage (one compilation unit). For multiple
+// independent invocations within the same process (e.g. the native addon), call
+// `reset_attrs_state()` before each invocation to clear accumulated state.
 static ATTRS: OnceLock<AttributeParseState> = OnceLock::new();
 static STRUCTS: OnceLock<StructParseState> = OnceLock::new();
 
@@ -356,6 +356,21 @@ macro_rules! gen_bindgen_attr {
 }
 
 attrgen!(gen_bindgen_attr);
+
+/// Clear all process-global state accumulated by the attribute parser.
+///
+/// This must be called before each independent invocation of the parser
+/// (e.g. in the native addon) to prevent stale state from a previous run
+/// from leaking into the current one.
+pub fn reset_attrs_state() {
+  if let Some(state) = STRUCTS.get() {
+    state.parsed.lock().unwrap().clear();
+  }
+  if let Some(state) = ATTRS.get() {
+    state.parsed.store(0, Ordering::SeqCst);
+    state.checks.store(0, Ordering::SeqCst);
+  }
+}
 
 pub fn record_struct(ident: &Ident, js_name: String, opts: &BindgenAttrs) {
   let state = STRUCTS.get_or_init(StructParseState::default);

@@ -71,7 +71,10 @@ function runBinary(
 
   // Log stderr warnings (e.g. "N items failed to convert") even on success
   if (result.stderr) {
-    debug('napi-typegen stderr:\n%s', result.stderr)
+    const stderr = result.stderr.trim()
+    if (stderr) {
+      debug.warn(stderr)
+    }
   }
 
   if (result.status !== 0) {
@@ -133,6 +136,11 @@ export async function typegenProject(
       strict: options.strict,
     })
     jsonlOutput = result.typeDefs.join('\n')
+    if (result.parseErrors > 0) {
+      debug.warn(
+        `${result.parseErrors} file(s) had parse errors and were skipped. Use --strict to fail on errors instead.`,
+      )
+    }
   } else {
     // Fallback to binary in PATH
     jsonlOutput = runBinary(
@@ -141,6 +149,12 @@ export async function typegenProject(
       options.strict,
       cargoMetadataPath,
       cwd,
+    )
+  }
+
+  if (!jsonlOutput.trim()) {
+    debug.warn(
+      'No type definitions were generated. Check that the crate contains #[napi] items, or use --strict for detailed errors.',
     )
   }
 
