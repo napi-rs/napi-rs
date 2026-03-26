@@ -135,50 +135,109 @@ fn walk_module_file(
   Ok(())
 }
 
-/// Check if a cfg predicate *requires* `test` to be true.
-/// Returns true only when every satisfying assignment has test = true,
-/// meaning the module is exclusively test code.
-fn cfg_requires_test(meta: &syn::Meta) -> bool {
+/// Result of evaluating a cfg predicate with `test` set to `false`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CfgTestEval {
+  /// The predicate is always true when test=false (regardless of other variables)
+  AlwaysTrue,
+  /// The predicate is always false when test=false
+  AlwaysFalse,
+  /// The predicate's value depends on other variables when test=false
+  Unknown,
+}
+
+/// Evaluate a cfg predicate with `test` substituted to `false`.
+///
+/// This implements three-valued Boolean logic: atoms that aren't `test`
+/// evaluate to `Unknown` (free variables), while `test` evaluates to
+/// `AlwaysFalse`. The standard Boolean connectives (`all`, `any`, `not`)
+/// propagate these values correctly.
+fn eval_cfg_without_test(meta: &syn::Meta) -> CfgTestEval {
   match meta {
     syn::Meta::Path(path) => {
-      // Bare identifier: matches `test`
-      path.is_ident("test")
+      if path.is_ident("test") {
+        CfgTestEval::AlwaysFalse
+      } else {
+        CfgTestEval::Unknown
+      }
     }
     syn::Meta::List(list) => {
       let ident = list.path.get_ident().map(|i| i.to_string());
       match ident.as_deref() {
         Some("all") => {
-          // all(p1, p2, ...) requires test if ANY pi requires test
           if let Ok(args) = list.parse_args_with(
             syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated,
           ) {
-            args.iter().any(cfg_requires_test)
+            if args
+              .iter()
+              .any(|a| eval_cfg_without_test(a) == CfgTestEval::AlwaysFalse)
+            {
+              CfgTestEval::AlwaysFalse
+            } else if args
+              .iter()
+              .all(|a| eval_cfg_without_test(a) == CfgTestEval::AlwaysTrue)
+            {
+              CfgTestEval::AlwaysTrue
+            } else {
+              CfgTestEval::Unknown
+            }
           } else {
-            false
+            CfgTestEval::Unknown
           }
         }
         Some("any") => {
-          // any(p1, p2, ...) requires test only if ALL pi require test
           if let Ok(args) = list.parse_args_with(
             syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated,
           ) {
-            !args.is_empty() && args.iter().all(cfg_requires_test)
+            if args
+              .iter()
+              .any(|a| eval_cfg_without_test(a) == CfgTestEval::AlwaysTrue)
+            {
+              CfgTestEval::AlwaysTrue
+            } else if args
+              .iter()
+              .all(|a| eval_cfg_without_test(a) == CfgTestEval::AlwaysFalse)
+            {
+              CfgTestEval::AlwaysFalse
+            } else {
+              CfgTestEval::Unknown
+            }
           } else {
-            false
+            CfgTestEval::Unknown
           }
         }
         Some("not") => {
-          // not(p) — inverted context, test is not required
-          false
+          if let Ok(inner) = list.parse_args::<syn::Meta>() {
+            match eval_cfg_without_test(&inner) {
+              CfgTestEval::AlwaysTrue => CfgTestEval::AlwaysFalse,
+              CfgTestEval::AlwaysFalse => CfgTestEval::AlwaysTrue,
+              CfgTestEval::Unknown => CfgTestEval::Unknown,
+            }
+          } else {
+            CfgTestEval::Unknown
+          }
         }
-        _ => false,
+        _ => CfgTestEval::Unknown,
       }
     }
-    syn::Meta::NameValue(_) => {
-      // e.g. feature = "foo" — not test
-      false
-    }
+    syn::Meta::NameValue(_) => CfgTestEval::Unknown,
   }
+}
+
+/// Check if a cfg predicate *requires* `test` to be true.
+///
+/// Substitutes `test = false` into the predicate and checks if the result
+/// is always false. If so, the predicate can only be satisfied when
+/// `test = true`, meaning the gated code is exclusively test code.
+///
+/// Handles all Boolean combinations correctly:
+/// - `#[cfg(test)]` -> skip
+/// - `#[cfg(all(test, ...))]` -> skip (test is required)
+/// - `#[cfg(not(any(not(test), ...)))]` -> skip (simplifies to test && ...)
+/// - `#[cfg(any(test, ...))]` -> keep (non-test branches may be active)
+/// - `#[cfg(not(test))]` -> keep (inverted)
+fn cfg_requires_test(meta: &syn::Meta) -> bool {
+  eval_cfg_without_test(meta) == CfgTestEval::AlwaysFalse
 }
 
 /// Check if a module is gated by a cfg predicate that requires `test`.
