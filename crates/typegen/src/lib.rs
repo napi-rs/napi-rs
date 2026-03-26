@@ -58,13 +58,14 @@ pub fn generate_type_defs(
   let dep_dirs = resolve_napi_dependency_dirs(&metadata, &crate_dir)
     .context("Failed to resolve workspace dependencies")?;
   for dep_dir in &dep_dirs {
+    let dep_entry = resolve_lib_entry_point(&metadata, dep_dir);
     let dep_src = dep_dir.join("src");
     let dep_scan = if dep_src.is_dir() {
       &dep_src
     } else {
       dep_dir.as_path()
     };
-    let dep_result = walk_module_graph(None, dep_scan, false)
+    let dep_result = walk_module_graph(dep_entry.as_deref(), dep_scan, false)
       .with_context(|| format!("Failed to walk dependency {}", dep_dir.display()))?;
     parse_errors += collect_napi_items(
       &dep_result.files,

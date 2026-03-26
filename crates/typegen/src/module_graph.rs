@@ -135,20 +135,66 @@ fn walk_module_file(
   Ok(())
 }
 
-/// Check if a module is gated by `#[cfg(test)]`.
+/// Check if a cfg predicate *requires* `test` to be true.
+/// Returns true only when every satisfying assignment has test = true,
+/// meaning the module is exclusively test code.
+fn cfg_requires_test(meta: &syn::Meta) -> bool {
+  match meta {
+    syn::Meta::Path(path) => {
+      // Bare identifier: matches `test`
+      path.is_ident("test")
+    }
+    syn::Meta::List(list) => {
+      let ident = list.path.get_ident().map(|i| i.to_string());
+      match ident.as_deref() {
+        Some("all") => {
+          // all(p1, p2, ...) requires test if ANY pi requires test
+          if let Ok(args) = list.parse_args_with(
+            syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated,
+          ) {
+            args.iter().any(cfg_requires_test)
+          } else {
+            false
+          }
+        }
+        Some("any") => {
+          // any(p1, p2, ...) requires test only if ALL pi require test
+          if let Ok(args) = list.parse_args_with(
+            syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated,
+          ) {
+            !args.is_empty() && args.iter().all(cfg_requires_test)
+          } else {
+            false
+          }
+        }
+        Some("not") => {
+          // not(p) — inverted context, test is not required
+          false
+        }
+        _ => false,
+      }
+    }
+    syn::Meta::NameValue(_) => {
+      // e.g. feature = "foo" — not test
+      false
+    }
+  }
+}
+
+/// Check if a module is gated by a cfg predicate that requires `test`.
 /// These modules contain test code that should never appear in type definitions.
+///
+/// Handles compound expressions: `#[cfg(test)]`, `#[cfg(all(test, ...))]`,
+/// and nested combinations. Does NOT skip `#[cfg(any(test, ...))]` or
+/// `#[cfg(not(test))]` because those modules may be active in normal builds.
 fn is_cfg_test(attrs: &[syn::Attribute]) -> bool {
   attrs.iter().any(|attr| {
     if !attr.path().is_ident("cfg") {
       return false;
     }
-    // Parse the cfg argument — matches #[cfg(test)] exactly.
-    // parse_args::<Ident>() only succeeds when the args are a single bare
-    // identifier, so compound expressions like `not(test)` or `all(test, ...)`
-    // will not match.
     attr
-      .parse_args::<syn::Ident>()
-      .map_or(false, |ident| ident == "test")
+      .parse_args::<syn::Meta>()
+      .map_or(false, |meta| cfg_requires_test(&meta))
   })
 }
 
