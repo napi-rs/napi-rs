@@ -294,12 +294,9 @@ fn walk_items_for_mods(
       } else {
         // File-backed module — resolve path and recurse
         let path_override = extract_path_attr(&m.attrs);
-        if let Some(file_path) = resolve_mod_path(
-          base_dir,
-          inline_path,
-          &m.ident.to_string(),
-          path_override.as_deref(),
-        ) {
+        if let Some(file_path) =
+          resolve_mod_path(base_dir, inline_path, &m.ident.to_string(), &path_override)
+        {
           walk_module_file(&file_path, effective_ns, ctx)?;
         } else if ctx.strict {
           return Err(anyhow::anyhow!(
@@ -322,12 +319,13 @@ fn strip_raw_prefix(name: &str) -> &str {
 }
 
 /// Resolve a file-backed module's path.
-/// Handles #[path = "..."] override and standard foo.rs / foo/mod.rs layout.
+/// Handles #[path = "..."] override, #[cfg_attr(..., path = "...")] candidates,
+/// and standard foo.rs / foo/mod.rs layout.
 fn resolve_mod_path(
   base_dir: &Path,
   inline_path: &[String],
   mod_name: &str,
-  path_override: Option<&str>,
+  path_override: &ModPathOverride,
 ) -> Option<PathBuf> {
   // Build the directory where this module's file should be
   let mut dir = base_dir.to_path_buf();
@@ -335,13 +333,22 @@ fn resolve_mod_path(
     dir = dir.join(strip_raw_prefix(seg));
   }
 
-  if let Some(custom_path) = path_override {
-    // #[path = "..."] — resolve relative to the computed directory
+  // Direct #[path = "..."] — authoritative, no fallback
+  if let Some(ref custom_path) = path_override.direct {
     let resolved = dir.join(custom_path);
+    return if resolved.exists() {
+      Some(resolved)
+    } else {
+      None
+    };
+  }
+
+  // cfg_attr candidates — try each before falling back to standard layout
+  for candidate in &path_override.cfg_attr_candidates {
+    let resolved = dir.join(candidate);
     if resolved.exists() {
       return Some(resolved);
     }
-    return None;
   }
 
   // Strip r# prefix — `mod r#async;` looks for `async.rs`, not `r#async.rs`
@@ -362,20 +369,60 @@ fn resolve_mod_path(
   None
 }
 
-/// Extract `#[path = "..."]` attribute value from a list of attributes.
-fn extract_path_attr(attrs: &[syn::Attribute]) -> Option<String> {
+/// Extracted path overrides from module attributes.
+struct ModPathOverride {
+  /// Direct `#[path = "..."]` — authoritative, no fallback to standard layout
+  direct: Option<String>,
+  /// `#[cfg_attr(..., path = "...")]` — best-effort candidates, with fallback
+  cfg_attr_candidates: Vec<String>,
+}
+
+/// Extract path overrides from a list of attributes.
+///
+/// Handles both direct `#[path = "..."]` and `#[cfg_attr(..., path = "...")]`.
+fn extract_path_attr(attrs: &[syn::Attribute]) -> ModPathOverride {
+  let mut direct = None;
+  let mut cfg_attr_candidates = Vec::new();
+
   for attr in attrs {
+    // Direct #[path = "..."]
     if attr.path().is_ident("path") {
       if let syn::Meta::NameValue(nv) = &attr.meta {
         if let syn::Expr::Lit(lit) = &nv.value {
           if let syn::Lit::Str(s) = &lit.lit {
-            return Some(s.value());
+            direct = Some(s.value());
+          }
+        }
+      }
+    }
+
+    // #[cfg_attr(..., path = "...")]
+    if attr.path().is_ident("cfg_attr") {
+      if let syn::Meta::List(list) = &attr.meta {
+        if let Ok(args) = list.parse_args_with(
+          syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated,
+        ) {
+          // Skip first arg (the cfg condition), check remaining for path = "..."
+          for meta in args.iter().skip(1) {
+            if let syn::Meta::NameValue(nv) = meta {
+              if nv.path.is_ident("path") {
+                if let syn::Expr::Lit(lit) = &nv.value {
+                  if let syn::Lit::Str(s) = &lit.lit {
+                    cfg_attr_candidates.push(s.value());
+                  }
+                }
+              }
+            }
           }
         }
       }
     }
   }
-  None
+
+  ModPathOverride {
+    direct,
+    cfg_attr_candidates,
+  }
 }
 
 /// Compute the JavaScript name for a `#[napi] mod` declaration.
