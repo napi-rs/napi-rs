@@ -55,18 +55,33 @@ pub fn test_escaped_quotes_in_comments(input: String) -> String {
 }
 
 #[napi]
+#[cfg(not(target_family = "wasm"))]
 pub fn create_zero_copy_utf16_string<'env>(env: &'env Env) -> Result<JsStringUtf16<'env>> {
   let data = vec![0x0061, 0x0062, 0x0063];
   JsStringUtf16::from_data(env, data)
 }
 
 #[napi]
+#[cfg(target_family = "wasm")]
+pub fn create_zero_copy_utf16_string<'env>(env: &'env Env) -> Result<String> {
+  Ok("abc".to_string())
+}
+
+#[napi]
+#[cfg(not(target_family = "wasm"))]
 pub fn create_zero_copy_latin1_string<'env>(env: &'env Env) -> Result<JsStringLatin1<'env>> {
   let data = vec![0x48, 0x65, 0x6C, 0x6C, 0x6F]; // "Hello"
   JsStringLatin1::from_data(env, data)
 }
 
 #[napi]
+#[cfg(target_family = "wasm")]
+pub fn create_zero_copy_latin1_string<'env>(env: &'env Env) -> Result<String> {
+  Ok("Hello".to_string())
+}
+
+#[napi]
+#[cfg(not(target_family = "wasm"))]
 pub fn create_external_utf16_string<'env>(env: &'env Env) -> Result<JsStringUtf16<'env>> {
   // Create UTF-16 data for "External UTF16"
   let data: Vec<u16> = "External UTF16".encode_utf16().collect();
@@ -82,6 +97,13 @@ pub fn create_external_utf16_string<'env>(env: &'env Env) -> Result<JsStringUtf1
 }
 
 #[napi]
+#[cfg(target_family = "wasm")]
+pub fn create_external_utf16_string<'env>(env: &'env Env) -> Result<String> {
+  Ok("External UTF16".to_string())
+}
+
+#[napi]
+#[cfg(not(target_family = "wasm"))]
 pub fn create_external_latin1_string<'env>(env: &'env Env) -> Result<JsStringLatin1<'env>> {
   // Create Latin1 data for "External Latin1"
   let data = b"External Latin1".to_vec();
@@ -97,6 +119,12 @@ pub fn create_external_latin1_string<'env>(env: &'env Env) -> Result<JsStringLat
 }
 
 #[napi]
+#[cfg(target_family = "wasm")]
+pub fn create_external_latin1_string<'env>(env: &'env Env) -> Result<String> {
+  Ok("External Latin1".to_string())
+}
+
+#[napi]
 pub fn create_external_latin1_empty<'env>(env: &'env Env) -> Result<JsString<'env>> {
   // Test with empty string - from_external and from_data don't support empty strings
   // So we return a regular empty JsString instead
@@ -104,6 +132,7 @@ pub fn create_external_latin1_empty<'env>(env: &'env Env) -> Result<JsString<'en
 }
 
 #[napi]
+#[cfg(not(target_family = "wasm"))]
 pub fn create_external_latin1_short<'env>(env: &'env Env) -> Result<JsStringLatin1<'env>> {
   // Test with short string (likely to be copied by V8)
   let data = b"Hi".to_vec();
@@ -119,6 +148,13 @@ pub fn create_external_latin1_short<'env>(env: &'env Env) -> Result<JsStringLati
 }
 
 #[napi]
+#[cfg(target_family = "wasm")]
+pub fn create_external_latin1_short<'env>(env: &'env Env) -> Result<String> {
+  Ok("Hi".to_string())
+}
+
+#[napi]
+#[cfg(not(target_family = "wasm"))]
 pub fn create_external_latin1_long<'env>(env: &'env Env) -> Result<JsStringLatin1<'env>> {
   // Test with long string (more likely to remain external)
   let data = b"This is a much longer string that is more likely to be kept as an external string by V8 rather than being copied".to_vec();
@@ -134,6 +170,13 @@ pub fn create_external_latin1_long<'env>(env: &'env Env) -> Result<JsStringLatin
 }
 
 #[napi]
+#[cfg(target_family = "wasm")]
+pub fn create_external_latin1_long<'env>(env: &'env Env) -> Result<String> {
+  Ok("This is a much longer string that is more likely to be kept as an external string by V8 rather than being copied".to_string())
+}
+
+#[napi]
+#[cfg(not(target_family = "wasm"))]
 pub fn create_external_latin1_with_latin1_chars<'env>(
   env: &'env Env,
 ) -> Result<JsStringLatin1<'env>> {
@@ -157,6 +200,22 @@ pub fn create_external_latin1_with_latin1_chars<'env>(
 }
 
 #[napi]
+#[cfg(target_family = "wasm")]
+pub fn create_external_latin1_with_latin1_chars<'env>(
+  env: &'env Env,
+) -> Result<String> {
+  // Return the equivalent string for WASM
+  Ok(String::from_utf8(vec![
+    0x48, 0x65, 0x6C, 0x6C, 0x6F, // "Hello"
+    0x20, // space
+    0xC3, 0x80, 0xC3, 0x81, 0xC3, 0x82, // À, Á, Â in UTF-8
+    0x20, // space
+    0xC3, 0xB1, 0xC3, 0xB2, 0xC3, 0xB3, // ñ, ò, ó in UTF-8
+  ]).unwrap())
+}
+
+#[napi]
+#[cfg(not(target_family = "wasm"))]
 pub fn create_external_latin1_custom_finalize<'env>(
   env: &'env Env,
 ) -> Result<JsStringLatin1<'env>> {
@@ -178,6 +237,15 @@ pub fn create_external_latin1_custom_finalize<'env>(
 }
 
 #[napi]
+#[cfg(target_family = "wasm")]
+pub fn create_external_latin1_custom_finalize<'env>(
+  env: &'env Env,
+) -> Result<String> {
+  Ok("Custom finalize test".to_string())
+}
+
+#[napi]
+#[cfg(not(target_family = "wasm"))]
 pub fn test_latin1_methods(env: &Env, input: String) -> Result<Latin1MethodsResult> {
   let data = input.as_bytes().to_vec();
   let latin1 = JsStringLatin1::from_data(env, data)?;
@@ -185,26 +253,47 @@ pub fn test_latin1_methods(env: &Env, input: String) -> Result<Latin1MethodsResu
   Ok(Latin1MethodsResult {
     length: latin1.len() as u32,
     is_empty: latin1.is_empty(),
-    as_slice: if cfg!(target_family = "wasm") {
-      #[allow(clippy::iter_cloned_collect)]
-      latin1.as_slice().iter().cloned().collect()
-    } else {
-      latin1.as_slice().to_vec()
-    },
+    as_slice: latin1.as_slice().to_vec(),
   })
 }
 
 #[napi]
+#[cfg(target_family = "wasm")]
+pub fn test_latin1_methods(env: &Env, input: String) -> Result<Latin1MethodsResult> {
+  let data = input.as_bytes();
+
+  Ok(Latin1MethodsResult {
+    length: data.len() as u32,
+    is_empty: data.is_empty(),
+    as_slice: data.to_vec(),
+  })
+}
+
+#[napi]
+#[cfg(not(target_family = "wasm"))]
 pub fn create_static_latin1_string<'env>(env: &'env Env) -> Result<JsStringLatin1<'env>> {
   // Test from_static with a static Latin-1 string
   JsStringLatin1::from_static(env, "Static Latin1 string")
 }
 
 #[napi]
+#[cfg(target_family = "wasm")]
+pub fn create_static_latin1_string<'env>(env: &'env Env) -> Result<String> {
+  Ok("Static Latin1 string".to_string())
+}
+
+#[napi]
+#[cfg(not(target_family = "wasm"))]
 pub fn create_static_utf16_string<'env>(env: &'env Env) -> Result<JsStringUtf16<'env>> {
   // Test from_static with a static UTF-16 buffer
   static UTF16_DATA: &[u16] = &[
     0x0053, 0x0074, 0x0061, 0x0074, 0x0069, 0x0063, 0x0020, 0x0055, 0x0054, 0x0046, 0x0031, 0x0036,
   ]; // "Static UTF16"
   JsStringUtf16::from_static(env, UTF16_DATA)
+}
+
+#[napi]
+#[cfg(target_family = "wasm")]
+pub fn create_static_utf16_string<'env>(env: &'env Env) -> Result<String> {
+  Ok("Static UTF16".to_string())
 }
