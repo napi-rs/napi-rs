@@ -382,7 +382,8 @@ struct ModPathOverride {
 /// Handles both direct `#[path = "..."]` and `#[cfg_attr(..., path = "...")]`.
 fn extract_path_attr(attrs: &[syn::Attribute]) -> ModPathOverride {
   let mut direct = None;
-  let mut cfg_attr_candidates = Vec::new();
+  let mut always_true_paths: Vec<String> = Vec::new();
+  let mut unknown_paths: Vec<String> = Vec::new();
 
   for attr in attrs {
     // Direct #[path = "..."]
@@ -402,13 +403,27 @@ fn extract_path_attr(attrs: &[syn::Attribute]) -> ModPathOverride {
         if let Ok(args) = list.parse_args_with(
           syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated,
         ) {
-          // Skip first arg (the cfg condition), check remaining for path = "..."
+          // First arg is the cfg condition — evaluate it with test=false
+          let condition_eval = args
+            .first()
+            .map(eval_cfg_without_test)
+            .unwrap_or(CfgTestEval::Unknown);
+
+          // Skip test-only cfg_attr (condition is always false in non-test builds)
+          if condition_eval == CfgTestEval::AlwaysFalse {
+            continue;
+          }
+
+          // Check remaining args for path = "..."
           for meta in args.iter().skip(1) {
             if let syn::Meta::NameValue(nv) = meta {
               if nv.path.is_ident("path") {
                 if let syn::Expr::Lit(lit) = &nv.value {
                   if let syn::Lit::Str(s) = &lit.lit {
-                    cfg_attr_candidates.push(s.value());
+                    match condition_eval {
+                      CfgTestEval::AlwaysTrue => always_true_paths.push(s.value()),
+                      _ => unknown_paths.push(s.value()),
+                    }
                   }
                 }
               }
@@ -418,6 +433,10 @@ fn extract_path_attr(attrs: &[syn::Attribute]) -> ModPathOverride {
       }
     }
   }
+
+  // AlwaysTrue candidates first (definitely active in non-test builds)
+  let mut cfg_attr_candidates = always_true_paths;
+  cfg_attr_candidates.extend(unknown_paths);
 
   ModPathOverride {
     direct,
