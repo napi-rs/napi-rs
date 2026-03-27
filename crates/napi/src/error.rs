@@ -324,11 +324,15 @@ impl TryFrom<sys::napi_extended_error_info> for ExtendedErrorInfo {
 
   fn try_from(value: sys::napi_extended_error_info) -> Result<Self> {
     Ok(Self {
-      message: unsafe {
-        CStr::from_ptr(value.error_message.cast())
-          .to_str()
-          .map_err(|e| Error::new(Status::GenericFailure, format!("{e}")))?
-          .to_owned()
+      message: if value.error_message.is_null() {
+        String::new()
+      } else {
+        unsafe {
+          CStr::from_ptr(value.error_message.cast())
+            .to_str()
+            .map_err(|e| Error::new(Status::GenericFailure, format!("{e}")))?
+            .to_owned()
+        }
       },
       engine_error_code: value.engine_error_code,
       engine_reserved: value.engine_reserved,

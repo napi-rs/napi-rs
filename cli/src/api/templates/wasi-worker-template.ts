@@ -63,13 +63,19 @@ globalThis.onmessage = function (e) {
 };
 `
 
-export const createWasiBrowserWorkerBinding = (fs: boolean) => {
+export const createWasiBrowserWorkerBinding = (
+  fs: boolean,
+  errorEvent: boolean,
+) => {
   const fsImport = fs
     ? `import { instantiateNapiModuleSync, MessageHandler, WASI, createFsProxy } from '@napi-rs/wasm-runtime'
 import { memfsExported as __memfsExported } from '@napi-rs/wasm-runtime/fs'
 
 const fs = createFsProxy(__memfsExported)`
     : `import { instantiateNapiModuleSync, MessageHandler, WASI } from '@napi-rs/wasm-runtime'`
+  const errorOutputsAppend = errorEvent
+    ? `\n        errorOutputs.push([...arguments])`
+    : ''
   const wasiCreation = fs
     ? `const wasi = new WASI({
       fs,
@@ -83,6 +89,7 @@ const fs = createFsProxy(__memfsExported)`
       printErr: function() {
         // eslint-disable-next-line no-console
         console.error.apply(console, arguments)
+        ${errorOutputsAppend}
       },
     })`
     : `const wasi = new WASI({
@@ -93,9 +100,18 @@ const fs = createFsProxy(__memfsExported)`
       printErr: function() {
         // eslint-disable-next-line no-console
         console.error.apply(console, arguments)
+        ${errorOutputsAppend}
       },
     })`
+  const errorHandler = errorEvent
+    ? `onError(error) {
+    postMessage({ type: 'error', error, errorOutputs })
+    errorOutputs.length = 0
+  }`
+    : ''
   return `${fsImport}
+
+const errorOutputs = []
 
 const handler = new MessageHandler({
   onLoad({ wasmModule, wasmMemory }) {
@@ -113,6 +129,7 @@ const handler = new MessageHandler({
       },
     })
   },
+  ${errorHandler}
 })
 
 globalThis.onmessage = function (e) {
