@@ -1,11 +1,14 @@
 import { existsSync } from 'node:fs'
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import ava, { type TestFn } from 'ava'
 
 import { createNpmDirs } from '../create-npm-dirs.js'
+
+const require = createRequire(import.meta.url)
 
 const test = ava as TestFn<{
   tmpDir: string
@@ -207,4 +210,33 @@ test('should handle WASM targets correctly with publishConfig', async (t) => {
   t.truthy(scopedPackageJson.main)
   t.truthy(scopedPackageJson.browser)
   t.truthy(scopedPackageJson.dependencies)
+})
+
+test('should set @emnapi/core and @emnapi/runtime versions to match emnapi for WASM targets', async (t) => {
+  const { tmpDir, packageJsonPath } = t.context
+
+  const packageJson = {
+    name: 'test-emnapi-versions',
+    version: '1.0.0',
+    napi: {
+      binaryName: 'test-emnapi-versions',
+      targets: ['wasm32-wasi-preview1-threads'],
+    },
+  }
+
+  await writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2))
+
+  await createNpmDirs({
+    cwd: tmpDir,
+    packageJsonPath: 'package.json',
+  })
+
+  const scopedDir = join(tmpDir, 'npm', 'wasm32-wasi')
+  const scopedPackageJson = JSON.parse(
+    await readFile(join(scopedDir, 'package.json'), 'utf-8'),
+  )
+
+  const emnapiVersion = require('emnapi/package.json').version
+  t.is(scopedPackageJson.dependencies['@emnapi/core'], emnapiVersion)
+  t.is(scopedPackageJson.dependencies['@emnapi/runtime'], emnapiVersion)
 })

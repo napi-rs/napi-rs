@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url'
 
 import ava, { type TestFn } from 'ava'
 
-import { generateTypeDef, writeJsBinding } from '../build.js'
+import { buildProject, generateTypeDef, writeJsBinding } from '../build.js'
 import { getSystemDefaultTarget } from '../../utils/index.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -182,4 +182,93 @@ napi-build = { path = "${napiBuildPath}" }
   t.true(existsSync(jsPath))
   const jsContent = await readFile(jsPath, 'utf-8')
   t.regex(jsContent, /module\.exports\.sum = nativeBinding\.sum/)
+})
+
+test('should throw on emnapi version mismatch in wasm build', async (t) => {
+  const { projectDir } = t.context
+  const crateName = 'wasm_version_check'
+  const binaryName = 'wasm-version-check'
+  const packageName = 'wasm-version-check'
+  const version = '0.1.0'
+
+  const napiPath = posixJoin(repoRoot, 'crates', 'napi').replaceAll(
+    win32Sep,
+    posixSep,
+  )
+  const napiDerivePath = posixJoin(repoRoot, 'crates', 'macro').replaceAll(
+    win32Sep,
+    posixSep,
+  )
+  const napiBuildPath = posixJoin(repoRoot, 'crates', 'build').replaceAll(
+    win32Sep,
+    posixSep,
+  )
+
+  await mkdir(join(projectDir, 'src'), { recursive: true })
+
+  const cargoToml = `[package]
+name = "${crateName}"
+version = "${version}"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = { path = "${napiPath}", features = ["noop"] }
+napi-derive = { path = "${napiDerivePath}", features = ["noop"] }
+
+[build-dependencies]
+napi-build = { path = "${napiBuildPath}" }
+`
+
+  await writeFile(join(projectDir, 'Cargo.toml'), cargoToml)
+  await writeFile(
+    join(projectDir, 'package.json'),
+    `${JSON.stringify(
+      {
+        name: packageName,
+        version,
+        napi: {
+          binaryName,
+          targets: ['wasm32-wasi-preview1-threads'],
+        },
+      },
+      null,
+      2,
+    )}\n`,
+  )
+  await writeFile(
+    join(projectDir, 'build.rs'),
+    'fn main() {\n    napi_build::setup();\n}\n',
+  )
+  await writeFile(
+    join(projectDir, 'src', 'lib.rs'),
+    'use napi_derive::napi;\n\n#[napi]\npub fn sum(a: i32, b: i32) -> i32 {\n    a + b\n}\n',
+  )
+
+  // Create fake @emnapi/core and @emnapi/runtime with mismatched versions
+  const fakeVersion = '0.0.0-fake'
+  for (const pkg of ['@emnapi/core', '@emnapi/runtime']) {
+    const pkgDir = join(projectDir, 'node_modules', pkg)
+    await mkdir(pkgDir, { recursive: true })
+    await writeFile(
+      join(pkgDir, 'package.json'),
+      JSON.stringify({ name: pkg, version: fakeVersion, main: 'index.js' }),
+    )
+    await writeFile(
+      join(pkgDir, 'index.js'),
+      `module.exports = { version: "${fakeVersion}" }`,
+    )
+  }
+
+  const error = await t.throwsAsync(() =>
+    buildProject({
+      target: 'wasm32-wasi-preview1-threads',
+      cwd: projectDir,
+    }),
+  )
+
+  t.truthy(error)
+  t.regex(error!.message, /emnapi version mismatch/)
 })

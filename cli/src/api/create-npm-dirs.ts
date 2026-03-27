@@ -1,6 +1,9 @@
+import { createRequire } from 'node:module'
 import { join, resolve } from 'node:path'
 
 import { parse } from 'semver'
+
+const require = createRequire(import.meta.url)
 
 import {
   applyDefaultCreateNpmDirsOptions,
@@ -122,11 +125,14 @@ export async function createNpmDirs(userOptions: CreateNpmDirsOptions) {
           node: '>=14.0.0',
         }
       }
+      const emnapiVersion = require('emnapi/package.json').version
       const wasmRuntime = await fetch(
         `https://registry.npmjs.org/@napi-rs/wasm-runtime`,
       ).then((res) => res.json() as Promise<PackageMeta>)
       scopedPackageJson.dependencies = {
         '@napi-rs/wasm-runtime': `^${wasmRuntime['dist-tags'].latest}`,
+        '@emnapi/core': emnapiVersion,
+        '@emnapi/runtime': emnapiVersion,
       }
     }
 

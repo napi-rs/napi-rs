@@ -68,6 +68,7 @@
     "timeout": "10m"
   },
   "dependencies": {
-    "@emnapi/core": "^1.7.0"
+    "@emnapi/core": "1.9.1",
+    "@emnapi/runtime": "1.9.1"
   }
 }
