@@ -155,7 +155,7 @@ fn walk_module_file(
 }
 
 /// Result of evaluating a cfg predicate with `test` set to `false`.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CfgTestEval {
   /// The predicate is always true when test=false (regardless of other variables)
   AlwaysTrue,
@@ -492,4 +492,497 @@ fn compute_mod_js_name(m: &syn::ItemMod) -> String {
         .and_then(|opts| opts.js_name().map(|(name, _)| name.to_owned()))
     })
     .unwrap_or_else(|| m.ident.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  // ── Helpers ──────────────────────────────────────────────────────
+
+  fn features(enabled: &[&str]) -> CrateFeatures {
+    CrateFeatures {
+      enabled: enabled.iter().map(|s| s.to_string()).collect(),
+    }
+  }
+
+  fn parse_meta(s: &str) -> syn::Meta {
+    syn::parse_str(s).unwrap_or_else(|e| panic!("Failed to parse meta `{s}`: {e}"))
+  }
+
+  // ── eval_cfg unit tests ──────────────────────────────────────────
+
+  #[test]
+  fn eval_bare_test() {
+    assert_eq!(
+      eval_cfg(&parse_meta("test"), &features(&[])),
+      CfgTestEval::AlwaysFalse
+    );
+  }
+
+  #[test]
+  fn eval_not_test() {
+    assert_eq!(
+      eval_cfg(&parse_meta("not(test)"), &features(&[])),
+      CfgTestEval::AlwaysTrue
+    );
+  }
+
+  #[test]
+  fn eval_double_not_test() {
+    assert_eq!(
+      eval_cfg(&parse_meta("not(not(test))"), &features(&[])),
+      CfgTestEval::AlwaysFalse
+    );
+  }
+
+  #[test]
+  fn eval_enabled_feature() {
+    assert_eq!(
+      eval_cfg(&parse_meta(r#"feature = "foo""#), &features(&["foo"])),
+      CfgTestEval::AlwaysTrue
+    );
+  }
+
+  #[test]
+  fn eval_disabled_feature() {
+    assert_eq!(
+      eval_cfg(&parse_meta(r#"feature = "foo""#), &features(&[])),
+      CfgTestEval::AlwaysFalse
+    );
+  }
+
+  #[test]
+  fn eval_undeclared_feature_is_false() {
+    // Even with some features enabled, an unrelated feature is still false
+    assert_eq!(
+      eval_cfg(
+        &parse_meta(r#"feature = "typo""#),
+        &features(&["default", "real"])
+      ),
+      CfgTestEval::AlwaysFalse
+    );
+  }
+
+  #[test]
+  fn eval_all_with_test() {
+    // all(test, ...) is always false because test is false
+    assert_eq!(
+      eval_cfg(
+        &parse_meta(r#"all(test, feature = "foo")"#),
+        &features(&["foo"])
+      ),
+      CfgTestEval::AlwaysFalse
+    );
+  }
+
+  #[test]
+  fn eval_any_test_and_disabled_feature() {
+    // any(test, feature) where both are false → false
+    assert_eq!(
+      eval_cfg(&parse_meta(r#"any(test, feature = "foo")"#), &features(&[])),
+      CfgTestEval::AlwaysFalse
+    );
+  }
+
+  #[test]
+  fn eval_any_test_and_enabled_feature() {
+    // any(test, feature) where feature is true → true
+    assert_eq!(
+      eval_cfg(
+        &parse_meta(r#"any(test, feature = "foo")"#),
+        &features(&["foo"])
+      ),
+      CfgTestEval::AlwaysTrue
+    );
+  }
+
+  #[test]
+  fn eval_not_any_not_test_and_feature() {
+    // not(any(not(test), feature = "foo")) = test && !foo
+    // With foo disabled: test is false → always false
+    assert_eq!(
+      eval_cfg(
+        &parse_meta(r#"not(any(not(test), feature = "foo"))"#),
+        &features(&[])
+      ),
+      CfgTestEval::AlwaysFalse
+    );
+  }
+
+  #[test]
+  fn eval_unknown_predicate() {
+    assert_eq!(
+      eval_cfg(&parse_meta("unix"), &features(&[])),
+      CfgTestEval::Unknown
+    );
+  }
+
+  #[test]
+  fn eval_all_with_unknown() {
+    // all(unix, feature = "foo") with foo enabled: unix is unknown → unknown
+    assert_eq!(
+      eval_cfg(
+        &parse_meta(r#"all(unix, feature = "foo")"#),
+        &features(&["foo"])
+      ),
+      CfgTestEval::Unknown
+    );
+  }
+
+  #[test]
+  fn eval_not_feature() {
+    assert_eq!(
+      eval_cfg(&parse_meta(r#"not(feature = "foo")"#), &features(&[])),
+      CfgTestEval::AlwaysTrue
+    );
+    assert_eq!(
+      eval_cfg(&parse_meta(r#"not(feature = "foo")"#), &features(&["foo"])),
+      CfgTestEval::AlwaysFalse
+    );
+  }
+
+  // ── Module graph integration tests ───────────────────────────────
+
+  /// Helper to create a temporary crate directory with given files.
+  struct TestCrate {
+    dir: PathBuf,
+  }
+
+  impl TestCrate {
+    fn new(name: &str, files: &[(&str, &str)]) -> Self {
+      let dir =
+        std::env::temp_dir().join(format!("napi-typegen-test-{}-{}", name, std::process::id()));
+      let _ = std::fs::remove_dir_all(&dir);
+      std::fs::create_dir_all(&dir).unwrap();
+      for (path, content) in files {
+        let full = dir.join(path);
+        if let Some(parent) = full.parent() {
+          std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(&full, content).unwrap();
+      }
+      TestCrate { dir }
+    }
+
+    fn walk(&self, feat: &[&str]) -> ModuleGraphResult {
+      let entry = self.dir.join("lib.rs");
+      walk_module_graph(Some(&entry), &self.dir, false, features(feat))
+        .expect("walk_module_graph failed")
+    }
+
+    /// Get the file names relative to the crate dir from a walk result.
+    fn file_names(&self, result: &ModuleGraphResult) -> Vec<String> {
+      let canon = self.dir.canonicalize().unwrap();
+      result
+        .files
+        .iter()
+        .filter_map(|(p, _)| {
+          PathBuf::from(p)
+            .strip_prefix(&canon)
+            .ok()
+            .map(|rel| rel.to_string_lossy().to_string())
+        })
+        .collect()
+    }
+  }
+
+  impl Drop for TestCrate {
+    fn drop(&mut self) {
+      let _ = std::fs::remove_dir_all(&self.dir);
+    }
+  }
+
+  #[test]
+  fn walk_excludes_orphan_files() {
+    let tc = TestCrate::new(
+      "orphan",
+      &[
+        ("lib.rs", "mod included;\n"),
+        (
+          "included.rs",
+          "use napi::bindgen_prelude::*;\n#[napi]\npub fn included() -> u32 { 0 }\n",
+        ),
+        (
+          "orphan.rs",
+          "use napi::bindgen_prelude::*;\n#[napi]\npub fn orphan() -> u32 { 0 }\n",
+        ),
+      ],
+    );
+    let result = tc.walk(&[]);
+    let names = tc.file_names(&result);
+    assert!(
+      names.iter().any(|n| n.contains("included")),
+      "included.rs should be present: {names:?}"
+    );
+    assert!(
+      !names.iter().any(|n| n.contains("orphan")),
+      "orphan.rs should NOT be present: {names:?}"
+    );
+  }
+
+  #[test]
+  fn walk_skips_cfg_test_module() {
+    let tc = TestCrate::new(
+      "cfg-test",
+      &[
+        ("lib.rs", "#[cfg(test)]\nmod tests;\nmod real;\n"),
+        (
+          "tests.rs",
+          "use napi::bindgen_prelude::*;\n#[napi]\npub fn test_fn() -> u32 { 0 }\n",
+        ),
+        (
+          "real.rs",
+          "use napi::bindgen_prelude::*;\n#[napi]\npub fn real_fn() -> u32 { 0 }\n",
+        ),
+      ],
+    );
+    let result = tc.walk(&[]);
+    let names = tc.file_names(&result);
+    assert!(
+      names.iter().any(|n| n.contains("real")),
+      "real.rs should be present: {names:?}"
+    );
+    assert!(
+      !names.iter().any(|n| n.contains("tests")),
+      "tests.rs should NOT be present: {names:?}"
+    );
+  }
+
+  #[test]
+  fn walk_skips_compound_cfg_test() {
+    let tc = TestCrate::new(
+      "compound-cfg",
+      &[
+        (
+          "lib.rs",
+          "#[cfg(all(test, feature = \"test-utils\"))]\nmod test_utils;\nmod real;\n",
+        ),
+        (
+          "test_utils.rs",
+          "use napi::bindgen_prelude::*;\n#[napi]\npub fn test_util() -> u32 { 0 }\n",
+        ),
+        (
+          "real.rs",
+          "use napi::bindgen_prelude::*;\n#[napi]\npub fn real() -> u32 { 0 }\n",
+        ),
+      ],
+    );
+    let result = tc.walk(&["default", "test-utils"]);
+    let names = tc.file_names(&result);
+    assert!(
+      names.iter().any(|n| n.contains("real")),
+      "real.rs should be present: {names:?}"
+    );
+    assert!(
+      !names.iter().any(|n| n.contains("test_utils")),
+      "test_utils.rs should be skipped: {names:?}"
+    );
+  }
+
+  #[test]
+  fn walk_cfg_attr_path_prefers_non_test() {
+    let tc = TestCrate::new(
+      "cfg-attr-path",
+      &[
+        (
+          "lib.rs",
+          concat!(
+            "#[cfg_attr(test, path = \"test_impl.rs\")]\n",
+            "#[cfg_attr(not(test), path = \"prod_impl.rs\")]\n",
+            "mod gated;\n"
+          ),
+        ),
+        (
+          "test_impl.rs",
+          "use napi::bindgen_prelude::*;\n#[napi]\npub fn test_only() -> u32 { 0 }\n",
+        ),
+        (
+          "prod_impl.rs",
+          "use napi::bindgen_prelude::*;\n#[napi]\npub fn prod_only() -> u32 { 0 }\n",
+        ),
+      ],
+    );
+    let result = tc.walk(&[]);
+    let names = tc.file_names(&result);
+    assert!(
+      names.iter().any(|n| n.contains("prod_impl")),
+      "prod_impl.rs should be present: {names:?}"
+    );
+    assert!(
+      !names.iter().any(|n| n.contains("test_impl")),
+      "test_impl.rs should NOT be present: {names:?}"
+    );
+  }
+
+  #[test]
+  fn walk_feature_gated_path_disabled() {
+    let tc = TestCrate::new(
+      "feat-path-off",
+      &[
+        (
+          "lib.rs",
+          concat!(
+            "#[cfg_attr(feature = \"alt\", path = \"alt.rs\")]\n",
+            "#[cfg_attr(not(feature = \"alt\"), path = \"default.rs\")]\n",
+            "mod gated;\n"
+          ),
+        ),
+        (
+          "alt.rs",
+          "use napi::bindgen_prelude::*;\n#[napi]\npub fn alt_fn() -> u32 { 0 }\n",
+        ),
+        (
+          "default.rs",
+          "use napi::bindgen_prelude::*;\n#[napi]\npub fn default_fn() -> u32 { 0 }\n",
+        ),
+      ],
+    );
+    // "alt" NOT enabled
+    let result = tc.walk(&["default"]);
+    let names = tc.file_names(&result);
+    assert!(
+      names.iter().any(|n| n == "default.rs"),
+      "default.rs should be present: {names:?}"
+    );
+    assert!(
+      !names.iter().any(|n| n == "alt.rs"),
+      "alt.rs should NOT be present: {names:?}"
+    );
+  }
+
+  #[test]
+  fn walk_feature_gated_path_enabled() {
+    let tc = TestCrate::new(
+      "feat-path-on",
+      &[
+        (
+          "lib.rs",
+          concat!(
+            "#[cfg_attr(feature = \"alt\", path = \"alt.rs\")]\n",
+            "#[cfg_attr(not(feature = \"alt\"), path = \"default.rs\")]\n",
+            "mod gated;\n"
+          ),
+        ),
+        (
+          "alt.rs",
+          "use napi::bindgen_prelude::*;\n#[napi]\npub fn alt_fn() -> u32 { 0 }\n",
+        ),
+        (
+          "default.rs",
+          "use napi::bindgen_prelude::*;\n#[napi]\npub fn default_fn() -> u32 { 0 }\n",
+        ),
+      ],
+    );
+    // "alt" IS enabled
+    let result = tc.walk(&["default", "alt"]);
+    let names = tc.file_names(&result);
+    assert!(
+      names.iter().any(|n| n == "alt.rs"),
+      "alt.rs should be present: {names:?}"
+    );
+    assert!(
+      !names.iter().any(|n| n == "default.rs"),
+      "default.rs should NOT be present: {names:?}"
+    );
+  }
+
+  #[test]
+  fn walk_undeclared_feature_module_skipped() {
+    let tc = TestCrate::new(
+      "undeclared-feat",
+      &[
+        (
+          "lib.rs",
+          "#[cfg(feature = \"typo\")]\nmod ghost;\nmod real;\n",
+        ),
+        (
+          "ghost.rs",
+          "use napi::bindgen_prelude::*;\n#[napi]\npub fn ghost() -> u32 { 0 }\n",
+        ),
+        (
+          "real.rs",
+          "use napi::bindgen_prelude::*;\n#[napi]\npub fn real() -> u32 { 0 }\n",
+        ),
+      ],
+    );
+    let result = tc.walk(&["default"]);
+    let names = tc.file_names(&result);
+    assert!(
+      names.iter().any(|n| n.contains("real")),
+      "real.rs should be present: {names:?}"
+    );
+    assert!(
+      !names.iter().any(|n| n.contains("ghost")),
+      "ghost.rs should NOT be present: {names:?}"
+    );
+  }
+
+  #[test]
+  fn walk_raw_identifier_module() {
+    let tc = TestCrate::new(
+      "raw-ident",
+      &[
+        ("lib.rs", "mod r#async;\n"),
+        (
+          "async.rs",
+          "use napi::bindgen_prelude::*;\n#[napi]\npub fn async_fn() -> u32 { 0 }\n",
+        ),
+      ],
+    );
+    let result = tc.walk(&[]);
+    let names = tc.file_names(&result);
+    assert!(
+      names.iter().any(|n| n.contains("async")),
+      "async.rs should be found for mod r#async: {names:?}"
+    );
+  }
+
+  #[test]
+  fn walk_namespace_propagation() {
+    let tc = TestCrate::new(
+      "namespace",
+      &[
+        ("lib.rs", "#[napi]\nmod ns {\n  mod child;\n}\n"),
+        (
+          "ns/child.rs",
+          "use napi::bindgen_prelude::*;\n#[napi]\npub fn child_fn() -> u32 { 0 }\n",
+        ),
+      ],
+    );
+    let result = tc.walk(&[]);
+    let names = tc.file_names(&result);
+    assert!(
+      names.iter().any(|n| n.contains("child")),
+      "ns/child.rs should be found: {names:?}"
+    );
+    // Check namespace mapping
+    if let Some((path, _)) = result.files.iter().find(|(p, _)| p.contains("child")) {
+      assert_eq!(
+        result.namespace_map.get(path).map(|s| s.as_str()),
+        Some("ns"),
+        "child should have namespace 'ns'"
+      );
+    }
+  }
+
+  #[test]
+  fn walk_direct_path_attribute() {
+    let tc = TestCrate::new(
+      "direct-path",
+      &[
+        ("lib.rs", "#[path = \"custom.rs\"]\nmod gated;\n"),
+        (
+          "custom.rs",
+          "use napi::bindgen_prelude::*;\n#[napi]\npub fn custom_fn() -> u32 { 0 }\n",
+        ),
+      ],
+    );
+    let result = tc.walk(&[]);
+    let names = tc.file_names(&result);
+    assert!(
+      names.iter().any(|n| n.contains("custom")),
+      "custom.rs should be found via #[path]: {names:?}"
+    );
+  }
 }
