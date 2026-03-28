@@ -309,7 +309,7 @@ jobs:
 
       - name: Setup OpenHarmony SDK
         if: ${{ contains(matrix.settings.target, 'ohos') }}
-        uses: openharmony-rs/setup-ohos-sdk@v0.2
+        uses: openharmony-rs/setup-ohos-sdk@v1.0
 
       - name: Install
         uses: dtolnay/rust-toolchain@stable

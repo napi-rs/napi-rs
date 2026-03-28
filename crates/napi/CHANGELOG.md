@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.8.4](https://github.com/napi-rs/napi-rs/compare/napi-v3.8.3...napi-v3.8.4) - 2026-03-28
+
+### Fixed
+
+- *(deps)* update rust crate ctor to v0.8.0 ([#3170](https://github.com/napi-rs/napi-rs/pull/3170))
+- *(deps)* update rust crate ctor to v0.7.0 ([#3169](https://github.com/napi-rs/napi-rs/pull/3169))
+- *(napi)* check for null error_message in ExtendedErrorInfo::try_from ([#3158](https://github.com/napi-rs/napi-rs/pull/3158))
+- *(napi)* skip nullish error causes when converting from Unknown ([#3143](https://github.com/napi-rs/napi-rs/pull/3143))
+
 ## [3.8.3](https://github.com/napi-rs/napi-rs/compare/napi-v3.8.2...napi-v3.8.3) - 2026-02-14
 
 ### Fixed
