@@ -100,8 +100,11 @@ pub fn resolve_napi_dependency_dirs(metadata: &Metadata, crate_dir: &Path) -> Re
   Ok(result)
 }
 
-/// Resolve a crate's default features from cargo metadata.
-/// Returns the recursively-resolved set of default features and all declared features.
+/// Resolve a crate's enabled features from cargo metadata.
+/// Prefers the actually-resolved features from the dependency graph (`metadata.resolve`),
+/// which accounts for `default-features = false`, feature unification, and CLI flags
+/// like `--no-default-features`. Falls back to reconstructing from declared defaults
+/// when resolve info is unavailable.
 pub fn resolve_crate_features(metadata: &Metadata, crate_dir: &Path) -> CrateFeatures {
   let Some(root_id) = find_root_package(metadata, crate_dir).ok() else {
     return CrateFeatures::empty();
@@ -112,11 +115,21 @@ pub fn resolve_crate_features(metadata: &Metadata, crate_dir: &Path) -> CrateFea
 
   let declared: HashSet<String> = pkg.features.keys().cloned().collect();
 
-  // Resolve default features recursively
-  let mut default_enabled = HashSet::new();
+  // Prefer the actually-resolved features from the dependency graph.
+  // This accounts for default-features = false, feature unification,
+  // and CLI flags like --no-default-features.
+  if let Some(resolve) = &metadata.resolve {
+    if let Some(node) = resolve.nodes.iter().find(|n| n.id == root_id) {
+      let enabled: HashSet<String> = node.features.iter().cloned().collect();
+      return CrateFeatures { enabled, declared };
+    }
+  }
+
+  // Fallback: reconstruct from declared defaults (when resolve is unavailable)
+  let mut enabled = HashSet::new();
   let mut stack = vec!["default".to_string()];
   while let Some(feat) = stack.pop() {
-    if default_enabled.insert(feat.clone()) {
+    if enabled.insert(feat.clone()) {
       if let Some(deps) = pkg.features.get(&feat) {
         for dep in deps {
           // Skip dep: prefix and dep/feature syntax — those enable dependencies, not crate features
@@ -128,10 +141,7 @@ pub fn resolve_crate_features(metadata: &Metadata, crate_dir: &Path) -> CrateFea
     }
   }
 
-  CrateFeatures {
-    default_enabled,
-    declared,
-  }
+  CrateFeatures { enabled, declared }
 }
 
 /// Find the root package ID by matching the canonical manifest path parent

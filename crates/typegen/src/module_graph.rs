@@ -10,8 +10,9 @@ use crate::visitor::{is_napi_attr, parent_module_dir};
 /// Feature configuration for cfg predicate evaluation.
 /// Used to evaluate `feature = "X"` predicates based on default features.
 pub struct CrateFeatures {
-  /// Features enabled by default (recursively resolved from the "default" feature)
-  pub default_enabled: HashSet<String>,
+  /// Features enabled for this package in the resolved dependency graph.
+  /// Falls back to declared default features when resolve info is unavailable.
+  pub enabled: HashSet<String>,
   /// All declared features in Cargo.toml
   pub declared: HashSet<String>,
 }
@@ -19,7 +20,7 @@ pub struct CrateFeatures {
 impl CrateFeatures {
   pub fn empty() -> Self {
     Self {
-      default_enabled: HashSet::new(),
+      enabled: HashSet::new(),
       declared: HashSet::new(),
     }
   }
@@ -191,7 +192,7 @@ fn eval_cfg(meta: &syn::Meta, features: &CrateFeatures) -> CfgTestEval {
         if let syn::Expr::Lit(lit) = &nv.value {
           if let syn::Lit::Str(s) = &lit.lit {
             let feat = s.value();
-            return if features.default_enabled.contains(&feat) {
+            return if features.enabled.contains(&feat) {
               CfgTestEval::AlwaysTrue
             } else if features.declared.contains(&feat) {
               CfgTestEval::AlwaysFalse
