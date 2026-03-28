@@ -301,4 +301,190 @@ mod tests {
     let pkg: Package = serde_json::from_value(make_pkg_json(vec![])).unwrap();
     assert!(!has_napi_derive_dep(&pkg));
   }
+
+  // ── resolve_crate_features tests ─────────────────────────────────
+
+  /// Create a temporary directory that exists on disk (needed for canonicalize).
+  struct TempDir {
+    path: PathBuf,
+  }
+
+  impl TempDir {
+    fn new(name: &str) -> Self {
+      let path = std::env::temp_dir().join(format!(
+        "napi-typegen-resolve-test-{}-{}",
+        name,
+        std::process::id()
+      ));
+      let _ = std::fs::remove_dir_all(&path);
+      std::fs::create_dir_all(&path).unwrap();
+      TempDir { path }
+    }
+  }
+
+  impl Drop for TempDir {
+    fn drop(&mut self) {
+      let _ = std::fs::remove_dir_all(&self.path);
+    }
+  }
+
+  /// Build a minimal Metadata JSON for testing resolve_crate_features.
+  fn make_metadata_json(
+    manifest_dir: &Path,
+    pkg_features: serde_json::Value,
+    resolved_features: Option<Vec<&str>>,
+  ) -> Metadata {
+    let manifest_path = manifest_dir.join("Cargo.toml");
+    let pkg_id = format!("test-pkg 0.1.0 (path+file://{})", manifest_dir.display());
+
+    let resolve = resolved_features.map(|feats| {
+      serde_json::json!({
+        "nodes": [{
+          "id": &pkg_id,
+          "dependencies": [],
+          "deps": [],
+          "features": feats,
+        }],
+        "root": &pkg_id,
+      })
+    });
+
+    let metadata_json = serde_json::json!({
+      "packages": [{
+        "name": "test-pkg",
+        "version": "0.1.0",
+        "id": &pkg_id,
+        "source": null,
+        "dependencies": [],
+        "targets": [],
+        "features": pkg_features,
+        "manifest_path": manifest_path.display().to_string(),
+        "authors": [],
+        "categories": [],
+        "keywords": [],
+        "readme": null,
+        "repository": null,
+        "homepage": null,
+        "documentation": null,
+        "edition": "2021",
+        "metadata": null,
+        "license": null,
+        "license_file": null,
+        "publish": null,
+        "default_run": null,
+        "rust_version": null,
+      }],
+      "workspace_members": [&pkg_id],
+      "workspace_default_members": [],
+      "resolve": resolve,
+      "target_directory": manifest_dir.join("target").display().to_string(),
+      "version": 1,
+      "workspace_root": manifest_dir.display().to_string(),
+      "metadata": null,
+    });
+
+    serde_json::from_value(metadata_json).expect("Failed to deserialize test metadata")
+  }
+
+  #[test]
+  fn resolve_features_from_resolved_node() {
+    let dir = TempDir::new("resolved-node");
+    let metadata = make_metadata_json(
+      &dir.path,
+      serde_json::json!({"default": ["foo"], "foo": [], "bar": []}),
+      Some(vec!["default", "foo"]),
+    );
+    let features = resolve_crate_features(&metadata, &dir.path);
+    assert!(features.enabled.contains("default"));
+    assert!(features.enabled.contains("foo"));
+    assert!(
+      !features.enabled.contains("bar"),
+      "bar is not in resolved set"
+    );
+  }
+
+  #[test]
+  fn resolve_features_no_default_features_flag() {
+    // Simulates cargo metadata --no-default-features: resolve node has empty features
+    let dir = TempDir::new("no-defaults");
+    let metadata = make_metadata_json(
+      &dir.path,
+      serde_json::json!({"default": ["foo"], "foo": []}),
+      Some(vec![]), // empty — no features resolved
+    );
+    let features = resolve_crate_features(&metadata, &dir.path);
+    assert!(
+      features.enabled.is_empty(),
+      "no features should be enabled: {:?}",
+      features.enabled
+    );
+  }
+
+  #[test]
+  fn resolve_features_fallback_reconstructs_defaults() {
+    // No resolve graph → falls back to pkg.features["default"]
+    let dir = TempDir::new("fallback");
+    let metadata = make_metadata_json(
+      &dir.path,
+      serde_json::json!({"default": ["foo"], "foo": ["bar"], "bar": [], "baz": []}),
+      None, // no resolve
+    );
+    let features = resolve_crate_features(&metadata, &dir.path);
+    assert!(features.enabled.contains("default"));
+    assert!(features.enabled.contains("foo"));
+    assert!(
+      features.enabled.contains("bar"),
+      "bar should be transitively enabled"
+    );
+    assert!(!features.enabled.contains("baz"), "baz is not in defaults");
+  }
+
+  #[test]
+  fn resolve_features_fallback_skips_dep_syntax() {
+    let dir = TempDir::new("dep-syntax");
+    let metadata = make_metadata_json(
+      &dir.path,
+      serde_json::json!({"default": ["dep:serde", "foo/bar", "real"], "real": []}),
+      None,
+    );
+    let features = resolve_crate_features(&metadata, &dir.path);
+    assert!(features.enabled.contains("default"));
+    assert!(features.enabled.contains("real"));
+    assert!(
+      !features.enabled.contains("serde"),
+      "dep: prefixed entries should be skipped"
+    );
+    assert!(
+      !features.enabled.contains("foo/bar"),
+      "dep/feature entries should be skipped"
+    );
+  }
+
+  #[test]
+  fn resolve_features_empty_when_package_not_found() {
+    let dir = TempDir::new("not-found");
+    let other_dir = TempDir::new("not-found-other");
+    let metadata = make_metadata_json(
+      &dir.path,
+      serde_json::json!({"default": ["foo"], "foo": []}),
+      Some(vec!["default", "foo"]),
+    );
+    // Pass a different directory — no matching package
+    let features = resolve_crate_features(&metadata, &other_dir.path);
+    assert!(features.enabled.is_empty());
+  }
+
+  #[test]
+  fn resolve_features_fallback_no_default_key() {
+    // Package has features but no "default" key
+    let dir = TempDir::new("no-default-key");
+    let metadata = make_metadata_json(&dir.path, serde_json::json!({"foo": [], "bar": []}), None);
+    let features = resolve_crate_features(&metadata, &dir.path);
+    // "default" is pushed to stack but doesn't exist as a key → nothing resolved
+    assert!(
+      features.enabled.len() <= 1,
+      "only 'default' itself (from stack init) may be present: {:?}",
+      features.enabled
+    );
+  }
 }
