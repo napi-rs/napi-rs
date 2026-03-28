@@ -113,15 +113,13 @@ pub fn resolve_crate_features(metadata: &Metadata, crate_dir: &Path) -> CrateFea
     return CrateFeatures::empty();
   };
 
-  let declared: HashSet<String> = pkg.features.keys().cloned().collect();
-
   // Prefer the actually-resolved features from the dependency graph.
   // This accounts for default-features = false, feature unification,
   // and CLI flags like --no-default-features.
   if let Some(resolve) = &metadata.resolve {
     if let Some(node) = resolve.nodes.iter().find(|n| n.id == root_id) {
       let enabled: HashSet<String> = node.features.iter().cloned().collect();
-      return CrateFeatures { enabled, declared };
+      return CrateFeatures { enabled };
     }
   }
 
@@ -141,7 +139,7 @@ pub fn resolve_crate_features(metadata: &Metadata, crate_dir: &Path) -> CrateFea
     }
   }
 
-  CrateFeatures { enabled, declared }
+  CrateFeatures { enabled }
 }
 
 /// Find the root package ID by matching the canonical manifest path parent

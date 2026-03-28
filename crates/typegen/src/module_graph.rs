@@ -8,20 +8,17 @@ use syn::Item;
 use crate::visitor::{is_napi_attr, parent_module_dir};
 
 /// Feature configuration for cfg predicate evaluation.
-/// Used to evaluate `feature = "X"` predicates based on default features.
+/// Used to evaluate `feature = "X"` predicates based on resolved features.
 pub struct CrateFeatures {
   /// Features enabled for this package in the resolved dependency graph.
   /// Falls back to declared default features when resolve info is unavailable.
   pub enabled: HashSet<String>,
-  /// All declared features in Cargo.toml
-  pub declared: HashSet<String>,
 }
 
 impl CrateFeatures {
   pub fn empty() -> Self {
     Self {
       enabled: HashSet::new(),
-      declared: HashSet::new(),
     }
   }
 }
@@ -172,11 +169,11 @@ enum CfgTestEval {
 /// `feature = "X"` evaluated against the crate's default features.
 ///
 /// This implements three-valued Boolean logic: atoms that aren't `test`
-/// or a known feature evaluate to `Unknown` (free variables), while `test`
-/// evaluates to `AlwaysFalse`. Feature predicates evaluate to `AlwaysTrue`
-/// if the feature is in the default set, `AlwaysFalse` if declared but not
-/// default, or `Unknown` if not declared at all. The standard Boolean
-/// connectives (`all`, `any`, `not`) propagate these values correctly.
+/// or a feature predicate evaluate to `Unknown` (free variables), while
+/// `test` evaluates to `AlwaysFalse`. Feature predicates (`feature = "X"`)
+/// evaluate to `AlwaysTrue` if enabled, `AlwaysFalse` otherwise (Cargo
+/// cannot set a feature that isn't resolved for the package). The standard
+/// Boolean connectives (`all`, `any`, `not`) propagate values correctly.
 fn eval_cfg(meta: &syn::Meta, features: &CrateFeatures) -> CfgTestEval {
   match meta {
     syn::Meta::Path(path) => {
@@ -194,10 +191,10 @@ fn eval_cfg(meta: &syn::Meta, features: &CrateFeatures) -> CfgTestEval {
             let feat = s.value();
             return if features.enabled.contains(&feat) {
               CfgTestEval::AlwaysTrue
-            } else if features.declared.contains(&feat) {
-              CfgTestEval::AlwaysFalse
             } else {
-              CfgTestEval::Unknown
+              // Feature is either declared-but-not-enabled or undeclared.
+              // Either way, Cargo won't set it for this package.
+              CfgTestEval::AlwaysFalse
             };
           }
         }
@@ -269,7 +266,7 @@ fn eval_cfg(meta: &syn::Meta, features: &CrateFeatures) -> CfgTestEval {
 /// Check if a cfg predicate is always false in a default (non-test) build.
 ///
 /// This covers `test`-gated code as well as feature-gated code where the
-/// feature is declared but not in the default set.
+/// feature is not in the resolved enabled set.
 ///
 /// Handles all Boolean combinations correctly:
 /// - `#[cfg(test)]` -> inactive
