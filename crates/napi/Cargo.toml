@@ -72,7 +72,7 @@ tracing = ["dep:tracing"]
 
 [dependencies]
 bitflags = "2"
-ctor = "0.7.0"
+ctor = "0.8.0"
 nohash-hasher = "0.2.0"
 rustc-hash = "2.1.1"
 
