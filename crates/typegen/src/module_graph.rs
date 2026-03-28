@@ -7,6 +7,24 @@ use syn::Item;
 
 use crate::visitor::{is_napi_attr, parent_module_dir};
 
+/// Feature configuration for cfg predicate evaluation.
+/// Used to evaluate `feature = "X"` predicates based on default features.
+pub struct CrateFeatures {
+  /// Features enabled by default (recursively resolved from the "default" feature)
+  pub default_enabled: HashSet<String>,
+  /// All declared features in Cargo.toml
+  pub declared: HashSet<String>,
+}
+
+impl CrateFeatures {
+  pub fn empty() -> Self {
+    Self {
+      default_enabled: HashSet::new(),
+      declared: HashSet::new(),
+    }
+  }
+}
+
 /// Result of walking a crate's module graph.
 pub struct ModuleGraphResult {
   /// Reachable files containing "napi": (canonical_path_string, content)
@@ -25,6 +43,7 @@ pub fn walk_module_graph(
   entry_point: Option<&Path>,
   fallback_dir: &Path,
   strict: bool,
+  features: CrateFeatures,
 ) -> Result<ModuleGraphResult> {
   let resolved_entry = entry_point
     .map(|p| p.to_path_buf())
@@ -32,7 +51,7 @@ pub fn walk_module_graph(
 
   match resolved_entry {
     Some(entry_path) => {
-      let mut ctx = WalkContext::new(strict);
+      let mut ctx = WalkContext::new(strict, features);
       walk_module_file(&entry_path, None, &mut ctx)?;
       Ok(ModuleGraphResult {
         files: ctx.files,
@@ -67,15 +86,17 @@ struct WalkContext {
   namespace_map: HashMap<String, String>,
   visited: HashSet<PathBuf>,
   strict: bool,
+  features: CrateFeatures,
 }
 
 impl WalkContext {
-  fn new(strict: bool) -> Self {
+  fn new(strict: bool, features: CrateFeatures) -> Self {
     Self {
       files: Vec::new(),
       namespace_map: HashMap::new(),
       visited: HashSet::new(),
       strict,
+      features,
     }
   }
 }
@@ -146,13 +167,16 @@ enum CfgTestEval {
   Unknown,
 }
 
-/// Evaluate a cfg predicate with `test` substituted to `false`.
+/// Evaluate a cfg predicate with `test` substituted to `false` and
+/// `feature = "X"` evaluated against the crate's default features.
 ///
 /// This implements three-valued Boolean logic: atoms that aren't `test`
-/// evaluate to `Unknown` (free variables), while `test` evaluates to
-/// `AlwaysFalse`. The standard Boolean connectives (`all`, `any`, `not`)
-/// propagate these values correctly.
-fn eval_cfg_without_test(meta: &syn::Meta) -> CfgTestEval {
+/// or a known feature evaluate to `Unknown` (free variables), while `test`
+/// evaluates to `AlwaysFalse`. Feature predicates evaluate to `AlwaysTrue`
+/// if the feature is in the default set, `AlwaysFalse` if declared but not
+/// default, or `Unknown` if not declared at all. The standard Boolean
+/// connectives (`all`, `any`, `not`) propagate these values correctly.
+fn eval_cfg(meta: &syn::Meta, features: &CrateFeatures) -> CfgTestEval {
   match meta {
     syn::Meta::Path(path) => {
       if path.is_ident("test") {
@@ -160,6 +184,24 @@ fn eval_cfg_without_test(meta: &syn::Meta) -> CfgTestEval {
       } else {
         CfgTestEval::Unknown
       }
+    }
+    syn::Meta::NameValue(nv) => {
+      // Evaluate feature = "X" using default features
+      if nv.path.is_ident("feature") {
+        if let syn::Expr::Lit(lit) = &nv.value {
+          if let syn::Lit::Str(s) = &lit.lit {
+            let feat = s.value();
+            return if features.default_enabled.contains(&feat) {
+              CfgTestEval::AlwaysTrue
+            } else if features.declared.contains(&feat) {
+              CfgTestEval::AlwaysFalse
+            } else {
+              CfgTestEval::Unknown
+            };
+          }
+        }
+      }
+      CfgTestEval::Unknown
     }
     syn::Meta::List(list) => {
       let ident = list.path.get_ident().map(|i| i.to_string());
@@ -170,12 +212,12 @@ fn eval_cfg_without_test(meta: &syn::Meta) -> CfgTestEval {
           ) {
             if args
               .iter()
-              .any(|a| eval_cfg_without_test(a) == CfgTestEval::AlwaysFalse)
+              .any(|a| eval_cfg(a, features) == CfgTestEval::AlwaysFalse)
             {
               CfgTestEval::AlwaysFalse
             } else if args
               .iter()
-              .all(|a| eval_cfg_without_test(a) == CfgTestEval::AlwaysTrue)
+              .all(|a| eval_cfg(a, features) == CfgTestEval::AlwaysTrue)
             {
               CfgTestEval::AlwaysTrue
             } else {
@@ -191,12 +233,12 @@ fn eval_cfg_without_test(meta: &syn::Meta) -> CfgTestEval {
           ) {
             if args
               .iter()
-              .any(|a| eval_cfg_without_test(a) == CfgTestEval::AlwaysTrue)
+              .any(|a| eval_cfg(a, features) == CfgTestEval::AlwaysTrue)
             {
               CfgTestEval::AlwaysTrue
             } else if args
               .iter()
-              .all(|a| eval_cfg_without_test(a) == CfgTestEval::AlwaysFalse)
+              .all(|a| eval_cfg(a, features) == CfgTestEval::AlwaysFalse)
             {
               CfgTestEval::AlwaysFalse
             } else {
@@ -208,7 +250,7 @@ fn eval_cfg_without_test(meta: &syn::Meta) -> CfgTestEval {
         }
         Some("not") => {
           if let Ok(inner) = list.parse_args::<syn::Meta>() {
-            match eval_cfg_without_test(&inner) {
+            match eval_cfg(&inner, features) {
               CfgTestEval::AlwaysTrue => CfgTestEval::AlwaysFalse,
               CfgTestEval::AlwaysFalse => CfgTestEval::AlwaysTrue,
               CfgTestEval::Unknown => CfgTestEval::Unknown,
@@ -220,40 +262,37 @@ fn eval_cfg_without_test(meta: &syn::Meta) -> CfgTestEval {
         _ => CfgTestEval::Unknown,
       }
     }
-    syn::Meta::NameValue(_) => CfgTestEval::Unknown,
   }
 }
 
-/// Check if a cfg predicate *requires* `test` to be true.
+/// Check if a cfg predicate is always false in a default (non-test) build.
 ///
-/// Substitutes `test = false` into the predicate and checks if the result
-/// is always false. If so, the predicate can only be satisfied when
-/// `test = true`, meaning the gated code is exclusively test code.
+/// This covers `test`-gated code as well as feature-gated code where the
+/// feature is declared but not in the default set.
 ///
 /// Handles all Boolean combinations correctly:
-/// - `#[cfg(test)]` -> skip
-/// - `#[cfg(all(test, ...))]` -> skip (test is required)
-/// - `#[cfg(not(any(not(test), ...)))]` -> skip (simplifies to test && ...)
+/// - `#[cfg(test)]` -> inactive
+/// - `#[cfg(all(test, ...))]` -> inactive (test is required)
+/// - `#[cfg(feature = "x")]` where x is non-default -> inactive
 /// - `#[cfg(any(test, ...))]` -> keep (non-test branches may be active)
 /// - `#[cfg(not(test))]` -> keep (inverted)
-fn cfg_requires_test(meta: &syn::Meta) -> bool {
-  eval_cfg_without_test(meta) == CfgTestEval::AlwaysFalse
+fn cfg_is_inactive(meta: &syn::Meta, features: &CrateFeatures) -> bool {
+  eval_cfg(meta, features) == CfgTestEval::AlwaysFalse
 }
 
-/// Check if a module is gated by a cfg predicate that requires `test`.
-/// These modules contain test code that should never appear in type definitions.
+/// Check if a module is gated by a cfg predicate that is always false in
+/// a default (non-test) build. These modules should not produce type definitions.
 ///
 /// Handles compound expressions: `#[cfg(test)]`, `#[cfg(all(test, ...))]`,
-/// and nested combinations. Does NOT skip `#[cfg(any(test, ...))]` or
-/// `#[cfg(not(test))]` because those modules may be active in normal builds.
-fn is_cfg_test(attrs: &[syn::Attribute]) -> bool {
+/// `#[cfg(feature = "x")]` for non-default features, and nested combinations.
+fn is_cfg_inactive(attrs: &[syn::Attribute], features: &CrateFeatures) -> bool {
   attrs.iter().any(|attr| {
     if !attr.path().is_ident("cfg") {
       return false;
     }
     attr
       .parse_args::<syn::Meta>()
-      .map_or(false, |meta| cfg_requires_test(&meta))
+      .map_or(false, |meta| cfg_is_inactive(&meta, features))
   })
 }
 
@@ -272,7 +311,7 @@ fn walk_items_for_mods(
       // (we don't know active features, target platform, etc.) and are intentionally
       // left as-is. This matches the existing behavior documented in visitor.rs for
       // item-level cfg_attr.
-      if is_cfg_test(&m.attrs) {
+      if is_cfg_inactive(&m.attrs, &ctx.features) {
         continue;
       }
 
@@ -293,7 +332,7 @@ fn walk_items_for_mods(
         walk_items_for_mods(child_items, base_dir, &new_inline_path, effective_ns, ctx)?;
       } else {
         // File-backed module — resolve path and recurse
-        let path_override = extract_path_attr(&m.attrs);
+        let path_override = extract_path_attr(&m.attrs, &ctx.features);
         if let Some(file_path) =
           resolve_mod_path(base_dir, inline_path, &m.ident.to_string(), &path_override)
         {
@@ -380,7 +419,7 @@ struct ModPathOverride {
 /// Extract path overrides from a list of attributes.
 ///
 /// Handles both direct `#[path = "..."]` and `#[cfg_attr(..., path = "...")]`.
-fn extract_path_attr(attrs: &[syn::Attribute]) -> ModPathOverride {
+fn extract_path_attr(attrs: &[syn::Attribute], features: &CrateFeatures) -> ModPathOverride {
   let mut direct = None;
   let mut always_true_paths: Vec<String> = Vec::new();
   let mut unknown_paths: Vec<String> = Vec::new();
@@ -406,7 +445,7 @@ fn extract_path_attr(attrs: &[syn::Attribute]) -> ModPathOverride {
           // First arg is the cfg condition — evaluate it with test=false
           let condition_eval = args
             .first()
-            .map(eval_cfg_without_test)
+            .map(|m| eval_cfg(m, features))
             .unwrap_or(CfgTestEval::Unknown);
 
           // Skip test-only cfg_attr (condition is always false in non-test builds)

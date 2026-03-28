@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use cargo_metadata::{DependencyKind, Metadata, MetadataCommand, Package, PackageId, TargetKind};
 
+use crate::module_graph::CrateFeatures;
+
 /// How to obtain `cargo metadata` output.
 pub enum MetadataSource {
   /// Run `cargo metadata` as a subprocess.
@@ -96,6 +98,40 @@ pub fn resolve_napi_dependency_dirs(metadata: &Metadata, crate_dir: &Path) -> Re
   collect_transitive_deps(&root_id, &pkg_by_id, &node_by_id, &mut result, &mut visited);
 
   Ok(result)
+}
+
+/// Resolve a crate's default features from cargo metadata.
+/// Returns the recursively-resolved set of default features and all declared features.
+pub fn resolve_crate_features(metadata: &Metadata, crate_dir: &Path) -> CrateFeatures {
+  let Some(root_id) = find_root_package(metadata, crate_dir).ok() else {
+    return CrateFeatures::empty();
+  };
+  let Some(pkg) = metadata.packages.iter().find(|p| p.id == root_id) else {
+    return CrateFeatures::empty();
+  };
+
+  let declared: HashSet<String> = pkg.features.keys().cloned().collect();
+
+  // Resolve default features recursively
+  let mut default_enabled = HashSet::new();
+  let mut stack = vec!["default".to_string()];
+  while let Some(feat) = stack.pop() {
+    if default_enabled.insert(feat.clone()) {
+      if let Some(deps) = pkg.features.get(&feat) {
+        for dep in deps {
+          // Skip dep: prefix and dep/feature syntax — those enable dependencies, not crate features
+          if !dep.contains('/') && !dep.starts_with("dep:") {
+            stack.push(dep.clone());
+          }
+        }
+      }
+    }
+  }
+
+  CrateFeatures {
+    default_enabled,
+    declared,
+  }
 }
 
 /// Find the root package ID by matching the canonical manifest path parent

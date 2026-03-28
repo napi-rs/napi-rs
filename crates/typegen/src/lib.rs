@@ -9,7 +9,8 @@ use napi_derive_backend::ToTypeDef;
 
 use crate::module_graph::walk_module_graph;
 use crate::resolve::{
-  load_metadata, resolve_lib_entry_point, resolve_napi_dependency_dirs, MetadataSource,
+  load_metadata, resolve_crate_features, resolve_lib_entry_point, resolve_napi_dependency_dirs,
+  MetadataSource,
 };
 use crate::visitor::{convert_items, extract_napi_items, CategorizedItems};
 
@@ -65,7 +66,8 @@ pub fn generate_type_defs(
     } else {
       dep_dir.as_path()
     };
-    let dep_result = walk_module_graph(dep_entry.as_deref(), dep_scan, false)
+    let dep_features = resolve_crate_features(&metadata, dep_dir);
+    let dep_result = walk_module_graph(dep_entry.as_deref(), dep_scan, false, dep_features)
       .with_context(|| format!("Failed to walk dependency {}", dep_dir.display()))?;
     parse_errors += collect_napi_items(
       &dep_result.files,
@@ -84,7 +86,8 @@ pub fn generate_type_defs(
   } else {
     &crate_dir
   };
-  let main_result = walk_module_graph(entry_point.as_deref(), fallback_dir, strict)
+  let main_features = resolve_crate_features(&metadata, &crate_dir);
+  let main_result = walk_module_graph(entry_point.as_deref(), fallback_dir, strict, main_features)
     .context("Failed to walk source files")?;
 
   // Phase 2: Parse main crate files and extract #[napi] items
