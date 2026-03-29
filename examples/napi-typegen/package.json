@@ -1,0 +1,12 @@
+{
+  "name": "@examples/napi-typegen",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "typegen": "node --import @oxc-node/core/register ../../cli/src/cli.ts typegen"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "workspace:*",
+    "@oxc-node/core": "^0.0.35"
+  }
+}
