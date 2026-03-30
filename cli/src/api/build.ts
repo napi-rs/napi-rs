@@ -364,53 +364,50 @@ class Builder {
       }
     }
 
-    if (this.options.crossCompile) {
-      if (this.target.platform === 'win32') {
-        if (process.platform === 'win32') {
-          debug.warn(
-            'You are trying to cross compile to win32 platform on win32 platform which is unnecessary.',
-          )
-        } else {
-          // use cargo-xwin to cross compile to win32 platform
-          debug('Use %i', 'cargo-xwin')
-          tryInstallCargoBinary('cargo-xwin', 'xwin')
-          this.args.push('xwin', 'build')
-          if (this.target.arch === 'ia32') {
-            this.envs.XWIN_ARCH = 'x86'
-          }
-          set = true
+    crossCompile: if (this.options.crossCompile) {
+      if (this.target.platform === 'win32' && process.platform === 'win32') {
+        debug.warn(
+          'You are trying to cross compile to win32 platform on win32 platform which is unnecessary.',
+        )
+        // use cargo-xwin to cross compile to win32 platform
+        debug('Use %i', 'cargo-xwin')
+        tryInstallCargoBinary('cargo-xwin', 'xwin')
+        this.args.push('xwin', 'build')
+        if (this.target.arch === 'ia32') {
+          this.envs.XWIN_ARCH = 'x86'
         }
-      } else {
-        if (
-          this.target.platform === 'linux' &&
-          process.platform === 'linux' &&
-          this.target.arch === process.arch &&
-          (function (abi: string | null) {
-            const glibcVersionRuntime =
-              // @ts-expect-error
-              process.report?.getReport()?.header?.glibcVersionRuntime
-            const libc = glibcVersionRuntime ? 'gnu' : 'musl'
-            return abi === libc
-          })(this.target.abi)
-        ) {
-          debug.warn(
-            'You are trying to cross compile to linux target on linux platform which is unnecessary.',
-          )
-        } else if (
-          this.target.platform === 'darwin' &&
-          process.platform === 'darwin'
-        ) {
-          debug.warn(
-            'You are trying to cross compile to darwin target on darwin platform which is unnecessary.',
-          )
-        } else {
-          // use cargo-zigbuild to cross compile to other platforms
-          debug('Use %i', 'cargo-zigbuild')
-          tryInstallCargoBinary('cargo-zigbuild', 'zigbuild')
-          this.args.push('zigbuild')
-          set = true
-        }
+        set = true
+        break crossCompile
       }
+
+      if (
+        this.target.platform === 'linux' &&
+        process.platform === 'linux' &&
+        this.target.arch === process.arch &&
+        (function (abi: string | null) {
+          const glibcVersionRuntime =
+            // @ts-expect-error
+            process.report?.getReport()?.header?.glibcVersionRuntime
+          const libc = glibcVersionRuntime ? 'gnu' : 'musl'
+          return abi === libc
+        })(this.target.abi)
+      ) {
+        debug.warn(
+          'You are trying to cross compile to linux target on linux platform which is unnecessary.',
+        )
+      }
+
+      if (this.target.platform === 'darwin' && process.platform === 'darwin') {
+        debug.warn(
+          'You are trying to cross compile to darwin target on darwin platform which is unnecessary.',
+        )
+      }
+
+      // use cargo-zigbuild to cross compile to other platforms
+      debug('Use %i', 'cargo-zigbuild')
+      tryInstallCargoBinary('cargo-zigbuild', 'zigbuild')
+      this.args.push('zigbuild')
+      set = true
     }
 
     if (!set) {
