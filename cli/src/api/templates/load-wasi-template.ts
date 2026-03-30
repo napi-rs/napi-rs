@@ -5,6 +5,7 @@ export const createWasiBrowserBinding = (
   fs = false,
   asyncInit = false,
   buffer = false,
+  errorEvent = false,
 ) => {
   const fsImport = fs
     ? buffer
@@ -30,6 +31,15 @@ const __wasi = new __WASI({
 
   const workerFsHandler = fs
     ? `    worker.addEventListener('message', __wasmCreateOnMessageForFsProxy(__fs))\n`
+    : ''
+
+  const workerErrorHandler = errorEvent
+    ? `    worker.addEventListener('error', (event) => {
+      if (event.data && typeof event.data === 'object' && event.data.type === 'error') {
+        window.dispatchEvent(new CustomEvent('napi-rs-worker-error', { detail: event.data }))
+      }
+    })
+`
     : ''
 
   const emnapiInjectBuffer = buffer
@@ -77,6 +87,7 @@ const {
       type: 'module',
     })
 ${workerFsHandler}
+${workerErrorHandler}
     return worker
   },
   overwriteImports(importObject) {

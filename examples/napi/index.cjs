@@ -600,6 +600,7 @@ module.exports.ClassReturnInPromise = nativeBinding.ClassReturnInPromise
 module.exports.ClassWithFactory = nativeBinding.ClassWithFactory
 module.exports.ClassWithLifetime = nativeBinding.ClassWithLifetime
 module.exports.Context = nativeBinding.Context
+module.exports.CounterRepro = nativeBinding.CounterRepro
 module.exports.CreateStringClass = nativeBinding.CreateStringClass
 module.exports.CssRuleList = nativeBinding.CssRuleList
 module.exports.CSSRuleList = nativeBinding.CSSRuleList

@@ -12,8 +12,8 @@ use serde::{de, ser};
 #[cfg(feature = "serde-json")]
 use serde_json::Error as SerdeJSONError;
 
-use crate::bindgen_runtime::JsObjectValue;
 #[cfg(target_family = "wasm")]
+use crate::bindgen_runtime::JsObjectValue;
 use crate::ValueType;
 use crate::{bindgen_runtime::ToNapiValue, check_status, sys, Env, JsValue, Status, Unknown};
 
@@ -146,11 +146,7 @@ impl From<Unknown<'_>> for Error {
     let maybe_error_message = value
       .coerce_to_string()
       .and_then(|a| a.into_utf8().and_then(|a| a.into_owned()));
-    let maybe_cause: Option<Box<Error>> = value
-      .coerce_to_object()
-      .and_then(|obj| obj.get_named_property::<Unknown>("cause"))
-      .map(|cause| Box::new(cause.into()))
-      .ok();
+    let maybe_cause = extract_error_cause(value).unwrap_or(None);
 
     if let Ok(error_message) = maybe_error_message {
       return Self {
@@ -200,19 +196,7 @@ impl From<Unknown<'_>> for Error {
         .and_then(|a| a.into_utf8().and_then(|a| a.into_owned()));
     };
 
-    let maybe_cause: Option<Box<Error>> = if let Ok(vt) = value_type {
-      if vt == ValueType::Object {
-        value
-          .coerce_to_object()
-          .and_then(|obj| obj.get_named_property::<Unknown>("cause"))
-          .map(|cause| Box::new(cause.into()))
-          .ok()
-      } else {
-        None
-      }
-    } else {
-      None
-    };
+    let maybe_cause = extract_error_cause(value).unwrap_or(None);
 
     if let Ok(error_message) = maybe_error_message {
       return Self {
@@ -340,11 +324,15 @@ impl TryFrom<sys::napi_extended_error_info> for ExtendedErrorInfo {
 
   fn try_from(value: sys::napi_extended_error_info) -> Result<Self> {
     Ok(Self {
-      message: unsafe {
-        CStr::from_ptr(value.error_message.cast())
-          .to_str()
-          .map_err(|e| Error::new(Status::GenericFailure, format!("{e}")))?
-          .to_owned()
+      message: if value.error_message.is_null() {
+        String::new()
+      } else {
+        unsafe {
+          CStr::from_ptr(value.error_message.cast())
+            .to_str()
+            .map_err(|e| Error::new(Status::GenericFailure, format!("{e}")))?
+            .to_owned()
+        }
       },
       engine_error_code: value.engine_error_code,
       engine_reserved: value.engine_reserved,
@@ -683,4 +671,25 @@ macro_rules! check_pending_exception {
       _ => Err($crate::Error::new($crate::Status::from(c), format!($($msg)*))),
     }
   }};
+}
+
+fn extract_error_cause(value: Unknown<'_>) -> Result<Option<Box<Error>>> {
+  if value.get_type()? != ValueType::Object {
+    return Ok(None);
+  }
+
+  let env = value.0.env;
+  let key = c"cause";
+  let mut raw_cause = ptr::null_mut();
+  check_pending_exception!(
+    env,
+    unsafe { sys::napi_get_named_property(env, value.0.value, key.as_ptr(), &mut raw_cause) },
+    "get_named_property error"
+  )?;
+
+  let cause = unsafe { Unknown::from_raw_unchecked(env, raw_cause) };
+  match cause.get_type()? {
+    ValueType::Undefined | ValueType::Null => Ok(None),
+    _ => Ok(Some(Box::new(cause.into()))),
+  }
 }

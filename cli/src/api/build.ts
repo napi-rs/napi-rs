@@ -569,6 +569,19 @@ class Builder {
       'wasm32-wasi-threads',
     )
     this.envs.EMNAPI_LINK_DIR = emnapi
+    const emnapiVersion = require('emnapi/package.json').version
+    const projectRequire = createRequire(join(this.options.cwd, 'package.json'))
+    const emnapiCoreVersion = projectRequire('@emnapi/core').version
+    const emnapiRuntimeVersion = projectRequire('@emnapi/runtime').version
+
+    if (
+      emnapiVersion !== emnapiCoreVersion ||
+      emnapiVersion !== emnapiRuntimeVersion
+    ) {
+      throw new Error(
+        `emnapi version mismatch: emnapi@${emnapiVersion}, @emnapi/core@${emnapiCoreVersion}, @emnapi/runtime@${emnapiRuntimeVersion}. Please ensure all emnapi packages are the same version.`,
+      )
+    }
     const { WASI_SDK_PATH } = process.env
 
     if (WASI_SDK_PATH && existsSync(WASI_SDK_PATH)) {
@@ -964,6 +977,7 @@ class Builder {
           this.config.wasm?.browser?.fs,
           this.config.wasm?.browser?.asyncInit,
           this.config.wasm?.browser?.buffer,
+          this.config.wasm?.browser?.errorEvent,
         ) +
           `export default __napiModule.exports\n` +
           idents
@@ -978,7 +992,10 @@ class Builder {
       await writeFileAsync(workerPath, WASI_WORKER_TEMPLATE, 'utf8')
       await writeFileAsync(
         browserWorkerPath,
-        createWasiBrowserWorkerBinding(this.config.wasm?.browser?.fs ?? false),
+        createWasiBrowserWorkerBinding(
+          this.config.wasm?.browser?.fs ?? false,
+          this.config.wasm?.browser?.errorEvent ?? false,
+        ),
         'utf8',
       )
       await writeFileAsync(

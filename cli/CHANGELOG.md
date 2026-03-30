@@ -3,6 +3,17 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.6.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.5.1...@napi-rs/cli@3.6.0) (2026-03-28)
+
+### Bug Fixes
+
+- ensure emnapi version is synced ([#3151](https://github.com/napi-rs/napi-rs/issues/3151)) ([bc728d0](https://github.com/napi-rs/napi-rs/commit/bc728d0a289360b199d9dbd3b512a975f4d75d5a))
+- wasi template output ([#3164](https://github.com/napi-rs/napi-rs/issues/3164)) ([a1eadb8](https://github.com/napi-rs/napi-rs/commit/a1eadb8ae2aadd526c4d1ded2d20ebb967ac4621))
+
+### Features
+
+- **cli:** allow emitting error happened in worker ([#3153](https://github.com/napi-rs/napi-rs/issues/3153)) ([e1546f8](https://github.com/napi-rs/napi-rs/commit/e1546f8e3098245723100a221c16d9364f37b6fd))
+
 ## [3.5.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.5.0...@napi-rs/cli@3.5.1) (2025-12-30)
 
 ### Bug Fixes
