@@ -11,7 +11,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/napi-rs/napi-rs.git",
-    "directory": "wasi-runtime"
+    "directory": "wasm-runtime"
   },
   "license": "MIT",
   "publishConfig": {
