@@ -32,7 +32,7 @@
     "@napi-rs/triples": "workspace:*",
     "@napi-rs/wasm-runtime": "workspace:*",
     "@oxc-node/cli": "^0.1.0",
-    "@oxc-node/core": "^0.0.35",
+    "@oxc-node/core": "^0.1.0",
     "@testing-library/dom": "^10.4.1",
     "@types/lodash": "^4.17.20",
     "@vitest/browser": "^4.0.8",
