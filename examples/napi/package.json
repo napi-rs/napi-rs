@@ -69,6 +69,6 @@
   },
   "dependencies": {
     "@emnapi/core": "1.9.2",
-    "@emnapi/runtime": "1.9.1"
+    "@emnapi/runtime": "1.9.2"
   }
 }
