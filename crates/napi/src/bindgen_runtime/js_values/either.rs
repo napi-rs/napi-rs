@@ -68,7 +68,7 @@ macro_rules! either_n {
           Err(crate::Error::new(
             Status::InvalidArg,
             format!(
-              concat!("Value is non of these types ", $( "`{", stringify!( $parameter ), "}`, " ),+ ),
+              concat!("Value is none of these types ", $( "`{", stringify!( $parameter ), "}`, " ),+ ),
               $( $parameter = $parameter::type_name(), )+
             ),
           ))
