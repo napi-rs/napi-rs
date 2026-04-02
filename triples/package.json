@@ -50,7 +50,7 @@
   },
   "devDependencies": {
     "@napi-rs/cli": "workspace:*",
-    "@oxc-node/core": "^0.0.35",
+    "@oxc-node/core": "^0.1.0",
     "@types/node": "^24.10.0",
     "es-toolkit": "^1.41.0"
   }
