@@ -381,35 +381,11 @@ class Builder {
           set = true
         }
       } else {
-        if (
-          this.target.platform === 'linux' &&
-          process.platform === 'linux' &&
-          this.target.arch === process.arch &&
-          (function (abi: string | null) {
-            const glibcVersionRuntime =
-              // @ts-expect-error
-              process.report?.getReport()?.header?.glibcVersionRuntime
-            const libc = glibcVersionRuntime ? 'gnu' : 'musl'
-            return abi === libc
-          })(this.target.abi)
-        ) {
-          debug.warn(
-            'You are trying to cross compile to linux target on linux platform which is unnecessary.',
-          )
-        } else if (
-          this.target.platform === 'darwin' &&
-          process.platform === 'darwin'
-        ) {
-          debug.warn(
-            'You are trying to cross compile to darwin target on darwin platform which is unnecessary.',
-          )
-        } else {
-          // use cargo-zigbuild to cross compile to other platforms
-          debug('Use %i', 'cargo-zigbuild')
-          tryInstallCargoBinary('cargo-zigbuild', 'zigbuild')
-          this.args.push('zigbuild')
-          set = true
-        }
+        // use cargo-zigbuild to cross compile to other platforms
+        debug('Use %i', 'cargo-zigbuild')
+        tryInstallCargoBinary('cargo-zigbuild', 'zigbuild')
+        this.args.push('zigbuild')
+        set = true
       }
     }
 
