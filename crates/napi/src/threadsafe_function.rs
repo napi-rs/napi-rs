@@ -13,7 +13,8 @@ use futures::channel::oneshot::channel;
 
 use crate::{
   bindgen_runtime::{FromNapiValue, JsValuesTupleIntoVec, TypeName, Unknown, ValidateNapiValue},
-  check_status, get_error_message_and_stack_trace, sys, Env, Error, JsError, Result, Status,
+  check_status, extract_error_cause, get_error_message_and_stack_trace, sys, Env, Error, JsError,
+  Result, Status,
 };
 
 #[deprecated(since = "2.17.0", note = "Please use `ThreadsafeFunction` instead")]
@@ -749,7 +750,13 @@ unsafe extern "C" fn call_js_cb<
             Err(Error {
               maybe_raw: error_reference,
               maybe_env: raw_env,
-              cause: None,
+              // SAFETY: `raw_env` and `exception` are valid pointers obtained from
+              // `napi_get_and_clear_last_exception` above, which guarantees they are
+              // non-null and live for the duration of this callback.
+              cause: extract_error_cause(unsafe {
+                Unknown::from_raw_unchecked(raw_env, exception)
+              })
+              .unwrap_or(None),
               status: Status::from(raw_status),
               reason,
             })
