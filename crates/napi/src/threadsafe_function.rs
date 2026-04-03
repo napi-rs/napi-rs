@@ -802,43 +802,45 @@ fn handle_call_js_cb_status(status: sys::napi_status, raw_env: sys::napi_env) {
     let stat = unsafe { sys::napi_fatal_exception(raw_env, error_result) };
     assert!(stat == sys::Status::napi_ok || stat == sys::Status::napi_pending_exception);
   } else {
+    // During environment shutdown (e.g. Ctrl+C in a worker thread), any NAPI call
+    // can fail. Bail out gracefully instead of panicking if we can't construct the
+    // error object — there's nothing useful we can do in a half-torn-down env.
     let error_code: Status = status.into();
     let mut error_code_value = ptr::null_mut();
-    assert_eq!(
-      unsafe {
-        sys::napi_create_string_utf8(
-          raw_env,
-          error_code.as_ref().as_ptr().cast(),
-          error_code.as_ref().len() as isize,
-          &mut error_code_value,
-        )
-      },
-      sys::Status::napi_ok,
-    );
+    if unsafe {
+      sys::napi_create_string_utf8(
+        raw_env,
+        error_code.as_ref().as_ptr().cast(),
+        error_code.as_ref().len() as isize,
+        &mut error_code_value,
+      )
+    } != sys::Status::napi_ok
+    {
+      return;
+    }
     const ERROR_MSG: &str = "Call JavaScript callback failed in threadsafe function";
     let mut error_msg_value = ptr::null_mut();
-    assert_eq!(
-      unsafe {
-        sys::napi_create_string_utf8(
-          raw_env,
-          ERROR_MSG.as_ptr().cast(),
-          ERROR_MSG.len() as isize,
-          &mut error_msg_value,
-        )
-      },
-      sys::Status::napi_ok,
-    );
+    if unsafe {
+      sys::napi_create_string_utf8(
+        raw_env,
+        ERROR_MSG.as_ptr().cast(),
+        ERROR_MSG.len() as isize,
+        &mut error_msg_value,
+      )
+    } != sys::Status::napi_ok
+    {
+      return;
+    }
     let mut error_value = ptr::null_mut();
-    assert_eq!(
-      unsafe {
-        sys::napi_create_error(raw_env, error_code_value, error_msg_value, &mut error_value)
-      },
-      sys::Status::napi_ok,
-    );
-    assert_eq!(
-      unsafe { sys::napi_fatal_exception(raw_env, error_value) },
-      sys::Status::napi_ok
-    );
+    if unsafe {
+      sys::napi_create_error(raw_env, error_code_value, error_msg_value, &mut error_value)
+    } != sys::Status::napi_ok
+    {
+      return;
+    }
+    // When shutting down, napi_fatal_exception sometimes returns another exception
+    let stat = unsafe { sys::napi_fatal_exception(raw_env, error_value) };
+    assert!(stat == sys::Status::napi_ok || stat == sys::Status::napi_pending_exception);
   }
 }
 
