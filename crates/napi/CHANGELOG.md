@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.8.5](https://github.com/napi-rs/napi-rs/compare/napi-v3.8.4...napi-v3.8.5) - 2026-04-04
+
+### Fixed
+
+- *(napi)* handle ThreadsafeFunction callback errors gracefully during shutdown ([#3188](https://github.com/napi-rs/napi-rs/pull/3188))
+- *(napi)* populate Error::cause from ThreadsafeFunction callee-handled callbacks ([#3162](https://github.com/napi-rs/napi-rs/pull/3162))
+- correct typo in Either error message ("non" → "none") ([#3183](https://github.com/napi-rs/napi-rs/pull/3183))
+
 ## [3.8.4](https://github.com/napi-rs/napi-rs/compare/napi-v3.8.3...napi-v3.8.4) - 2026-03-28
 
 ### Fixed
