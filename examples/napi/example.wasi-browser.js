@@ -43,6 +43,7 @@ const {
     })
     worker.addEventListener('message', __wasmCreateOnMessageForFsProxy(__fs))
 
+
     return worker
   },
   overwriteImports(importObject) {
