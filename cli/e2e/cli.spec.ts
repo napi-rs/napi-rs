@@ -29,7 +29,7 @@ test.before(async () => {
   await execAsync(`yarn workspace @napi-rs/cli build`, {
     cwd: rootDir,
   })
-  await execAsync(`npm pack`, {
+  await execAsync(`yarn pack -o napi-rs-cli-${packageJson.version}.tgz`, {
     cwd: join(rootDir, 'cli'),
   })
 })

@@ -1,0 +1,464 @@
+{"kind": "const", "name": "ALIGNMENT", "js_doc": "", "def": "export const ALIGNMENT: number", "original_name": "ALIGNMENT", "js_mod": "xxh3"}
+{"kind": "const", "name": "DEFAULT_COST", "js_doc": "/** This is a const */\n", "def": "export const DEFAULT_COST: number", "original_name": "DEFAULT_COST"}
+{"kind": "enum", "name": "ALIAS", "js_doc": "", "def": "A = 0,\n B = 1", "original_name": "AliasedEnum"}
+{"kind": "enum", "name": "CustomNumEnum", "js_doc": "/** You could break the step and for an new continuous value. */\n", "def": "One = 1,\n Two = 2,\n Three = 3,\n Four = 4,\n Six = 6,\n Eight = 8,\n Nine = 9,\n Ten = 10", "original_name": "CustomNumEnum"}
+{"kind": "enum", "name": "Empty", "js_doc": "", "def": "", "original_name": "Empty"}
+{"kind": "enum", "name": "Kind", "js_doc": "/** default enum values are continuos i32s start from 0 */\n", "def": "/** Barks */\nDog = 0,\n /** Kills birds */\nCat = 1,\n /** Tasty */\nDuck = 2", "original_name": "Kind"}
+{"kind": "enum", "name": "KindInValidate", "js_doc": "/** default enum values are continuos i32s start from 0 */\n", "def": "/** Barks */\nDog = 0,\n /** Kills birds */\nCat = 1,\n /** Tasty */\nDuck = 2", "original_name": "KindInValidate"}
+{"kind": "extends", "name": "Fib", "js_doc": "", "def": "Iterator<number, void, number>"}
+{"kind": "extends", "name": "Fib2", "js_doc": "", "def": "Iterator<number, void, number>"}
+{"kind": "extends", "name": "Fib3", "js_doc": "", "def": "Iterator<number, void, number>"}
+{"kind": "extends", "name": "Fib4", "js_doc": "", "def": "Iterator<unknown, void, number>"}
+{"kind": "fn", "name": "acceptArraybuffer", "js_doc": "", "def": "function acceptArraybuffer(fixture: ArrayBuffer): bigint"}
+{"kind": "fn", "name": "acceptSlice", "js_doc": "", "def": "function acceptSlice(fixture: Uint8Array): bigint"}
+{"kind": "fn", "name": "acceptStream", "js_doc": "", "def": "function acceptStream(stream: ReadableStream<Uint8Array>): Promise<Buffer>"}
+{"kind": "fn", "name": "acceptThreadsafeFunction", "js_doc": "", "def": "function acceptThreadsafeFunction(func: ((err: Error | null, arg: number) => any)): void"}
+{"kind": "fn", "name": "acceptThreadsafeFunctionFatal", "js_doc": "", "def": "function acceptThreadsafeFunctionFatal(func: ((arg: number) => void)): void"}
+{"kind": "fn", "name": "acceptThreadsafeFunctionTupleArgs", "js_doc": "", "def": "function acceptThreadsafeFunctionTupleArgs(func: ((err: Error | null, arg0: number, arg1: boolean, arg2: string) => any)): void"}
+{"kind": "fn", "name": "acceptUint8ClampedSlice", "js_doc": "", "def": "function acceptUint8ClampedSlice(input: Uint8ClampedArray): bigint"}
+{"kind": "fn", "name": "acceptUint8ClampedSliceAndBufferSlice", "js_doc": "", "def": "function acceptUint8ClampedSliceAndBufferSlice(a: Buffer, b: Uint8ClampedArray): bigint"}
+{"kind": "fn", "name": "acceptUntypedTypedArray", "js_doc": "", "def": "function acceptUntypedTypedArray(input: TypedArray): bigint"}
+{"kind": "fn", "name": "add", "js_doc": "", "def": "function add(a: number, b: number): number"}
+{"kind": "fn", "name": "appendBuffer", "js_doc": "", "def": "function appendBuffer(buf: Buffer): Buffer"}
+{"kind": "fn", "name": "apply0", "js_doc": "", "def": "function apply0(ctx: Animal, callback: () => void): void"}
+{"kind": "fn", "name": "apply1", "js_doc": "", "def": "function apply1(ctx: Animal, callback: (arg: string) => void, name: string): void"}
+{"kind": "fn", "name": "arrayBufferFromData", "js_doc": "", "def": "function arrayBufferFromData(): ArrayBuffer"}
+{"kind": "fn", "name": "arrayBufferFromExternal", "js_doc": "", "def": "function arrayBufferFromExternal(): ArrayBuffer"}
+{"kind": "fn", "name": "arrayBufferPassThrough", "js_doc": "", "def": "function arrayBufferPassThrough(buf: Uint8Array): Promise<Uint8Array>"}
+{"kind": "fn", "name": "arrayParams", "js_doc": "", "def": "function arrayParams(arr: Array<number>): number"}
+{"kind": "fn", "name": "asyncBufferToArray", "js_doc": "", "def": "function asyncBufferToArray(buf: ArrayBuffer): Array<number>"}
+{"kind": "fn", "name": "asyncMultiTwo", "js_doc": "", "def": "function asyncMultiTwo(arg: number): Promise<number>"}
+{"kind": "fn", "name": "asyncPlus100", "js_doc": "", "def": "function asyncPlus100(p: Promise<number>): Promise<number>"}
+{"kind": "fn", "name": "asyncReduceBuffer", "js_doc": "", "def": "function asyncReduceBuffer(buf: Buffer): Promise<number>"}
+{"kind": "fn", "name": "asyncResolveArray", "js_doc": "", "def": "function asyncResolveArray(inner: number): Promise<unknown[]>"}
+{"kind": "fn", "name": "asyncTaskArraybuffer", "js_doc": "", "def": "function asyncTaskArraybuffer(data: Array<number>): Promise<ArrayBuffer>"}
+{"kind": "fn", "name": "asyncTaskFinally", "js_doc": "", "def": "function asyncTaskFinally(inner: object): Promise<void>"}
+{"kind": "fn", "name": "asyncTaskOptionalReturn", "js_doc": "", "def": "function asyncTaskOptionalReturn(): Promise<number | null>"}
+{"kind": "fn", "name": "asyncTaskReadFile", "js_doc": "", "def": "function asyncTaskReadFile(path: string): Promise<Buffer>"}
+{"kind": "fn", "name": "asyncTaskVoidReturn", "js_doc": "", "def": "function asyncTaskVoidReturn(): Promise<void>"}
+{"kind": "fn", "name": "bigintAdd", "js_doc": "", "def": "function bigintAdd(a: bigint, b: bigint): bigint"}
+{"kind": "fn", "name": "bigintFromI128", "js_doc": "", "def": "function bigintFromI128(): bigint"}
+{"kind": "fn", "name": "bigintFromI64", "js_doc": "", "def": "function bigintFromI64(): bigint"}
+{"kind": "fn", "name": "bigintGetU64AsString", "js_doc": "", "def": "function bigintGetU64AsString(bi: bigint): string"}
+{"kind": "fn", "name": "btreeSetToJs", "js_doc": "", "def": "function btreeSetToJs(): Set<string>"}
+{"kind": "fn", "name": "btreeSetToRust", "js_doc": "", "def": "function btreeSetToRust(set: Set<string>): void"}
+{"kind": "fn", "name": "bufferPassThrough", "js_doc": "", "def": "function bufferPassThrough(buf: Buffer): Promise<Buffer>"}
+{"kind": "fn", "name": "bufferWithAsyncBlock", "js_doc": "", "def": "function bufferWithAsyncBlock(buf: Buffer): Promise<number>"}
+{"kind": "fn", "name": "buildThreadsafeFunctionFromFunction", "js_doc": "", "def": "function buildThreadsafeFunctionFromFunction(callback: (arg0: number, arg1: number) => number): void"}
+{"kind": "fn", "name": "buildThreadsafeFunctionFromFunctionCalleeHandle", "js_doc": "", "def": "function buildThreadsafeFunctionFromFunctionCalleeHandle(callback: () => void): void"}
+{"kind": "fn", "name": "call0", "js_doc": "", "def": "function call0(callback: () => number): number"}
+{"kind": "fn", "name": "call1", "js_doc": "", "def": "function call1(callback: (arg: number) => number, arg: number): number"}
+{"kind": "fn", "name": "call2", "js_doc": "", "def": "function call2(callback: (arg0: number, arg1: number) => number, arg1: number, arg2: number): number"}
+{"kind": "fn", "name": "callAsyncWithUnknownReturnValue", "js_doc": "", "def": "function callAsyncWithUnknownReturnValue(tsfn: ((err: Error | null, arg: number) => unknown)): Promise<number>"}
+{"kind": "fn", "name": "callCatchOnPromise", "js_doc": "", "def": "function callCatchOnPromise(input: Promise<number>): Promise<string>"}
+{"kind": "fn", "name": "callFinallyOnPromise", "js_doc": "", "def": "function callFinallyOnPromise(input: Promise<number>, onFinally: () => void): Promise<number>"}
+{"kind": "fn", "name": "callFunction", "js_doc": "", "def": "function callFunction(cb: () => number): number"}
+{"kind": "fn", "name": "callFunctionWithArg", "js_doc": "", "def": "function callFunctionWithArg(cb: (arg0: number, arg1: number) => number, arg0: number, arg1: number): number"}
+{"kind": "fn", "name": "callFunctionWithArgAndCtx", "js_doc": "", "def": "function callFunctionWithArgAndCtx(ctx: Animal, cb: (arg: string) => void, name: string): void"}
+{"kind": "fn", "name": "callLongThreadsafeFunction", "js_doc": "", "def": "function callLongThreadsafeFunction(tsfn: ((err: Error | null, arg: number) => unknown)): void"}
+{"kind": "fn", "name": "callRuleHandler", "js_doc": "", "def": "function callRuleHandler(rule: Rule, arg: number): number"}
+{"kind": "fn", "name": "callThenOnPromise", "js_doc": "", "def": "function callThenOnPromise(input: Promise<number>): Promise<string>"}
+{"kind": "fn", "name": "callThreadsafeFunction", "js_doc": "", "def": "function callThreadsafeFunction(tsfn: ((err: Error | null, arg: number) => unknown)): void"}
+{"kind": "fn", "name": "callbackInSpawn", "js_doc": "", "def": "function callbackInSpawn(callback: (arg: object) => unknown): void"}
+{"kind": "fn", "name": "callbackReturnPromise", "js_doc": "", "def": "function callbackReturnPromise<T>(functionInput: () => T | Promise<T>, callback: (err: Error | null, result: T) => void): T | Promise<T>"}
+{"kind": "fn", "name": "callbackReturnPromiseAndSpawn", "js_doc": "", "def": "function callbackReturnPromiseAndSpawn(jsFunc: (arg0: string) => Promise<string>): Promise<string>"}
+{"kind": "fn", "name": "captureErrorInCallback", "js_doc": "", "def": "function captureErrorInCallback(cb1: () => void, cb2: (arg0: Error) => void): void"}
+{"kind": "fn", "name": "chronoDateAdd1Minute", "js_doc": "", "def": "function chronoDateAdd1Minute(input: Date): Date"}
+{"kind": "fn", "name": "chronoDateFixtureReturn1", "js_doc": "", "def": "function chronoDateFixtureReturn1(): Date"}
+{"kind": "fn", "name": "chronoDateFixtureReturn2", "js_doc": "", "def": "function chronoDateFixtureReturn2(): Date"}
+{"kind": "fn", "name": "chronoDateWithTimezoneReturn", "js_doc": "", "def": "function chronoDateWithTimezoneReturn(): Date | null"}
+{"kind": "fn", "name": "chronoDateWithTimezoneToMillis", "js_doc": "", "def": "function chronoDateWithTimezoneToMillis(input: Date): number"}
+{"kind": "fn", "name": "chronoLocalDateReturn", "js_doc": "", "def": "function chronoLocalDateReturn(): Date | null"}
+{"kind": "fn", "name": "chronoLocalDateToMillis", "js_doc": "", "def": "function chronoLocalDateToMillis(input: Date): number"}
+{"kind": "fn", "name": "chronoNativeDateTime", "js_doc": "", "def": "function chronoNativeDateTime(date: Date): number"}
+{"kind": "fn", "name": "chronoNativeDateTimeReturn", "js_doc": "", "def": "function chronoNativeDateTimeReturn(): Date | null"}
+{"kind": "fn", "name": "chronoUtcDateReturn", "js_doc": "", "def": "function chronoUtcDateReturn(): Date | null"}
+{"kind": "fn", "name": "chronoUtcDateToMillis", "js_doc": "", "def": "function chronoUtcDateToMillis(input: Date): number"}
+{"kind": "fn", "name": "compressSync", "js_doc": "", "def": "function compressSync(_: string | Uint8Array): Buffer"}
+{"kind": "fn", "name": "concatLatin1", "js_doc": "", "def": "function concatLatin1(s: string): string"}
+{"kind": "fn", "name": "concatStr", "js_doc": "", "def": "function concatStr(s: string): string"}
+{"kind": "fn", "name": "concatUtf16", "js_doc": "", "def": "function concatUtf16(s: string): string"}
+{"kind": "fn", "name": "contains", "js_doc": "", "def": "function contains(source: string, target: string): boolean"}
+{"kind": "fn", "name": "convertU32Array", "js_doc": "", "def": "function convertU32Array(input: Uint32Array): Array<number>"}
+{"kind": "fn", "name": "createArraybuffer", "js_doc": "", "def": "function createArraybuffer(): ArrayBuffer"}
+{"kind": "fn", "name": "createBigInt", "js_doc": "", "def": "function createBigInt(): bigint"}
+{"kind": "fn", "name": "createBigIntI64", "js_doc": "", "def": "function createBigIntI64(): bigint"}
+{"kind": "fn", "name": "createBufferSliceFromCopiedData", "js_doc": "", "def": "function createBufferSliceFromCopiedData(): Buffer"}
+{"kind": "fn", "name": "createExternal", "js_doc": "", "def": "function createExternal(size: number): ExternalObject<number>"}
+{"kind": "fn", "name": "createExternalBufferSlice", "js_doc": "", "def": "function createExternalBufferSlice(): Buffer"}
+{"kind": "fn", "name": "createExternalLatin1CustomFinalize", "js_doc": "", "def": "function createExternalLatin1CustomFinalize(): string"}
+{"kind": "fn", "name": "createExternalLatin1Empty", "js_doc": "", "def": "function createExternalLatin1Empty(): string"}
+{"kind": "fn", "name": "createExternalLatin1Long", "js_doc": "", "def": "function createExternalLatin1Long(): string"}
+{"kind": "fn", "name": "createExternalLatin1Short", "js_doc": "", "def": "function createExternalLatin1Short(): string"}
+{"kind": "fn", "name": "createExternalLatin1String", "js_doc": "", "def": "function createExternalLatin1String(): string"}
+{"kind": "fn", "name": "createExternalLatin1WithLatin1Chars", "js_doc": "", "def": "function createExternalLatin1WithLatin1Chars(): string"}
+{"kind": "fn", "name": "createExternalRef", "js_doc": "", "def": "function createExternalRef(size: number): ExternalObject<number>"}
+{"kind": "fn", "name": "createExternalString", "js_doc": "", "def": "function createExternalString(content: string): ExternalObject<string>"}
+{"kind": "fn", "name": "createExternalTypedArray", "js_doc": "", "def": "function createExternalTypedArray(): Uint32Array"}
+{"kind": "fn", "name": "createExternalUtf16String", "js_doc": "", "def": "function createExternalUtf16String(): string"}
+{"kind": "fn", "name": "createFunction", "js_doc": "", "def": "function createFunction(): (arg: number) => number"}
+{"kind": "fn", "name": "createI32ArrayFromExternal", "js_doc": "", "def": "function createI32ArrayFromExternal(): Int32Array"}
+{"kind": "fn", "name": "createObj", "js_doc": "", "def": "function createObj(): object"}
+{"kind": "fn", "name": "createObjWithProperty", "js_doc": "", "def": "function createObjWithProperty(): { value: ArrayBuffer, get getter(): number }"}
+{"kind": "fn", "name": "createObjectRef", "js_doc": "", "def": "function createObjectRef(): object"}
+{"kind": "fn", "name": "createObjectWithClassField", "js_doc": "", "def": "function createObjectWithClassField(): ObjectFieldClassInstance"}
+{"kind": "fn", "name": "createOptionalExternal", "js_doc": "", "def": "function createOptionalExternal(size?: number | undefined | null): ExternalObject<number> | null"}
+{"kind": "fn", "name": "createReadableStream", "js_doc": "", "def": "function createReadableStream(): ReadableStream<Buffer>"}
+{"kind": "fn", "name": "createReadableStreamFromClass", "js_doc": "", "def": "function createReadableStreamFromClass(readableStreamClass: typeof ReadableStream): ReadableStream<Buffer>"}
+{"kind": "fn", "name": "createReadableStreamWithObject", "js_doc": "/**\n * Creates a ReadableStream that emits StreamItem objects.\n * This demonstrates streaming custom Rust structs to JavaScript.\n */\n", "def": "function createReadableStreamWithObject(): ReadableStream<StreamItem>"}
+{"kind": "fn", "name": "createReferenceOnFunction", "js_doc": "", "def": "function createReferenceOnFunction(cb: () => void): Promise<void>"}
+{"kind": "fn", "name": "createRejectedPromise", "js_doc": "", "def": "function createRejectedPromise(message: string): Promise<number>"}
+{"kind": "fn", "name": "createResolvedPromise", "js_doc": "", "def": "function createResolvedPromise(value: number): Promise<number>"}
+{"kind": "fn", "name": "createStaticLatin1String", "js_doc": "", "def": "function createStaticLatin1String(): string"}
+{"kind": "fn", "name": "createStaticUtf16String", "js_doc": "", "def": "function createStaticUtf16String(): string"}
+{"kind": "fn", "name": "createSymbol", "js_doc": "", "def": "function createSymbol(): symbol"}
+{"kind": "fn", "name": "createSymbolFor", "js_doc": "", "def": "function createSymbolFor(desc: string): symbol"}
+{"kind": "fn", "name": "createSymbolRef", "js_doc": "", "def": "function createSymbolRef(desc: string): symbol"}
+{"kind": "fn", "name": "createUint8ClampedArrayFromData", "js_doc": "", "def": "function createUint8ClampedArrayFromData(): Uint8ClampedArray"}
+{"kind": "fn", "name": "createUint8ClampedArrayFromExternal", "js_doc": "", "def": "function createUint8ClampedArrayFromExternal(): Uint8ClampedArray"}
+{"kind": "fn", "name": "createZeroCopyLatin1String", "js_doc": "", "def": "function createZeroCopyLatin1String(): string"}
+{"kind": "fn", "name": "createZeroCopyUtf16String", "js_doc": "", "def": "function createZeroCopyUtf16String(): string"}
+{"kind": "fn", "name": "customStatusCode", "js_doc": "", "def": "function customStatusCode(): void"}
+{"kind": "fn", "name": "dateToNumber", "js_doc": "", "def": "function dateToNumber(input: Date): number"}
+{"kind": "fn", "name": "defineClass", "js_doc": "", "def": "function defineClass(): typeof DynamicRustClass\\n\\nclass DynamicRustClass {\n  constructor(value: number)\n  rustMethod(): number\n}"}
+{"kind": "fn", "name": "derefUint8Array", "js_doc": "", "def": "function derefUint8Array(a: Uint8Array, b: Uint8ClampedArray): number"}
+{"kind": "fn", "name": "either3", "js_doc": "", "def": "function either3(input: string | number | boolean): number"}
+{"kind": "fn", "name": "either4", "js_doc": "", "def": "function either4(input: string | number | boolean | Obj): number"}
+{"kind": "fn", "name": "eitherBoolOrFunction", "js_doc": "", "def": "function eitherBoolOrFunction(input: boolean | ((arg?: unknown) => unknown)): void"}
+{"kind": "fn", "name": "eitherBoolOrTuple", "js_doc": "", "def": "function eitherBoolOrTuple(input: boolean | [boolean, string]): void"}
+{"kind": "fn", "name": "eitherF64OrU32", "js_doc": "", "def": "function eitherF64OrU32(input: number): number"}
+{"kind": "fn", "name": "eitherFromObjects", "js_doc": "", "def": "function eitherFromObjects(input: A | B | C): string"}
+{"kind": "fn", "name": "eitherFromOption", "js_doc": "", "def": "function eitherFromOption(): JsClassForEither | undefined"}
+{"kind": "fn", "name": "eitherPromiseInEitherA", "js_doc": "", "def": "function eitherPromiseInEitherA(input: Promise<number> | number | string): Promise<boolean>"}
+{"kind": "fn", "name": "eitherStringOrNumber", "js_doc": "", "def": "function eitherStringOrNumber(input: string | number): number"}
+{"kind": "fn", "name": "enumToI32", "js_doc": "", "def": "function enumToI32(e: CustomNumEnum): number"}
+{"kind": "fn", "name": "errorMessageContainsNullByte", "js_doc": "", "def": "function errorMessageContainsNullByte(msg: string): void"}
+{"kind": "fn", "name": "esmResolve", "js_doc": "", "def": "function esmResolve(next: () => Promise<undefined>): Promise<undefined>"}
+{"kind": "fn", "name": "extendsJavascriptError", "js_doc": "", "def": "function extendsJavascriptError(errorClass: any): void"}
+{"kind": "fn", "name": "f32ArrayToArray", "js_doc": "", "def": "function f32ArrayToArray(input: Float32Array): Array<number>"}
+{"kind": "fn", "name": "f64ArrayToArray", "js_doc": "", "def": "function f64ArrayToArray(input: Float64Array): Array<number>"}
+{"kind": "fn", "name": "fetch", "js_doc": "", "def": "function fetch(url: string, requestInit?: RequestInit | undefined | null): Promise<import('undici-types').Response>"}
+{"kind": "fn", "name": "fibonacci", "js_doc": "", "def": "function fibonacci(n: number): number"}
+{"kind": "fn", "name": "fnReceivedAliased", "js_doc": "", "def": "function fnReceivedAliased(s: AliasedStruct, e: ALIAS): void"}
+{"kind": "fn", "name": "generateFunctionAndCallIt", "js_doc": "", "def": "function generateFunctionAndCallIt(): FunctionData"}
+{"kind": "fn", "name": "getBigintJsonValue", "js_doc": "", "def": "function getBigintJsonValue(value: bigint): void"}
+{"kind": "fn", "name": "getBtreeMapping", "js_doc": "", "def": "function getBtreeMapping(): Record<string, number>"}
+{"kind": "fn", "name": "getBuffer", "js_doc": "", "def": "function getBuffer(): Buffer"}
+{"kind": "fn", "name": "getBufferSlice", "js_doc": "", "def": "function getBufferSlice(): Buffer"}
+{"kind": "fn", "name": "getClassFromArray", "js_doc": "", "def": "function getClassFromArray(arr: unknown[]): number | null"}
+{"kind": "fn", "name": "getCwd", "js_doc": "", "def": "function getCwd(callback: (arg0: string) => void): void"}
+{"kind": "fn", "name": "getEmptyBuffer", "js_doc": "", "def": "function getEmptyBuffer(): Buffer"}
+{"kind": "fn", "name": "getEmptyTypedArray", "js_doc": "", "def": "function getEmptyTypedArray(): Uint8Array"}
+{"kind": "fn", "name": "getExternal", "js_doc": "", "def": "function getExternal(external: ExternalObject<number>): number"}
+{"kind": "fn", "name": "getGlobal", "js_doc": "", "def": "function getGlobal(): typeof global"}
+{"kind": "fn", "name": "getIndexMapping", "js_doc": "", "def": "function getIndexMapping(): Record<string, number>"}
+{"kind": "fn", "name": "getIndexMappingWithHasher", "js_doc": "", "def": "function getIndexMappingWithHasher(): Record<string, number>"}
+{"kind": "fn", "name": "getMapping", "js_doc": "", "def": "function getMapping(): Record<string, number>"}
+{"kind": "fn", "name": "getMappingWithHasher", "js_doc": "", "def": "function getMappingWithHasher(): Record<string, number>"}
+{"kind": "fn", "name": "getModuleFileName", "js_doc": "", "def": "function getModuleFileName(): string"}
+{"kind": "fn", "name": "getMyVec", "js_doc": "", "def": "function getMyVec(): MyVec"}
+{"kind": "fn", "name": "getNestedNumArr", "js_doc": "", "def": "function getNestedNumArr(): number[][][]"}
+{"kind": "fn", "name": "getNull", "js_doc": "", "def": "function getNull(): null"}
+{"kind": "fn", "name": "getNullByteProperty", "js_doc": "", "def": "function getNullByteProperty(obj: object): string | null"}
+{"kind": "fn", "name": "getNumArr", "js_doc": "", "def": "function getNumArr(): number[]"}
+{"kind": "fn", "name": "getNums", "js_doc": "/** Gets some numbers */\n", "def": "function getNums(): Array<number>"}
+{"kind": "fn", "name": "getOptionalExternal", "js_doc": "", "def": "function getOptionalExternal(external?: ExternalObject<number> | undefined | null): number | null"}
+{"kind": "fn", "name": "getPackageJsonName", "js_doc": "", "def": "function getPackageJsonName(packageJson: PackageJson): string"}
+{"kind": "fn", "name": "getStrFromObject", "js_doc": "", "def": "function getStrFromObject(): void"}
+{"kind": "fn", "name": "getTuple", "js_doc": "", "def": "function getTuple(val: [number, string, number]): number"}
+{"kind": "fn", "name": "getUndefined", "js_doc": "", "def": "function getUndefined(): void"}
+{"kind": "fn", "name": "getWords", "js_doc": "", "def": "function getWords(): Array<string>"}
+{"kind": "fn", "name": "getterFromObj", "js_doc": "", "def": "function getterFromObj(): number"}
+{"kind": "fn", "name": "i16ArrayToArray", "js_doc": "", "def": "function i16ArrayToArray(input: Int16Array): Array<number>"}
+{"kind": "fn", "name": "i32ArrayToArray", "js_doc": "", "def": "function i32ArrayToArray(input: Int32Array): Array<number>"}
+{"kind": "fn", "name": "i64ArrayToArray", "js_doc": "", "def": "function i64ArrayToArray(input: BigInt64Array): Array<number>"}
+{"kind": "fn", "name": "i8ArrayToArray", "js_doc": "", "def": "function i8ArrayToArray(input: Int8Array): Array<number>"}
+{"kind": "fn", "name": "indexSetToJs", "js_doc": "", "def": "function indexSetToJs(): Set<string>"}
+{"kind": "fn", "name": "indexSetToRust", "js_doc": "", "def": "function indexSetToRust(set: Set<string>): void"}
+{"kind": "fn", "name": "indexmapPassthrough", "js_doc": "", "def": "function indexmapPassthrough(fixture: Record<string, number>): Record<string, number>"}
+{"kind": "fn", "name": "intoUtf8", "js_doc": "", "def": "function intoUtf8(s: string): string"}
+{"kind": "fn", "name": "jsErrorCallback", "js_doc": "", "def": "function jsErrorCallback(value: unknown): Array<Error>"}
+{"kind": "fn", "name": "listObjKeys", "js_doc": "", "def": "function listObjKeys(obj: object): Array<string>"}
+{"kind": "fn", "name": "mapOption", "js_doc": "", "def": "function mapOption(val?: number | undefined | null): number | null"}
+{"kind": "fn", "name": "mergeTupleArray", "js_doc": "", "def": "function mergeTupleArray(t1: TupleToArray, t2: TupleToArray): TupleToArray"}
+{"kind": "fn", "name": "mutateArraybuffer", "js_doc": "", "def": "function mutateArraybuffer(buf: ArrayBuffer): void"}
+{"kind": "fn", "name": "mutateExternal", "js_doc": "", "def": "function mutateExternal(external: ExternalObject<number>, newVal: number): void"}
+{"kind": "fn", "name": "mutateOptionalExternal", "js_doc": "", "def": "function mutateOptionalExternal(external: ExternalObject<number> | undefined | null, newVal: number): void"}
+{"kind": "fn", "name": "mutateTypedArray", "js_doc": "", "def": "function mutateTypedArray(input: Float32Array): void"}
+{"kind": "fn", "name": "objectGetNamedPropertyShouldPerformTypecheck", "js_doc": "", "def": "function objectGetNamedPropertyShouldPerformTypecheck(obj: { foo: number; bar: string; }): void"}
+{"kind": "fn", "name": "objectWithCApis", "js_doc": "", "def": "function objectWithCApis(): object"}
+{"kind": "fn", "name": "optionEnd", "js_doc": "", "def": "function optionEnd(callback: (arg0: string, arg1?: string | undefined | null) => void): void"}
+{"kind": "fn", "name": "optionOnly", "js_doc": "", "def": "function optionOnly(callback: (arg0?: string | undefined | null) => void): void"}
+{"kind": "fn", "name": "optionStart", "js_doc": "", "def": "function optionStart(callback: (arg0: string | undefined | null, arg1: string) => void): void"}
+{"kind": "fn", "name": "optionStartEnd", "js_doc": "", "def": "function optionStartEnd(callback: (arg0: string | undefined | null, arg1: string, arg2?: string | undefined | null) => void): void"}
+{"kind": "fn", "name": "optionalCallbackTypes", "js_doc": "", "def": "function optionalCallbackTypes(callback?: ((arg: string) => unknown) | undefined | null): void"}
+{"kind": "fn", "name": "overrideIndividualArgOnFunction", "js_doc": "", "def": "function overrideIndividualArgOnFunction(notOverridden: string, f: () => string, notOverridden2: number): string"}
+{"kind": "fn", "name": "overrideIndividualArgOnFunctionWithCbArg", "js_doc": "", "def": "function overrideIndividualArgOnFunctionWithCbArg(callback: (town: string, name?: string | undefined | null) => string, notOverridden: number): object"}
+{"kind": "fn", "name": "overrideWholeFunctionType", "js_doc": "", "def": "function overrideWholeFunctionType(operation: 'add' | 'subtract' | 'multiply', a: number, b: number): number"}
+{"kind": "fn", "name": "panic", "js_doc": "", "def": "function panic(): void"}
+{"kind": "fn", "name": "panicInAsync", "js_doc": "", "def": "function panicInAsync(): Promise<void>"}
+{"kind": "fn", "name": "passSetToJs", "js_doc": "", "def": "function passSetToJs(): Set<string>"}
+{"kind": "fn", "name": "passSetToRust", "js_doc": "", "def": "function passSetToRust(set: Set<string>): void"}
+{"kind": "fn", "name": "passSetWithHasherToJs", "js_doc": "", "def": "function passSetWithHasherToJs(): Set<string>"}
+{"kind": "fn", "name": "plusOne", "js_doc": "", "def": "function plusOne(this: Width): number"}
+{"kind": "fn", "name": "promiseInEither", "js_doc": "", "def": "function promiseInEither(input: number | Promise<number>): Promise<boolean>"}
+{"kind": "fn", "name": "promiseRawReturnClassInstance", "js_doc": "", "def": "function promiseRawReturnClassInstance(): Promise<ClassReturnInPromise>"}
+{"kind": "fn", "name": "readFile", "js_doc": "/** napi = { version = 2, features = [\"serde-json\"] } */\n", "def": "function readFile(callback: (arg0: Error | undefined, arg1?: string | undefined | null) => void): void"}
+{"kind": "fn", "name": "readFileAsync", "js_doc": "", "def": "function readFileAsync(path: string): Promise<Buffer>"}
+{"kind": "fn", "name": "readPackageJson", "js_doc": "", "def": "function readPackageJson(): PackageJson"}
+{"kind": "fn", "name": "receiveAllOptionalObject", "js_doc": "", "def": "function receiveAllOptionalObject(obj?: AllOptionalObject | undefined | null): void"}
+{"kind": "fn", "name": "receiveBindingVitePluginMeta", "js_doc": "", "def": "function receiveBindingVitePluginMeta(meta: BindingVitePluginMeta): void"}
+{"kind": "fn", "name": "receiveBufferSliceWithLifetime", "js_doc": "", "def": "function receiveBufferSliceWithLifetime(data: Data): number"}
+{"kind": "fn", "name": "receiveClassOrNumber", "js_doc": "", "def": "function receiveClassOrNumber(either: number | JsClassForEither): number"}
+{"kind": "fn", "name": "receiveDifferentClass", "js_doc": "", "def": "function receiveDifferentClass(either: JsClassForEither | AnotherClassForEither): number"}
+{"kind": "fn", "name": "receiveMutClassOrNumber", "js_doc": "", "def": "function receiveMutClassOrNumber(either: number | JsClassForEither): number"}
+{"kind": "fn", "name": "receiveObjectOnlyFromJs", "js_doc": "", "def": "function receiveObjectOnlyFromJs(obj: { count: number, callback: (err: Error | null, count: number) => void }): void"}
+{"kind": "fn", "name": "receiveObjectWithClassField", "js_doc": "", "def": "function receiveObjectWithClassField(object: ObjectFieldClassInstance): Bird"}
+{"kind": "fn", "name": "receiveStrictObject", "js_doc": "", "def": "function receiveStrictObject(strictObject: StrictObject): void"}
+{"kind": "fn", "name": "receiveString", "js_doc": "", "def": "function receiveString(s: string): string"}
+{"kind": "fn", "name": "referenceAsCallback", "js_doc": "", "def": "function referenceAsCallback(callback: (arg0: number, arg1: number) => number, arg0: number, arg1: number): number"}
+{"kind": "fn", "name": "returnCString", "js_doc": "", "def": "function returnCString(): string"}
+{"kind": "fn", "name": "returnEither", "js_doc": "", "def": "function returnEither(input: number): string | number"}
+{"kind": "fn", "name": "returnEitherClass", "js_doc": "", "def": "function returnEitherClass(input: number): number | JsClassForEither"}
+{"kind": "fn", "name": "returnFromSharedCrate", "js_doc": "", "def": "function returnFromSharedCrate(): Shared"}
+{"kind": "fn", "name": "returnNull", "js_doc": "", "def": "function returnNull(): null"}
+{"kind": "fn", "name": "returnObjectOnlyToJs", "js_doc": "", "def": "function returnObjectOnlyToJs(): ObjectOnlyToJs"}
+{"kind": "fn", "name": "returnUndefined", "js_doc": "", "def": "function returnUndefined(): void"}
+{"kind": "fn", "name": "returnUndefinedIfInvalid", "js_doc": "", "def": "function returnUndefinedIfInvalid(input: boolean): boolean"}
+{"kind": "fn", "name": "returnUndefinedIfInvalidPromise", "js_doc": "", "def": "function returnUndefinedIfInvalidPromise(input: Promise<boolean>): Promise<boolean>"}
+{"kind": "fn", "name": "roundtripStr", "js_doc": "", "def": "function roundtripStr(s: string): string"}
+{"kind": "fn", "name": "runScript", "js_doc": "", "def": "function runScript(script: string): unknown"}
+{"kind": "fn", "name": "setNullByteProperty", "js_doc": "", "def": "function setNullByteProperty(obj: object): void"}
+{"kind": "fn", "name": "setSymbolInObj", "js_doc": "", "def": "function setSymbolInObj(symbol: symbol): object"}
+{"kind": "fn", "name": "shorterEscapableScope", "js_doc": "", "def": "function shorterEscapableScope(createString: () => string | null): string"}
+{"kind": "fn", "name": "shorterScope", "js_doc": "", "def": "function shorterScope(arr: unknown[]): Array<number>"}
+{"kind": "fn", "name": "shutdownRuntime", "js_doc": "", "def": "function shutdownRuntime(): void"}
+{"kind": "fn", "name": "spawnFutureLifetime", "js_doc": "", "def": "function spawnFutureLifetime(input: number): Promise<string>"}
+{"kind": "fn", "name": "spawnThreadInThread", "js_doc": "", "def": "function spawnThreadInThread(tsfn: ((err: Error | null, arg: number) => number)): void"}
+{"kind": "fn", "name": "sumBtreeMapping", "js_doc": "", "def": "function sumBtreeMapping(nums: Record<string, number>): number"}
+{"kind": "fn", "name": "sumIndexMapping", "js_doc": "", "def": "function sumIndexMapping(nums: Record<string, number>): number"}
+{"kind": "fn", "name": "sumMapping", "js_doc": "", "def": "function sumMapping(nums: Record<string, number>): number"}
+{"kind": "fn", "name": "sumNums", "js_doc": "", "def": "function sumNums(nums: Array<number>): number"}
+{"kind": "fn", "name": "testEscapedQuotesInComments", "js_doc": "/**\n * Function to test escaped quotes in comments.\n * This comment contains escaped quotes: \\\\\"g+sx\\\\\" and should not break JSON parsing.\n * The pattern \\\\\"value\\\\\" is commonly used in regex and shell commands.\n * Another example: sed 's/old/\\\\\"new\\\\\"/g' where quotes are escaped.\n */\n", "def": "function testEscapedQuotesInComments(input: string): string"}
+{"kind": "fn", "name": "testLatin1Methods", "js_doc": "", "def": "function testLatin1Methods(input: string): Latin1MethodsResult"}
+{"kind": "fn", "name": "testSerdeBigNumberPrecision", "js_doc": "", "def": "function testSerdeBigNumberPrecision(number: string): any"}
+{"kind": "fn", "name": "testSerdeBufferBytes", "js_doc": "", "def": "function testSerdeBufferBytes(obj: object): bigint"}
+{"kind": "fn", "name": "testSerdeRoundtrip", "js_doc": "", "def": "function testSerdeRoundtrip(data: any): any"}
+{"kind": "fn", "name": "testWorkers", "js_doc": "", "def": "function testWorkers(amount: number, completeCallback: ((err: Error | null, ) => void)): void"}
+{"kind": "fn", "name": "threadsafeFunctionBuildThrowErrorWithStatus", "js_doc": "", "def": "function threadsafeFunctionBuildThrowErrorWithStatus(cb: (arg?: unknown) => unknown): void"}
+{"kind": "fn", "name": "threadsafeFunctionClosureCapture", "js_doc": "", "def": "function threadsafeFunctionClosureCapture(defaultValue: Animal, func: (arg: Animal) => void): void"}
+{"kind": "fn", "name": "threadsafeFunctionFatalMode", "js_doc": "", "def": "function threadsafeFunctionFatalMode(cb: ((arg: boolean) => unknown)): void"}
+{"kind": "fn", "name": "threadsafeFunctionFatalModeError", "js_doc": "", "def": "function threadsafeFunctionFatalModeError(cb: ((arg: boolean) => string)): void"}
+{"kind": "fn", "name": "threadsafeFunctionThrowError", "js_doc": "", "def": "function threadsafeFunctionThrowError(cb: ((err: Error | null, arg: boolean) => unknown)): void"}
+{"kind": "fn", "name": "threadsafeFunctionThrowErrorWithStatus", "js_doc": "", "def": "function threadsafeFunctionThrowErrorWithStatus(cb: ((err: Error | null, arg: boolean) => unknown)): void"}
+{"kind": "fn", "name": "throwAsyncError", "js_doc": "", "def": "function throwAsyncError(): Promise<void>"}
+{"kind": "fn", "name": "throwError", "js_doc": "", "def": "function throwError(): void"}
+{"kind": "fn", "name": "throwErrorWithCause", "js_doc": "", "def": "function throwErrorWithCause(): void"}
+{"kind": "fn", "name": "throwSyntaxError", "js_doc": "", "def": "function throwSyntaxError(error: string, code?: string | undefined | null): void"}
+{"kind": "fn", "name": "toJsObj", "js_doc": "", "def": "function toJsObj(): object"}
+{"kind": "fn", "name": "tsRename", "js_doc": "", "def": "function tsRename(a: { foo: number }): string[]"}
+{"kind": "fn", "name": "tsfnAsyncCall", "js_doc": "", "def": "function tsfnAsyncCall(func: (arg0: number, arg1: number, arg2: number) => string): Promise<void>"}
+{"kind": "fn", "name": "tsfnCallWithCallback", "js_doc": "", "def": "function tsfnCallWithCallback(tsfn: ((err: Error | null, ) => string)): void"}
+{"kind": "fn", "name": "tsfnInEither", "js_doc": "", "def": "function tsfnInEither(pet: Pet): void"}
+{"kind": "fn", "name": "tsfnReturnPromise", "js_doc": "", "def": "function tsfnReturnPromise(func: ((err: Error | null, arg: number) => Promise<number>)): Promise<number>"}
+{"kind": "fn", "name": "tsfnReturnPromiseTimeout", "js_doc": "", "def": "function tsfnReturnPromiseTimeout(func: ((err: Error | null, arg: number) => Promise<number>)): Promise<number>"}
+{"kind": "fn", "name": "tsfnThrowFromJs", "js_doc": "", "def": "function tsfnThrowFromJs(tsfn: ((err: Error | null, arg: number) => Promise<number>)): Promise<number>"}
+{"kind": "fn", "name": "tsfnThrowFromJsCallbackContainsTsfn", "js_doc": "", "def": "function tsfnThrowFromJsCallbackContainsTsfn(tsfn: ((err: Error | null, arg: number) => Promise<number>)): Promise<void>"}
+{"kind": "fn", "name": "tsfnWeak", "js_doc": "", "def": "function tsfnWeak(tsfn: (() => void)): Promise<void>"}
+{"kind": "fn", "name": "u16ArrayToArray", "js_doc": "", "def": "function u16ArrayToArray(input: Uint16Array): Array<number>"}
+{"kind": "fn", "name": "u32ArrayToArray", "js_doc": "", "def": "function u32ArrayToArray(input: Uint32Array): Array<number>"}
+{"kind": "fn", "name": "u64ArrayToArray", "js_doc": "", "def": "function u64ArrayToArray(input: BigUint64Array): Array<bigint>"}
+{"kind": "fn", "name": "u8ArrayToArray", "js_doc": "", "def": "function u8ArrayToArray(input: Uint8Array): Array<number>"}
+{"kind": "fn", "name": "uInit8ArrayFromString", "js_doc": "", "def": "function uInit8ArrayFromString(): Promise<Uint8Array>"}
+{"kind": "fn", "name": "uint8ArrayFromData", "js_doc": "", "def": "function uint8ArrayFromData(): Uint8Array"}
+{"kind": "fn", "name": "uint8ArrayFromExternal", "js_doc": "", "def": "function uint8ArrayFromExternal(): Uint8Array"}
+{"kind": "fn", "name": "validateArray", "js_doc": "", "def": "function validateArray(arr: Array<number>): number"}
+{"kind": "fn", "name": "validateBigint", "js_doc": "", "def": "function validateBigint(input: bigint): bigint"}
+{"kind": "fn", "name": "validateBoolean", "js_doc": "", "def": "function validateBoolean(i: boolean): boolean"}
+{"kind": "fn", "name": "validateBuffer", "js_doc": "", "def": "function validateBuffer(b: Buffer): number"}
+{"kind": "fn", "name": "validateBufferSlice", "js_doc": "", "def": "function validateBufferSlice(input: Buffer): number"}
+{"kind": "fn", "name": "validateDate", "js_doc": "", "def": "function validateDate(d: Date): number"}
+{"kind": "fn", "name": "validateDateTime", "js_doc": "", "def": "function validateDateTime(d: Date): number"}
+{"kind": "fn", "name": "validateEnum", "js_doc": "", "def": "function validateEnum(input: KindInValidate): number"}
+{"kind": "fn", "name": "validateExternal", "js_doc": "", "def": "function validateExternal(e: ExternalObject<number>): number"}
+{"kind": "fn", "name": "validateFunction", "js_doc": "", "def": "function validateFunction(cb: () => number): number"}
+{"kind": "fn", "name": "validateHashMap", "js_doc": "", "def": "function validateHashMap(input: Record<string, number>): number"}
+{"kind": "fn", "name": "validateNull", "js_doc": "", "def": "function validateNull(i: null): boolean"}
+{"kind": "fn", "name": "validateNumber", "js_doc": "", "def": "function validateNumber(i: number): number"}
+{"kind": "fn", "name": "validateOptional", "js_doc": "", "def": "function validateOptional(input1?: string | undefined | null, input2?: boolean | undefined | null): boolean"}
+{"kind": "fn", "name": "validatePromise", "js_doc": "", "def": "function validatePromise(p: Promise<number>): Promise<number>"}
+{"kind": "fn", "name": "validateString", "js_doc": "", "def": "function validateString(s: string): string"}
+{"kind": "fn", "name": "validateStringEnum", "js_doc": "", "def": "function validateStringEnum(input: StatusInValidate): string"}
+{"kind": "fn", "name": "validateStructuredEnum", "js_doc": "", "def": "function validateStructuredEnum(kind: StructuredKind): StructuredKind"}
+{"kind": "fn", "name": "validateStructuredEnumLowercase", "js_doc": "", "def": "function validateStructuredEnumLowercase(kind: StructuredKindLowercase): StructuredKindLowercase"}
+{"kind": "fn", "name": "validateSymbol", "js_doc": "", "def": "function validateSymbol(s: symbol): boolean"}
+{"kind": "fn", "name": "validateTypedArray", "js_doc": "", "def": "function validateTypedArray(input: Uint8Array): number"}
+{"kind": "fn", "name": "validateTypedArraySlice", "js_doc": "", "def": "function validateTypedArraySlice(input: Uint8Array): number"}
+{"kind": "fn", "name": "validateUint8ClampedSlice", "js_doc": "", "def": "function validateUint8ClampedSlice(input: Uint8ClampedArray): number"}
+{"kind": "fn", "name": "validateUndefined", "js_doc": "", "def": "function validateUndefined(i: undefined): boolean"}
+{"kind": "fn", "name": "withAbortController", "js_doc": "", "def": "function withAbortController(a: number, b: number, signal: AbortSignal): Promise<number>"}
+{"kind": "fn", "name": "withAbortSignalHandle", "js_doc": "", "def": "function withAbortSignalHandle(signal: AbortSignal): Promise<number>"}
+{"kind": "fn", "name": "withinAsyncRuntimeIfAvailable", "js_doc": "", "def": "function withinAsyncRuntimeIfAvailable(): void"}
+{"kind": "fn", "name": "withoutAbortController", "js_doc": "", "def": "function withoutAbortController(a: number, b: number): Promise<number>"}
+{"kind": "fn", "name": "xxh128", "js_doc": "/** xxh128 function */\n", "def": "function xxh128(input: Buffer): bigint", "js_mod": "xxh3"}
+{"kind": "fn", "name": "xxh2Plus", "js_doc": "", "def": "function xxh2Plus(a: number, b: number): number", "js_mod": "xxh2"}
+{"kind": "fn", "name": "xxh3Xxh64Alias", "js_doc": "", "def": "function xxh3Xxh64Alias(input: Buffer): bigint", "js_mod": "xxh2"}
+{"kind": "fn", "name": "xxh3_64", "js_doc": "", "def": "function xxh3_64(input: Buffer): bigint", "js_mod": "xxh3"}
+{"kind": "fn", "name": "xxh64Alias", "js_doc": "", "def": "function xxh64Alias(input: Buffer): bigint"}
+{"kind": "impl", "name": "Animal", "js_doc": "", "def": "/** This is the constructor */\n constructor(kind: Kind, name: string)\\n/** This is a factory method */\nstatic withKind(kind: Kind): Animal\\nget name(): string\\nset name(name: string)\\nget type(): Kind\\nset type(kind: Kind)\\nget optionalValue(): number | null\\n/**\n * This is to test that setter with optional parameter generates valid TypeScript.\n * TypeScript does not allow optional parameters in setters (TS1051).\n */\nset optionalValue(value: number | undefined | null)\\n/**\n * This is a\n * multi-line comment\n * with an emoji \uD83D\uDE80\n */\n whoami(): string\\n/** This is static... */\nstatic getDogKind(): Kind\\n/**\n * Here are some characters and character sequences\n * that should be escaped correctly:\n * \\[]{}/\\:\"\"{\n * }\n * Accept header \"*\\/json\" should not break the comment block\n */\n returnOtherClass(): Dog\\n returnOtherClassWithCustomConstructor(): Bird\\n overrideIndividualArgOnMethod(normalTy: string, overriddenTy: {n: string}): Bird"}
+{"kind": "impl", "name": "AnotherClassForEither", "js_doc": "", "def": " constructor()"}
+{"kind": "impl", "name": "AnotherCssStyleSheet", "js_doc": "", "def": "get rules(): CssRuleList"}
+{"kind": "impl", "name": "Asset", "js_doc": "", "def": " constructor()\\nget filePath(): number"}
+{"kind": "impl", "name": "Assets", "js_doc": "", "def": " constructor()\\n get(id: number): Asset | null"}
+{"kind": "impl", "name": "AsyncBuffer", "js_doc": "", "def": ""}
+{"kind": "impl", "name": "AsyncDataSource", "js_doc": "", "def": "/** Creates an async data source that yields each item with a simulated I/O delay */\nstatic fromData(data: Array<string>, delayMs: number): AsyncDataSource"}
+{"kind": "impl", "name": "AsyncDataSource", "js_doc": "", "def": "[Symbol.asyncIterator](): AsyncGenerator<string, void, undefined>"}
+{"kind": "impl", "name": "AsyncFib", "js_doc": "", "def": " constructor()"}
+{"kind": "impl", "name": "AsyncFib", "js_doc": "", "def": "[Symbol.asyncIterator](): AsyncGenerator<number, void, number | undefined>"}
+{"kind": "impl", "name": "AsyncReader", "js_doc": "", "def": ""}
+{"kind": "impl", "name": "AsyncResolveArray", "js_doc": "", "def": ""}
+{"kind": "impl", "name": "AsyncTaskArrayBuffer", "js_doc": "", "def": ""}
+{"kind": "impl", "name": "AsyncTaskFinally", "js_doc": "", "def": ""}
+{"kind": "impl", "name": "AsyncTaskOptionalReturn", "js_doc": "", "def": ""}
+{"kind": "impl", "name": "AsyncTaskReadFile", "js_doc": "", "def": ""}
+{"kind": "impl", "name": "AsyncTaskVoidReturn", "js_doc": "", "def": ""}
+{"kind": "impl", "name": "AsyncThrowClass", "js_doc": "", "def": " asyncThrowError(): Promise<void>"}
+{"kind": "impl", "name": "Bird", "js_doc": "", "def": " constructor(name: string)\\n getCount(): number\\n getNameAsync(): Promise<string>\\n acceptSliceMethod(slice: Uint8Array): number"}
+{"kind": "impl", "name": "Blake2BHasher", "js_doc": "", "def": " update(data: Buffer): void"}
+{"kind": "impl", "name": "Blake2BHasher", "js_doc": "", "def": "static withKey(key: Blake2BKey): Blake2BHasher"}
+{"kind": "impl", "name": "CatchOnConstructor", "js_doc": "", "def": " constructor()"}
+{"kind": "impl", "name": "CatchOnConstructor2", "js_doc": "", "def": " constructor()"}
+{"kind": "impl", "name": "ClassInArray", "js_doc": "", "def": " constructor(value: number)"}
+{"kind": "impl", "name": "ClassWithFactory", "js_doc": "", "def": "static withName(name: string): ClassWithFactory\\nstatic with4Name(name: string): Promise<ClassWithFactory>\\nstatic with4NameResult(name: string): Promise<ClassWithFactory>\\n setName(name: string): this"}
+{"kind": "impl", "name": "ClassWithLifetime", "js_doc": "", "def": " constructor()\\n getName(): string"}
+{"kind": "impl", "name": "ComplexClass", "js_doc": "", "def": " constructor(value: string | ComplexClass, number: number)\\n methodOne(): string\\n methodTwo(): number\\n methodThree(): string\\n methodFour(): boolean\\n methodFive(): string"}
+{"kind": "impl", "name": "Context", "js_doc": "", "def": " constructor()\\nstatic withData(data: string): Context\\nstatic withBuffer(buf: Uint8Array): Context\\n method(): string"}
+{"kind": "impl", "name": "CounterRepro", "js_doc": "", "def": " constructor(max: number)"}
+{"kind": "impl", "name": "CounterRepro", "js_doc": "", "def": "[Symbol.asyncIterator](): AsyncGenerator<number, void, undefined>"}
+{"kind": "impl", "name": "CreateStringClass", "js_doc": "", "def": "static new(): CreateStringClass\\n createString(): string | null\\n createStringResult(): string"}
+{"kind": "impl", "name": "CssRuleList", "js_doc": "", "def": " getRules(): Array<string>\\nget parentStyleSheet(): CssStyleSheet\\nget name(): string | null"}
+{"kind": "impl", "name": "CssStyleSheet", "js_doc": "", "def": " constructor(name: string, rules: Array<string>)\\nget rules(): CssRuleList\\n anotherCssStyleSheet(): AnotherCssStyleSheet"}
+{"kind": "impl", "name": "CustomFinalize", "js_doc": "", "def": " constructor(width: number, height: number)"}
+{"kind": "impl", "name": "CustomStruct", "js_doc": "", "def": "static customStatusCodeForFactory(): CustomStruct\\n constructor()"}
+{"kind": "impl", "name": "DelaySum", "js_doc": "", "def": ""}
+{"kind": "impl", "name": "DelayedCounter", "js_doc": "", "def": "/** Creates a counter that yields values from 0 to max-1 with a delay between each */\n constructor(max: number, delayMs: number)"}
+{"kind": "impl", "name": "DelayedCounter", "js_doc": "", "def": "[Symbol.asyncIterator](): AsyncGenerator<number, string, undefined>"}
+{"kind": "impl", "name": "Fib", "js_doc": "", "def": " constructor()"}
+{"kind": "impl", "name": "Fib2", "js_doc": "", "def": "static create(seed: number): Fib2"}
+{"kind": "impl", "name": "GetterSetterWithClosures", "js_doc": "", "def": " constructor()"}
+{"kind": "impl", "name": "JSOnlyMethodsClass", "js_doc": "", "def": " processData(): string\\n getLength(): number"}
+{"kind": "impl", "name": "JsClassForEither", "js_doc": "", "def": " constructor()"}
+{"kind": "impl", "name": "JsRemote", "js_doc": "", "def": " constructor(repo: JsRepo)\\n name(): string"}
+{"kind": "impl", "name": "JsRepo", "js_doc": "", "def": " constructor(dir: string)\\n remote(): JsRemote"}
+{"kind": "impl", "name": "MyJsNamedClass", "js_doc": "", "def": " constructor(value: string)\\n getValue(): string\\n multiplyValue(times: number): string"}
+{"kind": "impl", "name": "NinjaTurtle", "js_doc": "", "def": "static isInstanceOf(value: unknown): boolean\\n/** Create your ninja turtle! \uD83D\uDC22 */\nstatic newRaph(): NinjaTurtle\\n getMaskColor(): string\\n getName(): string\\n returnThis(): this"}
+{"kind": "impl", "name": "NotWritableClass", "js_doc": "", "def": " setName(name: string): void"}
+{"kind": "impl", "name": "Optional", "js_doc": "", "def": "static optionEnd(required: string, optional?: string | undefined | null): string\\nstatic optionStart(optional: string | undefined | null, required: string): string\\nstatic optionStartEnd(optional1: string | undefined | null, required: string, optional2?: string | undefined | null): string\\nstatic optionOnly(optional?: string | undefined | null): string"}
+{"kind": "impl", "name": "PackageJsonReader", "js_doc": "", "def": " constructor()\\n read(): any"}
+{"kind": "impl", "name": "Reader", "js_doc": "", "def": " read(): Buffer"}
+{"kind": "impl", "name": "SimpleTask", "js_doc": "", "def": ""}
+{"kind": "impl", "name": "ThingList", "js_doc": "", "def": " constructor()\\nget thing(): Thing"}
+{"kind": "impl", "name": "Xxh3", "js_doc": "", "def": " constructor()\\n/** update */\n update(input: Buffer): void\\n digest(): bigint", "js_mod": "xxh3"}
+{"kind": "interface", "name": "A", "js_doc": "", "def": "foo: number", "original_name": "A"}
+{"kind": "interface", "name": "AliasedStruct", "js_doc": "", "def": "a: ALIAS\\nb: number", "original_name": "StructContainsAliasedEnum"}
+{"kind": "interface", "name": "AllOptionalObject", "js_doc": "", "def": "name?: string\\nage?: number", "original_name": "AllOptionalObject"}
+{"kind": "interface", "name": "B", "js_doc": "", "def": "bar: number", "original_name": "B"}
+{"kind": "interface", "name": "BindingVitePluginMeta", "js_doc": "", "def": "'vite:import-glob': ViteImportGlobMeta", "original_name": "BindingVitePluginMeta"}
+{"kind": "interface", "name": "C", "js_doc": "", "def": "baz: number", "original_name": "C"}
+{"kind": "interface", "name": "CompilerAssumptions", "js_doc": "", "def": "ignoreFunctionLength?: boolean\\nnoDocumentAll?: boolean\\nobjectRestNoSymbols?: boolean\\npureGetters?: boolean\\n/**\n * When using public class fields, assume that they don't shadow any getter in the current class,\n * in its subclasses or in its superclass. Thus, it's safe to assign them rather than using\n * `Object.defineProperty`.\n * \n * For example:\n * \n * Input:\n * ```js\n * class Test {\n *   field = 2;\n * \n *   static staticField = 3;\n * }\n * ```\n * \n * When `set_public_class_fields` is `true`, the output will be:\n * ```js\n * class Test {\n *   constructor() {\n *     this.field = 2;\n *   }\n * }\n * Test.staticField = 3;\n * ```\n * \n * Otherwise, the output will be:\n * ```js\n * import _defineProperty from \"@oxc-project/runtime/helpers/defineProperty\";\n * class Test {\n *   constructor() {\n *     _defineProperty(this, \"field\", 2);\n *   }\n * }\n * _defineProperty(Test, \"staticField\", 3);\n * ```\n * \n * NOTE: For TypeScript, if you wanted behavior is equivalent to `useDefineForClassFields: false`, you should\n * set both `set_public_class_fields` and [`crate::TypeScriptOptions::remove_class_fields_without_initializer`]\n * to `true`.\n */\nsetPublicClassFields?: boolean", "original_name": "CompilerAssumptions"}
+{"kind": "interface", "name": "Data", "js_doc": "", "def": "data: string | Buffer", "original_name": "Data"}
+{"kind": "interface", "name": "DatesWithTimeZone", "js_doc": "", "def": "start: Date\\nend?: Date", "original_name": "DatesWithTimeZone"}
+{"kind": "interface", "name": "DefaultUseNullableStruct", "js_doc": "", "def": "requiredNumberField: number\\nrequiredStringField: string\\noptionalNumberField?: number\\noptionalStringField?: string", "original_name": "DefaultUseNullableStruct"}
+{"kind": "interface", "name": "FunctionData", "js_doc": "", "def": "handle: () => number", "original_name": "FunctionData"}
+{"kind": "interface", "name": "Latin1MethodsResult", "js_doc": "", "def": "length: number\\nisEmpty: boolean\\nasSlice: Array<number>", "original_name": "Latin1MethodsResult"}
+{"kind": "interface", "name": "LocalDates", "js_doc": "", "def": "start: Date\\nend?: Date", "original_name": "LocalDates"}
+{"kind": "interface", "name": "Meta", "js_doc": "", "def": "merge: boolean", "original_name": "Meta"}
+{"kind": "interface", "name": "NestedMetadata", "js_doc": "/** Nested metadata for demonstrating object streaming with complex types */\n", "def": "hello: string", "original_name": "NestedMetadata"}
+{"kind": "interface", "name": "NotUseNullableStruct", "js_doc": "", "def": "requiredNumberField: number\\nrequiredStringField: string\\noptionalNumberField?: number\\noptionalStringField?: string", "original_name": "NotUseNullableStruct"}
+{"kind": "interface", "name": "Obj", "js_doc": "", "def": "v: string | number", "original_name": "Obj"}
+{"kind": "interface", "name": "ObjectFieldClassInstance", "js_doc": "", "def": "bird: Bird", "original_name": "ObjectFieldClassInstance"}
+{"kind": "interface", "name": "ObjectOnlyFromJs", "js_doc": "", "def": "count: number\\ncallback: ((err: Error | null, arg: number) => any)", "original_name": "ObjectOnlyFromJs"}
+{"kind": "interface", "name": "ObjectOnlyToJs", "js_doc": "", "def": "name: number\\ndependencies: any", "original_name": "ObjectOnlyToJs"}
+{"kind": "interface", "name": "PackageJson", "js_doc": "/** This is an interface for package.json */\n", "def": "name: string\\n/** The version of the package */\nversion: string\\ndependencies?: Record<string, any>\\ndevDependencies?: Record<string, any>", "original_name": "PackageJson"}
+{"kind": "interface", "name": "Pet", "js_doc": "", "def": "name: string\\nkind: number\\neitherTsfn: string | ((err: Error | null, arg: number) => number)", "original_name": "Pet"}
+{"kind": "interface", "name": "PluginLoadResult", "js_doc": "", "def": "name: string\\nversion: string", "original_name": "PluginLoadResult"}
+{"kind": "interface", "name": "PropertyNameDigitTest", "js_doc": "", "def": "/** Property names starting with digits should be quoted */\n'0invalid': string\\n'123': string", "original_name": "PropertyNameDigitTest"}
+{"kind": "interface", "name": "PropertyNameSpecialCharsTest", "js_doc": "", "def": "/** Special characters should be quoted */\n'kebab-case': string\\n'with space': string\\n'dot.notation': string\\n'xml:lang': string\\n/** Dollar sign should be quoted for backward compatibility */\n'$var': string", "original_name": "PropertyNameSpecialCharsTest"}
+{"kind": "interface", "name": "PropertyNameUnicodeTest", "js_doc": "", "def": "/** Unicode characters should NOT be quoted */\ncaf\u00E9: string\\n\u65E5\u672C\u8A9E: string\\n\u0395\u03BB\u03BB\u03B7\u03BD\u03B9\u03BA\u03AC: string", "original_name": "PropertyNameUnicodeTest"}
+{"kind": "interface", "name": "PropertyNameValidTest", "js_doc": "", "def": "/** Valid identifiers should NOT be quoted */\ncamelCase: string\\npascalCase: string\\nprivate: string\\nwith123Numbers: string", "original_name": "PropertyNameValidTest"}
+{"kind": "interface", "name": "RequestInit", "js_doc": "", "def": "method?: string\\nheaders?: Record<string, string>", "original_name": "RequestInit"}
+{"kind": "interface", "name": "Rule", "js_doc": "", "def": "name: string\\nhandler: RuleHandler<number, number>", "original_name": "Rule"}
+{"kind": "interface", "name": "Shared", "js_doc": "", "def": "value: number", "original_name": "Shared"}
+{"kind": "interface", "name": "StreamItem", "js_doc": "/** Example struct demonstrating object streaming with nested types */\n", "def": "something: NestedMetadata\\nname: string\\nsize: number", "original_name": "StreamItem"}
+{"kind": "interface", "name": "StrictObject", "js_doc": "", "def": "name: string", "original_name": "StrictObject"}
+{"kind": "interface", "name": "TsTypeChanged", "js_doc": "", "def": "typeOverride: object\\ntypeOverrideOptional?: object", "original_name": "TsTypeChanged"}
+{"kind": "interface", "name": "TupleObject", "js_doc": "", "def": "customField: number\\nfield1: number", "original_name": "TupleObject"}
+{"kind": "interface", "name": "UseNullableStruct", "js_doc": "", "def": "requiredNumberField: number\\nrequiredStringField: string\\nnullableNumberField: number | null\\nnullableStringField: string | null", "original_name": "UseNullableStruct"}
+{"kind": "interface", "name": "UtcDates", "js_doc": "", "def": "start: Date\\nend?: Date", "original_name": "UtcDates"}
+{"kind": "interface", "name": "ViteImportGlobMeta", "js_doc": "", "def": "isSubImportsPattern?: boolean", "original_name": "ViteImportGlobMeta"}
+{"kind": "string_enum", "name": "CustomStringEnum", "js_doc": "", "def": "Foo = 'my-custom-value',\n Bar = 'Bar',\n Baz = 'Baz'", "original_name": "CustomStringEnum"}
+{"kind": "string_enum", "name": "Status", "js_doc": "", "def": "Pristine = 'Pristine',\n Loading = 'Loading',\n Ready = 'Ready'", "original_name": "Status"}
+{"kind": "string_enum", "name": "StatusInValidate", "js_doc": "", "def": "Poll = 'Poll',\n Ready = 'Ready',\n Done = 'Done'", "original_name": "StatusInValidate"}
+{"kind": "string_enum", "name": "StringEnum", "js_doc": "", "def": "VariantOne = 'variantone',\n VariantTwo = 'varianttwo',\n VariantThree = 'variantthree'", "original_name": "StringEnum"}
+{"kind": "struct", "name": "Animal", "js_doc": "/**\n * `constructor` option for `struct` requires all fields to be public,\n * otherwise tag impl fn as constructor\n * #[napi(constructor)]\n */\n", "def": "/** Kind of animal */\nreadonly kind: Kind", "original_name": "Animal"}
+{"kind": "struct", "name": "AnimalWithDefaultConstructor", "js_doc": "", "def": "name: string\\nkind: number\\nconstructor(name: string, kind: number)", "original_name": "AnimalWithDefaultConstructor"}
+{"kind": "struct", "name": "AnotherClassForEither", "js_doc": "", "def": "", "original_name": "AnotherClassForEither"}
+{"kind": "struct", "name": "AnotherCssStyleSheet", "js_doc": "", "def": "", "original_name": "AnotherCSSStyleSheet"}
+{"kind": "struct", "name": "Asset", "js_doc": "", "def": "", "original_name": "JsAsset"}
+{"kind": "struct", "name": "Assets", "js_doc": "", "def": "", "original_name": "JsAssets"}
+{"kind": "struct", "name": "AsyncDataSource", "js_doc": "/**\n * This type implements JavaScript's async iterable protocol.\n * It can be used with `for await...of` loops.\n * \n * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_async_iterator_and_async_iterable_protocols\n */\n", "def": "", "original_name": "AsyncDataSource"}
+{"kind": "struct", "name": "AsyncFib", "js_doc": "/**\n * This type implements JavaScript's async iterable protocol.\n * It can be used with `for await...of` loops.\n * \n * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_async_iterator_and_async_iterable_protocols\n */\n", "def": "", "original_name": "AsyncFib"}
+{"kind": "struct", "name": "AsyncThrowClass", "js_doc": "", "def": "\\nconstructor()", "original_name": "AsyncThrowClass"}
+{"kind": "struct", "name": "Bird", "js_doc": "", "def": "name: string", "original_name": "Bird"}
+{"kind": "struct", "name": "Blake2BHasher", "js_doc": "/** Smoking test for type generation */\n", "def": "", "original_name": "Blake2bHasher"}
+{"kind": "struct", "name": "Blake2BKey", "js_doc": "", "def": "", "original_name": "Blake2bKey"}
+{"kind": "struct", "name": "CatchOnConstructor", "js_doc": "", "def": "", "original_name": "CatchOnConstructor"}
+{"kind": "struct", "name": "CatchOnConstructor2", "js_doc": "", "def": "", "original_name": "CatchOnConstructor2"}
+{"kind": "struct", "name": "ClassInArray", "js_doc": "", "def": "", "original_name": "ClassInArray"}
+{"kind": "struct", "name": "ClassReturnInPromise", "js_doc": "", "def": "", "original_name": "ClassReturnInPromise"}
+{"kind": "struct", "name": "ClassWithFactory", "js_doc": "", "def": "name: string", "original_name": "ClassWithFactory"}
+{"kind": "struct", "name": "ClassWithLifetime", "js_doc": "", "def": "", "original_name": "ClassWithLifetime"}
+{"kind": "struct", "name": "ComplexClass", "js_doc": "", "def": "value: string\\nnumber: number", "original_name": "ComplexClass"}
+{"kind": "struct", "name": "Context", "js_doc": "", "def": "maybeNeed?: boolean\\nbuffer: Uint8Array", "original_name": "Context"}
+{"kind": "struct", "name": "CounterRepro", "js_doc": "/**\n * This type implements JavaScript's async iterable protocol.\n * It can be used with `for await...of` loops.\n * \n * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_async_iterator_and_async_iterable_protocols\n */\n", "def": "", "original_name": "CounterRepro"}
+{"kind": "struct", "name": "CreateStringClass", "js_doc": "", "def": "", "original_name": "CreateStringClass"}
+{"kind": "struct", "name": "CssRuleList", "js_doc": "", "def": "", "original_name": "CSSRuleList"}
+{"kind": "struct", "name": "CssStyleSheet", "js_doc": "", "def": "", "original_name": "CSSStyleSheet"}
+{"kind": "struct", "name": "CustomFinalize", "js_doc": "", "def": "", "original_name": "CustomFinalize"}
+{"kind": "struct", "name": "CustomStruct", "js_doc": "", "def": "", "original_name": "CustomStruct"}
+{"kind": "struct", "name": "DefaultUseNullableClass", "js_doc": "", "def": "requiredNumberField: number\\nrequiredStringField: string\\noptionalNumberField?: number\\noptionalStringField?: string\\nconstructor(requiredNumberField: number, requiredStringField: string, optionalNumberField?: number, optionalStringField?: string)", "original_name": "DefaultUseNullableClass"}
+{"kind": "struct", "name": "DelayedCounter", "js_doc": "/**\n * This type implements JavaScript's async iterable protocol.\n * It can be used with `for await...of` loops.\n * \n * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_async_iterator_and_async_iterable_protocols\n */\n", "def": "", "original_name": "DelayedCounter"}
+{"kind": "struct", "name": "Dog", "js_doc": "", "def": "name: string\\nconstructor(name: string)", "original_name": "Dog"}
+{"kind": "struct", "name": "Fib", "js_doc": "/**\n * This type extends JavaScript's `Iterator`, and so has the iterator helper\n * methods. It may extend the upcoming TypeScript `Iterator` class in the future.\n * \n * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Iterator#iterator_helper_methods\n * @see https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-6.html#iterator-helper-methods\n */\n", "def": "", "original_name": "Fib"}
+{"kind": "struct", "name": "Fib2", "js_doc": "/**\n * This type extends JavaScript's `Iterator`, and so has the iterator helper\n * methods. It may extend the upcoming TypeScript `Iterator` class in the future.\n * \n * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Iterator#iterator_helper_methods\n * @see https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-6.html#iterator-helper-methods\n */\n", "def": "", "original_name": "Fib2"}
+{"kind": "struct", "name": "Fib3", "js_doc": "/**\n * This type extends JavaScript's `Iterator`, and so has the iterator helper\n * methods. It may extend the upcoming TypeScript `Iterator` class in the future.\n * \n * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Iterator#iterator_helper_methods\n * @see https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-6.html#iterator-helper-methods\n */\n", "def": "current: number\\nnextNum: number\\nconstructor(current: number, nextNum: number)", "original_name": "Fib3"}
+{"kind": "struct", "name": "Fib4", "js_doc": "/**\n * This type extends JavaScript's `Iterator`, and so has the iterator helper\n * methods. It may extend the upcoming TypeScript `Iterator` class in the future.\n * \n * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Iterator#iterator_helper_methods\n * @see https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-6.html#iterator-helper-methods\n */\n", "def": "current: number\\nnextItem: number\\nconstructor(current: number, nextItem: number)", "original_name": "Fib4"}
+{"kind": "struct", "name": "GetterSetterWithClosures", "js_doc": "", "def": "", "original_name": "GetterSetterWithClosures"}
+{"kind": "struct", "name": "JSOnlyMethodsClass", "js_doc": "", "def": "data: string", "original_name": "RustOnlyMethodsClass"}
+{"kind": "struct", "name": "JsClassForEither", "js_doc": "", "def": "", "original_name": "JsClassForEither"}
+{"kind": "struct", "name": "JsRemote", "js_doc": "", "def": "", "original_name": "JsRemote"}
+{"kind": "struct", "name": "JsRepo", "js_doc": "", "def": "", "original_name": "JsRepo"}
+{"kind": "struct", "name": "MyJsNamedClass", "js_doc": "", "def": "", "original_name": "OriginalRustNameForJsNamedStruct"}
+{"kind": "struct", "name": "NinjaTurtle", "js_doc": "", "def": "name: string", "original_name": "NinjaTurtle"}
+{"kind": "struct", "name": "NotUseNullableClass", "js_doc": "", "def": "requiredNumberField: number\\nrequiredStringField: string\\noptionalNumberField?: number\\noptionalStringField?: string\\nconstructor(requiredNumberField: number, requiredStringField: string, optionalNumberField?: number, optionalStringField?: string)", "original_name": "NotUseNullableClass"}
+{"kind": "struct", "name": "NotWritableClass", "js_doc": "", "def": "name: string\\nconstructor(name: string)", "original_name": "NotWritableClass"}
+{"kind": "struct", "name": "Optional", "js_doc": "", "def": "", "original_name": "Optional"}
+{"kind": "struct", "name": "PackageJsonReader", "js_doc": "", "def": "", "original_name": "PackageJsonReader"}
+{"kind": "struct", "name": "Reader", "js_doc": "", "def": "\\nconstructor()", "original_name": "Reader"}
+{"kind": "struct", "name": "Selector", "js_doc": "", "def": "orderBy: Array<string>\\nselect: Array<string>\\nstruct: string\\nwhere?: string\\nconstructor(orderBy: Array<string>, select: Array<string>, struct: string, where?: string)", "original_name": "Selector"}
+{"kind": "struct", "name": "Thing", "js_doc": "", "def": "", "original_name": "Thing"}
+{"kind": "struct", "name": "ThingList", "js_doc": "", "def": "", "original_name": "ThingList"}
+{"kind": "struct", "name": "UseNullableClass", "js_doc": "", "def": "requiredNumberField: number\\nrequiredStringField: string\\nnullableNumberField: number | null\\nnullableStringField: string | null\\nconstructor(requiredNumberField: number, requiredStringField: string, nullableNumberField: number | null, nullableStringField: string | null)", "original_name": "UseNullableClass"}
+{"kind": "struct", "name": "Width", "js_doc": "", "def": "value: number\\nconstructor(value: number)", "original_name": "Width"}
+{"kind": "struct", "name": "Xxh3", "js_doc": "/** Xxh3 class */\n", "def": "", "original_name": "Xxh3", "js_mod": "xxh3"}
+{"kind": "type", "name": "CustomU32", "js_doc": "", "def": "number", "original_name": "CustomU32"}
+{"kind": "type", "name": "ExternalLinterLoadPluginCb", "js_doc": "", "def": "((arg: string) => PluginLoadResult)", "original_name": "ExternalLinterLoadPluginCb"}
+{"kind": "type", "name": "ExternalLinterLoadPluginCb2", "js_doc": "", "def": "((arg: string) => PluginLoadResult)", "original_name": "ExternalLinterLoadPluginCb2"}
+{"kind": "type", "name": "MyPromise", "js_doc": "", "def": "string | Promise<string>", "original_name": "MyPromise"}
+{"kind": "type", "name": "MyVec", "js_doc": "", "def": "Array<number | string>", "original_name": "MyVec"}
+{"kind": "type", "name": "Nullable<T>", "js_doc": "", "def": "T | undefined | null", "original_name": "Nullable"}
+{"kind": "type", "name": "RuleHandler<Args, Ret>", "js_doc": "", "def": "(arg: Args) => Ret", "original_name": "RuleHandler"}
+{"kind": "type", "name": "StructuredKind", "js_doc": "", "def": "  | { type2: 'Hello' } \\n  | { type2: 'Greeting', name: string } \\n  | { type2: 'Birthday', name: string, age: number } \\n  | { type2: 'Tuple', field0: number, field1: number } ", "original_name": "StructuredKind"}
+{"kind": "type", "name": "StructuredKindLowercase", "js_doc": "", "def": "  | { type: 'hello' } \\n  | { type: 'greeting', name: string } \\n  | { type: 'birthday', name: string, age: number } \\n  | { type: 'tuple', field0: number, field1: number } ", "original_name": "StructuredKindLowercase"}
+{"kind": "type", "name": "TupleToArray", "js_doc": "", "def": "[field0: string, field1: number, field2?: Meta]", "original_name": "TupleToArray"}
+{"kind": "type", "name": "VoidNullable<T = void>", "js_doc": "", "def": "Nullable<T>", "original_name": "VoidNullable"}

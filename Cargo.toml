@@ -6,6 +6,8 @@ members = [
   "./crates/macro",
   "./crates/napi",
   "./crates/sys",
+  "./crates/typegen",
+  "./typegen",
   "./examples/napi",
   "./examples/napi-shared",
   "./examples/napi-compat-mode",
@@ -13,6 +15,7 @@ members = [
   "./bench",
   "./memory-testing",
   "./examples/napi-cargo-test",
+  "./examples/napi-typegen",
 ]
 exclude = ["./testing"]
 

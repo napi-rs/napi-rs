@@ -39,6 +39,7 @@ const __wasi = new __WASI({
         window.dispatchEvent(new CustomEvent('napi-rs-worker-error', { detail: event.data }))
       }
     })
+}
 `
     : ''
 
