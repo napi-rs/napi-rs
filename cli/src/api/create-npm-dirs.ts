@@ -25,6 +25,49 @@ export interface PackageMeta {
   'dist-tags': { [index: string]: string }
 }
 
+const WASM_RUNTIME_REGISTRY_URL =
+  'https://registry.npmjs.org/@napi-rs/wasm-runtime'
+
+async function getLatestWasmRuntimeVersion() {
+  let response: Response
+
+  try {
+    response = await fetch(WASM_RUNTIME_REGISTRY_URL)
+  } catch (error) {
+    throw new Error(
+      `Failed to fetch ${WASM_RUNTIME_REGISTRY_URL} while resolving @napi-rs/wasm-runtime. Check your network connection and npm registry availability.`,
+      { cause: error },
+    )
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch ${WASM_RUNTIME_REGISTRY_URL} while resolving @napi-rs/wasm-runtime: npm registry responded with ${response.status} ${response.statusText || 'Unknown Status'}`,
+    )
+  }
+
+  let packageMeta: PackageMeta
+
+  try {
+    packageMeta = (await response.json()) as PackageMeta
+  } catch (error) {
+    throw new Error(
+      `Failed to parse npm registry metadata for @napi-rs/wasm-runtime from ${WASM_RUNTIME_REGISTRY_URL}`,
+      { cause: error },
+    )
+  }
+
+  const latestVersion = packageMeta['dist-tags']?.latest
+
+  if (!latestVersion) {
+    throw new Error(
+      `npm registry metadata for @napi-rs/wasm-runtime from ${WASM_RUNTIME_REGISTRY_URL} did not include a latest dist-tag`,
+    )
+  }
+
+  return latestVersion
+}
+
 export async function createNpmDirs(userOptions: CreateNpmDirsOptions) {
   const options = applyDefaultCreateNpmDirsOptions(userOptions)
 
@@ -60,6 +103,9 @@ export async function createNpmDirs(userOptions: CreateNpmDirsOptions) {
       packageJsonPath,
       options.configPath ? resolve(options.cwd, options.configPath) : undefined,
     )
+  const wasmRuntimeVersion = targets.some((target) => target.arch === 'wasm32')
+    ? await getLatestWasmRuntimeVersion()
+    : undefined
 
   for (const target of targets) {
     const targetDir = join(npmPath, `${target.platformArchABI}`)
@@ -126,11 +172,8 @@ export async function createNpmDirs(userOptions: CreateNpmDirsOptions) {
         }
       }
       const emnapiVersion = require('emnapi/package.json').version
-      const wasmRuntime = await fetch(
-        `https://registry.npmjs.org/@napi-rs/wasm-runtime`,
-      ).then((res) => res.json() as Promise<PackageMeta>)
       scopedPackageJson.dependencies = {
-        '@napi-rs/wasm-runtime': `^${wasmRuntime['dist-tags'].latest}`,
+        '@napi-rs/wasm-runtime': `^${wasmRuntimeVersion}`,
         '@emnapi/core': emnapiVersion,
         '@emnapi/runtime': emnapiVersion,
       }
