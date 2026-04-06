@@ -62,13 +62,13 @@ async function getLatestWasmRuntimeVersion() {
 
   const latestVersion = packageMeta['dist-tags']?.latest
 
-  if (!latestVersion) {
+  if (typeof latestVersion !== 'string' || latestVersion.trim().length === 0) {
     throw new Error(
       `npm registry metadata for ${WASM_RUNTIME_PACKAGE_NAME} from ${packageMetadataUrl} did not include a latest dist-tag`,
     )
   }
 
-  return latestVersion
+  return latestVersion.trim()
 }
 
 export async function createNpmDirs(userOptions: CreateNpmDirsOptions) {

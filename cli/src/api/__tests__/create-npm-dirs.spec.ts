@@ -51,18 +51,18 @@ test.afterEach.always(async (t) => {
   }
 })
 
-async function startRegistryServer() {
+async function startRegistryServer(
+  responseBody: Record<string, unknown> = {
+    'dist-tags': {
+      latest: '1.2.3',
+    },
+  },
+) {
   const requests: string[] = []
   const server = createServer((req, res) => {
     requests.push(req.url ?? '')
     res.setHeader('content-type', 'application/json')
-    res.end(
-      JSON.stringify({
-        'dist-tags': {
-          latest: '1.2.3',
-        },
-      }),
-    )
+    res.end(JSON.stringify(responseBody))
   })
 
   await new Promise<void>((resolve, reject) => {
@@ -302,6 +302,45 @@ test('should set @emnapi/core and @emnapi/runtime versions to match emnapi for W
   t.is(scopedPackageJson.dependencies['@emnapi/core'], emnapiVersion)
   t.is(scopedPackageJson.dependencies['@emnapi/runtime'], emnapiVersion)
 })
+
+test.serial(
+  'should reject an empty latest dist-tag when resolving wasm runtime metadata',
+  async (t) => {
+    const { tmpDir, packageJsonPath } = t.context
+    const registryServer = await startRegistryServer({
+      'dist-tags': {
+        latest: '   ',
+      },
+    })
+
+    process.env.npm_config_registry = `${registryServer.origin}/npm`
+
+    const packageJson = {
+      name: 'test-wasm-empty-latest-tag',
+      version: '1.0.0',
+      napi: {
+        binaryName: 'test-wasm-empty-latest-tag',
+        targets: ['wasm32-wasi-preview1-threads'],
+      },
+    }
+
+    await writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2))
+
+    try {
+      const error = await t.throwsAsync(() =>
+        createNpmDirs({
+          cwd: tmpDir,
+          packageJsonPath: 'package.json',
+        }),
+      )
+
+      t.regex(error.message, /did not include a latest dist-tag/)
+      t.deepEqual(registryServer.requests, ['/npm/@napi-rs/wasm-runtime'])
+    } finally {
+      await registryServer.close()
+    }
+  },
+)
 
 test.serial(
   'should ignore publishConfig.registry when resolving wasm runtime metadata',
