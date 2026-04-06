@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -13,6 +14,7 @@ const require = createRequire(import.meta.url)
 const test = ava as TestFn<{
   tmpDir: string
   packageJsonPath: string
+  npmConfigRegistry?: string
 }>
 
 test.beforeEach(async (t) => {
@@ -29,15 +31,67 @@ test.beforeEach(async (t) => {
   // Create the directory
   await mkdir(tmpDir, { recursive: true })
 
-  t.context = { tmpDir, packageJsonPath }
+  t.context = {
+    tmpDir,
+    packageJsonPath,
+    npmConfigRegistry: process.env.npm_config_registry,
+  }
 })
 
 test.afterEach.always(async (t) => {
+  if (t.context.npmConfigRegistry === undefined) {
+    delete process.env.npm_config_registry
+  } else {
+    process.env.npm_config_registry = t.context.npmConfigRegistry
+  }
+
   // Clean up any created directories
   if (existsSync(t.context.tmpDir)) {
     await rm(t.context.tmpDir, { recursive: true, force: true })
   }
 })
+
+async function startRegistryServer() {
+  const requests: string[] = []
+  const server = createServer((req, res) => {
+    requests.push(req.url ?? '')
+    res.setHeader('content-type', 'application/json')
+    res.end(
+      JSON.stringify({
+        'dist-tags': {
+          latest: '1.2.3',
+        },
+      }),
+    )
+  })
+
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => resolve())
+  })
+
+  const address = server.address()
+
+  if (!address || typeof address === 'string') {
+    server.close()
+    throw new Error('Failed to resolve test registry server address')
+  }
+
+  return {
+    requests,
+    close: () =>
+      new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error) {
+            reject(error)
+          } else {
+            resolve()
+          }
+        })
+      }),
+    origin: `http://127.0.0.1:${address.port}`,
+  }
+}
 
 test('should omit exports fields from publishConfig in scoped packages', async (t) => {
   const { tmpDir, packageJsonPath } = t.context
@@ -165,13 +219,14 @@ test('should preserve only registry and access in publishConfig', async (t) => {
 
 test('should handle WASM targets correctly with publishConfig', async (t) => {
   const { tmpDir, packageJsonPath } = t.context
+  const registryServer = await startRegistryServer()
 
   // Create a package.json for WASM target
   const packageJson = {
     name: 'test-wasm-package',
     version: '1.0.0',
     publishConfig: {
-      registry: 'https://wasm-registry.com',
+      registry: `${registryServer.origin}/wasm`,
       access: 'public',
       exports: './wasm.js',
       browser: './browser.js',
@@ -184,32 +239,39 @@ test('should handle WASM targets correctly with publishConfig', async (t) => {
 
   await writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2))
 
-  await createNpmDirs({
-    cwd: tmpDir,
-    packageJsonPath: 'package.json',
-  })
+  try {
+    await createNpmDirs({
+      cwd: tmpDir,
+      packageJsonPath: 'package.json',
+    })
 
-  // Check that the scoped package directory was created
-  const scopedDir = join(tmpDir, 'npm', 'wasm32-wasi')
-  t.true(existsSync(scopedDir))
+    // Check that the scoped package directory was created
+    const scopedDir = join(tmpDir, 'npm', 'wasm32-wasi')
+    t.true(existsSync(scopedDir))
 
-  // Read the generated package.json for the scoped package
-  const scopedPackageJsonPath = join(scopedDir, 'package.json')
-  const scopedPackageJson = JSON.parse(
-    await readFile(scopedPackageJsonPath, 'utf-8'),
-  )
+    // Read the generated package.json for the scoped package
+    const scopedPackageJsonPath = join(scopedDir, 'package.json')
+    const scopedPackageJson = JSON.parse(
+      await readFile(scopedPackageJsonPath, 'utf-8'),
+    )
 
-  // Verify that publishConfig is correctly filtered for WASM too
-  t.truthy(scopedPackageJson.publishConfig)
-  t.is(scopedPackageJson.publishConfig.registry, 'https://wasm-registry.com')
-  t.is(scopedPackageJson.publishConfig.access, 'public')
-  t.is(scopedPackageJson.publishConfig.exports, undefined)
-  t.is(scopedPackageJson.publishConfig.browser, undefined)
+    // Verify that publishConfig is correctly filtered for WASM too
+    t.truthy(scopedPackageJson.publishConfig)
+    t.is(
+      scopedPackageJson.publishConfig.registry,
+      `${registryServer.origin}/wasm`,
+    )
+    t.is(scopedPackageJson.publishConfig.access, 'public')
+    t.is(scopedPackageJson.publishConfig.exports, undefined)
+    t.is(scopedPackageJson.publishConfig.browser, undefined)
 
-  // Verify WASM-specific fields are set correctly
-  t.truthy(scopedPackageJson.main)
-  t.truthy(scopedPackageJson.browser)
-  t.truthy(scopedPackageJson.dependencies)
+    // Verify WASM-specific fields are set correctly
+    t.truthy(scopedPackageJson.main)
+    t.truthy(scopedPackageJson.browser)
+    t.truthy(scopedPackageJson.dependencies)
+  } finally {
+    await registryServer.close()
+  }
 })
 
 test('should set @emnapi/core and @emnapi/runtime versions to match emnapi for WASM targets', async (t) => {
@@ -240,3 +302,73 @@ test('should set @emnapi/core and @emnapi/runtime versions to match emnapi for W
   t.is(scopedPackageJson.dependencies['@emnapi/core'], emnapiVersion)
   t.is(scopedPackageJson.dependencies['@emnapi/runtime'], emnapiVersion)
 })
+
+test.serial(
+  'should ignore publishConfig.registry when resolving wasm runtime metadata',
+  async (t) => {
+    const { tmpDir, packageJsonPath } = t.context
+    const registryServer = await startRegistryServer()
+    const envRegistryServer = await startRegistryServer()
+
+    process.env.npm_config_registry = `${envRegistryServer.origin}/env`
+
+    const packageJson = {
+      name: 'test-wasm-publish-registry',
+      version: '1.0.0',
+      publishConfig: {
+        registry: `${registryServer.origin}/custom`,
+      },
+      napi: {
+        binaryName: 'test-wasm-publish-registry',
+        targets: ['wasm32-wasi-preview1-threads'],
+      },
+    }
+
+    await writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2))
+
+    try {
+      await createNpmDirs({
+        cwd: tmpDir,
+        packageJsonPath: 'package.json',
+      })
+
+      t.deepEqual(registryServer.requests, [])
+      t.deepEqual(envRegistryServer.requests, ['/env/@napi-rs/wasm-runtime'])
+    } finally {
+      await registryServer.close()
+      await envRegistryServer.close()
+    }
+  },
+)
+
+test.serial(
+  'should resolve wasm runtime metadata from npm_config_registry',
+  async (t) => {
+    const { tmpDir, packageJsonPath } = t.context
+    const registryServer = await startRegistryServer()
+
+    process.env.npm_config_registry = `${registryServer.origin}/npm`
+
+    const packageJson = {
+      name: 'test-wasm-env-registry',
+      version: '1.0.0',
+      napi: {
+        binaryName: 'test-wasm-env-registry',
+        targets: ['wasm32-wasi-preview1-threads'],
+      },
+    }
+
+    await writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2))
+
+    try {
+      await createNpmDirs({
+        cwd: tmpDir,
+        packageJsonPath: 'package.json',
+      })
+
+      t.deepEqual(registryServer.requests, ['/npm/@napi-rs/wasm-runtime'])
+    } finally {
+      await registryServer.close()
+    }
+  },
+)

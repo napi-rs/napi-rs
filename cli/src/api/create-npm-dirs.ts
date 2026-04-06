@@ -25,24 +25,27 @@ export interface PackageMeta {
   'dist-tags': { [index: string]: string }
 }
 
-const WASM_RUNTIME_REGISTRY_URL =
-  'https://registry.npmjs.org/@napi-rs/wasm-runtime'
+const WASM_RUNTIME_PACKAGE_NAME = '@napi-rs/wasm-runtime'
 
 async function getLatestWasmRuntimeVersion() {
+  const npmRegistryBase =
+    process.env.npm_config_registry?.replace(/\/?$/, '/') ??
+    'https://registry.npmjs.org/'
+  const packageMetadataUrl = `${npmRegistryBase}${WASM_RUNTIME_PACKAGE_NAME}`
   let response: Response
 
   try {
-    response = await fetch(WASM_RUNTIME_REGISTRY_URL)
+    response = await fetch(packageMetadataUrl)
   } catch (error) {
     throw new Error(
-      `Failed to fetch ${WASM_RUNTIME_REGISTRY_URL} while resolving @napi-rs/wasm-runtime. Check your network connection and npm registry availability.`,
+      `Failed to fetch ${packageMetadataUrl} while resolving ${WASM_RUNTIME_PACKAGE_NAME}. Check your network connection and npm registry availability.`,
       { cause: error },
     )
   }
 
   if (!response.ok) {
     throw new Error(
-      `Failed to fetch ${WASM_RUNTIME_REGISTRY_URL} while resolving @napi-rs/wasm-runtime: npm registry responded with ${response.status} ${response.statusText || 'Unknown Status'}`,
+      `Failed to fetch ${packageMetadataUrl} while resolving ${WASM_RUNTIME_PACKAGE_NAME}: npm registry responded with ${response.status} ${response.statusText || 'Unknown Status'}`,
     )
   }
 
@@ -52,7 +55,7 @@ async function getLatestWasmRuntimeVersion() {
     packageMeta = (await response.json()) as PackageMeta
   } catch (error) {
     throw new Error(
-      `Failed to parse npm registry metadata for @napi-rs/wasm-runtime from ${WASM_RUNTIME_REGISTRY_URL}`,
+      `Failed to parse npm registry metadata for ${WASM_RUNTIME_PACKAGE_NAME} from ${packageMetadataUrl}`,
       { cause: error },
     )
   }
@@ -61,7 +64,7 @@ async function getLatestWasmRuntimeVersion() {
 
   if (!latestVersion) {
     throw new Error(
-      `npm registry metadata for @napi-rs/wasm-runtime from ${WASM_RUNTIME_REGISTRY_URL} did not include a latest dist-tag`,
+      `npm registry metadata for ${WASM_RUNTIME_PACKAGE_NAME} from ${packageMetadataUrl} did not include a latest dist-tag`,
     )
   }
 
