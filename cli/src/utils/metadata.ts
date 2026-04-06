@@ -62,7 +62,7 @@ export async function parseMetadata(manifestPath: string) {
   let stdout = ''
   let stderr = ''
   let status = 0
-  let error = null
+  let error: Error | null = null
 
   childProcess.stdout.on('data', (data) => {
     stdout += data
@@ -70,6 +70,10 @@ export async function parseMetadata(manifestPath: string) {
 
   childProcess.stderr.on('data', (data) => {
     stderr += data
+  })
+
+  childProcess.on('error', (err) => {
+    error = err
   })
 
   await new Promise<void>((resolve) => {
