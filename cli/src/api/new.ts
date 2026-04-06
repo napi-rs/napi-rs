@@ -123,7 +123,7 @@ async function copyDirectory(
         !includeWasiBindings &&
         (entry.name.endsWith('.wasi-browser.js') ||
           entry.name.endsWith('.wasi.cjs') ||
-          entry.name.endsWith('wasi-worker.browser.mjs ') ||
+          entry.name.endsWith('wasi-worker-browser.mjs') ||
           entry.name.endsWith('wasi-worker.mjs') ||
           entry.name.endsWith('browser.js'))
       ) {

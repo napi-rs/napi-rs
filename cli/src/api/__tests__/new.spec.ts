@@ -56,6 +56,8 @@ test('create a new project with default options', async (t) => {
   t.is(pkgJson.license, 'MIT')
   t.truthy(pkgJson.engines.node)
   t.falsy(existsSync(join(projectPath, 'default-project.wasi-browser.js')))
+  t.falsy(existsSync(join(projectPath, 'wasi-worker-browser.mjs')))
+  t.falsy(existsSync(join(projectPath, 'wasi-worker.mjs')))
   const gitAttributes = await readFile(
     join(projectPath, '.gitattributes'),
     'utf-8',
