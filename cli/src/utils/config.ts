@@ -83,6 +83,10 @@ export interface UserNapiConfig {
        * Whether to inject `buffer` to emnapi context
        */
       buffer?: boolean
+      /**
+       * Whether to emit custom events for errors in worker
+       */
+      errorEvent?: boolean
     }
   }
 

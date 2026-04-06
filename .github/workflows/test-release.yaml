@@ -309,7 +309,7 @@ jobs:
 
       - name: Setup OpenHarmony SDK
         if: ${{ contains(matrix.settings.target, 'ohos') }}
-        uses: openharmony-rs/setup-ohos-sdk@v0.2
+        uses: openharmony-rs/setup-ohos-sdk@v1.0
 
       - name: Install
         uses: dtolnay/rust-toolchain@stable
@@ -386,11 +386,11 @@ jobs:
           CARGO_PROFILE_DEV_OPT_LEVEL: 1
           TARGET_CC: clang
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.settings.target }}-example
           path: examples/napi/*.node
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.settings.target }}-example-compat
           path: examples/napi-compat-mode/index.node
@@ -446,12 +446,12 @@ jobs:
       - name: Cross build musl
         run: yarn build:test -- --target ${{ matrix.settings.target }} -x
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.settings.target }}-example
           path: examples/napi/*.node
           if-no-files-found: error
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.settings.target }}-example-compat
           path: examples/napi-compat-mode/index.node
@@ -510,11 +510,11 @@ jobs:
         with:
           node-version: 24
           cache: 'yarn'
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: ${{ matrix.settings.target }}-example
           path: examples/napi/
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: ${{ matrix.settings.target }}-example-compat
           path: examples/napi-compat-mode/index.node
@@ -531,7 +531,7 @@ jobs:
           yarn install --immutable --mode=skip-build
           yarn workspace @napi-rs/wasm-runtime build
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
         if: ${{ !contains(matrix.settings.target, 'aarch64') }}
         with:
           platforms: all
@@ -543,16 +543,14 @@ jobs:
         run: |
           node -e "console.info('docker-image=${{ matrix.settings.image }}'.replace('{:version}', ${{ matrix.node }}))" >> "$GITHUB_OUTPUT"
       - name: Setup and run tests
-        uses: addnab/docker-run-action@v3
         # Node.js on qemu randomly segfaults on powerpc64le
         continue-on-error: ${{ matrix.settings.target == 'powerpc64le-unknown-linux-gnu' || matrix.settings.target == 's390x-unknown-linux-gnu' }}
-        with:
-          image: ${{ steps.image-name.outputs.docker-image }}
-          options: ${{ matrix.settings.args }} -v ${{ github.workspace }}:/build -w /build
-          run: |
-            export NODE_OPTIONS=--max-old-space-size=8192
-            export DISABLE_V8_COMPILE_CACHE=1
-            yarn workspace @examples/napi test
+        run: >-
+          docker run --rm
+          ${{ matrix.settings.args }}
+          -v ${{ github.workspace }}:/build -w /build
+          ${{ steps.image-name.outputs.docker-image }}
+          sh -c "export NODE_OPTIONS=--max-old-space-size=8192 && export DISABLE_V8_COMPILE_CACHE=1 && yarn workspace @examples/napi test"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -597,11 +595,12 @@ jobs:
       - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
 
       - name: Setup and run tests
-        uses: addnab/docker-run-action@v3
-        with:
-          image: node:22-slim
-          options: --platform linux/arm/v7 -v ${{ github.workspace }}:/build -w /build
-          run: yarn test
+        run: >-
+          docker run --rm
+          --platform linux/arm/v7
+          -v ${{ github.workspace }}:/build -w /build
+          node:22-slim
+          sh -c "yarn test"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -686,6 +685,45 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v6
+      - name: Install ziglang
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+      - uses: jaxxstorm/action-install-gh-release@v1
+        with:
+          repo: rust-cross/cargo-zigbuild
+      - name: Setup node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: 'yarn'
+
+      - name: Install
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: x86_64-unknown-freebsd
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: stable-cargo-cache-build-freebsd
+
+      - name: 'Install dependencies'
+        run: |
+          yarn config set supportedArchitectures.cpu --json '["current", "x64", "arm64", "wasm32"]'
+          yarn config set supportedArchitectures.os --json '["current", "freebsd"]'
+          yarn install --mode=skip-build --immutable
+      - name: Build
+        run: |
+          yarn workspace @examples/napi build --target x86_64-unknown-freebsd -x
+          yarn tsc -p examples/napi/tsconfig.json
+          rm -rf examples/napi/__tests__
+          mv examples/napi/dist/__tests__ examples/napi/
       - name: Test
         id: build
         uses: cross-platform-actions/action@v0.32.0
@@ -697,7 +735,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           operating_system: freebsd
-          version: '14.3'
+          version: '15.0'
           memory: 12G
           cpu_count: 3
           environment_variables: 'DEBUG RUSTUP_IO_THREADS GITHUB_TOKEN'
@@ -707,11 +745,6 @@ jobs:
             sudo pkg install -y -f curl node libnghttp2 npm
             sudo npm install -g corepack
             sudo corepack enable
-            curl https://sh.rustup.rs -sSf --output rustup.sh
-            sh rustup.sh -y --default-toolchain stable
-            source "$HOME/.cargo/env"
-            echo "~~~~ rustc --version ~~~~"
-            rustc --version
             echo "~~~~ node -v ~~~~"
             node -v
             echo "~~~~ yarn --version ~~~~"
@@ -721,26 +754,13 @@ jobs:
             whoami
             env
             freebsd-version
-            yarn config set supportedArchitectures.cpu --json '["current", "wasm32"]'
             export NODE_OPTIONS="--max-old-space-size=8192"
-            export CARGO_PROFILE_DEV_OPT_LEVEL="1"
-            yarn install --immutable --mode=skip-build
-            yarn workspace @examples/napi build
-            yarn tsc -p examples/napi/tsconfig.json
-            rm -rf examples/napi/__tests__
-            mv examples/napi/dist/__tests__ examples/napi/
             yarn workspace @examples/napi test-js -s
 
   test-node-wasi:
     runs-on: ubuntu-latest
     name: Test node wasi target
     timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        settings:
-          - RUSTFLAGS: '--cfg tokio_unstable'
-          - RUSTFLAGS: ''
     steps:
       - uses: actions/checkout@v6
       - name: Setup node
@@ -757,15 +777,15 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable --mode=skip-build
       - name: Check
-        if: ${{ matrix.settings.RUSTFLAGS == '--cfg tokio_unstable' }}
         run: cargo check -p napi --all-features --target wasm32-wasip1-threads
         env:
-          RUSTFLAGS: ${{ matrix.settings.RUSTFLAGS }}
+          RUSTFLAGS: '--cfg tokio_unstable'
       - name: Build
         run: |
           yarn build
-          export RUSTFLAGS="${{ matrix.settings.RUSTFLAGS }}"
           yarn workspace @examples/napi build --target wasm32-wasip1-threads --profile wasi
+        env:
+          RUSTFLAGS: '--cfg tokio_unstable'
       - name: Test
         run: yarn workspace @examples/napi test -s
         env:

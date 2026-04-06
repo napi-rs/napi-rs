@@ -1,7 +1,9 @@
+import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 import ava, { type TestFn } from 'ava'
 import { load as yamlLoad } from 'js-yaml'
@@ -54,6 +56,8 @@ test('create a new project with default options', async (t) => {
   t.is(pkgJson.license, 'MIT')
   t.truthy(pkgJson.engines.node)
   t.falsy(existsSync(join(projectPath, 'default-project.wasi-browser.js')))
+  t.falsy(existsSync(join(projectPath, 'wasi-worker-browser.mjs')))
+  t.falsy(existsSync(join(projectPath, 'wasi-worker.mjs')))
   const gitAttributes = await readFile(
     join(projectPath, '.gitattributes'),
     'utf-8',
@@ -302,6 +306,46 @@ test('should fail when path is a file', async (t) => {
       })
     },
     { message: /already exists and it's not a directory/ },
+  )
+})
+
+test('should fail when git is unavailable', async (t) => {
+  const projectPath = join(t.context.tmpDir, 'missing-git')
+  const moduleUrl = pathToFileURL(join(process.cwd(), 'src/api/new.ts')).href
+
+  const result = await new Promise<{
+    code: number | null
+    stderr: string
+  }>((resolve) => {
+    execFile(
+      process.execPath,
+      [
+        '--import',
+        '@oxc-node/core/register',
+        '--input-type=module',
+        '-e',
+        `const { newProject } = await import(${JSON.stringify(moduleUrl)}); await newProject({ path: ${JSON.stringify(projectPath)}, enableDefaultTargets: true });`,
+      ],
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          PATH: '',
+        },
+      },
+      (error, _stdout, stderr) => {
+        resolve({
+          code: error && 'code' in error ? error.code : 0,
+          stderr,
+        })
+      },
+    )
+  })
+
+  t.not(result.code, 0)
+  t.regex(
+    result.stderr,
+    /Git is not installed or not available in PATH\. Please install Git to continue\./,
   )
 })
 

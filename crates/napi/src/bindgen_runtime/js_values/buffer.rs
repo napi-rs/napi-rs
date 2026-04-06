@@ -291,7 +291,7 @@ impl DerefMut for BufferSlice<'_> {
 
 /// Zero copy u8 vector shared between rust and napi.
 /// It's designed to be used in `async` context, so it contains overhead to ensure the underlying data is not dropped.
-/// For non-async context, use `BufferRef` instead.
+/// For non-async context, use `BufferSlice` instead.
 ///
 /// Auto reference the raw JavaScript value, and release it when dropped.
 /// So it is safe to use it in `async fn`, the `&[u8]` under the hood will not be dropped until the `drop` called.

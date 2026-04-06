@@ -50,6 +50,7 @@ export declare class Animal {
    * that should be escaped correctly:
    * \[]{}/\:""{
    * }
+   * Accept header "*\/json" should not break the comment block
    */
   returnOtherClass(): Dog
   returnOtherClassWithCustomConstructor(): Bird
@@ -168,6 +169,17 @@ export declare class Context {
   static withData(data: string): Context
   static withBuffer(buf: Uint8Array): Context
   method(): string
+}
+
+/**
+ * This type implements JavaScript's async iterable protocol.
+ * It can be used with `for await...of` loops.
+ *
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_async_iterator_and_async_iterable_protocols
+ */
+export declare class CounterRepro {
+  constructor(max: number)
+  [Symbol.asyncIterator](): AsyncGenerator<number, void, undefined>
 }
 
 export declare class CreateStringClass {

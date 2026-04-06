@@ -202,14 +202,19 @@ impl Display for JSDoc {
       return Ok(());
     }
 
+    // Escape `*/` sequences to prevent premature comment termination
+    fn escape_comment_close(s: &str) -> String {
+      s.replace("*/", "*\\/")
+    }
+
     if self.blocks.len() == 1 && self.blocks[0].len() == 1 {
-      return writeln!(f, "/** {} */", self.blocks[0][0]);
+      return writeln!(f, "/** {} */", escape_comment_close(&self.blocks[0][0]));
     }
 
     writeln!(f, "/**")?;
     for (i, block) in self.blocks.iter().enumerate() {
       for line in block {
-        writeln!(f, " * {line}")?;
+        writeln!(f, " * {}", escape_comment_close(line))?;
       }
       if i + 1 != self.blocks.len() {
         writeln!(f, " *")?;
