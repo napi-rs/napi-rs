@@ -34,24 +34,15 @@ const TEMPLATE_REPOS = {
 } as const
 
 async function checkGitCommand(): Promise<boolean> {
-  try {
-    await new Promise((resolve) => {
-      const cp = exec('git --version')
-      cp.on('error', () => {
-        resolve(false)
-      })
-      cp.on('exit', (code) => {
-        if (code === 0) {
-          resolve(true)
-        } else {
-          resolve(false)
-        }
-      })
+  return new Promise<boolean>((resolve) => {
+    const cp = exec('git --version')
+    cp.on('error', () => {
+      resolve(false)
     })
-    return true
-  } catch {
-    return false
-  }
+    cp.on('exit', (code) => {
+      resolve(code === 0)
+    })
+  })
 }
 
 async function ensureCacheDir(
