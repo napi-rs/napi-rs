@@ -274,6 +274,64 @@ test('should handle WASM targets correctly with publishConfig', async (t) => {
   }
 })
 
+test('should preserve stricter node engine ranges for WASM targets', async (t) => {
+  const { tmpDir, packageJsonPath } = t.context
+
+  const packageJson = {
+    name: 'test-wasm-engines',
+    version: '1.0.0',
+    engines: {
+      node: '>=18',
+    },
+    napi: {
+      binaryName: 'test-wasm-engines',
+      targets: ['wasm32-wasi-preview1-threads'],
+    },
+  }
+
+  await writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2))
+
+  await createNpmDirs({
+    cwd: tmpDir,
+    packageJsonPath: 'package.json',
+  })
+
+  const scopedPackageJson = JSON.parse(
+    await readFile(join(tmpDir, 'npm', 'wasm32-wasi', 'package.json'), 'utf-8'),
+  )
+
+  t.is(scopedPackageJson.engines.node, '>=18')
+})
+
+test('should intersect mixed node engine ranges with the WASI minimum', async (t) => {
+  const { tmpDir, packageJsonPath } = t.context
+
+  const packageJson = {
+    name: 'test-wasm-mixed-engines',
+    version: '1.0.0',
+    engines: {
+      node: '>=12 <14 || >=18',
+    },
+    napi: {
+      binaryName: 'test-wasm-mixed-engines',
+      targets: ['wasm32-wasi-preview1-threads'],
+    },
+  }
+
+  await writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2))
+
+  await createNpmDirs({
+    cwd: tmpDir,
+    packageJsonPath: 'package.json',
+  })
+
+  const scopedPackageJson = JSON.parse(
+    await readFile(join(tmpDir, 'npm', 'wasm32-wasi', 'package.json'), 'utf-8'),
+  )
+
+  t.is(scopedPackageJson.engines.node, '>=18.0.0')
+})
+
 test('should set @emnapi/core and @emnapi/runtime versions to match emnapi for WASM targets', async (t) => {
   const { tmpDir, packageJsonPath } = t.context
 
