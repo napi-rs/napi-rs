@@ -3,6 +3,17 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [3.6.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.6.0...@napi-rs/cli@3.6.1) (2026-04-08)
+
+### Bug Fixes
+
+- **cli:** avoid renaming wasi artifacts when binaryName is omitted ([#3199](https://github.com/napi-rs/napi-rs/issues/3199)) ([99be12c](https://github.com/napi-rs/napi-rs/commit/99be12c1aa265bd9a2484a91bfc090f95d13e51c))
+- **cli:** fail early when git is unavailable in new command ([#3190](https://github.com/napi-rs/napi-rs/issues/3190)) ([db50db9](https://github.com/napi-rs/napi-rs/commit/db50db9cc3e2e8a1746da2c0ff7d162adef91137))
+- **cli:** handle cargo metadata spawn errors ([#3192](https://github.com/napi-rs/napi-rs/issues/3192)) ([c339c6c](https://github.com/napi-rs/napi-rs/commit/c339c6c1b40bd9e16913eed2b332e514bd0ce987))
+- **cli:** harden wasm runtime registry lookup ([#3193](https://github.com/napi-rs/napi-rs/issues/3193)) ([a8b3f93](https://github.com/napi-rs/napi-rs/commit/a8b3f93539139c04306e934a3b9b22b0d0b516f9))
+- **cli:** respect --cross-compile when host matches target ([#3189](https://github.com/napi-rs/napi-rs/issues/3189)) ([0049ff6](https://github.com/napi-rs/napi-rs/commit/0049ff65a47bb2c9db0b36b51b4068ed8c2c3888)), closes [#1432](https://github.com/napi-rs/napi-rs/issues/1432) [#1492](https://github.com/napi-rs/napi-rs/issues/1492)
+- **cli:** skip wasi worker files in non-WASI projects ([#3191](https://github.com/napi-rs/napi-rs/issues/3191)) ([778bd57](https://github.com/napi-rs/napi-rs/commit/778bd57b7b63482f259d9ffbb6c85b50d319cea8))
+
 # [3.6.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.5.1...@napi-rs/cli@3.6.0) (2026-03-28)
 
 ### Bug Fixes
