@@ -1,0 +1,4 @@
+*.node
+index.cjs
+index.d.cts
+npm/

@@ -92,6 +92,24 @@ impl Diagnostic {
   }
 }
 
+impl std::fmt::Display for Diagnostic {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match &self.inner {
+      Repr::Single { text, .. } => write!(f, "{}", text),
+      Repr::SynError(error) => write!(f, "{}", error),
+      Repr::Multi { diagnostics } => {
+        for (i, d) in diagnostics.iter().enumerate() {
+          if i > 0 {
+            write!(f, "; ")?;
+          }
+          write!(f, "{}", d)?;
+        }
+        Ok(())
+      }
+    }
+  }
+}
+
 impl From<Error> for Diagnostic {
   fn from(err: Error) -> Diagnostic {
     Diagnostic {

@@ -1,0 +1,18 @@
+[package]
+name = "napi-typegen-binding"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+rust-version.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi-typegen = { path = "../crates/typegen" }
+napi = { path = "../crates/napi", default-features = false, features = ["napi4"] }
+napi-derive = { path = "../crates/macro" }
+
+[build-dependencies]
+napi-build = { path = "../crates/build" }
