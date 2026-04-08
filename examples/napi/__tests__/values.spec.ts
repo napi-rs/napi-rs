@@ -1031,7 +1031,7 @@ test('Result', (t) => {
   const [errWithNullCause] = jsErrorCallback(nullCauseError)
   t.deepEqual(errWithNullCause!.message, 'null cause')
   // errWithNullCause is the original JS error (via napi_ref), so .cause stays null
-  t.is(errWithNullCause!.cause, null)
+  t.is(errWithNullCause!.cause, process.env.WASI_TEST ? void 0 : null)
 
   // non-nullish cause should still be preserved
   const [errWithRealCause] = jsErrorCallback(

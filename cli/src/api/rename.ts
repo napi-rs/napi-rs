@@ -45,8 +45,16 @@ export async function renameProject(userOptions: RenameOptions) {
     const configPath = resolve(options.cwd, options.configPath)
     const configContent = await readFileAsync(configPath, 'utf8')
     const configData = JSON.parse(configContent)
-    configData.binaryName = options.binaryName
-    configData.packageName = options.packageName
+    merge(
+      configData,
+      omitBy(
+        {
+          binaryName: options.binaryName,
+          packageName: options.packageName,
+        },
+        isNil,
+      ),
+    )
     await writeFileAsync(configPath, JSON.stringify(configData, null, 2))
   }
 
@@ -73,7 +81,7 @@ export async function renameProject(userOptions: RenameOptions) {
   const updatedTomlContent = stringifyToml(cargoToml)
 
   await writeFileAsync(cargoTomlPath, updatedTomlContent)
-  if (oldName !== options.binaryName) {
+  if (options.binaryName && oldName !== options.binaryName) {
     const githubActionsPath = find.dir('.github', {
       cwd: options.cwd,
     })
