@@ -157,15 +157,11 @@ export async function createNpmDirs(userOptions: CreateNpmDirsOptions) {
         `wasi-worker.mjs`,
         `wasi-worker-browser.mjs`,
       )
-      if (scopedPackageJson.engines?.node) {
-        scopedPackageJson.engines = {
-          ...scopedPackageJson.engines,
-          node: restrictWasiNodeEngine(scopedPackageJson.engines.node),
-        }
-      } else {
-        scopedPackageJson.engines = {
-          node: minimumWasiNodeVersion,
-        }
+      scopedPackageJson.engines = {
+        ...scopedPackageJson.engines,
+        node: scopedPackageJson.engines?.node
+          ? restrictWasiNodeEngine(scopedPackageJson.engines.node)
+          : minimumWasiNodeVersion,
       }
       const emnapiVersion = require('emnapi/package.json').version
       scopedPackageJson.dependencies = {

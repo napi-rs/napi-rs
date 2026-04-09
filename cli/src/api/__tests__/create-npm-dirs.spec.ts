@@ -332,6 +332,38 @@ test('should intersect mixed node engine ranges with the WASI minimum', async (t
   t.is(scopedPackageJson.engines.node, '>=18.0.0')
 })
 
+test('should preserve sibling engine constraints when node is missing for WASM targets', async (t) => {
+  const { tmpDir, packageJsonPath } = t.context
+
+  const packageJson = {
+    name: 'test-wasm-sibling-engines',
+    version: '1.0.0',
+    engines: {
+      npm: '>=10',
+    },
+    napi: {
+      binaryName: 'test-wasm-sibling-engines',
+      targets: ['wasm32-wasi-preview1-threads'],
+    },
+  }
+
+  await writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2))
+
+  await createNpmDirs({
+    cwd: tmpDir,
+    packageJsonPath: 'package.json',
+  })
+
+  const scopedPackageJson = JSON.parse(
+    await readFile(join(tmpDir, 'npm', 'wasm32-wasi', 'package.json'), 'utf-8'),
+  )
+
+  t.deepEqual(scopedPackageJson.engines, {
+    npm: '>=10',
+    node: '>=14.0.0',
+  })
+})
+
 test('should set @emnapi/core and @emnapi/runtime versions to match emnapi for WASM targets', async (t) => {
   const { tmpDir, packageJsonPath } = t.context
 
