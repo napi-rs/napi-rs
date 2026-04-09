@@ -211,7 +211,10 @@ function restrictWasiNodeEngine(nodeRange: string) {
       .map((comparators) =>
         normalizeComparatorSet([...comparators, minimumComparator]),
       )
-      .filter((candidate) => minVersion(candidate) !== null)
+      .filter(
+        (candidate): candidate is string =>
+          candidate !== undefined && minVersion(candidate) !== null,
+      )
 
     if (restrictedRangeSets.length > 0) {
       return restrictedRangeSets.join(' || ')
@@ -226,7 +229,9 @@ function restrictWasiNodeEngine(nodeRange: string) {
 function normalizeComparatorSet(comparators: Comparator[]) {
   const exactMatch = comparators.find(({ operator }) => operator === '')
   if (exactMatch) {
-    return exactMatch.value
+    return comparators.every((comparator) => comparator.test(exactMatch.semver))
+      ? exactMatch.value
+      : undefined
   }
 
   let lowerBound: Comparator | undefined

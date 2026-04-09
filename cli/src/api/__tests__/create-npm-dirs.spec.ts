@@ -364,6 +364,64 @@ test('should preserve sibling engine constraints when node is missing for WASM t
   })
 })
 
+test('should replace an exact node engine below the WASI minimum for WASM targets', async (t) => {
+  const { tmpDir, packageJsonPath } = t.context
+
+  const packageJson = {
+    name: 'test-wasm-exact-node-engine',
+    version: '1.0.0',
+    engines: {
+      node: '13.0.0',
+    },
+    napi: {
+      binaryName: 'test-wasm-exact-node-engine',
+      targets: ['wasm32-wasi-preview1-threads'],
+    },
+  }
+
+  await writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2))
+
+  await createNpmDirs({
+    cwd: tmpDir,
+    packageJsonPath: 'package.json',
+  })
+
+  const scopedPackageJson = JSON.parse(
+    await readFile(join(tmpDir, 'npm', 'wasm32-wasi', 'package.json'), 'utf-8'),
+  )
+
+  t.is(scopedPackageJson.engines.node, '>=14.0.0')
+})
+
+test('should drop exact node engine branches below the WASI minimum for WASM targets', async (t) => {
+  const { tmpDir, packageJsonPath } = t.context
+
+  const packageJson = {
+    name: 'test-wasm-exact-node-branch',
+    version: '1.0.0',
+    engines: {
+      node: '13.0.0 || >=18',
+    },
+    napi: {
+      binaryName: 'test-wasm-exact-node-branch',
+      targets: ['wasm32-wasi-preview1-threads'],
+    },
+  }
+
+  await writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2))
+
+  await createNpmDirs({
+    cwd: tmpDir,
+    packageJsonPath: 'package.json',
+  })
+
+  const scopedPackageJson = JSON.parse(
+    await readFile(join(tmpDir, 'npm', 'wasm32-wasi', 'package.json'), 'utf-8'),
+  )
+
+  t.is(scopedPackageJson.engines.node, '>=18.0.0')
+})
+
 test('should set @emnapi/core and @emnapi/runtime versions to match emnapi for WASM targets', async (t) => {
   const { tmpDir, packageJsonPath } = t.context
 
