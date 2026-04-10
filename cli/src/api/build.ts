@@ -1093,19 +1093,21 @@ export async function generateTypeDef(
     return { exports: [], dts: '' }
   }
 
-  for (const file of files) {
-    if (!file.isFile()) {
-      continue
-    }
+  const typeDefFiles = files
+    .filter((file) => file.isFile())
+    .sort((a, b) => a.name.localeCompare(b.name))
 
-    const { dts: fileDts, exports: fileExports } = await processTypeDef(
-      join(options.typeDefDir, file.name),
-      options.constEnum ?? true,
-    )
+  const processedTypeDefs = await Promise.all(
+    typeDefFiles.map((file) =>
+      processTypeDef(
+        join(options.typeDefDir, file.name),
+        options.constEnum ?? true,
+      ),
+    ),
+  )
 
-    dts += fileDts
-    exports.push(...fileExports)
-  }
+  dts = processedTypeDefs.map(({ dts }) => dts).join('')
+  exports = processedTypeDefs.flatMap(({ exports }) => exports)
 
   if (dts.indexOf('ExternalObject<') > -1) {
     header += `

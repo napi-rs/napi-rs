@@ -184,6 +184,31 @@ napi-build = { path = "${napiBuildPath}" }
   t.regex(jsContent, /module\.exports\.sum = nativeBinding\.sum/)
 })
 
+test('generateTypeDef preserves deterministic file order', async (t) => {
+  const { projectDir, typeDefDir } = t.context
+
+  await mkdir(join(typeDefDir, 'nested'), { recursive: true })
+  await writeFile(
+    join(typeDefDir, 'b.type'),
+    '{"kind":"fn","name":"zeta","def":"function zeta(): void"}\n',
+  )
+  await writeFile(
+    join(typeDefDir, 'a.type'),
+    '{"kind":"fn","name":"alpha","def":"function alpha(): void"}\n',
+  )
+
+  const { exports, dts } = await generateTypeDef({
+    typeDefDir,
+    cwd: projectDir,
+  })
+
+  t.deepEqual(exports, ['alpha', 'zeta'])
+  t.true(
+    dts.indexOf('function alpha(): void') <
+      dts.indexOf('function zeta(): void'),
+  )
+})
+
 test('should throw on emnapi version mismatch in wasm build', async (t) => {
   const { projectDir } = t.context
   const crateName = 'wasm_version_check'
