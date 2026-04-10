@@ -43,6 +43,27 @@ export function pick<O, K extends keyof O>(o: O, ...keys: K[]): Pick<O, K> {
   }, {} as O)
 }
 
+function isPlainObject(value: unknown): value is Record<string, any> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function mergePackageJson(
+  old: Record<string, any>,
+  partial: Record<string, any>,
+): Record<string, any> {
+  const merged = { ...old }
+
+  for (const [key, value] of Object.entries(partial)) {
+    if (isPlainObject(merged[key]) && isPlainObject(value)) {
+      merged[key] = mergePackageJson(merged[key], value)
+    } else {
+      merged[key] = value
+    }
+  }
+
+  return merged
+}
+
 export async function updatePackageJson(
   path: string,
   partial: Record<string, any>,
@@ -53,7 +74,10 @@ export async function updatePackageJson(
     return
   }
   const old = JSON.parse(await readFileAsync(path, 'utf8'))
-  await writeFileAsync(path, JSON.stringify({ ...old, ...partial }, null, 2))
+  await writeFileAsync(
+    path,
+    JSON.stringify(mergePackageJson(old, partial), null, 2),
+  )
 }
 
 export const CLI_VERSION = pkgJson.version
