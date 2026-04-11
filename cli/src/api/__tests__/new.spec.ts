@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
+import { parse as parseToml } from '@std/toml'
 import ava, { type TestFn } from 'ava'
 import { load as yamlLoad } from 'js-yaml'
 
@@ -401,6 +402,24 @@ test('create project without GitHub Actions', async (t) => {
   t.true(existsSync(projectPath))
   t.true(existsSync(join(projectPath, 'package.json')))
   t.false(existsSync(join(projectPath, '.github')))
+})
+
+test('create project without type-def', async (t) => {
+  const projectPath = join(t.context.tmpDir, 'no-type-def')
+
+  await newProject({
+    path: projectPath,
+    enableDefaultTargets: true,
+    enableTypeDef: false,
+  })
+
+  const cargoToml = await readFile(join(projectPath, 'Cargo.toml'), 'utf-8')
+  const cargoTomlData = parseToml(cargoToml) as any
+  t.deepEqual(cargoTomlData.dependencies['napi-derive'], {
+    version: '3.0.0',
+    'default-features': false,
+    features: ['strict'],
+  })
 })
 
 test('create a new project with pnpm package manager', async (t) => {

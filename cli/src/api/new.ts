@@ -4,6 +4,7 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import { promises as fs } from 'node:fs'
 
+import { parse as parseToml, stringify as stringifyToml } from '@std/toml'
 import { load as yamlLoad, dump as yamlDump } from 'js-yaml'
 
 import {
@@ -150,6 +151,45 @@ async function filterTargetsInPackageJson(
   }
 
   await fs.writeFile(filePath, JSON.stringify(packageJson, null, 2) + '\n')
+}
+
+async function updateCargoTomlTypeDef(
+  filePath: string,
+  enableTypeDef: boolean,
+): Promise<void> {
+  if (enableTypeDef) {
+    return
+  }
+
+  const content = await fs.readFile(filePath, 'utf-8')
+  const cargoToml = parseToml(content) as Record<string, any>
+  const dependencies = cargoToml.dependencies
+
+  if (!dependencies || !dependencies['napi-derive']) {
+    return
+  }
+
+  const napiDeriveDependency = dependencies['napi-derive']
+  const dependencyConfig =
+    typeof napiDeriveDependency === 'string'
+      ? { version: napiDeriveDependency }
+      : { ...napiDeriveDependency }
+
+  const existingFeatures = Array.isArray(dependencyConfig.features)
+    ? dependencyConfig.features.filter(
+        (feature: unknown): feature is string => typeof feature === 'string',
+      )
+    : []
+
+  dependencyConfig['default-features'] = false
+  dependencyConfig.features = [
+    'strict',
+    ...existingFeatures.filter((feature) => feature !== 'strict'),
+  ].filter((feature) => feature !== 'type-def')
+
+  dependencies['napi-derive'] = dependencyConfig
+
+  await fs.writeFile(filePath, stringifyToml(cargoToml))
 }
 
 async function filterTargetsInGithubActions(
@@ -364,6 +404,11 @@ export async function newProject(userOptions: RawNewOptions) {
         name: options.name,
         binaryName: getBinaryName(options.name),
       })
+
+      const cargoTomlPath = path.join(options.path, 'Cargo.toml')
+      if (existsSync(cargoTomlPath)) {
+        await updateCargoTomlTypeDef(cargoTomlPath, options.enableTypeDef)
+      }
 
       // Filter targets in package.json
       const packageJsonPath = path.join(options.path, 'package.json')
