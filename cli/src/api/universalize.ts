@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { join, resolve } from 'node:path'
+import { resolve } from 'node:path'
 
 import {
   applyDefaultUniversalizeOptions,
@@ -25,7 +25,7 @@ const universalizers: Partial<
 export async function universalizeBinaries(userOptions: UniversalizeOptions) {
   const options = applyDefaultUniversalizeOptions(userOptions)
 
-  const packageJsonPath = join(options.cwd, options.packageJsonPath)
+  const packageJsonPath = resolve(options.cwd, options.packageJsonPath)
 
   const config = await readNapiConfig(
     packageJsonPath,
