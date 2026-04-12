@@ -726,7 +726,7 @@ jobs:
           mv examples/napi/dist/__tests__ examples/napi/
       - name: Test
         id: build
-        uses: cross-platform-actions/action@v0.32.0
+        uses: cross-platform-actions/action@v1.0.0
         env:
           DEBUG: 'napi:*'
           RUSTUP_HOME: /home/runner/rustup
