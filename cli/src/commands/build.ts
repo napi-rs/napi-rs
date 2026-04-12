@@ -35,6 +35,7 @@ export class BuildCommand extends BaseBuildCommand {
         } catch (e) {
           debug.error(`Failed to pipe output file ${output.path} to command`)
           debug.error(e)
+          throw e
         }
       }
     }

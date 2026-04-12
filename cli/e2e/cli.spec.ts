@@ -76,6 +76,28 @@ test('should be able to build a project', async (t) => {
   t.truthy(existsSync(join(context, 'index.node')))
 })
 
+test('should exit non-zero when pipe command fails', async (t) => {
+  const { context } = t.context
+  await writeCargoToml(context)
+  await writePackageJson(context, {})
+  await writeFile(join(context, 'postprocess-fail.cjs'), 'process.exit(1)\n')
+
+  const bin = join(context, 'node_modules', '.bin')
+  const { code, stderr } = await execResult(
+    `${bin}/napi build --pipe "node ./postprocess-fail.cjs"`,
+    {
+      cwd: context,
+      env: {
+        ...process.env,
+        FORCE_COLOR: '0',
+      },
+    },
+  )
+
+  t.not(code, 0)
+  t.regex(stderr, /Failed to pipe output file/)
+})
+
 test('should throw error when duplicate targets are provided', async (t) => {
   const { context } = t.context
   await writeCargoToml(context)
@@ -127,6 +149,29 @@ async function execAsync(command: string, options: ExecOptions = {}) {
       resolve()
     })
   })
+}
+
+async function execResult(command: string, options: ExecOptions = {}) {
+  return new Promise<{ code: number | null; stdout: string; stderr: string }>(
+    (resolve) => {
+      let stdout = ''
+      let stderr = ''
+      const cp = exec(command, options)
+      cp.stdout?.on('data', (chunk) => {
+        stdout += chunk.toString()
+      })
+      cp.stderr?.on('data', (chunk) => {
+        stderr += chunk.toString()
+      })
+      cp.on('close', (code) => {
+        resolve({
+          code,
+          stdout,
+          stderr,
+        })
+      })
+    },
+  )
 }
 
 async function writeCargoToml(projectDir: string, cargoToml: string = '') {
