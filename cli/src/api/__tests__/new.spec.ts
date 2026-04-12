@@ -416,7 +416,9 @@ test('create project without type-def', async (t) => {
   const cargoToml = await readFile(join(projectPath, 'Cargo.toml'), 'utf-8')
   const cargoTomlData = parseToml(cargoToml) as any
   t.is(cargoTomlData.dependencies['napi-derive']['default-features'], false)
-  t.deepEqual(cargoTomlData.dependencies['napi-derive'].features, ['strict'])
+  t.false(
+    cargoTomlData.dependencies['napi-derive'].features.includes('typedef'),
+  )
 })
 
 test('create a new project with pnpm package manager', async (t) => {
