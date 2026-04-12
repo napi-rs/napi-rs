@@ -300,13 +300,28 @@ napi-build = { path = "${napiBuildPath}" }
   t.regex(error!.message, /emnapi version mismatch/)
 })
 
-test('useNapiCross passes a valid bindgen sysroot', async (t) => {
+test.serial('useNapiCross passes a valid bindgen sysroot', async (t) => {
   const { projectDir, tmpDir } = t.context
   const crateName = 'napi_cross_env'
   const binaryName = 'napi-cross-env'
   const packageName = 'napi-cross-env'
   const version = '0.1.0'
   const targetTriple = 'aarch64-unknown-linux-gnu'
+  const originalHome = process.env.HOME
+  const originalUserProfile = process.env.USERPROFILE
+  const originalCargoHome = process.env.CARGO_HOME
+  const originalRustupHome = process.env.RUSTUP_HOME
+
+  process.env.HOME = tmpDir
+  if (process.platform === 'win32') {
+    process.env.USERPROFILE = tmpDir
+  }
+  if (originalHome) {
+    process.env.CARGO_HOME = originalCargoHome ?? join(originalHome, '.cargo')
+    process.env.RUSTUP_HOME =
+      originalRustupHome ?? join(originalHome, '.rustup')
+  }
+
   const require = createRequire(import.meta.url)
   const { version: crossToolchainVersion } = require('@napi-rs/cross-toolchain')
   const toolchainPath = join(
@@ -426,6 +441,28 @@ exec "${process.execPath}" "${fakeCargoScriptPath}" "$@"
       delete process.env.TARGET_SYSROOT
     } else {
       process.env.TARGET_SYSROOT = originalTargetSysroot
+    }
+    if (originalHome === undefined) {
+      delete process.env.HOME
+    } else {
+      process.env.HOME = originalHome
+    }
+    if (process.platform === 'win32') {
+      if (originalUserProfile === undefined) {
+        delete process.env.USERPROFILE
+      } else {
+        process.env.USERPROFILE = originalUserProfile
+      }
+    }
+    if (originalCargoHome === undefined) {
+      delete process.env.CARGO_HOME
+    } else {
+      process.env.CARGO_HOME = originalCargoHome
+    }
+    if (originalRustupHome === undefined) {
+      delete process.env.RUSTUP_HOME
+    } else {
+      process.env.RUSTUP_HOME = originalRustupHome
     }
     if (createdToolchainPath) {
       await rm(toolchainPath, { recursive: true, force: true })
