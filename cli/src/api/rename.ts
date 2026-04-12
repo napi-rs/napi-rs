@@ -26,7 +26,13 @@ export async function renameProject(userOptions: RenameOptions) {
       packageJsonData,
       omitBy(
         // @ts-expect-error missing fields: author and license
-        pick(options, ['name', 'description', 'author', 'license']),
+        pick(options, [
+          'name',
+          'description',
+          'author',
+          'license',
+          'repository',
+        ]),
         isNil,
       ),
     ),
