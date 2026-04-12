@@ -417,7 +417,7 @@ test('create project without type-def', async (t) => {
   const cargoTomlData = parseToml(cargoToml) as any
   t.is(cargoTomlData.dependencies['napi-derive']['default-features'], false)
   t.false(
-    cargoTomlData.dependencies['napi-derive'].features.includes('typedef'),
+    cargoTomlData.dependencies['napi-derive'].features.includes('type-def'),
   )
 })
 
