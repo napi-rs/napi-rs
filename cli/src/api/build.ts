@@ -542,7 +542,7 @@ class Builder {
       require.resolve('emnapi'),
       '..',
       'lib',
-      'wasm32-wasi-threads',
+      'wasm32-wasip1-threads',
     )
     this.envs.EMNAPI_LINK_DIR = emnapi
     const emnapiVersion = require('emnapi/package.json').version
@@ -593,15 +593,15 @@ class Builder {
       )
       this.setEnvIfNotExists(
         'TARGET_CFLAGS',
-        `--target=wasm32-wasi-threads --sysroot=${WASI_SDK_PATH}/share/wasi-sysroot -pthread -mllvm -wasm-enable-sjlj`,
+        `--target=wasm32-wasip1-threads --sysroot=${WASI_SDK_PATH}/share/wasi-sysroot -pthread -mllvm -wasm-enable-sjlj`,
       )
       this.setEnvIfNotExists(
         'TARGET_CXXFLAGS',
-        `--target=wasm32-wasi-threads --sysroot=${WASI_SDK_PATH}/share/wasi-sysroot -pthread -mllvm -wasm-enable-sjlj`,
+        `--target=wasm32-wasip1-threads --sysroot=${WASI_SDK_PATH}/share/wasi-sysroot -pthread -mllvm -wasm-enable-sjlj`,
       )
       this.setEnvIfNotExists(
         `TARGET_LDFLAGS`,
-        `-fuse-ld=${WASI_SDK_PATH}/bin/wasm-ld --target=wasm32-wasi-threads`,
+        `-fuse-ld=${WASI_SDK_PATH}/bin/wasm-ld --target=wasm32-wasip1-threads`,
       )
     }
   }
