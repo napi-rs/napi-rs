@@ -94,7 +94,7 @@ test('should exit non-zero when pipe command fails', async (t) => {
     },
   )
 
-  t.not(code, 0)
+  t.true(Number.isInteger(code) && code !== 0)
   t.regex(stderr, /Failed to pipe output file/)
 })
 
