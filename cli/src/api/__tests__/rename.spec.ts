@@ -176,5 +176,6 @@ test('repository updates package.json when provided', async (t) => {
   )
 
   t.is(packageJson.name, 'renamed')
-  t.is(packageJson.repository, 'https://example.com/new.git')
+  t.is(packageJson.repository.url, 'https://example.com/new.git')
+  t.is(packageJson.repository.type, 'git')
 })

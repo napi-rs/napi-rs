@@ -26,13 +26,7 @@ export async function renameProject(userOptions: RenameOptions) {
       packageJsonData,
       omitBy(
         // @ts-expect-error missing fields: author and license
-        pick(options, [
-          'name',
-          'description',
-          'author',
-          'license',
-          'repository',
-        ]),
+        pick(options, ['name', 'description', 'author', 'license']),
         isNil,
       ),
     ),
@@ -46,6 +40,18 @@ export async function renameProject(userOptions: RenameOptions) {
       ),
     },
   )
+
+  if (options.repository) {
+    if (
+      packageJsonData.repository &&
+      typeof packageJsonData.repository === 'object' &&
+      !Array.isArray(packageJsonData.repository)
+    ) {
+      packageJsonData.repository.url = options.repository
+    } else {
+      packageJsonData.repository = options.repository
+    }
+  }
 
   if (options.configPath) {
     const configPath = resolve(options.cwd, options.configPath)
