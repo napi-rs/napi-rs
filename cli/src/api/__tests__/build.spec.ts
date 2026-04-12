@@ -312,38 +312,46 @@ test.serial('useNapiCross passes a valid bindgen sysroot', async (t) => {
   const originalCargoHome = process.env.CARGO_HOME
   const originalRustupHome = process.env.RUSTUP_HOME
 
-  process.env.HOME = tmpDir
-  if (process.platform === 'win32') {
-    process.env.USERPROFILE = tmpDir
-  }
-  if (originalHome) {
-    process.env.CARGO_HOME = originalCargoHome ?? join(originalHome, '.cargo')
-    process.env.RUSTUP_HOME =
-      originalRustupHome ?? join(originalHome, '.rustup')
-  }
-
   const require = createRequire(import.meta.url)
   const { version: crossToolchainVersion } = require('@napi-rs/cross-toolchain')
-  const toolchainPath = join(
-    homedir(),
-    '.napi-rs',
-    'cross-toolchain',
-    crossToolchainVersion,
-    targetTriple,
-  )
-  const targetSysroot = join(toolchainPath, targetTriple, 'sysroot')
   const envLogPath = join(tmpDir, 'fake-cargo-env.json')
   const fakeCargoScriptPath = join(tmpDir, 'fake-cargo.cjs')
   const fakeCargoPath = join(
     tmpDir,
     process.platform === 'win32' ? 'fake-cargo.cmd' : 'fake-cargo',
   )
-  const createdToolchainPath = !existsSync(toolchainPath)
+  const originalCargo = process.env.CARGO
+  const originalBindgenArgs = process.env.BINDGEN_EXTRA_CLANG_ARGS
+  const originalTargetSysroot = process.env.TARGET_SYSROOT
+  let toolchainPath = ''
+  let targetSysroot = ''
+  let createdToolchainPath = false
 
-  await mkdir(join(projectDir, 'src'), { recursive: true })
-  await writeFile(
-    join(projectDir, 'Cargo.toml'),
-    `[package]
+  try {
+    process.env.HOME = tmpDir
+    if (process.platform === 'win32') {
+      process.env.USERPROFILE = tmpDir
+    }
+    if (originalHome) {
+      process.env.CARGO_HOME = originalCargoHome ?? join(originalHome, '.cargo')
+      process.env.RUSTUP_HOME =
+        originalRustupHome ?? join(originalHome, '.rustup')
+    }
+
+    toolchainPath = join(
+      homedir(),
+      '.napi-rs',
+      'cross-toolchain',
+      crossToolchainVersion,
+      targetTriple,
+    )
+    targetSysroot = join(toolchainPath, targetTriple, 'sysroot')
+    createdToolchainPath = !existsSync(toolchainPath)
+
+    await mkdir(join(projectDir, 'src'), { recursive: true })
+    await writeFile(
+      join(projectDir, 'Cargo.toml'),
+      `[package]
 name = "${crateName}"
 version = "${version}"
 edition = "2021"
@@ -351,27 +359,27 @@ edition = "2021"
 [lib]
 crate-type = ["cdylib"]
 `,
-  )
-  await writeFile(
-    join(projectDir, 'package.json'),
-    `${JSON.stringify(
-      {
-        name: packageName,
-        version,
-        napi: {
-          binaryName,
-          targets: [targetTriple],
+    )
+    await writeFile(
+      join(projectDir, 'package.json'),
+      `${JSON.stringify(
+        {
+          name: packageName,
+          version,
+          napi: {
+            binaryName,
+            targets: [targetTriple],
+          },
         },
-      },
-      null,
-      2,
-    )}\n`,
-  )
-  await writeFile(join(projectDir, 'src', 'lib.rs'), 'pub fn noop() {}\n')
+        null,
+        2,
+      )}\n`,
+    )
+    await writeFile(join(projectDir, 'src', 'lib.rs'), 'pub fn noop() {}\n')
 
-  await writeFile(
-    fakeCargoScriptPath,
-    `const fs = require('node:fs')
+    await writeFile(
+      fakeCargoScriptPath,
+      `const fs = require('node:fs')
 const path = require('node:path')
 
 const args = process.argv.slice(2)
@@ -390,42 +398,46 @@ fs.writeFileSync(
   }),
 )
 `,
-  )
-  if (process.platform === 'win32') {
-    await writeFile(
-      fakeCargoPath,
-      `@"${process.execPath}" "${fakeCargoScriptPath}" %*\r\n`,
     )
-  } else {
-    await writeFile(
-      fakeCargoPath,
-      `#!/bin/sh
+    if (process.platform === 'win32') {
+      await writeFile(
+        fakeCargoPath,
+        `@"${process.execPath}" "${fakeCargoScriptPath}" %*\r\n`,
+      )
+    } else {
+      await writeFile(
+        fakeCargoPath,
+        `#!/bin/sh
 exec "${process.execPath}" "${fakeCargoScriptPath}" "$@"
 `,
-    )
-    await chmod(fakeCargoPath, 0o755)
-  }
+      )
+      await chmod(fakeCargoPath, 0o755)
+    }
 
-  if (createdToolchainPath) {
-    await mkdir(join(targetSysroot, 'usr', 'include'), { recursive: true })
-    await mkdir(join(toolchainPath, 'bin'), { recursive: true })
-    await writeFile(join(toolchainPath, 'package.json'), '{}\n')
-  }
+    if (createdToolchainPath) {
+      await mkdir(join(targetSysroot, 'usr', 'include'), { recursive: true })
+      await mkdir(join(toolchainPath, 'bin'), { recursive: true })
+      await writeFile(join(toolchainPath, 'package.json'), '{}\n')
+    }
 
-  const originalCargo = process.env.CARGO
-  const originalBindgenArgs = process.env.BINDGEN_EXTRA_CLANG_ARGS
-  const originalTargetSysroot = process.env.TARGET_SYSROOT
-  delete process.env.BINDGEN_EXTRA_CLANG_ARGS
-  delete process.env.TARGET_SYSROOT
-  process.env.CARGO = fakeCargoPath
+    delete process.env.BINDGEN_EXTRA_CLANG_ARGS
+    delete process.env.TARGET_SYSROOT
+    process.env.CARGO = fakeCargoPath
 
-  try {
     const { task } = await buildProject({
       cwd: projectDir,
       target: targetTriple,
       useNapiCross: true,
     })
     await task
+    const envLog = JSON.parse(await readFile(envLogPath, 'utf-8')) as {
+      BINDGEN_EXTRA_CLANG_ARGS?: string
+      TARGET_SYSROOT?: string
+    }
+
+    t.is(envLog.TARGET_SYSROOT, targetSysroot)
+    t.is(envLog.BINDGEN_EXTRA_CLANG_ARGS, `--sysroot=${targetSysroot}`)
+    t.false(envLog.BINDGEN_EXTRA_CLANG_ARGS?.endsWith('}') ?? true)
   } finally {
     if (originalCargo === undefined) {
       delete process.env.CARGO
@@ -468,13 +480,4 @@ exec "${process.execPath}" "${fakeCargoScriptPath}" "$@"
       await rm(toolchainPath, { recursive: true, force: true })
     }
   }
-
-  const envLog = JSON.parse(await readFile(envLogPath, 'utf-8')) as {
-    BINDGEN_EXTRA_CLANG_ARGS?: string
-    TARGET_SYSROOT?: string
-  }
-
-  t.is(envLog.TARGET_SYSROOT, targetSysroot)
-  t.is(envLog.BINDGEN_EXTRA_CLANG_ARGS, `--sysroot=${targetSysroot}`)
-  t.false(envLog.BINDGEN_EXTRA_CLANG_ARGS?.endsWith('}') ?? true)
 })
