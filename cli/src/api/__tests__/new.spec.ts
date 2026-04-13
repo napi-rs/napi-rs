@@ -56,6 +56,9 @@ test('create a new project with default options', async (t) => {
   t.is(pkgJson.napi.binaryName, 'default-project')
   t.is(pkgJson.license, 'MIT')
   t.truthy(pkgJson.engines.node)
+  t.false('browser' in pkgJson)
+  t.false(pkgJson.files.includes('browser.js'))
+  t.falsy(existsSync(join(projectPath, 'browser.js')))
   t.falsy(existsSync(join(projectPath, 'default-project.wasi-browser.js')))
   t.falsy(existsSync(join(projectPath, 'wasi-worker-browser.mjs')))
   t.falsy(existsSync(join(projectPath, 'wasi-worker.mjs')))
@@ -166,6 +169,9 @@ test('create a new project with custom path, name, and targets', async (t) => {
   t.is(pkgJson.napi.binaryName, 'full-project')
   t.is(pkgJson.license, 'Apache-2.0')
   t.true(pkgJson.engines.node.includes('>= 14.0.0'))
+  t.is(pkgJson.browser, 'browser.js')
+  t.true(pkgJson.files.includes('browser.js'))
+  t.true(existsSync(join(projectPath, 'browser.js')))
 
   // Check that CI workflow only includes the specified targets
   const ciYaml = await readFile(
