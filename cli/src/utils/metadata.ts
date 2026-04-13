@@ -177,12 +177,14 @@ function collectManifestFingerprints(
   }
 
   const manifestFingerprints = new Map<string, ManifestFingerprint>()
-  trackedManifestPaths.forEach((trackedManifestPath) => {
+  for (const trackedManifestPath of trackedManifestPaths) {
     const fingerprint = getManifestFingerprint(trackedManifestPath)
-    if (fingerprint) {
-      manifestFingerprints.set(trackedManifestPath, fingerprint)
+    if (!fingerprint) {
+      return undefined
     }
-  })
+
+    manifestFingerprints.set(trackedManifestPath, fingerprint)
+  }
 
   return manifestFingerprints
 }
@@ -303,6 +305,8 @@ export async function parseMetadata(manifestPath: string) {
       )
 
       if (
+        preLoadFingerprints &&
+        postLoadFingerprints &&
         isManifestFingerprintMapEqual(preLoadFingerprints, postLoadFingerprints)
       ) {
         metadataCache.set(resolvedManifestPath, {

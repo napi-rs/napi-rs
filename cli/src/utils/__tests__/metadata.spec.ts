@@ -297,6 +297,67 @@ test.serial(
 )
 
 test.serial(
+  'should not cache metadata when a tracked manifest cannot be fingerprinted',
+  async (t) => {
+    if (process.platform === 'win32') {
+      t.pass()
+      return
+    }
+
+    const fixtureDir = await mkdtemp(
+      join(tmpdir(), `napi-rs-metadata-missing-fingerprint-${process.pid}-`),
+    )
+    const manifestPath = join(fixtureDir, 'Cargo.toml')
+    const unreadableDir = join(fixtureDir, 'unreadable')
+    const unreadableManifestPath = join(unreadableDir, 'Cargo.toml')
+    const countFile = join(fixtureDir, 'cargo-count.txt')
+    const originalPath = process.env.PATH
+    const originalJson = process.env.FAKE_CARGO_JSON
+    const originalCountFile = process.env.FAKE_CARGO_COUNT_FILE
+    const originalDelay = process.env.FAKE_CARGO_DELAY_MS
+
+    await setupFakeCargo(fixtureDir)
+    await writeFile(
+      manifestPath,
+      '[package]\nname = "test"\nversion = "0.0.0"\n',
+    )
+    await mkdir(unreadableDir, { recursive: true })
+    await writeFile(
+      unreadableManifestPath,
+      '[package]\nname = "ignored"\nversion = "0.0.0"\n',
+    )
+    await chmod(unreadableManifestPath, 0o000)
+
+    process.env.PATH = [fixtureDir, originalPath]
+      .filter(Boolean)
+      .join(delimiter)
+    process.env.FAKE_CARGO_COUNT_FILE = countFile
+    process.env.FAKE_CARGO_DELAY_MS = '0'
+    process.env.FAKE_CARGO_JSON = createFakeCargoMetadata(manifestPath, '0.0.0')
+
+    try {
+      const firstMetadata = await parseMetadata(manifestPath)
+      process.env.FAKE_CARGO_JSON = createFakeCargoMetadata(
+        manifestPath,
+        '9.9.9',
+      )
+      const secondMetadata = await parseMetadata(manifestPath)
+
+      t.is(firstMetadata.packages[0]?.version, '0.0.0')
+      t.is(secondMetadata.packages[0]?.version, '9.9.9')
+      t.is(await readFile(countFile, 'utf8'), '2')
+    } finally {
+      await chmod(unreadableManifestPath, 0o644)
+      process.env.PATH = originalPath
+      restoreEnvVar('FAKE_CARGO_JSON', originalJson)
+      restoreEnvVar('FAKE_CARGO_COUNT_FILE', originalCountFile)
+      restoreEnvVar('FAKE_CARGO_DELAY_MS', originalDelay)
+      await rm(fixtureDir, { recursive: true, force: true })
+    }
+  },
+)
+
+test.serial(
   'should share the same in-flight metadata request per manifest',
   async (t) => {
     const fixtureDir = await mkdtemp(
