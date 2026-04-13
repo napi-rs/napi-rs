@@ -146,3 +146,36 @@ test('omitting binaryName preserves separated napi config fields', async (t) => 
   t.false(existsSync(join(projectPath, 'undefined.wasi-browser.js')))
   t.false(existsSync(join(projectPath, 'undefined.wasi.cjs')))
 })
+
+test('repository updates package.json when provided', async (t) => {
+  const projectPath = join(t.context.tmpDir, 'repository-rename')
+
+  await createFixtureProject(projectPath, {
+    packageJson: {
+      name: 'original',
+      repository: {
+        type: 'git',
+        url: 'https://example.com/old.git',
+      },
+      napi: {
+        binaryName: 'foo',
+        packageName: '@scope/original',
+      },
+    },
+    cargoPackageName: 'foo',
+  })
+
+  await renameProject({
+    cwd: projectPath,
+    name: 'renamed',
+    repository: 'https://example.com/new.git',
+  })
+
+  const packageJson = JSON.parse(
+    await readFile(join(projectPath, 'package.json'), 'utf8'),
+  )
+
+  t.is(packageJson.name, 'renamed')
+  t.is(packageJson.repository.url, 'https://example.com/new.git')
+  t.is(packageJson.repository.type, 'git')
+})
