@@ -3,6 +3,7 @@ import {
   mkdtemp,
   readFile,
   rm,
+  stat,
   unlink,
   utimes,
   writeFile,
@@ -176,12 +177,13 @@ test.serial(
 
     try {
       const firstMetadata = await parseMetadata(manifestPath)
+      const originalStats = await stat(manifestPath)
+
       await writeFile(
         manifestPath,
         '[package]\nname = "test"\nversion = "0.0.1"\n',
       )
-      const nextMtime = new Date(Date.now() + 2_000)
-      await utimes(manifestPath, nextMtime, nextMtime)
+      await utimes(manifestPath, originalStats.atime, originalStats.mtime)
       process.env.FAKE_CARGO_JSON = createFakeCargoMetadata(
         manifestPath,
         '0.0.1',

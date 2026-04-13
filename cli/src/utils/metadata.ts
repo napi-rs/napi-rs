@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import { join, resolve } from 'node:path'
 
@@ -50,8 +51,7 @@ export interface CargoWorkspaceMetadata {
 }
 
 interface ManifestFingerprint {
-  mtimeMs: number
-  size: number
+  hash: string
 }
 
 interface CachedMetadata {
@@ -68,8 +68,11 @@ const metadataCache = new Map<string, MetadataCacheEntry>()
 
 function getManifestFingerprint(manifestPath: string) {
   try {
-    const { mtimeMs, size } = fs.statSync(manifestPath)
-    return { mtimeMs, size }
+    const hash = createHash('sha256')
+      .update(fs.readFileSync(manifestPath))
+      .digest('hex')
+
+    return { hash }
   } catch {
     return null
   }
@@ -79,7 +82,7 @@ function isFingerprintEqual(
   left: ManifestFingerprint,
   right: ManifestFingerprint,
 ) {
-  return left.mtimeMs === right.mtimeMs && left.size === right.size
+  return left.hash === right.hash
 }
 
 function collectManifestFingerprints(
