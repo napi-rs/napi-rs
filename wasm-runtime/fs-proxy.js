@@ -221,7 +221,23 @@ export const createOnMessage = (fs) =>
         Atomics.store(sab, 0, 0) // success
       } catch (/** @type {any} */ err) {
         let t = getType(err)
-        let v = encodeValue(fs, err, t)
+        let v
+        try {
+          if (t === -1) {
+            throw new Error('unsupported data')
+          }
+          v = encodeValue(fs, err, t)
+        } catch {
+          const fallback = (() => {
+            try {
+              return String(err)
+            } catch {
+              return 'Unserializable thrown value'
+            }
+          })()
+          t = getType(fallback)
+          v = encodeValue(fs, fallback, t)
+        }
         if (v.length > RESPONSE_PAYLOAD_SIZE) {
           const overflowErr = new RangeError('payload overflow')
           t = getType(overflowErr)

@@ -23,6 +23,9 @@ await test(`fs-proxy between main and worker (${isMainThread ? 'main' : 'worker'
     fs.__custom1__ = () => {
       throw null
     }
+    fs.__customUnsupported__ = () => {
+      throw function unsupported() {}
+    }
     fs.__custom2__ = (x) => x
 
     const worker = new Worker(__filename)
@@ -55,6 +58,7 @@ await test(`fs-proxy between main and worker (${isMainThread ? 'main' : 'worker'
         return err === null
       },
     )
+    assert.throws(() => fs.__customUnsupported__(), /function unsupported/)
     assert.throws(() => fs.__notexist__(), TypeError)
 
     const primitives = [undefined, null, true, false, 1, 1.1, 'string']
