@@ -15,6 +15,7 @@ import {
   debugFactory,
   DEFAULT_TARGETS,
   mkdirAsync,
+  parseTriple,
   readdirAsync,
   statAsync,
   type SupportedPackageManager,
@@ -158,13 +159,6 @@ async function filterTargetsInGithubActions(
   const content = await fs.readFile(filePath, 'utf-8')
   const yaml = yamlLoad(content) as any
 
-  const macOSAndWindowsTargets = new Set([
-    'x86_64-pc-windows-msvc',
-    'x86_64-pc-windows-gnu',
-    'aarch64-pc-windows-msvc',
-    'x86_64-apple-darwin',
-  ])
-
   const linuxTargets = new Set([
     'x86_64-unknown-linux-gnu',
     'x86_64-unknown-linux-musl',
@@ -184,6 +178,10 @@ async function filterTargetsInGithubActions(
   const hasLinuxTargets = enabledTargets.some((target) =>
     linuxTargets.has(target),
   )
+  const hasMacOSOrWindowsTargets = enabledTargets.some((target) => {
+    const platform = parseTriple(target).platform
+    return platform === 'darwin' || platform === 'win32'
+  })
 
   // Filter the matrix configurations in the build job
   if (yaml?.jobs?.build?.strategy?.matrix?.settings) {
@@ -198,7 +196,7 @@ async function filterTargetsInGithubActions(
 
   const jobsToRemove: string[] = []
 
-  if (enabledTargets.every((target) => !macOSAndWindowsTargets.has(target))) {
+  if (!hasMacOSOrWindowsTargets) {
     jobsToRemove.push('test-macOS-windows-binding')
   } else {
     // Filter the matrix configurations in the test-macOS-windows-binding job

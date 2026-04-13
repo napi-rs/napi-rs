@@ -237,6 +237,33 @@ test('non Windows and macOS targets should remove test-macOS-windows-binding job
   t.falsy(yamlObject.jobs.publish.needs.includes('test-macOS-windows-binding'))
 })
 
+test('aarch64-apple-darwin should keep test-macOS-windows-binding job', async (t) => {
+  const projectPath = join(t.context.tmpDir, 'apple-silicon-only')
+  const targets = ['aarch64-apple-darwin']
+
+  await newProject({
+    path: projectPath,
+    targets,
+    enableDefaultTargets: false,
+  })
+
+  t.true(existsSync(projectPath))
+
+  const ciYaml = await readFile(
+    join(projectPath, '.github', 'workflows', 'CI.yml'),
+    'utf-8',
+  )
+  const yamlObject = yamlLoad(ciYaml) as any
+  t.truthy(yamlObject.jobs['test-macOS-windows-binding'])
+  t.deepEqual(
+    yamlObject.jobs['test-macOS-windows-binding'].strategy.matrix.settings.map(
+      (setting: any) => setting.target,
+    ),
+    ['aarch64-apple-darwin'],
+  )
+  t.truthy(yamlObject.jobs.publish.needs.includes('test-macOS-windows-binding'))
+})
+
 test('should remove test-linux-binding job if no Linux targets are enabled', async (t) => {
   const projectPath = join(t.context.tmpDir, 'no-linux')
   const targets = ['x86_64-apple-darwin', 'aarch64-apple-darwin']
