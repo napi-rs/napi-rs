@@ -419,6 +419,7 @@ module.exports.threadsafeFunctionFatalMode = __napiModule.exports.threadsafeFunc
 module.exports.threadsafeFunctionFatalModeError = __napiModule.exports.threadsafeFunctionFatalModeError
 module.exports.threadsafeFunctionThrowError = __napiModule.exports.threadsafeFunctionThrowError
 module.exports.threadsafeFunctionThrowErrorWithStatus = __napiModule.exports.threadsafeFunctionThrowErrorWithStatus
+module.exports.throwAsyncCustomStatusError = __napiModule.exports.throwAsyncCustomStatusError
 module.exports.throwAsyncError = __napiModule.exports.throwAsyncError
 module.exports.throwError = __napiModule.exports.throwError
 module.exports.throwErrorWithCause = __napiModule.exports.throwErrorWithCause

@@ -887,6 +887,7 @@ module.exports.threadsafeFunctionFatalMode = nativeBinding.threadsafeFunctionFat
 module.exports.threadsafeFunctionFatalModeError = nativeBinding.threadsafeFunctionFatalModeError
 module.exports.threadsafeFunctionThrowError = nativeBinding.threadsafeFunctionThrowError
 module.exports.threadsafeFunctionThrowErrorWithStatus = nativeBinding.threadsafeFunctionThrowErrorWithStatus
+module.exports.throwAsyncCustomStatusError = nativeBinding.throwAsyncCustomStatusError
 module.exports.throwAsyncError = nativeBinding.throwAsyncError
 module.exports.throwError = nativeBinding.throwError
 module.exports.throwErrorWithCause = nativeBinding.throwErrorWithCause

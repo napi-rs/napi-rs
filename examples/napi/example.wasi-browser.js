@@ -374,6 +374,7 @@ export const threadsafeFunctionFatalMode = __napiModule.exports.threadsafeFuncti
 export const threadsafeFunctionFatalModeError = __napiModule.exports.threadsafeFunctionFatalModeError
 export const threadsafeFunctionThrowError = __napiModule.exports.threadsafeFunctionThrowError
 export const threadsafeFunctionThrowErrorWithStatus = __napiModule.exports.threadsafeFunctionThrowErrorWithStatus
+export const throwAsyncCustomStatusError = __napiModule.exports.throwAsyncCustomStatusError
 export const throwAsyncError = __napiModule.exports.throwAsyncError
 export const throwError = __napiModule.exports.throwError
 export const throwErrorWithCause = __napiModule.exports.throwErrorWithCause
