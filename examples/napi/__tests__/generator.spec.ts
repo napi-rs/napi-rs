@@ -116,6 +116,26 @@ test('generator should preserve class methods while inheriting Iterator helpers'
   }
 })
 
+test('generator subclasses should preserve the prototype chain', (t) => {
+  class Child extends Fib4 {}
+
+  Object.freeze(Child.prototype)
+
+  const child = new Child(0, 1)
+
+  t.is(typeof child.toJSON, 'function')
+  t.deepEqual(child.toJSON(), [0, 1])
+  t.is(JSON.stringify(child), '[0,1]')
+
+  if (typeof Iterator !== 'undefined') {
+    t.true(child instanceof Iterator)
+    t.true(Object.getPrototypeOf(child) === Child.prototype)
+    t.true(Object.getPrototypeOf(Child.prototype) === Fib4.prototype)
+    t.true(Object.getPrototypeOf(Fib4.prototype) === Iterator.prototype)
+    t.is(typeof child.map, 'function')
+  }
+})
+
 // AsyncGenerator tests
 test('async generator should work with for-await-of', async (t) => {
   if (typeof AsyncFib === 'undefined') {

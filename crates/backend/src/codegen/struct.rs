@@ -919,6 +919,7 @@ impl NapiStruct {
     let name = &self.name;
     let struct_register_name = &self.register_name;
     let js_name = format!("{}\0", self.js_name);
+    let implement_iterator = class.implement_iterator;
     let mut props = vec![];
 
     if class.ctor {
@@ -978,7 +979,7 @@ impl NapiStruct {
       #[cfg(all(not(test), not(target_family = "wasm")))]
       #[napi::ctor::ctor(crate_path=napi::ctor)]
       fn #struct_register_name() {
-        napi::__private::register_class(std::any::TypeId::of::<#name>(), #js_mod_ident, #js_name, vec![#(#props),*]);
+        napi::__private::register_class(std::any::TypeId::of::<#name>(), #js_mod_ident, #js_name, vec![#(#props),*], #implement_iterator);
       }
 
       #[allow(non_snake_case)]
@@ -986,7 +987,7 @@ impl NapiStruct {
       #[cfg(all(not(test), target_family = "wasm"))]
       #[no_mangle]
       extern "C" fn #struct_register_name() {
-        napi::__private::register_class(std::any::TypeId::of::<#name>(), #js_mod_ident, #js_name, vec![#(#props),*]);
+        napi::__private::register_class(std::any::TypeId::of::<#name>(), #js_mod_ident, #js_name, vec![#(#props),*], #implement_iterator);
       }
     }
   }
@@ -1626,13 +1627,13 @@ impl NapiImpl {
         #[cfg(all(not(test), not(target_family = "wasm")))]
         #[napi::ctor::ctor(crate_path=napi::ctor)]
         fn #register_name() {
-          napi::__private::register_class(std::any::TypeId::of::<#name>(), #js_mod_ident, #js_name, vec![#(#props),*]);
+          napi::__private::register_class(std::any::TypeId::of::<#name>(), #js_mod_ident, #js_name, vec![#(#props),*], false);
         }
 
         #[cfg(all(not(test), target_family = "wasm"))]
         #[no_mangle]
         extern "C" fn #register_name() {
-          napi::__private::register_class(std::any::TypeId::of::<#name>(), #js_mod_ident, #js_name, vec![#(#props_wasm),*]);
+          napi::__private::register_class(std::any::TypeId::of::<#name>(), #js_mod_ident, #js_name, vec![#(#props_wasm),*], false);
         }
       }
     })
