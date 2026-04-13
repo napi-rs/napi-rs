@@ -89,9 +89,7 @@ const encodeValue = (memfs, value, type) => {
       return view
     }
     case 9: {
-      const view = new BigInt64Array(1)
-      view[0] = value
-      return new Uint8Array(view.buffer)
+      return new TextEncoder().encode(String(value))
     }
     case -1:
     default:
@@ -176,8 +174,9 @@ const decodeValue = (memfs, payload, type) => {
     }
     return obj
   }
-  if (type === 9)
-    return new BigInt64Array(payload.buffer, payload.byteOffset, 1)[0]
+  if (type === 9) {
+    return BigInt(new TextDecoder().decode(payload.slice()))
+  }
   throw new Error('unsupported data')
 }
 
