@@ -35,6 +35,8 @@ const TEMPLATE_REPOS = {
   pnpm: 'https://github.com/napi-rs/package-template-pnpm',
 } as const
 
+const WASI_TARGET = 'wasm32-wasip1-threads'
+
 async function checkGitCommand(): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
     const cp = exec('git --version')
@@ -127,7 +129,7 @@ async function copyDirectory(
           entry.name.endsWith('.wasi.cjs') ||
           entry.name.endsWith('wasi-worker-browser.mjs') ||
           entry.name.endsWith('wasi-worker.mjs') ||
-          entry.name.endsWith('browser.js'))
+          entry.name === 'browser.js')
       ) {
         continue
       }
@@ -142,12 +144,28 @@ async function filterTargetsInPackageJson(
 ): Promise<void> {
   const content = await fs.readFile(filePath, 'utf-8')
   const packageJson = JSON.parse(content)
+  const includeWasiBindings = enabledTargets.includes(WASI_TARGET)
 
   // Filter napi.targets
   if (packageJson.napi?.targets) {
     packageJson.napi.targets = packageJson.napi.targets.filter(
       (target: string) => enabledTargets.includes(target),
     )
+  }
+
+  if (!includeWasiBindings) {
+    if (
+      packageJson.browser === 'browser.js' ||
+      packageJson.browser === './browser.js'
+    ) {
+      delete packageJson.browser
+    }
+
+    if (Array.isArray(packageJson.files)) {
+      packageJson.files = packageJson.files.filter(
+        (file: unknown) => file !== 'browser.js' && file !== './browser.js',
+      )
+    }
   }
 
   await fs.writeFile(filePath, JSON.stringify(packageJson, null, 2) + '\n')
@@ -275,7 +293,7 @@ async function filterTargetsInGithubActions(
     }
   }
 
-  if (!enabledTargets.includes('wasm32-wasip1-threads')) {
+  if (!enabledTargets.includes(WASI_TARGET)) {
     jobsToRemove.push('test-wasi')
   }
 
@@ -351,11 +369,9 @@ function processOptions(options: RawNewOptions) {
     const out = execSync(`rustup target list`, {
       encoding: 'utf8',
     })
-    if (out.includes('wasm32-wasip1-threads')) {
+    if (out.includes(WASI_TARGET)) {
       options.targets = options.targets.map((target) =>
-        target === 'wasm32-wasi-preview1-threads'
-          ? 'wasm32-wasip1-threads'
-          : target,
+        target === 'wasm32-wasi-preview1-threads' ? WASI_TARGET : target,
       )
     }
   }
@@ -395,7 +411,7 @@ export async function newProject(userOptions: RawNewOptions) {
       await copyDirectory(
         templatePath,
         options.path,
-        options.targets.includes('wasm32-wasip1-threads'),
+        options.targets.includes(WASI_TARGET),
       )
 
       // Rename project using the rename API
