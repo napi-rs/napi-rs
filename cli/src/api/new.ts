@@ -369,11 +369,9 @@ function processOptions(options: RawNewOptions) {
     const out = execSync(`rustup target list`, {
       encoding: 'utf8',
     })
-    if (out.includes('wasm32-wasip1-threads')) {
+    if (out.includes(WASI_TARGET)) {
       options.targets = options.targets.map((target) =>
-        target === 'wasm32-wasi-preview1-threads'
-          ? 'wasm32-wasip1-threads'
-          : target,
+        target === 'wasm32-wasi-preview1-threads' ? WASI_TARGET : target,
       )
     }
   }
@@ -413,7 +411,7 @@ export async function newProject(userOptions: RawNewOptions) {
       await copyDirectory(
         templatePath,
         options.path,
-        options.targets.includes('wasm32-wasip1-threads'),
+        options.targets.includes(WASI_TARGET),
       )
 
       // Rename project using the rename API
