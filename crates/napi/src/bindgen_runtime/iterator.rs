@@ -252,6 +252,36 @@ pub unsafe fn create_iterator<'a, T: ScopedGenerator<'a> + 'a>(
       "Failed to get Iterator.prototype",
     );
 
+    let mut class_proto = ptr::null_mut();
+    check_status_or_throw!(
+      env,
+      sys::napi_get_prototype(env, instance, &mut class_proto),
+      "Failed to get class prototype",
+    );
+
+    let mut class_proto_parent = ptr::null_mut();
+    check_status_or_throw!(
+      env,
+      sys::napi_get_prototype(env, class_proto, &mut class_proto_parent),
+      "Failed to get class prototype parent",
+    );
+
+    let mut already_inherits_iterator = false;
+    check_status_or_throw!(
+      env,
+      sys::napi_strict_equals(
+        env,
+        class_proto_parent,
+        iterator_proto,
+        &mut already_inherits_iterator,
+      ),
+      "Failed to compare class prototype parent",
+    );
+
+    if already_inherits_iterator {
+      return;
+    }
+
     let mut object_ctor = ptr::null_mut();
     check_status_or_throw!(
       env,
@@ -271,7 +301,9 @@ pub unsafe fn create_iterator<'a, T: ScopedGenerator<'a> + 'a>(
       "Failed to get Object.setPrototypeOf"
     );
 
-    let mut argv = [instance, iterator_proto];
+    // Preserve the class prototype so generator classes keep their own methods
+    // while still inheriting Iterator helper methods from Iterator.prototype.
+    let mut argv = [class_proto, iterator_proto];
     check_status_or_throw!(
       env,
       sys::napi_call_function(

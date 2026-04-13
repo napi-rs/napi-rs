@@ -72,7 +72,12 @@ for (const [index, factory] of [
     }
     const iterator = factory()
 
-    t.true(Object.getPrototypeOf(iterator) === Iterator.prototype)
+    t.true(iterator instanceof Iterator)
+    t.not(Object.getPrototypeOf(iterator), Iterator.prototype)
+    t.true(
+      Object.getPrototypeOf(Object.getPrototypeOf(iterator)) ===
+        Iterator.prototype,
+    )
     let arr = [
       ...iterator
         .drop(3)
@@ -89,10 +94,26 @@ test('generator should be able to return object', (t) => {
   const gen = fib[Symbol.iterator]
   t.is(typeof gen, 'function')
   const iterator = gen.call(fib)
+  t.is(iterator, fib)
   t.deepEqual(iterator.next(), {
     done: false,
     value: { number: 1 },
   })
+})
+
+test('generator should preserve class methods while inheriting Iterator helpers', (t) => {
+  const fib = new Fib4(0, 1)
+
+  t.is(typeof fib.toJSON, 'function')
+  t.deepEqual(fib.toJSON(), [0, 1])
+  t.is(JSON.stringify(fib), '[0,1]')
+
+  if (typeof Iterator !== 'undefined') {
+    t.true(fib instanceof Iterator)
+    t.true(Object.getPrototypeOf(fib) === Fib4.prototype)
+    t.true(Object.getPrototypeOf(Fib4.prototype) === Iterator.prototype)
+    t.is(typeof fib.map, 'function')
+  }
 })
 
 // AsyncGenerator tests
