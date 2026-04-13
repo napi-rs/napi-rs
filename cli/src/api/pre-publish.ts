@@ -85,6 +85,7 @@ export async function prePublish(userOptions: PrePublishOptions) {
 
   function getRepoInfo(packageName: string, version: string) {
     const headCommit = execSync('git log -1 --pretty=%B', {
+      cwd: options.cwd,
       encoding: 'utf-8',
     }).trim()
 
