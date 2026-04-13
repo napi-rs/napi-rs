@@ -24,7 +24,7 @@ type-def = ["napi-derive-backend/type-def", "ctor"]
 
 [dependencies]
 convert_case = "0.11"
-ctor = { version = "0.9", default-features = false, features = ["std", "proc_macro", "dtor", "no_warn_on_missing_unsafe"], optional = true }
+ctor = { version = "0.10", default-features = false, features = ["std", "proc_macro", "dtor", "no_warn_on_missing_unsafe"], optional = true }
 napi-derive-backend = { version = "5.0.2", path = "../backend" }
 proc-macro2 = "1"
 quote = "1"
