@@ -15,6 +15,21 @@ const getType = (value) => {
   return -1
 }
 
+const RESPONSE_HEADER_SIZE = 16
+const RESPONSE_PAYLOAD_SIZE = 10240
+const RESPONSE_BUFFER_SIZE = RESPONSE_HEADER_SIZE + RESPONSE_PAYLOAD_SIZE
+
+/**
+ * @param {Int32Array} sab
+ * @param {Uint8Array} payload
+ */
+const writeResponsePayload = (sab, payload) => {
+  if (payload.length > RESPONSE_PAYLOAD_SIZE) {
+    throw new RangeError('payload overflow')
+  }
+  new Uint8Array(sab.buffer).set(payload, RESPONSE_HEADER_SIZE)
+}
+
 /**
  * @param {import('memfs').IFs} memfs
  * @param {any} value
@@ -89,9 +104,7 @@ const encodeValue = (memfs, value, type) => {
       return view
     }
     case 9: {
-      const view = new BigInt64Array(1)
-      view[0] = value
-      return new Uint8Array(view.buffer)
+      return new TextEncoder().encode(String(value))
     }
     case -1:
     default:
@@ -176,8 +189,9 @@ const decodeValue = (memfs, payload, type) => {
     }
     return obj
   }
-  if (type === 9)
-    return new BigInt64Array(payload.buffer, payload.byteOffset, 1)[0]
+  if (type === 9) {
+    return BigInt(new TextDecoder().decode(payload.slice()))
+  }
   throw new Error('unsupported data')
 }
 
@@ -192,7 +206,7 @@ export const createOnMessage = (fs) =>
       /**
        * 0..4                    status(int32_t):        21(waiting) 0(success) 1(error)
        * 5..8                    type(napi_valuetype):   0(undefined) 1(null) 2(boolean) 3(number) 4(string) 6(jsonstring) 9(bigint) -1(unsupported)
-       * 9..16                   payload_size(uint32_t)  <= 1024
+       * 9..16                   payload_size(uint32_t)  <= 10240
        * 16..16 + payload_size   payload_content
        */
       const { sab, type, payload } = e.data.__fs__
@@ -203,14 +217,35 @@ export const createOnMessage = (fs) =>
         Atomics.store(sab, 1, t)
         const v = encodeValue(fs, ret, t)
         Atomics.store(sab, 2, v.length)
-        new Uint8Array(sab.buffer).set(v, 16)
+        writeResponsePayload(sab, v)
         Atomics.store(sab, 0, 0) // success
       } catch (/** @type {any} */ err) {
-        const t = getType(err)
+        let t = getType(err)
+        let v
+        try {
+          if (t === -1) {
+            throw new Error('unsupported data')
+          }
+          v = encodeValue(fs, err, t)
+        } catch {
+          const fallback = (() => {
+            try {
+              return String(err)
+            } catch {
+              return 'Unserializable thrown value'
+            }
+          })()
+          t = getType(fallback)
+          v = encodeValue(fs, fallback, t)
+        }
+        if (v.length > RESPONSE_PAYLOAD_SIZE) {
+          const overflowErr = new RangeError('payload overflow')
+          t = getType(overflowErr)
+          v = encodeValue(fs, overflowErr, t)
+        }
         Atomics.store(sab, 1, t)
-        const v = encodeValue(fs, err, t)
         Atomics.store(sab, 2, v.length)
-        new Uint8Array(sab.buffer).set(v, 16)
+        writeResponsePayload(sab, v)
         Atomics.store(sab, 0, 1) // error
       } finally {
         Atomics.notify(sab, 0)
@@ -230,7 +265,7 @@ export const createFsProxy = (memfs) =>
          * @param {any[]} args
          */
         return function (...args) {
-          const sab = new SharedArrayBuffer(16 + 10240)
+          const sab = new SharedArrayBuffer(RESPONSE_BUFFER_SIZE)
           const i32arr = new Int32Array(sab)
           Atomics.store(i32arr, 0, 21)
 
@@ -247,7 +282,7 @@ export const createFsProxy = (memfs) =>
           const status = Atomics.load(i32arr, 0)
           const type = Atomics.load(i32arr, 1)
           const size = Atomics.load(i32arr, 2)
-          const content = new Uint8Array(sab, 16, size)
+          const content = new Uint8Array(sab, RESPONSE_HEADER_SIZE, size)
           const value = decodeValue(memfs, content, type)
           if (status === 1) {
             throw value

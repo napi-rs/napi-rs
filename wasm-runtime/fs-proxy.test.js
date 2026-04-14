@@ -23,6 +23,9 @@ await test(`fs-proxy between main and worker (${isMainThread ? 'main' : 'worker'
     fs.__custom1__ = () => {
       throw null
     }
+    fs.__customUnsupported__ = () => {
+      throw function unsupported() {}
+    }
     fs.__custom2__ = (x) => x
 
     const worker = new Worker(__filename)
@@ -55,11 +58,18 @@ await test(`fs-proxy between main and worker (${isMainThread ? 'main' : 'worker'
         return err === null
       },
     )
+    assert.throws(() => fs.__customUnsupported__(), /function unsupported/)
     assert.throws(() => fs.__notexist__(), TypeError)
 
-    const primitives = [undefined, null, true, false, 1, 1.1, 1n, 'string']
+    const primitives = [undefined, null, true, false, 1, 1.1, 'string']
     primitives.forEach((primitive) => {
       assert.strictEqual(fs.__custom2__(primitive), primitive)
+    })
+
+    const bigints = [1n, 2n ** 63n, -(2n ** 63n) - 1n, 2n ** 64n - 1n]
+    bigints.forEach((value) => {
+      assert.strictEqual(fs.__custom2__(value), value)
+      assert.deepStrictEqual(fs.__custom2__({ value }), { value })
     })
     postMessage('pass')
   }
