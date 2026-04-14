@@ -285,6 +285,7 @@ export declare class Fib4 extends Iterator<unknown, void, number> {
   current: number
   nextItem: number
   constructor(current: number, nextItem: number)
+  toJSON(): Array<number>
   next(value?: number): IteratorResult<unknown, void>
 }
 

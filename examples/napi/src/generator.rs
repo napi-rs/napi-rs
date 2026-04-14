@@ -145,6 +145,14 @@ impl<'a> ScopedGenerator<'a> for Fib4 {
   }
 }
 
+#[napi]
+impl Fib4 {
+  #[napi(js_name = "toJSON")]
+  pub fn to_json(&self) -> Vec<u32> {
+    vec![self.current, self.next_item]
+  }
+}
+
 // Async iterator example - demonstrates the async generator pattern.
 // This example computes Fibonacci synchronously but returns via an async block,
 // showing the basic structure needed for AsyncGenerator implementations.
