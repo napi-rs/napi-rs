@@ -16,28 +16,44 @@ import test from 'ava'
 
 import { parseMetadata } from '../metadata.js'
 
-function createFakeCargoMetadata(manifestPath: string, version: string) {
-  return JSON.stringify({
-    version: 1,
-    packages: [
+function createFakePackage(
+  manifestPath: string,
+  version: string,
+  options: {
+    name?: string
+    source?: string | null
+  } = {},
+) {
+  const name = options.name ?? 'test'
+
+  return {
+    id: `${name} ${version} (path+file://${manifestPath})`,
+    name,
+    source: options.source ?? null,
+    src_path: join(dirname(manifestPath), 'src', 'lib.rs'),
+    version,
+    edition: '2021',
+    targets: [
       {
-        id: `test ${version} (path+file://${manifestPath})`,
-        name: 'test',
-        src_path: join(dirname(manifestPath), 'src', 'lib.rs'),
-        version,
-        edition: '2021',
-        targets: [
-          {
-            name: 'test',
-            kind: ['cdylib'],
-            crate_types: ['cdylib'],
-          },
-        ],
-        features: {},
-        manifest_path: manifestPath,
-        dependencies: [],
+        name,
+        kind: ['cdylib'],
+        crate_types: ['cdylib'],
       },
     ],
+    features: {},
+    manifest_path: manifestPath,
+    dependencies: [],
+  }
+}
+
+function createFakeCargoMetadata(
+  manifestPath: string,
+  version: string,
+  extraPackages: Array<ReturnType<typeof createFakePackage>> = [],
+) {
+  return JSON.stringify({
+    version: 1,
+    packages: [createFakePackage(manifestPath, version), ...extraPackages],
     workspace_members: [`test ${version} (path+file://${manifestPath})`],
     target_directory: join(dirname(manifestPath), 'target'),
     workspace_root: dirname(manifestPath),
@@ -181,6 +197,138 @@ test.serial('should cache metadata for the same manifest', async (t) => {
     await rm(fixtureDir, { recursive: true, force: true })
   }
 })
+
+test.serial(
+  'should cache metadata when cargo metadata includes registry packages',
+  async (t) => {
+    const fixtureDir = await mkdtemp(
+      join(tmpdir(), `napi-rs-metadata-registry-cache-${process.pid}-`),
+    )
+    const manifestPath = join(fixtureDir, 'Cargo.toml')
+    const registryDir = await mkdtemp(
+      join(tmpdir(), `napi-rs-metadata-registry-dep-${process.pid}-`),
+    )
+    const registryManifestPath = join(registryDir, 'Cargo.toml')
+    const countFile = join(fixtureDir, 'cargo-count.txt')
+    const originalPath = process.env.PATH
+    const originalJson = process.env.FAKE_CARGO_JSON
+    const originalCountFile = process.env.FAKE_CARGO_COUNT_FILE
+    const originalDelay = process.env.FAKE_CARGO_DELAY_MS
+
+    await setupFakeCargo(fixtureDir)
+    await writeFile(
+      manifestPath,
+      '[package]\nname = "test"\nversion = "0.0.0"\n',
+    )
+    await writeFile(
+      registryManifestPath,
+      '[package]\nname = "dep"\nversion = "1.2.3"\n',
+    )
+
+    process.env.PATH = [fixtureDir, originalPath]
+      .filter(Boolean)
+      .join(delimiter)
+    process.env.FAKE_CARGO_COUNT_FILE = countFile
+    process.env.FAKE_CARGO_DELAY_MS = '0'
+    process.env.FAKE_CARGO_JSON = createFakeCargoMetadata(
+      manifestPath,
+      '0.0.0',
+      [
+        createFakePackage(registryManifestPath, '1.2.3', {
+          name: 'dep',
+          source: 'registry+https://github.com/rust-lang/crates.io-index',
+        }),
+      ],
+    )
+
+    try {
+      const firstMetadata = await parseMetadata(manifestPath)
+      process.env.FAKE_CARGO_JSON = createFakeCargoMetadata(
+        manifestPath,
+        '9.9.9',
+        [
+          createFakePackage(registryManifestPath, '1.2.3', {
+            name: 'dep',
+            source: 'registry+https://github.com/rust-lang/crates.io-index',
+          }),
+        ],
+      )
+      const secondMetadata = await parseMetadata(manifestPath)
+
+      t.is(firstMetadata.packages[0]?.version, '0.0.0')
+      t.is(secondMetadata.packages[0]?.version, '0.0.0')
+      t.is(await readFile(countFile, 'utf8'), '1')
+    } finally {
+      process.env.PATH = originalPath
+      restoreEnvVar('FAKE_CARGO_JSON', originalJson)
+      restoreEnvVar('FAKE_CARGO_COUNT_FILE', originalCountFile)
+      restoreEnvVar('FAKE_CARGO_DELAY_MS', originalDelay)
+      await rm(fixtureDir, { recursive: true, force: true })
+      await rm(registryDir, { recursive: true, force: true })
+    }
+  },
+)
+
+test.serial(
+  'should cache metadata when cargo metadata adds local path dependencies',
+  async (t) => {
+    const fixtureDir = await mkdtemp(
+      join(tmpdir(), `napi-rs-metadata-path-dep-cache-${process.pid}-`),
+    )
+    const manifestPath = join(fixtureDir, 'Cargo.toml')
+    const dependencyDir = await mkdtemp(
+      join(tmpdir(), `napi-rs-metadata-path-dep-${process.pid}-`),
+    )
+    const dependencyManifestPath = join(dependencyDir, 'Cargo.toml')
+    const countFile = join(fixtureDir, 'cargo-count.txt')
+    const originalPath = process.env.PATH
+    const originalJson = process.env.FAKE_CARGO_JSON
+    const originalCountFile = process.env.FAKE_CARGO_COUNT_FILE
+    const originalDelay = process.env.FAKE_CARGO_DELAY_MS
+
+    await setupFakeCargo(fixtureDir)
+    await writeFile(
+      manifestPath,
+      '[package]\nname = "test"\nversion = "0.0.0"\n',
+    )
+    await writeFile(
+      dependencyManifestPath,
+      '[package]\nname = "dep"\nversion = "1.2.3"\n',
+    )
+
+    process.env.PATH = [fixtureDir, originalPath]
+      .filter(Boolean)
+      .join(delimiter)
+    process.env.FAKE_CARGO_COUNT_FILE = countFile
+    process.env.FAKE_CARGO_DELAY_MS = '0'
+    process.env.FAKE_CARGO_JSON = createFakeCargoMetadata(
+      manifestPath,
+      '0.0.0',
+      [createFakePackage(dependencyManifestPath, '1.2.3', { name: 'dep' })],
+    )
+
+    try {
+      const firstMetadata = await parseMetadata(manifestPath)
+      process.env.FAKE_CARGO_JSON = createFakeCargoMetadata(
+        manifestPath,
+        '9.9.9',
+        [createFakePackage(dependencyManifestPath, '1.2.3', { name: 'dep' })],
+      )
+      const secondMetadata = await parseMetadata(manifestPath)
+
+      t.is(firstMetadata.packages[0]?.version, '0.0.0')
+      t.is(secondMetadata.packages[0]?.version, '0.0.0')
+      t.is(await readFile(countFile, 'utf8'), '1')
+    } finally {
+      process.env.PATH = originalPath
+      restoreEnvVar('FAKE_CARGO_JSON', originalJson)
+      restoreEnvVar('FAKE_CARGO_COUNT_FILE', originalCountFile)
+      restoreEnvVar('FAKE_CARGO_DELAY_MS', originalDelay)
+      await rm(fixtureDir, { recursive: true, force: true })
+      await rm(dependencyDir, { recursive: true, force: true })
+    }
+  },
+)
 
 test.serial(
   'should cache metadata for the same workspace manifest',

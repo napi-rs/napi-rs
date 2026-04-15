@@ -22,6 +22,7 @@ export interface CrateTarget {
 export interface Crate {
   id: string
   name: string
+  source: string | null
   src_path: string
   version: string
   edition: string
@@ -172,6 +173,10 @@ function collectManifestFingerprints(
 
   if (metadata) {
     metadata.packages.forEach((pkg) => {
+      if (pkg.source !== null) {
+        return
+      }
+
       trackedManifestPaths.add(resolve(pkg.manifest_path))
     })
   }
@@ -189,14 +194,10 @@ function collectManifestFingerprints(
   return manifestFingerprints
 }
 
-function isManifestFingerprintMapEqual(
+function isManifestFingerprintSubsetEqual(
   left: Map<string, ManifestFingerprint>,
   right: Map<string, ManifestFingerprint>,
 ) {
-  if (left.size !== right.size) {
-    return false
-  }
-
   for (const [manifestPath, fingerprint] of left) {
     const rightFingerprint = right.get(manifestPath)
     if (
@@ -307,7 +308,10 @@ export async function parseMetadata(manifestPath: string) {
       if (
         preLoadFingerprints &&
         postLoadFingerprints &&
-        isManifestFingerprintMapEqual(preLoadFingerprints, postLoadFingerprints)
+        isManifestFingerprintSubsetEqual(
+          preLoadFingerprints,
+          postLoadFingerprints,
+        )
       ) {
         metadataCache.set(resolvedManifestPath, {
           value: {
