@@ -25,6 +25,10 @@ const NAPI_VERSION_MATRIX = new Map<NapiVersion, string>([
   [NapiVersion.Napi9, '18.17.0 | 20.3.0 | 21.1.0'],
 ])
 
+export const SUPPORTED_NAPI_VERSIONS = Object.values(NapiVersion).filter(
+  (v): v is NapiVersion => typeof v === 'number',
+)
+
 interface NodeVersion {
   major: number
   minor: number

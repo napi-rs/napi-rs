@@ -11,9 +11,19 @@ import {
   DEFAULT_TARGETS,
   type TargetTriple,
 } from '../utils/index.js'
-import { napiEngineRequirement } from '../utils/version.js'
+import {
+  napiEngineRequirement,
+  SUPPORTED_NAPI_VERSIONS,
+} from '../utils/version.js'
 
 const debug = debugFactory('new')
+
+export function getNapiVersionChoices() {
+  return SUPPORTED_NAPI_VERSIONS.map((version) => ({
+    name: `napi${version} (${napiEngineRequirement(version)})`,
+    value: version,
+  }))
+}
 
 export class NewCommand extends BaseNewCommand {
   interactive = Option.Boolean('--interactive,-i', true, {
@@ -77,10 +87,7 @@ export class NewCommand extends BaseNewCommand {
       message: 'Minimum node-api version (with node version requirement)',
       loop: false,
       pageSize: 10,
-      choices: Array.from({ length: 8 }, (_, i) => ({
-        name: `napi${i + 1} (${napiEngineRequirement(i + 1)})`,
-        value: i + 1,
-      })),
+      choices: getNapiVersionChoices(),
       // choice index
       default: this.minNodeApiVersion - 1,
     })
