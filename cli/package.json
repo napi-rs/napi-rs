@@ -1,6 +1,6 @@
 {
   "name": "@napi-rs/cli",
-  "version": "3.6.1",
+  "version": "3.6.2",
   "description": "Cli tools for napi-rs",
   "author": "LongYinan <lynweklm@gmail.com>",
   "homepage": "https://napi.rs/",

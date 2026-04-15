@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [1.1.4](https://github.com/napi-rs/napi-rs/compare/@napi-rs/wasm-runtime@1.1.3...@napi-rs/wasm-runtime@1.1.4) (2026-04-15)
+
+### Bug Fixes
+
+- **wasm-runtime:** preserve full bigint values in fs proxy codec ([#3233](https://github.com/napi-rs/napi-rs/issues/3233)) ([0cb8eef](https://github.com/napi-rs/napi-rs/commit/0cb8eefad83938daa6a0f377f2708890d9f4b6bf))
+
 ## [1.1.3](https://github.com/napi-rs/napi-rs/compare/@napi-rs/wasm-runtime@1.1.2...@napi-rs/wasm-runtime@1.1.3) (2026-04-08)
 
 **Note:** Version bump only for package @napi-rs/wasm-runtime
