@@ -89,7 +89,7 @@ export class NewCommand extends BaseNewCommand {
       pageSize: 10,
       choices: getNapiVersionChoices(),
       // choice index
-      default: SUPPORTED_NAPI_VERSIONS.indexOf(Number(this.minNodeApiVersion)),
+      default: this.minNodeApiVersion - 1,
     })
   }
 
