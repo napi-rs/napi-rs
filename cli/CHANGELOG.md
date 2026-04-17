@@ -3,6 +3,23 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [3.6.2](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.6.1...@napi-rs/cli@3.6.2) (2026-04-15)
+
+### Bug Fixes
+
+- **cli:** apply enableTypeDef when generating new projects ([#3214](https://github.com/napi-rs/napi-rs/issues/3214)) ([ce170eb](https://github.com/napi-rs/napi-rs/commit/ce170eb35d513f264cc66b483a87e2989aa98ccf))
+- **cli:** compatible with latest wasi-sdk toolchain ([#3217](https://github.com/napi-rs/napi-rs/issues/3217)) ([6c03dbc](https://github.com/napi-rs/napi-rs/commit/6c03dbc382bf82deda72c5120e239f91e30e0e95))
+- **cli:** fail build when --pipe post-process command exits non-zero ([#3218](https://github.com/napi-rs/napi-rs/issues/3218)) ([611bab0](https://github.com/napi-rs/napi-rs/commit/611bab05d805ab7dbbd5f3567c7f0fea06e96197))
+- **cli:** include napi9 in interactive new prompt ([#3235](https://github.com/napi-rs/napi-rs/issues/3235)) ([d1e5b17](https://github.com/napi-rs/napi-rs/commit/d1e5b173445f901e3d88acee08322237ecf52de6))
+- **cli:** keep macOS test job for aarch64-apple-darwin ([#3222](https://github.com/napi-rs/napi-rs/issues/3222)) ([81090bb](https://github.com/napi-rs/napi-rs/commit/81090bbaf95b42d23ce0bce341f2e44b2f8e7c37))
+- **cli:** parallelize type definition generation deterministically ([#3205](https://github.com/napi-rs/napi-rs/issues/3205)) ([23c72d1](https://github.com/napi-rs/napi-rs/commit/23c72d1d0ebcdd1b12f2c13c4e2beb1955513e7b))
+- **cli:** persist repository when renaming project ([#3221](https://github.com/napi-rs/napi-rs/issues/3221)) ([7c1cdb9](https://github.com/napi-rs/napi-rs/commit/7c1cdb99cbde480dde8042eadd794a2fdb392415))
+- **cli:** preserve existing optionalDependencies in pre-publish ([#3207](https://github.com/napi-rs/napi-rs/issues/3207)) ([219d756](https://github.com/napi-rs/napi-rs/commit/219d756322885074aefb8cf6756a155425101c2d))
+- **cli:** preserve stricter node engine ranges in WASI package generation ([#3201](https://github.com/napi-rs/napi-rs/issues/3201)) ([f3f4dae](https://github.com/napi-rs/napi-rs/commit/f3f4daec5eecf6b8c11f76e657084af5950fa787))
+- **cli:** remove stale browser metadata in non-WASI new projects ([#3229](https://github.com/napi-rs/napi-rs/issues/3229)) ([23abb8a](https://github.com/napi-rs/napi-rs/commit/23abb8ae1937f6c72c8b3f4a5ed1ccc9c1984ae5))
+- **cli:** resolve absolute packageJsonPath in universalize ([#3210](https://github.com/napi-rs/napi-rs/issues/3210)) ([c520136](https://github.com/napi-rs/napi-rs/commit/c520136a381d7c8bf2b17ec320a72c4db275a37f))
+- **cli:** use target cwd for pre-publish git log lookup ([#3228](https://github.com/napi-rs/napi-rs/issues/3228)) ([daabe32](https://github.com/napi-rs/napi-rs/commit/daabe32f1d758790e75f7f95951948c9490c3758))
+
 ## [3.6.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.6.0...@napi-rs/cli@3.6.1) (2026-04-08)
 
 ### Bug Fixes
