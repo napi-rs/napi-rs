@@ -14,9 +14,9 @@
       "matchUpdateTypes": ["minor", "patch", "pin", "digest"]
     },
     {
-      "matchPackageNames": ["emnapi", "^@emnapi"],
+      "matchPackageNames": ["emnapi", "@emnapi/"],
       "rangeStrategy": "replace",
-      "groupName": "napi-rs"
+      "groupName": "emnapi"
     }
   ],
   "postUpdateOptions": ["yarnDedupeHighest"],

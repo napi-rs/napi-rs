@@ -1363,7 +1363,7 @@ __metadata:
     ava: "npm:^7.0.0"
     clipanion: "npm:^4.0.0-rc.4"
     colorette: "npm:^2.0.20"
-    emnapi: "npm:^1.9.1"
+    emnapi: "npm:^1.10.0"
     empathic: "npm:^2.0.0"
     env-paths: "npm:^4.0.0"
     es-toolkit: "npm:^1.41.0"
@@ -6611,15 +6611,15 @@ __metadata:
   languageName: node
   linkType: hard
 
-"emnapi@npm:^1.9.1":
-  version: 1.9.2
-  resolution: "emnapi@npm:1.9.2"
+"emnapi@npm:^1.10.0":
+  version: 1.10.0
+  resolution: "emnapi@npm:1.10.0"
   peerDependencies:
     node-addon-api: ">= 6.1.0"
   peerDependenciesMeta:
     node-addon-api:
       optional: true
-  checksum: 10c0/3e99ae9fcc4c4033f0eeed60749a862215630cf6a23ce95d9ed651d25b3cb54743d8c167dfe0dc43b98ff4946bcba27f721d329f111328c11845f1eaf0d32bf6
+  checksum: 10c0/7e8ea3bd03e682db993709b623a30289d9dd667a22088122bc5f80faf3e6d1c592b6cc33284d839aab39abf762fb5032cca4459bf8f803be711e517d02403fa0
   languageName: node
   linkType: hard
 
