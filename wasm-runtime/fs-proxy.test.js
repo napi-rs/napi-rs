@@ -49,6 +49,9 @@ await test(`fs-proxy between main and worker (${isMainThread ? 'main' : 'worker'
         parentPort.postMessage(data)
       },
     })
+    const buffer = fs.readFileSync('/test.txt')
+    assert.ok(Buffer.isBuffer(buffer))
+    assert.ok(buffer.equals(Buffer.from('test')))
     assert.strictEqual(fs.readFileSync('/test.txt', 'utf8'), 'test')
     assert.strictEqual(fs.readFileSync('/test.json', 'utf8'), '{"a":"b"}')
     assert.throws(() => fs.readFileSync('/notexist', 'utf8'), /ENOENT/)
