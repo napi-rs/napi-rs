@@ -12,14 +12,32 @@ import { UniArchsByPlatform } from '../utils/target.js'
 
 const debug = debugFactory('universalize')
 
+function createDarwinUniversalBinary(inputs: string[], output: string) {
+  const result = spawnSync('lipo', ['-create', '-output', output, ...inputs], {
+    stdio: 'inherit',
+  })
+
+  if (result.error) {
+    throw result.error
+  }
+
+  if (result.signal) {
+    throw new Error(
+      `Failed to create universal binary '${output}': lipo terminated with signal ${result.signal}.`,
+    )
+  }
+
+  if (result.status !== 0) {
+    throw new Error(
+      `Failed to create universal binary '${output}': lipo exited with status ${result.status}.`,
+    )
+  }
+}
+
 const universalizers: Partial<
   Record<NodeJS.Platform, (inputs: string[], output: string) => void>
 > = {
-  darwin: (inputs, output) => {
-    spawnSync('lipo', ['-create', '-output', output, ...inputs], {
-      stdio: 'inherit',
-    })
-  },
+  darwin: createDarwinUniversalBinary,
 }
 
 export async function universalizeBinaries(userOptions: UniversalizeOptions) {
@@ -76,6 +94,10 @@ export async function universalizeBinaries(userOptions: UniversalizeOptions) {
   )
 
   universalizers[process.platform]?.(srcFiles, output)
+
+  if (!(await fileExists(output))) {
+    throw new Error(`Universal binary was not created: ${output}`)
+  }
 
   debug(`Produced universal binary: ${output}`)
 }

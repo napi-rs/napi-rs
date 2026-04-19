@@ -78,3 +78,51 @@ test('resolves an absolute packageJsonPath instead of joining it with cwd', asyn
     )
   }
 })
+
+test('throws when lipo fails to create a universal binary', async (t) => {
+  if (process.platform !== 'darwin') {
+    t.pass()
+    return
+  }
+
+  const { cwd, packageJsonPath, tmpDir } = t.context
+  const outputDir = join(tmpDir, 'out')
+  const outputPath = join(outputDir, 'universalize-repro.darwin-universal.node')
+
+  await mkdir(outputDir, { recursive: true })
+  await writeFile(
+    packageJsonPath,
+    `${JSON.stringify(
+      {
+        name: 'universalize-repro',
+        napi: {
+          binaryName: 'universalize-repro',
+          targets: ['universal-apple-darwin'],
+        },
+      },
+      null,
+      2,
+    )}\n`,
+  )
+
+  await writeFile(
+    join(outputDir, 'universalize-repro.darwin-x64.node'),
+    'not a mach-o\n',
+  )
+  await writeFile(
+    join(outputDir, 'universalize-repro.darwin-arm64.node'),
+    'not a mach-o\n',
+  )
+
+  const error = await t.throwsAsync(() =>
+    universalizeBinaries({
+      cwd,
+      packageJsonPath,
+      outputDir,
+    }),
+  )
+
+  t.truthy(error)
+  t.regex(error.message, /Failed to create universal binary/)
+  t.false(existsSync(outputPath))
+})
