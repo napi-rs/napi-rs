@@ -6,6 +6,7 @@
 const getType = (value) => {
   if (value === undefined) return 0
   if (value === null) return 1
+  if (isBuffer(value)) return 10
   const t = typeof value
   if (t === 'boolean') return 2
   if (t === 'number') return 3
@@ -13,6 +14,18 @@ const getType = (value) => {
   if (t === 'object') return 6
   if (t === 'bigint') return 9
   return -1
+}
+
+/**
+ * @param {unknown} value
+ * @returns {value is Uint8Array}
+ */
+const isBuffer = (value) => {
+  const BufferCtor = globalThis.Buffer
+  if (typeof BufferCtor?.isBuffer === 'function') {
+    return BufferCtor.isBuffer(value)
+  }
+  return value instanceof Uint8Array && value.constructor?.name === 'Buffer'
 }
 
 const RESPONSE_HEADER_SIZE = 16
@@ -55,6 +68,8 @@ const encodeValue = (memfs, value, type) => {
       const view = new TextEncoder().encode(value)
       return view
     }
+    case 10:
+      return new Uint8Array(value)
     case 6: {
       function storeConstructor(obj, memfs, processed = new WeakSet()) {
         if (!obj || typeof obj !== 'object') {
@@ -126,6 +141,13 @@ const decodeValue = (memfs, payload, type) => {
   if (type === 3)
     return new Float64Array(payload.buffer, payload.byteOffset, 1)[0]
   if (type === 4) return new TextDecoder().decode(payload.slice())
+  if (type === 10) {
+    const BufferCtor = globalThis.Buffer
+    if (typeof BufferCtor?.from === 'function') {
+      return BufferCtor.from(payload)
+    }
+    return payload.slice()
+  }
   if (type === 6) {
     const obj = JSON.parse(
       new TextDecoder().decode(payload.slice()),
@@ -205,7 +227,7 @@ export const createOnMessage = (fs) =>
     if (e.data.__fs__) {
       /**
        * 0..4                    status(int32_t):        21(waiting) 0(success) 1(error)
-       * 5..8                    type(napi_valuetype):   0(undefined) 1(null) 2(boolean) 3(number) 4(string) 6(jsonstring) 9(bigint) -1(unsupported)
+       * 5..8                    type(napi_valuetype):   0(undefined) 1(null) 2(boolean) 3(number) 4(string) 6(jsonstring) 9(bigint) 10(buffer) -1(unsupported)
        * 9..16                   payload_size(uint32_t)  <= 10240
        * 16..16 + payload_size   payload_content
        */
