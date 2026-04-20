@@ -626,6 +626,12 @@ fn create_custom_gc(env: sys::napi_env) {
 ))]
 unsafe extern "C" fn thread_cleanup(_data: *mut std::ffi::c_void) {
   if MODULE_COUNT.fetch_sub(1, Ordering::Relaxed) == 1 {
+    // Reset the flag so the next Node.js env (e.g. Electron renderer reload) can
+    // re-register this hook. The hook is bound to the env instance that registered it;
+    // a new env will not inherit it automatically.
+    if let Ok(mut flag) = ENV_CLEANUP_HOOK_ADDED.write() {
+      *flag = false;
+    }
     crate::tokio_runtime::shutdown_async_runtime();
   }
 }

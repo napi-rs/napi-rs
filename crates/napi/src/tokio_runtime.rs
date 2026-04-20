@@ -12,15 +12,19 @@ use crate::{JsDeferred, SendableResolver, Unknown};
 fn create_runtime() -> Runtime {
   // Check if we're supposed to use a user-defined runtime
   if IS_USER_DEFINED_RT.get().copied().unwrap_or(false) {
-    // Try to take the user-defined runtime if it's still available
+    // Factory takes priority: supports recreation after shutdown (e.g. Electron renderer reload)
+    if let Some(factory) = USER_DEFINED_RT_FACTORY.get() {
+      return factory();
+    }
+    // One-shot path: original create_custom_tokio_runtime API, only works on first creation
     if let Some(user_defined_rt) = USER_DEFINED_RT
       .get()
       .and_then(|rt| rt.write().ok().and_then(|mut rt| rt.take()))
     {
       return user_defined_rt;
     }
-    // If the user-defined runtime was already taken, fall back to creating a default runtime
-    // This handles the case where the runtime was shutdown and needs to be restarted
+    // If the user-defined runtime was already taken and no factory is set, fall back to a default
+    // runtime. This handles the case where the runtime was shutdown and needs to be restarted.
   }
 
   #[cfg(any(
@@ -50,11 +54,20 @@ static RT: LazyLock<RwLock<Option<Runtime>>> =
 static USER_DEFINED_RT: OnceLock<RwLock<Option<Runtime>>> = OnceLock::new();
 
 #[cfg(not(feature = "noop"))]
+static USER_DEFINED_RT_FACTORY: OnceLock<Box<dyn Fn() -> Runtime + Send + Sync>> = OnceLock::new();
+
+#[cfg(not(feature = "noop"))]
 static IS_USER_DEFINED_RT: OnceLock<bool> = OnceLock::new();
 
 #[cfg(not(feature = "noop"))]
 /// Create a custom Tokio runtime used by the NAPI-RS.
 /// You can control the tokio runtime configuration by yourself.
+///
+/// **Warning**: this accepts a pre-built [`Runtime`] and can only be used for the *first*
+/// runtime creation. After [`shutdown_async_runtime`] + [`start_async_runtime`] (e.g. Electron
+/// renderer reload), the custom runtime is **lost** and a default runtime is used instead.
+/// Use [`create_custom_tokio_runtime_factory`] to correctly handle restart scenarios.
+///
 /// ### Example
 /// ```no_run
 /// use tokio::runtime::Builder;
@@ -65,13 +78,62 @@ static IS_USER_DEFINED_RT: OnceLock<bool> = OnceLock::new();
 ///    let rt = Builder::new_multi_thread().enable_all().thread_stack_size(32 * 1024 * 1024).build().unwrap();
 ///    create_custom_tokio_runtime(rt);
 /// }
+/// ```
 pub fn create_custom_tokio_runtime(rt: Runtime) {
+  debug_assert!(
+    USER_DEFINED_RT_FACTORY.get().is_none(),
+    "create_custom_tokio_runtime called after create_custom_tokio_runtime_factory; \
+     the factory takes precedence and the pre-built Runtime will be leaked"
+  );
   USER_DEFINED_RT.get_or_init(move || RwLock::new(Some(rt)));
+  IS_USER_DEFINED_RT.get_or_init(|| true);
+}
+
+#[cfg(not(feature = "noop"))]
+/// Create a custom Tokio runtime factory used by NAPI-RS.
+///
+/// Unlike [`create_custom_tokio_runtime`] which accepts a pre-built [`Runtime`] (and can only be
+/// used once), this function accepts a factory closure that will be called **every time** a new
+/// runtime needs to be created — including after [`shutdown_async_runtime`] followed by
+/// [`start_async_runtime`]. This makes it the correct choice for scenarios where the runtime can
+/// be shut down and restarted, such as Electron renderer process reloads.
+///
+/// ### Example
+/// ```no_run
+/// use napi::create_custom_tokio_runtime_factory;
+///
+/// #[napi_derive::module_init]
+/// fn init() {
+///   create_custom_tokio_runtime_factory(|| {
+///     tokio::runtime::Builder::new_multi_thread()
+///       .enable_all()
+///       .thread_stack_size(32 * 1024 * 1024)
+///       .build()
+///       .unwrap()
+///   });
+/// }
+/// ```
+pub fn create_custom_tokio_runtime_factory<F>(factory: F)
+where
+  F: Fn() -> Runtime + Send + Sync + 'static,
+{
+  debug_assert!(
+    USER_DEFINED_RT.get().is_none(),
+    "create_custom_tokio_runtime_factory called after create_custom_tokio_runtime; \
+     the factory takes precedence but the pre-built Runtime stored earlier will be leaked"
+  );
+  USER_DEFINED_RT_FACTORY.get_or_init(|| Box::new(factory));
   IS_USER_DEFINED_RT.get_or_init(|| true);
 }
 
 #[cfg(feature = "noop")]
 pub fn create_custom_tokio_runtime(_: Runtime) {}
+
+#[cfg(feature = "noop")]
+pub fn create_custom_tokio_runtime_factory<F: Fn() -> Runtime + Send + Sync + 'static>(
+  _: F,
+) {
+}
 
 #[cfg(not(feature = "noop"))]
 /// Start the async runtime (Currently is tokio).
