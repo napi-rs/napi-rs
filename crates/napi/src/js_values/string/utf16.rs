@@ -177,10 +177,8 @@ impl<'env> JsStringUtf16<'env> {
       )
     };
 
-    if status != sys::Status::napi_ok {
-      unsafe {
-        drop(Box::from_raw(hint_ptr));
-      }
+    if status != sys::Status::napi_ok && !copied {
+      finalize_with_custom_callback::<T, F>(env.0.cast(), ptr::null_mut(), hint_ptr.cast());
     }
 
     check_status!(status, "Failed to create external string utf16")?;
