@@ -44,7 +44,7 @@ impl<'env> JsStringLatin1<'env> {
   /// The `copied` parameter serves as feedback to understand whether the external string
   /// optimization was successful or if V8 fell back to traditional string creation.
   pub fn from_data(env: &'env Env, data: Vec<u8>) -> Result<JsStringLatin1<'env>> {
-    use std::{mem, ptr};
+    use std::{mem::ManuallyDrop, ptr};
 
     use crate::{check_status, Error, Status, Value, ValueType};
 
@@ -55,6 +55,8 @@ impl<'env> JsStringLatin1<'env> {
       ));
     }
 
+    let fallback_buf = data.clone();
+    let mut data = ManuallyDrop::new(data);
     let mut raw_value = ptr::null_mut();
     let mut copied = false;
     let data_ptr = data.as_ptr();
@@ -62,34 +64,29 @@ impl<'env> JsStringLatin1<'env> {
     let cap = data.capacity();
     let finalize_hint = Box::into_raw(Box::new((len, cap)));
 
-    check_status!(
-      unsafe {
-        sys::node_api_create_external_string_latin1(
-          env.0,
-          data_ptr.cast(),
-          len as isize,
-          Some(drop_latin1_string),
-          finalize_hint.cast(),
-          &mut raw_value,
-          &mut copied,
-        )
-      },
-      "Failed to create external string latin1"
-    )?;
-
-    let inner_buf = if copied {
-      // If the data was copied, the finalizer won't be called
-      // We need to clean up the finalize_hint and let the Vec be dropped
-      unsafe {
-        let _ = Box::from_raw(finalize_hint);
-      };
-      data
-    } else {
-      // Only forget the data if it wasn't copied
-      // The finalizer will handle cleanup
-      mem::forget(data);
-      vec![]
+    let status = unsafe {
+      sys::node_api_create_external_string_latin1(
+        env.0,
+        data_ptr.cast(),
+        len as isize,
+        Some(drop_latin1_string),
+        finalize_hint.cast(),
+        &mut raw_value,
+        &mut copied,
+      )
     };
+
+    if status != sys::Status::napi_ok {
+      unsafe {
+        drop(Box::from_raw(finalize_hint));
+        ManuallyDrop::drop(&mut data);
+      }
+    }
+
+    check_status!(status, "Failed to create external string latin1")?;
+
+    let inner_buf = if copied { fallback_buf } else { vec![] };
+    let buf_ptr = if copied { inner_buf.as_ptr() } else { data_ptr };
 
     Ok(Self {
       inner: JsString(
@@ -100,7 +97,7 @@ impl<'env> JsStringLatin1<'env> {
         },
         std::marker::PhantomData,
       ),
-      buf: unsafe { std::slice::from_raw_parts(data_ptr, len) },
+      buf: unsafe { std::slice::from_raw_parts(buf_ptr, len) },
       _inner_buf: inner_buf,
     })
   }
@@ -122,7 +119,7 @@ impl<'env> JsStringLatin1<'env> {
   ///
   /// ### When `copied` is `true`:
   /// - String data is copied to V8's heap
-  /// - Finalizer is called immediately if provided
+  /// - Finalizer is invoked during string creation if provided
   /// - Original buffer can be freed after the call
   /// - Performance benefit of external strings is not achieved
   ///
@@ -149,7 +146,7 @@ impl<'env> JsStringLatin1<'env> {
     finalize_hint: T,
     finalize_callback: F,
   ) -> Result<JsStringLatin1<'env>> {
-    use std::ptr;
+    use std::{ptr, slice};
 
     use crate::{check_status, Error, Status, Value, ValueType};
 
@@ -160,31 +157,33 @@ impl<'env> JsStringLatin1<'env> {
       ));
     }
 
+    let fallback_buf = unsafe { slice::from_raw_parts(data, len) }.to_vec();
     let hint_ptr = Box::into_raw(Box::new((finalize_hint, finalize_callback)));
     let mut raw_value = ptr::null_mut();
     let mut copied = false;
 
-    check_status!(
-      unsafe {
-        sys::node_api_create_external_string_latin1(
-          env.0,
-          data.cast(),
-          len as isize,
-          Some(finalize_with_custom_callback::<T, F>),
-          hint_ptr.cast(),
-          &mut raw_value,
-          &mut copied,
-        )
-      },
-      "Failed to create external string latin1"
-    )?;
+    let status = unsafe {
+      sys::node_api_create_external_string_latin1(
+        env.0,
+        data.cast(),
+        len as isize,
+        Some(finalize_with_custom_callback::<T, F>),
+        hint_ptr.cast(),
+        &mut raw_value,
+        &mut copied,
+      )
+    };
 
-    if copied {
+    if status != sys::Status::napi_ok {
       unsafe {
-        let (hint, finalize) = *Box::from_raw(hint_ptr);
-        finalize(*env, hint);
+        drop(Box::from_raw(hint_ptr));
       }
     }
+
+    check_status!(status, "Failed to create external string latin1")?;
+
+    let inner_buf = if copied { fallback_buf } else { vec![] };
+    let buf_ptr = if copied { inner_buf.as_ptr() } else { data };
 
     Ok(Self {
       inner: JsString(
@@ -195,8 +194,8 @@ impl<'env> JsStringLatin1<'env> {
         },
         std::marker::PhantomData,
       ),
-      buf: unsafe { std::slice::from_raw_parts(data, len) },
-      _inner_buf: vec![],
+      buf: unsafe { std::slice::from_raw_parts(buf_ptr, len) },
+      _inner_buf: inner_buf,
     })
   }
 
