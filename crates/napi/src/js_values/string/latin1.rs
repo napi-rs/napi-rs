@@ -174,7 +174,7 @@ impl<'env> JsStringLatin1<'env> {
       )
     };
 
-    if status != sys::Status::napi_ok {
+    if status != sys::Status::napi_ok && !copied {
       unsafe {
         drop(Box::from_raw(hint_ptr));
       }
