@@ -1,5 +1,7 @@
 #[cfg(feature = "napi10")]
 use std::ffi::c_void;
+#[cfg(feature = "napi10")]
+use std::sync::Arc;
 
 use crate::{bindgen_prelude::ToNapiValue, sys, JsString, Result};
 
@@ -10,6 +12,8 @@ pub struct JsStringLatin1<'env> {
   pub(crate) inner: JsString<'env>,
   pub(crate) buf: &'env [u8],
   pub(crate) _inner_buf: Vec<u8>,
+  #[cfg(feature = "napi10")]
+  pub(crate) _shared_buf: Option<Arc<Vec<u8>>>,
 }
 
 impl<'env> JsStringLatin1<'env> {
@@ -44,7 +48,7 @@ impl<'env> JsStringLatin1<'env> {
   /// The `copied` parameter serves as feedback to understand whether the external string
   /// optimization was successful or if V8 fell back to traditional string creation.
   pub fn from_data(env: &'env Env, data: Vec<u8>) -> Result<JsStringLatin1<'env>> {
-    use std::{mem::ManuallyDrop, ptr};
+    use std::ptr;
 
     use crate::{check_status, Error, Status, Value, ValueType};
 
@@ -55,14 +59,15 @@ impl<'env> JsStringLatin1<'env> {
       ));
     }
 
-    let fallback_buf = data.clone();
-    let mut data = ManuallyDrop::new(data);
+    let shared_buf = Arc::new(data);
     let mut raw_value = ptr::null_mut();
     let mut copied = false;
-    let data_ptr = data.as_ptr();
-    let len = data.len();
-    let cap = data.capacity();
-    let finalize_hint = Box::into_raw(Box::new((len, cap)));
+    let data_ptr = shared_buf.as_ptr();
+    let len = shared_buf.len();
+    // Keep one strong reference on the Rust side and transfer another to Node.
+    // If V8 copies the string and runs the finalizer immediately, Rust still has
+    // a valid view of the bytes without cloning the full buffer first.
+    let finalize_hint = Arc::into_raw(Arc::clone(&shared_buf));
 
     let status = unsafe {
       sys::node_api_create_external_string_latin1(
@@ -70,7 +75,7 @@ impl<'env> JsStringLatin1<'env> {
         data_ptr.cast(),
         len as isize,
         Some(drop_latin1_string),
-        finalize_hint.cast(),
+        finalize_hint.cast_mut().cast(),
         &mut raw_value,
         &mut copied,
       )
@@ -78,15 +83,11 @@ impl<'env> JsStringLatin1<'env> {
 
     if status != sys::Status::napi_ok {
       unsafe {
-        drop(Box::from_raw(finalize_hint));
-        ManuallyDrop::drop(&mut data);
+        drop(Arc::from_raw(finalize_hint));
       }
     }
 
     check_status!(status, "Failed to create external string latin1")?;
-
-    let inner_buf = if copied { fallback_buf } else { vec![] };
-    let buf_ptr = if copied { inner_buf.as_ptr() } else { data_ptr };
 
     Ok(Self {
       inner: JsString(
@@ -97,8 +98,9 @@ impl<'env> JsStringLatin1<'env> {
         },
         std::marker::PhantomData,
       ),
-      buf: unsafe { std::slice::from_raw_parts(buf_ptr, len) },
-      _inner_buf: inner_buf,
+      buf: unsafe { std::slice::from_raw_parts(data_ptr, len) },
+      _inner_buf: vec![],
+      _shared_buf: Some(shared_buf),
     })
   }
 
@@ -196,6 +198,7 @@ impl<'env> JsStringLatin1<'env> {
       ),
       buf: unsafe { std::slice::from_raw_parts(buf_ptr, len) },
       _inner_buf: inner_buf,
+      _shared_buf: None,
     })
   }
 
@@ -241,6 +244,7 @@ impl<'env> JsStringLatin1<'env> {
       ),
       buf: string.as_bytes(),
       _inner_buf: vec![],
+      _shared_buf: None,
     })
   }
 
@@ -287,15 +291,13 @@ impl ToNapiValue for JsStringLatin1<'_> {
 #[cfg(feature = "napi10")]
 extern "C" fn drop_latin1_string(
   _: sys::node_api_basic_env,
-  finalize_data: *mut c_void,
+  _: *mut c_void,
   finalize_hint: *mut c_void,
 ) {
-  let (size, capacity): (usize, usize) = unsafe { *Box::from_raw(finalize_hint.cast()) };
-  if size == 0 || finalize_data.is_null() {
+  if finalize_hint.is_null() {
     return;
   }
-  let data: Vec<u8> = unsafe { Vec::from_raw_parts(finalize_data.cast(), size, capacity) };
-  drop(data);
+  drop(unsafe { Arc::from_raw(finalize_hint.cast::<Vec<u8>>()) });
 }
 
 #[cfg(feature = "napi10")]
