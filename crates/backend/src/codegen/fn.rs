@@ -797,9 +797,11 @@ impl NapiFn {
           #[allow(clippy::all)]
           #[allow(non_snake_case)]
           #[cfg(all(not(test), not(target_family = "wasm")))]
-          #[napi::ctor::ctor(crate_path=::napi::ctor)]
-          fn #module_register_name() {
-            napi::bindgen_prelude::register_module_export_hook(#cb_name);
+          napi::ctor::declarative::ctor! {
+            #[ctor(unsafe)]
+            fn #module_register_name() {
+              napi::bindgen_prelude::register_module_export_hook(#cb_name);
+            }
           }
 
           #[allow(clippy::all)]
@@ -820,9 +822,11 @@ impl NapiFn {
           #[allow(clippy::all)]
           #[allow(non_snake_case)]
           #[cfg(all(not(test), not(target_family = "wasm")))]
-          #[napi::ctor::ctor(crate_path=::napi::ctor)]
-          fn #module_register_name() {
-            napi::bindgen_prelude::register_module_export(#js_mod_ident, #js_name, #cb_name);
+          napi::ctor::declarative::ctor! {
+            #[ctor(unsafe)]
+            fn #module_register_name() {
+              napi::bindgen_prelude::register_module_export(#js_mod_ident, #js_name, #cb_name);
+            }
           }
 
           #[doc(hidden)]
