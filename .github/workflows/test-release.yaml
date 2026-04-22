@@ -689,7 +689,7 @@ jobs:
         uses: mlugg/setup-zig@v2
         with:
           version: 0.15.2
-      - uses: jaxxstorm/action-install-gh-release@v1
+      - uses: jaxxstorm/action-install-gh-release@v3.0.0
         with:
           repo: rust-cross/cargo-zigbuild
       - name: Setup node
