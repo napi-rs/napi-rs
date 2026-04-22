@@ -80,11 +80,11 @@ static IS_USER_DEFINED_RT: OnceLock<bool> = OnceLock::new();
 /// }
 /// ```
 pub fn create_custom_tokio_runtime(rt: Runtime) {
-  debug_assert!(
-    USER_DEFINED_RT_FACTORY.get().is_none(),
-    "create_custom_tokio_runtime called after create_custom_tokio_runtime_factory; \
-     the factory takes precedence and the pre-built Runtime will be leaked"
-  );
+  if USER_DEFINED_RT_FACTORY.get().is_some() {
+    // A factory is already registered; dropping the pre-built Runtime here prevents its
+    // worker threads from running unused alongside the factory-created ones.
+    return;
+  }
   USER_DEFINED_RT.get_or_init(move || RwLock::new(Some(rt)));
   IS_USER_DEFINED_RT.get_or_init(|| true);
 }
@@ -117,11 +117,11 @@ pub fn create_custom_tokio_runtime_factory<F>(factory: F)
 where
   F: Fn() -> Runtime + Send + Sync + 'static,
 {
-  debug_assert!(
-    USER_DEFINED_RT.get().is_none(),
-    "create_custom_tokio_runtime_factory called after create_custom_tokio_runtime; \
-     the factory takes precedence but the pre-built Runtime stored earlier will be leaked"
-  );
+  if USER_DEFINED_RT.get().is_some() {
+    // A pre-built Runtime is already registered; discard the factory so the first
+    // caller's choice wins and we avoid storing a factory that would never be used.
+    return;
+  }
   USER_DEFINED_RT_FACTORY.get_or_init(|| Box::new(factory));
   IS_USER_DEFINED_RT.get_or_init(|| true);
 }
