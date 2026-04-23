@@ -2,7 +2,6 @@ use std::ffi::c_void;
 use std::rc::Rc;
 
 pub use callback_info::*;
-pub use ctor::ctor;
 pub use env::*;
 pub use iterator::Generator;
 pub use js_values::*;
