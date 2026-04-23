@@ -793,11 +793,11 @@ impl NapiFn {
             Ok(exports)
           }
 
-          #[doc(hidden)]
-          #[allow(clippy::all)]
-          #[allow(non_snake_case)]
           #[cfg(all(not(test), not(target_family = "wasm")))]
           napi::ctor::declarative::ctor! {
+            #[doc(hidden)]
+            #[allow(clippy::all)]
+            #[allow(non_snake_case)]
             #[ctor(unsafe)]
             fn #module_register_name() {
               napi::bindgen_prelude::register_module_export_hook(#cb_name);
@@ -818,11 +818,11 @@ impl NapiFn {
         quote! {}
       } else {
         quote! {
-          #[doc(hidden)]
-          #[allow(clippy::all)]
-          #[allow(non_snake_case)]
           #[cfg(all(not(test), not(target_family = "wasm")))]
           napi::ctor::declarative::ctor! {
+            #[doc(hidden)]
+            #[allow(clippy::all)]
+            #[allow(non_snake_case)]
             #[ctor(unsafe)]
             fn #module_register_name() {
               napi::bindgen_prelude::register_module_export(#js_mod_ident, #js_name, #cb_name);

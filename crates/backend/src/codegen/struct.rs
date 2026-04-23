@@ -974,10 +974,10 @@ impl NapiStruct {
     }
     let js_mod_ident = js_mod_to_token_stream(self.js_mod.as_ref());
     quote! {
-      #[allow(non_snake_case)]
-      #[allow(clippy::all)]
       #[cfg(all(not(test), not(target_family = "wasm")))]
       napi::ctor::declarative::ctor! {
+        #[allow(non_snake_case)]
+        #[allow(clippy::all)]
         #[ctor(unsafe)]
         fn #struct_register_name() {
           napi::__private::register_class(std::any::TypeId::of::<#name>(), #js_mod_ident, #js_name, vec![#(#props),*], #implement_iterator);
