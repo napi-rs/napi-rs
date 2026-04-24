@@ -130,10 +130,7 @@ where
 pub fn create_custom_tokio_runtime(_: Runtime) {}
 
 #[cfg(feature = "noop")]
-pub fn create_custom_tokio_runtime_factory<F: Fn() -> Runtime + Send + Sync + 'static>(
-  _: F,
-) {
-}
+pub fn create_custom_tokio_runtime_factory<F: Fn() -> Runtime + Send + Sync + 'static>(_: F) {}
 
 #[cfg(not(feature = "noop"))]
 /// Start the async runtime (Currently is tokio).
