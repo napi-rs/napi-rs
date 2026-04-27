@@ -199,8 +199,6 @@ impl Array<'_> {
   }
 }
 
-impl ValidateNapiValue for Array<'_> {}
-
 impl<T> TypeName for Vec<T> {
   fn type_name() -> &'static str {
     "Array<T>"
