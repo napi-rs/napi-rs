@@ -22,6 +22,24 @@ pub fn call2(callback: Function<FnArgs<(u32, u32)>, u32>, arg1: u32, arg2: u32) 
 }
 
 #[napi]
+pub fn call_with_tuple_arg(
+  callback: Function<(u32, u32), u32>,
+  arg1: u32,
+  arg2: u32,
+) -> Result<u32> {
+  callback.call((arg1, arg2))
+}
+
+#[napi]
+pub fn call_with_nested_function_arg<'env>(
+  env: &'env Env,
+  callback: Function<'env, Function<'env, u32, u32>, u32>,
+) -> Result<u32> {
+  let inner = env.create_function("inner", no_export_function_c_callback)?;
+  callback.call(inner)
+}
+
+#[napi]
 pub fn apply0(ctx: ClassInstance<Animal>, callback: Function<(), ()>) -> Result<()> {
   callback.apply(ctx, ())
 }
@@ -85,6 +103,16 @@ pub fn reference_as_callback(
   arg1: u32,
 ) -> Result<u32> {
   callback.borrow_back(&env)?.call((arg0, arg1).into())
+}
+
+#[napi]
+pub fn reference_with_tuple_arg(
+  env: Env,
+  callback: FunctionRef<(u32, u32), u32>,
+  arg0: u32,
+  arg1: u32,
+) -> Result<u32> {
+  callback.borrow_back(&env)?.call((arg0, arg1))
 }
 
 #[napi]

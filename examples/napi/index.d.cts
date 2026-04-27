@@ -409,6 +409,8 @@ export declare function acceptThreadsafeFunctionFatal(func: ((arg: number) => vo
 
 export declare function acceptThreadsafeFunctionTupleArgs(func: ((err: Error | null, arg0: number, arg1: boolean, arg2: string) => any)): void
 
+export declare function acceptThreadsafeFunctionTupleNoFnArgs(func: ((err: Error | null, arg: [number, boolean, string]) => any)): void
+
 export declare function acceptUint8ClampedSlice(input: Uint8ClampedArray): bigint
 
 export declare function acceptUint8ClampedSliceAndBufferSlice(a: Buffer, b: Uint8ClampedArray): bigint
@@ -529,6 +531,10 @@ export declare function callRuleHandler(rule: Rule, arg: number): number
 export declare function callThenOnPromise(input: Promise<number>): Promise<string>
 
 export declare function callThreadsafeFunction(tsfn: ((err: Error | null, arg: number) => unknown)): void
+
+export declare function callWithNestedFunctionArg(callback: (arg: (arg: number) => number) => number): number
+
+export declare function callWithTupleArg(callback: (arg: [number, number]) => number, arg1: number, arg2: number): number
 
 export declare function captureErrorInCallback(cb1: () => void, cb2: (arg0: Error) => void): void
 
@@ -1078,6 +1084,8 @@ export declare function receiveStrictObject(strictObject: StrictObject): void
 export declare function receiveString(s: string): string
 
 export declare function referenceAsCallback(callback: (arg0: number, arg1: number) => number, arg0: number, arg1: number): number
+
+export declare function referenceWithTupleArg(callback: (arg: [number, number]) => number, arg0: number, arg1: number): number
 
 export interface RequestInit {
   method?: string

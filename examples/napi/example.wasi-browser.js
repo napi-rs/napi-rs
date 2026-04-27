@@ -43,6 +43,7 @@ const {
     })
     worker.addEventListener('message', __wasmCreateOnMessageForFsProxy(__fs))
 
+
     return worker
   },
   overwriteImports(importObject) {
@@ -127,6 +128,7 @@ export const acceptStream = __napiModule.exports.acceptStream
 export const acceptThreadsafeFunction = __napiModule.exports.acceptThreadsafeFunction
 export const acceptThreadsafeFunctionFatal = __napiModule.exports.acceptThreadsafeFunctionFatal
 export const acceptThreadsafeFunctionTupleArgs = __napiModule.exports.acceptThreadsafeFunctionTupleArgs
+export const acceptThreadsafeFunctionTupleNoFnArgs = __napiModule.exports.acceptThreadsafeFunctionTupleNoFnArgs
 export const acceptUint8ClampedSlice = __napiModule.exports.acceptUint8ClampedSlice
 export const acceptUint8ClampedSliceAndBufferSlice = __napiModule.exports.acceptUint8ClampedSliceAndBufferSlice
 export const acceptUntypedTypedArray = __napiModule.exports.acceptUntypedTypedArray
@@ -176,6 +178,8 @@ export const callLongThreadsafeFunction = __napiModule.exports.callLongThreadsaf
 export const callRuleHandler = __napiModule.exports.callRuleHandler
 export const callThenOnPromise = __napiModule.exports.callThenOnPromise
 export const callThreadsafeFunction = __napiModule.exports.callThreadsafeFunction
+export const callWithNestedFunctionArg = __napiModule.exports.callWithNestedFunctionArg
+export const callWithTupleArg = __napiModule.exports.callWithTupleArg
 export const captureErrorInCallback = __napiModule.exports.captureErrorInCallback
 export const chronoDateAdd1Minute = __napiModule.exports.chronoDateAdd1Minute
 export const chronoDateFixtureReturn1 = __napiModule.exports.chronoDateFixtureReturn1
@@ -337,6 +341,7 @@ export const receiveObjectWithClassField = __napiModule.exports.receiveObjectWit
 export const receiveStrictObject = __napiModule.exports.receiveStrictObject
 export const receiveString = __napiModule.exports.receiveString
 export const referenceAsCallback = __napiModule.exports.referenceAsCallback
+export const referenceWithTupleArg = __napiModule.exports.referenceWithTupleArg
 export const returnCString = __napiModule.exports.returnCString
 export const returnEither = __napiModule.exports.returnEither
 export const returnEitherClass = __napiModule.exports.returnEitherClass
