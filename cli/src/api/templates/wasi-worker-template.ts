@@ -109,10 +109,9 @@ const fs = createFsProxy(__memfsExported)`
     errorOutputs.length = 0
   }`
     : ''
+  const errorOutputsDecl = errorEvent ? `\nconst errorOutputs = []\n` : ''
   return `${fsImport}
-
-const errorOutputs = []
-
+${errorOutputsDecl}
 const handler = new MessageHandler({
   onLoad({ wasmModule, wasmMemory }) {
     ${wasiCreation}
