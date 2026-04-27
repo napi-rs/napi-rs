@@ -320,13 +320,6 @@ where
   T: FromNapiValue,
 {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
-    let mut val_type = 0;
-
-    check_status!(
-      unsafe { sys::napi_typeof(env, napi_val, &mut val_type) },
-      "Failed to convert napi value into rust type `Rc<T>`",
-    )?;
-
     Ok(Rc::new(unsafe { T::from_napi_value(env, napi_val)? }))
   }
 }
@@ -397,13 +390,6 @@ where
   T: FromNapiValue,
 {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
-    let mut val_type = 0;
-
-    check_status!(
-      unsafe { sys::napi_typeof(env, napi_val, &mut val_type) },
-      "Failed to convert napi value into rust type `Arc<T>`",
-    )?;
-
     Ok(Arc::new(unsafe { T::from_napi_value(env, napi_val)? }))
   }
 }
@@ -474,13 +460,6 @@ where
   T: FromNapiValue,
 {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
-    let mut val_type = 0;
-
-    check_status!(
-      unsafe { sys::napi_typeof(env, napi_val, &mut val_type) },
-      "Failed to convert napi value into rust type `Mutex<T>`",
-    )?;
-
     Ok(Mutex::new(unsafe { T::from_napi_value(env, napi_val)? }))
   }
 }

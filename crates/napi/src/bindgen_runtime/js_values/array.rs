@@ -128,32 +128,19 @@ impl<'env> JsObjectValue<'env> for Array<'env> {}
 
 impl FromNapiValue for Array<'_> {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
-    let mut is_arr = false;
+    let mut len = 0;
+
     check_status!(
-      unsafe { sys::napi_is_array(env, napi_val, &mut is_arr) },
-      "Failed to check given napi value is array"
+      unsafe { sys::napi_get_array_length(env, napi_val, &mut len) },
+      "Failed to get Array length",
     )?;
 
-    if is_arr {
-      let mut len = 0;
-
-      check_status!(
-        unsafe { sys::napi_get_array_length(env, napi_val, &mut len) },
-        "Failed to get Array length",
-      )?;
-
-      Ok(Array {
-        inner: napi_val,
-        env,
-        len,
-        _marker: std::marker::PhantomData,
-      })
-    } else {
-      Err(Error::new(
-        Status::InvalidArg,
-        "Given napi value is not an array".to_owned(),
-      ))
-    }
+    Ok(Array {
+      inner: napi_val,
+      env,
+      len,
+      _marker: std::marker::PhantomData,
+    })
   }
 }
 
