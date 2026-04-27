@@ -717,7 +717,7 @@ fn process_generic_arguments(arguments: &syn::PathArguments, rust_ty: &str) -> V
 ///
 /// - empty tuple `()` → `""` for params, `"void"` for the return slot
 /// - non-empty tuple → wrap as `arg: [T1, T2, ...]` (a single tuple-typed arg)
-/// - already-named or empty result → leave as-is
+/// - `FnArgs<T>` → leave as-is (already produces `arg: T` or a variadic spread)
 /// - any other type → wrap as `arg: T`
 fn wrap_fn_like_arg(ty: String, generic_ty: &Type, is_return_type: bool) -> String {
   if let Type::Tuple(tuple) = generic_ty {
@@ -733,10 +733,20 @@ fn wrap_fn_like_arg(ty: String, generic_ty: &Type, is_return_type: bool) -> Stri
     }
     return ty;
   }
-  if is_return_type || ty.is_empty() || ty.contains(':') {
+  if is_return_type || ty.is_empty() || is_fn_args_path(generic_ty) {
     return ty;
   }
   format!("arg: {ty}")
+}
+
+/// True iff `ty` is a path whose final segment is `FnArgs`.
+fn is_fn_args_path(ty: &Type) -> bool {
+  if let Type::Path(syn::TypePath { qself: None, path }) = ty {
+    if let Some(seg) = path.segments.last() {
+      return seg.ident == FUNCTION_ARG_TY;
+    }
+  }
+  false
 }
 
 /// Handles Type::Path conversion to TypeScript

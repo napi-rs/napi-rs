@@ -31,6 +31,15 @@ pub fn call_with_tuple_arg(
 }
 
 #[napi]
+pub fn call_with_nested_function_arg<'env>(
+  env: &'env Env,
+  callback: Function<'env, Function<'env, u32, u32>, u32>,
+) -> Result<u32> {
+  let inner = env.create_function("inner", no_export_function_c_callback)?;
+  callback.call(inner)
+}
+
+#[napi]
 pub fn apply0(ctx: ClassInstance<Animal>, callback: Function<(), ()>) -> Result<()> {
   callback.apply(ctx, ())
 }

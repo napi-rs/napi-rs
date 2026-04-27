@@ -532,6 +532,8 @@ export declare function callThenOnPromise(input: Promise<number>): Promise<strin
 
 export declare function callThreadsafeFunction(tsfn: ((err: Error | null, arg: number) => unknown)): void
 
+export declare function callWithNestedFunctionArg(callback: (arg: (arg: number) => number) => number): number
+
 export declare function callWithTupleArg(callback: (arg: [number, number]) => number, arg1: number, arg2: number): number
 
 export declare function captureErrorInCallback(cb1: () => void, cb2: (arg0: Error) => void): void
