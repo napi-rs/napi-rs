@@ -144,6 +144,23 @@ impl FromNapiValue for Array<'_> {
   }
 }
 
+impl<'env> ValidateNapiValue for Array<'env> {
+  unsafe fn validate(env: sys::napi_env, napi_val: sys::napi_value) -> Result<sys::napi_value> {
+    let mut is_array = false;
+    check_status!(
+      unsafe { sys::napi_is_array(env, napi_val, &mut is_array) },
+      "Failed to check given napi value is array"
+    )?;
+    if !is_array {
+      return Err(Error::new(
+        Status::InvalidArg,
+        "Expected an array".to_owned(),
+      ));
+    }
+    Ok(ptr::null_mut())
+  }
+}
+
 impl Array<'_> {
   /// Create `Array` from `Vec<T>`
   pub fn from_vec<T>(env: &Env, value: Vec<T>) -> Result<Self>
