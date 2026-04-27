@@ -1037,7 +1037,7 @@ macro_rules! impl_from_slice {
       #[doc = "## Safety"]
       #[doc = ""]
       #[doc = "The caller must ensure that:"]
-      #[doc = "- The data pointer is valid for the lifetime of the buffer and points to a memory region of at least `len` bytes"]
+      #[doc = "- The data pointer is valid for the lifetime of the buffer and points to a memory region of at least `len` elements"]
       #[doc = "- The finalize callback properly cleans up the data"]
       #[doc = ""]
       #[doc = "### Notes"]
