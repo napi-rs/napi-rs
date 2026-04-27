@@ -111,7 +111,7 @@ impl<'env> JsStringLatin1<'env> {
   /// ## Safety
   ///
   /// The caller must ensure that:
-  /// - The data pointer is valid for the lifetime of the string
+  /// - The data pointer is valid for the lifetime of the string and points to a memory region of at least `len` bytes
   /// - The finalize callback properly cleans up the data
   ///
   /// ## Behavior

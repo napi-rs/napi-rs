@@ -55,11 +55,12 @@ impl Unknown<'_> {
     type_of!(self.0.env, self.0.value)
   }
 
+  /// This function should be called after `JsUnknown::get_type`
+  /// and the `V` must be match with the return value of `get_type`
+  ///
   /// # Safety
   ///
-  /// This function should be called after `JsUnknown::get_type`
-  ///
-  /// And the `V` must be match with the return value of `get_type`
+  /// The caller must ensure that `Self` can be converted into `V`
   pub unsafe fn cast<V>(&self) -> Result<V>
   where
     V: FromNapiValue,
@@ -67,9 +68,13 @@ impl Unknown<'_> {
     unsafe { V::from_napi_value(self.0.env, self.0.value) }
   }
 
+  /// Unknown doesn't have a type
+  ///
   /// # Safety
   ///
-  /// Unknown doesn't have a type
+  /// The caller must ensure that:
+  /// - The `env` is a valid napi env pointer
+  /// - The `napi_val` is a valid js value pointer
   pub unsafe fn from_raw_unchecked(env: sys::napi_env, value: sys::napi_value) -> Self {
     Unknown(
       Value {

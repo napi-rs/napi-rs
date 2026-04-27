@@ -91,13 +91,16 @@ impl<'env> BufferSlice<'env> {
     })
   }
 
-  /// ## Safety
-  ///
   /// Mostly the same with `from_data`
   ///
   /// Provided `finalize_callback` will be called when `BufferSlice` got dropped.
-  ///
   /// You can pass in `noop_finalize` if you have nothing to do in finalize phase.
+  ///
+  /// ## Safety
+  ///
+  /// The caller must ensure that:
+  /// - The data pointer is valid for the lifetime of the buffer and points to a memory region of at least `len` bytes
+  /// - The finalize callback properly cleans up the data
   ///
   /// ### Notes
   ///
