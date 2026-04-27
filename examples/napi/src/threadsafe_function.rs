@@ -197,6 +197,16 @@ pub fn accept_threadsafe_function_tuple_args(
 }
 
 #[napi]
+pub fn accept_threadsafe_function_tuple_no_fn_args(func: ThreadsafeFunction<(u32, bool, String)>) {
+  thread::spawn(move || {
+    func.call(
+      Ok((1, false, "NAPI-RS".into())),
+      ThreadsafeFunctionCallMode::NonBlocking,
+    );
+  });
+}
+
+#[napi]
 pub async fn tsfn_return_promise(func: ThreadsafeFunction<u32, Promise<u32>>) -> Result<u32> {
   let val = func.call_async(Ok(1)).await?.await?;
   Ok(val + 2)

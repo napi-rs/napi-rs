@@ -658,6 +658,11 @@ fn handle_generic_type(rust_ty: &str, args: &[(String, bool)]) -> Option<(String
 fn process_generic_arguments(arguments: &syn::PathArguments, rust_ty: &str) -> Vec<(String, bool)> {
   let is_ts_union_type = is_ts_union_type(rust_ty);
   let mut is_function_with_lifetime = false;
+  // Only `FnArgs<T>` unpacks an inner tuple `T` into variadic positional
+  // params. `Function`, `FunctionRef`, and `ThreadsafeFunction` keep their
+  // `Args` generic as a single value (which may itself be `FnArgs<...>`).
+  let is_fn_args = rust_ty == FUNCTION_ARG_TY;
+  let is_fn_like = is_generic_function_type(rust_ty);
 
   if let syn::PathArguments::AngleBracketed(arguments) = arguments {
     arguments
@@ -667,7 +672,7 @@ fn process_generic_arguments(arguments: &syn::PathArguments, rust_ty: &str) -> V
       .filter_map(|(index, arg)| match arg {
         syn::GenericArgument::Type(generic_ty) => {
           let mut is_return_type = false;
-          if index == 1 && is_generic_function_type(rust_ty) {
+          if index == 1 && is_fn_like {
             is_return_type = true;
           }
           // if Type is Function, first argument is lifetime and second is params, third is return type
@@ -676,19 +681,17 @@ fn process_generic_arguments(arguments: &syn::PathArguments, rust_ty: &str) -> V
           if is_function_with_lifetime {
             is_return_type = index != 1;
           }
-          Some(ty_to_ts_type(
-            generic_ty,
-            is_return_type,
-            false,
-            // index == 2 is for ThreadsafeFunction with ErrorStrategy
-            is_generic_function_type(rust_ty),
-          ))
-          .map(|(mut ty, is_optional)| {
-            if is_ts_union_type && is_ts_function_type_notation(generic_ty) {
-              ty = format!("({ty})");
-            }
-            (ty, is_optional)
-          })
+          Some(ty_to_ts_type(generic_ty, is_return_type, false, is_fn_args)).map(
+            |(mut ty, is_optional)| {
+              if is_fn_like && !is_fn_args {
+                ty = wrap_fn_like_arg(ty, generic_ty, is_return_type);
+              }
+              if is_ts_union_type && is_ts_function_type_notation(generic_ty) {
+                ty = format!("({ty})");
+              }
+              (ty, is_optional)
+            },
+          )
         }
         // const Generic for `ThreadsafeFunction` generic
         syn::GenericArgument::Const(syn::Expr::Lit(syn::ExprLit {
@@ -696,7 +699,7 @@ fn process_generic_arguments(arguments: &syn::PathArguments, rust_ty: &str) -> V
           ..
         })) => Some((bo.value.to_string(), false)),
         syn::GenericArgument::Lifetime(_) => {
-          if index == 0 && is_generic_function_type(rust_ty) {
+          if index == 0 && is_fn_like {
             is_function_with_lifetime = true;
           }
           None
@@ -707,6 +710,33 @@ fn process_generic_arguments(arguments: &syn::PathArguments, rust_ty: &str) -> V
   } else {
     vec![]
   }
+}
+
+/// Normalizes a generic argument of `Function`, `FunctionRef`, or
+/// `ThreadsafeFunction` so it slots into a TypeScript function signature.
+///
+/// - empty tuple `()` → `""` for params, `"void"` for the return slot
+/// - non-empty tuple → wrap as `arg: [T1, T2, ...]` (a single tuple-typed arg)
+/// - already-named or empty result → leave as-is
+/// - any other type → wrap as `arg: T`
+fn wrap_fn_like_arg(ty: String, generic_ty: &Type, is_return_type: bool) -> String {
+  if let Type::Tuple(tuple) = generic_ty {
+    if tuple.elems.is_empty() {
+      return if is_return_type {
+        "void".to_owned()
+      } else {
+        String::new()
+      };
+    }
+    if !is_return_type {
+      return format!("arg: {ty}");
+    }
+    return ty;
+  }
+  if is_return_type || ty.is_empty() || ty.contains(':') {
+    return ty;
+  }
+  format!("arg: {ty}")
 }
 
 /// Handles Type::Path conversion to TypeScript
