@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.5](https://github.com/napi-rs/napi-rs/compare/napi-derive-v3.5.4...napi-derive-v3.5.5) - 2026-04-28
+
+### Fixed
+
+- *(deps)* update rust crate ctor to 0.11.0 ([#3270](https://github.com/napi-rs/napi-rs/pull/3270))
+- *(napi)* Convert #[ctor] calls to declarative form to remove all features ([#3257](https://github.com/napi-rs/napi-rs/pull/3257))
+
 ## [3.5.4](https://github.com/napi-rs/napi-rs/compare/napi-derive-v3.5.3...napi-derive-v3.5.4) - 2026-04-15
 
 ### Fixed

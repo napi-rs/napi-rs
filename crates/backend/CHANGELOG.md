@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.4](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v5.0.3...napi-derive-backend-v5.0.4) - 2026-04-28
+
+### Fixed
+
+- *(napi-derive)* only FnArgs unpacks tuple to variadic params ([#3264](https://github.com/napi-rs/napi-rs/pull/3264))
+- *(napi)* Convert #[ctor] calls to declarative form to remove all features ([#3257](https://github.com/napi-rs/napi-rs/pull/3257))
+
 ## [5.0.3](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v5.0.2...napi-derive-backend-v5.0.3) - 2026-04-15
 
 ### Fixed
