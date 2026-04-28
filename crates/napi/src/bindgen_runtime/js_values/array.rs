@@ -128,32 +128,36 @@ impl<'env> JsObjectValue<'env> for Array<'env> {}
 
 impl FromNapiValue for Array<'_> {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
-    let mut is_arr = false;
+    let mut len = 0;
+
     check_status!(
-      unsafe { sys::napi_is_array(env, napi_val, &mut is_arr) },
-      "Failed to check given napi value is array"
+      unsafe { sys::napi_get_array_length(env, napi_val, &mut len) },
+      "Failed to get Array length",
     )?;
 
-    if is_arr {
-      let mut len = 0;
+    Ok(Array {
+      inner: napi_val,
+      env,
+      len,
+      _marker: std::marker::PhantomData,
+    })
+  }
+}
 
-      check_status!(
-        unsafe { sys::napi_get_array_length(env, napi_val, &mut len) },
-        "Failed to get Array length",
-      )?;
-
-      Ok(Array {
-        inner: napi_val,
-        env,
-        len,
-        _marker: std::marker::PhantomData,
-      })
-    } else {
-      Err(Error::new(
+impl<'env> ValidateNapiValue for Array<'env> {
+  unsafe fn validate(env: sys::napi_env, napi_val: sys::napi_value) -> Result<sys::napi_value> {
+    let mut is_array = false;
+    check_status!(
+      unsafe { sys::napi_is_array(env, napi_val, &mut is_array) },
+      "Failed to check given napi value is array"
+    )?;
+    if !is_array {
+      return Err(Error::new(
         Status::InvalidArg,
-        "Given napi value is not an array".to_owned(),
-      ))
+        "Expected an array".to_owned(),
+      ));
     }
+    Ok(ptr::null_mut())
   }
 }
 
@@ -194,8 +198,6 @@ impl Array<'_> {
     Ok(arr)
   }
 }
-
-impl ValidateNapiValue for Array<'_> {}
 
 impl<T> TypeName for Vec<T> {
   fn type_name() -> &'static str {
