@@ -369,7 +369,7 @@ __metadata:
   resolution: "@examples/compat-mode@workspace:examples/napi-compat-mode"
   dependencies:
     "@napi-rs/cli": "workspace:*"
-    ava: "npm:^7.0.0"
+    ava: "npm:^8.0.0"
     sinon: "npm:^21.0.0"
   languageName: unknown
   linkType: soft
@@ -390,7 +390,7 @@ __metadata:
     "@vitest/browser": "npm:^4.0.8"
     "@vitest/browser-playwright": "npm:^4.0.8"
     "@vitest/ui": "npm:^4.0.8"
-    ava: "npm:^7.0.0"
+    ava: "npm:^8.0.0"
     buffer: "npm:^6.0.3"
     core-js: "npm:^3.46.0"
     cross-env: "npm:10.1.0"
@@ -1341,7 +1341,7 @@ __metadata:
     "@types/js-yaml": "npm:^4.0.9"
     "@types/node": "npm:^24.10.0"
     "@types/semver": "npm:^7.7.1"
-    ava: "npm:^7.0.0"
+    ava: "npm:^8.0.0"
     clipanion: "npm:^4.0.0-rc.4"
     colorette: "npm:^2.0.20"
     emnapi: "npm:^1.10.0"
@@ -4092,7 +4092,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@vercel/nft@npm:^1.3.2":
+"@vercel/nft@npm:^1.5.0":
   version: 1.5.0
   resolution: "@vercel/nft@npm:1.5.0"
   dependencies:
@@ -4722,48 +4722,49 @@ __metadata:
   languageName: node
   linkType: hard
 
-"ava@npm:^7.0.0":
-  version: 7.0.0
-  resolution: "ava@npm:7.0.0"
+"ava@npm:^8.0.0":
+  version: 8.0.0
+  resolution: "ava@npm:8.0.0"
   dependencies:
-    "@vercel/nft": "npm:^1.3.2"
+    "@vercel/nft": "npm:^1.5.0"
     acorn: "npm:^8.16.0"
     acorn-walk: "npm:^8.3.5"
     ansi-styles: "npm:^6.2.3"
     arrgv: "npm:^1.0.2"
     arrify: "npm:^3.0.0"
     callsites: "npm:^4.2.0"
-    cbor: "npm:^10.0.11"
+    cbor: "npm:^10.0.12"
     chalk: "npm:^5.6.2"
     chunkd: "npm:^2.0.1"
     ci-info: "npm:^4.4.0"
     ci-parallel-vars: "npm:^1.0.1"
-    cli-truncate: "npm:^5.1.1"
+    cli-truncate: "npm:^6.0.0"
     code-excerpt: "npm:^4.0.0"
     common-path-prefix: "npm:^3.0.0"
     concordance: "npm:^5.0.4"
     currently-unhandled: "npm:^0.4.1"
     debug: "npm:^4.4.3"
-    emittery: "npm:^1.2.0"
+    emittery: "npm:^2.0.0"
     figures: "npm:^6.1.0"
-    globby: "npm:^16.1.1"
+    globby: "npm:^16.2.0"
     ignore-by-default: "npm:^2.1.0"
     indent-string: "npm:^5.0.0"
     is-plain-object: "npm:^5.0.0"
     is-promise: "npm:^4.0.0"
     matcher: "npm:^6.0.0"
-    memoize: "npm:^10.2.0"
+    memoize: "npm:^11.0.0"
     ms: "npm:^2.1.3"
     p-map: "npm:^7.0.4"
     package-config: "npm:^5.0.0"
-    picomatch: "npm:^4.0.3"
+    picomatch: "npm:^4.0.4"
     plur: "npm:^6.0.0"
     pretty-ms: "npm:^9.3.0"
     resolve-cwd: "npm:^3.0.0"
+    slash: "npm:^5.1.0"
     stack-utils: "npm:^2.0.6"
     supertap: "npm:^3.0.1"
     temp-dir: "npm:^3.0.0"
-    write-file-atomic: "npm:^7.0.0"
+    write-file-atomic: "npm:^7.0.1"
     yargs: "npm:^18.0.0"
   peerDependencies:
     "@ava/typescript": "*"
@@ -4771,8 +4772,8 @@ __metadata:
     "@ava/typescript":
       optional: true
   bin:
-    ava: entrypoints/cli.mjs
-  checksum: 10c0/19c5e494bac1cc8140e78cb1440f299f9ae07baea50740c4d66daec3e2af048e71b8b5313e4834e100aeead7182d9bfe1b7acaad3dab7317ef2a00f23d39bc92
+    ava: entrypoints/cli.js
+  checksum: 10c0/510bd02cd9192c3da3ec47da5122c3748711c481bdfe6d8ff97e89ba3500f2f1e0edc59fa39c3b291cf4b29b66da55626cd1dea1b13cd5cd1aad3e9873a2d57b
   languageName: node
   linkType: hard
 
@@ -5382,7 +5383,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"cbor@npm:^10.0.11":
+"cbor@npm:^10.0.12":
   version: 10.0.12
   resolution: "cbor@npm:10.0.12"
   dependencies:
@@ -5564,13 +5565,23 @@ __metadata:
   languageName: node
   linkType: hard
 
-"cli-truncate@npm:^5.0.0, cli-truncate@npm:^5.1.1":
+"cli-truncate@npm:^5.0.0":
   version: 5.2.0
   resolution: "cli-truncate@npm:5.2.0"
   dependencies:
     slice-ansi: "npm:^8.0.0"
     string-width: "npm:^8.2.0"
   checksum: 10c0/0d4ec94702ca85b64522ac93633837fb5ea7db17b79b1322a60f6045e6ae2b8cd7bd4c1d19ac7d1f9e10e3bbda1112e172e439b68c02b785ee00da8d6a5c5471
+  languageName: node
+  linkType: hard
+
+"cli-truncate@npm:^6.0.0":
+  version: 6.0.0
+  resolution: "cli-truncate@npm:6.0.0"
+  dependencies:
+    slice-ansi: "npm:^9.0.0"
+    string-width: "npm:^8.2.0"
+  checksum: 10c0/e0abb91a00dd20c64b93345e0235e780a5f2cf182c529235bae83f1ab1488b90b047838c1e72b9b472cb5cd6f294f017dac6afed511fa3996d710d3675dec6f7
   languageName: node
   linkType: hard
 
@@ -6591,10 +6602,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"emittery@npm:^1.2.0":
-  version: 1.2.1
-  resolution: "emittery@npm:1.2.1"
-  checksum: 10c0/188f6ee8725589df6d49a8ed18b216709dfda3574547860c122bc0223570d839bb2c8ca5cd95483a6b064636af195d7c6ab99a35a317f9734d8bc455f644c785
+"emittery@npm:^2.0.0":
+  version: 2.0.0
+  resolution: "emittery@npm:2.0.0"
+  checksum: 10c0/b8b5836e9fd368670e1ce5cb948feef30351ecebfbf589ac807c1f6b38c90d6556b2d48883f9b3c371fad59c92519b333dc3919a8ff5e351aea0f8b424203826
   languageName: node
   linkType: hard
 
@@ -7765,7 +7776,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"globby@npm:^16.1.1":
+"globby@npm:^16.2.0":
   version: 16.2.0
   resolution: "globby@npm:16.2.0"
   dependencies:
@@ -9479,12 +9490,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"memoize@npm:^10.2.0":
-  version: 10.2.0
-  resolution: "memoize@npm:10.2.0"
+"memoize@npm:^11.0.0":
+  version: 11.0.0
+  resolution: "memoize@npm:11.0.0"
   dependencies:
     mimic-function: "npm:^5.0.1"
-  checksum: 10c0/8a5891f313e8db82bab4bb9694752aab40c11ce3bf9b8cc32228ebaf87e14e8109a23b37ceef32baadbedc09af2c4dd0d361a93e9e591bb0ed9e23f728e1ce9f
+  checksum: 10c0/4a64923d7369bb625f2551fcab0d44447b472d15573b5c8dca57d09be23ac8a13adf5da404e36de84db2a2dd6fc8dac876286139d8864cf1e5ab44aa5fb59334
   languageName: node
   linkType: hard
 
@@ -9875,7 +9886,7 @@ __metadata:
     "@types/debug": "npm:^4.1.12"
     "@types/node": "npm:^24.10.0"
     "@types/sinon": "npm:^21.0.0"
-    ava: "npm:^7.0.0"
+    ava: "npm:^8.0.0"
     bun-types: "npm:^1.3.2"
     c8: "npm:^11.0.0"
     cross-env: "npm:^10.1.0"
@@ -12423,6 +12434,16 @@ __metadata:
   languageName: node
   linkType: hard
 
+"slice-ansi@npm:^9.0.0":
+  version: 9.0.0
+  resolution: "slice-ansi@npm:9.0.0"
+  dependencies:
+    ansi-styles: "npm:^6.2.3"
+    is-fullwidth-code-point: "npm:^5.1.0"
+  checksum: 10c0/fd97f0e3a48386dbf1cbc2f10134f1e345c161188adb6928856079b4c0117c221a5405a7bff341e1a6e428721c5236353ab26b7d777a4f2f35a8ed2a91d82e7a
+  languageName: node
+  linkType: hard
+
 "smart-buffer@npm:^4.2.0":
   version: 4.2.0
   resolution: "smart-buffer@npm:4.2.0"
@@ -13949,7 +13970,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"write-file-atomic@npm:^7.0.0":
+"write-file-atomic@npm:^7.0.1":
   version: 7.0.1
   resolution: "write-file-atomic@npm:7.0.1"
   dependencies:
