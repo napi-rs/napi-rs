@@ -81,7 +81,7 @@
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^24.10.0",
     "@types/semver": "^7.7.1",
-    "ava": "^7.0.0",
+    "ava": "^8.0.0",
     "empathic": "^2.0.0",
     "env-paths": "^4.0.0",
     "oxc-parser": "^0.128.0",
@@ -105,12 +105,12 @@
   "scripts": {
     "codegen": "node --import @oxc-node/core/register ./codegen/index.ts",
     "build": "tsdown",
-    "test": "node --import @oxc-node/core/register ../node_modules/ava/entrypoints/cli.mjs"
+    "test": "node --import @oxc-node/core/register ../node_modules/ava/entrypoints/cli.js"
   },
   "ava": {
-    "extensions": {
-      "ts": "module"
-    },
+    "extensions": [
+      "ts"
+    ],
     "timeout": "2m",
     "workerThreads": false,
     "files": [
