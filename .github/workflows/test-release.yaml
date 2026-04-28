@@ -64,7 +64,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['20', '22', '24']
+        node: ['22', '24']
         settings:
           - host: ubuntu-latest
             target: x86_64-unknown-linux-gnu
@@ -127,16 +127,6 @@ jobs:
               node ./node_modules/electron/install.js
               yarn test:electron
             toolchain: stable
-        exclude:
-          - settings:
-              toolchain: 1.88.0
-            node: 20
-          - settings:
-              target: i686-pc-windows-msvc
-            node: 20
-          - settings:
-              target: aarch64-pc-windows-msvc
-            node: 20
     name: ${{ matrix.settings.target }} - node@${{ matrix.node }} - toolchain@ ${{ matrix.settings.toolchain }}
     runs-on: ${{ matrix.settings.host }}
 
@@ -470,7 +460,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: [20, 22]
+        node: [22, 24]
         settings:
           - image: 'node:{:version}-slim'
             target: x86_64-unknown-linux-gnu
