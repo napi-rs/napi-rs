@@ -190,7 +190,9 @@ impl Env {
   ///
   /// # Safety
   ///
-  /// Create JsString from known valid utf-8 string
+  /// The caller must guarantee that the `data_ptr` is a valid pointer to either:
+  /// - a valid utf-8 string with length of `len`
+  /// - a valid utf-8 string terminated by a null character when [crate::bindgen_runtime::NAPI_AUTO_LENGTH] is passed to `len`
   pub unsafe fn create_string_from_c_char<'env>(
     &self,
     data_ptr: *const c_char,

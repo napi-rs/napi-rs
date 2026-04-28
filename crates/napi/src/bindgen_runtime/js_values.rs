@@ -66,9 +66,10 @@ pub trait TypeName {
 }
 
 pub trait ToNapiValue: Sized {
-  /// # Safety
+  /// This function called to convert rust values to napi values
   ///
-  /// this function called to convert rust values to napi values
+  /// # Safety
+  /// The caller must guarantee that the `env` is a valid napi env pointer and the returned `napi_value` is a valid js value pointer.
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value>;
 
   fn into_unknown(self, env: &Env) -> Result<Unknown<'_>> {
@@ -97,9 +98,14 @@ impl<'env, T: JsValue<'env>> ToNapiValue for T {
 }
 
 pub trait FromNapiValue: Sized {
+  /// This function called to convert napi values to native rust values
+  ///
   /// # Safety
   ///
-  /// this function called to convert napi values to native rust values
+  /// The caller must ensure that:
+  /// - The `env` is a valid napi env pointer
+  /// - The `napi_val` is a valid js value pointer
+  /// - The `napi_val` is a valid type that can be converted into `Self` using [ValidateNapiValue::validate]
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self>;
 
   fn from_unknown(value: Unknown) -> Result<Self> {
@@ -108,16 +114,26 @@ pub trait FromNapiValue: Sized {
 }
 
 pub trait FromNapiRef {
+  /// This function called to convert napi values to native rust values
+  ///
   /// # Safety
   ///
-  /// this function called to convert napi values to native rust values
+  /// The caller must ensure that:
+  /// - The `env` is a valid napi env pointer
+  /// - The `napi_val` is a valid js value pointer
+  /// - The `napi_val` is a valid type that can be converted into `Self` using [ValidateNapiValue::validate]
   unsafe fn from_napi_ref(env: sys::napi_env, napi_val: sys::napi_value) -> Result<&'static Self>;
 }
 
 pub trait FromNapiMutRef {
+  /// This function called to convert napi values to native rust values
+  ///
   /// # Safety
   ///
-  /// this function called to convert napi values to native rust values
+  /// The caller must ensure that:
+  /// - The `env` is a valid napi env pointer
+  /// - The `napi_val` is a valid js value pointer
+  /// - The `napi_val` is a valid type that can be converted into `Self` using [ValidateNapiValue::validate]
   unsafe fn from_napi_mut_ref(
     env: sys::napi_env,
     napi_val: sys::napi_value,
@@ -137,12 +153,17 @@ impl<T: FromNapiMutRef + 'static> FromNapiValue for &mut T {
 }
 
 pub trait ValidateNapiValue: TypeName {
-  /// # Safety
+  /// This function called to validate whether napi value passed to rust is valid type.
   ///
-  /// this function called to validate whether napi value passed to rust is valid type
   /// The reason why this function return `napi_value` is that if a `Promise<T>` passed in
   /// we need to return `Promise.reject(T)`, not the `T`.
   /// So we need to create `Promise.reject(T)` in this function.
+  ///
+  /// # Safety
+  ///
+  /// The caller must ensure that:
+  /// - The `env` is a valid napi env pointer
+  /// - The `napi_val` is a valid js value pointer
   unsafe fn validate(env: sys::napi_env, napi_val: sys::napi_value) -> Result<sys::napi_value> {
     let value_type = Self::value_type();
 

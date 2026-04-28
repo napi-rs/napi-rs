@@ -213,13 +213,16 @@ impl<'env> ArrayBuffer<'env> {
     })
   }
 
-  /// ## Safety
-  ///
   /// Mostly the same with `from_data`
   ///
   /// Provided `finalize_callback` will be called when `[u8]` got dropped.
-  ///
   /// You can pass in `noop_finalize` if you have nothing to do in finalize phase.
+  ///
+  /// ## Safety
+  ///
+  /// The caller must ensure that:
+  /// - The data pointer is valid for the lifetime of the buffer and points to a memory region of at least `len` bytes
+  /// - The finalize callback properly cleans up the data
   ///
   /// ### Notes
   ///
@@ -1024,15 +1027,18 @@ macro_rules! impl_from_slice {
         })
       }
 
-      #[doc = "## Safety"]
-      #[doc = ""]
       #[doc = "Mostly the same with `from_data`"]
       #[doc = ""]
       #[doc = "Provided `finalize_callback` will be called when `"]
       #[doc = stringify!($slice_type)]
       #[doc = "` got dropped."]
-      #[doc = ""]
       #[doc = "You can pass in `noop_finalize` if you have nothing to do in finalize phase."]
+      #[doc = ""]
+      #[doc = "## Safety"]
+      #[doc = ""]
+      #[doc = "The caller must ensure that:"]
+      #[doc = "- The data pointer is valid for the lifetime of the buffer and points to a memory region of at least `len` elements"]
+      #[doc = "- The finalize callback properly cleans up the data"]
       #[doc = ""]
       #[doc = "### Notes"]
       #[doc = ""]
@@ -1741,20 +1747,21 @@ impl<'env> Uint8ClampedSlice<'env> {
     })
   }
 
-  /// ## Safety
-  ///
   /// Mostly the same with `from_data`
   ///
   /// Provided `finalize_callback` will be called when `Uint8ClampedSlice` got dropped.
-  ///
   /// You can pass in `noop_finalize` if you have nothing to do in finalize phase.
+  ///
+  /// ## Safety
+  ///
+  /// The caller must ensure that:
+  /// - The data pointer is valid for the lifetime of the buffer and points to a memory region of at least `len` bytes
+  /// - The finalize callback properly cleans up the data
   ///
   /// ### Notes
   ///
   /// JavaScript may mutate the data passed in to this buffer when writing the buffer.
-  ///
   /// However, some JavaScript runtimes do not support external buffers (notably electron!)
-  ///
   /// in which case modifications may be lost.
   ///
   /// If you need to support these runtimes, you should create a buffer by other means and then
