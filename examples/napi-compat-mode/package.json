@@ -13,9 +13,9 @@
     "sinon": "^21.0.0"
   },
   "ava": {
-    "extensions": {
-      "ts": "module"
-    },
+    "extensions": [
+      "ts"
+    ],
     "require": [
       "@oxc-node/core/register"
     ],

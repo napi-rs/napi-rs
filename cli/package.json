@@ -105,12 +105,12 @@
   "scripts": {
     "codegen": "node --import @oxc-node/core/register ./codegen/index.ts",
     "build": "tsdown",
-    "test": "node --import @oxc-node/core/register ../node_modules/ava/entrypoints/cli.mjs"
+    "test": "node --import @oxc-node/core/register ../node_modules/ava/entrypoints/cli.js"
   },
   "ava": {
-    "extensions": {
-      "ts": "module"
-    },
+    "extensions": [
+      "ts"
+    ],
     "timeout": "2m",
     "workerThreads": false,
     "files": [
