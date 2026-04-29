@@ -136,6 +136,8 @@ impl<'env> JsString<'env> {
       inner: self,
       buf: unsafe { std::slice::from_raw_parts(buf_ptr.cast(), len) },
       _inner_buf: result,
+      #[cfg(feature = "napi10")]
+      _shared_buf: None,
     })
   }
 
@@ -160,6 +162,8 @@ impl<'env> JsString<'env> {
       inner: self,
       buf: unsafe { std::slice::from_raw_parts(buf_ptr.cast(), written_char_count) },
       _inner_buf: unsafe { Vec::from_raw_parts(buf_ptr.cast(), written_char_count, len) },
+      #[cfg(feature = "napi10")]
+      _shared_buf: None,
     })
   }
 }
