@@ -1,12 +1,26 @@
 name: Docker nightly build
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/docker.yaml'
+      - '*.Dockerfile'
+  schedule:
+    # Refresh mutable lts-* tags so they keep tracking current stable Rust/Node toolchains.
+    - cron: '0 0 * * 0'
   workflow_dispatch:
+
+concurrency:
+  group: docker-images-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-alpine-image:
     name: Build alpine image
     runs-on: ubuntu-latest
+    if: ${{ github.repository_owner == 'napi-rs' }}
 
     steps:
       - uses: actions/checkout@v6
@@ -35,6 +49,7 @@ jobs:
   build-debian-image:
     name: Build debian image
     runs-on: ubuntu-latest
+    if: ${{ github.repository_owner == 'napi-rs' }}
 
     steps:
       - uses: actions/checkout@v6
@@ -63,6 +78,7 @@ jobs:
   build-debian-aarch64-image:
     name: Build debian image
     runs-on: ubuntu-latest
+    if: ${{ github.repository_owner == 'napi-rs' }}
 
     steps:
       - uses: actions/checkout@v6
@@ -107,6 +123,7 @@ jobs:
   build-zig-image:
     name: Build zig image
     runs-on: ubuntu-latest
+    if: ${{ github.repository_owner == 'napi-rs' }}
     needs:
       - build-alpine-image
       - build-debian-image
