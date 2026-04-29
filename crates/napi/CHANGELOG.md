@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.8.6](https://github.com/napi-rs/napi-rs/compare/napi-v3.8.5...napi-v3.8.6) - 2026-04-28
+
+### Fixed
+
+- *(deps)* update rust crate ctor to 0.11.0 ([#3270](https://github.com/napi-rs/napi-rs/pull/3270))
+- *(napi)* Convert #[ctor] calls to declarative form to remove all features ([#3257](https://github.com/napi-rs/napi-rs/pull/3257))
+
+### Other
+
+- *(napi)* skip duplicate validation ([#3268](https://github.com/napi-rs/napi-rs/pull/3268))
+- *(napi)* clarify unsafe function invariants ([#3267](https://github.com/napi-rs/napi-rs/pull/3267))
+
 ## [3.8.5](https://github.com/napi-rs/napi-rs/compare/napi-v3.8.4...napi-v3.8.5) - 2026-04-15
 
 ### Fixed
