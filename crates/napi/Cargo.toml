@@ -74,7 +74,7 @@ tracing = ["dep:tracing"]
 bitflags = "2"
 # Keep ctor's priority support disabled until the Apple/Zig cross-link
 # path stops emitting unresolved `section$end$__DATA$CTOR` references.
-ctor = { version = "0.11.0", default-features = false }
+ctor = { version = "0.12.0", default-features = false }
 nohash-hasher = "0.2.0"
 rustc-hash = "2.1.1"
 
