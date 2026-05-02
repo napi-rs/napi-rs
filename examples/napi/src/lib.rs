@@ -27,8 +27,6 @@ static ALLOC: mimalloc_safe::MiMalloc = mimalloc_safe::MiMalloc;
 #[cfg(not(target_family = "wasm"))]
 #[napi_derive::module_init]
 fn init() {
-  use std::thread::current;
-
   let rt = tokio::runtime::Builder::new_multi_thread()
     .enable_all()
     .on_thread_start(|| {

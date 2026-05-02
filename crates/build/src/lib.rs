@@ -44,7 +44,10 @@ pub fn setup() {
     _ => {}
   }
 
-  if (target_env == "gnu" && target_os != "windows") || target_os == "freebsd" {
+  if (target_env == "gnu" && target_os != "windows")
+    || target_os == "freebsd"
+    || target_os == "openbsd"
+  {
     // https://sourceware.org/bugzilla/show_bug.cgi?id=21032
     // https://sourceware.org/bugzilla/show_bug.cgi?id=21031
     // https://github.com/rust-lang/rust/issues/134820
