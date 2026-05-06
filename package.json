@@ -84,7 +84,7 @@
     "prettier": "^3.6.2",
     "rollup": "^4.53.1",
     "shx": "^0.4.0",
-    "sinon": "^21.0.0",
+    "sinon": "^22.0.0",
     "source-map-support": "^0.5.21",
     "tslib": "^2.8.1",
     "typescript": "^5.9.3"

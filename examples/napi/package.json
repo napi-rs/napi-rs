@@ -46,7 +46,7 @@
     "lodash": "^4.17.21",
     "playwright": "^1.56.1",
     "rxjs": "^7.8.2",
-    "sinon": "^21.0.0",
+    "sinon": "^22.0.0",
     "vite": "^8.0.0",
     "vite-plugin-node-polyfills": "^0.26.0",
     "vitest": "^4.0.8",
