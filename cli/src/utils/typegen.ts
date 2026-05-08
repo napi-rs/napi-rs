@@ -46,17 +46,11 @@ function prettyPrint(
       break
 
     case TypeDefKind.Enum:
+    case TypeDefKind.StringEnum: {
       const enumName = constEnum ? 'const enum' : 'enum'
       s += `${exportDeclare(ambient)} ${enumName} ${line.name} {\n${line.def}\n}`
       break
-
-    case TypeDefKind.StringEnum:
-      if (constEnum) {
-        s += `${exportDeclare(ambient)} const enum ${line.name} {\n${line.def}\n}`
-      } else {
-        s += `export type ${line.name} = ${line.def.replaceAll(/.*=/g, '').replaceAll(',', '|')};`
-      }
-      break
+    }
 
     case TypeDefKind.Struct:
       const extendsDef = line.extends ? ` extends ${line.extends}` : ''

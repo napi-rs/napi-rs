@@ -80,6 +80,7 @@
 {"kind": "enum", "name": "Kind", "js_doc": "/** default enum values are continuos i32s start from 0 */\n", "def": "/** Barks */\nDog = 0,\n /** Kills birds */\nCat = 1,\n /** Tasty */\nDuck = 2", "original_name": "Kind"}
 {"kind": "enum", "name": "Empty", "js_doc": "", "def": "", "original_name": "Empty"}
 {"kind": "enum", "name": "CustomNumEnum", "js_doc": "/** You could break the step and for an new continuous value. */\n", "def": "One = 1,\n Two = 2,\n Three = 3,\n Four = 4,\n Six = 6,\n Eight = 8,\n Nine = 9,\n Ten = 10", "original_name": "CustomNumEnum"}
+{"kind": "string_enum", "name": "Status", "js_doc": "", "def": "Pristine = 'Pristine',\n Loading = 'Loading',\n Ready = 'Ready'", "original_name": "Status"}
 {"kind": "fn", "name": "enumToI32", "js_doc": "", "def": "function enumToI32(e: CustomNumEnum): number"}
 {"kind": "fn", "name": "throwError", "js_doc": "", "def": "function throwError(): void"}
 {"kind": "fn", "name": "panic", "js_doc": "", "def": "function panic(): void"}
