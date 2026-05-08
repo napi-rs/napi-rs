@@ -22,36 +22,37 @@ new NapiCli().build({
 
 ## Options
 
-| Options           | CLI Options           | type     | required | default | description                                                                                                               |
-| ----------------- | --------------------- | -------- | -------- | ------- | ------------------------------------------------------------------------------------------------------------------------- |
-|                   | --help,-h             |          |          |         | get help                                                                                                                  |
-| target            | --target,-t           | string   | false    |         | Build for the target triple, bypassed to `cargo build --target`                                                           |
-| cwd               | --cwd                 | string   | false    |         | The working directory of where napi command will be executed in, all other paths options are relative to this path        |
-| manifestPath      | --manifest-path       | string   | false    |         | Path to `Cargo.toml`                                                                                                      |
-| configPath        | --config-path,-c      | string   | false    |         | Path to `napi` config json file                                                                                           |
-| packageJsonPath   | --package-json-path   | string   | false    |         | Path to `package.json`                                                                                                    |
-| targetDir         | --target-dir          | string   | false    |         | Directory for all crate generated artifacts, see `cargo build --target-dir`                                               |
-| outputDir         | --output-dir,-o       | string   | false    |         | Path to where all the built files would be put. Default to the crate folder                                               |
-| platform          | --platform            | boolean  | false    |         | Add platform triple to the generated nodejs binding file, eg: `[name].linux-x64-gnu.node`                                 |
-| jsPackageName     | --js-package-name     | string   | false    |         | Package name in generated js binding file. Only works with `--platform` flag                                              |
-| constEnum         | --const-enum          | boolean  | false    |         | Whether generate const enum for typescript bindings                                                                       |
-| jsBinding         | --js                  | string   | false    |         | Path and filename of generated JS binding file. Only works with `--platform` flag. Relative to `--output-dir`.            |
-| noJsBinding       | --no-js               | boolean  | false    |         | Whether to disable the generation JS binding file. Only works with `--platform` flag.                                     |
-| dts               | --dts                 | string   | false    |         | Path and filename of generated type def file. Relative to `--output-dir`                                                  |
-| dtsHeader         | --dts-header          | string   | false    |         | Custom file header for generated type def file. Only works when `typedef` feature enabled.                                |
-| noDtsHeader       | --no-dts-header       | boolean  | false    |         | Whether to disable the default file header for generated type def file. Only works when `typedef` feature enabled.        |
-| dtsCache          | --dts-cache           | boolean  | false    | true    | Whether to enable the dts cache, default to true                                                                          |
-| esm               | --esm                 | boolean  | false    |         | Whether to emit an ESM JS binding file instead of CJS format. Only works with `--platform` flag.                          |
-| strip             | --strip,-s            | boolean  | false    |         | Whether strip the library to achieve the minimum file size                                                                |
-| release           | --release,-r          | boolean  | false    |         | Build in release mode                                                                                                     |
-| verbose           | --verbose,-v          | boolean  | false    |         | Verbosely log build command trace                                                                                         |
-| bin               | --bin                 | string   | false    |         | Build only the specified binary                                                                                           |
-| package           | --package,-p          | string   | false    |         | Build the specified library or the one at cwd                                                                             |
-| profile           | --profile             | string   | false    |         | Build artifacts with the specified profile                                                                                |
-| crossCompile      | --cross-compile,-x    | boolean  | false    |         | [experimental] cross-compile for the specified target with `cargo-xwin` on windows and `cargo-zigbuild` on other platform |
-| useCross          | --use-cross           | boolean  | false    |         | [experimental] use [cross](https://github.com/cross-rs/cross) instead of `cargo`                                          |
-| useNapiCross      | --use-napi-cross      | boolean  | false    |         | [experimental] use @napi-rs/cross-toolchain to cross-compile Linux arm/arm64/x64 gnu targets.                             |
-| watch             | --watch,-w            | boolean  | false    |         | watch the crate changes and build continuously with `cargo-watch` crates                                                  |
-| features          | --features,-F         | string[] | false    |         | Space-separated list of features to activate                                                                              |
-| allFeatures       | --all-features        | boolean  | false    |         | Activate all available features                                                                                           |
-| noDefaultFeatures | --no-default-features | boolean  | false    |         | Do not activate the `default` feature                                                                                     |
+| Options           | CLI Options           | type     | required | default | description                                                                                                                   |
+| ----------------- | --------------------- | -------- | -------- | ------- | ----------------------------------------------------------------------------------------------------------------------------- |
+|                   | --help,-h             |          |          |         | get help                                                                                                                      |
+| target            | --target,-t           | string   | false    |         | Build for the target triple, bypassed to `cargo build --target`                                                               |
+| cwd               | --cwd                 | string   | false    |         | The working directory of where napi command will be executed in, all other paths options are relative to this path            |
+| manifestPath      | --manifest-path       | string   | false    |         | Path to `Cargo.toml`                                                                                                          |
+| configPath        | --config-path,-c      | string   | false    |         | Path to `napi` config json file                                                                                               |
+| packageJsonPath   | --package-json-path   | string   | false    |         | Path to `package.json`                                                                                                        |
+| targetDir         | --target-dir          | string   | false    |         | Directory for all crate generated artifacts, see `cargo build --target-dir`                                                   |
+| outputDir         | --output-dir,-o       | string   | false    |         | Path to where all the built files would be put. Default to the crate folder                                                   |
+| platform          | --platform            | boolean  | false    |         | Add platform triple to the generated nodejs binding file, eg: `[name].linux-x64-gnu.node`                                     |
+| jsPackageName     | --js-package-name     | string   | false    |         | Package name in generated js binding file. Only works with `--platform` flag                                                  |
+| constEnum         | --const-enum          | boolean  | false    |         | Whether generate const enum for typescript bindings                                                                           |
+| runtimeStringEnum | --runtime-string-enum | boolean  | false    |         | Emit `#[napi(string_enum)]` enums as runtime enums (`export declare enum`) under `--no-const-enum`. Default: type-only union. |
+| jsBinding         | --js                  | string   | false    |         | Path and filename of generated JS binding file. Only works with `--platform` flag. Relative to `--output-dir`.                |
+| noJsBinding       | --no-js               | boolean  | false    |         | Whether to disable the generation JS binding file. Only works with `--platform` flag.                                         |
+| dts               | --dts                 | string   | false    |         | Path and filename of generated type def file. Relative to `--output-dir`                                                      |
+| dtsHeader         | --dts-header          | string   | false    |         | Custom file header for generated type def file. Only works when `typedef` feature enabled.                                    |
+| noDtsHeader       | --no-dts-header       | boolean  | false    |         | Whether to disable the default file header for generated type def file. Only works when `typedef` feature enabled.            |
+| dtsCache          | --dts-cache           | boolean  | false    | true    | Whether to enable the dts cache, default to true                                                                              |
+| esm               | --esm                 | boolean  | false    |         | Whether to emit an ESM JS binding file instead of CJS format. Only works with `--platform` flag.                              |
+| strip             | --strip,-s            | boolean  | false    |         | Whether strip the library to achieve the minimum file size                                                                    |
+| release           | --release,-r          | boolean  | false    |         | Build in release mode                                                                                                         |
+| verbose           | --verbose,-v          | boolean  | false    |         | Verbosely log build command trace                                                                                             |
+| bin               | --bin                 | string   | false    |         | Build only the specified binary                                                                                               |
+| package           | --package,-p          | string   | false    |         | Build the specified library or the one at cwd                                                                                 |
+| profile           | --profile             | string   | false    |         | Build artifacts with the specified profile                                                                                    |
+| crossCompile      | --cross-compile,-x    | boolean  | false    |         | [experimental] cross-compile for the specified target with `cargo-xwin` on windows and `cargo-zigbuild` on other platform     |
+| useCross          | --use-cross           | boolean  | false    |         | [experimental] use [cross](https://github.com/cross-rs/cross) instead of `cargo`                                              |
+| useNapiCross      | --use-napi-cross      | boolean  | false    |         | [experimental] use @napi-rs/cross-toolchain to cross-compile Linux arm/arm64/x64 gnu targets.                                 |
+| watch             | --watch,-w            | boolean  | false    |         | watch the crate changes and build continuously with `cargo-watch` crates                                                      |
+| features          | --features,-F         | string[] | false    |         | Space-separated list of features to activate                                                                                  |
+| allFeatures       | --all-features        | boolean  | false    |         | Activate all available features                                                                                               |
+| noDefaultFeatures | --no-default-features | boolean  | false    |         | Do not activate the `default` feature                                                                                         |

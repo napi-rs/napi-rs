@@ -62,3 +62,24 @@ test('should process type def with noConstEnum correctly', async (t) => {
 
   t.snapshot(dts)
 })
+
+// The next two tests use a minimal fixture (one numeric + one string
+// enum) to keep snapshots small and focused on the flag's behavior.
+const flagFixture = join(
+  fileURLToPath(import.meta.url),
+  '../',
+  '__fixtures__',
+  'runtime_string_enum_flag',
+)
+
+test('should process type def with noConstEnum and runtimeStringEnum correctly', async (t) => {
+  const { dts } = await processTypeDef(flagFixture, false, true)
+
+  t.snapshot(dts)
+})
+
+test('runtimeStringEnum is a no-op when constEnum is set', async (t) => {
+  const { dts } = await processTypeDef(flagFixture, true, true)
+
+  t.snapshot(dts)
+})

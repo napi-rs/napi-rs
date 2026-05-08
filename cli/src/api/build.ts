@@ -874,6 +874,8 @@ class Builder {
       configDtsHeader: this.config.dtsHeader,
       configDtsHeaderFile: this.config.dtsHeaderFile,
       constEnum: this.options.constEnum ?? this.config.constEnum,
+      runtimeStringEnum:
+        this.options.runtimeStringEnum ?? this.config.runtimeStringEnum,
       cwd: this.options.cwd,
     })
 
@@ -1050,9 +1052,16 @@ export interface GenerateTypeDefOptions {
   configDtsHeader?: string
   configDtsHeaderFile?: string
   constEnum?: boolean
+  runtimeStringEnum?: boolean
   cwd: string
 }
 
+/**
+ * Walk the napi-derive intermediate type-def directory, render every entry
+ * into TypeScript via {@link processTypeDef}, and return the concatenated
+ * `.d.ts` source plus the list of identifiers to re-export from
+ * `index.js`.
+ */
 export async function generateTypeDef(
   options: GenerateTypeDefOptions,
 ): Promise<{ exports: string[]; dts: string }> {
@@ -1097,11 +1106,20 @@ export async function generateTypeDef(
     .filter((file) => file.isFile())
     .sort((a, b) => a.name.localeCompare(b.name))
 
+  const constEnum = options.constEnum ?? true
+  const runtimeStringEnum = options.runtimeStringEnum ?? false
+  if (runtimeStringEnum && constEnum) {
+    debug.warn(
+      '`--runtime-string-enum` has no effect when `--const-enum` is enabled (the default). Pass `--no-const-enum` to activate runtime string enum emission.',
+    )
+  }
+
   const processedTypeDefs = await Promise.all(
     typeDefFiles.map((file) =>
       processTypeDef(
         join(options.typeDefDir, file.name),
-        options.constEnum ?? true,
+        constEnum,
+        runtimeStringEnum,
       ),
     ),
   )
