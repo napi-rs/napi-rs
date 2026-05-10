@@ -803,7 +803,7 @@ mod experimental {
         finalize_hint: *mut c_void,
       ) -> napi_status;
 
-      fn napi_create_object_with_properties(
+      fn node_api_create_object_with_properties(
         env: napi_env,
         prototype_or_null: napi_value,
         property_names: *const napi_value,

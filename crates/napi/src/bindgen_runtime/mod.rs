@@ -117,7 +117,7 @@ pub unsafe extern "C" fn drop_buffer_slice(
 
 /// Create an object with properties
 ///
-/// When the `experimental` feature is enabled, uses `napi_create_object_with_properties`
+/// When the `experimental` feature is enabled, uses `node_api_create_object_with_properties`
 /// which creates the object with all properties in a single optimized call.
 /// Otherwise falls back to `napi_create_object` + `napi_define_properties`.
 #[doc(hidden)]
@@ -158,7 +158,7 @@ pub unsafe fn create_object_with_properties(
 
       let mut result_obj = std::ptr::null_mut();
       check_status!(
-        sys::napi_create_object_with_properties(
+        sys::node_api_create_object_with_properties(
           env,
           std::ptr::null_mut(), // prototype_or_null
           names.as_ptr(),
