@@ -179,6 +179,12 @@ const BUILD_OPTIONS: CommandSchema = {
       description: 'Whether generate const enum for typescript bindings',
     },
     {
+      name: 'runtimeStringEnum',
+      type: 'boolean',
+      description:
+        'Emit `#[napi(string_enum)]` enums as runtime enums (`export declare enum`) under `--no-const-enum`. Default: type-only union.',
+    },
+    {
       name: 'jsBinding',
       type: 'string',
       description:

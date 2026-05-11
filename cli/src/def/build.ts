@@ -55,6 +55,11 @@ export abstract class BaseBuildCommand extends Command {
     description: 'Whether generate const enum for typescript bindings',
   })
 
+  runtimeStringEnum?: boolean = Option.Boolean('--runtime-string-enum', {
+    description:
+      'Emit `#[napi(string_enum)]` enums as runtime enums (`export declare enum`) under `--no-const-enum`. Default: type-only union.',
+  })
+
   jsBinding?: string = Option.String('--js', {
     description:
       'Path and filename of generated JS binding file. Only works with `--platform` flag. Relative to `--output-dir`.',
@@ -157,6 +162,7 @@ export abstract class BaseBuildCommand extends Command {
       platform: this.platform,
       jsPackageName: this.jsPackageName,
       constEnum: this.constEnum,
+      runtimeStringEnum: this.runtimeStringEnum,
       jsBinding: this.jsBinding,
       noJsBinding: this.noJsBinding,
       dts: this.dts,
@@ -225,6 +231,10 @@ export interface BuildOptions {
    * Whether generate const enum for typescript bindings
    */
   constEnum?: boolean
+  /**
+   * Emit `#[napi(string_enum)]` enums as runtime enums (`export declare enum`) under `--no-const-enum`. Default: type-only union.
+   */
+  runtimeStringEnum?: boolean
   /**
    * Path and filename of generated JS binding file. Only works with `--platform` flag. Relative to `--output-dir`.
    */

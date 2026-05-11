@@ -29,9 +29,26 @@ interface TypeDefLine {
   js_mod?: string
 }
 
+/**
+ * Render a single intermediate type-def line as the TypeScript source it
+ * should produce in `index.d.ts`.
+ *
+ * @param line - The intermediate type-def entry to render.
+ * @param constEnum - When true, emit numeric and string `#[napi]` enums as
+ *   `const enum`. When false (`--no-const-enum`), numeric enums become
+ *   regular runtime enums and string enums fall back to a type-only union
+ *   unless `runtimeStringEnum` is also true.
+ * @param runtimeStringEnum - When true under `--no-const-enum`, emit
+ *   `#[napi(string_enum)]` as a runtime enum (`export declare enum`)
+ *   instead of a type-only union. No-op when `constEnum` is true.
+ * @param ident - Indentation level applied to the rendered output.
+ * @param ambient - When true, emit declarations in the ambient form used
+ *   inside `declare namespace` blocks (e.g. drop the `declare` keyword).
+ */
 function prettyPrint(
   line: TypeDefLine,
   constEnum: boolean,
+  runtimeStringEnum: boolean,
   ident: number,
   ambient = false,
 ): string {
@@ -45,18 +62,22 @@ function prettyPrint(
       s += `export type ${line.name} = \n${line.def}`
       break
 
-    case TypeDefKind.Enum:
+    case TypeDefKind.Enum: {
       const enumName = constEnum ? 'const enum' : 'enum'
       s += `${exportDeclare(ambient)} ${enumName} ${line.name} {\n${line.def}\n}`
       break
+    }
 
-    case TypeDefKind.StringEnum:
+    case TypeDefKind.StringEnum: {
       if (constEnum) {
         s += `${exportDeclare(ambient)} const enum ${line.name} {\n${line.def}\n}`
+      } else if (runtimeStringEnum) {
+        s += `${exportDeclare(ambient)} enum ${line.name} {\n${line.def}\n}`
       } else {
         s += `export type ${line.name} = ${line.def.replaceAll(/.*=/g, '').replaceAll(',', '|')};`
       }
       break
+    }
 
     case TypeDefKind.Struct:
       const extendsDef = line.extends ? ` extends ${line.extends}` : ''
@@ -97,9 +118,20 @@ function exportDeclare(ambient: boolean): string {
   return 'export declare'
 }
 
+/**
+ * Read the napi-derive-emitted intermediate type-def file and render its
+ * entries into the `index.d.ts` source string plus the list of names to
+ * re-export from `index.js`.
+ *
+ * @param intermediateTypeFile - Path to the JSONL type-def file produced
+ *   by napi-derive (one entry per `#[napi]` item).
+ * @param constEnum - See {@link prettyPrint}.
+ * @param runtimeStringEnum - See {@link prettyPrint}. Defaults to `false`.
+ */
 export async function processTypeDef(
   intermediateTypeFile: string,
   constEnum: boolean,
+  runtimeStringEnum: boolean = false,
 ) {
   const exports: string[] = []
   const defs = await readIntermediateTypeFile(intermediateTypeFile)
@@ -126,7 +158,7 @@ export async function processTypeDef(
                 default:
                   break
               }
-              return prettyPrint(def, constEnum, 0)
+              return prettyPrint(def, constEnum, runtimeStringEnum, 0)
             })
             .join('\n\n')
         } else {
@@ -134,7 +166,8 @@ export async function processTypeDef(
           let declaration = ''
           declaration += `export declare namespace ${namespace} {\n`
           for (const def of defs) {
-            declaration += prettyPrint(def, constEnum, 2, true) + '\n'
+            declaration +=
+              prettyPrint(def, constEnum, runtimeStringEnum, 2, true) + '\n'
           }
           declaration += '}'
           return declaration

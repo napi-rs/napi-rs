@@ -1,0 +1,2 @@
+{"kind": "enum", "name": "Priority", "js_doc": "", "def": "Low = 0,\n High = 1", "original_name": "Priority"}
+{"kind": "string_enum", "name": "Status", "js_doc": "", "def": "Active = 'Active',\n Inactive = 'Inactive'", "original_name": "Status"}

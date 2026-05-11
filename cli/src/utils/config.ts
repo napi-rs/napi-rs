@@ -43,6 +43,11 @@ export interface UserNapiConfig {
   constEnum?: boolean
 
   /**
+   * Emit `#[napi(string_enum)]` enums as runtime enums (`export declare enum`) under `--no-const-enum`. Default: type-only union.
+   */
+  runtimeStringEnum?: boolean
+
+  /**
    * dts header prepend to the generated dts file
    */
   dtsHeader?: string
@@ -155,7 +160,10 @@ export interface CommonPackageJsonFields {
 export type NapiConfig = Required<
   Pick<UserNapiConfig, 'binaryName' | 'packageName' | 'npmClient'>
 > &
-  Pick<UserNapiConfig, 'wasm' | 'dtsHeader' | 'dtsHeaderFile' | 'constEnum'> & {
+  Pick<
+    UserNapiConfig,
+    'wasm' | 'dtsHeader' | 'dtsHeaderFile' | 'constEnum' | 'runtimeStringEnum'
+  > & {
     targets: Target[]
     packageJson: CommonPackageJsonFields
   }
