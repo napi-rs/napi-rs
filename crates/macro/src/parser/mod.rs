@@ -1764,13 +1764,14 @@ impl ConvertToAST for syn::ItemType {
     let js_name = match opts.js_name() {
       Some((name, _)) => name.to_string(),
       _ => {
-        if !self.generics.params.is_empty() {
-          let types = self
-            .generics
-            .type_params()
-            .map(|param| param.ident.to_string())
-            .collect::<Vec<String>>()
-            .join(", ");
+        let types = self
+          .generics
+          .type_params()
+          .map(|param| param.ident.to_string())
+          .collect::<Vec<String>>()
+          .join(", ");
+
+        if !types.is_empty() {
           format!("{}<{}>", self.ident, types)
         } else {
           self.ident.to_string()
