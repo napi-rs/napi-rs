@@ -20,6 +20,9 @@ pub type VoidNullable<T> = Nullable<T>;
 #[napi]
 pub type RuleHandler<'a, Args, Ret> = Function<'a, Args, Ret>;
 
+#[napi]
+pub type LifetimeOnlyHandler<'a> = Function<'a, String, String>;
+
 #[napi(object, object_to_js = false)]
 pub struct Rule<'a> {
   pub name: String,

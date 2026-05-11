@@ -907,6 +907,9 @@ export interface Latin1MethodsResult {
   asSlice: Array<number>
 }
 
+export type LifetimeOnlyHandler =
+  (arg: string) => string
+
 export declare function listObjKeys(obj: object): Array<string>
 
 export interface LocalDates {
