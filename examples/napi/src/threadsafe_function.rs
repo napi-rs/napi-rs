@@ -257,6 +257,46 @@ pub async fn tsfn_throw_from_js(tsfn: ThreadsafeFunction<u32, Promise<u32>>) -> 
 }
 
 #[napi]
+pub async fn tsfn_throw_from_js_catch(
+  tsfn: ThreadsafeFunction<FnArgs<(String,)>, (), FnArgs<(String,)>, Status, false>,
+) -> napi::Result<()> {
+  tsfn.call_async_catch(("foo".to_string(),).into()).await
+}
+
+#[napi]
+pub async fn tsfn_throw_from_js_catch_handled(
+  tsfn: ThreadsafeFunction<FnArgs<(String,)>, ()>,
+) -> napi::Result<()> {
+  tsfn.call_async_catch(Ok(("foo".to_string(),).into())).await
+}
+
+#[napi]
+pub async fn tsfn_throw_from_js_catch_recover(
+  tsfn: ThreadsafeFunction<FnArgs<(String,)>, (), FnArgs<(String,)>, Status, false>,
+) -> napi::Result<()> {
+  match tsfn.call_async_catch(("trigger".to_string(),).into()).await {
+    Ok(_) => Err(Error::new(
+      Status::GenericFailure,
+      "expected JS callback to throw, but it returned successfully".to_owned(),
+    )),
+    Err(err) => {
+      // err.status should be PendingException because the source was a JS throw.
+      if err.status != Status::PendingException {
+        return Err(Error::new(
+          Status::GenericFailure,
+          format!("expected PendingException, got {:?}", err.status),
+        ));
+      }
+      // Propagate the Err. Because err.maybe_raw holds a napi_ref to the
+      // original JS exception object, `ToNapiValue for Error` recovers that
+      // exact object on the way back to JS — so the JS test will see the
+      // original error instance with all custom properties (e.g. `code`).
+      Err(err)
+    }
+  }
+}
+
+#[napi]
 pub async fn tsfn_throw_from_js_callback_contains_tsfn(
   tsfn: ThreadsafeFunction<u32, Promise<u32>>,
 ) {

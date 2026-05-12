@@ -108,6 +108,9 @@ import {
   tsfnCallWithCallback,
   tsfnAsyncCall,
   tsfnThrowFromJs,
+  tsfnThrowFromJsCatch,
+  tsfnThrowFromJsCatchHandled,
+  tsfnThrowFromJsCatchRecover,
   asyncPlus100,
   getGlobal,
   getUndefined,
@@ -1835,6 +1838,47 @@ test('Throw from ThreadsafeFunction JavaScript callback', async (t) => {
       message: "Cannot set properties of undefined (setting 'd')",
     },
   )
+})
+
+test('call_async_catch catches throw from CalleeHandled=false ThreadsafeFunction', async (t) => {
+  await t.throwsAsync(
+    () =>
+      tsfnThrowFromJsCatch((arg) => {
+        throw new Error(arg)
+      }),
+    {
+      message: 'foo',
+    },
+  )
+})
+
+test('call_async_catch on CalleeHandled=true ThreadsafeFunction propagates throw', async (t) => {
+  await t.throwsAsync(
+    () =>
+      tsfnThrowFromJsCatchHandled((_err, arg) => {
+        throw new Error(arg)
+      }),
+    {
+      message: 'foo',
+    },
+  )
+})
+
+test('call_async_catch preserves original JS exception object', async (t) => {
+  const thrown = new Error('foo')
+  // @ts-expect-error custom property on Error
+  thrown.code = 'E_FOO'
+  const err = await t.throwsAsync(() =>
+    tsfnThrowFromJsCatchRecover(() => {
+      throw thrown
+    }),
+  )
+  // The Rust side propagates the original napi::Error; its maybe_raw reference
+  // round-trips back through ToNapiValue for Error, so JS receives the exact
+  // same Error instance that was thrown, with custom properties intact.
+  // @ts-expect-error reading custom property on Error
+  t.is(err?.code, 'E_FOO')
+  t.is(err?.message, 'foo')
 })
 
 Napi4Test('accept ThreadsafeFunction', async (t) => {

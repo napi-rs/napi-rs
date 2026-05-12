@@ -1242,6 +1242,12 @@ export declare function tsfnThrowFromJs(tsfn: ((err: Error | null, arg: number) 
 
 export declare function tsfnThrowFromJsCallbackContainsTsfn(tsfn: ((err: Error | null, arg: number) => Promise<number>)): Promise<void>
 
+export declare function tsfnThrowFromJsCatch(tsfn: ((arg0: string) => void)): Promise<void>
+
+export declare function tsfnThrowFromJsCatchHandled(tsfn: ((err: Error | null, arg0: string) => void)): Promise<void>
+
+export declare function tsfnThrowFromJsCatchRecover(tsfn: ((arg0: string) => void)): Promise<void>
+
 export declare function tsfnWeak(tsfn: (() => void)): Promise<void>
 
 export declare function tsRename(a: { foo: number }): string[]

@@ -549,6 +549,14 @@ impl<
       )
     })?
   }
+
+  /// Call the ThreadsafeFunction the same way `call_async` does, with explicit
+  /// "catch the JavaScript throw" semantics.
+  ///
+  /// Provided so callers can use the same method name regardless of the `CalleeHandled` value.
+  pub async fn call_async_catch(&self, value: Result<T, ErrorStatus>) -> Result<Return> {
+    self.call_async(value).await
+  }
 }
 
 impl<
@@ -612,7 +620,13 @@ impl<
     })
   }
 
-  /// Call the ThreadsafeFunction, and handle the return value with in `async` way
+  /// Call the ThreadsafeFunction in an `async` way and return the JavaScript
+  /// callback's resolved value.
+  ///
+  /// **Warning:** if the JavaScript callback throws, this method will route
+  /// the captured exception through `napi_fatal_exception`, which terminates
+  /// the host process. Use [`call_async_catch`](Self::call_async_catch)
+  /// if you need to handle JavaScript-thrown errors as `Err(napi::Error)`.
   pub async fn call_async(&self, value: T) -> Result<Return> {
     let (sender, receiver) = channel::<Return>();
 
@@ -646,6 +660,55 @@ impl<
     receiver
       .await
       .map_err(|err| crate::Error::new(Status::GenericFailure, format!("{err}")))
+  }
+
+  /// Call the ThreadsafeFunction in an `async` way and catch JavaScript-thrown
+  /// errors as `Err(napi::Error)` instead of crashing the host process.
+  ///
+  /// The returned `Err` carries `status == Status::PendingException` when it
+  /// originated from a JS throw. The original JS exception object is preserved
+  /// via `error.maybe_raw` (a `napi_ref`); callers that need to inspect the
+  /// typed JS value can recover it via:
+  ///
+  /// ```ignore
+  /// let js_value: Unknown = JsError::from(err).into_unknown(env);
+  /// ```
+  pub async fn call_async_catch(&self, value: T) -> Result<Return> {
+    let (sender, receiver) = channel::<Result<Return>>();
+
+    self.handle.with_read_aborted(|aborted| {
+      if aborted {
+        return Err(crate::Error::from_status(Status::Closing));
+      }
+
+      check_status!(
+        unsafe {
+          sys::napi_call_threadsafe_function(
+            self.handle.get_raw(),
+            Box::into_raw(Box::new(ThreadsafeFunctionCallJsBackData {
+              data: value,
+              call_variant: ThreadsafeFunctionCallVariant::WithCallback,
+              callback: Box::new(move |d: Result<Return>, _| {
+                sender
+                  .send(d)
+                  // The only reason for send to return Err is if the receiver isn't listening
+                  // Not hiding the error would result in a napi_fatal_error call, it's safe to ignore it instead.
+                  .or(Ok(()))
+              }),
+            }))
+            .cast(),
+            ThreadsafeFunctionCallMode::NonBlocking.into(),
+          )
+        },
+        "Threadsafe function call_async_catch failed"
+      )
+    })?;
+    receiver.await.map_err(|_| {
+      crate::Error::new(
+        Status::GenericFailure,
+        "Receive value from threadsafe function sender failed",
+      )
+    })?
   }
 }
 
