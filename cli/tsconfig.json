@@ -10,7 +10,6 @@
     "verbatimModuleSyntax": true,
     "declaration": true,
     "rootDir": "./src",
-    "baseUrl": ".",
     "outDir": "dist",
     "allowJs": false
   },

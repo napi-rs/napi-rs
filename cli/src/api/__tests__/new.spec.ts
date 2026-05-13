@@ -369,7 +369,10 @@ test('should fail when git is unavailable', async (t) => {
       },
       (error, _stdout, stderr) => {
         resolve({
-          code: error && 'code' in error ? error.code : 0,
+          code:
+            error && 'code' in error && typeof error.code === 'number'
+              ? error.code
+              : 0,
           stderr,
         })
       },

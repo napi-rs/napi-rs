@@ -193,7 +193,7 @@ async function updateCargoTomlTypeDef(
       ? { version: napiDeriveDependency }
       : { ...napiDeriveDependency }
 
-  const existingFeatures = Array.isArray(dependencyConfig.features)
+  const existingFeatures: string[] = Array.isArray(dependencyConfig.features)
     ? dependencyConfig.features.filter(
         (feature: unknown): feature is string => typeof feature === 'string',
       )
