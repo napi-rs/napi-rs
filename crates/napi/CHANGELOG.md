@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.9.0](https://github.com/napi-rs/napi-rs/compare/napi-v3.8.6...napi-v3.9.0) - 2026-05-13
+
+### Added
+
+- *(napi)* add `ThreadsafeFunction::call_async_catch` to handle errors in callback functions ([#3291](https://github.com/napi-rs/napi-rs/pull/3291))
+
+### Fixed
+
+- *(deps)* update rust crate ctor to v1 ([#3276](https://github.com/napi-rs/napi-rs/pull/3276))
+- *(deps)* update rust crate ctor to 0.13.0 ([#3275](https://github.com/napi-rs/napi-rs/pull/3275))
+- *(deps)* update rust crate ctor to 0.12.0 ([#3271](https://github.com/napi-rs/napi-rs/pull/3271))
+
 ## [3.8.6](https://github.com/napi-rs/napi-rs/compare/napi-v3.8.5...napi-v3.8.6) - 2026-04-28
 
 ### Fixed

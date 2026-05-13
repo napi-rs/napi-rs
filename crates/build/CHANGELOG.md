@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.2](https://github.com/napi-rs/napi-rs/compare/napi-build-v2.3.1...napi-build-v2.3.2) - 2026-05-13
+
+### Fixed
+
+- *(build)* on openbsd, work around local thread storage destructor crash after DSO unloading using '-z, nodelete' linker flag ([#3274](https://github.com/napi-rs/napi-rs/pull/3274))
+
 ## [2.3.1](https://github.com/napi-rs/napi-rs/compare/napi-build-v2.3.0...napi-build-v2.3.1) - 2025-11-10
 
 ### Fixed

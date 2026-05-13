@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.6](https://github.com/napi-rs/napi-rs/compare/napi-derive-v3.5.5...napi-derive-v3.5.6) - 2026-05-13
+
+### Fixed
+
+- *(napi)* invalid TypeScript generic syntax for type aliases ([#3289](https://github.com/napi-rs/napi-rs/pull/3289))
+- *(deps)* update rust crate ctor to v1 ([#3276](https://github.com/napi-rs/napi-rs/pull/3276))
+- *(deps)* update rust crate ctor to 0.13.0 ([#3275](https://github.com/napi-rs/napi-rs/pull/3275))
+- *(deps)* update rust crate ctor to 0.12.0 ([#3271](https://github.com/napi-rs/napi-rs/pull/3271))
+
 ## [3.5.5](https://github.com/napi-rs/napi-rs/compare/napi-derive-v3.5.4...napi-derive-v3.5.5) - 2026-04-28
 
 ### Fixed
