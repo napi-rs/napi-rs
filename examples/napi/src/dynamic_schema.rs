@@ -142,10 +142,23 @@ impl DynamicSchema {
 
   #[napi]
   pub fn register(&mut self, schema_name: String, fields: Vec<SchemaField>) -> Result<()> {
+    if fields.len() > 64 {
+      return Err(Error::from_reason(format!(
+        "schema '{}' has {} fields; max 64 supported",
+        schema_name,
+        fields.len()
+      )));
+    }
     let mut compiled = Vec::with_capacity(fields.len());
     let mut indices: FxHashMap<String, usize> =
       FxHashMap::with_capacity_and_hasher(fields.len(), Default::default());
     for (i, f) in fields.iter().enumerate() {
+      if indices.contains_key(&f.name) {
+        return Err(Error::from_reason(format!(
+          "duplicate field '{}' in schema '{}'",
+          f.name, schema_name
+        )));
+      }
       indices.insert(f.name.clone(), i);
       compiled.push(CompiledField {
         name: f.name.clone(),
@@ -192,6 +205,8 @@ impl DynamicSchema {
 
   /// Validate a JS Object by accessing properties directly via napi — no Value intermediate.
   /// Returns the object (no conversion overhead).
+  /// Missing optional fields remain absent (not injected as null).
+  /// I64 validation uses f64 — values beyond 2^53 may lose precision.
   #[napi]
   pub fn validate_object<'a>(&self, schema_name: String, obj: Object<'a>) -> Result<Object<'a>> {
     let schema = self

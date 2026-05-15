@@ -1466,9 +1466,8 @@ impl Env {
 
   /// Parse JSON bytes directly into a JS value using a streaming tokenizer.
   /// No intermediate serde_json::Value — constructs JS values directly via napi C API.
-  /// Significantly faster than `serde_json::from_slice` + manual conversion for large payloads.
   #[cfg(feature = "serde-json")]
-  pub fn parse_json<'env>(self, json: &[u8]) -> Result<crate::Unknown<'env>> {
+  pub fn parse_json<'env>(&'env self, json: &[u8]) -> Result<crate::Unknown<'env>> {
     crate::js_values::json_stream::parse_json(self, json)
   }
 
