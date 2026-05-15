@@ -13,7 +13,10 @@ function assert(cond, msg) { if (cond) passed++; else { failed++; console.error(
 function assertEq(a, b, msg) {
   if (a === b) passed++; else { failed++; console.error(`FAIL: ${msg} — expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`) }
 }
-function assertThrows(fn, msg) { try { fn(); failed++; console.error('FAIL:', msg) } catch (e) { passed++ } }
+function assertThrows(fn, pattern, msg) {
+  try { fn(); failed++; console.error('FAIL:', msg) }
+  catch (e) { if (pattern.test(e?.message ?? '')) { passed++ } else { failed++; console.error(`FAIL: ${msg} — got "${e?.message}"`) } }
+}
 
 const s = new napi.DynamicSchema()
 s.register('users', [
@@ -47,15 +50,15 @@ assertEq(vo.id, 5, 'validateObject id')
 assertEq(vo.name, 'E', 'validateObject name')
 
 // Error cases
-assertThrows(() => s.parseOne('users', Buffer.from(JSON.stringify({ name:'x' }))), 'missing required')
-assertThrows(() => s.parseOne('users', Buffer.from(JSON.stringify({ id:'bad', name:'x', email:'x' }))), 'wrong type')
-assertThrows(() => s.parse('x', Buffer.from('[]')), 'unknown schema')
+assertThrows(() => s.parseOne('users', Buffer.from(JSON.stringify({ name:'x' }))), /missing required/, 'missing required')
+assertThrows(() => s.parseOne('users', Buffer.from(JSON.stringify({ id:'bad', name:'x', email:'x' }))), /type mismatch/, 'wrong type')
+assertThrows(() => s.parse('x', Buffer.from('[]')), /not found/, 'unknown schema')
 
 // Duplicate field name
 assertThrows(() => s.register('dup', [
   { name: 'a', type: Type.String },
   { name: 'a', type: Type.I64 },
-]), 'duplicate field')
+]), /duplicate/, 'duplicate field')
 
 console.log(`\n${failed > 0 ? '❌' : '✅'} ${passed}/${passed + failed} tests passed`)
 if (failed > 0) process.exit(1)

@@ -50,10 +50,11 @@ impl<'a> Cursor<'a> {
         Some(b'"') => {
           let raw = &self.data[start..self.pos];
           self.pos += 1;
-          return if has_escape {
+          return   if has_escape {
             Ok(unescape_json(raw))
           } else {
-            Ok(unsafe { String::from_utf8_unchecked(raw.to_vec()) })
+            Ok(String::from_utf8(raw.to_vec())
+              .map_err(|e| Error::from_reason(format!("invalid UTF-8 in JSON string: {e}")))?)
           };
         }
         Some(b'\\') => {
@@ -128,7 +129,18 @@ pub fn parse_json<'env>(env: &'env Env, json: &[u8]) -> Result<Unknown<'env>> {
   let raw_env = env.raw();
   let mut cur = Cursor::new(json);
   cur.skip_ws();
-  parse_value(&mut cur, raw_env, 0)
+  if cur.pos >= cur.data.len() {
+    return Err(Error::from_reason("empty JSON input"));
+  }
+  let result = parse_value(&mut cur, raw_env, 0)?;
+  cur.skip_ws();
+  if cur.pos < cur.data.len() {
+    return Err(Error::from_reason(format!(
+      "trailing bytes after JSON value at byte {}",
+      cur.pos
+    )));
+  }
+  Ok(result)
 }
 
 fn parse_value<'env>(
