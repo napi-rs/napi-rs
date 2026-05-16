@@ -5,6 +5,7 @@ target/
 Cargo.lock
 node_modules
 *.node
+.worktrees/
 build/LICENSE
 napi/LICENSE
 napi-derive/LICENSE
