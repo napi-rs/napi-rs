@@ -34,7 +34,7 @@ const __wasi = new __WASI({
     : ''
 
   const workerErrorHandler = errorEvent
-    ? `    worker.addEventListener('error', (event) => {
+    ? `    worker.addEventListener('message', (event) => {
       if (event.data && typeof event.data === 'object' && event.data.type === 'error') {
         window.dispatchEvent(new CustomEvent('napi-rs-worker-error', { detail: event.data }))
       }
