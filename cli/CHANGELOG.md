@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [3.7.0](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.6.2...@napi-rs/cli@3.7.0) (2026-05-27)
+
+### Bug Fixes
+
+- **cli:** fail universalize when lipo does not produce output ([#3248](https://github.com/napi-rs/napi-rs/issues/3248)) ([880cbba](https://github.com/napi-rs/napi-rs/commit/880cbbad2d60fe480297798aeeb2600908884c5a))
+- **cli:** NAPI_RS_FORCE_WASI only activates on 'true' or 'error' ([#3236](https://github.com/napi-rs/napi-rs/issues/3236)) ([030eb76](https://github.com/napi-rs/napi-rs/commit/030eb76d6b1101954030eba78fed0211779c8a2e)), closes [lancedb/lancedb#3267](https://github.com/lancedb/lancedb/issues/3267) [#2919](https://github.com/napi-rs/napi-rs/issues/2919)
+- **cli:** receive error message from worker correctly ([#3300](https://github.com/napi-rs/napi-rs/issues/3300)) ([c43f7a2](https://github.com/napi-rs/napi-rs/commit/c43f7a2141f93ad5ad310f4dbae13de222e90549))
+- **napi-derive:** only FnArgs unpacks tuple to variadic params ([#3264](https://github.com/napi-rs/napi-rs/issues/3264)) ([1ca6522](https://github.com/napi-rs/napi-rs/commit/1ca65227d297b6fc2db0690878dc328d39856f76))
+
+### Features
+
+- **cli:** opt-in runtime enum for #[napi(string_enum)] via --runtime-string-enum ([#3284](https://github.com/napi-rs/napi-rs/issues/3284)) ([86381bc](https://github.com/napi-rs/napi-rs/commit/86381bc3c5eb33d304d677b32c7c01e47fccd231)), closes [#3283](https://github.com/napi-rs/napi-rs/issues/3283) [#2054](https://github.com/napi-rs/napi-rs/issues/2054)
+
 ## [3.6.2](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.6.1...@napi-rs/cli@3.6.2) (2026-04-15)
 
 ### Bug Fixes
