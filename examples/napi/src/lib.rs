@@ -102,3 +102,6 @@ mod transparent;
 mod r#type;
 mod typed_array;
 mod wasm;
+mod zero_copy;
+mod json_stream;
+mod dynamic_schema;
