@@ -259,7 +259,7 @@ class Builder {
       )
       this.setEnvIfNotExists(
         'BINDGEN_EXTRA_CLANG_ARGS',
-        `--sysroot=${this.envs.TARGET_SYSROOT}}`,
+        `--sysroot=${this.envs.TARGET_SYSROOT}`,
       )
 
       if (
