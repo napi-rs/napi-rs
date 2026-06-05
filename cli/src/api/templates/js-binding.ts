@@ -69,7 +69,7 @@ ${ident}loadErrors.push(e)
 ${identLow}}${versionCheck}`
   }
 
-  return `const { readFileSync } = require('node:fs')
+  return `const { readFileSync } = require('fs')
 let nativeBinding = null
 const loadErrors = []
 
@@ -99,7 +99,7 @@ const isMuslFromFilesystem = () => {
 
 const isMuslFromReport = () => {
   let report = null
-  if (typeof process.report?.getReport === 'function') {
+  if (process.report && typeof process.report.getReport === 'function') {
     process.report.excludeNetwork = true
     report = process.report.getReport()
   }
@@ -143,7 +143,7 @@ function requireNative() {
     }
   } else if (process.platform === 'win32') {
     if (process.arch === 'x64') {
-      if (process.config?.variables?.shlib_suffix === 'dll.a' || process.config?.variables?.node_target_type === 'shared_library') {
+      if ((process.config && process.config.variables && process.config.variables.shlib_suffix === 'dll.a') || (process.config && process.config.variables && process.config.variables.node_target_type === 'shared_library')) {
         ${requireTuple('win32-x64-gnu')}
       } else {
         ${requireTuple('win32-x64-msvc')}
