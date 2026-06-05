@@ -129,23 +129,29 @@ const cjsBindingCases: Array<{ name: string; code: string }> = [
   },
 ]
 
+// Matches a `node:` builtin scheme in either a `require('node:fs')` or an
+// `import ... from 'node:module'` specifier.
+const NODE_SCHEME_RE = /['"]node:/
+
 for (const { name, code } of cjsBindingCases) {
   test(`createCjsBinding is Node 12 compatible: ${name}`, (t) => {
     assertValidJS(t, code, name)
     t.false(
-      code.includes("require('node:"),
-      'CJS loader must not use the node: scheme in require() (unsupported on Node < 14.18/16)',
+      NODE_SCHEME_RE.test(code),
+      'CJS loader must not use the node: scheme (unsupported on Node < 14.18/16 for require())',
     )
     t.false(code.includes('?.'), 'CJS loader must not use optional chaining')
     t.false(code.includes('??'), 'CJS loader must not use nullish coalescing')
   })
 }
 
-test('createEsmBinding shares the Node-compatible common loader body', (t) => {
+test('createEsmBinding is Node 12 compatible', (t) => {
   const code = createEsmBinding('test', '@scope/test', ['sum'])
   assertValidJS(t, code, 'esm')
   t.false(
-    code.includes("require('node:"),
-    'ESM loader must not use the node: scheme in require()',
+    NODE_SCHEME_RE.test(code),
+    'ESM loader must not use the node: scheme (incl. `import ... from "node:module"`)',
   )
+  t.false(code.includes('?.'), 'ESM loader must not use optional chaining')
+  t.false(code.includes('??'), 'ESM loader must not use nullish coalescing')
 })

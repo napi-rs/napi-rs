@@ -20,7 +20,7 @@ export function createEsmBinding(
   packageVersion?: string,
 ): string {
   return `${bindingHeader}
-import { createRequire } from 'node:module'
+import { createRequire } from 'module'
 const require = createRequire(import.meta.url)
 const __dirname = new URL('.', import.meta.url).pathname
 
