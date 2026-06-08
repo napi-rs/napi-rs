@@ -1,7 +1,7 @@
 use std::cell::Cell;
 use std::ffi::c_void;
 use std::ptr;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::{bindgen_prelude::*, check_status, iterator::ScopedGenerator};
 
@@ -102,7 +102,12 @@ impl<const N: usize> CallbackInfo<N> {
     }
     let mut object_ref = ptr::null_mut();
     let initial_finalize: Box<dyn FnOnce()> = Box::new(|| {});
-    let finalize_callbacks_ptr = Rc::into_raw(Rc::new(Cell::new(Box::into_raw(initial_finalize))));
+    // `Reference` needs atomic ref-counting for its `unsafe impl Sync`, so the finalize
+    // callbacks slot is an `Arc`. The inner `Cell` is only ever accessed on the JS thread
+    // (see `Reference`), so the non-`Send`/`Sync` interior is sound here.
+    #[allow(clippy::arc_with_non_send_sync)]
+    let finalize_callbacks_ptr =
+      Arc::into_raw(Arc::new(Cell::new(Box::into_raw(initial_finalize))));
     unsafe {
       check_status!(
         sys::napi_wrap(
@@ -225,7 +230,11 @@ impl<const N: usize> CallbackInfo<N> {
     check_status!(status, "Failed to create instance of class `{}`", js_name)?;
     let obj = Box::new(obj);
     let initial_finalize: Box<dyn FnOnce()> = Box::new(|| {});
-    let finalize_callbacks_ptr = Rc::into_raw(Rc::new(Cell::new(Box::into_raw(initial_finalize))));
+    // See `_construct`: `Arc` is required for `Reference`'s `Sync` impl; the `Cell` is
+    // only touched on the JS thread.
+    #[allow(clippy::arc_with_non_send_sync)]
+    let finalize_callbacks_ptr =
+      Arc::into_raw(Arc::new(Cell::new(Box::into_raw(initial_finalize))));
     let mut object_ref = ptr::null_mut();
     let mut value_ref = Box::into_raw(obj);
 
