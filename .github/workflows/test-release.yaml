@@ -464,7 +464,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: [22, 24, 26]
+        # Node 26 images ship without a bundled yarn/corepack launcher, so
+        # `yarn` is not found inside the containers. Test Node 26 in the
+        # build_and_test matrix instead (which uses the repo-pinned Yarn 4).
+        node: [22, 24]
         settings:
           - image: 'node:{:version}-slim'
             target: x86_64-unknown-linux-gnu
