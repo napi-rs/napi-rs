@@ -64,7 +64,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['22', '24']
+        node: ['22', '24', '26']
         settings:
           - host: ubuntu-latest
             target: x86_64-unknown-linux-gnu
@@ -124,7 +124,8 @@ jobs:
             test: |
               export NODE_OPTIONS="--max-old-space-size=3072"
               yarn workspace @examples/napi test -s
-              node ./node_modules/electron/install.js
+              node ./.github/install-electron.mjs
+              node -e "const p='node_modules/electron/path.txt'; if(!require('fs').existsSync(p)){console.log('::error::Electron binary missing ('+p+') after install');process.exit(1)}"
               yarn test:electron
             toolchain: stable
     name: ${{ matrix.settings.target }} - node@${{ matrix.node }} - toolchain@ ${{ matrix.settings.toolchain }}
@@ -206,15 +207,18 @@ jobs:
 
       - name: Electron tests
         if: matrix.settings.target == 'aarch64-apple-darwin' || matrix.settings.target == 'x86_64-pc-windows-msvc'
+        shell: bash
         run: |
-          node ./node_modules/electron/install.js
+          node ./.github/install-electron.mjs
+          node -e "const p='node_modules/electron/path.txt'; if(!require('fs').existsSync(p)){console.log('::error::Electron binary missing ('+p+') after install');process.exit(1)}"
           yarn test:electron
 
       - name: Electron tests
         if: matrix.settings.target == 'x86_64-unknown-linux-gnu'
         run: |
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-          node ./node_modules/electron/install.js
+          node ./.github/install-electron.mjs
+          node -e "const p='node_modules/electron/path.txt'; if(!require('fs').existsSync(p)){console.log('::error::Electron binary missing ('+p+') after install');process.exit(1)}"
           xvfb-run --auto-servernum yarn test:electron
 
       - name: Test build with profile
@@ -460,6 +464,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Node 26 images ship without a bundled yarn/corepack launcher, so
+        # `yarn` is not found inside the containers. Test Node 26 in the
+        # build_and_test matrix instead (which uses the repo-pinned Yarn 4).
         node: [22, 24]
         settings:
           - image: 'node:{:version}-slim'
