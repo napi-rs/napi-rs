@@ -125,6 +125,7 @@ jobs:
               export NODE_OPTIONS="--max-old-space-size=3072"
               yarn workspace @examples/napi test -s
               node ./node_modules/electron/install.js
+              node -e "const p='node_modules/electron/path.txt'; if(!require('fs').existsSync(p)){console.log('::error::Electron failed to install ('+p+' missing after install.js) - extraction likely stalled silently (e.g. Node 24.16.0 stream regression)');process.exit(1)}"
               yarn test:electron
             toolchain: stable
     name: ${{ matrix.settings.target }} - node@${{ matrix.node }} - toolchain@ ${{ matrix.settings.toolchain }}
@@ -206,8 +207,10 @@ jobs:
 
       - name: Electron tests
         if: matrix.settings.target == 'aarch64-apple-darwin' || matrix.settings.target == 'x86_64-pc-windows-msvc'
+        shell: bash
         run: |
           node ./node_modules/electron/install.js
+          node -e "const p='node_modules/electron/path.txt'; if(!require('fs').existsSync(p)){console.log('::error::Electron failed to install ('+p+' missing after install.js) - extraction likely stalled silently (e.g. Node 24.16.0 stream regression)');process.exit(1)}"
           yarn test:electron
 
       - name: Electron tests
@@ -215,6 +218,7 @@ jobs:
         run: |
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           node ./node_modules/electron/install.js
+          node -e "const p='node_modules/electron/path.txt'; if(!require('fs').existsSync(p)){console.log('::error::Electron failed to install ('+p+' missing after install.js) - extraction likely stalled silently (e.g. Node 24.16.0 stream regression)');process.exit(1)}"
           xvfb-run --auto-servernum yarn test:electron
 
       - name: Test build with profile
