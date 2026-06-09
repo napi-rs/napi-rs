@@ -1,5 +1,5 @@
 use std::ffi::c_void;
-use std::rc::Rc;
+use std::sync::Arc;
 
 pub use callback_info::*;
 pub use env::*;
@@ -46,16 +46,16 @@ pub(crate) unsafe extern "C" fn raw_finalize_unchecked<T: ObjectFinalize>(
   if let Some((_, ref_val, finalize_callbacks_ptr)) =
     REFERENCE_MAP.with(|cell| cell.borrow_mut(|reference_map| reference_map.remove(&finalize_data)))
   {
-    let finalize_callbacks_rc = unsafe { Rc::from_raw(finalize_callbacks_ptr) };
+    let finalize_callbacks_rc = unsafe { Arc::from_raw(finalize_callbacks_ptr) };
 
     #[cfg(all(debug_assertions, not(target_family = "wasm")))]
     {
-      let rc_strong_count = Rc::strong_count(&finalize_callbacks_rc);
-      // If `Rc` strong count is 2, it means the finalize of referenced `Object` is called before the `fn drop` of the `Reference`
+      let rc_strong_count = Arc::strong_count(&finalize_callbacks_rc);
+      // If `Arc` strong count is 2, it means the finalize of referenced `Object` is called before the `fn drop` of the `Reference`
       // It always happened on exiting process
       // In general, the `fn drop` would happen first
       if rc_strong_count != 1 && rc_strong_count != 2 {
-        eprintln!("Rc strong count is: {rc_strong_count}, it should be 1 or 2");
+        eprintln!("Arc strong count is: {rc_strong_count}, it should be 1 or 2");
       }
     }
     let finalize = unsafe { Box::from_raw(finalize_callbacks_rc.get()) };
