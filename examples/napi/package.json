@@ -70,6 +70,6 @@
   },
   "dependencies": {
     "@emnapi/core": "1.10.0",
-    "@emnapi/runtime": "1.10.0"
+    "@emnapi/runtime": "1.11.0"
   }
 }
