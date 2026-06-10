@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.9.1](https://github.com/napi-rs/napi-rs/compare/napi-v3.9.0...napi-v3.9.1) - 2026-06-10
+
+### Fixed
+
+- *(napi)* unify Reference finalize callbacks on Arc (Rc/Arc type confusion) ([#3313](https://github.com/napi-rs/napi-rs/pull/3313))
+- *(napi)* zero-copy external strings, fix WASI double-free ([#3308](https://github.com/napi-rs/napi-rs/pull/3308))
+- *(napi)* experimental node_api_create_object_with_properties ([#3304](https://github.com/napi-rs/napi-rs/pull/3304))
+
 ## [3.9.0](https://github.com/napi-rs/napi-rs/compare/napi-v3.8.6...napi-v3.9.0) - 2026-05-13
 
 ### Added
