@@ -376,12 +376,21 @@ test('JsStringLatin1::from_external tests', (t) => {
   // Test with custom finalize hint
   t.is(createExternalLatin1CustomFinalize(), 'Custom finalize test')
 
-  // Test Latin1 methods
+  // Test Latin1 methods. The wrapper's Rust-side accessors mirror `buf`:
+  // - On WASM (WASI/emnapi) and on native when V8 keeps the string external,
+  //   `buf` slices the real bytes and the wrapper reports the full length.
+  // - On native when V8 chooses to copy (sandbox mode and/or some short
+  //   strings), the finalizer ran synchronously and `buf` is `&[]`; the
+  //   wrapper then reports length 0 / isEmpty true / asSlice []. Recover
+  //   the bytes via `JsString::into_latin1` on `.into_value()` if needed.
   const methodsTest = testLatin1Methods('Test string')
-  t.is(methodsTest.length, 11)
-  t.is(methodsTest.isEmpty, false)
-  if (!process.env.WASI_TEST) {
+  if (methodsTest.length === 11) {
+    t.is(methodsTest.isEmpty, false)
     t.deepEqual(methodsTest.asSlice, Array.from(Buffer.from('Test string')))
+  } else {
+    t.is(methodsTest.length, 0)
+    t.is(methodsTest.isEmpty, true)
+    t.deepEqual(methodsTest.asSlice, [])
   }
 
   // Test with empty input

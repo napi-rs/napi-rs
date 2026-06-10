@@ -262,7 +262,10 @@ pub unsafe fn new_instance<T: 'static + ObjectFinalize>(
   crate::__private::___CALL_FROM_FACTORY.with(|inner| inner.set(false));
   let mut object_ref = std::ptr::null_mut();
   let initial_finalize: Box<dyn FnOnce()> = Box::new(|| {});
-  let finalize_callbacks_ptr = std::rc::Rc::into_raw(std::rc::Rc::new(std::cell::Cell::new(
+  // `Arc` (not `Rc`) is required so it matches `Reference`'s `Arc<Cell<..>>` field and its
+  // `Sync` impl; the `Cell` is only accessed on the JS thread.
+  #[allow(clippy::arc_with_non_send_sync)]
+  let finalize_callbacks_ptr = std::sync::Arc::into_raw(std::sync::Arc::new(std::cell::Cell::new(
     Box::into_raw(initial_finalize),
   )));
   check_status!(
