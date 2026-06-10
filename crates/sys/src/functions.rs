@@ -813,6 +813,16 @@ mod experimental {
       ) -> napi_status;
     }
   );
+
+  /// **Deprecated**: use [`node_api_create_object_with_properties`] instead.
+  ///
+  /// Compatibility alias: this binding was originally published under the wrong
+  /// symbol name (`napi_create_object_with_properties` does not exist in Node-API),
+  /// so the old name never resolved at runtime. A `pub use` is used instead of a
+  /// wrapper `fn` to preserve the `extern "C"` item kind under static linking
+  /// (`#[deprecated]` on a re-export is silently ignored by rustc, so the notice
+  /// lives in this doc comment).
+  pub use self::node_api_create_object_with_properties as napi_create_object_with_properties;
 }
 
 #[cfg(feature = "experimental")]
