@@ -118,6 +118,9 @@ for (const { name, args } of workerBindingCases) {
 //   - `require('node:*')` — the `node:` scheme in CommonJS `require()` is only
 //     available on Node >= 14.18 / 16.
 //   - optional chaining (`?.`) and nullish coalescing (`??`) — Node >= 14.
+//   - the `new Error(message, { cause })` options form — Node < 16.9 ignores
+//     the second argument, dropping the load-error chain; assign
+//     `error.cause` instead.
 const cjsBindingCases: Array<{ name: string; code: string }> = [
   {
     name: 'default',
@@ -142,6 +145,10 @@ for (const { name, code } of cjsBindingCases) {
     )
     t.false(code.includes('?.'), 'CJS loader must not use optional chaining')
     t.false(code.includes('??'), 'CJS loader must not use nullish coalescing')
+    t.false(
+      /\bcause:/.test(code),
+      'CJS loader must not pass `{ cause }` to the Error constructor (ignored on Node < 16.9); assign `error.cause` instead',
+    )
   })
 }
 
