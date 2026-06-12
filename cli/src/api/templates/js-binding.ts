@@ -20,7 +20,7 @@ export function createEsmBinding(
   packageVersion?: string,
 ): string {
   return `${bindingHeader}
-import { createRequire } from 'node:module'
+import { createRequire } from 'module'
 const require = createRequire(import.meta.url)
 const __dirname = new URL('.', import.meta.url).pathname
 
@@ -69,7 +69,7 @@ ${ident}loadErrors.push(e)
 ${identLow}}${versionCheck}`
   }
 
-  return `const { readFileSync } = require('node:fs')
+  return `const { readFileSync } = require('fs')
 let nativeBinding = null
 const loadErrors = []
 
@@ -99,7 +99,7 @@ const isMuslFromFilesystem = () => {
 
 const isMuslFromReport = () => {
   let report = null
-  if (typeof process.report?.getReport === 'function') {
+  if (process.report && typeof process.report.getReport === 'function') {
     process.report.excludeNetwork = true
     report = process.report.getReport()
   }
@@ -143,7 +143,7 @@ function requireNative() {
     }
   } else if (process.platform === 'win32') {
     if (process.arch === 'x64') {
-      if (process.config?.variables?.shlib_suffix === 'dll.a' || process.config?.variables?.node_target_type === 'shared_library') {
+      if ((process.config && process.config.variables && process.config.variables.shlib_suffix === 'dll.a') || (process.config && process.config.variables && process.config.variables.node_target_type === 'shared_library')) {
         ${requireTuple('win32-x64-gnu')}
       } else {
         ${requireTuple('win32-x64-msvc')}
@@ -272,17 +272,18 @@ if (!nativeBinding || forceWasi) {
 
 if (!nativeBinding) {
   if (loadErrors.length > 0) {
-    throw new Error(
+    const error = new Error(
       \`Cannot find native binding. \` +
         \`npm has a bug related to optional dependencies (https://github.com/npm/cli/issues/4828). \` +
         'Please try \`npm i\` again after removing both package-lock.json and node_modules directory.',
-      {
-        cause: loadErrors.reduce((err, cur) => {
-          cur.cause = err
-          return cur
-        }),
-      },
     )
+    // assign instead of the \`new Error(message, { cause })\` options form,
+    // which Node < 16.9 silently ignores
+    error.cause = loadErrors.reduce((err, cur) => {
+      cur.cause = err
+      return cur
+    })
+    throw error
   }
   throw new Error(\`Failed to load native binding\`)
 }
