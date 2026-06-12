@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [1.1.5](https://github.com/napi-rs/napi-rs/compare/@napi-rs/wasm-runtime@1.1.4...@napi-rs/wasm-runtime@1.1.5) (2026-06-10)
+
+### Bug Fixes
+
+- **wasm-runtime:** preserve Buffer return values in fs-proxy ([#3250](https://github.com/napi-rs/napi-rs/issues/3250)) ([c70f205](https://github.com/napi-rs/napi-rs/commit/c70f205a071c39acbd792b071bb95b2f5d2f39e8))
+
 ## [1.1.4](https://github.com/napi-rs/napi-rs/compare/@napi-rs/wasm-runtime@1.1.3...@napi-rs/wasm-runtime@1.1.4) (2026-04-15)
 
 ### Bug Fixes
