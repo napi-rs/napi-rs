@@ -1,0 +1,41 @@
+schema_version: 1
+manager: yarn
+manager_lockfile_sha256: ""
+node_version: 24.15.0
+generated_at: 2026-06-13T14:55:58.243Z
+packages:
+  napi-rs@0.0.0:
+    lifecycle:
+      postinstall:
+        external_reads: []
+        escaped_writes: []
+        env_read:
+          - BERRY_BIN_FOLDER
+          - COREPACK_ENABLE_DOWNLOAD_PROMPT
+          - COREPACK_HOME
+          - COREPACK_ROOT
+          - HUSKY
+          - INIT_CWD
+          - LD_PRELOAD
+          - PATH
+          - PROJECT_CWD
+          - PWD
+          - SCRIPT_JAIL_LOG_FD
+          - SCRIPT_JAIL_NODE_OPTIONS
+          - SCRIPT_JAIL_PRELOAD_PATH
+          - VP_HOME
+          - YARN_CACHE_FOLDER
+          - YARN_GLOBAL_FOLDER
+          - npm_config_user_agent
+          - npm_execpath
+          - npm_lifecycle_event
+          - npm_node_execpath
+          - npm_package_json
+          - npm_package_name
+          - npm_package_version
+        spawn_attempts:
+          - node $NODE_MODULES/husky/bin.js install
+        spawn_blocked:
+          - <ENOENT> git config core.hooksPath .husky/_
+        dlopen_attempts: []
+        network_attempts: []

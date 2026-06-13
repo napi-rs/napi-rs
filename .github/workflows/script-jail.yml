@@ -1,0 +1,48 @@
+name: script-jail
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+on:
+  pull_request:
+    paths:
+      - yarn.lock
+      - .script-jail.yml
+      - .script-jail.lock.yml
+      - .github/workflows/script-jail.yml
+  push:
+    branches:
+      - main
+    paths:
+      - yarn.lock
+      - .script-jail.yml
+      - .script-jail.lock.yml
+      - .github/workflows/script-jail.yml
+
+jobs:
+  audit-install:
+    name: audit lifecycle scripts
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      # Re-runs `yarn install` inside a Linux audit backend and fails the PR if
+      # the observed lifecycle-script behaviour diverges from the committed
+      # .script-jail.lock.yml. On hosted ubuntu-24.04 there is no /dev/kvm, so
+      # `backend: auto` falls through to the Docker backend (digest-pinned
+      # public ghcr.io/brooooooklyn/script-jail-rootfs image).
+      - uses: Brooooooklyn/script-jail@v0.2.4
+        with:
+          mode: check
+          config: .script-jail.yml
+          lock: .script-jail.lock.yml
+          backend: auto
+          spoof-platform: linux
+          spoof-arch: x64
