@@ -14,7 +14,8 @@
       "matchUpdateTypes": ["minor", "patch", "pin", "digest"]
     },
     {
-      "matchPackageNames": ["emnapi", "@emnapi/"],
+      "matchPackageNames": ["emnapi"],
+      "matchPackagePrefixes": ["@emnapi/"],
       "rangeStrategy": "replace",
       "groupName": "emnapi"
     }
