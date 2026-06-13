@@ -1,6 +1,7 @@
 import ava, { type ExecutionContext } from 'ava'
 import { parseSync } from 'oxc-parser'
 
+import { createCjsBinding, createEsmBinding } from '../templates/js-binding.js'
 import { createWasiBrowserBinding } from '../templates/load-wasi-template.js'
 import { createWasiBrowserWorkerBinding } from '../templates/wasi-worker-template.js'
 
@@ -110,3 +111,54 @@ for (const { name, args } of workerBindingCases) {
     assertValidJS(t, createWasiBrowserWorkerBinding(...args), name)
   })
 }
+
+// The CJS binding loader ships inside published packages whose `engines`
+// can declare support for old Node versions (e.g. `>= 10`). It must therefore
+// avoid syntax/APIs newer than what those runtimes support:
+//   - `require('node:*')` — the `node:` scheme in CommonJS `require()` is only
+//     available on Node >= 14.18 / 16.
+//   - optional chaining (`?.`) and nullish coalescing (`??`) — Node >= 14.
+//   - the `new Error(message, { cause })` options form — Node < 16.9 ignores
+//     the second argument, dropping the load-error chain; assign
+//     `error.cause` instead.
+const cjsBindingCases: Array<{ name: string; code: string }> = [
+  {
+    name: 'default',
+    code: createCjsBinding('test', '@scope/test', ['sum', 'sub']),
+  },
+  {
+    name: 'with version check',
+    code: createCjsBinding('test', '@scope/test', ['sum', 'sub'], '1.0.0'),
+  },
+]
+
+// Matches a `node:` builtin scheme in either a `require('node:fs')` or an
+// `import ... from 'node:module'` specifier.
+const NODE_SCHEME_RE = /['"]node:/
+
+for (const { name, code } of cjsBindingCases) {
+  test(`createCjsBinding is Node 12 compatible: ${name}`, (t) => {
+    assertValidJS(t, code, name)
+    t.false(
+      NODE_SCHEME_RE.test(code),
+      'CJS loader must not use the node: scheme (unsupported on Node < 14.18/16 for require())',
+    )
+    t.false(code.includes('?.'), 'CJS loader must not use optional chaining')
+    t.false(code.includes('??'), 'CJS loader must not use nullish coalescing')
+    t.false(
+      /\bcause:/.test(code),
+      'CJS loader must not pass `{ cause }` to the Error constructor (ignored on Node < 16.9); assign `error.cause` instead',
+    )
+  })
+}
+
+test('createEsmBinding is Node 12 compatible', (t) => {
+  const code = createEsmBinding('test', '@scope/test', ['sum'])
+  assertValidJS(t, code, 'esm')
+  t.false(
+    NODE_SCHEME_RE.test(code),
+    'ESM loader must not use the node: scheme (incl. `import ... from "node:module"`)',
+  )
+  t.false(code.includes('?.'), 'ESM loader must not use optional chaining')
+  t.false(code.includes('??'), 'ESM loader must not use nullish coalescing')
+})
