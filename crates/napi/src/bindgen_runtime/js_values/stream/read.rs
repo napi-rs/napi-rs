@@ -649,55 +649,124 @@ impl<T: FromNapiValue + 'static> futures_core::Stream for Reader<T> {
       let state = self.state.clone();
       let state_in_catch = self.state.clone();
       let state_in_finally = self.state.clone();
-      self.inner.call_with_return_value(
+      let state_on_setup_err = self.state.clone();
+      let status = self.inner.call_with_return_value(
         Ok(()),
         ThreadsafeFunctionCallMode::NonBlocking,
-        move |iterator, _| {
-          let iterator = iterator?;
-          iterator
-            .then(move |cx| {
-              let mut inner = state.inner.lock().map_err(|_| {
-                Error::new(Status::InvalidArg, "Poisoned lock in Reader::poll_next")
-              })?;
-              if cx.value.done {
-                inner.done = true;
-              }
-              if let Some(val) = cx.value.value {
-                inner.chunk = Ok(Some(val));
-              }
-              Ok(())
-            })?
-            .catch(move |cx: CallbackContext<Unknown>| {
-              // Convert the JS rejection into an OWNED Rust error *on the JS thread*
-              // (where this callback runs), carrying no `napi_ref`. `Reader<T>` is a
-              // `Send` stream, so a consumer may drop the yielded `Err` on a runtime
-              // thread; an `Error` holding a `napi_ref` would then release that
-              // reference off the JS thread, which aborts the process / is UB.
-              let reason = rejection_message(cx.value);
-              let mut inner = state_in_catch.inner.lock().map_err(|_| {
-                Error::new(Status::InvalidArg, "Poisoned lock in Reader::poll_next")
-              })?;
-              inner.chunk = Err(Error::new(Status::GenericFailure, reason));
-              // An errored read terminates the stream.
-              inner.done = true;
-              Ok(())
-            })?
-            .finally(move |_| {
-              let waker = {
-                let mut inner = state_in_finally.inner.lock().map_err(|_| {
+        move |iterator, env| {
+          // Attach the promise handlers. `finally` is what clears `reading` and wakes
+          // the polling task; if any step below bails out early via `?` (the read()
+          // result failed to convert, or a handler could not be attached) that
+          // `finally` is never registered, so we MUST run the same cleanup ourselves —
+          // otherwise `reading` stays set and the task is parked forever.
+          let setup = (move || -> Result<()> {
+            let iterator = iterator?;
+            iterator
+              .then(move |cx| {
+                let mut inner = state.inner.lock().map_err(|_| {
                   Error::new(Status::InvalidArg, "Poisoned lock in Reader::poll_next")
                 })?;
-                inner.reading = false;
-                inner.waker.take()
-              };
-              if let Some(waker) = waker {
-                waker.wake();
-              }
-              Ok(())
-            })?;
+                if cx.value.done {
+                  inner.done = true;
+                }
+                if let Some(val) = cx.value.value {
+                  inner.chunk = Ok(Some(val));
+                }
+                Ok(())
+              })?
+              .catch(move |cx: CallbackContext<Unknown>| {
+                // Convert the JS rejection into an OWNED Rust error *on the JS thread*
+                // (where this callback runs), carrying no `napi_ref`. `Reader<T>` is a
+                // `Send` stream, so a consumer may drop the yielded `Err` on a runtime
+                // thread; an `Error` holding a `napi_ref` would then release that
+                // reference off the JS thread, which aborts the process / is UB.
+                let reason = rejection_message(cx.value);
+                let mut inner = state_in_catch.inner.lock().map_err(|_| {
+                  Error::new(Status::InvalidArg, "Poisoned lock in Reader::poll_next")
+                })?;
+                inner.chunk = Err(Error::new(Status::GenericFailure, reason));
+                // An errored read terminates the stream.
+                inner.done = true;
+                Ok(())
+              })?
+              .finally(move |_| {
+                let waker = {
+                  let mut inner = state_in_finally.inner.lock().map_err(|_| {
+                    Error::new(Status::InvalidArg, "Poisoned lock in Reader::poll_next")
+                  })?;
+                  inner.reading = false;
+                  inner.waker.take()
+                };
+                if let Some(waker) = waker {
+                  waker.wake();
+                }
+                Ok(())
+              })?;
+            Ok(())
+          })();
+          if let Err(err) = setup {
+            // Handlers may not have been attached, so `finally` may never fire.
+            // Terminate the stream with the error and release the parked task.
+            //
+            // A handler attachment that throws (e.g. a malicious thenable whose
+            // `then`/`catch`/`finally` throws) leaves a JS exception *pending* on the
+            // env. Left pending it wedges every subsequent napi call on this thread —
+            // including the runtime's own promise resolution — which hangs the
+            // consumer. Clear it here, on the JS thread (a no-op when nothing is
+            // pending, e.g. the synchronous `read()` throw path).
+            let mut pending_exception = ptr::null_mut();
+            unsafe {
+              sys::napi_get_and_clear_last_exception(env.raw(), &mut pending_exception);
+            }
+            // `err` can also own a JS exception reference (`maybe_raw`) — e.g. when the
+            // bound `read()` threw synchronously, the threadsafe call wraps the
+            // exception. `Reader<T>` is `Send`, so the stored error may be surfaced or
+            // dropped on the Tokio thread; dropping a `napi_ref` off the JS thread
+            // aborts the process / is UB (the same hazard the `catch` path avoids).
+            // Rebuild a reference-free OWNED error here on the JS thread — the message
+            // is already mirrored into `reason` — and drop the original now so any
+            // reference is released on this (JS) thread.
+            let reason = if err.reason.is_empty() {
+              format!("ReadableStream read failed: {}", err.status)
+            } else {
+              err.reason.clone()
+            };
+            let owned = Error::new(Status::GenericFailure, reason);
+            drop(err);
+            let waker = {
+              let mut inner = state_on_setup_err.inner.lock().map_err(|_| {
+                Error::new(Status::InvalidArg, "Poisoned lock in Reader::poll_next")
+              })?;
+              inner.reading = false;
+              inner.done = true;
+              inner.chunk = Err(owned);
+              inner.waker.take()
+            };
+            if let Some(waker) = waker {
+              waker.wake();
+            }
+          }
           Ok(())
         },
       );
+      // The threadsafe call itself can fail to schedule (runtime shutting down /
+      // `Status::Closing`, or a full queue). When it does, the callback above never
+      // runs, so `reading`/`waker` would be stuck. Recover synchronously: clear the
+      // flag, end the stream, and surface the error now.
+      if status != Status::Ok {
+        let mut inner = self
+          .state
+          .inner
+          .lock()
+          .map_err(|_| Error::new(Status::InvalidArg, "Poisoned lock in Reader::poll_next"))?;
+        inner.reading = false;
+        inner.done = true;
+        inner.waker = None;
+        return Poll::Ready(Some(Err(Error::new(
+          status,
+          "Failed to schedule ReadableStream read",
+        ))));
+      }
     }
 
     Poll::Pending

@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { createReadStream } from 'node:fs'
 import { readFile as nodeReadFile } from 'node:fs/promises'
 import { Readable } from 'node:stream'
+import { ReadableStream } from 'node:stream/web'
 import { Subject, take } from 'rxjs'
 import Sinon, { spy } from 'sinon'
 
@@ -2142,7 +2143,7 @@ test('reading a stream that errors does not abort the process', async (t) => {
   // Error on the second pull so the first chunk is actually delivered (calling
   // error() synchronously after enqueue would discard the queued chunk).
   let pulls = 0
-  const stream = new ReadableStream({
+  const stream = new ReadableStream<Uint8Array>({
     pull(controller) {
       if (pulls++ === 0) {
         controller.enqueue(new Uint8Array([1, 2, 3]))
@@ -2152,6 +2153,32 @@ test('reading a stream that errors does not abort the process', async (t) => {
     },
   })
   t.is(await drainStreamCount(stream), 1)
+})
+
+test('reading a stream whose read() throws synchronously does not abort the process', async (t) => {
+  if (process.version.startsWith('v18')) {
+    t.pass('Skip when Node.js is 18 and WASI due to bug')
+    return
+  }
+  // Regression: a synchronous throw from read() makes the threadsafe call wrap the
+  // JS exception in a Rust Error that owns a napi_ref. That error must be rebuilt as
+  // an owned, reference-free error on the JS thread before it is surfaced/dropped on
+  // the Tokio runtime thread; otherwise releasing the napi_ref off the JS thread
+  // aborts the process. drainStreamCount swallows the error, so a clean run resolves
+  // with 0 chunks read.
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      controller.enqueue(new Uint8Array([1, 2, 3]))
+    },
+  })
+  // Shadow getReader on this instance so napi binds a read() that throws synchronously.
+  ;(stream as unknown as { getReader: () => unknown }).getReader = () => ({
+    read() {
+      throw new Error('synchronous read throw')
+    },
+    releaseLock() {},
+  })
+  t.is(await drainStreamCount(stream), 0)
 })
 
 test('create readable stream from channel', async (t) => {
