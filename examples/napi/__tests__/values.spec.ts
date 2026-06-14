@@ -2181,6 +2181,28 @@ test('reading a stream whose read() throws synchronously does not abort the proc
   t.is(await drainStreamCount(stream), 0)
 })
 
+test('reading a stream that rejects with a throwing message getter does not abort or hang', async (t) => {
+  if (process.version.startsWith('v18')) {
+    t.pass('Skip when Node.js is 18 and WASI due to bug')
+    return
+  }
+  // The rejection value's `message` getter throws, so napi's message probe leaves a
+  // pending JS exception. It must be cleared on the JS thread before the read error is
+  // surfaced; otherwise the consumer is left with an independently pending exception.
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      const evil = {}
+      Object.defineProperty(evil, 'message', {
+        get() {
+          throw new Error('message getter throw')
+        },
+      })
+      controller.error(evil)
+    },
+  })
+  t.is(await drainStreamCount(stream), 0)
+})
+
 test('create readable stream from channel', async (t) => {
   if (process.env.WASI_TEST) {
     t.pass(

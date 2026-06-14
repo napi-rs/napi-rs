@@ -601,17 +601,28 @@ fn rejection_message(value: Unknown) -> String {
     message.coerce_to_string()?.into_utf8()?.into_owned()
   }
 
-  if matches!(value.get_type(), Ok(ValueType::Object)) {
-    if let Ok(message) = from_message_property(value) {
-      return message;
-    }
+  let message = if matches!(value.get_type(), Ok(ValueType::Object)) {
+    from_message_property(value).ok()
+  } else {
+    None
   }
+  .unwrap_or_else(|| {
+    value
+      .coerce_to_string()
+      .and_then(|s| s.into_utf8())
+      .and_then(|s| s.into_owned())
+      .unwrap_or_else(|_| "ReadableStream read error".to_owned())
+  });
 
-  value
-    .coerce_to_string()
-    .and_then(|s| s.into_utf8())
-    .and_then(|s| s.into_owned())
-    .unwrap_or_else(|_| "ReadableStream read error".to_owned())
+  // A throwing `message` getter or `toString` above leaves a pending JS exception on
+  // the env even though the failed probe was swallowed. Clear it here (on the JS
+  // thread) so the caller does not return to JS with an exception still pending — that
+  // would let the promise chain throw/reject independently of the error we report.
+  let mut pending_exception = ptr::null_mut();
+  unsafe {
+    sys::napi_get_and_clear_last_exception(value.0.env, &mut pending_exception);
+  }
+  message
 }
 
 impl<T: FromNapiValue + 'static> futures_core::Stream for Reader<T> {
@@ -666,6 +677,12 @@ impl<T: FromNapiValue + 'static> futures_core::Stream for Reader<T> {
                 let mut inner = state.inner.lock().map_err(|_| {
                   Error::new(Status::InvalidArg, "Poisoned lock in Reader::poll_next")
                 })?;
+                // The stream may already be terminated by the setup-error path (a later
+                // handler-attach step failed *after* this `then` was registered). Drop
+                // the late settlement rather than resurrect a chunk after the end.
+                if inner.done {
+                  return Ok(());
+                }
                 if cx.value.done {
                   inner.done = true;
                 }
@@ -680,10 +697,17 @@ impl<T: FromNapiValue + 'static> futures_core::Stream for Reader<T> {
                 // `Send` stream, so a consumer may drop the yielded `Err` on a runtime
                 // thread; an `Error` holding a `napi_ref` would then release that
                 // reference off the JS thread, which aborts the process / is UB.
+                // Always call this (it also clears any pending exception) before
+                // checking `done`, so a late rejection never leaves one set.
                 let reason = rejection_message(cx.value);
                 let mut inner = state_in_catch.inner.lock().map_err(|_| {
                   Error::new(Status::InvalidArg, "Poisoned lock in Reader::poll_next")
                 })?;
+                // If the stream already terminated (setup-error path), drop this late
+                // rejection rather than surface a second terminal error after the end.
+                if inner.done {
+                  return Ok(());
+                }
                 inner.chunk = Err(Error::new(Status::GenericFailure, reason));
                 // An errored read terminates the stream.
                 inner.done = true;
