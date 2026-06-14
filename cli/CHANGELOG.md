@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [3.7.2](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.7.1...@napi-rs/cli@3.7.2) (2026-06-14)
+
+### Bug Fixes
+
+- **cli:** emit Node 12 compatible CJS binding loader ([#3312](https://github.com/napi-rs/napi-rs/issues/3312)) ([4931225](https://github.com/napi-rs/napi-rs/commit/4931225635eeff0ff84ac36036a8ddb6c1bc0d7b))
+
 ## [3.7.1](https://github.com/napi-rs/napi-rs/compare/@napi-rs/cli@3.7.0...@napi-rs/cli@3.7.1) (2026-06-10)
 
 **Note:** Version bump only for package @napi-rs/cli
