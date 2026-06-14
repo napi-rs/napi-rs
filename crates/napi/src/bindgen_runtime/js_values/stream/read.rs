@@ -590,6 +590,30 @@ pub struct Reader<T: FromNapiValue + 'static> {
   state: Arc<ReaderState<T>>,
 }
 
+/// Build an owned error message from a rejected JS value **without** retaining a napi
+/// reference. Runs on the JS thread (inside the promise `catch` callback), so the
+/// coercions below are valid here; the returned `String` becomes part of an owned
+/// `Error` that is then safe to move to — and drop on — any thread.
+fn rejection_message(value: Unknown) -> String {
+  fn from_message_property(value: Unknown) -> Result<String> {
+    let object = value.coerce_to_object()?;
+    let message = object.get_named_property::<Unknown>("message")?;
+    message.coerce_to_string()?.into_utf8()?.into_owned()
+  }
+
+  if matches!(value.get_type(), Ok(ValueType::Object)) {
+    if let Ok(message) = from_message_property(value) {
+      return message;
+    }
+  }
+
+  value
+    .coerce_to_string()
+    .and_then(|s| s.into_utf8())
+    .and_then(|s| s.into_owned())
+    .unwrap_or_else(|_| "ReadableStream read error".to_owned())
+}
+
 impl<T: FromNapiValue + 'static> futures_core::Stream for Reader<T> {
   type Item = Result<T>;
 
@@ -644,23 +668,16 @@ impl<T: FromNapiValue + 'static> futures_core::Stream for Reader<T> {
               Ok(())
             })?
             .catch(move |cx: CallbackContext<Unknown>| {
+              // Convert the JS rejection into an OWNED Rust error *on the JS thread*
+              // (where this callback runs), carrying no `napi_ref`. `Reader<T>` is a
+              // `Send` stream, so a consumer may drop the yielded `Err` on a runtime
+              // thread; an `Error` holding a `napi_ref` would then release that
+              // reference off the JS thread, which aborts the process / is UB.
+              let reason = rejection_message(cx.value);
               let mut inner = state_in_catch.inner.lock().map_err(|_| {
                 Error::new(Status::InvalidArg, "Poisoned lock in Reader::poll_next")
               })?;
-              let mut error_ref = ptr::null_mut();
-              check_status!(
-                unsafe {
-                  sys::napi_create_reference(cx.env.0, cx.value.0.value, 1, &mut error_ref)
-                },
-                "Create error reference failed"
-              )?;
-              inner.chunk = Err(Error {
-                status: Status::GenericFailure,
-                reason: "".to_string(),
-                cause: None,
-                maybe_raw: error_ref,
-                maybe_env: cx.env.0,
-              });
+              inner.chunk = Err(Error::new(Status::GenericFailure, reason));
               // An errored read terminates the stream.
               inner.done = true;
               Ok(())
