@@ -6,9 +6,9 @@ use std::{
   ptr,
   sync::{
     atomic::{AtomicBool, Ordering},
-    Arc, RwLock,
+    Arc,
   },
-  task::{Context, Poll},
+  task::{Context, Poll, Waker},
 };
 
 use tokio::sync::Mutex;
@@ -208,7 +208,14 @@ impl<T: FromNapiValue> ReadableStream<'_, T> {
     .build()?;
     Ok(Reader {
       inner: read_function,
-      state: Arc::new((RwLock::new(Ok(None)), AtomicBool::new(false))),
+      state: Arc::new(ReaderState {
+        inner: std::sync::Mutex::new(ReaderInner {
+          chunk: Ok(None),
+          done: false,
+          reading: false,
+          waker: None,
+        }),
+      }),
     })
   }
 }
@@ -556,85 +563,127 @@ impl<T: FromNapiValue> FromNapiValue for IteratorValue<'_, T> {
   }
 }
 
+struct ReaderInner<T: FromNapiValue + 'static> {
+  /// Buffered read result: `Ok(None)` = empty, `Ok(Some(_))` = a chunk waiting to be
+  /// yielded, `Err(_)` = a read error waiting to be surfaced.
+  chunk: Result<Option<T>>,
+  /// The JS reader signalled `done` (or errored); no more reads should be issued.
+  done: bool,
+  /// A JS `read()` is currently in flight. Guards against issuing a second concurrent
+  /// read, which would race two results into the single `chunk` slot and drop one.
+  reading: bool,
+  /// Waker of the task currently awaiting a chunk; woken when a read completes.
+  waker: Option<Waker>,
+}
+
+/// Shared state between the polling task (tokio thread) and the JS `read()` resolution
+/// callbacks (JS thread). A single mutex serializes them so a chunk can never be lost:
+/// a poll either observes a buffered chunk and drains it, or observes `reading == true`
+/// and waits — it can never miss a chunk yet still issue a fresh overlapping read.
+struct ReaderState<T: FromNapiValue + 'static> {
+  inner: std::sync::Mutex<ReaderInner<T>>,
+}
+
 pub struct Reader<T: FromNapiValue + 'static> {
   inner:
     ThreadsafeFunction<(), PromiseRaw<'static, IteratorValue<'static, T>>, (), Status, true, true>,
-  state: Arc<(RwLock<Result<Option<T>>>, AtomicBool)>,
+  state: Arc<ReaderState<T>>,
 }
 
 impl<T: FromNapiValue + 'static> futures_core::Stream for Reader<T> {
   type Item = Result<T>;
 
   fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-    if self.state.1.load(Ordering::Relaxed) {
-      let mut chunk = self
+    let issue_read = {
+      let mut inner = self
         .state
-        .0
-        .write()
+        .inner
+        .lock()
         .map_err(|_| Error::new(Status::InvalidArg, "Poisoned lock in Reader::poll_next"))?;
-      let chunk = mem::replace(&mut *chunk, Ok(None))?;
-      match chunk {
-        Some(chunk) => return Poll::Ready(Some(Ok(chunk))),
-        None => return Poll::Ready(None),
+      // 1. Surface any buffered chunk or error first.
+      match mem::replace(&mut inner.chunk, Ok(None)) {
+        Ok(Some(chunk)) => return Poll::Ready(Some(Ok(chunk))),
+        Err(err) => return Poll::Ready(Some(Err(err))),
+        Ok(None) => {}
       }
-    }
-    let waker = cx.waker().clone();
-    let state = self.state.clone();
-    let state_in_catch = state.clone();
-    self.inner.call_with_return_value(
-      Ok(()),
-      ThreadsafeFunctionCallMode::NonBlocking,
-      move |iterator, _| {
-        let iterator = iterator?;
-        iterator
-          .then(move |cx| {
-            if cx.value.done {
-              state.1.store(true, Ordering::Relaxed);
-            }
-            if let Some(val) = cx.value.value {
-              let mut chunk = state.0.write().map_err(|_| {
+      // 2. If the stream finished (or errored) and nothing is buffered, end iteration.
+      if inner.done {
+        return Poll::Ready(None);
+      }
+      // 3. Remember the latest waker so the in-flight read can wake this task.
+      inner.waker = Some(cx.waker().clone());
+      // 4. Issue a read only if none is already in flight (at most one outstanding).
+      if inner.reading {
+        false
+      } else {
+        inner.reading = true;
+        true
+      }
+    };
+
+    if issue_read {
+      let state = self.state.clone();
+      let state_in_catch = self.state.clone();
+      let state_in_finally = self.state.clone();
+      self.inner.call_with_return_value(
+        Ok(()),
+        ThreadsafeFunctionCallMode::NonBlocking,
+        move |iterator, _| {
+          let iterator = iterator?;
+          iterator
+            .then(move |cx| {
+              let mut inner = state.inner.lock().map_err(|_| {
                 Error::new(Status::InvalidArg, "Poisoned lock in Reader::poll_next")
               })?;
-              *chunk = Ok(Some(val));
-            };
-            Ok(())
-          })?
-          .catch(move |cx: CallbackContext<Unknown>| {
-            let mut chunk = state_in_catch
-              .0
-              .write()
-              .map_err(|_| Error::new(Status::InvalidArg, "Poisoned lock in Reader::poll_next"))?;
-            let mut error_ref = ptr::null_mut();
-            check_status!(
-              unsafe { sys::napi_create_reference(cx.env.0, cx.value.0.value, 0, &mut error_ref) },
-              "Create error reference failed"
-            )?;
-            *chunk = Err(Error {
-              status: Status::GenericFailure,
-              reason: "".to_string(),
-              cause: None,
-              maybe_raw: error_ref,
-              maybe_env: cx.env.0,
-            });
-            Ok(())
-          })?
-          .finally(move |_| {
-            waker.wake();
-            Ok(())
-          })?;
-        Ok(())
-      },
-    );
-    let mut chunk = self
-      .state
-      .0
-      .write()
-      .map_err(|_| Error::new(Status::InvalidArg, "Poisoned lock in Reader::poll_next"))?;
-    let chunk = mem::replace(&mut *chunk, Ok(None))?;
-    match chunk {
-      Some(chunk) => Poll::Ready(Some(Ok(chunk))),
-      None => Poll::Pending,
+              if cx.value.done {
+                inner.done = true;
+              }
+              if let Some(val) = cx.value.value {
+                inner.chunk = Ok(Some(val));
+              }
+              Ok(())
+            })?
+            .catch(move |cx: CallbackContext<Unknown>| {
+              let mut inner = state_in_catch.inner.lock().map_err(|_| {
+                Error::new(Status::InvalidArg, "Poisoned lock in Reader::poll_next")
+              })?;
+              let mut error_ref = ptr::null_mut();
+              check_status!(
+                unsafe {
+                  sys::napi_create_reference(cx.env.0, cx.value.0.value, 1, &mut error_ref)
+                },
+                "Create error reference failed"
+              )?;
+              inner.chunk = Err(Error {
+                status: Status::GenericFailure,
+                reason: "".to_string(),
+                cause: None,
+                maybe_raw: error_ref,
+                maybe_env: cx.env.0,
+              });
+              // An errored read terminates the stream.
+              inner.done = true;
+              Ok(())
+            })?
+            .finally(move |_| {
+              let waker = {
+                let mut inner = state_in_finally.inner.lock().map_err(|_| {
+                  Error::new(Status::InvalidArg, "Poisoned lock in Reader::poll_next")
+                })?;
+                inner.reading = false;
+                inner.waker.take()
+              };
+              if let Some(waker) = waker {
+                waker.wake();
+              }
+              Ok(())
+            })?;
+          Ok(())
+        },
+      );
     }
+
+    Poll::Pending
   }
 }
 
