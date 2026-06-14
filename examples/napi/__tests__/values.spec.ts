@@ -258,6 +258,7 @@ import {
   Rule,
   callRuleHandler,
   acceptStream,
+  drainStreamCount,
   createReadableStream,
   createReadableStreamWithObject,
   createReadableStreamFromClass,
@@ -2128,6 +2129,29 @@ test('acceptStream', async (t) => {
   const nodeFileStream = createReadStream(selfPath)
   const buffer = await acceptStream(Readable.toWeb(nodeFileStream))
   t.is(buffer.toString('utf-8'), await nodeReadFile(selfPath, 'utf-8'))
+})
+
+test('reading a stream that errors does not abort the process', async (t) => {
+  if (process.version.startsWith('v18')) {
+    t.pass('Skip when Node.js is 18 and WASI due to bug')
+    return
+  }
+  // The consumer drops the read error on the Tokio thread. Before the owned-error
+  // conversion this released a JS napi_ref off the JS thread and aborted the process;
+  // now it resolves cleanly with the count of chunks read before the error.
+  // Error on the second pull so the first chunk is actually delivered (calling
+  // error() synchronously after enqueue would discard the queued chunk).
+  let pulls = 0
+  const stream = new ReadableStream({
+    pull(controller) {
+      if (pulls++ === 0) {
+        controller.enqueue(new Uint8Array([1, 2, 3]))
+      } else {
+        controller.error(new Error('boom'))
+      }
+    },
+  })
+  t.is(await drainStreamCount(stream), 1)
 })
 
 test('create readable stream from channel', async (t) => {
