@@ -1,0 +1,14 @@
+protected:
+  files:
+    - ~/.ssh/**
+    - ~/.npmrc
+    - $REPO/.env
+    - $REPO/.env.*
+  env:
+    - NPM_TOKEN
+    - NODE_AUTH_TOKEN
+    - GITHUB_TOKEN
+
+spoof:
+  platform: linux
+  arch: x64
