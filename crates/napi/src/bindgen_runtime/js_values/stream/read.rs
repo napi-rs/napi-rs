@@ -6,9 +6,9 @@ use std::{
   ptr,
   sync::{
     atomic::{AtomicBool, Ordering},
-    Arc, RwLock,
+    Arc,
   },
-  task::{Context, Poll},
+  task::{Context, Poll, Waker},
 };
 
 use tokio::sync::Mutex;
@@ -208,7 +208,14 @@ impl<T: FromNapiValue> ReadableStream<'_, T> {
     .build()?;
     Ok(Reader {
       inner: read_function,
-      state: Arc::new((RwLock::new(Ok(None)), AtomicBool::new(false))),
+      state: Arc::new(ReaderState {
+        inner: std::sync::Mutex::new(ReaderInner {
+          chunk: Ok(None),
+          done: false,
+          reading: false,
+          waker: None,
+        }),
+      }),
     })
   }
 }
@@ -556,85 +563,237 @@ impl<T: FromNapiValue> FromNapiValue for IteratorValue<'_, T> {
   }
 }
 
+struct ReaderInner<T: FromNapiValue + 'static> {
+  /// Buffered read result: `Ok(None)` = empty, `Ok(Some(_))` = a chunk waiting to be
+  /// yielded, `Err(_)` = a read error waiting to be surfaced.
+  chunk: Result<Option<T>>,
+  /// The JS reader signalled `done` (or errored); no more reads should be issued.
+  done: bool,
+  /// A JS `read()` is currently in flight. Guards against issuing a second concurrent
+  /// read, which would race two results into the single `chunk` slot and drop one.
+  reading: bool,
+  /// Waker of the task currently awaiting a chunk; woken when a read completes.
+  waker: Option<Waker>,
+}
+
+/// Shared state between the polling task (tokio thread) and the JS `read()` resolution
+/// callbacks (JS thread). A single mutex serializes them so a chunk can never be lost:
+/// a poll either observes a buffered chunk and drains it, or observes `reading == true`
+/// and waits — it can never miss a chunk yet still issue a fresh overlapping read.
+struct ReaderState<T: FromNapiValue + 'static> {
+  inner: std::sync::Mutex<ReaderInner<T>>,
+}
+
 pub struct Reader<T: FromNapiValue + 'static> {
   inner:
     ThreadsafeFunction<(), PromiseRaw<'static, IteratorValue<'static, T>>, (), Status, true, true>,
-  state: Arc<(RwLock<Result<Option<T>>>, AtomicBool)>,
+  state: Arc<ReaderState<T>>,
+}
+
+/// Build an owned error message from a rejected JS value **without** retaining a napi
+/// reference. Runs on the JS thread (inside the promise `catch` callback), so the
+/// coercions below are valid here; the returned `String` becomes part of an owned
+/// `Error` that is then safe to move to — and drop on — any thread.
+fn rejection_message(value: Unknown) -> String {
+  fn from_message_property(value: Unknown) -> Result<String> {
+    let object = value.coerce_to_object()?;
+    let message = object.get_named_property::<Unknown>("message")?;
+    message.coerce_to_string()?.into_utf8()?.into_owned()
+  }
+
+  let message = if matches!(value.get_type(), Ok(ValueType::Object)) {
+    from_message_property(value).ok()
+  } else {
+    None
+  }
+  .unwrap_or_else(|| {
+    value
+      .coerce_to_string()
+      .and_then(|s| s.into_utf8())
+      .and_then(|s| s.into_owned())
+      .unwrap_or_else(|_| "ReadableStream read error".to_owned())
+  });
+
+  // A throwing `message` getter or `toString` above leaves a pending JS exception on
+  // the env even though the failed probe was swallowed. Clear it here (on the JS
+  // thread) so the caller does not return to JS with an exception still pending — that
+  // would let the promise chain throw/reject independently of the error we report.
+  let mut pending_exception = ptr::null_mut();
+  unsafe {
+    sys::napi_get_and_clear_last_exception(value.0.env, &mut pending_exception);
+  }
+  message
 }
 
 impl<T: FromNapiValue + 'static> futures_core::Stream for Reader<T> {
   type Item = Result<T>;
 
   fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-    if self.state.1.load(Ordering::Relaxed) {
-      let mut chunk = self
+    let issue_read = {
+      let mut inner = self
         .state
-        .0
-        .write()
+        .inner
+        .lock()
         .map_err(|_| Error::new(Status::InvalidArg, "Poisoned lock in Reader::poll_next"))?;
-      let chunk = mem::replace(&mut *chunk, Ok(None))?;
-      match chunk {
-        Some(chunk) => return Poll::Ready(Some(Ok(chunk))),
-        None => return Poll::Ready(None),
+      // 1. Surface any buffered chunk or error first.
+      match mem::replace(&mut inner.chunk, Ok(None)) {
+        Ok(Some(chunk)) => return Poll::Ready(Some(Ok(chunk))),
+        Err(err) => return Poll::Ready(Some(Err(err))),
+        Ok(None) => {}
       }
-    }
-    let waker = cx.waker().clone();
-    let state = self.state.clone();
-    let state_in_catch = state.clone();
-    self.inner.call_with_return_value(
-      Ok(()),
-      ThreadsafeFunctionCallMode::NonBlocking,
-      move |iterator, _| {
-        let iterator = iterator?;
-        iterator
-          .then(move |cx| {
-            if cx.value.done {
-              state.1.store(true, Ordering::Relaxed);
+      // 2. If the stream finished (or errored) and nothing is buffered, end iteration.
+      if inner.done {
+        return Poll::Ready(None);
+      }
+      // 3. Remember the latest waker so the in-flight read can wake this task.
+      inner.waker = Some(cx.waker().clone());
+      // 4. Issue a read only if none is already in flight (at most one outstanding).
+      if inner.reading {
+        false
+      } else {
+        inner.reading = true;
+        true
+      }
+    };
+
+    if issue_read {
+      let state = self.state.clone();
+      let state_in_catch = self.state.clone();
+      let state_in_finally = self.state.clone();
+      let state_on_setup_err = self.state.clone();
+      let status = self.inner.call_with_return_value(
+        Ok(()),
+        ThreadsafeFunctionCallMode::NonBlocking,
+        move |iterator, env| {
+          // Attach the promise handlers. `finally` is what clears `reading` and wakes
+          // the polling task; if any step below bails out early via `?` (the read()
+          // result failed to convert, or a handler could not be attached) that
+          // `finally` is never registered, so we MUST run the same cleanup ourselves —
+          // otherwise `reading` stays set and the task is parked forever.
+          let setup = (move || -> Result<()> {
+            let iterator = iterator?;
+            iterator
+              .then(move |cx| {
+                let mut inner = state.inner.lock().map_err(|_| {
+                  Error::new(Status::InvalidArg, "Poisoned lock in Reader::poll_next")
+                })?;
+                // The stream may already be terminated by the setup-error path (a later
+                // handler-attach step failed *after* this `then` was registered). Drop
+                // the late settlement rather than resurrect a chunk after the end.
+                if inner.done {
+                  return Ok(());
+                }
+                if cx.value.done {
+                  inner.done = true;
+                }
+                if let Some(val) = cx.value.value {
+                  inner.chunk = Ok(Some(val));
+                }
+                Ok(())
+              })?
+              .catch(move |cx: CallbackContext<Unknown>| {
+                // Convert the JS rejection into an OWNED Rust error *on the JS thread*
+                // (where this callback runs), carrying no `napi_ref`. `Reader<T>` is a
+                // `Send` stream, so a consumer may drop the yielded `Err` on a runtime
+                // thread; an `Error` holding a `napi_ref` would then release that
+                // reference off the JS thread, which aborts the process / is UB.
+                // Always call this (it also clears any pending exception) before
+                // checking `done`, so a late rejection never leaves one set.
+                let reason = rejection_message(cx.value);
+                let mut inner = state_in_catch.inner.lock().map_err(|_| {
+                  Error::new(Status::InvalidArg, "Poisoned lock in Reader::poll_next")
+                })?;
+                // If the stream already terminated (setup-error path), drop this late
+                // rejection rather than surface a second terminal error after the end.
+                if inner.done {
+                  return Ok(());
+                }
+                inner.chunk = Err(Error::new(Status::GenericFailure, reason));
+                // An errored read terminates the stream.
+                inner.done = true;
+                Ok(())
+              })?
+              .finally(move |_| {
+                let waker = {
+                  let mut inner = state_in_finally.inner.lock().map_err(|_| {
+                    Error::new(Status::InvalidArg, "Poisoned lock in Reader::poll_next")
+                  })?;
+                  inner.reading = false;
+                  inner.waker.take()
+                };
+                if let Some(waker) = waker {
+                  waker.wake();
+                }
+                Ok(())
+              })?;
+            Ok(())
+          })();
+          if let Err(err) = setup {
+            // Handlers may not have been attached, so `finally` may never fire.
+            // Terminate the stream with the error and release the parked task.
+            //
+            // A handler attachment that throws (e.g. a malicious thenable whose
+            // `then`/`catch`/`finally` throws) leaves a JS exception *pending* on the
+            // env. Left pending it wedges every subsequent napi call on this thread —
+            // including the runtime's own promise resolution — which hangs the
+            // consumer. Clear it here, on the JS thread (a no-op when nothing is
+            // pending, e.g. the synchronous `read()` throw path).
+            let mut pending_exception = ptr::null_mut();
+            unsafe {
+              sys::napi_get_and_clear_last_exception(env.raw(), &mut pending_exception);
             }
-            if let Some(val) = cx.value.value {
-              let mut chunk = state.0.write().map_err(|_| {
+            // `err` can also own a JS exception reference (`maybe_raw`) — e.g. when the
+            // bound `read()` threw synchronously, the threadsafe call wraps the
+            // exception. `Reader<T>` is `Send`, so the stored error may be surfaced or
+            // dropped on the Tokio thread; dropping a `napi_ref` off the JS thread
+            // aborts the process / is UB (the same hazard the `catch` path avoids).
+            // Rebuild a reference-free OWNED error here on the JS thread — the message
+            // is already mirrored into `reason` — and drop the original now so any
+            // reference is released on this (JS) thread.
+            let reason = if err.reason.is_empty() {
+              format!("ReadableStream read failed: {}", err.status)
+            } else {
+              err.reason.clone()
+            };
+            let owned = Error::new(Status::GenericFailure, reason);
+            drop(err);
+            let waker = {
+              let mut inner = state_on_setup_err.inner.lock().map_err(|_| {
                 Error::new(Status::InvalidArg, "Poisoned lock in Reader::poll_next")
               })?;
-              *chunk = Ok(Some(val));
+              inner.reading = false;
+              inner.done = true;
+              inner.chunk = Err(owned);
+              inner.waker.take()
             };
-            Ok(())
-          })?
-          .catch(move |cx: CallbackContext<Unknown>| {
-            let mut chunk = state_in_catch
-              .0
-              .write()
-              .map_err(|_| Error::new(Status::InvalidArg, "Poisoned lock in Reader::poll_next"))?;
-            let mut error_ref = ptr::null_mut();
-            check_status!(
-              unsafe { sys::napi_create_reference(cx.env.0, cx.value.0.value, 0, &mut error_ref) },
-              "Create error reference failed"
-            )?;
-            *chunk = Err(Error {
-              status: Status::GenericFailure,
-              reason: "".to_string(),
-              cause: None,
-              maybe_raw: error_ref,
-              maybe_env: cx.env.0,
-            });
-            Ok(())
-          })?
-          .finally(move |_| {
-            waker.wake();
-            Ok(())
-          })?;
-        Ok(())
-      },
-    );
-    let mut chunk = self
-      .state
-      .0
-      .write()
-      .map_err(|_| Error::new(Status::InvalidArg, "Poisoned lock in Reader::poll_next"))?;
-    let chunk = mem::replace(&mut *chunk, Ok(None))?;
-    match chunk {
-      Some(chunk) => Poll::Ready(Some(Ok(chunk))),
-      None => Poll::Pending,
+            if let Some(waker) = waker {
+              waker.wake();
+            }
+          }
+          Ok(())
+        },
+      );
+      // The threadsafe call itself can fail to schedule (runtime shutting down /
+      // `Status::Closing`, or a full queue). When it does, the callback above never
+      // runs, so `reading`/`waker` would be stuck. Recover synchronously: clear the
+      // flag, end the stream, and surface the error now.
+      if status != Status::Ok {
+        let mut inner = self
+          .state
+          .inner
+          .lock()
+          .map_err(|_| Error::new(Status::InvalidArg, "Poisoned lock in Reader::poll_next"))?;
+        inner.reading = false;
+        inner.done = true;
+        inner.waker = None;
+        return Poll::Ready(Some(Err(Error::new(
+          status,
+          "Failed to schedule ReadableStream read",
+        ))));
+      }
     }
+
+    Poll::Pending
   }
 }
 

@@ -754,6 +754,16 @@ class DynamicRustClass {
 
 export declare function derefUint8Array(a: Uint8Array, b: Uint8ClampedArray): number
 
+/**
+ * Counts the chunks read from a stream, swallowing (dropping) any read error.
+ *
+ * Regression guard: the read error is dropped here inside the async block, which runs
+ * on the Tokio runtime thread rather than the JS thread. A `Reader` rejection that
+ * carried a raw JS `napi_ref` would release that reference off the JS thread on drop,
+ * aborting the process; the owned-error conversion makes this safe.
+ */
+export declare function drainStreamCount(stream: ReadableStream<Uint8Array>): Promise<number>
+
 export declare function either3(input: string | number | boolean): number
 
 export declare function either4(input: string | number | boolean | Obj): number

@@ -38,6 +38,32 @@ pub fn accept_stream(
   )
 }
 
+/// Counts the chunks read from a stream, swallowing (dropping) any read error.
+///
+/// Regression guard: the read error is dropped here inside the async block, which runs
+/// on the Tokio runtime thread rather than the JS thread. A `Reader` rejection that
+/// carried a raw JS `napi_ref` would release that reference off the JS thread on drop,
+/// aborting the process; the owned-error conversion makes this safe.
+#[napi]
+pub fn drain_stream_count(
+  env: &Env,
+  stream: ReadableStream<Uint8Array>,
+) -> Result<AsyncBlock<u32>> {
+  let mut reader = stream.read()?;
+  AsyncBlockBuilder::new(async move {
+    let mut count = 0u32;
+    while let Some(item) = reader.next().await {
+      match item {
+        Ok(_) => count += 1,
+        // Drop the error on the Tokio thread instead of returning it to JS.
+        Err(_err) => break,
+      }
+    }
+    Ok(count)
+  })
+  .build(env)
+}
+
 #[napi]
 pub fn create_readable_stream(env: &Env) -> Result<ReadableStream<'_, BufferSlice<'_>>> {
   let (tx, rx) = tokio::sync::mpsc::channel(100);

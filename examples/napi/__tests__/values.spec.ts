@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { createReadStream } from 'node:fs'
 import { readFile as nodeReadFile } from 'node:fs/promises'
 import { Readable } from 'node:stream'
+import { ReadableStream } from 'node:stream/web'
 import { Subject, take } from 'rxjs'
 import Sinon, { spy } from 'sinon'
 
@@ -258,6 +259,7 @@ import {
   Rule,
   callRuleHandler,
   acceptStream,
+  drainStreamCount,
   createReadableStream,
   createReadableStreamWithObject,
   createReadableStreamFromClass,
@@ -2128,6 +2130,77 @@ test('acceptStream', async (t) => {
   const nodeFileStream = createReadStream(selfPath)
   const buffer = await acceptStream(Readable.toWeb(nodeFileStream))
   t.is(buffer.toString('utf-8'), await nodeReadFile(selfPath, 'utf-8'))
+})
+
+test('reading a stream that errors does not abort the process', async (t) => {
+  if (process.version.startsWith('v18')) {
+    t.pass('Skip when Node.js is 18 and WASI due to bug')
+    return
+  }
+  // The consumer drops the read error on the Tokio thread. Before the owned-error
+  // conversion this released a JS napi_ref off the JS thread and aborted the process;
+  // now it resolves cleanly with the count of chunks read before the error.
+  // Error on the second pull so the first chunk is actually delivered (calling
+  // error() synchronously after enqueue would discard the queued chunk).
+  let pulls = 0
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (pulls++ === 0) {
+        controller.enqueue(new Uint8Array([1, 2, 3]))
+      } else {
+        controller.error(new Error('boom'))
+      }
+    },
+  })
+  t.is(await drainStreamCount(stream), 1)
+})
+
+test('reading a stream whose read() throws synchronously does not abort the process', async (t) => {
+  if (process.version.startsWith('v18')) {
+    t.pass('Skip when Node.js is 18 and WASI due to bug')
+    return
+  }
+  // Regression: a synchronous throw from read() makes the threadsafe call wrap the
+  // JS exception in a Rust Error that owns a napi_ref. That error must be rebuilt as
+  // an owned, reference-free error on the JS thread before it is surfaced/dropped on
+  // the Tokio runtime thread; otherwise releasing the napi_ref off the JS thread
+  // aborts the process. drainStreamCount swallows the error, so a clean run resolves
+  // with 0 chunks read.
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      controller.enqueue(new Uint8Array([1, 2, 3]))
+    },
+  })
+  // Shadow getReader on this instance so napi binds a read() that throws synchronously.
+  ;(stream as unknown as { getReader: () => unknown }).getReader = () => ({
+    read() {
+      throw new Error('synchronous read throw')
+    },
+    releaseLock() {},
+  })
+  t.is(await drainStreamCount(stream), 0)
+})
+
+test('reading a stream that rejects with a throwing message getter does not abort or hang', async (t) => {
+  if (process.version.startsWith('v18')) {
+    t.pass('Skip when Node.js is 18 and WASI due to bug')
+    return
+  }
+  // The rejection value's `message` getter throws, so napi's message probe leaves a
+  // pending JS exception. It must be cleared on the JS thread before the read error is
+  // surfaced; otherwise the consumer is left with an independently pending exception.
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      const evil = {}
+      Object.defineProperty(evil, 'message', {
+        get() {
+          throw new Error('message getter throw')
+        },
+      })
+      controller.error(evil)
+    },
+  })
+  t.is(await drainStreamCount(stream), 0)
 })
 
 test('create readable stream from channel', async (t) => {

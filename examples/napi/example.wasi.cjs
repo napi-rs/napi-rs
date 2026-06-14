@@ -287,6 +287,7 @@ module.exports.dateToNumber = __napiModule.exports.dateToNumber
 module.exports.DEFAULT_COST = __napiModule.exports.DEFAULT_COST
 module.exports.defineClass = __napiModule.exports.defineClass
 module.exports.derefUint8Array = __napiModule.exports.derefUint8Array
+module.exports.drainStreamCount = __napiModule.exports.drainStreamCount
 module.exports.either3 = __napiModule.exports.either3
 module.exports.either4 = __napiModule.exports.either4
 module.exports.eitherBoolOrFunction = __napiModule.exports.eitherBoolOrFunction

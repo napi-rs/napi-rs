@@ -243,6 +243,7 @@ export const dateToNumber = __napiModule.exports.dateToNumber
 export const DEFAULT_COST = __napiModule.exports.DEFAULT_COST
 export const defineClass = __napiModule.exports.defineClass
 export const derefUint8Array = __napiModule.exports.derefUint8Array
+export const drainStreamCount = __napiModule.exports.drainStreamCount
 export const either3 = __napiModule.exports.either3
 export const either4 = __napiModule.exports.either4
 export const eitherBoolOrFunction = __napiModule.exports.eitherBoolOrFunction
