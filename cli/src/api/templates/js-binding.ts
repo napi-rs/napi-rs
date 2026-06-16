@@ -57,18 +57,13 @@ function loadPackage(loader) {
 
 
 function load({ local, installed, version }) {
-  const localBinary = loadPackage(local);
-  if (localBinary) {
-    return localBinary;
-  }
-  try {
+  return (loadPackage(local) || loadPackage(() => {
     const binding = installed();
     version?.();
     return binding
-  } catch (e) {
-    loadErrors.push(e)
-  }
-}`
+  }));
+}
+`
 }
 
 const bindingHeader = `// prettier-ignore
