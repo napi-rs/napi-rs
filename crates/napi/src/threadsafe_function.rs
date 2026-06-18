@@ -394,6 +394,10 @@ impl<
     >,
   > {
     let callback_ptr = Box::into_raw(Box::new(callback));
+    // `napi_create_threadsafe_function` only takes ownership of `callback_ptr`
+    // (registering `thread_finalize_cb` to reclaim it) once it succeeds. If
+    // `create_raw` returns early on any FFI error, neither N-API nor Rust owns
+    // the box, so reclaim it here to avoid leaking the callback.
     let handle = create_raw(
       env,
       func,
@@ -402,7 +406,10 @@ impl<
       callback_ptr.cast(),
       Some(thread_finalize_cb::<T, NewArgs, R>),
       Some(call_js_cb::<T, Return, NewArgs, ErrorStatus, R, CalleeHandled>),
-    )?;
+    )
+    .inspect_err(|_| {
+      drop(unsafe { Box::from_raw(callback_ptr) });
+    })?;
 
     Ok(ThreadsafeFunction {
       handle,
