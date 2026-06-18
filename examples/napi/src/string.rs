@@ -1,3 +1,6 @@
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
+
 use napi::{bindgen_prelude::*, JsString, JsStringLatin1, JsStringUtf16, JsStringUtf8};
 
 #[napi(object)]
@@ -31,6 +34,23 @@ pub fn concat_latin1(s: Latin1String) -> String {
 #[napi]
 pub fn roundtrip_str(s: String) -> String {
   s
+}
+
+#[napi]
+pub fn append_to_os_string(s: OsString) -> OsString {
+  let mut s = s;
+  s.push(" + Rust 🦀 string!");
+  s
+}
+
+#[napi]
+pub fn join_path(path: PathBuf, segment: String) -> PathBuf {
+  path.join(segment)
+}
+
+#[napi]
+pub fn path_parent(path: PathBuf) -> Option<PathBuf> {
+  path.parent().map(Path::to_path_buf)
 }
 
 #[napi]
