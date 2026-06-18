@@ -598,20 +598,14 @@ impl NapiStruct {
           // Getters remain the same
           if is_optional_field && !self.use_nullable {
             obj_field_getters.push(quote! {
-              let #alias_ident: #ty = obj.get(#field_js_name).map_err(|mut err| {
-                err.reason = format!("{} on {}.{}", err.reason, #name_str, #field_js_name);
-                err
-              })?;
+              let #alias_ident: #ty = obj.get(#field_js_name)
+                .map_err(|err| napi::bindgen_prelude::decorate_field_error(err, #name_str, #field_js_name))?;
             });
           } else {
             obj_field_getters.push(quote! {
-              let #alias_ident: #ty = obj.get(#field_js_name).map_err(|mut err| {
-                err.reason = format!("{} on {}.{}", err.reason, #name_str, #field_js_name);
-                err
-              })?.ok_or_else(|| napi::bindgen_prelude::Error::new(
-                napi::bindgen_prelude::Status::InvalidArg,
-                format!("Missing field `{}`", #field_js_name),
-              ))?;
+              let #alias_ident: #ty = obj.get(#field_js_name)
+                .map_err(|err| napi::bindgen_prelude::decorate_field_error(err, #name_str, #field_js_name))?
+                .ok_or_else(|| napi::bindgen_prelude::missing_field_error(#field_js_name))?;
             });
           }
         }
@@ -668,10 +662,8 @@ impl NapiStruct {
             obj_field_getters.push(quote! { let #arg_name: #ty = obj.get(#field_js_name)?; });
           } else {
             obj_field_getters.push(quote! {
-              let #arg_name: #ty = obj.get(#field_js_name)?.ok_or_else(|| napi::bindgen_prelude::Error::new(
-                napi::bindgen_prelude::Status::InvalidArg,
-                format!("Missing field `{}`", #field_js_name),
-              ))?;
+              let #arg_name: #ty = obj.get(#field_js_name)?
+                .ok_or_else(|| napi::bindgen_prelude::missing_field_error(#field_js_name))?;
             });
           }
         }
@@ -1114,20 +1106,14 @@ impl NapiStruct {
             // Getters remain the same
             if is_optional_field && !self.use_nullable {
               obj_field_getters.push(quote! {
-                let #alias_ident: #ty = obj.get(#field_js_name).map_err(|mut err| {
-                  err.reason = format!("{} on {}.{}", err.reason, #name_str, #field_js_name);
-                  err
-                })?;
+                let #alias_ident: #ty = obj.get(#field_js_name)
+                  .map_err(|err| napi::bindgen_prelude::decorate_field_error(err, #name_str, #field_js_name))?;
               });
             } else {
               obj_field_getters.push(quote! {
-                let #alias_ident: #ty = obj.get(#field_js_name).map_err(|mut err| {
-                  err.reason = format!("{} on {}.{}", err.reason, #name_str, #field_js_name);
-                  err
-                })?.ok_or_else(|| napi::bindgen_prelude::Error::new(
-                  napi::bindgen_prelude::Status::InvalidArg,
-                  format!("Missing field `{}`", #field_js_name),
-                ))?;
+                let #alias_ident: #ty = obj.get(#field_js_name)
+                  .map_err(|err| napi::bindgen_prelude::decorate_field_error(err, #name_str, #field_js_name))?
+                  .ok_or_else(|| napi::bindgen_prelude::missing_field_error(#field_js_name))?;
               });
             }
           }
@@ -1183,10 +1169,8 @@ impl NapiStruct {
               obj_field_getters.push(quote! { let #arg_name: #ty = obj.get(#field_js_name)?; });
             } else {
               obj_field_getters.push(quote! {
-                let #arg_name: #ty = obj.get(#field_js_name)?.ok_or_else(|| napi::bindgen_prelude::Error::new(
-                  napi::bindgen_prelude::Status::InvalidArg,
-                  format!("Missing field `{}`", #field_js_name),
-                ))?;
+                let #arg_name: #ty = obj.get(#field_js_name)?
+                  .ok_or_else(|| napi::bindgen_prelude::missing_field_error(#field_js_name))?;
               });
             }
           }
@@ -1272,13 +1256,9 @@ impl NapiStruct {
             let env_wrapper = napi::bindgen_prelude::Env::from(env);
             #[allow(unused_mut)]
             let mut obj = napi::bindgen_prelude::Object::from_napi_value(env, napi_val)?;
-            let type_: String = obj.get(#discriminant).map_err(|mut err| {
-              err.reason = format!("{} on {}.{}", err.reason, #name_str, #discriminant);
-              err
-            })?.ok_or_else(|| napi::bindgen_prelude::Error::new(
-              napi::bindgen_prelude::Status::InvalidArg,
-              format!("Missing field `{}`", #discriminant),
-            ))?;
+            let type_: String = obj.get(#discriminant)
+              .map_err(|err| napi::bindgen_prelude::decorate_field_error(err, #name_str, #discriminant))?
+              .ok_or_else(|| napi::bindgen_prelude::missing_field_error(#discriminant))?;
             let val = match type_.as_str() {
               #(#variant_arm_getters)*
               _ => return Err(napi::bindgen_prelude::Error::new(
