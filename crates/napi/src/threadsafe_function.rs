@@ -349,6 +349,10 @@ fn create_raw(
       unsafe { sys::napi_unref_threadsafe_function(env, raw_tsfn) },
       "Unref threadsafe function failed in Weak mode"
     )?;
+    // The tsfn is now unreferenced at the N-API level, so keep `referred` in
+    // sync. Otherwise the deprecated `refer`/`unref` would read a stale `true`
+    // and `refer` would skip its `napi_ref_threadsafe_function` call.
+    handle.referred.store(false, Ordering::Relaxed);
   }
 
   Ok(handle)
