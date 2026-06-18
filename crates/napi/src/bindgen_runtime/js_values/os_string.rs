@@ -42,8 +42,12 @@ impl FromNapiValue for OsString {
 
 impl ToNapiValue for &OsStr {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
-    let s = val.to_string_lossy();
-    unsafe { ToNapiValue::to_napi_value(env, s.as_ref()) }
+    match val.to_str() {
+      Some(s) => unsafe { ToNapiValue::to_napi_value(env, s) },
+      None => Err(Error::from_reason(
+        "Non-Unicode OsStr/Path cannot be represented as JavaScript string",
+      )),
+    }
   }
 }
 
