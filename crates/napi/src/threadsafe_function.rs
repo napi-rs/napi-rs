@@ -266,6 +266,94 @@ impl<
 {
 }
 
+/// Non-generic core of [`ThreadsafeFunction::create`].
+///
+/// All of the heavy FFI setup (async resource name creation, the
+/// `napi_create_threadsafe_function` call, the weak-ref handling) is
+/// type-independent, so it is extracted here to be emitted once instead of
+/// being monomorphized for every `<T, Return, CallJsBackArgs, ...>`
+/// combination. The only per-type parts — the boxed user callback and the two
+/// `extern "C"` trampolines — are passed in as raw pointers / function
+/// pointers by the generic `create` shell.
+fn create_raw(
+  env: sys::napi_env,
+  func: sys::napi_value,
+  max_queue_size: usize,
+  weak: bool,
+  callback_ptr: *mut c_void,
+  thread_finalize_cb: sys::napi_finalize,
+  call_js_cb: sys::napi_threadsafe_function_call_js,
+) -> Result<Arc<ThreadsafeFunctionHandle>> {
+  let mut async_resource_name = ptr::null_mut();
+  static THREAD_SAFE_FUNCTION_ASYNC_RESOURCE_NAME: &str = "napi_rs_threadsafe_function";
+
+  #[cfg(feature = "napi10")]
+  {
+    let mut copied = false;
+    check_status!(
+      unsafe {
+        sys::node_api_create_external_string_latin1(
+          env,
+          THREAD_SAFE_FUNCTION_ASYNC_RESOURCE_NAME.as_ptr().cast(),
+          27,
+          None,
+          ptr::null_mut(),
+          &mut async_resource_name,
+          &mut copied,
+        )
+      },
+      "Create external string latin1 in ThreadsafeFunction::create failed"
+    )?;
+  }
+
+  #[cfg(not(feature = "napi10"))]
+  {
+    check_status!(
+      unsafe {
+        sys::napi_create_string_utf8(
+          env,
+          THREAD_SAFE_FUNCTION_ASYNC_RESOURCE_NAME.as_ptr().cast(),
+          27,
+          &mut async_resource_name,
+        )
+      },
+      "Create string utf8 in ThreadsafeFunction::create failed"
+    )?;
+  }
+
+  let mut raw_tsfn = ptr::null_mut();
+  let handle = ThreadsafeFunctionHandle::null();
+  check_status!(
+    unsafe {
+      sys::napi_create_threadsafe_function(
+        env,
+        func,
+        ptr::null_mut(),
+        async_resource_name,
+        max_queue_size,
+        1,
+        Arc::downgrade(&handle).into_raw().cast_mut().cast(), // pass handler to thread_finalize_cb
+        thread_finalize_cb,
+        callback_ptr,
+        call_js_cb,
+        &mut raw_tsfn,
+      )
+    },
+    "Create threadsafe function in ThreadsafeFunction::create failed"
+  )?;
+  handle.set_raw(raw_tsfn);
+
+  // Weak ThreadsafeFunction will not prevent the event loop from exiting
+  if weak {
+    check_status!(
+      unsafe { sys::napi_unref_threadsafe_function(env, raw_tsfn) },
+      "Unref threadsafe function failed in Weak mode"
+    )?;
+  }
+
+  Ok(handle)
+}
+
 impl<
     T: 'static,
     Return: FromNapiValue,
@@ -305,73 +393,16 @@ impl<
       { MaxQueueSize },
     >,
   > {
-    let mut async_resource_name = ptr::null_mut();
-    static THREAD_SAFE_FUNCTION_ASYNC_RESOURCE_NAME: &str = "napi_rs_threadsafe_function";
-
-    #[cfg(feature = "napi10")]
-    {
-      let mut copied = false;
-      check_status!(
-        unsafe {
-          sys::node_api_create_external_string_latin1(
-            env,
-            THREAD_SAFE_FUNCTION_ASYNC_RESOURCE_NAME.as_ptr().cast(),
-            27,
-            None,
-            ptr::null_mut(),
-            &mut async_resource_name,
-            &mut copied,
-          )
-        },
-        "Create external string latin1 in ThreadsafeFunction::create failed"
-      )?;
-    }
-
-    #[cfg(not(feature = "napi10"))]
-    {
-      check_status!(
-        unsafe {
-          sys::napi_create_string_utf8(
-            env,
-            THREAD_SAFE_FUNCTION_ASYNC_RESOURCE_NAME.as_ptr().cast(),
-            27,
-            &mut async_resource_name,
-          )
-        },
-        "Create string utf8 in ThreadsafeFunction::create failed"
-      )?;
-    }
-
-    let mut raw_tsfn = ptr::null_mut();
     let callback_ptr = Box::into_raw(Box::new(callback));
-    let handle = ThreadsafeFunctionHandle::null();
-    check_status!(
-      unsafe {
-        sys::napi_create_threadsafe_function(
-          env,
-          func,
-          ptr::null_mut(),
-          async_resource_name,
-          MaxQueueSize,
-          1,
-          Arc::downgrade(&handle).into_raw().cast_mut().cast(), // pass handler to thread_finalize_cb
-          Some(thread_finalize_cb::<T, NewArgs, R>),
-          callback_ptr.cast(),
-          Some(call_js_cb::<T, Return, NewArgs, ErrorStatus, R, CalleeHandled>),
-          &mut raw_tsfn,
-        )
-      },
-      "Create threadsafe function in ThreadsafeFunction::create failed"
+    let handle = create_raw(
+      env,
+      func,
+      MaxQueueSize,
+      Weak,
+      callback_ptr.cast(),
+      Some(thread_finalize_cb::<T, NewArgs, R>),
+      Some(call_js_cb::<T, Return, NewArgs, ErrorStatus, R, CalleeHandled>),
     )?;
-    handle.set_raw(raw_tsfn);
-
-    // Weak ThreadsafeFunction will not prevent the event loop from exiting
-    if Weak {
-      check_status!(
-        unsafe { sys::napi_unref_threadsafe_function(env, raw_tsfn) },
-        "Unref threadsafe function failed in Weak mode"
-      )?;
-    }
 
     Ok(ThreadsafeFunction {
       handle,
