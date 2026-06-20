@@ -1,19 +1,18 @@
-# Dogfood: audit napi-rs's own lifecycle scripts with script-jail (safe install).
+# Dogfood: audit napi-rs's own lifecycle scripts with script-jail.
 #
-# Step 1 (this workflow, mode: update): generate `.script-jail.lock.yml` in the
-# Docker audit backend (GitHub-hosted runners have Docker, not /dev/kvm, so the
-# Firecracker backend is unavailable — `backend: docker` is the install-aligned
-# choice).  `install: true` runs the no-scripts install on the host after the
-# audit; the lifecycle-script host re-run only happens in `mode: check` against a
-# MATCHING committed lock (trusted), so this first run just produces the lock +
-# the egress report.  Commit the generated lock from this run, then flip `mode`
-# to `check` to exercise the full install:true host re-run (env-allowlist +
-# trusted-TMPDIR parity).
+# Step 1 (this workflow, mode: update, install OFF): generate a v0.2.5
+# `.script-jail.lock.yml` in the Docker audit backend.  GitHub-hosted runners have
+# Docker but not /dev/kvm, so the Firecracker backend is unavailable and `backend:
+# docker` is the install-aligned choice; Docker also writes the audit events/strace
+# to the host-backed overlay (no fixed 4 GB scratch disk), so a large monorepo like
+# napi-rs does not ENOSPC the way the fixed-disk VM backends can.  The generated
+# lock is uploaded as an artifact.
 #
-# NOTE: the lock is backend-specific (the Docker guest and the VZ/FC guest record
-# TMPDIR differently — see script-jail's known audit-attribution residual), so
-# the committed lock MUST be the one this Docker run produced, not a local
-# macOS-vz lock.
+# Step 2 (follow-up): commit the Docker-produced lock from this run, then flip to
+# `mode: check` + `install: true` — the trusted host re-run then executes lifecycle
+# scripts, exercising script-jail's env-allowlist + trusted-TMPDIR host/audit parity.
+# `install: true` REQUIRES `mode: check` (update mode has no fail-closed signal), and
+# the lock is backend-specific, so it must be this Docker-produced lock.
 name: script-jail audit
 
 on:
@@ -39,12 +38,13 @@ jobs:
         with:
           node-version: 24
           cache: 'yarn'
-      - name: script-jail safe install + audit (Docker backend)
+      - name: script-jail audit (Docker backend, generate lock)
         uses: Brooooooklyn/script-jail@v0.2.5
         with:
-          install: 'true'
-          backend: docker
           mode: update
+          backend: docker
+          spoof-platform: linux
+          spoof-arch: x64
       - name: Upload generated lock + config
         if: always()
         uses: actions/upload-artifact@v4

@@ -1,28 +1,14 @@
-# script-jail config. Hides these files/env vars from lifecycle scripts running
-# inside the selected audit backend. Entries here cover repo-local paths,
-# package-manager auth files, and documented secret-boundary intent.
-
 protected:
   files:
     - ~/.ssh/**
-    - ~/.aws/**
     - ~/.npmrc
-    - ~/.netrc
-    - ~/.gnupg/**
     - $REPO/.env
     - $REPO/.env.*
   env:
     - NPM_TOKEN
     - NODE_AUTH_TOKEN
     - GITHUB_TOKEN
-    - GH_TOKEN
-    - AWS_ACCESS_KEY_ID
-    - AWS_SECRET_ACCESS_KEY
-    - AWS_SESSION_TOKEN
-    - SSH_AUTH_SOCK
 
 spoof:
   platform: linux
-  arch: arm64
-
-node_version: 20
+  arch: x64
