@@ -50,6 +50,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: script-jail-lock
+          # .script-jail.* are dotfiles; upload-artifact@v4 skips hidden files by default.
+          include-hidden-files: true
           path: |
             .script-jail.lock.yml
             .script-jail.yml
