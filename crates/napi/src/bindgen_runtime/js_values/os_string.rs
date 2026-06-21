@@ -47,8 +47,11 @@ impl FromNapiValue for OsString {
       let utf16 = unsafe { Utf16String::from_napi_value(env, napi_val)? };
       Ok(OsString::from_wide(&utf16))
     }
-    // On other platforms an `OsString` cannot represent unpaired surrogates, so
-    // the UTF-8 conversion performed by `String::from_napi_value` is lossless.
+    // On Unix an `OsString` is an arbitrary byte sequence (not required to be
+    // valid UTF-8). We still read the value via the UTF-8 getter because a JS
+    // string has no faithful byte representation otherwise: well-formed input is
+    // converted losslessly, and the only lossy case (unpaired surrogates) has no
+    // standard representation as a Unix path anyway (replaced with U+FFFD).
     #[cfg(not(windows))]
     {
       let s = unsafe { String::from_napi_value(env, napi_val)? };
