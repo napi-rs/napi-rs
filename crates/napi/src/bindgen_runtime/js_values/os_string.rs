@@ -1,6 +1,10 @@
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
+#[cfg(windows)]
+use std::ptr;
 
+#[cfg(windows)]
+use crate::check_status;
 use crate::{bindgen_prelude::*, sys};
 
 impl TypeName for OsString {
@@ -35,18 +39,57 @@ impl ToNapiValue for OsString {
 
 impl FromNapiValue for OsString {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
-    let s = unsafe { String::from_napi_value(env, napi_val)? };
-    Ok(OsString::from(s))
+    // On Windows an `OsString` is WTF-8 encoded and can hold unpaired surrogates,
+    // so we read the value as UTF-16 and build the `OsString` losslessly via
+    // `OsStringExt::from_wide`. Routing through `String` would force N-API's
+    // UTF-8 conversion and replace unpaired surrogates with U+FFFD before Rust
+    // ever sees them.
+    #[cfg(windows)]
+    {
+      use std::os::windows::ffi::OsStringExt;
+
+      let utf16 = unsafe { read_utf16(env, napi_val)? };
+      Ok(OsString::from_wide(&utf16))
+    }
+    // On other platforms an `OsString` cannot represent unpaired surrogates, so
+    // the UTF-8 conversion performed by `String::from_napi_value` is lossless.
+    #[cfg(not(windows))]
+    {
+      let s = unsafe { String::from_napi_value(env, napi_val)? };
+      Ok(OsString::from(s))
+    }
   }
 }
 
 impl ToNapiValue for &OsStr {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
-    match val.to_str() {
-      Some(s) => unsafe { ToNapiValue::to_napi_value(env, s) },
-      None => Err(Error::from_reason(
-        "Non-Unicode OsStr/Path cannot be represented as JavaScript string",
-      )),
+    // On Windows encode the value as UTF-16 directly so unpaired surrogates
+    // stored in the `OsStr` survive the conversion to a JavaScript string.
+    #[cfg(windows)]
+    {
+      use std::os::windows::ffi::OsStrExt;
+
+      let utf16 = val.encode_wide().collect::<Vec<u16>>();
+      let mut ptr = ptr::null_mut();
+      check_status!(
+        unsafe {
+          sys::napi_create_string_utf16(env, utf16.as_ptr(), utf16.len() as isize, &mut ptr)
+        },
+        "Failed to convert rust `&OsStr` into napi `string`"
+      )?;
+      Ok(ptr)
+    }
+    // On other platforms an `OsStr` is an arbitrary byte sequence. If it is not
+    // valid UTF-8 it cannot be represented as a JavaScript string, so we fail
+    // losslessly instead of silently replacing bytes.
+    #[cfg(not(windows))]
+    {
+      match val.to_str() {
+        Some(s) => unsafe { ToNapiValue::to_napi_value(env, s) },
+        None => Err(Error::from_reason(
+          "Non-Unicode OsStr/Path cannot be represented as JavaScript string",
+        )),
+      }
     }
   }
 }
@@ -83,8 +126,8 @@ impl ToNapiValue for PathBuf {
 
 impl FromNapiValue for PathBuf {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
-    let s = unsafe { String::from_napi_value(env, napi_val)? };
-    Ok(PathBuf::from(s))
+    let os_string = unsafe { OsString::from_napi_value(env, napi_val)? };
+    Ok(PathBuf::from(os_string))
   }
 }
 
@@ -92,4 +135,35 @@ impl ToNapiValue for &Path {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     unsafe { ToNapiValue::to_napi_value(env, val.as_os_str()) }
   }
+}
+
+#[cfg(windows)]
+unsafe fn read_utf16(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Vec<u16>> {
+  let mut len = 0;
+
+  check_status!(
+    unsafe { sys::napi_get_value_string_utf16(env, napi_val, ptr::null_mut(), 0, &mut len) },
+    "Failed to convert napi `string` into rust type `OsString`",
+  )?;
+
+  // end char len in C
+  len += 1;
+  let mut buf = vec![0u16; len];
+  let mut written_char_count = 0;
+
+  check_status!(
+    unsafe {
+      sys::napi_get_value_string_utf16(
+        env,
+        napi_val,
+        buf.as_mut_ptr(),
+        len,
+        &mut written_char_count,
+      )
+    },
+    "Failed to convert napi `string` into rust type `OsString`",
+  )?;
+
+  buf.truncate(written_char_count);
+  Ok(buf)
 }
