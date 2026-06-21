@@ -112,6 +112,12 @@ impl From<String> for Utf16String {
   }
 }
 
+impl From<Vec<u16>> for Utf16String {
+  fn from(data: Vec<u16>) -> Self {
+    Utf16String(data)
+  }
+}
+
 impl Display for Utf16String {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "{}", String::from_utf16_lossy(self))

@@ -1,10 +1,6 @@
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
-#[cfg(windows)]
-use std::ptr;
 
-#[cfg(windows)]
-use crate::check_status;
 use crate::{bindgen_prelude::*, sys};
 
 impl TypeName for OsString {
@@ -48,7 +44,7 @@ impl FromNapiValue for OsString {
     {
       use std::os::windows::ffi::OsStringExt;
 
-      let utf16 = unsafe { read_utf16(env, napi_val)? };
+      let utf16 = unsafe { Utf16String::from_napi_value(env, napi_val)? };
       Ok(OsString::from_wide(&utf16))
     }
     // On other platforms an `OsString` cannot represent unpaired surrogates, so
@@ -63,21 +59,15 @@ impl FromNapiValue for OsString {
 
 impl ToNapiValue for &OsStr {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
-    // On Windows encode the value as UTF-16 directly so unpaired surrogates
-    // stored in the `OsStr` survive the conversion to a JavaScript string.
+    // On Windows encode the value as UTF-16 and reuse `Utf16String` so unpaired
+    // surrogates stored in the `OsStr` survive the conversion to a JavaScript
+    // string.
     #[cfg(windows)]
     {
       use std::os::windows::ffi::OsStrExt;
 
-      let utf16 = val.encode_wide().collect::<Vec<u16>>();
-      let mut ptr = ptr::null_mut();
-      check_status!(
-        unsafe {
-          sys::napi_create_string_utf16(env, utf16.as_ptr(), utf16.len() as isize, &mut ptr)
-        },
-        "Failed to convert rust `&OsStr` into napi `string`"
-      )?;
-      Ok(ptr)
+      let utf16 = Utf16String::from(val.encode_wide().collect::<Vec<u16>>());
+      unsafe { ToNapiValue::to_napi_value(env, utf16) }
     }
     // On other platforms an `OsStr` is an arbitrary byte sequence. If it is not
     // valid UTF-8 it cannot be represented as a JavaScript string, so we fail
@@ -135,35 +125,4 @@ impl ToNapiValue for &Path {
   unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     unsafe { ToNapiValue::to_napi_value(env, val.as_os_str()) }
   }
-}
-
-#[cfg(windows)]
-unsafe fn read_utf16(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Vec<u16>> {
-  let mut len = 0;
-
-  check_status!(
-    unsafe { sys::napi_get_value_string_utf16(env, napi_val, ptr::null_mut(), 0, &mut len) },
-    "Failed to convert napi `string` into rust type `OsString`",
-  )?;
-
-  // end char len in C
-  len += 1;
-  let mut buf = vec![0u16; len];
-  let mut written_char_count = 0;
-
-  check_status!(
-    unsafe {
-      sys::napi_get_value_string_utf16(
-        env,
-        napi_val,
-        buf.as_mut_ptr(),
-        len,
-        &mut written_char_count,
-      )
-    },
-    "Failed to convert napi `string` into rust type `OsString`",
-  )?;
-
-  buf.truncate(written_char_count);
-  Ok(buf)
 }
