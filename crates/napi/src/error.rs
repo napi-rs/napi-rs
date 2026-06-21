@@ -275,6 +275,32 @@ impl<S: AsRef<str> + Clone> Error<S> {
   }
 }
 
+/// Outlined helper for `#[napi(object)]` deserialization: decorate a field-getter
+/// error with its `Struct.field` location.
+///
+/// The `#[napi]` derive used to inline this `format!` into every generated
+/// `FromNapiValue` impl, once per field — hundreds of identical copies in a large
+/// addon. Keeping it non-generic and out-of-line collapses all of them to a single
+/// shared function on the (cold) error path. The produced message is byte-for-byte
+/// identical to the previous inline version.
+#[cold]
+#[inline(never)]
+#[doc(hidden)]
+pub fn decorate_field_error(mut err: Error, struct_name: &str, field: &str) -> Error {
+  err.reason = format!("{} on {}.{}", err.reason, struct_name, field);
+  err
+}
+
+/// Outlined helper for `#[napi(object)]` deserialization: build the error returned
+/// when a required field is missing. Non-generic and out-of-line for the same
+/// code-size reason as [`decorate_field_error`]; the message is unchanged.
+#[cold]
+#[inline(never)]
+#[doc(hidden)]
+pub fn missing_field_error(field: &str) -> Error {
+  Error::new(Status::InvalidArg, format!("Missing field `{}`", field))
+}
+
 impl Error {
   pub fn from_reason<T: Into<String>>(reason: T) -> Self {
     Error {
