@@ -1,6 +1,6 @@
 # Dogfood: audit napi-rs's own lifecycle scripts with script-jail.
 #
-# Step 1 (this workflow, mode: update, install OFF): generate a v0.2.6
+# Step 1 (this workflow, mode: update, install OFF): generate a v0.2.7
 # `.script-jail.lock.yml` in the Docker audit backend.  GitHub-hosted runners have
 # Docker but not /dev/kvm, so the Firecracker backend is unavailable and `backend:
 # docker` is the install-aligned choice; Docker also writes the audit events/strace
@@ -39,7 +39,7 @@ jobs:
           node-version: 24
           cache: 'yarn'
       - name: script-jail audit (Docker backend, generate lock)
-        uses: Brooooooklyn/script-jail@v0.2.6
+        uses: Brooooooklyn/script-jail@v0.2.7
         with:
           mode: update
           backend: docker
