@@ -313,6 +313,7 @@ static KNOWN_TYPES: LazyLock<HashMap<&'static str, (&'static str, bool, bool)>> 
     map.extend([
       ("DateTime", ("Date", false, false)),
       ("NaiveDateTime", ("Date", false, false)),
+      ("SystemTime", ("Date", false, false)),
       ("Date", ("Date", false, false)),
       ("JsDate", ("Date", false, false)),
     ]);

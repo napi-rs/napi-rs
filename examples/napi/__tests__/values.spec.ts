@@ -302,6 +302,8 @@ import {
   withAbortSignalHandle,
   createI32ArrayFromExternal,
   optionalCallbackTypes,
+  systemTimeToMillis,
+  systemTimeReturn,
 } from '../index.cjs'
 // import other stuff in `#[napi(module_exports)]`
 import nativeAddon from '../index.cjs'
@@ -2062,6 +2064,24 @@ Napi5Test('Date from chrono::NativeDateTime test', (t) => {
   const fixture = chronoNativeDateTimeReturn()
   t.true(fixture instanceof Date)
   t.is(fixture?.toISOString(), '2016-12-23T15:25:59.325Z')
+})
+
+Napi5Test('Date to SystemTime test', (t) => {
+  const fixture = new Date()
+  t.is(systemTimeToMillis(fixture), fixture.valueOf())
+})
+
+Napi5Test('NaN Date to SystemTime test', (t) => {
+  const fixture = new Date(NaN)
+  const code = 'DateExpected'
+  const message = 'Date cannot be represented as rust type `SystemTime`'
+  t.throws(() => systemTimeToMillis(fixture), { code }, message)
+})
+
+Napi5Test('Date from SystemTime test', (t) => {
+  const fixture = systemTimeReturn()
+  t.true(fixture instanceof Date)
+  t.is(fixture?.toISOString(), '2016-12-23T12:25:59.325Z')
 })
 
 const Napi9Test = Number(process.versions.napi) >= 9 ? test : test.skip
