@@ -1,22 +1,28 @@
-# Dogfood: audit + safely install napi-rs's own lifecycle scripts with script-jail.
+# Dogfood: enforce napi-rs's own lifecycle-script audit with script-jail.
 #
 # This workflow runs script-jail @v0.2.7 in the Docker audit backend with
-# `mode: check` + `install: true`.  On every PR that touches yarn.lock, the
-# script-jail config, or this workflow, it (1) re-audits all lifecycle scripts in
-# an isolated Docker sandbox, (2) FAILS the build if the freshly-generated audit
-# diverges from the committed `.script-jail.lock.yml`, and (3) on a clean match,
-# performs the real dependency install on the trusted host — exercising
-# script-jail's env-allowlist + trusted-TMPDIR host/audit parity.
+# `mode: check`.  On every PR that touches yarn.lock, the script-jail config, or
+# this workflow, it re-audits all lifecycle scripts in an isolated Docker sandbox
+# and FAILS the build if the freshly-generated audit diverges from the committed
+# `.script-jail.lock.yml` — catching any new/changed dependency lifecycle
+# behavior (supply-chain drift) before it can land.
+#
+# Why no `install: true`: napi-rs pins Yarn via `.yarnrc.yml` `yarnPath`
+# (.yarn/releases/yarn-4.17.0.cjs).  `install: true` would run that repo-controlled
+# yarn binary on the trusted host at `yarn install` startup, BEFORE the audit's
+# verdict applies — a pre-trust RCE surface — so script-jail fail-closes the
+# host-side drop-in install for any repo with a `yarnPath`/`plugins` rc.  The
+# sandbox audit (which this check enforces) still records the full install; only
+# the optional host-side install is omitted.
 #
 # Why Docker: GitHub-hosted runners have Docker but not /dev/kvm, so the
-# Firecracker backend is unavailable and `backend: docker` is the install-aligned
-# choice; Docker also writes the audit events/strace to the host-backed overlay
-# (no fixed 4 GB scratch disk), so a large monorepo like napi-rs does not ENOSPC
-# the way the fixed-disk VM backends can.  The committed lock is backend-specific
-# (Docker-produced) and `install: true` REQUIRES `mode: check` (update mode has no
-# fail-closed signal).  setup-node intentionally has no `cache: yarn`: this job
-# never runs a host `yarn install` of its own (script-jail performs the install),
-# so there is no host yarn cache to restore/save.
+# Firecracker backend is unavailable and `backend: docker` is the chosen backend;
+# Docker also writes the audit events/strace to the host-backed overlay (no fixed
+# 4 GB scratch disk), so a large monorepo like napi-rs does not ENOSPC the way the
+# fixed-disk VM backends can.  The committed lock is backend-specific
+# (Docker-produced).  setup-node intentionally has no `cache: yarn`: this job runs
+# no host `yarn install` of its own (script-jail performs the audit install in the
+# sandbox), so there is no host yarn cache to restore/save.
 name: script-jail check
 
 on:
@@ -40,11 +46,10 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-      - name: script-jail check (Docker backend, validate & install)
+      - name: script-jail check (Docker backend, enforce committed lock)
         uses: Brooooooklyn/script-jail@v0.2.7
         with:
           mode: check
-          install: true
           backend: docker
           spoof-platform: linux
           spoof-arch: x64
