@@ -51,6 +51,13 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24
+      # napi-rs pins yarn@4.17.0 via corepack (packageManager + yarnPath).  The
+      # install:true host install runs the REAL `yarn install` on the runner, so
+      # the runner's yarn must be the pinned 4.17.0 — corepack resolves it from the
+      # pin.  Without this the runner's pre-installed classic yarn 1.22.22 is used
+      # and refuses the packageManager pin.
+      - name: Enable corepack (host yarn 4.17.0 for install:true)
+        run: corepack enable
       - name: script-jail check + safe install (Docker backend, enforce committed lock)
         uses: Brooooooklyn/script-jail@v0.2.8
         with:
