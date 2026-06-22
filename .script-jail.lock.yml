@@ -1,0 +1,92 @@
+schema_version: 1
+manager: yarn
+manager_lockfile_sha256: ""
+node_version: 24.15.0
+generated_at: 2026-06-22T09:33:00.458Z
+packages:
+  napi-rs@0.0.0:
+    lifecycle:
+      postinstall:
+        external_reads:
+          - $REPO
+          - $TMPDIR/<hash>/husky
+        escaped_writes: []
+        env_read:
+          - BERRY_BIN_FOLDER
+          - COREPACK_ENABLE_DOWNLOAD_PROMPT
+          - COREPACK_ENV_FILE
+          - HOME
+          - HUSKY
+          - INIT_CWD
+          - LD_PRELOAD
+          - NODE_OPTIONS
+          - NODE_V8_COVERAGE
+          - PATH
+          - PROJECT_CWD
+          - PWD
+          - SCRIPT_JAIL_LOG_FD
+          - SCRIPT_JAIL_LOG_FILE
+          - SCRIPT_JAIL_NODE_OPTIONS
+          - SCRIPT_JAIL_PRELOAD_PATH
+          - SCRIPT_JAIL_PROTECTED_ENV_NAMES
+          - SCRIPT_JAIL_SPOOF_ARCH
+          - SCRIPT_JAIL_SPOOF_PLATFORM
+          - WATCH_REPORT_DEPENDENCIES
+          - YARN_CACHE_FOLDER
+          - YARN_GLOBAL_FOLDER
+          - npm_config_user_agent
+          - npm_execpath
+          - npm_lifecycle_event
+          - npm_node_execpath
+          - npm_package_json
+          - npm_package_name
+          - npm_package_version
+        spawn_attempts:
+          - husky install
+          - node $NODE_MODULES/husky/bin.js install
+        spawn_blocked:
+          - <ENOENT> git config core.hooksPath .husky/_
+        dlopen_attempts: []
+        network_attempts: []
+      prepare:
+        external_reads:
+          - $REPO
+          - $TMPDIR/<hash>/husky
+        escaped_writes: []
+        env_read:
+          - BERRY_BIN_FOLDER
+          - COREPACK_ENABLE_DOWNLOAD_PROMPT
+          - COREPACK_ENV_FILE
+          - HOME
+          - HUSKY
+          - INIT_CWD
+          - LD_PRELOAD
+          - NODE_OPTIONS
+          - NODE_V8_COVERAGE
+          - PATH
+          - PROJECT_CWD
+          - PWD
+          - SCRIPT_JAIL_LOG_FD
+          - SCRIPT_JAIL_LOG_FILE
+          - SCRIPT_JAIL_NODE_OPTIONS
+          - SCRIPT_JAIL_PRELOAD_PATH
+          - SCRIPT_JAIL_PROTECTED_ENV_NAMES
+          - SCRIPT_JAIL_SPOOF_ARCH
+          - SCRIPT_JAIL_SPOOF_PLATFORM
+          - WATCH_REPORT_DEPENDENCIES
+          - YARN_CACHE_FOLDER
+          - YARN_GLOBAL_FOLDER
+          - npm_config_user_agent
+          - npm_execpath
+          - npm_lifecycle_event
+          - npm_node_execpath
+          - npm_package_json
+          - npm_package_name
+          - npm_package_version
+        spawn_attempts:
+          - husky
+          - node $NODE_MODULES/husky/bin.js
+        spawn_blocked:
+          - <ENOENT> git config core.hooksPath .husky/_
+        dlopen_attempts: []
+        network_attempts: []

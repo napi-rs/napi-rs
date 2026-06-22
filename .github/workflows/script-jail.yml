@@ -1,24 +1,27 @@
-# Dogfood: audit napi-rs's own lifecycle scripts with script-jail.
+# Dogfood: audit + safely install napi-rs's own lifecycle scripts with script-jail.
 #
-# Step 1 (this workflow, mode: update, install OFF): generate a v0.2.7
-# `.script-jail.lock.yml` in the Docker audit backend.  GitHub-hosted runners have
-# Docker but not /dev/kvm, so the Firecracker backend is unavailable and `backend:
-# docker` is the install-aligned choice; Docker also writes the audit events/strace
-# to the host-backed overlay (no fixed 4 GB scratch disk), so a large monorepo like
-# napi-rs does not ENOSPC the way the fixed-disk VM backends can.  The generated
-# lock is uploaded as an artifact.
+# This workflow runs script-jail @v0.2.7 in the Docker audit backend with
+# `mode: check` + `install: true`.  On every PR that touches yarn.lock, the
+# script-jail config, or this workflow, it (1) re-audits all lifecycle scripts in
+# an isolated Docker sandbox, (2) FAILS the build if the freshly-generated audit
+# diverges from the committed `.script-jail.lock.yml`, and (3) on a clean match,
+# performs the real dependency install on the trusted host — exercising
+# script-jail's env-allowlist + trusted-TMPDIR host/audit parity.
 #
-# Step 2 (follow-up): commit the Docker-produced lock from this run, then flip to
-# `mode: check` + `install: true` — the trusted host re-run then executes lifecycle
-# scripts, exercising script-jail's env-allowlist + trusted-TMPDIR host/audit parity.
-# `install: true` REQUIRES `mode: check` (update mode has no fail-closed signal), and
-# the lock is backend-specific, so it must be this Docker-produced lock.
-name: script-jail audit
+# Why Docker: GitHub-hosted runners have Docker but not /dev/kvm, so the
+# Firecracker backend is unavailable and `backend: docker` is the install-aligned
+# choice; Docker also writes the audit events/strace to the host-backed overlay
+# (no fixed 4 GB scratch disk), so a large monorepo like napi-rs does not ENOSPC
+# the way the fixed-disk VM backends can.  The committed lock is backend-specific
+# (Docker-produced) and `install: true` REQUIRES `mode: check` (update mode has no
+# fail-closed signal).  setup-node intentionally has no `cache: yarn`: this job
+# never runs a host `yarn install` of its own (script-jail performs the install),
+# so there is no host yarn cache to restore/save.
+name: script-jail check
 
 on:
   workflow_dispatch: {}
-  # Run on PRs that touch the lockfile or the script-jail config/workflow, so this
-  # PR (which adds the workflow) gets an immediate signal without spamming every PR.
+  # Run on PRs that touch the lockfile or the script-jail config/workflow.
   pull_request:
     paths:
       - 'yarn.lock'
@@ -37,16 +40,17 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-          cache: 'yarn'
-      - name: script-jail audit (Docker backend, generate lock)
+      - name: script-jail check (Docker backend, validate & install)
         uses: Brooooooklyn/script-jail@v0.2.7
         with:
-          mode: update
+          mode: check
+          install: true
           backend: docker
           spoof-platform: linux
           spoof-arch: x64
-      - name: Upload generated lock + config
-        if: always()
+      # On a check-mode failure, surface the freshly-generated lock for diffing.
+      - name: Upload regenerated lock on failure
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: script-jail-lock
