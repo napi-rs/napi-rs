@@ -1,19 +1,24 @@
 # Dogfood: enforce napi-rs's own lifecycle-script audit with script-jail.
 #
-# This workflow runs script-jail @v0.2.7 in the Docker audit backend with
-# `mode: check`.  On every PR that touches yarn.lock, the script-jail config, or
-# this workflow, it re-audits all lifecycle scripts in an isolated Docker sandbox
-# and FAILS the build if the freshly-generated audit diverges from the committed
-# `.script-jail.lock.yml` — catching any new/changed dependency lifecycle
-# behavior (supply-chain drift) before it can land.
+# This workflow runs script-jail @v0.2.8 in the Docker audit backend with
+# `mode: check` + `install: true`.  On every PR that touches yarn.lock, the
+# script-jail config, or this workflow, it re-audits all lifecycle scripts in an
+# isolated Docker sandbox and FAILS the build if the freshly-generated audit
+# diverges from the committed `.script-jail.lock.yml` — catching any new/changed
+# dependency lifecycle behavior (supply-chain drift) before it can land.  When the
+# audit matches, `install: true` ALSO materializes deps on the runner (the drop-in
+# safe install), so this one job both enforces the lock and installs.
 #
-# Why no `install: true`: napi-rs pins Yarn via `.yarnrc.yml` `yarnPath`
-# (.yarn/releases/yarn-4.17.0.cjs).  `install: true` would run that repo-controlled
-# yarn binary on the trusted host at `yarn install` startup, BEFORE the audit's
-# verdict applies — a pre-trust RCE surface — so script-jail fail-closes the
-# host-side drop-in install for any repo with a `yarnPath`/`plugins` rc.  The
-# sandbox audit (which this check enforces) still records the full install; only
-# the optional host-side install is omitted.
+# Why `install: true` is now safe with a `yarnPath` repo (v0.2.8): napi-rs pins
+# Yarn via `.yarnrc.yml` `yarnPath` (.yarn/releases/yarn-4.17.0.cjs) plus an exact
+# `packageManager: "yarn@4.17.0"`.  The repo's OWN committed `.yarn/releases` yarn
+# is trusted toolchain (the repo is CI's trust root, not dependency code), so
+# script-jail allows a repoDir-contained `yarnPath` when it is paired with an exact
+# `packageManager` pin.  Both the sandbox audit and the host install set
+# `YARN_IGNORE_PATH=1` and corepack-resolve the pinned 4.17.0, so the audited Phase
+# B and the host install run the SAME yarn — no audit-vs-host divergence, no
+# pre-trust re-exec of the vendored binary.  (A `yarnPath` that ESCAPES the repo,
+# or any `plugins`/`enableConstraintsChecks` rc, is still refused.)
 #
 # Why Docker: GitHub-hosted runners have Docker but not /dev/kvm, so the
 # Firecracker backend is unavailable and `backend: docker` is the chosen backend;
@@ -46,10 +51,11 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-      - name: script-jail check (Docker backend, enforce committed lock)
-        uses: Brooooooklyn/script-jail@v0.2.7
+      - name: script-jail check + safe install (Docker backend, enforce committed lock)
+        uses: Brooooooklyn/script-jail@v0.2.8
         with:
           mode: check
+          install: true
           backend: docker
           spoof-platform: linux
           spoof-arch: x64
