@@ -1,6 +1,6 @@
 # Dogfood: enforce napi-rs's own lifecycle-script audit with script-jail.
 #
-# This workflow runs script-jail @v0.2.8 in the Docker audit backend with
+# This workflow runs script-jail @v0.2.9 in the Docker audit backend with
 # `mode: check` + `install: true`.  On every PR that touches yarn.lock, the
 # script-jail config, or this workflow, it re-audits all lifecycle scripts in an
 # isolated Docker sandbox and FAILS the build if the freshly-generated audit
@@ -9,7 +9,17 @@
 # audit matches, `install: true` ALSO materializes deps on the runner (the drop-in
 # safe install), so this one job both enforces the lock and installs.
 #
-# Why `install: true` is now safe with a `yarnPath` repo (v0.2.8): napi-rs pins
+# Why `install: true` reproduces the committed (install-off) lock (v0.2.9): under
+# `install: true` the audit injects script-jail's own launch env (read back by
+# yarn) and aligns the audit cwd to the deep repo dir (so yarn's upward rc/project
+# search stat-probes repoDir ancestors).  v0.2.9 (script-jail PR #27) makes the
+# install_mode audit lock byte-identical to the install-off (`mode: update`) lock
+# for yarn repos by dropping ONLY those install_mode-only, genuine-root artifacts
+# at normalize time — so the committed `.script-jail.lock.yml` (generated install-off
+# at v0.2.7) still matches the freshly-regenerated install:true lock, and check mode
+# no longer flaps.  Dependency events and any forged-root claim are untouched.
+#
+# Why `install: true` is also safe with a `yarnPath` repo (v0.2.8): napi-rs pins
 # Yarn via `.yarnrc.yml` `yarnPath` (.yarn/releases/yarn-4.17.0.cjs) plus an exact
 # `packageManager: "yarn@4.17.0"`.  The repo's OWN committed `.yarn/releases` yarn
 # is trusted toolchain (the repo is CI's trust root, not dependency code), so
@@ -59,7 +69,7 @@ jobs:
       - name: Enable corepack (host yarn 4.17.0 for install:true)
         run: corepack enable
       - name: script-jail check + safe install (Docker backend, enforce committed lock)
-        uses: Brooooooklyn/script-jail@v0.2.8
+        uses: Brooooooklyn/script-jail@v0.2.9
         with:
           mode: check
           install: true
