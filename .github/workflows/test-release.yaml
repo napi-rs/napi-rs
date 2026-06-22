@@ -46,8 +46,24 @@ jobs:
             ~/.cargo/git
           key: lint-cargo-cache
 
-      - name: 'Install dependencies'
-        run: yarn install --immutable --mode=skip-build
+      # Audited "safe install" via script-jail (@v0.2.9) instead of a raw
+      # `yarn install`: the deps are installed through a Docker-sandboxed
+      # lifecycle-script audit that FAILS the job on any divergence from the
+      # committed `.script-jail.lock.yml` (mode: check), then materialized on the
+      # runner (install: true).  Docker backend + spoof linux/x64 match the
+      # committed (Docker-produced) lock; corepack pins host yarn 4.17.0 for the
+      # install.  Linux-x64/node-24 only — other OS/arch/cross jobs keep raw yarn.
+      - name: Enable corepack (host yarn 4.17.0 for install:true)
+        run: corepack enable
+
+      - name: 'Install dependencies (script-jail audited safe install)'
+        uses: Brooooooklyn/script-jail@v0.2.9
+        with:
+          mode: check
+          install: true
+          backend: docker
+          spoof-platform: linux
+          spoof-arch: x64
 
       - name: 'Lint JS/TS'
         run: yarn lint
@@ -627,8 +643,18 @@ jobs:
             target
           key: stable-cargo-cache-build-binary
 
-      - name: 'Install dependencies'
-        run: yarn install --mode=skip-build --immutable
+      # script-jail audited safe install (see the lint job for the full rationale).
+      - name: Enable corepack (host yarn 4.17.0 for install:true)
+        run: corepack enable
+
+      - name: 'Install dependencies (script-jail audited safe install)'
+        uses: Brooooooklyn/script-jail@v0.2.9
+        with:
+          mode: check
+          install: true
+          backend: docker
+          spoof-platform: linux
+          spoof-arch: x64
 
       - name: Build and run binary
         run: |
@@ -823,8 +849,17 @@ jobs:
             ~/.cargo/git
             target
           key: stable-x86_64-unknown-linux-gnu-node@18-cargo-cache
-      - name: Install dependencies
-        run: yarn install --immutable --mode=skip-build
+      # script-jail audited safe install (see the lint job for the full rationale).
+      - name: Enable corepack (host yarn 4.17.0 for install:true)
+        run: corepack enable
+      - name: Install dependencies (script-jail audited safe install)
+        uses: Brooooooklyn/script-jail@v0.2.9
+        with:
+          mode: check
+          install: true
+          backend: docker
+          spoof-platform: linux
+          spoof-arch: x64
       - name: Build
         run: |
           bun run build
