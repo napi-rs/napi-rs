@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # No `cache: 'yarn'`: deps are installed by the script-jail audited safe
       # install (below), which pins yarn's cache to a repo-local dir, so the
@@ -149,7 +149,7 @@ jobs:
     runs-on: ${{ matrix.settings.host }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup node
         uses: actions/setup-node@v6
@@ -248,7 +248,7 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup MSYS2
         uses: msys2/setup-msys2@v2
@@ -310,7 +310,7 @@ jobs:
               sudo apt-get install -y gcc-13-loongarch64-linux-gnu
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup node
         uses: actions/setup-node@v6
@@ -363,7 +363,7 @@ jobs:
           - target: aarch64-unknown-linux-gnu
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup node
         uses: actions/setup-node@v6
@@ -417,7 +417,7 @@ jobs:
           - target: aarch64-unknown-linux-musl
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup node
         uses: actions/setup-node@v6
@@ -517,7 +517,7 @@ jobs:
             arch: 'arm64'
             libc: 'musl'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup node
         uses: actions/setup-node@v6
@@ -573,7 +573,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup node
         uses: actions/setup-node@v6
@@ -622,7 +622,7 @@ jobs:
     runs-on: ubuntu-latest
     name: Test cli build binary
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # No `cache: 'yarn'` (see the lint job): the script-jail audited install
       # pins yarn's cache to a repo-local dir, so setup-node's global berry
@@ -692,7 +692,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install
         uses: dtolnay/rust-toolchain@stable
@@ -708,7 +708,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Install ziglang
         uses: mlugg/setup-zig@v2
         with:
@@ -750,7 +750,7 @@ jobs:
           mv examples/napi/dist/__tests__ examples/napi/
       - name: Test
         id: build
-        uses: cross-platform-actions/action@v1.2.0
+        uses: cross-platform-actions/action@v1.3.0
         env:
           DEBUG: 'napi:*'
           RUSTUP_HOME: /home/runner/rustup
@@ -786,7 +786,7 @@ jobs:
     name: Test node wasi target
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Setup node
         uses: actions/setup-node@v6
         with:
@@ -828,7 +828,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
@@ -882,7 +882,7 @@ jobs:
       - build_binary_crate
     if: "startsWith(github.event.head_commit.message, 'chore(release): publish')"
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
           node-version: 24
