@@ -26,11 +26,14 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # No `cache: 'yarn'`: deps are installed by the script-jail audited safe
+      # install (below), which pins yarn's cache to a repo-local dir, so the
+      # global berry cache that setup-node would save is never populated and the
+      # post-job cache save would error on the missing path.
       - name: Setup node
         uses: actions/setup-node@v6
         with:
           node-version: 24
-          cache: 'yarn'
 
       - name: Install
         uses: dtolnay/rust-toolchain@stable
@@ -621,11 +624,13 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # No `cache: 'yarn'` (see the lint job): the script-jail audited install
+      # pins yarn's cache to a repo-local dir, so setup-node's global berry
+      # cache save would error on a missing path.
       - name: Setup node
         uses: actions/setup-node@v6
         with:
           node-version: 24
-          cache: 'yarn'
 
       - name: Install
         uses: dtolnay/rust-toolchain@stable
@@ -827,11 +832,13 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+      # No `cache: 'yarn'` (see the lint job): the script-jail audited install
+      # pins yarn's cache to a repo-local dir, so setup-node's global berry
+      # cache save would error on a missing path.
       - name: Setup node
         uses: actions/setup-node@v6
         with:
           node-version: 24
-          cache: 'yarn'
       - name: Install
         uses: dtolnay/rust-toolchain@stable
         with:
