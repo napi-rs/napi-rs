@@ -46,18 +46,16 @@ jobs:
             ~/.cargo/git
           key: lint-cargo-cache
 
-      # Audited "safe install" via script-jail (@v0.2.9) instead of a raw
+      # Audited "safe install" via script-jail (@v0.2.10) instead of a raw
       # `yarn install`: the deps are installed through a Docker-sandboxed
       # lifecycle-script audit that FAILS the job on any divergence from the
       # committed `.script-jail.lock.yml` (mode: check), then materialized on the
       # runner (install: true).  Docker backend + spoof linux/x64 match the
-      # committed (Docker-produced) lock; corepack pins host yarn 4.17.0 for the
-      # install.  Linux-x64/node-24 only — other OS/arch/cross jobs keep raw yarn.
-      - name: Enable corepack (host yarn 4.17.0 for install:true)
-        run: corepack enable
-
+      # committed (Docker-produced) lock.  v0.2.10+ auto-enables corepack so the
+      # host yarn is the pinned 4.17.0 (no manual `corepack enable` step needed).
+      # Linux-x64/node-24 only — other OS/arch/cross jobs keep raw yarn.
       - name: 'Install dependencies (script-jail audited safe install)'
-        uses: Brooooooklyn/script-jail@v0.2.9
+        uses: Brooooooklyn/script-jail@v0.2.10
         with:
           mode: check
           install: true
@@ -644,11 +642,9 @@ jobs:
           key: stable-cargo-cache-build-binary
 
       # script-jail audited safe install (see the lint job for the full rationale).
-      - name: Enable corepack (host yarn 4.17.0 for install:true)
-        run: corepack enable
-
+      # v0.2.10+ auto-enables corepack (no manual `corepack enable` step needed).
       - name: 'Install dependencies (script-jail audited safe install)'
-        uses: Brooooooklyn/script-jail@v0.2.9
+        uses: Brooooooklyn/script-jail@v0.2.10
         with:
           mode: check
           install: true
@@ -850,10 +846,9 @@ jobs:
             target
           key: stable-x86_64-unknown-linux-gnu-node@18-cargo-cache
       # script-jail audited safe install (see the lint job for the full rationale).
-      - name: Enable corepack (host yarn 4.17.0 for install:true)
-        run: corepack enable
+      # v0.2.10+ auto-enables corepack (no manual `corepack enable` step needed).
       - name: Install dependencies (script-jail audited safe install)
-        uses: Brooooooklyn/script-jail@v0.2.9
+        uses: Brooooooklyn/script-jail@v0.2.10
         with:
           mode: check
           install: true
