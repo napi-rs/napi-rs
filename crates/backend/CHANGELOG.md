@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.5](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v5.0.4...napi-derive-backend-v5.0.5) - 2026-06-24
+
+### Other
+
+- *(napi-derive)* outline #[napi(object)] field-error decoration ([#3338](https://github.com/napi-rs/napi-rs/pull/3338))
+
 ## [5.0.4](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v5.0.3...napi-derive-backend-v5.0.4) - 2026-04-28
 
 ### Fixed
