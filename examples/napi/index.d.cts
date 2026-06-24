@@ -1198,6 +1198,10 @@ export declare function sumMapping(nums: Record<string, number>): number
 
 export declare function sumNums(nums: Array<number>): number
 
+export declare function systemTimeReturn(): Date
+
+export declare function systemTimeToMillis(input: Date): number
+
 /**
  * Function to test escaped quotes in comments.
  * This comment contains escaped quotes: \\"g+sx\\" and should not break JSON parsing.
