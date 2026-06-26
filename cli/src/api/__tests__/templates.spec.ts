@@ -2,7 +2,10 @@ import ava, { type ExecutionContext } from 'ava'
 import { parseSync } from 'oxc-parser'
 
 import { createCjsBinding, createEsmBinding } from '../templates/js-binding.js'
-import { createWasiBrowserBinding } from '../templates/load-wasi-template.js'
+import {
+  createWasiBinding,
+  createWasiBrowserBinding,
+} from '../templates/load-wasi-template.js'
 import { createWasiBrowserWorkerBinding } from '../templates/wasi-worker-template.js'
 
 const test = ava
@@ -39,6 +42,30 @@ test('createWasiBrowserBinding with errorEvent and fs', (t) => {
       true,
     ),
   )
+})
+
+test('single-thread WASI bindings do not require workers or shared memory', (t) => {
+  const browser = createWasiBrowserBinding(
+    'test-wasi',
+    4000,
+    65536,
+    false,
+    false,
+    false,
+    false,
+    false,
+  )
+  const node = createWasiBinding('test-wasi', '@scope/test', 4000, 65536, false)
+
+  for (const code of [browser, node]) {
+    t.false(code.includes('shared: true'))
+    t.false(code.includes('onCreateWorker'))
+    t.true(code.includes('asyncWorkPoolSize: 0'))
+  }
+  t.false(browser.includes('new Worker'))
+  t.false(node.includes("require('node:worker_threads')"))
+  assertValidJS(t, browser, 'single-thread browser binding')
+  assertValidJS(t, node, 'single-thread Node binding')
 })
 
 test('createWasiBrowserWorkerBinding default', (t) => {
@@ -88,6 +115,10 @@ const browserBindingCases: Array<{
     args: ['test', 4000, 65536, false, true, false, true],
   },
   { name: 'all options', args: ['test', 4000, 65536, true, true, true, true] },
+  {
+    name: 'single-thread',
+    args: ['test', 4000, 65536, false, false, false, false, false],
+  },
 ]
 
 for (const { name, args } of browserBindingCases) {
