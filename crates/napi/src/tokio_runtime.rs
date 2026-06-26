@@ -2,11 +2,59 @@
 use std::sync::{LazyLock, OnceLock, RwLock};
 use std::{future::Future, marker::PhantomData};
 
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+use std::panic::AssertUnwindSafe;
+#[cfg(feature = "async-runtime")]
+use std::pin::Pin;
+
 use tokio::runtime::Runtime;
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+use futures::FutureExt;
 
 use crate::{bindgen_runtime::ToNapiValue, sys, Env, Error, Result};
 #[cfg(not(feature = "noop"))]
 use crate::{JsDeferred, SendableResolver, Unknown};
+
+#[cfg(feature = "async-runtime")]
+pub trait AsyncRuntimeGuard {}
+
+#[cfg(feature = "async-runtime")]
+impl AsyncRuntimeGuard for () {}
+
+#[cfg(feature = "async-runtime")]
+pub trait AsyncRuntime: Send + Sync + 'static {
+  fn spawn(&self, future: Pin<Box<dyn Future<Output = ()> + Send + 'static>>);
+
+  fn block_on(&self, future: Pin<&mut dyn Future<Output = ()>>);
+
+  fn enter(&self) -> Box<dyn AsyncRuntimeGuard + '_> {
+    Box::new(())
+  }
+
+  fn start(&self) {}
+
+  fn shutdown(&self) {}
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+static CUSTOM_ASYNC_RUNTIME: OnceLock<Box<dyn AsyncRuntime>> = OnceLock::new();
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+fn custom_async_runtime() -> &'static dyn AsyncRuntime {
+  CUSTOM_ASYNC_RUNTIME
+    .get()
+    .map(Box::as_ref)
+    .expect("Custom async runtime is not configured")
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+pub fn create_custom_async_runtime<R: AsyncRuntime>(runtime: R) {
+  CUSTOM_ASYNC_RUNTIME.get_or_init(|| Box::new(runtime));
+}
+
+#[cfg(all(feature = "async-runtime", feature = "noop"))]
+pub fn create_custom_async_runtime<R: AsyncRuntime>(_: R) {}
 
 #[cfg(not(feature = "noop"))]
 fn create_runtime() -> Runtime {
@@ -84,17 +132,31 @@ pub fn create_custom_tokio_runtime(_: Runtime) {}
 /// So, you need to call `shutdown_async_runtime` function to manually shutdown the async runtime.
 /// In some scenarios, you may want to start the async runtime again like in tests.
 pub fn start_async_runtime() {
-  if let Ok(mut rt) = RT.write() {
-    if rt.is_none() {
-      *rt = Some(create_runtime());
+  #[cfg(feature = "async-runtime")]
+  {
+    custom_async_runtime().start();
+  }
+  #[cfg(not(feature = "async-runtime"))]
+  {
+    if let Ok(mut rt) = RT.write() {
+      if rt.is_none() {
+        *rt = Some(create_runtime());
+      }
     }
   }
 }
 
 #[cfg(not(feature = "noop"))]
 pub fn shutdown_async_runtime() {
-  if let Some(rt) = RT.write().ok().and_then(|mut rt| rt.take()) {
-    rt.shutdown_background();
+  #[cfg(feature = "async-runtime")]
+  {
+    custom_async_runtime().shutdown();
+  }
+  #[cfg(not(feature = "async-runtime"))]
+  {
+    if let Some(rt) = RT.write().ok().and_then(|mut rt| rt.take()) {
+      rt.shutdown_background();
+    }
   }
 }
 
@@ -118,10 +180,24 @@ where
 /// This is blocking, meaning that it pauses other execution until the future is complete,
 /// only use it when it is absolutely necessary, in other places use async functions instead.
 pub fn block_on<F: Future>(fut: F) -> F::Output {
-  RT.read()
-    .ok()
-    .and_then(|rt| rt.as_ref().map(|rt| rt.block_on(fut)))
-    .expect("Access tokio runtime failed in block_on")
+  #[cfg(feature = "async-runtime")]
+  {
+    let mut output = None;
+    {
+      let mut future = std::pin::pin!(async {
+        output = Some(fut.await);
+      });
+      custom_async_runtime().block_on(future.as_mut());
+    }
+    output.expect("Custom async runtime returned before the future completed")
+  }
+  #[cfg(not(feature = "async-runtime"))]
+  {
+    RT.read()
+      .ok()
+      .and_then(|rt| rt.as_ref().map(|rt| rt.block_on(fut)))
+      .expect("Access tokio runtime failed in block_on")
+  }
 }
 
 #[cfg(feature = "noop")]
@@ -152,17 +228,27 @@ where
 /// If the feature `tokio_rt` has been enabled this will enter the runtime context and
 /// then call the provided closure. Otherwise it will just call the provided closure.
 pub fn within_runtime_if_available<F: FnOnce() -> T, T>(f: F) -> T {
-  RT.read()
-    .ok()
-    .and_then(|rt| {
-      rt.as_ref().map(|rt| {
-        let rt_guard = rt.enter();
-        let ret = f();
-        drop(rt_guard);
-        ret
+  #[cfg(feature = "async-runtime")]
+  {
+    let runtime_guard = custom_async_runtime().enter();
+    let ret = f();
+    drop(runtime_guard);
+    ret
+  }
+  #[cfg(not(feature = "async-runtime"))]
+  {
+    RT.read()
+      .ok()
+      .and_then(|rt| {
+        rt.as_ref().map(|rt| {
+          let rt_guard = rt.enter();
+          let ret = f();
+          drop(rt_guard);
+          ret
+        })
       })
-    })
-    .expect("Access tokio runtime failed in within_runtime_if_available")
+      .expect("Access tokio runtime failed in within_runtime_if_available")
+  }
 }
 
 #[cfg(feature = "noop")]
@@ -197,13 +283,39 @@ pub fn execute_tokio_future<
 ) -> Result<sys::napi_value> {
   let env = Env::from_raw(env);
   let (deferred, promise) = JsDeferred::new(&env)?;
-  #[cfg(any(
-    all(target_family = "wasm", tokio_unstable),
-    not(target_family = "wasm")
+  #[cfg(all(
+    not(feature = "async-runtime"),
+    any(
+      all(target_family = "wasm", tokio_unstable),
+      not(target_family = "wasm")
+    )
   ))]
   let deferred_for_panic = deferred.clone();
   let sendable_resolver = SendableResolver::new(resolver);
 
+  #[cfg(feature = "async-runtime")]
+  let inner = async move {
+    match AssertUnwindSafe(fut).catch_unwind().await {
+      Ok(Ok(v)) => deferred.resolve(move |env| {
+        sendable_resolver
+          .resolve(env.raw(), v)
+          .map(|v| unsafe { Unknown::from_raw_unchecked(env.raw(), v) })
+      }),
+      Ok(Err(e)) => deferred.reject(e.into()),
+      Err(reason) => {
+        if let Some(s) = reason.downcast_ref::<&str>() {
+          deferred.reject(Error::new(crate::Status::GenericFailure, s));
+        } else {
+          deferred.reject(Error::new(
+            crate::Status::GenericFailure,
+            "Panic in async function",
+          ));
+        }
+      }
+    }
+  };
+
+  #[cfg(not(feature = "async-runtime"))]
   let inner = async move {
     match fut.await {
       Ok(v) => deferred.resolve(move |env| {
@@ -215,15 +327,24 @@ pub fn execute_tokio_future<
     }
   };
 
-  #[cfg(any(
-    all(target_family = "wasm", tokio_unstable),
-    not(target_family = "wasm")
+  #[cfg(feature = "async-runtime")]
+  custom_async_runtime().spawn(Box::pin(inner));
+
+  #[cfg(all(
+    not(feature = "async-runtime"),
+    any(
+      all(target_family = "wasm", tokio_unstable),
+      not(target_family = "wasm")
+    )
   ))]
   let jh = spawn(inner);
 
-  #[cfg(any(
-    all(target_family = "wasm", tokio_unstable),
-    not(target_family = "wasm")
+  #[cfg(all(
+    not(feature = "async-runtime"),
+    any(
+      all(target_family = "wasm", tokio_unstable),
+      not(target_family = "wasm")
+    )
   ))]
   spawn(async move {
     if let Err(err) = jh.await {
@@ -240,7 +361,11 @@ pub fn execute_tokio_future<
     }
   });
 
-  #[cfg(all(target_family = "wasm", not(tokio_unstable)))]
+  #[cfg(all(
+    not(feature = "async-runtime"),
+    target_family = "wasm",
+    not(tokio_unstable)
+  ))]
   {
     std::thread::spawn(|| {
       block_on(inner);
@@ -266,13 +391,39 @@ pub fn execute_tokio_future_with_finalize_callback<
   let env = Env::from_raw(env);
   let (mut deferred, promise) = JsDeferred::new(&env)?;
   deferred.set_finalize_callback(finalize_callback);
-  #[cfg(any(
-    all(target_family = "wasm", tokio_unstable),
-    not(target_family = "wasm")
+  #[cfg(all(
+    not(feature = "async-runtime"),
+    any(
+      all(target_family = "wasm", tokio_unstable),
+      not(target_family = "wasm")
+    )
   ))]
   let deferred_for_panic = deferred.clone();
   let sendable_resolver = SendableResolver::new(resolver);
 
+  #[cfg(feature = "async-runtime")]
+  let inner = async move {
+    match AssertUnwindSafe(fut).catch_unwind().await {
+      Ok(Ok(v)) => deferred.resolve(move |env| {
+        sendable_resolver
+          .resolve(env.raw(), v)
+          .map(|v| unsafe { Unknown::from_raw_unchecked(env.raw(), v) })
+      }),
+      Ok(Err(e)) => deferred.reject(e.into()),
+      Err(reason) => {
+        if let Some(s) = reason.downcast_ref::<&str>() {
+          deferred.reject(Error::new(crate::Status::GenericFailure, s));
+        } else {
+          deferred.reject(Error::new(
+            crate::Status::GenericFailure,
+            "Panic in async function",
+          ));
+        }
+      }
+    }
+  };
+
+  #[cfg(not(feature = "async-runtime"))]
   let inner = async move {
     match fut.await {
       Ok(v) => deferred.resolve(move |env| {
@@ -284,15 +435,24 @@ pub fn execute_tokio_future_with_finalize_callback<
     }
   };
 
-  #[cfg(any(
-    all(target_family = "wasm", tokio_unstable),
-    not(target_family = "wasm")
+  #[cfg(feature = "async-runtime")]
+  custom_async_runtime().spawn(Box::pin(inner));
+
+  #[cfg(all(
+    not(feature = "async-runtime"),
+    any(
+      all(target_family = "wasm", tokio_unstable),
+      not(target_family = "wasm")
+    )
   ))]
   let jh = spawn(inner);
 
-  #[cfg(any(
-    all(target_family = "wasm", tokio_unstable),
-    not(target_family = "wasm")
+  #[cfg(all(
+    not(feature = "async-runtime"),
+    any(
+      all(target_family = "wasm", tokio_unstable),
+      not(target_family = "wasm")
+    )
   ))]
   spawn(async move {
     if let Err(err) = jh.await {
@@ -309,7 +469,11 @@ pub fn execute_tokio_future_with_finalize_callback<
     }
   });
 
-  #[cfg(all(target_family = "wasm", not(tokio_unstable)))]
+  #[cfg(all(
+    not(feature = "async-runtime"),
+    target_family = "wasm",
+    not(tokio_unstable)
+  ))]
   {
     std::thread::spawn(|| {
       block_on(inner);
