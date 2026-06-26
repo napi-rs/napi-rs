@@ -807,6 +807,37 @@ jobs:
       - name: Test async-runtime + tokio_rt (combined)
         run: cargo test -p napi --features async-runtime,tokio_rt
 
+  test-custom-async-runtime-wasi:
+    runs-on: ubuntu-latest
+    name: Test custom async runtime on wasm32-wasip1
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: 'yarn'
+          cache-dependency-path: 'yarn.lock'
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+      - name: Install dependencies
+        run: yarn install --immutable --mode=skip-build
+      - name: Build
+        run: |
+          yarn workspace @napi-rs/wasm-runtime build
+          node cli/cli.mjs build \
+            --cwd examples/custom-async-runtime \
+            --target wasm32-wasip1 \
+            --platform \
+            --no-default-features \
+            --features async-runtime \
+            --dts index.d.cts
+      - name: Test
+        run: node examples/custom-async-runtime/test.mjs wasi
+
   test-node-wasi:
     runs-on: ubuntu-latest
     name: Test node wasi target
@@ -926,6 +957,7 @@ jobs:
       - test-freebsd
       - test-custom-async-runtime-native
       - test-async-runtime-spi
+      - test-custom-async-runtime-wasi
       - test-node-wasi
       - test-latest-bun
     steps:

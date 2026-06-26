@@ -543,7 +543,9 @@ class Builder {
     const emnapi = join(require.resolve('emnapi'), '..', 'lib', wasiTarget)
     this.envs.EMNAPI_LINK_DIR = emnapi
     const emnapiVersion = require('emnapi/package.json').version
-    const projectRequire = createRequire(join(this.options.cwd, 'package.json'))
+    const projectRequire = createRequire(
+      resolve(this.options.cwd, 'package.json'),
+    )
     const emnapiCoreVersion = projectRequire('@emnapi/core').version
     const emnapiRuntimeVersion = projectRequire('@emnapi/runtime').version
 
