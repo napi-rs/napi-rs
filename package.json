@@ -9,6 +9,7 @@
     "wasm-runtime",
     "triples",
     "memory-testing",
+    "examples/custom-async-runtime",
     "examples/napi",
     "examples/napi-compat-mode",
     "examples/binary"

@@ -1,0 +1,25 @@
+{
+  "name": "@examples/custom-async-runtime",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "main": "./index.cjs",
+  "scripts": {
+    "build": "napi-raw build --platform --js index.cjs --dts index.d.cts",
+    "test": "node test.mjs native"
+  },
+  "napi": {
+    "binaryName": "custom_async_runtime",
+    "targets": [
+      "wasm32-wasip1"
+    ]
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "workspace:*",
+    "@napi-rs/wasm-runtime": "workspace:*"
+  },
+  "dependencies": {
+    "@emnapi/core": "1.11.1",
+    "@emnapi/runtime": "1.11.1"
+  }
+}
