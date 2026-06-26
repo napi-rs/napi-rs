@@ -172,7 +172,7 @@ impl<const N: usize> CallbackInfo<N> {
     Ok(instance)
   }
 
-  #[cfg(feature = "tokio_rt")]
+  #[cfg(any(feature = "tokio_rt", feature = "async-runtime"))]
   pub fn construct_async_generator<
     const IsEmptyStructHint: bool,
     T: crate::bindgen_runtime::AsyncGenerator + ObjectFinalize + 'static,
@@ -186,7 +186,7 @@ impl<const N: usize> CallbackInfo<N> {
     Ok(instance)
   }
 
-  #[cfg(feature = "tokio_rt")]
+  #[cfg(any(feature = "tokio_rt", feature = "async-runtime"))]
   pub fn async_generator_factory<
     T: ObjectFinalize + crate::bindgen_runtime::AsyncGenerator + 'static,
   >(

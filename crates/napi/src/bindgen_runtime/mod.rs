@@ -10,9 +10,9 @@ pub use module_register::*;
 use super::sys;
 use crate::{JsError, Result, Status};
 
-#[cfg(feature = "tokio_rt")]
+#[cfg(any(feature = "tokio_rt", feature = "async-runtime"))]
 pub mod async_iterator;
-#[cfg(feature = "tokio_rt")]
+#[cfg(any(feature = "tokio_rt", feature = "async-runtime"))]
 pub use async_iterator::AsyncGenerator;
 mod callback_info;
 mod env;
