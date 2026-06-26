@@ -2,9 +2,22 @@
 *.wasm
 .pure-runtime/
 browser.js
+# generated loaders — the non-threaded (wasm32-wasip1) flavor is what this
+# example's tests exercise; the threaded names are ignored too so a local
+# side-by-side threaded build leaves the tree clean
+custom_async_runtime.wasip1-browser.js
+custom_async_runtime.wasip1.cjs
+custom_async_runtime.wasip1.d.cts
+*.wasip1-deferred.js
+*.wasip1-deferred.d.ts
 custom_async_runtime.wasi-browser.js
 custom_async_runtime.wasi.cjs
+custom_async_runtime.wasi.d.cts
 index.cjs
 index.d.cts
+index.js
 wasi-worker-browser.mjs
 wasi-worker.mjs
+.vitest-attachments/
+browser/__screenshots__/
+workerd/worker.bundle.mjs

@@ -64,7 +64,7 @@ export interface UserNapiConfig {
   wasm?: {
     /**
      * https://developer.mozilla.org/en-US/docs/WebAssembly/JavaScript_interface/Memory
-     * @default 4000 pages (256MiB)
+     * @default 4000 pages (250 MiB), or 1024 pages (64 MiB) for the deferred workerd loader
      */
     initialMemory?: number
     /**
@@ -265,7 +265,19 @@ export async function readNapiConfig(
     throw new Error(`Duplicate targets are not allowed: ${duplicateTarget}`)
   }
 
-  napiConfig.targets = targets.map(parseTriple)
+  const parsedTargets = targets.map(parseTriple)
+  const outputTargets = new Map<string, string>()
+  for (const [index, target] of parsedTargets.entries()) {
+    const previous = outputTargets.get(target.platformArchABI)
+    if (previous) {
+      throw new Error(
+        `Targets ${previous} and ${targets[index]} produce the same ${target.platformArchABI} artifact set. Choose one target spelling.`,
+      )
+    }
+    outputTargets.set(target.platformArchABI, targets[index])
+  }
+
+  napiConfig.targets = parsedTargets
 
   return napiConfig
 }

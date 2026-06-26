@@ -6,6 +6,7 @@ export const createWasiBrowserBinding = (
   asyncInit = false,
   buffer = false,
   errorEvent = false,
+  threads = true,
 ) => {
   const fsImport = fs
     ? buffer
@@ -51,10 +52,29 @@ const __wasi = new __WASI({
   const emnapiInstantiateCall = asyncInit
     ? `await __emnapiInstantiateNapiModule`
     : `__emnapiInstantiateNapiModuleSync`
+  const workerRuntimeImport = threads
+    ? `  createOnMessage as __wasmCreateOnMessageForFsProxy,\n`
+    : ''
+  const memoryName = threads ? '__sharedMemory' : '__wasmMemory'
+  const asyncWorkPoolOption = `  asyncWorkPoolSize: ${threads ? 4 : 0},
+`
+  const workerOption = threads
+    ? `  onCreateWorker() {
+    const worker = new Worker(new URL('./wasi-worker-browser.mjs', import.meta.url), {
+      type: 'module',
+    })
+${workerFsHandler}
+${workerErrorHandler}
+    return worker
+  },
+`
+    : ''
 
   return `import {
   createContext as __emnapiCreateContext,
   createOnMessage as __wasmCreateOnMessageForFsProxy,
+${workerRuntimeImport}\
+  getDefaultContext as __emnapiGetDefaultContext,
   ${emnapiInstantiateImport},
   WASI as __WASI,
 } from '@napi-rs/wasm-runtime'
@@ -64,12 +84,23 @@ ${wasiCreation}
 
 const __wasmUrl = new URL('./${wasiFilename}.wasm', import.meta.url).href
 const __emnapiContext = __emnapiCreateContext()
+const __wasmResponse = await fetch(__wasmUrl)
+if (!__wasmResponse.ok) {
+  throw new Error(
+    'Failed to fetch WASI module ' + __wasmUrl + ': ' +
+      __wasmResponse.status + ' ' +
+      (__wasmResponse.statusText || 'Unknown Status'),
+  )
+}
+const __wasmFile = await __wasmResponse.arrayBuffer()
+
+const __emnapiContext = __emnapiGetDefaultContext()
 ${emnapiInjectBuffer}
 
-const __sharedMemory = new WebAssembly.Memory({
+const ${memoryName} = new WebAssembly.Memory({
   initial: ${initialMemory},
   maximum: ${maximumMemory},
-  shared: true,
+${threads ? '  shared: true,\n' : ''}\
 })
 
 const __wasmFile = await globalThis.fetch(__wasmUrl).then((res) => res.arrayBuffer())
@@ -80,22 +111,15 @@ const {
   napiModule: __napiModule,
 } = ${emnapiInstantiateCall}(__wasmFile, {
   context: __emnapiContext,
-  asyncWorkPoolSize: 4,
+${asyncWorkPoolOption}\
   wasi: __wasi,
-  onCreateWorker() {
-    const worker = new Worker(new URL('./wasi-worker-browser.mjs', import.meta.url), {
-      type: 'module',
-    })
-${workerFsHandler}
-${workerErrorHandler}
-    return worker
-  },
+${workerOption}\
   overwriteImports(importObject) {
     importObject.env = {
       ...importObject.env,
       ...importObject.napi,
       ...importObject.emnapi,
-      memory: __sharedMemory,
+      memory: ${memoryName},
     }
     return importObject
   },
@@ -110,13 +134,387 @@ ${workerErrorHandler}
 `
 }
 
+export const createWasiDeferredBrowserBinding = (
+  wasiFilename: string,
+  // 64 MiB leaves headroom for JS/runtime state under workerd's 128 MiB
+  // isolate limit. The regular Node/browser loaders retain their historical
+  // 4,000-page default.
+  initialMemory = 1024,
+  maximumMemory = 65536,
+) => {
+  return `import {
+  instantiateNapiModule as __emnapiInstantiateNapiModule,
+  WASI as __WASI,
+} from '@napi-rs/wasm-runtime'
+import { createContext as __emnapiCreateContext } from '@emnapi/runtime'
+
+/**
+ * Deferred, workerd-safe instantiation: no top-level I/O, no compile-from-bytes.
+ * Accepts ONLY a precompiled WebAssembly.Module, or a Promise resolving to one
+ * (e.g. \`import mod from './${wasiFilename}.wasm'\` under a CompiledWasm
+ * module rule / wrangler module import). Byte buffers, URLs and Response
+ * objects are rejected: they require dynamic Wasm compilation, which
+ * Cloudflare Workers disallows.
+ */
+async function __resolveModule(__wasmInput) {
+  const __module = await __wasmInput
+  // Brand check, not \`instanceof\`: \`WebAssembly.Module.imports\` throws unless
+  // its argument is a genuine WebAssembly.Module, so prototype-spoofed byte
+  // buffers are rejected while cross-realm Module instances are accepted.
+  try {
+    WebAssembly.Module.imports(__module)
+  } catch {
+    throw new TypeError(
+      "instantiate() and createInstance() expect a precompiled WebAssembly.Module (or a Promise resolving to one), " +
+        "e.g. import mod from './${wasiFilename}.wasm' under a CompiledWasm module rule / wrangler module import. " +
+        "Byte buffers, URLs and Response objects require dynamic Wasm compilation, which Cloudflare Workers disallows.",
+    )
+  }
+  return __module
+}
+
+let __normalizedModules
+
+function __normalizeModuleForEmnapi(__module) {
+  if (__module instanceof WebAssembly.Module) {
+    return __module
+  }
+  if (__normalizedModules) {
+    const __normalizedModule = __normalizedModules.get(__module)
+    if (__normalizedModule) {
+      return __normalizedModule
+    }
+  }
+  // @emnapi/core currently performs realm-local \`instanceof\` checks after
+  // accepting the module. Structured cloning preserves compiled code without
+  // compiling bytes and produces a Module owned by the current realm.
+  if (typeof structuredClone === 'function') {
+    try {
+      const __normalizedModule = structuredClone(__module)
+      if (__normalizedModule instanceof WebAssembly.Module) {
+        if (!__normalizedModules) {
+          __normalizedModules = new WeakMap()
+        }
+        __normalizedModules.set(__module, __normalizedModule)
+        return __normalizedModule
+      }
+    } catch {}
+  }
+  // Older hosts may not expose structuredClone. A genuine, extensible Module
+  // retains its WebAssembly internal slots when its realm-local prototype is
+  // installed, which is sufficient for emnapi's compatibility checks.
+  try {
+    Object.setPrototypeOf(__module, WebAssembly.Module.prototype)
+  } catch {}
+  return __module
+}
+
+function __getBeforeExitListeners() {
+  const __process =
+    typeof process === 'object' && process !== null ? process : undefined
+  if (
+    !__process ||
+    typeof __process.once !== 'function' ||
+    typeof __process.removeListener !== 'function'
+  ) {
+    return
+  }
+  const __getListeners =
+    typeof __process.rawListeners === 'function'
+      ? __process.rawListeners
+      : typeof __process.listeners === 'function'
+        ? __process.listeners
+        : undefined
+  if (!__getListeners) {
+    return
+  }
+  try {
+    return {
+      process: __process,
+      listeners: __getListeners.call(__process, 'beforeExit'),
+    }
+  } catch {}
+}
+
+function __takeAddedBeforeExitListeners(__before) {
+  if (!__before) {
+    return
+  }
+  const __after = __getBeforeExitListeners()
+  if (!__after || __after.process !== __before.process) {
+    return
+  }
+  const __existingListeners = new Set(__before.listeners)
+  const __addedListeners = __after.listeners.filter(
+    (__listener) => !__existingListeners.has(__listener),
+  )
+  const __emnapiListener = __addedListeners[__addedListeners.length - 1]
+  return {
+    process: __before.process,
+    listeners: __emnapiListener ? [__emnapiListener] : [],
+  }
+}
+
+function __removeBeforeExitListeners(__ownedListeners) {
+  if (!__ownedListeners) {
+    return
+  }
+  for (const __listener of __ownedListeners.listeners) {
+    try {
+      __ownedListeners.process.removeListener('beforeExit', __listener)
+    } catch {}
+  }
+}
+
+function __createManagedEmnapiContext() {
+  const __beforeExitListeners = __getBeforeExitListeners()
+  let __emnapiContext
+  try {
+    __emnapiContext = __emnapiCreateContext()
+  } catch (error) {
+    __removeBeforeExitListeners(
+      __takeAddedBeforeExitListeners(__beforeExitListeners),
+    )
+    throw error
+  }
+
+  const __emnapiBeforeExitListeners = __takeAddedBeforeExitListeners(
+    __beforeExitListeners,
+  )
+  // Replace emnapi's anonymous listener with an owned listener so explicit
+  // disposal can remove it and beforeExit cleanup shares the same idempotent
+  // state transition.
+  __removeBeforeExitListeners(__emnapiBeforeExitListeners)
+  let __disposed = false
+  let __managedBeforeExitListener
+  const __destroy = () => {
+    if (__disposed) {
+      return
+    }
+    __disposed = true
+    if (__managedBeforeExitListener && __emnapiBeforeExitListeners) {
+      try {
+        __emnapiBeforeExitListeners.process.removeListener(
+          'beforeExit',
+          __managedBeforeExitListener,
+        )
+      } catch {}
+    }
+    return __emnapiContext.destroy()
+  }
+  if (
+    __emnapiBeforeExitListeners &&
+    __emnapiBeforeExitListeners.listeners.length > 0
+  ) {
+    __managedBeforeExitListener = __destroy
+    try {
+      __emnapiBeforeExitListeners.process.once(
+        'beforeExit',
+        __managedBeforeExitListener,
+      )
+    } catch {
+      try {
+        __emnapiBeforeExitListeners.process.removeListener(
+          'beforeExit',
+          __managedBeforeExitListener,
+        )
+      } catch {}
+      __managedBeforeExitListener = undefined
+    }
+  }
+  return {
+    context: __emnapiContext,
+    destroy: __destroy,
+  }
+}
+
+/**
+ * Create an independent instance. Call dispose() when the instance is no
+ * longer needed so emnapi cleanup hooks run deterministically.
+ */
+export async function createInstance(__wasmInput) {
+  const __module = await __resolveModule(__wasmInput)
+  const __emnapiModule = __normalizeModuleForEmnapi(__module)
+  const __wasi = new __WASI({
+    version: 'preview1',
+  })
+  // The wasm module is linked with \`--import-memory\`, so a Memory must be
+  // provided. It is allocated here in function scope (workerd bans global
+  // scope allocation) and is not shared (no threads, no SharedArrayBuffer).
+  // Allocate it before the emnapi context so a host memory-limit failure cannot
+  // leak a context that never reaches instantiation.
+  const __wasmMemory = new WebAssembly.Memory({
+    initial: ${initialMemory},
+    maximum: ${maximumMemory},
+  })
+  const {
+    context: __emnapiContext,
+    destroy: __destroyEmnapiContext,
+  } = __createManagedEmnapiContext()
+  try {
+    const { napiModule: __napiModule } = await __emnapiInstantiateNapiModule(__emnapiModule, {
+      context: __emnapiContext,
+      asyncWorkPoolSize: 0,
+      wasi: __wasi,
+      overwriteImports(importObject) {
+        importObject.env = {
+          ...importObject.env,
+          ...importObject.napi,
+          ...importObject.emnapi,
+          memory: __wasmMemory,
+        }
+        return importObject
+      },
+      beforeInit({ instance }) {
+        for (const name of Object.keys(instance.exports)) {
+          if (name.startsWith('__napi_register__')) {
+            instance.exports[name]()
+          }
+        }
+      },
+    })
+    return {
+      exports: __napiModule.exports,
+      dispose() {
+        __destroyEmnapiContext()
+      },
+    }
+  } catch (error) {
+    try {
+      __destroyEmnapiContext()
+    } catch (disposeError) {
+      // Initialization is the primary failure. Preserve it even if cleanup
+      // also fails, while retaining the cleanup error when the value is
+      // extensible and has no existing cause.
+      try {
+        if (
+          error &&
+          (typeof error === 'object' || typeof error === 'function') &&
+          error.cause === undefined
+        ) {
+          error.cause = disposeError
+        }
+      } catch {}
+    }
+    throw error
+  }
+}
+
+let __defaultModulePromise
+let __defaultInstancePromise
+let __defaultDisposePromise
+
+/**
+ * Instantiate a module-local singleton. Concurrent and repeated calls
+ * with the same module share one instance and one Memory allocation.
+ */
+export function instantiate(__wasmInput) {
+  if (__defaultDisposePromise) {
+    const __disposePromise = __defaultDisposePromise
+    const __modulePromise = __resolveModule(__wasmInput)
+    // Observe rejected input immediately, but preserve lifecycle ordering and
+    // error precedence by instantiating only after the active disposal.
+    void __modulePromise.catch(() => {})
+    return __disposePromise.then(() => instantiate(__modulePromise))
+  }
+  const __modulePromise = __resolveModule(__wasmInput)
+  if (!__defaultInstancePromise) {
+    __defaultModulePromise = __modulePromise
+    const __instancePromise = __modulePromise.then((__module) =>
+      createInstance(__module),
+    )
+    __defaultInstancePromise = __instancePromise
+    void __instancePromise.catch(() => {
+      if (__defaultInstancePromise === __instancePromise) {
+        __defaultInstancePromise = undefined
+        __defaultModulePromise = undefined
+      }
+    })
+    return __instancePromise.then((__instance) => __instance.exports)
+  }
+  const __defaultModulePromiseForCall = __defaultModulePromise
+  const __defaultInstancePromiseForCall = __defaultInstancePromise
+  return Promise.all([__defaultModulePromiseForCall, __modulePromise]).then(
+    async ([__defaultModule, __module]) => {
+      if (__defaultModule !== __module) {
+        throw new Error(
+          'instantiate() already owns a different WebAssembly.Module; call dispose() first or use createInstance() for independent instances.',
+        )
+      }
+      return (await __defaultInstancePromiseForCall).exports
+    },
+  )
+}
+
+/**
+ * Dispose the singleton created by instantiate(). A later call may create a
+ * fresh instance, including from a different module.
+ */
+export async function dispose() {
+  if (__defaultDisposePromise) {
+    return __defaultDisposePromise
+  }
+  const __instancePromise = __defaultInstancePromise
+  if (!__instancePromise) {
+    return
+  }
+  const __disposePromise = (async () => {
+    try {
+      const __instance = await __instancePromise
+      __instance.dispose()
+    } finally {
+      // Cleanup failure can leave emnapi partially stopped. Never expose that
+      // instance again or retry cleanup against the poisoned context.
+      if (__defaultInstancePromise === __instancePromise) {
+        __defaultInstancePromise = undefined
+        __defaultModulePromise = undefined
+      }
+    }
+  })()
+  __defaultDisposePromise = __disposePromise
+  try {
+    await __disposePromise
+  } finally {
+    if (__defaultDisposePromise === __disposePromise) {
+      __defaultDisposePromise = undefined
+    }
+  }
+}
+`
+}
+
+export const createWasiDeferredBrowserBindingTypeDef = (
+  packageName: string,
+) => `export type WasiBinding = typeof import('${packageName}')
+
+export type WasiModuleInput =
+  | WebAssembly.Module
+  | PromiseLike<WebAssembly.Module>
+
+export interface WasiInstance {
+  readonly exports: WasiBinding
+  dispose(): void
+}
+
+export function instantiate(wasmInput: WasiModuleInput): Promise<WasiBinding>
+export function createInstance(wasmInput: WasiModuleInput): Promise<WasiInstance>
+export function dispose(): Promise<void>
+`
+
 export const createWasiBinding = (
   wasmFileName: string,
   packageName: string,
   initialMemory = 4000,
   maximumMemory = 65536,
-) => `/* eslint-disable */
-/* prettier-ignore */
+  threads = true,
+  // `platformArchABI` of the flavor this loader belongs to; the fallback
+  // package (`<packageName>-<platformArchABI>`) must ship the same flavor's
+  // wasm artifact.
+  platformArchABI = 'wasm32-wasi',
+  packageWasmFileName = wasmFileName,
+) => {
+  const workerImports = threads
+    ? `const { Worker } = require('node:worker_threads')
 
 /* auto-generated by NAPI-RS */
 
@@ -165,6 +563,14 @@ if (__nodeFs.existsSync(__wasmDebugFilePath)) {
 const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule } = __emnapiInstantiateNapiModuleSync(__nodeFs.readFileSync(__wasmFilePath), {
   context: __emnapiContext,
   asyncWorkPoolSize: (function() {
+`
+    : ''
+  const workerRuntimeImport = threads
+    ? `  createOnMessage: __wasmCreateOnMessageForFsProxy,\n`
+    : ''
+  const memoryName = threads ? '__sharedMemory' : '__wasmMemory'
+  const asyncWorkOptions = threads
+    ? `  asyncWorkPoolSize: (function() {
     const threadsSizeFromEnv = Number(process.env.NAPI_RS_ASYNC_WORK_POOL_SIZE ?? process.env.UV_THREADPOOL_SIZE)
     // NaN > 0 is false
     if (threadsSizeFromEnv > 0) {
@@ -174,8 +580,11 @@ const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule
     }
   })(),
   reuseWorker: true,
-  wasi: __wasi,
-  onCreateWorker() {
+`
+    : `  asyncWorkPoolSize: 0,
+`
+  const workerOption = threads
+    ? `  onCreateWorker() {
     const worker = new Worker(__nodePath.join(__dirname, 'wasi-worker.mjs'), {
       env: process.env,
     })
@@ -207,12 +616,73 @@ const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule
     }
     return worker
   },
+`
+    : ''
+
+  return `/* eslint-disable */
+/* prettier-ignore */
+
+/* auto-generated by NAPI-RS */
+
+const __nodeFs = require('node:fs')
+const __nodePath = require('node:path')
+const { WASI: __nodeWASI } = require('node:wasi')
+${workerImports}\
+
+const {
+${workerRuntimeImport}\
+  getDefaultContext: __emnapiGetDefaultContext,
+  instantiateNapiModuleSync: __emnapiInstantiateNapiModuleSync,
+} = require('@napi-rs/wasm-runtime')
+
+const __rootDir = __nodePath.parse(process.cwd()).root
+
+const __wasi = new __nodeWASI({
+  version: 'preview1',
+  env: process.env,
+  preopens: {
+    [__rootDir]: __rootDir,
+  }
+})
+
+const __emnapiContext = __emnapiGetDefaultContext()
+
+const ${memoryName} = new WebAssembly.Memory({
+  initial: ${initialMemory},
+  maximum: ${maximumMemory},
+${threads ? '  shared: true,\n' : ''}\
+})
+
+let __wasmFilePath = __nodePath.join(__dirname, '${wasmFileName}.wasm')
+const __wasmDebugFilePath = __nodePath.join(__dirname, '${wasmFileName}.debug.wasm')
+
+if (__nodeFs.existsSync(__wasmDebugFilePath)) {
+  __wasmFilePath = __wasmDebugFilePath
+} else if (!__nodeFs.existsSync(__wasmFilePath)) {
+  const __wasiPackageEntry = require.resolve('${packageName}-${platformArchABI}')
+  const __packagedWasmFilePath = __nodePath.join(
+    __nodePath.dirname(__wasiPackageEntry),
+    '${packageWasmFileName}.wasm',
+  )
+  if (!__nodeFs.existsSync(__packagedWasmFilePath)) {
+    throw new Error(
+      '${packageName}-${platformArchABI} is installed but is missing ${packageWasmFileName}.wasm.',
+    )
+  }
+  __wasmFilePath = __packagedWasmFilePath
+}
+
+const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule } = __emnapiInstantiateNapiModuleSync(__nodeFs.readFileSync(__wasmFilePath), {
+  context: __emnapiContext,
+${asyncWorkOptions}\
+  wasi: __wasi,
+${workerOption}\
   overwriteImports(importObject) {
     importObject.env = {
       ...importObject.env,
       ...importObject.napi,
       ...importObject.emnapi,
-      memory: __sharedMemory,
+      memory: ${memoryName},
     }
     return importObject
   },
@@ -225,3 +695,4 @@ const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule
   },
 })
 `
+}

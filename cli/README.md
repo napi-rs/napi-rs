@@ -28,6 +28,9 @@ yarn napi build
 | version         | Update version in created npm packages by `create-npm-dirs`    | [./docs/version.md](./docs/version.md)              |
 | pre-publish     | Update package.json and copy addons into per platform packages | [./docs/pre-publish.md](./docs/pre-publish.md)      |
 
+See [WASI targets and loaders](./docs/wasi.md) for threaded, threadless,
+browser, and workerd packaging behavior.
+
 ### Debug mode
 
 ```bash

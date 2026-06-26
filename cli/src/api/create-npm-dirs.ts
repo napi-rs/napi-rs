@@ -1,26 +1,31 @@
+import { rm as rawRmAsync } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { join, resolve } from 'node:path'
 
 import { Comparator, Range, minVersion, subset } from 'semver'
 
 const require = createRequire(import.meta.url)
-const minimumWasiNodeVersion = '>=14.0.0'
+const minimumWasiNodeVersion = '>=14.18.0'
 
 import {
   applyDefaultCreateNpmDirsOptions,
   type CreateNpmDirsOptions,
 } from '../def/create-npm-dirs.js'
 import {
+  createWasmModuleTypeDef,
   debugFactory,
   readNapiConfig,
   mkdirAsync as rawMkdirAsync,
   pick,
+  wasiLoaderSuffix,
+  wasiTargetHasThreads,
   writeFileAsync as rawWriteFileAsync,
   type Target,
   type CommonPackageJsonFields,
 } from '../utils/index.js'
 
 const debug = debugFactory('create-npm-dirs')
+const MANAGED_WASI_PACKAGE_DIRS = ['wasm32-wasi', 'wasm32-wasip1']
 
 export interface PackageMeta {
   'dist-tags': { [index: string]: string }
@@ -107,9 +112,24 @@ export async function createNpmDirs(userOptions: CreateNpmDirsOptions) {
       packageJsonPath,
       options.configPath ? resolve(options.cwd, options.configPath) : undefined,
     )
+  const configuredPackageDirs = new Set(
+    targets.map((target) => target.platformArchABI),
+  )
   const wasmRuntimeVersion = targets.some((target) => target.arch === 'wasm32')
     ? await getLatestWasmRuntimeVersion()
     : undefined
+  if (!options.dryRun) {
+    await Promise.all(
+      MANAGED_WASI_PACKAGE_DIRS.filter(
+        (packageDir) => !configuredPackageDirs.has(packageDir),
+      ).map((packageDir) =>
+        rawRmAsync(join(npmPath, packageDir), {
+          recursive: true,
+          force: true,
+        }),
+      ),
+    )
+  }
 
   for (const target of targets) {
     const targetDir = join(npmPath, `${target.platformArchABI}`)
@@ -119,10 +139,18 @@ export async function createNpmDirs(userOptions: CreateNpmDirsOptions) {
       target.arch === 'wasm32'
         ? `${binaryName}.${target.platformArchABI}.wasm`
         : `${binaryName}.${target.platformArchABI}.node`
+    let wasmModuleTypeDef: string | undefined
     const scopedPackageJson: CommonPackageJsonFields = {
       name: `${packageName}-${target.platformArchABI}`,
       version: packageJson.version,
-      cpu: target.arch !== 'universal' ? [target.arch] : undefined,
+      // WASI modules execute inside a normal host Node/browser/workerd process.
+      // Marking them as cpu=wasm32 makes npm reject direct installation and
+      // silently skip the package when it is an optional dependency on x64 or
+      // arm64 hosts.
+      cpu:
+        target.arch !== 'universal' && target.arch !== 'wasm32'
+          ? [target.arch]
+          : undefined,
       main: binaryFileName,
       files: [binaryFileName],
       ...pick(
@@ -148,15 +176,57 @@ export async function createNpmDirs(userOptions: CreateNpmDirsOptions) {
     if (target.arch !== 'wasm32') {
       scopedPackageJson.os = [target.platform]
     } else {
-      const entry = `${binaryName}.wasi.cjs`
+      const loaderSuffix = wasiLoaderSuffix(target.platformArchABI)
+      const entry = `${binaryName}.${loaderSuffix}.cjs`
+      const loaderTypeDef = `${binaryName}.${loaderSuffix}.d.cts`
       scopedPackageJson.main = entry
-      scopedPackageJson.browser = `${binaryName}.wasi-browser.js`
+      scopedPackageJson.types = loaderTypeDef
+      scopedPackageJson.browser = `${binaryName}.${loaderSuffix}-browser.js`
+      scopedPackageJson.type = 'module'
       scopedPackageJson.files?.push(
         entry,
+        loaderTypeDef,
         scopedPackageJson.browser,
-        `wasi-worker.mjs`,
-        `wasi-worker-browser.mjs`,
       )
+      if (wasiTargetHasThreads(target)) {
+        // worker scripts are only referenced by the threaded loaders
+        scopedPackageJson.files?.push(
+          `wasi-worker.mjs`,
+          `wasi-worker-browser.mjs`,
+        )
+      } else {
+        const deferredEntry = `${binaryName}.${loaderSuffix}-deferred.js`
+        const deferredTypeDef = `${binaryName}.${loaderSuffix}-deferred.d.ts`
+        wasmModuleTypeDef = `${binaryFileName}.d.ts`
+        // the deferred workerd-safe loader is only emitted for non-threaded
+        // WASI builds (mirrors `hasThreads` in `writeWasiBinding`)
+        scopedPackageJson.files?.push(
+          deferredEntry,
+          deferredTypeDef,
+          wasmModuleTypeDef,
+        )
+        scopedPackageJson.exports = {
+          '.': {
+            types: `./${loaderTypeDef}`,
+            browser: `./${scopedPackageJson.browser}`,
+            require: `./${entry}`,
+            default: `./${entry}`,
+          },
+          './workerd': {
+            types: `./${deferredTypeDef}`,
+            default: `./${deferredEntry}`,
+          },
+          './wasm': {
+            types: `./${wasmModuleTypeDef}`,
+            default: `./${binaryFileName}`,
+          },
+          './wasm.wasm': {
+            types: `./${wasmModuleTypeDef}`,
+            default: `./${binaryFileName}`,
+          },
+          './package.json': './package.json',
+        }
+      }
       scopedPackageJson.engines = {
         ...scopedPackageJson.engines,
         node: scopedPackageJson.engines?.node
@@ -182,6 +252,12 @@ export async function createNpmDirs(userOptions: CreateNpmDirsOptions) {
       targetPackageJson,
       JSON.stringify(scopedPackageJson, null, 2) + '\n',
     )
+    if (wasmModuleTypeDef) {
+      await writeFileAsync(
+        join(targetDir, wasmModuleTypeDef),
+        createWasmModuleTypeDef(),
+      )
+    }
     const targetReadme = join(targetDir, 'README.md')
     await writeFileAsync(targetReadme, readme(packageName, target))
 

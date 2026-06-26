@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, rmSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { basename, parse, join, resolve } from 'node:path'
+import { dirname, parse, join, resolve } from 'node:path'
 
 import * as colors from 'colorette'
 
@@ -28,6 +29,8 @@ import {
   targetToEnvVar,
   tryInstallCargoBinary,
   unlinkAsync,
+  wasiLoaderSuffix,
+  wasiTargetHasThreads,
   writeFileAsync,
   dirExistsAsync,
   readdirAsync,
@@ -38,6 +41,8 @@ import { createCjsBinding, createEsmBinding } from './templates/index.js'
 import {
   createWasiBinding,
   createWasiBrowserBinding,
+  createWasiDeferredBrowserBinding,
+  createWasiDeferredBrowserBindingTypeDef,
 } from './templates/load-wasi-template.js'
 import {
   createWasiBrowserWorkerBinding,
@@ -52,6 +57,110 @@ type Output = { kind: OutputKind; path: string }
 
 type BuildOptions = RawBuildOptions & { cargoOptions?: string[] }
 type ParsedBuildOptions = Omit<BuildOptions, 'cwd'> & { cwd: string }
+
+export const WASI_ARTIFACT_METADATA_PREFIX = '// napi-rs-artifact-metadata:'
+
+export function createWasiCompilerFlags(
+  wasiSdkPath: string,
+  wasiTarget: string,
+  hasThreads: boolean,
+) {
+  const compileArguments = [
+    `--target=${wasiTarget}`,
+    `--sysroot=${join(wasiSdkPath, 'share', 'wasi-sysroot')}`,
+    ...(hasThreads ? ['-pthread'] : []),
+    '-mllvm',
+    '-wasm-enable-sjlj',
+  ]
+  const linkerArguments = [
+    `-fuse-ld=${join(wasiSdkPath, 'bin', 'wasm-ld')}`,
+    `--target=${wasiTarget}`,
+  ]
+  return {
+    compileFlags: joinShellEscapedArguments(compileArguments),
+    linkerFlags: joinShellEscapedArguments(linkerArguments),
+  }
+}
+
+export function createArtifactDestinationName(
+  binaryName: string,
+  target: Target,
+  sourceName: string,
+  platform: boolean,
+) {
+  let destinationName = binaryName
+  if (platform || target.platform === 'wasi') {
+    destinationName += `.${target.platformArchABI}`
+  }
+  return `${destinationName}.${sourceName.endsWith('.wasm') ? 'wasm' : 'node'}`
+}
+
+function joinShellEscapedArguments(arguments_: string[]) {
+  return arguments_
+    .map((argument) => `'${argument.replaceAll("'", "'\\''")}'`)
+    .join(' ')
+}
+
+function createWasiArtifactMetadata(rootEntry: string | null) {
+  return `${WASI_ARTIFACT_METADATA_PREFIX}${JSON.stringify({
+    version: 1,
+    rootEntry,
+  })}\n`
+}
+
+export function selectWasiBrowserTarget(
+  buildTarget: Target,
+  configuredTargets: Target[],
+  emittedTargets: Target[],
+) {
+  if (buildTarget.platform === 'wasi') {
+    return buildTarget
+  }
+  const configuredWasiTargets = configuredTargets.filter(
+    (target) => target.platform === 'wasi',
+  )
+  return (
+    configuredWasiTargets.find((target) => !wasiTargetHasThreads(target)) ??
+    configuredWasiTargets[0] ??
+    emittedTargets.find((target) => !wasiTargetHasThreads(target)) ??
+    emittedTargets[0]
+  )
+}
+
+export function createWasiBrowserEntry(
+  packageName: string,
+  platformArchABI: string,
+  idents: string[],
+) {
+  const packageSpecifier = `${packageName}-${platformArchABI}`
+  return (
+    `export * from '${packageSpecifier}'\n` +
+    (idents.length === 0
+      ? `export { default } from '${packageSpecifier}'\n`
+      : '')
+  )
+}
+
+export function createWasiDeferredBindingTypeDef(
+  bindingModuleSpecifier: string,
+  hasTypeDef: boolean,
+) {
+  const typeDef = createWasiDeferredBrowserBindingTypeDef(
+    bindingModuleSpecifier,
+  )
+  if (hasTypeDef) {
+    return typeDef
+  }
+
+  const rootBindingType = `typeof import('${bindingModuleSpecifier}')`
+  if (!typeDef.includes(rootBindingType)) {
+    throw new Error(
+      'The deferred WASI type definition no longer contains its root binding type',
+    )
+  }
+
+  return typeDef.replace(rootBindingType, 'Record<string, unknown>')
+}
 
 export async function buildProject(rawOptions: BuildOptions) {
   debug('napi build command receive options: %O', rawOptions)
@@ -546,33 +655,104 @@ class Builder {
         cwd: this.options.cwd,
         signal: controller.signal,
       })
+    const buildTask = (
+      watch ? Promise.resolve() : this.removeStaleBuildOutputs()
+    ).then(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          if (this.options.useCross && this.options.crossCompile) {
+            throw new Error(
+              '`--use-cross` and `--cross-compile` can not be used together',
+            )
+          }
+          const command =
+            process.env.CARGO ?? (this.options.useCross ? 'cross' : 'cargo')
+          const buildProcess = spawn(command, this.args, {
+            env: { ...process.env, ...this.envs },
+            stdio: watch ? ['inherit', 'inherit', 'pipe'] : 'inherit',
+            cwd: this.options.cwd,
+            signal: controller.signal,
+          })
 
-      buildProcess.once('exit', (code) => {
-        if (code === 0) {
-          debug('%i', `Build crate ${this.crate.name} successfully!`)
-          resolve()
-        } else {
-          reject(new Error(`Build failed with exit code ${code}`))
-        }
-      })
+          buildProcess.once('exit', (code) => {
+            if (code === 0) {
+              debug('%i', `Build crate ${this.crate.name} successfully!`)
+              resolve()
+            } else {
+              reject(new Error(`Build failed with exit code ${code}`))
+            }
+          })
 
-      buildProcess.once('error', (e) => {
-        reject(new Error(`Build failed with error: ${e.message}`, { cause: e }))
-      })
+          buildProcess.once('error', (e) => {
+            reject(
+              new Error(`Build failed with error: ${e.message}`, { cause: e }),
+            )
+          })
 
-      // watch mode only, they are piped through stderr
-      buildProcess.stderr?.on('data', (data) => {
-        const output = data.toString()
-        console.error(output)
-        if (/Finished\s(`dev`|`release`)/.test(output)) {
-          this.postBuild().catch(() => {})
-        }
-      })
-    })
+          // watch mode only, they are piped through stderr
+          buildProcess.stderr?.on('data', (data) => {
+            const output = data.toString()
+            console.error(output)
+            if (/Finished\s(`dev`|`release`)/.test(output)) {
+              this.postBuild().catch(() => {})
+            }
+          })
+        }),
+    )
 
     return {
       task: buildTask.then(() => this.postBuild()),
       abort: () => controller.abort(),
+    }
+  }
+
+  private async removeStaleBuildOutputs() {
+    const [, destName] = this.getArtifactNames()
+    const stalePaths = new Set<string>()
+    if (destName) {
+      stalePaths.add(join(this.outputDir, destName))
+      if (destName.endsWith('.wasm')) {
+        stalePaths.add(
+          join(this.outputDir, destName.replace(/\.wasm$/, '.debug.wasm')),
+        )
+      }
+    }
+
+    if (this.target.platform === 'wasi') {
+      const loaderSuffix = wasiLoaderSuffix(this.target.platformArchABI)
+      for (const suffix of [
+        `${loaderSuffix}.cjs`,
+        `${loaderSuffix}.d.cts`,
+        `${loaderSuffix}-browser.js`,
+        `${loaderSuffix}-deferred.js`,
+        `${loaderSuffix}-deferred.d.ts`,
+      ]) {
+        stalePaths.add(
+          join(this.outputDir, `${this.config.binaryName}.${suffix}`),
+        )
+      }
+      if (wasiTargetHasThreads(this.target)) {
+        stalePaths.add(join(this.outputDir, 'wasi-worker.mjs'))
+        stalePaths.add(join(this.outputDir, 'wasi-worker-browser.mjs'))
+      }
+      stalePaths.add(join(this.outputDir, 'browser.js'))
+      stalePaths.add(join(this.outputDir, `${this.config.binaryName}.wasm`))
+      stalePaths.add(
+        join(this.outputDir, `${this.config.binaryName}.debug.wasm`),
+      )
+      if (this.options.platform && !this.options.noJsBinding) {
+        stalePaths.add(
+          join(this.outputDir, this.options.jsBinding ?? 'index.js'),
+        )
+      }
+    }
+
+    await Promise.all([...stalePaths].map((path) => this.unlinkIfExists(path)))
+  }
+
+  private async unlinkIfExists(path: string) {
+    if (await fileExists(path)) {
+      await unlinkAsync(path)
     }
   }
 
@@ -777,11 +957,14 @@ class Builder {
 
   private setWasiEnv() {
     const hasThreads = this.target.triple !== 'wasm32-wasip1'
+    const hasThreads = wasiTargetHasThreads(this.target)
     const wasiTarget = hasThreads ? 'wasm32-wasip1-threads' : 'wasm32-wasip1'
     const emnapi = join(require.resolve('emnapi'), '..', 'lib', wasiTarget)
     this.envs.EMNAPI_LINK_DIR = emnapi
     const emnapiVersion = require('emnapi/package.json').version
-    const projectRequire = createRequire(join(this.options.cwd, 'package.json'))
+    const projectRequire = createRequire(
+      resolve(this.options.cwd, 'package.json'),
+    )
     const emnapiCoreVersion = projectRequire('@emnapi/core').version
     const emnapiRuntimeVersion = projectRequire('@emnapi/runtime').version
 
@@ -837,7 +1020,15 @@ class Builder {
       this.setEnvIfNotExists(
         `TARGET_LDFLAGS`,
         `-fuse-ld=${WASI_SDK_PATH}/bin/wasm-ld --target=${wasiTarget}`,
+      const { compileFlags, linkerFlags } = createWasiCompilerFlags(
+        WASI_SDK_PATH,
+        wasiTarget,
+        hasThreads,
       )
+      this.setEnvIfNotExists('CC_SHELL_ESCAPED_FLAGS', '1')
+      this.setEnvIfNotExists('TARGET_CFLAGS', compileFlags)
+      this.setEnvIfNotExists('TARGET_CXXFLAGS', compileFlags)
+      this.setEnvIfNotExists(`TARGET_LDFLAGS`, linkerFlags)
     }
   }
 
@@ -998,11 +1189,17 @@ class Builder {
     debug(`Copy artifact from: [${src}]`)
     const dest = join(this.outputDir, destName)
     const isWasm = dest.endsWith('.wasm')
+    const debugDest = isWasm
+      ? dest.replace(/\.wasm$/, '.debug.wasm')
+      : undefined
 
     try {
       if (await fileExists(dest)) {
         debug('Old artifact found, remove it first')
         await unlinkAsync(dest)
+      }
+      if (debugDest) {
+        await this.unlinkIfExists(debugDest)
       }
       debug('Copy artifact to:')
       debug('  %i', dest)
@@ -1018,10 +1215,7 @@ class Builder {
             .strictValidate(false)
             .parse(await readFileAsync(src))
           const debugWasmBinary = debugWasmModule.emitWasm(true)
-          await writeFileAsync(
-            dest.replace(/\.wasm$/, '.debug.wasm'),
-            debugWasmBinary,
-          )
+          await writeFileAsync(debugDest!, debugWasmBinary)
           debug('Generate release wasm module')
           const releaseWasmModule = new ModuleConfig()
             .generateDwarf(false)
@@ -1039,6 +1233,9 @@ class Builder {
           )
           await copyFileAsync(src, dest)
         }
+        if (this.target.platform === 'wasi') {
+          await verifyWasiReactor(dest)
+        }
       } else {
         await copyFileAsync(src, dest)
       }
@@ -1048,6 +1245,11 @@ class Builder {
       })
       return wasmBinaryName ? join(this.outputDir, wasmBinaryName) : null
     } catch (e) {
+      await Promise.all(
+        [dest, debugDest]
+          .filter((path): path is string => path !== undefined)
+          .map((path) => this.unlinkIfExists(path)),
+      )
       throw new Error('Failed to copy artifact', { cause: e })
     }
   }
@@ -1055,7 +1257,14 @@ class Builder {
   private getArtifactNames() {
     if (this.cdyLibName) {
       const cdyLib = this.cdyLibName.replace(/-/g, '_')
-      const wasiTarget = this.config.targets.find((t) => t.platform === 'wasi')
+      // When building a wasi target, name the wasm artifact after the flavor
+      // being built (two wasi flavors may be declared side by side); for
+      // non-wasi builds fall back to the first declared wasi target so the
+      // loader set can still be regenerated deterministically.
+      const wasiTarget =
+        this.target.platform === 'wasi'
+          ? this.target
+          : this.config.targets.find((t) => t.platform === 'wasi')
 
       const srcName =
         this.target.platform === 'darwin'
@@ -1066,18 +1275,12 @@ class Builder {
               ? `${cdyLib}.wasm`
               : `lib${cdyLib}.so`
 
-      let destName = this.config.binaryName
-      // add platform suffix to binary name
-      // index[.linux-x64-gnu].node
-      //       ^^^^^^^^^^^^^^
-      if (this.options.platform) {
-        destName += `.${this.target.platformArchABI}`
-      }
-      if (srcName.endsWith('.wasm')) {
-        destName += '.wasm'
-      } else {
-        destName += '.node'
-      }
+      const destName = createArtifactDestinationName(
+        this.config.binaryName,
+        this.target,
+        srcName,
+        this.options.platform ?? false,
+      )
 
       return [
         srcName,
@@ -1134,6 +1337,32 @@ class Builder {
   }
 
   private async writeJsBinding(idents: string[]) {
+    // WASI fallback flavors in preference order: threaded first — the two
+    // flavors have different performance semantics, so the threaded one must
+    // win when both are installed.
+    const declaredWasiTargets = this.config.targets.filter(
+      (t) => t.platform === 'wasi',
+    )
+    // A direct `napi build --target wasm32-wasip1` (or any wasi triple) must
+    // participate even when the config does not declare that target —
+    // `writeWasiBinding` emits its loader set, so the index chain has to
+    // reference the same flavor.
+    if (
+      this.target.platform === 'wasi' &&
+      !declaredWasiTargets.some(
+        (t) => t.platformArchABI === this.target.platformArchABI,
+      )
+    ) {
+      declaredWasiTargets.push(this.target)
+    }
+    const wasiFlavors = [
+      ...new Set(
+        [
+          ...declaredWasiTargets.filter(wasiTargetHasThreads),
+          ...declaredWasiTargets.filter((t) => !wasiTargetHasThreads(t)),
+        ].map((t) => t.platformArchABI),
+      ),
+    ]
     return writeJsBinding({
       platform: this.options.platform,
       noJsBinding: this.options.noJsBinding,
@@ -1144,6 +1373,7 @@ class Builder {
       packageName: this.options.jsPackageName ?? this.config.packageName,
       version: process.env.npm_new_version ?? this.config.packageJson.version,
       outputDir: this.outputDir,
+      wasiFlavors,
     })
   }
 
@@ -1152,56 +1382,147 @@ class Builder {
     idents: string[],
   ) {
     if (distFileName) {
-      const { name, dir } = parse(distFileName)
-      const bindingPath = join(dir, `${this.config.binaryName}.wasi.cjs`)
-      const browserBindingPath = join(
-        dir,
-        `${this.config.binaryName}.wasi-browser.js`,
-      )
-      const workerPath = join(dir, 'wasi-worker.mjs')
-      const browserWorkerPath = join(dir, 'wasi-worker-browser.mjs')
-      const browserEntryPath = join(dir, 'browser.js')
-      const exportsCode =
-        `module.exports = __napiModule.exports\n` +
-        idents
-          .map(
-            (ident) =>
-              `module.exports.${ident} = __napiModule.exports.${ident}`,
-          )
-          .join('\n')
-      await writeFileAsync(
-        bindingPath,
+      const { dir } = parse(distFileName)
+      // For a wasi build, emit the loader set of the flavor being built; for
+      // non-wasi builds regenerate the loader set of EVERY declared wasi
+      // flavor (each with its own `hasThreads`), so the emitted files are
+      // deterministic regardless of the build target. Two triples mapping to
+      // the same `platformArchABI` (e.g. `wasm32-wasip1-threads` and
+      // `wasm32-wasi-preview1-threads`) describe the same artifact set, so
+      // dedupe on it.
+      const wasiTargets: Target[] = []
+      const seen = new Set<string>()
+      const declaredWasiTargets =
+        this.target.platform === 'wasi'
+          ? [this.target]
+          : this.config.targets.filter((t) => t.platform === 'wasi')
+      for (const wasiTarget of declaredWasiTargets) {
+        if (seen.has(wasiTarget.platformArchABI)) {
+          continue
+        }
+        seen.add(wasiTarget.platformArchABI)
+        wasiTargets.push(wasiTarget)
+      }
+      const outputs: Output[] = []
+      for (const wasiTarget of wasiTargets) {
+        outputs.push(
+          ...(await this.writeWasiBindingForTarget(wasiTarget, dir, idents)),
+        )
+      }
+      if (wasiTargets.length > 0) {
+        // The browser entry re-exports a single flavor: the non-threaded one
+        // when declared (browser environments without cross-origin isolation
+        // cannot use the threaded flavor). An explicit WASI build target is
+        // authoritative, even when package config declares another flavor.
+        const browserFlavor = selectWasiBrowserTarget(
+          this.target,
+          this.config.targets,
+          wasiTargets,
+        )
+        const browserEntryPath = join(dir, 'browser.js')
+        await writeFileAsync(
+          browserEntryPath,
+          createWasiBrowserEntry(
+            this.config.packageName,
+            browserFlavor.platformArchABI,
+            idents,
+          ),
+        )
+        outputs.push({ kind: 'js', path: browserEntryPath })
+      }
+      return outputs
+    }
+    return []
+  }
+
+  private async writeWasiBindingForTarget(
+    wasiTarget: Target,
+    dir: string,
+    idents: string[],
+  ): Promise<Output[]> {
+    const hasThreads = wasiTargetHasThreads(wasiTarget)
+    const loaderSuffix = wasiLoaderSuffix(wasiTarget.platformArchABI)
+    // the wasm file stem referenced from inside the loaders
+    const name = `${this.config.binaryName}.${wasiTarget.platformArchABI}`
+    const bindingPath = join(
+      dir,
+      `${this.config.binaryName}.${loaderSuffix}.cjs`,
+    )
+    const browserBindingPath = join(
+      dir,
+      `${this.config.binaryName}.${loaderSuffix}-browser.js`,
+    )
+    const bindingTypeDefPath = join(
+      dir,
+      `${this.config.binaryName}.${loaderSuffix}.d.cts`,
+    )
+    const exportsCode =
+      `module.exports = __napiModule.exports\n` +
+      idents
+        .map(
+          (ident) => `module.exports.${ident} = __napiModule.exports.${ident}`,
+        )
+        .join('\n')
+    await writeFileAsync(
+      bindingPath,
+      createWasiArtifactMetadata(
+        this.options.platform && !this.options.noJsBinding
+          ? (this.options.jsBinding ?? 'index.js')
+          : null,
+      ) +
         createWasiBinding(
           name,
           this.config.packageName,
           this.config.wasm?.initialMemory,
           this.config.wasm?.maximumMemory,
+          hasThreads,
+          wasiTarget.platformArchABI,
+          `${this.config.binaryName}.${wasiTarget.platformArchABI}`,
         ) +
-          exportsCode +
-          '\n',
-        'utf8',
-      )
-      await writeFileAsync(
-        browserBindingPath,
-        createWasiBrowserBinding(
-          name,
-          this.config.wasm?.initialMemory,
-          this.config.wasm?.maximumMemory,
-          this.config.wasm?.browser?.fs,
-          this.config.wasm?.browser?.asyncInit,
-          this.config.wasm?.browser?.buffer,
-          this.config.wasm?.browser?.errorEvent,
-        ) +
-          `export default __napiModule.exports\n` +
-          idents
-            .map(
-              (ident) =>
-                `export const ${ident} = __napiModule.exports.${ident}`,
-            )
-            .join('\n') +
-          '\n',
-        'utf8',
-      )
+        exportsCode +
+        '\n',
+      'utf8',
+    )
+    await writeFileAsync(
+      browserBindingPath,
+      createWasiBrowserBinding(
+        name,
+        this.config.wasm?.initialMemory,
+        this.config.wasm?.maximumMemory,
+        this.config.wasm?.browser?.fs,
+        this.config.wasm?.browser?.asyncInit,
+        this.config.wasm?.browser?.buffer,
+        this.config.wasm?.browser?.errorEvent,
+        hasThreads,
+      ) +
+        `export default __napiModule.exports\n` +
+        idents
+          .map(
+            (ident) => `export const ${ident} = __napiModule.exports.${ident}`,
+          )
+          .join('\n') +
+        '\n',
+      'utf8',
+    )
+    const bindingTypeDef = this.enableTypeDef
+      ? await readFileAsync(
+          join(this.outputDir, this.options.dts ?? 'index.d.ts'),
+          'utf8',
+        )
+      : `${DEFAULT_TYPE_DEF_HEADER}
+declare const binding: Record<string, unknown>
+export = binding
+`
+    await writeFileAsync(bindingTypeDefPath, bindingTypeDef, 'utf8')
+    const outputs: Output[] = [
+      { kind: 'js', path: bindingPath },
+      { kind: 'js', path: browserBindingPath },
+      { kind: 'dts', path: bindingTypeDefPath },
+    ]
+    if (hasThreads) {
+      // worker scripts are only referenced by the threaded loaders
+      const workerPath = join(dir, 'wasi-worker.mjs')
+      const browserWorkerPath = join(dir, 'wasi-worker-browser.mjs')
       await writeFileAsync(workerPath, WASI_WORKER_TEMPLATE, 'utf8')
       await writeFileAsync(
         browserWorkerPath,
@@ -1211,25 +1532,70 @@ class Builder {
         ),
         'utf8',
       )
-      await writeFileAsync(
-        browserEntryPath,
-        `export * from '${this.config.packageName}-wasm32-wasi'\n`,
-      )
-      return [
-        { kind: 'js', path: bindingPath },
-        { kind: 'js', path: browserBindingPath },
+      outputs.push(
         { kind: 'js', path: workerPath },
         { kind: 'js', path: browserWorkerPath },
-        { kind: 'js', path: browserEntryPath },
-      ] satisfies Output[]
+      )
+    } else {
+      // the deferred workerd-safe loader only exists for non-threaded flavors
+      const deferredBindingPath = join(
+        dir,
+        `${this.config.binaryName}.${loaderSuffix}-deferred.js`,
+      )
+      const deferredTypeDefPath = join(
+        dir,
+        `${this.config.binaryName}.${loaderSuffix}-deferred.d.ts`,
+      )
+      await writeFileAsync(
+        deferredBindingPath,
+        createWasiDeferredBrowserBinding(
+          name,
+          this.config.wasm?.initialMemory,
+          this.config.wasm?.maximumMemory,
+        ),
+        'utf8',
+      )
+      await writeFileAsync(
+        deferredTypeDefPath,
+        createWasiDeferredBindingTypeDef(
+          `./${this.config.binaryName}.${loaderSuffix}.cjs`,
+          this.enableTypeDef,
+        ),
+        'utf8',
+      )
+      outputs.push(
+        { kind: 'js', path: deferredBindingPath },
+        { kind: 'dts', path: deferredTypeDefPath },
+      )
     }
-    return []
+    return outputs
   }
 
   private setEnvIfNotExists(env: string, value: string) {
     if (!process.env[env]) {
       this.envs[env] = value
     }
+  }
+}
+
+export async function verifyWasiReactor(wasmPath: string): Promise<void> {
+  const bytes = await readFileAsync(wasmPath)
+  let module: WebAssembly.Module
+  try {
+    module = new WebAssembly.Module(bytes)
+  } catch (error) {
+    throw new Error(`Failed to validate WASI artifact ${wasmPath}`, {
+      cause: error,
+    })
+  }
+  if (
+    !WebAssembly.Module.exports(module).some(
+      ({ name, kind }) => name === '_initialize' && kind === 'function',
+    )
+  ) {
+    throw new Error(
+      `WASI artifact ${wasmPath} does not export _initialize. Ensure napi-build can locate crt1-reactor.o for the selected Rust target.`,
+    )
   }
 }
 
@@ -1243,16 +1609,23 @@ export interface WriteJsBindingOptions {
   packageName: string
   version: string
   outputDir: string
+  /**
+   * `platformArchABI`s of the declared WASI targets in fallback preference
+   * order (threaded first). Defaults to the legacy `['wasm32-wasi']` chain
+   * when omitted or empty.
+   */
+  wasiFlavors?: string[]
 }
 
 export async function writeJsBinding(
   options: WriteJsBindingOptions,
 ): Promise<Output | undefined> {
+  const hasWasiFallback = Boolean(options.wasiFlavors?.length)
   if (
     !options.platform ||
     // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
     options.noJsBinding ||
-    options.idents.length === 0
+    (options.idents.length === 0 && !hasWasiFallback)
   ) {
     return
   }
@@ -1266,12 +1639,14 @@ export async function writeJsBinding(
     options.idents,
     // in npm preversion hook
     options.version,
+    options.wasiFlavors,
   )
 
   try {
     const dest = join(options.outputDir, name)
     debug('Writing js binding to:')
     debug('  %i', dest)
+    await mkdirAsync(dirname(dest), { recursive: true })
     await writeFileAsync(dest, binding, 'utf-8')
     return { kind: 'js', path: dest } satisfies Output
   } catch (e) {

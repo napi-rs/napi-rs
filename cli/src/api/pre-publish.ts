@@ -1,6 +1,9 @@
 import { execSync } from 'node:child_process'
 import { existsSync, statSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { createRequire } from 'node:module'
+import { rm } from 'node:fs/promises'
+import { dirname, extname, join, relative, resolve, sep } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 
 import { Octokit } from '@octokit/rest'
 
@@ -11,13 +14,28 @@ import {
 import {
   readFileAsync,
   readNapiConfig,
+  createWasmModuleTypeDef,
   debugFactory,
+  copyFileAsync,
+  mkdirAsync,
   updatePackageJson,
+  wasiLoaderSuffix,
+  wasiTargetHasThreads,
+  writeFileAsync,
+  type CommonPackageJsonFields,
+  type Target,
 } from '../utils/index.js'
 
 import { version } from './version.js'
 
 const debug = debugFactory('pre-publish')
+const THREADLESS_WASI_ROOT_SUBPATHS = new Set([
+  './workerd',
+  './wasm',
+  './wasm.wasm',
+])
+const LEGACY_DEEP_IMPORT_EXTENSIONS = ['.js', '.json', '.node']
+const DECLARATION_EXTENSIONS = ['.d.ts', '.d.cts', '.d.mts']
 
 interface PackageInfo {
   name: string
@@ -38,6 +56,28 @@ export async function prePublish(userOptions: PrePublishOptions) {
       packageJsonPath,
       options.configPath ? resolve(options.cwd, options.configPath) : undefined,
     )
+  const rootDir = dirname(packageJsonPath)
+  const threadlessWasiTarget = targets.find(
+    (target) => target.platform === 'wasi' && !wasiTargetHasThreads(target),
+  )
+
+  for (const target of targets) {
+    const pkgDir = resolve(options.cwd, options.npmDir, target.platformArchABI)
+    await validateReleasePackage({
+      pkgDir,
+      rootDir,
+      packageName,
+      binaryName,
+      target,
+      materializeDeclarationDependencies: !options.dryRun,
+    })
+  }
+  if (threadlessWasiTarget) {
+    validateRootPackagePaths(
+      rootDir,
+      collectRootPackagePathReferences(packageJson),
+    )
+  }
 
   async function createGhRelease(packageName: string, version: string) {
     if (!options.ghRelease) {
@@ -132,7 +172,12 @@ export async function prePublish(userOptions: PrePublishOptions) {
 
   if (!options.dryRun) {
     await version(userOptions)
-    await updatePackageJson(packageJsonPath, {
+    const rootFacadeReconciliation = reconcileThreadlessWasiRootFacade(
+      packageJson,
+      rootDir,
+    )
+    let reconciledPackageJson = rootFacadeReconciliation.packageJson
+    const packageJsonUpdate: Record<string, unknown> = {
       optionalDependencies: targets.reduce(
         (deps, target) => {
           deps[`${packageName}-${target.platformArchABI}`] = packageJson.version
@@ -141,7 +186,51 @@ export async function prePublish(userOptions: PrePublishOptions) {
         },
         {} as Record<string, string>,
       ),
-    })
+    }
+    let rootFacade: ThreadlessWasiRootFacade | undefined
+    if (threadlessWasiTarget) {
+      rootFacade = await createThreadlessWasiRootFacade({
+        packageJsonPath,
+        packageJson: reconciledPackageJson,
+        packageName,
+        binaryName,
+        target: threadlessWasiTarget,
+        npmDir: resolve(options.cwd, options.npmDir),
+      })
+      reconciledPackageJson = applyThreadlessWasiRootFacade(
+        reconciledPackageJson,
+        rootFacade,
+      )
+    }
+    await updatePackageJson(packageJsonPath, packageJsonUpdate)
+    // updatePackageJson recursively merges objects. Facade fields need exact
+    // replacement so removed targets and renamed binaries do not leave stale
+    // exports or files behind.
+    const updatedPackageJson = JSON.parse(
+      await readFileAsync(packageJsonPath, 'utf8'),
+    )
+    syncThreadlessWasiRootFacadeManifest(
+      updatedPackageJson,
+      reconciledPackageJson,
+    )
+    await writeFileAsync(
+      packageJsonPath,
+      JSON.stringify(updatedPackageJson, null, 2),
+    )
+    if (rootFacade) {
+      validateRootFacadePacklist(rootDir, [
+        ...rootFacade.generatedFiles,
+        ...collectRootPackagePathReferences(updatedPackageJson),
+      ])
+    }
+    const generatedFiles = new Set(rootFacade?.generatedFiles ?? [])
+    await Promise.all(
+      rootFacadeReconciliation.staleGeneratedFiles
+        .filter((file) => !generatedFiles.has(file))
+        .map((file) =>
+          rm(join(dirname(packageJsonPath), file), { force: true }),
+        ),
+    )
   }
 
   const { owner, repo, pkgInfo, octokit } = options.ghReleaseId
@@ -161,8 +250,7 @@ export async function prePublish(userOptions: PrePublishOptions) {
 
     if (!options.dryRun) {
       if (!existsSync(dstPath)) {
-        debug.warn(`%s doesn't exist`, dstPath)
-        continue
+        throw new Error(`Release artifact does not exist: ${dstPath}`)
       }
 
       if (!options.skipOptionalPublish) {
@@ -229,6 +317,1071 @@ export async function prePublish(userOptions: PrePublishOptions) {
       }
     }
   }
+}
+
+interface ThreadlessWasiRootFacadeOptions {
+  packageJsonPath: string
+  packageJson: CommonPackageJsonFields
+  packageName: string
+  binaryName: string
+  target: Target
+  npmDir: string
+}
+
+interface ThreadlessWasiRootFacade {
+  exports: Record<string, unknown>
+  publishConfigExports?: Record<string, unknown>
+  generatedFiles: string[]
+  packageJsonUpdate: {
+    files?: string[]
+  }
+}
+
+interface ThreadlessWasiRootFacadeFiles {
+  workerdEntry: string
+  workerdTypeDef: string
+  wasmEntry: string
+  wasmTypeDef: string
+}
+
+interface ThreadlessWasiRootFacadeReconciliation {
+  packageJson: CommonPackageJsonFields
+  staleGeneratedFiles: string[]
+}
+
+function reconcileThreadlessWasiRootFacade(
+  packageJson: CommonPackageJsonFields,
+  rootDir: string,
+): ThreadlessWasiRootFacadeReconciliation {
+  const reconciledPackageJson = { ...packageJson }
+  const staleGeneratedFiles = new Set<string>()
+  const rootExports = removeThreadlessWasiRootExports(
+    packageJson.exports,
+    packageJson,
+    rootDir,
+  )
+  for (const file of rootExports.generatedFiles) {
+    staleGeneratedFiles.add(file)
+  }
+  setOptionalProperty(
+    reconciledPackageJson as Record<string, unknown>,
+    'exports',
+    rootExports.exports,
+  )
+
+  const publishConfig = asRecord(packageJson.publishConfig)
+  if (
+    publishConfig &&
+    Object.prototype.hasOwnProperty.call(publishConfig, 'exports')
+  ) {
+    const publishConfigExports = removeThreadlessWasiRootExports(
+      publishConfig.exports as CommonPackageJsonFields['exports'],
+      packageJson,
+      rootDir,
+    )
+    for (const file of publishConfigExports.generatedFiles) {
+      staleGeneratedFiles.add(file)
+    }
+    const reconciledPublishConfig = { ...publishConfig }
+    setOptionalProperty(
+      reconciledPublishConfig,
+      'exports',
+      publishConfigExports.exports,
+    )
+    reconciledPackageJson.publishConfig = reconciledPublishConfig
+  }
+
+  if (Array.isArray(packageJson.files)) {
+    for (const file of collectManagedThreadlessWasiFiles(packageJson.files)) {
+      staleGeneratedFiles.add(file)
+    }
+    reconciledPackageJson.files = packageJson.files.filter(
+      (file) => !staleGeneratedFiles.has(file),
+    )
+  }
+
+  return {
+    packageJson: reconciledPackageJson,
+    staleGeneratedFiles: [...staleGeneratedFiles],
+  }
+}
+
+function removeThreadlessWasiRootExports(
+  currentExports: CommonPackageJsonFields['exports'],
+  packageJson: CommonPackageJsonFields,
+  rootDir: string,
+) {
+  const exportsMap = asRecord(currentExports)
+  const generatedFiles = getManagedThreadlessWasiRootFacadeFiles(exportsMap)
+  if (!exportsMap || !generatedFiles) {
+    return { exports: currentExports, generatedFiles: [] }
+  }
+
+  const nextExports = { ...exportsMap }
+  delete nextExports['./workerd']
+  delete nextExports['./wasm']
+  delete nextExports['./wasm.wasm']
+  const keys = Object.keys(nextExports)
+  if (
+    Object.prototype.hasOwnProperty.call(nextExports, '.') &&
+    nextExports['./*'] === './*' &&
+    isDeepStrictEqual(
+      nextExports['.'],
+      createLegacyRootExport(packageJson, rootDir),
+    ) &&
+    keys
+      .filter((key) => key !== '.' && key !== './*')
+      .every((key) => isGeneratedLegacyDeepImportExport(key, nextExports[key]))
+  ) {
+    return { exports: undefined, generatedFiles: Object.values(generatedFiles) }
+  }
+  if (keys.length === 1 && keys[0] === '.') {
+    return {
+      exports: nextExports['.'],
+      generatedFiles: Object.values(generatedFiles),
+    }
+  }
+  return {
+    exports: keys.length > 0 ? nextExports : undefined,
+    generatedFiles: Object.values(generatedFiles),
+  }
+}
+
+function getManagedThreadlessWasiRootFacadeFiles(
+  exportsMap: Record<string, unknown> | undefined,
+): ThreadlessWasiRootFacadeFiles | undefined {
+  if (!exportsMap) {
+    return undefined
+  }
+  const workerdExport = asRecord(exportsMap['./workerd'])
+  const workerdEntry =
+    typeof workerdExport?.default === 'string'
+      ? workerdExport.default.match(
+          /^\.\/([^/\\]+\.wasm32-wasip1)\.workerd\.mjs$/,
+        )
+      : null
+  if (!workerdEntry) {
+    return undefined
+  }
+  const generatedPrefix = workerdEntry[1]
+  const files: ThreadlessWasiRootFacadeFiles = {
+    workerdEntry: `${generatedPrefix}.workerd.mjs`,
+    workerdTypeDef: `${generatedPrefix}.workerd.d.mts`,
+    wasmEntry: `${generatedPrefix}.wasm`,
+    wasmTypeDef: `${generatedPrefix}.wasm.d.mts`,
+  }
+  const expectedWorkerdExport = {
+    types: `./${files.workerdTypeDef}`,
+    default: `./${files.workerdEntry}`,
+  }
+  const expectedWasmExport = {
+    types: `./${files.wasmTypeDef}`,
+    default: `./${files.wasmEntry}`,
+  }
+  if (
+    !isDeepStrictEqual(workerdExport, expectedWorkerdExport) ||
+    !isDeepStrictEqual(exportsMap['./wasm'], expectedWasmExport) ||
+    !isDeepStrictEqual(exportsMap['./wasm.wasm'], expectedWasmExport)
+  ) {
+    return undefined
+  }
+  return files
+}
+
+function collectManagedThreadlessWasiFiles(files: string[]) {
+  const fileSet = new Set(files)
+  const generatedFiles = new Set<string>()
+  for (const file of files) {
+    const match = file.match(/^([^/\\]+\.wasm32-wasip1)\.workerd\.mjs$/)
+    if (!match) {
+      continue
+    }
+    const generatedPrefix = match[1]
+    const candidateFiles = [
+      `${generatedPrefix}.workerd.mjs`,
+      `${generatedPrefix}.workerd.d.mts`,
+      `${generatedPrefix}.wasm`,
+      `${generatedPrefix}.wasm.d.mts`,
+    ]
+    if (candidateFiles.every((candidate) => fileSet.has(candidate))) {
+      for (const candidate of candidateFiles) {
+        generatedFiles.add(candidate)
+      }
+    }
+  }
+  return generatedFiles
+}
+
+function applyThreadlessWasiRootFacade(
+  packageJson: CommonPackageJsonFields,
+  rootFacade: ThreadlessWasiRootFacade,
+) {
+  const updatedPackageJson = {
+    ...packageJson,
+    exports: rootFacade.exports,
+  }
+  if (rootFacade.packageJsonUpdate.files) {
+    updatedPackageJson.files = rootFacade.packageJsonUpdate.files
+  }
+  if (rootFacade.publishConfigExports) {
+    updatedPackageJson.publishConfig = {
+      ...asRecord(packageJson.publishConfig),
+      exports: rootFacade.publishConfigExports,
+    }
+  }
+  return updatedPackageJson
+}
+
+function syncThreadlessWasiRootFacadeManifest(
+  destination: Record<string, unknown>,
+  source: CommonPackageJsonFields,
+) {
+  setOptionalProperty(destination, 'exports', source.exports)
+  setOptionalProperty(destination, 'files', source.files)
+
+  const destinationPublishConfig = asRecord(destination.publishConfig)
+  const sourcePublishConfig = asRecord(source.publishConfig)
+  if (destinationPublishConfig || sourcePublishConfig?.exports !== undefined) {
+    const publishConfig = { ...destinationPublishConfig }
+    setOptionalProperty(publishConfig, 'exports', sourcePublishConfig?.exports)
+    destination.publishConfig = publishConfig
+  }
+}
+
+function setOptionalProperty(
+  object: Record<string, unknown>,
+  key: string,
+  value: unknown,
+) {
+  if (value === undefined) {
+    delete object[key]
+  } else {
+    object[key] = value
+  }
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined
+}
+
+async function createThreadlessWasiRootFacade({
+  packageJsonPath,
+  packageJson,
+  packageName,
+  binaryName,
+  target,
+  npmDir,
+}: ThreadlessWasiRootFacadeOptions): Promise<ThreadlessWasiRootFacade> {
+  const rootDir = dirname(packageJsonPath)
+  const flavorPackageName = `${packageName}-${target.platformArchABI}`
+  const wasmFileName = `${binaryName}.${target.platformArchABI}.wasm`
+  const generatedPrefix = `${binaryName}.${target.platformArchABI}`
+  const files: ThreadlessWasiRootFacadeFiles = {
+    workerdEntry: `${generatedPrefix}.workerd.mjs`,
+    workerdTypeDef: `${generatedPrefix}.workerd.d.mts`,
+    wasmEntry: wasmFileName,
+    wasmTypeDef: `${wasmFileName}.d.mts`,
+  }
+  const publishConfig = asRecord(packageJson.publishConfig)
+  const hasPublishConfigExports =
+    publishConfig &&
+    Object.prototype.hasOwnProperty.call(publishConfig, 'exports')
+  const effectiveExports = hasPublishConfigExports
+    ? (publishConfig.exports as CommonPackageJsonFields['exports'])
+    : packageJson.exports
+  const exports = addThreadlessWasiRootExports(
+    effectiveExports,
+    packageJson,
+    files,
+    rootDir,
+  )
+  const publishConfigExports = hasPublishConfigExports ? exports : undefined
+
+  await copyFileAsync(
+    join(npmDir, target.platformArchABI, wasmFileName),
+    join(rootDir, files.wasmEntry),
+  )
+
+  const workerdSpecifier = `${flavorPackageName}/workerd`
+  const forwardingModule = `export * from ${JSON.stringify(workerdSpecifier)}\n`
+  await Promise.all([
+    writeFileAsync(join(rootDir, files.workerdEntry), forwardingModule, 'utf8'),
+    writeFileAsync(
+      join(rootDir, files.workerdTypeDef),
+      forwardingModule,
+      'utf8',
+    ),
+    writeFileAsync(
+      join(rootDir, files.wasmTypeDef),
+      createWasmModuleTypeDef(),
+      'utf8',
+    ),
+  ])
+
+  const generatedFiles = Object.values(files)
+  const facade: ThreadlessWasiRootFacade = {
+    exports,
+    publishConfigExports,
+    generatedFiles,
+    packageJsonUpdate: {},
+  }
+  if (Array.isArray(packageJson.files)) {
+    facade.packageJsonUpdate = {
+      files: [...new Set([...packageJson.files, ...generatedFiles])],
+    }
+  }
+  return facade
+}
+
+function addThreadlessWasiRootExports(
+  currentExports: CommonPackageJsonFields['exports'],
+  packageJson: CommonPackageJsonFields,
+  files: ThreadlessWasiRootFacadeFiles,
+  rootDir: string,
+) {
+  let exportsMap: Record<string, unknown>
+  if (currentExports === undefined) {
+    exportsMap = {
+      '.': createLegacyRootExport(packageJson, rootDir),
+      // Adding an exports map would otherwise encapsulate every historical
+      // deep import. The wildcard preserves explicit paths, while exact
+      // aliases preserve CommonJS extension and directory-index resolution.
+      './*': './*',
+      ...createLegacyDeepImportExports(rootDir),
+    }
+  } else if (
+    typeof currentExports === 'object' &&
+    currentExports !== null &&
+    !Array.isArray(currentExports) &&
+    Object.keys(currentExports).some((key) => key.startsWith('.'))
+  ) {
+    exportsMap = { ...currentExports }
+  } else {
+    // A string, array, or condition-only object describes the package root.
+    exportsMap = { '.': currentExports }
+  }
+
+  setThreadlessWasiRootExport(exportsMap, './workerd', {
+    types: `./${files.workerdTypeDef}`,
+    default: `./${files.workerdEntry}`,
+  })
+  const wasmExport = {
+    types: `./${files.wasmTypeDef}`,
+    default: `./${files.wasmEntry}`,
+  }
+  setThreadlessWasiRootExport(exportsMap, './wasm', wasmExport)
+  setThreadlessWasiRootExport(exportsMap, './wasm.wasm', wasmExport)
+  return exportsMap
+}
+
+function setThreadlessWasiRootExport(
+  exportsMap: Record<string, unknown>,
+  subpath: string,
+  generatedExport: unknown,
+) {
+  if (!Object.prototype.hasOwnProperty.call(exportsMap, subpath)) {
+    exportsMap[subpath] = generatedExport
+    return
+  }
+  if (isDeepStrictEqual(exportsMap[subpath], generatedExport)) {
+    return
+  }
+  throw new Error(
+    `Cannot generate the threadless WASI root export ${subpath}: package.json already defines that subpath. Remove or rename the existing export before running pre-publish.`,
+  )
+}
+
+function createLegacyRootExport(
+  packageJson: CommonPackageJsonFields,
+  rootDir: string,
+) {
+  const main = resolveLegacyPackageTarget(
+    rootDir,
+    packageJson.main ?? 'index.js',
+  )
+  const rootExport: Record<string, string> = {}
+  const legacyPackageJson = packageJson as CommonPackageJsonFields & {
+    typings?: unknown
+  }
+  const typeDef =
+    typeof packageJson.types === 'string'
+      ? packageJson.types
+      : typeof legacyPackageJson.typings === 'string'
+        ? legacyPackageJson.typings
+        : undefined
+  if (typeDef) {
+    rootExport.types = resolveLegacyPackageTarget(rootDir, typeDef)
+  }
+  if (typeof packageJson.browser === 'string') {
+    rootExport.browser = resolveLegacyPackageTarget(
+      rootDir,
+      packageJson.browser,
+    )
+  }
+  if (typeof packageJson.module === 'string') {
+    const module = resolveLegacyPackageTarget(rootDir, packageJson.module)
+    if (isNodeEsmTarget(module, packageJson.type)) {
+      rootExport.import = module
+    } else {
+      rootExport.module = module
+      rootExport.require = main
+    }
+  } else if (packageJson.type === 'module') {
+    rootExport.import = main
+  } else {
+    rootExport.require = main
+  }
+  // Node ignores the legacy `module` field. CommonJS resolution reaches the
+  // main entry through `node`, while ESM reaches `import` above when present.
+  rootExport.node = main
+  rootExport.default = main
+  return rootExport
+}
+
+function normalizePackageTarget(target: string) {
+  return target.startsWith('./') ? target : `./${target}`
+}
+
+function resolveLegacyPackageTarget(rootDir: string, target: string) {
+  try {
+    const resolvedTarget = createRequire(join(rootDir, 'package.json')).resolve(
+      resolve(rootDir, target),
+    )
+    const relativeTarget = relative(rootDir, resolvedTarget)
+    if (
+      relativeTarget.length > 0 &&
+      relativeTarget !== '..' &&
+      !relativeTarget.startsWith(`..${sep}`) &&
+      !resolve(rootDir, relativeTarget).startsWith(
+        `${resolve(rootDir)}${sep}node_modules}${sep}`,
+      )
+    ) {
+      return normalizePackageTarget(relativeTarget.split(sep).join('/'))
+    }
+  } catch {
+    // Preserve the legacy value so root validation can report the missing path.
+  }
+  return normalizePackageTarget(target)
+}
+
+function isNodeEsmTarget(
+  target: string,
+  packageType: CommonPackageJsonFields['type'],
+) {
+  const extension = extname(target)
+  return (
+    extension === '.mjs' || (extension === '.js' && packageType === 'module')
+  )
+}
+
+function createLegacyDeepImportExports(rootDir: string) {
+  const packedFiles = readNpmPackFiles(rootDir, 'root package')
+  const exportsMap: Record<string, string> = {}
+  const matchingFiles = [...packedFiles]
+    .filter((file) =>
+      LEGACY_DEEP_IMPORT_EXTENSIONS.some((extension) =>
+        file.endsWith(extension),
+      ),
+    )
+    .sort()
+
+  for (const extension of LEGACY_DEEP_IMPORT_EXTENSIONS) {
+    for (const file of matchingFiles.filter((file) =>
+      file.endsWith(extension),
+    )) {
+      const target = `./${file}`
+      const extensionless = `./${file.slice(0, -extension.length)}`
+      exportsMap[extensionless] ??= target
+    }
+  }
+
+  for (const packageManifest of matchingFiles.filter((file) =>
+    file.endsWith('/package.json'),
+  )) {
+    const directory = dirname(packageManifest).split(sep).join('/')
+    const target = resolveLegacyPackageTarget(rootDir, directory)
+    if (packedFiles.has(target.slice(2))) {
+      exportsMap[`./${directory}`] ??= target
+    }
+  }
+
+  for (const extension of LEGACY_DEEP_IMPORT_EXTENSIONS) {
+    for (const file of matchingFiles.filter((file) =>
+      file.endsWith(extension),
+    )) {
+      const indexSuffix = `/index${extension}`
+      if (file.endsWith(indexSuffix)) {
+        const directory = `./${file.slice(0, -indexSuffix.length)}`
+        exportsMap[directory] ??= `./${file}`
+      }
+    }
+  }
+
+  return exportsMap
+}
+
+function isGeneratedLegacyDeepImportExport(key: string, value: unknown) {
+  if (typeof value !== 'string') {
+    return false
+  }
+  return LEGACY_DEEP_IMPORT_EXTENSIONS.some(
+    (extension) =>
+      value === `${key}${extension}` ||
+      value === `${key}/index${extension}` ||
+      (value.startsWith(`${key}/`) &&
+        !value.slice(key.length + 1).includes('..')),
+  )
+}
+
+function collectRootPackagePathReferences(
+  packageJson: CommonPackageJsonFields,
+) {
+  const files = new Set<string>()
+  addLegacyPackageFileReference(files, packageJson.main)
+  if (packageJson.main === undefined && packageJson.exports === undefined) {
+    addLegacyPackageFileReference(files, 'index.js')
+  }
+  addLegacyPackageFileReference(files, packageJson.module)
+  addLegacyPackageFileReference(files, packageJson.types)
+  addLegacyPackageFileReference(
+    files,
+    (packageJson as CommonPackageJsonFields & { typings?: unknown }).typings,
+  )
+  addLegacyPackageFileReference(files, packageJson.browser)
+  collectRootExportFileReferences(files, packageJson.exports)
+
+  const publishConfig = asRecord(packageJson.publishConfig)
+  if (
+    publishConfig &&
+    Object.prototype.hasOwnProperty.call(publishConfig, 'exports')
+  ) {
+    collectRootExportFileReferences(files, publishConfig.exports)
+  }
+  return [...files]
+}
+
+function addLegacyPackageFileReference(files: Set<string>, target: unknown) {
+  if (typeof target === 'string') {
+    addPackageFileReference(files, normalizePackageTarget(target))
+  }
+}
+
+function collectRootExportFileReferences(
+  files: Set<string>,
+  exportsField: unknown,
+) {
+  const exportsMap = asRecord(exportsField)
+  if (
+    exportsMap &&
+    Object.keys(exportsMap).some((key) => key.startsWith('.'))
+  ) {
+    for (const [subpath, target] of Object.entries(exportsMap)) {
+      if (
+        !subpath.includes('*') &&
+        !THREADLESS_WASI_ROOT_SUBPATHS.has(subpath)
+      ) {
+        collectPackageTargetFileReferences(files, target)
+      }
+    }
+    return
+  }
+  collectPackageTargetFileReferences(files, exportsField)
+}
+
+function collectPackageTargetFileReferences(
+  files: Set<string>,
+  target: unknown,
+) {
+  if (typeof target === 'string') {
+    addPackageFileReference(files, target)
+  } else if (Array.isArray(target)) {
+    for (const entry of target) {
+      collectPackageTargetFileReferences(files, entry)
+    }
+  } else if (typeof target === 'object' && target !== null) {
+    for (const entry of Object.values(target)) {
+      collectPackageTargetFileReferences(files, entry)
+    }
+  }
+}
+
+function addPackageFileReference(files: Set<string>, target: string) {
+  if (
+    !target.startsWith('./') ||
+    target.includes('*') ||
+    target.endsWith('/')
+  ) {
+    return
+  }
+  const file = target.slice(2).replaceAll('\\', '/')
+  if (
+    file.length === 0 ||
+    file.split('/').some((segment) => segment === '..')
+  ) {
+    return
+  }
+  files.add(file)
+}
+
+interface PackagePath {
+  path: string
+  directory: boolean
+}
+
+function validateRootPackagePaths(
+  rootDir: string,
+  files: string[],
+): PackagePath[] {
+  const paths: PackagePath[] = []
+  for (const file of new Set(files)) {
+    const path = join(rootDir, file)
+    if (!existsSync(path)) {
+      throw new Error(`Root release package is incomplete: missing ${file}`)
+    }
+    paths.push({ path: file, directory: statSync(path).isDirectory() })
+  }
+  return paths
+}
+
+function readNpmPackFiles(packageDir: string, packageDescription: string) {
+  try {
+    const output = execSync('npm pack --dry-run --json --ignore-scripts', {
+      cwd: packageDir,
+      encoding: 'utf8',
+      maxBuffer: 64 * 1024 * 1024,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    const packResult = JSON.parse(output) as {
+      files?: { path?: unknown }[]
+    }[]
+    if (!Array.isArray(packResult) || !Array.isArray(packResult[0]?.files)) {
+      throw new Error('npm pack returned an unexpected JSON result')
+    }
+    return new Set(
+      packResult[0].files
+        .map(({ path }) => path)
+        .filter((path): path is string => typeof path === 'string')
+        .map((path) => path.replaceAll('\\', '/').replace(/^\.\//, '')),
+    )
+  } catch (error) {
+    throw new Error(
+      `Failed to validate the ${packageDescription} with npm pack --dry-run. Ensure npm is available and the package can be packed.`,
+      { cause: error },
+    )
+  }
+}
+
+function validateRootFacadePacklist(
+  rootDir: string,
+  rootPackageFiles: string[],
+) {
+  const paths = validateRootPackagePaths(rootDir, rootPackageFiles)
+  const packedFiles = readNpmPackFiles(rootDir, 'threadless WASI root package')
+
+  const missingPaths = paths
+    .filter(({ path, directory }) => {
+      const normalizedPath = path.replaceAll('\\', '/')
+      return directory
+        ? ![...packedFiles].some((file) =>
+            file.startsWith(`${normalizedPath}/`),
+          )
+        : !packedFiles.has(normalizedPath)
+    })
+    .map(({ path }) => path)
+  if (missingPaths.length > 0) {
+    throw new Error(
+      `The threadless WASI root package references paths omitted by npm pack: ${missingPaths.join(', ')}. Add them to package.json "files" or remove the matching .npmignore rules.`,
+    )
+  }
+}
+
+interface ReleasePackageValidationOptions {
+  pkgDir: string
+  rootDir: string
+  packageName: string
+  binaryName: string
+  target: Target
+  materializeDeclarationDependencies: boolean
+}
+
+interface ReleasePackageManifest {
+  name?: string
+  main?: unknown
+  types?: unknown
+  browser?: unknown
+  files?: unknown
+  exports?: unknown
+}
+
+async function validateReleasePackage({
+  pkgDir,
+  rootDir,
+  packageName,
+  binaryName,
+  target,
+  materializeDeclarationDependencies,
+}: ReleasePackageValidationOptions) {
+  const packageJsonPath = join(pkgDir, 'package.json')
+  if (!existsSync(packageJsonPath)) {
+    throw new Error(
+      `Release package manifest does not exist: ${packageJsonPath}`,
+    )
+  }
+
+  let packageJson: ReleasePackageManifest
+  try {
+    packageJson = JSON.parse(await readFileAsync(packageJsonPath, 'utf8'))
+  } catch (error) {
+    throw new Error(`Failed to read release package ${packageJsonPath}`, {
+      cause: error,
+    })
+  }
+
+  const expectedPackageName = `${packageName}-${target.platformArchABI}`
+  if (packageJson.name !== expectedPackageName) {
+    throw new Error(
+      `Release package ${pkgDir} has stale package name ${String(packageJson.name)}; expected ${expectedPackageName}`,
+    )
+  }
+
+  if (
+    !Array.isArray(packageJson.files) ||
+    !packageJson.files.every((file): file is string => typeof file === 'string')
+  ) {
+    throw new Error(
+      `Release package ${expectedPackageName} must declare a string files array`,
+    )
+  }
+  const packageFiles = [...new Set(packageJson.files)]
+
+  validateExpectedReleasePackageManifest(
+    packageJson,
+    packageFiles,
+    binaryName,
+    target,
+  )
+
+  for (const file of packageFiles) {
+    const path = join(pkgDir, file)
+    if (!existsSync(path) || !statSync(path).isFile()) {
+      throw new Error(
+        `Release package ${expectedPackageName} is incomplete: missing ${file}`,
+      )
+    }
+  }
+
+  const declarationFiles = await completeDeclarationDependencyClosure({
+    pkgDir,
+    rootDir,
+    packageName: expectedPackageName,
+    packageFiles,
+    materialize: materializeDeclarationDependencies,
+  })
+  if (declarationFiles.length > packageFiles.length) {
+    packageFiles.splice(0, packageFiles.length, ...declarationFiles)
+    if (materializeDeclarationDependencies) {
+      packageJson.files = packageFiles
+      await writeFileAsync(
+        packageJsonPath,
+        `${JSON.stringify(packageJson, null, 2)}\n`,
+      )
+    }
+  }
+
+  const publicFiles = new Set<string>(packageFiles)
+  addLegacyPackageFileReference(publicFiles, packageJson.main)
+  addLegacyPackageFileReference(publicFiles, packageJson.types)
+  addLegacyPackageFileReference(publicFiles, packageJson.browser)
+  collectPackageTargetFileReferences(publicFiles, packageJson.exports)
+  publicFiles.add('package.json')
+
+  const packedFiles = readNpmPackFiles(
+    pkgDir,
+    `release package ${expectedPackageName}`,
+  )
+  const omittedFiles = [...publicFiles].filter(
+    (file) => !packedFiles.has(file.replaceAll('\\', '/')),
+  )
+  if (omittedFiles.length > 0) {
+    throw new Error(
+      `Release package ${expectedPackageName} references files omitted by npm pack: ${omittedFiles.join(', ')}`,
+    )
+  }
+}
+
+function validateExpectedReleasePackageManifest(
+  packageJson: ReleasePackageManifest,
+  packageFiles: string[],
+  binaryName: string,
+  target: Target,
+) {
+  const isWasm = target.arch === 'wasm32'
+  const artifactExtension = isWasm ? 'wasm' : 'node'
+  const artifact = `${binaryName}.${target.platformArchABI}.${artifactExtension}`
+  const expectedFiles = [artifact]
+  const expectedMain = isWasm
+    ? `${binaryName}.${wasiLoaderSuffix(target.platformArchABI)}.cjs`
+    : artifact
+
+  if (packageJson.main !== expectedMain) {
+    throw new Error(
+      `Release package ${packageJson.name} has stale main entry ${String(packageJson.main)}; expected ${expectedMain}`,
+    )
+  }
+
+  if (isWasm) {
+    const loaderSuffix = wasiLoaderSuffix(target.platformArchABI)
+    const expectedTypes = `${binaryName}.${loaderSuffix}.d.cts`
+    const expectedBrowser = `${binaryName}.${loaderSuffix}-browser.js`
+    expectedFiles.push(expectedMain, expectedTypes, expectedBrowser)
+    if (packageJson.types !== expectedTypes) {
+      throw new Error(
+        `Release package ${packageJson.name} has stale types entry ${String(packageJson.types)}; expected ${expectedTypes}`,
+      )
+    }
+    if (packageJson.browser !== expectedBrowser) {
+      throw new Error(
+        `Release package ${packageJson.name} has stale browser entry ${String(packageJson.browser)}; expected ${expectedBrowser}`,
+      )
+    }
+    if (wasiTargetHasThreads(target)) {
+      expectedFiles.push('wasi-worker.mjs', 'wasi-worker-browser.mjs')
+    } else {
+      const deferredEntry = `${binaryName}.${loaderSuffix}-deferred.js`
+      const deferredTypeDef = `${binaryName}.${loaderSuffix}-deferred.d.ts`
+      const wasmTypeDef = `${artifact}.d.ts`
+      expectedFiles.push(deferredEntry, deferredTypeDef, wasmTypeDef)
+      const exportsMap = asRecord(packageJson.exports)
+      const expectedExports = {
+        '.': {
+          types: `./${expectedTypes}`,
+          browser: `./${expectedBrowser}`,
+          require: `./${expectedMain}`,
+          default: `./${expectedMain}`,
+        },
+        './workerd': {
+          types: `./${deferredTypeDef}`,
+          default: `./${deferredEntry}`,
+        },
+        './wasm': {
+          types: `./${wasmTypeDef}`,
+          default: `./${artifact}`,
+        },
+        './wasm.wasm': {
+          types: `./${wasmTypeDef}`,
+          default: `./${artifact}`,
+        },
+        './package.json': './package.json',
+      }
+      for (const [subpath, expectedExport] of Object.entries(expectedExports)) {
+        if (!isDeepStrictEqual(exportsMap?.[subpath], expectedExport)) {
+          throw new Error(
+            `Release package ${packageJson.name} has a stale or invalid ${subpath} export`,
+          )
+        }
+      }
+    }
+  }
+
+  const missingExpectedFiles = expectedFiles.filter(
+    (file) => !packageFiles.includes(file),
+  )
+  if (missingExpectedFiles.length > 0) {
+    throw new Error(
+      `Release package ${packageJson.name} does not publish required files: ${missingExpectedFiles.join(', ')}`,
+    )
+  }
+}
+
+interface DeclarationDependencyClosureOptions {
+  pkgDir: string
+  rootDir: string
+  packageName: string
+  packageFiles: string[]
+  materialize: boolean
+}
+
+async function completeDeclarationDependencyClosure({
+  pkgDir,
+  rootDir,
+  packageName,
+  packageFiles,
+  materialize,
+}: DeclarationDependencyClosureOptions) {
+  const includedFiles = new Set(packageFiles)
+  const queue = packageFiles.filter(isDeclarationFile)
+  const visited = new Set<string>()
+
+  while (queue.length > 0) {
+    const declarationFile = queue.shift()!
+    if (visited.has(declarationFile)) {
+      continue
+    }
+    visited.add(declarationFile)
+    const declaration = await readFileAsync(
+      join(pkgDir, declarationFile),
+      'utf8',
+    )
+    for (const specifier of extractRelativeDeclarationSpecifiers(declaration)) {
+      const dependency = resolveDeclarationDependency(
+        pkgDir,
+        declarationFile,
+        specifier,
+      )
+      const sourceDependency =
+        dependency ??
+        resolveDeclarationDependency(rootDir, declarationFile, specifier)
+      if (!sourceDependency) {
+        throw new Error(
+          `Release package ${packageName} declaration ${declarationFile} references missing ${specifier}`,
+        )
+      }
+      if (!dependency) {
+        if (!materialize) {
+          throw new Error(
+            `Release package ${packageName} is not self-contained: ${declarationFile} depends on ${sourceDependency}`,
+          )
+        }
+        const destination = join(pkgDir, sourceDependency)
+        await mkdirAsync(dirname(destination), { recursive: true })
+        await copyFileAsync(join(rootDir, sourceDependency), destination)
+      }
+      if (!includedFiles.has(sourceDependency)) {
+        includedFiles.add(sourceDependency)
+        if (isDeclarationFile(sourceDependency)) {
+          queue.push(sourceDependency)
+        }
+      }
+    }
+  }
+  return [...includedFiles]
+}
+
+function extractRelativeDeclarationSpecifiers(source: string) {
+  const specifiers = new Set<string>()
+  const referencePattern = /<reference\s+path\s*=\s*['"]([^'"]+)['"]/g
+  for (const match of source.matchAll(referencePattern)) {
+    if (match[1].startsWith('.')) {
+      specifiers.add(match[1])
+    }
+  }
+
+  const code = stripDeclarationComments(source)
+  for (const pattern of [
+    /\b(?:from|import\s*\(|require\s*\()\s*['"]([^'"]+)['"]/g,
+    /\bimport\s*['"]([^'"]+)['"]/g,
+  ]) {
+    for (const match of code.matchAll(pattern)) {
+      if (match[1].startsWith('.')) {
+        specifiers.add(match[1])
+      }
+    }
+  }
+  return specifiers
+}
+
+function stripDeclarationComments(source: string) {
+  let output = ''
+  let quote: "'" | '"' | '`' | undefined
+  let escaped = false
+
+  for (let index = 0; index < source.length; index += 1) {
+    const current = source[index]
+    const next = source[index + 1]
+    if (quote) {
+      output += current
+      if (escaped) {
+        escaped = false
+      } else if (current === '\\') {
+        escaped = true
+      } else if (current === quote) {
+        quote = undefined
+      }
+      continue
+    }
+    if (current === "'" || current === '"' || current === '`') {
+      quote = current
+      output += current
+      continue
+    }
+    if (current === '/' && next === '/') {
+      while (index < source.length && source[index] !== '\n') {
+        index += 1
+      }
+      output += '\n'
+      continue
+    }
+    if (current === '/' && next === '*') {
+      index += 2
+      while (
+        index < source.length &&
+        !(source[index] === '*' && source[index + 1] === '/')
+      ) {
+        output += source[index] === '\n' ? '\n' : ' '
+        index += 1
+      }
+      index += 1
+      continue
+    }
+    output += current
+  }
+  return output
+}
+
+function resolveDeclarationDependency(
+  baseDir: string,
+  declarationFile: string,
+  specifier: string,
+) {
+  const unresolved = resolve(dirname(join(baseDir, declarationFile)), specifier)
+  const unresolvedRelative = relative(baseDir, unresolved)
+  if (
+    unresolvedRelative === '..' ||
+    unresolvedRelative.startsWith(`..${sep}`) ||
+    resolve(baseDir, unresolvedRelative).startsWith(
+      `${resolve(baseDir)}${sep}node_modules}${sep}`,
+    )
+  ) {
+    return undefined
+  }
+
+  for (const candidate of declarationDependencyCandidates(unresolved)) {
+    if (existsSync(candidate) && statSync(candidate).isFile()) {
+      return relative(baseDir, candidate).split(sep).join('/')
+    }
+  }
+  return undefined
+}
+
+function declarationDependencyCandidates(unresolved: string) {
+  if (isDeclarationFile(unresolved)) {
+    return [unresolved]
+  }
+  const extension = extname(unresolved)
+  if (extension === '.cjs') {
+    return [`${unresolved.slice(0, -extension.length)}.d.cts`]
+  }
+  if (extension === '.mjs') {
+    return [`${unresolved.slice(0, -extension.length)}.d.mts`]
+  }
+  if (extension === '.js' || extension === '.jsx') {
+    return [`${unresolved.slice(0, -extension.length)}.d.ts`]
+  }
+  if (extension.length > 0) {
+    return [unresolved]
+  }
+  return [
+    ...DECLARATION_EXTENSIONS.map((candidate) => `${unresolved}${candidate}`),
+    ...DECLARATION_EXTENSIONS.map((candidate) =>
+      join(unresolved, `index${candidate}`),
+    ),
+  ]
+}
+
+function isDeclarationFile(file: string) {
+  return DECLARATION_EXTENSIONS.some((extension) => file.endsWith(extension))
 }
 
 function parseTag(tag: string) {

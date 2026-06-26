@@ -1,15 +1,65 @@
-import { existsSync } from 'node:fs'
+import { execFile } from 'node:child_process'
+import { existsSync, realpathSync } from 'node:fs'
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, dirname, join } from 'node:path'
+import { promisify } from 'node:util'
 
 import ava, { type TestFn } from 'ava'
 
+import { createWasmModuleTypeDef } from '../../utils/index.js'
+import { createWasiDeferredBindingTypeDef } from '../build.js'
 import { createNpmDirs } from '../create-npm-dirs.js'
 
 const require = createRequire(import.meta.url)
+const execFileAsync = promisify(execFile)
+
+function resolveNpmCliFrom(directory: string) {
+  for (const candidate of [
+    join(directory, 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+    join(directory, '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+  ]) {
+    if (existsSync(candidate)) {
+      return realpathSync(candidate)
+    }
+  }
+}
+
+function resolveNpmCli(
+  nodeExecutable = process.execPath,
+  searchPath = process.env.PATH ?? '',
+  platform = process.platform,
+) {
+  const bundledNpmCli = resolveNpmCliFrom(dirname(nodeExecutable))
+  if (bundledNpmCli) {
+    return bundledNpmCli
+  }
+
+  const npmLauncher = platform === 'win32' ? 'npm.cmd' : 'npm'
+
+  for (const pathEntry of searchPath.split(delimiter).filter(Boolean)) {
+    const launcherPath = join(pathEntry, npmLauncher)
+    if (!existsSync(launcherPath)) {
+      continue
+    }
+
+    const resolvedLauncherPath = realpathSync(launcherPath)
+    if (resolvedLauncherPath.endsWith('npm-cli.js')) {
+      return resolvedLauncherPath
+    }
+
+    const prefixedNpmCli =
+      resolveNpmCliFrom(dirname(resolvedLauncherPath)) ??
+      resolveNpmCliFrom(dirname(launcherPath))
+    if (prefixedNpmCli) {
+      return prefixedNpmCli
+    }
+  }
+
+  throw new Error(`Could not resolve ${npmLauncher} from PATH`)
+}
 
 const test = ava as TestFn<{
   tmpDir: string
@@ -49,6 +99,32 @@ test.afterEach.always(async (t) => {
   if (existsSync(t.context.tmpDir)) {
     await rm(t.context.tmpDir, { recursive: true, force: true })
   }
+})
+
+test('resolves npm from a bundled Windows Node installation', async (t) => {
+  const nodeDir = join(t.context.tmpDir, 'node')
+  const npmCli = join(nodeDir, 'node_modules', 'npm', 'bin', 'npm-cli.js')
+  await mkdir(dirname(npmCli), { recursive: true })
+  await writeFile(npmCli, '')
+
+  t.is(
+    resolveNpmCli(join(nodeDir, 'node.exe'), '', 'win32'),
+    realpathSync(npmCli),
+  )
+})
+
+test('resolves npm from a Windows launcher prefix', async (t) => {
+  const nodeDir = join(t.context.tmpDir, 'node')
+  const npmPrefix = join(t.context.tmpDir, 'npm-prefix')
+  const npmCli = join(npmPrefix, 'node_modules', 'npm', 'bin', 'npm-cli.js')
+  await mkdir(dirname(npmCli), { recursive: true })
+  await writeFile(join(npmPrefix, 'npm.cmd'), '')
+  await writeFile(npmCli, '')
+
+  t.is(
+    resolveNpmCli(join(nodeDir, 'node.exe'), npmPrefix, 'win32'),
+    realpathSync(npmCli),
+  )
 })
 
 async function startRegistryServer(
@@ -360,7 +436,7 @@ test('should preserve sibling engine constraints when node is missing for WASM t
 
   t.deepEqual(scopedPackageJson.engines, {
     npm: '>=10',
-    node: '>=14.0.0',
+    node: '>=14.18.0',
   })
 })
 
@@ -390,7 +466,7 @@ test('should replace an exact node engine below the WASI minimum for WASM target
     await readFile(join(tmpDir, 'npm', 'wasm32-wasi', 'package.json'), 'utf-8'),
   )
 
-  t.is(scopedPackageJson.engines.node, '>=14.0.0')
+  t.is(scopedPackageJson.engines.node, '>=14.18.0')
 })
 
 test('should drop exact node engine branches below the WASI minimum for WASM targets', async (t) => {
@@ -422,6 +498,472 @@ test('should drop exact node engine branches below the WASI minimum for WASM tar
   t.is(scopedPackageJson.engines.node, '>=18.0.0')
 })
 
+test.serial(
+  'should include the deferred loader in files for non-threaded WASM targets',
+  async (t) => {
+    const { tmpDir, packageJsonPath } = t.context
+    const registryServer = await startRegistryServer()
+
+    process.env.npm_config_registry = `${registryServer.origin}/npm`
+
+    const packageJson = {
+      name: 'test-wasm-deferred',
+      version: '1.0.0',
+      napi: {
+        binaryName: 'test-wasm-deferred',
+        targets: ['wasm32-wasip1'],
+      },
+    }
+
+    await writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2))
+
+    try {
+      await createNpmDirs({
+        cwd: tmpDir,
+        packageJsonPath: 'package.json',
+      })
+
+      const scopedPackageJson = JSON.parse(
+        await readFile(
+          join(tmpDir, 'npm', 'wasm32-wasip1', 'package.json'),
+          'utf-8',
+        ),
+      )
+
+      // Non-threaded flavors get their own distinctly named artifact set:
+      // no worker scripts (the threadless loaders never spawn workers), and
+      // the deferred workerd-safe loader ships alongside.
+      t.is(scopedPackageJson.name, 'test-wasm-deferred-wasm32-wasip1')
+      t.is(scopedPackageJson.main, 'test-wasm-deferred.wasip1.cjs')
+      t.is(scopedPackageJson.types, 'test-wasm-deferred.wasip1.d.cts')
+      t.is(scopedPackageJson.browser, 'test-wasm-deferred.wasip1-browser.js')
+      t.is(scopedPackageJson.type, 'module')
+      t.is(scopedPackageJson.cpu, undefined)
+      t.deepEqual(scopedPackageJson.exports, {
+        '.': {
+          types: './test-wasm-deferred.wasip1.d.cts',
+          browser: './test-wasm-deferred.wasip1-browser.js',
+          require: './test-wasm-deferred.wasip1.cjs',
+          default: './test-wasm-deferred.wasip1.cjs',
+        },
+        './workerd': {
+          types: './test-wasm-deferred.wasip1-deferred.d.ts',
+          default: './test-wasm-deferred.wasip1-deferred.js',
+        },
+        './wasm': {
+          types: './test-wasm-deferred.wasm32-wasip1.wasm.d.ts',
+          default: './test-wasm-deferred.wasm32-wasip1.wasm',
+        },
+        './wasm.wasm': {
+          types: './test-wasm-deferred.wasm32-wasip1.wasm.d.ts',
+          default: './test-wasm-deferred.wasm32-wasip1.wasm',
+        },
+        './package.json': './package.json',
+      })
+      t.deepEqual(scopedPackageJson.files, [
+        'test-wasm-deferred.wasm32-wasip1.wasm',
+        'test-wasm-deferred.wasip1.cjs',
+        'test-wasm-deferred.wasip1.d.cts',
+        'test-wasm-deferred.wasip1-browser.js',
+        'test-wasm-deferred.wasip1-deferred.js',
+        'test-wasm-deferred.wasip1-deferred.d.ts',
+        'test-wasm-deferred.wasm32-wasip1.wasm.d.ts',
+      ])
+      t.is(
+        await readFile(
+          join(
+            tmpDir,
+            'npm',
+            'wasm32-wasip1',
+            'test-wasm-deferred.wasm32-wasip1.wasm.d.ts',
+          ),
+          'utf8',
+        ),
+        createWasmModuleTypeDef(),
+      )
+    } finally {
+      await registryServer.close()
+    }
+  },
+)
+
+test.serial(
+  'untyped threadless WASI package packs with strict workerd types and Wasm exports',
+  async (t) => {
+    const { tmpDir, packageJsonPath } = t.context
+    const registryServer = await startRegistryServer()
+    process.env.npm_config_registry = `${registryServer.origin}/npm`
+
+    const packageName = 'test-wasm-pack-install'
+    await writeFile(
+      packageJsonPath,
+      JSON.stringify({
+        name: packageName,
+        version: '1.0.0',
+        napi: {
+          binaryName: packageName,
+          targets: ['wasm32-wasip1'],
+        },
+      }),
+    )
+
+    try {
+      await createNpmDirs({
+        cwd: tmpDir,
+        packageJsonPath: 'package.json',
+      })
+      const packageDir = join(tmpDir, 'npm', 'wasm32-wasip1')
+      const manifestPath = join(packageDir, 'package.json')
+      const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+      for (const file of manifest.files) {
+        await writeFile(
+          join(packageDir, file),
+          file.endsWith('.wasm')
+            ? 'wasm-export'
+            : file.endsWith('.wasm.d.ts')
+              ? createWasmModuleTypeDef()
+              : file.endsWith('.d.cts')
+                ? 'declare const binding: Record<string, unknown>\nexport = binding\n'
+                : file.endsWith('-deferred.js')
+                  ? 'export const marker = "workerd-export"\n'
+                  : file.endsWith('-deferred.d.ts')
+                    ? createWasiDeferredBindingTypeDef(packageName, false)
+                    : file.endsWith('.cjs')
+                      ? 'module.exports = {}\n'
+                      : '',
+        )
+      }
+      // Keep this test hermetic: it validates the generated package boundary,
+      // not the external dependency registry.
+      manifest.dependencies = {}
+      await writeFile(manifestPath, JSON.stringify(manifest, null, 2))
+
+      const npmCli = resolveNpmCli()
+      const { stdout } = await execFileAsync(
+        process.execPath,
+        [npmCli, 'pack', '--json', '--pack-destination', tmpDir],
+        { cwd: packageDir },
+      )
+      const [{ filename }] = JSON.parse(stdout)
+      const consumerDir = join(tmpDir, 'consumer')
+      await mkdir(consumerDir)
+      await writeFile(
+        join(consumerDir, 'package.json'),
+        JSON.stringify({
+          name: 'consumer',
+          private: true,
+          type: 'module',
+          optionalDependencies: {
+            [manifest.name]: `file:${join(tmpDir, filename)}`,
+          },
+        }),
+      )
+      await execFileAsync(
+        process.execPath,
+        [
+          npmCli,
+          'install',
+          '--ignore-scripts',
+          '--no-audit',
+          '--no-package-lock',
+        ],
+        { cwd: consumerDir },
+      )
+      const result = await execFileAsync(
+        process.execPath,
+        [
+          '--input-type=module',
+          '--eval',
+          `import { readFileSync } from 'node:fs'; import { createRequire } from 'node:module'; import { marker } from '${packageName}-wasm32-wasip1/workerd'; const require = createRequire(import.meta.url); const wasm = readFileSync(require.resolve('${packageName}-wasm32-wasip1/wasm'), 'utf8'); const wranglerWasm = readFileSync(require.resolve('${packageName}-wasm32-wasip1/wasm.wasm'), 'utf8'); process.stdout.write(JSON.stringify({ marker, wasm, wranglerWasm }))`,
+        ],
+        { cwd: consumerDir },
+      )
+      t.deepEqual(JSON.parse(result.stdout), {
+        marker: 'workerd-export',
+        wasm: 'wasm-export',
+        wranglerWasm: 'wasm-export',
+      })
+      const typeTestPath = join(consumerDir, 'workerd-export.ts')
+      await writeFile(
+        typeTestPath,
+        `import { createInstance, instantiate } from '${packageName}-wasm32-wasip1/workerd'\nimport wasmModule from '${packageName}-wasm32-wasip1/wasm'\nimport extensionWasmModule from '${packageName}-wasm32-wasip1/wasm.wasm'\nwasmModule satisfies WebAssembly.Module\nextensionWasmModule satisfies WebAssembly.Module\nconst binding = await instantiate(wasmModule)\nbinding satisfies Record<string, unknown>\nconst instance = await createInstance(extensionWasmModule)\ninstance.exports satisfies Record<string, unknown>\ninstance.dispose()\n`,
+      )
+      await execFileAsync(
+        process.execPath,
+        [
+          require.resolve('typescript/bin/tsc'),
+          '--noEmit',
+          '--module',
+          'NodeNext',
+          '--moduleResolution',
+          'NodeNext',
+          '--target',
+          'ES2022',
+          '--strict',
+          '--skipLibCheck',
+          typeTestPath,
+        ],
+        { cwd: consumerDir },
+      )
+    } finally {
+      await registryServer.close()
+    }
+  },
+)
+
+test.serial(
+  'typed threadless WASI flavor is self-contained after direct pack and install',
+  async (t) => {
+    const { tmpDir, packageJsonPath } = t.context
+    const registryServer = await startRegistryServer()
+    process.env.npm_config_registry = `${registryServer.origin}/npm`
+
+    const packageName = 'test-wasm-typed-pack-install'
+    await writeFile(
+      packageJsonPath,
+      JSON.stringify({
+        name: packageName,
+        version: '1.0.0',
+        napi: {
+          binaryName: packageName,
+          targets: ['wasm32-wasip1'],
+        },
+      }),
+    )
+
+    try {
+      await createNpmDirs({
+        cwd: tmpDir,
+        packageJsonPath: 'package.json',
+      })
+      const packageDir = join(tmpDir, 'npm', 'wasm32-wasip1')
+      const manifestPath = join(packageDir, 'package.json')
+      const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+      const loaderSpecifier = `./${packageName}.wasip1.cjs`
+      for (const file of manifest.files) {
+        await writeFile(
+          join(packageDir, file),
+          file.endsWith('.wasm')
+            ? 'wasm-export'
+            : file.endsWith('.wasm.d.ts')
+              ? createWasmModuleTypeDef()
+              : file.endsWith('.d.cts')
+                ? 'export declare function sum(a: number, b: number): number\n'
+                : file.endsWith('-deferred.js')
+                  ? 'export async function instantiate() { return { sum: (a, b) => a + b } }\n'
+                  : file.endsWith('-deferred.d.ts')
+                    ? createWasiDeferredBindingTypeDef(loaderSpecifier, true)
+                    : file.endsWith('.cjs')
+                      ? 'module.exports = { sum: (a, b) => a + b }\n'
+                      : '',
+        )
+      }
+      const deferredTypeDef = await readFile(
+        join(packageDir, `${packageName}.wasip1-deferred.d.ts`),
+        'utf8',
+      )
+      t.true(
+        deferredTypeDef.includes(
+          `typeof import('./${packageName}.wasip1.cjs')`,
+        ),
+      )
+      t.false(deferredTypeDef.includes("typeof import('./binding.cjs')"))
+      manifest.dependencies = {}
+      await writeFile(manifestPath, JSON.stringify(manifest, null, 2))
+
+      const npmCli = resolveNpmCli()
+      const { stdout } = await execFileAsync(
+        process.execPath,
+        [npmCli, 'pack', '--json', '--pack-destination', tmpDir],
+        { cwd: packageDir },
+      )
+      const [packResult] = JSON.parse(stdout)
+      t.true(
+        packResult.files.some(
+          ({ path }: { path: string }) =>
+            path === `${packageName}.wasip1.d.cts`,
+        ),
+      )
+      t.true(
+        packResult.files.some(
+          ({ path }: { path: string }) =>
+            path === `${packageName}.wasip1-deferred.d.ts`,
+        ),
+      )
+
+      const consumerDir = join(tmpDir, 'typed-consumer')
+      await mkdir(consumerDir)
+      await writeFile(
+        join(consumerDir, 'package.json'),
+        JSON.stringify({
+          name: 'typed-consumer',
+          private: true,
+          type: 'module',
+          dependencies: {
+            [manifest.name]: `file:${join(tmpDir, packResult.filename)}`,
+          },
+        }),
+      )
+      await execFileAsync(
+        process.execPath,
+        [
+          npmCli,
+          'install',
+          '--ignore-scripts',
+          '--no-audit',
+          '--no-package-lock',
+        ],
+        { cwd: consumerDir },
+      )
+      t.false(existsSync(join(consumerDir, 'node_modules', packageName)))
+
+      const typeTestPath = join(consumerDir, 'direct-flavor.ts')
+      await writeFile(
+        typeTestPath,
+        `import { sum } from '${manifest.name}'\nimport { instantiate } from '${manifest.name}/workerd'\ndeclare const wasmModule: WebAssembly.Module\nsum(1, 2) satisfies number\nconst binding = await instantiate(wasmModule)\nbinding.sum(1, 2) satisfies number\n`,
+      )
+      await execFileAsync(
+        process.execPath,
+        [
+          require.resolve('typescript/bin/tsc'),
+          '--noEmit',
+          '--module',
+          'NodeNext',
+          '--moduleResolution',
+          'NodeNext',
+          '--target',
+          'ES2022',
+          '--strict',
+          typeTestPath,
+        ],
+        { cwd: consumerDir },
+      )
+    } finally {
+      await registryServer.close()
+    }
+  },
+)
+
+test.serial(
+  'should create distinctly named npm dirs for both WASI flavors side by side',
+  async (t) => {
+    const { tmpDir, packageJsonPath } = t.context
+    const registryServer = await startRegistryServer()
+
+    process.env.npm_config_registry = `${registryServer.origin}/npm`
+
+    const packageJson = {
+      name: 'test-wasm-flavors',
+      version: '1.0.0',
+      napi: {
+        binaryName: 'test-wasm-flavors',
+        targets: ['wasm32-wasip1-threads', 'wasm32-wasip1'],
+      },
+    }
+
+    await writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2))
+
+    try {
+      await createNpmDirs({
+        cwd: tmpDir,
+        packageJsonPath: 'package.json',
+      })
+
+      const threaded = JSON.parse(
+        await readFile(
+          join(tmpDir, 'npm', 'wasm32-wasi', 'package.json'),
+          'utf-8',
+        ),
+      )
+      const single = JSON.parse(
+        await readFile(
+          join(tmpDir, 'npm', 'wasm32-wasip1', 'package.json'),
+          'utf-8',
+        ),
+      )
+
+      // the threaded flavor keeps every historical (back-compat) name
+      t.is(threaded.name, 'test-wasm-flavors-wasm32-wasi')
+      t.is(threaded.main, 'test-wasm-flavors.wasi.cjs')
+      t.is(threaded.types, 'test-wasm-flavors.wasi.d.cts')
+      t.is(threaded.browser, 'test-wasm-flavors.wasi-browser.js')
+      t.is(threaded.cpu, undefined)
+      t.deepEqual(threaded.files, [
+        'test-wasm-flavors.wasm32-wasi.wasm',
+        'test-wasm-flavors.wasi.cjs',
+        'test-wasm-flavors.wasi.d.cts',
+        'test-wasm-flavors.wasi-browser.js',
+        'wasi-worker.mjs',
+        'wasi-worker-browser.mjs',
+      ])
+
+      // the non-threaded flavor gets its own name everywhere
+      t.is(single.name, 'test-wasm-flavors-wasm32-wasip1')
+      t.is(single.main, 'test-wasm-flavors.wasip1.cjs')
+      t.is(single.types, 'test-wasm-flavors.wasip1.d.cts')
+      t.is(single.browser, 'test-wasm-flavors.wasip1-browser.js')
+      t.is(single.cpu, undefined)
+      t.deepEqual(single.files, [
+        'test-wasm-flavors.wasm32-wasip1.wasm',
+        'test-wasm-flavors.wasip1.cjs',
+        'test-wasm-flavors.wasip1.d.cts',
+        'test-wasm-flavors.wasip1-browser.js',
+        'test-wasm-flavors.wasip1-deferred.js',
+        'test-wasm-flavors.wasip1-deferred.d.ts',
+        'test-wasm-flavors.wasm32-wasip1.wasm.d.ts',
+      ])
+    } finally {
+      await registryServer.close()
+    }
+  },
+)
+
+test.serial(
+  'should not include the deferred loader in files for threaded WASM targets',
+  async (t) => {
+    const { tmpDir, packageJsonPath } = t.context
+    const registryServer = await startRegistryServer()
+
+    process.env.npm_config_registry = `${registryServer.origin}/npm`
+
+    const packageJson = {
+      name: 'test-wasm-threaded',
+      version: '1.0.0',
+      napi: {
+        binaryName: 'test-wasm-threaded',
+        targets: ['wasm32-wasi-preview1-threads'],
+      },
+    }
+
+    await writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2))
+
+    try {
+      await createNpmDirs({
+        cwd: tmpDir,
+        packageJsonPath: 'package.json',
+      })
+
+      const scopedPackageJson = JSON.parse(
+        await readFile(
+          join(tmpDir, 'npm', 'wasm32-wasi', 'package.json'),
+          'utf-8',
+        ),
+      )
+
+      t.deepEqual(scopedPackageJson.files, [
+        'test-wasm-threaded.wasm32-wasi.wasm',
+        'test-wasm-threaded.wasi.cjs',
+        'test-wasm-threaded.wasi.d.cts',
+        'test-wasm-threaded.wasi-browser.js',
+        'wasi-worker.mjs',
+        'wasi-worker-browser.mjs',
+      ])
+    } finally {
+      await registryServer.close()
+    }
+  },
+)
+
 test('should set @emnapi/core and @emnapi/runtime versions to match emnapi for WASM targets', async (t) => {
   const { tmpDir, packageJsonPath } = t.context
 
@@ -449,6 +991,45 @@ test('should set @emnapi/core and @emnapi/runtime versions to match emnapi for W
   const emnapiVersion = require('emnapi/package.json').version
   t.is(scopedPackageJson.dependencies['@emnapi/core'], emnapiVersion)
   t.is(scopedPackageJson.dependencies['@emnapi/runtime'], emnapiVersion)
+})
+
+test('removes stale WASI package directories when their targets are removed', async (t) => {
+  const { tmpDir, packageJsonPath } = t.context
+  const npmDir = join(tmpDir, 'npm')
+  const staleThreadedDir = join(npmDir, 'wasm32-wasi')
+  const staleThreadlessDir = join(npmDir, 'wasm32-wasip1')
+  const unrelatedDir = join(npmDir, 'user-owned')
+  await Promise.all(
+    [staleThreadedDir, staleThreadlessDir, unrelatedDir].map((dir) =>
+      mkdir(dir, { recursive: true }),
+    ),
+  )
+  await Promise.all([
+    writeFile(join(staleThreadedDir, 'package.json'), '{}'),
+    writeFile(join(staleThreadlessDir, 'package.json'), '{}'),
+    writeFile(join(unrelatedDir, 'marker'), 'preserve'),
+  ])
+  await writeFile(
+    packageJsonPath,
+    JSON.stringify({
+      name: 'test-removed-wasi-targets',
+      version: '1.0.0',
+      napi: {
+        binaryName: 'test-removed-wasi-targets',
+        targets: ['x86_64-unknown-linux-gnu'],
+      },
+    }),
+  )
+
+  await createNpmDirs({
+    cwd: tmpDir,
+    packageJsonPath: 'package.json',
+  })
+
+  t.false(existsSync(staleThreadedDir))
+  t.false(existsSync(staleThreadlessDir))
+  t.true(existsSync(join(unrelatedDir, 'marker')))
+  t.true(existsSync(join(npmDir, 'linux-x64-gnu', 'package.json')))
 })
 
 test.serial(

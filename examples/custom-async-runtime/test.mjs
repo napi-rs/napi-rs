@@ -24,17 +24,24 @@ assert.ok(
 )
 
 const require = createRequire(import.meta.url)
-const isThreadlessWasi = mode === 'wasi-threadless'
-const isThreadedWasi = mode === 'wasi' || mode === 'wasi-threads'
+const isManualThreadlessWasi = mode === 'wasi-threadless'
+const isThreadlessWasi = mode === 'wasi' || isManualThreadlessWasi
+const isThreadedWasi = mode === 'wasi-threads'
 const isWasi = isThreadlessWasi || isThreadedWasi
-const bindingFile = isThreadlessWasi
+const bindingFile = isManualThreadlessWasi
   ? './threadless-wasi-loader.cjs'
-  : isThreadedWasi
-    ? './custom_async_runtime.wasi.cjs'
-    : './index.cjs'
+  : isThreadlessWasi
+    ? './custom_async_runtime.wasip1.cjs'
+    : isThreadedWasi
+      ? './custom_async_runtime.wasi.cjs'
+      : './index.cjs'
+const resolvedBindingFile = require.resolve(bindingFile)
 
 if (isWasi) {
-  const source = await readFile(new URL(bindingFile, import.meta.url), 'utf8')
+  const [source, declarations] = await Promise.all([
+    readFile(new URL(bindingFile, import.meta.url), 'utf8'),
+    readFile(new URL('./index.d.cts', import.meta.url), 'utf8'),
+  ])
   if (isThreadlessWasi) {
     assert.doesNotMatch(source, /node:worker_threads/)
     assert.doesNotMatch(source, /\bWorker\b/)
@@ -45,18 +52,16 @@ if (isWasi) {
     assert.match(source, /\bWorker\b/)
     assert.match(source, /shared:\s*true/)
     assert.match(source, /onCreateWorker/)
-    const declarations = await readFile(
-      new URL('./index.d.cts', import.meta.url),
-      'utf8',
-    )
-    assert.doesNotMatch(declarations, /retainTaskWaker/)
   }
   assert.doesNotMatch(source, /retainTaskWaker/)
+  assert.doesNotMatch(declarations, /retainTaskWaker/)
 }
 
 const loadedBinding = require(bindingFile)
-const binding = isThreadlessWasi ? loadedBinding.binding : loadedBinding
-const disposeBinding = isThreadlessWasi ? loadedBinding.dispose : undefined
+const binding = isManualThreadlessWasi ? loadedBinding.binding : loadedBinding
+const disposeBinding = isManualThreadlessWasi
+  ? loadedBinding.dispose
+  : undefined
 const nativeBindingFile =
   mode === 'native'
     ? Object.keys(require.cache).find(
@@ -334,6 +339,41 @@ if (mode === 'native') {
     binding.asyncPanicString(7),
     /custom runtime async string panic: 7/,
   )
+} else {
+  // Stable Rust ships wasm32-wasip1 with panic=abort. catch_unwind cannot
+  // turn that trap into a Promise rejection, so isolate the public behavior.
+  const panicResult = spawnSync(
+    process.execPath,
+    [
+      '-e',
+      `
+        const binding = require(${JSON.stringify(resolvedBindingFile)})
+        try {
+          const promise = binding.asyncPanic()
+          Promise.resolve(promise).then(
+            () => {
+              console.error('WASI_PANIC_UNEXPECTEDLY_RESOLVED')
+              process.exit(41)
+            },
+            (error) => {
+              console.error('WASI_PANIC_UNEXPECTEDLY_REJECTED', error)
+              process.exit(42)
+            },
+          )
+        } catch (error) {
+          console.error('WASI_PANIC_ABORT_TRAP', error)
+          process.exit(43)
+        }
+      `,
+    ],
+    { encoding: 'utf8' },
+  )
+  const panicOutput = `${panicResult.stdout}\n${panicResult.stderr}`
+  assert.equal(panicResult.signal, null, panicOutput)
+  assert.equal(panicResult.status, 43, panicOutput)
+  assert.match(panicOutput, /WASI_PANIC_ABORT_TRAP/)
+  assert.match(panicOutput, /RuntimeError: unreachable/)
+  assert.doesNotMatch(panicOutput, /WASI_PANIC_UNEXPECTEDLY_REJECTED/)
 }
 
 const afterAsync = binding.getRuntimeMetrics()
@@ -534,6 +574,10 @@ if (mode === 'native') {
 }
 
 if (mode === 'native') {
+  assert.ok(
+    nativeBindingFile,
+    'native binding must be present in require.cache',
+  )
   const restoredWorker = new Worker(
     `
       const { parentPort } = require('node:worker_threads')
