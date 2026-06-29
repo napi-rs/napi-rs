@@ -27,18 +27,69 @@ pub trait AsyncRuntimeGuard {}
 #[cfg(feature = "async-runtime")]
 impl AsyncRuntimeGuard for () {}
 
+/// Service-provider interface for plugging a custom async runtime into NAPI-RS.
+///
+/// When the `async-runtime` feature is enabled, napi no longer drives futures on its
+/// built-in tokio runtime. Instead every async entry point ([`spawn`], [`block_on`],
+/// [`within_runtime_if_available`], [`start_async_runtime`], [`shutdown_async_runtime`])
+/// is routed through the single backend registered with [`create_custom_async_runtime`].
+/// Implement this trait to back napi with your own scheduler (e.g. a single-threaded or
+/// WASI-friendly runtime) and register exactly one instance, once, at module init.
+///
+/// The implementation is stored process-globally and shared across threads, hence the
+/// `Send + Sync + 'static` bound. Only one runtime is ever registered for the lifetime of
+/// the process; see [`create_custom_async_runtime`] for the first-writer-wins semantics.
 #[cfg(feature = "async-runtime")]
 pub trait AsyncRuntime: Send + Sync + 'static {
+  /// Spawn a future to run to completion in the background, detached.
+  ///
+  /// napi calls this for every JS-facing async function. The returned task is detached:
+  /// the trait intentionally hands back nothing to join on, so the backend MUST drive the
+  /// future all the way to completion on its own — napi never awaits it.
+  ///
+  /// Panic handling is already done by napi: the future passed in has been wrapped in
+  /// `AssertUnwindSafe(..).catch_unwind()` before it reaches `spawn`, so a panic inside the
+  /// user code is caught internally and surfaced as a rejected JS promise. The backend MUST
+  /// NOT add its own `catch_unwind`/abort layer or otherwise treat the future as fallible —
+  /// just poll it to completion like any other `Future<Output = ()>`.
   fn spawn(&self, future: Pin<Box<dyn Future<Output = ()> + Send + 'static>>);
 
+  /// Block the current thread, fully driving the pinned future to completion before
+  /// returning.
+  ///
+  /// This backs napi's synchronous [`block_on`]. napi stores the future's result via a
+  /// side-effect and, the instant this method returns, asserts that the result is present —
+  /// `output.expect("Custom async runtime returned before the future completed")`. A backend
+  /// that returns early (without having polled the future to `Poll::Ready`) will therefore
+  /// make napi panic. Run the future to completion; do not return on the first pending poll.
   fn block_on(&self, future: Pin<&mut dyn Future<Output = ()>>);
 
+  /// Enter the runtime context and return a guard that establishes it for the calling
+  /// thread.
+  ///
+  /// napi calls this in [`within_runtime_if_available`]: it enters, runs a synchronous
+  /// closure, then drops the guard. The returned guard MUST keep the runtime context active
+  /// for as long as it is held (i.e. for the whole duration of the closure) and tear it down
+  /// on drop. The default implementation returns a no-op guard, which is correct for backends
+  /// that do not need an ambient context.
   fn enter(&self) -> Box<dyn AsyncRuntimeGuard + '_> {
     Box::new(())
   }
 
+  /// Start (or restart) the runtime.
+  ///
+  /// Called by [`start_async_runtime`], which napi invokes when a Node env is created — note
+  /// that an Electron renderer process can create and tear down its Node env repeatedly (on
+  /// window reload), so this may be called more than once over the backend's lifetime.
+  /// Implement it idempotently. The default is a no-op.
   fn start(&self) {}
 
+  /// Shut the runtime down.
+  ///
+  /// Called by [`shutdown_async_runtime`], which napi invokes when the Node env exits (and,
+  /// on wasm, only when the user calls it explicitly). After shutdown the runtime may be
+  /// started again via [`start`](AsyncRuntime::start), so release resources without making a
+  /// subsequent `start` impossible. The default is a no-op.
   fn shutdown(&self) {}
 }
 
@@ -53,6 +104,31 @@ fn custom_async_runtime() -> &'static dyn AsyncRuntime {
     .expect("Custom async runtime is not configured")
 }
 
+/// Register the custom [`AsyncRuntime`] backend that napi will use process-wide.
+///
+/// Call this once, at module init, before any async entry point runs.
+///
+/// Registration is **first-writer-wins**: the backend is stored in a process-global
+/// `OnceLock`, so the first call wins and every later call is silently ignored (the runtime
+/// you pass is dropped without being installed). There is no way to replace the backend once
+/// it is set.
+/// ### Example
+/// ```no_run
+/// use std::future::Future;
+/// use std::pin::Pin;
+/// use napi::{create_custom_async_runtime, AsyncRuntime};
+///
+/// struct MyRuntime;
+/// impl AsyncRuntime for MyRuntime {
+///   fn spawn(&self, _future: Pin<Box<dyn Future<Output = ()> + Send + 'static>>) { todo!() }
+///   fn block_on(&self, _future: Pin<&mut dyn Future<Output = ()>>) { todo!() }
+/// }
+///
+/// #[napi_derive::module_init]
+/// fn init() {
+///   create_custom_async_runtime(MyRuntime);
+/// }
+/// ```
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 pub fn create_custom_async_runtime<R: AsyncRuntime>(runtime: R) {
   CUSTOM_ASYNC_RUNTIME.get_or_init(|| Box::new(runtime));
