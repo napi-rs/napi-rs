@@ -63,6 +63,7 @@ test('single-thread WASI bindings do not require workers or shared memory', (t) 
     t.true(code.includes('asyncWorkPoolSize: 0'))
   }
   t.false(browser.includes('new Worker'))
+  t.false(node.includes('new Worker'))
   t.false(node.includes("require('node:worker_threads')"))
   assertValidJS(t, browser, 'single-thread browser binding')
   assertValidJS(t, node, 'single-thread Node binding')
