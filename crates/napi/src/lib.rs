@@ -16,7 +16,8 @@
 //!
 //! ### tokio_rt
 //! With `tokio_rt` feature, `napi-rs` provides a ***tokio runtime*** (a separate worker thread
-//! on native targets; a current-thread runtime on wasm).
+//! on native targets; a current-thread runtime on wasm, or a multi-thread runtime on wasm
+//! when the `tokio_unstable` cfg is set).
 //! And you can easily run tokio `future` in it and return `promise`.
 //!
 //! ```
@@ -46,9 +47,10 @@
 //! The free functions `spawn` and `spawn_blocking` are NOT part of the
 //! [`AsyncRuntime`](crate::bindgen_prelude::AsyncRuntime) contract: the trait has no
 //! `spawn_blocking` hook and its `spawn` returns nothing, so the task could never be
-//! joined. In a pure `async-runtime` build (without `tokio_rt`) calling either one panics
-//! instead of silently constructing a multi-threaded tokio runtime. Drive your own work
-//! through the registered backend instead.
+//! joined. In a non-`noop`, pure `async-runtime` build (without `tokio_rt`) calling either
+//! one panics instead of silently constructing a multi-threaded tokio runtime; under the
+//! `noop` feature neither helper is compiled at all. Drive your own work through the
+//! registered backend instead.
 //!
 //! ### latin1
 //!
