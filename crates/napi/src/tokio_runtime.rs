@@ -1,5 +1,10 @@
+#[cfg(all(
+  not(feature = "noop"),
+  any(not(feature = "async-runtime"), feature = "tokio_rt")
+))]
+use std::sync::LazyLock;
 #[cfg(not(feature = "noop"))]
-use std::sync::{LazyLock, OnceLock, RwLock};
+use std::sync::{OnceLock, RwLock};
 use std::{future::Future, marker::PhantomData};
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
@@ -56,7 +61,10 @@ pub fn create_custom_async_runtime<R: AsyncRuntime>(runtime: R) {
 #[cfg(all(feature = "async-runtime", feature = "noop"))]
 pub fn create_custom_async_runtime<R: AsyncRuntime>(_: R) {}
 
-#[cfg(not(feature = "noop"))]
+#[cfg(all(
+  not(feature = "noop"),
+  any(not(feature = "async-runtime"), feature = "tokio_rt")
+))]
 fn create_runtime() -> Runtime {
   // Check if we're supposed to use a user-defined runtime
   if IS_USER_DEFINED_RT.get().copied().unwrap_or(false) {
@@ -90,7 +98,10 @@ fn create_runtime() -> Runtime {
   }
 }
 
-#[cfg(not(feature = "noop"))]
+#[cfg(all(
+  not(feature = "noop"),
+  any(not(feature = "async-runtime"), feature = "tokio_rt")
+))]
 static RT: LazyLock<RwLock<Option<Runtime>>> =
   LazyLock::new(|| RwLock::new(Some(create_runtime())));
 
@@ -160,7 +171,10 @@ pub fn shutdown_async_runtime() {
   }
 }
 
-#[cfg(not(feature = "noop"))]
+#[cfg(all(
+  not(feature = "noop"),
+  any(not(feature = "async-runtime"), feature = "tokio_rt")
+))]
 /// Spawns a future onto the Tokio runtime.
 ///
 /// Depending on where you use it, you should await or abort the future in your drop function.
@@ -173,6 +187,25 @@ where
     .ok()
     .and_then(|rt| rt.as_ref().map(|rt| rt.spawn(fut)))
     .expect("Access tokio runtime failed in spawn")
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  feature = "async-runtime",
+  not(feature = "tokio_rt")
+))]
+/// In a pure `async-runtime` build there is no tokio runtime to spawn onto, and the
+/// [`AsyncRuntime`] trait deliberately exposes no `spawn` hook (it returns nothing, so a
+/// caller could never join the task). Rather than silently constructing a multi-threaded
+/// tokio runtime — the exact opposite of a threadless custom backend — this fails loud.
+pub fn spawn<F>(_fut: F) -> tokio::task::JoinHandle<F::Output>
+where
+  F: 'static + Send + Future<Output = ()>,
+{
+  panic!(
+    "napi `spawn` is not routed through the custom async runtime; \
+     use the registered `AsyncRuntime` backend instead"
+  )
 }
 
 #[cfg(not(feature = "noop"))]
@@ -208,7 +241,10 @@ pub fn block_on<F: Future>(_: F) -> F::Output {
   unreachable!("noop feature is enabled, block_on is not available")
 }
 
-#[cfg(not(feature = "noop"))]
+#[cfg(all(
+  not(feature = "noop"),
+  any(not(feature = "async-runtime"), feature = "tokio_rt")
+))]
 /// spawn_blocking on the current Tokio runtime.
 pub fn spawn_blocking<F, R>(func: F) -> tokio::task::JoinHandle<R>
 where
@@ -219,6 +255,26 @@ where
     .ok()
     .and_then(|rt| rt.as_ref().map(|rt| rt.spawn_blocking(func)))
     .expect("Access tokio runtime failed in spawn_blocking")
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  feature = "async-runtime",
+  not(feature = "tokio_rt")
+))]
+/// In a pure `async-runtime` build there is no tokio runtime and the [`AsyncRuntime`] trait
+/// has no `spawn_blocking` hook, so blocking work cannot be offloaded to a backend thread
+/// pool. Fail loud instead of spinning up a multi-threaded tokio runtime behind the user's
+/// back.
+pub fn spawn_blocking<F, R>(_func: F) -> tokio::task::JoinHandle<R>
+where
+  F: FnOnce() -> R + Send + 'static,
+  R: Send + 'static,
+{
+  panic!(
+    "napi `spawn_blocking` is not routed through the custom async runtime; \
+     use the registered `AsyncRuntime` backend instead"
+  )
 }
 
 #[cfg(not(feature = "noop"))]
