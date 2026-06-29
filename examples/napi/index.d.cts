@@ -436,6 +436,8 @@ export interface AllOptionalObject {
 
 export declare function appendBuffer(buf: Buffer): Buffer
 
+export declare function appendToOsString(s: string): string
+
 export declare function apply0(ctx: Animal, callback: () => void): void
 
 export declare function apply1(ctx: Animal, callback: (arg: string) => void, name: string): void
@@ -889,6 +891,8 @@ export declare function indexSetToRust(set: Set<string>): void
 
 export declare function intoUtf8(s: string): string
 
+export declare function joinPath(path: string, segment: string): string
+
 export declare function jsErrorCallback(value: unknown): Array<Error>
 
 /** default enum values are continuos i32s start from 0 */
@@ -1020,6 +1024,8 @@ export declare function passSetToJs(): Set<string>
 export declare function passSetToRust(set: Set<string>): void
 
 export declare function passSetWithHasherToJs(): Set<string>
+
+export declare function pathParent(path: string): string | null
 
 export interface Pet {
   name: string

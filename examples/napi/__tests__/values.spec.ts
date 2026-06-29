@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer'
 import { exec } from 'node:child_process'
-import { join } from 'node:path'
+import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createReadStream } from 'node:fs'
 import { readFile as nodeReadFile } from 'node:fs/promises'
@@ -42,6 +42,9 @@ import {
   createStaticUtf16String,
   testLatin1Methods,
   roundtripStr,
+  appendToOsString,
+  joinPath,
+  pathParent,
   getNums,
   getWords,
   getTuple,
@@ -354,6 +357,19 @@ test('string', (t) => {
   t.is(createStaticLatin1String(), 'Static Latin1 string')
   t.is(createStaticUtf16String(), 'Static UTF16')
   t.is(intoUtf8('Hello'), 'Hello')
+})
+
+test('OsString / OsStr', (t) => {
+  t.is(appendToOsString('foo'), 'foo + Rust 🦀 string!')
+  t.is(appendToOsString(''), ' + Rust 🦀 string!')
+})
+
+test('PathBuf / Path', (t) => {
+  t.is(joinPath('foo', 'bar'), join('foo', 'bar'))
+  t.is(joinPath(join('tmp', 'dir'), 'baz.txt'), join('tmp', 'dir', 'baz.txt'))
+  const nested = join('tmp', 'dir', 'baz.txt')
+  t.is(pathParent(nested), dirname(nested))
+  t.is(pathParent('baz.txt'), '')
 })
 
 test('JsStringLatin1::from_external tests', (t) => {

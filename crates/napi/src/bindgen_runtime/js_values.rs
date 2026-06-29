@@ -22,6 +22,7 @@ mod map;
 mod nil;
 mod number;
 mod object;
+mod os_string;
 mod promise;
 mod promise_raw;
 mod scope;

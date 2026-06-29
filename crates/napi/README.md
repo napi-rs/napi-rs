@@ -205,6 +205,8 @@ yarn test
 | f64                      | Number              | 1                                                                               | v8.0.0               |
 | bool                     | Boolean             | 1                                                                               | v8.0.0               |
 | String/&'a str           | String              | 1                                                                               | v8.0.0               |
+| OsString/&'a OsStr       | String              | 1                                                                               | v8.0.0               |
+| PathBuf/&'a Path         | String              | 1                                                                               | v8.0.0               |
 | Latin1String             | String              | 1                                                                               | v8.0.0               | latin1                   |
 | UTF16String              | String              | 1                                                                               | v8.0.0               |
 | Object                   | Object              | 1                                                                               | v8.0.0               |
