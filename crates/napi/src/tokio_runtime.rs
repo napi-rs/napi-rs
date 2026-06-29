@@ -37,6 +37,10 @@ impl AsyncRuntimeGuard for () {}
 /// scheduler (e.g. a single-threaded or WASI-friendly runtime) and register exactly one
 /// instance, once, at module init.
 ///
+/// Under the `noop` feature this SPI is inert: [`create_custom_async_runtime`] does nothing and
+/// the routed entry points are stubbed out (e.g. `block_on` panics), so the notes below about
+/// routing apply only to non-`noop` builds.
+///
 /// Note that the public free `spawn`/`spawn_blocking` helper functions are **not** part of
 /// this routing contract. This trait's own [`spawn`](AsyncRuntime::spawn) hook IS the routed
 /// entry point for JS-facing async work, but it is detached (it hands back nothing to join)
@@ -96,8 +100,11 @@ pub trait AsyncRuntime: Send + Sync + 'static {
 
   /// Shut the runtime down.
   ///
-  /// Called by `shutdown_async_runtime`. On native Node targets napi invokes it from the env
-  /// cleanup hook when the Node env exits. On wasm it is **not** tied to that env cleanup hook;
+  /// Called by `shutdown_async_runtime`. On native Node targets a single process-wide env
+  /// cleanup hook (registered once, on the first env that initializes the runtime) invokes it
+  /// when that env exits; because the hook is registered only once, an env recreated after a
+  /// full teardown — e.g. an Electron window reload — may not re-trigger it, so a backend should
+  /// not rely on per-env shutdown. On wasm it is **not** tied to that env cleanup hook;
   /// instead it may be triggered either by the registered wasm finalizer (a `napi_wrap`
   /// finalizer on the module exports that fires once the live module count reaches zero) or by
   /// an explicit user call, depending on the host's finalization behavior. After shutdown the

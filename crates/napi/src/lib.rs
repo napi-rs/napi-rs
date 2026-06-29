@@ -15,7 +15,8 @@
 //! The details of N-API versions and support matrix: [Node-API version matrix](https://nodejs.org/api/n-api.html#node-api-version-matrix)
 //!
 //! ### tokio_rt
-//! With `tokio_rt` feature, `napi-rs` provides a ***tokio runtime*** in an additional thread.
+//! With `tokio_rt` feature, `napi-rs` provides a ***tokio runtime*** (a separate worker thread
+//! on native targets; a current-thread runtime on wasm).
 //! And you can easily run tokio `future` in it and return `promise`.
 //!
 //! ```
