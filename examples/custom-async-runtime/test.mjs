@@ -48,10 +48,16 @@ await assert.rejects(binding.asyncError(), /custom runtime async error/)
 
 if (mode === 'native') {
   await assert.rejects(binding.asyncPanic(), /custom runtime async panic/)
+  // A `String` panic payload (here a formatted message) must survive to the
+  // rejection instead of collapsing into the generic "Panic in async function".
+  await assert.rejects(
+    binding.asyncPanicString(7),
+    /custom runtime async string panic: 7/,
+  )
 }
 
 const afterAsync = binding.getRuntimeMetrics()
-const expectedAsyncTasks = mode === 'native' ? 7 : 6
+const expectedAsyncTasks = mode === 'native' ? 8 : 6
 assert.ok(afterAsync.spawnCalls >= beforeAsync.spawnCalls + expectedAsyncTasks)
 assert.ok(
   afterAsync.completedTasks >= beforeAsync.completedTasks + expectedAsyncTasks,

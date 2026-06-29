@@ -447,6 +447,8 @@ pub fn execute_tokio_future<
       Err(reason) => {
         if let Some(s) = reason.downcast_ref::<&str>() {
           deferred.reject(Error::new(crate::Status::GenericFailure, s));
+        } else if let Some(s) = reason.downcast_ref::<String>() {
+          deferred.reject(Error::new(crate::Status::GenericFailure, s));
         } else {
           deferred.reject(Error::new(
             crate::Status::GenericFailure,
@@ -554,6 +556,8 @@ pub fn execute_tokio_future_with_finalize_callback<
       Ok(Err(e)) => deferred.reject(e.into()),
       Err(reason) => {
         if let Some(s) = reason.downcast_ref::<&str>() {
+          deferred.reject(Error::new(crate::Status::GenericFailure, s));
+        } else if let Some(s) = reason.downcast_ref::<String>() {
           deferred.reject(Error::new(crate::Status::GenericFailure, s));
         } else {
           deferred.reject(Error::new(
