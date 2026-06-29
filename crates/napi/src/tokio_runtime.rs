@@ -222,15 +222,19 @@ pub fn create_custom_tokio_runtime(rt: Runtime) {
 pub fn create_custom_tokio_runtime(_: Runtime) {}
 
 #[cfg(not(feature = "noop"))]
-/// Start the async runtime (Currently is tokio).
+/// Start the async runtime.
+///
+/// With the `async-runtime` feature this delegates to the registered `AsyncRuntime` backend's
+/// `start`; otherwise it starts napi's built-in tokio runtime (the default path).
 ///
 /// In Node.js native targets the async runtime will be dropped when Node env exits.
 /// But in Electron renderer process, the Node env will exits and recreate when the window reloads.
 /// So we need to ensure that the async runtime is initialized when the Node env is created.
 ///
-/// In wasm targets, the async runtime will not been shutdown automatically due to the limitation of the wasm runtime.
-/// So, you need to call `shutdown_async_runtime` function to manually shutdown the async runtime.
-/// In some scenarios, you may want to start the async runtime again like in tests.
+/// In wasm targets the built-in tokio runtime is not shut down automatically (a limitation of
+/// the wasm runtime), so call `shutdown_async_runtime` to shut it down manually; a custom
+/// `async-runtime` backend instead controls its own lifetime. In some scenarios you may want
+/// to start the runtime again, e.g. in tests.
 pub fn start_async_runtime() {
   #[cfg(feature = "async-runtime")]
   {
@@ -371,8 +375,11 @@ where
 // This function's signature must be kept in sync with the one in lib.rs, otherwise napi
 // will fail to compile with the `tokio_rt` feature.
 #[cfg(not(feature = "noop"))]
-/// If the feature `tokio_rt` has been enabled this will enter the runtime context and
-/// then call the provided closure. Otherwise it will just call the provided closure.
+/// Enter the async runtime context for the duration of the provided closure, then call it.
+///
+/// With the `async-runtime` feature this enters the registered `AsyncRuntime` backend's
+/// context (via its `enter`); with the built-in tokio runtime it enters the tokio context;
+/// under the `noop` feature it simply calls the closure without entering any context.
 pub fn within_runtime_if_available<F: FnOnce() -> T, T>(f: F) -> T {
   #[cfg(feature = "async-runtime")]
   {
