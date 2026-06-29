@@ -29,12 +29,19 @@ impl AsyncRuntimeGuard for () {}
 
 /// Service-provider interface for plugging a custom async runtime into NAPI-RS.
 ///
-/// When the `async-runtime` feature is enabled, napi no longer drives futures on its
-/// built-in tokio runtime. Instead every async entry point ([`spawn`], [`block_on`],
-/// [`within_runtime_if_available`], [`start_async_runtime`], [`shutdown_async_runtime`])
-/// is routed through the single backend registered with [`create_custom_async_runtime`].
-/// Implement this trait to back napi with your own scheduler (e.g. a single-threaded or
-/// WASI-friendly runtime) and register exactly one instance, once, at module init.
+/// When the `async-runtime` feature is enabled, napi no longer drives JS-facing futures on
+/// its built-in tokio runtime. The futures produced by `#[napi]` async functions — together
+/// with napi's own [`block_on`], [`within_runtime_if_available`], [`start_async_runtime`] and
+/// [`shutdown_async_runtime`] entry points — are routed through the single backend registered
+/// with [`create_custom_async_runtime`]. Implement this trait to back napi with your own
+/// scheduler (e.g. a single-threaded or WASI-friendly runtime) and register exactly one
+/// instance, once, at module init.
+///
+/// Note that the public `spawn`/`spawn_blocking` helper functions are **not** part of this
+/// routing contract: the trait deliberately exposes no `spawn`/`spawn_blocking` hook. In a
+/// `tokio_rt` build those helpers run on the tokio runtime; in a pure `async-runtime` build
+/// (no `tokio_rt`) they fail loud — calling them panics rather than silently spinning up a
+/// hidden tokio runtime. Drive background work through the backend's own scheduler instead.
 ///
 /// The implementation is stored process-globally and shared across threads, hence the
 /// `Send + Sync + 'static` bound. Only one runtime is ever registered for the lifetime of
@@ -86,10 +93,13 @@ pub trait AsyncRuntime: Send + Sync + 'static {
 
   /// Shut the runtime down.
   ///
-  /// Called by [`shutdown_async_runtime`], which napi invokes when the Node env exits (and,
-  /// on wasm, only when the user calls it explicitly). After shutdown the runtime may be
-  /// started again via [`start`](AsyncRuntime::start), so release resources without making a
-  /// subsequent `start` impossible. The default is a no-op.
+  /// Called by [`shutdown_async_runtime`]. On native Node targets napi invokes it from the env
+  /// cleanup hook when the Node env exits. On wasm it is **not** tied to that env cleanup hook;
+  /// instead it may be triggered either by the registered wasm finalizer (a `napi_wrap`
+  /// finalizer on the module exports that fires once the live module count reaches zero) or by
+  /// an explicit user call, depending on the host's finalization behavior. After shutdown the
+  /// runtime may be started again via [`start`](AsyncRuntime::start), so release resources
+  /// without making a subsequent `start` impossible. The default is a no-op.
   fn shutdown(&self) {}
 }
 
