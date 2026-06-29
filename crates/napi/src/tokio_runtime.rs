@@ -37,11 +37,14 @@ impl AsyncRuntimeGuard for () {}
 /// scheduler (e.g. a single-threaded or WASI-friendly runtime) and register exactly one
 /// instance, once, at module init.
 ///
-/// Note that the public `spawn`/`spawn_blocking` helper functions are **not** part of this
-/// routing contract: the trait deliberately exposes no `spawn`/`spawn_blocking` hook. In a
-/// `tokio_rt` build those helpers run on the tokio runtime; in a pure `async-runtime` build
-/// (no `tokio_rt`) they fail loud — calling them panics rather than silently spinning up a
-/// hidden tokio runtime. Drive background work through the backend's own scheduler instead.
+/// Note that the public free `spawn`/`spawn_blocking` helper functions are **not** part of
+/// this routing contract. This trait's own [`spawn`](AsyncRuntime::spawn) hook IS the routed
+/// entry point for JS-facing async work, but it is detached (it hands back nothing to join)
+/// and there is no `spawn_blocking` hook — so the public helpers, whose contract is to return
+/// a joinable `JoinHandle`, cannot be served by the backend. In a `tokio_rt` build those
+/// helpers run on the tokio runtime; in a pure `async-runtime` build (no `tokio_rt`) they fail
+/// loud — calling them panics rather than silently spinning up a hidden tokio runtime. Drive
+/// background work through the backend's own scheduler instead.
 ///
 /// The implementation is stored process-globally and shared across threads, hence the
 /// `Send + Sync + 'static` bound. Only one runtime is ever registered for the lifetime of
@@ -280,10 +283,11 @@ where
   feature = "async-runtime",
   not(feature = "tokio_rt")
 ))]
-/// In a pure `async-runtime` build there is no tokio runtime to spawn onto, and the
-/// [`AsyncRuntime`] trait deliberately exposes no `spawn` hook (it returns nothing, so a
-/// caller could never join the task). Rather than silently constructing a multi-threaded
-/// tokio runtime — the exact opposite of a threadless custom backend — this fails loud.
+/// In a pure `async-runtime` build there is no tokio runtime to spawn onto. The
+/// [`AsyncRuntime`] trait's own [`spawn`](AsyncRuntime::spawn) hook is detached — it returns
+/// nothing to join — so it cannot serve this public `spawn`, whose contract is to hand back a
+/// joinable `JoinHandle`. Rather than silently constructing a multi-threaded tokio runtime —
+/// the exact opposite of a threadless custom backend — this fails loud.
 pub fn spawn<F>(_fut: F) -> tokio::task::JoinHandle<F::Output>
 where
   F: 'static + Send + Future<Output = ()>,
