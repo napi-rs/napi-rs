@@ -306,6 +306,14 @@ pub async fn async_panic() {
 }
 
 #[napi]
+pub async fn async_panic_string(value: u32) {
+  yield_once().await;
+  // Panics with a formatted `String` payload (not a `&'static str`), exercising the
+  // `downcast_ref::<String>()` fallback in the async-runtime reject path.
+  panic!("custom runtime async string panic: {}", value);
+}
+
+#[napi]
 pub fn spawn_future<'env>(env: &'env Env, value: u32) -> Result<PromiseRaw<'env, u32>> {
   env.spawn_future(async move {
     yield_once().await;
