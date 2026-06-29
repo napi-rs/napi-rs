@@ -31,8 +31,8 @@ impl AsyncRuntimeGuard for () {}
 ///
 /// When the `async-runtime` feature is enabled, napi no longer drives JS-facing futures on
 /// its built-in tokio runtime. The futures produced by `#[napi]` async functions — together
-/// with napi's own [`block_on`], [`within_runtime_if_available`], [`start_async_runtime`] and
-/// [`shutdown_async_runtime`] entry points — are routed through the single backend registered
+/// with napi's own [`block_on`], [`within_runtime_if_available`], `start_async_runtime` and
+/// `shutdown_async_runtime` entry points — are routed through the single backend registered
 /// with [`create_custom_async_runtime`]. Implement this trait to back napi with your own
 /// scheduler (e.g. a single-threaded or WASI-friendly runtime) and register exactly one
 /// instance, once, at module init.
@@ -88,7 +88,7 @@ pub trait AsyncRuntime: Send + Sync + 'static {
 
   /// Start (or restart) the runtime.
   ///
-  /// Called by [`start_async_runtime`], which napi invokes when a Node env is created — note
+  /// Called by `start_async_runtime`, which napi invokes when a Node env is created — note
   /// that an Electron renderer process can create and tear down its Node env repeatedly (on
   /// window reload), so this may be called more than once over the backend's lifetime.
   /// Implement it idempotently. The default is a no-op.
@@ -96,7 +96,7 @@ pub trait AsyncRuntime: Send + Sync + 'static {
 
   /// Shut the runtime down.
   ///
-  /// Called by [`shutdown_async_runtime`]. On native Node targets napi invokes it from the env
+  /// Called by `shutdown_async_runtime`. On native Node targets napi invokes it from the env
   /// cleanup hook when the Node env exits. On wasm it is **not** tied to that env cleanup hook;
   /// instead it may be triggered either by the registered wasm finalizer (a `napi_wrap`
   /// finalizer on the module exports that fires once the live module count reaches zero) or by
@@ -201,8 +201,11 @@ static USER_DEFINED_RT: OnceLock<RwLock<Option<Runtime>>> = OnceLock::new();
 static IS_USER_DEFINED_RT: OnceLock<bool> = OnceLock::new();
 
 #[cfg(not(feature = "noop"))]
-/// Create a custom Tokio runtime used by the NAPI-RS.
-/// You can control the tokio runtime configuration by yourself.
+/// Configure the built-in Tokio runtime used by NAPI-RS, controlling its configuration yourself.
+///
+/// This affects only the built-in Tokio path: the default build, or — with `async-runtime` plus
+/// `tokio_rt` — the public Tokio helper runtime. In a pure `async-runtime` build, JS-facing async
+/// work is driven by the registered `AsyncRuntime` backend, and this helper has no effect.
 /// ### Example
 /// ```no_run
 /// use tokio::runtime::Builder;
@@ -231,10 +234,11 @@ pub fn create_custom_tokio_runtime(_: Runtime) {}
 /// But in Electron renderer process, the Node env will exits and recreate when the window reloads.
 /// So we need to ensure that the async runtime is initialized when the Node env is created.
 ///
-/// In wasm targets the built-in tokio runtime is not shut down automatically (a limitation of
-/// the wasm runtime), so call `shutdown_async_runtime` to shut it down manually; a custom
-/// `async-runtime` backend instead controls its own lifetime. In some scenarios you may want
-/// to start the runtime again, e.g. in tests.
+/// On wasm, shutdown is not tied to the Node env cleanup hook: depending on host finalization
+/// it may be triggered by the exports `napi_wrap` finalizer when the module count reaches zero,
+/// or you can call `shutdown_async_runtime` explicitly. A custom `async-runtime` backend
+/// controls its own lifetime. In some scenarios you may want to start the runtime again, e.g.
+/// in tests.
 pub fn start_async_runtime() {
   #[cfg(feature = "async-runtime")]
   {
@@ -328,9 +332,8 @@ pub fn block_on<F: Future>(fut: F) -> F::Output {
 }
 
 #[cfg(feature = "noop")]
-/// Runs a future to completion
-/// This is blocking, meaning that it pauses other execution until the future is complete,
-/// only use it when it is absolutely necessary, in other places use async functions instead.
+/// Unavailable under the `noop` feature: calling this panics. (Other builds run the future to
+/// completion, blocking the current thread until it resolves.)
 pub fn block_on<F: Future>(_: F) -> F::Output {
   unreachable!("noop feature is enabled, block_on is not available")
 }

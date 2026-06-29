@@ -42,8 +42,7 @@
 //! futures and domain-specific CPU work, or a cooperative executor on
 //! non-threaded WebAssembly hosts.
 //!
-//! The free functions [`spawn`](crate::bindgen_prelude::spawn) and
-//! [`spawn_blocking`](crate::bindgen_prelude::spawn_blocking) are NOT part of the
+//! The free functions `spawn` and `spawn_blocking` are NOT part of the
 //! [`AsyncRuntime`](crate::bindgen_prelude::AsyncRuntime) contract: the trait has no
 //! `spawn_blocking` hook and its `spawn` returns nothing, so the task could never be
 //! joined. In a pure `async-runtime` build (without `tokio_rt`) calling either one panics
