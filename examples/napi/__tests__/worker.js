@@ -73,6 +73,12 @@ parentPort.on('message', ({ type }) => {
       }
       parentPort.postMessage('done')
       break
+    case 'stash:arraybuffer:teardown':
+      for (let i = 0; i < (isWasiTest ? 2 : 50); i++) {
+        native.stashTypedArrayInThreadLocal(Uint8Array.from([1, 2, 3]))
+      }
+      parentPort.postMessage('done')
+      break
     case 'constructor':
       let ellie
       for (let i = 0; i < (isWasiTest ? 10 : 1000); i++) {

@@ -1161,6 +1161,8 @@ export declare function spawnThreadInThread(tsfn: ((err: Error | null, arg: numb
 
 export declare function stashBufferInThreadLocal(buf: Buffer): void
 
+export declare function stashTypedArrayInThreadLocal(buf: Uint8Array): void
+
 export declare const enum Status {
   Pristine = 'Pristine',
   Loading = 'Loading',

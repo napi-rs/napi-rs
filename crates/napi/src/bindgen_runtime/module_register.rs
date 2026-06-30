@@ -159,6 +159,14 @@ impl CustomGcHandle {
   }
 }
 
+// INVARIANT: this per-OS-thread slot relies on ONE `napi_env` per OS thread, which holds for every
+// supported runtime — Node's main thread, each `worker_threads` worker (its own V8 isolate + env +
+// loop thread), and Electron. `create_custom_gc` installs the handle once per env on its registering
+// thread, and `FromNapiValue` always runs on that same thread for that env, so a captured handle is
+// always the value's OWNING env. An embedder hosting multiple `napi_env` on a single shared OS thread
+// is out of scope: the per-env `Arc` identity (see `current_thread_owns_custom_gc`) is immune to
+// env-pointer reuse, and the single public `Env::set_instance_data` slot is reserved for addon authors
+// so it cannot be co-opted to key the handle by env.
 thread_local! {
   #[cfg(all(feature = "napi4", not(feature = "noop")))]
   // Per-thread "this isolate's custom-GC handle".
@@ -677,6 +685,9 @@ fn create_custom_gc(env: sys::napi_env) {
       status,
       "Create Custom GC ThreadsafeFunction in napi_register_module_v1 failed"
     );
+    // `napi_create_threadsafe_function` only fails under resource exhaustion; `check_status_or_throw!`
+    // above leaves a pending exception, which aborts the addon load (`require` throws). No user
+    // `#[napi]` code then runs, so no Buffer/TypedArray is ever created with this env's (unset) handle.
     return;
   }
   handle

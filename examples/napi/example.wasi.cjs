@@ -411,6 +411,7 @@ module.exports.shutdownRuntime = __napiModule.exports.shutdownRuntime
 module.exports.spawnFutureLifetime = __napiModule.exports.spawnFutureLifetime
 module.exports.spawnThreadInThread = __napiModule.exports.spawnThreadInThread
 module.exports.stashBufferInThreadLocal = __napiModule.exports.stashBufferInThreadLocal
+module.exports.stashTypedArrayInThreadLocal = __napiModule.exports.stashTypedArrayInThreadLocal
 module.exports.Status = __napiModule.exports.Status
 module.exports.StatusInValidate = __napiModule.exports.StatusInValidate
 module.exports.StringEnum = __napiModule.exports.StringEnum

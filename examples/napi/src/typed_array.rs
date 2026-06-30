@@ -118,6 +118,15 @@ fn stash_buffer_in_thread_local(buf: Buffer) {
   STASHED_BUFFERS.with(|c| c.borrow_mut().push(buf));
 }
 
+thread_local! {
+  static STASHED_TYPED_ARRAYS: RefCell<Vec<Uint8Array>> = const { RefCell::new(Vec::new()) };
+}
+
+#[napi]
+fn stash_typed_array_in_thread_local(buf: Uint8Array) {
+  STASHED_TYPED_ARRAYS.with(|c| c.borrow_mut().push(buf));
+}
+
 #[napi]
 fn accept_slice(fixture: &[u8]) -> usize {
   fixture.len()

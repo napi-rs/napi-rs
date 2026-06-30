@@ -890,6 +890,7 @@ module.exports.shutdownRuntime = nativeBinding.shutdownRuntime
 module.exports.spawnFutureLifetime = nativeBinding.spawnFutureLifetime
 module.exports.spawnThreadInThread = nativeBinding.spawnThreadInThread
 module.exports.stashBufferInThreadLocal = nativeBinding.stashBufferInThreadLocal
+module.exports.stashTypedArrayInThreadLocal = nativeBinding.stashTypedArrayInThreadLocal
 module.exports.Status = nativeBinding.Status
 module.exports.StatusInValidate = nativeBinding.StatusInValidate
 module.exports.StringEnum = nativeBinding.StringEnum

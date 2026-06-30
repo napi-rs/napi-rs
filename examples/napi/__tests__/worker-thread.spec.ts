@@ -136,15 +136,21 @@ test('custom GC cross-isolate off-thread drop (napi-rs#3357)', async (t) => {
 test('custom GC same-thread post-teardown drop (napi-rs#3357 must_fix #1)', async (t) => {
   await Promise.all(
     Array.from({ length: concurrency }).map(() =>
-      new Promise<Worker>((resolve, reject) => {
-        const w = new Worker(join(__dirname, 'worker.js'), { env: process.env })
-        w.postMessage({ type: 'stash:buffer:teardown' })
-        w.on('message', (msg) => {
-          t.is(msg, 'done')
-          resolve(w)
-        })
-        w.on('error', reject)
-      }).then((w) => w.terminate()),
+      Promise.all(
+        ['stash:buffer:teardown', 'stash:arraybuffer:teardown'].map((type) =>
+          new Promise<Worker>((resolve, reject) => {
+            const w = new Worker(join(__dirname, 'worker.js'), {
+              env: process.env,
+            })
+            w.postMessage({ type })
+            w.on('message', (msg) => {
+              t.is(msg, 'done')
+              resolve(w)
+            })
+            w.on('error', reject)
+          }).then((w) => w.terminate()),
+        ),
+      ),
     ),
   )
 })
