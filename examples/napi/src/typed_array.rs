@@ -91,6 +91,20 @@ async fn array_buffer_pass_through(buf: Uint8Array) -> Result<Uint8Array> {
   Ok(buf)
 }
 
+// Repro for napi-rs#3357: unlike `*_pass_through`, these CONSUME the buffer, so the
+// `Buffer`/`Uint8Array` is dropped inside the future on a tokio worker thread (a non-JS
+// thread). When the owning isolate differs from the single global CUSTOM_GC_TSFN owner,
+// the cross-thread drop is routed to the wrong isolate => cross-isolate napi_reference_unref.
+#[napi]
+async fn buffer_len_async(buf: Buffer) -> Result<u32> {
+  Ok(buf.len() as u32)
+}
+
+#[napi]
+async fn array_buffer_len_async(buf: Uint8Array) -> Result<u32> {
+  Ok(buf.len() as u32)
+}
+
 #[napi]
 fn accept_slice(fixture: &[u8]) -> usize {
   fixture.len()

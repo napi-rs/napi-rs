@@ -446,6 +446,8 @@ export declare function arrayBufferFromData(): ArrayBuffer
 
 export declare function arrayBufferFromExternal(): ArrayBuffer
 
+export declare function arrayBufferLenAsync(buf: Uint8Array): Promise<number>
+
 export declare function arrayBufferPassThrough(buf: Uint8Array): Promise<Uint8Array>
 
 export declare function arrayParams(arr: Array<number>): number
@@ -489,6 +491,8 @@ export interface BindingVitePluginMeta {
 export declare function btreeSetToJs(): Set<string>
 
 export declare function btreeSetToRust(set: Set<string>): void
+
+export declare function bufferLenAsync(buf: Buffer): Promise<number>
 
 export declare function bufferPassThrough(buf: Buffer): Promise<Buffer>
 
