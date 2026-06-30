@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::sync::Arc;
 
 use napi::bindgen_prelude::*;
@@ -103,6 +104,18 @@ async fn buffer_len_async(buf: Buffer) -> Result<u32> {
 #[napi]
 async fn array_buffer_len_async(buf: Uint8Array) -> Result<u32> {
   Ok(buf.len() as u32)
+}
+
+// Same-thread post-teardown Drop coverage for napi-rs#3357 (must_fix #1): a JS-origin Buffer
+// stashed in a Rust thread_local on the OWNER JS thread drops at worker thread-exit, AFTER the
+// env teardown that sets the per-handle `aborted` flag. The fixed Drop must no-op (not UAF).
+thread_local! {
+  static STASHED_BUFFERS: RefCell<Vec<Buffer>> = const { RefCell::new(Vec::new()) };
+}
+
+#[napi]
+fn stash_buffer_in_thread_local(buf: Buffer) {
+  STASHED_BUFFERS.with(|c| c.borrow_mut().push(buf));
 }
 
 #[napi]

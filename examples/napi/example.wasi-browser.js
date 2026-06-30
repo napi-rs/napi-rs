@@ -366,6 +366,7 @@ export const shorterScope = __napiModule.exports.shorterScope
 export const shutdownRuntime = __napiModule.exports.shutdownRuntime
 export const spawnFutureLifetime = __napiModule.exports.spawnFutureLifetime
 export const spawnThreadInThread = __napiModule.exports.spawnThreadInThread
+export const stashBufferInThreadLocal = __napiModule.exports.stashBufferInThreadLocal
 export const Status = __napiModule.exports.Status
 export const StatusInValidate = __napiModule.exports.StatusInValidate
 export const StringEnum = __napiModule.exports.StringEnum

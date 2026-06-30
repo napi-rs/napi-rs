@@ -1159,6 +1159,8 @@ export declare function spawnFutureLifetime(input: number): Promise<string>
 
 export declare function spawnThreadInThread(tsfn: ((err: Error | null, arg: number) => number)): void
 
+export declare function stashBufferInThreadLocal(buf: Buffer): void
+
 export declare const enum Status {
   Pristine = 'Pristine',
   Loading = 'Loading',
