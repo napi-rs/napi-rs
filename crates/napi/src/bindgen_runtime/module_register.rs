@@ -835,8 +835,11 @@ extern "C" fn custom_gc(
   _context: *mut std::ffi::c_void,
   data: *mut std::ffi::c_void,
 ) {
+  // env can be null while the owning env/TSFN is shutting down and Node drains the
+  // queue (mirrors the generic call_js_cb guard in threadsafe_function.rs). The owner
+  // env is gone and V8 has already invalidated the ref, so this is a safe no-op.
   // current thread was destroyed
-  if THREADS_CAN_ACCESS_ENV.with(|cell| !cell.get()) || data.is_null() {
+  if env.is_null() || THREADS_CAN_ACCESS_ENV.with(|cell| !cell.get()) || data.is_null() {
     return;
   }
   let mut ref_count = 0;
