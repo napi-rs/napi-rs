@@ -361,8 +361,10 @@ impl Drop for Buffer {
           });
           return;
         }
-        // handle == None -> fall through (under napi4 this is practically unreachable:
-        // it requires FromNapiValue to have run off a registered JS thread).
+        // handle == None -> fall through (under napi4 this is practically unreachable
+        // for a ref-carrying value: since #3357 `create_custom_gc` installs the per-env
+        // handle BEFORE any module-init callback runs, so any value captured via
+        // FromNapiValue on a registered JS thread records a real handle, not None).
       }
       let mut ref_count = 0;
       check_status_or_throw!(

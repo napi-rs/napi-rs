@@ -366,6 +366,20 @@ pub unsafe extern "C" fn napi_register_module_v1(
     wait_first_thread_registered();
   }
 
+  // Install the per-env custom-GC handle (#3357) BEFORE running ANY module-init
+  // callback below (the export-register callbacks, `module_register_hook_callback`,
+  // and the compat `MODULE_EXPORTS` callbacks). Those callbacks can capture a
+  // `Buffer`/`TypedArray` via `from_napi_value`, which snapshots the thread-local
+  // `CURRENT_CUSTOM_GC_HANDLE`. If the handle were installed afterwards (as it was
+  // originally), such a value would record `None`; because `Buffer`/`TypedArray`
+  // are `Send`, dropping it later on a non-JS thread would fall through to a direct
+  // `napi_reference_unref(env, ..)` on the WRONG thread — the cross-isolate
+  // use-after-free this change exists to prevent. `create_custom_gc` only needs a
+  // valid `env` (it creates a dummy function + the per-env TSFN and never reads
+  // `exports`), so running it this early is safe.
+  #[cfg(feature = "napi4")]
+  create_custom_gc(env);
+
   let mut exports_objects: HashSet<String> = HashSet::default();
 
   {
@@ -567,7 +581,9 @@ pub unsafe extern "C" fn napi_register_module_v1(
 
   #[cfg(feature = "napi4")]
   {
-    create_custom_gc(env);
+    // NOTE: `create_custom_gc(env)` is intentionally NOT called here. It now runs
+    // earlier in `register` (before any module-init callback) so a value captured
+    // during a hook gets a real per-env handle instead of `None` (#3357).
     #[cfg(feature = "tokio_rt")]
     {
       crate::tokio_runtime::start_async_runtime();
