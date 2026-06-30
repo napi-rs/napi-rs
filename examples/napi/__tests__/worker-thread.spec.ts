@@ -96,6 +96,65 @@ test('custom GC works on worker_threads', async (t) => {
   )
 })
 
+// (A) off-thread cross-isolate drop. buffer sub-worker: env:process.env + IMMEDIATE terminate
+// (F2/F3 owner-teardown stress). arraybuffer sub-worker: execArgv:[] + setTimeout(100) then terminate.
+test('custom GC cross-isolate off-thread drop (napi-rs#3357)', async (t) => {
+  await Promise.all(
+    Array.from({ length: concurrency }).map(() =>
+      Promise.all([
+        new Promise<Worker>((resolve, reject) => {
+          const w = new Worker(join(__dirname, 'worker.js'), {
+            env: process.env,
+          })
+          w.postMessage({ type: 'async:buffer:consume' })
+          w.on('message', (msg) => {
+            t.is(msg, 'done')
+            resolve(w)
+          })
+          w.on('error', reject)
+        }).then((w) => w.terminate()),
+        new Promise<Worker>((resolve, reject) => {
+          const w = new Worker(join(__dirname, 'worker.js'), { execArgv: [] })
+          w.postMessage({ type: 'async:arraybuffer:consume' })
+          w.on('message', (msg) => {
+            t.is(msg, 'done')
+            resolve(w)
+          })
+          w.on('error', reject)
+        }).then(async (w) => {
+          await setTimeout(100)
+          return w.terminate()
+        }),
+      ]),
+    ),
+  )
+})
+
+// (B) same-thread post-teardown drop (guards must_fix #1). Worker stashes JS-origin Buffers in a
+// Rust thread_local on its OWN JS thread; on terminate the env tears down (aborted=true), then the
+// thread exits and the stashed Buffers drop on the OWNER thread AFTER teardown -> must no-op.
+test('custom GC same-thread post-teardown drop (napi-rs#3357 must_fix #1)', async (t) => {
+  await Promise.all(
+    Array.from({ length: concurrency }).map(() =>
+      Promise.all(
+        ['stash:buffer:teardown', 'stash:arraybuffer:teardown'].map((type) =>
+          new Promise<Worker>((resolve, reject) => {
+            const w = new Worker(join(__dirname, 'worker.js'), {
+              env: process.env,
+            })
+            w.postMessage({ type })
+            w.on('message', (msg) => {
+              t.is(msg, 'done')
+              resolve(w)
+            })
+            w.on('error', reject)
+          }).then((w) => w.terminate()),
+        ),
+      ),
+    ),
+  )
+})
+
 test('should be able to new Class in worker thread concurrently', async (t) => {
   await Promise.all(
     Array.from({ length: concurrency }).map(() => {

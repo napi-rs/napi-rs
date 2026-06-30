@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::sync::Arc;
 
 use napi::bindgen_prelude::*;
@@ -89,6 +90,41 @@ fn buffer_with_async_block(env: &Env, buf: Arc<Buffer>) -> Result<AsyncBlock<u32
 #[napi]
 async fn array_buffer_pass_through(buf: Uint8Array) -> Result<Uint8Array> {
   Ok(buf)
+}
+
+// Repro for napi-rs#3357: unlike `*_pass_through`, these CONSUME the buffer, so the
+// `Buffer`/`Uint8Array` is dropped inside the future on a tokio worker thread (a non-JS
+// thread). When the owning isolate differs from the single global CUSTOM_GC_TSFN owner,
+// the cross-thread drop is routed to the wrong isolate => cross-isolate napi_reference_unref.
+#[napi]
+async fn buffer_len_async(buf: Buffer) -> Result<u32> {
+  Ok(buf.len() as u32)
+}
+
+#[napi]
+async fn array_buffer_len_async(buf: Uint8Array) -> Result<u32> {
+  Ok(buf.len() as u32)
+}
+
+// Same-thread post-teardown Drop coverage for napi-rs#3357 (must_fix #1): a JS-origin Buffer
+// stashed in a Rust thread_local on the OWNER JS thread drops at worker thread-exit, AFTER the
+// env teardown that sets the per-handle `aborted` flag. The fixed Drop must no-op (not UAF).
+thread_local! {
+  static STASHED_BUFFERS: RefCell<Vec<Buffer>> = const { RefCell::new(Vec::new()) };
+}
+
+#[napi]
+fn stash_buffer_in_thread_local(buf: Buffer) {
+  STASHED_BUFFERS.with(|c| c.borrow_mut().push(buf));
+}
+
+thread_local! {
+  static STASHED_TYPED_ARRAYS: RefCell<Vec<Uint8Array>> = const { RefCell::new(Vec::new()) };
+}
+
+#[napi]
+fn stash_typed_array_in_thread_local(buf: Uint8Array) {
+  STASHED_TYPED_ARRAYS.with(|c| c.borrow_mut().push(buf));
 }
 
 #[napi]
