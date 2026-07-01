@@ -170,6 +170,12 @@ fn is_option_type(ty: &syn::Type) -> bool {
 }
 
 fn gen_field_name_c_string(field_js_name: &str) -> TokenStream {
+  if field_js_name.contains('\0') {
+    return quote! {
+      compile_error!("napi object field names and structured enum discriminants cannot contain NUL bytes")
+    };
+  }
+
   let field_js_name_lit = Literal::string(&format!("{field_js_name}\0"));
   quote! {
     std::ffi::CStr::from_bytes_with_nul_unchecked(#field_js_name_lit.as_bytes()).as_ptr()
