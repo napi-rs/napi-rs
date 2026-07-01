@@ -143,18 +143,7 @@ impl TryToTokens for NapiFn {
         quote! {
           {
             std::panic::catch_unwind(|| { #function_call_inner })
-              .map_err(|e| {
-                let message = {
-                  if let Some(string) = e.downcast_ref::<String>() {
-                    string.clone()
-                  } else if let Some(string) = e.downcast_ref::<&str>() {
-                    string.to_string()
-                  } else {
-                    format!("panic from Rust code: {:?}", e)
-                  }
-                };
-                napi::Error::new(napi::Status::GenericFailure, message)
-              })
+              .map_err(napi::bindgen_prelude::panic_to_error)
               .and_then(|r| r)
           }
         }
@@ -316,18 +305,7 @@ impl TryToTokens for NapiFn {
       quote! {
         {
           std::panic::catch_unwind(|| { #function_call })
-            .map_err(|e| {
-              let message = {
-                if let Some(string) = e.downcast_ref::<String>() {
-                  string.clone()
-                } else if let Some(string) = e.downcast_ref::<&str>() {
-                  string.to_string()
-                } else {
-                  format!("panic from Rust code: {:?}", e)
-                }
-              };
-              napi::Error::new(napi::Status::GenericFailure, message)
-            })
+            .map_err(napi::bindgen_prelude::panic_to_error)
             .and_then(|r| r)
         }
       }
