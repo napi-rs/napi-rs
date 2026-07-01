@@ -370,14 +370,14 @@ impl NapiFn {
     if let Some(parent) = &self.parent {
       match self.fn_self {
         Some(FnSelf::Ref) => {
-          refs.push(make_ref(quote! { cb.this }));
+          refs.push(make_ref(quote! { cb.this() }));
           arg_conversions.push(quote! {
             let this_ptr = cb.unwrap_raw::<#parent>()?;
             let this: &#parent = Box::leak(Box::from_raw(this_ptr));
           });
         }
         Some(FnSelf::MutRef) => {
-          refs.push(make_ref(quote! { cb.this }));
+          refs.push(make_ref(quote! { cb.this() }));
           arg_conversions.push(quote! {
             let this_ptr = cb.unwrap_raw::<#parent>()?;
             let this: &mut #parent = Box::leak(Box::from_raw(this_ptr));
@@ -455,7 +455,7 @@ impl NapiFn {
                           args.push(
                             quote! {
                               {
-                                <#ident as napi::bindgen_prelude::FromNapiValue>::from_napi_value(env, cb.this)?.into()
+                                <#ident as napi::bindgen_prelude::FromNapiValue>::from_napi_value(env, cb.this())?.into()
                               }
                             },
                           );
@@ -474,12 +474,12 @@ impl NapiFn {
                         }) = elem.as_ref()
                         {
                           if let Some(syn::PathSegment { ident, .. }) = segments.first() {
-                            refs.push(make_ref(quote! { cb.this }));
+                            refs.push(make_ref(quote! { cb.this() }));
                             let token = if mutability.is_some() {
                               mut_ref_spans.push(generic_type.span());
-                              quote! { <#ident as napi::bindgen_prelude::FromNapiMutRef>::from_napi_mut_ref(env, cb.this)?.into() }
+                              quote! { <#ident as napi::bindgen_prelude::FromNapiMutRef>::from_napi_mut_ref(env, cb.this())?.into() }
                             } else {
-                              quote! { <#ident as napi::bindgen_prelude::FromNapiRef>::from_napi_ref(env, cb.this)?.into() }
+                              quote! { <#ident as napi::bindgen_prelude::FromNapiRef>::from_napi_ref(env, cb.this())?.into() }
                             };
                             args.push(token);
                             skipped_arg_count += 1;
@@ -489,8 +489,8 @@ impl NapiFn {
                       }
                     }
                   }
-                  refs.push(make_ref(quote! { cb.this }));
-                  args.push(quote! { <napi::bindgen_prelude::This as napi::bindgen_prelude::FromNapiValue>::from_napi_value(env, cb.this)? });
+                  refs.push(make_ref(quote! { cb.this() }));
+                  args.push(quote! { <napi::bindgen_prelude::This as napi::bindgen_prelude::FromNapiValue>::from_napi_value(env, cb.this())? });
                   skipped_arg_count += 1;
                   continue;
                 }
@@ -834,7 +834,7 @@ impl NapiFn {
             <#ty as napi::bindgen_prelude::ToNapiValue>::to_napi_value(env, #ret)
           })
         } else if is_return_self {
-          Ok(quote! { #ret.map(|_| cb.this) })
+          Ok(quote! { #ret.map(|_| cb.this()) })
         } else {
           Ok(quote! {
             match #ret {
@@ -847,7 +847,7 @@ impl NapiFn {
           })
         }
       } else if is_return_self {
-        Ok(quote! { Ok(cb.this) })
+        Ok(quote! { Ok(cb.this()) })
       } else {
         let mut return_ty = ty.clone();
         hidden_ty_lifetime(&mut return_ty)?;
