@@ -17,6 +17,7 @@ static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 mod async_compute;
 mod buffer;
+mod class_accessor;
 mod create_array;
 mod get_set_property;
 mod get_value_from_js;
