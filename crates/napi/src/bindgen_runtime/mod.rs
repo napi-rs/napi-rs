@@ -2,6 +2,7 @@ use std::ffi::c_void;
 use std::sync::Arc;
 
 pub use callback_info::*;
+pub use class_accessor::*;
 pub use env::*;
 pub use iterator::Generator;
 pub use js_values::*;
@@ -15,6 +16,7 @@ pub mod async_iterator;
 #[cfg(feature = "tokio_rt")]
 pub use async_iterator::AsyncGenerator;
 mod callback_info;
+mod class_accessor;
 mod env;
 mod error;
 pub mod iterator;

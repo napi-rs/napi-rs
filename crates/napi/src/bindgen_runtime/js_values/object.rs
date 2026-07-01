@@ -468,9 +468,10 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
     #[cfg(feature = "napi5")]
     {
       if !properties.is_empty() {
-        let mut closures = properties_iter
-          .clone()
-          .map(|p| p.data)
+        let mut closures = properties
+          .iter()
+          .filter(|property| property.has_closure_data())
+          .map(|property| property.raw().data)
           .filter(|data| !data.is_null())
           .collect::<Vec<*mut std::ffi::c_void>>();
         if !closures.is_empty() {

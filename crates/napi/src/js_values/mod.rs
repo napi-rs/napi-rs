@@ -613,9 +613,10 @@ macro_rules! impl_object_methods {
         let properties_iter = properties.iter().map(|property| property.raw());
         #[cfg(feature = "napi5")]
         {
-          let mut closures = properties_iter
-            .clone()
-            .map(|p| p.data)
+          let mut closures = properties
+            .iter()
+            .filter(|property| property.has_closure_data())
+            .map(|property| property.raw().data)
             .filter(|data| !data.is_null())
             .collect::<Vec<*mut std::ffi::c_void>>();
           if !closures.is_empty() {

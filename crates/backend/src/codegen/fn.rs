@@ -89,6 +89,100 @@ impl TryToTokens for NapiFn {
       ));
     }
 
+    if self.parent.is_some()
+      && matches!(self.kind, FnKind::Getter | FnKind::Setter)
+      && !self.is_async
+    {
+      let accessor_value_param = if self.kind == FnKind::Setter {
+        quote! { , value: napi::bindgen_prelude::sys::napi_value }
+      } else {
+        quote! {}
+      };
+      let accessor_args = if self.kind == FnKind::Setter && args_len > 0 {
+        quote! {
+          let mut __napi_accessor_args = [std::ptr::null_mut::<napi::bindgen_prelude::sys::napi_value__>(); #args_len];
+          __napi_accessor_args[0] = value;
+        }
+      } else {
+        quote! {
+          let __napi_accessor_args = [std::ptr::null_mut::<napi::bindgen_prelude::sys::napi_value__>(); #args_len];
+        }
+      };
+
+      let native_call = if self.within_async_runtime {
+        quote! {
+          napi::bindgen_prelude::within_runtime_if_available(move || {
+            let #receiver_ret_name = {
+              #receiver(#(#arg_names),*)
+            };
+            #ret
+          })
+        }
+      } else {
+        quote! {
+          let #receiver_ret_name = {
+            #receiver(#(#arg_names),*)
+          };
+          #ret
+        }
+      };
+
+      let function_call = if self.catch_unwind {
+        quote! {
+          {
+            std::panic::catch_unwind(|| { #native_call })
+              .map_err(|e| {
+                let message = {
+                  if let Some(string) = e.downcast_ref::<String>() {
+                    string.clone()
+                  } else if let Some(string) = e.downcast_ref::<&str>() {
+                    string.to_string()
+                  } else {
+                    format!("panic from Rust code: {:?}", e)
+                  }
+                };
+                napi::Error::new(napi::Status::GenericFailure, message)
+              })
+              .and_then(|r| r)
+          }
+        }
+      } else {
+        quote! {
+          #native_call
+        }
+      };
+
+      (quote! {
+        #(#attrs)*
+        #[doc(hidden)]
+        #[allow(non_snake_case)]
+        #[allow(clippy::all)]
+        unsafe fn #intermediate_ident(
+          env: napi::bindgen_prelude::sys::napi_env,
+          this: napi::bindgen_prelude::sys::napi_value
+          #accessor_value_param
+        ) -> napi::Result<napi::bindgen_prelude::sys::napi_value> {
+          #tracing_debug
+          unsafe {
+            #accessor_args
+            let mut cb = napi::bindgen_prelude::ClassAccessorCallbackInfo::<#args_len>::new(
+              env,
+              this,
+              __napi_accessor_args,
+            );
+            let __wrapped_env = napi::bindgen_prelude::Env::from(env);
+            #(#arg_conversions)*
+            #function_call
+          }
+        }
+
+        #register
+      })
+      .to_tokens(tokens);
+
+      return Ok(());
+    }
+
     let build_ref_container = if self.is_async {
       quote! {
           struct NapiRefContainer([napi::sys::napi_ref; #arg_ref_count]);
