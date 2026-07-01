@@ -127,10 +127,22 @@ impl TryToTokens for NapiFn {
         }
       };
 
+      let function_call_inner = quote! {
+        #accessor_args
+        let mut cb = napi::bindgen_prelude::ClassAccessorCallbackInfo::<#args_len>::new(
+          env,
+          this,
+          __napi_accessor_args,
+        );
+        let __wrapped_env = napi::bindgen_prelude::Env::from(env);
+        #(#arg_conversions)*
+        #native_call
+      };
+
       let function_call = if self.catch_unwind {
         quote! {
           {
-            std::panic::catch_unwind(|| { #native_call })
+            std::panic::catch_unwind(|| { #function_call_inner })
               .map_err(|e| {
                 let message = {
                   if let Some(string) = e.downcast_ref::<String>() {
@@ -148,7 +160,7 @@ impl TryToTokens for NapiFn {
         }
       } else {
         quote! {
-          #native_call
+          #function_call_inner
         }
       };
 
@@ -164,14 +176,6 @@ impl TryToTokens for NapiFn {
         ) -> napi::Result<napi::bindgen_prelude::sys::napi_value> {
           #tracing_debug
           unsafe {
-            #accessor_args
-            let mut cb = napi::bindgen_prelude::ClassAccessorCallbackInfo::<#args_len>::new(
-              env,
-              this,
-              __napi_accessor_args,
-            );
-            let __wrapped_env = napi::bindgen_prelude::Env::from(env);
-            #(#arg_conversions)*
             #function_call
           }
         }
