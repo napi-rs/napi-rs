@@ -663,6 +663,8 @@ export declare function createFunction(): (arg: number) => number
 
 export declare function createI32ArrayFromExternal(): Int32Array
 
+export declare function createNotUseNullableStruct(): NotUseNullableStruct
+
 export declare function createObj(): object
 
 export declare function createObjectRef(): object
@@ -702,6 +704,8 @@ export declare function createSymbolRef(desc: string): symbol
 export declare function createUint8ClampedArrayFromData(): Uint8ClampedArray
 
 export declare function createUint8ClampedArrayFromExternal(): Uint8ClampedArray
+
+export declare function createUseNullableStruct(): UseNullableStruct
 
 export declare function createZeroCopyLatin1String(): string
 
@@ -1195,12 +1199,14 @@ export declare const enum StringEnum {
 export type StructuredKind =
   | { type2: 'Hello' }
   | { type2: 'Greeting', name: string }
+  | { type2: 'Optional', name?: string }
   | { type2: 'Birthday', name: string, age: number }
   | { type2: 'Tuple', field0: number, field1: number }
 
 export type StructuredKindLowercase =
   | { type: 'hello' }
   | { type: 'greeting', name: string }
+  | { type: 'optional', name?: string }
   | { type: 'birthday', name: string, age: number }
   | { type: 'tuple', field0: number, field1: number }
 
