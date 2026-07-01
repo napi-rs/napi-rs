@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.10.0](https://github.com/napi-rs/napi-rs/compare/napi-v3.9.4...napi-v3.10.0) - 2026-07-01
+
+### Added
+
+- *(napi)* implement `To`/`FromNapiValue` for `OsString`, `OsStr`, `Path` and `PathBuf` ([#3339](https://github.com/napi-rs/napi-rs/pull/3339))
+
+### Fixed
+
+- *(napi)* route custom-GC Buffer/TypedArray cross-thread drops through the owning isolate ([#3357](https://github.com/napi-rs/napi-rs/pull/3357)) ([#3360](https://github.com/napi-rs/napi-rs/pull/3360))
+
 ## [3.9.4](https://github.com/napi-rs/napi-rs/compare/napi-v3.9.3...napi-v3.9.4) - 2026-06-24
 
 ### Other
