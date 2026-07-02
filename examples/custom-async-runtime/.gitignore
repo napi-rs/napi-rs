@@ -11,3 +11,4 @@ wasi-worker-browser.mjs
 wasi-worker.mjs
 .vitest-attachments/
 browser/__screenshots__/
+workerd/worker.bundle.mjs

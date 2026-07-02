@@ -841,6 +841,8 @@ jobs:
         run: |
           yarn workspace @examples/custom-async-runtime playwright install chromium
           yarn workspace @examples/custom-async-runtime test:browser
+      - name: Workerd test (miniflare)
+        run: yarn workspace @examples/custom-async-runtime test:workerd
 
   test-node-wasi:
     runs-on: ubuntu-latest

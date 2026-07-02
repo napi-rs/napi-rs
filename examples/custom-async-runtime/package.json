@@ -7,7 +7,8 @@
   "scripts": {
     "build": "napi-raw build --platform --js index.cjs --dts index.d.cts",
     "test": "node test.mjs native",
-    "test:browser": "vitest run"
+    "test:browser": "vitest run",
+    "test:workerd": "node test-workerd.mjs"
   },
   "napi": {
     "binaryName": "custom_async_runtime",
@@ -19,6 +20,8 @@
     "@napi-rs/cli": "workspace:*",
     "@napi-rs/wasm-runtime": "workspace:*",
     "@vitest/browser-playwright": "^4.1.9",
+    "esbuild": "^0.28.1",
+    "miniflare": "^4.20260630.0",
     "playwright": "^1.61.1",
     "vite": "^8.1.2",
     "vitest": "^4.1.9"
