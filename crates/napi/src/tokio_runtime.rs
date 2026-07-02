@@ -194,12 +194,23 @@ fn create_runtime() -> Runtime {
   }
 }
 
+/// Whether the `RT` `LazyLock` has ever been initialized. Only needed by the combined
+/// `async-runtime` + `tokio_rt` build, where `start_async_runtime`/`shutdown_async_runtime`
+/// must manage the built-in runtime without force-initializing it when the public
+/// `spawn`/`spawn_blocking` helpers were never used (`LazyLock::get` would do, but it is not
+/// available on our MSRV).
+#[cfg(all(not(feature = "noop"), feature = "async-runtime", feature = "tokio_rt"))]
+static RT_CREATED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 #[cfg(all(
   not(feature = "noop"),
   any(not(feature = "async-runtime"), feature = "tokio_rt")
 ))]
-static RT: LazyLock<RwLock<Option<Runtime>>> =
-  LazyLock::new(|| RwLock::new(Some(create_runtime())));
+static RT: LazyLock<RwLock<Option<Runtime>>> = LazyLock::new(|| {
+  #[cfg(all(feature = "async-runtime", feature = "tokio_rt"))]
+  RT_CREATED.store(true, std::sync::atomic::Ordering::Relaxed);
+  RwLock::new(Some(create_runtime()))
+});
 
 #[cfg(not(feature = "noop"))]
 static USER_DEFINED_RT: OnceLock<RwLock<Option<Runtime>>> = OnceLock::new();
@@ -235,7 +246,11 @@ pub fn create_custom_tokio_runtime(_: Runtime) {}
 /// Start the async runtime.
 ///
 /// With the `async-runtime` feature this delegates to the registered `AsyncRuntime` backend's
-/// `start`; otherwise it starts napi's built-in tokio runtime (the default path).
+/// `start`; otherwise it starts napi's built-in tokio runtime (the default path). In a
+/// combined `async-runtime` + `tokio_rt` build it does both: after the backend's `start`, the
+/// built-in tokio runtime backing the public `spawn`/`spawn_blocking` helpers is re-created if
+/// a previous `shutdown_async_runtime` took it down (it stays lazily-created-on-first-use in a
+/// fresh process).
 ///
 /// In Node.js native targets the async runtime will be dropped when Node env exits.
 /// But in Electron renderer process, the Node env will exits and recreate when the window reloads.
@@ -251,6 +266,23 @@ pub fn start_async_runtime() {
   {
     custom_async_runtime().start();
   }
+  // In a combined `async-runtime` + `tokio_rt` build (a common outcome of Cargo feature
+  // unification) the built-in tokio runtime still backs the public `spawn`/`spawn_blocking`
+  // helpers. It is created lazily on their first use, but once `shutdown_async_runtime` has
+  // torn it down it is NOT re-created lazily — so re-create it here, mirroring the built-in
+  // arm below, to keep the helpers working after an env is re-created (e.g. an Electron
+  // window reload). The `RT_CREATED` check leaves an untouched `RT` uninitialized, preserving
+  // the lazy-on-first-use behavior for fresh processes.
+  #[cfg(all(feature = "async-runtime", feature = "tokio_rt"))]
+  {
+    if RT_CREATED.load(std::sync::atomic::Ordering::Relaxed) {
+      if let Ok(mut rt) = RT.write() {
+        if rt.is_none() {
+          *rt = Some(create_runtime());
+        }
+      }
+    }
+  }
   #[cfg(not(feature = "async-runtime"))]
   {
     if let Ok(mut rt) = RT.write() {
@@ -262,10 +294,32 @@ pub fn start_async_runtime() {
 }
 
 #[cfg(not(feature = "noop"))]
+/// Shut the async runtime down.
+///
+/// With the `async-runtime` feature this delegates to the registered `AsyncRuntime` backend's
+/// `shutdown`; otherwise it takes down napi's built-in tokio runtime (the default path).
+///
+/// In a combined `async-runtime` + `tokio_rt` build both happen: after the backend's
+/// `shutdown`, the built-in tokio runtime that backs the public `spawn`/`spawn_blocking`
+/// helpers is also shut down (if those helpers ever lazily created it), so env teardown —
+/// the module cleanup hook, or an Electron window reload — does not leak its worker threads.
+/// A subsequent `start_async_runtime` re-creates it.
 pub fn shutdown_async_runtime() {
   #[cfg(feature = "async-runtime")]
   {
     custom_async_runtime().shutdown();
+  }
+  // Combined `async-runtime` + `tokio_rt` build: also take down the built-in tokio runtime
+  // backing the public `spawn`/`spawn_blocking` helpers, mirroring the built-in arm below.
+  // The `RT_CREATED` check avoids creating a runtime just to shut it down when the helpers
+  // were never used.
+  #[cfg(all(feature = "async-runtime", feature = "tokio_rt"))]
+  {
+    if RT_CREATED.load(std::sync::atomic::Ordering::Relaxed) {
+      if let Some(rt) = RT.write().ok().and_then(|mut rt| rt.take()) {
+        rt.shutdown_background();
+      }
+    }
   }
   #[cfg(not(feature = "async-runtime"))]
   {
@@ -743,5 +797,57 @@ pub struct AsyncBlock<T: ToNapiValue + 'static> {
 impl<T: ToNapiValue + 'static> ToNapiValue for AsyncBlock<T> {
   unsafe fn to_napi_value(_: napi_sys::napi_env, val: Self) -> Result<napi_sys::napi_value> {
     Ok(val.inner)
+  }
+}
+
+#[cfg(all(
+  test,
+  not(feature = "noop"),
+  feature = "async-runtime",
+  feature = "tokio_rt"
+))]
+mod tests {
+  use super::*;
+
+  struct DummyRuntime;
+
+  impl AsyncRuntime for DummyRuntime {
+    fn spawn(&self, _future: std::pin::Pin<Box<dyn Future<Output = ()> + Send + 'static>>) {}
+
+    fn block_on(&self, _future: std::pin::Pin<&mut dyn Future<Output = ()>>) {}
+  }
+
+  fn builtin_rt_is_some() -> bool {
+    RT_CREATED.load(std::sync::atomic::Ordering::Relaxed)
+      && RT.read().ok().map(|rt| rt.is_some()).unwrap_or(false)
+  }
+
+  #[test]
+  fn combined_build_shutdown_takes_down_builtin_tokio_runtime() {
+    create_custom_async_runtime(DummyRuntime);
+
+    // The public `spawn` helper is backed by the built-in tokio runtime even in a
+    // combined `async-runtime` + `tokio_rt` build; its first use lazily creates `RT`.
+    drop(spawn(async {}));
+    assert!(
+      builtin_rt_is_some(),
+      "the public `spawn` helper should lazily create the built-in tokio runtime"
+    );
+
+    shutdown_async_runtime();
+    assert!(
+      !builtin_rt_is_some(),
+      "env teardown must also shut down the built-in tokio runtime in a combined \
+       `async-runtime` + `tokio_rt` build, otherwise its worker threads leak"
+    );
+
+    // Electron window reload: the env is re-created and napi calls `start_async_runtime`
+    // again. The built-in runtime must come back so `spawn` keeps working.
+    start_async_runtime();
+    drop(spawn(async {}));
+    assert!(
+      builtin_rt_is_some(),
+      "`start_async_runtime` should re-create the built-in tokio runtime after shutdown"
+    );
   }
 }
