@@ -399,6 +399,7 @@ export const throwError = __napiModule.exports.throwError
 export const throwErrorWithCause = __napiModule.exports.throwErrorWithCause
 export const throwSyntaxError = __napiModule.exports.throwSyntaxError
 export const toJsObj = __napiModule.exports.toJsObj
+export const tryCloneErrorOffThread = __napiModule.exports.tryCloneErrorOffThread
 export const tsfnAsyncCall = __napiModule.exports.tsfnAsyncCall
 export const tsfnCallWithCallback = __napiModule.exports.tsfnCallWithCallback
 export const tsfnInEither = __napiModule.exports.tsfnInEither

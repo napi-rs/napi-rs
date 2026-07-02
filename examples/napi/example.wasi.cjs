@@ -443,6 +443,7 @@ module.exports.throwError = __napiModule.exports.throwError
 module.exports.throwErrorWithCause = __napiModule.exports.throwErrorWithCause
 module.exports.throwSyntaxError = __napiModule.exports.throwSyntaxError
 module.exports.toJsObj = __napiModule.exports.toJsObj
+module.exports.tryCloneErrorOffThread = __napiModule.exports.tryCloneErrorOffThread
 module.exports.tsfnAsyncCall = __napiModule.exports.tsfnAsyncCall
 module.exports.tsfnCallWithCallback = __napiModule.exports.tsfnCallWithCallback
 module.exports.tsfnInEither = __napiModule.exports.tsfnInEither
