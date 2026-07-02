@@ -37,6 +37,26 @@ struct DefaultUseNullableStruct {
   pub optional_string_field: Option<String>,
 }
 
+#[napi]
+fn create_use_nullable_struct() -> UseNullableStruct {
+  UseNullableStruct {
+    required_number_field: 1,
+    required_string_field: "required".to_owned(),
+    nullable_number_field: None,
+    nullable_string_field: None,
+  }
+}
+
+#[napi]
+fn create_not_use_nullable_struct() -> NotUseNullableStruct {
+  NotUseNullableStruct {
+    required_number_field: 1,
+    required_string_field: "required".to_owned(),
+    optional_number_field: None,
+    optional_string_field: None,
+  }
+}
+
 #[napi(constructor, use_nullable = true)]
 struct UseNullableClass {
   pub required_number_field: u32,

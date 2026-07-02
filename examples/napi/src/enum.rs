@@ -66,6 +66,7 @@ pub enum CustomStringEnum {
 pub enum StructuredKind {
   Hello,
   Greeting { name: String },
+  Optional { name: Option<String> },
   Birthday { name: String, age: u8 },
   Tuple(u32, u32),
 }
@@ -74,6 +75,7 @@ pub enum StructuredKind {
 pub enum StructuredKindLowercase {
   Hello,
   Greeting { name: String },
+  Optional { name: Option<String> },
   Birthday { name: String, age: u8 },
   Tuple(u32, u32),
 }
