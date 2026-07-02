@@ -1,7 +1,7 @@
 use std::any::{type_name, TypeId};
 #[cfg(feature = "napi6")]
 use std::convert::TryFrom;
-use std::ffi::{c_void, CStr, CString};
+use std::ffi::{c_char, c_void, CStr, CString};
 use std::marker::PhantomData;
 use std::ptr;
 
@@ -699,6 +699,98 @@ impl FromNapiValue for Object<'_> {
 impl ToNapiValue for &Object<'_> {
   unsafe fn to_napi_value(_env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     Ok(val.0.value)
+  }
+}
+
+/// # Safety
+///
+/// The caller must ensure that `env` and `obj` are valid N-API handles, and
+/// `field` points to a valid nul-terminated C string.
+#[doc(hidden)]
+pub unsafe fn get_named_property_raw(
+  env: sys::napi_env,
+  obj: sys::napi_value,
+  field: *const c_char,
+) -> Result<Option<sys::napi_value>> {
+  let mut ret = ptr::null_mut();
+
+  check_status!(
+    unsafe { sys::napi_get_named_property(env, obj, field, &mut ret) },
+    "Failed to get property",
+  )?;
+
+  let ty = type_of!(env, ret)?;
+
+  Ok(if ty == ValueType::Undefined {
+    None
+  } else {
+    Some(ret)
+  })
+}
+
+/// # Safety
+///
+/// The caller must ensure that `env`, `obj`, and `value` are valid N-API
+/// handles, and `field` points to a valid nul-terminated C string.
+#[doc(hidden)]
+pub unsafe fn set_named_property_raw(
+  env: sys::napi_env,
+  obj: sys::napi_value,
+  field: *const c_char,
+  value: sys::napi_value,
+) -> Result<()> {
+  check_status!(
+    unsafe { sys::napi_set_named_property(env, obj, field, value) },
+    "Failed to set property"
+  )
+}
+
+#[doc(hidden)]
+#[inline]
+pub unsafe fn from_raw_required_field<T>(
+  env: sys::napi_env,
+  raw: Option<sys::napi_value>,
+  struct_name: &str,
+  field: &str,
+) -> Result<T>
+where
+  T: FromNapiValue,
+{
+  let Some(raw) = raw else {
+    return Err(crate::missing_field_error(field));
+  };
+
+  unsafe { T::from_napi_value(env, raw) }.map_err(|err| {
+    if struct_name.is_empty() {
+      err
+    } else {
+      crate::decorate_field_error(err, struct_name, field)
+    }
+  })
+}
+
+#[doc(hidden)]
+#[inline]
+pub unsafe fn from_raw_optional_field<T>(
+  env: sys::napi_env,
+  raw: Option<sys::napi_value>,
+  struct_name: &str,
+  field: &str,
+) -> Result<Option<T>>
+where
+  T: FromNapiValue,
+{
+  match raw {
+    Some(raw) => unsafe { T::from_napi_value(env, raw) }
+      .map(Some)
+      .map_err(|err| {
+        if struct_name.is_empty() {
+          err
+        } else {
+          crate::decorate_field_error(err, struct_name, field)
+        }
+      }),
+    None => Ok(None),
   }
 }
 

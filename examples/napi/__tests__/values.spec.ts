@@ -119,6 +119,8 @@ import {
   getGlobal,
   getUndefined,
   getNull,
+  createUseNullableStruct,
+  createNotUseNullableStruct,
   setSymbolInObj,
   createSymbol,
   createSymbolFor,
@@ -469,6 +471,13 @@ test('structured enum', (t) => {
     type2: 'Greeting',
     name: 'Napi-rs',
   }
+  const optional: StructuredKind = {
+    type2: 'Optional',
+  }
+  const optionalWithName: StructuredKind = {
+    type2: 'Optional',
+    name: 'Napi-rs',
+  }
   const birthday: StructuredKind = {
     type2: 'Birthday',
     name: 'Napi-rs',
@@ -481,16 +490,36 @@ test('structured enum', (t) => {
   }
   t.deepEqual(hello, validateStructuredEnum(hello))
   t.deepEqual(greeting, validateStructuredEnum(greeting))
+  t.deepEqual(optional, validateStructuredEnum(optional))
+  t.deepEqual(optionalWithName, validateStructuredEnum(optionalWithName))
   t.deepEqual(birthday, validateStructuredEnum(birthday))
   t.deepEqual(tuple, validateStructuredEnum(tuple))
   t.throws(() => validateStructuredEnum({ type2: 'unknown' } as any))
   t.throws(() => validateStructuredEnum({ type2: 'Greeting' } as any))
+  const missingDiscriminantErr = t.throws(() =>
+    validateStructuredEnum({ name: 'Napi-rs' } as any),
+  )
+  t.is(missingDiscriminantErr?.message, 'Missing field `type2`')
+  const invalidDiscriminantErr = t.throws(() =>
+    validateStructuredEnum({ type2: 1 } as any),
+  )
+  t.is(
+    invalidDiscriminantErr?.message,
+    'Failed to convert JavaScript value `Number 1 ` into rust type `String` on StructuredKind.type2',
+  )
 
   const hello2: StructuredKindLowercase = {
     type: 'hello',
   }
   const greeting2: StructuredKindLowercase = {
     type: 'greeting',
+    name: 'Napi-rs',
+  }
+  const optional2: StructuredKindLowercase = {
+    type: 'optional',
+  }
+  const optionalWithName2: StructuredKindLowercase = {
+    type: 'optional',
     name: 'Napi-rs',
   }
   const birthday2: StructuredKindLowercase = {
@@ -505,10 +534,32 @@ test('structured enum', (t) => {
   }
   t.deepEqual(hello2, validateStructuredEnumLowercase(hello2))
   t.deepEqual(greeting2, validateStructuredEnumLowercase(greeting2))
+  t.deepEqual(optional2, validateStructuredEnumLowercase(optional2))
+  t.deepEqual(
+    optionalWithName2,
+    validateStructuredEnumLowercase(optionalWithName2),
+  )
   t.deepEqual(birthday2, validateStructuredEnumLowercase(birthday2))
   t.deepEqual(tuple2, validateStructuredEnumLowercase(tuple2))
   t.throws(() => validateStructuredEnumLowercase({ type: 'unknown' } as any))
   t.throws(() => validateStructuredEnumLowercase({ type: 'greeting' } as any))
+})
+
+test('object optional field serialization', (t) => {
+  const notNullable = createNotUseNullableStruct()
+  t.deepEqual(notNullable, {
+    requiredNumberField: 1,
+    requiredStringField: 'required',
+  })
+  t.false('optionalNumberField' in notNullable)
+  t.false('optionalStringField' in notNullable)
+
+  t.deepEqual(createUseNullableStruct(), {
+    requiredNumberField: 1,
+    requiredStringField: 'required',
+    nullableNumberField: null,
+    nullableStringField: null,
+  })
 })
 
 test('function call', async (t) => {
