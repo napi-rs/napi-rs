@@ -8,3 +8,5 @@ index.d.cts
 index.js
 wasi-worker-browser.mjs
 wasi-worker.mjs
+.vitest-attachments/
+browser/__screenshots__/

@@ -837,6 +837,10 @@ jobs:
             --dts index.d.cts
       - name: Test
         run: node examples/custom-async-runtime/test.mjs wasi
+      - name: Browser test (single-thread, no cross-origin isolation)
+        run: |
+          yarn workspace @examples/custom-async-runtime playwright install chromium
+          yarn workspace @examples/custom-async-runtime test:browser
 
   test-node-wasi:
     runs-on: ubuntu-latest

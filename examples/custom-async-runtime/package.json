@@ -6,7 +6,8 @@
   "main": "./index.cjs",
   "scripts": {
     "build": "napi-raw build --platform --js index.cjs --dts index.d.cts",
-    "test": "node test.mjs native"
+    "test": "node test.mjs native",
+    "test:browser": "vitest run"
   },
   "napi": {
     "binaryName": "custom_async_runtime",
@@ -16,7 +17,11 @@
   },
   "devDependencies": {
     "@napi-rs/cli": "workspace:*",
-    "@napi-rs/wasm-runtime": "workspace:*"
+    "@napi-rs/wasm-runtime": "workspace:*",
+    "@vitest/browser-playwright": "^4.1.9",
+    "playwright": "^1.61.1",
+    "vite": "^8.1.2",
+    "vitest": "^4.1.9"
   },
   "dependencies": {
     "@emnapi/core": "1.11.1",
