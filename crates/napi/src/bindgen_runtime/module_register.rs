@@ -755,7 +755,7 @@ unsafe extern "C" fn custom_gc_handle_finalize(
 }
 
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
-// recycle the ArrayBuffer/Buffer Reference if the ArrayBuffer/Buffer is not dropped on the main thread
+// recycle a napi_ref (ArrayBuffer/Buffer/Error) that is not dropped on the main thread
 extern "C" fn custom_gc(
   env: sys::napi_env,
   _js_callback: sys::napi_value,
@@ -772,15 +772,16 @@ extern "C" fn custom_gc(
   check_status_or_throw!(
     env,
     unsafe { sys::napi_reference_unref(env, data.cast(), &mut ref_count) },
-    "Failed to unref Buffer reference in Custom GC"
+    "Failed to unref reference in Custom GC"
   );
-  debug_assert!(
-    ref_count == 0,
-    "Buffer reference count in Custom GC is not 0"
-  );
-  check_status_or_throw!(
-    env,
-    unsafe { sys::napi_delete_reference(env, data.cast()) },
-    "Failed to delete Buffer reference in Custom GC"
-  );
+  // ArrayBuffer/Buffer references always reach 0 here (never shared); `Error`
+  // references can still be held by `try_clone`d siblings, in which case the
+  // sibling's drop deletes.
+  if ref_count == 0 {
+    check_status_or_throw!(
+      env,
+      unsafe { sys::napi_delete_reference(env, data.cast()) },
+      "Failed to delete reference in Custom GC"
+    );
+  }
 }
