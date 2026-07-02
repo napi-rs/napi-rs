@@ -3,9 +3,9 @@
 // declared as a CompiledWasm module in the miniflare harness, so `wasmModule`
 // is a genuine precompiled `WebAssembly.Module` — exactly what the deferred
 // loader's `instantiate()` requires (compile-from-bytes is banned on workerd).
-import wasmModule from './custom_async_runtime.wasm32-wasi.wasm'
+import wasmModule from './custom_async_runtime.wasm32-wasip1.wasm'
 
-import { instantiate } from '../custom_async_runtime.wasi-deferred.js'
+import { instantiate } from '../custom_async_runtime.wasip1-deferred.js'
 
 // Instantiate lazily inside the handler, memoized across requests. Kicking it
 // off at top level fails on workerd with "Disallowed operation called within

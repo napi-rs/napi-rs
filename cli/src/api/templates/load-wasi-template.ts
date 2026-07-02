@@ -197,6 +197,10 @@ export const createWasiBinding = (
   initialMemory = 4000,
   maximumMemory = 65536,
   threads = true,
+  // `platformArchABI` of the flavor this loader belongs to; the fallback
+  // package (`<packageName>-<platformArchABI>`) must ship the same flavor's
+  // wasm artifact.
+  platformArchABI = 'wasm32-wasi',
 ) => {
   const workerImports = threads
     ? `const { Worker } = require('node:worker_threads')
@@ -298,9 +302,9 @@ if (__nodeFs.existsSync(__wasmDebugFilePath)) {
   __wasmFilePath = __wasmDebugFilePath
 } else if (!__nodeFs.existsSync(__wasmFilePath)) {
   try {
-    __wasmFilePath = require.resolve('${packageName}-wasm32-wasi/${wasmFileName}.wasm')
+    __wasmFilePath = require.resolve('${packageName}-${platformArchABI}/${wasmFileName}.wasm')
   } catch {
-    throw new Error('Cannot find ${wasmFileName}.wasm file, and ${packageName}-wasm32-wasi package is not installed.')
+    throw new Error('Cannot find ${wasmFileName}.wasm file, and ${packageName}-${platformArchABI} package is not installed.')
   }
 }
 

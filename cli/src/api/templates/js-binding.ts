@@ -1,11 +1,62 @@
+import { wasiLoaderSuffix } from '../../utils/index.js'
+
+/**
+ * Generate the WASI fallback `require` chain for `binding.cjs`/`binding.js`.
+ *
+ * Candidates are tried in the declared flavor order (threaded flavors are
+ * expected first) and the chain stops at the FIRST successfully loaded
+ * binding: with two flavors published side by side, a later (non-threaded)
+ * flavor must never silently override an earlier (threaded) one — they have
+ * different performance semantics (`asyncWorkPoolSize: 0`).
+ */
+function createWasiFallbackChain(
+  localName: string,
+  pkgName: string,
+  wasiFlavors?: string[],
+): string {
+  const flavors =
+    wasiFlavors && wasiFlavors.length > 0 ? wasiFlavors : ['wasm32-wasi']
+  const candidates = flavors.flatMap((flavor) => [
+    {
+      specifier: `./${localName}.${wasiLoaderSuffix(flavor)}.cjs`,
+      isPackage: false,
+    },
+    { specifier: `${pkgName}-${flavor}`, isPackage: true },
+  ])
+  return candidates
+    .map(
+      ({ specifier, isPackage }) => `  if (!wasiBinding) {
+    try {
+      wasiBinding = require('${specifier}')
+      nativeBinding = wasiBinding
+    } catch (err) {
+      if (forceWasi) {
+        if (!wasiBindingError) {
+          wasiBindingError = err
+        } else {
+          wasiBindingError.cause = err
+        }${
+          isPackage
+            ? `
+        loadErrors.push(err)`
+            : ''
+        }
+      }
+    }
+  }`,
+    )
+    .join('\n')
+}
+
 export function createCjsBinding(
   localName: string,
   pkgName: string,
   idents: string[],
   packageVersion?: string,
+  wasiFlavors?: string[],
 ): string {
   return `${bindingHeader}
-${createCommonBinding(localName, pkgName, packageVersion)}
+${createCommonBinding(localName, pkgName, packageVersion, wasiFlavors)}
 module.exports = nativeBinding
 ${idents
   .map((ident) => `module.exports.${ident} = nativeBinding.${ident}`)
@@ -18,13 +69,14 @@ export function createEsmBinding(
   pkgName: string,
   idents: string[],
   packageVersion?: string,
+  wasiFlavors?: string[],
 ): string {
   return `${bindingHeader}
 import { createRequire } from 'module'
 const require = createRequire(import.meta.url)
 const __dirname = new URL('.', import.meta.url).pathname
 
-${createCommonBinding(localName, pkgName, packageVersion)}
+${createCommonBinding(localName, pkgName, packageVersion, wasiFlavors)}
 const { ${idents.join(', ')} } = nativeBinding
 ${idents.map((ident) => `export { ${ident} }`).join('\n')}
 `
@@ -40,6 +92,7 @@ function createCommonBinding(
   localName: string,
   pkgName: string,
   packageVersion?: string,
+  wasiFlavors?: string[],
 ): string {
   function requireTuple(tuple: string, identSize = 8) {
     const identLow = ' '.repeat(identSize - 2)
@@ -240,29 +293,7 @@ const forceWasi =
 if (!nativeBinding || forceWasi) {
   let wasiBinding = null
   let wasiBindingError = null
-  try {
-    wasiBinding = require('./${localName}.wasi.cjs')
-    nativeBinding = wasiBinding
-  } catch (err) {
-    if (forceWasi) {
-      wasiBindingError = err
-    }
-  }
-  if (!nativeBinding || forceWasi) {
-    try {
-      wasiBinding = require('${pkgName}-wasm32-wasi')
-      nativeBinding = wasiBinding
-    } catch (err) {
-      if (forceWasi) {
-        if (!wasiBindingError) {
-          wasiBindingError = err
-        } else {
-          wasiBindingError.cause = err
-        }
-        loadErrors.push(err)
-      }
-    }
-  }
+${createWasiFallbackChain(localName, pkgName, wasiFlavors)}
   if (process.env.NAPI_RS_FORCE_WASI === 'error' && !wasiBinding) {
     const error = new Error('WASI binding not found and NAPI_RS_FORCE_WASI is set to error')
     error.cause = wasiBindingError

@@ -35,8 +35,8 @@ const mf = new Miniflare({
     },
     {
       type: 'CompiledWasm',
-      path: `${dir}workerd/custom_async_runtime.wasm32-wasi.wasm`,
-      contents: await readFile(`${dir}custom_async_runtime.wasm32-wasi.wasm`),
+      path: `${dir}workerd/custom_async_runtime.wasm32-wasip1.wasm`,
+      contents: await readFile(`${dir}custom_async_runtime.wasm32-wasip1.wasm`),
     },
   ],
 })

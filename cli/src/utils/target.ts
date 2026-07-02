@@ -128,9 +128,19 @@ export function parseTriple(rawTriple: string): Target {
     rawTriple === 'wasm32-wasi-preview1-threads' ||
     rawTriple.startsWith('wasm32-wasip')
   ) {
+    // Threaded flavors (and the legacy `wasm32-wasi` triple) keep the
+    // historical shared `wasm32-wasi` suffix so existing published packages
+    // (`<pkg>-wasm32-wasi`) and artifact names stay valid. Each non-threaded
+    // `wasm32-wasipX` triple gets its own distinct suffix so both flavors can
+    // be built, tested and published side by side without overwriting each
+    // other.
+    const platformArchABI =
+      rawTriple.startsWith('wasm32-wasip') && !rawTriple.endsWith('-threads')
+        ? rawTriple
+        : 'wasm32-wasi'
     return {
       triple: rawTriple,
-      platformArchABI: 'wasm32-wasi',
+      platformArchABI,
       platform: 'wasi',
       arch: 'wasm32',
       abi: 'wasi',
@@ -187,6 +197,17 @@ export function getSystemDefaultTarget(): Target {
 
 export function getTargetLinker(target: string): string | undefined {
   return TARGET_LINKER[target]
+}
+
+/**
+ * Loader-file suffix for a WASI flavor, derived from its `platformArchABI`:
+ * the legacy threaded flavor keeps the historical `wasi` stem
+ * (`<binaryName>.wasi.cjs`, `<binaryName>.wasi-browser.js`), while each
+ * distinctly named non-threaded flavor derives its own
+ * (`<binaryName>.wasip1.cjs`, `<binaryName>.wasip1-browser.js`, ...).
+ */
+export function wasiLoaderSuffix(platformArchABI: string): string {
+  return platformArchABI.replace(/^wasm32-/, '')
 }
 
 export function targetToEnvVar(target: string): string {

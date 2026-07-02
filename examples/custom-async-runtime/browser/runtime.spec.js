@@ -10,14 +10,14 @@ test('single-thread wasi binding works in a non-cross-origin-isolated browser', 
   // Mirror test.mjs's static assertions on the generated loader source: the
   // single-thread browser loader must never spawn workers or touch
   // SharedArrayBuffer, and must pin the async work pool to zero.
-  const source = (await import('../custom_async_runtime.wasi-browser.js?raw'))
+  const source = (await import('../custom_async_runtime.wasip1-browser.js?raw'))
     .default
   expect(source).not.toMatch(/node:worker_threads/)
   expect(source).not.toMatch(/\bWorker\b/)
   expect(source).not.toMatch(/SharedArrayBuffer/)
   expect(source).toMatch(/asyncWorkPoolSize:\s*0/)
 
-  const binding = await import('../custom_async_runtime.wasi-browser.js')
+  const binding = await import('../custom_async_runtime.wasip1-browser.js')
   const initial = binding.getRuntimeMetrics()
 
   expect(binding.isWasm()).toBe(true)
