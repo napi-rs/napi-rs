@@ -40,17 +40,19 @@
 //! The `async-runtime` feature lets an addon register its own executor through
 //! [`create_custom_async_runtime`](crate::bindgen_prelude::create_custom_async_runtime).
 //! It takes precedence over `tokio_rt` when Cargo feature unification enables
-//! both. This is useful for applications that need one scheduler across NAPI
-//! futures and domain-specific CPU work, or a cooperative executor on
-//! non-threaded WebAssembly hosts.
+//! both: an `async-runtime` build contains no built-in tokio runtime at all, so nothing can
+//! lazily materialize a second scheduler behind the registered backend's back. This is
+//! useful for applications that need one scheduler across NAPI futures and domain-specific
+//! CPU work, or a cooperative executor on non-threaded WebAssembly hosts. The feature no
+//! longer pulls in tokio; a pure `async-runtime` build is tokio-free (enable the `tokio`
+//! feature explicitly if you still want the `napi::tokio` re-export).
 //!
-//! The free functions `spawn` and `spawn_blocking` are NOT part of the
-//! [`AsyncRuntime`](crate::bindgen_prelude::AsyncRuntime) contract: the trait has no
-//! `spawn_blocking` hook and its `spawn` returns nothing, so the task could never be
-//! joined. In a non-`noop`, pure `async-runtime` build (without `tokio_rt`) calling either
-//! one panics instead of silently constructing a multi-threaded tokio runtime; under the
-//! `noop` feature neither helper is compiled at all. Drive your own work through the
-//! registered backend instead.
+//! The free functions `spawn` and `spawn_blocking` are part of the
+//! [`AsyncRuntime`](crate::bindgen_prelude::AsyncRuntime) contract: `spawn` returns a
+//! napi-owned joinable `JoinHandle` manufactured over the trait's detached `spawn` hook, and
+//! `spawn_blocking` routes through the trait's optional `spawn_blocking` hook, falling back
+//! to a plain dedicated thread when the backend declines. Under the `noop` feature neither
+//! helper is compiled at all.
 //!
 //! ### latin1
 //!
@@ -249,7 +251,7 @@ pub mod __private {
 
 pub extern crate ctor;
 
-#[cfg(any(feature = "tokio_rt", feature = "async-runtime"))]
+#[cfg(feature = "tokio")]
 pub extern crate tokio;
 
 #[cfg(feature = "error_anyhow")]

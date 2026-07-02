@@ -22,7 +22,7 @@ independent = true
 
 [features]
 async = ["tokio_rt"]
-async-runtime = ["tokio", "napi4"]
+async-runtime = ["napi4"]
 chrono_date = ["chrono", "napi5"]
 # Enable deprecated types and traits for compatibility
 compat-mode = []

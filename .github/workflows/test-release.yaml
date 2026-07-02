@@ -780,6 +780,33 @@ jobs:
       - name: Test
         run: node examples/custom-async-runtime/test.mjs native
 
+  test-async-runtime-spi:
+    runs-on: ubuntu-latest
+    name: Test async-runtime SPI (cargo)
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: async-runtime-spi-cargo-cache
+      - name: Check pure async-runtime build is tokio-free
+        run: |
+          cargo check -p napi --features async-runtime
+          if cargo tree -p napi --features async-runtime -e normal --prefix none | grep -E '^tokio v'; then
+            echo 'tokio leaked back into the pure async-runtime build' >&2
+            exit 1
+          fi
+      - name: Test async-runtime (pure)
+        run: cargo test -p napi --features async-runtime
+      - name: Test async-runtime + tokio_rt (combined)
+        run: cargo test -p napi --features async-runtime,tokio_rt
+
   test-node-wasi:
     runs-on: ubuntu-latest
     name: Test node wasi target
@@ -898,6 +925,7 @@ jobs:
       - check-all-features
       - test-freebsd
       - test-custom-async-runtime-native
+      - test-async-runtime-spi
       - test-node-wasi
       - test-latest-bun
     steps:

@@ -1,17 +1,23 @@
-#[cfg(all(
-  not(feature = "noop"),
-  any(not(feature = "async-runtime"), feature = "tokio_rt")
-))]
+#[cfg(all(not(feature = "noop"), not(feature = "async-runtime")))]
 use std::sync::LazyLock;
-#[cfg(not(feature = "noop"))]
+#[cfg(all(not(feature = "noop"), feature = "async-runtime"))]
+use std::sync::OnceLock;
+#[cfg(all(not(feature = "noop"), not(feature = "async-runtime")))]
 use std::sync::{OnceLock, RwLock};
 use std::{future::Future, marker::PhantomData};
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+use std::any::Any;
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 use std::panic::AssertUnwindSafe;
 #[cfg(feature = "async-runtime")]
 use std::pin::Pin;
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+use std::sync::{Arc, Mutex};
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+use std::task::{Context, Poll, Waker};
 
+#[cfg(feature = "tokio")]
 use tokio::runtime::Runtime;
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
@@ -41,14 +47,15 @@ impl AsyncRuntimeGuard for () {}
 /// the routed entry points are stubbed out (e.g. `block_on` panics), so the notes below about
 /// routing apply only to non-`noop` builds.
 ///
-/// Note that the public free `spawn`/`spawn_blocking` helper functions are **not** part of
-/// this routing contract. This trait's own [`spawn`](AsyncRuntime::spawn) hook IS the routed
-/// entry point for JS-facing async work, but it is detached (it hands back nothing to join)
-/// and there is no `spawn_blocking` hook — so the public helpers, whose contract is to return
-/// a joinable `JoinHandle`, cannot be served by the backend. In a `tokio_rt` build those
-/// helpers run on the tokio runtime; in a pure `async-runtime` build (no `tokio_rt`) they fail
-/// loud — calling them panics rather than silently spinning up a hidden tokio runtime. Drive
-/// background work through the backend's own scheduler instead.
+/// The public free `spawn`/`spawn_blocking` helper functions are part of this routing
+/// contract too. The free `spawn` is served by this trait's detached
+/// [`spawn`](AsyncRuntime::spawn) hook: napi wraps the future so its output (or panic
+/// payload) is captured, and manufactures the joinable `JoinHandle` itself. The free
+/// `spawn_blocking` routes through the optional
+/// [`spawn_blocking`](AsyncRuntime::spawn_blocking) hook; if the backend declines (the
+/// default), napi runs the closure on a plain dedicated `std::thread` — it never lazily
+/// constructs a hidden tokio runtime, not even when Cargo feature unification enables
+/// `tokio_rt` alongside `async-runtime`.
 ///
 /// The implementation is stored process-globally and shared across threads, hence the
 /// `Send + Sync + 'static` bound. Only one runtime is ever registered for the lifetime of
@@ -111,6 +118,24 @@ pub trait AsyncRuntime: Send + Sync + 'static {
   /// runtime may be started again via [`start`](AsyncRuntime::start), so release resources
   /// without making a subsequent `start` impossible. The default is a no-op.
   fn shutdown(&self) {}
+
+  /// Optional hook: run `work` on the backend's blocking-capable lane.
+  ///
+  /// This backs the public free `spawn_blocking` helper. Return `Ok(())` once the work is
+  /// accepted; the backend MUST then eventually run the closure exactly once, on a thread
+  /// where blocking is acceptable. Return `Err(work)` to decline — the closure is handed
+  /// back untouched and napi runs it on a plain dedicated fallback thread instead (never a
+  /// lazily-created tokio pool). The default implementation declines.
+  ///
+  /// Panic handling is napi's: the closure is already wrapped in `catch_unwind` before it
+  /// reaches this hook and a panic is surfaced as a `JoinError` through the caller's
+  /// `JoinHandle`, so just run it — do not add another panic layer.
+  fn spawn_blocking(
+    &self,
+    work: Box<dyn FnOnce() + Send + 'static>,
+  ) -> std::result::Result<(), Box<dyn FnOnce() + Send + 'static>> {
+    Err(work)
+  }
 }
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
@@ -118,20 +143,23 @@ static CUSTOM_ASYNC_RUNTIME: OnceLock<Box<dyn AsyncRuntime>> = OnceLock::new();
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 fn custom_async_runtime() -> &'static dyn AsyncRuntime {
-  CUSTOM_ASYNC_RUNTIME
-    .get()
-    .map(Box::as_ref)
-    .expect("Custom async runtime is not configured")
+  CUSTOM_ASYNC_RUNTIME.get().map(Box::as_ref).expect(
+    "No `AsyncRuntime` backend is registered but the `async-runtime` feature is enabled. \
+     Call `napi::bindgen_prelude::create_custom_async_runtime(...)` in a \
+     `#[napi_derive::module_init]` fn, before any async entry point runs.",
+  )
 }
 
 /// Register the custom [`AsyncRuntime`] backend that napi will use process-wide.
 ///
 /// Call this once, at module init, before any async entry point runs.
 ///
-/// Registration is **first-writer-wins**: the backend is stored in a process-global
-/// `OnceLock`, so the first call wins and every later call is silently ignored (the runtime
-/// you pass is dropped without being installed). There is no way to replace the backend once
-/// it is set.
+/// Registration is **once, exactly once**: the backend is stored in a process-global
+/// `OnceLock` and cannot be replaced. A second call **panics** — a silently dropped backend
+/// almost always hides a real bug (two addon crates fighting over the runtime, or a
+/// duplicated `module_init` hook). Note that `#[napi_derive::module_init]` runs once per
+/// dylib load, so an Electron window reload does *not* re-run it and will not trigger the
+/// panic.
 /// ### Example
 /// ```no_run
 /// use std::future::Future;
@@ -151,16 +179,20 @@ fn custom_async_runtime() -> &'static dyn AsyncRuntime {
 /// ```
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 pub fn create_custom_async_runtime<R: AsyncRuntime>(runtime: R) {
-  CUSTOM_ASYNC_RUNTIME.get_or_init(|| Box::new(runtime));
+  if CUSTOM_ASYNC_RUNTIME.set(Box::new(runtime)).is_err() {
+    panic!(
+      "napi::bindgen_prelude::create_custom_async_runtime was called more than once: an \
+       `AsyncRuntime` backend is already registered for this process and cannot be replaced. \
+       Register exactly one backend, once — usually from a single \
+       `#[napi_derive::module_init]` fn — and remove the duplicate registration."
+    );
+  }
 }
 
 #[cfg(all(feature = "async-runtime", feature = "noop"))]
 pub fn create_custom_async_runtime<R: AsyncRuntime>(_: R) {}
 
-#[cfg(all(
-  not(feature = "noop"),
-  any(not(feature = "async-runtime"), feature = "tokio_rt")
-))]
+#[cfg(all(not(feature = "noop"), not(feature = "async-runtime")))]
 fn create_runtime() -> Runtime {
   // Check if we're supposed to use a user-defined runtime
   if IS_USER_DEFINED_RT.get().copied().unwrap_or(false) {
@@ -194,36 +226,30 @@ fn create_runtime() -> Runtime {
   }
 }
 
-/// Whether the `RT` `LazyLock` has ever been initialized. Only needed by the combined
-/// `async-runtime` + `tokio_rt` build, where `start_async_runtime`/`shutdown_async_runtime`
-/// must manage the built-in runtime without force-initializing it when the public
-/// `spawn`/`spawn_blocking` helpers were never used (`LazyLock::get` would do, but it is not
-/// available on our MSRV).
-#[cfg(all(not(feature = "noop"), feature = "async-runtime", feature = "tokio_rt"))]
-static RT_CREATED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-#[cfg(all(
-  not(feature = "noop"),
-  any(not(feature = "async-runtime"), feature = "tokio_rt")
-))]
+// Note there is deliberately no `RT` static in any `async-runtime` build (not even combined
+// with `tokio_rt`): a built-in tokio runtime that could be lazily materialized behind the
+// registered backend's back is exactly the hazard the `async-runtime` feature exists to
+// remove, so it is unrepresentable here.
+#[cfg(all(not(feature = "noop"), not(feature = "async-runtime")))]
 static RT: LazyLock<RwLock<Option<Runtime>>> = LazyLock::new(|| {
-  #[cfg(all(feature = "async-runtime", feature = "tokio_rt"))]
-  RT_CREATED.store(true, std::sync::atomic::Ordering::Relaxed);
+  // `Option` so `shutdown_async_runtime` can take the runtime down while the `RwLock`
+  // (and the `LazyLock` around it) stays initialized for a later `start_async_runtime`.
   RwLock::new(Some(create_runtime()))
 });
 
-#[cfg(not(feature = "noop"))]
+#[cfg(all(not(feature = "noop"), not(feature = "async-runtime")))]
 static USER_DEFINED_RT: OnceLock<RwLock<Option<Runtime>>> = OnceLock::new();
 
-#[cfg(not(feature = "noop"))]
+#[cfg(all(not(feature = "noop"), not(feature = "async-runtime")))]
 static IS_USER_DEFINED_RT: OnceLock<bool> = OnceLock::new();
 
-#[cfg(not(feature = "noop"))]
+#[cfg(all(not(feature = "noop"), not(feature = "async-runtime")))]
 /// Configure the built-in Tokio runtime used by NAPI-RS, controlling its configuration yourself.
 ///
-/// This affects only the built-in Tokio path: the default build, or — with `async-runtime` plus
-/// `tokio_rt` — the public Tokio helper runtime. In a pure `async-runtime` build, JS-facing async
-/// work is driven by the registered `AsyncRuntime` backend, and this helper has no effect.
+/// This affects only the built-in Tokio path (the default / `tokio_rt` build). In an
+/// `async-runtime` build there is no built-in Tokio runtime at all — async work is driven by
+/// the registered `AsyncRuntime` backend — and this helper is a documented no-op kept only for
+/// source compatibility.
 /// ### Example
 /// ```no_run
 /// use tokio::runtime::Builder;
@@ -239,18 +265,23 @@ pub fn create_custom_tokio_runtime(rt: Runtime) {
   IS_USER_DEFINED_RT.get_or_init(|| true);
 }
 
-#[cfg(feature = "noop")]
+#[cfg(all(not(feature = "noop"), feature = "async-runtime", feature = "tokio"))]
+/// No-op shim for `async-runtime` builds that also link tokio (e.g. `tokio_rt` enabled by
+/// Cargo feature unification): there is no built-in Tokio runtime here — every routed entry
+/// point is served by the registered `AsyncRuntime` backend — so the passed runtime is simply
+/// dropped. This shim only exists so unified builds keep compiling.
+pub fn create_custom_tokio_runtime(_rt: Runtime) {}
+
+#[cfg(all(feature = "noop", feature = "tokio"))]
 pub fn create_custom_tokio_runtime(_: Runtime) {}
 
 #[cfg(not(feature = "noop"))]
 /// Start the async runtime.
 ///
 /// With the `async-runtime` feature this delegates to the registered `AsyncRuntime` backend's
-/// `start`; otherwise it starts napi's built-in tokio runtime (the default path). In a
-/// combined `async-runtime` + `tokio_rt` build it does both: after the backend's `start`, the
-/// built-in tokio runtime backing the public `spawn`/`spawn_blocking` helpers is re-created if
-/// a previous `shutdown_async_runtime` took it down (it stays lazily-created-on-first-use in a
-/// fresh process).
+/// `start` — including when `tokio_rt` is also enabled by Cargo feature unification, since an
+/// `async-runtime` build has no built-in tokio runtime at all. Otherwise it starts napi's
+/// built-in tokio runtime (the default path).
 ///
 /// In Node.js native targets the async runtime will be dropped when Node env exits.
 /// But in Electron renderer process, the Node env will exits and recreate when the window reloads.
@@ -266,23 +297,6 @@ pub fn start_async_runtime() {
   {
     custom_async_runtime().start();
   }
-  // In a combined `async-runtime` + `tokio_rt` build (a common outcome of Cargo feature
-  // unification) the built-in tokio runtime still backs the public `spawn`/`spawn_blocking`
-  // helpers. It is created lazily on their first use, but once `shutdown_async_runtime` has
-  // torn it down it is NOT re-created lazily — so re-create it here, mirroring the built-in
-  // arm below, to keep the helpers working after an env is re-created (e.g. an Electron
-  // window reload). The `RT_CREATED` check leaves an untouched `RT` uninitialized, preserving
-  // the lazy-on-first-use behavior for fresh processes.
-  #[cfg(all(feature = "async-runtime", feature = "tokio_rt"))]
-  {
-    if RT_CREATED.load(std::sync::atomic::Ordering::Relaxed) {
-      if let Ok(mut rt) = RT.write() {
-        if rt.is_none() {
-          *rt = Some(create_runtime());
-        }
-      }
-    }
-  }
   #[cfg(not(feature = "async-runtime"))]
   {
     if let Ok(mut rt) = RT.write() {
@@ -297,29 +311,13 @@ pub fn start_async_runtime() {
 /// Shut the async runtime down.
 ///
 /// With the `async-runtime` feature this delegates to the registered `AsyncRuntime` backend's
-/// `shutdown`; otherwise it takes down napi's built-in tokio runtime (the default path).
-///
-/// In a combined `async-runtime` + `tokio_rt` build both happen: after the backend's
-/// `shutdown`, the built-in tokio runtime that backs the public `spawn`/`spawn_blocking`
-/// helpers is also shut down (if those helpers ever lazily created it), so env teardown —
-/// the module cleanup hook, or an Electron window reload — does not leak its worker threads.
-/// A subsequent `start_async_runtime` re-creates it.
+/// `shutdown` — including when `tokio_rt` is also enabled by Cargo feature unification: an
+/// `async-runtime` build has no built-in tokio runtime, so there is nothing else to tear
+/// down. Otherwise it takes down napi's built-in tokio runtime (the default path).
 pub fn shutdown_async_runtime() {
   #[cfg(feature = "async-runtime")]
   {
     custom_async_runtime().shutdown();
-  }
-  // Combined `async-runtime` + `tokio_rt` build: also take down the built-in tokio runtime
-  // backing the public `spawn`/`spawn_blocking` helpers, mirroring the built-in arm below.
-  // The `RT_CREATED` check avoids creating a runtime just to shut it down when the helpers
-  // were never used.
-  #[cfg(all(feature = "async-runtime", feature = "tokio_rt"))]
-  {
-    if RT_CREATED.load(std::sync::atomic::Ordering::Relaxed) {
-      if let Some(rt) = RT.write().ok().and_then(|mut rt| rt.take()) {
-        rt.shutdown_background();
-      }
-    }
   }
   #[cfg(not(feature = "async-runtime"))]
   {
@@ -329,10 +327,134 @@ pub fn shutdown_async_runtime() {
   }
 }
 
-#[cfg(all(
-  not(feature = "noop"),
-  any(not(feature = "async-runtime"), feature = "tokio_rt")
-))]
+/// The error returned when joining a [`JoinHandle`] whose task panicked.
+///
+/// This is napi's runtime-agnostic analogue of `tokio::task::JoinError`, produced by the
+/// free [`spawn`]/[`spawn_blocking`] helpers in `async-runtime` builds. There is no task
+/// cancellation for these handles, so a `JoinError` always carries a panic payload.
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+pub struct JoinError {
+  panic_payload: Box<dyn Any + Send + 'static>,
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+impl JoinError {
+  fn new_panic(panic_payload: Box<dyn Any + Send + 'static>) -> Self {
+    Self { panic_payload }
+  }
+
+  /// Whether the task failed because it panicked. Always `true`: these handles cannot be
+  /// cancelled, so a panic is the only way a task can fail.
+  pub fn is_panic(&self) -> bool {
+    true
+  }
+
+  /// Consume the error, returning the panic payload the task panicked with.
+  pub fn into_panic(self) -> Box<dyn Any + Send + 'static> {
+    self.panic_payload
+  }
+
+  /// Consume the error, returning the panic payload the task panicked with. Mirrors
+  /// `tokio::task::JoinError::try_into_panic`; for this error type it always returns `Ok`.
+  pub fn try_into_panic(self) -> std::result::Result<Box<dyn Any + Send + 'static>, Self> {
+    Ok(self.panic_payload)
+  }
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+impl std::fmt::Debug for JoinError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.write_str("JoinError::Panic(...)")
+  }
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+impl std::fmt::Display for JoinError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.write_str("task panicked")
+  }
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+impl std::error::Error for JoinError {}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+struct JoinStateInner<T> {
+  result: Option<std::result::Result<T, JoinError>>,
+  waker: Option<Waker>,
+}
+
+/// Shared completion slot between a spawned task and its [`JoinHandle`]. napi manufactures
+/// joinable-ness over the backend's detached hooks with this: the task wrapper stores its
+/// output (or panic payload) here and wakes the handle.
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+struct JoinState<T> {
+  inner: Mutex<JoinStateInner<T>>,
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+impl<T> JoinState<T> {
+  fn new() -> Self {
+    Self {
+      inner: Mutex::new(JoinStateInner {
+        result: None,
+        waker: None,
+      }),
+    }
+  }
+
+  fn complete(&self, result: std::result::Result<T, JoinError>) {
+    let waker = {
+      let mut inner = self
+        .inner
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      inner.result = Some(result);
+      inner.waker.take()
+    };
+    if let Some(waker) = waker {
+      waker.wake();
+    }
+  }
+}
+
+/// A napi-owned handle to a task spawned via the free [`spawn`]/[`spawn_blocking`] helpers
+/// in `async-runtime` builds.
+///
+/// Await it to join the task: it resolves to the task's output, or to a [`JoinError`]
+/// carrying the panic payload if the task panicked. Unlike `tokio::task::JoinHandle` it is
+/// join-only — there is no `abort`; detach the task by dropping the handle. If the backend
+/// drops the task without ever running it, the handle never resolves.
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+pub struct JoinHandle<T> {
+  state: Arc<JoinState<T>>,
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+impl<T> Future for JoinHandle<T> {
+  type Output = std::result::Result<T, JoinError>;
+
+  fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+    let mut inner = self
+      .state
+      .inner
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(result) = inner.result.take() {
+      Poll::Ready(result)
+    } else {
+      inner.waker = Some(cx.waker().clone());
+      Poll::Pending
+    }
+  }
+}
+
+/// The name of the dedicated thread the free [`spawn_blocking`] helper falls back to when
+/// the registered [`AsyncRuntime`] backend declines the work.
+#[cfg(all(not(feature = "noop"), feature = "async-runtime"))]
+pub const SPAWN_BLOCKING_FALLBACK_THREAD_NAME: &str = "napi-spawn-blocking-fallback";
+
+#[cfg(all(not(feature = "noop"), not(feature = "async-runtime")))]
 /// Spawns a future onto the Tokio runtime.
 ///
 /// Depending on where you use it, you should await or abort the future in your drop function.
@@ -347,24 +469,27 @@ where
     .expect("Access tokio runtime failed in spawn")
 }
 
-#[cfg(all(
-  not(feature = "noop"),
-  feature = "async-runtime",
-  not(feature = "tokio_rt")
-))]
-/// In a pure `async-runtime` build there is no tokio runtime to spawn onto. The
-/// [`AsyncRuntime`] trait's own [`spawn`](AsyncRuntime::spawn) hook is detached — it returns
-/// nothing to join — so it cannot serve this public `spawn`, whose contract is to hand back a
-/// joinable `JoinHandle`. Rather than silently constructing a multi-threaded tokio runtime —
-/// the exact opposite of a threadless custom backend — this fails loud.
-pub fn spawn<F>(_fut: F) -> tokio::task::JoinHandle<F::Output>
+#[cfg(all(not(feature = "noop"), feature = "async-runtime"))]
+/// Spawn a future onto the registered [`AsyncRuntime`] backend, returning a joinable
+/// [`JoinHandle`].
+///
+/// The joinable-ness is manufactured by napi over the backend's detached
+/// [`spawn`](AsyncRuntime::spawn) hook: the future is wrapped so that its output — or, if it
+/// panics, the caught panic payload as a [`JoinError`] — is handed to the returned handle.
+/// This routed arm serves every `async-runtime` build, including combined
+/// `async-runtime` + `tokio_rt` builds: there is no built-in tokio runtime to spawn onto.
+pub fn spawn<F>(fut: F) -> JoinHandle<F::Output>
 where
-  F: 'static + Send + Future<Output = ()>,
+  F: 'static + Send + Future,
+  F::Output: 'static + Send,
 {
-  panic!(
-    "napi `spawn` is not routed through the custom async runtime; \
-     use the registered `AsyncRuntime` backend instead"
-  )
+  let state = Arc::new(JoinState::new());
+  let task_state = state.clone();
+  custom_async_runtime().spawn(Box::pin(async move {
+    let result = AssertUnwindSafe(fut).catch_unwind().await;
+    task_state.complete(result.map_err(JoinError::new_panic));
+  }));
+  JoinHandle { state }
 }
 
 #[cfg(not(feature = "noop"))]
@@ -399,10 +524,7 @@ pub fn block_on<F: Future>(_: F) -> F::Output {
   unreachable!("noop feature is enabled, block_on is not available")
 }
 
-#[cfg(all(
-  not(feature = "noop"),
-  any(not(feature = "async-runtime"), feature = "tokio_rt")
-))]
+#[cfg(all(not(feature = "noop"), not(feature = "async-runtime")))]
 /// spawn_blocking on the current Tokio runtime.
 pub fn spawn_blocking<F, R>(func: F) -> tokio::task::JoinHandle<R>
 where
@@ -415,24 +537,34 @@ where
     .expect("Access tokio runtime failed in spawn_blocking")
 }
 
-#[cfg(all(
-  not(feature = "noop"),
-  feature = "async-runtime",
-  not(feature = "tokio_rt")
-))]
-/// In a pure `async-runtime` build there is no tokio runtime and the [`AsyncRuntime`] trait
-/// has no `spawn_blocking` hook, so blocking work cannot be offloaded to a backend thread
-/// pool. Fail loud instead of spinning up a multi-threaded tokio runtime behind the user's
-/// back.
-pub fn spawn_blocking<F, R>(_func: F) -> tokio::task::JoinHandle<R>
+#[cfg(all(not(feature = "noop"), feature = "async-runtime"))]
+/// Run blocking work through the registered [`AsyncRuntime`] backend, returning a joinable
+/// [`JoinHandle`].
+///
+/// The closure — wrapped so that its output, or the caught panic payload as a [`JoinError`],
+/// is handed to the returned handle — is offered to the backend's
+/// [`spawn_blocking`](AsyncRuntime::spawn_blocking) hook. If the backend declines (the
+/// default implementation does), napi runs the closure on a plain dedicated `std::thread`
+/// named [`SPAWN_BLOCKING_FALLBACK_THREAD_NAME`]: a hidden tokio blocking pool is never
+/// constructed, not even in combined `async-runtime` + `tokio_rt` builds.
+pub fn spawn_blocking<F, R>(func: F) -> JoinHandle<R>
 where
   F: FnOnce() -> R + Send + 'static,
   R: Send + 'static,
 {
-  panic!(
-    "napi `spawn_blocking` is not routed through the custom async runtime; \
-     use the registered `AsyncRuntime` backend instead"
-  )
+  let state = Arc::new(JoinState::new());
+  let task_state = state.clone();
+  let work: Box<dyn FnOnce() + Send + 'static> = Box::new(move || {
+    let result = std::panic::catch_unwind(AssertUnwindSafe(func));
+    task_state.complete(result.map_err(JoinError::new_panic));
+  });
+  if let Err(work) = custom_async_runtime().spawn_blocking(work) {
+    std::thread::Builder::new()
+      .name(SPAWN_BLOCKING_FALLBACK_THREAD_NAME.to_owned())
+      .spawn(work)
+      .expect("Failed to spawn the napi `spawn_blocking` fallback thread");
+  }
+  JoinHandle { state }
 }
 
 #[cfg(not(feature = "noop"))]
@@ -800,54 +932,187 @@ impl<T: ToNapiValue + 'static> ToNapiValue for AsyncBlock<T> {
   }
 }
 
-#[cfg(all(
-  test,
-  not(feature = "noop"),
-  feature = "async-runtime",
-  feature = "tokio_rt"
-))]
+// These tests compile for both the pure `async-runtime` build and the combined
+// `async-runtime` + `tokio_rt` build (Cargo feature unification): in both, the free
+// `spawn`/`spawn_blocking` helpers must route through the registered `AsyncRuntime`
+// backend — there is no built-in tokio runtime to fall back on under `async-runtime`.
+#[cfg(all(test, not(feature = "noop"), feature = "async-runtime"))]
 mod tests {
+  use std::sync::{
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+    Mutex, MutexGuard,
+  };
+
   use super::*;
 
-  struct DummyRuntime;
+  const BACKEND_WORKER_THREAD: &str = "inline-runtime-worker";
+  const BACKEND_BLOCKING_THREAD: &str = "inline-runtime-blocking";
 
-  impl AsyncRuntime for DummyRuntime {
-    fn spawn(&self, _future: std::pin::Pin<Box<dyn Future<Output = ()> + Send + 'static>>) {}
+  static BACKEND_SPAWN_CALLS: AtomicUsize = AtomicUsize::new(0);
+  static BACKEND_BLOCKING_CALLS: AtomicUsize = AtomicUsize::new(0);
+  static DECLINE_SPAWN_BLOCKING: AtomicBool = AtomicBool::new(false);
+  /// Serializes the tests that observe `BACKEND_BLOCKING_CALLS` or flip
+  /// `DECLINE_SPAWN_BLOCKING`, so a decline in one test cannot leak into another.
+  static SPAWN_BLOCKING_TEST_LOCK: Mutex<()> = Mutex::new(());
 
-    fn block_on(&self, _future: std::pin::Pin<&mut dyn Future<Output = ()>>) {}
+  fn spawn_blocking_test_guard() -> MutexGuard<'static, ()> {
+    SPAWN_BLOCKING_TEST_LOCK
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner)
   }
 
-  fn builtin_rt_is_some() -> bool {
-    RT_CREATED.load(std::sync::atomic::Ordering::Relaxed)
-      && RT.read().ok().map(|rt| rt.is_some()).unwrap_or(false)
+  /// Resets `DECLINE_SPAWN_BLOCKING` even if the test body panics.
+  struct DeclineNextSpawnBlocking;
+
+  impl DeclineNextSpawnBlocking {
+    fn arm() -> Self {
+      DECLINE_SPAWN_BLOCKING.store(true, Ordering::SeqCst);
+      DeclineNextSpawnBlocking
+    }
+  }
+
+  impl Drop for DeclineNextSpawnBlocking {
+    fn drop(&mut self) {
+      DECLINE_SPAWN_BLOCKING.store(false, Ordering::SeqCst);
+    }
+  }
+
+  /// A minimal joinable-capable backend: every hook runs the work on a dedicated,
+  /// deterministically named `std::thread`, so tests can assert *where* routed work ran.
+  struct InlineRuntime;
+
+  impl AsyncRuntime for InlineRuntime {
+    fn spawn(&self, future: Pin<Box<dyn Future<Output = ()> + Send + 'static>>) {
+      BACKEND_SPAWN_CALLS.fetch_add(1, Ordering::SeqCst);
+      std::thread::Builder::new()
+        .name(BACKEND_WORKER_THREAD.to_owned())
+        .spawn(move || futures::executor::block_on(future))
+        .expect("failed to spawn the InlineRuntime worker thread");
+    }
+
+    fn block_on(&self, future: Pin<&mut dyn Future<Output = ()>>) {
+      futures::executor::block_on(future);
+    }
+
+    fn spawn_blocking(
+      &self,
+      work: Box<dyn FnOnce() + Send + 'static>,
+    ) -> std::result::Result<(), Box<dyn FnOnce() + Send + 'static>> {
+      if DECLINE_SPAWN_BLOCKING.load(Ordering::SeqCst) {
+        return Err(work);
+      }
+      BACKEND_BLOCKING_CALLS.fetch_add(1, Ordering::SeqCst);
+      std::thread::Builder::new()
+        .name(BACKEND_BLOCKING_THREAD.to_owned())
+        .spawn(work)
+        .expect("failed to spawn the InlineRuntime blocking thread");
+      Ok(())
+    }
+  }
+
+  /// Registers `InlineRuntime` exactly once for the whole test binary: registration is
+  /// process-global and double registration panics by design (covered by the separate
+  /// `async_runtime_registration` integration-test binary).
+  fn ensure_runtime() {
+    static REGISTER: std::sync::Once = std::sync::Once::new();
+    REGISTER.call_once(|| create_custom_async_runtime(InlineRuntime));
   }
 
   #[test]
-  fn combined_build_shutdown_takes_down_builtin_tokio_runtime() {
-    create_custom_async_runtime(DummyRuntime);
+  fn free_spawn_returns_joinable_handle() {
+    ensure_runtime();
+    let calls_before = BACKEND_SPAWN_CALLS.load(Ordering::SeqCst);
 
-    // The public `spawn` helper is backed by the built-in tokio runtime even in a
-    // combined `async-runtime` + `tokio_rt` build; its first use lazily creates `RT`.
-    drop(spawn(async {}));
+    let handle = spawn(async { 41 + 1 });
+    let value = futures::executor::block_on(handle)
+      .expect("the spawned task completed, so joining its handle must succeed");
+
+    assert_eq!(value, 42);
     assert!(
-      builtin_rt_is_some(),
-      "the public `spawn` helper should lazily create the built-in tokio runtime"
+      BACKEND_SPAWN_CALLS.load(Ordering::SeqCst) > calls_before,
+      "the free `spawn` helper must route through `AsyncRuntime::spawn`"
     );
+  }
 
-    shutdown_async_runtime();
-    assert!(
-      !builtin_rt_is_some(),
-      "env teardown must also shut down the built-in tokio runtime in a combined \
-       `async-runtime` + `tokio_rt` build, otherwise its worker threads leak"
+  #[test]
+  fn free_spawn_blocking_routes_to_backend() {
+    ensure_runtime();
+    let _guard = spawn_blocking_test_guard();
+    let calls_before = BACKEND_BLOCKING_CALLS.load(Ordering::SeqCst);
+
+    let handle = spawn_blocking(|| std::thread::current().name().map(str::to_owned));
+    let thread_name = futures::executor::block_on(handle)
+      .expect("the blocking task completed, so joining its handle must succeed");
+
+    assert_eq!(
+      thread_name.as_deref(),
+      Some(BACKEND_BLOCKING_THREAD),
+      "routed `spawn_blocking` work must run on the custom runtime"
     );
+    assert_eq!(
+      BACKEND_BLOCKING_CALLS.load(Ordering::SeqCst),
+      calls_before + 1,
+      "the free `spawn_blocking` helper must route through `AsyncRuntime::spawn_blocking`"
+    );
+  }
 
-    // Electron window reload: the env is re-created and napi calls `start_async_runtime`
-    // again. The built-in runtime must come back so `spawn` keeps working.
-    start_async_runtime();
-    drop(spawn(async {}));
-    assert!(
-      builtin_rt_is_some(),
-      "`start_async_runtime` should re-create the built-in tokio runtime after shutdown"
+  #[test]
+  fn declined_spawn_blocking_completes_on_fallback_thread() {
+    ensure_runtime();
+    let _guard = spawn_blocking_test_guard();
+    let calls_before = BACKEND_BLOCKING_CALLS.load(Ordering::SeqCst);
+    let _decline = DeclineNextSpawnBlocking::arm();
+
+    let handle = spawn_blocking(|| std::thread::current().name().map(str::to_owned));
+    let thread_name = futures::executor::block_on(handle)
+      .expect("work declined by the backend must still run to completion");
+
+    assert_eq!(
+      thread_name.as_deref(),
+      Some(SPAWN_BLOCKING_FALLBACK_THREAD_NAME),
+      "declined `spawn_blocking` work must run on napi's plain fallback thread"
+    );
+    assert_eq!(
+      BACKEND_BLOCKING_CALLS.load(Ordering::SeqCst),
+      calls_before,
+      "a declining backend must hand the closure back instead of running it"
+    );
+  }
+
+  #[test]
+  fn spawn_join_error_carries_panic_payload() {
+    ensure_runtime();
+
+    let handle = spawn(async { panic!("boom-in-async-task") });
+    let err = futures::executor::block_on(handle)
+      .expect_err("a panicking task must surface a JoinError through its handle");
+
+    assert!(err.is_panic());
+    let payload = err
+      .try_into_panic()
+      .expect("a panic JoinError must hand the payload back");
+    assert_eq!(
+      payload.downcast_ref::<&str>().copied(),
+      Some("boom-in-async-task")
+    );
+  }
+
+  #[test]
+  fn spawn_blocking_join_error_carries_panic_payload() {
+    ensure_runtime();
+    let _guard = spawn_blocking_test_guard();
+
+    let handle = spawn_blocking(|| -> () { panic!("boom-in-blocking-task") });
+    let err = futures::executor::block_on(handle)
+      .expect_err("a panicking blocking task must surface a JoinError through its handle");
+
+    assert!(err.is_panic());
+    let payload = err
+      .try_into_panic()
+      .expect("a panic JoinError must hand the payload back");
+    assert_eq!(
+      payload.downcast_ref::<&str>().copied(),
+      Some("boom-in-blocking-task")
     );
   }
 }
