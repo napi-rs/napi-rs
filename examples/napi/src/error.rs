@@ -97,6 +97,9 @@ pub fn extends_javascript_error(env: Env, error_class: Function<String>) -> Resu
 #[napi]
 pub fn drop_error_from_value_off_thread(value: Unknown) -> Result<()> {
   let error: Error = value.into();
+  // Deliberately detached: the drop racing the JS thread's concurrent
+  // GlobalHandles churn IS the regression under test; joining would
+  // serialize them and mask the unfixed crash.
   std::thread::spawn(move || drop(error));
   Ok(())
 }
@@ -158,4 +161,23 @@ thread_local! {
 #[napi]
 pub fn stash_error_in_thread_local(value: Unknown) {
   STASHED_ERRORS.with(|c| c.borrow_mut().push(value.into()));
+}
+
+/// `try_clone` must refuse to run off the owning JS thread (the refcount
+/// increment is thread-affine). Returns what it produced there: the clone
+/// outcome or the guard's error message.
+#[napi]
+pub fn try_clone_error_off_thread(value: Unknown) -> Result<String> {
+  let error: Error = value.into();
+  std::thread::spawn(move || {
+    let outcome = match error.try_clone() {
+      Ok(_clone) => "cloned".to_owned(),
+      Err(guard_error) => guard_error.reason.clone(),
+    };
+    // `error` (and a clone, if the guard ever regressed) drops here,
+    // off-thread — routed through the custom GC by the fix.
+    outcome
+  })
+  .join()
+  .map_err(|_| Error::from_reason("try_clone thread panicked"))
 }

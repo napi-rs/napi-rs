@@ -315,8 +315,30 @@ impl<S: AsRef<str>> Error<S> {
 }
 
 impl<S: AsRef<str> + Clone> Error<S> {
+  /// Clones this `Error`.
+  ///
+  /// An `Error` derived from a JS exception (e.g. a `Promise` rejection) owns a
+  /// `napi_ref` to the original JS value, and cloning shares that reference.
+  /// Because the reference is thread-affine, such an `Error` can only be cloned
+  /// on the JS thread that owns it: called from any other thread, `try_clone`
+  /// returns `Err` rather than racing a sibling's concurrent release. Errors
+  /// that hold no JS reference clone on any thread.
   pub fn try_clone(&self) -> Result<Self> {
     if !self.maybe_raw.is_null() {
+      // The refcount increment below is not thread-safe: like every other
+      // operation on `maybe_raw`, it must run on the owning JS thread. Off
+      // that thread it would race a sibling's concurrent release, so fail
+      // instead (previously this was silent undefined behavior).
+      #[cfg(all(feature = "napi4", not(feature = "noop")))]
+      if let Some(handle) = &self.maybe_custom_gc {
+        if !crate::bindgen_prelude::current_thread_owns_custom_gc(handle) {
+          return Err(Error::new(
+            Status::GenericFailure,
+            "Error holding a JS exception reference can only be cloned on the thread that owns it"
+              .to_owned(),
+          ));
+        }
+      }
       check_status!(
         unsafe { sys::napi_reference_ref(self.maybe_env, self.maybe_raw, &mut 0) },
         "Failed to increase error reference count"

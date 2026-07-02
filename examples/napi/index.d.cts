@@ -1292,6 +1292,13 @@ export declare function throwSyntaxError(error: string, code?: string | undefine
 
 export declare function toJsObj(): object
 
+/**
+ * `try_clone` must refuse to run off the owning JS thread (the refcount
+ * increment is thread-affine). Returns what it produced there: the clone
+ * outcome or the guard's error message.
+ */
+export declare function tryCloneErrorOffThread(value: unknown): string
+
 export declare function tsfnAsyncCall(func: (arg0: number, arg1: number, arg2: number) => string): Promise<void>
 
 export declare function tsfnCallWithCallback(tsfn: ((err: Error | null, ) => string)): void

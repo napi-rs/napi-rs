@@ -922,6 +922,7 @@ module.exports.throwError = nativeBinding.throwError
 module.exports.throwErrorWithCause = nativeBinding.throwErrorWithCause
 module.exports.throwSyntaxError = nativeBinding.throwSyntaxError
 module.exports.toJsObj = nativeBinding.toJsObj
+module.exports.tryCloneErrorOffThread = nativeBinding.tryCloneErrorOffThread
 module.exports.tsfnAsyncCall = nativeBinding.tsfnAsyncCall
 module.exports.tsfnCallWithCallback = nativeBinding.tsfnCallWithCallback
 module.exports.tsfnInEither = nativeBinding.tsfnInEither
