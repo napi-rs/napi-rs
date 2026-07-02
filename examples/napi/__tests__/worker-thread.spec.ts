@@ -155,6 +155,56 @@ test('custom GC same-thread post-teardown drop (napi-rs#3357 must_fix #1)', asyn
   )
 })
 
+// (C) JS-derived `Error`s own a napi_ref; releasing them off the JS thread must be
+// routed through the custom GC like buffers (napi-rs#3368). Each worker interleaves
+// off-thread Error drops (spawned thread / async-runtime rejection / try_clone
+// siblings) with JS-thread GlobalHandles churn.
+test('JS-derived Error released off-thread (napi-rs#3368)', async (t) => {
+  await Promise.all(
+    Array.from({ length: concurrency }).map(() =>
+      Promise.all(
+        [
+          'error:value:offthread',
+          'error:reject:offthread',
+          'error:clone:threads',
+        ].map((type) =>
+          new Promise<Worker>((resolve, reject) => {
+            const w = new Worker(join(__dirname, 'worker.js'), {
+              env: process.env,
+            })
+            w.postMessage({ type })
+            w.on('message', (msg) => {
+              t.is(msg, 'done')
+              resolve(w)
+            })
+            w.on('error', reject)
+          }).then((w) => w.terminate()),
+        ),
+      ),
+    ),
+  )
+})
+
+// (D) same-thread post-teardown Error drop: stashed on the worker's own JS thread,
+// dropped at thread-exit after env teardown -> aborted (leak) path (napi-rs#3368).
+test('JS-derived Error same-thread post-teardown drop (napi-rs#3368)', async (t) => {
+  await Promise.all(
+    Array.from({ length: concurrency }).map(() =>
+      new Promise<Worker>((resolve, reject) => {
+        const w = new Worker(join(__dirname, 'worker.js'), {
+          env: process.env,
+        })
+        w.postMessage({ type: 'stash:error:teardown' })
+        w.on('message', (msg) => {
+          t.is(msg, 'done')
+          resolve(w)
+        })
+        w.on('error', reject)
+      }).then((w) => w.terminate()),
+    ),
+  )
+})
+
 test('should be able to new Class in worker thread concurrently', async (t) => {
   await Promise.all(
     Array.from({ length: concurrency }).map(() => {
