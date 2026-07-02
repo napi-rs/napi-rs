@@ -422,6 +422,97 @@ test('should drop exact node engine branches below the WASI minimum for WASM tar
   t.is(scopedPackageJson.engines.node, '>=18.0.0')
 })
 
+test.serial(
+  'should include the deferred loader in files for non-threaded WASM targets',
+  async (t) => {
+    const { tmpDir, packageJsonPath } = t.context
+    const registryServer = await startRegistryServer()
+
+    process.env.npm_config_registry = `${registryServer.origin}/npm`
+
+    const packageJson = {
+      name: 'test-wasm-deferred',
+      version: '1.0.0',
+      napi: {
+        binaryName: 'test-wasm-deferred',
+        targets: ['wasm32-wasip1'],
+      },
+    }
+
+    await writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2))
+
+    try {
+      await createNpmDirs({
+        cwd: tmpDir,
+        packageJsonPath: 'package.json',
+      })
+
+      const scopedPackageJson = JSON.parse(
+        await readFile(
+          join(tmpDir, 'npm', 'wasm32-wasi', 'package.json'),
+          'utf-8',
+        ),
+      )
+
+      t.deepEqual(scopedPackageJson.files, [
+        'test-wasm-deferred.wasm32-wasi.wasm',
+        'test-wasm-deferred.wasi.cjs',
+        'test-wasm-deferred.wasi-browser.js',
+        'wasi-worker.mjs',
+        'wasi-worker-browser.mjs',
+        'test-wasm-deferred.wasi-deferred.js',
+      ])
+    } finally {
+      await registryServer.close()
+    }
+  },
+)
+
+test.serial(
+  'should not include the deferred loader in files for threaded WASM targets',
+  async (t) => {
+    const { tmpDir, packageJsonPath } = t.context
+    const registryServer = await startRegistryServer()
+
+    process.env.npm_config_registry = `${registryServer.origin}/npm`
+
+    const packageJson = {
+      name: 'test-wasm-threaded',
+      version: '1.0.0',
+      napi: {
+        binaryName: 'test-wasm-threaded',
+        targets: ['wasm32-wasi-preview1-threads'],
+      },
+    }
+
+    await writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2))
+
+    try {
+      await createNpmDirs({
+        cwd: tmpDir,
+        packageJsonPath: 'package.json',
+      })
+
+      const scopedPackageJson = JSON.parse(
+        await readFile(
+          join(tmpDir, 'npm', 'wasm32-wasi', 'package.json'),
+          'utf-8',
+        ),
+      )
+
+      t.deepEqual(scopedPackageJson.files, [
+        'test-wasm-threaded.wasm32-wasi.wasm',
+        'test-wasm-threaded.wasi.cjs',
+        'test-wasm-threaded.wasi-browser.js',
+        'wasi-worker.mjs',
+        'wasi-worker-browser.mjs',
+      ])
+    } finally {
+      await registryServer.close()
+    }
+  },
+)
+
 test('should set @emnapi/core and @emnapi/runtime versions to match emnapi for WASM targets', async (t) => {
   const { tmpDir, packageJsonPath } = t.context
 

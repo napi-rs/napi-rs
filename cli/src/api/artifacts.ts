@@ -9,6 +9,7 @@ import {
 import {
   readNapiConfig,
   debugFactory,
+  fileExists,
   readFileAsync,
   writeFileAsync,
   UniArchsByPlatform,
@@ -108,6 +109,10 @@ export async function collectArtifacts(userOptions: ArtifactsOptions) {
       options.buildOutputDir ?? options.cwd,
       `wasi-worker-browser.mjs`,
     )
+    const deferredEntry = join(
+      options.buildOutputDir ?? options.cwd,
+      `${binaryName}.wasi-deferred.js`,
+    )
     debug.info(
       `Move wasi binding file [${colors.yellowBright(
         cjsFile,
@@ -148,6 +153,19 @@ export async function collectArtifacts(userOptions: ArtifactsOptions) {
       join(wasiDir, `wasi-worker-browser.mjs`),
       await readFileAsync(browserWorkerFile),
     )
+    // The deferred workerd-safe loader is only emitted for non-threaded WASI
+    // builds, so tolerate its absence.
+    if (await fileExists(deferredEntry)) {
+      debug.info(
+        `Move wasi deferred entry file [${colors.yellowBright(
+          deferredEntry,
+        )}] to [${colors.yellowBright(wasiDir)}]`,
+      )
+      await writeFileAsync(
+        join(wasiDir, `${binaryName}.wasi-deferred.js`),
+        await readFileAsync(deferredEntry),
+      )
+    }
   }
 }
 

@@ -157,6 +157,11 @@ export async function createNpmDirs(userOptions: CreateNpmDirsOptions) {
         `wasi-worker.mjs`,
         `wasi-worker-browser.mjs`,
       )
+      // The deferred workerd-safe loader is only emitted for non-threaded
+      // WASI builds (mirrors `hasThreads` in `writeWasiBinding`).
+      if (!target.triple.endsWith('-threads')) {
+        scopedPackageJson.files?.push(`${binaryName}.wasi-deferred.js`)
+      }
       scopedPackageJson.engines = {
         ...scopedPackageJson.engines,
         node: scopedPackageJson.engines?.node

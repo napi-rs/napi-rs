@@ -38,6 +38,7 @@ import { createCjsBinding, createEsmBinding } from './templates/index.js'
 import {
   createWasiBinding,
   createWasiBrowserBinding,
+  createWasiDeferredBrowserBinding,
 } from './templates/load-wasi-template.js'
 import {
   createWasiBrowserWorkerBinding,
@@ -969,6 +970,23 @@ class Builder {
           '\n',
         'utf8',
       )
+      const deferredOutputs: Output[] = []
+      if (!hasThreads) {
+        const deferredBindingPath = join(
+          dir,
+          `${this.config.binaryName}.wasi-deferred.js`,
+        )
+        await writeFileAsync(
+          deferredBindingPath,
+          createWasiDeferredBrowserBinding(
+            name,
+            this.config.wasm?.initialMemory,
+            this.config.wasm?.maximumMemory,
+          ),
+          'utf8',
+        )
+        deferredOutputs.push({ kind: 'js', path: deferredBindingPath })
+      }
       await writeFileAsync(workerPath, WASI_WORKER_TEMPLATE, 'utf8')
       await writeFileAsync(
         browserWorkerPath,
@@ -985,6 +1003,7 @@ class Builder {
       return [
         { kind: 'js', path: bindingPath },
         { kind: 'js', path: browserBindingPath },
+        ...deferredOutputs,
         { kind: 'js', path: workerPath },
         { kind: 'js', path: browserWorkerPath },
         { kind: 'js', path: browserEntryPath },

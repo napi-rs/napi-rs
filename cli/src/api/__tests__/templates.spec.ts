@@ -1,3 +1,7 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+
 import ava, { type ExecutionContext } from 'ava'
 import { parseSync } from 'oxc-parser'
 
@@ -5,6 +9,7 @@ import { createCjsBinding, createEsmBinding } from '../templates/js-binding.js'
 import {
   createWasiBinding,
   createWasiBrowserBinding,
+  createWasiDeferredBrowserBinding,
 } from '../templates/load-wasi-template.js'
 import { createWasiBrowserWorkerBinding } from '../templates/wasi-worker-template.js'
 
@@ -68,6 +73,106 @@ test('single-thread WASI bindings do not require workers or shared memory', (t) 
   assertValidJS(t, browser, 'single-thread browser binding')
   assertValidJS(t, node, 'single-thread Node binding')
 })
+
+test('deferred single-thread WASI binding is workerd-safe', (t) => {
+  const src = createWasiDeferredBrowserBinding('custom_async_runtime')
+  // workerd bans: I/O in global scope, compile-from-bytes
+  t.false(src.includes('await fetch'))
+  t.false(src.includes('arrayBuffer'))
+  // The wasm imports `env.memory` (built with `--import-memory`), so a
+  // Memory allocation is required — but only in function scope
+  // (workerd-legal), never in global scope.
+  const exportOffset = src.indexOf('export async function instantiate')
+  t.true(exportOffset > 0)
+  const topLevel = src.slice(0, exportOffset)
+  t.false(topLevel.includes('new WebAssembly.Memory'))
+  t.false(topLevel.includes('fetch('))
+  t.false(src.includes('shared: true'))
+  t.false(src.includes('new Worker'))
+  t.true(src.includes('export async function instantiate'))
+  t.true(src.includes('asyncWorkPoolSize: 0'))
+  // instantiate() accepts ONLY a precompiled WebAssembly.Module (or a Promise
+  // resolving to one): anything else would require dynamic Wasm compilation,
+  // which Cloudflare workerd bans everywhere. The guard must be a brand check
+  // (`WebAssembly.Module.imports`), not `instanceof`: prototype-spoofed byte
+  // buffers pass `instanceof`, and genuine cross-realm Modules fail it.
+  t.true(src.includes('WebAssembly.Module.imports(__module)'))
+  t.false(src.includes('instanceof WebAssembly.Module'))
+  t.true(src.includes('throw new TypeError'))
+  t.false(src.includes('any input emnapi accepts'))
+  // The guard must run before emnapi is handed the input.
+  const guardOffset = src.indexOf('WebAssembly.Module.imports(__module)')
+  const emnapiCallOffset = src.indexOf('__emnapiInstantiateNapiModule(')
+  t.true(emnapiCallOffset > 0)
+  t.true(guardOffset > 0 && guardOffset < emnapiCallOffset)
+  assertValidJS(t, src, 'deferred single-thread browser binding')
+})
+
+// Serial: temporarily stubs process-wide globals (WebAssembly.*, fetch).
+test.serial(
+  'deferred WASI binding rejects non-Module input at runtime',
+  async (t) => {
+    const src = createWasiDeferredBrowserBinding('custom_async_runtime')
+    // Import the generated code for real: write it inside the repo so
+    // `@napi-rs/wasm-runtime` resolves from the workspace node_modules.
+    const tmpDir = await mkdtemp(
+      join(fileURLToPath(new URL('.', import.meta.url)), '.tmp-deferred-'),
+    )
+    // Stub every dynamic-compilation path: if the guard fails to reject the
+    // input BEFORE emnapi touches it, the rejection would surface as one of
+    // these stub errors instead of the expected TypeError.
+    const originalCompile = WebAssembly.compile
+    const originalInstantiate = WebAssembly.instantiate
+    const originalInstantiateStreaming = WebAssembly.instantiateStreaming
+    const originalFetch = globalThis.fetch
+    const banned = (name: string) => () => {
+      throw new Error(`dynamic compilation attempted via ${name}`)
+    }
+    try {
+      const loaderPath = join(tmpDir, 'deferred.mjs')
+      await writeFile(loaderPath, src)
+      const { instantiate } = await import(pathToFileURL(loaderPath).href)
+
+      WebAssembly.compile = banned('WebAssembly.compile') as never
+      WebAssembly.instantiate = banned('WebAssembly.instantiate') as never
+      WebAssembly.instantiateStreaming = banned(
+        'WebAssembly.instantiateStreaming',
+      ) as never
+      globalThis.fetch = banned('fetch') as never
+
+      const bytesError = await t.throwsAsync(
+        () => instantiate(new Uint8Array([0, 1])),
+        { instanceOf: TypeError },
+      )
+      t.regex(bytesError.message, /precompiled WebAssembly\.Module/)
+      t.regex(bytesError.message, /Cloudflare Workers/)
+
+      // Promise inputs are awaited first, then held to the same contract.
+      const promiseError = await t.throwsAsync(
+        () => instantiate(Promise.resolve(new Uint8Array([0, 1]))),
+        { instanceOf: TypeError },
+      )
+      t.regex(promiseError.message, /precompiled WebAssembly\.Module/)
+
+      // Prototype-spoofed bytes pass `instanceof WebAssembly.Module` but
+      // emnapi treats BufferSource inputs (a slot-based check) as bytes to
+      // compile — the forbidden path. The brand check must reject them.
+      const spoofedBytes = new Uint8Array([0, 1])
+      Object.setPrototypeOf(spoofedBytes, WebAssembly.Module.prototype)
+      const spoofedError = await t.throwsAsync(
+        () => instantiate(spoofedBytes),
+        { instanceOf: TypeError },
+      )
+      t.regex(spoofedError.message, /precompiled WebAssembly\.Module/)
+    } finally {
+      WebAssembly.compile = originalCompile
+      WebAssembly.instantiate = originalInstantiate
+      WebAssembly.instantiateStreaming = originalInstantiateStreaming
+      globalThis.fetch = originalFetch
+      await rm(tmpDir, { recursive: true, force: true })
+    }
+  },
+)
 
 test('createWasiBrowserWorkerBinding default', (t) => {
   t.snapshot(createWasiBrowserWorkerBinding(false, false))
