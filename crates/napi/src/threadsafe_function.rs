@@ -846,10 +846,24 @@ unsafe extern "C" fn call_js_cb<
         let callback_arg = if status == sys::Status::napi_pending_exception {
           let mut exception = ptr::null_mut();
           unsafe { sys::napi_get_and_clear_last_exception(raw_env, &mut exception) };
-          let mut error_reference = ptr::null_mut();
           let raw_status = status;
-          status =
-            unsafe { sys::napi_create_reference(raw_env, exception, 1, &mut error_reference) };
+          // Referencing the exception object is not allowed on wasm targets: the
+          // returned `Error` is sent to the calling thread, and un-referencing it
+          // there crashes because the reference belongs to the JS thread's env.
+          // The message and stack trace are still captured in `reason` below.
+          // See the `From<Unknown> for Error` impls in `error.rs` (#2975).
+          #[cfg(target_family = "wasm")]
+          let error_reference = {
+            status = sys::Status::napi_ok;
+            ptr::null_mut()
+          };
+          #[cfg(not(target_family = "wasm"))]
+          let error_reference = {
+            let mut error_reference = ptr::null_mut();
+            status =
+              unsafe { sys::napi_create_reference(raw_env, exception, 1, &mut error_reference) };
+            error_reference
+          };
 
           get_error_message_and_stack_trace(raw_env, exception).and_then(|reason| {
             Err(Error {

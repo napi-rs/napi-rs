@@ -446,6 +446,7 @@ module.exports.tsfnReturnPromiseTimeout = __napiModule.exports.tsfnReturnPromise
 module.exports.tsfnThrowFromJs = __napiModule.exports.tsfnThrowFromJs
 module.exports.tsfnThrowFromJsCallbackContainsTsfn = __napiModule.exports.tsfnThrowFromJsCallbackContainsTsfn
 module.exports.tsfnThrowFromJsCatch = __napiModule.exports.tsfnThrowFromJsCatch
+module.exports.tsfnThrowFromJsCatchDropInThread = __napiModule.exports.tsfnThrowFromJsCatchDropInThread
 module.exports.tsfnThrowFromJsCatchHandled = __napiModule.exports.tsfnThrowFromJsCatchHandled
 module.exports.tsfnThrowFromJsCatchRecover = __napiModule.exports.tsfnThrowFromJsCatchRecover
 module.exports.tsfnWeak = __napiModule.exports.tsfnWeak

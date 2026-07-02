@@ -113,6 +113,7 @@ import {
   tsfnAsyncCall,
   tsfnThrowFromJs,
   tsfnThrowFromJsCatch,
+  tsfnThrowFromJsCatchDropInThread,
   tsfnThrowFromJsCatchHandled,
   tsfnThrowFromJsCatchRecover,
   asyncPlus100,
@@ -1887,7 +1888,9 @@ test('Throw from ThreadsafeFunction JavaScript callback', async (t) => {
         throw new Error(errMsg)
       }),
     {
-      message: errMsg,
+      // on wasm targets the thrown error object is not referenced; JS receives
+      // a recreated error whose message contains the message and stack trace
+      message: process.env.WASI_TEST ? new RegExp(errMsg) : errMsg,
     },
   )
 
@@ -1911,10 +1914,14 @@ test('Throw from ThreadsafeFunction JavaScript callback', async (t) => {
         return Promise.resolve(1)
       })
     },
-    {
-      instanceOf: TypeError,
-      message: "Cannot set properties of undefined (setting 'd')",
-    },
+    process.env.WASI_TEST
+      ? {
+          message: /Cannot set properties of undefined \(setting 'd'\)/,
+        }
+      : {
+          instanceOf: TypeError,
+          message: "Cannot set properties of undefined (setting 'd')",
+        },
   )
 })
 
@@ -1925,7 +1932,9 @@ test('call_async_catch catches throw from CalleeHandled=false ThreadsafeFunction
         throw new Error(arg)
       }),
     {
-      message: 'foo',
+      // on wasm targets the thrown error object is not referenced; JS receives
+      // a recreated error whose message contains the message and stack trace
+      message: process.env.WASI_TEST ? /foo/ : 'foo',
     },
   )
 })
@@ -1937,7 +1946,7 @@ test('call_async_catch on CalleeHandled=true ThreadsafeFunction propagates throw
         throw new Error(arg)
       }),
     {
-      message: 'foo',
+      message: process.env.WASI_TEST ? /foo/ : 'foo',
     },
   )
 })
@@ -1951,12 +1960,29 @@ test('call_async_catch preserves original JS exception object', async (t) => {
       throw thrown
     }),
   )
-  // The Rust side propagates the original napi::Error; its maybe_raw reference
-  // round-trips back through ToNapiValue for Error, so JS receives the exact
-  // same Error instance that was thrown, with custom properties intact.
-  // @ts-expect-error reading custom property on Error
-  t.is(err?.code, 'E_FOO')
-  t.is(err?.message, 'foo')
+  if (process.env.WASI_TEST) {
+    // On wasm targets the thrown error object is not referenced (the error may
+    // be dropped on another thread), so JS receives a recreated error that only
+    // carries the message and stack trace.
+    t.true(err?.message.includes('foo'))
+  } else {
+    // The Rust side propagates the original napi::Error; its maybe_raw reference
+    // round-trips back through ToNapiValue for Error, so JS receives the exact
+    // same Error instance that was thrown, with custom properties intact.
+    // @ts-expect-error reading custom property on Error
+    t.is(err?.code, 'E_FOO')
+    t.is(err?.message, 'foo')
+  }
+})
+
+test('napi::Error from a JS sync throw can be dropped on another thread', async (t) => {
+  // https://github.com/rolldown/rolldown/issues/10075
+  // On wasm targets this used to crash the wasi worker with
+  // `Cannot read properties of undefined (reading 'checkGCAccess')`.
+  const reason = await tsfnThrowFromJsCatchDropInThread(() => {
+    throw new Error('foo')
+  })
+  t.true(reason.includes('foo'))
 })
 
 Napi4Test('accept ThreadsafeFunction', async (t) => {

@@ -925,6 +925,7 @@ module.exports.tsfnReturnPromiseTimeout = nativeBinding.tsfnReturnPromiseTimeout
 module.exports.tsfnThrowFromJs = nativeBinding.tsfnThrowFromJs
 module.exports.tsfnThrowFromJsCallbackContainsTsfn = nativeBinding.tsfnThrowFromJsCallbackContainsTsfn
 module.exports.tsfnThrowFromJsCatch = nativeBinding.tsfnThrowFromJsCatch
+module.exports.tsfnThrowFromJsCatchDropInThread = nativeBinding.tsfnThrowFromJsCatchDropInThread
 module.exports.tsfnThrowFromJsCatchHandled = nativeBinding.tsfnThrowFromJsCatchHandled
 module.exports.tsfnThrowFromJsCatchRecover = nativeBinding.tsfnThrowFromJsCatchRecover
 module.exports.tsfnWeak = nativeBinding.tsfnWeak
