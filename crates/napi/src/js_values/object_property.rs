@@ -1,5 +1,4 @@
 use std::convert::From;
-#[cfg(feature = "napi5")]
 use std::ffi::c_void;
 use std::ffi::CString;
 use std::ptr;
@@ -40,6 +39,7 @@ pub struct Property {
   method: sys::napi_callback,
   attrs: PropertyAttributes,
   value: sys::napi_value,
+  data: *mut c_void,
   pub(crate) is_ctor: bool,
   #[cfg(feature = "napi5")]
   pub(crate) closures: PropertyClosures,
@@ -55,6 +55,7 @@ impl Default for Property {
       method: Default::default(),
       attrs: Default::default(),
       value: ptr::null_mut(),
+      data: ptr::null_mut(),
       is_ctor: Default::default(),
       #[cfg(feature = "napi5")]
       closures: PropertyClosures::default(),
@@ -166,9 +167,23 @@ impl Property {
     Ok(self)
   }
 
+  #[doc(hidden)]
+  pub fn with_data(mut self, data: *mut c_void) -> Self {
+    self.data = data;
+    self
+  }
+
+  #[cfg(feature = "napi5")]
+  pub(crate) fn has_closure_data(&self) -> bool {
+    self.data.is_null()
+      && (!self.closures.getter_closure.is_null() || !self.closures.setter_closure.is_null())
+  }
+
   pub(crate) fn raw(&self) -> sys::napi_property_descriptor {
     #[cfg(feature = "napi5")]
-    let data = if self.closures.getter_closure.is_null() && self.closures.setter_closure.is_null() {
+    let data = if !self.data.is_null() {
+      self.data
+    } else if self.closures.getter_closure.is_null() && self.closures.setter_closure.is_null() {
       // No closures to allocate, avoid memory leak
       ptr::null_mut()
     } else {
@@ -188,7 +203,7 @@ impl Property {
       value: self.value,
       attributes: self.attrs.into(),
       #[cfg(not(feature = "napi5"))]
-      data: ptr::null_mut(),
+      data: self.data,
       #[cfg(feature = "napi5")]
       data,
     }

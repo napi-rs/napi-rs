@@ -463,14 +463,19 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
 
   /// This method allows the efficient definition of multiple properties on a given object.
   fn define_properties(&mut self, properties: &[Property]) -> Result<()> {
-    let properties_iter = properties.iter().map(|property| property.raw());
+    let property_descriptors = properties
+      .iter()
+      .map(|property| property.raw())
+      .collect::<Vec<sys::napi_property_descriptor>>();
     let env = self.value().env;
     #[cfg(feature = "napi5")]
     {
       if !properties.is_empty() {
-        let mut closures = properties_iter
-          .clone()
-          .map(|p| p.data)
+        let mut closures = properties
+          .iter()
+          .zip(property_descriptors.iter())
+          .filter(|(property, _)| property.has_closure_data())
+          .map(|(_, descriptor)| descriptor.data)
           .filter(|data| !data.is_null())
           .collect::<Vec<*mut std::ffi::c_void>>();
         if !closures.is_empty() {
@@ -497,9 +502,7 @@ pub trait JsObjectValue<'env>: JsValue<'env> {
         env,
         self.value().value,
         properties.len(),
-        properties_iter
-          .collect::<Vec<sys::napi_property_descriptor>>()
-          .as_ptr(),
+        property_descriptors.as_ptr(),
       )
     })
   }

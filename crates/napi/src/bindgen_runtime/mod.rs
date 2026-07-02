@@ -2,19 +2,21 @@ use std::ffi::c_void;
 use std::sync::Arc;
 
 pub use callback_info::*;
+pub use class_accessor::*;
 pub use env::*;
 pub use iterator::Generator;
 pub use js_values::*;
 pub use module_register::*;
 
 use super::sys;
-use crate::{JsError, Result, Status};
+use crate::{Error, JsError, Result, Status};
 
 #[cfg(feature = "tokio_rt")]
 pub mod async_iterator;
 #[cfg(feature = "tokio_rt")]
 pub use async_iterator::AsyncGenerator;
 mod callback_info;
+mod class_accessor;
 mod env;
 mod error;
 pub mod iterator;
@@ -26,6 +28,20 @@ pub trait ObjectFinalize: Sized {
   fn finalize(self, env: Env) -> Result<()> {
     Ok(())
   }
+}
+
+#[doc(hidden)]
+pub fn panic_to_error(e: Box<dyn std::any::Any + Send>) -> Error {
+  let message = {
+    if let Some(string) = e.downcast_ref::<String>() {
+      string.clone()
+    } else if let Some(string) = e.downcast_ref::<&str>() {
+      string.to_string()
+    } else {
+      format!("panic from Rust code: {:?}", e)
+    }
+  };
+  Error::new(Status::GenericFailure, message)
 }
 
 /// # Safety

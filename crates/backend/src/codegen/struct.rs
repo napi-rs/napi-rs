@@ -871,6 +871,13 @@ impl NapiStruct {
         &format!("set_{}", rm_raw_prefix(&field_name)),
         Span::call_site(),
       );
+      let accessor_descriptor_name = Ident::new(
+        &format!(
+          "__napi_field_accessor_descriptor_{}",
+          rm_raw_prefix(&field_name)
+        ),
+        Span::call_site(),
+      );
 
       if field.getter {
         let default_to_napi_value_convert = quote! {
@@ -901,20 +908,16 @@ impl NapiStruct {
         getters_setters.push((
           field.js_name.clone(),
           quote! {
-            extern "C" fn #getter_name(
+            unsafe fn #getter_name(
               env: napi::bindgen_prelude::sys::napi_env,
-              cb: napi::bindgen_prelude::sys::napi_callback_info
-            ) -> napi::bindgen_prelude::sys::napi_value {
+              this: napi::bindgen_prelude::sys::napi_value
+            ) -> napi::Result<napi::bindgen_prelude::sys::napi_value> {
               #tracing_debug
-              napi::bindgen_prelude::CallbackInfo::<0>::new(env, cb, Some(0), false)
-                .and_then(|mut cb| cb.unwrap_borrow_mut::<#struct_name>())
-                .and_then(|obj| {
-                  #to_napi_value_convert
-                })
-                .unwrap_or_else(|e| {
-                  unsafe { napi::bindgen_prelude::JsError::from(e).throw_into(env) };
-                  std::ptr::null_mut::<napi::bindgen_prelude::sys::napi_value__>()
-                })
+              let this_ptr = unsafe {
+                napi::bindgen_prelude::class_accessor_unwrap_this::<#struct_name>(env, this)?
+              };
+              let obj: &mut #struct_name = Box::leak(unsafe { Box::from_raw(this_ptr) });
+              #to_napi_value_convert
             }
           },
         ));
@@ -926,27 +929,40 @@ impl NapiStruct {
         getters_setters.push((
           field.js_name.clone(),
           quote! {
-            extern "C" fn #setter_name(
+            unsafe fn #setter_name(
               env: napi::bindgen_prelude::sys::napi_env,
-              cb: napi::bindgen_prelude::sys::napi_callback_info
-            ) -> napi::bindgen_prelude::sys::napi_value {
+              this: napi::bindgen_prelude::sys::napi_value,
+              value: napi::bindgen_prelude::sys::napi_value
+            ) -> napi::Result<napi::bindgen_prelude::sys::napi_value> {
               #setter_tracing_debug
-              napi::bindgen_prelude::CallbackInfo::<1>::new(env, cb, Some(1), false)
-                .and_then(|mut cb_info| unsafe {
-                  cb_info.unwrap_borrow_mut::<#struct_name>()
-                    .and_then(|obj| {
-                      <#ty as napi::bindgen_prelude::FromNapiValue>::from_napi_value(env, cb_info.get_arg(0))
-                        .and_then(move |val| {
-                          obj.#field_ident = val;
-                          <() as napi::bindgen_prelude::ToNapiValue>::to_napi_value(env, ())
-                        })
-                    })
-                })
-                .unwrap_or_else(|e| {
-                  unsafe { napi::bindgen_prelude::JsError::from(e).throw_into(env) };
-                  std::ptr::null_mut::<napi::bindgen_prelude::sys::napi_value__>()
-                })
+              let this_ptr = unsafe {
+                napi::bindgen_prelude::class_accessor_unwrap_this::<#struct_name>(env, this)?
+              };
+              let obj: &mut #struct_name = Box::leak(unsafe { Box::from_raw(this_ptr) });
+              let val = unsafe {
+                <#ty as napi::bindgen_prelude::FromNapiValue>::from_napi_value(env, value)?
+              };
+              obj.#field_ident = val;
+              unsafe { <() as napi::bindgen_prelude::ToNapiValue>::to_napi_value(env, ()) }
             }
+          },
+        ));
+      }
+
+      if field.getter {
+        let getter = quote! { Some(#getter_name) };
+        let setter = if field.setter {
+          quote! { Some(#setter_name) }
+        } else {
+          quote! { None }
+        };
+        getters_setters.push((
+          field.js_name.clone(),
+          quote! {
+            static #accessor_descriptor_name: napi::bindgen_prelude::ClassAccessorDescriptor = napi::bindgen_prelude::ClassAccessorDescriptor {
+              getter: #getter,
+              setter: #setter,
+            };
           },
         ));
       }
@@ -995,19 +1011,33 @@ impl NapiStruct {
       };
 
       if field.getter {
-        let getter_name = Ident::new(
-          &format!("get_{}", rm_raw_prefix(&field_name)),
+        let accessor_descriptor_name = Ident::new(
+          &format!(
+            "__napi_field_accessor_descriptor_{}",
+            rm_raw_prefix(&field_name)
+          ),
           Span::call_site(),
         );
-        (quote! { .with_getter(#getter_name) }).to_tokens(&mut prop);
+        (quote! {
+          .with_getter(napi::bindgen_prelude::class_getter_trampoline)
+          .with_data(&#accessor_descriptor_name as *const _ as *mut _)
+        })
+        .to_tokens(&mut prop);
       }
 
       if field.writable && field.setter {
-        let setter_name = Ident::new(
-          &format!("set_{}", rm_raw_prefix(&field_name)),
+        let accessor_descriptor_name = Ident::new(
+          &format!(
+            "__napi_field_accessor_descriptor_{}",
+            rm_raw_prefix(&field_name)
+          ),
           Span::call_site(),
         );
-        (quote! { .with_setter(#setter_name) }).to_tokens(&mut prop);
+        (quote! {
+          .with_setter(napi::bindgen_prelude::class_setter_trampoline)
+          .with_data(&#accessor_descriptor_name as *const _ as *mut _)
+        })
+        .to_tokens(&mut prop);
       }
 
       props.push(prop);
@@ -1569,6 +1599,8 @@ impl NapiImpl {
 
     let mut methods = vec![];
     let mut props = HashMap::new();
+    let mut accessor_descriptors = HashMap::new();
+    let mut accessor_descriptor_count = 0u32;
 
     for item in self.items.iter() {
       let js_name = Literal::string(&item.js_name);
@@ -1593,8 +1625,48 @@ impl NapiImpl {
         }
       });
 
+      let accessor_descriptor_ident =
+        if matches!(item.kind, FnKind::Getter | FnKind::Setter) && !item.is_async {
+          let entry = accessor_descriptors
+            .entry(item.js_name.clone())
+            .or_insert_with(|| {
+              let ident = Ident::new(
+                &format!("__napi_accessor_descriptor_{accessor_descriptor_count}"),
+                Span::call_site(),
+              );
+              accessor_descriptor_count += 1;
+              (ident, None, None)
+            });
+          match item.kind {
+            FnKind::Getter => {
+              entry.1 = Some(intermediate_name.clone());
+            }
+            FnKind::Setter => {
+              entry.2 = Some(intermediate_name.clone());
+            }
+            _ => {}
+          }
+          Some(entry.0.clone())
+        } else {
+          None
+        };
+
       let appendix = match item.kind {
         FnKind::Constructor => quote! { .with_ctor(#intermediate_name) },
+        FnKind::Getter if accessor_descriptor_ident.is_some() => {
+          let accessor_descriptor_ident = accessor_descriptor_ident.as_ref().unwrap();
+          quote! {
+            .with_getter(napi::bindgen_prelude::class_getter_trampoline)
+            .with_data(&#accessor_descriptor_ident as *const _ as *mut _)
+          }
+        }
+        FnKind::Setter if accessor_descriptor_ident.is_some() => {
+          let accessor_descriptor_ident = accessor_descriptor_ident.as_ref().unwrap();
+          quote! {
+            .with_setter(napi::bindgen_prelude::class_setter_trampoline)
+            .with_data(&#accessor_descriptor_ident as *const _ as *mut _)
+          }
+        }
         FnKind::Getter => quote! { .with_getter(#intermediate_name) },
         FnKind::Setter => quote! { .with_setter(#intermediate_name) },
         _ => {
@@ -1613,12 +1685,31 @@ impl NapiImpl {
     props.sort_by_key(|(_, prop)| prop.to_string());
     let props = props.into_iter().map(|(_, prop)| prop);
     let props_wasm = props.clone();
+    let mut accessor_descriptors: Vec<_> = accessor_descriptors.into_values().collect();
+    accessor_descriptors.sort_by_key(|(ident, _, _)| ident.to_string());
+    let accessor_descriptors = accessor_descriptors
+      .into_iter()
+      .map(|(ident, getter, setter)| {
+        let getter = getter
+          .map(|getter| quote! { Some(#getter) })
+          .unwrap_or_else(|| quote! { None });
+        let setter = setter
+          .map(|setter| quote! { Some(#setter) })
+          .unwrap_or_else(|| quote! { None });
+        quote! {
+          static #ident: napi::bindgen_prelude::ClassAccessorDescriptor = napi::bindgen_prelude::ClassAccessorDescriptor {
+            getter: #getter,
+            setter: #setter,
+          };
+        }
+      });
     let js_mod_ident = js_mod_to_token_stream(self.js_mod.as_ref());
     Ok(quote! {
       #[allow(non_snake_case)]
       #[allow(clippy::all)]
       mod #mod_name {
         use super::*;
+        #(#accessor_descriptors)*
         #(#methods)*
 
         #[cfg(all(not(test), not(target_family = "wasm")))]

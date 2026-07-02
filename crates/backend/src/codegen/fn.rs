@@ -89,6 +89,93 @@ impl TryToTokens for NapiFn {
       ));
     }
 
+    if self.parent.is_some()
+      && matches!(self.kind, FnKind::Getter | FnKind::Setter)
+      && !self.is_async
+    {
+      let accessor_value_param = if self.kind == FnKind::Setter {
+        quote! { , value: napi::bindgen_prelude::sys::napi_value }
+      } else {
+        quote! {}
+      };
+      let accessor_args = if self.kind == FnKind::Setter && args_len > 0 {
+        quote! {
+          let mut __napi_accessor_args = [std::ptr::null_mut::<napi::bindgen_prelude::sys::napi_value__>(); #args_len];
+          __napi_accessor_args[0] = value;
+        }
+      } else {
+        quote! {
+          let __napi_accessor_args = [std::ptr::null_mut::<napi::bindgen_prelude::sys::napi_value__>(); #args_len];
+        }
+      };
+
+      let native_call = if self.within_async_runtime {
+        quote! {
+          napi::bindgen_prelude::within_runtime_if_available(move || {
+            let #receiver_ret_name = {
+              #receiver(#(#arg_names),*)
+            };
+            #ret
+          })
+        }
+      } else {
+        quote! {
+          let #receiver_ret_name = {
+            #receiver(#(#arg_names),*)
+          };
+          #ret
+        }
+      };
+
+      let function_call_inner = quote! {
+        #accessor_args
+        let mut cb = napi::bindgen_prelude::ClassAccessorCallbackInfo::<#args_len>::new(
+          env,
+          this,
+          __napi_accessor_args,
+        );
+        let __wrapped_env = napi::bindgen_prelude::Env::from(env);
+        #(#arg_conversions)*
+        #native_call
+      };
+
+      let function_call = if self.catch_unwind {
+        quote! {
+          {
+            std::panic::catch_unwind(|| { #function_call_inner })
+              .map_err(napi::bindgen_prelude::panic_to_error)
+              .and_then(|r| r)
+          }
+        }
+      } else {
+        quote! {
+          #function_call_inner
+        }
+      };
+
+      (quote! {
+        #(#attrs)*
+        #[doc(hidden)]
+        #[allow(non_snake_case)]
+        #[allow(clippy::all)]
+        unsafe fn #intermediate_ident(
+          env: napi::bindgen_prelude::sys::napi_env,
+          this: napi::bindgen_prelude::sys::napi_value
+          #accessor_value_param
+        ) -> napi::Result<napi::bindgen_prelude::sys::napi_value> {
+          #tracing_debug
+          unsafe {
+            #function_call
+          }
+        }
+
+        #register
+      })
+      .to_tokens(tokens);
+
+      return Ok(());
+    }
+
     let build_ref_container = if self.is_async {
       quote! {
           struct NapiRefContainer([napi::sys::napi_ref; #arg_ref_count]);
@@ -218,18 +305,7 @@ impl TryToTokens for NapiFn {
       quote! {
         {
           std::panic::catch_unwind(|| { #function_call })
-            .map_err(|e| {
-              let message = {
-                if let Some(string) = e.downcast_ref::<String>() {
-                  string.clone()
-                } else if let Some(string) = e.downcast_ref::<&str>() {
-                  string.to_string()
-                } else {
-                  format!("panic from Rust code: {:?}", e)
-                }
-              };
-              napi::Error::new(napi::Status::GenericFailure, message)
-            })
+            .map_err(napi::bindgen_prelude::panic_to_error)
             .and_then(|r| r)
         }
       }
@@ -276,14 +352,14 @@ impl NapiFn {
     if let Some(parent) = &self.parent {
       match self.fn_self {
         Some(FnSelf::Ref) => {
-          refs.push(make_ref(quote! { cb.this }));
+          refs.push(make_ref(quote! { cb.this() }));
           arg_conversions.push(quote! {
             let this_ptr = cb.unwrap_raw::<#parent>()?;
             let this: &#parent = Box::leak(Box::from_raw(this_ptr));
           });
         }
         Some(FnSelf::MutRef) => {
-          refs.push(make_ref(quote! { cb.this }));
+          refs.push(make_ref(quote! { cb.this() }));
           arg_conversions.push(quote! {
             let this_ptr = cb.unwrap_raw::<#parent>()?;
             let this: &mut #parent = Box::leak(Box::from_raw(this_ptr));
@@ -361,7 +437,7 @@ impl NapiFn {
                           args.push(
                             quote! {
                               {
-                                <#ident as napi::bindgen_prelude::FromNapiValue>::from_napi_value(env, cb.this)?.into()
+                                <#ident as napi::bindgen_prelude::FromNapiValue>::from_napi_value(env, cb.this())?.into()
                               }
                             },
                           );
@@ -380,12 +456,12 @@ impl NapiFn {
                         }) = elem.as_ref()
                         {
                           if let Some(syn::PathSegment { ident, .. }) = segments.first() {
-                            refs.push(make_ref(quote! { cb.this }));
+                            refs.push(make_ref(quote! { cb.this() }));
                             let token = if mutability.is_some() {
                               mut_ref_spans.push(generic_type.span());
-                              quote! { <#ident as napi::bindgen_prelude::FromNapiMutRef>::from_napi_mut_ref(env, cb.this)?.into() }
+                              quote! { <#ident as napi::bindgen_prelude::FromNapiMutRef>::from_napi_mut_ref(env, cb.this())?.into() }
                             } else {
-                              quote! { <#ident as napi::bindgen_prelude::FromNapiRef>::from_napi_ref(env, cb.this)?.into() }
+                              quote! { <#ident as napi::bindgen_prelude::FromNapiRef>::from_napi_ref(env, cb.this())?.into() }
                             };
                             args.push(token);
                             skipped_arg_count += 1;
@@ -395,8 +471,8 @@ impl NapiFn {
                       }
                     }
                   }
-                  refs.push(make_ref(quote! { cb.this }));
-                  args.push(quote! { <napi::bindgen_prelude::This as napi::bindgen_prelude::FromNapiValue>::from_napi_value(env, cb.this)? });
+                  refs.push(make_ref(quote! { cb.this() }));
+                  args.push(quote! { <napi::bindgen_prelude::This as napi::bindgen_prelude::FromNapiValue>::from_napi_value(env, cb.this())? });
                   skipped_arg_count += 1;
                   continue;
                 }
@@ -740,7 +816,7 @@ impl NapiFn {
             <#ty as napi::bindgen_prelude::ToNapiValue>::to_napi_value(env, #ret)
           })
         } else if is_return_self {
-          Ok(quote! { #ret.map(|_| cb.this) })
+          Ok(quote! { #ret.map(|_| cb.this()) })
         } else {
           Ok(quote! {
             match #ret {
@@ -753,7 +829,7 @@ impl NapiFn {
           })
         }
       } else if is_return_self {
-        Ok(quote! { Ok(cb.this) })
+        Ok(quote! { Ok(cb.this()) })
       } else {
         let mut return_ty = ty.clone();
         hidden_ty_lifetime(&mut return_ty)?;
