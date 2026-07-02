@@ -869,6 +869,11 @@ unsafe extern "C" fn call_js_cb<
             Err(Error {
               maybe_raw: error_reference,
               maybe_env: raw_env,
+              // `call_js_cb` runs on the env's JS thread, so this captures the
+              // owning env's handle; the Error is typically sent to another
+              // thread, where only a custom-GC-routed release is safe.
+              #[cfg(all(feature = "napi4", not(feature = "noop")))]
+              maybe_custom_gc: crate::bindgen_prelude::current_custom_gc_handle(),
               // SAFETY: `raw_env` and `exception` are valid pointers obtained from
               // `napi_get_and_clear_last_exception` above, which guarantees they are
               // non-null and live for the duration of this callback.
