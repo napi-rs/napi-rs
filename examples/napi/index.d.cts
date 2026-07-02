@@ -472,6 +472,13 @@ export declare function asyncTaskReadFile(path: string): Promise<Buffer>
 
 export declare function asyncTaskVoidReturn(): Promise<void>
 
+/**
+ * Awaits `promise` on the async runtime; a rejection materializes as an
+ * `Error` carrying a `napi_ref` and is dropped here, off the JS thread.
+ * Returns `true` when the promise rejected.
+ */
+export declare function awaitRejectionOffThread(promise: Promise<undefined>): Promise<boolean>
+
 export interface B {
   bar: number
 }
@@ -565,6 +572,13 @@ export declare function chronoNativeDateTimeReturn(): Date | null
 export declare function chronoUtcDateReturn(): Date | null
 
 export declare function chronoUtcDateToMillis(input: Date): number
+
+/**
+ * Creates and deletes `count` references on the calling JS thread, so
+ * concurrent off-thread releases have live `GlobalHandles` traffic to race
+ * with (this is what made the corruption deterministic in napi-rs#3368).
+ */
+export declare function churnGlobalHandles(value: unknown, count: number): void
 
 export interface CompilerAssumptions {
   ignoreFunctionLength?: boolean
@@ -773,6 +787,19 @@ export declare function derefUint8Array(a: Uint8Array, b: Uint8ClampedArray): nu
  * aborting the process; the owned-error conversion makes this safe.
  */
 export declare function drainStreamCount(stream: ReadableStream<Uint8Array>): Promise<number>
+
+/**
+ * `try_clone` shares one `napi_ref` between siblings: drop one off-thread
+ * (routed through the custom GC) and one on the JS thread. The reference
+ * must be deleted only when the last sibling drops.
+ */
+export declare function dropClonedErrorsOnTwoThreads(value: unknown): void
+
+/**
+ * Converts `value` into an `Error` — creating a `napi_ref` to it, the same
+ * code path a `Promise` rejection takes — and drops it on a spawned thread.
+ */
+export declare function dropErrorFromValueOffThread(value: unknown): void
 
 export declare function either3(input: string | number | boolean): number
 
@@ -1164,6 +1191,13 @@ export declare function spawnFutureLifetime(input: number): Promise<string>
 export declare function spawnThreadInThread(tsfn: ((err: Error | null, arg: number) => number)): void
 
 export declare function stashBufferInThreadLocal(buf: Buffer): void
+
+/**
+ * Stashes a JS-derived `Error` in a Rust thread_local on the calling JS
+ * thread. In a worker it drops at thread-exit, AFTER env teardown — the
+ * release must no-op (leak), not use-after-free.
+ */
+export declare function stashErrorInThreadLocal(value: unknown): void
 
 export declare function stashTypedArrayInThreadLocal(buf: Uint8Array): void
 

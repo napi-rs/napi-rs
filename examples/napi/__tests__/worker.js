@@ -79,6 +79,58 @@ parentPort.on('message', ({ type }) => {
       }
       parentPort.postMessage('done')
       break
+    case 'error:value:offthread': {
+      // JS-derived Errors (napi_ref owners) dropped on spawned threads while
+      // this thread churns GlobalHandles (napi-rs#3368). Unfixed: fatal
+      // 'Check failed: object_ != kGlobalHandleZapValue' or SIGSEGV.
+      const churnTarget = {}
+      for (let i = 0; i < (isWasiTest ? 2 : 200); i++) {
+        native.dropErrorFromValueOffThread(new Error(`offthread ${i}`))
+        native.churnGlobalHandles(churnTarget, 200)
+      }
+      parentPort.postMessage('done')
+      break
+    }
+    case 'error:reject:offthread':
+      // Rejections awaited on the async runtime materialize as ref-carrying
+      // Errors on a non-JS thread and are dropped there (napi-rs#3368).
+      Promise.all(
+        Array.from({ length: isWasiTest ? 2 : 100 }).map((_, i) => {
+          const pending = native.awaitRejectionOffThread(
+            Promise.reject(new Error(`rejection ${i}`)),
+          )
+          native.churnGlobalHandles({}, 200)
+          return pending
+        }),
+      )
+        .then((results) => {
+          parentPort.postMessage(
+            results.every(Boolean) ? 'done' : 'promise did not reject',
+          )
+        })
+        .catch((e) => {
+          throw e
+        })
+      break
+    case 'error:clone:threads': {
+      // try_clone siblings sharing one napi_ref, dropped on different threads
+      // (napi-rs#3368): delete must only happen at refcount zero.
+      const churnTarget = {}
+      for (let i = 0; i < (isWasiTest ? 2 : 100); i++) {
+        native.dropClonedErrorsOnTwoThreads(new Error(`clone ${i}`))
+        native.churnGlobalHandles(churnTarget, 100)
+      }
+      parentPort.postMessage('done')
+      break
+    }
+    case 'stash:error:teardown':
+      // Same shape as stash:buffer:teardown: the stashed Errors drop on the
+      // OWNER thread after env teardown -> must no-op, not UAF (napi-rs#3368).
+      for (let i = 0; i < (isWasiTest ? 2 : 50); i++) {
+        native.stashErrorInThreadLocal(new Error(`stash ${i}`))
+      }
+      parentPort.postMessage('done')
+      break
     case 'constructor':
       let ellie
       for (let i = 0; i < (isWasiTest ? 10 : 1000); i++) {
