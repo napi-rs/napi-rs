@@ -4,10 +4,16 @@ use super::TypeName;
 use crate::{check_status, sys, Error, JsError, Result, Status};
 
 #[doc(hidden)]
+pub type ClassAccessorGetter = unsafe fn(sys::napi_env, sys::napi_value) -> Result<sys::napi_value>;
+
+#[doc(hidden)]
+pub type ClassAccessorSetter =
+  unsafe fn(sys::napi_env, sys::napi_value, sys::napi_value) -> Result<sys::napi_value>;
+
+#[doc(hidden)]
 pub struct ClassAccessorDescriptor {
-  pub getter: Option<unsafe fn(sys::napi_env, sys::napi_value) -> Result<sys::napi_value>>,
-  pub setter:
-    Option<unsafe fn(sys::napi_env, sys::napi_value, sys::napi_value) -> Result<sys::napi_value>>,
+  pub getter: Option<ClassAccessorGetter>,
+  pub setter: Option<ClassAccessorSetter>,
 }
 
 #[doc(hidden)]
