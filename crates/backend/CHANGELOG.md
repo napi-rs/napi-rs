@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.1.0](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v5.0.5...napi-derive-backend-v5.1.0) - 2026-07-01
+
+### Added
+
+- *(napi)* implement `To`/`FromNapiValue` for `OsString`, `OsStr`, `Path` and `PathBuf` ([#3339](https://github.com/napi-rs/napi-rs/pull/3339))
+
 ## [5.0.5](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v5.0.4...napi-derive-backend-v5.0.5) - 2026-06-24
 
 ### Other
