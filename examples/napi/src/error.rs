@@ -163,21 +163,86 @@ pub fn stash_error_in_thread_local(value: Unknown) {
   STASHED_ERRORS.with(|c| c.borrow_mut().push(value.into()));
 }
 
-/// `try_clone` must refuse to run off the owning JS thread (the refcount
-/// increment is thread-affine). Returns what it produced there: the clone
-/// outcome or the guard's error message.
+/// Regression cover for napi-rs#3370: `try_clone` off the owning JS thread
+/// can't share the thread-affine `napi_ref`, so it must return a reference-less
+/// copy that still carries the message — NOT a guard placeholder that discards
+/// it. rolldown relies on this to surface plugin errors from its build workers
+/// (it does `try_clone().unwrap_or_else(|e| e)` off-thread). Returns the cloned
+/// error's message so the test can assert it survived the off-thread clone.
 #[napi]
 pub fn try_clone_error_off_thread(value: Unknown) -> Result<String> {
   let error: Error = value.into();
   std::thread::spawn(move || {
-    let outcome = match error.try_clone() {
-      Ok(_clone) => "cloned".to_owned(),
-      Err(guard_error) => guard_error.reason.clone(),
-    };
-    // `error` (and a clone, if the guard ever regressed) drops here,
-    // off-thread — routed through the custom GC by the fix.
-    outcome
+    // Both arms return the resulting `Error`'s message. Before the fix the
+    // off-thread clone failed and this returned the guard's placeholder reason;
+    // with the fix it returns the preserved original message.
+    match error.try_clone() {
+      Ok(clone) => clone.reason.clone(),
+      Err(clone_error) => clone_error.reason.clone(),
+    }
+    // `error` and the clone drop here, off-thread: the original's reference is
+    // routed through the custom GC, the reference-less clone's drop no-ops.
   })
   .join()
   .map_err(|_| Error::from_reason("try_clone thread panicked"))
+}
+
+/// Regression cover for napi-rs#3370 cause preservation: a JS `Error` carrying
+/// a `.cause` cloned off the owning thread must keep the cause chain (rebuilt
+/// reference-lessly), not drop it — otherwise the surfaced error loses its
+/// underlying cause. Extracts the JS `.cause` into the Rust `Error`'s `cause`
+/// field on the JS thread, clones off-thread, and returns the cloned error's
+/// cause message (empty string if the cause was lost).
+#[napi]
+pub fn try_clone_error_cause_off_thread(value: Unknown) -> Result<String> {
+  let error: Error = value.into();
+  std::thread::spawn(move || {
+    error
+      .try_clone()
+      .ok()
+      .and_then(|clone| clone.cause.as_ref().map(|cause| cause.reason.clone()))
+      .unwrap_or_default()
+  })
+  .join()
+  .map_err(|_| Error::from_reason("try_clone cause thread panicked"))
+}
+
+/// Regression cover for the *transitive* clone case: clone the JS-derived
+/// `Error` once ON the owning JS thread (a reference-sharing clone), then move
+/// that clone to another thread and clone it AGAIN. Because the on-thread clone
+/// keeps a reference-less cause backup, the off-thread re-clone must still carry
+/// the cause chain — cause survival must not depend on the order of clones.
+/// Returns the re-clone's cause message (empty string if the cause was lost).
+#[napi]
+pub fn try_clone_error_cause_transitive_off_thread(value: Unknown) -> Result<String> {
+  let error: Error = value.into();
+  // Reference-sharing clone made on the owning JS thread.
+  let on_thread_clone = error.try_clone()?;
+  std::thread::spawn(move || {
+    // Off-thread: re-clone the on-thread clone. This hits the reference-less
+    // path, which can only recover the cause from the backup the on-thread
+    // clone carried. `on_thread_clone` (which shares the ref) drops here
+    // off-thread and is released through the custom GC.
+    on_thread_clone
+      .try_clone()
+      .ok()
+      .and_then(|clone| clone.cause.as_ref().map(|cause| cause.reason.clone()))
+      .unwrap_or_default()
+  })
+  .join()
+  .map_err(|_| Error::from_reason("transitive try_clone thread panicked"))
+}
+
+/// A reference-less `Error` tagged `Status::PendingException` (the shape a
+/// JS-thrown error takes after `try_clone` off the owning thread drops its
+/// `napi_ref`) must still be thrown to JS, not silently swallowed. `throw_into`
+/// used to skip throwing on that status alone; it now only skips when the env
+/// genuinely has a pending exception. Returned as `Err` from a sync `#[napi]`
+/// function so it flows through `throw_into`.
+#[napi]
+pub fn throw_detached_pending_exception() -> Result<()> {
+  Err(Error::new(
+    Status::PendingException,
+    "detached pending exception message".to_owned(),
+  ))
 }

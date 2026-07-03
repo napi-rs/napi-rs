@@ -77,6 +77,9 @@ import {
   throwErrorWithCause,
   jsErrorCallback,
   tryCloneErrorOffThread,
+  tryCloneErrorCauseOffThread,
+  tryCloneErrorCauseTransitiveOffThread,
+  throwDetachedPendingException,
   customStatusCode,
   panic,
   readPackageJson,
@@ -1113,17 +1116,52 @@ test('Result', (t) => {
   nullCauseError.cause = null
   const [errWithNullCause] = jsErrorCallback(nullCauseError)
   t.deepEqual(errWithNullCause!.message, 'null cause')
-  // errWithNullCause is the original JS error (via napi_ref), so .cause stays null
-  t.is(errWithNullCause!.cause, process.env.WASI_TEST ? void 0 : null)
+  // A JS `cause` of `null` is never reconstructed as a nested Error. On native
+  // the clone shares the original object via `napi_ref`, so `.cause` is exactly
+  // `null`. Under WASM emnapi rebuilds the error fresh and the null cause
+  // surfaces as nullish — `null` or `undefined` depending on the emnapi build
+  // (#3370 hardcoded `void 0`, which its CI matched but a local build did not) —
+  // so assert nullish rather than one specific value.
+  t.is(errWithNullCause!.cause ?? null, null)
 
-  // try_clone off the owning JS thread must refuse (its refcount increment is
-  // thread-affine). On WASI there is no exception napi_ref, so nothing guards.
-  t.is(
-    tryCloneErrorOffThread(new Error('cloned off-thread')),
-    process.env.WASI_TEST
-      ? 'cloned'
-      : 'Error holding a JS exception reference can only be cloned on the thread that owns it',
+  // Regression for napi-rs#3370: try_clone off the owning JS thread can't share
+  // the thread-affine napi_ref, so it returns a reference-less copy that still
+  // carries the message instead of a guard placeholder. rolldown depends on this
+  // to surface plugin errors (`load error`, `transform hook error`) from its
+  // build workers via `try_clone().unwrap_or_else(|e| e)`; the guard used to
+  // replace them with its own message. Containment mirrors rolldown's `toContain`
+  // (the reason is the coerced `Error: <message>` form).
+  const offThreadClonedMessage = tryCloneErrorOffThread(
+    new Error('cloned off-thread'),
   )
+  t.true(offThreadClonedMessage.includes('cloned off-thread'))
+  t.false(
+    offThreadClonedMessage.includes(
+      'can only be cloned on the thread that owns it',
+    ),
+  )
+
+  // The off-thread clone rebuilds a fresh Error from the captured fields, so it
+  // must keep the cause chain rather than dropping it — the reference-less
+  // clone recurses into `cause`.
+  const offThreadClonedCause = tryCloneErrorCauseOffThread(
+    new Error('outer error', { cause: new Error('inner cause') }),
+  )
+  t.true(offThreadClonedCause.includes('inner cause'))
+
+  // Cause survival must not depend on clone order: clone on the JS thread first
+  // (a ref-sharing clone that keeps a reference-less cause backup), then clone
+  // that off-thread. The backup keeps the chain alive.
+  const transitiveClonedCause = tryCloneErrorCauseTransitiveOffThread(
+    new Error('outer error', { cause: new Error('inner cause') }),
+  )
+  t.true(transitiveClonedCause.includes('inner cause'))
+
+  // A detached (reference-less) Error tagged PendingException — the shape an
+  // off-thread try_clone of a JS-thrown error produces — must actually be
+  // thrown, not swallowed by throw_into just because of its status.
+  const detachedPending = t.throws(() => throwDetachedPendingException())
+  t.is(detachedPending!.message, 'detached pending exception message')
 
   // non-nullish cause should still be preserved
   const [errWithRealCause] = jsErrorCallback(
