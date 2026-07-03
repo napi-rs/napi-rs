@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.1.1](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v5.1.0...napi-derive-backend-v5.1.1) - 2026-07-03
+
+### Other
+
+- *(napi)* share class accessor trampolines ([#3364](https://github.com/napi-rs/napi-rs/pull/3364))
+- optimize object field raw property access ([#3365](https://github.com/napi-rs/napi-rs/pull/3365))
+
 ## [5.1.0](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v5.0.5...napi-derive-backend-v5.1.0) - 2026-07-01
 
 ### Added
