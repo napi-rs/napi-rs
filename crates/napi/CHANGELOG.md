@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.10.2](https://github.com/napi-rs/napi-rs/compare/napi-v3.10.1...napi-v3.10.2) - 2026-07-03
+
+### Fixed
+
+- *(napi)* keep message and cause when cloning a JS-exception Error off-thread ([#3373](https://github.com/napi-rs/napi-rs/pull/3373))
+
 ## [3.10.1](https://github.com/napi-rs/napi-rs/compare/napi-v3.10.0...napi-v3.10.1) - 2026-07-03
 
 ### Fixed
