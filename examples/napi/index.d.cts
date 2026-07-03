@@ -1284,6 +1284,16 @@ export declare function threadsafeFunctionThrowErrorWithStatus(cb: ((err: Error 
 
 export declare function throwAsyncError(): Promise<void>
 
+/**
+ * A reference-less `Error` tagged `Status::PendingException` (the shape a
+ * JS-thrown error takes after `try_clone` off the owning thread drops its
+ * `napi_ref`) must still be thrown to JS, not silently swallowed. `throw_into`
+ * used to skip throwing on that status alone; it now only skips when the env
+ * genuinely has a pending exception. Returned as `Err` from a sync `#[napi]`
+ * function so it flows through `throw_into`.
+ */
+export declare function throwDetachedPendingException(): void
+
 export declare function throwError(): void
 
 export declare function throwErrorWithCause(): void
@@ -1293,9 +1303,32 @@ export declare function throwSyntaxError(error: string, code?: string | undefine
 export declare function toJsObj(): object
 
 /**
- * `try_clone` must refuse to run off the owning JS thread (the refcount
- * increment is thread-affine). Returns what it produced there: the clone
- * outcome or the guard's error message.
+ * Regression cover for napi-rs#3370 cause preservation: a JS `Error` carrying
+ * a `.cause` cloned off the owning thread must keep the cause chain (rebuilt
+ * reference-lessly), not drop it — otherwise the surfaced error loses its
+ * underlying cause. Extracts the JS `.cause` into the Rust `Error`'s `cause`
+ * field on the JS thread, clones off-thread, and returns the cloned error's
+ * cause message (empty string if the cause was lost).
+ */
+export declare function tryCloneErrorCauseOffThread(value: unknown): string
+
+/**
+ * Regression cover for the *transitive* clone case: clone the JS-derived
+ * `Error` once ON the owning JS thread (a reference-sharing clone), then move
+ * that clone to another thread and clone it AGAIN. Because the on-thread clone
+ * keeps a reference-less cause backup, the off-thread re-clone must still carry
+ * the cause chain — cause survival must not depend on the order of clones.
+ * Returns the re-clone's cause message (empty string if the cause was lost).
+ */
+export declare function tryCloneErrorCauseTransitiveOffThread(value: unknown): string
+
+/**
+ * Regression cover for napi-rs#3370: `try_clone` off the owning JS thread
+ * can't share the thread-affine `napi_ref`, so it must return a reference-less
+ * copy that still carries the message — NOT a guard placeholder that discards
+ * it. rolldown relies on this to surface plugin errors from its build workers
+ * (it does `try_clone().unwrap_or_else(|e| e)` off-thread). Returns the cloned
+ * error's message so the test can assert it survived the off-thread clone.
  */
 export declare function tryCloneErrorOffThread(value: unknown): string
 

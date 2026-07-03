@@ -315,44 +315,86 @@ impl<S: AsRef<str>> Error<S> {
 }
 
 impl<S: AsRef<str> + Clone> Error<S> {
+  /// Builds a copy carrying only the thread-safe data: `status`, `reason`, and a
+  /// recursively reference-less `cause` chain. It owns no `napi_ref` (and no
+  /// custom-GC handle), so it is safe to create and drop on any thread — its
+  /// `Drop` no-ops — because it reads only owned Rust data and never touches a
+  /// thread-affine reference. `try_clone` uses it whenever it cannot share the
+  /// original's `napi_ref`: off the owning JS thread, or when the error holds no
+  /// reference at all (a Rust-constructed error, or a WASM error built from a JS
+  /// value). Cloning it preserves the cause chain so a later reference-less
+  /// conversion (`into_value` with a null `maybe_raw`) can re-attach `.cause`.
+  fn reference_less_clone(&self) -> Self {
+    Self {
+      status: self.status.clone(),
+      reason: self.reason.clone(),
+      cause: self
+        .cause
+        .as_ref()
+        .map(|cause| Box::new(cause.reference_less_clone())),
+      maybe_raw: ptr::null_mut(),
+      maybe_env: ptr::null_mut(),
+      #[cfg(all(feature = "napi4", not(feature = "noop")))]
+      maybe_custom_gc: None,
+    }
+  }
+
   /// Clones this `Error`.
   ///
   /// An `Error` derived from a JS exception (e.g. a `Promise` rejection) owns a
-  /// `napi_ref` to the original JS value, and cloning shares that reference.
-  /// Because the reference is thread-affine, such an `Error` can only be cloned
-  /// on the JS thread that owns it: called from any other thread, `try_clone`
-  /// returns `Err` rather than racing a sibling's concurrent release. Errors
-  /// that hold no JS reference clone on any thread.
+  /// `napi_ref` to the original JS value. On the owning JS thread the clone
+  /// shares that reference, so both map back to the same JS object. The
+  /// reference is thread-affine, so from any other thread `try_clone` cannot
+  /// touch it; there it returns a reference-less copy that still carries the
+  /// `status`, `reason` (the captured message) and the `cause` chain, but not
+  /// the `napi_ref`. Such a copy converts back to a *fresh* JS `Error` built
+  /// from those fields rather than the original JS object, so the original's
+  /// subclass (e.g. `TypeError`) and any non-standard own properties are not
+  /// preserved. Errors that hold no JS reference clone on any thread.
   pub fn try_clone(&self) -> Result<Self> {
     if !self.maybe_raw.is_null() {
-      // The refcount increment below is not thread-safe: like every other
-      // operation on `maybe_raw`, it must run on the owning JS thread. Off
-      // that thread it would race a sibling's concurrent release, so fail
-      // instead (previously this was silent undefined behavior).
+      // The `napi_ref` is thread-affine: `napi_reference_ref` must run on the
+      // owning JS thread or it races a sibling's concurrent release (the
+      // refcount is not atomic). Only the custom-GC handle records who owns it,
+      // so we share the reference *only* with proof we are on that thread. In
+      // every other case — off the owning thread, or with no handle at all
+      // (pre-`napi4` build, or a reference created before module registration,
+      // which has no safe off-thread release path either) — we must not touch
+      // the reference and instead return a reference-less clone.
       #[cfg(all(feature = "napi4", not(feature = "noop")))]
       if let Some(handle) = &self.maybe_custom_gc {
-        if !crate::bindgen_prelude::current_thread_owns_custom_gc(handle) {
-          return Err(Error::new(
-            Status::GenericFailure,
-            "Error holding a JS exception reference can only be cloned on the thread that owns it"
-              .to_owned(),
-          ));
+        if crate::bindgen_prelude::current_thread_owns_custom_gc(handle) {
+          // On the owning JS thread: share the reference by bumping its
+          // refcount. Both siblings map back to the same JS object, which
+          // carries its own `.cause`, so `into_value` ignores the Rust `cause`
+          // field here. We still keep a reference-less cause backup on the
+          // clone so that if it is later moved to another thread and cloned
+          // again (off-thread, reference-less) the chain still survives.
+          check_status!(
+            unsafe { sys::napi_reference_ref(self.maybe_env, self.maybe_raw, &mut 0) },
+            "Failed to increase error reference count"
+          )?;
+          return Ok(Self {
+            status: self.status.clone(),
+            reason: self.reason.to_string(),
+            cause: self
+              .cause
+              .as_ref()
+              .map(|cause| Box::new(cause.reference_less_clone())),
+            maybe_raw: self.maybe_raw,
+            maybe_env: self.maybe_env,
+            maybe_custom_gc: self.maybe_custom_gc.clone(),
+          });
         }
       }
-      check_status!(
-        unsafe { sys::napi_reference_ref(self.maybe_env, self.maybe_raw, &mut 0) },
-        "Failed to increase error reference count"
-      )?;
+      // No ownership proof: never touch the thread-affine reference. Return a
+      // reference-less copy that still carries the message and cause chain.
+      return Ok(self.reference_less_clone());
     }
-    Ok(Self {
-      status: self.status.clone(),
-      reason: self.reason.to_string(),
-      cause: None,
-      maybe_raw: self.maybe_raw,
-      maybe_env: self.maybe_env,
-      #[cfg(all(feature = "napi4", not(feature = "noop")))]
-      maybe_custom_gc: self.maybe_custom_gc.clone(),
-    })
+    // No JS reference to share (an error that never held one, or a WASM error
+    // built from a JS value): rebuild from the owned fields, preserving the
+    // cause chain instead of dropping it.
+    Ok(self.reference_less_clone())
   }
 }
 
@@ -597,17 +639,23 @@ macro_rules! impl_object_methods {
         #[cfg(debug_assertions)]
         let reason = self.0.reason.clone();
         let status = self.0.status.as_ref().to_string();
-        // just sure current error is pending_exception
-        if status == Status::PendingException.as_ref() {
-          return;
-        }
-        // make sure current env is not exception_pending status
+        // Detect whether the env actually has a pending exception before
+        // deciding how to surface this error.
         let mut is_pending_exception = false;
         assert_eq!(
           unsafe { $crate::sys::napi_is_exception_pending(env, &mut is_pending_exception) },
           $crate::sys::Status::napi_ok,
           "Check exception status failed"
         );
+        // Skip re-throwing only when the exception is genuinely pending. An
+        // error tagged `PendingException` can be a detached (reference-less)
+        // clone — e.g. one produced by `try_clone` off the owning JS thread —
+        // whose original JS exception was already cleared, so nothing is
+        // pending. Such an error must still be surfaced from `reason` instead of
+        // being silently dropped.
+        if is_pending_exception && status == Status::PendingException.as_ref() {
+          return;
+        }
         let js_error = match is_pending_exception {
           true => {
             let mut error_result = std::ptr::null_mut();
