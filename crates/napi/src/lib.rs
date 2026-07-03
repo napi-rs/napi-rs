@@ -15,7 +15,9 @@
 //! The details of N-API versions and support matrix: [Node-API version matrix](https://nodejs.org/api/n-api.html#node-api-version-matrix)
 //!
 //! ### tokio_rt
-//! With `tokio_rt` feature, `napi-rs` provides a ***tokio runtime*** in an additional thread.
+//! With `tokio_rt` feature, `napi-rs` provides a ***tokio runtime*** (a separate worker thread
+//! on native targets; a current-thread runtime on wasm, or a multi-thread runtime on wasm
+//! when the `tokio_unstable` cfg is set).
 //! And you can easily run tokio `future` in it and return `promise`.
 //!
 //! ```
@@ -32,6 +34,25 @@
 //!     )
 //! }
 //! ```
+//!
+//! ### async-runtime
+//!
+//! The `async-runtime` feature lets an addon register its own executor through
+//! [`create_custom_async_runtime`](crate::bindgen_prelude::create_custom_async_runtime).
+//! It takes precedence over `tokio_rt` when Cargo feature unification enables
+//! both: an `async-runtime` build contains no built-in tokio runtime at all, so nothing can
+//! lazily materialize a second scheduler behind the registered backend's back. This is
+//! useful for applications that need one scheduler across NAPI futures and domain-specific
+//! CPU work, or a cooperative executor on non-threaded WebAssembly hosts. The feature no
+//! longer pulls in tokio; a pure `async-runtime` build is tokio-free (enable the `tokio`
+//! feature explicitly if you still want the `napi::tokio` re-export).
+//!
+//! The free functions `spawn` and `spawn_blocking` are part of the
+//! [`AsyncRuntime`](crate::bindgen_prelude::AsyncRuntime) contract: `spawn` returns a
+//! napi-owned joinable `JoinHandle` manufactured over the trait's detached `spawn` hook, and
+//! `spawn_blocking` routes through the trait's optional `spawn_blocking` hook, falling back
+//! to a plain dedicated thread when the backend declines. Under the `noop` feature neither
+//! helper is compiled at all.
 //!
 //! ### latin1
 //!
@@ -90,7 +111,10 @@ mod error;
 mod js_values;
 mod status;
 mod task;
-#[cfg(all(feature = "tokio_rt", feature = "napi4"))]
+#[cfg(all(
+  any(feature = "tokio_rt", feature = "async-runtime"),
+  feature = "napi4"
+))]
 mod tokio_runtime;
 mod value_type;
 #[cfg(feature = "napi3")]
@@ -158,7 +182,7 @@ macro_rules! assert_type_of {
 pub mod bindgen_prelude {
   #[cfg(all(feature = "compat-mode", not(feature = "noop")))]
   pub use crate::bindgen_runtime::register_module_exports;
-  #[cfg(feature = "tokio_rt")]
+  #[cfg(any(feature = "tokio_rt", feature = "async-runtime"))]
   pub use crate::tokio_runtime::*;
   pub use crate::{
     assert_type_of, bindgen_runtime::*, check_pending_exception, check_status,
@@ -173,7 +197,10 @@ pub mod bindgen_prelude {
 
   /// If the feature `tokio_rt` has been enabled this will enter the runtime context and
   /// then call the provided closure. Otherwise it will just call the provided closure.
-  #[cfg(not(all(feature = "tokio_rt", feature = "napi4")))]
+  #[cfg(not(all(
+    any(feature = "tokio_rt", feature = "async-runtime"),
+    feature = "napi4"
+  )))]
   pub fn within_runtime_if_available<F: FnOnce() -> T, T>(f: F) -> T {
     f()
   }
@@ -185,7 +212,7 @@ pub mod __private {
     get_class_constructor, iterator::create_iterator, register_class, ___CALL_FROM_FACTORY,
   };
 
-  #[cfg(feature = "tokio_rt")]
+  #[cfg(any(feature = "tokio_rt", feature = "async-runtime"))]
   pub use crate::bindgen_runtime::async_iterator::create_async_iterator;
 
   use crate::sys;
@@ -224,7 +251,7 @@ pub mod __private {
 
 pub extern crate ctor;
 
-#[cfg(feature = "tokio_rt")]
+#[cfg(feature = "tokio")]
 pub extern crate tokio;
 
 #[cfg(feature = "error_anyhow")]

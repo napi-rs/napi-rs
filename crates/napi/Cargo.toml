@@ -22,6 +22,7 @@ independent = true
 
 [features]
 async = ["tokio_rt"]
+async-runtime = ["napi4"]
 chrono_date = ["chrono", "napi5"]
 # Enable deprecated types and traits for compatibility
 compat-mode = []
@@ -60,6 +61,7 @@ tokio_io_util = ["tokio/io-util"]
 tokio_macros = ["tokio/macros"]
 tokio_net = ["tokio/net"]
 tokio_process = ["tokio/process"]
+tokio = ["dep:tokio"]
 tokio_rt = ["tokio", "napi4"]
 tokio_signal = ["tokio/signal"]
 tokio_sync = ["tokio/sync"]
