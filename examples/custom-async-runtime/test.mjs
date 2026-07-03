@@ -7,11 +7,11 @@ assert.ok(mode === 'native' || mode === 'wasi', `Unknown test mode: ${mode}`)
 
 const require = createRequire(import.meta.url)
 const bindingFile =
-  mode === 'wasi' ? './custom_async_runtime.wasi.cjs' : './index.cjs'
+  mode === 'wasi' ? './custom_async_runtime.wasip1.cjs' : './index.cjs'
 
 if (mode === 'wasi') {
   const source = await readFile(
-    new URL('./custom_async_runtime.wasi.cjs', import.meta.url),
+    new URL('./custom_async_runtime.wasip1.cjs', import.meta.url),
     'utf8',
   )
   assert.doesNotMatch(source, /node:worker_threads/)

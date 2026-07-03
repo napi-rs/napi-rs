@@ -28,6 +28,7 @@ import {
   targetToEnvVar,
   tryInstallCargoBinary,
   unlinkAsync,
+  wasiLoaderSuffix,
   writeFileAsync,
   dirExistsAsync,
   readdirAsync,
@@ -38,6 +39,7 @@ import { createCjsBinding, createEsmBinding } from './templates/index.js'
 import {
   createWasiBinding,
   createWasiBrowserBinding,
+  createWasiDeferredBrowserBinding,
 } from './templates/load-wasi-template.js'
 import {
   createWasiBrowserWorkerBinding,
@@ -538,15 +540,14 @@ class Builder {
   }
 
   private setWasiEnv() {
-    const emnapi = join(
-      require.resolve('emnapi'),
-      '..',
-      'lib',
-      'wasm32-wasip1-threads',
-    )
+    const hasThreads = this.target.triple.endsWith('-threads')
+    const wasiTarget = hasThreads ? 'wasm32-wasip1-threads' : 'wasm32-wasip1'
+    const emnapi = join(require.resolve('emnapi'), '..', 'lib', wasiTarget)
     this.envs.EMNAPI_LINK_DIR = emnapi
     const emnapiVersion = require('emnapi/package.json').version
-    const projectRequire = createRequire(join(this.options.cwd, 'package.json'))
+    const projectRequire = createRequire(
+      resolve(this.options.cwd, 'package.json'),
+    )
     const emnapiCoreVersion = projectRequire('@emnapi/core').version
     const emnapiRuntimeVersion = projectRequire('@emnapi/runtime').version
 
@@ -593,15 +594,15 @@ class Builder {
       )
       this.setEnvIfNotExists(
         'TARGET_CFLAGS',
-        `--target=wasm32-wasip1-threads --sysroot=${WASI_SDK_PATH}/share/wasi-sysroot -pthread -mllvm -wasm-enable-sjlj`,
+        `--target=${wasiTarget} --sysroot=${WASI_SDK_PATH}/share/wasi-sysroot${hasThreads ? ' -pthread' : ''} -mllvm -wasm-enable-sjlj`,
       )
       this.setEnvIfNotExists(
         'TARGET_CXXFLAGS',
-        `--target=wasm32-wasip1-threads --sysroot=${WASI_SDK_PATH}/share/wasi-sysroot -pthread -mllvm -wasm-enable-sjlj`,
+        `--target=${wasiTarget} --sysroot=${WASI_SDK_PATH}/share/wasi-sysroot${hasThreads ? ' -pthread' : ''} -mllvm -wasm-enable-sjlj`,
       )
       this.setEnvIfNotExists(
         `TARGET_LDFLAGS`,
-        `-fuse-ld=${WASI_SDK_PATH}/bin/wasm-ld --target=wasm32-wasip1-threads`,
+        `-fuse-ld=${WASI_SDK_PATH}/bin/wasm-ld --target=${wasiTarget}`,
       )
     }
   }
@@ -820,7 +821,14 @@ class Builder {
   private getArtifactNames() {
     if (this.cdyLibName) {
       const cdyLib = this.cdyLibName.replace(/-/g, '_')
-      const wasiTarget = this.config.targets.find((t) => t.platform === 'wasi')
+      // When building a wasi target, name the wasm artifact after the flavor
+      // being built (two wasi flavors may be declared side by side); for
+      // non-wasi builds fall back to the first declared wasi target so the
+      // loader set can still be regenerated deterministically.
+      const wasiTarget =
+        this.target.platform === 'wasi'
+          ? this.target
+          : this.config.targets.find((t) => t.platform === 'wasi')
 
       const srcName =
         this.target.platform === 'darwin'
@@ -899,6 +907,32 @@ class Builder {
   }
 
   private async writeJsBinding(idents: string[]) {
+    // WASI fallback flavors in preference order: threaded first — the two
+    // flavors have different performance semantics, so the threaded one must
+    // win when both are installed.
+    const declaredWasiTargets = this.config.targets.filter(
+      (t) => t.platform === 'wasi',
+    )
+    // A direct `napi build --target wasm32-wasip1` (or any wasi triple) must
+    // participate even when the config does not declare that target —
+    // `writeWasiBinding` emits its loader set, so the index chain has to
+    // reference the same flavor.
+    if (
+      this.target.platform === 'wasi' &&
+      !declaredWasiTargets.some(
+        (t) => t.platformArchABI === this.target.platformArchABI,
+      )
+    ) {
+      declaredWasiTargets.push(this.target)
+    }
+    const wasiFlavors = [
+      ...new Set(
+        [
+          ...declaredWasiTargets.filter((t) => t.triple.endsWith('-threads')),
+          ...declaredWasiTargets.filter((t) => !t.triple.endsWith('-threads')),
+        ].map((t) => t.platformArchABI),
+      ),
+    ]
     return writeJsBinding({
       platform: this.options.platform,
       noJsBinding: this.options.noJsBinding,
@@ -909,6 +943,7 @@ class Builder {
       packageName: this.options.jsPackageName ?? this.config.packageName,
       version: process.env.npm_new_version ?? this.config.packageJson.version,
       outputDir: this.outputDir,
+      wasiFlavors,
     })
   }
 
@@ -917,56 +952,126 @@ class Builder {
     idents: string[],
   ) {
     if (distFileName) {
-      const { name, dir } = parse(distFileName)
-      const bindingPath = join(dir, `${this.config.binaryName}.wasi.cjs`)
-      const browserBindingPath = join(
-        dir,
-        `${this.config.binaryName}.wasi-browser.js`,
-      )
-      const workerPath = join(dir, 'wasi-worker.mjs')
-      const browserWorkerPath = join(dir, 'wasi-worker-browser.mjs')
-      const browserEntryPath = join(dir, 'browser.js')
-      const exportsCode =
-        `module.exports = __napiModule.exports\n` +
+      const { dir } = parse(distFileName)
+      // For a wasi build, emit the loader set of the flavor being built; for
+      // non-wasi builds regenerate the loader set of EVERY declared wasi
+      // flavor (each with its own `hasThreads`), so the emitted files are
+      // deterministic regardless of the build target. Two triples mapping to
+      // the same `platformArchABI` (e.g. `wasm32-wasip1-threads` and
+      // `wasm32-wasi-preview1-threads`) describe the same artifact set, so
+      // dedupe on it.
+      const wasiTargets: Target[] = []
+      const seen = new Set<string>()
+      const declaredWasiTargets =
+        this.target.platform === 'wasi'
+          ? [this.target]
+          : this.config.targets.filter((t) => t.platform === 'wasi')
+      for (const wasiTarget of declaredWasiTargets) {
+        if (seen.has(wasiTarget.platformArchABI)) {
+          continue
+        }
+        seen.add(wasiTarget.platformArchABI)
+        wasiTargets.push(wasiTarget)
+      }
+      const outputs: Output[] = []
+      for (const wasiTarget of wasiTargets) {
+        outputs.push(
+          ...(await this.writeWasiBindingForTarget(wasiTarget, dir, idents)),
+        )
+      }
+      if (wasiTargets.length > 0) {
+        // The browser entry re-exports a single flavor: the non-threaded one
+        // when declared (browser environments without cross-origin isolation
+        // cannot use the threaded flavor), otherwise the only flavor there is.
+        // It is chosen from the DECLARED wasi targets (falling back to the
+        // built one when none is declared), so its content does not depend on
+        // which flavor the current build happens to compile.
+        const declaredOrBuilt =
+          this.config.targets.filter((t) => t.platform === 'wasi').length > 0
+            ? this.config.targets.filter((t) => t.platform === 'wasi')
+            : wasiTargets
+        const browserFlavor =
+          declaredOrBuilt.find((t) => !t.triple.endsWith('-threads')) ??
+          declaredOrBuilt[0]
+        const browserEntryPath = join(dir, 'browser.js')
+        await writeFileAsync(
+          browserEntryPath,
+          `export * from '${this.config.packageName}-${browserFlavor.platformArchABI}'\n`,
+        )
+        outputs.push({ kind: 'js', path: browserEntryPath })
+      }
+      return outputs
+    }
+    return []
+  }
+
+  private async writeWasiBindingForTarget(
+    wasiTarget: Target,
+    dir: string,
+    idents: string[],
+  ): Promise<Output[]> {
+    const hasThreads = wasiTarget.triple.endsWith('-threads')
+    const loaderSuffix = wasiLoaderSuffix(wasiTarget.platformArchABI)
+    // the wasm file stem referenced from inside the loaders
+    const name = `${this.config.binaryName}.${wasiTarget.platformArchABI}`
+    const bindingPath = join(
+      dir,
+      `${this.config.binaryName}.${loaderSuffix}.cjs`,
+    )
+    const browserBindingPath = join(
+      dir,
+      `${this.config.binaryName}.${loaderSuffix}-browser.js`,
+    )
+    const exportsCode =
+      `module.exports = __napiModule.exports\n` +
+      idents
+        .map(
+          (ident) => `module.exports.${ident} = __napiModule.exports.${ident}`,
+        )
+        .join('\n')
+    await writeFileAsync(
+      bindingPath,
+      createWasiBinding(
+        name,
+        this.config.packageName,
+        this.config.wasm?.initialMemory,
+        this.config.wasm?.maximumMemory,
+        hasThreads,
+        wasiTarget.platformArchABI,
+      ) +
+        exportsCode +
+        '\n',
+      'utf8',
+    )
+    await writeFileAsync(
+      browserBindingPath,
+      createWasiBrowserBinding(
+        name,
+        this.config.wasm?.initialMemory,
+        this.config.wasm?.maximumMemory,
+        this.config.wasm?.browser?.fs,
+        this.config.wasm?.browser?.asyncInit,
+        this.config.wasm?.browser?.buffer,
+        this.config.wasm?.browser?.errorEvent,
+        hasThreads,
+      ) +
+        `export default __napiModule.exports\n` +
         idents
           .map(
-            (ident) =>
-              `module.exports.${ident} = __napiModule.exports.${ident}`,
+            (ident) => `export const ${ident} = __napiModule.exports.${ident}`,
           )
-          .join('\n')
-      await writeFileAsync(
-        bindingPath,
-        createWasiBinding(
-          name,
-          this.config.packageName,
-          this.config.wasm?.initialMemory,
-          this.config.wasm?.maximumMemory,
-        ) +
-          exportsCode +
-          '\n',
-        'utf8',
-      )
-      await writeFileAsync(
-        browserBindingPath,
-        createWasiBrowserBinding(
-          name,
-          this.config.wasm?.initialMemory,
-          this.config.wasm?.maximumMemory,
-          this.config.wasm?.browser?.fs,
-          this.config.wasm?.browser?.asyncInit,
-          this.config.wasm?.browser?.buffer,
-          this.config.wasm?.browser?.errorEvent,
-        ) +
-          `export default __napiModule.exports\n` +
-          idents
-            .map(
-              (ident) =>
-                `export const ${ident} = __napiModule.exports.${ident}`,
-            )
-            .join('\n') +
-          '\n',
-        'utf8',
-      )
+          .join('\n') +
+        '\n',
+      'utf8',
+    )
+    const outputs: Output[] = [
+      { kind: 'js', path: bindingPath },
+      { kind: 'js', path: browserBindingPath },
+    ]
+    if (hasThreads) {
+      // worker scripts are only referenced by the threaded loaders
+      const workerPath = join(dir, 'wasi-worker.mjs')
+      const browserWorkerPath = join(dir, 'wasi-worker-browser.mjs')
       await writeFileAsync(workerPath, WASI_WORKER_TEMPLATE, 'utf8')
       await writeFileAsync(
         browserWorkerPath,
@@ -976,19 +1081,28 @@ class Builder {
         ),
         'utf8',
       )
-      await writeFileAsync(
-        browserEntryPath,
-        `export * from '${this.config.packageName}-wasm32-wasi'\n`,
-      )
-      return [
-        { kind: 'js', path: bindingPath },
-        { kind: 'js', path: browserBindingPath },
+      outputs.push(
         { kind: 'js', path: workerPath },
         { kind: 'js', path: browserWorkerPath },
-        { kind: 'js', path: browserEntryPath },
-      ] satisfies Output[]
+      )
+    } else {
+      // the deferred workerd-safe loader only exists for non-threaded flavors
+      const deferredBindingPath = join(
+        dir,
+        `${this.config.binaryName}.${loaderSuffix}-deferred.js`,
+      )
+      await writeFileAsync(
+        deferredBindingPath,
+        createWasiDeferredBrowserBinding(
+          name,
+          this.config.wasm?.initialMemory,
+          this.config.wasm?.maximumMemory,
+        ),
+        'utf8',
+      )
+      outputs.push({ kind: 'js', path: deferredBindingPath })
     }
-    return []
+    return outputs
   }
 
   private setEnvIfNotExists(env: string, value: string) {
@@ -1008,6 +1122,12 @@ export interface WriteJsBindingOptions {
   packageName: string
   version: string
   outputDir: string
+  /**
+   * `platformArchABI`s of the declared WASI targets in fallback preference
+   * order (threaded first). Defaults to the legacy `['wasm32-wasi']` chain
+   * when omitted or empty.
+   */
+  wasiFlavors?: string[]
 }
 
 export async function writeJsBinding(
@@ -1031,6 +1151,7 @@ export async function writeJsBinding(
     options.idents,
     // in npm preversion hook
     options.version,
+    options.wasiFlavors,
   )
 
   try {

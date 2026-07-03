@@ -6,6 +6,7 @@ export const createWasiBrowserBinding = (
   asyncInit = false,
   buffer = false,
   errorEvent = false,
+  threads = true,
 ) => {
   const fsImport = fs
     ? buffer
@@ -51,9 +52,26 @@ const __wasi = new __WASI({
   const emnapiInstantiateCall = asyncInit
     ? `await __emnapiInstantiateNapiModule`
     : `__emnapiInstantiateNapiModuleSync`
+  const workerRuntimeImport = threads
+    ? `  createOnMessage as __wasmCreateOnMessageForFsProxy,\n`
+    : ''
+  const memoryName = threads ? '__sharedMemory' : '__wasmMemory'
+  const asyncWorkPoolOption = `  asyncWorkPoolSize: ${threads ? 4 : 0},
+`
+  const workerOption = threads
+    ? `  onCreateWorker() {
+    const worker = new Worker(new URL('./wasi-worker-browser.mjs', import.meta.url), {
+      type: 'module',
+    })
+${workerFsHandler}
+${workerErrorHandler}
+    return worker
+  },
+`
+    : ''
 
   return `import {
-  createOnMessage as __wasmCreateOnMessageForFsProxy,
+${workerRuntimeImport}\
   getDefaultContext as __emnapiGetDefaultContext,
   ${emnapiInstantiateImport},
   WASI as __WASI,
@@ -66,10 +84,10 @@ const __wasmUrl = new URL('./${wasiFilename}.wasm', import.meta.url).href
 const __emnapiContext = __emnapiGetDefaultContext()
 ${emnapiInjectBuffer}
 
-const __sharedMemory = new WebAssembly.Memory({
+const ${memoryName} = new WebAssembly.Memory({
   initial: ${initialMemory},
   maximum: ${maximumMemory},
-  shared: true,
+${threads ? '  shared: true,\n' : ''}\
 })
 
 const __wasmFile = await fetch(__wasmUrl).then((res) => res.arrayBuffer())
@@ -80,22 +98,15 @@ const {
   napiModule: __napiModule,
 } = ${emnapiInstantiateCall}(__wasmFile, {
   context: __emnapiContext,
-  asyncWorkPoolSize: 4,
+${asyncWorkPoolOption}\
   wasi: __wasi,
-  onCreateWorker() {
-    const worker = new Worker(new URL('./wasi-worker-browser.mjs', import.meta.url), {
-      type: 'module',
-    })
-${workerFsHandler}
-${workerErrorHandler}
-    return worker
-  },
+${workerOption}\
   overwriteImports(importObject) {
     importObject.env = {
       ...importObject.env,
       ...importObject.napi,
       ...importObject.emnapi,
-      memory: __sharedMemory,
+      memory: ${memoryName},
     }
     return importObject
   },
@@ -110,61 +121,98 @@ ${workerErrorHandler}
 `
 }
 
+export const createWasiDeferredBrowserBinding = (
+  wasiFilename: string,
+  initialMemory = 4000,
+  maximumMemory = 65536,
+) => {
+  return `import {
+  getDefaultContext as __emnapiGetDefaultContext,
+  instantiateNapiModule as __emnapiInstantiateNapiModule,
+  WASI as __WASI,
+} from '@napi-rs/wasm-runtime'
+
+/**
+ * Deferred, workerd-safe instantiation: no top-level I/O, no compile-from-bytes.
+ * Accepts ONLY a precompiled WebAssembly.Module, or a Promise resolving to one
+ * (e.g. \`import mod from './${wasiFilename}.wasm'\` under a CompiledWasm
+ * module rule / wrangler module import). Byte buffers, URLs and Response
+ * objects are rejected: they require dynamic Wasm compilation, which
+ * Cloudflare Workers disallows.
+ */
+export async function instantiate(__wasmInput) {
+  const __module = await __wasmInput
+  // Brand check, not \`instanceof\`: \`WebAssembly.Module.imports\` throws unless
+  // its argument is a genuine WebAssembly.Module, so prototype-spoofed byte
+  // buffers are rejected while cross-realm Module instances are accepted.
+  try {
+    WebAssembly.Module.imports(__module)
+  } catch {
+    throw new TypeError(
+      "instantiate() expects a precompiled WebAssembly.Module (or a Promise resolving to one), " +
+        "e.g. import mod from './${wasiFilename}.wasm' under a CompiledWasm module rule / wrangler module import. " +
+        "Byte buffers, URLs and Response objects require dynamic Wasm compilation, which Cloudflare Workers disallows.",
+    )
+  }
+  const __wasi = new __WASI({
+    version: 'preview1',
+  })
+  const __emnapiContext = __emnapiGetDefaultContext()
+  // The wasm module is linked with \`--import-memory\`, so a Memory must be
+  // provided. It is allocated here in function scope (workerd bans global
+  // scope allocation) and is not shared (no threads, no SharedArrayBuffer).
+  const __wasmMemory = new WebAssembly.Memory({
+    initial: ${initialMemory},
+    maximum: ${maximumMemory},
+  })
+  const { napiModule: __napiModule } = await __emnapiInstantiateNapiModule(__module, {
+    context: __emnapiContext,
+    asyncWorkPoolSize: 0,
+    wasi: __wasi,
+    overwriteImports(importObject) {
+      importObject.env = {
+        ...importObject.env,
+        ...importObject.napi,
+        ...importObject.emnapi,
+        memory: __wasmMemory,
+      }
+      return importObject
+    },
+    beforeInit({ instance }) {
+      for (const name of Object.keys(instance.exports)) {
+        if (name.startsWith('__napi_register__')) {
+          instance.exports[name]()
+        }
+      }
+    },
+  })
+  return __napiModule.exports
+}
+`
+}
+
 export const createWasiBinding = (
   wasmFileName: string,
   packageName: string,
   initialMemory = 4000,
   maximumMemory = 65536,
-) => `/* eslint-disable */
-/* prettier-ignore */
+  threads = true,
+  // `platformArchABI` of the flavor this loader belongs to; the fallback
+  // package (`<packageName>-<platformArchABI>`) must ship the same flavor's
+  // wasm artifact.
+  platformArchABI = 'wasm32-wasi',
+) => {
+  const workerImports = threads
+    ? `const { Worker } = require('node:worker_threads')
 
-/* auto-generated by NAPI-RS */
-
-const __nodeFs = require('node:fs')
-const __nodePath = require('node:path')
-const { WASI: __nodeWASI } = require('node:wasi')
-const { Worker } = require('node:worker_threads')
-
-const {
-  createOnMessage: __wasmCreateOnMessageForFsProxy,
-  getDefaultContext: __emnapiGetDefaultContext,
-  instantiateNapiModuleSync: __emnapiInstantiateNapiModuleSync,
-} = require('@napi-rs/wasm-runtime')
-
-const __rootDir = __nodePath.parse(process.cwd()).root
-
-const __wasi = new __nodeWASI({
-  version: 'preview1',
-  env: process.env,
-  preopens: {
-    [__rootDir]: __rootDir,
-  }
-})
-
-const __emnapiContext = __emnapiGetDefaultContext()
-
-const __sharedMemory = new WebAssembly.Memory({
-  initial: ${initialMemory},
-  maximum: ${maximumMemory},
-  shared: true,
-})
-
-let __wasmFilePath = __nodePath.join(__dirname, '${wasmFileName}.wasm')
-const __wasmDebugFilePath = __nodePath.join(__dirname, '${wasmFileName}.debug.wasm')
-
-if (__nodeFs.existsSync(__wasmDebugFilePath)) {
-  __wasmFilePath = __wasmDebugFilePath
-} else if (!__nodeFs.existsSync(__wasmFilePath)) {
-  try {
-    __wasmFilePath = require.resolve('${packageName}-wasm32-wasi/${wasmFileName}.wasm')
-  } catch {
-    throw new Error('Cannot find ${wasmFileName}.wasm file, and ${packageName}-wasm32-wasi package is not installed.')
-  }
-}
-
-const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule } = __emnapiInstantiateNapiModuleSync(__nodeFs.readFileSync(__wasmFilePath), {
-  context: __emnapiContext,
-  asyncWorkPoolSize: (function() {
+`
+    : ''
+  const workerRuntimeImport = threads
+    ? `  createOnMessage: __wasmCreateOnMessageForFsProxy,\n`
+    : ''
+  const memoryName = threads ? '__sharedMemory' : '__wasmMemory'
+  const asyncWorkOptions = threads
+    ? `  asyncWorkPoolSize: (function() {
     const threadsSizeFromEnv = Number(process.env.NAPI_RS_ASYNC_WORK_POOL_SIZE ?? process.env.UV_THREADPOOL_SIZE)
     // NaN > 0 is false
     if (threadsSizeFromEnv > 0) {
@@ -174,8 +222,11 @@ const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule
     }
   })(),
   reuseWorker: true,
-  wasi: __wasi,
-  onCreateWorker() {
+`
+    : `  asyncWorkPoolSize: 0,
+`
+  const workerOption = threads
+    ? `  onCreateWorker() {
     const worker = new Worker(__nodePath.join(__dirname, 'wasi-worker.mjs'), {
       env: process.env,
     })
@@ -207,12 +258,67 @@ const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule
     }
     return worker
   },
+`
+    : ''
+
+  return `/* eslint-disable */
+/* prettier-ignore */
+
+/* auto-generated by NAPI-RS */
+
+const __nodeFs = require('node:fs')
+const __nodePath = require('node:path')
+const { WASI: __nodeWASI } = require('node:wasi')
+${workerImports}\
+
+const {
+${workerRuntimeImport}\
+  getDefaultContext: __emnapiGetDefaultContext,
+  instantiateNapiModuleSync: __emnapiInstantiateNapiModuleSync,
+} = require('@napi-rs/wasm-runtime')
+
+const __rootDir = __nodePath.parse(process.cwd()).root
+
+const __wasi = new __nodeWASI({
+  version: 'preview1',
+  env: process.env,
+  preopens: {
+    [__rootDir]: __rootDir,
+  }
+})
+
+const __emnapiContext = __emnapiGetDefaultContext()
+
+const ${memoryName} = new WebAssembly.Memory({
+  initial: ${initialMemory},
+  maximum: ${maximumMemory},
+${threads ? '  shared: true,\n' : ''}\
+})
+
+let __wasmFilePath = __nodePath.join(__dirname, '${wasmFileName}.wasm')
+const __wasmDebugFilePath = __nodePath.join(__dirname, '${wasmFileName}.debug.wasm')
+
+if (__nodeFs.existsSync(__wasmDebugFilePath)) {
+  __wasmFilePath = __wasmDebugFilePath
+} else if (!__nodeFs.existsSync(__wasmFilePath)) {
+  try {
+    __wasmFilePath = require.resolve('${packageName}-${platformArchABI}/${wasmFileName}.wasm')
+  } catch {
+    throw new Error('Cannot find ${wasmFileName}.wasm file, and ${packageName}-${platformArchABI} package is not installed.')
+  }
+}
+
+const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule } = __emnapiInstantiateNapiModuleSync(__nodeFs.readFileSync(__wasmFilePath), {
+  context: __emnapiContext,
+${asyncWorkOptions}\
+  wasi: __wasi,
+${workerOption}\
   overwriteImports(importObject) {
     importObject.env = {
       ...importObject.env,
       ...importObject.napi,
       ...importObject.emnapi,
-      memory: __sharedMemory,
+      memory: ${memoryName},
     }
     return importObject
   },
@@ -225,3 +331,4 @@ const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule
   },
 })
 `
+}

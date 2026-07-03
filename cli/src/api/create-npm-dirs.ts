@@ -15,6 +15,7 @@ import {
   readNapiConfig,
   mkdirAsync as rawMkdirAsync,
   pick,
+  wasiLoaderSuffix,
   writeFileAsync as rawWriteFileAsync,
   type Target,
   type CommonPackageJsonFields,
@@ -148,15 +149,24 @@ export async function createNpmDirs(userOptions: CreateNpmDirsOptions) {
     if (target.arch !== 'wasm32') {
       scopedPackageJson.os = [target.platform]
     } else {
-      const entry = `${binaryName}.wasi.cjs`
+      const loaderSuffix = wasiLoaderSuffix(target.platformArchABI)
+      const entry = `${binaryName}.${loaderSuffix}.cjs`
       scopedPackageJson.main = entry
-      scopedPackageJson.browser = `${binaryName}.wasi-browser.js`
-      scopedPackageJson.files?.push(
-        entry,
-        scopedPackageJson.browser,
-        `wasi-worker.mjs`,
-        `wasi-worker-browser.mjs`,
-      )
+      scopedPackageJson.browser = `${binaryName}.${loaderSuffix}-browser.js`
+      scopedPackageJson.files?.push(entry, scopedPackageJson.browser)
+      if (target.triple.endsWith('-threads')) {
+        // worker scripts are only referenced by the threaded loaders
+        scopedPackageJson.files?.push(
+          `wasi-worker.mjs`,
+          `wasi-worker-browser.mjs`,
+        )
+      } else {
+        // the deferred workerd-safe loader is only emitted for non-threaded
+        // WASI builds (mirrors `hasThreads` in `writeWasiBinding`)
+        scopedPackageJson.files?.push(
+          `${binaryName}.${loaderSuffix}-deferred.js`,
+        )
+      }
       scopedPackageJson.engines = {
         ...scopedPackageJson.engines,
         node: scopedPackageJson.engines?.node

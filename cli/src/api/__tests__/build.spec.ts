@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { exec } from 'node:child_process'
+import { exec, execSync } from 'node:child_process'
 import {
   copyFile,
   mkdir,
@@ -296,4 +296,128 @@ napi-build = { path = "${napiBuildPath}" }
 
   t.truthy(error)
   t.regex(error!.message, /emnapi version mismatch/)
+})
+
+// Integration: a DIRECT `napi build --platform --target wasm32-wasip1` on a
+// package whose napi config declares NO wasi target must emit an index loader
+// whose wasi fallback references the wasip1 chain — i.e. the loader set the
+// build itself just emitted — not the legacy threaded `wasm32-wasi` chain
+// (which could fail to load, or silently load a THREADED binding package with
+// different performance semantics).
+test('direct wasm32-wasip1 build emits an index loader referencing the wasip1 chain', async (t) => {
+  // The wasm32-wasip1 build needs the rust target; the cli test suite runs on
+  // lanes that only install the host toolchain, so skip when unavailable.
+  // Exact per-line match: a substring probe would be satisfied by a listing
+  // containing only `wasm32-wasip1-threads`.
+  const installedTargets = execSync('rustup target list --installed', {
+    encoding: 'utf8',
+  })
+    .split('\n')
+    .map((line) => line.trim())
+  if (!installedTargets.includes('wasm32-wasip1')) {
+    t.pass('skipped: wasm32-wasip1 rust target is not installed')
+    return
+  }
+
+  const { projectDir } = t.context
+  const crateName = 'wasip1_direct'
+  const binaryName = 'wasip1-direct'
+  const packageName = 'wasip1-direct'
+  const version = '0.1.0'
+
+  const napiPath = posixJoin(repoRoot, 'crates', 'napi').replaceAll(
+    win32Sep,
+    posixSep,
+  )
+  const napiDerivePath = posixJoin(repoRoot, 'crates', 'macro').replaceAll(
+    win32Sep,
+    posixSep,
+  )
+  const napiBuildPath = posixJoin(repoRoot, 'crates', 'build').replaceAll(
+    win32Sep,
+    posixSep,
+  )
+
+  await mkdir(join(projectDir, 'src'), { recursive: true })
+
+  await writeFile(
+    join(projectDir, 'Cargo.toml'),
+    `[package]
+name = "${crateName}"
+version = "${version}"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = { path = "${napiPath}", default-features = false, features = ["napi4"] }
+napi-derive = { path = "${napiDerivePath}" }
+
+[build-dependencies]
+napi-build = { path = "${napiBuildPath}" }
+`,
+  )
+  // NOTE: no napi.targets — the built wasi flavor is NOT declared in config.
+  await writeFile(
+    join(projectDir, 'package.json'),
+    `${JSON.stringify(
+      {
+        name: packageName,
+        version,
+        napi: { binaryName },
+      },
+      null,
+      2,
+    )}\n`,
+  )
+  await writeFile(
+    join(projectDir, 'build.rs'),
+    'fn main() {\n    napi_build::setup();\n}\n',
+  )
+  await writeFile(
+    join(projectDir, 'src', 'lib.rs'),
+    'use napi_derive::napi;\n\n#[napi]\npub fn sum(a: i32, b: i32) -> i32 {\n    a + b\n}\n',
+  )
+
+  // `setWasiEnv` requires @emnapi/core and @emnapi/runtime resolvable from
+  // the project with versions matching the cli's own `emnapi` package.
+  const emnapiVersion = JSON.parse(
+    await readFile(
+      join(repoRoot, 'node_modules', 'emnapi', 'package.json'),
+      'utf-8',
+    ),
+  ).version
+  for (const pkg of ['@emnapi/core', '@emnapi/runtime']) {
+    const pkgDir = join(projectDir, 'node_modules', pkg)
+    await mkdir(pkgDir, { recursive: true })
+    await writeFile(
+      join(pkgDir, 'package.json'),
+      JSON.stringify({ name: pkg, version: emnapiVersion, main: 'index.js' }),
+    )
+    await writeFile(
+      join(pkgDir, 'index.js'),
+      `module.exports = { version: "${emnapiVersion}" }`,
+    )
+  }
+
+  // `buildProject` resolves to `{ task }` without awaiting the build; the
+  // cargo compile + postBuild run on the returned task promise.
+  const { task } = await buildProject({
+    platform: true,
+    target: 'wasm32-wasip1',
+    cwd: projectDir,
+  })
+  await task
+
+  // the build emitted the wasip1-named loader set...
+  t.true(existsSync(join(projectDir, `${binaryName}.wasip1.cjs`)))
+  t.true(existsSync(join(projectDir, `${binaryName}.wasip1-browser.js`)))
+
+  // ...and the index loader's wasi fallback must reference THAT flavor
+  const js = await readFile(join(projectDir, 'index.js'), 'utf-8')
+  t.regex(js, new RegExp(`require\\('\\./${binaryName}\\.wasip1\\.cjs'\\)`))
+  t.regex(js, new RegExp(`require\\('${packageName}-wasm32-wasip1'\\)`))
+  t.notRegex(js, new RegExp(`require\\('\\./${binaryName}\\.wasi\\.cjs'\\)`))
+  t.notRegex(js, new RegExp(`require\\('${packageName}-wasm32-wasi'\\)`))
 })

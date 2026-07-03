@@ -422,6 +422,167 @@ test('should drop exact node engine branches below the WASI minimum for WASM tar
   t.is(scopedPackageJson.engines.node, '>=18.0.0')
 })
 
+test.serial(
+  'should include the deferred loader in files for non-threaded WASM targets',
+  async (t) => {
+    const { tmpDir, packageJsonPath } = t.context
+    const registryServer = await startRegistryServer()
+
+    process.env.npm_config_registry = `${registryServer.origin}/npm`
+
+    const packageJson = {
+      name: 'test-wasm-deferred',
+      version: '1.0.0',
+      napi: {
+        binaryName: 'test-wasm-deferred',
+        targets: ['wasm32-wasip1'],
+      },
+    }
+
+    await writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2))
+
+    try {
+      await createNpmDirs({
+        cwd: tmpDir,
+        packageJsonPath: 'package.json',
+      })
+
+      const scopedPackageJson = JSON.parse(
+        await readFile(
+          join(tmpDir, 'npm', 'wasm32-wasip1', 'package.json'),
+          'utf-8',
+        ),
+      )
+
+      // Non-threaded flavors get their own distinctly named artifact set:
+      // no worker scripts (the threadless loaders never spawn workers), and
+      // the deferred workerd-safe loader ships alongside.
+      t.is(scopedPackageJson.name, 'test-wasm-deferred-wasm32-wasip1')
+      t.is(scopedPackageJson.main, 'test-wasm-deferred.wasip1.cjs')
+      t.is(scopedPackageJson.browser, 'test-wasm-deferred.wasip1-browser.js')
+      t.deepEqual(scopedPackageJson.files, [
+        'test-wasm-deferred.wasm32-wasip1.wasm',
+        'test-wasm-deferred.wasip1.cjs',
+        'test-wasm-deferred.wasip1-browser.js',
+        'test-wasm-deferred.wasip1-deferred.js',
+      ])
+    } finally {
+      await registryServer.close()
+    }
+  },
+)
+
+test.serial(
+  'should create distinctly named npm dirs for both WASI flavors side by side',
+  async (t) => {
+    const { tmpDir, packageJsonPath } = t.context
+    const registryServer = await startRegistryServer()
+
+    process.env.npm_config_registry = `${registryServer.origin}/npm`
+
+    const packageJson = {
+      name: 'test-wasm-flavors',
+      version: '1.0.0',
+      napi: {
+        binaryName: 'test-wasm-flavors',
+        targets: ['wasm32-wasip1-threads', 'wasm32-wasip1'],
+      },
+    }
+
+    await writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2))
+
+    try {
+      await createNpmDirs({
+        cwd: tmpDir,
+        packageJsonPath: 'package.json',
+      })
+
+      const threaded = JSON.parse(
+        await readFile(
+          join(tmpDir, 'npm', 'wasm32-wasi', 'package.json'),
+          'utf-8',
+        ),
+      )
+      const single = JSON.parse(
+        await readFile(
+          join(tmpDir, 'npm', 'wasm32-wasip1', 'package.json'),
+          'utf-8',
+        ),
+      )
+
+      // the threaded flavor keeps every historical (back-compat) name
+      t.is(threaded.name, 'test-wasm-flavors-wasm32-wasi')
+      t.is(threaded.main, 'test-wasm-flavors.wasi.cjs')
+      t.is(threaded.browser, 'test-wasm-flavors.wasi-browser.js')
+      t.deepEqual(threaded.files, [
+        'test-wasm-flavors.wasm32-wasi.wasm',
+        'test-wasm-flavors.wasi.cjs',
+        'test-wasm-flavors.wasi-browser.js',
+        'wasi-worker.mjs',
+        'wasi-worker-browser.mjs',
+      ])
+
+      // the non-threaded flavor gets its own name everywhere
+      t.is(single.name, 'test-wasm-flavors-wasm32-wasip1')
+      t.is(single.main, 'test-wasm-flavors.wasip1.cjs')
+      t.is(single.browser, 'test-wasm-flavors.wasip1-browser.js')
+      t.deepEqual(single.files, [
+        'test-wasm-flavors.wasm32-wasip1.wasm',
+        'test-wasm-flavors.wasip1.cjs',
+        'test-wasm-flavors.wasip1-browser.js',
+        'test-wasm-flavors.wasip1-deferred.js',
+      ])
+    } finally {
+      await registryServer.close()
+    }
+  },
+)
+
+test.serial(
+  'should not include the deferred loader in files for threaded WASM targets',
+  async (t) => {
+    const { tmpDir, packageJsonPath } = t.context
+    const registryServer = await startRegistryServer()
+
+    process.env.npm_config_registry = `${registryServer.origin}/npm`
+
+    const packageJson = {
+      name: 'test-wasm-threaded',
+      version: '1.0.0',
+      napi: {
+        binaryName: 'test-wasm-threaded',
+        targets: ['wasm32-wasi-preview1-threads'],
+      },
+    }
+
+    await writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2))
+
+    try {
+      await createNpmDirs({
+        cwd: tmpDir,
+        packageJsonPath: 'package.json',
+      })
+
+      const scopedPackageJson = JSON.parse(
+        await readFile(
+          join(tmpDir, 'npm', 'wasm32-wasi', 'package.json'),
+          'utf-8',
+        ),
+      )
+
+      t.deepEqual(scopedPackageJson.files, [
+        'test-wasm-threaded.wasm32-wasi.wasm',
+        'test-wasm-threaded.wasi.cjs',
+        'test-wasm-threaded.wasi-browser.js',
+        'wasi-worker.mjs',
+        'wasi-worker-browser.mjs',
+      ])
+    } finally {
+      await registryServer.close()
+    }
+  },
+)
+
 test('should set @emnapi/core and @emnapi/runtime versions to match emnapi for WASM targets', async (t) => {
   const { tmpDir, packageJsonPath } = t.context
 
