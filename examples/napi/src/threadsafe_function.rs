@@ -297,6 +297,30 @@ pub async fn tsfn_throw_from_js_catch_recover(
 }
 
 #[napi]
+pub async fn tsfn_throw_from_js_catch_drop_in_thread(
+  tsfn: ThreadsafeFunction<FnArgs<(String,)>, (), FnArgs<(String,)>, Status, false>,
+) -> napi::Result<String> {
+  match tsfn.call_async_catch(("foo".to_string(),).into()).await {
+    Ok(()) => Err(Error::new(
+      Status::GenericFailure,
+      "expected JS callback to throw, but it returned successfully".to_owned(),
+    )),
+    Err(err) => {
+      let reason = err.reason.clone();
+      // Drop the error on a different thread, like error values that are sent
+      // across threads in real applications. On wasm targets this used to crash
+      // the wasi worker with `Cannot read properties of undefined (reading
+      // 'checkGCAccess')` because the error held a `napi_ref` created on the JS
+      // thread. See https://github.com/rolldown/rolldown/issues/10075
+      thread::spawn(move || drop(err))
+        .join()
+        .map_err(|_| Error::new(Status::GenericFailure, "drop thread panicked".to_owned()))?;
+      Ok(reason)
+    }
+  }
+}
+
+#[napi]
 pub async fn tsfn_throw_from_js_callback_contains_tsfn(
   tsfn: ThreadsafeFunction<u32, Promise<u32>>,
 ) {

@@ -1274,6 +1274,8 @@ export declare function tsfnThrowFromJsCallbackContainsTsfn(tsfn: ((err: Error |
 
 export declare function tsfnThrowFromJsCatch(tsfn: ((arg0: string) => void)): Promise<void>
 
+export declare function tsfnThrowFromJsCatchDropInThread(tsfn: ((arg0: string) => void)): Promise<string>
+
 export declare function tsfnThrowFromJsCatchHandled(tsfn: ((err: Error | null, arg0: string) => void)): Promise<void>
 
 export declare function tsfnThrowFromJsCatchRecover(tsfn: ((arg0: string) => void)): Promise<void>
