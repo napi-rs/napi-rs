@@ -19,9 +19,59 @@ on:
   pull_request:
 
 jobs:
+  # Supply-chain gate: audit every lifecycle script in the lockfile before any
+  # other job runs. Every job below `needs: audit`, so nothing installs deps or
+  # runs until the audit is clean. On a clean audit the rest of the pipeline
+  # installs deps with a normal `yarn install`.
+  audit:
+    name: Audit lifecycle scripts (script-jail)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      # Docker backend: GitHub-hosted runners have Docker but no /dev/kvm (so the
+      # Firecracker backend is unavailable), and Docker writes the audit
+      # events/strace to the host-backed overlay — no fixed scratch disk to
+      # ENOSPC on a large monorepo. The committed `.script-jail.lock.yml` is
+      # Docker-produced + linux/x64-spoofed, so the backend/spoof must match.
+      #
+      # mode:check (audit only — no `install: true`): script-jail re-runs the
+      # two-phase lifecycle audit inside the sandbox and FAILS the job if the
+      # freshly generated lock diverges from the committed one (supply-chain
+      # drift). It does NOT materialize node_modules on the runner — every other
+      # job installs deps with its own normal `yarn install`. This job is the
+      # gate for the whole pipeline.
+      - name: script-jail audit (enforce committed lock)
+        uses: Brooooooklyn/script-jail@v0.2.10
+        with:
+          mode: check
+          backend: docker
+          spoof-platform: linux
+          spoof-arch: x64
+
+      # On a check-mode failure, surface the freshly generated lock for diffing.
+      - name: Upload regenerated lock on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: script-jail-lock
+          # .script-jail.* are dotfiles; upload-artifact skips hidden files by default.
+          include-hidden-files: true
+          path: |
+            .script-jail.lock.yml
+            .script-jail.yml
+
   lint:
     name: Lint SourceCode
     runs-on: ubuntu-latest
+    needs: audit
 
     steps:
       - uses: actions/checkout@v7
@@ -59,6 +109,7 @@ jobs:
         run: cargo clippy
 
   build_and_test:
+    needs: audit
     permissions:
       contents: read
     strategy:
@@ -225,6 +276,7 @@ jobs:
         run: yarn workspace @examples/napi build --profile napi-rs-custom
 
   build-and-test-msys2:
+    needs: audit
     strategy:
       matrix:
         sys: [MINGW64, UCRT64, CLANG64]
@@ -270,6 +322,7 @@ jobs:
   build_only:
     name: Build only test - ${{ matrix.settings.target }}
     runs-on: ${{ matrix.settings.host }}
+    needs: audit
     strategy:
       fail-fast: false
       matrix:
@@ -336,6 +389,7 @@ jobs:
   build_for_test_in_docker:
     name: build - ${{ matrix.settings.target }}
     runs-on: ubuntu-latest
+    needs: audit
     strategy:
       fail-fast: false
       matrix:
@@ -392,6 +446,7 @@ jobs:
   build_musl:
     name: build - ${{ matrix.settings.target }}
     runs-on: ubuntu-latest
+    needs: audit
     strategy:
       fail-fast: false
       matrix:
@@ -554,6 +609,7 @@ jobs:
   build-and-test-linux-armv7:
     name: stable - armv7-unknown-linux-gnueabihf - node@22
     runs-on: ubuntu-latest
+    needs: audit
 
     steps:
       - uses: actions/checkout@v7
@@ -604,6 +660,7 @@ jobs:
   build_binary_crate:
     runs-on: ubuntu-latest
     name: Test cli build binary
+    needs: audit
     steps:
       - uses: actions/checkout@v7
 
@@ -637,6 +694,7 @@ jobs:
           yarn workspace binary build --profile napi-rs-custom
 
   check-all-features:
+    needs: audit
     strategy:
       fail-fast: false
       matrix:
@@ -678,6 +736,7 @@ jobs:
   test-freebsd:
     runs-on: ubuntu-latest
     name: Test freebsd target
+    needs: audit
     permissions:
       contents: read
     steps:
@@ -758,6 +817,7 @@ jobs:
     runs-on: ubuntu-latest
     name: Test node wasi target
     timeout-minutes: 10
+    needs: audit
     steps:
       - uses: actions/checkout@v7
       - name: Setup node
@@ -798,6 +858,7 @@ jobs:
     runs-on: ubuntu-latest
     name: Test latest bun
     timeout-minutes: 10
+    needs: audit
     permissions:
       contents: read
     steps:
@@ -861,7 +922,15 @@ jobs:
 
   done:
     runs-on: ubuntu-latest
+    # Job-level always(): a job whose `needs` include a failed or skipped
+    # dependency is SKIPPED by default, and a step-level always() cannot
+    # resurrect a skipped job. Without this, a failing `audit` would skip every
+    # downstream job AND skip `done` itself — and a skipped aggregate check does
+    # not block a merge. always() forces `done` to run so the step below can
+    # fail the run.
+    if: ${{ always() }}
     needs:
+      - audit
       - lint
       - build_and_test
       - build-and-test-msys2
@@ -874,5 +943,8 @@ jobs:
       - test-node-wasi
       - test-latest-bun
     steps:
+      # `skipped` is included because a failed `audit` (or a failed
+      # build_musl/build_for_test_in_docker upstream of test_in_docker) leaves
+      # the affected `needs` as `skipped`, not `failure`.
       - run: exit 1
-        if: ${{ always() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
+        if: ${{ always() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')) }}

@@ -8,3 +8,4 @@ yarn.lock
 examples/napi/wasi-worker.mjs
 examples/napi/example.wasi.cjs
 examples/napi/example.wasi-browser.js
+.script-jail.lock.yml
