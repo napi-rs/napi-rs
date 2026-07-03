@@ -68,7 +68,7 @@
     "colorette": "^2.0.20",
     "emnapi": "^1.11.1",
     "es-toolkit": "^1.47.0",
-    "js-yaml": "^4.2.0",
+    "js-yaml": "^5.0.0",
     "obug": "^2.1.2",
     "semver": "^7.8.2",
     "typanion": "^3.14.0"
