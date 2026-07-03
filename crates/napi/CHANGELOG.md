@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.10.1](https://github.com/napi-rs/napi-rs/compare/napi-v3.10.0...napi-v3.10.1) - 2026-07-03
+
+### Fixed
+
+- *(napi)* stop ref exception object in ThreadsafeFunction sync-throw path on wasm targets ([#3369](https://github.com/napi-rs/napi-rs/pull/3369))
+
+### Other
+
+- *(napi)* share class accessor trampolines ([#3364](https://github.com/napi-rs/napi-rs/pull/3364))
+- optimize object field raw property access ([#3365](https://github.com/napi-rs/napi-rs/pull/3365))
+
 ## [3.10.0](https://github.com/napi-rs/napi-rs/compare/napi-v3.9.4...napi-v3.10.0) - 2026-07-01
 
 ### Added
