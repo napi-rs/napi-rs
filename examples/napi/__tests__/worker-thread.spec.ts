@@ -16,6 +16,11 @@ const concurrency =
       (process.arch === 'x64' || process.arch === 'arm64') &&
       // @ts-expect-error
       process?.report?.getReport()?.header?.glibcVersionRuntime)) &&
+  // 32-bit (ia32) targets such as i686 Windows cannot hold 20 concurrent worker
+  // isolates plus the off-thread Error drops' spawned OS threads in a single
+  // ~2 GB address space; keep them at 1 like the other constrained targets
+  // (napi-rs#3368).
+  process.arch !== 'ia32' &&
   !process.env.WASI_TEST &&
   !process.env.ASAN_OPTIONS
     ? 20

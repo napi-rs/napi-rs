@@ -3,6 +3,10 @@ import { parentPort } from 'node:worker_threads'
 import native from '../index.cjs'
 
 const isWasiTest = !!process.env.WASI_TEST
+// 32-bit (ia32, e.g. i686 Windows) has a ~2 GB address space; the off-thread
+// Error scenarios spawn one OS thread per drop, so cap their counts there to
+// avoid exhausting it (napi-rs#3368).
+const is32bit = process.arch === 'ia32'
 
 parentPort.on('message', ({ type }) => {
   switch (type) {
@@ -84,7 +88,7 @@ parentPort.on('message', ({ type }) => {
       // this thread churns GlobalHandles (napi-rs#3368). Unfixed: fatal
       // 'Check failed: object_ != kGlobalHandleZapValue' or SIGSEGV.
       const churnTarget = {}
-      for (let i = 0; i < (isWasiTest ? 2 : 200); i++) {
+      for (let i = 0; i < (isWasiTest ? 2 : is32bit ? 50 : 200); i++) {
         native.dropErrorFromValueOffThread(new Error(`offthread ${i}`))
         native.churnGlobalHandles(churnTarget, 200)
       }
@@ -129,7 +133,7 @@ parentPort.on('message', ({ type }) => {
       // try_clone siblings sharing one napi_ref, dropped on different threads
       // (napi-rs#3368): delete must only happen at refcount zero.
       const churnTarget = {}
-      for (let i = 0; i < (isWasiTest ? 2 : 100); i++) {
+      for (let i = 0; i < (isWasiTest ? 2 : is32bit ? 50 : 100); i++) {
         native.dropClonedErrorsOnTwoThreads(new Error(`clone ${i}`))
         native.churnGlobalHandles(churnTarget, 100)
       }
