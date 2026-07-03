@@ -6579,14 +6579,14 @@ __metadata:
   linkType: hard
 
 "emnapi@npm:^1.11.1":
-  version: 1.11.1
-  resolution: "emnapi@npm:1.11.1"
+  version: 1.11.2
+  resolution: "emnapi@npm:1.11.2"
   peerDependencies:
     node-addon-api: ">= 6.1.0"
   peerDependenciesMeta:
     node-addon-api:
       optional: true
-  checksum: 10c0/936a7de68b2466c59c5333b65735154ff8db16d45642af12d9fd6ff10d7e3a03c54f1101ddfb960f3f53dc393a5c38a8326beeb32962fc7a92b25c77d7047f39
+  checksum: 10c0/4cdb0eb1f4905f8d176b22dd1b10e3f1ded78048f7dae554230a0af81ddb6935b6698e8d5930c4285b49296ed73d22dcfce4b5540b51bcfcb8e77db44be052bc
   languageName: node
   linkType: hard
 

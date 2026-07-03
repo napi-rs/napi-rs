@@ -76,6 +76,7 @@ import {
   throwError,
   throwErrorWithCause,
   jsErrorCallback,
+  tryCloneErrorOffThread,
   customStatusCode,
   panic,
   readPackageJson,
@@ -1114,6 +1115,15 @@ test('Result', (t) => {
   t.deepEqual(errWithNullCause!.message, 'null cause')
   // errWithNullCause is the original JS error (via napi_ref), so .cause stays null
   t.is(errWithNullCause!.cause, process.env.WASI_TEST ? void 0 : null)
+
+  // try_clone off the owning JS thread must refuse (its refcount increment is
+  // thread-affine). On WASI there is no exception napi_ref, so nothing guards.
+  t.is(
+    tryCloneErrorOffThread(new Error('cloned off-thread')),
+    process.env.WASI_TEST
+      ? 'cloned'
+      : 'Error holding a JS exception reference can only be cloned on the thread that owns it',
+  )
 
   // non-nullish cause should still be preserved
   const [errWithRealCause] = jsErrorCallback(
