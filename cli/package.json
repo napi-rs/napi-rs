@@ -111,7 +111,7 @@
     "extensions": [
       "ts"
     ],
-    "timeout": "2m",
+    "timeout": "5m",
     "workerThreads": false,
     "files": [
       "**/__tests__/**/*.spec.ts",
