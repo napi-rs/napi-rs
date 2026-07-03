@@ -225,6 +225,7 @@ async function filterTargetsInGithubActions(
     'armv7-unknown-linux-gnueabihf',
     'armv7-unknown-linux-musleabihf',
     'loongarch64-unknown-linux-gnu',
+    'loongarch64-unknown-linux-musl',
     'riscv64gc-unknown-linux-gnu',
     'powerpc64le-unknown-linux-gnu',
     's390x-unknown-linux-gnu',
