@@ -137,17 +137,23 @@ pub async fn await_rejection_off_thread(promise: Promise<()>) -> Result<bool> {
   }
 }
 
-/// `try_clone` shares one `napi_ref` between siblings: drop one off-thread
-/// (routed through the custom GC) and one on the JS thread. The reference
-/// must be deleted only when the last sibling drops.
+/// `try_clone` shares one `napi_ref` between siblings via an `Arc<ErrorRef>`;
+/// dropping a sibling is an atomic refcount decrement, and the underlying
+/// reference is released only when the LAST sibling drops. Here the original
+/// drops on the JS thread first (a plain decrement, no release), then the last
+/// sibling drops off-thread — so the release is routed through the custom-GC
+/// TSFN, exactly the path a shared reference must survive without corrupting
+/// V8's GlobalHandles from a foreign thread.
 #[napi]
 pub fn drop_cloned_errors_on_two_threads(value: Unknown) -> Result<()> {
   let error: Error = value.into();
   let sibling = error.try_clone()?;
+  // Drop the original on the owning JS thread first — not the last reference.
+  drop(error);
+  // The last sibling drops off-thread: its release routes through the custom GC.
   std::thread::spawn(move || drop(sibling))
     .join()
     .map_err(|_| Error::from_reason("sibling drop thread panicked"))?;
-  drop(error);
   Ok(())
 }
 
@@ -219,10 +225,12 @@ pub fn try_clone_error_cause_transitive_off_thread(value: Unknown) -> Result<Str
   // Reference-sharing clone made on the owning JS thread.
   let on_thread_clone = error.try_clone()?;
   std::thread::spawn(move || {
-    // Off-thread: re-clone the on-thread clone. This hits the reference-less
-    // path, which can only recover the cause from the backup the on-thread
-    // clone carried. `on_thread_clone` (which shares the ref) drops here
-    // off-thread and is released through the custom GC.
+    // Off-thread re-clone. `on_thread_clone` still carries the shared reference
+    // (its `custom_gc` handle is set), so this re-enters the Arc-sharing arm
+    // rather than the reference-less path — but that arm ALSO keeps a
+    // reference-less cause backup, so the cause chain survives regardless of
+    // clone order. `on_thread_clone` drops here off-thread; if it is the last
+    // sibling, the shared reference is released through the custom GC.
     on_thread_clone
       .try_clone()
       .ok()
@@ -245,4 +253,22 @@ pub fn throw_detached_pending_exception() -> Result<()> {
     Status::PendingException,
     "detached pending exception message".to_owned(),
   ))
+}
+
+/// Regression cover for off-thread *fidelity*: an `Error` derived from a JS
+/// exception, cloned off the owning thread and then surfaced to JS *on the
+/// owning thread*, must reuse the ORIGINAL JS error object — so its `.stack`,
+/// subclass, and arbitrary own properties survive, not just the message. This
+/// is rolldown's plugin-error path (clone on a build worker, thrown on the JS
+/// thread); a reference-less clone would rebuild a bare `Error(message)` and
+/// silently drop the stack and props. The clone is made on a spawned thread and
+/// returned as `Err`, so it converts back to JS on the owning thread — where
+/// `into_value` reads the shared reference and returns the very same object.
+#[napi]
+pub fn try_clone_error_off_thread_keep_reference(value: Unknown) -> Result<()> {
+  let error: Error = value.into();
+  let cloned = std::thread::spawn(move || error.try_clone())
+    .join()
+    .map_err(|_| Error::from_reason("try_clone thread panicked"))??;
+  Err(cloned)
 }

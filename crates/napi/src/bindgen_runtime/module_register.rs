@@ -774,9 +774,9 @@ extern "C" fn custom_gc(
     unsafe { sys::napi_reference_unref(env, data.cast(), &mut ref_count) },
     "Failed to unref reference in Custom GC"
   );
-  // ArrayBuffer/Buffer references always reach 0 here (never shared); `Error`
-  // references can still be held by `try_clone`d siblings, in which case the
-  // sibling's drop deletes.
+  // Both ArrayBuffer/Buffer and `Error` references reach 0 here: each is created
+  // at refcount 1 and routed through this TSFN exactly once, by its owner's drop
+  // (for `Error`, the last `Arc<ErrorRef>`), so the unref above always hits 0.
   if ref_count == 0 {
     check_status_or_throw!(
       env,

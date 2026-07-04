@@ -45,7 +45,7 @@ impl DeferredTrace {
     Ok(Self(result))
   }
 
-  fn into_rejected(self, raw_env: sys::napi_env, mut err: Error) -> Result<sys::napi_value> {
+  fn into_rejected(self, raw_env: sys::napi_env, err: Error) -> Result<sys::napi_value> {
     let env = Env::from_raw(raw_env);
     let mut raw = ptr::null_mut();
     check_status!(
@@ -54,37 +54,18 @@ impl DeferredTrace {
     )?;
 
     let mut obj = Object::from_raw(raw_env, raw);
-    let err_value = if !err.maybe_raw.is_null() {
-      let mut err_raw_value = std::ptr::null_mut();
-      check_status!(
-        unsafe { sys::napi_get_reference_value(raw_env, err.maybe_raw, &mut err_raw_value) },
-        "Get error reference in `to_napi_value` failed"
-      )?;
+    // Reuse the original JS error object when it is safe to read on this thread;
+    // the shared `napi_ref` is released when `err` drops at the end of the call.
+    let err_value = if let Some(err_raw_value) = unsafe { err.referenced_value(raw_env) } {
       let err_obj = Object::from_raw(raw_env, err_raw_value);
-
-      let err_value = if err_obj.has_named_property("message")? {
+      if err_obj.has_named_property("message")? {
         // The error was already created inside the JS engine, just return it
         Ok(err_obj.raw())
       } else {
         obj.set_named_property("message", "")?;
         obj.set_named_property("code", "")?;
         Ok(raw)
-      };
-      let mut ref_count = 0;
-      check_status!(
-        unsafe { sys::napi_reference_unref(raw_env, err.maybe_raw, &mut ref_count) },
-        "Unref error reference in `to_napi_value` failed"
-      )?;
-      if ref_count == 0 {
-        check_status!(
-          unsafe { sys::napi_delete_reference(raw_env, err.maybe_raw) },
-          "Delete error reference in `to_napi_value` failed"
-        )?;
       }
-      // already unref, skip the logic in `Drop`
-      err.maybe_env = ptr::null_mut();
-      err.maybe_raw = ptr::null_mut();
-      err_value
     } else {
       obj.set_named_property("message", &err.reason)?;
       obj.set_named_property(

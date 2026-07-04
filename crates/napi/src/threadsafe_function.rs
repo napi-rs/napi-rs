@@ -853,27 +853,35 @@ unsafe extern "C" fn call_js_cb<
           // The message and stack trace are still captured in `reason` below.
           // See the `From<Unknown> for Error` impls in `error.rs` (#2975).
           #[cfg(target_family = "wasm")]
-          let error_reference = {
+          let maybe_ref = {
             status = sys::Status::napi_ok;
-            ptr::null_mut()
+            None
           };
           #[cfg(not(target_family = "wasm"))]
-          let error_reference = {
+          let maybe_ref = {
             let mut error_reference = ptr::null_mut();
             status =
               unsafe { sys::napi_create_reference(raw_env, exception, 1, &mut error_reference) };
-            error_reference
+            // Only own a reference when creation actually succeeded; on failure
+            // `error_reference` stays null, so keep `maybe_ref: None` (the message
+            // and stack are still captured in `reason` below) rather than wrapping
+            // a null ref that `ErrorRef::drop` would blindly release — mirrors the
+            // early guard in `From<Unknown> for Error`. `call_js_cb` runs on the
+            // env's JS thread, so `ErrorRef::new` captures the owning env's
+            // custom-GC handle for the (typically off-thread) release.
+            if status == sys::Status::napi_ok {
+              Some(std::sync::Arc::new(crate::error::ErrorRef::new(
+                error_reference,
+                raw_env,
+              )))
+            } else {
+              None
+            }
           };
 
           get_error_message_and_stack_trace(raw_env, exception).and_then(|reason| {
             Err(Error {
-              maybe_raw: error_reference,
-              maybe_env: raw_env,
-              // `call_js_cb` runs on the env's JS thread, so this captures the
-              // owning env's handle; the Error is typically sent to another
-              // thread, where only a custom-GC-routed release is safe.
-              #[cfg(all(feature = "napi4", not(feature = "noop")))]
-              maybe_custom_gc: crate::bindgen_prelude::current_custom_gc_handle(),
+              maybe_ref,
               // SAFETY: `raw_env` and `exception` are valid pointers obtained from
               // `napi_get_and_clear_last_exception` above, which guarantees they are
               // non-null and live for the duration of this callback.

@@ -447,6 +447,7 @@ module.exports.toJsObj = __napiModule.exports.toJsObj
 module.exports.tryCloneErrorCauseOffThread = __napiModule.exports.tryCloneErrorCauseOffThread
 module.exports.tryCloneErrorCauseTransitiveOffThread = __napiModule.exports.tryCloneErrorCauseTransitiveOffThread
 module.exports.tryCloneErrorOffThread = __napiModule.exports.tryCloneErrorOffThread
+module.exports.tryCloneErrorOffThreadKeepReference = __napiModule.exports.tryCloneErrorOffThreadKeepReference
 module.exports.tsfnAsyncCall = __napiModule.exports.tsfnAsyncCall
 module.exports.tsfnCallWithCallback = __napiModule.exports.tsfnCallWithCallback
 module.exports.tsfnInEither = __napiModule.exports.tsfnInEither

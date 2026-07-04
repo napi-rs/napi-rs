@@ -403,6 +403,7 @@ export const toJsObj = __napiModule.exports.toJsObj
 export const tryCloneErrorCauseOffThread = __napiModule.exports.tryCloneErrorCauseOffThread
 export const tryCloneErrorCauseTransitiveOffThread = __napiModule.exports.tryCloneErrorCauseTransitiveOffThread
 export const tryCloneErrorOffThread = __napiModule.exports.tryCloneErrorOffThread
+export const tryCloneErrorOffThreadKeepReference = __napiModule.exports.tryCloneErrorOffThreadKeepReference
 export const tsfnAsyncCall = __napiModule.exports.tsfnAsyncCall
 export const tsfnCallWithCallback = __napiModule.exports.tsfnCallWithCallback
 export const tsfnInEither = __napiModule.exports.tsfnInEither
