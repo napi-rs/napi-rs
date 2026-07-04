@@ -26,20 +26,68 @@ pub struct Error<S: AsRef<str> = Status> {
   pub status: S,
   pub reason: String,
   pub cause: Option<Box<Error>>,
-  // Convert raw `JsError` into Error
-  pub(crate) maybe_raw: sys::napi_ref,
-  pub(crate) maybe_env: sys::napi_env,
-  // The owning env's custom-GC handle, captured when `maybe_raw` is created.
-  // Lets `Drop` release the reference safely from any thread: `Error` is
-  // `Send`, but `napi_reference_unref`/`napi_delete_reference` must run on the
-  // owning JS thread (releasing on any other thread mutates V8's
-  // `GlobalHandles` concurrently with the JS thread and corrupts it).
-  #[cfg(all(feature = "napi4", not(feature = "noop")))]
-  pub(crate) maybe_custom_gc: Option<std::sync::Arc<crate::bindgen_prelude::CustomGcHandle>>,
+  // A JS-exception-derived `Error` (`From<Unknown>`, or a ThreadsafeFunction
+  // JS-throw) owns a `napi_ref` to the original JS error object, kept behind a
+  // shared, reference-counted [`ErrorRef`]. `try_clone` clones this `Arc` — an
+  // atomic bump with no napi FFI — so siblings can be sent across threads while
+  // the single underlying `napi_ref` is released exactly once, by the last
+  // `Arc`, on (or routed to) the owning JS thread. `None` for errors that hold
+  // no JS reference (Rust-constructed, or a WASM error built from a JS value).
+  pub(crate) maybe_ref: Option<std::sync::Arc<ErrorRef>>,
 }
 
-/// Releases an Error's `maybe_raw` reference on the owning JS thread:
-/// unref, and delete once no clones (`try_clone`) hold it anymore.
+/// Shared owner of a JS error object's thread-affine `napi_ref`.
+///
+/// One `ErrorRef` backs an `Error` derived from a JS exception and every
+/// `try_clone` of it. The `napi_ref` is created once at refcount 1 and is never
+/// ref/unref'd for cloning — the number of live `Error` clones is tracked by the
+/// `Arc<ErrorRef>` strong count instead (a pure atomic, safe from any thread).
+/// The reference itself is released exactly once, when the last `Arc` drops,
+/// from `ErrorRef::drop` (directly on the owning JS thread, or routed there via
+/// the env's custom-GC TSFN when the last drop happens elsewhere).
+pub(crate) struct ErrorRef {
+  raw: sys::napi_ref,
+  env: sys::napi_env,
+  // The owning env's custom-GC handle, captured on the owning JS thread when
+  // `raw` is created. Lets the release run safely from any thread: the
+  // `napi_ref` is thread-affine, so `napi_reference_unref`/`napi_delete_reference`
+  // must run on the owning JS thread (releasing elsewhere mutates V8's
+  // `GlobalHandles` concurrently with the JS thread and corrupts it).
+  #[cfg(all(feature = "napi4", not(feature = "noop")))]
+  custom_gc: Option<std::sync::Arc<crate::bindgen_prelude::CustomGcHandle>>,
+}
+
+// SAFETY: the raw `napi_ref`/`napi_env` are only ever dereferenced via napi FFI
+// on the owning JS thread — `Error::referenced_value` gates reads on
+// `current_thread_owns_custom_gc`, and `ErrorRef::drop` releases on the owning
+// thread directly or routes the release through the env's custom-GC TSFN. Moving
+// or sharing an `ErrorRef` (and cloning its `Arc`) only copies/reads the pointer
+// values; it never touches V8 off-thread. The captured `Arc<CustomGcHandle>` is
+// itself `Send + Sync`. Mirrors the `unsafe impl Send/Sync for Error`.
+unsafe impl Send for ErrorRef {}
+unsafe impl Sync for ErrorRef {}
+
+impl ErrorRef {
+  /// Wraps a freshly created (`refcount == 1`) JS error `napi_ref`, capturing
+  /// the current thread's custom-GC handle. Must be called on the owning JS
+  /// thread with a non-null `raw` — both construction sites (`From<Unknown>` and
+  /// the ThreadsafeFunction JS-throw path) only build an `ErrorRef` after
+  /// `napi_create_reference` succeeds, so `ErrorRef::drop` can release without a
+  /// null check.
+  #[cfg(not(target_family = "wasm"))]
+  pub(crate) fn new(raw: sys::napi_ref, env: sys::napi_env) -> Self {
+    debug_assert!(!raw.is_null(), "ErrorRef must wrap a non-null napi_ref");
+    Self {
+      raw,
+      env,
+      #[cfg(all(feature = "napi4", not(feature = "noop")))]
+      custom_gc: crate::bindgen_prelude::current_custom_gc_handle(),
+    }
+  }
+}
+
+/// Releases a JS error's `napi_ref` on the owning JS thread: unref to 0, then
+/// delete. Called exactly once, from `ErrorRef::drop`.
 #[cfg(not(feature = "noop"))]
 fn release_error_reference(env: sys::napi_env, reference: sys::napi_ref) {
   let mut ref_count = 0;
@@ -56,15 +104,12 @@ fn release_error_reference(env: sys::napi_env, reference: sys::napi_ref) {
 }
 
 #[cfg(not(feature = "noop"))]
-impl<S: AsRef<str>> Drop for Error<S> {
+impl Drop for ErrorRef {
   fn drop(&mut self) {
-    if self.maybe_raw.is_null() {
-      return;
-    }
     #[cfg(all(feature = "napi4", not(feature = "noop")))]
-    if let Some(handle) = self.maybe_custom_gc.take() {
-      let maybe_env = self.maybe_env;
-      let maybe_raw = self.maybe_raw;
+    if let Some(handle) = self.custom_gc.take() {
+      let env = self.env;
+      let raw = self.raw;
       // Read-lock held across the call so the custom-GC TSFN can't be
       // finalized mid-call (same protocol as ArrayBuffer/TypedArray drops).
       handle.with_read_aborted(|aborted| {
@@ -75,15 +120,16 @@ impl<S: AsRef<str>> Drop for Error<S> {
           return;
         }
         if crate::bindgen_prelude::current_thread_owns_custom_gc(&handle) {
-          release_error_reference(maybe_env, maybe_raw);
+          release_error_reference(env, raw);
         } else {
-          // Dropped off the owning JS thread. Route the release through the
-          // env's custom-GC TSFN, exactly like Buffer/TypedArray drops.
+          // The last `Arc` dropped off the owning JS thread. Route the release
+          // through the env's custom-GC TSFN, exactly like Buffer/TypedArray
+          // drops.
           let status =
-            unsafe { sys::napi_call_threadsafe_function(handle.get_raw(), maybe_raw.cast(), 1) };
+            unsafe { sys::napi_call_threadsafe_function(handle.get_raw(), raw.cast(), 1) };
           assert!(
             status == sys::Status::napi_ok || status == sys::Status::napi_closing,
-            "Call custom GC in Error::drop failed {}",
+            "Call custom GC in ErrorRef::drop failed {}",
             Status::from(status)
           );
         }
@@ -93,7 +139,7 @@ impl<S: AsRef<str>> Drop for Error<S> {
     // No custom-GC handle captured (pre-napi4 build, or the reference was
     // created before module registration): previous behavior, which is only
     // correct on the owning JS thread.
-    release_error_reference(self.maybe_env, self.maybe_raw);
+    release_error_reference(self.env, self.raw);
   }
 }
 
@@ -115,31 +161,15 @@ impl<S: AsRef<str>> std::fmt::Debug for Error<S> {
 }
 
 impl<S: AsRef<str>> ToNapiValue for Error<S> {
-  unsafe fn to_napi_value(env: sys::napi_env, mut val: Self) -> Result<sys::napi_value> {
-    if val.maybe_raw.is_null() {
-      let err = unsafe { JsError::from(val).into_value(env) };
-      Ok(err)
-    } else {
-      let mut value = std::ptr::null_mut();
-      check_status!(
-        unsafe { sys::napi_get_reference_value(env, val.maybe_raw, &mut value) },
-        "Get error reference in `to_napi_value` failed"
-      )?;
-      let mut ref_count = 0;
-      check_status!(
-        unsafe { sys::napi_reference_unref(env, val.maybe_raw, &mut ref_count) },
-        "Unref error reference in `to_napi_value` failed"
-      )?;
-      if ref_count == 0 {
-        check_status!(
-          unsafe { sys::napi_delete_reference(env, val.maybe_raw) },
-          "Delete error reference in `to_napi_value` failed"
-        )?;
-      }
-      // already unref, skip the logic in `Drop`
-      val.maybe_raw = ptr::null_mut();
-      val.maybe_env = ptr::null_mut();
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    if let Some(value) = unsafe { val.referenced_value(env) } {
+      // Reuse the original JS error object (keeps its subclass, stack, and own
+      // properties). The shared `napi_ref` is released when `val`'s `Arc` drops.
       Ok(value)
+    } else {
+      // No JS reference, or converting off the owning thread: rebuild a fresh
+      // error from `status`/`reason`/`cause`.
+      Ok(unsafe { JsError::from(val).into_value(env) })
     }
   }
 }
@@ -198,10 +228,7 @@ impl From<Unknown<'_>> for Error {
         status: Status::GenericFailure,
         reason: error_message,
         cause: maybe_cause,
-        maybe_raw: result,
-        maybe_env,
-        #[cfg(all(feature = "napi4", not(feature = "noop")))]
-        maybe_custom_gc: crate::bindgen_prelude::current_custom_gc_handle(),
+        maybe_ref: Some(std::sync::Arc::new(ErrorRef::new(result, maybe_env))),
       };
     }
 
@@ -209,10 +236,7 @@ impl From<Unknown<'_>> for Error {
       status: Status::GenericFailure,
       reason: "".to_string(),
       cause: maybe_cause,
-      maybe_raw: result,
-      maybe_env,
-      #[cfg(all(feature = "napi4", not(feature = "noop")))]
-      maybe_custom_gc: crate::bindgen_prelude::current_custom_gc_handle(),
+      maybe_ref: Some(std::sync::Arc::new(ErrorRef::new(result, maybe_env))),
     }
   }
 }
@@ -252,10 +276,7 @@ impl From<Unknown<'_>> for Error {
         status: Status::GenericFailure,
         reason: error_message,
         cause: maybe_cause,
-        maybe_raw: ptr::null_mut(),
-        maybe_env: ptr::null_mut(),
-        #[cfg(all(feature = "napi4", not(feature = "noop")))]
-        maybe_custom_gc: None,
+        maybe_ref: None,
       };
     }
 
@@ -263,10 +284,7 @@ impl From<Unknown<'_>> for Error {
       status: Status::GenericFailure,
       reason: "".to_string(),
       cause: maybe_cause,
-      maybe_raw: ptr::null_mut(),
-      maybe_env: ptr::null_mut(),
-      #[cfg(all(feature = "napi4", not(feature = "noop")))]
-      maybe_custom_gc: None,
+      maybe_ref: None,
     }
   }
 }
@@ -294,10 +312,7 @@ impl<S: AsRef<str>> Error<S> {
       status,
       reason: reason.to_string(),
       cause: None,
-      maybe_raw: ptr::null_mut(),
-      maybe_env: ptr::null_mut(),
-      #[cfg(all(feature = "napi4", not(feature = "noop")))]
-      maybe_custom_gc: None,
+      maybe_ref: None,
     }
   }
 
@@ -306,24 +321,21 @@ impl<S: AsRef<str>> Error<S> {
       status,
       reason: "".to_owned(),
       cause: None,
-      maybe_raw: ptr::null_mut(),
-      maybe_env: ptr::null_mut(),
-      #[cfg(all(feature = "napi4", not(feature = "noop")))]
-      maybe_custom_gc: None,
+      maybe_ref: None,
     }
   }
 }
 
 impl<S: AsRef<str> + Clone> Error<S> {
   /// Builds a copy carrying only the thread-safe data: `status`, `reason`, and a
-  /// recursively reference-less `cause` chain. It owns no `napi_ref` (and no
-  /// custom-GC handle), so it is safe to create and drop on any thread — its
-  /// `Drop` no-ops — because it reads only owned Rust data and never touches a
-  /// thread-affine reference. `try_clone` uses it whenever it cannot share the
-  /// original's `napi_ref`: off the owning JS thread, or when the error holds no
-  /// reference at all (a Rust-constructed error, or a WASM error built from a JS
-  /// value). Cloning it preserves the cause chain so a later reference-less
-  /// conversion (`into_value` with a null `maybe_raw`) can re-attach `.cause`.
+  /// recursively reference-less `cause` chain. It owns no [`ErrorRef`] (`maybe_ref`
+  /// is `None`), so it is safe to create and drop on any thread because it reads
+  /// only owned Rust data and never touches a thread-affine reference.
+  /// `try_clone` uses it whenever it cannot share the original's `napi_ref`: with
+  /// no custom-GC handle to route an off-thread release, or when the error holds
+  /// no reference at all (a Rust-constructed error, or a WASM error built from a
+  /// JS value). Cloning it preserves the cause chain so a later reference-less
+  /// conversion (`into_value` with `maybe_ref == None`) can re-attach `.cause`.
   fn reference_less_clone(&self) -> Self {
     Self {
       status: self.status.clone(),
@@ -332,69 +344,86 @@ impl<S: AsRef<str> + Clone> Error<S> {
         .cause
         .as_ref()
         .map(|cause| Box::new(cause.reference_less_clone())),
-      maybe_raw: ptr::null_mut(),
-      maybe_env: ptr::null_mut(),
-      #[cfg(all(feature = "napi4", not(feature = "noop")))]
-      maybe_custom_gc: None,
+      maybe_ref: None,
     }
   }
 
   /// Clones this `Error`.
   ///
   /// An `Error` derived from a JS exception (e.g. a `Promise` rejection) owns a
-  /// `napi_ref` to the original JS value. On the owning JS thread the clone
-  /// shares that reference, so both map back to the same JS object. The
-  /// reference is thread-affine, so from any other thread `try_clone` cannot
-  /// touch it; there it returns a reference-less copy that still carries the
-  /// `status`, `reason` (the captured message) and the `cause` chain, but not
-  /// the `napi_ref`. Such a copy converts back to a *fresh* JS `Error` built
-  /// from those fields rather than the original JS object, so the original's
-  /// subclass (e.g. `TypeError`) and any non-standard own properties are not
-  /// preserved. Errors that hold no JS reference clone on any thread.
+  /// `napi_ref` to the original JS value, kept behind a shared [`ErrorRef`]. The
+  /// clone shares that reference by cloning the `Arc` — a thread-safe atomic
+  /// bump with no napi FFI — so both map back to the same JS object and the
+  /// clone can be sent to another thread; the single `napi_ref` is released
+  /// exactly once, when the last clone drops. When the clone is later converted
+  /// back to a JS value *on the owning JS thread*, it reuses the original object
+  /// (preserving its subclass, stack, and own properties); converted on any
+  /// other thread it degrades to a fresh `Error` rebuilt from `status`/`reason`/
+  /// `cause`. Sharing needs the owning env's custom-GC handle (the only safe
+  /// off-thread release path); without one — a pre-`napi4` build, or a reference
+  /// created before module registration — and for errors that hold no reference,
+  /// `try_clone` returns a reference-less copy that still carries the `status`,
+  /// `reason`, and `cause` chain.
   pub fn try_clone(&self) -> Result<Self> {
-    if !self.maybe_raw.is_null() {
-      // The `napi_ref` is thread-affine: `napi_reference_ref` must run on the
-      // owning JS thread or it races a sibling's concurrent release (the
-      // refcount is not atomic). Only the custom-GC handle records who owns it,
-      // so we share the reference *only* with proof we are on that thread. In
-      // every other case — off the owning thread, or with no handle at all
-      // (pre-`napi4` build, or a reference created before module registration,
-      // which has no safe off-thread release path either) — we must not touch
-      // the reference and instead return a reference-less clone.
+    match &self.maybe_ref {
+      // Share the JS reference with the clone. Cloning the `Arc` is an atomic
+      // refcount bump with no napi FFI, so it is safe from any thread; the
+      // single `napi_ref` stays at count 1 and is released once, by the last
+      // `Arc`. The shared object carries its own `.cause`, so `into_value`
+      // ignores the Rust `cause` field when it reuses the object on the owning
+      // thread — but we still keep a reference-less cause backup so a clone
+      // converted off the owning thread (rebuilt from `reason`) keeps the chain.
       #[cfg(all(feature = "napi4", not(feature = "noop")))]
-      if let Some(handle) = &self.maybe_custom_gc {
-        if crate::bindgen_prelude::current_thread_owns_custom_gc(handle) {
-          // On the owning JS thread: share the reference by bumping its
-          // refcount. Both siblings map back to the same JS object, which
-          // carries its own `.cause`, so `into_value` ignores the Rust `cause`
-          // field here. We still keep a reference-less cause backup on the
-          // clone so that if it is later moved to another thread and cloned
-          // again (off-thread, reference-less) the chain still survives.
-          check_status!(
-            unsafe { sys::napi_reference_ref(self.maybe_env, self.maybe_raw, &mut 0) },
-            "Failed to increase error reference count"
-          )?;
-          return Ok(Self {
-            status: self.status.clone(),
-            reason: self.reason.to_string(),
-            cause: self
-              .cause
-              .as_ref()
-              .map(|cause| Box::new(cause.reference_less_clone())),
-            maybe_raw: self.maybe_raw,
-            maybe_env: self.maybe_env,
-            maybe_custom_gc: self.maybe_custom_gc.clone(),
-          });
-        }
-      }
-      // No ownership proof: never touch the thread-affine reference. Return a
-      // reference-less copy that still carries the message and cause chain.
-      return Ok(self.reference_less_clone());
+      Some(error_ref) if error_ref.custom_gc.is_some() => Ok(Self {
+        status: self.status.clone(),
+        reason: self.reason.clone(),
+        cause: self
+          .cause
+          .as_ref()
+          .map(|cause| Box::new(cause.reference_less_clone())),
+        maybe_ref: Some(error_ref.clone()),
+      }),
+      // No custom-GC handle (pre-`napi4` build, or a reference created before
+      // module registration, which has no safe off-thread release path), or no
+      // JS reference at all (a Rust-constructed error, or a WASM error built
+      // from a JS value): rebuild from the owned fields, preserving the cause
+      // chain instead of dropping it.
+      _ => Ok(self.reference_less_clone()),
     }
-    // No JS reference to share (an error that never held one, or a WASM error
-    // built from a JS value): rebuild from the owned fields, preserving the
-    // cause chain instead of dropping it.
-    Ok(self.reference_less_clone())
+  }
+}
+
+impl<S: AsRef<str>> Error<S> {
+  /// Reads the referenced JS error object, but only when it is safe to touch on
+  /// the current thread. The `napi_ref` is thread-affine, so with a napi4
+  /// custom-GC handle we read it only with proof we are on the owning JS thread;
+  /// off the owning thread (a shared clone being converted on a foreign env) it
+  /// returns `None`, so the caller rebuilds a fresh error from `reason` instead
+  /// of dereferencing a foreign env's reference. When the build carries no
+  /// custom-GC machinery (non-`napi4`, or a reference created before module
+  /// registration) there is no primitive to check thread ownership, so the read
+  /// is unconditional — the same contract as before this change: `try_clone`
+  /// never *shares* such a reference across threads (it clones reference-lessly),
+  /// so only a directly-moved owning `Error` could reach here off-thread, which
+  /// was already unsound and is unchanged.
+  ///
+  /// # Safety
+  ///
+  /// `env` must be a valid `napi_env` for the current thread.
+  pub(crate) unsafe fn referenced_value(&self, env: sys::napi_env) -> Option<sys::napi_value> {
+    let error_ref = self.maybe_ref.as_ref()?;
+    #[cfg(all(feature = "napi4", not(feature = "noop")))]
+    if let Some(handle) = &error_ref.custom_gc {
+      if !crate::bindgen_prelude::current_thread_owns_custom_gc(handle) {
+        return None;
+      }
+    }
+    let mut result = ptr::null_mut();
+    let status = unsafe { sys::napi_get_reference_value(env, error_ref.raw, &mut result) };
+    if status != sys::Status::napi_ok {
+      return None;
+    }
+    Some(result)
   }
 }
 
@@ -430,10 +459,7 @@ impl Error {
       status: Status::GenericFailure,
       reason: reason.into(),
       cause: None,
-      maybe_raw: ptr::null_mut(),
-      maybe_env: ptr::null_mut(),
-      #[cfg(all(feature = "napi4", not(feature = "noop")))]
-      maybe_custom_gc: None,
+      maybe_ref: None,
     }
   }
 }
@@ -444,10 +470,7 @@ impl From<std::ffi::NulError> for Error {
       status: Status::GenericFailure,
       reason: format!("{error}"),
       cause: None,
-      maybe_raw: ptr::null_mut(),
-      maybe_env: ptr::null_mut(),
-      #[cfg(all(feature = "napi4", not(feature = "noop")))]
-      maybe_custom_gc: None,
+      maybe_ref: None,
     }
   }
 }
@@ -458,10 +481,7 @@ impl From<std::io::Error> for Error {
       status: Status::GenericFailure,
       reason: format!("{error}"),
       cause: None,
-      maybe_raw: ptr::null_mut(),
-      maybe_env: ptr::null_mut(),
-      #[cfg(all(feature = "napi4", not(feature = "noop")))]
-      maybe_custom_gc: None,
+      maybe_ref: None,
     }
   }
 }
@@ -551,31 +571,10 @@ macro_rules! impl_object_methods {
       ///
       /// This function is safety if env is not null ptr.
       pub unsafe fn into_value(mut self, env: sys::napi_env) -> sys::napi_value {
-        if !self.0.maybe_raw.is_null() {
-          let mut err = ptr::null_mut();
-          let get_err_status =
-            unsafe { sys::napi_get_reference_value(env, self.0.maybe_raw, &mut err) };
-          debug_assert!(
-            get_err_status == sys::Status::napi_ok,
-            "Get Error from Reference failed"
-          );
-          let mut ref_count = 0;
-          let unref_status =
-            unsafe { sys::napi_reference_unref(env, self.0.maybe_raw, &mut ref_count) };
-          debug_assert!(
-            unref_status == sys::Status::napi_ok,
-            "Unref Error Reference failed"
-          );
-          if ref_count == 0 {
-            let delete_err_status = unsafe { sys::napi_delete_reference(env, self.0.maybe_raw) };
-            debug_assert!(
-              delete_err_status == sys::Status::napi_ok,
-              "Delete Error Reference failed"
-            );
-          }
-          // already unref, skip the logic in `Drop`
-          self.0.maybe_raw = ptr::null_mut();
-          self.0.maybe_env = ptr::null_mut();
+        // Reuse the original JS error object when it is safe to read on this
+        // thread (owning JS thread). The shared `napi_ref` is released when
+        // `self`'s `Arc` drops at the end of this function — never here.
+        if let Some(err) = unsafe { self.0.referenced_value(env) } {
           let mut is_error = false;
           let is_error_status = unsafe { sys::napi_is_error(env, err, &mut is_error) };
           debug_assert!(

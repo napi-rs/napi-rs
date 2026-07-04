@@ -1021,12 +1021,9 @@ impl Env {
 
   /// Create a JavaScript error object from `Error`
   pub fn create_error(&self, e: Error) -> Result<Object<'_>> {
-    if !e.maybe_raw.is_null() {
-      let mut result = ptr::null_mut();
-      check_status!(
-        unsafe { sys::napi_get_reference_value(self.0, e.maybe_raw, &mut result) },
-        "Get reference value in create_error failed"
-      )?;
+    // Reuse the original JS error object when it is safe to read on this thread;
+    // the shared `napi_ref` is released when `e` drops at the end of this call.
+    if let Some(result) = unsafe { e.referenced_value(self.0) } {
       return Ok(Object::from_raw(self.0, result));
     }
     let reason = &e.reason;

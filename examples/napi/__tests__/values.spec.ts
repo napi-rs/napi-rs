@@ -79,6 +79,7 @@ import {
   tryCloneErrorOffThread,
   tryCloneErrorCauseOffThread,
   tryCloneErrorCauseTransitiveOffThread,
+  tryCloneErrorOffThreadKeepReference,
   throwDetachedPendingException,
   customStatusCode,
   panic,
@@ -1162,6 +1163,35 @@ test('Result', (t) => {
   // thrown, not swallowed by throw_into just because of its status.
   const detachedPending = t.throws(() => throwDetachedPendingException())
   t.is(detachedPending!.message, 'detached pending exception message')
+
+  // Off-thread *fidelity*: a JS-derived Error cloned on a worker thread and then
+  // surfaced on the owning JS thread must reuse the ORIGINAL JS object — keeping
+  // its stack and arbitrary own properties, not just the message. This is
+  // rolldown's plugin-error path; a reference-less clone would rebuild a bare
+  // Error(message) and drop the stack + props.
+  const richError = (() => {
+    function errorFn2() {
+      return Object.assign(new Error('offthread fidelity message'), {
+        customProp: 8888,
+      })
+    }
+    function errorFn1() {
+      return errorFn2()
+    }
+    return errorFn1()
+  })()
+  const offThreadRich = t.throws(() =>
+    tryCloneErrorOffThreadKeepReference(richError),
+  )
+  t.true(offThreadRich!.message.includes('offthread fidelity message'))
+  if (!process.env.WASI_TEST) {
+    // Native shares the JS reference across the off-thread clone: the surfaced
+    // error is the very same object, stack and own props intact. (WASM can't
+    // hold a cross-thread JS ref, so it rebuilds from the message alone.)
+    t.is(offThreadRich, richError)
+    t.true(offThreadRich!.stack!.includes('errorFn2'))
+    t.is((offThreadRich as unknown as { customProp: number }).customProp, 8888)
+  }
 
   // non-nullish cause should still be preserved
   const [errWithRealCause] = jsErrorCallback(
