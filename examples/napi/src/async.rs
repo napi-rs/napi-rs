@@ -37,6 +37,7 @@ async fn panic_in_async() {
   panic!("panic in async function");
 }
 
+#[cfg(not(feature = "noop"))]
 #[napi]
 fn shutdown_async_runtime_for_test() -> Result<()> {
   try_shutdown_async_runtime()
