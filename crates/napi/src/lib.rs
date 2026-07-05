@@ -50,7 +50,10 @@
 //! [`AsyncRuntime`](crate::bindgen_prelude::AsyncRuntime) submission hook and
 //! `spawn_blocking` completes its handle as cancelled when the backend declines. napi does
 //! not create an unbounded fallback thread. Under the `noop` feature neither helper is
-//! compiled.
+//! compiled. Explicit shutdown also closes synchronous `block_on` and
+//! `#[napi(async_runtime)]` entry until restart; shutdown waits for an entry already in progress
+//! to return and drop its runtime guard. Exported callbacks should use `try_block_on` when they
+//! need a JavaScript exception instead of the compatibility wrapper's Rust panic.
 //!
 //! ### latin1
 //!

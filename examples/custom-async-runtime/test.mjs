@@ -78,6 +78,8 @@ binding.shutdownRuntime()
 await assert.rejects(cancelled, /cancel/i)
 const afterShutdown = binding.getRuntimeMetrics()
 assert.equal(afterShutdown.shutdownCalls, beforeLifecycle.shutdownCalls + 1)
+assert.throws(() => binding.runtimeContextAdd(1), /not running/i)
+assert.throws(() => binding.blockOnValue(1), /not running/i)
 
 binding.startRuntime()
 const afterStart = binding.getRuntimeMetrics()

@@ -47,6 +47,7 @@ pub struct Error<S: AsRef<str> = Status> {
 /// the env's custom-GC TSFN when the last drop happens elsewhere).
 pub(crate) struct ErrorRef {
   raw: sys::napi_ref,
+  #[cfg_attr(feature = "noop", allow(dead_code))]
   env: sys::napi_env,
   // The owning env's custom-GC handle, captured on the owning JS thread when
   // `raw` is created. Lets the release run safely from any thread: the

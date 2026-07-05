@@ -21,7 +21,10 @@ use std::{future::Future, marker::PhantomData};
 use std::any::Any;
 #[cfg(not(feature = "noop"))]
 use std::panic::AssertUnwindSafe;
-#[cfg(any(feature = "async-runtime", feature = "tokio_rt"))]
+#[cfg(any(
+  feature = "async-runtime",
+  all(feature = "tokio_rt", not(feature = "noop"))
+))]
 use std::pin::Pin;
 #[cfg(all(
   not(feature = "noop"),
@@ -220,7 +223,10 @@ impl<T> Drop for SafeDrop<T> {
 /// JavaScript-facing futures still use this backend. Those Tokio helpers reject external work
 /// while the combined runtime is starting, stopping, or stopped, so callers cannot observe a
 /// half-transitioned pair. Runtime hooks may still use Tokio synchronously on the transition
-/// thread.
+/// thread. Synchronous custom-runtime operations are gated for their full duration as well:
+/// shutdown waits for them to return, and external calls are rejected before startup, during
+/// lifecycle transitions, and after shutdown. Lifecycle hooks may still use those operations
+/// synchronously on the transition thread.
 ///
 /// The implementation is stored once per linked addon image and shared across its threads,
 /// hence the `Send + Sync + 'static` bound. See [`create_custom_async_runtime`] for duplicate
@@ -247,7 +253,9 @@ pub trait AsyncRuntime: Send + Sync + 'static {
   /// Tokio implementation for those free helpers. napi stores the future's result through a
   /// side effect and verifies that it is present when this method returns. `try_block_on`
   /// reports an early return as an error; the compatibility [`block_on`] wrapper panics on
-  /// that error. Run the future to completion rather than returning on the first pending poll.
+  /// that error. napi holds the runtime lifecycle open until this method returns, so a
+  /// concurrent shutdown waits rather than tearing the backend down underneath it. Run the
+  /// future to completion rather than returning on the first pending poll.
   fn block_on(&self, future: Pin<&mut dyn Future<Output = ()>>);
 
   /// Enter the runtime context and return a guard that establishes it for the calling
@@ -257,8 +265,9 @@ pub trait AsyncRuntime: Send + Sync + 'static {
   /// [`within_runtime_if_available`] in pure `async-runtime` builds: it enters, runs a
   /// synchronous closure, then drops the guard. The returned guard MUST keep the runtime
   /// context active for the whole duration of the closure and tear it down on drop. The
-  /// default implementation returns a no-op guard, which is correct for backends that do not
-  /// need an ambient context.
+  /// runtime lifecycle remains open through guard destruction, so shutdown cannot overlap the
+  /// entered context. The default implementation returns a no-op guard, which is correct for
+  /// backends that do not need an ambient context.
   fn enter(&self) -> Box<dyn AsyncRuntimeGuard + '_> {
     Box::new(())
   }
@@ -384,10 +393,13 @@ thread_local! {
 }
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
-struct RuntimeSubmissionPermit;
+/// Keeps a call into the custom backend from overlapping a lifecycle transition. Submission
+/// hooks hold it only while ownership is transferred; synchronous operations hold it until the
+/// future or entered callback and its guard have finished.
+struct RuntimeUsePermit;
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
-impl RuntimeSubmissionPermit {
+impl RuntimeUsePermit {
   fn acquire() -> Option<Self> {
     let mut submissions = RUNTIME_SUBMISSIONS
       .0
@@ -400,10 +412,28 @@ impl RuntimeSubmissionPermit {
     RUNTIME_SUBMISSION_DEPTH.with(|depth| depth.set(depth.get() + 1));
     Some(Self)
   }
+
+  fn acquire_synchronous() -> Option<Self> {
+    let hook_local_transition = RUNTIME_TRANSITION_DEPTH.with(Cell::get) != 0;
+    let lifecycle = runtime_lifecycle();
+    let mut submissions = RUNTIME_SUBMISSIONS
+      .0
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if !hook_local_transition
+      && (submissions.state != RuntimeSubmissionState::Open
+        || lifecycle.state != RuntimeLifecycleState::Running)
+    {
+      return None;
+    }
+    submissions.in_flight += 1;
+    RUNTIME_SUBMISSION_DEPTH.with(|depth| depth.set(depth.get() + 1));
+    Some(Self)
+  }
 }
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
-impl Drop for RuntimeSubmissionPermit {
+impl Drop for RuntimeUsePermit {
   fn drop(&mut self) {
     RUNTIME_SUBMISSION_DEPTH.with(|depth| depth.set(depth.get() - 1));
     let mut submissions = RUNTIME_SUBMISSIONS
@@ -431,7 +461,7 @@ fn close_runtime_submissions() -> Result<()> {
   if RUNTIME_SUBMISSION_DEPTH.with(Cell::get) != 0 {
     return Err(Error::new(
       crate::Status::GenericFailure,
-      "Cannot shut down the async runtime from inside AsyncRuntime::spawn",
+      "Cannot transition the async runtime from inside an AsyncRuntime operation",
     ));
   }
   let mut submissions = RUNTIME_SUBMISSIONS
@@ -505,6 +535,16 @@ fn custom_async_runtime() -> Result<&'static dyn AsyncRuntime> {
       crate::Status::GenericFailure,
       "No AsyncRuntime backend is registered. Call \
        napi::bindgen_prelude::create_custom_async_runtime(...) from a module_init hook",
+    )
+  })
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+fn acquire_synchronous_runtime_use() -> Result<RuntimeUsePermit> {
+  RuntimeUsePermit::acquire_synchronous().ok_or_else(|| {
+    Error::new(
+      crate::Status::GenericFailure,
+      "The async runtime is not running",
     )
   })
 }
@@ -800,7 +840,7 @@ fn env_async_task(
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 fn submit_async_task(task: AsyncRuntimeTask) {
-  let Some(_submission) = RuntimeSubmissionPermit::acquire() else {
+  let Some(_submission) = RuntimeUsePermit::acquire() else {
     drop(task);
     return;
   };
@@ -1319,7 +1359,7 @@ pub fn try_shutdown_async_runtime() -> Result<()> {
     if RUNTIME_SUBMISSION_DEPTH.with(Cell::get) != 0 {
       return Err(Error::new(
         crate::Status::GenericFailure,
-        "Cannot shut down the async runtime from inside AsyncRuntime::spawn",
+        "Cannot transition the async runtime from inside an AsyncRuntime operation",
       ));
     }
     let call_custom_shutdown = {
@@ -1718,11 +1758,14 @@ pub fn spawn<F>(fut: F) -> tokio::task::JoinHandle<F::Output>
 where
   F: 'static + Send + Future<Output = ()>,
 {
+  let mut fut = SafeDrop::new(fut);
+  #[cfg(feature = "async-runtime")]
+  let _runtime_use = acquire_synchronous_runtime_use().unwrap_or_else(|error| panic!("{error}"));
   let runtime = runtime();
   let retirement = runtime.retirement_token();
   runtime.spawn(async move {
     let _retirement = retirement;
-    fut.await
+    fut.take().await
   })
 }
 
@@ -1755,7 +1798,7 @@ where
     },
     move || cancellation_state.complete(Err(JoinError::cancelled())),
   );
-  let Some(_submission) = RuntimeSubmissionPermit::acquire() else {
+  let Some(_submission) = RuntimeUsePermit::acquire() else {
     drop(task);
     return JoinHandle { state };
   };
@@ -1777,6 +1820,8 @@ where
 /// Runs a future to completion
 /// This is blocking, meaning that it pauses other execution until the future is complete,
 /// only use it when it is absolutely necessary, in other places use async functions instead.
+/// This compatibility wrapper panics on runtime errors; exported N-API callbacks should prefer
+/// [`try_block_on`] so the error can become a JavaScript exception.
 pub fn block_on<F: Future>(fut: F) -> F::Output {
   try_block_on(fut).unwrap_or_else(|error| panic!("{error}"))
 }
@@ -1816,17 +1861,23 @@ fn try_block_on_safely<F: Future>(
 /// Fallible form of [`block_on`].
 ///
 /// This reports a missing backend, a backend panic, or a backend that returned before polling
-/// the future to completion as a napi error.
+/// the future to completion as a napi error. When `async-runtime` is enabled it also rejects calls
+/// before startup, during lifecycle transitions, and after shutdown, and prevents shutdown from
+/// overlapping the synchronous drive.
 pub fn try_block_on<F: Future>(fut: F) -> Result<F::Output> {
+  let mut fut = SafeDrop::new(fut);
   #[cfg(all(feature = "async-runtime", not(feature = "tokio_rt")))]
   {
     let runtime = custom_async_runtime()?;
-    try_block_on_safely(fut, |future| runtime.block_on(future))
+    let _runtime_use = acquire_synchronous_runtime_use()?;
+    try_block_on_safely(fut.take(), |future| runtime.block_on(future))
   }
   #[cfg(feature = "tokio_rt")]
   {
+    #[cfg(feature = "async-runtime")]
+    let _runtime_use = acquire_synchronous_runtime_use()?;
     let runtime = try_runtime()?;
-    try_block_on_safely(fut, |future| {
+    try_block_on_safely(fut.take(), |future| {
       runtime.block_on(future);
     })
   }
@@ -1846,11 +1897,14 @@ where
   F: FnOnce() -> R + Send + 'static,
   R: Send + 'static,
 {
+  let mut func = SafeDrop::new(func);
+  #[cfg(feature = "async-runtime")]
+  let _runtime_use = acquire_synchronous_runtime_use().unwrap_or_else(|error| panic!("{error}"));
   let runtime = runtime();
   let retirement = runtime.retirement_token();
   runtime.spawn_blocking(move || {
     let _retirement = retirement;
-    func()
+    func.take()()
   })
 }
 
@@ -1885,7 +1939,7 @@ where
     let result = std::panic::catch_unwind(AssertUnwindSafe(func));
     task_state.complete(result.map_err(JoinError::new_panic));
   });
-  let Some(_submission) = RuntimeSubmissionPermit::acquire() else {
+  let Some(_submission) = RuntimeUsePermit::acquire() else {
     drop(work);
     return JoinHandle { state };
   };
@@ -1915,7 +1969,9 @@ where
 ///
 /// A pure `async-runtime` build enters the registered backend. If `tokio_rt` is enabled,
 /// including through feature unification, this established public helper enters Tokio.
-/// Generated `#[napi(async_runtime)]` callbacks use the custom backend independently.
+/// Generated `#[napi(async_runtime)]` callbacks use the custom backend independently. With
+/// `async-runtime` enabled, both entry paths hold the lifecycle open through guard destruction
+/// and reject calls before startup, during lifecycle transitions, and after shutdown.
 pub fn within_runtime_if_available<F: FnOnce() -> T, T>(f: F) -> T {
   try_within_runtime_if_available(f).unwrap_or_else(|error| panic!("{error}"))
 }
@@ -1923,18 +1979,22 @@ pub fn within_runtime_if_available<F: FnOnce() -> T, T>(f: F) -> T {
 #[cfg(not(feature = "noop"))]
 /// Fallible form of [`within_runtime_if_available`].
 pub fn try_within_runtime_if_available<F: FnOnce() -> T, T>(f: F) -> Result<T> {
+  let mut f = SafeDrop::new(f);
   #[cfg(feature = "tokio_rt")]
   {
+    #[cfg(feature = "async-runtime")]
+    let _runtime_use = acquire_synchronous_runtime_use()?;
     let runtime = try_runtime()?;
     let runtime_guard = runtime.enter();
-    call_with_runtime_guard(runtime_guard, f)
+    call_with_runtime_guard(runtime_guard, f.take())
   }
   #[cfg(all(feature = "async-runtime", not(feature = "tokio_rt")))]
   {
     let runtime = custom_async_runtime()?;
+    let _runtime_use = acquire_synchronous_runtime_use()?;
     let runtime_guard = std::panic::catch_unwind(AssertUnwindSafe(|| runtime.enter()))
       .map_err(crate::bindgen_runtime::panic_to_error)?;
-    call_with_runtime_guard(runtime_guard, f)
+    call_with_runtime_guard(runtime_guard, f.take())
   }
 }
 
@@ -1958,24 +2018,27 @@ fn call_with_runtime_guard<G, F: FnOnce() -> T, T>(guard: G, f: F) -> Result<T> 
 #[cfg(all(not(feature = "noop"), feature = "async-runtime"))]
 #[doc(hidden)]
 pub fn within_custom_runtime_if_available<F: FnOnce() -> Result<T>, T>(f: F) -> Result<T> {
+  let mut f = SafeDrop::new(f);
   let runtime = custom_async_runtime()?;
+  let _runtime_use = acquire_synchronous_runtime_use()?;
   let runtime_guard = std::panic::catch_unwind(AssertUnwindSafe(|| runtime.enter()))
     .map_err(crate::bindgen_runtime::panic_to_error)?;
-  call_with_runtime_guard(runtime_guard, f).and_then(|result| result)
+  call_with_runtime_guard(runtime_guard, f.take()).and_then(|result| result)
 }
 
 #[cfg(all(not(feature = "noop"), not(feature = "async-runtime")))]
 #[doc(hidden)]
 pub fn within_custom_runtime_if_available<F: FnOnce() -> Result<T>, T>(f: F) -> Result<T> {
+  let mut f = SafeDrop::new(f);
   #[cfg(feature = "tokio_rt")]
   {
     let runtime = try_runtime()?;
     let runtime_guard = runtime.enter();
-    call_with_runtime_guard(runtime_guard, f).and_then(|result| result)
+    call_with_runtime_guard(runtime_guard, f.take()).and_then(|result| result)
   }
   #[cfg(not(feature = "tokio_rt"))]
   {
-    f()
+    f.take()()
   }
 }
 
@@ -2401,6 +2464,7 @@ mod tests {
   static DROP_BLOCKING_WORK: AtomicBool = AtomicBool::new(false);
   static SHUTDOWN_DURING_SPAWN: AtomicBool = AtomicBool::new(false);
   static START_DURING_SHUTDOWN: AtomicBool = AtomicBool::new(false);
+  static USE_SYNCHRONOUS_LIFECYCLE_HOOKS: AtomicBool = AtomicBool::new(false);
   static LIFECYCLE_REENTRY_ERROR: Mutex<Option<String>> = Mutex::new(None);
   static RUNTIME_STATE_TEST_LOCK: Mutex<()> = Mutex::new(());
   fn runtime_state_test_guard() -> MutexGuard<'static, ()> {
@@ -2419,10 +2483,14 @@ mod tests {
     DROP_BLOCKING_WORK.store(false, Ordering::SeqCst);
     SHUTDOWN_DURING_SPAWN.store(false, Ordering::SeqCst);
     START_DURING_SHUTDOWN.store(false, Ordering::SeqCst);
+    USE_SYNCHRONOUS_LIFECYCLE_HOOKS.store(false, Ordering::SeqCst);
     *LIFECYCLE_REENTRY_ERROR
       .lock()
       .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
     open_runtime_submissions();
+    if CUSTOM_ASYNC_RUNTIME.get().is_some() {
+      try_start_async_runtime().unwrap();
+    }
     guard
   }
 
@@ -2487,6 +2555,10 @@ mod tests {
 
     fn start(&self) -> Result<()> {
       BACKEND_START_CALLS.fetch_add(1, Ordering::SeqCst);
+      if USE_SYNCHRONOUS_LIFECYCLE_HOOKS.load(Ordering::SeqCst) {
+        try_block_on(async {})?;
+        within_custom_runtime_if_available(|| Ok(()))?;
+      }
       Ok(())
     }
 
@@ -2498,6 +2570,10 @@ mod tests {
         *LIFECYCLE_REENTRY_ERROR
           .lock()
           .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(error.reason);
+      }
+      if USE_SYNCHRONOUS_LIFECYCLE_HOOKS.load(Ordering::SeqCst) {
+        try_block_on(async {})?;
+        within_custom_runtime_if_available(|| Ok(()))?;
       }
       Ok(())
     }
@@ -2784,6 +2860,39 @@ mod tests {
     PANIC_BLOCK_ON_AFTER_COMPLETION.store(false, Ordering::SeqCst);
     assert!(error.reason.contains("after completion"));
     assert_eq!(output_drops.load(Ordering::SeqCst), 1);
+
+    try_shutdown_async_runtime().unwrap();
+    let rejected_future_drops = Arc::new(AtomicUsize::new(0));
+    let captured = PanicOnDrop {
+      drops: Arc::clone(&rejected_future_drops),
+    };
+    let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
+      try_block_on(async move {
+        drop(captured);
+      })
+    }));
+    let error = result
+      .expect("rejecting block_on must contain future destructor panics")
+      .expect_err("a stopped runtime must reject block_on");
+    assert!(error.reason.contains("not running"));
+    assert_eq!(rejected_future_drops.load(Ordering::SeqCst), 1);
+
+    let rejected_closure_drops = Arc::new(AtomicUsize::new(0));
+    let captured = PanicOnDrop {
+      drops: Arc::clone(&rejected_closure_drops),
+    };
+    let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
+      within_custom_runtime_if_available(move || {
+        drop(captured);
+        Ok(())
+      })
+    }));
+    let error = result
+      .expect("rejecting runtime entry must contain closure destructor panics")
+      .expect_err("a stopped runtime must reject runtime entry");
+    assert!(error.reason.contains("not running"));
+    assert_eq!(rejected_closure_drops.load(Ordering::SeqCst), 1);
+    try_start_async_runtime().unwrap();
   }
 
   #[test]
@@ -2912,6 +3021,7 @@ mod tests {
   fn free_helpers_are_allowed_before_start_and_rejected_after_shutdown() {
     ensure_runtime();
     let _guard = runtime_state_test_guard();
+    try_shutdown_async_runtime().unwrap();
     {
       let mut submissions = RUNTIME_SUBMISSIONS
         .0
@@ -2936,6 +3046,14 @@ mod tests {
       BACKEND_BLOCKING_CALLS.load(Ordering::SeqCst),
       blocking_calls + 1
     );
+    assert!(
+      try_block_on(async {}).is_err(),
+      "synchronous block_on must wait until the backend has started"
+    );
+    assert!(
+      within_custom_runtime_if_available(|| Ok::<_, Error>(())).is_err(),
+      "custom runtime entry must wait until the backend has started"
+    );
 
     close_runtime_submissions().unwrap();
     assert!(futures::executor::block_on(spawn(async { 44 }))
@@ -2949,7 +3067,7 @@ mod tests {
       BACKEND_BLOCKING_CALLS.load(Ordering::SeqCst),
       blocking_calls + 1
     );
-    open_runtime_submissions();
+    try_start_async_runtime().unwrap();
   }
 
   #[test]
@@ -2972,6 +3090,7 @@ mod tests {
   fn environment_lifecycle_is_reference_counted() {
     ensure_runtime();
     let _guard = runtime_state_test_guard();
+    try_shutdown_async_runtime().unwrap();
     let starts_before = BACKEND_START_CALLS.load(Ordering::SeqCst);
     let shutdowns_before = BACKEND_SHUTDOWN_CALLS.load(Ordering::SeqCst);
 
@@ -3000,7 +3119,7 @@ mod tests {
   fn shutdown_waits_for_in_flight_task_submission() {
     let _guard = runtime_state_test_guard();
     let submission =
-      RuntimeSubmissionPermit::acquire().expect("submission gate must be open for the test");
+      RuntimeUsePermit::acquire().expect("submission gate must be open for the test");
     let (started_tx, started_rx) = mpsc::channel();
     let (done_tx, done_rx) = mpsc::channel();
     let shutdown = std::thread::spawn(move || {
@@ -3024,15 +3143,91 @@ mod tests {
   }
 
   #[test]
+  fn shutdown_waits_for_synchronous_custom_runtime_use() {
+    ensure_runtime();
+    let _guard = runtime_state_test_guard();
+    try_start_async_runtime().unwrap();
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let runtime_use = std::thread::spawn(move || {
+      within_custom_runtime_if_available(|| {
+        entered_tx.send(()).unwrap();
+        release_rx.recv().unwrap();
+        Ok(())
+      })
+    });
+    entered_rx
+      .recv_timeout(Duration::from_secs(1))
+      .expect("the synchronous runtime operation must start");
+
+    let (done_tx, done_rx) = mpsc::channel();
+    let shutdown = std::thread::spawn(move || {
+      done_tx.send(try_shutdown_async_runtime()).unwrap();
+    });
+    assert!(
+      done_rx.recv_timeout(Duration::from_millis(50)).is_err(),
+      "shutdown must wait for the runtime guard and callback to finish"
+    );
+
+    release_tx.send(()).unwrap();
+    runtime_use.join().unwrap().unwrap();
+    done_rx
+      .recv_timeout(Duration::from_secs(1))
+      .expect("shutdown must resume after synchronous runtime use finishes")
+      .unwrap();
+    shutdown.join().unwrap();
+    try_start_async_runtime().unwrap();
+  }
+
+  #[test]
+  fn synchronous_custom_runtime_use_rejects_reentrant_shutdown_and_stopped_access() {
+    ensure_runtime();
+    let _guard = runtime_state_test_guard();
+    try_start_async_runtime().unwrap();
+
+    let error = within_custom_runtime_if_available(|| {
+      Ok::<_, Error>(
+        try_shutdown_async_runtime()
+          .expect_err("shutdown from an entered runtime context must not tear down its guard")
+          .reason,
+      )
+    })
+    .unwrap();
+    assert!(error.contains("inside an AsyncRuntime operation"));
+
+    try_shutdown_async_runtime().unwrap();
+    let error =
+      try_block_on(async {}).expect_err("block_on must not drive a stopped custom runtime");
+    assert!(error.reason.contains("not running"));
+    let error = within_custom_runtime_if_available(|| Ok::<_, Error>(()))
+      .expect_err("runtime entry must not call a stopped custom backend");
+    assert!(error.reason.contains("not running"));
+    try_start_async_runtime().unwrap();
+  }
+
+  #[test]
+  fn lifecycle_hooks_can_use_synchronous_custom_runtime_operations() {
+    ensure_runtime();
+    let _guard = runtime_state_test_guard();
+    try_start_async_runtime().unwrap();
+    USE_SYNCHRONOUS_LIFECYCLE_HOOKS.store(true, Ordering::SeqCst);
+
+    try_shutdown_async_runtime().unwrap();
+    try_start_async_runtime().unwrap();
+
+    USE_SYNCHRONOUS_LIFECYCLE_HOOKS.store(false, Ordering::SeqCst);
+  }
+
+  #[test]
   fn reentrant_shutdown_during_task_submission_returns_an_error() {
     let _guard = runtime_state_test_guard();
     let submission =
-      RuntimeSubmissionPermit::acquire().expect("submission gate must be open for the test");
+      RuntimeUsePermit::acquire().expect("submission gate must be open for the test");
 
     let error =
       close_runtime_submissions().expect_err("reentrant shutdown must fail instead of deadlocking");
 
-    assert!(error.reason.contains("inside AsyncRuntime::spawn"));
+    assert!(error.reason.contains("inside an AsyncRuntime operation"));
     drop(submission);
     close_runtime_submissions().unwrap();
     open_runtime_submissions();
@@ -3052,7 +3247,7 @@ mod tests {
       .unwrap_or_else(std::sync::PoisonError::into_inner)
       .take()
       .expect("the backend must observe a lifecycle error");
-    assert!(error.contains("inside AsyncRuntime::spawn"));
+    assert!(error.contains("inside an AsyncRuntime operation"));
     try_shutdown_async_runtime().unwrap();
     open_runtime_submissions();
   }
@@ -3079,7 +3274,7 @@ mod tests {
   fn submission_hook_does_not_wait_for_concurrent_lifecycle_transition() {
     let _guard = runtime_state_test_guard();
     let submission =
-      RuntimeSubmissionPermit::acquire().expect("submission gate must be open for the test");
+      RuntimeUsePermit::acquire().expect("submission gate must be open for the test");
     let previous_state = {
       let mut lifecycle = runtime_lifecycle();
       let previous = lifecycle.state;
@@ -3099,6 +3294,28 @@ mod tests {
     }
     drop(submission);
     assert!(error.reason.contains("runtime hook"));
+  }
+
+  #[test]
+  fn synchronous_runtime_use_rejects_a_transition_before_the_gate_closes() {
+    let _guard = runtime_state_test_guard();
+    let previous_state = {
+      let mut lifecycle = runtime_lifecycle();
+      let previous = lifecycle.state;
+      lifecycle.state = RuntimeLifecycleState::Starting;
+      previous
+    };
+
+    let rejected = RuntimeUsePermit::acquire_synchronous().is_none();
+
+    let mut lifecycle = runtime_lifecycle();
+    lifecycle.state = previous_state;
+    RUNTIME_LIFECYCLE.1.notify_all();
+    drop(lifecycle);
+    assert!(
+      rejected,
+      "external synchronous work must reject as soon as a transition starts"
+    );
   }
 
   struct EnvTasksLockProbe {
@@ -3365,6 +3582,15 @@ mod combined_feature_tests {
     }
   }
 
+  struct PanicOnDropProbe(Arc<AtomicUsize>);
+
+  impl Drop for PanicOnDropProbe {
+    fn drop(&mut self) {
+      self.0.fetch_add(1, Ordering::SeqCst);
+      panic!("combined helper captured destructor panic");
+    }
+  }
+
   #[test]
   fn retirement_spawn_failure_does_not_drop_on_the_teardown_thread() {
     let dropped = Arc::new(AtomicBool::new(false));
@@ -3445,16 +3671,16 @@ mod combined_feature_tests {
     REGISTER.call_once(|| try_create_custom_async_runtime(CombinedRuntime).unwrap());
   }
 
-  fn run_with_timeout(f: impl FnOnce() -> Result<()> + Send + 'static) {
+  fn run_with_timeout(f: impl FnOnce() -> Result<()> + Send + 'static) -> Result<()> {
     let (done_tx, done_rx) = mpsc::channel();
     let thread = std::thread::spawn(move || {
       done_tx.send(f()).unwrap();
     });
-    done_rx
+    let result = done_rx
       .recv_timeout(Duration::from_secs(5))
-      .expect("runtime operation deadlocked")
-      .unwrap();
+      .expect("runtime operation deadlocked");
     thread.join().unwrap();
+    result
   }
 
   fn start_after_retirement() {
@@ -3499,6 +3725,36 @@ mod combined_feature_tests {
     ensure_runtime();
     try_start_async_runtime().unwrap();
     assert!(CUSTOM_RUNNING.load(Ordering::SeqCst));
+
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let runtime_use = std::thread::spawn(move || {
+      try_block_on(async move {
+        entered_tx.send(()).unwrap();
+        release_rx.recv().unwrap();
+      })
+    });
+    entered_rx
+      .recv_timeout(Duration::from_secs(5))
+      .expect("combined synchronous runtime use must start");
+    let (shutdown_done_tx, shutdown_done_rx) = mpsc::channel();
+    let shutdown = std::thread::spawn(move || {
+      shutdown_done_tx.send(try_shutdown_async_runtime()).unwrap();
+    });
+    assert!(
+      shutdown_done_rx
+        .recv_timeout(Duration::from_millis(50))
+        .is_err(),
+      "combined shutdown must wait for admitted synchronous Tokio use"
+    );
+    release_tx.send(()).unwrap();
+    runtime_use.join().unwrap().unwrap();
+    shutdown_done_rx
+      .recv_timeout(Duration::from_secs(5))
+      .expect("combined shutdown must resume after synchronous Tokio use")
+      .unwrap();
+    shutdown.join().unwrap();
+    start_after_retirement();
 
     let handle: tokio::task::JoinHandle<()> = spawn(async {});
     block_on(async {
@@ -3587,6 +3843,10 @@ mod combined_feature_tests {
     }
     assert!(try_block_on(async {}).is_err());
     assert!(
+      within_custom_runtime_if_available(|| Ok::<_, Error>(())).is_err(),
+      "generated custom-runtime entry must reject external work during shutdown"
+    );
+    assert!(
       std::panic::catch_unwind(|| spawn(async {})).is_err(),
       "infallible free helpers must reject external work during shutdown"
     );
@@ -3644,6 +3904,10 @@ mod combined_feature_tests {
     }
     assert!(try_block_on(async {}).is_err());
     assert!(
+      within_custom_runtime_if_available(|| Ok::<_, Error>(())).is_err(),
+      "generated custom-runtime entry must reject external work during startup"
+    );
+    assert!(
       std::panic::catch_unwind(|| spawn(async {})).is_err(),
       "infallible free helpers must reject external work during startup"
     );
@@ -3661,22 +3925,39 @@ mod combined_feature_tests {
       .unwrap();
     start.join().unwrap();
 
-    run_with_timeout(|| {
-      try_within_runtime_if_available(try_shutdown_async_runtime)??;
-      Ok(())
-    });
+    let error = run_with_timeout(|| try_within_runtime_if_available(try_shutdown_async_runtime)?)
+      .expect_err("shutdown from within a combined runtime guard must be rejected");
+    assert!(error.reason.contains("inside an AsyncRuntime operation"));
+    try_shutdown_async_runtime().unwrap();
     start_after_retirement();
 
-    run_with_timeout(|| {
-      try_block_on(async { try_shutdown_async_runtime() })??;
-      Ok(())
-    });
+    let error = run_with_timeout(|| try_block_on(async { try_shutdown_async_runtime() })?)
+      .expect_err("shutdown from combined block_on must be rejected");
+    assert!(error.reason.contains("inside an AsyncRuntime operation"));
+    try_shutdown_async_runtime().unwrap();
 
-    let error = std::panic::catch_unwind(|| spawn(async {}))
-      .expect_err("free helpers must not implicitly restart Tokio after shutdown");
+    let spawn_drops = Arc::new(AtomicUsize::new(0));
+    let captured = PanicOnDropProbe(Arc::clone(&spawn_drops));
+    let error = std::panic::catch_unwind(AssertUnwindSafe(|| {
+      spawn(async move {
+        drop(captured);
+      })
+    }))
+    .expect_err("free helpers must not implicitly restart Tokio after shutdown");
     assert!(crate::bindgen_runtime::panic_to_error(error)
       .reason
       .contains("not running"));
+    assert_eq!(spawn_drops.load(Ordering::SeqCst), 1);
+
+    let blocking_drops = Arc::new(AtomicUsize::new(0));
+    let captured = PanicOnDropProbe(Arc::clone(&blocking_drops));
+    let error =
+      std::panic::catch_unwind(AssertUnwindSafe(|| spawn_blocking(move || drop(captured))))
+        .expect_err("spawn_blocking must reject work after combined shutdown");
+    assert!(crate::bindgen_runtime::panic_to_error(error)
+      .reason
+      .contains("not running"));
+    assert_eq!(blocking_drops.load(Ordering::SeqCst), 1);
     start_after_retirement();
   }
 }

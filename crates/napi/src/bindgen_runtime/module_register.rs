@@ -882,7 +882,7 @@ fn rollback_runtime_env(
 unsafe extern "C" fn thread_cleanup(
   env: sys::napi_env,
   data: *mut std::ffi::c_void,
-  _data: *mut std::ffi::c_void,
+  _finalize_hint: *mut std::ffi::c_void,
 ) {
   let cleanup = unsafe { Box::from_raw(data.cast::<RuntimeEnvCleanup>()) };
   debug_assert_eq!(cleanup.env, env);

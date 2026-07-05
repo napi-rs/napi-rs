@@ -11,7 +11,7 @@ use std::{
 
 use futures::task::{waker_ref, ArcWake};
 use napi::bindgen_prelude::{
-  block_on, create_custom_async_runtime, try_shutdown_async_runtime, try_start_async_runtime,
+  create_custom_async_runtime, try_block_on, try_shutdown_async_runtime, try_start_async_runtime,
   AsyncRuntime, AsyncRuntimeGuard, AsyncRuntimeTask, Env, Error, PromiseRaw, Result, Status,
 };
 use napi_derive::napi;
@@ -366,21 +366,21 @@ pub fn runtime_context_add(value: u32) -> u32 {
 }
 
 #[napi]
-pub fn block_on_value(value: u32) -> u32 {
-  block_on(async move {
+pub fn block_on_value(value: u32) -> Result<u32> {
+  try_block_on(async move {
     yield_once().await;
     value + 1
   })
 }
 
 #[napi]
-pub fn start_runtime() {
-  try_start_async_runtime().expect("test runtime must restart");
+pub fn start_runtime() -> Result<()> {
+  try_start_async_runtime()
 }
 
 #[napi]
-pub fn shutdown_runtime() {
-  try_shutdown_async_runtime().expect("test runtime must shut down");
+pub fn shutdown_runtime() -> Result<()> {
+  try_shutdown_async_runtime()
 }
 
 #[napi]
