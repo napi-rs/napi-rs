@@ -1364,10 +1364,13 @@ pub fn try_shutdown_async_runtime() -> Result<()> {
     }
     let call_custom_shutdown = {
       let mut lifecycle = wait_for_runtime_transition(runtime_lifecycle())?;
-      let call_custom_shutdown = matches!(
-        lifecycle.state,
-        RuntimeLifecycleState::Running | RuntimeLifecycleState::ShutdownFailed
-      );
+      let call_custom_shutdown = CUSTOM_ASYNC_RUNTIME.get().is_some()
+        && matches!(
+          lifecycle.state,
+          RuntimeLifecycleState::Stopped
+            | RuntimeLifecycleState::Running
+            | RuntimeLifecycleState::ShutdownFailed
+        );
       lifecycle.state = RuntimeLifecycleState::Stopping;
       call_custom_shutdown
     };
@@ -3032,6 +3035,7 @@ mod tests {
     }
     let spawn_calls = BACKEND_SPAWN_CALLS.load(Ordering::SeqCst);
     let blocking_calls = BACKEND_BLOCKING_CALLS.load(Ordering::SeqCst);
+    let shutdown_calls = BACKEND_SHUTDOWN_CALLS.load(Ordering::SeqCst);
 
     assert_eq!(
       futures::executor::block_on(spawn(async { 42 })).unwrap(),
@@ -3055,7 +3059,12 @@ mod tests {
       "custom runtime entry must wait until the backend has started"
     );
 
-    close_runtime_submissions().unwrap();
+    try_shutdown_async_runtime().unwrap();
+    assert_eq!(
+      BACKEND_SHUTDOWN_CALLS.load(Ordering::SeqCst),
+      shutdown_calls + 1,
+      "explicit shutdown must clean up work accepted before the backend starts"
+    );
     assert!(futures::executor::block_on(spawn(async { 44 }))
       .unwrap_err()
       .is_cancelled());
