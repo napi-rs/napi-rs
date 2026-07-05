@@ -840,7 +840,7 @@ jobs:
       - name: Test
         run: node examples/custom-async-runtime/test.mjs native
 
-  test-custom-async-runtime-wasi:
+  check-custom-async-runtime-wasi:
     runs-on: ubuntu-latest
     name: Check custom async runtime on WASI without noop
     timeout-minutes: 10
@@ -1024,7 +1024,7 @@ jobs:
       - check-all-features
       - test-freebsd
       - test-custom-async-runtime-native
-      - test-custom-async-runtime-wasi
+      - check-custom-async-runtime-wasi
       - test-async-runtime-spi
       - test-node-wasi
       - test-latest-bun
