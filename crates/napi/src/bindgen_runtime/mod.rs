@@ -63,6 +63,14 @@ pub(crate) unsafe extern "C" fn raw_finalize_unchecked<T: ObjectFinalize>(
   _finalize_hint: *mut c_void,
 ) {
   let data: Box<T> = unsafe { Box::from_raw(finalize_data.cast()) };
+  unsafe { finalize_object(env, *data, finalize_data) };
+}
+
+pub(crate) unsafe fn finalize_object<T: ObjectFinalize>(
+  env: sys::napi_env,
+  data: T,
+  finalize_data: *mut c_void,
+) {
   if let Err(err) = data.finalize(Env::from_raw(env)) {
     let e: JsError = err.into();
     unsafe { e.throw_into(env) };

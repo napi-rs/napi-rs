@@ -39,6 +39,25 @@ pub struct Reference<T: 'static> {
   finalize_callbacks: Arc<Cell<*mut dyn FnOnce()>>,
 }
 
+pub(crate) fn add_ref(
+  env: crate::sys::napi_env,
+  key: *mut c_void,
+  wrapped_value: *mut c_void,
+  napi_ref: crate::sys::napi_ref,
+  finalize_callbacks: *const Cell<*mut dyn FnOnce()>,
+) {
+  REFERENCE_MAP.with(|cell| {
+    cell.borrow_mut(|map| {
+      if let Some((_, previous_ref, previous_callbacks)) =
+        map.insert(key, (wrapped_value, napi_ref, finalize_callbacks))
+      {
+        unsafe { Arc::from_raw(previous_callbacks) };
+        unsafe { crate::sys::napi_delete_reference(env, previous_ref) };
+      }
+    })
+  });
+}
+
 unsafe impl<T: Sync> Sync for Reference<T> {}
 
 impl<T> Drop for Reference<T> {
@@ -69,14 +88,7 @@ impl<T: 'static> Reference<T> {
   #[doc(hidden)]
   #[allow(clippy::not_unsafe_ptr_arg_deref)]
   pub fn add_ref(env: crate::sys::napi_env, t: *mut c_void, value: RefInformation) {
-    REFERENCE_MAP.with(|cell| {
-      cell.borrow_mut(|map| {
-        if let Some((_, previous_ref, previous_rc)) = map.insert(t, value) {
-          unsafe { Arc::from_raw(previous_rc) };
-          unsafe { crate::sys::napi_delete_reference(env, previous_ref) };
-        }
-      })
-    });
+    add_ref(env, t, value.0, value.1, value.2);
   }
 
   #[doc(hidden)]

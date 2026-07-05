@@ -397,13 +397,11 @@ impl NapiStruct {
           val: #name
         ) -> napi::Result<napi::bindgen_prelude::sys::napi_value> {
           if let Some(ctor_ref) = napi::__private::get_class_constructor(#js_name_str) {
-            let mut wrapped_value = Box::into_raw(Box::new(val));
-            if wrapped_value as usize == 0x1 {
-              wrapped_value = Box::into_raw(Box::new(0u8)).cast();
-            }
-            let instance_value = napi::bindgen_prelude::new_instance::<#name>(env, wrapped_value.cast(), ctor_ref)?;
+            let (instance_value, wrapped_value) =
+              napi::bindgen_prelude::new_instance_with_owned_value::<#name>(env, val, ctor_ref)?;
             #iterator_implementation
             #async_iterator_implementation
+            let _ = wrapped_value;
             Ok(instance_value)
           } else {
             Err(napi::bindgen_prelude::Error::new(
@@ -421,8 +419,8 @@ impl NapiStruct {
          {
           if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name_str) {
             unsafe {
-              let wrapped_value = Box::into_raw(Box::new(self));
-              let instance_value = napi::bindgen_prelude::new_instance::<#name>(env.raw(), wrapped_value as *mut _ as *mut std::ffi::c_void, ctor_ref)?;
+              let (instance_value, wrapped_value) =
+                napi::bindgen_prelude::new_instance_with_owned_value::<#name>(env.raw(), self, ctor_ref)?;
               Ok(napi::bindgen_prelude::ClassInstance::new(instance_value, env.raw(), wrapped_value))
             }
           } else {
@@ -435,11 +433,8 @@ impl NapiStruct {
         fn into_reference(self, env: napi::Env) -> napi::Result<napi::bindgen_prelude::Reference<Self>> {
           if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor(#js_name_str) {
             unsafe {
-              let mut wrapped_value = Box::into_raw(Box::new(self));
-              if wrapped_value as usize == 0x1 {
-                wrapped_value = Box::into_raw(Box::new(0u8)).cast();
-              }
-              let instance_value = napi::bindgen_prelude::new_instance::<#name>(env.raw(), wrapped_value.cast(), ctor_ref)?;
+              let (instance_value, wrapped_value) =
+                napi::bindgen_prelude::new_instance_with_owned_value::<#name>(env.raw(), self, ctor_ref)?;
               {
                 let env = env.raw();
                 #iterator_implementation
