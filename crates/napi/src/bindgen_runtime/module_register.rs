@@ -7,6 +7,12 @@ use std::ffi::CStr;
 use std::mem::MaybeUninit;
 #[cfg(not(feature = "noop"))]
 use std::ptr;
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "tokio_rt", feature = "async-runtime"),
+  feature = "napi4"
+))]
+use std::sync::Mutex;
 #[cfg(all(not(feature = "noop"), feature = "node_version_detect"))]
 use std::sync::OnceLock;
 #[cfg(not(feature = "noop"))]
@@ -119,11 +125,11 @@ static MODULE_COUNT: AtomicUsize = AtomicUsize::new(0);
 #[cfg(not(feature = "noop"))]
 static FIRST_MODULE_REGISTERED: AtomicBool = AtomicBool::new(false);
 #[cfg(all(
+  not(feature = "noop"),
   any(feature = "tokio_rt", feature = "async-runtime"),
-  not(target_family = "wasm"),
-  not(feature = "noop")
+  feature = "napi4"
 ))]
-static ENV_CLEANUP_HOOK_ADDED: RwLock<bool> = RwLock::new(false);
+static RUNTIME_MODULE_LOCK: Mutex<()> = Mutex::new(());
 thread_local! {
   static REGISTERED_CLASSES: LazyCell<RegisteredClasses> = LazyCell::new(Default::default);
 }
@@ -352,8 +358,83 @@ pub unsafe extern "C" fn napi_register_module_v1(
     });
   }
 
-  if MODULE_COUNT.fetch_add(1, Ordering::SeqCst) != 0 {
+  if let Err(error) = crate::sendable_resolver::register_resolver_env(env) {
+    JsError::from(error).throw_into(env);
+    return exports;
+  }
+
+  if increment_module_count() != 0 {
     wait_first_thread_registered();
+  }
+
+  #[cfg(all(
+    any(feature = "tokio_rt", feature = "async-runtime"),
+    feature = "napi4"
+  ))]
+  let _runtime_cleanup = {
+    let cleanup_data = Box::into_raw(Box::new(RuntimeEnvCleanup {
+      env,
+      active: AtomicBool::new(true),
+    }));
+    #[cfg(not(target_family = "wasm"))]
+    {
+      let status =
+        unsafe { sys::napi_add_env_cleanup_hook(env, Some(thread_cleanup), cleanup_data.cast()) };
+      if status != sys::Status::napi_ok {
+        drop(unsafe { Box::from_raw(cleanup_data) });
+        decrement_runtime_module_count();
+        check_status_or_throw!(env, status, "Failed to add env cleanup hook");
+        FIRST_MODULE_REGISTERED.store(true, Ordering::SeqCst);
+        return exports;
+      }
+    }
+    #[cfg(target_family = "wasm")]
+    {
+      let status = unsafe {
+        sys::napi_wrap(
+          env,
+          exports,
+          cleanup_data.cast(),
+          Some(thread_cleanup),
+          ptr::null_mut(),
+          ptr::null_mut(),
+        )
+      };
+      if status != sys::Status::napi_ok {
+        drop(unsafe { Box::from_raw(cleanup_data) });
+        decrement_runtime_module_count();
+        check_status_or_throw!(env, status, "Failed to add env cleanup finalizer");
+        FIRST_MODULE_REGISTERED.store(true, Ordering::SeqCst);
+        return exports;
+      }
+    }
+
+    #[cfg(feature = "async-runtime")]
+    {
+      crate::tokio_runtime::register_async_runtime_env_tasks(env);
+      if let Err(error) = crate::tokio_runtime::register_async_runtime_env() {
+        rollback_runtime_env(env, exports, cleanup_data);
+        JsError::from(error).throw_into(env);
+        FIRST_MODULE_REGISTERED.store(true, Ordering::SeqCst);
+        return exports;
+      }
+    }
+    #[cfg(all(feature = "tokio_rt", not(feature = "async-runtime")))]
+    if let Err(error) = crate::tokio_runtime::start_tokio_runtime() {
+      rollback_runtime_env(env, exports, cleanup_data);
+      JsError::from(error).throw_into(env);
+      FIRST_MODULE_REGISTERED.store(true, Ordering::SeqCst);
+      return exports;
+    }
+    cleanup_data
+  };
+
+  #[cfg(feature = "async-runtime")]
+  if let Err(error) = crate::tokio_runtime::ensure_async_runtime_ready() {
+    rollback_runtime_env(env, exports, _runtime_cleanup);
+    JsError::from(error).throw_into(env);
+    FIRST_MODULE_REGISTERED.store(true, Ordering::SeqCst);
+    return exports;
   }
 
   // Install the per-env custom-GC handle (#3357) BEFORE running ANY module-init
@@ -569,50 +650,6 @@ pub unsafe extern "C" fn napi_register_module_v1(
     })
   }
 
-  #[cfg(feature = "napi4")]
-  {
-    // NOTE: `create_custom_gc(env)` is intentionally NOT called here. It now runs
-    // earlier in `register` (before any module-init callback) so a value captured
-    // during a hook gets a real per-env handle instead of `None` (#3357).
-    #[cfg(any(feature = "tokio_rt", feature = "async-runtime"))]
-    {
-      crate::tokio_runtime::start_async_runtime();
-      #[cfg(not(target_family = "wasm"))]
-      {
-        let mut env_cleanup_hook_added = ENV_CLEANUP_HOOK_ADDED.write().unwrap();
-        if !*env_cleanup_hook_added {
-          check_status_or_throw!(
-            env,
-            unsafe { sys::napi_add_env_cleanup_hook(env, Some(thread_cleanup), ptr::null_mut()) },
-            "Failed to add env cleanup hook"
-          );
-          *env_cleanup_hook_added = true;
-          drop(env_cleanup_hook_added);
-        }
-      }
-    }
-  }
-
-  #[cfg(all(
-    any(feature = "tokio_rt", feature = "async-runtime"),
-    feature = "napi4",
-    target_family = "wasm"
-  ))]
-  check_status_or_throw!(
-    env,
-    unsafe {
-      sys::napi_wrap(
-        env,
-        exports,
-        std::ptr::null_mut(),
-        Some(thread_cleanup),
-        std::ptr::null_mut(),
-        std::ptr::null_mut(),
-      )
-    },
-    "Failed to add remove thread id cleanup hook"
-  );
-
   FIRST_MODULE_REGISTERED.store(true, Ordering::SeqCst);
   exports
 }
@@ -710,12 +747,124 @@ fn create_custom_gc(env: sys::napi_env) {
   all(
     any(feature = "tokio_rt", feature = "async-runtime"),
     feature = "napi4"
+  )
+))]
+struct RuntimeEnvCleanup {
+  env: sys::napi_env,
+  active: AtomicBool,
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  all(
+    any(feature = "tokio_rt", feature = "async-runtime"),
+    feature = "napi4"
   ),
   not(target_family = "wasm")
 ))]
-unsafe extern "C" fn thread_cleanup(_data: *mut std::ffi::c_void) {
-  if MODULE_COUNT.fetch_sub(1, Ordering::Relaxed) == 1 {
-    crate::tokio_runtime::shutdown_async_runtime();
+unsafe extern "C" fn thread_cleanup(data: *mut std::ffi::c_void) {
+  let cleanup = unsafe { Box::from_raw(data.cast::<RuntimeEnvCleanup>()) };
+  crate::bindgen_runtime::catch_unwind_safely(|| {
+    cleanup_runtime_env(&cleanup);
+  });
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  all(
+    any(feature = "tokio_rt", feature = "async-runtime"),
+    feature = "napi4"
+  )
+))]
+fn cleanup_runtime_env(cleanup: &RuntimeEnvCleanup) {
+  if !cleanup.active.swap(false, Ordering::AcqRel) {
+    return;
+  }
+  let env = cleanup.env;
+  #[cfg(feature = "async-runtime")]
+  {
+    crate::tokio_runtime::cancel_async_runtime_env_tasks(env);
+    if let Err(error) = crate::tokio_runtime::unregister_async_runtime_env() {
+      crate::bindgen_runtime::catch_unwind_safely(|| {
+        eprintln!("Failed to shut down custom async runtime: {error}");
+      });
+    }
+  }
+  crate::sendable_resolver::clear_resolvers_for_env(env);
+  crate::js_values::clear_finalize_callbacks_for_env(env);
+  decrement_runtime_module_count();
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "tokio_rt", feature = "async-runtime"),
+  feature = "napi4"
+))]
+fn increment_module_count() -> usize {
+  let _guard = RUNTIME_MODULE_LOCK
+    .lock()
+    .unwrap_or_else(std::sync::PoisonError::into_inner);
+  MODULE_COUNT.fetch_add(1, Ordering::AcqRel)
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  not(all(
+    any(feature = "tokio_rt", feature = "async-runtime"),
+    feature = "napi4"
+  ))
+))]
+fn increment_module_count() -> usize {
+  MODULE_COUNT.fetch_add(1, Ordering::AcqRel)
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "tokio_rt", feature = "async-runtime"),
+  feature = "napi4"
+))]
+fn decrement_runtime_module_count() {
+  let _guard = RUNTIME_MODULE_LOCK
+    .lock()
+    .unwrap_or_else(std::sync::PoisonError::into_inner);
+  if MODULE_COUNT.fetch_sub(1, Ordering::AcqRel) == 1 {
+    #[cfg(all(feature = "tokio_rt", not(feature = "async-runtime")))]
+    if let Err(error) = crate::tokio_runtime::shutdown_tokio_runtime() {
+      crate::bindgen_runtime::catch_unwind_safely(|| {
+        eprintln!("Failed to shut down Tokio runtime: {error}");
+      });
+    }
+  }
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "tokio_rt", feature = "async-runtime"),
+  feature = "napi4"
+))]
+fn rollback_runtime_env(
+  env: sys::napi_env,
+  _exports: sys::napi_value,
+  cleanup_data: *mut RuntimeEnvCleanup,
+) {
+  cleanup_runtime_env(unsafe { &*cleanup_data });
+
+  #[cfg(not(target_family = "wasm"))]
+  {
+    let status =
+      unsafe { sys::napi_remove_env_cleanup_hook(env, Some(thread_cleanup), cleanup_data.cast()) };
+    if status == sys::Status::napi_ok {
+      drop(unsafe { Box::from_raw(cleanup_data) });
+    }
+  }
+
+  #[cfg(target_family = "wasm")]
+  {
+    let mut removed = ptr::null_mut();
+    let status = unsafe { sys::napi_remove_wrap(env, _exports, &mut removed) };
+    if status == sys::Status::napi_ok && removed == cleanup_data.cast() {
+      drop(unsafe { Box::from_raw(removed.cast::<RuntimeEnvCleanup>()) });
+    }
   }
 }
 
@@ -728,13 +877,15 @@ unsafe extern "C" fn thread_cleanup(_data: *mut std::ffi::c_void) {
   target_family = "wasm"
 ))]
 unsafe extern "C" fn thread_cleanup(
-  _env: sys::napi_env,
-  _id: *mut std::ffi::c_void,
+  env: sys::napi_env,
+  data: *mut std::ffi::c_void,
   _data: *mut std::ffi::c_void,
 ) {
-  if MODULE_COUNT.fetch_sub(1, Ordering::Relaxed) == 1 {
-    crate::tokio_runtime::shutdown_async_runtime();
-  }
+  let cleanup = unsafe { Box::from_raw(data.cast::<RuntimeEnvCleanup>()) };
+  debug_assert_eq!(cleanup.env, env);
+  crate::bindgen_runtime::catch_unwind_safely(|| {
+    cleanup_runtime_env(&cleanup);
+  });
 }
 
 #[cfg(all(feature = "napi4", not(feature = "noop")))]

@@ -39,20 +39,18 @@
 //!
 //! The `async-runtime` feature lets an addon register its own executor through
 //! [`create_custom_async_runtime`](crate::bindgen_prelude::create_custom_async_runtime).
-//! It takes precedence over `tokio_rt` when Cargo feature unification enables
-//! both: an `async-runtime` build contains no built-in tokio runtime at all, so nothing can
-//! lazily materialize a second scheduler behind the registered backend's back. This is
-//! useful for applications that need one scheduler across NAPI futures and domain-specific
-//! CPU work, or a cooperative executor on non-threaded WebAssembly hosts. The feature no
-//! longer pulls in tokio; a pure `async-runtime` build is tokio-free (enable the `tokio`
-//! feature explicitly if you still want the `napi::tokio` re-export).
+//! Generated JavaScript-facing futures use it even when Cargo feature unification also enables
+//! `tokio_rt`. In that combined build, the established free Tokio helper APIs retain their
+//! Tokio return types and runtime; a pure `async-runtime` build remains tokio-free (enable the
+//! `tokio` feature explicitly if you still want the `napi::tokio` re-export). This is useful
+//! for applications that need one scheduler across NAPI futures and domain-specific CPU work,
+//! or a cooperative executor on non-threaded WebAssembly hosts.
 //!
-//! The free functions `spawn` and `spawn_blocking` are part of the
-//! [`AsyncRuntime`](crate::bindgen_prelude::AsyncRuntime) contract: `spawn` returns a
-//! napi-owned joinable `JoinHandle` manufactured over the trait's detached `spawn` hook, and
-//! `spawn_blocking` routes through the trait's optional `spawn_blocking` hook, falling back
-//! to a plain dedicated thread when the backend declines. Under the `noop` feature neither
-//! helper is compiled at all.
+//! In a pure `async-runtime` build, `spawn` returns a napi-owned joinable handle over the
+//! [`AsyncRuntime`](crate::bindgen_prelude::AsyncRuntime) submission hook and
+//! `spawn_blocking` completes its handle as cancelled when the backend declines. napi does
+//! not create an unbounded fallback thread. Under the `noop` feature neither helper is
+//! compiled.
 //!
 //! ### latin1
 //!
@@ -202,6 +200,17 @@ pub mod bindgen_prelude {
     feature = "napi4"
   )))]
   pub fn within_runtime_if_available<F: FnOnce() -> T, T>(f: F) -> T {
+    f()
+  }
+
+  #[doc(hidden)]
+  #[cfg(not(all(
+    any(feature = "tokio_rt", feature = "async-runtime"),
+    feature = "napi4"
+  )))]
+  pub fn within_custom_runtime_if_available<F: FnOnce() -> crate::Result<T>, T>(
+    f: F,
+  ) -> crate::Result<T> {
     f()
   }
 }

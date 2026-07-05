@@ -11,8 +11,8 @@ use std::{
 
 use futures::task::{waker_ref, ArcWake};
 use napi::bindgen_prelude::{
-  block_on, create_custom_async_runtime, shutdown_async_runtime, start_async_runtime, AsyncRuntime,
-  AsyncRuntimeGuard, Env, Error, PromiseRaw, Result, Status,
+  block_on, create_custom_async_runtime, try_shutdown_async_runtime, try_start_async_runtime,
+  AsyncRuntime, AsyncRuntimeGuard, AsyncRuntimeTask, Env, Error, PromiseRaw, Result, Status,
 };
 use napi_derive::napi;
 
@@ -22,6 +22,7 @@ static RUNTIME_STATE: OnceLock<Arc<RuntimeState>> = OnceLock::new();
 struct RuntimeState {
   queue: Mutex<VecDeque<Arc<Task>>>,
   draining: AtomicBool,
+  accepting: AtomicBool,
   start_calls: AtomicUsize,
   shutdown_calls: AtomicUsize,
   enter_calls: AtomicUsize,
@@ -124,15 +125,19 @@ struct TestRuntime {
 }
 
 impl AsyncRuntime for TestRuntime {
-  fn spawn(&self, future: Pin<Box<dyn Future<Output = ()> + Send + 'static>>) {
+  fn spawn(&self, task: AsyncRuntimeTask) -> std::result::Result<(), AsyncRuntimeTask> {
+    if !self.state.accepting.load(Ordering::Acquire) {
+      return Err(task);
+    }
     self.state.spawn_calls.fetch_add(1, Ordering::Relaxed);
     let task = Arc::new(Task {
-      future: Mutex::new(Some(future)),
+      future: Mutex::new(Some(Box::pin(task))),
       runtime: Arc::downgrade(&self.state),
       queued: AtomicBool::new(false),
     });
     self.state.enqueue(task);
     self.state.drain();
+    Ok(())
   }
 
   fn block_on(&self, mut future: Pin<&mut dyn Future<Output = ()>>) {
@@ -169,12 +174,23 @@ impl AsyncRuntime for TestRuntime {
     })
   }
 
-  fn start(&self) {
+  fn start(&self) -> Result<()> {
+    #[cfg(not(target_family = "wasm"))]
+    if std::env::var_os("NAPI_CUSTOM_RUNTIME_TEST_START_ERROR").is_some() {
+      return Err(Error::new(
+        Status::GenericFailure,
+        "injected custom runtime start error",
+      ));
+    }
+    self.state.accepting.store(true, Ordering::Release);
     self.state.start_calls.fetch_add(1, Ordering::Relaxed);
+    Ok(())
   }
 
-  fn shutdown(&self) {
+  fn shutdown(&self) -> Result<()> {
+    self.state.accepting.store(false, Ordering::Release);
     self.state.shutdown_calls.fetch_add(1, Ordering::Relaxed);
+    Ok(())
   }
 }
 
@@ -237,7 +253,19 @@ fn init() {
     RUNTIME_STATE.set(state.clone()).is_ok(),
     "Custom async runtime was initialized more than once"
   );
-  create_custom_async_runtime(TestRuntime { state });
+  #[cfg(not(target_family = "wasm"))]
+  if std::env::var_os("NAPI_CUSTOM_RUNTIME_TEST_MISSING").is_some() {
+    return;
+  }
+
+  create_custom_async_runtime(TestRuntime {
+    state: state.clone(),
+  });
+
+  #[cfg(not(target_family = "wasm"))]
+  if std::env::var_os("NAPI_CUSTOM_RUNTIME_TEST_DUPLICATE").is_some() {
+    create_custom_async_runtime(TestRuntime { state });
+  }
 }
 
 #[napi(object)]
@@ -314,6 +342,11 @@ pub async fn async_panic_string(value: u32) {
 }
 
 #[napi]
+pub async fn async_never() {
+  std::future::pending::<()>().await;
+}
+
+#[napi]
 pub fn spawn_future<'env>(env: &'env Env, value: u32) -> Result<PromiseRaw<'env, u32>> {
   env.spawn_future(async move {
     yield_once().await;
@@ -326,6 +359,12 @@ pub fn runtime_context_is_active() -> bool {
   state().active_guards.load(Ordering::Relaxed) > 0
 }
 
+#[napi(async_runtime)]
+pub fn runtime_context_add(value: u32) -> u32 {
+  assert!(state().active_guards.load(Ordering::Relaxed) > 0);
+  value + 1
+}
+
 #[napi]
 pub fn block_on_value(value: u32) -> u32 {
   block_on(async move {
@@ -336,12 +375,12 @@ pub fn block_on_value(value: u32) -> u32 {
 
 #[napi]
 pub fn start_runtime() {
-  start_async_runtime();
+  try_start_async_runtime().expect("test runtime must restart");
 }
 
 #[napi]
 pub fn shutdown_runtime() {
-  shutdown_async_runtime();
+  try_shutdown_async_runtime().expect("test runtime must shut down");
 }
 
 #[napi]

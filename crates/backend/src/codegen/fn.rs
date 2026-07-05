@@ -111,7 +111,7 @@ impl TryToTokens for NapiFn {
 
       let native_call = if self.within_async_runtime {
         quote! {
-          napi::bindgen_prelude::within_runtime_if_available(move || {
+          napi::bindgen_prelude::within_custom_runtime_if_available(move || {
             let #receiver_ret_name = {
               #receiver(#(#arg_names),*)
             };
@@ -225,7 +225,7 @@ impl TryToTokens for NapiFn {
     let native_call = if !self.is_async {
       if self.within_async_runtime {
         quote! {
-          napi::bindgen_prelude::within_runtime_if_available(move || {
+          napi::bindgen_prelude::within_custom_runtime_if_available(move || {
             let #receiver_ret_name = {
               #receiver(#(#arg_names),*)
             };

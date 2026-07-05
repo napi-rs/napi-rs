@@ -1,8 +1,14 @@
+use std::cell::RefCell;
+use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::os::raw::c_void;
 use std::ptr;
 use std::{
   marker::PhantomData,
-  sync::{Arc, RwLock},
+  sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc, Mutex,
+  },
+  thread::{self, ThreadId},
 };
 
 #[cfg(feature = "deferred_trace")]
@@ -82,23 +88,133 @@ impl DeferredTrace {
   }
 }
 
-type FinalizeCallback = Arc<RwLock<Option<Box<dyn FnOnce(sys::napi_env)>>>>;
+type FinalizeCallbackId = usize;
+type EnvId = usize;
+type FinalizeCallback = Box<dyn FnOnce(sys::napi_env)>;
+
+struct FinalizeCallbackEntry {
+  #[cfg_attr(feature = "noop", allow(dead_code))]
+  env: EnvId,
+  callback: Option<FinalizeCallback>,
+}
+
+impl Drop for FinalizeCallbackEntry {
+  fn drop(&mut self) {
+    if let Some(callback) = self.callback.take() {
+      crate::bindgen_runtime::catch_unwind_safely(|| drop(callback));
+    }
+  }
+}
+
+thread_local! {
+  static FINALIZE_CALLBACKS: RefCell<HashMap<FinalizeCallbackId, FinalizeCallbackEntry>> =
+    RefCell::new(HashMap::new());
+  static FINALIZE_CLEANUP_ENVS: RefCell<HashSet<EnvId>> = RefCell::new(HashSet::new());
+  static FINALIZE_CLOSING_ENVS: RefCell<HashSet<EnvId>> = RefCell::new(HashSet::new());
+}
+
+static NEXT_FINALIZE_CALLBACK_ID: AtomicUsize = AtomicUsize::new(1);
+
+struct FinalizeCallbackHandle {
+  id: FinalizeCallbackId,
+}
+
+impl FinalizeCallbackHandle {
+  fn new(env: sys::napi_env, callback: FinalizeCallback) -> Self {
+    if FINALIZE_CLOSING_ENVS.with(|envs| envs.borrow().contains(&(env as EnvId))) {
+      crate::bindgen_runtime::catch_unwind_safely(|| drop(callback));
+      return Self { id: 0 };
+    }
+    let mut callback = Some(callback);
+    let id = FINALIZE_CALLBACKS.with(|callbacks| loop {
+      let id = NEXT_FINALIZE_CALLBACK_ID.fetch_add(1, Ordering::Relaxed);
+      if id == 0 {
+        continue;
+      }
+      if let Entry::Vacant(entry) = callbacks.borrow_mut().entry(id) {
+        entry.insert(FinalizeCallbackEntry {
+          env: env as EnvId,
+          callback: callback.take(),
+        });
+        break id;
+      }
+    });
+    Self { id }
+  }
+
+  fn run(self, env: sys::napi_env) {
+    let entry = FINALIZE_CALLBACKS.with(|callbacks| callbacks.borrow_mut().remove(&self.id));
+    if let Some(mut entry) = entry {
+      if let Some(callback) = entry.callback.take() {
+        crate::bindgen_runtime::catch_unwind_safely(|| callback(env));
+      }
+    }
+  }
+}
+
+impl Drop for FinalizeCallbackHandle {
+  fn drop(&mut self) {
+    if let Ok(Some(entry)) =
+      FINALIZE_CALLBACKS.try_with(|callbacks| callbacks.borrow_mut().remove(&self.id))
+    {
+      drop(entry);
+    }
+  }
+}
+
+type SharedFinalizeCallback = Arc<Mutex<Option<FinalizeCallbackHandle>>>;
+
+#[cfg(not(feature = "noop"))]
+fn ensure_finalize_cleanup_hook(env: sys::napi_env) -> Result<()> {
+  if FINALIZE_CLEANUP_ENVS.with(|envs| envs.borrow().contains(&(env as EnvId))) {
+    return Ok(());
+  }
+  #[cfg(not(target_family = "wasm"))]
+  let status =
+    unsafe { sys::napi_add_env_cleanup_hook(env, Some(finalize_callback_env_cleanup), env.cast()) };
+  #[cfg(target_family = "wasm")]
+  let status = unsafe {
+    crate::napi_add_env_cleanup_hook(env, Some(finalize_callback_env_cleanup), env.cast())
+  };
+  check_status!(status, "Add JsDeferred environment cleanup hook failed")?;
+  FINALIZE_CLEANUP_ENVS.with(|envs| {
+    envs.borrow_mut().insert(env as EnvId);
+  });
+  Ok(())
+}
+
+#[cfg(feature = "noop")]
+fn ensure_finalize_cleanup_hook(_env: sys::napi_env) -> Result<()> {
+  Ok(())
+}
+
+#[cfg(not(feature = "noop"))]
+unsafe extern "C" fn finalize_callback_env_cleanup(data: *mut c_void) {
+  let env = data.cast();
+  crate::bindgen_runtime::catch_unwind_safely(|| clear_finalize_callbacks_for_env(env));
+  let _ = FINALIZE_CLEANUP_ENVS.try_with(|envs| {
+    envs.borrow_mut().remove(&(env as EnvId));
+  });
+}
 
 struct DeferredData<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> {
   resolver: Result<Resolver>,
+  rejection_cleanup: Option<Box<dyn FnOnce() + Send>>,
   #[cfg(feature = "deferred_trace")]
   trace: DeferredTrace,
   tsfn: sys::napi_threadsafe_function,
-  finalize_callback: FinalizeCallback,
+  finalize_callback: SharedFinalizeCallback,
 }
 
 pub struct JsDeferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> {
+  env: sys::napi_env,
+  owner_thread: ThreadId,
   pub(crate) tsfn: sys::napi_threadsafe_function,
   #[cfg(feature = "deferred_trace")]
   trace: DeferredTrace,
-  finalize_callback: FinalizeCallback,
-  _data: PhantomData<Data>,
-  _resolver: PhantomData<Resolver>,
+  finalize_callback: SharedFinalizeCallback,
+  _data: PhantomData<fn() -> Data>,
+  _resolver: PhantomData<fn() -> Resolver>,
 }
 
 // A trick to send the resolver into the `panic` handler
@@ -108,6 +224,8 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> Clone
 {
   fn clone(&self) -> Self {
     Self {
+      env: self.env,
+      owner_thread: self.owner_thread,
       tsfn: self.tsfn,
       #[cfg(feature = "deferred_trace")]
       trace: self.trace.clone(),
@@ -118,16 +236,22 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> Clone
   }
 }
 
-unsafe impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> Send
+// SAFETY: a JsDeferred owns only a Node threadsafe-function handle and Send callback state.
+// Data and Resolver are represented by non-owning function-pointer markers. Resolution data is
+// transferred through napi_call_threadsafe_function only after the Resolver satisfies Send.
+unsafe impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data> + Send> Send
   for JsDeferred<Data, Resolver>
 {
 }
 
 impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, Resolver> {
   pub(crate) fn new(env: &Env) -> Result<(Self, Object<'_>)> {
+    ensure_finalize_cleanup_hook(env.0)?;
     let (tsfn, promise) = js_deferred_new_raw(env, Some(napi_resolve_deferred::<Data, Resolver>))?;
 
     let deferred = Self {
+      env: env.0,
+      owner_thread: thread::current().id(),
       tsfn,
       #[cfg(feature = "deferred_trace")]
       trace: DeferredTrace::new(env.0)?,
@@ -142,25 +266,47 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
   /// Consumes the deferred, and resolves the promise. The provided function will be called
   /// from the JavaScript thread, and should return the resolved value.
   pub fn resolve(self, resolver: Resolver) {
-    self.call_tsfn(Ok(resolver))
+    self.call_tsfn(Ok(resolver), None)
   }
 
   /// Consumes the deferred, and rejects the promise with the provided error.
   pub fn reject(self, error: Error) {
-    self.call_tsfn(Err(error))
+    self.call_tsfn(Err(error), None)
   }
 
-  #[allow(clippy::arc_with_non_send_sync)]
+  #[cfg(all(
+    any(feature = "tokio_rt", feature = "async-runtime"),
+    not(feature = "noop")
+  ))]
+  pub(crate) fn reject_with_cleanup(self, error: Error, cleanup: impl FnOnce() + Send + 'static) {
+    self.call_tsfn(Err(error), Some(Box::new(cleanup)))
+  }
+
+  /// Set a callback to run on the JavaScript owner thread after settlement.
+  ///
+  /// This must be called on the thread that created the deferred.
   pub fn set_finalize_callback(
     &mut self,
     finalize_callback: Option<Box<dyn FnOnce(sys::napi_env)>>,
   ) {
-    self.finalize_callback = Arc::new(RwLock::new(finalize_callback));
+    assert_eq!(
+      self.owner_thread,
+      thread::current().id(),
+      "JsDeferred finalize callbacks must be registered on their JavaScript owner thread"
+    );
+    self.finalize_callback = Arc::new(Mutex::new(
+      finalize_callback.map(|callback| FinalizeCallbackHandle::new(self.env, callback)),
+    ));
   }
 
-  fn call_tsfn(self, result: Result<Resolver>) {
+  fn call_tsfn(
+    self,
+    result: Result<Resolver>,
+    rejection_cleanup: Option<Box<dyn FnOnce() + Send>>,
+  ) {
     let data = DeferredData {
       resolver: result,
+      rejection_cleanup,
       #[cfg(feature = "deferred_trace")]
       trace: self.trace,
       tsfn: self.tsfn,
@@ -168,17 +314,21 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
     };
 
     // Call back into the JS thread via a threadsafe function. This results in napi_resolve_deferred being called.
+    let data = Box::into_raw(Box::new(data));
     let status = unsafe {
       sys::napi_call_threadsafe_function(
         self.tsfn,
-        Box::into_raw(Box::from(data)).cast(),
+        data.cast(),
         sys::ThreadsafeFunctionCallMode::blocking,
       )
     };
-    debug_assert!(
-      status == sys::Status::napi_ok,
-      "Call threadsafe function in JsDeferred failed"
-    );
+    if status != sys::Status::napi_ok {
+      // Node did not take ownership, most commonly because the environment is closing.
+      // Reclaim scheduler-owned data here. JS-thread-owned resolver closures are represented
+      // by SendableResolver handles and are cleared by the per-environment cleanup hook.
+      let data = unsafe { Box::from_raw(data) };
+      crate::bindgen_runtime::catch_unwind_safely(|| drop(data));
+    }
   }
 }
 
@@ -238,16 +388,49 @@ extern "C" fn napi_resolve_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> 
   context: *mut c_void,
   data: *mut c_void,
 ) {
+  crate::bindgen_runtime::catch_unwind_safely(|| {
+    napi_resolve_deferred_inner::<Data, Resolver>(env, context, data);
+  });
+}
+
+fn napi_resolve_deferred_inner<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>>(
+  env: sys::napi_env,
+  context: *mut c_void,
+  data: *mut c_void,
+) {
   let deferred = context.cast();
   let deferred_data: Box<DeferredData<Data, Resolver>> = unsafe { Box::from_raw(data.cast()) };
-  let tsfn: *mut napi_sys::napi_threadsafe_function__ = deferred_data.tsfn;
-  let finalize_callback = RwLock::write(&deferred_data.finalize_callback)
-    .expect("RwLock Poison")
+  if env.is_null() {
+    // Node invokes TSFN callbacks with a null environment while aborting a closing
+    // environment. The payload is Send and may be reclaimed here; JS-thread-owned resolver
+    // entries are removed by the environment cleanup hook.
+    crate::bindgen_runtime::catch_unwind_safely(|| drop(deferred_data));
+    return;
+  }
+  let DeferredData {
+    resolver,
+    rejection_cleanup,
+    #[cfg(feature = "deferred_trace")]
+    trace,
+    tsfn,
+    finalize_callback,
+  } = *deferred_data;
+  let finalize_callback = finalize_callback
+    .lock()
+    .unwrap_or_else(std::sync::PoisonError::into_inner)
     .take();
-  let result = deferred_data
-    .resolver
-    .and_then(|resolver| resolver(Env::from_raw(env)))
-    .and_then(|res| unsafe { ToNapiValue::to_napi_value(env, res) });
+  if resolver.is_err() {
+    if let Some(rejection_cleanup) = rejection_cleanup {
+      crate::bindgen_runtime::catch_unwind_safely(rejection_cleanup);
+    }
+  }
+  let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    resolver
+      .and_then(|resolver| resolver(Env::from_raw(env)))
+      .and_then(|res| unsafe { ToNapiValue::to_napi_value(env, res) })
+  }))
+  .map_err(crate::bindgen_runtime::panic_to_error)
+  .and_then(|result| result);
 
   let release_tsfn_result = check_status!(
     unsafe {
@@ -264,7 +447,7 @@ extern "C" fn napi_resolve_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> 
     .map(|_| {
       #[cfg(feature = "deferred_trace")]
       {
-        let _status = unsafe { sys::napi_delete_reference(env, deferred_data.trace.0) };
+        let _status = unsafe { sys::napi_delete_reference(env, trace.0) };
         if _status != sys::Status::napi_ok && cfg!(debug_assertions) {
           eprintln!(
             "Failed to delete reference in deferred {}",
@@ -275,21 +458,17 @@ extern "C" fn napi_resolve_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> 
     })
   }) {
     #[cfg(feature = "deferred_trace")]
-    let error = deferred_data.trace.into_rejected(env, e);
+    let error = trace.into_rejected(env, e);
     #[cfg(not(feature = "deferred_trace"))]
     let error = Ok::<sys::napi_value, Error>(unsafe { crate::JsError::from(e).into_value(env) });
 
     match error {
       Ok(error) => {
         unsafe { sys::napi_reject_deferred(env, deferred, error) };
-        if let Some(finalize_callback) = finalize_callback {
-          finalize_callback(env);
-        }
+        run_finalize_callback(finalize_callback, env);
       }
       Err(err) => {
-        if let Some(finalize_callback) = finalize_callback {
-          finalize_callback(env);
-        }
+        run_finalize_callback(finalize_callback, env);
         if cfg!(debug_assertions) {
           eprintln!("Failed to reject deferred: {err:?}");
           let mut err = ptr::null_mut();
@@ -302,7 +481,131 @@ extern "C" fn napi_resolve_deferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> 
         }
       }
     }
-  } else if let Some(finalize_callback) = finalize_callback {
-    finalize_callback(env);
+  } else {
+    run_finalize_callback(finalize_callback, env);
+  }
+}
+
+fn run_finalize_callback(finalize_callback: Option<FinalizeCallbackHandle>, env: sys::napi_env) {
+  if let Some(finalize_callback) = finalize_callback {
+    finalize_callback.run(env);
+  }
+}
+
+#[cfg_attr(feature = "noop", allow(dead_code))]
+pub(crate) fn clear_finalize_callbacks_for_env(env: sys::napi_env) {
+  FINALIZE_CLOSING_ENVS.with(|envs| {
+    envs.borrow_mut().insert(env as EnvId);
+  });
+  let entries = FINALIZE_CALLBACKS.with(|callbacks| {
+    let mut callbacks = callbacks.borrow_mut();
+    let ids = callbacks
+      .iter()
+      .filter_map(|(id, entry)| (entry.env == env as EnvId).then_some(*id))
+      .collect::<Vec<_>>();
+    ids
+      .into_iter()
+      .filter_map(|id| callbacks.remove(&id))
+      .collect::<Vec<_>>()
+  });
+  drop(entries);
+  FINALIZE_CLOSING_ENVS.with(|envs| {
+    envs.borrow_mut().remove(&(env as EnvId));
+  });
+}
+
+#[cfg(test)]
+mod tests {
+  use std::{
+    cell::Cell,
+    rc::Rc,
+    thread::{self, ThreadId},
+  };
+
+  use super::*;
+
+  struct DropThread {
+    dropped_on: Rc<Cell<Option<ThreadId>>>,
+  }
+
+  impl Drop for DropThread {
+    fn drop(&mut self) {
+      self.dropped_on.set(Some(thread::current().id()));
+    }
+  }
+
+  struct ReentrantFinalizeDrop {
+    env: sys::napi_env,
+    nested_dropped_on: Rc<Cell<Option<ThreadId>>>,
+  }
+
+  impl Drop for ReentrantFinalizeDrop {
+    fn drop(&mut self) {
+      let captured = DropThread {
+        dropped_on: Rc::clone(&self.nested_dropped_on),
+      };
+      let nested = FinalizeCallbackHandle::new(
+        self.env,
+        Box::new(move |_| {
+          drop(captured);
+        }),
+      );
+      std::mem::forget(nested);
+    }
+  }
+
+  #[test]
+  fn non_send_finalize_callback_runs_on_owner_thread() {
+    let owner_thread = thread::current().id();
+    let called_on = Rc::new(Cell::new(None));
+    let called_on_callback = Rc::clone(&called_on);
+    let callback = FinalizeCallbackHandle::new(
+      std::ptr::null_mut(),
+      Box::new(move |_| called_on_callback.set(Some(thread::current().id()))),
+    );
+
+    callback.run(std::ptr::null_mut());
+
+    assert_eq!(called_on.get(), Some(owner_thread));
+  }
+
+  #[test]
+  fn environment_cleanup_drops_finalize_callbacks_on_owner_thread() {
+    let owner_thread = thread::current().id();
+    let dropped_on = Rc::new(Cell::new(None));
+    let captured = DropThread {
+      dropped_on: Rc::clone(&dropped_on),
+    };
+    let env = 1usize as sys::napi_env;
+    let _callback = FinalizeCallbackHandle::new(
+      env,
+      Box::new(move |_| {
+        drop(captured);
+      }),
+    );
+
+    clear_finalize_callbacks_for_env(env);
+
+    assert_eq!(dropped_on.get(), Some(owner_thread));
+  }
+
+  #[test]
+  fn environment_cleanup_rejects_reentrant_finalize_callbacks() {
+    let env = 2usize as sys::napi_env;
+    let nested_dropped_on = Rc::new(Cell::new(None));
+    let captured = ReentrantFinalizeDrop {
+      env,
+      nested_dropped_on: Rc::clone(&nested_dropped_on),
+    };
+    let _callback = FinalizeCallbackHandle::new(
+      env,
+      Box::new(move |_| {
+        drop(captured);
+      }),
+    );
+
+    clear_finalize_callbacks_for_env(env);
+
+    assert_eq!(nested_dropped_on.get(), Some(thread::current().id()));
   }
 }

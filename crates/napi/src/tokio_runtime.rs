@@ -1,27 +1,54 @@
-#[cfg(all(not(feature = "noop"), not(feature = "async-runtime")))]
-use std::sync::LazyLock;
 #[cfg(all(not(feature = "noop"), feature = "async-runtime"))]
+use std::cell::Cell;
+#[cfg(all(not(feature = "noop"), feature = "async-runtime"))]
+use std::collections::HashMap;
+#[cfg(not(feature = "noop"))]
 use std::sync::OnceLock;
-#[cfg(all(not(feature = "noop"), not(feature = "async-runtime")))]
-use std::sync::{OnceLock, RwLock};
+#[cfg(all(not(feature = "noop"), feature = "async-runtime"))]
+use std::sync::{
+  atomic::{AtomicBool, AtomicUsize, Ordering},
+  LazyLock,
+};
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+use std::sync::{RwLock, Weak};
 use std::{future::Future, marker::PhantomData};
 
-#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+#[cfg(all(
+  feature = "async-runtime",
+  not(feature = "noop"),
+  not(feature = "tokio_rt")
+))]
 use std::any::Any;
-#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+#[cfg(not(feature = "noop"))]
 use std::panic::AssertUnwindSafe;
-#[cfg(feature = "async-runtime")]
+#[cfg(any(feature = "async-runtime", feature = "tokio_rt"))]
 use std::pin::Pin;
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt")
+))]
+use std::sync::Arc;
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
-use std::sync::{Arc, Mutex};
+use std::sync::{Condvar, Mutex};
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
-use std::task::{Context, Poll, Waker};
+use std::task::Context;
+#[cfg(not(feature = "noop"))]
+use std::task::Poll;
+#[cfg(all(
+  feature = "async-runtime",
+  not(feature = "noop"),
+  not(feature = "tokio_rt")
+))]
+use std::task::Waker;
 
 #[cfg(feature = "tokio")]
 use tokio::runtime::Runtime;
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
-use futures::FutureExt;
+use futures::{
+  future::{AbortHandle, Abortable},
+  FutureExt,
+};
 
 use crate::{bindgen_runtime::ToNapiValue, sys, Env, Error, Result};
 #[cfg(not(feature = "noop"))]
@@ -33,99 +60,242 @@ pub trait AsyncRuntimeGuard {}
 #[cfg(feature = "async-runtime")]
 impl AsyncRuntimeGuard for () {}
 
+#[cfg(all(feature = "async-runtime", feature = "noop"))]
+pub struct AsyncRuntimeTask {
+  _private: (),
+}
+
+#[cfg(all(feature = "async-runtime", feature = "noop"))]
+impl Future for AsyncRuntimeTask {
+  type Output = ();
+
+  fn poll(self: Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+    std::task::Poll::Ready(())
+  }
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+enum AsyncTaskOutcome {
+  Completed,
+  Cancelled,
+}
+
+/// Runtime-owned task submitted through [`AsyncRuntime::spawn`].
+///
+/// The wrapper is intentionally opaque: it guarantees that rejection, environment teardown,
+/// or backend-side task dropping runs the cancellation callback exactly once. Backends should
+/// poll it like any other `Future<Output = ()>` and return it untouched when submission fails.
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+pub struct AsyncRuntimeTask {
+  future: Option<Pin<Box<dyn Future<Output = AsyncTaskOutcome> + Send + 'static>>>,
+  cancel: Option<Box<dyn FnOnce() + Send + 'static>>,
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+impl AsyncRuntimeTask {
+  fn new(
+    future: impl Future<Output = AsyncTaskOutcome> + Send + 'static,
+    cancel: impl FnOnce() + Send + 'static,
+  ) -> Self {
+    Self {
+      future: Some(Box::pin(future)),
+      cancel: Some(Box::new(cancel)),
+    }
+  }
+
+  fn cancel(&mut self) {
+    if let Some(cancel) = self.cancel.take() {
+      crate::bindgen_runtime::catch_unwind_safely(cancel);
+    }
+  }
+
+  fn disarm_cancel(&mut self) {
+    if let Some(cancel) = self.cancel.take() {
+      drop_safely(cancel);
+    }
+  }
+
+  fn drop_future(&mut self) {
+    if let Some(future) = self.future.take() {
+      drop_safely(future);
+    }
+  }
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+impl Future for AsyncRuntimeTask {
+  type Output = ();
+
+  fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+    let Some(future) = self.future.as_mut() else {
+      return Poll::Ready(());
+    };
+    match future.as_mut().poll(cx) {
+      Poll::Ready(AsyncTaskOutcome::Completed) => {
+        self.disarm_cancel();
+        self.drop_future();
+        Poll::Ready(())
+      }
+      Poll::Ready(AsyncTaskOutcome::Cancelled) => {
+        self.cancel();
+        self.drop_future();
+        Poll::Ready(())
+      }
+      Poll::Pending => Poll::Pending,
+    }
+  }
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+impl Drop for AsyncRuntimeTask {
+  fn drop(&mut self) {
+    self.cancel();
+    self.drop_future();
+  }
+}
+
+#[cfg(not(feature = "noop"))]
+fn drop_safely<T>(value: T) {
+  crate::bindgen_runtime::catch_unwind_safely(|| drop(value));
+}
+
+#[cfg(not(feature = "noop"))]
+struct SafeDrop<T>(Option<T>);
+
+#[cfg(not(feature = "noop"))]
+impl<T> SafeDrop<T> {
+  fn new(value: T) -> Self {
+    Self(Some(value))
+  }
+
+  fn get_mut(&mut self) -> &mut T {
+    self
+      .0
+      .as_mut()
+      .expect("safe-drop value is present until taken")
+  }
+
+  fn take(&mut self) -> T {
+    self
+      .0
+      .take()
+      .expect("safe-drop value is taken exactly once")
+  }
+}
+
+#[cfg(not(feature = "noop"))]
+impl<T> Drop for SafeDrop<T> {
+  fn drop(&mut self) {
+    if let Some(value) = self.0.take() {
+      drop_safely(value);
+    }
+  }
+}
+
 /// Service-provider interface for plugging a custom async runtime into NAPI-RS.
 ///
 /// When the `async-runtime` feature is enabled, napi no longer drives JS-facing futures on
 /// its built-in tokio runtime. The futures produced by `#[napi]` async functions — together
-/// with napi's own [`block_on`], [`within_runtime_if_available`], `start_async_runtime` and
-/// `shutdown_async_runtime` entry points — are routed through the single backend registered
-/// with [`create_custom_async_runtime`]. Implement this trait to back napi with your own
-/// scheduler (e.g. a single-threaded or WASI-friendly runtime) and register exactly one
-/// instance, once, at module init.
+/// with `#[napi(async_runtime)]` entry points — are routed through the single backend
+/// registered with [`create_custom_async_runtime`]. Implement this trait to back napi with
+/// your own scheduler (e.g. a single-threaded or WASI-friendly runtime) and register exactly
+/// one instance, once, at module init.
 ///
 /// Under the `noop` feature this SPI is inert: [`create_custom_async_runtime`] does nothing and
 /// the routed entry points are stubbed out (e.g. `block_on` panics), so the notes below about
 /// routing apply only to non-`noop` builds.
 ///
-/// The public free `spawn`/`spawn_blocking` helper functions are part of this routing
-/// contract too. The free `spawn` is served by this trait's detached
-/// [`spawn`](AsyncRuntime::spawn) hook: napi wraps the future so its output (or panic
-/// payload) is captured, and manufactures the joinable `JoinHandle` itself. The free
-/// `spawn_blocking` routes through the optional
-/// [`spawn_blocking`](AsyncRuntime::spawn_blocking) hook; if the backend declines (the
-/// default), napi runs the closure on a plain dedicated `std::thread` — it never lazily
-/// constructs a hidden tokio runtime, not even when Cargo feature unification enables
-/// `tokio_rt` alongside `async-runtime`.
+/// In a pure `async-runtime` build, the public free `spawn`/`spawn_blocking` helpers are part
+/// of this routing contract too. napi manufactures its own joinable handle around
+/// [`spawn`](AsyncRuntime::spawn), while `spawn_blocking` completes that handle as cancelled
+/// when the backend declines. If Cargo feature unification also enables `tokio_rt`, the
+/// established free Tokio helper APIs keep their Tokio return types and behavior; generated
+/// JavaScript-facing futures still use this backend. Those Tokio helpers reject external work
+/// while the combined runtime is starting, stopping, or stopped, so callers cannot observe a
+/// half-transitioned pair. Runtime hooks may still use Tokio synchronously on the transition
+/// thread.
 ///
-/// The implementation is stored process-globally and shared across threads, hence the
-/// `Send + Sync + 'static` bound. Only one runtime is ever registered for the lifetime of
-/// the process; see [`create_custom_async_runtime`] for the first-writer-wins semantics.
+/// The implementation is stored once per linked addon image and shared across its threads,
+/// hence the `Send + Sync + 'static` bound. See [`create_custom_async_runtime`] for duplicate
+/// registration behavior.
 #[cfg(feature = "async-runtime")]
 pub trait AsyncRuntime: Send + Sync + 'static {
-  /// Spawn a future to run to completion in the background, detached.
+  /// Submit a task to run to completion in the background.
   ///
-  /// napi calls this for every JS-facing async function. The returned task is detached:
-  /// the trait intentionally hands back nothing to join on, so the backend MUST drive the
-  /// future all the way to completion on its own — napi never awaits it.
+  /// Return `Ok(())` only after taking ownership of the task. Return `Err(task)` when the
+  /// runtime is stopped, saturated, or otherwise unable to accept it. Dropping an accepted
+  /// task invokes its cancellation callback, so shutdown implementations may cancel queued
+  /// work by dropping it without leaving Rust joins or JavaScript promises pending forever.
+  /// Never forget an accepted task: retain it until completion or drop it on cancellation.
   ///
-  /// Panic handling is already done by napi: the future passed in has been wrapped in
-  /// `AssertUnwindSafe(..).catch_unwind()` before it reaches `spawn`, so a panic inside the
-  /// user code is caught internally and surfaced as a rejected JS promise. The backend MUST
-  /// NOT add its own `catch_unwind`/abort layer or otherwise treat the future as fallible —
-  /// just poll it to completion like any other `Future<Output = ()>`.
-  fn spawn(&self, future: Pin<Box<dyn Future<Output = ()> + Send + 'static>>);
+  /// Panic handling is already done by napi. Poll the task directly and do not bypass its
+  /// `Drop` implementation.
+  fn spawn(&self, task: AsyncRuntimeTask) -> std::result::Result<(), AsyncRuntimeTask>;
 
   /// Block the current thread, fully driving the pinned future to completion before
   /// returning.
   ///
-  /// This backs napi's synchronous [`block_on`]. napi stores the future's result via a
-  /// side-effect and, the instant this method returns, asserts that the result is present —
-  /// `output.expect("Custom async runtime returned before the future completed")`. A backend
-  /// that returns early (without having polled the future to `Poll::Ready`) will therefore
-  /// make napi panic. Run the future to completion; do not return on the first pending poll.
+  /// In a pure `async-runtime` build this backs napi's synchronous [`block_on`] and
+  /// `try_block_on`. Combined `async-runtime` + `tokio_rt` builds retain the established
+  /// Tokio implementation for those free helpers. napi stores the future's result through a
+  /// side effect and verifies that it is present when this method returns. `try_block_on`
+  /// reports an early return as an error; the compatibility [`block_on`] wrapper panics on
+  /// that error. Run the future to completion rather than returning on the first pending poll.
   fn block_on(&self, future: Pin<&mut dyn Future<Output = ()>>);
 
   /// Enter the runtime context and return a guard that establishes it for the calling
   /// thread.
   ///
-  /// napi calls this in [`within_runtime_if_available`]: it enters, runs a synchronous
-  /// closure, then drops the guard. The returned guard MUST keep the runtime context active
-  /// for as long as it is held (i.e. for the whole duration of the closure) and tear it down
-  /// on drop. The default implementation returns a no-op guard, which is correct for backends
-  /// that do not need an ambient context.
+  /// napi calls this for `#[napi(async_runtime)]` functions and from
+  /// [`within_runtime_if_available`] in pure `async-runtime` builds: it enters, runs a
+  /// synchronous closure, then drops the guard. The returned guard MUST keep the runtime
+  /// context active for the whole duration of the closure and tear it down on drop. The
+  /// default implementation returns a no-op guard, which is correct for backends that do not
+  /// need an ambient context.
   fn enter(&self) -> Box<dyn AsyncRuntimeGuard + '_> {
     Box::new(())
   }
 
   /// Start (or restart) the runtime.
   ///
-  /// Called by `start_async_runtime`, which napi invokes when a Node env is created — note
-  /// that an Electron renderer process can create and tear down its Node env repeatedly (on
-  /// window reload), so this may be called more than once over the backend's lifetime.
-  /// Implement it idempotently. The default is a no-op.
-  fn start(&self) {}
+  /// napi calls this when the first live Node environment for the addon starts. Worker
+  /// isolates and Electron renderer reloads can take the live environment count from zero
+  /// to one repeatedly, so this may run more than once over the backend's lifetime.
+  /// Implement it idempotently. Return success only after the backend can accept tasks. A
+  /// successful restart must not overlap worker resources from a retiring generation; wait
+  /// for retirement or return an error and let the caller retry. Do not call napi's runtime
+  /// registration or lifecycle functions recursively from this hook. The default is a no-op.
+  fn start(&self) -> Result<()> {
+    Ok(())
+  }
 
   /// Shut the runtime down.
   ///
-  /// Called by `shutdown_async_runtime`. On native Node targets a single process-wide env
-  /// cleanup hook (registered once, on the first env that initializes the runtime) invokes it
-  /// when that env exits; because the hook is registered only once, an env recreated after a
-  /// full teardown — e.g. an Electron window reload — may not re-trigger it, so a backend should
-  /// not rely on per-env shutdown. On wasm it is **not** tied to that env cleanup hook;
-  /// instead it may be triggered either by the registered wasm finalizer (a `napi_wrap`
-  /// finalizer on the module exports that fires once the live module count reaches zero) or by
-  /// an explicit user call, depending on the host's finalization behavior. After shutdown the
-  /// runtime may be started again via [`start`](AsyncRuntime::start), so release resources
-  /// without making a subsequent `start` impossible. The default is a no-op.
-  fn shutdown(&self) {}
+  /// napi installs cleanup ownership for every Node environment and calls this after the last
+  /// live environment exits. On wasm, host finalization still determines when the exports
+  /// finalizer runs. An explicit `shutdown_async_runtime` call can also invoke this while
+  /// environments remain live. Stop accepting work before returning and drop queued
+  /// [`AsyncRuntimeTask`] values so their promises are cancelled. If already-running blocking
+  /// work cannot be interrupted, keep that scheduler generation in a retiring state and do
+  /// not allow a later successful [`start`](AsyncRuntime::start) to overlap its worker
+  /// resources. Do not wait for JavaScript callbacks triggered by cancellation, and do not
+  /// call napi's runtime registration or lifecycle functions recursively from this hook. The
+  /// default is a no-op. If this returns an error, napi keeps submissions closed and rejects
+  /// restart until shutdown is retried successfully, preventing scheduler generations from
+  /// overlapping.
+  fn shutdown(&self) -> Result<()> {
+    Ok(())
+  }
 
   /// Optional hook: run `work` on the backend's blocking-capable lane.
   ///
   /// This backs the public free `spawn_blocking` helper. Return `Ok(())` once the work is
-  /// accepted; the backend MUST then eventually run the closure exactly once, on a thread
-  /// where blocking is acceptable. Return `Err(work)` to decline — the closure is handed
-  /// back untouched and napi runs it on a plain dedicated fallback thread instead (never a
-  /// lazily-created tokio pool). The default implementation declines.
+  /// accepted; the backend should run the closure exactly once on a thread where blocking is
+  /// acceptable. Dropping accepted work, for example while shutting down, safely cancels the
+  /// caller's join handle. Return `Err(work)` to decline. In a pure `async-runtime` build the
+  /// join handle also completes as cancelled; napi does not create an unbounded fallback
+  /// thread. Never forget accepted work: run it exactly once or drop it during cancellation.
+  /// The default implementation declines.
   ///
   /// Panic handling is napi's: the closure is already wrapped in `catch_unwind` before it
   /// reaches this hook and a panic is surfaced as a `JoinError` through the caller's
@@ -142,33 +312,212 @@ pub trait AsyncRuntime: Send + Sync + 'static {
 static CUSTOM_ASYNC_RUNTIME: OnceLock<Box<dyn AsyncRuntime>> = OnceLock::new();
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
-fn custom_async_runtime() -> &'static dyn AsyncRuntime {
-  CUSTOM_ASYNC_RUNTIME.get().map(Box::as_ref).expect(
-    "No `AsyncRuntime` backend is registered but the `async-runtime` feature is enabled. \
-     Call `napi::bindgen_prelude::create_custom_async_runtime(...)` in a \
-     `#[napi_derive::module_init]` fn, before any async entry point runs.",
-  )
+const DUPLICATE_RUNTIME_ERROR: &str =
+  "create_custom_async_runtime was called more than once for the same addon image";
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RuntimeLifecycleState {
+  Stopped,
+  Starting,
+  Running,
+  Stopping,
+  ShutdownFailed,
 }
 
-/// Register the custom [`AsyncRuntime`] backend that napi will use process-wide.
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+struct RuntimeLifecycle {
+  active_envs: usize,
+  state: RuntimeLifecycleState,
+  registration_error: Option<String>,
+  startup_error: Option<String>,
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+static RUNTIME_LIFECYCLE: (Mutex<RuntimeLifecycle>, Condvar) = (
+  Mutex::new(RuntimeLifecycle {
+    active_envs: 0,
+    state: RuntimeLifecycleState::Stopped,
+    registration_error: None,
+    startup_error: None,
+  }),
+  Condvar::new(),
+);
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RuntimeSubmissionState {
+  NeverStarted,
+  Open,
+  Closed,
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+struct RuntimeSubmissions {
+  state: RuntimeSubmissionState,
+  in_flight: usize,
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+static RUNTIME_SUBMISSIONS: (Mutex<RuntimeSubmissions>, Condvar) = (
+  Mutex::new(RuntimeSubmissions {
+    state: RuntimeSubmissionState::NeverStarted,
+    in_flight: 0,
+  }),
+  Condvar::new(),
+);
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+thread_local! {
+  static RUNTIME_SUBMISSION_DEPTH: Cell<usize> = const { Cell::new(0) };
+  static RUNTIME_TRANSITION_DEPTH: Cell<usize> = const { Cell::new(0) };
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+struct RuntimeSubmissionPermit;
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+impl RuntimeSubmissionPermit {
+  fn acquire() -> Option<Self> {
+    let mut submissions = RUNTIME_SUBMISSIONS
+      .0
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if submissions.state == RuntimeSubmissionState::Closed {
+      return None;
+    }
+    submissions.in_flight += 1;
+    RUNTIME_SUBMISSION_DEPTH.with(|depth| depth.set(depth.get() + 1));
+    Some(Self)
+  }
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+impl Drop for RuntimeSubmissionPermit {
+  fn drop(&mut self) {
+    RUNTIME_SUBMISSION_DEPTH.with(|depth| depth.set(depth.get() - 1));
+    let mut submissions = RUNTIME_SUBMISSIONS
+      .0
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    submissions.in_flight -= 1;
+    if submissions.in_flight == 0 {
+      RUNTIME_SUBMISSIONS.1.notify_all();
+    }
+  }
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+fn open_runtime_submissions() {
+  RUNTIME_SUBMISSIONS
+    .0
+    .lock()
+    .unwrap_or_else(std::sync::PoisonError::into_inner)
+    .state = RuntimeSubmissionState::Open;
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+fn close_runtime_submissions() -> Result<()> {
+  if RUNTIME_SUBMISSION_DEPTH.with(Cell::get) != 0 {
+    return Err(Error::new(
+      crate::Status::GenericFailure,
+      "Cannot shut down the async runtime from inside AsyncRuntime::spawn",
+    ));
+  }
+  let mut submissions = RUNTIME_SUBMISSIONS
+    .0
+    .lock()
+    .unwrap_or_else(std::sync::PoisonError::into_inner);
+  submissions.state = RuntimeSubmissionState::Closed;
+  while submissions.in_flight != 0 {
+    submissions = RUNTIME_SUBMISSIONS
+      .1
+      .wait(submissions)
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+  }
+  Ok(())
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+fn runtime_lifecycle() -> std::sync::MutexGuard<'static, RuntimeLifecycle> {
+  RUNTIME_LIFECYCLE
+    .0
+    .lock()
+    .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+fn wait_for_runtime_transition(
+  mut lifecycle: std::sync::MutexGuard<'static, RuntimeLifecycle>,
+) -> Result<std::sync::MutexGuard<'static, RuntimeLifecycle>> {
+  while matches!(
+    lifecycle.state,
+    RuntimeLifecycleState::Starting | RuntimeLifecycleState::Stopping
+  ) {
+    if RUNTIME_TRANSITION_DEPTH.with(Cell::get) != 0
+      || RUNTIME_SUBMISSION_DEPTH.with(Cell::get) != 0
+    {
+      return Err(Error::new(
+        crate::Status::GenericFailure,
+        "Async runtime lifecycle functions cannot wait recursively from a runtime hook",
+      ));
+    }
+    lifecycle = RUNTIME_LIFECYCLE
+      .1
+      .wait(lifecycle)
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+  }
+  Ok(lifecycle)
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+struct RuntimeTransitionGuard;
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+impl RuntimeTransitionGuard {
+  fn enter() -> Self {
+    RUNTIME_TRANSITION_DEPTH.with(|depth| depth.set(depth.get() + 1));
+    Self
+  }
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+impl Drop for RuntimeTransitionGuard {
+  fn drop(&mut self) {
+    RUNTIME_TRANSITION_DEPTH.with(|depth| depth.set(depth.get() - 1));
+  }
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+fn custom_async_runtime() -> Result<&'static dyn AsyncRuntime> {
+  CUSTOM_ASYNC_RUNTIME.get().map(Box::as_ref).ok_or_else(|| {
+    Error::new(
+      crate::Status::GenericFailure,
+      "No AsyncRuntime backend is registered. Call \
+       napi::bindgen_prelude::create_custom_async_runtime(...) from a module_init hook",
+    )
+  })
+}
+
+/// Register the custom [`AsyncRuntime`] backend for this linked addon image.
 ///
 /// Call this once, at module init, before any async entry point runs.
 ///
-/// Registration is **once, exactly once**: the backend is stored in a process-global
-/// `OnceLock` and cannot be replaced. A second call **panics** — a silently dropped backend
-/// almost always hides a real bug (two addon crates fighting over the runtime, or a
-/// duplicated `module_init` hook). Note that `#[napi_derive::module_init]` runs once per
-/// dylib load, so an Electron window reload does *not* re-run it and will not trigger the
-/// panic.
+/// Registration is once per linked addon image. Duplicate registration records a module-load
+/// error that napi throws from `napi_register_module_v1`; it never unwinds from a library
+/// constructor.
 /// ### Example
 /// ```no_run
 /// use std::future::Future;
 /// use std::pin::Pin;
-/// use napi::{create_custom_async_runtime, AsyncRuntime};
+/// use napi::bindgen_prelude::{create_custom_async_runtime, AsyncRuntime, AsyncRuntimeTask};
 ///
 /// struct MyRuntime;
 /// impl AsyncRuntime for MyRuntime {
-///   fn spawn(&self, _future: Pin<Box<dyn Future<Output = ()> + Send + 'static>>) { todo!() }
+///   fn spawn(
+///     &self,
+///     _task: AsyncRuntimeTask,
+///   ) -> std::result::Result<(), AsyncRuntimeTask> { todo!() }
 ///   fn block_on(&self, _future: Pin<&mut dyn Future<Output = ()>>) { todo!() }
 /// }
 ///
@@ -179,33 +528,304 @@ fn custom_async_runtime() -> &'static dyn AsyncRuntime {
 /// ```
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 pub fn create_custom_async_runtime<R: AsyncRuntime>(runtime: R) {
-  if CUSTOM_ASYNC_RUNTIME.set(Box::new(runtime)).is_err() {
-    panic!(
-      "napi::bindgen_prelude::create_custom_async_runtime was called more than once: an \
-       `AsyncRuntime` backend is already registered for this process and cannot be replaced. \
-       Register exactly one backend, once — usually from a single \
-       `#[napi_derive::module_init]` fn — and remove the duplicate registration."
-    );
+  if let Err(error) = try_create_custom_async_runtime(runtime) {
+    let mut lifecycle = runtime_lifecycle();
+    if error.reason == DUPLICATE_RUNTIME_ERROR {
+      lifecycle.registration_error = Some(error.reason);
+    } else {
+      lifecycle.startup_error = Some(error.reason);
+    }
   }
+}
+
+/// Try to register a custom async runtime without panicking.
+///
+/// Library constructors should normally use [`create_custom_async_runtime`], which defers
+/// reporting until Node provides an environment where napi can throw a JavaScript exception.
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+pub fn try_create_custom_async_runtime<R: AsyncRuntime>(runtime: R) -> Result<()> {
+  if let Err(runtime) = CUSTOM_ASYNC_RUNTIME.set(Box::new(runtime)) {
+    drop_safely(runtime);
+    return Err(Error::new(
+      crate::Status::GenericFailure,
+      DUPLICATE_RUNTIME_ERROR,
+    ));
+  }
+
+  let has_active_env = wait_for_runtime_transition(runtime_lifecycle())?.active_envs != 0;
+  if has_active_env {
+    try_start_custom_runtime()?;
+  }
+  Ok(())
 }
 
 #[cfg(all(feature = "async-runtime", feature = "noop"))]
 pub fn create_custom_async_runtime<R: AsyncRuntime>(_: R) {}
 
-#[cfg(all(not(feature = "noop"), not(feature = "async-runtime")))]
+#[cfg(all(feature = "async-runtime", feature = "noop"))]
+pub fn try_create_custom_async_runtime<R: AsyncRuntime>(_: R) -> Result<()> {
+  Ok(())
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+pub(crate) fn register_async_runtime_env() -> Result<()> {
+  let should_start = {
+    let mut lifecycle = wait_for_runtime_transition(runtime_lifecycle())?;
+    lifecycle.active_envs += 1;
+    CUSTOM_ASYNC_RUNTIME.get().is_some() && lifecycle.state != RuntimeLifecycleState::Running
+  };
+  if should_start {
+    try_start_custom_runtime()?;
+  }
+  Ok(())
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+pub(crate) fn ensure_async_runtime_ready() -> Result<()> {
+  let lifecycle = wait_for_runtime_transition(runtime_lifecycle())?;
+  if let Some(message) = &lifecycle.registration_error {
+    return Err(Error::new(crate::Status::GenericFailure, message.clone()));
+  }
+  if let Some(message) = &lifecycle.startup_error {
+    return Err(Error::new(crate::Status::GenericFailure, message.clone()));
+  }
+  if CUSTOM_ASYNC_RUNTIME.get().is_none() {
+    return Err(Error::new(
+      crate::Status::GenericFailure,
+      "The async-runtime feature is enabled, but no AsyncRuntime backend was registered",
+    ));
+  }
+  if lifecycle.state != RuntimeLifecycleState::Running {
+    return Err(Error::new(
+      crate::Status::GenericFailure,
+      "The registered AsyncRuntime backend did not start",
+    ));
+  }
+  Ok(())
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+pub(crate) fn unregister_async_runtime_env() -> Result<()> {
+  let should_shutdown = {
+    let mut lifecycle = wait_for_runtime_transition(runtime_lifecycle())?;
+    if lifecycle.active_envs == 0 {
+      return Ok(());
+    }
+    lifecycle.active_envs -= 1;
+    if lifecycle.active_envs != 0
+      || !matches!(
+        lifecycle.state,
+        RuntimeLifecycleState::Running | RuntimeLifecycleState::ShutdownFailed
+      )
+    {
+      false
+    } else {
+      lifecycle.state = RuntimeLifecycleState::Stopping;
+      true
+    }
+  };
+  if !should_shutdown {
+    return Ok(());
+  }
+  finish_custom_runtime_shutdown(true)
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+struct EnvTasks {
+  closed: AtomicBool,
+  next_id: AtomicUsize,
+  abort_handles: Mutex<HashMap<usize, AbortHandle>>,
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+impl EnvTasks {
+  fn new() -> Self {
+    Self {
+      closed: AtomicBool::new(false),
+      next_id: AtomicUsize::new(1),
+      abort_handles: Mutex::new(HashMap::new()),
+    }
+  }
+
+  fn register(&self, abort_handle: AbortHandle) -> Option<usize> {
+    if self.closed.load(Ordering::Acquire) {
+      abort_safely(abort_handle);
+      return None;
+    }
+    let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+    self
+      .abort_handles
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner)
+      .insert(id, abort_handle);
+    if self.closed.load(Ordering::Acquire) {
+      if let Some(abort_handle) = self
+        .abort_handles
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .remove(&id)
+      {
+        abort_safely(abort_handle);
+        return None;
+      }
+    }
+    Some(id)
+  }
+
+  fn remove(&self, id: usize) {
+    self
+      .abort_handles
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner)
+      .remove(&id);
+  }
+
+  fn cancel_all(&self, close_env: bool) {
+    if close_env {
+      self.closed.store(true, Ordering::Release);
+    }
+    let handles = std::mem::take(
+      &mut *self
+        .abort_handles
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner),
+    );
+    for (_, handle) in handles {
+      abort_safely(handle);
+    }
+  }
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+fn abort_safely(handle: AbortHandle) {
+  crate::bindgen_runtime::catch_unwind_safely(|| handle.abort());
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+struct EnvTaskRegistration {
+  tasks: Arc<EnvTasks>,
+  id: Option<usize>,
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+impl Drop for EnvTaskRegistration {
+  fn drop(&mut self) {
+    if let Some(id) = self.id.take() {
+      self.tasks.remove(id);
+    }
+  }
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+static ENV_TASKS: LazyLock<Mutex<HashMap<usize, Arc<EnvTasks>>>> =
+  LazyLock::new(|| Mutex::new(HashMap::new()));
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+pub(crate) fn register_async_runtime_env_tasks(env: sys::napi_env) {
+  let previous = ENV_TASKS
+    .lock()
+    .unwrap_or_else(std::sync::PoisonError::into_inner)
+    .insert(env as usize, Arc::new(EnvTasks::new()));
+  if let Some(previous) = previous {
+    previous.cancel_all(true);
+  }
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+pub(crate) fn cancel_async_runtime_env_tasks(env: sys::napi_env) {
+  let tasks = ENV_TASKS
+    .lock()
+    .unwrap_or_else(std::sync::PoisonError::into_inner)
+    .remove(&(env as usize));
+  if let Some(tasks) = tasks {
+    tasks.cancel_all(true);
+  }
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+fn cancel_all_env_tasks() {
+  let envs: Vec<_> = ENV_TASKS
+    .lock()
+    .unwrap_or_else(std::sync::PoisonError::into_inner)
+    .values()
+    .cloned()
+    .collect();
+  for tasks in envs {
+    tasks.cancel_all(false);
+  }
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+fn env_async_task(
+  env: sys::napi_env,
+  future: impl Future<Output = ()> + Send + 'static,
+  cancel: impl FnOnce(bool) + Send + 'static,
+) -> AsyncRuntimeTask {
+  let tasks = ENV_TASKS
+    .lock()
+    .unwrap_or_else(std::sync::PoisonError::into_inner)
+    .get(&(env as usize))
+    .cloned();
+  let Some(tasks) = tasks else {
+    return AsyncRuntimeTask::new(async { AsyncTaskOutcome::Cancelled }, move || cancel(false));
+  };
+
+  let cancel_tasks = Arc::clone(&tasks);
+  let (abort_handle, abort_registration) = AbortHandle::new_pair();
+  let id = tasks.register(abort_handle);
+  let registration = EnvTaskRegistration { tasks, id };
+  AsyncRuntimeTask::new(
+    async move {
+      let result = Abortable::new(future, abort_registration).await;
+      drop(registration);
+      if result.is_ok() {
+        AsyncTaskOutcome::Completed
+      } else {
+        AsyncTaskOutcome::Cancelled
+      }
+    },
+    move || cancel(!cancel_tasks.closed.load(Ordering::Acquire)),
+  )
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+fn submit_async_task(task: AsyncRuntimeTask) {
+  let Some(_submission) = RuntimeSubmissionPermit::acquire() else {
+    drop(task);
+    return;
+  };
+  let result = custom_async_runtime().and_then(|runtime| {
+    std::panic::catch_unwind(AssertUnwindSafe(|| runtime.spawn(task)))
+      .map_err(crate::bindgen_runtime::panic_to_error)
+      .and_then(|result| {
+        result.map_err(|_| {
+          Error::new(
+            crate::Status::Cancelled,
+            "The AsyncRuntime backend rejected a task submission",
+          )
+        })
+      })
+  });
+  match result {
+    Ok(()) => {}
+    Err(_) => {
+      // A backend that rejects returns the task. The closure above intentionally converts the
+      // error after dropping it, which invokes AsyncRuntimeTask's cancellation callback.
+    }
+  }
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 fn create_runtime() -> Runtime {
   // Check if we're supposed to use a user-defined runtime
-  if IS_USER_DEFINED_RT.get().copied().unwrap_or(false) {
-    // Try to take the user-defined runtime if it's still available
-    if let Some(user_defined_rt) = USER_DEFINED_RT
-      .get()
-      .and_then(|rt| rt.write().ok().and_then(|mut rt| rt.take()))
-    {
-      return user_defined_rt;
-    }
-    // If the user-defined runtime was already taken, fall back to creating a default runtime
-    // This handles the case where the runtime was shutdown and needs to be restarted
+  if let Some(user_defined_rt) = USER_DEFINED_RT
+    .get()
+    .and_then(|rt| rt.write().ok().and_then(|mut rt| rt.take()))
+  {
+    return user_defined_rt;
   }
+  // If no user-defined runtime was installed, or it was already consumed by a previous
+  // generation, fall back to creating a default runtime.
 
   #[cfg(any(
     all(target_family = "wasm", tokio_unstable),
@@ -226,30 +846,175 @@ fn create_runtime() -> Runtime {
   }
 }
 
-// Note there is deliberately no `RT` static in any `async-runtime` build (not even combined
-// with `tokio_rt`): a built-in tokio runtime that could be lazily materialized behind the
-// registered backend's back is exactly the hazard the `async-runtime` feature exists to
-// remove, so it is unrepresentable here.
-#[cfg(all(not(feature = "noop"), not(feature = "async-runtime")))]
-static RT: LazyLock<RwLock<Option<Runtime>>> = LazyLock::new(|| {
-  // `Option` so `shutdown_async_runtime` can take the runtime down while the `RwLock`
-  // (and the `LazyLock` around it) stays initialized for a later `start_async_runtime`.
-  RwLock::new(Some(create_runtime()))
-});
+// Combined `async-runtime` + `tokio_rt` builds retain this runtime for the established free
+// Tokio helper APIs. Generated JavaScript-facing futures use the registered custom backend.
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+struct SharedTokioRuntime {
+  runtime: Option<Runtime>,
+  retirement: Option<Arc<()>>,
+}
 
-#[cfg(all(not(feature = "noop"), not(feature = "async-runtime")))]
+#[cfg(all(
+  not(feature = "noop"),
+  feature = "tokio_rt",
+  any(
+    not(target_family = "wasm"),
+    all(target_family = "wasm", tokio_unstable)
+  )
+))]
+struct TokioRuntimeRetirement {
+  runtime: Option<Runtime>,
+  retirement: Option<Arc<()>>,
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  feature = "tokio_rt",
+  any(
+    not(target_family = "wasm"),
+    all(target_family = "wasm", tokio_unstable)
+  )
+))]
+impl Drop for TokioRuntimeRetirement {
+  fn drop(&mut self) {
+    if let Some(runtime) = self.runtime.take() {
+      if let Err(payload) = std::panic::catch_unwind(AssertUnwindSafe(|| drop(runtime))) {
+        drop(crate::bindgen_runtime::panic_to_error(payload));
+        if let Some(retirement) = self.retirement.take() {
+          std::mem::forget(retirement);
+        }
+        return;
+      }
+    }
+    drop(self.retirement.take());
+  }
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+impl std::ops::Deref for SharedTokioRuntime {
+  type Target = Runtime;
+
+  fn deref(&self) -> &Self::Target {
+    self
+      .runtime
+      .as_ref()
+      .expect("Tokio runtime is present until drop")
+  }
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+impl Drop for SharedTokioRuntime {
+  fn drop(&mut self) {
+    let Some(runtime) = self.runtime.take() else {
+      return;
+    };
+    let retirement = self.retirement.take();
+    #[cfg(any(
+      not(target_family = "wasm"),
+      all(target_family = "wasm", tokio_unstable)
+    ))]
+    {
+      let retirement = TokioRuntimeRetirement {
+        runtime: Some(runtime),
+        retirement,
+      };
+      let _ = std::thread::Builder::new()
+        .name("napi-tokio-runtime-retirement".to_owned())
+        .spawn(move || drop(retirement));
+    }
+    #[cfg(all(target_family = "wasm", not(tokio_unstable)))]
+    {
+      crate::bindgen_runtime::catch_unwind_safely(|| runtime.shutdown_background());
+      drop(retirement);
+    }
+  }
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+struct TokioRuntimeGeneration {
+  runtime: Arc<SharedTokioRuntime>,
+  retirement: Arc<()>,
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+struct TokioRuntimeLease {
+  runtime: Arc<SharedTokioRuntime>,
+  retirement: Arc<()>,
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+impl std::ops::Deref for TokioRuntimeLease {
+  type Target = Runtime;
+
+  fn deref(&self) -> &Self::Target {
+    &self.runtime
+  }
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+impl TokioRuntimeLease {
+  fn retirement_token(&self) -> Arc<()> {
+    Arc::clone(&self.retirement)
+  }
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TokioRuntimeLifecycle {
+  Uninitialized,
+  Running,
+  Stopped,
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+struct TokioRuntimeState {
+  lifecycle: TokioRuntimeLifecycle,
+  generation: Option<TokioRuntimeGeneration>,
+  retiring: Option<Weak<()>>,
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+static TOKIO_RUNTIME_STATE: std::sync::Mutex<TokioRuntimeState> =
+  std::sync::Mutex::new(TokioRuntimeState {
+    lifecycle: TokioRuntimeLifecycle::Uninitialized,
+    generation: None,
+    retiring: None,
+  });
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+fn runtime() -> TokioRuntimeLease {
+  try_runtime().unwrap_or_else(|error| panic!("{error}"))
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+fn try_runtime() -> Result<TokioRuntimeLease> {
+  #[cfg(feature = "async-runtime")]
+  {
+    let lifecycle = runtime_lifecycle();
+    let hook_local_transition = RUNTIME_TRANSITION_DEPTH.with(Cell::get) != 0
+      && matches!(
+        lifecycle.state,
+        RuntimeLifecycleState::Starting | RuntimeLifecycleState::Stopping
+      );
+    if lifecycle.state != RuntimeLifecycleState::Running && !hook_local_transition {
+      return Err(Error::new(
+        crate::Status::GenericFailure,
+        "The combined custom and Tokio runtimes are not running",
+      ));
+    }
+  }
+  acquire_tokio_runtime(false)
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 static USER_DEFINED_RT: OnceLock<RwLock<Option<Runtime>>> = OnceLock::new();
 
-#[cfg(all(not(feature = "noop"), not(feature = "async-runtime")))]
-static IS_USER_DEFINED_RT: OnceLock<bool> = OnceLock::new();
-
-#[cfg(all(not(feature = "noop"), not(feature = "async-runtime")))]
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 /// Configure the built-in Tokio runtime used by NAPI-RS, controlling its configuration yourself.
 ///
-/// This affects only the built-in Tokio path (the default / `tokio_rt` build). In an
-/// `async-runtime` build there is no built-in Tokio runtime at all — async work is driven by
-/// the registered `AsyncRuntime` backend — and this helper is a documented no-op kept only for
-/// source compatibility.
+/// This affects the built-in Tokio path whenever `tokio_rt` is enabled. If `async-runtime` is
+/// enabled as well, generated JavaScript-facing futures use the registered backend while the
+/// established free Tokio helpers retain their original API and runtime.
 /// ### Example
 /// ```no_run
 /// use tokio::runtime::Builder;
@@ -261,27 +1026,173 @@ static IS_USER_DEFINED_RT: OnceLock<bool> = OnceLock::new();
 ///    create_custom_tokio_runtime(rt);
 /// }
 pub fn create_custom_tokio_runtime(rt: Runtime) {
-  USER_DEFINED_RT.get_or_init(move || RwLock::new(Some(rt)));
-  IS_USER_DEFINED_RT.get_or_init(|| true);
+  if let Err(runtime) = USER_DEFINED_RT.set(RwLock::new(Some(rt))) {
+    let runtime = runtime
+      .into_inner()
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(runtime) = runtime {
+      crate::bindgen_runtime::catch_unwind_safely(|| runtime.shutdown_background());
+    }
+  }
 }
 
-#[cfg(all(not(feature = "noop"), feature = "async-runtime", feature = "tokio"))]
-/// No-op shim for `async-runtime` builds that also link tokio (e.g. `tokio_rt` enabled by
-/// Cargo feature unification): there is no built-in Tokio runtime here — every routed entry
-/// point is served by the registered `AsyncRuntime` backend — so the passed runtime is simply
-/// dropped. This shim only exists so unified builds keep compiling.
-pub fn create_custom_tokio_runtime(_rt: Runtime) {}
+#[cfg(all(
+  not(feature = "noop"),
+  feature = "async-runtime",
+  feature = "tokio",
+  not(feature = "tokio_rt")
+))]
+/// Compatibility shim for `async-runtime` builds that link Tokio without enabling NAPI-RS's
+/// built-in `tokio_rt` executor.
+///
+/// Generated async work is owned by the registered [`AsyncRuntime`] backend in this build, so
+/// the supplied Tokio runtime is not installed.
+pub fn create_custom_tokio_runtime(runtime: Runtime) {
+  crate::bindgen_runtime::catch_unwind_safely(|| runtime.shutdown_background());
+}
 
 #[cfg(all(feature = "noop", feature = "tokio"))]
-pub fn create_custom_tokio_runtime(_: Runtime) {}
+pub fn create_custom_tokio_runtime(runtime: Runtime) {
+  crate::bindgen_runtime::catch_unwind_safely(|| runtime.shutdown_background());
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+fn call_custom_runtime_start() -> Result<()> {
+  std::panic::catch_unwind(AssertUnwindSafe(|| custom_async_runtime()?.start()))
+    .map_err(crate::bindgen_runtime::panic_to_error)?
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+fn call_custom_runtime_shutdown() -> Result<()> {
+  std::panic::catch_unwind(AssertUnwindSafe(|| custom_async_runtime()?.shutdown()))
+    .map_err(crate::bindgen_runtime::panic_to_error)?
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+fn lifecycle_error(primary: Error, cleanup: Error) -> Error {
+  Error::new(
+    crate::Status::GenericFailure,
+    format!(
+      "{}; additionally, lifecycle cleanup failed: {}",
+      primary.reason, cleanup.reason
+    ),
+  )
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+fn finish_runtime_transition(result: &Result<()>, shutdown_failed: bool) {
+  let mut lifecycle = runtime_lifecycle();
+  match result {
+    Ok(()) => {
+      lifecycle.state = RuntimeLifecycleState::Running;
+      lifecycle.startup_error = None;
+    }
+    Err(error) => {
+      lifecycle.state = if shutdown_failed {
+        RuntimeLifecycleState::ShutdownFailed
+      } else {
+        RuntimeLifecycleState::Stopped
+      };
+      lifecycle.startup_error = Some(error.reason.clone());
+    }
+  }
+  RUNTIME_LIFECYCLE.1.notify_all();
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+fn try_start_custom_runtime() -> Result<()> {
+  custom_async_runtime()?;
+  {
+    let mut lifecycle = wait_for_runtime_transition(runtime_lifecycle())?;
+    match lifecycle.state {
+      RuntimeLifecycleState::Running => return Ok(()),
+      RuntimeLifecycleState::ShutdownFailed => {
+        return Err(Error::new(
+          crate::Status::GenericFailure,
+          lifecycle.startup_error.clone().unwrap_or_else(|| {
+            "The previous async runtime shutdown failed; retry shutdown before starting".to_owned()
+          }),
+        ));
+      }
+      RuntimeLifecycleState::Stopped => {
+        lifecycle.state = RuntimeLifecycleState::Starting;
+        lifecycle.startup_error = None;
+      }
+      RuntimeLifecycleState::Starting | RuntimeLifecycleState::Stopping => unreachable!(),
+    }
+  }
+
+  let _transition = RuntimeTransitionGuard::enter();
+  #[cfg(feature = "tokio_rt")]
+  let mut shutdown_failed = false;
+  #[cfg(not(feature = "tokio_rt"))]
+  let shutdown_failed = false;
+  let result = (|| {
+    close_runtime_submissions()?;
+
+    #[cfg(feature = "tokio_rt")]
+    start_tokio_runtime()?;
+
+    #[cfg(not(feature = "tokio_rt"))]
+    call_custom_runtime_start()?;
+    #[cfg(feature = "tokio_rt")]
+    if let Err(error) = call_custom_runtime_start() {
+      if let Err(cleanup) = shutdown_tokio_runtime() {
+        shutdown_failed = true;
+        return Err(lifecycle_error(error, cleanup));
+      }
+      return Err(error);
+    }
+
+    open_runtime_submissions();
+    Ok(())
+  })();
+  finish_runtime_transition(&result, shutdown_failed);
+  result
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+fn finish_custom_runtime_shutdown(call_custom_shutdown: bool) -> Result<()> {
+  let _transition = RuntimeTransitionGuard::enter();
+  let result = (|| {
+    close_runtime_submissions()?;
+    cancel_all_env_tasks();
+
+    let custom_result = if call_custom_shutdown {
+      call_custom_runtime_shutdown()
+    } else {
+      Ok(())
+    };
+    #[cfg(feature = "tokio_rt")]
+    let tokio_result = shutdown_tokio_runtime();
+    #[cfg(not(feature = "tokio_rt"))]
+    let tokio_result = Ok(());
+
+    match (custom_result, tokio_result) {
+      (Ok(()), Ok(())) => Ok(()),
+      (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+      (Err(custom_error), Err(tokio_error)) => Err(lifecycle_error(custom_error, tokio_error)),
+    }
+  })();
+
+  let mut lifecycle = runtime_lifecycle();
+  lifecycle.state = if result.is_ok() {
+    RuntimeLifecycleState::Stopped
+  } else {
+    RuntimeLifecycleState::ShutdownFailed
+  };
+  lifecycle.startup_error = result.as_ref().err().map(|error| error.reason.clone());
+  RUNTIME_LIFECYCLE.1.notify_all();
+  result
+}
 
 #[cfg(not(feature = "noop"))]
 /// Start the async runtime.
 ///
 /// With the `async-runtime` feature this delegates to the registered `AsyncRuntime` backend's
-/// `start` — including when `tokio_rt` is also enabled by Cargo feature unification, since an
-/// `async-runtime` build has no built-in tokio runtime at all. Otherwise it starts napi's
-/// built-in tokio runtime (the default path).
+/// `start`. When `tokio_rt` is also enabled by Cargo feature unification, this starts both the
+/// custom backend used by generated JavaScript-facing futures and the built-in Tokio runtime
+/// retained by the free Tokio helper APIs. Without `async-runtime`, it starts only Tokio.
 ///
 /// In Node.js native targets the async runtime will be dropped when Node env exits.
 /// But in Electron renderer process, the Node env will exits and recreate when the window reloads.
@@ -291,19 +1202,34 @@ pub fn create_custom_tokio_runtime(_: Runtime) {}
 /// it may be triggered by the exports `napi_wrap` finalizer when the module count reaches zero,
 /// or you can call `shutdown_async_runtime` explicitly. A custom `async-runtime` backend
 /// controls its own lifetime. In some scenarios you may want to start the runtime again, e.g.
-/// in tests.
+/// in tests. This compatibility wrapper reports startup failures to stderr; use
+/// [`try_start_async_runtime`] when the caller must know that restart succeeded.
 pub fn start_async_runtime() {
+  if let Err(error) = try_start_async_runtime() {
+    crate::bindgen_runtime::catch_unwind_safely(|| {
+      eprintln!("Failed to start async runtime: {error}");
+    });
+  }
+}
+
+/// Fallible form of [`start_async_runtime`].
+///
+/// In a `tokio_rt` build, restart returns an error while worker resources from the previous
+/// generation are still shutting down. Retry after that retirement completes; napi never starts
+/// a new Tokio generation that overlaps the old one.
+#[cfg(not(feature = "noop"))]
+pub fn try_start_async_runtime() -> Result<()> {
   #[cfg(feature = "async-runtime")]
   {
-    custom_async_runtime().start();
+    try_start_custom_runtime()
   }
-  #[cfg(not(feature = "async-runtime"))]
+  #[cfg(all(feature = "tokio_rt", not(feature = "async-runtime")))]
   {
-    if let Ok(mut rt) = RT.write() {
-      if rt.is_none() {
-        *rt = Some(create_runtime());
-      }
-    }
+    start_tokio_runtime()
+  }
+  #[cfg(not(any(feature = "async-runtime", feature = "tokio_rt")))]
+  {
+    Ok(())
   }
 }
 
@@ -311,92 +1237,298 @@ pub fn start_async_runtime() {
 /// Shut the async runtime down.
 ///
 /// With the `async-runtime` feature this delegates to the registered `AsyncRuntime` backend's
-/// `shutdown` — including when `tokio_rt` is also enabled by Cargo feature unification: an
-/// `async-runtime` build has no built-in tokio runtime, so there is nothing else to tear
-/// down. Otherwise it takes down napi's built-in tokio runtime (the default path).
+/// `shutdown`. When `tokio_rt` is also enabled by Cargo feature unification, this shuts down
+/// both the custom backend and the built-in Tokio runtime retained by the free Tokio helper
+/// APIs. Without `async-runtime`, it takes down only Tokio.
 pub fn shutdown_async_runtime() {
+  if let Err(error) = try_shutdown_async_runtime() {
+    crate::bindgen_runtime::catch_unwind_safely(|| {
+      eprintln!("Failed to shut down async runtime: {error}");
+    });
+  }
+}
+
+/// Fallible form of [`shutdown_async_runtime`].
+#[cfg(not(feature = "noop"))]
+pub fn try_shutdown_async_runtime() -> Result<()> {
   #[cfg(feature = "async-runtime")]
   {
-    custom_async_runtime().shutdown();
-  }
-  #[cfg(not(feature = "async-runtime"))]
-  {
-    if let Some(rt) = RT.write().ok().and_then(|mut rt| rt.take()) {
-      rt.shutdown_background();
+    if RUNTIME_SUBMISSION_DEPTH.with(Cell::get) != 0 {
+      return Err(Error::new(
+        crate::Status::GenericFailure,
+        "Cannot shut down the async runtime from inside AsyncRuntime::spawn",
+      ));
     }
+    let call_custom_shutdown = {
+      let mut lifecycle = wait_for_runtime_transition(runtime_lifecycle())?;
+      let call_custom_shutdown = matches!(
+        lifecycle.state,
+        RuntimeLifecycleState::Running | RuntimeLifecycleState::ShutdownFailed
+      );
+      lifecycle.state = RuntimeLifecycleState::Stopping;
+      call_custom_shutdown
+    };
+    finish_custom_runtime_shutdown(call_custom_shutdown)
+  }
+  #[cfg(all(feature = "tokio_rt", not(feature = "async-runtime")))]
+  {
+    shutdown_tokio_runtime()
+  }
+  #[cfg(not(any(feature = "async-runtime", feature = "tokio_rt")))]
+  {
+    Ok(())
   }
 }
 
-/// The error returned when joining a [`JoinHandle`] whose task panicked.
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+pub(crate) fn start_tokio_runtime() -> Result<()> {
+  start_tokio_runtime_impl(true)
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+fn start_tokio_runtime_impl(allow_restart: bool) -> Result<()> {
+  acquire_tokio_runtime(allow_restart).map(drop)
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+fn acquire_tokio_runtime(allow_restart: bool) -> Result<TokioRuntimeLease> {
+  std::panic::catch_unwind(AssertUnwindSafe(|| -> Result<TokioRuntimeLease> {
+    let mut state = TOKIO_RUNTIME_STATE
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    match state.lifecycle {
+      TokioRuntimeLifecycle::Running => {
+        let generation = state
+          .generation
+          .as_ref()
+          .expect("running Tokio lifecycle must own a generation");
+        return Ok(TokioRuntimeLease {
+          runtime: Arc::clone(&generation.runtime),
+          retirement: Arc::clone(&generation.retirement),
+        });
+      }
+      TokioRuntimeLifecycle::Stopped if !allow_restart => {
+        return Err(Error::new(
+          crate::Status::GenericFailure,
+          "Tokio runtime is stopped; call start_async_runtime before using it again",
+        ));
+      }
+      TokioRuntimeLifecycle::Uninitialized | TokioRuntimeLifecycle::Stopped => {}
+    }
+    if state.retiring.as_ref().and_then(Weak::upgrade).is_some() {
+      return Err(Error::new(
+        crate::Status::GenericFailure,
+        "Tokio runtime is still shutting down",
+      ));
+    }
+    state.retiring = None;
+    let rt = create_runtime();
+    let retirement = Arc::new(());
+    let runtime = Arc::new(SharedTokioRuntime {
+      runtime: Some(rt),
+      retirement: Some(Arc::clone(&retirement)),
+    });
+    state.generation = Some(TokioRuntimeGeneration {
+      runtime: Arc::clone(&runtime),
+      retirement: Arc::clone(&retirement),
+    });
+    state.lifecycle = TokioRuntimeLifecycle::Running;
+    Ok(TokioRuntimeLease {
+      runtime,
+      retirement,
+    })
+  }))
+  .map_err(crate::bindgen_runtime::panic_to_error)
+  .and_then(|result| result)
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+pub(crate) fn shutdown_tokio_runtime() -> Result<()> {
+  let rt = std::panic::catch_unwind(AssertUnwindSafe(
+    || -> Result<Option<TokioRuntimeGeneration>> {
+      let mut state = TOKIO_RUNTIME_STATE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      match state.lifecycle {
+        TokioRuntimeLifecycle::Uninitialized => {
+          state.lifecycle = TokioRuntimeLifecycle::Stopped;
+          return Ok(None);
+        }
+        TokioRuntimeLifecycle::Stopped => return Ok(None),
+        TokioRuntimeLifecycle::Running => {}
+      }
+      let generation = state.generation.take();
+      if let Some(generation) = &generation {
+        state.retiring = Some(Arc::downgrade(&generation.retirement));
+      }
+      state.lifecycle = TokioRuntimeLifecycle::Stopped;
+      Ok(generation)
+    },
+  ))
+  .map_err(crate::bindgen_runtime::panic_to_error)
+  .and_then(|result| result)?;
+
+  drop(rt);
+  let mut state = TOKIO_RUNTIME_STATE
+    .lock()
+    .unwrap_or_else(std::sync::PoisonError::into_inner);
+  if state
+    .retiring
+    .as_ref()
+    .is_some_and(|runtime| runtime.strong_count() == 0)
+  {
+    state.retiring = None;
+  }
+  Ok(())
+}
+
+/// The error returned when joining a [`JoinHandle`] whose task panicked or was cancelled.
 ///
 /// This is napi's runtime-agnostic analogue of `tokio::task::JoinError`, produced by the
-/// free [`spawn`]/[`spawn_blocking`] helpers in `async-runtime` builds. There is no task
-/// cancellation for these handles, so a `JoinError` always carries a panic payload.
-#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
-pub struct JoinError {
-  panic_payload: Box<dyn Any + Send + 'static>,
+/// free [`spawn`]/[`spawn_blocking`] helpers in pure `async-runtime` builds.
+#[cfg(all(
+  feature = "async-runtime",
+  not(feature = "noop"),
+  not(feature = "tokio_rt")
+))]
+enum JoinErrorKind {
+  Panic(SafeDrop<Box<dyn Any + Send + 'static>>),
+  Cancelled,
 }
 
-#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+#[cfg(all(
+  feature = "async-runtime",
+  not(feature = "noop"),
+  not(feature = "tokio_rt")
+))]
+pub struct JoinError {
+  kind: JoinErrorKind,
+}
+
+#[cfg(all(
+  feature = "async-runtime",
+  not(feature = "noop"),
+  not(feature = "tokio_rt")
+))]
 impl JoinError {
   fn new_panic(panic_payload: Box<dyn Any + Send + 'static>) -> Self {
-    Self { panic_payload }
+    Self {
+      kind: JoinErrorKind::Panic(SafeDrop::new(panic_payload)),
+    }
   }
 
-  /// Whether the task failed because it panicked. Always `true`: these handles cannot be
-  /// cancelled, so a panic is the only way a task can fail.
+  fn cancelled() -> Self {
+    Self {
+      kind: JoinErrorKind::Cancelled,
+    }
+  }
+
+  /// Whether the task failed because it panicked.
   pub fn is_panic(&self) -> bool {
-    true
+    matches!(self.kind, JoinErrorKind::Panic(_))
+  }
+
+  /// Whether the task was rejected or cancelled by the runtime.
+  pub fn is_cancelled(&self) -> bool {
+    matches!(self.kind, JoinErrorKind::Cancelled)
   }
 
   /// Consume the error, returning the panic payload the task panicked with.
   pub fn into_panic(self) -> Box<dyn Any + Send + 'static> {
-    self.panic_payload
+    self
+      .try_into_panic()
+      .expect("JoinError does not contain a panic")
   }
 
-  /// Consume the error, returning the panic payload the task panicked with. Mirrors
-  /// `tokio::task::JoinError::try_into_panic`; for this error type it always returns `Ok`.
+  /// Consume the error, returning the panic payload when this error represents a panic.
   pub fn try_into_panic(self) -> std::result::Result<Box<dyn Any + Send + 'static>, Self> {
-    Ok(self.panic_payload)
+    match self.kind {
+      JoinErrorKind::Panic(mut payload) => Ok(payload.take()),
+      JoinErrorKind::Cancelled => Err(Self::cancelled()),
+    }
   }
 }
 
-#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+#[cfg(all(
+  feature = "async-runtime",
+  not(feature = "noop"),
+  not(feature = "tokio_rt")
+))]
 impl std::fmt::Debug for JoinError {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    f.write_str("JoinError::Panic(...)")
+    match self.kind {
+      JoinErrorKind::Panic(_) => f.write_str("JoinError::Panic(...)"),
+      JoinErrorKind::Cancelled => f.write_str("JoinError::Cancelled"),
+    }
   }
 }
 
-#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+#[cfg(all(
+  feature = "async-runtime",
+  not(feature = "noop"),
+  not(feature = "tokio_rt")
+))]
 impl std::fmt::Display for JoinError {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    f.write_str("task panicked")
+    match self.kind {
+      JoinErrorKind::Panic(_) => f.write_str("task panicked"),
+      JoinErrorKind::Cancelled => f.write_str("task was cancelled"),
+    }
   }
 }
 
-#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+#[cfg(all(
+  feature = "async-runtime",
+  not(feature = "noop"),
+  not(feature = "tokio_rt")
+))]
 impl std::error::Error for JoinError {}
 
-#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+#[cfg(all(
+  feature = "async-runtime",
+  not(feature = "noop"),
+  not(feature = "tokio_rt")
+))]
 struct JoinStateInner<T> {
-  result: Option<std::result::Result<T, JoinError>>,
+  completed: bool,
+  result: Option<std::result::Result<SafeDrop<T>, JoinError>>,
   waker: Option<Waker>,
 }
 
-/// Shared completion slot between a spawned task and its [`JoinHandle`]. napi manufactures
-/// joinable-ness over the backend's detached hooks with this: the task wrapper stores its
-/// output (or panic payload) here and wakes the handle.
-#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+#[cfg(all(
+  feature = "async-runtime",
+  not(feature = "noop"),
+  not(feature = "tokio_rt")
+))]
+impl<T> Drop for JoinStateInner<T> {
+  fn drop(&mut self) {
+    if let Some(waker) = self.waker.take() {
+      drop_safely(waker);
+    }
+  }
+}
+
+/// Shared completion slot between a spawned task and its [`JoinHandle`]. The task wrapper
+/// stores its output, panic payload, or cancellation here and wakes the handle.
+#[cfg(all(
+  feature = "async-runtime",
+  not(feature = "noop"),
+  not(feature = "tokio_rt")
+))]
 struct JoinState<T> {
   inner: Mutex<JoinStateInner<T>>,
 }
 
-#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+#[cfg(all(
+  feature = "async-runtime",
+  not(feature = "noop"),
+  not(feature = "tokio_rt")
+))]
 impl<T> JoinState<T> {
   fn new() -> Self {
     Self {
       inner: Mutex::new(JoinStateInner {
+        completed: false,
         result: None,
         waker: None,
       }),
@@ -404,17 +1536,42 @@ impl<T> JoinState<T> {
   }
 
   fn complete(&self, result: std::result::Result<T, JoinError>) {
+    let result = result.map(SafeDrop::new);
     let waker = {
       let mut inner = self
         .inner
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
+      if inner.completed {
+        return;
+      }
+      inner.completed = true;
       inner.result = Some(result);
       inner.waker.take()
     };
     if let Some(waker) = waker {
-      waker.wake();
+      crate::bindgen_runtime::catch_unwind_safely(|| waker.wake());
     }
+  }
+}
+
+#[cfg(all(
+  feature = "async-runtime",
+  not(feature = "noop"),
+  not(feature = "tokio_rt")
+))]
+struct CancelJoinOnDrop<T> {
+  state: Arc<JoinState<T>>,
+}
+
+#[cfg(all(
+  feature = "async-runtime",
+  not(feature = "noop"),
+  not(feature = "tokio_rt")
+))]
+impl<T> Drop for CancelJoinOnDrop<T> {
+  fn drop(&mut self) {
+    self.state.complete(Err(JoinError::cancelled()));
   }
 }
 
@@ -424,37 +1581,72 @@ impl<T> JoinState<T> {
 /// Await it to join the task: it resolves to the task's output, or to a [`JoinError`]
 /// carrying the panic payload if the task panicked. Unlike `tokio::task::JoinHandle` it is
 /// join-only — there is no `abort`; detach the task by dropping the handle. If the backend
-/// drops the task without ever running it, the handle never resolves.
-#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+/// rejects or drops the task, the handle resolves with a cancellation error.
+#[cfg(all(
+  feature = "async-runtime",
+  not(feature = "noop"),
+  not(feature = "tokio_rt")
+))]
 pub struct JoinHandle<T> {
   state: Arc<JoinState<T>>,
 }
 
-#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+#[cfg(all(
+  feature = "async-runtime",
+  not(feature = "noop"),
+  not(feature = "tokio_rt")
+))]
 impl<T> Future for JoinHandle<T> {
   type Output = std::result::Result<T, JoinError>;
 
   fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-    let mut inner = self
-      .state
-      .inner
-      .lock()
-      .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if let Some(result) = inner.result.take() {
-      Poll::Ready(result)
-    } else {
-      inner.waker = Some(cx.waker().clone());
-      Poll::Pending
+    let new_waker = match std::panic::catch_unwind(AssertUnwindSafe(|| cx.waker().clone())) {
+      Ok(waker) => waker,
+      Err(reason) => {
+        drop_safely(reason);
+        let (result, replaced_waker) = {
+          let mut inner = self
+            .state
+            .inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+          let result = if let Some(result) = inner.result.take() {
+            result
+          } else {
+            inner.completed = true;
+            Err(JoinError::cancelled())
+          };
+          (result, inner.waker.take())
+        };
+        if let Some(waker) = replaced_waker {
+          drop_safely(waker);
+        }
+        return Poll::Ready(result.map(|mut value| value.take()));
+      }
+    };
+    let (result, replaced_waker) = {
+      let mut inner = self
+        .state
+        .inner
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      if let Some(result) = inner.result.take() {
+        (Some(result), Some(new_waker))
+      } else {
+        (None, inner.waker.replace(new_waker))
+      }
+    };
+    if let Some(waker) = replaced_waker {
+      drop_safely(waker);
+    }
+    match result {
+      Some(result) => Poll::Ready(result.map(|mut value| value.take())),
+      None => Poll::Pending,
     }
   }
 }
 
-/// The name of the dedicated thread the free [`spawn_blocking`] helper falls back to when
-/// the registered [`AsyncRuntime`] backend declines the work.
-#[cfg(all(not(feature = "noop"), feature = "async-runtime"))]
-pub const SPAWN_BLOCKING_FALLBACK_THREAD_NAME: &str = "napi-spawn-blocking-fallback";
-
-#[cfg(all(not(feature = "noop"), not(feature = "async-runtime")))]
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 /// Spawns a future onto the Tokio runtime.
 ///
 /// Depending on where you use it, you should await or abort the future in your drop function.
@@ -463,21 +1655,27 @@ pub fn spawn<F>(fut: F) -> tokio::task::JoinHandle<F::Output>
 where
   F: 'static + Send + Future<Output = ()>,
 {
-  RT.read()
-    .ok()
-    .and_then(|rt| rt.as_ref().map(|rt| rt.spawn(fut)))
-    .expect("Access tokio runtime failed in spawn")
+  let runtime = runtime();
+  let retirement = runtime.retirement_token();
+  runtime.spawn(async move {
+    let _retirement = retirement;
+    fut.await
+  })
 }
 
-#[cfg(all(not(feature = "noop"), feature = "async-runtime"))]
+#[cfg(all(
+  not(feature = "noop"),
+  feature = "async-runtime",
+  not(feature = "tokio_rt")
+))]
 /// Spawn a future onto the registered [`AsyncRuntime`] backend, returning a joinable
 /// [`JoinHandle`].
 ///
-/// The joinable-ness is manufactured by napi over the backend's detached
-/// [`spawn`](AsyncRuntime::spawn) hook: the future is wrapped so that its output — or, if it
-/// panics, the caught panic payload as a [`JoinError`] — is handed to the returned handle.
-/// This routed arm serves every `async-runtime` build, including combined
-/// `async-runtime` + `tokio_rt` builds: there is no built-in tokio runtime to spawn onto.
+/// The joinable-ness is manufactured by napi over [`spawn`](AsyncRuntime::spawn): the future
+/// is wrapped so that its output — or, if it panics, the caught panic payload as a
+/// [`JoinError`] — is handed to the returned handle.
+/// Combined `async-runtime` + `tokio_rt` builds retain the established Tokio helper API;
+/// generated JavaScript-facing futures still use the custom backend.
 pub fn spawn<F>(fut: F) -> JoinHandle<F::Output>
 where
   F: 'static + Send + Future,
@@ -485,10 +1683,30 @@ where
 {
   let state = Arc::new(JoinState::new());
   let task_state = state.clone();
-  custom_async_runtime().spawn(Box::pin(async move {
-    let result = AssertUnwindSafe(fut).catch_unwind().await;
-    task_state.complete(result.map_err(JoinError::new_panic));
-  }));
+  let cancellation_state = state.clone();
+  let task = AsyncRuntimeTask::new(
+    async move {
+      let result = AssertUnwindSafe(fut).catch_unwind().await;
+      task_state.complete(result.map_err(JoinError::new_panic));
+      AsyncTaskOutcome::Completed
+    },
+    move || cancellation_state.complete(Err(JoinError::cancelled())),
+  );
+  let Some(_submission) = RuntimeSubmissionPermit::acquire() else {
+    drop(task);
+    return JoinHandle { state };
+  };
+  if let Ok(runtime) = custom_async_runtime() {
+    match std::panic::catch_unwind(AssertUnwindSafe(|| runtime.spawn(task))) {
+      Ok(Ok(())) => {}
+      Ok(Err(task)) => drop(task),
+      Err(reason) => {
+        drop(crate::bindgen_runtime::panic_to_error(reason));
+      }
+    }
+  } else {
+    drop(task);
+  }
   JoinHandle { state }
 }
 
@@ -497,23 +1715,57 @@ where
 /// This is blocking, meaning that it pauses other execution until the future is complete,
 /// only use it when it is absolutely necessary, in other places use async functions instead.
 pub fn block_on<F: Future>(fut: F) -> F::Output {
-  #[cfg(feature = "async-runtime")]
+  try_block_on(fut).unwrap_or_else(|error| panic!("{error}"))
+}
+
+#[cfg(not(feature = "noop"))]
+fn try_block_on_safely<F: Future>(
+  fut: F,
+  block_on: impl FnOnce(Pin<&mut dyn Future<Output = ()>>),
+) -> Result<F::Output> {
+  let mut future = SafeDrop::new(Box::pin(fut));
+  let mut output = SafeDrop::new(None);
+  std::panic::catch_unwind(AssertUnwindSafe(|| {
+    let mut driver = std::pin::pin!(std::future::poll_fn(|cx| {
+      if output.get_mut().is_some() {
+        return Poll::Ready(());
+      }
+      match future.get_mut().as_mut().poll(cx) {
+        Poll::Ready(value) => {
+          *output.get_mut() = Some(value);
+          Poll::Ready(())
+        }
+        Poll::Pending => Poll::Pending,
+      }
+    }));
+    block_on(driver.as_mut());
+  }))
+  .map_err(crate::bindgen_runtime::panic_to_error)?;
+  output.take().ok_or_else(|| {
+    Error::new(
+      crate::Status::GenericFailure,
+      "Async runtime returned before the future completed",
+    )
+  })
+}
+
+#[cfg(not(feature = "noop"))]
+/// Fallible form of [`block_on`].
+///
+/// This reports a missing backend, a backend panic, or a backend that returned before polling
+/// the future to completion as a napi error.
+pub fn try_block_on<F: Future>(fut: F) -> Result<F::Output> {
+  #[cfg(all(feature = "async-runtime", not(feature = "tokio_rt")))]
   {
-    let mut output = None;
-    {
-      let mut future = std::pin::pin!(async {
-        output = Some(fut.await);
-      });
-      custom_async_runtime().block_on(future.as_mut());
-    }
-    output.expect("Custom async runtime returned before the future completed")
+    let runtime = custom_async_runtime()?;
+    try_block_on_safely(fut, |future| runtime.block_on(future))
   }
-  #[cfg(not(feature = "async-runtime"))]
+  #[cfg(feature = "tokio_rt")]
   {
-    RT.read()
-      .ok()
-      .and_then(|rt| rt.as_ref().map(|rt| rt.block_on(fut)))
-      .expect("Access tokio runtime failed in block_on")
+    let runtime = try_runtime()?;
+    try_block_on_safely(fut, |future| {
+      runtime.block_on(future);
+    })
   }
 }
 
@@ -524,29 +1776,34 @@ pub fn block_on<F: Future>(_: F) -> F::Output {
   unreachable!("noop feature is enabled, block_on is not available")
 }
 
-#[cfg(all(not(feature = "noop"), not(feature = "async-runtime")))]
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 /// spawn_blocking on the current Tokio runtime.
 pub fn spawn_blocking<F, R>(func: F) -> tokio::task::JoinHandle<R>
 where
   F: FnOnce() -> R + Send + 'static,
   R: Send + 'static,
 {
-  RT.read()
-    .ok()
-    .and_then(|rt| rt.as_ref().map(|rt| rt.spawn_blocking(func)))
-    .expect("Access tokio runtime failed in spawn_blocking")
+  let runtime = runtime();
+  let retirement = runtime.retirement_token();
+  runtime.spawn_blocking(move || {
+    let _retirement = retirement;
+    func()
+  })
 }
 
-#[cfg(all(not(feature = "noop"), feature = "async-runtime"))]
+#[cfg(all(
+  not(feature = "noop"),
+  feature = "async-runtime",
+  not(feature = "tokio_rt")
+))]
 /// Run blocking work through the registered [`AsyncRuntime`] backend, returning a joinable
 /// [`JoinHandle`].
 ///
 /// The closure — wrapped so that its output, or the caught panic payload as a [`JoinError`],
 /// is handed to the returned handle — is offered to the backend's
-/// [`spawn_blocking`](AsyncRuntime::spawn_blocking) hook. If the backend declines (the
-/// default implementation does), napi runs the closure on a plain dedicated `std::thread`
-/// named [`SPAWN_BLOCKING_FALLBACK_THREAD_NAME`]: a hidden tokio blocking pool is never
-/// constructed, not even in combined `async-runtime` + `tokio_rt` builds.
+/// [`spawn_blocking`](AsyncRuntime::spawn_blocking) hook. If the backend declines, the returned
+/// handle completes with a cancellation error. napi never creates an unbounded fallback thread,
+/// which keeps this API valid on threadless WebAssembly.
 pub fn spawn_blocking<F, R>(func: F) -> JoinHandle<R>
 where
   F: FnOnce() -> R + Send + 'static,
@@ -554,54 +1811,119 @@ where
 {
   let state = Arc::new(JoinState::new());
   let task_state = state.clone();
+  let rejection_state = state.clone();
+  let cancel_on_drop = CancelJoinOnDrop {
+    state: state.clone(),
+  };
+  let mut func = SafeDrop::new(func);
   let work: Box<dyn FnOnce() + Send + 'static> = Box::new(move || {
+    let _cancel_on_drop = cancel_on_drop;
+    let func = func.take();
     let result = std::panic::catch_unwind(AssertUnwindSafe(func));
     task_state.complete(result.map_err(JoinError::new_panic));
   });
-  if let Err(work) = custom_async_runtime().spawn_blocking(work) {
-    std::thread::Builder::new()
-      .name(SPAWN_BLOCKING_FALLBACK_THREAD_NAME.to_owned())
-      .spawn(work)
-      .expect("Failed to spawn the napi `spawn_blocking` fallback thread");
+  let Some(_submission) = RuntimeSubmissionPermit::acquire() else {
+    drop(work);
+    return JoinHandle { state };
+  };
+  let result = custom_async_runtime().and_then(|runtime| {
+    std::panic::catch_unwind(AssertUnwindSafe(|| runtime.spawn_blocking(work)))
+      .map_err(crate::bindgen_runtime::panic_to_error)
+      .and_then(|result| {
+        result.map_err(|_| {
+          Error::new(
+            crate::Status::Cancelled,
+            "The AsyncRuntime backend rejected a blocking task",
+          )
+        })
+      })
+  });
+  match result {
+    Ok(()) => {}
+    Err(_) => rejection_state.complete(Err(JoinError::cancelled())),
   }
   JoinHandle { state }
 }
 
-#[cfg(not(feature = "noop"))]
 // This function's signature must be kept in sync with the one in lib.rs, otherwise napi
 // will fail to compile with the `tokio_rt` feature.
 #[cfg(not(feature = "noop"))]
 /// Enter the async runtime context for the duration of the provided closure, then call it.
 ///
-/// With the `async-runtime` feature this enters the registered `AsyncRuntime` backend's
-/// context (via its `enter`); with the built-in tokio runtime it enters the tokio context;
-/// under the `noop` feature it simply calls the closure without entering any context.
+/// A pure `async-runtime` build enters the registered backend. If `tokio_rt` is enabled,
+/// including through feature unification, this established public helper enters Tokio.
+/// Generated `#[napi(async_runtime)]` callbacks use the custom backend independently.
 pub fn within_runtime_if_available<F: FnOnce() -> T, T>(f: F) -> T {
-  #[cfg(feature = "async-runtime")]
+  try_within_runtime_if_available(f).unwrap_or_else(|error| panic!("{error}"))
+}
+
+#[cfg(not(feature = "noop"))]
+/// Fallible form of [`within_runtime_if_available`].
+pub fn try_within_runtime_if_available<F: FnOnce() -> T, T>(f: F) -> Result<T> {
+  #[cfg(feature = "tokio_rt")]
   {
-    let runtime_guard = custom_async_runtime().enter();
-    let ret = f();
-    drop(runtime_guard);
-    ret
+    let runtime = try_runtime()?;
+    let runtime_guard = runtime.enter();
+    call_with_runtime_guard(runtime_guard, f)
   }
-  #[cfg(not(feature = "async-runtime"))]
+  #[cfg(all(feature = "async-runtime", not(feature = "tokio_rt")))]
   {
-    RT.read()
-      .ok()
-      .and_then(|rt| {
-        rt.as_ref().map(|rt| {
-          let rt_guard = rt.enter();
-          let ret = f();
-          drop(rt_guard);
-          ret
-        })
-      })
-      .expect("Access tokio runtime failed in within_runtime_if_available")
+    let runtime = custom_async_runtime()?;
+    let runtime_guard = std::panic::catch_unwind(AssertUnwindSafe(|| runtime.enter()))
+      .map_err(crate::bindgen_runtime::panic_to_error)?;
+    call_with_runtime_guard(runtime_guard, f)
+  }
+}
+
+#[cfg(not(feature = "noop"))]
+fn call_with_runtime_guard<G, F: FnOnce() -> T, T>(guard: G, f: F) -> Result<T> {
+  let call_result = std::panic::catch_unwind(AssertUnwindSafe(f));
+  let drop_result = std::panic::catch_unwind(AssertUnwindSafe(|| drop(guard)))
+    .map_err(crate::bindgen_runtime::panic_to_error);
+  match call_result {
+    Ok(value) => match drop_result {
+      Ok(()) => Ok(value),
+      Err(error) => {
+        crate::bindgen_runtime::catch_unwind_safely(|| drop(value));
+        Err(error)
+      }
+    },
+    Err(reason) => Err(crate::bindgen_runtime::panic_to_error(reason)),
+  }
+}
+
+#[cfg(all(not(feature = "noop"), feature = "async-runtime"))]
+#[doc(hidden)]
+pub fn within_custom_runtime_if_available<F: FnOnce() -> Result<T>, T>(f: F) -> Result<T> {
+  let runtime = custom_async_runtime()?;
+  let runtime_guard = std::panic::catch_unwind(AssertUnwindSafe(|| runtime.enter()))
+    .map_err(crate::bindgen_runtime::panic_to_error)?;
+  call_with_runtime_guard(runtime_guard, f).and_then(|result| result)
+}
+
+#[cfg(all(not(feature = "noop"), not(feature = "async-runtime")))]
+#[doc(hidden)]
+pub fn within_custom_runtime_if_available<F: FnOnce() -> Result<T>, T>(f: F) -> Result<T> {
+  #[cfg(feature = "tokio_rt")]
+  {
+    let runtime = try_runtime()?;
+    let runtime_guard = runtime.enter();
+    call_with_runtime_guard(runtime_guard, f).and_then(|result| result)
+  }
+  #[cfg(not(feature = "tokio_rt"))]
+  {
+    f()
   }
 }
 
 #[cfg(feature = "noop")]
 pub fn within_runtime_if_available<F: FnOnce() -> T, T>(f: F) -> T {
+  f()
+}
+
+#[cfg(feature = "noop")]
+#[doc(hidden)]
+pub fn within_custom_runtime_if_available<F: FnOnce() -> Result<T>, T>(f: F) -> Result<T> {
   f()
 }
 
@@ -630,6 +1952,7 @@ pub fn execute_tokio_future<
   fut: Fut,
   resolver: Resolver,
 ) -> Result<sys::napi_value> {
+  let raw_env = env;
   let env = Env::from_raw(env);
   let (deferred, promise) = JsDeferred::new(&env)?;
   #[cfg(all(
@@ -640,31 +1963,56 @@ pub fn execute_tokio_future<
     )
   ))]
   let deferred_for_panic = deferred.clone();
-  let sendable_resolver = SendableResolver::new(resolver);
+  let sendable_resolver = SendableResolver::new_for_env(raw_env, resolver);
+  #[cfg(all(
+    not(feature = "async-runtime"),
+    any(
+      all(target_family = "wasm", tokio_unstable),
+      not(target_family = "wasm")
+    )
+  ))]
+  let resolver_for_panic = sendable_resolver.clone_handle();
 
   #[cfg(feature = "async-runtime")]
-  let inner = async move {
-    match AssertUnwindSafe(fut).catch_unwind().await {
-      Ok(Ok(v)) => deferred.resolve(move |env| {
-        sendable_resolver
-          .resolve(env.raw(), v)
-          .map(|v| unsafe { Unknown::from_raw_unchecked(env.raw(), v) })
-      }),
-      Ok(Err(e)) => deferred.reject(e.into()),
-      Err(reason) => {
-        if let Some(s) = reason.downcast_ref::<&str>() {
-          deferred.reject(Error::new(crate::Status::GenericFailure, s));
-        } else if let Some(s) = reason.downcast_ref::<String>() {
-          deferred.reject(Error::new(crate::Status::GenericFailure, s));
-        } else {
-          deferred.reject(Error::new(
-            crate::Status::GenericFailure,
-            "Panic in async function",
-          ));
+  {
+    let cancellation_deferred = deferred.clone();
+    let cancellation_resolver = sendable_resolver.clone_handle();
+    let task = env_async_task(
+      raw_env,
+      async move {
+        match AssertUnwindSafe(fut).catch_unwind().await {
+          Ok(Ok(v)) => deferred.resolve(move |env| {
+            sendable_resolver
+              .resolve(env.raw(), v)
+              .map(|v| unsafe { Unknown::from_raw_unchecked(env.raw(), v) })
+          }),
+          Ok(Err(e)) => deferred.reject_with_cleanup(e.into(), move || {
+            let _ = sendable_resolver.discard();
+          }),
+          Err(reason) => {
+            let error = crate::bindgen_runtime::panic_to_error(reason);
+            deferred.reject_with_cleanup(error, move || {
+              let _ = sendable_resolver.discard();
+            });
+          }
         }
-      }
-    }
-  };
+      },
+      move |env_open| {
+        if env_open {
+          cancellation_deferred.reject_with_cleanup(
+            Error::new(
+              crate::Status::Cancelled,
+              "Async task was cancelled because its runtime stopped",
+            ),
+            move || {
+              let _ = cancellation_resolver.discard();
+            },
+          );
+        }
+      },
+    );
+    submit_async_task(task);
+  }
 
   #[cfg(not(feature = "async-runtime"))]
   let inner = async move {
@@ -674,12 +2022,11 @@ pub fn execute_tokio_future<
           .resolve(env.raw(), v)
           .map(|v| unsafe { Unknown::from_raw_unchecked(env.raw(), v) })
       }),
-      Err(e) => deferred.reject(e.into()),
+      Err(e) => deferred.reject_with_cleanup(e.into(), move || {
+        let _ = sendable_resolver.discard();
+      }),
     }
   };
-
-  #[cfg(feature = "async-runtime")]
-  custom_async_runtime().spawn(Box::pin(inner));
 
   #[cfg(all(
     not(feature = "async-runtime"),
@@ -700,14 +2047,12 @@ pub fn execute_tokio_future<
   spawn(async move {
     if let Err(err) = jh.await {
       if let Ok(reason) = err.try_into_panic() {
-        if let Some(s) = reason.downcast_ref::<&str>() {
-          deferred_for_panic.reject(Error::new(crate::Status::GenericFailure, s));
-        } else {
-          deferred_for_panic.reject(Error::new(
-            crate::Status::GenericFailure,
-            "Panic in async function",
-          ));
-        }
+        deferred_for_panic.reject_with_cleanup(
+          crate::bindgen_runtime::panic_to_error(reason),
+          move || {
+            let _ = resolver_for_panic.discard();
+          },
+        );
       }
     }
   });
@@ -739,6 +2084,7 @@ pub fn execute_tokio_future_with_finalize_callback<
   resolver: Resolver,
   finalize_callback: Option<Box<dyn FnOnce(sys::napi_env)>>,
 ) -> Result<sys::napi_value> {
+  let raw_env = env;
   let env = Env::from_raw(env);
   let (mut deferred, promise) = JsDeferred::new(&env)?;
   deferred.set_finalize_callback(finalize_callback);
@@ -750,31 +2096,56 @@ pub fn execute_tokio_future_with_finalize_callback<
     )
   ))]
   let deferred_for_panic = deferred.clone();
-  let sendable_resolver = SendableResolver::new(resolver);
+  let sendable_resolver = SendableResolver::new_for_env(raw_env, resolver);
+  #[cfg(all(
+    not(feature = "async-runtime"),
+    any(
+      all(target_family = "wasm", tokio_unstable),
+      not(target_family = "wasm")
+    )
+  ))]
+  let resolver_for_panic = sendable_resolver.clone_handle();
 
   #[cfg(feature = "async-runtime")]
-  let inner = async move {
-    match AssertUnwindSafe(fut).catch_unwind().await {
-      Ok(Ok(v)) => deferred.resolve(move |env| {
-        sendable_resolver
-          .resolve(env.raw(), v)
-          .map(|v| unsafe { Unknown::from_raw_unchecked(env.raw(), v) })
-      }),
-      Ok(Err(e)) => deferred.reject(e.into()),
-      Err(reason) => {
-        if let Some(s) = reason.downcast_ref::<&str>() {
-          deferred.reject(Error::new(crate::Status::GenericFailure, s));
-        } else if let Some(s) = reason.downcast_ref::<String>() {
-          deferred.reject(Error::new(crate::Status::GenericFailure, s));
-        } else {
-          deferred.reject(Error::new(
-            crate::Status::GenericFailure,
-            "Panic in async function",
-          ));
+  {
+    let cancellation_deferred = deferred.clone();
+    let cancellation_resolver = sendable_resolver.clone_handle();
+    let task = env_async_task(
+      raw_env,
+      async move {
+        match AssertUnwindSafe(fut).catch_unwind().await {
+          Ok(Ok(v)) => deferred.resolve(move |env| {
+            sendable_resolver
+              .resolve(env.raw(), v)
+              .map(|v| unsafe { Unknown::from_raw_unchecked(env.raw(), v) })
+          }),
+          Ok(Err(e)) => deferred.reject_with_cleanup(e.into(), move || {
+            let _ = sendable_resolver.discard();
+          }),
+          Err(reason) => {
+            let error = crate::bindgen_runtime::panic_to_error(reason);
+            deferred.reject_with_cleanup(error, move || {
+              let _ = sendable_resolver.discard();
+            });
+          }
         }
-      }
-    }
-  };
+      },
+      move |env_open| {
+        if env_open {
+          cancellation_deferred.reject_with_cleanup(
+            Error::new(
+              crate::Status::Cancelled,
+              "Async task was cancelled because its runtime stopped",
+            ),
+            move || {
+              let _ = cancellation_resolver.discard();
+            },
+          );
+        }
+      },
+    );
+    submit_async_task(task);
+  }
 
   #[cfg(not(feature = "async-runtime"))]
   let inner = async move {
@@ -784,12 +2155,11 @@ pub fn execute_tokio_future_with_finalize_callback<
           .resolve(env.raw(), v)
           .map(|v| unsafe { Unknown::from_raw_unchecked(env.raw(), v) })
       }),
-      Err(e) => deferred.reject(e.into()),
+      Err(e) => deferred.reject_with_cleanup(e.into(), move || {
+        let _ = sendable_resolver.discard();
+      }),
     }
   };
-
-  #[cfg(feature = "async-runtime")]
-  custom_async_runtime().spawn(Box::pin(inner));
 
   #[cfg(all(
     not(feature = "async-runtime"),
@@ -810,14 +2180,12 @@ pub fn execute_tokio_future_with_finalize_callback<
   spawn(async move {
     if let Err(err) = jh.await {
       if let Ok(reason) = err.try_into_panic() {
-        if let Some(s) = reason.downcast_ref::<&str>() {
-          deferred_for_panic.reject(Error::new(crate::Status::GenericFailure, s));
-        } else {
-          deferred_for_panic.reject(Error::new(
-            crate::Status::GenericFailure,
-            "Panic in async function",
-          ));
-        }
+        deferred_for_panic.reject_with_cleanup(
+          crate::bindgen_runtime::panic_to_error(reason),
+          move || {
+            let _ = resolver_for_panic.discard();
+          },
+        );
       }
     }
   });
@@ -932,16 +2300,22 @@ impl<T: ToNapiValue + 'static> ToNapiValue for AsyncBlock<T> {
   }
 }
 
-// These tests compile for both the pure `async-runtime` build and the combined
-// `async-runtime` + `tokio_rt` build (Cargo feature unification): in both, the free
-// `spawn`/`spawn_blocking` helpers must route through the registered `AsyncRuntime`
-// backend — there is no built-in tokio runtime to fall back on under `async-runtime`.
-#[cfg(all(test, not(feature = "noop"), feature = "async-runtime"))]
+// These tests cover the runtime-agnostic free helpers in a pure `async-runtime` build.
+#[cfg(all(
+  test,
+  not(feature = "noop"),
+  feature = "async-runtime",
+  not(feature = "tokio_rt")
+))]
 mod tests {
   use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
-    Mutex, MutexGuard,
+    mpsc, Arc, Mutex, MutexGuard,
   };
+  use std::task::{RawWaker, RawWakerVTable};
+  use std::time::Duration;
+
+  use futures::task::ArcWake;
 
   use super::*;
 
@@ -950,15 +2324,43 @@ mod tests {
 
   static BACKEND_SPAWN_CALLS: AtomicUsize = AtomicUsize::new(0);
   static BACKEND_BLOCKING_CALLS: AtomicUsize = AtomicUsize::new(0);
+  static BACKEND_START_CALLS: AtomicUsize = AtomicUsize::new(0);
+  static BACKEND_SHUTDOWN_CALLS: AtomicUsize = AtomicUsize::new(0);
+  static DECLINE_SPAWN: AtomicBool = AtomicBool::new(false);
+  static DROP_SPAWN_TASK: AtomicBool = AtomicBool::new(false);
   static DECLINE_SPAWN_BLOCKING: AtomicBool = AtomicBool::new(false);
-  /// Serializes the tests that observe `BACKEND_BLOCKING_CALLS` or flip
-  /// `DECLINE_SPAWN_BLOCKING`, so a decline in one test cannot leak into another.
-  static SPAWN_BLOCKING_TEST_LOCK: Mutex<()> = Mutex::new(());
-
-  fn spawn_blocking_test_guard() -> MutexGuard<'static, ()> {
-    SPAWN_BLOCKING_TEST_LOCK
+  static PANIC_SPAWN: AtomicBool = AtomicBool::new(false);
+  static PANIC_ENTER: AtomicBool = AtomicBool::new(false);
+  static PANIC_GUARD_DROP: AtomicBool = AtomicBool::new(false);
+  static PANIC_BLOCK_ON: AtomicBool = AtomicBool::new(false);
+  static PANIC_BLOCK_ON_AFTER_COMPLETION: AtomicBool = AtomicBool::new(false);
+  static RETURN_BLOCK_ON_EARLY: AtomicBool = AtomicBool::new(false);
+  static DROP_BLOCKING_WORK: AtomicBool = AtomicBool::new(false);
+  static SHUTDOWN_DURING_SPAWN: AtomicBool = AtomicBool::new(false);
+  static START_DURING_SHUTDOWN: AtomicBool = AtomicBool::new(false);
+  static LIFECYCLE_REENTRY_ERROR: Mutex<Option<String>> = Mutex::new(None);
+  static RUNTIME_STATE_TEST_LOCK: Mutex<()> = Mutex::new(());
+  fn runtime_state_test_guard() -> MutexGuard<'static, ()> {
+    let guard = RUNTIME_STATE_TEST_LOCK
       .lock()
-      .unwrap_or_else(std::sync::PoisonError::into_inner)
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    DECLINE_SPAWN.store(false, Ordering::SeqCst);
+    DROP_SPAWN_TASK.store(false, Ordering::SeqCst);
+    DECLINE_SPAWN_BLOCKING.store(false, Ordering::SeqCst);
+    PANIC_SPAWN.store(false, Ordering::SeqCst);
+    PANIC_ENTER.store(false, Ordering::SeqCst);
+    PANIC_GUARD_DROP.store(false, Ordering::SeqCst);
+    PANIC_BLOCK_ON.store(false, Ordering::SeqCst);
+    PANIC_BLOCK_ON_AFTER_COMPLETION.store(false, Ordering::SeqCst);
+    RETURN_BLOCK_ON_EARLY.store(false, Ordering::SeqCst);
+    DROP_BLOCKING_WORK.store(false, Ordering::SeqCst);
+    SHUTDOWN_DURING_SPAWN.store(false, Ordering::SeqCst);
+    START_DURING_SHUTDOWN.store(false, Ordering::SeqCst);
+    *LIFECYCLE_REENTRY_ERROR
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+    open_runtime_submissions();
+    guard
   }
 
   /// Resets `DECLINE_SPAWN_BLOCKING` even if the test body panics.
@@ -981,17 +2383,80 @@ mod tests {
   /// deterministically named `std::thread`, so tests can assert *where* routed work ran.
   struct InlineRuntime;
 
+  struct InlineRuntimeGuard;
+
+  impl AsyncRuntimeGuard for InlineRuntimeGuard {}
+
+  impl Drop for InlineRuntimeGuard {
+    fn drop(&mut self) {
+      if PANIC_GUARD_DROP.load(Ordering::SeqCst) {
+        panic!("backend guard drop panic");
+      }
+    }
+  }
+
   impl AsyncRuntime for InlineRuntime {
-    fn spawn(&self, future: Pin<Box<dyn Future<Output = ()> + Send + 'static>>) {
+    fn spawn(&self, task: AsyncRuntimeTask) -> std::result::Result<(), AsyncRuntimeTask> {
+      if SHUTDOWN_DURING_SPAWN.load(Ordering::SeqCst) {
+        let error = try_shutdown_async_runtime()
+          .expect_err("shutdown from a submission hook must fail instead of deadlocking");
+        *LIFECYCLE_REENTRY_ERROR
+          .lock()
+          .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(error.reason);
+      }
+      if PANIC_SPAWN.load(Ordering::SeqCst) {
+        panic!("backend spawn panic");
+      }
+      if DECLINE_SPAWN.load(Ordering::SeqCst) {
+        return Err(task);
+      }
+      if DROP_SPAWN_TASK.load(Ordering::SeqCst) {
+        drop(task);
+        return Ok(());
+      }
       BACKEND_SPAWN_CALLS.fetch_add(1, Ordering::SeqCst);
       std::thread::Builder::new()
         .name(BACKEND_WORKER_THREAD.to_owned())
-        .spawn(move || futures::executor::block_on(future))
+        .spawn(move || futures::executor::block_on(task))
         .expect("failed to spawn the InlineRuntime worker thread");
+      Ok(())
+    }
+
+    fn start(&self) -> Result<()> {
+      BACKEND_START_CALLS.fetch_add(1, Ordering::SeqCst);
+      Ok(())
+    }
+
+    fn shutdown(&self) -> Result<()> {
+      BACKEND_SHUTDOWN_CALLS.fetch_add(1, Ordering::SeqCst);
+      if START_DURING_SHUTDOWN.load(Ordering::SeqCst) {
+        let error = try_start_async_runtime()
+          .expect_err("start from a shutdown hook must fail instead of deadlocking");
+        *LIFECYCLE_REENTRY_ERROR
+          .lock()
+          .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(error.reason);
+      }
+      Ok(())
     }
 
     fn block_on(&self, future: Pin<&mut dyn Future<Output = ()>>) {
+      if PANIC_BLOCK_ON.load(Ordering::SeqCst) {
+        panic!("backend block_on panic");
+      }
+      if RETURN_BLOCK_ON_EARLY.load(Ordering::SeqCst) {
+        return;
+      }
       futures::executor::block_on(future);
+      if PANIC_BLOCK_ON_AFTER_COMPLETION.load(Ordering::SeqCst) {
+        panic!("backend block_on panic after completion");
+      }
+    }
+
+    fn enter(&self) -> Box<dyn AsyncRuntimeGuard + '_> {
+      if PANIC_ENTER.load(Ordering::SeqCst) {
+        panic!("backend enter panic");
+      }
+      Box::new(InlineRuntimeGuard)
     }
 
     fn spawn_blocking(
@@ -1000,6 +2465,10 @@ mod tests {
     ) -> std::result::Result<(), Box<dyn FnOnce() + Send + 'static>> {
       if DECLINE_SPAWN_BLOCKING.load(Ordering::SeqCst) {
         return Err(work);
+      }
+      if DROP_BLOCKING_WORK.load(Ordering::SeqCst) {
+        drop(work);
+        return Ok(());
       }
       BACKEND_BLOCKING_CALLS.fetch_add(1, Ordering::SeqCst);
       std::thread::Builder::new()
@@ -1010,9 +2479,7 @@ mod tests {
     }
   }
 
-  /// Registers `InlineRuntime` exactly once for the whole test binary: registration is
-  /// process-global and double registration panics by design (covered by the separate
-  /// `async_runtime_registration` integration-test binary).
+  /// Registers `InlineRuntime` exactly once for the linked test image.
   fn ensure_runtime() {
     static REGISTER: std::sync::Once = std::sync::Once::new();
     REGISTER.call_once(|| create_custom_async_runtime(InlineRuntime));
@@ -1021,6 +2488,7 @@ mod tests {
   #[test]
   fn free_spawn_returns_joinable_handle() {
     ensure_runtime();
+    let _guard = runtime_state_test_guard();
     let calls_before = BACKEND_SPAWN_CALLS.load(Ordering::SeqCst);
 
     let handle = spawn(async { 41 + 1 });
@@ -1037,7 +2505,7 @@ mod tests {
   #[test]
   fn free_spawn_blocking_routes_to_backend() {
     ensure_runtime();
-    let _guard = spawn_blocking_test_guard();
+    let _guard = runtime_state_test_guard();
     let calls_before = BACKEND_BLOCKING_CALLS.load(Ordering::SeqCst);
 
     let handle = spawn_blocking(|| std::thread::current().name().map(str::to_owned));
@@ -1057,21 +2525,17 @@ mod tests {
   }
 
   #[test]
-  fn declined_spawn_blocking_completes_on_fallback_thread() {
+  fn declined_spawn_blocking_completes_with_cancellation() {
     ensure_runtime();
-    let _guard = spawn_blocking_test_guard();
+    let _guard = runtime_state_test_guard();
     let calls_before = BACKEND_BLOCKING_CALLS.load(Ordering::SeqCst);
     let _decline = DeclineNextSpawnBlocking::arm();
 
     let handle = spawn_blocking(|| std::thread::current().name().map(str::to_owned));
-    let thread_name = futures::executor::block_on(handle)
-      .expect("work declined by the backend must still run to completion");
+    let error = futures::executor::block_on(handle)
+      .expect_err("work declined by the backend must be reported as cancelled");
 
-    assert_eq!(
-      thread_name.as_deref(),
-      Some(SPAWN_BLOCKING_FALLBACK_THREAD_NAME),
-      "declined `spawn_blocking` work must run on napi's plain fallback thread"
-    );
+    assert!(error.is_cancelled());
     assert_eq!(
       BACKEND_BLOCKING_CALLS.load(Ordering::SeqCst),
       calls_before,
@@ -1080,8 +2544,22 @@ mod tests {
   }
 
   #[test]
+  fn dropped_spawn_blocking_work_completes_with_cancellation() {
+    ensure_runtime();
+    let _guard = runtime_state_test_guard();
+    DROP_BLOCKING_WORK.store(true, Ordering::SeqCst);
+    let handle = spawn_blocking(|| 42);
+    DROP_BLOCKING_WORK.store(false, Ordering::SeqCst);
+
+    let error = futures::executor::block_on(handle)
+      .expect_err("dropping accepted blocking work must cancel its join handle");
+    assert!(error.is_cancelled());
+  }
+
+  #[test]
   fn spawn_join_error_carries_panic_payload() {
     ensure_runtime();
+    let _guard = runtime_state_test_guard();
 
     let handle = spawn(async { panic!("boom-in-async-task") });
     let err = futures::executor::block_on(handle)
@@ -1098,9 +2576,664 @@ mod tests {
   }
 
   #[test]
+  fn rejected_spawn_completes_with_cancellation() {
+    ensure_runtime();
+    let _guard = runtime_state_test_guard();
+    DECLINE_SPAWN.store(true, Ordering::SeqCst);
+    let handle = spawn(async { 42 });
+    DECLINE_SPAWN.store(false, Ordering::SeqCst);
+
+    let error = futures::executor::block_on(handle)
+      .expect_err("a rejected task must complete its join handle");
+    assert!(error.is_cancelled());
+  }
+
+  #[test]
+  fn panicking_spawn_backend_completes_with_cancellation() {
+    ensure_runtime();
+    let _guard = runtime_state_test_guard();
+    PANIC_SPAWN.store(true, Ordering::SeqCst);
+    let handle = spawn(async { 42 });
+    PANIC_SPAWN.store(false, Ordering::SeqCst);
+
+    let error = futures::executor::block_on(handle)
+      .expect_err("a backend panic must cancel the submitted task");
+    assert!(error.is_cancelled());
+  }
+
+  #[test]
+  fn panicking_enter_backend_returns_an_error() {
+    ensure_runtime();
+    let _guard = runtime_state_test_guard();
+    PANIC_ENTER.store(true, Ordering::SeqCst);
+    let error = within_custom_runtime_if_available(|| Ok::<_, Error>(42))
+      .expect_err("a backend enter panic must become a napi error");
+    PANIC_ENTER.store(false, Ordering::SeqCst);
+
+    assert!(error.reason.contains("backend enter panic"));
+  }
+
+  #[test]
+  fn panicking_runtime_guard_drop_returns_an_error() {
+    ensure_runtime();
+    let _guard = runtime_state_test_guard();
+    PANIC_GUARD_DROP.store(true, Ordering::SeqCst);
+    let error = within_custom_runtime_if_available(|| Ok::<_, Error>(42))
+      .expect_err("a guard destructor panic must become a napi error");
+    PANIC_GUARD_DROP.store(false, Ordering::SeqCst);
+
+    assert!(error.reason.contains("backend guard drop panic"));
+  }
+
+  #[test]
+  fn closure_and_guard_panics_are_both_contained() {
+    ensure_runtime();
+    let _guard = runtime_state_test_guard();
+    PANIC_GUARD_DROP.store(true, Ordering::SeqCst);
+    let error = within_custom_runtime_if_available(|| -> Result<()> {
+      panic!("runtime closure panic");
+    })
+    .expect_err("callback and guard panics must not escape");
+    PANIC_GUARD_DROP.store(false, Ordering::SeqCst);
+
+    assert!(error.reason.contains("runtime closure panic"));
+  }
+
+  #[test]
+  fn panicking_block_on_backend_returns_an_error() {
+    ensure_runtime();
+    let _guard = runtime_state_test_guard();
+    PANIC_BLOCK_ON.store(true, Ordering::SeqCst);
+    let error = try_block_on(async { 42 }).expect_err("a backend panic must become a napi error");
+    PANIC_BLOCK_ON.store(false, Ordering::SeqCst);
+
+    assert!(error.reason.contains("backend block_on panic"));
+  }
+
+  #[test]
+  fn early_block_on_return_is_an_error() {
+    ensure_runtime();
+    let _guard = runtime_state_test_guard();
+    RETURN_BLOCK_ON_EARLY.store(true, Ordering::SeqCst);
+    let error = try_block_on(async { 42 })
+      .expect_err("returning before future completion must become a napi error");
+    RETURN_BLOCK_ON_EARLY.store(false, Ordering::SeqCst);
+
+    assert!(error.reason.contains("before the future completed"));
+  }
+
+  #[test]
+  fn block_on_failure_contains_future_and_output_destructor_panics() {
+    ensure_runtime();
+    let _guard = runtime_state_test_guard();
+
+    let panic_drops = Arc::new(AtomicUsize::new(0));
+    let captured = PanicOnDrop {
+      drops: Arc::clone(&panic_drops),
+    };
+    PANIC_BLOCK_ON.store(true, Ordering::SeqCst);
+    let error = try_block_on(async move {
+      drop(captured);
+    })
+    .expect_err("a backend panic must be reported");
+    PANIC_BLOCK_ON.store(false, Ordering::SeqCst);
+    assert!(error.reason.contains("backend block_on panic"));
+    assert_eq!(panic_drops.load(Ordering::SeqCst), 1);
+
+    let early_drops = Arc::new(AtomicUsize::new(0));
+    let captured = PanicOnDrop {
+      drops: Arc::clone(&early_drops),
+    };
+    RETURN_BLOCK_ON_EARLY.store(true, Ordering::SeqCst);
+    let error = try_block_on(async move {
+      drop(captured);
+    })
+    .expect_err("an early backend return must be reported");
+    RETURN_BLOCK_ON_EARLY.store(false, Ordering::SeqCst);
+    assert!(error.reason.contains("before the future completed"));
+    assert_eq!(early_drops.load(Ordering::SeqCst), 1);
+
+    let output_drops = Arc::new(AtomicUsize::new(0));
+    PANIC_BLOCK_ON_AFTER_COMPLETION.store(true, Ordering::SeqCst);
+    let error = try_block_on({
+      let drops = Arc::clone(&output_drops);
+      async move { PanicOnDrop { drops } }
+    })
+    .expect_err("a backend panic after completion must discard the output safely");
+    PANIC_BLOCK_ON_AFTER_COMPLETION.store(false, Ordering::SeqCst);
+    assert!(error.reason.contains("after completion"));
+    assert_eq!(output_drops.load(Ordering::SeqCst), 1);
+  }
+
+  #[test]
+  fn join_completion_is_idempotent() {
+    let state = Arc::new(JoinState::new());
+    state.complete(Ok(42));
+    state.complete(Err(JoinError::cancelled()));
+
+    let value =
+      futures::executor::block_on(JoinHandle { state }).expect("the first completion must win");
+    assert_eq!(value, 42);
+  }
+
+  #[derive(Debug)]
+  struct PanicOnDrop {
+    drops: Arc<AtomicUsize>,
+  }
+
+  impl Drop for PanicOnDrop {
+    fn drop(&mut self) {
+      self.drops.fetch_add(1, Ordering::SeqCst);
+      panic!("panic-on-drop");
+    }
+  }
+
+  #[test]
+  fn rejected_async_task_contains_captured_destructor_panics() {
+    ensure_runtime();
+    let _guard = runtime_state_test_guard();
+    let drops = Arc::new(AtomicUsize::new(0));
+    let captured = PanicOnDrop {
+      drops: Arc::clone(&drops),
+    };
+    DECLINE_SPAWN.store(true, Ordering::SeqCst);
+
+    let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
+      spawn(async move {
+        drop(captured);
+      })
+    }));
+    DECLINE_SPAWN.store(false, Ordering::SeqCst);
+
+    let handle = result.expect("dropping a rejected task must contain destructor panics");
+    let error = futures::executor::block_on(handle)
+      .expect_err("the rejected task must complete as cancelled");
+    assert!(error.is_cancelled());
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
+  }
+
+  #[test]
+  fn dropped_accepted_async_task_contains_captured_destructor_panics() {
+    ensure_runtime();
+    let _guard = runtime_state_test_guard();
+    let drops = Arc::new(AtomicUsize::new(0));
+    let captured = PanicOnDrop {
+      drops: Arc::clone(&drops),
+    };
+    DROP_SPAWN_TASK.store(true, Ordering::SeqCst);
+
+    let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
+      spawn(async move {
+        drop(captured);
+      })
+    }));
+    DROP_SPAWN_TASK.store(false, Ordering::SeqCst);
+
+    let handle = result.expect("dropping an accepted task must contain destructor panics");
+    let error =
+      futures::executor::block_on(handle).expect_err("the dropped task must complete as cancelled");
+    assert!(error.is_cancelled());
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
+  }
+
+  #[test]
+  fn dropped_blocking_work_contains_captured_destructor_panics() {
+    ensure_runtime();
+    let _guard = runtime_state_test_guard();
+    let drops = Arc::new(AtomicUsize::new(0));
+    let captured = PanicOnDrop {
+      drops: Arc::clone(&drops),
+    };
+    DROP_BLOCKING_WORK.store(true, Ordering::SeqCst);
+
+    let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
+      spawn_blocking(move || {
+        drop(captured);
+      })
+    }));
+    DROP_BLOCKING_WORK.store(false, Ordering::SeqCst);
+
+    let handle = result.expect("dropping blocking work must contain destructor panics");
+    let error = futures::executor::block_on(handle)
+      .expect_err("the dropped blocking work must complete as cancelled");
+    assert!(error.is_cancelled());
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
+  }
+
+  #[test]
+  fn unawaited_join_output_contains_destructor_panics() {
+    let drops = Arc::new(AtomicUsize::new(0));
+    let state = Arc::new(JoinState::new());
+    state.complete(Ok(PanicOnDrop {
+      drops: Arc::clone(&drops),
+    }));
+
+    let result = std::panic::catch_unwind(AssertUnwindSafe(|| drop(JoinHandle { state })));
+
+    result.expect("dropping an unawaited join output must contain destructor panics");
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
+  }
+
+  #[test]
+  fn dropped_join_panic_payload_contains_destructor_panics() {
+    let drops = Arc::new(AtomicUsize::new(0));
+    let error = JoinError::new_panic(Box::new(PanicOnDrop {
+      drops: Arc::clone(&drops),
+    }));
+
+    let result = std::panic::catch_unwind(AssertUnwindSafe(|| drop(error)));
+
+    result.expect("dropping a panic payload must contain destructor panics");
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
+  }
+
+  #[test]
+  fn free_helpers_are_allowed_before_start_and_rejected_after_shutdown() {
+    ensure_runtime();
+    let _guard = runtime_state_test_guard();
+    {
+      let mut submissions = RUNTIME_SUBMISSIONS
+        .0
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      assert_eq!(submissions.in_flight, 0);
+      submissions.state = RuntimeSubmissionState::NeverStarted;
+    }
+    let spawn_calls = BACKEND_SPAWN_CALLS.load(Ordering::SeqCst);
+    let blocking_calls = BACKEND_BLOCKING_CALLS.load(Ordering::SeqCst);
+
+    assert_eq!(
+      futures::executor::block_on(spawn(async { 42 })).unwrap(),
+      42
+    );
+    assert_eq!(
+      futures::executor::block_on(spawn_blocking(|| 43)).unwrap(),
+      43
+    );
+    assert_eq!(BACKEND_SPAWN_CALLS.load(Ordering::SeqCst), spawn_calls + 1);
+    assert_eq!(
+      BACKEND_BLOCKING_CALLS.load(Ordering::SeqCst),
+      blocking_calls + 1
+    );
+
+    close_runtime_submissions().unwrap();
+    assert!(futures::executor::block_on(spawn(async { 44 }))
+      .unwrap_err()
+      .is_cancelled());
+    assert!(futures::executor::block_on(spawn_blocking(|| 45))
+      .unwrap_err()
+      .is_cancelled());
+    assert_eq!(BACKEND_SPAWN_CALLS.load(Ordering::SeqCst), spawn_calls + 1);
+    assert_eq!(
+      BACKEND_BLOCKING_CALLS.load(Ordering::SeqCst),
+      blocking_calls + 1
+    );
+    open_runtime_submissions();
+  }
+
+  #[test]
+  fn guard_drop_failure_contains_the_success_value_destructor() {
+    let _guard = runtime_state_test_guard();
+    let drops = Arc::new(AtomicUsize::new(0));
+    PANIC_GUARD_DROP.store(true, Ordering::SeqCst);
+
+    let error = call_with_runtime_guard(InlineRuntimeGuard, || PanicOnDrop {
+      drops: Arc::clone(&drops),
+    })
+    .expect_err("a guard destructor panic must discard the callback result safely");
+
+    PANIC_GUARD_DROP.store(false, Ordering::SeqCst);
+    assert!(error.reason.contains("backend guard drop panic"));
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
+  }
+
+  #[test]
+  fn environment_lifecycle_is_reference_counted() {
+    ensure_runtime();
+    let _guard = runtime_state_test_guard();
+    let starts_before = BACKEND_START_CALLS.load(Ordering::SeqCst);
+    let shutdowns_before = BACKEND_SHUTDOWN_CALLS.load(Ordering::SeqCst);
+
+    register_async_runtime_env().unwrap();
+    register_async_runtime_env().unwrap();
+    assert_eq!(
+      BACKEND_START_CALLS.load(Ordering::SeqCst),
+      starts_before + 1
+    );
+
+    unregister_async_runtime_env().unwrap();
+    assert_eq!(
+      BACKEND_SHUTDOWN_CALLS.load(Ordering::SeqCst),
+      shutdowns_before
+    );
+
+    unregister_async_runtime_env().unwrap();
+    assert_eq!(
+      BACKEND_SHUTDOWN_CALLS.load(Ordering::SeqCst),
+      shutdowns_before + 1
+    );
+    open_runtime_submissions();
+  }
+
+  #[test]
+  fn shutdown_waits_for_in_flight_task_submission() {
+    let _guard = runtime_state_test_guard();
+    let submission =
+      RuntimeSubmissionPermit::acquire().expect("submission gate must be open for the test");
+    let (started_tx, started_rx) = mpsc::channel();
+    let (done_tx, done_rx) = mpsc::channel();
+    let shutdown = std::thread::spawn(move || {
+      started_tx.send(()).unwrap();
+      let result = close_runtime_submissions();
+      done_tx.send(result).unwrap();
+    });
+    started_rx.recv().unwrap();
+
+    assert!(
+      done_rx.recv_timeout(Duration::from_millis(50)).is_err(),
+      "shutdown must wait until the backend has returned from task acceptance"
+    );
+    drop(submission);
+    done_rx
+      .recv_timeout(Duration::from_secs(1))
+      .expect("shutdown must resume after task acceptance finishes")
+      .unwrap();
+    shutdown.join().unwrap();
+    open_runtime_submissions();
+  }
+
+  #[test]
+  fn reentrant_shutdown_during_task_submission_returns_an_error() {
+    let _guard = runtime_state_test_guard();
+    let submission =
+      RuntimeSubmissionPermit::acquire().expect("submission gate must be open for the test");
+
+    let error =
+      close_runtime_submissions().expect_err("reentrant shutdown must fail instead of deadlocking");
+
+    assert!(error.reason.contains("inside AsyncRuntime::spawn"));
+    drop(submission);
+    close_runtime_submissions().unwrap();
+    open_runtime_submissions();
+  }
+
+  #[test]
+  fn backend_submission_cannot_deadlock_runtime_shutdown() {
+    ensure_runtime();
+    let _guard = runtime_state_test_guard();
+    try_start_async_runtime().unwrap();
+    SHUTDOWN_DURING_SPAWN.store(true, Ordering::SeqCst);
+
+    futures::executor::block_on(spawn(async {})).unwrap();
+
+    let error = LIFECYCLE_REENTRY_ERROR
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner)
+      .take()
+      .expect("the backend must observe a lifecycle error");
+    assert!(error.contains("inside AsyncRuntime::spawn"));
+    try_shutdown_async_runtime().unwrap();
+    open_runtime_submissions();
+  }
+
+  #[test]
+  fn backend_lifecycle_hook_cannot_reenter_lifecycle_transition() {
+    ensure_runtime();
+    let _guard = runtime_state_test_guard();
+    try_start_async_runtime().unwrap();
+    START_DURING_SHUTDOWN.store(true, Ordering::SeqCst);
+
+    try_shutdown_async_runtime().unwrap();
+
+    let error = LIFECYCLE_REENTRY_ERROR
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner)
+      .take()
+      .expect("the backend must observe a lifecycle error");
+    assert!(error.contains("cannot wait recursively"));
+    open_runtime_submissions();
+  }
+
+  #[test]
+  fn submission_hook_does_not_wait_for_concurrent_lifecycle_transition() {
+    let _guard = runtime_state_test_guard();
+    let submission =
+      RuntimeSubmissionPermit::acquire().expect("submission gate must be open for the test");
+    let previous_state = {
+      let mut lifecycle = runtime_lifecycle();
+      let previous = lifecycle.state;
+      lifecycle.state = RuntimeLifecycleState::Stopping;
+      previous
+    };
+
+    let error = match wait_for_runtime_transition(runtime_lifecycle()) {
+      Ok(_) => panic!("a submission hook must not wait on the transition that is waiting for it"),
+      Err(error) => error,
+    };
+
+    {
+      let mut lifecycle = runtime_lifecycle();
+      lifecycle.state = previous_state;
+      RUNTIME_LIFECYCLE.1.notify_all();
+    }
+    drop(submission);
+    assert!(error.reason.contains("runtime hook"));
+  }
+
+  struct EnvTasksLockProbe {
+    lock_was_available: AtomicBool,
+  }
+
+  impl ArcWake for EnvTasksLockProbe {
+    fn wake_by_ref(arc_self: &Arc<Self>) {
+      arc_self.lock_was_available.store(
+        ENV_TASKS.try_lock().is_ok(),
+        std::sync::atomic::Ordering::SeqCst,
+      );
+    }
+  }
+
+  fn poll_pending_env_task(
+    env: sys::napi_env,
+    probe: &Arc<EnvTasksLockProbe>,
+  ) -> Pin<Box<AsyncRuntimeTask>> {
+    let mut task = Box::pin(env_async_task(env, std::future::pending(), |_| {}));
+    let waker = futures::task::waker(Arc::clone(probe));
+    let mut context = Context::from_waker(&waker);
+    assert!(task.as_mut().poll(&mut context).is_pending());
+    task
+  }
+
+  #[test]
+  fn environment_task_cancellation_wakes_without_global_registry_lock() {
+    let _guard = runtime_state_test_guard();
+
+    let replacement_env = 0x1111usize as sys::napi_env;
+    register_async_runtime_env_tasks(replacement_env);
+    let replacement_probe = Arc::new(EnvTasksLockProbe {
+      lock_was_available: AtomicBool::new(false),
+    });
+    let replacement_task = poll_pending_env_task(replacement_env, &replacement_probe);
+    register_async_runtime_env_tasks(replacement_env);
+    assert!(replacement_probe.lock_was_available.load(Ordering::SeqCst));
+    drop(replacement_task);
+    cancel_async_runtime_env_tasks(replacement_env);
+
+    let removed_env = 0x2222usize as sys::napi_env;
+    register_async_runtime_env_tasks(removed_env);
+    let removed_probe = Arc::new(EnvTasksLockProbe {
+      lock_was_available: AtomicBool::new(false),
+    });
+    let removed_task = poll_pending_env_task(removed_env, &removed_probe);
+    cancel_async_runtime_env_tasks(removed_env);
+    assert!(removed_probe.lock_was_available.load(Ordering::SeqCst));
+    drop(removed_task);
+
+    let shutdown_env = 0x3333usize as sys::napi_env;
+    register_async_runtime_env_tasks(shutdown_env);
+    let shutdown_probe = Arc::new(EnvTasksLockProbe {
+      lock_was_available: AtomicBool::new(false),
+    });
+    let shutdown_task = poll_pending_env_task(shutdown_env, &shutdown_probe);
+    cancel_all_env_tasks();
+    assert!(shutdown_probe.lock_was_available.load(Ordering::SeqCst));
+    drop(shutdown_task);
+    cancel_async_runtime_env_tasks(shutdown_env);
+  }
+
+  #[test]
+  fn environment_cancellation_wakes_pending_tasks_without_js_callback() {
+    let env = 0x1234usize as sys::napi_env;
+    register_async_runtime_env_tasks(env);
+    let cancellation = Arc::new(Mutex::new(None));
+    let cancellation_result = Arc::clone(&cancellation);
+    let mut task = Box::pin(env_async_task(
+      env,
+      std::future::pending(),
+      move |env_open| {
+        *cancellation_result.lock().unwrap() = Some(env_open);
+      },
+    ));
+    let waker = futures::task::noop_waker();
+    let mut context = Context::from_waker(&waker);
+
+    assert!(task.as_mut().poll(&mut context).is_pending());
+    cancel_async_runtime_env_tasks(env);
+    assert!(task.as_mut().poll(&mut context).is_ready());
+    assert_eq!(*cancellation.lock().unwrap(), Some(false));
+  }
+
+  #[test]
+  fn runtime_shutdown_cancels_pending_tasks_with_environment_still_open() {
+    let env = 0x5678usize as sys::napi_env;
+    register_async_runtime_env_tasks(env);
+    let cancellation = Arc::new(Mutex::new(None));
+    let cancellation_result = Arc::clone(&cancellation);
+    let mut task = Box::pin(env_async_task(
+      env,
+      std::future::pending(),
+      move |env_open| {
+        *cancellation_result.lock().unwrap() = Some(env_open);
+      },
+    ));
+    let waker = futures::task::noop_waker();
+    let mut context = Context::from_waker(&waker);
+
+    assert!(task.as_mut().poll(&mut context).is_pending());
+    cancel_all_env_tasks();
+    assert!(task.as_mut().poll(&mut context).is_ready());
+    assert_eq!(*cancellation.lock().unwrap(), Some(true));
+    cancel_async_runtime_env_tasks(env);
+  }
+
+  struct PanickingWaker;
+
+  impl ArcWake for PanickingWaker {
+    fn wake_by_ref(_arc_self: &Arc<Self>) {
+      panic!("backend waker panic");
+    }
+  }
+
+  #[test]
+  fn task_abort_contains_backend_waker_panics() {
+    let (abort_handle, abort_registration) = AbortHandle::new_pair();
+    let mut future = Box::pin(Abortable::new(
+      std::future::pending::<()>(),
+      abort_registration,
+    ));
+    let waker = futures::task::waker(Arc::new(PanickingWaker));
+    let mut context = Context::from_waker(&waker);
+    assert!(future.as_mut().poll(&mut context).is_pending());
+
+    abort_safely(abort_handle);
+
+    assert!(future.as_mut().poll(&mut context).is_ready());
+  }
+
+  #[test]
+  fn join_completion_contains_consumer_waker_panics() {
+    let state = Arc::new(JoinState::new());
+    let mut handle = Box::pin(JoinHandle {
+      state: Arc::clone(&state),
+    });
+    let waker = futures::task::waker(Arc::new(PanickingWaker));
+    let mut context = Context::from_waker(&waker);
+    assert!(handle.as_mut().poll(&mut context).is_pending());
+
+    state.complete(Ok(42));
+
+    let waker = futures::task::noop_waker();
+    let mut context = Context::from_waker(&waker);
+    match handle.as_mut().poll(&mut context) {
+      Poll::Ready(Ok(value)) => assert_eq!(value, 42),
+      result => panic!("completed join returned an unexpected result: {result:?}"),
+    }
+  }
+
+  unsafe fn clone_panics(_: *const ()) -> RawWaker {
+    panic!("consumer waker clone panic");
+  }
+
+  unsafe fn clone_waker(data: *const ()) -> RawWaker {
+    RawWaker::new(data, &DROP_PANICS_WAKER_VTABLE)
+  }
+
+  unsafe fn noop_waker(_: *const ()) {}
+
+  unsafe fn drop_panics(_: *const ()) {
+    panic!("consumer waker drop panic");
+  }
+
+  static CLONE_PANICS_WAKER_VTABLE: RawWakerVTable =
+    RawWakerVTable::new(clone_panics, noop_waker, noop_waker, noop_waker);
+  static DROP_PANICS_WAKER_VTABLE: RawWakerVTable =
+    RawWakerVTable::new(clone_waker, noop_waker, noop_waker, drop_panics);
+
+  #[test]
+  fn join_poll_contains_consumer_waker_clone_panics() {
+    let state = Arc::new(JoinState::<()>::new());
+    let mut handle = Box::pin(JoinHandle { state });
+    let waker =
+      unsafe { Waker::from_raw(RawWaker::new(std::ptr::null(), &CLONE_PANICS_WAKER_VTABLE)) };
+    let mut context = Context::from_waker(&waker);
+
+    let result = handle.as_mut().poll(&mut context);
+
+    assert!(matches!(result, Poll::Ready(Err(error)) if error.is_cancelled()));
+  }
+
+  #[test]
+  fn join_poll_contains_replaced_consumer_waker_drop_panics() {
+    let state = Arc::new(JoinState::<()>::new());
+    let mut handle = Box::pin(JoinHandle { state });
+    let waker = std::mem::ManuallyDrop::new(unsafe {
+      Waker::from_raw(RawWaker::new(std::ptr::null(), &DROP_PANICS_WAKER_VTABLE))
+    });
+    let mut context = Context::from_waker(&waker);
+    assert!(handle.as_mut().poll(&mut context).is_pending());
+
+    let replacement = futures::task::noop_waker();
+    let mut replacement_context = Context::from_waker(&replacement);
+    assert!(handle.as_mut().poll(&mut replacement_context).is_pending());
+  }
+
+  #[test]
+  fn dropping_a_pending_join_contains_consumer_waker_drop_panics() {
+    let state = Arc::new(JoinState::<()>::new());
+    let mut handle = Box::pin(JoinHandle { state });
+    let waker = std::mem::ManuallyDrop::new(unsafe {
+      Waker::from_raw(RawWaker::new(std::ptr::null(), &DROP_PANICS_WAKER_VTABLE))
+    });
+    let mut context = Context::from_waker(&waker);
+    assert!(handle.as_mut().poll(&mut context).is_pending());
+
+    drop(handle);
+  }
+
+  #[test]
   fn spawn_blocking_join_error_carries_panic_payload() {
     ensure_runtime();
-    let _guard = spawn_blocking_test_guard();
+    let _guard = runtime_state_test_guard();
 
     let handle = spawn_blocking(|| -> () { panic!("boom-in-blocking-task") });
     let err = futures::executor::block_on(handle)
@@ -1114,5 +3247,328 @@ mod tests {
       payload.downcast_ref::<&str>().copied(),
       Some("boom-in-blocking-task")
     );
+  }
+}
+
+#[cfg(all(
+  test,
+  not(feature = "noop"),
+  feature = "async-runtime",
+  feature = "tokio_rt"
+))]
+mod combined_feature_tests {
+  use std::sync::{
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+    mpsc, Condvar, Mutex, Once,
+  };
+  use std::time::Duration;
+
+  use super::*;
+
+  struct CombinedRuntime;
+
+  static CUSTOM_RUNNING: AtomicBool = AtomicBool::new(false);
+  static FAIL_CUSTOM_START: AtomicBool = AtomicBool::new(false);
+  static CUSTOM_STARTS: AtomicUsize = AtomicUsize::new(0);
+  static CUSTOM_SHUTDOWNS: AtomicUsize = AtomicUsize::new(0);
+  static START_BLOCK: (Mutex<(bool, bool, bool)>, Condvar) =
+    (Mutex::new((false, false, false)), Condvar::new());
+  static SHUTDOWN_BLOCK: (Mutex<(bool, bool, bool)>, Condvar) =
+    (Mutex::new((false, false, false)), Condvar::new());
+
+  impl AsyncRuntime for CombinedRuntime {
+    fn spawn(&self, task: AsyncRuntimeTask) -> std::result::Result<(), AsyncRuntimeTask> {
+      std::thread::spawn(move || futures::executor::block_on(task));
+      Ok(())
+    }
+
+    fn block_on(&self, future: Pin<&mut dyn Future<Output = ()>>) {
+      futures::executor::block_on(future);
+    }
+
+    fn start(&self) -> Result<()> {
+      CUSTOM_STARTS.fetch_add(1, Ordering::SeqCst);
+      if FAIL_CUSTOM_START.load(Ordering::SeqCst) {
+        return Err(Error::new(
+          crate::Status::GenericFailure,
+          "injected custom runtime start failure",
+        ));
+      }
+      let mut block = START_BLOCK
+        .0
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      if block.0 {
+        block.1 = true;
+        START_BLOCK.1.notify_all();
+        while !block.2 {
+          block = START_BLOCK
+            .1
+            .wait(block)
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+        *block = (false, false, false);
+      }
+      try_block_on(async {}).expect("custom start hook must be able to use its Tokio peer");
+      CUSTOM_RUNNING.store(true, Ordering::SeqCst);
+      Ok(())
+    }
+
+    fn shutdown(&self) -> Result<()> {
+      CUSTOM_SHUTDOWNS.fetch_add(1, Ordering::SeqCst);
+      let mut block = SHUTDOWN_BLOCK
+        .0
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      if block.0 {
+        block.1 = true;
+        SHUTDOWN_BLOCK.1.notify_all();
+        while !block.2 {
+          block = SHUTDOWN_BLOCK
+            .1
+            .wait(block)
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+        *block = (false, false, false);
+      }
+      try_within_runtime_if_available(|| ())
+        .expect("custom shutdown hook must be able to use its Tokio peer");
+      CUSTOM_RUNNING.store(false, Ordering::SeqCst);
+      Ok(())
+    }
+  }
+
+  fn ensure_runtime() {
+    static REGISTER: Once = Once::new();
+    REGISTER.call_once(|| try_create_custom_async_runtime(CombinedRuntime).unwrap());
+  }
+
+  fn run_with_timeout(f: impl FnOnce() -> Result<()> + Send + 'static) {
+    let (done_tx, done_rx) = mpsc::channel();
+    let thread = std::thread::spawn(move || {
+      done_tx.send(f()).unwrap();
+    });
+    done_rx
+      .recv_timeout(Duration::from_secs(5))
+      .expect("runtime operation deadlocked")
+      .unwrap();
+    thread.join().unwrap();
+  }
+
+  fn start_after_retirement() {
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+      match try_start_async_runtime() {
+        Ok(()) => return,
+        Err(error)
+          if error.reason.contains("still shutting down")
+            && std::time::Instant::now() < deadline =>
+        {
+          std::thread::sleep(Duration::from_millis(10));
+        }
+        Err(error) => panic!("runtime did not retire cleanly: {error}"),
+      }
+    }
+  }
+
+  fn wait_for_retirement() {
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+      let retired = TOKIO_RUNTIME_STATE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .retiring
+        .as_ref()
+        .and_then(Weak::upgrade)
+        .is_none();
+      if retired {
+        return;
+      }
+      assert!(
+        std::time::Instant::now() < deadline,
+        "Tokio runtime did not retire cleanly"
+      );
+      std::thread::sleep(Duration::from_millis(10));
+    }
+  }
+
+  #[test]
+  fn combined_runtime_lifecycle_is_atomic_and_does_not_hold_tokio_locks_over_user_code() {
+    ensure_runtime();
+    try_start_async_runtime().unwrap();
+    assert!(CUSTOM_RUNNING.load(Ordering::SeqCst));
+
+    let handle: tokio::task::JoinHandle<()> = spawn(async {});
+    block_on(async {
+      handle.await.expect("Tokio task must complete");
+    });
+
+    let (blocking_started_tx, blocking_started_rx) = mpsc::channel();
+    let (blocking_release_tx, blocking_release_rx) = mpsc::channel();
+    let blocking = spawn_blocking(move || {
+      blocking_started_tx.send(()).unwrap();
+      blocking_release_rx.recv().unwrap();
+    });
+    blocking_started_rx
+      .recv_timeout(Duration::from_secs(5))
+      .expect("blocking task must start");
+    try_shutdown_async_runtime().unwrap();
+    let error =
+      try_start_async_runtime().expect_err("restart must wait for old-generation blocking work");
+    assert!(error.reason.contains("still shutting down"));
+    blocking_release_tx.send(()).unwrap();
+    futures::executor::block_on(blocking).unwrap();
+    start_after_retirement();
+
+    let (direct_started_tx, direct_started_rx) = mpsc::channel();
+    let (direct_release_tx, direct_release_rx) = mpsc::channel();
+    let direct = try_within_runtime_if_available(|| {
+      tokio::task::spawn_blocking(move || {
+        direct_started_tx.send(()).unwrap();
+        direct_release_rx.recv().unwrap();
+      })
+    })
+    .unwrap();
+    direct_started_rx
+      .recv_timeout(Duration::from_secs(5))
+      .expect("direct Tokio blocking task must start");
+    try_shutdown_async_runtime().unwrap();
+    let error = try_start_async_runtime()
+      .expect_err("direct Tokio work must keep its old generation retiring");
+    assert!(error.reason.contains("still shutting down"));
+    direct_release_tx.send(()).unwrap();
+    futures::executor::block_on(direct).unwrap();
+    start_after_retirement();
+
+    try_shutdown_async_runtime().unwrap();
+    wait_for_retirement();
+    FAIL_CUSTOM_START.store(true, Ordering::SeqCst);
+    let error = try_start_async_runtime().expect_err("custom startup failure must be reported");
+    assert!(error
+      .reason
+      .contains("injected custom runtime start failure"));
+    assert!(!CUSTOM_RUNNING.load(Ordering::SeqCst));
+    let error = std::panic::catch_unwind(|| spawn(async {}))
+      .expect_err("failed combined startup must roll Tokio back to stopped");
+    assert!(crate::bindgen_runtime::panic_to_error(error)
+      .reason
+      .contains("not running"));
+    FAIL_CUSTOM_START.store(false, Ordering::SeqCst);
+    wait_for_retirement();
+    try_start_async_runtime().unwrap();
+
+    {
+      let mut block = SHUTDOWN_BLOCK
+        .0
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      *block = (true, false, false);
+    }
+    let shutdown = std::thread::spawn(try_shutdown_async_runtime);
+    {
+      let mut block = SHUTDOWN_BLOCK
+        .0
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      while !block.1 {
+        block = SHUTDOWN_BLOCK
+          .1
+          .wait(block)
+          .unwrap_or_else(std::sync::PoisonError::into_inner);
+      }
+    }
+    assert!(try_block_on(async {}).is_err());
+    assert!(
+      std::panic::catch_unwind(|| spawn(async {})).is_err(),
+      "infallible free helpers must reject external work during shutdown"
+    );
+    let starts_before = CUSTOM_STARTS.load(Ordering::SeqCst);
+    let (start_tx, start_rx) = mpsc::channel();
+    let start = std::thread::spawn(move || {
+      start_after_retirement();
+      start_tx.send(Ok::<_, Error>(())).unwrap();
+    });
+    assert!(
+      start_rx.recv_timeout(Duration::from_millis(50)).is_err(),
+      "start must wait for the combined shutdown transition"
+    );
+    assert_eq!(CUSTOM_STARTS.load(Ordering::SeqCst), starts_before);
+    {
+      let mut block = SHUTDOWN_BLOCK
+        .0
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      block.2 = true;
+      SHUTDOWN_BLOCK.1.notify_all();
+    }
+    shutdown.join().unwrap().unwrap();
+    start_rx
+      .recv_timeout(Duration::from_secs(5))
+      .expect("start must resume after shutdown")
+      .unwrap();
+    start.join().unwrap();
+    assert!(CUSTOM_RUNNING.load(Ordering::SeqCst));
+
+    try_shutdown_async_runtime().unwrap();
+    {
+      let mut block = START_BLOCK
+        .0
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      *block = (true, false, false);
+    }
+    let (start_tx, start_rx) = mpsc::channel();
+    let start = std::thread::spawn(move || {
+      start_after_retirement();
+      start_tx.send(Ok::<_, Error>(())).unwrap();
+    });
+    {
+      let mut block = START_BLOCK
+        .0
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      while !block.1 {
+        block = START_BLOCK
+          .1
+          .wait(block)
+          .unwrap_or_else(std::sync::PoisonError::into_inner);
+      }
+    }
+    assert!(try_block_on(async {}).is_err());
+    assert!(
+      std::panic::catch_unwind(|| spawn(async {})).is_err(),
+      "infallible free helpers must reject external work during startup"
+    );
+    {
+      let mut block = START_BLOCK
+        .0
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      block.2 = true;
+      START_BLOCK.1.notify_all();
+    }
+    start_rx
+      .recv_timeout(Duration::from_secs(5))
+      .expect("startup must complete after release")
+      .unwrap();
+    start.join().unwrap();
+
+    run_with_timeout(|| {
+      try_within_runtime_if_available(try_shutdown_async_runtime)??;
+      Ok(())
+    });
+    start_after_retirement();
+
+    run_with_timeout(|| {
+      try_block_on(async { try_shutdown_async_runtime() })??;
+      Ok(())
+    });
+
+    let error = std::panic::catch_unwind(|| spawn(async {}))
+      .expect_err("free helpers must not implicitly restart Tokio after shutdown");
+    assert!(crate::bindgen_runtime::panic_to_error(error)
+      .reason
+      .contains("not running"));
+    start_after_retirement();
   }
 }

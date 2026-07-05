@@ -1,35 +1,99 @@
-//! Double registration of a custom [`AsyncRuntime`] must panic loudly.
+//! Runtime registration and lifecycle failures must be returned instead of unwinding across
+//! a library or Node-API boundary.
 //!
-//! This lives in its own integration-test target on purpose: the registration is
-//! process-global (a `OnceLock`), and the unit-test binary of the `napi` crate already
-//! registers its own backend — a `#[should_panic]` double-registration test in that binary
-//! would cross-contaminate the other tests (and vice versa).
+//! This lives in its own integration-test target because registration is once per linked test
+//! image and would cross-contaminate unrelated unit tests.
 #![cfg(all(feature = "async-runtime", not(feature = "noop")))]
 
-use std::{future::Future, pin::Pin};
+use std::{
+  future::Future,
+  pin::Pin,
+  sync::atomic::{AtomicBool, Ordering},
+  time::{Duration, Instant},
+};
 
-use napi::bindgen_prelude::{create_custom_async_runtime, AsyncRuntime};
+use napi::bindgen_prelude::{
+  create_custom_async_runtime, try_create_custom_async_runtime, try_shutdown_async_runtime,
+  try_start_async_runtime, AsyncRuntime, AsyncRuntimeTask,
+};
+
+static PANIC_START: AtomicBool = AtomicBool::new(false);
+static PANIC_SHUTDOWN: AtomicBool = AtomicBool::new(false);
 
 struct FirstRuntime;
 
 impl AsyncRuntime for FirstRuntime {
-  fn spawn(&self, _future: Pin<Box<dyn Future<Output = ()> + Send + 'static>>) {}
+  fn spawn(&self, task: AsyncRuntimeTask) -> std::result::Result<(), AsyncRuntimeTask> {
+    Err(task)
+  }
 
   fn block_on(&self, _future: Pin<&mut dyn Future<Output = ()>>) {}
+
+  fn start(&self) -> napi::Result<()> {
+    if PANIC_START.load(Ordering::SeqCst) {
+      panic!("backend start panic");
+    }
+    Ok(())
+  }
+
+  fn shutdown(&self) -> napi::Result<()> {
+    if PANIC_SHUTDOWN.load(Ordering::SeqCst) {
+      panic!("backend shutdown panic");
+    }
+    Ok(())
+  }
 }
 
 struct SecondRuntime;
 
+impl Drop for SecondRuntime {
+  fn drop(&mut self) {
+    panic!("duplicate backend destructor panic");
+  }
+}
+
 impl AsyncRuntime for SecondRuntime {
-  fn spawn(&self, _future: Pin<Box<dyn Future<Output = ()> + Send + 'static>>) {}
+  fn spawn(&self, task: AsyncRuntimeTask) -> std::result::Result<(), AsyncRuntimeTask> {
+    Err(task)
+  }
 
   fn block_on(&self, _future: Pin<&mut dyn Future<Output = ()>>) {}
 }
 
+fn start_after_retirement() {
+  let deadline = Instant::now() + Duration::from_secs(5);
+  loop {
+    match try_start_async_runtime() {
+      Ok(()) => return,
+      Err(error) if error.reason.contains("still shutting down") && Instant::now() < deadline => {
+        std::thread::sleep(Duration::from_millis(10));
+      }
+      Err(error) => panic!("runtime did not become restartable: {error}"),
+    }
+  }
+}
+
 #[test]
-#[should_panic(expected = "create_custom_async_runtime was called more than once")]
-fn double_registration_of_custom_async_runtime_panics() {
+fn registration_and_lifecycle_failures_return_errors() {
   create_custom_async_runtime(FirstRuntime);
-  // The second registration must fail loudly instead of being silently dropped.
-  create_custom_async_runtime(SecondRuntime);
+
+  PANIC_START.store(true, Ordering::SeqCst);
+  let error = try_start_async_runtime().expect_err("start panic must be contained");
+  assert!(error.reason.contains("backend start panic"));
+  PANIC_START.store(false, Ordering::SeqCst);
+  start_after_retirement();
+
+  PANIC_SHUTDOWN.store(true, Ordering::SeqCst);
+  let error = try_shutdown_async_runtime().expect_err("shutdown panic must be contained");
+  assert!(error.reason.contains("backend shutdown panic"));
+  PANIC_SHUTDOWN.store(false, Ordering::SeqCst);
+  let error = try_start_async_runtime()
+    .expect_err("runtime must not restart while the previous generation may still be alive");
+  assert!(error.reason.contains("backend shutdown panic"));
+  try_shutdown_async_runtime().expect("a failed shutdown must be retryable");
+  start_after_retirement();
+  try_shutdown_async_runtime().expect("runtime must shut down after retry");
+
+  let error = try_create_custom_async_runtime(SecondRuntime).unwrap_err();
+  assert!(error.reason.contains("more than once"));
 }

@@ -41,7 +41,16 @@ pub fn panic_to_error(e: Box<dyn std::any::Any + Send>) -> Error {
       format!("panic from Rust code: {:?}", e)
     }
   };
+  catch_unwind_safely(|| drop(e));
   Error::new(Status::GenericFailure, message)
+}
+
+pub(crate) fn catch_unwind_safely(f: impl FnOnce()) {
+  if let Err(payload) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+    // A malicious panic payload may panic again from Drop. Leaking only that exceptional
+    // payload is preferable to a double panic crossing an FFI or teardown boundary.
+    std::mem::forget(payload);
+  }
 }
 
 /// # Safety
@@ -211,4 +220,37 @@ pub unsafe fn create_object_with_properties(
   _properties: &[sys::napi_property_descriptor],
 ) -> Result<sys::napi_value> {
   Ok(std::ptr::null_mut())
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use std::panic::panic_any;
+
+  struct PanickingPanicPayload;
+
+  impl Drop for PanickingPanicPayload {
+    fn drop(&mut self) {
+      panic!("nested panic payload destructor");
+    }
+  }
+
+  struct PanickingDrop;
+
+  impl Drop for PanickingDrop {
+    fn drop(&mut self) {
+      panic_any(PanickingPanicPayload);
+    }
+  }
+
+  #[test]
+  fn panic_to_error_contains_payload_destructor_panics() {
+    let error = panic_to_error(Box::new(PanickingDrop));
+    assert!(error.reason.contains("panic from Rust code"));
+  }
+
+  #[test]
+  fn catch_unwind_safely_forgets_panicking_panic_payloads() {
+    catch_unwind_safely(|| panic_any(PanickingPanicPayload));
+  }
 }
