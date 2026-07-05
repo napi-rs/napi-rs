@@ -1,16 +1,22 @@
-#[cfg(all(not(feature = "noop"), feature = "async-runtime"))]
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt")
+))]
 use std::cell::Cell;
 #[cfg(not(feature = "noop"))]
 use std::collections::HashMap;
-#[cfg(all(not(feature = "noop"), feature = "async-runtime"))]
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt")
+))]
 use std::sync::Condvar;
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+use std::sync::RwLock;
 #[cfg(not(feature = "noop"))]
 use std::sync::{
   atomic::{AtomicBool, AtomicUsize, Ordering},
   LazyLock, OnceLock,
 };
-#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
-use std::sync::{RwLock, Weak};
 use std::{
   future::Future,
   marker::PhantomData,
@@ -26,7 +32,10 @@ use std::panic::AssertUnwindSafe;
   all(feature = "tokio_rt", not(feature = "noop"))
 ))]
 use std::pin::Pin;
-#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt")
+))]
 use std::task::Context;
 #[cfg(not(feature = "noop"))]
 use std::task::Poll;
@@ -519,6 +528,195 @@ fn tokio_generated_task(
   async move {
     let _registration = registration;
     let _ = Abortable::new(future, abort_registration).await;
+  }
+}
+
+#[cfg(all(
+  test,
+  not(feature = "noop"),
+  feature = "tokio_rt",
+  any(
+    not(target_family = "wasm"),
+    all(target_family = "wasm", tokio_unstable)
+  )
+))]
+mod tokio_retirement_waiter_tests {
+  use std::sync::{mpsc, Arc};
+  use std::time::Duration;
+
+  use super::*;
+
+  fn pending_waiter(
+    generation: usize,
+  ) -> (
+    Arc<TokioRuntimeRetirementSignal>,
+    AsyncRuntimeRetirementWaiter,
+  ) {
+    let retirement = Arc::new(TokioRuntimeRetirementSignal::new(generation, None));
+    let waiter = AsyncRuntimeRetirementWaiter::new(Some(Arc::clone(&retirement)));
+    (retirement, waiter)
+  }
+
+  #[test]
+  fn retirement_waiter_blocks_without_holding_its_mutex_and_wakes_on_completion() {
+    let (retirement, waiter) = pending_waiter(10_001);
+    let (started_tx, started_rx) = mpsc::channel();
+    let (result_tx, result_rx) = mpsc::channel();
+    let thread = std::thread::spawn(move || {
+      started_tx.send(()).unwrap();
+      result_tx.send(waiter.wait()).unwrap();
+    });
+
+    started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert!(
+      result_rx.recv_timeout(Duration::from_millis(50)).is_err(),
+      "a pending retirement wait must block"
+    );
+    assert!(
+      retirement.status.try_lock().is_ok(),
+      "Condvar::wait must release the retirement mutex while blocked"
+    );
+
+    retirement.complete();
+    result_rx
+      .recv_timeout(Duration::from_secs(5))
+      .expect("completion must wake the waiter")
+      .unwrap();
+    thread.join().unwrap();
+  }
+
+  #[test]
+  fn cancellation_through_a_clone_wakes_the_same_waiter() {
+    let (_retirement, waiter) = pending_waiter(10_002);
+    let cancellation = waiter.clone();
+    let (started_tx, started_rx) = mpsc::channel();
+    let (result_tx, result_rx) = mpsc::channel();
+    let thread = std::thread::spawn(move || {
+      started_tx.send(()).unwrap();
+      result_tx.send(waiter.wait()).unwrap();
+    });
+
+    started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert!(
+      result_rx.recv_timeout(Duration::from_millis(50)).is_err(),
+      "the waiter must still be pending before cancellation"
+    );
+    cancellation.cancel();
+
+    let error = result_rx
+      .recv_timeout(Duration::from_secs(5))
+      .expect("clone cancellation must wake the waiter")
+      .expect_err("a cancelled waiter must return an error");
+    assert_eq!(error.status, crate::Status::Cancelled);
+    thread.join().unwrap();
+  }
+
+  #[test]
+  fn waiter_is_bound_to_one_generation_and_late_cancellation_is_a_noop() {
+    let (first_retirement, waiter) = pending_waiter(10_003);
+    let _later_retirement = TokioRuntimeRetirementSignal::new(10_004, None);
+
+    first_retirement.complete();
+    waiter.cancel();
+    waiter.wait().unwrap();
+    waiter.wait().unwrap();
+  }
+
+  #[test]
+  fn retirement_wait_rejects_work_owned_by_the_same_generation() {
+    let (_retirement, waiter) = pending_waiter(10_005);
+    let _generation = TokioRuntimeGenerationGuard::enter(10_005);
+
+    let error = waiter
+      .wait()
+      .expect_err("same-generation work must not wait for its own retirement");
+    assert_eq!(error.status, crate::Status::WouldDeadlock);
+  }
+
+  #[test]
+  fn retirement_wait_rejects_unwrapped_work_on_the_same_tokio_runtime() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+      .build()
+      .unwrap();
+    let retirement = Arc::new(TokioRuntimeRetirementSignal::new(
+      10_006,
+      Some(runtime.handle().id()),
+    ));
+    let waiter = AsyncRuntimeRetirementWaiter::new(Some(retirement));
+
+    let error = runtime
+      .block_on(async { waiter.wait() })
+      .expect_err("same-runtime work must not wait for its own retirement");
+    assert_eq!(error.status, crate::Status::WouldDeadlock);
+  }
+
+  #[test]
+  fn retirement_wait_allows_an_unrelated_tokio_runtime() {
+    let retiring_runtime = tokio::runtime::Builder::new_current_thread()
+      .build()
+      .unwrap();
+    let caller_runtime = tokio::runtime::Builder::new_current_thread()
+      .build()
+      .unwrap();
+    let retirement = Arc::new(TokioRuntimeRetirementSignal::new(
+      10_007,
+      Some(retiring_runtime.handle().id()),
+    ));
+    let waiter = AsyncRuntimeRetirementWaiter::new(Some(Arc::clone(&retirement)));
+    let completion = std::thread::spawn(move || {
+      std::thread::sleep(Duration::from_millis(50));
+      retirement.complete();
+    });
+
+    caller_runtime
+      .block_on(async { waiter.wait() })
+      .expect("an unrelated Tokio runtime cannot own the retiring generation");
+    completion.join().unwrap();
+  }
+
+  #[test]
+  fn retirement_thread_spawn_failure_is_terminal_and_does_not_drop_inline() {
+    let retirement = Arc::new(TokioRuntimeRetirementSignal::new(10_008, None));
+    let waiter = AsyncRuntimeRetirementWaiter::new(Some(Arc::clone(&retirement)));
+    let runtime = tokio::runtime::Builder::new_current_thread()
+      .build()
+      .unwrap();
+
+    launch_tokio_runtime_retirement_with(runtime, retirement, |worker| {
+      drop(worker);
+      Err(std::io::Error::other("injected thread creation failure"))
+    });
+
+    let error = waiter
+      .wait()
+      .expect_err("thread creation failure must terminate the retirement wait");
+    assert_eq!(error.status, crate::Status::GenericFailure);
+    assert!(error.reason.contains("injected thread creation failure"));
+  }
+
+  #[test]
+  fn runtime_drop_panic_is_a_terminal_retirement_failure() {
+    let retirement = Arc::new(TokioRuntimeRetirementSignal::new(10_009, None));
+    let waiter = AsyncRuntimeRetirementWaiter::new(Some(Arc::clone(&retirement)));
+    let runtime = tokio::runtime::Builder::new_current_thread()
+      .build()
+      .unwrap();
+    let outer = tokio::runtime::Builder::new_current_thread()
+      .build()
+      .unwrap();
+
+    outer.block_on(async move {
+      drop(TokioRuntimeRetirement {
+        runtime: Some(runtime),
+        retirement,
+      });
+    });
+
+    let error = waiter
+      .wait()
+      .expect_err("Runtime::drop panic must terminate the retirement wait");
+    assert_eq!(error.status, crate::Status::GenericFailure);
+    assert!(error.reason.contains("panicked while dropping"));
   }
 }
 
@@ -1522,7 +1720,7 @@ fn create_runtime() -> Runtime {
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 struct SharedTokioRuntime {
   runtime: Option<Runtime>,
-  retirement: Option<Arc<()>>,
+  retirement: Option<Arc<TokioRuntimeRetirementSignal>>,
 }
 
 #[cfg(all(
@@ -1535,7 +1733,7 @@ struct SharedTokioRuntime {
 ))]
 struct TokioRuntimeRetirement {
   runtime: Option<Runtime>,
-  retirement: Option<Arc<()>>,
+  retirement: Arc<TokioRuntimeRetirementSignal>,
 }
 
 #[cfg(all(
@@ -1550,14 +1748,15 @@ impl Drop for TokioRuntimeRetirement {
   fn drop(&mut self) {
     if let Some(runtime) = self.runtime.take() {
       if let Err(payload) = std::panic::catch_unwind(AssertUnwindSafe(|| drop(runtime))) {
-        drop(crate::bindgen_runtime::panic_to_error(payload));
-        if let Some(retirement) = self.retirement.take() {
-          std::mem::forget(retirement);
-        }
+        let error = crate::bindgen_runtime::panic_to_error(payload);
+        self.retirement.fail(format!(
+          "Tokio runtime retirement panicked while dropping the runtime: {}",
+          error.reason
+        ));
         return;
       }
     }
-    drop(self.retirement.take());
+    self.retirement.complete();
   }
 }
 
@@ -1569,12 +1768,11 @@ impl Drop for TokioRuntimeRetirement {
     all(target_family = "wasm", tokio_unstable)
   )
 ))]
-fn launch_tokio_runtime_retirement(runtime: Runtime, retirement: Option<Arc<()>>) {
-  let retirement = TokioRuntimeRetirement {
-    runtime: Some(runtime),
-    retirement,
-  };
-  launch_background_drop(retirement, |worker| {
+fn launch_tokio_runtime_retirement(
+  runtime: Runtime,
+  retirement: Arc<TokioRuntimeRetirementSignal>,
+) {
+  launch_tokio_runtime_retirement_with(runtime, retirement, |worker| {
     std::thread::Builder::new()
       .name("napi-tokio-runtime-retirement".to_owned())
       .spawn(worker)
@@ -1590,10 +1788,35 @@ fn launch_tokio_runtime_retirement(runtime: Runtime, retirement: Option<Arc<()>>
     all(target_family = "wasm", tokio_unstable)
   )
 ))]
+fn launch_tokio_runtime_retirement_with(
+  runtime: Runtime,
+  retirement: Arc<TokioRuntimeRetirementSignal>,
+  spawn: impl FnOnce(Box<dyn FnOnce() + Send + 'static>) -> std::io::Result<()>,
+) {
+  let failure_signal = Arc::clone(&retirement);
+  let retirement = TokioRuntimeRetirement {
+    runtime: Some(runtime),
+    retirement,
+  };
+  if let Err(error) = launch_background_drop(retirement, spawn) {
+    failure_signal.fail(format!(
+      "Failed to spawn the Tokio runtime retirement thread: {error}"
+    ));
+  }
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  feature = "tokio_rt",
+  any(
+    not(target_family = "wasm"),
+    all(target_family = "wasm", tokio_unstable)
+  )
+))]
 fn launch_background_drop<T: Send + 'static>(
   value: T,
   spawn: impl FnOnce(Box<dyn FnOnce() + Send + 'static>) -> std::io::Result<()>,
-) {
+) -> std::io::Result<()> {
   let state = Arc::new(std::sync::Mutex::new(Some(value)));
   let worker_state = Arc::clone(&state);
   let worker: Box<dyn FnOnce() + Send + 'static> = Box::new(move || {
@@ -1603,11 +1826,15 @@ fn launch_background_drop<T: Send + 'static>(
       .take();
     drop(retirement);
   });
-  if spawn(worker).is_err() {
-    // `Builder::spawn` drops the worker closure on the calling thread when thread creation
-    // fails. Keep this second owner leaked so neither Runtime::drop nor the generation token
-    // can run synchronously during Node teardown. Restart remains safely blocked.
-    std::mem::forget(state);
+  match spawn(worker) {
+    Ok(()) => Ok(()),
+    Err(error) => {
+      // `Builder::spawn` drops the worker closure on the calling thread when thread creation
+      // fails. Keep this second owner leaked so Runtime::drop cannot run synchronously during
+      // Node teardown. The retirement signal is failed separately by the caller.
+      std::mem::forget(state);
+      Err(error)
+    }
   }
 }
 
@@ -1635,12 +1862,24 @@ impl Drop for SharedTokioRuntime {
       all(target_family = "wasm", tokio_unstable)
     ))]
     {
-      launch_tokio_runtime_retirement(runtime, retirement);
+      launch_tokio_runtime_retirement(
+        runtime,
+        retirement.expect("Tokio runtime retirement signal is present until drop"),
+      );
     }
     #[cfg(all(target_family = "wasm", not(tokio_unstable)))]
     {
-      crate::bindgen_runtime::catch_unwind_safely(|| runtime.shutdown_background());
-      drop(retirement);
+      let retirement = retirement.expect("Tokio runtime retirement signal is present until drop");
+      match std::panic::catch_unwind(AssertUnwindSafe(|| runtime.shutdown_background())) {
+        Ok(()) => retirement.complete(),
+        Err(payload) => {
+          let error = crate::bindgen_runtime::panic_to_error(payload);
+          retirement.fail(format!(
+            "Tokio runtime retirement panicked while dropping the runtime: {}",
+            error.reason
+          ));
+        }
+      }
     }
   }
 }
@@ -1648,13 +1887,13 @@ impl Drop for SharedTokioRuntime {
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 struct TokioRuntimeGeneration {
   runtime: Arc<SharedTokioRuntime>,
-  retirement: Arc<()>,
+  retirement: Arc<TokioRuntimeRetirementSignal>,
 }
 
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 struct TokioRuntimeLease {
   runtime: Arc<SharedTokioRuntime>,
-  retirement: Arc<()>,
+  retirement: Arc<TokioRuntimeRetirementSignal>,
 }
 
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
@@ -1668,8 +1907,248 @@ impl std::ops::Deref for TokioRuntimeLease {
 
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 impl TokioRuntimeLease {
-  fn retirement_token(&self) -> Arc<()> {
+  fn retirement_signal(&self) -> Arc<TokioRuntimeRetirementSignal> {
     Arc::clone(&self.retirement)
+  }
+
+  fn generation(&self) -> usize {
+    self.retirement.generation
+  }
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+#[derive(Clone)]
+enum TokioRuntimeRetirementStatus {
+  Pending,
+  Complete,
+  Failed(String),
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+struct TokioRuntimeRetirementSignal {
+  generation: usize,
+  runtime_id: Option<tokio::runtime::Id>,
+  status: Mutex<TokioRuntimeRetirementStatus>,
+  changed: Condvar,
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+impl TokioRuntimeRetirementSignal {
+  fn new(generation: usize, runtime_id: Option<tokio::runtime::Id>) -> Self {
+    Self {
+      generation,
+      runtime_id,
+      status: Mutex::new(TokioRuntimeRetirementStatus::Pending),
+      changed: Condvar::new(),
+    }
+  }
+
+  fn status(&self) -> TokioRuntimeRetirementStatus {
+    self
+      .status
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner)
+      .clone()
+  }
+
+  fn complete(&self) {
+    let mut status = self
+      .status
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if matches!(*status, TokioRuntimeRetirementStatus::Pending) {
+      *status = TokioRuntimeRetirementStatus::Complete;
+      self.changed.notify_all();
+    }
+  }
+
+  fn fail(&self, reason: String) {
+    let mut status = self
+      .status
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if matches!(*status, TokioRuntimeRetirementStatus::Pending) {
+      *status = TokioRuntimeRetirementStatus::Failed(reason);
+      self.changed.notify_all();
+    }
+  }
+
+  fn cancel_wait(&self, cancelled: &AtomicBool) {
+    let status = self
+      .status
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if matches!(*status, TokioRuntimeRetirementStatus::Pending) {
+      cancelled.store(true, Ordering::Release);
+      self.changed.notify_all();
+    }
+  }
+
+  fn wait(&self, cancelled: &AtomicBool) -> Result<()> {
+    let mut status = self
+      .status
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    loop {
+      if cancelled.load(Ordering::Acquire) {
+        return Err(Error::new(
+          crate::Status::Cancelled,
+          "Async runtime retirement wait was cancelled",
+        ));
+      }
+      match &*status {
+        TokioRuntimeRetirementStatus::Pending => {
+          if current_tokio_runtime_may_own_generation(self.generation, self.runtime_id) {
+            return Err(Error::new(
+              crate::Status::WouldDeadlock,
+              "Cannot wait for Tokio runtime retirement from work owned by that runtime",
+            ));
+          }
+          status = self
+            .changed
+            .wait(status)
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+        TokioRuntimeRetirementStatus::Complete => return Ok(()),
+        TokioRuntimeRetirementStatus::Failed(reason) => {
+          return Err(Error::new(
+            crate::Status::GenericFailure,
+            format!("Tokio runtime retirement failed: {reason}"),
+          ));
+        }
+      }
+    }
+  }
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+struct AsyncRuntimeRetirementWaiterInner {
+  retirement: Option<Arc<TokioRuntimeRetirementSignal>>,
+  cancelled: AtomicBool,
+}
+
+/// A blocking, cancellable snapshot of the Tokio generation currently retiring.
+///
+/// The snapshot never follows later runtime generations. If no generation is retiring when this
+/// value is created, [`wait`](Self::wait) returns immediately. Clones share cancellation state:
+/// calling [`cancel`](Self::cancel) on any clone wakes the same pending wait. Cancellation after
+/// retirement has already reached a terminal state is a no-op.
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+#[derive(Clone)]
+pub struct AsyncRuntimeRetirementWaiter {
+  inner: Arc<AsyncRuntimeRetirementWaiterInner>,
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+impl AsyncRuntimeRetirementWaiter {
+  fn new(retirement: Option<Arc<TokioRuntimeRetirementSignal>>) -> Self {
+    Self {
+      inner: Arc::new(AsyncRuntimeRetirementWaiterInner {
+        retirement,
+        cancelled: AtomicBool::new(false),
+      }),
+    }
+  }
+
+  /// Block until the snapshotted generation retires, this waiter is cancelled, or retirement
+  /// fails terminally.
+  ///
+  /// This returns [`crate::Status::WouldDeadlock`] instead of blocking when called by work owned
+  /// by the retiring Tokio runtime. No napi runtime lifecycle lock is held while blocked.
+  pub fn wait(&self) -> Result<()> {
+    match &self.inner.retirement {
+      Some(retirement) => retirement.wait(&self.inner.cancelled),
+      None => Ok(()),
+    }
+  }
+
+  /// Cancel this waiter and wake a concurrent [`wait`](Self::wait).
+  ///
+  /// All clones represent the same waiter, so cancellation through any clone is observed by every
+  /// clone. This does not cancel retirement itself.
+  pub fn cancel(&self) {
+    if let Some(retirement) = &self.inner.retirement {
+      retirement.cancel_wait(&self.inner.cancelled);
+    }
+  }
+}
+
+/// Snapshot the Tokio runtime generation currently retiring.
+///
+/// The returned waiter can be moved to a blocking worker while a clone is retained by an
+/// environment cancellation owner. It does not borrow or retain a napi environment.
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+pub fn async_runtime_retirement_waiter() -> AsyncRuntimeRetirementWaiter {
+  let retirement = TOKIO_RUNTIME_STATE
+    .lock()
+    .unwrap_or_else(std::sync::PoisonError::into_inner)
+    .retiring
+    .clone();
+  AsyncRuntimeRetirementWaiter::new(retirement)
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+static NEXT_TOKIO_RUNTIME_GENERATION: AtomicUsize = AtomicUsize::new(1);
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+thread_local! {
+  static CURRENT_TOKIO_RUNTIME_GENERATION: Cell<Option<usize>> = const { Cell::new(None) };
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+struct TokioRuntimeGenerationGuard {
+  previous: Option<usize>,
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+impl TokioRuntimeGenerationGuard {
+  fn enter(generation: usize) -> Self {
+    let previous =
+      CURRENT_TOKIO_RUNTIME_GENERATION.with(|current| current.replace(Some(generation)));
+    Self { previous }
+  }
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+impl Drop for TokioRuntimeGenerationGuard {
+  fn drop(&mut self) {
+    CURRENT_TOKIO_RUNTIME_GENERATION.with(|current| current.set(self.previous));
+  }
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+fn current_tokio_runtime_may_own_generation(
+  generation: usize,
+  runtime_id: Option<tokio::runtime::Id>,
+) -> bool {
+  CURRENT_TOKIO_RUNTIME_GENERATION.with(|current| current.get() == Some(generation))
+    || runtime_id.is_some_and(|runtime_id| {
+      tokio::runtime::Handle::try_current().is_ok_and(|handle| handle.id() == runtime_id)
+    })
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+struct TokioRuntimeGenerationFuture<F> {
+  future: F,
+  generation: usize,
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+impl<F> TokioRuntimeGenerationFuture<F> {
+  fn new(future: F, generation: usize) -> Self {
+    Self { future, generation }
+  }
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+impl<F: Future> Future for TokioRuntimeGenerationFuture<F> {
+  type Output = F::Output;
+
+  fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+    // SAFETY: `future` is never moved after the wrapper is pinned.
+    let this = unsafe { self.get_unchecked_mut() };
+    let _generation = TokioRuntimeGenerationGuard::enter(this.generation);
+    unsafe { Pin::new_unchecked(&mut this.future) }.poll(cx)
   }
 }
 
@@ -1685,7 +2164,7 @@ enum TokioRuntimeLifecycle {
 struct TokioRuntimeState {
   lifecycle: TokioRuntimeLifecycle,
   generation: Option<TokioRuntimeGeneration>,
-  retiring: Option<Weak<()>>,
+  retiring: Option<Arc<TokioRuntimeRetirementSignal>>,
 }
 
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
@@ -2036,15 +2515,32 @@ fn acquire_tokio_runtime(allow_restart: bool) -> Result<TokioRuntimeLease> {
       }
       TokioRuntimeLifecycle::Uninitialized | TokioRuntimeLifecycle::Stopped => {}
     }
-    if state.retiring.as_ref().and_then(Weak::upgrade).is_some() {
-      return Err(Error::new(
-        crate::Status::GenericFailure,
-        "Tokio runtime is still shutting down",
-      ));
+    match state
+      .retiring
+      .as_ref()
+      .map(|retirement| retirement.status())
+    {
+      Some(TokioRuntimeRetirementStatus::Pending) => {
+        return Err(Error::new(
+          crate::Status::WouldDeadlock,
+          "Tokio runtime is still shutting down",
+        ));
+      }
+      Some(TokioRuntimeRetirementStatus::Failed(reason)) => {
+        return Err(Error::new(
+          crate::Status::GenericFailure,
+          format!("Tokio runtime retirement failed: {reason}"),
+        ));
+      }
+      Some(TokioRuntimeRetirementStatus::Complete) | None => {}
     }
     state.retiring = None;
     let rt = create_runtime();
-    let retirement = Arc::new(());
+    let generation = NEXT_TOKIO_RUNTIME_GENERATION.fetch_add(1, Ordering::Relaxed);
+    let retirement = Arc::new(TokioRuntimeRetirementSignal::new(
+      generation,
+      Some(rt.handle().id()),
+    ));
     let runtime = Arc::new(SharedTokioRuntime {
       runtime: Some(rt),
       retirement: Some(Arc::clone(&retirement)),
@@ -2080,7 +2576,7 @@ pub(crate) fn shutdown_tokio_runtime() -> Result<()> {
       }
       let generation = state.generation.take();
       if let Some(generation) = &generation {
-        state.retiring = Some(Arc::downgrade(&generation.retirement));
+        state.retiring = Some(Arc::clone(&generation.retirement));
       }
       state.lifecycle = TokioRuntimeLifecycle::Stopped;
       Ok(generation)
@@ -2092,16 +2588,6 @@ pub(crate) fn shutdown_tokio_runtime() -> Result<()> {
   #[cfg(not(feature = "async-runtime"))]
   cancel_all_env_tasks();
   drop(rt);
-  let mut state = TOKIO_RUNTIME_STATE
-    .lock()
-    .unwrap_or_else(std::sync::PoisonError::into_inner);
-  if state
-    .retiring
-    .as_ref()
-    .is_some_and(|runtime| runtime.strong_count() == 0)
-  {
-    state.retiring = None;
-  }
   Ok(())
 }
 
@@ -2418,11 +2904,15 @@ where
   #[cfg(feature = "async-runtime")]
   let _runtime_use = acquire_synchronous_runtime_use().unwrap_or_else(|error| panic!("{error}"));
   let runtime = runtime();
-  let retirement = runtime.retirement_token();
-  runtime.spawn(async move {
-    let _retirement = retirement;
-    fut.take().await
-  })
+  let retirement = runtime.retirement_signal();
+  let generation = runtime.generation();
+  runtime.spawn(TokioRuntimeGenerationFuture::new(
+    async move {
+      let _retirement = retirement;
+      fut.take().await
+    },
+    generation,
+  ))
 }
 
 #[cfg(all(not(feature = "noop"), feature = "async-runtime"))]
@@ -2565,7 +3055,9 @@ pub fn try_block_on<F: Future>(fut: F) -> Result<F::Output> {
     #[cfg(feature = "async-runtime")]
     let _runtime_use = acquire_synchronous_runtime_use()?;
     let runtime = try_runtime()?;
+    let generation = runtime.generation();
     try_block_on_safely(fut.take(), |future| {
+      let _generation = TokioRuntimeGenerationGuard::enter(generation);
       runtime.block_on(future);
     })
   }
@@ -2592,9 +3084,11 @@ where
   #[cfg(feature = "async-runtime")]
   let _runtime_use = acquire_synchronous_runtime_use().unwrap_or_else(|error| panic!("{error}"));
   let runtime = runtime();
-  let retirement = runtime.retirement_token();
+  let retirement = runtime.retirement_signal();
+  let generation = runtime.generation();
   runtime.spawn_blocking(move || {
     let _retirement = retirement;
+    let _generation = TokioRuntimeGenerationGuard::enter(generation);
     func.take()()
   })
 }
@@ -2671,6 +3165,7 @@ pub fn try_within_runtime_if_available<F: FnOnce() -> T, T>(f: F) -> Result<T> {
     let _runtime_use = acquire_synchronous_runtime_use()?;
     let runtime = try_runtime()?;
     let runtime_guard = runtime.enter();
+    let _generation = TokioRuntimeGenerationGuard::enter(runtime.generation());
     call_with_runtime_guard(runtime_guard, f.take())
   }
   #[cfg(all(feature = "async-runtime", not(feature = "tokio_rt")))]
@@ -2725,6 +3220,7 @@ pub fn within_custom_runtime_if_available<F: FnOnce() -> Result<T>, T>(f: F) -> 
   {
     let runtime = try_runtime()?;
     let runtime_guard = runtime.enter();
+    let _generation = TokioRuntimeGenerationGuard::enter(runtime.generation());
     call_with_runtime_guard(runtime_guard, f.take()).and_then(|result| result)
   }
   #[cfg(not(feature = "tokio_rt"))]
@@ -5123,12 +5619,16 @@ mod combined_feature_tests {
     let dropped = Arc::new(AtomicBool::new(false));
     let probe = DropProbe(Arc::clone(&dropped));
 
-    launch_background_drop(probe, |worker| {
+    let error = launch_background_drop(probe, |worker| {
       drop(worker);
       Err(std::io::Error::other("injected thread creation failure"))
-    });
+    })
+    .expect_err("the injected retirement spawn must fail");
 
     assert!(!dropped.load(Ordering::SeqCst));
+    assert!(error
+      .to_string()
+      .contains("injected thread creation failure"));
   }
 
   impl AsyncRuntime for CombinedRuntime {
@@ -5234,40 +5734,22 @@ mod combined_feature_tests {
   }
 
   fn start_after_retirement() {
-    let deadline = std::time::Instant::now() + Duration::from_secs(5);
     loop {
+      async_runtime_retirement_waiter()
+        .wait()
+        .expect("the old Tokio generation must retire cleanly");
       match try_start_async_runtime() {
         Ok(()) => return,
-        Err(error)
-          if error.reason.contains("still shutting down")
-            && std::time::Instant::now() < deadline =>
-        {
-          std::thread::sleep(Duration::from_millis(10));
-        }
+        Err(error) if error.status == crate::Status::WouldDeadlock => continue,
         Err(error) => panic!("runtime did not retire cleanly: {error}"),
       }
     }
   }
 
   fn wait_for_retirement() {
-    let deadline = std::time::Instant::now() + Duration::from_secs(5);
-    loop {
-      let retired = TOKIO_RUNTIME_STATE
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .retiring
-        .as_ref()
-        .and_then(Weak::upgrade)
-        .is_none();
-      if retired {
-        return;
-      }
-      assert!(
-        std::time::Instant::now() < deadline,
-        "Tokio runtime did not retire cleanly"
-      );
-      std::thread::sleep(Duration::from_millis(10));
-    }
+    async_runtime_retirement_waiter()
+      .wait()
+      .expect("Tokio runtime did not retire cleanly");
   }
 
   #[test]
@@ -5364,10 +5846,12 @@ mod combined_feature_tests {
     });
 
     let (blocking_started_tx, blocking_started_rx) = mpsc::channel();
-    let (blocking_release_tx, blocking_release_rx) = mpsc::channel();
+    let (blocking_waiter_tx, blocking_waiter_rx) = mpsc::channel();
+    let (blocking_result_tx, blocking_result_rx) = mpsc::channel();
     let blocking = spawn_blocking(move || {
       blocking_started_tx.send(()).unwrap();
-      blocking_release_rx.recv().unwrap();
+      let waiter: AsyncRuntimeRetirementWaiter = blocking_waiter_rx.recv().unwrap();
+      blocking_result_tx.send(waiter.wait()).unwrap();
     });
     blocking_started_rx
       .recv_timeout(Duration::from_secs(5))
@@ -5375,17 +5859,27 @@ mod combined_feature_tests {
     try_shutdown_async_runtime().unwrap();
     let error =
       try_start_async_runtime().expect_err("restart must wait for old-generation blocking work");
+    assert_eq!(error.status, crate::Status::WouldDeadlock);
     assert!(error.reason.contains("still shutting down"));
-    blocking_release_tx.send(()).unwrap();
+    blocking_waiter_tx
+      .send(async_runtime_retirement_waiter())
+      .unwrap();
+    let error = blocking_result_rx
+      .recv_timeout(Duration::from_secs(5))
+      .expect("self-wait must not block")
+      .expect_err("retiring-generation work must reject its own wait");
+    assert_eq!(error.status, crate::Status::WouldDeadlock);
     futures::executor::block_on(blocking).unwrap();
     start_after_retirement();
 
     let (direct_started_tx, direct_started_rx) = mpsc::channel();
-    let (direct_release_tx, direct_release_rx) = mpsc::channel();
+    let (direct_waiter_tx, direct_waiter_rx) = mpsc::channel();
+    let (direct_result_tx, direct_result_rx) = mpsc::channel();
     let direct = try_within_runtime_if_available(|| {
       tokio::task::spawn_blocking(move || {
         direct_started_tx.send(()).unwrap();
-        direct_release_rx.recv().unwrap();
+        let waiter: AsyncRuntimeRetirementWaiter = direct_waiter_rx.recv().unwrap();
+        direct_result_tx.send(waiter.wait()).unwrap();
       })
     })
     .unwrap();
@@ -5395,8 +5889,16 @@ mod combined_feature_tests {
     try_shutdown_async_runtime().unwrap();
     let error = try_start_async_runtime()
       .expect_err("direct Tokio work must keep its old generation retiring");
+    assert_eq!(error.status, crate::Status::WouldDeadlock);
     assert!(error.reason.contains("still shutting down"));
-    direct_release_tx.send(()).unwrap();
+    direct_waiter_tx
+      .send(async_runtime_retirement_waiter())
+      .unwrap();
+    let error = direct_result_rx
+      .recv_timeout(Duration::from_secs(5))
+      .expect("direct Tokio self-wait must not block")
+      .expect_err("direct Tokio work must reject its own retirement wait");
+    assert_eq!(error.status, crate::Status::WouldDeadlock);
     futures::executor::block_on(direct).unwrap();
     start_after_retirement();
 

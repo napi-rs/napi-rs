@@ -108,7 +108,9 @@ fn custom_runtime_helper_signatures_are_feature_stable() {
 #[cfg(feature = "tokio_rt")]
 #[test]
 fn tokio_runtime_helper_signatures_remain_compatible() {
-  use napi::bindgen_prelude::{spawn, spawn_blocking};
+  use napi::bindgen_prelude::{
+    async_runtime_retirement_waiter, spawn, spawn_blocking, AsyncRuntimeRetirementWaiter,
+  };
 
   fn assert_spawn_signature() -> tokio::task::JoinHandle<()> {
     spawn(async {})
@@ -118,6 +120,24 @@ fn tokio_runtime_helper_signatures_remain_compatible() {
     spawn_blocking(|| 42)
   }
 
+  fn assert_retirement_waiter_signature() -> AsyncRuntimeRetirementWaiter {
+    async_runtime_retirement_waiter()
+  }
+
+  fn assert_retirement_wait_signature(waiter: &AsyncRuntimeRetirementWaiter) -> napi::Result<()> {
+    waiter.wait()
+  }
+
+  fn assert_retirement_cancel_signature(waiter: &AsyncRuntimeRetirementWaiter) {
+    waiter.cancel();
+  }
+
+  fn assert_waiter_traits<T: Clone + Send + Sync>() {}
+
   let _ = assert_spawn_signature as fn() -> tokio::task::JoinHandle<()>;
   let _ = assert_spawn_blocking_signature as fn() -> tokio::task::JoinHandle<u8>;
+  let _ = assert_retirement_waiter_signature as fn() -> AsyncRuntimeRetirementWaiter;
+  let _ = assert_retirement_wait_signature as fn(&AsyncRuntimeRetirementWaiter) -> napi::Result<()>;
+  let _ = assert_retirement_cancel_signature as fn(&AsyncRuntimeRetirementWaiter);
+  assert_waiter_traits::<AsyncRuntimeRetirementWaiter>();
 }
