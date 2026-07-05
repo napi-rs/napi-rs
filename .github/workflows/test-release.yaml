@@ -817,6 +817,7 @@ jobs:
     runs-on: ubuntu-latest
     name: Test custom async runtime on native
     timeout-minutes: 10
+    needs: audit
     steps:
       - uses: actions/checkout@v7
       - name: Setup node
@@ -843,6 +844,7 @@ jobs:
     runs-on: ubuntu-latest
     name: Test async-runtime SPI (cargo)
     timeout-minutes: 15
+    needs: audit
     steps:
       - uses: actions/checkout@v7
       - name: Install Rust
