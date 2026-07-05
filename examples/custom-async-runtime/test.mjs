@@ -72,6 +72,12 @@ assert.ok(
 )
 assert.ok(afterAsync.wakeCalls >= beforeAsync.wakeCalls + expectedAsyncTasks)
 
+binding.rejectNextSpawn()
+await assert.rejects(
+  binding.asyncDouble(1),
+  /backend rejected the task submission.*stopped or saturated/i,
+)
+
 const beforeLifecycle = binding.getRuntimeMetrics()
 const cancelled = binding.asyncNever()
 binding.shutdownRuntime()

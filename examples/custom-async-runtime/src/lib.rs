@@ -23,6 +23,7 @@ struct RuntimeState {
   queue: Mutex<VecDeque<Arc<Task>>>,
   draining: AtomicBool,
   accepting: AtomicBool,
+  reject_next_spawn: AtomicBool,
   start_calls: AtomicUsize,
   shutdown_calls: AtomicUsize,
   enter_calls: AtomicUsize,
@@ -126,7 +127,9 @@ struct TestRuntime {
 
 impl AsyncRuntime for TestRuntime {
   fn spawn(&self, task: AsyncRuntimeTask) -> std::result::Result<(), AsyncRuntimeTask> {
-    if !self.state.accepting.load(Ordering::Acquire) {
+    if self.state.reject_next_spawn.swap(false, Ordering::AcqRel)
+      || !self.state.accepting.load(Ordering::Acquire)
+    {
       return Err(task);
     }
     self.state.spawn_calls.fetch_add(1, Ordering::Relaxed);
@@ -344,6 +347,11 @@ pub async fn async_panic_string(value: u32) {
 #[napi]
 pub async fn async_never() {
   std::future::pending::<()>().await;
+}
+
+#[napi]
+pub fn reject_next_spawn() {
+  state().reject_next_spawn.store(true, Ordering::Release);
 }
 
 #[napi]

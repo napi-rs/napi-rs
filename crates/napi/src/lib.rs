@@ -40,20 +40,25 @@
 //! The `async-runtime` feature lets an addon register its own executor through
 //! [`create_custom_async_runtime`](crate::bindgen_prelude::create_custom_async_runtime).
 //! Generated JavaScript-facing futures use it even when Cargo feature unification also enables
-//! `tokio_rt`. In that combined build, the established free Tokio helper APIs retain their
-//! Tokio return types and runtime; a pure `async-runtime` build remains tokio-free (enable the
-//! `tokio` feature explicitly if you still want the `napi::tokio` re-export). This is useful
-//! for applications that need one scheduler across NAPI futures and domain-specific CPU work,
-//! or a cooperative executor on non-threaded WebAssembly hosts.
+//! `tokio_rt`. The established free `spawn`/`spawn_blocking` names remain Tokio-only APIs with
+//! their historical Tokio return types. Custom-runtime callers use
+//! [`spawn_on_custom_runtime`](crate::bindgen_prelude::spawn_on_custom_runtime) and
+//! [`spawn_blocking_on_custom_runtime`](crate::bindgen_prelude::spawn_blocking_on_custom_runtime);
+//! those names, return types, and routing are unchanged when `tokio_rt` is added by feature
+//! unification. A pure `async-runtime` build remains tokio-free (enable the `tokio` feature
+//! explicitly if you still want the `napi::tokio` re-export). This is useful for applications
+//! that need one scheduler across NAPI futures and domain-specific CPU work, or a cooperative
+//! executor on non-threaded WebAssembly hosts.
 //!
-//! In a pure `async-runtime` build, `spawn` returns a napi-owned joinable handle over the
-//! [`AsyncRuntime`](crate::bindgen_prelude::AsyncRuntime) submission hook and
-//! `spawn_blocking` completes its handle as cancelled when the backend declines. napi does
-//! not create an unbounded fallback thread. Under the `noop` feature neither helper is
-//! compiled. Explicit shutdown also closes synchronous `block_on` and
-//! `#[napi(async_runtime)]` entry until restart; shutdown waits for an entry already in progress
-//! to return and drop its runtime guard. Exported callbacks should use `try_block_on` when they
-//! need a JavaScript exception instead of the compatibility wrapper's Rust panic.
+//! `spawn_on_custom_runtime` returns a napi-owned joinable handle over the
+//! [`AsyncRuntime`](crate::bindgen_prelude::AsyncRuntime) submission hook, and
+//! `spawn_blocking_on_custom_runtime` completes its handle as cancelled when the backend
+//! declines. napi does not create an unbounded fallback thread. Under the `noop` feature
+//! neither custom-runtime helper is compiled. Explicit shutdown also closes synchronous
+//! `block_on` and `#[napi(async_runtime)]` entry until restart; shutdown waits for an entry
+//! already in progress to return and drop its runtime guard. Exported callbacks should use
+//! `try_block_on` when they need a JavaScript exception instead of the compatibility wrapper's
+//! Rust panic.
 //!
 //! ### latin1
 //!

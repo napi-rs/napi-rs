@@ -865,6 +865,8 @@ jobs:
           fi
       - name: Test async-runtime (pure)
         run: cargo test -p napi --features async-runtime
+      - name: Compile runtime helper API (tokio_rt)
+        run: cargo test -p napi --features tokio_rt --test runtime_api_compile
       - name: Test async-runtime + tokio_rt (combined)
         run: cargo test -p napi --features async-runtime,tokio_rt
 
