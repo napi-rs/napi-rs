@@ -5,7 +5,8 @@
 #[test]
 fn custom_runtime_helper_signatures_are_feature_stable() {
   use napi::bindgen_prelude::{
-    spawn_blocking_on_custom_runtime, spawn_on_custom_runtime, JoinHandle,
+    block_on_custom_runtime, spawn_blocking_on_custom_runtime, spawn_on_custom_runtime,
+    try_block_on_custom_runtime, within_custom_runtime_if_available, JoinHandle,
   };
 
   fn assert_spawn_signature() -> JoinHandle<u8> {
@@ -16,8 +17,23 @@ fn custom_runtime_helper_signatures_are_feature_stable() {
     spawn_blocking_on_custom_runtime(|| 42)
   }
 
+  fn assert_block_on_signature() -> u8 {
+    block_on_custom_runtime(async { 42 })
+  }
+
+  fn assert_try_block_on_signature() -> napi::Result<u8> {
+    try_block_on_custom_runtime(async { 42 })
+  }
+
+  fn assert_enter_signature() -> napi::Result<u8> {
+    within_custom_runtime_if_available(|| Ok(42))
+  }
+
   let _ = assert_spawn_signature as fn() -> JoinHandle<u8>;
   let _ = assert_spawn_blocking_signature as fn() -> JoinHandle<u8>;
+  let _ = assert_block_on_signature as fn() -> u8;
+  let _ = assert_try_block_on_signature as fn() -> napi::Result<u8>;
+  let _ = assert_enter_signature as fn() -> napi::Result<u8>;
 }
 
 #[cfg(feature = "tokio_rt")]

@@ -41,23 +41,25 @@
 //! `create_custom_async_runtime`.
 //! Generated JavaScript-facing futures use it even when Cargo feature unification also enables
 //! `tokio_rt`. The established free `spawn`/`spawn_blocking` names remain Tokio-only APIs with
-//! their historical Tokio return types. Custom-runtime callers use
-//! `spawn_on_custom_runtime` and `spawn_blocking_on_custom_runtime`;
-//! those names, return types, and routing are unchanged when `tokio_rt` is added by feature
-//! unification. A pure `async-runtime` build remains tokio-free (enable the `tokio` feature
-//! explicitly if you still want the `napi::tokio` re-export). This is useful for applications
-//! that need one scheduler across NAPI futures and domain-specific CPU work, or a cooperative
-//! executor on non-threaded WebAssembly hosts.
+//! their historical Tokio return types. The established free `block_on` and
+//! `within_runtime_if_available` helpers also remain Tokio-backed in combined builds.
+//! Custom-runtime callers use `spawn_on_custom_runtime`, `spawn_blocking_on_custom_runtime`,
+//! `block_on_custom_runtime`, `try_block_on_custom_runtime`, and
+//! `within_custom_runtime_if_available`; those names, signatures, and routing are unchanged
+//! when `tokio_rt` is added by feature unification. A pure `async-runtime` build remains
+//! tokio-free (enable the `tokio` feature explicitly if you still want the `napi::tokio`
+//! re-export). This is useful for applications that need one scheduler across NAPI futures and
+//! domain-specific CPU work, or a cooperative executor on non-threaded WebAssembly hosts.
 //!
 //! `spawn_on_custom_runtime` returns a napi-owned joinable handle over the
 //! `AsyncRuntime` submission hook, and
 //! `spawn_blocking_on_custom_runtime` completes its handle as cancelled when the backend
 //! declines. napi does not create an unbounded fallback thread. Under the `noop` feature
-//! neither custom-runtime helper is compiled. Explicit shutdown also closes synchronous
-//! `block_on` and `#[napi(async_runtime)]` entry until restart; shutdown waits for an entry
+//! the explicit custom-runtime helpers are unavailable to callers. Explicit shutdown also closes
+//! synchronous custom-runtime block-on and entry until restart; shutdown waits for an entry
 //! already in progress to return and drop its runtime guard. Exported callbacks should use
-//! `try_block_on` when they need a JavaScript exception instead of the compatibility wrapper's
-//! Rust panic.
+//! `try_block_on_custom_runtime` when they need custom routing and a JavaScript exception instead
+//! of the compatibility wrapper's Rust panic.
 //!
 //! ### latin1
 //!
