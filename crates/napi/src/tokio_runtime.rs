@@ -432,7 +432,9 @@ mod tokio_future_cancellation_tests {
       .unwrap_or_else(std::sync::PoisonError::into_inner);
     let env = 0x1003usize as sys::napi_env;
     register_runtime_env_tasks(env);
+    let env_tasks = runtime_env_tasks(env);
     cancel_runtime_env_tasks(env);
+    assert!(!runtime_env_is_open(&env_tasks));
 
     let dropped = Arc::new(AtomicBool::new(false));
     let drop_flag = DropFlag(Arc::clone(&dropped));
@@ -454,6 +456,7 @@ mod tokio_future_cancellation_tests {
       .unwrap_or_else(std::sync::PoisonError::into_inner);
     let env = 0x1004usize as sys::napi_env;
     register_runtime_env_tasks(env);
+    let env_tasks = runtime_env_tasks(env);
 
     let first_dropped = Arc::new(AtomicBool::new(false));
     let first_drop_flag = DropFlag(Arc::clone(&first_dropped));
@@ -466,6 +469,7 @@ mod tokio_future_cancellation_tests {
     assert!(first_task.as_mut().poll(&mut context).is_pending());
 
     cancel_all_env_tasks();
+    assert!(runtime_env_is_open(&env_tasks));
     assert!(first_task.as_mut().poll(&mut context).is_ready());
     assert!(first_dropped.load(Ordering::SeqCst));
 
@@ -1112,6 +1116,30 @@ static ENV_TASKS: LazyLock<Mutex<HashMap<usize, Arc<EnvTasks>>>> =
 
 #[cfg(all(
   not(feature = "noop"),
+  feature = "tokio_rt",
+  not(feature = "async-runtime")
+))]
+fn runtime_env_tasks(env: sys::napi_env) -> Option<Arc<EnvTasks>> {
+  ENV_TASKS
+    .lock()
+    .unwrap_or_else(std::sync::PoisonError::into_inner)
+    .get(&(env as usize))
+    .cloned()
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  feature = "tokio_rt",
+  not(feature = "async-runtime")
+))]
+fn runtime_env_is_open(tasks: &Option<Arc<EnvTasks>>) -> bool {
+  tasks
+    .as_ref()
+    .is_some_and(|tasks| !tasks.closed.load(Ordering::Acquire))
+}
+
+#[cfg(all(
+  not(feature = "noop"),
   any(feature = "async-runtime", feature = "tokio_rt")
 ))]
 pub(crate) fn register_runtime_env_tasks(env: sys::napi_env) {
@@ -1160,11 +1188,7 @@ fn cancel_all_env_tasks() {
   not(feature = "async-runtime")
 ))]
 fn register_env_task(env: sys::napi_env, abort_handle: AbortHandle) -> Option<EnvTaskRegistration> {
-  let tasks = ENV_TASKS
-    .lock()
-    .unwrap_or_else(std::sync::PoisonError::into_inner)
-    .get(&(env as usize))
-    .cloned();
+  let tasks = runtime_env_tasks(env);
   let Some(tasks) = tasks else {
     abort_safely(abort_handle);
     return None;
@@ -2538,20 +2562,23 @@ fn execute_tokio_future_inner<
 
   #[cfg(not(feature = "async-runtime"))]
   let inner = {
+    let cancellation_env_tasks = runtime_env_tasks(raw_env);
     let cancellation_deferred = deferred.clone();
     let cancellation_resolver = sendable_resolver.clone_handle();
     let cancellation_terminal_finalizer = terminal_finalizer.clone();
     let cancellation = TokioFutureCancellation::new(move || {
       run_async_block_terminal_finalizer(&cancellation_terminal_finalizer);
-      cancellation_deferred.reject_with_cleanup(
-        Error::new(
-          crate::Status::Cancelled,
-          "Async task was cancelled because its runtime stopped",
-        ),
-        move || {
-          let _ = cancellation_resolver.discard();
-        },
-      );
+      if runtime_env_is_open(&cancellation_env_tasks) {
+        cancellation_deferred.reject_with_cleanup(
+          Error::new(
+            crate::Status::Cancelled,
+            "Async task was cancelled because its runtime stopped",
+          ),
+          move || {
+            let _ = cancellation_resolver.discard();
+          },
+        );
+      }
     });
     async move {
       let result = AssertUnwindSafe(fut).catch_unwind().await;
@@ -2694,18 +2721,21 @@ pub fn execute_tokio_future_with_finalize_callback<
 
   #[cfg(not(feature = "async-runtime"))]
   let inner = {
+    let cancellation_env_tasks = runtime_env_tasks(raw_env);
     let cancellation_deferred = deferred.clone();
     let cancellation_resolver = sendable_resolver.clone_handle();
     let cancellation = TokioFutureCancellation::new(move || {
-      cancellation_deferred.reject_with_cleanup(
-        Error::new(
-          crate::Status::Cancelled,
-          "Async task was cancelled because its runtime stopped",
-        ),
-        move || {
-          let _ = cancellation_resolver.discard();
-        },
-      );
+      if runtime_env_is_open(&cancellation_env_tasks) {
+        cancellation_deferred.reject_with_cleanup(
+          Error::new(
+            crate::Status::Cancelled,
+            "Async task was cancelled because its runtime stopped",
+          ),
+          move || {
+            let _ = cancellation_resolver.discard();
+          },
+        );
+      }
     });
     async move {
       let result = AssertUnwindSafe(fut).catch_unwind().await;
