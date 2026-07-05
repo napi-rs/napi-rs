@@ -709,12 +709,7 @@ impl EnvTasks {
       .unwrap_or_else(std::sync::PoisonError::into_inner)
       .insert(id, abort_handle);
     if self.closed.load(Ordering::Acquire) {
-      if let Some(abort_handle) = self
-        .abort_handles
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .remove(&id)
-      {
+      if let Some(abort_handle) = self.take_abort_handle(id) {
         abort_safely(abort_handle);
         return None;
       }
@@ -723,11 +718,16 @@ impl EnvTasks {
   }
 
   fn remove(&self, id: usize) {
+    drop(self.take_abort_handle(id));
+  }
+
+  fn take_abort_handle(&self, id: usize) -> Option<AbortHandle> {
+    // Return an owned handle so aborting and its synchronous wake cannot run under this lock.
     self
       .abort_handles
       .lock()
       .unwrap_or_else(std::sync::PoisonError::into_inner)
-      .remove(&id);
+      .remove(&id)
   }
 
   fn cancel_all(&self, close_env: bool) {
@@ -3331,6 +3331,20 @@ mod tests {
     }
   }
 
+  struct AbortHandlesLockProbe {
+    tasks: Arc<EnvTasks>,
+    lock_was_available: AtomicBool,
+  }
+
+  impl ArcWake for AbortHandlesLockProbe {
+    fn wake_by_ref(arc_self: &Arc<Self>) {
+      arc_self.lock_was_available.store(
+        arc_self.tasks.abort_handles.try_lock().is_ok(),
+        std::sync::atomic::Ordering::SeqCst,
+      );
+    }
+  }
+
   fn poll_pending_env_task(
     env: sys::napi_env,
     probe: &Arc<EnvTasksLockProbe>,
@@ -3377,6 +3391,37 @@ mod tests {
     assert!(shutdown_probe.lock_was_available.load(Ordering::SeqCst));
     drop(shutdown_task);
     cancel_async_runtime_env_tasks(shutdown_env);
+  }
+
+  #[test]
+  fn close_race_aborts_without_environment_task_lock() {
+    let tasks = Arc::new(EnvTasks::new());
+    let (abort_handle, abort_registration) = AbortHandle::new_pair();
+    let id = tasks.next_id.fetch_add(1, Ordering::Relaxed);
+    tasks
+      .abort_handles
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner)
+      .insert(id, abort_handle);
+
+    let probe = Arc::new(AbortHandlesLockProbe {
+      tasks: Arc::clone(&tasks),
+      lock_was_available: AtomicBool::new(false),
+    });
+    let mut future = Box::pin(Abortable::new(
+      std::future::pending::<()>(),
+      abort_registration,
+    ));
+    let waker = futures::task::waker(Arc::clone(&probe));
+    let mut context = Context::from_waker(&waker);
+    assert!(future.as_mut().poll(&mut context).is_pending());
+
+    if let Some(abort_handle) = tasks.take_abort_handle(id) {
+      abort_safely(abort_handle);
+    }
+
+    assert!(probe.lock_was_available.load(Ordering::SeqCst));
+    assert!(future.as_mut().poll(&mut context).is_ready());
   }
 
   #[test]
