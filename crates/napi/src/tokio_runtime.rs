@@ -212,11 +212,11 @@ impl<T> Drop for SafeDrop<T> {
 /// the routed entry points are stubbed out (e.g. `block_on` panics), so the notes below about
 /// routing apply only to non-`noop` builds.
 ///
-/// The explicit [`spawn_on_custom_runtime`] and [`spawn_blocking_on_custom_runtime`] helpers
+/// The explicit `spawn_on_custom_runtime` and `spawn_blocking_on_custom_runtime` helpers
 /// are part of this routing contract in every `async-runtime` build. napi manufactures its
 /// own joinable handle around [`spawn`](AsyncRuntime::spawn), while the blocking helper
 /// completes that handle as cancelled when the backend declines. The established free
-/// [`spawn`] and [`spawn_blocking`] names remain Tokio-only compatibility APIs whenever
+/// `spawn` and `spawn_blocking` names remain Tokio-only compatibility APIs whenever
 /// `tokio_rt` is enabled, so Cargo feature unification cannot change either API's signature
 /// or routing. Generated JavaScript-facing futures always use this backend. Tokio helpers
 /// reject external work while the combined runtime is starting, stopping, or stopped, so
@@ -308,7 +308,7 @@ pub trait AsyncRuntime: Send + Sync + 'static {
 
   /// Optional hook: run `work` on the backend's blocking-capable lane.
   ///
-  /// This backs [`spawn_blocking_on_custom_runtime`]. Return `Ok(())` once the work is
+  /// This backs `spawn_blocking_on_custom_runtime`. Return `Ok(())` once the work is
   /// accepted; the backend should run the closure exactly once on a thread where blocking is
   /// acceptable. Dropping accepted work, for example while shutting down, safely cancels the
   /// caller's join handle. Return `Err(work)` to decline; the join handle completes as
@@ -1712,7 +1712,7 @@ impl<T> Future for JoinHandle<T> {
 /// To avoid undefined behavior and memory corruptions.
 ///
 /// This remains Tokio-backed when `async-runtime` is also enabled. Use
-/// [`spawn_on_custom_runtime`] for the registered custom backend.
+/// `spawn_on_custom_runtime` for the registered custom backend.
 pub fn spawn<F>(fut: F) -> tokio::task::JoinHandle<F::Output>
 where
   F: 'static + Send + Future<Output = ()>,
@@ -1735,7 +1735,7 @@ where
 /// The joinable-ness is manufactured by napi over [`spawn`](AsyncRuntime::spawn): the future
 /// is wrapped so that its output — or, if it panics, the caught panic payload as a
 /// [`JoinError`] — is handed to the returned handle. This name and routing are unchanged when
-/// `tokio_rt` is also enabled; the Tokio-backed compatibility helper remains [`spawn`].
+/// `tokio_rt` is also enabled; the Tokio-backed compatibility helper remains `spawn`.
 pub fn spawn_on_custom_runtime<F>(fut: F) -> JoinHandle<F::Output>
 where
   F: 'static + Send + Future,
@@ -1851,7 +1851,7 @@ pub fn block_on<F: Future>(_: F) -> F::Output {
 /// spawn_blocking on the current Tokio runtime.
 ///
 /// This remains Tokio-backed when `async-runtime` is also enabled. Use
-/// [`spawn_blocking_on_custom_runtime`] for the registered custom backend.
+/// `spawn_blocking_on_custom_runtime` for the registered custom backend.
 pub fn spawn_blocking<F, R>(func: F) -> tokio::task::JoinHandle<R>
 where
   F: FnOnce() -> R + Send + 'static,
@@ -1878,7 +1878,7 @@ where
 /// handle completes with a cancellation error. napi never creates an unbounded fallback thread,
 /// which keeps this API valid on threadless WebAssembly. This name and routing are unchanged
 /// when `tokio_rt` is also enabled; the Tokio-backed compatibility helper remains
-/// [`spawn_blocking`].
+/// `spawn_blocking`.
 pub fn spawn_blocking_on_custom_runtime<F, R>(func: F) -> JoinHandle<R>
 where
   F: FnOnce() -> R + Send + 'static,

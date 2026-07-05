@@ -14,7 +14,33 @@ version = "3.10.3"
 doctest = false
 
 [package.metadata.docs.rs]
-all-features = true
+# `noop` removes runtime APIs, so docs.rs uses an explicit non-noop feature set.
+features = [
+  "async-runtime",
+  "compat-mode",
+  "deferred_trace",
+  "dyn-symbols",
+  "error_anyhow",
+  "full",
+  "node_version_detect",
+  "object_indexmap",
+  "serde-json-ordered",
+  "tokio_fs",
+  "tokio_full",
+  "tokio_io_std",
+  "tokio_io_util",
+  "tokio_macros",
+  "tokio_net",
+  "tokio_process",
+  "tokio_rt",
+  "tokio_signal",
+  "tokio_sync",
+  "tokio_test_util",
+  "tokio_time",
+  "tracing",
+  "web_stream",
+]
+no-default-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [package.metadata.workspaces]
