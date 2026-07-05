@@ -892,6 +892,7 @@ module.exports.setNullByteProperty = nativeBinding.setNullByteProperty
 module.exports.setSymbolInObj = nativeBinding.setSymbolInObj
 module.exports.shorterEscapableScope = nativeBinding.shorterEscapableScope
 module.exports.shorterScope = nativeBinding.shorterScope
+module.exports.shutdownAsyncRuntimeForTest = nativeBinding.shutdownAsyncRuntimeForTest
 module.exports.shutdownRuntime = nativeBinding.shutdownRuntime
 module.exports.spawnFutureLifetime = nativeBinding.spawnFutureLifetime
 module.exports.spawnThreadInThread = nativeBinding.spawnThreadInThread

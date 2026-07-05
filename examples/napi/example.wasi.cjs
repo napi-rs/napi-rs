@@ -413,6 +413,7 @@ module.exports.setNullByteProperty = __napiModule.exports.setNullByteProperty
 module.exports.setSymbolInObj = __napiModule.exports.setSymbolInObj
 module.exports.shorterEscapableScope = __napiModule.exports.shorterEscapableScope
 module.exports.shorterScope = __napiModule.exports.shorterScope
+module.exports.shutdownAsyncRuntimeForTest = __napiModule.exports.shutdownAsyncRuntimeForTest
 module.exports.shutdownRuntime = __napiModule.exports.shutdownRuntime
 module.exports.spawnFutureLifetime = __napiModule.exports.spawnFutureLifetime
 module.exports.spawnThreadInThread = __napiModule.exports.spawnThreadInThread

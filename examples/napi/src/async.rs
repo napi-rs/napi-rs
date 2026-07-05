@@ -37,6 +37,11 @@ async fn panic_in_async() {
   panic!("panic in async function");
 }
 
+#[napi]
+fn shutdown_async_runtime_for_test() -> Result<()> {
+  try_shutdown_async_runtime()
+}
+
 #[napi(async_runtime)]
 pub fn within_async_runtime_if_available() {
   tokio::spawn(async {

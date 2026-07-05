@@ -1188,6 +1188,8 @@ export declare function shorterEscapableScope(createString: () => string | null)
 
 export declare function shorterScope(arr: unknown[]): Array<number>
 
+export declare function shutdownAsyncRuntimeForTest(): void
+
 export declare function shutdownRuntime(): void
 
 export declare function spawnFutureLifetime(input: number): Promise<string>

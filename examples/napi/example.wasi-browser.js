@@ -369,6 +369,7 @@ export const setNullByteProperty = __napiModule.exports.setNullByteProperty
 export const setSymbolInObj = __napiModule.exports.setSymbolInObj
 export const shorterEscapableScope = __napiModule.exports.shorterEscapableScope
 export const shorterScope = __napiModule.exports.shorterScope
+export const shutdownAsyncRuntimeForTest = __napiModule.exports.shutdownAsyncRuntimeForTest
 export const shutdownRuntime = __napiModule.exports.shutdownRuntime
 export const spawnFutureLifetime = __napiModule.exports.spawnFutureLifetime
 export const spawnThreadInThread = __napiModule.exports.spawnThreadInThread

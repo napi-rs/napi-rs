@@ -1,13 +1,13 @@
 #[cfg(all(not(feature = "noop"), feature = "async-runtime"))]
 use std::cell::Cell;
-#[cfg(all(not(feature = "noop"), feature = "async-runtime"))]
-use std::collections::HashMap;
 #[cfg(not(feature = "noop"))]
-use std::sync::OnceLock;
+use std::collections::HashMap;
 #[cfg(all(not(feature = "noop"), feature = "async-runtime"))]
+use std::sync::{atomic::AtomicBool, Condvar};
+#[cfg(not(feature = "noop"))]
 use std::sync::{
-  atomic::{AtomicBool, AtomicUsize, Ordering},
-  LazyLock,
+  atomic::{AtomicUsize, Ordering},
+  LazyLock, Mutex, OnceLock,
 };
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 use std::sync::{RwLock, Weak};
@@ -28,8 +28,6 @@ use std::pin::Pin;
 ))]
 use std::sync::Arc;
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
-use std::sync::{Condvar, Mutex};
-#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 use std::task::Context;
 #[cfg(not(feature = "noop"))]
 use std::task::Poll;
@@ -39,11 +37,10 @@ use std::task::Waker;
 #[cfg(feature = "tokio")]
 use tokio::runtime::Runtime;
 
-#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
-use futures::{
-  future::{AbortHandle, Abortable},
-  FutureExt,
-};
+#[cfg(not(feature = "noop"))]
+use futures::future::{AbortHandle, Abortable};
+#[cfg(not(feature = "noop"))]
+use futures::FutureExt;
 
 use crate::{bindgen_runtime::ToNapiValue, sys, Env, Error, Result};
 #[cfg(not(feature = "noop"))]
@@ -196,6 +193,206 @@ impl<T> Drop for SafeDrop<T> {
     if let Some(value) = self.0.take() {
       drop_safely(value);
     }
+  }
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  feature = "tokio_rt",
+  not(feature = "async-runtime")
+))]
+struct TokioFutureCancellation<F: FnOnce()>(Option<F>);
+
+#[cfg(all(
+  not(feature = "noop"),
+  feature = "tokio_rt",
+  not(feature = "async-runtime")
+))]
+impl<F: FnOnce()> TokioFutureCancellation<F> {
+  fn new(cancel: F) -> Self {
+    Self(Some(cancel))
+  }
+
+  fn disarm(&mut self) {
+    if let Some(cancel) = self.0.take() {
+      drop_safely(cancel);
+    }
+  }
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  feature = "tokio_rt",
+  not(feature = "async-runtime")
+))]
+impl<F: FnOnce()> Drop for TokioFutureCancellation<F> {
+  fn drop(&mut self) {
+    if let Some(cancel) = self.0.take() {
+      crate::bindgen_runtime::catch_unwind_safely(cancel);
+    }
+  }
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  feature = "tokio_rt",
+  not(feature = "async-runtime")
+))]
+fn settle_tokio_future<Cancel: FnOnce(), Settle: FnOnce()>(
+  mut cancellation: TokioFutureCancellation<Cancel>,
+  settle: Settle,
+) {
+  // Keep cancellation armed until JsDeferred has claimed and queued the terminal settlement.
+  settle();
+  cancellation.disarm();
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  feature = "tokio_rt",
+  not(feature = "async-runtime")
+))]
+static TOKIO_GENERATED_TASKS: LazyLock<Mutex<HashMap<usize, AbortHandle>>> =
+  LazyLock::new(|| Mutex::new(HashMap::new()));
+
+#[cfg(all(
+  not(feature = "noop"),
+  feature = "tokio_rt",
+  not(feature = "async-runtime")
+))]
+static NEXT_TOKIO_GENERATED_TASK_ID: AtomicUsize = AtomicUsize::new(1);
+
+#[cfg(all(
+  not(feature = "noop"),
+  feature = "tokio_rt",
+  not(feature = "async-runtime")
+))]
+struct TokioGeneratedTaskRegistration {
+  id: usize,
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  feature = "tokio_rt",
+  not(feature = "async-runtime")
+))]
+impl Drop for TokioGeneratedTaskRegistration {
+  fn drop(&mut self) {
+    drop(
+      TOKIO_GENERATED_TASKS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .remove(&self.id),
+    );
+  }
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  feature = "tokio_rt",
+  not(feature = "async-runtime")
+))]
+fn tokio_generated_task(
+  future: impl Future<Output = ()> + Send + 'static,
+) -> impl Future<Output = ()> + Send + 'static {
+  let (abort_handle, abort_registration) = AbortHandle::new_pair();
+  let id = NEXT_TOKIO_GENERATED_TASK_ID.fetch_add(1, Ordering::Relaxed);
+  TOKIO_GENERATED_TASKS
+    .lock()
+    .unwrap_or_else(std::sync::PoisonError::into_inner)
+    .insert(id, abort_handle);
+  let registration = TokioGeneratedTaskRegistration { id };
+  async move {
+    let _registration = registration;
+    let _ = Abortable::new(future, abort_registration).await;
+  }
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  feature = "tokio_rt",
+  not(feature = "async-runtime")
+))]
+fn abort_tokio_generated_tasks() {
+  let tasks = std::mem::take(
+    &mut *TOKIO_GENERATED_TASKS
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner),
+  );
+  for (_, task) in tasks {
+    abort_safely(task);
+  }
+}
+
+#[cfg(all(
+  test,
+  not(feature = "noop"),
+  feature = "tokio_rt",
+  not(feature = "async-runtime")
+))]
+mod tokio_future_cancellation_tests {
+  use std::sync::{
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+    Arc,
+  };
+  use std::task::Context;
+
+  use super::*;
+
+  struct DropFlag(Arc<AtomicBool>);
+
+  impl Drop for DropFlag {
+    fn drop(&mut self) {
+      self.0.store(true, Ordering::SeqCst);
+    }
+  }
+
+  #[test]
+  fn settlement_panic_runs_cancellation_once() {
+    let cancellation_calls = Arc::new(AtomicUsize::new(0));
+    let calls = Arc::clone(&cancellation_calls);
+    let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
+      settle_tokio_future(
+        TokioFutureCancellation::new(move || {
+          calls.fetch_add(1, Ordering::SeqCst);
+        }),
+        || panic!("settlement panic"),
+      );
+    }));
+
+    assert!(result.is_err());
+    assert_eq!(cancellation_calls.load(Ordering::SeqCst), 1);
+  }
+
+  #[test]
+  fn successful_settlement_disarms_cancellation() {
+    let cancellation_calls = Arc::new(AtomicUsize::new(0));
+    let calls = Arc::clone(&cancellation_calls);
+    settle_tokio_future(
+      TokioFutureCancellation::new(move || {
+        calls.fetch_add(1, Ordering::SeqCst);
+      }),
+      || {},
+    );
+
+    assert_eq!(cancellation_calls.load(Ordering::SeqCst), 0);
+  }
+
+  #[test]
+  fn aborting_generated_tasks_drops_pending_futures() {
+    let dropped = Arc::new(AtomicBool::new(false));
+    let drop_flag = DropFlag(Arc::clone(&dropped));
+    let mut task = Box::pin(tokio_generated_task(async move {
+      let _drop_flag = drop_flag;
+      std::future::pending::<()>().await;
+    }));
+    let waker = futures::task::noop_waker();
+    let mut context = Context::from_waker(&waker);
+
+    assert!(task.as_mut().poll(&mut context).is_pending());
+    abort_tokio_generated_tasks();
+    assert!(task.as_mut().poll(&mut context).is_ready());
+    assert!(dropped.load(Ordering::SeqCst));
   }
 }
 
@@ -746,7 +943,7 @@ impl EnvTasks {
   }
 }
 
-#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+#[cfg(not(feature = "noop"))]
 fn abort_safely(handle: AbortHandle) {
   crate::bindgen_runtime::catch_unwind_safely(|| handle.abort());
 }
@@ -1483,6 +1680,8 @@ pub(crate) fn shutdown_tokio_runtime() -> Result<()> {
   .map_err(crate::bindgen_runtime::panic_to_error)
   .and_then(|result| result)?;
 
+  #[cfg(not(feature = "async-runtime"))]
+  abort_tokio_generated_tasks();
   drop(rt);
   let mut state = TOKIO_RUNTIME_STATE
     .lock()
@@ -2039,23 +2238,7 @@ pub fn execute_tokio_future<
   let raw_env = env;
   let env = Env::from_raw(env);
   let (deferred, promise) = JsDeferred::new(&env)?;
-  #[cfg(all(
-    not(feature = "async-runtime"),
-    any(
-      all(target_family = "wasm", tokio_unstable),
-      not(target_family = "wasm")
-    )
-  ))]
-  let deferred_for_panic = deferred.clone();
   let sendable_resolver = SendableResolver::new_for_env(raw_env, resolver);
-  #[cfg(all(
-    not(feature = "async-runtime"),
-    any(
-      all(target_family = "wasm", tokio_unstable),
-      not(target_family = "wasm")
-    )
-  ))]
-  let resolver_for_panic = sendable_resolver.clone_handle();
 
   #[cfg(feature = "async-runtime")]
   {
@@ -2101,27 +2284,42 @@ pub fn execute_tokio_future<
   }
 
   #[cfg(not(feature = "async-runtime"))]
-  let inner = async move {
-    match fut.await {
-      Ok(v) => deferred.resolve(move |env| {
-        sendable_resolver
-          .resolve(env.raw(), v)
-          .map(|v| unsafe { Unknown::from_raw_unchecked(env.raw(), v) })
-      }),
-      Err(e) => deferred.reject_with_cleanup(e.into(), move || {
-        let _ = sendable_resolver.discard();
-      }),
+  let inner = {
+    let cancellation_deferred = deferred.clone();
+    let cancellation_resolver = sendable_resolver.clone_handle();
+    let cancellation = TokioFutureCancellation::new(move || {
+      cancellation_deferred.reject_with_cleanup(
+        Error::new(
+          crate::Status::Cancelled,
+          "Async task was cancelled because its runtime stopped",
+        ),
+        move || {
+          let _ = cancellation_resolver.discard();
+        },
+      );
+    });
+    async move {
+      let result = AssertUnwindSafe(fut).catch_unwind().await;
+      settle_tokio_future(cancellation, move || match result {
+        Ok(Ok(v)) => deferred.resolve(move |env| {
+          sendable_resolver
+            .resolve(env.raw(), v)
+            .map(|v| unsafe { Unknown::from_raw_unchecked(env.raw(), v) })
+        }),
+        Ok(Err(e)) => deferred.reject_with_cleanup(e.into(), move || {
+          let _ = sendable_resolver.discard();
+        }),
+        Err(reason) => {
+          deferred.reject_with_cleanup(crate::bindgen_runtime::panic_to_error(reason), move || {
+            let _ = sendable_resolver.discard();
+          })
+        }
+      });
     }
   };
 
-  #[cfg(all(
-    not(feature = "async-runtime"),
-    any(
-      all(target_family = "wasm", tokio_unstable),
-      not(target_family = "wasm")
-    )
-  ))]
-  let jh = spawn(inner);
+  #[cfg(not(feature = "async-runtime"))]
+  let inner = tokio_generated_task(inner);
 
   #[cfg(all(
     not(feature = "async-runtime"),
@@ -2130,18 +2328,7 @@ pub fn execute_tokio_future<
       not(target_family = "wasm")
     )
   ))]
-  spawn(async move {
-    if let Err(err) = jh.await {
-      if let Ok(reason) = err.try_into_panic() {
-        deferred_for_panic.reject_with_cleanup(
-          crate::bindgen_runtime::panic_to_error(reason),
-          move || {
-            let _ = resolver_for_panic.discard();
-          },
-        );
-      }
-    }
-  });
+  spawn(inner);
 
   #[cfg(all(
     not(feature = "async-runtime"),
@@ -2174,23 +2361,7 @@ pub fn execute_tokio_future_with_finalize_callback<
   let env = Env::from_raw(env);
   let (mut deferred, promise) = JsDeferred::new(&env)?;
   deferred.set_finalize_callback(finalize_callback);
-  #[cfg(all(
-    not(feature = "async-runtime"),
-    any(
-      all(target_family = "wasm", tokio_unstable),
-      not(target_family = "wasm")
-    )
-  ))]
-  let deferred_for_panic = deferred.clone();
   let sendable_resolver = SendableResolver::new_for_env(raw_env, resolver);
-  #[cfg(all(
-    not(feature = "async-runtime"),
-    any(
-      all(target_family = "wasm", tokio_unstable),
-      not(target_family = "wasm")
-    )
-  ))]
-  let resolver_for_panic = sendable_resolver.clone_handle();
 
   #[cfg(feature = "async-runtime")]
   {
@@ -2236,27 +2407,42 @@ pub fn execute_tokio_future_with_finalize_callback<
   }
 
   #[cfg(not(feature = "async-runtime"))]
-  let inner = async move {
-    match fut.await {
-      Ok(v) => deferred.resolve(move |env| {
-        sendable_resolver
-          .resolve(env.raw(), v)
-          .map(|v| unsafe { Unknown::from_raw_unchecked(env.raw(), v) })
-      }),
-      Err(e) => deferred.reject_with_cleanup(e.into(), move || {
-        let _ = sendable_resolver.discard();
-      }),
+  let inner = {
+    let cancellation_deferred = deferred.clone();
+    let cancellation_resolver = sendable_resolver.clone_handle();
+    let cancellation = TokioFutureCancellation::new(move || {
+      cancellation_deferred.reject_with_cleanup(
+        Error::new(
+          crate::Status::Cancelled,
+          "Async task was cancelled because its runtime stopped",
+        ),
+        move || {
+          let _ = cancellation_resolver.discard();
+        },
+      );
+    });
+    async move {
+      let result = AssertUnwindSafe(fut).catch_unwind().await;
+      settle_tokio_future(cancellation, move || match result {
+        Ok(Ok(v)) => deferred.resolve(move |env| {
+          sendable_resolver
+            .resolve(env.raw(), v)
+            .map(|v| unsafe { Unknown::from_raw_unchecked(env.raw(), v) })
+        }),
+        Ok(Err(e)) => deferred.reject_with_cleanup(e.into(), move || {
+          let _ = sendable_resolver.discard();
+        }),
+        Err(reason) => {
+          deferred.reject_with_cleanup(crate::bindgen_runtime::panic_to_error(reason), move || {
+            let _ = sendable_resolver.discard();
+          })
+        }
+      });
     }
   };
 
-  #[cfg(all(
-    not(feature = "async-runtime"),
-    any(
-      all(target_family = "wasm", tokio_unstable),
-      not(target_family = "wasm")
-    )
-  ))]
-  let jh = spawn(inner);
+  #[cfg(not(feature = "async-runtime"))]
+  let inner = tokio_generated_task(inner);
 
   #[cfg(all(
     not(feature = "async-runtime"),
@@ -2265,18 +2451,7 @@ pub fn execute_tokio_future_with_finalize_callback<
       not(target_family = "wasm")
     )
   ))]
-  spawn(async move {
-    if let Err(err) = jh.await {
-      if let Ok(reason) = err.try_into_panic() {
-        deferred_for_panic.reject_with_cleanup(
-          crate::bindgen_runtime::panic_to_error(reason),
-          move || {
-            let _ = resolver_for_panic.discard();
-          },
-        );
-      }
-    }
-  });
+  spawn(inner);
 
   #[cfg(all(
     not(feature = "async-runtime"),
