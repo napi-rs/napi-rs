@@ -5,7 +5,13 @@ import { setTimeout } from 'node:timers/promises'
 
 import test from 'ava'
 
-import { Animal, Kind, DEFAULT_COST, shutdownRuntime } from '../index.cjs'
+import {
+  Animal,
+  Kind,
+  DEFAULT_COST,
+  asyncBlockTerminalFinalizerCount,
+  shutdownRuntime,
+} from '../index.cjs'
 
 const __dirname = join(fileURLToPath(import.meta.url), '..')
 
@@ -25,6 +31,7 @@ const concurrency =
   !process.env.ASAN_OPTIONS
     ? 20
     : 1
+const nativeTest = process.env.WASI_TEST ? test.skip : test
 
 test.after(() => {
   if (process.platform !== 'win32') {
@@ -56,6 +63,38 @@ test('should be able to require in worker thread', async (t) => {
     }),
   )
 })
+
+nativeTest.serial(
+  'worker teardown runs pending async block terminal finalizers exactly once',
+  async (t) => {
+    const initialCount = asyncBlockTerminalFinalizerCount()
+
+    for (let iteration = 1; iteration <= 3; iteration++) {
+      const worker = new Worker(join(__dirname, 'worker.js'), {
+        env: process.env,
+      })
+      await new Promise<void>((resolve, reject) => {
+        worker.postMessage({ type: 'async:terminal-finalizer' })
+        worker.once('message', (message) => {
+          t.is(message, 'pending')
+          resolve()
+        })
+        worker.once('error', reject)
+      })
+      await worker.terminate()
+
+      const expectedCount = initialCount + iteration
+      const deadline = Date.now() + 2_000
+      while (
+        asyncBlockTerminalFinalizerCount() < expectedCount &&
+        Date.now() < deadline
+      ) {
+        await setTimeout(10)
+      }
+      t.is(asyncBlockTerminalFinalizerCount(), expectedCount)
+    }
+  },
+)
 
 test('custom GC works on worker_threads', async (t) => {
   await Promise.all(

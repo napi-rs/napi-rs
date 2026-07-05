@@ -3,10 +3,10 @@ use std::cell::Cell;
 #[cfg(not(feature = "noop"))]
 use std::collections::HashMap;
 #[cfg(all(not(feature = "noop"), feature = "async-runtime"))]
-use std::sync::{atomic::AtomicBool, Condvar};
+use std::sync::Condvar;
 #[cfg(not(feature = "noop"))]
 use std::sync::{
-  atomic::{AtomicUsize, Ordering},
+  atomic::{AtomicBool, AtomicUsize, Ordering},
   LazyLock, OnceLock,
 };
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
@@ -318,75 +318,15 @@ fn settle_tokio_future<Cancel: FnOnce(), Settle: FnOnce()>(
   feature = "tokio_rt",
   not(feature = "async-runtime")
 ))]
-static TOKIO_GENERATED_TASKS: LazyLock<Mutex<HashMap<usize, AbortHandle>>> =
-  LazyLock::new(|| Mutex::new(HashMap::new()));
-
-#[cfg(all(
-  not(feature = "noop"),
-  feature = "tokio_rt",
-  not(feature = "async-runtime")
-))]
-static NEXT_TOKIO_GENERATED_TASK_ID: AtomicUsize = AtomicUsize::new(1);
-
-#[cfg(all(
-  not(feature = "noop"),
-  feature = "tokio_rt",
-  not(feature = "async-runtime")
-))]
-struct TokioGeneratedTaskRegistration {
-  id: usize,
-}
-
-#[cfg(all(
-  not(feature = "noop"),
-  feature = "tokio_rt",
-  not(feature = "async-runtime")
-))]
-impl Drop for TokioGeneratedTaskRegistration {
-  fn drop(&mut self) {
-    drop(
-      TOKIO_GENERATED_TASKS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .remove(&self.id),
-    );
-  }
-}
-
-#[cfg(all(
-  not(feature = "noop"),
-  feature = "tokio_rt",
-  not(feature = "async-runtime")
-))]
 fn tokio_generated_task(
+  env: sys::napi_env,
   future: impl Future<Output = ()> + Send + 'static,
 ) -> impl Future<Output = ()> + Send + 'static {
   let (abort_handle, abort_registration) = AbortHandle::new_pair();
-  let id = NEXT_TOKIO_GENERATED_TASK_ID.fetch_add(1, Ordering::Relaxed);
-  TOKIO_GENERATED_TASKS
-    .lock()
-    .unwrap_or_else(std::sync::PoisonError::into_inner)
-    .insert(id, abort_handle);
-  let registration = TokioGeneratedTaskRegistration { id };
+  let registration = register_env_task(env, abort_handle);
   async move {
     let _registration = registration;
     let _ = Abortable::new(future, abort_registration).await;
-  }
-}
-
-#[cfg(all(
-  not(feature = "noop"),
-  feature = "tokio_rt",
-  not(feature = "async-runtime")
-))]
-fn abort_tokio_generated_tasks() {
-  let tasks = std::mem::take(
-    &mut *TOKIO_GENERATED_TASKS
-      .lock()
-      .unwrap_or_else(std::sync::PoisonError::into_inner),
-  );
-  for (_, task) in tasks {
-    abort_safely(task);
   }
 }
 
@@ -399,11 +339,13 @@ fn abort_tokio_generated_tasks() {
 mod tokio_future_cancellation_tests {
   use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
-    Arc,
+    Arc, Mutex,
   };
   use std::task::Context;
 
   use super::*;
+
+  static ENV_TASKS_TEST_LOCK: Mutex<()> = Mutex::new(());
 
   struct DropFlag(Arc<AtomicBool>);
 
@@ -445,20 +387,102 @@ mod tokio_future_cancellation_tests {
   }
 
   #[test]
-  fn aborting_generated_tasks_drops_pending_futures() {
+  fn environment_cleanup_only_cancels_its_generated_tokio_tasks() {
+    let _guard = ENV_TASKS_TEST_LOCK
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let first_env = 0x1001usize as sys::napi_env;
+    let second_env = 0x1002usize as sys::napi_env;
+    register_runtime_env_tasks(first_env);
+    register_runtime_env_tasks(second_env);
+
+    let first_dropped = Arc::new(AtomicBool::new(false));
+    let first_drop_flag = DropFlag(Arc::clone(&first_dropped));
+    let mut first_task = Box::pin(tokio_generated_task(first_env, async move {
+      let _drop_flag = first_drop_flag;
+      std::future::pending::<()>().await;
+    }));
+    let second_dropped = Arc::new(AtomicBool::new(false));
+    let second_drop_flag = DropFlag(Arc::clone(&second_dropped));
+    let mut second_task = Box::pin(tokio_generated_task(second_env, async move {
+      let _drop_flag = second_drop_flag;
+      std::future::pending::<()>().await;
+    }));
+    let waker = futures::task::noop_waker();
+    let mut context = Context::from_waker(&waker);
+
+    assert!(first_task.as_mut().poll(&mut context).is_pending());
+    assert!(second_task.as_mut().poll(&mut context).is_pending());
+
+    cancel_runtime_env_tasks(first_env);
+    assert!(first_task.as_mut().poll(&mut context).is_ready());
+    assert!(second_task.as_mut().poll(&mut context).is_pending());
+    assert!(first_dropped.load(Ordering::SeqCst));
+    assert!(!second_dropped.load(Ordering::SeqCst));
+
+    cancel_runtime_env_tasks(second_env);
+    assert!(second_task.as_mut().poll(&mut context).is_ready());
+    assert!(second_dropped.load(Ordering::SeqCst));
+  }
+
+  #[test]
+  fn generated_tokio_task_rejects_a_closed_environment() {
+    let _guard = ENV_TASKS_TEST_LOCK
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let env = 0x1003usize as sys::napi_env;
+    register_runtime_env_tasks(env);
+    cancel_runtime_env_tasks(env);
+
     let dropped = Arc::new(AtomicBool::new(false));
     let drop_flag = DropFlag(Arc::clone(&dropped));
-    let mut task = Box::pin(tokio_generated_task(async move {
+    let mut task = Box::pin(tokio_generated_task(env, async move {
       let _drop_flag = drop_flag;
       std::future::pending::<()>().await;
     }));
     let waker = futures::task::noop_waker();
     let mut context = Context::from_waker(&waker);
 
-    assert!(task.as_mut().poll(&mut context).is_pending());
-    abort_tokio_generated_tasks();
     assert!(task.as_mut().poll(&mut context).is_ready());
     assert!(dropped.load(Ordering::SeqCst));
+  }
+
+  #[test]
+  fn runtime_shutdown_keeps_environment_registry_open_for_restart() {
+    let _guard = ENV_TASKS_TEST_LOCK
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let env = 0x1004usize as sys::napi_env;
+    register_runtime_env_tasks(env);
+
+    let first_dropped = Arc::new(AtomicBool::new(false));
+    let first_drop_flag = DropFlag(Arc::clone(&first_dropped));
+    let mut first_task = Box::pin(tokio_generated_task(env, async move {
+      let _drop_flag = first_drop_flag;
+      std::future::pending::<()>().await;
+    }));
+    let waker = futures::task::noop_waker();
+    let mut context = Context::from_waker(&waker);
+    assert!(first_task.as_mut().poll(&mut context).is_pending());
+
+    cancel_all_env_tasks();
+    assert!(first_task.as_mut().poll(&mut context).is_ready());
+    assert!(first_dropped.load(Ordering::SeqCst));
+
+    let restarted_dropped = Arc::new(AtomicBool::new(false));
+    let restarted_drop_flag = DropFlag(Arc::clone(&restarted_dropped));
+    let mut restarted_task = Box::pin(tokio_generated_task(env, async move {
+      let _drop_flag = restarted_drop_flag;
+      std::future::pending::<()>().await;
+    }));
+    assert!(
+      restarted_task.as_mut().poll(&mut context).is_pending(),
+      "runtime shutdown must not permanently close a live environment's task registry"
+    );
+
+    cancel_runtime_env_tasks(env);
+    assert!(restarted_task.as_mut().poll(&mut context).is_ready());
+    assert!(restarted_dropped.load(Ordering::SeqCst));
   }
 }
 
@@ -981,14 +1005,20 @@ pub(crate) fn unregister_async_runtime_env() -> Result<()> {
   finish_custom_runtime_shutdown(true)
 }
 
-#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt")
+))]
 struct EnvTasks {
   closed: AtomicBool,
   next_id: AtomicUsize,
   abort_handles: Mutex<HashMap<usize, AbortHandle>>,
 }
 
-#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt")
+))]
 impl EnvTasks {
   fn new() -> Self {
     Self {
@@ -1052,13 +1082,19 @@ fn abort_safely(handle: AbortHandle) {
   crate::bindgen_runtime::catch_unwind_safely(|| handle.abort());
 }
 
-#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt")
+))]
 struct EnvTaskRegistration {
   tasks: Arc<EnvTasks>,
   id: Option<usize>,
 }
 
-#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt")
+))]
 impl Drop for EnvTaskRegistration {
   fn drop(&mut self) {
     if let Some(id) = self.id.take() {
@@ -1067,12 +1103,18 @@ impl Drop for EnvTaskRegistration {
   }
 }
 
-#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt")
+))]
 static ENV_TASKS: LazyLock<Mutex<HashMap<usize, Arc<EnvTasks>>>> =
   LazyLock::new(|| Mutex::new(HashMap::new()));
 
-#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
-pub(crate) fn register_async_runtime_env_tasks(env: sys::napi_env) {
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt")
+))]
+pub(crate) fn register_runtime_env_tasks(env: sys::napi_env) {
   let previous = ENV_TASKS
     .lock()
     .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -1082,8 +1124,11 @@ pub(crate) fn register_async_runtime_env_tasks(env: sys::napi_env) {
   }
 }
 
-#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
-pub(crate) fn cancel_async_runtime_env_tasks(env: sys::napi_env) {
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt")
+))]
+pub(crate) fn cancel_runtime_env_tasks(env: sys::napi_env) {
   let tasks = ENV_TASKS
     .lock()
     .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -1093,7 +1138,10 @@ pub(crate) fn cancel_async_runtime_env_tasks(env: sys::napi_env) {
   }
 }
 
-#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt")
+))]
 fn cancel_all_env_tasks() {
   let envs: Vec<_> = ENV_TASKS
     .lock()
@@ -1104,6 +1152,25 @@ fn cancel_all_env_tasks() {
   for tasks in envs {
     tasks.cancel_all(false);
   }
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  feature = "tokio_rt",
+  not(feature = "async-runtime")
+))]
+fn register_env_task(env: sys::napi_env, abort_handle: AbortHandle) -> Option<EnvTaskRegistration> {
+  let tasks = ENV_TASKS
+    .lock()
+    .unwrap_or_else(std::sync::PoisonError::into_inner)
+    .get(&(env as usize))
+    .cloned();
+  let Some(tasks) = tasks else {
+    abort_safely(abort_handle);
+    return None;
+  };
+  let id = tasks.register(abort_handle);
+  Some(EnvTaskRegistration { tasks, id })
 }
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
@@ -1485,17 +1552,10 @@ fn lifecycle_error(primary: Error, cleanup: Error) -> Error {
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 fn rollback_failed_custom_runtime_start() -> Result<()> {
-  let custom_result = call_custom_runtime_shutdown();
+  call_custom_runtime_shutdown()?;
   #[cfg(feature = "tokio_rt")]
-  let tokio_result = shutdown_tokio_runtime();
-  #[cfg(not(feature = "tokio_rt"))]
-  let tokio_result = Ok(());
-
-  match (custom_result, tokio_result) {
-    (Ok(()), Ok(())) => Ok(()),
-    (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
-    (Err(custom_error), Err(tokio_error)) => Err(lifecycle_error(custom_error, tokio_error)),
-  }
+  shutdown_tokio_runtime()?;
+  Ok(())
 }
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
@@ -1567,25 +1627,16 @@ fn try_start_custom_runtime() -> Result<()> {
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 fn finish_custom_runtime_shutdown(call_custom_shutdown: bool) -> Result<()> {
   let _transition = RuntimeTransitionGuard::enter();
-  let result = (|| {
+  let result: Result<()> = (|| {
     close_runtime_submissions()?;
     cancel_all_env_tasks();
 
-    let custom_result = if call_custom_shutdown {
-      call_custom_runtime_shutdown()
-    } else {
-      Ok(())
-    };
-    #[cfg(feature = "tokio_rt")]
-    let tokio_result = shutdown_tokio_runtime();
-    #[cfg(not(feature = "tokio_rt"))]
-    let tokio_result = Ok(());
-
-    match (custom_result, tokio_result) {
-      (Ok(()), Ok(())) => Ok(()),
-      (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
-      (Err(custom_error), Err(tokio_error)) => Err(lifecycle_error(custom_error, tokio_error)),
+    if call_custom_shutdown {
+      call_custom_runtime_shutdown()?;
     }
+    #[cfg(feature = "tokio_rt")]
+    shutdown_tokio_runtime()?;
+    Ok(())
   })();
 
   let mut lifecycle = runtime_lifecycle();
@@ -1785,7 +1836,7 @@ pub(crate) fn shutdown_tokio_runtime() -> Result<()> {
   .and_then(|result| result)?;
 
   #[cfg(not(feature = "async-runtime"))]
-  abort_tokio_generated_tasks();
+  cancel_all_env_tasks();
   drop(rt);
   let mut state = TOKIO_RUNTIME_STATE
     .lock()
@@ -1800,16 +1851,16 @@ pub(crate) fn shutdown_tokio_runtime() -> Result<()> {
   Ok(())
 }
 
-/// The error returned when joining a [`JoinHandle`] whose task panicked or was cancelled.
-///
-/// This is napi's runtime-agnostic analogue of `tokio::task::JoinError`, produced by the
-/// explicit [`spawn_on_custom_runtime`]/[`spawn_blocking_on_custom_runtime`] helpers.
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 enum JoinErrorKind {
   Panic(SafeDrop<Box<dyn Any + Send + 'static>>),
   Cancelled,
 }
 
+/// The error returned when joining a [`JoinHandle`] whose task panicked or was cancelled.
+///
+/// This is napi's runtime-agnostic analogue of `tokio::task::JoinError`, produced by the
+/// explicit [`spawn_on_custom_runtime`]/[`spawn_blocking_on_custom_runtime`] helpers.
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 pub struct JoinError {
   kind: JoinErrorKind,
@@ -2530,7 +2581,7 @@ fn execute_tokio_future_inner<
   };
 
   #[cfg(not(feature = "async-runtime"))]
-  let inner = tokio_generated_task(inner);
+  let inner = tokio_generated_task(raw_env, inner);
 
   #[cfg(all(
     not(feature = "async-runtime"),
@@ -2677,7 +2728,7 @@ pub fn execute_tokio_future_with_finalize_callback<
   };
 
   #[cfg(not(feature = "async-runtime"))]
-  let inner = tokio_generated_task(inner);
+  let inner = tokio_generated_task(raw_env, inner);
 
   #[cfg(all(
     not(feature = "async-runtime"),
@@ -3483,7 +3534,7 @@ mod tests {
     ensure_runtime();
     let _guard = runtime_state_test_guard();
     let env = 0x9876usize as sys::napi_env;
-    register_async_runtime_env_tasks(env);
+    register_runtime_env_tasks(env);
     let cancellation = Arc::new(Mutex::new(None));
     let cancellation_result = Arc::clone(&cancellation);
     let task = env_async_task(env, std::future::pending(), move |env_open, error| {
@@ -3510,7 +3561,7 @@ mod tests {
       "backend rejection must survive the cancellation path"
     );
     drop(cancellation);
-    cancel_async_runtime_env_tasks(env);
+    cancel_runtime_env_tasks(env);
   }
 
   #[test]
@@ -4291,28 +4342,28 @@ mod tests {
     let _guard = runtime_state_test_guard();
 
     let replacement_env = 0x1111usize as sys::napi_env;
-    register_async_runtime_env_tasks(replacement_env);
+    register_runtime_env_tasks(replacement_env);
     let replacement_probe = Arc::new(EnvTasksLockProbe {
       lock_was_available: AtomicBool::new(false),
     });
     let replacement_task = poll_pending_env_task(replacement_env, &replacement_probe);
-    register_async_runtime_env_tasks(replacement_env);
+    register_runtime_env_tasks(replacement_env);
     assert!(replacement_probe.lock_was_available.load(Ordering::SeqCst));
     drop(replacement_task);
-    cancel_async_runtime_env_tasks(replacement_env);
+    cancel_runtime_env_tasks(replacement_env);
 
     let removed_env = 0x2222usize as sys::napi_env;
-    register_async_runtime_env_tasks(removed_env);
+    register_runtime_env_tasks(removed_env);
     let removed_probe = Arc::new(EnvTasksLockProbe {
       lock_was_available: AtomicBool::new(false),
     });
     let removed_task = poll_pending_env_task(removed_env, &removed_probe);
-    cancel_async_runtime_env_tasks(removed_env);
+    cancel_runtime_env_tasks(removed_env);
     assert!(removed_probe.lock_was_available.load(Ordering::SeqCst));
     drop(removed_task);
 
     let shutdown_env = 0x3333usize as sys::napi_env;
-    register_async_runtime_env_tasks(shutdown_env);
+    register_runtime_env_tasks(shutdown_env);
     let shutdown_probe = Arc::new(EnvTasksLockProbe {
       lock_was_available: AtomicBool::new(false),
     });
@@ -4320,7 +4371,7 @@ mod tests {
     cancel_all_env_tasks();
     assert!(shutdown_probe.lock_was_available.load(Ordering::SeqCst));
     drop(shutdown_task);
-    cancel_async_runtime_env_tasks(shutdown_env);
+    cancel_runtime_env_tasks(shutdown_env);
   }
 
   #[test]
@@ -4357,7 +4408,7 @@ mod tests {
   #[test]
   fn environment_cancellation_wakes_pending_tasks_without_js_callback() {
     let env = 0x1234usize as sys::napi_env;
-    register_async_runtime_env_tasks(env);
+    register_runtime_env_tasks(env);
     let cancellation = Arc::new(Mutex::new(None));
     let cancellation_result = Arc::clone(&cancellation);
     let mut task = Box::pin(env_async_task(
@@ -4371,7 +4422,7 @@ mod tests {
     let mut context = Context::from_waker(&waker);
 
     assert!(task.as_mut().poll(&mut context).is_pending());
-    cancel_async_runtime_env_tasks(env);
+    cancel_runtime_env_tasks(env);
     assert!(task.as_mut().poll(&mut context).is_ready());
     let cancellation = cancellation.lock().unwrap();
     assert_eq!(
@@ -4384,7 +4435,7 @@ mod tests {
   #[test]
   fn runtime_shutdown_cancels_pending_tasks_with_environment_still_open() {
     let env = 0x5678usize as sys::napi_env;
-    register_async_runtime_env_tasks(env);
+    register_runtime_env_tasks(env);
     let cancellation = Arc::new(Mutex::new(None));
     let cancellation_result = Arc::clone(&cancellation);
     let mut task = Box::pin(env_async_task(
@@ -4407,7 +4458,7 @@ mod tests {
     );
     assert!(cancellation.as_ref().unwrap().1.is_none());
     drop(cancellation);
-    cancel_async_runtime_env_tasks(env);
+    cancel_runtime_env_tasks(env);
   }
 
   struct PanickingWaker;
@@ -4553,6 +4604,7 @@ mod combined_feature_tests {
 
   static CUSTOM_RUNNING: AtomicBool = AtomicBool::new(false);
   static FAIL_CUSTOM_START: AtomicBool = AtomicBool::new(false);
+  static FAIL_CUSTOM_SHUTDOWN_AFTER_TOKIO_USE: AtomicBool = AtomicBool::new(false);
   static CUSTOM_STARTS: AtomicUsize = AtomicUsize::new(0);
   static CUSTOM_SHUTDOWNS: AtomicUsize = AtomicUsize::new(0);
   static CUSTOM_BLOCK_ON_CALLS: AtomicUsize = AtomicUsize::new(0);
@@ -4670,6 +4722,12 @@ mod combined_feature_tests {
       }
       try_within_runtime_if_available(|| ())
         .expect("custom shutdown hook must be able to use its Tokio peer");
+      if FAIL_CUSTOM_SHUTDOWN_AFTER_TOKIO_USE.swap(false, Ordering::SeqCst) {
+        return Err(Error::new(
+          crate::Status::GenericFailure,
+          "injected custom runtime shutdown failure after Tokio use",
+        ));
+      }
       CUSTOM_RUNNING.store(false, Ordering::SeqCst);
       Ok(())
     }
@@ -4764,6 +4822,29 @@ mod combined_feature_tests {
       "the explicit custom entry helper must not switch to Tokio under feature unification"
     );
 
+    FAIL_CUSTOM_SHUTDOWN_AFTER_TOKIO_USE.store(true, Ordering::SeqCst);
+    let error = try_shutdown_async_runtime()
+      .expect_err("a custom shutdown failure after Tokio use must be reported");
+    assert!(error
+      .reason
+      .contains("injected custom runtime shutdown failure after Tokio use"));
+    assert!(matches!(
+      TOKIO_RUNTIME_STATE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .lifecycle,
+      TokioRuntimeLifecycle::Running
+    ));
+    let error =
+      try_start_async_runtime().expect_err("start must remain blocked until shutdown is retried");
+    assert!(error
+      .reason
+      .contains("injected custom runtime shutdown failure after Tokio use"));
+    try_shutdown_async_runtime()
+      .expect("the custom shutdown retry must retain access to the original Tokio generation");
+    wait_for_retirement();
+    try_start_async_runtime().unwrap();
+
     let (entered_tx, entered_rx) = mpsc::channel();
     let (release_tx, release_rx) = mpsc::channel();
     let runtime_use = std::thread::spawn(move || {
@@ -4839,11 +4920,15 @@ mod combined_feature_tests {
     try_shutdown_async_runtime().unwrap();
     wait_for_retirement();
     FAIL_CUSTOM_START.store(true, Ordering::SeqCst);
+    FAIL_CUSTOM_SHUTDOWN_AFTER_TOKIO_USE.store(true, Ordering::SeqCst);
     let shutdowns_before_failed_start = CUSTOM_SHUTDOWNS.load(Ordering::SeqCst);
     let error = try_start_async_runtime().expect_err("custom startup failure must be reported");
     assert!(error
       .reason
       .contains("injected custom runtime start failure"));
+    assert!(error
+      .reason
+      .contains("injected custom runtime shutdown failure after Tokio use"));
     assert_eq!(
       CUSTOM_SHUTDOWNS.load(Ordering::SeqCst),
       shutdowns_before_failed_start + 1,
@@ -4856,6 +4941,13 @@ mod combined_feature_tests {
       .reason
       .contains("not running"));
     FAIL_CUSTOM_START.store(false, Ordering::SeqCst);
+    let error = try_start_async_runtime()
+      .expect_err("failed-start rollback must be retried before the runtime can start");
+    assert!(error
+      .reason
+      .contains("injected custom runtime shutdown failure after Tokio use"));
+    try_shutdown_async_runtime()
+      .expect("failed-start rollback retry must retain access to the original Tokio generation");
     wait_for_retirement();
     try_start_async_runtime().unwrap();
 

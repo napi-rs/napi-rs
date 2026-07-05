@@ -1,8 +1,12 @@
+use std::sync::atomic::{AtomicU32, Ordering};
+
 #[cfg(not(target_family = "wasm"))]
 use futures::prelude::*;
 use napi::bindgen_prelude::*;
 #[cfg(not(target_family = "wasm"))]
 use napi::tokio::fs;
+
+static ASYNC_BLOCK_TERMINAL_FINALIZER_COUNT: AtomicU32 = AtomicU32::new(0);
 
 #[napi]
 async fn read_file_async(path: String) -> Result<Buffer> {
@@ -41,6 +45,23 @@ async fn panic_in_async() {
 #[napi]
 fn shutdown_async_runtime_for_test() -> Result<()> {
   try_shutdown_async_runtime()
+}
+
+#[napi]
+fn pending_async_block_with_terminal_finalizer(env: &Env) -> Result<AsyncBlock<()>> {
+  AsyncBlockBuilder::new(async {
+    std::future::pending::<()>().await;
+    Ok(())
+  })
+  .with_terminal_finalizer(|| {
+    ASYNC_BLOCK_TERMINAL_FINALIZER_COUNT.fetch_add(1, Ordering::SeqCst);
+  })
+  .build(env)
+}
+
+#[napi]
+fn async_block_terminal_finalizer_count() -> u32 {
+  ASYNC_BLOCK_TERMINAL_FINALIZER_COUNT.load(Ordering::SeqCst)
 }
 
 #[napi(async_runtime)]

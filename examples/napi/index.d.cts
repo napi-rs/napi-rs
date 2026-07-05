@@ -452,6 +452,8 @@ export declare function arrayBufferPassThrough(buf: Uint8Array): Promise<Uint8Ar
 
 export declare function arrayParams(arr: Array<number>): number
 
+export declare function asyncBlockTerminalFinalizerCount(): number
+
 export declare function asyncBufferToArray(buf: ArrayBuffer): Array<number>
 
 export declare function asyncMultiTwo(arg: number): Promise<number>
@@ -1065,6 +1067,8 @@ export declare function passSetToRust(set: Set<string>): void
 export declare function passSetWithHasherToJs(): Set<string>
 
 export declare function pathParent(path: string): string | null
+
+export declare function pendingAsyncBlockWithTerminalFinalizer(): Promise<undefined>
 
 export interface Pet {
   name: string

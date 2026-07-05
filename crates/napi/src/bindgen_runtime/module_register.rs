@@ -409,9 +409,13 @@ pub unsafe extern "C" fn napi_register_module_v1(
       }
     }
 
+    #[cfg(all(
+      not(feature = "noop"),
+      any(feature = "tokio_rt", feature = "async-runtime")
+    ))]
+    crate::tokio_runtime::register_runtime_env_tasks(env);
     #[cfg(feature = "async-runtime")]
     {
-      crate::tokio_runtime::register_async_runtime_env_tasks(env);
       if let Err(error) = crate::tokio_runtime::register_async_runtime_env() {
         rollback_runtime_env(env, exports, cleanup_data);
         JsError::from(error).throw_into(env);
@@ -781,9 +785,13 @@ fn cleanup_runtime_env(cleanup: &RuntimeEnvCleanup) {
     return;
   }
   let env = cleanup.env;
+  #[cfg(all(
+    not(feature = "noop"),
+    any(feature = "tokio_rt", feature = "async-runtime")
+  ))]
+  crate::tokio_runtime::cancel_runtime_env_tasks(env);
   #[cfg(feature = "async-runtime")]
   {
-    crate::tokio_runtime::cancel_async_runtime_env_tasks(env);
     if let Err(error) = crate::tokio_runtime::unregister_async_runtime_env() {
       crate::bindgen_runtime::catch_unwind_safely(|| {
         eprintln!("Failed to shut down custom async runtime: {error}");
