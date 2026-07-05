@@ -11,7 +11,7 @@ use std::{
 
 use futures::task::{waker_ref, ArcWake};
 use napi::bindgen_prelude::{
-  create_custom_async_runtime, try_block_on, try_shutdown_async_runtime, try_start_async_runtime,
+  register_async_runtime, try_block_on, try_shutdown_async_runtime, try_start_async_runtime,
   AsyncRuntime, AsyncRuntimeGuard, AsyncRuntimeTask, Env, Error, PromiseRaw, Result, Status,
 };
 use napi_derive::napi;
@@ -261,13 +261,13 @@ fn init() {
     return;
   }
 
-  create_custom_async_runtime(TestRuntime {
+  register_async_runtime(TestRuntime {
     state: state.clone(),
   });
 
   #[cfg(not(target_family = "wasm"))]
   if std::env::var_os("NAPI_CUSTOM_RUNTIME_TEST_DUPLICATE").is_some() {
-    create_custom_async_runtime(TestRuntime { state });
+    register_async_runtime(TestRuntime { state });
   }
 }
 

@@ -38,7 +38,7 @@
 //! ### async-runtime
 //!
 //! The `async-runtime` feature lets an addon register its own executor through
-//! `create_custom_async_runtime`.
+//! `register_async_runtime`.
 //! Generated JavaScript-facing futures use it even when Cargo feature unification also enables
 //! `tokio_rt`. The established free `spawn`/`spawn_blocking` names remain Tokio-only APIs with
 //! their historical Tokio return types. The established free `block_on` and

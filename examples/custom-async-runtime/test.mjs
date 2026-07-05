@@ -3,7 +3,6 @@ import { once } from 'node:events'
 import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { spawnSync } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
 import { Worker } from 'node:worker_threads'
 
 const mode = process.argv[2] ?? 'native'
@@ -25,6 +24,14 @@ if (mode === 'wasi') {
 }
 
 const binding = require(bindingFile)
+const nativeBindingFile =
+  mode === 'native'
+    ? Object.keys(require.cache).find(
+        (filename) =>
+          filename.endsWith('.node') &&
+          filename.includes('custom_async_runtime'),
+      )
+    : undefined
 const initial = binding.getRuntimeMetrics()
 
 assert.equal(binding.isWasm(), mode === 'wasi')
@@ -87,13 +94,68 @@ assert.equal(afterShutdown.shutdownCalls, beforeLifecycle.shutdownCalls + 1)
 assert.throws(() => binding.runtimeContextAdd(1), /not running/i)
 assert.throws(() => binding.blockOnValue(1), /not running/i)
 
+if (mode === 'native') {
+  assert.ok(
+    nativeBindingFile,
+    'native binding must be present in require.cache',
+  )
+  const worker = new Worker(
+    `
+      const { parentPort } = require('node:worker_threads')
+      try {
+        const binding = require(${JSON.stringify(nativeBindingFile)})
+        binding.asyncDouble(21).then(
+          () => parentPort.postMessage({ loaded: true, errors: [] }),
+          (error) => {
+            const errors = []
+            let current = error
+            while (current) {
+              errors.push(String(current))
+              current = current.cause
+            }
+            parentPort.postMessage({ loaded: true, errors })
+          },
+        )
+      } catch (error) {
+        const errors = []
+        let current = error
+        while (current) {
+          errors.push(String(current))
+          current = current.cause
+        }
+        parentPort.postMessage({ loaded: false, errors })
+      }
+    `,
+    { eval: true },
+  )
+  const [result] = await once(worker, 'message')
+  assert.equal(result.loaded, true)
+  assert.match(result.errors.join('\n'), /cancel|stopped|not running/i)
+  await worker.terminate()
+  assert.equal(
+    binding.getRuntimeMetrics().startCalls,
+    afterShutdown.startCalls,
+    'loading a new worker must not undo explicit shutdown',
+  )
+}
+
 binding.startRuntime()
 const afterStart = binding.getRuntimeMetrics()
 assert.equal(afterStart.startCalls, beforeLifecycle.startCalls + 1)
 assert.equal(await binding.asyncDouble(21), 42)
 
 if (mode === 'native') {
-  const bindingPath = fileURLToPath(new URL('./index.cjs', import.meta.url))
+  const restoredWorker = new Worker(
+    `
+      const { parentPort } = require('node:worker_threads')
+      const binding = require(${JSON.stringify(nativeBindingFile)})
+      binding.asyncDouble(21).then((value) => parentPort.postMessage(value))
+    `,
+    { eval: true },
+  )
+  assert.deepEqual(await once(restoredWorker, 'message'), [42])
+  await restoredWorker.terminate()
+
   for (const [name, pattern] of [
     [
       'NAPI_CUSTOM_RUNTIME_TEST_MISSING',
@@ -103,7 +165,7 @@ if (mode === 'native') {
   ]) {
     const result = spawnSync(
       process.execPath,
-      ['-e', `require(${JSON.stringify(bindingPath)})`],
+      ['-e', `require(${JSON.stringify(nativeBindingFile)})`],
       {
         encoding: 'utf8',
         env: { ...process.env, [name]: '1' },
@@ -121,7 +183,7 @@ if (mode === 'native') {
       `
         process.env.NAPI_CUSTOM_RUNTIME_TEST_START_ERROR = '1'
         try {
-          require(${JSON.stringify(bindingPath)})
+          require(${JSON.stringify(nativeBindingFile)})
           throw new Error('first addon load unexpectedly succeeded')
         } catch (error) {
           let current = error
@@ -136,7 +198,7 @@ if (mode === 'native') {
           if (!matched) throw error
         }
         delete process.env.NAPI_CUSTOM_RUNTIME_TEST_START_ERROR
-        const binding = require(${JSON.stringify(bindingPath)})
+        const binding = require(${JSON.stringify(nativeBindingFile)})
         if (binding.runtimeContextAdd(41) !== 42) {
           throw new Error('addon did not recover after startup failure')
         }
@@ -155,7 +217,7 @@ if (mode === 'native') {
     const worker = new Worker(
       `
         const { parentPort } = require('node:worker_threads')
-        const binding = require(${JSON.stringify(bindingPath)})
+        const binding = require(${JSON.stringify(nativeBindingFile)})
         binding.asyncNever()
         parentPort.postMessage('pending')
       `,

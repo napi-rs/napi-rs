@@ -840,6 +840,32 @@ jobs:
       - name: Test
         run: node examples/custom-async-runtime/test.mjs native
 
+  test-custom-async-runtime-wasi:
+    runs-on: ubuntu-latest
+    name: Check custom async runtime on WASI without noop
+    timeout-minutes: 10
+    needs: audit
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: 'yarn'
+          cache-dependency-path: 'yarn.lock'
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+      - name: Install dependencies
+        run: yarn install --immutable --mode=skip-build
+      - name: Check non-noop async runtime
+        run: |
+          cargo check -p napi --no-default-features --features napi4,async-runtime --target wasm32-wasip1
+          cargo check -p napi-custom-async-runtime-example --target wasm32-wasip1
+        env:
+          EMNAPI_LINK_DIR: ${{ github.workspace }}/node_modules/emnapi/lib/wasm32-wasip1-threads
+
   test-async-runtime-spi:
     runs-on: ubuntu-latest
     name: Test async-runtime SPI (cargo)
@@ -998,6 +1024,7 @@ jobs:
       - check-all-features
       - test-freebsd
       - test-custom-async-runtime-native
+      - test-custom-async-runtime-wasi
       - test-async-runtime-spi
       - test-node-wasi
       - test-latest-bun

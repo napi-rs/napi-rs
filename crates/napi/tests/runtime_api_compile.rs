@@ -48,10 +48,23 @@ fn async_block_terminal_finalizer_builder_is_feature_stable() {
 #[cfg(feature = "async-runtime")]
 #[test]
 fn custom_runtime_helper_signatures_are_feature_stable() {
+  use std::{future::Future, pin::Pin};
+
   use napi::bindgen_prelude::{
     block_on_custom_runtime, spawn_blocking_on_custom_runtime, spawn_on_custom_runtime,
-    try_block_on_custom_runtime, within_custom_runtime_if_available, JoinHandle,
+    try_block_on_custom_runtime, within_custom_runtime_if_available, AsyncRuntime,
+    AsyncRuntimeTask, JoinHandle,
   };
+
+  struct CompileRuntime;
+
+  impl AsyncRuntime for CompileRuntime {
+    fn spawn(&self, task: AsyncRuntimeTask) -> std::result::Result<(), AsyncRuntimeTask> {
+      Err(task)
+    }
+
+    fn block_on(&self, _future: Pin<&mut dyn Future<Output = ()>>) {}
+  }
 
   fn assert_spawn_signature() -> JoinHandle<u8> {
     spawn_on_custom_runtime(async { 42 })
@@ -78,6 +91,18 @@ fn custom_runtime_helper_signatures_are_feature_stable() {
   let _ = assert_block_on_signature as fn() -> u8;
   let _ = assert_try_block_on_signature as fn() -> napi::Result<u8>;
   let _ = assert_enter_signature as fn() -> napi::Result<u8>;
+
+  let _ = napi::bindgen_prelude::register_async_runtime::<CompileRuntime> as fn(CompileRuntime);
+  let _ = napi::bindgen_prelude::try_register_async_runtime::<CompileRuntime>
+    as fn(CompileRuntime) -> napi::Result<()>;
+
+  #[allow(deprecated)]
+  {
+    let _ =
+      napi::bindgen_prelude::create_custom_async_runtime::<CompileRuntime> as fn(CompileRuntime);
+    let _ = napi::bindgen_prelude::try_create_custom_async_runtime::<CompileRuntime>
+      as fn(CompileRuntime) -> napi::Result<()>;
+  }
 }
 
 #[cfg(feature = "tokio_rt")]

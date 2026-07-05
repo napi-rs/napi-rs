@@ -13,7 +13,7 @@ use std::{
 };
 
 use napi::bindgen_prelude::{
-  create_custom_async_runtime, try_create_custom_async_runtime, try_shutdown_async_runtime,
+  register_async_runtime, try_register_async_runtime, try_shutdown_async_runtime,
   try_start_async_runtime, AsyncRuntime, AsyncRuntimeTask,
 };
 
@@ -101,7 +101,7 @@ fn start_after_retirement_expect_error(expected: &str) -> napi::Error {
 
 #[test]
 fn registration_and_lifecycle_failures_return_errors() {
-  create_custom_async_runtime(FirstRuntime);
+  register_async_runtime(FirstRuntime);
 
   PANIC_START.store(true, Ordering::SeqCst);
   let error = try_start_async_runtime().expect_err("start panic must be contained");
@@ -130,6 +130,6 @@ fn registration_and_lifecycle_failures_return_errors() {
   start_after_retirement();
   try_shutdown_async_runtime().expect("runtime must shut down after retry");
 
-  let error = try_create_custom_async_runtime(SecondRuntime).unwrap_err();
+  let error = try_register_async_runtime(SecondRuntime).unwrap_err();
   assert!(error.reason.contains("more than once"));
 }
