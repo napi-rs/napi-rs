@@ -31,8 +31,6 @@ const concurrency =
   !process.env.ASAN_OPTIONS
     ? 20
     : 1
-const nativeTest = process.env.WASI_TEST ? test.skip : test
-
 test.after(() => {
   if (process.platform !== 'win32') {
     shutdownRuntime()
@@ -64,7 +62,7 @@ test('should be able to require in worker thread', async (t) => {
   )
 })
 
-nativeTest.serial(
+test.serial.skipIf(Boolean(process.env.WASI_TEST))(
   'worker teardown runs pending async block terminal finalizers exactly once',
   async (t) => {
     const initialCount = asyncBlockTerminalFinalizerCount()
