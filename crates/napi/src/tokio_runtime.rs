@@ -7,11 +7,15 @@ use std::sync::{atomic::AtomicBool, Condvar};
 #[cfg(not(feature = "noop"))]
 use std::sync::{
   atomic::{AtomicUsize, Ordering},
-  LazyLock, Mutex, OnceLock,
+  LazyLock, OnceLock,
 };
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 use std::sync::{RwLock, Weak};
-use std::{future::Future, marker::PhantomData};
+use std::{
+  future::Future,
+  marker::PhantomData,
+  sync::{Arc, Mutex},
+};
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 use std::any::Any;
@@ -22,11 +26,6 @@ use std::panic::AssertUnwindSafe;
   all(feature = "tokio_rt", not(feature = "noop"))
 ))]
 use std::pin::Pin;
-#[cfg(all(
-  not(feature = "noop"),
-  any(feature = "async-runtime", feature = "tokio_rt")
-))]
-use std::sync::Arc;
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 use std::task::Context;
 #[cfg(not(feature = "noop"))]
@@ -45,6 +44,75 @@ use futures::FutureExt;
 use crate::{bindgen_runtime::ToNapiValue, sys, Env, Error, Result};
 #[cfg(not(feature = "noop"))]
 use crate::{JsDeferred, SendableResolver, Unknown};
+
+type AsyncBlockTerminalCallback = Box<dyn FnOnce() + Send + 'static>;
+
+struct AsyncBlockTerminalFinalizerInner {
+  callback: Mutex<Option<AsyncBlockTerminalCallback>>,
+}
+
+impl AsyncBlockTerminalFinalizerInner {
+  fn take(&self) -> Option<AsyncBlockTerminalCallback> {
+    self
+      .callback
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner)
+      .take()
+  }
+}
+
+impl Drop for AsyncBlockTerminalFinalizerInner {
+  fn drop(&mut self) {
+    let callback = self
+      .callback
+      .get_mut()
+      .unwrap_or_else(std::sync::PoisonError::into_inner)
+      .take();
+    run_async_block_terminal_callback(callback);
+  }
+}
+
+#[derive(Clone)]
+struct AsyncBlockTerminalFinalizer {
+  inner: Arc<AsyncBlockTerminalFinalizerInner>,
+}
+
+impl AsyncBlockTerminalFinalizer {
+  fn new(finalizer: impl FnOnce() + Send + 'static) -> Self {
+    Self {
+      inner: Arc::new(AsyncBlockTerminalFinalizerInner {
+        callback: Mutex::new(Some(Box::new(finalizer))),
+      }),
+    }
+  }
+
+  fn run(&self) {
+    run_async_block_terminal_callback(self.inner.take());
+  }
+}
+
+#[cfg(not(feature = "noop"))]
+struct AsyncBlockTerminalFinalizerGuard(AsyncBlockTerminalFinalizer);
+
+#[cfg(not(feature = "noop"))]
+impl Drop for AsyncBlockTerminalFinalizerGuard {
+  fn drop(&mut self) {
+    self.0.run();
+  }
+}
+
+fn run_async_block_terminal_callback(callback: Option<AsyncBlockTerminalCallback>) {
+  if let Some(callback) = callback {
+    crate::bindgen_runtime::catch_unwind_safely(callback);
+  }
+}
+
+#[cfg(not(feature = "noop"))]
+fn run_async_block_terminal_finalizer(finalizer: &Option<AsyncBlockTerminalFinalizer>) {
+  if let Some(finalizer) = finalizer {
+    finalizer.run();
+  }
+}
 
 #[cfg(feature = "async-runtime")]
 pub trait AsyncRuntimeGuard {}
@@ -2345,6 +2413,21 @@ pub fn execute_tokio_future<
   fut: Fut,
   resolver: Resolver,
 ) -> Result<sys::napi_value> {
+  execute_tokio_future_inner(env, fut, resolver, None)
+}
+
+#[cfg(not(feature = "noop"))]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+fn execute_tokio_future_inner<
+  Data: 'static + Send,
+  Fut: 'static + Send + Future<Output = std::result::Result<Data, impl Into<Error>>>,
+  Resolver: 'static + FnOnce(sys::napi_env, Data) -> Result<sys::napi_value>,
+>(
+  env: sys::napi_env,
+  fut: Fut,
+  resolver: Resolver,
+  terminal_finalizer: Option<AsyncBlockTerminalFinalizer>,
+) -> Result<sys::napi_value> {
   let raw_env = env;
   let env = Env::from_raw(env);
   let (deferred, promise) = JsDeferred::new(&env)?;
@@ -2354,19 +2437,27 @@ pub fn execute_tokio_future<
   {
     let cancellation_deferred = deferred.clone();
     let cancellation_resolver = sendable_resolver.clone_handle();
+    let cancellation_terminal_finalizer = terminal_finalizer.clone();
     let task = env_async_task(
       raw_env,
       async move {
         match AssertUnwindSafe(fut).catch_unwind().await {
-          Ok(Ok(v)) => deferred.resolve(move |env| {
-            sendable_resolver
-              .resolve(env.raw(), v)
-              .map(|v| unsafe { Unknown::from_raw_unchecked(env.raw(), v) })
-          }),
-          Ok(Err(e)) => deferred.reject_with_cleanup(e.into(), move || {
-            let _ = sendable_resolver.discard();
-          }),
+          Ok(Ok(v)) => {
+            deferred.resolve(move |env| {
+              let _terminal_finalizer = terminal_finalizer.map(AsyncBlockTerminalFinalizerGuard);
+              sendable_resolver
+                .resolve(env.raw(), v)
+                .map(|v| unsafe { Unknown::from_raw_unchecked(env.raw(), v) })
+            });
+          }
+          Ok(Err(e)) => {
+            run_async_block_terminal_finalizer(&terminal_finalizer);
+            deferred.reject_with_cleanup(e.into(), move || {
+              let _ = sendable_resolver.discard();
+            });
+          }
           Err(reason) => {
+            run_async_block_terminal_finalizer(&terminal_finalizer);
             let error = crate::bindgen_runtime::panic_to_error(reason);
             deferred.reject_with_cleanup(error, move || {
               let _ = sendable_resolver.discard();
@@ -2375,6 +2466,7 @@ pub fn execute_tokio_future<
         }
       },
       move |env_open, cancellation_error| {
+        run_async_block_terminal_finalizer(&cancellation_terminal_finalizer);
         if env_open {
           cancellation_deferred.reject_with_cleanup(
             cancellation_error.unwrap_or_else(|| {
@@ -2397,7 +2489,9 @@ pub fn execute_tokio_future<
   let inner = {
     let cancellation_deferred = deferred.clone();
     let cancellation_resolver = sendable_resolver.clone_handle();
+    let cancellation_terminal_finalizer = terminal_finalizer.clone();
     let cancellation = TokioFutureCancellation::new(move || {
+      run_async_block_terminal_finalizer(&cancellation_terminal_finalizer);
       cancellation_deferred.reject_with_cleanup(
         Error::new(
           crate::Status::Cancelled,
@@ -2411,15 +2505,22 @@ pub fn execute_tokio_future<
     async move {
       let result = AssertUnwindSafe(fut).catch_unwind().await;
       settle_tokio_future(cancellation, move || match result {
-        Ok(Ok(v)) => deferred.resolve(move |env| {
-          sendable_resolver
-            .resolve(env.raw(), v)
-            .map(|v| unsafe { Unknown::from_raw_unchecked(env.raw(), v) })
-        }),
-        Ok(Err(e)) => deferred.reject_with_cleanup(e.into(), move || {
-          let _ = sendable_resolver.discard();
-        }),
+        Ok(Ok(v)) => {
+          deferred.resolve(move |env| {
+            let _terminal_finalizer = terminal_finalizer.map(AsyncBlockTerminalFinalizerGuard);
+            sendable_resolver
+              .resolve(env.raw(), v)
+              .map(|v| unsafe { Unknown::from_raw_unchecked(env.raw(), v) })
+          });
+        }
+        Ok(Err(e)) => {
+          run_async_block_terminal_finalizer(&terminal_finalizer);
+          deferred.reject_with_cleanup(e.into(), move || {
+            let _ = sendable_resolver.discard();
+          });
+        }
         Err(reason) => {
+          run_async_block_terminal_finalizer(&terminal_finalizer);
           deferred.reject_with_cleanup(crate::bindgen_runtime::panic_to_error(reason), move || {
             let _ = sendable_resolver.discard();
           })
@@ -2452,6 +2553,30 @@ pub fn execute_tokio_future<
   }
 
   Ok(promise.0.value)
+}
+
+fn execute_async_block_future<
+  Data: 'static + Send,
+  Fut: 'static + Send + Future<Output = std::result::Result<Data, impl Into<Error>>>,
+  Resolver: 'static + FnOnce(sys::napi_env, Data) -> Result<sys::napi_value>,
+>(
+  env: sys::napi_env,
+  fut: Fut,
+  resolver: Resolver,
+  terminal_finalizer: Option<AsyncBlockTerminalFinalizer>,
+) -> Result<sys::napi_value> {
+  #[cfg(not(feature = "noop"))]
+  {
+    execute_tokio_future_inner(env, fut, resolver, terminal_finalizer)
+  }
+  #[cfg(feature = "noop")]
+  {
+    let result = execute_tokio_future(env, fut, resolver);
+    if let Some(terminal_finalizer) = terminal_finalizer {
+      terminal_finalizer.run();
+    }
+    result
+  }
 }
 
 #[doc(hidden)]
@@ -2596,19 +2721,31 @@ pub struct AsyncBlockBuilder<
   V: Send + 'static,
   F: Future<Output = Result<V>> + Send + 'static,
   Dispose: FnOnce(Env) -> Result<()> + 'static = fn(Env) -> Result<()>,
+  TerminalFinalizer: FnOnce() + Send + 'static = fn(),
 > {
   inner: F,
   dispose: Option<Dispose>,
+  terminal_finalizer: Option<TerminalFinalizer>,
 }
 
 impl<V: ToNapiValue + Send + 'static, F: Future<Output = Result<V>> + Send + 'static>
   AsyncBlockBuilder<V, F>
 {
-  /// Create a new `AsyncBlockBuilder` with the given future, without dispose
+  /// Create an `AsyncBlockBuilder` without a success disposer or terminal finalizer.
   pub fn new(inner: F) -> Self {
     Self {
       inner,
       dispose: None,
+      terminal_finalizer: None,
+    }
+  }
+
+  /// Create an `AsyncBlockBuilder` without a success disposer or terminal finalizer.
+  pub fn with(inner: F) -> Self {
+    Self {
+      inner,
+      dispose: None,
+      terminal_finalizer: None,
     }
   }
 }
@@ -2617,29 +2754,68 @@ impl<
     V: ToNapiValue + Send + 'static,
     F: Future<Output = Result<V>> + Send + 'static,
     Dispose: FnOnce(Env) -> Result<()> + 'static,
-  > AsyncBlockBuilder<V, F, Dispose>
+    TerminalFinalizer: FnOnce() + Send + 'static,
+  > AsyncBlockBuilder<V, F, Dispose, TerminalFinalizer>
 {
-  pub fn with(inner: F) -> Self {
-    Self {
-      inner,
-      dispose: None,
+  /// Run `dispose` on the JavaScript owner thread before converting a successful result.
+  ///
+  /// This is a success-only hook. It does not run when the future rejects, panics, is cancelled,
+  /// or when [`build`](Self::build) fails before scheduling the future. Use
+  /// [`with_terminal_finalizer`](Self::with_terminal_finalizer) for cleanup that must run on every
+  /// terminal path.
+  pub fn with_dispose<NewDispose>(
+    self,
+    dispose: NewDispose,
+  ) -> AsyncBlockBuilder<V, F, NewDispose, TerminalFinalizer>
+  where
+    NewDispose: FnOnce(Env) -> Result<()> + 'static,
+  {
+    AsyncBlockBuilder {
+      inner: self.inner,
+      dispose: Some(dispose),
+      terminal_finalizer: self.terminal_finalizer,
     }
   }
 
-  pub fn with_dispose(mut self, dispose: Dispose) -> Self {
-    self.dispose = Some(dispose);
-    self
+  /// Install an exactly-once finalizer for every terminal path.
+  ///
+  /// The finalizer runs after a successful result's resolver attempt, and also runs when the
+  /// future rejects or panics, runtime cancellation drops the work, the Node environment closes,
+  /// or [`build`](Self::build) rolls back before returning an async block. It may run on the
+  /// calling thread, a runtime worker, or the JavaScript owner thread, so it cannot access an
+  /// [`Env`] and must be `Send`. A panic from the finalizer is contained after the callback is
+  /// claimed; it does not change the promise result or cause another invocation.
+  pub fn with_terminal_finalizer<NewTerminalFinalizer>(
+    self,
+    terminal_finalizer: NewTerminalFinalizer,
+  ) -> AsyncBlockBuilder<V, F, Dispose, NewTerminalFinalizer>
+  where
+    NewTerminalFinalizer: FnOnce() + Send + 'static,
+  {
+    AsyncBlockBuilder {
+      inner: self.inner,
+      dispose: self.dispose,
+      terminal_finalizer: Some(terminal_finalizer),
+    }
   }
 
   pub fn build(self, env: &Env) -> Result<AsyncBlock<V>> {
+    let terminal_finalizer = self
+      .terminal_finalizer
+      .map(AsyncBlockTerminalFinalizer::new);
     Ok(AsyncBlock {
-      inner: execute_tokio_future(env.0, self.inner, |env, v| unsafe {
-        if let Some(dispose) = self.dispose {
-          let env = Env::from_raw(env);
-          dispose(env)?;
-        }
-        V::to_napi_value(env, v)
-      })?,
+      inner: execute_async_block_future(
+        env.0,
+        self.inner,
+        |env, v| unsafe {
+          if let Some(dispose) = self.dispose {
+            let env = Env::from_raw(env);
+            dispose(env)?;
+          }
+          V::to_napi_value(env, v)
+        },
+        terminal_finalizer,
+      )?,
       _phantom: PhantomData,
     })
   }
@@ -2670,6 +2846,97 @@ pub struct AsyncBlock<T: ToNapiValue + 'static> {
 impl<T: ToNapiValue + 'static> ToNapiValue for AsyncBlock<T> {
   unsafe fn to_napi_value(_: napi_sys::napi_env, val: Self) -> Result<napi_sys::napi_value> {
     Ok(val.inner)
+  }
+}
+
+#[cfg(all(test, not(feature = "noop")))]
+mod async_block_terminal_finalizer_tests {
+  use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+  };
+
+  use super::*;
+
+  fn counted_finalizer() -> (AsyncBlockTerminalFinalizer, Arc<AtomicUsize>) {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let finalizer_calls = Arc::clone(&calls);
+    (
+      AsyncBlockTerminalFinalizer::new(move || {
+        finalizer_calls.fetch_add(1, Ordering::SeqCst);
+      }),
+      calls,
+    )
+  }
+
+  #[test]
+  fn async_block_success_runs_terminal_finalizer_once_after_resolver() {
+    let (finalizer, calls) = counted_finalizer();
+    let cancellation_finalizer = finalizer.clone();
+    let resolver_finalizer = finalizer.clone();
+
+    drop(cancellation_finalizer);
+    {
+      let _terminal_finalizer = AsyncBlockTerminalFinalizerGuard(resolver_finalizer);
+      assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+    finalizer.run();
+    drop(finalizer);
+
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+  }
+
+  #[test]
+  fn async_block_rejection_runs_terminal_finalizer_once() {
+    let (finalizer, calls) = counted_finalizer();
+    let resolver_finalizer = finalizer.clone();
+    let terminal_finalizer = Some(finalizer.clone());
+
+    run_async_block_terminal_finalizer(&terminal_finalizer);
+    run_async_block_terminal_finalizer(&terminal_finalizer);
+    drop(resolver_finalizer);
+    drop(terminal_finalizer);
+    drop(finalizer);
+
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+  }
+
+  #[test]
+  fn async_block_cancellation_runs_terminal_finalizer_once_across_threads() {
+    let (finalizer, calls) = counted_finalizer();
+    let cancellation_finalizer = Some(finalizer.clone());
+    let cancellation = std::thread::spawn(move || {
+      run_async_block_terminal_finalizer(&cancellation_finalizer);
+      run_async_block_terminal_finalizer(&cancellation_finalizer);
+    });
+
+    cancellation.join().unwrap();
+    finalizer.run();
+    drop(finalizer);
+
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+  }
+
+  #[test]
+  fn async_block_build_rollback_runs_terminal_finalizer_once_on_last_drop() {
+    let (finalizer, calls) = counted_finalizer();
+    let future_finalizer = finalizer.clone();
+    let resolver_finalizer = finalizer.clone();
+
+    drop(future_finalizer);
+    drop(resolver_finalizer);
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    drop(finalizer);
+
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+  }
+
+  #[test]
+  fn async_block_terminal_finalizer_contains_panics_after_claiming_callback() {
+    let finalizer = AsyncBlockTerminalFinalizer::new(|| panic!("terminal finalizer panic"));
+
+    finalizer.run();
+    finalizer.run();
   }
 }
 

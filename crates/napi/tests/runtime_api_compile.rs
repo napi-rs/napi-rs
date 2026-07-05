@@ -1,6 +1,50 @@
 //! Compile-time coverage for runtime helper signatures across additive Cargo features.
 #![cfg(not(feature = "noop"))]
 
+#[cfg(any(feature = "async-runtime", feature = "tokio_rt"))]
+#[test]
+fn async_block_terminal_finalizer_builder_is_feature_stable() {
+  use std::sync::Arc;
+
+  use napi::bindgen_prelude::AsyncBlockBuilder;
+
+  let terminal_capture = Arc::new(());
+  let builder = AsyncBlockBuilder::new(async { Ok(42_u8) }).with_terminal_finalizer(move || {
+    drop(terminal_capture);
+  });
+  drop(builder);
+
+  let terminal_capture = Arc::new(());
+  let builder = AsyncBlockBuilder::with(async { Ok(42_u8) }).with_terminal_finalizer(move || {
+    drop(terminal_capture);
+  });
+  drop(builder);
+
+  let terminal_capture = Arc::new(());
+  let dispose_capture = Arc::new(());
+  let builder = AsyncBlockBuilder::with(async { Ok(42_u8) })
+    .with_terminal_finalizer(move || {
+      drop(terminal_capture);
+    })
+    .with_dispose(move |_| {
+      drop(dispose_capture);
+      Ok(())
+    });
+  drop(builder);
+
+  let terminal_capture = Arc::new(());
+  let dispose_capture = Arc::new(());
+  let builder = AsyncBlockBuilder::with(async { Ok(42_u8) })
+    .with_dispose(move |_| {
+      drop(dispose_capture);
+      Ok(())
+    })
+    .with_terminal_finalizer(move || {
+      drop(terminal_capture);
+    });
+  drop(builder);
+}
+
 #[cfg(feature = "async-runtime")]
 #[test]
 fn custom_runtime_helper_signatures_are_feature_stable() {
