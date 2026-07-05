@@ -5,7 +5,7 @@ use std::ptr;
 use std::{
   marker::PhantomData,
   sync::{
-    atomic::{AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc, Mutex,
   },
   thread::{self, ThreadId},
@@ -164,6 +164,15 @@ impl Drop for FinalizeCallbackHandle {
 
 type SharedFinalizeCallback = Arc<Mutex<Option<FinalizeCallbackHandle>>>;
 
+#[derive(Clone, Default)]
+struct DeferredSettlement(Arc<AtomicBool>);
+
+impl DeferredSettlement {
+  fn try_claim(&self) -> bool {
+    !self.0.swap(true, Ordering::AcqRel)
+  }
+}
+
 #[cfg(not(feature = "noop"))]
 fn ensure_finalize_cleanup_hook(env: sys::napi_env) -> Result<()> {
   if FINALIZE_CLEANUP_ENVS.with(|envs| envs.borrow().contains(&(env as EnvId))) {
@@ -213,12 +222,12 @@ pub struct JsDeferred<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> 
   #[cfg(feature = "deferred_trace")]
   trace: DeferredTrace,
   finalize_callback: SharedFinalizeCallback,
+  settlement: DeferredSettlement,
   _data: PhantomData<fn() -> Data>,
   _resolver: PhantomData<fn() -> Resolver>,
 }
 
-// A trick to send the resolver into the `panic` handler
-// Do not use clone in the other place besides the `fn execute_tokio_future`
+/// Clones race to settle the same promise; only the first resolution or rejection is submitted.
 impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> Clone
   for JsDeferred<Data, Resolver>
 {
@@ -230,6 +239,7 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> Clone
       #[cfg(feature = "deferred_trace")]
       trace: self.trace.clone(),
       finalize_callback: self.finalize_callback.clone(),
+      settlement: self.settlement.clone(),
       _data: PhantomData,
       _resolver: PhantomData,
     }
@@ -256,6 +266,7 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
       #[cfg(feature = "deferred_trace")]
       trace: DeferredTrace::new(env.0)?,
       finalize_callback: Default::default(),
+      settlement: Default::default(),
       _data: PhantomData,
       _resolver: PhantomData,
     };
@@ -294,9 +305,11 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
       thread::current().id(),
       "JsDeferred finalize callbacks must be registered on their JavaScript owner thread"
     );
-    self.finalize_callback = Arc::new(Mutex::new(
-      finalize_callback.map(|callback| FinalizeCallbackHandle::new(self.env, callback)),
-    ));
+    *self
+      .finalize_callback
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner) =
+      finalize_callback.map(|callback| FinalizeCallbackHandle::new(self.env, callback));
   }
 
   fn call_tsfn(
@@ -304,6 +317,11 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
     result: Result<Resolver>,
     rejection_cleanup: Option<Box<dyn FnOnce() + Send>>,
   ) {
+    if !self.settlement.try_claim() {
+      crate::bindgen_runtime::catch_unwind_safely(|| drop(result));
+      crate::bindgen_runtime::catch_unwind_safely(|| drop(rejection_cleanup));
+      return;
+    }
     let data = DeferredData {
       resolver: result,
       rejection_cleanup,
@@ -607,5 +625,14 @@ mod tests {
     clear_finalize_callbacks_for_env(env);
 
     assert_eq!(nested_dropped_on.get(), Some(thread::current().id()));
+  }
+
+  #[test]
+  fn deferred_clones_share_one_shot_settlement_ownership() {
+    let settlement = DeferredSettlement::default();
+    let clone = settlement.clone();
+
+    assert!(settlement.try_claim());
+    assert!(!clone.try_claim());
   }
 }

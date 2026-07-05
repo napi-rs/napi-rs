@@ -824,10 +824,13 @@ fn increment_module_count() -> usize {
   feature = "napi4"
 ))]
 fn decrement_runtime_module_count() {
-  let _guard = RUNTIME_MODULE_LOCK
-    .lock()
-    .unwrap_or_else(std::sync::PoisonError::into_inner);
-  if MODULE_COUNT.fetch_sub(1, Ordering::AcqRel) == 1 {
+  let should_shutdown = {
+    let _guard = RUNTIME_MODULE_LOCK
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    MODULE_COUNT.fetch_sub(1, Ordering::AcqRel) == 1
+  };
+  if should_shutdown {
     #[cfg(all(feature = "tokio_rt", not(feature = "async-runtime")))]
     if let Err(error) = crate::tokio_runtime::shutdown_tokio_runtime() {
       crate::bindgen_runtime::catch_unwind_safely(|| {

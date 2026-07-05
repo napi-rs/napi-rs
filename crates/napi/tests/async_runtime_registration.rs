@@ -19,6 +19,8 @@ use napi::bindgen_prelude::{
 
 static PANIC_START: AtomicBool = AtomicBool::new(false);
 static PANIC_SHUTDOWN: AtomicBool = AtomicBool::new(false);
+static FAIL_AFTER_PARTIAL_START: AtomicBool = AtomicBool::new(false);
+static PARTIAL_RUNTIME_RUNNING: AtomicBool = AtomicBool::new(false);
 
 struct FirstRuntime;
 
@@ -33,6 +35,13 @@ impl AsyncRuntime for FirstRuntime {
     if PANIC_START.load(Ordering::SeqCst) {
       panic!("backend start panic");
     }
+    if FAIL_AFTER_PARTIAL_START.load(Ordering::SeqCst) {
+      PARTIAL_RUNTIME_RUNNING.store(true, Ordering::SeqCst);
+      return Err(napi::Error::new(
+        napi::Status::GenericFailure,
+        "backend failed after partial start",
+      ));
+    }
     Ok(())
   }
 
@@ -40,6 +49,7 @@ impl AsyncRuntime for FirstRuntime {
     if PANIC_SHUTDOWN.load(Ordering::SeqCst) {
       panic!("backend shutdown panic");
     }
+    PARTIAL_RUNTIME_RUNNING.store(false, Ordering::SeqCst);
     Ok(())
   }
 }
@@ -73,6 +83,22 @@ fn start_after_retirement() {
   }
 }
 
+fn start_after_retirement_expect_error(expected: &str) -> napi::Error {
+  let deadline = Instant::now() + Duration::from_secs(5);
+  loop {
+    match try_start_async_runtime() {
+      Ok(()) => panic!("runtime unexpectedly started"),
+      Err(error) if error.reason.contains("still shutting down") && Instant::now() < deadline => {
+        std::thread::sleep(Duration::from_millis(10));
+      }
+      Err(error) => {
+        assert!(error.reason.contains(expected), "{error}");
+        return error;
+      }
+    }
+  }
+}
+
 #[test]
 fn registration_and_lifecycle_failures_return_errors() {
   create_custom_async_runtime(FirstRuntime);
@@ -81,6 +107,16 @@ fn registration_and_lifecycle_failures_return_errors() {
   let error = try_start_async_runtime().expect_err("start panic must be contained");
   assert!(error.reason.contains("backend start panic"));
   PANIC_START.store(false, Ordering::SeqCst);
+  start_after_retirement();
+
+  try_shutdown_async_runtime().expect("runtime must stop before partial-start rollback coverage");
+  FAIL_AFTER_PARTIAL_START.store(true, Ordering::SeqCst);
+  let _ = start_after_retirement_expect_error("backend failed after partial start");
+  assert!(
+    !PARTIAL_RUNTIME_RUNNING.load(Ordering::SeqCst),
+    "failed startup must invoke backend shutdown before restart is allowed"
+  );
+  FAIL_AFTER_PARTIAL_START.store(false, Ordering::SeqCst);
   start_after_retirement();
 
   PANIC_SHUTDOWN.store(true, Ordering::SeqCst);

@@ -147,6 +147,12 @@ unsafe extern "C" fn resolver_env_cleanup(data: *mut core::ffi::c_void) {
 
 /// A resolver handle that can cross worker threads while its closure remains owned by the
 /// JavaScript thread where the handle was created.
+///
+/// With N-API 3 or newer, environment cleanup invalidates outstanding handles and drops their
+/// closures on the JavaScript owner thread. N-API 1/2 do not provide environment cleanup hooks;
+/// on those API levels callers must consume or drop every handle on its JavaScript owner thread
+/// before the Node environment closes. Dropping the last handle from another thread only queues
+/// owner-thread cleanup and cannot guarantee reclamation before teardown.
 pub struct SendableResolver<
   Data: 'static + Send,
   R: 'static + FnOnce(sys::napi_env, Data) -> Result<sys::napi_value>,
@@ -233,7 +239,7 @@ impl<Data: 'static + Send, R: 'static + FnOnce(sys::napi_env, Data) -> Result<sy
   ///
   /// The handle may cross worker threads, but consuming it there returns a cancellation error
   /// and queues the owner-thread closure for cleanup by the next resolver operation on that
-  /// thread or by environment teardown, instead of invoking it on the wrong thread.
+  /// thread or, on N-API 3+, by environment teardown, instead of invoking it on the wrong thread.
   pub fn resolve(self, env: sys::napi_env, data: Data) -> Result<sys::napi_value> {
     let resolver = self.take()?;
     resolver(env, data)

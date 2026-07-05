@@ -130,18 +130,25 @@ impl Future for AsyncRuntimeTask {
     let Some(future) = self.future.as_mut() else {
       return Poll::Ready(());
     };
-    match future.as_mut().poll(cx) {
-      Poll::Ready(AsyncTaskOutcome::Completed) => {
-        self.disarm_cancel();
-        self.drop_future();
-        Poll::Ready(())
-      }
-      Poll::Ready(AsyncTaskOutcome::Cancelled) => {
+    let poll = std::panic::catch_unwind(AssertUnwindSafe(|| future.as_mut().poll(cx)));
+    match poll {
+      Err(reason) => {
+        drop(crate::bindgen_runtime::panic_to_error(reason));
         self.cancel();
         self.drop_future();
         Poll::Ready(())
       }
-      Poll::Pending => Poll::Pending,
+      Ok(Poll::Ready(AsyncTaskOutcome::Completed)) => {
+        self.disarm_cancel();
+        self.drop_future();
+        Poll::Ready(())
+      }
+      Ok(Poll::Ready(AsyncTaskOutcome::Cancelled)) => {
+        self.cancel();
+        self.drop_future();
+        Poll::Ready(())
+      }
+      Ok(Poll::Pending) => Poll::Pending,
     }
   }
 }
@@ -264,7 +271,9 @@ pub trait AsyncRuntime: Send + Sync + 'static {
   /// Implement it idempotently. Return success only after the backend can accept tasks. A
   /// successful restart must not overlap worker resources from a retiring generation; wait
   /// for retirement or return an error and let the caller retry. Do not call napi's runtime
-  /// registration or lifecycle functions recursively from this hook. The default is a no-op.
+  /// registration or lifecycle functions recursively from this hook. If this returns an error
+  /// or panics, napi calls [`shutdown`](AsyncRuntime::shutdown) to roll back resources created
+  /// by the partial start. The default is a no-op.
   fn start(&self) -> Result<()> {
     Ok(())
   }
@@ -280,6 +289,7 @@ pub trait AsyncRuntime: Send + Sync + 'static {
   /// not allow a later successful [`start`](AsyncRuntime::start) to overlap its worker
   /// resources. Do not wait for JavaScript callbacks triggered by cancellation, and do not
   /// call napi's runtime registration or lifecycle functions recursively from this hook. The
+  /// hook must be idempotent and tolerate being called after a partial failed `start`. The
   /// default is a no-op. If this returns an error, napi keeps submissions closed and rejects
   /// restart until shutdown is retried successfully, preventing scheduler generations from
   /// overlapping.
@@ -890,6 +900,56 @@ impl Drop for TokioRuntimeRetirement {
   }
 }
 
+#[cfg(all(
+  not(feature = "noop"),
+  feature = "tokio_rt",
+  any(
+    not(target_family = "wasm"),
+    all(target_family = "wasm", tokio_unstable)
+  )
+))]
+fn launch_tokio_runtime_retirement(runtime: Runtime, retirement: Option<Arc<()>>) {
+  let retirement = TokioRuntimeRetirement {
+    runtime: Some(runtime),
+    retirement,
+  };
+  launch_background_drop(retirement, |worker| {
+    std::thread::Builder::new()
+      .name("napi-tokio-runtime-retirement".to_owned())
+      .spawn(worker)
+      .map(drop)
+  });
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  feature = "tokio_rt",
+  any(
+    not(target_family = "wasm"),
+    all(target_family = "wasm", tokio_unstable)
+  )
+))]
+fn launch_background_drop<T: Send + 'static>(
+  value: T,
+  spawn: impl FnOnce(Box<dyn FnOnce() + Send + 'static>) -> std::io::Result<()>,
+) {
+  let state = Arc::new(std::sync::Mutex::new(Some(value)));
+  let worker_state = Arc::clone(&state);
+  let worker: Box<dyn FnOnce() + Send + 'static> = Box::new(move || {
+    let retirement = worker_state
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner)
+      .take();
+    drop(retirement);
+  });
+  if spawn(worker).is_err() {
+    // `Builder::spawn` drops the worker closure on the calling thread when thread creation
+    // fails. Keep this second owner leaked so neither Runtime::drop nor the generation token
+    // can run synchronously during Node teardown. Restart remains safely blocked.
+    std::mem::forget(state);
+  }
+}
+
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 impl std::ops::Deref for SharedTokioRuntime {
   type Target = Runtime;
@@ -914,13 +974,7 @@ impl Drop for SharedTokioRuntime {
       all(target_family = "wasm", tokio_unstable)
     ))]
     {
-      let retirement = TokioRuntimeRetirement {
-        runtime: Some(runtime),
-        retirement,
-      };
-      let _ = std::thread::Builder::new()
-        .name("napi-tokio-runtime-retirement".to_owned())
-        .spawn(move || drop(retirement));
+      launch_tokio_runtime_retirement(runtime, retirement);
     }
     #[cfg(all(target_family = "wasm", not(tokio_unstable)))]
     {
@@ -1080,6 +1134,21 @@ fn lifecycle_error(primary: Error, cleanup: Error) -> Error {
 }
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+fn rollback_failed_custom_runtime_start() -> Result<()> {
+  let custom_result = call_custom_runtime_shutdown();
+  #[cfg(feature = "tokio_rt")]
+  let tokio_result = shutdown_tokio_runtime();
+  #[cfg(not(feature = "tokio_rt"))]
+  let tokio_result = Ok(());
+
+  match (custom_result, tokio_result) {
+    (Ok(()), Ok(())) => Ok(()),
+    (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+    (Err(custom_error), Err(tokio_error)) => Err(lifecycle_error(custom_error, tokio_error)),
+  }
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 fn finish_runtime_transition(result: &Result<()>, shutdown_failed: bool) {
   let mut lifecycle = runtime_lifecycle();
   match result {
@@ -1123,21 +1192,15 @@ fn try_start_custom_runtime() -> Result<()> {
   }
 
   let _transition = RuntimeTransitionGuard::enter();
-  #[cfg(feature = "tokio_rt")]
   let mut shutdown_failed = false;
-  #[cfg(not(feature = "tokio_rt"))]
-  let shutdown_failed = false;
   let result = (|| {
     close_runtime_submissions()?;
 
     #[cfg(feature = "tokio_rt")]
     start_tokio_runtime()?;
 
-    #[cfg(not(feature = "tokio_rt"))]
-    call_custom_runtime_start()?;
-    #[cfg(feature = "tokio_rt")]
     if let Err(error) = call_custom_runtime_start() {
-      if let Err(cleanup) = shutdown_tokio_runtime() {
+      if let Err(cleanup) = rollback_failed_custom_runtime_start() {
         shutdown_failed = true;
         return Err(lifecycle_error(error, cleanup));
       }
@@ -2602,6 +2665,24 @@ mod tests {
   }
 
   #[test]
+  fn async_runtime_task_contains_unexpected_poll_panics() {
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let cancelled_on_drop = Arc::clone(&cancelled);
+    let task = AsyncRuntimeTask::new(
+      std::future::poll_fn(|_| -> Poll<AsyncTaskOutcome> {
+        panic!("unexpected task poll panic");
+      }),
+      move || cancelled_on_drop.store(true, Ordering::SeqCst),
+    );
+    let mut task = Box::pin(task);
+    let waker = futures::task::noop_waker();
+    let mut context = Context::from_waker(&waker);
+
+    assert_eq!(task.as_mut().poll(&mut context), Poll::Ready(()));
+    assert!(cancelled.load(Ordering::SeqCst));
+  }
+
+  #[test]
   fn panicking_enter_backend_returns_an_error() {
     ensure_runtime();
     let _guard = runtime_state_test_guard();
@@ -3259,7 +3340,7 @@ mod tests {
 mod combined_feature_tests {
   use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
-    mpsc, Condvar, Mutex, Once,
+    mpsc, Arc, Condvar, Mutex, Once,
   };
   use std::time::Duration;
 
@@ -3275,6 +3356,27 @@ mod combined_feature_tests {
     (Mutex::new((false, false, false)), Condvar::new());
   static SHUTDOWN_BLOCK: (Mutex<(bool, bool, bool)>, Condvar) =
     (Mutex::new((false, false, false)), Condvar::new());
+
+  struct DropProbe(Arc<AtomicBool>);
+
+  impl Drop for DropProbe {
+    fn drop(&mut self) {
+      self.0.store(true, Ordering::SeqCst);
+    }
+  }
+
+  #[test]
+  fn retirement_spawn_failure_does_not_drop_on_the_teardown_thread() {
+    let dropped = Arc::new(AtomicBool::new(false));
+    let probe = DropProbe(Arc::clone(&dropped));
+
+    launch_background_drop(probe, |worker| {
+      drop(worker);
+      Err(std::io::Error::other("injected thread creation failure"))
+    });
+
+    assert!(!dropped.load(Ordering::SeqCst));
+  }
 
   impl AsyncRuntime for CombinedRuntime {
     fn spawn(&self, task: AsyncRuntimeTask) -> std::result::Result<(), AsyncRuntimeTask> {
@@ -3443,10 +3545,16 @@ mod combined_feature_tests {
     try_shutdown_async_runtime().unwrap();
     wait_for_retirement();
     FAIL_CUSTOM_START.store(true, Ordering::SeqCst);
+    let shutdowns_before_failed_start = CUSTOM_SHUTDOWNS.load(Ordering::SeqCst);
     let error = try_start_async_runtime().expect_err("custom startup failure must be reported");
     assert!(error
       .reason
       .contains("injected custom runtime start failure"));
+    assert_eq!(
+      CUSTOM_SHUTDOWNS.load(Ordering::SeqCst),
+      shutdowns_before_failed_start + 1,
+      "a failed custom start must be rolled back through the shutdown hook"
+    );
     assert!(!CUSTOM_RUNNING.load(Ordering::SeqCst));
     let error = std::panic::catch_unwind(|| spawn(async {}))
       .expect_err("failed combined startup must roll Tokio back to stopped");
