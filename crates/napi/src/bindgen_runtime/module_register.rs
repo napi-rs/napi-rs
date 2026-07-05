@@ -824,19 +824,30 @@ fn increment_module_count() -> usize {
   feature = "napi4"
 ))]
 fn decrement_runtime_module_count() {
-  let should_shutdown = {
-    let _guard = RUNTIME_MODULE_LOCK
-      .lock()
-      .unwrap_or_else(std::sync::PoisonError::into_inner);
-    MODULE_COUNT.fetch_sub(1, Ordering::AcqRel) == 1
-  };
-  if should_shutdown {
+  decrement_runtime_module_count_with_last(|| {
     #[cfg(all(feature = "tokio_rt", not(feature = "async-runtime")))]
     if let Err(error) = crate::tokio_runtime::shutdown_tokio_runtime() {
       crate::bindgen_runtime::catch_unwind_safely(|| {
         eprintln!("Failed to shut down Tokio runtime: {error}");
       });
     }
+  });
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "tokio_rt", feature = "async-runtime"),
+  feature = "napi4"
+))]
+fn decrement_runtime_module_count_with_last(on_last: impl FnOnce()) {
+  // Keep registration excluded until the last environment has committed its runtime shutdown.
+  // Otherwise a new environment can increment zero to one, observe the old runtime as running,
+  // and then have the retiring environment stop it.
+  let _guard = RUNTIME_MODULE_LOCK
+    .lock()
+    .unwrap_or_else(std::sync::PoisonError::into_inner);
+  if MODULE_COUNT.fetch_sub(1, Ordering::AcqRel) == 1 {
+    on_last();
   }
 }
 
@@ -889,6 +900,61 @@ unsafe extern "C" fn thread_cleanup(
   crate::bindgen_runtime::catch_unwind_safely(|| {
     cleanup_runtime_env(&cleanup);
   });
+}
+
+#[cfg(all(
+  test,
+  not(feature = "noop"),
+  any(feature = "tokio_rt", feature = "async-runtime"),
+  feature = "napi4"
+))]
+mod runtime_module_count_tests {
+  use std::sync::mpsc;
+  use std::time::Duration;
+
+  use super::*;
+
+  #[test]
+  fn last_environment_shutdown_excludes_new_registration() {
+    let original_count = MODULE_COUNT.swap(1, Ordering::AcqRel);
+    assert_eq!(
+      original_count, 0,
+      "module count must be unused by Rust unit tests"
+    );
+
+    let (shutdown_started_tx, shutdown_started_rx) = mpsc::channel();
+    let (release_shutdown_tx, release_shutdown_rx) = mpsc::channel();
+    let shutdown = std::thread::spawn(move || {
+      decrement_runtime_module_count_with_last(|| {
+        shutdown_started_tx.send(()).unwrap();
+        release_shutdown_rx.recv().unwrap();
+      });
+    });
+    shutdown_started_rx.recv().unwrap();
+
+    let (registration_done_tx, registration_done_rx) = mpsc::channel();
+    let registration = std::thread::spawn(move || {
+      let previous = increment_module_count();
+      registration_done_tx.send(previous).unwrap();
+    });
+    assert!(
+      registration_done_rx
+        .recv_timeout(Duration::from_millis(50))
+        .is_err(),
+      "registration must wait until the previous runtime shutdown is committed"
+    );
+
+    release_shutdown_tx.send(()).unwrap();
+    shutdown.join().unwrap();
+    assert_eq!(
+      registration_done_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap(),
+      0
+    );
+    registration.join().unwrap();
+    assert_eq!(MODULE_COUNT.swap(0, Ordering::AcqRel), 1);
+  }
 }
 
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
