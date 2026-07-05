@@ -109,7 +109,7 @@ fn custom_runtime_helper_signatures_are_feature_stable() {
 #[test]
 fn tokio_runtime_helper_signatures_remain_compatible() {
   use napi::bindgen_prelude::{
-    async_runtime_retirement_waiter, spawn, spawn_blocking, AsyncRuntimeRetirementWaiter,
+    spawn, spawn_blocking, tokio_runtime_retirement_waiter, TokioRuntimeRetirementWaiter,
   };
 
   fn assert_spawn_signature() -> tokio::task::JoinHandle<()> {
@@ -120,15 +120,15 @@ fn tokio_runtime_helper_signatures_remain_compatible() {
     spawn_blocking(|| 42)
   }
 
-  fn assert_retirement_waiter_signature() -> AsyncRuntimeRetirementWaiter {
-    async_runtime_retirement_waiter()
+  fn assert_retirement_waiter_signature() -> TokioRuntimeRetirementWaiter {
+    tokio_runtime_retirement_waiter()
   }
 
-  fn assert_retirement_wait_signature(waiter: &AsyncRuntimeRetirementWaiter) -> napi::Result<()> {
+  fn assert_retirement_wait_signature(waiter: &TokioRuntimeRetirementWaiter) -> napi::Result<()> {
     waiter.wait()
   }
 
-  fn assert_retirement_cancel_signature(waiter: &AsyncRuntimeRetirementWaiter) {
+  fn assert_retirement_cancel_signature(waiter: &TokioRuntimeRetirementWaiter) {
     waiter.cancel();
   }
 
@@ -136,8 +136,8 @@ fn tokio_runtime_helper_signatures_remain_compatible() {
 
   let _ = assert_spawn_signature as fn() -> tokio::task::JoinHandle<()>;
   let _ = assert_spawn_blocking_signature as fn() -> tokio::task::JoinHandle<u8>;
-  let _ = assert_retirement_waiter_signature as fn() -> AsyncRuntimeRetirementWaiter;
-  let _ = assert_retirement_wait_signature as fn(&AsyncRuntimeRetirementWaiter) -> napi::Result<()>;
-  let _ = assert_retirement_cancel_signature as fn(&AsyncRuntimeRetirementWaiter);
-  assert_waiter_traits::<AsyncRuntimeRetirementWaiter>();
+  let _ = assert_retirement_waiter_signature as fn() -> TokioRuntimeRetirementWaiter;
+  let _ = assert_retirement_wait_signature as fn(&TokioRuntimeRetirementWaiter) -> napi::Result<()>;
+  let _ = assert_retirement_cancel_signature as fn(&TokioRuntimeRetirementWaiter);
+  assert_waiter_traits::<TokioRuntimeRetirementWaiter>();
 }

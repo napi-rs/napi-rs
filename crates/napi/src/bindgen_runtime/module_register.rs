@@ -377,36 +377,17 @@ pub unsafe extern "C" fn napi_register_module_v1(
       active: AtomicBool::new(true),
     }));
     #[cfg(not(target_family = "wasm"))]
-    {
-      let status =
-        unsafe { sys::napi_add_env_cleanup_hook(env, Some(thread_cleanup), cleanup_data.cast()) };
-      if status != sys::Status::napi_ok {
-        drop(unsafe { Box::from_raw(cleanup_data) });
-        decrement_runtime_module_count();
-        check_status_or_throw!(env, status, "Failed to add env cleanup hook");
-        FIRST_MODULE_REGISTERED.store(true, Ordering::SeqCst);
-        return exports;
-      }
-    }
+    let status =
+      unsafe { sys::napi_add_env_cleanup_hook(env, Some(thread_cleanup), cleanup_data.cast()) };
     #[cfg(target_family = "wasm")]
-    {
-      let status = unsafe {
-        sys::napi_wrap(
-          env,
-          exports,
-          cleanup_data.cast(),
-          Some(thread_cleanup),
-          ptr::null_mut(),
-          ptr::null_mut(),
-        )
-      };
-      if status != sys::Status::napi_ok {
-        drop(unsafe { Box::from_raw(cleanup_data) });
-        decrement_runtime_module_count();
-        check_status_or_throw!(env, status, "Failed to add env cleanup finalizer");
-        FIRST_MODULE_REGISTERED.store(true, Ordering::SeqCst);
-        return exports;
-      }
+    let status =
+      unsafe { crate::napi_add_env_cleanup_hook(env, Some(thread_cleanup), cleanup_data.cast()) };
+    if status != sys::Status::napi_ok {
+      drop(unsafe { Box::from_raw(cleanup_data) });
+      decrement_runtime_module_count();
+      check_status_or_throw!(env, status, "Failed to add env cleanup hook");
+      FIRST_MODULE_REGISTERED.store(true, Ordering::SeqCst);
+      return exports;
     }
 
     #[cfg(all(
@@ -417,7 +398,7 @@ pub unsafe extern "C" fn napi_register_module_v1(
     #[cfg(feature = "async-runtime")]
     {
       if let Err(error) = crate::tokio_runtime::register_async_runtime_env() {
-        rollback_runtime_env(env, exports, cleanup_data);
+        rollback_runtime_env(env, cleanup_data);
         JsError::from(error).throw_into(env);
         FIRST_MODULE_REGISTERED.store(true, Ordering::SeqCst);
         return exports;
@@ -425,7 +406,7 @@ pub unsafe extern "C" fn napi_register_module_v1(
     }
     #[cfg(all(feature = "tokio_rt", not(feature = "async-runtime")))]
     if let Err(error) = crate::tokio_runtime::start_tokio_runtime() {
-      rollback_runtime_env(env, exports, cleanup_data);
+      rollback_runtime_env(env, cleanup_data);
       JsError::from(error).throw_into(env);
       FIRST_MODULE_REGISTERED.store(true, Ordering::SeqCst);
       return exports;
@@ -435,7 +416,7 @@ pub unsafe extern "C" fn napi_register_module_v1(
 
   #[cfg(feature = "async-runtime")]
   if let Err(error) = crate::tokio_runtime::ensure_async_runtime_ready() {
-    rollback_runtime_env(env, exports, _runtime_cleanup);
+    rollback_runtime_env(env, _runtime_cleanup);
     JsError::from(error).throw_into(env);
     FIRST_MODULE_REGISTERED.store(true, Ordering::SeqCst);
     return exports;
@@ -763,8 +744,7 @@ struct RuntimeEnvCleanup {
   all(
     any(feature = "tokio_rt", feature = "async-runtime"),
     feature = "napi4"
-  ),
-  not(target_family = "wasm")
+  )
 ))]
 unsafe extern "C" fn thread_cleanup(data: *mut std::ffi::c_void) {
   let cleanup = unsafe { Box::from_raw(data.cast::<RuntimeEnvCleanup>()) };
@@ -791,6 +771,16 @@ fn cleanup_runtime_env(cleanup: &RuntimeEnvCleanup) {
   ))]
   crate::tokio_runtime::cancel_runtime_env_tasks(env);
   #[cfg(feature = "async-runtime")]
+  crate::tokio_runtime::with_async_runtime_operation_guard(|| {
+    crate::sendable_resolver::clear_resolvers_for_env(env);
+    crate::js_values::clear_finalize_callbacks_for_env(env);
+  });
+  #[cfg(not(feature = "async-runtime"))]
+  {
+    crate::sendable_resolver::clear_resolvers_for_env(env);
+    crate::js_values::clear_finalize_callbacks_for_env(env);
+  }
+  #[cfg(feature = "async-runtime")]
   {
     if let Err(error) = crate::tokio_runtime::unregister_async_runtime_env() {
       crate::bindgen_runtime::catch_unwind_safely(|| {
@@ -798,8 +788,6 @@ fn cleanup_runtime_env(cleanup: &RuntimeEnvCleanup) {
       });
     }
   }
-  crate::sendable_resolver::clear_resolvers_for_env(env);
-  crate::js_values::clear_finalize_callbacks_for_env(env);
   decrement_runtime_module_count();
 }
 
@@ -864,50 +852,18 @@ fn decrement_runtime_module_count_with_last(on_last: impl FnOnce()) {
   any(feature = "tokio_rt", feature = "async-runtime"),
   feature = "napi4"
 ))]
-fn rollback_runtime_env(
-  env: sys::napi_env,
-  _exports: sys::napi_value,
-  cleanup_data: *mut RuntimeEnvCleanup,
-) {
+fn rollback_runtime_env(env: sys::napi_env, cleanup_data: *mut RuntimeEnvCleanup) {
   cleanup_runtime_env(unsafe { &*cleanup_data });
 
   #[cfg(not(target_family = "wasm"))]
-  {
-    let status =
-      unsafe { sys::napi_remove_env_cleanup_hook(env, Some(thread_cleanup), cleanup_data.cast()) };
-    if status == sys::Status::napi_ok {
-      drop(unsafe { Box::from_raw(cleanup_data) });
-    }
-  }
-
+  let status =
+    unsafe { sys::napi_remove_env_cleanup_hook(env, Some(thread_cleanup), cleanup_data.cast()) };
   #[cfg(target_family = "wasm")]
-  {
-    let mut removed = ptr::null_mut();
-    let status = unsafe { sys::napi_remove_wrap(env, _exports, &mut removed) };
-    if status == sys::Status::napi_ok && removed == cleanup_data.cast() {
-      drop(unsafe { Box::from_raw(removed.cast::<RuntimeEnvCleanup>()) });
-    }
+  let status =
+    unsafe { crate::napi_remove_env_cleanup_hook(env, Some(thread_cleanup), cleanup_data.cast()) };
+  if status == sys::Status::napi_ok {
+    drop(unsafe { Box::from_raw(cleanup_data) });
   }
-}
-
-#[cfg(all(
-  not(feature = "noop"),
-  all(
-    any(feature = "tokio_rt", feature = "async-runtime"),
-    feature = "napi4"
-  ),
-  target_family = "wasm"
-))]
-unsafe extern "C" fn thread_cleanup(
-  env: sys::napi_env,
-  data: *mut std::ffi::c_void,
-  _finalize_hint: *mut std::ffi::c_void,
-) {
-  let cleanup = unsafe { Box::from_raw(data.cast::<RuntimeEnvCleanup>()) };
-  debug_assert_eq!(cleanup.env, env);
-  crate::bindgen_runtime::catch_unwind_safely(|| {
-    cleanup_runtime_env(&cleanup);
-  });
 }
 
 #[cfg(all(

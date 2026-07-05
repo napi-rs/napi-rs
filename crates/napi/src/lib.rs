@@ -54,12 +54,13 @@
 //! `spawn_on_custom_runtime` returns a napi-owned joinable handle over the
 //! `AsyncRuntime` submission hook, and
 //! `spawn_blocking_on_custom_runtime` completes its handle as cancelled when the backend
-//! declines. napi does not create an unbounded fallback thread. Under the `noop` feature
-//! the explicit custom-runtime helpers are unavailable to callers. Explicit shutdown also closes
-//! synchronous custom-runtime block-on and entry until restart; shutdown waits for an entry
-//! already in progress to return and drop its runtime guard. Exported callbacks should use
-//! `try_block_on_custom_runtime` when they need custom routing and a JavaScript exception instead
-//! of the compatibility wrapper's Rust panic.
+//! declines. Backends may synchronously drive a submitted task or blocking closure inside the
+//! corresponding hook; the first poll or invocation commits acceptance. napi does not create an
+//! unbounded fallback thread. Under the `noop` feature the explicit custom-runtime helpers are
+//! unavailable to callers. Explicit shutdown also closes synchronous custom-runtime block-on and
+//! entry until restart; shutdown waits for an entry already in progress to return and drop its
+//! runtime guard. Exported callbacks should use `try_block_on_custom_runtime` when they need custom
+//! routing and a JavaScript exception instead of the compatibility wrapper's Rust panic.
 //!
 //! ### latin1
 //!
@@ -97,6 +98,15 @@
 #[link(wasm_import_module = "napi")]
 extern "C" {
   fn napi_add_env_cleanup_hook(
+    env: sys::napi_env,
+    fun: Option<unsafe extern "C" fn(arg: *mut core::ffi::c_void)>,
+    arg: *mut core::ffi::c_void,
+  ) -> sys::napi_status;
+  #[cfg(all(
+    any(feature = "tokio_rt", feature = "async-runtime"),
+    feature = "napi4"
+  ))]
+  fn napi_remove_env_cleanup_hook(
     env: sys::napi_env,
     fun: Option<unsafe extern "C" fn(arg: *mut core::ffi::c_void)>,
     arg: *mut core::ffi::c_void,

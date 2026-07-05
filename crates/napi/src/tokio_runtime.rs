@@ -160,20 +160,20 @@ struct DeferredAsyncRuntimeCancellation {
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 enum AsyncRuntimeSubmissionState {
-  Pending {
+  Submitting {
     cancellation: Option<DeferredAsyncRuntimeCancellation>,
-    waker: Option<Waker>,
   },
   Accepted,
+  Started,
   Failed(Option<Error>),
 }
 
 /// Keeps task cancellation pending until an [`AsyncRuntime`] submission hook has returned.
 ///
-/// Rust drops arguments while unwinding through a panicking hook. Without this barrier, that
-/// drop settles the task as generically cancelled before napi can convert the panic payload into
-/// a useful error. It also prevents a backend that retained the task before panicking from
-/// polling user work after the failed submission.
+/// Rust drops arguments while unwinding through a panicking hook. Deferring cancellation until
+/// the hook outcome is known preserves the panic diagnostic. The first task poll or blocking-work
+/// invocation commits ownership so a backend may synchronously drive accepted work before its hook
+/// returns. A hook failure can still reject retained work that has not started.
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 struct AsyncRuntimeSubmission {
   state: Mutex<AsyncRuntimeSubmissionState>,
@@ -183,36 +183,30 @@ struct AsyncRuntimeSubmission {
 impl AsyncRuntimeSubmission {
   fn new() -> Self {
     Self {
-      state: Mutex::new(AsyncRuntimeSubmissionState::Pending {
-        cancellation: None,
-        waker: None,
-      }),
+      state: Mutex::new(AsyncRuntimeSubmissionState::Submitting { cancellation: None }),
     }
   }
 
-  fn poll(&self, cx: &mut Context<'_>) -> Poll<Result<()>> {
+  #[must_use]
+  fn start(&self) -> bool {
     let mut state = self
       .state
       .lock()
       .unwrap_or_else(std::sync::PoisonError::into_inner);
     match &mut *state {
-      AsyncRuntimeSubmissionState::Pending { waker, .. } => {
-        let replaced = waker.replace(cx.waker().clone());
-        drop(state);
-        if let Some(replaced) = replaced {
-          drop_safely(replaced);
+      AsyncRuntimeSubmissionState::Submitting { cancellation } => {
+        if cancellation.is_some() {
+          return false;
         }
-        Poll::Pending
+        *state = AsyncRuntimeSubmissionState::Started;
+        true
       }
-      AsyncRuntimeSubmissionState::Accepted => Poll::Ready(Ok(())),
-      AsyncRuntimeSubmissionState::Failed(error) => {
-        Poll::Ready(Err(error.take().unwrap_or_else(|| {
-          Error::new(
-            crate::Status::GenericFailure,
-            "The AsyncRuntime task submission failed",
-          )
-        })))
+      AsyncRuntimeSubmissionState::Accepted => {
+        *state = AsyncRuntimeSubmissionState::Started;
+        true
       }
+      AsyncRuntimeSubmissionState::Started => true,
+      AsyncRuntimeSubmissionState::Failed(_) => false,
     }
   }
 
@@ -223,12 +217,14 @@ impl AsyncRuntimeSubmission {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
       match &mut *state {
-        AsyncRuntimeSubmissionState::Pending { cancellation, .. } => {
+        AsyncRuntimeSubmissionState::Submitting { cancellation } => {
           debug_assert!(cancellation.is_none());
           *cancellation = Some(DeferredAsyncRuntimeCancellation { callback, error });
           None
         }
-        AsyncRuntimeSubmissionState::Accepted => Some((callback, error)),
+        AsyncRuntimeSubmissionState::Accepted | AsyncRuntimeSubmissionState::Started => {
+          Some((callback, error))
+        }
         AsyncRuntimeSubmissionState::Failed(submission_error) => {
           Some((callback, submission_error.take().or(error)))
         }
@@ -241,20 +237,21 @@ impl AsyncRuntimeSubmission {
 
   #[must_use]
   fn accept(&self) -> bool {
-    let (accepted, cancellation, waker) = {
+    let (accepted, cancellation) = {
       let mut state = self
         .state
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
       match std::mem::replace(&mut *state, AsyncRuntimeSubmissionState::Accepted) {
-        AsyncRuntimeSubmissionState::Pending {
-          cancellation,
-          waker,
-        } => (true, cancellation, waker),
-        AsyncRuntimeSubmissionState::Accepted => (true, None, None),
+        AsyncRuntimeSubmissionState::Submitting { cancellation } => (true, cancellation),
+        AsyncRuntimeSubmissionState::Accepted => (true, None),
+        AsyncRuntimeSubmissionState::Started => {
+          *state = AsyncRuntimeSubmissionState::Started;
+          (true, None)
+        }
         AsyncRuntimeSubmissionState::Failed(error) => {
           *state = AsyncRuntimeSubmissionState::Failed(error);
-          (false, None, None)
+          (false, None)
         }
       }
     };
@@ -263,14 +260,11 @@ impl AsyncRuntimeSubmission {
         (cancellation.callback)(cancellation.error);
       });
     }
-    if let Some(waker) = waker {
-      crate::bindgen_runtime::catch_unwind_safely(|| waker.wake());
-    }
     accepted
   }
 
   fn fail(&self, error: Error) {
-    let (cancellation, waker) = {
+    let cancellation = {
       let mut state = self
         .state
         .lock()
@@ -279,34 +273,31 @@ impl AsyncRuntimeSubmission {
         &mut *state,
         AsyncRuntimeSubmissionState::Failed(Some(error)),
       ) {
-        AsyncRuntimeSubmissionState::Pending {
-          cancellation,
-          waker,
-        } => {
-          let cancellation = cancellation.map(|cancellation| {
+        AsyncRuntimeSubmissionState::Submitting { cancellation } => {
+          cancellation.map(|cancellation| {
             let error = match &mut *state {
               AsyncRuntimeSubmissionState::Failed(error) => error.take(),
               _ => unreachable!(),
             };
             (cancellation.callback, error)
-          });
-          (cancellation, waker)
+          })
         }
         AsyncRuntimeSubmissionState::Accepted => {
           *state = AsyncRuntimeSubmissionState::Accepted;
-          (None, None)
+          None
+        }
+        AsyncRuntimeSubmissionState::Started => {
+          *state = AsyncRuntimeSubmissionState::Started;
+          None
         }
         AsyncRuntimeSubmissionState::Failed(previous_error) => {
           *state = AsyncRuntimeSubmissionState::Failed(previous_error);
-          (None, None)
+          None
         }
       }
     };
     if let Some((callback, error)) = cancellation {
       crate::bindgen_runtime::catch_unwind_safely(|| callback(error));
-    }
-    if let Some(waker) = waker {
-      crate::bindgen_runtime::catch_unwind_safely(|| waker.wake());
     }
   }
 }
@@ -376,29 +367,27 @@ impl Future for AsyncRuntimeTask {
   type Output = ();
 
   fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+    let _operation = RuntimeOperationGuard::enter();
     if let Some(submission) = self.submission.as_ref() {
-      let submission_poll = std::panic::catch_unwind(AssertUnwindSafe(|| submission.poll(cx)));
-      match submission_poll {
+      let start = std::panic::catch_unwind(AssertUnwindSafe(|| submission.start()));
+      match start {
         Err(reason) => {
-          self.submission = None;
-          self.cancel_and_drop(Some(crate::bindgen_runtime::panic_to_error(reason)));
+          submission.fail(crate::bindgen_runtime::panic_to_error(reason));
+          self.cancel_and_drop(None);
           return Poll::Ready(());
         }
-        Ok(Poll::Ready(Err(error))) => {
-          self.submission = None;
-          self.cancel_and_drop(Some(error));
+        Ok(false) => {
+          self.cancel_and_drop(None);
           return Poll::Ready(());
         }
-        Ok(Poll::Ready(Ok(()))) => {
+        Ok(true) => {
           self.submission = None;
         }
-        Ok(Poll::Pending) => return Poll::Pending,
       }
     }
     let Some(future) = self.future.as_mut() else {
       return Poll::Ready(());
     };
-    let _operation = RuntimeOperationGuard::enter();
     let poll = std::panic::catch_unwind(AssertUnwindSafe(|| future.as_mut().poll(cx)));
     match poll {
       Err(reason) => {
@@ -550,10 +539,10 @@ mod tokio_retirement_waiter_tests {
     generation: usize,
   ) -> (
     Arc<TokioRuntimeRetirementSignal>,
-    AsyncRuntimeRetirementWaiter,
+    TokioRuntimeRetirementWaiter,
   ) {
     let retirement = Arc::new(TokioRuntimeRetirementSignal::new(generation, None));
-    let waiter = AsyncRuntimeRetirementWaiter::new(Some(Arc::clone(&retirement)));
+    let waiter = TokioRuntimeRetirementWaiter::new(Some(Arc::clone(&retirement)));
     (retirement, waiter)
   }
 
@@ -642,7 +631,7 @@ mod tokio_retirement_waiter_tests {
       10_006,
       Some(runtime.handle().id()),
     ));
-    let waiter = AsyncRuntimeRetirementWaiter::new(Some(retirement));
+    let waiter = TokioRuntimeRetirementWaiter::new(Some(retirement));
 
     let error = runtime
       .block_on(async { waiter.wait() })
@@ -662,7 +651,7 @@ mod tokio_retirement_waiter_tests {
       10_007,
       Some(retiring_runtime.handle().id()),
     ));
-    let waiter = AsyncRuntimeRetirementWaiter::new(Some(Arc::clone(&retirement)));
+    let waiter = TokioRuntimeRetirementWaiter::new(Some(Arc::clone(&retirement)));
     let completion = std::thread::spawn(move || {
       std::thread::sleep(Duration::from_millis(50));
       retirement.complete();
@@ -677,7 +666,7 @@ mod tokio_retirement_waiter_tests {
   #[test]
   fn retirement_thread_spawn_failure_is_terminal_and_does_not_drop_inline() {
     let retirement = Arc::new(TokioRuntimeRetirementSignal::new(10_008, None));
-    let waiter = AsyncRuntimeRetirementWaiter::new(Some(Arc::clone(&retirement)));
+    let waiter = TokioRuntimeRetirementWaiter::new(Some(Arc::clone(&retirement)));
     let runtime = tokio::runtime::Builder::new_current_thread()
       .build()
       .unwrap();
@@ -697,7 +686,7 @@ mod tokio_retirement_waiter_tests {
   #[test]
   fn runtime_drop_panic_is_a_terminal_retirement_failure() {
     let retirement = Arc::new(TokioRuntimeRetirementSignal::new(10_009, None));
-    let waiter = AsyncRuntimeRetirementWaiter::new(Some(Arc::clone(&retirement)));
+    let waiter = TokioRuntimeRetirementWaiter::new(Some(Arc::clone(&retirement)));
     let runtime = tokio::runtime::Builder::new_current_thread()
       .build()
       .unwrap();
@@ -924,11 +913,14 @@ pub trait AsyncRuntime: Send + Sync + 'static {
   /// task dropped later during runtime shutdown. Never forget an accepted task: retain it
   /// until completion or drop it on cancellation.
   ///
-  /// Panic handling is already done by napi. Poll the task directly and do not bypass its
-  /// `Drop` implementation. napi marks every poll as a runtime operation, so lifecycle calls
-  /// made recursively by task code return an error instead of waiting on the task itself.
-  /// Terminal cancellation callbacks and future destructors receive the same protection,
-  /// including when queued tasks are dropped unpolled on a runtime worker during shutdown.
+  /// A backend may poll the task synchronously before this hook returns. The first poll commits
+  /// ownership and may run user work immediately; after that point returning `Err(task)` or
+  /// panicking cannot roll back effects that already occurred. Panic handling is already done by
+  /// napi. Poll the task directly and do not bypass its `Drop` implementation. napi marks every
+  /// poll as a runtime operation, so lifecycle calls made recursively by task code return an error
+  /// instead of waiting on the task itself. Terminal cancellation callbacks and future destructors
+  /// receive the same protection, including when queued tasks are dropped unpolled on a runtime
+  /// worker during shutdown.
   fn spawn(&self, task: AsyncRuntimeTask) -> std::result::Result<(), AsyncRuntimeTask>;
 
   /// Block the current thread, fully driving the pinned future to completion before
@@ -977,10 +969,10 @@ pub trait AsyncRuntime: Send + Sync + 'static {
 
   /// Shut the runtime down.
   ///
-  /// napi installs cleanup ownership for every Node environment and calls this after the last
-  /// live environment exits. On wasm, host finalization still determines when the exports
-  /// finalizer runs. An explicit `shutdown_async_runtime` call can also invoke this while
-  /// environments remain live. Stop accepting work before returning and drop queued
+  /// napi installs cleanup ownership for every Node environment, on native and wasm hosts, and
+  /// calls this after the last live environment exits. An explicit `shutdown_async_runtime` call
+  /// can also invoke this while environments remain live. Stop accepting work before returning
+  /// and drop queued
   /// [`AsyncRuntimeTask`] values so their promises are cancelled. If already-running blocking
   /// work cannot be interrupted, keep that scheduler generation in a retiring state and do
   /// not allow a later successful [`start`](AsyncRuntime::start) to overlap its worker
@@ -1004,12 +996,14 @@ pub trait AsyncRuntime: Send + Sync + 'static {
   /// work: run it exactly once or drop it during cancellation. The default implementation
   /// declines.
   ///
-  /// Panic handling is napi's: the closure is already wrapped in `catch_unwind` before it
-  /// reaches this hook and a panic is surfaced as a `JoinError` through the caller's
-  /// `JoinHandle`, so just run it — do not add another panic layer. napi marks the closure
-  /// invocation as a runtime operation, so recursive lifecycle calls return an error instead
-  /// of waiting on the closure itself. Dropping queued work without invoking it receives the
-  /// same protection around cancellation and every captured value's destructor.
+  /// The backend may invoke the closure synchronously before this hook returns. Invocation commits
+  /// ownership, so a later hook panic cannot replace the closure's result. Panic handling is
+  /// napi's: the closure is already wrapped in `catch_unwind` before it reaches this hook and a
+  /// panic is surfaced as a `JoinError` through the caller's `JoinHandle`, so just run it — do not
+  /// add another panic layer. napi marks the closure invocation as a runtime operation, so
+  /// recursive lifecycle calls return an error instead of waiting on the closure itself. Dropping
+  /// queued work without invoking it receives the same protection around cancellation and every
+  /// captured value's destructor.
   fn spawn_blocking(
     &self,
     work: Box<dyn FnOnce() + Send + 'static>,
@@ -1101,6 +1095,12 @@ impl Drop for RuntimeOperationGuard {
   fn drop(&mut self) {
     RUNTIME_SUBMISSION_DEPTH.with(|depth| depth.set(depth.get() - 1));
   }
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+pub(crate) fn with_async_runtime_operation_guard<T>(f: impl FnOnce() -> T) -> T {
+  let _operation = RuntimeOperationGuard::enter();
+  f()
 }
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
@@ -1359,10 +1359,8 @@ pub fn try_create_custom_async_runtime<R: AsyncRuntime>(runtime: R) -> Result<()
 pub(crate) fn register_async_runtime_env() -> Result<()> {
   let should_start = {
     let mut lifecycle = wait_for_runtime_transition(runtime_lifecycle())?;
-    let was_empty = lifecycle.active_envs == 0;
     lifecycle.active_envs += 1;
-    was_empty
-      && lifecycle.auto_start_enabled
+    lifecycle.auto_start_enabled
       && CUSTOM_ASYNC_RUNTIME.get().is_some()
       && lifecycle.state != RuntimeLifecycleState::Running
   };
@@ -1993,7 +1991,7 @@ impl TokioRuntimeRetirementSignal {
       if cancelled.load(Ordering::Acquire) {
         return Err(Error::new(
           crate::Status::Cancelled,
-          "Async runtime retirement wait was cancelled",
+          "Tokio runtime retirement wait was cancelled",
         ));
       }
       match &*status {
@@ -2022,7 +2020,7 @@ impl TokioRuntimeRetirementSignal {
 }
 
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
-struct AsyncRuntimeRetirementWaiterInner {
+struct TokioRuntimeRetirementWaiterInner {
   retirement: Option<Arc<TokioRuntimeRetirementSignal>>,
   cancelled: AtomicBool,
 }
@@ -2035,15 +2033,15 @@ struct AsyncRuntimeRetirementWaiterInner {
 /// retirement has already reached a terminal state is a no-op.
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 #[derive(Clone)]
-pub struct AsyncRuntimeRetirementWaiter {
-  inner: Arc<AsyncRuntimeRetirementWaiterInner>,
+pub struct TokioRuntimeRetirementWaiter {
+  inner: Arc<TokioRuntimeRetirementWaiterInner>,
 }
 
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
-impl AsyncRuntimeRetirementWaiter {
+impl TokioRuntimeRetirementWaiter {
   fn new(retirement: Option<Arc<TokioRuntimeRetirementSignal>>) -> Self {
     Self {
-      inner: Arc::new(AsyncRuntimeRetirementWaiterInner {
+      inner: Arc::new(TokioRuntimeRetirementWaiterInner {
         retirement,
         cancelled: AtomicBool::new(false),
       }),
@@ -2078,13 +2076,13 @@ impl AsyncRuntimeRetirementWaiter {
 /// The returned waiter can be moved to a blocking worker while a clone is retained by an
 /// environment cancellation owner. It does not borrow or retain a napi environment.
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
-pub fn async_runtime_retirement_waiter() -> AsyncRuntimeRetirementWaiter {
+pub fn tokio_runtime_retirement_waiter() -> TokioRuntimeRetirementWaiter {
   let retirement = TOKIO_RUNTIME_STATE
     .lock()
     .unwrap_or_else(std::sync::PoisonError::into_inner)
     .retiring
     .clone();
-  AsyncRuntimeRetirementWaiter::new(retirement)
+  TokioRuntimeRetirementWaiter::new(retirement)
 }
 
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
@@ -2389,11 +2387,10 @@ fn finish_custom_runtime_shutdown(call_custom_shutdown: bool) -> Result<()> {
 /// So we need to ensure that the async runtime is initialized when the Node env is created.
 /// An explicit start also re-enables this environment-driven startup after an explicit shutdown.
 ///
-/// On wasm, shutdown is not tied to the Node env cleanup hook: depending on host finalization
-/// it may be triggered by the exports `napi_wrap` finalizer when the module count reaches zero,
-/// or you can call `shutdown_async_runtime` explicitly. A custom `async-runtime` backend
-/// controls its own lifetime. In some scenarios you may want to start the runtime again, e.g.
-/// in tests. This compatibility wrapper reports startup failures to stderr; use
+/// On wasm, shutdown uses the host's Node-API environment cleanup hook just like native targets,
+/// or you can call `shutdown_async_runtime` explicitly. A custom `async-runtime` backend controls
+/// its own lifetime. In some scenarios you may want to start the runtime again, e.g. in tests.
+/// This compatibility wrapper reports startup failures to stderr; use
 /// [`try_start_async_runtime`] when the caller must know that restart succeeded.
 pub fn start_async_runtime() {
   if let Err(error) = try_start_async_runtime() {
@@ -2786,7 +2783,7 @@ where
 
   fn run(mut self) {
     let _operation = RuntimeOperationGuard::enter();
-    if !self.submission.accept() {
+    if !self.submission.start() {
       return;
     }
     let func = self
@@ -3835,8 +3832,12 @@ mod tests {
   static DECLINE_SPAWN_BLOCKING: AtomicBool = AtomicBool::new(false);
   static PANIC_SPAWN: AtomicBool = AtomicBool::new(false);
   static PANIC_AFTER_RETAINING_SPAWN: AtomicBool = AtomicBool::new(false);
+  static DRIVE_SPAWN_INLINE: AtomicBool = AtomicBool::new(false);
+  static PANIC_AFTER_DRIVING_SPAWN: AtomicBool = AtomicBool::new(false);
   static PANIC_SPAWN_BLOCKING: AtomicBool = AtomicBool::new(false);
   static PANIC_AFTER_RETAINING_SPAWN_BLOCKING: AtomicBool = AtomicBool::new(false);
+  static DRIVE_SPAWN_BLOCKING_INLINE: AtomicBool = AtomicBool::new(false);
+  static PANIC_AFTER_DRIVING_SPAWN_BLOCKING: AtomicBool = AtomicBool::new(false);
   static PANIC_ENTER: AtomicBool = AtomicBool::new(false);
   static PANIC_GUARD_DROP: AtomicBool = AtomicBool::new(false);
   static PANIC_BLOCK_ON: AtomicBool = AtomicBool::new(false);
@@ -3863,8 +3864,12 @@ mod tests {
     DECLINE_SPAWN_BLOCKING.store(false, Ordering::SeqCst);
     PANIC_SPAWN.store(false, Ordering::SeqCst);
     PANIC_AFTER_RETAINING_SPAWN.store(false, Ordering::SeqCst);
+    DRIVE_SPAWN_INLINE.store(false, Ordering::SeqCst);
+    PANIC_AFTER_DRIVING_SPAWN.store(false, Ordering::SeqCst);
     PANIC_SPAWN_BLOCKING.store(false, Ordering::SeqCst);
     PANIC_AFTER_RETAINING_SPAWN_BLOCKING.store(false, Ordering::SeqCst);
+    DRIVE_SPAWN_BLOCKING_INLINE.store(false, Ordering::SeqCst);
+    PANIC_AFTER_DRIVING_SPAWN_BLOCKING.store(false, Ordering::SeqCst);
     PANIC_ENTER.store(false, Ordering::SeqCst);
     PANIC_GUARD_DROP.store(false, Ordering::SeqCst);
     PANIC_BLOCK_ON.store(false, Ordering::SeqCst);
@@ -4088,6 +4093,15 @@ mod tests {
         return Ok(());
       }
       BACKEND_SPAWN_CALLS.fetch_add(1, Ordering::SeqCst);
+      let drive_inline = DRIVE_SPAWN_INLINE.swap(false, Ordering::SeqCst);
+      let panic_after_driving = PANIC_AFTER_DRIVING_SPAWN.swap(false, Ordering::SeqCst);
+      if drive_inline || panic_after_driving {
+        futures::executor::block_on(task);
+        if panic_after_driving {
+          panic!("backend spawn panic after driving task");
+        }
+        return Ok(());
+      }
       std::thread::Builder::new()
         .name(BACKEND_WORKER_THREAD.to_owned())
         .spawn(move || {
@@ -4218,6 +4232,15 @@ mod tests {
         return Ok(());
       }
       BACKEND_BLOCKING_CALLS.fetch_add(1, Ordering::SeqCst);
+      let drive_inline = DRIVE_SPAWN_BLOCKING_INLINE.swap(false, Ordering::SeqCst);
+      let panic_after_driving = PANIC_AFTER_DRIVING_SPAWN_BLOCKING.swap(false, Ordering::SeqCst);
+      if drive_inline || panic_after_driving {
+        work();
+        if panic_after_driving {
+          panic!("backend spawn_blocking panic after driving work");
+        }
+        return Ok(());
+      }
       std::thread::Builder::new()
         .name(BACKEND_BLOCKING_THREAD.to_owned())
         .spawn(move || {
@@ -4271,6 +4294,50 @@ mod tests {
       BACKEND_BLOCKING_CALLS.load(Ordering::SeqCst),
       calls_before + 1,
       "`spawn_blocking_on_custom_runtime` must route through `AsyncRuntime::spawn_blocking`"
+    );
+  }
+
+  #[test]
+  fn custom_runtime_hooks_may_drive_work_synchronously() {
+    ensure_runtime();
+    let _guard = runtime_state_test_guard();
+
+    DRIVE_SPAWN_INLINE.store(true, Ordering::SeqCst);
+    let handle = spawn(async { 42 });
+    assert_eq!(
+      futures::executor::block_on(handle).unwrap(),
+      42,
+      "a finite task driven inside AsyncRuntime::spawn must complete without waiting for the hook"
+    );
+
+    DRIVE_SPAWN_BLOCKING_INLINE.store(true, Ordering::SeqCst);
+    let handle = spawn_blocking(|| 43);
+    assert_eq!(
+      futures::executor::block_on(handle).unwrap(),
+      43,
+      "work invoked inside AsyncRuntime::spawn_blocking must complete before the hook returns"
+    );
+  }
+
+  #[test]
+  fn work_started_synchronously_wins_over_a_later_hook_panic() {
+    ensure_runtime();
+    let _guard = runtime_state_test_guard();
+
+    PANIC_AFTER_DRIVING_SPAWN.store(true, Ordering::SeqCst);
+    let handle = spawn(async { 42 });
+    assert_eq!(
+      futures::executor::block_on(handle).unwrap(),
+      42,
+      "a hook panic cannot roll back a task that already completed"
+    );
+
+    PANIC_AFTER_DRIVING_SPAWN_BLOCKING.store(true, Ordering::SeqCst);
+    let handle = spawn_blocking(|| 43);
+    assert_eq!(
+      futures::executor::block_on(handle).unwrap(),
+      43,
+      "a hook panic cannot replace blocking work that already completed"
     );
   }
 
@@ -4935,6 +5002,48 @@ mod tests {
       "automatic last-env shutdown must remain restartable on a later zero-to-one transition"
     );
     unregister_async_runtime_env().unwrap();
+  }
+
+  #[test]
+  fn concurrent_environment_registration_finishes_pending_automatic_start() {
+    ensure_runtime();
+    let _guard = runtime_state_test_guard();
+    try_shutdown_async_runtime().unwrap();
+    let starts_before = BACKEND_START_CALLS.load(Ordering::SeqCst);
+    {
+      let mut lifecycle = runtime_lifecycle();
+      lifecycle.active_envs = 1;
+      lifecycle.auto_start_enabled = true;
+      lifecycle.state = RuntimeLifecycleState::Stopped;
+      lifecycle.startup_error = None;
+    }
+
+    register_async_runtime_env()
+      .expect("a second environment must participate in a pending automatic start");
+    ensure_async_runtime_ready().expect("the shared runtime must be ready for both environments");
+    assert_eq!(
+      BACKEND_START_CALLS.load(Ordering::SeqCst),
+      starts_before + 1
+    );
+
+    unregister_async_runtime_env().unwrap();
+    unregister_async_runtime_env().unwrap();
+  }
+
+  #[test]
+  fn cleanup_owned_destructors_cannot_transition_the_runtime() {
+    ensure_runtime();
+    let _guard = runtime_state_test_guard();
+    let (result_tx, result_rx) = mpsc::channel();
+
+    with_async_runtime_operation_guard(|| drop(ShutdownOnDrop::new(result_tx)));
+
+    let error = result_rx
+      .recv_timeout(Duration::from_secs(5))
+      .expect("the cleanup-owned destructor must return")
+      .expect_err("runtime cleanup destructors must not start lifecycle transitions");
+    assert!(error.reason.contains("inside an AsyncRuntime operation"));
+    assert_eq!(runtime_lifecycle().state, RuntimeLifecycleState::Running);
   }
 
   #[test]
@@ -5735,7 +5844,7 @@ mod combined_feature_tests {
 
   fn start_after_retirement() {
     loop {
-      async_runtime_retirement_waiter()
+      tokio_runtime_retirement_waiter()
         .wait()
         .expect("the old Tokio generation must retire cleanly");
       match try_start_async_runtime() {
@@ -5747,7 +5856,7 @@ mod combined_feature_tests {
   }
 
   fn wait_for_retirement() {
-    async_runtime_retirement_waiter()
+    tokio_runtime_retirement_waiter()
       .wait()
       .expect("Tokio runtime did not retire cleanly");
   }
@@ -5850,7 +5959,7 @@ mod combined_feature_tests {
     let (blocking_result_tx, blocking_result_rx) = mpsc::channel();
     let blocking = spawn_blocking(move || {
       blocking_started_tx.send(()).unwrap();
-      let waiter: AsyncRuntimeRetirementWaiter = blocking_waiter_rx.recv().unwrap();
+      let waiter: TokioRuntimeRetirementWaiter = blocking_waiter_rx.recv().unwrap();
       blocking_result_tx.send(waiter.wait()).unwrap();
     });
     blocking_started_rx
@@ -5862,7 +5971,7 @@ mod combined_feature_tests {
     assert_eq!(error.status, crate::Status::WouldDeadlock);
     assert!(error.reason.contains("still shutting down"));
     blocking_waiter_tx
-      .send(async_runtime_retirement_waiter())
+      .send(tokio_runtime_retirement_waiter())
       .unwrap();
     let error = blocking_result_rx
       .recv_timeout(Duration::from_secs(5))
@@ -5878,7 +5987,7 @@ mod combined_feature_tests {
     let direct = try_within_runtime_if_available(|| {
       tokio::task::spawn_blocking(move || {
         direct_started_tx.send(()).unwrap();
-        let waiter: AsyncRuntimeRetirementWaiter = direct_waiter_rx.recv().unwrap();
+        let waiter: TokioRuntimeRetirementWaiter = direct_waiter_rx.recv().unwrap();
         direct_result_tx.send(waiter.wait()).unwrap();
       })
     })
@@ -5892,7 +6001,7 @@ mod combined_feature_tests {
     assert_eq!(error.status, crate::Status::WouldDeadlock);
     assert!(error.reason.contains("still shutting down"));
     direct_waiter_tx
-      .send(async_runtime_retirement_waiter())
+      .send(tokio_runtime_retirement_waiter())
       .unwrap();
     let error = direct_result_rx
       .recv_timeout(Duration::from_secs(5))

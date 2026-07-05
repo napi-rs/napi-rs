@@ -50,6 +50,14 @@ const afterBlockOn = binding.getRuntimeMetrics()
 assert.equal(afterBlockOn.blockOnCalls, initial.blockOnCalls + 1)
 assert.ok(afterBlockOn.blockOnPolls >= initial.blockOnPolls + 2)
 
+const beforeBlockingSpawn = binding.getRuntimeMetrics()
+assert.equal(binding.spawnBlockingValue(41), 42)
+const afterBlockingSpawn = binding.getRuntimeMetrics()
+assert.equal(
+  afterBlockingSpawn.spawnBlockingCalls,
+  beforeBlockingSpawn.spawnBlockingCalls + 1,
+)
+
 const beforeAsync = binding.getRuntimeMetrics()
 assert.deepEqual(
   await Promise.all([1, 2, 3, 4].map((value) => binding.asyncDouble(value))),
@@ -71,6 +79,10 @@ if (mode === 'native') {
 const afterAsync = binding.getRuntimeMetrics()
 const expectedAsyncTasks = mode === 'native' ? 8 : 6
 assert.ok(afterAsync.spawnCalls >= beforeAsync.spawnCalls + expectedAsyncTasks)
+assert.ok(
+  afterAsync.synchronousSpawnCompletions >=
+    beforeAsync.synchronousSpawnCompletions + expectedAsyncTasks,
+)
 assert.ok(
   afterAsync.completedTasks >= beforeAsync.completedTasks + expectedAsyncTasks,
 )

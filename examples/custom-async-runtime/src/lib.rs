@@ -11,8 +11,10 @@ use std::{
 
 use futures::task::{waker_ref, ArcWake};
 use napi::bindgen_prelude::{
-  register_async_runtime, try_block_on, try_shutdown_async_runtime, try_start_async_runtime,
-  AsyncRuntime, AsyncRuntimeGuard, AsyncRuntimeTask, Env, Error, PromiseRaw, Result, Status,
+  register_async_runtime, spawn_blocking_on_custom_runtime, try_block_on,
+  try_block_on_custom_runtime, try_shutdown_async_runtime, try_start_async_runtime, AsyncRuntime,
+  AsyncRuntimeGuard, AsyncRuntimeTask, Env, Error, JsObjectValue, Object, PromiseRaw, Result,
+  Status,
 };
 use napi_derive::napi;
 
@@ -30,6 +32,8 @@ struct RuntimeState {
   exit_calls: AtomicUsize,
   active_guards: AtomicUsize,
   spawn_calls: AtomicUsize,
+  synchronous_spawn_completions: AtomicUsize,
+  spawn_blocking_calls: AtomicUsize,
   wake_calls: AtomicUsize,
   task_polls: AtomicUsize,
   completed_tasks: AtomicUsize,
@@ -138,8 +142,29 @@ impl AsyncRuntime for TestRuntime {
       runtime: Arc::downgrade(&self.state),
       queued: AtomicBool::new(false),
     });
-    self.state.enqueue(task);
+    self.state.enqueue(Arc::clone(&task));
     self.state.drain();
+    if lock(&task.future).is_none() {
+      self
+        .state
+        .synchronous_spawn_completions
+        .fetch_add(1, Ordering::Relaxed);
+    }
+    Ok(())
+  }
+
+  fn spawn_blocking(
+    &self,
+    work: Box<dyn FnOnce() + Send + 'static>,
+  ) -> std::result::Result<(), Box<dyn FnOnce() + Send + 'static>> {
+    if !self.state.accepting.load(Ordering::Acquire) {
+      return Err(work);
+    }
+    self
+      .state
+      .spawn_blocking_calls
+      .fetch_add(1, Ordering::Relaxed);
+    work();
     Ok(())
   }
 
@@ -271,6 +296,13 @@ fn init() {
   }
 }
 
+struct WrappedExports;
+
+#[napi(module_exports)]
+pub fn preserve_exports_wrap_slot(mut exports: Object) -> Result<()> {
+  exports.wrap(WrappedExports, None)
+}
+
 #[napi(object)]
 pub struct RuntimeMetrics {
   #[napi(js_name = "startCalls")]
@@ -285,6 +317,10 @@ pub struct RuntimeMetrics {
   pub active_guards: u32,
   #[napi(js_name = "spawnCalls")]
   pub spawn_calls: u32,
+  #[napi(js_name = "synchronousSpawnCompletions")]
+  pub synchronous_spawn_completions: u32,
+  #[napi(js_name = "spawnBlockingCalls")]
+  pub spawn_blocking_calls: u32,
   #[napi(js_name = "wakeCalls")]
   pub wake_calls: u32,
   #[napi(js_name = "taskPolls")]
@@ -307,6 +343,8 @@ pub fn get_runtime_metrics() -> RuntimeMetrics {
     exit_calls: load(&state.exit_calls),
     active_guards: load(&state.active_guards),
     spawn_calls: load(&state.spawn_calls),
+    synchronous_spawn_completions: load(&state.synchronous_spawn_completions),
+    spawn_blocking_calls: load(&state.spawn_blocking_calls),
     wake_calls: load(&state.wake_calls),
     task_polls: load(&state.task_polls),
     completed_tasks: load(&state.completed_tasks),
@@ -379,6 +417,18 @@ pub fn block_on_value(value: u32) -> Result<u32> {
     yield_once().await;
     value + 1
   })
+}
+
+#[napi]
+pub fn spawn_blocking_value(value: u32) -> Result<u32> {
+  try_block_on_custom_runtime(spawn_blocking_on_custom_runtime(move || value + 1))?.map_err(
+    |error| {
+      Error::new(
+        Status::GenericFailure,
+        format!("custom runtime blocking work failed: {error}"),
+      )
+    },
+  )
 }
 
 #[napi]
