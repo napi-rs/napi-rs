@@ -266,14 +266,14 @@ const BUILD_OPTIONS: CommandSchema = {
       name: 'crossCompile',
       type: 'boolean',
       description:
-        '[experimental] cross compile by replacing the cargo subcommand: Windows targets from a non-Windows host build with `cargo-xwin`, non-Windows targets build with `cargo-zigbuild` (requires `zig` on PATH). The selected subcommand is auto-installed on first use. Cannot be combined with `--use-cross` or `--use-napi-cross`',
+        '[experimental] cross compile by replacing the cargo subcommand: Windows targets from a non-Windows host build with `cargo-xwin`, non-Windows targets build with `cargo-zigbuild` (requires `zig` on PATH). The selected subcommand is auto-installed on first use. Cannot be combined with `--use-cross`, `--use-napi-cross` or `--watch`',
       short: ['x'],
     },
     {
       name: 'useCross',
       type: 'boolean',
       description:
-        '[experimental] not recommended, prefer `--cross-compile` or `--use-napi-cross`: build in a Docker or Podman container with [cross](https://github.com/cross-rs/cross), which must be installed manually and needs a running container engine. Cannot be combined with `--cross-compile` or `--use-napi-cross`',
+        '[experimental] not recommended, prefer `--cross-compile` or `--use-napi-cross`: build in a Docker or Podman container with [cross](https://github.com/cross-rs/cross), which must be installed manually and needs a running container engine. Cannot be combined with `--cross-compile`, `--use-napi-cross` or `--watch`',
     },
     {
       name: 'useNapiCross',
