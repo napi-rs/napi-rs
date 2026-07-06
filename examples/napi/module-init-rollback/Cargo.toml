@@ -1,0 +1,18 @@
+[package]
+edition = "2021"
+name = "napi-module-init-rollback-fixture"
+publish = false
+version = "0.0.0"
+
+[lib]
+crate-type = ["cdylib"]
+name = "napi_module_init_rollback_fixture"
+
+[dependencies]
+napi = { path = "../../../crates/napi", default-features = false, features = [
+  "napi4",
+] }
+napi-derive = { path = "../../../crates/macro" }
+
+[build-dependencies]
+napi-build = { path = "../../../crates/build" }

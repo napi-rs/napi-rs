@@ -1,0 +1,28 @@
+error[E0277]: `Rc<Cell<i32>>` cannot be sent between threads safely
+  --> tests/build_error_tests/tsfn_thread_safety_3.rs:13:5
+   |
+10 |     tsfn.call_with_return_value(
+   |          ---------------------- required by a bound introduced by this call
+...
+13 |       move |result, _env| {
+   |       ^------------------
+   |       |
+   |  _____within this `{closure@$DIR/tests/build_error_tests/tsfn_thread_safety_3.rs:13:5: 13:24}`
+   | |
+14 | |       result?;
+15 | |       state.set(1);
+16 | |       Ok(())
+17 | |     },
+   | |_____^ `Rc<Cell<i32>>` cannot be sent between threads safely
+   |
+   = help: within `{closure@$DIR/tests/build_error_tests/tsfn_thread_safety_3.rs:13:5: 13:24}`, the trait `Send` is not implemented for `Rc<Cell<i32>>`
+note: required because it's used within this closure
+  --> tests/build_error_tests/tsfn_thread_safety_3.rs:13:5
+   |
+13 |     move |result, _env| {
+   |     ^^^^^^^^^^^^^^^^^^^
+note: required by a bound in `ThreadsafeFunction::<T, Return, CallJsBackArgs, ErrorStatus, false, Weak, MaxQueueSize>::call_with_return_value`
+  --> $WORKSPACE/crates/napi/src/threadsafe_function.rs
+   |
+   |   pub fn call_with_return_value<F: 'static + Send + FnOnce(Result<Return>, Env) -> Result<()>>(
+   |                                              ^^^^ required by this bound in `ThreadsafeFunction::<T, Return, CallJsBackArgs, ErrorStatus, false, Weak, MaxQueueSize>::call_with_return_value`

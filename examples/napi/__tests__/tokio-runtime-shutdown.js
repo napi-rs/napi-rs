@@ -1,11 +1,18 @@
 import assert from 'node:assert/strict'
+import { createRequire } from 'node:module'
 
-import { asyncPlus100, shutdownAsyncRuntimeForTest } from '../index.cjs'
+import { requireLifecycleFixture } from './lifecycle-fixture.js'
+
+const require = createRequire(import.meta.url)
+const { binding, fixture: lifecycle } = requireLifecycleFixture(
+  require,
+  '../index.cjs',
+)
 
 const pendingInput = new Promise(() => {})
-const generatedPromise = asyncPlus100(pendingInput)
+const generatedPromise = binding.asyncPlus100(pendingInput)
 
-shutdownAsyncRuntimeForTest()
+lifecycle.shutdownAsyncRuntimeForTest()
 
 let timer
 try {
@@ -24,3 +31,10 @@ try {
 } finally {
   clearTimeout(timer)
 }
+
+let stoppedPromise
+assert.doesNotThrow(() => {
+  stoppedPromise = binding.asyncMultiTwo(2)
+})
+assert.ok(stoppedPromise instanceof Promise)
+await assert.rejects(stoppedPromise, /stopped|shutting down/i)

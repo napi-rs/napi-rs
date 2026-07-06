@@ -1,5 +1,6 @@
 *.node
 *.wasm
+.pure-runtime/
 browser.js
 custom_async_runtime.wasi-browser.js
 custom_async_runtime.wasi.cjs

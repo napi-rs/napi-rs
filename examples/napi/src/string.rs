@@ -3,6 +3,20 @@ use std::path::{Path, PathBuf};
 
 use napi::{bindgen_prelude::*, JsString, JsStringLatin1, JsStringUtf16, JsStringUtf8};
 
+#[cfg(not(feature = "noop"))]
+struct RuntimeLifecycleStringCapture {
+  result_path: String,
+}
+
+#[cfg(not(feature = "noop"))]
+impl Drop for RuntimeLifecycleStringCapture {
+  fn drop(&mut self) {
+    crate::env::record_runtime_transition_probe(&self.result_path);
+    #[cfg(not(target_family = "wasm"))]
+    panic!("intentional external string finalizer capture Drop panic");
+  }
+}
+
 #[napi(object)]
 pub struct Latin1MethodsResult {
   pub length: u32,
@@ -101,6 +115,26 @@ pub fn create_external_utf16_string<'env>(env: &'env Env) -> Result<JsStringUtf1
   }
 }
 
+#[cfg(not(feature = "noop"))]
+#[napi(no_export)]
+pub fn create_runtime_lifecycle_external_utf16_probe<'env>(
+  env: &'env Env,
+  result_path: String,
+) -> Result<JsStringUtf16<'env>> {
+  let data = vec![0x0061; 16 * 1024];
+  let data_ptr = data.as_ptr();
+  let len = data.len();
+  let capture = RuntimeLifecycleStringCapture { result_path };
+  std::mem::forget(data);
+
+  unsafe {
+    JsStringUtf16::from_external(env, data_ptr, len, (data_ptr, len), move |_, (ptr, len)| {
+      drop(Vec::from_raw_parts(ptr as *mut u16, len, len));
+      let _keep_alive = &capture;
+    })
+  }
+}
+
 #[napi]
 pub fn create_external_latin1_string<'env>(env: &'env Env) -> Result<JsStringLatin1<'env>> {
   // Create Latin1 data for "External Latin1"
@@ -114,6 +148,50 @@ pub fn create_external_latin1_string<'env>(env: &'env Env) -> Result<JsStringLat
       std::mem::drop(Vec::from_raw_parts(ptr as *mut u8, len, len));
     })
   }
+}
+
+#[cfg(not(feature = "noop"))]
+#[napi(no_export)]
+pub fn create_runtime_lifecycle_external_latin1_probe<'env>(
+  env: &'env Env,
+  result_path: String,
+) -> Result<JsStringLatin1<'env>> {
+  let data = vec![b'a'; 16 * 1024];
+  let data_ptr = data.as_ptr();
+  let len = data.len();
+  std::mem::forget(data);
+
+  unsafe {
+    JsStringLatin1::from_external(
+      env,
+      data_ptr,
+      len,
+      (data_ptr, len, result_path),
+      move |_, (ptr, len, result_path)| {
+        drop(Vec::from_raw_parts(ptr as *mut u8, len, len));
+        crate::env::record_runtime_transition_probe(&result_path);
+        #[cfg(not(target_family = "wasm"))]
+        panic!("intentional external Latin-1 finalizer panic");
+      },
+    )
+  }
+}
+
+#[cfg(not(feature = "noop"))]
+pub(crate) fn install_lifecycle_fixture(fixture: &mut Object) -> Result<()> {
+  fixture.create_named_method(
+    "createRuntimeLifecycleExternalUtf16Probe",
+    create_runtime_lifecycle_external_utf16_probe_c_callback,
+  )?;
+  fixture.create_named_method(
+    "createRuntimeLifecycleExternalLatin1Probe",
+    create_runtime_lifecycle_external_latin1_probe_c_callback,
+  )
+}
+
+#[cfg(feature = "noop")]
+pub(crate) fn install_lifecycle_fixture(_fixture: &mut Object) -> Result<()> {
+  Ok(())
 }
 
 #[napi]

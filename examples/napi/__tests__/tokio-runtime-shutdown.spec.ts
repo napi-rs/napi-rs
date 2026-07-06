@@ -43,7 +43,7 @@ test('Tokio shutdown rejects generated promises and releases their resources', a
   await t.notThrowsAsync(run)
 })
 
-test('ordinary class finalizers preserve Tokio lifecycle APIs', async (t) => {
+test('ordinary live-environment finalizers may start and stop Tokio', async (t) => {
   if (process.env.WASI_TEST) {
     t.pass()
     return

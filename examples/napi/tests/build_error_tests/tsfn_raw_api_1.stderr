@@ -1,0 +1,11 @@
+error[E0599]: no method named `raw` found for reference `&ThreadsafeFunction<(), (), (), napi::Status, false>` in the current scope
+ --> tests/build_error_tests/tsfn_raw_api_1.rs:4:19
+  |
+4 |   let _raw = tsfn.raw();
+  |                   ^^^ method not found in `&ThreadsafeFunction<(), (), (), napi::Status, false>`
+
+error[E0616]: field `handle` of struct `ThreadsafeFunction` is private
+ --> tests/build_error_tests/tsfn_raw_api_1.rs:5:23
+  |
+5 |   let _handle = &tsfn.handle;
+  |                       ^^^^^^ private field

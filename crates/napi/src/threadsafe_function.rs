@@ -5,7 +5,7 @@ use std::os::raw::c_void;
 use std::ptr::{self, null_mut};
 use std::sync::{
   self,
-  atomic::{AtomicBool, AtomicPtr, Ordering},
+  atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering},
   Arc, Condvar, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard, TryLockError,
 };
 use std::thread::ThreadId;
@@ -44,8 +44,133 @@ impl From<ThreadsafeFunctionCallMode> for sys::napi_threadsafe_function_call_mod
   }
 }
 
-pub struct ThreadsafeFunctionHandle {
+#[cfg(all(feature = "internal-test-fixture", not(target_family = "wasm")))]
+type ThreadsafeFunctionNativeEnqueueHook =
+  dyn Fn(ThreadsafeFunctionCallMode) + Send + Sync + 'static;
+
+#[cfg(all(feature = "internal-test-fixture", not(target_family = "wasm")))]
+static THREADSAFE_FUNCTION_NATIVE_ENQUEUE_HOOK: Mutex<
+  Option<(usize, Arc<ThreadsafeFunctionNativeEnqueueHook>)>,
+> = Mutex::new(None);
+
+#[cfg(all(feature = "internal-test-fixture", not(target_family = "wasm")))]
+static THREADSAFE_FUNCTION_NATIVE_ENQUEUE_HOOK_ID: AtomicUsize = AtomicUsize::new(1);
+
+/// Removes a test-only native-enqueue hook when dropped.
+#[cfg(all(feature = "internal-test-fixture", not(target_family = "wasm")))]
+#[doc(hidden)]
+pub struct ThreadsafeFunctionNativeEnqueueHookGuard {
+  id: usize,
+}
+
+#[cfg(all(feature = "internal-test-fixture", not(target_family = "wasm")))]
+impl Drop for ThreadsafeFunctionNativeEnqueueHookGuard {
+  fn drop(&mut self) {
+    let mut active_hook = THREADSAFE_FUNCTION_NATIVE_ENQUEUE_HOOK
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if active_hook
+      .as_ref()
+      .is_some_and(|(active_id, _)| *active_id == self.id)
+    {
+      *active_hook = None;
+    }
+  }
+}
+
+/// Installs a process-global hook immediately before TSFN calls enter Node-API.
+///
+/// This exists only for deterministic real-addon lifecycle fixtures. The returned guard must
+/// outlive every call that can reach the hook.
+#[cfg(all(feature = "internal-test-fixture", not(target_family = "wasm")))]
+#[doc(hidden)]
+pub fn install_threadsafe_function_native_enqueue_hook<F>(
+  hook: F,
+) -> std::result::Result<ThreadsafeFunctionNativeEnqueueHookGuard, &'static str>
+where
+  F: Fn(ThreadsafeFunctionCallMode) + Send + Sync + 'static,
+{
+  let mut active_hook = THREADSAFE_FUNCTION_NATIVE_ENQUEUE_HOOK
+    .lock()
+    .unwrap_or_else(std::sync::PoisonError::into_inner);
+  if active_hook.is_some() {
+    return Err("a ThreadsafeFunction native-enqueue hook is already installed");
+  }
+  let id = THREADSAFE_FUNCTION_NATIVE_ENQUEUE_HOOK_ID.fetch_add(1, Ordering::Relaxed);
+  *active_hook = Some((id, Arc::new(hook)));
+  Ok(ThreadsafeFunctionNativeEnqueueHookGuard { id })
+}
+
+#[cfg(all(feature = "internal-test-fixture", not(target_family = "wasm")))]
+fn run_threadsafe_function_native_enqueue_hook(mode: ThreadsafeFunctionCallMode) {
+  let hook = THREADSAFE_FUNCTION_NATIVE_ENQUEUE_HOOK
+    .lock()
+    .unwrap_or_else(std::sync::PoisonError::into_inner)
+    .as_ref()
+    .map(|(_, hook)| Arc::clone(hook));
+  if let Some(hook) = hook {
+    hook(mode);
+  }
+}
+
+fn native_enqueue_mode(
+  requested_mode: ThreadsafeFunctionCallMode,
+  max_queue_size: usize,
+) -> ThreadsafeFunctionCallMode {
+  if max_queue_size == 0 {
+    // Node-API guarantees an unlimited queue cannot block. Use its nonblocking
+    // path so only bounded calls participate in waiter serialization.
+    ThreadsafeFunctionCallMode::NonBlocking
+  } else {
+    requested_mode
+  }
+}
+
+struct ThreadsafeFunctionHandle {
+  state: Arc<ThreadsafeFunctionHandleState>,
+}
+
+struct ThreadsafeFunctionFinalizeContext {
+  state: Arc<ThreadsafeFunctionHandleState>,
+}
+
+#[cfg_attr(
+  all(target_family = "wasm", feature = "noop"),
+  allow(dead_code, reason = "noop WASI builds cannot register env cleanup hooks")
+)]
+struct ThreadsafeFunctionOwnerCleanupContext {
+  state: Arc<ThreadsafeFunctionHandleState>,
+}
+
+type ThreadsafeFunctionFinalizeCallback = Box<dyn FnOnce() + Send + 'static>;
+
+enum ThreadsafeFunctionFinalizeState {
+  Unregistered,
+  Registered(ThreadsafeFunctionFinalizeCallback),
+  Finalized,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ThreadsafeFunctionFinalizeResult {
+  Unregistered,
+  ReturnedNormally,
+  Panicked,
+  AlreadyFinalized,
+}
+
+impl ThreadsafeFunctionFinalizeResult {
+  fn proves_quiescence(self) -> bool {
+    // A zero Rust-handle count only proves that wrapper drop glue completed.
+    // The thread that dropped the last wrapper may still be executing addon
+    // code, so only an explicit quiescence handshake can make unload safe.
+    matches!(self, Self::ReturnedNormally)
+  }
+}
+
+struct ThreadsafeFunctionHandleState {
   raw: AtomicPtr<sys::napi_threadsafe_function__>,
+  max_queue_size: usize,
+  owner_cleanup_context: AtomicPtr<ThreadsafeFunctionOwnerCleanupContext>,
   lifecycle: RwLock<()>,
   blocking_call: Mutex<()>,
   blocking_active: Mutex<bool>,
@@ -54,24 +179,118 @@ pub struct ThreadsafeFunctionHandle {
   closing: AtomicBool,
   aborted: RwLock<bool>,
   referred: AtomicBool,
+  finalizer: Mutex<ThreadsafeFunctionFinalizeState>,
+  rust_handle_count: AtomicUsize,
+  outstanding_payloads: AtomicUsize,
+  begin_finalize_succeeded: AtomicBool,
+  quiescence_callback_succeeded: AtomicBool,
+  callback_dropped_normally: AtomicBool,
 }
 
 impl ThreadsafeFunctionHandle {
-  /// create a Arc to hold the `ThreadsafeFunctionHandle`
-  pub fn new(raw: sys::napi_threadsafe_function) -> Arc<Self> {
+  fn new_with_max_queue_size(
+    raw: sys::napi_threadsafe_function,
+    max_queue_size: usize,
+  ) -> Arc<Self> {
     Arc::new(Self {
-      raw: AtomicPtr::new(raw),
-      lifecycle: RwLock::new(()),
-      blocking_call: Mutex::new(()),
-      blocking_active: Mutex::new(false),
-      blocking_idle: Condvar::new(),
-      owner_thread: std::thread::current().id(),
-      closing: AtomicBool::new(false),
-      aborted: RwLock::new(false),
-      referred: AtomicBool::new(true),
+      state: Arc::new(ThreadsafeFunctionHandleState {
+        raw: AtomicPtr::new(raw),
+        max_queue_size,
+        owner_cleanup_context: AtomicPtr::new(ptr::null_mut()),
+        lifecycle: RwLock::new(()),
+        blocking_call: Mutex::new(()),
+        blocking_active: Mutex::new(false),
+        blocking_idle: Condvar::new(),
+        owner_thread: std::thread::current().id(),
+        closing: AtomicBool::new(false),
+        aborted: RwLock::new(false),
+        referred: AtomicBool::new(true),
+        finalizer: Mutex::new(ThreadsafeFunctionFinalizeState::Unregistered),
+        rust_handle_count: AtomicUsize::new(0),
+        outstanding_payloads: AtomicUsize::new(0),
+        begin_finalize_succeeded: AtomicBool::new(false),
+        quiescence_callback_succeeded: AtomicBool::new(false),
+        callback_dropped_normally: AtomicBool::new(false),
+      }),
     })
   }
 
+  #[allow(clippy::arc_with_non_send_sync)]
+  fn null_with_max_queue_size(max_queue_size: usize) -> Arc<Self> {
+    Self::new_with_max_queue_size(null_mut(), max_queue_size)
+  }
+
+  fn read_lifecycle(&self) -> RwLockReadGuard<'_, ()> {
+    self.state.read_lifecycle()
+  }
+
+  fn write_lifecycle(&self) -> RwLockWriteGuard<'_, ()> {
+    self.state.write_lifecycle()
+  }
+
+  fn lock_blocking_call(&self) -> std::result::Result<MutexGuard<'_, ()>, sys::napi_status> {
+    self.state.lock_blocking_call()
+  }
+
+  fn owner_thread_must_not_block(&self) -> bool {
+    self.state.owner_thread_must_not_block()
+  }
+
+  fn retire(&self, mode: sys::napi_threadsafe_function_release_mode) -> sys::napi_status {
+    self.state.retire(mode)
+  }
+
+  fn mark_closing(&self) {
+    self.state.mark_closing();
+  }
+
+  fn is_closing(&self) -> bool {
+    self.state.is_closing()
+  }
+
+  fn start_blocking_call(&self) -> ThreadsafeFunctionBlockingCall<'_> {
+    self.state.start_blocking_call()
+  }
+
+  fn acquire_call_slot_locked(
+    &self,
+  ) -> std::result::Result<ThreadsafeFunctionCallSlot<'_>, sys::napi_status> {
+    self.state.acquire_call_slot_locked()
+  }
+
+  fn with_read_aborted<RT, F>(&self, f: F) -> RT
+  where
+    F: FnOnce(bool) -> RT,
+  {
+    self.state.with_read_aborted(f)
+  }
+
+  fn get_raw(&self) -> sys::napi_threadsafe_function {
+    self.state.get_raw()
+  }
+
+  fn set_raw(&self, raw: sys::napi_threadsafe_function) {
+    self.state.set_raw(raw);
+  }
+
+  fn is_referred(&self) -> bool {
+    self.state.referred.load(Ordering::Relaxed)
+  }
+
+  fn set_referred(&self, referred: bool) {
+    self.state.referred.store(referred, Ordering::Relaxed);
+  }
+
+  fn register_finalizer(&self, callback: ThreadsafeFunctionFinalizeCallback) -> Result<()> {
+    self.state.register_finalizer(callback)
+  }
+
+  fn new_payload_guard(&self) -> ThreadsafeFunctionPayloadGuard {
+    ThreadsafeFunctionPayloadGuard::new(Arc::clone(&self.state))
+  }
+}
+
+impl ThreadsafeFunctionHandleState {
   fn read_lifecycle(&self) -> RwLockReadGuard<'_, ()> {
     self
       .lifecycle
@@ -103,6 +322,10 @@ impl ThreadsafeFunctionHandle {
     }
   }
 
+  fn owner_thread_must_not_block(&self) -> bool {
+    self.max_queue_size != 0 && self.owner_thread == std::thread::current().id()
+  }
+
   fn retire_locked(&self, mode: sys::napi_threadsafe_function_release_mode) -> sys::napi_status {
     self.with_write_aborted(|mut aborted| {
       if *aborted {
@@ -120,19 +343,53 @@ impl ThreadsafeFunctionHandle {
   fn retire(&self, mode: sys::napi_threadsafe_function_release_mode) -> sys::napi_status {
     let status = {
       let _lifecycle_guard = self.write_lifecycle();
-      if mode == sys::ThreadsafeFunctionReleaseMode::abort {
-        self.mark_closing();
+      if self.owner_retired() {
+        sys::Status::napi_ok
+      } else {
+        if mode == sys::ThreadsafeFunctionReleaseMode::abort {
+          self.mark_closing();
+        }
+        self.retire_locked(mode)
       }
-      self.retire_locked(mode)
     };
     if mode == sys::ThreadsafeFunctionReleaseMode::abort && status == sys::Status::napi_ok {
+      // Every shared abort caller waits for the one serialized Blocking call,
+      // including callers that raced with an abort already in progress.
       self.wait_for_blocking_call();
     }
     status
   }
 
+  fn owner_retired(&self) -> bool {
+    self.with_read_aborted(|aborted| aborted)
+  }
+
+  fn record_begin_finalize_result(&self, succeeded: bool) {
+    self
+      .begin_finalize_succeeded
+      .store(succeeded, Ordering::Release);
+  }
+
+  fn record_callback_drop_result(&self, succeeded: bool) {
+    self
+      .callback_dropped_normally
+      .store(succeeded, Ordering::Release);
+  }
+
+  fn quiescence_proven(&self) -> bool {
+    self.begin_finalize_succeeded.load(Ordering::Acquire)
+      && self.quiescence_callback_succeeded.load(Ordering::Acquire)
+      && self.callback_dropped_normally.load(Ordering::Acquire)
+      && self.rust_handle_count() == 0
+      && self.outstanding_payloads() == 0
+  }
+
   fn mark_closing(&self) {
     self.closing.store(true, Ordering::Release);
+  }
+
+  fn is_closing(&self) -> bool {
+    self.closing.load(Ordering::Acquire)
   }
 
   fn start_blocking_call(&self) -> ThreadsafeFunctionBlockingCall<'_> {
@@ -158,25 +415,150 @@ impl ThreadsafeFunctionHandle {
     }
   }
 
-  fn finalize(&self) {
+  fn register_finalizer(&self, callback: ThreadsafeFunctionFinalizeCallback) -> Result<()> {
+    let _lifecycle_guard = self.write_lifecycle();
+    if self.is_closing() || self.with_read_aborted(|aborted| aborted) {
+      return Err(Error::new(
+        Status::Closing,
+        "Threadsafe Function finalizer cannot be registered after closing has started",
+      ));
+    }
+
+    let mut finalizer = self
+      .finalizer
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+    match &*finalizer {
+      ThreadsafeFunctionFinalizeState::Unregistered => {
+        *finalizer = ThreadsafeFunctionFinalizeState::Registered(callback);
+        Ok(())
+      }
+      ThreadsafeFunctionFinalizeState::Registered(_) => Err(Error::new(
+        Status::InvalidArg,
+        "Threadsafe Function finalizer has already been registered",
+      )),
+      ThreadsafeFunctionFinalizeState::Finalized => Err(Error::new(
+        Status::Closing,
+        "Threadsafe Function finalizer cannot be registered after finalization",
+      )),
+    }
+  }
+
+  fn run_finalizer(&self) -> ThreadsafeFunctionFinalizeResult {
+    let callback = {
+      let mut finalizer = self
+        .finalizer
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      match std::mem::replace(&mut *finalizer, ThreadsafeFunctionFinalizeState::Finalized) {
+        ThreadsafeFunctionFinalizeState::Registered(callback) => Some(callback),
+        ThreadsafeFunctionFinalizeState::Unregistered => {
+          return ThreadsafeFunctionFinalizeResult::Unregistered;
+        }
+        ThreadsafeFunctionFinalizeState::Finalized => {
+          return ThreadsafeFunctionFinalizeResult::AlreadyFinalized;
+        }
+      }
+    };
+
+    let mut returned_normally = false;
+    crate::bindgen_runtime::catch_unwind_safely(|| {
+      callback.expect("registered finalizer callback must be present")();
+      returned_normally = true;
+    });
+    let result = if returned_normally {
+      ThreadsafeFunctionFinalizeResult::ReturnedNormally
+    } else {
+      ThreadsafeFunctionFinalizeResult::Panicked
+    };
+    self
+      .quiescence_callback_succeeded
+      .store(result.proves_quiescence(), Ordering::Release);
+    result
+  }
+
+  fn begin_finalize(&self) {
     {
-      // Node owns the TSFN while invoking its native finalizer and deletes it
-      // after the callback returns. Stop new calls and prevent Rust Drop from
-      // releasing the finalized pointer, but never call a TSFN API from here.
+      // Node owns the TSFN while invoking this callback and deletes it after
+      // the callback returns. Retire Rust's initial owner before running any
+      // user finalizer or callback Drop, because either can synchronously drop
+      // the last Rust handle and must not reenter
+      // `napi_release_threadsafe_function` for Node's active finalizer.
       let _lifecycle_guard = self.write_lifecycle();
       self.mark_closing();
-      self.with_write_aborted(|mut aborted| {
-        *aborted = true;
+      self.with_write_aborted(|mut owner_retired| {
+        *owner_retired = true;
       });
     }
     self.wait_for_blocking_call();
+  }
+
+  fn finish_finalize(&self) {
+    let _lifecycle_guard = self.write_lifecycle();
+    self.set_raw(ptr::null_mut());
+  }
+
+  fn increment_rust_handle_count(&self) {
+    if self
+      .rust_handle_count
+      .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+        count.checked_add(1)
+      })
+      .is_err()
+    {
+      std::process::abort();
+    }
+  }
+
+  fn decrement_rust_handle_count(&self) {
+    if self
+      .rust_handle_count
+      .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+        count.checked_sub(1)
+      })
+      .is_err()
+    {
+      std::process::abort();
+    }
+  }
+
+  fn rust_handle_count(&self) -> usize {
+    self.rust_handle_count.load(Ordering::Acquire)
+  }
+
+  fn increment_outstanding_payloads(&self) {
+    if self
+      .outstanding_payloads
+      .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+        count.checked_add(1)
+      })
+      .is_err()
+    {
+      std::process::abort();
+    }
+  }
+
+  fn decrement_outstanding_payloads(&self) {
+    if self
+      .outstanding_payloads
+      .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+        count.checked_sub(1)
+      })
+      .is_err()
+    {
+      std::process::abort();
+    }
+  }
+
+  fn outstanding_payloads(&self) -> usize {
+    self.outstanding_payloads.load(Ordering::Acquire)
   }
 
   fn acquire_call_slot_locked(
     &self,
   ) -> std::result::Result<ThreadsafeFunctionCallSlot<'_>, sys::napi_status> {
     let status = self.with_read_aborted(|aborted| {
-      if aborted || self.closing.load(Ordering::Acquire) {
+      if aborted || self.is_closing() {
         sys::Status::napi_closing
       } else {
         unsafe { sys::napi_acquire_threadsafe_function(self.get_raw()) }
@@ -196,8 +578,7 @@ impl ThreadsafeFunctionHandle {
     Err(status)
   }
 
-  /// Lock `aborted` with read access, call `f` with the value of `aborted`, then unlock it
-  pub fn with_read_aborted<RT, F>(&self, f: F) -> RT
+  fn with_read_aborted<RT, F>(&self, f: F) -> RT
   where
     F: FnOnce(bool) -> RT,
   {
@@ -208,8 +589,7 @@ impl ThreadsafeFunctionHandle {
     f(*aborted_guard)
   }
 
-  /// Lock `aborted` with write access, call `f` with the `RwLockWriteGuard`, then unlock it
-  pub fn with_write_aborted<RT, F>(&self, f: F) -> RT
+  fn with_write_aborted<RT, F>(&self, f: F) -> RT
   where
     F: FnOnce(RwLockWriteGuard<bool>) -> RT,
   {
@@ -220,27 +600,150 @@ impl ThreadsafeFunctionHandle {
     f(aborted_guard)
   }
 
-  #[allow(clippy::arc_with_non_send_sync)]
-  pub fn null() -> Arc<Self> {
-    Self::new(null_mut())
-  }
-
-  pub fn get_raw(&self) -> sys::napi_threadsafe_function {
+  fn get_raw(&self) -> sys::napi_threadsafe_function {
     self.raw.load(Ordering::SeqCst)
   }
 
-  pub fn set_raw(&self, raw: sys::napi_threadsafe_function) {
+  fn set_raw(&self, raw: sys::napi_threadsafe_function) {
     self.raw.store(raw, Ordering::SeqCst)
+  }
+
+  fn release_owner_cleanup_context(&self, env: sys::napi_env) -> bool {
+    #[cfg(not(target_family = "wasm"))]
+    {
+      let cleanup_context = self
+        .owner_cleanup_context
+        .swap(ptr::null_mut(), Ordering::AcqRel);
+      if cleanup_context.is_null() {
+        return true;
+      }
+      let status = unsafe { remove_threadsafe_function_owner_cleanup_hook(env, cleanup_context) };
+      if status == sys::Status::napi_ok {
+        drop(unsafe { Box::from_raw(cleanup_context) });
+        true
+      } else {
+        // The hook still owns this box. Keep it reachable in case the
+        // environment invokes the hook later.
+        self
+          .owner_cleanup_context
+          .store(cleanup_context, Ordering::Release);
+        false
+      }
+    }
+    #[cfg(target_family = "wasm")]
+    {
+      // The WASI import for removing cleanup hooks is not available in every
+      // feature combination. Its hook context remains valid until env cleanup.
+      let _ = env;
+      true
+    }
+  }
+}
+
+unsafe fn add_threadsafe_function_owner_cleanup_hook(
+  env: sys::napi_env,
+  data: *mut ThreadsafeFunctionOwnerCleanupContext,
+) -> sys::napi_status {
+  #[cfg(not(target_family = "wasm"))]
+  {
+    unsafe {
+      sys::napi_add_env_cleanup_hook(env, Some(threadsafe_function_owner_cleanup), data.cast())
+    }
+  }
+  #[cfg(all(target_family = "wasm", not(feature = "noop")))]
+  {
+    unsafe {
+      crate::napi_add_env_cleanup_hook(env, Some(threadsafe_function_owner_cleanup), data.cast())
+    }
+  }
+  #[cfg(all(target_family = "wasm", feature = "noop"))]
+  {
+    let _ = (env, data);
+    sys::Status::napi_generic_failure
+  }
+}
+
+#[cfg(not(target_family = "wasm"))]
+unsafe fn remove_threadsafe_function_owner_cleanup_hook(
+  env: sys::napi_env,
+  data: *mut ThreadsafeFunctionOwnerCleanupContext,
+) -> sys::napi_status {
+  unsafe {
+    sys::napi_remove_env_cleanup_hook(env, Some(threadsafe_function_owner_cleanup), data.cast())
+  }
+}
+
+fn retain_threadsafe_function_ownership_for_unload_safety() {
+  #[cfg(all(not(feature = "noop"), not(target_family = "wasm")))]
+  crate::bindgen_runtime::retain_current_module_for_unload_safety();
+  // WebAssembly code is owned by the current agent's instance rather than a
+  // dynamically loaded native image. The instance remains available while
+  // that agent can execute Rust code, and terminating the agent stops that
+  // execution. There is therefore no native unload race to pin on wasm.
+}
+
+#[cfg_attr(
+  all(target_family = "wasm", feature = "noop"),
+  allow(dead_code, reason = "noop WASI builds cannot register env cleanup hooks")
+)]
+unsafe extern "C" fn threadsafe_function_owner_cleanup(data: *mut c_void) {
+  let context = unsafe { Box::<ThreadsafeFunctionOwnerCleanupContext>::from_raw(data.cast()) };
+  let state = &context.state;
+  state
+    .owner_cleanup_context
+    .store(ptr::null_mut(), Ordering::Release);
+
+  let mut owner_retired = false;
+  crate::bindgen_runtime::catch_unwind_safely(|| {
+    owner_retired = state.retire(sys::ThreadsafeFunctionReleaseMode::abort) == sys::Status::napi_ok
+      && state.owner_retired();
+  });
+  if !owner_retired {
+    retain_threadsafe_function_ownership_for_unload_safety();
+  }
+}
+
+struct ThreadsafeFunctionHandleLease {
+  state: Arc<ThreadsafeFunctionHandleState>,
+}
+
+impl ThreadsafeFunctionHandleLease {
+  fn new(state: Arc<ThreadsafeFunctionHandleState>) -> Self {
+    state.increment_rust_handle_count();
+    Self { state }
+  }
+}
+
+impl Drop for ThreadsafeFunctionHandleLease {
+  fn drop(&mut self) {
+    self.state.decrement_rust_handle_count();
+  }
+}
+
+struct ThreadsafeFunctionPayloadGuard {
+  state: Arc<ThreadsafeFunctionHandleState>,
+}
+
+impl ThreadsafeFunctionPayloadGuard {
+  fn new(state: Arc<ThreadsafeFunctionHandleState>) -> Self {
+    state.increment_outstanding_payloads();
+    Self { state }
+  }
+}
+
+impl Drop for ThreadsafeFunctionPayloadGuard {
+  fn drop(&mut self) {
+    self.state.decrement_outstanding_payloads();
   }
 }
 
 struct ThreadsafeFunctionCallSlot<'a> {
-  handle: &'a ThreadsafeFunctionHandle,
+  handle: &'a ThreadsafeFunctionHandleState,
   acquired: bool,
 }
 
 struct ThreadsafeFunctionBlockingCall<'a> {
-  handle: &'a ThreadsafeFunctionHandle,
+  handle: &'a ThreadsafeFunctionHandleState,
 }
 
 impl Drop for ThreadsafeFunctionBlockingCall<'_> {
@@ -293,11 +796,12 @@ impl Drop for ThreadsafeFunctionCallSlot<'_> {
   }
 }
 
-fn call_nonblocking_threadsafe_function_with_owned_data<T>(
+fn call_nonblocking_threadsafe_function_with_owned_data<T: Send + 'static>(
   handle: &Arc<ThreadsafeFunctionHandle>,
   data: T,
 ) -> sys::napi_status {
-  let mut rejected_data = Some(data);
+  let mut pending_data = Some(data);
+  let mut rejected_call_data = None;
   let status = {
     // Keep finalization, abort, refer, and unref excluded through acquisition,
     // Push, and release. This also makes Node 22's finalizer-before-drain
@@ -305,11 +809,14 @@ fn call_nonblocking_threadsafe_function_with_owned_data<T>(
     let _lifecycle_guard = handle.read_lifecycle();
     match handle.acquire_call_slot_locked() {
       Ok(mut call_slot) => {
+        #[cfg(all(feature = "internal-test-fixture", not(target_family = "wasm")))]
+        run_threadsafe_function_native_enqueue_hook(ThreadsafeFunctionCallMode::NonBlocking);
         let data = Box::into_raw(Box::new(ThreadsafeFunctionCallData {
           handle: Arc::downgrade(handle),
-          data: rejected_data
+          data: pending_data
             .take()
             .expect("Threadsafe Function call data must be available before enqueue"),
+          payload_guard: handle.new_payload_guard(),
         }));
         let status = unsafe {
           sys::napi_call_threadsafe_function(
@@ -320,8 +827,8 @@ fn call_nonblocking_threadsafe_function_with_owned_data<T>(
         };
         if status != sys::Status::napi_ok {
           // N-API only takes ownership after a successful enqueue.
-          rejected_data =
-            Some(unsafe { Box::<ThreadsafeFunctionCallData<T>>::from_raw(data).data });
+          rejected_call_data =
+            Some(unsafe { Box::<ThreadsafeFunctionCallData<T>>::from_raw(data) });
         }
         call_slot.finish(status);
         status
@@ -329,14 +836,27 @@ fn call_nonblocking_threadsafe_function_with_owned_data<T>(
       Err(status) => status,
     }
   };
-  drop(rejected_data);
+  drop(rejected_call_data);
+  drop(pending_data);
   status
 }
 
-fn call_blocking_threadsafe_function_with_owned_data<T>(
+fn call_blocking_threadsafe_function_with_owned_data<T: Send + 'static>(
   handle: &Arc<ThreadsafeFunctionHandle>,
   data: T,
 ) -> sys::napi_status {
+  if handle.owner_thread_must_not_block() {
+    // Node cannot drain a bounded queue while its JavaScript thread is blocked.
+    // Preserve successful owner-thread calls by enqueueing nonblocking, but
+    // report a full queue as the deadlock that Blocking mode would cause.
+    let status = call_nonblocking_threadsafe_function_with_owned_data(handle, data);
+    return if status == sys::Status::napi_queue_full {
+      sys::Status::napi_would_deadlock
+    } else {
+      status
+    };
+  }
+
   // Node's abort path wakes one native queue waiter. Keep at most one
   // Blocking call inside N-API so the remaining callers can observe the local
   // aborted state without entering the native wait queue.
@@ -361,9 +881,12 @@ fn call_blocking_threadsafe_function_with_owned_data<T>(
       return status;
     }
   };
+  #[cfg(all(feature = "internal-test-fixture", not(target_family = "wasm")))]
+  run_threadsafe_function_native_enqueue_hook(ThreadsafeFunctionCallMode::Blocking);
   let data = Box::into_raw(Box::new(ThreadsafeFunctionCallData {
     handle: Arc::downgrade(handle),
     data,
+    payload_guard: handle.new_payload_guard(),
   }));
   let status = unsafe {
     sys::napi_call_threadsafe_function(
@@ -378,9 +901,9 @@ fn call_blocking_threadsafe_function_with_owned_data<T>(
     // immediately on return so refer/unref cannot enter during slot cleanup.
     handle.mark_closing();
   }
-  let rejected_data = if status != sys::Status::napi_ok {
+  let rejected_call_data = if status != sys::Status::napi_ok {
     // N-API only takes ownership after a successful enqueue.
-    Some(unsafe { Box::<ThreadsafeFunctionCallData<T>>::from_raw(data).data })
+    Some(unsafe { Box::<ThreadsafeFunctionCallData<T>>::from_raw(data) })
   } else {
     None
   };
@@ -393,16 +916,16 @@ fn call_blocking_threadsafe_function_with_owned_data<T>(
   drop(call_slot);
   drop(active_call);
   drop(blocking_guard);
-  drop(rejected_data);
+  drop(rejected_call_data);
   status
 }
 
-fn call_threadsafe_function_with_owned_data<T>(
+fn call_threadsafe_function_with_owned_data<T: Send + 'static>(
   handle: &Arc<ThreadsafeFunctionHandle>,
   data: T,
   mode: ThreadsafeFunctionCallMode,
 ) -> sys::napi_status {
-  match mode {
+  match native_enqueue_mode(mode, handle.state.max_queue_size) {
     ThreadsafeFunctionCallMode::NonBlocking => {
       call_nonblocking_threadsafe_function_with_owned_data(handle, data)
     }
@@ -414,25 +937,18 @@ fn call_threadsafe_function_with_owned_data<T>(
 
 impl Drop for ThreadsafeFunctionHandle {
   fn drop(&mut self) {
-    self.with_read_aborted(|aborted| {
-      if !aborted {
-        let raw = self.get_raw();
-        // if ThreadsafeFunction::create failed, the raw will be null and we don't need to release it
-        if !raw.is_null() {
-          let release_status = unsafe {
-            sys::napi_release_threadsafe_function(
-              self.get_raw(),
-              sys::ThreadsafeFunctionReleaseMode::release,
-            )
-          };
-          assert!(
-            release_status == sys::Status::napi_ok,
-            "Threadsafe Function release failed {}",
-            Status::from(release_status)
-          );
-        }
-      }
-    })
+    // If ThreadsafeFunction::create failed, the raw value remains null and
+    // there is no native owner slot to retire.
+    if self.get_raw().is_null() {
+      return;
+    }
+    let release_status = self.retire(sys::ThreadsafeFunctionReleaseMode::release);
+    if release_status != sys::Status::napi_ok {
+      // Drop can run from a Node callback or native destructor, so unwinding
+      // here could cross an FFI boundary. Keep callback code mapped when the
+      // native owner could not be retired.
+      retain_threadsafe_function_ownership_for_unload_safety();
+    }
   }
 }
 
@@ -445,20 +961,24 @@ pub enum ThreadsafeFunctionCallVariant {
 pub struct ThreadsafeFunctionCallJsBackData<T, Return = Unknown<'static>> {
   pub data: T,
   pub call_variant: ThreadsafeFunctionCallVariant,
-  pub callback: Box<dyn FnOnce(Result<Return>, Env) -> Result<()>>,
+  pub callback: Box<dyn FnOnce(Result<Return>, Env) -> Result<()> + Send>,
 }
 
 struct ThreadsafeFunctionCallData<T> {
   handle: sync::Weak<ThreadsafeFunctionHandle>,
   data: T,
+  payload_guard: ThreadsafeFunctionPayloadGuard,
 }
 
 type ThreadsafeFunctionCallResult<T, Return, ErrorStatus> = (
   Option<Arc<ThreadsafeFunctionHandle>>,
   Result<ThreadsafeFunctionCallJsBackData<T, Return>, ErrorStatus>,
+  ThreadsafeFunctionPayloadGuard,
 );
 
-async fn receive_call_async_result<Return>(receiver: Receiver<Result<Return>>) -> Result<Return> {
+async fn receive_call_async_result<Return: Send>(
+  receiver: Receiver<Result<Return>>,
+) -> Result<Return> {
   receiver.await.map_err(|_| {
     crate::Error::new(
       Status::GenericFailure,
@@ -469,34 +989,59 @@ async fn receive_call_async_result<Return>(receiver: Receiver<Result<Return>>) -
 
 /// Communicate with the addon's main thread by invoking a JavaScript function from other threads.
 ///
-/// ## Example
-/// An example of using `ThreadsafeFunction`:
+/// ## Lifecycle example
 ///
 /// ```rust
-/// use std::thread;
-/// use std::sync::Arc;
+/// use std::{
+///   sync::{mpsc, Arc, Mutex},
+///   thread,
+///   time::Duration,
+/// };
 ///
 /// use napi::{
-///     threadsafe_function::{
-///         ThreadSafeCallContext, ThreadsafeFunctionCallMode, ThreadsafeFunctionReleaseMode,
-///     },
+///   bindgen_prelude::Function,
+///   threadsafe_function::ThreadsafeFunctionCallMode,
+///   Result, Status,
 /// };
 /// use napi_derive::napi;
 ///
 /// #[napi]
-/// pub fn call_threadsafe_function(callback: Arc<ThreadsafeFunction<(u32, bool, String), ()>>) {
-///   let tsfn_cloned = tsfn.clone();
+/// pub fn start_threadsafe_function(callback: Function<u32, ()>) -> Result<()> {
+///   let tsfn = callback
+///     .build_threadsafe_function::<u32>()
+///     .weak::<true>()
+///     .build_callback(|ctx| Ok(ctx.value))?;
+///   let (stop_tx, stop_rx) = mpsc::channel();
+///   let worker = Arc::new(Mutex::new(None));
+///   let worker_slot = Arc::clone(&worker);
+///   let worker_tsfn = tsfn.clone();
 ///
-///   thread::spawn(move || {
-///       let output: Vec<u32> = vec![0, 1, 2, 3];
-///       // It's okay to call a threadsafe function multiple times.
-///       tsfn.call(Ok((1, false, "NAPI-RS".into())), ThreadsafeFunctionCallMode::Blocking);
-///       tsfn.call(Ok((2, true, "NAPI-RS".into())), ThreadsafeFunctionCallMode::NonBlocking);
-///   });
+///   *worker.lock().unwrap() = Some(thread::spawn(move || {
+///     let mut value = 0;
+///     while stop_rx.recv_timeout(Duration::from_millis(10)).is_err() {
+///       if worker_tsfn.call(value, ThreadsafeFunctionCallMode::NonBlocking) != Status::Ok {
+///         break;
+///       }
+///       value += 1;
+///     }
+///   }));
 ///
-///   thread::spawn(move || {
-///       tsfn_cloned.call((3, false, "NAPI-RS".into())), ThreadsafeFunctionCallMode::NonBlocking);
-///   });
+///   // SAFETY: This callback stops and joins the only native worker that can
+///   // use the TSFN, recovering a poisoned mutex so unwinding cannot skip the
+///   // join. It does not wait for queued JavaScript callbacks.
+///   unsafe {
+///     tsfn.register_finalizer(move || {
+///       let _ = stop_tx.send(());
+///       let worker = worker_slot
+///         .lock()
+///         .unwrap_or_else(std::sync::PoisonError::into_inner)
+///         .take();
+///       if let Some(worker) = worker {
+///         let _ = worker.join();
+///       }
+///     })
+///   }?;
+///   Ok(())
 /// }
 /// ```
 pub struct ThreadsafeFunction<
@@ -508,7 +1053,10 @@ pub struct ThreadsafeFunction<
   const Weak: bool = false,
   const MaxQueueSize: usize = 0,
 > {
-  pub handle: Arc<ThreadsafeFunctionHandle>,
+  // Keep this field before `_handle_lease`: if dropping the last Arc synchronously invokes the
+  // native finalizer, the lease must remain visible until ThreadsafeFunctionHandle::drop returns.
+  handle: Arc<ThreadsafeFunctionHandle>,
+  _handle_lease: ThreadsafeFunctionHandleLease,
   _phantom: PhantomData<(T, CallJsBackArgs, Return, ErrorStatus)>,
 }
 
@@ -534,6 +1082,7 @@ impl<
   fn clone(&self) -> Self {
     Self {
       handle: Arc::clone(&self.handle),
+      _handle_lease: ThreadsafeFunctionHandleLease::new(Arc::clone(&self.handle.state)),
       _phantom: PhantomData,
     }
   }
@@ -629,8 +1178,8 @@ impl<
 
 /// Non-generic core of [`ThreadsafeFunction::create`].
 ///
-/// All of the heavy FFI setup (async resource name creation, the
-/// `napi_create_threadsafe_function` call, the weak-ref handling) is
+/// All of the heavy FFI setup (async resource name creation and the
+/// `napi_create_threadsafe_function` call) is
 /// type-independent, so it is extracted here to be emitted once instead of
 /// being monomorphized for every `<T, Return, CallJsBackArgs, ...>`
 /// combination. The only per-type parts — the boxed user callback and the two
@@ -640,7 +1189,6 @@ fn create_raw(
   env: sys::napi_env,
   func: sys::napi_value,
   max_queue_size: usize,
-  weak: bool,
   callback_ptr: *mut c_void,
   thread_finalize_cb: sys::napi_finalize,
   call_js_cb: sys::napi_threadsafe_function_call_js,
@@ -683,37 +1231,50 @@ fn create_raw(
   }
 
   let mut raw_tsfn = ptr::null_mut();
-  let handle = ThreadsafeFunctionHandle::null();
+  let handle = ThreadsafeFunctionHandle::null_with_max_queue_size(max_queue_size);
+  let finalize_context = Box::into_raw(Box::new(ThreadsafeFunctionFinalizeContext {
+    state: Arc::clone(&handle.state),
+  }));
+  let create_status = unsafe {
+    sys::napi_create_threadsafe_function(
+      env,
+      func,
+      ptr::null_mut(),
+      async_resource_name,
+      max_queue_size,
+      1,
+      finalize_context.cast(),
+      thread_finalize_cb,
+      callback_ptr,
+      call_js_cb,
+      &mut raw_tsfn,
+    )
+  };
+  if create_status != sys::Status::napi_ok {
+    drop(unsafe { Box::from_raw(finalize_context) });
+  }
   check_status!(
-    unsafe {
-      sys::napi_create_threadsafe_function(
-        env,
-        func,
-        ptr::null_mut(),
-        async_resource_name,
-        max_queue_size,
-        1,
-        Arc::downgrade(&handle).into_raw().cast_mut().cast(), // pass handler to thread_finalize_cb
-        thread_finalize_cb,
-        callback_ptr,
-        call_js_cb,
-        &mut raw_tsfn,
-      )
-    },
+    create_status,
     "Create threadsafe function in ThreadsafeFunction::create failed"
   )?;
   handle.set_raw(raw_tsfn);
 
-  // Weak ThreadsafeFunction will not prevent the event loop from exiting
-  if weak {
-    check_status!(
-      unsafe { sys::napi_unref_threadsafe_function(env, raw_tsfn) },
-      "Unref threadsafe function failed in Weak mode"
-    )?;
-    // The tsfn is now unreferenced at the N-API level, so keep `referred` in
-    // sync. Otherwise the deprecated `refer`/`unref` would read a stale `true`
-    // and `refer` would skip its `napi_ref_threadsafe_function` call.
-    handle.referred.store(false, Ordering::Relaxed);
+  let cleanup_context = Box::into_raw(Box::new(ThreadsafeFunctionOwnerCleanupContext {
+    state: Arc::clone(&handle.state),
+  }));
+  let cleanup_status = unsafe { add_threadsafe_function_owner_cleanup_hook(env, cleanup_context) };
+  if cleanup_status == sys::Status::napi_ok {
+    handle
+      .state
+      .owner_cleanup_context
+      .store(cleanup_context, Ordering::Release);
+  } else {
+    drop(unsafe { Box::from_raw(cleanup_context) });
+    // Native creation already transferred callback ownership to Node, so
+    // creation cannot be rolled back without racing its finalizer. Keep the
+    // API usable but fail closed if this environment later tears down with
+    // the initial owner still active.
+    retain_threadsafe_function_ownership_for_unload_safety();
   }
 
   Ok(handle)
@@ -767,7 +1328,6 @@ impl<
       env,
       func,
       MaxQueueSize,
-      Weak,
       callback_ptr.cast(),
       Some(thread_finalize_cb::<T, NewArgs, R>),
       Some(call_js_cb::<T, Return, NewArgs, ErrorStatus, R, CalleeHandled>),
@@ -776,10 +1336,27 @@ impl<
       drop(unsafe { Box::from_raw(callback_ptr) });
     })?;
 
-    Ok(ThreadsafeFunction {
+    // Successful native creation transferred `callback_ptr` to the registered
+    // finalizer. If unref fails, dropping `handle` starts native retirement and
+    // that finalizer remains the sole callback owner.
+    let tsfn = ThreadsafeFunction {
+      _handle_lease: ThreadsafeFunctionHandleLease::new(Arc::clone(&handle.state)),
       handle,
       _phantom: PhantomData,
-    })
+    };
+
+    if Weak {
+      check_status!(
+        unsafe { sys::napi_unref_threadsafe_function(env, tsfn.handle.get_raw()) },
+        "Unref threadsafe function failed in Weak mode"
+      )?;
+      // The tsfn is now unreferenced at the N-API level, so keep `referred` in
+      // sync. Otherwise the deprecated `refer`/`unref` would read a stale `true`
+      // and `refer` would skip its `napi_ref_threadsafe_function` call.
+      tsfn.handle.set_referred(false);
+    }
+
+    Ok(tsfn)
   }
 
   #[deprecated(
@@ -793,12 +1370,9 @@ impl<
   pub fn refer(&mut self, env: &Env) -> Result<()> {
     let _lifecycle_guard = self.handle.write_lifecycle();
     self.handle.with_read_aborted(|aborted| {
-      if !aborted
-        && !self.handle.closing.load(Ordering::Acquire)
-        && !self.handle.referred.load(Ordering::Relaxed)
-      {
+      if !aborted && !self.handle.is_closing() && !self.handle.is_referred() {
         check_status!(unsafe { sys::napi_ref_threadsafe_function(env.0, self.handle.get_raw()) })?;
-        self.handle.referred.store(true, Ordering::Relaxed);
+        self.handle.set_referred(true);
       }
       Ok(())
     })
@@ -813,44 +1387,84 @@ impl<
   pub fn unref(&mut self, env: &Env) -> Result<()> {
     let _lifecycle_guard = self.handle.write_lifecycle();
     self.handle.with_read_aborted(|aborted| {
-      if !aborted
-        && !self.handle.closing.load(Ordering::Acquire)
-        && self.handle.referred.load(Ordering::Relaxed)
-      {
+      if !aborted && !self.handle.is_closing() && self.handle.is_referred() {
         check_status!(unsafe {
           sys::napi_unref_threadsafe_function(env.0, self.handle.get_raw())
         })?;
-        self.handle.referred.store(false, Ordering::Relaxed);
+        self.handle.set_referred(false);
       }
       Ok(())
     })
   }
 
   pub fn aborted(&self) -> bool {
-    self.handle.closing.load(Ordering::Acquire) || self.handle.with_read_aborted(|aborted| aborted)
+    self.handle.is_closing() || self.handle.with_read_aborted(|aborted| aborted)
   }
 
-  #[deprecated(
-    since = "2.17.0",
-    note = "Drop all references to the ThreadsafeFunction will automatically release it"
-  )]
-  pub fn abort(self) -> Result<()> {
+  /// Register the callback that quiesces native threads using this thread-safe function.
+  ///
+  /// The callback runs exactly once on Node's main loop thread after new calls have been closed
+  /// and any in-flight blocking call has returned, before the JavaScript callback closure and its
+  /// captures are destroyed and before the native N-API finalizer returns. It should signal and
+  /// join every thread that can call, clone, or drop this thread-safe function. It must not wait
+  /// for JavaScript callbacks or queued TSFN payloads. For example, Node 26.0 drains an aborted
+  /// queue only after the native finalizer returns, while Node 26.1 drains it first; finalizers
+  /// must not depend on either ordering.
+  ///
+  /// Registration is serialized with abort and finalization. If concurrent registrations race,
+  /// exactly one succeeds and the others return [`Status::InvalidArg`]. Registration after abort
+  /// or finalization has started returns [`Status::Closing`]. On unwind-enabled builds, a panic
+  /// from the registered callback is contained at the FFI boundary and the remaining finalizer
+  /// cleanup still runs. The callback must still arrange for worker joins during unwinding; panic
+  /// containment alone does not establish quiescence. If the callback unwinds or a Rust handle
+  /// still survives afterward, native builds retain the addon image rather than allow potentially
+  /// live native code to be unloaded. WebAssembly instances instead remain owned by their
+  /// executing agent and do not have an equivalent native image-unload race.
+  ///
+  /// Without a registered callback, dropping the last Rust handle cannot prove that its thread
+  /// has returned from addon code. Native builds therefore retain the addon image at finalization.
+  /// WebAssembly hosts keep each agent's instance alive for as long as that agent can execute it,
+  /// so they do not need an equivalent loader reference.
+  ///
+  /// # Safety
+  ///
+  /// Before the callback returns, it must ensure that every native thread or task that can call,
+  /// clone, or drop this thread-safe function, or otherwise execute code from the addon image, is
+  /// quiescent. This guarantee must also hold if the callback panics or unwinds. The callback must
+  /// not wait for JavaScript callbacks or queued TSFN payloads, because some Node versions process
+  /// them only after the native finalizer returns. Destructors of values captured by the JavaScript
+  /// callback run afterward on the same thread and must not start new addon work.
+  ///
+  /// A thread-safe function is referenced by default and therefore keeps the event loop alive. If
+  /// this callback is responsible for stopping a worker that retains the thread-safe function,
+  /// build it with `ThreadsafeFunctionBuilder::weak::<true>()` or unref it first; otherwise natural
+  /// environment teardown may never begin and this callback will not run.
+  pub unsafe fn register_finalizer<F>(&self, callback: F) -> Result<()>
+  where
+    F: FnOnce() + Send + 'static,
+  {
+    self.handle.register_finalizer(Box::new(callback))
+  }
+
+  /// Abort this thread-safe function and wake a bounded [`ThreadsafeFunctionCallMode::Blocking`]
+  /// caller.
+  ///
+  /// Abort is shared and idempotent. It closes the native queue through the serialized lifecycle
+  /// path, then waits until an in-flight blocking call has returned. Dropping all Rust references
+  /// normally releases the TSFN, but it does not replace abort when synchronous teardown must wake
+  /// a caller blocked on a full bounded queue.
+  pub fn abort(&self) -> Result<()> {
     check_status!(self
       .handle
       .retire(sys::ThreadsafeFunctionReleaseMode::abort))
   }
-
-  /// Get the raw `ThreadSafeFunction` pointer
-  pub fn raw(&self) -> sys::napi_threadsafe_function {
-    self.handle.get_raw()
-  }
 }
 
 impl<
-    T: 'static,
+    T: 'static + Send,
     Return: FromNapiValue,
     CallJsBackArgs: 'static + JsValuesTupleIntoVec,
-    ErrorStatus: AsRef<str> + From<Status>,
+    ErrorStatus: 'static + AsRef<str> + From<Status> + Send,
     const Weak: bool,
     const MaxQueueSize: usize,
   > ThreadsafeFunction<T, Return, CallJsBackArgs, ErrorStatus, true, { Weak }, { MaxQueueSize }>
@@ -871,7 +1485,7 @@ impl<
   }
 
   /// Call the ThreadsafeFunction, and handle the return value with a callback
-  pub fn call_with_return_value<F: 'static + FnOnce(Result<Return>, Env) -> Result<()>>(
+  pub fn call_with_return_value<F: 'static + Send + FnOnce(Result<Return>, Env) -> Result<()>>(
     &self,
     value: Result<T, ErrorStatus>,
     mode: ThreadsafeFunctionCallMode,
@@ -890,7 +1504,10 @@ impl<
   }
 
   /// Call the ThreadsafeFunction, and handle the return value with in `async` way
-  pub async fn call_async(&self, value: Result<T, ErrorStatus>) -> Result<Return> {
+  pub async fn call_async(&self, value: Result<T, ErrorStatus>) -> Result<Return>
+  where
+    Return: Send,
+  {
     let (sender, receiver) = channel::<Result<Return>>();
 
     check_status!(
@@ -918,13 +1535,16 @@ impl<
   /// "catch the JavaScript throw" semantics.
   ///
   /// Provided so callers can use the same method name regardless of the `CalleeHandled` value.
-  pub async fn call_async_catch(&self, value: Result<T, ErrorStatus>) -> Result<Return> {
+  pub async fn call_async_catch(&self, value: Result<T, ErrorStatus>) -> Result<Return>
+  where
+    Return: Send,
+  {
     self.call_async(value).await
   }
 }
 
 impl<
-    T: 'static,
+    T: 'static + Send,
     Return: FromNapiValue,
     CallJsBackArgs: 'static + JsValuesTupleIntoVec,
     ErrorStatus: AsRef<str> + From<Status>,
@@ -948,7 +1568,7 @@ impl<
   }
 
   /// Call the ThreadsafeFunction, and handle the return value with a callback
-  pub fn call_with_return_value<F: 'static + FnOnce(Result<Return>, Env) -> Result<()>>(
+  pub fn call_with_return_value<F: 'static + Send + FnOnce(Result<Return>, Env) -> Result<()>>(
     &self,
     value: T,
     mode: ThreadsafeFunctionCallMode,
@@ -973,7 +1593,10 @@ impl<
   /// the captured exception through `napi_fatal_exception`, which terminates
   /// the host process. Use [`call_async_catch`](Self::call_async_catch)
   /// if you need to handle JavaScript-thrown errors as `Err(napi::Error)`.
-  pub async fn call_async(&self, value: T) -> Result<Return> {
+  pub async fn call_async(&self, value: T) -> Result<Return>
+  where
+    Return: Send,
+  {
     let (sender, receiver) = channel::<Return>();
 
     check_status!(call_threadsafe_function_with_owned_data(
@@ -1010,7 +1633,10 @@ impl<
   /// ```ignore
   /// let js_value: Unknown = JsError::from(err).into_unknown(env);
   /// ```
-  pub async fn call_async_catch(&self, value: T) -> Result<Return> {
+  pub async fn call_async_catch(&self, value: T) -> Result<Return>
+  where
+    Return: Send,
+  {
     let (sender, receiver) = channel::<Result<Return>>();
 
     check_status!(
@@ -1036,25 +1662,56 @@ impl<
 }
 
 unsafe extern "C" fn thread_finalize_cb<T: 'static, V: 'static + JsValuesTupleIntoVec, R>(
-  #[allow(unused_variables)] env: sys::napi_env,
+  env: sys::napi_env,
   finalize_data: *mut c_void,
   finalize_hint: *mut c_void,
 ) where
   R: 'static + FnMut(ThreadsafeCallContext<T>) -> Result<V>,
 {
-  let handle_option: Option<Arc<ThreadsafeFunctionHandle>> =
-    unsafe { sync::Weak::from_raw(finalize_data.cast()).upgrade() };
+  crate::bindgen_runtime::with_runtime_finalizer_guard(env, || {
+    let context =
+      unsafe { Box::<ThreadsafeFunctionFinalizeContext>::from_raw(finalize_data.cast()) };
+    let state = &context.state;
 
-  if let Some(handle) = handle_option.as_ref() {
-    crate::bindgen_runtime::catch_unwind_safely(|| handle.finalize());
-  }
+    let mut begin_finalize_succeeded = false;
+    crate::bindgen_runtime::catch_unwind_safely(|| {
+      state.begin_finalize();
+      begin_finalize_succeeded = true;
+    });
+    state.record_begin_finalize_result(begin_finalize_succeeded);
 
-  let callback = unsafe { Box::<R>::from_raw(finalize_hint.cast()) };
-  crate::bindgen_runtime::catch_unwind_safely(move || drop(callback));
+    let finalizer_result = state.run_finalizer();
 
-  if let Some(handle) = handle_option {
-    crate::bindgen_runtime::catch_unwind_safely(move || drop(handle));
-  }
+    let callback = unsafe { Box::<R>::from_raw(finalize_hint.cast()) };
+    let mut callback_dropped_normally = false;
+    crate::bindgen_runtime::catch_unwind_safely(|| {
+      drop(callback);
+      callback_dropped_normally = true;
+    });
+    state.record_callback_drop_result(callback_dropped_normally);
+
+    let mut cleanup_context_released = false;
+    crate::bindgen_runtime::catch_unwind_safely(|| {
+      cleanup_context_released = state.release_owner_cleanup_context(env);
+    });
+
+    let mut finish_finalize_succeeded = false;
+    crate::bindgen_runtime::catch_unwind_safely(|| {
+      state.finish_finalize();
+      finish_finalize_succeeded = true;
+    });
+
+    let quiescence_proven = begin_finalize_succeeded
+      && finish_finalize_succeeded
+      && finalizer_result.proves_quiescence()
+      && state.quiescence_proven()
+      && state.owner_retired()
+      && cleanup_context_released;
+    if !quiescence_proven {
+      retain_threadsafe_function_ownership_for_unload_safety();
+    }
+    drop(context);
+  });
 }
 
 unsafe fn take_call_js_back_data<
@@ -1066,21 +1723,29 @@ unsafe fn take_call_js_back_data<
   data: *mut c_void,
 ) -> ThreadsafeFunctionCallResult<T, Return, ErrorStatus> {
   if CalleeHandled {
-    let ThreadsafeFunctionCallData { handle, data } = unsafe {
+    let ThreadsafeFunctionCallData {
+      handle,
+      data,
+      payload_guard,
+    } = unsafe {
       *Box::<
         ThreadsafeFunctionCallData<
           Result<ThreadsafeFunctionCallJsBackData<T, Return>, ErrorStatus>,
         >,
       >::from_raw(data.cast())
     };
-    (handle.upgrade(), data)
+    (handle.upgrade(), data, payload_guard)
   } else {
-    let ThreadsafeFunctionCallData { handle, data } = unsafe {
+    let ThreadsafeFunctionCallData {
+      handle,
+      data,
+      payload_guard,
+    } = unsafe {
       *Box::<ThreadsafeFunctionCallData<ThreadsafeFunctionCallJsBackData<T, Return>>>::from_raw(
         data.cast(),
       )
     };
-    (handle.upgrade(), Ok(data))
+    (handle.upgrade(), Ok(data), payload_guard)
   }
 }
 
@@ -1139,7 +1804,7 @@ unsafe fn call_js_cb_inner<
   if data.is_null() {
     return;
   }
-  let (handle, val) =
+  let (handle, val, payload_guard) =
     unsafe { take_call_js_back_data::<T, Return, ErrorStatus, CalleeHandled>(data) };
 
   // Node drains queued TSFN calls with a null env/callback during teardown.
@@ -1152,6 +1817,7 @@ unsafe fn call_js_cb_inner<
       handle.mark_closing();
     }
     crate::bindgen_runtime::catch_unwind_safely(|| drop(val));
+    drop(payload_guard);
     return;
   }
 
@@ -1250,8 +1916,13 @@ unsafe fn call_js_cb_inner<
               reason,
             })
           })
-        } else {
+        } else if status == sys::Status::napi_ok {
           unsafe { Return::from_napi_value(raw_env, return_value) }
+        } else {
+          Err(Error::new(
+            Status::from(status),
+            "Call JavaScript callback failed in threadsafe function",
+          ))
         };
         let callback_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
           callback(callback_arg, Env::from_raw(raw_env))
@@ -1278,7 +1949,8 @@ unsafe fn call_js_cb_inner<
       )
     },
   };
-  handle_call_js_cb_status(status, raw_env)
+  handle_call_js_cb_status(status, raw_env);
+  drop(payload_guard);
 }
 
 fn handle_call_js_cb_status(status: sys::napi_status, raw_env: sys::napi_env) {
@@ -1363,15 +2035,25 @@ impl FromNapiValue for UnknownReturnValue {
 
 #[cfg(test)]
 mod tests {
-  use super::*;
+  use super::{native_enqueue_mode, ThreadsafeFunctionCallMode};
 
   #[test]
-  fn native_finalizer_only_closes_rust_side_ownership() {
-    let handle = ThreadsafeFunctionHandle::null();
-
-    handle.finalize();
-
-    assert!(handle.closing.load(Ordering::Acquire));
-    assert!(handle.with_read_aborted(|aborted| aborted));
+  fn unlimited_blocking_calls_use_the_nonblocking_native_enqueue_path() {
+    assert_eq!(
+      native_enqueue_mode(ThreadsafeFunctionCallMode::Blocking, 0),
+      ThreadsafeFunctionCallMode::NonBlocking
+    );
+    assert_eq!(
+      native_enqueue_mode(ThreadsafeFunctionCallMode::Blocking, 1),
+      ThreadsafeFunctionCallMode::Blocking
+    );
+    assert_eq!(
+      native_enqueue_mode(ThreadsafeFunctionCallMode::NonBlocking, 0),
+      ThreadsafeFunctionCallMode::NonBlocking
+    );
+    assert_eq!(
+      native_enqueue_mode(ThreadsafeFunctionCallMode::NonBlocking, 1),
+      ThreadsafeFunctionCallMode::NonBlocking
+    );
   }
 }

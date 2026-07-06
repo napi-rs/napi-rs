@@ -30,7 +30,7 @@ static DUPLICATE_DROP_SHUTDOWN_RESULT: Mutex<Option<napi::Result<()>>> = Mutex::
 
 struct FirstRuntime;
 
-impl AsyncRuntime for FirstRuntime {
+unsafe impl AsyncRuntime for FirstRuntime {
   fn spawn(&self, task: AsyncRuntimeTask) -> std::result::Result<(), AsyncRuntimeTask> {
     Err(task)
   }
@@ -76,12 +76,16 @@ impl Drop for SecondRuntime {
   }
 }
 
-impl AsyncRuntime for SecondRuntime {
+unsafe impl AsyncRuntime for SecondRuntime {
   fn spawn(&self, task: AsyncRuntimeTask) -> std::result::Result<(), AsyncRuntimeTask> {
     Err(task)
   }
 
   fn block_on(&self, _future: Pin<&mut dyn Future<Output = ()>>) {}
+
+  fn shutdown(&self) -> napi::Result<()> {
+    Ok(())
+  }
 }
 
 fn start_after_retirement() {

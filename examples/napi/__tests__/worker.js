@@ -1,6 +1,13 @@
+import { createRequire } from 'node:module'
 import { parentPort } from 'node:worker_threads'
 
-import native from '../index.cjs'
+import { requireLifecycleFixture } from './lifecycle-fixture.js'
+
+const require = createRequire(import.meta.url)
+const { binding: native, fixture: lifecycle } = requireLifecycleFixture(
+  require,
+  '../index.cjs',
+)
 
 const isWasiTest = !!process.env.WASI_TEST
 // 32-bit (ia32, e.g. i686 Windows) has a ~2 GB address space; the off-thread
@@ -10,7 +17,7 @@ const is32bit = process.arch === 'ia32'
 // Keep these reachable so their finalizers run during worker teardown, not an earlier GC.
 const runtimeLifecycleTeardownObjects = []
 
-parentPort.on('message', ({ type }) => {
+parentPort.on('message', ({ type, resultPath }) => {
   switch (type) {
     case 'require':
       parentPort.postMessage(
@@ -71,14 +78,14 @@ parentPort.on('message', ({ type }) => {
         })
       break
     case 'async:terminal-finalizer':
-      native.pendingAsyncBlockWithTerminalFinalizer()
+      lifecycle.pendingAsyncBlockWithTerminalFinalizer(resultPath)
       parentPort.postMessage('pending')
       break
     case 'runtime-finalizer:teardown':
       runtimeLifecycleTeardownObjects.push(
-        new native.RuntimeLifecycleFinalize(),
+        lifecycle.createRuntimeLifecycleFinalizer(resultPath),
       )
-      parentPort.postMessage('ready')
+      parentPort.postMessage({ type: 'runtime-finalizer-ready' })
       break
     case 'stash:buffer:teardown':
       // Stash JS-origin Buffers in a Rust thread_local on THIS worker's JS thread. They drop at

@@ -129,8 +129,18 @@ static FIRST_MODULE_REGISTERED: AtomicBool = AtomicBool::new(false);
   any(feature = "tokio_rt", feature = "async-runtime"),
   feature = "napi4"
 ))]
-static REGISTERED_RUNTIME_ENVS: LazyLock<Mutex<HashSet<usize>>> =
-  LazyLock::new(|| Mutex::new(HashSet::new()));
+static REGISTERED_RUNTIME_ENVS: LazyLock<Mutex<HashMap<usize, RuntimeEnvRegistration>>> =
+  LazyLock::new(|| Mutex::new(HashMap::new()));
+
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "tokio_rt", feature = "async-runtime"),
+  feature = "napi4"
+))]
+struct RuntimeEnvRegistration {
+  count: usize,
+  closing: bool,
+}
 
 #[cfg(all(
   not(feature = "noop"),
@@ -138,7 +148,7 @@ static REGISTERED_RUNTIME_ENVS: LazyLock<Mutex<HashSet<usize>>> =
   feature = "napi4"
 ))]
 pub(crate) struct RegisteredRuntimeEnvGuard {
-  _guard: std::sync::MutexGuard<'static, HashSet<usize>>,
+  _guard: std::sync::MutexGuard<'static, HashMap<usize, RuntimeEnvRegistration>>,
 }
 
 #[cfg(all(
@@ -151,7 +161,8 @@ pub(crate) fn registered_runtime_env(env: usize) -> Option<RegisteredRuntimeEnvG
     .lock()
     .unwrap_or_else(std::sync::PoisonError::into_inner);
   guard
-    .contains(&env)
+    .get(&env)
+    .is_some_and(|registration| !registration.closing)
     .then_some(RegisteredRuntimeEnvGuard { _guard: guard })
 }
 
@@ -176,6 +187,8 @@ thread_local! {
 // unref'd at module load, destroyed at env teardown which fires `custom_gc_handle_finalize`).
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
 pub(crate) struct CustomGcHandle {
+  env: usize,
+  owner_thread: std::thread::ThreadId,
   tsfn: std::sync::atomic::AtomicPtr<sys::napi_threadsafe_function__>,
   aborted: std::sync::RwLock<bool>,
 }
@@ -190,25 +203,31 @@ impl CustomGcHandle {
     let g = self
       .aborted
       .read()
-      .expect("custom gc aborted lock poisoned");
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
     f(*g)
   }
   fn set_aborted(&self) {
     *self
       .aborted
       .write()
-      .expect("custom gc aborted lock poisoned") = true;
+      .unwrap_or_else(std::sync::PoisonError::into_inner) = true;
+  }
+  fn is_active_for(&self, env: sys::napi_env) -> bool {
+    self.env == env as usize && self.with_read_aborted(|aborted| !aborted)
   }
 }
 
-// INVARIANT: this per-OS-thread slot relies on ONE `napi_env` per OS thread, which holds for every
-// supported runtime — Node's main thread, each `worker_threads` worker (its own V8 isolate + env +
-// loop thread), and Electron. `create_custom_gc` installs the handle once per env on its registering
-// thread, and `FromNapiValue` always runs on that same thread for that env, so a captured handle is
-// always the value's OWNING env. An embedder hosting multiple `napi_env` on a single shared OS thread
-// is out of scope: the per-env `Arc` identity (see `current_thread_owns_custom_gc`) is immune to
-// env-pointer reuse, and the single public `Env::set_instance_data` slot is reserved for addon authors
-// so it cannot be co-opted to key the handle by env.
+#[cfg(all(feature = "napi4", not(feature = "noop")))]
+struct CustomGcRegistration {
+  handle: std::sync::Arc<CustomGcHandle>,
+  owned: bool,
+}
+
+// `create_custom_gc` installs the current registration's handle on its JavaScript thread, and
+// `FromNapiValue` captures that handle for the value's owning env. Duplicate `process.dlopen` calls
+// may supply multiple `napi_env` pointers on the same isolate thread, so owner-thread checks use the
+// captured Rust `ThreadId`, while the per-handle aborted flag prevents a retired env from being
+// mistaken for a later registration on a reused thread.
 thread_local! {
   #[cfg(all(feature = "napi4", not(feature = "noop")))]
   // Per-thread "this isolate's custom-GC handle".
@@ -224,14 +243,11 @@ pub(crate) fn current_custom_gc_handle() -> Option<std::sync::Arc<CustomGcHandle
 
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
 pub(crate) fn current_thread_owns_custom_gc(handle: &std::sync::Arc<CustomGcHandle>) -> bool {
-  // same-isolate-JS-thread test by ALLOCATION identity (immune to env-pointer reuse).
-  // `is_some_and` (NOT `map_or(false, ..)`): clippy::unnecessary_map_or is denied by
-  // `#![deny(clippy::all)]` and would turn CI's `cargo clippy` red.
-  CURRENT_CUSTOM_GC_HANDLE.with(|c| {
-    c.borrow()
-      .as_ref()
-      .is_some_and(|cur| std::sync::Arc::ptr_eq(cur, handle))
-  })
+  // Node may provide a distinct `napi_env` for duplicate process.dlopen calls
+  // in the same isolate. The Rust thread identity remains stable across those
+  // registrations and is unique while the owner thread is alive. Callers pair
+  // this check with the handle's aborted lock to reject retired environments.
+  handle.owner_thread == std::thread::current().id()
 }
 
 type RegisteredClasses = PersistedPerInstanceHashMap<
@@ -394,10 +410,15 @@ pub unsafe extern "C" fn napi_register_module_v1(
     });
   }
 
-  if let Err(error) = crate::sendable_resolver::register_resolver_env(env) {
-    JsError::from(error).throw_into(env);
-    return exports;
-  }
+  let resolver_env_owned = match crate::sendable_resolver::register_resolver_env(env) {
+    Ok(owned) => owned,
+    Err(error) => {
+      JsError::from(error).throw_into(env);
+      return exports;
+    }
+  };
+  #[cfg(not(feature = "napi4"))]
+  let _ = resolver_env_owned;
 
   if increment_module_count(env) != 0 {
     wait_first_thread_registered();
@@ -411,6 +432,10 @@ pub unsafe extern "C" fn napi_register_module_v1(
     let cleanup_data = Box::into_raw(Box::new(RuntimeEnvCleanup {
       env,
       active: AtomicBool::new(true),
+      runtime_env_tasks_owned: AtomicBool::new(false),
+      resolver_env_owned: AtomicBool::new(resolver_env_owned),
+      #[cfg(feature = "async-runtime")]
+      async_runtime_env_reserved: AtomicBool::new(false),
     }));
     #[cfg(not(target_family = "wasm"))]
     let status =
@@ -421,6 +446,7 @@ pub unsafe extern "C" fn napi_register_module_v1(
     if status != sys::Status::napi_ok {
       drop(unsafe { Box::from_raw(cleanup_data) });
       decrement_runtime_module_count(env);
+      rollback_resolver_env(env, resolver_env_owned);
       check_status_or_throw!(env, status, "Failed to add env cleanup hook");
       FIRST_MODULE_REGISTERED.store(true, Ordering::SeqCst);
       return exports;
@@ -430,14 +456,24 @@ pub unsafe extern "C" fn napi_register_module_v1(
       not(feature = "noop"),
       any(feature = "tokio_rt", feature = "async-runtime")
     ))]
-    crate::tokio_runtime::register_runtime_env_tasks(env);
+    unsafe {
+      (*cleanup_data).runtime_env_tasks_owned.store(
+        crate::tokio_runtime::register_runtime_env_tasks(env),
+        Ordering::Release,
+      );
+    }
     #[cfg(feature = "async-runtime")]
     {
-      if let Err(error) = crate::tokio_runtime::register_async_runtime_env() {
+      if let Err(error) = crate::tokio_runtime::reserve_async_runtime_env() {
         rollback_runtime_env(env, cleanup_data);
         JsError::from(error).throw_into(env);
         FIRST_MODULE_REGISTERED.store(true, Ordering::SeqCst);
         return exports;
+      }
+      unsafe {
+        (*cleanup_data)
+          .async_runtime_env_reserved
+          .store(true, Ordering::Release);
       }
     }
     #[cfg(all(feature = "tokio_rt", not(feature = "async-runtime")))]
@@ -451,7 +487,9 @@ pub unsafe extern "C" fn napi_register_module_v1(
   };
 
   #[cfg(feature = "async-runtime")]
-  if let Err(error) = crate::tokio_runtime::ensure_async_runtime_ready() {
+  if let Err(error) = crate::tokio_runtime::activate_async_runtime_env()
+    .and_then(|_| crate::tokio_runtime::ensure_async_runtime_ready())
+  {
     rollback_runtime_env(env, _runtime_cleanup);
     JsError::from(error).throw_into(env);
     FIRST_MODULE_REGISTERED.store(true, Ordering::SeqCst);
@@ -470,139 +508,98 @@ pub unsafe extern "C" fn napi_register_module_v1(
   // valid `env` (it creates a dummy function + the per-env TSFN and never reads
   // `exports`), so running it this early is safe.
   #[cfg(feature = "napi4")]
-  create_custom_gc(env);
+  let custom_gc_registration = match create_custom_gc(env) {
+    Ok(registration) => registration,
+    Err(error) => {
+      #[cfg(any(feature = "tokio_rt", feature = "async-runtime"))]
+      rollback_runtime_env(env, _runtime_cleanup);
+      #[cfg(not(any(feature = "tokio_rt", feature = "async-runtime")))]
+      {
+        rollback_resolver_env(env, resolver_env_owned);
+        rollback_module_count();
+      }
+      JsError::from(error).throw_into(env);
+      FIRST_MODULE_REGISTERED.store(true, Ordering::SeqCst);
+      return exports;
+    }
+  };
 
+  if let Err(error) = unsafe { initialize_module_exports(env, exports) } {
+    #[cfg(feature = "napi4")]
+    rollback_custom_gc(custom_gc_registration);
+    #[cfg(all(
+      feature = "napi4",
+      any(feature = "tokio_rt", feature = "async-runtime")
+    ))]
+    rollback_runtime_env(env, _runtime_cleanup);
+    #[cfg(not(all(
+      feature = "napi4",
+      any(feature = "tokio_rt", feature = "async-runtime")
+    )))]
+    rollback_module_count();
+    #[cfg(all(
+      feature = "napi4",
+      not(any(feature = "tokio_rt", feature = "async-runtime"))
+    ))]
+    rollback_resolver_env(env, resolver_env_owned);
+    JsError::from(error).throw_into(env);
+    FIRST_MODULE_REGISTERED.store(true, Ordering::SeqCst);
+    return exports;
+  }
+
+  FIRST_MODULE_REGISTERED.store(true, Ordering::SeqCst);
+  exports
+}
+
+#[cfg(not(feature = "noop"))]
+unsafe fn initialize_module_exports(env: sys::napi_env, exports: sys::napi_value) -> Result<()> {
   let mut exports_objects: HashSet<String> = HashSet::default();
+  let register_callbacks = MODULE_REGISTER_CALLBACK
+    .read()
+    .expect("Read MODULE_REGISTER_CALLBACK in napi_register_module_v1 failed")
+    .clone();
+  let grouped_callbacks = register_callbacks.into_iter().fold(
+    HashMap::<Option<&'static str>, Vec<(&'static str, ExportRegisterCallback)>>::new(),
+    |mut grouped, (js_mod, item)| {
+      grouped.entry(js_mod).or_default().push(item);
+      grouped
+    },
+  );
 
-  {
-    let mut register_callback = MODULE_REGISTER_CALLBACK
-      .write()
-      .expect("Write MODULE_REGISTER_CALLBACK in napi_register_module_v1 failed");
-    register_callback
-      .iter_mut()
-      .fold(
-        HashMap::<Option<&'static str>, Vec<(&'static str, ExportRegisterCallback)>>::new(),
-        |mut acc, (js_mod, item)| {
-          if let Some(k) = acc.get_mut(js_mod) {
-            k.push(*item);
-          } else {
-            acc.insert(*js_mod, vec![*item]);
-          }
-          acc
-        },
-      )
-      .iter()
-      .for_each(|(js_mod, items)| {
-        let mut exports_js_mod = ptr::null_mut();
-        if let Some(js_mod_str) = js_mod {
-          let mod_name_c_str =
-            unsafe { CStr::from_bytes_with_nul_unchecked(js_mod_str.as_bytes()) };
-          if exports_objects.contains(*js_mod_str) {
-            check_status_or_throw!(
-              env,
-              unsafe {
-                sys::napi_get_named_property(
-                  env,
-                  exports,
-                  mod_name_c_str.as_ptr(),
-                  &mut exports_js_mod,
-                )
-              },
-              "Get mod {} from exports failed",
-              js_mod_str,
-            );
-          } else {
-            check_status_or_throw!(
-              env,
-              unsafe { sys::napi_create_object(env, &mut exports_js_mod) },
-              "Create export JavaScript Object [{}] failed",
-              js_mod_str
-            );
-            check_status_or_throw!(
-              env,
-              unsafe {
-                sys::napi_set_named_property(env, exports, mod_name_c_str.as_ptr(), exports_js_mod)
-              },
-              "Set exports Object [{}] into exports object failed",
-              js_mod_str
-            );
-            exports_objects.insert(js_mod_str.to_string());
-          }
-        }
-        for (name, callback) in items {
-          unsafe {
-            let js_name = CStr::from_bytes_with_nul_unchecked(name.as_bytes());
-            if let Err(e) = callback(env).and_then(|v| {
-              let exported_object = if exports_js_mod.is_null() {
-                exports
-              } else {
-                exports_js_mod
-              };
-              check_status!(
-                sys::napi_set_named_property(env, exported_object, js_name.as_ptr(), v),
-                "Failed to register export `{}`",
-                name,
-              )
-            }) {
-              JsError::from(e).throw_into(env)
-            }
-          }
-        }
-      });
+  for (js_mod, items) in grouped_callbacks {
+    let exports_js_mod =
+      unsafe { exports_object_for_module(env, exports, js_mod, &mut exports_objects) }?;
+    for (name, callback) in items {
+      let js_name = unsafe { CStr::from_bytes_with_nul_unchecked(name.as_bytes()) };
+      let value = unsafe { callback(env) }?;
+      ensure_no_pending_exception(env, "Module export callback left a pending exception")?;
+      check_status!(
+        unsafe { sys::napi_set_named_property(env, exports_js_mod, js_name.as_ptr(), value) },
+        "Failed to register export `{}`",
+        name,
+      )?;
+    }
   }
 
   let mut registered_classes = HashMap::default();
-
-  MODULE_CLASS_PROPERTIES.borrow(|inner| {
-    inner.iter().for_each(|(_, js_mods)| {
+  MODULE_CLASS_PROPERTIES.borrow(|inner| -> Result<()> {
+    for js_mods in inner.values() {
       for (js_mod, class_registration) in js_mods {
-        let mut exports_js_mod = ptr::null_mut();
-        unsafe {
-          let js_name = class_registration.js_name;
-          let props = &class_registration.props;
-          if let Some(js_mod_str) = js_mod {
-            let mod_name_c_str = CStr::from_bytes_with_nul_unchecked(js_mod_str.as_bytes());
-            if exports_objects.contains(*js_mod_str) {
-              check_status_or_throw!(
-                env,
-                sys::napi_get_named_property(
-                  env,
-                  exports,
-                  mod_name_c_str.as_ptr(),
-                  &mut exports_js_mod,
-                ),
-                "Get mod {} from exports failed",
-                js_mod_str,
-              );
-            } else {
-              check_status_or_throw!(
-                env,
-                sys::napi_create_object(env, &mut exports_js_mod),
-                "Create export JavaScript Object [{}] failed",
-                js_mod_str
-              );
-              check_status_or_throw!(
-                env,
-                sys::napi_set_named_property(env, exports, mod_name_c_str.as_ptr(), exports_js_mod),
-                "Set exports Object [{}] into exports object failed",
-                js_mod_str
-              );
-              exports_objects.insert(js_mod_str.to_string());
-            }
-          }
-          let (ctor, props): (Vec<_>, Vec<_>) = props.iter().partition(|prop| prop.is_ctor);
+        let exports_js_mod =
+          unsafe { exports_object_for_module(env, exports, *js_mod, &mut exports_objects) }?;
+        let js_name = class_registration.js_name;
+        let props = &class_registration.props;
+        let (ctor, props): (Vec<_>, Vec<_>) = props.iter().partition(|prop| prop.is_ctor);
+        let ctor = ctor
+          .first()
+          .map(|property| property.raw().method.unwrap())
+          .unwrap_or(noop);
+        let raw_props: Vec<_> = props.iter().map(|property| property.raw()).collect();
+        let js_class_name = unsafe { CStr::from_bytes_with_nul_unchecked(js_name.as_bytes()) };
+        let mut class_ptr = ptr::null_mut();
 
-          let ctor = ctor
-            .first()
-            .map(|c| c.raw().method.unwrap())
-            .unwrap_or(noop);
-          let raw_props: Vec<_> = props.iter().map(|prop| prop.raw()).collect();
-
-          let js_class_name = CStr::from_bytes_with_nul_unchecked(js_name.as_bytes());
-          let mut class_ptr = ptr::null_mut();
-
-          check_status_or_throw!(
-            env,
+        check_status!(
+          unsafe {
             sys::napi_define_class(
               env,
               js_class_name.as_ptr(),
@@ -612,39 +609,36 @@ pub unsafe extern "C" fn napi_register_module_v1(
               raw_props.len(),
               raw_props.as_ptr(),
               &mut class_ptr,
-            ),
-            "Failed to register class `{}`",
-            &js_name,
-          );
+            )
+          },
+          "Failed to register class `{}`",
+          &js_name,
+        )?;
 
-          if class_registration.implement_iterator {
-            crate::bindgen_runtime::iterator::setup_iterator_class(env, class_ptr);
-          }
-
-          let mut ctor_ref = ptr::null_mut();
-          sys::napi_create_reference(env, class_ptr, 1, &mut ctor_ref);
-
-          registered_classes.insert(js_name.to_string(), ctor_ref);
-
-          check_status_or_throw!(
-            env,
-            sys::napi_set_named_property(
-              env,
-              if exports_js_mod.is_null() {
-                exports
-              } else {
-                exports_js_mod
-              },
-              js_class_name.as_ptr(),
-              class_ptr
-            ),
-            "Failed to register class `{}`",
-            &js_name,
-          );
+        if class_registration.implement_iterator {
+          unsafe { crate::bindgen_runtime::iterator::setup_iterator_class(env, class_ptr) };
+          ensure_no_pending_exception(env, "Iterator class setup left a pending exception")?;
         }
+
+        let mut ctor_ref = ptr::null_mut();
+        check_status!(
+          unsafe { sys::napi_create_reference(env, class_ptr, 1, &mut ctor_ref) },
+          "Failed to create constructor reference for class `{}`",
+          &js_name,
+        )?;
+        registered_classes.insert(js_name.to_string(), ctor_ref);
+
+        check_status!(
+          unsafe {
+            sys::napi_set_named_property(env, exports_js_mod, js_class_name.as_ptr(), class_ptr)
+          },
+          "Failed to register class `{}`",
+          &js_name,
+        )?;
       }
-    });
-  });
+    }
+    Ok(())
+  })?;
 
   REGISTERED_CLASSES.with(|cell| {
     cell.borrow_mut(|map| {
@@ -652,27 +646,75 @@ pub unsafe extern "C" fn napi_register_module_v1(
     })
   });
 
-  let module_register_hook_callback = MODULE_REGISTER_HOOK_CALLBACK
+  let module_register_hook_callback = *MODULE_REGISTER_HOOK_CALLBACK
     .read()
     .expect("Read MODULE_REGISTER_HOOK_CALLBACK failed");
-  if let Some(cb) = module_register_hook_callback.as_ref() {
-    if let Err(e) = cb(env, exports) {
-      JsError::from(e).throw_into(env);
-    }
+  if let Some(callback) = module_register_hook_callback {
+    unsafe { callback(env, exports) }?;
+    ensure_no_pending_exception(env, "Module register hook left a pending exception")?;
   }
 
   #[cfg(feature = "compat-mode")]
   {
-    let module_exports = MODULE_EXPORTS.read().expect("Read MODULE_EXPORTS failed");
-    module_exports.iter().for_each(|callback| unsafe {
-      if let Err(e) = callback(env, exports) {
-        JsError::from(e).throw_into(env);
-      }
-    })
+    let module_exports = MODULE_EXPORTS
+      .read()
+      .expect("Read MODULE_EXPORTS failed")
+      .clone();
+    for callback in module_exports {
+      unsafe { callback(env, exports) }?;
+      ensure_no_pending_exception(env, "Module exports callback left a pending exception")?;
+    }
   }
 
-  FIRST_MODULE_REGISTERED.store(true, Ordering::SeqCst);
-  exports
+  Ok(())
+}
+
+#[cfg(not(feature = "noop"))]
+unsafe fn exports_object_for_module(
+  env: sys::napi_env,
+  exports: sys::napi_value,
+  js_mod: Option<&'static str>,
+  exports_objects: &mut HashSet<String>,
+) -> Result<sys::napi_value> {
+  let Some(js_mod) = js_mod else {
+    return Ok(exports);
+  };
+  let mod_name = unsafe { CStr::from_bytes_with_nul_unchecked(js_mod.as_bytes()) };
+  let mut exports_js_mod = ptr::null_mut();
+  if exports_objects.contains(js_mod) {
+    check_status!(
+      unsafe { sys::napi_get_named_property(env, exports, mod_name.as_ptr(), &mut exports_js_mod) },
+      "Get mod {} from exports failed",
+      js_mod,
+    )?;
+  } else {
+    check_status!(
+      unsafe { sys::napi_create_object(env, &mut exports_js_mod) },
+      "Create export JavaScript Object [{}] failed",
+      js_mod,
+    )?;
+    check_status!(
+      unsafe { sys::napi_set_named_property(env, exports, mod_name.as_ptr(), exports_js_mod) },
+      "Set exports Object [{}] into exports object failed",
+      js_mod,
+    )?;
+    exports_objects.insert(js_mod.to_owned());
+  }
+  Ok(exports_js_mod)
+}
+
+#[cfg(not(feature = "noop"))]
+fn ensure_no_pending_exception(env: sys::napi_env, reason: &'static str) -> Result<()> {
+  let mut is_pending = false;
+  check_status!(
+    unsafe { sys::napi_is_exception_pending(env, &mut is_pending) },
+    "Failed to check for a pending exception during module registration",
+  )?;
+  if is_pending {
+    Err(crate::Error::new(crate::Status::PendingException, reason))
+  } else {
+    Ok(())
+  }
 }
 
 #[cfg(not(feature = "noop"))]
@@ -693,13 +735,25 @@ pub(crate) unsafe extern "C" fn noop(
 }
 
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
-fn create_custom_gc(env: sys::napi_env) {
+fn create_custom_gc(env: sys::napi_env) -> Result<CustomGcRegistration> {
+  if let Some(handle) = CURRENT_CUSTOM_GC_HANDLE.with(|current| {
+    current
+      .borrow()
+      .as_ref()
+      .filter(|handle| handle.is_active_for(env))
+      .cloned()
+  }) {
+    return Ok(CustomGcRegistration {
+      handle,
+      owned: false,
+    });
+  }
+
   // Per-env custom-GC TSFN (#3357): created for EVERY isolate. It is `napi_unref`'d so it never pins
   // the event loop (worker terminate/exit cannot hang), and Node owns it (torn down via
   // `custom_gc_handle_finalize` at env teardown).
   let mut custom_gc_fn = ptr::null_mut();
-  check_status_or_throw!(
-    env,
+  check_status!(
     unsafe {
       sys::napi_create_function(
         env,
@@ -711,14 +765,15 @@ fn create_custom_gc(env: sys::napi_env) {
       )
     },
     "Create Custom GC Function in napi_register_module_v1 failed"
-  );
+  )?;
   let mut async_resource_name = ptr::null_mut();
-  check_status_or_throw!(
-    env,
+  check_status!(
     unsafe { sys::napi_create_string_utf8(env, c"CustomGC".as_ptr(), 8, &mut async_resource_name) },
     "Create async resource string in napi_register_module_v1"
-  );
+  )?;
   let handle = std::sync::Arc::new(CustomGcHandle {
+    env: env as usize,
+    owner_thread: std::thread::current().id(),
     tsfn: std::sync::atomic::AtomicPtr::new(ptr::null_mut()),
     aborted: std::sync::RwLock::new(false),
   });
@@ -739,28 +794,70 @@ fn create_custom_gc(env: sys::napi_env) {
       &mut custom_gc_tsfn,
     )
   };
-  if status != sys::Status::napi_ok || custom_gc_tsfn.is_null() {
-    // reclaim the leaked weak count before bailing
+  if status != sys::Status::napi_ok {
     drop(unsafe { std::sync::Weak::from_raw(weak_ptr) });
-    check_status_or_throw!(
-      env,
-      status,
-      "Create Custom GC ThreadsafeFunction in napi_register_module_v1 failed"
-    );
-    // `napi_create_threadsafe_function` only fails under resource exhaustion; `check_status_or_throw!`
-    // above leaves a pending exception, which aborts the addon load (`require` throws). No user
-    // `#[napi]` code then runs, so no Buffer/TypedArray is ever created with this env's (unset) handle.
-    return;
+    return Err(crate::Error::new(
+      crate::Status::from(status),
+      "Create Custom GC ThreadsafeFunction in napi_register_module_v1 failed",
+    ));
   }
+  if custom_gc_tsfn.is_null() {
+    #[cfg(not(target_family = "wasm"))]
+    {
+      retain_current_module_for_unload_safety();
+      return Err(crate::Error::new(
+        crate::Status::GenericFailure,
+        "Create Custom GC ThreadsafeFunction in napi_register_module_v1 returned a null handle",
+      ));
+    }
+    #[cfg(target_family = "wasm")]
+    {
+      // Successful native creation transferred `weak_ptr` to the host. With
+      // no handle there is no operation that can reclaim it synchronously, and
+      // WASI cannot keep its eventual finalizer code mapped.
+      std::process::abort();
+    }
+  }
+
+  let unref_status = unsafe { sys::napi_unref_threadsafe_function(env, custom_gc_tsfn) };
+  if unref_status != sys::Status::napi_ok {
+    let abort_status = unsafe {
+      sys::napi_release_threadsafe_function(
+        custom_gc_tsfn,
+        sys::ThreadsafeFunctionReleaseMode::abort,
+      )
+    };
+    #[cfg(not(target_family = "wasm"))]
+    {
+      retain_current_module_for_unload_safety();
+      let reason = if abort_status == sys::Status::napi_ok {
+        "Unref Custom GC ThreadsafeFunction in napi_register_module_v1 failed; the partially created ThreadsafeFunction was aborted".to_owned()
+      } else {
+        format!(
+          "Unref Custom GC ThreadsafeFunction in napi_register_module_v1 failed and aborting the partially created ThreadsafeFunction returned {}",
+          crate::Status::from(abort_status)
+        )
+      };
+      return Err(crate::Error::new(crate::Status::from(unref_status), reason));
+    }
+    #[cfg(target_family = "wasm")]
+    {
+      let _ = abort_status;
+      // Aborting the TSFN only schedules its native finalizer. WASI has no
+      // loader handle that can keep this callback code alive after module load
+      // fails, so returning would leave an unload race.
+      std::process::abort();
+    }
+  }
+
   handle
     .tsfn
     .store(custom_gc_tsfn, std::sync::atomic::Ordering::SeqCst);
-  check_status_or_throw!(
-    env,
-    unsafe { sys::napi_unref_threadsafe_function(env, custom_gc_tsfn) },
-    "Unref Custom GC ThreadsafeFunction in napi_register_module_v1 failed"
-  );
-  CURRENT_CUSTOM_GC_HANDLE.with(|c| *c.borrow_mut() = Some(handle));
+  CURRENT_CUSTOM_GC_HANDLE.with(|current| *current.borrow_mut() = Some(handle.clone()));
+  Ok(CustomGcRegistration {
+    handle,
+    owned: true,
+  })
 }
 
 #[cfg(all(
@@ -773,6 +870,10 @@ fn create_custom_gc(env: sys::napi_env) {
 struct RuntimeEnvCleanup {
   env: sys::napi_env,
   active: AtomicBool,
+  runtime_env_tasks_owned: AtomicBool,
+  resolver_env_owned: AtomicBool,
+  #[cfg(feature = "async-runtime")]
+  async_runtime_env_reserved: AtomicBool,
 }
 
 #[cfg(all(
@@ -784,9 +885,23 @@ struct RuntimeEnvCleanup {
 ))]
 unsafe extern "C" fn thread_cleanup(data: *mut std::ffi::c_void) {
   let cleanup = unsafe { Box::from_raw(data.cast::<RuntimeEnvCleanup>()) };
+  let mut cleanup_completed = false;
   crate::bindgen_runtime::catch_unwind_safely(|| {
-    cleanup_runtime_env(&cleanup);
+    cleanup_runtime_env(&cleanup, true);
+    cleanup_completed = true;
   });
+  #[cfg(not(target_family = "wasm"))]
+  if !cleanup_completed {
+    // An unwind caught at the cleanup-hook boundary may have skipped runtime
+    // retirement. Keep the image mapped before Node can unload it.
+    retain_current_module_for_unload_safety();
+  }
+  #[cfg(target_family = "wasm")]
+  if !cleanup_completed {
+    // WASI has no loader handle that can pin code reached by cleanup that may
+    // still be live after an unwind.
+    std::process::abort();
+  }
 }
 
 #[cfg(all(
@@ -796,26 +911,37 @@ unsafe extern "C" fn thread_cleanup(data: *mut std::ffi::c_void) {
     feature = "napi4"
   )
 ))]
-fn cleanup_runtime_env(cleanup: &RuntimeEnvCleanup) {
+fn cleanup_runtime_env(cleanup: &RuntimeEnvCleanup, env_closing: bool) {
   if !cleanup.active.swap(false, Ordering::AcqRel) {
     return;
   }
   let env = cleanup.env;
-  mark_runtime_env_closing(env);
+  if env_closing {
+    mark_runtime_env_closing(env);
+  }
+  let runtime_env_tasks_owned = cleanup
+    .runtime_env_tasks_owned
+    .swap(false, Ordering::AcqRel);
+  let resolver_env_owned = cleanup.resolver_env_owned.swap(false, Ordering::AcqRel);
   crate::bindgen_runtime::with_runtime_teardown_guard(|| {
-    #[cfg(all(
-      not(feature = "noop"),
-      any(feature = "tokio_rt", feature = "async-runtime")
-    ))]
-    crate::tokio_runtime::cancel_runtime_env_tasks(env);
-    crate::sendable_resolver::clear_resolvers_for_env(env);
-    crate::js_values::clear_finalize_callbacks_for_env(env);
+    if runtime_env_tasks_owned {
+      crate::tokio_runtime::cancel_runtime_env_tasks(env);
+      crate::js_values::clear_finalize_callbacks_for_env(env);
+    }
+    if env_closing {
+      crate::sendable_resolver::cleanup_resolver_env(env, resolver_env_owned);
+    } else {
+      rollback_resolver_env(env, resolver_env_owned);
+    }
   });
   #[cfg(feature = "async-runtime")]
+  if cleanup
+    .async_runtime_env_reserved
+    .swap(false, Ordering::AcqRel)
   {
     if let Err(error) = crate::tokio_runtime::unregister_async_runtime_env() {
       crate::bindgen_runtime::catch_unwind_safely(|| {
-        eprintln!("Failed to shut down custom async runtime: {error}");
+        eprintln!("Failed to shut down async runtime: {error}");
       });
     }
   }
@@ -831,8 +957,19 @@ fn increment_module_count(env: sys::napi_env) -> usize {
   let mut registered = REGISTERED_RUNTIME_ENVS
     .lock()
     .unwrap_or_else(std::sync::PoisonError::into_inner);
-  let inserted = registered.insert(env as usize);
-  debug_assert!(inserted, "runtime environment registered more than once");
+  let registration = registered
+    .entry(env as usize)
+    .or_insert(RuntimeEnvRegistration {
+      count: 0,
+      closing: false,
+    });
+  if registration.closing {
+    std::process::abort();
+  }
+  registration.count = registration
+    .count
+    .checked_add(1)
+    .unwrap_or_else(|| std::process::abort());
   MODULE_COUNT.fetch_add(1, Ordering::AcqRel)
 }
 
@@ -849,19 +986,131 @@ fn increment_module_count(_env: sys::napi_env) -> usize {
 
 #[cfg(all(
   not(feature = "noop"),
+  not(all(
+    any(feature = "tokio_rt", feature = "async-runtime"),
+    feature = "napi4"
+  ))
+))]
+fn rollback_module_count() {
+  MODULE_COUNT
+    .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+      count.checked_sub(1)
+    })
+    .unwrap_or_else(|_| std::process::abort());
+}
+
+#[cfg(all(
+  not(feature = "noop"),
   any(feature = "tokio_rt", feature = "async-runtime"),
   feature = "napi4"
 ))]
 fn decrement_runtime_module_count(env: sys::napi_env) {
-  mark_runtime_env_closing(env);
-  decrement_runtime_module_count_with_last(|| {
-    #[cfg(all(feature = "tokio_rt", not(feature = "async-runtime")))]
-    if let Err(error) = crate::tokio_runtime::shutdown_tokio_runtime() {
-      crate::bindgen_runtime::catch_unwind_safely(|| {
-        eprintln!("Failed to shut down Tokio runtime: {error}");
-      });
+  #[cfg(feature = "tokio_rt")]
+  let mut tokio_shutdown_failed = false;
+  #[cfg(feature = "tokio_rt")]
+  let mut tokio_retirement = None;
+  #[cfg(not(feature = "tokio_rt"))]
+  let tokio_shutdown_failed = false;
+  let _was_last = decrement_runtime_module_count_with_last(env, || {
+    #[cfg(feature = "tokio_rt")]
+    match crate::tokio_runtime::shutdown_tokio_runtime() {
+      Ok(()) => {
+        // Snapshot this generation while registration is still excluded. A
+        // later environment may retire a different generation before we wait.
+        tokio_retirement = Some(crate::tokio_runtime::tokio_runtime_retirement_waiter());
+      }
+      Err(error) => {
+        tokio_shutdown_failed = true;
+        crate::bindgen_runtime::catch_unwind_safely(|| {
+          eprintln!("Failed to shut down Tokio runtime: {error}");
+        });
+      }
     }
   });
+  #[cfg(feature = "async-runtime")]
+  let custom_shutdown_quiescence_unproven =
+    _was_last && crate::tokio_runtime::custom_runtime_shutdown_quiescence_unproven();
+  #[cfg(not(feature = "async-runtime"))]
+  let custom_shutdown_quiescence_unproven = false;
+  // Do not hold environment registration exclusion while waiting for
+  // potentially long-running blocking work. A racing registration observes
+  // the retiring generation and waits through start_tokio_runtime_after_retirement.
+  #[cfg(not(target_family = "wasm"))]
+  {
+    #[cfg(feature = "tokio_rt")]
+    let retirement_failed = !tokio_shutdown_failed
+      && _was_last
+      && tokio_retirement
+        .expect("last environment must snapshot Tokio retirement after shutdown")
+        .wait_for(std::time::Duration::from_secs(5))
+        .inspect_err(|error| {
+          crate::bindgen_runtime::catch_unwind_safely(|| {
+            eprintln!("Failed to retire Tokio runtime during environment cleanup: {error}");
+          });
+        })
+        .is_err();
+    #[cfg(not(feature = "tokio_rt"))]
+    let retirement_failed = false;
+    #[cfg(feature = "tokio_rt")]
+    let tokio_requires_module_retention =
+      _was_last && crate::tokio_runtime::tokio_runtime_requires_module_retention();
+    #[cfg(not(feature = "tokio_rt"))]
+    let tokio_requires_module_retention = false;
+    if _was_last
+      && (tokio_shutdown_failed
+        || retirement_failed
+        || custom_shutdown_quiescence_unproven
+        || tokio_requires_module_retention)
+    {
+      // Even successful Tokio retirement cannot prove that externally retained
+      // task wakers no longer reference vtables in this image.
+      retain_current_module_for_unload_safety();
+    }
+  }
+  #[cfg(all(target_family = "wasm", tokio_unstable))]
+  {
+    let retirement_failed = if tokio_shutdown_failed {
+      false
+    } else {
+      #[cfg(feature = "tokio_rt")]
+      {
+        _was_last
+          && tokio_retirement
+            .expect("last environment must snapshot Tokio retirement after shutdown")
+            .wait_for(std::time::Duration::from_secs(5))
+            .inspect_err(|error| {
+              crate::bindgen_runtime::catch_unwind_safely(|| {
+                eprintln!("Failed to retire Tokio runtime during environment cleanup: {error}");
+              });
+            })
+            .is_err()
+      }
+      #[cfg(not(feature = "tokio_rt"))]
+      {
+        false
+      }
+    };
+    if _was_last
+      && (tokio_shutdown_failed || retirement_failed || custom_shutdown_quiescence_unproven)
+    {
+      // emnapi pthreads retain their own WebAssembly instances, but returning
+      // without proven runtime quiescence could let live work access a closed
+      // Node-API environment.
+      std::process::abort();
+    }
+  }
+  #[cfg(all(target_family = "wasm", not(tokio_unstable)))]
+  {
+    #[cfg(feature = "tokio_rt")]
+    let _ = (tokio_shutdown_failed, tokio_retirement);
+    #[cfg(not(feature = "tokio_rt"))]
+    let _ = tokio_shutdown_failed;
+    if _was_last && custom_shutdown_quiescence_unproven {
+      // Non-threaded WASI cannot pin the image either, but has no built-in
+      // Tokio retirement thread to wait for.
+      std::process::abort();
+    }
+  }
 }
 
 #[cfg(all(
@@ -870,10 +1119,13 @@ fn decrement_runtime_module_count(env: sys::napi_env) {
   feature = "napi4"
 ))]
 fn mark_runtime_env_closing(env: sys::napi_env) {
-  REGISTERED_RUNTIME_ENVS
+  let mut registered = REGISTERED_RUNTIME_ENVS
     .lock()
-    .unwrap_or_else(std::sync::PoisonError::into_inner)
-    .remove(&(env as usize));
+    .unwrap_or_else(std::sync::PoisonError::into_inner);
+  let Some(registration) = registered.get_mut(&(env as usize)) else {
+    std::process::abort();
+  };
+  registration.closing = true;
 }
 
 #[cfg(all(
@@ -881,15 +1133,534 @@ fn mark_runtime_env_closing(env: sys::napi_env) {
   any(feature = "tokio_rt", feature = "async-runtime"),
   feature = "napi4"
 ))]
-fn decrement_runtime_module_count_with_last(on_last: impl FnOnce()) {
+fn decrement_runtime_module_count_with_last(env: sys::napi_env, on_last: impl FnOnce()) -> bool {
   // Keep registration excluded until the last environment has committed its runtime shutdown.
   // Otherwise a new environment can increment zero to one, observe the old runtime as running,
   // and then have the retiring environment stop it.
-  let _guard = REGISTERED_RUNTIME_ENVS
+  let mut registered = REGISTERED_RUNTIME_ENVS
     .lock()
     .unwrap_or_else(std::sync::PoisonError::into_inner);
-  if MODULE_COUNT.fetch_sub(1, Ordering::AcqRel) == 1 {
+  let env = env as usize;
+  let remove_env = {
+    let Some(registration) = registered.get_mut(&env) else {
+      std::process::abort();
+    };
+    registration.count = registration
+      .count
+      .checked_sub(1)
+      .unwrap_or_else(|| std::process::abort());
+    registration.count == 0
+  };
+  if remove_env {
+    registered.remove(&env);
+  }
+  let previous = MODULE_COUNT
+    .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+      count.checked_sub(1)
+    })
+    .unwrap_or_else(|_| {
+      // Wrapping to usize::MAX would permanently suppress last-environment
+      // retirement and could let the addon unload under native workers.
+      std::process::abort();
+    });
+  let was_last = previous == 1;
+  if was_last {
     on_last();
+  }
+  was_last
+}
+
+#[cfg(all(not(feature = "noop"), not(target_family = "wasm"), feature = "napi4"))]
+#[inline(never)]
+fn module_retention_anchor() {}
+
+#[cfg(all(
+  not(feature = "noop"),
+  not(target_family = "wasm"),
+  windows,
+  feature = "napi4"
+))]
+pub(crate) fn retain_current_module_for_unload_safety() {
+  const GET_MODULE_HANDLE_EX_FLAG_PIN: u32 = 0x0000_0001;
+  const GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS: u32 = 0x0000_0004;
+
+  #[link(name = "kernel32")]
+  unsafe extern "system" {
+    fn GetModuleHandleExW(
+      flags: u32,
+      module_name: *const u16,
+      module: *mut *mut std::ffi::c_void,
+    ) -> i32;
+  }
+
+  static RETAIN_MODULE: std::sync::Once = std::sync::Once::new();
+  RETAIN_MODULE.call_once(|| {
+    let mut module = ptr::null_mut();
+    let pinned = unsafe {
+      GetModuleHandleExW(
+        GET_MODULE_HANDLE_EX_FLAG_PIN | GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+        module_retention_anchor as *const () as *const u16,
+        &mut module,
+      )
+    };
+    if pinned == 0 {
+      // Returning would let Windows unload code that may still be executing on
+      // worker threads or callbacks. There is no recoverable state after pinning fails.
+      std::process::abort();
+    }
+  });
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  not(target_family = "wasm"),
+  any(
+    target_vendor = "apple",
+    target_os = "linux",
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "dragonfly",
+    target_os = "netbsd",
+    target_os = "solaris",
+    target_os = "illumos"
+  ),
+  feature = "napi4"
+))]
+pub(crate) fn retain_current_module_for_unload_safety() {
+  #[cfg(any(target_os = "linux", target_os = "android"))]
+  #[link(name = "dl")]
+  unsafe extern "C" {}
+
+  static RETAIN_MODULE: std::sync::Once = std::sync::Once::new();
+  RETAIN_MODULE.call_once(|| unsafe {
+    let local_symbol = module_retention_anchor as *const () as *const std::ffi::c_void;
+    if current_image_is_main_executable(local_symbol) {
+      // The process image cannot be unloaded and needs no additional loader
+      // reference when napi is statically linked into an embedder.
+      return;
+    }
+
+    let mut info = std::mem::MaybeUninit::<libc::Dl_info>::zeroed();
+    if libc::dladdr(local_symbol, info.as_mut_ptr()) == 0 {
+      std::process::abort();
+    }
+    let info = info.assume_init();
+    if info.dli_fname.is_null() {
+      std::process::abort();
+    }
+
+    // Leak one loader reference. This keeps worker, callback, and task-waker
+    // code mapped after Node drops its own handle.
+    let flags = libc::RTLD_LAZY | libc::RTLD_LOCAL | libc::RTLD_NOLOAD;
+    let module = libc::dlopen(info.dli_fname, flags);
+    if module.is_null() {
+      std::process::abort();
+    }
+  });
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  not(target_family = "wasm"),
+  target_os = "openbsd",
+  feature = "napi4"
+))]
+pub(crate) fn retain_current_module_for_unload_safety() {
+  const DL_REFERENCE: std::ffi::c_int = 4;
+
+  unsafe extern "C" {
+    fn dlctl(
+      handle: *mut std::ffi::c_void,
+      command: std::ffi::c_int,
+      data: *mut std::ffi::c_void,
+    ) -> std::ffi::c_int;
+  }
+
+  static RETAIN_MODULE: std::sync::Once = std::sync::Once::new();
+  RETAIN_MODULE.call_once(|| {
+    let local_symbol = module_retention_anchor as *const () as *mut std::ffi::c_void;
+    // DL_REFERENCE resolves the object by address, increments its open count,
+    // and marks it NODELETE. This avoids reopening a path that may no longer exist.
+    if unsafe { dlctl(ptr::null_mut(), DL_REFERENCE, local_symbol) } != 0 {
+      std::process::abort();
+    }
+  });
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  unix,
+  not(target_os = "aix"),
+  target_vendor = "apple",
+  feature = "napi4"
+))]
+fn current_image_is_main_executable(local_symbol: *const std::ffi::c_void) -> bool {
+  unsafe extern "C" {
+    fn _dyld_get_image_header(image_index: u32) -> *const std::ffi::c_void;
+  }
+
+  let mut info = std::mem::MaybeUninit::<libc::Dl_info>::zeroed();
+  unsafe {
+    libc::dladdr(local_symbol, info.as_mut_ptr()) != 0
+      && info.assume_init().dli_fbase.cast_const() == _dyld_get_image_header(0)
+  }
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  any(
+    target_os = "linux",
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "dragonfly",
+    target_os = "netbsd",
+    all(
+      any(target_os = "solaris", target_os = "illumos"),
+      any(target_arch = "x86", target_arch = "x86_64")
+    )
+  ),
+  feature = "napi4"
+))]
+fn current_image_is_main_executable(local_symbol: *const std::ffi::c_void) -> bool {
+  const PT_LOAD: libc::c_uint = 1;
+  const PT_PHDR: libc::c_uint = 6;
+
+  struct MainImageLookup {
+    address: usize,
+    contains_address: bool,
+  }
+
+  unsafe extern "C" fn inspect_main_image(
+    info: *mut libc::dl_phdr_info,
+    _size: usize,
+    data: *mut std::ffi::c_void,
+  ) -> std::ffi::c_int {
+    let lookup = unsafe { &mut *data.cast::<MainImageLookup>() };
+    let info = unsafe { &*info };
+    // These loaders report the main program first. Its name is not portable:
+    // Linux uses an empty string, while BSD loaders may report the executable path.
+    let reported_load_bias = info.dlpi_addr as usize;
+    // FreeBSD's static libc stub initializes `dlpi_addr` from AT_BASE, which is
+    // not the executable load bias for a static PIE. PT_PHDR lets us recover
+    // the bias from the in-memory program-header address.
+    let phdr_load_bias = (0..info.dlpi_phnum as usize).find_map(|index| {
+      let header = unsafe { &*info.dlpi_phdr.add(index) };
+      (header.p_type == PT_PHDR)
+        .then(|| (info.dlpi_phdr as usize).checked_sub(header.p_vaddr as usize))
+        .flatten()
+    });
+    for index in 0..info.dlpi_phnum as usize {
+      let header = unsafe { &*info.dlpi_phdr.add(index) };
+      if header.p_type != PT_LOAD {
+        continue;
+      }
+      for load_bias in [Some(reported_load_bias), phdr_load_bias]
+        .into_iter()
+        .flatten()
+      {
+        let Some(start) = load_bias.checked_add(header.p_vaddr as usize) else {
+          continue;
+        };
+        let Some(end) = start.checked_add(header.p_memsz as usize) else {
+          continue;
+        };
+        if (start..end).contains(&lookup.address) {
+          lookup.contains_address = true;
+          break;
+        }
+      }
+      if lookup.contains_address {
+        break;
+      }
+    }
+    // Only the first object is the main image.
+    1
+  }
+
+  let mut lookup = MainImageLookup {
+    address: local_symbol as usize,
+    contains_address: false,
+  };
+  unsafe {
+    libc::dl_iterate_phdr(
+      Some(inspect_main_image),
+      (&mut lookup as *mut MainImageLookup).cast(),
+    );
+  }
+  lookup.contains_address
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  any(target_os = "solaris", target_os = "illumos"),
+  not(any(target_arch = "x86", target_arch = "x86_64")),
+  feature = "napi4"
+))]
+fn current_image_is_main_executable(_local_symbol: *const std::ffi::c_void) -> bool {
+  false
+}
+
+#[cfg(all(not(feature = "noop"), feature = "napi4", any(target_os = "aix", test)))]
+fn aix_text_range_contains(start: usize, size: usize, address: usize) -> Option<bool> {
+  let end = start.checked_add(size)?;
+  Some((start..end).contains(&address))
+}
+
+#[cfg(all(not(feature = "noop"), feature = "napi4", any(target_os = "aix", test)))]
+fn aix_loader_names(record_tail: &[u8]) -> Option<(&[u8], &[u8])> {
+  let filename_end = record_tail.iter().position(|byte| *byte == 0)?;
+  let member_start = filename_end.checked_add(1)?;
+  let member_tail = record_tail.get(member_start..)?;
+  let member_end = member_tail.iter().position(|byte| *byte == 0)?;
+  Some((&record_tail[..filename_end], &member_tail[..member_end]))
+}
+
+#[cfg(all(not(feature = "noop"), feature = "napi4", any(target_os = "aix", test)))]
+fn aix_dlopen_path(filename: &[u8], member: &[u8]) -> Option<Vec<u8>> {
+  if filename.is_empty() || filename.contains(&0) || member.contains(&0) {
+    return None;
+  }
+  let member_delimiters = usize::from(!member.is_empty()) * 2;
+  let capacity = filename
+    .len()
+    .checked_add(member.len())?
+    .checked_add(member_delimiters)?
+    .checked_add(1)?;
+  let mut path = Vec::with_capacity(capacity);
+  path.extend_from_slice(filename);
+  if !member.is_empty() {
+    path.push(b'(');
+    path.extend_from_slice(member);
+    path.push(b')');
+  }
+  path.push(0);
+  Some(path)
+}
+
+#[cfg(all(not(feature = "noop"), feature = "napi4", any(target_os = "aix", test)))]
+fn aix_loader_record_is_main_executable(text_start: usize, member: &[u8]) -> bool {
+  const AIX_EXECUTABLE_TEXT_BASE: usize = 0x1_0000_0000;
+  member.is_empty() && text_start == AIX_EXECUTABLE_TEXT_BASE
+}
+
+#[cfg(all(not(feature = "noop"), target_os = "aix", feature = "napi4"))]
+fn aix_loader_file_is_main_executable(
+  text_start: usize,
+  filename: &[u8],
+  member: &[u8],
+) -> Option<bool> {
+  use std::os::{aix::fs::MetadataExt, unix::ffi::OsStrExt};
+
+  if !member.is_empty() {
+    return Some(false);
+  }
+  // AIX 64-bit executables use this reserved text base. Check it before the
+  // filesystem fallback because the running executable may have been replaced.
+  if aix_loader_record_is_main_executable(text_start, member) {
+    return Some(true);
+  }
+  let loaded_file =
+    std::fs::metadata(std::path::Path::new(std::ffi::OsStr::from_bytes(filename))).ok()?;
+  let executable = std::fs::metadata(std::env::current_exe().ok()?).ok()?;
+  Some(loaded_file.st_dev() == executable.st_dev() && loaded_file.st_ino() == executable.st_ino())
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  not(target_family = "wasm"),
+  target_os = "aix",
+  feature = "napi4"
+))]
+pub(crate) fn retain_current_module_for_unload_safety() {
+  const INITIAL_LOADQUERY_RECORDS: usize = 64;
+
+  static RETAIN_MODULE: std::sync::Once = std::sync::Once::new();
+  RETAIN_MODULE.call_once(|| unsafe {
+    // An AIX function pointer addresses a three-word descriptor. Its first word
+    // is the actual entry in the image's text segment.
+    let descriptor = module_retention_anchor as *const () as *const *const std::ffi::c_void;
+    let text_address = descriptor.read();
+    if text_address.is_null() {
+      std::process::abort();
+    }
+    let text_address = text_address as usize;
+
+    let mut modules = vec![std::mem::zeroed::<libc::ld_info>(); INITIAL_LOADQUERY_RECORDS];
+    loop {
+      let byte_len = std::mem::size_of::<libc::ld_info>()
+        .checked_mul(modules.len())
+        .and_then(|len| libc::c_uint::try_from(len).ok())
+        .unwrap_or_else(|| std::process::abort());
+      if libc::loadquery(
+        libc::L_GETINFO,
+        modules.as_mut_ptr().cast::<std::ffi::c_void>(),
+        byte_len,
+      ) != -1
+      {
+        break;
+      }
+      if *libc::_Errno() != libc::ENOMEM {
+        std::process::abort();
+      }
+      let next_len = modules
+        .len()
+        .checked_mul(2)
+        .unwrap_or_else(|| std::process::abort());
+      modules.resize(next_len, std::mem::zeroed::<libc::ld_info>());
+    }
+
+    let buffer = std::slice::from_raw_parts(
+      modules.as_ptr().cast::<u8>(),
+      std::mem::size_of::<libc::ld_info>()
+        .checked_mul(modules.len())
+        .unwrap_or_else(|| std::process::abort()),
+    );
+    let filename_offset = std::mem::offset_of!(libc::ld_info, ldinfo_filename);
+    let minimum_record_len = filename_offset
+      .checked_add(2)
+      .unwrap_or_else(|| std::process::abort());
+    let mut record_offset = 0usize;
+
+    loop {
+      let header_end = record_offset
+        .checked_add(std::mem::size_of::<libc::ld_info>())
+        .filter(|end| *end <= buffer.len())
+        .unwrap_or_else(|| std::process::abort());
+      let record =
+        std::ptr::read_unaligned(buffer.as_ptr().add(record_offset).cast::<libc::ld_info>());
+      let next = record.ldinfo_next as usize;
+      let record_end = if next == 0 {
+        buffer.len()
+      } else {
+        if next < minimum_record_len {
+          std::process::abort();
+        }
+        record_offset
+          .checked_add(next)
+          .filter(|end| *end <= buffer.len())
+          .unwrap_or_else(|| std::process::abort())
+      };
+      if header_end > record_end {
+        std::process::abort();
+      }
+
+      let text_start = record.ldinfo_textorg as usize;
+      let text_size =
+        usize::try_from(record.ldinfo_textsize).unwrap_or_else(|_| std::process::abort());
+      let contains_text = aix_text_range_contains(text_start, text_size, text_address)
+        .unwrap_or_else(|| std::process::abort());
+      if contains_text {
+        let names_start = record_offset
+          .checked_add(filename_offset)
+          .filter(|start| *start < record_end)
+          .unwrap_or_else(|| std::process::abort());
+        let (filename, member) = aix_loader_names(&buffer[names_start..record_end])
+          .unwrap_or_else(|| std::process::abort());
+        if aix_loader_file_is_main_executable(text_start, filename, member)
+          .unwrap_or_else(|| std::process::abort())
+        {
+          // The process image cannot be unloaded and needs no additional
+          // loader reference when napi is statically linked into an embedder.
+          return;
+        }
+        let path = aix_dlopen_path(filename, member).unwrap_or_else(|| std::process::abort());
+        let mut flags = libc::RTLD_LAZY | libc::RTLD_LOCAL;
+        if !member.is_empty() {
+          flags |= libc::RTLD_MEMBER;
+        }
+
+        // Leak one loader reference. This keeps worker, callback, and task-waker
+        // code mapped after Node drops its own handle.
+        if libc::dlopen(path.as_ptr().cast::<libc::c_char>(), flags).is_null() {
+          std::process::abort();
+        }
+        return;
+      }
+
+      if next == 0 {
+        std::process::abort();
+      }
+      record_offset = record_end;
+    }
+  });
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  not(target_family = "wasm"),
+  not(any(
+    windows,
+    target_vendor = "apple",
+    target_os = "linux",
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "dragonfly",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_os = "solaris",
+    target_os = "illumos",
+    target_os = "aix"
+  )),
+  feature = "napi4"
+))]
+pub(crate) fn retain_current_module_for_unload_safety() {
+  // No portable loader-pinning API is available. Returning could let the host
+  // unmap code still referenced by worker threads or callbacks.
+  std::process::abort();
+}
+
+#[cfg(all(test, not(feature = "noop"), feature = "napi4"))]
+mod aix_loader_tests {
+  use super::{
+    aix_dlopen_path, aix_loader_names, aix_loader_record_is_main_executable,
+    aix_text_range_contains,
+  };
+
+  #[test]
+  fn aix_text_range_matching_checks_overflow_and_end_exclusion() {
+    assert_eq!(aix_text_range_contains(0x1000, 0x20, 0x1000), Some(true));
+    assert_eq!(aix_text_range_contains(0x1000, 0x20, 0x101f), Some(true));
+    assert_eq!(aix_text_range_contains(0x1000, 0x20, 0x1020), Some(false));
+    assert_eq!(aix_text_range_contains(usize::MAX, 1, usize::MAX), None);
+  }
+
+  #[test]
+  fn aix_loader_names_require_two_bounded_terminators() {
+    assert_eq!(
+      aix_loader_names(b"/tmp/addon.node\0\0padding"),
+      Some((&b"/tmp/addon.node"[..], &b""[..]))
+    );
+    assert_eq!(
+      aix_loader_names(b"/usr/lib/libfoo.a\0shr_64.o\0padding"),
+      Some((&b"/usr/lib/libfoo.a"[..], &b"shr_64.o"[..]))
+    );
+    assert_eq!(aix_loader_names(b"/tmp/addon.node"), None);
+    assert_eq!(aix_loader_names(b"/tmp/addon.node\0member"), None);
+  }
+
+  #[test]
+  fn aix_dlopen_path_reconstructs_archive_members() {
+    assert_eq!(
+      aix_dlopen_path(b"/tmp/addon.node", b""),
+      Some(b"/tmp/addon.node\0".to_vec())
+    );
+    assert_eq!(
+      aix_dlopen_path(b"/usr/lib/libfoo.a", b"shr_64.o"),
+      Some(b"/usr/lib/libfoo.a(shr_64.o)\0".to_vec())
+    );
+    assert_eq!(aix_dlopen_path(b"", b""), None);
+    assert_eq!(aix_dlopen_path(b"/tmp/addon\0node", b""), None);
+    assert_eq!(aix_dlopen_path(b"/usr/lib/libfoo.a", b"shr\0.o"), None);
+  }
+
+  #[test]
+  fn aix_main_executable_detection_requires_the_reserved_text_base() {
+    assert!(aix_loader_record_is_main_executable(0x1_0000_0000, b""));
+    assert!(!aix_loader_record_is_main_executable(
+      0x1_0000_0000,
+      b"shr_64.o"
+    ));
+    assert!(!aix_loader_record_is_main_executable(0x2_0000_0000, b""));
   }
 }
 
@@ -899,7 +1670,7 @@ fn decrement_runtime_module_count_with_last(on_last: impl FnOnce()) {
   feature = "napi4"
 ))]
 fn rollback_runtime_env(env: sys::napi_env, cleanup_data: *mut RuntimeEnvCleanup) {
-  cleanup_runtime_env(unsafe { &*cleanup_data });
+  cleanup_runtime_env(unsafe { &*cleanup_data }, false);
 
   #[cfg(not(target_family = "wasm"))]
   let status =
@@ -909,6 +1680,62 @@ fn rollback_runtime_env(env: sys::napi_env, cleanup_data: *mut RuntimeEnvCleanup
     unsafe { crate::napi_remove_env_cleanup_hook(env, Some(thread_cleanup), cleanup_data.cast()) };
   if status == sys::Status::napi_ok {
     drop(unsafe { Box::from_raw(cleanup_data) });
+  } else {
+    #[cfg(not(target_family = "wasm"))]
+    retain_current_module_for_unload_safety();
+    #[cfg(target_family = "wasm")]
+    {
+      // The hook may still run with `cleanup_data`, and WASI has no loader
+      // handle that can keep that callback code mapped after failed loading.
+      std::process::abort();
+    }
+  }
+}
+
+#[cfg(all(feature = "napi4", not(feature = "noop")))]
+fn rollback_custom_gc(registration: CustomGcRegistration) {
+  if !registration.owned {
+    return;
+  }
+
+  #[cfg(not(target_family = "wasm"))]
+  retain_current_module_for_unload_safety();
+
+  // Keep the aborted handle in TLS as a safe sentinel for any partially
+  // exported native callback that remains reachable after process.dlopen
+  // throws. A later successful registration replaces it because it is no
+  // longer active.
+  registration.handle.set_aborted();
+  let status = unsafe {
+    sys::napi_release_threadsafe_function(
+      registration.handle.get_raw(),
+      sys::ThreadsafeFunctionReleaseMode::abort,
+    )
+  };
+
+  #[cfg(not(target_family = "wasm"))]
+  {
+    let _ = status;
+  }
+  #[cfg(target_family = "wasm")]
+  {
+    let _ = status;
+    // Aborting a TSFN schedules its native finalizer. WASI has no loader
+    // handle that can keep this callback code alive after module load fails.
+    std::process::abort();
+  }
+}
+
+#[cfg(all(feature = "napi4", not(feature = "noop")))]
+fn rollback_resolver_env(env: sys::napi_env, owns_cleanup_hook: bool) {
+  if crate::sendable_resolver::unregister_resolver_env(env, owns_cleanup_hook).is_err() {
+    #[cfg(not(target_family = "wasm"))]
+    retain_current_module_for_unload_safety();
+    #[cfg(target_family = "wasm")]
+    {
+      // A failed removal leaves the resolver cleanup callback registered.
+      std::process::abort();
+    }
   }
 }
 

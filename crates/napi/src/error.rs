@@ -14,8 +14,10 @@ use serde_json::Error as SerdeJSONError;
 
 #[cfg(target_family = "wasm")]
 use crate::bindgen_runtime::JsObjectValue;
+#[cfg(feature = "napi4")]
+use crate::check_status;
 use crate::ValueType;
-use crate::{bindgen_runtime::ToNapiValue, check_status, sys, Env, JsValue, Status, Unknown};
+use crate::{bindgen_runtime::ToNapiValue, sys, Env, JsValue, Status, Unknown};
 
 pub type Result<T, S = Status> = std::result::Result<T, Error<S>>;
 
@@ -415,7 +417,9 @@ impl<S: AsRef<str>> Error<S> {
     let error_ref = self.maybe_ref.as_ref()?;
     #[cfg(all(feature = "napi4", not(feature = "noop")))]
     if let Some(handle) = &error_ref.custom_gc {
-      if !crate::bindgen_prelude::current_thread_owns_custom_gc(handle) {
+      if !handle.with_read_aborted(|aborted| {
+        !aborted && crate::bindgen_prelude::current_thread_owns_custom_gc(handle)
+      }) {
         return None;
       }
     }
@@ -533,6 +537,7 @@ pub struct JsRangeError<S: AsRef<str> = Status>(Error<S>);
 #[cfg(feature = "napi9")]
 pub struct JsSyntaxError<S: AsRef<str> = Status>(Error<S>);
 
+#[cfg(feature = "napi4")]
 pub(crate) fn get_error_message_and_stack_trace(
   env: sys::napi_env,
   err: sys::napi_value,

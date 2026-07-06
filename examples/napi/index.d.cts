@@ -363,10 +363,6 @@ export declare class Reader {
   read(): Buffer
 }
 
-export declare class RuntimeLifecycleFinalize {
-  constructor()
-}
-
 export declare class Selector {
   orderBy: Array<string>
   select: Array<string>
@@ -455,8 +451,6 @@ export declare function arrayBufferLenAsync(buf: Uint8Array): Promise<number>
 export declare function arrayBufferPassThrough(buf: Uint8Array): Promise<Uint8Array>
 
 export declare function arrayParams(arr: Array<number>): number
-
-export declare function asyncBlockTerminalFinalizerCount(): number
 
 export declare function asyncBufferToArray(buf: ArrayBuffer): Array<number>
 
@@ -1072,8 +1066,6 @@ export declare function passSetWithHasherToJs(): Set<string>
 
 export declare function pathParent(path: string): string | null
 
-export declare function pendingAsyncBlockWithTerminalFinalizer(): Promise<undefined>
-
 export interface Pet {
   name: string
   kind: number
@@ -1188,8 +1180,6 @@ export type RuleHandler<Args, Ret> =
 
 export declare function runScript(script: string): unknown
 
-export declare function runtimeLifecycleFinalizeResult(): number
-
 export declare function setNullByteProperty(obj: object): void
 
 export declare function setSymbolInObj(symbol: symbol): object
@@ -1197,8 +1187,6 @@ export declare function setSymbolInObj(symbol: symbol): object
 export declare function shorterEscapableScope(createString: () => string | null): string
 
 export declare function shorterScope(arr: unknown[]): Array<number>
-
-export declare function shutdownAsyncRuntimeForTest(): void
 
 export declare function shutdownRuntime(): void
 
@@ -1286,7 +1274,7 @@ export declare function testSerdeRoundtrip(data: any): any
 
 export declare function testWorkers(amount: number, completeCallback: ((err: Error | null, ) => void)): void
 
-export declare function threadsafeFunctionBuildThrowErrorWithStatus(cb: (arg?: unknown) => unknown): void
+export declare function threadsafeFunctionBuildThrowErrorWithStatus(cb: () => void): void
 
 export declare function threadsafeFunctionClosureCapture(defaultValue: Animal, func: (arg: Animal) => void): void
 

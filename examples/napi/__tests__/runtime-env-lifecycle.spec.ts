@@ -7,7 +7,18 @@ import test from 'ava'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const scriptPath = join(__dirname, 'runtime-env-lifecycle.js')
 
-async function runScenario(mode: 'sequential' | 'race') {
+type Scenario =
+  | 'sequential'
+  | 'race'
+  | 'duplicate-race'
+  | 'timeout-retention'
+  | 'finalizer-panic'
+  | 'callback-drop-panic'
+  | 'unregistered-finalizer'
+  | 'pending-payload'
+  | 'cleanup-blocked-call'
+
+async function runScenario(mode: Scenario) {
   const child = spawn(process.execPath, [scriptPath, mode], {
     stdio: 'inherit',
   })
@@ -16,7 +27,7 @@ async function runScenario(mode: 'sequential' | 'race') {
     const timer = setTimeout(() => {
       child.kill()
       reject(new Error(`${mode} runtime lifecycle scenario timed out`))
-    }, 10_000)
+    }, 30_000)
 
     child.once('error', (error) => {
       clearTimeout(timer)
@@ -37,16 +48,35 @@ async function runScenario(mode: 'sequential' | 'race') {
   })
 }
 
-test.serial.skipIf(Boolean(process.env.WASI_TEST))(
-  'last environment teardown finalizes pending work and a later environment restarts the runtime',
-  async (t) => {
-    await t.notThrowsAsync(runScenario('sequential'))
-  },
-)
+for (const scenario of ['sequential', 'race', 'duplicate-race'] as const) {
+  test.skipIf(Boolean(process.env.WASI_TEST))(
+    `${scenario} environment teardown and restart survives repeated fresh processes`,
+    async (t) => {
+      for (let iteration = 0; iteration < 3; iteration += 1) {
+        await t.notThrowsAsync(runScenario(scenario))
+      }
+    },
+  )
+}
 
-test.serial.skipIf(Boolean(process.env.WASI_TEST))(
-  'environment registration can race the previous last environment teardown',
+for (const scenario of [
+  'finalizer-panic',
+  'callback-drop-panic',
+  'unregistered-finalizer',
+  'pending-payload',
+  'cleanup-blocked-call',
+] as const) {
+  test.skipIf(Boolean(process.env.WASI_TEST))(
+    `TSFN ${scenario} fallback is isolated in its own process`,
+    async (t) => {
+      await t.notThrowsAsync(runScenario(scenario))
+    },
+  )
+}
+
+test.skipIf(Boolean(process.env.WASI_TEST))(
+  'cleanup timeout retains the module until Tokio retirement completes',
   async (t) => {
-    await t.notThrowsAsync(runScenario('race'))
+    await t.notThrowsAsync(runScenario('timeout-retention'))
   },
 )

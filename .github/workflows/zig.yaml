@@ -88,7 +88,17 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: napi-${{ matrix.target }}
-          path: ./examples/napi/*.node
+          path: |
+            ./examples/napi/*.node
+            ./examples/napi/tsfn-retention/*.node
+          if-no-files-found: error
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: custom-async-runtime-${{ matrix.target }}
+          path: |
+            ./examples/custom-async-runtime/index.cjs
+            ./examples/custom-async-runtime/*.node
           if-no-files-found: error
 
   test:
@@ -133,11 +143,17 @@ jobs:
       - name: Download artifacts
         uses: actions/download-artifact@v8
         with:
+          name: custom-async-runtime-${{ matrix.settings.target }}
+          path: ./examples/custom-async-runtime/
+      - name: Download artifacts
+        uses: actions/download-artifact@v8
+        with:
           name: compat-${{ matrix.settings.target }}
           path: ./examples/napi-compat-mode/
       - name: List files
         run: |
           ls ./examples/napi
+          ls ./examples/custom-async-runtime
           ls ./examples/napi-compat-mode
       - name: Test
         run: |
@@ -150,7 +166,7 @@ jobs:
       - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
         if: matrix.settings.host == 'ubuntu-latest'
       - name: Test
-        if: matrix.settings.host == 'ubuntu-latest' && matrix.settings.target != 'x86_64-unknown-linux-musl' && matrix.settings.target != 'armv7-unknown-linux-musleabihf'
+        if: matrix.settings.target == 'aarch64-unknown-linux-musl'
         run: >-
           docker run --rm
           --platform linux/${{ matrix.settings.docker-platform }}
@@ -189,8 +205,9 @@ jobs:
 
   zig-done:
     runs-on: ubuntu-latest
+    if: ${{ always() }}
     needs:
       - test
     steps:
       - run: exit 1
-        if: ${{ always() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
+        if: ${{ always() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')) }}

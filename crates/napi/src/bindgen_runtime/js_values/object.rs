@@ -1133,43 +1133,55 @@ unsafe extern "C" fn finalize_callback<T, Hint, F>(
 {
   use crate::Env;
 
-  let (value, callback, raw_ref) =
-    unsafe { *Box::from_raw(finalize_data as *mut (T, F, sys::napi_ref)) };
-  let hint = unsafe { *Box::from_raw(finalize_hint as *mut Hint) };
-  let env = Env::from_raw(raw_env);
-  callback(FinalizeContext { env, value, hint });
-  if !raw_ref.is_null() {
-    check_status_or_throw!(
-      raw_env,
-      unsafe { sys::napi_delete_reference(raw_env, raw_ref) },
-      "Delete reference in finalize callback failed"
-    );
-  }
+  crate::bindgen_runtime::with_runtime_finalizer_guard(raw_env, || {
+    let (value, callback, raw_ref) =
+      unsafe { *Box::from_raw(finalize_data as *mut (T, F, sys::napi_ref)) };
+    let hint = unsafe { *Box::from_raw(finalize_hint as *mut Hint) };
+    crate::bindgen_runtime::catch_unwind_safely(|| {
+      let env = Env::from_raw(raw_env);
+      callback(FinalizeContext { env, value, hint });
+    });
+    if !raw_ref.is_null() {
+      crate::bindgen_runtime::catch_unwind_safely(|| {
+        check_status_or_throw!(
+          raw_env,
+          unsafe { sys::napi_delete_reference(raw_env, raw_ref) },
+          "Delete reference in finalize callback failed"
+        );
+      });
+    }
+  });
 }
 
 #[cfg(feature = "napi5")]
 pub(crate) unsafe extern "C" fn finalize_closures(
-  _env: sys::napi_env,
+  env: sys::napi_env,
   data: *mut c_void,
   len: *mut c_void,
 ) {
-  let (length, capacity): (usize, usize) = *unsafe { Box::from_raw(len.cast()) };
-  let closures: Vec<*mut PropertyClosures> =
-    unsafe { Vec::from_raw_parts(data.cast(), length, capacity) };
-  for closure_ptr in closures.into_iter() {
-    if !closure_ptr.is_null() {
-      let closures = unsafe { Box::from_raw(closure_ptr) };
-      // Free the actual closure functions using the stored drop functions
-      if !closures.getter_closure.is_null() {
-        if let Some(drop_fn) = closures.getter_drop_fn {
-          unsafe { drop_fn(closures.getter_closure) };
+  crate::bindgen_runtime::with_runtime_finalizer_guard(env, || {
+    let (length, capacity): (usize, usize) = *unsafe { Box::from_raw(len.cast()) };
+    let closures: Vec<*mut PropertyClosures> =
+      unsafe { Vec::from_raw_parts(data.cast(), length, capacity) };
+    for closure_ptr in closures {
+      if !closure_ptr.is_null() {
+        let closures = unsafe { Box::from_raw(closure_ptr) };
+        // Free the actual closure functions using the stored drop functions.
+        if !closures.getter_closure.is_null() {
+          if let Some(drop_fn) = closures.getter_drop_fn {
+            crate::bindgen_runtime::catch_unwind_safely(|| unsafe {
+              drop_fn(closures.getter_closure);
+            });
+          }
         }
-      }
-      if !closures.setter_closure.is_null() {
-        if let Some(drop_fn) = closures.setter_drop_fn {
-          unsafe { drop_fn(closures.setter_closure) };
+        if !closures.setter_closure.is_null() {
+          if let Some(drop_fn) = closures.setter_drop_fn {
+            crate::bindgen_runtime::catch_unwind_safely(|| unsafe {
+              drop_fn(closures.setter_closure);
+            });
+          }
         }
       }
     }
-  }
+  });
 }

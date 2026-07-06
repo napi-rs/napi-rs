@@ -1,10 +1,17 @@
 import assert from 'node:assert/strict'
 import { once } from 'node:events'
-import { readFile } from 'node:fs/promises'
+import { access, mkdtemp, readFile, rm } from 'node:fs/promises'
 import { createRequire } from 'node:module'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { Worker } from 'node:worker_threads'
+
+import {
+  findPureRuntimeBinding,
+  runPureRuntimeReloadLifecycle,
+} from './pure-runtime-lifecycle.mjs'
 
 const mode = process.argv[2] ?? 'native'
 assert.ok(mode === 'native' || mode === 'wasi', `Unknown test mode: ${mode}`)
@@ -14,14 +21,20 @@ const bindingFile =
   mode === 'wasi' ? './custom_async_runtime.wasi.cjs' : './index.cjs'
 
 if (mode === 'wasi') {
-  const source = await readFile(
-    new URL('./custom_async_runtime.wasi.cjs', import.meta.url),
-    'utf8',
-  )
+  const [source, declarations] = await Promise.all([
+    readFile(
+      new URL('./custom_async_runtime.wasi.cjs', import.meta.url),
+      'utf8',
+    ),
+    readFile(new URL('./index.d.cts', import.meta.url), 'utf8'),
+  ])
   assert.doesNotMatch(source, /node:worker_threads/)
   assert.doesNotMatch(source, /\bWorker\b/)
-  assert.doesNotMatch(source, /SharedArrayBuffer/)
+  assert.doesNotMatch(source, /shared:\s*true/)
+  assert.doesNotMatch(source, /onCreateWorker/)
   assert.match(source, /asyncWorkPoolSize:\s*0/)
+  assert.doesNotMatch(source, /retainTaskWaker/)
+  assert.doesNotMatch(declarations, /retainTaskWaker/)
 }
 
 const binding = require(bindingFile)
@@ -36,6 +49,7 @@ const nativeBindingFile =
 const initial = binding.getRuntimeMetrics()
 
 assert.equal(binding.isWasm(), mode === 'wasi')
+assert.equal(initial.tokioRuntimeEnabled, true)
 assert.ok(initial.startCalls >= 1)
 assert.equal(initial.activeGuards, 0)
 
@@ -102,6 +116,12 @@ const beforeLifecycle = binding.getRuntimeMetrics()
 const cancelled = binding.asyncNever()
 binding.shutdownRuntime()
 await assert.rejects(cancelled, /cancel/i)
+let stoppedGeneratedPromise
+assert.doesNotThrow(() => {
+  stoppedGeneratedPromise = binding.asyncDouble(21)
+})
+assert.ok(stoppedGeneratedPromise instanceof Promise)
+await assert.rejects(stoppedGeneratedPromise, /not running/i)
 const afterShutdown = binding.getRuntimeMetrics()
 assert.equal(afterShutdown.shutdownCalls, beforeLifecycle.shutdownCalls + 1)
 assert.throws(() => binding.runtimeContextAdd(1), /not running/i)
@@ -117,7 +137,7 @@ if (mode === 'native') {
       const { parentPort } = require('node:worker_threads')
       try {
         const binding = require(${JSON.stringify(nativeBindingFile)})
-        binding.asyncDouble(21).then(
+        Promise.resolve().then(() => binding.asyncDouble(21)).then(
           () => parentPort.postMessage({ loaded: true, errors: [] }),
           (error) => {
             const errors = []
@@ -169,24 +189,112 @@ if (mode === 'native') {
   assert.deepEqual(await once(restoredWorker, 'message'), [42])
   await restoredWorker.terminate()
 
-  for (const [name, pattern] of [
+  const missingResult = spawnSync(
+    process.execPath,
     [
-      'NAPI_CUSTOM_RUNTIME_TEST_MISSING',
-      /no AsyncRuntime backend was registered/i,
+      '-e',
+      `
+        const binding = require(${JSON.stringify(nativeBindingFile)})
+        const timeout = setTimeout(
+          () => {
+            console.error('timed out waiting for Tokio-backed async operation')
+            process.exitCode = 1
+          },
+          5000,
+        )
+        ;(async () => {
+          if (binding.getRuntimeMetrics().runtimeRegistrationCalls !== 0) {
+            throw new Error('missing-registration fixture unexpectedly registered a custom backend')
+          }
+          const value = await binding.asyncDouble(21)
+          if (value !== 42) {
+            throw new Error(\`unexpected Tokio-backed result: \${value}\`)
+          }
+          console.log('combined missing registration used built-in Tokio')
+        })().then(
+          () => clearTimeout(timeout),
+          (error) => {
+            clearTimeout(timeout)
+            console.error(error)
+            process.exitCode = 1
+          },
+        )
+      `,
     ],
-    ['NAPI_CUSTOM_RUNTIME_TEST_DUPLICATE', /more than once/i],
-  ]) {
-    const result = spawnSync(
-      process.execPath,
-      ['-e', `require(${JSON.stringify(nativeBindingFile)})`],
+    {
+      encoding: 'utf8',
+      env: { ...process.env, NAPI_CUSTOM_RUNTIME_TEST_MISSING: '1' },
+    },
+  )
+  assert.equal(
+    missingResult.signal,
+    null,
+    'missing runtime must not abort Node',
+  )
+  assert.equal(
+    missingResult.status,
+    0,
+    `${missingResult.stdout}\n${missingResult.stderr}`,
+  )
+  assert.match(missingResult.stdout, /used built-in Tokio/)
+
+  const probeDirectory = await mkdtemp(
+    join(tmpdir(), 'napi-custom-runtime-registration-'),
+  )
+  try {
+    for (const scenario of [
       {
-        encoding: 'utf8',
-        env: { ...process.env, [name]: '1' },
+        env: {
+          NAPI_CUSTOM_RUNTIME_TEST_DUPLICATE: '1',
+          NAPI_CUSTOM_RUNTIME_TEST_DUPLICATE_PROBE_STARTED: join(
+            probeDirectory,
+            'duplicate-started',
+          ),
+          NAPI_CUSTOM_RUNTIME_TEST_DUPLICATE_PROBE_STOPPED: join(
+            probeDirectory,
+            'duplicate-stopped',
+          ),
+        },
+        pattern: /more than once/i,
+        started: join(probeDirectory, 'duplicate-started'),
+        stopped: join(probeDirectory, 'duplicate-stopped'),
       },
-    )
-    assert.equal(result.signal, null, `${name} must not abort Node`)
-    assert.notEqual(result.status, 0, `${name} must fail addon loading`)
-    assert.match(`${result.stdout}\n${result.stderr}`, pattern)
+      {
+        env: {
+          NAPI_CUSTOM_RUNTIME_TEST_START_ERROR: '1',
+          NAPI_CUSTOM_RUNTIME_TEST_START_PROBE_STARTED: join(
+            probeDirectory,
+            'start-error-started',
+          ),
+          NAPI_CUSTOM_RUNTIME_TEST_START_PROBE_STOPPED: join(
+            probeDirectory,
+            'start-error-stopped',
+          ),
+        },
+        pattern: /injected custom runtime start error/i,
+        started: join(probeDirectory, 'start-error-started'),
+        stopped: join(probeDirectory, 'start-error-stopped'),
+      },
+    ]) {
+      const result = spawnSync(
+        process.execPath,
+        ['-e', `require(${JSON.stringify(nativeBindingFile)})`],
+        {
+          encoding: 'utf8',
+          env: { ...process.env, ...scenario.env },
+          timeout: 20_000,
+        },
+      )
+      const output = `${result.stdout}\n${result.stderr}`
+      assert.equal(result.error, undefined, result.error?.stack)
+      assert.equal(result.signal, null, output)
+      assert.notEqual(result.status, 0, 'injected registration must fail')
+      assert.match(output, scenario.pattern)
+      await access(scenario.started)
+      await access(scenario.stopped)
+    }
+  } finally {
+    await rm(probeDirectory, { recursive: true, force: true })
   }
 
   const retryResult = spawnSync(
@@ -268,4 +376,23 @@ if (mode === 'native') {
     await worker.terminate()
   }
   assert.equal(await binding.asyncDouble(11), 22)
+
+  const pureBuild = spawnSync(
+    process.execPath,
+    [fileURLToPath(new URL('./build.mjs', import.meta.url)), '--pure-only'],
+    {
+      cwd: fileURLToPath(new URL('.', import.meta.url)),
+      encoding: 'utf8',
+      timeout: 180_000,
+    },
+  )
+  assert.equal(pureBuild.error, undefined, pureBuild.error?.stack)
+  assert.equal(
+    pureBuild.signal,
+    null,
+    `${pureBuild.stdout}\n${pureBuild.stderr}`,
+  )
+  assert.equal(pureBuild.status, 0, `${pureBuild.stdout}\n${pureBuild.stderr}`)
+
+  await runPureRuntimeReloadLifecycle(await findPureRuntimeBinding())
 }

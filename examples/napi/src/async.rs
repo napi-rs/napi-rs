@@ -1,12 +1,8 @@
-use std::sync::atomic::{AtomicU32, Ordering};
-
 #[cfg(not(target_family = "wasm"))]
 use futures::prelude::*;
 use napi::bindgen_prelude::*;
 #[cfg(not(target_family = "wasm"))]
 use napi::tokio::fs;
-
-static ASYNC_BLOCK_TERMINAL_FINALIZER_COUNT: AtomicU32 = AtomicU32::new(0);
 
 #[napi]
 async fn read_file_async(path: String) -> Result<Buffer> {
@@ -42,26 +38,41 @@ async fn panic_in_async() {
 }
 
 #[cfg(not(feature = "noop"))]
-#[napi]
+#[napi(no_export)]
 fn shutdown_async_runtime_for_test() -> Result<()> {
   try_shutdown_async_runtime()
 }
 
-#[napi]
-fn pending_async_block_with_terminal_finalizer(env: &Env) -> Result<AsyncBlock<()>> {
+#[napi(no_export)]
+fn pending_async_block_with_terminal_finalizer(
+  env: &Env,
+  result_path: String,
+) -> Result<AsyncBlock<()>> {
   AsyncBlockBuilder::new(async {
     std::future::pending::<()>().await;
     Ok(())
   })
-  .with_terminal_finalizer(|| {
-    ASYNC_BLOCK_TERMINAL_FINALIZER_COUNT.fetch_add(1, Ordering::SeqCst);
+  .with_terminal_finalizer(move || {
+    let _ = std::fs::write(result_path, b"finalized");
   })
   .build(env)
 }
 
-#[napi]
-fn async_block_terminal_finalizer_count() -> u32 {
-  ASYNC_BLOCK_TERMINAL_FINALIZER_COUNT.load(Ordering::SeqCst)
+#[cfg(not(feature = "noop"))]
+pub(crate) fn install_lifecycle_fixture(fixture: &mut Object) -> Result<()> {
+  fixture.create_named_method(
+    "shutdownAsyncRuntimeForTest",
+    shutdown_async_runtime_for_test_c_callback,
+  )?;
+  fixture.create_named_method(
+    "pendingAsyncBlockWithTerminalFinalizer",
+    pending_async_block_with_terminal_finalizer_c_callback,
+  )
+}
+
+#[cfg(feature = "noop")]
+pub(crate) fn install_lifecycle_fixture(_fixture: &mut Object) -> Result<()> {
+  Ok(())
 }
 
 #[napi(async_runtime)]

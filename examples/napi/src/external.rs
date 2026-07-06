@@ -1,5 +1,39 @@
 use napi::bindgen_prelude::*;
 
+#[cfg(not(feature = "noop"))]
+struct RuntimeLifecycleExternalProbe {
+  result_path: String,
+}
+
+#[cfg(not(feature = "noop"))]
+impl Drop for RuntimeLifecycleExternalProbe {
+  fn drop(&mut self) {
+    crate::env::record_runtime_transition_probe(&self.result_path);
+  }
+}
+
+#[cfg(not(feature = "noop"))]
+#[napi(no_export)]
+pub fn create_runtime_lifecycle_external_probe(
+  env: &Env,
+  result_path: String,
+) -> Result<Unknown<'_>> {
+  External::new(RuntimeLifecycleExternalProbe { result_path }).into_unknown(env)
+}
+
+#[cfg(not(feature = "noop"))]
+pub(crate) fn install_lifecycle_fixture(fixture: &mut Object) -> Result<()> {
+  fixture.create_named_method(
+    "createRuntimeLifecycleExternalProbe",
+    create_runtime_lifecycle_external_probe_c_callback,
+  )
+}
+
+#[cfg(feature = "noop")]
+pub(crate) fn install_lifecycle_fixture(_fixture: &mut Object) -> Result<()> {
+  Ok(())
+}
+
 #[napi]
 pub fn create_external(size: u32) -> External<u32> {
   External::new(size)

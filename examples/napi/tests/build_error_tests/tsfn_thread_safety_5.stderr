@@ -1,0 +1,16 @@
+error[E0521]: borrowed data escapes outside of function
+  --> tests/build_error_tests/tsfn_thread_safety_5.rs:23:5
+   |
+20 |   fn enqueue_borrowed_error<'a>(reason: &'a str) {
+   |                             --  ------ `reason` is a reference that is only valid in the function body
+   |                             |
+   |                             lifetime `'a` defined here
+...
+23 | /     tsfn.call(
+24 | |       Err(Error::new(BorrowedStatus(reason), "borrowed error")),
+25 | |       ThreadsafeFunctionCallMode::NonBlocking,
+26 | |     );
+   | |     ^
+   | |     |
+   | |_____`reason` escapes the function body here
+   |       argument requires that `'a` must outlive `'static`

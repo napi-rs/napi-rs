@@ -1,0 +1,8 @@
+{
+  "name": "@examples/custom-async-runtime-pure",
+  "private": true,
+  "version": "0.0.0",
+  "napi": {
+    "binaryName": "custom_async_runtime_pure"
+  }
+}

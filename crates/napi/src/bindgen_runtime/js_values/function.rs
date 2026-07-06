@@ -4,12 +4,14 @@ use super::{Either, FromNapiValue, ToNapiValue, TypeName, Unknown, ValidateNapiV
 
 #[cfg(feature = "napi4")]
 use crate::threadsafe_function::{ThreadsafeCallContext, ThreadsafeFunction};
+#[cfg(feature = "napi4")]
+use crate::Status;
 #[cfg(feature = "compat-mode")]
 #[allow(deprecated)]
 pub use crate::JsFunction;
 use crate::{
   bindgen_runtime::JsObjectValue, check_pending_exception, check_status, sys, Env, JsValue, Result,
-  Status, ValueType,
+  ValueType,
 };
 
 pub trait JsValuesTupleIntoVec {
@@ -432,6 +434,45 @@ impl<
       call_js_back,
     )
   }
+
+  /// Build a thread-safe function and register its native-thread quiescence callback before the
+  /// thread-safe function is returned.
+  ///
+  /// The finalizer follows [`ThreadsafeFunction::register_finalizer`] semantics. In particular, it
+  /// runs after calls are closed and before the native N-API finalizer returns, must not wait for
+  /// queued JavaScript calls to drain, and has any panic contained at the FFI boundary on
+  /// unwind-enabled builds.
+  ///
+  /// A thread-safe function is referenced by default and therefore keeps the event loop alive. If
+  /// this finalizer is responsible for stopping a worker that retains the thread-safe function,
+  /// configure `.weak::<true>()` before building it; otherwise natural environment teardown may
+  /// never begin and the finalizer will not run.
+  ///
+  /// # Safety
+  ///
+  /// Before the finalizer returns, it must ensure that every native thread or task that can call,
+  /// clone, or drop the resulting thread-safe function, or otherwise execute code from the addon
+  /// image, is quiescent. This guarantee must also hold if the finalizer panics or unwinds. The
+  /// finalizer must not wait for JavaScript callbacks or queued TSFN payloads.
+  pub unsafe fn build_callback_with_finalizer<CallJsBackArgs, Callback, Finalizer>(
+    &self,
+    call_js_back: Callback,
+    finalizer: Finalizer,
+  ) -> Result<
+    ThreadsafeFunction<T, Return, CallJsBackArgs, ErrorStatus, CalleeHandled, Weak, MaxQueueSize>,
+  >
+  where
+    CallJsBackArgs: 'static + JsValuesTupleIntoVec,
+    Callback: 'static + FnMut(ThreadsafeCallContext<T>) -> Result<CallJsBackArgs>,
+    Finalizer: FnOnce() + Send + 'static,
+    ErrorStatus: AsRef<str>,
+    ErrorStatus: From<Status>,
+  {
+    let tsfn = self.build_callback(call_js_back)?;
+    // SAFETY: This unsafe builder forwards its caller's quiescence guarantee unchanged.
+    unsafe { tsfn.register_finalizer(finalizer) }?;
+    Ok(tsfn)
+  }
 }
 
 #[cfg(feature = "napi4")]
@@ -448,6 +489,36 @@ impl<
     &self,
   ) -> Result<ThreadsafeFunction<T, Return, T, ErrorStatus, CalleeHandled, Weak, MaxQueueSize>> {
     unsafe { ThreadsafeFunction::from_napi_value(self.env, self.value) }
+  }
+
+  /// Build a thread-safe function and register its native-thread quiescence callback before the
+  /// thread-safe function is returned.
+  ///
+  /// See [`ThreadsafeFunction::register_finalizer`] for ordering, duplicate-registration, and
+  /// panic behavior.
+  ///
+  /// A thread-safe function is referenced by default and therefore keeps the event loop alive. If
+  /// this finalizer is responsible for stopping a worker that retains the thread-safe function,
+  /// configure `.weak::<true>()` before building it; otherwise natural environment teardown may
+  /// never begin and the finalizer will not run.
+  ///
+  /// # Safety
+  ///
+  /// Before the finalizer returns, it must ensure that every native thread or task that can call,
+  /// clone, or drop the resulting thread-safe function, or otherwise execute code from the addon
+  /// image, is quiescent. This guarantee must also hold if the finalizer panics or unwinds. The
+  /// finalizer must not wait for JavaScript callbacks or queued TSFN payloads.
+  pub unsafe fn build_with_finalizer<Finalizer>(
+    &self,
+    finalizer: Finalizer,
+  ) -> Result<ThreadsafeFunction<T, Return, T, ErrorStatus, CalleeHandled, Weak, MaxQueueSize>>
+  where
+    Finalizer: FnOnce() + Send + 'static,
+  {
+    let tsfn = self.build()?;
+    // SAFETY: This unsafe builder forwards its caller's quiescence guarantee unchanged.
+    unsafe { tsfn.register_finalizer(finalizer) }?;
+    Ok(tsfn)
   }
 }
 

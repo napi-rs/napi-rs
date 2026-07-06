@@ -91,10 +91,12 @@ impl DeferredTrace {
 type FinalizeCallbackId = usize;
 type EnvId = usize;
 type FinalizeCallback = Box<dyn FnOnce(sys::napi_env)>;
+type FinalizeCallbackIdentity = Arc<()>;
 
 struct FinalizeCallbackEntry {
   #[cfg_attr(feature = "noop", allow(dead_code))]
   env: EnvId,
+  identity: FinalizeCallbackIdentity,
   callback: Option<FinalizeCallback>,
 }
 
@@ -117,13 +119,15 @@ static NEXT_FINALIZE_CALLBACK_ID: AtomicUsize = AtomicUsize::new(1);
 
 struct FinalizeCallbackHandle {
   id: FinalizeCallbackId,
+  identity: FinalizeCallbackIdentity,
 }
 
 impl FinalizeCallbackHandle {
   fn new(env: sys::napi_env, callback: FinalizeCallback) -> Self {
+    let identity = Arc::new(());
     if FINALIZE_CLOSING_ENVS.with(|envs| envs.borrow().contains(&(env as EnvId))) {
       crate::bindgen_runtime::catch_unwind_safely(|| drop(callback));
-      return Self { id: 0 };
+      return Self { id: 0, identity };
     }
     let mut callback = Some(callback);
     let id = FINALIZE_CALLBACKS.with(|callbacks| loop {
@@ -134,16 +138,18 @@ impl FinalizeCallbackHandle {
       if let Entry::Vacant(entry) = callbacks.borrow_mut().entry(id) {
         entry.insert(FinalizeCallbackEntry {
           env: env as EnvId,
+          identity: Arc::clone(&identity),
           callback: callback.take(),
         });
         break id;
       }
     });
-    Self { id }
+    Self { id, identity }
   }
 
   fn run(self, env: sys::napi_env) {
-    let entry = FINALIZE_CALLBACKS.with(|callbacks| callbacks.borrow_mut().remove(&self.id));
+    let entry = FINALIZE_CALLBACKS
+      .with(|callbacks| remove_finalize_callback(&mut callbacks.borrow_mut(), &self));
     if let Some(mut entry) = entry {
       if let Some(callback) = entry.callback.take() {
         crate::bindgen_runtime::catch_unwind_safely(|| callback(env));
@@ -154,11 +160,23 @@ impl FinalizeCallbackHandle {
 
 impl Drop for FinalizeCallbackHandle {
   fn drop(&mut self) {
-    if let Ok(Some(entry)) =
-      FINALIZE_CALLBACKS.try_with(|callbacks| callbacks.borrow_mut().remove(&self.id))
+    if let Ok(Some(entry)) = FINALIZE_CALLBACKS
+      .try_with(|callbacks| remove_finalize_callback(&mut callbacks.borrow_mut(), self))
     {
       drop(entry);
     }
+  }
+}
+
+fn remove_finalize_callback(
+  callbacks: &mut HashMap<FinalizeCallbackId, FinalizeCallbackEntry>,
+  handle: &FinalizeCallbackHandle,
+) -> Option<FinalizeCallbackEntry> {
+  match callbacks.entry(handle.id) {
+    Entry::Occupied(entry) if Arc::ptr_eq(&entry.get().identity, &handle.identity) => {
+      Some(entry.remove())
+    }
+    _ => None,
   }
 }
 
@@ -307,11 +325,16 @@ impl<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> JsDeferred<Data, 
       thread::current().id(),
       "JsDeferred finalize callbacks must be registered on their JavaScript owner thread"
     );
-    *self
-      .finalize_callback
-      .lock()
-      .unwrap_or_else(std::sync::PoisonError::into_inner) =
+    let finalize_callback =
       finalize_callback.map(|callback| FinalizeCallbackHandle::new(self.env, callback));
+    let previous_callback = {
+      let mut slot = self
+        .finalize_callback
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      std::mem::replace(&mut *slot, finalize_callback)
+    };
+    drop(previous_callback);
   }
 
   fn call_tsfn(
@@ -538,11 +561,16 @@ pub(crate) fn clear_finalize_callbacks_for_env(env: sys::napi_env) {
 mod tests {
   use std::{
     cell::Cell,
+    ptr,
     rc::Rc,
+    sync::mpsc,
     thread::{self, ThreadId},
+    time::Duration,
   };
 
   use super::*;
+
+  type TestDeferred = JsDeferred<u32, fn(Env) -> Result<u32>>;
 
   struct DropThread {
     dropped_on: Rc<Cell<Option<ThreadId>>>,
@@ -571,6 +599,30 @@ mod tests {
         }),
       );
       std::mem::forget(nested);
+    }
+  }
+
+  struct ReentrantFinalizeReplacement {
+    deferred: TestDeferred,
+  }
+
+  impl Drop for ReentrantFinalizeReplacement {
+    fn drop(&mut self) {
+      self.deferred.set_finalize_callback(None);
+    }
+  }
+
+  fn test_deferred(env: sys::napi_env, finalize_callback: SharedFinalizeCallback) -> TestDeferred {
+    TestDeferred {
+      env,
+      owner_thread: thread::current().id(),
+      tsfn: ptr::null_mut(),
+      #[cfg(feature = "deferred_trace")]
+      trace: DeferredTrace(ptr::null_mut()),
+      finalize_callback,
+      settlement: DeferredSettlement::default(),
+      _data: PhantomData,
+      _resolver: PhantomData,
     }
   }
 
@@ -627,6 +679,79 @@ mod tests {
     clear_finalize_callbacks_for_env(env);
 
     assert_eq!(nested_dropped_on.get(), Some(thread::current().id()));
+  }
+
+  #[test]
+  fn replacing_finalize_callback_drops_previous_callback_outside_lock() {
+    let (completed_tx, completed_rx) = mpsc::channel();
+    let worker = thread::spawn(move || {
+      let env = 3usize as sys::napi_env;
+      let finalize_callback = SharedFinalizeCallback::default();
+      let mut deferred = test_deferred(env, Arc::clone(&finalize_callback));
+      let reentrant = ReentrantFinalizeReplacement {
+        deferred: test_deferred(env, finalize_callback),
+      };
+
+      deferred.set_finalize_callback(Some(Box::new(move |_| drop(reentrant))));
+      deferred.set_finalize_callback(Some(Box::new(|_| {})));
+      completed_tx.send(()).unwrap();
+    });
+
+    completed_rx
+      .recv_timeout(Duration::from_secs(5))
+      .expect("finalizer replacement deadlocked while dropping the previous callback");
+    worker.join().unwrap();
+  }
+
+  #[test]
+  fn stale_finalize_handles_cannot_alias_a_reused_id_after_wrap() {
+    let env = 4usize as sys::napi_env;
+    let id = 1;
+    let stale_identity = Arc::new(());
+    let stale_drop = FinalizeCallbackHandle {
+      id,
+      identity: Arc::clone(&stale_identity),
+    };
+    let stale_run = FinalizeCallbackHandle {
+      id,
+      identity: stale_identity,
+    };
+    FINALIZE_CALLBACKS.with(|callbacks| {
+      callbacks.borrow_mut().insert(
+        id,
+        FinalizeCallbackEntry {
+          env: env as EnvId,
+          identity: Arc::clone(&stale_drop.identity),
+          callback: Some(Box::new(|_| {})),
+        },
+      );
+    });
+    clear_finalize_callbacks_for_env(env);
+
+    let replacement_called = Rc::new(Cell::new(false));
+    let replacement_called_by_callback = Rc::clone(&replacement_called);
+    let replacement_identity = Arc::new(());
+    let replacement = FinalizeCallbackHandle {
+      id,
+      identity: Arc::clone(&replacement_identity),
+    };
+    FINALIZE_CALLBACKS.with(|callbacks| {
+      callbacks.borrow_mut().insert(
+        id,
+        FinalizeCallbackEntry {
+          env: env as EnvId,
+          identity: replacement_identity,
+          callback: Some(Box::new(move |_| replacement_called_by_callback.set(true))),
+        },
+      );
+    });
+
+    drop(stale_drop);
+    stale_run.run(env);
+    assert!(!replacement_called.get());
+
+    replacement.run(env);
+    assert!(replacement_called.get());
   }
 
   #[test]

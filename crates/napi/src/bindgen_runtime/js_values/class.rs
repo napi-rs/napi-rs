@@ -255,21 +255,21 @@ impl Drop for FactoryCallGuard {
 }
 
 struct PendingFinalizeCallbacks {
-  callbacks: Option<std::sync::Arc<std::cell::Cell<*mut dyn FnOnce()>>>,
+  callbacks: Option<std::sync::Arc<super::value_ref::FinalizeCallbacks>>,
 }
 
 impl PendingFinalizeCallbacks {
-  fn with_callback(callback: Box<dyn FnOnce()>) -> Self {
-    // `Reference` needs atomic ref-counting for its `unsafe impl Sync`; the `Cell` is only
-    // accessed on the JavaScript thread.
+  fn with_callback(callback: super::value_ref::FinalizeCallback) -> Self {
+    // `Reference` needs atomic ref-counting for its `unsafe impl Sync`; the callback list is
+    // only accessed on the JavaScript thread.
     #[allow(clippy::arc_with_non_send_sync)]
-    let callbacks = std::sync::Arc::new(std::cell::Cell::new(Box::into_raw(callback)));
+    let callbacks = std::sync::Arc::new(super::value_ref::FinalizeCallbacks::new(callback));
     Self {
       callbacks: Some(callbacks),
     }
   }
 
-  fn as_ptr(&self) -> *const std::cell::Cell<*mut dyn FnOnce()> {
+  fn as_ptr(&self) -> *const super::value_ref::FinalizeCallbacks {
     std::sync::Arc::as_ptr(
       self
         .callbacks
@@ -289,14 +289,12 @@ impl PendingFinalizeCallbacks {
 
 impl Drop for PendingFinalizeCallbacks {
   fn drop(&mut self) {
-    if let Some(callbacks) = self.callbacks.take() {
-      drop(unsafe { Box::from_raw(callbacks.get()) });
-    }
+    drop(self.callbacks.take());
   }
 }
 
 trait NewInstanceOps {
-  fn initial_finalize_callback() -> Box<dyn FnOnce()> {
+  fn initial_finalize_callback() -> super::value_ref::FinalizeCallback {
     Box::new(|| {})
   }
 
@@ -616,7 +614,7 @@ mod tests {
   }
 
   impl ObjectFinalize for EndToEndValue {
-    fn finalize(self, _env: Env) -> Result<()> {
+    fn finalize(&mut self, _env: Env) -> Result<()> {
       SUCCESS_FINALIZE_CALLS.fetch_add(1, Ordering::SeqCst);
       Ok(())
     }
@@ -656,9 +654,9 @@ mod tests {
   struct WrapFailureOps;
 
   impl NewInstanceOps for WrapFailureOps {
-    fn initial_finalize_callback() -> Box<dyn FnOnce()> {
-      let callback_drop = StaticDropCounter(&WRAP_FAILURE_CALLBACK_DROPS);
-      Box::new(move || drop(callback_drop))
+    fn initial_finalize_callback() -> super::super::value_ref::FinalizeCallback {
+      let mut callback_drop = Some(StaticDropCounter(&WRAP_FAILURE_CALLBACK_DROPS));
+      Box::new(move || drop(callback_drop.take()))
     }
 
     unsafe fn get_reference_value(
@@ -693,7 +691,7 @@ mod tests {
   struct SuccessfulOps;
 
   impl NewInstanceOps for SuccessfulOps {
-    fn initial_finalize_callback() -> Box<dyn FnOnce()> {
+    fn initial_finalize_callback() -> super::super::value_ref::FinalizeCallback {
       Box::new(|| {
         SUCCESS_CALLBACK_CALLS.fetch_add(1, Ordering::SeqCst);
       })

@@ -37,19 +37,25 @@
 //!
 //! ### async-runtime
 //!
-//! The `async-runtime` feature lets an addon register its own executor through
-//! `register_async_runtime`.
-//! Generated JavaScript-facing futures use it even when Cargo feature unification also enables
-//! `tokio_rt`. The established free `spawn`/`spawn_blocking` names remain Tokio-only APIs with
-//! their historical Tokio return types. The established free `block_on` and
-//! `within_runtime_if_available` helpers also remain Tokio-backed in combined builds.
-//! Custom-runtime callers use `spawn_on_custom_runtime`, `spawn_blocking_on_custom_runtime`,
-//! `block_on_custom_runtime`, `try_block_on_custom_runtime`, and
-//! `within_custom_runtime_if_available`; those names, signatures, and routing are unchanged
-//! when `tokio_rt` is added by feature unification. A pure `async-runtime` build remains
-//! tokio-free (enable the `tokio` feature explicitly if you still want the `napi::tokio`
-//! re-export). This is useful for applications that need one scheduler across NAPI futures and
-//! domain-specific CPU work, or a cooperative executor on non-threaded WebAssembly hosts.
+//! The `async-runtime` feature exposes an additive service-provider interface. An addon may call
+//! `register_async_runtime` from `#[module_init]` to select its own executor before the first
+//! environment is activated. In a combined `async-runtime` + `tokio_rt` build, omitting
+//! registration selects the built-in Tokio runtime for generated JavaScript-facing futures and
+//! generated `#[napi(async_runtime)]` entry guards. A pure `async-runtime` addon may omit
+//! registration and still load and expose synchronous APIs; runtime-backed operations then return
+//! a clear missing-backend error. If no custom backend is registered, the registration window
+//! closes when napi begins activating the first environment, or earlier when a runtime-backed
+//! operation commits a backend choice. A missing-backend error before any environment is activated
+//! leaves selection undecided and does not prevent later registration.
+//!
+//! The established free `spawn`, `spawn_blocking`, `block_on`, and
+//! `within_runtime_if_available` APIs remain Tokio-backed whenever `tokio_rt` is enabled.
+//! `spawn_on_custom_runtime`, `spawn_blocking_on_custom_runtime`,
+//! `block_on_custom_runtime`, and `try_block_on_custom_runtime` explicitly require a registered
+//! custom backend. Despite its historical name, `within_custom_runtime_if_available` follows the
+//! generated-code selection: custom when registered in time, otherwise Tokio in a combined build.
+//! A pure `async-runtime` build remains tokio-free (enable the `tokio` feature explicitly if you
+//! still want the `napi::tokio` re-export).
 //!
 //! `spawn_on_custom_runtime` returns a napi-owned joinable handle over the
 //! `AsyncRuntime` submission hook, and
@@ -59,8 +65,27 @@
 //! unbounded fallback thread. Under the `noop` feature the explicit custom-runtime helpers are
 //! unavailable to callers. Explicit shutdown also closes synchronous custom-runtime block-on and
 //! entry until restart; shutdown waits for an entry already in progress to return and drop its
-//! runtime guard. Exported callbacks should use `try_block_on_custom_runtime` when they need custom
-//! routing and a JavaScript exception instead of the compatibility wrapper's Rust panic.
+//! runtime guard. Exported callbacks should use `try_block_on_custom_runtime` when they require
+//! custom routing and need a JavaScript exception instead of the compatibility wrapper's Rust
+//! panic.
+//!
+//! ### Thread-safe function teardown
+//!
+//! `ThreadsafeFunction::register_finalizer`,
+//! `ThreadsafeFunctionBuilder::build_callback_with_finalizer`, and
+//! `ThreadsafeFunctionBuilder::build_with_finalizer` are unsafe lifecycle APIs. Before their
+//! finalizer returns, including if it unwinds, it must quiesce every native thread or task that can
+//! call, clone, or drop the thread-safe function or otherwise execute addon code. It must not wait
+//! for JavaScript callbacks or queued thread-safe function payloads, because hosts may drain them
+//! only after the native finalizer returns.
+//!
+//! Thread-safe functions are referenced by default. If natural environment teardown must invoke a
+//! finalizer to stop a worker that retains the thread-safe function, build it with `.weak::<true>()`
+//! or explicitly unref it first; otherwise the reference can keep the event loop alive and prevent
+//! the finalizer from running.
+//!
+//! `ThreadsafeFunction::abort` takes `&self` and is shared and idempotent. Call it directly through
+//! a borrow or `Arc`; do not clone a thread-safe function merely to give `abort` ownership.
 //!
 //! ### latin1
 //!
@@ -102,10 +127,7 @@ extern "C" {
     fun: Option<unsafe extern "C" fn(arg: *mut core::ffi::c_void)>,
     arg: *mut core::ffi::c_void,
   ) -> sys::napi_status;
-  #[cfg(all(
-    any(feature = "tokio_rt", feature = "async-runtime"),
-    feature = "napi4"
-  ))]
+  #[cfg(feature = "napi4")]
   fn napi_remove_env_cleanup_hook(
     env: sys::napi_env,
     fun: Option<unsafe extern "C" fn(arg: *mut core::ffi::c_void)>,

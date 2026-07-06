@@ -1,5 +1,78 @@
 use napi::{bindgen_prelude::*, threadsafe_function::ThreadsafeFunction, JsGlobal, Result};
 
+#[cfg(not(feature = "noop"))]
+struct ModuleFinalizerPropertyClosureProbe {
+  result_path: String,
+  panic_after_record: bool,
+}
+
+#[cfg(not(feature = "noop"))]
+impl Drop for ModuleFinalizerPropertyClosureProbe {
+  fn drop(&mut self) {
+    crate::env::record_runtime_transition_probe(&self.result_path);
+    #[cfg(not(target_family = "wasm"))]
+    if self.panic_after_record {
+      panic!("intentional property closure capture Drop panic");
+    }
+  }
+}
+
+#[cfg(not(feature = "noop"))]
+pub(crate) fn install_module_finalizer_probes(
+  export: &mut Object,
+  probe_paths: &Object,
+) -> Result<()> {
+  let object_result_path: String = probe_paths.get_named_property("object")?;
+  let property_panic_result_path: String =
+    probe_paths.get_named_property("propertyClosurePanic")?;
+  let property_after_panic_result_path: String =
+    probe_paths.get_named_property("propertyClosureAfterPanic")?;
+
+  export.add_finalizer((), object_result_path, |context| {
+    crate::env::record_runtime_transition_probe(&context.hint);
+    #[cfg(not(target_family = "wasm"))]
+    panic!("intentional module object finalizer panic");
+  })?;
+
+  let panic_probe = ModuleFinalizerPropertyClosureProbe {
+    result_path: property_panic_result_path,
+    panic_after_record: true,
+  };
+  let after_panic_probe = ModuleFinalizerPropertyClosureProbe {
+    result_path: property_after_panic_result_path,
+    panic_after_record: false,
+  };
+  let property_names = [
+    "__napiRsModuleFinalizerPanic",
+    "__napiRsModuleFinalizerAfterPanic",
+  ];
+  export.define_properties(&[
+    Property::new()
+      .with_utf8_name(property_names[0])?
+      .with_getter_closure(move |_env, _this| {
+        let _keep_alive = &panic_probe;
+        Ok(1)
+      }),
+    Property::new()
+      .with_utf8_name(property_names[1])?
+      .with_getter_closure(move |_env, _this| {
+        let _keep_alive = &after_panic_probe;
+        Ok(2)
+      }),
+  ])?;
+
+  for property_name in property_names {
+    if !export.delete_named_property(property_name)? {
+      return Err(Error::new(
+        Status::GenericFailure,
+        format!("failed to remove temporary module finalizer property {property_name}"),
+      ));
+    }
+  }
+
+  Ok(())
+}
+
 #[napi]
 fn list_obj_keys(obj: Object) -> Vec<String> {
   Object::keys(&obj).unwrap()

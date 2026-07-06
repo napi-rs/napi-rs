@@ -625,7 +625,7 @@ fn rejection_message(value: Unknown) -> String {
   message
 }
 
-impl<T: FromNapiValue + 'static> futures_core::Stream for Reader<T> {
+impl<T: FromNapiValue + Send + 'static> futures_core::Stream for Reader<T> {
   type Item = Result<T>;
 
   fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {

@@ -1,0 +1,25 @@
+error[E0599]: the method `call` exists for reference `&ThreadsafeFunction<(), (), (), LocalStatus>`, but its trait bounds were not satisfied
+  --> tests/build_error_tests/tsfn_thread_safety_2.rs:21:8
+   |
+ 6 |   struct LocalStatus(*const ());
+   |   ------------------ doesn't satisfy `LocalStatus: Send`
+...
+21 |     tsfn.call(
+   |     -----^^^^ method cannot be called on `&ThreadsafeFunction<(), (), (), LocalStatus>` due to unsatisfied trait bounds
+   |
+  ::: $WORKSPACE/crates/napi/src/threadsafe_function.rs
+   |
+   | / pub struct ThreadsafeFunction<
+   | |   T: 'static,
+   | |   Return: 'static + FromNapiValue = Unknown<'static>,
+   | |   CallJsBackArgs: 'static + JsValuesTupleIntoVec = T,
+...  |
+   | |   const MaxQueueSize: usize = 0,
+   | | > {
+   | |_- doesn't satisfy `ThreadsafeFunction<(), (), (), LocalStatus>: Fn<_>`
+   |
+   = note: the following trait bounds were not satisfied:
+           `*const (): Send`
+           which is required by `LocalStatus: Send`
+           `ThreadsafeFunction<(), (), (), LocalStatus>: Fn<_>`
+           which is required by `&ThreadsafeFunction<(), (), (), LocalStatus>: Fn<_>`

@@ -8,6 +8,16 @@ use crate::{bindgen_runtime::ToNapiValue, sys, Error, JsString, Result, Status};
 #[cfg(feature = "napi10")]
 use crate::Env;
 
+#[cfg(feature = "napi10")]
+fn run_finalize_callback<F>(env: sys::napi_env, callback: F)
+where
+  F: FnOnce(Env),
+{
+  crate::bindgen_runtime::with_runtime_finalizer_guard(env, || {
+    crate::bindgen_runtime::catch_unwind_safely(|| callback(Env(env)));
+  });
+}
+
 pub struct JsStringUtf16<'env> {
   pub(crate) inner: JsString<'env>,
   /// Backing code-unit view.
@@ -277,7 +287,9 @@ impl<'env> JsStringUtf16<'env> {
       let status =
         unsafe { sys::napi_create_string_utf16(env.0, buf_ptr, buf_len as isize, &mut raw_value) };
 
-      finalize_callback(*env, finalize_hint);
+      run_finalize_callback(env.0, move |env| {
+        finalize_callback(env, finalize_hint);
+      });
 
       check_status!(status, "Failed to create utf16 string")?;
 
@@ -319,8 +331,10 @@ impl<'env> JsStringUtf16<'env> {
       // On success (copied = true or false), V8 owns the hint and will
       // invoke the callback itself — we must not call it again here.
       if status != sys::Status::napi_ok {
-        let (hint, callback) = *unsafe { Box::from_raw(hint_ptr) };
-        callback(*env, hint);
+        run_finalize_callback(env.0, move |env| {
+          let (hint, callback) = *unsafe { Box::from_raw(hint_ptr) };
+          callback(env, hint);
+        });
       }
       check_status!(status, "Failed to create external string utf16")?;
 
@@ -473,6 +487,8 @@ extern "C" fn finalize_with_custom_callback<T, F: FnOnce(Env, T)>(
   _finalize_data: *mut c_void,
   finalize_hint: *mut c_void,
 ) {
-  let (hint, callback) = unsafe { *Box::from_raw(finalize_hint as *mut (T, F)) };
-  callback(Env(env.cast()), hint);
+  run_finalize_callback(env.cast(), move |env| {
+    let (hint, callback) = unsafe { *Box::from_raw(finalize_hint as *mut (T, F)) };
+    callback(env, hint);
+  });
 }

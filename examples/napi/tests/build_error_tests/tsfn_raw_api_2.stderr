@@ -1,0 +1,11 @@
+error[E0603]: struct `ThreadsafeFunctionHandle` is private
+ --> tests/build_error_tests/tsfn_raw_api_2.rs:1:32
+  |
+1 | use napi::threadsafe_function::ThreadsafeFunctionHandle;
+  |                                ^^^^^^^^^^^^^^^^^^^^^^^^ private struct
+  |
+note: the struct `ThreadsafeFunctionHandle` is defined here
+ --> $WORKSPACE/crates/napi/src/threadsafe_function.rs
+  |
+  | struct ThreadsafeFunctionHandle {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

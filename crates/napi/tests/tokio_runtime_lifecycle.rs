@@ -72,7 +72,17 @@ fn shutdown_before_first_use_requires_an_explicit_restart() {
       .status,
     napi::Status::WouldDeadlock
   );
-  tokio_runtime_retirement_waiter()
-    .wait()
-    .expect("runtime retirement must complete after the destructor returns");
+  let waiter = tokio_runtime_retirement_waiter();
+  let deadline = std::time::Instant::now() + Duration::from_secs(5);
+  loop {
+    match waiter.wait() {
+      Ok(()) => break,
+      Err(error)
+        if error.status == napi::Status::WouldDeadlock && std::time::Instant::now() < deadline =>
+      {
+        std::thread::yield_now();
+      }
+      Err(error) => panic!("runtime retirement did not complete: {error}"),
+    }
+  }
 }

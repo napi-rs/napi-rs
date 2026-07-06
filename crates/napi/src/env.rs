@@ -1524,20 +1524,26 @@ pub(crate) unsafe extern "C" fn raw_finalize<T>(
   finalize_data: *mut c_void,
   finalize_hint: *mut c_void,
 ) {
-  let tagged_object = finalize_data as *mut T;
-  drop(unsafe { Box::from_raw(tagged_object) });
-  #[cfg(not(target_family = "wasm"))]
-  if !finalize_hint.is_null() {
-    let size_hint = unsafe { *Box::from_raw(finalize_hint as *mut i64) };
-    if size_hint != 0 {
-      let mut adjusted = 0i64;
-      let status = unsafe { sys::napi_adjust_external_memory(env, -size_hint, &mut adjusted) };
-      debug_assert!(
-        status == sys::Status::napi_ok,
-        "Calling napi_adjust_external_memory failed"
-      );
+  crate::bindgen_runtime::with_runtime_finalizer_guard(env, || {
+    let tagged_object = finalize_data as *mut T;
+    crate::bindgen_runtime::catch_unwind_safely(|| {
+      drop(unsafe { Box::from_raw(tagged_object) });
+    });
+    #[cfg(not(target_family = "wasm"))]
+    if !finalize_hint.is_null() {
+      crate::bindgen_runtime::catch_unwind_safely(|| {
+        let size_hint = unsafe { *Box::from_raw(finalize_hint as *mut i64) };
+        if size_hint != 0 {
+          let mut adjusted = 0i64;
+          let status = unsafe { sys::napi_adjust_external_memory(env, -size_hint, &mut adjusted) };
+          debug_assert!(
+            status == sys::Status::napi_ok,
+            "Calling napi_adjust_external_memory failed"
+          );
+        }
+      });
     }
-  };
+  });
 }
 
 #[cfg(feature = "napi6")]
@@ -1550,20 +1556,28 @@ unsafe extern "C" fn set_instance_finalize_callback<T, Hint, F>(
   Hint: 'static,
   F: FnOnce(FinalizeContext<T, Hint>),
 {
-  let (value, callback) = unsafe { *Box::from_raw(finalize_data as *mut (TaggedObject<T>, F)) };
-  let hint = unsafe { *Box::from_raw(finalize_hint as *mut Hint) };
-  let env = Env::from_raw(raw_env);
-  callback(FinalizeContext {
-    value: value.object.unwrap(),
-    hint,
-    env,
+  crate::bindgen_runtime::with_runtime_finalizer_guard(raw_env, || {
+    crate::bindgen_runtime::catch_unwind_safely(|| {
+      let (value, callback) = unsafe { *Box::from_raw(finalize_data as *mut (TaggedObject<T>, F)) };
+      let hint = unsafe { *Box::from_raw(finalize_hint as *mut Hint) };
+      let env = Env::from_raw(raw_env);
+      callback(FinalizeContext {
+        value: value.object.unwrap(),
+        hint,
+        env,
+      });
+    });
   });
 }
 
 #[cfg(feature = "napi3")]
 unsafe extern "C" fn cleanup_env<T: 'static>(hook_data: *mut c_void) {
-  let cleanup_env_hook = unsafe { Box::from_raw(hook_data as *mut CleanupEnvHookData<T>) };
-  (cleanup_env_hook.hook)(cleanup_env_hook.data);
+  crate::bindgen_runtime::with_runtime_teardown_guard(|| {
+    crate::bindgen_runtime::catch_unwind_safely(|| {
+      let cleanup_env_hook = unsafe { Box::from_raw(hook_data as *mut CleanupEnvHookData<T>) };
+      (cleanup_env_hook.hook)(cleanup_env_hook.data);
+    });
+  });
 }
 
 pub(crate) unsafe extern "C" fn raw_finalize_with_custom_callback<Hint, Finalize>(
@@ -1573,8 +1587,12 @@ pub(crate) unsafe extern "C" fn raw_finalize_with_custom_callback<Hint, Finalize
 ) where
   Finalize: FnOnce(Env, Hint),
 {
-  let (hint, callback) = unsafe { *Box::from_raw(finalize_hint as *mut (Hint, Finalize)) };
-  callback(Env::from_raw(env), hint);
+  crate::bindgen_runtime::with_runtime_finalizer_guard(env, || {
+    crate::bindgen_runtime::catch_unwind_safely(|| {
+      let (hint, callback) = unsafe { *Box::from_raw(finalize_hint as *mut (Hint, Finalize)) };
+      callback(Env::from_raw(env), hint);
+    });
+  });
 }
 
 #[cfg(feature = "napi8")]
@@ -1585,15 +1603,21 @@ unsafe extern "C" fn async_finalize<Arg, F>(
   Arg: 'static,
   F: FnOnce(Arg),
 {
-  let (arg, callback) = unsafe { *Box::from_raw(data as *mut (Arg, F)) };
-  callback(arg);
-  if !handle.is_null() {
-    let status = unsafe { sys::napi_remove_async_cleanup_hook(handle) };
-    assert!(
-      status == sys::Status::napi_ok,
-      "Remove async cleanup hook failed after async cleanup callback"
-    );
-  }
+  crate::bindgen_runtime::with_runtime_teardown_guard(|| {
+    crate::bindgen_runtime::catch_unwind_safely(|| {
+      let (arg, callback) = unsafe { *Box::from_raw(data as *mut (Arg, F)) };
+      callback(arg);
+    });
+    if !handle.is_null() {
+      crate::bindgen_runtime::catch_unwind_safely(|| {
+        let status = unsafe { sys::napi_remove_async_cleanup_hook(handle) };
+        assert!(
+          status == sys::Status::napi_ok,
+          "Remove async cleanup hook failed after async cleanup callback"
+        );
+      });
+    }
+  });
 }
 
 #[cfg(feature = "napi5")]
@@ -1761,9 +1785,13 @@ pub(crate) unsafe extern "C" fn trampoline_getter<
 
 #[cfg(feature = "napi5")]
 pub(crate) unsafe extern "C" fn finalize_box_trampoline<F>(
-  _raw_env: sys::napi_env,
+  raw_env: sys::napi_env,
   closure_data_ptr: *mut c_void,
   _finalize_hint: *mut c_void,
 ) {
-  drop(unsafe { Box::<F>::from_raw(closure_data_ptr.cast()) })
+  crate::bindgen_runtime::with_runtime_finalizer_guard(raw_env, || {
+    crate::bindgen_runtime::catch_unwind_safely(|| {
+      drop(unsafe { Box::<F>::from_raw(closure_data_ptr.cast()) });
+    });
+  });
 }

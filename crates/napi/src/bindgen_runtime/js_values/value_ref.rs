@@ -1,4 +1,4 @@
-use std::cell::{Cell, LazyCell};
+use std::cell::{LazyCell, RefCell};
 use std::ffi::c_void;
 use std::hash::BuildHasherDefault;
 use std::ops::{Deref, DerefMut};
@@ -15,8 +15,41 @@ use crate::{
 type RefInformation = (
   /* wrapped_value */ *mut c_void,
   /* napi_ref */ crate::sys::napi_ref,
-  /* finalize_callback */ *const Cell<*mut dyn FnOnce()>,
+  /* finalize_callbacks */ *const FinalizeCallbacks,
 );
+
+pub(crate) type FinalizeCallback = Box<dyn FnMut()>;
+
+pub(crate) struct FinalizeCallbacks(RefCell<Vec<FinalizeCallback>>);
+
+impl FinalizeCallbacks {
+  pub(crate) fn new(callback: FinalizeCallback) -> Self {
+    Self(RefCell::new(vec![callback]))
+  }
+
+  pub(crate) fn push(&self, callback: FinalizeCallback) {
+    self.0.borrow_mut().push(callback);
+  }
+
+  /// Shared values may depend on earlier shared values, so callers must consume
+  /// this list in reverse registration order.
+  pub(crate) fn take(&self) -> Vec<FinalizeCallback> {
+    std::mem::take(&mut *self.0.borrow_mut())
+  }
+
+  #[cfg(test)]
+  pub(crate) fn len(&self) -> usize {
+    self.0.borrow().len()
+  }
+}
+
+impl Drop for FinalizeCallbacks {
+  fn drop(&mut self) {
+    for callback in std::mem::take(self.0.get_mut()).into_iter().rev() {
+      crate::bindgen_runtime::catch_unwind_safely(|| drop(callback));
+    }
+  }
+}
 
 thread_local! {
   pub(crate) static REFERENCE_MAP: LazyCell<
@@ -35,8 +68,8 @@ pub struct Reference<T: 'static> {
   napi_ref: crate::sys::napi_ref,
   env: *mut c_void,
   // the finalize callbacks can only be written with the `Env` passed in
-  // So we can use `Cell` rather than `AtomicPtr` here
-  finalize_callbacks: Arc<Cell<*mut dyn FnOnce()>>,
+  // So we can use `RefCell` rather than a lock here
+  finalize_callbacks: Arc<FinalizeCallbacks>,
 }
 
 pub(crate) fn add_ref(
@@ -44,7 +77,7 @@ pub(crate) fn add_ref(
   key: *mut c_void,
   wrapped_value: *mut c_void,
   napi_ref: crate::sys::napi_ref,
-  finalize_callbacks: *const Cell<*mut dyn FnOnce()>,
+  finalize_callbacks: *const FinalizeCallbacks,
 ) {
   REFERENCE_MAP.with(|cell| {
     cell.borrow_mut(|map| {
@@ -85,9 +118,8 @@ impl<T> Drop for Reference<T> {
 }
 
 impl<T: 'static> Reference<T> {
-  #[doc(hidden)]
   #[allow(clippy::not_unsafe_ptr_arg_deref)]
-  pub fn add_ref(env: crate::sys::napi_env, t: *mut c_void, value: RefInformation) {
+  pub(crate) fn add_ref(env: crate::sys::napi_env, t: *mut c_void, value: RefInformation) {
     add_ref(env, t, value.0, value.1, value.2);
   }
 
@@ -176,13 +208,15 @@ impl<T: 'static> Reference<T> {
     f: F,
   ) -> Result<SharedReference<T, S>> {
     let s = f(Box::leak(unsafe { Box::from_raw(self.raw) }))?;
-    let s_ptr = Box::into_raw(Box::new(s));
-    let prev_drop_fn = unsafe { Box::from_raw(self.finalize_callbacks.get()) };
-    let drop_fn = Box::new(move || {
-      drop(unsafe { Box::from_raw(s_ptr) });
-      prev_drop_fn();
-    });
-    self.finalize_callbacks.set(Box::into_raw(drop_fn));
+    let mut s = Some(Box::new(s));
+    let s_ptr = s
+      .as_deref_mut()
+      .expect("shared reference value must be present") as *mut S;
+    self.finalize_callbacks.push(Box::new(move || {
+      if let Some(s) = s.take() {
+        drop(s);
+      }
+    }));
     Ok(SharedReference {
       raw: s_ptr,
       owner: self,
@@ -207,7 +241,7 @@ impl<T: 'static> DerefMut for Reference<T> {
 pub struct WeakReference<T: 'static> {
   raw: *mut T,
   napi_ref: crate::sys::napi_ref,
-  finalize_callbacks: Weak<Cell<*mut dyn FnOnce()>>,
+  finalize_callbacks: Weak<FinalizeCallbacks>,
 }
 
 impl<T> Clone for WeakReference<T> {
@@ -304,14 +338,16 @@ impl<T: 'static, S: 'static> SharedReference<T, S> {
     #[allow(unused_variables)] env: Env,
     f: F,
   ) -> Result<SharedReference<T, U>> {
-    let s = f(Box::leak(unsafe { Box::from_raw(self.raw) }))?;
-    let raw = Box::into_raw(Box::new(s));
-    let prev_drop_fn = unsafe { Box::from_raw(self.owner.finalize_callbacks.get()) };
-    let drop_fn = Box::new(move || {
-      drop(unsafe { Box::from_raw(raw) });
-      prev_drop_fn();
-    });
-    self.owner.finalize_callbacks.set(Box::into_raw(drop_fn));
+    let value = f(Box::leak(unsafe { Box::from_raw(self.raw) }))?;
+    let mut value = Some(Box::new(value));
+    let raw = value
+      .as_deref_mut()
+      .expect("shared reference value must be present") as *mut U;
+    self.owner.finalize_callbacks.push(Box::new(move || {
+      if let Some(value) = value.take() {
+        drop(value);
+      }
+    }));
     Ok(SharedReference {
       raw,
       owner: self.owner,

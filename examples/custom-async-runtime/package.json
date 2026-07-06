@@ -5,8 +5,10 @@
   "type": "module",
   "main": "./index.cjs",
   "scripts": {
-    "build": "napi-raw build --platform --js index.cjs --dts index.d.cts",
-    "test": "node test.mjs native"
+    "build": "node build.mjs",
+    "build:pure": "node build.mjs --pure-only",
+    "test": "node test.mjs native",
+    "test:pure": "node build.mjs --pure-only && node pure-runtime-lifecycle.mjs"
   },
   "napi": {
     "binaryName": "custom_async_runtime",

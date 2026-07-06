@@ -74,6 +74,7 @@ jobs:
       - name: Build and test with ASAN (Linux)
         if: matrix.os == 'ubuntu-24.04'
         run: |
+          yarn workspace @examples/custom-async-runtime build -- -Z build-std
           yarn workspace @examples/napi build -- -Z build-std
           yarn workspace @examples/compat-mode build -- -Z build-std
           LD_PRELOAD=/usr/lib/gcc/x86_64-linux-gnu/13/libasan.so yarn test
@@ -95,6 +96,7 @@ jobs:
           # Build the examples with ASAN enabled
           # Note: -Z build-std flag cannot be passed through napi CLI on Windows
           # The CARGO_UNSTABLE_BUILD_STD env var provides similar functionality
+          yarn workspace @examples/custom-async-runtime build --target x86_64-pc-windows-msvc
           yarn workspace @examples/napi build --target x86_64-pc-windows-msvc
           yarn workspace @examples/compat-mode build --target x86_64-pc-windows-msvc
         env:

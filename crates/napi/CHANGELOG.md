@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added the pluggable unsafe `AsyncRuntime` backend. After `shutdown()` returns, including an `Err` return, no backend-owned thread, task, waker, callback, destructor, function pointer, or vtable may execute addon code. Native registration permanently retains the winning backend's addon image before publication; the backend object is reused across environment reloads, its `Drop` is not guaranteed to run, and `shutdown()` is its resource-release hook.
+- Added `try_create_custom_tokio_runtime` so duplicate and unsupported runtime registration can be reported without panicking. Builds without the `tokio_rt` executor reject supplied runtimes after retiring them. Threaded WASI and AIX reject externally constructed Tokio runtimes after fully retiring them because those hosts cannot safely pin addon code before environment cleanup ownership exists.
+- Added unsafe thread-safe function finalizer APIs. `register_finalizer`, `build_callback_with_finalizer`, and `build_with_finalizer` require the callback to quiesce every native thread or task that can use the thread-safe function or execute addon code before returning, including during unwinding, and must not wait for JavaScript callbacks or queued payloads. A finalizer that enables natural teardown of a worker retaining the thread-safe function requires a weak or explicitly unreferenced thread-safe function.
+
+### Changed
+
+- Made `async-runtime` additive: addons without a registered backend can still load, combined `async-runtime` + `tokio_rt` builds default generated async work to built-in Tokio, and registration from `#[module_init]` selects the custom backend before first-environment activation. The registration window closes when napi begins activating the first environment or an earlier runtime-backed operation commits a backend choice; a missing-backend error before any environment is activated leaves later registration available.
+- Custom-runtime join handles now report missing, stopped, or transitioning runtime states as runtime errors while preserving cancellation for work a backend declines or drops.
+- **Breaking:** `ObjectFinalize::finalize` now takes `&mut self` instead of consuming `self`. This lets napi-rs contain a custom finalizer panic separately from a panic in the finalized value's `Drop` implementation, while the runtime still drops the value immediately after reference cleanup.
+- **Breaking:** `ThreadsafeFunctionHandle` and the public `ThreadsafeFunction::handle` field are now private, and `ThreadsafeFunction::raw()` was removed, because exposing an unleased Node-API pointer allowed release and finalization races. `ThreadsafeFunction::abort` now takes `&self` and is shared and idempotent, so borrowed or `Arc`-wrapped callbacks can call `callback.abort()` directly without cloning merely to consume the handle. No raw-pointer replacement is provided.
+- **Breaking:** Thread-safe function calls now require queued payloads and callee-handled error statuses to be `Send`, return-value callbacks to be `Send + 'static`, async return values to be `Send`, and error-status types to be `'static`. These bounds prevent values queued from native threads or retained past the initiating stack frame from crossing threads or outliving borrowed data unsafely.
+
 ## [3.10.3](https://github.com/napi-rs/napi-rs/compare/napi-v3.10.2...napi-v3.10.3) - 2026-07-04
 
 ### Fixed

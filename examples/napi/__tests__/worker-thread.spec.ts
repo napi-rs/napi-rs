@@ -1,3 +1,7 @@
+import { spawnSync } from 'node:child_process'
+import { access, mkdtemp, readFile, rm } from 'node:fs/promises'
+import { createRequire } from 'node:module'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Worker } from 'node:worker_threads'
@@ -5,17 +9,10 @@ import { setTimeout } from 'node:timers/promises'
 
 import test from 'ava'
 
-import {
-  Animal,
-  Kind,
-  DEFAULT_COST,
-  asyncMultiTwo,
-  asyncBlockTerminalFinalizerCount,
-  runtimeLifecycleFinalizeResult,
-  shutdownRuntime,
-} from '../index.cjs'
-
 const __dirname = join(fileURLToPath(import.meta.url), '..')
+const require = createRequire(import.meta.url)
+const native = require('../index.cjs')
+const { Animal, Kind, DEFAULT_COST, asyncMultiTwo, shutdownRuntime } = native
 
 const concurrency =
   (process.platform === 'win32' ||
@@ -33,6 +30,29 @@ const concurrency =
   !process.env.ASAN_OPTIONS
     ? 20
     : 1
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeout: number,
+  message: string,
+): Promise<T> {
+  let timer: ReturnType<typeof globalThis.setTimeout> | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = globalThis.setTimeout(() => {
+          reject(new Error(message))
+        }, timeout)
+      }),
+    ])
+  } finally {
+    if (timer !== undefined) {
+      globalThis.clearTimeout(timer)
+    }
+  }
+}
+
 test.after(() => {
   if (process.platform !== 'win32') {
     shutdownRuntime()
@@ -67,31 +87,39 @@ test('should be able to require in worker thread', async (t) => {
 test.serial.skipIf(Boolean(process.env.WASI_TEST))(
   'worker teardown runs pending async block terminal finalizers exactly once',
   async (t) => {
-    const initialCount = asyncBlockTerminalFinalizerCount()
-
     for (let iteration = 1; iteration <= 3; iteration++) {
+      const directory = await mkdtemp(
+        join(tmpdir(), `napi-async-terminal-finalizer-${iteration}-`),
+      )
+      const resultPath = join(directory, 'finalized')
       const worker = new Worker(join(__dirname, 'worker.js'), {
         env: process.env,
       })
-      await new Promise<void>((resolve, reject) => {
-        worker.postMessage({ type: 'async:terminal-finalizer' })
-        worker.once('message', (message) => {
-          t.is(message, 'pending')
-          resolve()
+      try {
+        await new Promise<void>((resolve, reject) => {
+          worker.postMessage({ type: 'async:terminal-finalizer', resultPath })
+          worker.once('message', (message) => {
+            t.is(message, 'pending')
+            resolve()
+          })
+          worker.once('error', reject)
         })
-        worker.once('error', reject)
-      })
-      await worker.terminate()
+        await worker.terminate()
 
-      const expectedCount = initialCount + iteration
-      const deadline = Date.now() + 2_000
-      while (
-        asyncBlockTerminalFinalizerCount() < expectedCount &&
-        Date.now() < deadline
-      ) {
-        await setTimeout(10)
+        const deadline = Date.now() + 2_000
+        while (Date.now() < deadline) {
+          try {
+            t.is(await readFile(resultPath, 'utf8'), 'finalized')
+            break
+          } catch {
+            await setTimeout(10)
+          }
+        }
+        t.is(await readFile(resultPath, 'utf8'), 'finalized')
+      } finally {
+        await worker.terminate().catch(() => {})
+        await rm(directory, { recursive: true, force: true })
       }
-      t.is(asyncBlockTerminalFinalizerCount(), expectedCount)
     }
   },
 )
@@ -99,21 +127,98 @@ test.serial.skipIf(Boolean(process.env.WASI_TEST))(
 test.serial.skipIf(Boolean(process.env.WASI_TEST))(
   'worker teardown finalizers cannot stop another environment runtime',
   async (t) => {
+    const directory = await mkdtemp(
+      join(tmpdir(), 'napi-runtime-finalizer-worker-'),
+    )
+    const resultPath = join(directory, 'result')
     const worker = new Worker(join(__dirname, 'worker.js'), {
       env: process.env,
     })
-    await new Promise<void>((resolve, reject) => {
-      worker.postMessage({ type: 'runtime-finalizer:teardown' })
-      worker.once('message', (message) => {
-        t.is(message, 'ready')
-        resolve()
-      })
-      worker.once('error', reject)
+    let workerError: Error | undefined
+    let rejectWorkerFailure!: (error: Error) => void
+    const workerFailure = new Promise<never>((_, reject) => {
+      rejectWorkerFailure = reject
     })
-    await worker.terminate()
+    const onWorkerError = (error: Error) => {
+      workerError ??= error
+      rejectWorkerFailure(error)
+    }
+    worker.on('error', onWorkerError)
+    const exit = new Promise<number>((resolve) => {
+      worker.once('exit', resolve)
+    })
+    let onReady: ((message: unknown) => void) | undefined
+    try {
+      const ready = new Promise<unknown>((resolve) => {
+        onReady = resolve
+        worker.once('message', onReady)
+      })
+      worker.postMessage({ type: 'runtime-finalizer:teardown', resultPath })
+      const message = await withTimeout(
+        Promise.race([
+          ready,
+          workerFailure,
+          exit.then((code) => {
+            throw (
+              workerError ??
+              new Error(
+                `worker exited with code ${code} before runtime finalizer setup`,
+              )
+            )
+          }),
+        ]),
+        10_000,
+        'worker runtime finalizer setup timed out',
+      )
+      t.deepEqual(message, { type: 'runtime-finalizer-ready' })
+      await t.throwsAsync(access(resultPath))
 
-    t.is(runtimeLifecycleFinalizeResult(), 0)
-    t.is(await asyncMultiTwo(2), 4)
+      const termination = worker.terminate()
+      await withTimeout(
+        Promise.race([Promise.all([exit, termination]), workerFailure]),
+        10_000,
+        'worker runtime finalizer teardown timed out',
+      )
+      if (workerError) {
+        throw workerError
+      }
+
+      t.is(await readFile(resultPath, 'utf8'), '0')
+      t.is(await asyncMultiTwo(2), 4)
+    } finally {
+      if (onReady) {
+        worker.off('message', onReady)
+      }
+      try {
+        await withTimeout(
+          Promise.resolve(worker.terminate()),
+          10_000,
+          'worker runtime finalizer cleanup timed out',
+        )
+      } catch {}
+      worker.off('error', onWorkerError)
+      await rm(directory, { recursive: true, force: true })
+    }
+  },
+)
+
+test.serial.skipIf(Boolean(process.env.WASI_TEST))(
+  'module and public finalizer APIs cannot stop another environment runtime',
+  (t) => {
+    const result = spawnSync(
+      process.execPath,
+      [join(__dirname, 'worker-public-finalizers.js')],
+      {
+        encoding: 'utf8',
+        timeout: 30_000,
+        env: process.env,
+      },
+    )
+    const output = `${result.stdout}\n${result.stderr}`
+    t.is(result.error, undefined, result.error?.stack)
+    t.is(result.signal, null, output)
+    t.is(result.status, 0, output)
+    t.regex(result.stdout, /worker public finalizers passed/)
   },
 )
 

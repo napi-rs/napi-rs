@@ -1,6 +1,83 @@
 //! Compile-time coverage for runtime helper signatures across additive Cargo features.
 #![cfg(not(feature = "noop"))]
 
+#[cfg(feature = "napi4")]
+#[test]
+fn threadsafe_function_quiescence_finalizer_apis_are_unsafe() {
+  use napi::{
+    bindgen_prelude::ThreadsafeFunctionBuilder,
+    threadsafe_function::{ThreadsafeCallContext, ThreadsafeFunction},
+    Result, Status,
+  };
+
+  type CompileThreadsafeFunction = ThreadsafeFunction<(), (), (), Status, false, false, 0>;
+  type CompileThreadsafeFunctionBuilder<'env> =
+    ThreadsafeFunctionBuilder<'env, (), (), (), Status, false, false, 0>;
+  type CompileCallback = fn(ThreadsafeCallContext<()>) -> Result<()>;
+
+  let _: unsafe fn(&CompileThreadsafeFunction, fn()) -> Result<()> =
+    CompileThreadsafeFunction::register_finalizer::<fn()>;
+  let _: fn(&CompileThreadsafeFunction) -> Result<()> = CompileThreadsafeFunction::abort;
+
+  fn assert_builder_signatures<'env>(_: std::marker::PhantomData<&'env ()>) {
+    let _: unsafe fn(
+      &CompileThreadsafeFunctionBuilder<'env>,
+      fn(),
+    ) -> Result<CompileThreadsafeFunction> =
+      CompileThreadsafeFunctionBuilder::build_with_finalizer::<fn()>;
+    let _: unsafe fn(
+      &CompileThreadsafeFunctionBuilder<'env>,
+      CompileCallback,
+      fn(),
+    ) -> Result<CompileThreadsafeFunction> =
+      CompileThreadsafeFunctionBuilder::build_callback_with_finalizer::<(), CompileCallback, fn()>;
+  }
+
+  assert_builder_signatures(std::marker::PhantomData);
+}
+
+#[cfg(feature = "napi4")]
+#[test]
+fn threadsafe_function_builder_callback_remains_js_thread_only() {
+  use std::{cell::Cell, rc::Rc};
+
+  use napi::{
+    bindgen_prelude::{JsValuesTupleIntoVec, ThreadsafeFunctionBuilder},
+    threadsafe_function::{ThreadsafeCallContext, ThreadsafeFunction},
+    Result, Status,
+  };
+
+  struct JsThreadOnlyArgs(Rc<Cell<u32>>);
+
+  impl JsValuesTupleIntoVec for JsThreadOnlyArgs {
+    fn into_vec(self, _env: napi::sys::napi_env) -> Result<Vec<napi::sys::napi_value>> {
+      self.0.set(self.0.get() + 1);
+      Ok(Vec::new())
+    }
+  }
+
+  type CompileThreadsafeFunction =
+    ThreadsafeFunction<u32, (), JsThreadOnlyArgs, Status, false, false, 0>;
+  type CompileThreadsafeFunctionBuilder<'env> =
+    ThreadsafeFunctionBuilder<'env, u32, (), (), Status, false, false, 0>;
+
+  fn build_with_local_callback(
+    builder: &CompileThreadsafeFunctionBuilder<'_>,
+  ) -> Result<CompileThreadsafeFunction> {
+    let state = Rc::new(Cell::new(0));
+    builder.build_callback(move |ctx: ThreadsafeCallContext<u32>| {
+      state.set(ctx.value);
+      Ok(JsThreadOnlyArgs(Rc::clone(&state)))
+    })
+  }
+
+  fn assert_send_sync<T: Send + Sync>() {}
+
+  let _ = build_with_local_callback
+    as fn(&CompileThreadsafeFunctionBuilder<'_>) -> Result<CompileThreadsafeFunction>;
+  assert_send_sync::<ThreadsafeFunction<Rc<Cell<u32>>, (), (), Status, false, false, 0>>();
+}
+
 #[cfg(any(feature = "async-runtime", feature = "tokio_rt"))]
 #[test]
 fn async_block_terminal_finalizer_builder_is_feature_stable() {
@@ -58,12 +135,16 @@ fn custom_runtime_helper_signatures_are_feature_stable() {
 
   struct CompileRuntime;
 
-  impl AsyncRuntime for CompileRuntime {
+  unsafe impl AsyncRuntime for CompileRuntime {
     fn spawn(&self, task: AsyncRuntimeTask) -> std::result::Result<(), AsyncRuntimeTask> {
       Err(task)
     }
 
     fn block_on(&self, _future: Pin<&mut dyn Future<Output = ()>>) {}
+
+    fn shutdown(&self) -> napi::Result<()> {
+      Ok(())
+    }
   }
 
   fn assert_spawn_signature() -> JoinHandle<u8> {
@@ -109,7 +190,8 @@ fn custom_runtime_helper_signatures_are_feature_stable() {
 #[test]
 fn tokio_runtime_helper_signatures_remain_compatible() {
   use napi::bindgen_prelude::{
-    spawn, spawn_blocking, tokio_runtime_retirement_waiter, TokioRuntimeRetirementWaiter,
+    create_custom_tokio_runtime, spawn, spawn_blocking, tokio_runtime_retirement_waiter,
+    try_create_custom_tokio_runtime, TokioRuntimeRetirementWaiter,
   };
 
   fn assert_spawn_signature() -> tokio::task::JoinHandle<()> {
@@ -139,5 +221,7 @@ fn tokio_runtime_helper_signatures_remain_compatible() {
   let _ = assert_retirement_waiter_signature as fn() -> TokioRuntimeRetirementWaiter;
   let _ = assert_retirement_wait_signature as fn(&TokioRuntimeRetirementWaiter) -> napi::Result<()>;
   let _ = assert_retirement_cancel_signature as fn(&TokioRuntimeRetirementWaiter);
+  let _ = create_custom_tokio_runtime as fn(tokio::runtime::Runtime);
+  let _ = try_create_custom_tokio_runtime as fn(tokio::runtime::Runtime) -> napi::Result<()>;
   assert_waiter_traits::<TokioRuntimeRetirementWaiter>();
 }
