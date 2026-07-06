@@ -20,6 +20,7 @@ import ava, { type TestFn } from 'ava'
 import {
   buildProject,
   generateTypeDef,
+  napiCrossToolchainEnvs,
   validateCrossCompileFlags,
   validateNapiCrossSupport,
   writeJsBinding,
@@ -481,6 +482,87 @@ test('validateNapiCrossSupport rejects unsupported target triples', (t) => {
     t.notThrows(() => validateNapiCrossSupport(triple, 'linux', 'x64'))
     t.notThrows(() => validateNapiCrossSupport(triple, 'linux', 'arm64'))
   }
+})
+
+const napiCrossToolchainPath = posixJoin(
+  '/home/user/.napi-rs/cross-toolchain/1.0.0',
+  'aarch64-unknown-linux-gnu',
+)
+const napiCrossDownloadedSysroot = join(
+  napiCrossToolchainPath,
+  'aarch64-unknown-linux-gnu',
+  'sysroot',
+)
+
+test('napiCrossToolchainEnvs points the build at the downloaded toolchain', (t) => {
+  const envs = napiCrossToolchainEnvs(
+    napiCrossToolchainPath,
+    'aarch64-unknown-linux-gnu',
+    { PATH: '/usr/bin' },
+  )
+
+  t.is(
+    envs.CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER,
+    join(napiCrossToolchainPath, 'bin', 'aarch64-unknown-linux-gnu-gcc'),
+  )
+  t.is(envs.TARGET_SYSROOT, napiCrossDownloadedSysroot)
+  t.is(envs.BINDGEN_EXTRA_CLANG_ARGS, `--sysroot=${napiCrossDownloadedSysroot}`)
+  t.is(envs.PATH, `${napiCrossToolchainPath}/bin:/usr/bin`)
+  // gcc is the default compiler, so no clang-specific flags are set.
+  t.is(envs.TARGET_CFLAGS, undefined)
+  t.is(envs.TARGET_CXXFLAGS, undefined)
+})
+
+test('napiCrossToolchainEnvs respects a user-provided TARGET_SYSROOT', (t) => {
+  const envs = napiCrossToolchainEnvs(
+    napiCrossToolchainPath,
+    'aarch64-unknown-linux-gnu',
+    { PATH: '/usr/bin', TARGET_SYSROOT: '/opt/custom-sysroot' },
+  )
+
+  // The user's value wins: it is not overridden...
+  t.is(envs.TARGET_SYSROOT, undefined)
+  // ...and the derived flags use it.
+  t.is(envs.BINDGEN_EXTRA_CLANG_ARGS, '--sysroot=/opt/custom-sysroot')
+})
+
+test('napiCrossToolchainEnvs treats an empty TARGET_SYSROOT as unset', (t) => {
+  // `setEnvIfNotExists` uses falsy semantics (`!process.env[env]`), so a
+  // present-but-empty `TARGET_SYSROOT` still gets the downloaded sysroot
+  // written to the build environment — the flags derived from the effective
+  // sysroot must follow the same rule instead of producing `--sysroot=`.
+  const envs = napiCrossToolchainEnvs(
+    napiCrossToolchainPath,
+    'aarch64-unknown-linux-gnu',
+    { PATH: '/usr/bin', TARGET_SYSROOT: '' },
+  )
+
+  t.is(envs.TARGET_SYSROOT, napiCrossDownloadedSysroot)
+  t.is(envs.BINDGEN_EXTRA_CLANG_ARGS, `--sysroot=${napiCrossDownloadedSysroot}`)
+})
+
+test('napiCrossToolchainEnvs derives clang flags from the effective sysroot', (t) => {
+  const envs = napiCrossToolchainEnvs(
+    napiCrossToolchainPath,
+    'aarch64-unknown-linux-gnu',
+    {
+      PATH: '/usr/bin',
+      // Present-but-empty values must fall back to the downloaded sysroot.
+      TARGET_SYSROOT: '',
+      TARGET_CC: 'clang',
+      TARGET_CXX: 'clang++',
+      TARGET_CFLAGS: '-O2',
+    },
+  )
+
+  t.is(
+    envs.TARGET_CFLAGS,
+    `--sysroot=${napiCrossDownloadedSysroot} --gcc-toolchain=${napiCrossToolchainPath} -O2`,
+  )
+  t.is(
+    envs.TARGET_CXXFLAGS,
+    `--sysroot=${napiCrossDownloadedSysroot} --gcc-toolchain=${napiCrossToolchainPath} `,
+  )
 })
 
 test('buildProject rejects invalid cross flag combinations upfront', async (t) => {

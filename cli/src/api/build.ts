@@ -235,6 +235,96 @@ export function validateNapiCrossSupport(
   }
 }
 
+/**
+ * Compute the environment variables that route a `--use-napi-cross` build
+ * through the `@napi-rs/cross-toolchain` toolchain extracted at
+ * `toolchainPath`.
+ *
+ * Follows the same rule as `Builder#setEnvIfNotExists`: a variable the user
+ * already set in `env` wins and is not returned, and a present-but-empty
+ * variable counts as unset (falsy semantics). The only exceptions are the
+ * clang-specific `TARGET_CFLAGS`/`TARGET_CXXFLAGS`, which prepend the sysroot
+ * flags to the user's value, and `PATH`, which always gets the toolchain
+ * `bin` directory prepended.
+ *
+ * Exported for tests.
+ */
+export function napiCrossToolchainEnvs(
+  toolchainPath: string,
+  targetTriple: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Record<string, string> {
+  const alias: Record<string, string> = {
+    's390x-unknown-linux-gnu': 's390x-ibm-linux-gnu',
+  }
+
+  const envs: Record<string, string> = {}
+  const setEnvIfNotExists = (name: string, value: string) => {
+    if (!env[name]) {
+      envs[name] = value
+    }
+  }
+
+  const upperCaseTarget = targetToEnvVar(targetTriple)
+  const crossTargetName = alias[targetTriple] ?? targetTriple
+  setEnvIfNotExists(
+    `CARGO_TARGET_${upperCaseTarget}_LINKER`,
+    join(toolchainPath, 'bin', `${crossTargetName}-gcc`),
+  )
+  setEnvIfNotExists(
+    'TARGET_SYSROOT',
+    join(toolchainPath, crossTargetName, 'sysroot'),
+  )
+  setEnvIfNotExists(
+    'TARGET_AR',
+    join(toolchainPath, 'bin', `${crossTargetName}-ar`),
+  )
+  setEnvIfNotExists(
+    'TARGET_RANLIB',
+    join(toolchainPath, 'bin', `${crossTargetName}-ranlib`),
+  )
+  setEnvIfNotExists(
+    'TARGET_READELF',
+    join(toolchainPath, 'bin', `${crossTargetName}-readelf`),
+  )
+  setEnvIfNotExists(
+    'TARGET_C_INCLUDE_PATH',
+    join(toolchainPath, crossTargetName, 'sysroot', 'usr', 'include/'),
+  )
+  setEnvIfNotExists(
+    'TARGET_CC',
+    join(toolchainPath, 'bin', `${crossTargetName}-gcc`),
+  )
+  setEnvIfNotExists(
+    'TARGET_CXX',
+    join(toolchainPath, 'bin', `${crossTargetName}-g++`),
+  )
+  // `setEnvIfNotExists` skips `envs` when the user already set the variable
+  // in their environment, so read the effective value back from `env` first
+  // — with the same falsy semantics: a present-but-empty `TARGET_SYSROOT`
+  // counts as unset and falls back to the downloaded sysroot (`??` would
+  // keep the empty string and produce a broken `--sysroot=`).
+  const targetSysroot = env.TARGET_SYSROOT || envs.TARGET_SYSROOT
+  setEnvIfNotExists('BINDGEN_EXTRA_CLANG_ARGS', `--sysroot=${targetSysroot}`)
+
+  if (
+    env.TARGET_CC?.startsWith('clang') ||
+    (env.CC?.startsWith('clang') && !env.TARGET_CC)
+  ) {
+    const TARGET_CFLAGS = env.TARGET_CFLAGS || ''
+    envs.TARGET_CFLAGS = `--sysroot=${targetSysroot} --gcc-toolchain=${toolchainPath} ${TARGET_CFLAGS}`
+  }
+  if (
+    (env.CXX?.startsWith('clang++') && !env.TARGET_CXX) ||
+    env.TARGET_CXX?.startsWith('clang++')
+  ) {
+    const TARGET_CXXFLAGS = env.TARGET_CXXFLAGS || ''
+    envs.TARGET_CXXFLAGS = `--sysroot=${targetSysroot} --gcc-toolchain=${toolchainPath} ${TARGET_CXXFLAGS}`
+  }
+  envs.PATH = `${toolchainPath}/bin:${env.PATH}`
+  return envs
+}
+
 class Builder {
   private readonly args: string[] = []
   private readonly envs: Record<string, string> = {}
@@ -341,10 +431,6 @@ class Builder {
     try {
       const { version, download } = require('@napi-rs/cross-toolchain')
 
-      const alias: Record<string, string> = {
-        's390x-unknown-linux-gnu': 's390x-ibm-linux-gnu',
-      }
-
       const toolchainPath = join(
         homedir(),
         '.napi-rs',
@@ -359,68 +445,10 @@ class Builder {
         const tarArchive = download(process.arch, this.target.triple)
         tarArchive.unpack(toolchainPath)
       }
-      const upperCaseTarget = targetToEnvVar(this.target.triple)
-      const crossTargetName = alias[this.target.triple] ?? this.target.triple
-      const linkerEnv = `CARGO_TARGET_${upperCaseTarget}_LINKER`
-      this.setEnvIfNotExists(
-        linkerEnv,
-        join(toolchainPath, 'bin', `${crossTargetName}-gcc`),
+      Object.assign(
+        this.envs,
+        napiCrossToolchainEnvs(toolchainPath, this.target.triple),
       )
-      this.setEnvIfNotExists(
-        'TARGET_SYSROOT',
-        join(toolchainPath, crossTargetName, 'sysroot'),
-      )
-      this.setEnvIfNotExists(
-        'TARGET_AR',
-        join(toolchainPath, 'bin', `${crossTargetName}-ar`),
-      )
-      this.setEnvIfNotExists(
-        'TARGET_RANLIB',
-        join(toolchainPath, 'bin', `${crossTargetName}-ranlib`),
-      )
-      this.setEnvIfNotExists(
-        'TARGET_READELF',
-        join(toolchainPath, 'bin', `${crossTargetName}-readelf`),
-      )
-      this.setEnvIfNotExists(
-        'TARGET_C_INCLUDE_PATH',
-        join(toolchainPath, crossTargetName, 'sysroot', 'usr', 'include/'),
-      )
-      this.setEnvIfNotExists(
-        'TARGET_CC',
-        join(toolchainPath, 'bin', `${crossTargetName}-gcc`),
-      )
-      this.setEnvIfNotExists(
-        'TARGET_CXX',
-        join(toolchainPath, 'bin', `${crossTargetName}-g++`),
-      )
-      // `setEnvIfNotExists` skips `this.envs` when the user already set the
-      // variable in their environment, so read the effective value back from
-      // `process.env` first.
-      const targetSysroot =
-        process.env.TARGET_SYSROOT ?? this.envs.TARGET_SYSROOT
-      this.setEnvIfNotExists(
-        'BINDGEN_EXTRA_CLANG_ARGS',
-        `--sysroot=${targetSysroot}`,
-      )
-
-      if (
-        process.env.TARGET_CC?.startsWith('clang') ||
-        (process.env.CC?.startsWith('clang') && !process.env.TARGET_CC)
-      ) {
-        const TARGET_CFLAGS = process.env.TARGET_CFLAGS ?? ''
-        this.envs.TARGET_CFLAGS = `--sysroot=${targetSysroot} --gcc-toolchain=${toolchainPath} ${TARGET_CFLAGS}`
-      }
-      if (
-        (process.env.CXX?.startsWith('clang++') && !process.env.TARGET_CXX) ||
-        process.env.TARGET_CXX?.startsWith('clang++')
-      ) {
-        const TARGET_CXXFLAGS = process.env.TARGET_CXXFLAGS ?? ''
-        this.envs.TARGET_CXXFLAGS = `--sysroot=${targetSysroot} --gcc-toolchain=${toolchainPath} ${TARGET_CXXFLAGS}`
-      }
-      this.envs.PATH = this.envs.PATH
-        ? `${toolchainPath}/bin:${this.envs.PATH}:${process.env.PATH}`
-        : `${toolchainPath}/bin:${process.env.PATH}`
     } catch (e) {
       throw new Error(
         `Failed to set up the \`--use-napi-cross\` toolchain for ${this.target.triple}: ${(e as Error).message}. Please check the network connection to the npm registry and retry, or use \`--cross-compile\` (\`-x\`) / \`--use-cross\` instead.`,
