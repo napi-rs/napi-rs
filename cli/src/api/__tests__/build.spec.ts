@@ -456,3 +456,45 @@ crate-type = ["cdylib"]
   )
   t.regex(napiCrossError!.message, /`--use-napi-cross`/)
 })
+
+test('buildProject validates cross flags before resolving the crate manifest', async (t) => {
+  // `projectDir` deliberately contains no `Cargo.toml`: if `buildProject`
+  // resolved the manifest (and spawned `cargo metadata`) before validating
+  // the cross-compilation flags, these calls would fail with
+  // "No crate found in manifest" instead of the validation errors below.
+  const { projectDir } = t.context
+
+  const comboError = await t.throwsAsync(() =>
+    buildProject({ cwd: projectDir, useCross: true, crossCompile: true }),
+  )
+  t.regex(
+    comboError!.message,
+    /`--use-cross`.+`--cross-compile`.+cannot be used together/,
+  )
+
+  const watchError = await t.throwsAsync(() =>
+    buildProject({ cwd: projectDir, watch: true, useCross: true }),
+  )
+  t.regex(watchError!.message, /`--watch` cannot be used with `--use-cross`/)
+
+  const watchCrossCompileError = await t.throwsAsync(() =>
+    buildProject({ cwd: projectDir, watch: true, crossCompile: true }),
+  )
+  t.regex(
+    watchCrossCompileError!.message,
+    /`--watch` cannot be used with `--cross-compile`/,
+  )
+
+  // Rejected either for the unsupported host (non Linux x64/arm64) or for
+  // the unsupported target triple (on Linux x64/arm64 hosts) — both are
+  // `--use-napi-cross` validation errors, keeping this assertion
+  // host-platform independent.
+  const napiCrossError = await t.throwsAsync(() =>
+    buildProject({
+      cwd: projectDir,
+      useNapiCross: true,
+      target: 'riscv64gc-unknown-linux-gnu',
+    }),
+  )
+  t.regex(napiCrossError!.message, /`--use-napi-cross`/)
+})

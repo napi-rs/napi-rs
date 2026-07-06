@@ -62,6 +62,15 @@ export async function buildProject(rawOptions: BuildOptions) {
     cwd: rawOptions.cwd ?? process.cwd(),
   }
 
+  // Reject invalid cross-compilation flag combinations before anything with
+  // a side effect runs (`cargo metadata`, cargo binary auto-installs,
+  // toolchain downloads, ...), so the user always gets the validation error
+  // rather than an unrelated failure from those steps.
+  validateCrossCompileFlags(options)
+  if (options.useNapiCross) {
+    validateNapiCrossSupport(resolveTarget(options.target).triple)
+  }
+
   const resolvePath = (...paths: string[]) => resolve(options.cwd, ...paths)
 
   const manifestPath = resolvePath(options.manifestPath ?? 'Cargo.toml')
@@ -89,6 +98,19 @@ export async function buildProject(rawOptions: BuildOptions) {
   const builder = new Builder(metadata, crate, config, options)
 
   return builder.build()
+}
+
+/**
+ * Resolve the target triple the build will run against, following the same
+ * precedence the build itself uses: the explicit `--target` option, then the
+ * `CARGO_BUILD_TARGET` environment variable, then the host default target.
+ */
+function resolveTarget(targetOption?: string): Target {
+  return targetOption
+    ? parseTriple(targetOption)
+    : process.env.CARGO_BUILD_TARGET
+      ? parseTriple(process.env.CARGO_BUILD_TARGET)
+      : getSystemDefaultTarget()
 }
 
 /**
@@ -181,11 +203,7 @@ class Builder {
     private readonly config: NapiConfig,
     private readonly options: ParsedBuildOptions,
   ) {
-    this.target = options.target
-      ? parseTriple(options.target)
-      : process.env.CARGO_BUILD_TARGET
-        ? parseTriple(process.env.CARGO_BUILD_TARGET)
-        : getSystemDefaultTarget()
+    this.target = resolveTarget(options.target)
     this.crateDir = parse(crate.manifest_path).dir
     this.outputDir = resolve(
       this.options.cwd,
@@ -237,6 +255,9 @@ class Builder {
   }
 
   build() {
+    // Backstop only: `buildProject()` already validated these before running
+    // anything with a side effect (see the top of `buildProject`). Kept here
+    // so a directly constructed `Builder` cannot skip the validation.
     validateCrossCompileFlags(this.options)
     if (this.options.useNapiCross) {
       validateNapiCrossSupport(this.target.triple)
