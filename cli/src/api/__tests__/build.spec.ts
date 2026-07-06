@@ -346,7 +346,7 @@ test('validateCrossCompileFlags rejects windows-gnu targets with `--cross-compil
     /`--cross-compile` \(`-x`\) does not support the target x86_64-pc-windows-gnu/
   // `cargo-xwin` is only used on non-Windows hosts, where it silently
   // no-ops for `windows-gnu` targets, so the combination must be rejected.
-  t.throws(
+  const gnuError = t.throws(
     () =>
       validateCrossCompileFlags(
         { crossCompile: true, target: 'x86_64-pc-windows-gnu' },
@@ -354,6 +354,10 @@ test('validateCrossCompileFlags rejects windows-gnu targets with `--cross-compil
       ),
     { message: windowsGnuError },
   )
+  // `windows-gnu` links with a mingw-w64 GCC toolchain.
+  t.regex(gnuError!.message, /x86_64-w64-mingw32-gcc/)
+  t.regex(gnuError!.message, /LIBNODE_PATH/)
+  t.regex(gnuError!.message, /x86_64-pc-windows-msvc/)
   t.throws(
     () =>
       validateCrossCompileFlags(
@@ -362,8 +366,9 @@ test('validateCrossCompileFlags rejects windows-gnu targets with `--cross-compil
       ),
     { message: windowsGnuError },
   )
-  // `gnullvm`-flavored triples take the same broken `cargo-xwin` route.
-  t.throws(
+  // `gnullvm`-flavored triples take the same broken `cargo-xwin` route, but
+  // link with an LLVM toolchain (llvm-mingw), not the mingw-w64 GCC one.
+  const gnullvmError = t.throws(
     () =>
       validateCrossCompileFlags(
         { crossCompile: true, target: 'x86_64-pc-windows-gnullvm' },
@@ -374,6 +379,10 @@ test('validateCrossCompileFlags rejects windows-gnu targets with `--cross-compil
         /`--cross-compile` \(`-x`\) does not support the target x86_64-pc-windows-gnullvm/,
     },
   )
+  t.regex(gnullvmError!.message, /llvm-mingw/)
+  t.notRegex(gnullvmError!.message, /mingw32-gcc/)
+  t.regex(gnullvmError!.message, /LIBNODE_PATH/)
+  t.regex(gnullvmError!.message, /x86_64-pc-windows-msvc/)
   // The target can also come from `CARGO_BUILD_TARGET`; the check is fully
   // synchronous, so the environment is mutated and restored without any
   // interleaving point another concurrently running test could observe.

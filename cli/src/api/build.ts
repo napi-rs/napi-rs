@@ -180,9 +180,15 @@ export function validateCrossCompileFlags(
       const target = parseTriple(explicitTarget)
       if (target.platform === 'win32' && target.abi?.startsWith('gnu')) {
         const msvcTriple = explicitTarget.replace(/gnu(llvm)?$/, 'msvc')
-        const mingwLinker = `${explicitTarget.split('-')[0]}-w64-mingw32-gcc`
+        // `*-windows-gnu` links with a mingw-w64 GCC toolchain, while
+        // `*-windows-gnullvm` needs an LLVM toolchain (llvm-mingw): `rustc`
+        // has no default working linker for it without one on the `PATH`.
+        const toolchainHint =
+          target.abi === 'gnullvm'
+            ? `an llvm-mingw (LLVM/Clang) toolchain on the \`PATH\` (\`rustc\` has no default working linker for ${explicitTarget} without one; \`napi-build\` additionally needs \`libnode.dll\` via the \`LIBNODE_PATH\` environment variable)`
+            : `a mingw-w64 toolchain (\`rustc\` uses the \`${explicitTarget.split('-')[0]}-w64-mingw32-gcc\` linker; \`napi-build\` additionally needs \`libnode.dll\` via the \`LIBNODE_PATH\` environment variable)`
         throw new Error(
-          `\`--cross-compile\` (\`-x\`) does not support the target ${explicitTarget}: \`cargo-xwin\` only handles MSVC targets and the build would fail at link time. Drop \`-x\` and build with a mingw-w64 toolchain (\`rustc\` uses the \`${mingwLinker}\` linker; \`napi-build\` additionally needs \`libnode.dll\` via the \`LIBNODE_PATH\` environment variable), or target ${msvcTriple} instead.`,
+          `\`--cross-compile\` (\`-x\`) does not support the target ${explicitTarget}: \`cargo-xwin\` only handles MSVC targets and the build would fail at link time. Drop \`-x\` and build with ${toolchainHint}, or target ${msvcTriple} instead.`,
         )
       }
     }
