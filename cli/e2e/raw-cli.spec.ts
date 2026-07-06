@@ -76,6 +76,8 @@ test('packed raw CLI runs without development dependencies and preserves path ar
       mkdir(installDir),
       mkdir(outputDir),
       mkdir(npmDir),
+    ])
+    await Promise.all([
       writeFile(
         join(installDir, 'package.json'),
         JSON.stringify({

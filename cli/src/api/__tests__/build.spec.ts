@@ -34,6 +34,7 @@ import {
   writeJsBinding,
 } from '../build.js'
 import { getSystemDefaultTarget } from '../../utils/index.js'
+  collectStaleWasiBuildOutputNames,
   createArtifactDestinationName,
   createWasiBrowserEntry,
   createWasiCompilerFlags,
@@ -1017,6 +1018,37 @@ test('explicit WASI build target selects the browser flavor', (t) => {
   t.is(target?.platformArchABI, 'wasm32-wasip1')
 })
 
+test('WASI cleanup preserves configured sibling flavors and removes obsolete ones', (t) => {
+  const binaryName = 'cleanup-wasi'
+  const threadless = parseTriple('wasm32-wasip1')
+  const threaded = parseTriple('wasm32-wasip1-threads')
+  const withConfiguredThreaded = collectStaleWasiBuildOutputNames(
+    binaryName,
+    threadless,
+    [threaded],
+  )
+  t.false(withConfiguredThreaded.has(`${binaryName}.wasi.cjs`))
+  t.false(withConfiguredThreaded.has('wasi-worker.mjs'))
+  t.true(withConfiguredThreaded.has(`${binaryName}.wasip1.cjs`))
+
+  const afterThreadlessTransition = collectStaleWasiBuildOutputNames(
+    binaryName,
+    threadless,
+    [threadless],
+  )
+  for (const file of [
+    `${binaryName}.wasi.cjs`,
+    `${binaryName}.wasi.d.cts`,
+    `${binaryName}.wasi-browser.js`,
+    `${binaryName}.wasm32-wasi.wasm`,
+    `${binaryName}.wasm32-wasi.debug.wasm`,
+    'wasi-worker.mjs',
+    'wasi-worker-browser.mjs',
+  ]) {
+    t.true(afterThreadlessTransition.has(file))
+  }
+})
+
 test('untyped WASI browser entry forwards the default export', async (t) => {
   const { projectDir } = t.context
   const packageName = 'untyped-browser-entry-wasm32-wasip1'
@@ -1360,4 +1392,37 @@ export = binding
 `,
   )
   t.false(existsSync(join(projectDir, 'index.d.ts')))
+
+  const staleThreadedFiles = [
+    `${binaryName}.wasi.cjs`,
+    `${binaryName}.wasi.d.cts`,
+    `${binaryName}.wasi-browser.js`,
+    `${binaryName}.wasi-deferred.js`,
+    `${binaryName}.wasi-deferred.d.ts`,
+    `${binaryName}.wasm32-wasi.wasm`,
+    `${binaryName}.wasm32-wasi.debug.wasm`,
+    'wasi-worker.mjs',
+    'wasi-worker-browser.mjs',
+  ]
+  await Promise.all(
+    staleThreadedFiles.map((file) =>
+      writeFile(join(projectDir, file), `stale ${file}\n`),
+    ),
+  )
+
+  // A subsequent build removes threaded outputs after configuration
+  // transitions to threadless-only.
+  const packageJsonPath = join(projectDir, 'package.json')
+  const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'))
+  packageJson.napi.targets = ['wasm32-wasip1']
+  await writeFile(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`)
+  const { task: rebuildTask } = await buildProject({
+    platform: true,
+    target: 'wasm32-wasip1',
+    cwd: projectDir,
+  })
+  await rebuildTask
+  for (const file of staleThreadedFiles) {
+    t.false(existsSync(join(projectDir, file)))
+  }
 })

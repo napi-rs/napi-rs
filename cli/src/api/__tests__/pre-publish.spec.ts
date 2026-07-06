@@ -24,6 +24,10 @@ const require = createRequire(import.meta.url)
 const execFileAsync = promisify(execFile)
 const test = ava as TestFn<{ tmpDir: string }>
 const MINIMAL_WASM = Buffer.from([0x00, 0x61, 0x73, 0x6d, 1, 0, 0, 0])
+const emnapiVersion = require('emnapi/package.json').version
+const wasmRuntimeVersion =
+  require('../../../../wasm-runtime/package.json').version
+const directBufferDependency = '^6.0.3'
 
 async function createTestTempDir() {
   const tmpDir = join(
@@ -59,6 +63,10 @@ async function setupThreadlessPackage(
     rootExports?: unknown
     rootFiles?: string[] | null
     publishConfig?: Record<string, unknown>
+    wasmBrowser?: {
+      fs?: boolean
+      buffer?: boolean
+    }
   } = {},
 ) {
   const binaryName = 'pre-publish-wasi'
@@ -77,6 +85,9 @@ async function setupThreadlessPackage(
       napi: {
         binaryName,
         targets: ['wasm32-wasip1'],
+        ...(options.wasmBrowser
+          ? { wasm: { browser: options.wasmBrowser } }
+          : {}),
       },
     }),
   )
@@ -114,6 +125,15 @@ async function setupThreadlessPackage(
       types: `${binaryName}.wasip1.d.cts`,
       browser: `${binaryName}.wasip1-browser.js`,
       files,
+      dependencies: {
+        '@napi-rs/wasm-runtime': `^${wasmRuntimeVersion}`,
+        '@emnapi/core': emnapiVersion,
+        '@emnapi/runtime': emnapiVersion,
+        ...(options.wasmBrowser?.buffer === true &&
+        options.wasmBrowser.fs !== true
+          ? { buffer: directBufferDependency }
+          : {}),
+      },
       exports: {
         '.': {
           types: `./${binaryName}.wasip1.d.cts`,
@@ -161,6 +181,71 @@ export declare const marker: "workerd-export"
       )
     }
   }
+}
+
+async function setupThreadedPackage(tmpDir: string) {
+  const binaryName = 'pre-publish-wasi'
+  await writeFile(
+    join(tmpDir, 'package.json'),
+    JSON.stringify({
+      name: binaryName,
+      version: '1.0.0',
+      main: 'index.js',
+      napi: {
+        binaryName,
+        targets: ['wasm32-wasip1-threads'],
+      },
+    }),
+  )
+  await writeFile(join(tmpDir, 'index.js'), 'module.exports = {}\n')
+
+  const packageDir = join(tmpDir, 'npm', 'wasm32-wasi')
+  await mkdir(packageDir, { recursive: true })
+  const files = [
+    `${binaryName}.wasm32-wasi.wasm`,
+    `${binaryName}.wasi.cjs`,
+    `${binaryName}.wasi.d.cts`,
+    `${binaryName}.wasi-browser.js`,
+    'wasi-worker.mjs',
+    'wasi-worker-browser.mjs',
+  ]
+  await writeFile(
+    join(packageDir, 'package.json'),
+    JSON.stringify({
+      name: `${binaryName}-wasm32-wasi`,
+      version: '1.0.0',
+      type: 'module',
+      main: `${binaryName}.wasi.cjs`,
+      types: `${binaryName}.wasi.d.cts`,
+      browser: `${binaryName}.wasi-browser.js`,
+      files,
+      dependencies: {
+        '@napi-rs/wasm-runtime': `^${wasmRuntimeVersion}`,
+        '@emnapi/core': emnapiVersion,
+        '@emnapi/runtime': emnapiVersion,
+      },
+    }),
+  )
+  for (const file of files) {
+    await writeFile(
+      join(packageDir, file),
+      file.endsWith('.wasm')
+        ? MINIMAL_WASM
+        : file.endsWith('.d.cts')
+          ? 'export declare const bindingMarker: true\n'
+          : '',
+    )
+  }
+}
+
+async function updateThreadlessFlavorManifest(
+  tmpDir: string,
+  update: (manifest: Record<string, any>) => void,
+) {
+  const packageJsonPath = join(tmpDir, 'npm', 'wasm32-wasip1', 'package.json')
+  const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'))
+  update(packageJson)
+  await writeFile(packageJsonPath, JSON.stringify(packageJson))
 }
 
 async function renameThreadlessReleaseBinary(
@@ -362,6 +447,176 @@ test('pre-publish requires the threadless workerd export', async (t) => {
 
 test('pre-publish validates a complete threadless package in dry-run mode', async (t) => {
   await setupThreadlessPackage(t.context.tmpDir)
+
+  await t.notThrowsAsync(() =>
+    prePublish({
+      cwd: t.context.tmpDir,
+      dryRun: true,
+      ghRelease: false,
+      tagStyle: 'npm',
+    }),
+  )
+})
+
+test('pre-publish requires module type for WASI packages', async (t) => {
+  await setupThreadlessPackage(t.context.tmpDir)
+  await updateThreadlessFlavorManifest(t.context.tmpDir, (manifest) => {
+    manifest.type = 'commonjs'
+  })
+
+  const error = await t.throwsAsync(() =>
+    prePublish({
+      cwd: t.context.tmpDir,
+      dryRun: true,
+      ghRelease: false,
+      tagStyle: 'npm',
+    }),
+  )
+  t.regex(error.message, /must declare type module/)
+})
+
+test('pre-publish rejects restrictive WASI cpu metadata', async (t) => {
+  await setupThreadlessPackage(t.context.tmpDir)
+  await updateThreadlessFlavorManifest(t.context.tmpDir, (manifest) => {
+    manifest.cpu = ['wasm32']
+  })
+
+  const error = await t.throwsAsync(() =>
+    prePublish({
+      cwd: t.context.tmpDir,
+      dryRun: true,
+      ghRelease: false,
+      tagStyle: 'npm',
+    }),
+  )
+  t.regex(error.message, /must omit cpu/)
+})
+
+test('pre-publish rejects restrictive WASI os metadata', async (t) => {
+  await setupThreadlessPackage(t.context.tmpDir)
+  await updateThreadlessFlavorManifest(t.context.tmpDir, (manifest) => {
+    manifest.os = ['darwin']
+  })
+
+  const error = await t.throwsAsync(() =>
+    prePublish({
+      cwd: t.context.tmpDir,
+      dryRun: true,
+      ghRelease: false,
+      tagStyle: 'npm',
+    }),
+  )
+  t.regex(error.message, /must omit os/)
+})
+
+test('pre-publish rejects exports that override threaded WASI entries', async (t) => {
+  await setupThreadedPackage(t.context.tmpDir)
+  const manifestPath = join(
+    t.context.tmpDir,
+    'npm',
+    'wasm32-wasi',
+    'package.json',
+  )
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+  manifest.exports = {
+    '.': {
+      default: `./pre-publish-wasi.wasi-browser.js`,
+    },
+  }
+  await writeFile(manifestPath, JSON.stringify(manifest))
+
+  const error = await t.throwsAsync(() =>
+    prePublish({
+      cwd: t.context.tmpDir,
+      dryRun: true,
+      ghRelease: false,
+      tagStyle: 'npm',
+    }),
+  )
+  t.regex(error.message, /must omit exports for its threaded WASI/)
+})
+
+for (const dependency of [
+  '@napi-rs/wasm-runtime',
+  '@emnapi/core',
+  '@emnapi/runtime',
+]) {
+  test(`pre-publish requires WASI dependency ${dependency}`, async (t) => {
+    await setupThreadlessPackage(t.context.tmpDir)
+    await updateThreadlessFlavorManifest(t.context.tmpDir, (manifest) => {
+      delete manifest.dependencies[dependency]
+    })
+
+    const error = await t.throwsAsync(() =>
+      prePublish({
+        cwd: t.context.tmpDir,
+        dryRun: true,
+        ghRelease: false,
+        tagStyle: 'npm',
+      }),
+    )
+    t.regex(error.message, new RegExp(`must declare dependency ${dependency}`))
+  })
+}
+
+test('pre-publish rejects non-release wasm runtime dependency ranges', async (t) => {
+  await setupThreadlessPackage(t.context.tmpDir)
+  await updateThreadlessFlavorManifest(t.context.tmpDir, (manifest) => {
+    manifest.dependencies['@napi-rs/wasm-runtime'] = 'workspace:*'
+  })
+
+  const error = await t.throwsAsync(() =>
+    prePublish({
+      cwd: t.context.tmpDir,
+      dryRun: true,
+      ghRelease: false,
+      tagStyle: 'npm',
+    }),
+  )
+  t.regex(error.message, /invalid @napi-rs\/wasm-runtime dependency/)
+})
+
+test('pre-publish requires emnapi dependency versions to match', async (t) => {
+  await setupThreadlessPackage(t.context.tmpDir)
+  await updateThreadlessFlavorManifest(t.context.tmpDir, (manifest) => {
+    manifest.dependencies['@emnapi/runtime'] = '0.0.0'
+  })
+
+  const error = await t.throwsAsync(() =>
+    prePublish({
+      cwd: t.context.tmpDir,
+      dryRun: true,
+      ghRelease: false,
+      tagStyle: 'npm',
+    }),
+  )
+  t.regex(error.message, /must declare @emnapi\/runtime/)
+  t.regex(error.message, /found 0\.0\.0/)
+})
+
+test('pre-publish requires buffer for a direct browser import', async (t) => {
+  await setupThreadlessPackage(t.context.tmpDir, {
+    wasmBrowser: { buffer: true },
+  })
+  await updateThreadlessFlavorManifest(t.context.tmpDir, (manifest) => {
+    delete manifest.dependencies.buffer
+  })
+
+  const error = await t.throwsAsync(() =>
+    prePublish({
+      cwd: t.context.tmpDir,
+      dryRun: true,
+      ghRelease: false,
+      tagStyle: 'npm',
+    }),
+  )
+  t.regex(error.message, /must declare dependency buffer/)
+})
+
+test('pre-publish does not require direct buffer when browser fs provides it', async (t) => {
+  await setupThreadlessPackage(t.context.tmpDir, {
+    wasmBrowser: { fs: true, buffer: true },
+  })
 
   await t.notThrowsAsync(() =>
     prePublish({
@@ -974,16 +1229,80 @@ for (const subpath of ['./workerd', './wasm', './wasm.wasm']) {
     const error = await t.throwsAsync(() =>
       prePublish({
         cwd: t.context.tmpDir,
-        dryRun: false,
+        dryRun: true,
         ghRelease: false,
         tagStyle: 'npm',
-        skipOptionalPublish: true,
       }),
     )
     t.true(error.message.includes(subpath))
     t.regex(error.message, /already defines that subpath/)
   })
 }
+
+test('pre-publish rejects unowned generated facade filenames', async (t) => {
+  const generatedFiles = [
+    'pre-publish-wasi.wasm32-wasip1.workerd.mjs',
+    'pre-publish-wasi.wasm32-wasip1.workerd.d.mts',
+    'pre-publish-wasi.wasm32-wasip1.wasm',
+    'pre-publish-wasi.wasm32-wasip1.wasm.d.mts',
+  ]
+  await setupThreadlessPackage(t.context.tmpDir, {
+    rootFiles: ['index.js', 'index.mjs', 'index.d.ts', ...generatedFiles],
+  })
+  await Promise.all(
+    generatedFiles.map((file) =>
+      writeFile(join(t.context.tmpDir, file), `user-owned ${file}\n`),
+    ),
+  )
+
+  const error = await t.throwsAsync(() =>
+    prePublish({
+      cwd: t.context.tmpDir,
+      dryRun: true,
+      ghRelease: false,
+      tagStyle: 'npm',
+    }),
+  )
+  t.regex(error.message, /path already exists and is not owned/)
+  for (const file of generatedFiles) {
+    t.is(
+      await readFile(join(t.context.tmpDir, file), 'utf8'),
+      `user-owned ${file}\n`,
+    )
+  }
+})
+
+test('pre-publish preflights facade conflicts before updating versions', async (t) => {
+  await setupThreadlessPackage(t.context.tmpDir, {
+    rootExports: {
+      '.': './index.js',
+      './workerd': './user-owned.js',
+    },
+  })
+  const flavorManifestPath = join(
+    t.context.tmpDir,
+    'npm',
+    'wasm32-wasip1',
+    'package.json',
+  )
+  const flavorManifest = JSON.parse(await readFile(flavorManifestPath, 'utf8'))
+  flavorManifest.version = '0.0.0-unpublished'
+  await writeFile(flavorManifestPath, JSON.stringify(flavorManifest))
+
+  await t.throwsAsync(() =>
+    prePublish({
+      cwd: t.context.tmpDir,
+      dryRun: false,
+      ghRelease: false,
+      tagStyle: 'npm',
+      skipOptionalPublish: true,
+    }),
+  )
+  const unchangedManifest = JSON.parse(
+    await readFile(flavorManifestPath, 'utf8'),
+  )
+  t.is(unchangedManifest.version, '0.0.0-unpublished')
+})
 
 test('pre-publish rejects root facades omitted by npm pack', async (t) => {
   await setupThreadlessPackage(t.context.tmpDir, { rootFiles: null })
@@ -1289,16 +1608,48 @@ test.serial(
     const packageDir = join(t.context.tmpDir, 'npm', 'wasm32-wasip1')
     await writeFile(
       join(packageDir, 'pre-publish-wasi.wasip1.d.cts'),
-      `// import './types/missing.js'\nexport { value } from './types/one.js'\n`,
+      [
+        '/// <reference path="./types/reference.d.ts" preserve="true" />',
+        '// <reference path="./types/commented-reference.d.ts" />',
+        '/* <reference path="./types/block-comment-reference.d.ts" /> */',
+        `export type ImportText = "import('./types/string-import.js')"`,
+        `export type ReferenceText = "<reference path='./types/string-reference.d.ts' />"`,
+        "export type RequireText = `require('./types/template-require.cjs')`",
+        `export { value } from './types/one.js'`,
+        '',
+      ].join('\n'),
     )
     await mkdir(join(t.context.tmpDir, 'types'))
     await writeFile(
+      join(t.context.tmpDir, 'types', 'reference.d.ts'),
+      'export declare const referenced: true\n',
+    )
+    await writeFile(
       join(t.context.tmpDir, 'types', 'one.d.ts'),
-      `export { value } from './two.js'\n`,
+      [
+        `import './side-effect.mjs'`,
+        `import required = require('./required.cjs')`,
+        `export type Required = typeof required`,
+        `export type Imported = import('./query.js').Query`,
+        `export { value } from './two.js'`,
+        '',
+      ].join('\n'),
     )
     await writeFile(
       join(t.context.tmpDir, 'types', 'two.d.ts'),
       'export declare const value: 42\n',
+    )
+    await writeFile(
+      join(t.context.tmpDir, 'types', 'side-effect.d.mts'),
+      'export {}\n',
+    )
+    await writeFile(
+      join(t.context.tmpDir, 'types', 'required.d.cts'),
+      'declare const required: { readonly required: true }\nexport = required\n',
+    )
+    await writeFile(
+      join(t.context.tmpDir, 'types', 'query.d.ts'),
+      'export interface Query { readonly query: true }\n',
     )
 
     await prePublish({
@@ -1312,8 +1663,13 @@ test.serial(
     const flavorManifest = JSON.parse(
       await readFile(join(packageDir, 'package.json'), 'utf8'),
     )
+    t.true(flavorManifest.files.includes('types/reference.d.ts'))
     t.true(flavorManifest.files.includes('types/one.d.ts'))
     t.true(flavorManifest.files.includes('types/two.d.ts'))
+    t.true(flavorManifest.files.includes('types/side-effect.d.mts'))
+    t.true(flavorManifest.files.includes('types/required.d.cts'))
+    t.true(flavorManifest.files.includes('types/query.d.ts'))
+    t.true(existsSync(join(packageDir, 'types', 'reference.d.ts')))
     t.true(existsSync(join(packageDir, 'types', 'one.d.ts')))
     t.true(existsSync(join(packageDir, 'types', 'two.d.ts')))
 
@@ -1369,3 +1725,48 @@ test.serial(
     )
   },
 )
+
+test('pre-publish rejects missing triple-slash references with attributes', async (t) => {
+  await setupThreadlessPackage(t.context.tmpDir)
+  const packageDir = join(t.context.tmpDir, 'npm', 'wasm32-wasip1')
+  await writeFile(
+    join(packageDir, 'pre-publish-wasi.wasip1.d.cts'),
+    '/// <reference path="./types/missing.d.ts" preserve="true" />\n',
+  )
+
+  const error = await t.throwsAsync(() =>
+    prePublish({
+      cwd: t.context.tmpDir,
+      dryRun: true,
+      ghRelease: false,
+      tagStyle: 'npm',
+    }),
+  )
+  t.regex(error.message, /references missing \.\/types\/missing\.d\.ts/)
+})
+
+test('pre-publish does not copy declaration dependencies from node_modules', async (t) => {
+  await setupThreadlessPackage(t.context.tmpDir)
+  const packageDir = join(t.context.tmpDir, 'npm', 'wasm32-wasip1')
+  await writeFile(
+    join(packageDir, 'pre-publish-wasi.wasip1.d.cts'),
+    `export { privateValue } from './node_modules/private/index.js'\n`,
+  )
+  await mkdir(join(t.context.tmpDir, 'node_modules', 'private'), {
+    recursive: true,
+  })
+  await writeFile(
+    join(t.context.tmpDir, 'node_modules', 'private', 'index.d.ts'),
+    'export declare const privateValue: true\n',
+  )
+
+  const error = await t.throwsAsync(() =>
+    prePublish({
+      cwd: t.context.tmpDir,
+      dryRun: true,
+      ghRelease: false,
+      tagStyle: 'npm',
+    }),
+  )
+  t.regex(error.message, /references missing \.\/node_modules\/private/)
+})

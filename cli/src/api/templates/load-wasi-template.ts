@@ -246,53 +246,160 @@ async function __normalizeModuleForEmnapi(__module) {
   )
 }
 
+function __getBeforeExitListeners(__process) {
+  if (!__process) {
+    return
+  }
+  const __getListeners =
+    typeof __process.rawListeners === 'function'
+      ? __process.rawListeners
+      : typeof __process.listeners === 'function'
+        ? __process.listeners
+        : undefined
+  if (!__getListeners) {
+    return
+  }
+  try {
+    return __getListeners.call(__process, 'beforeExit')
+  } catch {}
+}
+
+function __removeAddedBeforeExitListeners(__process, __beforeListeners) {
+  if (!__process || !__beforeListeners) {
+    return
+  }
+  const __afterListeners = __getBeforeExitListeners(__process)
+  if (!__afterListeners) {
+    return
+  }
+  const __remainingBeforeListeners = new Map()
+  for (const __listener of __beforeListeners) {
+    __remainingBeforeListeners.set(
+      __listener,
+      (__remainingBeforeListeners.get(__listener) || 0) + 1,
+    )
+  }
+  for (const __listener of __afterListeners) {
+    const __remaining = __remainingBeforeListeners.get(__listener) || 0
+    if (__remaining > 0) {
+      __remainingBeforeListeners.set(__listener, __remaining - 1)
+      continue
+    }
+    try {
+      __process.removeListener('beforeExit', __listener)
+    } catch {}
+  }
+}
+
+const __managedEmnapiContextDestroyers = new Set()
+let __managedBeforeExitProcess
+let __managedBeforeExitListener
+
+function __destroyManagedEmnapiContexts() {
+  __managedBeforeExitProcess = undefined
+  __managedBeforeExitListener = undefined
+  let __firstError
+  for (const __destroy of [...__managedEmnapiContextDestroyers]) {
+    try {
+      __destroy()
+    } catch (error) {
+      __firstError ??= error
+    }
+  }
+  if (__firstError) {
+    throw __firstError
+  }
+}
+
+function __registerManagedEmnapiContext(__process, __destroy) {
+  if (
+    !__process ||
+    typeof __process.once !== 'function' ||
+    typeof __process.removeListener !== 'function'
+  ) {
+    return
+  }
+  __managedEmnapiContextDestroyers.add(__destroy)
+  if (!__managedBeforeExitListener) {
+    try {
+      __process.once('beforeExit', __destroyManagedEmnapiContexts)
+      __managedBeforeExitProcess = __process
+      __managedBeforeExitListener = __destroyManagedEmnapiContexts
+    } catch (error) {
+      __managedEmnapiContextDestroyers.delete(__destroy)
+      throw error
+    }
+  }
+  let __registered = true
+  return () => {
+    if (!__registered) {
+      return
+    }
+    __registered = false
+    __managedEmnapiContextDestroyers.delete(__destroy)
+    if (
+      __managedEmnapiContextDestroyers.size === 0 &&
+      __managedBeforeExitListener &&
+      __managedBeforeExitProcess
+    ) {
+      try {
+        __managedBeforeExitProcess.removeListener(
+          'beforeExit',
+          __managedBeforeExitListener,
+        )
+      } catch {}
+      __managedBeforeExitProcess = undefined
+      __managedBeforeExitListener = undefined
+    }
+  }
+}
+
 function __createManagedEmnapiContext() {
-  const __emnapiContext = __emnapiCreateContext({ autoDestroy: false })
   const __process =
     typeof process === 'object' && process !== null ? process : undefined
+  const __beforeExitListeners = __getBeforeExitListeners(__process)
+  let __emnapiContext
+  try {
+    __emnapiContext = __emnapiCreateContext({ autoDestroy: false })
+  } catch (error) {
+    __removeAddedBeforeExitListeners(__process, __beforeExitListeners)
+    throw error
+  }
+  // emnapi <= 1.11 ignores autoDestroy and installs an anonymous listener.
+  // Remove only listeners added synchronously by this context construction;
+  // newer runtimes add none when autoDestroy is false.
+  __removeAddedBeforeExitListeners(__process, __beforeExitListeners)
   let __disposed = false
-  let __managedBeforeExitListener
+  let __unregisterBeforeExit
   const __destroy = () => {
     if (__disposed) {
       return
     }
     __disposed = true
-    if (__managedBeforeExitListener && __process) {
-      try {
-        __process.removeListener('beforeExit', __managedBeforeExitListener)
-      } catch {}
-    }
+    __unregisterBeforeExit?.()
     return __emnapiContext.destroy()
   }
-  if (
-    __process &&
-    typeof __process.once === 'function' &&
-    typeof __process.removeListener === 'function'
-  ) {
-    __managedBeforeExitListener = __destroy
+  try {
+    __unregisterBeforeExit = __registerManagedEmnapiContext(
+      __process,
+      __destroy,
+    )
+  } catch (error) {
+    __disposed = true
     try {
-      __process.once('beforeExit', __managedBeforeExitListener)
-    } catch (error) {
+      __emnapiContext.destroy()
+    } catch (disposeError) {
       try {
-        __process.removeListener('beforeExit', __managedBeforeExitListener)
+        if (
+          error &&
+          (typeof error === 'object' || typeof error === 'function') &&
+          error.cause === undefined
+        ) {
+          error.cause = disposeError
+        }
       } catch {}
-      __managedBeforeExitListener = undefined
-      __disposed = true
-      try {
-        __emnapiContext.destroy()
-      } catch (disposeError) {
-        try {
-          if (
-            error &&
-            (typeof error === 'object' || typeof error === 'function') &&
-            error.cause === undefined
-          ) {
-            error.cause = disposeError
-          }
-        } catch {}
-      }
-      throw error
     }
+    throw error
   }
   return {
     context: __emnapiContext,

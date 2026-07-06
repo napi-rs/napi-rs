@@ -76,9 +76,10 @@ types.
 The deferred loader accepts only a precompiled `WebAssembly.Module`. It does
 not fetch or compile bytes at runtime.
 
-Generated WASI packages intentionally omit npm's `cpu` field. The module runs
-inside the host process, so a `wasm32` CPU restriction would make npm reject a
-direct install and skip the optional dependency on normal x64 and arm64 hosts.
+Generated WASI packages intentionally omit npm's `cpu` and `os` fields. The
+module runs inside the host process, so `wasm32` or host-OS restrictions would
+make npm reject a direct install or skip the optional dependency on otherwise
+supported hosts.
 
 `napi.wasm.initialMemory` is measured in 64 KiB WebAssembly pages. The regular
 Node and browser loaders retain the historical 4,000-page (250 MiB) default.

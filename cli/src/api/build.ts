@@ -51,6 +51,14 @@ import {
 
 const debug = debugFactory('build')
 const require = createRequire(import.meta.url)
+const MANAGED_WASI_FLAVORS = [
+  { platformArchABI: 'wasm32-wasi', loaderSuffix: 'wasi', hasThreads: true },
+  {
+    platformArchABI: 'wasm32-wasip1',
+    loaderSuffix: 'wasip1',
+    hasThreads: false,
+  },
+] as const
 
 type OutputKind = 'js' | 'dts' | 'node' | 'exe' | 'wasm'
 type Output = { kind: OutputKind; path: string }
@@ -160,6 +168,47 @@ export function createWasiDeferredBindingTypeDef(
   }
 
   return typeDef.replace(rootBindingType, 'Record<string, unknown>')
+}
+
+export function collectStaleWasiBuildOutputNames(
+  binaryName: string,
+  buildTarget: Target,
+  configuredTargets: Target[],
+) {
+  const staleNames = new Set<string>()
+  const retainedFlavors = new Set(
+    [
+      ...configuredTargets.filter((target) => target.platform === 'wasi'),
+      buildTarget,
+    ].map((target) => target.platformArchABI),
+  )
+  for (const flavor of MANAGED_WASI_FLAVORS) {
+    const regenerated = flavor.platformArchABI === buildTarget.platformArchABI
+    if (!regenerated && retainedFlavors.has(flavor.platformArchABI)) {
+      continue
+    }
+    for (const suffix of [
+      `${flavor.loaderSuffix}.cjs`,
+      `${flavor.loaderSuffix}.d.cts`,
+      `${flavor.loaderSuffix}-browser.js`,
+      `${flavor.loaderSuffix}-deferred.js`,
+      `${flavor.loaderSuffix}-deferred.d.ts`,
+      `${flavor.platformArchABI}.wasm`,
+      `${flavor.platformArchABI}.debug.wasm`,
+    ]) {
+      staleNames.add(`${binaryName}.${suffix}`)
+    }
+  }
+  const regeneratesWorkers = wasiTargetHasThreads(buildTarget)
+  const retainsThreadedFlavor = MANAGED_WASI_FLAVORS.some(
+    (flavor) =>
+      flavor.hasThreads && retainedFlavors.has(flavor.platformArchABI),
+  )
+  if (regeneratesWorkers || !retainsThreadedFlavor) {
+    staleNames.add('wasi-worker.mjs')
+    staleNames.add('wasi-worker-browser.mjs')
+  }
+  return staleNames
 }
 
 export async function buildProject(rawOptions: BuildOptions) {
@@ -719,21 +768,12 @@ class Builder {
     }
 
     if (this.target.platform === 'wasi') {
-      const loaderSuffix = wasiLoaderSuffix(this.target.platformArchABI)
-      for (const suffix of [
-        `${loaderSuffix}.cjs`,
-        `${loaderSuffix}.d.cts`,
-        `${loaderSuffix}-browser.js`,
-        `${loaderSuffix}-deferred.js`,
-        `${loaderSuffix}-deferred.d.ts`,
-      ]) {
-        stalePaths.add(
-          join(this.outputDir, `${this.config.binaryName}.${suffix}`),
-        )
-      }
-      if (wasiTargetHasThreads(this.target)) {
-        stalePaths.add(join(this.outputDir, 'wasi-worker.mjs'))
-        stalePaths.add(join(this.outputDir, 'wasi-worker-browser.mjs'))
+      for (const name of collectStaleWasiBuildOutputNames(
+        this.config.binaryName,
+        this.target,
+        this.config.targets,
+      )) {
+        stalePaths.add(join(this.outputDir, name))
       }
       stalePaths.add(join(this.outputDir, 'browser.js'))
       stalePaths.add(join(this.outputDir, `${this.config.binaryName}.wasm`))

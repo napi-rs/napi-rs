@@ -12,6 +12,7 @@ import ava, { type TestFn } from 'ava'
 import { createWasmModuleTypeDef } from '../../utils/index.js'
 import { createWasiDeferredBindingTypeDef } from '../build.js'
 import { createNpmDirs } from '../create-npm-dirs.js'
+import { createWasiDeferredBrowserBinding } from '../templates/load-wasi-template.js'
 
 const require = createRequire(import.meta.url)
 const execFileAsync = promisify(execFile)
@@ -539,6 +540,11 @@ test.serial(
       t.is(scopedPackageJson.browser, 'test-wasm-deferred.wasip1-browser.js')
       t.is(scopedPackageJson.type, 'module')
       t.is(scopedPackageJson.cpu, undefined)
+      t.deepEqual(scopedPackageJson.dependencies, {
+        '@napi-rs/wasm-runtime': '^1.2.3',
+        '@emnapi/core': require('emnapi/package.json').version,
+        '@emnapi/runtime': require('emnapi/package.json').version,
+      })
       t.deepEqual(scopedPackageJson.exports, {
         '.': {
           types: './test-wasm-deferred.wasip1.d.cts',
@@ -587,6 +593,60 @@ test.serial(
   },
 )
 
+test.serial('should only add buffer for direct browser imports', async (t) => {
+  const { tmpDir, packageJsonPath } = t.context
+  const registryServer = await startRegistryServer()
+  process.env.npm_config_registry = `${registryServer.origin}/npm`
+
+  const packageJson = {
+    name: 'test-wasm-buffer',
+    version: '1.0.0',
+    napi: {
+      binaryName: 'test-wasm-buffer',
+      targets: ['wasm32-wasip1'],
+      wasm: {
+        browser: {
+          buffer: true,
+          fs: false,
+        },
+      },
+    },
+  }
+
+  try {
+    await writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2))
+    await createNpmDirs({
+      cwd: tmpDir,
+      packageJsonPath: 'package.json',
+    })
+
+    const packageManifestPath = join(
+      tmpDir,
+      'npm',
+      'wasm32-wasip1',
+      'package.json',
+    )
+    const directBufferManifest = JSON.parse(
+      await readFile(packageManifestPath, 'utf8'),
+    )
+    t.is(directBufferManifest.dependencies.buffer, '^6.0.3')
+
+    packageJson.napi.wasm.browser.fs = true
+    await writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2))
+    await createNpmDirs({
+      cwd: tmpDir,
+      packageJsonPath: 'package.json',
+    })
+
+    const fsBufferManifest = JSON.parse(
+      await readFile(packageManifestPath, 'utf8'),
+    )
+    t.is(fsBufferManifest.dependencies.buffer, undefined)
+  } finally {
+    await registryServer.close()
+  }
+})
+
 test.serial(
   'untyped threadless WASI package packs with strict workerd types and Wasm exports',
   async (t) => {
@@ -619,13 +679,13 @@ test.serial(
         await writeFile(
           join(packageDir, file),
           file.endsWith('.wasm')
-            ? 'wasm-export'
+            ? Buffer.from([0, 97, 115, 109, 1, 0, 0, 0])
             : file.endsWith('.wasm.d.ts')
               ? createWasmModuleTypeDef()
               : file.endsWith('.d.cts')
                 ? 'declare const binding: Record<string, unknown>\nexport = binding\n'
                 : file.endsWith('-deferred.js')
-                  ? 'export const marker = "workerd-export"\n'
+                  ? createWasiDeferredBrowserBinding(packageName, 1, 2)
                   : file.endsWith('-deferred.d.ts')
                     ? createWasiDeferredBindingTypeDef(packageName, false)
                     : file.endsWith('.cjs')
@@ -669,19 +729,66 @@ test.serial(
         ],
         { cwd: consumerDir },
       )
+      const wasmRuntimeDir = join(
+        consumerDir,
+        'node_modules',
+        '@napi-rs',
+        'wasm-runtime',
+      )
+      const emnapiRuntimeDir = join(
+        consumerDir,
+        'node_modules',
+        '@emnapi',
+        'runtime',
+      )
+      await mkdir(wasmRuntimeDir, { recursive: true })
+      await mkdir(emnapiRuntimeDir, { recursive: true })
+      await writeFile(
+        join(wasmRuntimeDir, 'package.json'),
+        JSON.stringify({
+          name: '@napi-rs/wasm-runtime',
+          type: 'module',
+          exports: './index.js',
+        }),
+      )
+      await writeFile(
+        join(wasmRuntimeDir, 'index.js'),
+        `export class WASI {}
+export async function instantiateNapiModule(module) {
+  if (!(module instanceof WebAssembly.Module)) {
+    throw new TypeError('Invalid wasm module')
+  }
+  return { napiModule: { exports: { marker: 'workerd-export' } } }
+}
+`,
+      )
+      await writeFile(
+        join(emnapiRuntimeDir, 'package.json'),
+        JSON.stringify({
+          name: '@emnapi/runtime',
+          type: 'module',
+          exports: './index.js',
+        }),
+      )
+      await writeFile(
+        join(emnapiRuntimeDir, 'index.js'),
+        `export { createContext } from ${JSON.stringify(import.meta.resolve('@emnapi/runtime'))}
+`,
+      )
       const result = await execFileAsync(
         process.execPath,
         [
           '--input-type=module',
           '--eval',
-          `import { readFileSync } from 'node:fs'; import { createRequire } from 'node:module'; import { marker } from '${packageName}-wasm32-wasip1/workerd'; const require = createRequire(import.meta.url); const wasm = readFileSync(require.resolve('${packageName}-wasm32-wasip1/wasm'), 'utf8'); const wranglerWasm = readFileSync(require.resolve('${packageName}-wasm32-wasip1/wasm.wasm'), 'utf8'); process.stdout.write(JSON.stringify({ marker, wasm, wranglerWasm }))`,
+          `import { readFileSync } from 'node:fs'; import { createRequire } from 'node:module'; import { createInstance } from '${packageName}-wasm32-wasip1/workerd'; const require = createRequire(import.meta.url); const initialListeners = new Set(process.rawListeners('beforeExit')); const countOwnedListeners = () => process.rawListeners('beforeExit').filter((listener) => !initialListeners.has(listener)).length; const wasm = readFileSync(require.resolve('${packageName}-wasm32-wasip1/wasm')); const wranglerWasm = readFileSync(require.resolve('${packageName}-wasm32-wasip1/wasm.wasm')); const module = new WebAssembly.Module(wasm); const instances = await Promise.all(Array.from({ length: 20 }, () => createInstance(module))); const liveListeners = countOwnedListeners(); const marker = instances[0].exports.marker; for (const instance of instances) instance.dispose(); process.stdout.write(JSON.stringify({ marker, sameWasm: wasm.equals(wranglerWasm), liveListeners, disposedListeners: countOwnedListeners() }))`,
         ],
         { cwd: consumerDir },
       )
       t.deepEqual(JSON.parse(result.stdout), {
         marker: 'workerd-export',
-        wasm: 'wasm-export',
-        wranglerWasm: 'wasm-export',
+        sameWasm: true,
+        liveListeners: 1,
+        disposedListeners: 0,
       })
       const typeTestPath = join(consumerDir, 'workerd-export.ts')
       await writeFile(
@@ -888,6 +995,8 @@ test.serial(
       t.is(threaded.types, 'test-wasm-flavors.wasi.d.cts')
       t.is(threaded.browser, 'test-wasm-flavors.wasi-browser.js')
       t.is(threaded.cpu, undefined)
+      t.is(threaded.os, undefined)
+      t.is(threaded.exports, undefined)
       t.deepEqual(threaded.files, [
         'test-wasm-flavors.wasm32-wasi.wasm',
         'test-wasm-flavors.wasi.cjs',
@@ -903,6 +1012,7 @@ test.serial(
       t.is(single.types, 'test-wasm-flavors.wasip1.d.cts')
       t.is(single.browser, 'test-wasm-flavors.wasip1-browser.js')
       t.is(single.cpu, undefined)
+      t.is(single.os, undefined)
       t.deepEqual(single.files, [
         'test-wasm-flavors.wasm32-wasip1.wasm',
         'test-wasm-flavors.wasip1.cjs',

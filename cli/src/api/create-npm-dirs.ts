@@ -6,6 +6,7 @@ import { Comparator, Range, minVersion, subset } from 'semver'
 
 const require = createRequire(import.meta.url)
 const minimumWasiNodeVersion = '>=14.18.0'
+const directBufferDependency = '^6.0.3'
 
 import {
   applyDefaultCreateNpmDirsOptions,
@@ -107,7 +108,7 @@ export async function createNpmDirs(userOptions: CreateNpmDirsOptions) {
 
   debug(`Read content from [${options.configPath ?? packageJsonPath}]`)
 
-  const { targets, binaryName, packageName, packageJson } =
+  const { targets, binaryName, packageName, packageJson, wasm } =
     await readNapiConfig(
       packageJsonPath,
       options.configPath ? resolve(options.cwd, options.configPath) : undefined,
@@ -238,6 +239,9 @@ export async function createNpmDirs(userOptions: CreateNpmDirsOptions) {
         '@napi-rs/wasm-runtime': `^${wasmRuntimeVersion}`,
         '@emnapi/core': emnapiVersion,
         '@emnapi/runtime': emnapiVersion,
+        ...(wasm?.browser?.buffer === true && wasm.browser.fs !== true
+          ? { buffer: directBufferDependency }
+          : {}),
       }
     }
 

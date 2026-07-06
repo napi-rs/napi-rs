@@ -243,7 +243,7 @@ test('deferred single-thread WASI binding is workerd-safe', (t) => {
   t.true(src.includes('export async function dispose'))
   t.true(src.includes('asyncWorkPoolSize: 0'))
   t.true(src.includes('__emnapiCreateContext({ autoDestroy: false })'))
-  t.false(src.includes('rawListeners'))
+  t.true(src.includes('__managedEmnapiContextDestroyers'))
   t.false(src.includes('__takeAddedBeforeExitListeners'))
   // instantiate() accepts ONLY a precompiled WebAssembly.Module (or a Promise
   // resolving to one): anything else would require dynamic Wasm compilation,
@@ -603,9 +603,9 @@ export async function instantiateNapiModule(module, options) {
         `export function createContext(options) {
   const state = globalThis.__napiDeferredTestState
   state.contextOptions.push(options)
-  if (options?.autoDestroy !== false) {
-    process.once('beforeExit', () => {})
-  }
+  // @emnapi/runtime 1.11.x ignores autoDestroy and installs this anonymous
+  // listener. The generated loader must replace it with owned cleanup.
+  process.once('beforeExit', () => {})
   if (state.contextError) {
     throw state.contextError
   }
@@ -699,7 +699,7 @@ export async function instantiateNapiModule(module, options) {
       ])
       t.not(independentA.exports, independentB.exports)
       t.is(state.instances, 4)
-      t.is(countOwnedBeforeExitListeners(), 2)
+      t.is(countOwnedBeforeExitListeners(), 1)
       state.cleanupError = cleanupError
       t.is(
         t.throws(() => independentA.dispose()),
@@ -869,6 +869,17 @@ export async function instantiateNapiModule(module, options) {
       await dispose()
       t.is(countOwnedBeforeExitListeners(), 0)
 
+      const destroyedBeforeConcurrentInstances = state.destroyed.length
+      const concurrentInstances = await Promise.all(
+        Array.from({ length: 20 }, () => createInstance(moduleA)),
+      )
+      t.is(countOwnedBeforeExitListeners(), 1)
+      for (const instance of concurrentInstances) {
+        instance.dispose()
+      }
+      t.is(countOwnedBeforeExitListeners(), 0)
+      t.is(state.destroyed.length, destroyedBeforeConcurrentInstances + 20)
+
       const destroyedBeforeRepeatedInstances = state.destroyed.length
       for (let i = 0; i < 20; i++) {
         const instance = await createInstance(moduleA)
@@ -885,6 +896,96 @@ export async function instantiateNapiModule(module, options) {
         }
       }
       delete (globalThis as any).__napiDeferredTestState
+      await rm(tmpDir, { recursive: true, force: true })
+    }
+  },
+)
+
+test.serial(
+  'deferred WASI binding owns lifecycle with the installed emnapi runtime',
+  async (t) => {
+    const src = createWasiDeferredBrowserBinding('custom_async_runtime', 1, 2)
+    const tmpDir = await mkdtemp(
+      join(fileURLToPath(new URL('.', import.meta.url)), '.tmp-emnapi-'),
+    )
+    const initialBeforeExitListeners = new Set(
+      process.rawListeners('beforeExit'),
+    )
+
+    try {
+      const runtimeDir = join(
+        tmpDir,
+        'node_modules',
+        '@napi-rs',
+        'wasm-runtime',
+      )
+      const emnapiRuntimeDir = join(
+        tmpDir,
+        'node_modules',
+        '@emnapi',
+        'runtime',
+      )
+      await mkdir(runtimeDir, { recursive: true })
+      await mkdir(emnapiRuntimeDir, { recursive: true })
+      await writeFile(
+        join(runtimeDir, 'package.json'),
+        JSON.stringify({
+          name: '@napi-rs/wasm-runtime',
+          type: 'module',
+          exports: './index.js',
+        }),
+      )
+      await writeFile(
+        join(runtimeDir, 'index.js'),
+        `export class WASI {}
+export async function instantiateNapiModule(module) {
+  if (!(module instanceof WebAssembly.Module)) {
+    throw new TypeError('Invalid wasm module')
+  }
+  return { napiModule: { exports: {} } }
+}
+`,
+      )
+      await writeFile(
+        join(emnapiRuntimeDir, 'package.json'),
+        JSON.stringify({
+          name: '@emnapi/runtime',
+          type: 'module',
+          exports: './index.js',
+        }),
+      )
+      await writeFile(
+        join(emnapiRuntimeDir, 'index.js'),
+        `export { createContext } from ${JSON.stringify(import.meta.resolve('@emnapi/runtime'))}
+`,
+      )
+
+      const loaderPath = join(tmpDir, 'deferred.mjs')
+      await writeFile(loaderPath, src)
+      const { createInstance } = await import(pathToFileURL(loaderPath).href)
+      const module = new WebAssembly.Module(
+        new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]),
+      )
+      const countOwnedBeforeExitListeners = () =>
+        process
+          .rawListeners('beforeExit')
+          .filter((listener) => !initialBeforeExitListeners.has(listener))
+          .length
+
+      const instances = await Promise.all(
+        Array.from({ length: 20 }, () => createInstance(module)),
+      )
+      t.is(countOwnedBeforeExitListeners(), 1)
+      for (const instance of instances) {
+        instance.dispose()
+      }
+      t.is(countOwnedBeforeExitListeners(), 0)
+    } finally {
+      for (const listener of process.rawListeners('beforeExit')) {
+        if (!initialBeforeExitListeners.has(listener)) {
+          process.removeListener('beforeExit', listener)
+        }
+      }
       await rm(tmpDir, { recursive: true, force: true })
     }
   },
