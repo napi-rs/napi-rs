@@ -160,16 +160,16 @@ impl ThreadsafeFunctionHandle {
 
   fn finalize(&self) {
     {
-      // Node 22 finalizes before draining queued payloads, while newer Node
-      // versions drain first. In both orders, stop new native calls before
-      // waiting for the one serialized Blocking caller that teardown wakes.
+      // Node owns the TSFN while invoking its native finalizer and deletes it
+      // after the callback returns. Stop new calls and prevent Rust Drop from
+      // releasing the finalized pointer, but never call a TSFN API from here.
       let _lifecycle_guard = self.write_lifecycle();
       self.mark_closing();
+      self.with_write_aborted(|mut aborted| {
+        *aborted = true;
+      });
     }
     self.wait_for_blocking_call();
-    let _lifecycle_guard = self.write_lifecycle();
-    let status = self.retire_locked(sys::ThreadsafeFunctionReleaseMode::release);
-    debug_assert_eq!(status, sys::Status::napi_ok);
   }
 
   fn acquire_call_slot_locked(
@@ -273,7 +273,8 @@ impl ThreadsafeFunctionCallSlot<'_> {
   fn finish(&mut self, status: sys::napi_status) {
     if status == sys::Status::napi_closing {
       // Native Push consumed this call's acquired slot. The initial owner
-      // slot is independent and remains for abort, finalization, or Drop.
+      // slot is independent and remains for explicit abort, owner Drop, or
+      // Node's native finalization.
       self.acquired = false;
       self.handle.mark_closing();
     } else {
@@ -1357,5 +1358,20 @@ impl ValidateNapiValue for UnknownReturnValue {}
 impl FromNapiValue for UnknownReturnValue {
   unsafe fn from_napi_value(_env: sys::napi_env, _napi_val: sys::napi_value) -> Result<Self> {
     Ok(UnknownReturnValue)
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn native_finalizer_only_closes_rust_side_ownership() {
+    let handle = ThreadsafeFunctionHandle::null();
+
+    handle.finalize();
+
+    assert!(handle.closing.load(Ordering::Acquire));
+    assert!(handle.with_read_aborted(|aborted| aborted));
   }
 }
