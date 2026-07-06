@@ -91,6 +91,79 @@ export async function buildProject(rawOptions: BuildOptions) {
   return builder.build()
 }
 
+/**
+ * Validate the combination of the cross-compilation related flags.
+ *
+ * `--use-cross`, `--use-napi-cross` and `--cross-compile` (`-x`) are three
+ * mutually exclusive cross-compilation mechanisms; combining any two of them
+ * leaves both active at once and produces broken builds, so it is rejected
+ * upfront before any side effect (like auto-installing cargo binaries or
+ * downloading toolchains) happens.
+ */
+export function validateCrossCompileFlags(options: {
+  useCross?: boolean
+  crossCompile?: boolean
+  useNapiCross?: boolean
+  watch?: boolean
+}): void {
+  const enabledCrossFlags = [
+    options.useCross ? '`--use-cross`' : null,
+    options.useNapiCross ? '`--use-napi-cross`' : null,
+    options.crossCompile ? '`--cross-compile` (`-x`)' : null,
+  ].filter((flag): flag is string => flag !== null)
+
+  if (enabledCrossFlags.length > 1) {
+    throw new Error(
+      `${enabledCrossFlags.join(' and ')} cannot be used together. Please pick exactly one cross-compilation mechanism: \`--use-cross\`, \`--use-napi-cross\`, or \`--cross-compile\` (\`-x\`).`,
+    )
+  }
+
+  if (options.watch && options.useCross) {
+    throw new Error(
+      '`--watch` cannot be used with `--use-cross`. `cargo watch` only supports the plain `cargo build` flow, please drop one of the two flags.',
+    )
+  }
+
+  if (options.watch && options.crossCompile) {
+    throw new Error(
+      '`--watch` cannot be used with `--cross-compile` (`-x`). `cargo watch` only supports the plain `cargo build` flow, please drop one of the two flags.',
+    )
+  }
+}
+
+/**
+ * Validate that `--use-napi-cross` can actually handle the requested target
+ * on the current host. The supported target set is read from the
+ * `@napi-rs/cross-toolchain` package, and the pre-built toolchains only run
+ * on Linux x64 and Linux arm64 hosts.
+ */
+export function validateNapiCrossSupport(
+  targetTriple: string,
+  hostPlatform: string = process.platform,
+  hostArch: string = process.arch,
+): void {
+  if (
+    hostPlatform !== 'linux' ||
+    (hostArch !== 'x64' && hostArch !== 'arm64')
+  ) {
+    throw new Error(
+      `\`--use-napi-cross\` requires a Linux x64 or Linux arm64 host, but the current host is ${hostPlatform}-${hostArch}. Please use \`--cross-compile\` (\`-x\`) or \`--use-cross\` to cross compile on this host.`,
+    )
+  }
+
+  const toolchains: Record<
+    'x64' | 'arm64',
+    Record<string, string | undefined>
+  > = require('@napi-rs/cross-toolchain')
+  const supportedTargets = Object.keys(toolchains[hostArch])
+
+  if (!supportedTargets.includes(targetTriple)) {
+    throw new Error(
+      `\`--use-napi-cross\` does not support the target ${targetTriple}. Supported targets: ${supportedTargets.join(', ')}. Please use \`--cross-compile\` (\`-x\`) or \`--use-cross\` for this target.`,
+    )
+  }
+}
+
 class Builder {
   private readonly args: string[] = []
   private readonly envs: Record<string, string> = {}
@@ -164,6 +237,11 @@ class Builder {
   }
 
   build() {
+    validateCrossCompileFlags(this.options)
+    if (this.options.useNapiCross) {
+      validateNapiCrossSupport(this.target.triple)
+    }
+
     if (!this.cdyLibName) {
       const warning =
         'Missing `crate-type = ["cdylib"]` in [lib] config. The build result will not be available as node addon.'
@@ -188,17 +266,6 @@ class Builder {
   private pickCrossToolchain() {
     if (!this.options.useNapiCross) {
       return this
-    }
-    if (this.options.useCross) {
-      debug.warn(
-        'You are trying to use both `--cross` and `--use-napi-cross` options, `--use-cross` will be ignored.',
-      )
-    }
-
-    if (this.options.crossCompile) {
-      debug.warn(
-        'You are trying to use both `--cross-compile` and `--use-napi-cross` options, `--cross-compile` will be ignored.',
-      )
     }
 
     try {
@@ -257,9 +324,14 @@ class Builder {
         'TARGET_CXX',
         join(toolchainPath, 'bin', `${crossTargetName}-g++`),
       )
+      // `setEnvIfNotExists` skips `this.envs` when the user already set the
+      // variable in their environment, so read the effective value back from
+      // `process.env` first.
+      const targetSysroot =
+        process.env.TARGET_SYSROOT ?? this.envs.TARGET_SYSROOT
       this.setEnvIfNotExists(
         'BINDGEN_EXTRA_CLANG_ARGS',
-        `--sysroot=${this.envs.TARGET_SYSROOT}}`,
+        `--sysroot=${targetSysroot}`,
       )
 
       if (
@@ -267,21 +339,23 @@ class Builder {
         (process.env.CC?.startsWith('clang') && !process.env.TARGET_CC)
       ) {
         const TARGET_CFLAGS = process.env.TARGET_CFLAGS ?? ''
-        this.envs.TARGET_CFLAGS = `--sysroot=${this.envs.TARGET_SYSROOT} --gcc-toolchain=${toolchainPath} ${TARGET_CFLAGS}`
+        this.envs.TARGET_CFLAGS = `--sysroot=${targetSysroot} --gcc-toolchain=${toolchainPath} ${TARGET_CFLAGS}`
       }
       if (
         (process.env.CXX?.startsWith('clang++') && !process.env.TARGET_CXX) ||
         process.env.TARGET_CXX?.startsWith('clang++')
       ) {
         const TARGET_CXXFLAGS = process.env.TARGET_CXXFLAGS ?? ''
-        this.envs.TARGET_CXXFLAGS = `--sysroot=${this.envs.TARGET_SYSROOT} --gcc-toolchain=${toolchainPath} ${TARGET_CXXFLAGS}`
+        this.envs.TARGET_CXXFLAGS = `--sysroot=${targetSysroot} --gcc-toolchain=${toolchainPath} ${TARGET_CXXFLAGS}`
       }
       this.envs.PATH = this.envs.PATH
         ? `${toolchainPath}/bin:${this.envs.PATH}:${process.env.PATH}`
         : `${toolchainPath}/bin:${process.env.PATH}`
     } catch (e) {
-      debug.warn('Pick cross toolchain failed', e as Error)
-      // ignore, do nothing
+      throw new Error(
+        `Failed to set up the \`--use-napi-cross\` toolchain for ${this.target.triple}: ${(e as Error).message}. Please check the network connection to the npm registry and retry, or use \`--cross-compile\` (\`-x\`) / \`--use-cross\` instead.`,
+        { cause: e },
+      )
     }
     return this
   }
@@ -294,13 +368,21 @@ class Builder {
 
     const watch = this.options.watch
     const buildTask = new Promise<void>((resolve, reject) => {
-      if (this.options.useCross && this.options.crossCompile) {
-        throw new Error(
-          '`--use-cross` and `--cross-compile` can not be used together',
+      const cargoOverride = process.env.CARGO
+      if (
+        cargoOverride &&
+        (this.options.useCross || this.options.crossCompile)
+      ) {
+        const expectedBinary = this.options.useCross ? 'cross' : 'cargo'
+        const requestedFlag = this.options.useCross
+          ? '`--use-cross`'
+          : '`--cross-compile` (`-x`)'
+        debug.warn(
+          `The \`CARGO\` environment variable is set to \`${cargoOverride}\`; it will be spawned instead of the \`${expectedBinary}\` binary that ${requestedFlag} relies on. Unset \`CARGO\` if this is not intended.`,
         )
       }
       const command =
-        process.env.CARGO ?? (this.options.useCross ? 'cross' : 'cargo')
+        cargoOverride ?? (this.options.useCross ? 'cross' : 'cargo')
       const buildProcess = spawn(command, this.args, {
         env: { ...process.env, ...this.envs },
         stdio: watch ? ['inherit', 'inherit', 'pipe'] : 'inherit',
@@ -345,10 +427,9 @@ class Builder {
       } else {
         debug('Use %i', 'cargo-watch')
         tryInstallCargoBinary('cargo-watch', 'watch')
-        // yarn napi watch --target x86_64-unknown-linux-gnu [--cross-compile]
+        // yarn napi watch --target x86_64-unknown-linux-gnu
         // ===>
-        // cargo watch [...] -- build --target x86_64-unknown-linux-gnu
-        // cargo watch [...] -- zigbuild --target x86_64-unknown-linux-gnu
+        // cargo watch [...] -- cargo build --target x86_64-unknown-linux-gnu
         this.args.push(
           'watch',
           '--why',

@@ -17,7 +17,13 @@ import { fileURLToPath } from 'node:url'
 
 import ava, { type TestFn } from 'ava'
 
-import { buildProject, generateTypeDef, writeJsBinding } from '../build.js'
+import {
+  buildProject,
+  generateTypeDef,
+  validateCrossCompileFlags,
+  validateNapiCrossSupport,
+  writeJsBinding,
+} from '../build.js'
 import { getSystemDefaultTarget } from '../../utils/index.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -296,4 +302,157 @@ napi-build = { path = "${napiBuildPath}" }
 
   t.truthy(error)
   t.regex(error!.message, /emnapi version mismatch/)
+})
+
+test('validateCrossCompileFlags rejects combining two cross-compilation mechanisms', (t) => {
+  t.throws(
+    () => validateCrossCompileFlags({ useCross: true, crossCompile: true }),
+    { message: /`--use-cross`.+`--cross-compile`.+cannot be used together/ },
+  )
+  t.throws(
+    () => validateCrossCompileFlags({ useCross: true, useNapiCross: true }),
+    { message: /`--use-cross`.+`--use-napi-cross`.+cannot be used together/ },
+  )
+  t.throws(
+    () => validateCrossCompileFlags({ useNapiCross: true, crossCompile: true }),
+    {
+      message: /`--use-napi-cross`.+`--cross-compile`.+cannot be used together/,
+    },
+  )
+  t.throws(
+    () =>
+      validateCrossCompileFlags({
+        useCross: true,
+        useNapiCross: true,
+        crossCompile: true,
+      }),
+    {
+      message:
+        /`--use-cross`.+`--use-napi-cross`.+`--cross-compile`.+cannot be used together/,
+    },
+  )
+})
+
+test('validateCrossCompileFlags allows a single cross-compilation mechanism', (t) => {
+  t.notThrows(() => validateCrossCompileFlags({}))
+  t.notThrows(() => validateCrossCompileFlags({ useCross: true }))
+  t.notThrows(() => validateCrossCompileFlags({ crossCompile: true }))
+  t.notThrows(() => validateCrossCompileFlags({ useNapiCross: true }))
+})
+
+test('validateCrossCompileFlags rejects watch mode combined with cross builds', (t) => {
+  t.throws(() => validateCrossCompileFlags({ watch: true, useCross: true }), {
+    message: /`--watch` cannot be used with `--use-cross`/,
+  })
+  t.throws(
+    () => validateCrossCompileFlags({ watch: true, crossCompile: true }),
+    { message: /`--watch` cannot be used with `--cross-compile`/ },
+  )
+  t.notThrows(() => validateCrossCompileFlags({ watch: true }))
+  t.notThrows(() =>
+    validateCrossCompileFlags({ watch: true, useNapiCross: true }),
+  )
+})
+
+test('validateNapiCrossSupport rejects unsupported hosts', (t) => {
+  t.throws(
+    () =>
+      validateNapiCrossSupport('aarch64-unknown-linux-gnu', 'darwin', 'arm64'),
+    { message: /`--use-napi-cross` requires a Linux x64 or Linux arm64 host/ },
+  )
+  t.throws(
+    () => validateNapiCrossSupport('aarch64-unknown-linux-gnu', 'win32', 'x64'),
+    { message: /`--use-napi-cross` requires a Linux x64 or Linux arm64 host/ },
+  )
+  t.throws(
+    () =>
+      validateNapiCrossSupport('aarch64-unknown-linux-gnu', 'linux', 'ia32'),
+    { message: /`--use-napi-cross` requires a Linux x64 or Linux arm64 host/ },
+  )
+  t.notThrows(() =>
+    validateNapiCrossSupport('aarch64-unknown-linux-gnu', 'linux', 'x64'),
+  )
+  t.notThrows(() =>
+    validateNapiCrossSupport('x86_64-unknown-linux-gnu', 'linux', 'arm64'),
+  )
+})
+
+test('validateNapiCrossSupport rejects unsupported target triples', (t) => {
+  t.throws(
+    () => validateNapiCrossSupport('x86_64-unknown-linux-musl', 'linux', 'x64'),
+    {
+      message:
+        /`--use-napi-cross` does not support the target x86_64-unknown-linux-musl/,
+    },
+  )
+  t.throws(
+    () =>
+      validateNapiCrossSupport('riscv64gc-unknown-linux-gnu', 'linux', 'arm64'),
+    {
+      message:
+        /`--use-napi-cross` does not support the target riscv64gc-unknown-linux-gnu/,
+    },
+  )
+  for (const triple of [
+    'x86_64-unknown-linux-gnu',
+    'aarch64-unknown-linux-gnu',
+    'armv7-unknown-linux-gnueabihf',
+    's390x-unknown-linux-gnu',
+    'powerpc64le-unknown-linux-gnu',
+  ]) {
+    t.notThrows(() => validateNapiCrossSupport(triple, 'linux', 'x64'))
+    t.notThrows(() => validateNapiCrossSupport(triple, 'linux', 'arm64'))
+  }
+})
+
+test('buildProject rejects invalid cross flag combinations upfront', async (t) => {
+  const { projectDir } = t.context
+
+  await mkdir(join(projectDir, 'src'), { recursive: true })
+  await writeFile(
+    join(projectDir, 'Cargo.toml'),
+    `[package]
+name = "cross_flags_check"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+`,
+  )
+  await writeFile(join(projectDir, 'src', 'lib.rs'), '')
+  await writeFile(
+    join(projectDir, 'package.json'),
+    `${JSON.stringify(
+      {
+        name: 'cross-flags-check',
+        version: '0.1.0',
+        napi: { binaryName: 'cross-flags-check' },
+      },
+      null,
+      2,
+    )}\n`,
+  )
+
+  const comboError = await t.throwsAsync(() =>
+    buildProject({ cwd: projectDir, useCross: true, crossCompile: true }),
+  )
+  t.regex(comboError!.message, /cannot be used together/)
+
+  const watchError = await t.throwsAsync(() =>
+    buildProject({ cwd: projectDir, watch: true, crossCompile: true }),
+  )
+  t.regex(
+    watchError!.message,
+    /`--watch` cannot be used with `--cross-compile`/,
+  )
+
+  const napiCrossError = await t.throwsAsync(() =>
+    buildProject({
+      cwd: projectDir,
+      useNapiCross: true,
+      target: 'riscv64gc-unknown-linux-gnu',
+    }),
+  )
+  t.regex(napiCrossError!.message, /`--use-napi-cross`/)
 })
