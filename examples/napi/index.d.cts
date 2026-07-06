@@ -363,6 +363,10 @@ export declare class Reader {
   read(): Buffer
 }
 
+export declare class RuntimeLifecycleFinalize {
+  constructor()
+}
+
 export declare class Selector {
   orderBy: Array<string>
   select: Array<string>
@@ -1183,6 +1187,8 @@ export type RuleHandler<Args, Ret> =
   (arg: Args) => Ret
 
 export declare function runScript(script: string): unknown
+
+export declare function runtimeLifecycleFinalizeResult(): number
 
 export declare function setNullByteProperty(obj: object): void
 

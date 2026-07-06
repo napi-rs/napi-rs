@@ -139,7 +139,9 @@ pub(crate) fn register_resolver_env(env: sys::napi_env) -> Result<()> {
 #[cfg(feature = "napi3")]
 unsafe extern "C" fn resolver_env_cleanup(data: *mut core::ffi::c_void) {
   let env = data.cast();
-  crate::bindgen_runtime::catch_unwind_safely(|| clear_resolvers_for_env(env));
+  crate::bindgen_runtime::with_runtime_teardown_guard(|| {
+    crate::bindgen_runtime::catch_unwind_safely(|| clear_resolvers_for_env(env));
+  });
   let _ = RESOLVER_CLEANUP_ENVS.try_with(|envs| {
     envs.borrow_mut().remove(&(env as EnvId));
   });

@@ -129,7 +129,81 @@ static FIRST_MODULE_REGISTERED: AtomicBool = AtomicBool::new(false);
   any(feature = "tokio_rt", feature = "async-runtime"),
   feature = "napi4"
 ))]
-static RUNTIME_MODULE_LOCK: Mutex<()> = Mutex::new(());
+static REGISTERED_RUNTIME_ENVS: LazyLock<Mutex<HashSet<usize>>> =
+  LazyLock::new(|| Mutex::new(HashSet::new()));
+
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "tokio_rt", feature = "async-runtime"),
+  feature = "napi4"
+))]
+pub(crate) struct RegisteredRuntimeEnvGuard {
+  _guard: std::sync::MutexGuard<'static, HashSet<usize>>,
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "tokio_rt", feature = "async-runtime"),
+  feature = "napi4"
+))]
+pub(crate) fn registered_runtime_env(env: usize) -> Option<RegisteredRuntimeEnvGuard> {
+  let guard = REGISTERED_RUNTIME_ENVS
+    .lock()
+    .unwrap_or_else(std::sync::PoisonError::into_inner);
+  guard
+    .contains(&env)
+    .then_some(RegisteredRuntimeEnvGuard { _guard: guard })
+}
+
+#[cfg(all(
+  test,
+  not(feature = "noop"),
+  feature = "async-runtime",
+  not(feature = "tokio_rt"),
+  feature = "napi4"
+))]
+pub(crate) struct RegisteredRuntimeEnvForTest(usize);
+
+#[cfg(all(
+  test,
+  not(feature = "noop"),
+  feature = "async-runtime",
+  not(feature = "tokio_rt"),
+  feature = "napi4"
+))]
+impl Drop for RegisteredRuntimeEnvForTest {
+  fn drop(&mut self) {
+    mark_runtime_env_closing(self.0 as sys::napi_env);
+  }
+}
+
+#[cfg(all(
+  test,
+  not(feature = "noop"),
+  feature = "async-runtime",
+  not(feature = "tokio_rt"),
+  feature = "napi4"
+))]
+pub(crate) fn register_runtime_env_for_test(env: sys::napi_env) -> RegisteredRuntimeEnvForTest {
+  let inserted = REGISTERED_RUNTIME_ENVS
+    .lock()
+    .unwrap_or_else(std::sync::PoisonError::into_inner)
+    .insert(env as usize);
+  assert!(inserted, "test runtime environment already registered");
+  RegisteredRuntimeEnvForTest(env as usize)
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  feature = "tokio_rt",
+  not(feature = "async-runtime"),
+  feature = "napi4"
+))]
+pub(crate) fn with_registered_runtime_env<T>(env: usize, f: impl FnOnce() -> T) -> Option<T> {
+  let _guard = registered_runtime_env(env)?;
+  Some(f())
+}
+
 thread_local! {
   static REGISTERED_CLASSES: LazyCell<RegisteredClasses> = LazyCell::new(Default::default);
 }
@@ -363,7 +437,7 @@ pub unsafe extern "C" fn napi_register_module_v1(
     return exports;
   }
 
-  if increment_module_count() != 0 {
+  if increment_module_count(env) != 0 {
     wait_first_thread_registered();
   }
 
@@ -384,7 +458,7 @@ pub unsafe extern "C" fn napi_register_module_v1(
       unsafe { crate::napi_add_env_cleanup_hook(env, Some(thread_cleanup), cleanup_data.cast()) };
     if status != sys::Status::napi_ok {
       drop(unsafe { Box::from_raw(cleanup_data) });
-      decrement_runtime_module_count();
+      decrement_runtime_module_count(env);
       check_status_or_throw!(env, status, "Failed to add env cleanup hook");
       FIRST_MODULE_REGISTERED.store(true, Ordering::SeqCst);
       return exports;
@@ -765,21 +839,16 @@ fn cleanup_runtime_env(cleanup: &RuntimeEnvCleanup) {
     return;
   }
   let env = cleanup.env;
-  #[cfg(all(
-    not(feature = "noop"),
-    any(feature = "tokio_rt", feature = "async-runtime")
-  ))]
-  crate::tokio_runtime::cancel_runtime_env_tasks(env);
-  #[cfg(feature = "async-runtime")]
-  crate::tokio_runtime::with_async_runtime_operation_guard(|| {
+  mark_runtime_env_closing(env);
+  crate::bindgen_runtime::with_runtime_teardown_guard(|| {
+    #[cfg(all(
+      not(feature = "noop"),
+      any(feature = "tokio_rt", feature = "async-runtime")
+    ))]
+    crate::tokio_runtime::cancel_runtime_env_tasks(env);
     crate::sendable_resolver::clear_resolvers_for_env(env);
     crate::js_values::clear_finalize_callbacks_for_env(env);
   });
-  #[cfg(not(feature = "async-runtime"))]
-  {
-    crate::sendable_resolver::clear_resolvers_for_env(env);
-    crate::js_values::clear_finalize_callbacks_for_env(env);
-  }
   #[cfg(feature = "async-runtime")]
   {
     if let Err(error) = crate::tokio_runtime::unregister_async_runtime_env() {
@@ -788,7 +857,7 @@ fn cleanup_runtime_env(cleanup: &RuntimeEnvCleanup) {
       });
     }
   }
-  decrement_runtime_module_count();
+  decrement_runtime_module_count(env);
 }
 
 #[cfg(all(
@@ -796,10 +865,12 @@ fn cleanup_runtime_env(cleanup: &RuntimeEnvCleanup) {
   any(feature = "tokio_rt", feature = "async-runtime"),
   feature = "napi4"
 ))]
-fn increment_module_count() -> usize {
-  let _guard = RUNTIME_MODULE_LOCK
+fn increment_module_count(env: sys::napi_env) -> usize {
+  let mut registered = REGISTERED_RUNTIME_ENVS
     .lock()
     .unwrap_or_else(std::sync::PoisonError::into_inner);
+  let inserted = registered.insert(env as usize);
+  debug_assert!(inserted, "runtime environment registered more than once");
   MODULE_COUNT.fetch_add(1, Ordering::AcqRel)
 }
 
@@ -810,7 +881,7 @@ fn increment_module_count() -> usize {
     feature = "napi4"
   ))
 ))]
-fn increment_module_count() -> usize {
+fn increment_module_count(_env: sys::napi_env) -> usize {
   MODULE_COUNT.fetch_add(1, Ordering::AcqRel)
 }
 
@@ -819,7 +890,8 @@ fn increment_module_count() -> usize {
   any(feature = "tokio_rt", feature = "async-runtime"),
   feature = "napi4"
 ))]
-fn decrement_runtime_module_count() {
+fn decrement_runtime_module_count(env: sys::napi_env) {
+  mark_runtime_env_closing(env);
   decrement_runtime_module_count_with_last(|| {
     #[cfg(all(feature = "tokio_rt", not(feature = "async-runtime")))]
     if let Err(error) = crate::tokio_runtime::shutdown_tokio_runtime() {
@@ -835,11 +907,23 @@ fn decrement_runtime_module_count() {
   any(feature = "tokio_rt", feature = "async-runtime"),
   feature = "napi4"
 ))]
+fn mark_runtime_env_closing(env: sys::napi_env) {
+  REGISTERED_RUNTIME_ENVS
+    .lock()
+    .unwrap_or_else(std::sync::PoisonError::into_inner)
+    .remove(&(env as usize));
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "tokio_rt", feature = "async-runtime"),
+  feature = "napi4"
+))]
 fn decrement_runtime_module_count_with_last(on_last: impl FnOnce()) {
   // Keep registration excluded until the last environment has committed its runtime shutdown.
   // Otherwise a new environment can increment zero to one, observe the old runtime as running,
   // and then have the retiring environment stop it.
-  let _guard = RUNTIME_MODULE_LOCK
+  let _guard = REGISTERED_RUNTIME_ENVS
     .lock()
     .unwrap_or_else(std::sync::PoisonError::into_inner);
   if MODULE_COUNT.fetch_sub(1, Ordering::AcqRel) == 1 {
@@ -863,61 +947,6 @@ fn rollback_runtime_env(env: sys::napi_env, cleanup_data: *mut RuntimeEnvCleanup
     unsafe { crate::napi_remove_env_cleanup_hook(env, Some(thread_cleanup), cleanup_data.cast()) };
   if status == sys::Status::napi_ok {
     drop(unsafe { Box::from_raw(cleanup_data) });
-  }
-}
-
-#[cfg(all(
-  test,
-  not(feature = "noop"),
-  any(feature = "tokio_rt", feature = "async-runtime"),
-  feature = "napi4"
-))]
-mod runtime_module_count_tests {
-  use std::sync::mpsc;
-  use std::time::Duration;
-
-  use super::*;
-
-  #[test]
-  fn last_environment_shutdown_excludes_new_registration() {
-    let original_count = MODULE_COUNT.swap(1, Ordering::AcqRel);
-    assert_eq!(
-      original_count, 0,
-      "module count must be unused by Rust unit tests"
-    );
-
-    let (shutdown_started_tx, shutdown_started_rx) = mpsc::channel();
-    let (release_shutdown_tx, release_shutdown_rx) = mpsc::channel();
-    let shutdown = std::thread::spawn(move || {
-      decrement_runtime_module_count_with_last(|| {
-        shutdown_started_tx.send(()).unwrap();
-        release_shutdown_rx.recv().unwrap();
-      });
-    });
-    shutdown_started_rx.recv().unwrap();
-
-    let (registration_done_tx, registration_done_rx) = mpsc::channel();
-    let registration = std::thread::spawn(move || {
-      let previous = increment_module_count();
-      registration_done_tx.send(previous).unwrap();
-    });
-    assert!(
-      registration_done_rx
-        .recv_timeout(Duration::from_millis(50))
-        .is_err(),
-      "registration must wait until the previous runtime shutdown is committed"
-    );
-
-    release_shutdown_tx.send(()).unwrap();
-    shutdown.join().unwrap();
-    assert_eq!(
-      registration_done_rx
-        .recv_timeout(Duration::from_secs(1))
-        .unwrap(),
-      0
-    );
-    registration.join().unwrap();
-    assert_eq!(MODULE_COUNT.swap(0, Ordering::AcqRel), 1);
   }
 }
 

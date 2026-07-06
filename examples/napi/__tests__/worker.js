@@ -72,6 +72,10 @@ parentPort.on('message', ({ type }) => {
       native.pendingAsyncBlockWithTerminalFinalizer()
       parentPort.postMessage('pending')
       break
+    case 'runtime-finalizer:teardown':
+      new native.RuntimeLifecycleFinalize()
+      parentPort.postMessage('ready')
+      break
     case 'stash:buffer:teardown':
       // Stash JS-origin Buffers in a Rust thread_local on THIS worker's JS thread. They drop at
       // worker thread-exit (AFTER env teardown sets the per-handle `aborted` flag) on the OWNER

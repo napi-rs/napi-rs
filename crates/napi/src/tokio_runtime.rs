@@ -1085,6 +1085,129 @@ thread_local! {
   static RUNTIME_TRANSITION_DEPTH: Cell<usize> = const { Cell::new(0) };
 }
 
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt")
+))]
+thread_local! {
+  static RUNTIME_TEARDOWN_DEPTH: Cell<usize> = const { Cell::new(0) };
+  static RUNTIME_FINALIZER_ENV: Cell<Option<usize>> = const { Cell::new(None) };
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt")
+))]
+struct RuntimeTeardownGuard;
+
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt")
+))]
+impl RuntimeTeardownGuard {
+  fn enter() -> Self {
+    RUNTIME_TEARDOWN_DEPTH.with(|depth| depth.set(depth.get() + 1));
+    Self
+  }
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt")
+))]
+impl Drop for RuntimeTeardownGuard {
+  fn drop(&mut self) {
+    RUNTIME_TEARDOWN_DEPTH.with(|depth| depth.set(depth.get() - 1));
+  }
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt")
+))]
+pub(crate) fn with_runtime_teardown_guard<T>(f: impl FnOnce() -> T) -> T {
+  let _teardown = RuntimeTeardownGuard::enter();
+  f()
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt")
+))]
+struct RuntimeFinalizerGuard {
+  previous: Option<usize>,
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt")
+))]
+impl RuntimeFinalizerGuard {
+  fn enter(env: sys::napi_env) -> Self {
+    let previous = RUNTIME_FINALIZER_ENV.with(|current| current.replace(Some(env as usize)));
+    Self { previous }
+  }
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt")
+))]
+impl Drop for RuntimeFinalizerGuard {
+  fn drop(&mut self) {
+    RUNTIME_FINALIZER_ENV.with(|current| current.set(self.previous));
+  }
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt")
+))]
+pub(crate) fn with_runtime_finalizer_guard<T>(env: sys::napi_env, f: impl FnOnce() -> T) -> T {
+  let _finalizer = RuntimeFinalizerGuard::enter(env);
+  f()
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt")
+))]
+fn ensure_explicit_runtime_transition_allowed() -> Result<()> {
+  if RUNTIME_TEARDOWN_DEPTH.with(Cell::get) != 0 {
+    return Err(Error::new(
+      crate::Status::GenericFailure,
+      "Cannot transition the async runtime during N-API cleanup or finalization",
+    ));
+  }
+  #[cfg(feature = "async-runtime")]
+  if RUNTIME_SUBMISSION_DEPTH.with(Cell::get) != 0 {
+    return Err(Error::new(
+      crate::Status::GenericFailure,
+      "Cannot transition the async runtime from inside an AsyncRuntime operation",
+    ));
+  }
+  Ok(())
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt")
+))]
+fn runtime_finalizer_env() -> Option<usize> {
+  RUNTIME_FINALIZER_ENV.with(Cell::get)
+}
+
+#[cfg(all(
+  not(feature = "noop"),
+  any(feature = "async-runtime", feature = "tokio_rt")
+))]
+fn runtime_finalizer_without_owner_error() -> Error {
+  Error::new(
+    crate::Status::GenericFailure,
+    "Cannot transition the async runtime during N-API cleanup or finalization",
+  )
+}
+
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 struct RuntimeOperationGuard;
 
@@ -1101,12 +1224,6 @@ impl Drop for RuntimeOperationGuard {
   fn drop(&mut self) {
     RUNTIME_SUBMISSION_DEPTH.with(|depth| depth.set(depth.get() - 1));
   }
-}
-
-#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
-pub(crate) fn with_async_runtime_operation_guard<T>(f: impl FnOnce() -> T) -> T {
-  let _operation = RuntimeOperationGuard::enter();
-  f()
 }
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
@@ -2295,16 +2412,20 @@ fn finish_runtime_transition(result: &Result<()>, shutdown_failed: bool) {
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 fn try_start_custom_runtime(explicit: bool) -> Result<()> {
-  if explicit && RUNTIME_SUBMISSION_DEPTH.with(Cell::get) != 0 {
-    return Err(Error::new(
-      crate::Status::GenericFailure,
-      "Cannot transition the async runtime from inside an AsyncRuntime operation",
-    ));
-  }
   if !explicit && CUSTOM_ASYNC_RUNTIME.get().is_none() {
     return Ok(());
   }
   custom_async_runtime()?;
+  let finalizer_env = if explicit {
+    runtime_finalizer_env()
+      .map(|env| {
+        crate::bindgen_runtime::registered_runtime_env(env)
+          .ok_or_else(runtime_finalizer_without_owner_error)
+      })
+      .transpose()?
+  } else {
+    None
+  };
   {
     let mut lifecycle = wait_for_runtime_transition(runtime_lifecycle())?;
     if explicit {
@@ -2329,6 +2450,7 @@ fn try_start_custom_runtime(explicit: bool) -> Result<()> {
       RuntimeLifecycleState::Starting | RuntimeLifecycleState::Stopping => unreachable!(),
     }
   }
+  drop(finalizer_env);
 
   let _transition = RuntimeTransitionGuard::enter();
   let mut shutdown_failed = false;
@@ -2412,13 +2534,19 @@ pub fn start_async_runtime() {
 /// a new Tokio generation that overlaps the old one.
 #[cfg(not(feature = "noop"))]
 pub fn try_start_async_runtime() -> Result<()> {
+  ensure_explicit_runtime_transition_allowed()?;
   #[cfg(feature = "async-runtime")]
   {
     try_start_custom_runtime(true)
   }
   #[cfg(all(feature = "tokio_rt", not(feature = "async-runtime")))]
   {
-    start_tokio_runtime()
+    if let Some(env) = runtime_finalizer_env() {
+      crate::bindgen_runtime::with_registered_runtime_env(env, start_tokio_runtime)
+        .ok_or_else(runtime_finalizer_without_owner_error)?
+    } else {
+      start_tokio_runtime()
+    }
   }
   #[cfg(not(any(feature = "async-runtime", feature = "tokio_rt")))]
   {
@@ -2449,14 +2577,15 @@ pub fn shutdown_async_runtime() {
 /// Fallible form of [`shutdown_async_runtime`].
 #[cfg(not(feature = "noop"))]
 pub fn try_shutdown_async_runtime() -> Result<()> {
+  ensure_explicit_runtime_transition_allowed()?;
   #[cfg(feature = "async-runtime")]
   {
-    if RUNTIME_SUBMISSION_DEPTH.with(Cell::get) != 0 {
-      return Err(Error::new(
-        crate::Status::GenericFailure,
-        "Cannot transition the async runtime from inside an AsyncRuntime operation",
-      ));
-    }
+    let finalizer_env = runtime_finalizer_env()
+      .map(|env| {
+        crate::bindgen_runtime::registered_runtime_env(env)
+          .ok_or_else(runtime_finalizer_without_owner_error)
+      })
+      .transpose()?;
     let call_custom_shutdown = {
       let mut lifecycle = wait_for_runtime_transition(runtime_lifecycle())?;
       lifecycle.auto_start_enabled = false;
@@ -2470,11 +2599,17 @@ pub fn try_shutdown_async_runtime() -> Result<()> {
       lifecycle.state = RuntimeLifecycleState::Stopping;
       call_custom_shutdown
     };
+    drop(finalizer_env);
     finish_custom_runtime_shutdown(call_custom_shutdown)
   }
   #[cfg(all(feature = "tokio_rt", not(feature = "async-runtime")))]
   {
-    shutdown_tokio_runtime()
+    if let Some(env) = runtime_finalizer_env() {
+      crate::bindgen_runtime::with_registered_runtime_env(env, shutdown_tokio_runtime)
+        .ok_or_else(runtime_finalizer_without_owner_error)?
+    } else {
+      shutdown_tokio_runtime()
+    }
   }
   #[cfg(not(any(feature = "async-runtime", feature = "tokio_rt")))]
   {
@@ -4075,6 +4210,55 @@ mod tests {
     fn block_on(&self, _future: Pin<&mut dyn Future<Output = ()>>) {}
   }
 
+  struct LifecycleCallsOnDrop {
+    result: Option<mpsc::Sender<(Result<()>, Result<()>)>>,
+  }
+
+  impl LifecycleCallsOnDrop {
+    fn new(result: mpsc::Sender<(Result<()>, Result<()>)>) -> Self {
+      Self {
+        result: Some(result),
+      }
+    }
+  }
+
+  impl Drop for LifecycleCallsOnDrop {
+    fn drop(&mut self) {
+      if let Some(result) = self.result.take() {
+        result
+          .send((try_start_async_runtime(), try_shutdown_async_runtime()))
+          .unwrap();
+      }
+    }
+  }
+
+  struct LifecycleCallsOnFinalize {
+    result: mpsc::Sender<(Result<()>, Result<()>)>,
+  }
+
+  impl crate::bindgen_runtime::ObjectFinalize for LifecycleCallsOnFinalize {
+    fn finalize(self, _env: Env) -> Result<()> {
+      self
+        .result
+        .send((try_start_async_runtime(), try_shutdown_async_runtime()))
+        .unwrap();
+      Ok(())
+    }
+  }
+
+  fn assert_cleanup_lifecycle_calls_rejected(results: (Result<()>, Result<()>)) {
+    let start = results.0.expect_err("cleanup-owned start must be rejected");
+    let shutdown = results
+      .1
+      .expect_err("cleanup-owned shutdown must be rejected");
+    assert!(start
+      .reason
+      .contains("during N-API cleanup or finalization"));
+    assert!(shutdown
+      .reason
+      .contains("during N-API cleanup or finalization"));
+  }
+
   fn await_terminal_drop_and_shutdown(
     drop_result: mpsc::Receiver<Result<()>>,
     shutdown_result: mpsc::Receiver<Result<()>>,
@@ -5141,7 +5325,9 @@ mod tests {
     let _guard = runtime_state_test_guard();
     let (result_tx, result_rx) = mpsc::channel();
 
-    with_async_runtime_operation_guard(|| drop(ShutdownOnDrop::new(result_tx)));
+    let operation = RuntimeOperationGuard::enter();
+    drop(ShutdownOnDrop::new(result_tx));
+    drop(operation);
 
     let error = result_rx
       .recv_timeout(Duration::from_secs(5))
@@ -5149,6 +5335,130 @@ mod tests {
       .expect_err("runtime cleanup destructors must not start lifecycle transitions");
     assert!(error.reason.contains("inside an AsyncRuntime operation"));
     assert_eq!(runtime_lifecycle().state, RuntimeLifecycleState::Running);
+  }
+
+  #[test]
+  fn js_deferred_cleanup_hook_cannot_mutate_lifecycle_with_another_live_environment() {
+    ensure_runtime();
+    let _guard = runtime_state_test_guard();
+    register_async_runtime_env().unwrap();
+    register_async_runtime_env().unwrap();
+    let starts_before = BACKEND_START_CALLS.load(Ordering::SeqCst);
+    let shutdowns_before = BACKEND_SHUTDOWN_CALLS.load(Ordering::SeqCst);
+    let env = 0x2001usize as sys::napi_env;
+    let (result_tx, result_rx) = mpsc::channel();
+    let lifecycle_calls = LifecycleCallsOnDrop::new(result_tx);
+    crate::js_values::register_finalize_callback_for_test(
+      env,
+      Box::new(move |_| drop(lifecycle_calls)),
+    );
+
+    unsafe { crate::js_values::run_finalize_callback_env_cleanup_for_test(env) };
+
+    assert_cleanup_lifecycle_calls_rejected(
+      result_rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the deferred cleanup capture must be dropped by the real hook"),
+    );
+    {
+      let lifecycle = runtime_lifecycle();
+      assert_eq!(lifecycle.active_envs, 2);
+      assert!(lifecycle.auto_start_enabled);
+      assert_eq!(lifecycle.state, RuntimeLifecycleState::Running);
+    }
+    assert_eq!(BACKEND_START_CALLS.load(Ordering::SeqCst), starts_before);
+    assert_eq!(
+      BACKEND_SHUTDOWN_CALLS.load(Ordering::SeqCst),
+      shutdowns_before
+    );
+
+    unregister_async_runtime_env().unwrap();
+    assert_eq!(runtime_lifecycle().state, RuntimeLifecycleState::Running);
+    unregister_async_runtime_env().unwrap();
+  }
+
+  #[test]
+  fn object_finalizer_can_transition_runtime_while_environment_is_live() {
+    ensure_runtime();
+    let _guard = runtime_state_test_guard();
+    register_async_runtime_env().unwrap();
+    let env = 0x3001usize as sys::napi_env;
+    let _registered_env = crate::bindgen_runtime::register_runtime_env_for_test(env);
+    let (result_tx, result_rx) = mpsc::channel();
+    let value = Box::into_raw(Box::new(LifecycleCallsOnFinalize { result: result_tx }));
+
+    unsafe {
+      crate::bindgen_runtime::raw_finalize_unchecked::<LifecycleCallsOnFinalize>(
+        env,
+        value.cast(),
+        std::ptr::null_mut(),
+      );
+    }
+
+    let (start, shutdown) = result_rx
+      .recv_timeout(Duration::from_secs(5))
+      .expect("ObjectFinalize must run synchronously");
+    start.expect("normal GC finalization must preserve explicit runtime start");
+    shutdown.expect("normal GC finalization must preserve explicit runtime shutdown");
+    {
+      let lifecycle = runtime_lifecycle();
+      assert_eq!(lifecycle.active_envs, 1);
+      assert!(!lifecycle.auto_start_enabled);
+      assert_eq!(lifecycle.state, RuntimeLifecycleState::Stopped);
+    }
+
+    try_start_async_runtime().expect("the live environment must still be restartable");
+    unregister_async_runtime_env().unwrap();
+  }
+
+  #[test]
+  fn object_finalizer_cannot_restart_runtime_after_last_environment_cleanup() {
+    ensure_runtime();
+    let _guard = runtime_state_test_guard();
+    register_async_runtime_env().unwrap();
+    unregister_async_runtime_env().unwrap();
+    {
+      let lifecycle = runtime_lifecycle();
+      assert_eq!(lifecycle.active_envs, 0);
+      assert!(lifecycle.auto_start_enabled);
+      assert_eq!(lifecycle.state, RuntimeLifecycleState::Stopped);
+    }
+    let starts_before = BACKEND_START_CALLS.load(Ordering::SeqCst);
+    let shutdowns_before = BACKEND_SHUTDOWN_CALLS.load(Ordering::SeqCst);
+    let (result_tx, result_rx) = mpsc::channel();
+    let value = Box::into_raw(Box::new(LifecycleCallsOnFinalize { result: result_tx }));
+
+    unsafe {
+      crate::bindgen_runtime::raw_finalize_unchecked::<LifecycleCallsOnFinalize>(
+        std::ptr::null_mut(),
+        value.cast(),
+        std::ptr::null_mut(),
+      );
+    }
+
+    assert_cleanup_lifecycle_calls_rejected(
+      result_rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("ObjectFinalize must run under the lifecycle teardown guard"),
+    );
+    {
+      let lifecycle = runtime_lifecycle();
+      assert_eq!(lifecycle.active_envs, 0);
+      assert!(lifecycle.auto_start_enabled);
+      assert_eq!(lifecycle.state, RuntimeLifecycleState::Stopped);
+    }
+    assert_eq!(BACKEND_START_CALLS.load(Ordering::SeqCst), starts_before);
+    assert_eq!(
+      BACKEND_SHUTDOWN_CALLS.load(Ordering::SeqCst),
+      shutdowns_before
+    );
+
+    register_async_runtime_env().expect("a later owned environment must restart the runtime");
+    assert_eq!(
+      BACKEND_START_CALLS.load(Ordering::SeqCst),
+      starts_before + 1
+    );
+    unregister_async_runtime_env().unwrap();
   }
 
   #[test]

@@ -259,10 +259,6 @@ struct PendingFinalizeCallbacks {
 }
 
 impl PendingFinalizeCallbacks {
-  fn new() -> Self {
-    Self::with_callback(Box::new(|| {}))
-  }
-
   fn with_callback(callback: Box<dyn FnOnce()>) -> Self {
     // `Reference` needs atomic ref-counting for its `unsafe impl Sync`; the `Cell` is only
     // accessed on the JavaScript thread.
@@ -300,6 +296,10 @@ impl Drop for PendingFinalizeCallbacks {
 }
 
 trait NewInstanceOps {
+  fn initial_finalize_callback() -> Box<dyn FnOnce()> {
+    Box::new(|| {})
+  }
+
   unsafe fn get_reference_value(
     env: sys::napi_env,
     ctor_ref: sys::napi_ref,
@@ -319,6 +319,10 @@ trait NewInstanceOps {
     finalize: sys::napi_finalize,
     object_ref: *mut sys::napi_ref,
   ) -> sys::napi_status;
+
+  unsafe fn delete_reference(env: sys::napi_env, object_ref: sys::napi_ref) -> sys::napi_status {
+    unsafe { sys::napi_delete_reference(env, object_ref) }
+  }
 }
 
 struct NodeApiNewInstanceOps;
@@ -389,7 +393,7 @@ unsafe fn wrap_instance<T, O: NewInstanceOps>(
   wrapped_value: *mut std::ffi::c_void,
   finalize: sys::napi_finalize,
 ) -> Result<(sys::napi_ref, PendingFinalizeCallbacks)> {
-  let finalize_callbacks = PendingFinalizeCallbacks::new();
+  let finalize_callbacks = PendingFinalizeCallbacks::with_callback(O::initial_finalize_callback());
   let mut object_ref = std::ptr::null_mut();
   check_status!(
     unsafe { O::wrap(env, instance, wrapped_value, finalize, &mut object_ref) },
@@ -473,13 +477,17 @@ impl<T> Drop for OwnedClassValue<T> {
   }
 }
 
-unsafe extern "C" fn raw_finalize_owned_class<T: ObjectFinalize>(
+unsafe extern "C" fn raw_finalize_owned_class<T: ObjectFinalize, O: NewInstanceOps>(
   env: sys::napi_env,
   finalize_data: *mut std::ffi::c_void,
   _finalize_hint: *mut std::ffi::c_void,
 ) {
   let data = unsafe { OwnedClassValue::<T>::from_raw(finalize_data.cast()).into_value() };
-  unsafe { crate::bindgen_runtime::finalize_object(env, data, finalize_data) };
+  unsafe {
+    crate::bindgen_runtime::finalize_object_with(env, data, finalize_data, |env, object_ref| {
+      O::delete_reference(env, object_ref)
+    });
+  }
 }
 
 unsafe fn new_instance_with_owned_value_and_ops<T: ObjectFinalize, O: NewInstanceOps>(
@@ -495,7 +503,7 @@ unsafe fn new_instance_with_owned_value_and_ops<T: ObjectFinalize, O: NewInstanc
       env,
       result,
       wrapped_value.cast(),
-      Some(raw_finalize_owned_class::<T>),
+      Some(raw_finalize_owned_class::<T, O>),
     )?
   };
 
@@ -559,9 +567,12 @@ pub unsafe fn new_instance<T: 'static + ObjectFinalize>(
 
 #[cfg(test)]
 mod tests {
-  use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    Arc,
+  use std::{
+    cell::Cell,
+    sync::{
+      atomic::{AtomicUsize, Ordering},
+      Arc,
+    },
   };
 
   use super::*;
@@ -575,6 +586,41 @@ mod tests {
   }
 
   impl ObjectFinalize for DropCounter {}
+
+  static WRAP_FAILURE_CALLBACK_DROPS: AtomicUsize = AtomicUsize::new(0);
+  static SUCCESS_VALUE_DROPS: AtomicUsize = AtomicUsize::new(0);
+  static SUCCESS_FINALIZE_CALLS: AtomicUsize = AtomicUsize::new(0);
+  static SUCCESS_CALLBACK_CALLS: AtomicUsize = AtomicUsize::new(0);
+  static SUCCESS_REFERENCE_DELETES: AtomicUsize = AtomicUsize::new(0);
+
+  thread_local! {
+    static SUCCESS_FINALIZER: Cell<sys::napi_finalize> = const { Cell::new(None) };
+  }
+
+  const SUCCESS_OBJECT_REF: usize = 0x1001;
+
+  struct StaticDropCounter(&'static AtomicUsize);
+
+  impl Drop for StaticDropCounter {
+    fn drop(&mut self) {
+      self.0.fetch_add(1, Ordering::SeqCst);
+    }
+  }
+
+  struct EndToEndValue;
+
+  impl Drop for EndToEndValue {
+    fn drop(&mut self) {
+      SUCCESS_VALUE_DROPS.fetch_add(1, Ordering::SeqCst);
+    }
+  }
+
+  impl ObjectFinalize for EndToEndValue {
+    fn finalize(self, _env: Env) -> Result<()> {
+      SUCCESS_FINALIZE_CALLS.fetch_add(1, Ordering::SeqCst);
+      Ok(())
+    }
+  }
 
   struct ConstructionFailureOps;
 
@@ -610,6 +656,11 @@ mod tests {
   struct WrapFailureOps;
 
   impl NewInstanceOps for WrapFailureOps {
+    fn initial_finalize_callback() -> Box<dyn FnOnce()> {
+      let callback_drop = StaticDropCounter(&WRAP_FAILURE_CALLBACK_DROPS);
+      Box::new(move || drop(callback_drop))
+    }
+
     unsafe fn get_reference_value(
       _env: sys::napi_env,
       _ctor_ref: sys::napi_ref,
@@ -639,6 +690,87 @@ mod tests {
     }
   }
 
+  struct SuccessfulOps;
+
+  impl NewInstanceOps for SuccessfulOps {
+    fn initial_finalize_callback() -> Box<dyn FnOnce()> {
+      Box::new(|| {
+        SUCCESS_CALLBACK_CALLS.fetch_add(1, Ordering::SeqCst);
+      })
+    }
+
+    unsafe fn get_reference_value(
+      _env: sys::napi_env,
+      _ctor_ref: sys::napi_ref,
+      ctor: *mut sys::napi_value,
+    ) -> sys::napi_status {
+      unsafe { ctor.write(0x1002usize as sys::napi_value) };
+      sys::Status::napi_ok
+    }
+
+    unsafe fn new_instance(
+      _env: sys::napi_env,
+      _ctor: sys::napi_value,
+      result: *mut sys::napi_value,
+    ) -> sys::napi_status {
+      unsafe { result.write(0x1003usize as sys::napi_value) };
+      sys::Status::napi_ok
+    }
+
+    unsafe fn wrap(
+      _env: sys::napi_env,
+      _instance: sys::napi_value,
+      _wrapped_value: *mut std::ffi::c_void,
+      finalize: sys::napi_finalize,
+      object_ref: *mut sys::napi_ref,
+    ) -> sys::napi_status {
+      assert!(finalize.is_some());
+      SUCCESS_FINALIZER.with(|slot| slot.set(finalize));
+      unsafe { object_ref.write(SUCCESS_OBJECT_REF as sys::napi_ref) };
+      sys::Status::napi_ok
+    }
+
+    unsafe fn delete_reference(_env: sys::napi_env, object_ref: sys::napi_ref) -> sys::napi_status {
+      assert_eq!(object_ref as usize, SUCCESS_OBJECT_REF);
+      SUCCESS_REFERENCE_DELETES.fetch_add(1, Ordering::SeqCst);
+      sys::Status::napi_ok
+    }
+  }
+
+  #[test]
+  fn factory_call_guard_restores_nested_prior_true_state() {
+    crate::__private::___CALL_FROM_FACTORY.with(|factory_call| factory_call.set(true));
+
+    {
+      let _outer = FactoryCallGuard::new();
+      crate::__private::___CALL_FROM_FACTORY.with(|factory_call| assert!(factory_call.get()));
+      {
+        let _inner = FactoryCallGuard::new();
+        crate::__private::___CALL_FROM_FACTORY.with(|factory_call| assert!(factory_call.get()));
+      }
+      crate::__private::___CALL_FROM_FACTORY.with(|factory_call| assert!(factory_call.get()));
+    }
+
+    crate::__private::___CALL_FROM_FACTORY.with(|factory_call| {
+      assert!(factory_call.get());
+      factory_call.set(false);
+    });
+  }
+
+  #[test]
+  fn factory_call_guard_restores_state_during_unwind() {
+    crate::__private::___CALL_FROM_FACTORY.with(|factory_call| factory_call.set(false));
+
+    let result = std::panic::catch_unwind(|| {
+      let _guard = FactoryCallGuard::new();
+      crate::__private::___CALL_FROM_FACTORY.with(|factory_call| assert!(factory_call.get()));
+      panic!("factory construction panic");
+    });
+
+    assert!(result.is_err());
+    crate::__private::___CALL_FROM_FACTORY.with(|factory_call| assert!(!factory_call.get()));
+  }
+
   #[test]
   fn owned_class_value_is_dropped_when_construction_fails_and_factory_state_is_restored() {
     let drops = Arc::new(AtomicUsize::new(0));
@@ -659,13 +791,8 @@ mod tests {
 
   #[test]
   fn owned_class_value_and_finalize_callbacks_are_reclaimed_when_wrap_fails() {
+    WRAP_FAILURE_CALLBACK_DROPS.store(0, Ordering::SeqCst);
     let value_drops = Arc::new(AtomicUsize::new(0));
-    let callback_capture_drops = Arc::new(AtomicUsize::new(0));
-    let callback_capture = DropCounter(callback_capture_drops.clone());
-    let pending_callbacks =
-      PendingFinalizeCallbacks::with_callback(Box::new(move || drop(callback_capture)));
-    drop(pending_callbacks);
-    assert_eq!(callback_capture_drops.load(Ordering::SeqCst), 1);
 
     let result = unsafe {
       new_instance_with_owned_value_and_ops::<DropCounter, WrapFailureOps>(
@@ -677,6 +804,47 @@ mod tests {
 
     assert!(result.is_err());
     assert_eq!(value_drops.load(Ordering::SeqCst), 1);
+    assert_eq!(WRAP_FAILURE_CALLBACK_DROPS.load(Ordering::SeqCst), 1);
+  }
+
+  #[test]
+  fn successful_owned_class_conversion_finalizes_all_transferred_state_once() {
+    SUCCESS_VALUE_DROPS.store(0, Ordering::SeqCst);
+    SUCCESS_FINALIZE_CALLS.store(0, Ordering::SeqCst);
+    SUCCESS_CALLBACK_CALLS.store(0, Ordering::SeqCst);
+    SUCCESS_REFERENCE_DELETES.store(0, Ordering::SeqCst);
+    SUCCESS_FINALIZER.with(|slot| slot.set(None));
+    let env = 0x1004usize as sys::napi_env;
+
+    let (_, wrapped_value) = unsafe {
+      new_instance_with_owned_value_and_ops::<EndToEndValue, SuccessfulOps>(
+        env,
+        EndToEndValue,
+        0x1005usize as sys::napi_ref,
+      )
+    }
+    .expect("the fake Node-API operations must complete");
+
+    assert_eq!(SUCCESS_VALUE_DROPS.load(Ordering::SeqCst), 0);
+    assert_eq!(SUCCESS_FINALIZE_CALLS.load(Ordering::SeqCst), 0);
+    assert_eq!(SUCCESS_CALLBACK_CALLS.load(Ordering::SeqCst), 0);
+    assert_eq!(SUCCESS_REFERENCE_DELETES.load(Ordering::SeqCst), 0);
+    assert!(super::super::value_ref::REFERENCE_MAP.with(|references| {
+      references.borrow_mut(|references| references.contains_key(&wrapped_value.cast()))
+    }));
+
+    let finalize = SUCCESS_FINALIZER
+      .with(Cell::take)
+      .expect("napi_wrap must receive the owned-value raw finalizer");
+    unsafe { finalize(env, wrapped_value.cast(), std::ptr::null_mut()) };
+
+    assert_eq!(SUCCESS_FINALIZE_CALLS.load(Ordering::SeqCst), 1);
+    assert_eq!(SUCCESS_VALUE_DROPS.load(Ordering::SeqCst), 1);
+    assert_eq!(SUCCESS_CALLBACK_CALLS.load(Ordering::SeqCst), 1);
+    assert_eq!(SUCCESS_REFERENCE_DELETES.load(Ordering::SeqCst), 1);
+    assert!(!super::super::value_ref::REFERENCE_MAP.with(|references| {
+      references.borrow_mut(|references| references.contains_key(&wrapped_value.cast()))
+    }));
   }
 
   #[test]

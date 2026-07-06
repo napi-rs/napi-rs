@@ -9,7 +9,9 @@ import {
   Animal,
   Kind,
   DEFAULT_COST,
+  asyncMultiTwo,
   asyncBlockTerminalFinalizerCount,
+  runtimeLifecycleFinalizeResult,
   shutdownRuntime,
 } from '../index.cjs'
 
@@ -91,6 +93,27 @@ test.serial.skipIf(Boolean(process.env.WASI_TEST))(
       }
       t.is(asyncBlockTerminalFinalizerCount(), expectedCount)
     }
+  },
+)
+
+test.serial.skipIf(Boolean(process.env.WASI_TEST))(
+  'worker teardown finalizers cannot stop another environment runtime',
+  async (t) => {
+    const worker = new Worker(join(__dirname, 'worker.js'), {
+      env: process.env,
+    })
+    await new Promise<void>((resolve, reject) => {
+      worker.postMessage({ type: 'runtime-finalizer:teardown' })
+      worker.once('message', (message) => {
+        t.is(message, 'ready')
+        resolve()
+      })
+      worker.once('error', reject)
+    })
+    await worker.terminate()
+
+    t.is(runtimeLifecycleFinalizeResult(), 0)
+    t.is(await asyncMultiTwo(2), 4)
   },
 )
 

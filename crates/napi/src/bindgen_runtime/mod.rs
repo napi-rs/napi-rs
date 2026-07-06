@@ -53,6 +53,41 @@ pub(crate) fn catch_unwind_safely(f: impl FnOnce()) {
   }
 }
 
+#[cfg_attr(feature = "noop", allow(dead_code))]
+pub(crate) fn with_runtime_teardown_guard<T>(f: impl FnOnce() -> T) -> T {
+  #[cfg(all(
+    not(feature = "noop"),
+    any(feature = "async-runtime", feature = "tokio_rt")
+  ))]
+  {
+    crate::tokio_runtime::with_runtime_teardown_guard(f)
+  }
+  #[cfg(not(all(
+    not(feature = "noop"),
+    any(feature = "async-runtime", feature = "tokio_rt")
+  )))]
+  {
+    f()
+  }
+}
+
+pub(crate) fn with_runtime_finalizer_guard<T>(_env: sys::napi_env, f: impl FnOnce() -> T) -> T {
+  #[cfg(all(
+    not(feature = "noop"),
+    any(feature = "async-runtime", feature = "tokio_rt")
+  ))]
+  {
+    crate::tokio_runtime::with_runtime_finalizer_guard(_env, f)
+  }
+  #[cfg(not(all(
+    not(feature = "noop"),
+    any(feature = "async-runtime", feature = "tokio_rt")
+  )))]
+  {
+    f()
+  }
+}
+
 /// # Safety
 ///
 /// called when node wrapper objects destroyed
@@ -71,11 +106,35 @@ pub(crate) unsafe fn finalize_object<T: ObjectFinalize>(
   data: T,
   finalize_data: *mut c_void,
 ) {
-  if let Err(err) = data.finalize(Env::from_raw(env)) {
+  unsafe {
+    finalize_object_with(env, data, finalize_data, |env, reference| {
+      sys::napi_delete_reference(env, reference)
+    });
+  }
+}
+
+pub(crate) unsafe fn finalize_object_with<T: ObjectFinalize>(
+  env: sys::napi_env,
+  data: T,
+  finalize_data: *mut c_void,
+  delete_reference: impl FnOnce(sys::napi_env, sys::napi_ref) -> sys::napi_status,
+) {
+  let result = with_runtime_finalizer_guard(env, || unsafe {
+    run_object_finalizer(env, data, finalize_data, delete_reference)
+  });
+  if let Err(err) = result {
     let e: JsError = err.into();
     unsafe { e.throw_into(env) };
-    return;
   }
+}
+
+unsafe fn run_object_finalizer<T: ObjectFinalize>(
+  env: sys::napi_env,
+  data: T,
+  finalize_data: *mut c_void,
+  delete_reference: impl FnOnce(sys::napi_env, sys::napi_ref) -> sys::napi_status,
+) -> Result<()> {
+  let result = data.finalize(Env::from_raw(env));
   if let Some((_, ref_val, finalize_callbacks_ptr)) =
     REFERENCE_MAP.with(|cell| cell.borrow_mut(|reference_map| reference_map.remove(&finalize_data)))
   {
@@ -93,13 +152,14 @@ pub(crate) unsafe fn finalize_object<T: ObjectFinalize>(
     }
     let finalize = unsafe { Box::from_raw(finalize_callbacks_rc.get()) };
     finalize();
-    let delete_reference_status = unsafe { sys::napi_delete_reference(env, ref_val) };
+    let delete_reference_status = delete_reference(env, ref_val);
     debug_assert!(
       delete_reference_status == sys::Status::napi_ok,
       "Delete reference in finalize callback failed {}",
       Status::from(delete_reference_status)
     );
   }
+  result
 }
 
 /// # Safety
@@ -233,7 +293,22 @@ pub unsafe fn create_object_with_properties(
 #[cfg(test)]
 mod tests {
   use super::*;
-  use std::panic::panic_any;
+  use std::{
+    cell::Cell,
+    panic::panic_any,
+    sync::atomic::{AtomicUsize, Ordering},
+  };
+
+  struct FailingFinalize;
+
+  impl ObjectFinalize for FailingFinalize {
+    fn finalize(self, _env: Env) -> Result<()> {
+      Err(Error::new(
+        Status::GenericFailure,
+        "expected finalize failure",
+      ))
+    }
+  }
 
   struct PanickingPanicPayload;
 
@@ -260,5 +335,46 @@ mod tests {
   #[test]
   fn catch_unwind_safely_forgets_panicking_panic_payloads() {
     catch_unwind_safely(|| panic_any(PanickingPanicPayload));
+  }
+
+  #[test]
+  fn failed_object_finalization_still_reclaims_reference_state() {
+    let finalize_data = 0x3001usize as *mut c_void;
+    let reference = 0x3002usize as sys::napi_ref;
+    let callback_calls = std::sync::Arc::new(AtomicUsize::new(0));
+    let callback_calls_for_finalize = callback_calls.clone();
+    let callback: Box<dyn FnOnce()> = Box::new(move || {
+      callback_calls_for_finalize.fetch_add(1, Ordering::SeqCst);
+    });
+    #[allow(clippy::arc_with_non_send_sync)]
+    let callbacks = Arc::new(Cell::new(Box::into_raw(callback)));
+    let callbacks_ptr = Arc::into_raw(callbacks);
+    REFERENCE_MAP.with(|references| {
+      references.borrow_mut(|references| {
+        references.insert(finalize_data, (finalize_data, reference, callbacks_ptr));
+      });
+    });
+    let reference_deletes = AtomicUsize::new(0);
+
+    let error = unsafe {
+      run_object_finalizer(
+        std::ptr::null_mut(),
+        FailingFinalize,
+        finalize_data,
+        |_, deleted_reference| {
+          assert_eq!(deleted_reference, reference);
+          reference_deletes.fetch_add(1, Ordering::SeqCst);
+          sys::Status::napi_ok
+        },
+      )
+    }
+    .expect_err("the user finalizer error must be preserved");
+
+    assert_eq!(error.reason, "expected finalize failure");
+    assert_eq!(callback_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(reference_deletes.load(Ordering::SeqCst), 1);
+    assert!(!REFERENCE_MAP.with(|references| {
+      references.borrow_mut(|references| references.contains_key(&finalize_data))
+    }));
   }
 }

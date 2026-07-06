@@ -1,3 +1,8 @@
+#[cfg(not(feature = "noop"))]
+use std::sync::atomic::{AtomicU32, Ordering};
+
+#[cfg(not(feature = "noop"))]
+use napi::bindgen_prelude::{try_shutdown_async_runtime, try_start_async_runtime};
 use napi::{
   bindgen_prelude::{
     Buffer, ClassInstance, Function, JavaScriptClassExt, JsObjectValue, JsValue, ObjectFinalize,
@@ -429,6 +434,47 @@ impl ObjectFinalize for CustomFinalize {
     env.adjust_external_memory(-(self.inner.len() as i64))?;
     Ok(())
   }
+}
+
+#[cfg(not(feature = "noop"))]
+const RUNTIME_LIFECYCLE_NOT_FINALIZED: u32 = u32::MAX;
+#[cfg(not(feature = "noop"))]
+static RUNTIME_LIFECYCLE_FINALIZE_RESULT: AtomicU32 =
+  AtomicU32::new(RUNTIME_LIFECYCLE_NOT_FINALIZED);
+
+#[cfg(not(feature = "noop"))]
+#[napi(custom_finalize)]
+pub struct RuntimeLifecycleFinalize;
+
+#[cfg(not(feature = "noop"))]
+#[napi]
+impl RuntimeLifecycleFinalize {
+  #[napi(constructor)]
+  pub fn new() -> Self {
+    RUNTIME_LIFECYCLE_FINALIZE_RESULT.store(RUNTIME_LIFECYCLE_NOT_FINALIZED, Ordering::SeqCst);
+    Self
+  }
+}
+
+#[cfg(not(feature = "noop"))]
+impl ObjectFinalize for RuntimeLifecycleFinalize {
+  fn finalize(self, _env: Env) -> Result<()> {
+    let mut result = 0;
+    if try_start_async_runtime().is_ok() {
+      result |= 1;
+    }
+    if try_shutdown_async_runtime().is_ok() {
+      result |= 2;
+    }
+    RUNTIME_LIFECYCLE_FINALIZE_RESULT.store(result, Ordering::SeqCst);
+    Ok(())
+  }
+}
+
+#[cfg(not(feature = "noop"))]
+#[napi]
+pub fn runtime_lifecycle_finalize_result() -> u32 {
+  RUNTIME_LIFECYCLE_FINALIZE_RESULT.load(Ordering::SeqCst)
 }
 
 #[napi(constructor)]
