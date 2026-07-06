@@ -1,5 +1,5 @@
 import { execSync } from 'node:child_process'
-import { existsSync, statSync } from 'node:fs'
+import { existsSync, lstatSync, readFileSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { rm } from 'node:fs/promises'
 import { dirname, extname, join, relative, resolve, sep } from 'node:path'
@@ -35,6 +35,10 @@ const THREADLESS_WASI_ROOT_SUBPATHS = new Set([
   './wasm',
   './wasm.wasm',
 ])
+const MANAGED_WASI_OPTIONAL_DEPENDENCY_SUFFIXES = [
+  'wasm32-wasi',
+  'wasm32-wasip1',
+]
 const LEGACY_DEEP_IMPORT_EXTENSIONS = ['.js', '.json', '.node']
 const DECLARATION_EXTENSIONS = ['.d.ts', '.d.cts', '.d.mts']
 const directBufferDependency = '^6.0.3'
@@ -198,15 +202,18 @@ export async function prePublish(userOptions: PrePublishOptions) {
 
   if (!options.dryRun) {
     await version(userOptions)
+    const optionalDependencies = {
+      ...asRecord(packageJson.optionalDependencies),
+    }
+    for (const suffix of MANAGED_WASI_OPTIONAL_DEPENDENCY_SUFFIXES) {
+      delete optionalDependencies[`${packageName}-${suffix}`]
+    }
+    for (const target of targets) {
+      optionalDependencies[`${packageName}-${target.platformArchABI}`] =
+        packageJson.version
+    }
     const packageJsonUpdate: Record<string, unknown> = {
-      optionalDependencies: targets.reduce(
-        (deps, target) => {
-          deps[`${packageName}-${target.platformArchABI}`] = packageJson.version
-
-          return deps
-        },
-        {} as Record<string, string>,
-      ),
+      optionalDependencies,
     }
     if (rootFacade) {
       await materializeThreadlessWasiRootFacade(rootDir, rootFacade)
@@ -218,6 +225,7 @@ export async function prePublish(userOptions: PrePublishOptions) {
     const updatedPackageJson = JSON.parse(
       await readFileAsync(packageJsonPath, 'utf8'),
     )
+    updatedPackageJson.optionalDependencies = optionalDependencies
     syncThreadlessWasiRootFacadeManifest(
       updatedPackageJson,
       reconciledPackageJson,
@@ -589,8 +597,22 @@ function planThreadlessWasiRootFacade({
   const forwardingModule = `export * from ${JSON.stringify(workerdSpecifier)}\n`
   const generatedFiles = Object.values(files)
   const managedFiles = new Set(managedGeneratedFiles)
+  const wasmSourcePath = join(npmDir, target.platformArchABI, wasmFileName)
   const conflictingFile = generatedFiles.find(
-    (file) => existsSync(join(rootDir, file)) && !managedFiles.has(file),
+    (file) => {
+      const rootPath = join(rootDir, file)
+      if (!existsSync(rootPath) || managedFiles.has(file)) {
+        return false
+      }
+      // `napi artifacts` already copies the flavor artifact into the root
+      // package. Treat that exact regular file as managed so the standard
+      // artifacts -> pre-publish flow can materialize the root facade.
+      return !(
+        file === files.wasmEntry &&
+        lstatSync(rootPath).isFile() &&
+        readFileSync(rootPath).equals(readFileSync(wasmSourcePath))
+      )
+    },
   )
   if (conflictingFile) {
     throw new Error(
@@ -602,7 +624,7 @@ function planThreadlessWasiRootFacade({
     publishConfigExports,
     generatedFiles,
     files,
-    wasmSourcePath: join(npmDir, target.platformArchABI, wasmFileName),
+    wasmSourcePath,
     forwardingModule,
     packageJsonUpdate: {},
   }

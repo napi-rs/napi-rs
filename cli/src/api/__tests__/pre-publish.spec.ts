@@ -1075,6 +1075,48 @@ test('pre-publish adds root WASI facades without replacing existing exports', as
   )
 })
 
+test('pre-publish accepts the root WASI artifact copied by artifacts', async (t) => {
+  await setupThreadlessPackage(t.context.tmpDir)
+  const rootArtifact = join(
+    t.context.tmpDir,
+    'pre-publish-wasi.wasm32-wasip1.wasm',
+  )
+  await writeFile(rootArtifact, MINIMAL_WASM)
+
+  await t.notThrowsAsync(() =>
+    prePublish({
+      cwd: t.context.tmpDir,
+      dryRun: false,
+      ghRelease: false,
+      tagStyle: 'npm',
+      skipOptionalPublish: true,
+    }),
+  )
+
+  t.deepEqual(await readFile(rootArtifact), MINIMAL_WASM)
+})
+
+test('pre-publish rejects a conflicting root WASI artifact', async (t) => {
+  await setupThreadlessPackage(t.context.tmpDir)
+  const rootArtifact = join(
+    t.context.tmpDir,
+    'pre-publish-wasi.wasm32-wasip1.wasm',
+  )
+  await writeFile(rootArtifact, 'user-owned wasm')
+
+  const error = await t.throwsAsync(() =>
+    prePublish({
+      cwd: t.context.tmpDir,
+      dryRun: true,
+      ghRelease: false,
+      tagStyle: 'npm',
+    }),
+  )
+
+  t.regex(error.message, /path already exists and is not owned/)
+  t.is(await readFile(rootArtifact, 'utf8'), 'user-owned wasm')
+})
+
 test('pre-publish removes managed root facades when the threadless target is removed', async (t) => {
   const publishConfigExports = {
     import: './index.mjs',
@@ -1097,6 +1139,7 @@ test('pre-publish removes managed root facades when the threadless target is rem
   const packageJsonPath = join(t.context.tmpDir, 'package.json')
   const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'))
   packageJson.napi.targets = []
+  packageJson.optionalDependencies['user-owned-optional'] = '^1.0.0'
   await writeFile(packageJsonPath, JSON.stringify(packageJson))
 
   await prePublish({
@@ -1117,6 +1160,9 @@ test('pre-publish removes managed root facades when the threadless target is rem
     'index.mjs',
     'index.d.ts',
   ])
+  t.deepEqual(reconciledPackageJson.optionalDependencies, {
+    'user-owned-optional': '^1.0.0',
+  })
   for (const file of [
     'pre-publish-wasi.wasm32-wasip1.workerd.mjs',
     'pre-publish-wasi.wasm32-wasip1.workerd.d.mts',
