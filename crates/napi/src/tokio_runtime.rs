@@ -1316,6 +1316,7 @@ pub fn register_async_runtime<R: AsyncRuntime>(runtime: R) {
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 pub fn try_register_async_runtime<R: AsyncRuntime>(runtime: R) -> Result<()> {
   if let Err(runtime) = CUSTOM_ASYNC_RUNTIME.set(Box::new(runtime)) {
+    let _operation = RuntimeOperationGuard::enter();
     drop_safely(runtime);
     return Err(Error::new(
       crate::Status::GenericFailure,
@@ -1323,14 +1324,7 @@ pub fn try_register_async_runtime<R: AsyncRuntime>(runtime: R) -> Result<()> {
     ));
   }
 
-  let should_start = {
-    let lifecycle = wait_for_runtime_transition(runtime_lifecycle())?;
-    lifecycle.active_envs != 0 && lifecycle.auto_start_enabled
-  };
-  if should_start {
-    try_start_custom_runtime(false)?;
-  }
-  Ok(())
+  try_start_custom_runtime(false)
 }
 
 #[cfg(all(feature = "async-runtime", feature = "noop"))]
@@ -1357,17 +1351,11 @@ pub fn try_create_custom_async_runtime<R: AsyncRuntime>(runtime: R) -> Result<()
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 pub(crate) fn register_async_runtime_env() -> Result<()> {
-  let should_start = {
+  {
     let mut lifecycle = wait_for_runtime_transition(runtime_lifecycle())?;
     lifecycle.active_envs += 1;
-    lifecycle.auto_start_enabled
-      && CUSTOM_ASYNC_RUNTIME.get().is_some()
-      && lifecycle.state != RuntimeLifecycleState::Running
-  };
-  if should_start {
-    try_start_custom_runtime(false)?;
   }
-  Ok(())
+  try_start_custom_runtime(false)
 }
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
@@ -2301,11 +2289,16 @@ fn finish_runtime_transition(result: &Result<()>, shutdown_failed: bool) {
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 fn try_start_custom_runtime(explicit: bool) -> Result<()> {
+  if !explicit && CUSTOM_ASYNC_RUNTIME.get().is_none() {
+    return Ok(());
+  }
   custom_async_runtime()?;
   {
     let mut lifecycle = wait_for_runtime_transition(runtime_lifecycle())?;
     if explicit {
       lifecycle.auto_start_enabled = true;
+    } else if !lifecycle.auto_start_enabled || lifecycle.active_envs == 0 {
+      return Ok(());
     }
     match lifecycle.state {
       RuntimeLifecycleState::Running => return Ok(()),
@@ -3192,6 +3185,31 @@ fn call_with_runtime_guard<G, F: FnOnce() -> T, T>(guard: G, f: F) -> Result<T> 
   }
 }
 
+#[cfg(not(feature = "noop"))]
+fn call_fallible_with_runtime_guard<G, F: FnOnce() -> Result<T>, T>(guard: G, f: F) -> Result<T> {
+  let call_result = std::panic::catch_unwind(AssertUnwindSafe(f));
+  let drop_result = std::panic::catch_unwind(AssertUnwindSafe(|| drop(guard)))
+    .map_err(crate::bindgen_runtime::panic_to_error);
+  match call_result {
+    Ok(result) => match (result, drop_result) {
+      (Ok(value), Ok(())) => Ok(value),
+      (Ok(value), Err(error)) => {
+        crate::bindgen_runtime::catch_unwind_safely(|| drop(value));
+        Err(error)
+      }
+      (Err(error), Ok(())) => Err(error),
+      (Err(mut error), Err(cleanup)) => {
+        error.reason = format!(
+          "{}; additionally, async runtime guard cleanup failed: {}",
+          error.reason, cleanup.reason
+        );
+        Err(error)
+      }
+    },
+    Err(reason) => Err(crate::bindgen_runtime::panic_to_error(reason)),
+  }
+}
+
 #[cfg(all(not(feature = "noop"), feature = "async-runtime"))]
 /// Enter the registered [`AsyncRuntime`] context for a fallible closure.
 ///
@@ -3206,7 +3224,7 @@ pub fn within_custom_runtime_if_available<F: FnOnce() -> Result<T>, T>(f: F) -> 
   let _runtime_use = acquire_synchronous_runtime_use()?;
   let runtime_guard = std::panic::catch_unwind(AssertUnwindSafe(|| runtime.enter()))
     .map_err(crate::bindgen_runtime::panic_to_error)?;
-  call_with_runtime_guard(runtime_guard, f.take()).and_then(|result| result)
+  call_fallible_with_runtime_guard(runtime_guard, f.take())
 }
 
 #[cfg(all(not(feature = "noop"), not(feature = "async-runtime")))]
@@ -3218,7 +3236,7 @@ pub fn within_custom_runtime_if_available<F: FnOnce() -> Result<T>, T>(f: F) -> 
     let runtime = try_runtime()?;
     let runtime_guard = runtime.enter();
     let _generation = TokioRuntimeGenerationGuard::enter(runtime.generation());
-    call_with_runtime_guard(runtime_guard, f.take()).and_then(|result| result)
+    call_fallible_with_runtime_guard(runtime_guard, f.take())
   }
   #[cfg(not(feature = "tokio_rt"))]
   {
@@ -4650,6 +4668,25 @@ mod tests {
   }
 
   #[test]
+  fn callback_error_is_preserved_when_guard_drop_panics() {
+    ensure_runtime();
+    let _guard = runtime_state_test_guard();
+    PANIC_GUARD_DROP.store(true, Ordering::SeqCst);
+    let error = within_custom_runtime_if_available(|| {
+      Err::<(), _>(Error::new(
+        crate::Status::InvalidArg,
+        "runtime callback error",
+      ))
+    })
+    .expect_err("the callback error must remain primary when guard cleanup fails");
+    PANIC_GUARD_DROP.store(false, Ordering::SeqCst);
+
+    assert_eq!(error.status, crate::Status::InvalidArg);
+    assert!(error.reason.contains("runtime callback error"));
+    assert!(error.reason.contains("backend guard drop panic"));
+  }
+
+  #[test]
   fn panicking_block_on_backend_returns_an_error() {
     ensure_runtime();
     let _guard = runtime_state_test_guard();
@@ -5002,6 +5039,29 @@ mod tests {
       "automatic last-env shutdown must remain restartable on a later zero-to-one transition"
     );
     unregister_async_runtime_env().unwrap();
+  }
+
+  #[test]
+  fn stale_automatic_start_does_not_undo_explicit_shutdown() {
+    ensure_runtime();
+    let _guard = runtime_state_test_guard();
+    register_async_runtime_env().unwrap();
+    let starts_before = BACKEND_START_CALLS.load(Ordering::SeqCst);
+
+    try_shutdown_async_runtime().unwrap();
+    assert!(!runtime_lifecycle().auto_start_enabled);
+
+    try_start_custom_runtime(false)
+      .expect("a stale automatic-start request after explicit shutdown must be ignored");
+    assert_eq!(
+      BACKEND_START_CALLS.load(Ordering::SeqCst),
+      starts_before,
+      "automatic start must recheck the sticky explicit-shutdown flag"
+    );
+    assert_eq!(runtime_lifecycle().state, RuntimeLifecycleState::Stopped);
+
+    unregister_async_runtime_env().unwrap();
+    try_start_async_runtime().unwrap();
   }
 
   #[test]

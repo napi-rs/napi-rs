@@ -8,7 +8,10 @@
 use std::{
   future::Future,
   pin::Pin,
-  sync::atomic::{AtomicBool, Ordering},
+  sync::{
+    atomic::{AtomicBool, Ordering},
+    Mutex,
+  },
   time::{Duration, Instant},
 };
 
@@ -21,6 +24,9 @@ static PANIC_START: AtomicBool = AtomicBool::new(false);
 static PANIC_SHUTDOWN: AtomicBool = AtomicBool::new(false);
 static FAIL_AFTER_PARTIAL_START: AtomicBool = AtomicBool::new(false);
 static PARTIAL_RUNTIME_RUNNING: AtomicBool = AtomicBool::new(false);
+static FIRST_RUNTIME_RUNNING: AtomicBool = AtomicBool::new(false);
+static SHUTDOWN_ON_DUPLICATE_DROP: AtomicBool = AtomicBool::new(false);
+static DUPLICATE_DROP_SHUTDOWN_RESULT: Mutex<Option<napi::Result<()>>> = Mutex::new(None);
 
 struct FirstRuntime;
 
@@ -42,6 +48,7 @@ impl AsyncRuntime for FirstRuntime {
         "backend failed after partial start",
       ));
     }
+    FIRST_RUNTIME_RUNNING.store(true, Ordering::SeqCst);
     Ok(())
   }
 
@@ -50,6 +57,7 @@ impl AsyncRuntime for FirstRuntime {
       panic!("backend shutdown panic");
     }
     PARTIAL_RUNTIME_RUNNING.store(false, Ordering::SeqCst);
+    FIRST_RUNTIME_RUNNING.store(false, Ordering::SeqCst);
     Ok(())
   }
 }
@@ -58,6 +66,12 @@ struct SecondRuntime;
 
 impl Drop for SecondRuntime {
   fn drop(&mut self) {
+    if SHUTDOWN_ON_DUPLICATE_DROP.load(Ordering::SeqCst) {
+      *DUPLICATE_DROP_SHUTDOWN_RESULT
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(try_shutdown_async_runtime());
+      return;
+    }
     panic!("duplicate backend destructor panic");
   }
 }
@@ -129,6 +143,26 @@ fn registration_and_lifecycle_failures_return_errors() {
   try_shutdown_async_runtime().expect("a failed shutdown must be retryable");
   start_after_retirement();
   try_shutdown_async_runtime().expect("runtime must shut down after retry");
+
+  start_after_retirement();
+  SHUTDOWN_ON_DUPLICATE_DROP.store(true, Ordering::SeqCst);
+  let error = try_register_async_runtime(SecondRuntime).unwrap_err();
+  SHUTDOWN_ON_DUPLICATE_DROP.store(false, Ordering::SeqCst);
+  assert!(error.reason.contains("more than once"));
+  let shutdown_error = DUPLICATE_DROP_SHUTDOWN_RESULT
+    .lock()
+    .unwrap_or_else(std::sync::PoisonError::into_inner)
+    .take()
+    .expect("the duplicate backend destructor must attempt shutdown")
+    .expect_err("duplicate backend destruction must not transition the registered runtime");
+  assert!(shutdown_error
+    .reason
+    .contains("inside an AsyncRuntime operation"));
+  assert!(
+    FIRST_RUNTIME_RUNNING.load(Ordering::SeqCst),
+    "rejected backend destruction must leave the registered backend running"
+  );
+  try_shutdown_async_runtime().expect("the registered backend must remain independently stoppable");
 
   let error = try_register_async_runtime(SecondRuntime).unwrap_err();
   assert!(error.reason.contains("more than once"));
