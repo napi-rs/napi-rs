@@ -266,7 +266,7 @@ const BUILD_OPTIONS: CommandSchema = {
       name: 'crossCompile',
       type: 'boolean',
       description:
-        '[experimental] cross compile by replacing the cargo subcommand: Windows targets from a non-Windows host build with `cargo-xwin`, non-Windows targets build with `cargo-zigbuild` (requires `zig` on PATH). The selected subcommand is auto-installed on first use. Cannot be combined with `--use-cross`, `--use-napi-cross` or `--watch`',
+        '[experimental] cross compile by replacing the cargo subcommand: Windows MSVC targets from a non-Windows host build with `cargo-xwin` (`windows-gnu` targets are rejected, `cargo-xwin` cannot handle them), non-Windows targets build with `cargo-zigbuild` (requires `zig` on PATH). The selected subcommand is auto-installed on first use. Cannot be combined with `--use-cross`, `--use-napi-cross` or `--watch`',
       short: ['x'],
     },
     {

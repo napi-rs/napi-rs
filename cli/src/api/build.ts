@@ -126,13 +126,27 @@ function resolveTarget(targetOption?: string): Target {
  * leaves both active at once and produces broken builds, so it is rejected
  * upfront before any side effect (like auto-installing cargo binaries or
  * downloading toolchains) happens.
+ *
+ * `--cross-compile` with a `windows-gnu` target is rejected as well: on a
+ * non-Windows host it routes the build to `cargo xwin build`, but
+ * `cargo-xwin` only sets up MSVC toolchains — for `windows-gnu` targets it
+ * silently does nothing and the build dies much later with a cryptic
+ * ``error: linker `x86_64-w64-mingw32-gcc` not found`` that never mentions
+ * `cargo-xwin`. Only an explicitly requested target (`--target` or
+ * `CARGO_BUILD_TARGET`) is inspected, so this validation never has to spawn
+ * `rustc -vV`; a non-Windows host's default target can never be
+ * `windows-gnu` anyway.
  */
-export function validateCrossCompileFlags(options: {
-  useCross?: boolean
-  crossCompile?: boolean
-  useNapiCross?: boolean
-  watch?: boolean
-}): void {
+export function validateCrossCompileFlags(
+  options: {
+    useCross?: boolean
+    crossCompile?: boolean
+    useNapiCross?: boolean
+    watch?: boolean
+    target?: string
+  },
+  hostPlatform: string = process.platform,
+): void {
   const enabledCrossFlags = [
     options.useCross ? '`--use-cross`' : null,
     options.useNapiCross ? '`--use-napi-cross`' : null,
@@ -155,6 +169,23 @@ export function validateCrossCompileFlags(options: {
     throw new Error(
       '`--watch` cannot be used with `--cross-compile` (`-x`). `cargo watch` only supports the plain `cargo build` flow, please drop one of the two flags.',
     )
+  }
+
+  // On a Windows host `--cross-compile` never picks `cargo-xwin` (it falls
+  // back to a plain `cargo build`), so windows-gnu targets are only broken
+  // on non-Windows hosts.
+  if (options.crossCompile && hostPlatform !== 'win32') {
+    const explicitTarget = options.target ?? process.env.CARGO_BUILD_TARGET
+    if (explicitTarget) {
+      const target = parseTriple(explicitTarget)
+      if (target.platform === 'win32' && target.abi?.startsWith('gnu')) {
+        const msvcTriple = explicitTarget.replace(/gnu(llvm)?$/, 'msvc')
+        const mingwLinker = `${explicitTarget.split('-')[0]}-w64-mingw32-gcc`
+        throw new Error(
+          `\`--cross-compile\` (\`-x\`) does not support the target ${explicitTarget}: \`cargo-xwin\` only handles MSVC targets and the build would fail at link time. Drop \`-x\` and build with a mingw-w64 toolchain (\`rustc\` uses the \`${mingwLinker}\` linker; \`napi-build\` additionally needs \`libnode.dll\` via the \`LIBNODE_PATH\` environment variable), or target ${msvcTriple} instead.`,
+        )
+      }
+    }
   }
 }
 

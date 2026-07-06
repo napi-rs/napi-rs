@@ -340,6 +340,84 @@ test('validateCrossCompileFlags allows a single cross-compilation mechanism', (t
   t.notThrows(() => validateCrossCompileFlags({ useNapiCross: true }))
 })
 
+test('validateCrossCompileFlags rejects windows-gnu targets with `--cross-compile`', (t) => {
+  const windowsGnuError =
+    /`--cross-compile` \(`-x`\) does not support the target x86_64-pc-windows-gnu/
+  // `cargo-xwin` is only used on non-Windows hosts, where it silently
+  // no-ops for `windows-gnu` targets, so the combination must be rejected.
+  t.throws(
+    () =>
+      validateCrossCompileFlags(
+        { crossCompile: true, target: 'x86_64-pc-windows-gnu' },
+        'linux',
+      ),
+    { message: windowsGnuError },
+  )
+  t.throws(
+    () =>
+      validateCrossCompileFlags(
+        { crossCompile: true, target: 'x86_64-pc-windows-gnu' },
+        'darwin',
+      ),
+    { message: windowsGnuError },
+  )
+  // `gnullvm`-flavored triples take the same broken `cargo-xwin` route.
+  t.throws(
+    () =>
+      validateCrossCompileFlags(
+        { crossCompile: true, target: 'x86_64-pc-windows-gnullvm' },
+        'linux',
+      ),
+    {
+      message:
+        /`--cross-compile` \(`-x`\) does not support the target x86_64-pc-windows-gnullvm/,
+    },
+  )
+  // The target can also come from `CARGO_BUILD_TARGET`; the check is fully
+  // synchronous, so the environment is mutated and restored without any
+  // interleaving point another concurrently running test could observe.
+  const originalCargoBuildTarget = process.env.CARGO_BUILD_TARGET
+  try {
+    process.env.CARGO_BUILD_TARGET = 'x86_64-pc-windows-gnu'
+    t.throws(() => validateCrossCompileFlags({ crossCompile: true }, 'linux'), {
+      message: windowsGnuError,
+    })
+  } finally {
+    if (originalCargoBuildTarget === undefined) {
+      delete process.env.CARGO_BUILD_TARGET
+    } else {
+      process.env.CARGO_BUILD_TARGET = originalCargoBuildTarget
+    }
+  }
+})
+
+test('validateCrossCompileFlags allows `--cross-compile` for non windows-gnu targets', (t) => {
+  // MSVC targets are exactly what `cargo-xwin` supports.
+  for (const target of [
+    'x86_64-pc-windows-msvc',
+    'aarch64-pc-windows-msvc',
+    'i686-pc-windows-msvc',
+    'x86_64-unknown-linux-gnu',
+    'aarch64-apple-darwin',
+  ]) {
+    t.notThrows(() =>
+      validateCrossCompileFlags({ crossCompile: true, target }, 'linux'),
+    )
+  }
+  // On a Windows host `--cross-compile` never routes through `cargo-xwin`
+  // (it falls back to a plain `cargo build`), so windows-gnu stays allowed.
+  t.notThrows(() =>
+    validateCrossCompileFlags(
+      { crossCompile: true, target: 'x86_64-pc-windows-gnu' },
+      'win32',
+    ),
+  )
+  // Without `--cross-compile` the target is none of this check's business.
+  t.notThrows(() =>
+    validateCrossCompileFlags({ target: 'x86_64-pc-windows-gnu' }, 'linux'),
+  )
+})
+
 test('validateCrossCompileFlags rejects watch mode combined with cross builds', (t) => {
   t.throws(() => validateCrossCompileFlags({ watch: true, useCross: true }), {
     message: /`--watch` cannot be used with `--use-cross`/,
@@ -498,6 +576,32 @@ test('buildProject validates cross flags before resolving the crate manifest', a
   )
   t.regex(napiCrossError!.message, /`--use-napi-cross`/)
 })
+
+// On a Windows host `--cross-compile` never routes through `cargo-xwin`,
+// so the windows-gnu rejection only exists on non-Windows hosts.
+;(process.platform === 'win32' ? test.skip : test)(
+  'buildProject rejects `--cross-compile` with a windows-gnu target before any side effect',
+  async (t) => {
+    // `projectDir` deliberately contains no `Cargo.toml`: if `buildProject`
+    // resolved the manifest (and spawned `cargo metadata`) before validating
+    // the target, this call would fail with a manifest error instead of the
+    // windows-gnu validation error below.
+    const { projectDir } = t.context
+
+    const error = await t.throwsAsync(() =>
+      buildProject({
+        cwd: projectDir,
+        crossCompile: true,
+        target: 'x86_64-pc-windows-gnu',
+      }),
+    )
+    t.regex(
+      error!.message,
+      /`--cross-compile` \(`-x`\) does not support the target x86_64-pc-windows-gnu/,
+    )
+    t.regex(error!.message, /cargo-xwin/)
+  },
+)
 
 // The scenario below only exists on hosts `--use-napi-cross` does not
 // support (anything but Linux x64 / Linux arm64), so skip it elsewhere.
