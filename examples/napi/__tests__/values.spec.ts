@@ -1914,6 +1914,10 @@ Napi4Test('throw error from thread safe function fatal mode', (t) => {
 Napi4Test(
   'Rust panic from ThreadsafeFunction callback becomes a fatal exception',
   (t) => {
+    if (process.env.WASI_TEST) {
+      t.pass('Skip when WASI because Rust panics abort instead of unwinding')
+      return
+    }
     const p = exec('node ./tsfn-error.cjs rust-panic', {
       cwd: __dirname,
     })
@@ -1936,6 +1940,10 @@ Napi4Test(
 Napi4Test(
   'callee-handled ThreadsafeFunction receives Rust panic as an error',
   async (t) => {
+    if (process.env.WASI_TEST) {
+      t.pass('Skip when WASI because Rust panics abort instead of unwinding')
+      return
+    }
     const error = await new Promise<Error>((resolve) => {
       threadsafeFunctionRustPanicCalleeHandled(resolve)
     })
