@@ -416,6 +416,8 @@ impl Drop for AsyncRuntimeTask {
 
 #[cfg(not(feature = "noop"))]
 fn drop_safely<T>(value: T) {
+  #[cfg(feature = "async-runtime")]
+  let _operation = RuntimeOperationGuard::enter();
   crate::bindgen_runtime::catch_unwind_safely(|| drop(value));
 }
 
@@ -4253,6 +4255,26 @@ mod tests {
     }
   }
 
+  struct StartOnDrop {
+    result: Option<mpsc::Sender<Result<()>>>,
+  }
+
+  impl StartOnDrop {
+    fn new(result: mpsc::Sender<Result<()>>) -> Self {
+      Self {
+        result: Some(result),
+      }
+    }
+  }
+
+  impl Drop for StartOnDrop {
+    fn drop(&mut self) {
+      if let Some(result) = self.result.take() {
+        result.send(try_start_async_runtime()).unwrap();
+      }
+    }
+  }
+
   fn await_terminal_drop_and_shutdown(
     drop_result: mpsc::Receiver<Result<()>>,
     shutdown_result: mpsc::Receiver<Result<()>>,
@@ -5224,6 +5246,96 @@ mod tests {
   }
 
   #[test]
+  fn rejected_synchronous_inputs_cannot_restart_the_runtime() {
+    ensure_runtime();
+    let _guard = runtime_state_test_guard();
+
+    fn assert_rejected_input(call: impl FnOnce(StartOnDrop) -> Result<()>) {
+      try_shutdown_async_runtime().unwrap();
+      let (result_tx, result_rx) = mpsc::channel();
+
+      let error = call(StartOnDrop::new(result_tx))
+        .expect_err("a stopped runtime must reject synchronous work");
+      assert!(error.reason.contains("not running"));
+
+      let drop_error = result_rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the rejected input destructor must return")
+        .expect_err("a rejected input destructor must not restart the runtime");
+      assert!(drop_error
+        .reason
+        .contains("inside an AsyncRuntime operation"));
+      assert_eq!(runtime_lifecycle().state, RuntimeLifecycleState::Stopped);
+      try_start_async_runtime().unwrap();
+    }
+
+    assert_rejected_input(|probe| {
+      try_block_on_custom_runtime(async move {
+        drop(probe);
+      })
+    });
+    assert_rejected_input(|probe| {
+      within_custom_runtime_if_available(move || {
+        drop(probe);
+        Ok(())
+      })
+    });
+    assert_rejected_input(|probe| {
+      try_block_on(async move {
+        drop(probe);
+      })
+    });
+    assert_rejected_input(|probe| {
+      try_within_runtime_if_available(move || {
+        drop(probe);
+      })
+    });
+  }
+
+  #[test]
+  fn failed_runtime_entry_drops_inputs_inside_an_operation() {
+    ensure_runtime();
+    let _guard = runtime_state_test_guard();
+    let (result_tx, result_rx) = mpsc::channel();
+    let probe = ShutdownOnDrop::new(result_tx);
+    PANIC_ENTER.store(true, Ordering::SeqCst);
+
+    let error = within_custom_runtime_if_available(move || {
+      drop(probe);
+      Ok(())
+    })
+    .expect_err("a backend enter panic must reject the closure");
+
+    PANIC_ENTER.store(false, Ordering::SeqCst);
+    assert!(error.reason.contains("backend enter panic"));
+    let drop_error = result_rx
+      .recv_timeout(Duration::from_secs(5))
+      .expect("the rejected closure destructor must return")
+      .expect_err("the rejected closure destructor must not stop the runtime");
+    assert!(drop_error
+      .reason
+      .contains("inside an AsyncRuntime operation"));
+    assert_eq!(runtime_lifecycle().state, RuntimeLifecycleState::Running);
+  }
+
+  #[test]
+  fn returned_values_can_transition_the_runtime() {
+    ensure_runtime();
+    let _guard = runtime_state_test_guard();
+    let (result_tx, result_rx) = mpsc::channel();
+
+    let value = try_block_on_custom_runtime(async move { ShutdownOnDrop::new(result_tx) }).unwrap();
+    drop(value);
+
+    result_rx
+      .recv_timeout(Duration::from_secs(5))
+      .expect("the returned value destructor must run")
+      .expect("caller-owned values must not retain the runtime operation guard");
+    assert_eq!(runtime_lifecycle().state, RuntimeLifecycleState::Stopped);
+    try_start_async_runtime().unwrap();
+  }
+
+  #[test]
   fn shutdown_waits_for_in_flight_task_submission() {
     let _guard = runtime_state_test_guard();
     let submission =
@@ -5896,6 +6008,26 @@ mod combined_feature_tests {
     }
   }
 
+  struct StartOnDropProbe {
+    result: Option<mpsc::Sender<Result<()>>>,
+  }
+
+  impl StartOnDropProbe {
+    fn new(result: mpsc::Sender<Result<()>>) -> Self {
+      Self {
+        result: Some(result),
+      }
+    }
+  }
+
+  impl Drop for StartOnDropProbe {
+    fn drop(&mut self) {
+      if let Some(result) = self.result.take() {
+        result.send(try_start_async_runtime()).unwrap();
+      }
+    }
+  }
+
   struct CombinedRuntimeGuard;
 
   impl AsyncRuntimeGuard for CombinedRuntimeGuard {}
@@ -6336,6 +6468,43 @@ mod combined_feature_tests {
       .expect_err("shutdown from combined block_on must be rejected");
     assert!(error.reason.contains("inside an AsyncRuntime operation"));
     try_shutdown_async_runtime().unwrap();
+
+    for call in [
+      |probe| {
+        try_block_on_custom_runtime(async move {
+          drop(probe);
+        })
+      },
+      |probe| {
+        within_custom_runtime_if_available(move || {
+          drop(probe);
+          Ok(())
+        })
+      },
+      |probe| {
+        try_block_on(async move {
+          drop(probe);
+        })
+      },
+      |probe| {
+        try_within_runtime_if_available(move || {
+          drop(probe);
+        })
+      },
+    ] {
+      let (result_tx, result_rx) = mpsc::channel();
+      let error = call(StartOnDropProbe::new(result_tx))
+        .expect_err("a stopped combined runtime must reject synchronous work");
+      assert!(error.reason.contains("not running"));
+      let drop_error = result_rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the rejected combined input destructor must return")
+        .expect_err("a rejected combined input must not restart the runtime");
+      assert!(drop_error
+        .reason
+        .contains("inside an AsyncRuntime operation"));
+      assert_eq!(runtime_lifecycle().state, RuntimeLifecycleState::Stopped);
+    }
 
     let spawn_drops = Arc::new(AtomicUsize::new(0));
     let captured = PanicOnDropProbe(Arc::clone(&spawn_drops));

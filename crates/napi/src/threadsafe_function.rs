@@ -204,7 +204,7 @@ impl ThreadsafeFunctionHandle {
     let aborted_guard = self
       .aborted
       .read()
-      .expect("Threadsafe Function aborted lock failed");
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
     f(*aborted_guard)
   }
 
@@ -216,7 +216,7 @@ impl ThreadsafeFunctionHandle {
     let aborted_guard = self
       .aborted
       .write()
-      .expect("Threadsafe Function aborted lock failed");
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
     f(aborted_guard)
   }
 
@@ -1044,12 +1044,16 @@ unsafe extern "C" fn thread_finalize_cb<T: 'static, V: 'static + JsValuesTupleIn
   let handle_option: Option<Arc<ThreadsafeFunctionHandle>> =
     unsafe { sync::Weak::from_raw(finalize_data.cast()).upgrade() };
 
-  if let Some(handle) = handle_option {
-    handle.finalize();
+  if let Some(handle) = handle_option.as_ref() {
+    crate::bindgen_runtime::catch_unwind_safely(|| handle.finalize());
   }
 
-  // cleanup
-  drop(unsafe { Box::<R>::from_raw(finalize_hint.cast()) });
+  let callback = unsafe { Box::<R>::from_raw(finalize_hint.cast()) };
+  crate::bindgen_runtime::catch_unwind_safely(move || drop(callback));
+
+  if let Some(handle) = handle_option {
+    crate::bindgen_runtime::catch_unwind_safely(move || drop(handle));
+  }
 }
 
 unsafe fn take_call_js_back_data<
@@ -1094,6 +1098,43 @@ unsafe extern "C" fn call_js_cb<
 ) where
   R: 'static + FnMut(ThreadsafeCallContext<T>) -> Result<V>,
 {
+  let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
+    call_js_cb_inner::<T, Return, V, ErrorStatus, R, CalleeHandled>(
+      raw_env,
+      js_callback,
+      context,
+      data,
+    );
+  }));
+  if let Err(reason) = result {
+    if raw_env.is_null() || js_callback.is_null() {
+      crate::bindgen_runtime::catch_unwind_safely(|| drop(reason));
+      return;
+    }
+    crate::bindgen_runtime::catch_unwind_safely(|| {
+      let error = crate::bindgen_runtime::panic_to_error(reason);
+      unsafe {
+        sys::napi_fatal_exception(raw_env, JsError::from(error).into_value(raw_env));
+      }
+    });
+  }
+}
+
+unsafe fn call_js_cb_inner<
+  T: 'static,
+  Return: FromNapiValue,
+  V: 'static + JsValuesTupleIntoVec,
+  ErrorStatus: AsRef<str> + From<Status>,
+  R,
+  const CalleeHandled: bool,
+>(
+  raw_env: sys::napi_env,
+  js_callback: sys::napi_value,
+  context: *mut c_void,
+  data: *mut c_void,
+) where
+  R: 'static + FnMut(ThreadsafeCallContext<T>) -> Result<V>,
+{
   if data.is_null() {
     return;
   }
@@ -1118,14 +1159,21 @@ unsafe extern "C" fn call_js_cb<
   let mut recv = ptr::null_mut();
   unsafe { sys::napi_get_undefined(raw_env, &mut recv) };
 
-  let ret = val.and_then(|v| {
-    (callback)(ThreadsafeCallContext {
-      env: Env::from_raw(raw_env),
-      value: v.data,
+  let ret = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    val.and_then(|v| {
+      (callback)(ThreadsafeCallContext {
+        env: Env::from_raw(raw_env),
+        value: v.data,
+      })
+      .and_then(|ret| Ok((ret.into_vec(raw_env)?, v.call_variant, v.callback)))
+      .map_err(|err| Error::new(err.status.into(), err.reason.clone()))
     })
-    .and_then(|ret| Ok((ret.into_vec(raw_env)?, v.call_variant, v.callback)))
-    .map_err(|err| Error::new(err.status.into(), err.reason.clone()))
-  });
+  }))
+  .map_err(|reason| {
+    let error = crate::bindgen_runtime::panic_to_error(reason);
+    Error::new(ErrorStatus::from(error.status), error.reason)
+  })
+  .and_then(|result| result);
 
   // Follow async callback conventions: https://nodejs.org/en/knowledge/errors/what-are-the-error-conventions/
   // Check if the Result is okay, if so, pass a null as the first (error) argument automatically.
@@ -1204,7 +1252,12 @@ unsafe extern "C" fn call_js_cb<
         } else {
           unsafe { Return::from_napi_value(raw_env, return_value) }
         };
-        if let Err(err) = callback(callback_arg, Env::from_raw(raw_env)) {
+        let callback_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+          callback(callback_arg, Env::from_raw(raw_env))
+        }))
+        .map_err(crate::bindgen_runtime::panic_to_error)
+        .and_then(|result| result);
+        if let Err(err) = callback_result {
           unsafe { sys::napi_fatal_exception(raw_env, JsError::from(err).into_value(raw_env)) };
         }
       }
@@ -1233,14 +1286,14 @@ fn handle_call_js_cb_status(status: sys::napi_status, raw_env: sys::napi_env) {
   }
   if status == sys::Status::napi_pending_exception {
     let mut error_result = ptr::null_mut();
-    assert_eq!(
-      unsafe { sys::napi_get_and_clear_last_exception(raw_env, &mut error_result) },
-      sys::Status::napi_ok
-    );
+    if unsafe { sys::napi_get_and_clear_last_exception(raw_env, &mut error_result) }
+      != sys::Status::napi_ok
+    {
+      return;
+    }
 
     // When shutting down, napi_fatal_exception sometimes returns another exception
-    let stat = unsafe { sys::napi_fatal_exception(raw_env, error_result) };
-    assert!(stat == sys::Status::napi_ok || stat == sys::Status::napi_pending_exception);
+    unsafe { sys::napi_fatal_exception(raw_env, error_result) };
   } else {
     // During environment shutdown (e.g. Ctrl+C in a worker thread), any NAPI call
     // can fail. Bail out gracefully instead of panicking if we can't construct the
@@ -1279,8 +1332,7 @@ fn handle_call_js_cb_status(status: sys::napi_status, raw_env: sys::napi_env) {
       return;
     }
     // When shutting down, napi_fatal_exception sometimes returns another exception
-    let stat = unsafe { sys::napi_fatal_exception(raw_env, error_value) };
-    assert!(stat == sys::Status::napi_ok || stat == sys::Status::napi_pending_exception);
+    unsafe { sys::napi_fatal_exception(raw_env, error_value) };
   }
 }
 

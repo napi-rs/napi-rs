@@ -114,6 +114,7 @@ import {
   threadsafeFunctionThrowErrorWithStatus,
   threadsafeFunctionBuildThrowErrorWithStatus,
   threadsafeFunctionClosureCapture,
+  threadsafeFunctionRustPanicCalleeHandled,
   tsfnCallWithCallback,
   tsfnAsyncCall,
   tsfnThrowFromJs,
@@ -1909,6 +1910,39 @@ Napi4Test('throw error from thread safe function fatal mode', (t) => {
     })
   })
 })
+
+Napi4Test(
+  'Rust panic from ThreadsafeFunction callback becomes a fatal exception',
+  (t) => {
+    const p = exec('node ./tsfn-error.cjs rust-panic', {
+      cwd: __dirname,
+    })
+    let stderr = Buffer.from([])
+    p.stderr?.on('data', (data) => {
+      stderr = Buffer.concat([stderr, Buffer.from(data)])
+    })
+    return new Promise<void>((resolve) => {
+      p.on('exit', (code) => {
+        t.is(code, 1)
+        const stderrMsg = stderr.toString('utf8')
+        console.info(stderrMsg)
+        t.true(stderrMsg.includes('Error: TSFN Rust callback panic'))
+        resolve()
+      })
+    })
+  },
+)
+
+Napi4Test(
+  'callee-handled ThreadsafeFunction receives Rust panic as an error',
+  async (t) => {
+    const error = await new Promise<Error>((resolve) => {
+      threadsafeFunctionRustPanicCalleeHandled(resolve)
+    })
+    t.true(error instanceof Error)
+    t.is(error.message, 'TSFN Rust callback handled panic')
+  },
+)
 
 Napi4Test('await Promise in rust', async (t) => {
   const fx = 20

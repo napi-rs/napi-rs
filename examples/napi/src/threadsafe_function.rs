@@ -3,6 +3,7 @@ use std::{sync::Arc, thread, time::Duration};
 #[cfg(not(target_family = "wasm"))]
 use std::{
   future::Future,
+  panic::{catch_unwind, AssertUnwindSafe},
   pin::pin,
   sync::{
     atomic::{AtomicBool, AtomicU32, Ordering},
@@ -95,6 +96,7 @@ struct TsfnClosingFinalizerDrop;
 impl Drop for TsfnClosingFinalizerDrop {
   fn drop(&mut self) {
     TSFN_CLOSING_FINALIZER_DROP_COUNT.fetch_add(1, Ordering::SeqCst);
+    panic!("TSFN finalizer capture drop panic");
   }
 }
 
@@ -117,31 +119,38 @@ fn verify_tsfn_closing_ownership(callback: &Function<(), ()>) -> Result<()> {
       let _keep_alive = &finalizer_drop;
       Ok(())
     })?;
-  let raw = tsfn.raw();
-  for slot_name in ["sentinel", "abort"] {
-    let acquire_status = unsafe { napi::sys::napi_acquire_threadsafe_function(raw) };
-    if acquire_status != napi::sys::Status::napi_ok {
-      return Err(Error::new(
-        Status::from(acquire_status),
-        format!("Failed to acquire the TSFN closing regression {slot_name} slot"),
-      ));
-    }
-  }
-  let abort_status = unsafe {
-    napi::sys::napi_release_threadsafe_function(
-      raw,
-      napi::sys::ThreadsafeFunctionReleaseMode::abort,
-    )
-  };
-  if abort_status != napi::sys::Status::napi_ok {
+  let poison_result = catch_unwind(AssertUnwindSafe(|| {
+    tsfn
+      .handle
+      .with_write_aborted(|_| panic!("TSFN aborted lock poison"));
+  }));
+  if poison_result.is_ok() {
     return Err(Error::new(
-      Status::from(abort_status),
-      "Failed to begin the TSFN closing regression",
+      Status::GenericFailure,
+      "TSFN aborted lock poison did not panic",
+    ));
+  }
+  let raw = tsfn.raw();
+  let acquire_status = unsafe { napi::sys::napi_acquire_threadsafe_function(raw) };
+  if acquire_status != napi::sys::Status::napi_ok {
+    return Err(Error::new(
+      Status::from(acquire_status),
+      "Failed to acquire the TSFN closing regression sentinel slot",
     ));
   }
 
   let (finished, result) = sync_channel(0);
   let background_tsfn = tsfn.clone();
+  #[allow(deprecated)]
+  if let Err(error) = tsfn.abort() {
+    unsafe {
+      napi::sys::napi_release_threadsafe_function(
+        raw,
+        napi::sys::ThreadsafeFunctionReleaseMode::release,
+      );
+    }
+    return Err(error);
+  }
   thread::spawn(move || {
     let handle = Arc::clone(&background_tsfn.handle);
     let first_dropped = Arc::new(AtomicBool::new(false));
@@ -184,24 +193,23 @@ fn verify_tsfn_closing_ownership(callback: &Function<(), ()>) -> Result<()> {
     let _ = finished.send(Ok(()));
   });
 
-  result
+  let background_result = result
     .recv()
     .map_err(|error| {
       Error::new(
         Status::GenericFailure,
         format!("TSFN closing regression thread exited early: {error}"),
       )
-    })?
-    .map_err(|reason| Error::new(Status::GenericFailure, reason))?;
+    })
+    .and_then(|result| result.map_err(|reason| Error::new(Status::GenericFailure, reason)));
 
   let sentinel_status = unsafe {
-    napi::sys::napi_call_threadsafe_function(
+    napi::sys::napi_release_threadsafe_function(
       raw,
-      std::ptr::null_mut(),
-      napi::sys::ThreadsafeFunctionCallMode::nonblocking,
+      napi::sys::ThreadsafeFunctionReleaseMode::release,
     )
   };
-  if sentinel_status != napi::sys::Status::napi_closing {
+  if sentinel_status != napi::sys::Status::napi_ok {
     return Err(Error::new(
       Status::GenericFailure,
       format!(
@@ -210,8 +218,7 @@ fn verify_tsfn_closing_ownership(callback: &Function<(), ()>) -> Result<()> {
       ),
     ));
   }
-  drop(tsfn);
-  Ok(())
+  background_result
 }
 
 #[cfg(not(target_family = "wasm"))]
@@ -674,6 +681,33 @@ pub fn threadsafe_function_fatal_mode_error(
     cb.call_with_return_value(true, ThreadsafeFunctionCallMode::Blocking, |ret, _| {
       ret.map(|_| ())
     });
+  });
+  Ok(())
+}
+
+#[napi]
+pub fn threadsafe_function_rust_panic(cb: Function<(), ()>) -> Result<()> {
+  let tsfn = cb
+    .build_threadsafe_function::<()>()
+    .build_callback(|_| -> Result<()> {
+      panic!("TSFN Rust callback panic");
+    })?;
+  thread::spawn(move || {
+    tsfn.call((), ThreadsafeFunctionCallMode::Blocking);
+  });
+  Ok(())
+}
+
+#[napi]
+pub fn threadsafe_function_rust_panic_callee_handled(cb: Function<Error, ()>) -> Result<()> {
+  let tsfn = cb
+    .build_threadsafe_function::<()>()
+    .callee_handled::<true>()
+    .build_callback(|_| -> Result<()> {
+      panic!("TSFN Rust callback handled panic");
+    })?;
+  thread::spawn(move || {
+    tsfn.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
   });
   Ok(())
 }

@@ -1,5 +1,12 @@
-const { threadsafeFunctionFatalModeError } = require('../index.cjs')
+const {
+  threadsafeFunctionFatalModeError,
+  threadsafeFunctionRustPanic,
+} = require('../index.cjs')
 
-threadsafeFunctionFatalModeError(() => {
-  return false
-})
+if (process.argv[2] === 'rust-panic') {
+  threadsafeFunctionRustPanic(() => {})
+} else {
+  threadsafeFunctionFatalModeError(() => {
+    return false
+  })
+}

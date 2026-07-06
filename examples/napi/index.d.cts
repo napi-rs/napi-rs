@@ -1294,6 +1294,10 @@ export declare function threadsafeFunctionFatalMode(cb: ((arg: boolean) => unkno
 
 export declare function threadsafeFunctionFatalModeError(cb: ((arg: boolean) => string)): void
 
+export declare function threadsafeFunctionRustPanic(cb: () => void): void
+
+export declare function threadsafeFunctionRustPanicCalleeHandled(cb: (arg: Error) => void): void
+
 export declare function threadsafeFunctionThrowError(cb: ((err: Error | null, arg: boolean) => unknown)): void
 
 export declare function threadsafeFunctionThrowErrorWithStatus(cb: ((err: Error | null, arg: boolean) => unknown)): void
