@@ -679,6 +679,19 @@ mod tests {
     assert_eq!(value_drops.load(Ordering::SeqCst), 1);
   }
 
+  #[test]
+  fn transferred_owned_class_value_is_finalized_exactly_once() {
+    let drops = Arc::new(AtomicUsize::new(0));
+    let value = OwnedClassValue::new(DropCounter(drops.clone()));
+    let raw = value.into_raw();
+
+    assert_eq!(drops.load(Ordering::SeqCst), 0);
+    let value = unsafe { OwnedClassValue::from_raw(raw).into_value() };
+    assert_eq!(drops.load(Ordering::SeqCst), 0);
+    drop(value);
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
+  }
+
   static ZST_DROPS: AtomicUsize = AtomicUsize::new(0);
 
   #[repr(align(64))]

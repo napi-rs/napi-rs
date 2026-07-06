@@ -397,6 +397,7 @@ impl NapiStruct {
           val: #name
         ) -> napi::Result<napi::bindgen_prelude::sys::napi_value> {
           if let Some(ctor_ref) = napi::__private::get_class_constructor(#js_name_str) {
+            // Keep ownership in Rust until both instance construction and wrapping succeed.
             let (instance_value, wrapped_value) =
               napi::bindgen_prelude::new_instance_with_owned_value::<#name>(env, val, ctor_ref)?;
             #iterator_implementation
@@ -1748,5 +1749,48 @@ fn remove_lifetime_in_type(ty: &mut syn::Type) {
         });
       }
     });
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn owning_class_conversions_do_not_release_the_value_before_instance_creation() {
+    let class = NapiClass {
+      fields: vec![],
+      ctor: false,
+      implement_iterator: false,
+      implement_async_iterator: false,
+      is_tuple: false,
+      use_custom_finalize: false,
+    };
+    let napi_struct = NapiStruct {
+      name: Ident::new("DropGuardedClass", Span::call_site()),
+      js_name: "DropGuardedClass".to_owned(),
+      comments: vec![],
+      js_mod: None,
+      use_nullable: false,
+      register_name: Ident::new("__register__DropGuardedClass", Span::call_site()),
+      kind: NapiStructKind::Class(class.clone()),
+      has_lifetime: false,
+      is_generator: false,
+      is_async_generator: false,
+    };
+
+    let generated = napi_struct
+      .gen_to_napi_value_ctor_impl_for_non_default_constructor_struct(&class)
+      .to_string();
+
+    assert_eq!(
+      generated.matches("new_instance_with_owned_value").count(),
+      3,
+      "ToNapiValue, into_instance, and into_reference must all use rollback-safe conversion"
+    );
+    assert!(
+      !generated.contains("Box :: into_raw"),
+      "generated conversion must not release ownership before fallible instance creation"
+    );
   }
 }
