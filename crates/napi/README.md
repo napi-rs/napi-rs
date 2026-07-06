@@ -16,7 +16,7 @@ A framework for building compiled `Node.js` add-ons in `Rust` via Node-API. Webs
 
 ## Sponsors
 
-![](https://sponsors.napi.rs/sponsors.svg)
+![](https://napi.rs/sponsors.svg)
 
 ## Platform Support
 
