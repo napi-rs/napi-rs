@@ -15,6 +15,7 @@ const expectedTsfnTeardownCounters = {
   queueFullErrors: 1,
   unexpectedWaiters: 0,
   jsCallbacks: 0,
+  closingFinalizerDrops: 1,
 }
 
 function request(worker, message, expectedType) {

@@ -32,6 +32,7 @@ function readTsfnTeardownCounters() {
     queueFullErrors: addon.tsfnTeardownQueueFullErrorCount(),
     unexpectedWaiters: addon.tsfnTeardownUnexpectedWaiterCount(),
     jsCallbacks: addon.tsfnTeardownJsCallbackCount(),
+    closingFinalizerDrops: addon.tsfnClosingFinalizerDropCount(),
   }
 }
 
@@ -42,7 +43,8 @@ async function waitForTsfnTeardownCounters() {
     if (
       (counters.payloadDrops >= 6 &&
         counters.waiterErrors >= 3 &&
-        counters.queueFullErrors >= 1) ||
+        counters.queueFullErrors >= 1 &&
+        counters.closingFinalizerDrops >= 1) ||
       counters.unexpectedWaiters !== 0 ||
       counters.jsCallbacks !== 0
     ) {

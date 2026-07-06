@@ -31,6 +31,8 @@ static TSFN_TEARDOWN_QUEUE_FULL_ERROR_COUNT: AtomicU32 = AtomicU32::new(0);
 static TSFN_TEARDOWN_UNEXPECTED_WAITER_COUNT: AtomicU32 = AtomicU32::new(0);
 #[cfg(not(target_family = "wasm"))]
 static TSFN_TEARDOWN_JS_CALLBACK_COUNT: AtomicU32 = AtomicU32::new(0);
+#[cfg(not(target_family = "wasm"))]
+static TSFN_CLOSING_FINALIZER_DROP_COUNT: AtomicU32 = AtomicU32::new(0);
 
 #[cfg(not(target_family = "wasm"))]
 struct TsfnTeardownPayload {
@@ -87,6 +89,16 @@ struct TsfnClosingPayload {
 }
 
 #[cfg(not(target_family = "wasm"))]
+struct TsfnClosingFinalizerDrop;
+
+#[cfg(not(target_family = "wasm"))]
+impl Drop for TsfnClosingFinalizerDrop {
+  fn drop(&mut self) {
+    TSFN_CLOSING_FINALIZER_DROP_COUNT.fetch_add(1, Ordering::SeqCst);
+  }
+}
+
+#[cfg(not(target_family = "wasm"))]
 impl Drop for TsfnClosingPayload {
   fn drop(&mut self) {
     self.dropped.store(true, Ordering::SeqCst);
@@ -98,9 +110,13 @@ impl Drop for TsfnClosingPayload {
 
 #[cfg(not(target_family = "wasm"))]
 fn verify_tsfn_closing_ownership(callback: &Function<(), ()>) -> Result<()> {
+  let finalizer_drop = TsfnClosingFinalizerDrop;
   let tsfn = callback
     .build_threadsafe_function::<TsfnClosingPayload>()
-    .build_callback(|_| Ok(()))?;
+    .build_callback(move |_| {
+      let _keep_alive = &finalizer_drop;
+      Ok(())
+    })?;
   let raw = tsfn.raw();
   for slot_name in ["sentinel", "abort"] {
     let acquire_status = unsafe { napi::sys::napi_acquire_threadsafe_function(raw) };
@@ -125,27 +141,31 @@ fn verify_tsfn_closing_ownership(callback: &Function<(), ()>) -> Result<()> {
   }
 
   let (finished, result) = sync_channel(0);
+  let background_tsfn = tsfn.clone();
   thread::spawn(move || {
-    let handle = Arc::clone(&tsfn.handle);
+    let handle = Arc::clone(&background_tsfn.handle);
     let first_dropped = Arc::new(AtomicBool::new(false));
-    let first_status = tsfn.call(
+    let first_status = background_tsfn.call(
       TsfnClosingPayload {
         dropped: Arc::clone(&first_dropped),
         reentrant_handle: Arc::clone(&handle),
       },
       ThreadsafeFunctionCallMode::Blocking,
     );
-    if first_status != Status::Closing || !first_dropped.load(Ordering::SeqCst) || !tsfn.aborted() {
+    if first_status != Status::Closing
+      || !first_dropped.load(Ordering::SeqCst)
+      || !background_tsfn.aborted()
+    {
       let _ = finished.send(Err(format!(
         "first closing call was not rejected locally: status={first_status:?}, dropped={}, aborted={}",
         first_dropped.load(Ordering::SeqCst),
-        tsfn.aborted()
+        background_tsfn.aborted()
       )));
       return;
     }
 
     let second_dropped = Arc::new(AtomicBool::new(false));
-    let second_status = tsfn.call(
+    let second_status = background_tsfn.call(
       TsfnClosingPayload {
         dropped: Arc::clone(&second_dropped),
         reentrant_handle: handle,
@@ -160,7 +180,7 @@ fn verify_tsfn_closing_ownership(callback: &Function<(), ()>) -> Result<()> {
       return;
     }
 
-    drop(tsfn);
+    drop(background_tsfn);
     let _ = finished.send(Ok(()));
   });
 
@@ -190,22 +210,7 @@ fn verify_tsfn_closing_ownership(callback: &Function<(), ()>) -> Result<()> {
       ),
     ));
   }
-  let exhausted_status = unsafe {
-    napi::sys::napi_call_threadsafe_function(
-      raw,
-      std::ptr::null_mut(),
-      napi::sys::ThreadsafeFunctionCallMode::nonblocking,
-    )
-  };
-  if exhausted_status != napi::sys::Status::napi_invalid_arg {
-    return Err(Error::new(
-      Status::GenericFailure,
-      format!(
-        "TSFN owner slot remained after handle drop: status={:?}",
-        Status::from(exhausted_status)
-      ),
-    ));
-  }
+  drop(tsfn);
   Ok(())
 }
 
@@ -401,6 +406,7 @@ pub fn prepare_tsfn_teardown_regression(
   unhandled_callback: Function<(), ()>,
   handled_callback: Function<(), ()>,
 ) -> Result<()> {
+  TSFN_CLOSING_FINALIZER_DROP_COUNT.store(0, Ordering::SeqCst);
   verify_tsfn_closing_ownership(&unhandled_callback)?;
   verify_tsfn_call_mode_concurrency(&unhandled_callback)?;
 
@@ -552,6 +558,12 @@ pub fn tsfn_teardown_unexpected_waiter_count() -> u32 {
 #[napi(skip_typescript)]
 pub fn tsfn_teardown_js_callback_count() -> u32 {
   TSFN_TEARDOWN_JS_CALLBACK_COUNT.load(Ordering::SeqCst)
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[napi(skip_typescript)]
+pub fn tsfn_closing_finalizer_drop_count() -> u32 {
+  TSFN_CLOSING_FINALIZER_DROP_COUNT.load(Ordering::SeqCst)
 }
 
 #[napi]
