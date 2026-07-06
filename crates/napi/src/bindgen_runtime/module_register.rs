@@ -156,44 +156,6 @@ pub(crate) fn registered_runtime_env(env: usize) -> Option<RegisteredRuntimeEnvG
 }
 
 #[cfg(all(
-  test,
-  not(feature = "noop"),
-  feature = "async-runtime",
-  not(feature = "tokio_rt"),
-  feature = "napi4"
-))]
-pub(crate) struct RegisteredRuntimeEnvForTest(usize);
-
-#[cfg(all(
-  test,
-  not(feature = "noop"),
-  feature = "async-runtime",
-  not(feature = "tokio_rt"),
-  feature = "napi4"
-))]
-impl Drop for RegisteredRuntimeEnvForTest {
-  fn drop(&mut self) {
-    mark_runtime_env_closing(self.0 as sys::napi_env);
-  }
-}
-
-#[cfg(all(
-  test,
-  not(feature = "noop"),
-  feature = "async-runtime",
-  not(feature = "tokio_rt"),
-  feature = "napi4"
-))]
-pub(crate) fn register_runtime_env_for_test(env: sys::napi_env) -> RegisteredRuntimeEnvForTest {
-  let inserted = REGISTERED_RUNTIME_ENVS
-    .lock()
-    .unwrap_or_else(std::sync::PoisonError::into_inner)
-    .insert(env as usize);
-  assert!(inserted, "test runtime environment already registered");
-  RegisteredRuntimeEnvForTest(env as usize)
-}
-
-#[cfg(all(
   not(feature = "noop"),
   feature = "tokio_rt",
   not(feature = "async-runtime"),

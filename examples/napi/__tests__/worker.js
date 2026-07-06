@@ -7,6 +7,8 @@ const isWasiTest = !!process.env.WASI_TEST
 // Error scenarios spawn one OS thread per drop, so cap their counts there to
 // avoid exhausting it (napi-rs#3368).
 const is32bit = process.arch === 'ia32'
+// Keep these reachable so their finalizers run during worker teardown, not an earlier GC.
+const runtimeLifecycleTeardownObjects = []
 
 parentPort.on('message', ({ type }) => {
   switch (type) {
@@ -73,7 +75,9 @@ parentPort.on('message', ({ type }) => {
       parentPort.postMessage('pending')
       break
     case 'runtime-finalizer:teardown':
-      new native.RuntimeLifecycleFinalize()
+      runtimeLifecycleTeardownObjects.push(
+        new native.RuntimeLifecycleFinalize(),
+      )
       parentPort.postMessage('ready')
       break
     case 'stash:buffer:teardown':

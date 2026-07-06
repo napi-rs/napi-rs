@@ -208,32 +208,6 @@ unsafe extern "C" fn finalize_callback_env_cleanup(data: *mut c_void) {
   });
 }
 
-#[cfg(all(
-  test,
-  not(feature = "noop"),
-  feature = "async-runtime",
-  not(feature = "tokio_rt")
-))]
-pub(crate) fn register_finalize_callback_for_test(
-  env: sys::napi_env,
-  callback: Box<dyn FnOnce(sys::napi_env)>,
-) {
-  FINALIZE_CLEANUP_ENVS.with(|envs| {
-    envs.borrow_mut().insert(env as EnvId);
-  });
-  std::mem::forget(FinalizeCallbackHandle::new(env, callback));
-}
-
-#[cfg(all(
-  test,
-  not(feature = "noop"),
-  feature = "async-runtime",
-  not(feature = "tokio_rt")
-))]
-pub(crate) unsafe fn run_finalize_callback_env_cleanup_for_test(env: sys::napi_env) {
-  unsafe { finalize_callback_env_cleanup(env.cast()) };
-}
-
 struct DeferredData<Data: ToNapiValue, Resolver: FnOnce(Env) -> Result<Data>> {
   resolver: Result<Resolver>,
   rejection_cleanup: Option<Box<dyn FnOnce() + Send>>,
@@ -662,51 +636,5 @@ mod tests {
 
     assert!(settlement.try_claim());
     assert!(!clone.try_claim());
-  }
-
-  #[cfg(all(
-    not(feature = "noop"),
-    any(feature = "async-runtime", feature = "tokio_rt")
-  ))]
-  #[test]
-  fn environment_cleanup_hook_rejects_explicit_runtime_transitions() {
-    struct LifecycleCallsOnDrop(std::sync::mpsc::Sender<(crate::Result<()>, crate::Result<()>)>);
-
-    impl Drop for LifecycleCallsOnDrop {
-      fn drop(&mut self) {
-        self
-          .0
-          .send((
-            crate::tokio_runtime::try_start_async_runtime(),
-            crate::tokio_runtime::try_shutdown_async_runtime(),
-          ))
-          .unwrap();
-      }
-    }
-
-    let env = 3usize as sys::napi_env;
-    let (result_tx, result_rx) = std::sync::mpsc::channel();
-    let lifecycle_calls = LifecycleCallsOnDrop(result_tx);
-    let callback = FinalizeCallbackHandle::new(
-      env,
-      Box::new(move |_| {
-        drop(lifecycle_calls);
-      }),
-    );
-    std::mem::forget(callback);
-
-    unsafe { finalize_callback_env_cleanup(env.cast()) };
-
-    let (start, shutdown) = result_rx
-      .recv_timeout(std::time::Duration::from_secs(5))
-      .expect("the environment cleanup hook must drop its captures");
-    assert!(start
-      .expect_err("environment cleanup must reject explicit runtime start")
-      .reason
-      .contains("during N-API cleanup or finalization"));
-    assert!(shutdown
-      .expect_err("environment cleanup must reject explicit runtime shutdown")
-      .reason
-      .contains("during N-API cleanup or finalization"));
   }
 }
