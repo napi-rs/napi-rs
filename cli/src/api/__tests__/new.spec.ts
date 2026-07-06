@@ -147,7 +147,7 @@ require('node:fs').writeFileSync(process.env.NAPI_NEW_TEST_MARKER, JSON.stringif
     ]
     await execFileAsync(
       executable,
-      [...baseArgs, 'install', '--mode=skip-build'],
+      [...baseArgs, 'install', '--mode=skip-build', '--no-immutable'],
       { cwd: projectPath, env },
     )
   } else {

@@ -416,6 +416,30 @@ function fileDependency(from: string, path: string) {
   return `file:${relative(from, path).split(sep).join('/')}`
 }
 
+async function createLocalPackage(
+  rootDir: string,
+  name: string,
+  version: string,
+) {
+  const packageDir = join(
+    rootDir,
+    'local-dependencies',
+    name.replaceAll('/', '__'),
+  )
+  await mkdir(packageDir, { recursive: true })
+  await writeFile(
+    join(packageDir, 'package.json'),
+    JSON.stringify({
+      name,
+      version,
+      main: 'index.js',
+      exports: './index.js',
+    }),
+  )
+  await writeFile(join(packageDir, 'index.js'), 'module.exports = {}\n')
+  return packageDir
+}
+
 test('pre-publish rejects a missing deferred workerd entry', async (t) => {
   const deferred = 'pre-publish-wasi.wasip1-deferred.js'
   await setupThreadlessPackage(t.context.tmpDir, { omitFile: deferred })
@@ -1463,9 +1487,23 @@ test.serial(
         },
       }),
     )
+    const localDependencies = await Promise.all([
+      createLocalPackage(
+        t.context.tmpDir,
+        '@napi-rs/wasm-runtime',
+        wasmRuntimeVersion,
+      ),
+      createLocalPackage(t.context.tmpDir, '@emnapi/core', emnapiVersion),
+      createLocalPackage(t.context.tmpDir, '@emnapi/runtime', emnapiVersion),
+    ])
     await writeFile(
       join(consumerDir, 'pnpm-workspace.yaml'),
-      `overrides:\n  ${JSON.stringify(flavorName)}: ${JSON.stringify(fileDependency(consumerDir, flavorTarball))}\n`,
+      `overrides:
+  ${JSON.stringify(flavorName)}: ${JSON.stringify(fileDependency(consumerDir, flavorTarball))}
+  ${JSON.stringify('@napi-rs/wasm-runtime')}: ${JSON.stringify(fileDependency(consumerDir, localDependencies[0]))}
+  ${JSON.stringify('@emnapi/core')}: ${JSON.stringify(fileDependency(consumerDir, localDependencies[1]))}
+  ${JSON.stringify('@emnapi/runtime')}: ${JSON.stringify(fileDependency(consumerDir, localDependencies[2]))}
+`,
     )
     await execFileAsync(
       process.execPath,

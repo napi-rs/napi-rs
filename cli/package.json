@@ -106,7 +106,7 @@
   "scripts": {
     "codegen": "node --import @oxc-node/core/register ./codegen/index.ts",
     "build": "tsdown",
-    "test": "node --import @oxc-node/core/register ../node_modules/ava/entrypoints/cli.js"
+    "test": "yarn run build && node --import @oxc-node/core/register ../node_modules/ava/entrypoints/cli.js"
   },
   "ava": {
     "extensions": [

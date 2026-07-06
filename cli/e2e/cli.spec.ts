@@ -26,9 +26,6 @@ const rootDirPosix = posixJoin(
 )
 
 test.before(async () => {
-  await execAsync(`yarn workspace @napi-rs/cli build`, {
-    cwd: rootDir,
-  })
   await execAsync(`npm pack`, {
     cwd: join(rootDir, 'cli'),
   })
