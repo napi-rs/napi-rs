@@ -7,6 +7,12 @@
 #![allow(deprecated)]
 
 #[cfg(not(target_family = "wasm"))]
+use std::sync::{
+  atomic::{AtomicU32, Ordering},
+  Mutex,
+};
+
+#[cfg(not(target_family = "wasm"))]
 use napi::bindgen_prelude::create_custom_tokio_runtime;
 use napi::bindgen_prelude::{JsObjectValue, Object, Result, Symbol};
 pub use napi_shared::*;
@@ -25,6 +31,11 @@ static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
 static ALLOC: mimalloc_safe::MiMalloc = mimalloc_safe::MiMalloc;
 
 #[cfg(not(target_family = "wasm"))]
+static TOKIO_THREAD_STOP_COUNT: AtomicU32 = AtomicU32::new(0);
+#[cfg(not(target_family = "wasm"))]
+static TOKIO_THREAD_STOP_BARRIER: Mutex<Option<(String, String)>> = Mutex::new(None);
+
+#[cfg(not(target_family = "wasm"))]
 #[napi_derive::module_init]
 fn init() {
   let rt = tokio::runtime::Builder::new_multi_thread()
@@ -33,9 +44,40 @@ fn init() {
       let thread = std::thread::current();
       println!("tokio thread started {:?}", thread.name());
     })
+    .on_thread_stop(|| {
+      TOKIO_THREAD_STOP_COUNT.fetch_add(1, Ordering::SeqCst);
+      let barrier = TOKIO_THREAD_STOP_BARRIER
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone();
+      let Some((entered_path, release_path)) = barrier else {
+        return;
+      };
+      if std::fs::write(entered_path, b"entered").is_err() {
+        return;
+      }
+      let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+      while !std::path::Path::new(&release_path).exists() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(1));
+      }
+    })
     .build()
     .unwrap();
   create_custom_tokio_runtime(rt);
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[napi(skip_typescript)]
+pub fn configure_tokio_thread_stop_file_barrier(entered_path: String, release_path: String) {
+  *TOKIO_THREAD_STOP_BARRIER
+    .lock()
+    .unwrap_or_else(std::sync::PoisonError::into_inner) = Some((entered_path, release_path));
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[napi(skip_typescript)]
+pub fn tokio_thread_stop_count() -> u32 {
+  TOKIO_THREAD_STOP_COUNT.load(Ordering::SeqCst)
 }
 
 #[napi]

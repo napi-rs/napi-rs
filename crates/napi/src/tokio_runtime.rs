@@ -1355,6 +1355,14 @@ fn wait_for_runtime_transition(
 }
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+fn runtime_transition_in_progress_error() -> Error {
+  Error::new(
+    crate::Status::WouldDeadlock,
+    "An async runtime lifecycle transition is already in progress",
+  )
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 struct RuntimeTransitionGuard;
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
@@ -1478,7 +1486,28 @@ pub(crate) fn register_async_runtime_env() -> Result<()> {
     let mut lifecycle = wait_for_runtime_transition(runtime_lifecycle())?;
     lifecycle.active_envs += 1;
   }
+  retry_failed_automatic_runtime_shutdown()?;
   try_start_custom_runtime(false)
+}
+
+#[cfg(all(feature = "async-runtime", not(feature = "noop")))]
+fn retry_failed_automatic_runtime_shutdown() -> Result<()> {
+  let should_retry = {
+    let mut lifecycle = wait_for_runtime_transition(runtime_lifecycle())?;
+    if lifecycle.state == RuntimeLifecycleState::ShutdownFailed
+      && lifecycle.auto_start_enabled
+      && lifecycle.active_envs != 0
+    {
+      lifecycle.state = RuntimeLifecycleState::Stopping;
+      true
+    } else {
+      false
+    }
+  };
+  if should_retry {
+    finish_custom_runtime_shutdown(true)?;
+  }
+  Ok(())
 }
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
@@ -2427,7 +2456,18 @@ fn try_start_custom_runtime(explicit: bool) -> Result<()> {
     None
   };
   {
-    let mut lifecycle = wait_for_runtime_transition(runtime_lifecycle())?;
+    let mut lifecycle = runtime_lifecycle();
+    if explicit
+      && matches!(
+        lifecycle.state,
+        RuntimeLifecycleState::Starting | RuntimeLifecycleState::Stopping
+      )
+    {
+      return Err(runtime_transition_in_progress_error());
+    }
+    if !explicit {
+      lifecycle = wait_for_runtime_transition(lifecycle)?;
+    }
     if explicit {
       lifecycle.auto_start_enabled = true;
     } else if !lifecycle.auto_start_enabled || lifecycle.active_envs == 0 {
@@ -2458,7 +2498,11 @@ fn try_start_custom_runtime(explicit: bool) -> Result<()> {
     close_runtime_submissions()?;
 
     #[cfg(feature = "tokio_rt")]
-    start_tokio_runtime()?;
+    if explicit {
+      start_tokio_runtime()?;
+    } else {
+      start_tokio_runtime_after_retirement()?;
+    }
 
     if let Err(error) = call_custom_runtime_start() {
       if let Err(cleanup) = rollback_failed_custom_runtime_start() {
@@ -2531,7 +2575,9 @@ pub fn start_async_runtime() {
 ///
 /// In a `tokio_rt` build, restart returns an error while worker resources from the previous
 /// generation are still shutting down. Retry after that retirement completes; napi never starts
-/// a new Tokio generation that overlaps the old one.
+/// a new Tokio generation that overlaps the old one. This also returns
+/// [`crate::Status::WouldDeadlock`] rather than waiting when another lifecycle transition is
+/// already in progress.
 #[cfg(not(feature = "noop"))]
 pub fn try_start_async_runtime() -> Result<()> {
   ensure_explicit_runtime_transition_allowed()?;
@@ -2575,6 +2621,9 @@ pub fn shutdown_async_runtime() {
 }
 
 /// Fallible form of [`shutdown_async_runtime`].
+///
+/// Returns [`crate::Status::WouldDeadlock`] rather than waiting when another lifecycle transition
+/// is already in progress.
 #[cfg(not(feature = "noop"))]
 pub fn try_shutdown_async_runtime() -> Result<()> {
   ensure_explicit_runtime_transition_allowed()?;
@@ -2587,7 +2636,13 @@ pub fn try_shutdown_async_runtime() -> Result<()> {
       })
       .transpose()?;
     let call_custom_shutdown = {
-      let mut lifecycle = wait_for_runtime_transition(runtime_lifecycle())?;
+      let mut lifecycle = runtime_lifecycle();
+      if matches!(
+        lifecycle.state,
+        RuntimeLifecycleState::Starting | RuntimeLifecycleState::Stopping
+      ) {
+        return Err(runtime_transition_in_progress_error());
+      }
       lifecycle.auto_start_enabled = false;
       let call_custom_shutdown = CUSTOM_ASYNC_RUNTIME.get().is_some()
         && matches!(
@@ -2620,6 +2675,22 @@ pub fn try_shutdown_async_runtime() -> Result<()> {
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
 pub(crate) fn start_tokio_runtime() -> Result<()> {
   start_tokio_runtime_impl(true)
+}
+
+#[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
+pub(crate) fn start_tokio_runtime_after_retirement() -> Result<()> {
+  loop {
+    match start_tokio_runtime_impl(true) {
+      Ok(()) => return Ok(()),
+      Err(error)
+        if error.status == crate::Status::WouldDeadlock
+          && error.reason == "Tokio runtime is still shutting down" =>
+      {
+        tokio_runtime_retirement_waiter().wait()?;
+      }
+      Err(error) => return Err(error),
+    }
+  }
 }
 
 #[cfg(all(not(feature = "noop"), feature = "tokio_rt"))]
@@ -5424,7 +5495,7 @@ mod tests {
       .unwrap_or_else(std::sync::PoisonError::into_inner)
       .take()
       .expect("the backend must observe a lifecycle error");
-    assert!(error.contains("cannot wait recursively"));
+    assert!(error.contains("already in progress"));
     open_runtime_submissions();
   }
 

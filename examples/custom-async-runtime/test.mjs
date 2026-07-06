@@ -3,6 +3,7 @@ import { once } from 'node:events'
 import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { spawnSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import { Worker } from 'node:worker_threads'
 
 const mode = process.argv[2] ?? 'native'
@@ -224,6 +225,34 @@ if (mode === 'native') {
     0,
     `${retryResult.stdout}\n${retryResult.stderr}`,
   )
+
+  const lifecycleResult = spawnSync(
+    process.execPath,
+    [
+      fileURLToPath(new URL('./runtime-lifecycle-helper.mjs', import.meta.url)),
+      nativeBindingFile,
+    ],
+    {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        NAPI_CUSTOM_RUNTIME_LIFECYCLE_TEST: '1',
+      },
+      timeout: 40_000,
+    },
+  )
+  assert.equal(lifecycleResult.error, undefined, lifecycleResult.error?.stack)
+  assert.equal(
+    lifecycleResult.signal,
+    null,
+    `${lifecycleResult.stdout}\n${lifecycleResult.stderr}`,
+  )
+  assert.equal(
+    lifecycleResult.status,
+    0,
+    `${lifecycleResult.stdout}\n${lifecycleResult.stderr}`,
+  )
+  assert.match(lifecycleResult.stdout, /combined runtime lifecycle passed/)
 
   for (let index = 0; index < 20; index++) {
     const worker = new Worker(

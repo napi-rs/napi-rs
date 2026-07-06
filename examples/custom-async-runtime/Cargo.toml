@@ -9,7 +9,8 @@ crate-type = ["cdylib"]
 
 [features]
 async-runtime = ["napi/async-runtime"]
-default = ["async-runtime"]
+default = ["async-runtime", "tokio-rt"]
+tokio-rt = ["napi/tokio_rt"]
 
 [dependencies]
 futures = "0.3"

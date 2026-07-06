@@ -441,7 +441,7 @@ pub unsafe extern "C" fn napi_register_module_v1(
       }
     }
     #[cfg(all(feature = "tokio_rt", not(feature = "async-runtime")))]
-    if let Err(error) = crate::tokio_runtime::start_tokio_runtime() {
+    if let Err(error) = crate::tokio_runtime::start_tokio_runtime_after_retirement() {
       rollback_runtime_env(env, cleanup_data);
       JsError::from(error).throw_into(env);
       FIRST_MODULE_REGISTERED.store(true, Ordering::SeqCst);

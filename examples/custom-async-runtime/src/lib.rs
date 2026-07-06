@@ -9,12 +9,20 @@ use std::{
   task::{Context, Poll},
 };
 
+#[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
+use std::{
+  path::Path,
+  thread,
+  time::{Duration, Instant},
+};
+
 use futures::task::{waker_ref, ArcWake};
+#[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
+use napi::bindgen_prelude::spawn_blocking;
 use napi::bindgen_prelude::{
-  register_async_runtime, spawn_blocking_on_custom_runtime, try_block_on,
-  try_block_on_custom_runtime, try_shutdown_async_runtime, try_start_async_runtime, AsyncRuntime,
-  AsyncRuntimeGuard, AsyncRuntimeTask, Env, Error, JsObjectValue, Object, PromiseRaw, Result,
-  Status,
+  register_async_runtime, spawn_blocking_on_custom_runtime, try_block_on_custom_runtime,
+  try_shutdown_async_runtime, try_start_async_runtime, AsyncRuntime, AsyncRuntimeGuard,
+  AsyncRuntimeTask, Env, Error, JsObjectValue, Object, PromiseRaw, Result, Status,
 };
 use napi_derive::napi;
 
@@ -26,6 +34,7 @@ struct RuntimeState {
   draining: AtomicBool,
   accepting: AtomicBool,
   reject_next_spawn: AtomicBool,
+  fail_next_shutdown: AtomicBool,
   start_calls: AtomicUsize,
   shutdown_calls: AtomicUsize,
   enter_calls: AtomicUsize,
@@ -216,8 +225,14 @@ impl AsyncRuntime for TestRuntime {
   }
 
   fn shutdown(&self) -> Result<()> {
-    self.state.accepting.store(false, Ordering::Release);
     self.state.shutdown_calls.fetch_add(1, Ordering::Relaxed);
+    if self.state.fail_next_shutdown.swap(false, Ordering::AcqRel) {
+      return Err(Error::new(
+        Status::GenericFailure,
+        "injected custom runtime shutdown error",
+      ));
+    }
+    self.state.accepting.store(false, Ordering::Release);
     Ok(())
   }
 }
@@ -300,6 +315,14 @@ struct WrappedExports;
 
 #[napi(module_exports)]
 pub fn preserve_exports_wrap_slot(mut exports: Object) -> Result<()> {
+  #[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
+  if std::env::var_os("NAPI_CUSTOM_RUNTIME_LIFECYCLE_TEST").is_some() {
+    exports.create_named_method(
+      "startTokioRetirementProbe",
+      start_tokio_retirement_probe_c_callback,
+    )?;
+    exports.create_named_method("failNextShutdown", fail_next_shutdown_c_callback)?;
+  }
   exports.wrap(WrappedExports, None)
 }
 
@@ -392,6 +415,12 @@ pub fn reject_next_spawn() {
   state().reject_next_spawn.store(true, Ordering::Release);
 }
 
+#[cfg(not(target_family = "wasm"))]
+#[napi(no_export)]
+pub fn fail_next_shutdown() {
+  state().fail_next_shutdown.store(true, Ordering::Release);
+}
+
 #[napi]
 pub fn spawn_future<'env>(env: &'env Env, value: u32) -> Result<PromiseRaw<'env, u32>> {
   env.spawn_future(async move {
@@ -413,7 +442,7 @@ pub fn runtime_context_add(value: u32) -> u32 {
 
 #[napi]
 pub fn block_on_value(value: u32) -> Result<u32> {
-  try_block_on(async move {
+  try_block_on_custom_runtime(async move {
     yield_once().await;
     value + 1
   })
@@ -429,6 +458,98 @@ pub fn spawn_blocking_value(value: u32) -> Result<u32> {
       )
     },
   )
+}
+
+#[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
+fn wait_for_file(path: &Path) -> bool {
+  let deadline = Instant::now() + Duration::from_secs(30);
+  while !path.exists() {
+    if Instant::now() >= deadline {
+      return false;
+    }
+    thread::sleep(Duration::from_millis(5));
+  }
+  true
+}
+
+#[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
+fn write_file(path: &Path, contents: &str) -> std::io::Result<()> {
+  let temporary_path = path.with_extension("tmp");
+  std::fs::write(&temporary_path, contents)?;
+  std::fs::rename(temporary_path, path)
+}
+
+#[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
+fn explicit_start_during_automatic_transition() -> String {
+  let deadline = Instant::now() + Duration::from_secs(30);
+  loop {
+    match try_start_async_runtime() {
+      Err(error)
+        if error.status == Status::WouldDeadlock
+          && error.reason == "Tokio runtime is still shutting down" =>
+      {
+        if Instant::now() >= deadline {
+          return "Timeout\nautomatic runtime registration did not start".to_owned();
+        }
+        thread::sleep(Duration::from_millis(5));
+      }
+      Ok(()) => return "Ok\nexplicit start unexpectedly succeeded".to_owned(),
+      Err(error) => return format!("{}\n{}", error.status.as_ref(), error.reason),
+    }
+  }
+}
+
+#[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
+fn explicit_shutdown_during_automatic_transition() -> String {
+  match try_shutdown_async_runtime() {
+    Ok(()) => "Ok\nexplicit shutdown unexpectedly succeeded".to_owned(),
+    Err(error) => format!("{}\n{}", error.status.as_ref(), error.reason),
+  }
+}
+
+#[cfg(all(feature = "tokio-rt", not(target_family = "wasm")))]
+#[napi(no_export)]
+pub fn start_tokio_retirement_probe(
+  entered_path: String,
+  explicit_attempt_path: String,
+  explicit_start_result_path: String,
+  explicit_shutdown_result_path: String,
+  release_path: String,
+) {
+  drop(spawn_blocking(move || {
+    if write_file(Path::new(&entered_path), "entered").is_err() {
+      return;
+    }
+    if !wait_for_file(Path::new(&explicit_attempt_path)) {
+      let _ = write_file(
+        Path::new(&explicit_start_result_path),
+        "Timeout\ntimed out waiting to attempt the explicit start",
+      );
+      return;
+    }
+
+    let explicit_start_result = explicit_start_during_automatic_transition();
+    if write_file(
+      Path::new(&explicit_start_result_path),
+      &explicit_start_result,
+    )
+    .is_err()
+    {
+      return;
+    }
+
+    let explicit_shutdown_result = explicit_shutdown_during_automatic_transition();
+    if write_file(
+      Path::new(&explicit_shutdown_result_path),
+      &explicit_shutdown_result,
+    )
+    .is_err()
+    {
+      return;
+    }
+
+    wait_for_file(Path::new(&release_path));
+  }));
 }
 
 #[napi]

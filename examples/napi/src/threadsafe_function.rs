@@ -1,5 +1,18 @@
 use std::{sync::Arc, thread, time::Duration};
 
+#[cfg(not(target_family = "wasm"))]
+use std::{
+  future::Future,
+  pin::pin,
+  sync::{
+    atomic::{AtomicBool, AtomicU32, Ordering},
+    mpsc::{sync_channel, RecvTimeoutError, SyncSender},
+  },
+  task::{Context, Poll},
+};
+
+#[cfg(not(target_family = "wasm"))]
+use napi::threadsafe_function::ThreadsafeFunctionHandle;
 use napi::{
   bindgen_prelude::*,
   threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode, UnknownReturnValue},
@@ -7,6 +20,463 @@ use napi::{
 };
 
 use crate::class::Animal;
+
+#[cfg(not(target_family = "wasm"))]
+static TSFN_TEARDOWN_PAYLOAD_DROP_COUNT: AtomicU32 = AtomicU32::new(0);
+#[cfg(not(target_family = "wasm"))]
+static TSFN_TEARDOWN_WAITER_ERROR_COUNT: AtomicU32 = AtomicU32::new(0);
+#[cfg(not(target_family = "wasm"))]
+static TSFN_TEARDOWN_QUEUE_FULL_ERROR_COUNT: AtomicU32 = AtomicU32::new(0);
+#[cfg(not(target_family = "wasm"))]
+static TSFN_TEARDOWN_UNEXPECTED_WAITER_COUNT: AtomicU32 = AtomicU32::new(0);
+#[cfg(not(target_family = "wasm"))]
+static TSFN_TEARDOWN_JS_CALLBACK_COUNT: AtomicU32 = AtomicU32::new(0);
+
+#[cfg(not(target_family = "wasm"))]
+struct TsfnTeardownPayload {
+  reentrant_handle: Option<Arc<ThreadsafeFunctionHandle>>,
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl Drop for TsfnTeardownPayload {
+  fn drop(&mut self) {
+    TSFN_TEARDOWN_PAYLOAD_DROP_COUNT.fetch_add(1, Ordering::SeqCst);
+    if let Some(handle) = self.reentrant_handle.take() {
+      handle.with_write_aborted(|guard| drop(guard));
+    }
+  }
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl TsfnTeardownPayload {
+  fn plain() -> Self {
+    Self {
+      reentrant_handle: None,
+    }
+  }
+}
+
+#[cfg(not(target_family = "wasm"))]
+struct TsfnClosingPayload {
+  dropped: Arc<AtomicBool>,
+  reentrant_handle: Arc<ThreadsafeFunctionHandle>,
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl Drop for TsfnClosingPayload {
+  fn drop(&mut self) {
+    self.dropped.store(true, Ordering::SeqCst);
+    self
+      .reentrant_handle
+      .with_write_aborted(|guard| drop(guard));
+  }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn verify_tsfn_closing_ownership(callback: &Function<(), ()>) -> Result<()> {
+  let tsfn = callback
+    .build_threadsafe_function::<TsfnClosingPayload>()
+    .build_callback(|_| Ok(()))?;
+  let raw = tsfn.raw();
+  let acquire_status = unsafe { napi::sys::napi_acquire_threadsafe_function(raw) };
+  if acquire_status != napi::sys::Status::napi_ok {
+    return Err(Error::new(
+      Status::from(acquire_status),
+      "Failed to acquire the TSFN closing regression caller slot",
+    ));
+  }
+  let abort_status = unsafe {
+    napi::sys::napi_release_threadsafe_function(
+      raw,
+      napi::sys::ThreadsafeFunctionReleaseMode::abort,
+    )
+  };
+  if abort_status != napi::sys::Status::napi_ok {
+    return Err(Error::new(
+      Status::from(abort_status),
+      "Failed to begin the TSFN closing regression",
+    ));
+  }
+
+  let (finished, result) = sync_channel(0);
+  thread::spawn(move || {
+    let handle = Arc::clone(&tsfn.handle);
+    let first_dropped = Arc::new(AtomicBool::new(false));
+    let first_status = tsfn.call(
+      TsfnClosingPayload {
+        dropped: Arc::clone(&first_dropped),
+        reentrant_handle: Arc::clone(&handle),
+      },
+      ThreadsafeFunctionCallMode::NonBlocking,
+    );
+    if first_status != Status::Closing || !first_dropped.load(Ordering::SeqCst) || !tsfn.aborted() {
+      let _ = finished.send(Err(format!(
+        "first closing call did not retire the handle: status={first_status:?}, dropped={}, aborted={}",
+        first_dropped.load(Ordering::SeqCst),
+        tsfn.aborted()
+      )));
+      return;
+    }
+
+    let second_dropped = Arc::new(AtomicBool::new(false));
+    let second_status = tsfn.call(
+      TsfnClosingPayload {
+        dropped: Arc::clone(&second_dropped),
+        reentrant_handle: handle,
+      },
+      ThreadsafeFunctionCallMode::NonBlocking,
+    );
+    if second_status != Status::Closing || !second_dropped.load(Ordering::SeqCst) {
+      let _ = finished.send(Err(format!(
+        "post-closing call reached N-API or leaked its payload: status={second_status:?}, dropped={}",
+        second_dropped.load(Ordering::SeqCst)
+      )));
+      return;
+    }
+
+    drop(tsfn);
+    let _ = finished.send(Ok(()));
+  });
+
+  result
+    .recv()
+    .map_err(|error| {
+      Error::new(
+        Status::GenericFailure,
+        format!("TSFN closing regression thread exited early: {error}"),
+      )
+    })?
+    .map_err(|reason| Error::new(Status::GenericFailure, reason))
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn abort_tsfn_raw_with_caller_slot(raw: napi::sys::napi_threadsafe_function) {
+  let acquire_status = unsafe { napi::sys::napi_acquire_threadsafe_function(raw) };
+  if acquire_status == napi::sys::Status::napi_ok {
+    unsafe {
+      napi::sys::napi_release_threadsafe_function(
+        raw,
+        napi::sys::ThreadsafeFunctionReleaseMode::abort,
+      );
+    }
+  }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn verify_tsfn_call_mode_concurrency_once(callback: &Function<(), ()>) -> Result<()> {
+  let tsfn = callback
+    .build_threadsafe_function::<()>()
+    .max_queue_size::<1>()
+    .build_callback(|_| Ok(()))?;
+  let first_status = tsfn.call((), ThreadsafeFunctionCallMode::NonBlocking);
+  if first_status != Status::Ok {
+    return Err(Error::new(
+      Status::GenericFailure,
+      format!("failed to fill the bounded TSFN queue: {first_status:?}"),
+    ));
+  }
+
+  let (blocking_entered, blocking_started) = sync_channel(0);
+  let (blocking_finished, blocking_result) = sync_channel(0);
+  for _ in 0..2 {
+    let blocking_tsfn = tsfn.clone();
+    let blocking_entered = blocking_entered.clone();
+    let blocking_finished = blocking_finished.clone();
+    thread::spawn(move || {
+      if blocking_entered.send(()).is_err() {
+        return;
+      }
+      let _ = blocking_finished.send(blocking_tsfn.call((), ThreadsafeFunctionCallMode::Blocking));
+    });
+  }
+  for _ in 0..2 {
+    blocking_started.recv().map_err(|error| {
+      Error::new(
+        Status::GenericFailure,
+        format!("blocking TSFN caller exited before entering N-API: {error}"),
+      )
+    })?;
+  }
+  for _ in 0..16 {
+    thread::yield_now();
+  }
+  thread::sleep(Duration::from_millis(50));
+
+  let owner_blocking_status = tsfn.call((), ThreadsafeFunctionCallMode::Blocking);
+  if owner_blocking_status != Status::WouldDeadlock {
+    return Err(Error::new(
+      Status::GenericFailure,
+      format!(
+        "owner-thread Blocking TSFN call returned {owner_blocking_status:?} instead of WouldDeadlock"
+      ),
+    ));
+  }
+
+  let nonblocking_tsfn = tsfn.clone();
+  let (nonblocking_finished, nonblocking_result) = sync_channel(0);
+  thread::spawn(move || {
+    let _ =
+      nonblocking_finished.send(nonblocking_tsfn.call((), ThreadsafeFunctionCallMode::NonBlocking));
+  });
+
+  let nonblocking_status = match nonblocking_result.recv_timeout(Duration::from_secs(2)) {
+    Ok(status) => status,
+    Err(RecvTimeoutError::Timeout) => {
+      abort_tsfn_raw_with_caller_slot(tsfn.raw());
+      return Err(Error::new(
+        Status::WouldDeadlock,
+        "NonBlocking TSFN call waited behind a blocked Blocking call",
+      ));
+    }
+    Err(RecvTimeoutError::Disconnected) => {
+      return Err(Error::new(
+        Status::GenericFailure,
+        "nonblocking TSFN caller exited without reporting a result",
+      ));
+    }
+  };
+  if nonblocking_status != Status::QueueFull {
+    return Err(Error::new(
+      Status::GenericFailure,
+      format!("bounded NonBlocking TSFN call returned {nonblocking_status:?}"),
+    ));
+  }
+
+  let aborting_tsfn = tsfn.clone();
+  let (abort_finished, abort_result) = sync_channel(0);
+  thread::spawn(move || {
+    #[allow(deprecated)]
+    let result = aborting_tsfn.abort();
+    let _ = abort_finished.send(result);
+  });
+  match abort_result.recv_timeout(Duration::from_secs(2)) {
+    Ok(result) => result?,
+    Err(RecvTimeoutError::Timeout) => {
+      abort_tsfn_raw_with_caller_slot(tsfn.raw());
+      return Err(Error::new(
+        Status::WouldDeadlock,
+        "ThreadsafeFunction::abort could not wake a blocked caller",
+      ));
+    }
+    Err(RecvTimeoutError::Disconnected) => {
+      return Err(Error::new(
+        Status::GenericFailure,
+        "TSFN abort caller exited without reporting a result",
+      ));
+    }
+  }
+
+  for _ in 0..2 {
+    let blocking_status = blocking_result
+      .recv_timeout(Duration::from_secs(2))
+      .map_err(|error| {
+        Error::new(
+          Status::GenericFailure,
+          format!("blocked TSFN caller did not finish after abort: {error}"),
+        )
+      })?;
+    if blocking_status != Status::Closing {
+      return Err(Error::new(
+        Status::GenericFailure,
+        format!("blocked TSFN caller returned {blocking_status:?} after abort"),
+      ));
+    }
+  }
+  Ok(())
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn verify_tsfn_call_mode_concurrency(callback: &Function<(), ()>) -> Result<()> {
+  for _ in 0..4 {
+    verify_tsfn_call_mode_concurrency_once(callback)?;
+  }
+  Ok(())
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn record_tsfn_teardown_waiter_result(result: Result<()>) {
+  // Hosts may either null-drain the queue or fail a dispatch already entering teardown.
+  match result {
+    Err(error)
+      if error.status == Status::PendingException
+        || (error.status == Status::GenericFailure
+          && error.reason == "Receive value from threadsafe function sender failed") =>
+    {
+      TSFN_TEARDOWN_WAITER_ERROR_COUNT.fetch_add(1, Ordering::SeqCst);
+    }
+    _ => {
+      TSFN_TEARDOWN_UNEXPECTED_WAITER_COUNT.fetch_add(1, Ordering::SeqCst);
+    }
+  }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn drive_tsfn_teardown_waiter<F>(future: F, ready: SyncSender<std::result::Result<(), String>>)
+where
+  F: Future<Output = Result<()>>,
+{
+  let mut future = pin!(future);
+  let waker = futures::task::noop_waker();
+  let mut context = Context::from_waker(&waker);
+  match future.as_mut().poll(&mut context) {
+    Poll::Pending => {
+      if ready.send(Ok(())).is_err() {
+        return;
+      }
+    }
+    Poll::Ready(result) => {
+      let _ = ready.send(Err(format!(
+        "TSFN teardown waiter completed before environment teardown: {result:?}"
+      )));
+      return;
+    }
+  }
+
+  record_tsfn_teardown_waiter_result(futures::executor::block_on(future));
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[napi(skip_typescript)]
+pub fn prepare_tsfn_teardown_regression(
+  unhandled_callback: Function<(), ()>,
+  handled_callback: Function<(), ()>,
+) -> Result<()> {
+  verify_tsfn_closing_ownership(&unhandled_callback)?;
+  verify_tsfn_call_mode_concurrency(&unhandled_callback)?;
+
+  TSFN_TEARDOWN_PAYLOAD_DROP_COUNT.store(0, Ordering::SeqCst);
+  TSFN_TEARDOWN_WAITER_ERROR_COUNT.store(0, Ordering::SeqCst);
+  TSFN_TEARDOWN_QUEUE_FULL_ERROR_COUNT.store(0, Ordering::SeqCst);
+  TSFN_TEARDOWN_UNEXPECTED_WAITER_COUNT.store(0, Ordering::SeqCst);
+  TSFN_TEARDOWN_JS_CALLBACK_COUNT.store(0, Ordering::SeqCst);
+
+  let unhandled_tsfn = unhandled_callback
+    .build_threadsafe_function::<TsfnTeardownPayload>()
+    .build_callback(|_| Ok(()))?;
+  let handled_tsfn = handled_callback
+    .build_threadsafe_function::<TsfnTeardownPayload>()
+    .callee_handled::<true>()
+    .build_callback(|_| Ok(()))?;
+  let bounded_tsfn = unhandled_callback
+    .build_threadsafe_function::<TsfnTeardownPayload>()
+    .max_queue_size::<1>()
+    .build_callback(|_| Ok(()))?;
+
+  let (unhandled_ready, unhandled_polled) = sync_channel(0);
+  thread::spawn(move || {
+    drive_tsfn_teardown_waiter(
+      unhandled_tsfn.call_async_catch(TsfnTeardownPayload::plain()),
+      unhandled_ready,
+    );
+  });
+
+  let (handled_ready, handled_polled) = sync_channel(0);
+  thread::spawn(move || {
+    drive_tsfn_teardown_waiter(
+      handled_tsfn.call_async(Ok(TsfnTeardownPayload::plain())),
+      handled_ready,
+    );
+  });
+
+  let bounded_handle = Arc::clone(&bounded_tsfn.handle);
+  let (bounded_ready, bounded_polled) = sync_channel(0);
+  thread::spawn(move || {
+    let first = bounded_tsfn.call_async_catch(TsfnTeardownPayload::plain());
+    let mut first = pin!(first);
+    let waker = futures::task::noop_waker();
+    let mut context = Context::from_waker(&waker);
+    if let Poll::Ready(result) = first.as_mut().poll(&mut context) {
+      let _ = bounded_ready.send(Err(format!(
+        "bounded TSFN first call completed before environment teardown: {result:?}"
+      )));
+      return;
+    }
+
+    let second = bounded_tsfn.call_async_catch(TsfnTeardownPayload {
+      reentrant_handle: Some(bounded_handle),
+    });
+    let mut second = pin!(second);
+    match second.as_mut().poll(&mut context) {
+      Poll::Ready(Err(error)) if error.status == Status::QueueFull => {
+        let immediate_drops = TSFN_TEARDOWN_PAYLOAD_DROP_COUNT.load(Ordering::SeqCst);
+        if immediate_drops != 1 {
+          let _ = bounded_ready.send(Err(format!(
+            "QueueFull payload was not reclaimed immediately: expected 1 drop, observed {immediate_drops}"
+          )));
+          return;
+        }
+        TSFN_TEARDOWN_QUEUE_FULL_ERROR_COUNT.fetch_add(1, Ordering::SeqCst);
+      }
+      Poll::Ready(result) => {
+        let _ = bounded_ready.send(Err(format!(
+          "bounded TSFN second call did not fail with QueueFull: {result:?}"
+        )));
+        return;
+      }
+      Poll::Pending => {
+        let _ = bounded_ready.send(Err(
+          "bounded TSFN second call remained pending instead of failing with QueueFull".to_owned(),
+        ));
+        return;
+      }
+    }
+
+    if bounded_ready.send(Ok(())).is_err() {
+      return;
+    }
+    record_tsfn_teardown_waiter_result(futures::executor::block_on(first));
+  });
+
+  for polled in [unhandled_polled, handled_polled, bounded_polled] {
+    polled
+      .recv()
+      .map_err(|error| {
+        Error::new(
+          Status::GenericFailure,
+          format!("TSFN teardown polling thread exited early: {error}"),
+        )
+      })?
+      .map_err(|reason| Error::new(Status::GenericFailure, reason))?;
+  }
+
+  Ok(())
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[napi(skip_typescript)]
+pub fn record_tsfn_teardown_js_callback() {
+  TSFN_TEARDOWN_JS_CALLBACK_COUNT.fetch_add(1, Ordering::SeqCst);
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[napi(skip_typescript)]
+pub fn tsfn_teardown_payload_drop_count() -> u32 {
+  TSFN_TEARDOWN_PAYLOAD_DROP_COUNT.load(Ordering::SeqCst)
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[napi(skip_typescript)]
+pub fn tsfn_teardown_waiter_error_count() -> u32 {
+  TSFN_TEARDOWN_WAITER_ERROR_COUNT.load(Ordering::SeqCst)
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[napi(skip_typescript)]
+pub fn tsfn_teardown_queue_full_error_count() -> u32 {
+  TSFN_TEARDOWN_QUEUE_FULL_ERROR_COUNT.load(Ordering::SeqCst)
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[napi(skip_typescript)]
+pub fn tsfn_teardown_unexpected_waiter_count() -> u32 {
+  TSFN_TEARDOWN_UNEXPECTED_WAITER_COUNT.load(Ordering::SeqCst)
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[napi(skip_typescript)]
+pub fn tsfn_teardown_js_callback_count() -> u32 {
+  TSFN_TEARDOWN_JS_CALLBACK_COUNT.load(Ordering::SeqCst)
+}
 
 #[napi]
 pub fn call_threadsafe_function(
