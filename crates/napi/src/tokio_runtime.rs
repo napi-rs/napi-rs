@@ -901,6 +901,11 @@ mod tokio_future_cancellation_tests {
 /// The implementation is stored once per linked addon image and shared across its threads,
 /// hence the `Send + Sync + 'static` bound. See [`register_async_runtime`] for duplicate
 /// registration behavior.
+///
+/// Panic containment described by this API requires a `panic = "unwind"` build. With
+/// `panic = "abort"`, including Rust's currently shipped `wasm32-wasip1` and
+/// `wasm32-wasip1-threads` targets, `catch_unwind` cannot intercept a panic: generated async
+/// functions may trap or abort before their JavaScript promise or Rust [`JoinHandle`] is settled.
 #[cfg(feature = "async-runtime")]
 pub trait AsyncRuntime: Send + Sync + 'static {
   /// Submit a task to run to completion in the background.
@@ -915,12 +920,12 @@ pub trait AsyncRuntime: Send + Sync + 'static {
   ///
   /// A backend may poll the task synchronously before this hook returns. The first poll commits
   /// ownership and may run user work immediately; after that point returning `Err(task)` or
-  /// panicking cannot roll back effects that already occurred. Panic handling is already done by
-  /// napi. Poll the task directly and do not bypass its `Drop` implementation. napi marks every
-  /// poll as a runtime operation, so lifecycle calls made recursively by task code return an error
-  /// instead of waiting on the task itself. Terminal cancellation callbacks and future destructors
-  /// receive the same protection, including when queued tasks are dropped unpolled on a runtime
-  /// worker during shutdown.
+  /// panicking cannot roll back effects that already occurred. On unwind-enabled builds, napi
+  /// already catches task panics. Poll the task directly and do not bypass its `Drop`
+  /// implementation. napi marks every poll as a runtime operation, so lifecycle calls made
+  /// recursively by task code return an error instead of waiting on the task itself. Terminal
+  /// cancellation callbacks and future destructors receive the same protection, including when
+  /// queued tasks are dropped unpolled on a runtime worker during shutdown.
   fn spawn(&self, task: AsyncRuntimeTask) -> std::result::Result<(), AsyncRuntimeTask>;
 
   /// Block the current thread, fully driving the pinned future to completion before
@@ -960,9 +965,10 @@ pub trait AsyncRuntime: Send + Sync + 'static {
   /// Implement it idempotently. Return success only after the backend can accept tasks. A
   /// successful restart must not overlap worker resources from a retiring generation; wait
   /// for retirement or return an error and let the caller retry. Do not call napi's runtime
-  /// registration or lifecycle functions recursively from this hook. If this returns an error
-  /// or panics, napi calls [`shutdown`](AsyncRuntime::shutdown) to roll back resources created
-  /// by the partial start. The default is a no-op.
+  /// registration or lifecycle functions recursively from this hook. If this returns an error,
+  /// or panics on an unwind-enabled build, napi calls [`shutdown`](AsyncRuntime::shutdown) to roll
+  /// back resources created by the partial start. With `panic = "abort"`, a panic traps or aborts
+  /// before rollback can run. The default is a no-op.
   fn start(&self) -> Result<()> {
     Ok(())
   }
@@ -997,10 +1003,10 @@ pub trait AsyncRuntime: Send + Sync + 'static {
   /// declines.
   ///
   /// The backend may invoke the closure synchronously before this hook returns. Invocation commits
-  /// ownership, so a later hook panic cannot replace the closure's result. Panic handling is
-  /// napi's: the closure is already wrapped in `catch_unwind` before it reaches this hook and a
-  /// panic is surfaced as a `JoinError` through the caller's `JoinHandle`, so just run it — do not
-  /// add another panic layer. napi marks the closure invocation as a runtime operation, so
+  /// ownership, so a later hook panic cannot replace the closure's result. On unwind-enabled
+  /// builds, the closure is already wrapped in `catch_unwind` before it reaches this hook and a
+  /// panic is surfaced as a `JoinError` through the caller's `JoinHandle`, so just run it rather
+  /// than adding another panic layer. napi marks the closure invocation as a runtime operation, so
   /// recursive lifecycle calls return an error instead of waiting on the closure itself. Dropping
   /// queued work without invoking it receives the same protection around cancellation and every
   /// captured value's destructor.
@@ -2289,6 +2295,12 @@ fn finish_runtime_transition(result: &Result<()>, shutdown_failed: bool) {
 
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 fn try_start_custom_runtime(explicit: bool) -> Result<()> {
+  if explicit && RUNTIME_SUBMISSION_DEPTH.with(Cell::get) != 0 {
+    return Err(Error::new(
+      crate::Status::GenericFailure,
+      "Cannot transition the async runtime from inside an AsyncRuntime operation",
+    ));
+  }
   if !explicit && CUSTOM_ASYNC_RUNTIME.get().is_none() {
     return Ok(());
   }
@@ -2818,10 +2830,12 @@ impl<F, R: Send + 'static> Drop for BlockingWorkState<F, R> {
 /// [`spawn_blocking_on_custom_runtime`].
 ///
 /// Await it to join the task: it resolves to the task's output, or to a [`JoinError`]
-/// carrying the panic payload if the task panicked. Unlike `tokio::task::JoinHandle` it is
-/// join-only — there is no `abort`; detach the task by dropping the handle. If the backend
-/// rejects or drops the task, the handle resolves with a cancellation error. If a submission
-/// hook panics, the handle resolves with a runtime error preserving the panic diagnostic.
+/// carrying the panic payload if the task panicked on an unwind-enabled build. With
+/// `panic = "abort"`, a panic cannot settle the handle. Unlike `tokio::task::JoinHandle` it is
+/// join-only — there is no `abort`; detach the task by dropping the handle. If the backend rejects
+/// or drops the task, the handle resolves with a cancellation error. On an unwind-enabled build,
+/// a panicking submission hook resolves the handle with a runtime error preserving the panic
+/// diagnostic.
 #[cfg(all(feature = "async-runtime", not(feature = "noop")))]
 pub struct JoinHandle<T> {
   state: Arc<JoinState<T>>,
@@ -2910,9 +2924,10 @@ where
 /// [`JoinHandle`].
 ///
 /// The joinable-ness is manufactured by napi over [`spawn`](AsyncRuntime::spawn): the future
-/// is wrapped so that its output — or, if it panics, the caught panic payload as a
-/// [`JoinError`] — is handed to the returned handle. This name and routing are unchanged when
-/// `tokio_rt` is also enabled; the Tokio-backed compatibility helper remains `spawn`.
+/// is wrapped so that its output — or, on an unwind-enabled build, a caught panic payload as a
+/// [`JoinError`] — is handed to the returned handle. With `panic = "abort"`, a panic traps or
+/// aborts before the handle can be settled. This name and routing are unchanged when `tokio_rt`
+/// is also enabled; the Tokio-backed compatibility helper remains `spawn`.
 pub fn spawn_on_custom_runtime<F>(fut: F) -> JoinHandle<F::Output>
 where
   F: 'static + Send + Future,
@@ -3030,10 +3045,11 @@ pub fn try_block_on_custom_runtime<F: Future>(fut: F) -> Result<F::Output> {
 #[cfg(not(feature = "noop"))]
 /// Fallible form of [`block_on`].
 ///
-/// This reports a missing backend, a backend panic, or a backend that returned before polling
-/// the future to completion as a napi error. When `async-runtime` is enabled it also rejects calls
-/// before startup, during lifecycle transitions, and after shutdown, and prevents shutdown from
-/// overlapping the synchronous drive.
+/// This reports a missing backend or a backend that returned before polling the future to
+/// completion as a napi error. On unwind-enabled builds, it also converts a backend panic into a
+/// napi error; with `panic = "abort"`, that panic traps or aborts instead. When `async-runtime` is
+/// enabled it also rejects calls before startup, during lifecycle transitions, and after shutdown,
+/// and prevents shutdown from overlapping the synchronous drive.
 pub fn try_block_on<F: Future>(fut: F) -> Result<F::Output> {
   #[cfg(all(feature = "async-runtime", not(feature = "tokio_rt")))]
   {
@@ -3087,13 +3103,13 @@ where
 /// Run blocking work through the registered [`AsyncRuntime`] backend, returning a joinable
 /// [`JoinHandle`].
 ///
-/// The closure — wrapped so that its output, or the caught panic payload as a [`JoinError`],
-/// is handed to the returned handle — is offered to the backend's
+/// The closure — wrapped so that its output, or on an unwind-enabled build a caught panic payload
+/// as a [`JoinError`], is handed to the returned handle — is offered to the backend's
 /// [`spawn_blocking`](AsyncRuntime::spawn_blocking) hook. If the backend declines, the returned
-/// handle completes with a cancellation error. napi never creates an unbounded fallback thread,
-/// which keeps this API valid on threadless WebAssembly. This name and routing are unchanged
-/// when `tokio_rt` is also enabled; the Tokio-backed compatibility helper remains
-/// `spawn_blocking`.
+/// handle completes with a cancellation error. With `panic = "abort"`, a panic cannot settle the
+/// handle. napi never creates an unbounded fallback thread, which keeps this API valid on
+/// threadless WebAssembly. This name and routing are unchanged when `tokio_rt` is also enabled;
+/// the Tokio-backed compatibility helper remains `spawn_blocking`.
 pub fn spawn_blocking_on_custom_runtime<F, R>(func: F) -> JoinHandle<R>
 where
   F: FnOnce() -> R + Send + 'static,
@@ -3215,9 +3231,10 @@ fn call_fallible_with_runtime_guard<G, F: FnOnce() -> Result<T>, T>(guard: G, f:
 ///
 /// This explicit helper always delegates to [`AsyncRuntime::enter`], including when `tokio_rt`
 /// is enabled through Cargo feature unification. The runtime remains live through closure
-/// execution and guard destruction; backend, closure, and guard failures are returned as
-/// [`Error`]. Its fallible closure shape is shared with generated `#[napi(async_runtime)]`
-/// callbacks.
+/// execution and guard destruction; backend, closure, and guard failures are returned as [`Error`].
+/// Panic failures are converted only on unwind-enabled builds; with `panic = "abort"`, they trap
+/// or abort instead. Its fallible closure shape is shared with generated
+/// `#[napi(async_runtime)]` callbacks.
 pub fn within_custom_runtime_if_available<F: FnOnce() -> Result<T>, T>(f: F) -> Result<T> {
   let mut f = SafeDrop::new(f);
   let runtime = custom_async_runtime()?;
@@ -4028,6 +4045,34 @@ mod tests {
         result.send(try_shutdown_async_runtime()).unwrap();
       }
     }
+  }
+
+  struct StartOnDrop {
+    result: Option<mpsc::Sender<Result<()>>>,
+  }
+
+  impl StartOnDrop {
+    fn new(result: mpsc::Sender<Result<()>>) -> Self {
+      Self {
+        result: Some(result),
+      }
+    }
+  }
+
+  impl Drop for StartOnDrop {
+    fn drop(&mut self) {
+      if let Some(result) = self.result.take() {
+        result.send(try_start_async_runtime()).unwrap();
+      }
+    }
+  }
+
+  impl AsyncRuntime for StartOnDrop {
+    fn spawn(&self, task: AsyncRuntimeTask) -> std::result::Result<(), AsyncRuntimeTask> {
+      Err(task)
+    }
+
+    fn block_on(&self, _future: Pin<&mut dyn Future<Output = ()>>) {}
   }
 
   fn await_terminal_drop_and_shutdown(
@@ -5104,6 +5149,41 @@ mod tests {
       .expect_err("runtime cleanup destructors must not start lifecycle transitions");
     assert!(error.reason.contains("inside an AsyncRuntime operation"));
     assert_eq!(runtime_lifecycle().state, RuntimeLifecycleState::Running);
+  }
+
+  #[test]
+  fn duplicate_runtime_destructor_start_does_not_reenable_automatic_start() {
+    ensure_runtime();
+    let _guard = runtime_state_test_guard();
+    register_async_runtime_env().unwrap();
+    let starts_before = BACKEND_START_CALLS.load(Ordering::SeqCst);
+    try_shutdown_async_runtime().unwrap();
+
+    let (result_tx, result_rx) = mpsc::channel();
+    let registration_error = try_register_async_runtime(StartOnDrop::new(result_tx))
+      .expect_err("the second runtime registration must be rejected");
+    assert!(registration_error.reason.contains("more than once"));
+    let start_error = result_rx
+      .recv_timeout(Duration::from_secs(5))
+      .expect("the duplicate runtime destructor must return")
+      .expect_err("a duplicate runtime destructor must not start the registered backend");
+    assert!(start_error
+      .reason
+      .contains("inside an AsyncRuntime operation"));
+    assert!(!runtime_lifecycle().auto_start_enabled);
+    assert_eq!(runtime_lifecycle().state, RuntimeLifecycleState::Stopped);
+
+    register_async_runtime_env()
+      .expect("another environment may load while the runtime is explicitly stopped");
+    assert_eq!(
+      BACKEND_START_CALLS.load(Ordering::SeqCst),
+      starts_before,
+      "duplicate backend destruction must not re-enable environment-driven startup"
+    );
+
+    unregister_async_runtime_env().unwrap();
+    unregister_async_runtime_env().unwrap();
+    try_start_async_runtime().unwrap();
   }
 
   #[test]
