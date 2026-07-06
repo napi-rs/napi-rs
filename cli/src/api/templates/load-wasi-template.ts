@@ -175,7 +175,15 @@ async function __resolveModule(__wasmInput) {
 
 let __normalizedModules
 
-function __normalizeModuleForEmnapi(__module) {
+function __rememberNormalizedModule(__module, __normalizedModule) {
+  if (!__normalizedModules) {
+    __normalizedModules = new WeakMap()
+  }
+  __normalizedModules.set(__module, __normalizedModule)
+  return __normalizedModule
+}
+
+async function __normalizeModuleForEmnapi(__module) {
   if (__module instanceof WebAssembly.Module) {
     return __module
   }
@@ -192,99 +200,56 @@ function __normalizeModuleForEmnapi(__module) {
     try {
       const __normalizedModule = structuredClone(__module)
       if (__normalizedModule instanceof WebAssembly.Module) {
-        if (!__normalizedModules) {
-          __normalizedModules = new WeakMap()
-        }
-        __normalizedModules.set(__module, __normalizedModule)
-        return __normalizedModule
+        return __rememberNormalizedModule(__module, __normalizedModule)
       }
     } catch {}
   }
-  // Older hosts may not expose structuredClone. A genuine, extensible Module
-  // retains its WebAssembly internal slots when its realm-local prototype is
-  // installed, which is sufficient for emnapi's compatibility checks.
+  // MessageChannel uses the same structured-clone semantics and covers older
+  // browser/Node hosts that expose it but not the structuredClone function.
+  if (typeof MessageChannel === 'function') {
+    let __channel
+    try {
+      __channel = new MessageChannel()
+      const __normalizedModule = await new Promise((resolve, reject) => {
+        __channel.port1.onmessage = (event) => resolve(event.data)
+        __channel.port1.onmessageerror = () =>
+          reject(new TypeError('Failed to clone WebAssembly.Module'))
+        try {
+          __channel.port2.postMessage(__module)
+        } catch (error) {
+          reject(error)
+        }
+      })
+      if (__normalizedModule instanceof WebAssembly.Module) {
+        return __rememberNormalizedModule(__module, __normalizedModule)
+      }
+    } catch {
+    } finally {
+      try {
+        __channel?.port1.close()
+      } catch {}
+      try {
+        __channel?.port2.close()
+      } catch {}
+    }
+  }
+  // Last-resort compatibility for genuine, extensible foreign Modules.
   try {
     Object.setPrototypeOf(__module, WebAssembly.Module.prototype)
   } catch {}
-  return __module
-}
-
-function __getBeforeExitListeners() {
-  const __process =
-    typeof process === 'object' && process !== null ? process : undefined
-  if (
-    !__process ||
-    typeof __process.once !== 'function' ||
-    typeof __process.removeListener !== 'function'
-  ) {
-    return
+  if (__module instanceof WebAssembly.Module) {
+    return __module
   }
-  const __getListeners =
-    typeof __process.rawListeners === 'function'
-      ? __process.rawListeners
-      : typeof __process.listeners === 'function'
-        ? __process.listeners
-        : undefined
-  if (!__getListeners) {
-    return
-  }
-  try {
-    return {
-      process: __process,
-      listeners: __getListeners.call(__process, 'beforeExit'),
-    }
-  } catch {}
-}
-
-function __takeAddedBeforeExitListeners(__before) {
-  if (!__before) {
-    return
-  }
-  const __after = __getBeforeExitListeners()
-  if (!__after || __after.process !== __before.process) {
-    return
-  }
-  const __existingListeners = new Set(__before.listeners)
-  const __addedListeners = __after.listeners.filter(
-    (__listener) => !__existingListeners.has(__listener),
+  throw new TypeError(
+    'This host cannot normalize a cross-realm WebAssembly.Module; ' +
+      'provide structuredClone or MessageChannel support.',
   )
-  const __emnapiListener = __addedListeners[__addedListeners.length - 1]
-  return {
-    process: __before.process,
-    listeners: __emnapiListener ? [__emnapiListener] : [],
-  }
-}
-
-function __removeBeforeExitListeners(__ownedListeners) {
-  if (!__ownedListeners) {
-    return
-  }
-  for (const __listener of __ownedListeners.listeners) {
-    try {
-      __ownedListeners.process.removeListener('beforeExit', __listener)
-    } catch {}
-  }
 }
 
 function __createManagedEmnapiContext() {
-  const __beforeExitListeners = __getBeforeExitListeners()
-  let __emnapiContext
-  try {
-    __emnapiContext = __emnapiCreateContext()
-  } catch (error) {
-    __removeBeforeExitListeners(
-      __takeAddedBeforeExitListeners(__beforeExitListeners),
-    )
-    throw error
-  }
-
-  const __emnapiBeforeExitListeners = __takeAddedBeforeExitListeners(
-    __beforeExitListeners,
-  )
-  // Replace emnapi's anonymous listener with an owned listener so explicit
-  // disposal can remove it and beforeExit cleanup shares the same idempotent
-  // state transition.
-  __removeBeforeExitListeners(__emnapiBeforeExitListeners)
+  const __emnapiContext = __emnapiCreateContext({ autoDestroy: false })
+  const __process =
+    typeof process === 'object' && process !== null ? process : undefined
   let __disposed = false
   let __managedBeforeExitListener
   const __destroy = () => {
@@ -292,34 +257,41 @@ function __createManagedEmnapiContext() {
       return
     }
     __disposed = true
-    if (__managedBeforeExitListener && __emnapiBeforeExitListeners) {
+    if (__managedBeforeExitListener && __process) {
       try {
-        __emnapiBeforeExitListeners.process.removeListener(
-          'beforeExit',
-          __managedBeforeExitListener,
-        )
+        __process.removeListener('beforeExit', __managedBeforeExitListener)
       } catch {}
     }
     return __emnapiContext.destroy()
   }
   if (
-    __emnapiBeforeExitListeners &&
-    __emnapiBeforeExitListeners.listeners.length > 0
+    __process &&
+    typeof __process.once === 'function' &&
+    typeof __process.removeListener === 'function'
   ) {
     __managedBeforeExitListener = __destroy
     try {
-      __emnapiBeforeExitListeners.process.once(
-        'beforeExit',
-        __managedBeforeExitListener,
-      )
-    } catch {
+      __process.once('beforeExit', __managedBeforeExitListener)
+    } catch (error) {
       try {
-        __emnapiBeforeExitListeners.process.removeListener(
-          'beforeExit',
-          __managedBeforeExitListener,
-        )
+        __process.removeListener('beforeExit', __managedBeforeExitListener)
       } catch {}
       __managedBeforeExitListener = undefined
+      __disposed = true
+      try {
+        __emnapiContext.destroy()
+      } catch (disposeError) {
+        try {
+          if (
+            error &&
+            (typeof error === 'object' || typeof error === 'function') &&
+            error.cause === undefined
+          ) {
+            error.cause = disposeError
+          }
+        } catch {}
+      }
+      throw error
     }
   }
   return {
@@ -334,7 +306,7 @@ function __createManagedEmnapiContext() {
  */
 export async function createInstance(__wasmInput) {
   const __module = await __resolveModule(__wasmInput)
-  const __emnapiModule = __normalizeModuleForEmnapi(__module)
+  const __emnapiModule = await __normalizeModuleForEmnapi(__module)
   const __wasi = new __WASI({
     version: 'preview1',
   })

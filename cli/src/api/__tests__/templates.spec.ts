@@ -242,7 +242,9 @@ test('deferred single-thread WASI binding is workerd-safe', (t) => {
   t.true(src.includes('export async function createInstance'))
   t.true(src.includes('export async function dispose'))
   t.true(src.includes('asyncWorkPoolSize: 0'))
-  t.true(src.includes('__emnapiCreateContext()'))
+  t.true(src.includes('__emnapiCreateContext({ autoDestroy: false })'))
+  t.false(src.includes('rawListeners'))
+  t.false(src.includes('__takeAddedBeforeExitListeners'))
   // instantiate() accepts ONLY a precompiled WebAssembly.Module (or a Promise
   // resolving to one): anything else would require dynamic Wasm compilation,
   // which Cloudflare workerd bans everywhere. The guard must be a brand check
@@ -438,7 +440,10 @@ export async function instantiateNapiModule() {
       )
       await writeFile(
         join(emnapiRuntimeDir, 'index.js'),
-        `export function createContext() {
+        `export function createContext(options) {
+  if (options?.autoDestroy !== false) {
+    throw new Error('deferred loader must disable emnapi auto-destroy')
+  }
   return {
     destroy() {
       globalThis.__napiDeferredRaceState.destroyed++
@@ -528,6 +533,7 @@ test.serial(
       initializationGate: undefined as Promise<void> | undefined,
       cleanupError: undefined as Error | undefined,
       contextError: undefined as Error | undefined,
+      contextOptions: [] as unknown[],
     }
     ;(globalThis as any).__napiDeferredTestState = state
     const originalMemory = WebAssembly.Memory
@@ -594,9 +600,12 @@ export async function instantiateNapiModule(module, options) {
       )
       await writeFile(
         join(emnapiRuntimeDir, 'index.js'),
-        `export function createContext() {
+        `export function createContext(options) {
   const state = globalThis.__napiDeferredTestState
-  process.once('beforeExit', () => {})
+  state.contextOptions.push(options)
+  if (options?.autoDestroy !== false) {
+    process.once('beforeExit', () => {})
+  }
   if (state.contextError) {
     throw state.contextError
   }
@@ -668,6 +677,12 @@ export async function instantiateNapiModule(module, options) {
       t.is(first, second)
       t.is(state.instances, 2)
       t.is(state.contexts, 2)
+      t.is(state.contextOptions.length, 3)
+      t.true(
+        state.contextOptions.every(
+          (options: any) => options?.autoDestroy === false,
+        ),
+      )
       t.is(countOwnedBeforeExitListeners(), 1)
 
       await t.throwsAsync(() => instantiate(moduleB), {
@@ -830,14 +845,22 @@ export async function instantiateNapiModule(module, options) {
       const crossRealmModule = runInNewContext(
         'new WebAssembly.Module(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]))',
       )
-      Object.preventExtensions(crossRealmModule)
+      Object.freeze(crossRealmModule)
       t.false(
         crossRealmModule instanceof (globalThis as any).WebAssembly.Module,
       )
-      const [crossRealmFirst, crossRealmSecond] = await Promise.all([
-        instantiate(crossRealmModule),
-        instantiate(Promise.resolve(crossRealmModule)),
-      ])
+      const originalStructuredClone = globalThis.structuredClone
+      ;(globalThis as any).structuredClone = undefined
+      let crossRealmFirst
+      let crossRealmSecond
+      try {
+        ;[crossRealmFirst, crossRealmSecond] = await Promise.all([
+          instantiate(crossRealmModule),
+          instantiate(Promise.resolve(crossRealmModule)),
+        ])
+      } finally {
+        globalThis.structuredClone = originalStructuredClone
+      }
       t.is(crossRealmFirst, crossRealmSecond)
       t.false(
         crossRealmModule instanceof (globalThis as any).WebAssembly.Module,
