@@ -68,6 +68,11 @@ export async function buildProject(rawOptions: BuildOptions) {
   // rather than an unrelated failure from those steps.
   validateCrossCompileFlags(options)
   if (options.useNapiCross) {
+    // Check the host constraint before resolving the target: without an
+    // explicit `--target` (or `CARGO_BUILD_TARGET`) the target resolution
+    // spawns `rustc -vV`, and on an unsupported host without Rust on the
+    // `PATH` that spawn failure would mask the actual validation error.
+    validateNapiCrossHost()
     validateNapiCrossSupport(resolveTarget(options.target).triple)
   }
 
@@ -154,6 +159,26 @@ export function validateCrossCompileFlags(options: {
 }
 
 /**
+ * Validate that the current host can run the `@napi-rs/cross-toolchain`
+ * pre-built toolchains at all: they only run on Linux x64 and Linux arm64
+ * hosts. This check is separate from (and must run before) the per-target
+ * validation, because resolving the target may need to spawn `rustc`.
+ */
+function validateNapiCrossHost(
+  hostPlatform: string = process.platform,
+  hostArch: string = process.arch,
+): asserts hostArch is 'x64' | 'arm64' {
+  if (
+    hostPlatform !== 'linux' ||
+    (hostArch !== 'x64' && hostArch !== 'arm64')
+  ) {
+    throw new Error(
+      `\`--use-napi-cross\` requires a Linux x64 or Linux arm64 host, but the current host is ${hostPlatform}-${hostArch}. Please use \`--cross-compile\` (\`-x\`) or \`--use-cross\` to cross compile on this host.`,
+    )
+  }
+}
+
+/**
  * Validate that `--use-napi-cross` can actually handle the requested target
  * on the current host. The supported target set is read from the
  * `@napi-rs/cross-toolchain` package, and the pre-built toolchains only run
@@ -164,14 +189,7 @@ export function validateNapiCrossSupport(
   hostPlatform: string = process.platform,
   hostArch: string = process.arch,
 ): void {
-  if (
-    hostPlatform !== 'linux' ||
-    (hostArch !== 'x64' && hostArch !== 'arm64')
-  ) {
-    throw new Error(
-      `\`--use-napi-cross\` requires a Linux x64 or Linux arm64 host, but the current host is ${hostPlatform}-${hostArch}. Please use \`--cross-compile\` (\`-x\`) or \`--use-cross\` to cross compile on this host.`,
-    )
-  }
+  validateNapiCrossHost(hostPlatform, hostArch)
 
   const toolchains: Record<
     'x64' | 'arm64',

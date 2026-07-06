@@ -498,3 +498,55 @@ test('buildProject validates cross flags before resolving the crate manifest', a
   )
   t.regex(napiCrossError!.message, /`--use-napi-cross`/)
 })
+
+// The scenario below only exists on hosts `--use-napi-cross` does not
+// support (anything but Linux x64 / Linux arm64), so skip it elsewhere.
+const isNapiCrossUnsupportedHost =
+  process.platform !== 'linux' ||
+  (process.arch !== 'x64' && process.arch !== 'arm64')
+
+;(isNapiCrossUnsupportedHost ? test : test.skip)(
+  'buildProject reports the `--use-napi-cross` host error before resolving the target',
+  async (t) => {
+    const { projectDir } = t.context
+
+    // Without an explicit `--target` (or `CARGO_BUILD_TARGET`), resolving
+    // the target spawns `rustc -vV`. Point `PATH` at an empty directory so
+    // that spawn is guaranteed to fail — whether or not Rust is installed on
+    // this machine: if `buildProject` resolved the target before validating
+    // the host, the error below would be the `rustc` spawn failure instead
+    // of the host validation error.
+    const emptyPathDir = join(projectDir, 'empty-path')
+    await mkdir(emptyPathDir, { recursive: true })
+
+    const originalPath = process.env.PATH
+    const originalCargoBuildTarget = process.env.CARGO_BUILD_TARGET
+    process.env.PATH = emptyPathDir
+    delete process.env.CARGO_BUILD_TARGET
+    // The cross-flag validation runs synchronously at the top of
+    // `buildProject`, so the promise below is already settled (rejected)
+    // when the environment is restored right after — no other concurrently
+    // running test can observe the modified `PATH`.
+    let buildPromise: Promise<unknown>
+    try {
+      buildPromise = buildProject({ cwd: projectDir, useNapiCross: true })
+    } finally {
+      if (originalPath === undefined) {
+        delete process.env.PATH
+      } else {
+        process.env.PATH = originalPath
+      }
+      if (originalCargoBuildTarget === undefined) {
+        delete process.env.CARGO_BUILD_TARGET
+      } else {
+        process.env.CARGO_BUILD_TARGET = originalCargoBuildTarget
+      }
+    }
+
+    const error = await t.throwsAsync(() => buildPromise)
+    t.regex(
+      error!.message,
+      /`--use-napi-cross` requires a Linux x64 or Linux arm64 host/,
+    )
+  },
+)
