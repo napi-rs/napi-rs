@@ -135,13 +135,6 @@ impl ThreadsafeFunctionHandle {
     self.closing.store(true, Ordering::Release);
   }
 
-  fn mark_owner_slot_consumed(&self) {
-    self.mark_closing();
-    self.with_write_aborted(|mut aborted| {
-      *aborted = true;
-    });
-  }
-
   fn start_blocking_call(&self) -> ThreadsafeFunctionBlockingCall<'_> {
     let mut active = self
       .blocking_active
@@ -167,8 +160,9 @@ impl ThreadsafeFunctionHandle {
 
   fn finalize(&self) {
     {
-      // Exclude new calls before waiting for a Blocking caller that native
-      // teardown has just woken with `napi_closing`.
+      // Node 22 finalizes before draining queued payloads, while newer Node
+      // versions drain first. In both orders, stop new native calls before
+      // waiting for the one serialized Blocking caller that teardown wakes.
       let _lifecycle_guard = self.write_lifecycle();
       self.mark_closing();
     }
@@ -178,16 +172,9 @@ impl ThreadsafeFunctionHandle {
     debug_assert_eq!(status, sys::Status::napi_ok);
   }
 
-  fn acquire_call_slot(
+  fn acquire_call_slot_locked(
     &self,
-  ) -> std::result::Result<
-    (
-      ThreadsafeFunctionCallSlot<'_>,
-      ThreadsafeFunctionBlockingCall<'_>,
-    ),
-    sys::napi_status,
-  > {
-    let _lifecycle_guard = self.read_lifecycle();
+  ) -> std::result::Result<ThreadsafeFunctionCallSlot<'_>, sys::napi_status> {
     let status = self.with_read_aborted(|aborted| {
       if aborted || self.closing.load(Ordering::Acquire) {
         sys::Status::napi_closing
@@ -196,18 +183,14 @@ impl ThreadsafeFunctionHandle {
       }
     });
     if status == sys::Status::napi_ok {
-      let active = self.start_blocking_call();
-      return Ok((
-        ThreadsafeFunctionCallSlot {
-          handle: self,
-          acquired: true,
-        },
-        active,
-      ));
+      return Ok(ThreadsafeFunctionCallSlot {
+        handle: self,
+        acquired: true,
+      });
     }
     if status == sys::Status::napi_closing {
-      // `napi_closing` consumes only a caller slot acquired by a call that
-      // entered N-API. The handle's initial owner slot remains separate.
+      // A failed acquire did not add or consume a native slot. It only tells
+      // later calls to stay out of N-API until the owner slot is retired.
       self.mark_closing();
     }
     Err(status)
@@ -273,12 +256,28 @@ impl Drop for ThreadsafeFunctionBlockingCall<'_> {
 }
 
 impl ThreadsafeFunctionCallSlot<'_> {
+  fn release_locked(&mut self) {
+    if !self.acquired {
+      return;
+    }
+    let status = unsafe {
+      sys::napi_release_threadsafe_function(
+        self.handle.get_raw(),
+        sys::ThreadsafeFunctionReleaseMode::release,
+      )
+    };
+    self.acquired = false;
+    debug_assert_eq!(status, sys::Status::napi_ok);
+  }
+
   fn finish(&mut self, status: sys::napi_status) {
     if status == sys::Status::napi_closing {
-      // N-API consumes the caller slot when a call observes closing. The
-      // handle's initial owner slot is retired separately.
+      // Native Push consumed this call's acquired slot. The initial owner
+      // slot is independent and remains for abort, finalization, or Drop.
       self.acquired = false;
       self.handle.mark_closing();
+    } else {
+      self.release_locked();
     }
   }
 }
@@ -286,58 +285,55 @@ impl ThreadsafeFunctionCallSlot<'_> {
 impl Drop for ThreadsafeFunctionCallSlot<'_> {
   fn drop(&mut self) {
     if self.acquired {
-      let _lifecycle_guard = self.handle.read_lifecycle();
-      let status = unsafe {
-        sys::napi_release_threadsafe_function(
-          self.handle.get_raw(),
-          sys::ThreadsafeFunctionReleaseMode::release,
-        )
-      };
-      debug_assert_eq!(status, sys::Status::napi_ok);
+      let handle = self.handle;
+      let _lifecycle_guard = handle.read_lifecycle();
+      self.release_locked();
     }
   }
 }
 
 fn call_nonblocking_threadsafe_function_with_owned_data<T>(
-  handle: &ThreadsafeFunctionHandle,
+  handle: &Arc<ThreadsafeFunctionHandle>,
   data: T,
 ) -> sys::napi_status {
-  let data = Box::into_raw(Box::new(data));
+  let mut rejected_data = Some(data);
   let status = {
-    // Keep abort/refer/unref excluded until the native call has returned.
-    // NonBlocking calls cannot wait on the JavaScript thread, so this does
-    // not prevent abort from waking a bounded Blocking caller.
+    // Keep finalization, abort, refer, and unref excluded through acquisition,
+    // Push, and release. This also makes Node 22's finalizer-before-drain
+    // deletion wait until the native call no longer owns a slot.
     let _lifecycle_guard = handle.read_lifecycle();
-    let status = handle.with_read_aborted(|aborted| {
-      if aborted || handle.closing.load(Ordering::Acquire) {
-        sys::Status::napi_closing
-      } else {
-        unsafe {
+    match handle.acquire_call_slot_locked() {
+      Ok(mut call_slot) => {
+        let data = Box::into_raw(Box::new(ThreadsafeFunctionCallData {
+          handle: Arc::downgrade(handle),
+          data: rejected_data
+            .take()
+            .expect("Threadsafe Function call data must be available before enqueue"),
+        }));
+        let status = unsafe {
           sys::napi_call_threadsafe_function(
             handle.get_raw(),
             data.cast(),
             ThreadsafeFunctionCallMode::NonBlocking.into(),
           )
+        };
+        if status != sys::Status::napi_ok {
+          // N-API only takes ownership after a successful enqueue.
+          rejected_data =
+            Some(unsafe { Box::<ThreadsafeFunctionCallData<T>>::from_raw(data).data });
         }
+        call_slot.finish(status);
+        status
       }
-    });
-    if status == sys::Status::napi_closing {
-      // Unlike Blocking calls, the NonBlocking path uses the handle's initial
-      // acquisition directly. Node consumes that acquisition when Push
-      // returns `napi_closing`.
-      handle.mark_owner_slot_consumed();
+      Err(status) => status,
     }
-    status
   };
-  if status != sys::Status::napi_ok {
-    // N-API only takes ownership after a successful enqueue.
-    drop(unsafe { Box::from_raw(data) });
-  }
+  drop(rejected_data);
   status
 }
 
 fn call_blocking_threadsafe_function_with_owned_data<T>(
-  handle: &ThreadsafeFunctionHandle,
+  handle: &Arc<ThreadsafeFunctionHandle>,
   data: T,
 ) -> sys::napi_status {
   // Node's abort path wakes one native queue waiter. Keep at most one
@@ -350,7 +346,13 @@ fn call_blocking_threadsafe_function_with_owned_data<T>(
       return status;
     }
   };
-  let (mut call_slot, active_call) = match handle.acquire_call_slot() {
+  let acquired_call = {
+    let _lifecycle_guard = handle.read_lifecycle();
+    handle
+      .acquire_call_slot_locked()
+      .map(|call_slot| (call_slot, handle.start_blocking_call()))
+  };
+  let (mut call_slot, active_call) = match acquired_call {
     Ok(call) => call,
     Err(status) => {
       drop(blocking_guard);
@@ -358,7 +360,10 @@ fn call_blocking_threadsafe_function_with_owned_data<T>(
       return status;
     }
   };
-  let data = Box::into_raw(Box::new(data));
+  let data = Box::into_raw(Box::new(ThreadsafeFunctionCallData {
+    handle: Arc::downgrade(handle),
+    data,
+  }));
   let status = unsafe {
     sys::napi_call_threadsafe_function(
       handle.get_raw(),
@@ -366,13 +371,24 @@ fn call_blocking_threadsafe_function_with_owned_data<T>(
       ThreadsafeFunctionCallMode::Blocking.into(),
     )
   };
+  if status == sys::Status::napi_closing {
+    // Blocking calls cannot retain the lifecycle read lock while waiting,
+    // because abort needs the write lock to wake them. Publish native closing
+    // immediately on return so refer/unref cannot enter during slot cleanup.
+    handle.mark_closing();
+  }
   let rejected_data = if status != sys::Status::napi_ok {
     // N-API only takes ownership after a successful enqueue.
-    Some(unsafe { Box::from_raw(data) })
+    Some(unsafe { Box::<ThreadsafeFunctionCallData<T>>::from_raw(data).data })
   } else {
     None
   };
-  call_slot.finish(status);
+  {
+    // Release a successful/failed call slot before `active_call` wakes a
+    // finalizer. A closing Push already consumed the slot itself.
+    let _lifecycle_guard = handle.read_lifecycle();
+    call_slot.finish(status);
+  }
   drop(call_slot);
   drop(active_call);
   drop(blocking_guard);
@@ -381,7 +397,7 @@ fn call_blocking_threadsafe_function_with_owned_data<T>(
 }
 
 fn call_threadsafe_function_with_owned_data<T>(
-  handle: &ThreadsafeFunctionHandle,
+  handle: &Arc<ThreadsafeFunctionHandle>,
   data: T,
   mode: ThreadsafeFunctionCallMode,
 ) -> sys::napi_status {
@@ -430,6 +446,16 @@ pub struct ThreadsafeFunctionCallJsBackData<T, Return = Unknown<'static>> {
   pub call_variant: ThreadsafeFunctionCallVariant,
   pub callback: Box<dyn FnOnce(Result<Return>, Env) -> Result<()>>,
 }
+
+struct ThreadsafeFunctionCallData<T> {
+  handle: sync::Weak<ThreadsafeFunctionHandle>,
+  data: T,
+}
+
+type ThreadsafeFunctionCallResult<T, Return, ErrorStatus> = (
+  Option<Arc<ThreadsafeFunctionHandle>>,
+  Result<ThreadsafeFunctionCallJsBackData<T, Return>, ErrorStatus>,
+);
 
 async fn receive_call_async_result<Return>(receiver: Receiver<Result<Return>>) -> Result<Return> {
   receiver.await.map_err(|_| {
@@ -1033,15 +1059,23 @@ unsafe fn take_call_js_back_data<
   const CalleeHandled: bool,
 >(
   data: *mut c_void,
-) -> Result<ThreadsafeFunctionCallJsBackData<T, Return>, ErrorStatus> {
+) -> ThreadsafeFunctionCallResult<T, Return, ErrorStatus> {
   if CalleeHandled {
-    unsafe {
-      *Box::<Result<ThreadsafeFunctionCallJsBackData<T, Return>, ErrorStatus>>::from_raw(
+    let ThreadsafeFunctionCallData { handle, data } = unsafe {
+      *Box::<
+        ThreadsafeFunctionCallData<
+          Result<ThreadsafeFunctionCallJsBackData<T, Return>, ErrorStatus>,
+        >,
+      >::from_raw(data.cast())
+    };
+    (handle.upgrade(), data)
+  } else {
+    let ThreadsafeFunctionCallData { handle, data } = unsafe {
+      *Box::<ThreadsafeFunctionCallData<ThreadsafeFunctionCallJsBackData<T, Return>>>::from_raw(
         data.cast(),
       )
-    }
-  } else {
-    Ok(unsafe { *Box::<ThreadsafeFunctionCallJsBackData<T, Return>>::from_raw(data.cast()) })
+    };
+    (handle.upgrade(), Ok(data))
   }
 }
 
@@ -1063,12 +1097,18 @@ unsafe extern "C" fn call_js_cb<
   if data.is_null() {
     return;
   }
-  let val = unsafe { take_call_js_back_data::<T, Return, ErrorStatus, CalleeHandled>(data) };
+  let (handle, val) =
+    unsafe { take_call_js_back_data::<T, Return, ErrorStatus, CalleeHandled>(data) };
 
   // Node drains queued TSFN calls with a null env/callback during teardown.
-  // The queue item still belongs to this callback, while `context` remains
-  // owned by `thread_finalize_cb`.
+  // Mark closing before destroying the payload: newer Node versions can
+  // detach the drain queue before the native TSFN reports closing, and user
+  // Drop implementations may reenter this handle.
   if raw_env.is_null() || js_callback.is_null() {
+    if let Some(handle) = handle {
+      let _lifecycle_guard = handle.write_lifecycle();
+      handle.mark_closing();
+    }
     crate::bindgen_runtime::catch_unwind_safely(|| drop(val));
     return;
   }

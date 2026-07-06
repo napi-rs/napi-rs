@@ -10,7 +10,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const workerPath = join(__dirname, 'runtime-env-lifecycle-worker.js')
 const mode = process.argv[2]
 const expectedTsfnTeardownCounters = {
-  payloadDrops: 4,
+  payloadDrops: 6,
   waiterErrors: 3,
   queueFullErrors: 1,
   unexpectedWaiters: 0,

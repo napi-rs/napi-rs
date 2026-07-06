@@ -38,6 +38,30 @@ struct TsfnTeardownPayload {
 }
 
 #[cfg(not(target_family = "wasm"))]
+type ReentrantTsfn = ThreadsafeFunction<TsfnReentrantPayload, (), (), Status, false, false, 0>;
+
+#[cfg(not(target_family = "wasm"))]
+struct TsfnReentrantPayload {
+  tsfn: Option<ReentrantTsfn>,
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl Drop for TsfnReentrantPayload {
+  fn drop(&mut self) {
+    TSFN_TEARDOWN_PAYLOAD_DROP_COUNT.fetch_add(1, Ordering::SeqCst);
+    if let Some(tsfn) = self.tsfn.take() {
+      let status = tsfn.call(
+        TsfnReentrantPayload { tsfn: None },
+        ThreadsafeFunctionCallMode::NonBlocking,
+      );
+      if status != Status::Ok && status != Status::Closing {
+        TSFN_TEARDOWN_UNEXPECTED_WAITER_COUNT.fetch_add(1, Ordering::SeqCst);
+      }
+    }
+  }
+}
+
+#[cfg(not(target_family = "wasm"))]
 impl Drop for TsfnTeardownPayload {
   fn drop(&mut self) {
     TSFN_TEARDOWN_PAYLOAD_DROP_COUNT.fetch_add(1, Ordering::SeqCst);
@@ -78,12 +102,14 @@ fn verify_tsfn_closing_ownership(callback: &Function<(), ()>) -> Result<()> {
     .build_threadsafe_function::<TsfnClosingPayload>()
     .build_callback(|_| Ok(()))?;
   let raw = tsfn.raw();
-  let acquire_status = unsafe { napi::sys::napi_acquire_threadsafe_function(raw) };
-  if acquire_status != napi::sys::Status::napi_ok {
-    return Err(Error::new(
-      Status::from(acquire_status),
-      "Failed to acquire the TSFN closing regression caller slot",
-    ));
+  for slot_name in ["sentinel", "abort"] {
+    let acquire_status = unsafe { napi::sys::napi_acquire_threadsafe_function(raw) };
+    if acquire_status != napi::sys::Status::napi_ok {
+      return Err(Error::new(
+        Status::from(acquire_status),
+        format!("Failed to acquire the TSFN closing regression {slot_name} slot"),
+      ));
+    }
   }
   let abort_status = unsafe {
     napi::sys::napi_release_threadsafe_function(
@@ -107,11 +133,11 @@ fn verify_tsfn_closing_ownership(callback: &Function<(), ()>) -> Result<()> {
         dropped: Arc::clone(&first_dropped),
         reentrant_handle: Arc::clone(&handle),
       },
-      ThreadsafeFunctionCallMode::NonBlocking,
+      ThreadsafeFunctionCallMode::Blocking,
     );
     if first_status != Status::Closing || !first_dropped.load(Ordering::SeqCst) || !tsfn.aborted() {
       let _ = finished.send(Err(format!(
-        "first closing call did not retire the handle: status={first_status:?}, dropped={}, aborted={}",
+        "first closing call was not rejected locally: status={first_status:?}, dropped={}, aborted={}",
         first_dropped.load(Ordering::SeqCst),
         tsfn.aborted()
       )));
@@ -146,7 +172,41 @@ fn verify_tsfn_closing_ownership(callback: &Function<(), ()>) -> Result<()> {
         format!("TSFN closing regression thread exited early: {error}"),
       )
     })?
-    .map_err(|reason| Error::new(Status::GenericFailure, reason))
+    .map_err(|reason| Error::new(Status::GenericFailure, reason))?;
+
+  let sentinel_status = unsafe {
+    napi::sys::napi_call_threadsafe_function(
+      raw,
+      std::ptr::null_mut(),
+      napi::sys::ThreadsafeFunctionCallMode::nonblocking,
+    )
+  };
+  if sentinel_status != napi::sys::Status::napi_closing {
+    return Err(Error::new(
+      Status::GenericFailure,
+      format!(
+        "locally rejected calls consumed the sentinel slot: status={:?}",
+        Status::from(sentinel_status)
+      ),
+    ));
+  }
+  let exhausted_status = unsafe {
+    napi::sys::napi_call_threadsafe_function(
+      raw,
+      std::ptr::null_mut(),
+      napi::sys::ThreadsafeFunctionCallMode::nonblocking,
+    )
+  };
+  if exhausted_status != napi::sys::Status::napi_invalid_arg {
+    return Err(Error::new(
+      Status::GenericFailure,
+      format!(
+        "TSFN owner slot remained after handle drop: status={:?}",
+        Status::from(exhausted_status)
+      ),
+    ));
+  }
+  Ok(())
 }
 
 #[cfg(not(target_family = "wasm"))]
@@ -361,6 +421,22 @@ pub fn prepare_tsfn_teardown_regression(
     .build_threadsafe_function::<TsfnTeardownPayload>()
     .max_queue_size::<1>()
     .build_callback(|_| Ok(()))?;
+  let reentrant_tsfn: ReentrantTsfn = unhandled_callback
+    .build_threadsafe_function::<TsfnReentrantPayload>()
+    .build_callback(|_| Ok(()))?;
+  let reentrant_status = reentrant_tsfn.call(
+    TsfnReentrantPayload {
+      tsfn: Some(reentrant_tsfn.clone()),
+    },
+    ThreadsafeFunctionCallMode::NonBlocking,
+  );
+  if reentrant_status != Status::Ok {
+    return Err(Error::new(
+      Status::GenericFailure,
+      format!("failed to enqueue the reentrant TSFN payload: {reentrant_status:?}"),
+    ));
+  }
+  drop(reentrant_tsfn);
 
   let (unhandled_ready, unhandled_polled) = sync_channel(0);
   thread::spawn(move || {

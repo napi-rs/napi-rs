@@ -40,7 +40,7 @@ async function waitForTsfnTeardownCounters() {
   while (Date.now() < deadline) {
     const counters = readTsfnTeardownCounters()
     if (
-      (counters.payloadDrops >= 4 &&
+      (counters.payloadDrops >= 6 &&
         counters.waiterErrors >= 3 &&
         counters.queueFullErrors >= 1) ||
       counters.unexpectedWaiters !== 0 ||
