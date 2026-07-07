@@ -1,9 +1,9 @@
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
-import { parse, join, resolve } from 'node:path'
+import { basename, parse, join, resolve } from 'node:path'
 
 import * as colors from 'colorette'
 
@@ -62,6 +62,20 @@ export async function buildProject(rawOptions: BuildOptions) {
     cwd: rawOptions.cwd ?? process.cwd(),
   }
 
+  // Reject invalid cross-compilation flag combinations before anything with
+  // a side effect runs (`cargo metadata`, cargo binary auto-installs,
+  // toolchain downloads, ...), so the user always gets the validation error
+  // rather than an unrelated failure from those steps.
+  validateCrossCompileFlags(options)
+  if (options.useNapiCross) {
+    // Check the host constraint before resolving the target: without an
+    // explicit `--target` (or `CARGO_BUILD_TARGET`) the target resolution
+    // spawns `rustc -vV`, and on an unsupported host without Rust on the
+    // `PATH` that spawn failure would mask the actual validation error.
+    validateNapiCrossHost()
+    validateNapiCrossSupport(resolveTarget(options.target).triple)
+  }
+
   const resolvePath = (...paths: string[]) => resolve(options.cwd, ...paths)
 
   const manifestPath = resolvePath(options.manifestPath ?? 'Cargo.toml')
@@ -91,6 +105,285 @@ export async function buildProject(rawOptions: BuildOptions) {
   return builder.build()
 }
 
+/**
+ * Resolve the target triple the build will run against, following the same
+ * precedence the build itself uses: the explicit `--target` option, then the
+ * `CARGO_BUILD_TARGET` environment variable, then the host default target.
+ */
+function resolveTarget(targetOption?: string): Target {
+  return targetOption
+    ? parseTriple(targetOption)
+    : process.env.CARGO_BUILD_TARGET
+      ? parseTriple(process.env.CARGO_BUILD_TARGET)
+      : getSystemDefaultTarget()
+}
+
+/**
+ * Validate the combination of the cross-compilation related flags.
+ *
+ * `--use-cross`, `--use-napi-cross` and `--cross-compile` (`-x`) are three
+ * mutually exclusive cross-compilation mechanisms; combining any two of them
+ * leaves both active at once and produces broken builds, so it is rejected
+ * upfront before any side effect (like auto-installing cargo binaries or
+ * downloading toolchains) happens.
+ *
+ * `--cross-compile` with a `windows-gnu` target is rejected as well: on a
+ * non-Windows host it routes the build to `cargo xwin build`, but
+ * `cargo-xwin` only sets up MSVC toolchains — for `windows-gnu` targets it
+ * silently does nothing and the build dies much later with a cryptic
+ * ``error: linker `x86_64-w64-mingw32-gcc` not found`` that never mentions
+ * `cargo-xwin`. Only an explicitly requested target (`--target` or
+ * `CARGO_BUILD_TARGET`) is inspected, so this validation never has to spawn
+ * `rustc -vV`; a non-Windows host's default target can never be
+ * `windows-gnu` anyway.
+ */
+export function validateCrossCompileFlags(
+  options: {
+    useCross?: boolean
+    crossCompile?: boolean
+    useNapiCross?: boolean
+    watch?: boolean
+    target?: string
+  },
+  hostPlatform: string = process.platform,
+): void {
+  const enabledCrossFlags = [
+    options.useCross ? '`--use-cross`' : null,
+    options.useNapiCross ? '`--use-napi-cross`' : null,
+    options.crossCompile ? '`--cross-compile` (`-x`)' : null,
+  ].filter((flag): flag is string => flag !== null)
+
+  if (enabledCrossFlags.length > 1) {
+    throw new Error(
+      `${enabledCrossFlags.join(' and ')} cannot be used together. Please pick exactly one cross-compilation mechanism: \`--use-cross\`, \`--use-napi-cross\`, or \`--cross-compile\` (\`-x\`).`,
+    )
+  }
+
+  if (options.watch && options.useCross) {
+    throw new Error(
+      '`--watch` cannot be used with `--use-cross`. `cargo watch` only supports the plain `cargo build` flow, please drop one of the two flags.',
+    )
+  }
+
+  if (options.watch && options.crossCompile) {
+    throw new Error(
+      '`--watch` cannot be used with `--cross-compile` (`-x`). `cargo watch` only supports the plain `cargo build` flow, please drop one of the two flags.',
+    )
+  }
+
+  // On a Windows host `--cross-compile` never picks `cargo-xwin` (it falls
+  // back to a plain `cargo build`), so windows-gnu targets are only broken
+  // on non-Windows hosts.
+  if (options.crossCompile && hostPlatform !== 'win32') {
+    const explicitTarget = options.target ?? process.env.CARGO_BUILD_TARGET
+    if (explicitTarget) {
+      const target = parseTriple(explicitTarget)
+      if (target.platform === 'win32' && target.abi?.startsWith('gnu')) {
+        const msvcTriple = explicitTarget.replace(/gnu(llvm)?$/, 'msvc')
+        // `*-windows-gnu` links with a mingw-w64 GCC toolchain, while
+        // `*-windows-gnullvm` needs an LLVM toolchain (llvm-mingw): `rustc`
+        // has no default working linker for it without one on the `PATH`.
+        const toolchainHint =
+          target.abi === 'gnullvm'
+            ? `an llvm-mingw (LLVM/Clang) toolchain on the \`PATH\` (\`rustc\` has no default working linker for ${explicitTarget} without one; \`napi-build\` additionally needs \`libnode.dll\` via the \`LIBNODE_PATH\` environment variable)`
+            : `a mingw-w64 toolchain (\`rustc\` uses the \`${explicitTarget.split('-')[0]}-w64-mingw32-gcc\` linker; \`napi-build\` additionally needs \`libnode.dll\` via the \`LIBNODE_PATH\` environment variable)`
+        throw new Error(
+          `\`--cross-compile\` (\`-x\`) does not support the target ${explicitTarget}: \`cargo-xwin\` only handles MSVC targets and the build would fail at link time. Drop \`-x\` and build with ${toolchainHint}, or target ${msvcTriple} instead.`,
+        )
+      }
+    }
+  }
+}
+
+/**
+ * Validate that the current host can run the `@napi-rs/cross-toolchain`
+ * pre-built toolchains at all: they only run on Linux x64 and Linux arm64
+ * hosts. This check is separate from (and must run before) the per-target
+ * validation, because resolving the target may need to spawn `rustc`.
+ */
+function validateNapiCrossHost(
+  hostPlatform: string = process.platform,
+  hostArch: string = process.arch,
+): asserts hostArch is 'x64' | 'arm64' {
+  if (
+    hostPlatform !== 'linux' ||
+    (hostArch !== 'x64' && hostArch !== 'arm64')
+  ) {
+    throw new Error(
+      `\`--use-napi-cross\` requires a Linux x64 or Linux arm64 host, but the current host is ${hostPlatform}-${hostArch}. Please use \`--cross-compile\` (\`-x\`) or \`--use-cross\` to cross compile on this host.`,
+    )
+  }
+}
+
+/**
+ * Validate that `--use-napi-cross` can actually handle the requested target
+ * on the current host. The supported target set is read from the
+ * `@napi-rs/cross-toolchain` package, and the pre-built toolchains only run
+ * on Linux x64 and Linux arm64 hosts.
+ */
+export function validateNapiCrossSupport(
+  targetTriple: string,
+  hostPlatform: string = process.platform,
+  hostArch: string = process.arch,
+): void {
+  validateNapiCrossHost(hostPlatform, hostArch)
+
+  const toolchains: Record<
+    'x64' | 'arm64',
+    Record<string, string | undefined>
+  > = require('@napi-rs/cross-toolchain')
+  const supportedTargets = Object.keys(toolchains[hostArch])
+
+  if (!supportedTargets.includes(targetTriple)) {
+    throw new Error(
+      `\`--use-napi-cross\` does not support the target ${targetTriple}. Supported targets: ${supportedTargets.join(', ')}. Please use \`--cross-compile\` (\`-x\`) or \`--use-cross\` for this target.`,
+    )
+  }
+}
+
+/**
+ * Compute the environment variables that route a `--use-napi-cross` build
+ * through the `@napi-rs/cross-toolchain` toolchain extracted at
+ * `toolchainPath`.
+ *
+ * Follows the same rule as `Builder#setEnvIfNotExists`: a variable the user
+ * already set in `env` wins and is not returned, and a present-but-empty
+ * variable counts as unset (falsy semantics). The only exceptions are the
+ * clang-specific `TARGET_CFLAGS`/`TARGET_CXXFLAGS`, which prepend the sysroot
+ * flags to the user's value, and `PATH`, which always gets the toolchain
+ * `bin` directory prepended.
+ *
+ * Exported for tests.
+ */
+export function napiCrossToolchainEnvs(
+  toolchainPath: string,
+  targetTriple: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Record<string, string> {
+  const alias: Record<string, string> = {
+    's390x-unknown-linux-gnu': 's390x-ibm-linux-gnu',
+  }
+
+  const envs: Record<string, string> = {}
+  const setEnvIfNotExists = (name: string, value: string) => {
+    if (!env[name]) {
+      envs[name] = value
+    }
+  }
+
+  const upperCaseTarget = targetToEnvVar(targetTriple)
+  const crossTargetName = alias[targetTriple] ?? targetTriple
+  setEnvIfNotExists(
+    `CARGO_TARGET_${upperCaseTarget}_LINKER`,
+    join(toolchainPath, 'bin', `${crossTargetName}-gcc`),
+  )
+  setEnvIfNotExists(
+    'TARGET_SYSROOT',
+    join(toolchainPath, crossTargetName, 'sysroot'),
+  )
+  setEnvIfNotExists(
+    'TARGET_AR',
+    join(toolchainPath, 'bin', `${crossTargetName}-ar`),
+  )
+  setEnvIfNotExists(
+    'TARGET_RANLIB',
+    join(toolchainPath, 'bin', `${crossTargetName}-ranlib`),
+  )
+  setEnvIfNotExists(
+    'TARGET_READELF',
+    join(toolchainPath, 'bin', `${crossTargetName}-readelf`),
+  )
+  setEnvIfNotExists(
+    'TARGET_C_INCLUDE_PATH',
+    join(toolchainPath, crossTargetName, 'sysroot', 'usr', 'include/'),
+  )
+  setEnvIfNotExists(
+    'TARGET_CC',
+    join(toolchainPath, 'bin', `${crossTargetName}-gcc`),
+  )
+  setEnvIfNotExists(
+    'TARGET_CXX',
+    join(toolchainPath, 'bin', `${crossTargetName}-g++`),
+  )
+  // `setEnvIfNotExists` skips `envs` when the user already set the variable
+  // in their environment, so read the effective value back from `env` first
+  // — with the same falsy semantics: a present-but-empty `TARGET_SYSROOT`
+  // counts as unset and falls back to the downloaded sysroot (`??` would
+  // keep the empty string and produce a broken `--sysroot=`).
+  const targetSysroot = env.TARGET_SYSROOT || envs.TARGET_SYSROOT
+  setEnvIfNotExists('BINDGEN_EXTRA_CLANG_ARGS', `--sysroot=${targetSysroot}`)
+
+  // cc-rs parses the env value before executing it (`env_tool` in cc's
+  // lib.rs): when the WHOLE value exists on the filesystem (`check_exe`)
+  // it is the compiler as-is — that is how it supports spaces in paths
+  // like `/opt/LLVM 18/bin/clang` — and only otherwise is the value split
+  // on whitespace; then, when the first token is a known wrapper
+  // (`sccache clang`) the second token is the compiler that actually runs,
+  // otherwise the first token is and the rest are arguments
+  // (`clang -target …`). Mirror that ordering, filesystem probe included:
+  // a pure whole-value basename heuristic would misread argument forms
+  // that merely END in `clang`, like `gcc --sysroot=/opt/clang`, and
+  // inject clang-only flags into a gcc compile. Match on the executable
+  // name so path-qualified (`/usr/bin/clang`), triple-prefixed
+  // (`aarch64-linux-gnu-clang`) and versioned (`clang-18`) compilers are
+  // all recognized — but not clang-family tools that are not compilers
+  // (`clang-format`).
+  const ccWrappers = new Set([
+    'ccache',
+    'distcc',
+    'sccache',
+    'icecc',
+    'cachepot',
+    'buildcache',
+    'kache',
+  ])
+  const clangExecutableName = /(^|-)clang(\+\+)?(-\d+)?$/
+  // cc-rs's `check_exe` only probes for existence (plus an `.exe` retry on
+  // Windows, where this napi-cross path never runs); requiring a regular
+  // file additionally keeps directories from being taken for compilers.
+  const isExistingFile = (path: string): boolean => {
+    try {
+      return statSync(path, { throwIfNoEntry: false })?.isFile() ?? false
+    } catch {
+      return false
+    }
+  }
+  const isClangCompiler = (value: string | undefined): boolean => {
+    if (!value) {
+      return false
+    }
+    const trimmed = value.trim()
+    if (isExistingFile(trimmed)) {
+      return clangExecutableName.test(basename(trimmed))
+    }
+    const [first, second] = trimmed.split(/\s+/)
+    const compiler = first && ccWrappers.has(basename(first)) ? second : first
+    return (
+      compiler !== undefined && clangExecutableName.test(basename(compiler))
+    )
+  }
+
+  // Detect clang on the EFFECTIVE target compiler: the user's TARGET_CC if
+  // set, otherwise the toolchain gcc exported above (`envs.TARGET_CC`).
+  // cc-rs prefers TARGET_CC over CC for cross builds, so a plain `CC=clang`
+  // never runs here and must not trigger the clang-only `--gcc-toolchain=`
+  // flag (gcc hard-errors on it). The trailing `env.CC`/`env.CXX` terms are
+  // unreachable today (exactly one of the first two is always truthy) but
+  // keep the check correct if the toolchain default ever becomes conditional.
+  if (isClangCompiler(env.TARGET_CC || envs.TARGET_CC || env.CC)) {
+    const TARGET_CFLAGS = env.TARGET_CFLAGS || ''
+    envs.TARGET_CFLAGS = `--sysroot=${targetSysroot} --gcc-toolchain=${toolchainPath} ${TARGET_CFLAGS}`
+  }
+  if (isClangCompiler(env.TARGET_CXX || envs.TARGET_CXX || env.CXX)) {
+    const TARGET_CXXFLAGS = env.TARGET_CXXFLAGS || ''
+    envs.TARGET_CXXFLAGS = `--sysroot=${targetSysroot} --gcc-toolchain=${toolchainPath} ${TARGET_CXXFLAGS}`
+  }
+  envs.PATH = env.PATH
+    ? `${toolchainPath}/bin:${env.PATH}`
+    : `${toolchainPath}/bin`
+  return envs
+}
+
 class Builder {
   private readonly args: string[] = []
   private readonly envs: Record<string, string> = {}
@@ -108,11 +401,7 @@ class Builder {
     private readonly config: NapiConfig,
     private readonly options: ParsedBuildOptions,
   ) {
-    this.target = options.target
-      ? parseTriple(options.target)
-      : process.env.CARGO_BUILD_TARGET
-        ? parseTriple(process.env.CARGO_BUILD_TARGET)
-        : getSystemDefaultTarget()
+    this.target = resolveTarget(options.target)
     this.crateDir = parse(crate.manifest_path).dir
     this.outputDir = resolve(
       this.options.cwd,
@@ -164,6 +453,14 @@ class Builder {
   }
 
   build() {
+    // Backstop only: `buildProject()` already validated these before running
+    // anything with a side effect (see the top of `buildProject`). Kept here
+    // so a directly constructed `Builder` cannot skip the validation.
+    validateCrossCompileFlags(this.options)
+    if (this.options.useNapiCross) {
+      validateNapiCrossSupport(this.target.triple)
+    }
+
     if (!this.cdyLibName) {
       const warning =
         'Missing `crate-type = ["cdylib"]` in [lib] config. The build result will not be available as node addon.'
@@ -189,24 +486,9 @@ class Builder {
     if (!this.options.useNapiCross) {
       return this
     }
-    if (this.options.useCross) {
-      debug.warn(
-        'You are trying to use both `--cross` and `--use-napi-cross` options, `--use-cross` will be ignored.',
-      )
-    }
-
-    if (this.options.crossCompile) {
-      debug.warn(
-        'You are trying to use both `--cross-compile` and `--use-napi-cross` options, `--cross-compile` will be ignored.',
-      )
-    }
 
     try {
       const { version, download } = require('@napi-rs/cross-toolchain')
-
-      const alias: Record<string, string> = {
-        's390x-unknown-linux-gnu': 's390x-ibm-linux-gnu',
-      }
 
       const toolchainPath = join(
         homedir(),
@@ -222,66 +504,15 @@ class Builder {
         const tarArchive = download(process.arch, this.target.triple)
         tarArchive.unpack(toolchainPath)
       }
-      const upperCaseTarget = targetToEnvVar(this.target.triple)
-      const crossTargetName = alias[this.target.triple] ?? this.target.triple
-      const linkerEnv = `CARGO_TARGET_${upperCaseTarget}_LINKER`
-      this.setEnvIfNotExists(
-        linkerEnv,
-        join(toolchainPath, 'bin', `${crossTargetName}-gcc`),
+      Object.assign(
+        this.envs,
+        napiCrossToolchainEnvs(toolchainPath, this.target.triple),
       )
-      this.setEnvIfNotExists(
-        'TARGET_SYSROOT',
-        join(toolchainPath, crossTargetName, 'sysroot'),
-      )
-      this.setEnvIfNotExists(
-        'TARGET_AR',
-        join(toolchainPath, 'bin', `${crossTargetName}-ar`),
-      )
-      this.setEnvIfNotExists(
-        'TARGET_RANLIB',
-        join(toolchainPath, 'bin', `${crossTargetName}-ranlib`),
-      )
-      this.setEnvIfNotExists(
-        'TARGET_READELF',
-        join(toolchainPath, 'bin', `${crossTargetName}-readelf`),
-      )
-      this.setEnvIfNotExists(
-        'TARGET_C_INCLUDE_PATH',
-        join(toolchainPath, crossTargetName, 'sysroot', 'usr', 'include/'),
-      )
-      this.setEnvIfNotExists(
-        'TARGET_CC',
-        join(toolchainPath, 'bin', `${crossTargetName}-gcc`),
-      )
-      this.setEnvIfNotExists(
-        'TARGET_CXX',
-        join(toolchainPath, 'bin', `${crossTargetName}-g++`),
-      )
-      this.setEnvIfNotExists(
-        'BINDGEN_EXTRA_CLANG_ARGS',
-        `--sysroot=${this.envs.TARGET_SYSROOT}}`,
-      )
-
-      if (
-        process.env.TARGET_CC?.startsWith('clang') ||
-        (process.env.CC?.startsWith('clang') && !process.env.TARGET_CC)
-      ) {
-        const TARGET_CFLAGS = process.env.TARGET_CFLAGS ?? ''
-        this.envs.TARGET_CFLAGS = `--sysroot=${this.envs.TARGET_SYSROOT} --gcc-toolchain=${toolchainPath} ${TARGET_CFLAGS}`
-      }
-      if (
-        (process.env.CXX?.startsWith('clang++') && !process.env.TARGET_CXX) ||
-        process.env.TARGET_CXX?.startsWith('clang++')
-      ) {
-        const TARGET_CXXFLAGS = process.env.TARGET_CXXFLAGS ?? ''
-        this.envs.TARGET_CXXFLAGS = `--sysroot=${this.envs.TARGET_SYSROOT} --gcc-toolchain=${toolchainPath} ${TARGET_CXXFLAGS}`
-      }
-      this.envs.PATH = this.envs.PATH
-        ? `${toolchainPath}/bin:${this.envs.PATH}:${process.env.PATH}`
-        : `${toolchainPath}/bin:${process.env.PATH}`
     } catch (e) {
-      debug.warn('Pick cross toolchain failed', e as Error)
-      // ignore, do nothing
+      throw new Error(
+        `Failed to set up the \`--use-napi-cross\` toolchain for ${this.target.triple}: ${(e as Error).message}. Check filesystem permissions and network connectivity to the npm registry, then retry, or use \`--cross-compile\` (\`-x\`) / \`--use-cross\` instead.`,
+        { cause: e },
+      )
     }
     return this
   }
@@ -294,13 +525,21 @@ class Builder {
 
     const watch = this.options.watch
     const buildTask = new Promise<void>((resolve, reject) => {
-      if (this.options.useCross && this.options.crossCompile) {
-        throw new Error(
-          '`--use-cross` and `--cross-compile` can not be used together',
+      const cargoOverride = process.env.CARGO
+      if (
+        cargoOverride &&
+        (this.options.useCross || this.options.crossCompile)
+      ) {
+        const expectedBinary = this.options.useCross ? 'cross' : 'cargo'
+        const requestedFlag = this.options.useCross
+          ? '`--use-cross`'
+          : '`--cross-compile` (`-x`)'
+        debug.warn(
+          `The \`CARGO\` environment variable is set to \`${cargoOverride}\`; it will be spawned instead of the \`${expectedBinary}\` binary that ${requestedFlag} relies on. Unset \`CARGO\` if this is not intended.`,
         )
       }
       const command =
-        process.env.CARGO ?? (this.options.useCross ? 'cross' : 'cargo')
+        cargoOverride ?? (this.options.useCross ? 'cross' : 'cargo')
       const buildProcess = spawn(command, this.args, {
         env: { ...process.env, ...this.envs },
         stdio: watch ? ['inherit', 'inherit', 'pipe'] : 'inherit',
@@ -345,10 +584,9 @@ class Builder {
       } else {
         debug('Use %i', 'cargo-watch')
         tryInstallCargoBinary('cargo-watch', 'watch')
-        // yarn napi watch --target x86_64-unknown-linux-gnu [--cross-compile]
+        // yarn napi watch --target x86_64-unknown-linux-gnu
         // ===>
-        // cargo watch [...] -- build --target x86_64-unknown-linux-gnu
-        // cargo watch [...] -- zigbuild --target x86_64-unknown-linux-gnu
+        // cargo watch [...] -- cargo build --target x86_64-unknown-linux-gnu
         this.args.push(
           'watch',
           '--why',

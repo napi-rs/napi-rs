@@ -120,17 +120,17 @@ export abstract class BaseBuildCommand extends Command {
 
   crossCompile?: boolean = Option.Boolean('--cross-compile,-x', {
     description:
-      '[experimental] cross-compile for the specified target with `cargo-xwin` on windows and `cargo-zigbuild` on other platform',
+      '[experimental] cross compile by replacing the cargo subcommand: Windows MSVC targets from a non-Windows host build with `cargo-xwin` (`windows-gnu` targets are rejected, `cargo-xwin` cannot handle them), non-Windows targets build with `cargo-zigbuild` (requires `zig` on PATH). The selected subcommand is auto-installed on first use. Cannot be combined with `--use-cross`, `--use-napi-cross` or `--watch`',
   })
 
   useCross?: boolean = Option.Boolean('--use-cross', {
     description:
-      '[experimental] use [cross](https://github.com/cross-rs/cross) instead of `cargo`',
+      '[experimental] not recommended, prefer `--cross-compile` or `--use-napi-cross`: build in a Docker or Podman container with [cross](https://github.com/cross-rs/cross), which must be installed manually and needs a running container engine. Cannot be combined with `--cross-compile`, `--use-napi-cross` or `--watch`',
   })
 
   useNapiCross?: boolean = Option.Boolean('--use-napi-cross', {
     description:
-      '[experimental] use @napi-rs/cross-toolchain to cross-compile Linux arm/arm64/x64 gnu targets.',
+      '[experimental] download a prebuilt gcc cross toolchain from `@napi-rs/cross-toolchain` (glibc 2.17) and set linker and C compiler environment variables. Linux glibc targets only (x64, arm64, armv7, ppc64le, s390x) on a Linux x64 or arm64 host, any other target or host errors. Cannot be combined with `--cross-compile` or `--use-cross`',
   })
 
   watch?: boolean = Option.Boolean('--watch,-w', {
@@ -290,15 +290,15 @@ export interface BuildOptions {
    */
   profile?: string
   /**
-   * [experimental] cross-compile for the specified target with `cargo-xwin` on windows and `cargo-zigbuild` on other platform
+   * [experimental] cross compile by replacing the cargo subcommand: Windows MSVC targets from a non-Windows host build with `cargo-xwin` (`windows-gnu` targets are rejected, `cargo-xwin` cannot handle them), non-Windows targets build with `cargo-zigbuild` (requires `zig` on PATH). The selected subcommand is auto-installed on first use. Cannot be combined with `--use-cross`, `--use-napi-cross` or `--watch`
    */
   crossCompile?: boolean
   /**
-   * [experimental] use [cross](https://github.com/cross-rs/cross) instead of `cargo`
+   * [experimental] not recommended, prefer `--cross-compile` or `--use-napi-cross`: build in a Docker or Podman container with [cross](https://github.com/cross-rs/cross), which must be installed manually and needs a running container engine. Cannot be combined with `--cross-compile`, `--use-napi-cross` or `--watch`
    */
   useCross?: boolean
   /**
-   * [experimental] use @napi-rs/cross-toolchain to cross-compile Linux arm/arm64/x64 gnu targets.
+   * [experimental] download a prebuilt gcc cross toolchain from `@napi-rs/cross-toolchain` (glibc 2.17) and set linker and C compiler environment variables. Linux glibc targets only (x64, arm64, armv7, ppc64le, s390x) on a Linux x64 or arm64 host, any other target or host errors. Cannot be combined with `--cross-compile` or `--use-cross`
    */
   useNapiCross?: boolean
   /**
