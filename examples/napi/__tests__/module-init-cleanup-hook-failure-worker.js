@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { Module } from 'node:module'
+import { types } from 'node:util'
 import { parentPort, workerData } from 'node:worker_threads'
 
 const failedModule = new Module(`${workerData.addonPath}:cleanup-hook-failure`)
@@ -11,7 +12,10 @@ try {
   registrationError = error
 }
 
-assert(registrationError instanceof Error)
+assert(
+  types.isNativeError(registrationError),
+  'cleanup-hook registration failure must surface as a native error',
+)
 assert.match(registrationError.message, /Failed to add env cleanup hook/)
 assert.doesNotMatch(
   registrationError.message,
